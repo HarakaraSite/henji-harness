@@ -2,7 +2,8 @@
 
 ## 位置づけ
 
-これはv1実装でも正式なplanner inputでもない。`model-adapter`と`task-planner`の境界を発見するための、捨ててもよい実装スパイクである。
+これはv1実装でも正式なplanner
+inputでもない。`model-adapter`と`task-planner`の境界を発見するための、捨ててもよい実装スパイクである。
 
 事前に完成条件を固定せず、観測結果からconceptの仮説、責務境界、次の判断を更新する。対象開発repositoryは`ai-dev:/home/masat.guest/src/henji-harness`とし、利用者はこのスパイク文書の`ai-dev`への配送を承認している。
 
@@ -55,7 +56,8 @@
 
 `model-adapter`を先に試し、その後`task-planner`を接続する。
 
-plannerを先に作るとprovider接続がplanner内部へ入り、後からmodel boundaryを分離する可能性があるためである。これは詳細な実装順を承認するものではなく、スパイクの依存関係を示す。
+plannerを先に作るとprovider接続がplanner内部へ入り、後からmodel
+boundaryを分離する可能性があるためである。これは詳細な実装順を承認するものではなく、スパイクの依存関係を示す。
 
 ## CLI
 
@@ -114,7 +116,8 @@ adapterは任意URL、HTTP method、credential headerを指定しない。
 }
 ```
 
-Runner所有registryが、許可されたorigin、method、pathへ解決する。redirect、timeout、request/response size、secret injection、response sanitizationはRunnerが担う。
+Runner所有registryが、許可されたorigin、method、pathへ解決する。redirect、timeout、request/response
+size、secret injection、response sanitizationはRunnerが担う。
 
 ### C. Deno plugin process制約
 
@@ -135,12 +138,12 @@ Runner所有registryが、許可されたorigin、method、pathへ解決する�
 
 ## 責務の暫定境界
 
-| 部分 | スパイクでの責務 |
-|---|---|
-| `task-planner` | prompt作成、model結果のparse、Plan schema検証 |
-| `model-adapter` | 共通model requestとprovider形式の相互変換 |
-| 簡易Runner | Envelope、resource limit、broker policy、secret、process |
-| malformed model output | planner failureとして観測し、修復やretryを行わない |
+| 部分                   | スパイクでの責務                                         |
+| ---------------------- | -------------------------------------------------------- |
+| `task-planner`         | prompt作成、model結果のparse、Plan schema検証            |
+| `model-adapter`        | 共通model requestとprovider形式の相互変換                |
+| 簡易Runner             | Envelope、resource limit、broker policy、secret、process |
+| malformed model output | planner failureとして観測し、修復やretryを行わない       |
 
 ## 残す観測
 

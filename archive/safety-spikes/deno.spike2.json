@@ -1,0 +1,31 @@
+{
+  "imports": {
+    "typescript": "npm:typescript@6.0.3"
+  },
+  "nodeModulesDir": "none",
+  "tasks": {
+    "bootstrap": "./scripts/bootstrap-deno-spike2.sh",
+    "acquire-deps": "./scripts/bootstrap-deno-spike2.sh && DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno cache --config deno.spike2.json --lock deno.spike2.lock --frozen=false npm:typescript@6.0.3",
+    "verify-deps": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno run --config deno.spike2.json --lock deno.spike2.lock --frozen --cached-only --no-prompt --deny-read --deny-write --deny-net --allow-env=TSC_WATCHFILE,TSC_NONPOLLING_WATCHER,TSC_WATCHDIRECTORY,NODE_INSPECTOR_IPC,VSCODE_INSPECTOR_OPTIONS,NODE_ENV,TSC_WATCH_POLLINGINTERVAL_LOW,TSC_WATCH_POLLINGINTERVAL_MEDIUM,TSC_WATCH_POLLINGINTERVAL_HIGH,TSC_WATCH_POLLINGCHUNKSIZE_LOW,TSC_WATCH_POLLINGCHUNKSIZE_MEDIUM,TSC_WATCH_POLLINGCHUNKSIZE_HIGH,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_LOW,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_MEDIUM,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_HIGH --deny-sys --deny-run --deny-ffi --deny-import spike2/tools/verify_typescript.ts",
+    "check": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno check --config deno.spike2.json --lock deno.spike2.lock --frozen --deny-import spike2/src/*.ts spike2/tools/*.ts spike2/tests/*.ts",
+    "test": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno test --config deno.spike2.json --lock deno.spike2.lock --frozen --cached-only --no-prompt --deny-read --deny-write --deny-net --allow-env=TSC_WATCHFILE,TSC_NONPOLLING_WATCHER,TSC_WATCHDIRECTORY,NODE_INSPECTOR_IPC,VSCODE_INSPECTOR_OPTIONS,NODE_ENV,TSC_WATCH_POLLINGINTERVAL_LOW,TSC_WATCH_POLLINGINTERVAL_MEDIUM,TSC_WATCH_POLLINGINTERVAL_HIGH,TSC_WATCH_POLLINGCHUNKSIZE_LOW,TSC_WATCH_POLLINGCHUNKSIZE_MEDIUM,TSC_WATCH_POLLINGCHUNKSIZE_HIGH,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_LOW,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_MEDIUM,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_HIGH --deny-sys --deny-run --deny-ffi --deny-import spike2/tests/all_test.ts",
+    "test-process": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno test --config deno.spike2.json --lock deno.spike2.lock --frozen --cached-only --no-prompt --allow-read=spike0,spike1,spike2,.tools/deno-cache/spike2,.tools/spike2-test-tmp --allow-write=.tools/spike2-test-tmp --deny-net --allow-env=TSC_WATCHFILE,TSC_NONPOLLING_WATCHER,TSC_WATCHDIRECTORY,NODE_INSPECTOR_IPC,VSCODE_INSPECTOR_OPTIONS,NODE_ENV,TSC_WATCH_POLLINGINTERVAL_LOW,TSC_WATCH_POLLINGINTERVAL_MEDIUM,TSC_WATCH_POLLINGINTERVAL_HIGH,TSC_WATCH_POLLINGCHUNKSIZE_LOW,TSC_WATCH_POLLINGCHUNKSIZE_MEDIUM,TSC_WATCH_POLLINGCHUNKSIZE_HIGH,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_LOW,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_MEDIUM,TSC_WATCH_UNCHANGEDPOLLTHRESHOLDS_HIGH --deny-sys --allow-run=.tools/deno/2.9.4/deno --deny-ffi --deny-import spike2/tests/builder_process_test.ts spike2/tests/admission_service_test.ts spike2/tests/artifact_store_test.ts",
+    "graph": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno run --config deno.spike2.json --lock deno.spike2.lock --frozen --cached-only --no-prompt --allow-read=spike0,spike1,spike2,deno.spike2.json,deno.spike2.lock,.tools/deno-cache/spike2 --deny-write --deny-net --deny-env --deny-sys --allow-run=.tools/deno/2.9.4/deno --deny-ffi --deny-import spike2/tools/check_module_graph.ts",
+    "identity": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno run --config deno.spike2.json --lock deno.spike2.lock --frozen --cached-only --no-prompt --allow-read=spike0,spike1,spike2,deno.spike2.json,deno.spike2.lock,.tools/deno-cache/spike2,.tools/deno/2.9.4/deno --deny-write --deny-net --deny-env --deny-sys --allow-run=.tools/deno/2.9.4/deno --deny-ffi --deny-import spike2/tools/check_builder_identity.ts",
+    "test-bootstrap": "DENO_DIR=.tools/deno-cache/spike2 .tools/deno/2.9.4/deno test --config deno.spike2.json --lock deno.spike2.lock --frozen --cached-only --no-prompt --allow-read --allow-write=.tools/spike2-test-tmp --allow-run spike2/tests/bootstrap_test.ts"
+  },
+  "fmt": {
+    "include": [
+      "deno.spike2.json",
+      "spike2/",
+      "docs/plans/admission-builder-spike-2.md",
+      "docs/spikes/admission-builder-spike-2-results.md"
+    ],
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": true
+  },
+  "lint": {
+    "include": ["spike2/"]
+  }
+}

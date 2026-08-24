@@ -1,0 +1,18 @@
+{
+  "tasks": {
+    "check": "deno check --config deno.spike1.json --no-remote --no-npm --no-lock --deny-import spike1/src/*.ts spike1/tools/*.ts spike1/tests/*.ts",
+    "test": "deno test --config deno.spike1.json --no-remote --no-npm --no-lock --no-prompt --deny-read --deny-write --deny-net --deny-env --deny-sys --deny-run --deny-ffi --deny-import spike1/tests/all_test.ts"
+  },
+  "fmt": {
+    "include": [
+      "deno.spike1.json",
+      "spike1/",
+      "docs/plans/ai-definition-proposal-spike-1.md",
+      "docs/spikes/ai-definition-proposal-spike-1-results.md"
+    ],
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": true
+  },
+  "lint": { "include": ["spike1/"] }
+}

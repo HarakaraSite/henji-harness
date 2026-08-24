@@ -1,0 +1,17 @@
+{
+  "tasks": {
+    "agent:fixture": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run v0/agent/cli.ts",
+    "agent:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/agent_loop_test.ts",
+    "agent:transport:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/agent_openrouter_model_test.ts",
+    "agent:acceptance:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/real_provider_acceptance_test.ts",
+    "agent:selection:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/two_tool_task_selection_test.ts",
+    "agent:acceptance": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai v0/agent/real_provider_acceptance.ts",
+    "v0:check": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno check v0/cli/main.ts v0/agent/cli.ts v0/agent/openrouter_model.ts v0/agent/real_provider_acceptance.ts v0/agent/two_tool_task_selection.ts tests/v0/v0_test.ts tests/v0/agent_loop_test.ts tests/v0/agent_openrouter_model_test.ts tests/v0/real_provider_acceptance_test.ts tests/v0/two_tool_task_selection_test.ts v0/extensions-src/task-planner/r1/main.ts v0/extensions-src/task-planner/r2/main.ts",
+    "v0:fmt": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno fmt --check v0 tests/v0",
+    "v0:lint": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno lint v0 tests/v0",
+    "v0:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net tests/v0",
+    "v0:gate": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno check v0/cli/main.ts v0/agent/cli.ts v0/agent/openrouter_model.ts v0/agent/real_provider_acceptance.ts v0/agent/two_tool_task_selection.ts tests/v0/v0_test.ts tests/v0/agent_loop_test.ts tests/v0/agent_openrouter_model_test.ts tests/v0/real_provider_acceptance_test.ts tests/v0/two_tool_task_selection_test.ts v0/extensions-src/task-planner/r1/main.ts v0/extensions-src/task-planner/r2/main.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno fmt --check v0 tests/v0 && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno lint v0 tests/v0 && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/real_provider_acceptance_test.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/agent_openrouter_model_test.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/agent_loop_test.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/two_tool_task_selection_test.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt --allow-read --allow-write --allow-run --allow-env --allow-net tests/v0"
+  },
+  "fmt": { "lineWidth": 100, "semiColons": true, "singleQuote": true },
+  "lint": { "rules": { "exclude": ["no-explicit-any"] } }
+}

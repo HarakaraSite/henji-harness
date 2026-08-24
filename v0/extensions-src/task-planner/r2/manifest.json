@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "id": "task-planner",
+  "version": "0.2.0",
+  "revision": "r2",
+  "entrypoint": "main.ts"
+}

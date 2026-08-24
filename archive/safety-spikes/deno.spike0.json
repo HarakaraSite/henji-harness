@@ -1,0 +1,20 @@
+{
+  "tasks": {
+    "check": "deno check --config deno.spike0.json --no-remote --no-npm --no-lock --deny-import spike0/src/*.ts spike0/tools/*.ts spike0/tests/*.ts",
+    "test": "deno test --config deno.spike0.json --no-remote --no-npm --no-lock --no-prompt --deny-read --deny-write --deny-net --deny-env --deny-sys --deny-run --deny-ffi --deny-import spike0/tests/all_test.ts"
+  },
+  "fmt": {
+    "include": [
+      "deno.spike0.json",
+      "spike0/",
+      "docs/plans/definition-roundtrip-spike-0.md",
+      "docs/spikes/definition-roundtrip-spike-0-results.md"
+    ],
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": true
+  },
+  "lint": {
+    "include": ["spike0/"]
+  }
+}

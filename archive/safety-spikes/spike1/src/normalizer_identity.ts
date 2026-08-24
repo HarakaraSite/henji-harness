@@ -1,0 +1,2 @@
+export const NORMALIZER_DIGEST =
+  'sha256:ea86184ffc81a29ed9574655f258db4b0cdf058a1a24f40358cca3564bfde929';
