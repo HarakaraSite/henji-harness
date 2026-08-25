@@ -4,10 +4,19 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: operationsで要件と機能roadmapを確定後、開発実行の正本をこのrepositoryへ戻した。roadmap step 8のP2解消、step 9 JSON一覧task、step 10 multi-tool count taskとreview P2修正まで完了。成功runは3 requests・tool call/result 2/2・final `{"count":12}`、full v0 78件成功、再review GO
-- 次: 固定acceptance scriptの追加を止め、任意taskを受ける通常のCLI agent runtimeとしてroadmap step 11以降を一体で設計・実装する
+- 状態: roadmap step 11のZot-first single-shot CLI runtimeをlocal実装済み。direct 14件、full v0 gate 92件、check・fmt・lint・diff checkが成功し、changed-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: ユーザー指示に応じて、production `agent:run`を別操作として実行するか、roadmap step 12以降を計画する
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
-- 注意: `_refs/`は未追跡・未変更でproduct commit対象外。以後の詳細設計・実装・testはai-dev側で進め、operationsへstep単位の確認を戻さない。破壊的操作、push、releaseは別権限
+- 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
+
+### POL-20260825-zot-first-reference
+
+- 判断済み: roadmap step 11以降はHenjiの明示要件・安全境界を優先しつつ、pinned Zot commit
+  `9b7bb6a4f36bc8c8deb2cc5796a8f557f4fb7479`を第一リファレンスとして採用・延期・逸脱を決める。`_refs/`はprovenance・license・behavior差分を記録してrefreshできる
+
+### POL-20260825-lean-repository-guards
+
+- 判断済み: 過去Human Gate由来のroadmap・tool・Spike・reference hard stopをproject `AGENTS.md`から除き、credential、明示されたproduction provider run、破壊操作、push・tag・release・publishだけをapproval guardとして維持する
 
 ### POL-20260819-spike2-typescript-env
 
@@ -697,3 +706,35 @@
 - 実施: step 8 P2とsteps 9–10を統合し、tool失敗後のprovider request抑止、gate網羅性、文書境界のreview P2 3件を修正。focused 6件、full v0 78件、check・fmt・lint・diff checkが成功し、変更箇所再reviewはGO
 - 次: `_refs/`を除外して現行成果をcommitし、その後roadmap step 11以降の通常CLI agent runtimeを設計する
 - 注意: provider/network call、credential参照、dependency/lockfile、product persistent state、push、releaseは未実施
+
+## 2026-08-25 14:33 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Zot-first roadmap step 11 planning
+- 実施: pinned Zotを第一リファレンスとする採用matrix、single-shot print CLI、fixed 4 tool、最大8 request、offline gate/reviewを実装可能な計画へ確定した
+- 次: ASK-20260825-step11-planの利用者承認を受け、local implementation gateを開く
+- 注意: `_refs/`はread-onlyのまま。source/test/config、provider/network、credential、dependency/lockfile、persistent state、commit、push、releaseは未変更・未実施
+
+## 2026-08-25 14:53 JST
+
+- 実行エージェント: Codex default / implementer
+- 作業トピック: Zot-first policy and step 11 plan delta
+- 実施: project `AGENTS.md`をlean guardへ整理し、archive/Spikeをhistorical evidence、`_refs/`をprovenance付きrefresh可能なreferenceへ変更。step 11 CLIはinvocation自体をrun authorizationとし、confirmation flagとper-tool promptを除いた
+- 次: 改訂ASK-20260825-step11-planの利用者承認後、local implementationへ進む
+- 注意: max 8 request・application retry 0は計画上維持。source/test/config、provider/network、credential、dependency/lockfile、persistent state、commit、push、releaseは未変更・未実施
+
+## 2026-08-25 15:22 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Zot-first roadmap step 11 local implementation
+- 実施: plan SHA-256 `698153...5bca`のruntime・CLI・14 direct tests・task integration・resultsを実装。full gate 92件成功。review P2 2件を修正し、changed-lines re-reviewはGO
+- 次: production `agent:run`は明示指示時だけ別操作として扱う。そうでなければstep 12以降を計画する
+- 注意: provider/network、credential参照、dependency/lockfile、persistent state、push、tag、publish、releaseは未実施
+
+## 2026-08-25 15:31 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Zot-first roadmap step 11 commit
+- 実施: step 11実装、lean policy、plan/results、14 direct testsの変更を一つのlocal commitへ統合。`_refs/README.md`は含め、既存のupstream snapshot本体はlocal未追跡資料として除外した
+- 次: production `agent:run`を明示指示時だけ別操作として扱うか、step 12以降を計画する
+- 注意: push、tag、publish、release、provider/network、credential参照は未実施
