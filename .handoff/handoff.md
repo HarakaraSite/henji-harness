@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: approved plan SHA-256 `e582a02b...fb39`の24件versioned corpus、strict validator/scorer、offline validationを実装済み。focused 9件、full v0 gate 110件、diff checkが成功し、fixture tuple P2修正後のchanged-lines re-reviewはBlocker/P1/P2 0でGO
-- 次: corpus handoff contractに基づくeval runnerを別incrementとして計画し、Human Gateへ出す
+- 状態: approved plan SHA-256 `6522ef9e...d1e78`のoffline corpus runnerを実装済み。focused 14件、default CLI report 24/24/24/0、full v0 gate 124件、diff checkが成功し、review P2 3件修正後のchanged-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: corpus runnerをlive modelへ接続する別incrementを計画し、provider/credentialを含むHuman Gateへ出す
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -794,3 +794,27 @@
 - 実施: plan SHA-256 `e582a02b...fb39`の24-case corpus、strict validator/scorer、focused task、resultsを実装。focused 9件、full v0 gate 110件、diff checkが成功。初回reviewのfixture ID→canonical tuple未固定P2を修正し、changed-lines re-reviewはBlocker/P1/P2 0でGO
 - 次: eval runnerを別incrementとして計画し、Human Gateへ出す
 - 注意: model/provider、production command、credential、network、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-25 19:38 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Offline corpus eval runner planning
+- 実施: Zot first-referenceの実行・event・presentation分離を採用し、real loop/registryと24-case scripted modelを結ぶoffline-only runner、strict report、CLI、test/review計画を作成した
+- 次: `ASK-20260825-offline-corpus-eval-runner`のHuman Gate
+- 注意: 実装、provider/network、credential、production command、aggregation、persistence、dependency/lockfile、commit、push、releaseは未実施・未承認
+
+## 2026-08-25 19:44 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Offline corpus eval runner Human Gate
+- 実施: ユーザーがplan SHA-256 `6522ef9e...d1e78`のoffline runner、exact scripted model、strict report/CLI、tests、results、bounded reviewを承認した
+- 次: 限定ownershipで実装・offline gate・reviewを進める
+- 注意: live provider/model、credential、production command、aggregation、persistence、dependency/lockfile、commit、push、releaseは未承認
+
+## 2026-08-25 20:27 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Offline corpus eval runner implementation
+- 実施: plan SHA-256 `6522ef9e...d1e78`の24-case scripted runner、strict report/CLI、14 focused testsを実装。CLI 24/24/24/0、full v0 gate 124件成功。review P2 3件を修正し、changed-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: live model corpus evaluationを別incrementとして計画し、Human Gateへ出す
+- 注意: provider/network、credential、production command、aggregation、persistence、dependency/lockfile、commit、push、tag、publish、releaseは未実施

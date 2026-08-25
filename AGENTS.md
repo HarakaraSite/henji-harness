@@ -28,9 +28,12 @@
   suite passes 9 tests, the full v0 gate passes 110 tests, and the changed-lines re-review is `GO`
   with Blocker/P1/P2 zero after the canonical fixture-tuple P2 was fixed. This increment did not
   add an eval runner or invoke a model/provider, production command, or credential access.
-- The next increment is to plan the eval runner against the corpus handoff contract. Runner
-  implementation, aggregation, live model/provider execution, and credential access remain
-  unapproved until their own Human Gate.
+- The offline eval runner in `docs/plans/offline-corpus-eval-runner.md` is implemented. Its focused
+  suite passes 14 tests, the default CLI returns one completed 24/24/24/0 report, the full v0 gate
+  passes 124 tests, and changed-lines re-review is `GO` with Blocker/P1/P2 zero after three P2 fixes.
+- The next increment is to plan how the corpus runner reaches a live model under a separate Human
+  Gate. Live model/provider execution, credential access, aggregation/statistics, persistence, and
+  production CLI exposure remain unapproved.
 
 ## Development lifecycle
 
