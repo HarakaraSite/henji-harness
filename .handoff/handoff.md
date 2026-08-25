@@ -5,7 +5,7 @@
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 11のZot-first single-shot CLI runtimeをlocal実装済み。direct 14件、full v0 gate 92件、check・fmt・lint・diff checkが成功し、changed-lines re-reviewはBlocker/P1/P2 0でGO
-- 次: ユーザー指示に応じて、production `agent:run`を別操作として実行するか、roadmap step 12以降を計画する
+- 次: approved plan SHA-256 `8b4514...013a`に従い、normal runtimeのtest-only process E2Eを実装・検証・reviewする
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -738,3 +738,19 @@
 - 実施: step 11実装、lean policy、plan/results、14 direct testsの変更を一つのlocal commitへ統合。`_refs/README.md`は含め、既存のupstream snapshot本体はlocal未追跡資料として除外した
 - 次: production `agent:run`を明示指示時だけ別操作として扱うか、step 12以降を計画する
 - 注意: push、tag、publish、release、provider/network、credential参照は未実施
+
+## 2026-08-25 16:04 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Normal CLI offline process E2E planning
+- 実施: actual Deno subprocessのargv/stdin、permission、exit、stdout/stderr、自然終了をfake providerで検証するtest-only計画を作成。Deno 2.9.4の必要flagと既存kill/reap patternを実環境で確認した
+- 次: ASK-20260825-offline-process-e2eのHuman Gate
+- 注意: product runtime、production task、provider/network、credential、dependency/lockfile、persistent state、commit、push、releaseは未変更・未実施
+
+## 2026-08-25 16:07 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Normal CLI offline process E2E Human Gate
+- 実施: ユーザーがplan SHA-256 `8b4514...013a`のtest-only implementation、offline validation、results、bounded reviewを承認し、計画先行commitを指示した
+- 次: 計画commit後、限定ownershipで実装・gate・reviewを継続する
+- 注意: production task、provider/network、credential、dependency/lockfile、persistent state、push、tag、publish、releaseは未承認
