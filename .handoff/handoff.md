@@ -4,10 +4,10 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Revision 15 / roadmap step 8は実装・offline gate完了。selection 8件、full v0 72件が成功。post-implementation reviewはBlocker 0、P1 0、deferred P2 1。現行実装を`v0/`へ限定し、旧実装・Spike・過去文書を`archive/`へ整理した
-- 次: deferred P2を再開するか、roadmap step 9を別gateで開くか利用者が判断する
-- 正本: `README.md`、`docs/plans/two-tool-task-selection.md`、`docs/plans/two-tool-task-selection-results.md`
-- 注意: `_refs/`は未変更。追加provider call、credential値参照、dependency/state変更、step 9以降、push、releaseは未実施・未承認
+- 状態: operationsで要件と機能roadmapを確定後、開発実行の正本をこのrepositoryへ戻した。roadmap step 8のP2解消、step 9 JSON一覧task、step 10 multi-tool count taskとreview P2修正まで完了。成功runは3 requests・tool call/result 2/2・final `{"count":12}`、full v0 78件成功、再review GO
+- 次: 固定acceptance scriptの追加を止め、任意taskを受ける通常のCLI agent runtimeとしてroadmap step 11以降を一体で設計・実装する
+- 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
+- 注意: `_refs/`は未追跡・未変更でproduct commit対象外。以後の詳細設計・実装・testはai-dev側で進め、operationsへstep単位の確認を戻さない。破壊的操作、push、releaseは別権限
 
 ### POL-20260819-spike2-typescript-env
 
@@ -681,3 +681,19 @@
 - 実施: step 8実装とoffline gate完了、reviewのP2一件deferを記録。現行を`v0/`・`tests/v0/`・`deno.v0.json`・step 5〜8文書へ限定し、旧実装を`archive/legacy-two-plugin/`、Spike 0〜2を`archive/safety-spikes/`、旧文書を`archive/history/`へ移動。READMEへ現行pathとcommandを明記した
 - 次: 整理後の対象一覧を確認してcommitする
 - 注意: `_refs/`は変更・commit対象化しない。利用者指示により整理後のdiff checkは実施しない
+
+## 2026-08-25 02:47 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Henji Harness development ownership correction
+- 実施: 利用者指摘に従い、operationsは要件・roadmapまで、詳細設計・実装・testはai-dev repositoryで進める責務境界へ復帰した。現dirty worktree、step 9〜10 provider結果、full v0 76件をこのhandoffへ集約した
+- 次: ai-dev側で固定task acceptanceの反復をやめ、任意task・実用toolを持つ通常CLI runtimeのまとまった実装へ進む
+- 注意: operations側から逐次Human Gateを挟まない。未commit変更を失わず、`_refs/`を対象化しない
+
+## 2026-08-25 14:13 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Henji Harness roadmap steps 8–10 commit gate
+- 実施: step 8 P2とsteps 9–10を統合し、tool失敗後のprovider request抑止、gate網羅性、文書境界のreview P2 3件を修正。focused 6件、full v0 78件、check・fmt・lint・diff checkが成功し、変更箇所再reviewはGO
+- 次: `_refs/`を除外して現行成果をcommitし、その後roadmap step 11以降の通常CLI agent runtimeを設計する
+- 注意: provider/network call、credential参照、dependency/lockfile、product persistent state、push、releaseは未実施

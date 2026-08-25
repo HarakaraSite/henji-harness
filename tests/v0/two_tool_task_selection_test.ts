@@ -145,6 +145,12 @@ Deno.test('initial final, wrong, unknown, multiple, and schema-invalid calls fai
     {
       modelResult: {
         kind: 'tool_calls',
+        calls: [call('wrong-fixed-value', 'uppercase_text', 'different')],
+      },
+    },
+    {
+      modelResult: {
+        kind: 'tool_calls',
         calls: [call('unknown', 'not_registered', 'henji harness step eight')],
       },
     },

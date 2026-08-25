@@ -32,15 +32,27 @@ without a separate explicit user instruction. Local gates use fixtures and requi
 
 ## Current baseline
 
-Roadmap step 8 adds deterministic `character_count` beside `uppercase_text` and enforces selection
+Roadmap steps 8–10 are complete. Step 8 added deterministic `character_count` beside `uppercase_text` and enforces selection
 of the task-matching tool. Before the cleanup, selection direct tests passed 8 cases, the full v0
 suite passed 72 tests, and check, format, lint, gate, and diff check passed. The post-implementation
-review found no Blocker or P1 and one deferred P2: add a negative test for a well-typed but incorrect
-fixed `text` value. That deferred test does not change the current implementation boundary.
+review found no Blocker or P1 and one P2 for a missing negative test. The later local-fix added a
+well-typed but incorrect fixed `text` value to the negative table; direct selection and full offline
+gates pass with the regression covered.
 
-The active step 5–8 evidence is retained in `docs/plans/`. Roadmap step 9+, practical filesystem or
-shell tools, multi-tool composition, sessions, extensions, self-revision, dependency changes, and
-additional provider calls are outside the current scope.
+Roadmap step 9 adds `list_json_object_keys` and completed one real task against `deno.v0.json`:
+the model selected the tool once and returned the 12 task names. The first result differed from the
+compact tool JSON only by whitespace, so completion now compares the parsed string arrays. No retry
+or second provider attempt was made; the current full local suite passes 78 tests.
+
+Roadmap step 10 combines `list_json_object_keys` with `count_json_array_items`. A real model used
+the two tools in order over three requests and returned `{"count":12}`. The first attempt stopped
+after the list because character counting was not a natural continuation; the task was corrected to
+count JSON-array items, then completed without further changes.
+
+The active step 5–10 evidence is retained in `docs/plans/`. Roadmap step 11+, broad practical
+filesystem/shell/network tools, sessions, context management, skills, extensions, RPC, subagents,
+self-revision, dependency changes, credential access, and additional provider calls are outside the
+current scope.
 
 ## Archive
 

@@ -129,3 +129,90 @@ export const createCharacterCountTool = (): Tool => ({
     return JSON.stringify({ count: Array.from(argumentsValue.text).length });
   },
 });
+
+export interface JsonObjectKeysToolOptions {
+  readonly allowedPath: string;
+  readonly maxBytes?: number;
+  readonly readFile?: (path: string) => Promise<Uint8Array>;
+}
+
+export const createJsonObjectKeysTool = (
+  options: JsonObjectKeysToolOptions,
+): Tool => ({
+  name: 'list_json_object_keys',
+  description: 'List the sorted keys of one object in an explicitly allowed local JSON file.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      objectKey: { type: 'string' },
+    },
+    required: ['path', 'objectKey'],
+    additionalProperties: false,
+  },
+  async execute(argumentsValue: JsonValue): Promise<string> {
+    if (!isObject(argumentsValue)) {
+      throw new ToolInputError('expected an object with only path and objectKey strings');
+    }
+    const keys = Object.keys(argumentsValue);
+    if (
+      keys.length !== 2 ||
+      typeof argumentsValue.path !== 'string' ||
+      typeof argumentsValue.objectKey !== 'string' ||
+      argumentsValue.path !== options.allowedPath ||
+      argumentsValue.objectKey.trim() === ''
+    ) {
+      throw new ToolInputError('expected the allowed path and one non-empty objectKey');
+    }
+
+    const bytes = await (options.readFile ?? Deno.readFile)(options.allowedPath);
+    if (bytes.byteLength > (options.maxBytes ?? 64 * 1024)) {
+      throw new Error('JSON file exceeds the configured byte limit');
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    } catch {
+      throw new Error('local file is not valid UTF-8 JSON');
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error('JSON root is not an object');
+    }
+    const selected = (parsed as Record<string, unknown>)[argumentsValue.objectKey];
+    if (typeof selected !== 'object' || selected === null || Array.isArray(selected)) {
+      throw new Error('selected JSON value is not an object');
+    }
+    return JSON.stringify(Object.keys(selected).sort());
+  },
+});
+
+export const createJsonArrayCountTool = (): Tool => ({
+  name: 'count_json_array_items',
+  description: 'Count the items in one JSON array string.',
+  inputSchema: {
+    type: 'object',
+    properties: { json: { type: 'string' } },
+    required: ['json'],
+    additionalProperties: false,
+  },
+  execute(argumentsValue: JsonValue): string {
+    if (!isObject(argumentsValue)) {
+      throw new ToolInputError('expected an object with only a json string');
+    }
+    const keys = Object.keys(argumentsValue);
+    if (keys.length !== 1 || typeof argumentsValue.json !== 'string') {
+      throw new ToolInputError('expected an object with only a json string');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(argumentsValue.json);
+    } catch {
+      throw new ToolInputError('json must contain a valid JSON array');
+    }
+    if (!Array.isArray(parsed)) {
+      throw new ToolInputError('json must contain a valid JSON array');
+    }
+    return JSON.stringify({ count: parsed.length });
+  },
+});

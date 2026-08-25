@@ -39,3 +39,9 @@ Deferred P2: the negative table lacks a well-typed but incorrect fixed value suc
 checking to schema-only checking would not be caught by the current eight tests. The user explicitly
 deferred this P2 in order to prioritize repository organization. No real-provider selection was
 tested or authorized.
+
+The later authorized local-fix added `{text: "different"}` to the pre-dispatch negative table. The
+selection test remains 8 top-level cases and now exercises the additional table row; direct selection
+passed 8/8, and the explicitly configured offline check, format, lint, full 72-test suite, and
+`git diff --check` passed. The P2 is resolved. No provider call, credential access, dependency change,
+persistent-state operation, step 9 work, commit, push, or release was performed.

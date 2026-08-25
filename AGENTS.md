@@ -2,9 +2,14 @@
 
 ## Current phase
 
-- Revision 15 / roadmap step 8 is implemented in the active `v0/` tree. Local selection tests passed
-  8 cases and the full v0 suite passed 72 tests. Post-implementation review found Blocker 0, P1 0,
-  and one deferred P2 for the missing well-typed wrong-fixed-value negative test.
+- Revision 15 / roadmap steps 8–10 are implemented in the active `v0/` tree. Local selection tests
+  passed 8 cases and the full v0 suite passes 78 tests. The deferred P2 was resolved by adding the
+  missing well-typed wrong-fixed-value negative case; the direct selection and full offline gates pass.
+- Roadmap step 9 has completed one real local-file task: `list_json_object_keys` read the `tasks`
+  object from `deno.v0.json`, and the model returned all 12 keys after one tool call. The current local
+  suite passes 78 tests.
+- Roadmap step 10 is complete: the real model combined `list_json_object_keys` and
+  `count_json_array_items` in three requests and returned `{"count":12}`.
 - The canonical plan is `docs/plans/two-tool-task-selection.md` at SHA-256
   `cd9cc5b9d1233544c32b8fa0e1dce864dd3b5220a15bf63419d612b682b68cfa`.
 - Active product source is limited to `v0/`, `tests/v0/`, `deno.v0.json`, and current
@@ -13,8 +18,8 @@
 - The current `basic run` remains the completed milestone 1 baseline. Preserve it and the legacy
   `run` / `acceptance` paths; their former one-request, no-tool contract does not prohibit planning the new
   local fixture agent loop.
-- Do not repeat the real-provider attempt or inspect/change credentials; do not implement roadmap step 9
-  and later: practical tools, filesystem/shell/network tools, streaming, sessions, context
+- Do not repeat the real-provider attempt or inspect/change credentials; do not implement roadmap step 11
+  and later: broad practical tools, filesystem/shell/network tools, streaming, sessions, context
   management, skills, extensions, RPC, subagents, self-revision, or milestone 100 hardening.
 - Do not make another provider call, read production credentials, create a provider attempt, change dependencies
   or lockfiles, alter persistent state, add task/profile options, commit, push, or release.
@@ -32,8 +37,8 @@
 
 ## Development lifecycle
 
-- Treat Revision 15 step 8 implementation and its recorded review as the current boundary. The
-  deferred P2, any additional provider attempt, and roadmap step 9 remain separately unauthorized.
+- Treat roadmap step 10 and its authorized P2 local fixes as the current boundary; defer only roadmap step
+  11 and later.
 - Obtain explicit user authorization before modifying repository files. A clear request such as
   "implement this plan" is authorization for that scope.
 - Classify changes as `local-fix`, `plan-delta`, `concept-review`, or `park`.
