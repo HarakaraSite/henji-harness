@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: roadmap step 11のZot-first single-shot CLI runtimeをlocal実装済み。direct 14件、full v0 gate 92件、check・fmt・lint・diff checkが成功し、changed-lines re-reviewはBlocker/P1/P2 0でGO
-- 次: approved plan SHA-256 `8b4514...013a`に従い、normal runtimeのtest-only process E2Eを実装・検証・reviewする
+- 状態: normal runtimeのtest-only offline process E2Eを実装済み。process matrix 6件とharness safety 3件、full v0 gate 101件、check・fmt・lint・diff checkが成功し、changed-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: 段階的test roadmapの次incrementとして、小規模task corpusを計画する
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -754,3 +754,19 @@
 - 実施: ユーザーがplan SHA-256 `8b4514...013a`のtest-only implementation、offline validation、results、bounded reviewを承認し、計画先行commitを指示した
 - 次: 計画commit後、限定ownershipで実装・gate・reviewを継続する
 - 注意: production task、provider/network、credential、dependency/lockfile、persistent state、push、tag、publish、releaseは未承認
+
+## 2026-08-25 16:33 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Normal CLI offline process E2E implementation
+- 実施: actual Deno subprocessの6 process casesとtimeout/stdout overflow/stderr overflowの3 harness safety casesを実装。focused 9件、full gate 101件成功。review P2 2件を修正し、changed-lines re-reviewはGO
+- 次: 実装成果をcommitし、その後は小規模task corpusを別incrementとして計画する
+- 注意: product runtime、production task、provider/network、credential、dependency/lockfile、persistent state、push、tag、publish、releaseは未変更・未実施
+
+## 2026-08-25 16:34 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Normal CLI offline process E2E commit
+- 実施: approved test-only implementation、results、phase/handoffを一つのlocal commitへ統合した
+- 次: 小規模task corpusを別incrementとして計画する
+- 注意: local `_refs/` snapshotsは未追跡のまま除外。push、provider/network、credential参照、releaseは未実施

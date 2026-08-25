@@ -20,6 +20,7 @@ deno task --config deno.v0.json agent:fixture
 printf '%s\n' 'ARBITRARY TASK' | /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:run
 deno task --config deno.v0.json agent:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:process:test
 deno task --config deno.v0.json agent:transport:test
 deno task --config deno.v0.json agent:acceptance:test
 deno task --config deno.v0.json agent:selection:test

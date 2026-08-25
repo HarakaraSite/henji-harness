@@ -19,10 +19,11 @@
   offline suite passes 14 tests and the full v0 gate passes 92 tests; independent review is GO with
   Blocker/P1/P2 zero. Broader tools, streaming, sessions, context management, skills, extensions,
   RPC, subagents, self-revision, and milestone 100 hardening are later roadmap work.
-- The next proposed increment is the test-only normal CLI offline process E2E in
-  `docs/plans/normal-cli-offline-process-e2e.md`. Its local implementation, offline validation,
-  results, and bounded review are user-approved. It does not authorize a production provider
-  command or credential access.
+- The test-only normal CLI offline process E2E in
+  `docs/plans/normal-cli-offline-process-e2e.md` is implemented. Its focused suite passes 9 tests
+  (6 process matrix cases and 3 harness-safety cases), the full v0 gate passes 101 tests, and the
+  changed-lines re-review is GO with Blocker/P1/P2 zero. It did not run a production provider
+  command or access credentials.
 
 ## Development lifecycle
 
