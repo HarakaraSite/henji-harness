@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: normal runtimeのtest-only offline process E2Eを実装済み。process matrix 6件とharness safety 3件、full v0 gate 101件、check・fmt・lint・diff checkが成功し、changed-lines re-reviewはBlocker/P1/P2 0でGO
-- 次: 段階的test roadmapの次incrementとして、小規模task corpusを計画する
+- 状態: approved plan SHA-256 `e582a02b...fb39`の24件versioned corpus、strict validator/scorer、offline validationを実装済み。focused 9件、full v0 gate 110件、diff checkが成功し、fixture tuple P2修正後のchanged-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: corpus handoff contractに基づくeval runnerを別incrementとして計画し、Human Gateへ出す
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -770,3 +770,27 @@
 - 実施: approved test-only implementation、results、phase/handoffを一つのlocal commitへ統合した
 - 次: 小規模task corpusを別incrementとして計画する
 - 注意: local `_refs/` snapshotsは未追跡のまま除外。push、provider/network、credential参照、releaseは未実施
+
+## 2026-08-25 17:00 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Small versioned task corpus planning
+- 実施: 6 categories×4の24 tasks、10 explicit/implicit pairs、exact text/JSON oracle、strict schema/fixture drift/scorerを持つoffline-only計画を作成した
+- 次: ASK-20260825-small-task-corpusのHuman Gate
+- 注意: eval runner、model/provider、production task、credential、network、dependency/lockfile、persistent state、commit、push、releaseは未変更・未実施
+
+## 2026-08-25 17:42 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Small versioned task corpus Human Gate
+- 実施: ユーザーがplan SHA-256 `e582a02b...fb39`の24-case corpus、strict validator/scorer、offline validation、results、bounded reviewを承認した
+- 次: 限定ownershipでcorpus実装・gate・reviewを進める
+- 注意: eval runner、model/provider、production task、credential、network、dependency/lockfile、persistent state、commit、push、releaseは未承認
+
+## 2026-08-25 19:15 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Small versioned task corpus implementation
+- 実施: plan SHA-256 `e582a02b...fb39`の24-case corpus、strict validator/scorer、focused task、resultsを実装。focused 9件、full v0 gate 110件、diff checkが成功。初回reviewのfixture ID→canonical tuple未固定P2を修正し、changed-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: eval runnerを別incrementとして計画し、Human Gateへ出す
+- 注意: model/provider、production command、credential、network、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未実施

@@ -1,0 +1,474 @@
+{
+  "schemaVersion": 1,
+  "corpusId": "henji-normal-cli-small-v1",
+  "fixtures": [
+    {
+      "id": "deno-v0-fmt",
+      "kind": "local_json_object",
+      "path": "deno.v0.json",
+      "objectKey": "fmt",
+      "expectedSortedKeys": ["lineWidth", "semiColons", "singleQuote"]
+    },
+    {
+      "id": "deno-v0-lint",
+      "kind": "local_json_object",
+      "path": "deno.v0.json",
+      "objectKey": "lint",
+      "expectedSortedKeys": ["rules"]
+    }
+  ],
+  "tasks": [
+    {
+      "id": "v1.character-count.henji-chick.explicit",
+      "category": "character_count",
+      "variant": "explicit",
+      "pairId": "v1.character-count.henji-chick",
+      "prompt": "Use the character_count tool on exactly this text and return only its JSON result: Henji 🐣",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 7 } },
+      "toolExpectation": {
+        "requiredSequence": ["character_count"],
+        "allowedTools": ["character_count"],
+        "forbiddenTools": ["count_json_array_items", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.character-count.henji-chick.implicit",
+      "category": "character_count",
+      "variant": "implicit",
+      "pairId": "v1.character-count.henji-chick",
+      "prompt": "Count the Unicode code points in this text and return only a JSON object with the count: Henji 🐣",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 7 } },
+      "toolExpectation": {
+        "requiredSequence": ["character_count"],
+        "allowedTools": ["character_count"],
+        "forbiddenTools": ["count_json_array_items", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.character-count.naive.explicit",
+      "category": "character_count",
+      "variant": "explicit",
+      "pairId": "v1.character-count.naive",
+      "prompt": "Use the character_count tool on exactly this text and return only its JSON result: naïve",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 5 } },
+      "toolExpectation": {
+        "requiredSequence": ["character_count"],
+        "allowedTools": ["character_count"],
+        "forbiddenTools": ["count_json_array_items", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.character-count.naive.implicit",
+      "category": "character_count",
+      "variant": "implicit",
+      "pairId": "v1.character-count.naive",
+      "prompt": "Count the Unicode code points in this text and return only a JSON object with the count: naïve",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 5 } },
+      "toolExpectation": {
+        "requiredSequence": ["character_count"],
+        "allowedTools": ["character_count"],
+        "forbiddenTools": ["count_json_array_items", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.count-json-array-items.complex.explicit",
+      "category": "count_json_array_items",
+      "variant": "explicit",
+      "pairId": "v1.count-json-array-items.complex",
+      "prompt": "Use the count_json_array_items tool on exactly this JSON array string and return only its JSON result: [[\"a\",\"b\"],{\"x\":1},false,null]",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 4 } },
+      "toolExpectation": {
+        "requiredSequence": ["count_json_array_items"],
+        "allowedTools": ["count_json_array_items"],
+        "forbiddenTools": ["character_count", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.count-json-array-items.complex.implicit",
+      "category": "count_json_array_items",
+      "variant": "implicit",
+      "pairId": "v1.count-json-array-items.complex",
+      "prompt": "Count the top-level items in this JSON array and return only a JSON object with the count: [[\"a\",\"b\"],{\"x\":1},false,null]",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 4 } },
+      "toolExpectation": {
+        "requiredSequence": ["count_json_array_items"],
+        "allowedTools": ["count_json_array_items"],
+        "forbiddenTools": ["character_count", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.count-json-array-items.simple.explicit",
+      "category": "count_json_array_items",
+      "variant": "explicit",
+      "pairId": "v1.count-json-array-items.simple",
+      "prompt": "Use the count_json_array_items tool on exactly this JSON array string and return only its JSON result: [1,2,3]",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 3 } },
+      "toolExpectation": {
+        "requiredSequence": ["count_json_array_items"],
+        "allowedTools": ["count_json_array_items"],
+        "forbiddenTools": ["character_count", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.count-json-array-items.simple.implicit",
+      "category": "count_json_array_items",
+      "variant": "implicit",
+      "pairId": "v1.count-json-array-items.simple",
+      "prompt": "Count the top-level items in this JSON array and return only a JSON object with the count: [1,2,3]",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "count": 3 } },
+      "toolExpectation": {
+        "requiredSequence": ["count_json_array_items"],
+        "allowedTools": ["count_json_array_items"],
+        "forbiddenTools": ["character_count", "list_json_object_keys", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.final-only.echo",
+      "category": "final_only",
+      "variant": "none",
+      "pairId": null,
+      "prompt": "Echo exactly the text between the brackets, without the brackets: [MiXeD 123 !]",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "MiXeD 123 !" },
+      "toolExpectation": {
+        "requiredSequence": [],
+        "allowedTools": [],
+        "forbiddenTools": [
+          "character_count",
+          "count_json_array_items",
+          "list_json_object_keys",
+          "uppercase_text"
+        ],
+        "maxCalls": 0,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 1
+    },
+    {
+      "id": "v1.final-only.json",
+      "category": "final_only",
+      "variant": "none",
+      "pairId": null,
+      "prompt": "Return only this JSON object, with no code fence: {\"status\":\"ready\",\"version\":1}",
+      "fixtureRefs": [],
+      "oracle": { "kind": "json_value", "expected": { "status": "ready", "version": 1 } },
+      "toolExpectation": {
+        "requiredSequence": [],
+        "allowedTools": [],
+        "forbiddenTools": [
+          "character_count",
+          "count_json_array_items",
+          "list_json_object_keys",
+          "uppercase_text"
+        ],
+        "maxCalls": 0,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 1
+    },
+    {
+      "id": "v1.final-only.multiline",
+      "category": "final_only",
+      "variant": "none",
+      "pairId": null,
+      "prompt": "Return exactly these two lines and nothing else:\nalpha\nbeta",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "alpha\nbeta" },
+      "toolExpectation": {
+        "requiredSequence": [],
+        "allowedTools": [],
+        "forbiddenTools": [
+          "character_count",
+          "count_json_array_items",
+          "list_json_object_keys",
+          "uppercase_text"
+        ],
+        "maxCalls": 0,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 1
+    },
+    {
+      "id": "v1.final-only.token",
+      "category": "final_only",
+      "variant": "none",
+      "pairId": null,
+      "prompt": "Reply with exactly: HENJI CORPUS READY",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "HENJI CORPUS READY" },
+      "toolExpectation": {
+        "requiredSequence": [],
+        "allowedTools": [],
+        "forbiddenTools": [
+          "character_count",
+          "count_json_array_items",
+          "list_json_object_keys",
+          "uppercase_text"
+        ],
+        "maxCalls": 0,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 1
+    },
+    {
+      "id": "v1.list-json-object-keys.fmt.explicit",
+      "category": "list_json_object_keys",
+      "variant": "explicit",
+      "pairId": "v1.list-json-object-keys.fmt",
+      "prompt": "Use the list_json_object_keys tool with literal path \"deno.v0.json\" and object key \"fmt\". Return only the resulting JSON array.",
+      "fixtureRefs": ["deno-v0-fmt"],
+      "oracle": { "kind": "json_value", "expected": ["lineWidth", "semiColons", "singleQuote"] },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys"],
+        "allowedTools": ["list_json_object_keys"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.list-json-object-keys.fmt.implicit",
+      "category": "list_json_object_keys",
+      "variant": "implicit",
+      "pairId": "v1.list-json-object-keys.fmt",
+      "prompt": "Read the literal local file \"deno.v0.json\", list the sorted keys of its \"fmt\" object, and return only the JSON array.",
+      "fixtureRefs": ["deno-v0-fmt"],
+      "oracle": { "kind": "json_value", "expected": ["lineWidth", "semiColons", "singleQuote"] },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys"],
+        "allowedTools": ["list_json_object_keys"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.list-json-object-keys.lint.explicit",
+      "category": "list_json_object_keys",
+      "variant": "explicit",
+      "pairId": "v1.list-json-object-keys.lint",
+      "prompt": "Use the list_json_object_keys tool with literal path \"deno.v0.json\" and object key \"lint\". Return only the resulting JSON array.",
+      "fixtureRefs": ["deno-v0-lint"],
+      "oracle": { "kind": "json_value", "expected": ["rules"] },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys"],
+        "allowedTools": ["list_json_object_keys"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.list-json-object-keys.lint.implicit",
+      "category": "list_json_object_keys",
+      "variant": "implicit",
+      "pairId": "v1.list-json-object-keys.lint",
+      "prompt": "Read the literal local file \"deno.v0.json\", list the sorted keys of its \"lint\" object, and return only the JSON array.",
+      "fixtureRefs": ["deno-v0-lint"],
+      "oracle": { "kind": "json_value", "expected": ["rules"] },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys"],
+        "allowedTools": ["list_json_object_keys"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "uppercase_text"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.multi-tool.fmt.explicit",
+      "category": "multi_tool",
+      "variant": "explicit",
+      "pairId": "v1.multi-tool.fmt",
+      "prompt": "Use list_json_object_keys to list the keys of object \"fmt\" in the literal path \"deno.v0.json\", then use count_json_array_items on the returned JSON array. Return only a JSON object with the count.",
+      "fixtureRefs": ["deno-v0-fmt"],
+      "oracle": { "kind": "json_value", "expected": { "count": 3 } },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys", "count_json_array_items"],
+        "allowedTools": ["list_json_object_keys", "count_json_array_items"],
+        "forbiddenTools": ["character_count", "uppercase_text"],
+        "maxCalls": 2,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": true
+      },
+      "maxRequests": 3
+    },
+    {
+      "id": "v1.multi-tool.fmt.implicit",
+      "category": "multi_tool",
+      "variant": "implicit",
+      "pairId": "v1.multi-tool.fmt",
+      "prompt": "In the literal local file \"deno.v0.json\", obtain the sorted key list for object \"fmt\", then count the items in that returned JSON array. Return only a JSON object with the count.",
+      "fixtureRefs": ["deno-v0-fmt"],
+      "oracle": { "kind": "json_value", "expected": { "count": 3 } },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys", "count_json_array_items"],
+        "allowedTools": ["list_json_object_keys", "count_json_array_items"],
+        "forbiddenTools": ["character_count", "uppercase_text"],
+        "maxCalls": 2,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": true
+      },
+      "maxRequests": 3
+    },
+    {
+      "id": "v1.multi-tool.lint.explicit",
+      "category": "multi_tool",
+      "variant": "explicit",
+      "pairId": "v1.multi-tool.lint",
+      "prompt": "Use list_json_object_keys to list the keys of object \"lint\" in the literal path \"deno.v0.json\", then use count_json_array_items on the returned JSON array. Return only a JSON object with the count.",
+      "fixtureRefs": ["deno-v0-lint"],
+      "oracle": { "kind": "json_value", "expected": { "count": 1 } },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys", "count_json_array_items"],
+        "allowedTools": ["list_json_object_keys", "count_json_array_items"],
+        "forbiddenTools": ["character_count", "uppercase_text"],
+        "maxCalls": 2,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": true
+      },
+      "maxRequests": 3
+    },
+    {
+      "id": "v1.multi-tool.lint.implicit",
+      "category": "multi_tool",
+      "variant": "implicit",
+      "pairId": "v1.multi-tool.lint",
+      "prompt": "In the literal local file \"deno.v0.json\", obtain the sorted key list for object \"lint\", then count the items in that returned JSON array. Return only a JSON object with the count.",
+      "fixtureRefs": ["deno-v0-lint"],
+      "oracle": { "kind": "json_value", "expected": { "count": 1 } },
+      "toolExpectation": {
+        "requiredSequence": ["list_json_object_keys", "count_json_array_items"],
+        "allowedTools": ["list_json_object_keys", "count_json_array_items"],
+        "forbiddenTools": ["character_count", "uppercase_text"],
+        "maxCalls": 2,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": true
+      },
+      "maxRequests": 3
+    },
+    {
+      "id": "v1.uppercase-text.ascii.explicit",
+      "category": "uppercase_text",
+      "variant": "explicit",
+      "pairId": "v1.uppercase-text.ascii",
+      "prompt": "Use the uppercase_text tool on exactly this text and return only its result: Henji harness",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "HENJI HARNESS" },
+      "toolExpectation": {
+        "requiredSequence": ["uppercase_text"],
+        "allowedTools": ["uppercase_text"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "list_json_object_keys"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.uppercase-text.ascii.implicit",
+      "category": "uppercase_text",
+      "variant": "implicit",
+      "pairId": "v1.uppercase-text.ascii",
+      "prompt": "Convert this text to uppercase and return only the converted text: Henji harness",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "HENJI HARNESS" },
+      "toolExpectation": {
+        "requiredSequence": ["uppercase_text"],
+        "allowedTools": ["uppercase_text"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "list_json_object_keys"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.uppercase-text.unicode.explicit",
+      "category": "uppercase_text",
+      "variant": "explicit",
+      "pairId": "v1.uppercase-text.unicode",
+      "prompt": "Use the uppercase_text tool on exactly this text and return only its result: Straße café",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "STRASSE CAFÉ" },
+      "toolExpectation": {
+        "requiredSequence": ["uppercase_text"],
+        "allowedTools": ["uppercase_text"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "list_json_object_keys"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    },
+    {
+      "id": "v1.uppercase-text.unicode.implicit",
+      "category": "uppercase_text",
+      "variant": "implicit",
+      "pairId": "v1.uppercase-text.unicode",
+      "prompt": "Convert this text to uppercase and return only the converted text: Straße café",
+      "fixtureRefs": [],
+      "oracle": { "kind": "exact_text", "expected": "STRASSE CAFÉ" },
+      "toolExpectation": {
+        "requiredSequence": ["uppercase_text"],
+        "allowedTools": ["uppercase_text"],
+        "forbiddenTools": ["character_count", "count_json_array_items", "list_json_object_keys"],
+        "maxCalls": 1,
+        "requireSuccessfulResults": true,
+        "requireSeparateRounds": false
+      },
+      "maxRequests": 2
+    }
+  ]
+}

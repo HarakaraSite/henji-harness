@@ -74,6 +74,23 @@ allows at most eight model requests, and performs no application retry. Broader 
 sessions, context management, skills, extensions, RPC, subagents, self-revision, and dynamic
 provider/model selection remain later roadmap work.
 
+## Versioned small task corpus
+
+The current offline corpus is [`v0/corpus/task-corpus.v1.json`](v0/corpus/task-corpus.v1.json),
+schema version 1 and corpus ID `henji-normal-cli-small-v1`. It contains exactly 24 canonical cases:
+four final-only cases, four cases for each of the four single-tool categories, and four multi-tool
+cases. The strict loader and case-local scorer are in [`v0/corpus/task_corpus.ts`](v0/corpus/task_corpus.ts).
+
+Run its focused validation with:
+
+```text
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:corpus:test
+```
+
+The corpus validates only the literal `deno.v0.json` `fmt` and `lint` fixtures. This increment is
+offline data validation and mechanical scoring only; it does not include an evaluation runner,
+provider/model invocation, production command, score aggregation, or credential access.
+
 ## Archive
 
 [`archive/`](archive/) is not active product source and is excluded from normal v0 commands:

@@ -24,6 +24,13 @@
   (6 process matrix cases and 3 harness-safety cases), the full v0 gate passes 101 tests, and the
   changed-lines re-review is GO with Blocker/P1/P2 zero. It did not run a production provider
   command or access credentials.
+- The 24-case versioned corpus in `docs/plans/small-task-corpus.md` is implemented. Its focused
+  suite passes 9 tests, the full v0 gate passes 110 tests, and the changed-lines re-review is `GO`
+  with Blocker/P1/P2 zero after the canonical fixture-tuple P2 was fixed. This increment did not
+  add an eval runner or invoke a model/provider, production command, or credential access.
+- The next increment is to plan the eval runner against the corpus handoff contract. Runner
+  implementation, aggregation, live model/provider execution, and credential access remain
+  unapproved until their own Human Gate.
 
 ## Development lifecycle
 
