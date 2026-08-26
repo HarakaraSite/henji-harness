@@ -1,0 +1,643 @@
+import { type Tool, ToolInputError } from './tools.ts';
+import type { JsonObject, JsonValue } from './contracts.ts';
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+const MAX_TEXT_BYTES = 65_536;
+const MAX_PATH_BYTES = 4_096;
+const MAX_COMMAND_BYTES = 16_384;
+const MAX_CAPTURE_BYTES = 4_096;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const MAX_TIMEOUT_MS = 120_000;
+const CAPTURE_GRACE_MS = 250;
+const TEMP_ATTEMPTS = 8;
+
+export interface Workspace {
+  readonly root: string;
+}
+
+export interface WorkToolSeams {
+  /** Test-only hook executed after the temp file is synced and before rename. */
+  readonly beforeRename?: (target: string, temporary: string) => void | Promise<void>;
+}
+
+export const resolveWorkspace = async (root = Deno.cwd()): Promise<Workspace> => {
+  const canonical = await Deno.realPath(root);
+  const info = await Deno.lstat(canonical);
+  if (!info.isDirectory) throw new Error('workspace root is not a directory');
+  return { root: canonical };
+};
+
+const isObject = (value: JsonValue): value is JsonObject =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const hasWellFormedUnicode = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff || Number.isNaN(next)) return false;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const validTextArgument = (value: unknown, maxBytes: number): value is string =>
+  typeof value === 'string' && hasWellFormedUnicode(value) && !value.includes('\0') &&
+  encoder.encode(value).byteLength <= maxBytes;
+
+const exactKeys = (value: JsonObject, keys: readonly string[]): boolean => {
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+};
+
+const invalidToolArguments = (name: string): ToolInputError =>
+  new ToolInputError(`invalid ${name} arguments`);
+
+const invalidPath = (): ToolInputError => new ToolInputError('path must stay within workspace');
+const invalidSymlink = (): ToolInputError => new ToolInputError('path must not contain a symlink');
+
+const splitAbsolute = (path: string): string[] => path.split('/').filter((part) => part.length > 0);
+
+const normalizeAbsolute = (path: string): string => {
+  const parts: string[] = [];
+  for (const part of splitAbsolute(path)) {
+    if (part === '.') continue;
+    if (part === '..') {
+      if (parts.length > 0) parts.pop();
+    } else {
+      parts.push(part);
+    }
+  }
+  return `/${parts.join('/')}`;
+};
+
+const isWithin = (root: string, target: string): boolean => {
+  if (target === root) return true;
+  return target.startsWith(`${root}/`);
+};
+
+const relativePath = (root: string, target: string): string => {
+  const result = target.slice(root.length).replace(/^\/+/, '');
+  return result;
+};
+
+interface CheckedPath {
+  readonly absolute: string;
+  readonly relative: string;
+  readonly parent: string;
+  readonly targetInfo?: Deno.FileInfo;
+}
+
+const checkedPath = async (
+  workspace: Workspace,
+  input: unknown,
+  allowMissingTarget: boolean,
+): Promise<CheckedPath> => {
+  if (!validTextArgument(input, MAX_PATH_BYTES) || input.trim().length === 0) {
+    throw invalidPath();
+  }
+  const path = input;
+  const absolute = normalizeAbsolute(path.startsWith('/') ? path : `${workspace.root}/${path}`);
+  if (!isWithin(workspace.root, absolute)) throw invalidPath();
+  const components = splitAbsolute(absolute).slice(splitAbsolute(workspace.root).length);
+  let current = workspace.root;
+  for (const component of components) {
+    current = current === '/' ? `/${component}` : `${current}/${component}`;
+    try {
+      const info = await Deno.lstat(current);
+      if (info.isSymlink) throw invalidSymlink();
+    } catch (error) {
+      if (error instanceof ToolInputError) throw error;
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+      break;
+    }
+  }
+
+  const parent = absolute.slice(0, absolute.lastIndexOf('/')) || '/';
+  let targetInfo: Deno.FileInfo | undefined;
+  try {
+    targetInfo = await Deno.lstat(absolute);
+    if (targetInfo.isSymlink) throw invalidSymlink();
+  } catch (error) {
+    if (error instanceof ToolInputError) throw error;
+    if (!(error instanceof Deno.errors.NotFound) || !allowMissingTarget) throw error;
+  }
+  return { absolute, relative: relativePath(workspace.root, absolute), parent, targetInfo };
+};
+
+const ensureParent = async (workspace: Workspace, path: string, create: boolean): Promise<void> => {
+  if (!isWithin(workspace.root, path)) throw invalidPath();
+  const rootParts = splitAbsolute(workspace.root);
+  const parts = splitAbsolute(path);
+  if (parts.length < rootParts.length) throw invalidPath();
+  let current = workspace.root;
+  for (const part of parts.slice(rootParts.length)) {
+    current = `${current}/${part}`;
+    try {
+      const info = await Deno.lstat(current);
+      if (info.isSymlink) throw invalidSymlink();
+      if (!info.isDirectory) throw new Error('parent is not a directory');
+    } catch (error) {
+      if (error instanceof ToolInputError) throw error;
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+      if (!create) throw error;
+      await Deno.mkdir(current, { mode: 0o755 });
+    }
+  }
+  // Re-check after mkdir so an ordinary race cannot turn the sibling into a link.
+  let verify = workspace.root;
+  for (const part of parts.slice(rootParts.length)) {
+    verify = `${verify}/${part}`;
+    const info = await Deno.lstat(verify);
+    if (info.isSymlink) throw invalidSymlink();
+    if (!info.isDirectory) throw new Error('parent is not a directory');
+  }
+};
+
+const readBytesBounded = async (path: string): Promise<Uint8Array> => {
+  const file = await Deno.open(path, { read: true });
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const remaining = MAX_TEXT_BYTES + 1 - total;
+      if (remaining <= 0) return concatBytes(chunks, total);
+      const chunk = new Uint8Array(Math.min(8192, remaining));
+      const count = await file.read(chunk);
+      if (count === null) break;
+      if (count > 0) {
+        chunks.push(chunk.slice(0, count));
+        total += count;
+      }
+      if (total > MAX_TEXT_BYTES) return concatBytes(chunks, total);
+    }
+  } finally {
+    file.close();
+  }
+  return concatBytes(chunks, total);
+};
+
+const concatBytes = (chunks: readonly Uint8Array[], total: number): Uint8Array => {
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+};
+
+const decodeText = (bytes: Uint8Array): string => {
+  if (bytes.byteLength > MAX_TEXT_BYTES) throw new Error('file exceeds 64 KiB');
+  let text: string;
+  try {
+    text = decoder.decode(bytes);
+  } catch {
+    throw new Error('file is not valid UTF-8 text');
+  }
+  if (text.includes('\0')) throw new Error('file is not valid UTF-8 text');
+  return text;
+};
+
+const readTarget = async (workspace: Workspace, input: unknown, toolName: string) => {
+  const checked = await checkedPath(workspace, input, false).catch((error: unknown) => {
+    if (error instanceof ToolInputError) throw error;
+    if (error instanceof Deno.errors.NotFound) throw new Error('file not found');
+    throw new Error(`local ${toolName} failed`);
+  });
+  if (!checked.targetInfo?.isFile) throw new Error('target is not a regular file');
+  let bytes: Uint8Array;
+  try {
+    bytes = await readBytesBounded(checked.absolute);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      (error.message === 'file exceeds 64 KiB' || error.message === 'file is not valid UTF-8 text')
+    ) throw error;
+    throw new Error(`local ${toolName} failed`);
+  }
+  return { checked, bytes, text: decodeText(bytes) };
+};
+
+const atomicReplace = async (
+  workspace: Workspace,
+  checked: CheckedPath,
+  bytes: Uint8Array,
+  mode: number,
+  seams: WorkToolSeams,
+  expectedBytes?: Uint8Array,
+): Promise<void> => {
+  await ensureParent(workspace, checked.parent, true);
+  const base = checked.absolute.slice(checked.absolute.lastIndexOf('/') + 1) || 'target';
+  let temporary: string | undefined;
+  let file: Deno.FsFile | undefined;
+  try {
+    for (let attempt = 0; attempt < TEMP_ATTEMPTS; attempt += 1) {
+      const candidate = `${checked.parent}/.${base}.henji-${attempt}`;
+      try {
+        file = await Deno.open(candidate, { write: true, createNew: true, mode: 0o600 });
+        temporary = candidate;
+        break;
+      } catch (error) {
+        if (!(error instanceof Deno.errors.AlreadyExists)) throw error;
+      }
+    }
+    if (!file || !temporary) throw new Error('temp file unavailable');
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const written = await file.write(bytes.subarray(offset));
+      if (written <= 0) throw new Error('temp write failed');
+      offset += written;
+    }
+    await file.sync();
+    await Deno.chmod(temporary, mode);
+    file.close();
+    file = undefined;
+    await seams.beforeRename?.(checked.absolute, temporary);
+    await ensureParent(workspace, checked.parent, true);
+    await ensureParent(workspace, checked.parent, false);
+    const current = await Deno.lstat(checked.absolute).catch((error: unknown) => {
+      if (error instanceof Deno.errors.NotFound) return undefined;
+      throw error;
+    });
+    if (current?.isSymlink || (current && !current.isFile)) throw new Error('target changed');
+    if (expectedBytes !== undefined) {
+      if (!current) throw new Error('target changed');
+      const latest = await readBytesBounded(checked.absolute);
+      if (!bytesEqual(expectedBytes, latest)) throw new Error('target changed');
+    }
+    await Deno.rename(temporary, checked.absolute);
+    temporary = undefined;
+  } finally {
+    try {
+      file?.close();
+    } catch {
+      // Best-effort cleanup only.
+    }
+    if (temporary) {
+      try {
+        await Deno.remove(temporary);
+      } catch {
+        // Best-effort cleanup only.
+      }
+    }
+  }
+};
+
+const readSchema = {
+  type: 'object',
+  properties: { path: { type: 'string' } },
+  required: ['path'],
+  additionalProperties: false,
+} as const;
+
+const writeSchema = {
+  type: 'object',
+  properties: { path: { type: 'string' }, content: { type: 'string' } },
+  required: ['path', 'content'],
+  additionalProperties: false,
+} as const;
+
+const editSchema = {
+  type: 'object',
+  properties: {
+    path: { type: 'string' },
+    edits: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 32,
+      items: {
+        type: 'object',
+        properties: { oldText: { type: 'string' }, newText: { type: 'string' } },
+        required: ['oldText', 'newText'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['path', 'edits'],
+  additionalProperties: false,
+} as const;
+
+const bashSchema = {
+  type: 'object',
+  properties: {
+    command: { type: 'string' },
+    timeoutMs: { type: 'integer', minimum: 1, maximum: 120000 },
+  },
+  required: ['command'],
+  additionalProperties: false,
+} as const;
+
+const validateObject = (value: JsonValue, keys: readonly string[], name: string): JsonObject => {
+  if (!isObject(value) || !exactKeys(value, keys)) throw invalidToolArguments(name);
+  return value;
+};
+
+export const createReadTool = (workspace: Workspace): Tool => ({
+  name: 'read',
+  description: 'Read one UTF-8 text file inside the workspace (maximum 64 KiB).',
+  inputSchema: readSchema,
+  async execute(argumentsValue) {
+    const args = validateObject(argumentsValue, ['path'], 'read');
+    if (typeof args.path !== 'string') throw invalidToolArguments('read');
+    return (await readTarget(workspace, args.path, 'read')).text;
+  },
+});
+
+export const createWriteTool = (workspace: Workspace, seams: WorkToolSeams = {}): Tool => ({
+  name: 'write',
+  description:
+    'Create or replace one UTF-8 text file inside the workspace. Missing parent directories are created.',
+  inputSchema: writeSchema,
+  async execute(argumentsValue) {
+    const args = validateObject(argumentsValue, ['path', 'content'], 'write');
+    if (
+      typeof args.path !== 'string' || !validTextArgument(args.content, MAX_TEXT_BYTES)
+    ) throw invalidToolArguments('write');
+    const content = args.content;
+    const encoded = encoder.encode(content);
+    const checked = await checkedPath(workspace, args.path, true).catch((error: unknown) => {
+      if (error instanceof ToolInputError) throw error;
+      throw new Error('local write failed');
+    });
+    if (checked.targetInfo && !checked.targetInfo.isFile) {
+      throw new Error('target is not a regular file');
+    }
+    const mode = checked.targetInfo?.mode == null ? 0o644 : checked.targetInfo.mode & 0o7777;
+    try {
+      await atomicReplace(workspace, checked, encoded, mode, seams);
+    } catch (error) {
+      if (error instanceof ToolInputError) throw error;
+      throw new Error('local write failed');
+    }
+    return JSON.stringify({ path: checked.relative, bytes: encoded.byteLength });
+  },
+});
+
+interface EditOperation {
+  readonly oldText: string;
+  readonly newText: string;
+}
+
+export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}): Tool => ({
+  name: 'edit',
+  description:
+    'Apply up to 32 non-overlapping exact replacements to one existing UTF-8 text file. Each oldText must match exactly once in the original file.',
+  inputSchema: editSchema,
+  async execute(argumentsValue) {
+    const args = validateObject(argumentsValue, ['path', 'edits'], 'edit');
+    if (
+      typeof args.path !== 'string' || !Array.isArray(args.edits) || args.edits.length < 1 ||
+      args.edits.length > 32
+    ) {
+      throw invalidToolArguments('edit');
+    }
+    const operations: EditOperation[] = [];
+    for (let index = 0; index < args.edits.length; index += 1) {
+      const operation = args.edits[index];
+      if (
+        !isObject(operation) || !exactKeys(operation, ['oldText', 'newText']) ||
+        typeof operation.oldText !== 'string' || typeof operation.newText !== 'string' ||
+        !validTextArgument(operation.oldText, MAX_TEXT_BYTES) ||
+        !validTextArgument(operation.newText, MAX_TEXT_BYTES)
+      ) {
+        throw invalidToolArguments('edit');
+      }
+      if (operation.oldText.length === 0) {
+        throw new ToolInputError(`edit ${index + 1} oldText is empty`);
+      }
+      if (operation.oldText === operation.newText) {
+        throw new ToolInputError(`edit ${index + 1} does not change content`);
+      }
+      operations.push({ oldText: operation.oldText, newText: operation.newText });
+    }
+    const snapshot = await readTarget(workspace, args.path, 'edit');
+    const spans: { start: number; end: number; operation: EditOperation }[] = [];
+    for (let index = 0; index < operations.length; index += 1) {
+      const operation = operations[index];
+      const first = snapshot.text.indexOf(operation.oldText);
+      if (first < 0) throw new ToolInputError(`edit ${index + 1} oldText was not found`);
+      if (snapshot.text.indexOf(operation.oldText, first + 1) >= 0) {
+        throw new ToolInputError(`edit ${index + 1} oldText is not unique`);
+      }
+      spans.push({ start: first, end: first + operation.oldText.length, operation });
+    }
+    spans.sort((left, right) => left.start - right.start);
+    for (let index = 1; index < spans.length; index += 1) {
+      if (spans[index - 1].end > spans[index].start) throw new ToolInputError('edits overlap');
+    }
+    let output = '';
+    let cursor = 0;
+    for (const span of spans) {
+      output += snapshot.text.slice(cursor, span.start) + span.operation.newText;
+      cursor = span.end;
+    }
+    output += snapshot.text.slice(cursor);
+    const encoded = encoder.encode(output);
+    if (encoded.byteLength > MAX_TEXT_BYTES) throw new Error('file exceeds 64 KiB');
+    let latest: Uint8Array;
+    try {
+      latest = await readBytesBounded(snapshot.checked.absolute);
+    } catch {
+      throw new Error('local edit failed');
+    }
+    if (!bytesEqual(snapshot.bytes, latest)) throw new Error('local edit failed');
+    const mode = snapshot.checked.targetInfo?.mode == null
+      ? 0o644
+      : snapshot.checked.targetInfo.mode & 0o7777;
+    try {
+      await atomicReplace(workspace, snapshot.checked, encoded, mode, seams, snapshot.bytes);
+    } catch (error) {
+      if (error instanceof ToolInputError) throw error;
+      throw new Error('local edit failed');
+    }
+    return JSON.stringify({
+      path: snapshot.checked.relative,
+      edits: operations.length,
+      bytes: encoded.byteLength,
+    });
+  },
+});
+
+const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
+  left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+
+interface CapturedStream {
+  readonly bytes: Uint8Array;
+  readonly truncated: boolean;
+}
+
+interface CaptureState {
+  readonly done: Promise<CapturedStream>;
+  readonly snapshot: () => CapturedStream;
+  readonly cancel: () => void;
+}
+
+const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let truncated = false;
+  const snapshot = (): CapturedStream => ({
+    bytes: concatBytes(chunks, total),
+    truncated,
+  });
+  const done = (async (): Promise<CapturedStream> => {
+    try {
+      for (;;) {
+        const item = await reader.read();
+        if (item.done) break;
+        const remaining = MAX_CAPTURE_BYTES - total;
+        if (remaining > 0) {
+          const retained = item.value.slice(0, remaining);
+          chunks.push(retained);
+          total += retained.byteLength;
+        }
+        if (item.value.byteLength > remaining) truncated = true;
+      }
+    } catch {
+      // Cancellation after the bounded capture grace is an expected cleanup path.
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // The stream may already have released its reader during cancellation.
+      }
+    }
+    return snapshot();
+  })();
+  return {
+    done,
+    snapshot,
+    cancel: () => {
+      void reader.cancel().catch(() => undefined);
+    },
+  };
+};
+
+const waitForCapture = async (
+  stdout: CaptureState,
+  stderr: CaptureState,
+): Promise<readonly [CapturedStream, CapturedStream]> => {
+  let captureTimer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const completed = await Promise.race([
+      Promise.all([stdout.done, stderr.done]).then(() => true),
+      new Promise<boolean>((resolve) => {
+        captureTimer = setTimeout(() => resolve(false), CAPTURE_GRACE_MS);
+      }),
+    ]);
+    if (completed) return [await stdout.done, await stderr.done];
+    stdout.cancel();
+    stderr.cancel();
+    return [stdout.snapshot(), stderr.snapshot()];
+  } finally {
+    if (captureTimer !== undefined) clearTimeout(captureTimer);
+  }
+};
+
+export const createBashTool = (workspace: Workspace): Tool => ({
+  name: 'bash',
+  description:
+    'Run one Bash command from the workspace. Default timeout 30000 ms; maximum 120000 ms. stdout and stderr are captured separately and truncated.',
+  inputSchema: bashSchema,
+  async execute(argumentsValue) {
+    const args = validateObject(argumentsValue, [
+      'command',
+      ...(isObject(argumentsValue) && 'timeoutMs' in argumentsValue ? ['timeoutMs'] : []),
+    ], 'bash');
+    if (
+      !Object.hasOwn(args, 'command') || typeof args.command !== 'string' ||
+      !validTextArgument(args.command, MAX_COMMAND_BYTES) || args.command.trim().length === 0
+    ) {
+      throw invalidToolArguments('bash');
+    }
+    const timeoutMs = Object.hasOwn(args, 'timeoutMs') ? args.timeoutMs : DEFAULT_TIMEOUT_MS;
+    if (
+      typeof timeoutMs !== 'number' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 ||
+      timeoutMs > MAX_TIMEOUT_MS
+    ) throw invalidToolArguments('bash');
+    let child: Deno.ChildProcess;
+    try {
+      child = new Deno.Command('/bin/bash', {
+        args: ['--noprofile', '--norc', '-c', args.command],
+        cwd: workspace.root,
+        clearEnv: true,
+        env: { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+        stdin: 'null',
+        stdout: 'piped',
+        stderr: 'piped',
+      }).spawn();
+    } catch {
+      throw new Error('bash could not start');
+    }
+    let timedOut = false;
+    const stdout = startDrain(child.stdout);
+    const stderr = startDrain(child.stderr);
+    let status: Deno.CommandStatus | undefined;
+    const statusPromise = child.status.then((value) => {
+      status = value;
+      return value;
+    });
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timeoutTimer = setTimeout(() => resolve('timeout'), timeoutMs);
+    });
+    try {
+      const first = await Promise.race([
+        statusPromise.then(() => 'status' as const),
+        timeout,
+      ]);
+      if (first === 'timeout') {
+        timedOut = true;
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          // The child may have exited just before the timeout callback.
+        }
+        const termGrace = await Promise.race([
+          statusPromise.then(() => 'status' as const),
+          new Promise<'grace'>((resolve) => setTimeout(() => resolve('grace'), CAPTURE_GRACE_MS)),
+        ]);
+        if (termGrace === 'grace' && status === undefined) {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            // The child may have exited after SIGTERM.
+          }
+        }
+        // Always await the direct child status so the child is reaped before returning.
+        await statusPromise;
+      }
+      const [capturedStdout, capturedStderr] = await waitForCapture(stdout, stderr);
+      return JSON.stringify({
+        stdout: new TextDecoder().decode(capturedStdout.bytes),
+        stderr: new TextDecoder().decode(capturedStderr.bytes),
+        exitCode: status?.signal === null ? status.code : null,
+        signal: status?.signal ?? null,
+        timedOut,
+        stdoutTruncated: capturedStdout.truncated,
+        stderrTruncated: capturedStderr.truncated,
+      });
+    } catch {
+      throw new Error('bash could not start');
+    } finally {
+      if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
+    }
+  },
+});
+
+export const createWorkTools = (
+  workspace: Workspace,
+  seams: WorkToolSeams = {},
+): readonly Tool[] => [
+  createBashTool(workspace),
+  createEditTool(workspace, seams),
+  createReadTool(workspace),
+  createWriteTool(workspace, seams),
+];

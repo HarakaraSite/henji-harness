@@ -6,7 +6,7 @@ import {
   type OpenRouterAgentModelOptions,
 } from '../../v0/agent/openrouter_model.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
-import { createRuntimeRegistry } from '../../v0/agent/runtime.ts';
+import { createCorpusRegistry } from '../../v0/agent/registries.ts';
 import { createFixtureTool, Registry } from '../../v0/agent/tools.ts';
 import { type ModelRequest } from '../../v0/agent/contracts.ts';
 
@@ -47,7 +47,7 @@ const request = (): ModelRequest => ({
 
 const runtimeRequest = (): ModelRequest => ({
   transcript: [{ role: 'user', content: { kind: 'text', text: 'json task' } }],
-  tools: createRuntimeRegistry().definitions(),
+  tools: createCorpusRegistry().definitions(),
 });
 
 const makeFetcher = (responses: readonly Response[], calls: FetchCall[]) => {

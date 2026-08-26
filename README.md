@@ -20,6 +20,7 @@ deno task --config deno.v0.json agent:fixture
 printf '%s\n' 'ARBITRARY TASK' | /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:run
 deno task --config deno.v0.json agent:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:process:test
 deno task --config deno.v0.json agent:transport:test
 deno task --config deno.v0.json agent:acceptance:test
@@ -39,11 +40,25 @@ not a local test. Local gates use fixtures and require no credential.
 The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin.
 Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
 bytes fails before model or credential setup. The single-shot runtime advertises exactly these five
-tools in stable name order: character_count, count_json_array_items, list_json_object_keys,
-submit_json_result, and uppercase_text. The JSON-key tool may read only the literal deno.v0.json
-path. JSON answers must use `submit_json_result` as the sole tool call in a batch; the host
-canonicalizes the complete JSON value and prints it on stdout. Plain-text answers retain the
-assistant final path.
+tools in stable name order: `bash`, `edit`, `read`, `submit_json_result`, and `write`. The versioned
+corpus/evaluation registry retains the four toy domain tools separately and they are not advertised
+by normal `agent:run`. JSON answers must use `submit_json_result` as the sole tool call in a batch;
+the host canonicalizes the complete JSON value and prints it on stdout. Plain-text answers retain
+the assistant final path.
+
+`read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
+Paths may be relative or absolute within that root, are component-checked, reject symlinks and
+special files, and accept only well-formed UTF-8 text up to 65,536 bytes. Writes and edits use a
+synced sibling temporary file and atomic rename; this gives atomic visibility but does not promise
+directory-fsync crash durability or protection from hostile same-user races. `edit` applies up to
+32 exact, unique, non-overlapping replacements against one original snapshot.
+
+`bash` always runs `/bin/bash --noprofile --norc -c COMMAND` from the workspace with a clean fixed
+environment (`PATH`, `LANG`, and `LC_ALL` only), separate 4,096-byte stdout/stderr capture, and a
+30,000 ms default / 120,000 ms maximum timeout. The invocation itself authorizes local work; there
+is no per-tool prompt or additional CLI flag. Bash is trusted-local OS-user execution, not a
+workspace sandbox: it can access outside files, network, and descendants, and timeout cleanup
+guarantees only the direct child is killed and reaped.
 
 Success writes only the final assistant text to stdout (adding one newline when needed), with an
 empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The
@@ -71,11 +86,11 @@ after the list because character counting was not a natural continuation; the ta
 count JSON-array items, then completed without further changes.
 
 The active step 5–10 evidence is retained in `docs/plans/`. Roadmap step 11's normal CLI runtime is
-specified in [`docs/plans/zot-first-cli-agent-runtime.md`](docs/plans/zot-first-cli-agent-runtime.md):
-it accepts one task from argv or stdin, advertises the four existing local tools in stable order,
-allows at most eight model requests, and performs no application retry. Broader practical tools,
-sessions, context management, skills, extensions, RPC, subagents, self-revision, and dynamic
-provider/model selection remain later roadmap work.
+specified in [`docs/plans/zot-first-cli-agent-runtime.md`](docs/plans/zot-first-cli-agent-runtime.md), with the
+Zot-first local work-tool increment recorded in [`docs/plans/zot-local-work-tools-results.md`](docs/plans/zot-local-work-tools-results.md).
+It accepts one task from argv or stdin, allows at most eight model requests, and performs no
+application retry. Broader sessions, context management, skills, extensions, RPC, subagents,
+self-revision, and dynamic provider/model selection remain later roadmap work.
 
 ## Versioned small task corpus
 

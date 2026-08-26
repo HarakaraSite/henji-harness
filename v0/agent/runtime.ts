@@ -1,14 +1,8 @@
 import { type LoopOutcome } from './contracts.ts';
 import { runAgent } from './loop.ts';
 import { OpenRouterAgentModel } from './openrouter_model.ts';
-import {
-  createCharacterCountTool,
-  createFixtureTool,
-  createJsonArrayCountTool,
-  createJsonObjectKeysTool,
-  createJsonResultSubmissionTool,
-  Registry,
-} from './tools.ts';
+import { createProductionRegistry } from './registries.ts';
+import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = 8;
@@ -25,7 +19,10 @@ export interface RuntimeTestSeam {
   readonly fetcher?: typeof fetch;
   readonly credential?: string;
   readonly credentialSource?: () => string | undefined;
-  readonly readFile?: (path: string) => Promise<Uint8Array>;
+  /** Direct-test-only workspace injection; production has no workspace option. */
+  readonly workspaceRoot?: string;
+  /** Direct-test-only local mutation hook. */
+  readonly workTools?: WorkToolSeams;
 }
 
 export interface RuntimeRun {
@@ -33,18 +30,6 @@ export interface RuntimeRun {
   /** Number of times the model adapter started an external fetch. */
   readonly requestCount: number;
 }
-
-/** Construct the fixed five-tool registry for one invocation. */
-export const createRuntimeRegistry = (
-  readFile?: (path: string) => Promise<Uint8Array>,
-): Registry =>
-  new Registry([
-    createCharacterCountTool(),
-    createJsonArrayCountTool(),
-    createJsonObjectKeysTool({ allowedPath: FIXED_JSON_PATH, readFile }),
-    createJsonResultSubmissionTool(),
-    createFixtureTool(),
-  ]);
 
 /**
  * Run one normal single-shot agent invocation.
@@ -65,7 +50,8 @@ export const runRuntime = async (
     return delegate(input, init);
   };
 
-  const registry = createRuntimeRegistry(seam.readFile);
+  const workspace = await resolveWorkspace(seam.workspaceRoot);
+  const registry = createProductionRegistry(workspace, seam.workTools);
   const model = new OpenRouterAgentModel({
     fetcher,
     credential: seam.credential,

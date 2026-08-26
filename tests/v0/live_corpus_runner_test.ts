@@ -2,7 +2,7 @@ import { assert, assertEquals } from './test_helpers.ts';
 import { CORPUS_PATH, type CorpusTask, loadTaskCorpus } from '../../v0/corpus/task_corpus.ts';
 import { type LoopOutcome, type Model } from '../../v0/agent/contracts.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/openrouter_model.ts';
-import { createRuntimeRegistry } from '../../v0/agent/runtime.ts';
+import { createCorpusRegistry } from '../../v0/agent/registries.ts';
 import { Registry } from '../../v0/agent/tools.ts';
 import {
   LiveCorpusEvalError,
@@ -161,7 +161,7 @@ const expectError = async (operation: () => Promise<unknown>, code: string): Pro
 
 const freshFactories = (models: Model[], registries: Registry[]) => ({
   createRegistry: () => {
-    const registry = createRuntimeRegistry();
+    const registry = createCorpusRegistry();
     registries.push(registry);
     return registry;
   },
@@ -444,7 +444,7 @@ Deno.test('all preflight work completes before model, registry, credential, or f
       },
       createRegistry: () => {
         registries += 1;
-        return createRuntimeRegistry();
+        return createCorpusRegistry();
       },
       createModel: () => {
         models += 1;

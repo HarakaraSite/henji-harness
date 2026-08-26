@@ -356,7 +356,7 @@ Deno.test('focused corpus task has exact read permissions and gate excludes prov
   assert(!/\bagent:acceptance(?:\s|$)/.test(config.tasks['v0:gate']));
   assertEquals(
     config.tasks['agent:run'],
-    `${deno} run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=deno.v0.json v0/agent/runtime_cli.ts`,
+    `${deno} run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/runtime_cli.ts`,
   );
   assertEquals(
     config.tasks['agent:acceptance'],

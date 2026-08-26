@@ -66,6 +66,17 @@
   completed 6/6 passed with 12/12 external requests: all four JSON cases used successful terminal
   submissions and both text cases used assistant finals. It was not retried or rerun. Any further
   real-provider attempt remains a separate explicit Human Gate.
+- The Zot-first local work tools plan at
+  `docs/plans/zot-local-work-tools.md`, SHA-256
+  `be8fdd758ca3efe62bf1058a7a6d21c41a47cdc2ed436a87c58aaa3a38f3608e`, is implemented.
+  Production `agent:run` now exposes `bash`, `edit`, `read`, `submit_json_result`, and `write`, while
+  corpus/eval runners retain their separate five-tool domain registry. Work-tools 13, runtime 10,
+  process 11, and the full v0 gate 164 tests pass. Initial review found P1 1/P2 2; the single
+  re-review confirmed both P2 fixes but found the Bash reap portion of P1 incomplete. The owner
+  final gate closed it with a direct TERM-ignoring/SIGKILL/reap regression and the full offline gate.
+  Bash remains intentionally unsandboxed trusted-local OS-user execution; external isolation and
+  complete descendant containment remain future work. No provider, network, credential,
+  production command, dependency/lockfile, persistent-state, or `_refs/` operation occurred.
 
 ## Development lifecycle
 

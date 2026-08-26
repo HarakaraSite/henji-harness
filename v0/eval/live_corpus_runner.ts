@@ -16,7 +16,7 @@ import {
   type OpenRouterAgentModelOptions,
 } from '../agent/openrouter_model.ts';
 import { runAgent } from '../agent/loop.ts';
-import { createRuntimeRegistry } from '../agent/runtime.ts';
+import { createCorpusRegistry } from '../agent/registries.ts';
 import { Registry, type Registry as RegistryType } from '../agent/tools.ts';
 import { PROFILE } from '../model.ts';
 import {
@@ -1063,7 +1063,7 @@ export const runLiveCorpusEvalV1 = async (
   const results: LiveCorpusCaseResult[] = [];
   let abortCode: LiveRunnerFailureCode | null = null;
   let abortTaskId: string | null = null;
-  const createRegistry = seam.createRegistry ?? (() => createRuntimeRegistry());
+  const createRegistry = seam.createRegistry ?? (() => createCorpusRegistry());
   const createModel = seam.createModel ?? ((options) => new OpenRouterAgentModel(options));
   const runLoop = seam.runLoop ?? runAgent;
   const scoreObservation = seam.scoreObservation ?? scoreCorpusObservation;
@@ -1251,7 +1251,7 @@ export const runLiveCorpusEval = async (
   const results: LiveCorpusCaseResultV2[] = [];
   let abortCode: LiveRunnerFailureCode | null = null;
   let abortTaskId: string | null = null;
-  const createRegistry = seam.createRegistry ?? (() => createRuntimeRegistry());
+  const createRegistry = seam.createRegistry ?? (() => createCorpusRegistry());
   const createModel = seam.createModel ?? ((options) => new OpenRouterAgentModel(options));
   const runLoop = seam.runLoop ?? runAgent;
   const scoreObservation = seam.scoreObservation ?? scoreCorpusObservation;

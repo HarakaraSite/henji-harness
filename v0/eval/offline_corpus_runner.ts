@@ -16,7 +16,7 @@ import {
   type ToolMessage,
 } from '../agent/contracts.ts';
 import { runAgent } from '../agent/loop.ts';
-import { createRuntimeRegistry } from '../agent/runtime.ts';
+import { createCorpusRegistry } from '../agent/registries.ts';
 import { Registry, type Registry as RegistryType } from '../agent/tools.ts';
 import { assertScriptedCorpusTaskSet, createScriptedCorpusModel } from './scripted_corpus_model.ts';
 
@@ -812,7 +812,7 @@ export const runOfflineCorpusEvalV1 = async (
   let abortTaskId: string | null = null;
   const createDependencies = seam.createCaseDependencies ?? ((task: CorpusTask) => ({
     model: createScriptedCorpusModel(task),
-    registry: createRuntimeRegistry(),
+    registry: createCorpusRegistry(),
   }));
   const runLoop = seam.runLoop ?? runAgent;
   for (const [index, task] of corpus.tasks.entries()) {
@@ -1235,7 +1235,7 @@ export const runOfflineCorpusEval = async (
   let abortTaskId: string | null = null;
   const createDependencies = seam.createCaseDependencies ?? ((task: CorpusTask) => ({
     model: createScriptedCorpusModel(task),
-    registry: createRuntimeRegistry(),
+    registry: createCorpusRegistry(),
   }));
   const runLoop = seam.runLoop ?? runAgent;
   for (const [index, task] of corpus.tasks.entries()) {

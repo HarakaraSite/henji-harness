@@ -13,6 +13,7 @@ const decoder = new TextDecoder();
 type FixtureMode =
   | 'argv-success'
   | 'argv-json-success'
+  | 'argv-json-failure-recovery'
   | 'stdin-success'
   | 'runtime-failure'
   | 'tty';
@@ -29,23 +30,41 @@ interface ProcessResult {
   readonly killed: boolean;
   readonly durationMs: number;
   readonly argv: readonly string[];
+  readonly workspaceRoot?: string;
+}
+
+interface ProcessOptions {
+  readonly retainWorkspace?: boolean;
 }
 
 interface ChildInvocation {
   readonly argv: readonly string[];
   readonly clearEnv: true;
   readonly env: Record<string, never>;
-  readonly permissions: readonly [];
+  readonly ambientPermissions: readonly [];
 }
 
 const childInvocation = (
   mode: FixtureMode,
   applicationArgs: readonly string[] = [],
+  workspaceRoot = '/tmp',
 ): ChildInvocation => ({
-  argv: ['run', '--no-prompt', '--no-remote', FIXTURE, mode, ...applicationArgs],
+  argv: [
+    'run',
+    '--no-prompt',
+    '--no-remote',
+    `--allow-read=${workspaceRoot}`,
+    `--allow-write=${workspaceRoot}`,
+    '--allow-run=/bin/bash',
+    FIXTURE,
+    mode,
+    '--workspace-root',
+    workspaceRoot,
+    ...applicationArgs,
+  ],
   clearEnv: true,
   env: {},
-  permissions: [],
+  ambientPermissions: [],
 });
 
 const capture = async (
@@ -141,9 +160,26 @@ const runProcess = async (
   mode: FixtureMode,
   applicationArgs: readonly string[] = [],
   stdin: Uint8Array | undefined = undefined,
+  options: ProcessOptions = {},
 ): Promise<ProcessResult> => {
-  const invocation = childInvocation(mode, applicationArgs);
-  return await runRawProcess(invocation.argv, stdin);
+  const workspaceRoot = await Deno.makeTempDir({ prefix: 'henji-process-parent-' });
+  const cleanup = async (): Promise<void> => {
+    try {
+      await Deno.remove(workspaceRoot, { recursive: true });
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  };
+  try {
+    const invocation = childInvocation(mode, applicationArgs, workspaceRoot);
+    const result = await runRawProcess(invocation.argv, stdin);
+    if (options.retainWorkspace) return { ...result, workspaceRoot };
+    await cleanup();
+    return result;
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
 };
 
 const expectedFailure = {
@@ -172,7 +208,7 @@ const config = JSON.parse(await Deno.readTextFile('deno.v0.json')) as {
 };
 const productionTasks = {
   run:
-    '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=deno.v0.json v0/agent/runtime_cli.ts',
+    '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/runtime_cli.ts',
   acceptance:
     '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai v0/agent/real_provider_acceptance.ts',
 };
@@ -183,7 +219,7 @@ Deno.test('offline process topology keeps child isolated and production tasks un
   const focusedTask = `${DENO_COMMAND} task --config deno.v0.json agent:runtime:process:test`;
   assertEquals(
     config.tasks['agent:runtime:process:test'],
-    `${DENO_COMMAND} test --no-prompt --allow-run=${DENO_COMMAND} --allow-read=deno.v0.json tests/v0/agent_runtime_process_test.ts`,
+    `${DENO_COMMAND} test --no-prompt --allow-run=${DENO_COMMAND} --allow-read=deno.v0.json,/tmp --allow-write=/tmp tests/v0/agent_runtime_process_test.ts`,
   );
   const gate = config.tasks['v0:gate'];
   assert(typeof gate === 'string');
@@ -201,10 +237,14 @@ Deno.test('offline process topology keeps child isolated and production tasks un
   const invocation = childInvocation('argv-success', ['--task', '  argv task  ']);
   const argv = invocation.argv;
   assertEquals(argv.slice(0, 3), ['run', '--no-prompt', '--no-remote']);
-  assert(!argv.some((item) => item.startsWith('--allow-')));
+  assertEquals(argv.slice(3, 6), [
+    '--allow-read=/tmp',
+    '--allow-write=/tmp',
+    '--allow-run=/bin/bash',
+  ]);
   assertEquals(invocation.clearEnv, true);
   assertEquals(invocation.env, {});
-  assertEquals(invocation.permissions, []);
+  assertEquals(invocation.ambientPermissions, []);
 });
 
 Deno.test('offline argv process uses actual argv and captures final-only output', async () => {
@@ -216,7 +256,8 @@ Deno.test('offline argv process uses actual argv and captures final-only output'
   assert(!result.killed);
   assert(!result.stdout.overflow && !result.stderr.overflow);
   assert(result.durationMs < DEADLINE_MS);
-  assertEquals(result.argv.slice(-3), ['argv-success', '--task', '  argv task  ']);
+  assertEquals(result.argv.slice(-2), ['--task', '  argv task  ']);
+  assert(result.argv.includes('--workspace-root'));
 });
 
 Deno.test('offline piped process sends stdin bytes and captures final-only output', async () => {
@@ -231,14 +272,41 @@ Deno.test('offline piped process sends stdin bytes and captures final-only outpu
 });
 
 Deno.test('offline argv process prints canonical JSON submitted by the terminal tool', async () => {
-  const result = await runProcess('argv-json-success', ['--task', '  json argv task  ']);
+  const result = await runProcess(
+    'argv-json-success',
+    ['--task', '  json argv task  '],
+    undefined,
+    {
+      retainWorkspace: true,
+    },
+  );
+  assert(result.workspaceRoot !== undefined);
+  try {
+    assert(result.status.success);
+    assertEquals(result.status.code, 0);
+    assertEquals(result.stdout.text, '{"ok":true,"items":[1,2]}\n');
+    assertEquals(result.stderr.text, '');
+    assert(!result.killed);
+    assert(!result.stdout.overflow && !result.stderr.overflow);
+    assert(result.durationMs < DEADLINE_MS);
+    assertEquals(await Deno.readTextFile(`${result.workspaceRoot}/process.txt`), 'two');
+  } finally {
+    await Deno.remove(result.workspaceRoot, { recursive: true });
+  }
+});
+
+Deno.test('offline process validates rejection recovery and bounded Bash timeout', async () => {
+  const result = await runProcess(
+    'argv-json-failure-recovery',
+    ['--task', '  failure recovery task  '],
+  );
   assert(result.status.success);
   assertEquals(result.status.code, 0);
-  assertEquals(result.stdout.text, '{"ok":true,"items":[1,2]}\n');
+  assertEquals(result.stdout.text, '{"ok":true,"recovered":true}\n');
   assertEquals(result.stderr.text, '');
   assert(!result.killed);
+  assert(result.durationMs < 1_500);
   assert(!result.stdout.overflow && !result.stderr.overflow);
-  assert(result.durationMs < DEADLINE_MS);
 });
 
 Deno.test('offline preflight failure never reaches the fake provider', async () => {

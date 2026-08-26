@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Pi-style `submit_json_result` local gate完了。agent 20、offline 14、live fake 10、full 154 tests成功。新one-shot sentinelは6/6 passed、external requests 12/12、JSON submission 4件・assistant final 2件、retry/rerun/follow-upなし
-- 次: 次の通常CLI roadmap incrementへ進む。追加provider attemptは引き続き別の明示承認にする
+- 状態: Zot-first local work tools実装完了。productionは`bash/edit/read/submit_json_result/write`、corpus/evalはdomain 5-tool registryを分離保持。work-tools 13、runtime 10、process 11、full 164 tests成功
+- 次: 通常CLI roadmapの次incrementを計画する。追加provider attemptは引き続き別の明示承認にする
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -19,6 +19,12 @@
 
 - 判断済み: boundedな小規模testでは実行直前のprovider価格確認をroutineに要求しない。大量token、多数request、またはmaterialな費用が合理的に予想されるtestだけ、公式価格のrefreshと費用上限計算を行う
 - 境界: model availabilityやAPI/tool contractが不確かな場合の仕様確認は価格確認と分離して必要に応じて行う。production provider commandの明示承認、credential guard、no automatic retryは維持する
+
+### POL-20260826-zot-local-work-tools
+
+- 判断済み: plan SHA-256 `be8fdd758ca3efe62bf1058a7a6d21c41a47cdc2ed436a87c58aaa3a38f3608e`に基づき、normal production registryをZot型`read/write/edit/bash`とPi型`submit_json_result`へ移行し、corpus/eval用domain registryを分離保持する
+- 状態: local implementationとowner final gate完了。work-tools 13、runtime 10、process 11、full 164 tests成功。初回review P1 1/P2 2と再reviewで残ったreap P1はdirect regressionとowner gateで解消
+- 境界: noninteractive invocationをauthorizationとしてper-tool promptなし。file toolsはworkspace境界、Bashはtrusted-local OS-user権限でsandboxではない。provider/network、credential、production command、commit、push、tag、publish、releaseは別の明示承認を要する
 
 ### POL-20260825-zot-first-reference
 
@@ -1001,3 +1007,19 @@
 - 実施: approved one-shot sentinelは6/6 passed、12/12 requests、JSON submission 4件・assistant final 2件、retry等0で完了。小規模bounded testのroutineな実行直前価格確認を廃止した
 - 次: 次の通常CLI roadmap incrementへ進む
 - 注意: 大量token・多数request・material spendが予想されるtestでは公式価格と費用上限を事前確認する。追加provider attempt、commit、push、releaseは未承認
+
+## 2026-08-26 13:19 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Zot-first local work tools planning
+- 実施: production `agent:run`を`read/write/edit/bash/submit_json_result`へ進め、corpus registryを分離保持するimplementation-ready planを作成。path/text/atomic mutation、bounded Bash、permission、offline test/review契約を確定した
+- 次: `ASK-20260826-zot-local-work-tools`のHuman Gate
+- 注意: planningのみ。provider/network/credential、source/test/config実装、`_refs/`変更、commit、push、releaseは未実施
+
+## 2026-08-26 14:27 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Zot-first local work tools implementation
+- 実施: production/eval registry分離、workspace file tools、bounded trusted-local Bash、process acceptanceを実装。初回review P1 1/P2 2を修正し、再reviewで残ったdirect-child reap P1をTERM-ignore回帰とowner final gateで解消。focused 13/10/11、full 164成功
+- 次: 通常CLI roadmapの次incrementを別計画へ進める
+- 注意: BashはsandboxではなくOS-user権限。provider/network/credential、production command、`_refs/`変更、commit、push、releaseは未実施

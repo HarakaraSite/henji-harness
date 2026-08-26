@@ -8,7 +8,7 @@ import {
 } from '../../v0/agent/contracts.ts';
 import { FixtureModelContractError } from '../../v0/agent/fixture_model.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
-import { createRuntimeRegistry } from '../../v0/agent/runtime.ts';
+import { createCorpusRegistry } from '../../v0/agent/registries.ts';
 import { Registry } from '../../v0/agent/tools.ts';
 import {
   assertScriptedCorpusTaskSet,
@@ -211,7 +211,7 @@ Deno.test('script table has the exact corpus ID set and enforces prompt/tools/ex
     FixtureModelContractError,
   );
   const model = createScriptedCorpusModel(task);
-  const registry = createRuntimeRegistry();
+  const registry = createCorpusRegistry();
   const firstRequest: ModelRequest = {
     transcript: [userMessage(task)],
     tools: registry.definitions(),
@@ -240,7 +240,7 @@ Deno.test('script table has the exact corpus ID set and enforces prompt/tools/ex
 Deno.test('scripted model checks every preceding result in a sequential multi-tool task', async () => {
   const corpus = await readCorpus();
   const task = corpus.tasks.find((entry) => entry.id === 'v1.multi-tool.fmt.explicit')!;
-  const registry = createRuntimeRegistry();
+  const registry = createCorpusRegistry();
   const firstRequest: ModelRequest = {
     transcript: [userMessage(task)],
     tools: registry.definitions(),
@@ -311,7 +311,7 @@ Deno.test('runner constructs fresh model and registry state for every canonical 
   const report = await runOfflineCorpusEval({
     createCaseDependencies: (task) => {
       const model = createScriptedCorpusModel(task);
-      const registry = createRuntimeRegistry();
+      const registry = createCorpusRegistry();
       models.push(model);
       registries.push(registry);
       return { model, registry };
@@ -345,7 +345,7 @@ Deno.test('ordinary score failures are case-local while later cases continue', a
   const report = await runOfflineCorpusEval({
     createCaseDependencies: (task) => ({
       model: createScriptedCorpusModel(task),
-      registry: createRuntimeRegistry(),
+      registry: createCorpusRegistry(),
     }),
     runLoop: async (task, model, registry, options) => {
       if (task === corpus.tasks.find((entry) => entry.id === wrongTaskId)?.prompt) {
@@ -564,7 +564,7 @@ Deno.test('mapper rejects malformed transcript roles, batches, correlation, term
   const outcome = await runAgent(
     task.prompt,
     createScriptedCorpusModel(task),
-    createRuntimeRegistry(),
+    createCorpusRegistry(),
   );
   assert(outcome.ok);
   type MutableOutcome = Record<string, unknown> & { transcript: Record<string, unknown>[] };
@@ -624,7 +624,7 @@ Deno.test('mapper rejects malformed transcript roles, batches, correlation, term
   const terminalOutcome = await runAgent(
     jsonTask.prompt,
     createScriptedCorpusModel(jsonTask),
-    createRuntimeRegistry(),
+    createCorpusRegistry(),
   );
   assert(terminalOutcome.ok);
   assertEquals(terminalOutcome.stopReason, 'tool_terminal');
@@ -678,7 +678,7 @@ Deno.test('round ordinals distinguish sequential rounds from same-round batches'
   const singleOutcome = await runAgent(
     singleTask.prompt,
     createScriptedCorpusModel(singleTask),
-    createRuntimeRegistry(),
+    createCorpusRegistry(),
   );
   assert(singleOutcome.ok);
   assertEquals(
@@ -692,7 +692,7 @@ Deno.test('round ordinals distinguish sequential rounds from same-round batches'
   const multiOutcome = await runAgent(
     multiTask.prompt,
     createScriptedCorpusModel(multiTask),
-    createRuntimeRegistry(),
+    createCorpusRegistry(),
   );
   assert(multiOutcome.ok);
   assertEquals(
@@ -860,7 +860,7 @@ Deno.test('strict report validation rejects drifted fields, counts, order, parti
   const delayedAbort = await runOfflineCorpusEval({
     createCaseDependencies: (task) => {
       if (task.id === delayedAbortTask.id) throw new Error('delayed abort');
-      return { model: createScriptedCorpusModel(task), registry: createRuntimeRegistry() };
+      return { model: createScriptedCorpusModel(task), registry: createCorpusRegistry() };
     },
   });
   assertEquals(delayedAbort.completion, {
@@ -907,7 +907,7 @@ Deno.test('offline CLI emits one report line, returns failure for scored failure
   const scoredFailure = await runOfflineCorpusEval({
     createCaseDependencies: (task) => ({
       model: createScriptedCorpusModel(task),
-      registry: createRuntimeRegistry(),
+      registry: createCorpusRegistry(),
     }),
     runLoop: async (task, model, registry, options) =>
       task === firstTask.prompt
@@ -995,7 +995,7 @@ Deno.test('offline tasks use exact read-only permissions and preserve production
   }
   assertEquals(
     config.tasks['agent:run'],
-    '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=deno.v0.json v0/agent/runtime_cli.ts',
+    '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/runtime_cli.ts',
   );
   assertEquals(
     config.tasks['agent:acceptance'],
