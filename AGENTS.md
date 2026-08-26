@@ -100,6 +100,25 @@
   discovery remains deferred because it would broaden the current workspace read contract. No
   provider, network, credential, production command, dependency/lockfile, or `_refs/` operation
   occurred.
+- The Zot-first project-local skills plan at `docs/plans/zot-skills-discovery.md`, SHA-256
+  `9a514adce8932e54daca44f54bf401f647c29a77e64b660c4ab955b94343869c`, is implemented.
+  Normal `agent:run` discovers bounded startup snapshots from `.zot/skills`, `.claude/skills`, then
+  `.agents/skills`, appends only a compact manifest, and conditionally exposes a nonterminal `skill`
+  tool. Skills 12, topology 3, runtime 12, process 14, and full v0 gate 213 tests pass. Initial
+  review P2 3 and re-review's remaining evidence P2 were fixed; owner final disposition is
+  Blocker/P1/P2 zero. No provider, network, credential, production command, dependency/lockfile,
+  persistent product state, or `_refs/` operation occurred. TUI, global/home/manual skill
+  management, reload, and permission enforcement remain deferred.
+- The provider-neutral multi-turn/events prerequisite at
+  `docs/plans/zot-provider-neutral-multi-turn-events.md`, SHA-256
+  `663a1bd6634e1503978d0af3f24aecc899dd3b3acd64819fbfcd416cd71bdf0e`, is implemented.
+  `runAgent` remains the one-shot compatibility wrapper; the new in-memory sequential session owns
+  successful-turn transcript commits and emits synchronous completed lifecycle events. Session 14,
+  loop 22, runtime 12, process 14, transport 13, and full v0 gate 227 tests pass. Initial review P2
+  3 and the re-review's remaining test-evidence P2 were closed by direct regressions; owner final
+  disposition is Blocker/P1/P2 zero. TUI, provider streaming, persistence, cancellation, and tool
+  confirmation changes remain deferred. No provider, network, credential, production command,
+  dependency/lockfile, persistent product state, or `_refs/` operation occurred.
 
 ## Development lifecycle
 

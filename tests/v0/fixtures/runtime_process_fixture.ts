@@ -4,6 +4,7 @@ const DUMMY_CREDENTIAL = 'offline-dummy-credential';
 const MODES = [
   'argv-success',
   'argv-context-success',
+  'argv-skill-success',
   'argv-filesystem-rejection-success',
   'argv-json-success',
   'argv-json-failure-recovery',
@@ -78,6 +79,8 @@ const expectedTask = fixtureMode === 'argv-success'
   ? 'argv task'
   : fixtureMode === 'argv-context-success'
   ? 'context task'
+  : fixtureMode === 'argv-skill-success'
+  ? 'skill task'
   : fixtureMode === 'argv-filesystem-rejection-success'
   ? 'filesystem rejection task'
   : fixtureMode === 'argv-json-success'
@@ -140,7 +143,34 @@ const fakeFetch: typeof fetch = (_input, init) => {
   if (!messages || messages.length === 0) {
     throw new Error('provider request task mismatch');
   }
-  if (fixtureMode === 'argv-context-success') {
+  if (fixtureMode === 'argv-skill-success') {
+    const serialized = JSON.stringify(body);
+    if (requestCount === 1) {
+      if (
+        !serialized.includes('Available project skills.') ||
+        !serialized.includes('./.claude/skills/process-skill') ||
+        serialized.includes('PROCESS-SKILL-BODY') ||
+        serialized.includes('HIGH-PRIORITY-SKILL-BODY') ||
+        serialized.includes(workspaceOption ?? 'WORKSPACE-UNAVAILABLE')
+      ) throw new Error('provider request skill manifest mismatch');
+      const tools = (body as { tools?: unknown }).tools;
+      if (
+        !Array.isArray(tools) ||
+        tools.map((tool) =>
+            typeof tool === 'object' && tool !== null &&
+              typeof (tool as { function?: unknown }).function === 'object'
+              ? ((tool as { function: { name?: unknown } }).function.name)
+              : undefined
+          ).join(',') !== 'bash,edit,read,skill,submit_json_result,write'
+      ) throw new Error('provider request skill tool topology mismatch');
+    } else if (requestCount === 2) {
+      if (
+        !serialized.includes('PROCESS-SKILL-BODY') || serialized.includes(workspaceOption ?? '')
+      ) {
+        throw new Error('provider request skill result mismatch');
+      }
+    } else throw new Error('provider request exceeded skill sequence');
+  } else if (fixtureMode === 'argv-context-success') {
     const systemMessages = messages.filter((message) =>
       typeof message === 'object' && message !== null &&
       (message as { role?: unknown }).role === 'system'
@@ -242,6 +272,11 @@ const fakeFetch: typeof fetch = (_input, init) => {
   }
   if (fixtureMode === 'argv-context-success') {
     return Promise.resolve(response('context answer'));
+  }
+  if (fixtureMode === 'argv-skill-success') {
+    return requestCount === 1
+      ? Promise.resolve(workToolResponse('skill', { name: 'process-skill' }, 'skill-1'))
+      : Promise.resolve(response('skill answer'));
   }
   if (fixtureMode === 'argv-filesystem-rejection-success') {
     return Promise.resolve(response('filesystem answer'));

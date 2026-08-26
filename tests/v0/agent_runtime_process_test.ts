@@ -13,6 +13,7 @@ const decoder = new TextDecoder();
 type FixtureMode =
   | 'argv-success'
   | 'argv-context-success'
+  | 'argv-skill-success'
   | 'argv-filesystem-rejection-success'
   | 'argv-json-success'
   | 'argv-json-failure-recovery'
@@ -202,6 +203,26 @@ const runProcessWithDisposableLayout = async (
   }
 };
 
+const createActualSymlink = async (target: string, link: string): Promise<void> => {
+  const command = new Deno.Command(DENO_COMMAND, {
+    args: [
+      'eval',
+      '--no-remote',
+      'await Deno.symlink(Deno.args[0], Deno.args[1]);',
+      '--',
+      target,
+      link,
+    ],
+    clearEnv: true,
+    env: {},
+    stdin: 'null',
+    stdout: 'null',
+    stderr: 'piped',
+  });
+  const output = await command.output();
+  if (!output.success) throw new Error('symlink setup child failed');
+};
+
 const expectedFailure = {
   ok: false,
   outcome: 'contract_failure',
@@ -285,6 +306,37 @@ Deno.test('offline process loads a workspace instruction as system context', asy
   assert(result.status.success);
   assertEquals(result.status.code, 0);
   assertEquals(result.stdout.text, 'context answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
+});
+
+Deno.test('offline process loads a project skill on demand and exits naturally', async () => {
+  const result = await runProcessWithDisposableLayout(
+    'argv-skill-success',
+    ['--task', '  skill task  '],
+    async (containerRoot, workspaceRoot) => {
+      await Deno.mkdir(`${workspaceRoot}/.zot/skills`, { recursive: true });
+      await Deno.mkdir(`${containerRoot}/symlink-skill`);
+      await Deno.writeTextFile(
+        `${containerRoot}/symlink-skill/SKILL.md`,
+        '---\ndescription: Must be skipped.\n---\nHIGH-PRIORITY-SKILL-BODY',
+      );
+      await createActualSymlink(
+        `${containerRoot}/symlink-skill`,
+        `${workspaceRoot}/.zot/skills/process-skill`,
+      );
+      await Deno.mkdir(`${workspaceRoot}/.claude/skills/process-skill`, { recursive: true });
+      await Deno.writeTextFile(
+        `${workspaceRoot}/.claude/skills/process-skill/SKILL.md`,
+        '---\ndescription: Process skill.\n---\nPROCESS-SKILL-BODY',
+      );
+    },
+  );
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, 'skill answer\n');
   assertEquals(result.stderr.text, '');
   assert(!result.killed);
   assert(!result.stdout.overflow && !result.stderr.overflow);

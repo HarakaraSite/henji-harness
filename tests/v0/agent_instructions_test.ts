@@ -1,5 +1,6 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import {
+  composeSystemInstruction,
   discoverAgentInstructions,
   formatAgentInstructions,
   type InstructionFileHandle,
@@ -7,6 +8,13 @@ import {
   type InstructionFileSystem,
   MAX_AGENT_INSTRUCTION_BYTES,
 } from '../../v0/agent/agent_instructions.ts';
+
+Deno.test('system instruction composition preserves all four optional combinations', () => {
+  assertEquals(composeSystemInstruction(), undefined);
+  assertEquals(composeSystemInstruction('agents'), 'agents');
+  assertEquals(composeSystemInstruction(undefined, 'skills'), 'skills');
+  assertEquals(composeSystemInstruction('agents', 'skills'), 'agents\n\nskills');
+});
 
 type Node = {
   readonly info: InstructionFileInfo;

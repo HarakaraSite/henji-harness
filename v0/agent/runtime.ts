@@ -1,9 +1,14 @@
 import { type LoopOutcome } from './contracts.ts';
-import { discoverAgentInstructions, type InstructionFileSystem } from './agent_instructions.ts';
+import {
+  composeSystemInstruction,
+  discoverAgentInstructions,
+  type InstructionFileSystem,
+} from './agent_instructions.ts';
 import { runAgent } from './loop.ts';
 import { OpenRouterAgentModel } from './openrouter_model.ts';
 import { createProductionRegistry } from './registries.ts';
 import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
+import { discoverSkills, type SkillFileSystem } from './skills.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = 8;
@@ -24,6 +29,8 @@ export interface RuntimeTestSeam {
   readonly workspaceRoot?: string;
   /** Direct-test-only instruction discovery filesystem injection. */
   readonly instructionFileSystem?: InstructionFileSystem;
+  /** Direct-test-only skill discovery filesystem injection. */
+  readonly skillFileSystem?: SkillFileSystem;
   /** Direct-test-only local mutation hook. */
   readonly workTools?: WorkToolSeams;
 }
@@ -54,11 +61,13 @@ export const runRuntime = async (
   };
 
   const workspace = await resolveWorkspace(seam.workspaceRoot);
-  const systemInstruction = await discoverAgentInstructions(
+  const agentInstructions = await discoverAgentInstructions(
     workspace.root,
     seam.instructionFileSystem,
   );
-  const registry = createProductionRegistry(workspace, seam.workTools);
+  const skillCatalog = await discoverSkills(workspace.root, seam.skillFileSystem);
+  const systemInstruction = composeSystemInstruction(agentInstructions, skillCatalog.manifest);
+  const registry = createProductionRegistry(workspace, seam.workTools, skillCatalog);
   const model = new OpenRouterAgentModel({
     fetcher,
     credential: seam.credential,

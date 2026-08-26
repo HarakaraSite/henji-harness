@@ -187,3 +187,13 @@ export const discoverAgentInstructions = async (
 
 export const formatAgentInstructions = (name: string, content: string): string =>
   formatAgentInstruction(name, content.trim());
+
+export const composeSystemInstruction = (
+  agentInstructions?: string,
+  skillManifest?: string,
+): string | undefined => {
+  if (agentInstructions !== undefined && skillManifest !== undefined) {
+    return `${agentInstructions}\n\n${skillManifest}`;
+  }
+  return agentInstructions ?? skillManifest;
+};

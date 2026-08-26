@@ -4,10 +4,16 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Zot-first workspace `AGENTS.md` context discoveryのlocal実装・owner gate・review完了。full 195 tests、changed-lines review GO、Blocker/P1/P2 0
-- 次: 通常CLI roadmapの次incrementを計画する
-- 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
+- 状態: Zot-first provider-neutral multi-turn/completed-events prerequisiteのlocal実装・owner final gate完了。full 227 tests、最終Blocker/P1/P2 0
+- 次: first TUI incrementのproduct decisionと実装計画を作成する
+- 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
+
+### POL-20260826-zot-multi-turn-events
+
+- 判断済み: plan SHA-256 `663a1bd6634e1503978d0af3f24aecc899dd3b3acd64819fbfcd416cd71bdf0e`に基づき、one-turn抽出、completed lifecycle events、in-memory sequential session、成功turn commit、失敗turn transcript rollbackを実装した
+- 状態: session 14、loop 22、runtime 12、process 14、transport 13、full 227成功。initial review P2 3とre-review残存evidence P2をdirect regressionで閉じ、owner final disposition Blocker/P1/P2 0
+- 境界: TUI、新production command、tool confirmation/cancellation、provider/network/credential、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは含まない
 
 ### POL-20260826-pi-json-result-submission
 
@@ -43,6 +49,12 @@
 - 判断済み: plan SHA-256 `ca808291d0c2548f76cd0cd17b790960bd3ffbdb2e848ef325d41ffe7e5e107c`に基づき、normal `agent:run`へworkspace-root instruction discoveryとfirst-class system roleを実装した
 - 状態: `AGENTS.md`→`AGENTS.MD` first-present-wins、regular non-symlink UTF-8最大16 KiB、invalid/read error silent skip、transcript外system instructionを実装。focused 8/1/22/13/11/13、full 195成功。review P2 2修正後GO、Blocker/P1/P2 0
 - 境界: Zotのglobal/root-to-cwd layeringは現行`--allow-read=.`を広げるためdefer。provider/network/credential/sentinel、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
+
+### POL-20260826-zot-skills-discovery
+
+- 判断済み: plan SHA-256 `9a514adce8932e54daca44f54bf401f647c29a77e64b660c4ab955b94343869c`に基づき、normal `agent:run`へproject-local skill discovery、compact manifest、on-demand nonterminal `skill` toolを実装した
+- 状態: skills 12、topology 3、runtime 12、process 14、full 213成功。initial review P2 3とre-review残存evidence P2を修正し、owner final dispositionはBlocker/P1/P2 0
+- 境界: global/home/env/builtin/manual slash/reload/permission enforcement/TUI/session等はdefer。provider/network/credential/sentinel、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
 
 ### POL-20260825-zot-first-reference
 
@@ -1081,3 +1093,35 @@
 - 実施: workspace-only bounded discovery、first-class system role、direct/transport/runtime/process/topology evidenceを実装。initial review P2 2を追加regressionで閉じ、re-review GO。focused 8/1/22/13/11/13、full 195成功
 - 次: 通常CLI roadmapの次incrementを計画する
 - 注意: ancestor/global layering、provider/network/credential/sentinel、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-26 17:12 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Zot-first project-local skills discovery planning
+- 実施: 3つのproject-local location、bounded strict `SKILL.md`、compact manifest、startup snapshot、on-demand `skill` tool、offline test/review契約をimplementation-ready planへ確定
+- 次: `ASK-20260826-zot-skills-discovery`のHuman Gate
+- 注意: plan SHA-256 `9a514adc...343869c`。実装、test、provider/network/credential、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-26 17:50 JST
+
+- 実行エージェント: Codex default / read-only review fallback
+- 作業トピック: Zot-first project-local skills discovery local completion
+- 実施: bounded 3-location discovery、strict metadata、startup snapshot、manifest、conditional `skill` tool、runtime/process/topology evidenceを実装。skills 12、process 14、full/gate 213成功
+- 次: 通常CLI roadmapの次incrementを計画する
+- 注意: initial review P2 3、single re-review残存P2 1をdirect regressionsとowner final gateで閉じた。thread limitにより専用implementer/reviewer spawnを使えなかった。provider/network/credential、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-26 18:05 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Zot-first multi-turn/events prerequisite planning
+- 実施: TUI前提を調査し、provider streaming/persistenceを不要と判定。既存CLI不変のone-turn primitive、completed events、in-memory session、成功commit/失敗rollbackをimplementation-ready planへ確定
+- 次: `ASK-20260826-zot-multi-turn-events`のHuman Gate
+- 注意: TUI自体とinvocation/tool confirmation/cancellationは後続判断。planning/handoff以外の実装、test、provider/credential、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-26 18:37 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Zot-first multi-turn/events prerequisite local completion
+- 実施: one-turn primitive、completed events、in-memory session、success commit/failure rollbackを実装。review P2 3とre-review残存evidence P2をdirect regressionsで閉じ、session 14/full 227成功
+- 次: first TUIのinvocation、tool authorization、busy interruptionを決めるimplementation planを作成する
+- 注意: TUI/new production command、provider/network/credential、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施

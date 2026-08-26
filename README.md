@@ -21,6 +21,7 @@ printf '%s\n' 'ARBITRARY TASK' | /home/masat.guest/src/abyssaeon/.tools/deno/2.9
 deno task --config deno.v0.json agent:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:skills:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:process:test
 deno task --config deno.v0.json agent:transport:test
 deno task --config deno.v0.json agent:acceptance:test
@@ -39,8 +40,10 @@ not a local test. Local gates use fixtures and require no credential.
 
 The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin.
 Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
-bytes fails before model or credential setup. The single-shot runtime advertises exactly these five
-tools in stable name order: `bash`, `edit`, `read`, `submit_json_result`, and `write`. The versioned
+bytes fails before model or credential setup. Without a callable project skill, the single-shot
+runtime advertises exactly these five tools in stable name order: `bash`, `edit`, `read`,
+`submit_json_result`, and `write`. With one or more callable skills it adds `skill` in name order.
+The versioned
 corpus/evaluation registry retains the four toy domain tools separately and they are not advertised
 by normal `agent:run`. JSON answers must use `submit_json_result` as the sole tool call in a batch;
 the host canonicalizes the complete JSON value and prints it on stdout. Plain-text answers retain
@@ -68,6 +71,22 @@ The accepted text is sent as one first-class `system` message on every provider 
 the user task and loop transcript. Discovery does not inspect ancestors, global/home state, child
 directories, or other spelling variants, and does not broaden the existing `agent:run` workspace
 read permission.
+
+The same startup pass discovers project-local skills from `./.zot/skills`, then
+`./.claude/skills`, then `./.agents/skills`. Only one-level
+`<location>/<directory>/SKILL.md` regular non-symlink files are considered. Entries are sorted;
+the first valid effective name wins, while a valid `disable-model-invocation: true` entry reserves
+its name without becoming callable. Discovery is bounded to 128 entries per location, 24 callable
+skills, 64 KiB per file and formatted result, 512 KiB aggregate results, and an 8 KiB manifest.
+
+The accepted format is a strict frontmatter subset with optional `name`, required one-line
+`description` (160 UTF-8 bytes maximum), and optional `disable-model-invocation`. Unknown or
+duplicate keys—including unenforced `allowed-tools`, `allowed_tools`, and `permissions`—make the
+candidate invalid. A compact name/description/workspace-relative-source manifest is appended to the
+system instruction; bodies are held in an immutable startup snapshot and enter the transcript only
+after the model calls nonterminal `skill({name})`. Tool execution never rereads the file. Global or
+home skills, recursive discovery, manual slash invocation, reload, and permission enforcement are
+not provided.
 
 Success writes only the final assistant text to stdout (adding one newline when needed), with an
 empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The
@@ -115,8 +134,12 @@ The active step 5–10 evidence is retained in `docs/plans/`. Roadmap step 11's 
 specified in [`docs/plans/zot-first-cli-agent-runtime.md`](docs/plans/zot-first-cli-agent-runtime.md), with the
 Zot-first local work-tool increment recorded in [`docs/plans/zot-local-work-tools-results.md`](docs/plans/zot-local-work-tools-results.md).
 It accepts one task from argv or stdin, allows at most eight model requests, and performs no
-application retry. Broader sessions, context management, skills, extensions, RPC, subagents,
-self-revision, and dynamic provider/model selection remain later roadmap work.
+application retry. The provider-neutral in-memory session and completed lifecycle events are
+implemented for the next TUI prerequisite; `agent:run` still uses the unchanged one-shot wrapper.
+Persistence, context management, global/manual skill management, extensions, RPC, subagents,
+self-revision, and dynamic provider/model selection remain later roadmap work. See the
+[`multi-turn/events results`](docs/plans/zot-provider-neutral-multi-turn-events-results.md) for
+the local evidence and verification boundary.
 
 ## Versioned small task corpus
 

@@ -8,6 +8,7 @@ import {
   type Tool,
 } from './tools.ts';
 import { createWorkTools, type Workspace, type WorkToolSeams } from './work_tools.ts';
+import { createSkillTool, type SkillCatalog } from './skills.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -27,10 +28,14 @@ export const createCorpusRegistry = (
 export const createProductionRegistry = (
   workspace: Workspace,
   seams: WorkToolSeams = {},
+  skillCatalog?: SkillCatalog,
 ): Registry =>
   new Registry(
     [
       ...createWorkTools(workspace, seams),
+      ...(skillCatalog !== undefined && skillCatalog.skills.length > 0
+        ? [createSkillTool(skillCatalog)]
+        : []),
       createJsonResultSubmissionTool(),
     ] as readonly Tool[],
   );

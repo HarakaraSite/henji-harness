@@ -145,6 +145,43 @@ Deno.test('normal runtime discovers workspace instructions once as a system mess
   });
 });
 
+Deno.test('normal runtime exposes a skill manifest then a nonterminal saved body', async () => {
+  await withWorkspace(async (root) => {
+    await Deno.mkdir(`${root}/.zot/skills/review`, { recursive: true });
+    await Deno.writeTextFile(
+      `${root}/.zot/skills/review/SKILL.md`,
+      '---\ndescription: Review code.\n---\nPRIVATE-SKILL-BODY',
+    );
+    const calls: FetchCall[] = [];
+    const result = await runRuntime('offline task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([
+        response(toolPayload([{ id: 'skill-1', name: 'skill', arguments: { name: 'review' } }])),
+        response(finalPayload('done')),
+      ], calls),
+      credential: DUMMY_CREDENTIAL,
+    });
+    assert(result.outcome.ok);
+    assertEquals(result.outcome.finalText, 'done');
+    const first = requestBody(calls[0]);
+    const firstSerialized = JSON.stringify(first);
+    assert(firstSerialized.includes('Available project skills.'));
+    assert(!firstSerialized.includes('PRIVATE-SKILL-BODY'));
+    assertEquals(
+      (first.tools as Array<Record<string, unknown>>).map((tool) =>
+        (tool.function as Record<string, unknown>).name
+      ),
+      ['bash', 'edit', 'read', 'skill', 'submit_json_result', 'write'],
+    );
+    const secondSerialized = JSON.stringify(requestBody(calls[1]));
+    assert(secondSerialized.includes('PRIVATE-SKILL-BODY'));
+    assert(secondSerialized.includes('./.zot/skills/review'));
+    assert(!secondSerialized.includes(root));
+    assertEquals(result.outcome.toolCallCount, 1);
+    assertEquals(result.outcome.toolResultCount, 1);
+  });
+});
+
 Deno.test('runtime executes causal write/read/edit/bash work rounds', async () => {
   await withWorkspace(async (root) => {
     const result = await run(root, [
