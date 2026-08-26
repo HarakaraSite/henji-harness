@@ -620,6 +620,41 @@ Deno.test('mapper rejects malformed transcript roles, batches, correlation, term
     throw new Error(`${name}: expected ${code}`);
   }
 
+  const jsonTask = corpus.tasks.find((entry) => entry.id === 'v1.final-only.json')!;
+  const terminalOutcome = await runAgent(
+    jsonTask.prompt,
+    createScriptedCorpusModel(jsonTask),
+    createRuntimeRegistry(),
+  );
+  assert(terminalOutcome.ok);
+  assertEquals(terminalOutcome.stopReason, 'tool_terminal');
+  const terminalMutations: readonly [string, (value: MutableOutcome) => void][] = [
+    ['terminal argument shape', (value) => {
+      ((value.transcript[1].content as Record<string, unknown>[])[0] as Record<string, unknown>)
+        .arguments = { json: '1', extra: false };
+    }],
+    ['terminal malformed JSON', (value) => {
+      ((value.transcript[1].content as Record<string, unknown>[])[0] as Record<string, unknown>)
+        .arguments = { json: 'not JSON' };
+    }],
+    ['terminal acknowledgement', (value) => {
+      ((value.transcript[2].content as Record<string, unknown>[])[0] as Record<string, unknown>)
+        .text = 'wrong acknowledgement';
+    }],
+    ['terminal canonical final', (value) => {
+      value.finalText = '1';
+    }],
+  ];
+  for (const [name, mutate] of terminalMutations) {
+    const changed = clone(terminalOutcome) as unknown as MutableOutcome;
+    mutate(changed);
+    expectSyncCode(
+      () => observationFromLoopOutcome(jsonTask, changed as unknown as LoopOutcome),
+      'transcript_malformed',
+    );
+    assert(name.length > 0);
+  }
+
   const duplicate = oneRoundOutcome(task, 'HENJI HARNESS');
   const duplicateValue = clone(duplicate) as unknown as MutableOutcome;
   const firstCall = (duplicateValue.transcript[1].content as Record<string, unknown>[])[0];
@@ -733,7 +768,7 @@ Deno.test('strict report validation rejects drifted fields, counts, order, parti
     value.extra = true;
   });
   invalid((value) => {
-    value.schemaVersion = 2;
+    value.schemaVersion = 1;
   });
   invalid((value) => {
     value.mode = 'live';
@@ -775,6 +810,12 @@ Deno.test('strict report validation rejects drifted fields, counts, order, parti
     (first.toolEvents as Record<string, unknown>[])[0].requestOrdinal = 8;
   });
   invalid((value) => {
+    const multi = (value.results as Record<string, unknown>[]).find((result) =>
+      result.taskId === 'v1.multi-tool.fmt.explicit'
+    )!;
+    (multi.submission as Record<string, unknown>).requestOrdinal = 1;
+  });
+  invalid((value) => {
     (value.results as unknown[]).pop();
   });
   invalid((value) => {
@@ -794,6 +835,51 @@ Deno.test('strict report validation rejects drifted fields, counts, order, parti
   delete abortResults[1].errorCode;
   expectSyncCode(
     () => validateOfflineCorpusEvalReport(invalidAbort, corpus),
+    'report_contract_invalid',
+  );
+  const duplicateError = clone(aborted) as unknown as Record<string, unknown>;
+  const duplicateResults = duplicateError.results as Record<string, unknown>[];
+  duplicateResults[1] = {
+    taskId: corpus.tasks[1].id,
+    status: 'error',
+    errorCode: 'dependency_construction_failed',
+  };
+  expectSyncCode(
+    () => validateOfflineCorpusEvalReport(duplicateError, corpus),
+    'report_contract_invalid',
+  );
+  const prefixNotRun = clone(aborted) as unknown as Record<string, unknown>;
+  const prefixResults = prefixNotRun.results as Record<string, unknown>[];
+  prefixResults[0] = { taskId: corpus.tasks[0].id, status: 'not_run', errorCode: 'run_aborted' };
+  expectSyncCode(
+    () => validateOfflineCorpusEvalReport(prefixNotRun, corpus),
+    'report_contract_invalid',
+  );
+
+  const delayedAbortTask = corpus.tasks[1];
+  const delayedAbort = await runOfflineCorpusEval({
+    createCaseDependencies: (task) => {
+      if (task.id === delayedAbortTask.id) throw new Error('delayed abort');
+      return { model: createScriptedCorpusModel(task), registry: createRuntimeRegistry() };
+    },
+  });
+  assertEquals(delayedAbort.completion, {
+    status: 'aborted',
+    abortCode: 'dependency_construction_failed',
+    abortTaskId: delayedAbortTask.id,
+  });
+  assertEquals(delayedAbort.results[0].status, 'passed');
+  const delayedPrefixDrift = clone(delayedAbort) as unknown as Record<string, unknown>;
+  const delayedResults = delayedPrefixDrift.results as Record<string, unknown>[];
+  delayedResults[0] = {
+    taskId: corpus.tasks[0].id,
+    status: 'not_run',
+    errorCode: 'run_aborted',
+  };
+  (delayedPrefixDrift.counts as Record<string, unknown>).completed = 0;
+  (delayedPrefixDrift.counts as Record<string, unknown>).passed = 0;
+  expectSyncCode(
+    () => validateOfflineCorpusEvalReport(delayedPrefixDrift, corpus),
     'report_contract_invalid',
   );
 });

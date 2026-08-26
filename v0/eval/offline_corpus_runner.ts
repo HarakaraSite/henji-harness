@@ -21,7 +21,8 @@ import { Registry, type Registry as RegistryType } from '../agent/tools.ts';
 import { assertScriptedCorpusTaskSet, createScriptedCorpusModel } from './scripted_corpus_model.ts';
 
 export const MAX_STEPS = 8;
-export const REPORT_ID = 'henji-offline-corpus-eval-v1';
+export const REPORT_ID_V1 = 'henji-offline-corpus-eval-v1';
+export const REPORT_ID = 'henji-offline-corpus-eval-v2';
 
 export type OfflineRunnerFailureCode =
   | 'corpus_preflight_failed'
@@ -51,6 +52,7 @@ export interface OfflineCorpusPassedResult {
   readonly finalText: string;
   readonly requestCount: number;
   readonly toolEvents: CorpusObservation['toolEvents'];
+  readonly submission?: CorpusObservation['submission'];
   readonly score: CorpusCaseScore;
 }
 
@@ -60,6 +62,7 @@ export interface OfflineCorpusFailedResult {
   readonly finalText: string;
   readonly requestCount: number;
   readonly toolEvents: CorpusObservation['toolEvents'];
+  readonly submission?: CorpusObservation['submission'];
   readonly score: CorpusCaseScore;
 }
 
@@ -83,7 +86,7 @@ export type OfflineCorpusCaseResult =
 
 export interface OfflineCorpusEvalReportV1 {
   readonly schemaVersion: 1;
-  readonly reportId: typeof REPORT_ID;
+  readonly reportId: typeof REPORT_ID_V1;
   readonly mode: 'offline_scripted';
   readonly corpus: {
     readonly schemaVersion: 1;
@@ -140,6 +143,8 @@ const corpusFailureCodes = new Set([
   'tool_call_result_name_mismatch',
   'tool_order',
   'tool_same_round',
+  'submission_missing',
+  'submission_unexpected',
 ]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -199,6 +204,7 @@ const validateLoopOutcome = (task: CorpusTask, outcome: unknown): LoopOutcome =>
     'outcome',
     'stopReason',
     'finalText',
+    'terminalKind',
     'error',
     'steps',
     'toolCallCount',
@@ -209,7 +215,7 @@ const validateLoopOutcome = (task: CorpusTask, outcome: unknown): LoopOutcome =>
   if (typeof object.ok !== 'boolean' || object.task !== task.prompt) fail('loop_outcome_invalid');
   validateLoopCounters(object);
   if (!Array.isArray(object.transcript)) fail('loop_outcome_invalid');
-  if (object.ok) {
+  if (object.ok && object.stopReason === 'final') {
     if (
       !exactKeys(object, [
         'ok',
@@ -226,6 +232,24 @@ const validateLoopOutcome = (task: CorpusTask, outcome: unknown): LoopOutcome =>
     if (
       object.outcome !== 'final' || object.stopReason !== 'final' ||
       typeof object.finalText !== 'string' || 'error' in object
+    ) fail('loop_outcome_invalid');
+    if ('terminalKind' in object) fail('loop_outcome_invalid');
+  } else if (object.ok && object.stopReason === 'tool_terminal') {
+    if (
+      !exactKeys(object, [
+        'ok',
+        'task',
+        'outcome',
+        'stopReason',
+        'finalText',
+        'terminalKind',
+        'steps',
+        'toolCallCount',
+        'toolResultCount',
+        'transcript',
+      ]) || object.outcome !== 'final' || object.stopReason !== 'tool_terminal' ||
+      object.terminalKind !== 'json_result' || typeof object.finalText !== 'string' ||
+      'error' in object
     ) fail('loop_outcome_invalid');
   } else if (object.outcome === 'contract_failure') {
     if (
@@ -306,6 +330,52 @@ const parseToolResult = (
   return object as unknown as ToolMessage['content'][number];
 };
 
+const parseTerminalToolResult = (
+  value: unknown,
+  call: ToolCallContent,
+): ToolMessage['content'][number] => {
+  const object = isRecord(value) ? value : malformed();
+  if (!exactKeys(object, ['kind', 'callId', 'name', 'text', 'outcome', 'terminal'])) malformed();
+  if (
+    object.kind !== 'tool_result' || object.callId !== call.callId ||
+    object.name !== call.name || typeof object.text !== 'string' ||
+    object.outcome !== 'success' || object.terminal !== 'json_result' ||
+    call.name !== 'submit_json_result'
+  ) malformed();
+  return object as unknown as ToolMessage['content'][number];
+};
+
+const validateTerminalSubmission = (
+  call: ToolCallContent,
+  result: ToolMessage['content'][number],
+  finalText: string,
+): void => {
+  if (result.text !== 'json result submitted') malformed();
+  const argumentsValue = isRecord(call.arguments) ? call.arguments : malformed();
+  if (
+    !exactKeys(argumentsValue, ['json']) || typeof argumentsValue.json !== 'string'
+  ) malformed();
+  const input = argumentsValue.json as string;
+  if (new TextEncoder().encode(input).byteLength > 65_536) malformed();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input);
+  } catch {
+    malformed();
+  }
+  if (!isJsonValue(parsed)) malformed();
+  let canonical: string | undefined;
+  try {
+    canonical = JSON.stringify(parsed);
+  } catch {
+    malformed();
+  }
+  if (
+    canonical === undefined || new TextEncoder().encode(canonical).byteLength > 65_536 ||
+    canonical !== finalText
+  ) malformed();
+};
+
 export const observationFromLoopOutcome = (
   task: CorpusTask,
   rawOutcome: LoopOutcome,
@@ -320,6 +390,7 @@ export const observationFromLoopOutcome = (
   let index = 1;
   let requestOrdinal = 0;
   let finalText: string | undefined;
+  let submission: CorpusObservation['submission'] = null;
   let assistantCount = 0;
   while (index < transcript.length) {
     const assistant = transcript[index];
@@ -354,6 +425,24 @@ export const observationFromLoopOutcome = (
     const toolContent =
       (Array.isArray(toolObject.content) ? toolObject.content : malformed()) as unknown[];
     if (toolContent.length !== calls.length) malformed();
+    if (calls.length === 1 && calls[0].name === 'submit_json_result') {
+      const result = parseTerminalToolResult(toolContent[0], calls[0]);
+      if (
+        index + 1 !== transcript.length || outcome.stopReason !== 'tool_terminal' ||
+        outcome.terminalKind !== 'json_result'
+      ) malformed();
+      validateTerminalSubmission(calls[0], result, outcome.finalText!);
+      submission = {
+        kind: 'json_result',
+        requestOrdinal,
+        callId: calls[0].callId,
+        resultCallId: result.callId,
+        outcome: 'success',
+      };
+      index += 1;
+      requestOrdinal += 1;
+      break;
+    }
     for (let callIndex = 0; callIndex < calls.length; callIndex += 1) {
       const result = parseToolResult(toolContent[callIndex], calls[callIndex]);
       toolEvents.push({
@@ -368,17 +457,19 @@ export const observationFromLoopOutcome = (
     index += 1;
     requestOrdinal += 1;
   }
-  if (finalText === undefined || index !== transcript.length) malformed();
+  if (outcome.stopReason === 'final') requestOrdinal += 1;
+  if (finalText === undefined && submission === null || index !== transcript.length) malformed();
   if (
     assistantCount !== outcome.steps ||
-    toolEvents.length !== outcome.toolCallCount ||
-    toolEvents.length !== outcome.toolResultCount ||
-    assistantCount !== requestOrdinal + 1
+    toolEvents.length + (submission === null ? 0 : 1) !== outcome.toolCallCount ||
+    toolEvents.length + (submission === null ? 0 : 1) !== outcome.toolResultCount ||
+    assistantCount !== requestOrdinal
   ) fail('loop_outcome_invalid');
   return {
-    finalText: typeof finalText === 'string' ? finalText : malformed(),
+    finalText: typeof finalText === 'string' ? finalText : outcome.finalText!,
     requestCount: outcome.steps,
     toolEvents,
+    submission,
   };
 };
 
@@ -422,7 +513,7 @@ const validateObservation = (value: unknown): CorpusObservation => {
     ids.add(typeof eventObject.callId === 'string' ? eventObject.callId : '');
     return eventObject as unknown as CorpusObservation['toolEvents'][number];
   });
-  return { finalText, requestCount, toolEvents: events };
+  return { finalText, requestCount, toolEvents: events, submission: null };
 };
 
 const validateDimension = (value: unknown): void => {
@@ -438,7 +529,9 @@ const validateDimension = (value: unknown): void => {
   ) fail('report_contract_invalid');
 };
 
-const validateScore = (value: unknown, taskId: string): CorpusCaseScore => {
+type LegacyCorpusCaseScore = Omit<CorpusCaseScore, 'submission'>;
+
+const validateScore = (value: unknown, taskId: string): LegacyCorpusCaseScore => {
   const object = isRecord(value) ? value : fail('report_contract_invalid');
   if (!exactKeys(object, ['taskId', 'passed', 'oracle', 'tools', 'requests', 'failureCodes'])) {
     fail('report_contract_invalid');
@@ -468,6 +561,21 @@ const validateScore = (value: unknown, taskId: string): CorpusCaseScore => {
   return object as unknown as CorpusCaseScore;
 };
 
+const legacyScore = (task: CorpusTask, observation: CorpusObservation): LegacyCorpusCaseScore => {
+  const current = scoreCorpusObservation(task, { ...observation, submission: null });
+  const failureCodes = current.failureCodes.filter((code) =>
+    code !== 'submission_missing' && code !== 'submission_unexpected'
+  );
+  return {
+    taskId: current.taskId,
+    passed: failureCodes.length === 0,
+    oracle: current.oracle,
+    tools: current.tools,
+    requests: current.requests,
+    failureCodes,
+  };
+};
+
 const countStatuses = (results: readonly OfflineCorpusCaseResult[]) => ({
   passed: results.filter((result) => result.status === 'passed').length,
   failed: results.filter((result) => result.status === 'failed').length,
@@ -495,7 +603,7 @@ const validateResult = (
     const score = validateScore(object.score, task.id);
     const recomputed = (() => {
       try {
-        return scoreCorpusObservation(task, observation);
+        return legacyScore(task, observation);
       } catch {
         return fail('report_contract_invalid');
       }
@@ -531,7 +639,7 @@ const validateResult = (
   return fail('report_contract_invalid');
 };
 
-export const validateOfflineCorpusEvalReport = (
+export const validateOfflineCorpusEvalReportV1 = (
   value: unknown,
   corpus: ValidatedTaskCorpus,
 ): OfflineCorpusEvalReportV1 => {
@@ -548,7 +656,7 @@ export const validateOfflineCorpusEvalReport = (
     ])
   ) fail('report_contract_invalid');
   if (
-    object.schemaVersion !== 1 || object.reportId !== REPORT_ID ||
+    object.schemaVersion !== 1 || object.reportId !== REPORT_ID_V1 ||
     object.mode !== 'offline_scripted'
   ) {
     return fail('report_contract_invalid');
@@ -638,11 +746,11 @@ export const validateOfflineCorpusEvalReport = (
   return object as unknown as OfflineCorpusEvalReportV1;
 };
 
-export const serializeOfflineCorpusEvalReport = (
+export const serializeOfflineCorpusEvalReportV1 = (
   report: OfflineCorpusEvalReportV1,
   corpus: ValidatedTaskCorpus,
 ): string => {
-  validateOfflineCorpusEvalReport(report, corpus);
+  validateOfflineCorpusEvalReportV1(report, corpus);
   try {
     return `${JSON.stringify(report)}\n`;
   } catch {
@@ -676,7 +784,7 @@ const reportFor = (
   const { passed, failed } = countStatuses(results);
   return {
     schemaVersion: 1,
-    reportId: REPORT_ID,
+    reportId: REPORT_ID_V1,
     mode: 'offline_scripted',
     corpus: { schemaVersion: corpus.schemaVersion, corpusId: corpus.corpusId },
     completion: {
@@ -689,7 +797,7 @@ const reportFor = (
   };
 };
 
-export const runOfflineCorpusEval = async (
+export const runOfflineCorpusEvalV1 = async (
   seam: OfflineCorpusEvalTestSeam = {},
 ): Promise<OfflineCorpusEvalReportV1> => {
   let corpus: ValidatedTaskCorpus;
@@ -791,8 +899,453 @@ export const runOfflineCorpusEval = async (
   }
   const report = reportFor(corpus, results, abortCode, abortTaskId);
   try {
-    return validateOfflineCorpusEvalReport(report, corpus);
+    return validateOfflineCorpusEvalReportV1(report, corpus);
   } catch {
     throw new OfflineCorpusEvalError('report_contract_invalid');
   }
 };
+
+export interface OfflineCorpusPassedResultV2 {
+  readonly taskId: string;
+  readonly status: 'passed';
+  readonly finalText: string;
+  readonly requestCount: number;
+  readonly toolEvents: CorpusObservation['toolEvents'];
+  readonly submission: CorpusObservation['submission'];
+  readonly score: CorpusCaseScore;
+}
+
+export interface OfflineCorpusFailedResultV2 {
+  readonly taskId: string;
+  readonly status: 'failed';
+  readonly finalText: string;
+  readonly requestCount: number;
+  readonly toolEvents: CorpusObservation['toolEvents'];
+  readonly submission: CorpusObservation['submission'];
+  readonly score: CorpusCaseScore;
+}
+
+export type OfflineCorpusCaseResultV2 =
+  | OfflineCorpusPassedResultV2
+  | OfflineCorpusFailedResultV2
+  | OfflineCorpusErrorResult
+  | OfflineCorpusNotRunResult;
+
+export interface OfflineCorpusEvalReportV2 {
+  readonly schemaVersion: 2;
+  readonly reportId: typeof REPORT_ID;
+  readonly mode: 'offline_scripted';
+  readonly corpus: {
+    readonly schemaVersion: 1;
+    readonly corpusId: 'henji-normal-cli-small-v1';
+  };
+  readonly completion: OfflineCorpusEvalReportV1['completion'];
+  readonly counts: OfflineCorpusEvalReportV1['counts'];
+  readonly results: readonly OfflineCorpusCaseResultV2[];
+}
+
+export const validateCorpusObservationV2 = (value: unknown): CorpusObservation => {
+  const object = isRecord(value) ? value : fail('report_contract_invalid');
+  if (!exactKeys(object, ['finalText', 'requestCount', 'toolEvents', 'submission'])) {
+    fail('report_contract_invalid');
+  }
+  if (
+    typeof object.finalText !== 'string' || !isNonnegativeInteger(object.requestCount) ||
+    !Array.isArray(object.toolEvents)
+  ) fail('report_contract_invalid');
+  const requestCount = object.requestCount as number;
+  const ids = new Set<string>();
+  const toolEvents = (object.toolEvents as unknown[]).map((raw) => {
+    const event = isRecord(raw) ? raw : fail('report_contract_invalid');
+    if (
+      !exactKeys(event, [
+        'requestOrdinal',
+        'callId',
+        'resultCallId',
+        'callName',
+        'resultName',
+        'outcome',
+      ])
+    ) fail('report_contract_invalid');
+    if (
+      !isNonnegativeInteger(event.requestOrdinal) || event.requestOrdinal >= requestCount ||
+      typeof event.callId !== 'string' || event.callId.trim() === '' || ids.has(event.callId) ||
+      typeof event.resultCallId !== 'string' || event.resultCallId !== event.callId ||
+      typeof event.callName !== 'string' || event.callName.trim() === '' ||
+      typeof event.resultName !== 'string' || event.resultName !== event.callName ||
+      (event.outcome !== 'success' && event.outcome !== 'error') ||
+      event.callName === 'submit_json_result'
+    ) fail('report_contract_invalid');
+    ids.add(event.callId as string);
+    return event as unknown as CorpusObservation['toolEvents'][number];
+  });
+  const rawSubmission = object.submission;
+  let submission: CorpusObservation['submission'] = null;
+  if (rawSubmission !== null) {
+    const value = isRecord(rawSubmission) ? rawSubmission : fail('report_contract_invalid');
+    if (!exactKeys(value, ['kind', 'requestOrdinal', 'callId', 'resultCallId', 'outcome'])) {
+      fail('report_contract_invalid');
+    }
+    if (
+      value.kind !== 'json_result' || !isNonnegativeInteger(value.requestOrdinal) ||
+      requestCount < 1 || value.requestOrdinal !== requestCount - 1 ||
+      toolEvents.some((event) => event.requestOrdinal >= (value.requestOrdinal as number)) ||
+      typeof value.callId !== 'string' ||
+      value.callId.trim() === '' || ids.has(value.callId) ||
+      typeof value.resultCallId !== 'string' || value.resultCallId !== value.callId ||
+      value.outcome !== 'success'
+    ) fail('report_contract_invalid');
+    ids.add(value.callId as string);
+    submission = value as unknown as CorpusObservation['submission'];
+  }
+  return {
+    finalText: object.finalText as string,
+    requestCount,
+    toolEvents,
+    submission,
+  };
+};
+
+export const validateCorpusScoreV2 = (value: unknown, taskId: string): CorpusCaseScore => {
+  const object = isRecord(value) ? value : fail('report_contract_invalid');
+  if (
+    !exactKeys(object, [
+      'taskId',
+      'passed',
+      'oracle',
+      'tools',
+      'submission',
+      'requests',
+      'failureCodes',
+    ])
+  ) fail('report_contract_invalid');
+  if (object.taskId !== taskId || typeof object.passed !== 'boolean') {
+    fail('report_contract_invalid');
+  }
+  validateDimension(object.oracle);
+  validateDimension(object.tools);
+  validateDimension(object.submission);
+  validateDimension(object.requests);
+  if (!Array.isArray(object.failureCodes)) fail('report_contract_invalid');
+  const failures = object.failureCodes as unknown[];
+  if (
+    failures.some((code: unknown) => typeof code !== 'string' || !corpusFailureCodes.has(code)) ||
+    new Set(failures).size !== failures.length || object.passed !== (failures.length === 0)
+  ) fail('report_contract_invalid');
+  const dimensions = [object.oracle, object.tools, object.submission, object.requests] as Record<
+    string,
+    unknown
+  >[];
+  const dimensionFailures = new Set(
+    dimensions.flatMap((dimension) => dimension.failureCodes as string[]),
+  );
+  if (
+    dimensionFailures.size !== failures.length ||
+    failures.some((code) => typeof code !== 'string' || !dimensionFailures.has(code))
+  ) fail('report_contract_invalid');
+  return object as unknown as CorpusCaseScore;
+};
+
+const validateResultV2 = (
+  value: unknown,
+  task: CorpusTask,
+): OfflineCorpusCaseResultV2 => {
+  const object = isRecord(value) ? value : fail('report_contract_invalid');
+  if (object.taskId !== task.id || typeof object.taskId !== 'string') {
+    fail('report_contract_invalid');
+  }
+  if (object.status === 'passed' || object.status === 'failed') {
+    if (
+      !exactKeys(object, [
+        'taskId',
+        'status',
+        'finalText',
+        'requestCount',
+        'toolEvents',
+        'submission',
+        'score',
+      ])
+    ) fail('report_contract_invalid');
+    const observation = validateCorpusObservationV2({
+      finalText: object.finalText,
+      requestCount: object.requestCount,
+      toolEvents: object.toolEvents,
+      submission: object.submission,
+    });
+    const score = validateCorpusScoreV2(object.score, task.id);
+    const recomputed = scoreCorpusObservation(task, observation);
+    if (!equalJson(score, recomputed) || (object.status === 'passed') !== score.passed) {
+      fail('report_contract_invalid');
+    }
+    return {
+      taskId: task.id,
+      status: object.status,
+      finalText: observation.finalText,
+      requestCount: observation.requestCount,
+      toolEvents: observation.toolEvents,
+      submission: observation.submission,
+      score,
+    };
+  }
+  if (object.status === 'error') {
+    if (!exactKeys(object, ['taskId', 'status', 'errorCode'])) fail('report_contract_invalid');
+    if (
+      typeof object.errorCode !== 'string' ||
+      !runnerCodes.includes(object.errorCode as OfflineRunnerFailureCode) ||
+      object.errorCode === 'run_aborted'
+    ) fail('report_contract_invalid');
+    return object as unknown as OfflineCorpusErrorResult;
+  }
+  if (object.status === 'not_run') {
+    if (
+      !exactKeys(object, ['taskId', 'status', 'errorCode']) || object.errorCode !== 'run_aborted'
+    ) {
+      fail('report_contract_invalid');
+    }
+    return object as unknown as OfflineCorpusNotRunResult;
+  }
+  return fail('report_contract_invalid');
+};
+
+export const validateOfflineCorpusEvalReportV2 = (
+  value: unknown,
+  corpus: ValidatedTaskCorpus,
+): OfflineCorpusEvalReportV2 => {
+  const object = isRecord(value) ? value : fail('report_contract_invalid');
+  if (
+    !exactKeys(object, [
+      'schemaVersion',
+      'reportId',
+      'mode',
+      'corpus',
+      'completion',
+      'counts',
+      'results',
+    ]) || object.schemaVersion !== 2 || object.reportId !== REPORT_ID ||
+    object.mode !== 'offline_scripted'
+  ) {
+    fail('report_contract_invalid');
+  }
+  const reportCorpus = isRecord(object.corpus) ? object.corpus : fail('report_contract_invalid');
+  if (
+    !exactKeys(reportCorpus, ['schemaVersion', 'corpusId']) ||
+    reportCorpus.schemaVersion !== corpus.schemaVersion || reportCorpus.corpusId !== corpus.corpusId
+  ) {
+    fail('report_contract_invalid');
+  }
+  const completion = isRecord(object.completion)
+    ? object.completion
+    : fail('report_contract_invalid');
+  if (
+    !exactKeys(completion, ['status', 'abortCode', 'abortTaskId']) ||
+    (completion.status !== 'completed' && completion.status !== 'aborted') ||
+    (completion.abortCode !== null && (typeof completion.abortCode !== 'string' ||
+      !runnerCodes.includes(completion.abortCode as OfflineRunnerFailureCode))) ||
+    (completion.abortTaskId !== null && typeof completion.abortTaskId !== 'string')
+  ) {
+    fail('report_contract_invalid');
+  }
+  const counts = isRecord(object.counts) ? object.counts : fail('report_contract_invalid');
+  if (
+    !exactKeys(counts, ['total', 'completed', 'passed', 'failed']) ||
+    counts.total !== corpus.tasks.length ||
+    counts.total !== 24 || !isNonnegativeInteger(counts.completed) ||
+    !isNonnegativeInteger(counts.passed) || !isNonnegativeInteger(counts.failed)
+  ) {
+    fail('report_contract_invalid');
+  }
+  const rawResults = Array.isArray(object.results)
+    ? object.results
+    : fail('report_contract_invalid');
+  if (rawResults.length !== corpus.tasks.length) fail('report_contract_invalid');
+  const results = rawResults.map((result, index) => validateResultV2(result, corpus.tasks[index]));
+  const passed = results.filter((result) => result.status === 'passed').length;
+  const failed = results.filter((result) => result.status === 'failed').length;
+  if (
+    counts.passed !== passed || counts.failed !== failed || counts.completed !== passed + failed
+  ) {
+    fail('report_contract_invalid');
+  }
+  if (completion.status === 'completed') {
+    if (
+      completion.abortCode !== null || completion.abortTaskId !== null ||
+      results.some((result) => result.status === 'error' || result.status === 'not_run')
+    ) {
+      fail('report_contract_invalid');
+    }
+  } else {
+    if (completion.abortCode === null || completion.abortTaskId === null) {
+      fail('report_contract_invalid');
+    }
+    const errorIndex = results.findIndex((result) => result.taskId === completion.abortTaskId);
+    if (
+      errorIndex < 0 || results[errorIndex].status !== 'error' ||
+      (results[errorIndex] as OfflineCorpusErrorResult).errorCode !== completion.abortCode ||
+      results.filter((result) => result.status === 'error').length !== 1 ||
+      results.slice(0, errorIndex).some((result) =>
+        result.status !== 'passed' && result.status !== 'failed'
+      ) ||
+      results.slice(errorIndex + 1).some((result) => result.status !== 'not_run')
+    ) {
+      fail('report_contract_invalid');
+    }
+  }
+  return object as unknown as OfflineCorpusEvalReportV2;
+};
+
+export const serializeOfflineCorpusEvalReportV2 = (
+  report: OfflineCorpusEvalReportV2,
+  corpus: ValidatedTaskCorpus,
+): string => {
+  validateOfflineCorpusEvalReportV2(report, corpus);
+  return `${JSON.stringify(report)}\n`;
+};
+
+const reportForV2 = (
+  corpus: ValidatedTaskCorpus,
+  results: readonly OfflineCorpusCaseResultV2[],
+  abortCode: OfflineRunnerFailureCode | null,
+  abortTaskId: string | null,
+): OfflineCorpusEvalReportV2 => {
+  const passed = results.filter((result) => result.status === 'passed').length;
+  const failed = results.filter((result) => result.status === 'failed').length;
+  return {
+    schemaVersion: 2,
+    reportId: REPORT_ID,
+    mode: 'offline_scripted',
+    corpus: { schemaVersion: corpus.schemaVersion, corpusId: corpus.corpusId },
+    completion: { status: abortCode === null ? 'completed' : 'aborted', abortCode, abortTaskId },
+    counts: { total: 24, completed: passed + failed, passed, failed },
+    results,
+  };
+};
+
+export const runOfflineCorpusEval = async (
+  seam: OfflineCorpusEvalTestSeam = {},
+): Promise<OfflineCorpusEvalReportV2> => {
+  let corpus: ValidatedTaskCorpus;
+  try {
+    corpus = await loadTaskCorpus(CORPUS_PATH, seam.fixtureReader ?? defaultFixtureReader);
+    assertScriptedCorpusTaskSet(corpus.tasks.map((task) => task.id));
+  } catch {
+    throw new OfflineCorpusEvalError('corpus_preflight_failed');
+  }
+  const results: OfflineCorpusCaseResultV2[] = [];
+  let abortCode: OfflineRunnerFailureCode | null = null;
+  let abortTaskId: string | null = null;
+  const createDependencies = seam.createCaseDependencies ?? ((task: CorpusTask) => ({
+    model: createScriptedCorpusModel(task),
+    registry: createRuntimeRegistry(),
+  }));
+  const runLoop = seam.runLoop ?? runAgent;
+  for (const [index, task] of corpus.tasks.entries()) {
+    let dependencies: { readonly model: Model; readonly registry: RegistryType };
+    try {
+      dependencies = createDependencies(task);
+      if (
+        !isRecord(dependencies) || typeof dependencies.model !== 'object' ||
+        dependencies.model === null ||
+        typeof (dependencies.model as { generate?: unknown }).generate !== 'function' ||
+        !(dependencies.registry instanceof Registry)
+      ) fail('dependency_construction_failed');
+    } catch {
+      abortCode = 'dependency_construction_failed';
+      abortTaskId = task.id;
+      results.push(caseError(task.id, abortCode));
+      for (const later of corpus.tasks.slice(index + 1)) results.push(notRun(later.id));
+      break;
+    }
+    let outcome: LoopOutcome;
+    try {
+      outcome = await runLoop(task.prompt, dependencies.model, dependencies.registry, {
+        maxSteps: MAX_STEPS,
+      });
+    } catch {
+      abortCode = 'case_execution_failed';
+      abortTaskId = task.id;
+      results.push(caseError(task.id, abortCode));
+      for (const later of corpus.tasks.slice(index + 1)) results.push(notRun(later.id));
+      break;
+    }
+    let checkedOutcome: LoopOutcome;
+    try {
+      checkedOutcome = validateLoopOutcome(task, outcome);
+    } catch {
+      abortCode = 'loop_outcome_invalid';
+      abortTaskId = task.id;
+      results.push(caseError(task.id, abortCode));
+      for (const later of corpus.tasks.slice(index + 1)) results.push(notRun(later.id));
+      break;
+    }
+    if (!checkedOutcome.ok) {
+      abortCode = checkedOutcome.outcome === 'max_steps'
+        ? 'loop_max_steps'
+        : 'loop_contract_failure';
+      abortTaskId = task.id;
+      results.push(caseError(task.id, abortCode));
+      for (const later of corpus.tasks.slice(index + 1)) results.push(notRun(later.id));
+      break;
+    }
+    let observation: CorpusObservation;
+    try {
+      observation = observationFromLoopOutcome(task, checkedOutcome);
+    } catch (error) {
+      const observedCode = error instanceof OfflineCorpusEvalError
+        ? error.code
+        : 'transcript_malformed';
+      abortCode = observedCode === 'loop_outcome_invalid'
+        ? 'loop_outcome_invalid'
+        : 'transcript_malformed';
+      abortTaskId = task.id;
+      results.push(caseError(task.id, abortCode));
+      for (const later of corpus.tasks.slice(index + 1)) results.push(notRun(later.id));
+      break;
+    }
+    let score: CorpusCaseScore;
+    try {
+      score = scoreCorpusObservation(task, observation);
+      validateCorpusScoreV2(score, task.id);
+    } catch {
+      abortCode = 'score_contract_invalid';
+      abortTaskId = task.id;
+      results.push(caseError(task.id, abortCode));
+      for (const later of corpus.tasks.slice(index + 1)) results.push(notRun(later.id));
+      break;
+    }
+    results.push({
+      taskId: task.id,
+      status: score.passed ? 'passed' : 'failed',
+      finalText: observation.finalText,
+      requestCount: observation.requestCount,
+      toolEvents: observation.toolEvents,
+      submission: observation.submission,
+      score,
+    });
+  }
+  const report = reportForV2(corpus, results, abortCode, abortTaskId);
+  try {
+    return validateOfflineCorpusEvalReportV2(report, corpus);
+  } catch {
+    throw new OfflineCorpusEvalError('report_contract_invalid');
+  }
+};
+
+export type OfflineCorpusEvalReport = OfflineCorpusEvalReportV1 | OfflineCorpusEvalReportV2;
+
+export const validateOfflineCorpusEvalReport = (
+  value: unknown,
+  corpus: ValidatedTaskCorpus,
+): OfflineCorpusEvalReport => {
+  if (isRecord(value) && value.schemaVersion === 1) {
+    return validateOfflineCorpusEvalReportV1(value, corpus);
+  }
+  return validateOfflineCorpusEvalReportV2(value, corpus);
+};
+
+export const serializeOfflineCorpusEvalReport = (
+  report: OfflineCorpusEvalReport,
+  corpus: ValidatedTaskCorpus,
+): string =>
+  report.schemaVersion === 1
+    ? serializeOfflineCorpusEvalReportV1(report, corpus)
+    : serializeOfflineCorpusEvalReportV2(report, corpus);

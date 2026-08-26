@@ -10,7 +10,12 @@ const SAFETY_MAX_DURATION_MS = 1_000;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-type FixtureMode = 'argv-success' | 'stdin-success' | 'runtime-failure' | 'tty';
+type FixtureMode =
+  | 'argv-success'
+  | 'argv-json-success'
+  | 'stdin-success'
+  | 'runtime-failure'
+  | 'tty';
 
 interface CapturedOutput {
   readonly text: string;
@@ -219,6 +224,17 @@ Deno.test('offline piped process sends stdin bytes and captures final-only outpu
   assert(result.status.success);
   assertEquals(result.status.code, 0);
   assertEquals(result.stdout.text, 'offline stdin answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
+});
+
+Deno.test('offline argv process prints canonical JSON submitted by the terminal tool', async () => {
+  const result = await runProcess('argv-json-success', ['--task', '  json argv task  ']);
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, '{"ok":true,"items":[1,2]}\n');
   assertEquals(result.stderr.text, '');
   assert(!result.killed);
   assert(!result.stdout.overflow && !result.stderr.overflow);

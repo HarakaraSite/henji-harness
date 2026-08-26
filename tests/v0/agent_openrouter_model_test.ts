@@ -6,6 +6,7 @@ import {
   type OpenRouterAgentModelOptions,
 } from '../../v0/agent/openrouter_model.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
+import { createRuntimeRegistry } from '../../v0/agent/runtime.ts';
 import { createFixtureTool, Registry } from '../../v0/agent/tools.ts';
 import { type ModelRequest } from '../../v0/agent/contracts.ts';
 
@@ -42,6 +43,11 @@ const toolPayload = (overrides: Record<string, unknown> = {}) => ({
 const request = (): ModelRequest => ({
   transcript: [{ role: 'user', content: { kind: 'text', text: 'hello' } }],
   tools: [createFixtureTool()],
+});
+
+const runtimeRequest = (): ModelRequest => ({
+  transcript: [{ role: 'user', content: { kind: 'text', text: 'json task' } }],
+  tools: createRuntimeRegistry().definitions(),
 });
 
 const makeFetcher = (responses: readonly Response[], calls: FetchCall[]) => {
@@ -124,6 +130,95 @@ Deno.test('text final accepts an explicitly null tool_calls field', async () => 
   const model = new OpenRouterAgentModel(options(makeFetcher([response(payload)], calls)));
   assertEquals(await model.generate(request()), { kind: 'final', text: 'answer' });
   assertEquals(calls.length, 1);
+});
+
+Deno.test('adapter serializes the exact object-root JSON submission definition and arguments', async () => {
+  const calls: FetchCall[] = [];
+  const json = '{"emoji":"🐣","nested":[1,null]}';
+  const payload = toolPayload({
+    tool_calls: [{
+      id: 'submit-1',
+      type: 'function',
+      function: { name: 'submit_json_result', arguments: JSON.stringify({ json }) },
+    }],
+  });
+  const model = new OpenRouterAgentModel(options(makeFetcher([response(payload)], calls)));
+  assertEquals(await model.generate(runtimeRequest()), {
+    kind: 'tool_calls',
+    calls: [{ callId: 'submit-1', name: 'submit_json_result', arguments: { json } }],
+  });
+  const body = parsedBody(calls[0]);
+  assertEquals(body.tools, [
+    {
+      type: 'function',
+      function: {
+        name: 'character_count',
+        description: 'Count Unicode code points in one input text.',
+        parameters: {
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'count_json_array_items',
+        description: 'Count the items in one JSON array string.',
+        parameters: {
+          type: 'object',
+          properties: { json: { type: 'string' } },
+          required: ['json'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_json_object_keys',
+        description: 'List the sorted keys of one object in an explicitly allowed local JSON file.',
+        parameters: {
+          type: 'object',
+          properties: {
+            path: { type: 'string' },
+            objectKey: { type: 'string' },
+          },
+          required: ['path', 'objectKey'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'submit_json_result',
+        description:
+          'Submit the final answer when it is a JSON value. Call it as the only tool call in the assistant batch. Pass the complete JSON text in `json`. Use the normal assistant final response for plain text.',
+        parameters: {
+          type: 'object',
+          properties: { json: { type: 'string' } },
+          required: ['json'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'uppercase_text',
+        description: 'Convert one input text to uppercase.',
+        parameters: {
+          type: 'object',
+          properties: { text: { type: 'string' } },
+          required: ['text'],
+          additionalProperties: false,
+        },
+      },
+    },
+  ]);
 });
 
 Deno.test('adapter composes with runAgent and preserves two-request causal tool round', async () => {

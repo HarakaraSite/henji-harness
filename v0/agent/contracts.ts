@@ -19,13 +19,33 @@ export interface ToolCallContent extends ToolCall {
 
 export type ToolResultOutcome = 'success' | 'error';
 
-export interface ToolResultContent {
+export interface ContinuingToolResultContent {
   readonly kind: 'tool_result';
   readonly callId: string;
   readonly name: string;
   readonly text: string;
   readonly outcome: ToolResultOutcome;
 }
+
+export interface TerminalToolResultContent {
+  readonly kind: 'tool_result';
+  readonly callId: string;
+  readonly name: string;
+  readonly text: string;
+  readonly outcome: 'success';
+  readonly terminal: 'json_result';
+}
+
+export type ToolResultContent = ContinuingToolResultContent | TerminalToolResultContent;
+
+export type ToolExecutionResult =
+  | { readonly kind: 'continue'; readonly text: string }
+  | {
+    readonly kind: 'terminate';
+    readonly text: string;
+    readonly finalText: string;
+    readonly terminalKind: 'json_result';
+  };
 
 export interface UserMessage {
   readonly role: 'user';
@@ -63,7 +83,7 @@ export interface Model {
   generate(request: ModelRequest): ModelResult | PromiseLike<ModelResult>;
 }
 
-export type LoopStopReason = 'final' | 'max_steps' | 'contract_failure';
+export type LoopStopReason = 'final' | 'tool_terminal' | 'max_steps' | 'contract_failure';
 
 export interface LoopOutcome {
   readonly ok: boolean;
@@ -71,6 +91,7 @@ export interface LoopOutcome {
   readonly outcome: LoopStopReason;
   readonly stopReason: LoopStopReason;
   readonly finalText?: string;
+  readonly terminalKind?: 'json_result';
   readonly error?: string;
   readonly steps: number;
   readonly toolCallCount: number;

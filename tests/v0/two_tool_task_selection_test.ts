@@ -102,13 +102,16 @@ Deno.test('registry advertises both tools and counts Unicode code points', async
     arguments: { text: 'Henji 🐣' },
   });
   assertEquals(result, {
-    kind: 'tool_result',
-    callId: 'count',
-    name: 'character_count',
-    text: '{"count":7}',
-    outcome: 'success',
+    content: {
+      kind: 'tool_result',
+      callId: 'count',
+      name: 'character_count',
+      text: '{"count":7}',
+      outcome: 'success',
+    },
+    terminal: null,
   });
-  assertEquals(JSON.parse(result.text), { count: 7 });
+  assertEquals(JSON.parse(result.content.text), { count: 7 });
 });
 
 Deno.test('character_count rejects every invalid input shape', async () => {
@@ -126,8 +129,8 @@ Deno.test('character_count rejects every invalid input shape', async () => {
       name: 'character_count',
       arguments: argumentsValue,
     });
-    assertEquals(result.outcome, 'error');
-    assert(result.text.startsWith('invalid arguments:'));
+    assertEquals(result.content.outcome, 'error');
+    assert(result.content.text.startsWith('invalid arguments:'));
   }
 });
 

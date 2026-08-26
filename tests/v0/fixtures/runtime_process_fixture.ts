@@ -1,7 +1,13 @@
 import { main } from '../../../v0/agent/runtime_cli.ts';
 
 const DUMMY_CREDENTIAL = 'offline-dummy-credential';
-const MODES = ['argv-success', 'stdin-success', 'runtime-failure', 'tty'] as const;
+const MODES = [
+  'argv-success',
+  'argv-json-success',
+  'stdin-success',
+  'runtime-failure',
+  'tty',
+] as const;
 type FixtureMode = (typeof MODES)[number];
 
 const response = (text: string): Response =>
@@ -9,6 +15,27 @@ const response = (text: string): Response =>
     status: 200,
     headers: { 'content-type': 'application/json' },
   });
+
+const jsonToolResponse = (json: string): Response =>
+  new Response(
+    JSON.stringify({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: null,
+          tool_calls: [{
+            id: 'submit-1',
+            type: 'function',
+            function: { name: 'submit_json_result', arguments: JSON.stringify({ json }) },
+          }],
+        },
+      }],
+    }),
+    {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    },
+  );
 
 const mode = Deno.args[0] as string | undefined;
 if (!mode || !MODES.includes(mode as FixtureMode)) {
@@ -19,6 +46,8 @@ const fixtureMode = mode as FixtureMode;
 const applicationArgs = Deno.args.slice(1);
 const expectedTask = fixtureMode === 'argv-success'
   ? 'argv task'
+  : fixtureMode === 'argv-json-success'
+  ? 'json argv task'
   : fixtureMode === 'stdin-success'
   ? 'piped task'
   : fixtureMode === 'runtime-failure'
@@ -45,6 +74,9 @@ const fakeFetch: typeof fetch = (_input, init) => {
   }
   if (fixtureMode === 'runtime-failure') {
     return Promise.reject(new Error('sensitive-marker-provider-body'));
+  }
+  if (fixtureMode === 'argv-json-success') {
+    return Promise.resolve(jsonToolResponse('{"ok":true,"items":[1,2]}'));
   }
   const finalText = fixtureMode === 'argv-success' ? 'offline argv answer' : 'offline stdin answer';
   return Promise.resolve(response(finalText));

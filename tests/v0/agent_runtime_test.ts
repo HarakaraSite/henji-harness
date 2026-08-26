@@ -115,7 +115,7 @@ const runWithOutput = async (
   return { exit, stdout, stderr, taskSeen };
 };
 
-Deno.test('normal runtime builds one stable four-tool registry and returns final-only output data', async () => {
+Deno.test('normal runtime builds one stable five-tool registry and returns final-only output data', async () => {
   const calls: FetchCall[] = [];
   const result = await runRuntime('offline task', {
     fetcher: fetchSequence([response(finalPayload('answer'))], calls),
@@ -133,6 +133,7 @@ Deno.test('normal runtime builds one stable four-tool registry and returns final
       'character_count',
       'count_json_array_items',
       'list_json_object_keys',
+      'submit_json_result',
       'uppercase_text',
     ],
   );

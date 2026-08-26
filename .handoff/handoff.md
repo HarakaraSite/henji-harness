@@ -4,10 +4,16 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: approved plan SHA-256 `6522ef9e...d1e78`のoffline corpus runnerを実装済み。focused 14件、default CLI report 24/24/24/0、full v0 gate 124件、diff checkが成功し、review P2 3件修正後のchanged-lines re-reviewはBlocker/P1/P2 0でGO
-- 次: corpus runnerをlive modelへ接続する別incrementを計画し、provider/credentialを含むHuman Gateへ出す
+- 状態: Pi-style `submit_json_result` local gate完了。agent 20、offline 14、live fake 10、full 154 tests成功。post-fix sentinelのhistorical resultは6 completed、5 passed/1 failed、external requests 12/12、retry/rerun/follow-upなし
+- 次: terminal submissionのreal-model adherenceを確認する新provider attemptを、必要なら別計画・明示承認にする。旧Gate Cは不適格のまま
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
+
+### POL-20260826-pi-json-result-submission
+
+- 判断済み: plan SHA-256 `56fcfc5044993db7ede70ed88ded5931cc15d8500869d7b94815e0e59bda143e`に基づき、generic terminal-tool contractと固定`submit_json_result({json:string})`を採用。JSON taskはsubmission、text taskはassistant finalを使い、domain tool評価とsubmission evidenceを分離する
+- 状態: local implementation、permission-free focused tests、offline/live-fake v2、full 154-test gate、review finding修正、owner final verification完了
+- 境界: 新provider/network attempt、credential、corpus data、scorer緩和、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未承認
 
 ### POL-20260825-zot-first-reference
 
@@ -17,6 +23,40 @@
 ### POL-20260825-lean-repository-guards
 
 - 判断済み: 過去Human Gate由来のroadmap・tool・Spike・reference hard stopをproject `AGENTS.md`から除き、credential、明示されたproduction provider run、破壊操作、push・tag・release・publishだけをapproval guardとして維持する
+
+### POL-20260825-openrouter-credential-location
+
+- 判断済み: Henji Harnessのrepo外credential locationは`/home/masat.guest/.config/henji-harness/openrouter-api-key`。directory 0700、regular file 0600、owner `masat:masat`としてmetadata確認済み。正本は`docs/operations/openrouter-credential.md`
+- 境界: 内容・形式・有効性は未確認。repo内へ移動せず、値を表示・log・commitしない
+
+### POL-20260825-repo-external-credential-launcher-local-gate
+
+- 判断済み: ユーザーがplan SHA-256 `c8841539...afd9`の固定TypeScript launcher、dummy-only direct test、fake-child process test、task/gate integration、results、local verification、bounded reviewを承認
+- 境界: local gateではreal credentialのprobe/stat/read、network/provider、新sentinel attempt、Gate C、commit、push、releaseはいずれも未承認
+
+### POL-20260825-repo-external-credential-launcher-sentinel
+
+- 判断済み: ユーザーがlocal review GO後の固定launcher taskによるexact 6-case sentinelを、新しいone-shot attemptとして一回だけ実行することを承認
+- 上限: 最大12 external requests、repository worst USD 0.746496、authorization ceiling USD 0.768、application retry/fallback/rerun/follow-up 0
+- fresh readback: 2026-08-25 22:45 JSTにOpenRouter公式model pageでexact slug `google/gemini-3.7-flash`、tool/tool_choice対応、USD 0.375/M input・USD 1.875/M output、提供中を確認。現行USD 0.064/request上限は保守的
+- 境界: credentialはこの一command内で初めてreadし、missing/malformedを含む結果にかかわらず再実行しない。Gate C、commit、push、releaseは未承認
+
+### POL-20260825-openrouter-credential-content-remediation
+
+- 判断済み: ユーザー本人が複数terminal newlineを原因として確認し、それらを許容するlocal parser fixを承認
+- 境界: credential inspection/change、新provider attempt、Gate C、commit、push、releaseはいずれも未承認。消費済みattemptを再実行しない
+
+### POL-20260825-terminal-newline-fix-sentinel
+
+- 判断済み: ユーザーがparser fix review GO後の固定launcher taskによるexact 6-case sentinelを、新しいone-shot attemptとして一回だけ実行することを承認
+- fresh readback: 2026-08-25 23:20 JSTにOpenRouter公式model pageでexact slug、tool/tool_choice対応、USD 0.375/M input・USD 1.875/M output、提供中を確認
+- 上限と境界: 最大12 requests、USD 0.768、retry/fallback/rerun/follow-up 0。結果にかかわらず再実行なし。Gate C、commit、push、releaseは未承認
+
+### ISS-20260825-sentinel-markdown-fence
+
+- 観測: `v1.multi-tool.fmt.explicit`はrequired toolsを正しい順序で成功し期待count 3を得たが、final JSONをMarkdown code fenceで包み、strict whole-text oracleが`oracle_json_malformed`としてfailed
+- 影響: sentinelは5/6のためGate C不適格。provider/contract errorではなくmodel presentation qualityの単発観測であり、自動再実行しない
+- 次: scorerを緩和せずPi-style terminal submissionをlocal実装済み。real-modelでの解消確認は新provider attemptとして別plan・明示承認を要する
 
 ### POL-20260819-spike2-typescript-env
 
@@ -38,6 +78,118 @@
   matrixを補完した
 
 ## Checkpoints
+
+## 2026-08-25 23:53 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Post-fix one-shot sentinel outcome
+- 実施: exact fixed launcher commandを一回実行。6 completed、5 passed/1 failed、errors/not-run 0、external requests 12/12。multi-toolのみcorrect JSONをcode fenceで包み`oracle_json_malformed`
+- 次: ISS-20260825-sentinel-markdown-fenceの扱いを別判断にする
+- 注意: credential/provider leakなし、retry/rerun/follow-upなし。Gate C、commitは未実施
+
+## 2026-08-25 23:53 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Terminal-newline fix sentinel Human Gate
+- 実施: ユーザーがfresh official readback、最大12 requests、USD 0.768 ceiling、retry/fallback/rerun/follow-up 0の条件で新one-shot sentinelを明示承認
+- 次: exact credential-file sentinel commandを一回だけ実行し、sanitized outcomeを記録する
+- 注意: 結果にかかわらず再実行しない。Gate C、commitは未承認
+
+## 2026-08-25 23:20 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Credential terminal-newline local fix completion
+- 実施: terminal `(LF|CRLF)+`だけをstripするparser fixとpositive/negative dummy testsを実装。direct 8/process 1/topology 1/full 144成功、review GO、Blocker/P1/P2 0
+- 次: fresh official readback後、parser修正後の新one-shot sentinel Human Gateを提示する
+- 注意: real credential read/change、production launcher、network/provider、新attempt、Gate C、commitは未実施
+
+## 2026-08-25 23:15 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Credential terminal-newline local fix approval
+- 実施: ユーザーが複数terminal newlineを失敗原因として確認し、末尾CR/LF列を許容しつつtoken本体の改行・空白拒否を維持するparser fixを承認
+- 次: 単一implementerでdummy-only parser fix、local gate、read-only reviewを行う
+- 注意: real credential read/change、production launcher、network/provider、新attempt、Gate C、commitは未承認
+
+## 2026-08-25 23:03 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Repo-external credential launcher one-shot outcome
+- 実施: exact credential-file sentinel taskを一回だけ実行し、exit 1 / `credential_invalid`でpreflight停止。child spawn 0、external requests 0、retry/rerun/follow-up 0
+- 次: ASK-20260825-openrouter-credential-content-remediationのユーザー判断
+- 注意: credential値・bytes・形式詳細は未表示・未記録。追加probe、新attempt、Gate C、commitは未実施
+
+## 2026-08-25 23:02 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Repo-external credential launcher Human Gate S
+- 実施: ユーザーがfresh official readback、最大12 requests、USD 0.768 ceiling、retry/fallback/rerun/follow-up 0の条件で、新one-shot sentinelを明示承認
+- 次: exact credential-file sentinel commandを一回だけ実行し、sanitized outcomeを記録する
+- 注意: missing/malformed/provider/scoringを含む結果にかかわらず再実行しない。Gate C、commitは未承認
+
+## 2026-08-25 22:44 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Repo-external credential launcher local gate completion
+- 実施: fixed launcherとdummy-only testsを実装。direct 8/process 1/topology 1/full 144が成功。UID権限欠落P1へexact `--allow-sys=uid`を追加し、changed-lines再reviewはGO、Blocker/P1/P2 0
+- 次: ASK-20260825-repo-external-credential-launcher-sentinelのfresh provider readbackとユーザー判断
+- 注意: real credential probe/read、network/provider、production launcher、Gate C、commitは未実施
+
+## 2026-08-25 22:21 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Repo-external credential launcher Human Gate L
+- 実施: ユーザーがplan SHA-256 `c8841539...afd9`のlocal-only implementation、dummy/fake-child tests、verification、bounded reviewを承認
+- 次: 単一implementerで実装・local gateを行い、その後read-only reviewへ渡す
+- 注意: real credential probe/read、network/provider attempt、Gate C、commitは未承認
+
+## 2026-08-25 22:18 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Repo-external OpenRouter credential launcher planning
+- 実施: fixed fileを親だけがbounded readし、clear-env childへsecret env一件だけを渡すlauncherを計画。dummy-only local gateと、実credentialを初めて読む新one-shot sentinel Human Gateを分離した
+- 次: ASK-20260825-repo-external-credential-launcher-local-gateのユーザー判断
+- 注意: plan SHA-256 `c8841539...afd9`。credential内容、実装、network/provider attempt、commitは未実施
+
+## 2026-08-25 22:10 JST
+
+- 実行エージェント: Codex
+- 作業トピック: OpenRouter credential location record
+- 実施: typo path `.config/henji-herness`は不存在、正しいrepo外pathは`.config/henji-harness/openrouter-api-key`とmetadata限定で確認。directory 0700、file 0600、owner `masat:masat`、75 bytesを運用文書とPOLへ記録
+- 次: ASK-20260825-live-corpus-credential-remediationのユーザー判断
+- 注意: credential内容・形式・有効性は未読。移動、injection、provider attempt、commitは未実施
+
+## 2026-08-25 22:03 JST
+
+- 実行エージェント: Codex
+- 作業トピック: Live corpus Gate B one-shot sentinel
+- 実施: exact sentinel taskを承認どおり一回だけ実行。`provider_missing_credential`でrequest開始前にabortし、external requests 0、completed/passed/failed 0、error 1、not-run 5。retry/rerun/follow-upなし
+- 次: ASK-20260825-live-corpus-credential-remediationのユーザー判断
+- 注意: credentialの場所・値は未調査。Gate Cは不適格、追加attempt・commit・push・releaseは未承認
+
+## 2026-08-25 21:23 JST
+
+- 実行エージェント: Codex + implementer + reviewer
+- 作業トピック: Live corpus evaluation Gate A completion
+- 実施: fixed live eval runner/CLIとpermission-free fake-provider matrixを実装。初回review P2 4件を修正し、focused 10件、full v0 gate 134件、diff check成功、changed-lines re-reviewはBlocker/P1/P2 0でGO
+- 次: ASK-20260825-live-corpus-gate-bのexact条件をreadbackし、ユーザー判断へ出す
+- 注意: live task、credential確認、network/provider実行、Gate B/C、commit、push、releaseは未実施
+
+## 2026-08-25 20:48 JST
+
+- 実行エージェント: Codex
+- 作業トピック: Live corpus evaluation Gate A approval
+- 実施: ユーザー承認を受領し、plan SHA-256 `700d8427...00ef8`のlocal implementation、permission-free test、full offline verification、bounded reviewを開始した
+- 次: 単一implementerが承認範囲を実装・testする
+- 注意: credential確認、network/provider実行、Gate B/C、commit、push、releaseは未承認
+
+## 2026-08-25 20:46 JST
+
+- 実行エージェント: Codex + planner
+- 作業トピック: Live corpus evaluation planning
+- 実施: canonical 24-case corpusをlive modelへ接続する計画を作成。Gate A local-only、Gate B fixed six-case sentinel（最大12 request、承認上限USD 0.768）、Gate C canonical 24-case（最大48 request、承認上限USD 3.072）へ分離し、Zotとの差としてapplication retry 0を明記した
+- 次: ASK-20260825-live-corpus-gate-aのユーザー判断
+- 注意: provider/network/credential確認、実装、test、commit、push、releaseは未実施
 
 ## 2026-08-25 01:11 JST
 
@@ -818,3 +970,19 @@
 - 実施: plan SHA-256 `6522ef9e...d1e78`の24-case scripted runner、strict report/CLI、14 focused testsを実装。CLI 24/24/24/0、full v0 gate 124件成功。review P2 3件を修正し、changed-lines re-reviewはBlocker/P1/P2 0でGO
 - 次: live model corpus evaluationを別incrementとして計画し、Human Gateへ出す
 - 注意: provider/network、credential、production command、aggregation、persistence、dependency/lockfile、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-26 10:05 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Pi-style terminal JSON result submission planning
+- 実施: generic terminal-tool contract、`submit_json_result({json:string})`、strict parse/canonicalization、domain-toolとsubmissionの評価分離、v2 report、local test/reviewを実装可能な計画へ確定した
+- 次: `ASK-20260826-pi-json-result-submission-plan`のHuman Gate
+- 注意: 実装、provider/network、credential、corpus data、scorer緩和、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未実施・未承認
+
+## 2026-08-26 11:28 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Pi-style terminal JSON result submission local completion
+- 実施: generic terminal boundary、第5 tool、strict canonical JSON、report v2、17 submission/7 text scripted partitionを実装。agent 20、offline 14、live fake 10、full 154 tests、diff/format成功。reviewの4 P2とgapを修正し、single re-review後のtest-only P2をexact delayed-abort regressionsとowner final gateで閉じた
+- 次: 必要ならreal-model adherenceを別Human Gateで計画する
+- 注意: provider/network、credential、production command、corpus data、scorer緩和、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未実施・未承認

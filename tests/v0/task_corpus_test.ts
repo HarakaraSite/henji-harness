@@ -57,10 +57,12 @@ const observation = (
   finalText: string,
   requestCount: number,
   toolEvents: CorpusObservation['toolEvents'] = [],
+  submission: CorpusObservation['submission'] = null,
 ): CorpusObservation => ({
   finalText,
   requestCount,
   toolEvents,
+  submission,
 });
 
 Deno.test('loads the versioned 24-case corpus and validates literal fixtures', async () => {
@@ -229,7 +231,18 @@ Deno.test('exact text and JSON oracles are mechanical and strict', async () => {
   assert(scoreCorpusObservation(textTask, observation('MiXeD 123 !', 1)).passed);
   assert(!scoreCorpusObservation(textTask, observation(' mixed 123 ! ', 1)).passed);
   const jsonTask = corpus.tasks.find((task) => task.id === 'v1.final-only.json')!;
-  assert(scoreCorpusObservation(jsonTask, observation('{"version":1,"status":"ready"}', 1)).passed);
+  assert(
+    scoreCorpusObservation(
+      jsonTask,
+      observation('{"version":1,"status":"ready"}', 1, [], {
+        kind: 'json_result',
+        requestOrdinal: 0,
+        callId: 'submit-1',
+        resultCallId: 'submit-1',
+        outcome: 'success',
+      }),
+    ).passed,
+  );
   assert(
     !scoreCorpusObservation(jsonTask, observation('{"status":"ready","version":1} trailing', 1))
       .passed,
@@ -289,7 +302,13 @@ Deno.test('tool scorer enforces sequence, event correlation, results, rounds, an
       observation('{"count":3}', 3, [
         event(0, 'list_json_object_keys'),
         event(1, 'count_json_array_items'),
-      ]),
+      ], {
+        kind: 'json_result',
+        requestOrdinal: 2,
+        callId: 'submit-1',
+        resultCallId: 'submit-1',
+        outcome: 'success',
+      }),
     ).passed,
   );
   assert(

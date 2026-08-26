@@ -83,6 +83,14 @@ const maxSteps = (
   transcript,
 });
 
+const terminalBatchError = (call: ToolCall): ToolMessage['content'][number] => ({
+  kind: 'tool_result',
+  callId: call.callId,
+  name: call.name,
+  text: 'terminal tool must be the sole call in its batch',
+  outcome: 'error',
+});
+
 export const runAgent = async (
   task: string,
   model: Model,
@@ -145,22 +153,51 @@ export const runAgent = async (
 
     transcript.push(assistantToolMessage(result.calls));
     const results: ToolMessage['content'][number][] = [];
-    for (const call of result.calls) {
-      toolCallCount += 1;
-      try {
-        results.push(await registry.dispatch(call));
-      } catch (error) {
-        results.push({
-          kind: 'tool_result',
-          callId: call.callId,
-          name: call.name,
-          text: `tool execution error: ${errorText(error)}`,
-          outcome: 'error',
-        });
+    const terminalCalls = result.calls.filter((call) =>
+      registry.resolve(call.name)?.terminal === true
+    );
+    const invalidTerminalBatch = terminalCalls.length > 0 &&
+      (result.calls.length !== 1 || terminalCalls.length !== 1);
+    let terminalResult: { readonly kind: 'json_result'; readonly finalText: string } | null = null;
+    if (invalidTerminalBatch) {
+      for (const call of result.calls) results.push(terminalBatchError(call));
+      toolCallCount += result.calls.length;
+      toolResultCount += result.calls.length;
+    } else {
+      for (const call of result.calls) {
+        toolCallCount += 1;
+        try {
+          const dispatched = await registry.dispatch(call);
+          results.push(dispatched.content);
+          if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
+        } catch (error) {
+          results.push({
+            kind: 'tool_result',
+            callId: call.callId,
+            name: call.name,
+            text: `tool execution error: ${errorText(error)}`,
+            outcome: 'error',
+          });
+        }
+        toolResultCount += 1;
       }
-      toolResultCount += 1;
     }
     transcript.push({ role: 'tool', content: results });
+
+    if (terminalResult !== null) {
+      return {
+        ok: true,
+        task,
+        outcome: 'final',
+        stopReason: 'tool_terminal',
+        finalText: terminalResult.finalText,
+        terminalKind: terminalResult.kind,
+        steps,
+        toolCallCount,
+        toolResultCount,
+        transcript,
+      };
+    }
 
     if (steps >= limit) return maxSteps(task, transcript, steps, toolCallCount, toolResultCount);
   }

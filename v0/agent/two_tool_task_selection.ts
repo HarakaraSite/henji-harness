@@ -213,7 +213,7 @@ const countedTool = (
   counts: MutableToolExecutionCounts,
 ): Tool => ({
   ...tool,
-  execute(argumentsValue: JsonValue): string | PromiseLike<string> {
+  execute(argumentsValue: JsonValue) {
     counts[name] += 1;
     return tool.execute(argumentsValue);
   },

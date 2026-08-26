@@ -55,8 +55,8 @@ Deno.test('lists sorted keys from the allowed JSON object', async () => {
     readFile: () => Promise.resolve(encoder.encode('{"tasks":{"z":"last","a":"first"}}')),
   })]);
   const result = await registry.dispatch(call(allowedPath, 'tasks'));
-  assertEquals(result.outcome, 'success');
-  assertEquals(result.text, '["a","z"]');
+  assertEquals(result.content.outcome, 'success');
+  assertEquals(result.content.text, '["a","z"]');
 });
 
 Deno.test('rejects other paths, malformed input, invalid JSON, non-object values, and oversized files', async () => {
@@ -79,13 +79,13 @@ Deno.test('rejects other paths, malformed input, invalid JSON, non-object values
       },
     })]);
     const result = await registry.dispatch(call(testCase.path, testCase.objectKey));
-    assertEquals(result.outcome, 'error');
+    assertEquals(result.content.outcome, 'error');
     if (testCase.path !== allowedPath || testCase.objectKey === '') {
       assertEquals(reads, 0);
-      assert(result.text.startsWith('invalid arguments:'));
+      assert(result.content.text.startsWith('invalid arguments:'));
     } else {
       assertEquals(reads, 1);
-      assert(result.text.startsWith('tool execution error:'));
+      assert(result.content.text.startsWith('tool execution error:'));
     }
   }
 });
@@ -93,8 +93,8 @@ Deno.test('rejects other paths, malformed input, invalid JSON, non-object values
 Deno.test('reads the real non-secret task configuration within the explicit permission boundary', async () => {
   const registry = new Registry([createJsonObjectKeysTool({ allowedPath })]);
   const result = await registry.dispatch(call(allowedPath, 'tasks'));
-  assertEquals(result.outcome, 'success');
-  const keys = JSON.parse(result.text) as string[];
+  assertEquals(result.content.outcome, 'success');
+  const keys = JSON.parse(result.content.text) as string[];
   assert(keys.includes('agent:selection:test'));
   assert(keys.includes('v0:gate'));
   assertEquals(keys, [...keys].sort());
@@ -107,8 +107,8 @@ Deno.test('counts items in a JSON array string', async () => {
     name: 'count_json_array_items',
     arguments: { json: '["a", "b", "c"]' },
   });
-  assertEquals(result.outcome, 'success');
-  assertEquals(result.text, '{"count":3}');
+  assertEquals(result.content.outcome, 'success');
+  assertEquals(result.content.text, '{"count":3}');
 });
 
 Deno.test('JSON task preserves two requests and rejects a failed first result after one request', async () => {

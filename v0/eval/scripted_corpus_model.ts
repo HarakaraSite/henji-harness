@@ -59,6 +59,17 @@ const expectedTools: readonly ToolDefinition[] = [
     },
   },
   {
+    name: 'submit_json_result',
+    description:
+      'Submit the final answer when it is a JSON value. Call it as the only tool call in the assistant batch. Pass the complete JSON text in `json`. Use the normal assistant final response for plain text.',
+    inputSchema: {
+      type: 'object',
+      properties: { json: { type: 'string' } },
+      required: ['json'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'uppercase_text',
     description: 'Convert one input text to uppercase.',
     inputSchema: {
@@ -377,13 +388,14 @@ class ScriptedCorpusModel implements Model {
   #round = 0;
   #nextCall = 1;
   #finalReturned = false;
+  #terminalReturned = false;
 
   constructor(script: ScriptEntry) {
     this.#script = script;
   }
 
   generate(request: ModelRequest): ModelResult {
-    if (this.#finalReturned) {
+    if (this.#finalReturned || this.#terminalReturned) {
       throw new FixtureModelContractError('script exhausted after final response');
     }
     if (!sameJson(request.tools, expectedTools)) {
@@ -401,6 +413,24 @@ class ScriptedCorpusModel implements Model {
       }));
       this.#round += 1;
       return { kind: 'tool_calls', calls };
+    }
+    let jsonTerminal = false;
+    try {
+      JSON.parse(this.#script.finalText);
+      jsonTerminal = true;
+    } catch {
+      // Plain text cases intentionally use the assistant final path.
+    }
+    if (jsonTerminal) {
+      this.#terminalReturned = true;
+      return {
+        kind: 'tool_calls',
+        calls: [{
+          callId: `call-${this.#nextCall++}`,
+          name: 'submit_json_result',
+          arguments: { json: this.#script.finalText },
+        }],
+      };
     }
     this.#finalReturned = true;
     return { kind: 'final', text: this.#script.finalText };

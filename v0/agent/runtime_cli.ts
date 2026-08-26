@@ -196,7 +196,8 @@ export const main = async (
       ((value: string) => runRuntime(value, dependencies.runtimeSeam));
     const run = await runner(task);
     if (
-      run.outcome.ok && run.outcome.stopReason === 'final' &&
+      run.outcome.ok &&
+      (run.outcome.stopReason === 'final' || run.outcome.stopReason === 'tool_terminal') &&
       typeof run.outcome.finalText === 'string'
     ) {
       const finalText = run.outcome.finalText;

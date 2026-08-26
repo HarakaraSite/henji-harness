@@ -1,17 +1,29 @@
 import {
+  type ContinuingToolResultContent,
   type JsonObject,
   type JsonValue,
+  type TerminalToolResultContent,
   type ToolCall,
   type ToolDefinition,
-  type ToolResultContent,
+  type ToolExecutionResult,
 } from './contracts.ts';
 
 export interface Tool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: JsonValue;
-  execute(argumentsValue: JsonValue): string | PromiseLike<string>;
+  readonly terminal?: boolean;
+  execute(
+    argumentsValue: JsonValue,
+  ): string | ToolExecutionResult | PromiseLike<string | ToolExecutionResult>;
 }
+
+export type RegistryDispatchResult =
+  | { readonly content: ContinuingToolResultContent; readonly terminal: null }
+  | {
+    readonly content: TerminalToolResultContent;
+    readonly terminal: { readonly kind: 'json_result'; readonly finalText: string };
+  };
 
 export class ToolInputError extends Error {
   constructor(message: string) {
@@ -50,43 +62,177 @@ export class Registry {
     return this.byName.get(name);
   }
 
-  async dispatch(call: ToolCall): Promise<ToolResultContent> {
+  async dispatch(call: ToolCall): Promise<RegistryDispatchResult> {
     const tool = this.resolve(call.name);
     if (!tool) {
       return {
-        kind: 'tool_result',
-        callId: call.callId,
-        name: call.name,
-        text: `unknown tool: ${call.name}`,
-        outcome: 'error',
+        content: {
+          kind: 'tool_result',
+          callId: call.callId,
+          name: call.name,
+          text: `unknown tool: ${call.name}`,
+          outcome: 'error',
+        },
+        terminal: null,
       };
     }
 
     try {
-      const text = await tool.execute(call.arguments);
-      if (typeof text !== 'string') throw new Error('tool returned non-text result');
+      const execution = await tool.execute(call.arguments);
+      if (typeof execution === 'string') {
+        if (tool.terminal) {
+          return continuingError(
+            call,
+            'tool returned a continuing result from a terminal tool',
+          );
+        }
+        return {
+          content: {
+            kind: 'tool_result',
+            callId: call.callId,
+            name: call.name,
+            text: execution,
+            outcome: 'success',
+          },
+          terminal: null,
+        };
+      }
+      if (typeof execution !== 'object' || execution === null) {
+        return continuingError(call, 'tool returned an invalid execution result');
+      }
+      if (execution.kind === 'continue') {
+        if (typeof execution.text !== 'string' || tool.terminal) {
+          return continuingError(
+            call,
+            tool.terminal
+              ? 'tool returned a continuing result from a terminal tool'
+              : 'tool returned an invalid execution result',
+          );
+        }
+        return {
+          content: {
+            kind: 'tool_result',
+            callId: call.callId,
+            name: call.name,
+            text: execution.text,
+            outcome: 'success',
+          },
+          terminal: null,
+        };
+      }
+      if (
+        execution.kind !== 'terminate' || !tool.terminal ||
+        typeof execution.text !== 'string' || typeof execution.finalText !== 'string' ||
+        execution.terminalKind !== 'json_result'
+      ) {
+        return continuingError(
+          call,
+          tool.terminal
+            ? 'tool returned an invalid terminal result'
+            : 'tool returned a terminal result from a non-terminal tool',
+        );
+      }
       return {
-        kind: 'tool_result',
-        callId: call.callId,
-        name: call.name,
-        text,
-        outcome: 'success',
+        content: {
+          kind: 'tool_result',
+          callId: call.callId,
+          name: call.name,
+          text: execution.text,
+          outcome: 'success',
+          terminal: 'json_result',
+        },
+        terminal: { kind: 'json_result', finalText: execution.finalText },
       };
     } catch (error) {
       const prefix = error instanceof ToolInputError ? 'invalid arguments' : 'tool execution error';
       return {
-        kind: 'tool_result',
-        callId: call.callId,
-        name: call.name,
-        text: `${prefix}: ${errorText(error)}`,
-        outcome: 'error',
+        content: {
+          kind: 'tool_result',
+          callId: call.callId,
+          name: call.name,
+          text: `${prefix}: ${errorText(error)}`,
+          outcome: 'error',
+        },
+        terminal: null,
       };
     }
   }
 }
 
+const continuingError = (
+  call: ToolCall,
+  message: string,
+): RegistryDispatchResult => ({
+  content: {
+    kind: 'tool_result',
+    callId: call.callId,
+    name: call.name,
+    text: `tool execution error: ${message}`,
+    outcome: 'error',
+  },
+  terminal: null,
+});
+
 const isObject = (value: JsonValue): value is JsonObject =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isParsedJsonValue = (value: unknown): value is JsonValue => {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isParsedJsonValue);
+  if (typeof value !== 'object') return false;
+  return Object.values(value as Record<string, unknown>).every(isParsedJsonValue);
+};
+
+const SUBMIT_JSON_RESULT_DESCRIPTION =
+  'Submit the final answer when it is a JSON value. Call it as the only tool call in the assistant batch. Pass the complete JSON text in `json`. Use the normal assistant final response for plain text.';
+
+export const createJsonResultSubmissionTool = (): Tool => ({
+  name: 'submit_json_result',
+  description: SUBMIT_JSON_RESULT_DESCRIPTION,
+  terminal: true,
+  inputSchema: {
+    type: 'object',
+    properties: { json: { type: 'string' } },
+    required: ['json'],
+    additionalProperties: false,
+  },
+  execute(argumentsValue: JsonValue): ToolExecutionResult {
+    if (!isObject(argumentsValue)) {
+      throw new ToolInputError('expected an object with only a json string');
+    }
+    const keys = Object.keys(argumentsValue);
+    if (keys.length !== 1 || typeof argumentsValue.json !== 'string') {
+      throw new ToolInputError('expected an object with only a json string');
+    }
+    const input = argumentsValue.json;
+    if (new TextEncoder().encode(input).byteLength > 65_536) {
+      throw new ToolInputError('json input exceeds 64 KiB');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(input);
+    } catch {
+      throw new ToolInputError('json must contain one complete JSON value');
+    }
+    if (!isParsedJsonValue(parsed)) {
+      throw new ToolInputError('json must contain one complete finite JSON value');
+    }
+    const finalText = JSON.stringify(parsed);
+    if (typeof finalText !== 'string') {
+      throw new ToolInputError('json must contain one complete JSON value');
+    }
+    if (new TextEncoder().encode(finalText).byteLength > 65_536) {
+      throw new ToolInputError('canonical JSON exceeds 64 KiB');
+    }
+    return {
+      kind: 'terminate',
+      text: 'json result submitted',
+      finalText,
+      terminalKind: 'json_result',
+    };
+  },
+});
 
 export const createFixtureTool = (): Tool => ({
   name: 'uppercase_text',

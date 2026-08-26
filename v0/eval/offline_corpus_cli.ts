@@ -1,16 +1,18 @@
 import {
   OfflineCorpusEvalError,
-  type OfflineCorpusEvalReportV1,
+  type OfflineCorpusEvalReport,
   type OfflineRunnerFailureCode,
   runOfflineCorpusEval,
+  serializeOfflineCorpusEvalReport,
 } from './offline_corpus_runner.ts';
+import { CORPUS_PATH, loadTaskCorpus } from '../corpus/task_corpus.ts';
 
 const encoder = new TextEncoder();
 
 export type OfflineCorpusCliWriter = (text: string) => void | PromiseLike<void>;
 
 export interface OfflineCorpusCliDependencies {
-  readonly run?: () => Promise<OfflineCorpusEvalReportV1>;
+  readonly run?: () => Promise<OfflineCorpusEvalReport>;
   readonly writeStdout?: OfflineCorpusCliWriter;
   readonly writeStderr?: OfflineCorpusCliWriter;
 }
@@ -39,12 +41,9 @@ const failureCodes: readonly OfflineRunnerFailureCode[] = [
 const compactFailure = (code: OfflineRunnerFailureCode): string =>
   `${JSON.stringify({ schemaVersion: 1, errorCode: code })}\n`;
 
-const reportLine = (report: OfflineCorpusEvalReportV1): string => {
-  try {
-    return `${JSON.stringify(report)}\n`;
-  } catch {
-    throw new OfflineCorpusEvalError('report_contract_invalid');
-  }
+const reportLine = async (report: OfflineCorpusEvalReport): Promise<string> => {
+  const corpus = await loadTaskCorpus(CORPUS_PATH, async (path) => await Deno.readTextFile(path));
+  return serializeOfflineCorpusEvalReport(report, corpus);
 };
 
 export const main = async (
@@ -56,7 +55,7 @@ export const main = async (
   try {
     if (args.length !== 0) throw new OfflineCorpusEvalError('report_contract_invalid');
     const report = await (dependencies.run ?? runOfflineCorpusEval)();
-    await stdout(reportLine(report));
+    await stdout(await reportLine(report));
     return report.completion.status === 'completed' && report.counts.failed === 0 ? 0 : 1;
   } catch (error) {
     const code = error instanceof OfflineCorpusEvalError && failureCodes.includes(error.code)

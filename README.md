@@ -38,9 +38,12 @@ not a local test. Local gates use fixtures and require no credential.
 
 The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin.
 Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
-bytes fails before model or credential setup. The single-shot runtime advertises exactly these four
-tools in stable name order: character_count, count_json_array_items, list_json_object_keys, and
-uppercase_text. The JSON-key tool may read only the literal deno.v0.json path.
+bytes fails before model or credential setup. The single-shot runtime advertises exactly these five
+tools in stable name order: character_count, count_json_array_items, list_json_object_keys,
+submit_json_result, and uppercase_text. The JSON-key tool may read only the literal deno.v0.json
+path. JSON answers must use `submit_json_result` as the sole tool call in a batch; the host
+canonicalizes the complete JSON value and prints it on stdout. Plain-text answers retain the
+assistant final path.
 
 Success writes only the final assistant text to stdout (adding one newline when needed), with an
 empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The

@@ -91,6 +91,16 @@ export type FixtureReader = (
   path: typeof CANONICAL_FIXTURE_PATH,
 ) => Promise<string | Uint8Array>;
 
+export type SubmissionEvidence =
+  | null
+  | {
+    readonly kind: 'json_result';
+    readonly requestOrdinal: number;
+    readonly callId: string;
+    readonly resultCallId: string;
+    readonly outcome: 'success';
+  };
+
 export interface CorpusObservation {
   readonly finalText: string;
   readonly requestCount: number;
@@ -102,6 +112,7 @@ export interface CorpusObservation {
     readonly resultName: string;
     readonly outcome: 'success' | 'error';
   }[];
+  readonly submission?: SubmissionEvidence;
 }
 
 export type CorpusFailureCode =
@@ -119,7 +130,9 @@ export type CorpusFailureCode =
   | 'tool_call_result_id_mismatch'
   | 'tool_call_result_name_mismatch'
   | 'tool_order'
-  | 'tool_same_round';
+  | 'tool_same_round'
+  | 'submission_missing'
+  | 'submission_unexpected';
 
 export interface CorpusDimensionScore {
   readonly passed: boolean;
@@ -131,6 +144,7 @@ export interface CorpusCaseScore {
   readonly passed: boolean;
   readonly oracle: CorpusDimensionScore;
   readonly tools: CorpusDimensionScore;
+  readonly submission: CorpusDimensionScore;
   readonly requests: CorpusDimensionScore;
   readonly failureCodes: readonly CorpusFailureCode[];
 }
@@ -888,20 +902,36 @@ export const scoreCorpusObservation = (
   const requestFailures: CorpusFailureCode[] = [];
   const oracleFailures: CorpusFailureCode[] = [];
   const toolFailures: CorpusFailureCode[] = [];
+  const submissionFailures: CorpusFailureCode[] = [];
   if (
     typeof observation.finalText !== 'string' ||
     !Number.isInteger(observation.requestCount) ||
-    !Array.isArray(observation.toolEvents)
+    !Array.isArray(observation.toolEvents) ||
+    (observation.submission !== undefined && observation.submission !== null &&
+      (!isRecord(observation.submission) ||
+        Object.keys(observation.submission).sort().join('\u0000') !==
+          ['callId', 'kind', 'outcome', 'requestOrdinal', 'resultCallId'].join('\u0000') ||
+        observation.submission.kind !== 'json_result' ||
+        !Number.isSafeInteger(observation.submission.requestOrdinal) ||
+        observation.submission.requestOrdinal < 0 ||
+        observation.submission.requestOrdinal >= observation.requestCount ||
+        typeof observation.submission.callId !== 'string' ||
+        observation.submission.callId.trim() === '' ||
+        typeof observation.submission.resultCallId !== 'string' ||
+        observation.submission.resultCallId !== observation.submission.callId ||
+        observation.submission.outcome !== 'success'))
   ) {
     return {
       taskId: task.id,
       passed: false,
       oracle: dimension(['invalid_observation']),
       tools: dimension(['invalid_observation']),
+      submission: dimension(['invalid_observation']),
       requests: dimension(['invalid_observation']),
       failureCodes: ['invalid_observation'],
     };
   }
+  const submission = observation.submission ?? null;
   if (
     observation.requestCount < 0 ||
     observation.requestCount > task.maxRequests ||
@@ -927,6 +957,11 @@ export const scoreCorpusObservation = (
     ) {
       oracleFailures.push('oracle_json_mismatch');
     }
+  }
+  if (task.oracle.kind === 'json_value') {
+    if (submission === null) submissionFailures.push('submission_missing');
+  } else if (submission !== null) {
+    submissionFailures.push('submission_unexpected');
   }
   const successfulNames: CorpusToolName[] = [];
   let previousOrdinal = -1;
@@ -999,10 +1034,12 @@ export const scoreCorpusObservation = (
   ): readonly CorpusFailureCode[] => [...new Set(codes)];
   const oracle = dimension(dedupe(oracleFailures));
   const tools = dimension(dedupe(toolFailures));
+  const submissionScore = dimension(dedupe(submissionFailures));
   const requests = dimension(dedupe(requestFailures));
   const failureCodes = dedupe([
     ...oracle.failureCodes,
     ...tools.failureCodes,
+    ...submissionScore.failureCodes,
     ...requests.failureCodes,
   ]);
   return {
@@ -1010,6 +1047,7 @@ export const scoreCorpusObservation = (
     passed: failureCodes.length === 0,
     oracle,
     tools,
+    submission: submissionScore,
     requests,
     failureCodes,
   };

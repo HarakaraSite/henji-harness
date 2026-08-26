@@ -1,9 +1,19 @@
 import { assert, assertEquals, assertRejects } from './test_helpers.ts';
-import { type Message, type ModelRequest, type ToolCall } from '../../v0/agent/contracts.ts';
+import {
+  type JsonValue,
+  type Message,
+  type ModelRequest,
+  type ToolCall,
+} from '../../v0/agent/contracts.ts';
 import { FixtureModel } from '../../v0/agent/fixture_model.ts';
 import { main } from '../../v0/agent/cli.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
-import { createFixtureTool, Registry, type Tool } from '../../v0/agent/tools.ts';
+import {
+  createFixtureTool,
+  createJsonResultSubmissionTool,
+  Registry,
+  type Tool,
+} from '../../v0/agent/tools.ts';
 
 const call = (callId: string, name = 'uppercase_text', text = callId): ToolCall => ({
   callId,
@@ -68,21 +78,26 @@ Deno.test('registry normalizes fixed-tool success, invalid input, unknown, and e
   const fixed = new Registry([createFixtureTool()]);
   const success = await fixed.dispatch(call('ok', 'uppercase_text', 'hello'));
   assertEquals(success, {
-    kind: 'tool_result',
-    callId: 'ok',
-    name: 'uppercase_text',
-    text: 'HELLO',
-    outcome: 'success',
+    content: {
+      kind: 'tool_result',
+      callId: 'ok',
+      name: 'uppercase_text',
+      text: 'HELLO',
+      outcome: 'success',
+    },
+    terminal: null,
   });
   const invalid = await fixed.dispatch({
     callId: 'bad',
     name: 'uppercase_text',
     arguments: { text: 1 },
   });
-  assert(invalid.outcome === 'error' && invalid.text.startsWith('invalid arguments:'));
+  assert(
+    invalid.content.outcome === 'error' && invalid.content.text.startsWith('invalid arguments:'),
+  );
   const unknown = await fixed.dispatch(call('missing', 'missing_tool'));
-  assertEquals(unknown.outcome, 'error');
-  assert(unknown.text.includes('unknown tool: missing_tool'));
+  assertEquals(unknown.content.outcome, 'error');
+  assert(unknown.content.text.includes('unknown tool: missing_tool'));
 
   const throwing: Tool = {
     name: 'throwing',
@@ -101,8 +116,306 @@ Deno.test('registry normalizes fixed-tool success, invalid input, unknown, and e
   const failures = new Registry([throwing, rejecting]);
   const thrown = await failures.dispatch(call('throw', 'throwing'));
   const rejected = await failures.dispatch(call('reject', 'rejecting'));
-  assert(thrown.outcome === 'error' && thrown.text === 'tool execution error: boom');
-  assert(rejected.outcome === 'error' && rejected.text === 'tool execution error: later');
+  assert(
+    thrown.content.outcome === 'error' && thrown.content.text === 'tool execution error: boom',
+  );
+  assert(
+    rejected.content.outcome === 'error' && rejected.content.text === 'tool execution error: later',
+  );
+});
+
+Deno.test('successful JSON terminal result records the tool message and stops before another request', async () => {
+  let requests = 0;
+  const outcome = await runAgent(
+    'json task',
+    {
+      generate: () => {
+        requests += 1;
+        return {
+          kind: 'tool_calls' as const,
+          calls: [{
+            callId: 'submit-1',
+            name: 'submit_json_result',
+            arguments: { json: '{ "b": 1, "a": [true, null] }' },
+          }],
+        };
+      },
+    },
+    new Registry([createJsonResultSubmissionTool()]),
+    { maxSteps: 8 },
+  );
+  assert(outcome.ok);
+  assertEquals(requests, 1);
+  assertEquals(outcome.stopReason, 'tool_terminal');
+  assertEquals(outcome.finalText, '{"b":1,"a":[true,null]}');
+  assertEquals(outcome.terminalKind, 'json_result');
+  const last = outcome.transcript.at(-1);
+  assert(last?.role === 'tool');
+  assertEquals(last.content[0], {
+    kind: 'tool_result',
+    callId: 'submit-1',
+    name: 'submit_json_result',
+    text: 'json result submitted',
+    outcome: 'success',
+    terminal: 'json_result',
+  });
+});
+
+Deno.test('JSON submission accepts every top-level value and canonicalizes strictly', async () => {
+  const registry = new Registry([createJsonResultSubmissionTool()]);
+  const cases: readonly [JsonValue, string][] = [
+    [{ json: 'null' }, 'null'],
+    [{ json: 'true' }, 'true'],
+    [{ json: '42' }, '42'],
+    [{ json: '"text"' }, '"text"'],
+    [{ json: '[1, { "b": 2, "a": null }]' }, '[1,{"b":2,"a":null}]'],
+    [{ json: '{ "b": 2, "a": [true, null] }' }, '{"b":2,"a":[true,null]}'],
+    [
+      { json: JSON.stringify(`${'😀'.repeat(16_383)}aa`) },
+      JSON.stringify(`${'😀'.repeat(16_383)}aa`),
+    ],
+  ];
+  for (const [argumentsValue, finalText] of cases) {
+    const result = await registry.dispatch({
+      callId: `valid-${finalText.slice(0, 4)}`,
+      name: 'submit_json_result',
+      arguments: argumentsValue,
+    });
+    assertEquals(result.terminal, { kind: 'json_result', finalText });
+    assertEquals(result.content, {
+      kind: 'tool_result',
+      callId: result.content.callId,
+      name: 'submit_json_result',
+      text: 'json result submitted',
+      outcome: 'success',
+      terminal: 'json_result',
+    });
+  }
+});
+
+Deno.test('JSON submission rejects wrong shapes, malformed text, fences, and byte overflow', async () => {
+  const registry = new Registry([createJsonResultSubmissionTool()]);
+  const tooLarge = JSON.stringify(`${'😀'.repeat(16_384)}`);
+  const cases: readonly JsonValue[] = [
+    null,
+    [],
+    {},
+    { json: 1 },
+    { json: ' ' },
+    { json: '' },
+    { json: '```json\n{"ok":true}\n```' },
+    { json: 'prefix {"ok":true}' },
+    { json: '{"ok":true} suffix' },
+    { json: '{"json":"ok"}', extra: false },
+    { json: tooLarge },
+  ];
+  for (const [index, argumentsValue] of cases.entries()) {
+    const result = await registry.dispatch({
+      callId: `invalid-${index}`,
+      name: 'submit_json_result',
+      arguments: argumentsValue,
+    });
+    assertEquals(result.terminal, null);
+    assert(result.content.outcome === 'error');
+    assert(result.content.text.startsWith('invalid arguments:'));
+  }
+});
+
+Deno.test('successful JSON terminal result on step eight does not issue a ninth request', async () => {
+  let requests = 0;
+  const model = {
+    generate: () => {
+      requests += 1;
+      if (requests < 8) {
+        return { kind: 'tool_calls' as const, calls: [call(`domain-${requests}`)] };
+      }
+      return {
+        kind: 'tool_calls' as const,
+        calls: [{ callId: 'submit-eighth', name: 'submit_json_result', arguments: { json: '7' } }],
+      };
+    },
+  };
+  const outcome = await runAgent(
+    'last-step JSON task',
+    model,
+    new Registry([createFixtureTool(), createJsonResultSubmissionTool()]),
+    { maxSteps: 8 },
+  );
+  assert(outcome.ok);
+  assertEquals(requests, 8);
+  assertEquals(outcome.steps, 8);
+  assertEquals(outcome.stopReason, 'tool_terminal');
+  assertEquals(outcome.finalText, '7');
+});
+
+Deno.test('multiple terminal calls and terminal-plus-unknown batches execute nothing', async () => {
+  let executions = 0;
+  const terminalTool: Tool = {
+    name: 'counting_terminal',
+    description: 'counts terminal executions',
+    inputSchema: {},
+    terminal: true,
+    execute: () => {
+      executions += 1;
+      return {
+        kind: 'terminate' as const,
+        text: 'submitted',
+        finalText: '1',
+        terminalKind: 'json_result' as const,
+      };
+    },
+  };
+  const batches: readonly ToolCall[][] = [
+    [
+      { callId: 'terminal-1', name: 'counting_terminal', arguments: {} },
+      { callId: 'terminal-2', name: 'counting_terminal', arguments: {} },
+    ],
+    [
+      { callId: 'terminal-1', name: 'counting_terminal', arguments: {} },
+      { callId: 'unknown', name: 'missing_tool', arguments: {} },
+    ],
+  ];
+  for (const calls of batches) {
+    let requests = 0;
+    const outcome = await runAgent(
+      'invalid terminal batch',
+      {
+        generate: () => {
+          requests += 1;
+          return { kind: 'tool_calls' as const, calls };
+        },
+      },
+      new Registry([terminalTool]),
+      { maxSteps: 1 },
+    );
+    assert(!outcome.ok);
+    assertEquals(executions, 0);
+    assertEquals(requests, 1);
+    assertEquals(outcome.stopReason, 'max_steps');
+    const tool = outcome.transcript.at(-1);
+    assert(tool?.role === 'tool');
+    assertEquals(tool.content.map((result) => result.text), [
+      'terminal tool must be the sole call in its batch',
+      'terminal tool must be the sole call in its batch',
+    ]);
+  }
+});
+
+Deno.test('terminal and non-terminal execution-result mismatches stay continuing errors', async () => {
+  const nonTerminalReturnsTerminal: Tool = {
+    name: 'nonterminal_returns_terminal',
+    description: 'invalid non-terminal result',
+    inputSchema: {},
+    execute: () => ({
+      kind: 'terminate' as const,
+      text: 'bad',
+      finalText: 'bad',
+      terminalKind: 'json_result' as const,
+    }),
+  };
+  const terminalReturnsText: Tool = {
+    name: 'terminal_returns_text',
+    description: 'invalid terminal result',
+    inputSchema: {},
+    terminal: true,
+    execute: () => 'continuing',
+  };
+  const registry = new Registry([nonTerminalReturnsTerminal, terminalReturnsText]);
+  const nonTerminalResult = await registry.dispatch({
+    callId: 'nonterminal',
+    name: nonTerminalReturnsTerminal.name,
+    arguments: {},
+  });
+  assertEquals(nonTerminalResult.terminal, null);
+  assertEquals(nonTerminalResult.content.outcome, 'error');
+  assertEquals(
+    nonTerminalResult.content.text,
+    'tool execution error: tool returned a terminal result from a non-terminal tool',
+  );
+  const terminalResult = await registry.dispatch({
+    callId: 'terminal',
+    name: terminalReturnsText.name,
+    arguments: {},
+  });
+  assertEquals(terminalResult.terminal, null);
+  assertEquals(terminalResult.content.outcome, 'error');
+  assertEquals(
+    terminalResult.content.text,
+    'tool execution error: tool returned a continuing result from a terminal tool',
+  );
+});
+
+Deno.test('failed and throwing terminal calls recover on the next bounded request', async () => {
+  const throwingTerminal: Tool = {
+    name: 'throwing_terminal',
+    description: 'throws',
+    inputSchema: {},
+    terminal: true,
+    execute: () => {
+      throw new Error('terminal failure');
+    },
+  };
+  const cases: readonly [Registry, ToolCall][] = [
+    [new Registry([createJsonResultSubmissionTool()]), {
+      callId: 'invalid-terminal',
+      name: 'submit_json_result',
+      arguments: { json: 'not JSON' },
+    }],
+    [new Registry([throwingTerminal]), {
+      callId: 'throwing-terminal',
+      name: 'throwing_terminal',
+      arguments: {},
+    }],
+  ];
+  for (const [registry, toolCall] of cases) {
+    const outcome = await runAgent(
+      'recover terminal task',
+      new FixtureModel([
+        { kind: 'tool_calls', calls: [toolCall] },
+        { kind: 'final', text: 'recovered' },
+      ]),
+      registry,
+      { maxSteps: 2 },
+    );
+    assert(outcome.ok);
+    assertEquals(outcome.finalText, 'recovered');
+    assertEquals(outcome.steps, 2);
+    assertEquals(outcome.toolResultCount, 1);
+  }
+});
+
+Deno.test('mixed terminal batches execute no calls and produce ordered continuing errors', async () => {
+  let executions = 0;
+  const domain: Tool = {
+    ...createFixtureTool(),
+    execute: () => {
+      executions += 1;
+      return 'X';
+    },
+  };
+  const outcome = await runAgent(
+    'mixed task',
+    {
+      generate: () => ({
+        kind: 'tool_calls',
+        calls: [
+          { callId: 'terminal', name: 'submit_json_result', arguments: { json: '1' } },
+          { callId: 'domain', name: 'uppercase_text', arguments: { text: 'x' } },
+        ] as ToolCall[],
+      }),
+    },
+    new Registry([createJsonResultSubmissionTool(), domain]),
+    { maxSteps: 1 },
+  );
+  assert(!outcome.ok);
+  assertEquals(executions, 0);
+  assertEquals(outcome.stopReason, 'max_steps');
+  const last = outcome.transcript.at(-1);
+  assert(last?.role === 'tool');
+  assertEquals(last.content.map((result) => result.text), [
+    'terminal tool must be the sole call in its batch',
+    'terminal tool must be the sole call in its batch',
+  ]);
 });
 
 Deno.test('fixture model records every request and observes prior tool results', async () => {

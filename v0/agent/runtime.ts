@@ -6,6 +6,7 @@ import {
   createFixtureTool,
   createJsonArrayCountTool,
   createJsonObjectKeysTool,
+  createJsonResultSubmissionTool,
   Registry,
 } from './tools.ts';
 
@@ -33,7 +34,7 @@ export interface RuntimeRun {
   readonly requestCount: number;
 }
 
-/** Construct the fixed four-tool registry for one invocation. */
+/** Construct the fixed five-tool registry for one invocation. */
 export const createRuntimeRegistry = (
   readFile?: (path: string) => Promise<Uint8Array>,
 ): Registry =>
@@ -41,6 +42,7 @@ export const createRuntimeRegistry = (
     createCharacterCountTool(),
     createJsonArrayCountTool(),
     createJsonObjectKeysTool({ allowedPath: FIXED_JSON_PATH, readFile }),
+    createJsonResultSubmissionTool(),
     createFixtureTool(),
   ]);
 

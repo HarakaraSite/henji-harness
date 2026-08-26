@@ -31,9 +31,38 @@
 - The offline eval runner in `docs/plans/offline-corpus-eval-runner.md` is implemented. Its focused
   suite passes 14 tests, the default CLI returns one completed 24/24/24/0 report, the full v0 gate
   passes 124 tests, and changed-lines re-review is `GO` with Blocker/P1/P2 zero after three P2 fixes.
-- The next increment is to plan how the corpus runner reaches a live model under a separate Human
-  Gate. Live model/provider execution, credential access, aggregation/statistics, persistence, and
-  production CLI exposure remain unapproved.
+- The next increment is planned in `docs/plans/live-corpus-evaluation.md` at SHA-256
+  `700d8427a9ea976d454d6b2d88d3f4920575ddd2447fb96122d5cd9e10400ef8`. Gate A local
+  implementation, permission-free tests, full offline verification, and bounded review are complete.
+  The focused live suite passes 10 tests, the full v0 gate passes 134 tests, and changed-lines
+  re-review is `GO` with Blocker/P1/P2 zero after four P2 fixes. The one authorized six-case sentinel
+  command was consumed and aborted with `provider_missing_credential` before any external request;
+  it was not retried. The repo-external credential launcher is planned in
+  `docs/plans/repo-external-credential-launcher.md` at SHA-256
+  `c8841539fea5ec10479c81c77da53bab0713707d80cdad3b46a7e87a4fe9afd9`. Its local-only
+  implementation is complete: direct 8, process 1, topology 1, and full v0 144 tests pass. Initial review's
+  sole P1 was resolved by the reviewed local plan delta granting only `--allow-sys=uid` for the fixed owner
+  check; changed-lines re-review is `GO` with Blocker/P1/P2 zero. No real credential or provider command was
+  used during the local gate. The separately authorized new one-shot sentinel was consumed at launcher
+  preflight with `credential_invalid`: child spawn 0, external requests 0, and no retry/rerun/follow-up.
+  The user confirmed multiple terminal newlines as the structural cause and approved a parser local-fix that
+  strips only terminal LF/complete CRLF sequences. Direct 8/process 1/topology 1/full 144 remain green, and
+  parser review is `GO` with Blocker/P1/P2 zero. Do not inspect or change the credential or create another
+  attempt without a new explicit approval. The separately approved post-fix sentinel completed all six cases
+  with external requests 12/12: 5 passed and `v1.multi-tool.fmt.explicit` failed only because its correct JSON
+  value was wrapped in a Markdown fence (`oracle_json_malformed`); errors/not-run were zero and it was not
+  rerun. Gate C is ineligible, and aggregation/statistics and persistence remain outside scope.
+- The Pi-style terminal JSON submission plan at
+  `docs/plans/pi-style-json-result-submission.md`, SHA-256
+  `56fcfc5044993db7ede70ed88ded5931cc15d8500869d7b94815e0e59bda143e`, is implemented.
+  `submit_json_result({json:string})` is the fifth fixed runtime tool; successful sole calls end with
+  `tool_terminal` and no follow-up request. Offline/live writers emit report v2 while retaining v1
+  read validation, and corpus domain-tool scoring remains separate from submission evidence. Agent 20,
+  offline 14, live fake 10, and the full v0 gate 154 tests pass. Initial review found four P2s plus a
+  test gap; the single re-review confirmed the implementation fixes and left one test-only P2, which
+  the final owner gate closed with exact delayed-abort regressions and Blocker/P1/P2 zero. No provider,
+  network, credential, production command, corpus data, dependency/lockfile, or persistent-state
+  operation was used. Any new real-provider attempt remains a separate explicit Human Gate.
 
 ## Development lifecycle
 
@@ -44,6 +73,9 @@
   review results, deviations, and remaining risks.
 - Read or change production credentials only with explicit human approval, and never display or record
   credential values.
+- The repo-external OpenRouter credential location and non-secret metadata are recorded in
+  `docs/operations/openrouter-credential.md`. Consult that document instead of rediscovering or
+  moving the file; do not read its contents without explicit approval.
 - Run production provider commands only on explicit user instruction; keep them out of local tests and
   gates. Production attempts are single, observable operations with no automatic retry.
 - Destructive repository operations require explicit human approval. Push, tag, release, publish,
