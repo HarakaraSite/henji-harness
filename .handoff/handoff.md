@@ -4,16 +4,21 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Pi-style `submit_json_result` local gate完了。agent 20、offline 14、live fake 10、full 154 tests成功。post-fix sentinelのhistorical resultは6 completed、5 passed/1 failed、external requests 12/12、retry/rerun/follow-upなし
-- 次: terminal submissionのreal-model adherenceを確認する新provider attemptを、必要なら別計画・明示承認にする。旧Gate Cは不適格のまま
+- 状態: Pi-style `submit_json_result` local gate完了。agent 20、offline 14、live fake 10、full 154 tests成功。新one-shot sentinelは6/6 passed、external requests 12/12、JSON submission 4件・assistant final 2件、retry/rerun/follow-upなし
+- 次: 次の通常CLI roadmap incrementへ進む。追加provider attemptは引き続き別の明示承認にする
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
 ### POL-20260826-pi-json-result-submission
 
 - 判断済み: plan SHA-256 `56fcfc5044993db7ede70ed88ded5931cc15d8500869d7b94815e0e59bda143e`に基づき、generic terminal-tool contractと固定`submit_json_result({json:string})`を採用。JSON taskはsubmission、text taskはassistant finalを使い、domain tool評価とsubmission evidenceを分離する
-- 状態: local implementation、permission-free focused tests、offline/live-fake v2、full 154-test gate、review finding修正、owner final verification完了
+- 状態: local implementation、permission-free focused tests、offline/live-fake v2、full 154-test gate、review finding修正、owner final verification完了。plan SHA-256 `809e3c9b99649e5d5c37941783a430734e95e9eda748e40254316b40e2bcd927`のreal sentinelも6/6 passed
 - 境界: 新provider/network attempt、credential、corpus data、scorer緩和、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未承認
+
+### POL-20260826-provider-pricing-preflight
+
+- 判断済み: boundedな小規模testでは実行直前のprovider価格確認をroutineに要求しない。大量token、多数request、またはmaterialな費用が合理的に予想されるtestだけ、公式価格のrefreshと費用上限計算を行う
+- 境界: model availabilityやAPI/tool contractが不確かな場合の仕様確認は価格確認と分離して必要に応じて行う。production provider commandの明示承認、credential guard、no automatic retryは維持する
 
 ### POL-20260825-zot-first-reference
 
@@ -51,12 +56,6 @@
 - 判断済み: ユーザーがparser fix review GO後の固定launcher taskによるexact 6-case sentinelを、新しいone-shot attemptとして一回だけ実行することを承認
 - fresh readback: 2026-08-25 23:20 JSTにOpenRouter公式model pageでexact slug、tool/tool_choice対応、USD 0.375/M input・USD 1.875/M output、提供中を確認
 - 上限と境界: 最大12 requests、USD 0.768、retry/fallback/rerun/follow-up 0。結果にかかわらず再実行なし。Gate C、commit、push、releaseは未承認
-
-### ISS-20260825-sentinel-markdown-fence
-
-- 観測: `v1.multi-tool.fmt.explicit`はrequired toolsを正しい順序で成功し期待count 3を得たが、final JSONをMarkdown code fenceで包み、strict whole-text oracleが`oracle_json_malformed`としてfailed
-- 影響: sentinelは5/6のためGate C不適格。provider/contract errorではなくmodel presentation qualityの単発観測であり、自動再実行しない
-- 次: scorerを緩和せずPi-style terminal submissionをlocal実装済み。real-modelでの解消確認は新provider attemptとして別plan・明示承認を要する
 
 ### POL-20260819-spike2-typescript-env
 
@@ -986,3 +985,19 @@
 - 実施: generic terminal boundary、第5 tool、strict canonical JSON、report v2、17 submission/7 text scripted partitionを実装。agent 20、offline 14、live fake 10、full 154 tests、diff/format成功。reviewの4 P2とgapを修正し、single re-review後のtest-only P2をexact delayed-abort regressionsとowner final gateで閉じた
 - 次: 必要ならreal-model adherenceを別Human Gateで計画する
 - 注意: provider/network、credential、production command、corpus data、scorer緩和、dependency/lockfile、persistent state、commit、push、tag、publish、releaseは未実施・未承認
+
+## 2026-08-26 12:00 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Pi-style terminal JSON result live sentinel planning
+- 実施: 新しいone-shot provider attemptを、固定6件（JSON submission 4件・assistant final 2件）、最大12 requests、USD 0.768 ceiling、retry等0のexecution-only計画へ確定した
+- 次: `ASK-20260826-pi-json-result-live-sentinel`のHuman Gate
+- 注意: 計画作成中はcredential参照、provider/network、test、source/config/corpus変更、commit、push、releaseを未実施
+
+## 2026-08-26 12:53 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Pi-style live sentinel outcome and pricing-preflight policy
+- 実施: approved one-shot sentinelは6/6 passed、12/12 requests、JSON submission 4件・assistant final 2件、retry等0で完了。小規模bounded testのroutineな実行直前価格確認を廃止した
+- 次: 次の通常CLI roadmap incrementへ進む
+- 注意: 大量token・多数request・material spendが予想されるtestでは公式価格と費用上限を事前確認する。追加provider attempt、commit、push、releaseは未承認

@@ -62,7 +62,10 @@
   test gap; the single re-review confirmed the implementation fixes and left one test-only P2, which
   the final owner gate closed with exact delayed-abort regressions and Blocker/P1/P2 zero. No provider,
   network, credential, production command, corpus data, dependency/lockfile, or persistent-state
-  operation was used. Any new real-provider attempt remains a separate explicit Human Gate.
+  operation was used during the local gate. The separately approved Pi-style one-shot sentinel then
+  completed 6/6 passed with 12/12 external requests: all four JSON cases used successful terminal
+  submissions and both text cases used assistant finals. It was not retried or rerun. Any further
+  real-provider attempt remains a separate explicit Human Gate.
 
 ## Development lifecycle
 
@@ -78,6 +81,10 @@
   moving the file; do not read its contents without explicit approval.
 - Run production provider commands only on explicit user instruction; keep them out of local tests and
   gates. Production attempts are single, observable operations with no automatic retry.
+- Do not require a fresh provider-pricing lookup before a bounded small test. Refresh official pricing
+  and calculate a cost ceiling when high token use, many requests, or otherwise material spend is
+  reasonably expected. Check model availability or API/tool contracts separately when their current
+  behavior is uncertain; do not turn that contract check into a routine price check.
 - Destructive repository operations require explicit human approval. Push, tag, release, publish,
   and force-push also require explicit human approval.
 
