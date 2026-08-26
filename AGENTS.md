@@ -77,6 +77,14 @@
   Bash remains intentionally unsandboxed trusted-local OS-user execution; external isolation and
   complete descendant containment remain future work. No provider, network, credential,
   production command, dependency/lockfile, persistent-state, or `_refs/` operation occurred.
+- The fixed work-tools real-model sentinel plan is
+  `docs/plans/local-work-tools-real-model-sentinel.md` at SHA-256
+  `feca254c45cc967bd4c9b089c460baba4f7d54a7b5a6cb98ff3914c404bf4e6e`. It plans a fixed
+  five-request `write` / `read` / `edit` / `bash` / `submit_json_result` sentinel in a disposable
+  workspace. Gate L is complete: direct 12, process 2, topology 1, and full v0 179 tests pass.
+  Initial review found P1 1/P2 4; all were fixed, and changed-lines re-review is `GO` with
+  Blocker/P1/P2 zero. Gate L used no credential, network, provider, or production task. Real
+  credential/provider execution remains a later, separately approved one-shot Gate S.
 
 ## Development lifecycle
 

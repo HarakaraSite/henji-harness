@@ -66,6 +66,23 @@ fixed profile may make up to eight provider requests and performs no application
 therefore a production provider command: do not invoke it without explicit user instruction and do
 not provide credentials to local tests or gates.
 
+## Fixed local work-tools sentinel
+
+The Gate L sentinel is a fixed five-call acceptance child using the production model, loop, and
+work-tool registry: `write`, `read`, `edit`, `bash`, then the sole terminal `submit_json_result`
+call. It runs only in the dedicated dummy/fake-provider local tasks:
+
+```text
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:sentinel:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:sentinel:process:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:sentinel:topology:test
+```
+
+The production-only `agent:work-tools:sentinel:credential-file` task is excluded from every local
+gate. It reads the repo-external credential once, creates one mode-0700 disposable workspace, and
+removes it after the bounded child run. Gate L never reads credential metadata or content, opens a
+provider connection, or runs this production task; Gate S requires a separate explicit approval.
+
 ## Current baseline
 
 Roadmap steps 8–10 are complete. Step 8 added deterministic `character_count` beside `uppercase_text` and enforces selection

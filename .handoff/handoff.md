@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Zot-first local work tools実装完了。productionは`bash/edit/read/submit_json_result/write`、corpus/evalはdomain 5-tool registryを分離保持。work-tools 13、runtime 10、process 11、full 164 tests成功
-- 次: 通常CLI roadmapの次incrementを計画する。追加provider attemptは引き続き別の明示承認にする
+- 状態: fixed work-tools sentinel Gate L完了。direct 12、process 2、topology 1、full 179 tests成功。changed-lines review GO、Blocker/P1/P2 0
+- 次: `ASK-20260826-local-work-tools-sentinel-gate-s`のone-shot実行判断
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -25,6 +25,18 @@
 - 判断済み: plan SHA-256 `be8fdd758ca3efe62bf1058a7a6d21c41a47cdc2ed436a87c58aaa3a38f3608e`に基づき、normal production registryをZot型`read/write/edit/bash`とPi型`submit_json_result`へ移行し、corpus/eval用domain registryを分離保持する
 - 状態: local implementationとowner final gate完了。work-tools 13、runtime 10、process 11、full 164 tests成功。初回review P1 1/P2 2と再reviewで残ったreap P1はdirect regressionとowner gateで解消
 - 境界: noninteractive invocationをauthorizationとしてper-tool promptなし。file toolsはworkspace境界、Bashはtrusted-local OS-user権限でsandboxではない。provider/network、credential、production command、commit、push、tag、publish、releaseは別の明示承認を要する
+
+### POL-20260826-local-work-tools-sentinel-gate-l
+
+- 判断済み: plan SHA-256 `feca254c45cc967bd4c9b089c460baba4f7d54a7b5a6cb98ff3914c404bf4e6e`の固定5-request child/launcher、dummy/fake-provider tests、offline gate、results、bounded reviewを実装する
+- 状態: direct 12/process 2/topology 1/full 179成功。初回review P1 1/P2 4を修正し、changed-lines reviewはBlocker/P1/P2 0でGO。test残留tempは0
+- 境界: Gate Lではcredential probe/read、provider/network、production command、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseを未実施
+
+### ASK-20260826-local-work-tools-sentinel-gate-s
+
+- 判断待ち: fixed production commandを一回だけ実行し、実credentialをchild envへ渡してexact 5-request sentinelを行うか
+- 上限: external requests最大5、completion最大5,120 tokens、repository worst USD 0.31104、authorization ceiling USD 0.320、retry/fallback/rerun/follow-up 0、child最大1、temp workspace 1
+- 注意: missing/malformed credentialを含む全結果でattemptを消費し再実行しない。commit、push、tag、publish、releaseは別承認
 
 ### POL-20260825-zot-first-reference
 
@@ -1023,3 +1035,19 @@
 - 実施: production/eval registry分離、workspace file tools、bounded trusted-local Bash、process acceptanceを実装。初回review P1 1/P2 2を修正し、再reviewで残ったdirect-child reap P1をTERM-ignore回帰とowner final gateで解消。focused 13/10/11、full 164成功
 - 次: 通常CLI roadmapの次incrementを別計画へ進める
 - 注意: BashはsandboxではなくOS-user権限。provider/network/credential、production command、`_refs/`変更、commit、push、releaseは未実施
+
+## 2026-08-26 14:47 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Fixed local work tools real-model sentinel planning
+- 実施: disposable workspace、exact 5-request work-tool sequence、既存credential reader、専用acceptance child、dummy-only Gate Lとreal one-shot Gate Sを分離したimplementation-ready planを作成
+- 次: `ASK-20260826-local-work-tools-sentinel-gate-l`のユーザー判断
+- 注意: plan SHA-256 `feca254c...bf4e6e`。実装、credential access、provider/network、production command、commit、push、releaseは未実施
+
+## 2026-08-26 15:56 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Fixed local work tools sentinel Gate L completion
+- 実施: exact 5-request guarded child、credential transport parent、mode 0700 temp lifecycle、direct/process/topology testsを実装。review P1 1/P2 4を修正し、re-review GO。focused 12/2/1、full 179成功
+- 次: `ASK-20260826-local-work-tools-sentinel-gate-s`のone-shot実行判断
+- 注意: credential/network/provider/production taskは未実行。test残留temp 18件をexact prefix確認後に回収し、最終残数0。commit、push、releaseは未実施
