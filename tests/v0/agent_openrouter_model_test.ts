@@ -265,6 +265,40 @@ Deno.test('adapter composes with runAgent and preserves two-request causal tool 
   ]);
 });
 
+Deno.test('system instruction is exactly once and first on every causal request', async () => {
+  const calls: FetchCall[] = [];
+  const instruction =
+    'Project context instructions loaded from AGENTS.md.\n\n## ./AGENTS.md\n\nlocal';
+  const fetcher = makeFetcher([response(toolPayload()), response(finalPayload('HELLO'))], calls);
+  const model = createOpenRouterAgentModel(options(fetcher));
+  const outcome = await runAgent('hello', model, new Registry([createFixtureTool()]), {
+    systemInstruction: instruction,
+  });
+  assert(outcome.ok);
+  assertEquals(calls.length, 2);
+  for (const call of calls) {
+    const body = parsedBody(call);
+    assertEquals(
+      (body.messages as Array<Record<string, unknown>>).filter((message) =>
+        message.role === 'system'
+      ).length,
+      1,
+    );
+    assertEquals((body.messages as Array<Record<string, unknown>>)[0], {
+      role: 'system',
+      content: instruction,
+    });
+  }
+  assertEquals((parsedBody(calls[0]).messages as Array<Record<string, unknown>>)[1], {
+    role: 'user',
+    content: 'hello',
+  });
+  assertEquals((parsedBody(calls[1]).messages as Array<Record<string, unknown>>).slice(0, 2), [
+    { role: 'system', content: instruction },
+    { role: 'user', content: 'hello' },
+  ]);
+});
+
 Deno.test('valid tool arguments decode to provider-neutral JsonValue calls', async () => {
   const calls: FetchCall[] = [];
   const model = new OpenRouterAgentModel(options(makeFetcher([response(toolPayload())], calls)));
@@ -420,6 +454,26 @@ Deno.test('missing credential and invalid preflight never call fetch', async () 
   const invalidError = await assertSafeError(() => invalidModel.generate(invalidRequest), 0);
   assertEquals(invalidError.code, 'invalid_input');
   assertEquals(fetchCalls, 0);
+
+  let invalidInstructionCredentialReads = 0;
+  const invalidInstruction = new OpenRouterAgentModel({
+    fetcher,
+    endpoint: ENDPOINT,
+    credentialSource: () => {
+      invalidInstructionCredentialReads += 1;
+      return DUMMY_CREDENTIAL;
+    },
+  });
+  const invalidInstructionError = await assertSafeError(
+    () =>
+      invalidInstruction.generate({
+        ...request(),
+        systemInstruction: 'valid\0but invalid',
+      }),
+    0,
+  );
+  assertEquals(invalidInstructionError.code, 'invalid_input');
+  assertEquals(invalidInstructionCredentialReads, 0);
 });
 
 Deno.test('message and full request bounds fail before request starts', async () => {
@@ -444,4 +498,84 @@ Deno.test('message and full request bounds fail before request starts', async ()
   const requestError = await assertSafeError(() => model.generate(tooLargeRequest), 0);
   assertEquals(requestError.code, 'limit_exceeded');
   assertEquals(fetchCalls, 0);
+
+  const systemBoundError = await assertSafeError(() =>
+    model.generate({
+      transcript: [{ role: 'user', content: { kind: 'text', text: 'small' } }],
+      tools: [],
+      systemInstruction: 's'.repeat(76 * 1024),
+    }), 0);
+  assertEquals(systemBoundError.code, 'limit_exceeded');
+  assertEquals(fetchCalls, 0);
+});
+
+Deno.test('an individually accepted system message can tip a near-256 KiB request', async () => {
+  const largeTool = {
+    name: 'near_limit',
+    description: 'x'.repeat(192 * 1024),
+    inputSchema: {},
+  };
+  const nearLimitRequest: ModelRequest = {
+    transcript: [{ role: 'user', content: { kind: 'text', text: 'small' } }],
+    tools: [largeTool],
+  };
+  const baselineCalls: FetchCall[] = [];
+  let baselineCredentialReads = 0;
+  const baselineModel = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('baseline'))], baselineCalls),
+    endpoint: ENDPOINT,
+    credentialSource: () => {
+      baselineCredentialReads += 1;
+      return DUMMY_CREDENTIAL;
+    },
+  });
+  assertEquals(await baselineModel.generate(nearLimitRequest), { kind: 'final', text: 'baseline' });
+  assertEquals(baselineCredentialReads, 1);
+  assertEquals(baselineCalls.length, 1);
+  assert(typeof baselineCalls[0].init?.body === 'string');
+  assert(new TextEncoder().encode(baselineCalls[0].init?.body as string).byteLength < 256 * 1024);
+
+  const systemInstruction = 's'.repeat(64 * 1024);
+  const acceptedSystemCalls: FetchCall[] = [];
+  let acceptedSystemCredentialReads = 0;
+  const acceptedSystemModel = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('accepted'))], acceptedSystemCalls),
+    endpoint: ENDPOINT,
+    credentialSource: () => {
+      acceptedSystemCredentialReads += 1;
+      return DUMMY_CREDENTIAL;
+    },
+  });
+  assertEquals(
+    await acceptedSystemModel.generate({
+      ...nearLimitRequest,
+      tools: [],
+      systemInstruction,
+    }),
+    { kind: 'final', text: 'accepted' },
+  );
+  assertEquals(acceptedSystemCredentialReads, 1);
+  assertEquals(acceptedSystemCalls.length, 1);
+
+  const systemCalls: FetchCall[] = [];
+  let systemCredentialReads = 0;
+  const systemModel = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('unreachable'))], systemCalls),
+    endpoint: ENDPOINT,
+    credentialSource: () => {
+      systemCredentialReads += 1;
+      return DUMMY_CREDENTIAL;
+    },
+  });
+  const error = await assertSafeError(
+    () =>
+      systemModel.generate({
+        ...nearLimitRequest,
+        systemInstruction,
+      }),
+    0,
+  );
+  assertEquals(error.code, 'limit_exceeded');
+  assertEquals(systemCredentialReads, 0);
+  assertEquals(systemCalls.length, 0);
 });

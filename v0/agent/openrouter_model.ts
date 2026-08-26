@@ -64,6 +64,11 @@ interface WireUserMessage {
   readonly content: string;
 }
 
+interface WireSystemMessage {
+  readonly role: 'system';
+  readonly content: string;
+}
+
 interface WireAssistantTextMessage {
   readonly role: 'assistant';
   readonly content: string;
@@ -82,6 +87,7 @@ interface WireToolMessage {
 }
 
 type WireMessage =
+  | WireSystemMessage
   | WireUserMessage
   | WireAssistantTextMessage
   | WireAssistantToolMessage
@@ -121,6 +127,23 @@ const isJsonValue = (value: unknown): value is JsonValue => {
 
 const nonBlank = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
+
+const hasWellFormedUnicode = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (next < 0xdc00 || next > 0xdfff) return false;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const validSystemInstruction = (value: unknown): value is string =>
+  nonBlank(value) && !value.includes('\0') && hasWellFormedUnicode(value);
 
 const safeJson = (value: unknown): string | undefined => {
   try {
@@ -218,6 +241,12 @@ const encodeRequest = (
   if (!Array.isArray(request.tools)) throw invalid('model tools are invalid');
 
   const messages: WireMessage[] = [];
+  if (request.systemInstruction !== undefined) {
+    if (!validSystemInstruction(request.systemInstruction)) {
+      throw invalid('model system instruction is invalid');
+    }
+    messages.push({ role: 'system', content: request.systemInstruction });
+  }
   for (const message of request.transcript) {
     const encoded = encodeMessage(message);
     if (!encoded) throw invalid('model transcript message is invalid');

@@ -121,6 +121,30 @@ Deno.test('normal runtime exposes exactly the production five-tool registry', as
   });
 });
 
+Deno.test('normal runtime discovers workspace instructions once as a system message', async () => {
+  await withWorkspace(async (root) => {
+    await Deno.writeTextFile(`${root}/AGENTS.md`, '  local runtime instructions\n');
+    const calls: FetchCall[] = [];
+    const result = await runRuntime('offline task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([response(finalPayload('answer'))], calls),
+      credential: DUMMY_CREDENTIAL,
+    });
+    assert(result.outcome.ok);
+    assertEquals(calls.length, 1);
+    const messages = requestBody(calls[0]).messages as Array<Record<string, unknown>>;
+    assertEquals(messages, [
+      {
+        role: 'system',
+        content:
+          'Project context instructions loaded from AGENTS.md. Follow them when working in this workspace.\n\n## ./AGENTS.md\n\nlocal runtime instructions',
+      },
+      { role: 'user', content: 'offline task' },
+    ]);
+    assert(!JSON.stringify(result.outcome.transcript).includes('local runtime instructions'));
+  });
+});
+
 Deno.test('runtime executes causal write/read/edit/bash work rounds', async () => {
   await withWorkspace(async (root) => {
     const result = await run(root, [

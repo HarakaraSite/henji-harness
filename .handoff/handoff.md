@@ -4,7 +4,7 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: fixed work-tools sentinel Gate L完了後、Gate Sをrevision `51916c8`からexact one-shot実行。5 requests / 5 tool calls / 5 tool results、固定順序、workspace検証・削除まで成功。retry/rerun 0
+- 状態: Zot-first workspace `AGENTS.md` context discoveryのlocal実装・owner gate・review完了。full 195 tests、changed-lines review GO、Blocker/P1/P2 0
 - 次: 通常CLI roadmapの次incrementを計画する
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
@@ -37,6 +37,12 @@
 - 判断済み: revision `51916c8`のfixed production commandを一回だけ実行し、実credentialをchild envへ渡すexact 5-request sentinelを承認・実施した
 - 結果: passed。model/external requests 5/5、tool calls/results 5/5、順序は`write` / `read` / `edit` / `bash` / `submit_json_result`、`tool_terminal`、期待result一致、workspace verified/removed true
 - 境界: authorization ceiling USD 0.320、retry/fallback/rerun/follow-up 0。credential値、provider body、raw transcript、raw tool引数/結果、実費は記録していない。追加provider attempt、push、tag、publish、releaseは別承認
+
+### POL-20260826-zot-agents-context-discovery
+
+- 判断済み: plan SHA-256 `ca808291d0c2548f76cd0cd17b790960bd3ffbdb2e848ef325d41ffe7e5e107c`に基づき、normal `agent:run`へworkspace-root instruction discoveryとfirst-class system roleを実装した
+- 状態: `AGENTS.md`→`AGENTS.MD` first-present-wins、regular non-symlink UTF-8最大16 KiB、invalid/read error silent skip、transcript外system instructionを実装。focused 8/1/22/13/11/13、full 195成功。review P2 2修正後GO、Blocker/P1/P2 0
+- 境界: Zotのglobal/root-to-cwd layeringは現行`--allow-read=.`を広げるためdefer。provider/network/credential/sentinel、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
 
 ### POL-20260825-zot-first-reference
 
@@ -1059,3 +1065,19 @@
 - 実施: revision `51916c8`のexact credential-file commandを承認どおり一回だけ実行。passed、requests/calls/results 5/5/5、固定tool順序、terminal JSON、最終filesystem、workspace削除を検証し、retry/fallback/rerun/follow-up 0で完了
 - 次: 通常CLI roadmapの次incrementを計画する
 - 注意: Gate Sは消費済みで再実行しない。credential値、provider body、raw transcript/tool data、実費は記録していない。push、tag、publish、releaseは未実施
+
+## 2026-08-26 16:16 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Zot-first AGENTS.md context discovery planning
+- 実施: workspace直下のbounded instruction discovery、provider-neutral system instruction、OpenRouter system-first wire、offline test/reviewをimplementation-ready planへ確定
+- 次: `ASK-20260826-zot-agents-context-discovery`のHuman Gate
+- 注意: plan SHA-256 `ca808291...e5e107c`。ancestor/global layeringはpermission拡張を避けてdefer。実装、test、provider/credential、`_refs/`変更、commit、push、releaseは未実施
+
+## 2026-08-26 16:49 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Zot-first AGENTS.md context discovery local completion
+- 実施: workspace-only bounded discovery、first-class system role、direct/transport/runtime/process/topology evidenceを実装。initial review P2 2を追加regressionで閉じ、re-review GO。focused 8/1/22/13/11/13、full 195成功
+- 次: 通常CLI roadmapの次incrementを計画する
+- 注意: ancestor/global layering、provider/network/credential/sentinel、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施

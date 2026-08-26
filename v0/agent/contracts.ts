@@ -71,6 +71,7 @@ export interface ToolDefinition {
 }
 
 export interface ModelRequest {
+  readonly systemInstruction?: string;
   readonly transcript: readonly Message[];
   readonly tools: readonly ToolDefinition[];
 }

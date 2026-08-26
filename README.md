@@ -60,6 +60,15 @@ is no per-tool prompt or additional CLI flag. Bash is trusted-local OS-user exec
 workspace sandbox: it can access outside files, network, and descendants, and timeout cleanup
 guarantees only the direct child is killed and reaped.
 
+Before the first normal-runtime model request, the host optionally reads one standing-instruction
+file directly under the canonical workspace: `AGENTS.md` is preferred over `AGENTS.MD`, and the
+first present candidate wins. Only regular non-symlink files with valid UTF-8 text up to 16 KiB are
+accepted; blank, NUL-containing, malformed, oversized, or unreadable files are silently skipped.
+The accepted text is sent as one first-class `system` message on every provider request, outside
+the user task and loop transcript. Discovery does not inspect ancestors, global/home state, child
+directories, or other spelling variants, and does not broaden the existing `agent:run` workspace
+read permission.
+
 Success writes only the final assistant text to stdout (adding one newline when needed), with an
 empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The
 fixed profile may make up to eight provider requests and performs no application retry. agent:run is

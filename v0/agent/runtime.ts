@@ -1,4 +1,5 @@
 import { type LoopOutcome } from './contracts.ts';
+import { discoverAgentInstructions, type InstructionFileSystem } from './agent_instructions.ts';
 import { runAgent } from './loop.ts';
 import { OpenRouterAgentModel } from './openrouter_model.ts';
 import { createProductionRegistry } from './registries.ts';
@@ -21,6 +22,8 @@ export interface RuntimeTestSeam {
   readonly credentialSource?: () => string | undefined;
   /** Direct-test-only workspace injection; production has no workspace option. */
   readonly workspaceRoot?: string;
+  /** Direct-test-only instruction discovery filesystem injection. */
+  readonly instructionFileSystem?: InstructionFileSystem;
   /** Direct-test-only local mutation hook. */
   readonly workTools?: WorkToolSeams;
 }
@@ -51,6 +54,10 @@ export const runRuntime = async (
   };
 
   const workspace = await resolveWorkspace(seam.workspaceRoot);
+  const systemInstruction = await discoverAgentInstructions(
+    workspace.root,
+    seam.instructionFileSystem,
+  );
   const registry = createProductionRegistry(workspace, seam.workTools);
   const model = new OpenRouterAgentModel({
     fetcher,
@@ -59,6 +66,7 @@ export const runRuntime = async (
   });
   const outcome = await runAgent(task, model, registry, {
     maxSteps: MAX_STEPS,
+    systemInstruction,
   });
   return { outcome, requestCount };
 };

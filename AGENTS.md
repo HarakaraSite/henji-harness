@@ -89,6 +89,17 @@
   `write` / `read` / `edit` / `bash` / `submit_json_result`; the final workspace state was verified
   and the disposable workspace was removed. Retry, fallback, rerun, and follow-up were zero. Any
   further real-provider attempt remains a separate explicit Human Gate.
+- The Zot-first workspace instruction plan at
+  `docs/plans/zot-agents-context-discovery.md`, SHA-256
+  `ca808291d0c2548f76cd0cd17b790960bd3ffbdb2e848ef325d41ffe7e5e107c`, is implemented.
+  Normal `agent:run` discovers only a direct workspace `AGENTS.md` or `AGENTS.MD`, accepts bounded
+  regular non-symlink UTF-8 text, and sends it as a first-class system instruction outside the
+  transcript on every request. Instructions 8, topology 1, loop 22, transport 13, runtime 11,
+  process 13, and the full v0 gate 195 tests pass. Initial review found P2 2 test-evidence gaps;
+  both were fixed, and changed-lines re-review is `GO` with Blocker/P1/P2 zero. Global/ancestor
+  discovery remains deferred because it would broaden the current workspace read contract. No
+  provider, network, credential, production command, dependency/lockfile, or `_refs/` operation
+  occurred.
 
 ## Development lifecycle
 

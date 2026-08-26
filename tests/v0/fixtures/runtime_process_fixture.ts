@@ -3,6 +3,8 @@ import { main } from '../../../v0/agent/runtime_cli.ts';
 const DUMMY_CREDENTIAL = 'offline-dummy-credential';
 const MODES = [
   'argv-success',
+  'argv-context-success',
+  'argv-filesystem-rejection-success',
   'argv-json-success',
   'argv-json-failure-recovery',
   'stdin-success',
@@ -74,6 +76,10 @@ const applicationArgs = workspaceOption === undefined
   : rawApplicationArgs.slice(2);
 const expectedTask = fixtureMode === 'argv-success'
   ? 'argv task'
+  : fixtureMode === 'argv-context-success'
+  ? 'context task'
+  : fixtureMode === 'argv-filesystem-rejection-success'
+  ? 'filesystem rejection task'
   : fixtureMode === 'argv-json-success'
   ? 'json argv task'
   : fixtureMode === 'argv-json-failure-recovery'
@@ -127,12 +133,49 @@ const fakeFetch: typeof fetch = (_input, init) => {
   } catch {
     throw new Error('provider request body invalid');
   }
-  if (
-    typeof body !== 'object' || body === null ||
-    !Array.isArray((body as { messages?: unknown }).messages) ||
-    (body as { messages: unknown[] }).messages.length === 0 ||
-    typeof (body as { messages: [{ content?: unknown }] }).messages[0]?.content !== 'string' ||
-    (body as { messages: [{ content: string }] }).messages[0].content !== expectedTask
+  const messages = typeof body === 'object' && body !== null &&
+      Array.isArray((body as { messages?: unknown }).messages)
+    ? (body as { messages: unknown[] }).messages
+    : undefined;
+  if (!messages || messages.length === 0) {
+    throw new Error('provider request task mismatch');
+  }
+  if (fixtureMode === 'argv-context-success') {
+    const systemMessages = messages.filter((message) =>
+      typeof message === 'object' && message !== null &&
+      (message as { role?: unknown }).role === 'system'
+    );
+    if (
+      systemMessages.length !== 1 ||
+      JSON.stringify(messages[0]) !== JSON.stringify({
+          role: 'system',
+          content:
+            'Project context instructions loaded from AGENTS.md. Follow them when working in this workspace.\n\n## ./AGENTS.md\n\nprocess instructions',
+        }) ||
+      JSON.stringify(messages[1]) !== JSON.stringify({ role: 'user', content: expectedTask })
+    ) throw new Error('provider request context mismatch');
+  } else if (fixtureMode === 'argv-filesystem-rejection-success') {
+    if (
+      messages.length !== 1 ||
+      JSON.stringify(messages[0]) !== JSON.stringify({
+          role: 'user',
+          content: expectedTask,
+        })
+    ) throw new Error('provider request unexpectedly contained system context');
+    const serialized = JSON.stringify(body);
+    for (
+      const marker of [
+        'PARENT-INSTRUCTION-MARKER',
+        'SIBLING-INSTRUCTION-MARKER',
+        'SYMLINK-TARGET-MARKER',
+        'UPPERCASE-FALLBACK-MARKER',
+      ]
+    ) {
+      if (serialized.includes(marker)) throw new Error('instruction marker leaked to provider');
+    }
+  } else if (
+    typeof (messages[0] as { content?: unknown })?.content !== 'string' ||
+    (messages[0] as { content: string }).content !== expectedTask
   ) {
     throw new Error('provider request task mismatch');
   }
@@ -196,6 +239,12 @@ const fakeFetch: typeof fetch = (_input, init) => {
   }
   if (fixtureMode === 'runtime-failure') {
     return Promise.reject(new Error('sensitive-marker-provider-body'));
+  }
+  if (fixtureMode === 'argv-context-success') {
+    return Promise.resolve(response('context answer'));
+  }
+  if (fixtureMode === 'argv-filesystem-rejection-success') {
+    return Promise.resolve(response('filesystem answer'));
   }
   if (fixtureMode === 'argv-json-success') {
     if (requestCount === 1) {
@@ -285,6 +334,26 @@ try {
       stderr: 'null',
     }).output();
     if (!setup.success) throw new Error('failure recovery workspace setup failed');
+  }
+  if (fixtureMode === 'argv-filesystem-rejection-success') {
+    const setup = await new Deno.Command('/bin/bash', {
+      args: [
+        '--noprofile',
+        '--norc',
+        '-c',
+        'printf SYMLINK-TARGET-MARKER > symlink-target.txt; ln -s symlink-target.txt AGENTS.md',
+      ],
+      cwd: workspaceRoot,
+      clearEnv: true,
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin' },
+      stdout: 'null',
+      stderr: 'null',
+    }).output();
+    if (!setup.success) throw new Error('filesystem rejection workspace setup failed');
+    await Deno.writeTextFile(`${workspaceRoot}/AGENTS.MD`, 'UPPERCASE-FALLBACK-MARKER');
+  }
+  if (fixtureMode === 'argv-context-success') {
+    await Deno.writeTextFile(`${workspaceRoot}/AGENTS.md`, 'process instructions\n');
   }
   const exit = await main(applicationArgs, {
     stdinIsTerminal: () => stdinIsTerminal,

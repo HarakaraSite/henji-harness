@@ -440,6 +440,48 @@ Deno.test('fixture model records every request and observes prior tool results',
   assertEquals(outcome.finalText, 'observed');
 });
 
+Deno.test('system instruction is repeated on every request but stays outside transcript', async () => {
+  const seen: ModelRequest[] = [];
+  const model = {
+    generate(request: ModelRequest) {
+      seen.push(request);
+      return seen.length === 1
+        ? { kind: 'tool_calls' as const, calls: [call('context-call')] }
+        : { kind: 'final' as const, text: 'done' };
+    },
+  };
+  const instruction =
+    'Project context instructions loaded from AGENTS.md.\n\n## ./AGENTS.md\n\nkeep separate';
+  const outcome = await runAgent(
+    'task',
+    model,
+    new Registry([createFixtureTool()]),
+    { systemInstruction: instruction },
+  );
+  assert(outcome.ok);
+  assertEquals(seen.length, 2);
+  assertEquals(seen[0].systemInstruction, instruction);
+  assertEquals(seen[1].systemInstruction, instruction);
+  assertEquals(outcome.transcript.map((message) => message.role), [
+    'user',
+    'assistant',
+    'tool',
+    'assistant',
+  ]);
+  assert(!JSON.stringify(outcome.transcript).includes(instruction));
+});
+
+Deno.test('omitted system instruction preserves request shape', async () => {
+  let request: ModelRequest | undefined;
+  await runAgent(
+    'task',
+    { generate: (next) => (request = next, { kind: 'final' as const, text: 'done' }) },
+    new Registry([]),
+  );
+  assert(request !== undefined);
+  assert(!Object.hasOwn(request, 'systemInstruction'));
+});
+
 Deno.test('final-only loop stops after one model step without dispatch', async () => {
   let executions = 0;
   const tool: Tool = {

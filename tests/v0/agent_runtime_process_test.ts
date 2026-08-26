@@ -12,6 +12,8 @@ const decoder = new TextDecoder();
 
 type FixtureMode =
   | 'argv-success'
+  | 'argv-context-success'
+  | 'argv-filesystem-rejection-success'
   | 'argv-json-success'
   | 'argv-json-failure-recovery'
   | 'stdin-success'
@@ -182,6 +184,24 @@ const runProcess = async (
   }
 };
 
+const runProcessWithDisposableLayout = async (
+  mode: FixtureMode,
+  applicationArgs: readonly string[],
+  setup: (containerRoot: string, workspaceRoot: string) => Promise<void>,
+): Promise<ProcessResult> => {
+  const containerRoot = await Deno.makeTempDir({ prefix: 'henji-process-layout-' });
+  const workspaceRoot = `${containerRoot}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  try {
+    await setup(containerRoot, workspaceRoot);
+    return await runRawProcess(
+      childInvocation(mode, applicationArgs, workspaceRoot).argv,
+    );
+  } finally {
+    await Deno.remove(containerRoot, { recursive: true });
+  }
+};
+
 const expectedFailure = {
   ok: false,
   outcome: 'contract_failure',
@@ -258,6 +278,39 @@ Deno.test('offline argv process uses actual argv and captures final-only output'
   assert(result.durationMs < DEADLINE_MS);
   assertEquals(result.argv.slice(-2), ['--task', '  argv task  ']);
   assert(result.argv.includes('--workspace-root'));
+});
+
+Deno.test('offline process loads a workspace instruction as system context', async () => {
+  const result = await runProcess('argv-context-success', ['--task', '  context task  ']);
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, 'context answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
+});
+
+Deno.test('offline process skips symlink context and keeps parent/sibling markers invisible', async () => {
+  const result = await runProcessWithDisposableLayout(
+    'argv-filesystem-rejection-success',
+    ['--task', '  filesystem rejection task  '],
+    async (containerRoot, _workspaceRoot) => {
+      await Deno.writeTextFile(`${containerRoot}/AGENTS.md`, 'PARENT-INSTRUCTION-MARKER');
+      await Deno.mkdir(`${containerRoot}/sibling`);
+      await Deno.writeTextFile(
+        `${containerRoot}/sibling/AGENTS.md`,
+        'SIBLING-INSTRUCTION-MARKER',
+      );
+    },
+  );
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, 'filesystem answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
 });
 
 Deno.test('offline piped process sends stdin bytes and captures final-only output', async () => {

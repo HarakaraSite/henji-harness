@@ -14,6 +14,7 @@ import { Registry } from './tools.ts';
 
 export interface AgentLoopOptions {
   readonly maxSteps?: number;
+  readonly systemInstruction?: string;
 }
 
 const errorText = (error: unknown): string =>
@@ -109,7 +110,9 @@ export const runAgent = async (
 
   for (;;) {
     if (steps >= limit) return maxSteps(task, transcript, steps, toolCallCount, toolResultCount);
-    const request: ModelRequest = { transcript, tools: registry.definitions() };
+    const request: ModelRequest = options.systemInstruction === undefined
+      ? { transcript, tools: registry.definitions() }
+      : { systemInstruction: options.systemInstruction, transcript, tools: registry.definitions() };
     steps += 1;
 
     let result: unknown;
