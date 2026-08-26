@@ -83,8 +83,12 @@
   five-request `write` / `read` / `edit` / `bash` / `submit_json_result` sentinel in a disposable
   workspace. Gate L is complete: direct 12, process 2, topology 1, and full v0 179 tests pass.
   Initial review found P1 1/P2 4; all were fixed, and changed-lines re-review is `GO` with
-  Blocker/P1/P2 zero. Gate L used no credential, network, provider, or production task. Real
-  credential/provider execution remains a later, separately approved one-shot Gate S.
+  Blocker/P1/P2 zero. Gate L used no credential, network, provider, or production task. The
+  separately approved Gate S was then executed exactly once at revision `51916c8` and passed:
+  model requests, external requests, tool calls, and tool results were all exactly 5; tool order was
+  `write` / `read` / `edit` / `bash` / `submit_json_result`; the final workspace state was verified
+  and the disposable workspace was removed. Retry, fallback, rerun, and follow-up were zero. Any
+  further real-provider attempt remains a separate explicit Human Gate.
 
 ## Development lifecycle
 

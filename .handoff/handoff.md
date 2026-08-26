@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: fixed work-tools sentinel Gate L完了。direct 12、process 2、topology 1、full 179 tests成功。changed-lines review GO、Blocker/P1/P2 0
-- 次: `ASK-20260826-local-work-tools-sentinel-gate-s`のone-shot実行判断
+- 状態: fixed work-tools sentinel Gate L完了後、Gate Sをrevision `51916c8`からexact one-shot実行。5 requests / 5 tool calls / 5 tool results、固定順序、workspace検証・削除まで成功。retry/rerun 0
+- 次: 通常CLI roadmapの次incrementを計画する
 - 正本: `README.md`、operationsの`discovery/concepts/deno-self-revising-agent-harness/README.md`、このrepositoryのsource/tests/handoff
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -32,11 +32,11 @@
 - 状態: direct 12/process 2/topology 1/full 179成功。初回review P1 1/P2 4を修正し、changed-lines reviewはBlocker/P1/P2 0でGO。test残留tempは0
 - 境界: Gate Lではcredential probe/read、provider/network、production command、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseを未実施
 
-### ASK-20260826-local-work-tools-sentinel-gate-s
+### POL-20260826-local-work-tools-sentinel-gate-s
 
-- 判断待ち: fixed production commandを一回だけ実行し、実credentialをchild envへ渡してexact 5-request sentinelを行うか
-- 上限: external requests最大5、completion最大5,120 tokens、repository worst USD 0.31104、authorization ceiling USD 0.320、retry/fallback/rerun/follow-up 0、child最大1、temp workspace 1
-- 注意: missing/malformed credentialを含む全結果でattemptを消費し再実行しない。commit、push、tag、publish、releaseは別承認
+- 判断済み: revision `51916c8`のfixed production commandを一回だけ実行し、実credentialをchild envへ渡すexact 5-request sentinelを承認・実施した
+- 結果: passed。model/external requests 5/5、tool calls/results 5/5、順序は`write` / `read` / `edit` / `bash` / `submit_json_result`、`tool_terminal`、期待result一致、workspace verified/removed true
+- 境界: authorization ceiling USD 0.320、retry/fallback/rerun/follow-up 0。credential値、provider body、raw transcript、raw tool引数/結果、実費は記録していない。追加provider attempt、push、tag、publish、releaseは別承認
 
 ### POL-20260825-zot-first-reference
 
@@ -1051,3 +1051,11 @@
 - 実施: exact 5-request guarded child、credential transport parent、mode 0700 temp lifecycle、direct/process/topology testsを実装。review P1 1/P2 4を修正し、re-review GO。focused 12/2/1、full 179成功
 - 次: `ASK-20260826-local-work-tools-sentinel-gate-s`のone-shot実行判断
 - 注意: credential/network/provider/production taskは未実行。test残留temp 18件をexact prefix確認後に回収し、最終残数0。commit、push、releaseは未実施
+
+## 2026-08-26 16:00 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Fixed local work tools sentinel Gate S
+- 実施: revision `51916c8`のexact credential-file commandを承認どおり一回だけ実行。passed、requests/calls/results 5/5/5、固定tool順序、terminal JSON、最終filesystem、workspace削除を検証し、retry/fallback/rerun/follow-up 0で完了
+- 次: 通常CLI roadmapの次incrementを計画する
+- 注意: Gate Sは消費済みで再実行しない。credential値、provider body、raw transcript/tool data、実費は記録していない。push、tag、publish、releaseは未実施

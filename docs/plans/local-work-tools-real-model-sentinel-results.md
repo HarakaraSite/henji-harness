@@ -1,14 +1,14 @@
-# Fixed local work-tools real-model sentinel — Gate L results
+# Fixed local work-tools real-model sentinel — Gate L and Gate S results
 
 ## Scope and authority
 
 - Plan: [`local-work-tools-real-model-sentinel.md`](local-work-tools-real-model-sentinel.md)
 - Plan SHA-256: `feca254c45cc967bd4c9b089c460baba4f7d54a7b5a6cb98ff3914c404bf4e6e`
 - Base revision: `d4504c4`
-- Gate: Human Gate L only (local implementation, dummy/fake-provider tests, offline gates, and
-  bounded review)
-- Real credential, provider/network, production task, Gate S, dependency/lockfile, `_refs/`, and
-  publication operations are outside this result.
+- Gate L: local implementation, dummy/fake-provider tests, offline gates, and bounded review.
+- Gate S revision: `51916c8`
+- Gate S: the separately authorized production command was executed exactly once. Dependency/
+  lockfile, `_refs/`, push, tag, publish, and release operations remained outside scope.
 
 ## Implemented files
 
@@ -99,8 +99,28 @@ three focused suites and full 179-test gate successfully after review.
 - Topology suite: reads only `deno.v0.json`.
 - Production parent task: fixed credential read for the recorded external path, `/tmp` workspace
   read/write, embedded-Deno child run, and narrow `--allow-sys=uid`; no parent env/net/
-  `/bin/bash` permission. It remains production-only and was not run.
+  `/bin/bash` permission. It was run exactly once at Gate S.
 - Retry, fallback, rerun, and follow-up: zero.
+
+## Gate S one-shot outcome
+
+The separately authorized credential-file task was executed exactly once from revision `51916c8`
+and exited successfully. Its sanitized aggregate report established:
+
+| Field | Result |
+| --- | --- |
+| Outcome | `passed` |
+| Model requests / external requests | 5 / 5 |
+| Tool calls / tool results | 5 / 5 |
+| Tool order | `write`, `read`, `edit`, `bash`, `submit_json_result` |
+| Stop reason | `tool_terminal` |
+| Result | path `work/item.txt`, content `beta\n`, 5 bytes, Bash result `verified:5` |
+| Workspace | final state verified; disposable workspace removed |
+| Retry / fallback / rerun / follow-up | 0 / 0 / 0 / 0 |
+
+The authorization ceiling was USD 0.320. Actual provider cost was not collected. No credential
+value, provider response body, raw transcript, or raw tool argument/result was recorded, and the
+successful one-shot was not rerun.
 
 ## Deviations, review, and remaining risk
 
@@ -112,8 +132,8 @@ three focused suites and full 179-test gate successfully after review.
 - Changed-lines re-review: `GO`, Blocker 0 / P1 0 / P2 0. It directly reconfirmed valid nonzero
   failure evidence, credential taxonomy, prompt signal escalation/reap, execution-error classification,
   and zero remaining `henji-launcher-failure-*` directories.
-- Gate S was not authorized or attempted. No credential metadata/content probe, provider request,
-  network operation, production command, commit, push, tag, publish, or release was performed.
+- Gate S completed in its separately authorized one-shot with the aggregate result above. No retry,
+  rerun, follow-up provider attempt, push, tag, publish, or release was performed.
 - Accepted residual risks remain those in the plan: trusted-local unsandboxed Bash, same-user process
   environment observability, SIGKILL/VM-loss orphaned disposable directories, incomplete descendant
   containment, irreversible provider effects, and the fixed sentinel's limited adherence coverage.
