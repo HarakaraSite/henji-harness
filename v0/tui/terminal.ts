@@ -1,0 +1,268 @@
+/**
+ * The deliberately small terminal port used by the first TUI.  Production owns one stdin
+ * reader for the lifetime of a terminal session; tests use the same port with a fake backend.
+ */
+export interface TerminalPort {
+  stdinIsTerminal(): boolean;
+  stdoutIsTerminal(): boolean;
+  consoleSize(): { columns: number; rows: number };
+  setRaw(mode: boolean, options?: { cbreak: boolean }): void;
+  read(): Promise<Uint8Array | null>;
+  drainAndCloseInput(maxMs: number, idleMs: number): Promise<void>;
+  write(bytes: Uint8Array): void;
+  addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
+  removeSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
+}
+
+const encoder = new TextEncoder();
+
+export const BRACKETED_PASTE_ON = '\x1b[?2004h';
+export const BRACKETED_PASTE_OFF = '\x1b[?2004l';
+export const EDITOR_CURSOR_STYLE = '\x1b[6 q';
+export const DEFAULT_CURSOR_STYLE = '\x1b[0 q';
+export const SHOW_CURSOR = '\x1b[?25h';
+export const ERASE_LINE = '\x1b[2K';
+export const RESET_SGR = '\x1b[0m';
+export const RESET_SCROLL_REGION = '\x1b[r';
+
+export const staticBytes = (text: string): Uint8Array => encoder.encode(text);
+
+/** Production Deno adapter. It never creates a second stdin reader. */
+export class DenoTerminal implements TerminalPort {
+  private reader?: ReadableStreamDefaultReader<Uint8Array>;
+  private pendingRead: Promise<Uint8Array | null> | null = null;
+  private inputClosed = false;
+  private draining = false;
+
+  stdinIsTerminal(): boolean {
+    return Deno.stdin.isTerminal();
+  }
+
+  stdoutIsTerminal(): boolean {
+    return Deno.stdout.isTerminal();
+  }
+
+  consoleSize(): { columns: number; rows: number } {
+    return Deno.consoleSize();
+  }
+
+  setRaw(mode: boolean, options: { cbreak: boolean } = { cbreak: true }): void {
+    Deno.stdin.setRaw(mode, options);
+  }
+
+  private getReader(): ReadableStreamDefaultReader<Uint8Array> {
+    if (this.reader === undefined) this.reader = Deno.stdin.readable.getReader();
+    return this.reader;
+  }
+
+  /** Return the one outstanding read, preserving single-reader ownership. */
+  read(): Promise<Uint8Array | null> {
+    if (this.inputClosed && !this.draining) return Promise.resolve(null);
+    if (this.pendingRead !== null) return this.pendingRead;
+    const reader = this.getReader();
+    const pending = reader.read().then((item) => item.done ? null : item.value);
+    this.pendingRead = pending;
+    void pending.then(() => {
+      if (this.pendingRead === pending) this.pendingRead = null;
+    });
+    return pending;
+  }
+
+  /**
+   * Consume input after shutdown starts. The first pending read is allowed to settle, then the
+   * reader is observed for a short idle window. A final cancel settles a blocked Deno read.
+   */
+  async drainAndCloseInput(maxMs: number, idleMs: number): Promise<void> {
+    if (this.inputClosed) return;
+    this.inputClosed = true;
+    this.draining = true;
+    const reader = this.reader;
+    if (reader === undefined) return;
+    const max = Math.max(0, Number.isFinite(maxMs) ? maxMs : 0);
+    const idle = Math.max(0, Number.isFinite(idleMs) ? idleMs : 0);
+    const deadline = Date.now() + max;
+    const settle = async (
+      promise: Promise<Uint8Array | null>,
+      timeout: number,
+    ): Promise<
+      { readonly kind: 'value'; readonly value: Uint8Array | null } | {
+        readonly kind: 'timeout';
+      }
+    > => {
+      if (timeout <= 0) return { kind: 'timeout' };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          promise.then((value) => ({ kind: 'value' as const, value })),
+          new Promise<{ readonly kind: 'timeout' }>((resolve) => {
+            timer = setTimeout(() => resolve({ kind: 'timeout' }), timeout);
+          }),
+        ]);
+        return result;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    };
+
+    try {
+      // The controller may have one read in flight. Do not issue a concurrent reader.read().
+      if (this.pendingRead !== null) {
+        const remaining = Math.max(0, deadline - Date.now());
+        const result = await settle(this.pendingRead, Math.min(idle, remaining));
+        if (result.kind === 'timeout' || result.value === null) return;
+      }
+      while (Date.now() < deadline) {
+        const remaining = Math.min(idle, Math.max(0, deadline - Date.now()));
+        if (remaining <= 0) break;
+        const next = this.read();
+        const result = await settle(next, remaining);
+        if (result.kind === 'timeout' || result.value === null) break;
+      }
+    } finally {
+      try {
+        await reader.cancel('terminal shutdown');
+      } catch {
+        // Best effort: cleanup continues even when stdin is already closed.
+      }
+      try {
+        reader.releaseLock();
+      } catch {
+        // A released/errored reader is already in the desired state.
+      }
+      this.reader = undefined;
+      this.pendingRead = null;
+      this.draining = false;
+    }
+  }
+
+  write(bytes: Uint8Array): void {
+    Deno.stdout.writeSync(bytes);
+  }
+
+  addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void {
+    Deno.addSignalListener(signal, handler);
+  }
+
+  removeSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void {
+    Deno.removeSignalListener(signal, handler);
+  }
+}
+
+export interface TerminalRendererGate {
+  close(): void;
+  clearLiveLine(): void;
+}
+
+type SignalName = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
+type SignalHandler = () => void;
+
+/** Owns acquisition and the complete idempotent restore sequence. */
+export class TerminalLifecycle {
+  private acquired = false;
+  private raw = false;
+  private paste = false;
+  private restoring: Promise<void> | null = null;
+  private readonly signals = new Map<SignalName, SignalHandler>();
+
+  constructor(
+    private readonly terminal: TerminalPort,
+    private readonly renderer?: TerminalRendererGate,
+  ) {}
+
+  addSignals(handlers: Partial<Record<SignalName, SignalHandler>>): void {
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+      const handler = handlers[signal];
+      if (handler === undefined || this.signals.has(signal)) continue;
+      this.terminal.addSignal(signal, handler);
+      this.signals.set(signal, handler);
+    }
+  }
+
+  async acquire(): Promise<void> {
+    try {
+      // Mark raw as needing restoration before invoking the host operation: setRaw may partially
+      // change terminal state before reporting an error.
+      this.raw = true;
+      this.terminal.setRaw(true, { cbreak: true });
+      this.acquired = true;
+      this.paste = true;
+      this.terminal.write(staticBytes(BRACKETED_PASTE_ON));
+      this.terminal.write(staticBytes(EDITOR_CURSOR_STYLE));
+    } catch (error) {
+      await this.restore();
+      throw error;
+    }
+  }
+
+  isAcquired(): boolean {
+    return this.acquired;
+  }
+
+  read(): Promise<Uint8Array | null> {
+    return this.terminal.read();
+  }
+
+  /** Cleanup errors are intentionally swallowed after the first operation has been attempted. */
+  async restore(): Promise<void> {
+    if (this.restoring !== null) return this.restoring;
+    this.restoring = this.restoreOnce();
+    await this.restoring;
+  }
+
+  private async restoreOnce(): Promise<void> {
+    // Closing is the first operation: late event delivery can no longer write dynamic output.
+    this.renderer?.close();
+    // Composition/startup can fail before terminal acquisition. Remove any signal hooks but do
+    // not emit terminal controls or touch stdin when no terminal state was acquired.
+    if (!this.raw && !this.acquired && !this.paste) {
+      this.removeSignals();
+      return;
+    }
+    if (this.paste) {
+      try {
+        this.terminal.write(staticBytes(BRACKETED_PASTE_OFF));
+      } catch {
+        // Continue all remaining restore operations.
+      }
+      this.paste = false;
+    }
+    try {
+      await this.terminal.drainAndCloseInput(1_000, 50);
+    } catch {
+      // Continue with terminal control restoration.
+    }
+    try {
+      this.renderer?.clearLiveLine();
+    } catch {
+      // Continue with static controls and raw restore.
+    }
+    for (const sequence of [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR]) {
+      try {
+        this.terminal.write(staticBytes(sequence));
+      } catch {
+        // Each operation is independent and best effort.
+      }
+    }
+    if (this.raw) {
+      try {
+        this.terminal.setRaw(false, { cbreak: true });
+      } catch {
+        // No further restoration is possible through this port.
+      }
+      this.raw = false;
+    }
+    this.removeSignals();
+    this.acquired = false;
+  }
+
+  private removeSignals(): void {
+    for (const [signal, handler] of this.signals) {
+      try {
+        this.terminal.removeSignal(signal, handler);
+      } catch {
+        // The process may already be shutting down.
+      }
+    }
+    this.signals.clear();
+  }
+}

@@ -5,6 +5,10 @@ import {
   type InstructionFileSystem,
 } from './agent_instructions.ts';
 import { runAgent } from './loop.ts';
+import { AgentSession } from './session.ts';
+import { type AgentEventSink } from './events.ts';
+import { type Model } from './contracts.ts';
+import { Registry } from './tools.ts';
 import { OpenRouterAgentModel } from './openrouter_model.ts';
 import { createProductionRegistry } from './registries.ts';
 import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
@@ -41,18 +45,22 @@ export interface RuntimeRun {
   readonly requestCount: number;
 }
 
+/** The fixed normal-runtime wiring shared by one-shot CLI and the TUI. */
+export interface RuntimeComposition {
+  readonly model: Model;
+  readonly registry: Registry;
+  readonly systemInstruction?: string;
+  readonly requestCount: () => number;
+}
+
 /**
- * Run one normal single-shot agent invocation.
- *
- * The model and registry are constructed once per call, and the existing
- * provider-neutral loop is called once with the fixed eight-step bound. The
- * fetch wrapper is intentionally local so offline tests can observe starts
- * without changing the shared provider adapter or making a second attempt.
+ * Resolve the normal runtime once.  Keeping this operation separate from execution makes the
+ * multi-turn TUI use exactly the same workspace, instruction, skills, registry, and lazy model
+ * wiring as agent:run.
  */
-export const runRuntime = async (
-  task: string,
+export const createRuntimeComposition = async (
   seam: RuntimeTestSeam = {},
-): Promise<RuntimeRun> => {
+): Promise<RuntimeComposition> => {
   let requestCount = 0;
   const delegate = seam.fetcher ?? fetch;
   const fetcher: typeof fetch = (input, init) => {
@@ -73,9 +81,46 @@ export const runRuntime = async (
     credential: seam.credential,
     credentialSource: seam.credentialSource,
   });
-  const outcome = await runAgent(task, model, registry, {
-    maxSteps: MAX_STEPS,
+  return {
+    model,
+    registry,
     systemInstruction,
+    requestCount: () => requestCount,
+  };
+};
+
+/** Create one in-memory sequential session from one fixed composition. */
+export const createRuntimeSession = async (
+  eventSink: AgentEventSink,
+  seam: RuntimeTestSeam = {},
+): Promise<{ readonly session: AgentSession; readonly requestCount: () => number }> => {
+  const composition = await createRuntimeComposition(seam);
+  return {
+    session: new AgentSession(composition.model, composition.registry, {
+      maxSteps: MAX_STEPS,
+      systemInstruction: composition.systemInstruction,
+      eventSink,
+    }),
+    requestCount: composition.requestCount,
+  };
+};
+
+/**
+ * Run one normal single-shot agent invocation.
+ *
+ * The model and registry are constructed once per call, and the existing
+ * provider-neutral loop is called once with the fixed eight-step bound. The
+ * fetch wrapper is intentionally local so offline tests can observe starts
+ * without changing the shared provider adapter or making a second attempt.
+ */
+export const runRuntime = async (
+  task: string,
+  seam: RuntimeTestSeam = {},
+): Promise<RuntimeRun> => {
+  const composition = await createRuntimeComposition(seam);
+  const outcome = await runAgent(task, composition.model, composition.registry, {
+    maxSteps: MAX_STEPS,
+    systemInstruction: composition.systemInstruction,
   });
-  return { outcome, requestCount };
+  return { outcome, requestCount: composition.requestCount() };
 };

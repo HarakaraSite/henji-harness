@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Zot-first provider-neutral multi-turn/completed-events prerequisiteのlocal実装・owner final gate完了。full 227 tests、最終Blocker/P1/P2 0
-- 次: first TUI incrementのproduct decisionと実装計画を作成する
+- 状態: Zot-first first TUIのlocal実装・offline/PTY検証・bounded review・owner final gate完了。TUI direct 26、PTY 10、topology 3、full 266 tests成功、最終Blocker/P1/P2 0
+- 次: SSH/Codex sessionをcheckpoint後に更新し、次の通常CLI roadmap incrementを別計画として開始する
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,6 +14,12 @@
 - 判断済み: plan SHA-256 `663a1bd6634e1503978d0af3f24aecc899dd3b3acd64819fbfcd416cd71bdf0e`に基づき、one-turn抽出、completed lifecycle events、in-memory sequential session、成功turn commit、失敗turn transcript rollbackを実装した
 - 状態: session 14、loop 22、runtime 12、process 14、transport 13、full 227成功。initial review P2 3とre-review残存evidence P2をdirect regressionで閉じ、owner final disposition Blocker/P1/P2 0
 - 境界: TUI、新production command、tool confirmation/cancellation、provider/network/credential、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは含まない
+
+### POL-20260826-zot-first-tui-plan
+
+- 判断済み: ユーザーがplan SHA-256 `60ba3fef3b261c754a1b060fa76d2b62086fb4433e179bb285eee97c146f1fd8`のexplicit `agent:tui`、trusted-local no-confirmation、idle Ctrl-C double-press、busy中Escはcancelなし、busy中Ctrl-Cはturn後exit、busy入力discard、main-screen scrollback、closing gate・bounded input drain・crash restoreというfirst TUI contractを承認した
+- 状態: local implementation完了。direct 26、PTY 10、topology 3、full 266成功。initial review P1 1/P2 3を修正し、single re-review残存test-evidence P2をexact regressionとowner final gateで閉じ、最終Blocker/P1/P2 0
+- 境界: 承認対象はlocal implementation、fake-terminal/PTY tests、full offline verification、results、bounded reviewまで。production TUI/provider/network/credential、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは含まない
 
 ### POL-20260826-pi-json-result-submission
 
@@ -113,6 +119,38 @@
   matrixを補完した
 
 ## Checkpoints
+
+## 2026-08-26 19:28 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Session handoff for first TUI implementation
+- 実施: session終了依頼を受け、承認済みplan hash、実装未着手、agent thread blocker、fresh session再開条件をRecordsとcheckpointで確認
+- 次: fresh sessionでhandoffを読み、single implementerを新規spawnしてplan SHA-256 `60ba3fef3b261c754a1b060fa76d2b62086fb4433e179bb285eee97c146f1fd8`を実装する
+- 注意: 現worktreeのdefault変更は`.handoff/handoff.md`とnew planのみ。未追跡`_refs/`を変更・実行・stageしない。production TUI/provider/credential、commitは未実施
+
+## 2026-08-26 19:25 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: First TUI Human Gate and implementation dispatch
+- 実施: ユーザー承認をPOLへ確定し、single implementer用context packetを作成。root直下とplanner配下のspawnはいずれもthread limitで失敗し、既存agent roleもplanner/reviewerのみと確認
+- 次: ISS-20260826-first-tui-implementer-slotをfresh agent treeで解消し、承認済みplanから実装再開
+- 注意: product source/test、production/provider/credential、`_refs/`、commitは未変更・未実施
+
+## 2026-08-26 19:21 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Pi TUI reference comparison
+- 実施: pinned Piのterminal、stdin buffer、main-screen renderer、interactive shutdownとtestsをread-only比較し、closing gate、bounded input drain/cancel、last-resort crash restore、idle Ctrl-C double-pressをfirst TUI計画へ追加
+- 次: ASK-20260826-zot-first-tui-planのユーザー判断
+- 注意: Pi/Zotは実行・変更せず独立実装方針を維持。TUI実装、production/provider/credential、commitは未実施
+
+## 2026-08-26 18:57 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Zot-first first TUI implementation plan
+- 実施: pinned Zotと現行runtime、Deno 2.9.4 terminal API、installed util-linux PTYを照合し、invocation、authorization、input/render/state/restore、fake/PTY検証を固定した計画を作成
+- 次: ASK-20260826-zot-first-tui-planのユーザー判断
+- 注意: 計画作成のみ。TUI実装、production command、credential/provider、`_refs/`変更、commitは未実施
 
 ## 2026-08-25 23:53 JST
 
@@ -1125,3 +1163,11 @@
 - 実施: one-turn primitive、completed events、in-memory session、success commit/failure rollbackを実装。review P2 3とre-review残存evidence P2をdirect regressionsで閉じ、session 14/full 227成功
 - 次: first TUIのinvocation、tool authorization、busy interruptionを決めるimplementation planを作成する
 - 注意: TUI/new production command、provider/network/credential、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-26 20:42 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Zot-first first TUI local completion
+- 実施: approved planのexplicit TUI、shared runtime、terminal lifecycle、strict input/render/controller、fake/PTY/topology evidenceを実装。initial review P1 1/P2 3とre-review残存test-evidence P2を修正し、direct 26、PTY 10、topology 3、full 266成功でowner final Blocker/P1/P2 0
+- 次: SSH/Codex sessionを更新後、次の通常CLI roadmap incrementを別計画として開始する
+- 注意: production `agent:tui`/`agent:run`、provider/network/credential、dependency/lockfile、`_refs/`操作、commit、push、tag、publish、releaseは未実施

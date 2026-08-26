@@ -119,6 +119,15 @@
   disposition is Blocker/P1/P2 zero. TUI, provider streaming, persistence, cancellation, and tool
   confirmation changes remain deferred. No provider, network, credential, production command,
   dependency/lockfile, persistent product state, or `_refs/` operation occurred.
+- The Zot-first first TUI plan at `docs/plans/zot-first-tui.md`, SHA-256
+  `60ba3fef3b261c754a1b060fa76d2b62086fb4433e179bb285eee97c146f1fd8`, is implemented.
+  Explicit real-TTY-only `agent:tui` now provides in-memory multi-turn interaction, completed-event
+  rendering, bounded strict UTF-8 input, busy-input discard, main-screen scrollback, and idempotent
+  terminal restoration without changing `agent:run`. TUI direct 26, PTY 10, topology 3, and full
+  v0 gate 266 tests pass. Initial review P1 1/P2 3 were fixed; the single re-review's remaining
+  test-evidence P2 was closed by exact regressions and the owner final gate. Final disposition is
+  Blocker/P1/P2 zero. No production TUI/provider/network/credential, dependency/lockfile, `_refs/`,
+  commit, push, tag, publish, or release operation occurred.
 
 ## Development lifecycle
 

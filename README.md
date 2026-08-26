@@ -88,6 +88,33 @@ after the model calls nonterminal `skill({name})`. Tool execution never rereads 
 home skills, recursive discovery, manual slash invocation, reload, and permission enforcement are
 not provided.
 
+## First terminal UI
+
+The explicit TUI command is real-TTY-only and accepts zero application arguments:
+
+```text
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui
+```
+
+It uses the same fixed trusted-local workspace, skills, tools, model profile, and permissions as
+`agent:run`, including OS-user `bash` execution and no per-tool confirmation. Each Enter starts
+one exact task in an in-memory sequential conversation (at most eight provider requests per
+turn); input received while a turn is busy is consumed and discarded. The command never
+implicitly changes `agent:run` into a TUI and does not read credentials until a submitted task
+reaches the lazy provider adapter.
+
+The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only
+updates status. While idle, the first Ctrl-C clears the editor and arms a 500 ms second-press
+exit; a second Ctrl-C exits. Ctrl-D exits only with an empty editor. While busy, Esc reports that
+cancellation is unavailable and Ctrl-C exits after the current completed turn. Terminal output
+uses main-screen scrollback with a small live line; dynamic model, tool, and task text is escaped
+at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input reader are
+restored on every handled exit or failure. Provider streaming, cancellation, confirmation,
+history, alternate-screen rendering, persistence, and queued follow-up input remain deferred.
+
+Local TUI tests use only fake sessions/terminals and bounded `/usr/bin/script` PTY fixtures; they
+do not run `agent:tui`, `agent:run`, a provider, or credential commands.
+
 Success writes only the final assistant text to stdout (adding one newline when needed), with an
 empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The
 fixed profile may make up to eight provider requests and performs no application retry. agent:run is
