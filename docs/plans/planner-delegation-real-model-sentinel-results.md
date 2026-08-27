@@ -167,3 +167,27 @@ process 18, and the full v0 gate 350 tests. Type-check, format, lint, and `git d
 Independent review is `GO` with Blocker/P1/P2 zero. There was no plan deviation and no credential,
 network, provider, production command, additional real attempt, dependency/lockfile, or `_refs/`
 operation.
+
+## Post-fix one-shot outcome
+
+After the local fix was committed as `64ad88988e9e0a64320c3f7d78c177b53de5ae7a`, the user
+separately approved one real-provider confirmation. The fixed production task was executed exactly
+once and passed:
+
+| Field | Result |
+| --- | --- |
+| Outcome | passed |
+| Parent / child / aggregate model requests | 2 / 1 / 3 |
+| External requests | 3 of maximum 3 |
+| Delegation calls / results | 1 / 1 |
+| Request order | `parent` / `child` / `parent` |
+| Parent tool order | `delegate_to_planner` |
+| Parent stop reason | `final` |
+| Planner final / causal order / transcript | validated / validated / validated |
+| Planner mutation / recursion | 0 / 0 |
+| Workspace verified / removed | true / true |
+| Retry / fallback / rerun / follow-up | 0 / 0 / 0 / 0 |
+
+No raw provider response, reasoning, transcript, tool argument/result, call ID, credential,
+workspace path, token usage, actual cost, or other free text was retained. The approved one-shot is
+consumed and was not rerun. Any further real-provider attempt remains a separate Human Gate.

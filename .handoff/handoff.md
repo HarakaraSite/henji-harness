@@ -4,7 +4,7 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: planner delegation sentinel response guard local fix完了。provider metadataを許容しつつsole delegation、parsed exact task、exact final/zero tool call、2/1/3を維持。Gate Sとdiagnostic attemptは消費済み
+- 状態: planner delegation sentinel response guard fixとpost-fix real one-shot完了。one-shotはparent 2/child 1/external 3、delegation 1/1、causal/transcript/workspace全検証成功、retry等0
 - 次: 次の通常roadmap incrementへ進む。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
@@ -46,7 +46,13 @@
 
 - 判断済み: plan SHA-256 `e0da29834e6d474356acdc7dc3c6438df90e0e1d6fb4a746349442adc1e6cd57`に基づき、adapter-consistent semantic response validation、parsed exact task、final absent/null tool-call契約、first failure-code保持を実装した
 - 状態: direct 21、process 2、topology 1、transport 16、delegation 16、runtime 35、runtime process 18、full 350成功。initial review GO、Blocker/P1/P2 0
-- 境界: runtime/adapter/profile/prompt/registry/launcher/permissions/2-1-3上限不変。credential/network/provider/production command、追加attempt、dependency/lockfile、`_refs/`、commit/push/releaseは未実施
+- 境界: runtime/adapter/profile/prompt/registry/launcher/permissions/2-1-3上限不変。fixはcommit `64ad889`。local gateではcredential/network/provider/production command、追加attempt、dependency/lockfile、`_refs/`、push/releaseは未実施
+
+### POL-20260827-planner-delegation-sentinel-post-fix-gate-s
+
+- 判断済み: commit `64ad889`のfixed production taskを別途承認されたone-shotとして一回実行した
+- 結果: passed。parent 2、child 1、aggregate/external 3、delegation call/result 1/1、order `parent`/`child`/`parent`、planner final/causal order/transcript、workspace verify/removeすべて成功、retry/fallback/rerun/follow-up 0
+- 境界: attemptは消費済みでrerunしない。raw provider response/reasoning/transcript/tool data/call ID/credential/path/token usage/actual costは記録していない。追加provider attempt、commit/push/tag/publish/releaseは別承認
 
 ### POL-20260826-zot-multi-turn-events
 
@@ -1322,3 +1328,11 @@
 - 実施: approved semantic projection guard、parsed exact task、final zero-tool-call、first failure-code保持とregressionsを実装し、initial review GOで完了
 - 次: 次の通常roadmap incrementへ進む。追加provider attemptは別Human Gate
 - 注意: direct 21/process 2/topology 1/transport 16/delegation 16/runtime 35/runtime process 18/full 350成功。credential/network/provider/production command、追加attempt、dependency/lockfile、`_refs/`、commit/push/releaseは未実施
+
+## 2026-08-27 16:16 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Planner delegation sentinel post-fix real one-shot
+- 実施: commit `64ad889`のfixed credential-file taskを承認どおり一回実行し、exact parent/child/parent causal sentinelが全条件でpassed
+- 次: 次の通常roadmap incrementへ進む
+- 注意: parent 2/child 1/external 3、delegation 1/1、workspace removed true、retry/fallback/rerun/follow-up 0。raw provider/credential/transcript/tool/call-ID/path/usage/costは記録せず、追加attempt、commit/push/tag/publish/releaseは未実施

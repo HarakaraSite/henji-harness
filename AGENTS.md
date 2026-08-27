@@ -184,7 +184,11 @@
   delegation, parsed exact task, exact finals, zero final tool calls, call correlation, and 2/1/3
   bounds. Direct 21, process 2, topology 1, and full v0 350 tests pass; independent review is `GO`
   with Blocker/P1/P2 zero. No credential/network/provider/production command or additional real
-  attempt occurred. Any further provider attempt remains a separate explicit Human Gate.
+  attempt occurred during the local gate. The separately approved post-fix one-shot at commit
+  `64ad889` then passed the exact causal sentinel: parent 2, child 1, aggregate/external 3,
+  delegation call/result 1/1, order `parent` / `child` / `parent`, validated planner final/causal
+  order/transcript, workspace verified/removed true, and retry/fallback/rerun/follow-up zero. It was
+  not rerun. Any further provider attempt remains a separate explicit Human Gate.
 
 ## Development lifecycle
 
