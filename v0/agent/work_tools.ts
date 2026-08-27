@@ -1,5 +1,13 @@
 import { type Tool, ToolInputError } from './tools.ts';
 import type { JsonObject, JsonValue } from './contracts.ts';
+import { type ToolExecutionContext } from './execution_context.ts';
+import {
+  CancellationCleanupError,
+  isCancellationCleanupError,
+  isTurnCancelledError,
+  throwIfCancelled,
+  TurnCancelledError,
+} from './cancellation.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -19,6 +27,15 @@ export interface Workspace {
 export interface WorkToolSeams {
   /** Test-only hook executed after the temp file is synced and before rename. */
   readonly beforeRename?: (target: string, temporary: string) => void | Promise<void>;
+  /** Test-only hook executed after rename and before cancellation arbitration. */
+  readonly afterRename?: (target: string, temporary: string) => void | Promise<void>;
+  /** Test-only hook for exercising cancellation cleanup failures. */
+  readonly cleanupTemporary?: (temporary: string) => void | Promise<void>;
+}
+
+export interface BashToolSeams {
+  /** Test-only hook at the bounded stdout/stderr capture cleanup boundary. */
+  readonly beforeCapture?: (waitForSettlement: boolean) => void | Promise<void>;
 }
 
 export const resolveWorkspace = async (root = Deno.cwd()): Promise<Workspace> => {
@@ -97,7 +114,9 @@ const checkedPath = async (
   workspace: Workspace,
   input: unknown,
   allowMissingTarget: boolean,
+  signal?: AbortSignal,
 ): Promise<CheckedPath> => {
+  throwIfCancelled(signal);
   if (!validTextArgument(input, MAX_PATH_BYTES) || input.trim().length === 0) {
     throw invalidPath();
   }
@@ -110,6 +129,7 @@ const checkedPath = async (
     current = current === '/' ? `/${component}` : `${current}/${component}`;
     try {
       const info = await Deno.lstat(current);
+      throwIfCancelled(signal);
       if (info.isSymlink) throw invalidSymlink();
     } catch (error) {
       if (error instanceof ToolInputError) throw error;
@@ -122,6 +142,7 @@ const checkedPath = async (
   let targetInfo: Deno.FileInfo | undefined;
   try {
     targetInfo = await Deno.lstat(absolute);
+    throwIfCancelled(signal);
     if (targetInfo.isSymlink) throw invalidSymlink();
   } catch (error) {
     if (error instanceof ToolInputError) throw error;
@@ -130,7 +151,13 @@ const checkedPath = async (
   return { absolute, relative: relativePath(workspace.root, absolute), parent, targetInfo };
 };
 
-const ensureParent = async (workspace: Workspace, path: string, create: boolean): Promise<void> => {
+const ensureParent = async (
+  workspace: Workspace,
+  path: string,
+  create: boolean,
+  signal?: AbortSignal,
+): Promise<void> => {
+  throwIfCancelled(signal);
   if (!isWithin(workspace.root, path)) throw invalidPath();
   const rootParts = splitAbsolute(workspace.root);
   const parts = splitAbsolute(path);
@@ -140,6 +167,7 @@ const ensureParent = async (workspace: Workspace, path: string, create: boolean)
     current = `${current}/${part}`;
     try {
       const info = await Deno.lstat(current);
+      throwIfCancelled(signal);
       if (info.isSymlink) throw invalidSymlink();
       if (!info.isDirectory) throw new Error('parent is not a directory');
     } catch (error) {
@@ -147,6 +175,7 @@ const ensureParent = async (workspace: Workspace, path: string, create: boolean)
       if (!(error instanceof Deno.errors.NotFound)) throw error;
       if (!create) throw error;
       await Deno.mkdir(current, { mode: 0o755 });
+      throwIfCancelled(signal);
     }
   }
   // Re-check after mkdir so an ordinary race cannot turn the sibling into a link.
@@ -154,6 +183,7 @@ const ensureParent = async (workspace: Workspace, path: string, create: boolean)
   for (const part of parts.slice(rootParts.length)) {
     verify = `${verify}/${part}`;
     const info = await Deno.lstat(verify);
+    throwIfCancelled(signal);
     if (info.isSymlink) throw invalidSymlink();
     if (!info.isDirectory) throw new Error('parent is not a directory');
   }
@@ -204,9 +234,15 @@ const decodeText = (bytes: Uint8Array): string => {
   return text;
 };
 
-const readTarget = async (workspace: Workspace, input: unknown, toolName: string) => {
-  const checked = await checkedPath(workspace, input, false).catch((error: unknown) => {
+const readTarget = async (
+  workspace: Workspace,
+  input: unknown,
+  toolName: string,
+  signal?: AbortSignal,
+) => {
+  const checked = await checkedPath(workspace, input, false, signal).catch((error: unknown) => {
     if (error instanceof ToolInputError) throw error;
+    if (isTurnCancelledError(error)) throw error;
     if (error instanceof Deno.errors.NotFound) throw new Error('file not found');
     throw new Error(`local ${toolName} failed`);
   });
@@ -214,14 +250,18 @@ const readTarget = async (workspace: Workspace, input: unknown, toolName: string
   let bytes: Uint8Array;
   try {
     bytes = await readBytesBounded(checked.absolute);
+    throwIfCancelled(signal);
   } catch (error) {
+    if (isTurnCancelledError(error)) throw error;
     if (
       error instanceof Error &&
       (error.message === 'file exceeds 64 KiB' || error.message === 'file is not valid UTF-8 text')
     ) throw error;
     throw new Error(`local ${toolName} failed`);
   }
-  return { checked, bytes, text: decodeText(bytes) };
+  const text = decodeText(bytes);
+  throwIfCancelled(signal);
+  return { checked, bytes, text };
 };
 
 const atomicReplace = async (
@@ -231,11 +271,16 @@ const atomicReplace = async (
   mode: number,
   seams: WorkToolSeams,
   expectedBytes?: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<void> => {
-  await ensureParent(workspace, checked.parent, true);
+  throwIfCancelled(signal);
+  await ensureParent(workspace, checked.parent, true, signal);
   const base = checked.absolute.slice(checked.absolute.lastIndexOf('/') + 1) || 'target';
   let temporary: string | undefined;
   let file: Deno.FsFile | undefined;
+  let cleanupError: unknown;
+  let operationFailed = false;
+  let operationError: unknown;
   try {
     for (let attempt = 0; attempt < TEMP_ATTEMPTS; attempt += 1) {
       const candidate = `${checked.parent}/.${base}.henji-${attempt}`;
@@ -248,19 +293,24 @@ const atomicReplace = async (
       }
     }
     if (!file || !temporary) throw new Error('temp file unavailable');
+    throwIfCancelled(signal);
     let offset = 0;
     while (offset < bytes.byteLength) {
       const written = await file.write(bytes.subarray(offset));
       if (written <= 0) throw new Error('temp write failed');
       offset += written;
+      throwIfCancelled(signal);
     }
     await file.sync();
+    throwIfCancelled(signal);
     await Deno.chmod(temporary, mode);
+    throwIfCancelled(signal);
     file.close();
     file = undefined;
     await seams.beforeRename?.(checked.absolute, temporary);
-    await ensureParent(workspace, checked.parent, true);
-    await ensureParent(workspace, checked.parent, false);
+    throwIfCancelled(signal);
+    await ensureParent(workspace, checked.parent, true, signal);
+    await ensureParent(workspace, checked.parent, false, signal);
     const current = await Deno.lstat(checked.absolute).catch((error: unknown) => {
       if (error instanceof Deno.errors.NotFound) return undefined;
       throw error;
@@ -269,24 +319,35 @@ const atomicReplace = async (
     if (expectedBytes !== undefined) {
       if (!current) throw new Error('target changed');
       const latest = await readBytesBounded(checked.absolute);
+      throwIfCancelled(signal);
       if (!bytesEqual(expectedBytes, latest)) throw new Error('target changed');
     }
+    throwIfCancelled(signal);
     await Deno.rename(temporary, checked.absolute);
+    const renamedTemporary = temporary;
     temporary = undefined;
+    await seams.afterRename?.(checked.absolute, renamedTemporary);
+    throwIfCancelled(signal);
+  } catch (error) {
+    operationFailed = true;
+    operationError = error;
   } finally {
     try {
       file?.close();
     } catch {
-      // Best-effort cleanup only.
+      if (signal?.aborted) cleanupError = new CancellationCleanupError();
     }
     if (temporary) {
       try {
+        await seams.cleanupTemporary?.(temporary);
         await Deno.remove(temporary);
       } catch {
-        // Best-effort cleanup only.
+        if (signal?.aborted) cleanupError = new CancellationCleanupError();
       }
     }
   }
+  if (cleanupError !== undefined) throw cleanupError;
+  if (operationFailed) throw operationError;
 };
 
 const readSchema = {
@@ -342,10 +403,10 @@ export const createReadTool = (workspace: Workspace): Tool => ({
   name: 'read',
   description: 'Read one UTF-8 text file inside the workspace (maximum 64 KiB).',
   inputSchema: readSchema,
-  async execute(argumentsValue) {
+  async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path'], 'read');
     if (typeof args.path !== 'string') throw invalidToolArguments('read');
-    return (await readTarget(workspace, args.path, 'read')).text;
+    return (await readTarget(workspace, args.path, 'read', context?.signal)).text;
   },
 });
 
@@ -354,25 +415,29 @@ export const createWriteTool = (workspace: Workspace, seams: WorkToolSeams = {})
   description:
     'Create or replace one UTF-8 text file inside the workspace. Missing parent directories are created.',
   inputSchema: writeSchema,
-  async execute(argumentsValue) {
+  async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'content'], 'write');
     if (
       typeof args.path !== 'string' || !validTextArgument(args.content, MAX_TEXT_BYTES)
     ) throw invalidToolArguments('write');
     const content = args.content;
     const encoded = encoder.encode(content);
-    const checked = await checkedPath(workspace, args.path, true).catch((error: unknown) => {
-      if (error instanceof ToolInputError) throw error;
-      throw new Error('local write failed');
-    });
+    const checked = await checkedPath(workspace, args.path, true, context?.signal).catch(
+      (error: unknown) => {
+        if (error instanceof ToolInputError) throw error;
+        if (isTurnCancelledError(error)) throw error;
+        throw new Error('local write failed');
+      },
+    );
     if (checked.targetInfo && !checked.targetInfo.isFile) {
       throw new Error('target is not a regular file');
     }
     const mode = checked.targetInfo?.mode == null ? 0o644 : checked.targetInfo.mode & 0o7777;
     try {
-      await atomicReplace(workspace, checked, encoded, mode, seams);
+      await atomicReplace(workspace, checked, encoded, mode, seams, undefined, context?.signal);
     } catch (error) {
       if (error instanceof ToolInputError) throw error;
+      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
       throw new Error('local write failed');
     }
     return JSON.stringify({ path: checked.relative, bytes: encoded.byteLength });
@@ -389,7 +454,7 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
   description:
     'Apply up to 32 non-overlapping exact replacements to one existing UTF-8 text file. Each oldText must match exactly once in the original file.',
   inputSchema: editSchema,
-  async execute(argumentsValue) {
+  async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'edits'], 'edit');
     if (
       typeof args.path !== 'string' || !Array.isArray(args.edits) || args.edits.length < 1 ||
@@ -416,7 +481,7 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
       }
       operations.push({ oldText: operation.oldText, newText: operation.newText });
     }
-    const snapshot = await readTarget(workspace, args.path, 'edit');
+    const snapshot = await readTarget(workspace, args.path, 'edit', context?.signal);
     const spans: { start: number; end: number; operation: EditOperation }[] = [];
     for (let index = 0; index < operations.length; index += 1) {
       const operation = operations[index];
@@ -440,10 +505,13 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
     output += snapshot.text.slice(cursor);
     const encoded = encoder.encode(output);
     if (encoded.byteLength > MAX_TEXT_BYTES) throw new Error('file exceeds 64 KiB');
+    throwIfCancelled(context?.signal);
     let latest: Uint8Array;
     try {
       latest = await readBytesBounded(snapshot.checked.absolute);
-    } catch {
+      throwIfCancelled(context?.signal);
+    } catch (error) {
+      if (isTurnCancelledError(error)) throw error;
       throw new Error('local edit failed');
     }
     if (!bytesEqual(snapshot.bytes, latest)) throw new Error('local edit failed');
@@ -451,9 +519,18 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
       ? 0o644
       : snapshot.checked.targetInfo.mode & 0o7777;
     try {
-      await atomicReplace(workspace, snapshot.checked, encoded, mode, seams, snapshot.bytes);
+      await atomicReplace(
+        workspace,
+        snapshot.checked,
+        encoded,
+        mode,
+        seams,
+        snapshot.bytes,
+        context?.signal,
+      );
     } catch (error) {
       if (error instanceof ToolInputError) throw error;
+      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
       throw new Error('local edit failed');
     }
     return JSON.stringify({
@@ -475,7 +552,7 @@ interface CapturedStream {
 interface CaptureState {
   readonly done: Promise<CapturedStream>;
   readonly snapshot: () => CapturedStream;
-  readonly cancel: () => void;
+  readonly cancelAndWait: () => Promise<void>;
 }
 
 const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
@@ -514,8 +591,9 @@ const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
   return {
     done,
     snapshot,
-    cancel: () => {
-      void reader.cancel().catch(() => undefined);
+    cancelAndWait: async () => {
+      await reader.cancel();
+      await done;
     },
   };
 };
@@ -523,7 +601,14 @@ const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
 const waitForCapture = async (
   stdout: CaptureState,
   stderr: CaptureState,
+  waitForSettlement: boolean,
+  seams: BashToolSeams,
 ): Promise<readonly [CapturedStream, CapturedStream]> => {
+  await seams.beforeCapture?.(waitForSettlement);
+  if (waitForSettlement) {
+    await Promise.all([stdout.done, stderr.done]);
+    return [await stdout.done, await stderr.done];
+  }
   let captureTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     const completed = await Promise.race([
@@ -533,20 +618,22 @@ const waitForCapture = async (
       }),
     ]);
     if (completed) return [await stdout.done, await stderr.done];
-    stdout.cancel();
-    stderr.cancel();
+    const settled = await Promise.allSettled([stdout.cancelAndWait(), stderr.cancelAndWait()]);
+    if (settled.some((result) => result.status === 'rejected')) {
+      throw new Error('capture cleanup failed');
+    }
     return [stdout.snapshot(), stderr.snapshot()];
   } finally {
     if (captureTimer !== undefined) clearTimeout(captureTimer);
   }
 };
 
-export const createBashTool = (workspace: Workspace): Tool => ({
+export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}): Tool => ({
   name: 'bash',
   description:
     'Run one Bash command from the workspace. Default timeout 30000 ms; maximum 120000 ms. stdout and stderr are captured separately and truncated.',
   inputSchema: bashSchema,
-  async execute(argumentsValue) {
+  async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, [
       'command',
       ...(isObject(argumentsValue) && 'timeoutMs' in argumentsValue ? ['timeoutMs'] : []),
@@ -562,6 +649,7 @@ export const createBashTool = (workspace: Workspace): Tool => ({
       typeof timeoutMs !== 'number' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 ||
       timeoutMs > MAX_TIMEOUT_MS
     ) throw invalidToolArguments('bash');
+    throwIfCancelled(context?.signal);
     let child: Deno.ChildProcess;
     try {
       child = new Deno.Command('/bin/bash', {
@@ -577,6 +665,7 @@ export const createBashTool = (workspace: Workspace): Tool => ({
       throw new Error('bash could not start');
     }
     let timedOut = false;
+    let cancellationRequested = false;
     const stdout = startDrain(child.stdout);
     const stderr = startDrain(child.stderr);
     let status: Deno.CommandStatus | undefined;
@@ -585,20 +674,30 @@ export const createBashTool = (workspace: Workspace): Tool => ({
       return value;
     });
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = (): void => {
+      cancellationRequested = true;
+      cancellationResolve?.('cancelled');
+    };
+    let cancellationResolve: ((value: 'cancelled') => void) | undefined;
+    const cancellation = new Promise<'cancelled'>((resolve) => {
+      cancellationResolve = resolve;
+      context?.signal?.addEventListener('abort', onAbort, { once: true });
+    });
     const timeout = new Promise<'timeout'>((resolve) => {
       timeoutTimer = setTimeout(() => resolve('timeout'), timeoutMs);
     });
-    try {
-      const first = await Promise.race([
-        statusPromise.then(() => 'status' as const),
-        timeout,
-      ]);
-      if (first === 'timeout') {
-        timedOut = true;
+    const teardown = async (cancelledByUser: boolean): Promise<void> => {
+      let cleanupFailedAfterCancellation = false;
+      const cancellationWon = (): boolean =>
+        cancellationRequested || context?.signal?.aborted === true;
+      const noteCleanupFailure = (): void => {
+        if (cancellationWon()) cleanupFailedAfterCancellation = true;
+      };
+      if (status === undefined) {
         try {
           child.kill('SIGTERM');
         } catch {
-          // The child may have exited just before the timeout callback.
+          if (status === undefined) noteCleanupFailure();
         }
         const termGrace = await Promise.race([
           statusPromise.then(() => 'status' as const),
@@ -608,13 +707,53 @@ export const createBashTool = (workspace: Workspace): Tool => ({
           try {
             child.kill('SIGKILL');
           } catch {
-            // The child may have exited after SIGTERM.
+            if (status === undefined) noteCleanupFailure();
           }
         }
-        // Always await the direct child status so the child is reaped before returning.
-        await statusPromise;
+        try {
+          await statusPromise;
+        } catch {
+          noteCleanupFailure();
+        }
       }
-      const [capturedStdout, capturedStderr] = await waitForCapture(stdout, stderr);
+      try {
+        await waitForCapture(stdout, stderr, cancelledByUser, seams);
+        // A timeout may begin ordinary bounded capture cleanup before the user requests
+        // cancellation. Once that request arrives, upgrade to full capture settlement before
+        // allowing the interrupted turn to surface.
+        if (cancellationWon() && !cancelledByUser) {
+          await waitForCapture(stdout, stderr, true, seams);
+        }
+      } catch {
+        noteCleanupFailure();
+        const settled = await Promise.allSettled([stdout.cancelAndWait(), stderr.cancelAndWait()]);
+        if (settled.some((result) => result.status === 'rejected')) noteCleanupFailure();
+      }
+      if (cancellationWon() && cleanupFailedAfterCancellation) {
+        throw new CancellationCleanupError();
+      }
+    };
+    try {
+      const first = await Promise.race([
+        statusPromise.then(() => 'status' as const),
+        timeout,
+        cancellation,
+      ]);
+      if (first === 'timeout' || first === 'cancelled') {
+        if (first === 'cancelled') cancellationRequested = true;
+        if (first === 'timeout') timedOut = true;
+        await teardown(cancellationRequested);
+      } else {
+        await statusPromise;
+        // A cancellation can be requested in the same turn as child completion. It wins only
+        // before the result is settled, after all direct resources have been reaped.
+        if (cancellationRequested || context?.signal?.aborted) {
+          await teardown(true);
+        }
+        await waitForCapture(stdout, stderr, false, seams);
+      }
+      if (cancellationRequested || context?.signal?.aborted) throw new TurnCancelledError();
+      const [capturedStdout, capturedStderr] = await waitForCapture(stdout, stderr, false, seams);
       return JSON.stringify({
         stdout: new TextDecoder().decode(capturedStdout.bytes),
         stderr: new TextDecoder().decode(capturedStderr.bytes),
@@ -624,10 +763,13 @@ export const createBashTool = (workspace: Workspace): Tool => ({
         stdoutTruncated: capturedStdout.truncated,
         stderrTruncated: capturedStderr.truncated,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof CancellationCleanupError) throw error;
+      if (isTurnCancelledError(error)) throw error;
       throw new Error('bash could not start');
     } finally {
       if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
+      context?.signal?.removeEventListener('abort', onAbort);
     }
   },
 });

@@ -1,3 +1,5 @@
+import { type TurnCancellation } from './cancellation.ts';
+
 /** The two independently bounded request lanes in one accepted turn. */
 export type RequestLane = 'parent' | 'child';
 
@@ -45,6 +47,8 @@ export class TurnRequestBudget {
 /** Internal loop seam shared by parent and child lanes. */
 export interface ModelExecutionContext {
   readonly lane: RequestLane;
+  readonly signal?: AbortSignal;
+  readonly cancellation?: TurnCancellation;
   claimModelRequest(): boolean;
   snapshot(): TurnRequestBudgetSnapshot;
 }
@@ -52,7 +56,11 @@ export interface ModelExecutionContext {
 /** The restricted context visible to one synchronously delegated planner child. */
 export class ChildTurnExecutionContext implements ModelExecutionContext {
   readonly lane = 'child' as const;
-  constructor(private readonly budget: TurnRequestBudget) {}
+  constructor(
+    private readonly budget: TurnRequestBudget,
+    readonly signal?: AbortSignal,
+    readonly cancellation?: TurnCancellation,
+  ) {}
 
   claimModelRequest(): boolean {
     return this.budget.claim('child');
@@ -75,11 +83,13 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
   constructor(
     readonly turn: number,
     private readonly budget = new TurnRequestBudget(),
+    readonly signal?: AbortSignal,
+    readonly cancellation?: TurnCancellation,
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
     }
-    this.child = new ChildTurnExecutionContext(budget);
+    this.child = new ChildTurnExecutionContext(budget, signal, cancellation);
   }
 
   claimModelRequest(): boolean {
@@ -102,5 +112,16 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
   }
 }
 
-export const createTurnExecutionContext = (turn: number): ParentTurnExecutionContext =>
-  new ParentTurnExecutionContext(turn);
+export const createTurnExecutionContext = (
+  turn: number,
+  signal?: AbortSignal,
+  cancellation?: TurnCancellation,
+): ParentTurnExecutionContext =>
+  new ParentTurnExecutionContext(turn, undefined, signal, cancellation);
+
+/** The execution-only wrapper passed to tools; request admission remains nested separately. */
+export interface ToolExecutionContext {
+  readonly modelExecution?: ModelExecutionContext;
+  readonly signal?: AbortSignal;
+  readonly cancellation?: TurnCancellation;
+}

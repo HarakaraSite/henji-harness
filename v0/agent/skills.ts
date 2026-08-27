@@ -1,5 +1,7 @@
 import { type JsonValue } from './contracts.ts';
 import { type Tool, ToolInputError } from './tools.ts';
+import { type ToolExecutionContext } from './execution_context.ts';
+import { throwIfCancelled } from './cancellation.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -351,7 +353,8 @@ export const createSkillTool = (catalog: SkillCatalog): Tool => {
       required: ['name'],
       additionalProperties: false,
     },
-    execute(argumentsValue: JsonValue): string {
+    execute(argumentsValue: JsonValue, context?: ToolExecutionContext): string {
+      throwIfCancelled(context?.signal);
       const name = typeof argumentsValue === 'object' && argumentsValue !== null &&
           !Array.isArray(argumentsValue)
         ? (argumentsValue as { readonly name?: JsonValue }).name
@@ -363,6 +366,7 @@ export const createSkillTool = (catalog: SkillCatalog): Tool => {
       ) throw new ToolInputError('expected an object with only a valid skill name');
       const result = lookup.get(name);
       if (result === undefined) throw new Error('skill not found');
+      throwIfCancelled(context?.signal);
       return result;
     },
   };

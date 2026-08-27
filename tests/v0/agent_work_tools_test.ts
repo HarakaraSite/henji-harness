@@ -1,5 +1,11 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import type { JsonValue } from '../../v0/agent/contracts.ts';
+import {
+  CancellationCleanupError,
+  TurnCancellationOwner,
+  TurnCancelledError,
+} from '../../v0/agent/cancellation.ts';
+import { AgentSession } from '../../v0/agent/session.ts';
 import { Registry, type Tool } from '../../v0/agent/tools.ts';
 import { createCorpusRegistry, createWorkToolsRegistry } from '../../v0/agent/registries.ts';
 import {
@@ -159,6 +165,96 @@ Deno.test('write failures clean temp files and leave target unchanged', async ()
     assertEquals((await Array.fromAsync(Deno.readDir(root))).map((entry) => entry.name), [
       'keep.txt',
     ]);
+  });
+});
+
+Deno.test('write cancellation before rename cleans its sibling temporary and preserves the target', async () => {
+  await withWorkspace(async (root) => {
+    await Deno.writeTextFile(`${root}/target.txt`, 'old');
+    const workspace = await resolveWorkspace(root);
+    const owner = new TurnCancellationOwner();
+    const write = createWriteTool(workspace, {
+      beforeRename: () => {
+        owner.request();
+      },
+    });
+    let error: unknown;
+    try {
+      await write.execute({ path: 'target.txt', content: 'new' }, {
+        signal: owner.signal,
+        cancellation: owner,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof TurnCancelledError);
+    assertEquals(await Deno.readTextFile(`${root}/target.txt`), 'old');
+    assertEquals((await Array.fromAsync(Deno.readDir(root))).map((entry) => entry.name), [
+      'target.txt',
+    ]);
+  });
+});
+
+Deno.test('write cancellation after rename retains the effect while rolling back the turn draft', async () => {
+  await withWorkspace(async (root) => {
+    await Deno.writeTextFile(`${root}/target.txt`, 'old');
+    const workspace = await resolveWorkspace(root);
+    const sessionRef: { current?: AgentSession } = {};
+    const write = createWriteTool(workspace, {
+      afterRename: () => {
+        assert(sessionRef.current !== undefined);
+        assertEquals(sessionRef.current.cancelActiveTurn(), 'requested');
+      },
+    });
+    const session = new AgentSession(
+      {
+        generate: () => ({
+          kind: 'tool_calls' as const,
+          calls: [{
+            callId: 'write',
+            name: 'write',
+            arguments: { path: 'target.txt', content: 'new' },
+          }],
+        }),
+      },
+      new Registry([write]),
+    );
+    sessionRef.current = session;
+    const result = await session.submit('apply the change');
+    assertEquals(result.stopReason, 'cancelled');
+    assertEquals(result.toolCallCount, 1);
+    assertEquals(result.toolResultCount, 0);
+    assertEquals(await Deno.readTextFile(`${root}/target.txt`), 'new');
+    assertEquals(session.transcriptSnapshot(), []);
+    assertEquals((await Array.fromAsync(Deno.readDir(root))).map((entry) => entry.name), [
+      'target.txt',
+    ]);
+  });
+});
+
+Deno.test('write cancellation cleanup failure is fatal rather than clean cancellation', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const owner = new TurnCancellationOwner();
+    const write = createWriteTool(workspace, {
+      beforeRename: () => {
+        owner.request();
+      },
+      cleanupTemporary: () => {
+        throw new Error('cleanup marker');
+      },
+    });
+    let error: unknown;
+    try {
+      await write.execute({ path: 'target.txt', content: 'new' }, {
+        signal: owner.signal,
+        cancellation: owner,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof CancellationCleanupError);
+    assertEquals(owner.state, 'cancel_requested');
   });
 });
 
@@ -325,6 +421,83 @@ Deno.test('bash SIGTERM-ignoring child is SIGKILLed, reaped, and bounded', async
       stderr: 'null',
     }).output();
     assert(!probe.success);
+  });
+});
+
+Deno.test('bash cancellation TERM/KILL cleanup reaps the direct child before rejection', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const owner = new TurnCancellationOwner();
+    const bash = createBashTool(workspace);
+    const started = performance.now();
+    const pending = bash.execute({
+      command: 'trap "" TERM; sleep 5',
+      timeoutMs: 120_000,
+    }, { signal: owner.signal, cancellation: owner });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    owner.request();
+    let error: unknown;
+    try {
+      await pending;
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof TurnCancelledError);
+    assert(performance.now() - started < 1_000);
+  });
+});
+
+Deno.test('bash timeout teardown observes cancellation requested during capture cleanup', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const owner = new TurnCancellationOwner();
+    let captureCalls = 0;
+    const bash = createBashTool(workspace, {
+      beforeCapture: (waitForSettlement) => {
+        if (!waitForSettlement) {
+          captureCalls += 1;
+          owner.request();
+        }
+      },
+    });
+    const pending = bash.execute({
+      command: 'trap "" TERM; sleep 5',
+      timeoutMs: 1,
+    }, { signal: owner.signal, cancellation: owner });
+    let error: unknown;
+    try {
+      await pending;
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof TurnCancelledError);
+    assertEquals(captureCalls, 1);
+  });
+});
+
+Deno.test('bash timeout teardown reports cleanup failure that occurs after cancellation', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const owner = new TurnCancellationOwner();
+    const bash = createBashTool(workspace, {
+      beforeCapture: (waitForSettlement) => {
+        if (!waitForSettlement) {
+          owner.request();
+          throw new Error('capture cleanup marker');
+        }
+      },
+    });
+    let error: unknown;
+    try {
+      await bash.execute({
+        command: 'trap "" TERM; sleep 5',
+        timeoutMs: 1,
+      }, { signal: owner.signal, cancellation: owner });
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof CancellationCleanupError);
+    assertEquals(owner.state, 'cancel_requested');
   });
 });
 

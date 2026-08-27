@@ -9,7 +9,9 @@ import { DenoTerminal, TerminalLifecycle, type TerminalPort } from '../tui/termi
 const encoder = new TextEncoder();
 
 export interface TuiSessionFactoryResult {
-  readonly session: Pick<AgentSession, 'submit'>;
+  readonly session:
+    & Pick<AgentSession, 'submit'>
+    & Partial<Pick<AgentSession, 'cancelActiveTurn'>>;
   readonly requestCount?: () => number;
 }
 

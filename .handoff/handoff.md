@@ -4,10 +4,25 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: planner delegation sentinel response guard fixとpost-fix real one-shot完了。one-shotはparent 2/child 1/external 3、delegation 1/1、causal/transcript/workspace全検証成功、retry等0
-- 次: 次の通常roadmap incrementへ進む。追加provider attemptは別Human Gate
+- 状態: provider-neutral cancellationのlocal implementation、offline gate、review finding修正、owner final closureまで完了。full v0 377成功、最終Blocker/P1/P2 0
+- 次: roadmap次順のcontext managementを別計画として開始する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
+
+### POL-20260827-post-delegation-roadmap-order
+
+- 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
+- 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
+- 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
+- 次: provider-neutral cancellationの要件・停止契約・実装計画を作成し、初期Human Gateへ進む
+
+### POL-20260827-provider-neutral-cancellation-plan
+
+- 判断済み: ユーザーが`docs/plans/provider-neutral-cancellation.md`、SHA-256 `2e7de535ce3979f79b0d46515e076a67e9e76da6654c2cd0788e688e755bdfab`のlocal implementation、permission-free tests、full offline gate、results、bounded reviewを承認した
+- 状態: cancellation 18、work-tools 19、TUI process 15、full v0 377成功。initial review P1 2/P2 2、single re-review残存evidence P2 2をexact signal-cleanup PTY regressionとinventory修正で閉じ、owner final Blocker/P1/P2 0
+- 契約: busy Escapeはcancel後same-session ready、busy Ctrl-C/SIGINTはclean settlement後exit 0、busy SIGTERM/SIGHUPはclean settlement後143/129。parent/planner/model/toolへ同一per-turn signalを伝播し、cancelled turnはcommitしない
+- 安全判断: abortを無視するoperationを有限時間でforce-abandonせず、owned resource settlementまでready/exitしない。cleanup failureはsessionを恒久的にunavailableとし、signal intentを含めexit 1のsanitized failureへ固定する
+- 境界: library/dependency/lockfile、provider/network/credential/production command、`_refs/`変更、commit/push/tag/publish/releaseは対象外
 
 ### POL-20260827-agent-definition-composition-boundary
 
@@ -1336,3 +1351,51 @@
 - 実施: commit `64ad889`のfixed credential-file taskを承認どおり一回実行し、exact parent/child/parent causal sentinelが全条件でpassed
 - 次: 次の通常roadmap incrementへ進む
 - 注意: parent 2/child 1/external 3、delegation 1/1、workspace removed true、retry/fallback/rerun/follow-up 0。raw provider/credential/transcript/tool/call-ID/path/usage/costは記録せず、追加attempt、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 16:19 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Session close after planner delegation sentinel completion
+- 実施: guard fix commit `64ad889`、post-fix sentinel success、result commit `962fa19`まで完了した状態でsession終了
+- 次: 次回は通常roadmap incrementを選ぶ。候補はprovider-neutral cancellation、context management、persistent session/historyで、未決定
+- 注意: push/tag/publish/release未実施。tracked source/docsはcommit済みで、このcheckpointだけ未コミット。既存untracked `_refs/` snapshotsを保持
+
+## 2026-08-27 17:01 JST
+
+- 実行エージェント: ユーザー / Codex default
+- 作業トピック: Normal TUI user smoke test
+- 実施: ユーザーが実機TUIでtop-level `planner`のread-only taskと、`default`からのexact one-call planner delegationを実行。後者は画面上で`delegate_to_planner` call/result success、planner child usage 1/1、親final、ready復帰を確認し、全体を「順調」と評価して実機テストを終了
+- 次: 次の通常roadmap incrementを選ぶ
+- 注意: ユーザー実行のproduction provider操作。credential値、raw provider response、完全なtranscript、call ID、usage/costは記録していない。追加provider attempt、push/tag/publish/releaseは別の明示指示が必要
+
+## 2026-08-27 17:14 JST
+
+- 実行エージェント: ユーザー / Codex default
+- 作業トピック: Post-delegation roadmap ordering
+- 実施: ユーザーが`POL-20260827-post-delegation-roadmap-order`の7段階順序と、当面のCLI/TUI library導入見送りを決定
+- 次: provider-neutral cancellationの計画を作成する
+- 注意: 方針記録のみ。source/test、dependency/lockfile、provider/credential、`_refs/`、commit/push/tag/publish/releaseは変更・実行していない
+
+## 2026-08-27 17:36 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Provider-neutral cancellation planning
+- 実施: current core/model/planner/tools/TUI境界とpinned Pi/Zotを照合し、per-turn signal、cancelled noncommit、cooperative settlement、cleanup failure poison、TUI control/signal precedence、offline検証をcanonical planへ固定。read-only review GO、Blocker/P1/P2 0
+- 次: `ASK-20260827-provider-neutral-cancellation-plan`の初期Human Gate
+- 注意: plan SHA-256 `2e7de535ce3979f79b0d46515e076a67e9e76da6654c2cd0788e688e755bdfab`。planning/handoffのみで、source/test実装、provider/network/credential/production command、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 17:38 JST
+
+- 実行エージェント: ユーザー / Codex default
+- 作業トピック: Provider-neutral cancellation Human Gate
+- 実施: ユーザーが`POL-20260827-provider-neutral-cancellation-plan`のlocal implementation、offline verification、results、bounded reviewを明示承認
+- 次: single implementerでcanonical planを実装し、offline gate後にread-only reviewへ進む
+- 注意: provider/network/credential/production command、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは承認範囲外
+
+## 2026-08-27 19:13 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Provider-neutral cancellation local completion
+- 実施: per-turn cancellationをparent/planner/model/tools/TUIへ実装。initial review P1 2/P2 2を修正し、single re-review残存evidence P2 2をowner final PTY regressionとinventory修正で閉じた
+- 次: roadmap次順のcontext managementを別計画として開始する
+- 注意: cancellation 18、work-tools 19、TUI process 15、full v0 377成功、最終Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは未実施

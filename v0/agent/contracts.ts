@@ -76,15 +76,27 @@ export interface ModelRequest {
   readonly tools: readonly ToolDefinition[];
 }
 
+export interface ModelGenerateOptions {
+  readonly signal?: AbortSignal;
+}
+
 export type ModelResult =
   | { readonly kind: 'final'; readonly text: string }
   | { readonly kind: 'tool_calls'; readonly calls: readonly ToolCall[] };
 
 export interface Model {
-  generate(request: ModelRequest): ModelResult | PromiseLike<ModelResult>;
+  generate(
+    request: ModelRequest,
+    options?: ModelGenerateOptions,
+  ): ModelResult | PromiseLike<ModelResult>;
 }
 
-export type LoopStopReason = 'final' | 'tool_terminal' | 'max_steps' | 'contract_failure';
+export type LoopStopReason =
+  | 'final'
+  | 'tool_terminal'
+  | 'max_steps'
+  | 'contract_failure'
+  | 'cancelled';
 
 export interface LoopOutcome {
   readonly ok: boolean;

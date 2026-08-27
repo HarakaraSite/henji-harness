@@ -1,14 +1,16 @@
-import { PROFILE, readBoundedResponse } from '../model.ts';
+import { PROFILE } from '../model.ts';
 import {
   type JsonValue,
   type Message,
   type Model,
+  type ModelGenerateOptions,
   type ModelRequest,
   type ModelResult,
   type ToolCallContent,
   type ToolDefinition,
   type ToolResultContent,
 } from './contracts.ts';
+import { CancellationCleanupError, throwIfCancelled, TurnCancelledError } from './cancellation.ts';
 
 const encoder = new TextEncoder();
 
@@ -55,6 +57,88 @@ export class OpenRouterAgentError extends Error {
     this.status = status;
   }
 }
+
+type ResponseBodyResult =
+  | { readonly kind: 'text'; readonly text: string; readonly cleanupFailed: boolean }
+  | { readonly kind: 'limit_exceeded'; readonly cleanupFailed: boolean }
+  | { readonly kind: 'stream_error'; readonly cleanupFailed: boolean }
+  | { readonly kind: 'missing'; readonly cleanupFailed: false };
+
+/** Read one bounded response while retaining proof that the body reader was settled. */
+const readResponseBody = async (response: Response): Promise<ResponseBodyResult> => {
+  if (!response.body) return { kind: 'missing', cleanupFailed: false };
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = response.body.getReader();
+  } catch {
+    return { kind: 'stream_error', cleanupFailed: true };
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let result: ResponseBodyResult = { kind: 'stream_error', cleanupFailed: true };
+  try {
+    for (;;) {
+      let item: ReadableStreamReadResult<Uint8Array>;
+      try {
+        item = await reader.read();
+      } catch {
+        let cleanupFailed = true;
+        try {
+          await reader.cancel('provider response stream failed');
+          cleanupFailed = false;
+        } catch {
+          // The body is not proven settled when cancellation itself fails.
+        }
+        result = { kind: 'stream_error', cleanupFailed };
+        break;
+      }
+      if (item.done) {
+        const body = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          body.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        result = {
+          kind: 'text',
+          text: new TextDecoder().decode(body),
+          cleanupFailed: false,
+        };
+        break;
+      }
+      total += item.value.byteLength;
+      if (total > MAX_RESPONSE_BYTES) {
+        let cleanupFailed = true;
+        try {
+          await reader.cancel('response limit exceeded');
+          cleanupFailed = false;
+        } catch {
+          // The body is not proven settled when cancellation itself fails.
+        }
+        result = { kind: 'limit_exceeded', cleanupFailed };
+        break;
+      }
+      chunks.push(item.value);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      result = { ...result, cleanupFailed: true };
+    }
+  }
+  return result;
+};
+
+const cancelResponseBody = async (response: Response): Promise<boolean> => {
+  if (!response.body) return true;
+  try {
+    await response.body.cancel();
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export type CredentialSource = () => string | undefined;
 
@@ -369,7 +453,10 @@ export class OpenRouterAgentModel implements Model {
     this.profile = options.profile ?? PROFILE;
   }
 
-  async generate(request: ModelRequest): Promise<ModelResult> {
+  async generate(
+    request: ModelRequest,
+    generateOptions: ModelGenerateOptions = {},
+  ): Promise<ModelResult> {
     const encoded = encodeRequest(request);
     const body = safeJson({
       model: this.profile.model,
@@ -382,9 +469,8 @@ export class OpenRouterAgentModel implements Model {
     if (bytes(body) > MAX_REQUEST_BYTES) {
       throw new OpenRouterAgentError('limit_exceeded', 'provider request exceeds 256 KiB', 0);
     }
-    if (this.options.parentSignal?.aborted) {
-      throw new OpenRouterAgentError('transport_error', 'provider transport failed', 0);
-    }
+    const turnSignal = generateOptions.signal ?? this.options.parentSignal;
+    throwIfCancelled(turnSignal);
     const credential = resolveCredential(this.options, this.profile);
     if (!credential) {
       throw new OpenRouterAgentError(
@@ -393,12 +479,23 @@ export class OpenRouterAgentModel implements Model {
         0,
       );
     }
+    // Credential resolution may itself cross a host-controlled boundary. Do not start a fetch
+    // when cancellation won while that boundary was settling.
+    throwIfCancelled(turnSignal);
 
     const controller = new AbortController();
-    const abortFromParent = () => controller.abort(this.options.parentSignal?.reason);
-    this.options.parentSignal?.addEventListener('abort', abortFromParent, { once: true });
+    let turnCancelled = false;
+    let timedOut = false;
+    const abortFromTurn = () => {
+      turnCancelled = true;
+      controller.abort(turnSignal?.reason);
+    };
+    turnSignal?.addEventListener('abort', abortFromTurn, { once: true });
     const timeoutMs = this.options.timeoutMs ?? 30_000;
-    const timer = setTimeout(() => controller.abort('provider deadline exceeded'), timeoutMs);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort('provider deadline exceeded');
+    }, timeoutMs);
     const endpoint = this.options.endpoint ?? `${this.profile.origin}${this.profile.path}`;
     try {
       let response: Response;
@@ -414,12 +511,29 @@ export class OpenRouterAgentModel implements Model {
           body,
         });
       } catch {
+        if (turnCancelled) throw new TurnCancelledError();
+        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+      }
+      // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
+      // during fetch, settle that body before classifying the request outcome.
+      if (turnCancelled || timedOut || controller.signal.aborted) {
+        const settled = await cancelResponseBody(response);
+        if (!settled && turnCancelled) {
+          throw new CancellationCleanupError();
+        }
+        if (turnCancelled) throw new TurnCancelledError();
         throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
       }
       if (!response.ok) {
-        try {
-          await response.body?.cancel();
-        } catch { /* best effort cancellation */ }
+        const settled = await cancelResponseBody(response);
+        if (!settled) {
+          if (turnCancelled) throw new CancellationCleanupError();
+          throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+        }
+        if (turnCancelled) throw new TurnCancelledError();
+        if (timedOut) {
+          throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+        }
         throw new OpenRouterAgentError(
           'http_error',
           `provider request failed (${response.status})`,
@@ -427,29 +541,34 @@ export class OpenRouterAgentModel implements Model {
           response.status,
         );
       }
-      if (controller.signal.aborted) {
-        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
-      }
-      const bounded = await readBoundedResponse(response, MAX_RESPONSE_BYTES);
-      if (typeof bounded !== 'string') {
-        if (bounded.code === 'limit_exceeded') {
-          throw new OpenRouterAgentError('limit_exceeded', 'provider response exceeds 1 MiB', 1);
-        }
+      const bounded = await readResponseBody(response);
+      if (bounded.cleanupFailed) {
+        if (turnCancelled) throw new CancellationCleanupError();
         throw new OpenRouterAgentError('transport_error', 'provider response stream failed', 1);
       }
+      if (turnCancelled) throw new TurnCancelledError();
+      if (timedOut) {
+        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+      }
       if (controller.signal.aborted) {
         throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+      }
+      if (bounded.kind === 'limit_exceeded') {
+        throw new OpenRouterAgentError('limit_exceeded', 'provider response exceeds 1 MiB', 1);
+      }
+      if (bounded.kind !== 'text') {
+        throw new OpenRouterAgentError('transport_error', 'provider response stream failed', 1);
       }
       let payload: unknown;
       try {
-        payload = JSON.parse(bounded);
+        payload = JSON.parse(bounded.text);
       } catch {
         throw responseError('provider response was invalid');
       }
       return decodeResponse(payload);
     } finally {
       clearTimeout(timer);
-      this.options.parentSignal?.removeEventListener('abort', abortFromParent);
+      turnSignal?.removeEventListener('abort', abortFromTurn);
     }
   }
 }

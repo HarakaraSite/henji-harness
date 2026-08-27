@@ -61,7 +61,7 @@ only the explicit task and startup workspace/instruction/skill snapshots, expose
 read/skill/JSON tools, and returns one bounded sanitized result; child events and transcript are not
 exposed to the parent. The planner Definition itself cannot delegate. This capability shares the
 trusted-local process and workspace user permissions and is not an OS sandbox; background execution,
-recursion, persistence, streaming, cancellation, retries, and multiple children remain deferred.
+recursion, persistence, streaming, retries, and multiple children remain deferred.
 Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
 bytes fails before model or credential setup. The versioned corpus/evaluation registry retains the
 four toy domain tools separately and they are not advertised by normal `agent:run`. JSON answers
@@ -128,12 +128,15 @@ not read credentials until a submitted task reaches the lazy provider adapter.
 
 The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only updates
 status. While idle, the first Ctrl-C clears the editor and arms a 500 ms second-press exit; a second
-Ctrl-C exits. Ctrl-D exits only with an empty editor. While busy, Esc reports that cancellation is
-unavailable and Ctrl-C exits after the current completed turn. Terminal output uses main-screen
-scrollback with a small live line; dynamic model, tool, and task text is escaped at one terminal
-boundary. Raw mode, bracketed paste, cursor state, and the input reader are restored on every
-handled exit or failure. Provider streaming, cancellation, confirmation, history, alternate-screen
-rendering, persistence, and queued follow-up input remain deferred.
+Ctrl-C exits. Ctrl-D exits only with an empty editor. While busy, Escape requests cooperative
+cancellation and returns the same session to ready after model/tool cleanup; Ctrl-C and SIGINT
+request cancellation and exit 0 after settlement, while SIGTERM/SIGHUP settle and exit 143/129.
+Cancellation is per accepted turn, never commits its draft, and does not roll back completed local
+effects. Cleanup failure is a fatal sanitized agent failure and makes the session unavailable.
+Terminal output uses main-screen scrollback with a small live line; dynamic model, tool, and task
+text is escaped at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input
+reader are restored on every handled exit or failure. Provider streaming, confirmation, history,
+alternate-screen rendering, persistence, and queued follow-up input remain deferred.
 
 Local TUI tests use only fake sessions/terminals and bounded `/usr/bin/script` PTY fixtures; they do
 not run `agent:tui`, `agent:run`, a provider, or credential commands.

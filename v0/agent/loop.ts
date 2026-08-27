@@ -11,20 +11,28 @@ import {
   type ToolMessage,
 } from './contracts.ts';
 import { type AgentEventSink, deliverEvent, snapshot, snapshotMessages } from './events.ts';
+import {
+  isCancellationCleanupError,
+  isTurnCancelledError,
+  throwIfCancelled,
+  type TurnCancellation,
+} from './cancellation.ts';
 import { Registry } from './tools.ts';
 import { type ModelExecutionContext } from './execution_context.ts';
 
 export interface AgentLoopOptions {
   readonly maxSteps?: number;
   readonly systemInstruction?: string;
-  /** Optional provider-neutral request admission for this turn's model lane. */
   readonly executionContext?: ModelExecutionContext;
+  readonly cancellation?: TurnCancellation;
+  readonly signal?: AbortSignal;
+  /** Child loops share the owner for failure poisoning but do not settle the parent turn. */
+  readonly ownsCancellation?: boolean;
 }
 
 export interface AgentTurnOptions extends AgentLoopOptions {
   readonly eventSink?: AgentEventSink;
   readonly turn?: number;
-  /** Optional owner that commits a successful draft before `turn_end` is delivered. */
   readonly commit?: (transcript: readonly Message[]) => void;
 }
 
@@ -78,6 +86,23 @@ const contractFailure = (
   transcript: snapshotMessages(transcript),
 });
 
+const cancelled = (
+  task: string,
+  transcript: readonly Message[],
+  steps: number,
+  toolCallCount: number,
+  toolResultCount: number,
+): LoopOutcome => ({
+  ok: false,
+  task,
+  outcome: 'cancelled',
+  stopReason: 'cancelled',
+  steps,
+  toolCallCount,
+  toolResultCount,
+  transcript: snapshotMessages(transcript),
+});
+
 const maxSteps = (
   task: string,
   transcript: readonly Message[],
@@ -103,13 +128,7 @@ const terminalBatchError = (call: ToolCall): ToolMessage['content'][number] => (
   outcome: 'error',
 });
 
-/**
- * Execute exactly one user turn from a defensive copy of a previously committed transcript.
- *
- * The event sink is deliberately synchronous. Event delivery happens before each externally
- * visible effect, which lets callers observe completed activity without allowing a failed sink to
- * dispatch a tool or begin another model request.
- */
+/** Execute exactly one user turn from a defensive copy of a committed transcript. */
 export const runAgentTurn = async (
   task: string,
   committedTranscript: readonly Message[],
@@ -121,28 +140,54 @@ export const runAgentTurn = async (
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new RangeError('maxSteps must be a positive integer');
   }
-
   const turn = options.turn ?? 1;
-  if (!Number.isInteger(turn) || turn <= 0) {
-    throw new RangeError('turn must be a positive integer');
-  }
+  if (!Number.isInteger(turn) || turn <= 0) throw new RangeError('turn must be a positive integer');
 
   const sink = options.eventSink;
+  const signal = options.cancellation?.signal ?? options.signal ?? options.executionContext?.signal;
+  const cancellation = options.cancellation;
+  const ownsCancellation = options.ownsCancellation !== false;
   const transcript: Message[] = snapshotMessages(committedTranscript);
   const userMessage: Message = { role: 'user', content: { kind: 'text', text: task } };
   transcript.push(userMessage);
   deliverEvent(sink, { kind: 'turn_start', turn });
-  deliverEvent(sink, {
-    kind: 'user_message',
-    turn,
-    message: snapshot(userMessage),
-  });
+  deliverEvent(sink, { kind: 'user_message', turn, message: snapshot(userMessage) });
 
   let steps = 0;
   let toolCallCount = 0;
   let toolResultCount = 0;
 
-  const finish = (outcome: LoopOutcome): LoopOutcome => {
+  const finishContractFailure = (error: string): LoopOutcome => {
+    if (error === 'cancellation cleanup failed') cancellation?.markCleanupFailed();
+    if (
+      error !== 'cancellation cleanup failed' && ownsCancellation && cancellation !== undefined &&
+      !cancellation.trySettleNormally()
+    ) return finishCancelled();
+    const outcome = contractFailure(
+      task,
+      transcript,
+      steps,
+      toolCallCount,
+      toolResultCount,
+      error,
+    );
+    deliverEvent(sink, { kind: 'turn_end', turn, outcome: 'contract_failure', committed: false });
+    return outcome;
+  };
+  const finishCancelled = (): LoopOutcome => {
+    if (cancellation?.state === 'cleanup_failed') {
+      return finishContractFailure('cancellation cleanup failed');
+    }
+    if (ownsCancellation) cancellation?.settleCancelled();
+    const outcome = cancelled(task, transcript, steps, toolCallCount, toolResultCount);
+    deliverEvent(sink, { kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+    return outcome;
+  };
+  const finishNormal = (outcome: LoopOutcome): LoopOutcome => {
+    // A re-entrant cancellation from the final event sink wins over normal settlement.
+    if (ownsCancellation && cancellation !== undefined && !cancellation.trySettleNormally()) {
+      return finishCancelled();
+    }
     const successful = outcome.ok &&
       (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal');
     if (successful) options.commit?.(outcome.transcript);
@@ -150,30 +195,38 @@ export const runAgentTurn = async (
       kind: 'turn_end',
       turn,
       outcome: outcome.stopReason,
-      // A standalone primitive has no owner and therefore cannot claim a commit. A session
-      // supplies `commit`, which runs immediately before this event is delivered.
       committed: successful && options.commit !== undefined,
     });
     return outcome;
   };
+  const finishMaxSteps = (): LoopOutcome => {
+    if (signal?.aborted) return finishCancelled();
+    return finishNormal(maxSteps(task, transcript, steps, toolCallCount, toolResultCount));
+  };
+  const cancellationFrom = (error: unknown): boolean =>
+    isTurnCancelledError(error) || (signal?.aborted === true && !isCancellationCleanupError(error));
 
   for (;;) {
-    if (steps >= limit) {
-      return finish(maxSteps(task, transcript, steps, toolCallCount, toolResultCount));
-    }
-    // Admission is deliberately immediately before generate. A rejected claim does not enter
-    // the model adapter and therefore cannot read credentials or start a counted fetch.
-    if (options.executionContext !== undefined && !options.executionContext.claimModelRequest()) {
-      return finish(
-        contractFailure(
-          task,
-          transcript,
-          steps,
-          toolCallCount,
-          toolResultCount,
-          'model request budget exhausted',
-        ),
-      );
+    if (signal?.aborted) return finishCancelled();
+    if (steps >= limit) return finishMaxSteps();
+    try {
+      throwIfCancelled(signal);
+      if (options.executionContext !== undefined && !options.executionContext.claimModelRequest()) {
+        return finishNormal(
+          contractFailure(
+            task,
+            transcript,
+            steps,
+            toolCallCount,
+            toolResultCount,
+            'model request budget exhausted',
+          ),
+        );
+      }
+      throwIfCancelled(signal);
+    } catch (error) {
+      if (isTurnCancelledError(error)) return finishCancelled();
+      throw error;
     }
     const request: ModelRequest = options.systemInstruction === undefined
       ? { transcript: snapshotMessages(transcript), tools: snapshot(registry.definitions()) }
@@ -183,24 +236,21 @@ export const runAgentTurn = async (
         tools: snapshot(registry.definitions()),
       };
     steps += 1;
-
     let result: unknown;
     try {
-      result = await model.generate(request);
+      result = signal === undefined
+        ? await model.generate(request)
+        : await model.generate(request, { signal });
     } catch (error) {
-      return finish(
-        contractFailure(
-          task,
-          transcript,
-          steps,
-          toolCallCount,
-          toolResultCount,
-          `model contract failure: ${errorText(error)}`,
-        ),
-      );
+      if (isCancellationCleanupError(error)) {
+        return finishContractFailure('cancellation cleanup failed');
+      }
+      if (cancellationFrom(error)) return finishCancelled();
+      return finishContractFailure(`model contract failure: ${errorText(error)}`);
     }
+    if (signal?.aborted) return finishCancelled();
     if (!isModelResult(result)) {
-      return finish(
+      return finishNormal(
         contractFailure(
           task,
           transcript,
@@ -211,7 +261,6 @@ export const runAgentTurn = async (
         ),
       );
     }
-
     if (result.kind === 'final') {
       const assistant: AssistantMessage = {
         role: 'assistant',
@@ -219,7 +268,8 @@ export const runAgentTurn = async (
       };
       transcript.push(assistant);
       deliverEvent(sink, { kind: 'assistant_message', turn, message: snapshot(assistant) });
-      return finish({
+      if (signal?.aborted) return finishCancelled();
+      return finishNormal({
         ok: true,
         task,
         outcome: 'final',
@@ -241,41 +291,51 @@ export const runAgentTurn = async (
     const invalidTerminalBatch = terminalCalls.length > 0 &&
       (calls.length !== 1 || terminalCalls.length !== 1);
     let terminalResult: { readonly kind: 'json_result'; readonly finalText: string } | null = null;
-    if (invalidTerminalBatch) {
-      for (const call of calls) {
-        deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
-        toolCallCount += 1;
+    for (const call of calls) {
+      if (signal?.aborted) return finishCancelled();
+      deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
+      toolCallCount += 1;
+      if (signal?.aborted) return finishCancelled();
+      if (invalidTerminalBatch) {
         const resultContent = terminalBatchError(call);
         results.push(resultContent);
         deliverEvent(sink, { kind: 'tool_result', turn, result: snapshot(resultContent) });
         toolResultCount += 1;
+        continue;
       }
-    } else {
-      for (const call of calls) {
-        deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
-        toolCallCount += 1;
-        const dispatchedCall = snapshot(call);
-        try {
-          const dispatched = await registry.dispatch(dispatchedCall, options.executionContext);
-          results.push(dispatched.content);
-          if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
-        } catch (error) {
-          results.push({
-            kind: 'tool_result',
-            callId: call.callId,
-            name: call.name,
-            text: `tool execution error: ${errorText(error)}`,
-            outcome: 'error',
-          });
+      try {
+        const toolContext = signal === undefined && options.executionContext === undefined &&
+            cancellation === undefined
+          ? undefined
+          : {
+            modelExecution: options.executionContext,
+            signal,
+            cancellation,
+          };
+        const dispatched = await registry.dispatch(snapshot(call), toolContext);
+        results.push(dispatched.content);
+        if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
+      } catch (error) {
+        if (isCancellationCleanupError(error)) {
+          return finishContractFailure('cancellation cleanup failed');
         }
-        deliverEvent(sink, { kind: 'tool_result', turn, result: snapshot(results.at(-1)!) });
-        toolResultCount += 1;
+        if (cancellationFrom(error)) return finishCancelled();
+        results.push({
+          kind: 'tool_result',
+          callId: call.callId,
+          name: call.name,
+          text: `tool execution error: ${errorText(error)}`,
+          outcome: 'error',
+        });
       }
+      if (signal?.aborted) return finishCancelled();
+      deliverEvent(sink, { kind: 'tool_result', turn, result: snapshot(results.at(-1)!) });
+      toolResultCount += 1;
     }
     transcript.push({ role: 'tool', content: results });
-
+    if (signal?.aborted) return finishCancelled();
     if (terminalResult !== null) {
-      return finish({
+      return finishNormal({
         ok: true,
         task,
         outcome: 'final',
@@ -288,14 +348,10 @@ export const runAgentTurn = async (
         transcript: snapshotMessages(transcript),
       });
     }
-
-    if (steps >= limit) {
-      return finish(maxSteps(task, transcript, steps, toolCallCount, toolResultCount));
-    }
+    if (steps >= limit) return finishMaxSteps();
   }
 };
 
-/** Existing one-shot API: preserve its empty-transcript behavior. */
 export const runAgent = (
   task: string,
   model: Model,

@@ -189,6 +189,18 @@
   delegation call/result 1/1, order `parent` / `child` / `parent`, validated planner final/causal
   order/transcript, workspace verified/removed true, and retry/fallback/rerun/follow-up zero. It was
   not rerun. Any further provider attempt remains a separate explicit Human Gate.
+- The provider-neutral cancellation increment is implemented at
+  `docs/plans/provider-neutral-cancellation.md`, SHA-256
+  `2e7de535ce3979f79b0d46515e076a67e9e76da6654c2cd0788e688e755bdfab`. Every accepted
+  session turn owns a fresh signal propagated through parent/planner/model/tools; cancelled drafts
+  are not committed, busy TUI Escape returns to the same session after safe settlement, and busy
+  Ctrl-C/SIGINT or SIGTERM/SIGHUP exit only after settlement. Cleanup failure poisons the session
+  and takes fatal exit precedence. Cancellation 18, work-tools 19, TUI process 15, and full v0 377
+  tests pass. Initial review found P1 2/P2 2; the single changed-lines re-review closed the three
+  implementation findings and left two evidence P2s, which exact signal-cleanup PTY regression and
+  inventory correction closed at the owner final gate. Final disposition is Blocker/P1/P2 zero.
+  No provider/network/credential/production command, dependency/lockfile, `_refs/` operation,
+  commit, push, tag, publish, or release occurred.
 
 ## Development lifecycle
 

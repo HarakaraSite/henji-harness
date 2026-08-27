@@ -19,6 +19,7 @@ export class TuiControllerError extends Error {
 
 interface SessionLike {
   submit(text: string): Promise<LoopOutcome>;
+  cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
 }
 
 type ControllerState = 'starting' | 'idle' | 'busy' | 'exiting' | 'failed';
@@ -34,7 +35,8 @@ export class TuiController {
   private active: Promise<LoopOutcome> | null = null;
   private input: Promise<InputEvent[]> | null = null;
   private readPromise: Promise<Uint8Array | null> | null = null;
-  private exitAfterTurn = false;
+  private exitIntent: 'return' | 'exit-0' | 129 | 143 = 'return';
+  private cancellationRequested = false;
   private firstCtrlCAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private exitCode = 0;
@@ -227,7 +229,7 @@ export class TuiController {
     if (event.kind === 'ctrl_c') {
       this.busyCtrlC();
     } else if (event.kind === 'escape') {
-      this.renderer.setStatus('cancellation unavailable; turn continues');
+      this.busyEscape();
     }
     // Every other event is deliberately consumed and discarded.
   }
@@ -241,6 +243,7 @@ export class TuiController {
     this.editor.clear();
     this.renderer.setEditor('');
     this.state = 'busy';
+    this.cancellationRequested = false;
     try {
       this.active = Promise.resolve(this.session.submit(text));
     } catch (error) {
@@ -249,7 +252,7 @@ export class TuiController {
   }
 
   private finishTurn(outcome: LoopOutcome): void {
-    if (!outcome.ok) {
+    if (!outcome.ok && outcome.stopReason !== 'cancelled') {
       this.renderer.setStatus(renderFailureStatus(outcome));
       throw new TuiControllerError('agent_failure');
     }
@@ -259,8 +262,17 @@ export class TuiController {
     ) {
       this.renderer.renderAssistantFinal(outcome.finalText);
     }
-    if (this.exitAfterTurn) {
-      void this.shutdown(0);
+    if (outcome.stopReason === 'cancelled') {
+      if (this.exitIntent === 'return') {
+        this.state = 'idle';
+        this.editor.clear();
+        this.renderer.setEditor('');
+        this.renderer.setStatus('ready');
+      } else {
+        void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
+      }
+    } else if (this.exitIntent !== 'return') {
+      void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
     } else {
       this.state = 'idle';
       this.renderer.setStatus('ready');
@@ -285,8 +297,33 @@ export class TuiController {
   }
 
   private busyCtrlC(): void {
-    this.exitAfterTurn = true;
-    this.renderer.setStatus('exiting after current turn');
+    this.setExitIntent('exit-0');
+    this.requestBusyCancellation('cancelling; exiting');
+    if (this.session.cancelActiveTurn === undefined) {
+      this.renderer.setStatus('exiting after current turn');
+    }
+  }
+
+  private busyEscape(): void {
+    this.requestBusyCancellation('cancelling');
+  }
+
+  private requestBusyCancellation(status: string): void {
+    if (this.session.cancelActiveTurn === undefined) {
+      this.renderer.setStatus('cancellation unavailable; turn continues');
+      return;
+    }
+    if (!this.cancellationRequested) {
+      const result = this.session.cancelActiveTurn();
+      this.cancellationRequested = result !== 'idle';
+    }
+    this.renderer.setStatus(status);
+  }
+
+  private setExitIntent(intent: 'exit-0' | 129 | 143): void {
+    const rank = (value: typeof this.exitIntent): number =>
+      value === 'return' ? 0 : value === 'exit-0' ? 1 : 2;
+    if (rank(intent) > rank(this.exitIntent)) this.exitIntent = intent;
   }
 
   private onSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP'): void {
@@ -305,8 +342,14 @@ export class TuiController {
       else this.idleCtrlC();
       return;
     }
-    this.signalCode = signal === 'SIGTERM' ? 143 : 129;
-    void this.shutdown(this.signalCode);
+    const code = signal === 'SIGTERM' ? 143 : 129;
+    this.signalCode = this.signalCode === null ? code : this.signalCode;
+    if (this.state === 'busy') {
+      this.setExitIntent(code);
+      this.requestBusyCancellation('cancelling; exiting');
+    } else {
+      void this.shutdown(this.signalCode);
+    }
   }
 
   private async shutdown(code: number): Promise<void> {
@@ -322,7 +365,8 @@ export class TuiController {
       this.state = 'failed';
     }
     if (this.shutdownPromise === null) {
-      this.exitCode = this.signalCode ?? 1;
+      // Fatal controller/agent failures override any previously requested signal exit intent.
+      this.exitCode = 1;
       this.shutdownPromise = this.lifecycle.restore();
     }
     await this.shutdownPromise;

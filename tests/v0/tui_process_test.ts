@@ -134,16 +134,17 @@ Deno.test('PTY bracketed paste submits one exact multiline task and visibly esca
   assertEquals((result.stdout.match(/user> /g) ?? []).length, 1);
 });
 
-Deno.test('PTY busy input is consumed; Esc is unavailable and Ctrl-C exits after completion', async () => {
+Deno.test('PTY busy Escape cancels, discards input, and returns to ready', async () => {
   const result = await runPty('busy', [
     { text: '', delayMs: 500 },
     { text: 'task\n', delayMs: 30 },
     { text: 'discarded\x1b', delayMs: 70 },
-    { text: '\x03' },
+    { text: '\x04', delayMs: 200 },
   ]);
   assert(result.status.success);
-  assert(result.stdout.includes('cancellation unavailable; turn continues'));
-  assert(result.stdout.includes('exiting after current turn'));
+  assert(result.stdout.includes('cancelling'));
+  assert(result.stdout.includes('[cancelled]'));
+  assert(!result.stdout.includes('assistant> fixture response'));
   assert(!result.stdout.includes('user> discarded'));
 });
 
@@ -154,9 +155,61 @@ Deno.test('PTY same-chunk Enter then Ctrl-C exits after the current turn', async
   ]);
   assert(result.status.success);
   assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
-  assert(result.stdout.includes('assistant> fixture response'));
-  assert(result.stdout.includes('exiting after current turn'));
+  assert(result.stdout.includes('cancelling; exiting'));
+  assert(result.stdout.includes('[cancelled]'));
+  assert(!result.stdout.includes('assistant> fixture response'));
   assert(!result.stdout.includes('agent_failure'));
+});
+
+Deno.test('PTY OS signals cancel busy turns, settle before restore, and preserve exit mapping', async () => {
+  for (
+    const [signal, expectedExit] of [
+      ['SIGINT', 0],
+      ['SIGTERM', 143],
+      ['SIGHUP', 129],
+    ] as const
+  ) {
+    const result = await runPty(`signal-${signal}`, [{ text: 'signal me\n', delayMs: 250 }]);
+    assertEquals(result.status.success, expectedExit === 0);
+    assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+    assertEquals(result.status.code, expectedExit);
+    assert(result.stdout.includes('cancelling; exiting'));
+    const cancelled = result.stdout.indexOf('[cancelled]');
+    const restored = result.stdout.indexOf('\x1b[?2004l');
+    assert(cancelled >= 0 && restored > cancelled);
+    assert(!result.stdout.includes('assistant> fixture response'));
+  }
+});
+
+Deno.test('PTY cancellation cleanup failure takes fatal precedence and restores once', async () => {
+  const result = await runPty('busy-cleanup-failure', [
+    { text: 'poison\n', delayMs: 30 },
+    { text: '\x1b', delayMs: 70 },
+  ]);
+  assert(!result.status.success);
+  assertEquals(result.status.code, 1);
+  assert(result.stdout.includes('"code":"agent_failure"'));
+  assert(!result.stdout.includes('cancellation cleanup failed'));
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+});
+
+Deno.test('PTY pending nonzero signal cleanup failure waits, sanitizes, and exits 1', async () => {
+  for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
+    const result = await runPty(`signal-cleanup-failure-${signal}`, [{ text: 'poison\n' }]);
+    assert(!result.status.success);
+    assertEquals(result.status.code, 1);
+    assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+    const cancelling = result.stdout.indexOf('cancelling; exiting');
+    const restored = result.stdout.indexOf('\x1b[?2004l');
+    const failure = result.stdout.indexOf('"code":"agent_failure"');
+    assert(cancelling >= 0 && restored > cancelling && failure > restored);
+    assert(!result.stdout.includes('cancellation cleanup failed'));
+    assert(!result.stdout.includes('[cancelled]'));
+    assert(!result.stdout.includes('assistant> fixture response'));
+    assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+    assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  }
 });
 
 Deno.test('PTY idle Ctrl-C double press exits and clears the editor', async () => {

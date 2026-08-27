@@ -7,7 +7,13 @@ import {
   type ToolDefinition,
   type ToolExecutionResult,
 } from './contracts.ts';
-import { type ModelExecutionContext } from './execution_context.ts';
+import { type ModelExecutionContext, type ToolExecutionContext } from './execution_context.ts';
+export type ToolContext = ToolExecutionContext | ModelExecutionContext;
+import {
+  isCancellationCleanupError,
+  isTurnCancelledError,
+  TurnCancelledError,
+} from './cancellation.ts';
 
 export interface Tool {
   readonly name: string;
@@ -16,7 +22,7 @@ export interface Tool {
   readonly terminal?: boolean;
   execute(
     argumentsValue: JsonValue,
-    context?: ModelExecutionContext,
+    context?: ToolContext,
   ): string | ToolExecutionResult | PromiseLike<string | ToolExecutionResult>;
 }
 
@@ -66,8 +72,13 @@ export class Registry {
 
   async dispatch(
     call: ToolCall,
-    context?: ModelExecutionContext,
+    context?: ToolContext,
   ): Promise<RegistryDispatchResult> {
+    if (context?.signal?.aborted) {
+      // Keep an interrupted call out of the model-visible error-result path. The loop owns the
+      // cancelled turn and will emit its terminal cancelled event after cleanup settles.
+      throw new TurnCancelledError();
+    }
     const tool = this.resolve(call.name);
     if (!tool) {
       return {
@@ -149,6 +160,7 @@ export class Registry {
         terminal: { kind: 'json_result', finalText: execution.finalText },
       };
     } catch (error) {
+      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
       const prefix = error instanceof ToolInputError ? 'invalid arguments' : 'tool execution error';
       return {
         content: {
@@ -202,7 +214,10 @@ export const createJsonResultSubmissionTool = (): Tool => ({
     required: ['json'],
     additionalProperties: false,
   },
-  execute(argumentsValue: JsonValue): ToolExecutionResult {
+  execute(argumentsValue: JsonValue, context?: ToolContext): ToolExecutionResult {
+    if (context && 'signal' in context) {
+      if (context.signal?.aborted) throw new TurnCancelledError();
+    }
     if (!isObject(argumentsValue)) {
       throw new ToolInputError('expected an object with only a json string');
     }
@@ -229,6 +244,9 @@ export const createJsonResultSubmissionTool = (): Tool => ({
     }
     if (new TextEncoder().encode(finalText).byteLength > 65_536) {
       throw new ToolInputError('canonical JSON exceeds 64 KiB');
+    }
+    if (context && 'signal' in context) {
+      if (context.signal?.aborted) throw new TurnCancelledError();
     }
     return {
       kind: 'terminate',

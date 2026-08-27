@@ -1,11 +1,16 @@
 import { type JsonObject, type JsonValue, type LoopOutcome } from './contracts.ts';
 import {
   type ChildTurnExecutionContext,
-  type ModelExecutionContext,
   type ParentTurnExecutionContext,
+  type ToolExecutionContext,
   type TurnRequestBudgetSnapshot,
 } from './execution_context.ts';
-import { type Tool, ToolInputError } from './tools.ts';
+import {
+  isCancellationCleanupError,
+  isTurnCancelledError,
+  throwIfCancelled,
+} from './cancellation.ts';
+import { type Tool, type ToolContext, ToolInputError } from './tools.ts';
 
 const encoder = new TextEncoder();
 export const MAX_PLANNER_TASK_BYTES = 65_536;
@@ -135,10 +140,13 @@ const withinResultLimit = (value: string): boolean =>
   encoder.encode(value).byteLength <= MAX_PLANNER_RESULT_BYTES;
 
 const isParentContext = (
-  context: ModelExecutionContext | undefined,
-): context is ParentTurnExecutionContext =>
-  context !== undefined &&
-  typeof (context as Partial<ParentTurnExecutionContext>).admitPlannerExecution === 'function';
+  context: ToolContext | undefined,
+): context is ParentTurnExecutionContext | ToolExecutionContext => {
+  if (context === undefined) return false;
+  const candidate = 'modelExecution' in context ? context.modelExecution : context;
+  return candidate !== undefined &&
+    typeof (candidate as Partial<ParentTurnExecutionContext>).admitPlannerExecution === 'function';
+};
 
 const emptyUsage: PlannerDelegationUsage = { modelRequests: 0, externalRequests: 0 };
 
@@ -149,7 +157,7 @@ export const createPlannerDelegationTool = (
   name: 'delegate_to_planner',
   description: DELEGATE_TO_PLANNER_DESCRIPTION,
   inputSchema: DELEGATE_TO_PLANNER_SCHEMA,
-  async execute(argumentsValue: JsonValue, context?: ModelExecutionContext): Promise<string> {
+  async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
     if (!isObject(argumentsValue) || Object.keys(argumentsValue).length !== 1) {
       throw new ToolInputError('expected an object with only a task string');
     }
@@ -160,17 +168,24 @@ export const createPlannerDelegationTool = (
 
     // A valid call without the parent context is an internal wiring failure, not user input.
     if (!isParentContext(context)) return failureEnvelope('planner_failed', emptyUsage);
-    const childContext = context.admitPlannerExecution();
+    const parentContext =
+      ('modelExecution' in context
+        ? context.modelExecution
+        : context) as ParentTurnExecutionContext;
+    const signal = 'modelExecution' in context ? context.signal : context.signal;
+    throwIfCancelled(signal);
+    const childContext = parentContext.admitPlannerExecution();
     if (childContext === undefined) return failureEnvelope('delegation_limit', emptyUsage);
-    const before = context.snapshot();
+    const before = parentContext.snapshot();
     let execution: PlannerDelegationExecution;
     try {
       execution = await handler(task, childContext);
-    } catch {
-      const usage = usageDelta(before, context.snapshot(), 0);
+    } catch (error) {
+      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+      const usage = usageDelta(before, parentContext.snapshot(), 0);
       return failureEnvelope('planner_failed', usage);
     }
-    const usage = usageDelta(before, context.snapshot(), execution?.externalRequests);
+    const usage = usageDelta(before, parentContext.snapshot(), execution?.externalRequests);
     if (
       typeof execution !== 'object' || execution === null ||
       typeof execution.outcome !== 'object' || execution.outcome === null

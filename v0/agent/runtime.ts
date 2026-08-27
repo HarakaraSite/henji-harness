@@ -20,6 +20,13 @@ import {
   type ParentTurnExecutionContext,
 } from './execution_context.ts';
 import type { PlannerDelegationHandler } from './planner_delegation.ts';
+import {
+  CancellationCleanupError,
+  isCancellationCleanupError,
+  isTurnCancelledError,
+  TurnCancelledError,
+} from './cancellation.ts';
+import { type TurnCancellation } from './cancellation.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
@@ -62,7 +69,11 @@ export interface RuntimeComposition {
   readonly systemInstruction?: string;
   readonly maxSteps: number;
   readonly requestCount: () => number;
-  readonly createTurnExecutionContext: (turn: number) => ParentTurnExecutionContext;
+  readonly createTurnExecutionContext: (
+    turn: number,
+    signal?: AbortSignal,
+    cancellation?: TurnCancellation,
+  ) => ParentTurnExecutionContext;
 }
 
 const materializationFailure = (value: never): never => {
@@ -179,10 +190,18 @@ export const createRuntimeComposition = async (
               maxSteps: childDefinition.maxSteps,
               systemInstruction: childDefinition.systemInstruction,
               executionContext: childContext,
+              signal: childContext.signal,
+              cancellation: childContext.cancellation,
+              ownsCancellation: false,
             },
           );
+          if (outcome.stopReason === 'cancelled') throw new TurnCancelledError();
+          if (childContext.cancellation?.state === 'cleanup_failed') {
+            throw new CancellationCleanupError();
+          }
           return { outcome, externalRequests: requestCount - beforeRequests };
-        } catch {
+        } catch (error) {
+          if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
           return {
             outcome: childFailure(task),
             externalRequests: requestCount - beforeRequests,
@@ -197,7 +216,8 @@ export const createRuntimeComposition = async (
     systemInstruction: definition.systemInstruction,
     maxSteps: definition.maxSteps,
     requestCount: () => requestCount,
-    createTurnExecutionContext: (turn) => createTurnExecutionContext(turn),
+    createTurnExecutionContext: (turn, signal, cancellation) =>
+      createTurnExecutionContext(turn, signal, cancellation),
   };
 };
 
