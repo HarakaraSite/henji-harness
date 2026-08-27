@@ -155,8 +155,20 @@
   reuses frozen startup context and the existing read-only planner registry. Delegation 16,
   runtime 35, runtime process 18, TUI direct 30, and the full v0 gate 326 tests pass. Initial
   review P2 3 were fixed, and the single changed-lines re-review is `GO` with Blocker/P1/P2 zero.
-  No provider/network/credential/production command, dependency/lockfile, `_refs/` operation,
-  commit, push, tag, publish, or release occurred.
+  The three consecutive Definition increments were committed together as `e4e3acf`. No
+  provider/network/credential/production command, dependency/lockfile, `_refs/` snapshot
+  operation, push, tag, publish, or release occurred.
+- The fixed planner-delegation real-model sentinel Gate L is implemented at
+  `docs/plans/planner-delegation-real-model-sentinel.md`, SHA-256
+  `a6e0ccc655411ebb3b2d0700cca6f3ce3f767648e69297423c8361c364a0b07c`. Its dedicated
+  guarded child proves the fixed `parent` / `child` / `parent` causal path with parent 2, child 1,
+  and aggregate/external 3 requests; the launcher preserves the repo-external credential and
+  disposable-workspace boundary. Direct 15, process 2, topology 1, and the full v0 gate 344 tests
+  pass. Initial review found P2 5; the single changed-lines re-review closed four and found one
+  narrow failure-tuple P2, which exact third-phase regressions and the owner final gate closed.
+  Final disposition is Blocker/P1/P2 zero. Gate L used no credential/provider/network/production
+  task, dependency/lockfile, `_refs/`, push, tag, publish, or release. Gate S remains a separate
+  explicit Human Gate.
 
 ## Development lifecycle
 

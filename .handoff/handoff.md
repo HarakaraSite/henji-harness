@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: bounded synchronous planner delegationのlocal実装・offline検証・bounded review完了。delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326 tests成功、最終Blocker/P1/P2 0
-- 次: 次の通常roadmap incrementを別計画として開始する
+- 状態: planner delegation real-model sentinel Gate Lのlocal実装・offline検証・bounded review完了。direct 15、process 2、topology 1、full 344 tests成功、最終Blocker/P1/P2 0
+- 次: `ASK-20260827-planner-delegation-real-sentinel-gate-s`のone-shot実行判断、または次の通常roadmap incrementへ進む
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -27,8 +27,20 @@
 
 - 判断済み: plan SHA-256 `5f8da680dabc7223d6320c5129c0350ed64fe7b0f7d613a4a44a7a9f5d26570d`に基づき、default-only synchronous `delegate_to_planner`、one-child-per-turn、parent 8 / child 8 / aggregate 16 request budgetを実装した
 - 正本: `docs/plans/bounded-planner-delegation-tool.md`
-- 状態: delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326成功。initial review P2 3をrequired production handler、explicit work-only registry、runtime/session/TUI regressionsで修正し、single changed-lines re-review GO、Blocker/P1/P2 0
-- 境界: childはstartup workspace/AGENTS/skills snapshotとexisting planner registryを使い、parent transcript、mutation、recursion、background/persistence/recovery/streaming/cancellationを持たない。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
+- 状態: delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326成功。initial review P2 3をrequired production handler、explicit work-only registry、runtime/session/TUI regressionsで修正し、single changed-lines re-review GO、Blocker/P1/P2 0。前二incrementとともにcommit `e4e3acf`
+- 境界: childはstartup workspace/AGENTS/skills snapshotとexisting planner registryを使い、parent transcript、mutation、recursion、background/persistence/recovery/streaming/cancellationを持たない。provider/network/credential/production command、dependency/lockfile、`_refs/` snapshot操作、追加commit、push、releaseは未実施
+
+### POL-20260827-planner-delegation-real-sentinel-gate-l
+
+- 判断済み: plan SHA-256 `a6e0ccc655411ebb3b2d0700cca6f3ce3f767648e69297423c8361c364a0b07c`の専用guarded child/launcher、dummy/fake-provider tests、full offline verification、results、bounded reviewを実装した
+- 状態: direct 15、process 2、topology 1、full 344成功。initial review P2 5、single changed-lines re-review残存P2 1をexact lifecycle/fourth-request/third-phase failure regressionsで閉じ、owner final Blocker/P1/P2 0
+- 境界: Gate Lでcredential probe/read、provider/network、production command、Gate S、dependency/lockfile、`_refs/`、push、tag、publish、releaseは未実施
+
+### ASK-20260827-planner-delegation-real-sentinel-gate-s
+
+- 判断待ち: reviewed revisionのexact production taskを一回だけ実行し、real modelの`parent` / `child` / `parent` causal behaviorを検証するか
+- 上限: parent 2 / child 1 / aggregate/external 3、maximum 3,072 completion tokens、repository worst USD 0.186624、authorization ceiling USD 0.192、retry/fallback/rerun/follow-up 0
+- 境界: one command、one fixed task、credential open一回、workspace一つ、child最大一つ。missing/malformed credentialを含む結果にかかわらずrerunなし。push、tag、publish、releaseは別承認
 
 ### POL-20260826-zot-multi-turn-events
 
@@ -1248,3 +1260,27 @@
 - 実施: default-only synchronous delegation、per-turn admission、8/8/16 budget、frozen child context、bounded envelopeを実装。initial review P2 3を修正し、single changed-lines re-review GO
 - 次: 次の通常roadmap incrementを別計画として開始する
 - 注意: delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326成功、Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-27 13:22 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Definition and planner delegation session handoff
+- 実施: Definition boundary、built-in selection、bounded planner delegationの39 filesをcommit `e4e3acf`へ記録し、session終了状態を同期
+- 次: `ASK-20260827-planner-delegation-real-sentinel-planning`を判断する
+- 注意: push/tag/publish/releaseは未実施。`_refs/README.md`だけcommitし、`_refs/cloudflare-agents/`、`cloudflare-sandbox-sdk/`、`deno-docs/`、`opencomputer/`、`pi/`、`zot/` snapshot本体は未追跡のまま保持
+
+## 2026-08-27 14:07 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Fixed planner delegation real-model sentinel planning
+- 実施: `parent` / `child` / `parent`、2/1/3 request、dedicated guarded child、fixed credential launcher、local Gate Lとone-shot Gate Sをimplementation-ready planへ確定
+- 次: `ASK-20260827-planner-delegation-real-sentinel-gate-l`の初期Human Gate
+- 注意: plan SHA-256 `20e61612...a0f2d`。planning中にcredential access、provider command、source/test/config実装、dependency/lockfile、`_refs/`、commit、push、releaseは未実施
+
+## 2026-08-27 14:58 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Fixed planner delegation real-model sentinel Gate L completion
+- 実施: dedicated guarded child/launcher、2/1/3 causal evidence、strict reports、bounded lifecycle、direct/process/topology testsを実装。initial P2 5とre-review残存P2 1を修正し、owner final closure
+- 次: `ASK-20260827-planner-delegation-real-sentinel-gate-s`のone-shot実行判断
+- 注意: direct 15/process 2/topology 1/full 344成功、Blocker/P1/P2 0。credential/provider/network/production task、dependency/lockfile、`_refs/`、push、tag、publish、releaseは未実施

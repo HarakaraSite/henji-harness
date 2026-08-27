@@ -161,6 +161,23 @@ gate. It reads the repo-external credential once, creates one mode-0700 disposab
 removes it after the bounded child run. Gate L never reads credential metadata or content, opens a
 provider connection, or runs this production task; Gate S requires a separate explicit approval.
 
+## Fixed planner-delegation sentinel
+
+The planner-delegation sentinel composes the normal default runtime and proves one synchronous
+`delegate_to_planner` child between two parent requests. Its fixed local tests use only dummy
+credentials and a guarded fake provider:
+
+```text
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:sentinel:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:sentinel:process:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:sentinel:topology:test
+```
+
+The production-only `agent:planner-delegation:sentinel:credential-file` task is excluded from every
+local gate. It reads the repo-external credential once, creates one mode-0700 empty workspace, and
+removes it after the bounded child run. Gate L does not access credentials or provider/network; Gate
+S requires a separate explicit approval.
+
 ## Current baseline
 
 Roadmap steps 8–10 are complete. Step 8 added deterministic `character_count` beside
