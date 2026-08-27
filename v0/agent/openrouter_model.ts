@@ -16,6 +16,18 @@ const MAX_MESSAGE_BYTES = 76 * 1024;
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
+/** Structural provider profile consumed by the normal OpenRouter adapter. */
+export interface OpenRouterAgentProfile {
+  readonly id: string;
+  readonly model: string;
+  readonly origin: string;
+  readonly path: string;
+  readonly method: 'POST';
+  readonly secretEnv: string;
+  readonly maxCompletionTokens: number;
+  readonly stream: false;
+}
+
 export type AgentTransportErrorCode =
   | 'invalid_input'
   | 'missing_credential'
@@ -55,6 +67,8 @@ export interface OpenRouterAgentModelOptions {
   readonly credentialSource?: CredentialSource;
   /** Tests may use a local endpoint; callers cannot select it through ModelRequest. */
   readonly endpoint?: string;
+  /** Internal composition input; omitted callers retain the canonical PROFILE. */
+  readonly profile?: OpenRouterAgentProfile;
   readonly timeoutMs?: number;
   readonly parentSignal?: AbortSignal;
 }
@@ -330,11 +344,14 @@ const decodeResponse = (payload: unknown): ModelResult => {
   throw responseError('provider response contained no supported result');
 };
 
-const resolveCredential = (options: OpenRouterAgentModelOptions): string | undefined => {
+const resolveCredential = (
+  options: OpenRouterAgentModelOptions,
+  profile: OpenRouterAgentProfile,
+): string | undefined => {
   try {
     if (options.credentialSource) return options.credentialSource();
     if (options.credential !== undefined) return options.credential;
-    return Deno.env.get(PROFILE.secretEnv);
+    return Deno.env.get(profile.secretEnv);
   } catch {
     return undefined;
   }
@@ -344,20 +361,22 @@ const resolveCredential = (options: OpenRouterAgentModelOptions): string | undef
 export class OpenRouterAgentModel implements Model {
   private readonly fetcher: typeof fetch;
   private readonly options: OpenRouterAgentModelOptions;
+  private readonly profile: OpenRouterAgentProfile;
 
   constructor(options: OpenRouterAgentModelOptions = {}) {
     this.options = options;
     this.fetcher = options.fetcher ?? fetch;
+    this.profile = options.profile ?? PROFILE;
   }
 
   async generate(request: ModelRequest): Promise<ModelResult> {
     const encoded = encodeRequest(request);
     const body = safeJson({
-      model: PROFILE.model,
+      model: this.profile.model,
       messages: encoded.messages,
       tools: encoded.tools,
-      stream: PROFILE.stream,
-      max_completion_tokens: PROFILE.maxCompletionTokens,
+      stream: this.profile.stream,
+      max_completion_tokens: this.profile.maxCompletionTokens,
     });
     if (body === undefined) throw invalid('provider request is not JSON serializable');
     if (bytes(body) > MAX_REQUEST_BYTES) {
@@ -366,7 +385,7 @@ export class OpenRouterAgentModel implements Model {
     if (this.options.parentSignal?.aborted) {
       throw new OpenRouterAgentError('transport_error', 'provider transport failed', 0);
     }
-    const credential = resolveCredential(this.options);
+    const credential = resolveCredential(this.options, this.profile);
     if (!credential) {
       throw new OpenRouterAgentError(
         'missing_credential',
@@ -380,12 +399,12 @@ export class OpenRouterAgentModel implements Model {
     this.options.parentSignal?.addEventListener('abort', abortFromParent, { once: true });
     const timeoutMs = this.options.timeoutMs ?? 30_000;
     const timer = setTimeout(() => controller.abort('provider deadline exceeded'), timeoutMs);
-    const endpoint = this.options.endpoint ?? `${PROFILE.origin}${PROFILE.path}`;
+    const endpoint = this.options.endpoint ?? `${this.profile.origin}${this.profile.path}`;
     try {
       let response: Response;
       try {
         response = await this.fetcher(endpoint, {
-          method: PROFILE.method,
+          method: this.profile.method,
           signal: controller.signal,
           redirect: 'error',
           headers: {

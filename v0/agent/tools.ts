@@ -7,6 +7,7 @@ import {
   type ToolDefinition,
   type ToolExecutionResult,
 } from './contracts.ts';
+import { type ModelExecutionContext } from './execution_context.ts';
 
 export interface Tool {
   readonly name: string;
@@ -15,6 +16,7 @@ export interface Tool {
   readonly terminal?: boolean;
   execute(
     argumentsValue: JsonValue,
+    context?: ModelExecutionContext,
   ): string | ToolExecutionResult | PromiseLike<string | ToolExecutionResult>;
 }
 
@@ -62,7 +64,10 @@ export class Registry {
     return this.byName.get(name);
   }
 
-  async dispatch(call: ToolCall): Promise<RegistryDispatchResult> {
+  async dispatch(
+    call: ToolCall,
+    context?: ModelExecutionContext,
+  ): Promise<RegistryDispatchResult> {
     const tool = this.resolve(call.name);
     if (!tool) {
       return {
@@ -78,7 +83,7 @@ export class Registry {
     }
 
     try {
-      const execution = await tool.execute(call.arguments);
+      const execution = await tool.execute(call.arguments, context);
       if (typeof execution === 'string') {
         if (tool.terminal) {
           return continuingError(

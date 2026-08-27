@@ -1,21 +1,28 @@
 import { type LoopOutcome } from './contracts.ts';
-import {
-  composeSystemInstruction,
-  discoverAgentInstructions,
-  type InstructionFileSystem,
-} from './agent_instructions.ts';
-import { runAgent } from './loop.ts';
+import { discoverAgentInstructions, type InstructionFileSystem } from './agent_instructions.ts';
+import { runAgent, runAgentTurn } from './loop.ts';
 import { AgentSession } from './session.ts';
 import { type AgentEventSink } from './events.ts';
 import { type Model } from './contracts.ts';
 import { Registry } from './tools.ts';
 import { OpenRouterAgentModel } from './openrouter_model.ts';
-import { createProductionRegistry } from './registries.ts';
+import { createPlannerRegistry, createProductionRegistry } from './registries.ts';
 import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
 import { discoverSkills, type SkillFileSystem } from './skills.ts';
+import {
+  DEFAULT_AGENT_MAX_STEPS,
+  plannerAgentDefinition,
+  type ResolvedAgentDefinition,
+} from './agent_definition.ts';
+import { type BuiltinAgentSelection, DEFAULT_AGENT_SELECTION } from './agent_catalog.ts';
+import {
+  createTurnExecutionContext,
+  type ParentTurnExecutionContext,
+} from './execution_context.ts';
+import type { PlannerDelegationHandler } from './planner_delegation.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
-export const MAX_STEPS = 8;
+export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
 
 /** The only local file exposed through the normal runtime's JSON tool. */
 export const FIXED_JSON_PATH = 'deno.v0.json';
@@ -37,6 +44,9 @@ export interface RuntimeTestSeam {
   readonly skillFileSystem?: SkillFileSystem;
   /** Direct-test-only local mutation hook. */
   readonly workTools?: WorkToolSeams;
+  /** Direct-test-only materialization counters; production leaves these unset. */
+  readonly onModelMaterialized?: (definition: ResolvedAgentDefinition) => void;
+  readonly onRegistryMaterialized?: (definition: ResolvedAgentDefinition) => void;
 }
 
 export interface RuntimeRun {
@@ -50,8 +60,73 @@ export interface RuntimeComposition {
   readonly model: Model;
   readonly registry: Registry;
   readonly systemInstruction?: string;
+  readonly maxSteps: number;
   readonly requestCount: () => number;
+  readonly createTurnExecutionContext: (turn: number) => ParentTurnExecutionContext;
 }
+
+const materializationFailure = (value: never): never => {
+  throw new Error(`unsupported runtime composition kind: ${String(value)}`);
+};
+
+const materializeModel = (
+  definition: ResolvedAgentDefinition,
+  fetcher: typeof fetch,
+  seam: RuntimeTestSeam,
+): Model => {
+  seam.onModelMaterialized?.(definition);
+  switch (definition.model.provider) {
+    case 'openrouter':
+      return new OpenRouterAgentModel({
+        profile: definition.model.profile,
+        fetcher,
+        credential: seam.credential,
+        credentialSource: seam.credentialSource,
+      });
+    default:
+      return materializationFailure(definition.model.provider);
+  }
+};
+
+const materializeRegistry = (
+  definition: ResolvedAgentDefinition,
+  seam: RuntimeTestSeam,
+  plannerDelegation: PlannerDelegationHandler | undefined,
+): Registry => {
+  seam.onRegistryMaterialized?.(definition);
+  switch (definition.registry.kind) {
+    case 'production': {
+      if (plannerDelegation === undefined) {
+        throw new Error('production registry requires planner delegation handler');
+      }
+      return createProductionRegistry(
+        definition.registry.workspace,
+        seam.workTools ?? {},
+        definition.registry.skillCatalog,
+        plannerDelegation,
+      );
+    }
+    case 'planner':
+      return createPlannerRegistry(
+        definition.registry.workspace,
+        definition.registry.skillCatalog,
+      );
+    default:
+      return materializationFailure(definition.registry);
+  }
+};
+
+const childFailure = (task: string): LoopOutcome => ({
+  ok: false,
+  task,
+  outcome: 'contract_failure',
+  stopReason: 'contract_failure',
+  error: 'planner delegation failed',
+  steps: 0,
+  toolCallCount: 0,
+  toolResultCount: 0,
+  transcript: [],
+});
 
 /**
  * Resolve the normal runtime once.  Keeping this operation separate from execution makes the
@@ -60,6 +135,7 @@ export interface RuntimeComposition {
  */
 export const createRuntimeComposition = async (
   seam: RuntimeTestSeam = {},
+  selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
 ): Promise<RuntimeComposition> => {
   let requestCount = 0;
   const delegate = seam.fetcher ?? fetch;
@@ -74,18 +150,54 @@ export const createRuntimeComposition = async (
     seam.instructionFileSystem,
   );
   const skillCatalog = await discoverSkills(workspace.root, seam.skillFileSystem);
-  const systemInstruction = composeSystemInstruction(agentInstructions, skillCatalog.manifest);
-  const registry = createProductionRegistry(workspace, seam.workTools, skillCatalog);
-  const model = new OpenRouterAgentModel({
-    fetcher,
-    credential: seam.credential,
-    credentialSource: seam.credentialSource,
+  const definition = selection.definition({
+    workspace,
+    agentInstructions,
+    skillCatalog,
   });
+  const model = materializeModel(definition, fetcher, seam);
+  const plannerDelegation: PlannerDelegationHandler | undefined =
+    definition.registry.kind === 'production'
+      ? async (task, childContext) => {
+        const beforeRequests = requestCount;
+        try {
+          // The planner Definition and its registry/model are materialized only after the
+          // parent tool has synchronously admitted this child.
+          const childDefinition = plannerAgentDefinition({
+            workspace,
+            agentInstructions,
+            skillCatalog,
+          });
+          const childModel = materializeModel(childDefinition, fetcher, seam);
+          const childRegistry = materializeRegistry(childDefinition, seam, undefined);
+          const outcome = await runAgentTurn(
+            task,
+            [],
+            childModel,
+            childRegistry,
+            {
+              maxSteps: childDefinition.maxSteps,
+              systemInstruction: childDefinition.systemInstruction,
+              executionContext: childContext,
+            },
+          );
+          return { outcome, externalRequests: requestCount - beforeRequests };
+        } catch {
+          return {
+            outcome: childFailure(task),
+            externalRequests: requestCount - beforeRequests,
+          };
+        }
+      }
+      : undefined;
+  const registry = materializeRegistry(definition, seam, plannerDelegation);
   return {
     model,
     registry,
-    systemInstruction,
+    systemInstruction: definition.systemInstruction,
+    maxSteps: definition.maxSteps,
     requestCount: () => requestCount,
+    createTurnExecutionContext: (turn) => createTurnExecutionContext(turn),
   };
 };
 
@@ -93,13 +205,15 @@ export const createRuntimeComposition = async (
 export const createRuntimeSession = async (
   eventSink: AgentEventSink,
   seam: RuntimeTestSeam = {},
+  selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
 ): Promise<{ readonly session: AgentSession; readonly requestCount: () => number }> => {
-  const composition = await createRuntimeComposition(seam);
+  const composition = await createRuntimeComposition(seam, selection);
   return {
     session: new AgentSession(composition.model, composition.registry, {
-      maxSteps: MAX_STEPS,
+      maxSteps: composition.maxSteps,
       systemInstruction: composition.systemInstruction,
       eventSink,
+      createTurnExecutionContext: composition.createTurnExecutionContext,
     }),
     requestCount: composition.requestCount,
   };
@@ -116,11 +230,13 @@ export const createRuntimeSession = async (
 export const runRuntime = async (
   task: string,
   seam: RuntimeTestSeam = {},
+  selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
 ): Promise<RuntimeRun> => {
-  const composition = await createRuntimeComposition(seam);
+  const composition = await createRuntimeComposition(seam, selection);
   const outcome = await runAgent(task, composition.model, composition.registry, {
-    maxSteps: MAX_STEPS,
+    maxSteps: composition.maxSteps,
     systemInstruction: composition.systemInstruction,
+    executionContext: composition.createTurnExecutionContext(1),
   });
   return { outcome, requestCount: composition.requestCount() };
 };

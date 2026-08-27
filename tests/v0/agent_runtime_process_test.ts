@@ -12,13 +12,17 @@ const decoder = new TextDecoder();
 
 type FixtureMode =
   | 'argv-success'
+  | 'planner-argv-success'
   | 'argv-context-success'
   | 'argv-skill-success'
   | 'argv-filesystem-rejection-success'
   | 'argv-json-success'
   | 'argv-json-failure-recovery'
+  | 'argv-delegation-success'
   | 'stdin-success'
+  | 'planner-stdin-success'
   | 'runtime-failure'
+  | 'invalid-selection'
   | 'tty';
 
 interface CapturedOutput {
@@ -262,10 +266,17 @@ Deno.test('offline process topology keeps child isolated and production tasks un
     config.tasks['agent:runtime:process:test'],
     `${DENO_COMMAND} test --no-prompt --allow-run=${DENO_COMMAND} --allow-read=deno.v0.json,/tmp --allow-write=/tmp tests/v0/agent_runtime_process_test.ts`,
   );
+  const selectionTask =
+    `${DENO_COMMAND} task --config deno.v0.json agent:definition-selection:test`;
+  assertEquals(
+    config.tasks['agent:definition-selection:test'],
+    `${DENO_COMMAND} test --no-prompt tests/v0/agent_catalog_test.ts`,
+  );
   const gate = config.tasks['v0:gate'];
   assert(typeof gate === 'string');
   const gateSegments = gate.split('&&').map((segment) => segment.trim());
   assertEquals(gateSegments.filter((segment) => segment === focusedTask).length, 1);
+  assertEquals(gateSegments.filter((segment) => segment === selectionTask).length, 1);
   const gateTaskNames = gateSegments.flatMap((segment) => {
     const tokens = segment.split(/\s+/);
     return tokens.length === 5 && tokens[0] === DENO_COMMAND && tokens[1] === 'task' &&
@@ -299,6 +310,20 @@ Deno.test('offline argv process uses actual argv and captures final-only output'
   assert(result.durationMs < DEADLINE_MS);
   assertEquals(result.argv.slice(-2), ['--task', '  argv task  ']);
   assert(result.argv.includes('--workspace-root'));
+});
+
+Deno.test('offline planner argv process selects the planner capability registry', async () => {
+  const result = await runProcess(
+    'planner-argv-success',
+    ['--agent', 'planner', '--task', '  planner argv task  '],
+  );
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, 'planner answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
 });
 
 Deno.test('offline process loads a workspace instruction as system context', async () => {
@@ -376,6 +401,21 @@ Deno.test('offline piped process sends stdin bytes and captures final-only outpu
   assert(result.durationMs < DEADLINE_MS);
 });
 
+Deno.test('offline planner piped process resolves before reading stdin and runs once', async () => {
+  const result = await runProcess(
+    'planner-stdin-success',
+    ['--agent', 'planner'],
+    encoder.encode('  planner piped task\n'),
+  );
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, 'planner answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
+});
+
 Deno.test('offline argv process prints canonical JSON submitted by the terminal tool', async () => {
   const result = await runProcess(
     'argv-json-success',
@@ -414,8 +454,32 @@ Deno.test('offline process validates rejection recovery and bounded Bash timeout
   assert(!result.stdout.overflow && !result.stderr.overflow);
 });
 
+Deno.test('offline process runs one bounded synchronous planner delegation', async () => {
+  const result = await runProcess(
+    'argv-delegation-success',
+    ['--task', '  delegation task  '],
+  );
+  assert(result.status.success);
+  assertEquals(result.status.code, 0);
+  assertEquals(result.stdout.text, 'parent answer\n');
+  assertEquals(result.stderr.text, '');
+  assert(!result.killed);
+  assert(!result.stdout.overflow && !result.stderr.overflow);
+  assert(result.durationMs < DEADLINE_MS);
+});
+
 Deno.test('offline preflight failure never reaches the fake provider', async () => {
   const result = await runProcess('tty', ['--unknown']);
+  assert(!result.status.success);
+  assertEquals(result.status.code, 1);
+  assertEquals(result.stdout.text, '');
+  assertEquals(parseFailure(result.stderr.text, expectedFailure), expectedFailure);
+  assert(!result.stderr.text.includes('sensitive-marker'));
+  assert(!result.killed);
+});
+
+Deno.test('offline invalid agent selection is sanitized before fake provider or stdin use', async () => {
+  const result = await runProcess('invalid-selection', ['--agent', 'unknown', '--task', 'valid']);
   assert(!result.status.success);
   assertEquals(result.status.code, 1);
   assertEquals(result.stdout.text, '');

@@ -1,6 +1,7 @@
 import { type AgentEventSink } from '../../../v0/agent/events.ts';
 import { type LoopOutcome } from '../../../v0/agent/contracts.ts';
 import { main, type TuiSessionFactoryResult } from '../../../v0/agent/tui_cli.ts';
+import { type BuiltinAgentSelection } from '../../../v0/agent/agent_catalog.ts';
 
 const mode = Deno.args[0] ?? 'success';
 const task = (value: string, finalText = 'fixture response'): LoopOutcome => ({
@@ -38,10 +39,20 @@ class FixtureSession {
   }
 }
 
-const createSession = (sink: AgentEventSink): Promise<TuiSessionFactoryResult> =>
-  Promise.resolve({
+const createSession = (
+  sink: AgentEventSink,
+  selection: BuiltinAgentSelection,
+): Promise<TuiSessionFactoryResult> => {
+  if (mode === 'planner' && selection.id !== 'planner') {
+    throw new Error('planner selection was not propagated');
+  }
+  if (mode !== 'planner' && selection.id !== 'default') {
+    throw new Error('unexpected non-default selection');
+  }
+  return Promise.resolve({
     session: new FixtureSession(sink, mode === 'busy'),
   });
+};
 
 const delayedCrash = (kind: 'error' | 'rejection'): Promise<void> => {
   setTimeout(() => {
@@ -51,16 +62,23 @@ const delayedCrash = (kind: 'error' | 'rejection'): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, 40));
 };
 
-const exitCode = await main([], {
-  createSession,
-  afterAcquire: mode === 'crash'
-    ? () => {
-      throw new Error('uncaught fixture failure');
-    }
-    : mode === 'detached-error'
-    ? () => delayedCrash('error')
-    : mode === 'unhandled-rejection'
-    ? () => delayedCrash('rejection')
-    : undefined,
-});
+const exitCode = await main(
+  mode === 'planner'
+    ? ['--agent', 'planner']
+    : mode === 'invalid-selection'
+    ? ['--agent', 'unknown']
+    : [],
+  {
+    createSession,
+    afterAcquire: mode === 'crash'
+      ? () => {
+        throw new Error('uncaught fixture failure');
+      }
+      : mode === 'detached-error'
+      ? () => delayedCrash('error')
+      : mode === 'unhandled-rejection'
+      ? () => delayedCrash('rejection')
+      : undefined,
+  },
+);
 Deno.exit(exitCode);

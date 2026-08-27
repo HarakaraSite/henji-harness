@@ -3,13 +3,17 @@ import { main } from '../../../v0/agent/runtime_cli.ts';
 const DUMMY_CREDENTIAL = 'offline-dummy-credential';
 const MODES = [
   'argv-success',
+  'planner-argv-success',
   'argv-context-success',
   'argv-skill-success',
   'argv-filesystem-rejection-success',
   'argv-json-success',
   'argv-json-failure-recovery',
+  'argv-delegation-success',
   'stdin-success',
+  'planner-stdin-success',
   'runtime-failure',
+  'invalid-selection',
   'tty',
 ] as const;
 type FixtureMode = (typeof MODES)[number];
@@ -59,6 +63,9 @@ const workToolResponse = (name: string, argumentsValue: unknown, id: string): Re
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 
+const delegateToolResponse = (): Response =>
+  workToolResponse('delegate_to_planner', { task: 'child planning task' }, 'delegate-1');
+
 const mode = Deno.args[0] as string | undefined;
 if (!mode || !MODES.includes(mode as FixtureMode)) {
   throw new Error('invalid runtime process fixture mode');
@@ -77,6 +84,8 @@ const applicationArgs = workspaceOption === undefined
   : rawApplicationArgs.slice(2);
 const expectedTask = fixtureMode === 'argv-success'
   ? 'argv task'
+  : fixtureMode === 'planner-argv-success'
+  ? 'planner argv task'
   : fixtureMode === 'argv-context-success'
   ? 'context task'
   : fixtureMode === 'argv-skill-success'
@@ -87,8 +96,12 @@ const expectedTask = fixtureMode === 'argv-success'
   ? 'json argv task'
   : fixtureMode === 'argv-json-failure-recovery'
   ? 'failure recovery task'
+  : fixtureMode === 'argv-delegation-success'
+  ? 'delegation task'
   : fixtureMode === 'stdin-success'
   ? 'piped task'
+  : fixtureMode === 'planner-stdin-success'
+  ? 'planner piped task'
   : fixtureMode === 'runtime-failure'
   ? 'valid'
   : undefined;
@@ -143,6 +156,42 @@ const fakeFetch: typeof fetch = (_input, init) => {
   if (!messages || messages.length === 0) {
     throw new Error('provider request task mismatch');
   }
+  if (fixtureMode === 'argv-delegation-success') {
+    const serialized = JSON.stringify(body);
+    if (requestCount === 1) {
+      if (
+        JSON.stringify(messages[0]) !== JSON.stringify({ role: 'user', content: expectedTask }) ||
+        !serialized.includes('delegate_to_planner')
+      ) throw new Error('parent delegation request mismatch');
+      return Promise.resolve(delegateToolResponse());
+    }
+    if (requestCount === 2) {
+      const tools = (body as { tools?: unknown }).tools;
+      if (
+        !Array.isArray(tools) ||
+        tools.map((tool) =>
+            typeof tool === 'object' && tool !== null &&
+              typeof (tool as { function?: unknown }).function === 'object'
+              ? ((tool as { function: { name?: unknown } }).function.name)
+              : undefined
+          ).join(',') !== 'read,submit_json_result' ||
+        !serialized.includes('child planning task') ||
+        serialized.includes('delegate_to_planner') || serialized.includes('parent delegation')
+      ) throw new Error('child delegation request mismatch');
+      return Promise.resolve(response('child plan'));
+    }
+    if (requestCount === 3) {
+      if (
+        JSON.stringify(messages[0]) !== JSON.stringify({ role: 'user', content: expectedTask }) ||
+        !toolResultTexts(body as Record<string, unknown>).some((text) =>
+          text ===
+            '{"ok":true,"agent":"planner","output":{"kind":"text","text":"child plan"},"usage":{"modelRequests":1,"externalRequests":1}}'
+        )
+      ) throw new Error('parent delegation result mismatch');
+      return Promise.resolve(response('parent answer'));
+    }
+    throw new Error('delegation request sequence exceeded');
+  }
   if (fixtureMode === 'argv-skill-success') {
     const serialized = JSON.stringify(body);
     if (requestCount === 1) {
@@ -161,7 +210,7 @@ const fakeFetch: typeof fetch = (_input, init) => {
               typeof (tool as { function?: unknown }).function === 'object'
               ? ((tool as { function: { name?: unknown } }).function.name)
               : undefined
-          ).join(',') !== 'bash,edit,read,skill,submit_json_result,write'
+          ).join(',') !== 'bash,delegate_to_planner,edit,read,skill,submit_json_result,write'
       ) throw new Error('provider request skill tool topology mismatch');
     } else if (requestCount === 2) {
       if (
@@ -170,6 +219,28 @@ const fakeFetch: typeof fetch = (_input, init) => {
         throw new Error('provider request skill result mismatch');
       }
     } else throw new Error('provider request exceeded skill sequence');
+  } else if (fixtureMode === 'planner-argv-success' || fixtureMode === 'planner-stdin-success') {
+    const serialized = JSON.stringify(body);
+    const systemMessages = messages.filter((message) =>
+      typeof message === 'object' && message !== null &&
+      (message as { role?: unknown }).role === 'system'
+    );
+    const tools = (body as { tools?: unknown }).tools;
+    if (
+      requestCount !== 1 || systemMessages.length !== 1 ||
+      !(systemMessages[0] as { content?: unknown }).content?.toString().endsWith(
+        'You are the built-in planner agent. Inspect the available workspace context needed for the task and produce a clear implementation plan. Do not mutate the workspace.',
+      ) ||
+      !Array.isArray(tools) ||
+      tools.map((tool) =>
+          typeof tool === 'object' && tool !== null &&
+            typeof (tool as { function?: unknown }).function === 'object'
+            ? ((tool as { function: { name?: unknown } }).function.name)
+            : undefined
+        ).join(',') !== 'read,submit_json_result' ||
+      serialized.includes('name":"bash') || serialized.includes('name":"edit') ||
+      serialized.includes('name":"write')
+    ) throw new Error('planner provider request mismatch');
   } else if (fixtureMode === 'argv-context-success') {
     const systemMessages = messages.filter((message) =>
       typeof message === 'object' && message !== null &&
@@ -281,6 +352,9 @@ const fakeFetch: typeof fetch = (_input, init) => {
   if (fixtureMode === 'argv-filesystem-rejection-success') {
     return Promise.resolve(response('filesystem answer'));
   }
+  if (fixtureMode === 'planner-argv-success' || fixtureMode === 'planner-stdin-success') {
+    return Promise.resolve(response('planner answer'));
+  }
   if (fixtureMode === 'argv-json-success') {
     if (requestCount === 1) {
       return Promise.resolve(
@@ -350,7 +424,7 @@ const fakeFetch: typeof fetch = (_input, init) => {
   return Promise.resolve(response(finalText));
 };
 
-const stdinIsTerminal = fixtureMode !== 'stdin-success';
+const stdinIsTerminal = fixtureMode !== 'stdin-success' && fixtureMode !== 'planner-stdin-success';
 const workspaceRoot = workspaceOption ?? await Deno.makeTempDir({ prefix: 'henji-process-work-' });
 const ownsWorkspace = workspaceOption === undefined;
 try {

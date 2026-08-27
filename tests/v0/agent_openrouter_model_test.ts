@@ -4,7 +4,9 @@ import {
   OpenRouterAgentError,
   OpenRouterAgentModel,
   type OpenRouterAgentModelOptions,
+  type OpenRouterAgentProfile,
 } from '../../v0/agent/openrouter_model.ts';
+import { PROFILE } from '../../v0/model.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
 import { createCorpusRegistry } from '../../v0/agent/registries.ts';
 import { createFixtureTool, Registry } from '../../v0/agent/tools.ts';
@@ -12,6 +14,17 @@ import { type ModelRequest } from '../../v0/agent/contracts.ts';
 
 const ENDPOINT = 'https://offline.invalid/api/v1/chat/completions';
 const DUMMY_CREDENTIAL = 'dummy-credential-marker';
+
+const ALTERNATE_PROFILE: OpenRouterAgentProfile = {
+  id: 'offline-alternate-profile',
+  model: 'offline/alternate-model',
+  origin: 'https://alternate.invalid',
+  path: '/v1/chat/completions',
+  method: 'POST',
+  secretEnv: 'OFFLINE_ALTERNATE_KEY',
+  maxCompletionTokens: 37,
+  stream: false,
+};
 
 type FetchCall = { input: RequestInfo | URL; init?: RequestInit };
 
@@ -120,6 +133,58 @@ Deno.test('text response encodes fixed OpenAI-compatible controls and decodes fi
     },
   }]);
   assert(!JSON.stringify(result).includes(DUMMY_CREDENTIAL));
+});
+
+Deno.test('explicit structural profile controls derived endpoint and request wire', async () => {
+  const calls: FetchCall[] = [];
+  const model = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('alternate'))], calls),
+    credential: DUMMY_CREDENTIAL,
+    profile: ALTERNATE_PROFILE,
+  });
+
+  assertEquals(await model.generate(request()), { kind: 'final', text: 'alternate' });
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0].input, 'https://alternate.invalid/v1/chat/completions');
+  assertEquals(calls[0].init?.method, 'POST');
+  const body = parsedBody(calls[0]);
+  assertEquals(body.model, 'offline/alternate-model');
+  assertEquals(body.stream, false);
+  assertEquals(body.max_completion_tokens, 37);
+});
+
+Deno.test('omitted profile and explicit canonical PROFILE have byte-equivalent default wire', async () => {
+  const omittedCalls: FetchCall[] = [];
+  const explicitCalls: FetchCall[] = [];
+  const omitted = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('omitted'))], omittedCalls),
+    credential: DUMMY_CREDENTIAL,
+  });
+  const explicit = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('explicit'))], explicitCalls),
+    credential: DUMMY_CREDENTIAL,
+    profile: PROFILE,
+  });
+
+  assertEquals(await omitted.generate(request()), { kind: 'final', text: 'omitted' });
+  assertEquals(await explicit.generate(request()), { kind: 'final', text: 'explicit' });
+  assertEquals(omittedCalls[0].input, explicitCalls[0].input);
+  assertEquals(omittedCalls[0].init?.method, explicitCalls[0].init?.method);
+  assertEquals(omittedCalls[0].init?.headers, explicitCalls[0].init?.headers);
+  assertEquals(omittedCalls[0].init?.body, explicitCalls[0].init?.body);
+});
+
+Deno.test('explicit test endpoint remains higher priority than profile-derived endpoint', async () => {
+  const calls: FetchCall[] = [];
+  const model = new OpenRouterAgentModel({
+    fetcher: makeFetcher([response(finalPayload('override'))], calls),
+    credential: DUMMY_CREDENTIAL,
+    endpoint: ENDPOINT,
+    profile: ALTERNATE_PROFILE,
+  });
+
+  assertEquals(await model.generate(request()), { kind: 'final', text: 'override' });
+  assertEquals(calls[0].input, ENDPOINT);
 });
 
 Deno.test('text final accepts an explicitly null tool_calls field', async () => {

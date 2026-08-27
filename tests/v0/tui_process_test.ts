@@ -118,6 +118,15 @@ Deno.test('PTY accepts ASCII, Unicode, Backspace and Ctrl-D with a completed res
   assert(!result.stdout.includes('\x1b[?1049h'));
 });
 
+Deno.test('PTY planner startup selects one fixed planner Definition', async () => {
+  const result = await runPty('planner', [{ text: 'plan this\n\x04' }]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < 500);
+  assert(result.stdout.includes('user> plan this\r\n'));
+  assert(result.stdout.includes('assistant> fixture response'));
+  assert(result.stderr === '');
+});
+
 Deno.test('PTY bracketed paste submits one exact multiline task and visibly escapes tab', async () => {
   const result = await runPty('success', [{ text: '\x1b[200~line1\nline2\t\x1b[201~\n\x04' }]);
   assert(result.status.success);
@@ -178,6 +187,14 @@ Deno.test('PTY model failure restores controls and returns sanitized failure', a
 Deno.test('non-TTY direct fixture invocation fails before raw acquisition or session', async () => {
   const result = await runPty('non-tty', []);
   assert(!result.status.success);
+  assert(result.stdout.includes('"code":"invalid_invocation"'));
+  assert(!result.stdout.includes('\x1b[?2004h'));
+});
+
+Deno.test('PTY invalid agent selection fails before session and raw acquisition', async () => {
+  const result = await runPty('invalid-selection', []);
+  assert(!result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
   assert(result.stdout.includes('"code":"invalid_invocation"'));
   assert(!result.stdout.includes('\x1b[?2004h'));
 });

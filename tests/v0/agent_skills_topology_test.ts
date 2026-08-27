@@ -1,5 +1,5 @@
 import { assert, assertEquals } from './test_helpers.ts';
-import { createCorpusRegistry, createProductionRegistry } from '../../v0/agent/registries.ts';
+import { createCorpusRegistry, createWorkToolsRegistry } from '../../v0/agent/registries.ts';
 
 const DENO = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno';
 const config = JSON.parse(await Deno.readTextFile('deno.v0.json')) as {
@@ -58,7 +58,7 @@ Deno.test('corpus registry remains separate from conditional production skill to
     ],
   );
   assertEquals(
-    createProductionRegistry({ root: '/workspace' }).definitions().map((tool) => tool.name),
+    createWorkToolsRegistry({ root: '/workspace' }).definitions().map((tool) => tool.name),
     [
       'bash',
       'edit',

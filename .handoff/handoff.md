@@ -4,10 +4,31 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: Zot-first first TUIのlocal実装・offline/PTY検証・bounded review・owner final gate完了。TUI direct 26、PTY 10、topology 3、full 266 tests成功、最終Blocker/P1/P2 0
-- 次: SSH/Codex sessionをcheckpoint後に更新し、次の通常CLI roadmap incrementを別計画として開始する
+- 状態: bounded synchronous planner delegationのlocal実装・offline検証・bounded review完了。delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326 tests成功、最終Blocker/P1/P2 0
+- 次: 次の通常roadmap incrementを別計画として開始する
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
+
+### POL-20260827-agent-definition-composition-boundary
+
+- 判断済み: plan SHA-256 `226692cdc46f466460244dd6df655803831c30ecd06dad92a662f398367e6b55`に基づき、pure internal default TypeScript Definition、explicit OpenRouter profile/production registry declaration、shared runtime materializationを実装した
+- 正本: `docs/plans/agent-definition-composition-boundary.md`。配送入力は`docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`、SHA-256 `4befcdb6489d3ad6a44328896508a1fc49f42cff45a469022c68c8fee1ffb1ec`
+- 状態: Definition 2、runtime 18、OpenRouter 16、full 277成功。initial review P2 3を識別testとcheck topologyで修正し、single re-review GO、Blocker/P1/P2 0
+- 境界: production CLI/TUI behavior、profile値/wire/budget、credential timing、loop/session/UI ownershipは不変。provider/network/credential/production command、dependency/lockfile、`_refs/`、commit、push、releaseは未実施
+
+### POL-20260827-builtin-agent-definition-selection
+
+- 判断済み: plan SHA-256 `10098e02a2d57897f647ad202aecfa9218934f83d215dd8d8ccf211884031e5e`に基づき、exact built-in `default`/`planner` catalog、shared `--agent` startup selection、planner non-mutation capability registryを実装した
+- 正本: `docs/plans/builtin-agent-definition-selection.md`
+- 状態: catalog 4、Definition 4、runtime 24、runtime process 17、TUI direct 29、TUI process 12、topology 3、full 297成功。initial review P2 2をREADME整合とCLI grammar regressionで修正し、single changed-lines re-review GO、Blocker/P1/P2 0
+- 境界: plannerは同一`PROFILE`/maxSteps 8、AGENTS/skills有効、toolsは`read`/conditional `skill`/`submit_json_result`。OS sandboxではなく、production permissionは不変。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
+
+### POL-20260827-bounded-planner-delegation-tool
+
+- 判断済み: plan SHA-256 `5f8da680dabc7223d6320c5129c0350ed64fe7b0f7d613a4a44a7a9f5d26570d`に基づき、default-only synchronous `delegate_to_planner`、one-child-per-turn、parent 8 / child 8 / aggregate 16 request budgetを実装した
+- 正本: `docs/plans/bounded-planner-delegation-tool.md`
+- 状態: delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326成功。initial review P2 3をrequired production handler、explicit work-only registry、runtime/session/TUI regressionsで修正し、single changed-lines re-review GO、Blocker/P1/P2 0
+- 境界: childはstartup workspace/AGENTS/skills snapshotとexisting planner registryを使い、parent transcript、mutation、recursion、background/persistence/recovery/streaming/cancellationを持たない。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
 
 ### POL-20260826-zot-multi-turn-events
 
@@ -1171,3 +1192,59 @@
 - 実施: approved planのexplicit TUI、shared runtime、terminal lifecycle、strict input/render/controller、fake/PTY/topology evidenceを実装。initial review P1 1/P2 3とre-review残存test-evidence P2を修正し、direct 26、PTY 10、topology 3、full 266成功でowner final Blocker/P1/P2 0
 - 次: SSH/Codex sessionを更新後、次の通常CLI roadmap incrementを別計画として開始する
 - 注意: production `agent:tui`/`agent:run`、provider/network/credential、dependency/lockfile、`_refs/`操作、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-27 00:07 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: TypeScript Agent Definition composition boundary配送保存
+- 実施: revision 17配送入力を`docs/roadmap-inputs/`へbyte-identicalに保存し、OpenComputer参照と現行`createRuntimeComposition`接点を確認した
+- 次: `ASK-20260827-agent-definition-next-increment`の利用者判断後、選択された通常incrementと薄いDefinition boundaryを一つのimplementation-ready planへする
+- 注意: Definition単独milestoneは配送方針に反する。planning、実装、test、provider/credential、commit、push、releaseは未実施
+
+## 2026-08-27 00:21 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Agent Definition composition boundary planning
+- 実施: user-selected internal provider/model・registry incrementを、pure default Definition、explicit `PROFILE` declaration、host materialization、CLI/TUI behavior不変のimplementation-ready planへ確定した
+- 次: `ASK-20260827-agent-definition-plan`の初期Human Gate
+- 注意: plan SHA-256 `226692cd...6b55`。実装、test、provider/network/credential、production command、dependency/lockfile、`_refs/`、commit、push、releaseは未実施
+
+## 2026-08-27 00:45 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Agent Definition composition boundary local completion
+- 実施: pure default Definition、explicit profile/registry declaration、host materialization、one-shot/session max-step wiringを実装。initial review P2 3を修正し、single re-review GO
+- 次: 次の通常roadmap incrementを別計画として開始する
+- 注意: Definition 2、runtime 18、OpenRouter 16、full 277成功、Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-27 10:42 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Built-in Agent Definition selection planning
+- 実施: exact `default`/`planner` catalog、CLI/TUI shared `--agent`、fixed-session selection、planner exact non-mutation tool setをimplementation-ready planへ確定。Cloudflare Agents/Sandbox snapshotsはstable identityとfuture boundaryの限定比較に留めた
+- 次: `ASK-20260827-builtin-agent-definition-selection`の初期Human Gate
+- 注意: plan SHA-256 `10098e02...31e5e`。実装、test、provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、releaseは未実施
+
+## 2026-08-27 11:25 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Built-in Agent Definition selection local completion
+- 実施: exact `default`/`planner` catalog、CLI/TUI shared `--agent`、fixed-session selection、planner exact capability registryを実装。initial review P2 2を修正し、single changed-lines re-review GO
+- 次: 次の通常roadmap incrementを別計画として開始する
+- 注意: catalog 4、Definition 4、runtime 24、runtime process 17、TUI direct 29、TUI process 12、topology 3、full 297成功、Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-27 12:22 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Bounded synchronous planner delegation planning
+- 実施: default-only `delegate_to_planner`、one child per accepted turn、shared 8/8/16 request admission、frozen startup context、bounded result envelopeをimplementation-ready planへ確定
+- 次: `ASK-20260827-bounded-planner-delegation-tool`の初期Human Gate
+- 注意: plan SHA-256 `5f8da680...d26570d`。実装、test、provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-27 13:15 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Bounded synchronous planner delegation local completion
+- 実施: default-only synchronous delegation、per-turn admission、8/8/16 budget、frozen child context、bounded envelopeを実装。initial review P2 3を修正し、single changed-lines re-review GO
+- 次: 次の通常roadmap incrementを別計画として開始する
+- 注意: delegation 16、runtime 35、runtime process 18、TUI direct 30、full 326成功、Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、`_refs/`操作、commit、push、tag、publish、releaseは未実施

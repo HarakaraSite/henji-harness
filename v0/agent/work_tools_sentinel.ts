@@ -11,7 +11,7 @@ import {
   type ToolDefinition,
 } from './contracts.ts';
 import { runAgent } from './loop.ts';
-import { createProductionRegistry } from './registries.ts';
+import { createWorkToolsRegistry } from './registries.ts';
 import { MAX_STEPS } from './runtime.ts';
 import { resolveWorkspace, type Workspace } from './work_tools.ts';
 
@@ -412,7 +412,7 @@ export const runSentinel = async (
       externalRequests += 1;
       return baseFetcher(input, init);
     };
-    const registry = createProductionRegistry(workspace);
+    const registry = createWorkToolsRegistry(workspace);
     const model = new OpenRouterAgentModel({
       fetcher,
       credential: dependencies.credential,

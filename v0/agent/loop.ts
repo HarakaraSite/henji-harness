@@ -12,10 +12,13 @@ import {
 } from './contracts.ts';
 import { type AgentEventSink, deliverEvent, snapshot, snapshotMessages } from './events.ts';
 import { Registry } from './tools.ts';
+import { type ModelExecutionContext } from './execution_context.ts';
 
 export interface AgentLoopOptions {
   readonly maxSteps?: number;
   readonly systemInstruction?: string;
+  /** Optional provider-neutral request admission for this turn's model lane. */
+  readonly executionContext?: ModelExecutionContext;
 }
 
 export interface AgentTurnOptions extends AgentLoopOptions {
@@ -158,6 +161,20 @@ export const runAgentTurn = async (
     if (steps >= limit) {
       return finish(maxSteps(task, transcript, steps, toolCallCount, toolResultCount));
     }
+    // Admission is deliberately immediately before generate. A rejected claim does not enter
+    // the model adapter and therefore cannot read credentials or start a counted fetch.
+    if (options.executionContext !== undefined && !options.executionContext.claimModelRequest()) {
+      return finish(
+        contractFailure(
+          task,
+          transcript,
+          steps,
+          toolCallCount,
+          toolResultCount,
+          'model request budget exhausted',
+        ),
+      );
+    }
     const request: ModelRequest = options.systemInstruction === undefined
       ? { transcript: snapshotMessages(transcript), tools: snapshot(registry.definitions()) }
       : {
@@ -239,7 +256,7 @@ export const runAgentTurn = async (
         toolCallCount += 1;
         const dispatchedCall = snapshot(call);
         try {
-          const dispatched = await registry.dispatch(dispatchedCall);
+          const dispatched = await registry.dispatch(dispatchedCall, options.executionContext);
           results.push(dispatched.content);
           if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
         } catch (error) {

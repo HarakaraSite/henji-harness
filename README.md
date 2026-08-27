@@ -20,6 +20,7 @@ deno task --config deno.v0.json agent:fixture
 printf '%s\n' 'ARBITRARY TASK' | /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:run
 deno task --config deno.v0.json agent:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:skills:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:process:test
@@ -38,23 +39,41 @@ not a local test. Local gates use fixtures and require no credential.
 
 ## Normal runtime (roadmap step 11)
 
-The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin.
+The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin. The
+normal `agent:run` and `agent:tui` paths share one internal startup composition boundary. At startup
+it resolves exactly one of two compile-time built-in Agent Definitions: `default` (the omitted
+selection) or `planner`. The selected Definition declares the fixed provider profile, discovered
+instructions and skills, model capability registry, and eight-request bound. `agent:run` accepts
+`--agent NAME` before or after `--task TEXT`, and `agent:tui` accepts `--agent NAME`; selection is
+resolved once at startup and cannot change between turns. Unknown, malformed, duplicate, or missing
+selector values fail before stdin/workspace/session setup. The `default` Definition preserves the
+production registry and advertises exactly six tools without a callable skill (`bash`,
+`delegate_to_planner`, `edit`, `read`, `submit_json_result`, and `write`) and seven when `skill` is
+available. The `planner` Definition instead advertises exactly `read` and `submit_json_result`,
+adding `skill` only when available; it never advertises `bash`, `edit`, or `write`, and its fixed
+policy asks for a clear non-mutating implementation plan. This is not an OS/process sandbox:
+trusted-local process permissions and the production workspace tools remain unchanged. The selector
+is not configuration, environment, alias, or dynamic loading. `delegate_to_planner({task})` is a
+synchronous, nonterminal default-only call: one accepted parent turn may admit at most one built-in
+planner child. Parent, child, and aggregate model-request limits are fixed at 8, 8, and 16
+respectively, with admission checked before model, credential, or fetch work. The child receives
+only the explicit task and startup workspace/instruction/skill snapshots, exposes only planner
+read/skill/JSON tools, and returns one bounded sanitized result; child events and transcript are not
+exposed to the parent. The planner Definition itself cannot delegate. This capability shares the
+trusted-local process and workspace user permissions and is not an OS sandbox; background execution,
+recursion, persistence, streaming, cancellation, retries, and multiple children remain deferred.
 Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
-bytes fails before model or credential setup. Without a callable project skill, the single-shot
-runtime advertises exactly these five tools in stable name order: `bash`, `edit`, `read`,
-`submit_json_result`, and `write`. With one or more callable skills it adds `skill` in name order.
-The versioned
-corpus/evaluation registry retains the four toy domain tools separately and they are not advertised
-by normal `agent:run`. JSON answers must use `submit_json_result` as the sole tool call in a batch;
-the host canonicalizes the complete JSON value and prints it on stdout. Plain-text answers retain
-the assistant final path.
+bytes fails before model or credential setup. The versioned corpus/evaluation registry retains the
+four toy domain tools separately and they are not advertised by normal `agent:run`. JSON answers
+must use `submit_json_result` as the sole tool call in a batch; the host canonicalizes the complete
+JSON value and prints it on stdout. Plain-text answers retain the assistant final path.
 
 `read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
 Paths may be relative or absolute within that root, are component-checked, reject symlinks and
 special files, and accept only well-formed UTF-8 text up to 65,536 bytes. Writes and edits use a
 synced sibling temporary file and atomic rename; this gives atomic visibility but does not promise
-directory-fsync crash durability or protection from hostile same-user races. `edit` applies up to
-32 exact, unique, non-overlapping replacements against one original snapshot.
+directory-fsync crash durability or protection from hostile same-user races. `edit` applies up to 32
+exact, unique, non-overlapping replacements against one original snapshot.
 
 `bash` always runs `/bin/bash --noprofile --norc -c COMMAND` from the workspace with a clean fixed
 environment (`PATH`, `LANG`, and `LC_ALL` only), separate 4,096-byte stdout/stderr capture, and a
@@ -66,18 +85,18 @@ guarantees only the direct child is killed and reaped.
 Before the first normal-runtime model request, the host optionally reads one standing-instruction
 file directly under the canonical workspace: `AGENTS.md` is preferred over `AGENTS.MD`, and the
 first present candidate wins. Only regular non-symlink files with valid UTF-8 text up to 16 KiB are
-accepted; blank, NUL-containing, malformed, oversized, or unreadable files are silently skipped.
-The accepted text is sent as one first-class `system` message on every provider request, outside
-the user task and loop transcript. Discovery does not inspect ancestors, global/home state, child
+accepted; blank, NUL-containing, malformed, oversized, or unreadable files are silently skipped. The
+accepted text is sent as one first-class `system` message on every provider request, outside the
+user task and loop transcript. Discovery does not inspect ancestors, global/home state, child
 directories, or other spelling variants, and does not broaden the existing `agent:run` workspace
 read permission.
 
-The same startup pass discovers project-local skills from `./.zot/skills`, then
-`./.claude/skills`, then `./.agents/skills`. Only one-level
-`<location>/<directory>/SKILL.md` regular non-symlink files are considered. Entries are sorted;
-the first valid effective name wins, while a valid `disable-model-invocation: true` entry reserves
-its name without becoming callable. Discovery is bounded to 128 entries per location, 24 callable
-skills, 64 KiB per file and formatted result, 512 KiB aggregate results, and an 8 KiB manifest.
+The same startup pass discovers project-local skills from `./.zot/skills`, then `./.claude/skills`,
+then `./.agents/skills`. Only one-level `<location>/<directory>/SKILL.md` regular non-symlink files
+are considered. Entries are sorted; the first valid effective name wins, while a valid
+`disable-model-invocation: true` entry reserves its name without becoming callable. Discovery is
+bounded to 128 entries per location, 24 callable skills, 64 KiB per file and formatted result, 512
+KiB aggregate results, and an 8 KiB manifest.
 
 The accepted format is a strict frontmatter subset with optional `name`, required one-line
 `description` (160 UTF-8 bytes maximum), and optional `disable-model-invocation`. Unknown or
@@ -90,30 +109,34 @@ not provided.
 
 ## First terminal UI
 
-The explicit TUI command is real-TTY-only and accepts zero application arguments:
+The explicit TUI command is real-TTY-only and accepts either zero application arguments or exactly
+`--agent NAME`:
 
 ```text
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui --agent planner
 ```
 
-It uses the same fixed trusted-local workspace, skills, tools, model profile, and permissions as
-`agent:run`, including OS-user `bash` execution and no per-tool confirmation. Each Enter starts
-one exact task in an in-memory sequential conversation (at most eight provider requests per
-turn); input received while a turn is busy is consumed and discarded. The command never
-implicitly changes `agent:run` into a TUI and does not read credentials until a submitted task
-reaches the lazy provider adapter.
+The omitted selector uses `default`; `--agent planner` selects the built-in planner capability. It
+uses the same fixed trusted-local workspace, skills, model profile, and trusted-local process
+permission envelope as `agent:run`; the selected Definition controls model tools. `default` includes
+OS-user `bash` execution with no per-tool confirmation, while `planner` exposes only `read`,
+optional `skill`, and `submit_json_result`. Each Enter starts one exact task in an in-memory
+sequential conversation (at most eight provider requests per turn); input received while a turn is
+busy is consumed and discarded. The command never implicitly changes `agent:run` into a TUI and does
+not read credentials until a submitted task reaches the lazy provider adapter.
 
-The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only
-updates status. While idle, the first Ctrl-C clears the editor and arms a 500 ms second-press
-exit; a second Ctrl-C exits. Ctrl-D exits only with an empty editor. While busy, Esc reports that
-cancellation is unavailable and Ctrl-C exits after the current completed turn. Terminal output
-uses main-screen scrollback with a small live line; dynamic model, tool, and task text is escaped
-at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input reader are
-restored on every handled exit or failure. Provider streaming, cancellation, confirmation,
-history, alternate-screen rendering, persistence, and queued follow-up input remain deferred.
+The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only updates
+status. While idle, the first Ctrl-C clears the editor and arms a 500 ms second-press exit; a second
+Ctrl-C exits. Ctrl-D exits only with an empty editor. While busy, Esc reports that cancellation is
+unavailable and Ctrl-C exits after the current completed turn. Terminal output uses main-screen
+scrollback with a small live line; dynamic model, tool, and task text is escaped at one terminal
+boundary. Raw mode, bracketed paste, cursor state, and the input reader are restored on every
+handled exit or failure. Provider streaming, cancellation, confirmation, history, alternate-screen
+rendering, persistence, and queued follow-up input remain deferred.
 
-Local TUI tests use only fake sessions/terminals and bounded `/usr/bin/script` PTY fixtures; they
-do not run `agent:tui`, `agent:run`, a provider, or credential commands.
+Local TUI tests use only fake sessions/terminals and bounded `/usr/bin/script` PTY fixtures; they do
+not run `agent:tui`, `agent:run`, a provider, or credential commands.
 
 Success writes only the final assistant text to stdout (adding one newline when needed), with an
 empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The
@@ -140,15 +163,15 @@ provider connection, or runs this production task; Gate S requires a separate ex
 
 ## Current baseline
 
-Roadmap steps 8–10 are complete. Step 8 added deterministic `character_count` beside `uppercase_text` and enforces selection
-of the task-matching tool. Before the cleanup, selection direct tests passed 8 cases, the full v0
-suite passed 72 tests, and check, format, lint, gate, and diff check passed. The post-implementation
-review found no Blocker or P1 and one P2 for a missing negative test. The later local-fix added a
-well-typed but incorrect fixed `text` value to the negative table; direct selection and full offline
-gates pass with the regression covered.
+Roadmap steps 8–10 are complete. Step 8 added deterministic `character_count` beside
+`uppercase_text` and enforces selection of the task-matching tool. Before the cleanup, selection
+direct tests passed 8 cases, the full v0 suite passed 72 tests, and check, format, lint, gate, and
+diff check passed. The post-implementation review found no Blocker or P1 and one P2 for a missing
+negative test. The later local-fix added a well-typed but incorrect fixed `text` value to the
+negative table; direct selection and full offline gates pass with the regression covered.
 
-Roadmap step 9 adds `list_json_object_keys` and completed one real task against `deno.v0.json`:
-the model selected the tool once and returned the 12 task names. The first result differed from the
+Roadmap step 9 adds `list_json_object_keys` and completed one real task against `deno.v0.json`: the
+model selected the tool once and returned the 12 task names. The first result differed from the
 compact tool JSON only by whitespace, so completion now compares the parsed string arrays. No retry
 or second provider attempt was made; the current full local suite passes 78 tests.
 
@@ -158,22 +181,25 @@ after the list because character counting was not a natural continuation; the ta
 count JSON-array items, then completed without further changes.
 
 The active step 5–10 evidence is retained in `docs/plans/`. Roadmap step 11's normal CLI runtime is
-specified in [`docs/plans/zot-first-cli-agent-runtime.md`](docs/plans/zot-first-cli-agent-runtime.md), with the
-Zot-first local work-tool increment recorded in [`docs/plans/zot-local-work-tools-results.md`](docs/plans/zot-local-work-tools-results.md).
-It accepts one task from argv or stdin, allows at most eight model requests, and performs no
+specified in
+[`docs/plans/zot-first-cli-agent-runtime.md`](docs/plans/zot-first-cli-agent-runtime.md), with the
+Zot-first local work-tool increment recorded in
+[`docs/plans/zot-local-work-tools-results.md`](docs/plans/zot-local-work-tools-results.md). It
+accepts one task from argv or stdin, allows at most eight model requests, and performs no
 application retry. The provider-neutral in-memory session and completed lifecycle events are
 implemented for the next TUI prerequisite; `agent:run` still uses the unchanged one-shot wrapper.
 Persistence, context management, global/manual skill management, extensions, RPC, subagents,
 self-revision, and dynamic provider/model selection remain later roadmap work. See the
-[`multi-turn/events results`](docs/plans/zot-provider-neutral-multi-turn-events-results.md) for
-the local evidence and verification boundary.
+[`multi-turn/events results`](docs/plans/zot-provider-neutral-multi-turn-events-results.md) for the
+local evidence and verification boundary.
 
 ## Versioned small task corpus
 
 The current offline corpus is [`v0/corpus/task-corpus.v1.json`](v0/corpus/task-corpus.v1.json),
 schema version 1 and corpus ID `henji-normal-cli-small-v1`. It contains exactly 24 canonical cases:
 four final-only cases, four cases for each of the four single-tool categories, and four multi-tool
-cases. The strict loader and case-local scorer are in [`v0/corpus/task_corpus.ts`](v0/corpus/task_corpus.ts).
+cases. The strict loader and case-local scorer are in
+[`v0/corpus/task_corpus.ts`](v0/corpus/task_corpus.ts).
 
 Run its focused validation with:
 
@@ -194,8 +220,8 @@ provider/model invocation, production command, score aggregation, or credential 
 - `archive/history/`: superseded pre-alpha plans and results.
 
 The archived implementations, spikes, and superseded plans are historical evidence that can be
-reconsidered intentionally as future decisions are made. See [`archive/README.md`](archive/README.md)
-for the retention boundary.
+reconsidered intentionally as future decisions are made. See
+[`archive/README.md`](archive/README.md) for the retention boundary.
 
 ## Reference snapshots
 

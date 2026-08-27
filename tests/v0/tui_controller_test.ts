@@ -1,7 +1,11 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
-import { main as tuiMain } from '../../v0/agent/tui_cli.ts';
+import { main as tuiMain, parseTuiArgs } from '../../v0/agent/tui_cli.ts';
+import { AgentSession } from '../../v0/agent/session.ts';
+import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
+import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
+import { Registry } from '../../v0/agent/tools.ts';
 import { TuiController, TuiControllerError } from '../../v0/tui/controller.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import {
@@ -298,6 +302,131 @@ Deno.test('TUI preflight rejects argv or non-TTY before session/raw acquisition'
   assertEquals(nonTtyExit, 1);
   assertEquals(nonTtySessions, 0);
   assertEquals(nonTty.raw, []);
+});
+
+Deno.test('TUI parser accepts only omitted or exact --agent NAME forms', () => {
+  assertEquals(parseTuiArgs([]), undefined);
+  assertEquals(parseTuiArgs(['--agent', 'default']), 'default');
+  assertEquals(parseTuiArgs(['--agent', 'planner']), 'planner');
+  for (
+    const args of [
+      ['--agent'],
+      ['--agent=planner'],
+      ['--agent', 'planner', '--agent', 'default'],
+      ['planner'],
+      ['--task', 'task'],
+    ]
+  ) {
+    let failed = false;
+    try {
+      parseTuiArgs(args);
+    } catch {
+      failed = true;
+    }
+    assert(failed);
+  }
+});
+
+Deno.test('TUI resolves planner before session and keeps the selected Definition fixed', async () => {
+  const terminal = new FakeTerminal();
+  const session = new FakeSession(() => {});
+  let selected = '';
+  const exit = await tuiMain(['--agent', 'planner'], {
+    terminal,
+    createSession: (sink, selection) => {
+      selected = selection.id;
+      const connected = new FakeSession((event) => sink(event));
+      setTimeout(() => terminal.push('planner task\n'), 0);
+      setTimeout(() => terminal.push('\x04'), 20);
+      return Promise.resolve({ session: connected });
+    },
+    writeStderr: () => {},
+  });
+  assertEquals(exit, 0);
+  assertEquals(selected, 'planner');
+  assertEquals(session.submitted, []);
+  assert(terminal.raw.includes(false));
+});
+
+Deno.test('TUI controller drives an actual session through two delegated turns', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  let modelCalls = 0;
+  let childCalls = 0;
+  const contexts: ParentTurnExecutionContext[] = [];
+  const registry = new Registry([createPlannerDelegationTool((task, child) => {
+    childCalls += 1;
+    assertEquals(task, childCalls === 1 ? 'first child' : 'second child');
+    assert(child.claimModelRequest());
+    return { outcome: finalOutcome(task, `plan ${childCalls}`), externalRequests: 1 };
+  })]);
+  let turnEnds = 0;
+  const session = new AgentSession(
+    {
+      generate: () => {
+        modelCalls += 1;
+        if (modelCalls === 1 || modelCalls === 3) {
+          return {
+            kind: 'tool_calls' as const,
+            calls: [{
+              callId: `delegate-${modelCalls}`,
+              name: 'delegate_to_planner',
+              arguments: { task: modelCalls === 1 ? 'first child' : 'second child' },
+            }],
+          };
+        }
+        return { kind: 'final' as const, text: `parent ${modelCalls / 2}` };
+      },
+    },
+    registry,
+    {
+      eventSink: (event) => {
+        renderer.eventSink(event);
+        if (event.kind !== 'turn_end') return;
+        turnEnds += 1;
+        if (turnEnds === 1) setTimeout(() => terminal.push('second task\n'), 0);
+        else setTimeout(() => terminal.push('\x04'), 0);
+      },
+      createTurnExecutionContext: (turn) => {
+        const context = new ParentTurnExecutionContext(turn);
+        contexts.push(context);
+        return context;
+      },
+    },
+  );
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('first task\n');
+  assertEquals(await running, 0);
+  assertEquals(modelCalls, 4);
+  assertEquals(childCalls, 2);
+  assertEquals(contexts.map((context) => context.snapshot()), [
+    { parent: 2, child: 1, aggregate: 3 },
+    { parent: 2, child: 1, aggregate: 3 },
+  ]);
+  assert(terminal.output().includes('plan 1'));
+  assert(terminal.output().includes('plan 2'));
+  assert(terminal.raw.includes(false));
+});
+
+Deno.test('invalid TUI selection does not construct or probe the terminal', async () => {
+  const terminal = new FakeTerminal();
+  terminal.stdinIsTerminal = () => {
+    throw new Error('terminal probe must not start');
+  };
+  let stderr = '';
+  const exit = await tuiMain(['--agent', 'unknown'], {
+    terminal,
+    writeStderr: (text) => {
+      stderr += text;
+    },
+  });
+  assertEquals(exit, 1);
+  assert(stderr.includes('"code":"invalid_invocation"'));
+  assertEquals(terminal.operations, []);
+  assertEquals(terminal.writes, []);
 });
 
 Deno.test('pre-controller signals restore and map all handled exits', async () => {

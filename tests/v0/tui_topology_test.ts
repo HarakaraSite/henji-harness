@@ -39,6 +39,9 @@ Deno.test('local TUI gate runs only local tests and check includes all TUI paths
   assert(gate.includes('agent:tui:test'));
   assert(gate.includes('agent:tui:process:test'));
   assert(gate.includes('agent:tui:topology:test'));
+  assert(gate.includes('agent:definition-selection:test'));
+  assert(check.includes('v0/agent/agent_catalog.ts'));
+  assert(check.includes('tests/v0/agent_catalog_test.ts'));
   assert(!gate.includes('agent:tui"'));
   assert(!gate.includes('agent:run"'));
 });

@@ -1,7 +1,7 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import type { JsonValue } from '../../v0/agent/contracts.ts';
 import { Registry, type Tool } from '../../v0/agent/tools.ts';
-import { createCorpusRegistry, createProductionRegistry } from '../../v0/agent/registries.ts';
+import { createCorpusRegistry, createWorkToolsRegistry } from '../../v0/agent/registries.ts';
 import {
   createBashTool,
   createEditTool,
@@ -358,7 +358,7 @@ Deno.test('corpus and production registries expose disjoint exact definition set
       ],
     );
     assertEquals(
-      createProductionRegistry(workspace).definitions().map((definition) => definition.name),
+      createWorkToolsRegistry(workspace).definitions().map((definition) => definition.name),
       ['bash', 'edit', 'read', 'submit_json_result', 'write'],
     );
   });

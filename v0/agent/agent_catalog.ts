@@ -1,0 +1,50 @@
+import {
+  type AgentDefinition,
+  defaultAgentDefinition,
+  plannerAgentDefinition,
+} from './agent_definition.ts';
+
+/** The finite set of compile-time built-in Agent Definition identifiers. */
+export const BUILTIN_AGENT_IDS = Object.freeze(['default', 'planner'] as const);
+export type BuiltinAgentId = typeof BUILTIN_AGENT_IDS[number];
+
+export interface BuiltinAgentSelection {
+  readonly id: BuiltinAgentId;
+  readonly definition: AgentDefinition;
+}
+
+/** Internal error used for malformed and unknown explicit selectors. */
+export class AgentSelectionError extends Error {
+  constructor() {
+    super('invalid agent selection');
+    this.name = 'AgentSelectionError';
+  }
+}
+
+// A null-prototype object prevents inherited names from becoming selectors.  The mapping and
+// each returned selection are frozen so the compile-time catalog cannot be modified by callers.
+const DEFINITIONS: Readonly<Record<BuiltinAgentId, AgentDefinition>> = Object.freeze(
+  Object.assign(Object.create(null) as Record<BuiltinAgentId, AgentDefinition>, {
+    default: defaultAgentDefinition,
+    planner: plannerAgentDefinition,
+  }),
+);
+
+const IDENTIFIER = /^[a-z][a-z0-9-]{0,31}$/;
+
+const isBuiltinAgentId = (value: string): value is BuiltinAgentId =>
+  IDENTIFIER.test(value) &&
+  Object.prototype.hasOwnProperty.call(DEFINITIONS, value);
+
+/** The omitted selector resolves to this immutable default selection. */
+export const DEFAULT_AGENT_SELECTION: BuiltinAgentSelection = Object.freeze({
+  id: 'default',
+  definition: defaultAgentDefinition,
+});
+
+/** Resolve one exact built-in ID without evaluating a Definition or touching host resources. */
+export const resolveBuiltinAgent = (rawName?: string): BuiltinAgentSelection => {
+  if (rawName === undefined) return DEFAULT_AGENT_SELECTION;
+  if (!isBuiltinAgentId(rawName)) throw new AgentSelectionError();
+  return Object.freeze({ id: rawName, definition: DEFINITIONS[rawName] });
+};

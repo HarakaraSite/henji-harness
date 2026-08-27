@@ -7,7 +7,7 @@ import {
   TASK_ID,
   TOOL_ORDER,
 } from '../../v0/agent/work_tools_sentinel.ts';
-import { createProductionRegistry } from '../../v0/agent/registries.ts';
+import { createWorkToolsRegistry } from '../../v0/agent/registries.ts';
 import { type Message, type ModelRequest, type ModelResult } from '../../v0/agent/contracts.ts';
 import {
   CHILD_ENTRYPOINT,
@@ -133,7 +133,7 @@ Deno.test('sentinel provider/adherence failures are bounded and sanitized', asyn
 });
 
 Deno.test('guard rejects early final, wrong calls, changed results, and sixth request before delegate', async () => {
-  const registry = createProductionRegistry({ root: '/tmp' });
+  const registry = createWorkToolsRegistry({ root: '/tmp' });
   let delegateCalls = 0;
   const delegate = {
     generate: (request: ModelRequest): ModelResult => {
@@ -226,7 +226,7 @@ Deno.test('guard rejects early final, wrong calls, changed results, and sixth re
 });
 
 Deno.test('guard classifies an expected correlated tool error before the next fetch', async () => {
-  const registry = createProductionRegistry({ root: '/tmp' });
+  const registry = createWorkToolsRegistry({ root: '/tmp' });
   let delegateCalls = 0;
   const guarded = new GuardedModel({
     generate: (request: ModelRequest): ModelResult => {

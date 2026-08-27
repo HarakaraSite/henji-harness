@@ -1,4 +1,5 @@
 import { createRuntimeSession, type RuntimeTestSeam } from './runtime.ts';
+import { type BuiltinAgentSelection, resolveBuiltinAgent } from './agent_catalog.ts';
 import { AgentSession } from './session.ts';
 import { type AgentEventSink } from './events.ts';
 import { TuiController, TuiControllerError } from '../tui/controller.ts';
@@ -15,7 +16,10 @@ export interface TuiSessionFactoryResult {
 export interface TuiCliDependencies {
   readonly terminal?: TerminalPort;
   readonly runtimeSeam?: RuntimeTestSeam;
-  readonly createSession?: (eventSink: AgentEventSink) => Promise<TuiSessionFactoryResult>;
+  readonly createSession?: (
+    eventSink: AgentEventSink,
+    selection: BuiltinAgentSelection,
+  ) => Promise<TuiSessionFactoryResult>;
   readonly writeStderr?: (text: string) => void | PromiseLike<void>;
   /** Test-only crash injection, invoked after raw acquisition and before controller.run. */
   readonly afterAcquire?: () => void | Promise<void>;
@@ -28,6 +32,13 @@ const fatalMessages: Record<string, string> = {
   input_failure: 'input failure',
   output_failure: 'output failure',
   agent_failure: 'agent failure',
+};
+
+/** Parse the exact optional TUI selector. */
+export const parseTuiArgs = (args: readonly string[]): string | undefined => {
+  if (args.length === 0) return undefined;
+  if (args.length === 2 && args[0] === '--agent') return args[1];
+  throw new Error('invalid invocation');
 };
 
 const failureLine = (code: keyof typeof fatalMessages): string =>
@@ -76,8 +87,15 @@ export const main = async (
   const stderr = dependencies.writeStderr ?? (async (text: string) => {
     await Deno.stderr.write(encoder.encode(text));
   });
+  let selection: BuiltinAgentSelection;
+  try {
+    selection = resolveBuiltinAgent(parseTuiArgs(args));
+  } catch {
+    await stderr(failureLine('invalid_invocation'));
+    return 1;
+  }
   const terminal = dependencies.terminal ?? new DenoTerminal();
-  if (args.length !== 0 || !terminal.stdinIsTerminal() || !terminal.stdoutIsTerminal()) {
+  if (!terminal.stdinIsTerminal() || !terminal.stdoutIsTerminal()) {
     await stderr(failureLine('invalid_invocation'));
     return 1;
   }
@@ -87,12 +105,12 @@ export const main = async (
   let crashGuard: CrashGuard | undefined;
   let acquisitionStarted = false;
   try {
-    const sessionFactory = dependencies.createSession ?? (async (eventSink) => {
-      const result = await createRuntimeSession(eventSink, dependencies.runtimeSeam);
+    const sessionFactory = dependencies.createSession ?? (async (eventSink, selected) => {
+      const result = await createRuntimeSession(eventSink, dependencies.runtimeSeam, selected);
       return { session: result.session, requestCount: result.requestCount };
     });
     // Composition occurs before raw acquisition, so startup failures never touch terminal mode.
-    const created = await sessionFactory(renderer.eventSink);
+    const created = await sessionFactory(renderer.eventSink, selection);
     const controller = new TuiController(lifecycle, renderer, created.session);
     controller.installSignals();
     let crashDetected = false;

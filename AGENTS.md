@@ -128,6 +128,35 @@
   test-evidence P2 was closed by exact regressions and the owner final gate. Final disposition is
   Blocker/P1/P2 zero. No production TUI/provider/network/credential, dependency/lockfile, `_refs/`,
   commit, push, tag, publish, or release operation occurred.
+- The internal Agent Definition runtime-composition increment is implemented at
+  `docs/plans/agent-definition-composition-boundary.md`, SHA-256
+  `226692cdc46f466460244dd6df655803831c30ecd06dad92a662f398367e6b55`. It introduces one
+  pure internal default TypeScript Agent Definition with explicit OpenRouter profile and production
+  registry declarations, evaluated once and materialized by the shared runtime without changing CLI
+  or TUI behavior. Definition 2, runtime 18, OpenRouter 16, and full v0 277 tests pass. Initial
+  review P2 3 evidence gaps were fixed, and the single changed-lines re-review is `GO` with
+  Blocker/P1/P2 zero. No provider/network/credential/production command, dependency/lockfile,
+  `_refs/`, commit, push, tag, publish, or release operation occurred.
+- The built-in Definition selection increment is implemented at
+  `docs/plans/builtin-agent-definition-selection.md`, SHA-256
+  `10098e02a2d57897f647ad202aecfa9218934f83d215dd8d8ccf211884031e5e`. It adds exact
+  compile-time `default` and `planner` definitions, shared startup `--agent` selection for CLI/TUI,
+  and a non-sandbox planner capability set of `read`, conditional `skill`, and
+  `submit_json_result`, while preserving omitted-selection behavior. Catalog 4, Definition 4,
+  runtime 24, runtime process 17, TUI direct 29, TUI process 12, topology 3, and the full v0 gate
+  297 tests pass. Initial review P2 2 were fixed, and the single changed-lines re-review is `GO`
+  with Blocker/P1/P2 zero. No provider/network/credential/production command,
+  dependency/lockfile, `_refs/` operation, commit, push, tag, publish, or release occurred.
+- The bounded synchronous planner delegation increment is implemented at
+  `docs/plans/bounded-planner-delegation-tool.md`, SHA-256
+  `5f8da680dabc7223d6320c5129c0350ed64fe7b0f7d613a4a44a7a9f5d26570d`. It adds one
+  nonrecursive `delegate_to_planner` capability to `default`, with one child per accepted parent
+  turn and provider-neutral parent 8 / child 8 / aggregate 16 request admission. Child execution
+  reuses frozen startup context and the existing read-only planner registry. Delegation 16,
+  runtime 35, runtime process 18, TUI direct 30, and the full v0 gate 326 tests pass. Initial
+  review P2 3 were fixed, and the single changed-lines re-review is `GO` with Blocker/P1/P2 zero.
+  No provider/network/credential/production command, dependency/lockfile, `_refs/` operation,
+  commit, push, tag, publish, or release occurred.
 
 ## Development lifecycle
 

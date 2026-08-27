@@ -3,11 +3,14 @@ import { type AgentEventSink } from './events.ts';
 import { type AgentTurnOptions, runAgentTurn } from './loop.ts';
 import { Registry } from './tools.ts';
 import { snapshotMessages } from './events.ts';
+import { type ParentTurnExecutionContext } from './execution_context.ts';
 
 export interface AgentSessionOptions {
   readonly maxSteps?: number;
   readonly systemInstruction?: string;
   readonly eventSink?: AgentEventSink;
+  /** Runtime-owned factory that gives every accepted turn a fresh request context. */
+  readonly createTurnExecutionContext?: (turn: number) => ParentTurnExecutionContext;
 }
 
 /**
@@ -18,6 +21,7 @@ export class AgentSession {
   private readonly model: Model;
   private readonly registry: Registry;
   private readonly options: AgentTurnOptions;
+  private readonly createTurnContext?: (turn: number) => ParentTurnExecutionContext;
   private committedTranscript: Message[] = [];
   private active = false;
   private nextTurn = 1;
@@ -34,6 +38,7 @@ export class AgentSession {
       systemInstruction: options.systemInstruction,
       eventSink: options.eventSink,
     };
+    this.createTurnContext = options.createTurnExecutionContext;
   }
 
   /** Return a defensive snapshot of all messages from successfully committed turns. */
@@ -50,6 +55,7 @@ export class AgentSession {
 
     this.active = true;
     const turn = this.nextTurn++;
+    const executionContext = this.createTurnContext?.(turn);
     const previousTranscript = snapshotMessages(this.committedTranscript);
     try {
       const outcome = await runAgentTurn(
@@ -60,6 +66,7 @@ export class AgentSession {
         {
           ...this.options,
           turn,
+          executionContext,
           commit: (transcript) => {
             this.committedTranscript = snapshotMessages(transcript);
           },

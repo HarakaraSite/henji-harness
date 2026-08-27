@@ -1,4 +1,5 @@
 import { runRuntime, type RuntimeRun, type RuntimeTestSeam } from './runtime.ts';
+import { type BuiltinAgentSelection, resolveBuiltinAgent } from './agent_catalog.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
@@ -17,7 +18,7 @@ export interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
-  readonly run?: (task: string) => Promise<RuntimeRun>;
+  readonly run?: (task: string, selection: BuiltinAgentSelection) => Promise<RuntimeRun>;
   readonly runtimeSeam?: RuntimeTestSeam;
   readonly writeStdout?: OutputWriter;
   readonly writeStderr?: OutputWriter;
@@ -33,20 +34,33 @@ const normalizedTask = (text: string): string => {
   return task;
 };
 
-/** Parse the exact application argv contract, returning undefined for stdin. */
-export const parseTaskArg = (args: readonly string[]): string | undefined => {
+export interface ParsedRuntimeArgs {
+  readonly taskArg: string | undefined;
+  readonly rawAgentName: string | undefined;
+}
+
+/** Parse the exact application argv contract, returning undefined task for stdin. */
+export const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
   let task: string | undefined;
-  let found = false;
+  let rawAgentName: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument !== '--task') throw invalidInput();
-    if (found || index + 1 >= args.length) throw invalidInput();
-    found = true;
-    task = args[index + 1];
+    if (argument !== '--task' && argument !== '--agent') throw invalidInput();
+    if (index + 1 >= args.length) throw invalidInput();
+    if (argument === '--task') {
+      if (task !== undefined) throw invalidInput();
+      task = args[index + 1];
+    } else {
+      if (rawAgentName !== undefined) throw invalidInput();
+      rawAgentName = args[index + 1];
+    }
     index += 1;
   }
-  return task;
+  return { taskArg: task, rawAgentName };
 };
+
+/** Alias with a name that makes the combined parser intent explicit to internal callers. */
+export const parseRuntimeArgs = parseTaskArg;
 
 /** Read at most 65,537 raw stdin bytes and reject as soon as the bound is crossed. */
 export const readBoundedStdin = async (
@@ -169,7 +183,15 @@ export const main = async (
   const stdout = dependencies.writeStdout ?? defaultStdout;
   const stderr = dependencies.writeStderr ?? defaultStderr;
   try {
-    const argvTask = parseTaskArg(args);
+    const parsed = parseTaskArg(args);
+    // Resolve before probing or reading stdin and before any runtime/workspace construction.
+    let selection: BuiltinAgentSelection;
+    try {
+      selection = resolveBuiltinAgent(parsed.rawAgentName);
+    } catch {
+      throw invalidInput();
+    }
+    const argvTask = parsed.taskArg;
     const terminal = dependencies.stdinIsTerminal?.() ??
       Deno.stdin.isTerminal();
     if (argvTask !== undefined && !terminal) throw invalidInput();
@@ -193,8 +215,9 @@ export const main = async (
     }
 
     const runner = dependencies.run ??
-      ((value: string) => runRuntime(value, dependencies.runtimeSeam));
-    const run = await runner(task);
+      ((value: string, selected: BuiltinAgentSelection) =>
+        runRuntime(value, dependencies.runtimeSeam, selected));
+    const run = await runner(task, selection);
     if (
       run.outcome.ok &&
       (run.outcome.stopReason === 'final' || run.outcome.stopReason === 'tool_terminal') &&
