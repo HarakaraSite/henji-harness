@@ -8,7 +8,7 @@ const config = JSON.parse(await Deno.readTextFile('deno.v0.json')) as {
 Deno.test('agent:tui has the exact trusted-local production permission topology', () => {
   assertEquals(
     config.tasks['agent:tui'],
-    `${DENO} run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/tui_cli.ts`,
+    'v0/agent/session_launcher.sh',
   );
   assertEquals(
     config.tasks['agent:run'],

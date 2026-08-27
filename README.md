@@ -24,6 +24,11 @@ deno task --config deno.v0.json agent:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:skills:test
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:process:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:session-store:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:session:process:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:session:tui:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:sessions:test
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:sessions:topology:test
 deno task --config deno.v0.json agent:transport:test
 deno task --config deno.v0.json agent:acceptance:test
 deno task --config deno.v0.json agent:selection:test
@@ -120,12 +125,12 @@ not provided.
 
 ## First terminal UI
 
-The explicit TUI command is real-TTY-only and accepts either zero application arguments or exactly
-`--agent NAME`:
+The explicit TUI command is real-TTY-only and accepts `--agent NAME` plus at most one persistence
+selector (`--continue`, `--session UUID`, or `--no-session`), in either order:
 
 ```text
 /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui --agent planner
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui --agent planner --no-session
 ```
 
 The omitted selector uses `default`; `--agent planner` selects the built-in planner capability. It
@@ -146,8 +151,38 @@ Cancellation is per accepted turn, never commits its draft, and does not roll ba
 effects. Cleanup failure is a fatal sanitized agent failure and makes the session unavailable.
 Terminal output uses main-screen scrollback with a small live line; dynamic model, tool, and task
 text is escaped at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input
-reader are restored on every handled exit or failure. Provider streaming, confirmation, history,
-alternate-screen rendering, persistence, and queued follow-up input remain deferred.
+reader are restored on every handled exit or failure. Provider streaming, confirmation,
+alternate-screen rendering, and queued follow-up input remain deferred.
+
+## Persistent TUI sessions
+
+The production TUI launcher autosaves each successful turn in a new session by default. Use
+`--continue` to resume the newest session for the selected built-in agent, `--session UUID` for an
+exact session, or `--no-session` for an ephemeral run. The flags may appear in either order with
+`--agent default|planner`; malformed, duplicated, conflicting, or positional arguments fail before
+workspace, state, terminal, provider, or credential setup.
+
+Session management is metadata-only and does not materialize a provider or runtime:
+
+```text
+deno task --config deno.v0.json agent:sessions list
+deno task --config deno.v0.json agent:sessions delete --session UUID --yes
+```
+
+State is repo-external under `$XDG_STATE_HOME/henji-harness`, or
+`$HOME/.local/state/henji-harness` when XDG state is unset. A workspace SHA-256 partition keeps
+sessions from different workspaces separate. Session files are canonical version-1 UTF-8 JSON and
+contain only the selected agent, identity/timestamps, next turn, and the complete successful parent
+transcript; current AGENTS.md and skills are rediscovered on resume. Planner child turns, model
+views, markers, metrics, events, credentials, and terminal display history are never persisted.
+
+The store accepts at most 256 valid or active sessions per workspace, scans at most 512 direct
+entries in each namespace, and refuses a session file over 8 MiB. It uses nonblocking index/session
+locks and a synced sibling temporary file followed by atomic rename. There is no directory-fsync,
+repair, migration, truncation, pruning, or automatic deletion guarantee. Corrupt or unsupported
+records remain untouched and are rejected or counted as skipped by the management list operation.
+The ephemeral `--no-session` mode performs no state-root access, and `agent:run` remains entirely
+nonpersistent.
 
 Local TUI tests use only fake sessions/terminals and bounded `/usr/bin/script` PTY fixtures; they do
 not run `agent:tui`, `agent:run`, a provider, or credential commands.

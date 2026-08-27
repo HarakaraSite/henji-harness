@@ -6,6 +6,7 @@ import { snapshotMessages } from './events.ts';
 import { type ContextMetrics, prepareModelContext } from './context.ts';
 import { type ParentTurnExecutionContext } from './execution_context.ts';
 import { type CancelRequestResult, TurnCancellationOwner } from './cancellation.ts';
+import { type SessionRecord } from './session_store.ts';
 
 export const AGENT_SESSION_UNAVAILABLE = 'agent session unavailable';
 
@@ -19,6 +20,18 @@ export interface AgentSessionOptions {
     signal?: AbortSignal,
     cancellation?: TurnCancellationOwner,
   ) => ParentTurnExecutionContext;
+  /** Optional durable owner. Ephemeral sessions leave this unset. */
+  readonly persistence?: SessionPersistence;
+  /** Hydrated committed state used by the persistent TUI modes. */
+  readonly initialRecord?: SessionRecord;
+}
+
+/** Narrow persistence port owned by the runtime/store composition layer. */
+export interface SessionPersistence {
+  readonly record: SessionRecord | undefined;
+  commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void;
+  rollback(): void;
+  close(): void | Promise<void>;
 }
 
 /**
@@ -40,6 +53,9 @@ export class AgentSession {
   private unavailable = false;
   private nextTurn = 1;
   private committedContextSnapshot: ContextMetrics | undefined;
+  private readonly persistence?: SessionPersistence;
+  private pendingRollback = false;
+  private commitAttempted = false;
 
   constructor(model: Model, registry: Registry, options: AgentSessionOptions = {}) {
     const maxSteps = options.maxSteps ?? 8;
@@ -54,6 +70,19 @@ export class AgentSession {
       eventSink: options.eventSink,
     };
     this.createTurnContext = options.createTurnExecutionContext;
+    this.persistence = options.persistence;
+    if (options.initialRecord !== undefined) {
+      this.committedTranscript = snapshotMessages(options.initialRecord.transcript);
+      this.nextTurn = options.initialRecord.nextTurn;
+      const request: ModelRequest = options.systemInstruction === undefined
+        ? { transcript: this.committedTranscript, tools: this.registry.definitions() }
+        : {
+          systemInstruction: options.systemInstruction,
+          transcript: this.committedTranscript,
+          tools: this.registry.definitions(),
+        };
+      this.committedContextSnapshot = prepareModelContext(request).metrics;
+    }
   }
 
   /** Return a defensive snapshot of all messages from successfully committed turns. */
@@ -84,7 +113,7 @@ export class AgentSession {
     if (this.active) throw new Error('agent session is busy');
 
     this.active = true;
-    const turn = this.nextTurn++;
+    const turn = this.nextTurn;
     const cancellation = new TurnCancellationOwner();
     this.activeCancellation = cancellation;
     const previousTranscript = snapshotMessages(this.committedTranscript);
@@ -118,21 +147,48 @@ export class AgentSession {
                 tools: this.registry.definitions(),
               };
             const metrics = prepareModelContext(request).metrics;
+            this.commitAttempted = true;
+            this.persistence?.commit(committedTranscript, turn + 1, new Date().toISOString());
             this.committedTranscript = committedTranscript;
             this.committedContextSnapshot = metrics;
+            this.pendingRollback = this.persistence !== undefined;
+            this.nextTurn = turn + 1;
           },
         },
       );
+      if (this.commitAttempted && !outcome.ok && this.persistence !== undefined) {
+        this.unavailable = true;
+      }
+      if (this.pendingRollback) this.pendingRollback = false;
       return outcome;
     } catch (error) {
       // This also undoes a successful draft committed just before a failing turn_end sink.
       this.committedTranscript = previousTranscript;
       this.committedContextSnapshot = previousContext;
+      this.nextTurn = turn;
+      if (this.commitAttempted && !this.pendingRollback && this.persistence !== undefined) {
+        this.unavailable = true;
+      }
+      if (this.pendingRollback) {
+        try {
+          this.persistence?.rollback();
+          this.pendingRollback = false;
+        } catch {
+          this.unavailable = true;
+        }
+      }
+      this.commitAttempted = false;
       throw error;
     } finally {
       if (cancellation.state === 'cleanup_failed') this.unavailable = true;
       this.activeCancellation = null;
       this.active = false;
+      this.commitAttempted = false;
     }
+  }
+
+  /** Release the durable session lock after the TUI has settled all work. */
+  async close(): Promise<void> {
+    await this.persistence?.close();
   }
 }

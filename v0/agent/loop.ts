@@ -191,7 +191,27 @@ export const runAgentTurn = async (
     }
     const successful = outcome.ok &&
       (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal');
-    if (successful) options.commit?.(outcome.transcript);
+    if (successful) {
+      try {
+        options.commit?.(outcome.transcript);
+      } catch (error) {
+        const failure = contractFailure(
+          task,
+          transcript,
+          steps,
+          toolCallCount,
+          toolResultCount,
+          `session commit failure: ${errorText(error)}`,
+        );
+        deliverEvent(sink, {
+          kind: 'turn_end',
+          turn,
+          outcome: 'contract_failure',
+          committed: false,
+        });
+        return failure;
+      }
+    }
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,

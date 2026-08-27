@@ -1,5 +1,5 @@
 import { type AgentEvent, EventDeliveryError } from '../agent/events.ts';
-import { type LoopOutcome } from '../agent/contracts.ts';
+import { type LoopOutcome, type Message } from '../agent/contracts.ts';
 import {
   DEFAULT_CURSOR_STYLE,
   ERASE_LINE,
@@ -165,6 +165,30 @@ export class TuiRenderer implements TerminalRendererGate {
     if (this.closing) throw new EventDeliveryError();
     this.clearRecordLine();
     this.write(dynamicLine('assistant> ', text));
+    this.redraw();
+  }
+
+  /** Render a bounded committed transcript before accepting new input. */
+  renderRestored(messages: readonly Message[], omitted = 0): void {
+    if (this.closing) throw new EventDeliveryError();
+    for (const message of messages) {
+      if (message.role === 'user') {
+        this.write(dynamicLine('user> ', message.content.text));
+      } else if (message.role === 'assistant') {
+        if (Array.isArray(message.content)) {
+          for (const call of message.content) this.write(dynamicLine('tool> ', call.name));
+        } else {
+          this.write(
+            dynamicLine('assistant> ', (message.content as { readonly text: string }).text),
+          );
+        }
+      } else {
+        for (const result of message.content) {
+          this.write(dynamicLine(`tool< ${result.name} ${result.outcome}> `, result.text));
+        }
+      }
+    }
+    if (omitted > 0) this.write(dynamicLine('history> ', `${omitted} messages omitted`));
     this.redraw();
   }
 

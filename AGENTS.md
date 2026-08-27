@@ -17,7 +17,7 @@
 - The normal CLI runtime for roadmap step 11 is specified in
   `docs/plans/zot-first-cli-agent-runtime.md` and is implemented in the active tree. Its direct
   offline suite passes 14 tests and the full v0 gate passes 92 tests; independent review is GO with
-  Blocker/P1/P2 zero. Broader tools, streaming, persistent history, extensions, RPC, subagents,
+  Blocker/P1/P2 zero. Broader streaming, extensions, RPC, subagents,
   self-revision, and milestone 100 hardening are later roadmap work.
 - The test-only normal CLI offline process E2E in
   `docs/plans/normal-cli-offline-process-e2e.md` is implemented. Its focused suite passes 9 tests
@@ -201,6 +201,24 @@
   inventory correction closed at the owner final gate. Final disposition is Blocker/P1/P2 zero.
   No provider/network/credential/production command, dependency/lockfile, `_refs/` operation,
   commit, push, tag, publish, or release occurred.
+- The provider-neutral persistent session/history increment is implemented at
+  `docs/plans/provider-neutral-persistent-session-history.md`, SHA-256
+  `cc66f20c1f2100fae867cb3a85867b5af90eb1cd7a6a70d9cc8aafd1b73c00fb`. TUI default autosave,
+  `--continue`, exact `--session`, and `--no-session` use repo-external workspace-partitioned
+  state with canonical schema-v1 full parent transcripts; `agent:sessions` provides metadata-only
+  list and confirmed delete, while `agent:run` remains nonpersistent. Bounds, nonblocking locks,
+  synced-temp atomic replacement, durable rollback, current instruction/skill rediscovery, and
+  bounded replay are covered by focused offline store, process, TUI, management, and topology
+  tests. Focused store/process/TUI/management/topology counts are 12/3/1/2/2; `agent:session` 14,
+  context 15, cancellation 18, planner delegation 16, runtime 35/18, TUI 35/15/3, transport 16,
+  and loop 22 all pass; full v0 is 417 tests. The changed-lines review closure added exact
+  rollback, lstat size, bounded-scan, invalid-date, replay, awaitable-close, root-blankness, and
+  launcher-argv regressions. Residual evidence closure added prospective 512-entry allocation
+  capacity, first-turn AgentSession rollback-remove poisoning with preserved ghost JSON, and
+  real-child immediate TUI empty-exit cleanup regressions; final owner disposition is Blocker/P1/P2 zero.
+  No provider/network/credential/production task, dependency/lockfile, `_refs/`, commit, push, tag,
+  publish, or release operation occurred.
+
 - The provider-neutral context-management increment is implemented at
   `docs/plans/provider-neutral-context-management.md`, SHA-256
   `46eaf7a396e8add4dbd080414d854a8cbc579ce0999c43738d1b444335916e83`. The pure context view
@@ -216,7 +234,6 @@
   exit-intent regressions. Final owner disposition is Blocker/P1/P2 zero. No provider/network/
   credential/production command, dependency/lockfile, `_refs/` operation, commit, push, tag,
   publish, or release occurred.
-
 ## Development lifecycle
 
 - Use the user-provided requirements, repository plans, this file, and the current handoff as the

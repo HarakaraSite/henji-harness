@@ -2,7 +2,7 @@ import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
 import { type ContextMetrics } from '../../v0/agent/context.ts';
-import { main as tuiMain, parseTuiArgs } from '../../v0/agent/tui_cli.ts';
+import { main as tuiMain, parseTuiArgs, parseTuiInvocation } from '../../v0/agent/tui_cli.ts';
 import { AgentSession } from '../../v0/agent/session.ts';
 import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
 import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
@@ -584,6 +584,38 @@ Deno.test('TUI parser accepts only omitted or exact --agent NAME forms', () => {
     let failed = false;
     try {
       parseTuiArgs(args);
+    } catch {
+      failed = true;
+    }
+    assert(failed);
+  }
+});
+
+Deno.test('TUI persistence grammar accepts both flag orders and rejects conflicts', () => {
+  const session = '11111111-1111-4111-8111-111111111111';
+  assertEquals(parseTuiInvocation(['--continue', '--agent', 'planner']), {
+    rawAgentName: 'planner',
+    persistence: 'continue',
+  });
+  assertEquals(parseTuiInvocation(['--agent', 'default', '--session', session]), {
+    rawAgentName: 'default',
+    persistence: 'session',
+    sessionId: session,
+  });
+  assertEquals(parseTuiInvocation(['--no-session']), {
+    rawAgentName: undefined,
+    persistence: 'none',
+  });
+  for (
+    const args of [
+      ['--continue', '--no-session'],
+      ['--session', 'not-a-uuid'],
+      ['--agent', 'default', 'extra'],
+    ]
+  ) {
+    let failed = false;
+    try {
+      parseTuiInvocation(args);
     } catch {
       failed = true;
     }

@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: provider-neutral cancellation完了・commit `7c3888f`。provider-neutral context managementのlocal implementation、offline gate、results、lifecycle、changed-lines review、owner final dispositionまで完了
-- 次: persistent session/historyの計画を開始する。追加provider attemptは別Human Gate
+- 状態: context managementはcommit `cbf4fd9`で完了。persistent session/historyは承認済みcanonical planに沿うlocal implementation、offline verification、results、owner final closureまで完了
+- 次: tool progress eventsを別計画として開始する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,7 +14,14 @@
 - 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
-- 次: persistent session/historyの計画を開始する
+- 次: tool progress eventsを別計画として開始する
+
+### POL-20260827-provider-neutral-persistent-session-history
+
+- 判断済み: ユーザーが`docs/plans/provider-neutral-persistent-session-history.md`、SHA-256 `cc66f20c1f2100fae867cb3a85867b5af90eb1cd7a6a70d9cc8aafd1b73c00fb`のrepository implementation、disposable tests、full offline gate、results、bounded reviewを承認した
+- 契約: TUI default autosave、continue/exact/ephemeral、repo-external XDG state、canonical v1 full parent transcript、metadata-only list/exact delete、8 MiB/256/512 bounds、nonblocking lock、synced temp+rename、current AGENTS/skills rediscovery、`agent:run` nonpersistent
+- 状態: focused store/process/TUI/management/topology 12/3/1/2/2、full v0 417、owner final Blocker/P1/P2 0。changed-lines reviewのP1 2/P2 6はlauncher argv、rollback failure、lstat size、bounded scan、invalid Date、selected replay、awaitable close、root blanknessのexact regressionsで閉鎖。残余P2 3はprospective namespace capacity、first-turn AgentSession rollback-remove poisoning、real child TUI empty-exit cleanupのexact regressionsで閉鎖
+- 境界: production `agent:tui`/`agent:run`/`agent:sessions`、actual session state、provider/network/credential、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは対象外
 
 ### POL-20260827-provider-neutral-context-management
 
@@ -1455,3 +1462,67 @@
 - 実施: 初回full gateは既存runtime-process childの一過性exit 139で395/396となったが修正せず、直後のisolated `agent:runtime:process:test`は18/18、full gate rerunは396/396で成功。final Blocker/P1/P2 0
 - 次: persistent session/historyを別計画として開始する
 - 注意: provider/network/credential/production/dependency/`_refs/`/commit activityなし
+
+## 2026-08-27 22:04 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Provider-neutral persistent session/history planning
+- 実施: ユーザー承認済みproduct bundleからcanonical planを作成。Deno 2.9.4のnonblocking exclusive lockをdisposable `/tmp`で確認し、initial review P1 1/P2 4とsingle re-review残存P2 1をplan内で閉じてowner final Blocker/P1/P2 0
+- 次: `ASK-20260827-provider-neutral-persistent-session-history-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `cc66f20c1f2100fae867cb3a85867b5af90eb1cd7a6a70d9cc8aafd1b73c00fb`。plan/AGENTS/handoff以外のrepository変更、production session/provider/network/credential、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 22:49 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Provider-neutral persistent session/history implementation
+- 実施: canonical schema/store、nonblocking lock、atomic commit/rollback、TUI selector/replay、metadata-only management CLI、launcher、offline fixturesとresults/AGENTS evidenceを実装。focused store/process/TUI/management/topologyは7/1/1/2/2、full v0は410/410
+- 次: persistent session/history incrementをBlocker/P1/P2 0で引き渡し、次のroadmap計画へ進む
+- 注意: `v0:check`、fmt 103 files、lint 100 files、`v0:test` 410/410、`v0:gate` 410/410、`git diff --check`が成功。`/tmp`残骸なし。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。stop condition／計画外bugなし
+
+## 2026-08-27 22:54 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Persistent session/history contract finalization
+- 実施: launcher-owned `HENJI_SESSION_STATE_ROOT` を追加し、active empty reservationのallocation scanとsession directory shape validationを計画契約に整合。focused store 7、process 1、TUI 1、management 2、topology 2を再確認
+- 次: persistent session/history incrementをBlocker/P1/P2 0で引き渡し、tool progress eventsを別計画として開始する
+- 注意: 最終 `v0:gate` 410/410、check/fmt/lint、shell syntax、diff check成功。`/tmp` session残骸なし。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。stop condition／計画外bugなし
+
+## 2026-08-27 23:03 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Persistent session/history final cleanup and gate
+- 実施: exact disposable test rootのrace残骸を確認・削除し、state-root launcher preflight、active reservation/delete、orphan cleanup、record identity、contiguous replayの最終修正後に再検証
+- 次: persistent session/historyをBlocker/P1/P2 0で引き渡し、tool progress eventsを別計画として開始する
+- 注意: `v0:test`/`v0:gate` 410/410、focused store 7、check/fmt/lint/shell syntax/diff check成功。`/tmp` session残骸なし。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 23:04 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Persistent session/history final standalone verification
+- 実施: 最新 treeで standalone `v0:test` を再実行し410/410を確認。`git diff --check`とdisposable `/tmp`残骸なしも再確認
+- 次: なし
+- 注意: final Blocker/P1/P2 0。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 23:32 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Persistent session/history changed-lines review closure
+- 実施: launcher argv、rollback failure、lstat file bounds、index-locked 512/513 scans、invalid Date、selected replay、awaitable empty cleanup、shell/TypeScript root blanknessのexact regressionsを追加・修正
+- 次: persistent session/historyをBlocker/P1/P2 0で引き渡し、tool progress eventsを別計画として開始する
+- 注意: focused store/process/TUI/management/topology 11/2/1/2/2、`v0:test`/`v0:gate` 415/415、check/fmt/lint/shell syntax/diff check成功。`/tmp` session残骸なし。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。stop condition／計画外bugなし
+
+## 2026-08-27 23:34 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Persistent session/history final offline gate
+- 実施: 最終treeで `v0:gate` 415/415、standalone check/fmt/lint、両launcher `sh -n`、`git diff --check`、session fixture残骸0を確認
+- 次: なし
+- 注意: Blocker/P1/P2 0。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 23:46 JST
+
+- 実行エージェント: Codex implementer / coordinating owner
+- 作業トピック: Persistent session/history residual P2 closure
+- 実施: prospective namespace capacity、first-turn AgentSession rollback-remove poisoning、real child-process TUI empty-exit cleanupのexact regressionsを追加し、focused store/process 12/3、`v0:test`/`v0:gate` 417/417、check、fmt 104 files、lint 101 files、shell syntax、diff checkを確認
+- 次: なし
+- 注意: final Blocker/P1/P2 0。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。`/tmp` session fixture残骸なし

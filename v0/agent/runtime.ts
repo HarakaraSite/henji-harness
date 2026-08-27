@@ -1,7 +1,8 @@
 import { type LoopOutcome } from './contracts.ts';
 import { discoverAgentInstructions, type InstructionFileSystem } from './agent_instructions.ts';
 import { runAgent, runAgentTurn } from './loop.ts';
-import { AgentSession } from './session.ts';
+import { AgentSession, type SessionPersistence } from './session.ts';
+import { type SessionRecord } from './session_store.ts';
 import { type AgentEventSink } from './events.ts';
 import { type Model } from './contracts.ts';
 import { Registry } from './tools.ts';
@@ -226,6 +227,10 @@ export const createRuntimeSession = async (
   eventSink: AgentEventSink,
   seam: RuntimeTestSeam = {},
   selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
+  sessionOptions: {
+    readonly persistence?: SessionPersistence;
+    readonly initialRecord?: SessionRecord;
+  } = {},
 ): Promise<{ readonly session: AgentSession; readonly requestCount: () => number }> => {
   const composition = await createRuntimeComposition(seam, selection);
   return {
@@ -234,6 +239,8 @@ export const createRuntimeSession = async (
       systemInstruction: composition.systemInstruction,
       eventSink,
       createTurnExecutionContext: composition.createTurnExecutionContext,
+      persistence: sessionOptions.persistence,
+      initialRecord: sessionOptions.initialRecord,
     }),
     requestCount: composition.requestCount,
   };

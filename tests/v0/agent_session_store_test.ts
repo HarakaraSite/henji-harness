@@ -1,0 +1,586 @@
+import { assert, assertEquals } from './test_helpers.ts';
+import {
+  createSessionPersistence,
+  decodeSessionRecord,
+  DenoSessionStore,
+  encodeSessionRecord,
+  FakeSessionStore,
+  MAX_RESTORED_DISPLAY_BYTES,
+  MAX_SESSION_FILE_BYTES,
+  MAX_VALID_SESSIONS_PER_WORKSPACE,
+  MAX_WORKSPACE_DIRECTORY_ENTRIES,
+  metadataFromRecord,
+  restoredMessages,
+  selectStateRoot,
+  type SessionRecord,
+  SessionStoreError,
+  workspaceDigest,
+} from '../../v0/agent/session_store.ts';
+import { AGENT_SESSION_UNAVAILABLE, AgentSession } from '../../v0/agent/session.ts';
+import { type AgentEvent, EVENT_DELIVERY_ERROR } from '../../v0/agent/events.ts';
+import { Registry } from '../../v0/agent/tools.ts';
+import { type ModelRequest } from '../../v0/agent/contracts.ts';
+import { createRuntimeSession } from '../../v0/agent/runtime.ts';
+import { DEFAULT_AGENT_SELECTION } from '../../v0/agent/agent_catalog.ts';
+
+const id = '11111111-1111-4111-8111-111111111111';
+const transcript = [
+  { role: 'user' as const, content: { kind: 'text' as const, text: 'hello' } },
+  { role: 'assistant' as const, content: { kind: 'text' as const, text: 'world' } },
+];
+const record = (workspaceRoot = '/tmp/workspace'): SessionRecord => ({
+  schemaVersion: 1,
+  sessionId: id,
+  workspaceRoot,
+  agent: 'default',
+  createdAt: '2026-08-27T00:00:00.000Z',
+  updatedAt: '2026-08-27T00:00:01.000Z',
+  nextTurn: 2,
+  transcript,
+});
+
+const bytes = (value: string): Uint8Array => new TextEncoder().encode(value);
+
+const expectStoreError = async (
+  operation: () => Promise<unknown>,
+  code: SessionStoreError['code'],
+): Promise<void> => {
+  let actual: SessionStoreError['code'] | undefined;
+  try {
+    await operation();
+  } catch (error) {
+    if (error instanceof SessionStoreError) actual = error.code;
+  }
+  assertEquals(actual, code);
+};
+
+const sizedRecord = (
+  sessionId: string,
+  workspaceRoot: string,
+  resultText: string,
+): SessionRecord => ({
+  schemaVersion: 1,
+  sessionId,
+  workspaceRoot,
+  agent: 'default',
+  createdAt: '2026-08-27T00:00:00.000Z',
+  updatedAt: '2026-08-27T00:00:01.000Z',
+  nextTurn: 2,
+  transcript: [
+    { role: 'user', content: { kind: 'text', text: 'boundary' } },
+    {
+      role: 'assistant',
+      content: [{
+        kind: 'tool_call',
+        callId: 'boundary-call',
+        name: 'submit_json_result',
+        arguments: {},
+      }],
+    },
+    {
+      role: 'tool',
+      content: [{
+        kind: 'tool_result',
+        callId: 'boundary-call',
+        name: 'submit_json_result',
+        text: resultText,
+        outcome: 'success',
+        terminal: 'json_result',
+      }],
+    },
+  ],
+});
+
+Deno.test('session codec emits canonical v1 bytes and rejects noncanonical input', () => {
+  const encoded = encodeSessionRecord(record());
+  assertEquals(new TextDecoder().decode(encoded), `${JSON.stringify(record())}\n`);
+  assertEquals(decodeSessionRecord(encoded), record());
+  for (
+    const malformed of [
+      `${JSON.stringify({ ...record(), schemaVersion: 2 })}\n`,
+      ` ${JSON.stringify(record())}\n`,
+      `${JSON.stringify({ ...record(), extra: true })}\n`,
+      `\ufeff${JSON.stringify(record())}\n`,
+      `${JSON.stringify(record()).replace('"nextTurn":2', '"nextTurn":2,"nextTurn":2')}\n`,
+    ]
+  ) {
+    let rejected = false;
+    try {
+      decodeSessionRecord(bytes(malformed));
+    } catch (error) {
+      rejected = error instanceof SessionStoreError && error.code === 'session_invalid';
+    }
+    assert(rejected, `malformed session accepted: ${malformed.slice(0, 30)}`);
+  }
+});
+
+Deno.test('session identity projection, root precedence and bounded display are deterministic', async () => {
+  assertEquals(selectStateRoot({ XDG_STATE_HOME: '/one', HOME: '/two' }), '/one/henji-harness');
+  assertEquals(
+    selectStateRoot({ XDG_STATE_HOME: '', HOME: '/two' }),
+    '/two/.local/state/henji-harness',
+  );
+  assertEquals(
+    selectStateRoot({ XDG_STATE_HOME: '   ', HOME: '/two' }),
+    '/two/.local/state/henji-harness',
+  );
+  const spacedRoot = '/tmp/ state with spaces ';
+  assertEquals(
+    selectStateRoot({ XDG_STATE_HOME: spacedRoot, HOME: '/two' }),
+    `${spacedRoot}/henji-harness`,
+  );
+  let rejected = false;
+  try {
+    selectStateRoot({ XDG_STATE_HOME: 'relative', HOME: '/two' });
+  } catch (error) {
+    rejected = error instanceof SessionStoreError;
+  }
+  assert(rejected);
+  assertEquals((await workspaceDigest('/tmp/workspace')).length, 64);
+  assertEquals(metadataFromRecord(record()), {
+    id,
+    agent: 'default',
+    createdAt: '2026-08-27T00:00:00.000Z',
+    updatedAt: '2026-08-27T00:00:01.000Z',
+    turnCount: 1,
+    messageCount: 2,
+  });
+  const long = 'x'.repeat(MAX_RESTORED_DISPLAY_BYTES + 1);
+  const restored = restoredMessages([
+    transcript[0],
+    { role: 'assistant' as const, content: { kind: 'text' as const, text: long } },
+  ]);
+  assertEquals(restored.messages.length, 0);
+  assertEquals(restored.omitted, 2);
+
+  const sizedMessage = (text: string) => ({
+    role: 'user' as const,
+    content: { kind: 'text' as const, text },
+  });
+  const newest = sizedMessage('tail');
+  const emptyMessageBytes = new TextEncoder().encode(JSON.stringify(sizedMessage(''))).byteLength;
+  const newestBytes = new TextEncoder().encode(JSON.stringify(newest)).byteLength;
+  const first = sizedMessage(
+    'x'.repeat(MAX_RESTORED_DISPLAY_BYTES - newestBytes - emptyMessageBytes),
+  );
+  const exact = restoredMessages([sizedMessage('older'), first, newest]);
+  assertEquals(exact.messages, [first, newest]);
+  assertEquals(exact.omitted, 1);
+});
+
+Deno.test('invalid calendar timestamps are rejected by codec, list, and resume', async () => {
+  const invalidId = '22222222-2222-4222-8222-222222222222';
+  const invalid = {
+    ...record('/tmp/workspace'),
+    sessionId: invalidId,
+    createdAt: '2026-99-99T00:00:00.000Z',
+  };
+  await expectStoreError(
+    () => Promise.resolve().then(() => decodeSessionRecord(bytes(`${JSON.stringify(invalid)}\n`))),
+    'session_invalid',
+  );
+
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-date-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  const paths = await store.pathsPromise;
+  await Deno.mkdir(paths.sessions, { recursive: true, mode: 0o700 });
+  await Deno.mkdir(paths.locks, { recursive: true, mode: 0o700 });
+  await Deno.mkdir(`${paths.sessions}/${invalidId}`, { mode: 0o700 });
+  const invalidPath = `${paths.sessions}/${invalidId}/session.json`;
+  await Deno.writeFile(
+    invalidPath,
+    bytes(`${JSON.stringify({ ...invalid, workspaceRoot: workspace })}\n`),
+  );
+  await Deno.chmod(invalidPath, 0o600);
+  const listed = await store.list();
+  assertEquals(listed.sessions, []);
+  assertEquals(listed.skippedInvalid, 1);
+  await expectStoreError(() => store.openExisting(invalidId), 'session_invalid');
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('session file lstat enforces zero, exact, and over-limit byte boundaries', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-file-boundary-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  await store.list();
+  const paths = await store.pathsPromise;
+  const exactId = '33333333-3333-4333-8333-333333333333';
+  const zeroId = '44444444-4444-4444-8444-444444444444';
+  const oversizedId = '55555555-5555-4555-8555-555555555555';
+  const writeSessionFile = async (sessionId: string, content: Uint8Array): Promise<void> => {
+    const directory = `${paths.sessions}/${sessionId}`;
+    await Deno.mkdir(directory, { mode: 0o700 });
+    const path = `${directory}/session.json`;
+    await Deno.writeFile(path, content);
+    await Deno.chmod(path, 0o600);
+  };
+
+  const emptySize = encodeSessionRecord(sizedRecord(exactId, workspace, '')).byteLength;
+  let lower = 0;
+  let upper = MAX_SESSION_FILE_BYTES;
+  while (lower < upper) {
+    const candidate = Math.ceil((lower + upper) / 2);
+    let size = MAX_SESSION_FILE_BYTES + 1;
+    try {
+      size = encodeSessionRecord(sizedRecord(exactId, workspace, 'x'.repeat(candidate))).byteLength;
+    } catch (error) {
+      assert(error instanceof SessionStoreError && error.code === 'session_limit');
+    }
+    if (size <= MAX_SESSION_FILE_BYTES) lower = candidate;
+    else upper = candidate - 1;
+  }
+  const exactBytes = encodeSessionRecord(sizedRecord(exactId, workspace, 'x'.repeat(lower)));
+  assertEquals(exactBytes.byteLength, MAX_SESSION_FILE_BYTES);
+  assert(emptySize < MAX_SESSION_FILE_BYTES);
+  await writeSessionFile(exactId, exactBytes);
+  assertEquals((await store.read(exactId)).sessionId, exactId);
+
+  await writeSessionFile(zeroId, new Uint8Array());
+  await expectStoreError(() => store.read(zeroId), 'session_invalid');
+  await writeSessionFile(oversizedId, new Uint8Array(MAX_SESSION_FILE_BYTES + 1));
+  await expectStoreError(() => store.read(oversizedId), 'session_invalid');
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('Deno store reserves without an empty JSON, commits atomically, rolls back and deletes', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-store-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  const handle = await store.allocate('default');
+  let activeDeleteRejected = false;
+  try {
+    await store.delete(handle.id);
+  } catch (error) {
+    activeDeleteRejected = error instanceof SessionStoreError && error.code === 'session_busy';
+  }
+  assert(activeDeleteRejected);
+  const secondReservation = await store.allocate('default');
+  assert(handle.id !== secondReservation.id);
+  const paths = await store.pathsPromise;
+  assertEquals(
+    [...Deno.readDirSync(`${paths.sessions}/${handle.id}`)].map((entry) => entry.name),
+    [],
+  );
+  const persistence = createSessionPersistence(handle, workspace, 'default');
+  const committed: SessionRecord = {
+    ...record(workspace),
+    sessionId: handle.id,
+    createdAt: '2026-08-27T00:00:01.000Z',
+  };
+  persistence.commit(committed.transcript, committed.nextTurn, committed.updatedAt);
+  const loaded = await store.read(handle.id);
+  assertEquals(loaded, committed);
+  persistence.rollback();
+  let missing = false;
+  try {
+    await store.read(handle.id);
+  } catch (error) {
+    missing = error instanceof SessionStoreError && error.code === 'session_not_found';
+  }
+  assert(missing);
+  const listed = await store.list();
+  assertEquals(listed.sessions.length, 0);
+  assertEquals(listed.skippedInvalid, 0);
+  const orphanId = '22222222-2222-4222-8222-222222222222';
+  await Deno.mkdir(`${paths.sessions}/${orphanId}`, { mode: 0o700 });
+  const replacement = await store.allocate('default');
+  let orphanGone = false;
+  try {
+    await Deno.lstat(`${paths.sessions}/${orphanId}`);
+  } catch (error) {
+    orphanGone = error instanceof Deno.errors.NotFound;
+  }
+  assert(orphanGone);
+  await replacement.close();
+  await persistence.close();
+  await secondReservation.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('first-turn rollback propagates a non-NotFound remove failure and leaves ghost JSON', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-rollback-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  const handle = await store.allocate('default');
+  const persistence = createSessionPersistence(handle, workspace, 'default');
+  persistence.commit(transcript, 2, '2026-08-27T00:00:01.000Z');
+  const paths = await store.pathsPromise;
+  const sessionFile = `${paths.sessions}/${handle.id}/session.json`;
+  await Deno.remove(sessionFile);
+  await Deno.mkdir(sessionFile, { mode: 0o700 });
+  await Deno.writeTextFile(`${sessionFile}/ghost`, 'preserve');
+  await expectStoreError(
+    () => Promise.resolve().then(() => persistence.rollback()),
+    'session_io_failure',
+  );
+  assert((await Deno.lstat(sessionFile)).isDirectory);
+  await persistence.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('AgentSession poisons after first durable install rollback failure and preserves ghost JSON', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-agent-rollback-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  let removeAttempted = false;
+  const store = new DenoSessionStore(state, workspace, {
+    removeSync: () => {
+      removeAttempted = true;
+      throw new Error('injected remove failure');
+    },
+  });
+  const handle = await store.allocate('default');
+  const persistence = createSessionPersistence(handle, workspace, 'default');
+  const session = new AgentSession(
+    {
+      generate(request: ModelRequest) {
+        const task = request.transcript.at(-1);
+        return {
+          kind: 'final' as const,
+          text: task?.role === 'user' ? `answer:${task.content.text}` : 'answer',
+        };
+      },
+    },
+    new Registry([]),
+    {
+      persistence,
+      eventSink(event) {
+        if (event.kind === 'turn_end') throw new Error('injected turn_end failure');
+      },
+    },
+  );
+  let firstFailed = false;
+  try {
+    await session.submit('first');
+  } catch (error) {
+    firstFailed = error instanceof Error && error.message === EVENT_DELIVERY_ERROR;
+  }
+  assert(firstFailed);
+  assert(removeAttempted);
+  const ghost = await store.read(handle.id);
+  assertEquals(ghost.transcript, [
+    { role: 'user', content: { kind: 'text', text: 'first' } },
+    { role: 'assistant', content: { kind: 'text', text: 'answer:first' } },
+  ]);
+  let unavailable = false;
+  try {
+    await session.submit('second');
+  } catch (error) {
+    unavailable = error instanceof Error && error.message === AGENT_SESSION_UNAVAILABLE;
+  }
+  assert(unavailable);
+  await session.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('same-session lock rejects a second opener and releases after close', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-lock-' });
+  const workspace = `${root}/workspace`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(`${root}/state`, workspace);
+  const first = await store.allocate('default');
+  const persistence = createSessionPersistence(first, workspace, 'default');
+  persistence.commit(transcript, 2, '2026-08-27T00:00:01.000Z');
+  await persistence.close();
+  const second = await store.openExisting(first.id);
+  await second.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('every indexed operation bounds sessions and locks independently at 512 entries', async () => {
+  const operations = ['list', 'allocate', 'resume', 'delete'] as const;
+  const namespaces = ['sessions', 'locks'] as const;
+  for (const operation of operations) {
+    for (const namespace of namespaces) {
+      for (
+        const count of [
+          MAX_WORKSPACE_DIRECTORY_ENTRIES - 1,
+          MAX_WORKSPACE_DIRECTORY_ENTRIES,
+          MAX_WORKSPACE_DIRECTORY_ENTRIES + 1,
+        ]
+      ) {
+        const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-scan-' });
+        const workspace = `${root}/workspace`;
+        const state = `${root}/state`;
+        await Deno.mkdir(workspace);
+        const store = new DenoSessionStore(state, workspace);
+        await store.list();
+        const paths = await store.pathsPromise;
+        const extras = namespace === 'locks' ? count - 1 : count;
+        for (let index = 0; index < extras; index += 1) {
+          if (namespace === 'sessions') {
+            await Deno.mkdir(`${paths.sessions}/invalid-${index}`, { mode: 0o700 });
+          } else {
+            const path = `${paths.locks}/invalid-${index}`;
+            await Deno.writeFile(path, new Uint8Array());
+            await Deno.chmod(path, 0o600);
+          }
+        }
+        const expected = count > MAX_WORKSPACE_DIRECTORY_ENTRIES ? 'session_limit' : undefined;
+        if (operation === 'list') {
+          if (expected === undefined) {
+            const listed = await store.list();
+            assertEquals(listed.sessions, []);
+            assertEquals(listed.skippedInvalid, namespace === 'sessions' ? extras : 0);
+          } else await expectStoreError(() => store.list(), expected);
+        } else if (operation === 'allocate') {
+          if (count < MAX_WORKSPACE_DIRECTORY_ENTRIES) {
+            const handle = await store.allocate('default');
+            await handle.close();
+          } else {
+            await expectStoreError(() => store.allocate('default'), 'session_limit');
+            assertEquals(
+              [...Deno.readDirSync(namespace === 'sessions' ? paths.sessions : paths.locks)].length,
+              count,
+            );
+          }
+        } else if (operation === 'resume') {
+          if (expected === undefined) {
+            await expectStoreError(
+              () => store.openExisting('66666666-6666-4666-8666-666666666666'),
+              'session_not_found',
+            );
+          } else {
+            await expectStoreError(
+              () => store.openExisting('66666666-6666-4666-8666-666666666666'),
+              expected,
+            );
+          }
+        } else if (expected === undefined) {
+          await expectStoreError(
+            () => store.delete('66666666-6666-4666-8666-666666666666'),
+            'session_not_found',
+          );
+        } else {
+          await expectStoreError(
+            () => store.delete('66666666-6666-4666-8666-666666666666'),
+            expected,
+          );
+        }
+        await Deno.remove(root, { recursive: true });
+      }
+    }
+  }
+});
+
+Deno.test('durable turn_end failure restores the exact prior record in the same session', async () => {
+  const store = new FakeSessionStore('/workspace');
+  const handle = await store.allocate('default');
+  let rejectEnd = false;
+  const events: AgentEvent[] = [];
+  const session = new AgentSession(
+    {
+      generate(request: ModelRequest) {
+        const task = request.transcript.at(-1);
+        return {
+          kind: 'final' as const,
+          text: task?.role === 'user' ? `answer:${task.content.text}` : 'answer',
+        };
+      },
+    },
+    new Registry([]),
+    {
+      persistence: createSessionPersistence(handle, '/workspace', 'default'),
+      eventSink(event) {
+        events.push(event);
+        if (rejectEnd && event.kind === 'turn_end') throw new Error('toggle sink');
+      },
+    },
+  );
+  const first = await session.submit('first');
+  assert(first.ok);
+  const before = await store.read(handle.id);
+  const contextBefore = session.contextSnapshot();
+  rejectEnd = true;
+  let failed = false;
+  try {
+    await session.submit('second');
+  } catch {
+    failed = true;
+  }
+  assert(failed);
+  assertEquals(await store.read(handle.id), before);
+  assertEquals(session.transcriptSnapshot(), before.transcript);
+  assertEquals(session.contextSnapshot(), contextBefore);
+  await session.close();
+});
+
+Deno.test('fake reservation accounting is bounded at 256 without writing empty records', async () => {
+  const store = new FakeSessionStore('/workspace');
+  const handles = [];
+  for (let index = 0; index < MAX_VALID_SESSIONS_PER_WORKSPACE; index += 1) {
+    handles.push(await store.allocate('default'));
+  }
+  let limited = false;
+  try {
+    await store.allocate('default');
+  } catch (error) {
+    limited = error instanceof SessionStoreError && error.code === 'session_limit';
+  }
+  assert(limited);
+  for (const handle of handles) await handle.close();
+  assertEquals((await store.list()).sessions, []);
+});
+
+Deno.test('resume hydrates the complete parent transcript while preserving current startup context', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-resume-' });
+  const workspace = `${root}/workspace`;
+  await Deno.mkdir(workspace);
+  const state = `${root}/state`;
+  const response = (text: string): Response =>
+    new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: text } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  const requests: Request[] = [];
+  const fetcher: typeof fetch = (input, init) => {
+    requests.push(new Request(input, init));
+    return Promise.resolve(response(`answer-${requests.length}`));
+  };
+  const store = new DenoSessionStore(state, workspace);
+  const firstHandle = await store.allocate('default');
+  const firstPersistence = createSessionPersistence(firstHandle, workspace, 'default');
+  const firstRuntime = await createRuntimeSession(
+    () => {},
+    { workspaceRoot: workspace, fetcher, credential: 'offline-dummy' },
+    DEFAULT_AGENT_SELECTION,
+    { persistence: firstPersistence },
+  );
+  await firstRuntime.session.submit('first task');
+  await firstRuntime.session.close();
+  const firstRecord = await store.read(firstHandle.id);
+  assertEquals(firstRecord.transcript.length, 2);
+
+  const resumedHandle = await store.openExisting(firstHandle.id);
+  const resumedPersistence = createSessionPersistence(
+    resumedHandle,
+    workspace,
+    'default',
+    resumedHandle.record,
+  );
+  const resumedRuntime = await createRuntimeSession(
+    () => {},
+    { workspaceRoot: workspace, fetcher, credential: 'offline-dummy' },
+    DEFAULT_AGENT_SELECTION,
+    { persistence: resumedPersistence, initialRecord: resumedHandle.record },
+  );
+  const second = await resumedRuntime.session.submit('second task');
+  assert(second.ok);
+  const body = JSON.parse(await requests.at(-1)!.clone().text()) as {
+    messages: readonly unknown[];
+  };
+  assertEquals(body.messages.length, 3);
+  await resumedRuntime.session.close();
+  await Deno.remove(root, { recursive: true });
+});
