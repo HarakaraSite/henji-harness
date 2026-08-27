@@ -1,8 +1,9 @@
-import { type LoopOutcome, type Message, type Model } from './contracts.ts';
+import { type LoopOutcome, type Message, type Model, type ModelRequest } from './contracts.ts';
 import { type AgentEventSink } from './events.ts';
 import { type AgentTurnOptions, runAgentTurn } from './loop.ts';
 import { Registry } from './tools.ts';
 import { snapshotMessages } from './events.ts';
+import { type ContextMetrics, prepareModelContext } from './context.ts';
 import { type ParentTurnExecutionContext } from './execution_context.ts';
 import { type CancelRequestResult, TurnCancellationOwner } from './cancellation.ts';
 
@@ -38,6 +39,7 @@ export class AgentSession {
   private activeCancellation: TurnCancellationOwner | null = null;
   private unavailable = false;
   private nextTurn = 1;
+  private committedContextSnapshot: ContextMetrics | undefined;
 
   constructor(model: Model, registry: Registry, options: AgentSessionOptions = {}) {
     const maxSteps = options.maxSteps ?? 8;
@@ -57,6 +59,13 @@ export class AgentSession {
   /** Return a defensive snapshot of all messages from successfully committed turns. */
   transcriptSnapshot(): readonly Message[] {
     return snapshotMessages(this.committedTranscript);
+  }
+
+  /** Return metrics for the current committed transcript, never an uncommitted turn draft. */
+  contextSnapshot(): ContextMetrics | undefined {
+    return this.committedContextSnapshot === undefined
+      ? undefined
+      : { ...this.committedContextSnapshot };
   }
 
   /** Request cancellation for the currently settling turn, without allocating another turn. */
@@ -79,6 +88,9 @@ export class AgentSession {
     const cancellation = new TurnCancellationOwner();
     this.activeCancellation = cancellation;
     const previousTranscript = snapshotMessages(this.committedTranscript);
+    const previousContext = this.committedContextSnapshot === undefined
+      ? undefined
+      : { ...this.committedContextSnapshot };
     try {
       const executionContext = this.createTurnContext?.(turn, cancellation.signal, cancellation) ??
         undefined;
@@ -94,7 +106,20 @@ export class AgentSession {
           cancellation,
           signal: cancellation.signal,
           commit: (transcript) => {
-            this.committedTranscript = snapshotMessages(transcript);
+            const committedTranscript = snapshotMessages(transcript);
+            const request: ModelRequest = this.options.systemInstruction === undefined
+              ? {
+                transcript: committedTranscript,
+                tools: this.registry.definitions(),
+              }
+              : {
+                systemInstruction: this.options.systemInstruction,
+                transcript: committedTranscript,
+                tools: this.registry.definitions(),
+              };
+            const metrics = prepareModelContext(request).metrics;
+            this.committedTranscript = committedTranscript;
+            this.committedContextSnapshot = metrics;
           },
         },
       );
@@ -102,6 +127,7 @@ export class AgentSession {
     } catch (error) {
       // This also undoes a successful draft committed just before a failing turn_end sink.
       this.committedTranscript = previousTranscript;
+      this.committedContextSnapshot = previousContext;
       throw error;
     } finally {
       if (cancellation.state === 'cleanup_failed') this.unavailable = true;

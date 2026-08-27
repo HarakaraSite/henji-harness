@@ -11,7 +11,7 @@ const encoder = new TextEncoder();
 export interface TuiSessionFactoryResult {
   readonly session:
     & Pick<AgentSession, 'submit'>
-    & Partial<Pick<AgentSession, 'cancelActiveTurn'>>;
+    & Partial<Pick<AgentSession, 'cancelActiveTurn' | 'contextSnapshot'>>;
   readonly requestCount?: () => number;
 }
 

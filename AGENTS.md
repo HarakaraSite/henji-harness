@@ -17,8 +17,8 @@
 - The normal CLI runtime for roadmap step 11 is specified in
   `docs/plans/zot-first-cli-agent-runtime.md` and is implemented in the active tree. Its direct
   offline suite passes 14 tests and the full v0 gate passes 92 tests; independent review is GO with
-  Blocker/P1/P2 zero. Broader tools, streaming, sessions, context management, skills, extensions,
-  RPC, subagents, self-revision, and milestone 100 hardening are later roadmap work.
+  Blocker/P1/P2 zero. Broader tools, streaming, persistent history, extensions, RPC, subagents,
+  self-revision, and milestone 100 hardening are later roadmap work.
 - The test-only normal CLI offline process E2E in
   `docs/plans/normal-cli-offline-process-e2e.md` is implemented. Its focused suite passes 9 tests
   (6 process matrix cases and 3 harness-safety cases), the full v0 gate passes 101 tests, and the
@@ -201,6 +201,21 @@
   inventory correction closed at the owner final gate. Final disposition is Blocker/P1/P2 zero.
   No provider/network/credential/production command, dependency/lockfile, `_refs/` operation,
   commit, push, tag, publish, or release occurred.
+- The provider-neutral context-management increment is implemented at
+  `docs/plans/provider-neutral-context-management.md`, SHA-256
+  `46eaf7a396e8add4dbd080414d854a8cbc579ce0999c43738d1b444335916e83`. The pure context view
+  estimates stable JSON as UTF-8 bytes, triggers at 65,536 message bytes, and replaces only
+  beneficial older tool-result text with the fixed 39-byte marker until 49,152 or candidates are
+  exhausted. Full transcripts, event/outcome payloads, cancellation, parent/planner isolation,
+  request admission, and provider wire behavior remain unchanged. `AgentSession` exposes a
+  committed-only defensive metrics snapshot and the TUI renders it only after settled turns return
+  to ready. Focused context 15 and TUI 34 tests pass; full v0 396 tests pass; check, format, lint,
+  and diff checks are green. Four initial review P2 evidence gaps and two re-review evidence P2s
+  are closed by exact target-stop/49,152 landing, same-session rollback, parent/child
+  budget/cancellation and fake-wire-boundary, delayed-TUI, and zero-read rejected/fatal or busy
+  exit-intent regressions. Final owner disposition is Blocker/P1/P2 zero. No provider/network/
+  credential/production command, dependency/lockfile, `_refs/` operation, commit, push, tag,
+  publish, or release occurred.
 
 ## Development lifecycle
 

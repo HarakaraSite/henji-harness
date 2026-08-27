@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: provider-neutral cancellationのlocal implementation、offline gate、review finding修正、owner final closureまで完了。full v0 377成功、最終Blocker/P1/P2 0
-- 次: roadmap次順のcontext managementを別計画として開始する。追加provider attemptは別Human Gate
+- 状態: provider-neutral cancellation完了・commit `7c3888f`。provider-neutral context managementのlocal implementation、offline gate、results、lifecycle、changed-lines review、owner final dispositionまで完了
+- 次: persistent session/historyの計画を開始する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,7 +14,15 @@
 - 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
-- 次: provider-neutral cancellationの要件・停止契約・実装計画を作成し、初期Human Gateへ進む
+- 次: persistent session/historyの計画を開始する
+
+### POL-20260827-provider-neutral-context-management
+
+- 判断済み: ユーザーが`docs/plans/provider-neutral-context-management.md`、SHA-256 `46eaf7a396e8add4dbd080414d854a8cbc579ce0999c43738d1b444335916e83`のlocal implementation、permission-free tests、full offline gate、results、bounded reviewを承認した
+- 契約: full transcriptは保持し、model request viewだけを毎step再生成する。UTF-8 byteを保守的estimated tokenとして64 Ki trigger/48 Ki targetで古いtool-result textを39-byte固定markerへoldest-first縮約し、newest ToolMessageと全causal metadataを保持する
+- UI: TUIはsettlement後だけcurrent committed sessionの`ctx ≤NK/64K est`とomitted件数を表示し、`agent:run` channels/events/provider wireは変更しない
+- 境界: model summary/追加request、persistence/history、provider usage/tokenizer/window lookup、streaming/progress/steering/queue、dependency/lockfile、provider/network/credential/production command、`_refs/`変更、commit/push/tag/publish/releaseは対象外
+- 状態: context 15、TUI direct 34、full v0 396、check/fmt/lint/diff check成功。initial changed-lines reviewのP2 evidence gap 4件とsingle re-review残存evidence P2 2件はexact 49,152 landing/metric oracle、same-session rollback、parent/child budget/cancellation plus fake-wire boundary、delayed TUI regressions、rejected/fatalとbusy exit-intentのzero-read regressionsで閉鎖。owner final Blocker/P1/P2 0
 
 ### POL-20260827-provider-neutral-cancellation-plan
 
@@ -1399,3 +1407,51 @@
 - 実施: per-turn cancellationをparent/planner/model/tools/TUIへ実装。initial review P1 2/P2 2を修正し、single re-review残存evidence P2 2をowner final PTY regressionとinventory修正で閉じた
 - 次: roadmap次順のcontext managementを別計画として開始する
 - 注意: cancellation 18、work-tools 19、TUI process 15、full v0 377成功、最終Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 19:42 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Provider-neutral context management planning
+- 実施: current 76/256 KiB adapter境界とPi/Zot referenceを照合し、full transcript保持、UTF-8 byte estimate、old tool-result request-view縮約、committed-session TUI表示をcanonical planへ固定。review GO、Blocker/P1/P2 0
+- 次: `ASK-20260827-provider-neutral-context-management-plan`の初期Human Gate
+- 注意: plan SHA-256 `46eaf7a396e8add4dbd080414d854a8cbc579ce0999c43738d1b444335916e83`。planning/handoffのみで、source/test実装、provider/network/credential/production command、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 19:48 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Context management pre-implementation handoff
+- 実施: ユーザーの新session移行依頼に基づき、canonical plan、review GO、初期Human Gate未承認、実装未着手の状態を`ASK-20260827-provider-neutral-context-management-plan`へ固定してsession終了準備
+- 次: 新sessionでhandoffを読み、plan SHA-256 `46eaf7a396e8add4dbd080414d854a8cbc579ce0999c43738d1b444335916e83`のHuman Gate判断から再開する
+- 注意: worktreeの意図した未commit変更は`.handoff/handoff.md`とnew planのみ。既存untracked `_refs/`を保持し、source/test、provider/network/credential/production command、dependency/lockfile、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-27 20:05 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Provider-neutral context management local implementation
+- 実施: UTF-8-byte request view、oldest eligible tool-result omission、full transcript/session snapshot、TUI committed ready status、focused task/results/lifecycle wiringを実装。context 10、TUI direct 31、full v0 388、check/fmt/lint/diff check成功
+- 次: coordinating agentがchanged-lines read-only reviewを行い、findingがあれば計画範囲で修正・再検証する
+- 注意: provider/network/credential/production command、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。`agent:run`/`agent:tui`本番実行なし
+
+## 2026-08-27 20:20 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Provider-neutral context management review evidence closure
+- 実施: 初回changed-lines reviewのP2 evidence gap 4件を、exact target-stop/full metric oracle、同一toggleable-sink sessionのturn_end rollback、parent/child独立markerと3/0/3→3/3/6→4/3/7 budget snapshot、cancellation/preparation failure zero-effect、fake OpenRouter 70 KiB/77 KiB pre-fetch boundary、遅延TUI settlement/status regressionsで閉じた。context 14、TUI direct 32、full v0 393。check/fmt/lint/diff-check成功
+- 次: coordinating agentが更新diffをread-only re-reviewし、最終Blocker/P1/P2 dispositionを記録する
+- 注意: provider/network/credential/production command、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。stop condition、計画外bug、scope拡大なし
+
+## 2026-08-27 20:34 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Provider-neutral context management final evidence closure
+- 実施: single re-review残存P2 2件を、固定fixtureによる`messageEstimatedTokensAfter === 49_152`と次候補verbatim、metrics-enabled rejected/fatal settlementおよびbusy exit-intent settlementのexact zero-read regressionsで閉じた。context 15、TUI direct 34、full v0 396。focused/full gate、check、fmt、lint、diff-check全て成功
+- 次: context management incrementをfinal owner disposition Blocker/P1/P2 0として引き渡し。次のroadmap判断へ進む
+- 注意: provider/network/credential/production command、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。product behavior変更、stop condition、計画外bug、scope拡大なし
+
+## 2026-08-27 20:31 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Provider-neutral context management final owner verification
+- 実施: 初回full gateは既存runtime-process childの一過性exit 139で395/396となったが修正せず、直後のisolated `agent:runtime:process:test`は18/18、full gate rerunは396/396で成功。final Blocker/P1/P2 0
+- 次: persistent session/historyを別計画として開始する
+- 注意: provider/network/credential/production/dependency/`_refs/`/commit activityなし

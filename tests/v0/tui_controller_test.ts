@@ -1,6 +1,7 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
+import { type ContextMetrics } from '../../v0/agent/context.ts';
 import { main as tuiMain, parseTuiArgs } from '../../v0/agent/tui_cli.ts';
 import { AgentSession } from '../../v0/agent/session.ts';
 import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
@@ -99,13 +100,30 @@ const finalOutcome = (task: string, finalText = 'done'): LoopOutcome => ({
   transcript: [],
 });
 
+const cancelledOutcome = (task: string): LoopOutcome => ({
+  ok: false,
+  task,
+  outcome: 'cancelled',
+  stopReason: 'cancelled',
+  steps: 1,
+  toolCallCount: 0,
+  toolResultCount: 0,
+  transcript: [],
+});
+
 class FakeSession {
   readonly submitted: string[] = [];
+  contextReads = 0;
   private resolveTurn: ((outcome: LoopOutcome) => void) | null = null;
   constructor(
     private readonly sink: (event: AgentEvent) => void,
     private readonly delayed = false,
+    private readonly metrics?: ContextMetrics,
   ) {}
+  contextSnapshot(): ContextMetrics | undefined {
+    this.contextReads += 1;
+    return this.metrics;
+  }
   submit(task: string): Promise<LoopOutcome> {
     this.submitted.push(task);
     this.sink({ kind: 'turn_start', turn: this.submitted.length });
@@ -139,6 +157,75 @@ class FakeSession {
   }
 }
 
+/** A delayed session whose context accessor fails if the controller polls before settlement. */
+class DelayedMetricsSession {
+  readonly submitted: string[] = [];
+  contextReads = 0;
+  cancelCount = 0;
+  private pending:
+    | { readonly task: string; readonly resolve: (outcome: LoopOutcome) => void }
+    | null = null;
+  constructor(
+    private readonly sink: (event: AgentEvent) => void,
+    private readonly metrics: ContextMetrics,
+  ) {}
+  contextSnapshot(): ContextMetrics {
+    if (this.pending !== null) throw new Error('context must not be read while busy');
+    this.contextReads += 1;
+    return { ...this.metrics };
+  }
+  submit(task: string): Promise<LoopOutcome> {
+    this.submitted.push(task);
+    const turn = this.submitted.length;
+    this.sink({ kind: 'turn_start', turn });
+    this.sink({
+      kind: 'user_message',
+      turn,
+      message: { role: 'user', content: { kind: 'text', text: task } },
+    });
+    return new Promise((resolve) => this.pending = { task, resolve });
+  }
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    if (this.pending === null) return 'idle';
+    this.cancelCount += 1;
+    return this.cancelCount === 1 ? 'requested' : 'already_requested';
+  }
+  completeCancelled(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    const turn = this.submitted.length;
+    this.sink({ kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+    pending.resolve(cancelledOutcome(pending.task));
+  }
+}
+
+class MetricsFailureSession {
+  contextReads = 0;
+  constructor(
+    private readonly metrics: ContextMetrics,
+    private readonly rejectSubmission: boolean,
+  ) {}
+  contextSnapshot(): ContextMetrics {
+    this.contextReads += 1;
+    return { ...this.metrics };
+  }
+  submit(task: string): Promise<LoopOutcome> {
+    if (this.rejectSubmission) return Promise.reject(new Error('session rejected'));
+    return Promise.resolve({
+      ok: false,
+      task,
+      outcome: 'contract_failure',
+      stopReason: 'contract_failure',
+      error: 'bounded failure',
+      steps: 1,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+    });
+  }
+}
+
 const setup = (session: FakeSession) => {
   const terminal = new FakeTerminal();
   const renderer = new TuiRenderer(terminal);
@@ -165,6 +252,183 @@ Deno.test('controller submits exact task and exits on empty Ctrl-D', async () =>
   assertEquals(await run, 0);
   assertEquals(session.submitted, [' exact task']);
   assert(terminal.raw.includes(false));
+});
+
+Deno.test('controller formats absent, zero-omission, ceiling, and omitted context statuses exactly', async () => {
+  const absentTerminal = new FakeTerminal();
+  const absentRenderer = new TuiRenderer(absentTerminal);
+  const absentLifecycle = new TerminalLifecycle(absentTerminal, absentRenderer);
+  const absentController = new TuiController(absentLifecycle, absentRenderer, {
+    submit: (task) => Promise.resolve(finalOutcome(task)),
+  });
+  await absentLifecycle.acquire();
+  const absentRun = absentController.run();
+  absentTerminal.push('absent\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(absentTerminal.output().includes('ready]'));
+  absentTerminal.push('\x04');
+  assertEquals(await absentRun, 0);
+
+  const cases: readonly [string, ContextMetrics, string][] = [
+    ['zero', {
+      messageEstimatedTokensBefore: 0,
+      messageEstimatedTokensAfter: 0,
+      toolEstimatedTokens: 0,
+      requestEstimatedTokensBefore: 0,
+      requestEstimatedTokensAfter: 0,
+      triggerTokens: 65_536,
+      targetTokens: 49_152,
+      triggered: false,
+      targetReached: false,
+      compressedResultCount: 0,
+      compressedMessageCount: 0,
+    }, 'ready · ctx ≤0K/64K est'],
+    ['ceiling', {
+      messageEstimatedTokensBefore: 65 * 1024,
+      messageEstimatedTokensAfter: 65 * 1024,
+      toolEstimatedTokens: 0,
+      requestEstimatedTokensBefore: 65 * 1024,
+      requestEstimatedTokensAfter: 65 * 1024,
+      triggerTokens: 65_536,
+      targetTokens: 49_152,
+      triggered: true,
+      targetReached: false,
+      compressedResultCount: 0,
+      compressedMessageCount: 0,
+    }, 'ready · ctx ≤65K/64K est'],
+    ['omitted', {
+      messageEstimatedTokensBefore: 70_000,
+      messageEstimatedTokensAfter: 1_025,
+      toolEstimatedTokens: 12,
+      requestEstimatedTokensBefore: 70_012,
+      requestEstimatedTokensAfter: 1_037,
+      triggerTokens: 65_536,
+      targetTokens: 49_152,
+      triggered: true,
+      targetReached: true,
+      compressedResultCount: 2,
+      compressedMessageCount: 1,
+    }, 'ready · ctx ≤2K/64K est · 2 omitted'],
+  ];
+  for (const [name, metrics, expected] of cases) {
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const session = new FakeSession((event) => renderer.eventSink(event), false, metrics);
+    const controller = new TuiController(lifecycle, renderer, session);
+    await lifecycle.acquire();
+    const running = controller.run();
+    assertEquals(session.contextReads, 0, `${name} reads before settlement`);
+    terminal.push(`${name}\n`);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(session.contextReads, 1, `${name} reads after settlement`);
+    assert(terminal.output().includes(expected), `${name} status`);
+    terminal.push('\x04');
+    assertEquals(await running, 0, `${name} exit`);
+  }
+});
+
+Deno.test('delayed metrics context is read once after cancellation, never while busy, and does not alter exit', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new DelayedMetricsSession((event) => renderer.eventSink(event), {
+    messageEstimatedTokensBefore: 70_000,
+    messageEstimatedTokensAfter: 4_096,
+    toolEstimatedTokens: 12,
+    requestEstimatedTokensBefore: 70_012,
+    requestEstimatedTokensAfter: 4_108,
+    triggerTokens: 65_536,
+    targetTokens: 49_152,
+    triggered: true,
+    targetReached: true,
+    compressedResultCount: 1,
+    compressedMessageCount: 1,
+  });
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('delayed task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(session.contextReads, 0);
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assertEquals(session.cancelCount, 1);
+  assertEquals(session.contextReads, 0);
+  session.completeCancelled();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(session.contextReads, 1);
+  assert(terminal.output().includes('ready · ctx ≤4K/64K est · 1 omitted'));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  assertEquals(session.contextReads, 1);
+});
+
+Deno.test('metrics accessor is not read for rejected or fatal turn settlement', async () => {
+  const metrics: ContextMetrics = {
+    messageEstimatedTokensBefore: 70_000,
+    messageEstimatedTokensAfter: 4_096,
+    toolEstimatedTokens: 12,
+    requestEstimatedTokensBefore: 70_012,
+    requestEstimatedTokensAfter: 4_108,
+    triggerTokens: 65_536,
+    targetTokens: 49_152,
+    triggered: true,
+    targetReached: true,
+    compressedResultCount: 1,
+    compressedMessageCount: 1,
+  };
+  for (const rejectSubmission of [true, false]) {
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const session = new MetricsFailureSession(metrics, rejectSubmission);
+    const controller = new TuiController(lifecycle, renderer, session);
+    await lifecycle.acquire();
+    const running = controller.run();
+    terminal.push(rejectSubmission ? 'rejected\n' : 'fatal\n');
+    let error: unknown;
+    try {
+      await running;
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof TuiControllerError);
+    assertEquals((error as TuiControllerError).code, 'agent_failure');
+    assertEquals(session.contextReads, 0, rejectSubmission ? 'rejected reads' : 'fatal reads');
+  }
+});
+
+Deno.test('busy exit-intent settlement does not read committed metrics', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new DelayedMetricsSession((event) => renderer.eventSink(event), {
+    messageEstimatedTokensBefore: 70_000,
+    messageEstimatedTokensAfter: 4_096,
+    toolEstimatedTokens: 12,
+    requestEstimatedTokensBefore: 70_012,
+    requestEstimatedTokensAfter: 4_108,
+    triggerTokens: 65_536,
+    targetTokens: 49_152,
+    triggered: true,
+    targetReached: true,
+    compressedResultCount: 1,
+    compressedMessageCount: 1,
+  });
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('exit task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(session.contextReads, 0);
+  terminal.push('\x03');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(session.cancelCount, 1);
+  assertEquals(session.contextReads, 0);
+  session.completeCancelled();
+  assertEquals(await running, 0);
+  assertEquals(session.contextReads, 0);
 });
 
 Deno.test('idle Ctrl-C clears then exits only on a second press within 500 ms', async () => {

@@ -1,6 +1,7 @@
 import { EventDeliveryError } from '../agent/events.ts';
 import { type AgentSession } from '../agent/session.ts';
 import { type LoopOutcome } from '../agent/contracts.ts';
+import { type ContextMetrics } from '../agent/context.ts';
 import { InputDecodeError, InputDecoder, type InputEvent, TuiEditor } from './input.ts';
 import { renderFailureStatus, TuiRenderer } from './render.ts';
 import { TerminalLifecycle } from './terminal.ts';
@@ -20,6 +21,7 @@ export class TuiControllerError extends Error {
 interface SessionLike {
   submit(text: string): Promise<LoopOutcome>;
   cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
+  contextSnapshot?(): ContextMetrics | undefined;
 }
 
 type ControllerState = 'starting' | 'idle' | 'busy' | 'exiting' | 'failed';
@@ -267,7 +269,7 @@ export class TuiController {
         this.state = 'idle';
         this.editor.clear();
         this.renderer.setEditor('');
-        this.renderer.setStatus('ready');
+        this.renderer.setStatus(this.readyStatus());
       } else {
         void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
       }
@@ -275,8 +277,19 @@ export class TuiController {
       void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
     } else {
       this.state = 'idle';
-      this.renderer.setStatus('ready');
+      this.renderer.setStatus(this.readyStatus());
     }
+  }
+
+  /** Read committed context only after the settled turn is returning to idle. */
+  private readyStatus(): string {
+    const metrics = this.session.contextSnapshot?.();
+    if (metrics === undefined) return 'ready';
+    const estimateK = Math.ceil(metrics.messageEstimatedTokensAfter / 1024);
+    const base = `ready · ctx ≤${estimateK}K/64K est`;
+    return metrics.compressedResultCount === 0
+      ? base
+      : `${base} · ${metrics.compressedResultCount} omitted`;
   }
 
   private idleCtrlC(): void {

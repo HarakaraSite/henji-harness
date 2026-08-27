@@ -19,6 +19,7 @@ import {
 } from './cancellation.ts';
 import { Registry } from './tools.ts';
 import { type ModelExecutionContext } from './execution_context.ts';
+import { prepareModelContext } from './context.ts';
 
 export interface AgentLoopOptions {
   readonly maxSteps?: number;
@@ -211,6 +212,34 @@ export const runAgentTurn = async (
     if (steps >= limit) return finishMaxSteps();
     try {
       throwIfCancelled(signal);
+    } catch (error) {
+      if (isTurnCancelledError(error)) return finishCancelled();
+      throw error;
+    }
+    let preparedRequest: ModelRequest;
+    try {
+      const request: ModelRequest = options.systemInstruction === undefined
+        ? { transcript: snapshotMessages(transcript), tools: snapshot(registry.definitions()) }
+        : {
+          systemInstruction: options.systemInstruction,
+          transcript: snapshotMessages(transcript),
+          tools: snapshot(registry.definitions()),
+        };
+      preparedRequest = prepareModelContext(request).request;
+    } catch (error) {
+      return finishNormal(
+        contractFailure(
+          task,
+          transcript,
+          steps,
+          toolCallCount,
+          toolResultCount,
+          `context preparation failure: ${errorText(error)}`,
+        ),
+      );
+    }
+    try {
+      throwIfCancelled(signal);
       if (options.executionContext !== undefined && !options.executionContext.claimModelRequest()) {
         return finishNormal(
           contractFailure(
@@ -228,19 +257,12 @@ export const runAgentTurn = async (
       if (isTurnCancelledError(error)) return finishCancelled();
       throw error;
     }
-    const request: ModelRequest = options.systemInstruction === undefined
-      ? { transcript: snapshotMessages(transcript), tools: snapshot(registry.definitions()) }
-      : {
-        systemInstruction: options.systemInstruction,
-        transcript: snapshotMessages(transcript),
-        tools: snapshot(registry.definitions()),
-      };
     steps += 1;
     let result: unknown;
     try {
       result = signal === undefined
-        ? await model.generate(request)
-        : await model.generate(request, { signal });
+        ? await model.generate(preparedRequest)
+        : await model.generate(preparedRequest, { signal });
     } catch (error) {
       if (isCancellationCleanupError(error)) {
         return finishContractFailure('cancellation cleanup failed');

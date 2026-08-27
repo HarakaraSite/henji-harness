@@ -68,6 +68,17 @@ four toy domain tools separately and they are not advertised by normal `agent:ru
 must use `submit_json_result` as the sole tool call in a batch; the host canonicalizes the complete
 JSON value and prints it on stdout. Plain-text answers retain the assistant final path.
 
+Each normal model request is derived from the full in-memory transcript through a provider-neutral
+context view. The view estimates stable JSON as UTF-8 bytes, triggers at 65,536 estimated message
+bytes, and replaces only beneficial older tool-result text with the fixed marker
+`[older tool result omitted for context]` until 49,152 estimated message bytes or eligible results
+are exhausted. User/assistant text, tool-call arguments and metadata, the newest tool message,
+events, outcomes, and committed session history remain complete. This is a conservative local
+estimate rather than provider usage or tokenizer output; no summary, retry, extra request,
+persistence, or provider window lookup is performed. The TUI reports a committed post-settlement
+estimate as `ready · ctx ≤<ceil(bytes / 1024)>K/64K est`, adding the exact omitted-result count when
+nonzero. `agent:run` output and provider wire contracts remain unchanged.
+
 `read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
 Paths may be relative or absolute within that root, are component-checked, reject symlinks and
 special files, and accept only well-formed UTF-8 text up to 65,536 bytes. Writes and edits use a
@@ -208,8 +219,8 @@ Zot-first local work-tool increment recorded in
 accepts one task from argv or stdin, allows at most eight model requests, and performs no
 application retry. The provider-neutral in-memory session and completed lifecycle events are
 implemented for the next TUI prerequisite; `agent:run` still uses the unchanged one-shot wrapper.
-Persistence, context management, global/manual skill management, extensions, RPC, subagents,
-self-revision, and dynamic provider/model selection remain later roadmap work. See the
+Persistence/history, global/manual skill management, extensions, RPC, subagents, self-revision,
+and dynamic provider/model selection remain later roadmap work. See the
 [`multi-turn/events results`](docs/plans/zot-provider-neutral-multi-turn-events-results.md) for the
 local evidence and verification boundary.
 
