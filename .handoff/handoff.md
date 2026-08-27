@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: planner delegation real-model sentinel Gate Lのlocal実装・offline検証・bounded review完了。direct 15、process 2、topology 1、full 344 tests成功、最終Blocker/P1/P2 0
-- 次: `ASK-20260827-planner-delegation-real-sentinel-gate-s`のone-shot実行判断、または次の通常roadmap incrementへ進む
+- 状態: planner delegation sentinel response guard local fix完了。provider metadataを許容しつつsole delegation、parsed exact task、exact final/zero tool call、2/1/3を維持。Gate Sとdiagnostic attemptは消費済み
+- 次: 次の通常roadmap incrementへ進む。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -36,11 +36,17 @@
 - 状態: direct 15、process 2、topology 1、full 344成功。initial review P2 5、single changed-lines re-review残存P2 1をexact lifecycle/fourth-request/third-phase failure regressionsで閉じ、owner final Blocker/P1/P2 0
 - 境界: Gate Lでcredential probe/read、provider/network、production command、Gate S、dependency/lockfile、`_refs/`、push、tag、publish、releaseは未実施
 
-### ASK-20260827-planner-delegation-real-sentinel-gate-s
+### POL-20260827-planner-delegation-real-sentinel-gate-s
 
-- 判断待ち: reviewed revisionのexact production taskを一回だけ実行し、real modelの`parent` / `child` / `parent` causal behaviorを検証するか
-- 上限: parent 2 / child 1 / aggregate/external 3、maximum 3,072 completion tokens、repository worst USD 0.186624、authorization ceiling USD 0.192、retry/fallback/rerun/follow-up 0
-- 境界: one command、one fixed task、credential open一回、workspace一つ、child最大一つ。missing/malformed credentialを含む結果にかかわらずrerunなし。push、tag、publish、releaseは別承認
+- 判断済み: revision `2d9f149`のGate Sと、ユーザーが別途承認したtemporary raw-response diagnostic one-shotを各一回実行した
+- 結果: 両方とも`execution` / `model_adherence_failure`、external requests 1/3、child 1、workspace removed true、retry/fallback/rerun/follow-up 0。診断responseはexact sole `delegate_to_planner`とexact taskを含みsemantic adherence成功。sentinel `exactKeys`がmessageの`reasoning`/`reasoning_details`/`refusal`とtool-call `index`を拒否したfalse negative
+- 境界: 両attemptは消費済み。temporary mode-0600 raw bodyとinstrumentationは削除済み。credential値、raw body/reasoning、transcript/tool data、call ID、path、usage/costは永続記録していない。guard修正、追加provider attempt、push、tag、publish、releaseは別承認
+
+### POL-20260827-planner-delegation-sentinel-guard-fix
+
+- 判断済み: plan SHA-256 `e0da29834e6d474356acdc7dc3c6438df90e0e1d6fb4a746349442adc1e6cd57`に基づき、adapter-consistent semantic response validation、parsed exact task、final absent/null tool-call契約、first failure-code保持を実装した
+- 状態: direct 21、process 2、topology 1、transport 16、delegation 16、runtime 35、runtime process 18、full 350成功。initial review GO、Blocker/P1/P2 0
+- 境界: runtime/adapter/profile/prompt/registry/launcher/permissions/2-1-3上限不変。credential/network/provider/production command、追加attempt、dependency/lockfile、`_refs/`、commit/push/releaseは未実施
 
 ### POL-20260826-zot-multi-turn-events
 
@@ -1284,3 +1290,35 @@
 - 実施: dedicated guarded child/launcher、2/1/3 causal evidence、strict reports、bounded lifecycle、direct/process/topology testsを実装。initial P2 5とre-review残存P2 1を修正し、owner final closure
 - 次: `ASK-20260827-planner-delegation-real-sentinel-gate-s`のone-shot実行判断
 - 注意: direct 15/process 2/topology 1/full 344成功、Blocker/P1/P2 0。credential/provider/network/production task、dependency/lockfile、`_refs/`、push、tag、publish、releaseは未実施
+
+## 2026-08-27 15:15 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: Fixed planner delegation real-model sentinel Gate S
+- 実施: approved exact production taskを一回だけ実行。first provider responseがfixed delegation contractに従わず`model_adherence_failure`で停止
+- 次: Gate Sをrerunせず、次の通常roadmap incrementへ進む
+- 注意: external 1/3、child 1、workspace removed true、retry/fallback/rerun/follow-up 0。raw credential/provider/transcript/tool/call-ID/path/costは記録せず、push/tag/publish/releaseは未実施
+
+## 2026-08-27 15:50 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Planner delegation sentinel diagnostic one-shot
+- 実施: temporary mode-0600 bounded response captureをlocal fake 19/2/1とreview GO後に追加し、承認済みone-shotを一回実行。exact delegationをprovider metadataのextra keysで拒否するsentinel false negativeと確定後、raw fileとinstrumentationを削除
+- 次: guard修正は別Human Gate。追加provider attemptなしでadapter-compatible metadata許容とsemantic exactnessを両立するlocal planを作る
+- 注意: diagnostic external 1/3、child 1、cleanup成功、retry/fallback/rerun/follow-up 0。direct 15/process 2/topology 1とtype/format/diff-check復旧確認。raw credential/body/reasoning/call-ID/path/usage/costは永続化せず、push/tag/publish/releaseは未実施
+
+## 2026-08-27 15:57 JST
+
+- 実行エージェント: Codex default / planner
+- 作業トピック: Planner delegation sentinel response guard fix planning
+- 実施: diagnosed metadata false negativeをadapter-consistent semantic projectionで修正し、parsed exact taskとfinal zero-tool-callを維持するlocal-only implementation planを作成
+- 次: `ASK-20260827-planner-delegation-sentinel-guard-fix`の初期Human Gate
+- 注意: planningのみ。credential/network/provider/production command、source/test実装、追加attempt、dependency/lockfile、`_refs/`、commit/push/releaseは未実施
+
+## 2026-08-27 16:11 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Planner delegation sentinel response guard fix completion
+- 実施: approved semantic projection guard、parsed exact task、final zero-tool-call、first failure-code保持とregressionsを実装し、initial review GOで完了
+- 次: 次の通常roadmap incrementへ進む。追加provider attemptは別Human Gate
+- 注意: direct 21/process 2/topology 1/transport 16/delegation 16/runtime 35/runtime process 18/full 350成功。credential/network/provider/production command、追加attempt、dependency/lockfile、`_refs/`、commit/push/releaseは未実施

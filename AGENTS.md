@@ -167,8 +167,24 @@
   pass. Initial review found P2 5; the single changed-lines re-review closed four and found one
   narrow failure-tuple P2, which exact third-phase regressions and the owner final gate closed.
   Final disposition is Blocker/P1/P2 zero. Gate L used no credential/provider/network/production
-  task, dependency/lockfile, `_refs/`, push, tag, publish, or release. Gate S remains a separate
-  explicit Human Gate.
+  task, dependency/lockfile, `_refs/`, push, tag, publish, or release. The separately approved Gate S
+  was then executed exactly once at revision `2d9f149`: it aborted with
+  `model_adherence_failure` after 1/3 external requests, before tool dispatch or a second request;
+  child count was 1, workspace removal succeeded, and retry/fallback/rerun/follow-up were zero.
+  A separately approved diagnostic one-shot reproduced the same sanitized 1/3 failure and proved
+  that the model returned the exact sole `delegate_to_planner` call and task. The false negative was
+  caused by the sentinel's `exactKeys` checks rejecting OpenRouter-added message metadata
+  (`reasoning`, `reasoning_details`, `refusal`) and tool-call `index`. The owner-only temporary raw
+  body and all diagnostic instrumentation were removed; the restored direct 15, process 2, and
+  topology 1 suites pass. Both attempts are consumed. Any fix or further provider attempt requires
+  a new explicit Human Gate. The separately approved local guard fix at
+  `docs/plans/planner-delegation-sentinel-response-guard-fix.md`, SHA-256
+  `e0da29834e6d474356acdc7dc3c6438df90e0e1d6fb4a746349442adc1e6cd57`, is now implemented.
+  It accepts provider metadata through adapter-consistent semantic projection while retaining sole
+  delegation, parsed exact task, exact finals, zero final tool calls, call correlation, and 2/1/3
+  bounds. Direct 21, process 2, topology 1, and full v0 350 tests pass; independent review is `GO`
+  with Blocker/P1/P2 zero. No credential/network/provider/production command or additional real
+  attempt occurred. Any further provider attempt remains a separate explicit Human Gate.
 
 ## Development lifecycle
 

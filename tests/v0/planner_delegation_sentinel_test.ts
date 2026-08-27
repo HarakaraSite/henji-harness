@@ -63,6 +63,44 @@ const finalPayload = (text: string): Response =>
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 
+const responseForMessage = (
+  message: Record<string, unknown>,
+  choiceMetadata: Record<string, unknown> = {},
+  payloadMetadata: Record<string, unknown> = {},
+): Response =>
+  new Response(
+    JSON.stringify({
+      ...payloadMetadata,
+      choices: [{ ...choiceMetadata, message }],
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+
+const semanticToolCall = (
+  argumentsValue: unknown = JSON.stringify({ task: FIXED_DELEGATED_TASK }),
+  callMetadata: Record<string, unknown> = {},
+  functionMetadata: Record<string, unknown> = {},
+): Record<string, unknown> => ({
+  id: 'planner-delegate-1',
+  type: 'function',
+  function: {
+    name: 'delegate_to_planner',
+    arguments: argumentsValue,
+    ...functionMetadata,
+  },
+  ...callMetadata,
+});
+
+const semanticParentMessage = (
+  call: Record<string, unknown> = semanticToolCall(),
+  metadata: Record<string, unknown> = {},
+): Record<string, unknown> => ({
+  role: 'assistant',
+  content: null,
+  tool_calls: [call],
+  ...metadata,
+});
+
 const workspace = async (): Promise<string> => {
   const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-planner-sentinel-test-' });
   await Deno.chmod(root, 0o700);
@@ -124,6 +162,268 @@ Deno.test('fixed planner sentinel proves parent/child/parent causal success with
     assertEquals(await validateSentinelWorkspace({ root }), true);
   } finally {
     await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('semantic response projection accepts observed provider metadata and argument whitespace', async () => {
+  const whitespaceArguments = ` { "task" : ${JSON.stringify(FIXED_DELEGATED_TASK)} } `;
+  const call = semanticToolCall(
+    whitespaceArguments,
+    { index: 0, metadata: { call: 'ignored' } },
+    { index: 0, metadata: { function: 'ignored' } },
+  );
+  const responses = [
+    responseForMessage(
+      semanticParentMessage(call, {
+        reasoning: 'ignored',
+        reasoning_details: [{ type: 'ignored' }],
+        refusal: null,
+      }),
+      { index: 0, finish_reason: 'tool_calls' },
+      { id: 'response-0', usage: { prompt_tokens: 1 } },
+    ),
+    responseForMessage(
+      {
+        role: 'assistant',
+        content: EXPECTED_CHILD_FINAL,
+        reasoning: 'ignored',
+        reasoning_details: [{ type: 'ignored' }],
+        refusal: null,
+      },
+      { index: 0, finish_reason: 'stop' },
+      { id: 'response-1', usage: { completion_tokens: 1 } },
+    ),
+    responseForMessage(
+      {
+        role: 'assistant',
+        content: EXPECTED_PARENT_FINAL,
+        reasoning: 'ignored',
+        reasoning_details: [{ type: 'ignored' }],
+        refusal: null,
+      },
+      { index: 0, finish_reason: 'stop' },
+      { id: 'response-2', usage: { completion_tokens: 1 } },
+    ),
+  ] as const;
+  const { result, requests, root } = await runWithResponses(responses);
+  try {
+    assert(result.report.ok);
+    assertEquals(result.externalRequests, 3);
+    assertEquals(requests.length, 3);
+    assertEquals(result.report.requestOrder, REQUEST_ORDER);
+    assertEquals(result.report.delegationCalls, 1);
+    assertEquals(result.report.delegationResults, 1);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('semantic parent arguments reject malformed and non-exact parsed values', async () => {
+  const invalidArguments: readonly unknown[] = [
+    '{',
+    'null',
+    '[]',
+    '"scalar"',
+    JSON.stringify({}),
+    JSON.stringify({ task: 'wrong task' }),
+    JSON.stringify({ task: FIXED_DELEGATED_TASK, extra: true }),
+    42,
+  ];
+  for (const argumentsValue of invalidArguments) {
+    const { result, requests, root } = await runWithResponses([
+      responseForMessage(
+        semanticParentMessage(semanticToolCall(argumentsValue)),
+      ),
+    ]);
+    try {
+      assert(!result.report.ok);
+      assertEquals(result.report.code, 'model_adherence_failure');
+      assertEquals(result.externalRequests, 1);
+      assertEquals(requests.length, 1);
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  }
+});
+
+Deno.test('metadata cannot hide wrong required parent response semantics', async () => {
+  const metadata = {
+    role: 'assistant',
+    content: null,
+    id: 'metadata-id',
+    type: 'function',
+    name: 'delegate_to_planner',
+    task: FIXED_DELEGATED_TASK,
+    function: semanticToolCall().function,
+  };
+  const validFunction = semanticToolCall().function as Record<string, unknown>;
+  const wrongCases: readonly Record<string, unknown>[] = [
+    { ...semanticParentMessage(), role: 'user', metadata },
+    { ...semanticParentMessage(), content: 'wrong', metadata },
+    {
+      ...semanticParentMessage(semanticToolCall('', { metadata })),
+    },
+    {
+      ...semanticParentMessage(semanticToolCall(undefined, { type: 'custom', metadata })),
+    },
+    {
+      ...semanticParentMessage(
+        semanticToolCall(undefined, {}, { name: 'wrong', metadata }),
+      ),
+    },
+    {
+      ...semanticParentMessage(
+        semanticToolCall(JSON.stringify({ task: 'wrong' }), {}, { metadata }),
+      ),
+    },
+    {
+      ...semanticParentMessage({
+        ...semanticToolCall(),
+        function: null,
+        metadata: { function: validFunction },
+      }),
+    },
+  ];
+  for (const message of wrongCases) {
+    const { result, requests, root } = await runWithResponses([
+      responseForMessage(message),
+    ]);
+    try {
+      assert(!result.report.ok);
+      assertEquals(result.externalRequests, 1);
+      assertEquals(requests.length, 1);
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  }
+});
+
+Deno.test('semantic parent topology rejects absent, empty, multiple, blank, and wrong calls', async () => {
+  const valid = semanticToolCall();
+  const cases: readonly Record<string, unknown>[] = [
+    { role: 'assistant', content: null, reasoning: 'metadata cannot supply calls' },
+    { role: 'assistant', content: null, tool_calls: [] },
+    { role: 'assistant', content: null, tool_calls: [valid, valid] },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [valid, { metadata: 'extra call' }],
+    },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [semanticToolCall(undefined, { id: ' ' })],
+    },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [semanticToolCall(undefined, { type: 'custom' })],
+    },
+    {
+      role: 'assistant',
+      content: null,
+      tool_calls: [semanticToolCall(undefined, {}, { name: 'read' })],
+    },
+  ];
+  for (const message of cases) {
+    const { result, requests, root } = await runWithResponses([
+      responseForMessage(message),
+    ]);
+    try {
+      assert(!result.report.ok);
+      assertEquals(result.report.code, 'model_adherence_failure');
+      assertEquals(result.externalRequests, 1);
+      assertEquals(requests.length, 1);
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  }
+});
+
+Deno.test('semantic final projection accepts metadata with absent or null tool calls', async () => {
+  for (const childToolCalls of ['absent', 'null'] as const) {
+    for (const parentToolCalls of ['absent', 'null'] as const) {
+      const childMessage: Record<string, unknown> = {
+        role: 'assistant',
+        content: EXPECTED_CHILD_FINAL,
+        reasoning: 'ignored',
+        reasoning_details: [{ type: 'ignored' }],
+        refusal: null,
+      };
+      const parentMessage: Record<string, unknown> = {
+        role: 'assistant',
+        content: EXPECTED_PARENT_FINAL,
+        reasoning: 'ignored',
+        reasoning_details: [{ type: 'ignored' }],
+        refusal: null,
+      };
+      if (childToolCalls === 'null') childMessage.tool_calls = null;
+      if (parentToolCalls === 'null') parentMessage.tool_calls = null;
+      const { result, root } = await runWithResponses([
+        toolCallPayload(),
+        responseForMessage(childMessage),
+        responseForMessage(parentMessage),
+      ]);
+      try {
+        assert(result.report.ok);
+        assertEquals(result.externalRequests, 3);
+      } finally {
+        await Deno.remove(root, { recursive: true });
+      }
+    }
+  }
+});
+
+Deno.test('semantic final projection rejects tool call arrays and wrong final text', async () => {
+  for (const phase of ['child', 'parent'] as const) {
+    for (const toolCalls of [[], [semanticToolCall()]] as const) {
+      const childMessage: Record<string, unknown> = {
+        role: 'assistant',
+        content: EXPECTED_CHILD_FINAL,
+        reasoning: 'ignored',
+        tool_calls: toolCalls,
+      };
+      const parentMessage: Record<string, unknown> = {
+        role: 'assistant',
+        content: EXPECTED_PARENT_FINAL,
+        reasoning: 'ignored',
+        tool_calls: toolCalls,
+      };
+      const responses = phase === 'child'
+        ? [toolCallPayload(), responseForMessage(childMessage)]
+        : [
+          toolCallPayload(),
+          finalPayload(EXPECTED_CHILD_FINAL),
+          responseForMessage(parentMessage),
+        ];
+      const { result, requests, root } = await runWithResponses(responses);
+      try {
+        assert(!result.report.ok);
+        assertEquals(
+          result.report.code,
+          phase === 'child' ? 'model_adherence_failure' : 'parent_final_mismatch',
+        );
+        assertEquals(result.externalRequests, phase === 'child' ? 2 : 3);
+        assertEquals(requests.length, result.externalRequests);
+      } finally {
+        await Deno.remove(root, { recursive: true });
+      }
+    }
+  }
+  for (const phase of ['child', 'parent'] as const) {
+    const responses = phase === 'child'
+      ? [toolCallPayload(), finalPayload('wrong child')]
+      : [toolCallPayload(), finalPayload(EXPECTED_CHILD_FINAL), finalPayload('wrong parent')];
+    const { result, root } = await runWithResponses(responses);
+    try {
+      assert(!result.report.ok);
+      assertEquals(
+        result.report.code,
+        phase === 'child' ? 'model_adherence_failure' : 'parent_final_mismatch',
+      );
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
   }
 });
 

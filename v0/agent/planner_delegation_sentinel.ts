@@ -268,6 +268,28 @@ const responsePayload = async (response: Response): Promise<unknown> => {
   }
 };
 
+const validParentToolCall = (
+  value: unknown,
+): value is Record<string, unknown> & { readonly id: string } => {
+  if (!isObject(value) || !nonBlank(value.id) || value.type !== 'function') return false;
+  if (!isObject(value.function) || value.function.name !== 'delegate_to_planner') return false;
+  if (typeof value.function.arguments !== 'string') return false;
+  let argumentsValue: unknown;
+  try {
+    argumentsValue = JSON.parse(value.function.arguments);
+  } catch {
+    return false;
+  }
+  return isObject(argumentsValue) && exactKeys(argumentsValue, ['task']) &&
+    argumentsValue.task === FIXED_DELEGATED_TASK;
+};
+
+const validFinalMessage = (message: Record<string, unknown>, expected: string): boolean => {
+  if (message.content !== expected) return false;
+  return !Object.prototype.hasOwnProperty.call(message, 'tool_calls') ||
+    message.tool_calls === null;
+};
+
 const validateProviderResponse = (
   payload: unknown,
   phase: string,
@@ -283,21 +305,18 @@ const validateProviderResponse = (
   const message = choice.message;
   if (phase === 'parent1') {
     if (
-      !exactKeys(message, ['role', 'content', 'tool_calls']) || message.content !== null ||
-      !Array.isArray(message.tool_calls) || message.tool_calls.length !== 1
+      message.content !== null || !Array.isArray(message.tool_calls) ||
+      message.tool_calls.length !== 1
     ) throw new SentinelContractError('model_adherence_failure');
     const call = message.tool_calls[0];
-    if (!isObject(call) || !nonBlank(call.id) || !equalJson(call, expectedParentCall(call.id))) {
-      throw new SentinelContractError('model_adherence_failure');
-    }
+    if (!validParentToolCall(call)) throw new SentinelContractError('model_adherence_failure');
     state.parentCallId = call.id;
     state.delegationCalls += 1;
     state.parentToolOrder.push('delegate_to_planner');
     return;
   }
   if (
-    !exactKeys(message, ['role', 'content']) || message.content !==
-      (phase === 'child' ? EXPECTED_CHILD_FINAL : EXPECTED_PARENT_FINAL)
+    !validFinalMessage(message, phase === 'child' ? EXPECTED_CHILD_FINAL : EXPECTED_PARENT_FINAL)
   ) {
     throw new SentinelContractError(
       phase === 'child' ? 'model_adherence_failure' : 'parent_final_mismatch',
@@ -394,7 +413,7 @@ export const createGuardedFetch = (
       return response;
     } catch (error) {
       if (error instanceof SentinelContractError) {
-        state.failureCode = error.code;
+        if (state.failureCode === undefined) state.failureCode = error.code;
         throw error;
       }
       state.failureCode = 'internal_failure';

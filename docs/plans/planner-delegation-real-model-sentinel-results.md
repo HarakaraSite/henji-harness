@@ -5,7 +5,7 @@
 - Plan: `docs/plans/planner-delegation-real-model-sentinel.md`
 - Plan SHA-256: `a6e0ccc655411ebb3b2d0700cca6f3ce3f767648e69297423c8361c364a0b07c`
 - Baseline revision: `e4e3acf` (`feat(agent): add definitions and planner delegation`)
-- Gate: local implementation and offline verification only; Gate S was not authorized or run.
+- Gate L was local-only. Gate S and the later diagnostic one-shot were separately authorized and run.
 
 ## Implementation
 
@@ -102,5 +102,68 @@ passed, and the full offline gate 344 passed / 0 failed.
 
 No plan deviation was required. The sentinel is a fixed causal acceptance task and does not prove
 general planner quality. A same-user process can observe the child environment, and crash-time
-temporary workspace residue remains a bounded operational risk. Gate S remains a separate Human Gate
-and has not been attempted.
+temporary workspace residue remains a bounded operational risk.
+
+## Gate S one-shot outcome
+
+The separately approved production task was executed exactly once at revision
+`2d9f149f2b50189f0a4ccde3c4bf7ce8460ebf8d`. It completed with a sanitized failure:
+
+| Field | Result |
+| --- | --- |
+| Outcome | aborted |
+| Stage / code | `execution` / `model_adherence_failure` |
+| Child count | 1 |
+| External requests | 1 of maximum 3 |
+| Retry / fallback / rerun / follow-up | 0 / 0 / 0 / 0 |
+| Workspace removed | true |
+
+The first provider response did not satisfy the fixed delegation response contract, so the guard
+stopped before tool dispatch or a second provider request. The one-shot authorization is consumed
+and was not retried. No credential value, provider body, raw transcript, tool argument/result,
+call ID, absolute workspace path, exception, stack, token usage, or actual cost was recorded.
+
+## Diagnostic one-shot outcome
+
+The user separately authorized one diagnostic rerun with temporary owner-only response-body
+retention. Before execution, the diagnostic delta passed direct 19, process 2, and topology 1 fake
+tests; changed-lines review was `GO` with Blocker/P1/P2 zero. The production task was then executed
+once and reproduced the same sanitized `execution` / `model_adherence_failure` after 1/3 external
+requests, with one child, successful workspace removal, and retry/fallback/rerun/follow-up zero.
+
+The retained response established that the model had returned one sole `delegate_to_planner` call
+with the exact delegated task and `content:null`. The failure was a sentinel false negative:
+`validateProviderResponse` required exact response-object keys, while the provider added
+`reasoning`, `reasoning_details`, and `refusal` to the assistant message and `index` to the tool
+call. The normal adapter accepts these metadata fields and the semantic tool call was correct.
+
+The raw body, reasoning text, call ID, usage/cost fields, and temporary file path were not persisted.
+The mode-`0600` diagnostic file was deleted after local analysis, the temporary instrumentation was
+removed, and the restored direct 15, process 2, and topology 1 suites plus type/format/diff checks
+pass. This diagnostic authorization is consumed. Relaxing the sentinel guard or making another
+provider attempt remains a separate Human Gate.
+
+## Response guard local fix
+
+The user approved `docs/plans/planner-delegation-sentinel-response-guard-fix.md`, SHA-256
+`e0da29834e6d474356acdc7dc3c6438df90e0e1d6fb4a746349442adc1e6cd57`, for a local-only fix.
+`validateProviderResponse` now ignores provider metadata while strictly validating the semantic
+projection consumed by the normal adapter. The first parent response still requires one nonblank
+function call ID, exact `delegate_to_planner` name, and a JSON argument object with exactly one
+`task` key whose value exactly matches the fixed delegated task. Equivalent JSON whitespace is
+accepted; malformed, non-object, missing, wrong, extra, and non-string arguments are rejected.
+Child and parent finals retain exact text and accept only absent or `null` `tool_calls`.
+
+The guard also preserves the first sentinel failure code so a child provider/model failure cannot
+be overwritten by the parent's derivative delegation-envelope rejection. This maintains the
+existing child `model_adherence_failure` and parent `parent_final_mismatch` taxonomy without adding
+a request or retry.
+
+Regression coverage includes the observed `reasoning` / `reasoning_details` / `refusal` message
+metadata and tool-call `index`, metadata that attempts to hide wrong required semantics, parsed
+argument negatives, sole-call topology, final metadata, and final tool-call rejection. Verification
+passed direct 21, process 2, topology 1, transport 16, planner delegation 16, runtime 35, runtime
+process 18, and the full v0 gate 350 tests. Type-check, format, lint, and `git diff --check` passed.
+Independent review is `GO` with Blocker/P1/P2 zero. There was no plan deviation and no credential,
+network, provider, production command, additional real attempt, dependency/lockfile, or `_refs/`
+operation.
