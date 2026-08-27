@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: context managementはcommit `cbf4fd9`で完了。persistent session/historyは承認済みcanonical planに沿うlocal implementation、offline verification、results、owner final closureまで完了
-- 次: tool progress eventsを別計画として開始する。追加provider attemptは別Human Gate
+- 状態: context managementはcommit `cbf4fd9`、persistent session/historyはcommit `d9da4d4`で完了。tool progress eventsはcanonical planとbounded reviewまで完了し、implementation Human Gate待ち
+- 次: `ASK-20260828-provider-neutral-tool-progress-events`のユーザー判断を受ける。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,7 +14,14 @@
 - 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
-- 次: tool progress eventsを別計画として開始する
+- 次: tool progress eventsのimplementation Human Gateを受ける
+
+### ASK-20260828-provider-neutral-tool-progress-events
+
+- 判断待ち: `docs/plans/provider-neutral-tool-progress-events.md`、SHA-256 `192c49fc094a8c6256e639a27e376247aa25779f326a0449a1498827b632e196`のrepository implementation、disposable fake/Bash/PTY tests、full offline gate、README/results/lifecycle更新、bounded reviewを承認するか
+- 契約: accumulated text snapshot、8,192 UTF-8 bytes/64 updates per call、production emitterはBashのみ、late/invalid/aborted updateは観測上ignore、progress sink failureはlatched `EventDeliveryError`をresource settlement後に返す、TUI live-only、transcript/counter/persistence/provider wire不変
+- review: initial P2 1の4,000-byte multibyte境界をlargest complete-code-point prefixとwithin/across-read/incomplete-EOF testへ修正し、single changed-lines re-reviewはGO、Blocker/P1/P2 0
+- 境界: production CLI/TUI/session、actual session state、provider/network/credential、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未承認
 
 ### POL-20260827-provider-neutral-persistent-session-history
 
@@ -1526,3 +1533,11 @@
 - 実施: prospective namespace capacity、first-turn AgentSession rollback-remove poisoning、real child-process TUI empty-exit cleanupのexact regressionsを追加し、focused store/process 12/3、`v0:test`/`v0:gate` 417/417、check、fmt 104 files、lint 101 files、shell syntax、diff checkを確認
 - 次: なし
 - 注意: final Blocker/P1/P2 0。provider/network/credential/production task、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。`/tmp` session fixture残骸なし
+
+## 2026-08-28 00:19 JST
+
+- 実行エージェント: Codex planner / reviewer / coordinating owner
+- 作業トピック: Provider-neutral tool progress events planning
+- 実施: 現行event/tool/Bash/TUI/persistence境界とpinned Pi/Zotを照合し、canonical planを作成。initial review P2 1をmultibyte cap境界のexact contract/testで修正し、single re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260828-provider-neutral-tool-progress-events`のimplementation Human Gate
+- 注意: plan SHA-256 `192c49fc094a8c6256e639a27e376247aa25779f326a0449a1498827b632e196`。product source/test、provider/network/credential/production task、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未変更・未実施
