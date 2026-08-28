@@ -266,6 +266,25 @@
   exit-intent regressions. Final owner disposition is Blocker/P1/P2 zero. No provider/network/
   credential/production command, dependency/lockfile, `_refs/` operation, commit, push, tag,
   publish, or release occurred.
+- The provider-neutral bounded mid-turn steering increment is implemented at
+  `docs/plans/provider-neutral-mid-turn-steering.md`, SHA-256
+  `021dd5c40db4d2f2412d35a1e3ff079d580782884a51f63c2f56ca202ba3872c`. It permits one
+  NUL-free 65,536-byte steering message per active parent turn, consumed only after a complete
+  nonterminal tool batch and before an eligible next parent request. Final, terminal, max-step,
+  cancellation, and failure discard unconsumed steering; ordinary next-turn queueing remains
+  deferred. The additive schema-v1 causal parser retains version/keys/limits/canonical bytes while
+  counting completed parent turns rather than raw user messages. Initial plan review's sole P1
+  identified the prior persistence incompatibility; the revised narrow re-review is `GO` with
+  Blocker/P1/P2 zero. The initial implementation Human Gate is approved; owner/loop/session/store/
+  TUI implementation is now present. Focused steering 7, session-store 15, TUI direct 48, TUI
+  process 20, TUI topology 4, and full offline v0 test 475 pass; `v0:check`, `v0:fmt`, `v0:lint`,
+  and the full `v0:gate` pass. Initial implementation review P2 4 were fixed by exact cancellation,
+  output-failure, lifecycle/store/PTY evidence, and rollback guidance; the narrow re-review is `GO`
+  with Blocker/P1/P2 zero. The coordinating owner independently reran the final `v0:gate`, including
+  475/475 full offline tests. The reviewed increment was committed after the final gate. No provider,
+  network, credential, production command, dependency/lockfile, `_refs/`, push, tag, publish, or
+  release operation occurred.
+
 ## Development lifecycle
 
 - Use the user-provided requirements, repository plans, this file, and the current handoff as the

@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: context managementはcommit `cbf4fd9`、persistent session/historyはcommit `d9da4d4`、tool progress eventsはcommit `ea3b506`で完了。provider streaming local implementation、finding closure、bounded review、owner final gateも完了。focused streaming/TUI direct/TUI process/full offlineは15/15/44/44/18/18/460/460、final Blocker/P1/P2 0。`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`、`v0:gate`はpass
-- 次: roadmap次順のbounded mid-turn steeringを別計画として開始する。追加provider attemptは別Human Gate
+- 状態: provider streamingはcommit `852542f`で完了。bounded mid-turn steeringもlocal implementation、finding closure、bounded review、owner final gateまで完了し、focused steering/store/TUI direct/process/topology 7/15/48/20/4、full offline 475、final Blocker/P1/P2 0
+- 次: optional ordinary next-turn queueが必要かを別roadmap判断で決める。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,7 +14,16 @@
 - 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
-- 次: roadmap次順のbounded mid-turn steeringを別計画として開始する
+- 次: step 7のoptional ordinary next-turn queueが必要かを判断する
+
+### POL-20260829-provider-neutral-mid-turn-steering-plan
+
+- 判断済み: ユーザーが`docs/plans/provider-neutral-mid-turn-steering.md`、SHA-256 `021dd5c40db4d2f2412d35a1e3ff079d580782884a51f63c2f56ca202ba3872c`のrepository implementation、disposable offline tests、full gate、README/results/lifecycle更新、bounded reviewを承認した
+- 契約: active parent turnごとにNUL-free 65,536-byte steeringを最大1件。complete nonterminal tool batch後かつ次parent request可能時だけconsumeし、final/terminal/max-step/cancel/failureは未consumeを破棄。ordinary next-turn queueはdefer
+- schema: version/keys/message shape/limits/canonical bytesは不変。causal validatorをlegal intra-turn user位置へ加法拡張し、`nextTurn`をcompleted parent turnsから検証する
+- review: initial P1 1は現行schema-v1 persistence incompatibilityとNUL不整合。計画修正後のnarrow re-reviewはGO、Blocker/P1/P2 0
+- 状態: 実装・finding closure・offline gate完了。focused steering/store/TUI direct/TUI process/topology 7/15/48/20/4、full v0 475成功。initial implementation review P2 4を修正し、narrow re-review GO、owner final Blocker/P1/P2 0
+- 境界: production CLI/TUI/session、actual persistent state、provider/network/credential、real sentinel、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは承認対象外
 
 ### POL-20260828-provider-neutral-streaming-plan
 
@@ -1648,3 +1657,35 @@
 - 実施: final GOとowner gate済みのstreaming incrementをmainへ一つのfeature commitとして記録し、results/lifecycleのcommit状態を整合
 - 次: roadmap次順のbounded mid-turn steeringを別計画として開始する
 - 注意: push/tag/publish/release、provider/network/credential/production command、dependency/lockfile、`_refs`変更は未実施。既存untracked `_refs/`を保持
+
+## 2026-08-29 00:51 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Provider-neutral bounded mid-turn steering planning
+- 実施: 現行loop/TUI/session/storeとpinned Pi/Zotを照合してcanonical planを作成。initial review P1 1のschema-v1 persistence/NUL不整合をadditive causal parser、completed-parent-turn counting、exact regressionsとrollback互換規則で閉じ、narrow re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260829-provider-neutral-mid-turn-steering-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `021dd5c40db4d2f2412d35a1e3ff079d580782884a51f63c2f56ca202ba3872c`。product source/test、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 00:54 JST
+
+- 実行エージェント: ユーザー / Codex default
+- 作業トピック: Provider-neutral bounded mid-turn steering Human Gate
+- 実施: ユーザーが`POL-20260829-provider-neutral-mid-turn-steering-plan`のrepository implementation、disposable offline tests、full gate、README/results/lifecycle更新、bounded reviewを明示承認
+- 次: single implementerでcanonical planを実装し、offline gate後にread-only reviewへ進む
+- 注意: production CLI/TUI/session、actual persistent state、provider/network/credential、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは承認範囲外
+
+## 2026-08-29 01:38 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Provider-neutral bounded mid-turn steering implementation and final gate
+- 実施: single-use steering owner、safe post-tool consumption、schema-v1 causal parser、busy TUI/PTYを実装。initial review P2 4をcancellation draft clear、strict output-failure settlement、lifecycle/store/PTY evidence、rollback整合で閉じ、narrow re-review GO、Blocker/P1/P2 0
+- 次: optional ordinary next-turn queueが必要かを別roadmap判断で決める
+- 注意: focused steering/store/TUI direct/process/topology 7/15/48/20/4、owner final `v0:gate`はfull offline 475/475で成功。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 01:41 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Provider-neutral bounded mid-turn steering commit
+- 実施: final GOとowner gate済みのsteering incrementをmainへ一つのfeature commitとして記録し、results/lifecycleのcommit状態を整合
+- 次: optional ordinary next-turn queueが必要かを判断し、必要なら別計画を作成する
+- 注意: push/tag/publish/release、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更は未実施。既存untracked `_refs/`を保持

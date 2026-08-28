@@ -238,7 +238,11 @@ class ProgressSession {
   private cancellationRequested = false;
   cancelCount = 0;
   settled = false;
-  constructor(private readonly sink: (event: AgentEvent) => void) {}
+  steering: string[] = [];
+  constructor(
+    private readonly sink: (event: AgentEvent) => void,
+    private readonly steeringEnabled = false,
+  ) {}
   submit(task: string): Promise<LoopOutcome> {
     this.active = true;
     this.sink({ kind: 'turn_start', turn: 1 });
@@ -274,6 +278,13 @@ class ProgressSession {
     this.cancellationRequested = true;
     this.cancelCount += 1;
     return 'requested';
+  }
+  steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
+    if (!this.steeringEnabled) return 'idle';
+    if (!this.active) return 'idle';
+    if (this.steering.length > 0) return 'already_accepted';
+    this.steering.push(text);
+    return 'accepted';
   }
   complete(): void {
     const resolve = this.pending;
@@ -364,6 +375,67 @@ class AssistantProgressSession {
     } catch {
       this.lateProgressRejected = true;
     }
+  }
+}
+
+class SteeringSession {
+  readonly submitted: string[] = [];
+  readonly steered: string[] = [];
+  cancelCount = 0;
+  private resolveTurn: ((outcome: LoopOutcome) => void) | null = null;
+  private accepted = false;
+  private cancellationRequested = false;
+  constructor(private readonly sink: (event: AgentEvent) => void) {}
+  submit(task: string): Promise<LoopOutcome> {
+    this.submitted.push(task);
+    const turn = this.submitted.length;
+    this.sink({ kind: 'turn_start', turn });
+    this.sink({
+      kind: 'user_message',
+      turn,
+      message: { role: 'user', content: { kind: 'text', text: task } },
+    });
+    return new Promise((resolve) => this.resolveTurn = resolve);
+  }
+  steerActiveTurn(text: string): 'accepted' | 'idle' | 'already_accepted' {
+    if (this.resolveTurn === null) return 'idle';
+    if (this.accepted) return 'already_accepted';
+    this.accepted = true;
+    this.steered.push(text);
+    return 'accepted';
+  }
+  cancelActiveTurn(): 'requested' | 'idle' | 'already_requested' {
+    if (this.resolveTurn === null) return 'idle';
+    if (this.cancellationRequested) return 'already_requested';
+    this.cancellationRequested = true;
+    this.cancelCount += 1;
+    return 'requested';
+  }
+  complete(): void {
+    const resolve = this.resolveTurn;
+    if (resolve === null) return;
+    this.resolveTurn = null;
+    if (this.accepted) {
+      this.sink({
+        kind: 'steering_message',
+        turn: 1,
+        message: { role: 'user', content: { kind: 'text', text: this.steered[0] } },
+      });
+    }
+    this.sink({
+      kind: 'assistant_message',
+      turn: 1,
+      message: { role: 'assistant', content: { kind: 'text', text: 'answer' } },
+    });
+    this.sink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+    resolve(finalOutcome('task', 'answer'));
+  }
+  completeCancelled(): void {
+    const resolve = this.resolveTurn;
+    if (resolve === null) return;
+    this.resolveTurn = null;
+    this.sink({ kind: 'turn_end', turn: 1, outcome: 'cancelled', committed: false });
+    resolve(cancelledOutcome('task'));
   }
 }
 
@@ -605,6 +677,50 @@ Deno.test('busy input is consumed, Esc reports unavailable, and Ctrl-C exits aft
   assert(terminal.output().includes('cancellation unavailable; turn continues'));
   assert(terminal.output().includes('exiting after current turn'));
   assert(!terminal.output().includes('discarded'));
+});
+
+Deno.test('busy input admits one steering message and renders it as one escaped record', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new SteeringSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const run = controller.run();
+  terminal.push('task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('fix\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(session.steered, ['fix']);
+  assertEquals(controller.editor.text, '');
+  assert(terminal.output().includes('busy · steer pending'));
+  session.complete();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(terminal.output().includes('steer> fix\n'));
+  assert(terminal.output().includes('busy · steer applied'));
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('busy steering paste containing NUL is rejected atomically before editor admission', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new SteeringSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const run = controller.run();
+  terminal.push('task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('\x1b[200~before\0after\x1b[201~');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(controller.editor.text, '');
+  assert(terminal.output().includes('invalid steering input'));
+  assertEquals(session.steered, []);
+  session.complete();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('\x04');
+  assertEquals(await run, 0);
 });
 
 Deno.test('controller replaces delayed assistant chunks before one final and restores once', async () => {
@@ -1104,6 +1220,99 @@ Deno.test('busy cancellation clears live progress before settled status and igno
   assert(terminal.output().includes('[cancelled]'));
   terminal.push('\x04');
   assertEquals(await running, 0);
+});
+
+Deno.test('busy cancellation clears steering draft before status for Escape, Ctrl-C, and signals', async () => {
+  for (
+    const [action, expectedExit] of [
+      ['escape', 0],
+      ['ctrl_c', 0],
+      ['SIGTERM', 143],
+      ['SIGHUP', 129],
+    ] as const
+  ) {
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const session = new ProgressSession((event) => renderer.eventSink(event), true);
+    const controller = new TuiController(lifecycle, renderer, session);
+    if (action === 'SIGTERM' || action === 'SIGHUP') controller.installSignals();
+    await lifecycle.acquire();
+    const running = controller.run();
+    terminal.push('steering task\n');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    terminal.push('draft');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(controller.editor.text, 'draft');
+    const beforeCancel = terminal.operations.length;
+    if (action === 'escape') {
+      terminal.push('\x1b');
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    } else if (action === 'ctrl_c') {
+      terminal.push('\x03');
+    } else terminal.emitSignal(action);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertEquals(controller.editor.text, '');
+    assertEquals(session.cancelCount, 1);
+    const status = terminal.operations.findIndex((operation, index) =>
+      index >= beforeCancel &&
+      operation.includes(action === 'escape' ? '[cancelling]' : '[cancelling; exiting]')
+    );
+    assert(status >= 0);
+    session.complete();
+    if (action === 'escape') terminal.push('\x04');
+    assertEquals(await running, expectedExit);
+    const writesAfterRestore = terminal.writes.length;
+    try {
+      session.emitLateProgress();
+    } catch {
+      // Closed renderer rejects a late event before any terminal write.
+    }
+    assertEquals(terminal.writes.length, writesAfterRestore);
+  }
+});
+
+Deno.test('steering editor clear failure is output_failure and settles before one restore', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new SteeringSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('fix');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assertEquals(controller.editor.text, 'fix');
+  terminal.failNextWrite = true;
+  terminal.push('\n');
+  const settle = (async () => {
+    while (session.cancelCount === 0) await Promise.resolve();
+    session.completeCancelled();
+  })();
+  let failure: unknown;
+  try {
+    await running;
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof TuiControllerError);
+  assertEquals((failure as TuiControllerError).code, 'output_failure');
+  assertEquals(controller.editor.text, '');
+  assertEquals(session.cancelCount, 1);
+  await settle;
+  // The session cancellation gate is released by completeCancelled; the controller failure path
+  // has already awaited it before reporting and restoring.
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  assert(renderer.isClosing);
+  const writesAfterClose = terminal.writes.length;
+  try {
+    session.complete();
+  } catch {
+    // Closed renderer rejects stale completion events.
+  }
+  assertEquals(terminal.writes.length, writesAfterClose);
 });
 
 Deno.test('busy progress output failure cancels and settles before restore', async () => {

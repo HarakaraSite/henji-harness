@@ -30,6 +30,7 @@ import {
   type ModelExecutionContext,
 } from './execution_context.ts';
 import { prepareModelContext } from './context.ts';
+import { type SteeringConsumer } from './steering.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
@@ -51,6 +52,10 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly eventSink?: AgentEventSink;
   readonly turn?: number;
   readonly commit?: (transcript: readonly Message[]) => void;
+  /** Internal single-use parent-turn steering lane. Planner child loops do not receive it. */
+  readonly steering?: SteeringConsumer;
+  /** Backwards-compatible internal port spelling for direct loop callers. */
+  readonly steeringConsumer?: SteeringConsumer;
 }
 
 const errorText = (error: unknown): string =>
@@ -179,7 +184,7 @@ const terminalBatchError = (
 });
 
 /** Execute exactly one user turn from a defensive copy of a committed transcript. */
-export const runAgentTurn = async (
+const runAgentTurnInternal = async (
   task: string,
   committedTranscript: readonly Message[],
   model: Model,
@@ -199,6 +204,7 @@ export const runAgentTurn = async (
   const signal = options.cancellation?.signal ?? options.signal ??
     options.executionContext?.signal;
   const cancellation = options.cancellation;
+  const steering = options.steering ?? options.steeringConsumer;
   const ownsCancellation = options.ownsCancellation !== false;
   const transcript: Message[] = snapshotMessages(committedTranscript);
   const userMessage: Message = {
@@ -598,6 +604,36 @@ export const runAgentTurn = async (
       });
     }
     if (steps >= limit) return finishMaxSteps();
+    if (signal?.aborted) return finishCancelled();
+    const steeringText = steering?.consume();
+    if (steeringText !== undefined) {
+      const steeringMessage: Message = {
+        role: 'user',
+        content: { kind: 'text', text: steeringText },
+      };
+      transcript.push(steeringMessage);
+      deliverEvent(sink, {
+        kind: 'steering_message',
+        turn,
+        message: snapshot(steeringMessage),
+      });
+    }
+  }
+};
+
+/** Execute one turn and close its optional steering lane on every terminal path. */
+export const runAgentTurn = async (
+  task: string,
+  committedTranscript: readonly Message[],
+  model: Model,
+  registry: Registry,
+  options: AgentTurnOptions = {},
+): Promise<LoopOutcome> => {
+  const steering = options.steering ?? options.steeringConsumer;
+  try {
+    return await runAgentTurnInternal(task, committedTranscript, model, registry, options);
+  } finally {
+    steering?.close();
   }
 };
 

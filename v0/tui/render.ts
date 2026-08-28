@@ -191,6 +191,12 @@ export class TuiRenderer implements TerminalRendererGate {
         ));
         this.redraw();
         return;
+      case 'steering_message':
+        this.clearLiveState();
+        this.clearRecordLine();
+        this.write(dynamicLine('steer> ', event.message.content.text));
+        this.setStatus('busy · steer applied');
+        return;
       case 'turn_end':
         this.clearLiveState();
         this.setStatus(event.committed ? 'ready' : event.outcome);
@@ -266,7 +272,9 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const columns = Math.max(8, this.lastSize.columns);
     const status = escapeTerminalText(this.status, { editor: true });
-    const editor = this.liveAssistant !== null
+    const editor = this.editorText.length > 0
+      ? escapeTerminalText(this.editorText, { editor: true })
+      : this.liveAssistant !== null
       ? `assistant~ ${boundedEscaped(this.liveAssistant, { editor: true })}`
       : this.liveProgress === null
       ? escapeTerminalText(this.editorText, { editor: true })

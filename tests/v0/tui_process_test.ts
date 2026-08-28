@@ -139,6 +139,43 @@ Deno.test('PTY progress replaces the live line and leaves completed tool records
   assert(result.stderr === '');
 });
 
+Deno.test('PTY busy steering is admitted once after the gated tool batch and committed as user text', async () => {
+  const result = await runPty('steering', [
+    { text: '', delayMs: 300 },
+    { text: 'task\n', delayMs: 30 },
+    { text: '\x1b[200~fix\t\x1b[201~\n', delayMs: 300 },
+    { text: '\x04', delayMs: 200 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('busy · steer pending'));
+  assert(result.stdout.includes('steer> fix⇥'));
+  assert(result.stdout.includes('assistant> steered response'));
+  assertEquals((result.stdout.match(/steer> /g) ?? []).length, 1);
+  assert(!result.stdout.includes('user> fix'));
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  assert(result.stderr === '');
+});
+
+Deno.test('PTY steering draft is discarded by delayed Escape before the gated batch can consume it', async () => {
+  const result = await runPty('steering', [
+    { text: '', delayMs: 300 },
+    { text: 'task\n', delayMs: 30 },
+    { text: 'discarded\x1b', delayMs: 70 },
+    { text: '\x04', delayMs: 300 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('cancelling'));
+  assert(result.stdout.includes('[cancelled]'));
+  assert(!result.stdout.includes('steer> discarded'));
+  assert(!result.stdout.includes('assistant> steered response'));
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  assert(result.stderr === '');
+});
+
 Deno.test('PTY delayed assistant chunks replace before the final and restore once', async () => {
   const result = await runPty('assistant-progress', [
     { text: '', delayMs: 300 },

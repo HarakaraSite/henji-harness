@@ -93,7 +93,16 @@ alone can create assistant events, execute tools, and update the transcript. Str
 fragments are assembled and validated before dispatch; partial calls are never executed. Malformed,
 cancelled, timed-out, or failed streams retain no partial assistant result. Provider-side connection
 abort does not guarantee cancellation of provider compute or billing. Reasoning/usage display,
-retry/fallback, reconnection, steering, and queued follow-up remain deferred.
+retry/fallback, reconnection, and ordinary queued follow-up remain deferred.
+
+While a parent turn is busy, the TUI accepts at most one nonblank, NUL-free steering message up to
+65,536 UTF-8 bytes. Enter admits the bounded message without interrupting the current model request,
+tool call, or selected tool batch. It is consumed only after a complete nonterminal tool batch has
+settled and before an eligible next parent request; final, terminal, max-step, cancelled, and failed
+turns discard an unconsumed message. A consumed message is shown live as `steer>` and is committed
+as an ordinary `user>` history entry only when the enclosing turn succeeds. There is no ordinary
+next-turn queue or second steering slot, and `agent:run` remains final-only with unchanged provider
+and persistence contracts.
 
 `read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
 Paths may be relative or absolute within that root, are component-checked, reject symlinks and
@@ -157,8 +166,10 @@ uses the same fixed trusted-local workspace, skills, model profile, and trusted-
 permission envelope as `agent:run`; the selected Definition controls model tools. `default` includes
 OS-user `bash` execution with no per-tool confirmation, while `planner` exposes only `read`,
 optional `skill`, and `submit_json_result`. Each Enter starts one exact task in an in-memory
-sequential conversation (at most eight provider requests per turn); input received while a turn is
-busy is consumed and discarded. The command never implicitly changes `agent:run` into a TUI and does
+sequential conversation (at most eight provider requests per turn); while a turn is busy, printable
+input and bounded bracketed paste form the one steering editor, and Enter attempts admission;
+Escape/Ctrl-C/signals retain cancellation precedence. After admission, further ordinary input is
+consumed for that turn. The command never implicitly changes `agent:run` into a TUI and does
 not read credentials until a submitted task reaches the lazy provider adapter.
 
 The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only updates

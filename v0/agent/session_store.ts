@@ -137,34 +137,56 @@ const validateMessage = (value: unknown): value is Message => {
   return false;
 };
 
-const validateCausalTranscript = (transcript: readonly Message[]): boolean => {
-  if (transcript.length === 0 || transcript[0].role !== 'user') return false;
+/**
+ * Parse the schema-v1 causal grammar and return completed parent-turn count.
+ *
+ * A user after a nonterminal tool result is the one legal intra-turn steering message. It is
+ * deliberately consumed by this parser rather than counted as a new parent turn.
+ */
+export const parseCausalTranscript = (
+  transcript: readonly Message[],
+): number | undefined => {
+  if (transcript.length === 0 || transcript[0].role !== 'user') return undefined;
   let index = 0;
+  let completedParentTurns = 0;
   while (index < transcript.length) {
-    if (transcript[index].role !== 'user') return false;
+    if (transcript[index].role !== 'user') return undefined;
     index += 1;
     let completed = false;
+    let steeringUsed = false;
     while (index < transcript.length && !completed) {
       const assistant = transcript[index];
-      if (assistant.role !== 'assistant') return false;
+      if (assistant.role !== 'assistant') return undefined;
       index += 1;
       if (!Array.isArray(assistant.content)) {
         completed = true;
+        completedParentTurns += 1;
         break;
       }
-      if (index >= transcript.length || transcript[index].role !== 'tool') return false;
+      if (index >= transcript.length || transcript[index].role !== 'tool') return undefined;
       const tool = transcript[index++];
-      if (tool.role !== 'tool' || tool.content.length !== assistant.content.length) return false;
+      if (tool.role !== 'tool' || tool.content.length !== assistant.content.length) {
+        return undefined;
+      }
       for (let resultIndex = 0; resultIndex < tool.content.length; resultIndex += 1) {
         const call = assistant.content[resultIndex];
         const result = tool.content[resultIndex];
-        if (call.callId !== result.callId || call.name !== result.name) return false;
+        if (call.callId !== result.callId || call.name !== result.name) return undefined;
       }
-      if (tool.content.some((result) => 'terminal' in result)) completed = true;
+      if (tool.content.some((result) => 'terminal' in result)) {
+        completed = true;
+        completedParentTurns += 1;
+        break;
+      }
+      if (index < transcript.length && transcript[index].role === 'user') {
+        if (steeringUsed) return undefined;
+        steeringUsed = true;
+        index += 1;
+      }
     }
-    if (!completed) return false;
+    if (!completed) return undefined;
   }
-  return true;
+  return completedParentTurns;
 };
 
 const canonicalTimestamp = (value: unknown): value is string => {
@@ -199,12 +221,13 @@ export const validateSessionRecord = (value: unknown): value is SessionRecord =>
     !Number.isSafeInteger(record.nextTurn) || (record.nextTurn as number) < 2 ||
     !Array.isArray(record.transcript) || record.transcript.length === 0 ||
     record.transcript.length > MAX_SESSION_FILE_BYTES ||
-    !record.transcript.every(validateMessage) || !validateCausalTranscript(record.transcript)
+    !record.transcript.every(validateMessage) ||
+    parseCausalTranscript(record.transcript) === undefined
   ) {
     return false;
   }
-  const userCount = record.transcript.filter((message) => message.role === 'user').length;
-  return record.nextTurn === userCount + 1;
+  const completedParentTurns = parseCausalTranscript(record.transcript);
+  return completedParentTurns !== undefined && record.nextTurn === completedParentTurns + 1;
 };
 
 export const encodeSessionRecord = (record: SessionRecord): Uint8Array => {

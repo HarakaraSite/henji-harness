@@ -7,6 +7,7 @@ import { type ContextMetrics, prepareModelContext } from './context.ts';
 import { type ParentTurnExecutionContext } from './execution_context.ts';
 import { type CancelRequestResult, TurnCancellationOwner } from './cancellation.ts';
 import { type SessionRecord } from './session_store.ts';
+import { SteeringOwner, type SteerRequestResult, validateSteeringText } from './steering.ts';
 
 export const AGENT_SESSION_UNAVAILABLE = 'agent session unavailable';
 
@@ -50,6 +51,7 @@ export class AgentSession {
   private committedTranscript: Message[] = [];
   private active = false;
   private activeCancellation: TurnCancellationOwner | null = null;
+  private activeSteering: SteeringOwner | null = null;
   private unavailable = false;
   private nextTurn = 1;
   private committedContextSnapshot: ContextMetrics | undefined;
@@ -101,7 +103,21 @@ export class AgentSession {
   cancelActiveTurn(): CancelRequestResult {
     const cancellation = this.activeCancellation;
     if (!this.active || cancellation === null || cancellation.state === 'settled') return 'idle';
+    this.activeSteering?.close();
     return cancellation.request();
+  }
+
+  /** Admit one bounded steering message for the currently active parent turn. */
+  steerActiveTurn(text: string): SteerRequestResult {
+    if (this.unavailable) throw new Error(AGENT_SESSION_UNAVAILABLE);
+    const validated = validateSteeringText(text);
+    const cancellation = this.activeCancellation;
+    const steering = this.activeSteering;
+    if (
+      !this.active || steering === null || cancellation === null ||
+      cancellation.state !== 'active'
+    ) return 'idle';
+    return steering.admit(validated);
   }
 
   /** Submit one nonblank turn; an active turn is rejected rather than queued. */
@@ -116,6 +132,8 @@ export class AgentSession {
     const turn = this.nextTurn;
     const cancellation = new TurnCancellationOwner();
     this.activeCancellation = cancellation;
+    const steering = new SteeringOwner();
+    this.activeSteering = steering;
     const previousTranscript = snapshotMessages(this.committedTranscript);
     const previousContext = this.committedContextSnapshot === undefined
       ? undefined
@@ -134,6 +152,7 @@ export class AgentSession {
           executionContext,
           cancellation,
           signal: cancellation.signal,
+          steering,
           commit: (transcript) => {
             const committedTranscript = snapshotMessages(transcript);
             const request: ModelRequest = this.options.systemInstruction === undefined
@@ -180,6 +199,8 @@ export class AgentSession {
       this.commitAttempted = false;
       throw error;
     } finally {
+      steering.close();
+      this.activeSteering = null;
       if (cancellation.state === 'cleanup_failed') this.unavailable = true;
       this.activeCancellation = null;
       this.active = false;

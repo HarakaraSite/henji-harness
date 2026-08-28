@@ -14,8 +14,9 @@ const signalMode = parseSignal('signal-');
 const cleanupSignalMode = parseSignal('signal-cleanup-failure-');
 const activeSignal = cleanupSignalMode ?? signalMode;
 const assistantProgressMode = mode === 'assistant-progress' || mode === 'assistant-progress-cancel';
+const steeringMode = mode === 'steering';
 const delayedMode = mode === 'busy' || mode === 'busy-cleanup-failure' ||
-  activeSignal !== undefined || assistantProgressMode;
+  activeSignal !== undefined || assistantProgressMode || steeringMode;
 const cleanupFailureMode = mode === 'busy-cleanup-failure' || cleanupSignalMode !== undefined;
 const task = (value: string, finalText = 'fixture response'): LoopOutcome => ({
   ok: true,
@@ -44,6 +45,7 @@ class FixtureSession {
   private turn = 0;
   private active = false;
   private cancellationRequested = false;
+  private steeringText: string | null = null;
   constructor(private readonly sink: AgentEventSink, private readonly delayed: boolean) {}
   async submit(text: string): Promise<LoopOutcome> {
     const turn = ++this.turn;
@@ -56,6 +58,62 @@ class FixtureSession {
         message: { role: 'user', content: { kind: 'text', text } },
       });
       if (mode === 'failure') throw new Error('fixture model failure');
+      if (steeringMode) {
+        this.sink({
+          kind: 'assistant_message',
+          turn,
+          message: {
+            role: 'assistant',
+            content: [{ kind: 'tool_call', callId: 'steering', name: 'continue', arguments: {} }],
+          },
+        });
+        this.sink({
+          kind: 'tool_call',
+          turn,
+          call: { callId: 'steering', name: 'continue', arguments: {} },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (this.cancellationRequested) {
+          this.sink({ kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+          return cancelledTask(text);
+        }
+        this.sink({
+          kind: 'tool_result',
+          turn,
+          result: {
+            kind: 'tool_result',
+            callId: 'steering',
+            name: 'continue',
+            text: 'complete tool batch',
+            outcome: 'success',
+          },
+        });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (this.cancellationRequested) {
+          this.sink({ kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+          return cancelledTask(text);
+        }
+        if (this.steeringText !== null) {
+          this.sink({
+            kind: 'steering_message',
+            turn,
+            message: { role: 'user', content: { kind: 'text', text: this.steeringText } },
+          });
+        }
+        this.sink({
+          kind: 'assistant_message',
+          turn,
+          message: {
+            role: 'assistant',
+            content: {
+              kind: 'text',
+              text: this.steeringText === null ? 'fixture response' : 'steered response',
+            },
+          },
+        });
+        this.sink({ kind: 'turn_end', turn, outcome: 'final', committed: true });
+        return task(text, this.steeringText === null ? 'fixture response' : 'steered response');
+      }
       if (mode === 'progress') {
         this.sink({
           kind: 'tool_call',
@@ -127,6 +185,7 @@ class FixtureSession {
     } finally {
       this.active = false;
       this.cancellationRequested = false;
+      this.steeringText = null;
     }
   }
   cancelActiveTurn() {
@@ -134,6 +193,12 @@ class FixtureSession {
     if (this.cancellationRequested) return 'already_requested' as const;
     this.cancellationRequested = true;
     return 'requested' as const;
+  }
+  steerActiveTurn(text: string) {
+    if (!steeringMode || !this.active) return 'idle' as const;
+    if (this.steeringText !== null) return 'already_accepted' as const;
+    this.steeringText = text;
+    return 'accepted' as const;
   }
 }
 

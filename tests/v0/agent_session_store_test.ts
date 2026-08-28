@@ -10,10 +10,12 @@ import {
   MAX_VALID_SESSIONS_PER_WORKSPACE,
   MAX_WORKSPACE_DIRECTORY_ENTRIES,
   metadataFromRecord,
+  parseCausalTranscript,
   restoredMessages,
   selectStateRoot,
   type SessionRecord,
   SessionStoreError,
+  validateSessionRecord,
   workspaceDigest,
 } from '../../v0/agent/session_store.ts';
 import { AGENT_SESSION_UNAVAILABLE, AgentSession } from '../../v0/agent/session.ts';
@@ -43,6 +45,38 @@ const record = (workspaceRoot = '/tmp/workspace'): SessionRecord => ({
 });
 
 const bytes = (value: string): Uint8Array => new TextEncoder().encode(value);
+
+const steeringTranscript = (): SessionRecord['transcript'] => [
+  { role: 'user', content: { kind: 'text', text: 'first' } },
+  {
+    role: 'assistant',
+    content: [{ kind: 'tool_call', callId: 'one', name: 'continue', arguments: {} }],
+  },
+  {
+    role: 'tool',
+    content: [{
+      kind: 'tool_result',
+      callId: 'one',
+      name: 'continue',
+      text: 'complete',
+      outcome: 'success',
+    }],
+  },
+  { role: 'user', content: { kind: 'text', text: 'steer this turn' } },
+  { role: 'assistant', content: { kind: 'text', text: 'finished first' } },
+];
+
+const steeringRecord = (
+  workspaceRoot: string,
+  sessionId = id,
+  transcript = steeringTranscript(),
+  nextTurn = 2,
+): SessionRecord => ({
+  ...record(workspaceRoot),
+  sessionId,
+  nextTurn,
+  transcript,
+});
 
 const expectStoreError = async (
   operation: () => Promise<unknown>,
@@ -124,6 +158,173 @@ Deno.test('session codec emits canonical v1 bytes and rejects noncanonical input
     }
     assert(rejected, `malformed session accepted: ${malformed.slice(0, 30)}`);
   }
+});
+
+Deno.test('schema-v1 codec rejects malformed steering positions and preserves old byte shape', async () => {
+  const steering = steeringRecord('/tmp/workspace');
+  const encoded = encodeSessionRecord(steering);
+  assertEquals(decodeSessionRecord(encoded), steering);
+  assertEquals(parseCausalTranscript(steering.transcript), 1);
+  assertEquals(
+    new TextDecoder().decode(encoded),
+    `${JSON.stringify(steering)}\n`,
+  );
+  const secondStep = [
+    ...steeringTranscript().slice(0, 3),
+    { role: 'user' as const, content: { kind: 'text' as const, text: 'first steer' } },
+    {
+      role: 'assistant' as const,
+      content: [{ kind: 'tool_call' as const, callId: 'two', name: 'continue', arguments: {} }],
+    },
+    {
+      role: 'tool' as const,
+      content: [{
+        kind: 'tool_result' as const,
+        callId: 'two',
+        name: 'continue',
+        text: 'complete again',
+        outcome: 'success' as const,
+      }],
+    },
+    { role: 'user' as const, content: { kind: 'text' as const, text: 'second steer' } },
+    { role: 'assistant' as const, content: { kind: 'text' as const, text: 'done' } },
+  ];
+  const malformed: readonly SessionRecord[] = [
+    steeringRecord(
+      '/tmp/workspace',
+      id,
+      steeringTranscript().slice(0, 3).concat([
+        steeringTranscript()[3],
+      ]),
+    ),
+    steeringRecord('/tmp/workspace', id, steeringTranscript().slice(0, 3)),
+    steeringRecord('/tmp/workspace', id, [...steeringTranscript(), {
+      role: 'user',
+      content: { kind: 'text', text: 'after final' },
+    }]),
+    steeringRecord('/tmp/workspace', id, secondStep),
+    steeringRecord('/tmp/workspace', id, [
+      steeringTranscript()[0],
+      steeringTranscript()[1],
+      steeringTranscript()[3],
+      steeringTranscript()[2],
+      steeringTranscript()[4],
+    ]),
+    steeringRecord('/tmp/workspace', id, steeringTranscript(), 3),
+    steeringRecord('/tmp/workspace', id, [
+      { role: 'user', content: { kind: 'text', text: 'bad\0text' } },
+      steeringTranscript()[4],
+    ]),
+  ];
+  for (const value of malformed) {
+    assertEquals(validateSessionRecord(value), false);
+    await expectStoreError(
+      () => Promise.resolve().then(() => encodeSessionRecord(value)),
+      'session_invalid',
+    );
+  }
+
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-steering-invalid-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  const paths = await store.pathsPromise;
+  await Deno.mkdir(`${paths.sessions}/${id}`, { recursive: true, mode: 0o700 });
+  const invalidOnDisk = { ...malformed[3], workspaceRoot: workspace };
+  await Deno.writeFile(
+    `${paths.sessions}/${id}/session.json`,
+    bytes(`${JSON.stringify(invalidOnDisk)}\n`),
+  );
+  await Deno.chmod(`${paths.sessions}/${id}/session.json`, 0o600);
+  const listed = await store.list();
+  assertEquals(listed.sessions, []);
+  assertEquals(listed.skippedInvalid, 1);
+  await expectStoreError(() => store.openExisting(id), 'session_invalid');
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('Deno store commits, lists, opens, resumes, and rolls back a canonical steering record', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-steering-store-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  const handle = await store.allocate('default');
+  const initial = {
+    ...steeringRecord(workspace, handle.id),
+    createdAt: '2026-08-27T00:00:01.000Z',
+  } satisfies SessionRecord;
+  const persistence = createSessionPersistence(handle, workspace, 'default');
+  persistence.commit(initial.transcript, initial.nextTurn, initial.updatedAt);
+  assertEquals(await store.read(handle.id), initial);
+  assertEquals((await store.list()).sessions, [{
+    id: handle.id,
+    agent: 'default',
+    createdAt: initial.createdAt,
+    updatedAt: initial.updatedAt,
+    turnCount: 1,
+    messageCount: initial.transcript.length,
+  }]);
+  await persistence.close();
+
+  const resumedHandle = await store.openExisting(handle.id);
+  assertEquals(resumedHandle.record, initial);
+  const resumedPersistence = createSessionPersistence(
+    resumedHandle,
+    workspace,
+    'default',
+    resumedHandle.record,
+  );
+  const requests: ModelRequest[] = [];
+  const resumed = new AgentSession(
+    {
+      generate(request) {
+        requests.push(request);
+        return { kind: 'final' as const, text: 'finished second' };
+      },
+    },
+    new Registry([]),
+    {
+      initialRecord: resumedHandle.record,
+      persistence: resumedPersistence,
+    },
+  );
+  const outcome = await resumed.submit('second');
+  assert(outcome.ok);
+  assertEquals(requests[0].transcript.at(-1), {
+    role: 'user',
+    content: { kind: 'text', text: 'second' },
+  });
+  const committed = await store.read(handle.id);
+  assertEquals(committed.nextTurn, 3);
+  assertEquals(metadataFromRecord(committed).turnCount, 2);
+  assertEquals(committed.transcript.slice(0, initial.transcript.length), initial.transcript);
+  await resumed.close();
+
+  const rollbackHandle = await store.openExisting(handle.id);
+  const rollbackPersistence = createSessionPersistence(
+    rollbackHandle,
+    workspace,
+    'default',
+    rollbackHandle.record,
+  );
+  const extended = {
+    ...committed,
+    nextTurn: 4,
+    updatedAt: '2026-08-29T00:00:02.000Z',
+    transcript: [
+      ...committed.transcript,
+      { role: 'user' as const, content: { kind: 'text' as const, text: 'rollback turn' } },
+      { role: 'assistant' as const, content: { kind: 'text' as const, text: 'rollback answer' } },
+    ],
+  } satisfies SessionRecord;
+  rollbackPersistence.commit(extended.transcript, extended.nextTurn, extended.updatedAt);
+  assertEquals(await store.read(handle.id), extended);
+  rollbackPersistence.rollback();
+  assertEquals(await store.read(handle.id), committed);
+  await rollbackPersistence.close();
+  await Deno.remove(root, { recursive: true });
 });
 
 Deno.test('session identity projection, root precedence and bounded display are deterministic', async () => {

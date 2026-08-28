@@ -21,6 +21,7 @@ export class TuiControllerError extends Error {
 interface SessionLike {
   submit(text: string): Promise<LoopOutcome>;
   cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
+  steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
   contextSnapshot?(): ContextMetrics | undefined;
 }
 
@@ -39,6 +40,7 @@ export class TuiController {
   private readPromise: Promise<Uint8Array | null> | null = null;
   private exitIntent: 'return' | 'exit-0' | 129 | 143 = 'return';
   private cancellationRequested = false;
+  private steeringAccepted = false;
   private firstCtrlCAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private crashSettlement: Promise<void> | null = null;
@@ -77,6 +79,7 @@ export class TuiController {
     this.state = 'failed';
     this.exitCode = 1;
     this.clearLiveActivity();
+    this.clearSteeringEditorBestEffort();
     this.crashSettlement ??= this.settleCrash();
   }
 
@@ -200,7 +203,9 @@ export class TuiController {
           } else this.renderer.setEditor(this.editor.text);
           break;
         case 'paste':
-          if (!this.editor.append(event.text)) {
+          if (event.text.includes('\0')) {
+            this.renderer.setStatus('invalid steering input');
+          } else if (!this.editor.append(event.text)) {
             this.renderer.setStatus('paste exceeds 64 KiB');
           } else this.renderer.setEditor(this.editor.text);
           break;
@@ -240,6 +245,34 @@ export class TuiController {
       this.busyCtrlC();
     } else if (event.kind === 'escape') {
       this.busyEscape();
+    } else if (this.session.steerActiveTurn !== undefined && !this.steeringAccepted) {
+      switch (event.kind) {
+        case 'printable':
+          if (!this.editor.append(event.text)) this.renderer.setStatus('input too long');
+          else this.renderer.setEditor(this.editor.text);
+          break;
+        case 'paste':
+          if (event.text.includes('\0')) this.renderer.setStatus('invalid steering input');
+          else if (!this.editor.append(event.text)) this.renderer.setStatus('paste exceeds 64 KiB');
+          else this.renderer.setEditor(this.editor.text);
+          break;
+        case 'backspace':
+          this.editor.backspace();
+          this.renderer.setEditor(this.editor.text);
+          break;
+        case 'enter':
+          this.submitSteeringIfNonblank();
+          break;
+        case 'invalid_utf8':
+          this.renderer.setStatus('invalid UTF-8');
+          break;
+        case 'paste_rejected':
+          this.renderer.setStatus('paste exceeds 64 KiB');
+          break;
+        case 'ctrl_d':
+        case 'unknown':
+          break;
+      }
     }
     // Every other event is deliberately consumed and discarded.
   }
@@ -254,6 +287,7 @@ export class TuiController {
     this.renderer.setEditor('');
     this.state = 'busy';
     this.cancellationRequested = false;
+    this.steeringAccepted = false;
     try {
       this.active = Promise.resolve(this.session.submit(text));
     } catch (error) {
@@ -262,7 +296,9 @@ export class TuiController {
   }
 
   private finishTurn(outcome: LoopOutcome): void {
+    this.clearSteeringEditorStrict();
     this.renderer.clearLiveProgress();
+    this.steeringAccepted = false;
     if (!outcome.ok && outcome.stopReason !== 'cancelled') {
       this.renderer.setStatus(renderFailureStatus(outcome));
       throw new TuiControllerError('agent_failure');
@@ -333,6 +369,7 @@ export class TuiController {
   private requestBusyCancellation(status: string): void {
     if (this.session.cancelActiveTurn === undefined) {
       this.renderer.clearLiveProgress();
+      this.clearSteeringEditorBestEffort();
       this.renderer.setStatus('cancellation unavailable; turn continues');
       return;
     }
@@ -340,9 +377,11 @@ export class TuiController {
       const result = this.session.cancelActiveTurn();
       this.cancellationRequested = result !== 'idle';
     }
-    // Cancellation must own the active tool before any redraw can fail. `fail()` then waits for
-    // this promise to settle before closing the terminal and returning the fatal output error.
+    // Clear replaceable live activity before redrawing the editor so no stale tool snapshot is
+    // emitted after cancellation. The strict editor clear still precedes the status redraw; its
+    // failure becomes output_failure and `fail()` waits for this active turn before restoration.
     this.renderer.clearLiveProgress();
+    this.clearSteeringEditorStrict();
     this.renderer.setStatus(status);
   }
 
@@ -398,6 +437,7 @@ export class TuiController {
     this.state = 'exiting';
     this.exitCode = code;
     this.clearLiveActivity();
+    this.clearSteeringEditorBestEffort();
     this.shutdownPromise = this.lifecycle.restore();
     await this.shutdownPromise;
   }
@@ -407,6 +447,7 @@ export class TuiController {
       this.state = 'failed';
     }
     this.clearLiveActivity();
+    this.clearSteeringEditorBestEffort();
     await this.settleActive();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
@@ -455,6 +496,52 @@ export class TuiController {
       this.renderer.clearLiveActivity();
     } catch {
       // The original controller/agent failure remains authoritative; restoration still runs.
+    }
+  }
+
+  /** Normal interactive clearing propagates renderer failure to the output-failure path. */
+  private clearSteeringEditorStrict(): void {
+    this.editor.clear();
+    this.renderer.setEditor('');
+  }
+
+  /** Crash/restore cleanup cannot replace the original failure and therefore remains best effort. */
+  private clearSteeringEditorBestEffort(): void {
+    this.editor.clear();
+    try {
+      this.renderer.setEditor('');
+    } catch {
+      // A renderer failure is handled by the enclosing controller failure/restore path.
+    }
+  }
+
+  private submitSteeringIfNonblank(): void {
+    const text = this.editor.submit();
+    if (text === null) {
+      this.renderer.setStatus('enter steering text');
+      return;
+    }
+    let result: 'accepted' | 'idle' | 'already_accepted';
+    try {
+      result = this.session.steerActiveTurn!(text);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        this.renderer.setStatus('invalid steering input');
+        return;
+      }
+      throw error;
+    }
+    if (result === 'accepted') {
+      this.steeringAccepted = true;
+      this.clearSteeringEditorStrict();
+      this.renderer.setStatus('busy · steer pending');
+    } else if (result === 'already_accepted') {
+      this.steeringAccepted = true;
+      this.clearSteeringEditorStrict();
+      this.renderer.setStatus('steering already accepted');
+    } else {
+      this.clearSteeringEditorStrict();
+      this.renderer.setStatus('steering window closed');
     }
   }
 }

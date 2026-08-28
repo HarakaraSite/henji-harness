@@ -43,6 +43,11 @@ export type AgentEvent =
     readonly text: string;
   }
   | {
+    readonly kind: 'steering_message';
+    readonly turn: number;
+    readonly message: UserMessage;
+  }
+  | {
     readonly kind: 'turn_end';
     readonly turn: number;
     readonly outcome: LoopOutcome['stopReason'];

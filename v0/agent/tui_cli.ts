@@ -22,7 +22,7 @@ const encoder = new TextEncoder();
 export interface TuiSessionFactoryResult {
   readonly session:
     & Pick<AgentSession, 'submit'>
-    & Partial<Pick<AgentSession, 'cancelActiveTurn' | 'contextSnapshot'>>;
+    & Partial<Pick<AgentSession, 'cancelActiveTurn' | 'contextSnapshot' | 'steerActiveTurn'>>;
   readonly requestCount?: () => number;
   readonly close?: () => void | Promise<void>;
   readonly sessionLine?: string;
