@@ -98,6 +98,14 @@ is no per-tool prompt or additional CLI flag. Bash is trusted-local OS-user exec
 workspace sandbox: it can access outside files, network, and descendants, and timeout cleanup
 guarantees only the direct child is killed and reaped.
 
+During a TUI tool call, `bash` may emit provider-neutral progress as accumulated stdout/stderr
+snapshots. Each stream is observed up to 4,000 UTF-8 bytes and each call delivers at most 64
+snapshots; progress is live-only, replaceable TUI state and is neither sent to the model nor stored
+in session history. Strict live decoding can disable one malformed or incomplete stream while the
+final bounded 4,096-byte capture remains authoritative. If event output fails, the active tool is
+cancelled and settled before the sanitized failure is surfaced. These observations do not change
+the existing trusted-local Bash permissions or direct-child-only descendant limitation.
+
 Before the first normal-runtime model request, the host optionally reads one standing-instruction
 file directly under the canonical workspace: `AGENTS.md` is preferred over `AGENTS.MD`, and the
 first present candidate wins. Only regular non-symlink files with valid UTF-8 text up to 16 KiB are

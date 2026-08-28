@@ -41,6 +41,7 @@ export class TuiController {
   private cancellationRequested = false;
   private firstCtrlCAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
   private signalCode: number | null = null;
   private signalsInstalled = false;
@@ -63,26 +64,27 @@ export class TuiController {
   installSignals(): void {
     if (this.signalsInstalled) return;
     this.lifecycle.addSignals({
-      SIGINT: () => this.onSignal('SIGINT'),
-      SIGTERM: () => this.onSignal('SIGTERM'),
-      SIGHUP: () => this.onSignal('SIGHUP'),
+      SIGINT: () => this.dispatchSignal('SIGINT'),
+      SIGTERM: () => this.dispatchSignal('SIGTERM'),
+      SIGHUP: () => this.dispatchSignal('SIGHUP'),
     });
     this.signalsInstalled = true;
   }
 
-  /** Last-resort crash path: close the renderer and terminate with a sanitized failure. */
+  /** Last-resort crash path: settle an active turn before closing the renderer. */
   handleCrash(): void {
     if (this.state === 'exiting' || this.state === 'failed') return;
     this.state = 'failed';
     this.exitCode = 1;
-    this.shutdownPromise ??= this.lifecycle.restore();
+    this.crashSettlement ??= this.settleCrash();
   }
 
   async run(): Promise<number> {
     try {
       this.installSignals();
       if (this.state === 'exiting' || this.state === 'failed') {
-        this.shutdownPromise ??= this.lifecycle.restore();
+        if (this.crashSettlement !== null) await this.crashSettlement;
+        if (this.shutdownPromise === null) this.shutdownPromise = this.lifecycle.restore();
         await this.shutdownPromise;
         return this.exitCode;
       }
@@ -107,9 +109,12 @@ export class TuiController {
           this.processBusy(winner.events);
         } else if (this.active === active) {
           this.active = null;
-          this.finishTurn(winner.outcome);
+          if (this.canFinishTurn()) {
+            this.finishTurn(winner.outcome);
+          }
         }
       }
+      if (this.crashSettlement !== null) await this.crashSettlement;
       if (this.shutdownPromise !== null) await this.shutdownPromise;
       return this.exitCode;
     } catch (error) {
@@ -254,6 +259,7 @@ export class TuiController {
   }
 
   private finishTurn(outcome: LoopOutcome): void {
+    this.renderer.clearLiveProgress();
     if (!outcome.ok && outcome.stopReason !== 'cancelled') {
       this.renderer.setStatus(renderFailureStatus(outcome));
       throw new TuiControllerError('agent_failure');
@@ -323,6 +329,7 @@ export class TuiController {
 
   private requestBusyCancellation(status: string): void {
     if (this.session.cancelActiveTurn === undefined) {
+      this.renderer.clearLiveProgress();
       this.renderer.setStatus('cancellation unavailable; turn continues');
       return;
     }
@@ -330,6 +337,9 @@ export class TuiController {
       const result = this.session.cancelActiveTurn();
       this.cancellationRequested = result !== 'idle';
     }
+    // Cancellation must own the active tool before any redraw can fail. `fail()` then waits for
+    // this promise to settle before closing the terminal and returning the fatal output error.
+    this.renderer.clearLiveProgress();
     this.renderer.setStatus(status);
   }
 
@@ -337,6 +347,21 @@ export class TuiController {
     const rank = (value: typeof this.exitIntent): number =>
       value === 'return' ? 0 : value === 'exit-0' ? 1 : 2;
     if (rank(intent) > rank(this.exitIntent)) this.exitIntent = intent;
+  }
+
+  private canFinishTurn(): boolean {
+    return this.state !== 'failed' && this.state !== 'exiting';
+  }
+
+  private dispatchSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP'): void {
+    try {
+      this.onSignal(signal);
+    } catch (error) {
+      // A signal listener can fail during a redraw outside run()'s stack. Start the same guarded
+      // crash settlement before rethrowing so the host crash guard cannot restore early.
+      this.handleCrash();
+      throw error;
+    }
   }
 
   private onSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP'): void {
@@ -377,6 +402,7 @@ export class TuiController {
     if (this.state !== 'failed' && this.state !== 'exiting') {
       this.state = 'failed';
     }
+    await this.settleActive();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
       this.exitCode = 1;
@@ -390,5 +416,30 @@ export class TuiController {
     if (error instanceof InputDecodeError) {
       throw new TuiControllerError('input_failure');
     }
+  }
+
+  private async settleActive(): Promise<void> {
+    const active = this.active;
+    if (active === null) return;
+    // A busy input/output failure may interrupt before the normal turn branch observes its
+    // promise. Request cancellation first and await owned tool/resource settlement before any
+    // restore operation can close the terminal.
+    try {
+      this.session.cancelActiveTurn?.();
+    } catch {
+      // The original controller failure remains authoritative; settlement is still awaited.
+    }
+    try {
+      await active;
+    } catch {
+      // The active turn's rejection is secondary to the controller failure being reported.
+    }
+    if (this.active === active) this.active = null;
+  }
+
+  private async settleCrash(): Promise<void> {
+    await this.settleActive();
+    if (this.shutdownPromise === null) this.shutdownPromise = this.lifecycle.restore();
+    await this.shutdownPromise;
   }
 }

@@ -15,6 +15,7 @@ const MAX_TEXT_BYTES = 65_536;
 const MAX_PATH_BYTES = 4_096;
 const MAX_COMMAND_BYTES = 16_384;
 const MAX_CAPTURE_BYTES = 4_096;
+const MAX_PROGRESS_STREAM_BYTES = 4_000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const CAPTURE_GRACE_MS = 250;
@@ -553,17 +554,53 @@ interface CaptureState {
   readonly done: Promise<CapturedStream>;
   readonly snapshot: () => CapturedStream;
   readonly cancelAndWait: () => Promise<void>;
+  readonly progressText: () => string;
 }
 
-const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
+const startDrain = (
+  stream: ReadableStream<Uint8Array>,
+  onProgress?: (prefix: string) => void,
+): CaptureState => {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
   let truncated = false;
+  let progressPrefix = '';
+  let progressBytes = 0;
+  let progressFrozen = false;
+  let progressDisabled = false;
+  const progressDecoder = new TextDecoder('utf-8', { fatal: true });
   const snapshot = (): CapturedStream => ({
     bytes: concatBytes(chunks, total),
     truncated,
   });
+  const progressText = (): string => progressPrefix;
+  const observe = (bytes: Uint8Array): void => {
+    if (progressDisabled || progressFrozen || bytes.byteLength === 0) return;
+    let decoded: string;
+    try {
+      decoded = progressDecoder.decode(bytes, { stream: true });
+    } catch {
+      // The final bounded capture remains authoritative; only live observation is disabled.
+      progressDisabled = true;
+      return;
+    }
+    if (decoded.length === 0) return;
+    let changed = false;
+    for (const character of decoded) {
+      const size = encoder.encode(character).byteLength;
+      if (progressBytes + size > MAX_PROGRESS_STREAM_BYTES) {
+        // Do not classify a valid scalar crossing the observation cap as malformed. Freeze this
+        // stream before the scalar while raw capture continues unchanged.
+        progressFrozen = true;
+        break;
+      }
+      progressPrefix += character;
+      progressBytes += size;
+      changed = true;
+    }
+    if (changed) onProgress?.(progressPrefix);
+  };
   const done = (async (): Promise<CapturedStream> => {
     try {
       for (;;) {
@@ -576,6 +613,16 @@ const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
           total += retained.byteLength;
         }
         if (item.value.byteLength > remaining) truncated = true;
+        observe(item.value);
+      }
+      if (!progressDisabled && !progressFrozen) {
+        try {
+          observe(new Uint8Array());
+          progressDecoder.decode();
+        } catch {
+          // An incomplete terminal sequence is malformed for live observation only.
+          progressDisabled = true;
+        }
       }
     } catch {
       // Cancellation after the bounded capture grace is an expected cleanup path.
@@ -595,6 +642,7 @@ const startDrain = (stream: ReadableStream<Uint8Array>): CaptureState => {
       await reader.cancel();
       await done;
     },
+    progressText,
   };
 };
 
@@ -666,8 +714,17 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
     }
     let timedOut = false;
     let cancellationRequested = false;
-    const stdout = startDrain(child.stdout);
-    const stderr = startDrain(child.stderr);
+    const reportProgress = context?.reportProgress;
+    const stderrCapture: { current?: CaptureState } = {};
+    const stdout = startDrain(child.stdout, (prefix) => {
+      reportProgress?.(
+        `stdout:\n${prefix}\nstderr:\n${stderrCapture.current?.progressText() ?? ''}`,
+      );
+    });
+    const stderr = startDrain(child.stderr, (prefix) => {
+      reportProgress?.(`stdout:\n${stdout.progressText()}\nstderr:\n${prefix}`);
+    });
+    stderrCapture.current = stderr;
     let status: Deno.CommandStatus | undefined;
     const statusPromise = child.status.then((value) => {
       status = value;

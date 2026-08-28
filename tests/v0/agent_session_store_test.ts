@@ -516,6 +516,104 @@ Deno.test('durable turn_end failure restores the exact prior record in the same 
   await session.close();
 });
 
+Deno.test('persistent canonical transcript excludes live progress events', async () => {
+  const store = new FakeSessionStore('/workspace');
+  const progressHandle = await store.allocate('default');
+  const plainHandle = await store.allocate('default');
+  const model = {
+    generate: (request: ModelRequest) =>
+      request.transcript.length === 1
+        ? {
+          kind: 'tool_calls' as const,
+          calls: [{ callId: 'progress', name: 'progress', arguments: { value: 'x' } }],
+        }
+        : { kind: 'final' as const, text: 'done' },
+  };
+  const registry = new Registry([{
+    name: 'progress',
+    description: 'progress',
+    inputSchema: {},
+    execute(_arguments, context) {
+      const report = context && 'reportProgress' in context ? context.reportProgress : undefined;
+      report?.('live-only');
+      return 'result';
+    },
+  }]);
+  const run = async (handle: typeof progressHandle, eventSink?: (event: AgentEvent) => void) => {
+    const session = new AgentSession(
+      model,
+      registry,
+      {
+        persistence: createSessionPersistence(handle, '/workspace', 'default'),
+        ...(eventSink === undefined ? {} : { eventSink }),
+      },
+    );
+    const result = await session.submit('persistent');
+    assert(result.ok);
+    await session.close();
+    return { result, record: await store.read(handle.id) };
+  };
+  const events: AgentEvent[] = [];
+  const withProgress = await run(progressHandle, (event) => events.push(event));
+  const withoutProgress = await run(plainHandle);
+  assert(events.some((event) => event.kind === 'tool_progress'));
+  assertEquals(withProgress.result.transcript, withoutProgress.result.transcript);
+  assertEquals(withProgress.record.transcript, withProgress.result.transcript);
+  assertEquals(withProgress.record.transcript, withoutProgress.record.transcript);
+  assertEquals(JSON.stringify(withProgress.record).includes('tool_progress'), false);
+  const fixedRecord = (value: SessionRecord): SessionRecord => ({
+    ...value,
+    sessionId: id,
+    createdAt: '2026-08-28T00:00:00.000Z',
+    updatedAt: '2026-08-28T00:00:01.000Z',
+  });
+  assertEquals(
+    Array.from(encodeSessionRecord(fixedRecord(withProgress.record))),
+    Array.from(encodeSessionRecord(fixedRecord(withoutProgress.record))),
+  );
+  const restored = restoredMessages(withProgress.record.transcript);
+  assertEquals(restored.messages, withProgress.record.transcript);
+  assertEquals(restored.omitted, 0);
+  const resumedHandle = await store.openExisting(progressHandle.id);
+  assert(resumedHandle.record !== undefined);
+  const replayEvents: AgentEvent[] = [];
+  const replayRequests: ModelRequest[] = [];
+  const resumed = new AgentSession(
+    {
+      generate(request) {
+        replayRequests.push(request);
+        return { kind: 'final' as const, text: 'resumed' };
+      },
+    },
+    new Registry([]),
+    {
+      persistence: createSessionPersistence(
+        resumedHandle,
+        '/workspace',
+        'default',
+        resumedHandle.record,
+      ),
+      initialRecord: resumedHandle.record,
+      eventSink: (event) => replayEvents.push(event),
+    },
+  );
+  assertEquals(replayEvents, []);
+  const resumedResult = await resumed.submit('resumed task');
+  assert(resumedResult.ok);
+  assertEquals(replayEvents.map((event) => event.kind), [
+    'turn_start',
+    'user_message',
+    'assistant_message',
+    'turn_end',
+  ]);
+  assertEquals(replayEvents.filter((event) => event.kind === 'tool_progress'), []);
+  assertEquals(replayRequests[0].transcript, [
+    ...withProgress.record.transcript,
+    { role: 'user', content: { kind: 'text', text: 'resumed task' } },
+  ]);
+  await resumed.close();
+});
+
 Deno.test('fake reservation accounting is bounded at 256 without writing empty records', async () => {
   const store = new FakeSessionStore('/workspace');
   const handles = [];

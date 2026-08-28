@@ -148,3 +148,77 @@ Deno.test('renderer falls back to last valid console size and blocks late writes
   assert(terminal.text().length >= before.length);
   assert(!terminal.text().includes('late'));
 });
+
+Deno.test('progress replaces one live line, escapes dynamic text, and never enters scrollback', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 120, rows: 4 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.eventSink({ kind: 'turn_start', turn: 1 });
+  renderer.eventSink({
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'progress', name: 'read\x1b', arguments: {} },
+  });
+  const before = terminal.writes.length;
+  renderer.eventSink({
+    kind: 'tool_progress',
+    turn: 1,
+    callId: 'progress',
+    name: 'read\x1b',
+    text: 'a\nb\t\u202e',
+  });
+  renderer.eventSink({
+    kind: 'tool_progress',
+    turn: 1,
+    callId: 'progress',
+    name: 'read\x1b',
+    text: 'accumulated',
+  });
+  const liveWrites = terminal.writes.slice(before);
+  assertEquals(liveWrites.length, 2);
+  assert(liveWrites.every((write) => !write.includes('\n')));
+  assert(liveWrites[0].includes('tool~'));
+  assert(liveWrites[0].includes('\\u{001B}'));
+  assert(liveWrites[0].includes('↵'));
+  assert(liveWrites[0].includes('⇥'));
+  assert(liveWrites[0].includes('\\u{202E}'));
+  assert(liveWrites[1].includes('accumulated'));
+  renderer.eventSink({
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'progress',
+      name: 'read\x1b',
+      text: 'done',
+      outcome: 'success',
+    },
+  });
+  const afterResult = terminal.writes.slice(-2);
+  assert(afterResult.every((write) => !write.includes('tool~')));
+  assert(afterResult.some((write) => write.includes('tool< read')));
+  renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+  renderer.close();
+  const closedLength = terminal.writes.length;
+  renderer.clearLiveProgress();
+  assertEquals(terminal.writes.length, closedLength);
+});
+
+Deno.test('progress display bounds wide 8,192-byte snapshots without mutating source text', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 40, rows: 4 };
+  const renderer = new TuiRenderer(terminal);
+  const source = `${'中'.repeat(2_730)}aa`;
+  renderer.eventSink({
+    kind: 'tool_progress',
+    turn: 1,
+    callId: 'wide',
+    name: 'bash',
+    text: source,
+  });
+  const write = terminal.writes.at(-1)!;
+  assert(write.includes('[ready]'));
+  assert(!write.includes(source));
+  assert(!write.includes('\n'));
+  assertEquals(new TextEncoder().encode(source).byteLength, 8_192);
+});

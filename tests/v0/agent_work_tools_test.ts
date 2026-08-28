@@ -1,4 +1,5 @@
-import { assert, assertEquals } from './test_helpers.ts';
+import { assert, assertEquals, assertRejects } from './test_helpers.ts';
+import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
 import type { JsonValue } from '../../v0/agent/contracts.ts';
 import {
   CancellationCleanupError,
@@ -39,6 +40,12 @@ const toolError = async (tool: Tool, args: unknown, expected: string): Promise<v
 };
 
 const textBytes = (text: string): Uint8Array => encoder.encode(text);
+
+const deferred = <T>() => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => resolve = resolvePromise);
+  return { promise, resolve };
+};
 
 Deno.test('read accepts relative and in-root absolute paths and preserves text bytes', async () => {
   await withWorkspace(async (root) => {
@@ -534,5 +541,218 @@ Deno.test('corpus and production registries expose disjoint exact definition set
       createWorkToolsRegistry(workspace).definitions().map((definition) => definition.name),
       ['bash', 'edit', 'read', 'submit_json_result', 'write'],
     );
+  });
+});
+
+Deno.test('bash reports accumulated stdout/stderr observations without changing final JSON', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const progress: string[] = [];
+    const bash = createBashTool(workspace);
+    const result = JSON.parse(
+      await bash.execute({
+        command: 'printf out; printf err >&2',
+      }, { reportProgress: (snapshot) => progress.push(snapshot) }) as string,
+    );
+    assert(progress.length > 0);
+    assert(progress.some((snapshot) => snapshot.includes('stdout:\nout')));
+    assert(progress.some((snapshot) => snapshot.includes('stderr:\nerr')));
+    assertEquals(result.stdout, 'out');
+    assertEquals(result.stderr, 'err');
+    assertEquals(result.stdoutTruncated, false);
+    assertEquals(result.stderrTruncated, false);
+  });
+});
+
+Deno.test('bash strict progress decoding handles split UTF-8 and disables only malformed streams', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const split: string[] = [];
+    const bash = createBashTool(workspace);
+    const splitResult = JSON.parse(
+      await bash.execute({
+        command: "printf '\\342'; sleep 0.02; printf '\\202\\254'",
+      }, { reportProgress: (snapshot) => split.push(snapshot) }) as string,
+    );
+    assert(split.some((snapshot) => snapshot.includes('stdout:\n€')));
+    assertEquals(splitResult.stdout, '€');
+
+    const malformed: string[] = [];
+    const malformedResult = JSON.parse(
+      await bash.execute({
+        command: "printf '\\303('",
+      }, { reportProgress: (snapshot) => malformed.push(snapshot) }) as string,
+    );
+    assertEquals(malformed, []);
+    assertEquals(malformedResult.stdout, '�(');
+
+    const incomplete: string[] = [];
+    const incompleteResult = JSON.parse(
+      await bash.execute({
+        command: "printf '\\303'",
+      }, { reportProgress: (snapshot) => incomplete.push(snapshot) }) as string,
+    );
+    assertEquals(incomplete, []);
+    assertEquals(incompleteResult.stdout, '�');
+  });
+});
+
+Deno.test('bash excludes the crossing multibyte scalar at the 4,000-byte observation cap', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const bash = createBashTool(workspace);
+    const commands = [
+      "python3 -c \"import sys;sys.stdout.buffer.write(b'a'*3999+'€'.encode())\"",
+      "for ((i=0;i<3999;i++)); do printf a; done; sleep 0.02; printf '\\342\\202\\254'",
+    ];
+    for (const command of commands) {
+      const progress: string[] = [];
+      const result = JSON.parse(
+        await bash.execute({
+          command,
+        }, { reportProgress: (snapshot) => progress.push(snapshot) }) as string,
+      );
+      const observed = progress.filter((snapshot) => snapshot.startsWith('stdout:\n'));
+      assert(observed.length > 0);
+      const prefix = observed.at(-1)!.split('\nstderr:\n')[0].slice('stdout:\n'.length);
+      assertEquals(prefix.length, 3999);
+      assert(!prefix.includes('€'));
+      assertEquals(result.stdout, `${'a'.repeat(3999)}€`);
+      assertEquals(result.stdoutTruncated, false);
+    }
+  });
+});
+
+Deno.test('bash progress and final capture retain their independent exact byte bounds', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const progress: string[] = [];
+    const bash = createBashTool(workspace);
+    const result = JSON.parse(
+      await bash.execute({
+        command:
+          'python3 -c "import sys,time;[(sys.stdout.write(\'a\'*1000),sys.stdout.flush(),time.sleep(0.01)) for _ in range(5)]"',
+      }, { reportProgress: (snapshot) => progress.push(snapshot) }) as string,
+    );
+    const observed = progress.filter((snapshot) => snapshot.startsWith('stdout:\n'));
+    assert(observed.length >= 4);
+    const prefix = observed.at(-1)!.split('\nstderr:\n')[0].slice('stdout:\n'.length);
+    assertEquals(new TextEncoder().encode(prefix).byteLength, 4_000);
+    assertEquals(prefix, 'a'.repeat(4_000));
+    assertEquals(result.stdout, 'a'.repeat(4_096));
+    assertEquals(result.stdoutTruncated, true);
+  });
+});
+
+Deno.test('bash progress sink failure kills and reaps a TERM-ignoring direct child before rejection', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    const events: AgentEvent[] = [];
+    const captureGate = deferred<void>();
+    const captureStarted = deferred<void>();
+    const bash = createBashTool(workspace, {
+      beforeCapture(waitForSettlement) {
+        if (!waitForSettlement) return;
+        captureStarted.resolve(undefined);
+        return captureGate.promise;
+      },
+    });
+    const session = new AgentSession(
+      {
+        generate: () => ({
+          kind: 'tool_calls' as const,
+          calls: [{
+            callId: 'bash-failure',
+            name: 'bash',
+            arguments: {
+              command: 'trap "" TERM; echo "$BASHPID" > child.pid; printf progress; exec sleep 5',
+              timeoutMs: 120_000,
+            },
+          }],
+        }),
+      },
+      new Registry([bash]),
+      {
+        eventSink(event) {
+          events.push(event);
+          if (event.kind === 'tool_progress') throw new Error('sink rejected');
+        },
+      },
+    );
+    const started = performance.now();
+    const pending = session.submit('run and fail progress');
+    await captureStarted.promise;
+    let settled = false;
+    void pending.then(() => settled = true, () => settled = true);
+    await Promise.resolve();
+    assert(!settled);
+    captureGate.resolve(undefined);
+    let error: unknown;
+    try {
+      await pending;
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof EventDeliveryError);
+    assert(performance.now() - started < 1_000);
+    assertEquals(events.filter((event) => event.kind === 'tool_result').length, 0);
+    assertEquals(events.filter((event) => event.kind === 'turn_end').length, 0);
+    const pid = (await Deno.readTextFile(`${root}/child.pid`)).trim();
+    assert(/^\d+$/.test(pid));
+    const probe = await new Deno.Command('/bin/bash', {
+      args: ['--noprofile', '--norc', '-c', `kill -0 ${pid}`],
+      cwd: root,
+      clearEnv: true,
+      env: { PATH: '/usr/local/bin:/usr/bin:/bin' },
+      stdout: 'null',
+      stderr: 'null',
+    }).output();
+    assert(!probe.success);
+  });
+});
+
+Deno.test('bash progress event failure retains outward error when capture cleanup fails', async () => {
+  await withWorkspace(async (root) => {
+    const workspace = await resolveWorkspace(root);
+    let captureAttempts = 0;
+    const bash = createBashTool(workspace, {
+      beforeCapture(waitForSettlement) {
+        if (waitForSettlement) {
+          captureAttempts += 1;
+          throw new Error('injected capture cleanup failure');
+        }
+      },
+    });
+    const events: AgentEvent[] = [];
+    const session = new AgentSession(
+      {
+        generate: () => ({
+          kind: 'tool_calls' as const,
+          calls: [{
+            callId: 'bash-cleanup-failure',
+            name: 'bash',
+            arguments: { command: 'printf progress', timeoutMs: 120_000 },
+          }],
+        }),
+      },
+      new Registry([bash]),
+      {
+        eventSink(event) {
+          events.push(event);
+          if (event.kind === 'tool_progress') throw new Error('sink rejected');
+        },
+      },
+    );
+    let error: unknown;
+    try {
+      await session.submit('cleanup failure');
+    } catch (caught) {
+      error = caught;
+    }
+    assert(error instanceof EventDeliveryError);
+    assertEquals(captureAttempts, 1);
+    assertEquals(events.filter((event) => event.kind === 'tool_result').length, 0);
+    assertEquals(events.filter((event) => event.kind === 'turn_end').length, 0);
+    await assertRejects(() => session.submit('unavailable'));
   });
 });

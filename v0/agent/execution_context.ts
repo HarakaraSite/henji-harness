@@ -15,6 +15,15 @@ export const REQUEST_LIMITS = Object.freeze({
   aggregate: 16,
 });
 
+/** Maximum encoded size of one provider-neutral progress snapshot. */
+export const MAX_TOOL_PROGRESS_TEXT_BYTES = 8_192;
+
+/** Maximum accepted progress snapshots for one tool call. */
+export const MAX_TOOL_PROGRESS_UPDATES_PER_CALL = 64;
+
+/** Execution-only callback for one tool's accumulated progress snapshot. */
+export type ToolProgressReporter = (snapshot: string) => void;
+
 /**
  * Synchronous provider-neutral request admission for one accepted turn.
  * A successful claim is consumed even when the model subsequently fails.
@@ -124,4 +133,5 @@ export interface ToolExecutionContext {
   readonly modelExecution?: ModelExecutionContext;
   readonly signal?: AbortSignal;
   readonly cancellation?: TurnCancellation;
+  readonly reportProgress?: ToolProgressReporter;
 }

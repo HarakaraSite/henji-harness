@@ -19,6 +19,13 @@ export type AgentEvent =
   | { readonly kind: 'tool_call'; readonly turn: number; readonly call: ToolCall }
   | { readonly kind: 'tool_result'; readonly turn: number; readonly result: ToolResultContent }
   | {
+    readonly kind: 'tool_progress';
+    readonly turn: number;
+    readonly callId: string;
+    readonly name: string;
+    readonly text: string;
+  }
+  | {
     readonly kind: 'turn_end';
     readonly turn: number;
     readonly outcome: LoopOutcome['stopReason'];

@@ -55,6 +55,43 @@ class FixtureSession {
         message: { role: 'user', content: { kind: 'text', text } },
       });
       if (mode === 'failure') throw new Error('fixture model failure');
+      if (mode === 'progress') {
+        this.sink({
+          kind: 'tool_call',
+          turn,
+          call: { callId: 'progress', name: 'bash', arguments: {} },
+        });
+        this.sink({
+          kind: 'tool_progress',
+          turn,
+          callId: 'progress',
+          name: 'bash',
+          text: 'stdout:\nfirst',
+        });
+        await new Promise((resolve) => setTimeout(resolve, 80));
+        if (this.cancellationRequested) {
+          this.sink({ kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+          return cancelledTask(text);
+        }
+        this.sink({
+          kind: 'tool_progress',
+          turn,
+          callId: 'progress',
+          name: 'bash',
+          text: 'stdout:\nsecond',
+        });
+        this.sink({
+          kind: 'tool_result',
+          turn,
+          result: {
+            kind: 'tool_result',
+            callId: 'progress',
+            name: 'bash',
+            text: '{"stdout":"second"}',
+            outcome: 'success',
+          },
+        });
+      }
       if (activeSignal !== undefined) {
         void new Deno.Command('/bin/bash', {
           args: ['--noprofile', '--norc', '-c', `kill -${activeSignal} ${Deno.pid}`],

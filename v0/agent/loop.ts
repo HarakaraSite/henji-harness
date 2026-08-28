@@ -10,15 +10,25 @@ import {
   type ToolCallContent,
   type ToolMessage,
 } from './contracts.ts';
-import { type AgentEventSink, deliverEvent, snapshot, snapshotMessages } from './events.ts';
+import {
+  type AgentEventSink,
+  deliverEvent,
+  EventDeliveryError,
+  snapshot,
+  snapshotMessages,
+} from './events.ts';
 import {
   isCancellationCleanupError,
   isTurnCancelledError,
   throwIfCancelled,
   type TurnCancellation,
 } from './cancellation.ts';
-import { Registry } from './tools.ts';
-import { type ModelExecutionContext } from './execution_context.ts';
+import { Registry, type RegistryDispatchResult } from './tools.ts';
+import {
+  MAX_TOOL_PROGRESS_TEXT_BYTES,
+  MAX_TOOL_PROGRESS_UPDATES_PER_CALL,
+  type ModelExecutionContext,
+} from './execution_context.ts';
 import { prepareModelContext } from './context.ts';
 
 export interface AgentLoopOptions {
@@ -62,6 +72,24 @@ const isModelResult = (value: unknown): value is ModelResult => {
   return result.kind === 'tool_calls' && Array.isArray(result.calls) && result.calls.length > 0 &&
     result.calls.every(isToolCall);
 };
+
+const hasWellFormedUnicode = (value: string): boolean => {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (Number.isNaN(next) || next < 0xdc00 || next > 0xdfff) return false;
+      index += 1;
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const isValidProgressSnapshot = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && hasWellFormedUnicode(value) &&
+  new TextEncoder().encode(value).byteLength <= MAX_TOOL_PROGRESS_TEXT_BYTES;
 
 const assistantToolMessage = (calls: readonly ToolCall[]): AssistantMessage => ({
   role: 'assistant',
@@ -345,19 +373,66 @@ export const runAgentTurn = async (
         toolResultCount += 1;
         continue;
       }
+      let progressFailure: EventDeliveryError | undefined;
+      let progressSettled = false;
+      let acceptedProgress = 0;
+      const reportProgress = (progressText: string): void => {
+        if (
+          progressFailure !== undefined || progressSettled || signal?.aborted === true ||
+          acceptedProgress >= MAX_TOOL_PROGRESS_UPDATES_PER_CALL ||
+          !isValidProgressSnapshot(progressText)
+        ) return;
+        acceptedProgress += 1;
+        try {
+          deliverEvent(sink, {
+            kind: 'tool_progress',
+            turn,
+            callId: call.callId,
+            name: call.name,
+            text: progressText,
+          });
+        } catch (error) {
+          progressFailure = error instanceof EventDeliveryError ? error : new EventDeliveryError();
+          // The cancellation owner is synchronous by contract. The callback caller observes
+          // the stable delivery error, while the active tool still owns resource settlement.
+          cancellation?.request();
+          throw progressFailure;
+        }
+      };
+      let dispatched: RegistryDispatchResult | undefined;
       try {
         const toolContext = signal === undefined && options.executionContext === undefined &&
-            cancellation === undefined
+            cancellation === undefined && sink === undefined
           ? undefined
+          : sink === undefined
+          ? {
+            modelExecution: options.executionContext,
+            signal,
+            cancellation,
+          }
           : {
             modelExecution: options.executionContext,
             signal,
             cancellation,
+            reportProgress,
           };
-        const dispatched = await registry.dispatch(snapshot(call), toolContext);
-        results.push(dispatched.content);
-        if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
+        const dispatchPromise = registry.dispatch(snapshot(call), toolContext);
+        // Register before awaiting so the settlement gate closes before any continuation can
+        // invoke a retained reporter after dispatch has resolved or rejected.
+        void dispatchPromise.then(
+          () => {
+            progressSettled = true;
+          },
+          () => {
+            progressSettled = true;
+          },
+        );
+        dispatched = await dispatchPromise;
       } catch (error) {
+        if (progressFailure !== undefined) {
+          if (isCancellationCleanupError(error)) cancellation?.markCleanupFailed();
+          throw progressFailure;
+        }
         if (isCancellationCleanupError(error)) {
           return finishContractFailure('cancellation cleanup failed');
         }
@@ -369,6 +444,13 @@ export const runAgentTurn = async (
           text: `tool execution error: ${errorText(error)}`,
           outcome: 'error',
         });
+      } finally {
+        progressSettled = true;
+      }
+      if (progressFailure !== undefined) throw progressFailure;
+      if (dispatched !== undefined) {
+        results.push(dispatched.content);
+        if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
       }
       if (signal?.aborted) return finishCancelled();
       deliverEvent(sink, { kind: 'tool_result', turn, result: snapshot(results.at(-1)!) });

@@ -10,6 +10,7 @@ import { Registry } from '../../v0/agent/tools.ts';
 import { TuiController, TuiControllerError } from '../../v0/tui/controller.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import {
+  BRACKETED_PASTE_OFF,
   BRACKETED_PASTE_ON,
   RESET_SGR,
   TerminalLifecycle,
@@ -222,6 +223,69 @@ class MetricsFailureSession {
       toolCallCount: 0,
       toolResultCount: 0,
       transcript: [],
+    });
+  }
+}
+
+class ProgressSession {
+  private pending: ((outcome: LoopOutcome) => void) | null = null;
+  private active = false;
+  private cancellationRequested = false;
+  cancelCount = 0;
+  settled = false;
+  constructor(private readonly sink: (event: AgentEvent) => void) {}
+  submit(task: string): Promise<LoopOutcome> {
+    this.active = true;
+    this.sink({ kind: 'turn_start', turn: 1 });
+    this.sink({
+      kind: 'user_message',
+      turn: 1,
+      message: { role: 'user', content: { kind: 'text', text: task } },
+    });
+    this.sink({
+      kind: 'tool_call',
+      turn: 1,
+      call: { callId: 'progress', name: 'bash', arguments: {} },
+    });
+    this.sink({
+      kind: 'tool_progress',
+      turn: 1,
+      callId: 'progress',
+      name: 'bash',
+      text: 'live output',
+    });
+    return new Promise((resolve) =>
+      this.pending = (outcome) => {
+        this.active = false;
+        resolve(outcome);
+      }
+    );
+  }
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    // The pending promise models a TERM-ignoring tool: cancellation is only observed when the
+    // explicit completion gate is opened below.
+    if (!this.active) return 'idle';
+    if (this.cancellationRequested) return 'already_requested';
+    this.cancellationRequested = true;
+    this.cancelCount += 1;
+    return 'requested';
+  }
+  complete(): void {
+    const resolve = this.pending;
+    this.pending = null;
+    if (resolve === null) return;
+    this.settled = true;
+    this.sink({ kind: 'turn_end', turn: 1, outcome: 'cancelled', committed: false });
+    resolve(cancelledOutcome('progress task'));
+  }
+
+  emitLateProgress(): void {
+    this.sink({
+      kind: 'tool_progress',
+      turn: 1,
+      callId: 'progress',
+      name: 'bash',
+      text: 'late output',
     });
   }
 }
@@ -858,6 +922,120 @@ Deno.test('handled SIGTERM and SIGHUP restore and map to 143/129', async () => {
     assert(terminal.raw.includes(false));
     assert(renderer.isClosing);
   }
+});
+
+Deno.test('busy cancellation clears live progress before settled status and ignores no late redraw', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new ProgressSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('progress task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(terminal.output().includes('tool~ bash live output'));
+  const beforeCancel = terminal.writes.length;
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert(terminal.writes.slice(beforeCancel).every((write) => !write.includes('tool~')));
+  session.complete();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(terminal.output().includes('[cancelled]'));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('busy progress output failure cancels and settles before restore', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new ProgressSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('progress task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(terminal.output().includes('tool~ bash live output'));
+  // Fail the clear redraw after progress is visible; cancellation must be requested first.
+  terminal.failWrites.add('\r\x1b[2K>   [busy]');
+  terminal.push('\x1b');
+  setTimeout(() => session.complete(), 100);
+  let error: unknown;
+  try {
+    await running;
+  } catch (caught) {
+    error = caught;
+  }
+  assert(error instanceof TuiControllerError);
+  assertEquals((error as TuiControllerError).code, 'output_failure');
+  assertEquals(session.cancelCount, 1);
+  assert(session.settled);
+  const restore = terminal.operations.indexOf('write:\x1b[?2004l');
+  const settledStatus = terminal.operations.findIndex((operation) =>
+    operation.includes('[cancelled]')
+  );
+  assert(settledStatus >= 0 && settledStatus < restore);
+  assert(renderer.isClosing);
+  const writesAfterClose = terminal.writes.length;
+  try {
+    session.emitLateProgress();
+  } catch {
+    // Closed renderer rejects a late event before any terminal write.
+  }
+  assertEquals(terminal.writes.length, writesAfterClose);
+});
+
+Deno.test('signal redraw failure settles a gated TERM-ignoring tool before restore', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new ProgressSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  controller.installSignals();
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('progress task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(terminal.output().includes('tool~ bash live output'));
+
+  // The signal listener's status redraw fails after visible progress. Its crash path must cancel
+  // the active gated tool before any paste-off/raw restore operation can begin.
+  terminal.failWrites.add('\r\x1b[2K>   [busy]');
+  let signalError: unknown;
+  try {
+    terminal.emitSignal('SIGTERM');
+  } catch (error) {
+    signalError = error;
+  }
+  assert(signalError instanceof Error);
+  assertEquals(session.cancelCount, 1);
+  assert(!session.settled);
+  assert(!renderer.isClosing);
+  assertEquals(terminal.raw, [true]);
+  assert(!terminal.operations.includes(`write:${BRACKETED_PASTE_OFF}`));
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert(!renderer.isClosing);
+  assertEquals(terminal.raw, [true]);
+
+  session.complete();
+  assertEquals(await running, 1);
+  assert(session.settled);
+  const settledStatus = terminal.operations.findIndex((operation) =>
+    operation.includes('[cancelled]')
+  );
+  const pasteOff = terminal.operations.indexOf(`write:${BRACKETED_PASTE_OFF}`);
+  const rawRestore = terminal.operations.indexOf('raw:false');
+  assert(settledStatus >= 0 && pasteOff > settledStatus && rawRestore > pasteOff);
+  assert(renderer.isClosing);
+  const writesAfterClose = terminal.writes.length;
+  try {
+    session.emitLateProgress();
+  } catch {
+    // Closed renderer rejects late events before any terminal write.
+  }
+  assertEquals(terminal.writes.length, writesAfterClose);
 });
 
 Deno.test('lifecycle restores in order and is idempotent', async () => {

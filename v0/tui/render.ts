@@ -66,9 +66,9 @@ const truncateText = (
   return { text: prefix, truncated: true };
 };
 
-const boundedEscaped = (text: string): string => {
+const boundedEscaped = (text: string, options: EscapeOptions = {}): string => {
   const bounded = truncateText(text);
-  const escaped = escapeTerminalText(bounded.text);
+  const escaped = escapeTerminalText(bounded.text, options);
   return bounded.truncated ? `${escaped}… [display truncated]` : escaped;
 };
 
@@ -93,6 +93,8 @@ export class TuiRenderer implements TerminalRendererGate {
   private closing = false;
   private editorText = '';
   private status = 'ready';
+  private liveProgress: string | null = null;
+  private liveProgressTool = '';
   private lastSize = { columns: 80, rows: 24 };
 
   constructor(private readonly terminal: TerminalPort) {}
@@ -103,6 +105,15 @@ export class TuiRenderer implements TerminalRendererGate {
 
   close(): void {
     this.closing = true;
+    this.liveProgress = null;
+    this.liveProgressTool = '';
+  }
+
+  /** Clear replaceable tool progress without adding a completed scrollback record. */
+  clearLiveProgress(): void {
+    this.liveProgress = null;
+    this.liveProgressTool = '';
+    this.redraw();
   }
 
   clearLiveLine(): void {
@@ -133,11 +144,20 @@ export class TuiRenderer implements TerminalRendererGate {
         }
         return;
       case 'tool_call':
+        this.liveProgress = null;
+        this.liveProgressTool = '';
         this.clearRecordLine();
         this.write(dynamicLine('tool> ', event.call.name));
         this.redraw();
         return;
+      case 'tool_progress':
+        this.liveProgressTool = event.name;
+        this.liveProgress = event.text;
+        this.redraw();
+        return;
       case 'tool_result':
+        this.liveProgress = null;
+        this.liveProgressTool = '';
         this.clearRecordLine();
         this.write(dynamicLine(
           `tool< ${boundedEscaped(event.result.name)} ${event.result.outcome}> `,
@@ -146,6 +166,8 @@ export class TuiRenderer implements TerminalRendererGate {
         this.redraw();
         return;
       case 'turn_end':
+        this.liveProgress = null;
+        this.liveProgressTool = '';
         this.setStatus(event.committed ? 'ready' : event.outcome);
         return;
     }
@@ -205,7 +227,14 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const columns = Math.max(8, this.lastSize.columns);
     const status = escapeTerminalText(this.status, { editor: true });
-    const editor = escapeTerminalText(this.editorText, { editor: true });
+    const editor = this.liveProgress === null
+      ? escapeTerminalText(this.editorText, { editor: true })
+      : `tool~ ${boundedEscaped(this.liveProgressTool, { editor: true })} ${
+        boundedEscaped(
+          this.liveProgress,
+          { editor: true },
+        )
+      }`;
     const suffix = `  [${status}]`;
     const suffixWidth = [...suffix].reduce((total, character) => total + cellWidth(character), 0);
     const available = Math.max(0, columns - 2 - suffixWidth);

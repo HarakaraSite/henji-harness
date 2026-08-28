@@ -218,7 +218,7 @@
   real-child immediate TUI empty-exit cleanup regressions; final owner disposition is Blocker/P1/P2 zero.
   No provider/network/credential/production task, dependency/lockfile, `_refs/`, commit, push, tag,
   publish, or release operation occurred.
-- The next provider-neutral tool-progress increment is planned at
+- The provider-neutral tool-progress increment is implemented at
   `docs/plans/provider-neutral-tool-progress-events.md`, SHA-256
   `192c49fc094a8c6256e639a27e376247aa25779f326a0449a1498827b632e196`. It fixes one
   execution-only `tool_progress` event with accumulated textual snapshots bounded to 8,192 UTF-8
@@ -226,8 +226,15 @@
   replaceable live state, while final results, transcript, counters, persistence, provider wire,
   and completed scrollback remain unchanged. Initial plan review's sole multibyte-boundary P2 was
   resolved by the exact largest-complete-code-point 4,000-byte per-stream prefix contract and
-  within/across-read regressions; changed-lines re-review is `GO` with Blocker/P1/P2 zero. The
-  implementation Human Gate is pending.
+  within/across-read regressions. Finding closure added busy-TUI cancel-before-redraw and
+  await-settlement coverage, delayed Bash capture/cleanup precedence and exact independent bounds,
+  plus no-sink, canonical persistence-byte, and clean replay regressions. Final owner closure also
+  routes signal-listener redraw failure through guarded crash settlement before restore. Focused
+  progress/session/store/work-tools/TUI-direct/TUI-process/topology suites pass 7/15/13/25/40/16/4
+  and full v0 passes 439 tests. Check, format, lint, and diff checks pass; the owner final gate
+  independently reran TUI 40 and full 439 and closed at Blocker/P1/P2 zero. No provider/network/credential/
+  production task, dependency/lockfile, `_refs/`, commit, push, tag, publish, or release operation
+  occurred.
 
 - The provider-neutral context-management increment is implemented at
   `docs/plans/provider-neutral-context-management.md`, SHA-256

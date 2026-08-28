@@ -111,7 +111,6 @@ type CrashGuard = {
 };
 
 const installCrashGuard = (
-  lifecycle: TerminalLifecycle,
   onFatal: () => void,
 ): CrashGuard => {
   let handling = false;
@@ -119,7 +118,6 @@ const installCrashGuard = (
     if (handling) return;
     handling = true;
     onFatal();
-    void lifecycle.restore();
   };
   const onError = (event: Event): void => {
     event.preventDefault();
@@ -234,7 +232,7 @@ export const main = async (
     const controller = new TuiController(lifecycle, renderer, created.session);
     controller.installSignals();
     let crashDetected = false;
-    crashGuard = installCrashGuard(lifecycle, () => {
+    crashGuard = installCrashGuard(() => {
       crashDetected = true;
       controller.handleCrash();
     });

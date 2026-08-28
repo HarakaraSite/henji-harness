@@ -56,3 +56,13 @@ Deno.test('TUI local process task grants only script execution and topology task
     `${DENO} test --no-prompt --allow-read=deno.v0.json tests/v0/tui_topology_test.ts`,
   );
 });
+
+Deno.test('tool progress focused task is permission-free and is wired once into the offline gate', () => {
+  assertEquals(
+    config.tasks['agent:tool-progress:test'],
+    `${DENO} test --no-prompt tests/v0/agent_tool_progress_test.ts`,
+  );
+  assert(config.tasks['v0:check'].includes('tests/v0/agent_tool_progress_test.ts'));
+  const gate = config.tasks['v0:gate'];
+  assertEquals(gate.split('agent:tool-progress:test').length - 1, 1);
+});

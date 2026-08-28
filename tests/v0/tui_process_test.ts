@@ -127,6 +127,18 @@ Deno.test('PTY planner startup selects one fixed planner Definition', async () =
   assert(result.stderr === '');
 });
 
+Deno.test('PTY progress replaces the live line and leaves completed tool records in scrollback', async () => {
+  const result = await runPty('progress', [{ text: 'progress task\n\x04' }]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < 1_000);
+  assert(result.stdout.includes('tool~ bash stdout:↵first'));
+  assert(result.stdout.includes('tool~ bash stdout:↵second'));
+  assertEquals((result.stdout.match(/tool> bash/g) ?? []).length, 1);
+  assertEquals((result.stdout.match(/tool< bash success>/g) ?? []).length, 1);
+  assert(result.stdout.includes('assistant> fixture response'));
+  assert(result.stderr === '');
+});
+
 Deno.test('PTY bracketed paste submits one exact multiline task and visibly escapes tab', async () => {
   const result = await runPty('success', [{ text: '\x1b[200~line1\nline2\t\x1b[201~\n\x04' }]);
   assert(result.status.success);

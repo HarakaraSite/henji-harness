@@ -86,6 +86,93 @@ Deno.test('session commits two plain turns and supplies the prior turn to the ne
   ]);
 });
 
+Deno.test('session progress is execution-only and does not enter the committed transcript', async () => {
+  const requests: ModelRequest[] = [];
+  const events: AgentEvent[] = [];
+  const session = new AgentSession(
+    {
+      generate(request) {
+        requests.push(request);
+        return requests.length === 1
+          ? {
+            kind: 'tool_calls' as const,
+            calls: [{ callId: 'progress', name: 'progress_tool', arguments: { ok: true } }],
+          }
+          : { kind: 'final' as const, text: 'complete' };
+      },
+    },
+    new Registry([{
+      name: 'progress_tool',
+      description: 'progress test tool',
+      inputSchema: {},
+      execute(_argumentsValue, context) {
+        assert(context !== undefined && 'reportProgress' in context);
+        context.reportProgress?.('working');
+        return 'tool result';
+      },
+    }]),
+    { eventSink: (event) => events.push(event) },
+  );
+
+  const result = await session.submit('progress');
+  assert(result.ok);
+  assertEquals(events.map((event) => event.kind), [
+    'turn_start',
+    'user_message',
+    'assistant_message',
+    'tool_call',
+    'tool_progress',
+    'tool_result',
+    'assistant_message',
+    'turn_end',
+  ]);
+  assertEquals(requests[1].transcript, [
+    { role: 'user', content: { kind: 'text', text: 'progress' } },
+    {
+      role: 'assistant',
+      content: [{
+        kind: 'tool_call',
+        callId: 'progress',
+        name: 'progress_tool',
+        arguments: { ok: true },
+      }],
+    },
+    {
+      role: 'tool',
+      content: [{
+        kind: 'tool_result',
+        callId: 'progress',
+        name: 'progress_tool',
+        text: 'tool result',
+        outcome: 'success',
+      }],
+    },
+  ]);
+  assertEquals(session.transcriptSnapshot(), [
+    { role: 'user', content: { kind: 'text', text: 'progress' } },
+    {
+      role: 'assistant',
+      content: [{
+        kind: 'tool_call',
+        callId: 'progress',
+        name: 'progress_tool',
+        arguments: { ok: true },
+      }],
+    },
+    {
+      role: 'tool',
+      content: [{
+        kind: 'tool_result',
+        callId: 'progress',
+        name: 'progress_tool',
+        text: 'tool result',
+        outcome: 'success',
+      }],
+    },
+    { role: 'assistant', content: { kind: 'text', text: 'complete' } },
+  ]);
+});
+
 Deno.test('turn_end observes the actual session commit while standalone turns have no owner', async () => {
   let observedAtEnd: readonly Message[] = [];
   const session = new AgentSession(
