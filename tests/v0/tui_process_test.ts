@@ -139,6 +139,43 @@ Deno.test('PTY progress replaces the live line and leaves completed tool records
   assert(result.stderr === '');
 });
 
+Deno.test('PTY delayed assistant chunks replace before the final and restore once', async () => {
+  const result = await runPty('assistant-progress', [
+    { text: '', delayMs: 300 },
+    { text: 'assistant task\n', delayMs: 40 },
+    { text: '\x04', delayMs: 500 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  const first = result.stdout.indexOf('assistant~ first chunk');
+  const second = result.stdout.indexOf('assistant~ second chunk');
+  const final = result.stdout.indexOf('assistant> fixture response');
+  assert(first >= 0 && second > first && final > second);
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  assert(!result.stdout.includes('late chunk'));
+  assert(result.stderr === '');
+});
+
+Deno.test('PTY delayed assistant cancellation settles before one restore with no final or late chunk', async () => {
+  const result = await runPty('assistant-progress-cancel', [
+    { text: '', delayMs: 300 },
+    { text: 'cancel assistant\n', delayMs: 30 },
+    { text: '\x1b', delayMs: 120 },
+    { text: '\x04', delayMs: 200 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('assistant~ first chunk'));
+  assert(!result.stdout.includes('assistant~ second chunk'));
+  assert(!result.stdout.includes('assistant> fixture response'));
+  assert(result.stdout.includes('[cancelled]'));
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  assert(!result.stdout.includes('late chunk'));
+  assert(result.stderr === '');
+});
+
 Deno.test('PTY bracketed paste submits one exact multiline task and visibly escapes tab', async () => {
   const result = await runPty('success', [{ text: '\x1b[200~line1\nline2\t\x1b[201~\n\x04' }]);
   assert(result.status.success);

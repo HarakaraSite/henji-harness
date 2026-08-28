@@ -5,10 +5,30 @@ import { type Message } from '../../v0/agent/contracts.ts';
 
 const encoder = new TextEncoder();
 const response = (text: string): Response =>
-  new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: text } }] }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  });
+  new Response(
+    `data: ${
+      JSON.stringify({
+        id: 'offline-session-tui-response',
+        choices: [{
+          index: 0,
+          delta: { role: 'assistant', content: text },
+          finish_reason: 'stop',
+        }],
+      })
+    }\n\n` +
+      `data: ${
+        JSON.stringify({
+          id: 'offline-session-tui-response',
+          choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        })
+      }\n\n` +
+      'data: [DONE]\n\n',
+    {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    },
+  );
 
 class FakeTerminal {
   readonly writes: string[] = [];
@@ -97,7 +117,10 @@ const normalTranscript = (turns: number): Message[] => {
   for (let index = 0; index < turns; index += 1) {
     messages.push(
       { role: 'user', content: { kind: 'text', text: `replay-user-${index}` } },
-      { role: 'assistant', content: { kind: 'text', text: `replay-assistant-${index}` } },
+      {
+        role: 'assistant',
+        content: { kind: 'text', text: `replay-assistant-${index}` },
+      },
     );
   }
   return messages;
@@ -122,7 +145,10 @@ const seedSession = async (
 };
 
 Deno.test('persistent TUI autosaves and continue restores the parent transcript', async () => {
-  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-tui-' });
+  const root = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-session-tui-',
+  });
   const workspace = `${root}/workspace`;
   const state = `${root}/state`;
   await Deno.mkdir(workspace);
@@ -133,7 +159,10 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   assertEquals(listed.sessions.length, 1);
   assert(firstTerminal.writes.some((line) => line.includes('(new)')));
   const secondTerminal = new FakeTerminal();
-  assertEquals(await runTui(['--continue'], secondTerminal, workspace, state, 'second'), 0);
+  assertEquals(
+    await runTui(['--continue'], secondTerminal, workspace, state, 'second'),
+    0,
+  );
   const resumed = await store.list();
   assertEquals(resumed.sessions[0].turnCount, 2);
   assert(secondTerminal.writes.some((line) => line.includes('(resumed)')));
@@ -141,7 +170,13 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   const ephemeralState = `${root}/must-not-exist`;
   const ephemeralTerminal = new FakeTerminal();
   assertEquals(
-    await runTui(['--no-session'], ephemeralTerminal, workspace, ephemeralState, 'ephemeral'),
+    await runTui(
+      ['--no-session'],
+      ephemeralTerminal,
+      workspace,
+      ephemeralState,
+      'ephemeral',
+    ),
     0,
   );
   let absent = false;
@@ -152,14 +187,26 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   }
   assert(absent);
 
-  const replayRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-replay-' });
+  const replayRoot = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-session-replay-',
+  });
   const replayWorkspace = `${replayRoot}/workspace`;
   const replayState = `${replayRoot}/state`;
   await Deno.mkdir(replayWorkspace);
-  const exactId = await seedSession(replayState, replayWorkspace, normalTranscript(50));
+  const exactId = await seedSession(
+    replayState,
+    replayWorkspace,
+    normalTranscript(50),
+  );
   const exactTerminal = new FakeTerminal();
   assertEquals(
-    await runTuiExit(['--session', exactId], exactTerminal, replayWorkspace, replayState),
+    await runTuiExit(
+      ['--session', exactId],
+      exactTerminal,
+      replayWorkspace,
+      replayState,
+    ),
     0,
   );
   const exactOutput = exactTerminal.writes.join('');
@@ -171,7 +218,12 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
     { role: 'user', content: { kind: 'text', text: 'replay-user-final' } },
     {
       role: 'assistant',
-      content: [{ kind: 'tool_call', callId: 'replay-call', name: 'read', arguments: {} }],
+      content: [{
+        kind: 'tool_call',
+        callId: 'replay-call',
+        name: 'read',
+        arguments: {},
+      }],
     },
     {
       role: 'tool',
@@ -186,10 +238,19 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
     },
   );
   assertEquals(boundaryMessages.length, 101);
-  const boundaryId = await seedSession(replayState, replayWorkspace, boundaryMessages);
+  const boundaryId = await seedSession(
+    replayState,
+    replayWorkspace,
+    boundaryMessages,
+  );
   const boundaryTerminal = new FakeTerminal();
   assertEquals(
-    await runTuiExit(['--session', boundaryId], boundaryTerminal, replayWorkspace, replayState),
+    await runTuiExit(
+      ['--session', boundaryId],
+      boundaryTerminal,
+      replayWorkspace,
+      replayState,
+    ),
     0,
   );
   const boundaryOutput = boundaryTerminal.writes.join('');
@@ -198,13 +259,22 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   assert(boundaryOutput.includes('history> 1 messages omitted'));
   assert(boundaryOutput.includes('tool< read success> replay-result'));
 
-  const immediateRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-empty-' });
+  const immediateRoot = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-session-empty-',
+  });
   const immediateWorkspace = `${immediateRoot}/workspace`;
   const immediateState = `${immediateRoot}/state`;
   await Deno.mkdir(immediateWorkspace);
   const immediateTerminal = new FakeTerminal();
-  assertEquals(await runTuiExit([], immediateTerminal, immediateWorkspace, immediateState), 0);
-  const immediateStore = new DenoSessionStore(immediateState, immediateWorkspace);
+  assertEquals(
+    await runTuiExit([], immediateTerminal, immediateWorkspace, immediateState),
+    0,
+  );
+  const immediateStore = new DenoSessionStore(
+    immediateState,
+    immediateWorkspace,
+  );
   assertEquals((await immediateStore.list()).sessions, []);
   await Deno.remove(immediateRoot, { recursive: true });
   await Deno.remove(replayRoot, { recursive: true });

@@ -29,7 +29,10 @@ const escapedCodePoint = (code: number): string => {
 };
 
 /** The sole dynamic-to-terminal escaping boundary. */
-export const escapeTerminalText = (text: string, options: EscapeOptions = {}): string => {
+export const escapeTerminalText = (
+  text: string,
+  options: EscapeOptions = {},
+): string => {
   let output = '';
   for (const character of text) {
     const code = character.codePointAt(0)!;
@@ -75,7 +78,9 @@ const boundedEscaped = (text: string, options: EscapeOptions = {}): string => {
 const cellWidth = (character: string): number => {
   const code = character.codePointAt(0)!;
   // Conservative width for common full-width/emoji ranges; combining marks consume no extra cell.
-  if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) return 0;
+  if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) {
+    return 0;
+  }
   if (
     (code >= 0x1100 && code <= 0x115f) || (code >= 0x2329 && code <= 0x232a) ||
     (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
@@ -95,6 +100,7 @@ export class TuiRenderer implements TerminalRendererGate {
   private status = 'ready';
   private liveProgress: string | null = null;
   private liveProgressTool = '';
+  private liveAssistant: string | null = null;
   private lastSize = { columns: 80, rows: 24 };
 
   constructor(private readonly terminal: TerminalPort) {}
@@ -107,13 +113,24 @@ export class TuiRenderer implements TerminalRendererGate {
     this.closing = true;
     this.liveProgress = null;
     this.liveProgressTool = '';
+    this.liveAssistant = null;
   }
 
-  /** Clear replaceable tool progress without adding a completed scrollback record. */
-  clearLiveProgress(): void {
+  /** Clear all replaceable live activity without adding a completed scrollback record. */
+  clearLiveActivity(): void {
+    this.clearLiveState();
+    this.redraw();
+  }
+
+  private clearLiveState(): void {
     this.liveProgress = null;
     this.liveProgressTool = '';
-    this.redraw();
+    this.liveAssistant = null;
+  }
+
+  /** Backwards-compatible name retained for existing controller/test callers. */
+  clearLiveProgress(): void {
+    this.clearLiveActivity();
   }
 
   clearLiveLine(): void {
@@ -137,27 +154,36 @@ export class TuiRenderer implements TerminalRendererGate {
         this.redraw();
         return;
       case 'assistant_message':
-        if (!Array.isArray(event.message.content) && 'text' in event.message.content) {
+        this.clearLiveState();
+        if (
+          !Array.isArray(event.message.content) &&
+          'text' in event.message.content
+        ) {
           this.clearRecordLine();
           this.write(dynamicLine('assistant> ', event.message.content.text));
           this.redraw();
         }
         return;
-      case 'tool_call':
+      case 'assistant_progress':
         this.liveProgress = null;
         this.liveProgressTool = '';
+        this.liveAssistant = event.text;
+        this.redraw();
+        return;
+      case 'tool_call':
+        this.clearLiveState();
         this.clearRecordLine();
         this.write(dynamicLine('tool> ', event.call.name));
         this.redraw();
         return;
       case 'tool_progress':
+        this.liveAssistant = null;
         this.liveProgressTool = event.name;
         this.liveProgress = event.text;
         this.redraw();
         return;
       case 'tool_result':
-        this.liveProgress = null;
-        this.liveProgressTool = '';
+        this.clearLiveState();
         this.clearRecordLine();
         this.write(dynamicLine(
           `tool< ${boundedEscaped(event.result.name)} ${event.result.outcome}> `,
@@ -166,8 +192,7 @@ export class TuiRenderer implements TerminalRendererGate {
         this.redraw();
         return;
       case 'turn_end':
-        this.liveProgress = null;
-        this.liveProgressTool = '';
+        this.clearLiveState();
         this.setStatus(event.committed ? 'ready' : event.outcome);
         return;
     }
@@ -185,6 +210,7 @@ export class TuiRenderer implements TerminalRendererGate {
 
   renderAssistantFinal(text: string): void {
     if (this.closing) throw new EventDeliveryError();
+    this.clearLiveState();
     this.clearRecordLine();
     this.write(dynamicLine('assistant> ', text));
     this.redraw();
@@ -193,24 +219,37 @@ export class TuiRenderer implements TerminalRendererGate {
   /** Render a bounded committed transcript before accepting new input. */
   renderRestored(messages: readonly Message[], omitted = 0): void {
     if (this.closing) throw new EventDeliveryError();
+    this.clearLiveState();
     for (const message of messages) {
       if (message.role === 'user') {
         this.write(dynamicLine('user> ', message.content.text));
       } else if (message.role === 'assistant') {
         if (Array.isArray(message.content)) {
-          for (const call of message.content) this.write(dynamicLine('tool> ', call.name));
+          for (const call of message.content) {
+            this.write(dynamicLine('tool> ', call.name));
+          }
         } else {
           this.write(
-            dynamicLine('assistant> ', (message.content as { readonly text: string }).text),
+            dynamicLine(
+              'assistant> ',
+              (message.content as { readonly text: string }).text,
+            ),
           );
         }
       } else {
         for (const result of message.content) {
-          this.write(dynamicLine(`tool< ${result.name} ${result.outcome}> `, result.text));
+          this.write(
+            dynamicLine(
+              `tool< ${result.name} ${result.outcome}> `,
+              result.text,
+            ),
+          );
         }
       }
     }
-    if (omitted > 0) this.write(dynamicLine('history> ', `${omitted} messages omitted`));
+    if (omitted > 0) {
+      this.write(dynamicLine('history> ', `${omitted} messages omitted`));
+    }
     this.redraw();
   }
 
@@ -227,7 +266,9 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const columns = Math.max(8, this.lastSize.columns);
     const status = escapeTerminalText(this.status, { editor: true });
-    const editor = this.liveProgress === null
+    const editor = this.liveAssistant !== null
+      ? `assistant~ ${boundedEscaped(this.liveAssistant, { editor: true })}`
+      : this.liveProgress === null
       ? escapeTerminalText(this.editorText, { editor: true })
       : `tool~ ${boundedEscaped(this.liveProgressTool, { editor: true })} ${
         boundedEscaped(
@@ -236,7 +277,10 @@ export class TuiRenderer implements TerminalRendererGate {
         )
       }`;
     const suffix = `  [${status}]`;
-    const suffixWidth = [...suffix].reduce((total, character) => total + cellWidth(character), 0);
+    const suffixWidth = [...suffix].reduce(
+      (total, character) => total + cellWidth(character),
+      0,
+    );
     const available = Math.max(0, columns - 2 - suffixWidth);
     let used = 0;
     const visibleCharacters: string[] = [];

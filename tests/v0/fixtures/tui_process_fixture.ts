@@ -13,8 +13,9 @@ const parseSignal = (prefix: string): FixtureSignal | undefined => {
 const signalMode = parseSignal('signal-');
 const cleanupSignalMode = parseSignal('signal-cleanup-failure-');
 const activeSignal = cleanupSignalMode ?? signalMode;
+const assistantProgressMode = mode === 'assistant-progress' || mode === 'assistant-progress-cancel';
 const delayedMode = mode === 'busy' || mode === 'busy-cleanup-failure' ||
-  activeSignal !== undefined;
+  activeSignal !== undefined || assistantProgressMode;
 const cleanupFailureMode = mode === 'busy-cleanup-failure' || cleanupSignalMode !== undefined;
 const task = (value: string, finalText = 'fixture response'): LoopOutcome => ({
   ok: true,
@@ -91,6 +92,15 @@ class FixtureSession {
             outcome: 'success',
           },
         });
+      }
+      if (assistantProgressMode) {
+        this.sink({ kind: 'assistant_progress', turn, text: 'first chunk' });
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        if (this.cancellationRequested) {
+          this.sink({ kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+          return cancelledTask(text);
+        }
+        this.sink({ kind: 'assistant_progress', turn, text: 'second chunk' });
       }
       if (activeSignal !== undefined) {
         void new Deno.Command('/bin/bash', {

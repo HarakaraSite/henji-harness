@@ -10,14 +10,31 @@ import {
 /** Completed lifecycle notifications emitted by one provider-neutral agent turn. */
 export type AgentEvent =
   | { readonly kind: 'turn_start'; readonly turn: number }
-  | { readonly kind: 'user_message'; readonly turn: number; readonly message: UserMessage }
+  | {
+    readonly kind: 'user_message';
+    readonly turn: number;
+    readonly message: UserMessage;
+  }
   | {
     readonly kind: 'assistant_message';
     readonly turn: number;
     readonly message: AssistantMessage;
   }
-  | { readonly kind: 'tool_call'; readonly turn: number; readonly call: ToolCall }
-  | { readonly kind: 'tool_result'; readonly turn: number; readonly result: ToolResultContent }
+  | {
+    readonly kind: 'assistant_progress';
+    readonly turn: number;
+    readonly text: string;
+  }
+  | {
+    readonly kind: 'tool_call';
+    readonly turn: number;
+    readonly call: ToolCall;
+  }
+  | {
+    readonly kind: 'tool_result';
+    readonly turn: number;
+    readonly result: ToolResultContent;
+  }
   | {
     readonly kind: 'tool_progress';
     readonly turn: number;
@@ -56,7 +73,10 @@ export const snapshotMessages = (messages: readonly Message[]): Message[] =>
 export const snapshotEvent = (event: AgentEvent): AgentEvent => snapshot(event);
 
 /** Deliver one event and normalize any sink exception to the stable public error. */
-export const deliverEvent = (sink: AgentEventSink | undefined, event: AgentEvent): void => {
+export const deliverEvent = (
+  sink: AgentEventSink | undefined,
+  event: AgentEvent,
+): void => {
   if (sink === undefined) return;
   try {
     sink(snapshotEvent(event));

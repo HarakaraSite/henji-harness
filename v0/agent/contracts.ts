@@ -36,7 +36,9 @@ export interface TerminalToolResultContent {
   readonly terminal: 'json_result';
 }
 
-export type ToolResultContent = ContinuingToolResultContent | TerminalToolResultContent;
+export type ToolResultContent =
+  | ContinuingToolResultContent
+  | TerminalToolResultContent;
 
 export type ToolExecutionResult =
   | { readonly kind: 'continue'; readonly text: string }
@@ -76,8 +78,12 @@ export interface ModelRequest {
   readonly tools: readonly ToolDefinition[];
 }
 
+/** Execution-only callback carrying the complete visible assistant prefix. */
+export type AssistantProgressReporter = (snapshot: string) => void;
+
 export interface ModelGenerateOptions {
   readonly signal?: AbortSignal;
+  readonly reportAssistantProgress?: AssistantProgressReporter;
 }
 
 export type ModelResult =

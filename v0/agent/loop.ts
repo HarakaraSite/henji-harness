@@ -31,6 +31,12 @@ import {
 } from './execution_context.ts';
 import { prepareModelContext } from './context.ts';
 
+/** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
+export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
+
+/** Maximum accepted live assistant snapshots for one admitted model request. */
+export const MAX_ASSISTANT_PROGRESS_UPDATES_PER_REQUEST = 256;
+
 export interface AgentLoopOptions {
   readonly maxSteps?: number;
   readonly systemInstruction?: string;
@@ -51,7 +57,9 @@ const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 const isJsonValue = (value: unknown): value is JsonValue => {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean'
+  ) return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   if (typeof value !== 'object') return false;
@@ -62,14 +70,16 @@ const isToolCall = (value: unknown): value is ToolCall => {
   if (typeof value !== 'object' || value === null) return false;
   const call = value as Record<string, unknown>;
   return typeof call.callId === 'string' && call.callId.trim() !== '' &&
-    typeof call.name === 'string' && call.name.trim() !== '' && isJsonValue(call.arguments);
+    typeof call.name === 'string' && call.name.trim() !== '' &&
+    isJsonValue(call.arguments);
 };
 
 const isModelResult = (value: unknown): value is ModelResult => {
   if (typeof value !== 'object' || value === null) return false;
   const result = value as Record<string, unknown>;
   if (result.kind === 'final') return typeof result.text === 'string';
-  return result.kind === 'tool_calls' && Array.isArray(result.calls) && result.calls.length > 0 &&
+  return result.kind === 'tool_calls' && Array.isArray(result.calls) &&
+    result.calls.length > 0 &&
     result.calls.every(isToolCall);
 };
 
@@ -87,11 +97,20 @@ const hasWellFormedUnicode = (value: string): boolean => {
   return true;
 };
 
-const isValidProgressSnapshot = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0 && hasWellFormedUnicode(value) &&
+const isValidAssistantProgressSnapshot = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 &&
+  hasWellFormedUnicode(value) &&
+  new TextEncoder().encode(value).byteLength <=
+    MAX_ASSISTANT_PROGRESS_TEXT_BYTES;
+
+const isValidToolProgressSnapshot = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 &&
+  hasWellFormedUnicode(value) &&
   new TextEncoder().encode(value).byteLength <= MAX_TOOL_PROGRESS_TEXT_BYTES;
 
-const assistantToolMessage = (calls: readonly ToolCall[]): AssistantMessage => ({
+const assistantToolMessage = (
+  calls: readonly ToolCall[],
+): AssistantMessage => ({
   role: 'assistant',
   content: calls.map((call): ToolCallContent => snapshot({ kind: 'tool_call', ...call })),
 });
@@ -149,7 +168,9 @@ const maxSteps = (
   transcript: snapshotMessages(transcript),
 });
 
-const terminalBatchError = (call: ToolCall): ToolMessage['content'][number] => ({
+const terminalBatchError = (
+  call: ToolCall,
+): ToolMessage['content'][number] => ({
   kind: 'tool_result',
   callId: call.callId,
   name: call.name,
@@ -170,26 +191,39 @@ export const runAgentTurn = async (
     throw new RangeError('maxSteps must be a positive integer');
   }
   const turn = options.turn ?? 1;
-  if (!Number.isInteger(turn) || turn <= 0) throw new RangeError('turn must be a positive integer');
+  if (!Number.isInteger(turn) || turn <= 0) {
+    throw new RangeError('turn must be a positive integer');
+  }
 
   const sink = options.eventSink;
-  const signal = options.cancellation?.signal ?? options.signal ?? options.executionContext?.signal;
+  const signal = options.cancellation?.signal ?? options.signal ??
+    options.executionContext?.signal;
   const cancellation = options.cancellation;
   const ownsCancellation = options.ownsCancellation !== false;
   const transcript: Message[] = snapshotMessages(committedTranscript);
-  const userMessage: Message = { role: 'user', content: { kind: 'text', text: task } };
+  const userMessage: Message = {
+    role: 'user',
+    content: { kind: 'text', text: task },
+  };
   transcript.push(userMessage);
   deliverEvent(sink, { kind: 'turn_start', turn });
-  deliverEvent(sink, { kind: 'user_message', turn, message: snapshot(userMessage) });
+  deliverEvent(sink, {
+    kind: 'user_message',
+    turn,
+    message: snapshot(userMessage),
+  });
 
   let steps = 0;
   let toolCallCount = 0;
   let toolResultCount = 0;
 
   const finishContractFailure = (error: string): LoopOutcome => {
-    if (error === 'cancellation cleanup failed') cancellation?.markCleanupFailed();
+    if (error === 'cancellation cleanup failed') {
+      cancellation?.markCleanupFailed();
+    }
     if (
-      error !== 'cancellation cleanup failed' && ownsCancellation && cancellation !== undefined &&
+      error !== 'cancellation cleanup failed' && ownsCancellation &&
+      cancellation !== undefined &&
       !cancellation.trySettleNormally()
     ) return finishCancelled();
     const outcome = contractFailure(
@@ -200,7 +234,12 @@ export const runAgentTurn = async (
       toolResultCount,
       error,
     );
-    deliverEvent(sink, { kind: 'turn_end', turn, outcome: 'contract_failure', committed: false });
+    deliverEvent(sink, {
+      kind: 'turn_end',
+      turn,
+      outcome: 'contract_failure',
+      committed: false,
+    });
     return outcome;
   };
   const finishCancelled = (): LoopOutcome => {
@@ -208,17 +247,32 @@ export const runAgentTurn = async (
       return finishContractFailure('cancellation cleanup failed');
     }
     if (ownsCancellation) cancellation?.settleCancelled();
-    const outcome = cancelled(task, transcript, steps, toolCallCount, toolResultCount);
-    deliverEvent(sink, { kind: 'turn_end', turn, outcome: 'cancelled', committed: false });
+    const outcome = cancelled(
+      task,
+      transcript,
+      steps,
+      toolCallCount,
+      toolResultCount,
+    );
+    deliverEvent(sink, {
+      kind: 'turn_end',
+      turn,
+      outcome: 'cancelled',
+      committed: false,
+    });
     return outcome;
   };
   const finishNormal = (outcome: LoopOutcome): LoopOutcome => {
     // A re-entrant cancellation from the final event sink wins over normal settlement.
-    if (ownsCancellation && cancellation !== undefined && !cancellation.trySettleNormally()) {
+    if (
+      ownsCancellation && cancellation !== undefined &&
+      !cancellation.trySettleNormally()
+    ) {
       return finishCancelled();
     }
     const successful = outcome.ok &&
-      (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal');
+      (outcome.stopReason === 'final' ||
+        outcome.stopReason === 'tool_terminal');
     if (successful) {
       try {
         options.commit?.(outcome.transcript);
@@ -250,10 +304,13 @@ export const runAgentTurn = async (
   };
   const finishMaxSteps = (): LoopOutcome => {
     if (signal?.aborted) return finishCancelled();
-    return finishNormal(maxSteps(task, transcript, steps, toolCallCount, toolResultCount));
+    return finishNormal(
+      maxSteps(task, transcript, steps, toolCallCount, toolResultCount),
+    );
   };
   const cancellationFrom = (error: unknown): boolean =>
-    isTurnCancelledError(error) || (signal?.aborted === true && !isCancellationCleanupError(error));
+    isTurnCancelledError(error) ||
+    (signal?.aborted === true && !isCancellationCleanupError(error));
 
   for (;;) {
     if (signal?.aborted) return finishCancelled();
@@ -267,7 +324,10 @@ export const runAgentTurn = async (
     let preparedRequest: ModelRequest;
     try {
       const request: ModelRequest = options.systemInstruction === undefined
-        ? { transcript: snapshotMessages(transcript), tools: snapshot(registry.definitions()) }
+        ? {
+          transcript: snapshotMessages(transcript),
+          tools: snapshot(registry.definitions()),
+        }
         : {
           systemInstruction: options.systemInstruction,
           transcript: snapshotMessages(transcript),
@@ -288,7 +348,10 @@ export const runAgentTurn = async (
     }
     try {
       throwIfCancelled(signal);
-      if (options.executionContext !== undefined && !options.executionContext.claimModelRequest()) {
+      if (
+        options.executionContext !== undefined &&
+        !options.executionContext.claimModelRequest()
+      ) {
         return finishNormal(
           contractFailure(
             task,
@@ -307,17 +370,57 @@ export const runAgentTurn = async (
     }
     steps += 1;
     let result: unknown;
+    let progressFailure: EventDeliveryError | undefined;
+    let progressSettled = false;
+    let acceptedProgress = 0;
+    const reportAssistantProgress = (progressText: string): void => {
+      if (
+        progressFailure !== undefined || progressSettled ||
+        signal?.aborted === true ||
+        acceptedProgress >= MAX_ASSISTANT_PROGRESS_UPDATES_PER_REQUEST ||
+        !isValidAssistantProgressSnapshot(progressText)
+      ) return;
+      acceptedProgress += 1;
+      try {
+        deliverEvent(sink, {
+          kind: 'assistant_progress',
+          turn,
+          text: progressText,
+        });
+      } catch (error) {
+        progressFailure = error instanceof EventDeliveryError ? error : new EventDeliveryError();
+        // Delivery failure owns cancellation synchronously. The model remains responsible for
+        // settling its response body before this turn can reject.
+        cancellation?.request();
+        throw progressFailure;
+      }
+    };
     try {
-      result = signal === undefined
+      const generateOptions = signal === undefined && sink === undefined ? undefined : {
+        signal,
+        reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
+      };
+      result = generateOptions === undefined
         ? await model.generate(preparedRequest)
-        : await model.generate(preparedRequest, { signal });
+        : await model.generate(preparedRequest, generateOptions);
     } catch (error) {
+      progressSettled = true;
+      if (progressFailure !== undefined) {
+        if (isCancellationCleanupError(error)) {
+          cancellation?.markCleanupFailed();
+        }
+        throw progressFailure;
+      }
       if (isCancellationCleanupError(error)) {
         return finishContractFailure('cancellation cleanup failed');
       }
       if (cancellationFrom(error)) return finishCancelled();
-      return finishContractFailure(`model contract failure: ${errorText(error)}`);
+      return finishContractFailure(
+        `model contract failure: ${errorText(error)}`,
+      );
     }
+    progressSettled = true;
+    if (progressFailure !== undefined) throw progressFailure;
     if (signal?.aborted) return finishCancelled();
     if (!isModelResult(result)) {
       return finishNormal(
@@ -337,7 +440,11 @@ export const runAgentTurn = async (
         content: { kind: 'text', text: result.text },
       };
       transcript.push(assistant);
-      deliverEvent(sink, { kind: 'assistant_message', turn, message: snapshot(assistant) });
+      deliverEvent(sink, {
+        kind: 'assistant_message',
+        turn,
+        message: snapshot(assistant),
+      });
       if (signal?.aborted) return finishCancelled();
       return finishNormal({
         ok: true,
@@ -355,12 +462,19 @@ export const runAgentTurn = async (
     const calls = snapshot(result.calls);
     const assistant = assistantToolMessage(calls);
     transcript.push(assistant);
-    deliverEvent(sink, { kind: 'assistant_message', turn, message: snapshot(assistant) });
+    deliverEvent(sink, {
+      kind: 'assistant_message',
+      turn,
+      message: snapshot(assistant),
+    });
     const results: ToolMessage['content'][number][] = [];
     const terminalCalls = calls.filter((call) => registry.resolve(call.name)?.terminal === true);
     const invalidTerminalBatch = terminalCalls.length > 0 &&
       (calls.length !== 1 || terminalCalls.length !== 1);
-    let terminalResult: { readonly kind: 'json_result'; readonly finalText: string } | null = null;
+    let terminalResult: {
+      readonly kind: 'json_result';
+      readonly finalText: string;
+    } | null = null;
     for (const call of calls) {
       if (signal?.aborted) return finishCancelled();
       deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
@@ -369,7 +483,11 @@ export const runAgentTurn = async (
       if (invalidTerminalBatch) {
         const resultContent = terminalBatchError(call);
         results.push(resultContent);
-        deliverEvent(sink, { kind: 'tool_result', turn, result: snapshot(resultContent) });
+        deliverEvent(sink, {
+          kind: 'tool_result',
+          turn,
+          result: snapshot(resultContent),
+        });
         toolResultCount += 1;
         continue;
       }
@@ -378,9 +496,10 @@ export const runAgentTurn = async (
       let acceptedProgress = 0;
       const reportProgress = (progressText: string): void => {
         if (
-          progressFailure !== undefined || progressSettled || signal?.aborted === true ||
+          progressFailure !== undefined || progressSettled ||
+          signal?.aborted === true ||
           acceptedProgress >= MAX_TOOL_PROGRESS_UPDATES_PER_CALL ||
-          !isValidProgressSnapshot(progressText)
+          !isValidToolProgressSnapshot(progressText)
         ) return;
         acceptedProgress += 1;
         try {
@@ -430,7 +549,9 @@ export const runAgentTurn = async (
         dispatched = await dispatchPromise;
       } catch (error) {
         if (progressFailure !== undefined) {
-          if (isCancellationCleanupError(error)) cancellation?.markCleanupFailed();
+          if (isCancellationCleanupError(error)) {
+            cancellation?.markCleanupFailed();
+          }
           throw progressFailure;
         }
         if (isCancellationCleanupError(error)) {
@@ -453,7 +574,11 @@ export const runAgentTurn = async (
         if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
       }
       if (signal?.aborted) return finishCancelled();
-      deliverEvent(sink, { kind: 'tool_result', turn, result: snapshot(results.at(-1)!) });
+      deliverEvent(sink, {
+        kind: 'tool_result',
+        turn,
+        result: snapshot(results.at(-1)!),
+      });
       toolResultCount += 1;
     }
     transcript.push({ role: 'tool', content: results });

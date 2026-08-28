@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: context managementはcommit `cbf4fd9`、persistent session/historyはcommit `d9da4d4`で完了。tool progress eventsもfocused progress/session/store/work-tools/TUI-direct/TUI-process/topology 7/15/13/25/40/16/4、full v0 439、owner final Blocker/P1/P2 0で完了
-- 次: roadmap次順のprovider streamingを別計画として開始する。追加provider attemptは別Human Gate
+- 状態: context managementはcommit `cbf4fd9`、persistent session/historyはcommit `d9da4d4`、tool progress eventsはcommit `ea3b506`で完了。provider streaming local implementation、finding closure、bounded review、owner final gateも完了。focused streaming/TUI direct/TUI process/full offlineは15/15/44/44/18/18/460/460、final Blocker/P1/P2 0。`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`、`v0:gate`はpass
+- 次: roadmap次順のbounded mid-turn steeringを別計画として開始する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,7 +14,15 @@
 - 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
-- 次: provider streamingを別計画として開始する
+- 次: roadmap次順のbounded mid-turn steeringを別計画として開始する
+
+### POL-20260828-provider-neutral-streaming-plan
+
+- 判断済み: ユーザーが`docs/plans/provider-neutral-streaming.md`、SHA-256 `694cb7cc08f0e06b333acf6acc61a1f6992f538730b5d63f9577931bef061732`のrepository implementation、disposable offline fake-stream/model/terminal/PTY tests、full offline gate、README/results/lifecycle更新、bounded reviewを承認した
+- 契約: normal parent/planner OpenRouterだけをinternal SSE modeにし、completed `ModelResult`を唯一のauthorityとして保持。TUIは65,536 UTF-8 bytes/256 updates per requestのaccumulated live assistant snapshotを表示し、CLI/transcript/context/persistence/planner envelopeはpartial dataを保持しない
+- review: initial plan review P1 1/P2 1をstable completion ID + exact choice index 0によるpre-assembly ownership、empty content delta no-opで修正。implementation initial changed-lines reviewはBlocker 0/P1 0/P2 4。one plan-scoped finding-closure passでbounded usage frame、gated SSE sink failure/cleanup、delayed multi-chunk controller/PTY evidenceを追加。re-review P1はrequired usage countersを検証しprovider追加metadataを許容する実装修正と`cost:0`成功回帰で閉鎖。narrow final re-reviewはGO、Blocker/P1/P2 0
+- gate: focused streaming/TUI direct/TUI process/full offline tests 15/15/44/44/18/18/460/460。`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`、owner final `v0:gate` pass
+- 境界: production CLI/TUI/session、actual session state、provider/network/credential/real sentinel、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは承認対象外
 
 ### POL-20260828-provider-neutral-tool-progress-events
 
@@ -1582,3 +1590,61 @@
 - 実施: signal-listener crash settlementのsource-to-impactを確認し、pinned Denoでfocused TUI 40/40とfull `v0:gate` 439/439、diff checkを再実行。final Blocker/P1/P2 0
 - 次: roadmap次順のprovider streamingを別計画として開始する
 - 注意: provider/network/credential/production task、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施。既存untracked `_refs/`を保持
+
+## 2026-08-28 13:01 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Provider-neutral assistant streaming planning
+- 実施: OpenRouter公式SSE/tool-call契約、current core/TUI/persistence/planner境界、pinned Pi/Zotを照合しcanonical planを作成。initial review P1 1/P2 1をcompletion/choice ownershipとempty-delta no-opで閉じ、single re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260828-provider-neutral-streaming-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `694cb7cc08f0e06b333acf6acc61a1f6992f538730b5d63f9577931bef061732`。planning/lifecycle文書以外のsource/test、provider/network/credential/production command、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-28 13:11 JST
+
+- 実行エージェント: ユーザー / Codex default
+- 作業トピック: Provider-neutral assistant streaming Human Gate
+- 実施: ユーザーが`POL-20260828-provider-neutral-streaming-plan`のrepository implementation、disposable offline tests、full verification、results/lifecycle更新、bounded reviewを明示承認
+- 次: single implementerでcanonical planを実装し、offline gate後にread-only reviewへ進む
+- 注意: production CLI/TUI/session、actual session state、provider/network/credential/real sentinel、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは承認範囲外
+
+## 2026-08-28 15:19 JST
+
+- 実行エージェント: Codex provider-streaming implementer
+- 作業トピック: Provider-neutral assistant streaming implementation / initial finding closure
+- 実施: bounded documented usage frame（非負safe integerの`prompt_tokens`/`completion_tokens`/`total_tokens`）とduplicate terminal/usage回帰、modelがreporter errorをcatchする同期cancel確認、AgentSessionのgated SSE reader cleanup待ち・EventDeliveryError保持・no commit/end、cleanup failure時session poisonを追加。controller/PTYに遅延assistant 2-chunk replacement、cancel/output-failure settlement、single restore/no late write回帰を追加
+- 検証: streaming 15/15、TUI input/render/controller 10/8/26、TUI process 18/18、transport 16、loop 22、session 15、runtime 35、runtime process 18、session store 13、session TUI 1、full `v0:test` 460/460、fmt/lint/diff check pass。configured `v0:check`/`v0:gate`は既存config stale pathでblocked
+- 次: changed-lines re-reviewへ返却。initial review Blocker 0/P1 0/P2 4はre-review pendingで、final GO未確定
+- 注意: responseMode:'json' sentinel変更はreviewer承認済みtest-only local seamで外部wire不変。provider/network/credential/production command、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 00:22 JST
+
+- 実行エージェント: Codex provider-streaming implementer
+- 作業トピック: Provider-neutral assistant streaming re-review P1 closure
+- 実施: SSE post-terminal usage validation now requires only the three documented nonnegative safe-integer counters while allowing provider-added metadata; `cost:0` success regression added and duplicate-terminal/duplicate-usage rejection retained
+- 検証: streaming 15/15、transport 16、loop 22、session 15、TUI direct 44、TUI process 18、full `v0:test` 460/460、`v0:check`、fmt、lint、diff check pass。final owner `v0:gate`はpending
+- 次: changed-lines re-reviewへ返却。re-review P1 closureは完了、initial P2は既存finding closure済み、final GOはowner判断待ち
+- 注意: provider/network/credential/production command、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施。`responseMode:'json'` sentinelは承認済みtest-only local seam
+
+## 2026-08-28 16:17 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Provider-neutral assistant streaming pause checkpoint
+- 実施: implementer報告の`v0:check`/`v0:gate` stale pathをread-only再調査。HEADとworking treeはいずれも`tests/v0/fixtures/live_corpus_credential_launcher_fake_child.ts`を正しく参照し、実ファイルも存在する。pinned Denoで`v0:check`を再実行して成功したため、config bugは再現せず、修正も行っていない
+- 次: initial review P2 4のfinding closureに対するsingle changed-lines re-reviewを実施し、GO後にowner final `v0:gate`、結果/lifecycle文書のfinal disposition、acceptance packageを完了する
+- 注意: user依頼によりキリのよい地点で停止。initial reviewはまだre-review pendingでfinal GO未確定。provider/network/credential/production command、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 00:26 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Provider-neutral assistant streaming final owner gate
+- 実施: re-reviewのnew P1をprovider追加usage metadata許容とexact回帰で閉鎖し、narrow final re-review GO、Blocker/P1/P2 0。pinned Denoのowner final `v0:gate`はfull offline 460/460を含め終了コード0
+- 次: roadmap次順のbounded mid-turn steeringを別計画として開始する
+- 注意: provider/network/credential/production command、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施。既存untracked `_refs/`を保持
+
+## 2026-08-29 00:28 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Provider-neutral assistant streaming commit
+- 実施: final GOとowner gate済みのstreaming incrementをmainへ一つのfeature commitとして記録し、results/lifecycleのcommit状態を整合
+- 次: roadmap次順のbounded mid-turn steeringを別計画として開始する
+- 注意: push/tag/publish/release、provider/network/credential/production command、dependency/lockfile、`_refs`変更は未実施。既存untracked `_refs/`を保持

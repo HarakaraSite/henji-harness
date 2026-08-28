@@ -82,7 +82,18 @@ events, outcomes, and committed session history remain complete. This is a conse
 estimate rather than provider usage or tokenizer output; no summary, retry, extra request,
 persistence, or provider window lookup is performed. The TUI reports a committed post-settlement
 estimate as `ready · ctx ≤<ceil(bytes / 1024)>K/64K est`, adding the exact omitted-result count when
-nonzero. `agent:run` output and provider wire contracts remain unchanged.
+nonzero. `agent:run` output and non-normal provider wire contracts remain unchanged.
+
+Normal runtime parent and planner model requests use one bounded Chat Completions SSE response per
+admitted model step. The CLI remains final-only: streamed partial text is never written to stdout or
+stderr, committed history, context metrics, or planner envelopes. The TUI receives only accumulated
+assistant snapshots, rendered as one replaceable escaped live line and cleared when a completed
+assistant record, tool activity, cancellation, failure, or shutdown takes over. A completed result
+alone can create assistant events, execute tools, and update the transcript. Streamed tool-call
+fragments are assembled and validated before dispatch; partial calls are never executed. Malformed,
+cancelled, timed-out, or failed streams retain no partial assistant result. Provider-side connection
+abort does not guarantee cancellation of provider compute or billing. Reasoning/usage display,
+retry/fallback, reconnection, steering, and queued follow-up remain deferred.
 
 `read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
 Paths may be relative or absolute within that root, are component-checked, reject symlinks and
@@ -159,8 +170,9 @@ Cancellation is per accepted turn, never commits its draft, and does not roll ba
 effects. Cleanup failure is a fatal sanitized agent failure and makes the session unavailable.
 Terminal output uses main-screen scrollback with a small live line; dynamic model, tool, and task
 text is escaped at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input
-reader are restored on every handled exit or failure. Provider streaming, confirmation,
-alternate-screen rendering, and queued follow-up input remain deferred.
+reader are restored on every handled exit or failure. Provider streaming is visible only as the
+bounded live assistant line described above; confirmation, alternate-screen rendering, and queued
+follow-up input remain deferred.
 
 ## Persistent TUI sessions
 

@@ -55,7 +55,11 @@ Deno.test('renderer maps completed events once without alternate screen', () => 
       turn: 1,
       message: { role: 'assistant', content: { kind: 'text', text: 'answer' } },
     },
-    { kind: 'tool_call', turn: 1, call: { callId: '1', name: 'read', arguments: {} } },
+    {
+      kind: 'tool_call',
+      turn: 1,
+      call: { callId: '1', name: 'read', arguments: {} },
+    },
     {
       kind: 'tool_result',
       turn: 1,
@@ -87,7 +91,12 @@ Deno.test('tool-terminal final event does not duplicate the assistant final', ()
     turn: 1,
     message: {
       role: 'assistant',
-      content: [{ kind: 'tool_call', callId: '1', name: 'submit_json_result', arguments: {} }],
+      content: [{
+        kind: 'tool_call',
+        callId: '1',
+        name: 'submit_json_result',
+        arguments: {},
+      }],
     },
   });
   renderer.eventSink({
@@ -107,11 +116,19 @@ Deno.test('tool-terminal final event does not duplicate the assistant final', ()
       terminal: 'json_result',
     },
   });
-  renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'tool_terminal', committed: true });
+  renderer.eventSink({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'tool_terminal',
+    committed: true,
+  });
   renderer.renderAssistantFinal('{"ok":true}');
   const text = terminal.text();
   assertEquals((text.match(/tool> submit_json_result/g) ?? []).length, 1);
-  assertEquals((text.match(/tool< submit_json_result success>/g) ?? []).length, 1);
+  assertEquals(
+    (text.match(/tool< submit_json_result success>/g) ?? []).length,
+    1,
+  );
   assertEquals((text.match(/assistant> \{"ok":true\}/g) ?? []).length, 1);
 });
 
@@ -121,7 +138,10 @@ Deno.test('renderer truncates display fields without changing source values', ()
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
-    message: { role: 'assistant', content: { kind: 'text', text: 'x'.repeat(65_537) } },
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: 'x'.repeat(65_537) },
+    },
   });
   assert(terminal.text().includes('… [display truncated]'));
   assert(!terminal.text().includes('x'.repeat(65_537)));
@@ -197,7 +217,12 @@ Deno.test('progress replaces one live line, escapes dynamic text, and never ente
   const afterResult = terminal.writes.slice(-2);
   assert(afterResult.every((write) => !write.includes('tool~')));
   assert(afterResult.some((write) => write.includes('tool< read')));
-  renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+  renderer.eventSink({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'final',
+    committed: true,
+  });
   renderer.close();
   const closedLength = terminal.writes.length;
   renderer.clearLiveProgress();
@@ -221,4 +246,46 @@ Deno.test('progress display bounds wide 8,192-byte snapshots without mutating so
   assert(!write.includes(source));
   assert(!write.includes('\n'));
   assertEquals(new TextEncoder().encode(source).byteLength, 8_192);
+});
+
+Deno.test('assistant progress replaces one escaped live line and clears for one completed record', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 120, rows: 4 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.eventSink({ kind: 'turn_start', turn: 1 });
+  const before = terminal.writes.length;
+  renderer.eventSink({
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'hello\nworld\t\u202e',
+  });
+  renderer.eventSink({
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'hello world',
+  });
+  const liveWrites = terminal.writes.slice(before);
+  assertEquals(liveWrites.length, 2);
+  assert(liveWrites[0].includes('assistant~'));
+  assert(liveWrites[0].includes('↵'));
+  assert(liveWrites[0].includes('⇥'));
+  assert(liveWrites[0].includes('\\u{202E}'));
+  assert(liveWrites.every((write) => !write.includes('\n')));
+  renderer.eventSink({
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text: 'final' } },
+  });
+  const after = terminal.writes.slice(-2);
+  assert(after.some((write) => write.includes('assistant> final')));
+  renderer.eventSink({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'final',
+    committed: true,
+  });
+  renderer.close();
+  const closed = terminal.writes.length;
+  renderer.clearLiveActivity();
+  assertEquals(terminal.writes.length, closed);
 });

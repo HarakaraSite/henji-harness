@@ -6,7 +6,7 @@ import { type SessionRecord } from './session_store.ts';
 import { type AgentEventSink } from './events.ts';
 import { type Model } from './contracts.ts';
 import { Registry } from './tools.ts';
-import { OpenRouterAgentModel } from './openrouter_model.ts';
+import { OpenRouterAgentModel, type OpenRouterResponseMode } from './openrouter_model.ts';
 import { createPlannerRegistry, createProductionRegistry } from './registries.ts';
 import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
 import { discoverSkills, type SkillFileSystem } from './skills.ts';
@@ -44,6 +44,8 @@ export interface RuntimeTestSeam {
   readonly fetcher?: typeof fetch;
   readonly credential?: string;
   readonly credentialSource?: () => string | undefined;
+  /** Offline-only override for unchanged JSON sentinel/compatibility consumers. */
+  readonly responseMode?: OpenRouterResponseMode;
   /** Direct-test-only workspace injection; production has no workspace option. */
   readonly workspaceRoot?: string;
   /** Direct-test-only instruction discovery filesystem injection. */
@@ -54,7 +56,9 @@ export interface RuntimeTestSeam {
   readonly workTools?: WorkToolSeams;
   /** Direct-test-only materialization counters; production leaves these unset. */
   readonly onModelMaterialized?: (definition: ResolvedAgentDefinition) => void;
-  readonly onRegistryMaterialized?: (definition: ResolvedAgentDefinition) => void;
+  readonly onRegistryMaterialized?: (
+    definition: ResolvedAgentDefinition,
+  ) => void;
 }
 
 export interface RuntimeRun {
@@ -94,6 +98,7 @@ const materializeModel = (
         fetcher,
         credential: seam.credential,
         credentialSource: seam.credentialSource,
+        responseMode: seam.responseMode ?? 'sse',
       });
     default:
       return materializationFailure(definition.model.provider);
@@ -109,7 +114,9 @@ const materializeRegistry = (
   switch (definition.registry.kind) {
     case 'production': {
       if (plannerDelegation === undefined) {
-        throw new Error('production registry requires planner delegation handler');
+        throw new Error(
+          'production registry requires planner delegation handler',
+        );
       }
       return createProductionRegistry(
         definition.registry.workspace,
@@ -161,7 +168,10 @@ export const createRuntimeComposition = async (
     workspace.root,
     seam.instructionFileSystem,
   );
-  const skillCatalog = await discoverSkills(workspace.root, seam.skillFileSystem);
+  const skillCatalog = await discoverSkills(
+    workspace.root,
+    seam.skillFileSystem,
+  );
   const definition = selection.definition({
     workspace,
     agentInstructions,
@@ -181,7 +191,11 @@ export const createRuntimeComposition = async (
             skillCatalog,
           });
           const childModel = materializeModel(childDefinition, fetcher, seam);
-          const childRegistry = materializeRegistry(childDefinition, seam, undefined);
+          const childRegistry = materializeRegistry(
+            childDefinition,
+            seam,
+            undefined,
+          );
           const outcome = await runAgentTurn(
             task,
             [],
@@ -196,13 +210,17 @@ export const createRuntimeComposition = async (
               ownsCancellation: false,
             },
           );
-          if (outcome.stopReason === 'cancelled') throw new TurnCancelledError();
+          if (outcome.stopReason === 'cancelled') {
+            throw new TurnCancelledError();
+          }
           if (childContext.cancellation?.state === 'cleanup_failed') {
             throw new CancellationCleanupError();
           }
           return { outcome, externalRequests: requestCount - beforeRequests };
         } catch (error) {
-          if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+          if (
+            isTurnCancelledError(error) || isCancellationCleanupError(error)
+          ) throw error;
           return {
             outcome: childFailure(task),
             externalRequests: requestCount - beforeRequests,
@@ -231,7 +249,9 @@ export const createRuntimeSession = async (
     readonly persistence?: SessionPersistence;
     readonly initialRecord?: SessionRecord;
   } = {},
-): Promise<{ readonly session: AgentSession; readonly requestCount: () => number }> => {
+): Promise<
+  { readonly session: AgentSession; readonly requestCount: () => number }
+> => {
   const composition = await createRuntimeComposition(seam, selection);
   return {
     session: new AgentSession(composition.model, composition.registry, {
@@ -260,10 +280,15 @@ export const runRuntime = async (
   selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
 ): Promise<RuntimeRun> => {
   const composition = await createRuntimeComposition(seam, selection);
-  const outcome = await runAgent(task, composition.model, composition.registry, {
-    maxSteps: composition.maxSteps,
-    systemInstruction: composition.systemInstruction,
-    executionContext: composition.createTurnExecutionContext(1),
-  });
+  const outcome = await runAgent(
+    task,
+    composition.model,
+    composition.registry,
+    {
+      maxSteps: composition.maxSteps,
+      systemInstruction: composition.systemInstruction,
+      executionContext: composition.createTurnExecutionContext(1),
+    },
+  );
   return { outcome, requestCount: composition.requestCount() };
 };

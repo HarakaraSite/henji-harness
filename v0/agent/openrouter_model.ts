@@ -10,13 +10,16 @@ import {
   type ToolDefinition,
   type ToolResultContent,
 } from './contracts.ts';
+import { EventDeliveryError } from './events.ts';
 import { CancellationCleanupError, throwIfCancelled, TurnCancelledError } from './cancellation.ts';
 
 const encoder = new TextEncoder();
 
 const MAX_MESSAGE_BYTES = 76 * 1024;
 const MAX_REQUEST_BYTES = 256 * 1024;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
+export const MAX_RESPONSE_BYTES = 1024 * 1024;
+export const MAX_SSE_DATA_EVENTS = 4_096;
+export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
 
 /** Structural provider profile consumed by the normal OpenRouter adapter. */
 export interface OpenRouterAgentProfile {
@@ -29,6 +32,8 @@ export interface OpenRouterAgentProfile {
   readonly maxCompletionTokens: number;
   readonly stream: false;
 }
+
+export type OpenRouterResponseMode = 'json' | 'sse';
 
 export type AgentTransportErrorCode =
   | 'invalid_input'
@@ -59,13 +64,19 @@ export class OpenRouterAgentError extends Error {
 }
 
 type ResponseBodyResult =
-  | { readonly kind: 'text'; readonly text: string; readonly cleanupFailed: boolean }
+  | {
+    readonly kind: 'text';
+    readonly text: string;
+    readonly cleanupFailed: boolean;
+  }
   | { readonly kind: 'limit_exceeded'; readonly cleanupFailed: boolean }
   | { readonly kind: 'stream_error'; readonly cleanupFailed: boolean }
   | { readonly kind: 'missing'; readonly cleanupFailed: false };
 
 /** Read one bounded response while retaining proof that the body reader was settled. */
-const readResponseBody = async (response: Response): Promise<ResponseBodyResult> => {
+const readResponseBody = async (
+  response: Response,
+): Promise<ResponseBodyResult> => {
   if (!response.body) return { kind: 'missing', cleanupFailed: false };
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
@@ -75,7 +86,10 @@ const readResponseBody = async (response: Response): Promise<ResponseBodyResult>
   }
   const chunks: Uint8Array[] = [];
   let total = 0;
-  let result: ResponseBodyResult = { kind: 'stream_error', cleanupFailed: true };
+  let result: ResponseBodyResult = {
+    kind: 'stream_error',
+    cleanupFailed: true,
+  };
   try {
     for (;;) {
       let item: ReadableStreamReadResult<Uint8Array>;
@@ -155,6 +169,8 @@ export interface OpenRouterAgentModelOptions {
   readonly profile?: OpenRouterAgentProfile;
   readonly timeoutMs?: number;
   readonly parentSignal?: AbortSignal;
+  /** Internal runtime composition; omitted callers retain the canonical JSON response mode. */
+  readonly responseMode?: OpenRouterResponseMode;
 }
 
 interface WireUserMessage {
@@ -216,7 +232,9 @@ interface WireResponseToolCall {
 }
 
 const isJsonValue = (value: unknown): value is JsonValue => {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean'
+  ) return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   if (typeof value !== 'object') return false;
@@ -272,11 +290,15 @@ const toolCallWire = (call: ToolCallContent): WireToolCall | undefined => {
   };
 };
 
-const toolResultWire = (result: ToolResultContent): WireToolMessage | undefined => {
+const toolResultWire = (
+  result: ToolResultContent,
+): WireToolMessage | undefined => {
   if (
-    typeof result !== 'object' || result === null || result.kind !== 'tool_result' ||
+    typeof result !== 'object' || result === null ||
+    result.kind !== 'tool_result' ||
     !nonBlank(result.callId) || !nonBlank(result.name) ||
-    typeof result.text !== 'string' || (result.outcome !== 'success' && result.outcome !== 'error')
+    typeof result.text !== 'string' ||
+    (result.outcome !== 'success' && result.outcome !== 'error')
   ) return undefined;
   return { role: 'tool', tool_call_id: result.callId, content: result.text };
 };
@@ -285,7 +307,8 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
   if (typeof message !== 'object' || message === null) return undefined;
   if (message.role === 'user') {
     const content = message.content;
-    return typeof content === 'object' && content !== null && content.kind === 'text' &&
+    return typeof content === 'object' && content !== null &&
+        content.kind === 'text' &&
         typeof content.text === 'string'
       ? [{ role: 'user', content: content.text }]
       : undefined;
@@ -293,19 +316,25 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
   if (message.role === 'assistant') {
     const content = message.content;
     if (
-      !Array.isArray(content) && typeof content === 'object' && content !== null &&
-      'kind' in content && content.kind === 'text' && typeof content.text === 'string'
+      !Array.isArray(content) && typeof content === 'object' &&
+      content !== null &&
+      'kind' in content && content.kind === 'text' &&
+      typeof content.text === 'string'
     ) {
       return [{ role: 'assistant', content: content.text }];
     }
-    if (!Array.isArray(message.content) || message.content.length === 0) return undefined;
+    if (!Array.isArray(message.content) || message.content.length === 0) {
+      return undefined;
+    }
     const calls = message.content.map(toolCallWire);
     return calls.every((call): call is WireToolCall => call !== undefined)
       ? [{ role: 'assistant', content: null, tool_calls: calls }]
       : undefined;
   }
   if (message.role === 'tool') {
-    if (!Array.isArray(message.content) || message.content.length === 0) return undefined;
+    if (!Array.isArray(message.content) || message.content.length === 0) {
+      return undefined;
+    }
     const results = message.content.map(toolResultWire);
     return results.every((result): result is WireToolMessage => result !== undefined)
       ? results
@@ -332,10 +361,15 @@ const encodeTool = (tool: ToolDefinition): WireFunctionTool | undefined => {
 const encodeRequest = (
   request: ModelRequest,
 ): { messages: WireMessage[]; tools: WireFunctionTool[] } => {
-  if (typeof request !== 'object' || request === null || !Array.isArray(request.transcript)) {
+  if (
+    typeof request !== 'object' || request === null ||
+    !Array.isArray(request.transcript)
+  ) {
     throw invalid('model transcript is required');
   }
-  if (request.transcript.length === 0) throw invalid('model transcript is required');
+  if (request.transcript.length === 0) {
+    throw invalid('model transcript is required');
+  }
   if (!Array.isArray(request.tools)) throw invalid('model tools are invalid');
 
   const messages: WireMessage[] = [];
@@ -355,7 +389,9 @@ const encodeRequest = (
     throw invalid('model tool definition is invalid');
   }
   const messageBody = safeJson(messages);
-  if (messageBody === undefined) throw invalid('model transcript is not JSON serializable');
+  if (messageBody === undefined) {
+    throw invalid('model transcript is not JSON serializable');
+  }
   if (bytes(messageBody) > MAX_MESSAGE_BYTES) {
     throw new OpenRouterAgentError(
       'limit_exceeded',
@@ -366,8 +402,10 @@ const encodeRequest = (
   return { messages, tools };
 };
 
-const responseError = (message: string, requestCount: 0 | 1 = 1): OpenRouterAgentError =>
-  new OpenRouterAgentError('response_error', message, requestCount);
+const responseError = (
+  message: string,
+  requestCount: 0 | 1 = 1,
+): OpenRouterAgentError => new OpenRouterAgentError('response_error', message, requestCount);
 
 const decodeToolCalls = (value: unknown): ModelResult | undefined => {
   if (!Array.isArray(value) || value.length === 0) return undefined;
@@ -375,9 +413,13 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
     if (typeof raw !== 'object' || raw === null) return undefined;
     const call = raw as WireResponseToolCall;
     if (call.type !== 'function' || !nonBlank(call.id)) return undefined;
-    if (typeof call.function !== 'object' || call.function === null) return undefined;
+    if (typeof call.function !== 'object' || call.function === null) {
+      return undefined;
+    }
     const fn = call.function as { name?: unknown; arguments?: unknown };
-    if (!nonBlank(fn.name) || typeof fn.arguments !== 'string') return undefined;
+    if (!nonBlank(fn.name) || typeof fn.arguments !== 'string') {
+      return undefined;
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(fn.arguments);
@@ -387,8 +429,9 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
     if (!isJsonValue(parsed)) return undefined;
     return { callId: call.id, name: fn.name, arguments: parsed };
   });
-  return calls.every((call): call is { callId: string; name: string; arguments: JsonValue } =>
-      call !== undefined
+  return calls.every((
+      call,
+    ): call is { callId: string; name: string; arguments: JsonValue } => call !== undefined
     )
     ? { kind: 'tool_calls', calls }
     : undefined;
@@ -421,11 +464,539 @@ const decodeResponse = (payload: unknown): ModelResult => {
   ) {
     return { kind: 'final', text: content };
   }
-  if ((content === null || content === undefined || content === '') && toolCalls !== undefined) {
+  if (
+    (content === null || content === undefined || content === '') &&
+    toolCalls !== undefined
+  ) {
     const result = decodeToolCalls(toolCalls);
     if (result) return result;
   }
   throw responseError('provider response contained no supported result');
+};
+
+const sseResponseError = (
+  message = 'provider response stream was unsupported',
+): OpenRouterAgentError => new OpenRouterAgentError('response_error', message, 1);
+
+const sseTransportError = (): OpenRouterAgentError =>
+  new OpenRouterAgentError(
+    'transport_error',
+    'provider response stream failed',
+    1,
+  );
+
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
+
+type SsePayloadHandler = (payload: string) => void;
+
+/**
+ * Dependency-free SSE framer for the documented Chat Completions subset. It deliberately keeps
+ * no raw frame after dispatch; callers receive one decoded data payload at a time.
+ */
+class SseFramer {
+  private readonly decoder = new TextDecoder('utf-8', { fatal: true });
+  private line = '';
+  private pendingCr = false;
+  private dataLines: string[] = [];
+  private bomHandled = false;
+  private _done = false;
+  private dataEvents = 0;
+
+  constructor(private readonly onPayload: SsePayloadHandler) {}
+
+  get done(): boolean {
+    return this._done;
+  }
+
+  get eventCount(): number {
+    return this.dataEvents;
+  }
+
+  push(bytes: Uint8Array): void {
+    if (this._done) return;
+    let decoded: string;
+    try {
+      decoded = this.decoder.decode(bytes, { stream: true });
+    } catch {
+      throw sseResponseError('provider response contained invalid UTF-8');
+    }
+    this.consume(decoded);
+  }
+
+  finish(): void {
+    if (this._done) return;
+    let decoded: string;
+    try {
+      decoded = this.decoder.decode();
+    } catch {
+      throw sseResponseError('provider response contained invalid UTF-8');
+    }
+    this.consume(decoded);
+    if (this._done) return;
+    if (this.pendingCr) {
+      this.pendingCr = false;
+      this.finishLine();
+    }
+    // A final nonblank line or a data field without a separator is an incomplete event. Even
+    // when the semantic result is already present, `[DONE]` must have a complete SSE frame.
+    if (this.line.length > 0 || this.dataLines.length > 0) {
+      throw sseResponseError(
+        'provider response stream ended with an incomplete event',
+      );
+    }
+    throw sseResponseError('provider response stream ended before [DONE]');
+  }
+
+  private consume(decoded: string): void {
+    for (const character of decoded) {
+      if (this._done) return;
+      if (!this.bomHandled) {
+        this.bomHandled = true;
+        if (character === '\ufeff') continue;
+      }
+      if (this.pendingCr) {
+        this.pendingCr = false;
+        if (character === '\n') continue;
+      }
+      if (character === '\r') {
+        this.pendingCr = true;
+        this.finishLine();
+      } else if (character === '\n') {
+        this.finishLine();
+      } else {
+        this.line += character;
+      }
+    }
+  }
+
+  private finishLine(): void {
+    const line = this.line;
+    this.line = '';
+    if (line.length === 0) {
+      this.dispatchEvent();
+      return;
+    }
+    if (line.startsWith(':')) return;
+    const separator = line.indexOf(':');
+    const field = separator < 0 ? line : line.slice(0, separator);
+    if (field !== 'data') return;
+    let value = separator < 0 ? '' : line.slice(separator + 1);
+    if (value.startsWith(' ')) value = value.slice(1);
+    this.dataLines.push(value);
+  }
+
+  private dispatchEvent(): void {
+    if (this.dataLines.length === 0) return;
+    const payload = this.dataLines.join('\n');
+    this.dataLines = [];
+    if (payload.length === 0) {
+      throw sseResponseError('provider response contained empty data');
+    }
+    this.dataEvents += 1;
+    if (this.dataEvents > MAX_SSE_DATA_EVENTS) {
+      throw new OpenRouterAgentError(
+        'limit_exceeded',
+        'provider response has too many events',
+        1,
+      );
+    }
+    this.onPayload(payload);
+    if (payload === '[DONE]') this._done = true;
+  }
+}
+
+interface StreamToolAssembly {
+  readonly index: number;
+  id?: string;
+  type?: 'function';
+  name?: string;
+  arguments: string;
+}
+
+interface StreamAssembly {
+  completionId?: string;
+  text: string;
+  sawText: boolean;
+  sawTools: boolean;
+  tools: Map<number, StreamToolAssembly>;
+  liveFrozen: boolean;
+  lastReported?: string;
+  terminal?: 'stop' | 'tool_calls';
+  usageSeen: boolean;
+  result?: ModelResult;
+}
+
+const STREAM_USAGE_REQUIRED_KEYS = ['completion_tokens', 'prompt_tokens', 'total_tokens'] as const;
+
+const isStreamUsage = (value: unknown): boolean => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const usage = value as Record<string, unknown>;
+  // Providers may append accounting metadata (for example `cost` or token-detail objects). Only
+  // the documented completion counters are required, and usage is never exposed in ModelResult.
+  return STREAM_USAGE_REQUIRED_KEYS.every((key) =>
+    typeof usage[key] === 'number' && Number.isSafeInteger(usage[key]) && usage[key] >= 0
+  );
+};
+
+const largestCompletePrefix = (text: string, maxBytes: number): string => {
+  let used = 0;
+  let prefix = '';
+  for (const character of text) {
+    const size = encoder.encode(character).byteLength;
+    if (used + size > maxBytes) break;
+    prefix += character;
+    used += size;
+  }
+  return prefix;
+};
+
+const safeIndex = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+const updateStreamTool = (
+  assembly: StreamAssembly,
+  raw: unknown,
+): void => {
+  if (typeof raw !== 'object' || raw === null) throw sseResponseError();
+  const fragment = raw as {
+    index?: unknown;
+    id?: unknown;
+    type?: unknown;
+    function?: unknown;
+  };
+  if (!safeIndex(fragment.index)) {
+    throw sseResponseError('provider tool-call index was invalid');
+  }
+  const index = fragment.index;
+  let target = assembly.tools.get(index);
+  if (target === undefined) {
+    target = { index, arguments: '' };
+    assembly.tools.set(index, target);
+  }
+  if (hasOwn(fragment, 'id')) {
+    if (!nonBlank(fragment.id)) {
+      throw sseResponseError('provider tool-call id was invalid');
+    }
+    if (target.id !== undefined && target.id !== fragment.id) {
+      throw sseResponseError('provider tool-call metadata conflicted');
+    }
+    target.id = fragment.id;
+  }
+  if (hasOwn(fragment, 'type')) {
+    if (fragment.type !== 'function') {
+      throw sseResponseError('provider tool-call type was invalid');
+    }
+    if (target.type !== undefined && target.type !== fragment.type) {
+      throw sseResponseError('provider tool-call metadata conflicted');
+    }
+    target.type = 'function';
+  }
+  if (hasOwn(fragment, 'function')) {
+    if (typeof fragment.function !== 'object' || fragment.function === null) {
+      throw sseResponseError('provider tool-call function was invalid');
+    }
+    const fn = fragment.function as { name?: unknown; arguments?: unknown };
+    if (hasOwn(fn, 'name')) {
+      if (!nonBlank(fn.name)) {
+        throw sseResponseError('provider tool-call name was invalid');
+      }
+      if (target.name !== undefined && target.name !== fn.name) {
+        throw sseResponseError('provider tool-call metadata conflicted');
+      }
+      target.name = fn.name;
+    }
+    if (hasOwn(fn, 'arguments')) {
+      if (typeof fn.arguments !== 'string') {
+        throw sseResponseError('provider tool-call arguments were invalid');
+      }
+      target.arguments += fn.arguments;
+    }
+  }
+};
+
+const completeStreamTools = (assembly: StreamAssembly): ModelResult => {
+  const indices = [...assembly.tools.keys()].sort((left, right) => left - right);
+  if (
+    indices.length === 0 ||
+    indices.some((index, position) => index !== position)
+  ) {
+    throw sseResponseError('provider tool-call indices were not contiguous');
+  }
+  const calls = indices.map((index) => {
+    const tool = assembly.tools.get(index)!;
+    if (
+      !nonBlank(tool.id) || tool.type !== 'function' || !nonBlank(tool.name)
+    ) {
+      throw sseResponseError('provider tool-call metadata was incomplete');
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(tool.arguments);
+    } catch {
+      throw sseResponseError('provider tool-call arguments were invalid');
+    }
+    if (!isJsonValue(parsed)) {
+      throw sseResponseError('provider tool-call arguments were invalid');
+    }
+    return { callId: tool.id, name: tool.name, arguments: parsed };
+  });
+  return { kind: 'tool_calls', calls };
+};
+
+const processSsePayload = (
+  assembly: StreamAssembly,
+  payload: string,
+  report: ModelGenerateOptions['reportAssistantProgress'],
+): void => {
+  if (payload === '[DONE]') {
+    if (assembly.terminal === undefined || assembly.result === undefined) {
+      throw sseResponseError('provider stream ended before a terminal result');
+    }
+    return;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(payload);
+  } catch {
+    throw sseResponseError('provider response contained invalid JSON');
+  }
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw sseResponseError();
+  }
+  const object = raw as Record<string, unknown>;
+  if (
+    hasOwn(object, 'error') && object.error !== undefined &&
+    object.error !== null
+  ) {
+    throw sseResponseError('provider response reported an error');
+  }
+  const hasUsage = hasOwn(object, 'usage');
+  if (!nonBlank(object.id)) {
+    throw sseResponseError('provider completion id was invalid');
+  }
+  if (assembly.completionId === undefined) assembly.completionId = object.id;
+  else if (assembly.completionId !== object.id) {
+    throw sseResponseError('provider completion id changed');
+  }
+  const choices = object.choices;
+  if (!Array.isArray(choices) || choices.length !== 1) {
+    throw sseResponseError('provider response choice shape was unsupported');
+  }
+  const choice = choices[0];
+  if (typeof choice !== 'object' || choice === null || Array.isArray(choice)) {
+    throw sseResponseError('provider response choice shape was unsupported');
+  }
+  const choiceObject = choice as Record<string, unknown>;
+  if (choiceObject.index !== 0) {
+    throw sseResponseError('provider response choice index was invalid');
+  }
+  const finishReason = choiceObject.finish_reason;
+  if (
+    finishReason !== undefined && finishReason !== null &&
+    finishReason !== 'stop' && finishReason !== 'tool_calls'
+  ) throw sseResponseError('provider response finish reason was unsupported');
+  const delta = choiceObject.delta;
+  if (
+    delta !== undefined &&
+    (typeof delta !== 'object' || delta === null || Array.isArray(delta))
+  ) {
+    throw sseResponseError('provider response delta shape was unsupported');
+  }
+  const deltaObject = (delta ?? {}) as Record<string, unknown>;
+  const contentPresent = hasOwn(deltaObject, 'content');
+  const content = deltaObject.content;
+  const hasContent = typeof content === 'string' && content.length > 0;
+  if (
+    contentPresent && content !== null && content !== '' &&
+    typeof content !== 'string'
+  ) {
+    throw sseResponseError('provider response content was unsupported');
+  }
+  if (hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant') {
+    throw sseResponseError('provider response role was invalid');
+  }
+  const toolCalls = deltaObject.tool_calls;
+  const hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
+  if (
+    hasOwn(deltaObject, 'tool_calls') && toolCalls !== null &&
+    !Array.isArray(toolCalls)
+  ) {
+    throw sseResponseError('provider response tool calls were unsupported');
+  }
+
+  if (assembly.terminal !== undefined) {
+    // Only one content-free post-terminal usage frame is accepted. It has no effect on the
+    // authoritative result and cannot consume assistant progress bounds.
+    if (
+      assembly.usageSeen || !hasUsage || !isStreamUsage(object.usage) ||
+      finishReason !== assembly.terminal || hasContent || hasToolCalls ||
+      hasOwn(deltaObject, 'role') || hasOwn(deltaObject, 'content') ||
+      hasOwn(deltaObject, 'tool_calls')
+    ) throw sseResponseError('provider response contained data after terminal');
+    assembly.usageSeen = true;
+    return;
+  }
+
+  if (hasUsage) {
+    throw sseResponseError('provider usage frame arrived before terminal');
+  }
+
+  if ((hasContent && assembly.sawTools) || (hasToolCalls && assembly.sawText)) {
+    throw sseResponseError('provider response mixed text and tool calls');
+  }
+  if (hasContent) {
+    assembly.sawText = true;
+    assembly.text += content;
+    if (report && !assembly.liveFrozen) {
+      const visible = largestCompletePrefix(
+        assembly.text,
+        MAX_ASSISTANT_PROGRESS_TEXT_BYTES,
+      );
+      if (visible.length > 0 && visible !== assembly.lastReported) {
+        report(visible);
+        assembly.lastReported = visible;
+      }
+      if (bytes(assembly.text) > MAX_ASSISTANT_PROGRESS_TEXT_BYTES) {
+        assembly.liveFrozen = true;
+      }
+    }
+  }
+  if (hasToolCalls) {
+    assembly.sawTools = true;
+    for (const fragment of toolCalls!) updateStreamTool(assembly, fragment);
+  }
+  if (finishReason === undefined || finishReason === null) return;
+  if (finishReason === 'stop') {
+    if (!assembly.sawText || assembly.sawTools || assembly.text.length === 0) {
+      throw sseResponseError('provider stop result was empty or unsupported');
+    }
+    assembly.terminal = 'stop';
+    assembly.result = { kind: 'final', text: assembly.text };
+  } else {
+    if (!assembly.sawTools || assembly.sawText) {
+      throw sseResponseError('provider tool result was empty or unsupported');
+    }
+    assembly.terminal = 'tool_calls';
+    assembly.result = completeStreamTools(assembly);
+  }
+};
+
+const readSseResponse = async (
+  response: Response,
+  report: ModelGenerateOptions['reportAssistantProgress'],
+  isTurnCancelled: () => boolean,
+  isTimedOut: () => boolean,
+): Promise<ModelResult> => {
+  if (!response.body) throw sseResponseError('provider response had no body');
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = response.body.getReader();
+  } catch {
+    throw sseTransportError();
+  }
+  const assembly: StreamAssembly = {
+    text: '',
+    sawText: false,
+    sawTools: false,
+    tools: new Map(),
+    liveFrozen: false,
+    usageSeen: false,
+  };
+  const framer = new SseFramer((payload) => processSsePayload(assembly, payload, report));
+  const settleFailure = async (error: unknown): Promise<never> => {
+    let settled = true;
+    try {
+      await reader.cancel('provider response stream failed');
+    } catch {
+      settled = false;
+    }
+    if (!settled) {
+      if (error instanceof EventDeliveryError || isTurnCancelled()) {
+        throw new CancellationCleanupError();
+      }
+      throw sseTransportError();
+    }
+    if (error instanceof EventDeliveryError) throw error;
+    if (isTurnCancelled()) throw new TurnCancelledError();
+    if (isTimedOut()) throw sseTransportError();
+    if (error instanceof OpenRouterAgentError) throw error;
+    throw sseTransportError();
+  };
+  let failure: unknown;
+  let result: ModelResult | undefined;
+  let rawBytes = 0;
+  try {
+    for (;;) {
+      let item: ReadableStreamReadResult<Uint8Array>;
+      try {
+        item = await reader.read();
+      } catch (error) {
+        failure = await settleFailure(error);
+        break;
+      }
+      if (item.done) {
+        try {
+          framer.finish();
+        } catch (error) {
+          failure = await settleFailure(error);
+        }
+        break;
+      }
+      if (item.value.byteLength > MAX_RESPONSE_BYTES) {
+        failure = await settleFailure(
+          new OpenRouterAgentError(
+            'limit_exceeded',
+            'provider response exceeds 1 MiB',
+            1,
+          ),
+        );
+        break;
+      }
+      // Count all bytes, including comments, ignored fields, and separators. The body is bounded
+      // before decoding so an oversized UTF-8 scalar sequence cannot be accepted.
+      rawBytes += item.value.byteLength;
+      if (rawBytes > MAX_RESPONSE_BYTES) {
+        failure = await settleFailure(
+          new OpenRouterAgentError(
+            'limit_exceeded',
+            'provider response exceeds 1 MiB',
+            1,
+          ),
+        );
+        break;
+      }
+      try {
+        framer.push(item.value);
+      } catch (error) {
+        failure = await settleFailure(error);
+        break;
+      }
+      if (framer.done) {
+        try {
+          await reader.cancel('provider stream complete');
+        } catch (_error) {
+          failure = isTurnCancelled() ? new CancellationCleanupError() : sseTransportError();
+          break;
+        }
+        result = assembly.result;
+        break;
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      failure = failure instanceof EventDeliveryError ||
+          failure instanceof CancellationCleanupError ||
+          isTurnCancelled()
+        ? new CancellationCleanupError()
+        : sseTransportError();
+    }
+  }
+  if (failure !== undefined) throw failure;
+  if (result === undefined) throw sseTransportError();
+  return result;
 };
 
 const resolveCredential = (
@@ -462,12 +1033,18 @@ export class OpenRouterAgentModel implements Model {
       model: this.profile.model,
       messages: encoded.messages,
       tools: encoded.tools,
-      stream: this.profile.stream,
+      stream: this.options.responseMode === 'sse' ? true : this.profile.stream,
       max_completion_tokens: this.profile.maxCompletionTokens,
     });
-    if (body === undefined) throw invalid('provider request is not JSON serializable');
+    if (body === undefined) {
+      throw invalid('provider request is not JSON serializable');
+    }
     if (bytes(body) > MAX_REQUEST_BYTES) {
-      throw new OpenRouterAgentError('limit_exceeded', 'provider request exceeds 256 KiB', 0);
+      throw new OpenRouterAgentError(
+        'limit_exceeded',
+        'provider request exceeds 256 KiB',
+        0,
+      );
     }
     const turnSignal = generateOptions.signal ?? this.options.parentSignal;
     throwIfCancelled(turnSignal);
@@ -496,7 +1073,8 @@ export class OpenRouterAgentModel implements Model {
       timedOut = true;
       controller.abort('provider deadline exceeded');
     }, timeoutMs);
-    const endpoint = this.options.endpoint ?? `${this.profile.origin}${this.profile.path}`;
+    const endpoint = this.options.endpoint ??
+      `${this.profile.origin}${this.profile.path}`;
     try {
       let response: Response;
       try {
@@ -512,7 +1090,11 @@ export class OpenRouterAgentModel implements Model {
         });
       } catch {
         if (turnCancelled) throw new TurnCancelledError();
-        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+        throw new OpenRouterAgentError(
+          'transport_error',
+          'provider transport failed',
+          1,
+        );
       }
       // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
       // during fetch, settle that body before classifying the request outcome.
@@ -522,17 +1104,29 @@ export class OpenRouterAgentModel implements Model {
           throw new CancellationCleanupError();
         }
         if (turnCancelled) throw new TurnCancelledError();
-        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+        throw new OpenRouterAgentError(
+          'transport_error',
+          'provider transport failed',
+          1,
+        );
       }
       if (!response.ok) {
         const settled = await cancelResponseBody(response);
         if (!settled) {
           if (turnCancelled) throw new CancellationCleanupError();
-          throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+          throw new OpenRouterAgentError(
+            'transport_error',
+            'provider transport failed',
+            1,
+          );
         }
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut) {
-          throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+          throw new OpenRouterAgentError(
+            'transport_error',
+            'provider transport failed',
+            1,
+          );
         }
         throw new OpenRouterAgentError(
           'http_error',
@@ -541,23 +1135,83 @@ export class OpenRouterAgentModel implements Model {
           response.status,
         );
       }
+      if (this.options.responseMode === 'sse') {
+        const contentType = response.headers.get('content-type')?.split(
+          ';',
+          1,
+        )[0].trim()
+          .toLowerCase();
+        if (!response.body || contentType !== 'text/event-stream') {
+          const settled = await cancelResponseBody(response);
+          if (!settled) {
+            if (turnCancelled) throw new CancellationCleanupError();
+            throw sseTransportError();
+          }
+          if (turnCancelled) throw new TurnCancelledError();
+          throw sseResponseError(
+            'provider response media type was unsupported',
+          );
+        }
+        const reportAssistantProgress = generateOptions.reportAssistantProgress === undefined
+          ? undefined
+          : (snapshot: string): void => {
+            if (!controller.signal.aborted) {
+              generateOptions.reportAssistantProgress!(snapshot);
+            }
+          };
+        const streamed = await readSseResponse(
+          response,
+          reportAssistantProgress,
+          () => turnCancelled,
+          () => timedOut,
+        );
+        if (turnCancelled) throw new TurnCancelledError();
+        if (timedOut || controller.signal.aborted) {
+          throw new OpenRouterAgentError(
+            'transport_error',
+            'provider transport failed',
+            1,
+          );
+        }
+        return streamed;
+      }
       const bounded = await readResponseBody(response);
       if (bounded.cleanupFailed) {
         if (turnCancelled) throw new CancellationCleanupError();
-        throw new OpenRouterAgentError('transport_error', 'provider response stream failed', 1);
+        throw new OpenRouterAgentError(
+          'transport_error',
+          'provider response stream failed',
+          1,
+        );
       }
       if (turnCancelled) throw new TurnCancelledError();
       if (timedOut) {
-        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+        throw new OpenRouterAgentError(
+          'transport_error',
+          'provider transport failed',
+          1,
+        );
       }
       if (controller.signal.aborted) {
-        throw new OpenRouterAgentError('transport_error', 'provider transport failed', 1);
+        throw new OpenRouterAgentError(
+          'transport_error',
+          'provider transport failed',
+          1,
+        );
       }
       if (bounded.kind === 'limit_exceeded') {
-        throw new OpenRouterAgentError('limit_exceeded', 'provider response exceeds 1 MiB', 1);
+        throw new OpenRouterAgentError(
+          'limit_exceeded',
+          'provider response exceeds 1 MiB',
+          1,
+        );
       }
       if (bounded.kind !== 'text') {
-        throw new OpenRouterAgentError('transport_error', 'provider response stream failed', 1);
+        throw new OpenRouterAgentError(
+          'transport_error',
+          'provider response stream failed',
+          1,
+        );
       }
       let payload: unknown;
       try {

@@ -42,15 +42,71 @@ const ALTERNATE_PROFILE: OpenRouterAgentProfile = {
   stream: false,
 };
 
-const response = (payload: unknown, status = 200): Response =>
-  new Response(JSON.stringify(payload), {
+const response = (payload: unknown, status = 200): Response => {
+  if (status !== 200) {
+    return new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+  const id = 'offline-runtime-response';
+  const choices = (payload as { choices?: unknown })?.choices;
+  const choice = Array.isArray(choices) && choices.length === 1 ? choices[0] : undefined;
+  const message = typeof choice === 'object' && choice !== null
+    ? (choice as { message?: unknown }).message
+    : undefined;
+  let chunk: unknown = { id, choices };
+  let terminalReason: 'stop' | 'tool_calls' = 'stop';
+  if (typeof message === 'object' && message !== null) {
+    const content = (message as { content?: unknown }).content;
+    const toolCalls = (message as { tool_calls?: unknown }).tool_calls;
+    if (typeof content === 'string') {
+      chunk = {
+        id,
+        choices: [{
+          index: 0,
+          delta: { role: 'assistant', content },
+          finish_reason: 'stop',
+        }],
+      };
+    } else if (Array.isArray(toolCalls)) {
+      terminalReason = 'tool_calls';
+      chunk = {
+        id,
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            tool_calls: toolCalls.map((tool, index) => ({
+              ...(tool as Record<string, unknown>),
+              index,
+            })),
+          },
+          finish_reason: 'tool_calls',
+        }],
+      };
+    }
+  }
+  const body = `data: ${JSON.stringify(chunk)}\n\n` +
+    `data: ${
+      JSON.stringify({
+        id,
+        choices: [{ index: 0, delta: {}, finish_reason: terminalReason }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      })
+    }\n\n` +
+    'data: [DONE]\n\n';
+  return new Response(body, {
     status,
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'text/event-stream' },
   });
+};
 const finalPayload = (text: string) => ({
   choices: [{ message: { role: 'assistant', content: text } }],
 });
-const toolPayload = (calls: readonly { id: string; name: string; arguments: unknown }[]) => ({
+const toolPayload = (
+  calls: readonly { id: string; name: string; arguments: unknown }[],
+) => ({
   choices: [{
     message: {
       role: 'assistant',
@@ -58,13 +114,19 @@ const toolPayload = (calls: readonly { id: string; name: string; arguments: unkn
       tool_calls: calls.map((call) => ({
         id: call.id,
         type: 'function',
-        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+        function: {
+          name: call.name,
+          arguments: JSON.stringify(call.arguments),
+        },
       })),
     },
   }],
 });
 type FetchCall = { input: RequestInfo | URL; init?: RequestInit };
-const fetchSequence = (responses: readonly Response[], calls: FetchCall[] = []): typeof fetch => {
+const fetchSequence = (
+  responses: readonly Response[],
+  calls: FetchCall[] = [],
+): typeof fetch => {
   let index = 0;
   return (input, init) => {
     calls.push({ input, init });
@@ -73,7 +135,9 @@ const fetchSequence = (responses: readonly Response[], calls: FetchCall[] = []):
     return Promise.resolve(next);
   };
 };
-const withWorkspace = async <T>(fn: (root: string) => Promise<T>): Promise<T> => {
+const withWorkspace = async <T>(
+  fn: (root: string) => Promise<T>,
+): Promise<T> => {
   const root = await Deno.makeTempDir({ prefix: 'henji-runtime-' });
   try {
     return await fn(root);
@@ -81,7 +145,11 @@ const withWorkspace = async <T>(fn: (root: string) => Promise<T>): Promise<T> =>
     await Deno.remove(root, { recursive: true });
   }
 };
-const run = (root: string, responses: readonly Response[], extra: Record<string, unknown> = {}) =>
+const run = (
+  root: string,
+  responses: readonly Response[],
+  extra: Record<string, unknown> = {},
+) =>
   runRuntime('offline task', {
     workspaceRoot: root,
     fetcher: fetchSequence(responses),
@@ -154,7 +222,9 @@ interface DiscoveryCounts {
   skillClose: number;
 }
 
-const countingInstructionFileSystem = (counts: DiscoveryCounts): InstructionFileSystem => ({
+const countingInstructionFileSystem = (
+  counts: DiscoveryCounts,
+): InstructionFileSystem => ({
   async lstat(path) {
     counts.instructionLstat += 1;
     const info = await Deno.lstat(path);
@@ -181,7 +251,11 @@ const countingSkillFileSystem = (counts: DiscoveryCounts): SkillFileSystem => ({
   async lstat(path) {
     counts.skillLstat += 1;
     const info = await Deno.lstat(path);
-    return { isFile: info.isFile, isDirectory: info.isDirectory, isSymlink: info.isSymlink };
+    return {
+      isFile: info.isFile,
+      isDirectory: info.isDirectory,
+      isSymlink: info.isSymlink,
+    };
   },
   async *readDirectory(path) {
     counts.skillReadDirectory += 1;
@@ -194,7 +268,11 @@ const countingSkillFileSystem = (counts: DiscoveryCounts): SkillFileSystem => ({
       read: (buffer) => file.read(buffer),
       stat: async (): Promise<SkillPathInfo> => {
         const info = await file.stat();
-        return { isFile: info.isFile, isDirectory: info.isDirectory, isSymlink: info.isSymlink };
+        return {
+          isFile: info.isFile,
+          isDirectory: info.isDirectory,
+          isSymlink: info.isSymlink,
+        };
       },
       close: () => {
         counts.skillClose += 1;
@@ -223,10 +301,17 @@ Deno.test('normal runtime exposes exactly the production six-tool registry', asy
     assertEquals(result.outcome.finalText, 'answer');
     assertEquals(result.requestCount, 1);
     assertEquals(
-      (requestBody(calls[0]).tools as Array<Record<string, unknown>>).map((tool) =>
-        (tool.function as Record<string, unknown>).name
-      ),
-      ['bash', 'delegate_to_planner', 'edit', 'read', 'submit_json_result', 'write'],
+      (requestBody(calls[0]).tools as Array<Record<string, unknown>>).map((
+        tool,
+      ) => (tool.function as Record<string, unknown>).name),
+      [
+        'bash',
+        'delegate_to_planner',
+        'edit',
+        'read',
+        'submit_json_result',
+        'write',
+      ],
     );
     assertEquals(MAX_STEPS, 8);
   });
@@ -290,7 +375,10 @@ Deno.test('runtime child read then final reports exact lanes and one-time discov
     });
     const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
     assert(toolMessage?.role === 'tool');
-    const envelope = JSON.parse(toolMessage.content[0].text) as Record<string, unknown>;
+    const envelope = JSON.parse(toolMessage.content[0].text) as Record<
+      string,
+      unknown
+    >;
     assertEquals(envelope, {
       ok: true,
       agent: 'planner',
@@ -380,7 +468,9 @@ Deno.test('runtime child missing credential consumes one child claim and no chil
     const result = await runRuntime('parent task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
-        response(delegationPayload('parent-delegate', 'missing child credential')),
+        response(
+          delegationPayload('parent-delegate', 'missing child credential'),
+        ),
         response(finalPayload('parent after missing credential')),
       ], calls),
       credentialSource: () => {
@@ -410,7 +500,9 @@ Deno.test('runtime aggregate seventeenth request fails before credential and fet
     await Deno.writeTextFile(`${root}/item.txt`, 'item');
     const calls: FetchCall[] = [];
     let credentialCalls = 0;
-    const responses: Response[] = [response(delegationPayload('delegate', 'fill child lane'))];
+    const responses: Response[] = [
+      response(delegationPayload('delegate', 'fill child lane')),
+    ];
     for (let index = 0; index < 8; index += 1) {
       responses.push(response(readPayload(`child-${index}`, 'item.txt')));
     }
@@ -578,10 +670,13 @@ Deno.test('runtime evaluates an injected Definition once and uses its system ins
     assertEquals(result.outcome.finalText, 'answer');
     assertEquals(result.outcome.steps, 1);
     assertEquals(evaluations, 1);
-    assertEquals((requestBody(calls[0]).messages as Array<Record<string, unknown>>)[0], {
-      role: 'system',
-      content: 'injected composition instruction',
-    });
+    assertEquals(
+      (requestBody(calls[0]).messages as Array<Record<string, unknown>>)[0],
+      {
+        role: 'system',
+        content: 'injected composition instruction',
+      },
+    );
   });
 });
 
@@ -624,10 +719,13 @@ Deno.test('runtime materializes injected profile and registry declarations', asy
     assert(result.outcome.ok);
     assertEquals(result.outcome.finalText, 'answer');
     assertEquals(evaluations, 1);
-    assertEquals(calls[0].input, 'https://runtime-alternate.invalid/custom/chat/completions');
+    assertEquals(
+      calls[0].input,
+      'https://runtime-alternate.invalid/custom/chat/completions',
+    );
     const body = requestBody(calls[0]);
     assertEquals(body.model, 'offline/runtime-alternate-model');
-    assertEquals(body.stream, false);
+    assertEquals(body.stream, true);
     assertEquals(body.max_completion_tokens, 23);
     assertEquals(
       (body.messages as Array<Record<string, unknown>>)[0],
@@ -637,7 +735,15 @@ Deno.test('runtime materializes injected profile and registry declarations', asy
       (body.tools as Array<Record<string, unknown>>).map((tool) =>
         (tool.function as Record<string, unknown>).name
       ),
-      ['bash', 'delegate_to_planner', 'edit', 'read', 'skill', 'submit_json_result', 'write'],
+      [
+        'bash',
+        'delegate_to_planner',
+        'edit',
+        'read',
+        'skill',
+        'submit_json_result',
+        'write',
+      ],
     );
   });
 });
@@ -651,7 +757,13 @@ Deno.test('runtime passes Definition maxSteps to the one-shot loop', async () =>
     const result = await runRuntime('offline task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
-        response(toolPayload([{ id: 'round-1', name: 'bash', arguments: { command: 'true' } }])),
+        response(
+          toolPayload([{
+            id: 'round-1',
+            name: 'bash',
+            arguments: { command: 'true' },
+          }]),
+        ),
       ]),
       credential: DUMMY_CREDENTIAL,
     }, selectionFor(definition));
@@ -803,7 +915,10 @@ Deno.test('runtime event failure before parent tool_call starts no child and nex
     assert(second.ok);
     assertEquals(second.finalText, 'second parent');
     assertEquals(sessionResult.requestCount(), 2);
-    assertEquals(events.filter((event) => event.kind === 'tool_call').length, 1);
+    assertEquals(
+      events.filter((event) => event.kind === 'tool_call').length,
+      1,
+    );
   });
 });
 
@@ -874,7 +989,13 @@ Deno.test('runtime session passes Definition maxSteps and stops after one nonter
       fetcher: () => {
         fetches += 1;
         return Promise.resolve(
-          response(toolPayload([{ id: 'round-1', name: 'bash', arguments: { command: 'true' } }])),
+          response(
+            toolPayload([{
+              id: 'round-1',
+              name: 'bash',
+              arguments: { command: 'true' },
+            }]),
+          ),
         );
       },
       credential: DUMMY_CREDENTIAL,
@@ -911,7 +1032,10 @@ Deno.test('runtime startup keeps credential reads and fetch starts at zero', asy
 
 Deno.test('normal runtime discovers workspace instructions once as a system message', async () => {
   await withWorkspace(async (root) => {
-    await Deno.writeTextFile(`${root}/AGENTS.md`, '  local runtime instructions\n');
+    await Deno.writeTextFile(
+      `${root}/AGENTS.md`,
+      '  local runtime instructions\n',
+    );
     const calls: FetchCall[] = [];
     const result = await runRuntime('offline task', {
       workspaceRoot: root,
@@ -920,7 +1044,9 @@ Deno.test('normal runtime discovers workspace instructions once as a system mess
     });
     assert(result.outcome.ok);
     assertEquals(calls.length, 1);
-    const messages = requestBody(calls[0]).messages as Array<Record<string, unknown>>;
+    const messages = requestBody(calls[0]).messages as Array<
+      Record<string, unknown>
+    >;
     assertEquals(messages, [
       {
         role: 'system',
@@ -929,7 +1055,11 @@ Deno.test('normal runtime discovers workspace instructions once as a system mess
       },
       { role: 'user', content: 'offline task' },
     ]);
-    assert(!JSON.stringify(result.outcome.transcript).includes('local runtime instructions'));
+    assert(
+      !JSON.stringify(result.outcome.transcript).includes(
+        'local runtime instructions',
+      ),
+    );
   });
 });
 
@@ -944,7 +1074,13 @@ Deno.test('normal runtime exposes a skill manifest then a nonterminal saved body
     const result = await runRuntime('offline task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
-        response(toolPayload([{ id: 'skill-1', name: 'skill', arguments: { name: 'review' } }])),
+        response(
+          toolPayload([{
+            id: 'skill-1',
+            name: 'skill',
+            arguments: { name: 'review' },
+          }]),
+        ),
         response(finalPayload('done')),
       ], calls),
       credential: DUMMY_CREDENTIAL,
@@ -959,7 +1095,15 @@ Deno.test('normal runtime exposes a skill manifest then a nonterminal saved body
       (first.tools as Array<Record<string, unknown>>).map((tool) =>
         (tool.function as Record<string, unknown>).name
       ),
-      ['bash', 'delegate_to_planner', 'edit', 'read', 'skill', 'submit_json_result', 'write'],
+      [
+        'bash',
+        'delegate_to_planner',
+        'edit',
+        'read',
+        'skill',
+        'submit_json_result',
+        'write',
+      ],
     );
     const secondSerialized = JSON.stringify(requestBody(calls[1]));
     assert(secondSerialized.includes('PRIVATE-SKILL-BODY'));
@@ -974,17 +1118,36 @@ Deno.test('runtime executes causal write/read/edit/bash work rounds', async () =
   await withWorkspace(async (root) => {
     const result = await run(root, [
       response(
-        toolPayload([{ id: 'w', name: 'write', arguments: { path: 'note.txt', content: 'one' } }]),
+        toolPayload([{
+          id: 'w',
+          name: 'write',
+          arguments: { path: 'note.txt', content: 'one' },
+        }]),
       ),
-      response(toolPayload([{ id: 'r', name: 'read', arguments: { path: './note.txt' } }])),
+      response(
+        toolPayload([{
+          id: 'r',
+          name: 'read',
+          arguments: { path: './note.txt' },
+        }]),
+      ),
       response(
         toolPayload([{
           id: 'e',
           name: 'edit',
-          arguments: { path: 'note.txt', edits: [{ oldText: 'one', newText: 'two' }] },
+          arguments: {
+            path: 'note.txt',
+            edits: [{ oldText: 'one', newText: 'two' }],
+          },
         }]),
       ),
-      response(toolPayload([{ id: 'b', name: 'bash', arguments: { command: 'cat note.txt' } }])),
+      response(
+        toolPayload([{
+          id: 'b',
+          name: 'bash',
+          arguments: { command: 'cat note.txt' },
+        }]),
+      ),
       response(finalPayload('done')),
     ]);
     assert(result.outcome.ok);
@@ -1001,18 +1164,29 @@ Deno.test('multiple local work calls remain ordered and errors are recoverable',
     const result = await run(root, [
       response(toolPayload([
         { id: 'bad', name: 'read', arguments: { path: '../outside' } },
-        { id: 'bash', name: 'bash', arguments: { command: 'printf out; printf err >&2; exit 7' } },
+        {
+          id: 'bash',
+          name: 'bash',
+          arguments: { command: 'printf out; printf err >&2; exit 7' },
+        },
       ])),
       response(finalPayload('recovered')),
     ]);
     assert(result.outcome.ok);
     assertEquals(result.outcome.finalText, 'recovered');
     assert(result.outcome.transcript[2].role === 'tool');
-    assertEquals(result.outcome.transcript[2].content.map((item) => item.name), ['read', 'bash']);
-    assert(
-      result.outcome.transcript[2].content[0].text.includes('path must stay within workspace'),
+    assertEquals(
+      result.outcome.transcript[2].content.map((item) => item.name),
+      ['read', 'bash'],
     );
-    assert(result.outcome.transcript[2].content[1].text.includes('"exitCode":7'));
+    assert(
+      result.outcome.transcript[2].content[0].text.includes(
+        'path must stay within workspace',
+      ),
+    );
+    assert(
+      result.outcome.transcript[2].content[1].text.includes('"exitCode":7'),
+    );
   });
 });
 
@@ -1021,7 +1195,13 @@ Deno.test('terminal submission on request eight makes no ninth request', async (
     const responses = Array.from(
       { length: 7 },
       (_, index) =>
-        response(toolPayload([{ id: `r${index}`, name: 'bash', arguments: { command: 'true' } }])),
+        response(
+          toolPayload([{
+            id: `r${index}`,
+            name: 'bash',
+            arguments: { command: 'true' },
+          }]),
+        ),
     );
     responses.push(
       response(
@@ -1054,7 +1234,13 @@ Deno.test('eight nonterminal rounds end at max_steps with eight fetches', async 
     const responses = Array.from(
       { length: 8 },
       (_, index) =>
-        response(toolPayload([{ id: `${index}`, name: 'bash', arguments: { command: 'true' } }])),
+        response(
+          toolPayload([{
+            id: `${index}`,
+            name: 'bash',
+            arguments: { command: 'true' },
+          }]),
+        ),
     );
     let fetches = 0;
     const sequence = fetchSequence(responses);
@@ -1120,7 +1306,10 @@ Deno.test('CLI keeps final-only channels and input contract', async () => {
 
 Deno.test('CLI supports both selector option orders and explicit default without output changes', async () => {
   const seen: string[] = [];
-  const run = (task: string, selection: BuiltinAgentSelection): Promise<RuntimeRun> => {
+  const run = (
+    task: string,
+    selection: BuiltinAgentSelection,
+  ): Promise<RuntimeRun> => {
     seen.push(`${selection.id}:${task}`);
     return Promise.resolve({
       outcome: {
@@ -1235,7 +1424,11 @@ Deno.test('CLI selector grammar rejects before host effects and consumes option-
     if (testCase.expected === 'invalid') {
       assertEquals(result, 1, testCase.name);
       assertEquals(stdout, '', testCase.name);
-      assertEquals(JSON.parse(stderr).error.code, 'invalid_input', testCase.name);
+      assertEquals(
+        JSON.parse(stderr).error.code,
+        'invalid_input',
+        testCase.name,
+      );
       assertEquals(terminalProbes, 0, testCase.name);
       assertEquals(stdinReads, 0, testCase.name);
       assertEquals(runs, 0, testCase.name);
@@ -1275,7 +1468,9 @@ Deno.test('CLI rejects duplicate, missing, positional, and ambiguous task source
 });
 
 Deno.test('CLI rejects blank and malformed UTF-8 piped tasks before the runner', async () => {
-  for (const input of [encoder.encode(' \n\t '), new Uint8Array([0xc3, 0x28])]) {
+  for (
+    const input of [encoder.encode(' \n\t '), new Uint8Array([0xc3, 0x28])]
+  ) {
     const result = await runWithOutput([], { stdin: input });
     assertEquals(result.exit, 1);
     assertEquals(result.stdout, '');

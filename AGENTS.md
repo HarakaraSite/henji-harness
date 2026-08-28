@@ -235,6 +235,21 @@
   independently reran TUI 40 and full 439 and closed at Blocker/P1/P2 zero. No provider/network/credential/
   production task, dependency/lockfile, `_refs/`, commit, push, tag, publish, or release operation
   occurred.
+- The provider-neutral assistant streaming increment is implemented at
+  `docs/plans/provider-neutral-streaming.md`, SHA-256
+  `694cb7cc08f0e06b333acf6acc61a1f6992f538730b5d63f9577931bef061732`. It keeps one
+  completed `ModelResult` authoritative while normal parent/planner OpenRouter models use bounded
+  Chat Completions SSE and the TUI receives live-only accumulated assistant snapshots. `agent:run`
+  remains final-only; partial text/tool calls never enter transcript, dispatch, counters, context,
+  persistence, or planner envelopes. The initial changed-lines review found Blocker 0/P1 0/P2 4;
+  one plan-scoped finding-closure pass added bounded usage-frame validation, gated SSE progress
+  failure/cleanup regressions, and delayed multi-chunk controller/PTY evidence. Focused streaming,
+  TUI direct, TUI process, and full offline tests now pass 15/15, 44/44, 18/18, and 460/460;
+  re-review P1 closure now permits provider-added usage metadata while retaining required counters;
+  the narrow final re-review is `GO` with Blocker/P1/P2 zero. `v0:check`, `v0:fmt`, `v0:lint`,
+  `git diff --check`, and the owner final `v0:gate` pass; the gate includes full offline 460/460. No
+  provider/network/credential/production command, dependency/lockfile, `_refs/` change, push, tag,
+  publish, or release occurred. The increment was committed after the final gate.
 
 - The provider-neutral context-management increment is implemented at
   `docs/plans/provider-neutral-context-management.md`, SHA-256

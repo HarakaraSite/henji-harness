@@ -29,6 +29,7 @@ class FakeTerminal implements TerminalPort {
   failRead = false;
   failDrain = false;
   failRawMode: boolean | null = null;
+  failNextWrite = false;
   readonly failWrites = new Set<string>();
   stdinIsTerminal() {
     return true;
@@ -63,6 +64,10 @@ class FakeTerminal implements TerminalPort {
     const text = new TextDecoder().decode(bytes);
     this.writes.push(text);
     this.operations.push(`write:${text}`);
+    if (this.failNextWrite) {
+      this.failNextWrite = false;
+      throw new Error('write failure');
+    }
     if (this.failWrites.has(text)) throw new Error('write failure');
   }
   addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void) {
@@ -287,6 +292,78 @@ class ProgressSession {
       name: 'bash',
       text: 'late output',
     });
+  }
+}
+
+class AssistantProgressSession {
+  private pending:
+    | {
+      readonly resolve: (outcome: LoopOutcome) => void;
+      readonly reject: (error: unknown) => void;
+      readonly task: string;
+    }
+    | null = null;
+  private active = false;
+  private cancellationRequested = false;
+  firstProgress = false;
+  lateProgressRejected = false;
+  cancelCount = 0;
+  constructor(private readonly sink: (event: AgentEvent) => void) {}
+  submit(task: string): Promise<LoopOutcome> {
+    this.active = true;
+    this.sink({ kind: 'turn_start', turn: 1 });
+    this.sink({
+      kind: 'user_message',
+      turn: 1,
+      message: { role: 'user', content: { kind: 'text', text: task } },
+    });
+    this.sink({ kind: 'assistant_progress', turn: 1, text: 'first chunk' });
+    this.firstProgress = true;
+    return new Promise((resolve, reject) => {
+      this.pending = { resolve, reject, task };
+    });
+  }
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    if (!this.active) return 'idle';
+    if (this.cancellationRequested) return 'already_requested';
+    this.cancellationRequested = true;
+    this.cancelCount += 1;
+    return 'requested';
+  }
+  emitSecondAndFinish(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    try {
+      this.sink({ kind: 'assistant_progress', turn: 1, text: 'second chunk' });
+      this.sink({
+        kind: 'assistant_message',
+        turn: 1,
+        message: { role: 'assistant', content: { kind: 'text', text: 'assistant final' } },
+      });
+      this.sink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+      this.active = false;
+      this.pending = null;
+      pending.resolve(finalOutcome(pending.task, 'assistant final'));
+    } catch (error) {
+      this.active = false;
+      this.pending = null;
+      pending.reject(error);
+    }
+  }
+  completeCancelled(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.active = false;
+    this.pending = null;
+    this.sink({ kind: 'turn_end', turn: 1, outcome: 'cancelled', committed: false });
+    pending.resolve(cancelledOutcome(pending.task));
+  }
+  emitLateProgress(): void {
+    try {
+      this.sink({ kind: 'assistant_progress', turn: 1, text: 'late chunk' });
+    } catch {
+      this.lateProgressRejected = true;
+    }
   }
 }
 
@@ -528,6 +605,89 @@ Deno.test('busy input is consumed, Esc reports unavailable, and Ctrl-C exits aft
   assert(terminal.output().includes('cancellation unavailable; turn continues'));
   assert(terminal.output().includes('exiting after current turn'));
   assert(!terminal.output().includes('discarded'));
+});
+
+Deno.test('controller replaces delayed assistant chunks before one final and restores once', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new AssistantProgressSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('assistant task\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert(session.firstProgress);
+  terminal.push('\x04');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  // Ctrl-D is consumed while busy; release the model only after observing the live first chunk.
+  session.emitSecondAndFinish();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  const output = terminal.output();
+  const first = output.indexOf('assistant~ first chunk');
+  const second = output.indexOf('assistant~ second chunk');
+  const final = output.indexOf('assistant> assistant final');
+  assert(first >= 0 && second > first && final > second);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  session.emitLateProgress();
+  assert(session.lateProgressRejected);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('controller settles delayed assistant progress cancellation before restoring once', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new AssistantProgressSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('cancel assistant\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assertEquals(session.cancelCount, 1);
+  session.completeCancelled();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  const output = terminal.output();
+  assert(output.includes('assistant~ first chunk'));
+  assert(!output.includes('assistant~ second chunk'));
+  assert(!output.includes('assistant> assistant final'));
+  assert(output.includes('[cancelled]'));
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  session.emitLateProgress();
+  assert(session.lateProgressRejected);
+});
+
+Deno.test('controller output failure settles assistant progress and retains one terminal restore', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new AssistantProgressSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('output failure\n');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  terminal.failNextWrite = true;
+  session.emitSecondAndFinish();
+  let failure: unknown;
+  try {
+    await running;
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof TuiControllerError);
+  assertEquals((failure as TuiControllerError).code, 'output_failure');
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  const writes = terminal.writes.length;
+  session.emitLateProgress();
+  assert(session.lateProgressRejected);
+  assertEquals(terminal.writes.length, writes);
 });
 
 Deno.test('events after Enter in one chunk use busy semantics', async () => {

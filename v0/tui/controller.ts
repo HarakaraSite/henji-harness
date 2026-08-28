@@ -76,6 +76,7 @@ export class TuiController {
     if (this.state === 'exiting' || this.state === 'failed') return;
     this.state = 'failed';
     this.exitCode = 1;
+    this.clearLiveActivity();
     this.crashSettlement ??= this.settleCrash();
   }
 
@@ -84,7 +85,9 @@ export class TuiController {
       this.installSignals();
       if (this.state === 'exiting' || this.state === 'failed') {
         if (this.crashSettlement !== null) await this.crashSettlement;
-        if (this.shutdownPromise === null) this.shutdownPromise = this.lifecycle.restore();
+        if (this.shutdownPromise === null) {
+          this.shutdownPromise = this.lifecycle.restore();
+        }
         await this.shutdownPromise;
         return this.exitCode;
       }
@@ -394,6 +397,7 @@ export class TuiController {
     if (this.shutdownPromise !== null) return this.shutdownPromise;
     this.state = 'exiting';
     this.exitCode = code;
+    this.clearLiveActivity();
     this.shutdownPromise = this.lifecycle.restore();
     await this.shutdownPromise;
   }
@@ -402,6 +406,7 @@ export class TuiController {
     if (this.state !== 'failed' && this.state !== 'exiting') {
       this.state = 'failed';
     }
+    this.clearLiveActivity();
     await this.settleActive();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
@@ -439,7 +444,17 @@ export class TuiController {
 
   private async settleCrash(): Promise<void> {
     await this.settleActive();
-    if (this.shutdownPromise === null) this.shutdownPromise = this.lifecycle.restore();
+    if (this.shutdownPromise === null) {
+      this.shutdownPromise = this.lifecycle.restore();
+    }
     await this.shutdownPromise;
+  }
+
+  private clearLiveActivity(): void {
+    try {
+      this.renderer.clearLiveActivity();
+    } catch {
+      // The original controller/agent failure remains authoritative; restoration still runs.
+    }
   }
 }
