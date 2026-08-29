@@ -146,3 +146,141 @@ Deno.test('editor enforces exact 65,536-byte boundary and atomic overflow', () =
   assertEquals(paste.text, '');
   assertEquals(paste.submit(), null);
 });
+
+Deno.test('Alt+Enter accepts the exact legacy forms and suppresses CRLF', () => {
+  const start = 20_000;
+  for (const suffix of [new Uint8Array([0x0d]), new Uint8Array([0x0a])]) {
+    const decoder = new InputDecoder();
+    assertEquals(decoder.feed(new Uint8Array([0x1b]), start), []);
+    assertEquals(decoder.feed(suffix, start + INPUT_ESC_TIMEOUT_MS - 1), [{ kind: 'alt_enter' }]);
+    if (suffix[0] === 0x0d) {
+      assertEquals(decoder.feed(new Uint8Array([0x0a]), start + 1), []);
+    }
+    decoder.end();
+  }
+  const splitCrLf = new InputDecoder();
+  assertEquals(splitCrLf.feed(new Uint8Array([0x1b, 0x0d]), start), [{ kind: 'alt_enter' }]);
+  assertEquals(splitCrLf.feed(new Uint8Array([0x0a]), start + 1), []);
+  splitCrLf.end();
+});
+
+Deno.test('legacy Alt+Enter crossing the 50 ms deadline remains Escape plus Enter', () => {
+  for (const suffix of [0x0d, 0x0a]) {
+    const decoder = new InputDecoder();
+    const start = 30_000;
+    assertEquals(decoder.feed(new Uint8Array([0x1b]), start), []);
+    assertEquals(
+      decoder.feed(new Uint8Array([suffix]), start + INPUT_ESC_TIMEOUT_MS),
+      [{ kind: 'escape' }, { kind: 'enter' }],
+    );
+    decoder.end();
+  }
+});
+
+Deno.test('xterm Alt+Enter is atomic at every split before the deadline', () => {
+  const sequence = new Uint8Array([
+    0x1b,
+    0x5b,
+    0x32,
+    0x37,
+    0x3b,
+    0x33,
+    0x3b,
+    0x31,
+    0x33,
+    0x7e,
+  ]);
+  const start = 40_000;
+  for (let split = 0; split <= sequence.length; split += 1) {
+    const decoder = new InputDecoder();
+    const events = [
+      ...decoder.feed(sequence.slice(0, split), start),
+      ...decoder.feed(sequence.slice(split), start + INPUT_ESC_TIMEOUT_MS - 1),
+    ];
+    assertEquals(events, [{ kind: 'alt_enter' }], `split ${split}`);
+    decoder.end();
+  }
+});
+
+Deno.test('xterm Alt+Enter at or after the deadline becomes Escape plus printable remainder', () => {
+  const sequence = new Uint8Array([
+    0x1b,
+    0x5b,
+    0x32,
+    0x37,
+    0x3b,
+    0x33,
+    0x3b,
+    0x31,
+    0x33,
+    0x7e,
+  ]);
+  const expected = '[27;3;13~';
+  for (const split of Array.from({ length: sequence.length - 1 }, (_, index) => index + 1)) {
+    for (const elapsed of [INPUT_ESC_TIMEOUT_MS, INPUT_ESC_TIMEOUT_MS + 1]) {
+      const decoder = new InputDecoder();
+      const start = 50_000;
+      const events = [
+        ...decoder.feed(sequence.slice(0, split), start),
+        ...decoder.feed(sequence.slice(split), start + elapsed),
+      ];
+      assertEquals(events.map((event) => event.kind), [
+        'escape',
+        ...[...expected].map(() => 'printable' as const),
+      ], `split ${split} elapsed ${elapsed}`);
+      assertEquals(
+        events.slice(1).map((event) => event.kind === 'printable' ? event.text : ''),
+        [...expected],
+      );
+      decoder.end();
+    }
+  }
+});
+
+Deno.test('timed-out unknown and divergent CSI discard buffered payload like the baseline decoder', () => {
+  const start = 60_000;
+  const unknown = new InputDecoder();
+  assertEquals(unknown.feed(new Uint8Array([0x1b, 0x5b]), start), []);
+  assertEquals(unknown.feed(new Uint8Array([0x41]), start + INPUT_ESC_TIMEOUT_MS), [
+    { kind: 'escape' },
+    { kind: 'printable', text: 'A', codePoint: 0x41 },
+  ]);
+  unknown.end();
+
+  const divergent = new InputDecoder();
+  assertEquals(divergent.feed(new Uint8Array([0x1b, 0x5b, 0x32, 0x37, 0x3b]), start), []);
+  assertEquals(divergent.feed(new Uint8Array([0x34]), start + INPUT_ESC_TIMEOUT_MS), [
+    { kind: 'escape' },
+    { kind: 'printable', text: '4', codePoint: 0x34 },
+  ]);
+  divergent.end();
+});
+
+Deno.test('expired xterm candidate is retained through poll, exact completion replays once, and EOF is clean', () => {
+  const start = 70_000;
+  const expected = '[27;3;13~';
+  const decoder = new InputDecoder();
+  assertEquals(decoder.feed(new Uint8Array([0x1b, 0x5b, 0x32, 0x37]), start), []);
+  assertEquals(decoder.poll(start + INPUT_ESC_TIMEOUT_MS), [{ kind: 'escape' }]);
+  assertEquals(decoder.feed(new Uint8Array([0x3b, 0x33, 0x3b, 0x31, 0x33, 0x7e]), start + 1), [
+    ...[...expected].map((text) => ({
+      kind: 'printable' as const,
+      text,
+      codePoint: text.codePointAt(0)!,
+    })),
+  ]);
+  decoder.end();
+
+  const incomplete = new InputDecoder();
+  incomplete.feed(new Uint8Array([0x1b, 0x5b, 0x32, 0x37]), start);
+  assertEquals(incomplete.poll(start + INPUT_ESC_TIMEOUT_MS), [{ kind: 'escape' }]);
+  incomplete.end();
+});
+
+Deno.test('Kitty CSI-u and unknown CSI remain unsupported', () => {
+  const decoder = new InputDecoder();
+  assertEquals(decoder.feed(new Uint8Array([0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x32, 0x75])), [
+    { kind: 'unknown' },
+  ]);
+  decoder.end();
+});

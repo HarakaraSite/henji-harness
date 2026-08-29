@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: provider streamingはcommit `852542f`で完了。bounded mid-turn steeringもlocal implementation、finding closure、bounded review、owner final gateまで完了し、focused steering/store/TUI direct/process/topology 7/15/48/20/4、full offline 475、final Blocker/P1/P2 0
-- 次: optional ordinary next-turn queueが必要かを別roadmap判断で決める。追加provider attemptは別Human Gate
+- 状態: provider streamingはcommit `852542f`、bounded mid-turn steeringはcommit `3aeb48e`で完了。optional ordinary next-turn queueも実装、finding closure、residual evidence closure、owner final gateまで完了し、focused decoder/render/controller/session-TUI 17/10/41/4、PTY/topology 25/4、full offline 503、final Blocker/P1/P2 0
+- 次: reviewed next-turn queue treeをfeature commitとして記録する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -15,6 +15,22 @@
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
 - 次: step 7のoptional ordinary next-turn queueが必要かを判断する
+
+### POL-20260829-bounded-next-turn-queue-plan
+
+- 計画: `docs/plans/bounded-next-turn-queue.md`、SHA-256 `9a9e5d42a8024a23c2a45a2a62b852f6c0012c378d05d8ec358b8539a6fc1831`
+- 契約: real-TTY TUI controllerだけがmemory-only 1 slotを所有。busy Enterはsteering、busy Alt+Enterは通常follow-up。現turnのsuccessful durable settlement後だけfresh ordinary parent turnとしてsubmitし、自動turn中はslotをrefillしない
+- drop: cancellation、failure、exit intent、EOF、shutdownではpending textを破棄。pending中はtranscript/context/provider/events/counters/persistenceへ出さず、後続turnの既存commit/rollback/poison契約を変更しない
+- review: initial P1 1はpost-commit/pre-settlement persistenceとrollback failure ghost-record契約、P2 1はxterm sequenceの50 ms timeout semantics。計画修正後のsingle narrow re-reviewはGO、Blocker/P1/P2 0
+- 境界: session/loop/provider/schema/budget変更、multi-item/refill/persistence、Kitty negotiation、dependency/lockfile、provider/network/credential/production command、actual persistent state、`_refs`変更、commit/push/tag/publish/releaseは対象外
+
+### POL-20260829-bounded-next-turn-queue-implementation
+
+- 判断済み: initial implementation Human Gateでrepository implementation、disposable offline fake/PTY/temp-session tests、full offline gate、README/results/AGENTS/handoff更新、bounded reviewとone plan-scoped finding closureを実施した
+- 契約: controller-local memory-only one-slot follow-up。busy Enterはsteering、busy Alt+Enterはordinary N+1。successful durable settlement後だけdrainし、自動turnはfresh steering/ownershipを持つがslotをrefillしない。cancellation、failure、exit、EOF、shutdown、renderer/event/cleanup failureはpendingをdropする
+- finding closure: expired xterm candidateはexact completion時だけsuffix replayし、divergent/unknown CSIはbaselineどおりbuffered payloadをdrop。queue-specific EOF/output/event/cleanup/exit-intent、fresh steering、rollback success/ghost failure、settlement/restore/no-late-write/no-N+2 regressionsを追加
+- 状態: focused decoder/render/controller/session-TUI 17/10/41/4、PTY/topology 25/4、residual evidence closure後のfull offline `v0:test`/`v0:gate` 503/503、check/fmt/lint/diff checkはpass。owner final Blocker/P1/P2 0
+- 境界: provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施
 
 ### POL-20260829-provider-neutral-mid-turn-steering-plan
 
@@ -1689,3 +1705,45 @@
 - 実施: final GOとowner gate済みのsteering incrementをmainへ一つのfeature commitとして記録し、results/lifecycleのcommit状態を整合
 - 次: optional ordinary next-turn queueが必要かを判断し、必要なら別計画を作成する
 - 注意: push/tag/publish/release、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更は未実施。既存untracked `_refs/`を保持
+
+## 2026-08-29 02:01 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Bounded ordinary next-turn queue planning
+- 実施: steering incrementのcommit `3aeb48e`を確認し、controller-local 1-slot follow-upのcanonical planを作成。initial review P1 1/P2 1を既存persistence rollback/ghost-record契約とxterm timeout grammarへ整合し、single narrow re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260829-bounded-next-turn-queue-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `9a9e5d42a8024a23c2a45a2a62b852f6c0012c378d05d8ec358b8539a6fc1831`。product source/test、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 02:45 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Bounded ordinary next-turn queue implementation / finding closure
+- 実施: approved controller-local one-slot queueを実装し、expired xterm exact-candidate replayとdivergent/unknown CSI baseline compatibility、fresh steering、queue-specific failure/cleanup/exit、durable N/N+1 rollback/ghost、PTY evidenceを追加
+- 検証: decoder/render/controller/session-TUI 17/10/39/3、PTY/topology 23/4、full `v0:test`/`v0:gate` 498/498、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` pass
+- 次: coordinating ownerのchanged-lines bounded reviewとfinal Blocker/P1/P2 disposition
+- 注意: consumed ASKを削除。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施。plan delta、stop condition、計画外bugなし
+
+## 2026-08-29 02:48 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Bounded ordinary next-turn queue narrow re-review
+- 実施: initial P2 3のclosureをnarrow re-reviewし、decoder compatibilityとlifecycle P2は閉鎖。canonical PTY split/fresh-steering、pending-slot max-step/persistence-commit/crash-close証拠不足のP2 1が残存
+- 次: `ASK-20260829-bounded-next-turn-queue-residual-evidence`の限定追加closure Human Gate
+- 注意: 実装は498/498でgreenだが、one finding-closure上限を消費済みのため未commit。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更、push/tag/publish/releaseは未実施
+
+## 2026-08-29 05:57 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Bounded ordinary next-turn queue residual evidence closure
+- 実施: approved residual evidenceとしてsub-50-ms split xterm PTY、automatic N+1のrejected refillとfresh steering PTY、pending-slot max-step、persistence-commit failure、crash/closeのno-N+2・one-restore・no-late-write regressionsを追加。残存ASKを消費
+- 検証: decoder/render/controller/session-TUI 17/10/41/4、PTY/topology 25/4、full `v0:test`/`v0:gate` 503/503、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` pass
+- 次: coordinating ownerのchanged-lines bounded reviewとfinal Blocker/P1/P2 disposition
+- 注意: product contract/source、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未変更・未実施。plan delta、stop condition、計画外bugなし
+
+## 2026-08-29 10:00 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Bounded ordinary next-turn queue owner final gate
+- 実施: residual evidenceを照合し、focused TUI 68、session-TUI 4、PTY 25、topology 4、check/fmt/lint/diff checkを確認。final full `v0:gate` 503/503、owner Blocker/P1/P2 0
+- 次: 同じreviewed treeをユーザー承認済みfeature commitとして記録する
+- 注意: owner確認中に既存PTY steeringとsignal caseが別runで各1回process-status failure。対象isolated steering 3/3、signal 5/5、PTY全25/25、final full gateは成功し非再現のためsource変更なし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`、push/tag/publish/releaseは未実施

@@ -280,9 +280,103 @@ Deno.test('PTY cancellation cleanup failure takes fatal precedence and restores 
   assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
 });
 
+Deno.test('PTY legacy Alt+Enter drains one ordinary follow-up after committed turn order', async () => {
+  const result = await runPty('follow-up', [
+    { text: '', delayMs: 300 },
+    { text: 'manual\n', delayMs: 30 },
+    { text: 'queued\x1b\r', delayMs: 100 },
+    { text: 'third\x1b\r', delayMs: 30 },
+    { text: '\x04', delayMs: 500 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  const first = result.stdout.indexOf('user> manual');
+  const firstAnswer = result.stdout.indexOf('assistant> fixture response', first);
+  const queued = result.stdout.indexOf('user> queued');
+  assert(first >= 0 && firstAnswer > first && queued > firstAnswer);
+  assert(!result.stdout.slice(firstAnswer, queued).includes('[ready]'));
+  assertEquals((result.stdout.match(/user> queued/g) ?? []).length, 1);
+  assert(!result.stdout.includes('user> third'));
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  assert(result.stderr === '');
+});
+
+Deno.test('PTY xterm Alt+Enter queues exactly one follow-up while delayed automatic work is busy', async () => {
+  const result = await runPty('follow-up', [
+    { text: '', delayMs: 300 },
+    { text: 'manual\n', delayMs: 30 },
+    { text: 'queued\x1b[27;3;13~', delayMs: 100 },
+    { text: 'third\x1b[27;3;13~', delayMs: 30 },
+    { text: '\x04', delayMs: 500 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('busy · follow-up queued'));
+  assertEquals((result.stdout.match(/user> queued/g) ?? []).length, 1);
+  assert(!result.stdout.includes('user> third'));
+  assert(result.stdout.indexOf('user> queued') > result.stdout.indexOf('user> manual'));
+  assert(result.stderr === '');
+});
+
+Deno.test('PTY split xterm Alt+Enter completes under 50 ms and drains the follow-up', async () => {
+  const result = await runPty('follow-up', [
+    { text: '', delayMs: 300 },
+    { text: 'manual\n', delayMs: 30 },
+    { text: 'queued\x1b', delayMs: 5 },
+    { text: '[27;', delayMs: 5 },
+    { text: '3;13', delayMs: 5 },
+    { text: '~', delayMs: 100 },
+    { text: '\x04', delayMs: 500 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('busy · follow-up queued'));
+  assertEquals((result.stdout.match(/user> queued/g) ?? []).length, 1);
+  assert(result.stdout.indexOf('user> queued') > result.stdout.indexOf('user> manual'));
+  assert(!result.stdout.includes('agent_failure'));
+  assert(result.stderr === '');
+});
+
+Deno.test('PTY automatic N+1 rejects refill but accepts fresh steering', async () => {
+  const result = await runPty('follow-up-steering', [
+    { text: '', delayMs: 300 },
+    { text: 'manual\n', delayMs: 30 },
+    { text: 'queued\x1b[27;3;13~', delayMs: 220 },
+    { text: 'third\x1b[27;3;13~\x7f\x7f\x7f\x7f\x7ffresh\n', delayMs: 300 },
+    { text: '\x04', delayMs: 500 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('follow-up slot closed'));
+  assert(result.stdout.includes('steer> fresh'));
+  assert(result.stdout.includes('assistant> steered response'));
+  assertEquals((result.stdout.match(/user> queued/g) ?? []).length, 1);
+  assert(!result.stdout.includes('user> third'));
+  assert(result.stderr === '');
+});
+
+Deno.test('PTY pending follow-up is dropped by Escape before automatic submission', async () => {
+  const result = await runPty('follow-up', [
+    { text: '', delayMs: 300 },
+    { text: 'manual\n', delayMs: 30 },
+    { text: 'queued\x1b\r', delayMs: 20 },
+    { text: '\x1b', delayMs: 80 },
+    { text: '\x04', delayMs: 500 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('cancelling'));
+  assertEquals((result.stdout.match(/user> queued/g) ?? []).length, 0);
+  assert(!result.stdout.includes('busy · starting follow-up'));
+  assert(result.stderr === '');
+});
+
 Deno.test('PTY pending nonzero signal cleanup failure waits, sanitizes, and exits 1', async () => {
   for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
-    const result = await runPty(`signal-cleanup-failure-${signal}`, [{ text: 'poison\n' }]);
+    const result = await runPty(`signal-cleanup-failure-${signal}`, [{
+      text: 'poison\nqueued\x1b\r',
+    }]);
     assert(!result.status.success);
     assertEquals(result.status.code, 1);
     assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
@@ -293,6 +387,7 @@ Deno.test('PTY pending nonzero signal cleanup failure waits, sanitizes, and exit
     assert(!result.stdout.includes('cancellation cleanup failed'));
     assert(!result.stdout.includes('[cancelled]'));
     assert(!result.stdout.includes('assistant> fixture response'));
+    assert(!result.stdout.includes('user> queued'));
     assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
     assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
   }

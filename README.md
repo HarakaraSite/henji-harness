@@ -93,16 +93,21 @@ alone can create assistant events, execute tools, and update the transcript. Str
 fragments are assembled and validated before dispatch; partial calls are never executed. Malformed,
 cancelled, timed-out, or failed streams retain no partial assistant result. Provider-side connection
 abort does not guarantee cancellation of provider compute or billing. Reasoning/usage display,
-retry/fallback, reconnection, and ordinary queued follow-up remain deferred.
+retry/fallback, reconnection, and ordinary queued follow-up remain deferred for non-interactive
+`agent:run`.
 
 While a parent turn is busy, the TUI accepts at most one nonblank, NUL-free steering message up to
 65,536 UTF-8 bytes. Enter admits the bounded message without interrupting the current model request,
 tool call, or selected tool batch. It is consumed only after a complete nonterminal tool batch has
 settled and before an eligible next parent request; final, terminal, max-step, cancelled, and failed
 turns discard an unconsumed message. A consumed message is shown live as `steer>` and is committed
-as an ordinary `user>` history entry only when the enclosing turn succeeds. There is no ordinary
-next-turn queue or second steering slot, and `agent:run` remains final-only with unchanged provider
-and persistence contracts.
+as an ordinary `user>` history entry only when the enclosing turn succeeds. Busy Alt+Enter admits one
+separate NUL-free ordinary follow-up up to 65,536 UTF-8 bytes. It remains memory-only and outside the
+active transcript until the current turn has durably committed and settled; then it starts exactly one
+fresh ordinary parent turn. Cancellation, failure, exit, EOF, and cleanup drop it, and the automatically
+started turn cannot refill the slot. Idle Alt+Enter behaves like Enter. There is no multi-item queue,
+dequeue/edit history, or persistence for pending text, and `agent:run` remains final-only with unchanged
+provider and persistence contracts.
 
 `read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
 Paths may be relative or absolute within that root, are component-checked, reject symlinks and
@@ -167,9 +172,12 @@ permission envelope as `agent:run`; the selected Definition controls model tools
 OS-user `bash` execution with no per-tool confirmation, while `planner` exposes only `read`,
 optional `skill`, and `submit_json_result`. Each Enter starts one exact task in an in-memory
 sequential conversation (at most eight provider requests per turn); while a turn is busy, printable
-input and bounded bracketed paste form the one steering editor, and Enter attempts admission;
-Escape/Ctrl-C/signals retain cancellation precedence. After admission, further ordinary input is
-consumed for that turn. The command never implicitly changes `agent:run` into a TUI and does
+input and bounded bracketed paste form the one steering editor, and Enter attempts admission. While
+busy, Alt+Enter admits one independent ordinary follow-up slot; its text is not shown in scrollback
+or sent to the active turn, and successful settlement starts it as the next ordinary turn. A pending
+slot is memory-only, cannot be replaced or replenished, and is dropped by cancellation, failure,
+exit, EOF, or shutdown. Idle Alt+Enter is ordinary Enter. Escape/Ctrl-C/signals retain cancellation
+precedence. After admission, further ordinary input is consumed for that turn. The command never implicitly changes `agent:run` into a TUI and does
 not read credentials until a submitted task reaches the lazy provider adapter.
 
 The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only updates
@@ -182,8 +190,8 @@ effects. Cleanup failure is a fatal sanitized agent failure and makes the sessio
 Terminal output uses main-screen scrollback with a small live line; dynamic model, tool, and task
 text is escaped at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input
 reader are restored on every handled exit or failure. Provider streaming is visible only as the
-bounded live assistant line described above; confirmation, alternate-screen rendering, and queued
-follow-up input remain deferred.
+bounded live assistant line described above; confirmation, alternate-screen rendering, multi-item
+queueing, and pending follow-up persistence remain deferred.
 
 ## Persistent TUI sessions
 

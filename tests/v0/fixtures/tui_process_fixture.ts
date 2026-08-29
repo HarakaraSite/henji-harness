@@ -14,9 +14,11 @@ const signalMode = parseSignal('signal-');
 const cleanupSignalMode = parseSignal('signal-cleanup-failure-');
 const activeSignal = cleanupSignalMode ?? signalMode;
 const assistantProgressMode = mode === 'assistant-progress' || mode === 'assistant-progress-cancel';
-const steeringMode = mode === 'steering';
-const delayedMode = mode === 'busy' || mode === 'busy-cleanup-failure' ||
-  activeSignal !== undefined || assistantProgressMode || steeringMode;
+const followUpSteeringMode = mode === 'follow-up-steering';
+const steeringMode = mode === 'steering' || followUpSteeringMode;
+const followUpMode = mode === 'follow-up';
+const delayedMode = mode === 'busy' || mode === 'busy-cleanup-failure' || followUpMode ||
+  followUpSteeringMode || activeSignal !== undefined || assistantProgressMode || steeringMode;
 const cleanupFailureMode = mode === 'busy-cleanup-failure' || cleanupSignalMode !== undefined;
 const task = (value: string, finalText = 'fixture response'): LoopOutcome => ({
   ok: true,
@@ -169,7 +171,10 @@ class FixtureSession {
           stderr: 'null',
         }).output();
       }
-      if (this.delayed) await new Promise((resolve) => setTimeout(resolve, 120));
+      if (this.delayed) {
+        const delay = followUpMode ? (turn === 1 ? 150 : 300) : 120;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
       if (this.cancellationRequested) {
         if (cleanupFailureMode) throw new CancellationCleanupError();
         this.sink({ kind: 'turn_end', turn, outcome: 'cancelled', committed: false });

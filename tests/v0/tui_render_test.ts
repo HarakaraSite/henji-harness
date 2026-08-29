@@ -289,3 +289,46 @@ Deno.test('assistant progress replaces one escaped live line and clears for one 
   renderer.clearLiveActivity();
   assertEquals(terminal.writes.length, closed);
 });
+
+Deno.test('follow-up indicator composes with steering and survives live progress without disclosure', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 120, rows: 4 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.setFollowUpPending(true);
+  renderer.setStatus('busy');
+  assert(terminal.text().includes('busy · follow-up queued'));
+  renderer.setStatus('busy · steer pending');
+  assert(terminal.text().includes('busy · steer pending · follow-up queued'));
+  renderer.eventSink({
+    kind: 'tool_progress',
+    turn: 1,
+    callId: 'queued',
+    name: 'bash',
+    text: 'live output',
+  });
+  renderer.setStatus('busy · steer applied');
+  assert(terminal.text().includes('busy · steer applied · follow-up queued'));
+  assert(!terminal.text().includes('secret queued text'));
+});
+
+Deno.test('committed turn with pending follow-up has no ready gap and clearing is text-free', () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.setFollowUpPending(true);
+  const beforeTurnEnd = terminal.writes.length;
+  renderer.eventSink({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'final',
+    committed: true,
+  });
+  const turnEndOutput = terminal.writes.slice(beforeTurnEnd).join('');
+  assert(turnEndOutput.includes('busy · starting follow-up'));
+  assert(!turnEndOutput.includes('[ready]'));
+  renderer.setFollowUpPending(false);
+  assert(terminal.text().includes('[busy · starting follow-up]'));
+  renderer.close();
+  const writes = terminal.writes.length;
+  renderer.setFollowUpPending(false);
+  assertEquals(terminal.writes.length, writes);
+});

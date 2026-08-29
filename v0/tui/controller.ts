@@ -26,6 +26,7 @@ interface SessionLike {
 }
 
 type ControllerState = 'starting' | 'idle' | 'busy' | 'exiting' | 'failed';
+type FollowUpSlot = 'closed' | 'open-empty' | 'pending';
 
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
@@ -41,6 +42,8 @@ export class TuiController {
   private exitIntent: 'return' | 'exit-0' | 129 | 143 = 'return';
   private cancellationRequested = false;
   private steeringAccepted = false;
+  private followUpSlot: FollowUpSlot = 'closed';
+  private followUpText: string | null = null;
   private firstCtrlCAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private crashSettlement: Promise<void> | null = null;
@@ -79,6 +82,7 @@ export class TuiController {
     this.state = 'failed';
     this.exitCode = 1;
     this.clearLiveActivity();
+    this.dropFollowUpBestEffort();
     this.clearSteeringEditorBestEffort();
     this.crashSettlement ??= this.settleCrash();
   }
@@ -216,6 +220,9 @@ export class TuiController {
         case 'enter':
           this.submitIfNonblank();
           break;
+        case 'alt_enter':
+          this.submitIfNonblank();
+          break;
         case 'ctrl_c':
           this.idleCtrlC();
           break;
@@ -236,7 +243,13 @@ export class TuiController {
   }
 
   private processBusy(events: readonly InputEvent[]): void {
-    for (const event of events) this.processBusyEvent(event);
+    for (const event of events) {
+      // Once cooperative cancellation wins, the rest of a timed-out modifier sequence (or
+      // same-chunk input) cannot mutate either editor or queue state. A second Ctrl-C is retained
+      // so it can promote an already-requested cancellation to the prescribed clean exit.
+      if (this.cancellationRequested && event.kind !== 'ctrl_c') continue;
+      this.processBusyEvent(event);
+    }
   }
 
   private processBusyEvent(event: InputEvent): void {
@@ -245,7 +258,14 @@ export class TuiController {
       this.busyCtrlC();
     } else if (event.kind === 'escape') {
       this.busyEscape();
-    } else if (this.session.steerActiveTurn !== undefined && !this.steeringAccepted) {
+    } else if (event.kind === 'alt_enter') {
+      this.queueFollowUpIfNonblank();
+    } else if (
+      (this.session.steerActiveTurn !== undefined && !this.steeringAccepted) ||
+      this.followUpSlot === 'open-empty'
+    ) {
+      const steeringAvailable = this.session.steerActiveTurn !== undefined &&
+        !this.steeringAccepted;
       switch (event.kind) {
         case 'printable':
           if (!this.editor.append(event.text)) this.renderer.setStatus('input too long');
@@ -261,7 +281,8 @@ export class TuiController {
           this.renderer.setEditor(this.editor.text);
           break;
         case 'enter':
-          this.submitSteeringIfNonblank();
+          if (steeringAvailable) this.submitSteeringIfNonblank();
+          else this.renderer.setStatus('steering unavailable');
           break;
         case 'invalid_utf8':
           this.renderer.setStatus('invalid UTF-8');
@@ -273,6 +294,8 @@ export class TuiController {
         case 'unknown':
           break;
       }
+    } else if (event.kind === 'enter') {
+      this.renderer.setStatus('steering unavailable');
     }
     // Every other event is deliberately consumed and discarded.
   }
@@ -285,6 +308,9 @@ export class TuiController {
     }
     this.editor.clear();
     this.renderer.setEditor('');
+    this.followUpSlot = 'open-empty';
+    this.followUpText = null;
+    this.renderer.setFollowUpPending(false);
     this.state = 'busy';
     this.cancellationRequested = false;
     this.steeringAccepted = false;
@@ -300,6 +326,7 @@ export class TuiController {
     this.renderer.clearLiveProgress();
     this.steeringAccepted = false;
     if (!outcome.ok && outcome.stopReason !== 'cancelled') {
+      this.dropFollowUpStrict();
       this.renderer.setStatus(renderFailureStatus(outcome));
       throw new TuiControllerError('agent_failure');
     }
@@ -310,6 +337,7 @@ export class TuiController {
       this.renderer.renderAssistantFinal(outcome.finalText);
     }
     if (outcome.stopReason === 'cancelled') {
+      this.dropFollowUpStrict();
       if (this.exitIntent === 'return') {
         this.state = 'idle';
         this.editor.clear();
@@ -319,8 +347,18 @@ export class TuiController {
         void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
       }
     } else if (this.exitIntent !== 'return') {
+      this.dropFollowUpStrict();
       void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
+    } else if (
+      outcome.ok &&
+      (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal') &&
+      this.followUpSlot === 'pending' && this.followUpText !== null
+    ) {
+      const text = this.takeFollowUp();
+      this.renderer.setStatus('busy · starting follow-up');
+      this.startAutomaticTurn(text);
     } else {
+      this.dropFollowUpStrict();
       this.state = 'idle';
       this.renderer.setStatus(this.readyStatus());
     }
@@ -369,6 +407,7 @@ export class TuiController {
   private requestBusyCancellation(status: string): void {
     if (this.session.cancelActiveTurn === undefined) {
       this.renderer.clearLiveProgress();
+      this.dropFollowUpStrict();
       this.clearSteeringEditorBestEffort();
       this.renderer.setStatus('cancellation unavailable; turn continues');
       return;
@@ -381,6 +420,7 @@ export class TuiController {
     // emitted after cancellation. The strict editor clear still precedes the status redraw; its
     // failure becomes output_failure and `fail()` waits for this active turn before restoration.
     this.renderer.clearLiveProgress();
+    this.dropFollowUpStrict();
     this.clearSteeringEditorStrict();
     this.renderer.setStatus(status);
   }
@@ -437,6 +477,7 @@ export class TuiController {
     this.state = 'exiting';
     this.exitCode = code;
     this.clearLiveActivity();
+    this.dropFollowUpBestEffort();
     this.clearSteeringEditorBestEffort();
     this.shutdownPromise = this.lifecycle.restore();
     await this.shutdownPromise;
@@ -447,6 +488,7 @@ export class TuiController {
       this.state = 'failed';
     }
     this.clearLiveActivity();
+    this.dropFollowUpBestEffort();
     this.clearSteeringEditorBestEffort();
     await this.settleActive();
     if (this.shutdownPromise === null) {
@@ -513,6 +555,66 @@ export class TuiController {
     } catch {
       // A renderer failure is handled by the enclosing controller failure/restore path.
     }
+  }
+
+  private dropFollowUpStrict(): void {
+    this.followUpSlot = 'closed';
+    this.followUpText = null;
+    this.renderer.setFollowUpPending(false);
+  }
+
+  private dropFollowUpBestEffort(): void {
+    this.followUpSlot = 'closed';
+    this.followUpText = null;
+    try {
+      this.renderer.setFollowUpPending(false);
+    } catch {
+      // Cleanup preserves the original cancellation/failure precedence.
+    }
+  }
+
+  private takeFollowUp(): string {
+    const text = this.followUpText;
+    if (this.followUpSlot !== 'pending' || text === null) {
+      throw new TuiControllerError('agent_failure');
+    }
+    this.followUpSlot = 'closed';
+    this.followUpText = null;
+    this.renderer.setFollowUpPending(false);
+    return text;
+  }
+
+  private startAutomaticTurn(text: string): void {
+    this.state = 'busy';
+    this.cancellationRequested = false;
+    this.steeringAccepted = false;
+    try {
+      this.active = Promise.resolve(this.session.submit(text));
+    } catch (error) {
+      this.active = Promise.reject(error);
+    }
+  }
+
+  private queueFollowUpIfNonblank(): void {
+    const text = this.editor.submit();
+    if (text === null) {
+      this.renderer.setStatus('enter follow-up text');
+      return;
+    }
+    if (this.followUpSlot === 'pending') {
+      this.renderer.setStatus('follow-up already queued');
+      return;
+    }
+    if (this.followUpSlot === 'closed') {
+      this.renderer.setStatus('follow-up slot closed');
+      return;
+    }
+    this.editor.clear();
+    this.renderer.setEditor('');
+    this.renderer.setFollowUpPending(true);
+    this.followUpText = text;
+    this.followUpSlot = 'pending';
+    this.renderer.setStatus('busy');
   }
 
   private submitSteeringIfNonblank(): void {

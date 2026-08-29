@@ -98,6 +98,7 @@ export class TuiRenderer implements TerminalRendererGate {
   private closing = false;
   private editorText = '';
   private status = 'ready';
+  private followUpPending = false;
   private liveProgress: string | null = null;
   private liveProgressTool = '';
   private liveAssistant: string | null = null;
@@ -111,6 +112,7 @@ export class TuiRenderer implements TerminalRendererGate {
 
   close(): void {
     this.closing = true;
+    this.followUpPending = false;
     this.liveProgress = null;
     this.liveProgressTool = '';
     this.liveAssistant = null;
@@ -199,7 +201,13 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'turn_end':
         this.clearLiveState();
-        this.setStatus(event.committed ? 'ready' : event.outcome);
+        this.setStatus(
+          event.committed && this.followUpPending
+            ? 'busy · starting follow-up'
+            : event.committed
+            ? 'ready'
+            : event.outcome,
+        );
         return;
     }
   };
@@ -211,6 +219,13 @@ export class TuiRenderer implements TerminalRendererGate {
 
   setStatus(status: string): void {
     this.status = status;
+    this.redraw();
+  }
+
+  /** Show only that one ordinary follow-up is pending; the text remains controller-local. */
+  setFollowUpPending(pending: boolean): void {
+    if (this.closing) return;
+    this.followUpPending = pending;
     this.redraw();
   }
 
@@ -271,7 +286,7 @@ export class TuiRenderer implements TerminalRendererGate {
       // Keep the last valid size, defaulting to 80x24.
     }
     const columns = Math.max(8, this.lastSize.columns);
-    const status = escapeTerminalText(this.status, { editor: true });
+    const status = escapeTerminalText(this.displayStatus(), { editor: true });
     const editor = this.editorText.length > 0
       ? escapeTerminalText(this.editorText, { editor: true })
       : this.liveAssistant !== null
@@ -300,6 +315,16 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const visible = visibleCharacters.reverse().join('');
     this.write(staticBytes(`\r${ERASE_LINE}> ${visible}${suffix}`));
+  }
+
+  private displayStatus(): string {
+    if (!this.followUpPending) return this.status;
+    if (this.status === 'busy') return 'busy · follow-up queued';
+    if (
+      this.status === 'busy · steer pending' ||
+      this.status === 'busy · steer applied'
+    ) return `${this.status} · follow-up queued`;
+    return this.status;
   }
 
   writeStatic(text: string): void {

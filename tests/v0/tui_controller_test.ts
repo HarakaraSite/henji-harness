@@ -1,5 +1,6 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
+import { CancellationCleanupError } from '../../v0/agent/cancellation.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
 import { type ContextMetrics } from '../../v0/agent/context.ts';
 import { main as tuiMain, parseTuiArgs, parseTuiInvocation } from '../../v0/agent/tui_cli.ts';
@@ -85,6 +86,12 @@ class FakeTerminal implements TerminalPort {
       this.waiter = null;
       resolve(value);
     } else this.queue.push(value);
+  }
+  endInput() {
+    this.closed = true;
+    const waiter = this.waiter;
+    this.waiter = null;
+    waiter?.(null);
   }
   output() {
     return this.writes.join('');
@@ -439,6 +446,124 @@ class SteeringSession {
   }
 }
 
+class QueueSession {
+  readonly submitted: string[] = [];
+  readonly steered: string[] = [];
+  cancelCount = 0;
+  settled = false;
+  private pending:
+    | {
+      readonly turn: number;
+      readonly task: string;
+      readonly resolve: (outcome: LoopOutcome) => void;
+      readonly reject: (error: unknown) => void;
+    }
+    | null = null;
+  private steeringAccepted = false;
+  constructor(private readonly sink: (event: AgentEvent) => void) {}
+  submit(task: string): Promise<LoopOutcome> {
+    if (this.pending !== null) throw new Error('concurrent submit');
+    const turn = this.submitted.length + 1;
+    this.submitted.push(task);
+    this.steeringAccepted = false;
+    this.sink({ kind: 'turn_start', turn });
+    this.sink({
+      kind: 'user_message',
+      turn,
+      message: { role: 'user', content: { kind: 'text', text: task } },
+    });
+    return new Promise((resolve, reject) => this.pending = { turn, task, resolve, reject });
+  }
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    if (this.pending === null) return 'idle';
+    if (this.cancelCount > 0) return 'already_requested';
+    this.cancelCount += 1;
+    return 'requested';
+  }
+  steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
+    if (this.pending === null) return 'idle';
+    if (this.steeringAccepted) return 'already_accepted';
+    this.steeringAccepted = true;
+    this.steered.push(text);
+    return 'accepted';
+  }
+  finish(finalText = 'answer'): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    try {
+      if (this.steeringAccepted) {
+        this.sink({
+          kind: 'steering_message',
+          turn: pending.turn,
+          message: { role: 'user', content: { kind: 'text', text: this.steered.at(-1)! } },
+        });
+      }
+      this.sink({
+        kind: 'assistant_message',
+        turn: pending.turn,
+        message: { role: 'assistant', content: { kind: 'text', text: finalText } },
+      });
+      this.sink({ kind: 'turn_end', turn: pending.turn, outcome: 'final', committed: true });
+      this.settled = true;
+      pending.resolve(finalOutcome(pending.task, finalText));
+    } catch (error) {
+      this.settled = true;
+      pending.reject(error);
+    }
+  }
+  finishCancelled(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    this.settled = true;
+    this.sink({ kind: 'turn_end', turn: pending.turn, outcome: 'cancelled', committed: false });
+    pending.resolve(cancelledOutcome(pending.task));
+  }
+  finishFailure(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    this.settled = true;
+    pending.resolve({
+      ok: false,
+      task: pending.task,
+      outcome: 'contract_failure',
+      stopReason: 'contract_failure',
+      error: 'queue fixture failure',
+      steps: 1,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+    });
+  }
+  finishMaxSteps(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    this.settled = true;
+    this.sink({ kind: 'turn_end', turn: pending.turn, outcome: 'max_steps', committed: false });
+    pending.resolve({
+      ok: false,
+      task: pending.task,
+      outcome: 'max_steps',
+      stopReason: 'max_steps',
+      error: 'queue fixture max steps',
+      steps: 8,
+      toolCallCount: 8,
+      toolResultCount: 8,
+      transcript: [],
+    });
+  }
+  finishError(error: unknown): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    this.settled = true;
+    pending.reject(error);
+  }
+}
+
 const setup = (session: FakeSession) => {
   const terminal = new FakeTerminal();
   const renderer = new TuiRenderer(terminal);
@@ -449,6 +574,15 @@ const setup = (session: FakeSession) => {
     lifecycle,
     controller: new TuiController(lifecycle, renderer, session),
   };
+};
+
+const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+const waitForSubmitted = async (session: QueueSession, count: number): Promise<void> => {
+  for (let attempt = 0; attempt < 20 && session.submitted.length < count; attempt += 1) {
+    await tick();
+  }
+  assertEquals(session.submitted.length, count);
 };
 
 Deno.test('controller submits exact task and exits on empty Ctrl-D', async () => {
@@ -465,6 +599,408 @@ Deno.test('controller submits exact task and exits on empty Ctrl-D', async () =>
   assertEquals(await run, 0);
   assertEquals(session.submitted, [' exact task']);
   assert(terminal.raw.includes(false));
+});
+
+Deno.test('busy Alt+Enter queues one ordinary turn after durable settlement with no ready gap', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('queued\x1b\r');
+  await tick();
+  assertEquals(session.submitted, ['manual']);
+  assertEquals(controller.editor.text, '');
+  assert(terminal.output().includes('busy · follow-up queued'));
+  assert(!terminal.output().includes('user> queued'));
+  const beforeSettlement = terminal.writes.length;
+  session.finish('manual answer');
+  await waitForSubmitted(session, 2);
+  const settlementOutput = terminal.writes.slice(beforeSettlement).join('');
+  assert(settlementOutput.includes('busy · starting follow-up'));
+  assert(!settlementOutput.includes('[ready]'));
+  assertEquals(session.submitted, ['manual', 'queued']);
+  assertEquals((terminal.output().match(/user> queued/g) ?? []).length, 1);
+
+  // The automatic turn consumes the one slot: a second Alt+Enter cannot replenish it, while
+  // the fresh ordinary turn still has its independent steering lane.
+  terminal.push('third\x1b[27;3;13~');
+  await tick();
+  assertEquals(controller.editor.text, 'third');
+  assert(terminal.output().includes('follow-up slot closed'));
+  terminal.push('\n');
+  await tick();
+  assertEquals(session.steered, ['third']);
+  assertEquals(controller.editor.text, '');
+  session.finish('queued answer');
+  await tick();
+  assertEquals(session.submitted, ['manual', 'queued']);
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('steering and follow-up lanes admit in either order and compose status without sharing text', async () => {
+  for (const order of ['queue-first', 'steer-first'] as const) {
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const session = new QueueSession((event) => renderer.eventSink(event));
+    const controller = new TuiController(lifecycle, renderer, session);
+    await lifecycle.acquire();
+    const running = controller.run();
+    terminal.push('manual\n');
+    await tick();
+    if (order === 'queue-first') terminal.push('queued\x1b\r');
+    else terminal.push('steer\n');
+    await tick();
+    if (order === 'queue-first') terminal.push('steer\n');
+    else terminal.push('queued\x1b\r');
+    await tick();
+    assertEquals(controller.editor.text, '');
+    assertEquals(session.submitted, ['manual']);
+    assertEquals(session.steered, ['steer']);
+    session.finish();
+    await waitForSubmitted(session, 2);
+    assertEquals(session.submitted, ['manual', 'queued']);
+    assertEquals((terminal.output().match(/user> queued/g) ?? []).length, 1);
+    assert(!terminal.output().includes('user> steer'));
+    session.finish();
+    await tick();
+    terminal.push('\x04');
+    assertEquals(await running, 0);
+  }
+});
+
+Deno.test('follow-up works without steering capability and busy Enter never aliases it', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const full = new QueueSession((event) => renderer.eventSink(event));
+  const session = {
+    submit: (text: string) => full.submit(text),
+    cancelActiveTurn: () => full.cancelActiveTurn(),
+  };
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('\n');
+  await tick();
+  assert(terminal.output().includes('steering unavailable'));
+  terminal.push('queued\x1b\r');
+  await tick();
+  assertEquals(full.submitted, ['manual']);
+  full.finish();
+  await waitForSubmitted(full, 2);
+  assertEquals(full.submitted, ['manual', 'queued']);
+  full.finish();
+  await tick();
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('follow-up admission preserves blank, duplicate, NUL, and bounded editor behavior', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('\x1b\r');
+  await tick();
+  assert(terminal.output().includes('enter follow-up text'));
+  terminal.push('\x1b[200~bad\0paste\x1b[201~');
+  await tick();
+  assert(terminal.output().includes('invalid steering input'));
+  assertEquals(controller.editor.text, '');
+  terminal.push('queued\x1b\r');
+  await tick();
+  terminal.push('draft');
+  await tick();
+  terminal.push('\x1b\r');
+  await tick();
+  assertEquals(controller.editor.text, 'draft');
+  assert(terminal.output().includes('follow-up already queued'));
+  assert(!terminal.output().includes('user> draft'));
+  session.finish();
+  await waitForSubmitted(session, 2);
+  assertEquals(session.submitted, ['manual', 'queued']);
+  session.finish();
+  await tick();
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('signal cancellation drops a pending follow-up before restoration', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  controller.installSignals();
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('queued\x1b\r');
+  await tick();
+  terminal.emitSignal('SIGTERM');
+  await tick();
+  session.finishCancelled();
+  assertEquals(await running, 143);
+  assertEquals(session.submitted, ['manual']);
+  assert(!terminal.output().includes('user> queued'));
+  assert(renderer.isClosing);
+});
+
+Deno.test('follow-up accepts the exact 65,536-byte bracketed-paste boundary atomically', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push(`\x1b[200~${'x'.repeat(65_536)}\x1b[201~\x1b\r`);
+  await tick();
+  assertEquals(session.submitted, ['manual']);
+  session.finish();
+  await waitForSubmitted(session, 2);
+  assertEquals(session.submitted[1].length, 65_536);
+  assertEquals(new TextEncoder().encode(session.submitted[1]).byteLength, 65_536);
+  session.finish();
+  await tick();
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('pending follow-up drops on cancellation and failure without a second submission', async () => {
+  const cancelledTerminal = new FakeTerminal();
+  const cancelledRenderer = new TuiRenderer(cancelledTerminal);
+  const cancelledLifecycle = new TerminalLifecycle(cancelledTerminal, cancelledRenderer);
+  const cancelledSession = new QueueSession((event) => cancelledRenderer.eventSink(event));
+  const cancelledController = new TuiController(
+    cancelledLifecycle,
+    cancelledRenderer,
+    cancelledSession,
+  );
+  await cancelledLifecycle.acquire();
+  const cancelledRun = cancelledController.run();
+  cancelledTerminal.push('manual\n');
+  await tick();
+  cancelledTerminal.push('queued\x1b\r');
+  await tick();
+  cancelledTerminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert(!cancelledTerminal.output().includes('user> queued')); // no pending text disclosure
+  cancelledSession.finishCancelled();
+  await tick();
+  assertEquals(cancelledSession.submitted, ['manual']);
+  cancelledTerminal.push('\x04');
+  assertEquals(await cancelledRun, 0);
+
+  const failureTerminal = new FakeTerminal();
+  const failureRenderer = new TuiRenderer(failureTerminal);
+  const failureLifecycle = new TerminalLifecycle(failureTerminal, failureRenderer);
+  const failureSession = new QueueSession((event) => failureRenderer.eventSink(event));
+  const failureController = new TuiController(failureLifecycle, failureRenderer, failureSession);
+  await failureLifecycle.acquire();
+  const failureRun = failureController.run();
+  failureTerminal.push('manual\n');
+  await tick();
+  failureTerminal.push('queued\x1b\r');
+  await tick();
+  failureSession.finishFailure();
+  let failure: unknown;
+  try {
+    await failureRun;
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof TuiControllerError);
+  assertEquals((failure as TuiControllerError).code, 'agent_failure');
+  assertEquals(failureSession.submitted, ['manual']);
+  assert(failureRenderer.isClosing);
+});
+
+Deno.test('pending follow-up drops on max steps with one restore and no late writes', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('queued\x1b\r');
+  await tick();
+  session.finishMaxSteps();
+
+  let failure: unknown;
+  try {
+    await running;
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof TuiControllerError);
+  assertEquals((failure as TuiControllerError).code, 'agent_failure');
+  assertEquals(session.submitted, ['manual']);
+  assert(renderer.isClosing);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  assert(!terminal.output().includes('user> queued'));
+  const writes = terminal.writes.length;
+  let lateRejected = false;
+  try {
+    renderer.eventSink({ kind: 'assistant_progress', turn: 1, text: 'late max-step output' });
+  } catch {
+    lateRejected = true;
+  }
+  assert(lateRejected);
+  assertEquals(terminal.writes.length, writes);
+});
+
+Deno.test('queue drops on EOF, output/event failure, and cleanup poison after settlement', async () => {
+  const runFailureCase = async (kind: 'eof' | 'output' | 'event' | 'cleanup'): Promise<void> => {
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const session = new QueueSession((event) => {
+      renderer.eventSink(event);
+      if (kind === 'event' && event.kind === 'turn_end') throw new EventDeliveryError();
+    });
+    const controller = new TuiController(lifecycle, renderer, session);
+    await lifecycle.acquire();
+    const running = controller.run();
+    terminal.push('manual\n');
+    await tick();
+    terminal.push('queued\x1b\r');
+    await tick();
+    assert(!terminal.output().includes('user> queued'));
+
+    if (kind === 'eof') {
+      terminal.endInput();
+      for (let attempt = 0; attempt < 20 && session.cancelCount === 0; attempt += 1) await tick();
+      assertEquals(session.cancelCount, 1);
+      session.finishCancelled();
+    } else if (kind === 'cleanup') {
+      terminal.push('\x1b');
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      for (let attempt = 0; attempt < 20 && session.cancelCount === 0; attempt += 1) await tick();
+      assertEquals(session.cancelCount, 1);
+      session.finishError(new CancellationCleanupError());
+    } else {
+      if (kind === 'output') terminal.failNextWrite = true;
+      session.finish();
+    }
+
+    let failure: unknown;
+    try {
+      await running;
+    } catch (error) {
+      failure = error;
+    }
+    assert(failure instanceof TuiControllerError);
+    assertEquals(
+      (failure as TuiControllerError).code,
+      kind === 'eof' ? 'input_failure' : kind === 'cleanup' ? 'agent_failure' : 'output_failure',
+    );
+    assert(session.settled);
+    assertEquals(session.submitted, ['manual']);
+    assert(renderer.isClosing);
+    assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+    const writes = terminal.writes.length;
+    let rejected = false;
+    try {
+      renderer.eventSink({
+        kind: 'tool_progress',
+        turn: 1,
+        callId: 'late',
+        name: 'bash',
+        text: 'late queue output',
+      });
+    } catch (error) {
+      rejected = error instanceof EventDeliveryError;
+    }
+    assert(rejected);
+    assertEquals(terminal.writes.length, writes);
+    assert(!terminal.output().includes('user> queued'));
+  };
+
+  await runFailureCase('eof');
+  await runFailureCase('output');
+  await runFailureCase('event');
+  await runFailureCase('cleanup');
+});
+
+Deno.test('successful turn with exit intent drops a queued follow-up before restore', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('queued\x1b\r');
+  await tick();
+  terminal.push('\x03');
+  await tick();
+  session.finish('manual answer');
+  assertEquals(await running, 0);
+  assertEquals(session.submitted, ['manual']);
+  assert(renderer.isClosing);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  assert(!terminal.output().includes('user> queued'));
+});
+
+Deno.test('crash drops a pending follow-up before one close and rejects late writes', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session);
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('manual\n');
+  await tick();
+  terminal.push('queued\x1b\r');
+  await tick();
+  controller.handleCrash();
+  session.finishError(new Error('injected queue crash'));
+
+  let failure: unknown;
+  try {
+    await running;
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof TuiControllerError);
+  assertEquals((failure as TuiControllerError).code, 'agent_failure');
+  assertEquals(session.submitted, ['manual']);
+  assert(renderer.isClosing);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  assert(!terminal.output().includes('user> queued'));
+  const writes = terminal.writes.length;
+  let lateRejected = false;
+  try {
+    renderer.eventSink({ kind: 'assistant_progress', turn: 1, text: 'late crash output' });
+  } catch {
+    lateRejected = true;
+  }
+  assert(lateRejected);
+  assertEquals(terminal.writes.length, writes);
 });
 
 Deno.test('controller formats absent, zero-omission, ceiling, and omitted context statuses exactly', async () => {
@@ -676,7 +1212,7 @@ Deno.test('busy input is consumed, Esc reports unavailable, and Ctrl-C exits aft
   assertEquals(session.submitted, ['task']);
   assert(terminal.output().includes('cancellation unavailable; turn continues'));
   assert(terminal.output().includes('exiting after current turn'));
-  assert(!terminal.output().includes('discarded'));
+  assert(!terminal.output().includes('user> discarded'));
 });
 
 Deno.test('busy input admits one steering message and renders it as one escaped record', async () => {

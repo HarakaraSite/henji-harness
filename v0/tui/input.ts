@@ -3,6 +3,18 @@ const MAX_EDITOR_BYTES = 64 * 1024;
 const ESC_TIMEOUT_MS = 50;
 const PASTE_BEGIN = [0x1b, 0x5b, 0x32, 0x30, 0x30, 0x7e];
 const PASTE_END = [0x1b, 0x5b, 0x32, 0x30, 0x31, 0x7e];
+const ALT_ENTER_XTERM = [
+  0x1b,
+  0x5b,
+  0x32,
+  0x37,
+  0x3b,
+  0x33,
+  0x3b,
+  0x31,
+  0x33,
+  0x7e,
+];
 
 export type InputEvent =
   | {
@@ -11,6 +23,7 @@ export type InputEvent =
     readonly codePoint: number;
   }
   | { readonly kind: 'enter' }
+  | { readonly kind: 'alt_enter' }
   | { readonly kind: 'backspace' }
   | { readonly kind: 'ctrl_c' }
   | { readonly kind: 'ctrl_d' }
@@ -55,6 +68,10 @@ export class InputDecoder {
   private utf8: number[] = [];
   private utf8Expected = 0;
   private escape: number[] | null = null;
+  // Once an xterm candidate expires, retain it only long enough to determine whether the
+  // complete candidate arrives. This lets an exact late sequence replay its printable suffix while
+  // preserving baseline timeout behavior for divergent/unknown CSI (the buffered `[` is dropped).
+  private expiredXterm: number[] | null = null;
   private paste = false;
   private pasteBytes: number[] = [];
   private pasteTerminator: number[] = [];
@@ -75,8 +92,7 @@ export class InputDecoder {
       if (
         this.escape !== null && now - this.escapeStartedAt >= ESC_TIMEOUT_MS
       ) {
-        this.escape = null;
-        events.push({ kind: 'escape' });
+        this.expireEscape(events);
       }
       this.consume(byte, events, now);
     }
@@ -90,8 +106,9 @@ export class InputDecoder {
   /** Emit a lone Escape once the fixed timeout has elapsed. */
   poll(now = Date.now()): InputEvent[] {
     if (this.escape !== null && now - this.escapeStartedAt >= ESC_TIMEOUT_MS) {
-      this.escape = null;
-      return [{ kind: 'escape' }];
+      const events: InputEvent[] = [];
+      this.expireEscape(events);
+      return events;
     }
     return [];
   }
@@ -122,6 +139,21 @@ export class InputDecoder {
     if (this.paste) {
       this.consumePaste(byte, events);
       return;
+    }
+    if (this.expiredXterm !== null) {
+      const index = this.expiredXterm.length;
+      if (byte === ALT_ENTER_XTERM[index]) {
+        this.expiredXterm.push(byte);
+        if (this.expiredXterm.length === ALT_ENTER_XTERM.length) {
+          const replay = this.expiredXterm.slice(1);
+          this.expiredXterm = null;
+          for (const replayByte of replay) this.consume(replayByte, events, now);
+        }
+        return;
+      }
+      // A divergent candidate is handled exactly like the pre-existing timeout path: discard
+      // the buffered CSI payload and process only the byte that arrived after Escape expired.
+      this.expiredXterm = null;
     }
     if (this.escape !== null) {
       this.consumeEscape(byte, events, now);
@@ -212,11 +244,21 @@ export class InputDecoder {
     this.escape!.push(byte);
     if (this.escape!.length === 2 && byte !== 0x5b) {
       this.escape = null;
+      if (byte === 0x0d || byte === 0x0a) {
+        if (byte === 0x0d) this.pendingCr = true;
+        events.push({ kind: 'alt_enter' });
+        return;
+      }
       events.push({ kind: 'escape' });
       this.consume(byte, events, now);
       return;
     }
     if (this.escape!.length <= 2) return;
+    if (matches(this.escape!, ALT_ENTER_XTERM)) {
+      this.escape = null;
+      events.push({ kind: 'alt_enter' });
+      return;
+    }
     if (matches(this.escape!, PASTE_BEGIN)) {
       this.escape = null;
       this.paste = true;
@@ -231,6 +273,18 @@ export class InputDecoder {
       this.escape = null;
       events.push({ kind: 'unknown' });
     }
+  }
+
+  /** Expire a modifier sequence without allowing its payload to disappear silently. */
+  private expireEscape(events: InputEvent[]): void {
+    const escaped = this.escape;
+    this.escape = null;
+    events.push({ kind: 'escape' });
+    // A timed-out xterm modifier is ordinary printable input only after its exact suffix arrives.
+    // Until then, keep the candidate private so divergent/unknown CSI retains baseline behavior.
+    const xtermPrefix = escaped !== null &&
+      escaped.every((byte, index) => byte === ALT_ENTER_XTERM[index]);
+    this.expiredXterm = xtermPrefix ? escaped : null;
   }
 
   private consumePaste(byte: number, events: InputEvent[]): void {

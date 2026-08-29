@@ -283,7 +283,32 @@
   with Blocker/P1/P2 zero. The coordinating owner independently reran the final `v0:gate`, including
   475/475 full offline tests. The reviewed increment was committed after the final gate. No provider,
   network, credential, production command, dependency/lockfile, `_refs/`, push, tag, publish, or
-  release operation occurred.
+  release operation occurred. The increment is commit `3aeb48e`.
+- The next optional roadmap increment is planned at
+  `docs/plans/bounded-next-turn-queue.md`, SHA-256
+  `9a9e5d42a8024a23c2a45a2a62b852f6c0012c378d05d8ec358b8539a6fc1831`. It proposes one
+  controller-local, memory-only ordinary follow-up slot for the real-TTY TUI: busy Enter remains
+  steering, busy Alt+Enter queues one later ordinary parent turn, and only successful durable
+  settlement drains it. Cancellation, failure, exit, EOF, and shutdown drop pending text; the
+  automatically started turn cannot refill the slot but retains fresh steering and the existing
+  per-turn planner/cancellation/request-budget ownership. The initial plan review's persistence P1
+  and xterm-timeout P2 were corrected; the single narrow re-review is `GO` with Blocker/P1/P2 zero.
+  The initial implementation Human Gate is approved and the controller/input/renderer, direct,
+  persistence, and PTY implementation is present. Focused decoder/render/controller/session-TUI
+  suites pass 17/10/41/4; residual evidence adds sub-50-ms split xterm PTY, rejected refill plus
+  fresh automatic-turn steering PTY, max-step, persistence-commit, and crash/close regressions.
+  The PTY and topology suites pass 25/4 using the repository `agent:tui:process:test` task's
+  `/usr/bin/script` permission. Full offline `v0:test` and closure `v0:gate` both pass 503/503,
+  with `v0:check`, `v0:fmt`, `v0:lint`, and `git diff --check` green.
+  Initial implementation review P2 3 were closed; the narrow re-review left one evidence-only P2,
+  and the separately approved residual evidence closure added the exact split-PTY/fresh-steering/
+  max-step/persistence-commit/crash-close regressions. Owner final disposition is Blocker/P1/P2 zero.
+  Independent owner verification observed two one-off pre-existing PTY process-status failures in
+  different cases; isolated repetitions (steering 3, signals 5), the complete PTY suite, and the final
+  full 503-test gate all passed, with no source change for the non-reproducing harness observations. No
+  provider/network/credential, production command, actual persistent state, dependency/lockfile,
+  `_refs/`, push, tag, publish, or release operation occurred for this plan. The reviewed increment is
+  committed after the final gate.
 
 ## Development lifecycle
 
