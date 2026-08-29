@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: provider streamingはcommit `852542f`、bounded mid-turn steeringはcommit `3aeb48e`で完了。optional ordinary next-turn queueも実装、finding closure、residual evidence closure、owner final gateまで完了し、focused decoder/render/controller/session-TUI 17/10/41/4、PTY/topology 25/4、full offline 503、final Blocker/P1/P2 0
-- 次: reviewed next-turn queue treeをfeature commitとして記録する。追加provider attemptは別Human Gate
+- 状態: provider streamingはcommit `852542f`、bounded mid-turn steeringはcommit `3aeb48e`、optional ordinary next-turn queueはcommit `8a10be9`で完了。queue final gateはfull offline 503、final Blocker/P1/P2 0
+- 次: milestone 100の次priorityを選ぶ。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -14,7 +14,15 @@
 - 判断済み: 次の通常incrementは、1. provider-neutral cancellation、2. context management、3. persistent session/history、4. tool progress events、5. provider streaming、6. bounded mid-turn steering、7. 必要なら通常のnext-turn queue、の順で進める
 - 判断済み: Deno `@std/cli`とCliffyを含むCLI/TUI libraryの導入は当面見送り、現行のagent-core分離と内部TUI moduleを段階的に拡張する
 - 根拠: ユーザー実機testで現行TUIとplanner delegationは順調。pinned Pi commit `a69bef789bc95abf0acee16f7b4660b70b650bb9`もmanual CLI parser、独立internal TUI package、core event/AbortSignal境界を採用している
-- 次: step 7のoptional ordinary next-turn queueが必要かを判断する
+- 次: 7 step完了後の最初のmilestone 100 hardeningとしてoffline gate integrityを進める
+
+### POL-20260829-milestone-100-offline-gate-integrity-plan
+
+- 計画: `docs/plans/milestone-100-offline-gate-integrity.md`、SHA-256 `78466a3737fd66d01e2a3b1a61e5937f740871cba366469793141701f78fa32a`
+- 契約: broad `v0:test`を43 exact permission-bounded leaf tasksへ置換し、新規central topology testを含む45 direct test filesをdirect `v0:test`でexact-once ownershipする。`v0:gate`は独立topology edgeを先行し、topology自身の内側edge欠落もfail closedにする
+- 権限: leaf別のexact permission/target snapshotとnegative mutationsを正本化。唯一のnetwork leafは`v0:legacy:test`の`127.0.0.1`で、proposed exact taskは32/32成功。env/sys/credential/production task reachabilityはゼロ
+- review: initial P1 2/P2 1をouter+inner topology edge、exact leaf permission snapshot、forbidden grammar/cycle/target/permission mutation evidenceで修正。実装中の旧gate直結期待はowner-approved reviewer-GO topology-only deltaとして8 existing test filesを更新。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 境界: product source/runtime、provider/credential/production command、actual persistent state、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは対象外
 
 ### POL-20260829-bounded-next-turn-queue-plan
 
@@ -1747,3 +1755,53 @@
 - 実施: residual evidenceを照合し、focused TUI 68、session-TUI 4、PTY 25、topology 4、check/fmt/lint/diff checkを確認。final full `v0:gate` 503/503、owner Blocker/P1/P2 0
 - 次: 同じreviewed treeをユーザー承認済みfeature commitとして記録する
 - 注意: owner確認中に既存PTY steeringとsignal caseが別runで各1回process-status failure。対象isolated steering 3/3、signal 5/5、PTY全25/25、final full gateは成功し非再現のためsource変更なし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`、push/tag/publish/releaseは未実施
+
+## 2026-08-29 10:21 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Milestone 100 offline gate integrity planning
+- 実施: broad full-suite permissionを43 exact leafへ置換するcanonical planを作成。legacy exact permission taskを32/32で実証し、initial review P1 2/P2 1をself-check edge、leaf別permission snapshot、negative mutation契約で閉鎖。narrow re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260829-milestone-100-offline-gate-integrity`の初期implementation Human Gate
+- 注意: plan SHA-256 `5c8be59325cdc6ad123fe86257ca36b7c0d7fce65b45a67e0c3376a333c41d59`。planning/lifecycle文書以外、provider/credential/production command、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未変更・未実施
+
+### POL-20260829-milestone-100-offline-gate-integrity-implementation
+
+- 判断済み: owner-approved initial implementation Human Gateとreviewer-GOの局所 topology-only deltaに基づき、43 exact permission-bounded leaf tasks、central topology test、README/results/lifecycle更新を実装した。canonical planはSHA-256 `78466a3737fd66d01e2a3b1a61e5937f740871cba366469793141701f78fa32a`
+- 契約: direct `v0:test`は45 direct test filesを43 leavesでexact-once ownershipし、`v0:gate`は独立topology、check、fmt、lint、v0:testの順。topology parserは固定grammar、exact target/permission、negative mutation、production/provider/live/credential reachability rejectionを保持する
+- 状態: central topology 2、legacy 32、feature topology 1/3/2/1/1/1/4、runtime-process 18、corpus 9、direct `v0:test` 505、owner `v0:gate` 507。`v0:check`/`v0:fmt`/`v0:lint`/`git diff --check`成功。initial implementation review P1 1/P2 3を一回のapproved finding closureで修正し、single narrow re-reviewは全件ClosedでGO。owner final central 2/full gate 507、final Blocker/P1/P2 0
+- delta: obsolete direct-gate assertionsのため、instructions、skills、TUI、work-tools sentinel、planner sentinel、credential launcher、runtime process、task corpusの8 existing test filesを計画記載どおりtopology wiringだけ更新。plan hash更新済み
+- 境界: reviewed incrementはfinal gate後にcommit済み。product source/runtime、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`変更、push/tag/publish/releaseは未実施
+
+## 2026-08-29 10:48 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Milestone 100 offline gate integrity implementation and offline verification
+- 実施: exact legacy/topology tasks、43-leaf `v0:test`、5-edge `v0:gate`、central fail-closed topology mutations、README/results、AGENTS/handoffを更新。owner-approved reviewer-GOの8-file topology-only deltaを適用し、ASKをconsumeした
+- 検証: central topology 2/2、legacy 32/32、7 feature topology leaves 1/3/2/1/1/1/4、runtime-process 18/18、corpus 9/9、direct `v0:test` 505/505、`v0:check`、`v0:fmt`、`v0:lint`、owner `v0:gate` 507/507、`git diff --check` pass
+- 次: coordinating ownerのchanged-lines bounded reviewとfinal Blocker/P1/P2 disposition
+- 注意: canonical plan SHA-256 `532d307ce07e79b0f4fe7846ae7a1008a1a9429181d4c250538dd79f340fd91f`。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 10:59 JST
+
+- 実行エージェント: Codex implementer
+- 作業トピック: Milestone 100 offline gate integrity approved finding closure
+- 実施: strict `v0:check`/`v0:fmt`/`v0:lint` executable/flag/target snapshotsと各maintenance-command injection、duplicate-existing-permission、`v0:gate` self/mutual-cycle regressionsをcentral topologyへ追加。instructions topologyとdefinition-selectionのexact-once assertionsを確認し、canonical planのinitial Human Gateをconsumed/approvedへ更新、rollback対象8ファイルとresults/AGENTS/handoff evidenceを同期した
+- 検証: central topology 2/2、legacy 32/32、instructions 1/1、skills 3/3、sessions 2/2、TUI 4/4、work-tools 1/1、planner 1/1、credential 1/1、runtime-process 18/18、corpus 9/9、direct `v0:test` 505/505、`v0:check`、`v0:fmt`、`v0:lint`、owner `v0:gate` 507/507、`git diff --check`がすべて成功
+- 次: coordinating ownerのchanged-lines bounded re-reviewとfinal Blocker/P1/P2 disposition
+- 注意: canonical plan SHA-256 `78466a3737fd66d01e2a3b1a61e5937f740871cba366469793141701f78fa32a`。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-29 11:10 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Milestone 100 offline gate integrity final review and owner gate
+- 実施: initial P1 1/P2 3のfinding closureをnarrow re-reviewし全件Closed、GO、Blocker/P1/P2 0。ownerがcentral topology 2/2とfull `v0:gate` 507/507を独立再実行してexit 0を確認
+- 次: reviewed treeのcommitは別の明示指示待ち
+- 注意: plan SHA-256 `78466a3737fd66d01e2a3b1a61e5937f740871cba366469793141701f78fa32a`。product source、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは未変更・未実施
+
+## 2026-08-29 11:13 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Milestone 100 offline gate integrity commit
+- 実施: final GOとowner gate済みのreviewed incrementをmainへ一つのtest-hardening commitとして記録し、results/lifecycleのcommit状態を整合
+- 次: milestone 100の次priorityを選ぶ
+- 注意: push/tag/publish/release、provider/credential/production command、dependency/lockfile、`_refs`変更は未実施

@@ -52,19 +52,29 @@ Deno.test('sentinel topology keeps production task out of local gates and preser
     assert(!config.tasks[localTask].includes('agent:work-tools:sentinel:credential-file'));
   }
   const gate = config.tasks['v0:gate'];
-  assert(typeof gate === 'string');
-  const segments = gate.split('&&').map((segment) => segment.trim());
-  assertEquals(segments.filter((segment) => segment === direct).length, 1);
-  assertEquals(segments.filter((segment) => segment === process).length, 1);
-  assertEquals(segments.filter((segment) => segment === topology).length, 1);
+  const test = config.tasks['v0:test'];
+  const gateSegments = gate.split(' && ');
+  const testSegments = test.split(' && ');
   assertEquals(
-    segments.filter((segment) => segment.includes('agent:work-tools:sentinel:credential-file'))
-      .length,
-    0,
+    gateSegments.filter((segment) =>
+      segment === `${DENO_COMMAND} task --config deno.v0.json v0:test`
+    ).length,
+    1,
   );
-  assertEquals(
-    segments.filter((segment) => segment.includes('live_corpus_cli.ts sentinel')).length,
-    0,
-  );
+  assertEquals(testSegments.filter((segment) => segment === direct).length, 1);
+  assertEquals(testSegments.filter((segment) => segment === process).length, 1);
+  assertEquals(testSegments.filter((segment) => segment === topology).length, 1);
+  for (const segments of [gateSegments, testSegments]) {
+    assertEquals(
+      segments.filter((segment) => segment.includes('agent:work-tools:sentinel:credential-file'))
+        .length,
+      0,
+    );
+    assertEquals(
+      segments.filter((segment) => segment.includes('live_corpus_cli.ts sentinel')).length,
+      0,
+    );
+    assert(!segments.includes(`${DENO_COMMAND} task --config deno.v0.json agent:run`));
+  }
   assertEquals(SECRET_ENV, 'HENJI_OPENROUTER_API_KEY');
 });

@@ -351,9 +351,32 @@ Deno.test('focused corpus task has exact read permissions and gate excludes prov
   );
   assert(config.tasks['v0:check'].includes('v0/corpus/task_corpus.ts'));
   assert(config.tasks['v0:check'].includes('tests/v0/task_corpus_test.ts'));
-  assert(config.tasks['v0:gate'].includes('agent:corpus:test'));
-  assert(!/\bagent:run(?:\s|$)/.test(config.tasks['v0:gate']));
-  assert(!/\bagent:acceptance(?:\s|$)/.test(config.tasks['v0:gate']));
+  const gateSegments = config.tasks['v0:gate'].split(' && ');
+  const testSegments = config.tasks['v0:test'].split(' && ');
+  assertEquals(
+    gateSegments.filter((segment) => segment === `${deno} task --config deno.v0.json v0:test`)
+      .length,
+    1,
+  );
+  assertEquals(
+    testSegments.filter((segment) =>
+      segment === `${deno} task --config deno.v0.json agent:corpus:test`
+    ).length,
+    1,
+  );
+  for (const segments of [gateSegments, testSegments]) {
+    assertEquals(
+      segments.filter((segment) => segment === `${deno} task --config deno.v0.json agent:run`)
+        .length,
+      0,
+    );
+    assertEquals(
+      segments.filter((segment) =>
+        segment === `${deno} task --config deno.v0.json agent:acceptance`
+      ).length,
+      0,
+    );
+  }
   assertEquals(
     config.tasks['agent:run'],
     `${deno} run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/runtime_cli.ts`,

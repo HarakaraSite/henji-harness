@@ -36,14 +36,24 @@ Deno.test('local TUI gate runs only local tests and check includes all TUI paths
       'tests/v0/fixtures/tui_process_fixture.ts',
     ]
   ) assert(check.includes(path));
-  assert(gate.includes('agent:tui:test'));
-  assert(gate.includes('agent:tui:process:test'));
-  assert(gate.includes('agent:tui:topology:test'));
-  assert(gate.includes('agent:definition-selection:test'));
   assert(check.includes('v0/agent/agent_catalog.ts'));
   assert(check.includes('tests/v0/agent_catalog_test.ts'));
-  assert(!gate.includes('agent:tui"'));
-  assert(!gate.includes('agent:run"'));
+  const gateSegments = gate.split(' && ');
+  const testSegments = config.tasks['v0:test'].split(' && ');
+  assertEquals(
+    gateSegments.filter((segment) => segment === `${DENO} task --config deno.v0.json v0:test`)
+      .length,
+    1,
+  );
+  for (const task of ['agent:tui:test', 'agent:tui:process:test', 'agent:tui:topology:test']) {
+    const invocation = `${DENO} task --config deno.v0.json ${task}`;
+    assertEquals(testSegments.filter((segment) => segment === invocation).length, 1);
+  }
+  for (const composition of [gateSegments, testSegments]) {
+    assert(!composition.includes(`${DENO} task --config deno.v0.json agent:run`));
+    assert(!composition.includes(`${DENO} task --config deno.v0.json agent:acceptance`));
+    assert(!composition.some((segment) => segment.includes('credential-file')));
+  }
 });
 
 Deno.test('TUI local process task grants only script execution and topology task only config read', () => {
@@ -64,5 +74,10 @@ Deno.test('tool progress focused task is permission-free and is wired once into 
   );
   assert(config.tasks['v0:check'].includes('tests/v0/agent_tool_progress_test.ts'));
   const gate = config.tasks['v0:gate'];
-  assertEquals(gate.split('agent:tool-progress:test').length - 1, 1);
+  const test = config.tasks['v0:test'];
+  assertEquals(gate.split(`${DENO} task --config deno.v0.json v0:test`).length - 1, 1);
+  assertEquals(
+    test.split(`${DENO} task --config deno.v0.json agent:tool-progress:test`).length - 1,
+    1,
+  );
 });

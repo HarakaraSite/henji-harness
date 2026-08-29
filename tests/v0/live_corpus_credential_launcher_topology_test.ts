@@ -29,20 +29,30 @@ Deno.test('launcher tasks have fixed permissions and production task is unreacha
     `${DENO_COMMAND} run --no-prompt --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key --allow-run=${DENO_COMMAND} --allow-sys=uid v0/eval/live_corpus_credential_launcher.ts`,
   );
   const gate = config.tasks['v0:gate'];
-  assert(typeof gate === 'string');
-  const segments = gate.split('&&').map((segment) => segment.trim());
-  assertEquals(segments.filter((segment) => segment === directTask).length, 1);
-  assertEquals(segments.filter((segment) => segment === processTask).length, 1);
-  assertEquals(segments.filter((segment) => segment === topologyTask).length, 1);
-  assertEquals(segments.filter((segment) => segment.includes('credential-file')).length, 0);
+  const test = config.tasks['v0:test'];
+  const gateSegments = gate.split(' && ');
+  const testSegments = test.split(' && ');
   assertEquals(
-    segments.filter((segment) => segment.includes('live_corpus_cli.ts sentinel')).length,
-    0,
+    gateSegments.filter((segment) =>
+      segment === `${DENO_COMMAND} task --config deno.v0.json v0:test`
+    ).length,
+    1,
   );
-  assertEquals(
-    segments.filter((segment) => segment.includes('live_corpus_cli.ts canonical')).length,
-    0,
-  );
+  assertEquals(testSegments.filter((segment) => segment === directTask).length, 1);
+  assertEquals(testSegments.filter((segment) => segment === processTask).length, 1);
+  assertEquals(testSegments.filter((segment) => segment === topologyTask).length, 1);
+  for (const segments of [gateSegments, testSegments]) {
+    assertEquals(segments.filter((segment) => segment.includes('credential-file')).length, 0);
+    assertEquals(
+      segments.filter((segment) => segment.includes('live_corpus_cli.ts sentinel')).length,
+      0,
+    );
+    assertEquals(
+      segments.filter((segment) => segment.includes('live_corpus_cli.ts canonical')).length,
+      0,
+    );
+    assert(!segments.includes(`${DENO_COMMAND} task --config deno.v0.json agent:run`));
+  }
   assertEquals(
     productionTask.split(/\s+/).filter((token) => token.startsWith('--allow-sys=')),
     ['--allow-sys=uid'],

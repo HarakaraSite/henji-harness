@@ -27,21 +27,31 @@ Deno.test('skill tasks are permission-bounded and production permissions are unc
   }
 });
 
-Deno.test('local gate includes both skill suites once and excludes production/provider tasks', () => {
-  const segments = config.tasks['v0:gate'].split('&&').map((segment) => segment.trim());
+Deno.test('local compositions include both skill suites once and exclude production/provider tasks', () => {
+  const gateSegments = config.tasks['v0:gate'].split(' && ');
+  const testSegments = config.tasks['v0:test'].split(' && ');
   for (const task of ['agent:skills:test', 'agent:skills:topology:test']) {
     const command = `${DENO} task --config deno.v0.json ${task}`;
-    assertEquals(segments.filter((segment) => segment === command).length, 1);
+    assertEquals(testSegments.filter((segment) => segment === command).length, 1);
   }
-  for (
-    const forbidden of [
-      'agent:run',
-      'agent:acceptance',
-      'agent:corpus:eval:live:sentinel',
-      'agent:corpus:eval:live:canonical',
-      'agent:work-tools:sentinel:credential-file',
-    ]
-  ) assert(!segments.some((segment) => segment.endsWith(` ${forbidden}`)));
+  assertEquals(
+    gateSegments.filter((segment) => segment === `${DENO} task --config deno.v0.json v0:test`)
+      .length,
+    1,
+  );
+  for (const composition of [gateSegments, testSegments]) {
+    for (
+      const forbidden of [
+        'agent:run',
+        'agent:acceptance',
+        'agent:corpus:eval:live:sentinel',
+        'agent:corpus:eval:live:canonical',
+        'agent:work-tools:sentinel:credential-file',
+      ]
+    ) {
+      assert(!composition.includes(`${DENO} task --config deno.v0.json ${forbidden}`));
+    }
+  }
 });
 
 Deno.test('corpus registry remains separate from conditional production skill topology', () => {

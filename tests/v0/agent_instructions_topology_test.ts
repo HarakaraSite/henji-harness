@@ -25,15 +25,35 @@ Deno.test('instruction tasks and gate wiring preserve the normal permission boun
   assert(!config.tasks['agent:run'].includes('ZOT_HOME'));
   assert(!config.tasks['agent:run'].includes('AGENTS.MD'));
 
+  const check = config.tasks['v0:check'];
+  assertEquals(count(check, 'v0/agent/agent_instructions.ts'), 1);
+  assertEquals(count(check, 'tests/v0/agent_instructions_test.ts'), 1);
+  assertEquals(count(check, 'tests/v0/agent_instructions_topology_test.ts'), 1);
   const gate = config.tasks['v0:gate'];
-  assert(typeof gate === 'string');
-  assertEquals(count(gate, 'agent:instructions:test'), 1);
-  assertEquals(count(gate, 'agent:instructions:topology:test'), 1);
-  assertEquals(count(gate, 'v0/agent/agent_instructions.ts'), 1);
-  assertEquals(count(gate, 'tests/v0/agent_instructions_test.ts'), 1);
-  assertEquals(count(gate, 'tests/v0/agent_instructions_topology_test.ts'), 1);
-  const gateTokens = gate.split(/\s+/);
-  assert(!gateTokens.includes('agent:run'));
-  assert(!gateTokens.includes('agent:acceptance'));
-  assertEquals(count(gate, 'credential-file'), 0);
+  const test = config.tasks['v0:test'];
+  const gateSegments = gate.split(' && ');
+  const testInvocation = `${DENO} task --config deno.v0.json agent:instructions:test`;
+  const topologyInvocation = `${DENO} task --config deno.v0.json agent:instructions:topology:test`;
+  assertEquals(
+    gateSegments.filter((segment) => segment === `${DENO} task --config deno.v0.json v0:test`)
+      .length,
+    1,
+  );
+  assertEquals(test.split(' && ').filter((segment) => segment === testInvocation).length, 1);
+  assertEquals(test.split(' && ').filter((segment) => segment === topologyInvocation).length, 1);
+  for (const composition of [test, gate]) {
+    const segments = composition.split(' && ');
+    assertEquals(
+      segments.filter((segment) => segment === `${DENO} task --config deno.v0.json agent:run`)
+        .length,
+      0,
+    );
+    assertEquals(
+      segments.filter((segment) =>
+        segment === `${DENO} task --config deno.v0.json agent:acceptance`
+      ).length,
+      0,
+    );
+    assertEquals(segments.filter((segment) => segment.includes('credential-file')).length, 0);
+  }
 });

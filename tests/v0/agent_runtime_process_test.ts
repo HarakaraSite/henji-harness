@@ -273,19 +273,30 @@ Deno.test('offline process topology keeps child isolated and production tasks un
     `${DENO_COMMAND} test --no-prompt tests/v0/agent_catalog_test.ts`,
   );
   const gate = config.tasks['v0:gate'];
+  const test = config.tasks['v0:test'];
   assert(typeof gate === 'string');
-  const gateSegments = gate.split('&&').map((segment) => segment.trim());
-  assertEquals(gateSegments.filter((segment) => segment === focusedTask).length, 1);
-  assertEquals(gateSegments.filter((segment) => segment === selectionTask).length, 1);
-  const gateTaskNames = gateSegments.flatMap((segment) => {
-    const tokens = segment.split(/\s+/);
-    return tokens.length === 5 && tokens[0] === DENO_COMMAND && tokens[1] === 'task' &&
-        tokens[2] === '--config' && tokens[3] === 'deno.v0.json'
-      ? [tokens[4]]
-      : [];
-  });
-  assertEquals(gateTaskNames.filter((name) => name === 'agent:run'), []);
-  assertEquals(gateTaskNames.filter((name) => name === 'agent:acceptance'), []);
+  const gateSegments = gate.split(' && ');
+  const testSegments = test.split(' && ');
+  assertEquals(
+    gateSegments.filter((segment) =>
+      segment === `${DENO_COMMAND} task --config deno.v0.json v0:test`
+    ).length,
+    1,
+  );
+  assertEquals(testSegments.filter((segment) => segment === focusedTask).length, 1);
+  assertEquals(testSegments.filter((segment) => segment === selectionTask).length, 1);
+  for (const segments of [gateSegments, testSegments]) {
+    const taskNames = segments.flatMap((segment) => {
+      const tokens = segment.split(/\s+/);
+      return tokens.length === 5 && tokens[0] === DENO_COMMAND && tokens[1] === 'task' &&
+          tokens[2] === '--config' && tokens[3] === 'deno.v0.json'
+        ? [tokens[4]]
+        : [];
+    });
+    assertEquals(taskNames.filter((name) => name === 'agent:run'), []);
+    assertEquals(taskNames.filter((name) => name === 'agent:acceptance'), []);
+    assertEquals(taskNames.filter((name) => name.includes('credential-file')), []);
+  }
   const invocation = childInvocation('argv-success', ['--task', '  argv task  ']);
   const argv = invocation.argv;
   assertEquals(argv.slice(0, 3), ['run', '--no-prompt', '--no-remote']);

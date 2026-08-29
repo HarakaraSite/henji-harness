@@ -42,6 +42,22 @@ deno task --config deno.v0.json v0:gate
 `agent:acceptance` is the production provider task. Run it only on explicit user instruction; it is
 not a local test. Local gates use fixtures and require no credential.
 
+The offline test gate is an exact least-authority composition: `v0:test` invokes the 43 reviewed
+test leaves in stable order, owning all 45 direct `tests/v0/*_test.ts` files exactly once. The
+`v0:gate` task first runs the independent topology self-check, then `v0:check`, `v0:fmt`,
+`v0:lint`, and `v0:test`; it intentionally observes the topology test twice. No broad all-
+permission directory rerun is part of either gate. The topology task is available directly with:
+
+```text
+/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:offline-gate:topology:test
+```
+
+When adding a direct test file, add or update one focused leaf with explicit test targets and the
+smallest exact permissions needed, enroll that leaf in the ordered `v0:test` composition, and let
+the topology task validate ownership, command grammar, permission ordering, and production-task
+reachability. A direct test or focused test task is intentionally rejected until this enrollment
+and permission review is complete.
+
 ## Normal runtime (roadmap step 11)
 
 The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin. The

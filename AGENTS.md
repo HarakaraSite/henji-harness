@@ -284,7 +284,7 @@
   475/475 full offline tests. The reviewed increment was committed after the final gate. No provider,
   network, credential, production command, dependency/lockfile, `_refs/`, push, tag, publish, or
   release operation occurred. The increment is commit `3aeb48e`.
-- The next optional roadmap increment is planned at
+- The optional roadmap increment is implemented at
   `docs/plans/bounded-next-turn-queue.md`, SHA-256
   `9a9e5d42a8024a23c2a45a2a62b852f6c0012c378d05d8ec358b8539a6fc1831`. It proposes one
   controller-local, memory-only ordinary follow-up slot for the real-TTY TUI: busy Enter remains
@@ -307,8 +307,27 @@
   different cases; isolated repetitions (steering 3, signals 5), the complete PTY suite, and the final
   full 503-test gate all passed, with no source change for the non-reproducing harness observations. No
   provider/network/credential, production command, actual persistent state, dependency/lockfile,
-  `_refs/`, push, tag, publish, or release operation occurred for this plan. The reviewed increment is
-  committed after the final gate.
+  `_refs/`, push, tag, publish, or release operation occurred for this plan. The reviewed increment
+  is commit `8a10be9`.
+- The first bounded milestone 100 hardening increment is implemented under
+  `docs/plans/milestone-100-offline-gate-integrity.md`, SHA-256
+  `78466a3737fd66d01e2a3b1a61e5937f740871cba366469793141701f78fa32a`. It replaces the ambient
+  read/write/run/env/net full-suite rerun with 43 exact permission-bounded leaf tasks owning 45
+  direct test files, including the central topology test. `v0_test.ts` passes 32/32 under exact
+  `/tmp`, extension-source, pinned-Deno, and IPv4-loopback permissions with no environment access.
+  The topology contract snapshots exact per-leaf permissions and targets plus exact `v0:check`,
+  `v0:fmt`, and `v0:lint` executable/flag/target commands, rejects unsafe shell grammar and
+  production/provider/credential reachability, and uses independent outer and inner edges so its
+  own omission fails closed. Its mutation table covers duplicate existing permissions and both
+  composition cycle shapes. The owner-approved reviewer-GO topology expectation deltas cover eight
+  existing topology assertions. Direct `v0:test` passes 505/505 and owner `v0:gate` passes 507/507;
+  check, format, lint, and diff checks are green. Initial implementation review found P1 1/P2 3;
+  the single approved finding-closure pass added strict maintenance snapshots, restored exact-once
+  assertions, and direct permission/cycle/chain mutations. Narrow re-review closed all findings and
+  is `GO` with Blocker/P1/P2 zero. The coordinating owner independently reran central topology 2/2
+  and full `v0:gate` 507/507; final owner disposition is Blocker/P1/P2 zero. No product source,
+  provider/network credential, production command, dependency/lockfile, `_refs/`, push, tag,
+  publish, or release operation occurred. The reviewed increment was committed after the final gate.
 
 ## Development lifecycle
 
