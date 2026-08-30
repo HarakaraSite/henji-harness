@@ -345,6 +345,22 @@
   Step 77 manifest, serialization, versioning, and digest remain out of scope. No provider,
   network, credential, production command, dependency/lockfile, persistent state, `_refs/` change,
   commit, push, tag, publish, or release occurred.
+- Roadmap step 77 is implemented in the active tree under `docs/plans/agent-definition-resolved-manifest.md`,
+  SHA-256 `9321cbb783844261647c6479757a1a17196eef67ae2771a0ba2bb58151456d3c`. It adds the internal
+  immutable schema-v1 manifest with exact compact UTF-8/domain-separated SHA-256 known answers and
+  single-sourced Step 76 topology validation. Parent and admitted lazy planner validation precede
+  materialization; persistent TUI preparation precedes store list/open/allocate/lock/write, and record
+  validation precedes materialization. Focused manifest/definition/runtime/planner/session/store/
+  persistent-TUI/TUI-direct/topology suites pass 9/12/46/16/15/15/8/68/2; direct `v0:test` and
+  owner `v0:gate` each pass 537/537, with check/fmt/lint/diff check green. Initial implementation
+  review found Blocker 0/P1 1/P2 2; one approved closure pass added exact topology, snapshot and
+  Definition invariance/shape evidence, runtime causal/failure/nonleakage coverage, and persistent
+  artifact/invalid-resume regressions. The sole narrow changed-lines re-review closed all findings and
+  returned `GO`, Blocker/P1/P2 zero. The owner independently reran manifest 9/9 and authoritative full
+  `v0:gate` 537/537 with diff check green; final owner disposition is Blocker/P1/P2 zero. The reviewed
+  increment is recorded by the user-authorized final integration commit. No provider/network/credential/
+  production command, dependency/lockfile, actual persistent product state, `_refs/` operation, push,
+  tag, publish, or release occurred.
 
 ## Development lifecycle
 

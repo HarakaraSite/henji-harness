@@ -5,6 +5,7 @@ import {
   MAX_STEPS,
   runRuntime,
   type RuntimeRun,
+  type RuntimeTestSeam,
 } from '../../v0/agent/runtime.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
 import { main, MAX_TASK_BYTES } from '../../v0/agent/runtime_cli.ts';
@@ -27,7 +28,12 @@ import {
   type InstructionFileSystem,
 } from '../../v0/agent/agent_instructions.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
+import { type Message } from '../../v0/agent/contracts.ts';
 import { createAgentResourceSelection } from '../../v0/agent/resource_identity.ts';
+import {
+  AgentResolvedManifestError,
+  createAgentResolvedManifest,
+} from '../../v0/agent/resolved_manifest.ts';
 
 const DUMMY_CREDENTIAL = 'offline-dummy-credential';
 const encoder = new TextEncoder();
@@ -169,11 +175,37 @@ const withMaxSteps = (
   maxSteps: number,
 ): ReturnType<typeof defaultAgentDefinition> => ({
   ...definition,
-  resourceSelection: createAgentResourceSelection(definition.resourceSelection.resources, maxSteps),
+  resourceSelection: createAgentResourceSelection(
+    definition.resourceSelection.resources,
+    maxSteps,
+  ),
 });
 const requestBody = (call: FetchCall): Record<string, unknown> => {
   assert(typeof call.init?.body === 'string');
   return JSON.parse(call.init.body) as Record<string, unknown>;
+};
+
+const rehashedManifest = async (
+  definitionId: 'default' | 'planner',
+  resources: readonly string[],
+  maxSteps = 8,
+): Promise<Record<string, unknown>> => {
+  const payload = {
+    schemaVersion: 1,
+    definitionId,
+    resources: [...resources],
+    parameters: { maxSteps },
+  };
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode(`henji-agent-resolved-manifest:v1\n${JSON.stringify(payload)}`),
+  );
+  const identity = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return {
+    ...payload,
+    identity: `henji-agent-resolved-manifest:v1:sha256:${identity}`,
+  };
 };
 const streamFor = (bytes: Uint8Array): ReadableStream<Uint8Array> =>
   new ReadableStream({
@@ -347,6 +379,7 @@ Deno.test('runtime child read then final reports exact lanes and one-time discov
     let credentialCalls = 0;
     const materializedModels: string[] = [];
     const materializedRegistries: string[] = [];
+    const manifests: string[] = [];
     const result = await runRuntime('parent task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
@@ -363,6 +396,7 @@ Deno.test('runtime child read then final reports exact lanes and one-time discov
       skillFileSystem: countingSkillFileSystem(counts),
       onModelMaterialized: (definition) => materializedModels.push(definition.registry.kind),
       onRegistryMaterialized: (definition) => materializedRegistries.push(definition.registry.kind),
+      onResolvedManifestValidated: (role) => manifests.push(role),
     });
     assert(result.outcome.ok);
     assertEquals(result.outcome.finalText, 'parent final');
@@ -372,6 +406,7 @@ Deno.test('runtime child read then final reports exact lanes and one-time discov
     assertEquals(credentialCalls, 4);
     assertEquals(materializedModels, ['production', 'planner']);
     assertEquals(materializedRegistries, ['production', 'planner']);
+    assertEquals(manifests, ['parent', 'planner']);
     assertEquals(counts, {
       instructionLstat: 1,
       instructionOpen: 1,
@@ -554,6 +589,7 @@ Deno.test('runtime no-delegation path evaluates one Definition and makes no chil
     const materializedModels: string[] = [];
     const materializedRegistries: string[] = [];
     const calls: FetchCall[] = [];
+    const manifests: string[] = [];
     const selection = selectionFor((input) => {
       evaluations += 1;
       return defaultAgentDefinition(input);
@@ -567,6 +603,7 @@ Deno.test('runtime no-delegation path evaluates one Definition and makes no chil
       },
       onModelMaterialized: (definition) => materializedModels.push(definition.registry.kind),
       onRegistryMaterialized: (definition) => materializedRegistries.push(definition.registry.kind),
+      onResolvedManifestValidated: (role) => manifests.push(role),
     }, selection);
     assert(result.outcome.ok);
     assertEquals(evaluations, 1);
@@ -575,6 +612,7 @@ Deno.test('runtime no-delegation path evaluates one Definition and makes no chil
     assertEquals(credentialCalls, 1);
     assertEquals(materializedModels, ['production']);
     assertEquals(materializedRegistries, ['production']);
+    assertEquals(manifests, ['parent']);
   });
 });
 
@@ -600,6 +638,25 @@ Deno.test('planner runtime exposes only read and JSON submission without skills'
     assert((system.content as string).endsWith(
       'You are the built-in planner agent. Inspect the available workspace context needed for the task and produce a clear implementation plan. Do not mutate the workspace.',
     ));
+  });
+});
+
+Deno.test('top-level planner validates one manifest and never creates a lazy planner manifest', async () => {
+  await withWorkspace(async (root) => {
+    const manifests: string[] = [];
+    const materialized: string[] = [];
+    const result = await runRuntime('planner task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([response(finalPayload('plan'))]),
+      credential: DUMMY_CREDENTIAL,
+      onResolvedManifestValidated: (role) => manifests.push(role),
+      onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
+      onRegistryMaterialized: (definition) =>
+        materialized.push(`registry:${definition.registry.kind}`),
+    }, resolveBuiltinAgent('planner'));
+    assert(result.outcome.ok);
+    assertEquals(manifests, ['planner']);
+    assertEquals(materialized, ['model:planner', 'registry:planner']);
   });
 });
 
@@ -690,7 +747,10 @@ Deno.test('runtime validates parent resources before model, registry, credential
   await withWorkspace(async (root) => {
     const base = defaultAgentDefinition({
       workspace: { root },
-      skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+      skillCatalog: Object.freeze({
+        skills: Object.freeze([]),
+        manifest: undefined,
+      }),
     });
     const names = base.resourceSelection.resources.map((resource) => `${resource}`);
     names[0] = 'model:openrouter:injected-invalid-for-default';
@@ -743,6 +803,7 @@ Deno.test('runtime observes parent and admitted planner validation before each m
         roles.push(role);
         order.push(`validated:${role}`);
       },
+      onResolvedManifestValidated: (role) => order.push(`manifest:${role}`),
       onModelMaterialized: (definition) => order.push(`model:${definition.registry.kind}`),
       onRegistryMaterialized: (definition) => order.push(`registry:${definition.registry.kind}`),
     });
@@ -750,9 +811,11 @@ Deno.test('runtime observes parent and admitted planner validation before each m
     assertEquals(roles, ['parent', 'planner']);
     assertEquals(order, [
       'validated:parent',
+      'manifest:parent',
       'model:production',
       'registry:production',
       'validated:planner',
+      'manifest:planner',
       'model:planner',
       'registry:planner',
     ]);
@@ -807,6 +870,379 @@ Deno.test('invalid injected planner Definition fails before child effects and pr
   });
 });
 
+Deno.test('parent manifest factory failures have no materialization or provider effects', async () => {
+  const plannerBase = plannerAgentDefinition({
+    workspace: { root: '/manifest-cross-boundary' },
+    skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+  });
+  const cases: readonly {
+    readonly name: string;
+    readonly factory: NonNullable<RuntimeTestSeam['resolvedManifestFactory']>;
+    readonly sanitized: boolean;
+  }[] = [
+    {
+      name: 'synchronous throw',
+      factory: () => {
+        throw new Error('manifest factory marker');
+      },
+      sanitized: false,
+    },
+    {
+      name: 'rejected promise',
+      factory: () => Promise.reject(new Error('manifest rejection marker')),
+      sanitized: false,
+    },
+    { name: 'malformed shape', factory: () => ({}), sanitized: true },
+    {
+      name: 'wrong digest',
+      factory: async (_role, id, selection) => {
+        const valid = await createAgentResolvedManifest(id, selection);
+        return {
+          ...valid,
+          identity:
+            'henji-agent-resolved-manifest:v1:sha256:0000000000000000000000000000000000000000000000000000000000000000',
+        };
+      },
+      sanitized: true,
+    },
+    {
+      name: 'correctly rehashed cross-bound topology',
+      factory: async () => {
+        const valid = await createAgentResolvedManifest('planner', plannerBase.resourceSelection);
+        return await rehashedManifest(
+          'default',
+          valid.resources.map((resource) => `${resource}`),
+          valid.parameters.maxSteps,
+        );
+      },
+      sanitized: true,
+    },
+  ];
+  for (const testCase of cases) {
+    await withWorkspace(async (root) => {
+      let modelMaterializations = 0;
+      let registryMaterializations = 0;
+      let credentialReads = 0;
+      let fetches = 0;
+      let failure: unknown;
+      try {
+        await createRuntimeComposition({
+          workspaceRoot: root,
+          resolvedManifestFactory: testCase.factory,
+          credentialSource: () => {
+            credentialReads += 1;
+            return DUMMY_CREDENTIAL;
+          },
+          fetcher: () => {
+            fetches += 1;
+            return Promise.reject(new Error('must not fetch'));
+          },
+          onModelMaterialized: () => modelMaterializations += 1,
+          onRegistryMaterialized: () => registryMaterializations += 1,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert(failure instanceof Error, testCase.name);
+      if (testCase.sanitized) {
+        assert(failure instanceof AgentResolvedManifestError, testCase.name);
+        assertEquals(failure.message, 'invalid agent resolved manifest', testCase.name);
+      }
+      assertEquals(modelMaterializations, 0, testCase.name);
+      assertEquals(registryMaterializations, 0, testCase.name);
+      assertEquals(credentialReads, 0, testCase.name);
+      assertEquals(fetches, 0, testCase.name);
+    });
+  }
+});
+
+Deno.test('lazy planner manifest factory failures preserve sanitized continuation and request ownership', async () => {
+  const cases: readonly {
+    readonly name: string;
+    readonly factory: NonNullable<RuntimeTestSeam['resolvedManifestFactory']>;
+  }[] = [
+    {
+      name: 'synchronous throw',
+      factory: (role) => {
+        if (role === 'planner') throw new Error('lazy manifest factory marker');
+        return undefined;
+      },
+    },
+    {
+      name: 'rejected promise',
+      factory: (role) =>
+        role === 'planner'
+          ? Promise.reject(new Error('lazy manifest rejection marker'))
+          : undefined,
+    },
+    { name: 'malformed shape', factory: (role) => role === 'planner' ? {} : undefined },
+    {
+      name: 'wrong digest',
+      factory: async (role, id, selection) => {
+        if (role !== 'planner') return undefined;
+        const valid = await createAgentResolvedManifest(id, selection);
+        return {
+          ...valid,
+          identity:
+            'henji-agent-resolved-manifest:v1:sha256:0000000000000000000000000000000000000000000000000000000000000000',
+        };
+      },
+    },
+    {
+      name: 'correctly rehashed cross-bound topology',
+      factory: async (role, _id, selection) =>
+        role === 'planner'
+          ? await rehashedManifest(
+            'default',
+            selection.resources.map((resource) => `${resource}`),
+            selection.parameters.maxSteps,
+          )
+          : undefined,
+    },
+  ];
+  for (const testCase of cases) {
+    await withWorkspace(async (root) => {
+      const manifests: string[] = [];
+      const materialized: string[] = [];
+      let credentialReads = 0;
+      const result = await runRuntime('parent task', {
+        workspaceRoot: root,
+        fetcher: fetchSequence([
+          response(delegationPayload('delegate', 'child task')),
+          response(finalPayload('parent continued')),
+        ]),
+        credentialSource: () => {
+          credentialReads += 1;
+          return DUMMY_CREDENTIAL;
+        },
+        resolvedManifestFactory: async (role, id, selection) => {
+          manifests.push(role);
+          if (role === 'parent') return await createAgentResolvedManifest(id, selection);
+          return await testCase.factory(role, id, selection);
+        },
+        onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
+        onRegistryMaterialized: (definition) =>
+          materialized.push(`registry:${definition.registry.kind}`),
+      });
+      assert(result.outcome.ok, testCase.name);
+      assertEquals(result.outcome.finalText, 'parent continued', testCase.name);
+      assertEquals(result.requestCount, 2, testCase.name);
+      assertEquals(manifests, ['parent', 'planner'], testCase.name);
+      assertEquals(materialized, ['model:production', 'registry:production'], testCase.name);
+      assertEquals(credentialReads, 2, testCase.name);
+      const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
+      assert(toolMessage?.role === 'tool', testCase.name);
+      assertEquals(JSON.parse(toolMessage.content[0].text), {
+        ok: false,
+        agent: 'planner',
+        error: { code: 'planner_failed', message: 'planner delegation failed' },
+        usage: { modelRequests: 0, externalRequests: 0 },
+      }, testCase.name);
+    });
+  }
+});
+
+Deno.test('manifest validation precedes every admitted planner materialization', async () => {
+  await withWorkspace(async (root) => {
+    const order: string[] = [];
+    const result = await runRuntime('parent task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([
+        response(delegationPayload('delegate', 'child task')),
+        response(finalPayload('child plan')),
+        response(finalPayload('parent final')),
+      ]),
+      credential: DUMMY_CREDENTIAL,
+      onResolvedManifestValidated: (role) => order.push(`manifest:${role}`),
+      onModelMaterialized: (definition) => order.push(`model:${definition.registry.kind}`),
+      onRegistryMaterialized: (definition) => order.push(`registry:${definition.registry.kind}`),
+    });
+    assert(result.outcome.ok);
+    assertEquals(order, [
+      'manifest:parent',
+      'model:production',
+      'registry:production',
+      'manifest:planner',
+      'model:planner',
+      'registry:planner',
+    ]);
+  });
+});
+
+Deno.test('manifest factory failures retain parent continuation with sanitized child results', async () => {
+  const cases: readonly {
+    readonly name: string;
+    readonly factory: NonNullable<RuntimeTestSeam['resolvedManifestFactory']>;
+  }[] = [
+    {
+      name: 'synchronous throw',
+      factory: (role) => {
+        if (role === 'planner') throw new Error('child factory marker');
+        return undefined;
+      },
+    },
+    {
+      name: 'rejected promise',
+      factory: (role) =>
+        role === 'planner' ? Promise.reject(new Error('child rejection marker')) : undefined,
+    },
+    { name: 'malformed shape', factory: (role) => role === 'planner' ? {} : undefined },
+    {
+      name: 'wrong digest',
+      factory: async (role, id, selection) => {
+        if (role !== 'planner') return undefined;
+        const valid = await createAgentResolvedManifest(id, selection);
+        return {
+          ...valid,
+          identity:
+            'henji-agent-resolved-manifest:v1:sha256:0000000000000000000000000000000000000000000000000000000000000000',
+        };
+      },
+    },
+    {
+      name: 'rehashed cross-bound topology',
+      factory: async (role, _id, selection) =>
+        role === 'planner'
+          ? await rehashedManifest(
+            'default',
+            selection.resources.map((resource) => `${resource}`),
+            selection.parameters.maxSteps,
+          )
+          : undefined,
+    },
+  ];
+  for (const testCase of cases) {
+    await withWorkspace(async (root) => {
+      const materialized: string[] = [];
+      const manifests: string[] = [];
+      let credentialReads = 0;
+      const result = await runRuntime('parent task', {
+        workspaceRoot: root,
+        fetcher: fetchSequence([
+          response(delegationPayload('delegate', 'child task')),
+          response(finalPayload('parent continued')),
+        ]),
+        credentialSource: () => {
+          credentialReads += 1;
+          return DUMMY_CREDENTIAL;
+        },
+        resolvedManifestFactory: async (role, id, selection) => {
+          manifests.push(role);
+          if (role === 'parent') return await createAgentResolvedManifest(id, selection);
+          return await testCase.factory(role, id, selection);
+        },
+        onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
+        onRegistryMaterialized: (definition) =>
+          materialized.push(`registry:${definition.registry.kind}`),
+      });
+      assert(result.outcome.ok, testCase.name);
+      assertEquals(result.outcome.finalText, 'parent continued', testCase.name);
+      assertEquals(result.requestCount, 2, testCase.name);
+      assertEquals(manifests, ['parent', 'planner'], testCase.name);
+      assertEquals(materialized, ['model:production', 'registry:production'], testCase.name);
+      assertEquals(credentialReads, 2, testCase.name);
+      const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
+      assert(toolMessage?.role === 'tool', testCase.name);
+      assertEquals(JSON.parse(toolMessage.content[0].text), {
+        ok: false,
+        agent: 'planner',
+        error: { code: 'planner_failed', message: 'planner delegation failed' },
+        usage: { modelRequests: 0, externalRequests: 0 },
+      }, testCase.name);
+    });
+  }
+});
+
+Deno.test('resolved manifest domain and identity never leak across runtime public surfaces', async () => {
+  await withWorkspace(async (root) => {
+    const domain = 'henji-agent-resolved-manifest:v1';
+    const identities = new Set<string>();
+    const seam: RuntimeTestSeam = {
+      workspaceRoot: root,
+      credential: DUMMY_CREDENTIAL,
+      onResolvedManifestValidated: (_role, manifest) => identities.add(manifest.identity),
+    };
+    const composition = await createRuntimeComposition(seam);
+    assertEquals(Object.keys(composition), [
+      'model',
+      'registry',
+      'systemInstruction',
+      'resourceSelection',
+      'requestCount',
+      'createTurnExecutionContext',
+    ]);
+    const calls: FetchCall[] = [];
+    const runResult = await runRuntime('surface task', {
+      ...seam,
+      fetcher: fetchSequence([response(finalPayload('surface answer'))], calls),
+    });
+    assert(runResult.outcome.ok);
+    const delegatedCalls: FetchCall[] = [];
+    const delegated = await runRuntime('delegated surface task', {
+      ...seam,
+      fetcher: fetchSequence([
+        response(delegationPayload('surface-delegate', 'surface child')),
+        response(finalPayload('surface plan')),
+        response(finalPayload('surface parent')),
+      ], delegatedCalls),
+    });
+    assert(delegated.outcome.ok);
+
+    let persisted: Record<string, unknown> | undefined;
+    const persistence = {
+      get record(): undefined {
+        return undefined;
+      },
+      commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void {
+        persisted = { nextTurn, updatedAt, transcript: structuredClone(transcript) };
+      },
+      rollback(): void {},
+      close(): Promise<void> {
+        return Promise.resolve();
+      },
+    };
+    const events: AgentEvent[] = [];
+    const session = await createRuntimeSession(
+      (event) => events.push(event),
+      {
+        ...seam,
+        fetcher: fetchSequence([response(finalPayload('session answer'))]),
+      },
+      undefined,
+      { persistence },
+    );
+    const sessionResult = await session.session.submit('session surface task');
+    assert(sessionResult.ok);
+    assert(persisted !== undefined);
+    assertEquals(Object.keys(runResult), ['outcome', 'requestCount']);
+    assertEquals(Object.keys(session), ['session', 'requestCount']);
+    assert(!Object.keys(session.session).some((key) => key.includes('manifest')));
+    const cli = await runWithOutput(['--task', 'cli surface task'], {
+      terminal: true,
+      run: () => Promise.resolve(runResult),
+    });
+    const values = [
+      JSON.stringify(composition),
+      JSON.stringify(runResult),
+      JSON.stringify(delegated),
+      JSON.stringify(session.session.transcriptSnapshot()),
+      JSON.stringify(events),
+      JSON.stringify(persisted),
+      cli.stdout,
+      cli.stderr,
+      ...calls.map((call) => JSON.stringify(requestBody(call))),
+      ...delegatedCalls.map((call) => JSON.stringify(requestBody(call))),
+    ];
+    assert(identities.size >= 2);
+    for (const identity of identities) {
+      for (const value of values) {
+        assert(!value.includes(identity));
+      }
+    }
+    for (const value of values) assert(!value.includes(domain));
+  });
+});
+
 Deno.test('runtime materializes injected profile and registry declarations', async () => {
   await withWorkspace(async (root) => {
     const customSkillCatalog: SkillCatalog = Object.freeze({
@@ -822,9 +1258,15 @@ Deno.test('runtime materializes injected profile and registry declarations', asy
     let evaluations = 0;
     const definition: AgentDefinition = (input) => {
       evaluations += 1;
-      const resolved = defaultAgentDefinition({ ...input, skillCatalog: customSkillCatalog });
-      const resourceNames = resolved.resourceSelection.resources.map((resource) =>
-        `${resource}` === 'model:openrouter:openrouter-google-gemini-3.7-flash-vertex-v0'
+      const resolved = defaultAgentDefinition({
+        ...input,
+        skillCatalog: customSkillCatalog,
+      });
+      const resourceNames = resolved.resourceSelection.resources.map((
+        resource,
+      ) =>
+        `${resource}` ===
+            'model:openrouter:openrouter-google-gemini-3.7-flash-vertex-v0'
           ? `model:openrouter:${ALTERNATE_PROFILE.id}`
           : `${resource}`
       );
@@ -1636,4 +2078,70 @@ Deno.test('CLI maps later runtime failures to one generic sanitized line', async
     error: { code: 'agent_failure', message: 'agent run failed' },
   });
   assert(!result.stderr.includes('provider-sensitive-marker'));
+});
+
+Deno.test('parent manifest failure precedes model, registry, credential, and fetch effects', async () => {
+  await withWorkspace(async (root) => {
+    let manifestCalls = 0;
+    let modelMaterializations = 0;
+    let registryMaterializations = 0;
+    let credentialReads = 0;
+    let fetches = 0;
+    await assertRejects(() =>
+      createRuntimeComposition({
+        workspaceRoot: root,
+        resolvedManifestFactory: () => {
+          manifestCalls += 1;
+          return {};
+        },
+        credentialSource: () => {
+          credentialReads += 1;
+          return DUMMY_CREDENTIAL;
+        },
+        fetcher: () => {
+          fetches += 1;
+          return Promise.reject(new Error('must not fetch'));
+        },
+        onModelMaterialized: () => modelMaterializations += 1,
+        onRegistryMaterialized: () => registryMaterializations += 1,
+      })
+    );
+    assertEquals(manifestCalls, 1);
+    assertEquals(modelMaterializations, 0);
+    assertEquals(registryMaterializations, 0);
+    assertEquals(credentialReads, 0);
+    assertEquals(fetches, 0);
+  });
+});
+
+Deno.test('planner manifest failure preserves parent continuation and child pre-effect zero', async () => {
+  await withWorkspace(async (root) => {
+    const roles: string[] = [];
+    const materialized: string[] = [];
+    let credentialReads = 0;
+    const result = await runRuntime('parent task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([
+        response(delegationPayload('delegate', 'child task')),
+        response(finalPayload('parent continued')),
+      ]),
+      credentialSource: () => {
+        credentialReads += 1;
+        return DUMMY_CREDENTIAL;
+      },
+      resolvedManifestFactory: async (role, id, selection) => {
+        roles.push(role);
+        return role === 'planner' ? {} : await createAgentResolvedManifest(id, selection);
+      },
+      onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
+      onRegistryMaterialized: (definition) =>
+        materialized.push(`registry:${definition.registry.kind}`),
+    });
+    assert(result.outcome.ok);
+    assertEquals(result.outcome.finalText, 'parent continued');
+    assertEquals(roles, ['parent', 'planner']);
+    assertEquals(materialized, ['model:production', 'registry:production']);
+    assertEquals(credentialReads, 2);
+    assertEquals(result.requestCount, 2);
+  });
 });

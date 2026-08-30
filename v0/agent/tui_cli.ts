@@ -1,11 +1,15 @@
-import { createRuntimeSession, type RuntimeTestSeam } from './runtime.ts';
+import {
+  createRuntimeSession,
+  createRuntimeSessionFromPrepared,
+  prepareRuntimeComposition,
+  type RuntimeTestSeam,
+} from './runtime.ts';
 import { type BuiltinAgentSelection, resolveBuiltinAgent } from './agent_catalog.ts';
 import { AgentSession } from './session.ts';
 import { type AgentEventSink } from './events.ts';
 import { TuiController, TuiControllerError } from '../tui/controller.ts';
 import { TuiRenderer } from '../tui/render.ts';
 import { DenoTerminal, TerminalLifecycle, type TerminalPort } from '../tui/terminal.ts';
-import { resolveWorkspace } from './work_tools.ts';
 import {
   createSessionPersistence,
   DenoSessionStore,
@@ -22,11 +26,19 @@ const encoder = new TextEncoder();
 export interface TuiSessionFactoryResult {
   readonly session:
     & Pick<AgentSession, 'submit'>
-    & Partial<Pick<AgentSession, 'cancelActiveTurn' | 'contextSnapshot' | 'steerActiveTurn'>>;
+    & Partial<
+      Pick<
+        AgentSession,
+        'cancelActiveTurn' | 'contextSnapshot' | 'steerActiveTurn'
+      >
+    >;
   readonly requestCount?: () => number;
   readonly close?: () => void | Promise<void>;
   readonly sessionLine?: string;
-  readonly restored?: { readonly messages: readonly Message[]; readonly omitted: number };
+  readonly restored?: {
+    readonly messages: readonly Message[];
+    readonly omitted: number;
+  };
 }
 
 export interface TuiCliDependencies {
@@ -64,7 +76,9 @@ export interface ParsedTuiInvocation {
 }
 
 /** Parse both flag orders before terminal, workspace, state, provider, or credential setup. */
-export const parseTuiInvocation = (args: readonly string[]): ParsedTuiInvocation => {
+export const parseTuiInvocation = (
+  args: readonly string[],
+): ParsedTuiInvocation => {
   if (args.length > 4) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
   let persistence: ParsedTuiInvocation['persistence'] = 'new';
@@ -73,7 +87,9 @@ export const parseTuiInvocation = (args: readonly string[]): ParsedTuiInvocation
     const flag = args[index];
     if (flag === '--agent') {
       const value = args[index + 1];
-      if (rawAgentName !== undefined || value === undefined || value.length === 0) {
+      if (
+        rawAgentName !== undefined || value === undefined || value.length === 0
+      ) {
         throw new Error('invalid invocation');
       }
       rawAgentName = value;
@@ -99,11 +115,16 @@ export const parseTuiInvocation = (args: readonly string[]): ParsedTuiInvocation
       throw new Error('invalid invocation');
     }
   }
-  return { rawAgentName, persistence, ...(sessionId === undefined ? {} : { sessionId }) };
+  return {
+    rawAgentName,
+    persistence,
+    ...(sessionId === undefined ? {} : { sessionId }),
+  };
 };
 
 const failureLine = (code: keyof typeof fatalMessages): string =>
-  JSON.stringify({ ok: false, error: { code, message: fatalMessages[code] } }) + '\n';
+  JSON.stringify({ ok: false, error: { code, message: fatalMessages[code] } }) +
+  '\n';
 
 type CrashGuard = {
   readonly close: () => void;
@@ -171,14 +192,23 @@ export const main = async (
     if (sessionFactory === undefined) {
       sessionFactory = async (eventSink, selected) => {
         if (invocation.persistence === 'none') {
-          const result = await createRuntimeSession(eventSink, dependencies.runtimeSeam, selected);
+          const result = await createRuntimeSession(
+            eventSink,
+            dependencies.runtimeSeam,
+            selected,
+          );
           return {
             session: result.session,
             requestCount: result.requestCount,
             sessionLine: 'session> ephemeral',
           };
         }
-        const workspace = await resolveWorkspace(dependencies.runtimeSeam?.workspaceRoot);
+        // Parent Definition/manifest preparation must complete before any store operation.
+        const prepared = await prepareRuntimeComposition(
+          dependencies.runtimeSeam,
+          selected,
+        );
+        const workspace = prepared.workspace;
         const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
         const store = new DenoSessionStore(stateRoot, workspace.root);
         let record: SessionRecord | undefined;
@@ -186,7 +216,9 @@ export const main = async (
         if (invocation.persistence === 'continue') {
           const listed = await store.list();
           const first = listed.sessions.find((candidate) => candidate.agent === selected.id);
-          if (first === undefined) throw new SessionStoreError('session_not_found');
+          if (first === undefined) {
+            throw new SessionStoreError('session_not_found');
+          }
           handle = await store.openExisting(first.id);
           record = handle.record;
         } else if (invocation.persistence === 'session') {
@@ -197,17 +229,22 @@ export const main = async (
         }
         if (
           record !== undefined &&
-          (record.workspaceRoot !== workspace.root || record.agent !== selected.id)
+          (record.workspaceRoot !== workspace.root ||
+            record.agent !== selected.id)
         ) {
           await handle.close();
           throw new SessionStoreError('session_invalid');
         }
-        const persistence = createSessionPersistence(handle, workspace.root, selected.id, record);
+        const persistence = createSessionPersistence(
+          handle,
+          workspace.root,
+          selected.id,
+          record,
+        );
         try {
-          const result = await createRuntimeSession(
+          const result = createRuntimeSessionFromPrepared(
             eventSink,
-            dependencies.runtimeSeam,
-            selected,
+            prepared,
             { persistence, initialRecord: record },
           );
           return {
@@ -217,7 +254,12 @@ export const main = async (
             sessionLine: `session> ${handle.id} ${record === undefined ? '(new)' : '(resumed)'}`,
             ...(record === undefined ? {} : (() => {
               const replay = restoredMessages(record.transcript);
-              return { restored: { messages: replay.messages, omitted: replay.omitted } };
+              return {
+                restored: {
+                  messages: replay.messages,
+                  omitted: replay.omitted,
+                },
+              };
             })()),
           };
         } catch (error) {
@@ -238,9 +280,14 @@ export const main = async (
     });
     acquisitionStarted = true;
     await lifecycle.acquire();
-    if (created.sessionLine !== undefined) renderer.writeStatic(`${created.sessionLine}\n`);
+    if (created.sessionLine !== undefined) {
+      renderer.writeStatic(`${created.sessionLine}\n`);
+    }
     if (created.restored !== undefined) {
-      renderer.renderRestored(created.restored.messages, created.restored.omitted);
+      renderer.renderRestored(
+        created.restored.messages,
+        created.restored.omitted,
+      );
     }
     await dependencies.afterAcquire?.();
     const exitCode = await controller.run();

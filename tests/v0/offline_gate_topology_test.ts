@@ -14,6 +14,7 @@ const CHECK_TARGETS = [
   'v0/agent/planner_delegation.ts',
   'v0/agent/agent_definition.ts',
   'v0/agent/resource_identity.ts',
+  'v0/agent/resolved_manifest.ts',
   'v0/agent/agent_catalog.ts',
   'v0/agent/agent_instructions.ts',
   'v0/agent/events.ts',
@@ -56,6 +57,7 @@ const CHECK_TARGETS = [
   'tests/v0/agent_tool_progress_test.ts',
   'tests/v0/agent_runtime_test.ts',
   'tests/v0/agent_definition_test.ts',
+  'tests/v0/agent_resolved_manifest_test.ts',
   'tests/v0/planner_delegation_test.ts',
   'tests/v0/agent_catalog_test.ts',
   'tests/v0/agent_work_tools_test.ts',
@@ -115,6 +117,7 @@ const EXPECTED_LEAVES = [
   'v0:offline-gate:topology:test',
   'v0:legacy:test',
   'agent:test',
+  'agent:resolved-manifest:test',
   'agent:definition:test',
   'agent:definition-selection:test',
   'agent:planner-delegation:test',
@@ -168,6 +171,7 @@ assignTarget('offline_gate_topology_test.ts', TOPOLOGY_TASK);
 assignTarget('v0_test.ts', 'v0:legacy:test');
 assignTarget('agent_loop_test.ts', 'agent:test');
 assignTarget('agent_definition_test.ts', 'agent:definition:test');
+assignTarget('agent_resolved_manifest_test.ts', 'agent:resolved-manifest:test');
 assignTarget('agent_catalog_test.ts', 'agent:definition-selection:test');
 assignTarget('planner_delegation_test.ts', 'agent:planner-delegation:test');
 assignTarget('agent_instructions_test.ts', 'agent:instructions:test');
@@ -251,6 +255,7 @@ assignPermission(
   'agent:corpus:eval:live:credential-launcher:test',
   'agent:definition-selection:test',
   'agent:definition:test',
+  'agent:resolved-manifest:test',
   'agent:instructions:test',
   'agent:planner-delegation:test',
   'agent:selection:test',
@@ -479,7 +484,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 45, 'expected 45 directly-owned tests');
+  assertEquals(owned.size, 46, 'expected 46 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {

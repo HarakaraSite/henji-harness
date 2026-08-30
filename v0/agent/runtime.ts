@@ -8,15 +8,19 @@ import { type Model } from './contracts.ts';
 import { Registry } from './tools.ts';
 import { OpenRouterAgentModel, type OpenRouterResponseMode } from './openrouter_model.ts';
 import { createPlannerRegistry, createProductionRegistry } from './registries.ts';
-import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
-import { discoverSkills, type SkillFileSystem } from './skills.ts';
+import { resolveWorkspace, type Workspace, type WorkToolSeams } from './work_tools.ts';
+import { discoverSkills, type SkillCatalog, type SkillFileSystem } from './skills.ts';
 import {
   type AgentDefinition,
   DEFAULT_AGENT_MAX_STEPS,
   plannerAgentDefinition,
   type ResolvedAgentDefinition,
 } from './agent_definition.ts';
-import { type BuiltinAgentSelection, DEFAULT_AGENT_SELECTION } from './agent_catalog.ts';
+import {
+  type BuiltinAgentId,
+  type BuiltinAgentSelection,
+  DEFAULT_AGENT_SELECTION,
+} from './agent_catalog.ts';
 import {
   type AgentResourceSelection,
   validateResolvedAgentResources,
@@ -33,6 +37,11 @@ import {
   TurnCancelledError,
 } from './cancellation.ts';
 import { type TurnCancellation } from './cancellation.ts';
+import {
+  type AgentResolvedManifestV1,
+  createAgentResolvedManifest,
+  validateAgentResolvedManifest,
+} from './resolved_manifest.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
@@ -70,6 +79,22 @@ export interface RuntimeTestSeam {
   readonly onResourceSelectionValidated?: (
     role: 'parent' | 'planner',
     selection: AgentResourceSelection,
+  ) => void;
+  /** Direct-test-only manifest construction override; production always uses the built-in codec. */
+  readonly resolvedManifestFactory?: (
+    role: 'parent' | 'planner',
+    definitionId: BuiltinAgentId,
+    selection: AgentResourceSelection,
+  ) =>
+    | AgentResolvedManifestV1
+    | unknown
+    | Promise<AgentResolvedManifestV1 | unknown>;
+  /** Alias retained for direct test readability; production leaves both seams unset. */
+  readonly manifestFactory?: RuntimeTestSeam['resolvedManifestFactory'];
+  /** Direct-test-only observer after manifest validation and before materialization. */
+  readonly onResolvedManifestValidated?: (
+    role: 'parent' | 'planner',
+    manifest: AgentResolvedManifestV1,
   ) => void;
 }
 
@@ -159,22 +184,43 @@ const childFailure = (task: string): LoopOutcome => ({
   transcript: [],
 });
 
-/**
- * Resolve the normal runtime once.  Keeping this operation separate from execution makes the
- * multi-turn TUI use exactly the same workspace, instruction, skills, registry, and lazy model
- * wiring as agent:run.
- */
-export const createRuntimeComposition = async (
+/** Internal prepare-phase state; no manifest is retained after the test observer runs. */
+export interface PreparedRuntimeComposition {
+  readonly workspace: Workspace;
+  readonly agentInstructions?: string;
+  readonly skillCatalog: SkillCatalog;
+  readonly definition: ResolvedAgentDefinition;
+  readonly resourceSelection: AgentResourceSelection;
+  readonly selectionId: BuiltinAgentId;
+  readonly seam: RuntimeTestSeam;
+  readonly fetcher: typeof fetch;
+  readonly requestCount: () => number;
+}
+
+const prepareResolvedManifest = async (
+  role: 'parent' | 'planner',
+  definitionId: BuiltinAgentId,
+  selection: AgentResourceSelection,
+  seam: RuntimeTestSeam,
+): Promise<AgentResolvedManifestV1> => {
+  const factory = seam.resolvedManifestFactory ?? seam.manifestFactory;
+  const candidate = factory === undefined
+    ? await createAgentResolvedManifest(definitionId, selection)
+    : await factory(role, definitionId, selection);
+  return await validateAgentResolvedManifest(candidate);
+};
+
+/** Resolve startup inputs and validate the selected Definition before materialization. */
+export const prepareRuntimeComposition = async (
   seam: RuntimeTestSeam = {},
   selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
-): Promise<RuntimeComposition> => {
+): Promise<PreparedRuntimeComposition> => {
   let requestCount = 0;
   const delegate = seam.fetcher ?? fetch;
   const fetcher: typeof fetch = (input, init) => {
     requestCount += 1;
     return delegate(input, init);
   };
-
   const workspace = await resolveWorkspace(seam.workspaceRoot);
   const agentInstructions = await discoverAgentInstructions(
     workspace.root,
@@ -189,23 +235,62 @@ export const createRuntimeComposition = async (
     agentInstructions,
     skillCatalog,
   });
-  const resourceSelection = validateResolvedAgentResources(definition);
-  seam.onResourceSelectionValidated?.('parent', resourceSelection);
-  const model = materializeModel(definition, fetcher, seam);
+  const role: 'parent' | 'planner' = selection.id === 'planner' ? 'planner' : 'parent';
+  const resourceSelection = validateResolvedAgentResources(
+    definition,
+    selection.id,
+  );
+  seam.onResourceSelectionValidated?.(role, resourceSelection);
+  const manifest = await prepareResolvedManifest(
+    role,
+    selection.id,
+    resourceSelection,
+    seam,
+  );
+  seam.onResolvedManifestValidated?.(role, manifest);
+  return {
+    workspace,
+    agentInstructions,
+    skillCatalog,
+    definition,
+    resourceSelection,
+    selectionId: selection.id,
+    seam,
+    fetcher,
+    requestCount: () => requestCount,
+  };
+};
+
+/** Materialize an already-prepared composition without evaluating its Definition again. */
+export const materializePreparedRuntimeComposition = (
+  prepared: PreparedRuntimeComposition,
+): RuntimeComposition => {
+  const { definition, seam, fetcher, requestCount } = prepared;
   const plannerDelegation: PlannerDelegationHandler | undefined =
     definition.registry.kind === 'production'
       ? async (task, childContext) => {
-        const beforeRequests = requestCount;
+        const beforeRequests = requestCount();
         try {
-          // The planner Definition and its registry/model are materialized only after the
-          // parent tool has synchronously admitted this child.
           const childDefinition = (seam.plannerDefinition ?? plannerAgentDefinition)({
-            workspace,
-            agentInstructions,
-            skillCatalog,
+            workspace: prepared.workspace,
+            agentInstructions: prepared.agentInstructions,
+            skillCatalog: prepared.skillCatalog,
           });
-          const childResourceSelection = validateResolvedAgentResources(childDefinition);
-          seam.onResourceSelectionValidated?.('planner', childResourceSelection);
+          const childResourceSelection = validateResolvedAgentResources(
+            childDefinition,
+            'planner',
+          );
+          seam.onResourceSelectionValidated?.(
+            'planner',
+            childResourceSelection,
+          );
+          const childManifest = await prepareResolvedManifest(
+            'planner',
+            'planner',
+            childResourceSelection,
+            seam,
+          );
+          seam.onResolvedManifestValidated?.('planner', childManifest);
           const childModel = materializeModel(childDefinition, fetcher, seam);
           const childRegistry = materializeRegistry(
             childDefinition,
@@ -232,27 +317,60 @@ export const createRuntimeComposition = async (
           if (childContext.cancellation?.state === 'cleanup_failed') {
             throw new CancellationCleanupError();
           }
-          return { outcome, externalRequests: requestCount - beforeRequests };
+          return { outcome, externalRequests: requestCount() - beforeRequests };
         } catch (error) {
           if (
             isTurnCancelledError(error) || isCancellationCleanupError(error)
           ) throw error;
           return {
             outcome: childFailure(task),
-            externalRequests: requestCount - beforeRequests,
+            externalRequests: requestCount() - beforeRequests,
           };
         }
       }
       : undefined;
+  const model = materializeModel(definition, fetcher, seam);
   const registry = materializeRegistry(definition, seam, plannerDelegation);
   return {
     model,
     registry,
     systemInstruction: definition.systemInstruction,
-    resourceSelection,
-    requestCount: () => requestCount,
+    resourceSelection: prepared.resourceSelection,
+    requestCount,
     createTurnExecutionContext: (turn, signal, cancellation) =>
       createTurnExecutionContext(turn, signal, cancellation),
+  };
+};
+
+/** Compatibility wrapper used by normal CLI and ephemeral TUI. */
+export const createRuntimeComposition = async (
+  seam: RuntimeTestSeam = {},
+  selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
+): Promise<RuntimeComposition> =>
+  materializePreparedRuntimeComposition(
+    await prepareRuntimeComposition(seam, selection),
+  );
+
+/** Create a session from a previously prepared composition after persistent record checks. */
+export const createRuntimeSessionFromPrepared = (
+  eventSink: AgentEventSink,
+  prepared: PreparedRuntimeComposition,
+  sessionOptions: {
+    readonly persistence?: SessionPersistence;
+    readonly initialRecord?: SessionRecord;
+  } = {},
+): { readonly session: AgentSession; readonly requestCount: () => number } => {
+  const composition = materializePreparedRuntimeComposition(prepared);
+  return {
+    session: new AgentSession(composition.model, composition.registry, {
+      maxSteps: composition.resourceSelection.parameters.maxSteps,
+      systemInstruction: composition.systemInstruction,
+      eventSink,
+      createTurnExecutionContext: composition.createTurnExecutionContext,
+      persistence: sessionOptions.persistence,
+      initialRecord: sessionOptions.initialRecord,
+    }),
+    requestCount: composition.requestCount,
   };
 };
 
@@ -267,20 +385,12 @@ export const createRuntimeSession = async (
   } = {},
 ): Promise<
   { readonly session: AgentSession; readonly requestCount: () => number }
-> => {
-  const composition = await createRuntimeComposition(seam, selection);
-  return {
-    session: new AgentSession(composition.model, composition.registry, {
-      maxSteps: composition.resourceSelection.parameters.maxSteps,
-      systemInstruction: composition.systemInstruction,
-      eventSink,
-      createTurnExecutionContext: composition.createTurnExecutionContext,
-      persistence: sessionOptions.persistence,
-      initialRecord: sessionOptions.initialRecord,
-    }),
-    requestCount: composition.requestCount,
-  };
-};
+> =>
+  createRuntimeSessionFromPrepared(
+    eventSink,
+    await prepareRuntimeComposition(seam, selection),
+    sessionOptions,
+  );
 
 /**
  * Run one normal single-shot agent invocation.

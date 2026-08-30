@@ -4,8 +4,8 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: provider streamingはcommit `852542f`、bounded mid-turn steeringはcommit `3aeb48e`、optional ordinary next-turn queueはcommit `8a10be9`で完了。queue final gateはfull offline 503、final Blocker/P1/P2 0
-- 次: roadmap step 77は別のplanning inputとHuman Gateで開始する。step 76のcommitは別の明示指示待ち。追加provider attemptは別Human Gate
+- 状態: roadmap step 77 resolved manifestは実装、single closure/re-review、owner full gate 537/537、final Blocker/P1/P2 0を完了し、user-authorized final integration commitへ記録する
+- 次: roadmapの次inputを確認する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -37,6 +37,30 @@
 - 契約: built-in `default`/`planner`のinternal canonical resource identity selectionとdata-only `maxSteps`を追加。strict grammar/order、exact declaration correlation、skill/manifest coherence、frozen data-only shapeを検証し、parent/lazy plannerをmaterialization前にfail closedする。step 77のmanifest/serialization/version/digest、公開dynamic API、既存provider/permission/session/event/persistence behaviorは変更しない
 - 検証: definition/runtime/planner/selection/topology focused 12/12、38/38、16/16、4/4、2/2、direct `v0:test` 516/516、owner `v0:gate` 518/518、`v0:check`/`v0:fmt`/`v0:lint`/`git diff --check`は成功
 - 状態: implementation Human GateとASKをconsume済み。initial implementation reviewのevidence-only P2 2をapproved single closure passで閉じ、canonical resolved mutations、direct envelope validation、parameter shape casesを追加。production defectなし。single narrow re-reviewはGO、Blocker/P1/P2 0。owner final Definition 12/12/full gate 518/518、最終Blocker/P1/P2 0。plan delta、stop condition、計画外bugなし
+- 境界: provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
+
+### POL-20260830-agent-definition-resolved-manifest-plan
+
+- 計画: `docs/plans/agent-definition-resolved-manifest.md`、SHA-256 `9321cbb783844261647c6479757a1a17196eef67ae2771a0ba2bb58151456d3c`。正本inputは`/tmp/planner-inputs/henji-agent-definition-resolved-manifest.md`、SHA-256 `5520f69a1ec0dc2c5f7e5a5f08894e792543f5b661b789970c27fc76ab687df0`
+- 契約: built-in ID、Step 76 canonical resources、`maxSteps`をimmutable schema-v1 data-only manifestへ固定し、exact compact UTF-8 payloadとdomain-separated full SHA-256 identityを使う。identity自身はdigestから除外し、unknown shape/version/digest/cross-bound topologyをfail closedする
+- runtime: Step 76 topology validationはsingle-source helperへrefactorする。parent/lazy plannerはmanifest検証後だけmaterializeし、persistent TUIはtwo-phase prepare/materializeにより検証前のstore list/open/allocate/lock/writeを0にする。manifestはprovider/event/transcript/session/persistence/CLI/TUIへ出さない
+- review: initial P1 1はpersistent TUIのpre-validation allocationをtwo-phase contractで閉鎖。single re-reviewのP2 1はproduction pathを迂回するprocess fixtureを証拠scopeから外し、default session-factory direct suiteへ割当ててowner closure。final planning dispositionはBlocker/P1/P2 0
+- 境界: Steps 78-80、provider/network/credential/production command、dependency/lockfile、persistent product state、`_refs/`、commit/push/tag/publish/releaseは対象外
+
+### POL-20260830-agent-definition-resolved-manifest-implementation
+
+- 判断済み: owner-approved initial implementation Human Gateに基づき、schema-v1 resolved manifest codec、shared topology helper、two-phase runtime/TUI wiring、permission-free leaf、focused/full offline tests、results/lifecycle更新を実施した。canonical planはSHA-256 `9321cbb783844261647c6479757a1a17196eef67ae2771a0ba2bb58151456d3c`
+- 契約: exact compact UTF-8 payloadとdomain-separated full SHA-256 identity、fresh deep-frozen descriptor-safe validator、default/planner cross-bound rejection、parent/lazy validation-before-materialization、persistent TUI prepare/store-record/materialize順を実装。manifestはprovider/event/transcript/session/persistence/CLI/TUIへ出さない
+- 検証: manifest/definition/runtime/planner/session/store/persistent-TUI/TUI-direct/topology focused 9/12/46/16/15/15/8/68/2、direct `v0:test` 537/537、owner `v0:gate` 537/537、`v0:check`/`v0:fmt`/`v0:lint`/`git diff --check`成功
+- 状態: implementation ASKをconsume済み。initial implementation reviewはBlocker 0/P1 1/P2 2。approved single closure passでexact topology、post-call snapshot、real Definition invariance/shape、runtime factory/causal/nonleakage、persistent artifact/invalid-resume evidenceを追加。sole narrow re-reviewは全件ClosedでGO、owner final manifest 9/9/full gate 537/537、final Blocker/P1/P2 0。production defect、plan delta、stop condition、計画外bugなし
+- 境界: provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
+
+### POL-20260830-agent-definition-resolved-manifest-implementation-closure
+
+- 実施: approved single finding-closure passで、shared topology helperをparsed Definition resourcesから合成した完全な既知集合とexact compareへ修正。manifest 9 testsにsnapshot-after-call、real Definition/discovery invariance、descriptor/shape、one-resource rehash、both-definition extra/omission casesを追加した
+- 実施: runtime 6 testsにparent/lazy factory sync/reject/malformed/wrong-digest/cross-bound failure、exact observer/materialization order、top-level planner role、sanitized continuation/ownership、surface nonleakageを追加。persistent TUI 3 testsにnew/continue/exact artifact preservation、invalid-resumed metadata cleanup/reopen、output/record nonleakageを追加
+- 検証: manifest/definition/runtime/planner/session/store/persistent-TUI/TUI-direct/topology focused 9/12/46/16/15/15/8/68/2、TUI topology 4。direct `v0:test` 537/537、owner `v0:gate` 537/537、`v0:check`/`v0:fmt` (112 files)/`v0:lint` (109 files)/`git diff --check`成功
+- 状態: initial review Blocker 0/P1 1/P2 2はsole narrow re-reviewで全件Closed、GO。owner final manifest 9/9/full gate 537/537、final Blocker/P1/P2 0。production defect、plan delta、stop condition、計画外bugなし
 - 境界: provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
 
 ### POL-20260829-bounded-next-turn-queue-plan
@@ -1854,3 +1878,19 @@
 - 実施: evidence-only P2 2のclosureをsingle narrow re-reviewし両件Closed、GO、Blocker/P1/P2 0。ownerがDefinition 12/12とauthoritative full `v0:gate` 518/518、`git diff --check`を独立再実行してexit 0を確認
 - 次: reviewed treeのcommitは別の明示指示待ち。step 77は新しいplanning input/Human Gateで開始する
 - 注意: plan SHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`。final owner Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、persistent state、`_refs`変更、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-30 16:55 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Roadmap step 77 Agent Definition resolved manifest planning
+- 実施: revision-23 input、HEAD、Step 76 identity/runtime seam、pinned Deno Web Cryptoを照合しcanonical planを作成。4 known-answer digestを独立再計算した。initial P1 1をpersistent TUI two-phase prepare/materializeで閉鎖し、single re-review P2 1をproduction default session-factory direct evidenceへ修正してowner final Blocker/P1/P2 0
+- 次: `ASK-20260830-agent-definition-resolved-manifest-implementation`の初期implementation Human Gate
+- 注意: plan SHA-256 `9321cbb783844261647c6479757a1a17196eef67ae2771a0ba2bb58151456d3c`。product/test/task implementation、provider/network/credential/production command、dependency/lockfile、persistent product state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-30 17:59 JST
+
+- 実行エージェント: Codex default / implementer / reviewer
+- 作業トピック: Roadmap step 77 Agent Definition resolved manifest implementation and final gate
+- 実施: approved planどおりschema-v1 codec、shared exact topology、two-phase runtime/TUI、permission-free manifest leafを実装。initial P1 1/P2 2を一回のclosureで修正し、sole re-reviewは全件Closed、GO、Blocker/P1/P2 0
+- 次: user-authorized final integration commit後、roadmapの次inputを確認する
+- 注意: owner final manifest 9/9、full `v0:gate` 537/537、diff check成功。plan SHA-256 `9321cbb783844261647c6479757a1a17196eef67ae2771a0ba2bb58151456d3c`。provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施

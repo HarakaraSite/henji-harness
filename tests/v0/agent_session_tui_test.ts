@@ -1,6 +1,10 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import { main } from '../../v0/agent/tui_cli.ts';
-import { createSessionPersistence, DenoSessionStore } from '../../v0/agent/session_store.ts';
+import {
+  createSessionPersistence,
+  DenoSessionStore,
+  sessionPaths,
+} from '../../v0/agent/session_store.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
 import { type Message, type ModelRequest } from '../../v0/agent/contracts.ts';
 import { AgentSession } from '../../v0/agent/session.ts';
@@ -162,6 +166,37 @@ const seedSession = async (
   return handle.id;
 };
 
+const inventoryStateTree = async (root: string): Promise<string[]> => {
+  const entries: string[] = [];
+  const visit = async (path: string, relative: string): Promise<void> => {
+    let info: Deno.FileInfo;
+    try {
+      info = await Deno.lstat(path);
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) return;
+      throw error;
+    }
+    const mode = info.mode === null ? 'unknown' : `${info.mode}`;
+    if (info.isDirectory) {
+      entries.push(`directory:${relative}:${mode}`);
+      const children: Deno.DirEntry[] = [];
+      for await (const child of Deno.readDir(path)) children.push(child);
+      children.sort((left, right) => left.name.localeCompare(right.name));
+      for (const child of children) {
+        await visit(
+          `${path}/${child.name}`,
+          relative === '' ? child.name : `${relative}/${child.name}`,
+        );
+      }
+      return;
+    }
+    const bytes = info.isFile ? await Deno.readFile(path) : new Uint8Array();
+    entries.push(`file:${relative}:${mode}:${[...bytes].join(',')}`);
+  };
+  await visit(root, '');
+  return entries;
+};
+
 Deno.test('persistent TUI autosaves and continue restores the parent transcript', async () => {
   const root = await Deno.makeTempDir({
     dir: '/tmp',
@@ -300,7 +335,10 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
 });
 
 Deno.test('bounded follow-up drains only after durable N and creates fresh session ownership', async () => {
-  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-follow-up-session-' });
+  const root = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-follow-up-session-',
+  });
   const workspace = `${root}/workspace`;
   const state = `${root}/state`;
   await Deno.mkdir(workspace);
@@ -314,12 +352,17 @@ Deno.test('bounded follow-up drains only after durable N and creates fresh sessi
   const releases: ((result: { readonly kind: 'final'; readonly text: string }) => void)[] = [];
   let transientRecord: ReturnType<typeof createSessionPersistence>['record'];
   const model = {
-    generate(request: ModelRequest, options?: { readonly signal?: AbortSignal }) {
+    generate(
+      request: ModelRequest,
+      options?: { readonly signal?: AbortSignal },
+    ) {
       requests.push(structuredClone(request));
       signals.push(options?.signal);
-      return new Promise<{ readonly kind: 'final'; readonly text: string }>((resolve) => {
-        releases.push(resolve);
-      });
+      return new Promise<{ readonly kind: 'final'; readonly text: string }>(
+        (resolve) => {
+          releases.push(resolve);
+        },
+      );
     },
   };
   const events: AgentEvent[] = [];
@@ -331,10 +374,17 @@ Deno.test('bounded follow-up drains only after durable N and creates fresh sessi
     eventSink: (event) => {
       events.push(event);
       renderer.eventSink(event);
-      if (event.kind === 'turn_end' && event.turn === 2) transientRecord = persistence.record;
+      if (event.kind === 'turn_end' && event.turn === 2) {
+        transientRecord = persistence.record;
+      }
     },
     createTurnExecutionContext: (turn, signal, cancellation) => {
-      const context = new ParentTurnExecutionContext(turn, undefined, signal, cancellation);
+      const context = new ParentTurnExecutionContext(
+        turn,
+        undefined,
+        signal,
+        cancellation,
+      );
       contexts.push(context);
       initialBudgets.push(context.snapshot());
       return context;
@@ -369,9 +419,19 @@ Deno.test('bounded follow-up drains only after durable N and creates fresh sessi
   }
   assertEquals(requests.length, 2);
   assertEquals(persistence.record?.nextTurn, 2);
-  assertEquals(persistence.record?.transcript.map(messageSummary), ['manual', 'first answer']);
-  assertEquals(requests[1].transcript.map(messageSummary), ['manual', 'first answer', 'queued']);
-  assert(signals[0] !== undefined && signals[1] !== undefined && signals[0] !== signals[1]);
+  assertEquals(persistence.record?.transcript.map(messageSummary), [
+    'manual',
+    'first answer',
+  ]);
+  assertEquals(requests[1].transcript.map(messageSummary), [
+    'manual',
+    'first answer',
+    'queued',
+  ]);
+  assert(
+    signals[0] !== undefined && signals[1] !== undefined &&
+      signals[0] !== signals[1],
+  );
   assert(contexts[0] !== contexts[1]);
   assertEquals(initialBudgets, [
     { parent: 0, child: 0, aggregate: 0 },
@@ -382,7 +442,11 @@ Deno.test('bounded follow-up drains only after durable N and creates fresh sessi
     { parent: 1, child: 0, aggregate: 1 },
   ]);
   releases[1]({ kind: 'final', text: 'second answer' });
-  for (let attempt = 0; attempt < 20 && controller.currentState !== 'idle'; attempt += 1) {
+  for (
+    let attempt = 0;
+    attempt < 20 && controller.currentState !== 'idle';
+    attempt += 1
+  ) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   const settledRecord = await store.read(handle.id);
@@ -401,7 +465,8 @@ Deno.test('bounded follow-up drains only after durable N and creates fresh sessi
     'second answer',
   ]);
   const lifecycleEvents = events.filter((event) =>
-    event.kind === 'turn_start' || event.kind === 'user_message' || event.kind === 'turn_end'
+    event.kind === 'turn_start' || event.kind === 'user_message' ||
+    event.kind === 'turn_end'
   ).map((event) =>
     event.kind === 'user_message'
       ? `${event.kind}:${event.message.content.text}`
@@ -423,19 +488,30 @@ Deno.test('bounded follow-up drains only after durable N and creates fresh sessi
 
 Deno.test('queued N+1 rollback restores N or preserves the allowed ghost without N+2', async () => {
   const runCase = async (rollbackFails: boolean): Promise<void> => {
-    const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-follow-up-rollback-' });
+    const root = await Deno.makeTempDir({
+      dir: '/tmp',
+      prefix: 'henji-follow-up-rollback-',
+    });
     const workspace = `${root}/workspace`;
     const state = `${root}/state`;
     await Deno.mkdir(workspace);
     const store = new DenoSessionStore(state, workspace);
     const handle = await store.allocate('default');
-    const basePersistence = createSessionPersistence(handle, workspace, 'default');
+    const basePersistence = createSessionPersistence(
+      handle,
+      workspace,
+      'default',
+    );
     let rollbackCalls = 0;
     const persistence = {
       get record() {
         return basePersistence.record;
       },
-      commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void {
+      commit(
+        transcript: readonly Message[],
+        nextTurn: number,
+        updatedAt: string,
+      ): void {
         basePersistence.commit(transcript, nextTurn, updatedAt);
       },
       rollback(): void {
@@ -447,21 +523,29 @@ Deno.test('queued N+1 rollback restores N or preserves the allowed ghost without
         return basePersistence.close();
       },
     };
-    let releaseFirst!: (result: { readonly kind: 'final'; readonly text: string }) => void;
-    let releaseSecond!: (result: { readonly kind: 'final'; readonly text: string }) => void;
+    let releaseFirst!: (
+      result: { readonly kind: 'final'; readonly text: string },
+    ) => void;
+    let releaseSecond!: (
+      result: { readonly kind: 'final'; readonly text: string },
+    ) => void;
     const requests: ModelRequest[] = [];
     const model = {
       generate(request: ModelRequest) {
         requests.push(structuredClone(request));
         if (requests.length === 1) {
-          return new Promise<{ readonly kind: 'final'; readonly text: string }>((resolve) => {
-            releaseFirst = resolve;
-          });
+          return new Promise<{ readonly kind: 'final'; readonly text: string }>(
+            (resolve) => {
+              releaseFirst = resolve;
+            },
+          );
         }
         if (requests.length === 2) {
-          return new Promise<{ readonly kind: 'final'; readonly text: string }>((resolve) => {
-            releaseSecond = resolve;
-          });
+          return new Promise<{ readonly kind: 'final'; readonly text: string }>(
+            (resolve) => {
+              releaseSecond = resolve;
+            },
+          );
         }
         const user = request.transcript.at(-1);
         return {
@@ -507,7 +591,10 @@ Deno.test('queued N+1 rollback restores N or preserves the allowed ghost without
     assertEquals(requests.length, 2);
     assertEquals(persistence.record?.nextTurn, 2);
     const committedN = await store.read(handle.id);
-    assertEquals(committedN.transcript.map(messageSummary), ['manual', 'answer:manual']);
+    assertEquals(committedN.transcript.map(messageSummary), [
+      'manual',
+      'answer:manual',
+    ]);
     assertEquals(requests[1].transcript.map(messageSummary), [
       'manual',
       'answer:manual',
@@ -518,7 +605,10 @@ Deno.test('queued N+1 rollback restores N or preserves the allowed ghost without
     await settled;
     const failure = runningFailure;
     assert(failure instanceof Error);
-    assertEquals((failure as { readonly code?: string }).code, 'output_failure');
+    assertEquals(
+      (failure as { readonly code?: string }).code,
+      'output_failure',
+    );
     assertEquals(rollbackCalls, 1);
     assertEquals(requests.length, 2);
     assert(renderer.isClosing);
@@ -526,7 +616,11 @@ Deno.test('queued N+1 rollback restores N or preserves the allowed ghost without
     const writes = terminal.writes.length;
     let lateRejected = false;
     try {
-      renderer.eventSink({ kind: 'assistant_progress', turn: 2, text: 'late queue output' });
+      renderer.eventSink({
+        kind: 'assistant_progress',
+        turn: 2,
+        text: 'late queue output',
+      });
     } catch {
       lateRejected = true;
     }
@@ -558,20 +652,31 @@ Deno.test('queued N+1 rollback restores N or preserves the allowed ghost without
 });
 
 Deno.test('queued persistence commit failure drops the slot with one restore and no late writes', async () => {
-  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-follow-up-commit-failure-' });
+  const root = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-follow-up-commit-failure-',
+  });
   try {
     const workspace = `${root}/workspace`;
     const state = `${root}/state`;
     await Deno.mkdir(workspace);
     const store = new DenoSessionStore(state, workspace);
     const handle = await store.allocate('default');
-    const basePersistence = createSessionPersistence(handle, workspace, 'default');
+    const basePersistence = createSessionPersistence(
+      handle,
+      workspace,
+      'default',
+    );
     let commitCalls = 0;
     const persistence = {
       get record() {
         return basePersistence.record;
       },
-      commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void {
+      commit(
+        transcript: readonly Message[],
+        nextTurn: number,
+        updatedAt: string,
+      ): void {
         commitCalls += 1;
         if (commitCalls === 2) throw new Error('injected queue commit failure');
         basePersistence.commit(transcript, nextTurn, updatedAt);
@@ -584,14 +689,18 @@ Deno.test('queued persistence commit failure drops the slot with one restore and
       },
     };
     const requests: ModelRequest[] = [];
-    let releaseFirst!: (result: { readonly kind: 'final'; readonly text: string }) => void;
+    let releaseFirst!: (
+      result: { readonly kind: 'final'; readonly text: string },
+    ) => void;
     const model = {
       generate(request: ModelRequest) {
         requests.push(structuredClone(request));
         if (requests.length === 1) {
-          return new Promise<{ readonly kind: 'final'; readonly text: string }>((resolve) => {
-            releaseFirst = resolve;
-          });
+          return new Promise<{ readonly kind: 'final'; readonly text: string }>(
+            (resolve) => {
+              releaseFirst = resolve;
+            },
+          );
         }
         const user = request.transcript.at(-1);
         return {
@@ -631,23 +740,209 @@ Deno.test('queued persistence commit failure drops the slot with one restore and
     assertEquals((failure as TuiControllerError).code, 'agent_failure');
     assertEquals(commitCalls, 2);
     assertEquals(requests.length, 2);
-    assertEquals(session.transcriptSnapshot().map(messageSummary), ['manual', 'answer:manual']);
+    assertEquals(session.transcriptSnapshot().map(messageSummary), [
+      'manual',
+      'answer:manual',
+    ]);
     const durable = await store.read(handle.id);
     assertEquals(durable.nextTurn, 2);
-    assertEquals(durable.transcript.map(messageSummary), ['manual', 'answer:manual']);
+    assertEquals(durable.transcript.map(messageSummary), [
+      'manual',
+      'answer:manual',
+    ]);
     assert(renderer.isClosing);
     assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
     assert(!terminal.writes.join('').includes('user> queued'));
     const writes = terminal.writes.length;
     let lateRejected = false;
     try {
-      renderer.eventSink({ kind: 'assistant_progress', turn: 2, text: 'late commit output' });
+      renderer.eventSink({
+        kind: 'assistant_progress',
+        turn: 2,
+        text: 'late commit output',
+      });
     } catch {
       lateRejected = true;
     }
     assert(lateRejected);
     assertEquals(terminal.writes.length, writes);
     await session.close();
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('persistent default TUI prepares manifest before any store operation', async () => {
+  const root = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-manifest-tui-',
+  });
+  try {
+    const workspace = `${root}/workspace`;
+    const state = `${root}/state`;
+    await Deno.mkdir(workspace);
+    await Deno.mkdir(state);
+    await Deno.writeTextFile(`${state}/sentinel`, 'untouched');
+    const cases: readonly string[][] = [
+      [],
+      ['--continue'],
+      ['--session', '00000000-0000-4000-8000-000000000001'],
+      ['--no-session'],
+    ];
+    for (const args of cases) {
+      const terminal = new FakeTerminal();
+      let materializations = 0;
+      const exit = await main(args, {
+        terminal,
+        stateRoot: state,
+        runtimeSeam: {
+          workspaceRoot: workspace,
+          credential: 'offline-dummy',
+          fetcher: () => Promise.reject(new Error('must not fetch')),
+          resolvedManifestFactory: () => ({}),
+          onModelMaterialized: () => materializations += 1,
+          onRegistryMaterialized: () => materializations += 1,
+        },
+        writeStderr: () => {},
+      });
+      assertEquals(exit, 1, JSON.stringify(args));
+      assertEquals(materializations, 0, JSON.stringify(args));
+      assertEquals(terminal.raw, [], JSON.stringify(args));
+      assertEquals(await Deno.readTextFile(`${state}/sentinel`), 'untouched');
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('persistent manifest failures leave new, continue, and exact state trees unchanged', async () => {
+  const cases: readonly { readonly name: string; readonly args: readonly string[] }[] = [
+    { name: 'new', args: [] },
+    { name: 'continue', args: ['--continue'] },
+    { name: 'exact', args: [] },
+  ];
+  for (const testCase of cases) {
+    const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-manifest-state-' });
+    try {
+      const workspace = `${root}/workspace`;
+      const state = `${root}/state`;
+      await Deno.mkdir(workspace);
+      let args = testCase.args;
+      if (testCase.name !== 'new') {
+        const id = await seedSession(
+          state,
+          workspace,
+          normalTranscript(1),
+        );
+        args = testCase.name === 'exact' ? ['--session', id] : args;
+      }
+      const before = await inventoryStateTree(state);
+      const terminal = new FakeTerminal();
+      let materializations = 0;
+      const exit = await main(args, {
+        terminal,
+        stateRoot: state,
+        runtimeSeam: {
+          workspaceRoot: workspace,
+          credential: 'offline-dummy',
+          fetcher: () => Promise.reject(new Error('must not fetch')),
+          resolvedManifestFactory: () => ({}),
+          onModelMaterialized: () => materializations += 1,
+          onRegistryMaterialized: () => materializations += 1,
+        },
+        writeStderr: () => {},
+      });
+      assertEquals(exit, 1, testCase.name);
+      assertEquals(materializations, 0, testCase.name);
+      assertEquals(terminal.raw, [], testCase.name);
+      assertEquals(await inventoryStateTree(state), before, testCase.name);
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  }
+});
+
+Deno.test('valid manifest with invalid resumed metadata closes safely and permits later lock reopen', async () => {
+  const cases: readonly {
+    readonly name: string;
+    readonly mutate: (record: Record<string, unknown>, workspace: string) => void;
+  }[] = [
+    {
+      name: 'workspace metadata',
+      mutate: (record) => record.workspaceRoot = '/invalid/resumed-workspace',
+    },
+    {
+      name: 'agent metadata',
+      mutate: (record) => record.agent = 'planner',
+    },
+  ];
+  for (const testCase of cases) {
+    const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-manifest-resume-' });
+    try {
+      const workspace = `${root}/workspace`;
+      const state = `${root}/state`;
+      await Deno.mkdir(workspace);
+      const id = await seedSession(state, workspace, normalTranscript(1));
+      const paths = await sessionPaths(state, workspace);
+      const recordPath = `${paths.sessions}/${id}/session.json`;
+      const original = await Deno.readTextFile(recordPath);
+      const mutated = JSON.parse(original) as Record<string, unknown>;
+      testCase.mutate(mutated, workspace);
+      await Deno.writeTextFile(recordPath, `${JSON.stringify(mutated)}\n`);
+      const before = await inventoryStateTree(state);
+      const terminal = new FakeTerminal();
+      let materializations = 0;
+      const exit = await main(['--session', id], {
+        terminal,
+        stateRoot: state,
+        runtimeSeam: {
+          workspaceRoot: workspace,
+          credential: 'offline-dummy',
+          fetcher: () => Promise.reject(new Error('must not fetch')),
+          onModelMaterialized: () => materializations += 1,
+          onRegistryMaterialized: () => materializations += 1,
+        },
+        writeStderr: () => {},
+      });
+      assertEquals(exit, 1, testCase.name);
+      assertEquals(materializations, 0, testCase.name);
+      assertEquals(terminal.raw, [], testCase.name);
+      assertEquals(await inventoryStateTree(state), before, testCase.name);
+
+      await Deno.writeTextFile(recordPath, original);
+      const store = new DenoSessionStore(state, workspace);
+      const reopened = await store.openExisting(id);
+      await reopened.close();
+      const reopenedAgain = await store.openExisting(id);
+      await reopenedAgain.close();
+    } finally {
+      await Deno.remove(root, { recursive: true });
+    }
+  }
+});
+
+Deno.test('TUI output and persisted record omit manifest domain and identity', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-manifest-output-' });
+  try {
+    const workspace = `${root}/workspace`;
+    const state = `${root}/state`;
+    await Deno.mkdir(workspace);
+    const terminal = new FakeTerminal();
+    assertEquals(await runTui([], terminal, workspace, state, 'surface'), 0);
+    const output = terminal.writes.join('');
+    const store = new DenoSessionStore(state, workspace);
+    const listed = await store.list();
+    assertEquals(listed.sessions.length, 1);
+    const record = await store.read(listed.sessions[0].id);
+    for (
+      const value of [
+        output,
+        JSON.stringify(record),
+      ]
+    ) {
+      assert(!value.includes('henji-agent-resolved-manifest:v1'));
+      assert(!value.includes('bdf0e5c7e70ac5d928aab4681bb3228c642d0af89a498ae9f3f9c2940f7a4a58'));
+    }
   } finally {
     await Deno.remove(root, { recursive: true });
   }
