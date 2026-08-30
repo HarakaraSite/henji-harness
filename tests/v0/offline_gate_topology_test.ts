@@ -3,6 +3,19 @@ import { assert, assertEquals } from './test_helpers.ts';
 const DENO = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno';
 const TOPOLOGY_TASK = 'v0:offline-gate:topology:test';
 const TOPOLOGY_FILE = 'tests/v0/offline_gate_topology_test.ts';
+const STEP79_SOURCE_FILES = [
+  'v0/agent/canonical_identity.ts',
+  'v0/agent/replay_value.ts',
+  'v0/agent/replay_envelope.ts',
+  'v0/agent/execution_record.ts',
+] as const;
+const STEP79_FORBIDDEN_SOURCE_PATTERNS = [
+  /\bfrom ['"](?:\.\/|\.\.\/)(?:runtime|events|session|openrouter)(?:\.ts)?['"]/,
+  /\bDeno\./,
+  /\bfetch\s*\(/,
+  /\bprocess\./,
+  /\bBun\./,
+] as const;
 
 const CHECK_TARGETS = [
   'v0/cli/main.ts',
@@ -15,6 +28,10 @@ const CHECK_TARGETS = [
   'v0/agent/agent_definition.ts',
   'v0/agent/agent_identity.ts',
   'v0/agent/resource_identity.ts',
+  'v0/agent/canonical_identity.ts',
+  'v0/agent/replay_value.ts',
+  'v0/agent/replay_envelope.ts',
+  'v0/agent/execution_record.ts',
   'v0/agent/resolved_manifest.ts',
   'v0/agent/comparison_variant.ts',
   'v0/agent/agent_catalog.ts',
@@ -122,6 +139,7 @@ const EXPECTED_LEAVES = [
   'agent:test',
   'agent:resolved-manifest:test',
   'agent:comparison-variant:test',
+  'agent:replay-record:test',
   'agent:definition:test',
   'agent:definition-selection:test',
   'agent:planner-delegation:test',
@@ -177,6 +195,7 @@ assignTarget('agent_loop_test.ts', 'agent:test');
 assignTarget('agent_definition_test.ts', 'agent:definition:test');
 assignTarget('agent_resolved_manifest_test.ts', 'agent:resolved-manifest:test');
 assignTarget('agent_comparison_variant_test.ts', 'agent:comparison-variant:test');
+assignTarget('agent_replay_record_test.ts', 'agent:replay-record:test');
 assignTarget('agent_catalog_test.ts', 'agent:definition-selection:test');
 assignTarget('planner_delegation_test.ts', 'agent:planner-delegation:test');
 assignTarget('agent_instructions_test.ts', 'agent:instructions:test');
@@ -262,6 +281,7 @@ assignPermission(
   'agent:definition:test',
   'agent:resolved-manifest:test',
   'agent:comparison-variant:test',
+  'agent:replay-record:test',
   'agent:instructions:test',
   'agent:planner-delegation:test',
   'agent:selection:test',
@@ -338,7 +358,7 @@ assignPermission(
   ],
   'v0:legacy:test',
 );
-assignPermission(['--allow-read=deno.v0.json,tests/v0'], TOPOLOGY_TASK);
+assignPermission(['--allow-read=deno.v0.json,tests/v0,v0/agent'], TOPOLOGY_TASK);
 
 const taskInvocation = (taskName: string): string =>
   `${DENO} task --config deno.v0.json ${taskName}`;
@@ -490,7 +510,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 47, 'expected 47 directly-owned tests');
+  assertEquals(owned.size, 48, 'expected 48 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {
@@ -523,9 +543,17 @@ directFiles.sort();
 const manifest = JSON.parse(
   await Deno.readTextFile('deno.v0.json'),
 ) as Manifest;
+const step79SourceInventory = await Promise.all(
+  STEP79_SOURCE_FILES.map(async (file) => [file, await Deno.readTextFile(file)] as const),
+);
 
 Deno.test('offline gate has exact bounded leaf ownership and composition', () => {
   validateManifest(manifest, directFiles);
+  for (const [file, source] of step79SourceInventory) {
+    for (const pattern of STEP79_FORBIDDEN_SOURCE_PATTERNS) {
+      assert(!pattern.test(source), `Step 79 source isolation drifted: ${file}`);
+    }
+  }
 });
 
 Deno.test('offline gate parser rejects unsafe grammar, topology, permissions, and targets', () => {

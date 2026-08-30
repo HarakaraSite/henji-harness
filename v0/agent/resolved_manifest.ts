@@ -1,4 +1,5 @@
 import type { AgentManifestDefinitionId, BuiltinAgentId } from './agent_identity.ts';
+import { canonicalDomainSeparatedDigest } from './canonical_identity.ts';
 import {
   type AgentResourceIdentity,
   type AgentResourceSelection,
@@ -143,20 +144,14 @@ const payloadBytes = (
     JSON.stringify(payloadObject(definitionId, resources, maxSteps)),
   );
 
-const hex = (bytes: ArrayBuffer): string =>
-  [...new Uint8Array(bytes)].map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('');
-
 const digestIdentity = async (
   bytes: Uint8Array,
 ): Promise<AgentResolvedManifestIdentity> => {
-  const domain = encoder.encode(RESOLVED_MANIFEST_DOMAIN);
-  const input = new Uint8Array(domain.byteLength + bytes.byteLength);
-  input.set(domain);
-  input.set(bytes, domain.byteLength);
-  return `${IDENTITY_PREFIX}${
-    hex(await crypto.subtle.digest('SHA-256', input))
-  }` as AgentResolvedManifestIdentity;
+  return await canonicalDomainSeparatedDigest(
+    RESOLVED_MANIFEST_DOMAIN,
+    bytes,
+    IDENTITY_PREFIX,
+  ) as AgentResolvedManifestIdentity;
 };
 
 const snapshotInput = (value: unknown): {

@@ -380,6 +380,40 @@
   disposition is Blocker/P1/P2 zero. The reviewed increment is recorded by the user-authorized final
   integration commit. No provider/network/credential/production command, dependency/lockfile, external
   persistent state, `_refs/` operation, push, tag, publish, or release occurred.
+- Roadmap step 79 is planned in
+  `docs/plans/agent-definition-replay-envelope-execution-record.md`, SHA-256
+  `e5327c39e01adb89569375051705135319b40de525b3c0127f910d6974a4300f`. It fixes an internal
+  schema-v1 replay envelope with canonical workspace/model/budget/transcript/manifest inputs and a
+  domain-separated full SHA-256 identity, plus a normalized schema-v1 execution record identified by
+  deterministic `runOrdinal`. Actual duration remains an observation and is excluded from identity and
+  record-sameness rules; token usage and cost remain explicit `unsupported`. The pure recorder is not
+  connected to runtime, events, session, persistence, provider, CLI/TUI, or the deferred Step 80 runner.
+  Initial planning review found P1 2 in clock-start timing and partial tool-batch correlation; both were
+  corrected, and the sole narrow re-review is `GO` with Blocker/P1/P2 zero. Product source, tests, task
+  configuration, implementation verification, provider/network/credential/production command,
+  dependency/lockfile, `_refs/`, commit, push, tag, publish, and release remain untouched. Initial
+  implementation requires a separate Human Gate.
+
+- Roadmap step 79 implementation is present in the active tree with results in
+  `docs/plans/agent-definition-replay-envelope-execution-record-results.md`. Pure bounded replay
+  values/messages, schema-v1 replay envelopes with fixed workspace/envelope identities, normalized
+  execution records, and a poisoned finite-state recorder are implemented without runtime/session/
+  provider integration. The focused replay suite passes 13 tests, the Step 77 manifest regression
+  passes 10 tests, and offline topology passes 2 tests. Related focused suites pass comparison 6,
+  session-store 15, session 15, runtime 49, TUI direct 68, TUI process 25, and topology 4; direct
+  `v0:test` and authoritative `v0:gate` each pass 560/560. `v0:check`, `v0:fmt` (120 files),
+  `v0:lint` (117 files), and `git diff --check` pass. The approved closure pass fixed initial
+  implementation review NO-GO findings P1 3/P2 2. The approved residual closure fixed the sole
+  narrow changed-lines re-review residuals (Blocker 0/P1 1/P2 2): all caller-owned primitive
+  identities are snapshotted before asynchronous manifest validation, envelope task/path text uses
+  the shared strict Unicode contract, fresh recorder evidence reaches terminal/reference/value
+  validation branches, and the topology test performs actual four-module source inventory checks.
+  No further review pass was performed. The owner independently reran replay 13/13, offline topology
+  2/2, manifest 10/10, and authoritative full `v0:gate` 560/560; all residuals are Closed and final
+  owner disposition is Blocker/P1/P2 zero. Provider token usage and cost remain explicit `unsupported`
+  values. There is no plan delta or unplanned bug. The reviewed increment is recorded by the
+  user-authorized final integration commit. No provider/network/credential/production command,
+  persistent state, dependency/lockfile, `_refs/`, push, tag, publish, or release operation occurred.
 
 ## Development lifecycle
 

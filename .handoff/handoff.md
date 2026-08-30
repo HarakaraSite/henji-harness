@@ -304,6 +304,21 @@
   provenance/revision/sealed proposal派生identityをcanonical digestで再導出・照合し、残存test
   matrixを補完した
 
+### POL-20260830-agent-definition-replay-envelope-execution-record-plan
+
+- 計画: `docs/plans/agent-definition-replay-envelope-execution-record.md`、SHA-256 `e5327c39e01adb89569375051705135319b40de525b3c0127f910d6974a4300f`。正本inputは`/tmp/planner-inputs/henji-agent-definition-replay-envelope-execution-record.md`、SHA-256 `dc4d2046f00170c5575606feba320859d2b982d62349a3acd02887ac5fc4d775`
+- 契約: schema-v1 replay envelopeはcanonical task/workspace digest/model/budget/initial transcript/full manifestとdomain-separated SHA-256 identityを固定する。execution recordは`runOrdinal`で識別し、実測durationをidentity/record同一性へ使わず、current supported countersとtoken/cost `unsupported`をbounded observationとして持つ
+- seam: constructor/strict validator/canonical representation/pure recorderだけを追加し、runtime/events/session/persistence/provider/CLI/TUI、Step 80 runnerへ接続しない。workspace descriptorはcaller-declared path/digest setでありscanner/completeness proofではない
+- review: initial P1 2をvalidated construction時clock startと、cancel/failure partial tool batchのmodel declaration・dispatch prefix・transcript commit三層相関で修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 境界: product/test/task implementation、implementation test、provider/network/credential/production command、dependency/lockfile、external persistent state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+### POL-20260830-agent-definition-replay-envelope-execution-record-implementation
+
+- 判断済み: approved implementation Human Gateに基づき、Step 79 pure replay value/envelope/execution-record modules、permission-free direct tests、existing full offline gate、results/lifecycle更新を実施する。canonical planはSHA-256 `e5327c39e01adb89569375051705135319b40de525b3c0127f910d6974a4300f`
+- 契約: descriptor-safe bounded clone、workspace/model/budget/manifest/transcript correlation、domain-separated envelope identity、runOrdinal-based normalized record、twice-read monotonic clock、poisoned recorder、explicit `unsupported` token/costを固定し、partial tool batchのdeclaration/dispatch/result layersを区別する。runtime/event/session/persistence/provider/CLI/TUI/Step 80へ接続しない
+- 状態: implementation、approved single finding-closure pass、approved residual closure完了。focused replay 13/13、manifest 10/10、topology 2/2、related comparison 6/6、session-store 15/15、session 15/15、runtime 49/49、TUI direct 68/68、TUI process 25/25、topology 4/4。direct `v0:test`とauthoritative `v0:gate`は560/560、`v0:check`/fmt(120 files)/lint(117 files)/diff checkもpass。ownerがreplay 13/13、topology 2/2、manifest 10/10、full gate 560/560を独立再実行し、initial review P1 3/P2 2とsole narrow re-review残存P1 1/P2 2は全件Closed。追加review passなし、final Blocker/P1/P2 0
+- 対象外: Step 80 runner/comparison/report、runtime/event/session/persistence/provider integration、provider/network/credential/production command、dependency/lockfile、`_refs/`、commit/push/tag/publish/release
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -1949,3 +1964,61 @@
 - 実施: final GOとowner gate済みのreviewed Step 78 incrementをmainへ一つのfeature commitとして記録し、results/lifecycleのcommit状態を整合
 - 次: roadmapの次inputを確認する
 - 注意: provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`変更、push/tag/publish/releaseは未実施
+
+## 2026-08-30 22:42 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Roadmap step 79 Agent Definition replay envelope and execution record planning
+- 実施: revision-25 input、HEAD、Step 77/78 manifest/variant、current Message/loop/event/request seamsを照合しcanonical planを作成。fixed workspace/envelope digestsを独立再計算した。initial P1 2をclock startとpartial tool-batch三層相関で修正し、single narrow re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260830-agent-definition-replay-envelope-execution-record-implementation`の初期implementation Human Gate
+- 注意: plan SHA-256 `e5327c39e01adb89569375051705135319b40de525b3c0127f910d6974a4300f`。product/test/task implementation、implementation test、provider/network/credential/production command、dependency/lockfile、external persistent state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 01:47 JST
+
+- 実行エージェント: Codex step-79 implementer
+- 作業トピック: Roadmap step 79 replay envelope and execution record implementation
+- 実施: canonical identity helper、strict bounded replay value/message/causal clone、schema-v1 replay envelope、normalized execution record、pure poisoned recorderを追加。Step 77 manifest digest regression、permission-free replay leaf、check/full compositionを同期
+- 次: ownerのinitial implementation reviewへ返却。plan delta、stop condition、計画外bugなし
+- 注意: focused replay 6/6、manifest 10/10、topology 2/2、related comparison 6/6、session-store 15/15、session 15/15、runtime 49/49、TUI direct 68/68、TUI process 25/25、topology 4/4、direct `v0:test`/authoritative `v0:gate` 553/553、`v0:check`/fmt(120 files)/lint(117 files)/diff check pass。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 02:15 JST
+
+- 実行エージェント: Codex step-79 implementer
+- 作業トピック: Roadmap step 79 replay envelope and execution record approved finding closure
+- 実施: initial review NO-GO P1 3/P2 2を一回の承認済みclosure passで修正。digest/identity primitive validationとasync前snapshot、即時tool-result bounds/duplicate/shape poisoning、role-local strict declaration/dispatch/result/transcript prefix、parent/planner interleaving、cancelled/contract-failure terminal observation、Unicode surrogate/scalar-node boundsを実装し、direct evidenceを11 testsへ拡張
+- 検証: replay 11/11、manifest 10/10、comparison 6/6、session-store 15/15、session 15/15、runtime 49/49、TUI direct 68/68、TUI process 25/25、topology 4/4、direct `v0:test`/authoritative `v0:gate` 558/558、`v0:check`、fmt(120 files)、lint(117 files)、diff check pass。new four modulesのsource inventoryはproduction/provider/runtime/session import、Deno/fetch/process/Bun markerなし
+- 次: narrow changed-lines re-reviewへ返却。P1 3/P2 2はclosure済みだがfinal GO未確定
+- 注意: plan delta、stop condition、計画外bugなし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 02:22 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Roadmap step 79 sole narrow re-review
+- 実施: initial P1 3/P2 2のsingle closureを再確認。tool-result admissionとrole/interleaving correlationはClosedだが、async caller field reread P1、envelope lone-surrogate P2、branch/source-inventory/lifecycle evidence P2が残りNO-GO、Blocker 0/P1 1/P2 2
+- 次: `ASK-20260831-agent-definition-replay-record-residual-closure`の追加bounded Human Gate
+- 注意: canonical single closure/re-reviewは消費済み。追加修正、owner final gate、commitは未実施。provider/network/credential/production command、dependency/lockfile、`_refs/`、push/tag/publish/releaseも未実施
+
+## 2026-08-31 02:42 JST
+
+- 実行エージェント: Codex step-79 implementer
+- 作業トピック: Roadmap step 79 approved bounded residual closure
+- 実施: sole narrow re-reviewの残存P1 1/P2 2を一回のapproved residual closureで修正。replay-envelope constructor/validatorは`modelIdentity`/`identity`をmanifest validation await前にprimitive snapshotし、shared `isReplayText`でtask/workspace pathの全malformed surrogateを拒否。fresh recorderでinvalid outcome/terminal/reference/value validator branchesを到達させ、offline topology testへ4 moduleの実source-isolation inventory assertionを追加
+- 検証: replay 13/13、manifest 10/10、comparison 6/6、session-store 15/15、session 15/15、runtime 49/49、TUI direct 68/68、TUI process 25/25、topology 4/4、offline topology 2/2、direct `v0:test`/authoritative `v0:gate` 560/560、`v0:check`、fmt(120 files)、lint(117 files)、diff check pass。plan hash `e5327c39e01adb89569375051705135319b40de525b3c0127f910d6974a4300f`不変
+- 次: owner final gateでexact residual regressions、replay、topology、full gateを独立確認。追加review passは未実施・未承認、最終Blocker/P1/P2 disposition pending
+- 注意: plan delta、計画外bugなし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 02:46 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 79 residual closure owner final gate
+- 実施: approved residual closureのasync snapshot、strict Unicode、fresh branch evidence、real source inventoryを照合。replay 13/13、offline topology 2/2、manifest 10/10、authoritative full `v0:gate` 560/560を独立再実行し、全残件Closed、final Blocker/P1/P2 0
+- 次: user-authorized final integration commit後、roadmap Step 80のinputを確認する
+- 注意: plan SHA-256 `e5327c39e01adb89569375051705135319b40de525b3c0127f910d6974a4300f`。追加review pass、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施
+
+## 2026-08-31 02:48 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 79 final integration commit authorization
+- 実施: ユーザーがfinal GO済みStep 79 reviewed treeのcommitを明示承認。results/AGENTS/handoffをcommit状態へ整合し、Step 79対象ファイルだけを一commitへ記録する
+- 次: commit後、roadmap Step 80のinputを確認する
+- 注意: user-owned `_refs/*`はstageしない。push/tag/publish/release、provider/network/credential/production command、dependency/lockfile、actual persistent stateは未実施
