@@ -1,4 +1,4 @@
-import type { BuiltinAgentId } from './agent_catalog.ts';
+import type { AgentManifestDefinitionId, BuiltinAgentId } from './agent_identity.ts';
 import {
   type AgentResourceIdentity,
   type AgentResourceSelection,
@@ -14,7 +14,7 @@ export type AgentResolvedManifestIdentity = string & {
 
 export interface AgentResolvedManifestV1 {
   readonly schemaVersion: 1;
-  readonly definitionId: BuiltinAgentId;
+  readonly definitionId: AgentManifestDefinitionId;
   readonly resources: readonly AgentResourceIdentity[];
   readonly parameters: Readonly<{ readonly maxSteps: number }>;
   readonly identity: AgentResolvedManifestIdentity;
@@ -24,6 +24,24 @@ export const RESOLVED_MANIFEST_DOMAIN = 'henji-agent-resolved-manifest:v1\n';
 const IDENTITY_PREFIX = 'henji-agent-resolved-manifest:v1:sha256:';
 const IDENTITY = /^henji-agent-resolved-manifest:v1:sha256:[0-9a-f]{64}$/;
 const encoder = new TextEncoder();
+
+interface ManifestDefinitionContract {
+  readonly topologyId: 'default' | 'planner';
+  readonly fixedMaxSteps?: number;
+}
+
+const MANIFEST_DEFINITION_CONTRACTS: Readonly<
+  Record<AgentManifestDefinitionId, ManifestDefinitionContract>
+> = Object.freeze(
+  Object.assign(
+    Object.create(null) as Record<AgentManifestDefinitionId, ManifestDefinitionContract>,
+    {
+      default: Object.freeze({ topologyId: 'default' }),
+      planner: Object.freeze({ topologyId: 'planner' }),
+      'default-max-steps-4': Object.freeze({ topologyId: 'default', fixedMaxSteps: 4 }),
+    },
+  ),
+);
 
 export class AgentResolvedManifestError extends Error {
   constructor() {
@@ -90,7 +108,7 @@ const snapshotResources = (value: unknown): string[] => {
 };
 
 const freezeManifest = (
-  definitionId: BuiltinAgentId,
+  definitionId: AgentManifestDefinitionId,
   resources: readonly AgentResourceIdentity[],
   maxSteps: number,
   identity: AgentResolvedManifestIdentity,
@@ -106,7 +124,7 @@ const freezeManifest = (
   });
 
 const payloadObject = (
-  definitionId: BuiltinAgentId,
+  definitionId: AgentManifestDefinitionId,
   resources: readonly AgentResourceIdentity[],
   maxSteps: number,
 ) => ({
@@ -117,7 +135,7 @@ const payloadObject = (
 });
 
 const payloadBytes = (
-  definitionId: BuiltinAgentId,
+  definitionId: AgentManifestDefinitionId,
   resources: readonly AgentResourceIdentity[],
   maxSteps: number,
 ): Uint8Array =>
@@ -142,7 +160,7 @@ const digestIdentity = async (
 };
 
 const snapshotInput = (value: unknown): {
-  readonly definitionId: BuiltinAgentId;
+  readonly definitionId: AgentManifestDefinitionId;
   readonly resources: readonly AgentResourceIdentity[];
   readonly maxSteps: number;
   readonly identity: string;
@@ -164,10 +182,9 @@ const snapshotInput = (value: unknown): {
     const definitionId = value.definitionId;
     const parameters = value.parameters;
     const identity = value.identity;
-    if (
-      schemaVersion !== 1 ||
-      (definitionId !== 'default' && definitionId !== 'planner')
-    ) return invalid();
+    if (schemaVersion !== 1 || typeof definitionId !== 'string') return invalid();
+    const contract = resolveManifestDefinitionContract(definitionId);
+    const manifestDefinitionId = definitionId as AgentManifestDefinitionId;
     if (
       !isPlainObject(parameters) ||
       !exactDataProperties(parameters, ['maxSteps'])
@@ -182,9 +199,13 @@ const snapshotInput = (value: unknown): {
     }
     const names = snapshotResources(value.resources);
     const selection = createAgentResourceSelection(names, parameters.maxSteps);
-    validateAgentResourceTopology(definitionId, selection.resources);
+    validateAgentResourceTopology(contract.topologyId, selection.resources);
+    if (
+      contract.fixedMaxSteps !== undefined &&
+      selection.parameters.maxSteps !== contract.fixedMaxSteps
+    ) return invalid();
     return {
-      definitionId,
+      definitionId: manifestDefinitionId,
       resources: selection.resources.map((resource) => createAgentResourceIdentity(`${resource}`)),
       maxSteps: selection.parameters.maxSteps,
       identity,
@@ -197,14 +218,19 @@ const snapshotInput = (value: unknown): {
 
 /** Construct and validate one immutable schema-v1 manifest from a validated resource selection. */
 export const createAgentResolvedManifest = async (
-  definitionId: BuiltinAgentId,
+  definitionId: AgentManifestDefinitionId,
   selection: AgentResourceSelection,
 ): Promise<AgentResolvedManifestV1> => {
   let resources: readonly AgentResourceIdentity[];
   let maxSteps: number;
   try {
     const validated = validateAgentResourceSelection(selection);
-    validateAgentResourceTopology(definitionId, validated.resources);
+    const contract = resolveManifestDefinitionContract(definitionId);
+    validateAgentResourceTopology(contract.topologyId, validated.resources);
+    if (
+      contract.fixedMaxSteps !== undefined &&
+      validated.parameters.maxSteps !== contract.fixedMaxSteps
+    ) return invalid();
     resources = validated.resources.map((resource) => createAgentResourceIdentity(`${resource}`));
     maxSteps = validated.parameters.maxSteps;
   } catch {
@@ -231,6 +257,42 @@ export const validateAgentResolvedManifest = async (
     snapshot.maxSteps,
     snapshot.identity as AgentResolvedManifestIdentity,
   );
+};
+
+/** Resolve the exact internal manifest ID contract without echoing untrusted input. */
+export const resolveManifestDefinitionContract = (
+  value: unknown,
+): ManifestDefinitionContract & { readonly id: AgentManifestDefinitionId } => {
+  if (
+    typeof value !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(MANIFEST_DEFINITION_CONTRACTS, value)
+  ) return invalid();
+  const contract = MANIFEST_DEFINITION_CONTRACTS[value as AgentManifestDefinitionId];
+  return Object.freeze({
+    id: value as AgentManifestDefinitionId,
+    topologyId: contract.topologyId,
+    ...(contract.fixedMaxSteps === undefined ? {} : { fixedMaxSteps: contract.fixedMaxSteps }),
+  });
+};
+
+/** Correlate a validated internal manifest with the executable built-in runtime selection. */
+export const validateAgentResolvedManifestCorrelation = (
+  manifest: AgentResolvedManifestV1,
+  requestedId: BuiltinAgentId,
+  selection: AgentResourceSelection,
+): void => {
+  try {
+    if (manifest.definitionId !== requestedId) return invalid();
+    const validated = validateAgentResourceSelection(selection);
+    if (
+      manifest.resources.length !== validated.resources.length ||
+      manifest.parameters.maxSteps !== validated.parameters.maxSteps ||
+      manifest.resources.some((resource, index) => resource !== validated.resources[index])
+    ) return invalid();
+  } catch (error) {
+    if (error instanceof AgentResolvedManifestError) throw error;
+    return invalid();
+  }
 };
 
 /** Return the exact identity-bearing payload bytes used by the digest (test-only evidence helper). */

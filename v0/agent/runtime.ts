@@ -41,6 +41,7 @@ import {
   type AgentResolvedManifestV1,
   createAgentResolvedManifest,
   validateAgentResolvedManifest,
+  validateAgentResolvedManifestCorrelation,
 } from './resolved_manifest.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
@@ -207,7 +208,9 @@ const prepareResolvedManifest = async (
   const candidate = factory === undefined
     ? await createAgentResolvedManifest(definitionId, selection)
     : await factory(role, definitionId, selection);
-  return await validateAgentResolvedManifest(candidate);
+  const manifest = await validateAgentResolvedManifest(candidate);
+  validateAgentResolvedManifestCorrelation(manifest, definitionId, selection);
+  return manifest;
 };
 
 /** Resolve startup inputs and validate the selected Definition before materialization. */

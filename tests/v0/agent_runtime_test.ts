@@ -9,6 +9,7 @@ import {
 } from '../../v0/agent/runtime.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
 import { main, MAX_TASK_BYTES } from '../../v0/agent/runtime_cli.ts';
+import { main as tuiMain } from '../../v0/agent/tui_cli.ts';
 import {
   type AgentDefinition,
   defaultAgentDefinition,
@@ -29,6 +30,7 @@ import {
 } from '../../v0/agent/agent_instructions.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
 import { type Message } from '../../v0/agent/contracts.ts';
+import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { createAgentResourceSelection } from '../../v0/agent/resource_identity.ts';
 import {
   AgentResolvedManifestError,
@@ -956,6 +958,114 @@ Deno.test('parent manifest factory failures have no materialization or provider 
   }
 });
 
+Deno.test('runtime correlates built-in manifests and rejects comparison-only variants pre-effect', async () => {
+  const defaultBase = defaultAgentDefinition({
+    workspace: { root: '/comparison-runtime' },
+    skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+  });
+  const variantManifest = await createAgentResolvedManifest(
+    'default-max-steps-4',
+    createAgentResourceSelection(defaultBase.resourceSelection.resources, 4),
+  );
+  const shortDefaultManifest = await createAgentResolvedManifest(
+    'default',
+    createAgentResourceSelection(defaultBase.resourceSelection.resources, 4),
+  );
+  const alternateDefaultManifest = await createAgentResolvedManifest(
+    'default',
+    createAgentResourceSelection([
+      'model:openrouter:alternate-model',
+      ...defaultBase.resourceSelection.resources
+        .filter((resource) => !`${resource}`.startsWith('model:'))
+        .map((resource) => `${resource}`),
+    ], 8),
+  );
+  const cases = [variantManifest, shortDefaultManifest, alternateDefaultManifest] as const;
+  for (const candidate of cases) {
+    await withWorkspace(async (root) => {
+      const observed: string[] = [];
+      let modelMaterializations = 0;
+      let registryMaterializations = 0;
+      let credentialReads = 0;
+      let fetches = 0;
+      let failure: unknown;
+      try {
+        await createRuntimeComposition({
+          workspaceRoot: root,
+          resolvedManifestFactory: () => candidate,
+          credentialSource: () => {
+            credentialReads += 1;
+            return DUMMY_CREDENTIAL;
+          },
+          fetcher: () => {
+            fetches += 1;
+            return Promise.reject(new Error('must not fetch'));
+          },
+          onResolvedManifestValidated: (role) => observed.push(role),
+          onModelMaterialized: () => modelMaterializations += 1,
+          onRegistryMaterialized: () => registryMaterializations += 1,
+        });
+      } catch (error) {
+        failure = error;
+      }
+      assert(failure instanceof AgentResolvedManifestError, `${candidate.definitionId}`);
+      assertEquals(failure.message, 'invalid agent resolved manifest', `${candidate.definitionId}`);
+      assertEquals(observed, [], `${candidate.definitionId}`);
+      assertEquals(modelMaterializations, 0, `${candidate.definitionId}`);
+      assertEquals(registryMaterializations, 0, `${candidate.definitionId}`);
+      assertEquals(credentialReads, 0, `${candidate.definitionId}`);
+      assertEquals(fetches, 0, `${candidate.definitionId}`);
+    });
+  }
+});
+
+Deno.test('lazy planner correlation rejects a valid comparison manifest without child effects', async () => {
+  await withWorkspace(async (root) => {
+    const parent = defaultAgentDefinition({
+      workspace: { root },
+      skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+    });
+    const variant = await createAgentResolvedManifest(
+      'default-max-steps-4',
+      createAgentResourceSelection(parent.resourceSelection.resources, 4),
+    );
+    const materialized: string[] = [];
+    const observed: string[] = [];
+    let credentialReads = 0;
+    const result = await runRuntime('parent task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([
+        response(delegationPayload('delegate', 'child task')),
+        response(finalPayload('parent continued')),
+      ]),
+      credentialSource: () => {
+        credentialReads += 1;
+        return DUMMY_CREDENTIAL;
+      },
+      resolvedManifestFactory: async (role, id, selection) =>
+        role === 'planner' ? variant : await createAgentResolvedManifest(id, selection),
+      onResolvedManifestValidated: (role) => observed.push(role),
+      onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
+      onRegistryMaterialized: (definition) =>
+        materialized.push(`registry:${definition.registry.kind}`),
+    });
+    assert(result.outcome.ok);
+    assertEquals(result.outcome.finalText, 'parent continued');
+    assertEquals(result.requestCount, 2);
+    assertEquals(observed, ['parent']);
+    assertEquals(materialized, ['model:production', 'registry:production']);
+    assertEquals(credentialReads, 2);
+    const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
+    assert(toolMessage?.role === 'tool');
+    assertEquals(JSON.parse(toolMessage.content[0].text), {
+      ok: false,
+      agent: 'planner',
+      error: { code: 'planner_failed', message: 'planner delegation failed' },
+      usage: { modelRequests: 0, externalRequests: 0 },
+    });
+  });
+});
+
 Deno.test('lazy planner manifest factory failures preserve sanitized continuation and request ownership', async () => {
   const cases: readonly {
     readonly name: string;
@@ -1225,6 +1335,7 @@ Deno.test('resolved manifest domain and identity never leak across runtime publi
       JSON.stringify(composition),
       JSON.stringify(runResult),
       JSON.stringify(delegated),
+      JSON.stringify({ sessionKeys: Object.keys(session.session) }),
       JSON.stringify(session.session.transcriptSnapshot()),
       JSON.stringify(events),
       JSON.stringify(persisted),
@@ -1240,6 +1351,18 @@ Deno.test('resolved manifest domain and identity never leak across runtime publi
       }
     }
     for (const value of values) assert(!value.includes(domain));
+    for (const value of values) {
+      for (
+        const marker of [
+          'default-max-steps-4',
+          'parentId',
+          'topologyId',
+          'changedAxis',
+          'parentMaxSteps',
+          'variantMaxSteps',
+        ]
+      ) assert(!value.includes(marker), marker);
+    }
   });
 });
 
@@ -1934,6 +2057,11 @@ Deno.test('CLI selector grammar rejects before host effects and consumes option-
       expected: 'invalid',
     },
     {
+      name: 'comparison-only selector value',
+      args: ['--agent', 'default-max-steps-4', '--task', 'task'],
+      expected: 'invalid',
+    },
+    {
       name: 'option-looking --agent value is consumed verbatim',
       args: ['--agent', '--task', '--task', 'task'],
       expected: 'invalid',
@@ -2011,6 +2139,33 @@ Deno.test('CLI selector grammar rejects before host effects and consumes option-
       assertEquals(seenSelection, 'default', testCase.name);
     }
   }
+});
+
+Deno.test('TUI rejects comparison-only selector before terminal or session effects', async () => {
+  let terminalProbes = 0;
+  let sessions = 0;
+  let stderr = '';
+  const exit = await tuiMain(['--agent', 'default-max-steps-4'], {
+    terminal: {
+      stdinIsTerminal: () => {
+        terminalProbes += 1;
+        return true;
+      },
+      stdoutIsTerminal: () => true,
+    } as unknown as TerminalPort,
+    createSession: () => {
+      sessions += 1;
+      throw new Error('session must not start');
+    },
+    writeStderr: (text) => {
+      stderr += text;
+    },
+  });
+  assertEquals(exit, 1);
+  assertEquals(terminalProbes, 0);
+  assertEquals(sessions, 0);
+  assertEquals(JSON.parse(stderr).error.code, 'invalid_invocation');
+  assert(!stderr.includes('default-max-steps-4'));
 });
 
 Deno.test('CLI rejects duplicate, missing, positional, and ambiguous task sources', async () => {

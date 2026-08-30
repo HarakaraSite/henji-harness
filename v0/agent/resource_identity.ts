@@ -1,5 +1,5 @@
 import type { ResolvedAgentDefinition } from './agent_definition.ts';
-import type { BuiltinAgentId } from './agent_catalog.ts';
+import type { AgentResourceTopologyId } from './agent_identity.ts';
 
 /** A stable, internal name for one selected agent resource. */
 export type AgentResourceIdentity = string & {
@@ -215,7 +215,7 @@ export const createAgentResourceSelection = (
  * This is shared by the Step 76 Definition validator and the Step 77 manifest codec.
  */
 export const validateAgentResourceTopology = (
-  definitionId: BuiltinAgentId,
+  definitionId: AgentResourceTopologyId,
   resources: readonly AgentResourceIdentity[],
 ): void => {
   if (definitionId !== 'default' && definitionId !== 'planner') return invalid();
@@ -364,7 +364,7 @@ const expectedResources = (
 /** Validate one resolved Definition against its independent stable resource declaration. */
 export const validateResolvedAgentResources = (
   definition: ResolvedAgentDefinition,
-  definitionId?: BuiltinAgentId,
+  definitionId?: AgentResourceTopologyId,
 ): AgentResourceSelection => {
   const selection = validateAgentResourceSelection(
     definition?.resourceSelection,

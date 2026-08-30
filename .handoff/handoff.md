@@ -4,7 +4,7 @@
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
-- 状態: roadmap step 77 resolved manifestは実装、single closure/re-review、owner full gate 537/537、final Blocker/P1/P2 0を完了し、user-authorized final integration commitへ記録する
+- 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison variantは実装、single closure/re-review、owner full gate 547/547、final Blocker/P1/P2 0を完了し、user-authorized final integration commitへ記録する
 - 次: roadmapの次inputを確認する。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
@@ -62,6 +62,29 @@
 - 検証: manifest/definition/runtime/planner/session/store/persistent-TUI/TUI-direct/topology focused 9/12/46/16/15/15/8/68/2、TUI topology 4。direct `v0:test` 537/537、owner `v0:gate` 537/537、`v0:check`/`v0:fmt` (112 files)/`v0:lint` (109 files)/`git diff --check`成功
 - 状態: initial review Blocker 0/P1 1/P2 2はsole narrow re-reviewで全件Closed、GO。owner final manifest 9/9/full gate 537/537、final Blocker/P1/P2 0。production defect、plan delta、stop condition、計画外bugなし
 - 境界: provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
+
+### POL-20260830-agent-definition-local-comparison-variant-plan
+
+- 計画: `docs/plans/agent-definition-local-comparison-variant.md`、SHA-256 `4d134e26ea4e96fffa43997e085b3d900c1a108a06eb0fb963dc691be919b72d`。正本inputは`/tmp/planner-inputs/henji-agent-definition-local-comparison-variant.md`、SHA-256 `7c99b4dbbd353f722e0b70e57fc9489f1acc87e06ab0dac21f29820a03b097c6`
+- 契約: internal compile-time catalogへexact one variant `default-max-steps-4`を追加し、一度だけ評価した`default`からresourcesと全non-axis declarationを保ったまま`maxSteps`だけ8→4へ変更する。public `BuiltinAgentId`/`--agent`/runtime selectorは`default`/`planner`のまま
+- manifest/runtime: schema-v1 codec/domainを維持しfinite internal manifest IDだけを3値化。variantはdefault topologyとfixed maxSteps 4へbindする。runtime factory seamはrequested built-in ID/resources/maxStepsとのexact correlationによりvariant注入をobserver/materialization前に拒否する
+- review: initial P1 1はstandalone-valid variant manifestがexisting runtime factory seamから到達する経路。generic built-in correlation helperとparent/lazy planner pre-effect regressionsをplanへ追加し、single narrow re-reviewはGO、Blocker/P1/P2 0。six known-answer digestは独立再計算と一致
+- 境界: Steps 79-80 execution/comparison、provider/network/credential/production command、dependency/lockfile、external persistent state、`_refs/`、commit/push/tag/publish/releaseは対象外
+
+### POL-20260830-agent-definition-local-comparison-variant-implementation
+
+- 実施: finite identity domains、public built-in catalog不変、schema-v1 variant contract、one-entry `default-max-steps-4` comparison catalog/evaluator、sole-axis relationship validation、runtime built-in manifest correlation、permission-free task/topologyを実装し、Step 77のdefault/planner runtime reachabilityを維持した
+- 証拠: variant no-context/skills known answers、catalog/derivation/drift/invariance、manifest six-answer/variant rejection、runtime parent/lazy pre-effect correlation、public selector rejectionを追加。resultsは`docs/plans/agent-definition-local-comparison-variant-results.md`、SHA-256 `de25f3fbd8d394c34d1861ca28d03fd722165b61609efe445c17d3da4727adde`
+- 状態: focused comparison/manifest/definition-selection/definition/runtime/runtime-process/TUI/TUI-topology/offline-topology 6/10/4/12/49/18/68/4/2。direct `v0:test`/authoritative `v0:gate` 547/547、`v0:check`、`v0:fmt` (115 files)、`v0:lint` (112 files)、`git diff --check`成功。initial review P2 3はsingle closure/re-reviewで全件Closed、GO。owner final gate 547/547、final Blocker/P1/P2 0。No plan delta、stop condition、計画外bugなし
+- 境界: reviewed incrementはuser-authorized final integration commitへ記録する。provider/network/credential/production command、actual external persistent state、dependency/lockfile、`_refs/`、push、tag、publish、releaseは未実施
+
+### POL-20260830-agent-definition-local-comparison-variant-implementation-finding-closure
+
+- 実施: approved single finding-closure passで、comparison evaluatorのproduction fixed-default wrapperを維持しつつdirect-test-only exactly-once seamを追加した。no-context/no-skillsとworkspace+skillsのcall countを1/1で固定した
+- 実施: complete mechanical drift matrixとしてregistry plannerDelegation、resource reorder、parent/variant maxSteps (5/3/0/negative/unsafe/non-number)、frozen wrong parent/topology entry、top-level missing/symbol/non-plain shapeを追加し、全件sanitized rejectionを確認した。catalog namespace、CLI/TUI selector pre-effect rejection、fake runtime wire/event/outcome/transcript/session/result nonleakageも追加した
+- 検証: comparison/catalog/manifest/definition/runtime/runtime-process/TUI/TUI-topology/offline-topology focused 6/4/10/12/49/18/68/4/2を確認。direct `v0:test`/authoritative `v0:gate` 547/547、`v0:check`、`v0:fmt` (115 files)、`v0:lint` (112 files)、`git diff --check`をclosure後に再実行して成功した
+- 状態: initial implementation review P2 3のevidence closureを一回のapproved passで実装。sole narrow re-reviewは全件Closed、GO。owner final comparison 6/runtime 49/definition-selection 4/topology 2/full gate 547、final Blocker/P1/P2 0。production defect、plan delta、stop condition、計画外bugなし
+- 境界: provider/network/credential/production command、actual external persistent state、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
 
 ### POL-20260829-bounded-next-turn-queue-plan
 
@@ -1894,3 +1917,35 @@
 - 実施: approved planどおりschema-v1 codec、shared exact topology、two-phase runtime/TUI、permission-free manifest leafを実装。initial P1 1/P2 2を一回のclosureで修正し、sole re-reviewは全件Closed、GO、Blocker/P1/P2 0
 - 次: user-authorized final integration commit後、roadmapの次inputを確認する
 - 注意: owner final manifest 9/9、full `v0:gate` 537/537、diff check成功。plan SHA-256 `9321cbb783844261647c6479757a1a17196eef67ae2771a0ba2bb58151456d3c`。provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施
+
+## 2026-08-30 20:19 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Roadmap step 78 Agent Definition local comparison variant planning
+- 実施: revision-24 input、HEAD、Step 77 manifest/Definition/runtime seamを照合しcanonical planを作成。variant 2件と既存4件のknown-answerを固定した。initial P1 1のruntime factory到達経路をbuilt-in manifest correlation契約で閉鎖し、single narrow re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260830-agent-definition-local-comparison-variant-implementation`の初期implementation Human Gate
+- 注意: plan SHA-256 `4d134e26ea4e96fffa43997e085b3d900c1a108a06eb0fb963dc691be919b72d`。product/test/task implementation、provider/network/credential/production command、dependency/lockfile、external persistent state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-30 21:09 JST
+
+- 実行エージェント: Codex step-78 implementer
+- 作業トピック: Roadmap step 78 implementation finding closure
+- 実施: initial P2 3件を一回のapproved closure passで修正。direct-only exactly-once evaluator evidence、complete drift matrix、public selector/catalog/runtime nonleakage evidenceを追加
+- 次: coordinating ownerのbounded re-reviewとfinal Blocker/P1/P2 disposition
+- 注意: focused comparison/catalog/manifest/definition/runtime/runtime-process/TUI/TUI-topology/offline-topology 6/4/10/12/49/18/68/4/2、direct `v0:test`/authoritative `v0:gate` 547/547、check/fmt/lint/diff check成功。plan delta、stop condition、計画外bugなし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-30 21:13 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Roadmap step 78 final review and owner gate
+- 実施: initial implementation review P2 3のsingle closureをnarrow re-reviewし全件Closed、GO、Blocker/P1/P2 0。ownerがcomparison 6/6、runtime 49/49、definition-selection 4/4、topology 2/2、authoritative full `v0:gate` 547/547を独立再実行してexit 0を確認
+- 次: reviewed treeのcommitは別の明示指示待ち
+- 注意: plan SHA-256 `4d134e26ea4e96fffa43997e085b3d900c1a108a06eb0fb963dc691be919b72d`。final owner Blocker/P1/P2 0。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-30 21:15 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 78 final integration commit
+- 実施: final GOとowner gate済みのreviewed Step 78 incrementをmainへ一つのfeature commitとして記録し、results/lifecycleのcommit状態を整合
+- 次: roadmapの次inputを確認する
+- 注意: provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`変更、push/tag/publish/releaseは未実施

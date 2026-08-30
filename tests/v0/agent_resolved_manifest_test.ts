@@ -20,6 +20,7 @@ import {
   type SkillFileSystem,
   type SkillPathInfo,
 } from '../../v0/agent/skills.ts';
+import type { AgentManifestDefinitionId } from '../../v0/agent/agent_identity.ts';
 
 const DEFAULT_RESOURCES = [
   'model:openrouter:openrouter-google-gemini-3.7-flash-vertex-v0',
@@ -37,13 +38,14 @@ const PLANNER_RESOURCES = [
   'tool:read',
   'tool:submit_json_result',
 ] as const;
+const VARIANT_RESOURCES = DEFAULT_RESOURCES;
 const selection = (resources: readonly string[]) => createAgentResourceSelection(resources, 8);
 const canonical = (resources: readonly string[]): string[] =>
   resources.map((resource) => createAgentResourceIdentity(resource)).sort(
     compareAgentResourceIdentities,
   ).map((resource) => `${resource}`);
 const rehashed = async (
-  definitionId: 'default' | 'planner',
+  definitionId: AgentManifestDefinitionId,
   resources: readonly string[],
   maxSteps = 8,
 ): Promise<Record<string, unknown>> => {
@@ -122,8 +124,40 @@ const assertInvalid = async (value: unknown): Promise<void> => {
   assert(false, 'expected manifest rejection');
 };
 
-Deno.test('resolved manifest matches all four schema-v1 known answers', async () => {
+Deno.test('resolved manifest matches all six schema-v1 known answers', async () => {
   const answers = [
+    {
+      id: 'default-max-steps-4' as const,
+      resources: VARIANT_RESOURCES,
+      maxSteps: 4,
+      payload:
+        '{"schemaVersion":1,"definitionId":"default-max-steps-4","resources":["model:openrouter:openrouter-google-gemini-3.7-flash-vertex-v0","tool:bash","tool:delegate_to_planner","tool:edit","tool:read","tool:submit_json_result","tool:write","subagent:planner"],"parameters":{"maxSteps":4}}',
+      identity:
+        'henji-agent-resolved-manifest:v1:sha256:90121c85e8c3a26f48eeca0ede02667584cd9056d53ba85173b2022812dca389',
+    },
+    {
+      id: 'default-max-steps-4' as const,
+      resources: [
+        VARIANT_RESOURCES[0],
+        'instruction:project-skill-manifest',
+        'instruction:workspace-agents',
+        'skill:format',
+        'skill:review',
+        'tool:bash',
+        'tool:delegate_to_planner',
+        'tool:edit',
+        'tool:read',
+        'tool:skill',
+        'tool:submit_json_result',
+        'tool:write',
+        'subagent:planner',
+      ],
+      maxSteps: 4,
+      payload:
+        '{"schemaVersion":1,"definitionId":"default-max-steps-4","resources":["model:openrouter:openrouter-google-gemini-3.7-flash-vertex-v0","instruction:project-skill-manifest","instruction:workspace-agents","skill:format","skill:review","tool:bash","tool:delegate_to_planner","tool:edit","tool:read","tool:skill","tool:submit_json_result","tool:write","subagent:planner"],"parameters":{"maxSteps":4}}',
+      identity:
+        'henji-agent-resolved-manifest:v1:sha256:26c9197ad70e1f2b89cc574f7da67d2bb9d1c78b3d80879450518fb3e5ab54e0',
+    },
     {
       id: 'default' as const,
       resources: DEFAULT_RESOURCES,
@@ -184,7 +218,7 @@ Deno.test('resolved manifest matches all four schema-v1 known answers', async ()
   for (const answer of answers) {
     const manifest = await createAgentResolvedManifest(
       answer.id,
-      selection(answer.resources),
+      createAgentResourceSelection(answer.resources, answer.maxSteps ?? 8),
     );
     assertEquals(
       new TextDecoder().decode(resolvedManifestPayload(manifest)),
@@ -483,6 +517,22 @@ Deno.test('correct digest cannot cross-bind default and planner topology', async
     definitionId: 'planner',
   };
   await assertInvalid(plannerBound);
+});
+
+Deno.test('variant manifest binds default topology and fixed maxSteps four', async () => {
+  const valid = await createAgentResolvedManifest(
+    'default-max-steps-4',
+    createAgentResourceSelection(VARIANT_RESOURCES, 4),
+  );
+  await assertInvalid(await rehashed('default-max-steps-4', VARIANT_RESOURCES, 8));
+  await assertInvalid(
+    await rehashed('default-max-steps-4', PLANNER_RESOURCES, 4),
+  );
+  await assertInvalid(
+    await rehashed('default-max-steps-4', [...VARIANT_RESOURCES, 'tool:extra'], 4),
+  );
+  assertEquals(valid.definitionId, 'default-max-steps-4');
+  assertEquals(valid.parameters.maxSteps, 4);
 });
 
 Deno.test('validator snapshots caller data and reports one sanitized error', async () => {

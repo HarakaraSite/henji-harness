@@ -28,7 +28,17 @@ Deno.test('omitted selector resolves default and does no Definition evaluation',
 });
 
 Deno.test('catalog accepts only exact case-sensitive ASCII built-in names', () => {
-  for (const name of ['Default', 'PLANNER', 'default_', 'planner.', 'planner/', 'planner-name']) {
+  for (
+    const name of [
+      'Default',
+      'PLANNER',
+      'default_',
+      'planner.',
+      'planner/',
+      'planner-name',
+      'default-max-steps-4',
+    ]
+  ) {
     let caught: unknown;
     try {
       resolveBuiltinAgent(name);

@@ -3,10 +3,10 @@ import {
   defaultAgentDefinition,
   plannerAgentDefinition,
 } from './agent_definition.ts';
+import type { BuiltinAgentId } from './agent_identity.ts';
 
-/** The finite set of compile-time built-in Agent Definition identifiers. */
-export const BUILTIN_AGENT_IDS = Object.freeze(['default', 'planner'] as const);
-export type BuiltinAgentId = typeof BUILTIN_AGENT_IDS[number];
+export { BUILTIN_AGENT_IDS } from './agent_identity.ts';
+export type { BuiltinAgentId } from './agent_identity.ts';
 
 export interface BuiltinAgentSelection {
   readonly id: BuiltinAgentId;

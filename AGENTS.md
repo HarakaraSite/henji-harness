@@ -361,6 +361,25 @@
   increment is recorded by the user-authorized final integration commit. No provider/network/credential/
   production command, dependency/lockfile, actual persistent product state, `_refs/` operation, push,
   tag, publish, or release occurred.
+- Roadmap step 78 is implemented in `docs/plans/agent-definition-local-comparison-variant.md`,
+  SHA-256 `4d134e26ea4e96fffa43997e085b3d900c1a108a06eb0fb963dc691be919b72d`, with results in
+  `docs/plans/agent-definition-local-comparison-variant-results.md`, SHA-256
+  `de25f3fbd8d394c34d1861ca28d03fd722165b61609efe445c17d3da4727adde`. It adds exactly one internal
+  compile-time variant, `default-max-steps-4`, derived from one evaluation of `default` with
+  `maxSteps` as the sole 8→4 axis. Public `BuiltinAgentId`, `--agent`, CLI/TUI and runtime selection
+  remain exact `default`/`planner`. Schema-v1 keeps its codec/domain while its finite internal manifest
+  ID set gains the variant, bound to default topology and exact maxSteps 4; all six known answers pass.
+  Focused comparison/manifest/definition-selection/definition/runtime/runtime-process/TUI/TUI-topology/
+  offline-topology suites pass 6/10/4/12/49/18/68/4/2. The approved single closure pass added
+  direct-only exactly-once evaluator evidence, the complete mechanical drift matrix, and public
+  CLI/TUI/runtime nonleakage evidence. Direct `v0:test` and authoritative `v0:gate` pass 547/547,
+  with `v0:check`, `v0:fmt` (115 files), `v0:lint` (112 files), and `git diff --check` green.
+  The sole narrow changed-lines re-review confirmed all three initial evidence P2s closed and returned
+  `GO`, Blocker/P1/P2 zero. The owner independently reran comparison 6/6, runtime 49/49,
+  definition-selection 4/4, topology 2/2, and authoritative full `v0:gate` 547/547; final owner
+  disposition is Blocker/P1/P2 zero. The reviewed increment is recorded by the user-authorized final
+  integration commit. No provider/network/credential/production command, dependency/lockfile, external
+  persistent state, `_refs/` operation, push, tag, publish, or release occurred.
 
 ## Development lifecycle
 
