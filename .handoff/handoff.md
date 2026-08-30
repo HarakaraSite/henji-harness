@@ -319,6 +319,15 @@
 - 状態: implementation、approved single finding-closure pass、approved residual closure完了。focused replay 13/13、manifest 10/10、topology 2/2、related comparison 6/6、session-store 15/15、session 15/15、runtime 49/49、TUI direct 68/68、TUI process 25/25、topology 4/4。direct `v0:test`とauthoritative `v0:gate`は560/560、`v0:check`/fmt(120 files)/lint(117 files)/diff checkもpass。ownerがreplay 13/13、topology 2/2、manifest 10/10、full gate 560/560を独立再実行し、initial review P1 3/P2 2とsole narrow re-review残存P1 1/P2 2は全件Closed。追加review passなし、final Blocker/P1/P2 0
 - 対象外: Step 80 runner/comparison/report、runtime/event/session/persistence/provider integration、provider/network/credential/production command、dependency/lockfile、`_refs/`、commit/push/tag/publish/release
 
+### POL-20260831-agent-definition-fresh-runtime-comparison-plan
+
+- 計画: `docs/plans/agent-definition-fresh-runtime-comparison.md`、SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`。正本inputは`/tmp/planner-inputs/henji-agent-definition-fresh-runtime-comparison.md`、SHA-256 `1ade0a708bc059537c6c0733898590e73e1c855ed20e7df2b3428650800d6b09`
+- clarification: Step 79 schemaは不変。`modelRequests.parent`と`aggregate`をmaxSteps 8/4から機械的に派生する許可差分とし、planner/external/wall ceilingは共有する
+- 契約: one fixed caseからfresh Definition/manifest/envelope/runtime/model/tool/recorderを二組作り、current final/committed 5 stepsとvariant max_steps/uncommitted 4 stepsをexact observationでrecordする。strict resultからbounded literal reportをrenderし、winner/score/promotionを作らない
+- review: initial P2 2をaccepted call/result boundary、observer failure precedence、exact nested result/count/state schema、literal report bytesで修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 状態: implementation Human Gate、single implementation closure、single re-review、residual evidence closure、owner final gate完了。fresh comparison 12、loop 26、topology 2、full gate 578成功。initial review P2 5とre-review残存P2 2は全件Closed、final Blocker/P1/P2 0
+- 境界: provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -2022,3 +2031,78 @@
 - 実施: ユーザーがfinal GO済みStep 79 reviewed treeのcommitを明示承認。results/AGENTS/handoffをcommit状態へ整合し、Step 79対象ファイルだけを一commitへ記録する
 - 次: commit後、roadmap Step 80のinputを確認する
 - 注意: user-owned `_refs/*`はstageしない。push/tag/publish/release、provider/network/credential/production command、dependency/lockfile、actual persistent stateは未実施
+
+## 2026-08-31 03:07 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Roadmap step 80 Agent Definition fresh-runtime comparison planning
+- 実施: revision-26 input、HEAD、Step 79 replay budget validatorを再照合。model ceiling共有・許可差分限定と`parent === maxSteps` / aggregate相関の両立不能をplannerが検出し、read-only reviewもNO-GO / Blocker 1を確認
+- 次: `ASK-20260831-agent-definition-fresh-runtime-comparison-ceilings`のユーザー判断後、選択された正本契約でplanningを再開する
+- 注意: canonical planは未作成。repository変更はこのhandoff checkpointだけ。test/provider/network/credential/production command、dependency/lockfile、persistent state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 03:25 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Roadmap step 80 Agent Definition fresh-runtime comparison planning closure
+- 実施: ユーザーがceiling衝突の選択肢1を承認。canonical planを作成し、二envelope identityをexisting constructorでpermission-free再計算。initial P2 2をplanning-only修正し、single narrow re-review GO、Blocker/P1/P2 0
+- 次: `POL-20260831-agent-definition-fresh-runtime-comparison-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`。known-answer計算以外のtest/gate、product/test/task implementation、provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 03:43 JST
+
+- 実行エージェント: Codex step-80 implementer
+- 作業トピック: Roadmap step 80 fresh-runtime comparison implementation
+- 実施: 固定comparison case、fresh Definition/runtime pair、Step-80専用loop observer、normalized record相関、bounded plain-text report、permission-free leaf/topologyを追加
+- 次: ownerがfocused regression、check/fmt/lint、direct/full offline gate、bounded reviewを実行
+- 注意: focused comparison 6/6、loop 24/24、offline topology 2/2。plan delta、stop condition、計画外bugなし。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 03:56 JST
+
+- 実行エージェント: Codex step-80 implementer
+- 作業トピック: Roadmap step 80 fresh-runtime comparison implementation verification
+- 実施: required focused regressions、`v0:check`、`v0:fmt`、`v0:lint`、direct `v0:test`、`v0:gate`、`git diff --check`を完了。direct/fullは568/568。comparison 6/6、loop 24/24、offline topology 2/2、definition 12/12、manifest 10/10、variant 6/6、replay 13/13、runtime 49/49+process 18/18、TUI 68/68+process 25/25+topology 4/4がgreen
+- 次: ownerが実装diffのindependent bounded reviewとfinal dispositionを行う
+- 注意: plan delta、stop condition、計画外bugなし。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 03:59 JST
+
+- 実行エージェント: Codex step-80 implementer
+- 作業トピック: Roadmap step 80 fresh-runtime comparison final implementation verification
+- 実施: strict-record/fixture transcript validation、fresh abort state、observer defensive snapshots、case/ceiling/resource/result mutation回帰を追加。focused comparison 8/8、loop 26/26、offline topology 2/2。`v0:gate`はcheck、fmt(123 files)、lint(120 files)、direct/full 572/572を含めgreen。`git diff --check`もpass
+- 次: ownerがbounded independent reviewとfinal dispositionを行う
+- 注意: plan delta、stop condition、計画外bugなし。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 04:15 JST
+
+- 実行エージェント: Codex step-80 implementer
+- 作業トピック: Roadmap step 80 approved implementation-review finding closure
+- 実施: initial review NO-GO P2 5を一回のapproved closure passで修正。Definition projectionをstrict field/type-safe比較へ置換し`undefined`/`null`回帰を追加、Step-80専用stateful fixture toolのordinal/order/reuse/extra-call境界とfreshnessを追加、test-only construction/fault seamsで両実行順のsetup/model/tool/observer/recorder/clock/correlation/partial-second failureを一エラー/no-partialで検証、production import graphをregistry/OpenRouter/provider/credential/persistence/TUIまで推移的に厳密化しmutation回帰を追加、canonical planをapproved hashへ復元
+- 検証: fresh comparison 12/12、loop 26/26、offline topology 2/2、definition 12/12、manifest 10/10、variant 6/6、replay 13/13、runtime 49/49+process 18/18、TUI 68/68+process 25/25+topology 4/4。direct `v0:test`/authoritative `v0:gate` 578/578（48 suitesの合計）、`v0:check`、fmt(123 files)、lint(120 files)、diff check pass。canonical plan SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`を確認
+- 次: coordinating ownerへreview-ready diffを返却し、bounded changed-lines re-reviewとfinal dispositionを依頼
+- 注意: plan delta、stop condition、計画外bugなし。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 04:35 JST
+
+- 実行エージェント: Codex step-80 implementer
+- 作業トピック: Roadmap step 80 residual evidence closure after single re-review
+- 実施: re-review残存evidence-only P2 2を一回のapproved residual closureで修正。model/tool/observer/recorder/clockのposition-second faultをfirst-run settled後に注入して両実行順のone sanitized error/no partial resultを検証、partial-second injectionをsecond-run全construction観測後へ移動。production import graphはunresolved local importをfail-closedとし、`v0/agent/tools.ts`→synthetic `v0/agent/step80-transitive-mutation.ts`→`fresh_runtime_comparison.ts`のexact mutationをreject
+- 検証: residual fresh comparison 12/12、offline topology 2/2、`v0:check`、fmt(123 files)、lint(120 files)、authoritative `v0:gate` 578/578（48 suites）、`git diff --check` pass。owner final dispositionはpending
+- 次: coordinating ownerがresidual evidenceとreview済みtreeをfinal owner gateで確認し、Blocker/P1/P2 dispositionを決定する
+- 注意: plan SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`不変。plan delta、stop condition、計画外bugなし。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 04:40 JST
+
+- 実行エージェント: Codex step-80 implementer
+- 作業トピック: Roadmap step 80 final narrow partial-second evidence correction
+- 実施: partial-second faultをsecond runのfirst actual model settlement後、recorderへ記録した直後へ移動。bounded `model-settled-recorded:1` progress markerを追加し、両実行順でfirst settled、second recorder progress、sanitized error、no comparison resultを検証
+- 検証: fresh comparison 12/12、`v0:check`、fmt(123 files)、lint(120 files)、authoritative `v0:gate` 578/578（48 suites）、`git diff --check` pass。owner final dispositionはpending
+- 次: coordinating ownerがfinal owner gateでpartial-second evidenceを確認し、Blocker/P1/P2 dispositionを決定する
+- 注意: canonical plan SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`不変。plan delta、stop condition、計画外bugなし。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 04:33 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 80 fresh-runtime comparison owner final gate
+- 実施: residual second-position/partial-secondとunresolved/transitive import evidenceをsource/testで照合。ownerがfresh comparison 12/12、offline topology 2/2、authoritative full `v0:gate` 578/578を独立再実行し、initial P2 5とsingle re-review残存P2 2を全件Closed、final Blocker/P1/P2 0と判断
+- 次: reviewed treeのcommitは別の明示指示待ち
+- 注意: plan SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`。check/fmt(123)/lint(120)/diff check green。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施

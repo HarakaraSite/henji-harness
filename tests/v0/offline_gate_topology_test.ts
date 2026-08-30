@@ -16,6 +16,57 @@ const STEP79_FORBIDDEN_SOURCE_PATTERNS = [
   /\bprocess\./,
   /\bBun\./,
 ] as const;
+const COMPARISON_SOURCE_FILES = [
+  'v0/agent/fresh_runtime_comparison.ts',
+  'v0/agent/fresh_runtime_comparison_report.ts',
+] as const;
+const TRANSITIVE_MUTATION_FILE = 'v0/agent/step80-transitive-mutation.ts';
+const PRODUCTION_COMPARISON_FORBIDDEN_PATTERNS = [
+  /fresh_runtime_comparison/,
+] as const;
+const PRODUCTION_ROOT_FILES = [
+  'v0/agent/runtime.ts',
+  'v0/agent/session.ts',
+  'v0/agent/cli.ts',
+  'v0/agent/runtime_cli.ts',
+  'v0/agent/tui_cli.ts',
+] as const;
+const PRODUCTION_SOURCE_FILES = [
+  'v0/domain.ts',
+  'v0/model.ts',
+  'v0/agent/agent_catalog.ts',
+  'v0/agent/agent_definition.ts',
+  'v0/agent/agent_identity.ts',
+  'v0/agent/agent_instructions.ts',
+  'v0/agent/cancellation.ts',
+  'v0/agent/canonical_identity.ts',
+  'v0/agent/cli.ts',
+  'v0/agent/context.ts',
+  'v0/agent/contracts.ts',
+  'v0/agent/events.ts',
+  'v0/agent/execution_context.ts',
+  'v0/agent/fixture_model.ts',
+  'v0/agent/loop.ts',
+  'v0/agent/openrouter_model.ts',
+  'v0/agent/planner_delegation.ts',
+  'v0/agent/registries.ts',
+  'v0/agent/resolved_manifest.ts',
+  'v0/agent/resource_identity.ts',
+  'v0/agent/runtime.ts',
+  'v0/agent/runtime_cli.ts',
+  'v0/agent/session.ts',
+  'v0/agent/session_cli.ts',
+  'v0/agent/session_store.ts',
+  'v0/agent/skills.ts',
+  'v0/agent/steering.ts',
+  'v0/agent/tools.ts',
+  'v0/agent/tui_cli.ts',
+  'v0/agent/work_tools.ts',
+  'v0/tui/controller.ts',
+  'v0/tui/input.ts',
+  'v0/tui/render.ts',
+  'v0/tui/terminal.ts',
+] as const;
 
 const CHECK_TARGETS = [
   'v0/cli/main.ts',
@@ -34,6 +85,8 @@ const CHECK_TARGETS = [
   'v0/agent/execution_record.ts',
   'v0/agent/resolved_manifest.ts',
   'v0/agent/comparison_variant.ts',
+  'v0/agent/fresh_runtime_comparison.ts',
+  'v0/agent/fresh_runtime_comparison_report.ts',
   'v0/agent/agent_catalog.ts',
   'v0/agent/agent_instructions.ts',
   'v0/agent/events.ts',
@@ -78,6 +131,7 @@ const CHECK_TARGETS = [
   'tests/v0/agent_definition_test.ts',
   'tests/v0/agent_resolved_manifest_test.ts',
   'tests/v0/agent_comparison_variant_test.ts',
+  'tests/v0/agent_fresh_runtime_comparison_test.ts',
   'tests/v0/planner_delegation_test.ts',
   'tests/v0/agent_catalog_test.ts',
   'tests/v0/agent_work_tools_test.ts',
@@ -140,6 +194,7 @@ const EXPECTED_LEAVES = [
   'agent:resolved-manifest:test',
   'agent:comparison-variant:test',
   'agent:replay-record:test',
+  'agent:fresh-runtime-comparison:test',
   'agent:definition:test',
   'agent:definition-selection:test',
   'agent:planner-delegation:test',
@@ -196,6 +251,7 @@ assignTarget('agent_definition_test.ts', 'agent:definition:test');
 assignTarget('agent_resolved_manifest_test.ts', 'agent:resolved-manifest:test');
 assignTarget('agent_comparison_variant_test.ts', 'agent:comparison-variant:test');
 assignTarget('agent_replay_record_test.ts', 'agent:replay-record:test');
+assignTarget('agent_fresh_runtime_comparison_test.ts', 'agent:fresh-runtime-comparison:test');
 assignTarget('agent_catalog_test.ts', 'agent:definition-selection:test');
 assignTarget('planner_delegation_test.ts', 'agent:planner-delegation:test');
 assignTarget('agent_instructions_test.ts', 'agent:instructions:test');
@@ -282,6 +338,7 @@ assignPermission(
   'agent:resolved-manifest:test',
   'agent:comparison-variant:test',
   'agent:replay-record:test',
+  'agent:fresh-runtime-comparison:test',
   'agent:instructions:test',
   'agent:planner-delegation:test',
   'agent:selection:test',
@@ -358,7 +415,10 @@ assignPermission(
   ],
   'v0:legacy:test',
 );
-assignPermission(['--allow-read=deno.v0.json,tests/v0,v0/agent'], TOPOLOGY_TASK);
+assignPermission(
+  ['--allow-read=deno.v0.json,tests/v0,v0/agent,v0/tui,v0/model.ts,v0/domain.ts'],
+  TOPOLOGY_TASK,
+);
 
 const taskInvocation = (taskName: string): string =>
   `${DENO} task --config deno.v0.json ${taskName}`;
@@ -423,6 +483,46 @@ const parseLeaf = (command: string): ParsedLeaf | null => {
 };
 
 const sorted = (values: Iterable<string>): string[] => [...values].sort();
+const normalizeLocalImport = (sourceFile: string, specifier: string): string | undefined => {
+  if (!specifier.startsWith('.')) return undefined;
+  const base = sourceFile.slice(0, sourceFile.lastIndexOf('/') + 1);
+  const parts = `${base}${specifier}`.split('/');
+  const normalized: string[] = [];
+  for (const part of parts) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (normalized.length === 0) return undefined;
+      normalized.pop();
+    } else normalized.push(part);
+  }
+  const path = normalized.join('/');
+  return path.endsWith('.ts') ? path : `${path}.ts`;
+};
+const validateProductionImportGraph = (
+  entries: readonly (readonly [string, string])[],
+): void => {
+  const sources = new Map<string, string>(entries);
+  const expected = new Set(PRODUCTION_SOURCE_FILES);
+  const reachable = new Set<string>();
+  const pending: string[] = [...PRODUCTION_ROOT_FILES];
+  while (pending.length > 0) {
+    const sourceFile = pending.pop()!;
+    if (reachable.has(sourceFile)) continue;
+    const source = sources.get(sourceFile);
+    if (source === undefined) throw new Error(`missing production source ${sourceFile}`);
+    reachable.add(sourceFile);
+    const importPattern = /(?:\bfrom\s*|\bimport\s*)['"]([^'"]+)['"]/g;
+    for (const match of source.matchAll(importPattern)) {
+      const imported = normalizeLocalImport(sourceFile, match[1]);
+      if (imported === undefined) continue;
+      if (!sources.has(imported)) throw new Error(`unresolved production import ${imported}`);
+      pending.push(imported);
+    }
+  }
+  assertEquals(sorted(reachable), sorted(expected), 'production import inventory drifted');
+  assert(!reachable.has(COMPARISON_SOURCE_FILES[0]), 'comparison runner became reachable');
+  assert(!reachable.has(COMPARISON_SOURCE_FILES[1]), 'comparison report became reachable');
+};
 const cloneManifest = (manifest: Manifest): Manifest => ({
   tasks: { ...manifest.tasks },
 });
@@ -510,7 +610,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 48, 'expected 48 directly-owned tests');
+  assertEquals(owned.size, 49, 'expected 49 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {
@@ -546,6 +646,20 @@ const manifest = JSON.parse(
 const step79SourceInventory = await Promise.all(
   STEP79_SOURCE_FILES.map(async (file) => [file, await Deno.readTextFile(file)] as const),
 );
+const comparisonSourceInventory = await Promise.all(
+  COMPARISON_SOURCE_FILES.map(async (file) => [file, await Deno.readTextFile(file)] as const),
+);
+const productionSourceInventory = await Promise.all(
+  PRODUCTION_SOURCE_FILES.map(async (file) => [file, await Deno.readTextFile(file)] as const),
+);
+const productionGraphInventory = await Promise.all(
+  [...PRODUCTION_SOURCE_FILES, ...COMPARISON_SOURCE_FILES].map(async (file) =>
+    [
+      file,
+      await Deno.readTextFile(file),
+    ] as const
+  ),
+);
 
 Deno.test('offline gate has exact bounded leaf ownership and composition', () => {
   validateManifest(manifest, directFiles);
@@ -554,9 +668,52 @@ Deno.test('offline gate has exact bounded leaf ownership and composition', () =>
       assert(!pattern.test(source), `Step 79 source isolation drifted: ${file}`);
     }
   }
+  for (const [file, source] of comparisonSourceInventory) {
+    assert(!/\bDeno\./.test(source), `comparison source performs OS access: ${file}`);
+    assert(!/\bfetch\s*\(/.test(source), `comparison source performs network access: ${file}`);
+  }
+  validateProductionImportGraph(productionGraphInventory);
+  for (const [file, source] of productionSourceInventory) {
+    for (const pattern of PRODUCTION_COMPARISON_FORBIDDEN_PATTERNS) {
+      assert(!pattern.test(source), `production comparison reachability drifted: ${file}`);
+    }
+  }
 });
 
 Deno.test('offline gate parser rejects unsafe grammar, topology, permissions, and targets', () => {
+  const transitiveMutation = [
+    ...productionGraphInventory,
+    [TRANSITIVE_MUTATION_FILE, "import './fresh_runtime_comparison.ts';"] as const,
+  ].map(([file, source]) =>
+    [
+      file,
+      file === 'v0/agent/tools.ts'
+        ? `${source}\nimport './step80-transitive-mutation.ts';`
+        : source,
+    ] as const
+  );
+  let transitiveRejected = false;
+  try {
+    validateProductionImportGraph(transitiveMutation);
+  } catch {
+    transitiveRejected = true;
+  }
+  assert(transitiveRejected, 'transitive comparison import mutation was accepted');
+  const unresolvedMutation = productionGraphInventory.map(([file, source]) =>
+    [
+      file,
+      file === 'v0/agent/tools.ts'
+        ? `${source}\nimport './step80-unresolved-mutation.ts';`
+        : source,
+    ] as const
+  );
+  let unresolvedRejected = false;
+  try {
+    validateProductionImportGraph(unresolvedMutation);
+  } catch {
+    unresolvedRejected = true;
+  }
+  assert(unresolvedRejected, 'unresolved production import mutation was accepted');
   const testEdges = parseComposition(manifest.tasks['v0:test'])!;
   const gateEdges = parseComposition(manifest.tasks['v0:gate'])!;
   const targetTask = 'agent:test';

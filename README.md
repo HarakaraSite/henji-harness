@@ -58,6 +58,15 @@ the topology task validate ownership, command grammar, permission ordering, and 
 reachability. A direct test or focused test task is intentionally rejected until this enrollment
 and permission review is complete.
 
+Roadmap step 80 adds an internal, offline-only fresh-runtime comparison for the fixed `default` and
+`default-max-steps-4` Definitions. It derives separate manifest-bound replay envelopes from one
+validated case, executes a four-call uppercase fixture in independent runtimes, correlates the
+normalized records, and renders a bounded plain-text report. The current side completes in five
+model steps and the variant stops at its four-step ceiling; no provider, credential, network,
+persistence, or public CLI/TUI selector is involved. See
+[`docs/plans/agent-definition-fresh-runtime-comparison.md`](docs/plans/agent-definition-fresh-runtime-comparison.md)
+and its results document for the final reviewed implementation evidence.
+
 ## Normal runtime (roadmap step 11)
 
 The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin. The

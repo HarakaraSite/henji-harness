@@ -415,6 +415,24 @@
   user-authorized final integration commit. No provider/network/credential/production command,
   persistent state, dependency/lockfile, `_refs/`, push, tag, publish, or release operation occurred.
 
+- Roadmap step 80 is implemented locally under `docs/plans/agent-definition-fresh-runtime-comparison.md`,
+  SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`. It derives separate
+  `default` and `default-max-steps-4` replay envelopes from one versioned offline case, executes fresh
+  scripted runtimes, correlates normalized records, and renders one bounded plain-text comparison.
+  The Step 79 schema remains unchanged; only maxSteps-derived parent/aggregate ceilings differ, while
+  planner/external/wall ceilings remain shared. The permission-free focused comparison and loop tests
+  pass 12/12 and 26/26, and the topology task passes 2/2. Full focused regressions pass (definition
+  12/12, resolved-manifest 10/10, comparison-variant 6/6, replay-record 13/13, runtime 49/49 plus
+  process 18/18, TUI 68/68 plus process 25/25 and topology 4/4); direct `v0:test` and `v0:gate`
+  each pass 578/578, with `v0:check`, `v0:fmt` (123 files), `v0:lint` (120 files), and diff check
+  green. The single re-review left two evidence-only P2s; the approved residual evidence closure
+  and final narrow correction added actual second-run failure coverage, delayed partial-second
+  injection after recorded second-run model progress, and fail-closed unresolved local imports.
+  The owner independently reran comparison 12/12, topology 2/2, and authoritative full gate
+  578/578; all findings are Closed and final disposition is Blocker/P1/P2 zero. No provider, network,
+  credential, production command, persistence, dependency/lockfile, `_refs/`, commit, push, tag,
+  publish, or release operation occurred.
+
 ## Development lifecycle
 
 - Use the user-provided requirements, repository plans, this file, and the current handoff as the

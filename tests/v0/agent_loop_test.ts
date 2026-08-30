@@ -2,12 +2,13 @@ import { assert, assertEquals, assertRejects } from './test_helpers.ts';
 import {
   type JsonValue,
   type Message,
+  type Model,
   type ModelRequest,
   type ToolCall,
 } from '../../v0/agent/contracts.ts';
 import { FixtureModel } from '../../v0/agent/fixture_model.ts';
 import { main } from '../../v0/agent/cli.ts';
-import { runAgent } from '../../v0/agent/loop.ts';
+import { runAgent, runAgentTurnObservedForComparison } from '../../v0/agent/loop.ts';
 import {
   createFixtureTool,
   createJsonResultSubmissionTool,
@@ -696,4 +697,200 @@ Deno.test('fixture CLI returns exit 1 and JSON contract failure for invalid argu
   assertEquals(output.outcome, 'contract_failure');
   assertEquals(output.stopReason, 'contract_failure');
   assert(output.error.includes('usage: --task TEXT'));
+});
+
+Deno.test('comparison observer reports model and accepted tool boundaries exactly once', async () => {
+  const trace: string[] = [];
+  let executions = 0;
+  const model = new FixtureModel([
+    { kind: 'tool_calls', calls: [call('observed', 'counting', 'one')] },
+    { kind: 'final', text: 'done' },
+  ]);
+  const tool: Tool = {
+    name: 'counting',
+    description: 'counts',
+    inputSchema: {},
+    execute: () => {
+      executions += 1;
+      return 'ONE';
+    },
+  };
+  const outcome = await runAgentTurnObservedForComparison(
+    'observe',
+    [],
+    model,
+    new Registry([tool]),
+    {
+      modelSettled: (kind) => trace.push(`model:${kind}`),
+      toolCallAccepted: (accepted) => trace.push(`call:${accepted.callId}`),
+      toolResultAccepted: (result) => trace.push(`result:${result.callId}:${result.outcome}`),
+    },
+    {
+      eventSink: (event) => {
+        if (event.kind === 'tool_call') trace.push(`event:call:${event.call.callId}`);
+        if (event.kind === 'tool_result') trace.push(`event:result:${event.result.callId}`);
+      },
+    },
+  );
+  assert(outcome.ok);
+  assertEquals(executions, 1);
+  assertEquals(trace, [
+    'model:tool_calls',
+    'event:call:observed',
+    'call:observed',
+    'event:result:observed',
+    'result:observed:success',
+    'model:final',
+  ]);
+});
+
+Deno.test('comparison observer throw is not converted to tool execution or contract outcome', async () => {
+  let executions = 0;
+  const tool: Tool = {
+    name: 'counting',
+    description: 'counts',
+    inputSchema: {},
+    execute: () => {
+      executions += 1;
+      return 'ok';
+    },
+  };
+  let rejected = false;
+  try {
+    await runAgentTurnObservedForComparison(
+      'observe',
+      [],
+      new FixtureModel([{ kind: 'tool_calls', calls: [call('throw-call', 'counting')] }]),
+      new Registry([tool]),
+      {
+        modelSettled: () => undefined,
+        toolCallAccepted: () => {
+          throw new Error('observer-call-marker');
+        },
+        toolResultAccepted: () => undefined,
+      },
+    );
+  } catch (error) {
+    rejected = error instanceof Error && error.message === 'observer-call-marker';
+  }
+  assert(rejected);
+  assertEquals(executions, 0);
+});
+
+Deno.test('comparison observer reports synthetic and continuing result boundaries', async () => {
+  const trace: string[] = [];
+  const outcome = await runAgentTurnObservedForComparison(
+    'observe',
+    [],
+    new FixtureModel([
+      {
+        kind: 'tool_calls',
+        calls: [call('terminal', 'submit_json_result'), call('normal', 'counting')],
+      },
+      { kind: 'tool_calls', calls: [call('missing', 'missing_tool')] },
+      { kind: 'final', text: 'done' },
+    ]),
+    new Registry([
+      createJsonResultSubmissionTool(),
+      {
+        name: 'counting',
+        description: 'counts',
+        inputSchema: {},
+        execute: () => 'counted',
+      },
+    ]),
+    {
+      modelSettled: (kind) => trace.push(`model:${kind}`),
+      toolCallAccepted: (accepted) => trace.push(`call:${accepted.callId}`),
+      toolResultAccepted: (result) => trace.push(`result:${result.callId}:${result.outcome}`),
+    },
+    { maxSteps: 3 },
+  );
+  assertEquals(outcome.stopReason, 'final');
+  assertEquals(outcome.toolCallCount, 3);
+  assertEquals(outcome.toolResultCount, 3);
+  assertEquals(trace, [
+    'model:tool_calls',
+    'call:terminal',
+    'result:terminal:error',
+    'call:normal',
+    'result:normal:error',
+    'model:tool_calls',
+    'call:missing',
+    'result:missing:error',
+    'model:final',
+  ]);
+});
+
+Deno.test('comparison model and result observer failures retain exact boundary errors', async () => {
+  let finalRejected = false;
+  try {
+    await runAgentTurnObservedForComparison(
+      'observe',
+      [],
+      new FixtureModel([{ kind: 'final', text: 'done' }]),
+      new Registry([]),
+      {
+        modelSettled: () => {
+          throw new Error('observer-final-marker');
+        },
+        toolCallAccepted: () => undefined,
+        toolResultAccepted: () => undefined,
+      },
+    );
+  } catch (error) {
+    finalRejected = error instanceof Error && error.message === 'observer-final-marker';
+  }
+  assert(finalRejected);
+
+  let invalidRejected = false;
+  try {
+    await runAgentTurnObservedForComparison(
+      'observe',
+      [],
+      { generate: () => ({ kind: 'invalid' } as unknown as ReturnType<Model['generate']>) },
+      new Registry([]),
+      {
+        modelSettled: () => {
+          throw new Error('observer-error-marker');
+        },
+        toolCallAccepted: () => undefined,
+        toolResultAccepted: () => undefined,
+      },
+    );
+  } catch (error) {
+    invalidRejected = error instanceof Error && error.message === 'observer-error-marker';
+  }
+  assert(invalidRejected);
+
+  let executions = 0;
+  let resultRejected = false;
+  try {
+    await runAgentTurnObservedForComparison(
+      'observe',
+      [],
+      new FixtureModel([{ kind: 'tool_calls', calls: [call('result-call')] }]),
+      new Registry([{
+        name: 'uppercase_text',
+        description: 'uppercase',
+        inputSchema: {},
+        execute: () => {
+          executions += 1;
+          return 'OK';
+        },
+      }]),
+      {
+        modelSettled: () => undefined,
+        toolCallAccepted: () => undefined,
+        toolResultAccepted: () => {
+          throw new Error('observer-result-marker');
+        },
+      },
+      { maxSteps: 1 },
+    );
+  } catch (error) {
+    resultRejected = error instanceof Error && error.message === 'observer-result-marker';
+  }
+  assert(resultRejected);
+  assertEquals(executions, 1);
 });
