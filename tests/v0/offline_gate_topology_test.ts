@@ -13,6 +13,7 @@ const CHECK_TARGETS = [
   'v0/agent/context.ts',
   'v0/agent/planner_delegation.ts',
   'v0/agent/agent_definition.ts',
+  'v0/agent/resource_identity.ts',
   'v0/agent/agent_catalog.ts',
   'v0/agent/agent_instructions.ts',
   'v0/agent/events.ts',

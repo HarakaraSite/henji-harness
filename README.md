@@ -83,6 +83,17 @@ read/skill/JSON tools, and returns one bounded sanitized result; child events an
 exposed to the parent. The planner Definition itself cannot delegate. This capability shares the
 trusted-local process and workspace user permissions and is not an OS sandbox; background execution,
 recursion, persistence, streaming, retries, and multiple children remain deferred.
+
+The selected Definition also carries an internal resource selection made only of stable strings:
+`model:<provider>:<profile>`, `instruction:<id>`, `skill:<name>`, `tool:<name>`, and
+`subagent:<id>`. Entries use a strict ASCII grammar, fixed kind order, lexical same-kind order,
+and exact correlation with the resolved model, context, skill catalog, and registry. The immutable
+selection contains only those resource strings and the positive safe-integer `maxSteps` parameter;
+it contains no workspace path, instruction or skill text, provider object, or credential. Parent and
+lazy planner selections are validated before any model, credential, fetch, or registry materializes.
+This is an internal startup boundary, not a public resource-loading or serialization API; step 77
+manifest/version/digest work remains deferred, and the selection is absent from provider requests,
+events, transcripts, and persistent session records.
 Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
 bytes fails before model or credential setup. The versioned corpus/evaluation registry retains the
 four toy domain tools separately and they are not advertised by normal `agent:run`. JSON answers

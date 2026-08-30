@@ -11,11 +11,16 @@ import { createPlannerRegistry, createProductionRegistry } from './registries.ts
 import { resolveWorkspace, type WorkToolSeams } from './work_tools.ts';
 import { discoverSkills, type SkillFileSystem } from './skills.ts';
 import {
+  type AgentDefinition,
   DEFAULT_AGENT_MAX_STEPS,
   plannerAgentDefinition,
   type ResolvedAgentDefinition,
 } from './agent_definition.ts';
 import { type BuiltinAgentSelection, DEFAULT_AGENT_SELECTION } from './agent_catalog.ts';
+import {
+  type AgentResourceSelection,
+  validateResolvedAgentResources,
+} from './resource_identity.ts';
 import {
   createTurnExecutionContext,
   type ParentTurnExecutionContext,
@@ -59,6 +64,13 @@ export interface RuntimeTestSeam {
   readonly onRegistryMaterialized?: (
     definition: ResolvedAgentDefinition,
   ) => void;
+  /** Direct-test-only planner Definition replacement; production always uses the fixed Definition. */
+  readonly plannerDefinition?: AgentDefinition;
+  /** Direct-test-only observer called after selection validation and before materialization. */
+  readonly onResourceSelectionValidated?: (
+    role: 'parent' | 'planner',
+    selection: AgentResourceSelection,
+  ) => void;
 }
 
 export interface RuntimeRun {
@@ -72,7 +84,7 @@ export interface RuntimeComposition {
   readonly model: Model;
   readonly registry: Registry;
   readonly systemInstruction?: string;
-  readonly maxSteps: number;
+  readonly resourceSelection: AgentResourceSelection;
   readonly requestCount: () => number;
   readonly createTurnExecutionContext: (
     turn: number,
@@ -177,6 +189,8 @@ export const createRuntimeComposition = async (
     agentInstructions,
     skillCatalog,
   });
+  const resourceSelection = validateResolvedAgentResources(definition);
+  seam.onResourceSelectionValidated?.('parent', resourceSelection);
   const model = materializeModel(definition, fetcher, seam);
   const plannerDelegation: PlannerDelegationHandler | undefined =
     definition.registry.kind === 'production'
@@ -185,11 +199,13 @@ export const createRuntimeComposition = async (
         try {
           // The planner Definition and its registry/model are materialized only after the
           // parent tool has synchronously admitted this child.
-          const childDefinition = plannerAgentDefinition({
+          const childDefinition = (seam.plannerDefinition ?? plannerAgentDefinition)({
             workspace,
             agentInstructions,
             skillCatalog,
           });
+          const childResourceSelection = validateResolvedAgentResources(childDefinition);
+          seam.onResourceSelectionValidated?.('planner', childResourceSelection);
           const childModel = materializeModel(childDefinition, fetcher, seam);
           const childRegistry = materializeRegistry(
             childDefinition,
@@ -202,7 +218,7 @@ export const createRuntimeComposition = async (
             childModel,
             childRegistry,
             {
-              maxSteps: childDefinition.maxSteps,
+              maxSteps: childResourceSelection.parameters.maxSteps,
               systemInstruction: childDefinition.systemInstruction,
               executionContext: childContext,
               signal: childContext.signal,
@@ -233,7 +249,7 @@ export const createRuntimeComposition = async (
     model,
     registry,
     systemInstruction: definition.systemInstruction,
-    maxSteps: definition.maxSteps,
+    resourceSelection,
     requestCount: () => requestCount,
     createTurnExecutionContext: (turn, signal, cancellation) =>
       createTurnExecutionContext(turn, signal, cancellation),
@@ -255,7 +271,7 @@ export const createRuntimeSession = async (
   const composition = await createRuntimeComposition(seam, selection);
   return {
     session: new AgentSession(composition.model, composition.registry, {
-      maxSteps: composition.maxSteps,
+      maxSteps: composition.resourceSelection.parameters.maxSteps,
       systemInstruction: composition.systemInstruction,
       eventSink,
       createTurnExecutionContext: composition.createTurnExecutionContext,
@@ -285,7 +301,7 @@ export const runRuntime = async (
     composition.model,
     composition.registry,
     {
-      maxSteps: composition.maxSteps,
+      maxSteps: composition.resourceSelection.parameters.maxSteps,
       systemInstruction: composition.systemInstruction,
       executionContext: composition.createTurnExecutionContext(1),
     },

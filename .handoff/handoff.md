@@ -5,7 +5,7 @@
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: provider streamingはcommit `852542f`、bounded mid-turn steeringはcommit `3aeb48e`、optional ordinary next-turn queueはcommit `8a10be9`で完了。queue final gateはfull offline 503、final Blocker/P1/P2 0
-- 次: milestone 100の次priorityを選ぶ。追加provider attemptは別Human Gate
+- 次: roadmap step 77は別のplanning inputとHuman Gateで開始する。step 76のcommitは別の明示指示待ち。追加provider attemptは別Human Gate
 - 正本: `README.md`、current `docs/plans/`、このrepositoryのsource/tests/handoff。旧handoffが示したoperations concept pathは現worktreeに存在しない
 - 注意: 以後の詳細設計・実装・testはai-dev側で進める。credential、production provider command、破壊的repository操作、push・tag・release・publishにはrepository lifecycleの明示承認guardを適用する
 
@@ -23,6 +23,21 @@
 - 権限: leaf別のexact permission/target snapshotとnegative mutationsを正本化。唯一のnetwork leafは`v0:legacy:test`の`127.0.0.1`で、proposed exact taskは32/32成功。env/sys/credential/production task reachabilityはゼロ
 - review: initial P1 2/P2 1をouter+inner topology edge、exact leaf permission snapshot、forbidden grammar/cycle/target/permission mutation evidenceで修正。実装中の旧gate直結期待はowner-approved reviewer-GO topology-only deltaとして8 existing test filesを更新。single narrow re-reviewはGO、Blocker/P1/P2 0
 - 境界: product source/runtime、provider/credential/production command、actual persistent state、dependency/lockfile、`_refs`、commit/push/tag/publish/releaseは対象外
+
+### POL-20260830-agent-definition-resource-identity-plan
+
+- 計画: `docs/plans/agent-definition-resource-identity.md`、SHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`。正本inputは`/tmp/planner-inputs/henji-agent-definition-resource-identity.md`、SHA-256 `0d3af9f66bc3c314aa7d37ccecb44e1e95be8c2671f9489450eec5335e77eeef`
+- 契約: built-in `default`/`planner`のmodel、conditional instruction、effective skill、tool、planner subagentをcanonical internal string identityで宣言し、normal Definitionの`maxSteps`をdata-only parameterの単一resolved sourceとする。invalid/duplicate/noncanonical/incoherent/path-object-secret-bearing selectionはmaterialization前にrejectする
+- review: initial P2 4をexact count 8、skill/manifest bidirectional invariant、direct-test-only lazy planner Definition/validation observer seams、normal runtimeとsentinel compatibility aliasのmax-step責務およびexact parameter shapeで修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 境界: step 77 manifest/serialization/version/digest、public/dynamic Definition、runtime behavior/permission変更、provider/network/credential/production command、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは対象外
+
+### POL-20260830-agent-definition-resource-identity-implementation
+
+- 判断済み: owner-approved initial implementation Human Gateに基づき、step 76のrepository implementation、offline disposable tests、full offline gate、results/lifecycle更新を実施した。canonical planはSHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`
+- 契約: built-in `default`/`planner`のinternal canonical resource identity selectionとdata-only `maxSteps`を追加。strict grammar/order、exact declaration correlation、skill/manifest coherence、frozen data-only shapeを検証し、parent/lazy plannerをmaterialization前にfail closedする。step 77のmanifest/serialization/version/digest、公開dynamic API、既存provider/permission/session/event/persistence behaviorは変更しない
+- 検証: definition/runtime/planner/selection/topology focused 12/12、38/38、16/16、4/4、2/2、direct `v0:test` 516/516、owner `v0:gate` 518/518、`v0:check`/`v0:fmt`/`v0:lint`/`git diff --check`は成功
+- 状態: implementation Human GateとASKをconsume済み。initial implementation reviewのevidence-only P2 2をapproved single closure passで閉じ、canonical resolved mutations、direct envelope validation、parameter shape casesを追加。production defectなし。single narrow re-reviewはGO、Blocker/P1/P2 0。owner final Definition 12/12/full gate 518/518、最終Blocker/P1/P2 0。plan delta、stop condition、計画外bugなし
+- 境界: provider/network/credential/production command、actual persistent product state、dependency/lockfile、`_refs/`、commit、push、tag、publish、releaseは未実施
 
 ### POL-20260829-bounded-next-turn-queue-plan
 
@@ -1805,3 +1820,37 @@
 - 実施: final GOとowner gate済みのreviewed incrementをmainへ一つのtest-hardening commitとして記録し、results/lifecycleのcommit状態を整合
 - 次: milestone 100の次priorityを選ぶ
 - 注意: push/tag/publish/release、provider/credential/production command、dependency/lockfile、`_refs`変更は未実施
+
+## 2026-08-30 00:58 JST
+
+- 実行エージェント: Codex default / planner / reviewer
+- 作業トピック: Roadmap step 76 Agent Definition resource identity planning
+- 実施: delivered revision-22 input、HEAD、current Definition/runtime/skills/registry、pinned OpenComputer commitを照合してcanonical planを作成。initial P2 4をplanning-only修正し、single narrow re-review GO、Blocker/P1/P2 0
+- 次: `ASK-20260830-agent-definition-resource-identity-implementation`の初期implementation Human Gate
+- 注意: plan SHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`。product/test/task implementation、provider/network/credential/production command、dependency/lockfile、`_refs`変更、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-30 08:09 JST
+
+- 実行エージェント: Codex step-76 implementer
+- 作業トピック: Roadmap step 76 Agent Definition resource identity implementation
+- 実施: approved Human Gate後、`resource_identity.ts`のstrict internal identity/selection validator、built-in Definition selections、runtime parent/lazy-planner pre-materialization validationとselection-owned max-step wiringを実装。definition/runtime suitesへ exact sets、negative correlation、data-only/non-exposure、validation timingの回帰を追加し、check topology、results、README、AGENTSを同期。implementation ASKをconsume済み
+- 検証: definition/runtime/planner/selection/topology focused 12/12、38/38、16/16、4/4、2/2、direct `v0:test` 516/516、owner `v0:gate` 518/518、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`成功
+- 次: coordinating ownerのchanged-lines bounded reviewとowner final Blocker/P1/P2 disposition
+- 注意: plan SHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`。plan delta、stop condition、計画外bugなし。provider/network/credential/production command、dependency/lockfile、persistent state、`_refs`変更、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-30 08:21 JST
+
+- 実行エージェント: Codex step-76 implementer
+- 作業トピック: Roadmap step 76 evidence-only finding closure
+- 実施: approved single closure passとして、selection envelope mutationをdirect validatorへ変更し、parameter-level symbol/accessor/non-plain/missing-key rejectionを追加。resolved selectionはcanonical orderで unknown/extra tool、production delegation resource各削除、planner delegation resource各追加を個別検証し、sanitized errorをassertした。production sourceの不具合は発生せず
+- 検証: definition 12/12、related runtime/planner/selection/topology 38/38、16/16、4/4、2/2、direct `v0:test` 516/516、`v0:gate` 518/518、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`成功
+- 次: coordinating ownerのchanged-lines re-reviewとowner final Blocker/P1/P2 disposition
+- 注意: plan SHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`。closureはevidence-only、plan delta/stop conditionなし。provider/network/credential/production command、dependency/lockfile、persistent state、`_refs`変更、commit、push、tag、publish、releaseは未実施
+
+## 2026-08-30 08:24 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Roadmap step 76 final review and owner gate
+- 実施: evidence-only P2 2のclosureをsingle narrow re-reviewし両件Closed、GO、Blocker/P1/P2 0。ownerがDefinition 12/12とauthoritative full `v0:gate` 518/518、`git diff --check`を独立再実行してexit 0を確認
+- 次: reviewed treeのcommitは別の明示指示待ち。step 77は新しいplanning input/Human Gateで開始する
+- 注意: plan SHA-256 `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`。final owner Blocker/P1/P2 0。provider/network/credential/production command、dependency/lockfile、persistent state、`_refs`変更、commit、push、tag、publish、releaseは未実施

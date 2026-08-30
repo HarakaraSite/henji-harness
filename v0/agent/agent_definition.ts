@@ -3,6 +3,12 @@ import { PROFILE } from '../model.ts';
 import { composeSystemInstruction } from './agent_instructions.ts';
 import { type SkillCatalog } from './skills.ts';
 import { type Workspace } from './work_tools.ts';
+import {
+  type AgentResourceSelection,
+  compareAgentResourceIdentities,
+  createAgentResourceIdentity,
+  createAgentResourceSelection,
+} from './resource_identity.ts';
 
 /** The model provider declaration understood by the normal runtime materializer. */
 export interface OpenRouterModelDefinition {
@@ -40,7 +46,7 @@ export interface ResolvedAgentDefinition {
   readonly agentInstructions?: string;
   readonly skillCatalog: SkillCatalog;
   readonly systemInstruction?: string;
-  readonly maxSteps: number;
+  readonly resourceSelection: AgentResourceSelection;
 }
 
 export type AgentDefinition = (input: AgentDefinitionInput) => ResolvedAgentDefinition;
@@ -51,6 +57,43 @@ export const DEFAULT_AGENT_MAX_STEPS = 8;
 /** Fixed planner policy appended after all discovered workspace context. */
 export const PLANNER_AGENT_INSTRUCTION =
   'You are the built-in planner agent. Inspect the available workspace context needed for the task and produce a clear implementation plan. Do not mutate the workspace.';
+
+const canonicalSelection = (
+  resources: readonly string[],
+): AgentResourceSelection => {
+  const identities = resources.map((resource) => createAgentResourceIdentity(resource));
+  identities.sort(compareAgentResourceIdentities);
+  return createAgentResourceSelection(identities, DEFAULT_AGENT_MAX_STEPS);
+};
+
+const selectionResources = (
+  input: AgentDefinitionInput,
+  registryKind: 'production' | 'planner',
+): string[] => {
+  const resources = [`model:openrouter:${PROFILE.id}`];
+  if (input.agentInstructions !== undefined) resources.push('instruction:workspace-agents');
+  if (input.skillCatalog.manifest !== undefined) {
+    resources.push('instruction:project-skill-manifest');
+  }
+  for (const skill of input.skillCatalog.skills) resources.push(`skill:${skill.name}`);
+  if (registryKind === 'production') {
+    resources.push(
+      'tool:bash',
+      'tool:delegate_to_planner',
+      'tool:edit',
+      'tool:read',
+      'tool:submit_json_result',
+      'tool:write',
+    );
+    if (input.skillCatalog.skills.length > 0) resources.push('tool:skill');
+    resources.push('subagent:planner');
+  } else {
+    resources.push('instruction:builtin-planner-policy', 'tool:read');
+    if (input.skillCatalog.skills.length > 0) resources.push('tool:skill');
+    resources.push('tool:submit_json_result');
+  }
+  return resources;
+};
 
 /**
  * The sole normal-runtime Agent Definition. It only projects already-resolved host inputs and
@@ -67,7 +110,7 @@ export const defaultAgentDefinition: AgentDefinition = (input) => ({
   agentInstructions: input.agentInstructions,
   skillCatalog: input.skillCatalog,
   systemInstruction: composeSystemInstruction(input.agentInstructions, input.skillCatalog.manifest),
-  maxSteps: DEFAULT_AGENT_MAX_STEPS,
+  resourceSelection: canonicalSelection(selectionResources(input, 'production')),
 });
 
 /**
@@ -87,5 +130,5 @@ export const plannerAgentDefinition: AgentDefinition = (input) => ({
     composeSystemInstruction(input.agentInstructions, input.skillCatalog.manifest),
     PLANNER_AGENT_INSTRUCTION,
   ),
-  maxSteps: DEFAULT_AGENT_MAX_STEPS,
+  resourceSelection: canonicalSelection(selectionResources(input, 'planner')),
 });

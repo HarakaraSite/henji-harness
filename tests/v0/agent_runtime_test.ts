@@ -27,6 +27,7 @@ import {
   type InstructionFileSystem,
 } from '../../v0/agent/agent_instructions.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
+import { createAgentResourceSelection } from '../../v0/agent/resource_identity.ts';
 
 const DUMMY_CREDENTIAL = 'offline-dummy-credential';
 const encoder = new TextEncoder();
@@ -162,6 +163,13 @@ const selectionFor = (
 ): BuiltinAgentSelection => ({
   id,
   definition,
+});
+const withMaxSteps = (
+  definition: ReturnType<typeof defaultAgentDefinition>,
+  maxSteps: number,
+): ReturnType<typeof defaultAgentDefinition> => ({
+  ...definition,
+  resourceSelection: createAgentResourceSelection(definition.resourceSelection.resources, maxSteps),
 });
 const requestBody = (call: FetchCall): Record<string, unknown> => {
   assert(typeof call.init?.body === 'string');
@@ -509,10 +517,9 @@ Deno.test('runtime aggregate seventeenth request fails before credential and fet
     for (let index = 0; index < 7; index += 1) {
       responses.push(response(readPayload(`parent-${index}`, 'item.txt')));
     }
-    const nineStepSelection = selectionFor((input) => ({
-      ...defaultAgentDefinition(input),
-      maxSteps: 9,
-    }));
+    const nineStepSelection = selectionFor((input) =>
+      withMaxSteps(defaultAgentDefinition(input), 9)
+    );
     const composition = await createRuntimeComposition({
       workspaceRoot: root,
       fetcher: fetchSequence(responses, calls),
@@ -526,7 +533,7 @@ Deno.test('runtime aggregate seventeenth request fails before credential and fet
       composition.model,
       composition.registry,
       {
-        maxSteps: composition.maxSteps,
+        maxSteps: composition.resourceSelection.parameters.maxSteps,
         systemInstruction: composition.systemInstruction,
         executionContext: composition.createTurnExecutionContext(1),
       },
@@ -654,11 +661,10 @@ Deno.test('runtime evaluates an injected Definition once and uses its system ins
     let evaluations = 0;
     const definition: AgentDefinition = (input) => {
       evaluations += 1;
-      return {
+      return withMaxSteps({
         ...defaultAgentDefinition(input),
         systemInstruction: 'injected composition instruction',
-        maxSteps: 1,
-      };
+      }, 1);
     };
     const calls: FetchCall[] = [];
     const result = await runRuntime('offline task', {
@@ -680,6 +686,127 @@ Deno.test('runtime evaluates an injected Definition once and uses its system ins
   });
 });
 
+Deno.test('runtime validates parent resources before model, registry, credential, or fetch effects', async () => {
+  await withWorkspace(async (root) => {
+    const base = defaultAgentDefinition({
+      workspace: { root },
+      skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+    });
+    const names = base.resourceSelection.resources.map((resource) => `${resource}`);
+    names[0] = 'model:openrouter:injected-invalid-for-default';
+    const definition: AgentDefinition = () => ({
+      ...base,
+      resourceSelection: createAgentResourceSelection(names, 8),
+    });
+    let materializedModels = 0;
+    let materializedRegistries = 0;
+    let credentialReads = 0;
+    let fetches = 0;
+    let validations = 0;
+    await assertRejects(() =>
+      createRuntimeComposition({
+        workspaceRoot: root,
+        fetcher: () => {
+          fetches += 1;
+          return Promise.reject(new Error('must not fetch'));
+        },
+        credentialSource: () => {
+          credentialReads += 1;
+          return DUMMY_CREDENTIAL;
+        },
+        onModelMaterialized: () => materializedModels += 1,
+        onRegistryMaterialized: () => materializedRegistries += 1,
+        onResourceSelectionValidated: () => validations += 1,
+      }, selectionFor(definition))
+    );
+    assertEquals(materializedModels, 0);
+    assertEquals(materializedRegistries, 0);
+    assertEquals(credentialReads, 0);
+    assertEquals(fetches, 0);
+    assertEquals(validations, 0);
+  });
+});
+
+Deno.test('runtime observes parent and admitted planner validation before each materialization', async () => {
+  await withWorkspace(async (root) => {
+    const order: string[] = [];
+    const roles: string[] = [];
+    const result = await runRuntime('parent task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([
+        response(delegationPayload('delegate', 'child task')),
+        response(finalPayload('child plan')),
+        response(finalPayload('parent final')),
+      ]),
+      credential: DUMMY_CREDENTIAL,
+      onResourceSelectionValidated: (role) => {
+        roles.push(role);
+        order.push(`validated:${role}`);
+      },
+      onModelMaterialized: (definition) => order.push(`model:${definition.registry.kind}`),
+      onRegistryMaterialized: (definition) => order.push(`registry:${definition.registry.kind}`),
+    });
+    assert(result.outcome.ok);
+    assertEquals(roles, ['parent', 'planner']);
+    assertEquals(order, [
+      'validated:parent',
+      'model:production',
+      'registry:production',
+      'validated:planner',
+      'model:planner',
+      'registry:planner',
+    ]);
+  });
+});
+
+Deno.test('invalid injected planner Definition fails before child effects and preserves parent continuation', async () => {
+  await withWorkspace(async (root) => {
+    let plannerEvaluations = 0;
+    const materializedModels: string[] = [];
+    const materializedRegistries: string[] = [];
+    let credentialReads = 0;
+    const plannerDefinition: AgentDefinition = (input) => {
+      plannerEvaluations += 1;
+      const resolved = plannerAgentDefinition(input);
+      const names = resolved.resourceSelection.resources.map((resource) => `${resource}`);
+      names[0] = 'model:openrouter:invalid-child-profile';
+      return {
+        ...resolved,
+        resourceSelection: createAgentResourceSelection(names, 8),
+      };
+    };
+    const result = await runRuntime('parent task', {
+      workspaceRoot: root,
+      fetcher: fetchSequence([
+        response(delegationPayload('delegate', 'invalid child task')),
+        response(finalPayload('parent continued')),
+      ]),
+      credentialSource: () => {
+        credentialReads += 1;
+        return DUMMY_CREDENTIAL;
+      },
+      plannerDefinition,
+      onModelMaterialized: (definition) => materializedModels.push(definition.registry.kind),
+      onRegistryMaterialized: (definition) => materializedRegistries.push(definition.registry.kind),
+    });
+    assert(result.outcome.ok);
+    assertEquals(result.outcome.finalText, 'parent continued');
+    assertEquals(result.requestCount, 2);
+    assertEquals(plannerEvaluations, 1);
+    assertEquals(materializedModels, ['production']);
+    assertEquals(materializedRegistries, ['production']);
+    assertEquals(credentialReads, 2);
+    const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
+    assert(toolMessage?.role === 'tool');
+    assertEquals(JSON.parse(toolMessage.content[0].text), {
+      ok: false,
+      agent: 'planner',
+      error: { code: 'planner_failed', message: 'planner delegation failed' },
+      usage: { modelRequests: 0, externalRequests: 0 },
+    });
+  });
+});
+
 Deno.test('runtime materializes injected profile and registry declarations', async () => {
   await withWorkspace(async (root) => {
     const customSkillCatalog: SkillCatalog = Object.freeze({
@@ -695,8 +822,13 @@ Deno.test('runtime materializes injected profile and registry declarations', asy
     let evaluations = 0;
     const definition: AgentDefinition = (input) => {
       evaluations += 1;
-      const resolved = defaultAgentDefinition(input);
-      return {
+      const resolved = defaultAgentDefinition({ ...input, skillCatalog: customSkillCatalog });
+      const resourceNames = resolved.resourceSelection.resources.map((resource) =>
+        `${resource}` === 'model:openrouter:openrouter-google-gemini-3.7-flash-vertex-v0'
+          ? `model:openrouter:${ALTERNATE_PROFILE.id}`
+          : `${resource}`
+      );
+      return withMaxSteps({
         ...resolved,
         model: { provider: 'openrouter', profile: ALTERNATE_PROFILE },
         registry: {
@@ -707,8 +839,8 @@ Deno.test('runtime materializes injected profile and registry declarations', asy
         },
         skillCatalog: customSkillCatalog,
         systemInstruction: 'custom runtime instruction',
-        maxSteps: 1,
-      };
+        resourceSelection: createAgentResourceSelection(resourceNames, 8),
+      }, 1);
     };
     const calls: FetchCall[] = [];
     const result = await runRuntime('offline task', {
@@ -750,10 +882,7 @@ Deno.test('runtime materializes injected profile and registry declarations', asy
 
 Deno.test('runtime passes Definition maxSteps to the one-shot loop', async () => {
   await withWorkspace(async (root) => {
-    const definition: AgentDefinition = (input) => ({
-      ...defaultAgentDefinition(input),
-      maxSteps: 1,
-    });
+    const definition: AgentDefinition = (input) => withMaxSteps(defaultAgentDefinition(input), 1);
     const result = await runRuntime('offline task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
@@ -979,10 +1108,7 @@ Deno.test('planner runtime session captures one planner Definition across two tu
 
 Deno.test('runtime session passes Definition maxSteps and stops after one nonterminal request', async () => {
   await withWorkspace(async (root) => {
-    const definition: AgentDefinition = (input) => ({
-      ...defaultAgentDefinition(input),
-      maxSteps: 1,
-    });
+    const definition: AgentDefinition = (input) => withMaxSteps(defaultAgentDefinition(input), 1);
     let fetches = 0;
     const sessionResult = await createRuntimeSession(() => {}, {
       workspaceRoot: root,

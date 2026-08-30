@@ -328,6 +328,23 @@
   and full `v0:gate` 507/507; final owner disposition is Blocker/P1/P2 zero. No product source,
   provider/network credential, production command, dependency/lockfile, `_refs/`, push, tag,
   publish, or release operation occurred. The reviewed increment was committed after the final gate.
+- Roadmap step 76 is implemented under `docs/plans/agent-definition-resource-identity.md`, SHA-256
+  `d27878f34ed90893f371084aa8886d9bd1db31209aaed23502306a1d6560cc42`, with results in
+  `docs/plans/agent-definition-resource-identity-results.md`. Built-in `default` and `planner`
+  now expose internal canonical model/instruction/skill/tool/subagent identities plus the sole
+  data-only `maxSteps` selection parameter. Strict grammar/order, exact topology correlation,
+  bidirectional skill-manifest coherence, frozen shape, non-exposure, and pre-materialization
+  parent/lazy-child validation are covered. Focused definition/runtime/planner/selection/topology
+  suites pass 12/12, 38/38, 16/16, 4/4, and 2/2; direct `v0:test` passes 516/516 and owner
+  `v0:gate` passes 518/518, with check, format, lint, and diff check green. Initial plan review P2 4 and narrow re-review are GO with
+  Blocker/P1/P2 zero; the implementation review's two evidence-only P2s were closed in the approved
+  single closure pass (canonical resolved mutations and direct envelope/parameter shape cases), with
+  no production defect. The single narrow re-review is `GO` with Blocker/P1/P2 zero; the owner
+  independently reran Definition 12/12 and full `v0:gate` 518/518, so final owner disposition is
+  Blocker/P1/P2 zero.
+  Step 77 manifest, serialization, versioning, and digest remain out of scope. No provider,
+  network, credential, production command, dependency/lockfile, persistent state, `_refs/` change,
+  commit, push, tag, publish, or release occurred.
 
 ## Development lifecycle
 
