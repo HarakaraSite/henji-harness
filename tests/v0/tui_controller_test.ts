@@ -10,6 +10,7 @@ import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.t
 import { Registry } from '../../v0/agent/tools.ts';
 import { TuiController, TuiControllerError } from '../../v0/tui/controller.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
+import { projectRuntimeDisplayState } from '../../v0/agent/startup_orientation.ts';
 import {
   BRACKETED_PASTE_OFF,
   BRACKETED_PASTE_ON,
@@ -18,12 +19,22 @@ import {
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
 
+const fixtureDisplayState = (agentId: 'default' | 'planner' = 'default') =>
+  projectRuntimeDisplayState({
+    workspaceRoot: '/tmp/tui-fixture',
+    agentId,
+    profileId: 'fixture-profile',
+    sessionMode: 'none',
+    skillNames: [],
+  });
+
 class FakeTerminal implements TerminalPort {
   readonly writes: string[] = [];
   readonly operations: string[] = [];
   readonly raw: boolean[] = [];
   readonly signals: string[] = [];
   readonly signalHandlers = new Map<'SIGINT' | 'SIGTERM' | 'SIGHUP', () => void>();
+  readonly readSnapshots: string[] = [];
   private queue: Uint8Array[] = [];
   private waiter: ((value: Uint8Array | null) => void) | null = null;
   private closed = false;
@@ -31,6 +42,7 @@ class FakeTerminal implements TerminalPort {
   failDrain = false;
   failRawMode: boolean | null = null;
   failNextWrite = false;
+  failOrientation = false;
   readonly failWrites = new Set<string>();
   stdinIsTerminal() {
     return true;
@@ -47,6 +59,7 @@ class FakeTerminal implements TerminalPort {
     if (this.failRawMode === mode) throw new Error('raw failure');
   }
   read(): Promise<Uint8Array | null> {
+    this.readSnapshots.push(this.output());
     if (this.failRead) return Promise.reject(new Error('read failure'));
     if (this.queue.length > 0) return Promise.resolve(this.queue.shift()!);
     if (this.closed) return Promise.resolve(null);
@@ -65,6 +78,10 @@ class FakeTerminal implements TerminalPort {
     const text = new TextDecoder().decode(bytes);
     this.writes.push(text);
     this.operations.push(`write:${text}`);
+    if (this.failOrientation && text.startsWith('Henji Harness\n')) {
+      this.failOrientation = false;
+      throw new Error('orientation write failure');
+    }
     if (this.failNextWrite) {
       this.failNextWrite = false;
       throw new Error('write failure');
@@ -1510,7 +1527,7 @@ Deno.test('TUI resolves planner before session and keeps the selected Definition
       const connected = new FakeSession((event) => sink(event));
       setTimeout(() => terminal.push('planner task\n'), 0);
       setTimeout(() => terminal.push('\x04'), 20);
-      return Promise.resolve({ session: connected });
+      return Promise.resolve({ session: connected, displayState: fixtureDisplayState('planner') });
     },
     writeStderr: () => {},
   });
@@ -1518,6 +1535,12 @@ Deno.test('TUI resolves planner before session and keeps the selected Definition
   assertEquals(selected, 'planner');
   assertEquals(session.submitted, []);
   assert(terminal.raw.includes(false));
+  assert(terminal.readSnapshots.length > 0);
+  assert(
+    terminal.readSnapshots[0].includes(
+      'keys> idle Ctrl-C twice within 500 ms exit · empty Ctrl-D exit\n',
+    ),
+  );
 });
 
 Deno.test('TUI controller drives an actual session through two delegated turns', async () => {
@@ -1696,7 +1719,8 @@ Deno.test('partial acquire/read/write/restore failures remain bounded and saniti
   let stderr = '';
   const cliExit = await tuiMain([], {
     terminal: cliFailure,
-    createSession: () => Promise.resolve({ session: cliRendererSession }),
+    createSession: () =>
+      Promise.resolve({ session: cliRendererSession, displayState: fixtureDisplayState() }),
     writeStderr: (text) => {
       stderr += text;
     },

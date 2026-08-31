@@ -1,5 +1,9 @@
 import { type LoopOutcome } from './contracts.ts';
-import { discoverAgentInstructions, type InstructionFileSystem } from './agent_instructions.ts';
+import {
+  type AgentInstructionSource,
+  discoverAgentInstructionSnapshot,
+  type InstructionFileSystem,
+} from './agent_instructions.ts';
 import { runAgent, runAgentTurn } from './loop.ts';
 import { AgentSession, type SessionPersistence } from './session.ts';
 import { type SessionRecord } from './session_store.ts';
@@ -43,6 +47,11 @@ import {
   validateAgentResolvedManifest,
   validateAgentResolvedManifestCorrelation,
 } from './resolved_manifest.ts';
+import {
+  projectRuntimeDisplayState,
+  type RuntimeDisplaySessionMode,
+  type RuntimeDisplayState,
+} from './startup_orientation.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
@@ -97,6 +106,8 @@ export interface RuntimeTestSeam {
     role: 'parent' | 'planner',
     manifest: AgentResolvedManifestV1,
   ) => void;
+  /** Direct-test-only observer proving the display state is projected exactly once. */
+  readonly onDisplayStateProjected?: (state: RuntimeDisplayState) => void;
 }
 
 export interface RuntimeRun {
@@ -110,6 +121,8 @@ export interface RuntimeComposition {
   readonly model: Model;
   readonly registry: Registry;
   readonly systemInstruction?: string;
+  /** The single immutable projection shared by CLI/TUI runtime consumers. */
+  readonly displayState: RuntimeDisplayState;
   readonly resourceSelection: AgentResourceSelection;
   readonly requestCount: () => number;
   readonly createTurnExecutionContext: (
@@ -117,6 +130,12 @@ export interface RuntimeComposition {
     signal?: AbortSignal,
     cancellation?: TurnCancellation,
   ) => ParentTurnExecutionContext;
+}
+
+export interface RuntimeSessionComposition {
+  readonly session: AgentSession;
+  readonly requestCount: () => number;
+  readonly displayState: RuntimeDisplayState;
 }
 
 const materializationFailure = (value: never): never => {
@@ -189,6 +208,7 @@ const childFailure = (task: string): LoopOutcome => ({
 export interface PreparedRuntimeComposition {
   readonly workspace: Workspace;
   readonly agentInstructions?: string;
+  readonly instructionSource?: AgentInstructionSource;
   readonly skillCatalog: SkillCatalog;
   readonly definition: ResolvedAgentDefinition;
   readonly resourceSelection: AgentResourceSelection;
@@ -196,6 +216,7 @@ export interface PreparedRuntimeComposition {
   readonly seam: RuntimeTestSeam;
   readonly fetcher: typeof fetch;
   readonly requestCount: () => number;
+  readonly displayState: RuntimeDisplayState;
 }
 
 const prepareResolvedManifest = async (
@@ -217,6 +238,7 @@ const prepareResolvedManifest = async (
 export const prepareRuntimeComposition = async (
   seam: RuntimeTestSeam = {},
   selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
+  sessionMode: RuntimeDisplaySessionMode = 'none',
 ): Promise<PreparedRuntimeComposition> => {
   let requestCount = 0;
   const delegate = seam.fetcher ?? fetch;
@@ -225,10 +247,11 @@ export const prepareRuntimeComposition = async (
     return delegate(input, init);
   };
   const workspace = await resolveWorkspace(seam.workspaceRoot);
-  const agentInstructions = await discoverAgentInstructions(
+  const instructionSnapshot = await discoverAgentInstructionSnapshot(
     workspace.root,
     seam.instructionFileSystem,
   );
+  const agentInstructions = instructionSnapshot?.formatted;
   const skillCatalog = await discoverSkills(
     workspace.root,
     seam.skillFileSystem,
@@ -251,9 +274,19 @@ export const prepareRuntimeComposition = async (
     seam,
   );
   seam.onResolvedManifestValidated?.(role, manifest);
+  const displayState = projectRuntimeDisplayState({
+    workspaceRoot: workspace.root,
+    agentId: selection.id,
+    profileId: definition.model.profile.id,
+    sessionMode,
+    instructionSource: instructionSnapshot?.source,
+    skillNames: skillCatalog.skills.map((skill) => skill.name),
+  });
+  seam.onDisplayStateProjected?.(displayState);
   return {
     workspace,
     agentInstructions,
+    instructionSource: instructionSnapshot?.source,
     skillCatalog,
     definition,
     resourceSelection,
@@ -261,6 +294,7 @@ export const prepareRuntimeComposition = async (
     seam,
     fetcher,
     requestCount: () => requestCount,
+    displayState,
   };
 };
 
@@ -338,6 +372,7 @@ export const materializePreparedRuntimeComposition = (
     model,
     registry,
     systemInstruction: definition.systemInstruction,
+    displayState: prepared.displayState,
     resourceSelection: prepared.resourceSelection,
     requestCount,
     createTurnExecutionContext: (turn, signal, cancellation) =>
@@ -362,7 +397,7 @@ export const createRuntimeSessionFromPrepared = (
     readonly persistence?: SessionPersistence;
     readonly initialRecord?: SessionRecord;
   } = {},
-): { readonly session: AgentSession; readonly requestCount: () => number } => {
+): RuntimeSessionComposition => {
   const composition = materializePreparedRuntimeComposition(prepared);
   return {
     session: new AgentSession(composition.model, composition.registry, {
@@ -374,6 +409,7 @@ export const createRuntimeSessionFromPrepared = (
       initialRecord: sessionOptions.initialRecord,
     }),
     requestCount: composition.requestCount,
+    displayState: composition.displayState,
   };
 };
 
@@ -387,7 +423,7 @@ export const createRuntimeSession = async (
     readonly initialRecord?: SessionRecord;
   } = {},
 ): Promise<
-  { readonly session: AgentSession; readonly requestCount: () => number }
+  RuntimeSessionComposition
 > =>
   createRuntimeSessionFromPrepared(
     eventSink,

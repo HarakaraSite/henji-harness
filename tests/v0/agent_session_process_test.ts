@@ -20,25 +20,24 @@ const launcherArgs = async (
   args: readonly string[],
   xdgStateHome = `${root}/xdg state `,
 ): Promise<readonly string[]> => {
-  const fakeDeno = `${root}/fake-deno`;
+  const fakeBin = `${root}/bin`;
+  const fakeDeno = `${fakeBin}/deno`;
   const launcher = `${root}/session-launcher.sh`;
   const capture = `${root}/argv.txt`;
+  await Deno.mkdir(fakeBin, { recursive: true });
   await Deno.writeTextFile(
     fakeDeno,
-    '#!/bin/sh\n: > "$HENJI_LAUNCH_CAPTURE"\nfor arg in "$@"; do printf \'%s\\n\' "$arg" >> "$HENJI_LAUNCH_CAPTURE"; done\n',
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "deno 2.9.4 (fake)\\n"; exit 0; fi\n: > "$HENJI_LAUNCH_CAPTURE"\nfor arg in "$@"; do printf \'%s\\n\' "$arg" >> "$HENJI_LAUNCH_CAPTURE"; done\n',
   );
   await Deno.chmod(fakeDeno, 0o700);
   await Deno.writeTextFile(
     launcher,
-    launcherSource.replace(
-      'deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno',
-      `deno=${fakeDeno}`,
-    ),
+    launcherSource,
   );
   const command = new Deno.Command('/bin/sh', {
     args: [launcher, ...args],
     env: {
-      PATH: '/usr/bin:/bin',
+      PATH: `${fakeBin}:/usr/bin:/bin`,
       HOME: `${root}/home`,
       XDG_STATE_HOME: xdgStateHome,
       HENJI_LAUNCH_CAPTURE: capture,

@@ -2,7 +2,9 @@ import { assert, assertEquals, assertRejects } from './test_helpers.ts';
 import {
   createRuntimeComposition,
   createRuntimeSession,
+  materializePreparedRuntimeComposition,
   MAX_STEPS,
+  prepareRuntimeComposition,
   runRuntime,
   type RuntimeRun,
   type RuntimeTestSeam,
@@ -200,7 +202,9 @@ const rehashedManifest = async (
   };
   const digest = await crypto.subtle.digest(
     'SHA-256',
-    encoder.encode(`henji-agent-resolved-manifest:v1\n${JSON.stringify(payload)}`),
+    encoder.encode(
+      `henji-agent-resolved-manifest:v1\n${JSON.stringify(payload)}`,
+    ),
   );
   const identity = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0'))
     .join('');
@@ -765,6 +769,7 @@ Deno.test('runtime validates parent resources before model, registry, credential
     let credentialReads = 0;
     let fetches = 0;
     let validations = 0;
+    let displayProjections = 0;
     await assertRejects(() =>
       createRuntimeComposition({
         workspaceRoot: root,
@@ -779,6 +784,7 @@ Deno.test('runtime validates parent resources before model, registry, credential
         onModelMaterialized: () => materializedModels += 1,
         onRegistryMaterialized: () => materializedRegistries += 1,
         onResourceSelectionValidated: () => validations += 1,
+        onDisplayStateProjected: () => displayProjections += 1,
       }, selectionFor(definition))
     );
     assertEquals(materializedModels, 0);
@@ -786,6 +792,7 @@ Deno.test('runtime validates parent resources before model, registry, credential
     assertEquals(credentialReads, 0);
     assertEquals(fetches, 0);
     assertEquals(validations, 0);
+    assertEquals(displayProjections, 0);
   });
 });
 
@@ -830,6 +837,7 @@ Deno.test('invalid injected planner Definition fails before child effects and pr
     const materializedModels: string[] = [];
     const materializedRegistries: string[] = [];
     let credentialReads = 0;
+    let displayProjections = 0;
     const plannerDefinition: AgentDefinition = (input) => {
       plannerEvaluations += 1;
       const resolved = plannerAgentDefinition(input);
@@ -853,6 +861,7 @@ Deno.test('invalid injected planner Definition fails before child effects and pr
       plannerDefinition,
       onModelMaterialized: (definition) => materializedModels.push(definition.registry.kind),
       onRegistryMaterialized: (definition) => materializedRegistries.push(definition.registry.kind),
+      onDisplayStateProjected: () => displayProjections += 1,
     });
     assert(result.outcome.ok);
     assertEquals(result.outcome.finalText, 'parent continued');
@@ -861,6 +870,7 @@ Deno.test('invalid injected planner Definition fails before child effects and pr
     assertEquals(materializedModels, ['production']);
     assertEquals(materializedRegistries, ['production']);
     assertEquals(credentialReads, 2);
+    assertEquals(displayProjections, 1);
     const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
     assert(toolMessage?.role === 'tool');
     assertEquals(JSON.parse(toolMessage.content[0].text), {
@@ -875,7 +885,10 @@ Deno.test('invalid injected planner Definition fails before child effects and pr
 Deno.test('parent manifest factory failures have no materialization or provider effects', async () => {
   const plannerBase = plannerAgentDefinition({
     workspace: { root: '/manifest-cross-boundary' },
-    skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+    skillCatalog: Object.freeze({
+      skills: Object.freeze([]),
+      manifest: undefined,
+    }),
   });
   const cases: readonly {
     readonly name: string;
@@ -910,7 +923,10 @@ Deno.test('parent manifest factory failures have no materialization or provider 
     {
       name: 'correctly rehashed cross-bound topology',
       factory: async () => {
-        const valid = await createAgentResolvedManifest('planner', plannerBase.resourceSelection);
+        const valid = await createAgentResolvedManifest(
+          'planner',
+          plannerBase.resourceSelection,
+        );
         return await rehashedManifest(
           'default',
           valid.resources.map((resource) => `${resource}`),
@@ -926,6 +942,7 @@ Deno.test('parent manifest factory failures have no materialization or provider 
       let registryMaterializations = 0;
       let credentialReads = 0;
       let fetches = 0;
+      let displayProjections = 0;
       let failure: unknown;
       try {
         await createRuntimeComposition({
@@ -941,6 +958,7 @@ Deno.test('parent manifest factory failures have no materialization or provider 
           },
           onModelMaterialized: () => modelMaterializations += 1,
           onRegistryMaterialized: () => registryMaterializations += 1,
+          onDisplayStateProjected: () => displayProjections += 1,
         });
       } catch (error) {
         failure = error;
@@ -948,12 +966,17 @@ Deno.test('parent manifest factory failures have no materialization or provider 
       assert(failure instanceof Error, testCase.name);
       if (testCase.sanitized) {
         assert(failure instanceof AgentResolvedManifestError, testCase.name);
-        assertEquals(failure.message, 'invalid agent resolved manifest', testCase.name);
+        assertEquals(
+          failure.message,
+          'invalid agent resolved manifest',
+          testCase.name,
+        );
       }
       assertEquals(modelMaterializations, 0, testCase.name);
       assertEquals(registryMaterializations, 0, testCase.name);
       assertEquals(credentialReads, 0, testCase.name);
       assertEquals(fetches, 0, testCase.name);
+      assertEquals(displayProjections, 0, testCase.name);
     });
   }
 });
@@ -961,7 +984,10 @@ Deno.test('parent manifest factory failures have no materialization or provider 
 Deno.test('runtime correlates built-in manifests and rejects comparison-only variants pre-effect', async () => {
   const defaultBase = defaultAgentDefinition({
     workspace: { root: '/comparison-runtime' },
-    skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+    skillCatalog: Object.freeze({
+      skills: Object.freeze([]),
+      manifest: undefined,
+    }),
   });
   const variantManifest = await createAgentResolvedManifest(
     'default-max-steps-4',
@@ -980,7 +1006,11 @@ Deno.test('runtime correlates built-in manifests and rejects comparison-only var
         .map((resource) => `${resource}`),
     ], 8),
   );
-  const cases = [variantManifest, shortDefaultManifest, alternateDefaultManifest] as const;
+  const cases = [
+    variantManifest,
+    shortDefaultManifest,
+    alternateDefaultManifest,
+  ] as const;
   for (const candidate of cases) {
     await withWorkspace(async (root) => {
       const observed: string[] = [];
@@ -988,6 +1018,7 @@ Deno.test('runtime correlates built-in manifests and rejects comparison-only var
       let registryMaterializations = 0;
       let credentialReads = 0;
       let fetches = 0;
+      let displayProjections = 0;
       let failure: unknown;
       try {
         await createRuntimeComposition({
@@ -1004,17 +1035,26 @@ Deno.test('runtime correlates built-in manifests and rejects comparison-only var
           onResolvedManifestValidated: (role) => observed.push(role),
           onModelMaterialized: () => modelMaterializations += 1,
           onRegistryMaterialized: () => registryMaterializations += 1,
+          onDisplayStateProjected: () => displayProjections += 1,
         });
       } catch (error) {
         failure = error;
       }
-      assert(failure instanceof AgentResolvedManifestError, `${candidate.definitionId}`);
-      assertEquals(failure.message, 'invalid agent resolved manifest', `${candidate.definitionId}`);
+      assert(
+        failure instanceof AgentResolvedManifestError,
+        `${candidate.definitionId}`,
+      );
+      assertEquals(
+        failure.message,
+        'invalid agent resolved manifest',
+        `${candidate.definitionId}`,
+      );
       assertEquals(observed, [], `${candidate.definitionId}`);
       assertEquals(modelMaterializations, 0, `${candidate.definitionId}`);
       assertEquals(registryMaterializations, 0, `${candidate.definitionId}`);
       assertEquals(credentialReads, 0, `${candidate.definitionId}`);
       assertEquals(fetches, 0, `${candidate.definitionId}`);
+      assertEquals(displayProjections, 0, `${candidate.definitionId}`);
     });
   }
 });
@@ -1023,7 +1063,10 @@ Deno.test('lazy planner correlation rejects a valid comparison manifest without 
   await withWorkspace(async (root) => {
     const parent = defaultAgentDefinition({
       workspace: { root },
-      skillCatalog: Object.freeze({ skills: Object.freeze([]), manifest: undefined }),
+      skillCatalog: Object.freeze({
+        skills: Object.freeze([]),
+        manifest: undefined,
+      }),
     });
     const variant = await createAgentResolvedManifest(
       'default-max-steps-4',
@@ -1032,6 +1075,7 @@ Deno.test('lazy planner correlation rejects a valid comparison manifest without 
     const materialized: string[] = [];
     const observed: string[] = [];
     let credentialReads = 0;
+    let displayProjections = 0;
     const result = await runRuntime('parent task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
@@ -1048,6 +1092,7 @@ Deno.test('lazy planner correlation rejects a valid comparison manifest without 
       onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
       onRegistryMaterialized: (definition) =>
         materialized.push(`registry:${definition.registry.kind}`),
+      onDisplayStateProjected: () => displayProjections += 1,
     });
     assert(result.outcome.ok);
     assertEquals(result.outcome.finalText, 'parent continued');
@@ -1055,6 +1100,7 @@ Deno.test('lazy planner correlation rejects a valid comparison manifest without 
     assertEquals(observed, ['parent']);
     assertEquals(materialized, ['model:production', 'registry:production']);
     assertEquals(credentialReads, 2);
+    assertEquals(displayProjections, 1);
     const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
     assert(toolMessage?.role === 'tool');
     assertEquals(JSON.parse(toolMessage.content[0].text), {
@@ -1085,7 +1131,10 @@ Deno.test('lazy planner manifest factory failures preserve sanitized continuatio
           ? Promise.reject(new Error('lazy manifest rejection marker'))
           : undefined,
     },
-    { name: 'malformed shape', factory: (role) => role === 'planner' ? {} : undefined },
+    {
+      name: 'malformed shape',
+      factory: (role) => role === 'planner' ? {} : undefined,
+    },
     {
       name: 'wrong digest',
       factory: async (role, id, selection) => {
@@ -1115,6 +1164,7 @@ Deno.test('lazy planner manifest factory failures preserve sanitized continuatio
       const manifests: string[] = [];
       const materialized: string[] = [];
       let credentialReads = 0;
+      let displayProjections = 0;
       const result = await runRuntime('parent task', {
         workspaceRoot: root,
         fetcher: fetchSequence([
@@ -1127,19 +1177,27 @@ Deno.test('lazy planner manifest factory failures preserve sanitized continuatio
         },
         resolvedManifestFactory: async (role, id, selection) => {
           manifests.push(role);
-          if (role === 'parent') return await createAgentResolvedManifest(id, selection);
+          if (role === 'parent') {
+            return await createAgentResolvedManifest(id, selection);
+          }
           return await testCase.factory(role, id, selection);
         },
         onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
         onRegistryMaterialized: (definition) =>
           materialized.push(`registry:${definition.registry.kind}`),
+        onDisplayStateProjected: () => displayProjections += 1,
       });
       assert(result.outcome.ok, testCase.name);
       assertEquals(result.outcome.finalText, 'parent continued', testCase.name);
       assertEquals(result.requestCount, 2, testCase.name);
       assertEquals(manifests, ['parent', 'planner'], testCase.name);
-      assertEquals(materialized, ['model:production', 'registry:production'], testCase.name);
+      assertEquals(
+        materialized,
+        ['model:production', 'registry:production'],
+        testCase.name,
+      );
       assertEquals(credentialReads, 2, testCase.name);
+      assertEquals(displayProjections, 1, testCase.name);
       const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
       assert(toolMessage?.role === 'tool', testCase.name);
       assertEquals(JSON.parse(toolMessage.content[0].text), {
@@ -1196,7 +1254,10 @@ Deno.test('manifest factory failures retain parent continuation with sanitized c
       factory: (role) =>
         role === 'planner' ? Promise.reject(new Error('child rejection marker')) : undefined,
     },
-    { name: 'malformed shape', factory: (role) => role === 'planner' ? {} : undefined },
+    {
+      name: 'malformed shape',
+      factory: (role) => role === 'planner' ? {} : undefined,
+    },
     {
       name: 'wrong digest',
       factory: async (role, id, selection) => {
@@ -1226,6 +1287,7 @@ Deno.test('manifest factory failures retain parent continuation with sanitized c
       const materialized: string[] = [];
       const manifests: string[] = [];
       let credentialReads = 0;
+      let displayProjections = 0;
       const result = await runRuntime('parent task', {
         workspaceRoot: root,
         fetcher: fetchSequence([
@@ -1238,19 +1300,27 @@ Deno.test('manifest factory failures retain parent continuation with sanitized c
         },
         resolvedManifestFactory: async (role, id, selection) => {
           manifests.push(role);
-          if (role === 'parent') return await createAgentResolvedManifest(id, selection);
+          if (role === 'parent') {
+            return await createAgentResolvedManifest(id, selection);
+          }
           return await testCase.factory(role, id, selection);
         },
         onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
         onRegistryMaterialized: (definition) =>
           materialized.push(`registry:${definition.registry.kind}`),
+        onDisplayStateProjected: () => displayProjections += 1,
       });
       assert(result.outcome.ok, testCase.name);
       assertEquals(result.outcome.finalText, 'parent continued', testCase.name);
       assertEquals(result.requestCount, 2, testCase.name);
       assertEquals(manifests, ['parent', 'planner'], testCase.name);
-      assertEquals(materialized, ['model:production', 'registry:production'], testCase.name);
+      assertEquals(
+        materialized,
+        ['model:production', 'registry:production'],
+        testCase.name,
+      );
       assertEquals(credentialReads, 2, testCase.name);
+      assertEquals(displayProjections, 1, testCase.name);
       const toolMessage = result.outcome.transcript.find((message) => message.role === 'tool');
       assert(toolMessage?.role === 'tool', testCase.name);
       assertEquals(JSON.parse(toolMessage.content[0].text), {
@@ -1277,6 +1347,7 @@ Deno.test('resolved manifest domain and identity never leak across runtime publi
       'model',
       'registry',
       'systemInstruction',
+      'displayState',
       'resourceSelection',
       'requestCount',
       'createTurnExecutionContext',
@@ -1303,8 +1374,16 @@ Deno.test('resolved manifest domain and identity never leak across runtime publi
       get record(): undefined {
         return undefined;
       },
-      commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void {
-        persisted = { nextTurn, updatedAt, transcript: structuredClone(transcript) };
+      commit(
+        transcript: readonly Message[],
+        nextTurn: number,
+        updatedAt: string,
+      ): void {
+        persisted = {
+          nextTurn,
+          updatedAt,
+          transcript: structuredClone(transcript),
+        };
       },
       rollback(): void {},
       close(): Promise<void> {
@@ -1325,8 +1404,14 @@ Deno.test('resolved manifest domain and identity never leak across runtime publi
     assert(sessionResult.ok);
     assert(persisted !== undefined);
     assertEquals(Object.keys(runResult), ['outcome', 'requestCount']);
-    assertEquals(Object.keys(session), ['session', 'requestCount']);
-    assert(!Object.keys(session.session).some((key) => key.includes('manifest')));
+    assertEquals(Object.keys(session), [
+      'session',
+      'requestCount',
+      'displayState',
+    ]);
+    assert(
+      !Object.keys(session.session).some((key) => key.includes('manifest')),
+    );
     const cli = await runWithOutput(['--task', 'cli surface task'], {
       terminal: true,
       run: () => Promise.resolve(runResult),
@@ -1718,6 +1803,107 @@ Deno.test('runtime startup keeps credential reads and fetch starts at zero', asy
     assertEquals(composition.requestCount(), 0);
     assertEquals(fetches, 0);
     assertEquals(credentialReads, 0);
+  });
+});
+
+Deno.test('runtime projects one frozen display state after manifest and shares it with materialization', async () => {
+  await withWorkspace(async (root) => {
+    await Deno.writeTextFile(`${root}/AGENTS.md`, 'display instructions');
+    await Deno.mkdir(`${root}/.zot/skills/review`, { recursive: true });
+    await Deno.writeTextFile(
+      `${root}/.zot/skills/review/SKILL.md`,
+      '---\ndescription: Review the display.\n---\nprivate display body',
+    );
+    const phases: string[] = [];
+    const projected: unknown[] = [];
+    let credentialReads = 0;
+    let fetches = 0;
+    const prepared = await prepareRuntimeComposition(
+      {
+        workspaceRoot: root,
+        fetcher: () => {
+          fetches += 1;
+          throw new Error('startup must not fetch');
+        },
+        credentialSource: () => {
+          credentialReads += 1;
+          return DUMMY_CREDENTIAL;
+        },
+        onResolvedManifestValidated: () => phases.push('manifest'),
+        onDisplayStateProjected: (state) => {
+          phases.push('display');
+          projected.push(state);
+        },
+        onModelMaterialized: () => phases.push('model'),
+        onRegistryMaterialized: () => phases.push('registry'),
+      },
+      resolveBuiltinAgent(),
+      'continue',
+    );
+    assertEquals(phases, ['manifest', 'display']);
+    assertEquals(projected.length, 1);
+    const composition = materializePreparedRuntimeComposition(prepared);
+    assertEquals(phases, ['manifest', 'display', 'model', 'registry']);
+    assert(projected[0] === prepared.displayState);
+    assert(prepared.displayState === composition.displayState);
+    assertEquals(prepared.displayState.sessionMode, { kind: 'continue' });
+    assertEquals(prepared.displayState.instructions, {
+      loaded: true,
+      source: 'AGENTS.md',
+    });
+    assertEquals(prepared.displayState.skills, {
+      count: 1,
+      names: ['review'],
+      omitted: 0,
+    });
+    assertEquals(fetches, 0);
+    assertEquals(credentialReads, 0);
+    assert(
+      !JSON.stringify(prepared.displayState).includes('display instructions'),
+    );
+    assert(
+      !JSON.stringify(prepared.displayState).includes('private display body'),
+    );
+  });
+});
+
+Deno.test('CLI and TUI compositions correlate their common display fields', async () => {
+  await withWorkspace(async (root) => {
+    await Deno.writeTextFile(
+      `${root}/AGENTS.md`,
+      'shared startup instructions',
+    );
+    await Deno.mkdir(`${root}/.zot/skills/review`, { recursive: true });
+    await Deno.writeTextFile(
+      `${root}/.zot/skills/review/SKILL.md`,
+      '---\ndescription: Shared startup skill.\n---\nprivate body',
+    );
+    const seam: RuntimeTestSeam = {
+      workspaceRoot: root,
+      credential: DUMMY_CREDENTIAL,
+      fetcher: () => Promise.reject(new Error('must not fetch')),
+    };
+    const cli = await createRuntimeComposition(seam, resolveBuiltinAgent());
+    const tui = await createRuntimeSession(
+      () => {},
+      seam,
+      resolveBuiltinAgent(),
+    );
+    const commonFields = (state: typeof cli.displayState) => ({
+      workspace: state.workspace,
+      agentId: state.agentId,
+      model: state.model,
+      instructions: state.instructions,
+      skills: state.skills,
+      trust: state.trust,
+      credentialVerification: state.credentialVerification,
+    });
+    assertEquals(
+      commonFields(cli.displayState),
+      commonFields(tui.displayState),
+    );
+    assertEquals(cli.displayState.sessionMode, { kind: 'none' });
+    assertEquals(tui.displayState.sessionMode, { kind: 'none' });
   });
 });
 
@@ -2242,6 +2428,7 @@ Deno.test('parent manifest failure precedes model, registry, credential, and fet
     let registryMaterializations = 0;
     let credentialReads = 0;
     let fetches = 0;
+    let displayProjections = 0;
     await assertRejects(() =>
       createRuntimeComposition({
         workspaceRoot: root,
@@ -2259,6 +2446,7 @@ Deno.test('parent manifest failure precedes model, registry, credential, and fet
         },
         onModelMaterialized: () => modelMaterializations += 1,
         onRegistryMaterialized: () => registryMaterializations += 1,
+        onDisplayStateProjected: () => displayProjections += 1,
       })
     );
     assertEquals(manifestCalls, 1);
@@ -2266,6 +2454,7 @@ Deno.test('parent manifest failure precedes model, registry, credential, and fet
     assertEquals(registryMaterializations, 0);
     assertEquals(credentialReads, 0);
     assertEquals(fetches, 0);
+    assertEquals(displayProjections, 0);
   });
 });
 
@@ -2274,6 +2463,7 @@ Deno.test('planner manifest failure preserves parent continuation and child pre-
     const roles: string[] = [];
     const materialized: string[] = [];
     let credentialReads = 0;
+    let displayProjections = 0;
     const result = await runRuntime('parent task', {
       workspaceRoot: root,
       fetcher: fetchSequence([
@@ -2291,12 +2481,14 @@ Deno.test('planner manifest failure preserves parent continuation and child pre-
       onModelMaterialized: (definition) => materialized.push(`model:${definition.registry.kind}`),
       onRegistryMaterialized: (definition) =>
         materialized.push(`registry:${definition.registry.kind}`),
+      onDisplayStateProjected: () => displayProjections += 1,
     });
     assert(result.outcome.ok);
     assertEquals(result.outcome.finalText, 'parent continued');
     assertEquals(roles, ['parent', 'planner']);
     assertEquals(materialized, ['model:production', 'registry:production']);
     assertEquals(credentialReads, 2);
+    assertEquals(displayProjections, 1);
     assertEquals(result.requestCount, 2);
   });
 });

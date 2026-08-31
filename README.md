@@ -198,9 +198,17 @@ The explicit TUI command is real-TTY-only and accepts `--agent NAME` plus at mos
 selector (`--continue`, `--session UUID`, or `--no-session`), in either order:
 
 ```text
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:tui --agent planner --no-session
+deno task --quiet --config deno.v0.json agent:tui
+deno task --quiet --config deno.v0.json agent:tui --agent planner --no-session
 ```
+
+Run the portable command from the repository root with exact Deno 2.9.4 on `PATH`, a POSIX
+shell, and a real stdin/stdout TTY. The default starts a new autosave session; `--continue`,
+`--session UUID`, and `--no-session` remain available. Startup does not inspect credentials:
+the selected provider is checked immediately before each request. The default Agent's
+`bash`/`edit`/`write` tools run with OS-user access and no hard sandbox or per-tool confirmation.
+The startup orientation lists these boundaries and current keys; empty Ctrl-D exits without
+submitting a task. The compact orientation is fully visible at 80x24 or wider.
 
 The omitted selector uses `default`; `--agent planner` selects the built-in planner capability. It
 uses the same fixed trusted-local workspace, skills, model profile, and trusted-local process

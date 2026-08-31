@@ -6,6 +6,15 @@ export const MAX_AGENT_INSTRUCTION_BYTES = 16 * 1024;
 const MAX_OBSERVED_BYTES = MAX_AGENT_INSTRUCTION_BYTES + 1;
 const CANDIDATE_NAMES = ['AGENTS.md', 'AGENTS.MD'] as const;
 
+export type AgentInstructionSource = (typeof CANDIDATE_NAMES)[number];
+
+/** One filesystem read projected into a source/text snapshot for runtime consumers. */
+export interface AgentInstructionSnapshot {
+  readonly source: AgentInstructionSource;
+  readonly text: string;
+  readonly formatted: string;
+}
+
 export interface InstructionFileInfo {
   readonly isFile: boolean;
   readonly isSymlink: boolean;
@@ -151,15 +160,13 @@ const formatAgentInstruction = (name: string, content: string): string =>
   `Project context instructions loaded from AGENTS.md. Follow them when working in this workspace.\n\n## ./${name}\n\n${content}`;
 
 /**
- * Discover one optional workspace-root standing-instruction file.
- *
- * The first present candidate wins, including when that candidate is invalid. All filesystem
- * failures are intentionally silent and produce no instruction.
+ * Discover one optional workspace-root instruction and retain the accepted source/text exactly
+ * once. The formatted system instruction is derived from that same snapshot.
  */
-export const discoverAgentInstructions = async (
+export const discoverAgentInstructionSnapshot = async (
   workspaceRoot: string,
   fileSystem: InstructionFileSystem = productionFileSystem,
-): Promise<string | undefined> => {
+): Promise<AgentInstructionSnapshot | undefined> => {
   const root = normalizedAbsolute(workspaceRoot);
   const seen = new Set<string>();
   for (const name of CANDIDATE_NAMES) {
@@ -180,10 +187,27 @@ export const discoverAgentInstructions = async (
     }
     if (!present || info === undefined) continue;
     const content = await readCandidate(fileSystem, path, info);
-    return content === undefined ? undefined : formatAgentInstruction(name, content);
+    if (content === undefined) return undefined;
+    return Object.freeze({
+      source: name,
+      text: content,
+      formatted: formatAgentInstruction(name, content),
+    });
   }
   return undefined;
 };
+
+/**
+ * Discover one optional workspace-root standing-instruction file.
+ *
+ * The first present candidate wins, including when that candidate is invalid. All filesystem
+ * failures are intentionally silent and produce no instruction.
+ */
+export const discoverAgentInstructions = async (
+  workspaceRoot: string,
+  fileSystem: InstructionFileSystem = productionFileSystem,
+): Promise<string | undefined> =>
+  (await discoverAgentInstructionSnapshot(workspaceRoot, fileSystem))?.formatted;
 
 export const formatAgentInstructions = (name: string, content: string): string =>
   formatAgentInstruction(name, content.trim());

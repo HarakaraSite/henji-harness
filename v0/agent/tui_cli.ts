@@ -20,6 +20,7 @@ import {
   SessionStoreError,
 } from './session_store.ts';
 import { type Message } from './contracts.ts';
+import { type RuntimeDisplayState } from './startup_orientation.ts';
 
 const encoder = new TextEncoder();
 
@@ -39,6 +40,8 @@ export interface TuiSessionFactoryResult {
     readonly messages: readonly Message[];
     readonly omitted: number;
   };
+  /** Every factory must provide the one startup projection; the TUI never recomputes it. */
+  readonly displayState: RuntimeDisplayState;
 }
 
 export interface TuiCliDependencies {
@@ -200,13 +203,14 @@ export const main = async (
           return {
             session: result.session,
             requestCount: result.requestCount,
-            sessionLine: 'session> ephemeral',
+            displayState: result.displayState,
           };
         }
         // Parent Definition/manifest preparation must complete before any store operation.
         const prepared = await prepareRuntimeComposition(
           dependencies.runtimeSeam,
           selected,
+          invocation.persistence,
         );
         const workspace = prepared.workspace;
         const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
@@ -251,6 +255,7 @@ export const main = async (
             session: result.session,
             requestCount: result.requestCount,
             close: () => result.session.close(),
+            displayState: result.displayState,
             sessionLine: `session> ${handle.id} ${record === undefined ? '(new)' : '(resumed)'}`,
             ...(record === undefined ? {} : (() => {
               const replay = restoredMessages(record.transcript);
@@ -280,6 +285,7 @@ export const main = async (
     });
     acquisitionStarted = true;
     await lifecycle.acquire();
+    renderer.renderStartupOrientation(created.displayState);
     if (created.sessionLine !== undefined) {
       renderer.writeStatic(`${created.sessionLine}\n`);
     }

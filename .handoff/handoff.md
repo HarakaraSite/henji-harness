@@ -328,6 +328,22 @@
 - 状態: implementation Human Gate、single implementation closure、single re-review、residual evidence closure、owner final gate完了。fresh comparison 12、loop 26、topology 2、full gate 578成功。initial review P2 5とre-review残存P2 2は全件Closed、final Blocker/P1/P2 0
 - 境界: provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
 
+### POL-20260831-portable-launch-startup-orientation-plan
+
+- 計画: `docs/plans/portable-launch-startup-orientation.md`、SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`。正本inputは`/tmp/planner-inputs/henji-portable-launch-startup-orientation.md`、concept revision 33、SHA-256 `538e757efe426512e01c63b644a09f819d1cd226ee8aaaa8fce5da4a5ff4fd66`
+- 契約: exact Deno 2.9.4 on `PATH`から一つのportable documented commandでnormal TUIを起動する。manifest validation後にbounded immutable secret-free display stateを一度だけprojectし、workspace/Agent/model/session/instruction/skills/fixed credential timing/trusted-local境界をtask input前に表示する
+- credential: startupからinput受付までcredential read 0/provider fetch 0。readiness/presenceは分類せず、各provider request直前の再解決を表示・維持する。missing/empty/resolution failureはfetch 0/turn commit 0で、empty session cleanupとBash noninheritanceを維持する
+- review: initial P2 3（unchanged configへのmarker assertion、topology baseline、idle Ctrl-C 500 ms help）をplanning-onlyで修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 境界: implementation、test/gate、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。次は初期implementation Human Gate
+
+### POL-20260831-portable-launch-startup-orientation-implementation
+
+- 判断済み: approved implementation Human Gateに基づき、portable `agent:tui` launcher、bounded immutable startup orientation、runtime/instruction snapshot propagation、README最小更新、portable direct leaves/topology、results/lifecycle evidenceを実施した。canonical planはSHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`
+- 契約: exact Deno 2.9.4 on `PATH`をlauncherが検証し、manifest validation後にdisplay stateを一度だけprojectしてprepared/materialized compositionへ共有する。TUIはinput前に12 logical linesを表示し、startup credential read/fetch/toolは0、request-time credential policyと既存session/replay/terminal behaviorを維持する
+- 検証: startup orientation 8/8、portable PTY 2/2、runtime 51/51、instructions 9/9、session launcher process 3/3、persistent session/TUI 9/9、TUI direct/process/topology 68/68・25/25・4/4、offline topology 2/2、full `v0:test`/authoritative `v0:gate` 591/591（topology 2/2）。`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` pass。initial review P2 4はsingle closureとnarrow re-reviewで全件Closed、GO。ownerがfocusedとfull gateを独立再実行しfinal Blocker/P1/P2 0
+- 受入: separate Human Gateのrepresentative no-task acceptanceをdisposable checkout/state、credential env unsetで一回だけ実施。12-line orientation、default/new autosave、ready、empty Ctrl-D exit 0、terminal controls restoration、session JSON/per-session lock/temp 0、disposable cleanupを確認。retry/rerun/provider request/tool execution 0
+- 境界: reviewed incrementはuser-authorized final integration commitへ記録する。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施。plan delta、stop condition、計画外bugなし
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -2106,3 +2122,62 @@
 - 実施: residual second-position/partial-secondとunresolved/transitive import evidenceをsource/testで照合。ownerがfresh comparison 12/12、offline topology 2/2、authoritative full `v0:gate` 578/578を独立再実行し、initial P2 5とsingle re-review残存P2 2を全件Closed、final Blocker/P1/P2 0と判断
 - 次: reviewed treeのcommitは別の明示指示待ち
 - 注意: plan SHA-256 `eeb8e9da5116ce34aaeaea045e072d0cbfac1fe88fb65c4ae72b2c2fb2ded414`。check/fmt(123)/lint(120)/diff check green。provider/network/credential/production command、persistence、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 07:18 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Roadmap step 81 portable launch and startup orientation planning
+- 実施: revision-33 input、HEAD、portable launcher/runtime/TUI/session/topologyを照合しcanonical planを作成。startup readiness分類を廃止しcredential read 0とfixed request-time policyを正本化。initial P2 3を修正しsingle narrow re-review GO、Blocker/P1/P2 0
+- 次: `POL-20260831-portable-launch-startup-orientation-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`。implementation/test/provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 07:50 JST
+
+- 実行エージェント: Codex step-81 implementer
+- 作業トピック: Roadmap step 81 portable launch and startup orientation implementation
+- 実施: approved planどおりPATH/exact-version launcher、single post-manifest display projection、12-line TUI orientation、portable PTY/process leaf、exact topology exception、README/results/AGENTS更新を実施。既存launcher argv regressionは新version preflight用PATH shimへ適応し、child argv契約は維持
+- 検証: startup orientation 8/8、portable 2/2、runtime 50/50、instructions 9/9、session process 3/3、TUI direct/process/topology 68/68・25/25・4/4、offline topology 2/2、full `v0:test` 589/589、check/fmt/lint/diff check pass。次にprocess-local PATHでauthoritative `v0:gate`を実行する
+- 次: coordinating ownerのauthoritative gate、bounded independent review、final Blocker/P1/P2 disposition
+- 注意: plan SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 07:51 JST
+
+- 実行エージェント: Codex step-81 implementer
+- 作業トピック: Roadmap step 81 authoritative offline gate
+- 実施: process-local PATHでrepository-defined `v0:gate`を完了し、topology、check、fmt、lint、ordered full offline test chainをgreenで確認した
+- 検証: authoritative `v0:gate` 589/589、topology 2/2、startup orientation 8/8、portable PTY 2/2、runtime 50/50、`git diff --check` pass。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+- 次: coordinating ownerのbounded independent reviewとfinal Blocker/P1/P2 disposition
+- 注意: plan SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`。plan delta、stop condition、計画外bugなし
+
+## 2026-08-31 08:14 JST
+
+- 実行エージェント: Codex step-81 implementer
+- 作業トピック: Roadmap step 81 implementation-review P2 closure and final verification
+- 実施: TUI fixtureのmandatory display projection、new/continue/exact/none lifecycle、orientation failure cleanup、complete-orientation PTY synchronization、launcher failure/admission sanitization、invalid startup effect-zero matrices、CLI/TUI common-field correlationを追加
+- 検証: focused runtime 51/51、session/TUI 9/9、portable PTY 2/2、TUI direct 68/68、startup orientation 8/8。authoritative `v0:gate` 591/591（topology 2/2）、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` pass。初回gateで既存PTY status race 1件（24/25）が出たがfiltered/full PTY再実行と次のauthoritative gateはgreen
+- 次: coordinating ownerのbounded changed-lines re-reviewとfinal Blocker/P1/P2 disposition
+- 注意: plan SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 08:17 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Roadmap step 81 final review and owner gate
+- 実施: initial implementation review P2 4のsingle closureをnarrow re-reviewし全件Closed、GO、Blocker/P1/P2 0。ownerがorientation 8/8、portable PTY 2/2、runtime 51/51、persistent TUI 9/9、authoritative `v0:gate` 591/591を独立再実行
+- 次: representative no-task human acceptanceは別の明示Human Gate。reviewed treeのcommitも別の明示指示待ち
+- 注意: plan SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`。final Blocker/P1/P2 0。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 10:32 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 81 representative no-task human acceptance
+- 実施: user-approved separate Human Gateを一回だけ実行。disposable checkout/stateとcredential env unsetでdocumented default commandを起動し、12-line orientation、ready、empty Ctrl-D exit 0、terminal restoration、session ghost 0を確認してdisposable rootを削除
+- 次: final integration commit後、roadmapの次inputを確認する
+- 注意: retry/rerun/provider request/credential value read/tool execution 0。cleanup commandのCLI flag mismatchは起動attempt後のtemp cleanupだけに影響し、actual Deno 2.9.4構文でcleanup完了。provider/network/production command、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施
+
+## 2026-08-31 10:35 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 81 final integration commit authorization
+- 実施: ユーザーがreview GO、owner gate、representative acceptance済みStep 81 treeのcommitを明示承認。Step 81対象ファイルだけを一つのfeature commitへ記録する
+- 次: commit後、roadmapの次inputを確認する
+- 注意: user-owned `_refs/*`はstageしない。provider/network/credential/production command、actual persistent state、dependency/lockfile、push/tag/publish/releaseは未実施

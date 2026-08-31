@@ -433,6 +433,28 @@
   credential, production command, persistence, dependency/lockfile, `_refs/`, commit, push, tag,
   publish, or release operation occurred.
 
+- Roadmap step 81 is implemented locally under `docs/plans/portable-launch-startup-orientation.md`,
+  SHA-256 `6000e27210305845032e74f2ccecc04ce1c03b6f6c1e84e30beed673ea251a09`, with results in
+  `docs/plans/portable-launch-startup-orientation-results.md`. The normal TUI now has the portable
+  `deno task --quiet --config deno.v0.json agent:tui` entry, PATH/exact-Deno-version preflight, and
+  an immutable post-manifest startup orientation shared through prepared/materialized runtime
+  state. Startup remains credential/fetch/tool-free through input acceptance and request-time
+  credential verification is unchanged. Focused startup orientation/portable PTY/runtime/topology
+  suites pass 8/8, 2/2, 51/51, and 2/2; the full offline `v0:test` chain and authoritative
+  `v0:gate` pass 591/591 (topology 2/2), with check, format, lint, and diff check green. The
+  approved implementation-review closure adds four-mode lifecycle/cleanup evidence, complete
+  orientation-before-input PTY synchronization, launcher failure/admission sanitization, invalid
+  startup effect-zero matrices, and CLI/TUI common-field correlation.
+  The single narrow re-review confirmed all four initial P2 findings Closed and returned GO;
+  the owner independently reran focused orientation 8/8, portable PTY 2/2, runtime 51/51,
+  persistent TUI 9/9, and authoritative `v0:gate` 591/591. Final disposition is Blocker/P1/P2
+  zero. The separately approved representative no-task acceptance was consumed once in a disposable
+  checkout/state root: all 12 orientation lines rendered, empty Ctrl-D exited 0, terminal controls
+  restored, session JSON/per-session lock/temp counts were zero, and the disposable root was removed.
+  No retry or rerun occurred. The reviewed Step 81 increment is recorded by the user-authorized
+  final integration commit. No provider/network/credential/production command, actual persistent
+  product state, dependency/lockfile, `_refs/`, push, tag, publish, or release operation occurred.
+
 ## Development lifecycle
 
 - Use the user-provided requirements, repository plans, this file, and the current handoff as the

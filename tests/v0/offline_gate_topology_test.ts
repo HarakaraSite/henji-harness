@@ -31,6 +31,11 @@ const PRODUCTION_ROOT_FILES = [
   'v0/agent/runtime_cli.ts',
   'v0/agent/tui_cli.ts',
 ] as const;
+const PORTABLE_LEAVES = [
+  'agent:startup-orientation:test',
+  'agent:portable-tui:process:test',
+] as const;
+const PORTABLE_LAUNCHER = 'v0/agent/session_launcher.sh';
 const PRODUCTION_SOURCE_FILES = [
   'v0/domain.ts',
   'v0/model.ts',
@@ -61,6 +66,7 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/steering.ts',
   'v0/agent/tools.ts',
   'v0/agent/tui_cli.ts',
+  'v0/agent/startup_orientation.ts',
   'v0/agent/work_tools.ts',
   'v0/tui/controller.ts',
   'v0/tui/input.ts',
@@ -98,6 +104,7 @@ const CHECK_TARGETS = [
   'v0/agent/work_tools.ts',
   'v0/agent/runtime_cli.ts',
   'v0/agent/tui_cli.ts',
+  'v0/agent/startup_orientation.ts',
   'v0/agent/openrouter_model.ts',
   'v0/agent/real_provider_acceptance.ts',
   'v0/agent/real_json_keys_task.ts',
@@ -156,6 +163,8 @@ const CHECK_TARGETS = [
   'tests/v0/tui_render_test.ts',
   'tests/v0/tui_controller_test.ts',
   'tests/v0/tui_process_test.ts',
+  'tests/v0/agent_startup_orientation_test.ts',
+  'tests/v0/portable_tui_launch_process_test.ts',
   'tests/v0/tui_topology_test.ts',
   'tests/v0/fixtures/tui_process_fixture.ts',
   'v0/extensions-src/task-planner/r1/main.ts',
@@ -200,6 +209,7 @@ const EXPECTED_LEAVES = [
   'agent:planner-delegation:test',
   'agent:instructions:test',
   'agent:instructions:topology:test',
+  'agent:startup-orientation:test',
   'agent:skills:test',
   'agent:skills:topology:test',
   'agent:session:test',
@@ -219,6 +229,7 @@ const EXPECTED_LEAVES = [
   'agent:work-tools:test',
   'agent:tui:test',
   'agent:tui:process:test',
+  'agent:portable-tui:process:test',
   'agent:tui:topology:test',
   'agent:selection:test',
   'agent:json-keys:test',
@@ -259,6 +270,7 @@ assignTarget(
   'agent_instructions_topology_test.ts',
   'agent:instructions:topology:test',
 );
+assignTarget('agent_startup_orientation_test.ts', 'agent:startup-orientation:test');
 assignTarget('agent_skills_test.ts', 'agent:skills:test');
 assignTarget('agent_skills_topology_test.ts', 'agent:skills:topology:test');
 assignTarget('agent_session_test.ts', 'agent:session:test');
@@ -282,6 +294,7 @@ targets['agent:tui:test'] = [
   'tests/v0/tui_controller_test.ts',
 ];
 assignTarget('tui_process_test.ts', 'agent:tui:process:test');
+assignTarget('portable_tui_launch_process_test.ts', 'agent:portable-tui:process:test');
 assignTarget('tui_topology_test.ts', 'agent:tui:topology:test');
 assignTarget('two_tool_task_selection_test.ts', 'agent:selection:test');
 assignTarget('json_object_keys_tool_test.ts', 'agent:json-keys:test');
@@ -340,6 +353,7 @@ assignPermission(
   'agent:replay-record:test',
   'agent:fresh-runtime-comparison:test',
   'agent:instructions:test',
+  'agent:startup-orientation:test',
   'agent:planner-delegation:test',
   'agent:selection:test',
   'agent:session:test',
@@ -407,6 +421,10 @@ assignPermission(
 );
 assignPermission(['--allow-run=/usr/bin/script'], 'agent:tui:process:test');
 assignPermission(
+  ['--allow-read=.,/tmp', '--allow-write=/tmp', '--allow-run=/usr/bin/script'],
+  'agent:portable-tui:process:test',
+);
+assignPermission(
   [
     '--allow-read=v0/extensions-src,/tmp',
     '--allow-write=/tmp',
@@ -458,13 +476,16 @@ const parseComposition = (command: string): string[] | null => {
   return names;
 };
 
-const parseLeaf = (command: string): ParsedLeaf | null => {
+const parseLeaf = (command: string, taskName: string): ParsedLeaf | null => {
   if (!/^[A-Za-z0-9_:/.,=-]+(?: [A-Za-z0-9_:/.,=-]+)*$/.test(command)) {
     return null;
   }
   const tokens = command.split(' ');
+  const executable = PORTABLE_LEAVES.includes(taskName as (typeof PORTABLE_LEAVES)[number])
+    ? 'deno'
+    : DENO;
   if (
-    tokens.length < 4 || tokens[0] !== DENO || tokens[1] !== 'test' ||
+    tokens.length < 4 || tokens[0] !== executable || tokens[1] !== 'test' ||
     tokens[2] !== '--no-prompt'
   ) {
     return null;
@@ -582,7 +603,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   );
 
   for (const taskName of EXPECTED_LEAVES) {
-    const parsed = parseLeaf(tasks[taskName]);
+    const parsed = parseLeaf(tasks[taskName], taskName);
     assert(parsed, `invalid leaf grammar for ${taskName}`);
     assertEquals(
       parsed.permissions,
@@ -610,7 +631,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 49, 'expected 49 directly-owned tests');
+  assertEquals(owned.size, 51, 'expected 51 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {
@@ -660,9 +681,28 @@ const productionGraphInventory = await Promise.all(
     ] as const
   ),
 );
+const portableLauncherSource = await Deno.readTextFile(PORTABLE_LAUNCHER);
+const validatePortableEntrypoint = (candidate: Manifest): void => {
+  assertEquals(
+    candidate.tasks['agent:tui'],
+    PORTABLE_LAUNCHER,
+    'portable TUI task must resolve to the repository launcher',
+  );
+  for (const taskName of PORTABLE_LEAVES) {
+    assert(
+      candidate.tasks[taskName].startsWith('deno '),
+      `portable leaf must use PATH deno: ${taskName}`,
+    );
+  }
+  assert(
+    !portableLauncherSource.includes('/home/masat.guest/src/abyssaeon'),
+    'portable launcher embeds a fixed Deno path',
+  );
+};
 
 Deno.test('offline gate has exact bounded leaf ownership and composition', () => {
   validateManifest(manifest, directFiles);
+  validatePortableEntrypoint(manifest);
   for (const [file, source] of step79SourceInventory) {
     for (const pattern of STEP79_FORBIDDEN_SOURCE_PATTERNS) {
       assert(!pattern.test(source), `Step 79 source isolation drifted: ${file}`);
@@ -836,6 +876,21 @@ Deno.test('offline gate parser rejects unsafe grammar, topology, permissions, an
         );
         return copy;
       })(),
+    },
+    {
+      name: 'portable leaf pinned executable',
+      manifest: withTaskValue(
+        manifest,
+        'agent:portable-tui:process:test',
+        manifest.tasks['agent:portable-tui:process:test'].replace(
+          'deno test',
+          `${DENO} test`,
+        ),
+      ),
+    },
+    {
+      name: 'portable launcher task rewired',
+      manifest: withTaskValue(manifest, 'agent:tui', 'v0/agent/other_launcher.sh'),
     },
     {
       name: 'removed permission',
@@ -1086,6 +1141,7 @@ Deno.test('offline gate parser rejects unsafe grammar, topology, permissions, an
     let rejected = false;
     try {
       validateManifest(mutation.manifest, directFiles);
+      validatePortableEntrypoint(mutation.manifest);
     } catch {
       rejected = true;
     }

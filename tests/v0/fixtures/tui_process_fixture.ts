@@ -3,6 +3,7 @@ import { type LoopOutcome } from '../../../v0/agent/contracts.ts';
 import { CancellationCleanupError } from '../../../v0/agent/cancellation.ts';
 import { main, type TuiSessionFactoryResult } from '../../../v0/agent/tui_cli.ts';
 import { type BuiltinAgentSelection } from '../../../v0/agent/agent_catalog.ts';
+import { projectRuntimeDisplayState } from '../../../v0/agent/startup_orientation.ts';
 
 const mode = Deno.args[0] ?? 'success';
 type FixtureSignal = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
@@ -219,6 +220,13 @@ const createSession = (
   }
   return Promise.resolve({
     session: new FixtureSession(sink, delayedMode),
+    displayState: projectRuntimeDisplayState({
+      workspaceRoot: '/tmp/tui-process-fixture',
+      agentId: mode === 'planner' ? 'planner' : 'default',
+      profileId: 'fixture-profile',
+      sessionMode: 'none',
+      skillNames: [],
+    }),
   });
 };
 

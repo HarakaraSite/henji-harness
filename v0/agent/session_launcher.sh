@@ -84,7 +84,18 @@ fi
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
-deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno
+deno=$(command -v deno 2>/dev/null || true)
+case "$deno" in
+  /*) [ -f "$deno" ] && [ -x "$deno" ] || startup_fail ;;
+  *) startup_fail ;;
+esac
+newline='
+'
+version=$("$deno" --version 2>/dev/null) || startup_fail
+case "$version" in
+  "deno 2.9.4"|"deno 2.9.4 "*) ;;
+  *) startup_fail ;;
+esac
 if [ "$mode" = 'none' ]; then
   exec "$deno" run --no-prompt --no-remote \
     --allow-env=HENJI_OPENROUTER_API_KEY,HENJI_SESSION_STATE_ROOT \

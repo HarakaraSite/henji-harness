@@ -10,6 +10,7 @@ import {
   TerminalPort,
   TerminalRendererGate,
 } from './terminal.ts';
+import { type RuntimeDisplayState } from '../agent/startup_orientation.ts';
 
 const encoder = new TextEncoder();
 const DISPLAY_LIMIT = 64 * 1024;
@@ -93,6 +94,88 @@ const cellWidth = (character: string): number => {
 const dynamicLine = (prefix: string, value: string): Uint8Array =>
   staticBytes(`${prefix}${boundedEscaped(value)}\n`);
 
+const orientationSession = (state: RuntimeDisplayState): string => {
+  switch (state.sessionMode.kind) {
+    case 'new':
+      return 'new (autosave)';
+    case 'continue':
+      return 'continue newest';
+    case 'exact':
+      return 'exact session';
+    case 'none':
+      return 'no session';
+  }
+};
+
+const orientationInstruction = (state: RuntimeDisplayState): string =>
+  state.instructions.loaded ? `./${state.instructions.source}` : 'none';
+
+const orientationSkills = (state: RuntimeDisplayState): string => {
+  const names = state.skills.names.length === 0 ? 'none' : state.skills.names.join(', ');
+  return `${state.skills.count}: ${names}${
+    state.skills.omitted > 0 ? ` (+${state.skills.omitted} more)` : ''
+  }`;
+};
+
+const orientationTrust = (state: RuntimeDisplayState): string =>
+  state.agentId === 'default'
+    ? 'NO HARD SANDBOX; bash/edit/write run with your OS-user access'
+    : 'NO HARD SANDBOX; planner has no bash/edit/write';
+
+/** Build the exact twelve logical startup lines without consulting runtime objects. */
+export const startupOrientationLines = (
+  state: RuntimeDisplayState,
+  workspace = state.workspace,
+): readonly string[] => [
+  'Henji Harness',
+  `workspace> ${escapeTerminalText(workspace)}`,
+  `agent> ${escapeTerminalText(state.agentId)}`,
+  `model> openrouter / ${escapeTerminalText(state.model.profileId)}`,
+  `session> ${orientationSession(state)}`,
+  `instructions> ${orientationInstruction(state)}`,
+  `skills> ${orientationSkills(state)}`,
+  'credential> verified immediately before each provider request; not checked at startup',
+  `trust> ${orientationTrust(state)}`,
+  'keys> Enter submit · busy Enter steer · busy Alt+Enter follow-up',
+  'keys> busy Esc cancel · busy Ctrl-C cancel+exit',
+  'keys> idle Ctrl-C twice within 500 ms exit · empty Ctrl-D exit',
+];
+
+const clippedWorkspace = (value: string, columns: number): string => {
+  const escaped = escapeTerminalText(value);
+  const prefixWidth = [...'workspace> '].reduce(
+    (total, character) => total + cellWidth(character),
+    0,
+  );
+  const available = Math.max(1, columns - prefixWidth);
+  let used = 0;
+  const suffix: string[] = [];
+  for (const character of [...escaped].reverse()) {
+    const width = cellWidth(character);
+    if (used + width > Math.max(1, available - 1)) break;
+    suffix.push(character);
+    used += width;
+  }
+  const result = suffix.reverse().join('');
+  return result === escaped ? result : `…${result}`;
+};
+
+/** Render one bounded orientation block; all dynamic values pass through terminal escaping. */
+export const renderStartupOrientationText = (
+  state: RuntimeDisplayState,
+  columns = 80,
+): string => {
+  const validColumns = Number.isSafeInteger(columns) && columns > 0
+    ? Math.min(160, Math.max(8, columns))
+    : 80;
+  const lines = startupOrientationLines(state, clippedWorkspace(state.workspace, validColumns));
+  const output = `${lines.join('\n')}\n`;
+  if (encoder.encode(output).byteLength > 2_048) {
+    throw new EventDeliveryError();
+  }
+  return output;
+};
+
 /** Main-screen/scrollback renderer with one live editor line. */
 export class TuiRenderer implements TerminalRendererGate {
   private closing = false;
@@ -133,6 +216,22 @@ export class TuiRenderer implements TerminalRendererGate {
   /** Backwards-compatible name retained for existing controller/test callers. */
   clearLiveProgress(): void {
     this.clearLiveActivity();
+  }
+
+  /** Write the startup orientation before any prompt or restored transcript. */
+  renderStartupOrientation(state: RuntimeDisplayState): void {
+    if (this.closing) throw new EventDeliveryError();
+    let columns = 80;
+    try {
+      const size = this.terminal.consoleSize();
+      if (
+        Number.isSafeInteger(size.columns) && size.columns > 0 &&
+        Number.isSafeInteger(size.rows) && size.rows > 0
+      ) columns = size.columns;
+    } catch {
+      // Keep the documented 80-column fallback for unavailable/invalid terminal sizes.
+    }
+    this.write(staticBytes(renderStartupOrientationText(state, columns)));
   }
 
   clearLiveLine(): void {

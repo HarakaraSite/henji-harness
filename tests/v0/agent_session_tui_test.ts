@@ -44,6 +44,8 @@ const response = (text: string): Response =>
 class FakeTerminal {
   readonly writes: string[] = [];
   readonly raw: boolean[] = [];
+  orientationAttempts = 0;
+  failOrientation = false;
   private readonly queued: Uint8Array[] = [];
   private waiter: ((value: Uint8Array | null) => void) | undefined;
   stdinIsTerminal(): boolean {
@@ -80,7 +82,13 @@ class FakeTerminal {
     return Promise.resolve();
   }
   write(bytes: Uint8Array): void {
-    this.writes.push(new TextDecoder().decode(bytes));
+    const text = new TextDecoder().decode(bytes);
+    if (this.failOrientation && text.startsWith('Henji Harness\n')) {
+      this.orientationAttempts += 1;
+      this.failOrientation = false;
+      throw new Error('orientation write failed');
+    }
+    this.writes.push(text);
   }
   addSignal(): void {}
   removeSignal(): void {}
@@ -207,6 +215,8 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   await Deno.mkdir(workspace);
   const firstTerminal = new FakeTerminal();
   assertEquals(await runTui([], firstTerminal, workspace, state, 'first'), 0);
+  const firstOutput = firstTerminal.writes.join('');
+  assert(firstOutput.includes('session> new (autosave)\n'));
   const store = new DenoSessionStore(state, workspace);
   const listed = await store.list();
   assertEquals(listed.sessions.length, 1);
@@ -216,10 +226,16 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
     await runTui(['--continue'], secondTerminal, workspace, state, 'second'),
     0,
   );
+  const secondOutput = secondTerminal.writes.join('');
+  assert(secondOutput.includes('session> continue newest\n'));
   const resumed = await store.list();
   assertEquals(resumed.sessions[0].turnCount, 2);
   assert(secondTerminal.writes.some((line) => line.includes('(resumed)')));
   assert(secondTerminal.writes.some((line) => line.includes('user> first')));
+  assert(
+    secondOutput.indexOf('keys> idle Ctrl-C twice within 500 ms exit') <
+      secondOutput.indexOf('user> first'),
+  );
   const ephemeralState = `${root}/must-not-exist`;
   const ephemeralTerminal = new FakeTerminal();
   assertEquals(
@@ -232,6 +248,7 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
     ),
     0,
   );
+  assert(ephemeralTerminal.writes.join('').includes('session> no session\n'));
   let absent = false;
   try {
     await Deno.stat(ephemeralState);
@@ -263,6 +280,11 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
     0,
   );
   const exactOutput = exactTerminal.writes.join('');
+  assert(exactOutput.includes('session> exact session\n'));
+  assert(
+    exactOutput.indexOf('keys> idle Ctrl-C twice within 500 ms exit') <
+      exactOutput.indexOf('user> replay-user-'),
+  );
   assertEquals((exactOutput.match(/user> replay-user-/g) ?? []).length, 50);
   assert(!exactOutput.includes('history> '));
 
@@ -791,23 +813,40 @@ Deno.test('persistent default TUI prepares manifest before any store operation',
     ];
     for (const args of cases) {
       const terminal = new FakeTerminal();
-      let materializations = 0;
+      let modelMaterializations = 0;
+      let registryMaterializations = 0;
+      let credentialReads = 0;
+      let fetches = 0;
+      let displayProjections = 0;
       const exit = await main(args, {
         terminal,
         stateRoot: state,
         runtimeSeam: {
           workspaceRoot: workspace,
           credential: 'offline-dummy',
-          fetcher: () => Promise.reject(new Error('must not fetch')),
+          fetcher: () => {
+            fetches += 1;
+            return Promise.reject(new Error('must not fetch'));
+          },
+          credentialSource: () => {
+            credentialReads += 1;
+            return 'offline-dummy';
+          },
           resolvedManifestFactory: () => ({}),
-          onModelMaterialized: () => materializations += 1,
-          onRegistryMaterialized: () => materializations += 1,
+          onModelMaterialized: () => modelMaterializations += 1,
+          onRegistryMaterialized: () => registryMaterializations += 1,
+          onDisplayStateProjected: () => displayProjections += 1,
         },
         writeStderr: () => {},
       });
       assertEquals(exit, 1, JSON.stringify(args));
-      assertEquals(materializations, 0, JSON.stringify(args));
+      assertEquals(modelMaterializations, 0, JSON.stringify(args));
+      assertEquals(registryMaterializations, 0, JSON.stringify(args));
+      assertEquals(credentialReads, 0, JSON.stringify(args));
+      assertEquals(fetches, 0, JSON.stringify(args));
+      assertEquals(displayProjections, 0, JSON.stringify(args));
       assertEquals(terminal.raw, [], JSON.stringify(args));
+      assertEquals(terminal.writes, [], JSON.stringify(args));
       assertEquals(await Deno.readTextFile(`${state}/sentinel`), 'untouched');
     }
   } finally {
@@ -816,13 +855,19 @@ Deno.test('persistent default TUI prepares manifest before any store operation',
 });
 
 Deno.test('persistent manifest failures leave new, continue, and exact state trees unchanged', async () => {
-  const cases: readonly { readonly name: string; readonly args: readonly string[] }[] = [
+  const cases: readonly {
+    readonly name: string;
+    readonly args: readonly string[];
+  }[] = [
     { name: 'new', args: [] },
     { name: 'continue', args: ['--continue'] },
     { name: 'exact', args: [] },
   ];
   for (const testCase of cases) {
-    const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-manifest-state-' });
+    const root = await Deno.makeTempDir({
+      dir: '/tmp',
+      prefix: 'henji-manifest-state-',
+    });
     try {
       const workspace = `${root}/workspace`;
       const state = `${root}/state`;
@@ -838,23 +883,40 @@ Deno.test('persistent manifest failures leave new, continue, and exact state tre
       }
       const before = await inventoryStateTree(state);
       const terminal = new FakeTerminal();
-      let materializations = 0;
+      let modelMaterializations = 0;
+      let registryMaterializations = 0;
+      let credentialReads = 0;
+      let fetches = 0;
+      let displayProjections = 0;
       const exit = await main(args, {
         terminal,
         stateRoot: state,
         runtimeSeam: {
           workspaceRoot: workspace,
           credential: 'offline-dummy',
-          fetcher: () => Promise.reject(new Error('must not fetch')),
+          fetcher: () => {
+            fetches += 1;
+            return Promise.reject(new Error('must not fetch'));
+          },
+          credentialSource: () => {
+            credentialReads += 1;
+            return 'offline-dummy';
+          },
           resolvedManifestFactory: () => ({}),
-          onModelMaterialized: () => materializations += 1,
-          onRegistryMaterialized: () => materializations += 1,
+          onModelMaterialized: () => modelMaterializations += 1,
+          onRegistryMaterialized: () => registryMaterializations += 1,
+          onDisplayStateProjected: () => displayProjections += 1,
         },
         writeStderr: () => {},
       });
       assertEquals(exit, 1, testCase.name);
-      assertEquals(materializations, 0, testCase.name);
+      assertEquals(modelMaterializations, 0, testCase.name);
+      assertEquals(registryMaterializations, 0, testCase.name);
+      assertEquals(credentialReads, 0, testCase.name);
+      assertEquals(fetches, 0, testCase.name);
+      assertEquals(displayProjections, 0, testCase.name);
       assertEquals(terminal.raw, [], testCase.name);
+      assertEquals(terminal.writes, [], testCase.name);
       assertEquals(await inventoryStateTree(state), before, testCase.name);
     } finally {
       await Deno.remove(root, { recursive: true });
@@ -862,10 +924,55 @@ Deno.test('persistent manifest failures leave new, continue, and exact state tre
   }
 });
 
+Deno.test('orientation write failure restores terminal and removes an empty new session', async () => {
+  const root = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-orientation-failure-',
+  });
+  try {
+    const workspace = `${root}/workspace`;
+    const state = `${root}/state`;
+    await Deno.mkdir(workspace);
+    const terminal = new FakeTerminal();
+    terminal.failOrientation = true;
+    let stderr = '';
+    const exit = await main([], {
+      terminal,
+      stateRoot: state,
+      runtimeSeam: {
+        workspaceRoot: workspace,
+        fetcher: () => Promise.reject(new Error('must not fetch')),
+      },
+      writeStderr: (text) => {
+        stderr += text;
+      },
+    });
+    assertEquals(exit, 1);
+    assert(stderr.includes('"code":"terminal_failure"'));
+    assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+    assertEquals(
+      terminal.writes.filter((text) => text === '\x1b[?2004l').length,
+      1,
+    );
+    assertEquals(terminal.orientationAttempts, 1);
+    assert(!terminal.writes.some((text) => text.includes('user> ')));
+    const store = new DenoSessionStore(state, workspace);
+    assertEquals((await store.list()).sessions, []);
+    const remaining = await inventoryStateTree(state);
+    assert(remaining.every((entry) => !entry.includes('session.json')));
+    assert(remaining.every((entry) => !entry.includes('.tmp')));
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test('valid manifest with invalid resumed metadata closes safely and permits later lock reopen', async () => {
   const cases: readonly {
     readonly name: string;
-    readonly mutate: (record: Record<string, unknown>, workspace: string) => void;
+    readonly mutate: (
+      record: Record<string, unknown>,
+      workspace: string,
+    ) => void;
   }[] = [
     {
       name: 'workspace metadata',
@@ -877,7 +984,10 @@ Deno.test('valid manifest with invalid resumed metadata closes safely and permit
     },
   ];
   for (const testCase of cases) {
-    const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-manifest-resume-' });
+    const root = await Deno.makeTempDir({
+      dir: '/tmp',
+      prefix: 'henji-manifest-resume-',
+    });
     try {
       const workspace = `${root}/workspace`;
       const state = `${root}/state`;
@@ -922,7 +1032,10 @@ Deno.test('valid manifest with invalid resumed metadata closes safely and permit
 });
 
 Deno.test('TUI output and persisted record omit manifest domain and identity', async () => {
-  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-manifest-output-' });
+  const root = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-manifest-output-',
+  });
   try {
     const workspace = `${root}/workspace`;
     const state = `${root}/state`;
@@ -941,7 +1054,11 @@ Deno.test('TUI output and persisted record omit manifest domain and identity', a
       ]
     ) {
       assert(!value.includes('henji-agent-resolved-manifest:v1'));
-      assert(!value.includes('bdf0e5c7e70ac5d928aab4681bb3228c642d0af89a498ae9f3f9c2940f7a4a58'));
+      assert(
+        !value.includes(
+          'bdf0e5c7e70ac5d928aab4681bb3228c642d0af89a498ae9f3f9c2940f7a4a58',
+        ),
+      );
     }
   } finally {
     await Deno.remove(root, { recursive: true });
