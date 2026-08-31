@@ -4,6 +4,7 @@ import {
   InputDecodeError,
   InputDecoder,
   TuiEditor,
+  TuiEditorHistory,
 } from '../../v0/tui/input.ts';
 
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -147,6 +148,114 @@ Deno.test('editor enforces exact 65,536-byte boundary and atomic overflow', () =
   assertEquals(paste.submit(), null);
 });
 
+Deno.test('editor inserts at a scalar cursor and moves across logical lines', () => {
+  const editor = new TuiEditor();
+  assert(editor.append('ab😀\nxy'));
+  assert(editor.moveUp());
+  assertEquals(editor.cursorScalar, 2);
+  assert(editor.insert('Z'));
+  assertEquals(editor.text, 'abZ😀\nxy');
+  assert(editor.end());
+  assertEquals(editor.cursorScalar, 4);
+  assert(editor.home());
+  assertEquals(editor.cursorScalar, 0);
+});
+
+Deno.test('editor word deletion and sticky vertical column stay scalar bounded', () => {
+  const editor = new TuiEditor();
+  assert(editor.append('hello world'));
+  assert(editor.deleteWordBackward());
+  assertEquals(editor.text, 'hello ');
+  assert(editor.deleteWordBackward());
+  assertEquals(editor.text, '');
+
+  editor.clear();
+  assert(editor.append('12345\nx\n12345'));
+  assert(editor.moveUp());
+  assertEquals(editor.cursorScalar, 7);
+  assert(editor.moveUp());
+  assertEquals(editor.cursorScalar, 5);
+});
+
+Deno.test('editor history bounds entries, suppresses duplicates, and restores the draft cursor', () => {
+  const history = new TuiEditorHistory();
+  assert(!history.record('   '));
+  assert(history.record('same'));
+  assert(history.record('same'));
+  assertEquals(history.length, 1);
+  const editor = new TuiEditor();
+  assert(editor.append('draft'));
+  assert(editor.setCursorScalar(2));
+  assert(history.previous(editor.snapshot()) !== null);
+  const restored = history.next();
+  assert(restored !== null);
+  assertEquals(restored?.text, 'draft');
+  assertEquals(restored?.cursorScalar, 2);
+  const large = 'x'.repeat(65_536);
+  for (let index = 0; index < 5; index += 1) {
+    assert(history.record(`${large.slice(0, -1)}${index}`));
+  }
+  assert(history.length <= 32);
+  assert(history.byteLength <= 262_144);
+});
+
+Deno.test('new editor controls decode as exact events', () => {
+  const decoder = new InputDecoder();
+  const events = decoder.feed(
+    new Uint8Array([
+      0x0f,
+      0x17,
+      0x10,
+      0x0e,
+      0x12,
+      0x09,
+      0x1b,
+      0x5b,
+      0x44,
+      0x1b,
+      0x5b,
+      0x43,
+      0x1b,
+      0x5b,
+      0x41,
+      0x1b,
+      0x5b,
+      0x42,
+      0x1b,
+      0x5b,
+      0x48,
+      0x1b,
+      0x5b,
+      0x46,
+      0x1b,
+      0x5b,
+      0x31,
+      0x7e,
+      0x1b,
+      0x5b,
+      0x34,
+      0x7e,
+    ]),
+  );
+  assertEquals(events.map((event) => event.kind), [
+    'ctrl_o',
+    'ctrl_w',
+    'ctrl_p',
+    'ctrl_n',
+    'ctrl_r',
+    'tab',
+    'left',
+    'right',
+    'up',
+    'down',
+    'home',
+    'end',
+    'home',
+    'end',
+  ]);
+  decoder.end();
+});
+
 Deno.test('Alt+Enter accepts the exact legacy forms and suppresses CRLF', () => {
   const start = 20_000;
   for (const suffix of [new Uint8Array([0x0d]), new Uint8Array([0x0a])]) {
@@ -237,13 +346,13 @@ Deno.test('xterm Alt+Enter at or after the deadline becomes Escape plus printabl
   }
 });
 
-Deno.test('timed-out unknown and divergent CSI discard buffered payload like the baseline decoder', () => {
+Deno.test('timed-out unknown and divergent CSI consume payload without editor fallback', () => {
   const start = 60_000;
   const unknown = new InputDecoder();
   assertEquals(unknown.feed(new Uint8Array([0x1b, 0x5b]), start), []);
   assertEquals(unknown.feed(new Uint8Array([0x41]), start + INPUT_ESC_TIMEOUT_MS), [
     { kind: 'escape' },
-    { kind: 'printable', text: 'A', codePoint: 0x41 },
+    { kind: 'unknown' },
   ]);
   unknown.end();
 
@@ -251,9 +360,25 @@ Deno.test('timed-out unknown and divergent CSI discard buffered payload like the
   assertEquals(divergent.feed(new Uint8Array([0x1b, 0x5b, 0x32, 0x37, 0x3b]), start), []);
   assertEquals(divergent.feed(new Uint8Array([0x34]), start + INPUT_ESC_TIMEOUT_MS), [
     { kind: 'escape' },
-    { kind: 'printable', text: '4', codePoint: 0x34 },
+  ]);
+  assertEquals(divergent.feed(new Uint8Array([0x7e]), start + INPUT_ESC_TIMEOUT_MS + 1), [
+    { kind: 'unknown' },
   ]);
   divergent.end();
+});
+
+Deno.test('timed-out incomplete unknown CSI remains an input failure at EOF', () => {
+  const decoder = new InputDecoder();
+  const start = 65_000;
+  decoder.feed(new Uint8Array([0x1b, 0x5b]), start);
+  assertEquals(decoder.poll(start + INPUT_ESC_TIMEOUT_MS), [{ kind: 'escape' }]);
+  let failed = false;
+  try {
+    decoder.end();
+  } catch (error) {
+    failed = error instanceof InputDecodeError;
+  }
+  assert(failed);
 });
 
 Deno.test('expired xterm candidate is retained through poll, exact completion replays once, and EOF is clean', () => {
@@ -283,4 +408,60 @@ Deno.test('Kitty CSI-u and unknown CSI remain unsupported', () => {
     { kind: 'unknown' },
   ]);
   decoder.end();
+});
+
+Deno.test('unsupported SS3 cursor/function sequences are one unknown without printable fallback', () => {
+  const sequence = new Uint8Array([0x1b, 0x4f, 0x41]); // ESC O A
+  const start = 80_000;
+  for (let split = 0; split <= sequence.length; split += 1) {
+    const decoder = new InputDecoder();
+    const events = [
+      ...decoder.feed(sequence.slice(0, split), start),
+      ...decoder.feed(sequence.slice(split), start + INPUT_ESC_TIMEOUT_MS - 1),
+    ];
+    assertEquals(events, [{ kind: 'unknown' }], `split ${split}`);
+    decoder.end();
+  }
+  const editor = new TuiEditor();
+  assert(editor.append('keep'));
+  assertEquals(editor.text, 'keep');
+});
+
+Deno.test('SS3 split at the timeout consumes the final byte as unknown', () => {
+  for (const elapsed of [INPUT_ESC_TIMEOUT_MS, INPUT_ESC_TIMEOUT_MS + 1]) {
+    const decoder = new InputDecoder();
+    const start = 81_000;
+    assertEquals(decoder.feed(new Uint8Array([0x1b, 0x4f]), start), []);
+    assertEquals(decoder.feed(new Uint8Array([0x41]), start + elapsed), [
+      { kind: 'escape' },
+      { kind: 'unknown' },
+    ]);
+    decoder.end();
+  }
+  const divergent = new InputDecoder();
+  assertEquals(divergent.feed(new Uint8Array([0x1b, 0x4f, 0x31])), [{ kind: 'unknown' }]);
+  divergent.end();
+});
+
+Deno.test('incomplete SS3 is an input failure at EOF, including after timeout poll', () => {
+  const immediate = new InputDecoder();
+  immediate.feed(new Uint8Array([0x1b, 0x4f]), 82_000);
+  let failed = false;
+  try {
+    immediate.end();
+  } catch (error) {
+    failed = error instanceof InputDecodeError;
+  }
+  assert(failed);
+
+  const timedOut = new InputDecoder();
+  timedOut.feed(new Uint8Array([0x1b, 0x4f]), 83_000);
+  assertEquals(timedOut.poll(83_000 + INPUT_ESC_TIMEOUT_MS), [{ kind: 'escape' }]);
+  failed = false;
+  try {
+    timedOut.end();
+  } catch (error) {
+    failed = error instanceof InputDecodeError;
+  }
+  assert(failed);
 });

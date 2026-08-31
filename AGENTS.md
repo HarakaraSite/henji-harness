@@ -2,6 +2,21 @@
 
 ## Current phase
 
+- Roadmap Step 82 (`docs/plans/daily-editor-no-lost-input.md`, SHA-256
+  `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`) is implemented. The bounded scalar multiline
+  editor/history with mutation detachment, typed discard/signal transitions, bounded SS3 decoder,
+  root-relative file index with iterator/drift bounds, fixed pending lanes, modern controller
+  wiring, metadata/layout helpers, canonical prepared-workspace wiring, and sanitized restore
+  result are present. Focused editor/render/controller suites pass 25/25, 11/11, and 47/47;
+  pending/file-reference leaves pass 3/3 and 6/6; PTY 33/33, portable 2/2, persistent-session
+  9/9, steering 7/7, and authoritative `v0:gate` passes 624/624 with topology 2/2,
+  check/fmt/lint/diff green. Initial review P1 2/P2 4 was closed in the approved single closure;
+  the narrow re-review is `GO` with Blocker/P1/P2 zero, and the owner independently reran focused
+  suites and the full 624/624 gate. Do not run the separate provider-free representative acceptance
+  without a new explicit Human Gate. No provider, network, credential, production command,
+  persistent product state, dependency/lockfile, `_refs/`, push, tag, publish, or release operation
+  was performed for Step 82. The reviewed increment is recorded by the user-authorized final commit.
+
 - Revision 15 / roadmap steps 8–10 are implemented in the active `v0/` tree. Local selection tests
   passed 8 cases and the full v0 suite passes 78 tests. The deferred P2 was resolved by adding the
   missing well-typed wrong-fixed-value negative case; the direct selection and full offline gates pass.

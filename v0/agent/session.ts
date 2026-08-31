@@ -99,6 +99,11 @@ export class AgentSession {
       : { ...this.committedContextSnapshot };
   }
 
+  /** Structural post-settlement availability used by the interactive controller. */
+  isAvailable(): boolean {
+    return !this.unavailable && !this.active;
+  }
+
   /** Request cancellation for the currently settling turn, without allocating another turn. */
   cancelActiveTurn(): CancelRequestResult {
     const cancellation = this.activeCancellation;

@@ -1,5 +1,4 @@
 import {
-  createRuntimeSession,
   createRuntimeSessionFromPrepared,
   prepareRuntimeComposition,
   type RuntimeTestSeam,
@@ -21,6 +20,9 @@ import {
 } from './session_store.ts';
 import { type Message } from './contracts.ts';
 import { type RuntimeDisplayState } from './startup_orientation.ts';
+import { PendingInputCore } from '../tui/pending_input.ts';
+import { TuiEditorHistory } from '../tui/input.ts';
+import { buildWorkspacePathIndex, type WorkspacePathIndex } from '../tui/file_reference.ts';
 
 const encoder = new TextEncoder();
 
@@ -30,11 +32,13 @@ export interface TuiSessionFactoryResult {
     & Partial<
       Pick<
         AgentSession,
-        'cancelActiveTurn' | 'contextSnapshot' | 'steerActiveTurn'
+        'cancelActiveTurn' | 'contextSnapshot' | 'steerActiveTurn' | 'isAvailable'
       >
     >;
   readonly requestCount?: () => number;
   readonly close?: () => void | Promise<void>;
+  /** Canonical workspace root for the startup-bounded local path index. */
+  readonly workspaceRoot?: string;
   readonly sessionLine?: string;
   readonly restored?: {
     readonly messages: readonly Message[];
@@ -56,6 +60,10 @@ export interface TuiCliDependencies {
   readonly writeStderr?: (text: string) => void | PromiseLike<void>;
   /** Test-only crash injection, invoked after raw acquisition and before controller.run. */
   readonly afterAcquire?: () => void | Promise<void>;
+  /** Direct-test opt-in for the Step 82 fixed-lane interaction. Production enables it by default. */
+  readonly dailyEditor?: boolean;
+  /** Direct/process-test path-index seam; production always builds from the canonical workspace. */
+  readonly pathIndex?: WorkspacePathIndex;
 }
 
 const fatalMessages: Record<string, string> = {
@@ -190,20 +198,23 @@ export const main = async (
   let crashGuard: CrashGuard | undefined;
   let acquisitionStarted = false;
   let createdResult: TuiSessionFactoryResult | undefined;
+  let resultCode = 1;
   try {
     let sessionFactory = dependencies.createSession;
     if (sessionFactory === undefined) {
       sessionFactory = async (eventSink, selected) => {
         if (invocation.persistence === 'none') {
-          const result = await createRuntimeSession(
-            eventSink,
+          const prepared = await prepareRuntimeComposition(
             dependencies.runtimeSeam,
             selected,
+            'none',
           );
+          const result = createRuntimeSessionFromPrepared(eventSink, prepared);
           return {
             session: result.session,
             requestCount: result.requestCount,
             displayState: result.displayState,
+            workspaceRoot: prepared.workspace.root,
           };
         }
         // Parent Definition/manifest preparation must complete before any store operation.
@@ -256,6 +267,7 @@ export const main = async (
             requestCount: result.requestCount,
             close: () => result.session.close(),
             displayState: result.displayState,
+            workspaceRoot: prepared.workspace.root,
             sessionLine: `session> ${handle.id} ${record === undefined ? '(new)' : '(resumed)'}`,
             ...(record === undefined ? {} : (() => {
               const replay = restoredMessages(record.transcript);
@@ -274,9 +286,34 @@ export const main = async (
       };
     }
     // Composition occurs before raw acquisition, so startup failures never touch terminal mode.
-    const created = await sessionFactory(renderer.eventSink, selection);
+    const controllerRef: { current?: TuiController } = {};
+    const pending = new PendingInputCore();
+    const bridge: AgentEventSink = (event) => {
+      if (event.kind === 'steering_message' && controllerRef.current !== undefined) {
+        controllerRef.current.markSteeringConsumed();
+      }
+      renderer.eventSink(event);
+    };
+    const created = await sessionFactory(bridge, selection);
     createdResult = created;
-    const controller = new TuiController(lifecycle, renderer, created.session);
+    const useDailyEditor = dependencies.dailyEditor ?? dependencies.createSession === undefined;
+    const workspaceRoot = created.workspaceRoot ?? created.displayState.workspace;
+    const pathIndex = useDailyEditor
+      ? dependencies.pathIndex ?? await buildWorkspacePathIndex(workspaceRoot)
+      : undefined;
+    const controller = new TuiController(
+      lifecycle,
+      renderer,
+      created.session,
+      useDailyEditor
+        ? {
+          pending,
+          history: new TuiEditorHistory(),
+          pathIndex,
+        }
+        : {},
+    );
+    controllerRef.current = controller;
     controller.installSignals();
     let crashDetected = false;
     crashGuard = installCrashGuard(() => {
@@ -299,9 +336,10 @@ export const main = async (
     const exitCode = await controller.run();
     if (crashDetected || crashGuard.hasFatal()) {
       await stderr(failureLine('terminal_failure'));
-      return 1;
+      resultCode = 1;
+    } else {
+      resultCode = exitCode;
     }
-    return exitCode;
   } catch (error) {
     const code = error instanceof TuiControllerError
       ? error.code
@@ -309,19 +347,25 @@ export const main = async (
       ? 'terminal_failure'
       : 'startup_failure';
     await stderr(failureLine(code as keyof typeof fatalMessages));
-    return 1;
+    resultCode = 1;
   } finally {
     // Session locks are released only after controller settlement and terminal restoration starts.
     // The factory close is idempotent for the production AgentSession/store adapter.
     // `created` is scoped below in older direct seams, so cleanup is installed through a local.
     crashGuard?.close();
     await lifecycle.restore();
+    let cleanupFailed = lifecycle.restoreStatus() === 'failed';
     try {
       await createdResult?.close?.();
     } catch {
-      // Session close is best effort during terminal shutdown.
+      cleanupFailed = true;
+    }
+    if (cleanupFailed) {
+      await stderr(failureLine('terminal_failure'));
+      resultCode = 1;
     }
   }
+  return resultCode;
 };
 
 if (import.meta.main) Deno.exit(await main());

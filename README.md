@@ -224,18 +224,24 @@ exit, EOF, or shutdown. Idle Alt+Enter is ordinary Enter. Escape/Ctrl-C/signals 
 precedence. After admission, further ordinary input is consumed for that turn. The command never implicitly changes `agent:run` into a TUI and does
 not read credentials until a submitted task reaches the lazy provider adapter.
 
-The editor supports printable UTF-8, Backspace, Enter, and bracketed paste. Empty Enter only updates
-status. While idle, the first Ctrl-C clears the editor and arms a 500 ms second-press exit; a second
-Ctrl-C exits. Ctrl-D exits only with an empty editor. While busy, Escape requests cooperative
+The editor supports bounded multiline UTF-8 editing: arrows/Home/End, Ctrl-O newline, Ctrl-W word
+delete, Ctrl-P/N process-local history, Tab workspace-relative path completion, and Ctrl-R one-at-a-time
+recovery. Empty Enter only updates status. While idle, Ctrl-C/Ctrl-D with pending text arms a two-second
+discard confirmation; a second matching key discards and exits. Ctrl-D exits immediately only when all
+lanes are empty. While busy, Escape requests cooperative
 cancellation and returns the same session to ready after model/tool cleanup; Ctrl-C and SIGINT
-request cancellation and exit 0 after settlement, while SIGTERM/SIGHUP settle and exit 143/129.
+request cancellation and arm the two-second discard confirmation; a second Ctrl-C discards and
+exits 0 after settlement, while SIGTERM/SIGHUP settle and exit 143/129.
 Cancellation is per accepted turn, never commits its draft, and does not roll back completed local
 effects. Cleanup failure is a fatal sanitized agent failure and makes the session unavailable.
-Terminal output uses main-screen scrollback with a small live line; dynamic model, tool, and task
+Terminal output uses main-screen scrollback with a bounded multiline live editor block; dynamic model, tool, and task
 text is escaped at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input
-reader are restored on every handled exit or failure. Provider streaming is visible only as the
-bounded live assistant line described above; confirmation, alternate-screen rendering, multi-item
-queueing, and pending follow-up persistence remain deferred.
+reader are restored on every handled exit or failure. Provider streaming is visible only as the bounded
+live assistant line described above. Pending active-task, steering, and follow-up lanes expose only
+kind/lifecycle/byte-count metadata; recovered tool turns warn that local tools may have changed the
+workspace and are never automatically retried. Confirmation, alternate-screen rendering, multi-item
+queueing, and pending follow-up persistence remain deferred. Fatal crash/kill/restart does not promise
+pending-input recovery, and local tool effects are not rolled back.
 
 ## Persistent TUI sessions
 

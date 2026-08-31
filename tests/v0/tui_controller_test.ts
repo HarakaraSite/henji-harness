@@ -9,6 +9,9 @@ import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts'
 import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
 import { Registry } from '../../v0/agent/tools.ts';
 import { TuiController, TuiControllerError } from '../../v0/tui/controller.ts';
+import { TuiEditorHistory } from '../../v0/tui/input.ts';
+import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
+import { PendingInputCore } from '../../v0/tui/pending_input.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import { projectRuntimeDisplayState } from '../../v0/agent/startup_orientation.ts';
 import {
@@ -656,7 +659,7 @@ Deno.test('busy Alt+Enter queues one ordinary turn after durable settlement with
   session.finish('queued answer');
   await tick();
   assertEquals(session.submitted, ['manual', 'queued']);
-  terminal.push('\x04');
+  terminal.push('\x04\x04');
   assertEquals(await running, 0);
 });
 
@@ -1538,7 +1541,7 @@ Deno.test('TUI resolves planner before session and keeps the selected Definition
   assert(terminal.readSnapshots.length > 0);
   assert(
     terminal.readSnapshots[0].includes(
-      'keys> idle Ctrl-C twice within 500 ms exit · empty Ctrl-D exit\n',
+      'keys> busy Enter steer · Alt+Enter follow-up · Esc cancel · Ctrl-C/D exit\n',
     ),
   );
 });
@@ -1712,6 +1715,46 @@ Deno.test('partial acquire/read/write/restore failures remain bounded and saniti
   assert(cleanupFailure.signals.includes('-SIGINT'));
   assert(cleanupFailure.signals.includes('-SIGTERM'));
   assert(cleanupFailure.signals.includes('-SIGHUP'));
+
+  const directClearFailure = new FakeTerminal();
+  const directClearRenderer = new TuiRenderer(directClearFailure);
+  const directClearLifecycle = new TerminalLifecycle(directClearFailure, directClearRenderer);
+  await directClearLifecycle.acquire();
+  directClearLifecycle.addSignals({ SIGINT: () => {}, SIGTERM: () => {}, SIGHUP: () => {} });
+  directClearFailure.failWrites.add('\r\x1b[2K');
+  await directClearLifecycle.restore();
+  assertEquals(directClearLifecycle.restoreStatus(), 'failed');
+  assert(directClearFailure.operations.includes('drain'));
+  assert(directClearFailure.raw.includes(false));
+  assert(directClearFailure.signals.includes('-SIGINT'));
+  assert(directClearFailure.signals.includes('-SIGTERM'));
+  assert(directClearFailure.signals.includes('-SIGHUP'));
+
+  const liveClearFailure = new FakeTerminal();
+  liveClearFailure.failWrites.add('\r\x1b[2K');
+  let liveClearStderr = '';
+  const liveClearExit = await tuiMain([], {
+    terminal: liveClearFailure,
+    createSession: () => {
+      setTimeout(() => liveClearFailure.push('\x04'), 0);
+      return Promise.resolve({
+        session: new FakeSession(() => {}),
+        displayState: fixtureDisplayState(),
+      });
+    },
+    writeStderr: (text) => {
+      liveClearStderr += text;
+    },
+  });
+  assertEquals(liveClearExit, 1);
+  assertEquals(
+    liveClearStderr.split('\n').filter((line) => line.includes('"code":"terminal_failure"')).length,
+    1,
+  );
+  assertEquals(liveClearFailure.raw.filter((mode) => mode === false).length, 1);
+  assert(liveClearFailure.signals.includes('-SIGINT'));
+  assert(liveClearFailure.signals.includes('-SIGTERM'));
+  assert(liveClearFailure.signals.includes('-SIGHUP'));
 
   const cliFailure = new FakeTerminal();
   cliFailure.failWrites.add(BRACKETED_PASTE_ON);
@@ -1983,4 +2026,281 @@ Deno.test('lifecycle restores in order and is idempotent', async () => {
     terminal.operations.filter((operation) => operation === 'write:\u001b[?2004l').length,
     1,
   );
+});
+
+Deno.test('modern controller preserves fixed lanes through cancellation without auto-resubmit', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const controllerRef: { current?: TuiController } = {};
+  const session = new QueueSession((event) => {
+    if (event.kind === 'steering_message') controllerRef.current?.markSteeringConsumed();
+    renderer.eventSink(event);
+  });
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+  });
+  controllerRef.current = controller;
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('task\n');
+  await tick();
+  terminal.push('steer\n');
+  await tick();
+  terminal.push('follow\x1b\r');
+  await tick();
+  assertEquals(session.submitted, ['task']);
+  assert(pending.hasActiveTask);
+  assert(pending.hasSteering);
+  assert(pending.hasFollowUp);
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  session.finishCancelled();
+  await tick();
+  assertEquals(session.submitted, ['task']);
+  assertEquals(pending.snapshot().recoveryCount, 3);
+  assertEquals(controller.currentState, 'idle');
+  terminal.push('\x12');
+  await tick();
+  assertEquals(controller.editor.text, 'task');
+  terminal.push('!');
+  await tick();
+  terminal.push('\x0e');
+  await tick();
+  assertEquals(controller.editor.text, 'task!');
+  pending.clearAll();
+  terminal.push('\x03\x03');
+  assertEquals(await running, 0);
+});
+
+Deno.test('modern busy Ctrl-C cancels first and only a second press discards after settlement', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+  });
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('task\n');
+  await tick();
+  terminal.push('draft');
+  await tick();
+  terminal.push('\x03');
+  await tick();
+  assertEquals(session.cancelCount, 1);
+  session.finishCancelled();
+  await tick();
+  assertEquals(controller.currentState, 'idle');
+  assertEquals(controller.editor.text, 'draft');
+  assert(pending.hasRecovery);
+  terminal.push('\x03');
+  assertEquals(await running, 0);
+  assertEquals(controller.editor.text, '');
+  assertEquals(pending.hasRecovery, false);
+});
+
+Deno.test('modern idle Ctrl-D confirms nonempty editor before discarding', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const session = new FakeSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+  });
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('draft\x04');
+  await tick();
+  assertEquals(controller.editor.text, 'draft');
+  assert(terminal.output().includes('pending input; Ctrl-D again to discard and exit'));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  assertEquals(controller.editor.text, '');
+});
+
+Deno.test('modern discard confirmation is typed, refuses cross-key presses, and expires', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const controller = new TuiController(lifecycle, renderer, new FakeSession(() => {}), {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+  });
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('draft\x04');
+  await tick();
+  assertEquals(controller.editor.text, 'draft');
+  terminal.push('\x03');
+  await tick();
+  assertEquals(controller.editor.text, 'draft');
+  assert(controller.currentState === 'idle');
+  terminal.push('\x03');
+  assertEquals(await running, 0);
+  assertEquals(controller.editor.text, '');
+
+  const timeoutTerminal = new FakeTerminal();
+  const timeoutRenderer = new TuiRenderer(timeoutTerminal);
+  const timeoutLifecycle = new TerminalLifecycle(timeoutTerminal, timeoutRenderer);
+  const timeoutController = new TuiController(
+    timeoutLifecycle,
+    timeoutRenderer,
+    new FakeSession(() => {}),
+    {
+      pending: new PendingInputCore(),
+      history: new TuiEditorHistory(),
+      pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+    },
+  );
+  await timeoutLifecycle.acquire();
+  const timeoutRun = timeoutController.run();
+  timeoutTerminal.push('draft\x04');
+  await tick();
+  await new Promise((resolve) => setTimeout(resolve, 2_050));
+  timeoutTerminal.push('\x04');
+  await tick();
+  assertEquals(timeoutController.editor.text, 'draft');
+  timeoutTerminal.push('\x04');
+  assertEquals(await timeoutRun, 0);
+  assertEquals(timeoutController.editor.text, '');
+});
+
+Deno.test('modern idle SIGINT confirms while TERM and HUP explicitly discard and preserve exits', async () => {
+  const sigintTerminal = new FakeTerminal();
+  const sigintRenderer = new TuiRenderer(sigintTerminal);
+  const sigintLifecycle = new TerminalLifecycle(sigintTerminal, sigintRenderer);
+  const sigintController = new TuiController(
+    sigintLifecycle,
+    sigintRenderer,
+    new FakeSession(() => {}),
+    {
+      pending: new PendingInputCore(),
+      history: new TuiEditorHistory(),
+      pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+    },
+  );
+  sigintController.installSignals();
+  await sigintLifecycle.acquire();
+  const sigintRun = sigintController.run();
+  sigintTerminal.push('draft');
+  await tick();
+  const before = sigintTerminal.writes.length;
+  sigintTerminal.emitSignal('SIGINT');
+  await tick();
+  assertEquals(sigintController.editor.text, 'draft');
+  assert(sigintTerminal.writes.slice(before).join('').includes('Ctrl-C again'));
+  sigintTerminal.emitSignal('SIGINT');
+  assertEquals(await sigintRun, 0);
+
+  for (const [signal, expected] of [['SIGTERM', 143], ['SIGHUP', 129]] as const) {
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const pending = new PendingInputCore();
+    const controller = new TuiController(lifecycle, renderer, new FakeSession(() => {}), {
+      pending,
+      history: new TuiEditorHistory(),
+      pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+    });
+    controller.installSignals();
+    await lifecycle.acquire();
+    const run = controller.run();
+    terminal.push('secret draft');
+    await tick();
+    const writesBeforeSignal = terminal.writes.length;
+    terminal.emitSignal(signal);
+    assertEquals(await run, expected);
+    const postSignal = terminal.writes.slice(writesBeforeSignal).join('');
+    assert(postSignal.includes('discarding pending input for signal shutdown'));
+    assert(!postSignal.includes('secret draft'));
+    assertEquals(controller.editor.text, '');
+    assertEquals(pending.hasRecovery, false);
+  }
+});
+
+Deno.test('modern text edits detach history navigation while cursor movement preserves it', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.fromCandidates(['saved.md']),
+  });
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('saved\n');
+  await tick();
+  session.finish();
+  await tick();
+
+  // Navigation alone remains active; each successful text mutation then detaches it.
+  terminal.push('\x10');
+  await tick();
+  assertEquals(controller.editor.text, 'saved');
+  terminal.push('\x1b[D');
+  await tick();
+  terminal.push('!');
+  await tick();
+  assertEquals(controller.editor.text, 'save!d');
+  terminal.push('\x0e');
+  await tick();
+  assertEquals(controller.editor.text, 'save!d');
+  assert(terminal.output().includes('history boundary'));
+
+  // Ctrl-W, paste, and Tab each follow the same detach rule after a fresh navigation.
+  terminal.push('\x10\x7f');
+  await tick();
+  assertEquals(controller.editor.text, 'save');
+  terminal.push('\x0e');
+  await tick();
+  assertEquals(controller.editor.text, 'save');
+  terminal.push('\x10\x17');
+  await tick();
+  assertEquals(controller.editor.text, '');
+  terminal.push('\x10\x1b[200~!\x1b[201~');
+  await tick();
+  assertEquals(controller.editor.text, 'saved!');
+  terminal.push('\x10');
+  await tick();
+  terminal.push('\x17');
+  await tick();
+  assertEquals(controller.editor.text, '');
+  terminal.push('saved\t');
+  await tick();
+  assertEquals(controller.editor.text, '"./saved.md"');
+
+  // Steering admission also detaches a prior history navigation, even when it does not edit
+  // the selected snapshot itself.
+  terminal.push('\n');
+  await tick();
+  terminal.push('\x10');
+  await tick();
+  assertEquals(controller.editor.text, '"./saved.md"');
+  terminal.push('\n');
+  await tick();
+  assertEquals(session.steered, ['"./saved.md"']);
+  terminal.push('\x0e');
+  await tick();
+  assertEquals(controller.editor.text, '');
+  assert(terminal.output().includes('history boundary'));
+  session.finish();
+  await tick();
+  terminal.push('\x04\x04');
+  assertEquals(await running, 0);
 });

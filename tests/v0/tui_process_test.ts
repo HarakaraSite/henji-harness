@@ -57,7 +57,7 @@ const collect = async (
 const runPty = async (mode: string, chunks: readonly Chunk[]): Promise<ProcessResult> => {
   const redirect = mode === 'non-tty' ? ' </dev/null >/dev/null' : '';
   const command =
-    `stty -isig; sleep 0.1; ${DENO} run --no-prompt --no-remote --allow-read=${ROOT} --allow-write=${ROOT} --allow-run=/bin/bash ${FIXTURE} ${mode}${redirect}`;
+    `stty -isig -iexten; sleep 0.1; ${DENO} run --no-prompt --no-remote --allow-read=${ROOT} --allow-write=${ROOT} --allow-run=/bin/bash ${FIXTURE} ${mode}${redirect}`;
   const child = new Deno.Command('/usr/bin/script', {
     args: ['-qfec', command, '/dev/null'],
     stdin: 'piped',
@@ -211,6 +211,144 @@ Deno.test('PTY delayed assistant cancellation settles before one restore with no
   assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
   assert(!result.stdout.includes('late chunk'));
   assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY path completion and multiline submission stay bounded and singular', async () => {
+  const result = await runPty('daily-path', [{ text: 'README\t\n', delayMs: 120 }, {
+    text: '\x04',
+  }]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('user> "./README.md"\r\n'));
+  assertEquals((result.stdout.match(/user> /g) ?? []).length, 1);
+  assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY history detaches after edit and submits one changed task', async () => {
+  const result = await runPty('daily-history', [
+    { text: 'first\n', delayMs: 120 },
+    { text: '\x10!', delayMs: 50 },
+    { text: '\x0e', delayMs: 50 },
+    { text: '\n', delayMs: 120 },
+    { text: '\x04', delayMs: 50 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('user> first\r\n'));
+  assert(result.stdout.includes('user> first!\r\n'));
+  assertEquals((result.stdout.match(/user> /g) ?? []).length, 2);
+  assert(result.stdout.includes('history boundary'));
+  assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY consumed steering has one causal record and no duplicate submit', async () => {
+  const result = await runPty('daily-steering', [
+    { text: '', delayMs: 300 },
+    { text: 'task\n', delayMs: 120 },
+    { text: 'steer\n', delayMs: 220 },
+    { text: '\x04', delayMs: 120 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('steer> steer'));
+  assert(result.stdout.includes('assistant> steered response'));
+  assertEquals((result.stdout.match(/user> task/g) ?? []).length, 1);
+  assertEquals((result.stdout.match(/steer> steer/g) ?? []).length, 1);
+  assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY recovers, edits, and resubmits after cancellation', async () => {
+  const result = await runPty('daily-recovery', [
+    { text: '', delayMs: 300 },
+    { text: 'task\n', delayMs: 80 },
+    { text: '\x1b', delayMs: 600 },
+    { text: '\x12', delayMs: 100 },
+    { text: '\x12', delayMs: 100 },
+    { text: '!\n', delayMs: 200 },
+    { text: '\x04', delayMs: 100 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('[cancelled]'));
+  assert(result.stdout.includes('user> task!'));
+  assertEquals((result.stdout.match(/user> /g) ?? []).length, 2);
+  assert(result.stdout.includes('assistant> fixture response'));
+  assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY max-step and contract outcomes retain recoverable input without auto-submit', async () => {
+  for (const mode of ['daily-max', 'daily-contract'] as const) {
+    const result = await runPty(mode, [
+      { text: 'recover me\n', delayMs: 30 },
+      { text: '', delayMs: 220 },
+      { text: '\x12', delayMs: 40 },
+      { text: '\x04\x04', delayMs: 40 },
+    ]);
+    assert(result.status.success);
+    assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+    assert(
+      result.stdout.includes(mode === 'daily-max' ? 'request limit reached' : 'agent failure'),
+    );
+    assertEquals((result.stdout.match(/user> /g) ?? []).length, 1);
+    assert(!result.stdout.includes('assistant> fixture response'));
+    assert(result.stderr === '');
+  }
+});
+
+Deno.test('daily editor PTY fatal model failure restores once with sanitized status', async () => {
+  const result = await runPty('daily-fatal', [{ text: 'fatal task\n', delayMs: 120 }]);
+  assert(!result.status.success);
+  assertEquals(result.status.code, 1);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('"code":"agent_failure"'));
+  assert(!result.stdout.includes('daily fixture model failure'));
+  assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+  assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY follow-up detaches and starts only after committed settlement', async () => {
+  const result = await runPty('daily-follow-up', [
+    { text: '', delayMs: 300 },
+    { text: 'manual\n', delayMs: 100 },
+    { text: 'queued\x1b\r', delayMs: 200 },
+    { text: '', delayMs: 400 },
+    { text: '\x04', delayMs: 80 },
+  ]);
+  assert(result.status.success);
+  assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+  assert(result.stdout.includes('busy · follow-up queued'));
+  assert(result.stdout.indexOf('user> queued') > result.stdout.indexOf('user> manual'));
+  assertEquals((result.stdout.match(/user> queued/g) ?? []).length, 1);
+  assert(result.stderr === '');
+});
+
+Deno.test('daily editor PTY signals clear pending input, settle, and preserve 0/143/129 exits', async () => {
+  for (
+    const [signal, expected] of [
+      ['SIGINT', 0],
+      ['SIGTERM', 143],
+      ['SIGHUP', 129],
+    ] as const
+  ) {
+    const result = await runPty(`daily-signal-${signal}`, [
+      { text: 'signal me\n', delayMs: 180 },
+      ...(signal === 'SIGINT' ? [{ text: '\x03\x03', delayMs: 120 }] : []),
+    ]);
+    assertEquals(result.status.success, expected === 0);
+    assertEquals(result.status.code, expected);
+    assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+    assert(
+      result.stdout.includes(
+        signal === 'SIGINT'
+          ? 'Ctrl-C again to discard and exit'
+          : 'discarding pending input for signal shutdown',
+      ),
+    );
+    assert(result.stdout.includes('\x1b[?2004l'));
+    assert(!result.stdout.includes('assistant> fixture response'));
+    assert(result.stderr === '');
+  }
 });
 
 Deno.test('PTY bracketed paste submits one exact multiline task and visibly escapes tab', async () => {

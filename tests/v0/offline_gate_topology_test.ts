@@ -70,6 +70,8 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/work_tools.ts',
   'v0/tui/controller.ts',
   'v0/tui/input.ts',
+  'v0/tui/pending_input.ts',
+  'v0/tui/file_reference.ts',
   'v0/tui/render.ts',
   'v0/tui/terminal.ts',
 ] as const;
@@ -123,6 +125,8 @@ const CHECK_TARGETS = [
   'v0/tui/input.ts',
   'v0/tui/render.ts',
   'v0/tui/controller.ts',
+  'v0/tui/pending_input.ts',
+  'v0/tui/file_reference.ts',
   'tests/v0/v0_test.ts',
   'tests/v0/agent_instructions_test.ts',
   'tests/v0/agent_instructions_topology_test.ts',
@@ -175,6 +179,8 @@ const CHECK_TARGETS = [
   'tests/v0/planner_delegation_sentinel_topology_test.ts',
   'tests/v0/fixtures/planner_delegation_sentinel_process_fixture.ts',
   'v0/extensions-src/task-planner/r2/main.ts',
+  'tests/v0/tui_pending_input_test.ts',
+  'tests/v0/tui_file_reference_test.ts',
   TOPOLOGY_FILE,
 ] as const;
 const EXPECTED_CHECK = [DENO, 'check', ...CHECK_TARGETS];
@@ -228,6 +234,8 @@ const EXPECTED_LEAVES = [
   'agent:runtime:process:test',
   'agent:work-tools:test',
   'agent:tui:test',
+  'agent:tui:pending:test',
+  'agent:tui:file-reference:test',
   'agent:tui:process:test',
   'agent:portable-tui:process:test',
   'agent:tui:topology:test',
@@ -293,6 +301,8 @@ targets['agent:tui:test'] = [
   'tests/v0/tui_render_test.ts',
   'tests/v0/tui_controller_test.ts',
 ];
+assignTarget('tui_pending_input_test.ts', 'agent:tui:pending:test');
+assignTarget('tui_file_reference_test.ts', 'agent:tui:file-reference:test');
 assignTarget('tui_process_test.ts', 'agent:tui:process:test');
 assignTarget('portable_tui_launch_process_test.ts', 'agent:portable-tui:process:test');
 assignTarget('tui_topology_test.ts', 'agent:tui:topology:test');
@@ -364,6 +374,8 @@ assignPermission(
   'agent:tool-progress:test',
   'agent:transport:test',
   'agent:tui:test',
+  'agent:tui:pending:test',
+  'agent:tui:file-reference:test',
 );
 assignPermission(
   ['--allow-read=deno.v0.json'],
@@ -631,7 +643,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 51, 'expected 51 directly-owned tests');
+  assertEquals(owned.size, 53, 'expected 53 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {

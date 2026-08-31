@@ -167,9 +167,9 @@ Deno.test('orientation has the exact twelve lines and fixed current-action help'
     'skills> 2: alpha, beta',
     'credential> verified immediately before each provider request; not checked at startup',
     'trust> NO HARD SANDBOX; bash/edit/write run with your OS-user access',
-    'keys> Enter submit · busy Enter steer · busy Alt+Enter follow-up',
-    'keys> busy Esc cancel · busy Ctrl-C cancel+exit',
-    'keys> idle Ctrl-C twice within 500 ms exit · empty Ctrl-D exit',
+    'keys> Enter submit · Ctrl-O newline · arrows/Home/End move · Ctrl-W delete',
+    'keys> Ctrl-P/N history · Tab path · Ctrl-R recover',
+    'keys> busy Enter steer · Alt+Enter follow-up · Esc cancel · Ctrl-C/D exit',
   ]);
   const text = renderStartupOrientationText(state, 80);
   assertEquals(text.split('\n').length - 1, 12);
@@ -178,9 +178,9 @@ Deno.test('orientation has the exact twelve lines and fixed current-action help'
       'credential> verified immediately before each provider request; not checked at startup',
     ),
   );
-  assert(text.includes('busy Alt+Enter follow-up'));
-  assert(text.includes('busy Ctrl-C cancel+exit'));
-  assert(text.includes('idle Ctrl-C twice within 500 ms exit'));
+  assert(text.includes('Ctrl-O newline'));
+  assert(text.includes('Ctrl-P/N history'));
+  assert(text.includes('Ctrl-C/D exit'));
   assert(!text.includes('session picker'));
   assert(!text.includes('multiline'));
   assert(!text.includes('credential value'));

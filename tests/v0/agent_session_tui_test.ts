@@ -233,7 +233,7 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   assert(secondTerminal.writes.some((line) => line.includes('(resumed)')));
   assert(secondTerminal.writes.some((line) => line.includes('user> first')));
   assert(
-    secondOutput.indexOf('keys> idle Ctrl-C twice within 500 ms exit') <
+    secondOutput.indexOf('keys> Ctrl-P/N history · Tab path · Ctrl-R recover') <
       secondOutput.indexOf('user> first'),
   );
   const ephemeralState = `${root}/must-not-exist`;
@@ -282,7 +282,7 @@ Deno.test('persistent TUI autosaves and continue restores the parent transcript'
   const exactOutput = exactTerminal.writes.join('');
   assert(exactOutput.includes('session> exact session\n'));
   assert(
-    exactOutput.indexOf('keys> idle Ctrl-C twice within 500 ms exit') <
+    exactOutput.indexOf('keys> Ctrl-P/N history · Tab path · Ctrl-R recover') <
       exactOutput.indexOf('user> replay-user-'),
   );
   assertEquals((exactOutput.match(/user> replay-user-/g) ?? []).length, 50);

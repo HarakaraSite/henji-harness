@@ -1,6 +1,8 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
-import { escapeTerminalText, TuiRenderer } from '../../v0/tui/render.ts';
+import { escapeTerminalText, layoutEditorText, TuiRenderer } from '../../v0/tui/render.ts';
+import { TuiEditor } from '../../v0/tui/input.ts';
+import { PendingInputCore } from '../../v0/tui/pending_input.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
 
 class FakeTerminal implements TerminalPort {
@@ -331,4 +333,28 @@ Deno.test('committed turn with pending follow-up has no ready gap and clearing i
   const writes = terminal.writes.length;
   renderer.setFollowUpPending(false);
   assertEquals(terminal.writes.length, writes);
+});
+
+Deno.test('multiline editor layout retains cursor and renderer keeps pending metadata text-free', () => {
+  const editor = new TuiEditor();
+  assert(editor.append('one\ntwo\nthree'));
+  assert(editor.setCursorScalar(9));
+  const layout = layoutEditorText(editor.snapshot(), 5, 2);
+  assertEquals(layout.rows.length, 2);
+  assertEquals(layout.cursorRow, 1);
+  assert(layout.omittedAbove);
+  assert(!layout.omittedBelow);
+
+  const pending = new PendingInputCore();
+  assert(pending.admitTask('secret task'));
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.setPendingMetadata(pending.snapshot(editor.snapshot()));
+  renderer.setEditorSnapshot(editor.snapshot());
+  const output = terminal.text();
+  assert(output.includes('\n\r\x1b[2K>'));
+  assert(output.includes('A:a:11'));
+  assert(!output.includes('secret task'));
+  assert(output.includes('\x1b['));
 });

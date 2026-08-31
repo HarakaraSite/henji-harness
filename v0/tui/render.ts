@@ -11,6 +11,8 @@ import {
   TerminalRendererGate,
 } from './terminal.ts';
 import { type RuntimeDisplayState } from '../agent/startup_orientation.ts';
+import { type EditorSnapshot } from './input.ts';
+import { type PendingMetadataSnapshot } from './pending_input.ts';
 
 const encoder = new TextEncoder();
 const DISPLAY_LIMIT = 64 * 1024;
@@ -91,6 +93,110 @@ const cellWidth = (character: string): number => {
   return 1;
 };
 
+export interface EditorLayoutRow {
+  readonly text: string;
+  readonly cursorCell: number | null;
+}
+
+export interface EditorLayout {
+  readonly rows: readonly EditorLayoutRow[];
+  readonly cursorRow: number;
+  readonly cursorCell: number;
+  readonly omittedAbove: boolean;
+  readonly omittedBelow: boolean;
+}
+
+/** Pure multiline layout with logical newlines and bounded display-cell wrapping. */
+export const layoutEditorText = (
+  snapshot: EditorSnapshot,
+  columns: number,
+  maxRows: number,
+): EditorLayout => {
+  const width = Number.isSafeInteger(columns) && columns > 0 ? columns : 80;
+  const limit = Math.max(1, Number.isSafeInteger(maxRows) ? maxRows : 1);
+  const points = [...snapshot.text];
+  const cursor = Math.max(0, Math.min(snapshot.cursorScalar, points.length));
+  const all: EditorLayoutRow[] = [];
+  let line = '', used = 0, cursorRow = 0, cursorCell = 0;
+  const push = (force = false): void => {
+    if (force || line.length > 0 || all.length === 0) all.push({ text: line, cursorCell: null });
+    line = '';
+    used = 0;
+  };
+  for (let index = 0; index <= points.length; index += 1) {
+    if (index === cursor) {
+      cursorRow = all.length;
+      cursorCell = used;
+    }
+    if (index === points.length) {
+      push(true);
+      break;
+    }
+    const point = points[index];
+    if (point === '\n') {
+      push(true);
+      continue;
+    }
+    const escaped = escapeTerminalText(point, { editor: true });
+    const widthOf = [...escaped].reduce((sum, character) => sum + cellWidth(character), 0);
+    if (line.length > 0 && used + widthOf > width) push();
+    line += escaped;
+    used += widthOf;
+  }
+  if (all.length === 0) all.push({ text: '', cursorCell: cursorCell });
+  const first = Math.max(0, Math.min(cursorRow - limit + 1, all.length - limit));
+  const visible = all.slice(first, first + limit).map((row, index) =>
+    Object.freeze({ ...row, cursorCell: first + index === cursorRow ? cursorCell : null })
+  );
+  return Object.freeze({
+    rows: Object.freeze(visible),
+    cursorRow: Math.max(0, cursorRow - first),
+    cursorCell,
+    omittedAbove: first > 0,
+    omittedBelow: first + visible.length < all.length,
+  });
+};
+
+export const pendingMetadataRows = (
+  snapshot: PendingMetadataSnapshot | undefined,
+  columns = 80,
+): readonly string[] => {
+  if (snapshot === undefined) return [];
+  const live = snapshot.lanes.slice(0, 4).filter((lane) => lane.present);
+  const recovery = snapshot.lanes.slice(4).filter((lane) => lane.present);
+  const code = (lifecycle: string): string =>
+    lifecycle === 'draft'
+      ? 'd'
+      : lifecycle === 'active_uncommitted'
+      ? 'a'
+      : lifecycle === 'admitted_unconsumed'
+      ? 'u'
+      : lifecycle === 'queued_unsubmitted'
+      ? 'q'
+      : 'r';
+  const kind = (value: string): string =>
+    value === 'editor' ? 'E' : value === 'active_task' ? 'A' : value === 'steering' ? 'S' : 'F';
+  const trim = (value: string): string => [...value].slice(0, Math.max(1, columns)).join('');
+  const rows: string[] = [];
+  if (live.length > 0) {
+    rows.push(
+      trim(
+        `p ${
+          live.map((lane) => `${kind(lane.kind)}:${code(lane.lifecycle)}:${lane.byteCount}`).join(
+            ' ',
+          )
+        }`,
+      ),
+    );
+  }
+  if (recovery.length > 0) {
+    rows.push(
+      trim(`r ${recovery.map((lane) => `${kind(lane.kind)}:${lane.byteCount}`).join(' ')}`),
+    );
+  }
+  return Object.freeze(rows);
+};
+
 const dynamicLine = (prefix: string, value: string): Uint8Array =>
   staticBytes(`${prefix}${boundedEscaped(value)}\n`);
 
@@ -136,9 +242,9 @@ export const startupOrientationLines = (
   `skills> ${orientationSkills(state)}`,
   'credential> verified immediately before each provider request; not checked at startup',
   `trust> ${orientationTrust(state)}`,
-  'keys> Enter submit · busy Enter steer · busy Alt+Enter follow-up',
-  'keys> busy Esc cancel · busy Ctrl-C cancel+exit',
-  'keys> idle Ctrl-C twice within 500 ms exit · empty Ctrl-D exit',
+  'keys> Enter submit · Ctrl-O newline · arrows/Home/End move · Ctrl-W delete',
+  'keys> Ctrl-P/N history · Tab path · Ctrl-R recover',
+  'keys> busy Enter steer · Alt+Enter follow-up · Esc cancel · Ctrl-C/D exit',
 ];
 
 const clippedWorkspace = (value: string, columns: number): string => {
@@ -180,12 +286,19 @@ export const renderStartupOrientationText = (
 export class TuiRenderer implements TerminalRendererGate {
   private closing = false;
   private editorText = '';
+  private editorSnapshot: EditorSnapshot | null = null;
+  private pendingMetadata: PendingMetadataSnapshot | undefined;
   private status = 'ready';
   private followUpPending = false;
   private liveProgress: string | null = null;
   private liveProgressTool = '';
   private liveAssistant: string | null = null;
   private lastSize = { columns: 80, rows: 24 };
+  // The modern editor occupies a bounded block above the status row. These values describe the
+  // terminal cursor's position within that block so redraw can erase the previous block without
+  // retaining any user text.
+  private editorBlockSpan = 0;
+  private editorBlockCursorRow = 0;
 
   constructor(private readonly terminal: TerminalPort) {}
 
@@ -235,11 +348,8 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   clearLiveLine(): void {
-    try {
-      this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
-    } catch {
-      // Lifecycle continues static restoration even when this write fails.
-    }
+    if (this.editorBlockSpan > 0) this.clearEditorBlock();
+    else this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
   }
 
   /** Event sink entry point. It is intentionally synchronous. */
@@ -313,6 +423,20 @@ export class TuiRenderer implements TerminalRendererGate {
 
   setEditor(text: string): void {
     this.editorText = text;
+    this.editorSnapshot = null;
+    this.redraw();
+  }
+
+  setEditorSnapshot(snapshot: EditorSnapshot): void {
+    this.editorText = snapshot.text;
+    this.editorSnapshot = Object.freeze({ ...snapshot });
+    this.redraw();
+  }
+
+  setPendingMetadata(metadata: PendingMetadataSnapshot | undefined): void {
+    this.pendingMetadata = metadata === undefined
+      ? undefined
+      : Object.freeze({ ...metadata, lanes: Object.freeze([...metadata.lanes]) });
     this.redraw();
   }
 
@@ -386,6 +510,27 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const columns = Math.max(8, this.lastSize.columns);
     const status = escapeTerminalText(this.displayStatus(), { editor: true });
+    if (this.editorSnapshot !== null) {
+      const metadata = pendingMetadataRows(this.pendingMetadata, columns);
+      const rows = Math.min(8, Math.max(1, this.lastSize.rows - 6 - metadata.length));
+      const layout = layoutEditorText(this.editorSnapshot, Math.max(1, columns - 4), rows);
+      if (this.editorBlockSpan > 0) this.clearEditorBlock();
+      const editorRows = layout.rows.map((row) => `\r${ERASE_LINE}> ${row.text}`);
+      const metadataRows = metadata.map((row) => `\r${ERASE_LINE}> ${row}`);
+      const statusRow = `\r${ERASE_LINE}> [${status}]`;
+      const block = [...editorRows, ...metadataRows, statusRow].join('\n');
+      const span = layout.rows.length + metadata.length;
+      const cursorUp = span - layout.cursorRow;
+      const cursorRight = 2 + layout.cursorCell;
+      this.write(
+        staticBytes(
+          `${block}\x1b[${cursorUp}A\r\x1b[${cursorRight}C`,
+        ),
+      );
+      this.editorBlockSpan = span;
+      this.editorBlockCursorRow = layout.cursorRow;
+      return;
+    }
     const editor = this.editorText.length > 0
       ? escapeTerminalText(this.editorText, { editor: true })
       : this.liveAssistant !== null
@@ -443,9 +588,29 @@ export class TuiRenderer implements TerminalRendererGate {
   private clearRecordLine(): void {
     if (this.closing) throw new EventDeliveryError();
     try {
-      this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
+      if (this.editorBlockSpan > 0) this.clearEditorBlock();
+      else this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
     } catch {
       throw new EventDeliveryError();
+    }
+  }
+
+  /** Erase the previous editor/metadata/status block and leave the cursor at its top-left. */
+  private clearEditorBlock(bestEffort = false): void {
+    if (this.editorBlockSpan === 0) return;
+    let output = `\r${this.editorBlockCursorRow > 0 ? `\x1b[${this.editorBlockCursorRow}A` : ''}`;
+    for (let index = 0; index <= this.editorBlockSpan; index += 1) {
+      output += ERASE_LINE;
+      if (index < this.editorBlockSpan) output += '\n';
+    }
+    output += `\x1b[${this.editorBlockSpan}A\r`;
+    try {
+      this.terminal.write(staticBytes(output));
+    } catch {
+      if (!bestEffort) throw new EventDeliveryError();
+    } finally {
+      this.editorBlockSpan = 0;
+      this.editorBlockCursorRow = 0;
     }
   }
 }

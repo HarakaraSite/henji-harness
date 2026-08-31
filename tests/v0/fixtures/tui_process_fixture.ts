@@ -4,6 +4,7 @@ import { CancellationCleanupError } from '../../../v0/agent/cancellation.ts';
 import { main, type TuiSessionFactoryResult } from '../../../v0/agent/tui_cli.ts';
 import { type BuiltinAgentSelection } from '../../../v0/agent/agent_catalog.ts';
 import { projectRuntimeDisplayState } from '../../../v0/agent/startup_orientation.ts';
+import { WorkspacePathIndex } from '../../../v0/tui/file_reference.ts';
 
 const mode = Deno.args[0] ?? 'success';
 type FixtureSignal = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
@@ -11,15 +12,22 @@ const parseSignal = (prefix: string): FixtureSignal | undefined => {
   const value = mode.startsWith(prefix) ? mode.slice(prefix.length) : undefined;
   return value === 'SIGINT' || value === 'SIGTERM' || value === 'SIGHUP' ? value : undefined;
 };
-const signalMode = parseSignal('signal-');
-const cleanupSignalMode = parseSignal('signal-cleanup-failure-');
+const signalMode = parseSignal('signal-') ?? parseSignal('daily-signal-');
+const cleanupSignalMode = parseSignal('signal-cleanup-failure-') ??
+  parseSignal('daily-signal-cleanup-failure-');
 const activeSignal = cleanupSignalMode ?? signalMode;
+const dailyMode = mode.startsWith('daily-');
+const dailyRecoveryMode = mode === 'daily-recovery';
+const dailyMaxMode = mode === 'daily-max';
+const dailyContractMode = mode === 'daily-contract';
+const dailyFatalMode = mode === 'daily-fatal';
 const assistantProgressMode = mode === 'assistant-progress' || mode === 'assistant-progress-cancel';
 const followUpSteeringMode = mode === 'follow-up-steering';
-const steeringMode = mode === 'steering' || followUpSteeringMode;
-const followUpMode = mode === 'follow-up';
+const steeringMode = mode === 'steering' || followUpSteeringMode || mode === 'daily-steering';
+const followUpMode = mode === 'follow-up' || mode === 'daily-follow-up';
 const delayedMode = mode === 'busy' || mode === 'busy-cleanup-failure' || followUpMode ||
-  followUpSteeringMode || activeSignal !== undefined || assistantProgressMode || steeringMode;
+  followUpSteeringMode || activeSignal !== undefined || assistantProgressMode || steeringMode ||
+  dailyRecoveryMode || dailyMaxMode || dailyContractMode || dailyFatalMode;
 const cleanupFailureMode = mode === 'busy-cleanup-failure' || cleanupSignalMode !== undefined;
 const task = (value: string, finalText = 'fixture response'): LoopOutcome => ({
   ok: true,
@@ -61,6 +69,7 @@ class FixtureSession {
         message: { role: 'user', content: { kind: 'text', text } },
       });
       if (mode === 'failure') throw new Error('fixture model failure');
+      if (dailyFatalMode) throw new Error('daily fixture model failure');
       if (steeringMode) {
         this.sink({
           kind: 'assistant_message',
@@ -173,8 +182,36 @@ class FixtureSession {
         }).output();
       }
       if (this.delayed) {
-        const delay = followUpMode ? (turn === 1 ? 150 : 300) : 120;
+        const delay = followUpMode ? (turn === 1 ? 150 : 300) : dailyRecoveryMode ? 300 : 120;
         await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+      if (dailyMaxMode || dailyContractMode) {
+        const stopReason = dailyMaxMode ? 'max_steps' as const : 'contract_failure' as const;
+        const outcome = dailyMaxMode
+          ? {
+            ok: false,
+            task: text,
+            outcome: 'max_steps' as const,
+            stopReason,
+            error: 'daily fixture max steps',
+            steps: 8,
+            toolCallCount: 8,
+            toolResultCount: 8,
+            transcript: [],
+          }
+          : {
+            ok: false,
+            task: text,
+            outcome: 'contract_failure' as const,
+            stopReason,
+            error: 'daily fixture contract failure',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          };
+        this.sink({ kind: 'turn_end', turn, outcome: stopReason, committed: false });
+        return outcome;
       }
       if (this.cancellationRequested) {
         if (cleanupFailureMode) throw new CancellationCleanupError();
@@ -227,6 +264,11 @@ const createSession = (
       sessionMode: 'none',
       skillNames: [],
     }),
+    ...(dailyMode
+      ? {
+        workspaceRoot: '/tmp/tui-process-fixture',
+      }
+      : {}),
   });
 };
 
@@ -246,6 +288,10 @@ const exitCode = await main(
     : [],
   {
     createSession,
+    dailyEditor: dailyMode,
+    pathIndex: dailyMode
+      ? WorkspacePathIndex.fromCandidates(['README.md', 'src/main.ts'])
+      : undefined,
     afterAcquire: mode === 'crash'
       ? () => {
         throw new Error('uncaught fixture failure');

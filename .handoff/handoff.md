@@ -344,6 +344,20 @@
 - 受入: separate Human Gateのrepresentative no-task acceptanceをdisposable checkout/state、credential env unsetで一回だけ実施。12-line orientation、default/new autosave、ready、empty Ctrl-D exit 0、terminal controls restoration、session JSON/per-session lock/temp 0、disposable cleanupを確認。retry/rerun/provider request/tool execution 0
 - 境界: reviewed incrementはuser-authorized final integration commitへ記録する。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施。plan delta、stop condition、計画外bugなし
 
+### POL-20260831-daily-editor-no-lost-input-plan
+
+- 計画: `docs/plans/daily-editor-no-lost-input.md`、SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。正本inputは`/tmp/planner-inputs/henji-daily-editor-no-lost-input.md`、concept revision 34、SHA-256 `410adbcb5d827476a44b2cc8d24cb4fb9c4dd499d9b5b1951eaae7a59afe3ef8`
+- 契約: 64 KiB multiline scalar-cursor editor、32件/256 KiB process-local ordinary history、bounded Tab workspace path completion、active/steering/follow-up/recovery fixed lanes、Ctrl-R一件回収、二段階discard confirmationを追加する。general queue、draft persistence、session schema、Definition/manifest/replay/provider wireは変更しない
+- safety: busy partial draftを全settlementで保持し、steeringはreserve→session accept→infallible commit後だけeditor clear。`.git`/`_refs`はscan前除外しsymlink/root instabilityはwhole-index unavailable。recoverable outcomeはsession availabilityでgateし、fatal cleanup/terminal/process failureをreadyへ戻さない。tool side effectはrollbackせずauto resend 0
+- review: initial planning review P1 3/P2 2をbusy draft lifecycle、path exclusion、steering handshake、two-row 80x24 metadata、exact permission-free leaf topologyで修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 境界: implementation/test/gate/results、provider-free representative acceptance、commitは未承認。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは対象外。次は初期implementation Human Gate
+
+### POL-20260831-daily-editor-no-lost-input-implementation
+
+- 判断済み: ユーザー承認に基づき、Step 82のrepository implementation、disposable fake/PTY tests、full offline gate、results/lifecycle、bounded review、final commitを実施する。canonical plan SHA-256は`a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`
+- 状態: scalar multiline editor/history、bounded workspace path completion、fixed recovery lanes、typed discard/signal、fatal cleanup precedenceを実装。initial review P1 2/P2 4をsingle closureで修正し、narrow re-review GO、Blocker/P1/P2 0。owner focused TUI/pending/file/PTY 83/3/6/33、full gate 624/624、topology/check/fmt/lint/diff green
+- 境界: representative provider-free human acceptanceは別Human Gateで未実施。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施。fatal kill/restart recoveryとlocal tool effect rollbackは保証しない
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -2181,3 +2195,70 @@
 - 実施: ユーザーがreview GO、owner gate、representative acceptance済みStep 81 treeのcommitを明示承認。Step 81対象ファイルだけを一つのfeature commitへ記録する
 - 次: commit後、roadmapの次inputを確認する
 - 注意: user-owned `_refs/*`はstageしない。provider/network/credential/production command、actual persistent state、dependency/lockfile、push/tag/publish/releaseは未実施
+
+## 2026-08-31 11:13 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Roadmap step 82 daily editor and no-lost-input planning
+- 実施: revision-34 input、Step 81 HEAD、TUI/input/controller/session/task topologyを照合しcanonical planを作成。initial P1 3/P2 2をplanning-onlyで修正し、single narrow re-review GO、Blocker/P1/P2 0
+- 次: `POL-20260831-daily-editor-no-lost-input-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。implementation/test/provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 11:45 JST
+
+- 実行エージェント: Codex Step 82 implementer
+- 作業トピック: Roadmap step 82 daily editor and no-lost-input implementation
+- 実施: bounded scalar multiline editor/history、strict new input events、fixed pending lanes、bounded workspace-relative path index、pure multiline renderer layout/metadata、post-settlement availability、synchronous steering bridge、sanitized terminal restore statusを実装。production TUI wiringはdaily-editor modeで有効化し、legacy direct seamsは既存回帰保持のため互換動作を維持
+- 検証: 新規permission-free pending/file-reference leaf 2/2・2/2、既存TUI editor/render/controller 17/17・10/10・41/41、変更source `deno check` green。authoritative topology/full gate、check/fmt/lint、bounded reviewはowner待ち
+- 次: ownerがtask/topology exact ownershipを確認し、必要な局所修正、authoritative offline gate、reviewを実施。provider-free representative acceptanceは別Human Gateのため実施しない
+- 注意: plan SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 12:26 JST
+
+- 実行エージェント: Codex Step 82 implementer
+- 作業トピック: Roadmap step 82 daily editor and no-lost-input implementation verification
+- 実施: timeout後のunknown CSI payload非fallback、canonical prepared workspace rootによるpath index、12-line key help、multiline block/cursor renderer、fixed-lane modern Ctrl-C/recovery evidenceを追加。focused editor/render/controller 21/21・11/11・43/43、pending/file 3/3・4/4、PTY 25/25、portable 2/2、session/TUI 9/9、steering 7/7を確認
+- 次: coordinating ownerが変更範囲をreviewし、必要ならbounded re-reviewと最終commit判断を行う
+- 注意: authoritative `v0:gate` 606/606、topology 2/2、check/fmt/lint/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、representative acceptance、commit/push/tag/publish/releaseは未実施。legacy direct seam互換動作は`dailyEditor`明示時を除き維持
+
+## 2026-08-31 12:30 JST
+
+- 実行エージェント: Codex Step 82 implementer
+- 作業トピック: Roadmap step 82 final offline verification
+- 実施: editor/decoder、renderer、fixed-lane/controller、workspace traversalの追加回帰を完了し、12-line key helpとcanonical workspace wiringを確認
+- 次: coordinating ownerがreview/re-reviewと最終commit判断を行う
+- 注意: focused editor/render/controller 22/22・11/11・43/43、pending/file 3/3・4/4、PTY 25/25、portable 2/2、session/TUI 9/9、steering 7/7。authoritative `v0:gate` 607/607、topology 2/2、check/fmt/lint/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、representative acceptance、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 12:31 JST
+
+- 実行エージェント: Codex Step 82 implementer
+- 作業トピック: Roadmap step 82 authoritative offline gate closure
+- 実施: modern Ctrl-D discard confirmation regressionを追加し、timeout/CSI、canonical workspace、multiline renderer、fixed-lane回帰を含む最終treeを確認
+- 次: coordinating ownerが変更範囲のbounded review/re-reviewと最終commit判断を行う
+- 注意: focused editor/render/controller 22/22・11/11・44/44、pending/file 3/3・4/4、PTY 25/25、portable 2/2、session/TUI 9/9、steering 7/7。authoritative `v0:gate` 608/608、topology 2/2、check/fmt/lint/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、representative acceptance、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 13:03 JST
+
+- 実行エージェント: Codex Step 82 implementer
+- 作業トピック: Roadmap step 82 approved implementation-review finding closure
+- 実施: P1-1 history navigation detach after text/recovery/Tab/steering mutations、P1-2 typed Ctrl-C/Ctrl-D confirmationとmodern idle/busy SIGINT/SIGTERM/SIGHUP discard transition、P2-1 live-line restore failure propagation、P2-2 bounded unsupported SS3 consumption、P2-3 streaming workspace budget and per-directory identity/type revalidation、P2-4 deterministic daily-editor PTY fixture/process regressionsをsingle plan-scoped closure passとして実施。README、results、AGENTSも最終evidenceへ同期
+- 検証: editor/render/controller 25/25・11/11・47/47、pending/file 3/3・6/6、daily/editor PTY 33/33、portable 2/2、persistent-session 9/9、steering 7/7、offline topology 2/2、authoritative `v0:gate` 624/624。`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` pass。diagnostic shellで生成した3つのfixture processは exact PIDをterminate/reapし、`/tmp/daily-steer.raw`とgate temp logは削除済み
+- 次: coordinating ownerがchanged-lines bounded re-review、owner final disposition、必要ならcommitを判断する。representative no-task acceptanceは別Human Gateのため実施しない
+- 注意: plan SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。レビュー結果はpending、計画外bug/plan deltaなし
+
+## 2026-08-31 13:08 JST
+
+- 実行エージェント: Codex Step 82 implementer
+- 作業トピック: Roadmap step 82 approved implementation-review finding closure final verification
+- 実施: successful steering admissionにもhistory navigation detachを適用し、既存controller回帰へCtrl-P→steering→Ctrl-Nのboundary evidenceを追加。診断fixture processと一時raw/gateファイルが残っていないことを再確認
+- 検証: controller 47/47、authoritative `v0:gate` 624/624、check/fmt/lint/diff check pass。representative acceptance、provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+- 次: coordinating ownerがchanged-lines bounded re-review、owner final disposition、必要ならcommitを判断する
+- 注意: plan SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。レビュー結果はpending、計画外bug/plan deltaなし
+
+## 2026-08-31 13:15 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Roadmap step 82 final review and owner gate
+- 実施: initial P1 2/P2 4のsingle closureをnarrow re-reviewし全件Closed、GO、Blocker/P1/P2 0。ownerがTUI 83、pending 3、file 6、PTY 33、authoritative `v0:gate` 624を独立再実行
+- 次: user-authorized final integration commitへStep 82対象ファイルだけを記録する。representative acceptanceは別Human Gate
+- 注意: plan SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。topology 2、check/fmt(130)/lint(127)/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施

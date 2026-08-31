@@ -162,6 +162,7 @@ export class TerminalLifecycle {
   private raw = false;
   private paste = false;
   private restoring: Promise<void> | null = null;
+  private restoreFailed = false;
   private readonly signals = new Map<SignalName, SignalHandler>();
 
   constructor(
@@ -209,9 +210,18 @@ export class TerminalLifecycle {
     await this.restoring;
   }
 
+  /** Sanitized latched result; no terminal/path/input detail is exposed. */
+  restoreStatus(): 'ok' | 'failed' {
+    return this.restoreFailed ? 'failed' : 'ok';
+  }
+
   private async restoreOnce(): Promise<void> {
     // Closing is the first operation: late event delivery can no longer write dynamic output.
-    this.renderer?.close();
+    try {
+      this.renderer?.close();
+    } catch {
+      this.restoreFailed = true;
+    }
     // Composition/startup can fail before terminal acquisition. Remove any signal hooks but do
     // not emit terminal controls or touch stdin when no terminal state was acquired.
     if (!this.raw && !this.acquired && !this.paste) {
@@ -222,6 +232,7 @@ export class TerminalLifecycle {
       try {
         this.terminal.write(staticBytes(BRACKETED_PASTE_OFF));
       } catch {
+        this.restoreFailed = true;
         // Continue all remaining restore operations.
       }
       this.paste = false;
@@ -229,17 +240,20 @@ export class TerminalLifecycle {
     try {
       await this.terminal.drainAndCloseInput(1_000, 50);
     } catch {
+      this.restoreFailed = true;
       // Continue with terminal control restoration.
     }
     try {
       this.renderer?.clearLiveLine();
     } catch {
+      this.restoreFailed = true;
       // Continue with static controls and raw restore.
     }
     for (const sequence of [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR]) {
       try {
         this.terminal.write(staticBytes(sequence));
       } catch {
+        this.restoreFailed = true;
         // Each operation is independent and best effort.
       }
     }
@@ -247,6 +261,7 @@ export class TerminalLifecycle {
       try {
         this.terminal.setRaw(false, { cbreak: true });
       } catch {
+        this.restoreFailed = true;
         // No further restoration is possible through this port.
       }
       this.raw = false;
@@ -260,6 +275,7 @@ export class TerminalLifecycle {
       try {
         this.terminal.removeSignal(signal, handler);
       } catch {
+        this.restoreFailed = true;
         // The process may already be shutting down.
       }
     }

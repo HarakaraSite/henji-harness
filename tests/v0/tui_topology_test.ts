@@ -26,11 +26,15 @@ Deno.test('local TUI gate runs only local tests and check includes all TUI paths
       'v0/agent/tui_cli.ts',
       'v0/tui/terminal.ts',
       'v0/tui/input.ts',
+      'v0/tui/pending_input.ts',
+      'v0/tui/file_reference.ts',
       'v0/tui/render.ts',
       'v0/tui/controller.ts',
       'tests/v0/tui_input_test.ts',
       'tests/v0/tui_render_test.ts',
       'tests/v0/tui_controller_test.ts',
+      'tests/v0/tui_pending_input_test.ts',
+      'tests/v0/tui_file_reference_test.ts',
       'tests/v0/tui_process_test.ts',
       'tests/v0/tui_topology_test.ts',
       'tests/v0/fixtures/tui_process_fixture.ts',
@@ -49,6 +53,10 @@ Deno.test('local TUI gate runs only local tests and check includes all TUI paths
     const invocation = `${DENO} task --config deno.v0.json ${task}`;
     assertEquals(testSegments.filter((segment) => segment === invocation).length, 1);
   }
+  for (const task of ['agent:tui:pending:test', 'agent:tui:file-reference:test']) {
+    const invocation = `${DENO} task --config deno.v0.json ${task}`;
+    assertEquals(testSegments.filter((segment) => segment === invocation).length, 1);
+  }
   for (const composition of [gateSegments, testSegments]) {
     assert(!composition.includes(`${DENO} task --config deno.v0.json agent:run`));
     assert(!composition.includes(`${DENO} task --config deno.v0.json agent:acceptance`));
@@ -64,6 +72,17 @@ Deno.test('TUI local process task grants only script execution and topology task
   assertEquals(
     config.tasks['agent:tui:topology:test'],
     `${DENO} test --no-prompt --allow-read=deno.v0.json tests/v0/tui_topology_test.ts`,
+  );
+});
+
+Deno.test('pending and file-reference leaves are exact permission-free commands', () => {
+  assertEquals(
+    config.tasks['agent:tui:pending:test'],
+    `${DENO} test --no-prompt tests/v0/tui_pending_input_test.ts`,
+  );
+  assertEquals(
+    config.tasks['agent:tui:file-reference:test'],
+    `${DENO} test --no-prompt tests/v0/tui_file_reference_test.ts`,
   );
 });
 
