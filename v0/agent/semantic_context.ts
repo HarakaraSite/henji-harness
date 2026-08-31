@@ -11,7 +11,7 @@ import {
   measureModelRequestWire,
 } from './openrouter_model.ts';
 import { type PreparedModelContext, prepareModelContext } from './context.ts';
-import { indexSessionHistory } from './session_history.ts';
+import { indexSessionHistoryPrefix, type SessionHistoryIndex } from './session_history.ts';
 
 const encoder = new TextEncoder();
 
@@ -34,46 +34,38 @@ const safeString = (value: unknown): value is string =>
     return code >= 0xd800 && code <= 0xdfff;
   });
 
-const canonicalTurns = (
-  transcript: readonly Message[],
-): readonly { turn: number; messages: readonly Message[] }[] => {
-  const indexed = indexSessionHistory(transcript);
-  if (indexed !== undefined) {
-    return indexed.turns.map((item) => ({ turn: item.turn, messages: item.messages }));
-  }
-  // A live request contains an incomplete draft user message. Keep the committed prefix only;
-  // this bounded scanner avoids treating that draft as a completed turn.
-  const complete: { turn: number; messages: readonly Message[] }[] = [];
-  for (let end = transcript.length - 1; end > 0; end -= 1) {
-    const candidate = indexSessionHistory(transcript.slice(0, end));
-    if (candidate !== undefined && candidate.turns.length > 0 && candidate.messageCount === end) {
-      for (const item of candidate.turns) {
-        complete.push({ turn: item.turn, messages: item.messages });
-      }
-      return complete;
-    }
-  }
-  return [];
+const summaryEnvelopeFromIndex = (
+  indexed: SessionHistoryIndex,
+  coveredThroughTurn: number,
+): string => {
+  const value = {
+    schemaVersion: 1,
+    operation: 'semantic_context_checkpoint',
+    coveredThroughTurn,
+    retainedFromTurn: coveredThroughTurn + 1,
+    turns: indexed.turns.slice(0, coveredThroughTurn).map((item) => ({
+      turn: item.turn,
+      messages: item.messages,
+    })),
+  };
+  return JSON.stringify(value);
 };
 
 export const summaryEnvelope = (
   transcript: readonly Message[],
   coveredThroughTurn: number,
 ): string => {
-  const turns = canonicalTurns(transcript).filter((item) => item.turn <= coveredThroughTurn).map((
-    item,
-  ) => ({
-    turn: item.turn,
-    messages: item.messages,
-  }));
-  const value = {
-    schemaVersion: 1,
-    operation: 'semantic_context_checkpoint',
-    coveredThroughTurn,
-    retainedFromTurn: coveredThroughTurn + 1,
-    turns,
-  };
-  return JSON.stringify(value);
+  const indexed = indexSessionHistoryPrefix(transcript);
+  if (indexed === undefined) {
+    return JSON.stringify({
+      schemaVersion: 1,
+      operation: 'semantic_context_checkpoint',
+      coveredThroughTurn,
+      retainedFromTurn: coveredThroughTurn + 1,
+      turns: [],
+    });
+  }
+  return summaryEnvelopeFromIndex(indexed, coveredThroughTurn);
 };
 
 export const summaryRequest = (
@@ -128,19 +120,12 @@ export const projectSemanticContext = (
   request: ModelRequest,
   checkpoint: SemanticContextCheckpointV1,
 ): ModelRequest => {
-  const turns = canonicalTurns(request.transcript);
+  const indexed = indexSessionHistoryPrefix(request.transcript);
+  const turns = indexed?.turns ?? [];
   if (checkpoint.coveredThroughTurn < 1 || checkpoint.coveredThroughTurn >= turns.length + 1) {
     throw new Error('checkpoint boundary is invalid');
   }
-  let end: number | undefined;
-  for (let candidateEnd = request.transcript.length; candidateEnd > 0; candidateEnd -= 1) {
-    const indexed = indexSessionHistory(request.transcript.slice(0, candidateEnd));
-    const boundary = indexed?.turns[checkpoint.coveredThroughTurn - 1];
-    if (boundary !== undefined) {
-      end = boundary.end;
-      break;
-    }
-  }
+  const end = turns[checkpoint.coveredThroughTurn - 1]?.end;
   if (end === undefined) throw new Error('checkpoint boundary is invalid');
   const projected = [checkpointMessage(checkpoint), ...request.transcript.slice(end)];
   return {
@@ -191,6 +176,43 @@ const requestForCheckpoint = (
   options: ContextAdmissionOptions,
 ): ModelRequest => projectSemanticContext(requestWithDraft(transcript, options), checkpoint);
 
+/** Build a projected request from already-indexed causal ranges. */
+const requestForCheckpointFromIndex = (
+  transcript: readonly Message[],
+  indexed: SessionHistoryIndex,
+  checkpoint: SemanticContextCheckpointV1,
+  options: ContextAdmissionOptions,
+): ModelRequest => {
+  if (checkpoint.coveredThroughTurn < 1 || checkpoint.coveredThroughTurn > indexed.turns.length) {
+    throw new Error('checkpoint boundary is invalid');
+  }
+  const end = indexed.turns[checkpoint.coveredThroughTurn - 1]?.end;
+  if (end === undefined) throw new Error('checkpoint boundary is invalid');
+  return {
+    ...(options.systemInstruction === undefined
+      ? {}
+      : { systemInstruction: options.systemInstruction }),
+    transcript: structuredClone([
+      checkpointMessage(checkpoint),
+      ...transcript.slice(end),
+      draftMessage(),
+    ]),
+    tools: structuredClone(options.tools),
+  };
+};
+
+const summaryRequestFromIndex = (
+  indexed: SessionHistoryIndex,
+  coveredThroughTurn: number,
+): ModelRequest => ({
+  systemInstruction: SEMANTIC_CONTEXT_SYSTEM_PROMPT,
+  transcript: [{
+    role: 'user',
+    content: { kind: 'text', text: summaryEnvelopeFromIndex(indexed, coveredThroughTurn) },
+  }],
+  tools: [],
+});
+
 const fits = (
   request: ModelRequest,
 ): {
@@ -231,7 +253,8 @@ export const findContextCandidate = (
   transcript: readonly Message[],
   options: ContextAdmissionOptions,
 ): ContextCandidate | undefined => {
-  const turns = canonicalTurns(transcript);
+  const indexed = indexSessionHistoryPrefix(transcript);
+  const turns = indexed?.turns ?? [];
   const count = turns.length;
   if (count < 2) return undefined;
   const baselineInput = options.checkpoint === undefined
@@ -243,8 +266,39 @@ export const findContextCandidate = (
   const baseline = measurePrepared(baselineInput);
   if (baseline === undefined) return undefined;
   const currentCovered = options.checkpoint?.coveredThroughTurn ?? 0;
-  for (let covered = count - 1; covered >= 1; covered -= 1) {
-    if (covered <= currentCovered) continue;
+  const firstCandidate = currentCovered + 1;
+  const lastCandidate = count - 1;
+  if (firstCandidate > lastCandidate) return undefined;
+
+  // Summary envelopes grow monotonically with coverage. Find their largest fitting boundary once
+  // instead of encoding every oversized prefix while walking candidates from the end.
+  const summaryFits = new Map<number, ReturnType<typeof fits>>();
+  const summaryFor = (covered: number): ReturnType<typeof fits> => {
+    const cached = summaryFits.get(covered);
+    if (cached !== undefined || summaryFits.has(covered)) return cached;
+    const value = fits(summaryRequestFromIndex(indexed!, covered));
+    summaryFits.set(covered, value);
+    return value;
+  };
+  if (summaryFor(firstCandidate) === undefined) return undefined;
+  let highestSummary = lastCandidate;
+  if (summaryFor(lastCandidate) === undefined) {
+    let low = firstCandidate;
+    let high = lastCandidate - 1;
+    highestSummary = firstCandidate;
+    while (low <= high) {
+      const middle = low + Math.floor((high - low + 1) / 2);
+      if (summaryFor(middle) !== undefined) {
+        highestSummary = middle;
+        low = middle + 1;
+      } else high = middle - 1;
+    }
+  }
+
+  const candidates = new Map<number, ContextCandidate | undefined>();
+  const evaluate = (covered: number): ContextCandidate | undefined => {
+    const cached = candidates.get(covered);
+    if (cached !== undefined || candidates.has(covered)) return cached;
     const checkpoint: SemanticContextCheckpointV1 = {
       contextSchemaVersion: 1,
       sessionId: '11111111-1111-4111-8111-111111111111',
@@ -254,8 +308,11 @@ export const findContextCandidate = (
       retainedFromTurn: covered + 1,
       summary: 'candidate',
     };
-    const summaryFit = fits(summaryRequest(transcript, covered));
-    if (summaryFit === undefined) continue;
+    const summaryFit = summaryFor(covered);
+    if (summaryFit === undefined) {
+      candidates.set(covered, undefined);
+      return undefined;
+    }
     // Admission reserves the maximum persisted summary/checkpoint wire contribution. A known
     // answer is used here; actual generated text is revalidated immediately before install.
     const reserved = {
@@ -265,13 +322,18 @@ export const findContextCandidate = (
     let projectedFit: ReturnType<typeof fits>;
     try {
       const bytes = encodeSemanticContextCheckpoint(reserved).byteLength;
-      if (bytes > MAX_CONTEXT_CHECKPOINT_FILE_BYTES) continue;
-      projectedFit = fits(requestForCheckpoint(transcript, reserved, options));
+      if (bytes > MAX_CONTEXT_CHECKPOINT_FILE_BYTES) {
+        candidates.set(covered, undefined);
+        return undefined;
+      }
+      projectedFit = fits(requestForCheckpointFromIndex(transcript, indexed!, reserved, options));
     } catch {
-      continue;
+      candidates.set(covered, undefined);
+      return undefined;
     }
     if (projectedFit === undefined || projectedFit.messagesBytes >= baseline.messagesBytes) {
-      continue;
+      candidates.set(covered, undefined);
+      return undefined;
     }
     let checkpointMessageBytes: number;
     try {
@@ -279,10 +341,14 @@ export const findContextCandidate = (
         measureModelRequestWire({ transcript: [checkpointMessage(reserved)], tools: [] })
           .messagesBytes;
     } catch {
-      continue;
+      candidates.set(covered, undefined);
+      return undefined;
     }
-    if (checkpointMessageBytes > MAX_CHECKPOINT_MESSAGE_WIRE_BYTES) continue;
-    return {
+    if (checkpointMessageBytes > MAX_CHECKPOINT_MESSAGE_WIRE_BYTES) {
+      candidates.set(covered, undefined);
+      return undefined;
+    }
+    const candidate = {
       coveredThroughTurn: covered,
       retainedFromTurn: covered + 1,
       baseline: baseline.prepared,
@@ -291,6 +357,17 @@ export const findContextCandidate = (
       projectedMessagesBytes: projectedFit.messagesBytes,
       baselineMessagesBytes: baseline.messagesBytes,
     };
+    candidates.set(covered, candidate);
+    return candidate;
+  };
+
+  // Summary fit is monotonic, but the prepared request is not: context management may replace
+  // older tool results at its 65,536-byte trigger, introducing a discontinuity in projected wire
+  // size. Walk the summary-fitting boundaries in the reference evaluator's descending order so
+  // the largest useful boundary remains authoritative without rescanning or reparsing prefixes.
+  for (let covered = highestSummary; covered >= firstCandidate; covered -= 1) {
+    const candidate = evaluate(covered);
+    if (candidate !== undefined) return candidate;
   }
   return undefined;
 };

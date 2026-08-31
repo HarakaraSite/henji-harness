@@ -152,57 +152,100 @@ const validateMessage = (value: unknown): value is Message => {
   return false;
 };
 
+export interface CausalTranscriptTurn {
+  readonly turn: number;
+  readonly start: number;
+  readonly end: number;
+}
+
+export interface CausalTranscriptIndex {
+  readonly turns: readonly CausalTranscriptTurn[];
+  readonly messageCount: number;
+}
+
 /**
- * Parse the schema-v1 causal grammar and return completed parent-turn count.
+ * Scan the schema-v1 causal grammar once and retain only message ranges.
  *
  * A user after a nonterminal tool result is the one legal intra-turn steering message. It is
- * deliberately consumed by this parser rather than counted as a new parent turn.
+ * deliberately consumed by this parser rather than counted as a new parent turn. The optional
+ * prefix mode is used for a live request draft: a final incomplete turn is ignored, while every
+ * completed turn and all earlier validation remain strict.
  */
-export const parseCausalTranscript = (
+const indexCausalTranscript = (
   transcript: readonly Message[],
-): number | undefined => {
+  allowIncompleteTail: boolean,
+): CausalTranscriptIndex | undefined => {
   if (transcript.length === 0 || transcript[0].role !== 'user') return undefined;
+  const turns: CausalTranscriptTurn[] = [];
   let index = 0;
-  let completedParentTurns = 0;
+  let turn = 1;
   while (index < transcript.length) {
-    if (transcript[index].role !== 'user') return undefined;
+    const start = index;
+    if (transcript[index].role !== 'user') {
+      return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+    }
     index += 1;
     let completed = false;
     let steeringUsed = false;
     while (index < transcript.length && !completed) {
       const assistant = transcript[index];
-      if (assistant.role !== 'assistant') return undefined;
+      if (assistant.role !== 'assistant') {
+        return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+      }
       index += 1;
       if (!Array.isArray(assistant.content)) {
         completed = true;
-        completedParentTurns += 1;
         break;
       }
-      if (index >= transcript.length || transcript[index].role !== 'tool') return undefined;
+      if (index >= transcript.length || transcript[index].role !== 'tool') {
+        return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+      }
       const tool = transcript[index++];
       if (tool.role !== 'tool' || tool.content.length !== assistant.content.length) {
-        return undefined;
+        return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
       }
       for (let resultIndex = 0; resultIndex < tool.content.length; resultIndex += 1) {
         const call = assistant.content[resultIndex];
         const result = tool.content[resultIndex];
-        if (call.callId !== result.callId || call.name !== result.name) return undefined;
+        if (call.callId !== result.callId || call.name !== result.name) {
+          return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+        }
       }
       if (tool.content.some((result) => 'terminal' in result)) {
         completed = true;
-        completedParentTurns += 1;
         break;
       }
       if (index < transcript.length && transcript[index].role === 'user') {
-        if (steeringUsed) return undefined;
+        if (steeringUsed) {
+          return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+        }
         steeringUsed = true;
         index += 1;
       }
     }
-    if (!completed) return undefined;
+    if (!completed) {
+      return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
+    }
+    turns.push({ turn, start, end: index });
+    turn += 1;
   }
-  return completedParentTurns;
+  return { turns, messageCount: transcript.length };
 };
+
+/** Strict schema-v1 causal ranges shared by persistence, history, and semantic views. */
+export const causalTranscriptIndex = (
+  transcript: readonly Message[],
+): CausalTranscriptIndex | undefined => indexCausalTranscript(transcript, false);
+
+/** Completed-turn prefix ranges for a live request with one trailing draft. */
+export const causalTranscriptPrefixIndex = (
+  transcript: readonly Message[],
+): CausalTranscriptIndex | undefined => indexCausalTranscript(transcript, true);
+
+/** Parse the schema-v1 causal grammar and return completed parent-turn count. */
+export const parseCausalTranscript = (
+  transcript: readonly Message[],
+): number | undefined => causalTranscriptIndex(transcript)?.turns.length;
 
 const canonicalTimestamp = (value: unknown): value is string => {
   if (typeof value !== 'string' || !ISO.test(value)) return false;
@@ -659,6 +702,8 @@ export interface SessionStoreOptions {
   readonly uuid?: () => string;
   /** Direct-test-only fault seam for first-turn rollback removal. */
   readonly removeSync?: (path: string) => void;
+  /** Direct-test-only barrier immediately before an existing-session lock attempt. */
+  readonly beforeOpenExistingLock?: (id: string) => Promise<void>;
   /** Selected built-in profile used to reject checkpoints from another composition early. */
   readonly sourceProfileId?: string;
 }
@@ -717,6 +762,7 @@ export class DenoSessionStore implements SessionStorePort {
 
   private readonly makeUuid: () => string;
   private readonly removeSync: (path: string) => void;
+  private readonly beforeOpenExistingLock?: (id: string) => Promise<void>;
   private readonly sourceProfileId?: string;
 
   constructor(
@@ -729,6 +775,7 @@ export class DenoSessionStore implements SessionStorePort {
     }
     this.makeUuid = options.uuid ?? (() => crypto.randomUUID().toLowerCase());
     this.removeSync = options.removeSync ?? Deno.removeSync;
+    this.beforeOpenExistingLock = options.beforeOpenExistingLock;
     this.sourceProfileId = options.sourceProfileId;
     this.pathsPromise = sessionPaths(stateRoot, workspaceRoot).then((paths) => {
       this.paths = paths;
@@ -861,9 +908,15 @@ export class DenoSessionStore implements SessionStorePort {
     const index = await acquireLock(`${paths.locks}/.index.lock`);
     let record: SessionRecord;
     let checkpoint: SemanticContextCheckpointV1 | undefined;
-    let lock: Lock;
+    let lock: Lock | undefined;
+    let previous: Uint8Array | undefined;
     try {
       await scanNamespaces(paths);
+      // Acquire the per-session lock before hydrating any state. The record, derived checkpoint,
+      // and rollback baseline must all come from one owner-stable snapshot; reading first and
+      // locking later can hydrate a stale transcript just as another owner commits a turn.
+      await this.beforeOpenExistingLock?.(id);
+      lock = await acquireLock(`${paths.locks}/${id}.lock`);
       record = await this.read(id);
       checkpoint = await this.readCheckpoint(id);
       if (
@@ -872,21 +925,18 @@ export class DenoSessionStore implements SessionStorePort {
           checkpoint.coveredThroughTurn >= record.nextTurn - 1 ||
           checkpoint.retainedFromTurn !== checkpoint.coveredThroughTurn + 1)
       ) throw new SessionStoreError('session_invalid');
-      lock = await acquireLock(`${paths.locks}/${id}.lock`);
+      previous = await Deno.readFile(`${paths.sessions}/${id}/session.json`);
     } catch (error) {
+      lock?.close();
       index.close();
+      if (isNotFound(error)) throw new SessionStoreError('session_not_found');
+      if (!(error instanceof SessionStoreError)) {
+        throw new SessionStoreError('session_io_failure');
+      }
       throw error;
     }
     index.close();
-    let previous: Uint8Array | undefined;
-    try {
-      previous = await Deno.readFile(`${paths.sessions}/${id}/session.json`);
-    } catch (error) {
-      lock.close();
-      if (isNotFound(error)) throw new SessionStoreError('session_not_found');
-      throw new SessionStoreError('session_io_failure');
-    }
-    return this.handle(id, record, lock, previous, record.agent, checkpoint);
+    return this.handle(id, record, lock!, previous, record.agent, checkpoint);
   }
 
   async allocate(agent: SessionRecord['agent']): Promise<SessionHandle> {

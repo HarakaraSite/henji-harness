@@ -9,6 +9,7 @@ import {
   MAX_SSE_DATA_EVENTS,
   OpenRouterAgentError,
   OpenRouterAgentModel,
+  type OpenRouterAgentModelOptions,
 } from '../../v0/agent/openrouter_model.ts';
 import { createFixtureTool, Registry } from '../../v0/agent/tools.ts';
 import type { ModelRequest } from '../../v0/agent/contracts.ts';
@@ -71,12 +72,16 @@ const rawStreamResponse = (body: Uint8Array): Response => {
   return response;
 };
 
-const modelFor = (response: Response): OpenRouterAgentModel =>
+const modelFor = (
+  response: Response,
+  extra: Partial<OpenRouterAgentModelOptions> = {},
+): OpenRouterAgentModel =>
   new OpenRouterAgentModel({
     fetcher: () => Promise.resolve(response),
     credential: CREDENTIAL,
     endpoint: ENDPOINT,
     responseMode: 'sse',
+    ...extra,
   });
 
 const waitFor = async (predicate: () => boolean, label: string): Promise<void> => {
@@ -474,6 +479,73 @@ Deno.test('SSE live text freezes at the largest complete UTF-8 prefix while fina
   });
   assertEquals(snapshots, [first, `${first}🐣`]);
   assertEquals(encoder.encode(snapshots.at(-1)!).byteLength, MAX_ASSISTANT_PROGRESS_TEXT_BYTES);
+});
+
+Deno.test('SSE near-cap fragmented text uses bounded incremental progress accounting', async () => {
+  const id = 'chatcmpl-fragmented-near-cap';
+  const fragment = 'a'.repeat(32);
+  const fragments = MAX_ASSISTANT_PROGRESS_TEXT_BYTES / fragment.length;
+  const body = [
+    ...Array.from({ length: fragments }, () => ({
+      id,
+      choices: [{ index: 0, delta: { content: fragment }, finish_reason: null }],
+    })),
+    { id, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    {
+      id,
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: fragments, total_tokens: fragments + 1 },
+    },
+  ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+  let progressCalls = 0;
+  let lastSnapshot = '';
+  const result = await modelFor(streamResponse(body)).generate(request(), {
+    reportAssistantProgress: (snapshot) => {
+      progressCalls += 1;
+      lastSnapshot = snapshot;
+    },
+  });
+  assertEquals(result, { kind: 'final', text: fragment.repeat(fragments) });
+  assertEquals(progressCalls, fragments);
+  assertEquals(lastSnapshot.length, MAX_ASSISTANT_PROGRESS_TEXT_BYTES);
+});
+
+Deno.test('SSE text accounting work is bounded by fragment and progress input', async () => {
+  const id = 'chatcmpl-fragmented-work-bound';
+  const fragment = 'a'.repeat(32);
+  const fragments = MAX_ASSISTANT_PROGRESS_TEXT_BYTES / fragment.length;
+  const body = [
+    ...Array.from({ length: fragments }, () => ({
+      id,
+      choices: [{ index: 0, delta: { content: fragment }, finish_reason: null }],
+    })),
+    { id, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    {
+      id,
+      choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 1, completion_tokens: fragments, total_tokens: fragments + 1 },
+    },
+  ].map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n';
+  let fragmentCount = 0;
+  let fragmentBytes = 0;
+  let progressCodePoints = 0;
+  const result = await modelFor(streamResponse(body), {
+    testTextAccountingObserver: {
+      onFragmentBytes: (bytes) => {
+        fragmentCount += 1;
+        fragmentBytes += bytes;
+      },
+      onProgressCodePoint: () => progressCodePoints += 1,
+    },
+  }).generate(request(), { reportAssistantProgress: () => {} });
+  assertEquals(result, { kind: 'final', text: fragment.repeat(fragments) });
+  assertEquals(fragmentCount, fragments);
+  assertEquals(fragmentBytes, MAX_ASSISTANT_PROGRESS_TEXT_BYTES);
+  assertEquals(progressCodePoints, MAX_ASSISTANT_PROGRESS_TEXT_BYTES);
+  // The former growing-prefix scan inspected a cap-sized prefix for nearly every fragment. The
+  // old lower bound is intentionally far above the one-pass code-point accounting observed here.
+  const oldGrowingPrefixLowerBound = fragments * (MAX_ASSISTANT_PROGRESS_TEXT_BYTES / 2);
+  assert(oldGrowingPrefixLowerBound > progressCodePoints * 1_000);
 });
 
 Deno.test('SSE timeout after headers is sanitized and settles the reader', async () => {

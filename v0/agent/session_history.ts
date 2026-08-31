@@ -1,5 +1,9 @@
 import { type Message } from './contracts.ts';
-import { parseCausalTranscript, type SessionRecord } from './session_store.ts';
+import {
+  causalTranscriptIndex,
+  causalTranscriptPrefixIndex,
+  type SessionRecord,
+} from './session_store.ts';
 import { escapedTerminalTextBytes, historyPageText } from '../tui/render.ts';
 
 const encoder = new TextEncoder();
@@ -59,48 +63,34 @@ const asText = (message: Message): string => {
 export const indexSessionHistory = (
   transcript: readonly Message[],
 ): SessionHistoryIndex | undefined => {
-  if (parseCausalTranscript(transcript) === undefined) return undefined;
-  const turns: SessionHistoryTurn[] = [];
-  let index = 0;
-  let turn = 1;
-  while (index < transcript.length) {
-    const start = index;
-    index += 1; // initial user
-    let complete = false;
-    let steering = false;
-    while (index < transcript.length && !complete) {
-      const assistant = transcript[index++];
-      if (assistant.role !== 'assistant') return undefined;
-      if (!Array.isArray(assistant.content)) {
-        complete = true;
-        break;
-      }
-      if (index >= transcript.length || transcript[index].role !== 'tool') return undefined;
-      const tool = transcript[index++];
-      if (tool.role !== 'tool' || tool.content.length !== assistant.content.length) {
-        return undefined;
-      }
-      if (tool.content.some((result) => 'terminal' in result)) {
-        complete = true;
-        break;
-      }
-      if (index < transcript.length && transcript[index].role === 'user') {
-        if (steering) return undefined;
-        steering = true;
-        index += 1;
-      }
-    }
-    if (!complete) return undefined;
-    turns.push(Object.freeze({
-      turn,
-      start,
-      end: index,
+  const indexed = causalTranscriptIndex(transcript);
+  if (indexed === undefined) return undefined;
+  return makeSessionHistoryIndex(transcript, indexed.turns);
+};
+
+/** Build the completed prefix of a live request without rescanning every possible slice. */
+export const indexSessionHistoryPrefix = (
+  transcript: readonly Message[],
+): SessionHistoryIndex | undefined => {
+  const indexed = causalTranscriptPrefixIndex(transcript);
+  if (indexed === undefined) return undefined;
+  return makeSessionHistoryIndex(transcript, indexed.turns);
+};
+
+const makeSessionHistoryIndex = (
+  transcript: readonly Message[],
+  ranges: readonly { readonly turn: number; readonly start: number; readonly end: number }[],
+): SessionHistoryIndex => {
+  const turns = ranges.map((range) =>
+    Object.freeze({
+      turn: range.turn,
+      start: range.start,
+      end: range.end,
       messages: Object.freeze(
-        transcript.slice(start, index).map((message) => structuredClone(message)),
+        transcript.slice(range.start, range.end).map((message) => structuredClone(message)),
       ),
-    }));
-    turn += 1;
-  }
+    })
+  );
   return Object.freeze({
     turns: Object.freeze(turns),
     messageCount: transcript.length,

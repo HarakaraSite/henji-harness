@@ -118,3 +118,86 @@ The production TUI remains provider/credential gated at request time. The README
 not claim provider behavior, billing outcomes, or persistent product acceptance. Existing
 schema-v1 canonical history remains the sole durable history authority; context is one derived
 checkpoint companion and is never merged into `session.json`.
+
+## Comprehensive validated-finding closure
+
+The subsequent approved closure addressed the six validated findings against the accepted Step 83
+tree without changing the product contract, schema, provider wire, permissions, dependencies, or
+Human Gates:
+
+1. `openExisting` now hydrates the canonical record, checkpoint, and rollback baseline from one
+   per-session locked snapshot; a deterministic pre-lock barrier holds a pending opener across a
+   newer owner's record/checkpoint commit and release, then proves that the opener sees the latest
+   correlated pair.
+2. Navigation switch ownership crosses an irreversible boundary only after the old binding closes;
+   after that point the resolved target is adopted even when cancellation is observed, and target
+   cleanup remains fatal. A direct old-close/target-ownership regression covers the boundary.
+3. Fragmented assistant SSE text and progress accounting now use incremental UTF-8 byte tracking
+   and bounded fragments while preserving final response, usage, event, and progress limits. A
+   deterministic near-cap single-body fragmentation regression consumes 2,048 bounded fragments
+   and verifies the exact 65,536-byte result and progress count; a direct-test observation bounds
+   fragment and code-point accounting and contrasts it with the former growing-prefix scan.
+4. History body, context preview, and post-install status delivery failures now propagate
+   `EventDeliveryError` through fatal controller settlement, while store/provider availability
+   failures remain sanitized and installed-checkpoint truth is preserved. Direct regressions cover
+   all three modal paths and terminal restoration.
+5. Semantic candidate selection builds one causal range index and evaluates summary-fitting
+   boundaries in descending reference order, preserving the same-wire measurement, strict
+   reduction, reserve, refusal rules, and mechanical-omission discontinuities. Known-answer and
+   exact threshold regressions verify both the largest useful boundary and the indexed parser path.
+6. History page loads now own an abort controller, generation, and settlement slot. Dismissal,
+   reverse-page completion, EOF, and SIGTERM regressions prove stale results cannot redraw or
+   outlive controller shutdown.
+
+## Comprehensive closure verification
+
+- `agent:session:navigation:test`: 6/6
+- `agent:semantic-context:test`: 7/7
+- `agent:session-store:test`: 20/20
+- `agent:streaming:test`: 17/17
+- `agent:tui:test`: 105/105
+- `agent:session:test`: 15/15
+- `agent:transport:test`: 16/16
+- authoritative `v0:gate`: 664/664 (topology 2/2)
+- `v0:check`, `v0:fmt`, `v0:lint`, and `git diff --check`: pass
+
+The first full-gate attempt observed one isolated PTY process exit 137 in an existing cancellation
+cleanup case. Three immediate isolated repetitions passed, and the complete authoritative rerun
+passed 664/664; no source change was made for that harness observation. No plan delta or unrelated
+bug was found. Provider/network/credential/production commands, real persistent product state,
+dependency/lockfile, `_refs/`, push, tag, publish, release, and commit operations remained out of
+scope. Independent changed-lines review and final owner disposition remain pending.
+
+## Independent review finding closure
+
+The approved single bounded review pass closed the semantic non-monotonic correctness P2 and the
+two evidence P2s without changing the Step 83 contract, schema, provider wire, permissions,
+dependencies, or Human Gates:
+
+- Semantic candidate selection now descends from the largest summary-fitting boundary whenever a
+  prepared projected request fails, because mechanical omission can make prepared wire size
+  discontinuous. The exact four-turn threshold regression proves boundary 3 fails strict reduction
+  while boundary 2 omits the older 20,000-byte result and retains the protected newest 1,000-byte
+  result.
+- The session-store test-only pre-lock barrier deterministically holds a pending opener while an
+  active owner commits a newer record and correlated checkpoint, releases, and then permits the
+  opener's lock/read phase. Assertions cover the latest next-turn, canonical transcript, and
+  checkpoint boundary/summary.
+- The SSE test-only accounting observer records one fragment-byte measurement per 2,048 deltas
+  and one progress code-point step per bounded visible scalar. The test verifies 65,536 input and
+  progress bytes and a deterministic lower bound showing the former growing-prefix scan would
+  exceed the observed one-pass work by more than three orders of magnitude.
+
+The closure focused suites and authoritative gate were rerun after these changes; independent
+changed-lines re-review is limited to these three findings and any correction-caused Blocker/P1.
+
+## Final comprehensive disposition
+
+The single narrow re-review closed the semantic discontinuity, locked-snapshot race evidence, and
+SSE structural-work findings, with no correction-caused Blocker or P1. It returned `GO`,
+Blocker/P1/P2 zero. The representative 6 MiB/1,000-turn semantic shape completed in 193 ms on the
+review VM versus the original approximately 6.9-second observation. The coordinating owner then
+independently reran the authoritative `v0:gate`; all 664/664 tests passed with topology 2/2,
+`v0:check`, 135-file format check, 132-file lint, and `git diff --check` green. Final owner
+disposition is Blocker/P1/P2 zero. The user subsequently authorized one final integration commit
+for this reviewed closure; no other excluded operation occurred.

@@ -12,6 +12,8 @@ import {
   summaryEnvelope,
   summaryRequest,
 } from '../../v0/agent/semantic_context.ts';
+import { indexSessionHistoryPrefix } from '../../v0/agent/session_history.ts';
+import { prepareModelContext } from '../../v0/agent/context.ts';
 import {
   decodeSemanticContextCheckpoint,
   encodeSemanticContextCheckpoint,
@@ -157,4 +159,118 @@ Deno.test('candidate search refuses N<2 and does not regress an existing boundar
     checkpoint: { ...checkpoint(), coveredThroughTurn: 3, retainedFromTurn: 4 },
   });
   assertEquals(candidate, undefined);
+});
+
+Deno.test('indexed candidate search preserves the known largest useful boundary', () => {
+  const transcript: Message[] = [];
+  for (let index = 0; index < 6; index += 1) {
+    transcript.push({
+      role: 'user',
+      content: { kind: 'text', text: `u${index} ${'a'.repeat(8_000)}` },
+    });
+    transcript.push({
+      role: 'assistant',
+      content: { kind: 'text', text: `a${index} ${'b'.repeat(8_000)}` },
+    });
+  }
+  const withDraft = transcript.concat({
+    role: 'user',
+    content: { kind: 'text', text: 'draft' },
+  });
+  const indexed = indexSessionHistoryPrefix(withDraft);
+  assert(indexed !== undefined);
+  assertEquals(indexed.turnCount, 6);
+  assertEquals(indexed.turns[4]?.start, 8);
+  assertEquals(indexed.turns[4]?.end, 10);
+  const candidate = findContextCandidate(transcript, {
+    systemInstruction: 'startup',
+    tools: [],
+    sourceProfileId: 'profile',
+  });
+  assert(candidate !== undefined);
+  // This is the reference evaluator's descending-search answer for the fixed wire ceilings.
+  assertEquals(candidate.coveredThroughTurn, 4);
+  assertEquals(candidate.retainedFromTurn, 5);
+});
+
+Deno.test('candidate search descends across mechanical omission discontinuities', () => {
+  const toolCall = (callId: string): Message => ({
+    role: 'assistant',
+    content: [{ kind: 'tool_call', callId, name: 'capture', arguments: {} }],
+  });
+  const toolResult = (callId: string, text: string, terminal = true): Message => ({
+    role: 'tool',
+    content: [{
+      kind: 'tool_result',
+      callId,
+      name: 'capture',
+      text,
+      outcome: 'success',
+      ...(terminal ? { terminal: 'json_result' as const } : {}),
+    }],
+  });
+  const transcript: Message[] = [
+    { role: 'user', content: { kind: 'text', text: 'a'.repeat(5_000) } },
+    { role: 'assistant', content: { kind: 'text', text: 'A'.repeat(5_000) } },
+    { role: 'user', content: { kind: 'text', text: 'b'.repeat(5_000) } },
+    { role: 'assistant', content: { kind: 'text', text: 'B'.repeat(5_000) } },
+    { role: 'user', content: { kind: 'text', text: 'c'.repeat(7_000) } },
+    { role: 'assistant', content: { kind: 'text', text: 'turn-three' } },
+    { role: 'user', content: { kind: 'text', text: 'd'.repeat(6_500) } },
+    toolCall('old'),
+    toolResult('old', 'x'.repeat(20_000), false),
+    { role: 'user', content: { kind: 'text', text: 'continue' } },
+    toolCall('new'),
+    toolResult('new', 'y'.repeat(1_000)),
+  ];
+  const candidate = findContextCandidate(transcript, {
+    systemInstruction: 'startup',
+    tools: [],
+    sourceProfileId: 'profile',
+  });
+  const indexed = indexSessionHistoryPrefix(transcript);
+  assert(indexed !== undefined);
+  const draft: Message = {
+    role: 'user',
+    content: { kind: 'text', text: '\u0001'.repeat(MAX_NEXT_DRAFT_BYTES) },
+  };
+  const projectedFor = (covered: number) => {
+    const end = indexed.turns[covered - 1]!.end;
+    return prepareModelContext({
+      systemInstruction: 'startup',
+      transcript: [
+        checkpointMessage({
+          ...checkpoint(),
+          coveredThroughTurn: covered,
+          retainedFromTurn: covered + 1,
+          summary: 'x'.repeat(MAX_CONTEXT_SUMMARY_BYTES),
+        }),
+        ...transcript.slice(end),
+        draft,
+      ],
+      tools: [],
+    });
+  };
+  const baseline = prepareModelContext({
+    systemInstruction: 'startup',
+    transcript: [...transcript, draft],
+    tools: [],
+  });
+  const boundaryTwo = projectedFor(2);
+  const boundaryThree = projectedFor(3);
+  const baselineWire = measureModelRequestWire(baseline.request).messagesBytes;
+  const boundaryTwoWire = measureModelRequestWire(boundaryTwo.request).messagesBytes;
+  const boundaryThreeWire = measureModelRequestWire(boundaryThree.request).messagesBytes;
+  assertEquals(baseline.metrics.compressedResultCount, 1);
+  assertEquals(boundaryTwo.metrics.compressedResultCount, 1);
+  assertEquals(boundaryThree.metrics.compressedResultCount, 0);
+  assert(boundaryThreeWire >= baselineWire);
+  assert(boundaryTwoWire < baselineWire);
+  assert(candidate !== undefined);
+  // Boundary 3 falls below the mechanical-omission trigger and retains the 20,000-byte older
+  // result, so it is not a strict reduction against the already-compacted baseline. Boundary 2
+  // includes turn 3's exact 7,000-byte user message, crosses the trigger, and omits that older
+  // result while retaining the protected newest 1,000-byte result, so it is valid.
+  assertEquals(candidate.coveredThroughTurn, 2);
+  assertEquals(candidate.retainedFromTurn, 3);
 });

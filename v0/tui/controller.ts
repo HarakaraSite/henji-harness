@@ -100,6 +100,12 @@ export class TuiController {
     readonly generation: number;
   }>();
   private navigationGeneration = 0;
+  private readonly historyOperations = new Set<{
+    readonly operation: Promise<void>;
+    readonly abort: AbortController;
+    readonly generation: number;
+  }>();
+  private historyGeneration = 0;
   private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
   private signalCode: number | null = null;
@@ -515,6 +521,7 @@ export class TuiController {
     if (modal === null) return;
     if (event.kind === 'escape') {
       if (modal.kind === 'picker-loading') this.cancelNavigationOperations();
+      else if (modal.kind === 'history') this.cancelHistoryOperations();
       this.modal = null;
       this.renderer.clearModal?.();
       this.renderer.setStatus(this.readyStatus());
@@ -573,7 +580,7 @@ export class TuiController {
         return;
       }
       if (this.navigation === undefined && this.session.historyPage === undefined) return;
-      void this.loadHistoryPage(page, turn);
+      this.startHistoryPageLoad(page, turn);
       return;
     }
     if (modal.kind === 'context') {
@@ -689,10 +696,13 @@ export class TuiController {
     this.renderer.renderSessionPicker?.({ sessions: [], skippedInvalid: 0 }, 0, 0, true);
     try {
       const binding: NavigationBinding = await this.navigation.switchTo(id, signal);
+      // switchTo owns an irreversible old-close boundary. It may resolve after cancellation only
+      // when it has already transferred ownership to the target; adopt that binding before
+      // checking generation so shutdown/dismissal cannot retain a closed old session.
+      this.session = binding.session;
       if (
         this.state !== 'idle' || signal.aborted || this.navigationGeneration !== generation
       ) return;
-      this.session = binding.session;
       this.modal = null;
       this.renderer.clearModal?.();
       if (binding.restored !== undefined) {
@@ -716,6 +726,14 @@ export class TuiController {
     this.navigationGeneration += 1;
     for (const operation of this.navigationOperations) {
       operation.abort.abort('navigation dismissed');
+    }
+    this.cancelHistoryOperations();
+  }
+
+  private cancelHistoryOperations(): void {
+    this.historyGeneration += 1;
+    for (const operation of this.historyOperations) {
+      operation.abort.abort('history dismissed');
     }
   }
 
@@ -742,14 +760,45 @@ export class TuiController {
         omitted: false,
       },
     };
-    void this.loadHistoryPage(0, turn);
+    this.startHistoryPageLoad(0, turn);
   }
 
-  private async loadHistoryPage(page: number, turn: number): Promise<void> {
+  private startHistoryPageLoad(page: number, turn: number): void {
+    this.cancelHistoryOperations();
+    const abort = new AbortController();
+    const generation = ++this.historyGeneration;
+    const operation = this.loadHistoryPage(page, turn, generation, abort.signal);
+    const owned = { operation, abort, generation };
+    this.historyOperations.add(owned);
+    void operation.then(
+      () => {
+        this.historyOperations.delete(owned);
+      },
+      (error) => {
+        this.historyOperations.delete(owned);
+        if (error instanceof EventDeliveryError || !abort.signal.aborted) {
+          void this.fail(error).catch(() => {
+            // The controller has already entered its fatal shutdown path.
+          });
+        }
+      },
+    );
+  }
+
+  private async loadHistoryPage(
+    page: number,
+    turn: number,
+    generation: number,
+    signal: AbortSignal,
+  ): Promise<void> {
     try {
+      if (signal.aborted || generation !== this.historyGeneration) return;
       const value = this.navigation !== undefined
         ? await this.navigation.historyPage(page, turn, 16)
         : await this.session.historyPage?.(page, turn, 16);
+      if (
+        signal.aborted || generation !== this.historyGeneration || this.modal?.kind !== 'history'
+      ) return;
       if (value === undefined) {
         this.modal = null;
         this.renderer.setStatus('history unavailable');
@@ -757,7 +806,9 @@ export class TuiController {
       }
       this.modal = { kind: 'history', page: value };
       this.renderer.renderHistoryPage?.(value);
-    } catch {
+    } catch (error) {
+      if (error instanceof EventDeliveryError) throw error;
+      if (signal.aborted || generation !== this.historyGeneration) return;
       this.modal = null;
       this.renderer.setStatus('history unavailable');
     }
@@ -780,7 +831,8 @@ export class TuiController {
       const preview = this.session.contextCompactionPreview();
       this.modal = { kind: 'context', preview };
       this.renderer.renderContextPanel?.(preview);
-    } catch {
+    } catch (error) {
+      if (error instanceof EventDeliveryError) throw error;
       this.renderer.setStatus('context recovery unavailable');
     }
   }
@@ -817,6 +869,7 @@ export class TuiController {
         this.state = 'failed';
         throw error;
       }
+      if (error instanceof EventDeliveryError) throw error;
       if (
         (this.state as ControllerState) !== 'failed' &&
         (this.state as ControllerState) !== 'exiting'
@@ -1382,11 +1435,17 @@ export class TuiController {
   }
 
   private async settleNavigation(): Promise<void> {
-    while (this.navigationOperations.size > 0) {
-      const operations = [...this.navigationOperations];
-      for (const operation of operations) operation.abort.abort('controller settlement');
-      await Promise.allSettled(operations.map((operation) => operation.operation));
-      for (const operation of operations) this.navigationOperations.delete(operation);
+    while (this.navigationOperations.size > 0 || this.historyOperations.size > 0) {
+      const navigation = [...this.navigationOperations];
+      const history = [...this.historyOperations];
+      for (const operation of navigation) operation.abort.abort('controller settlement');
+      for (const operation of history) operation.abort.abort('controller settlement');
+      await Promise.allSettled([
+        ...navigation.map((operation) => operation.operation),
+        ...history.map((operation) => operation.operation),
+      ]);
+      for (const operation of navigation) this.navigationOperations.delete(operation);
+      for (const operation of history) this.historyOperations.delete(operation);
     }
   }
 

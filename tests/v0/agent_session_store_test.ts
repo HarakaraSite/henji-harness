@@ -894,6 +894,81 @@ Deno.test('same-session lock rejects a second opener and releases after close', 
   await Deno.remove(root, { recursive: true });
 });
 
+Deno.test('openExisting hydrates record and checkpoint only after the owner lock settles', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-snapshot-' });
+  const workspace = `${root}/workspace`;
+  await Deno.mkdir(workspace);
+  const firstStore = new DenoSessionStore(`${root}/state`, workspace);
+  let enteredBarrier!: () => void;
+  const entered = new Promise<void>((resolve) => enteredBarrier = resolve);
+  let releaseBarrier!: () => void;
+  const release = new Promise<void>((resolve) => releaseBarrier = resolve);
+  const secondStore = new DenoSessionStore(`${root}/state`, workspace, {
+    beforeOpenExistingLock: async () => {
+      enteredBarrier();
+      await release;
+    },
+  });
+  const first = await firstStore.allocate('default');
+  const initial: SessionRecord = {
+    ...record(workspace),
+    sessionId: first.id,
+    nextTurn: 3,
+    transcript: [
+      ...transcript,
+      { role: 'user', content: { kind: 'text', text: 'second' } },
+      { role: 'assistant', content: { kind: 'text', text: 'reply' } },
+    ],
+  };
+  first.commit(initial);
+  first.installCheckpoint({
+    contextSchemaVersion: 1,
+    sessionId: first.id,
+    createdAt: '2026-08-27T00:00:02.000Z',
+    sourceProfileId: 'profile',
+    coveredThroughTurn: 1,
+    retainedFromTurn: 2,
+    summary: 'first turn',
+  });
+  // The pending opener has reached the pre-lock barrier while the first owner still holds the
+  // session lock. A newer record/checkpoint commit and release must therefore be visible to the
+  // opener only after it acquires that lock; a read-before-lock implementation would retain the
+  // stale initial pair across this barrier.
+  const pending = secondStore.openExisting(first.id);
+  await entered;
+  const latest: SessionRecord = {
+    ...initial,
+    updatedAt: '2026-08-27T00:00:03.000Z',
+    nextTurn: 4,
+    transcript: [
+      ...initial.transcript,
+      { role: 'user', content: { kind: 'text', text: 'third' } },
+      { role: 'assistant', content: { kind: 'text', text: 'latest reply' } },
+    ],
+  };
+  first.commit(latest);
+  first.installCheckpoint({
+    contextSchemaVersion: 1,
+    sessionId: first.id,
+    createdAt: '2026-08-27T00:00:03.000Z',
+    sourceProfileId: 'profile',
+    coveredThroughTurn: 2,
+    retainedFromTurn: 3,
+    summary: 'latest turn pair',
+  });
+  await first.close();
+  releaseBarrier();
+
+  const reopened = await pending;
+  assertEquals(reopened.record?.nextTurn, 4);
+  assertEquals(reopened.record?.transcript, latest.transcript);
+  assertEquals(reopened.checkpoint?.coveredThroughTurn, 2);
+  assertEquals(reopened.checkpoint?.retainedFromTurn, 3);
+  assertEquals(reopened.checkpoint?.summary, 'latest turn pair');
+  await reopened.close();
+  await Deno.remove(root, { recursive: true });
+});
+
 Deno.test('every indexed operation bounds sessions and locks independently at 512 entries', async () => {
   const operations = ['list', 'allocate', 'resume', 'delete'] as const;
   const namespaces = ['sessions', 'locks'] as const;

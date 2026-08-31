@@ -60,6 +60,7 @@ export const runNavigationSwitchTransaction = async (
   transaction: NavigationSwitchTransaction,
 ): Promise<AgentSession> => {
   throwIfNavigationAborted(transaction.signal);
+  let ownershipTransferred = false;
   try {
     const targetSession = transaction.materializeTarget();
     throwIfNavigationAborted(transaction.signal);
@@ -68,14 +69,18 @@ export const runNavigationSwitchTransaction = async (
     } catch {
       throw new NavigationFatalError('current session close failed');
     }
-    throwIfNavigationAborted(transaction.signal);
+    // Closing the old binding is irreversible. Once this boundary is crossed, an abort only
+    // cancels the still-pending redraw; it must never send the caller back to the closed binding.
     transaction.commitTarget(targetSession);
+    ownershipTransferred = true;
     return targetSession;
   } catch (error) {
-    try {
-      await transaction.closeTarget();
-    } catch {
-      throw new NavigationFatalError('target session cleanup failed');
+    if (!ownershipTransferred) {
+      try {
+        await transaction.closeTarget();
+      } catch {
+        throw new NavigationFatalError('target session cleanup failed');
+      }
     }
     throw error;
   }

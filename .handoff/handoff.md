@@ -2328,3 +2328,37 @@
 - 実施: ユーザーがoffline gate 653/653、final Blocker/P1/P2 0、provider-free representative acceptance済みStep 83 treeのcommitを明示承認。Step 83対象ファイルだけを一つのfinal integration commitへ記録する
 - 次: commit完了後、roadmapの次inputまたはStep 84判断を待つ
 - 注意: user-owned `_refs/*`はstageしない。optional real-provider Gate、provider/network/credential/production command、persistent state、dependency/lockfile、push/tag/publish/releaseは未実施
+
+## 2026-08-31 22:16 JST
+
+- 実行エージェント: Codex Step 83 comprehensive-fix implementer
+- 作業トピック: Roadmap step 83 six validated finding closure
+- 実施: locked canonical hydration、navigation irreversible ownership、incremental fragmented-SSE accounting、fatal modal delivery、indexed semantic candidate search、owned history-page settlementを実装し、各production-path regressionを追加。resultsとAGENTSを同期
+- 検証: focused navigation 6/6、semantic-context 6/6、session-store 20/20、streaming 16/16、TUI 105/105、session 15/15、transport 16/16、authoritative `v0:gate` 662/662、topology 2/2、check/fmt/lint/diff green。初回gateの既存PTY exit 137はisolated 3回とfinal rerunで再現せずsource変更なし
+- 次: coordinating ownerがchanged-lines bounded reviewとfinal owner dispositionを行う。commitは別途ユーザー指示待ち
+- 注意: plan SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`不変。plan delta/unrelated bugなし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施
+
+## 2026-08-31 22:45 JST
+
+- 実行エージェント: Codex Step 83 comprehensive-fix implementer
+- 作業トピック: Independent review finding closure
+- 実施: semantic non-monotonic candidate selectionをdescending reference orderへ修正し、mechanical-omission threshold regressionを追加。session-store pre-lock barrierでrecord/checkpoint commit raceを固定化し、SSE test-only accounting observerとstructural work-bound regressionを追加
+- 検証: semantic-context 7/7、session-store 20/20、streaming 17/17、authoritative `v0:gate` 664/664、topology 2/2、check/fmt/lint/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+- 次: coordinating ownerがこの3件に限定したnarrow re-reviewとfinal dispositionを行う
+- 注意: plan SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`不変。plan delta/unrelated bugなし。full gate初回のPTY exit 137は3回のisolated rerunとfinal rerunで再現せずsource変更なし
+
+## 2026-08-31 22:50 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Step 83 comprehensive closure final review and owner gate
+- 実施: comprehensive review P1 4/P2 2を実装し、初回changed-lines review P2 3のapproved single closureをnarrow re-review。semantic discontinuity、locked-snapshot race evidence、SSE structural work evidenceを全件Closedとし、GO、Blocker/P1/P2 0
+- 次: commitは別途ユーザー指示待ち
+- 注意: owner authoritative `v0:gate` 664/664、topology 2/2、check/fmt 135/lint 132/diff green。plan SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`不変。provider/network/credential/production command、real persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-01 08:10 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Step 83 comprehensive closure final integration commit
+- 実施: ユーザーがfinal GO、owner authoritative `v0:gate` 664/664済みのcomprehensive closureを一つのfinal integration commitへ記録するよう明示承認
+- 次: commit後、次のroadmap inputまたはユーザー指示を待つ
+- 注意: user-owned `_refs/*`はstageしない。provider/network/credential/production command、real persistent state、dependency/lockfile、push/tag/publish/releaseは未実施

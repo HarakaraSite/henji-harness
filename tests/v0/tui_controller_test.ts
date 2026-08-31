@@ -24,6 +24,7 @@ import type {
   NavigationPosition,
   SessionNavigationHost,
 } from '../../v0/agent/session_navigation.ts';
+import type { SessionHistoryPage } from '../../v0/agent/session_history.ts';
 import { TuiEditorHistory } from '../../v0/tui/input.ts';
 import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
 import { PendingInputCore } from '../../v0/tui/pending_input.ts';
@@ -645,6 +646,22 @@ const navigationSession = (id: string, turn = 1): TuiSessionLike => ({
   contextSnapshot: () => undefined,
 });
 
+const historyPageFixture = (
+  page: number,
+  turn: number,
+  totalTurns = 2,
+): SessionHistoryPage => ({
+  sessionId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+  agent: 'default',
+  turn,
+  totalTurns,
+  page,
+  pageCount: 2,
+  entries: [{ turn, role: 'user', messageIndex: 0, text: `history-${page}` }],
+  sourceBytes: 10,
+  omitted: false,
+});
+
 Deno.test('production controller picker renders full UUIDs and resumes the visible page target', async () => {
   const ids = [
     '11111111-1111-4111-8111-111111111111',
@@ -1110,6 +1127,243 @@ Deno.test('ephemeral Ctrl-T opens the latest committed turn from the session pos
   await new Promise((resolve) => setTimeout(resolve, 60));
   terminal.push('\x04');
   assertEquals(await running, 0);
+});
+
+Deno.test('history modal owns loads across dismiss and ignores a late page', async () => {
+  let release: ((page: SessionHistoryPage) => void) | undefined;
+  let rendered = 0;
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+    historyPage: () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.renderHistoryPage = () => rendered += 1;
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory() },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x14');
+  await tick();
+  await tick();
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  release?.(historyPageFixture(0, 2));
+  await tick();
+  assertEquals(rendered, 0);
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('history page generations prevent a reversed late result from overwriting the newest page', async () => {
+  const releases: Array<(page: SessionHistoryPage) => void> = [];
+  const rendered: string[] = [];
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+    historyPage: () => new Promise((resolve) => releases.push(resolve)),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.renderHistoryPage = (page) => rendered.push(page.entries[0]?.text ?? '');
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory() },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x14');
+  await tick();
+  assertEquals(releases.length, 1);
+  releases[0](historyPageFixture(0, 2));
+  await tick();
+  terminal.push('\x1b[B');
+  await tick();
+  assertEquals(releases.length, 2);
+  terminal.push('\x1b[A');
+  await tick();
+  assertEquals(releases.length, 3);
+  releases[1](historyPageFixture(1, 2));
+  await tick();
+  releases[2](historyPageFixture(0, 2));
+  await tick();
+  assertEquals(rendered, ['history-0', 'history-0']);
+  terminal.push('\x1b');
+  await tick();
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('history loads settle before SIGTERM restoration and do not render', async () => {
+  let release: ((page: SessionHistoryPage) => void) | undefined;
+  let rendered = 0;
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+    historyPage: () => new Promise((resolve) => release = resolve),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.renderHistoryPage = () => rendered += 1;
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory() },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x14');
+  await tick();
+  terminal.emitSignal('SIGTERM');
+  await tick();
+  release?.(historyPageFixture(0, 2));
+  assertEquals(await running, 143);
+  assertEquals(rendered, 0);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('history loads settle before EOF failure and do not render', async () => {
+  let release: ((page: SessionHistoryPage) => void) | undefined;
+  let rendered = 0;
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+    historyPage: () => new Promise((resolve) => release = resolve),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.renderHistoryPage = () => rendered += 1;
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory() },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  const settled = running.then(
+    (value) => ({ exit: value } as const),
+    (error) => ({ error } as const),
+  );
+  terminal.push('\x14');
+  await tick();
+  terminal.endInput();
+  await tick();
+  release?.(historyPageFixture(0, 2));
+  const outcome = await settled;
+  assert('error' in outcome);
+  assert(outcome.error instanceof TuiControllerError);
+  assertEquals((outcome.error as TuiControllerError).code, 'input_failure');
+  assertEquals(rendered, 0);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('history, context preview, and post-install status delivery failures are fatal', async () => {
+  const makeNavigation = (session: TuiSessionLike): SessionNavigationHost => ({
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
+    switchTo: () =>
+      Promise.resolve({
+        session,
+        position: navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+      }),
+    historyPage: (page, turn) =>
+      session.historyPage?.(page, turn, 16) as Promise<SessionHistoryPage>,
+    currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+  });
+  const runFailure = async (
+    kind: 'history' | 'preview' | 'post-install',
+  ): Promise<void> => {
+    let installed = false;
+    const session: TuiSessionLike = {
+      submit: () => Promise.resolve(finalOutcome('unused')),
+      currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+      historyPage: () => Promise.resolve(historyPageFixture(0, 2)),
+      contextCompactionPreview: () => ({
+        useful: true,
+        currentTurn: 2,
+        proposed: { coveredThroughTurn: 1, retainedFromTurn: 2 },
+        baselineMessagesBytes: 200,
+        projectedMessagesBytes: 100,
+      }),
+      compactContext: () => {
+        installed = true;
+        return Promise.resolve({ kind: 'installed', coveredThroughTurn: 1, retainedFromTurn: 2 });
+      },
+    };
+    const terminal = new FakeTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const originalHistory = renderer.renderHistoryPage.bind(renderer);
+    const originalContext = renderer.renderContextPanel.bind(renderer);
+    const originalStatus = renderer.setStatus.bind(renderer);
+    if (kind === 'history') {
+      renderer.renderHistoryPage = () => {
+        throw new EventDeliveryError();
+      };
+    }
+    if (kind === 'preview') {
+      renderer.renderContextPanel = () => {
+        throw new EventDeliveryError();
+      };
+    }
+    if (kind === 'post-install') {
+      renderer.setStatus = (status) => {
+        if (status.startsWith('context checkpoint')) throw new EventDeliveryError();
+        originalStatus(status);
+      };
+    }
+    // Keep the bound methods referenced so this test continues to type-check if renderer hooks
+    // become optional in a future controller-facing interface.
+    void originalHistory;
+    void originalContext;
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    const controller = new TuiController(
+      lifecycle,
+      renderer,
+      session,
+      {
+        pending: new PendingInputCore(),
+        history: new TuiEditorHistory(),
+        navigation: makeNavigation(session),
+      },
+    );
+    await lifecycle.acquire();
+    const running = controller.run();
+    const settled = running.then(
+      (value) => ({ exit: value } as const),
+      (error) => ({ error } as const),
+    );
+    terminal.push(kind === 'history' ? '\x14' : '\x0b');
+    await tick();
+    if (kind === 'post-install') terminal.push('\r');
+    const outcome = await settled;
+    if ('error' in outcome) {
+      assert(outcome.error instanceof TuiControllerError);
+      assertEquals((outcome.error as TuiControllerError).code, 'output_failure');
+    } else assertEquals(outcome.exit, 1);
+    if (kind === 'post-install') assert(installed);
+    assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+  };
+  await runFailure('history');
+  await runFailure('preview');
+  await runFailure('post-install');
 });
 
 Deno.test('ready status projects checkpoint boundary and semantic estimate without summary text', async () => {
@@ -2882,6 +3136,34 @@ Deno.test('production navigation transaction transfers target ownership after ol
     closeCurrent: () =>
       Promise.resolve().then(() => {
         events.push('old-close');
+      }),
+    commitTarget: (session) => {
+      events.push('swap');
+      assertEquals(session, target);
+    },
+  });
+  assertEquals(result, target);
+  assertEquals(events, ['materialize', 'old-close', 'swap']);
+});
+
+Deno.test('navigation abort after old close transfers target ownership instead of cancelling', async () => {
+  const target = fakeNavigationSession();
+  const abort = new AbortController();
+  const events: string[] = [];
+  const result = await runNavigationSwitchTransaction({
+    signal: abort.signal,
+    materializeTarget: () => {
+      events.push('materialize');
+      return target;
+    },
+    closeTarget: () => {
+      events.push('target-close');
+      return Promise.resolve();
+    },
+    closeCurrent: () =>
+      Promise.resolve().then(() => {
+        events.push('old-close');
+        abort.abort('dismissed after old close');
       }),
     commitTarget: (session) => {
       events.push('swap');

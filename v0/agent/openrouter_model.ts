@@ -156,6 +156,12 @@ const cancelResponseBody = async (response: Response): Promise<boolean> => {
 
 export type CredentialSource = () => string | undefined;
 
+/** Direct-test-only observation of bounded stream text accounting work. */
+export interface StreamTextAccountingObserver {
+  readonly onFragmentBytes?: (bytes: number) => void;
+  readonly onProgressCodePoint?: () => void;
+}
+
 export interface OpenRouterAgentModelOptions {
   /** Tests inject this; production defaults to the host-owned global fetch. */
   readonly fetcher?: typeof fetch;
@@ -171,6 +177,8 @@ export interface OpenRouterAgentModelOptions {
   readonly parentSignal?: AbortSignal;
   /** Internal runtime composition; omitted callers retain the canonical JSON response mode. */
   readonly responseMode?: OpenRouterResponseMode;
+  /** Direct-test-only work observation; production callers omit this field. */
+  readonly testTextAccountingObserver?: StreamTextAccountingObserver;
 }
 
 interface WireUserMessage {
@@ -645,11 +653,15 @@ interface StreamToolAssembly {
 
 interface StreamAssembly {
   completionId?: string;
-  text: string;
+  textParts: string[];
+  /** UTF-8 accounting is accumulated per delta; never re-encode the growing text. */
+  textBytes: number;
   sawText: boolean;
   sawTools: boolean;
   tools: Map<number, StreamToolAssembly>;
   liveFrozen: boolean;
+  progressText: string;
+  progressBytes: number;
   lastReported?: string;
   terminal?: 'stop' | 'tool_calls';
   usageSeen: boolean;
@@ -666,18 +678,6 @@ const isStreamUsage = (value: unknown): boolean => {
   return STREAM_USAGE_REQUIRED_KEYS.every((key) =>
     typeof usage[key] === 'number' && Number.isSafeInteger(usage[key]) && usage[key] >= 0
   );
-};
-
-const largestCompletePrefix = (text: string, maxBytes: number): string => {
-  let used = 0;
-  let prefix = '';
-  for (const character of text) {
-    const size = encoder.encode(character).byteLength;
-    if (used + size > maxBytes) break;
-    prefix += character;
-    used += size;
-  }
-  return prefix;
 };
 
 const safeIndex = (value: unknown): value is number =>
@@ -777,6 +777,7 @@ const processSsePayload = (
   assembly: StreamAssembly,
   payload: string,
   report: ModelGenerateOptions['reportAssistantProgress'],
+  observer?: StreamTextAccountingObserver,
 ): void => {
   if (payload === '[DONE]') {
     if (assembly.terminal === undefined || assembly.result === undefined) {
@@ -876,17 +877,30 @@ const processSsePayload = (
   }
   if (hasContent) {
     assembly.sawText = true;
-    assembly.text += content;
+    // Keep fragments until the terminal result. Repeatedly concatenating an ever-growing
+    // provider string can force quadratic copying on runtimes that flatten ropes eagerly.
+    assembly.textParts.push(content);
+    const contentBytes = bytes(content);
+    observer?.onFragmentBytes?.(contentBytes);
+    assembly.textBytes += contentBytes;
     if (report && !assembly.liveFrozen) {
-      const visible = largestCompletePrefix(
-        assembly.text,
-        MAX_ASSISTANT_PROGRESS_TEXT_BYTES,
-      );
-      if (visible.length > 0 && visible !== assembly.lastReported) {
-        report(visible);
-        assembly.lastReported = visible;
+      for (const character of content) {
+        observer?.onProgressCodePoint?.();
+        const size = encoder.encode(character).byteLength;
+        if (assembly.progressBytes + size > MAX_ASSISTANT_PROGRESS_TEXT_BYTES) {
+          assembly.liveFrozen = true;
+          break;
+        }
+        assembly.progressText += character;
+        assembly.progressBytes += size;
       }
-      if (bytes(assembly.text) > MAX_ASSISTANT_PROGRESS_TEXT_BYTES) {
+      if (
+        assembly.progressText.length > 0 && assembly.progressText !== assembly.lastReported
+      ) {
+        report(assembly.progressText);
+        assembly.lastReported = assembly.progressText;
+      }
+      if (assembly.textBytes > MAX_ASSISTANT_PROGRESS_TEXT_BYTES) {
         assembly.liveFrozen = true;
       }
     }
@@ -897,11 +911,11 @@ const processSsePayload = (
   }
   if (finishReason === undefined || finishReason === null) return;
   if (finishReason === 'stop') {
-    if (!assembly.sawText || assembly.sawTools || assembly.text.length === 0) {
+    if (!assembly.sawText || assembly.sawTools || assembly.textBytes === 0) {
       throw sseResponseError('provider stop result was empty or unsupported');
     }
     assembly.terminal = 'stop';
-    assembly.result = { kind: 'final', text: assembly.text };
+    assembly.result = { kind: 'final', text: assembly.textParts.join('') };
   } else {
     if (!assembly.sawTools || assembly.sawText) {
       throw sseResponseError('provider tool result was empty or unsupported');
@@ -916,6 +930,7 @@ const readSseResponse = async (
   report: ModelGenerateOptions['reportAssistantProgress'],
   isTurnCancelled: () => boolean,
   isTimedOut: () => boolean,
+  observer?: StreamTextAccountingObserver,
 ): Promise<ModelResult> => {
   if (!response.body) throw sseResponseError('provider response had no body');
   let reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -925,14 +940,17 @@ const readSseResponse = async (
     throw sseTransportError();
   }
   const assembly: StreamAssembly = {
-    text: '',
+    textParts: [],
+    textBytes: 0,
     sawText: false,
     sawTools: false,
     tools: new Map(),
     liveFrozen: false,
+    progressText: '',
+    progressBytes: 0,
     usageSeen: false,
   };
-  const framer = new SseFramer((payload) => processSsePayload(assembly, payload, report));
+  const framer = new SseFramer((payload) => processSsePayload(assembly, payload, report, observer));
   const settleFailure = async (error: unknown): Promise<never> => {
     let settled = true;
     try {
@@ -1193,6 +1211,7 @@ export class OpenRouterAgentModel implements Model {
           reportAssistantProgress,
           () => turnCancelled,
           () => timedOut,
+          this.options.testTextAccountingObserver,
         );
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut || controller.signal.aborted) {
