@@ -3,12 +3,27 @@ import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
 import { CancellationCleanupError } from '../../v0/agent/cancellation.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
 import { type ContextMetrics } from '../../v0/agent/context.ts';
-import { main as tuiMain, parseTuiArgs, parseTuiInvocation } from '../../v0/agent/tui_cli.ts';
+import {
+  main as tuiMain,
+  parseTuiArgs,
+  parseTuiInvocation,
+  runNavigationSwitchTransaction,
+} from '../../v0/agent/tui_cli.ts';
 import { AgentSession } from '../../v0/agent/session.ts';
 import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
 import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
 import { Registry } from '../../v0/agent/tools.ts';
-import { TuiController, TuiControllerError } from '../../v0/tui/controller.ts';
+import { TuiController, TuiControllerError, type TuiSessionLike } from '../../v0/tui/controller.ts';
+import {
+  NavigationCancelledError,
+  NavigationFatalError,
+} from '../../v0/agent/session_navigation.ts';
+import type {
+  NavigationBinding,
+  NavigationListing,
+  NavigationPosition,
+  SessionNavigationHost,
+} from '../../v0/agent/session_navigation.ts';
 import { TuiEditorHistory } from '../../v0/tui/input.ts';
 import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
 import { PendingInputCore } from '../../v0/tui/pending_input.ts';
@@ -604,6 +619,551 @@ const waitForSubmitted = async (session: QueueSession, count: number): Promise<v
   }
   assertEquals(session.submitted.length, count);
 };
+
+const navigationPosition = (id: string, turn = 1): NavigationPosition => ({
+  sessionId: id,
+  agent: 'default',
+  committedTurn: turn,
+  messageCount: turn * 2,
+});
+
+const navigationRow = (id: string, current: boolean): NavigationListing['sessions'][number] => ({
+  id,
+  agent: 'default',
+  createdAt: '2026-08-30T00:00:00.000Z',
+  updatedAt: '2026-08-30T00:00:01.000Z',
+  turnCount: 1,
+  messageCount: 2,
+  current,
+  resumed: current,
+  mismatch: false,
+});
+
+const navigationSession = (id: string, turn = 1): TuiSessionLike => ({
+  submit: () => Promise.resolve(finalOutcome('navigation task')),
+  currentPosition: () => navigationPosition(id, turn),
+  contextSnapshot: () => undefined,
+});
+
+Deno.test('production controller picker renders full UUIDs and resumes the visible page target', async () => {
+  const ids = [
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222',
+    '33333333-3333-4333-8333-333333333333',
+    '44444444-4444-4444-8444-444444444444',
+    '55555555-5555-4555-8555-555555555555',
+    '66666666-6666-4666-8666-666666666666',
+    '77777777-7777-4777-8777-777777777777',
+    '88888888-8888-4888-8888-888888888888',
+    '99999999-9999-4999-8999-999999999999',
+  ];
+  let switched: string | undefined;
+  let currentId = ids[0];
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () =>
+      Promise.resolve({
+        sessions: ids.map((id, index) => navigationRow(id, index === 0)),
+        skippedInvalid: 0,
+      }),
+    switchTo: (id): Promise<NavigationBinding> => {
+      switched = id;
+      currentId = id;
+      return Promise.resolve({
+        session: navigationSession(id),
+        position: navigationPosition(id),
+        restored: { messages: [], omitted: 0 },
+      });
+    },
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(currentId),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    navigationSession(currentId),
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x07');
+  await tick();
+  assert(terminal.output().includes(ids[0]));
+  terminal.push('\x1b[C');
+  await tick();
+  assert(terminal.output().includes(`page 2/2`));
+  assert(terminal.output().includes(`> ${ids[8]}`));
+  terminal.push('\r');
+  await tick();
+  assertEquals(switched, ids[8]);
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('production controller treats restored-render failure after switch as fatal', async () => {
+  const currentId = '12121212-1212-4121-8121-121212121212';
+  const targetId = '34343434-3434-4343-8343-343434343434';
+  const terminalRef = new FakeTerminal();
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () =>
+      Promise.resolve({
+        sessions: [navigationRow(currentId, true), navigationRow(targetId, false)],
+        skippedInvalid: 0,
+      }),
+    switchTo: (id): Promise<NavigationBinding> => {
+      terminalRef.failNextWrite = true;
+      return Promise.resolve({
+        session: navigationSession(id),
+        position: navigationPosition(id),
+        restored: { messages: [], omitted: 0 },
+      });
+    },
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(currentId),
+  };
+  const renderer = new TuiRenderer(terminalRef);
+  const lifecycle = new TerminalLifecycle(terminalRef, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    navigationSession(currentId),
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminalRef.push('\x07');
+  await tick();
+  terminalRef.push('\x1b[B');
+  await tick();
+  terminalRef.push('\r');
+  await tick();
+  assertEquals(await running, 1);
+  assertEquals(controller.currentState, 'failed');
+  assertEquals(terminalRef.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('production controller settles a delayed navigation switch before signal restoration', async () => {
+  const currentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const targetId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  let release: (() => void) | undefined;
+  let switched = false;
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () =>
+      Promise.resolve({
+        sessions: [navigationRow(currentId, true), navigationRow(targetId, false)],
+        skippedInvalid: 0,
+      }),
+    switchTo: (id) =>
+      new Promise((resolve) => {
+        release = () => {
+          switched = true;
+          resolve({ session: navigationSession(id), position: navigationPosition(id) });
+        };
+      }),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(currentId),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    navigationSession(currentId),
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  controller.installSignals();
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x07');
+  await tick();
+  terminal.push('\x1b[B');
+  await tick();
+  terminal.push('\r');
+  await tick();
+  terminal.emitSignal('SIGTERM');
+  await tick();
+  assertEquals(switched, false);
+  assertEquals(terminal.raw, [true]);
+  release?.();
+  assertEquals(await running, 143);
+  assert(switched);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('dismissed delayed switch remains owned across a new picker and aborts before any late swap', async () => {
+  const currentId = 'abababab-abab-4aba-8aba-abababababab';
+  const targetId = 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd';
+  let switchAborted = false;
+  let switchSettled = false;
+  let releaseSwitch: (() => void) | undefined;
+  const currentBinding = currentId;
+  let targetOwned = false;
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () =>
+      Promise.resolve({
+        sessions: [navigationRow(currentId, true), navigationRow(targetId, false)],
+        skippedInvalid: 0,
+      }),
+    switchTo: (_id, signal) =>
+      new Promise((_resolve, reject) => {
+        releaseSwitch = () => {
+          switchSettled = true;
+          reject(new NavigationCancelledError());
+        };
+        signal?.addEventListener('abort', () => {
+          switchAborted = true;
+          targetOwned = false;
+        }, { once: true });
+      }),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(currentBinding),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  let lateRestore = false;
+  const renderRestored = renderer.renderRestored.bind(renderer);
+  renderer.renderRestored = (...args) => {
+    lateRestore = true;
+    renderRestored(...args);
+  };
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    navigationSession(currentId),
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  controller.installSignals();
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x07');
+  await tick();
+  terminal.push('\x1b[B');
+  await tick();
+  terminal.push('\r');
+  await tick();
+  terminal.push('\x1b\x07');
+  await tick();
+  terminal.emitSignal('SIGTERM');
+  assertEquals(switchAborted, true);
+  assertEquals(currentBinding, currentId);
+  assertEquals(terminal.raw, [true]);
+  releaseSwitch?.();
+  assertEquals(await running, 143);
+  assertEquals(switchSettled, true);
+  assertEquals(targetOwned, false);
+  assertEquals(currentBinding, currentId);
+  assertEquals(lateRestore, false);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('production controller settles delayed compaction before signal restoration', async () => {
+  const id = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  let aborted = false;
+  let release: (() => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    contextSnapshot: () => undefined,
+    contextCompactionPreview: () => ({
+      useful: true,
+      currentTurn: 2,
+      proposed: { coveredThroughTurn: 1, retainedFromTurn: 2 },
+      baselineMessagesBytes: 200,
+      projectedMessagesBytes: 100,
+    }),
+    compactContext: (signal) =>
+      new Promise((resolve) => {
+        signal?.addEventListener('abort', () => aborted = true, { once: true });
+        release = () => resolve({ kind: 'cancelled' });
+      }),
+    currentPosition: () => navigationPosition(id, 2),
+  };
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [navigationRow(id, true)], skippedInvalid: 0 }),
+    switchTo: () => Promise.resolve({ session, position: navigationPosition(id, 2) }),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(id, 2),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  controller.installSignals();
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x0b');
+  await tick();
+  assert(terminal.output().includes('context recovery'));
+  terminal.push('\r');
+  await tick();
+  assertEquals(controller.currentState, 'compacting');
+  terminal.emitSignal('SIGTERM');
+  await tick();
+  assert(aborted);
+  assertEquals(terminal.raw, [true]);
+  release?.();
+  assertEquals(await running, 143);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('production controller turns compaction cleanup failure into a fatal settled exit', async () => {
+  const id = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+  let rejectCleanup: ((error: unknown) => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    contextSnapshot: () => undefined,
+    contextCompactionPreview: () => ({
+      useful: true,
+      currentTurn: 2,
+      proposed: { coveredThroughTurn: 1, retainedFromTurn: 2 },
+    }),
+    compactContext: (signal) =>
+      new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => rejectCleanup = reject, { once: true });
+      }),
+    currentPosition: () => navigationPosition(id, 2),
+  };
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [navigationRow(id, true)], skippedInvalid: 0 }),
+    switchTo: () => Promise.resolve({ session, position: navigationPosition(id, 2) }),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(id, 2),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x0b');
+  await tick();
+  assert(terminal.output().includes('context recovery'));
+  terminal.push('\r');
+  await tick();
+  assertEquals(controller.currentState, 'compacting');
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert(rejectCleanup !== undefined);
+  rejectCleanup?.(new CancellationCleanupError());
+  assertEquals(await running, 1);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+const runDelayedCompactionFailure = async (
+  kind: 'eof' | 'input' | 'output' | 'crash',
+): Promise<void> => {
+  const id = 'efefefef-efef-4efe-8efe-efefefefefef';
+  let aborted = false;
+  let release: (() => void) | undefined;
+  let settled = false;
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    contextCompactionPreview: () => ({
+      useful: true,
+      currentTurn: 2,
+      proposed: { coveredThroughTurn: 1, retainedFromTurn: 2 },
+    }),
+    compactContext: (signal) =>
+      new Promise((resolve) => {
+        signal?.addEventListener('abort', () => {
+          aborted = true;
+          release = () => {
+            settled = true;
+            resolve({ kind: 'cancelled' });
+          };
+        }, { once: true });
+      }),
+    currentPosition: () => navigationPosition(id, 2),
+  };
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [navigationRow(id, true)], skippedInvalid: 0 }),
+    switchTo: () => Promise.resolve({ session, position: navigationPosition(id, 2) }),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(id, 2),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x0b');
+  await tick();
+  terminal.push('\r');
+  await tick();
+  assertEquals(controller.currentState, 'compacting');
+  if (kind === 'eof') {
+    terminal.endInput();
+  } else if (kind === 'input') {
+    terminal.failRead = true;
+    terminal.push('ignored while compacting');
+  } else if (kind === 'output') {
+    terminal.failNextWrite = true;
+    terminal.push('\x1b');
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  } else {
+    controller.handleCrash();
+  }
+  await tick();
+  assert(aborted);
+  assert(release !== undefined);
+  assertEquals(terminal.raw, [true]);
+  assert(!renderer.isClosing);
+  release?.();
+  let failure: unknown;
+  try {
+    const code = await running;
+    assertEquals(code, kind === 'crash' ? 1 : 0);
+  } catch (error) {
+    failure = error;
+  }
+  if (kind === 'crash') assertEquals(failure, undefined);
+  else {
+    assert(failure instanceof TuiControllerError);
+    assertEquals(
+      (failure as TuiControllerError).code,
+      kind === 'output' ? 'output_failure' : 'input_failure',
+    );
+  }
+  assert(settled);
+  assert(renderer.isClosing);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+};
+
+Deno.test('EOF aborts delayed compaction before awaiting settlement and restoration', async () => {
+  await runDelayedCompactionFailure('eof');
+});
+
+Deno.test('input failure aborts delayed compaction before awaiting settlement and restoration', async () => {
+  await runDelayedCompactionFailure('input');
+});
+
+Deno.test('output failure aborts delayed compaction before awaiting settlement and restoration', async () => {
+  await runDelayedCompactionFailure('output');
+});
+
+Deno.test('crash aborts delayed compaction before awaiting settlement and restoration', async () => {
+  await runDelayedCompactionFailure('crash');
+});
+
+Deno.test('ephemeral Ctrl-T opens the latest committed turn from the session position', async () => {
+  const requested: number[] = [];
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    currentPosition: () => navigationPosition('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 2),
+    historyPage: (page, turn) => {
+      requested.push(turn ?? 0);
+      return {
+        sessionId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        agent: 'default',
+        turn: turn ?? 0,
+        totalTurns: 2,
+        page,
+        pageCount: 1,
+        entries: [],
+        sourceBytes: 0,
+        omitted: false,
+      };
+    },
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory() },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('\x14');
+  await tick();
+  assertEquals(requested, [2]);
+  assert(terminal.output().includes('turn 2/2'));
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
+
+Deno.test('ready status projects checkpoint boundary and semantic estimate without summary text', async () => {
+  const summary = 'secret semantic checkpoint summary';
+  const id = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+  const session: TuiSessionLike = {
+    submit: () => Promise.resolve(finalOutcome('unused')),
+    contextSnapshot: () => ({
+      messageEstimatedTokensAfter: 1_024,
+      messageEstimatedTokensBefore: 1_024,
+      toolEstimatedTokens: 0,
+      requestEstimatedTokensBefore: 1_024,
+      requestEstimatedTokensAfter: 1_024,
+      triggerTokens: 65_536,
+      targetTokens: 49_152,
+      triggered: false,
+      targetReached: false,
+      compressedResultCount: 0,
+      compressedMessageCount: 0,
+    }),
+    currentPosition: () => ({
+      ...navigationPosition(id, 3),
+      checkpoint: { coveredThroughTurn: 2, retainedFromTurn: 3, projectedMessagesBytes: 12345 },
+    }),
+    checkpointSnapshot: () => ({ summary, coveredThroughTurn: 2, retainedFromTurn: 3 }),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
+    switchTo: () => Promise.resolve({ session, position: navigationPosition(id, 3) }),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => ({
+      ...navigationPosition(id, 3),
+      checkpoint: { coveredThroughTurn: 2, retainedFromTurn: 3, projectedMessagesBytes: 12345 },
+    }),
+  };
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    session,
+    { pending: new PendingInputCore(), history: new TuiEditorHistory(), navigation },
+  );
+  await lifecycle.acquire();
+  const running = controller.run();
+  await tick();
+  assert(terminal.output().includes('session ffffffff · agent default · turn 3'));
+  assert(terminal.output().includes('context through 2 · retain 3+ · semantic ≤12345B'));
+  assert(!terminal.output().includes(summary));
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+});
 
 Deno.test('controller submits exact task and exits on empty Ctrl-D', async () => {
   const terminal = new FakeTerminal();
@@ -2303,4 +2863,86 @@ Deno.test('modern text edits detach history navigation while cursor movement pre
   await tick();
   terminal.push('\x04\x04');
   assertEquals(await running, 0);
+});
+
+const fakeNavigationSession = (): AgentSession => ({}) as AgentSession;
+
+Deno.test('production navigation transaction transfers target ownership after old close', async () => {
+  const target = fakeNavigationSession();
+  const events: string[] = [];
+  const result = await runNavigationSwitchTransaction({
+    materializeTarget: () => {
+      events.push('materialize');
+      return target;
+    },
+    closeTarget: () =>
+      Promise.resolve().then(() => {
+        events.push('factory-close');
+      }),
+    closeCurrent: () =>
+      Promise.resolve().then(() => {
+        events.push('old-close');
+      }),
+    commitTarget: (session) => {
+      events.push('swap');
+      assertEquals(session, target);
+    },
+  });
+  assertEquals(result, target);
+  assertEquals(events, ['materialize', 'old-close', 'swap']);
+});
+
+Deno.test('production navigation transaction closes target when old close fails', async () => {
+  const events: string[] = [];
+  let thrown: unknown;
+  try {
+    await runNavigationSwitchTransaction({
+      materializeTarget: () => {
+        events.push('materialize');
+        return fakeNavigationSession();
+      },
+      closeTarget: () =>
+        Promise.resolve().then(() => {
+          events.push('factory-close');
+        }),
+      closeCurrent: () =>
+        Promise.resolve().then(() => {
+          events.push('old-close');
+          throw new Error('old close');
+        }),
+      commitTarget: () => events.push('swap'),
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  assert(thrown instanceof NavigationFatalError);
+  assertEquals(events, ['materialize', 'old-close', 'factory-close']);
+});
+
+Deno.test('production navigation transaction reports target cleanup failure fatally', async () => {
+  const events: string[] = [];
+  let thrown: unknown;
+  try {
+    await runNavigationSwitchTransaction({
+      materializeTarget: () => {
+        events.push('materialize');
+        return fakeNavigationSession();
+      },
+      closeTarget: () =>
+        Promise.resolve().then(() => {
+          events.push('factory-close');
+          throw new Error('target cleanup');
+        }),
+      closeCurrent: () =>
+        Promise.resolve().then(() => {
+          events.push('old-close');
+          throw new Error('old close');
+        }),
+      commitTarget: () => events.push('swap'),
+    });
+  } catch (error) {
+    thrown = error;
+  }
+  assert(thrown instanceof NavigationFatalError);
+  assertEquals(events, ['materialize', 'old-close', 'factory-close']);
 });

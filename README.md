@@ -1,385 +1,180 @@
 # Henji Harness
 
-Henji Harness is a small trusted-local Deno agent harness. The active pre-alpha implementation is
-the `v0` tree; older implementations and stopped experiments are retained under `archive/` only as
-historical evidence.
+## Start here
 
-## Current implementation
-
-- Product source: [`v0/`](v0/)
-- Tests: [`tests/v0/`](tests/v0/)
-- Task configuration: [`deno.v0.json`](deno.v0.json)
-- Current plans and results: [`docs/plans/`](docs/plans/)
-- Resume state: [`.handoff/handoff.md`](.handoff/handoff.md)
-
-Use the exact Deno 2.9.4 binary embedded in `deno.v0.json`. The main local commands are:
-
-```text
-deno task --config deno.v0.json agent:fixture
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:run --task 'ARBITRARY TASK'
-printf '%s\n' 'ARBITRARY TASK' | /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:run
-deno task --config deno.v0.json agent:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:skills:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:runtime:process:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:session-store:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:session:process:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:session:tui:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:sessions:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:sessions:topology:test
-deno task --config deno.v0.json agent:transport:test
-deno task --config deno.v0.json agent:acceptance:test
-deno task --config deno.v0.json agent:selection:test
-deno task --config deno.v0.json v0:check
-deno task --config deno.v0.json v0:fmt
-deno task --config deno.v0.json v0:lint
-deno task --config deno.v0.json v0:test
-deno task --config deno.v0.json v0:gate
-```
-
-`agent:acceptance` is the production provider task. Run it only on explicit user instruction; it is
-not a local test. Local gates use fixtures and require no credential.
-
-The offline test gate is an exact least-authority composition: `v0:test` invokes the 43 reviewed
-test leaves in stable order, owning all 45 direct `tests/v0/*_test.ts` files exactly once. The
-`v0:gate` task first runs the independent topology self-check, then `v0:check`, `v0:fmt`,
-`v0:lint`, and `v0:test`; it intentionally observes the topology test twice. No broad all-
-permission directory rerun is part of either gate. The topology task is available directly with:
-
-```text
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:offline-gate:topology:test
-```
-
-When adding a direct test file, add or update one focused leaf with explicit test targets and the
-smallest exact permissions needed, enroll that leaf in the ordered `v0:test` composition, and let
-the topology task validate ownership, command grammar, permission ordering, and production-task
-reachability. A direct test or focused test task is intentionally rejected until this enrollment
-and permission review is complete.
-
-Roadmap step 80 adds an internal, offline-only fresh-runtime comparison for the fixed `default` and
-`default-max-steps-4` Definitions. It derives separate manifest-bound replay envelopes from one
-validated case, executes a four-call uppercase fixture in independent runtimes, correlates the
-normalized records, and renders a bounded plain-text report. The current side completes in five
-model steps and the variant stops at its four-step ceiling; no provider, credential, network,
-persistence, or public CLI/TUI selector is involved. See
-[`docs/plans/agent-definition-fresh-runtime-comparison.md`](docs/plans/agent-definition-fresh-runtime-comparison.md)
-and its results document for the final reviewed implementation evidence.
-
-## Normal runtime (roadmap step 11)
-
-The agent:run task accepts exactly one nonblank task, from --task TEXT or from non-TTY stdin. The
-normal `agent:run` and `agent:tui` paths share one internal startup composition boundary. At startup
-it resolves exactly one of two compile-time built-in Agent Definitions: `default` (the omitted
-selection) or `planner`. The selected Definition declares the fixed provider profile, discovered
-instructions and skills, model capability registry, and eight-request bound. `agent:run` accepts
-`--agent NAME` before or after `--task TEXT`, and `agent:tui` accepts `--agent NAME`; selection is
-resolved once at startup and cannot change between turns. Unknown, malformed, duplicate, or missing
-selector values fail before stdin/workspace/session setup. The `default` Definition preserves the
-production registry and advertises exactly six tools without a callable skill (`bash`,
-`delegate_to_planner`, `edit`, `read`, `submit_json_result`, and `write`) and seven when `skill` is
-available. The `planner` Definition instead advertises exactly `read` and `submit_json_result`,
-adding `skill` only when available; it never advertises `bash`, `edit`, or `write`, and its fixed
-policy asks for a clear non-mutating implementation plan. This is not an OS/process sandbox:
-trusted-local process permissions and the production workspace tools remain unchanged. The selector
-is not configuration, environment, alias, or dynamic loading. `delegate_to_planner({task})` is a
-synchronous, nonterminal default-only call: one accepted parent turn may admit at most one built-in
-planner child. Parent, child, and aggregate model-request limits are fixed at 8, 8, and 16
-respectively, with admission checked before model, credential, or fetch work. The child receives
-only the explicit task and startup workspace/instruction/skill snapshots, exposes only planner
-read/skill/JSON tools, and returns one bounded sanitized result; child events and transcript are not
-exposed to the parent. The planner Definition itself cannot delegate. This capability shares the
-trusted-local process and workspace user permissions and is not an OS sandbox; background execution,
-recursion, persistence, streaming, retries, and multiple children remain deferred.
-
-The selected Definition also carries an internal resource selection made only of stable strings:
-`model:<provider>:<profile>`, `instruction:<id>`, `skill:<name>`, `tool:<name>`, and
-`subagent:<id>`. Entries use a strict ASCII grammar, fixed kind order, lexical same-kind order,
-and exact correlation with the resolved model, context, skill catalog, and registry. The immutable
-selection contains only those resource strings and the positive safe-integer `maxSteps` parameter;
-it contains no workspace path, instruction or skill text, provider object, or credential. Parent and
-lazy planner selections are validated before any model, credential, fetch, or registry materializes.
-This is an internal startup boundary, not a public resource-loading or serialization API; step 77
-manifest/version/digest work remains deferred, and the selection is absent from provider requests,
-events, transcripts, and persistent session records.
-Supplying both sources, an unknown or positional argument, invalid UTF-8, or input over 65,536 UTF-8
-bytes fails before model or credential setup. The versioned corpus/evaluation registry retains the
-four toy domain tools separately and they are not advertised by normal `agent:run`. JSON answers
-must use `submit_json_result` as the sole tool call in a batch; the host canonicalizes the complete
-JSON value and prints it on stdout. Plain-text answers retain the assistant final path.
-
-Each normal model request is derived from the full in-memory transcript through a provider-neutral
-context view. The view estimates stable JSON as UTF-8 bytes, triggers at 65,536 estimated message
-bytes, and replaces only beneficial older tool-result text with the fixed marker
-`[older tool result omitted for context]` until 49,152 estimated message bytes or eligible results
-are exhausted. User/assistant text, tool-call arguments and metadata, the newest tool message,
-events, outcomes, and committed session history remain complete. This is a conservative local
-estimate rather than provider usage or tokenizer output; no summary, retry, extra request,
-persistence, or provider window lookup is performed. The TUI reports a committed post-settlement
-estimate as `ready · ctx ≤<ceil(bytes / 1024)>K/64K est`, adding the exact omitted-result count when
-nonzero. `agent:run` output and non-normal provider wire contracts remain unchanged.
-
-Normal runtime parent and planner model requests use one bounded Chat Completions SSE response per
-admitted model step. The CLI remains final-only: streamed partial text is never written to stdout or
-stderr, committed history, context metrics, or planner envelopes. The TUI receives only accumulated
-assistant snapshots, rendered as one replaceable escaped live line and cleared when a completed
-assistant record, tool activity, cancellation, failure, or shutdown takes over. A completed result
-alone can create assistant events, execute tools, and update the transcript. Streamed tool-call
-fragments are assembled and validated before dispatch; partial calls are never executed. Malformed,
-cancelled, timed-out, or failed streams retain no partial assistant result. Provider-side connection
-abort does not guarantee cancellation of provider compute or billing. Reasoning/usage display,
-retry/fallback, reconnection, and ordinary queued follow-up remain deferred for non-interactive
-`agent:run`.
-
-While a parent turn is busy, the TUI accepts at most one nonblank, NUL-free steering message up to
-65,536 UTF-8 bytes. Enter admits the bounded message without interrupting the current model request,
-tool call, or selected tool batch. It is consumed only after a complete nonterminal tool batch has
-settled and before an eligible next parent request; final, terminal, max-step, cancelled, and failed
-turns discard an unconsumed message. A consumed message is shown live as `steer>` and is committed
-as an ordinary `user>` history entry only when the enclosing turn succeeds. Busy Alt+Enter admits one
-separate NUL-free ordinary follow-up up to 65,536 UTF-8 bytes. It remains memory-only and outside the
-active transcript until the current turn has durably committed and settled; then it starts exactly one
-fresh ordinary parent turn. Cancellation, failure, exit, EOF, and cleanup drop it, and the automatically
-started turn cannot refill the slot. Idle Alt+Enter behaves like Enter. There is no multi-item queue,
-dequeue/edit history, or persistence for pending text, and `agent:run` remains final-only with unchanged
-provider and persistence contracts.
-
-`read`, `write`, and `edit` use the canonical invocation working directory as a fixed workspace.
-Paths may be relative or absolute within that root, are component-checked, reject symlinks and
-special files, and accept only well-formed UTF-8 text up to 65,536 bytes. Writes and edits use a
-synced sibling temporary file and atomic rename; this gives atomic visibility but does not promise
-directory-fsync crash durability or protection from hostile same-user races. `edit` applies up to 32
-exact, unique, non-overlapping replacements against one original snapshot.
-
-`bash` always runs `/bin/bash --noprofile --norc -c COMMAND` from the workspace with a clean fixed
-environment (`PATH`, `LANG`, and `LC_ALL` only), separate 4,096-byte stdout/stderr capture, and a
-30,000 ms default / 120,000 ms maximum timeout. The invocation itself authorizes local work; there
-is no per-tool prompt or additional CLI flag. Bash is trusted-local OS-user execution, not a
-workspace sandbox: it can access outside files, network, and descendants, and timeout cleanup
-guarantees only the direct child is killed and reaped.
-
-During a TUI tool call, `bash` may emit provider-neutral progress as accumulated stdout/stderr
-snapshots. Each stream is observed up to 4,000 UTF-8 bytes and each call delivers at most 64
-snapshots; progress is live-only, replaceable TUI state and is neither sent to the model nor stored
-in session history. Strict live decoding can disable one malformed or incomplete stream while the
-final bounded 4,096-byte capture remains authoritative. If event output fails, the active tool is
-cancelled and settled before the sanitized failure is surfaced. These observations do not change
-the existing trusted-local Bash permissions or direct-child-only descendant limitation.
-
-Before the first normal-runtime model request, the host optionally reads one standing-instruction
-file directly under the canonical workspace: `AGENTS.md` is preferred over `AGENTS.MD`, and the
-first present candidate wins. Only regular non-symlink files with valid UTF-8 text up to 16 KiB are
-accepted; blank, NUL-containing, malformed, oversized, or unreadable files are silently skipped. The
-accepted text is sent as one first-class `system` message on every provider request, outside the
-user task and loop transcript. Discovery does not inspect ancestors, global/home state, child
-directories, or other spelling variants, and does not broaden the existing `agent:run` workspace
-read permission.
-
-The same startup pass discovers project-local skills from `./.zot/skills`, then `./.claude/skills`,
-then `./.agents/skills`. Only one-level `<location>/<directory>/SKILL.md` regular non-symlink files
-are considered. Entries are sorted; the first valid effective name wins, while a valid
-`disable-model-invocation: true` entry reserves its name without becoming callable. Discovery is
-bounded to 128 entries per location, 24 callable skills, 64 KiB per file and formatted result, 512
-KiB aggregate results, and an 8 KiB manifest.
-
-The accepted format is a strict frontmatter subset with optional `name`, required one-line
-`description` (160 UTF-8 bytes maximum), and optional `disable-model-invocation`. Unknown or
-duplicate keys—including unenforced `allowed-tools`, `allowed_tools`, and `permissions`—make the
-candidate invalid. A compact name/description/workspace-relative-source manifest is appended to the
-system instruction; bodies are held in an immutable startup snapshot and enter the transcript only
-after the model calls nonterminal `skill({name})`. Tool execution never rereads the file. Global or
-home skills, recursive discovery, manual slash invocation, reload, and permission enforcement are
-not provided.
-
-## First terminal UI
-
-The explicit TUI command is real-TTY-only and accepts `--agent NAME` plus at most one persistence
-selector (`--continue`, `--session UUID`, or `--no-session`), in either order:
+Henji Harness is a pre-alpha, trusted-local Deno agent harness. The active implementation is in
+[`v0/`](v0/); archives are historical evidence only. Run from the repository root with Deno 2.9.4
+on `PATH`, a POSIX shell, and a real stdin/stdout TTY for the TUI:
 
 ```text
 deno task --quiet --config deno.v0.json agent:tui
+```
+
+The default starts a new autosaved session. The selected OpenRouter profile is contacted only after
+a submitted task reaches the provider adapter. Work tools run as the current OS user; there is no
+hard sandbox or per-tool confirmation.
+
+## Read startup orientation
+
+Startup orientation states the workspace, selected agent/profile, session mode, discovered
+`AGENTS.md` and project-local skills, request-time credential rule, and trusted-local tool boundary.
+
+The normal runtime selects one built-in Definition once at startup. Omitted `--agent` selects
+`default`, with `bash`, `edit`, `read`, `submit_json_result`, `write`, and bounded planner
+delegation. `--agent planner` selects the read-only planner, with `read`, optional `skill`, and
+`submit_json_result`. Selection cannot change between turns.
+
+```text
 deno task --quiet --config deno.v0.json agent:tui --agent planner --no-session
+deno task --quiet --config deno.v0.json agent:tui --continue
 ```
 
-Run the portable command from the repository root with exact Deno 2.9.4 on `PATH`, a POSIX
-shell, and a real stdin/stdout TTY. The default starts a new autosave session; `--continue`,
-`--session UUID`, and `--no-session` remain available. Startup does not inspect credentials:
-the selected provider is checked immediately before each request. The default Agent's
-`bash`/`edit`/`write` tools run with OS-user access and no hard sandbox or per-tool confirmation.
-The startup orientation lists these boundaries and current keys; empty Ctrl-D exits without
-submitting a task. The compact orientation is fully visible at 80x24 or wider.
+The TUI accepts one persistence selector (`--continue`, `--session UUID`, or `--no-session`) and
+the optional agent selector, in either order. Invalid, duplicate, conflicting, or positional
+arguments fail before workspace, terminal, session, provider, or credential setup. `--no-session`
+is ephemeral and does not access the session state root. `agent:run` is the non-interactive
+production provider command; do not invoke either production path without explicit approval.
 
-The omitted selector uses `default`; `--agent planner` selects the built-in planner capability. It
-uses the same fixed trusted-local workspace, skills, model profile, and trusted-local process
-permission envelope as `agent:run`; the selected Definition controls model tools. `default` includes
-OS-user `bash` execution with no per-tool confirmation, while `planner` exposes only `read`,
-optional `skill`, and `submit_json_result`. Each Enter starts one exact task in an in-memory
-sequential conversation (at most eight provider requests per turn); while a turn is busy, printable
-input and bounded bracketed paste form the one steering editor, and Enter attempts admission. While
-busy, Alt+Enter admits one independent ordinary follow-up slot; its text is not shown in scrollback
-or sent to the active turn, and successful settlement starts it as the next ordinary turn. A pending
-slot is memory-only, cannot be replaced or replenished, and is dropped by cancellation, failure,
-exit, EOF, or shutdown. Idle Alt+Enter is ordinary Enter. Escape/Ctrl-C/signals retain cancellation
-precedence. After admission, further ordinary input is consumed for that turn. The command never implicitly changes `agent:run` into a TUI and does
-not read credentials until a submitted task reaches the lazy provider adapter.
+## Daily editing
 
-The editor supports bounded multiline UTF-8 editing: arrows/Home/End, Ctrl-O newline, Ctrl-W word
-delete, Ctrl-P/N process-local history, Tab workspace-relative path completion, and Ctrl-R one-at-a-time
-recovery. Empty Enter only updates status. While idle, Ctrl-C/Ctrl-D with pending text arms a two-second
-discard confirmation; a second matching key discards and exits. Ctrl-D exits immediately only when all
-lanes are empty. While busy, Escape requests cooperative
-cancellation and returns the same session to ready after model/tool cleanup; Ctrl-C and SIGINT
-request cancellation and arm the two-second discard confirmation; a second Ctrl-C discards and
-exits 0 after settlement, while SIGTERM/SIGHUP settle and exit 143/129.
-Cancellation is per accepted turn, never commits its draft, and does not roll back completed local
-effects. Cleanup failure is a fatal sanitized agent failure and makes the session unavailable.
-Terminal output uses main-screen scrollback with a bounded multiline live editor block; dynamic model, tool, and task
-text is escaped at one terminal boundary. Raw mode, bracketed paste, cursor state, and the input
-reader are restored on every handled exit or failure. Provider streaming is visible only as the bounded
-live assistant line described above. Pending active-task, steering, and follow-up lanes expose only
-kind/lifecycle/byte-count metadata; recovered tool turns warn that local tools may have changed the
-workspace and are never automatically retried. Confirmation, alternate-screen rendering, multi-item
-queueing, and pending follow-up persistence remain deferred. Fatal crash/kill/restart does not promise
-pending-input recovery, and local tool effects are not rolled back.
+The editor accepts bounded multiline UTF-8 input up to 65,536 bytes. Enter submits a nonblank idle
+task; Ctrl-O inserts a newline; arrows/Home/End move the cursor; Ctrl-W deletes a word; Ctrl-P/N
+navigate process-local input history; Tab completes workspace-relative paths; Ctrl-R recovers one
+bounded failed tool turn; and empty Enter only updates status.
 
-## Persistent TUI sessions
+`read`, `write`, and `edit` operate within the invocation workspace, reject symlinks/special files,
+and use synchronized sibling temporaries with atomic rename. `bash` runs
+`/bin/bash --noprofile --norc -c COMMAND` with bounded output and timeout. These tools can reach
+outside the workspace, the network, and child processes as the current OS user.
 
-The production TUI launcher autosaves each successful turn in a new session by default. Use
-`--continue` to resume the newest session for the selected built-in agent, `--session UUID` for an
-exact session, or `--no-session` for an ephemeral run. The flags may appear in either order with
-`--agent default|planner`; malformed, duplicated, conflicting, or positional arguments fail before
-workspace, state, terminal, provider, or credential setup.
+## While work is running
 
-Session management is metadata-only and does not materialize a provider or runtime:
+The TUI renders bounded live assistant and Bash progress snapshots as replaceable display state.
+Partial output is never committed, sent back to the model, or persisted; a completed model result
+is authoritative.
+
+While busy, Enter admits at most one NUL-free steering message up to 65,536 bytes, consumed only
+between complete nonterminal tool batches. Alt-Enter admits one ordinary follow-up slot, started
+only after durable success of the current turn. Cancellation, failure, exit, EOF, and shutdown drop
+pending text without silent resubmission.
+
+Escape requests cooperative cancellation. Ctrl-C requests cancellation; a second Ctrl-C within the
+confirmation window discards pending input and exits after settlement. SIGTERM/SIGHUP settle and
+exit 143/129. Cancellation does not roll back completed local effects. Cleanup failure is fatal and
+poisons the session. Raw mode, cursor state, bracketed paste, and the single input reader are
+restored on handled exits and failures.
+
+## Sessions and history
+
+Persistent successful parent turns are canonical schema-v1 `session.json` records containing the
+complete parent transcript. Provider views, progress, credentials, Definition/manifest data, and
+display history are not stored. State is repo-external, workspace-partitioned, bounded, locked, and
+atomically replaced.
+
+Metadata-only list and confirmed delete:
 
 ```text
-deno task --config deno.v0.json agent:sessions list
-deno task --config deno.v0.json agent:sessions delete --session UUID --yes
+deno task --quiet --config deno.v0.json agent:sessions list
+deno task --quiet --config deno.v0.json agent:sessions delete --session UUID --yes
 ```
 
-State is repo-external under `$XDG_STATE_HOME/henji-harness`, or
-`$HOME/.local/state/henji-harness` when XDG state is unset. A workspace SHA-256 partition keeps
-sessions from different workspaces separate. Session files are canonical version-1 UTF-8 JSON and
-contain only the selected agent, identity/timestamps, next turn, and the complete successful parent
-transcript; current AGENTS.md and skills are rediscovered on resume. Planner child turns, model
-views, markers, metrics, events, credentials, and terminal display history are never persisted.
+When idle with an empty editor and all pending lanes empty:
 
-The store accepts at most 256 valid or active sessions per workspace, scans at most 512 direct
-entries in each namespace, and refuses a session file over 8 MiB. It uses nonblocking index/session
-locks and a synced sibling temporary file followed by atomic rename. There is no directory-fsync,
-repair, migration, truncation, pruning, or automatic deletion guarantee. Corrupt or unsupported
-records remain untouched and are rejected or counted as skipped by the management list operation.
-The ephemeral `--no-session` mode performs no state-root access, and `agent:run` remains entirely
-nonpersistent.
+- Ctrl-G opens the current-workspace session picker, at most eight metadata rows per page, with
+  short/full UUID, agent, updated time, turn/message counts, and current/resumed/mismatch state.
+  Enter resumes the exact selected UUID only after opening and materializing its target. The old
+  binding closes before current binding changes; failures retain the old session and never fall
+  back.
+- Ctrl-T opens the latest committed canonical history in read-only mode. Up/Down, Home, End, and
+  Escape navigate bounded pages and return to the latest position. Causal `user`, `steer`,
+  `assistant`, `tool>`, and `tool<` labels are preserved. Each page uses at most 8 KiB source text,
+  32 KiB escaped terminal output, and 16 content rows. It cannot submit, edit, branch, rewind,
+  call a provider, or write a session.
 
-Local TUI tests use only fake sessions/terminals and bounded `/usr/bin/script` PTY fixtures; they do
-not run `agent:tui`, `agent:run`, a provider, or credential commands.
+The main status shows short session ID, agent, and latest committed turn; picker/history headers
+show the full UUID. An empty new reservation appears as one synthetic current row; listing alone
+does not create state.
 
-Success writes only the final assistant text to stdout (adding one newline when needed), with an
-empty stderr. Failure writes one compact sanitized JSON record to stderr, with empty stdout. The
-fixed profile may make up to eight provider requests and performs no application retry. agent:run is
-therefore a production provider command: do not invoke it without explicit user instruction and do
-not provide credentials to local tests or gates.
+## Manual context recovery
 
-## Fixed local work-tools sentinel
+When persistent TUI is idle with an empty editor and no pending lane, Ctrl-K opens the context panel.
+It shows committed turns, current checkpoint state, proposed covered/retained range, and byte-aware
+provider-view estimate. It states that the operation uses one provider request and leaves canonical
+history unchanged.
 
-The Gate L sentinel is a fixed five-call acceptance child using the production model, loop, and
-work-tool registry: `write`, `read`, `edit`, `bash`, then the sole terminal `submit_json_result`
-call. It runs only in the dedicated dummy/fake-provider local tasks:
+Enter confirms one semantic summary request. The selected profile receives the exact summary prompt,
+one compact user envelope containing canonical parent turns, and `tools: []`; accepted output is
+strict JSON `{"schemaVersion":1,"summary":"..."}`. One checkpoint is stored beside (not inside)
+`session.json` as `contexts/<session UUID>.json`, bounded to 16 KiB file bytes and 12,288-byte
+summary bytes.
+
+Admission uses the production wire encoder: serialized `messages` below 77,824 bytes and full body
+below 256 KiB. It reserves a worst-case 4,096-byte next draft and a 16,384-byte checkpoint-message
+contribution, retains at least the latest complete turn, and selects the largest useful strict
+reduction. Semantic projection precedes mechanical old-tool-result omission. No useful boundary,
+generation/validation/cancellation/timeout failure, or durable replacement failure leaves canonical
+history or the previous checkpoint changed. Escape cancels before write; `v` shows a checkpoint
+summary read-only. Checkpoints rehydrate on restart; canonical history remains the sole authority.
+
+## Exit and recovery
+
+Empty Ctrl-D exits only when editor, active task, steering, follow-up, recovery, and discard lanes are
+empty. Successful turns commit before queued follow-up starts; failed/cancelled drafts do not commit.
+Restart restores the complete successful transcript and latest valid checkpoint, but not in-flight
+provider work, pending editor text, or uncommitted tool effects.
+
+## Security and stored data
+
+Session/context files are plaintext repo-external state protected by partitioning, validation,
+mode-0600 files, and locks. `AGENTS.md` and project-local skills are rediscovered on startup/resume
+and sent as first-class instructions, not copied into canonical history. Credentials are resolved
+only at request time; offline tests do not read credential files or access the provider. `bash`
+remains trusted-local OS-user execution without hard sandbox, network isolation, or full descendant
+containment.
+
+There is no branch/fork, rewind, history edit, search, export/import, rename/tagging, automatic or
+background compaction, summary chain, multiple checkpoint, login/model picker, pending-restart
+recovery, or tool-effect rollback. Context recovery may refuse when original history plus the 4 KiB
+draft reserve cannot fit a useful projection under live adapter ceilings.
+
+## Provider-free guided confirmation
+
+These local fake-session checks exercise navigation/context contracts without provider requests,
+network, credentials, production commands, or persistent product state:
 
 ```text
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:sentinel:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:sentinel:process:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:work-tools:sentinel:topology:test
+deno task --quiet --config deno.v0.json agent:session:navigation:test
+deno task --quiet --config deno.v0.json agent:semantic-context:test
+deno task --quiet --config deno.v0.json agent:session-store:test
+deno task --quiet --config deno.v0.json agent:tui:test
+deno task --quiet --config deno.v0.json v0:gate
 ```
 
-The production-only `agent:work-tools:sentinel:credential-file` task is excluded from every local
-gate. It reads the repo-external credential once, creates one mode-0700 disposable workspace, and
-removes it after the bounded child run. Gate L never reads credential metadata or content, opens a
-provider connection, or runs this production task; Gate S requires a separate explicit approval.
+The last command is the authoritative offline gate. Real provider acceptance and credential-file
+launchers are separate explicit Human Gates and are excluded from the offline gate.
 
-## Fixed planner-delegation sentinel
+## Developer/reference appendix
 
-The planner-delegation sentinel composes the normal default runtime and proves one synchronous
-`delegate_to_planner` child between two parent requests. Its fixed local tests use only dummy
-credentials and a guarded fake provider:
+Product source is [`v0/`](v0/), tests [`tests/v0/`](tests/v0/), task configuration
+[`deno.v0.json`](deno.v0.json), plans/results [`docs/plans/`](docs/plans/), and continuation state
+[`.handoff/handoff.md`](.handoff/handoff.md). The Step 83 plan is
+[`docs/plans/session-navigation-context-recovery-readme.md`](docs/plans/session-navigation-context-recovery-readme.md).
+
+Useful checks:
 
 ```text
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:sentinel:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:sentinel:process:test
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:planner-delegation:sentinel:topology:test
+deno task --quiet --config deno.v0.json agent:session:navigation:test
+deno task --quiet --config deno.v0.json agent:semantic-context:test
+deno task --quiet --config deno.v0.json v0:offline-gate:topology:test
+deno task --quiet --config deno.v0.json v0:check
+deno task --quiet --config deno.v0.json v0:fmt
+deno task --quiet --config deno.v0.json v0:lint
+deno task --quiet --config deno.v0.json v0:test
+deno task --quiet --config deno.v0.json v0:gate
 ```
 
-The production-only `agent:planner-delegation:sentinel:credential-file` task is excluded from every
-local gate. It reads the repo-external credential once, creates one mode-0700 empty workspace, and
-removes it after the bounded child run. Gate L does not access credentials or provider/network; Gate
-S requires a separate explicit approval.
-
-## Current baseline
-
-Roadmap steps 8–10 are complete. Step 8 added deterministic `character_count` beside
-`uppercase_text` and enforces selection of the task-matching tool. Before the cleanup, selection
-direct tests passed 8 cases, the full v0 suite passed 72 tests, and check, format, lint, gate, and
-diff check passed. The post-implementation review found no Blocker or P1 and one P2 for a missing
-negative test. The later local-fix added a well-typed but incorrect fixed `text` value to the
-negative table; direct selection and full offline gates pass with the regression covered.
-
-Roadmap step 9 adds `list_json_object_keys` and completed one real task against `deno.v0.json`: the
-model selected the tool once and returned the 12 task names. The first result differed from the
-compact tool JSON only by whitespace, so completion now compares the parsed string arrays. No retry
-or second provider attempt was made; the current full local suite passes 78 tests.
-
-Roadmap step 10 combines `list_json_object_keys` with `count_json_array_items`. A real model used
-the two tools in order over three requests and returned `{"count":12}`. The first attempt stopped
-after the list because character counting was not a natural continuation; the task was corrected to
-count JSON-array items, then completed without further changes.
-
-The active step 5–10 evidence is retained in `docs/plans/`. Roadmap step 11's normal CLI runtime is
-specified in
-[`docs/plans/zot-first-cli-agent-runtime.md`](docs/plans/zot-first-cli-agent-runtime.md), with the
-Zot-first local work-tool increment recorded in
-[`docs/plans/zot-local-work-tools-results.md`](docs/plans/zot-local-work-tools-results.md). It
-accepts one task from argv or stdin, allows at most eight model requests, and performs no
-application retry. The provider-neutral in-memory session and completed lifecycle events are
-implemented for the next TUI prerequisite; `agent:run` still uses the unchanged one-shot wrapper.
-Persistence/history, global/manual skill management, extensions, RPC, subagents, self-revision,
-and dynamic provider/model selection remain later roadmap work. See the
-[`multi-turn/events results`](docs/plans/zot-provider-neutral-multi-turn-events-results.md) for the
-local evidence and verification boundary.
-
-## Versioned small task corpus
-
-The current offline corpus is [`v0/corpus/task-corpus.v1.json`](v0/corpus/task-corpus.v1.json),
-schema version 1 and corpus ID `henji-normal-cli-small-v1`. It contains exactly 24 canonical cases:
-four final-only cases, four cases for each of the four single-tool categories, and four multi-tool
-cases. The strict loader and case-local scorer are in
-[`v0/corpus/task_corpus.ts`](v0/corpus/task_corpus.ts).
-
-Run its focused validation with:
-
-```text
-/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json agent:corpus:test
-```
-
-The corpus validates only the literal `deno.v0.json` `fmt` and `lint` fixtures. This increment is
-offline data validation and mechanical scoring only; it does not include an evaluation runner,
-provider/model invocation, production command, score aggregation, or credential access.
-
-## Archive
-
-[`archive/`](archive/) is not active product source and is excluded from normal v0 commands:
-
-- `archive/legacy-two-plugin/`: stopped source-direct two-plugin implementation and tests.
-- `archive/safety-spikes/`: Spike 0–2 source, tests, configs, scripts, and evidence.
-- `archive/history/`: superseded pre-alpha plans and results.
-
-The archived implementations, spikes, and superseded plans are historical evidence that can be
-reconsidered intentionally as future decisions are made. See
-[`archive/README.md`](archive/README.md) for the retention boundary.
-
-## Reference snapshots
-
-[`_refs/`](_refs/) contains upstream snapshots used for comparison. It is reference material, not
-product source or a dependency. A useful refresh records the upstream URL, pinned commit, license,
-and comparison of adopted behavior in [`_refs/README.md`](_refs/README.md).
+`v0:gate` runs topology, check, format, lint, and full offline composition. Every direct test file
+is owned by exactly one bounded leaf, with only declared minimum permissions. Production TUI/run,
+credential launchers, provider network, dependency/lockfile changes, and `_refs/` are outside this
+gate. Earlier plans and archives remain historical evidence; [`archive/`](archive/) is not active
+source and [`_refs/`](_refs/) is not a dependency.

@@ -17,6 +17,37 @@
   persistent product state, dependency/lockfile, `_refs/`, push, tag, publish, or release operation
   was performed for Step 82. The reviewed increment is recorded by the user-authorized final commit.
 
+- Roadmap Step 83 is implemented locally under
+  `docs/plans/session-navigation-context-recovery-readme.md`, SHA-256
+  `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`, with results in
+  `docs/plans/session-navigation-context-recovery-readme-results.md`. The mandatory 83a → 83b → 83c
+  order adds persistent Ctrl-G picker/latest-only resume, bounded read-only Ctrl-T causal history,
+  strict sibling semantic context checkpoints and production-wire dynamic admission, checkpoint-aware
+  semantic-before-mechanical parent projection, and a user-first root README. Focused navigation 6/6,
+  semantic-context 5/5, session-store 19/19, persistent TUI 9/9, and TUI direct 99/99 pass. The
+  residual closure adds non-overwritable navigation ownership with delayed Enter→Escape→Ctrl-G→signal
+  settlement, abort-before-await compaction settlement for EOF/input/output/crash paths, direct
+  `tui_cli` materialize/old-close/swap/cleanup evidence, and wrong-permission context correlation.
+  Topology 2/2, `v0:check`, `v0:fmt`, `v0:lint`, and `git diff --check` pass. The authoritative full
+  `v0:gate` passes 653/653 tests. There are 53 unique offline leaves; the gate executes topology as
+  both outer and inner edge, so it has 54 leaf invocations. The first gate attempt had one isolated
+  pre-existing PTY process flake, which passed on immediate isolated rerun and in the final full gate;
+  no source change was made for that observation. Initial changed-lines review found P1 4/P2 5; the
+  single narrow re-review left navigation ownership P1 1, compaction settlement P2 1, and one
+  evidence-only P2. The P1-authorized exact residual closure added the lifecycle and production-path
+  regressions above, and the owner independently reran the focused suites and full 653/653 gate.
+  Final owner disposition is Blocker/P1/P2 zero. The separately approved provider-free representative
+  acceptance passed in a disposable two-session workspace/state root: exact Ctrl-G resume, latest
+  Ctrl-T history, Ctrl-K preview/cancel with request zero, one fake-summary checkpoint, same-checkpoint
+  restart, one subsequent fake turn, canonical-prefix preservation, reacquirable locks, temp zero,
+  and terminal restoration twice. Two prior fixture observations were rejected as driver-oracle false
+  negatives (`status> ready` vs `[ready]`, and persistent lock inode vs active `tryLock` ownership);
+  the corrected output-driven fixture passed without product-source changes. External/provider
+  requests and credential reads were zero, and the disposable root was removed. No
+  provider/network/credential/production command, dependency/lockfile, persistent product state outside that disposable acceptance,
+  `_refs/`, push, tag, publish, or release operation was performed for Step 83. The reviewed and
+  accepted increment is recorded by the user-authorized final integration commit.
+
 - Revision 15 / roadmap steps 8–10 are implemented in the active `v0/` tree. Local selection tests
   passed 8 cases and the full v0 suite passes 78 tests. The deferred P2 was resolved by adding the
   missing well-typed wrong-fixed-value negative case; the direct selection and full offline gates pass.

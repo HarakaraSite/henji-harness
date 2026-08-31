@@ -401,12 +401,15 @@ export const createRuntimeSessionFromPrepared = (
   const composition = materializePreparedRuntimeComposition(prepared);
   return {
     session: new AgentSession(composition.model, composition.registry, {
+      agent: prepared.selectionId,
       maxSteps: composition.resourceSelection.parameters.maxSteps,
       systemInstruction: composition.systemInstruction,
       eventSink,
       createTurnExecutionContext: composition.createTurnExecutionContext,
       persistence: sessionOptions.persistence,
       initialRecord: sessionOptions.initialRecord,
+      summarizeContext: (request, signal) => composition.model.generate(request, { signal }),
+      sourceProfileId: prepared.definition.model.profile.id,
     }),
     requestCount: composition.requestCount,
     displayState: composition.displayState,

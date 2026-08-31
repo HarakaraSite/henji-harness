@@ -57,6 +57,8 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly steering?: SteeringConsumer;
   /** Backwards-compatible internal port spelling for direct loop callers. */
   readonly steeringConsumer?: SteeringConsumer;
+  /** Optional pure semantic parent projection, applied before mechanical omission. */
+  readonly projectParentRequest?: (request: ModelRequest) => ModelRequest;
 }
 
 /**
@@ -351,7 +353,10 @@ const runAgentTurnInternal = async (
           transcript: snapshotMessages(transcript),
           tools: snapshot(registry.definitions()),
         };
-      preparedRequest = prepareModelContext(request).request;
+      const projected = options.projectParentRequest === undefined
+        ? request
+        : options.projectParentRequest(request);
+      preparedRequest = prepareModelContext(projected).request;
     } catch (error) {
       return finishNormal(
         contractFailure(

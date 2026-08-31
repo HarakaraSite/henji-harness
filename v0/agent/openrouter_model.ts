@@ -15,8 +15,8 @@ import { CancellationCleanupError, throwIfCancelled, TurnCancelledError } from '
 
 const encoder = new TextEncoder();
 
-const MAX_MESSAGE_BYTES = 76 * 1024;
-const MAX_REQUEST_BYTES = 256 * 1024;
+export const MAX_MESSAGE_BYTES = 76 * 1024;
+export const MAX_REQUEST_BYTES = 256 * 1024;
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
 export const MAX_SSE_DATA_EVENTS = 4_096;
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
@@ -358,8 +358,9 @@ const encodeTool = (tool: ToolDefinition): WireFunctionTool | undefined => {
   };
 };
 
-const encodeRequest = (
+export const encodeRequest = (
   request: ModelRequest,
+  enforceMessageLimit = true,
 ): { messages: WireMessage[]; tools: WireFunctionTool[] } => {
   if (
     typeof request !== 'object' || request === null ||
@@ -392,7 +393,7 @@ const encodeRequest = (
   if (messageBody === undefined) {
     throw invalid('model transcript is not JSON serializable');
   }
-  if (bytes(messageBody) > MAX_MESSAGE_BYTES) {
+  if (enforceMessageLimit && bytes(messageBody) > MAX_MESSAGE_BYTES) {
     throw new OpenRouterAgentError(
       'limit_exceeded',
       'serialized model messages exceed 76 KiB',
@@ -400,6 +401,34 @@ const encodeRequest = (
     );
   }
   return { messages, tools };
+};
+
+/** Stable provider-wire measurement shared by context admission and the adapter itself. */
+export const measureModelRequestWire = (
+  request: ModelRequest,
+  profile: OpenRouterAgentProfile = PROFILE,
+  responseMode: OpenRouterResponseMode = 'sse',
+): {
+  readonly messages: readonly unknown[];
+  readonly tools: readonly unknown[];
+  readonly messagesBytes: number;
+  readonly bodyBytes: number;
+} => {
+  const encoded = encodeRequest(request, false);
+  const body = safeJson({
+    model: profile.model,
+    messages: encoded.messages,
+    tools: encoded.tools,
+    stream: responseMode === 'sse' ? true : profile.stream,
+    max_completion_tokens: profile.maxCompletionTokens,
+  });
+  if (body === undefined) throw invalid('provider request is not JSON serializable');
+  return {
+    messages: encoded.messages,
+    tools: encoded.tools,
+    messagesBytes: bytes(JSON.stringify(encoded.messages)),
+    bodyBytes: bytes(body),
+  };
 };
 
 const responseError = (

@@ -13,6 +13,12 @@ import {
 import { type RuntimeDisplayState } from '../agent/startup_orientation.ts';
 import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
+import {
+  type ContextRecoveryPreview,
+  type NavigationListing,
+  type NavigationPosition,
+} from '../agent/session_navigation.ts';
+import { type SessionHistoryPage } from '../agent/session_history.ts';
 
 const encoder = new TextEncoder();
 const DISPLAY_LIMIT = 64 * 1024;
@@ -54,6 +60,12 @@ export const escapeTerminalText = (
   }
   return output;
 };
+
+/** Byte count for exactly the dynamic text projection emitted to the terminal. */
+export const escapedTerminalTextBytes = (
+  text: string,
+  options: EscapeOptions = {},
+): number => encoder.encode(escapeTerminalText(text, options)).byteLength;
 
 const truncateText = (
   text: string,
@@ -200,6 +212,21 @@ export const pendingMetadataRows = (
 const dynamicLine = (prefix: string, value: string): Uint8Array =>
   staticBytes(`${prefix}${boundedEscaped(value)}\n`);
 
+/** Pure history modal projection shared by rendering and its byte admission checks. */
+export const historyPageText = (page: SessionHistoryPage): string => {
+  const lines = [
+    `history ${page.sessionId ?? 'none'} · ${
+      page.agent ?? 'default'
+    } · turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount} · read-only`,
+    'Up/Down page · Home oldest · End latest · Esc return',
+  ];
+  for (const entry of page.entries) {
+    lines.push(`${entry.role} [t${entry.turn}] ${escapeTerminalText(entry.text)}`);
+  }
+  if (page.omitted) lines.push('history> page content bounded');
+  return `${lines.map((line) => `${line}\n`).join('')}`;
+};
+
 const orientationSession = (state: RuntimeDisplayState): string => {
   switch (state.sessionMode.kind) {
     case 'new':
@@ -299,6 +326,7 @@ export class TuiRenderer implements TerminalRendererGate {
   // retaining any user text.
   private editorBlockSpan = 0;
   private editorBlockCursorRow = 0;
+  private currentPosition: NavigationPosition | undefined;
 
   constructor(private readonly terminal: TerminalPort) {}
 
@@ -445,6 +473,91 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
+  setCurrentPosition(position: NavigationPosition): void {
+    this.currentPosition = Object.freeze({ ...position });
+    const short = position.sessionId === undefined ? 'none' : position.sessionId.slice(0, 8);
+    this.setStatus(`session ${short} · turn ${position.committedTurn} latest`);
+  }
+
+  /** End a bounded modal projection and restore the main editor line. */
+  clearModal(): void {
+    if (this.closing) return;
+    this.writeStatic(`\r${ERASE_LINE}\n`);
+    this.redraw();
+  }
+
+  renderSessionPicker(
+    listing: NavigationListing,
+    selected = 0,
+    page = 0,
+    loading = false,
+  ): void {
+    if (this.closing) throw new EventDeliveryError();
+    const pageSize = 8;
+    const pageCount = Math.max(1, Math.ceil(listing.sessions.length / pageSize));
+    const boundedPage = Math.max(0, Math.min(pageCount - 1, page));
+    const start = boundedPage * pageSize;
+    const rows = listing.sessions.slice(start, start + pageSize);
+    const lines = [
+      'session picker · Up/Down select · Left/Right page · Enter resume · Esc cancel',
+      `page ${boundedPage + 1}/${pageCount}${loading ? ' · loading' : ''}`,
+    ];
+    if (rows.length === 0 && !loading) lines.push('no sessions');
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index];
+      const absolute = start + index;
+      const marker = absolute === selected ? '>' : ' ';
+      const state = row.current
+        ? 'current'
+        : row.resumed
+        ? 'resumed'
+        : row.mismatch
+        ? 'mismatch'
+        : 'available';
+      const updated = escapeTerminalText(row.updatedAt);
+      lines.push(
+        `${marker} ${row.id} ${
+          escapeTerminalText(row.agent)
+        } ${updated} t${row.turnCount}/m${row.messageCount} ${state}`,
+      );
+    }
+    if (listing.skippedInvalid > 0) lines.push(`skipped invalid: ${listing.skippedInvalid}`);
+    this.writeStatic(`${lines.map((line) => `${line}\n`).join('')}`);
+  }
+
+  renderHistoryPage(page: SessionHistoryPage): void {
+    if (this.closing) throw new EventDeliveryError();
+    this.writeStatic(historyPageText(page));
+  }
+
+  renderContextPanel(preview: ContextRecoveryPreview): void {
+    if (this.closing) throw new EventDeliveryError();
+    const current = preview.currentCheckpoint === undefined
+      ? 'none'
+      : `through ${preview.currentCheckpoint.coveredThroughTurn}, retain ${preview.currentCheckpoint.retainedFromTurn}+`;
+    const proposed = preview.proposed === undefined
+      ? 'no useful fitting compaction'
+      : `through ${preview.proposed.coveredThroughTurn}, retain ${preview.proposed.retainedFromTurn}+`;
+    const estimate = preview.projectedMessagesBytes === undefined
+      ? 'unavailable'
+      : `${preview.projectedMessagesBytes} bytes (baseline ${preview.baselineMessagesBytes} bytes)`;
+    this.writeStatic(
+      `context recovery · committed turns ${preview.currentTurn}\n` +
+        `checkpoint> ${current}\n` +
+        `proposed> ${proposed}\n` +
+        `provider view> ${estimate}\n` +
+        'Enter confirm one provider request · v view summary · Esc cancel\n',
+    );
+  }
+
+  renderContextSummary(summary: string, coveredThroughTurn: number): void {
+    if (this.closing) throw new EventDeliveryError();
+    this.writeStatic(
+      `context checkpoint · covered through turn ${coveredThroughTurn} · read-only\n` +
+        `${boundedEscaped(summary)}\n`,
+    );
+  }
+
   /** Show only that one ordinary follow-up is pending; the text remains controller-local. */
   setFollowUpPending(pending: boolean): void {
     if (this.closing) return;
@@ -573,7 +686,11 @@ export class TuiRenderer implements TerminalRendererGate {
 
   writeStatic(text: string): void {
     if (this.closing) throw new EventDeliveryError();
-    this.terminal.write(staticBytes(text));
+    try {
+      this.terminal.write(staticBytes(text));
+    } catch {
+      throw new EventDeliveryError();
+    }
   }
 
   private write(bytes: Uint8Array): void {

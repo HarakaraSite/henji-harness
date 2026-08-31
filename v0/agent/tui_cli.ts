@@ -15,6 +15,8 @@ import {
   isSessionId,
   launcherStateRoot,
   restoredMessages,
+  type SessionHandle,
+  type SessionMetadata,
   type SessionRecord,
   SessionStoreError,
 } from './session_store.ts';
@@ -23,8 +25,61 @@ import { type RuntimeDisplayState } from './startup_orientation.ts';
 import { PendingInputCore } from '../tui/pending_input.ts';
 import { TuiEditorHistory } from '../tui/input.ts';
 import { buildWorkspacePathIndex, type WorkspacePathIndex } from '../tui/file_reference.ts';
+import {
+  type NavigationBinding,
+  NavigationCancelledError,
+  NavigationFatalError,
+  type NavigationListing,
+  type NavigationPosition,
+  type SessionNavigationHost,
+} from './session_navigation.ts';
+import { type SessionHistoryPage } from './session_history.ts';
 
 const encoder = new TextEncoder();
+
+const throwIfNavigationAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) throw new NavigationCancelledError();
+};
+
+/**
+ * Commit the prepared target only after materialization and old-session close succeed.
+ *
+ * This small transaction seam is production-owned and is intentionally direct-testable: every
+ * failure path must close the target factory/persistence, while a successful commit transfers
+ * ownership exactly once.
+ */
+export interface NavigationSwitchTransaction {
+  readonly signal?: AbortSignal;
+  readonly materializeTarget: () => AgentSession;
+  readonly closeTarget: () => Promise<void>;
+  readonly closeCurrent: () => Promise<void>;
+  readonly commitTarget: (session: AgentSession) => void;
+}
+
+export const runNavigationSwitchTransaction = async (
+  transaction: NavigationSwitchTransaction,
+): Promise<AgentSession> => {
+  throwIfNavigationAborted(transaction.signal);
+  try {
+    const targetSession = transaction.materializeTarget();
+    throwIfNavigationAborted(transaction.signal);
+    try {
+      await transaction.closeCurrent();
+    } catch {
+      throw new NavigationFatalError('current session close failed');
+    }
+    throwIfNavigationAborted(transaction.signal);
+    transaction.commitTarget(targetSession);
+    return targetSession;
+  } catch (error) {
+    try {
+      await transaction.closeTarget();
+    } catch {
+      throw new NavigationFatalError('target session cleanup failed');
+    }
+    throw error;
+  }
+};
 
 export interface TuiSessionFactoryResult {
   readonly session:
@@ -46,6 +101,8 @@ export interface TuiSessionFactoryResult {
   };
   /** Every factory must provide the one startup projection; the TUI never recomputes it. */
   readonly displayState: RuntimeDisplayState;
+  /** Persistent session host used by the idle-only Ctrl-G/Ctrl-T flows. */
+  readonly navigation?: SessionNavigationHost;
 }
 
 export interface TuiCliDependencies {
@@ -225,7 +282,9 @@ export const main = async (
         );
         const workspace = prepared.workspace;
         const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
-        const store = new DenoSessionStore(stateRoot, workspace.root);
+        const store = new DenoSessionStore(stateRoot, workspace.root, {
+          sourceProfileId: prepared.definition.model.profile.id,
+        });
         let record: SessionRecord | undefined;
         let handle;
         if (invocation.persistence === 'continue') {
@@ -262,13 +321,126 @@ export const main = async (
             prepared,
             { persistence, initialRecord: record },
           );
+          let currentHandle: SessionHandle = handle;
+          let currentRecord: SessionRecord | undefined = record;
+          let currentSession = result.session;
+          const position = (): NavigationPosition => {
+            const value = currentSession.currentPosition();
+            return {
+              sessionId: value.sessionId ?? currentHandle.id,
+              agent: value.agent,
+              committedTurn: value.committedTurn,
+              messageCount: value.messageCount,
+              ...(value.checkpoint === undefined ? {} : { checkpoint: value.checkpoint }),
+            };
+          };
+          const navigation: SessionNavigationHost = {
+            persistent: true,
+            async list(signal?: AbortSignal): Promise<NavigationListing> {
+              throwIfNavigationAborted(signal);
+              const listed = await store.list();
+              throwIfNavigationAborted(signal);
+              const rows = listed.sessions.map((metadata: SessionMetadata) => ({
+                ...metadata,
+                current: metadata.id === currentHandle.id,
+                resumed: metadata.id === currentHandle.id,
+                mismatch: metadata.agent !== selected.id,
+              }));
+              if (currentRecord === undefined && !rows.some((row) => row.id === currentHandle.id)) {
+                rows.push({
+                  id: currentHandle.id,
+                  agent: selected.id,
+                  createdAt: new Date(0).toISOString(),
+                  updatedAt: new Date(0).toISOString(),
+                  turnCount: 0,
+                  messageCount: 0,
+                  current: true,
+                  resumed: false,
+                  mismatch: false,
+                });
+              }
+              return { sessions: rows, skippedInvalid: listed.skippedInvalid };
+            },
+            async switchTo(id: string, signal?: AbortSignal): Promise<NavigationBinding> {
+              throwIfNavigationAborted(signal);
+              if (!isSessionId(id)) throw new SessionStoreError('session_invalid');
+              if (id === currentHandle.id) {
+                return {
+                  session: currentSession,
+                  position: position(),
+                  ...(currentRecord === undefined ? {} : (() => {
+                    const replay = restoredMessages(currentRecord!.transcript);
+                    return { restored: { messages: replay.messages, omitted: replay.omitted } };
+                  })()),
+                };
+              }
+              const targetHandle = await store.openExisting(id);
+              try {
+                throwIfNavigationAborted(signal);
+              } catch (error) {
+                try {
+                  await targetHandle.close();
+                } catch {
+                  throw new NavigationFatalError('target session cleanup failed');
+                }
+                throw error;
+              }
+              const targetRecord = targetHandle.record;
+              if (
+                targetRecord === undefined || targetRecord.workspaceRoot !== workspace.root ||
+                targetRecord.agent !== selected.id
+              ) {
+                try {
+                  await targetHandle.close();
+                } catch {
+                  throw new NavigationFatalError('target session cleanup failed');
+                }
+                throw new SessionStoreError('session_invalid');
+              }
+              const targetPersistence = createSessionPersistence(
+                targetHandle,
+                workspace.root,
+                selected.id,
+                targetRecord,
+              );
+              const targetSession = await runNavigationSwitchTransaction({
+                signal,
+                materializeTarget: () => {
+                  const targetRuntime = createRuntimeSessionFromPrepared(
+                    eventSink,
+                    prepared,
+                    { persistence: targetPersistence, initialRecord: targetRecord },
+                  );
+                  return targetRuntime.session;
+                },
+                closeTarget: () => targetPersistence.close(),
+                closeCurrent: () => currentSession.close(),
+                commitTarget: (session) => {
+                  currentHandle = targetHandle;
+                  currentRecord = targetRecord;
+                  currentSession = session;
+                },
+              });
+              const replay = restoredMessages(targetRecord.transcript);
+              return {
+                session: targetSession,
+                position: position(),
+                restored: { messages: replay.messages, omitted: replay.omitted },
+              };
+            },
+            historyPage(page, turn, rows): Promise<SessionHistoryPage | undefined> {
+              return Promise.resolve(currentSession.historyPage(page, turn, rows));
+            },
+            currentPosition: position,
+          };
           return {
             session: result.session,
             requestCount: result.requestCount,
-            close: () => result.session.close(),
+            close: () => currentSession.close(),
             displayState: result.displayState,
             workspaceRoot: prepared.workspace.root,
             sessionLine: `session> ${handle.id} ${record === undefined ? '(new)' : '(resumed)'}`,
+            navigation,
             ...(record === undefined ? {} : (() => {
               const replay = restoredMessages(record.transcript);
               return {
@@ -310,6 +482,7 @@ export const main = async (
           pending,
           history: new TuiEditorHistory(),
           pathIndex,
+          navigation: created.navigation,
         }
         : {},
     );
@@ -332,6 +505,8 @@ export const main = async (
         created.restored.omitted,
       );
     }
+    const initialPosition = created.navigation?.currentPosition();
+    if (initialPosition !== undefined) renderer.setCurrentPosition(initialPosition);
     await dependencies.afterAcquire?.();
     const exitCode = await controller.run();
     if (crashDetected || crashGuard.hasFatal()) {

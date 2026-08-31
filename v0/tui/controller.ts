@@ -1,4 +1,5 @@
 import { EventDeliveryError } from '../agent/events.ts';
+import { isCancellationCleanupError } from '../agent/cancellation.ts';
 import { type AgentSession } from '../agent/session.ts';
 import { type LoopOutcome } from '../agent/contracts.ts';
 import { type ContextMetrics } from '../agent/context.ts';
@@ -13,6 +14,18 @@ import { PendingInputCore } from './pending_input.ts';
 import { WorkspacePathIndex } from './file_reference.ts';
 import { renderFailureStatus, TuiRenderer } from './render.ts';
 import { TerminalLifecycle } from './terminal.ts';
+import {
+  type ContextRecoveryPreview,
+  type ContextRecoveryResult,
+  movePickerSelection,
+  type NavigationBinding,
+  NavigationCancelledError,
+  NavigationFatalError,
+  type NavigationListing,
+  type NavigationPosition,
+  type SessionNavigationHost,
+} from '../agent/session_navigation.ts';
+import { type SessionHistoryPage } from '../agent/session_history.ts';
 
 export type TuiFailureCode =
   | 'input_failure'
@@ -26,12 +39,25 @@ export class TuiControllerError extends Error {
   }
 }
 
-interface SessionLike {
+export interface TuiSessionLike {
   submit(text: string): Promise<LoopOutcome>;
   cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
   steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
   contextSnapshot?(): ContextMetrics | undefined;
   isAvailable?(): boolean;
+  historyPage?(
+    page: number,
+    turn?: number,
+    rows?: number,
+  ): Promise<SessionHistoryPage | undefined> | SessionHistoryPage | undefined;
+  currentPosition?(): NavigationPosition;
+  contextCompactionPreview?(): ContextRecoveryPreview;
+  compactContext?(signal?: AbortSignal): Promise<ContextRecoveryResult>;
+  checkpointSnapshot?(): {
+    readonly summary: string;
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | undefined;
 }
 
 export interface TuiControllerOptions {
@@ -39,9 +65,11 @@ export interface TuiControllerOptions {
   readonly pending?: PendingInputCore;
   readonly history?: TuiEditorHistory;
   readonly pathIndex?: WorkspacePathIndex;
+  /** Persistent host-owned picker/resume/history navigation. */
+  readonly navigation?: SessionNavigationHost;
 }
 
-type ControllerState = 'starting' | 'idle' | 'busy' | 'exiting' | 'failed';
+type ControllerState = 'starting' | 'idle' | 'busy' | 'compacting' | 'exiting' | 'failed';
 type FollowUpSlot = 'closed' | 'open-empty' | 'pending';
 type DiscardKey = 'ctrl_c' | 'ctrl_d';
 type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
@@ -64,6 +92,14 @@ export class TuiController {
   private followUpText: string | null = null;
   private firstCtrlCAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private compactionAbort: AbortController | null = null;
+  private compactionOperation: Promise<void> | null = null;
+  private readonly navigationOperations = new Set<{
+    readonly operation: Promise<void>;
+    readonly abort: AbortController;
+    readonly generation: number;
+  }>();
+  private navigationGeneration = 0;
   private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
   private signalCode: number | null = null;
@@ -78,15 +114,29 @@ export class TuiController {
   constructor(
     private readonly lifecycle: TerminalLifecycle,
     private readonly renderer: TuiRenderer,
-    private readonly session: SessionLike | AgentSession,
+    private session: TuiSessionLike | AgentSession,
     options: TuiControllerOptions = {},
   ) {
     this.pending = options.pending;
     this.history = options.history ?? new TuiEditorHistory();
     this.pathIndex = options.pathIndex;
     this.modern = options.pending !== undefined || options.pathIndex !== undefined ||
-      options.history !== undefined;
+      options.history !== undefined || options.navigation !== undefined;
+    this.navigation = options.navigation;
   }
+
+  private readonly navigation?: SessionNavigationHost;
+  private modal:
+    | {
+      readonly kind: 'picker';
+      readonly listing: NavigationListing;
+      readonly selected: number;
+      readonly page: number;
+    }
+    | { readonly kind: 'picker-loading' }
+    | { readonly kind: 'history'; readonly page: SessionHistoryPage }
+    | { readonly kind: 'context'; readonly preview: ContextRecoveryPreview }
+    | null = null;
 
   get currentState(): ControllerState {
     return this.state;
@@ -141,13 +191,14 @@ export class TuiController {
         return this.exitCode;
       }
       this.state = 'idle';
-      this.renderer.setStatus('ready');
+      this.renderer.setStatus(this.navigation === undefined ? 'ready' : this.readyStatus());
       this.input = this.readEvents();
-      while (this.state === 'idle' || this.state === 'busy') {
+      while (this.state === 'idle' || this.state === 'busy' || this.state === 'compacting') {
         if (this.active === null) {
           const events = await this.input;
           this.input = this.readEvents();
-          this.processIdle(events);
+          if ((this.state as ControllerState) === 'compacting') this.processCompacting(events);
+          else this.processIdle(events);
           continue;
         }
         const input = this.input;
@@ -377,6 +428,10 @@ export class TuiController {
 
   private processModernEvents(events: readonly InputEvent[], busy: boolean): void {
     for (const event of events) {
+      if (!busy && this.modal !== null) {
+        this.processModalEvent(event);
+        continue;
+      }
       if (event.kind === 'ctrl_c') {
         busy ? this.busyCtrlC() : this.modernCtrlC();
         continue;
@@ -399,6 +454,18 @@ export class TuiController {
       }
       if (event.kind === 'alt_enter') {
         if (busy) this.queueFollowUpIfNonblank();
+        continue;
+      }
+      if (!busy && event.kind === 'ctrl_g') {
+        this.openPicker();
+        continue;
+      }
+      if (!busy && event.kind === 'ctrl_t') {
+        this.openHistory();
+        continue;
+      }
+      if (!busy && event.kind === 'ctrl_k') {
+        this.openContextPanel();
         continue;
       }
       if (event.kind === 'tab') {
@@ -441,6 +508,346 @@ export class TuiController {
       }
       this.editEvent(event);
     }
+  }
+
+  private processModalEvent(event: InputEvent): void {
+    const modal = this.modal;
+    if (modal === null) return;
+    if (event.kind === 'escape') {
+      if (modal.kind === 'picker-loading') this.cancelNavigationOperations();
+      this.modal = null;
+      this.renderer.clearModal?.();
+      this.renderer.setStatus(this.readyStatus());
+      return;
+    }
+    if (modal.kind === 'picker-loading') return;
+    if (modal.kind === 'picker') {
+      const count = modal.listing.sessions.length;
+      let selected = modal.selected;
+      let page = modal.page;
+      if (
+        event.kind === 'up' || event.kind === 'down' || event.kind === 'left' ||
+        event.kind === 'right'
+      ) {
+        const moved = movePickerSelection(count, selected, page, event.kind);
+        selected = moved.selected;
+        page = moved.page;
+        this.modal = { ...modal, selected, page };
+        this.renderer.renderSessionPicker?.(modal.listing, selected, page);
+        return;
+      }
+      if (event.kind === 'enter') {
+        const row = modal.listing.sessions[selected];
+        if (row === undefined || row.current) {
+          this.modal = null;
+          this.renderer.clearModal?.();
+          this.renderer.setStatus(this.readyStatus());
+          return;
+        }
+        const abort = new AbortController();
+        const generation = ++this.navigationGeneration;
+        this.trackNavigationOperation(
+          this.resumeSelected(row.id, generation, abort.signal),
+          abort,
+          generation,
+        );
+      }
+      return;
+    }
+    if (modal.kind === 'history') {
+      let page = modal.page.page;
+      let turn = modal.page.turn;
+      if (event.kind === 'up') {
+        if (page > 0) page -= 1;
+        else turn = Math.max(1, turn - 1);
+      } else if (event.kind === 'down') {
+        if (page + 1 < modal.page.pageCount) page += 1;
+        else turn = Math.min(modal.page.totalTurns, turn + 1);
+      } else if (event.kind === 'home') {
+        turn = 1;
+        page = 0;
+      } else if (event.kind === 'end') {
+        turn = modal.page.totalTurns;
+        page = Number.MAX_SAFE_INTEGER;
+      } else if (!(event.kind === 'printable' && event.text === 'v')) {
+        return;
+      }
+      if (this.navigation === undefined && this.session.historyPage === undefined) return;
+      void this.loadHistoryPage(page, turn);
+      return;
+    }
+    if (modal.kind === 'context') {
+      if (event.kind === 'printable' && event.text === 'v') {
+        const checkpoint = this.session.checkpointSnapshot?.();
+        if (checkpoint === undefined) this.renderer.setStatus('no active context checkpoint');
+        else {this.renderer.renderContextSummary?.(
+            checkpoint.summary,
+            checkpoint.coveredThroughTurn,
+          );}
+      } else if (event.kind === 'enter') {
+        this.startContextCompaction();
+      }
+    }
+  }
+
+  private processCompacting(events: readonly InputEvent[]): void {
+    for (const event of events) {
+      if (event.kind === 'escape') {
+        this.compactionAbort?.abort('context compaction cancelled');
+        this.renderer.setStatus('cancelling context compaction');
+      } else if (event.kind === 'ctrl_c') {
+        const now = Date.now();
+        if (
+          this.discardIntent !== null && this.discardIntent.key === 'ctrl_c' &&
+          this.discardIntent.deadline >= now
+        ) {
+          this.discardIntent = null;
+          this.setExitIntent('exit-0');
+        } else {
+          this.discardIntent = { key: 'ctrl_c', deadline: now + 2_000 };
+        }
+        this.compactionAbort?.abort('context compaction cancelled');
+        this.renderer.setStatus(
+          this.exitIntent === 'exit-0'
+            ? 'cancelling context compaction; exiting'
+            : 'cancelling context compaction; Ctrl-C again to discard and exit',
+        );
+      }
+    }
+  }
+
+  private openPicker(): void {
+    if (!this.navigationIdleAllowed()) {
+      this.renderer.setStatus('navigation requires an empty idle session');
+      return;
+    }
+    if (this.navigation === undefined || !this.navigation.persistent) {
+      this.renderer.setStatus('session picker unavailable');
+      return;
+    }
+    this.modal = { kind: 'picker-loading' };
+    this.renderer.renderSessionPicker?.({ sessions: [], skippedInvalid: 0 }, 0, 0, true);
+    const abort = new AbortController();
+    const generation = ++this.navigationGeneration;
+    const operation = this.navigation.list(abort.signal).then(
+      (listing) => {
+        if (
+          this.state !== 'idle' || this.modal?.kind !== 'picker-loading' ||
+          abort.signal.aborted || this.navigationGeneration !== generation
+        ) return;
+        this.modal = { kind: 'picker', listing, selected: 0, page: 0 };
+        this.renderer.renderSessionPicker?.(listing, 0, 0);
+      },
+      (error) => {
+        if (error instanceof NavigationCancelledError || abort.signal.aborted) return;
+        if (
+          this.state !== 'idle' || this.modal?.kind !== 'picker-loading' ||
+          this.navigationGeneration !== generation
+        ) return;
+        this.modal = null;
+        this.renderer.clearModal?.();
+        this.renderer.setStatus('session list unavailable');
+      },
+    );
+    this.trackNavigationOperation(operation, abort, generation);
+  }
+
+  /** Keep modal I/O inside the controller's shutdown/failure settlement boundary. */
+  private trackNavigationOperation(
+    operation: Promise<void>,
+    abort: AbortController,
+    generation: number,
+  ): void {
+    const owned = { operation, abort, generation };
+    this.navigationOperations.add(owned);
+    void operation.then(
+      () => {
+        this.navigationOperations.delete(owned);
+      },
+      (error) => {
+        this.navigationOperations.delete(owned);
+        if (
+          error instanceof NavigationCancelledError ||
+          abort.signal.aborted &&
+            !(error instanceof NavigationFatalError) &&
+            !(error instanceof EventDeliveryError)
+        ) return;
+        void this.fail(error).catch(() => {
+          // The controller has already entered its fatal shutdown path.
+        });
+      },
+    );
+  }
+
+  private async resumeSelected(
+    id: string,
+    generation: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    if (this.navigation === undefined) return;
+    this.modal = { kind: 'picker-loading' };
+    this.renderer.renderSessionPicker?.({ sessions: [], skippedInvalid: 0 }, 0, 0, true);
+    try {
+      const binding: NavigationBinding = await this.navigation.switchTo(id, signal);
+      if (
+        this.state !== 'idle' || signal.aborted || this.navigationGeneration !== generation
+      ) return;
+      this.session = binding.session;
+      this.modal = null;
+      this.renderer.clearModal?.();
+      if (binding.restored !== undefined) {
+        this.renderer.renderRestored(binding.restored.messages, binding.restored.omitted);
+      }
+      if (this.state !== 'idle') return;
+      this.renderer.setCurrentPosition?.(binding.position);
+      this.renderer.setStatus(this.readyStatus());
+    } catch (error) {
+      if (error instanceof NavigationFatalError || error instanceof EventDeliveryError) throw error;
+      if (error instanceof NavigationCancelledError || signal.aborted) return;
+      if (this.navigationGeneration !== generation) return;
+      this.modal = null;
+      this.renderer.clearModal?.();
+      this.renderer.setStatus('session resume failed; current session unchanged');
+    }
+  }
+
+  /** Invalidate and abort every unresolved navigation operation, not just the latest one. */
+  private cancelNavigationOperations(): void {
+    this.navigationGeneration += 1;
+    for (const operation of this.navigationOperations) {
+      operation.abort.abort('navigation dismissed');
+    }
+  }
+
+  private openHistory(): void {
+    if (!this.navigationIdleAllowed()) {
+      this.renderer.setStatus('history requires an empty idle session');
+      return;
+    }
+    if (this.navigation === undefined && this.session.historyPage === undefined) {
+      this.renderer.setStatus('history unavailable');
+      return;
+    }
+    const position = this.navigation?.currentPosition() ?? this.session.currentPosition?.();
+    const turn = position?.committedTurn ?? 1;
+    this.modal = {
+      kind: 'history',
+      page: {
+        turn,
+        totalTurns: turn,
+        page: 0,
+        pageCount: 1,
+        entries: [],
+        sourceBytes: 0,
+        omitted: false,
+      },
+    };
+    void this.loadHistoryPage(0, turn);
+  }
+
+  private async loadHistoryPage(page: number, turn: number): Promise<void> {
+    try {
+      const value = this.navigation !== undefined
+        ? await this.navigation.historyPage(page, turn, 16)
+        : await this.session.historyPage?.(page, turn, 16);
+      if (value === undefined) {
+        this.modal = null;
+        this.renderer.setStatus('history unavailable');
+        return;
+      }
+      this.modal = { kind: 'history', page: value };
+      this.renderer.renderHistoryPage?.(value);
+    } catch {
+      this.modal = null;
+      this.renderer.setStatus('history unavailable');
+    }
+  }
+
+  private openContextPanel(): void {
+    if (!this.navigationIdleAllowed()) {
+      this.renderer.setStatus('context recovery requires an empty idle session');
+      return;
+    }
+    if (
+      this.navigation === undefined || !this.navigation.persistent ||
+      this.session.contextCompactionPreview === undefined ||
+      this.session.compactContext === undefined
+    ) {
+      this.renderer.setStatus('context recovery unavailable');
+      return;
+    }
+    try {
+      const preview = this.session.contextCompactionPreview();
+      this.modal = { kind: 'context', preview };
+      this.renderer.renderContextPanel?.(preview);
+    } catch {
+      this.renderer.setStatus('context recovery unavailable');
+    }
+  }
+
+  private navigationIdleAllowed(): boolean {
+    return this.state === 'idle' && this.active === null && this.editor.text.length === 0 &&
+      this.discardIntent === null && this.pending?.hasActiveTask !== true &&
+      this.pending?.hasSteering !== true && this.pending?.hasFollowUp !== true &&
+      this.pending?.hasRecovery !== true;
+  }
+
+  private async confirmContextCompaction(): Promise<void> {
+    if (this.modal?.kind !== 'context' || this.session.compactContext === undefined) return;
+    this.modal = null;
+    this.renderer.clearModal?.();
+    this.state = 'compacting';
+    this.compactionAbort = new AbortController();
+    this.renderer.setStatus('compacting · one provider request');
+    try {
+      const result = await this.session.compactContext(this.compactionAbort.signal);
+      if (
+        this.exitIntent !== 'return' ||
+        (this.state as ControllerState) === 'failed' ||
+        (this.state as ControllerState) === 'exiting'
+      ) return;
+      this.state = 'idle';
+      this.renderer.setStatus(
+        result.kind === 'installed'
+          ? `context checkpoint · through turn ${result.coveredThroughTurn}`
+          : result.reason ?? 'context compaction refused',
+      );
+    } catch (error) {
+      if (isCancellationCleanupError(error)) {
+        this.state = 'failed';
+        throw error;
+      }
+      if (
+        (this.state as ControllerState) !== 'failed' &&
+        (this.state as ControllerState) !== 'exiting'
+      ) {
+        this.state = 'idle';
+        this.renderer.setStatus('context compaction failed');
+      }
+    } finally {
+      this.compactionAbort = null;
+    }
+  }
+
+  private startContextCompaction(): void {
+    const operation = this.confirmContextCompaction();
+    this.compactionOperation = operation;
+    void operation.then(
+      () => {
+        if (this.compactionOperation === operation) this.compactionOperation = null;
+        if (this.exitIntent !== 'return' && this.state !== 'failed') {
+          void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent).catch(() => {
+            // The lifecycle owns the final sanitized failure result.
+          });
+        }
+      },
+      (error) => {
+        if (this.compactionOperation === operation) this.compactionOperation = null;
+        void this.fail(error).catch(() => {
+          // The controller has already entered its fatal shutdown path.
+        });
+      },
+    );
   }
 
   private modernCtrlD(): void {
@@ -732,9 +1139,26 @@ export class TuiController {
   /** Read committed context only after the settled turn is returning to idle. */
   private readyStatus(): string {
     const metrics = this.session.contextSnapshot?.();
-    if (metrics === undefined) return 'ready';
+    const position = this.navigation?.currentPosition() ?? this.session.currentPosition?.();
+    const prefix = position?.sessionId === undefined
+      ? undefined
+      : `session ${
+        position.sessionId.slice(0, 8)
+      } · agent ${position.agent} · turn ${position.committedTurn}`;
+    const context = position?.checkpoint === undefined
+      ? ''
+      : ` · context through ${position.checkpoint.coveredThroughTurn} · retain ${position.checkpoint.retainedFromTurn}+`;
+    const semantic = position?.checkpoint?.projectedMessagesBytes === undefined
+      ? ''
+      : ` · semantic ≤${position.checkpoint.projectedMessagesBytes}B`;
+    if (metrics === undefined) {
+      const base = prefix === undefined ? 'ready' : `${prefix} · ready`;
+      return `${base}${context}${semantic}`;
+    }
     const estimateK = Math.ceil(metrics.messageEstimatedTokensAfter / 1024);
-    const base = `ready · ctx ≤${estimateK}K/64K est`;
+    const base = `${
+      prefix === undefined ? 'ready' : `${prefix} · ready`
+    }${context}${semantic} · ctx ≤${estimateK}K/64K est`;
     return metrics.compressedResultCount === 0
       ? base
       : `${base} · ${metrics.compressedResultCount} omitted`;
@@ -845,6 +1269,14 @@ export class TuiController {
       if (this.lifecycle.isAcquired()) void this.shutdown(code);
       return;
     }
+    if (this.state === 'compacting') {
+      this.processCompacting([{ kind: signal === 'SIGINT' ? 'ctrl_c' : 'escape' }]);
+      if (signal !== 'SIGINT') {
+        const code = signal === 'SIGTERM' ? 143 : 129;
+        this.setExitIntent(code);
+      }
+      return;
+    }
     if (signal === 'SIGINT') {
       if (this.state === 'busy') this.busyCtrlC();
       else this.modern ? this.modernCtrlC() : this.idleCtrlC();
@@ -887,7 +1319,11 @@ export class TuiController {
     this.clearLiveActivity();
     this.dropFollowUpBestEffort();
     this.clearSteeringEditorBestEffort();
-    this.shutdownPromise = this.lifecycle.restore();
+    this.shutdownPromise = (async () => {
+      await this.settleNavigation();
+      await this.settleCompaction();
+      await this.lifecycle.restore();
+    })();
     await this.shutdownPromise;
   }
 
@@ -899,6 +1335,8 @@ export class TuiController {
     this.dropFollowUpBestEffort();
     this.clearSteeringEditorBestEffort();
     await this.settleActive();
+    await this.settleNavigation();
+    await this.settleCompaction();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
       this.exitCode = 1;
@@ -935,10 +1373,33 @@ export class TuiController {
 
   private async settleCrash(): Promise<void> {
     await this.settleActive();
+    await this.settleNavigation();
+    await this.settleCompaction();
     if (this.shutdownPromise === null) {
       this.shutdownPromise = this.lifecycle.restore();
     }
     await this.shutdownPromise;
+  }
+
+  private async settleNavigation(): Promise<void> {
+    while (this.navigationOperations.size > 0) {
+      const operations = [...this.navigationOperations];
+      for (const operation of operations) operation.abort.abort('controller settlement');
+      await Promise.allSettled(operations.map((operation) => operation.operation));
+      for (const operation of operations) this.navigationOperations.delete(operation);
+    }
+  }
+
+  private async settleCompaction(): Promise<void> {
+    const operation = this.compactionOperation;
+    if (operation === null) return;
+    this.compactionAbort?.abort('controller settlement');
+    try {
+      await operation;
+    } catch {
+      // The operation's failure is already routed through the controller's fatal path.
+    }
+    if (this.compactionOperation === operation) this.compactionOperation = null;
   }
 
   private clearLiveActivity(): void {

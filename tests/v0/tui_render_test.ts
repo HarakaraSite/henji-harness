@@ -1,6 +1,12 @@
 import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
-import { escapeTerminalText, layoutEditorText, TuiRenderer } from '../../v0/tui/render.ts';
+import {
+  escapedTerminalTextBytes,
+  escapeTerminalText,
+  historyPageText,
+  layoutEditorText,
+  TuiRenderer,
+} from '../../v0/tui/render.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
 import { PendingInputCore } from '../../v0/tui/pending_input.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
@@ -40,6 +46,36 @@ Deno.test('central terminal escaping neutralizes control and bidi markers', () =
     'ok\\u{001B}[31m\\u{0007}\\u{007F}\\u{0085}\\u{000D}\n⇥\\u{202E}',
   );
   assertEquals(escapeTerminalText('line\nnext', { editor: true }), 'line↵next');
+});
+
+Deno.test('history byte projection measures the exact escaped entries and framing', () => {
+  const dynamic = 'C0\x00 C1\u0085 bidi\u202e tab\t newline\n 日本語😀';
+  const escaped = escapeTerminalText(dynamic);
+  assertEquals(
+    escapedTerminalTextBytes(dynamic),
+    new TextEncoder().encode(escaped).byteLength,
+  );
+  const page = {
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    agent: 'default' as const,
+    turn: 2,
+    totalTurns: 2,
+    page: 0,
+    pageCount: 1,
+    entries: [{ role: 'user' as const, turn: 2, messageIndex: 0, text: dynamic }],
+    sourceBytes: new TextEncoder().encode(dynamic).byteLength,
+    omitted: false,
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.renderHistoryPage(page);
+  assertEquals(
+    new TextEncoder().encode(terminal.text()).byteLength,
+    new TextEncoder().encode(historyPageText(page)).byteLength,
+  );
+  assert(terminal.text().includes('history 11111111-1111-4111-8111-111111111111'));
+  assert(terminal.text().includes('\\u{0000}'));
+  assert(terminal.text().includes('日本語😀'));
 });
 
 Deno.test('renderer maps completed events once without alternate screen', () => {

@@ -3,6 +3,7 @@ import {
   createSessionPersistence,
   decodeSessionRecord,
   DenoSessionStore,
+  encodeSemanticContextCheckpoint,
   encodeSessionRecord,
   FakeSessionStore,
   MAX_RESTORED_DISPLAY_BYTES,
@@ -19,6 +20,7 @@ import {
   workspaceDigest,
 } from '../../v0/agent/session_store.ts';
 import { AGENT_SESSION_UNAVAILABLE, AgentSession } from '../../v0/agent/session.ts';
+import { CancellationCleanupError } from '../../v0/agent/cancellation.ts';
 import { type AgentEvent, EVENT_DELIVERY_ERROR } from '../../v0/agent/events.ts';
 import { Registry } from '../../v0/agent/tools.ts';
 import { type ModelRequest } from '../../v0/agent/contracts.ts';
@@ -127,6 +129,19 @@ const sizedRecord = (
     },
   ],
 });
+
+const largeContextTranscript = (): SessionRecord['transcript'] => [
+  ...Array.from({ length: 6 }, (_, turn) => [
+    {
+      role: 'user' as const,
+      content: { kind: 'text' as const, text: `goal-${turn} ${'x'.repeat(8_000)}` },
+    },
+    {
+      role: 'assistant' as const,
+      content: { kind: 'text' as const, text: `decision-${turn} ${'y'.repeat(8_000)}` },
+    },
+  ]).flat(),
+];
 
 Deno.test('session codec emits canonical v1 bytes and rejects noncanonical input', () => {
   const encoded = encodeSessionRecord(record());
@@ -325,6 +340,138 @@ Deno.test('Deno store commits, lists, opens, resumes, and rolls back a canonical
   assertEquals(await store.read(handle.id), committed);
   await rollbackPersistence.close();
   await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('AgentSession compaction installs a sibling checkpoint and resumes with canonical history intact', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-compaction-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace, { sourceProfileId: 'profile-v1' });
+  const handle = await store.allocate('default');
+  const initial: SessionRecord = {
+    ...record(workspace),
+    sessionId: handle.id,
+    nextTurn: 7,
+    transcript: largeContextTranscript(),
+  };
+  const persistence = createSessionPersistence(handle, workspace, 'default');
+  persistence.commit(initial.transcript, initial.nextTurn, initial.updatedAt);
+  const before = await store.read(handle.id);
+  const summaryRequests: ModelRequest[] = [];
+  const model = {
+    generate(request: ModelRequest) {
+      summaryRequests.push(request);
+      return { kind: 'final' as const, text: '{"schemaVersion":1,"summary":"first-turn summary"}' };
+    },
+  };
+  const session = new AgentSession(model, new Registry([]), {
+    agent: 'default',
+    initialRecord: initial,
+    persistence,
+    sourceProfileId: 'profile-v1',
+    summarizeContext: (request) => {
+      summaryRequests.push(request);
+      return { kind: 'final' as const, text: '{"schemaVersion":1,"summary":"first-turn summary"}' };
+    },
+  });
+  assert(session.contextCompactionPreview().useful);
+  const compacted = await session.compactContext();
+  assertEquals(compacted.kind, 'installed');
+  assertEquals(compacted.coveredThroughTurn, 4);
+  assertEquals(await store.read(handle.id), before);
+  const checkpoint = await store.readCheckpoint(handle.id);
+  assert(checkpoint !== undefined);
+  assertEquals(checkpoint.sourceProfileId, 'profile-v1');
+  assertEquals(checkpoint.coveredThroughTurn, 4);
+  assertEquals(session.currentPosition().checkpoint?.retainedFromTurn, 5);
+  assertEquals(summaryRequests.length, 1);
+  await session.close();
+
+  const reopened = await store.openExisting(handle.id);
+  const resumedRequests: ModelRequest[] = [];
+  const resumedPersistence = createSessionPersistence(
+    reopened,
+    workspace,
+    'default',
+    reopened.record,
+  );
+  const resumed = new AgentSession(
+    {
+      generate(request) {
+        resumedRequests.push(request);
+        return { kind: 'final' as const, text: 'resumed' };
+      },
+    },
+    new Registry([]),
+    {
+      agent: 'default',
+      initialRecord: reopened.record,
+      persistence: resumedPersistence,
+      sourceProfileId: 'profile-v1',
+    },
+  );
+  const next = await resumed.submit('third goal');
+  assert(next.ok);
+  assertEquals(resumedRequests.length, 1);
+  const projected = resumedRequests[0].transcript;
+  assertEquals(projected[0], {
+    role: 'user',
+    content: {
+      kind: 'text',
+      text:
+        '[henji-context-checkpoint:v1]\ncovered-through-turn: 4\nretained-from-turn: 5\nsummary:\nfirst-turn summary',
+    },
+  });
+  assert(!JSON.stringify(projected).includes('first decision'));
+  const after = await store.read(handle.id);
+  assertEquals(after.transcript.slice(0, initial.transcript.length), initial.transcript);
+  assertEquals(after.nextTurn, 8);
+  assertEquals((await store.readCheckpoint(handle.id))?.summary, 'first-turn summary');
+  await resumed.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('AgentSession marks itself unavailable when summary cancellation cleanup fails', async () => {
+  const store = new FakeSessionStore('/workspace');
+  const handle = await store.allocate('default');
+  const initial: SessionRecord = {
+    ...record('/workspace'),
+    sessionId: handle.id,
+    nextTurn: 7,
+    transcript: largeContextTranscript(),
+  };
+  const persistence = createSessionPersistence(handle, '/workspace', 'default');
+  persistence.commit(initial.transcript, initial.nextTurn, initial.updatedAt);
+  const session = new AgentSession(
+    { generate: () => ({ kind: 'final' as const, text: 'unused' }) },
+    new Registry([]),
+    {
+      initialRecord: initial,
+      persistence,
+      sourceProfileId: 'profile-v1',
+      summarizeContext: () => {
+        throw new CancellationCleanupError();
+      },
+    },
+  );
+  assert(session.contextCompactionPreview().useful);
+  let cleanupFailed = false;
+  try {
+    await session.compactContext();
+  } catch (error) {
+    cleanupFailed = error instanceof CancellationCleanupError;
+  }
+  assert(cleanupFailed);
+  assertEquals(session.isAvailable(), false);
+  let unavailable = false;
+  try {
+    await session.submit('must not reuse');
+  } catch (error) {
+    unavailable = error instanceof Error && error.message === AGENT_SESSION_UNAVAILABLE;
+  }
+  assert(unavailable);
+  await session.close();
 });
 
 Deno.test('session identity projection, root precedence and bounded display are deterministic', async () => {
@@ -551,6 +698,93 @@ Deno.test('Deno store reserves without an empty JSON, commits atomically, rolls 
   await replacement.close();
   await persistence.close();
   await secondReservation.close();
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('Deno store validates profiles, cleans bounded orphan contexts, and counts malformed companions', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-context-index-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace, { sourceProfileId: 'selected-profile' });
+  const handle = await store.allocate('default');
+  const twoTurns: SessionRecord = {
+    ...record(workspace),
+    sessionId: handle.id,
+    nextTurn: 3,
+    transcript: [
+      { role: 'user', content: { kind: 'text', text: 'one' } },
+      { role: 'assistant', content: { kind: 'text', text: 'answer one' } },
+      { role: 'user', content: { kind: 'text', text: 'two' } },
+      { role: 'assistant', content: { kind: 'text', text: 'answer two' } },
+    ],
+  };
+  const persistence = createSessionPersistence(handle, workspace, 'default');
+  persistence.commit(twoTurns.transcript, twoTurns.nextTurn, twoTurns.updatedAt);
+  const checkpoint = {
+    contextSchemaVersion: 1 as const,
+    sessionId: handle.id,
+    createdAt: '2026-08-30T00:00:00.000Z',
+    sourceProfileId: 'selected-profile',
+    coveredThroughTurn: 1,
+    retainedFromTurn: 2,
+    summary: 'safe summary',
+  };
+  persistence.installCheckpoint(checkpoint);
+  await persistence.close();
+  assertEquals((await store.readCheckpoint(handle.id))?.sourceProfileId, 'selected-profile');
+  const paths = await store.pathsPromise;
+  const checkpointPath = `${paths.contexts}/${handle.id}.json`;
+  await Deno.chmod(checkpointPath, 0o640);
+  await expectStoreError(() => store.readCheckpoint(handle.id), 'session_invalid');
+  const permissionListed = await store.list();
+  assertEquals(permissionListed.sessions.length, 0);
+  assertEquals(permissionListed.skippedInvalid, 1);
+  await Deno.chmod(checkpointPath, 0o600);
+  const orphanId = '77777777-7777-4777-8777-777777777777';
+  const orphan = { ...checkpoint, sessionId: orphanId };
+  await Deno.writeFile(
+    `${paths.contexts}/${orphanId}.json`,
+    encodeSemanticContextCheckpoint(orphan),
+    { mode: 0o600 },
+  );
+  await Deno.writeFile(
+    `${paths.contexts}/malformed.json`,
+    bytes('{"not":"a checkpoint"}\n'),
+    { mode: 0o600 },
+  );
+  const wrongProfile = { ...checkpoint, sourceProfileId: 'other-profile' };
+  await Deno.writeFile(
+    `${paths.contexts}/${handle.id}.json`,
+    encodeSemanticContextCheckpoint(wrongProfile),
+    { mode: 0o600 },
+  );
+  const listed = await store.list();
+  assertEquals(listed.sessions.length, 0);
+  assertEquals(listed.skippedInvalid, 2);
+  let orphanRemoved = false;
+  try {
+    await Deno.lstat(`${paths.contexts}/${orphanId}.json`);
+  } catch (error) {
+    orphanRemoved = error instanceof Deno.errors.NotFound;
+  }
+  assert(orphanRemoved);
+  await expectStoreError(() => store.openExisting(handle.id), 'session_invalid');
+  await Deno.remove(root, { recursive: true });
+});
+
+Deno.test('Deno store bounds the context companion namespace at the shared scan ceiling', async () => {
+  const root = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-session-context-scan-' });
+  const workspace = `${root}/workspace`;
+  const state = `${root}/state`;
+  await Deno.mkdir(workspace);
+  const store = new DenoSessionStore(state, workspace);
+  await store.list();
+  const paths = await store.pathsPromise;
+  for (let index = 0; index < MAX_WORKSPACE_DIRECTORY_ENTRIES + 1; index += 1) {
+    await Deno.writeFile(`${paths.contexts}/invalid-${index}.json`, bytes('{}\n'), { mode: 0o600 });
+  }
+  await expectStoreError(() => store.list(), 'session_limit');
   await Deno.remove(root, { recursive: true });
 });
 

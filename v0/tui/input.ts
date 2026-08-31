@@ -25,6 +25,9 @@ export type InputEvent =
   | { readonly kind: 'ctrl_p' }
   | { readonly kind: 'ctrl_n' }
   | { readonly kind: 'ctrl_r' }
+  | { readonly kind: 'ctrl_g' }
+  | { readonly kind: 'ctrl_t' }
+  | { readonly kind: 'ctrl_k' }
   | { readonly kind: 'tab' }
   | { readonly kind: 'left' }
   | { readonly kind: 'right' }
@@ -234,6 +237,18 @@ export class InputDecoder {
     }
     if (byte === 0x12) {
       events.push({ kind: 'ctrl_r' });
+      return;
+    }
+    if (byte === 0x07) {
+      events.push({ kind: 'ctrl_g' });
+      return;
+    }
+    if (byte === 0x14) {
+      events.push({ kind: 'ctrl_t' });
+      return;
+    }
+    if (byte === 0x0b) {
+      events.push({ kind: 'ctrl_k' });
       return;
     }
     if (byte === 0x09) {

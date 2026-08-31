@@ -356,7 +356,16 @@
 
 - 判断済み: ユーザー承認に基づき、Step 82のrepository implementation、disposable fake/PTY tests、full offline gate、results/lifecycle、bounded review、final commitを実施する。canonical plan SHA-256は`a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`
 - 状態: scalar multiline editor/history、bounded workspace path completion、fixed recovery lanes、typed discard/signal、fatal cleanup precedenceを実装。initial review P1 2/P2 4をsingle closureで修正し、narrow re-review GO、Blocker/P1/P2 0。owner focused TUI/pending/file/PTY 83/3/6/33、full gate 624/624、topology/check/fmt/lint/diff green
-- 境界: representative provider-free human acceptanceは別Human Gateで未実施。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施。fatal kill/restart recoveryとlocal tool effect rollbackは保証しない
+- 受入: separate Human Gateのprovider-free representative acceptanceは、初回driver制約の原因調査後に本人承認のdirect-PTY timed rerunを一回実施しaccepted。session/steering/follow-up recovery、編集、二段階discard、terminal restoreを確認し、provider/network/credential/real tool activity 0、disposable cleanup完了
+- 境界: provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施。fatal kill/restart recoveryとlocal tool effect rollbackは保証しない
+
+### POL-20260831-session-navigation-context-recovery-readme-plan
+
+- 計画: `docs/plans/session-navigation-context-recovery-readme.md`、SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`。正本inputは`/tmp/planner-inputs/henji-session-navigation-context-recovery-readme.md`、concept revision 35、SHA-256 `e123e31f2008e05c15c6393eb8127a2550cfbedce4305b71c69f62885c2c04a0`
+- 契約: 一つのStep 83を83a session picker/latest-only resume/read-only canonical history、83b explicit semantic compaction/one companion checkpoint、83c user-first READMEの順で実装する。Ctrl-G/T/Kはidleかつpending text 0だけでadmitし、canonical session schema-v1を不変に保つ
+- context: same OpenRouter wire encoderで1以上のoriginal turnをcoverする最大coverage boundaryを選び、worst-case 4 KiB next draftをreserveする。request前reserveとactual summary後の双方でcurrent baselineよりserialized messagesをstrictly縮小する場合だけatomic installする。canonical loop transcript/commitとsemantic provider projectionをpure parent projectorで分離する
+- review: initial planning review NO-GO Blocker 0/P1 1/P2 2をdynamic wire admission、exact loop seam、literal prompt/envelope/checkpoint framingで修正。single narrow re-reviewで初回3件Closed、残存P2 1をC rangeとstrict reduction/pre-post admissionでowner closureし、final planning disposition Blocker/P1/P2 0
+- 境界: implementation/test/gate、provider-free acceptance、real-provider summary、credential/network、actual persistent state、dependency/lockfile、`_refs/`変更、commit/push/tag/publish/releaseは未承認。次は初期implementation Human Gate
 
 ## Checkpoints
 
@@ -2262,3 +2271,60 @@
 - 実施: initial P1 2/P2 4のsingle closureをnarrow re-reviewし全件Closed、GO、Blocker/P1/P2 0。ownerがTUI 83、pending 3、file 6、PTY 33、authoritative `v0:gate` 624を独立再実行
 - 次: user-authorized final integration commitへStep 82対象ファイルだけを記録する。representative acceptanceは別Human Gate
 - 注意: plan SHA-256 `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`。topology 2、check/fmt(130)/lint(127)/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、push/tag/publish/releaseは未実施
+
+## 2026-08-31 17:01 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Roadmap step 83 session navigation, context recovery, and README planning
+- 実施: revision-35 inputとHEADを照合しcanonical planを作成。initial P1 1/P2 2をsame-wire dynamic admission、canonical loop projector seam、literal provider framingで修正し、narrow re-reviewで初回findingを全件Closed。残存usefulness P2はstrict byte reductionのpre/post admissionとdirect evidenceでowner closure
+- 次: `POL-20260831-session-navigation-context-recovery-readme-plan`の初期implementation Human Gate
+- 注意: plan SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`、final planning disposition Blocker/P1/P2 0。implementation/test/provider/network/credential/actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 17:52 JST
+
+- 実行エージェント: Codex Step 83 implementer
+- 作業トピック: Roadmap step 83 session navigation, context recovery, and README implementation verification
+- 実施: 承認済み83a→83b→83cを実装し、navigation/history、semantic checkpoint、README、offline topology wiringとfocused regressionsを完了。`v0:gate`再実行で全offline leafを確認
+- 次: coordinating ownerがchanged-lines bounded review/re-reviewとowner final dispositionを行う。provider-free representative acceptanceは別Human Gate
+- 注意: focused navigation 4/4、semantic-context 5/5、session-store 15/15、persistent TUI 9/9、TUI 83/83、topology 2/2。authoritative `v0:gate` 631/631、check/fmt/lint/diff check pass。初回gateのPTY 1件は即時isolated rerunと最終gateで再現せず、source変更なし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。plan deltaなし
+
+## 2026-08-31 18:42 JST
+
+- 実行エージェント: Codex Step 83 implementer
+- 作業トピック: Roadmap step 83 approved review-finding closure
+- 実施: 単一のplan-scoped closure passで初期P1 4/P2 5の全9件を閉じる直接production-path回帰を追加・実装。picker/switch/compaction/history projection、ephemeral position、ready metadata、checkpoint/orphan/profile相関を検証し、README/results/AGENTSを同期
+- 次: coordinating ownerがchanged-lines bounded review/re-reviewとowner final dispositionを行う。review GOはまだ主張しない。provider-free representative acceptanceは別Human Gate
+- 注意: navigation 6/6、semantic-context 5/5、session-store 19/19、persistent TUI 9/9、TUI direct 91/91、topology 2/2、authoritative `v0:gate` 645/645。53 unique offline leavesをtopology outer/innerの54 leaf invocationsとして実行。check/fmt/lint/diff check pass。初回gateのPTY 1件はisolated rerunとfinal gateで再現せずsource変更なし。plan delta/unrelated bugなし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 19:16 JST
+
+- 実行エージェント: Codex Step 83 implementer
+- 作業トピック: Roadmap step 83 residual review-finding closure
+- 実施: navigation operation ownershipをnon-overwritable Set + abort/generation settlementへ変更し、delayed Enter→Escape→Ctrl-G→signal regressionを追加。EOF/input/output/crashのcompaction abort-before-await回帰、production `tui_cli` transactionのmaterialize/old-close/swap/cleanup failure evidence、wrong-permission context companion regressionを追加
+- 検証: navigation 6/6、semantic-context 5/5、session-store 19/19、persistent TUI 9/9、TUI direct 99/99、PTY 33/33、topology 2/2、authoritative `v0:gate` 653/653、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` pass。review GOはまだ主張しない
+- 次: coordinating ownerがchanged-lines bounded review/re-reviewとowner final dispositionを行う
+- 注意: plan SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`不変。plan delta/unrelated bugなし。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 19:18 JST
+
+- 実行エージェント: Codex coordinating owner / reviewer
+- 作業トピック: Roadmap step 83 residual closure and owner final gate
+- 実施: initial P1 4/P2 5後のsingle narrow re-reviewで残ったnavigation ownership P1 1、compaction settlement P2 1、evidence-only P2 1を、P1に限定したresidual closureで解消。ownerがnavigation 6、semantic-context 5、session-store 19、persistent TUI 9、TUI 99、topology 2とauthoritative `v0:gate` 653を独立再実行し、最終disposition Blocker/P1/P2 0
+- 次: provider-free representative acceptanceは別Human Gate。実施する場合は新しい明示承認を得る。commitも別途ユーザー指示待ち
+- 注意: plan SHA-256 `9d9de998764fe465c928f772c0ec9948b2980f10456ec55a072979fdd2670050`不変。check/fmt/lint/diff green。provider/network/credential/production command、actual persistent state、dependency/lockfile、`_refs/`、acceptance、commit/push/tag/publish/releaseは未実施
+
+## 2026-08-31 20:49 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 83 provider-free representative human acceptance
+- 実施: user-approved Human Gateをdisposable同一workspace/stateの2 sessionとoutput-driven fake fixtureで実行。Ctrl-G exact resume、Ctrl-T latest causal history、Ctrl-K preview/cancel request 0、fake summary 1、same-checkpoint restart、subsequent fake turn 1、canonical prefix不変、active lock/temp 0、terminal restore 2を確認
+- 次: Step 83対象treeのfinal integration commitは別途ユーザー指示待ち。optional real-provider GateとStep 84は別gate
+- 注意: 初回2観測はdriver-oracle false negative（存在しない`status> ready`待ち、persistent lock inodeをactive lockと誤判定）として不採用。static diagnostic/source確認後のcorrected runがpassし、product source変更なし。external/provider request、credential read、production command、`_refs/`、commit/push/tag/publish/releaseは0。disposable rootと一時driver/diagnosticは削除
+
+## 2026-08-31 21:06 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Roadmap step 83 final integration commit authorization
+- 実施: ユーザーがoffline gate 653/653、final Blocker/P1/P2 0、provider-free representative acceptance済みStep 83 treeのcommitを明示承認。Step 83対象ファイルだけを一つのfinal integration commitへ記録する
+- 次: commit完了後、roadmapの次inputまたはStep 84判断を待つ
+- 注意: user-owned `_refs/*`はstageしない。optional real-provider Gate、provider/network/credential/production command、persistent state、dependency/lockfile、push/tag/publish/releaseは未実施

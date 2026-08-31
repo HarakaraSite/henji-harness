@@ -60,8 +60,11 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/runtime.ts',
   'v0/agent/runtime_cli.ts',
   'v0/agent/session.ts',
+  'v0/agent/session_history.ts',
+  'v0/agent/session_navigation.ts',
   'v0/agent/session_cli.ts',
   'v0/agent/session_store.ts',
+  'v0/agent/semantic_context.ts',
   'v0/agent/skills.ts',
   'v0/agent/steering.ts',
   'v0/agent/tools.ts',
@@ -101,6 +104,9 @@ const CHECK_TARGETS = [
   'v0/agent/steering.ts',
   'v0/agent/loop.ts',
   'v0/agent/session.ts',
+  'v0/agent/session_history.ts',
+  'v0/agent/session_navigation.ts',
+  'v0/agent/semantic_context.ts',
   'v0/agent/skills.ts',
   'v0/agent/registries.ts',
   'v0/agent/work_tools.ts',
@@ -133,8 +139,10 @@ const CHECK_TARGETS = [
   'tests/v0/agent_skills_test.ts',
   'tests/v0/agent_skills_topology_test.ts',
   'tests/v0/agent_session_test.ts',
+  'tests/v0/agent_session_navigation_test.ts',
   'tests/v0/agent_cancellation_test.ts',
   'tests/v0/agent_context_test.ts',
+  'tests/v0/agent_semantic_context_test.ts',
   'tests/v0/agent_loop_test.ts',
   'tests/v0/agent_steering_test.ts',
   'tests/v0/agent_tool_progress_test.ts',
@@ -219,6 +227,7 @@ const EXPECTED_LEAVES = [
   'agent:skills:test',
   'agent:skills:topology:test',
   'agent:session:test',
+  'agent:session:navigation:test',
   'agent:session-store:test',
   'agent:session:process:test',
   'agent:session:tui:test',
@@ -226,6 +235,7 @@ const EXPECTED_LEAVES = [
   'agent:sessions:topology:test',
   'agent:cancellation:test',
   'agent:context:test',
+  'agent:semantic-context:test',
   'agent:steering:test',
   'agent:tool-progress:test',
   'agent:streaming:test',
@@ -282,6 +292,7 @@ assignTarget('agent_startup_orientation_test.ts', 'agent:startup-orientation:tes
 assignTarget('agent_skills_test.ts', 'agent:skills:test');
 assignTarget('agent_skills_topology_test.ts', 'agent:skills:topology:test');
 assignTarget('agent_session_test.ts', 'agent:session:test');
+assignTarget('agent_session_navigation_test.ts', 'agent:session:navigation:test');
 assignTarget('agent_session_store_test.ts', 'agent:session-store:test');
 assignTarget('agent_session_process_test.ts', 'agent:session:process:test');
 assignTarget('agent_session_tui_test.ts', 'agent:session:tui:test');
@@ -289,6 +300,7 @@ assignTarget('agent_session_cli_test.ts', 'agent:sessions:test');
 assignTarget('agent_session_topology_test.ts', 'agent:sessions:topology:test');
 assignTarget('agent_cancellation_test.ts', 'agent:cancellation:test');
 assignTarget('agent_context_test.ts', 'agent:context:test');
+assignTarget('agent_semantic_context_test.ts', 'agent:semantic-context:test');
 assignTarget('agent_steering_test.ts', 'agent:steering:test');
 assignTarget('agent_tool_progress_test.ts', 'agent:tool-progress:test');
 assignTarget('agent_streaming_test.ts', 'agent:streaming:test');
@@ -355,6 +367,7 @@ assignPermission(
   'agent:acceptance:test',
   'agent:cancellation:test',
   'agent:context:test',
+  'agent:semantic-context:test',
   'agent:corpus:eval:live:credential-launcher:test',
   'agent:definition-selection:test',
   'agent:definition:test',
@@ -367,6 +380,7 @@ assignPermission(
   'agent:planner-delegation:test',
   'agent:selection:test',
   'agent:session:test',
+  'agent:session:navigation:test',
   'agent:skills:test',
   'agent:steering:test',
   'agent:streaming:test',
@@ -643,7 +657,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 53, 'expected 53 directly-owned tests');
+  assertEquals(owned.size, 55, 'expected 55 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {

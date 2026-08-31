@@ -38,6 +38,21 @@ export interface SessionRecord {
   readonly transcript: readonly Message[];
 }
 
+/** Strict, single-entry derived provider context kept beside (never inside) session.json. */
+export interface SemanticContextCheckpointV1 {
+  readonly contextSchemaVersion: 1;
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly sourceProfileId: string;
+  readonly coveredThroughTurn: number;
+  readonly retainedFromTurn: number;
+  readonly summary: string;
+}
+
+export const CONTEXT_CHECKPOINT_SCHEMA_VERSION = 1 as const;
+export const MAX_CONTEXT_CHECKPOINT_FILE_BYTES = 16 * 1024;
+export const MAX_CONTEXT_SUMMARY_BYTES = 12_288;
+
 export interface SessionMetadata {
   readonly id: string;
   readonly agent: SessionRecord['agent'];
@@ -267,6 +282,78 @@ export const decodeSessionRecord = (bytes: Uint8Array): SessionRecord => {
   return structuredClone(parsed);
 };
 
+const validCheckpointString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim() === value && value.length > 0 &&
+  !value.includes('\0') && ![...value].some((character) => {
+    const code = character.codePointAt(0)!;
+    return code >= 0xd800 && code <= 0xdfff;
+  });
+
+const checkpointKeys = [
+  'contextSchemaVersion',
+  'sessionId',
+  'createdAt',
+  'sourceProfileId',
+  'coveredThroughTurn',
+  'retainedFromTurn',
+  'summary',
+] as const;
+
+export const validateSemanticContextCheckpoint = (
+  value: unknown,
+): value is SemanticContextCheckpointV1 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const checkpoint = value as Record<string, unknown>;
+  if (!ownKeys(checkpoint, checkpointKeys)) return false;
+  if (
+    checkpoint.contextSchemaVersion !== CONTEXT_CHECKPOINT_SCHEMA_VERSION ||
+    !isSessionId(checkpoint.sessionId) || !canonicalTimestamp(checkpoint.createdAt) ||
+    !validCheckpointString(checkpoint.sourceProfileId) || checkpoint.sourceProfileId.length > 256 ||
+    !Number.isSafeInteger(checkpoint.coveredThroughTurn) ||
+    (checkpoint.coveredThroughTurn as number) < 1 ||
+    !Number.isSafeInteger(checkpoint.retainedFromTurn) ||
+    checkpoint.retainedFromTurn !== (checkpoint.coveredThroughTurn as number) + 1 ||
+    !validCheckpointString(checkpoint.summary) ||
+    encoder.encode(checkpoint.summary).byteLength > MAX_CONTEXT_SUMMARY_BYTES
+  ) return false;
+  return true;
+};
+
+export const encodeSemanticContextCheckpoint = (
+  checkpoint: SemanticContextCheckpointV1,
+): Uint8Array => {
+  if (!validateSemanticContextCheckpoint(checkpoint)) {
+    throw new SessionStoreError('session_invalid');
+  }
+  const bytes = encoder.encode(`${JSON.stringify(checkpoint)}\n`);
+  if (bytes.byteLength > MAX_CONTEXT_CHECKPOINT_FILE_BYTES) {
+    throw new SessionStoreError('session_limit');
+  }
+  return bytes;
+};
+
+export const decodeSemanticContextCheckpoint = (
+  bytes: Uint8Array,
+): SemanticContextCheckpointV1 => {
+  if (
+    bytes.byteLength === 0 || bytes.byteLength > MAX_CONTEXT_CHECKPOINT_FILE_BYTES ||
+    bytes.includes(0) || bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+  ) throw new SessionStoreError('session_invalid');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (!validateSemanticContextCheckpoint(parsed)) throw new SessionStoreError('session_invalid');
+  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
+  if (
+    canonical.byteLength !== bytes.byteLength ||
+    canonical.some((byte, index) => byte !== bytes[index])
+  ) throw new SessionStoreError('session_invalid');
+  return structuredClone(parsed);
+};
+
 export const metadataFromRecord = (record: SessionRecord): SessionMetadata => ({
   id: record.sessionId,
   agent: record.agent,
@@ -338,6 +425,7 @@ export const sessionPaths = async (stateRoot: string, workspaceRoot: string) => 
     root: base,
     sessions: `${base}/sessions`,
     locks: `${base}/locks`,
+    contexts: `${base}/contexts`,
   } as const;
 };
 
@@ -483,8 +571,11 @@ const writeAtomic = (target: string, bytes: Uint8Array, temporary: string): void
 export interface SessionHandle {
   readonly id: string;
   readonly record?: SessionRecord;
+  readonly checkpoint?: SemanticContextCheckpointV1;
   commit(record: SessionRecord): void;
   rollback(): void;
+  installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
+  rollbackCheckpoint(): void;
   close(): Promise<void>;
 }
 
@@ -495,16 +586,25 @@ export const createSessionPersistence = (
   agent: SessionRecord['agent'],
   initial?: SessionRecord,
 ): {
+  readonly id: string;
   readonly record: SessionRecord | undefined;
+  readonly checkpoint: SemanticContextCheckpointV1 | undefined;
   commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void;
   rollback(): void;
+  installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
+  rollbackCheckpoint(): void;
   close(): Promise<void>;
 } => {
   let record = initial;
   let rollbackRecord = initial;
+  let checkpoint = handle.checkpoint;
   return {
+    id: handle.id,
     get record() {
       return record;
+    },
+    get checkpoint() {
+      return checkpoint === undefined ? undefined : structuredClone(checkpoint);
     },
     commit(transcript, nextTurn, updatedAt) {
       rollbackRecord = record;
@@ -526,6 +626,14 @@ export const createSessionPersistence = (
       handle.rollback();
       record = rollbackRecord;
     },
+    installCheckpoint(value) {
+      handle.installCheckpoint(value);
+      checkpoint = structuredClone(value);
+    },
+    rollbackCheckpoint() {
+      handle.rollbackCheckpoint();
+      checkpoint = handle.checkpoint;
+    },
     async close() {
       await handle.close();
     },
@@ -539,6 +647,7 @@ export interface SessionListResult {
 
 export interface SessionStorePort {
   read(id: string): Promise<SessionRecord>;
+  readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined>;
   list(): Promise<SessionListResult>;
   allocate(agent: SessionRecord['agent']): Promise<SessionHandle>;
   openExisting(id: string): Promise<SessionHandle>;
@@ -550,6 +659,8 @@ export interface SessionStoreOptions {
   readonly uuid?: () => string;
   /** Direct-test-only fault seam for first-turn rollback removal. */
   readonly removeSync?: (path: string) => void;
+  /** Selected built-in profile used to reject checkpoints from another composition early. */
+  readonly sourceProfileId?: string;
 }
 
 const compareMetadata = (a: SessionMetadata, b: SessionMetadata): number =>
@@ -558,9 +669,10 @@ const compareMetadata = (a: SessionMetadata, b: SessionMetadata): number =>
 type NamespaceEntries = {
   readonly sessions: readonly Deno.DirEntry[];
   readonly locks: readonly Deno.DirEntry[];
+  readonly contexts: readonly Deno.DirEntry[];
 };
 
-/** Scan both top-level namespaces while holding the index lock, stopping at entry 513. */
+/** Scan all top-level namespaces while holding the index lock, stopping at entry 513. */
 const scanBoundedNamespace = async (path: string): Promise<readonly Deno.DirEntry[]> => {
   const entries: Deno.DirEntry[] = [];
   try {
@@ -580,19 +692,32 @@ const scanBoundedNamespace = async (path: string): Promise<readonly Deno.DirEntr
 const scanNamespaces = async (paths: {
   readonly sessions: string;
   readonly locks: string;
+  readonly contexts: string;
 }): Promise<NamespaceEntries> => ({
   sessions: await scanBoundedNamespace(paths.sessions),
   locks: await scanBoundedNamespace(paths.locks),
+  contexts: await scanBoundedNamespace(paths.contexts),
 });
 
 export class DenoSessionStore implements SessionStorePort {
   readonly pathsPromise: Promise<
-    { readonly root: string; readonly sessions: string; readonly locks: string }
+    {
+      readonly root: string;
+      readonly sessions: string;
+      readonly locks: string;
+      readonly contexts: string;
+    }
   >;
-  private paths?: { readonly root: string; readonly sessions: string; readonly locks: string };
+  private paths?: {
+    readonly root: string;
+    readonly sessions: string;
+    readonly locks: string;
+    readonly contexts: string;
+  };
 
   private readonly makeUuid: () => string;
   private readonly removeSync: (path: string) => void;
+  private readonly sourceProfileId?: string;
 
   constructor(
     readonly stateRoot: string,
@@ -604,6 +729,7 @@ export class DenoSessionStore implements SessionStorePort {
     }
     this.makeUuid = options.uuid ?? (() => crypto.randomUUID().toLowerCase());
     this.removeSync = options.removeSync ?? Deno.removeSync;
+    this.sourceProfileId = options.sourceProfileId;
     this.pathsPromise = sessionPaths(stateRoot, workspaceRoot).then((paths) => {
       this.paths = paths;
       return paths;
@@ -616,6 +742,7 @@ export class DenoSessionStore implements SessionStorePort {
     await ensureDirectory(paths.root, 0o700);
     await ensureDirectory(paths.sessions, 0o700);
     await ensureDirectory(paths.locks, 0o700);
+    await ensureDirectory(paths.contexts, 0o700);
     return paths;
   }
 
@@ -651,20 +778,67 @@ export class DenoSessionStore implements SessionStorePort {
     }
   }
 
+  async readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined> {
+    if (!isSessionId(id)) throw new SessionStoreError('session_invalid');
+    const paths = await this.layout();
+    const path = `${paths.contexts}/${id}.json`;
+    try {
+      const info = await Deno.lstat(path);
+      if (info.isSymlink || !info.isFile || (info.mode !== null && (info.mode & 0o777) !== 0o600)) {
+        throw new SessionStoreError('session_invalid');
+      }
+      if (info.size <= 0 || info.size > MAX_CONTEXT_CHECKPOINT_FILE_BYTES) {
+        throw new SessionStoreError('session_invalid');
+      }
+      const checkpoint = decodeSemanticContextCheckpoint(await Deno.readFile(path));
+      if (
+        checkpoint.sessionId !== id ||
+        this.sourceProfileId !== undefined && checkpoint.sourceProfileId !== this.sourceProfileId
+      ) throw new SessionStoreError('session_invalid');
+      return checkpoint;
+    } catch (error) {
+      if (error instanceof SessionStoreError) throw error;
+      if (isNotFound(error)) return undefined;
+      throw new SessionStoreError('session_io_failure');
+    }
+  }
+
   async list(): Promise<SessionListResult> {
     const paths = await this.layout();
     const index = await acquireLock(`${paths.locks}/.index.lock`);
     try {
-      const { sessions: entries } = await scanNamespaces(paths);
+      const namespaces = await scanNamespaces(paths);
+      const entries = namespaces.sessions;
       const result: SessionMetadata[] = [];
       let skippedInvalid = 0;
+      const sessionNames = new Set(entries.map((entry) => entry.name));
+      for (const entry of namespaces.contexts) {
+        const id = entry.name.endsWith('.json') ? entry.name.slice(0, -5) : '';
+        if (entry.isFile && !entry.isSymlink && isSessionId(id) && !sessionNames.has(id)) {
+          try {
+            await Deno.remove(`${paths.contexts}/${entry.name}`);
+          } catch (error) {
+            if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+          }
+          continue;
+        }
+        if (!entry.isFile || entry.isSymlink || !isSessionId(id)) skippedInvalid += 1;
+      }
       for (const entry of entries) {
         if (!entry.isDirectory || entry.isSymlink || !isSessionId(entry.name)) {
           skippedInvalid += 1;
           continue;
         }
         try {
-          result.push(metadataFromRecord(await this.read(entry.name)));
+          const record = await this.read(entry.name);
+          const checkpoint = await this.readCheckpoint(entry.name);
+          if (
+            checkpoint !== undefined &&
+            (checkpoint.sourceProfileId.length === 0 ||
+              checkpoint.coveredThroughTurn >= record.nextTurn - 1 ||
+              checkpoint.retainedFromTurn !== checkpoint.coveredThroughTurn + 1)
+          ) throw new SessionStoreError('session_invalid');
+          result.push(metadataFromRecord(record));
         } catch (error) {
           if (error instanceof SessionStoreError && error.code === 'session_invalid') {
             skippedInvalid += 1;
@@ -686,10 +860,18 @@ export class DenoSessionStore implements SessionStorePort {
     const paths = await this.layout();
     const index = await acquireLock(`${paths.locks}/.index.lock`);
     let record: SessionRecord;
+    let checkpoint: SemanticContextCheckpointV1 | undefined;
     let lock: Lock;
     try {
       await scanNamespaces(paths);
       record = await this.read(id);
+      checkpoint = await this.readCheckpoint(id);
+      if (
+        checkpoint !== undefined &&
+        (checkpoint.sourceProfileId.length === 0 ||
+          checkpoint.coveredThroughTurn >= record.nextTurn - 1 ||
+          checkpoint.retainedFromTurn !== checkpoint.coveredThroughTurn + 1)
+      ) throw new SessionStoreError('session_invalid');
       lock = await acquireLock(`${paths.locks}/${id}.lock`);
     } catch (error) {
       index.close();
@@ -704,7 +886,7 @@ export class DenoSessionStore implements SessionStorePort {
       if (isNotFound(error)) throw new SessionStoreError('session_not_found');
       throw new SessionStoreError('session_io_failure');
     }
-    return this.handle(id, record, lock, previous, record.agent);
+    return this.handle(id, record, lock, previous, record.agent, checkpoint);
   }
 
   async allocate(agent: SessionRecord['agent']): Promise<SessionHandle> {
@@ -717,6 +899,19 @@ export class DenoSessionStore implements SessionStorePort {
       const namespaces = await scanNamespaces(paths);
       const listing = namespaces.sessions.map((entry) => entry.name);
       const locks = namespaces.locks.map((entry) => entry.name);
+      // Context companions are deliberately data-only siblings. Remove only companions with no
+      // canonical session; malformed companions remain visible to list/open as invalid data.
+      for (const entry of namespaces.contexts) {
+        if (!entry.isFile || entry.isSymlink || !entry.name.endsWith('.json')) continue;
+        const id = entry.name.slice(0, -5);
+        if (!isSessionId(id) || !listing.includes(id)) {
+          try {
+            await Deno.remove(`${paths.contexts}/${entry.name}`);
+          } catch (error) {
+            if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+          }
+        }
+      }
       const valid = new Set<string>();
       const empty = new Set<string>();
       for (const id of listing) {
@@ -791,7 +986,7 @@ export class DenoSessionStore implements SessionStorePort {
       if (id === '') throw new SessionStoreError('session_limit');
       try {
         const lock = await acquireLock(`${paths.locks}/${id}.lock`);
-        return this.handle(id, undefined, lock, undefined, agent);
+        return this.handle(id, undefined, lock, undefined, agent, undefined);
       } catch (error) {
         try {
           await Deno.remove(`${paths.sessions}/${id}`);
@@ -832,6 +1027,11 @@ export class DenoSessionStore implements SessionStorePort {
         } catch {
           // The lock file is reusable and may be removed by another cleanup path.
         }
+        try {
+          await Deno.remove(`${paths.contexts}/${id}.json`);
+        } catch (error) {
+          if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+        }
       } finally {
         lock.close();
       }
@@ -850,13 +1050,24 @@ export class DenoSessionStore implements SessionStorePort {
     lock: Lock,
     previous: Uint8Array | undefined,
     expectedAgent: SessionRecord['agent'],
+    initialCheckpoint: SemanticContextCheckpointV1 | undefined,
   ): SessionHandle {
     let current = previous;
     let rollbackBytes = previous;
+    let checkpointBytes: Uint8Array | undefined;
+    let rollbackCheckpointBytes: Uint8Array | undefined;
+    let checkpoint = initialCheckpoint;
+    if (initialCheckpoint !== undefined) {
+      checkpointBytes = encodeSemanticContextCheckpoint(initialCheckpoint);
+      rollbackCheckpointBytes = checkpointBytes;
+    }
     let closed = false;
     return {
       id,
       record,
+      get checkpoint() {
+        return checkpoint === undefined ? undefined : structuredClone(checkpoint);
+      },
       commit: (next) => {
         if (closed) throw new SessionStoreError('session_busy');
         const bytes = encodeSessionRecord(next);
@@ -895,6 +1106,51 @@ export class DenoSessionStore implements SessionStorePort {
             );
           }
           current = rollbackBytes;
+        } catch {
+          throw new SessionStoreError('session_io_failure');
+        }
+      },
+      installCheckpoint: (next) => {
+        if (closed) throw new SessionStoreError('session_busy');
+        if (next.sessionId !== id) throw new SessionStoreError('session_invalid');
+        const bytes = encodeSemanticContextCheckpoint(next);
+        const paths = this.paths!;
+        try {
+          rollbackCheckpointBytes = checkpointBytes;
+          writeAtomic(
+            `${paths.contexts}/${id}.json`,
+            bytes,
+            `${paths.contexts}/.tmp-${this.makeUuid().toLowerCase()}`,
+          );
+          checkpointBytes = bytes;
+          checkpoint = structuredClone(next);
+        } catch (error) {
+          if (error instanceof SessionStoreError) throw error;
+          throw new SessionStoreError('session_io_failure');
+        }
+      },
+      rollbackCheckpoint: () => {
+        if (closed) return;
+        const paths = this.paths!;
+        try {
+          if (checkpointBytes === rollbackCheckpointBytes) return;
+          if (rollbackCheckpointBytes === undefined) {
+            try {
+              Deno.removeSync(`${paths.contexts}/${id}.json`);
+            } catch (error) {
+              if (!isNotFound(error)) throw error;
+            }
+          } else {
+            writeAtomic(
+              `${paths.contexts}/${id}.json`,
+              rollbackCheckpointBytes,
+              `${paths.contexts}/.tmp-${this.makeUuid().toLowerCase()}`,
+            );
+          }
+          checkpointBytes = rollbackCheckpointBytes;
+          checkpoint = checkpointBytes === undefined
+            ? undefined
+            : decodeSemanticContextCheckpoint(checkpointBytes);
         } catch {
           throw new SessionStoreError('session_io_failure');
         }
@@ -938,6 +1194,7 @@ export class DenoSessionStore implements SessionStorePort {
 /** Permission-free store used by direct runtime/TUI tests and fault-injection seams. */
 export class FakeSessionStore implements SessionStorePort {
   private readonly records = new Map<string, SessionRecord>();
+  private readonly checkpoints = new Map<string, SemanticContextCheckpointV1>();
   private readonly active = new Set<string>();
   private nextId = 1;
 
@@ -948,6 +1205,12 @@ export class FakeSessionStore implements SessionStorePort {
     const value = this.records.get(id);
     if (value === undefined) throw new SessionStoreError('session_not_found');
     return structuredClone(value);
+  }
+
+  async readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined> {
+    await Promise.resolve();
+    const value = this.checkpoints.get(id);
+    return value === undefined ? undefined : structuredClone(value);
   }
 
   async list(): Promise<SessionListResult> {
@@ -985,6 +1248,7 @@ export class FakeSessionStore implements SessionStorePort {
     if (this.active.has(id)) throw new SessionStoreError('session_busy');
     if (!this.records.has(id)) throw new SessionStoreError('session_not_found');
     this.records.delete(id);
+    this.checkpoints.delete(id);
   }
 
   private fakeHandle(
@@ -994,10 +1258,16 @@ export class FakeSessionStore implements SessionStorePort {
   ): SessionHandle {
     let current = initial;
     let rollbackRecord = initial;
+    const checkpoints = this.checkpoints;
+    const initialCheckpoint = checkpoints.get(id);
     let closed = false;
     return {
       id,
       record: initial,
+      get checkpoint() {
+        const value = checkpoints.get(id);
+        return value === undefined ? undefined : structuredClone(value);
+      },
       commit: (next) => {
         if (closed || next.sessionId !== id || next.workspaceRoot !== this.workspaceRoot) {
           throw new SessionStoreError('session_invalid');
@@ -1013,11 +1283,24 @@ export class FakeSessionStore implements SessionStorePort {
         else this.records.set(id, structuredClone(rollbackRecord));
         current = rollbackRecord;
       },
+      installCheckpoint: (next) => {
+        if (closed || next.sessionId !== id) throw new SessionStoreError('session_invalid');
+        encodeSemanticContextCheckpoint(next);
+        checkpoints.set(id, structuredClone(next));
+      },
+      rollbackCheckpoint: () => {
+        // Fake persistence keeps the previous value in the handle-local snapshot below.
+        if (initialCheckpoint === undefined) checkpoints.delete(id);
+        else checkpoints.set(id, structuredClone(initialCheckpoint));
+      },
       close: () => {
         if (closed) return Promise.resolve();
         closed = true;
         this.active.delete(id);
-        if (current === undefined) this.records.delete(id);
+        if (current === undefined) {
+          this.records.delete(id);
+          checkpoints.delete(id);
+        }
         return Promise.resolve();
       },
     };
