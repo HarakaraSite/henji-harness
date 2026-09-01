@@ -1,4 +1,5 @@
 import { assert, assertEquals } from './test_helpers.ts';
+import { createFailureDiagnostic } from '../../v0/agent/failure_diagnostic.ts';
 
 const DENO = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno';
 const ROOT = Deno.cwd();
@@ -54,10 +55,21 @@ const collect = async (
   return { text: decoder.decode(bytes), overflow };
 };
 
-const runPty = async (mode: string, chunks: readonly Chunk[]): Promise<ProcessResult> => {
+const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+const runPty = async (
+  mode: string,
+  chunks: readonly Chunk[],
+  args: readonly string[] = [],
+): Promise<ProcessResult> => {
   const redirect = mode === 'non-tty' ? ' </dev/null >/dev/null' : '';
   const command =
-    `stty -isig -iexten; sleep 0.1; ${DENO} run --no-prompt --no-remote --allow-read=${ROOT} --allow-write=${ROOT} --allow-run=/bin/bash ${FIXTURE} ${mode}${redirect}`;
+    `stty -isig -iexten; sleep 0.1; ${DENO} run --no-prompt --no-remote --allow-read=${ROOT},/tmp --allow-write=${ROOT},/tmp --allow-run=/bin/bash --allow-sys=uid ${FIXTURE} ${
+      [
+        mode,
+        ...args,
+      ].map(shellQuote).join(' ')
+    }${redirect}`;
   const child = new Deno.Command('/usr/bin/script', {
     args: ['-qfec', command, '/dev/null'],
     stdin: 'piped',
@@ -107,6 +119,24 @@ const runPty = async (mode: string, chunks: readonly Chunk[]): Promise<ProcessRe
     durationMs: performance.now() - started,
   };
 };
+
+const diagnostic = createFailureDiagnostic(
+  {
+    stage: 'response_parse',
+    code: 'response_error',
+    lane: 'parent',
+    providerRequestCount: 1,
+    httpStatus: 200,
+    parseReason: 'invalid_sse_json',
+    turnNumber: 1,
+    modelStep: 1,
+    occurredAt: '2026-09-02T00:00:00.000Z',
+  },
+  {
+    uuid: () => '55555555-5555-4555-8555-555555555555',
+    now: () => '2026-09-02T00:00:00.000Z',
+  },
+);
 
 Deno.test('PTY accepts ASCII, Unicode, Backspace and Ctrl-D with a completed response', async () => {
   const result = await runPty('success', [{ text: 'ab\x7f中\n\x04' }]);
@@ -292,6 +322,156 @@ Deno.test('daily editor PTY max-step and contract outcomes retain recoverable in
     assertEquals((result.stdout.match(/user> /g) ?? []).length, 1);
     assert(!result.stdout.includes('assistant> fixture response'));
     assert(result.stderr === '');
+  }
+});
+
+Deno.test('daily diagnostic PTY retains the ID through recovery, clean discard, and terminal restore', async () => {
+  // The child owns this disposable namespace; this focused process task intentionally grants
+  // no parent filesystem access, so setup and cleanup are performed by the fixture process.
+  const state = '/tmp/henji-diagnostic-pty-state';
+  try {
+    const stale = await runPty('diagnostic-cleanup', [], [state]);
+    assert(stale.status.success);
+    const result = await runPty('daily-diagnostic', [
+      { text: 'diagnostic task\n', delayMs: 220 },
+      { text: '\x04', delayMs: 100 },
+      { text: '\x04', delayMs: 180 },
+    ], [state]);
+    assert(result.status.success);
+    assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+    assert(result.stdout.includes(
+      'failure> id=55555555-5555-4555-8555-555555555555 · stage=response_parse',
+    ));
+    assert(result.stdout.includes('code=response_error · lane=parent · requests=1 · http=200'));
+    assert(result.stdout.includes('reason=invalid_sse_json'));
+    assert(result.stdout.includes(
+      'readback> henji diagnostics show --id 55555555-5555-4555-8555-555555555555',
+    ));
+    assert(result.stdout.includes('[ready'));
+    assert(!result.stdout.includes('daily diagnostic private marker'));
+    assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+    assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+    assertEquals(result.stderr, '');
+
+    const expected = `${JSON.stringify(diagnostic)}\n`;
+    const readback = await runPty('diagnostic-readback', [], [state, diagnostic.diagnosticId]);
+    assert(readback.status.success);
+    assert(!readback.killed && !readback.overflow && readback.durationMs < DEADLINE);
+    assert(readback.stdout.replaceAll('\r\n', '\n').includes(expected));
+    assertEquals(readback.stderr, '');
+
+    const restarted = await runPty('diagnostic-readback', [], [state, diagnostic.diagnosticId]);
+    assert(restarted.status.success);
+    assert(!restarted.killed && !restarted.overflow && restarted.durationMs < DEADLINE);
+    assert(restarted.stdout.replaceAll('\r\n', '\n').includes(expected));
+    assertEquals(restarted.stderr, '');
+
+    const inspect = await runPty('diagnostic-inspect', [], [state]);
+    assert(inspect.status.success);
+    assertEquals(JSON.parse(inspect.stdout.trim()), {
+      record: true,
+      recordMarkers: false,
+      session: false,
+      context: false,
+    });
+  } finally {
+    const cleanup = await runPty('diagnostic-cleanup', [], [state]);
+    assert(cleanup.status.success);
+  }
+});
+
+Deno.test('runtime-shaped diagnostic PTY correlates live, durable, recovery, and restart readback', async () => {
+  const state = '/tmp/henji-runtime-diagnostic-pty-state';
+  const markers = ['credential-value-marker', 'Authorization: Bearer', 'private-payload-marker'];
+  try {
+    assert((await runPty('diagnostic-cleanup', [], [state])).status.success);
+    const success = await runPty('runtime-success', [
+      { text: 'offline success\n', delayMs: 160 },
+      { text: '\x04', delayMs: 100 },
+    ], [state]);
+    assert(success.status.success);
+    assert(success.stdout.includes('assistant> fixture response'));
+    const result = await runPty('runtime-diagnostic', [
+      { text: 'runtime diagnostic\n', delayMs: 220 },
+      { text: '\x04', delayMs: 100 },
+      { text: '\x04', delayMs: 180 },
+    ], [state]);
+    assert(result.status.success);
+    assert(!result.killed && !result.overflow && result.durationMs < DEADLINE);
+    assert(result.stdout.includes('failure> id='));
+    assert(result.stdout.includes('stage=response_parse'));
+    assert(result.stdout.includes('occurredAt=20'));
+    assert(result.stdout.includes('durable=yes'));
+    assert(result.stdout.includes('readback> henji diagnostics show --id'));
+    assert(result.stdout.includes('[ready'));
+    for (const marker of markers) {
+      assert(!result.stdout.includes(marker));
+      assert(!result.stderr.includes(marker));
+    }
+    const id = result.stdout.match(/failure> id=([0-9a-f-]{36})/)?.[1];
+    assert(id !== undefined);
+    const readback = await runPty('diagnostic-readback', [], [state, id]);
+    assert(readback.status.success);
+    assert(
+      readback.stdout.replaceAll('\r\n', '\n').includes(
+        `"diagnosticId":"${id}"`,
+      ),
+    );
+    for (const marker of markers) {
+      assert(!readback.stdout.includes(marker));
+      assert(!readback.stderr.includes(marker));
+    }
+    const restarted = await runPty('diagnostic-readback', [], [state, id]);
+    assert(restarted.status.success);
+    assert(
+      restarted.stdout.replaceAll('\r\n', '\n').includes(
+        `"diagnosticId":"${id}"`,
+      ),
+    );
+    for (const marker of markers) {
+      assert(!restarted.stdout.includes(marker));
+      assert(!restarted.stderr.includes(marker));
+    }
+    const inspect = await runPty('diagnostic-inspect', [], [state, id]);
+    assert(inspect.status.success);
+    assertEquals(JSON.parse(inspect.stdout.trim()), {
+      record: true,
+      recordMarkers: false,
+      session: false,
+      context: false,
+    });
+    for (const marker of markers) {
+      assert(!inspect.stdout.includes(marker));
+      assert(!inspect.stderr.includes(marker));
+    }
+    assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
+    assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
+  } finally {
+    const cleanup = await runPty('diagnostic-cleanup', [], [state]);
+    assert(cleanup.status.success);
+  }
+});
+
+Deno.test('runtime-shaped diagnostic PTY reports store capacity without a false durable claim', async () => {
+  const state = '/tmp/henji-runtime-diagnostic-capacity-state';
+  try {
+    assert((await runPty('diagnostic-cleanup', [], [state])).status.success);
+    assert((await runPty('diagnostic-fill', [], [state])).status.success);
+    const result = await runPty('runtime-diagnostic', [
+      { text: 'capacity diagnostic\n', delayMs: 220 },
+      { text: '\x04', delayMs: 100 },
+      { text: '\x04', delayMs: 180 },
+    ], [state]);
+    assert(result.status.success);
+    assert(result.stdout.includes('durable=failed'));
+    assert(result.stdout.includes('store=diagnostic_capacity'));
+    assert(!result.stdout.includes('durable=yes'));
+    assert(!result.stdout.includes('credential-value-marker'));
+    assert(!result.stdout.includes('Authorization: Bearer'));
+    assert(!result.stdout.includes('private-payload-marker'));
+  } finally {
+    const cleanup = await runPty('diagnostic-cleanup', [], [state]);
+    assert(cleanup.status.success);
   }
 });
 

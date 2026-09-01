@@ -6,6 +6,11 @@ import {
   type ToolResultContent,
   type UserMessage,
 } from './contracts.ts';
+import type {
+  FailureDiagnosticDurability,
+  FailureDiagnosticPersistenceErrorCode,
+  FailureDiagnosticV1,
+} from './failure_diagnostic.ts';
 import { PresentationDeliveryError as EventDeliveryError } from '../presentation/contract.ts';
 
 // Compatibility export: core delivery and the presentation boundary intentionally share one
@@ -57,6 +62,9 @@ export type AgentEvent =
     readonly turn: number;
     readonly outcome: LoopOutcome['stopReason'];
     readonly committed: boolean;
+    readonly diagnostic?: FailureDiagnosticV1;
+    readonly diagnosticDurability?: FailureDiagnosticDurability;
+    readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;
   };
 
 export type AgentEventSink = (event: AgentEvent) => void;

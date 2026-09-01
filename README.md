@@ -197,12 +197,41 @@ agent, real provider, full workspace tools, and persistent session. It is a trus
 tools and Bash run as the OS user and may reach outside the workspace or network. Follow the exact
 three-turn task, bounds, stop conditions, and cleanup in
 [`docs/plans/step-83-full-capability-human-acceptance-gate.md`](docs/plans/step-83-full-capability-human-acceptance-gate.md).
-The final Human Gate is separate and has not been run by the offline test gate.
+The offline test gate does not run this acceptance. The separately approved one-shot production
+acceptance was consumed on 2026-09-01 and stopped at Turn 1 `contract_failure` without retry; see
+the linked gate and results. The run is non-evaluable because safe cause and request-count evidence
+were not exposed or retained; do not use it for an adoption decision or repeat it unchanged.
 
 ```text
 cd /tmp/henji-step83-full-capability-acceptance
 henji
 ```
+
+## Failure diagnostics
+
+When a turn fails, the retained TUI log shows a bounded `failure>` line with the failure stage,
+safe code, actual provider-request count, applicable HTTP status and parser reason, turn/model
+step, and one diagnostic ID. The same ID is printed in the readback command:
+
+```text
+henji diagnostics list
+henji diagnostics latest
+henji diagnostics show --id <UUID>
+```
+
+These commands are read-only: they inspect only the caller workspace's diagnostic namespace and do
+not start a provider, credential, tool, session, or context operation. A record is workspace-
+partitioned and bounded to 16 records and 16 KiB of canonical data. To remove one record after
+inspection, use the exact separately authorized command:
+
+```text
+henji diagnostics delete --id <UUID> --yes
+```
+
+Diagnostic records contain only fixed allowlisted enums, counts, timestamps, and bounded status.
+They never contain credential values, Authorization headers, raw request/response or model data,
+tool/session content, paths, or arbitrary error text. Successful and normally cancelled turns do
+not create failure diagnostics, and failed-turn/session cleanup does not remove an existing record.
 
 ## Developer/reference appendix
 

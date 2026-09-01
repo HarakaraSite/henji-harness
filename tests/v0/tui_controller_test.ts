@@ -2,6 +2,7 @@ import { assert, assertEquals } from './test_helpers.ts';
 import { type AgentEvent, EventDeliveryError } from '../../v0/agent/events.ts';
 import { CancellationCleanupError } from '../../v0/agent/cancellation.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
+import { type PresentationFailureDiagnostic } from '../../v0/presentation/contract.ts';
 import { type ContextMetrics } from '../../v0/agent/context.ts';
 import {
   main as tuiMain,
@@ -159,6 +160,21 @@ const cancelledOutcome = (task: string): LoopOutcome => ({
   toolCallCount: 0,
   toolResultCount: 0,
   transcript: [],
+});
+
+const responseParseDiagnostic: PresentationFailureDiagnostic = Object.freeze({
+  schemaVersion: 1,
+  diagnosticId: '44444444-4444-4444-8444-444444444444',
+  stage: 'response_parse',
+  code: 'response_error',
+  lane: 'parent',
+  providerRequestCount: 1,
+  httpStatus: 200,
+  parseReason: 'invalid_sse_json',
+  occurredAt: '2026-09-02T00:00:00.000Z',
+  turnNumber: 1,
+  modelStep: 1,
+  retryCount: 0,
 });
 
 class FakeSession {
@@ -574,6 +590,25 @@ class QueueSession {
       transcript: [],
     });
   }
+  finishDiagnosticFailure(): void {
+    const pending = this.pending;
+    if (pending === null) return;
+    this.pending = null;
+    this.settled = true;
+    pending.resolve({
+      ok: false,
+      task: pending.task,
+      outcome: 'contract_failure',
+      stopReason: 'contract_failure',
+      // The controller must render only the typed diagnostic, never this core-only detail.
+      error: 'provider response unsafe marker',
+      diagnostic: responseParseDiagnostic,
+      steps: 1,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+    });
+  }
   finishMaxSteps(): void {
     const pending = this.pending;
     if (pending === null) return;
@@ -876,6 +911,8 @@ Deno.test('production controller picker renders full UUIDs and resumes the visib
   terminal.push('\r');
   await tick();
   assertEquals(switched, ids[8]);
+  terminal.push('\x04');
+  await tick();
   terminal.push('\x04');
   assertEquals(await running, 0);
 });
@@ -3047,6 +3084,71 @@ Deno.test('modern controller preserves fixed lanes through cancellation without 
   assertEquals(controller.editor.text, 'task!');
   pending.clearAll();
   terminal.push('\x03\x03');
+  assertEquals(await running, 0);
+});
+
+Deno.test('modern diagnostic fallback retains the ID and returns to ready without resubmit', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const session = new QueueSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+  });
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('diagnostic task\n');
+  await tick();
+  session.finishDiagnosticFailure();
+  await tick();
+
+  const frame = renderer.renderFrame();
+  assertEquals(session.submitted, ['diagnostic task']);
+  assertEquals(controller.currentState, 'idle');
+  assert(pending.hasRecovery);
+  assert(frame.includes(
+    'failure> id=44444444-4444-4444-8444-444444444444 · stage=response_parse',
+  ));
+  assert(frame.includes('durable=yes'));
+  assert(frame.includes(
+    'readback> henji diagnostics show --id 44444444-4444-4444-8444-444444444444',
+  ));
+  assert(!frame.includes('provider response unsafe marker'));
+  assert(frame.includes('[ready'));
+
+  // A recoverable diagnostic is not an implicit retry; an explicit EOF is still clean exit.
+  terminal.push('\x04');
+  await tick();
+  terminal.push('\x04');
+  assertEquals(await running, 0);
+  assertEquals(session.submitted, ['diagnostic task']);
+  assertEquals(terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('successful modern outcome retains no diagnostic marker', async () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const pending = new PendingInputCore();
+  const session = new FakeSession((event) => renderer.eventSink(event));
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+    history: new TuiEditorHistory(),
+    pathIndex: WorkspacePathIndex.empty('/tmp/tui-fixture'),
+  });
+  await lifecycle.acquire();
+  const running = controller.run();
+  terminal.push('ordinary task\n');
+  await tick();
+  await tick();
+  assertEquals(controller.currentState, 'idle');
+  const frame = renderer.renderFrame();
+  assert(!frame.includes('failure>'));
+  assert(!frame.includes('diagnostics show'));
+  terminal.push('\x04');
   assertEquals(await running, 0);
 });
 

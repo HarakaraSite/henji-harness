@@ -837,11 +837,29 @@
 - review: initial planning review P1 1/P2 1をexternal-cwd session list/delete exact permission/
   command/testと、machine installerのtarget-preserving backup/candidate atomic replacement・全failure
   injectionで修正。single narrow re-reviewはGO、Blocker/P1/P2 0
-- gate: Human Gate 2 pending。承認範囲はlocal implementation/offline test/review/owner gateと一回の
-  machine launcher install/check/necessary rollbackまで。credential read/provider/network/production
-  `henji`/acceptance workspace・sessionは別のfinal Human Gate
-- 境界: credential value、provider/network、production command、actual persistent state、machine entry
-  change、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseはplanning中未実施
+- gate: local integration、715-test owner gate、machine launcher install/checkは完了。別途承認された
+  final Human Gateは一回consumeし、exact Turn 1の`contract_failure`でstop。Turn 2/3、retry/rerun、
+  tool effect、committed turnは0。safe cause/request数が失われたため結果は`判定不能`で、三択判断は撤回
+- 境界: credential valueは表示・copy・logしていない。追加provider attempt、code修正、cleanup、
+  dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは新しい明示承認なしに行わない
+
+### POL-20260902-step-83-sanitized-failure-diagnostics-implementation
+
+- 判断済み: approved Human Gate 2に基づき
+  `docs/plans/step-83-sanitized-failure-diagnostics.md`、SHA-256
+  `4e48a0ee23f830cd23019c4bab54b251c19048a814fa5f1af7aa8b4b5ec85608`を実装した。旧
+  overprotection issueとimplementation ASKは解消
+- 契約: credential/raw Authorization/provider payload/arbitrary errorを診断へ入れず、fixed
+  stage/code/lane/request count/status/parser reason/time/turn/step/IDだけを同一immutable recordとして
+  retained UI、atomic external store、`henji diagnostics` readbackへ通す。永続化失敗は同じrecordを
+  `durable=failed`でrecoverable表示する
+- review/検証: initial Product P1 3/P2 1、Evidence E2 2をclosure。narrow re-reviewの残存E2をowner
+  evidence closureし、gate後の2 regressionもexceptional ultra-narrow reviewでClosed。final Product
+  Blocker/P1/P2 0、Evidence E1/E2 0。全70 direct files / 763 offline testsをprefix、stop leaf 3/3、
+  canonical suffixの組合せで確認し、topology/check/fmt/lint/diff green
+- 注意: Deno task processの非再現exit 139をharness observationとして記録。provider retry、credential
+  access、production `henji`、actual acceptance state、cleanup、machine install、`_refs/`、commit/push/tag/
+  publish/releaseは未実施。provider retryは別Human Gate
 
 ## Checkpoints
 
@@ -3981,3 +3999,94 @@
 - 未実施: machine-local `henji` install/check、production `henji`、credential value read、provider/network、
   actual acceptance workspace/session、final Human Gate、commit/push/tag/publish/release
 - 注意: user-owned untracked `_refs/*`を変更・stage・削除しない。現在のacceptance packageは実行不可
+
+## 2026-09-01 21:45 JST
+
+- 実行エージェント: Codex Step 83 residual correction implementer
+- 作業トピック: approved residual correction continuation
+- 実施: acceptance assertion/cleanupを選択session/workspace限定のguardへ修正し、短行容量F1の安全優先表示、installed-shaped wrapperのargv/status/signal seam、installer late rollback seamsを追加。resultsをreview-pendingへ更新
+- 検証: TUI 115/115、launcher/package 8/8、transport 20/20、offline topology 2/2、`v0:check`、`v0:fmt` 152、`v0:lint` 149、Human Gate assertion block/launcher/installer shell syntax、`git diff --check` green
+- 次: coordinating ownerのnarrow reviewとstable candidate final gate。一回のfull `v0:gate`はreview後まで保留
+- 注意: `v0:test`/`v0:gate`はcontinuation scopeのため未実行。credential value、provider/network、production session、machine install、actual persistent state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-01 21:50 JST
+
+- 実行エージェント: Codex Step 83 residual P1/E1 implementer
+- 作業トピック: fail-closed Human Gate assertion guard
+- 実施: literal assertion blockの全failureをsticky statusへ集約し、途中失敗後のcleanupを禁止。disposable shellで早期top-level mismatch時のworkspace/expected保持とcleanup marker不在を検証
+- 検証: launcher/package process 9/9、`v0:check`、`v0:fmt` 152、Human Gate block/launcher/installer shell syntax、`git diff --check` green
+- 次: coordinating ownerのnarrow reviewとstable candidate final gate。一回のfull `v0:gate`はreview後まで保留
+- 注意: `v0:test`/`v0:gate`、credential value、provider/network、production session、machine install、actual persistent state、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-01 21:53 JST
+
+- 実行エージェント: Codex coordinating owner / implementer / reviewer
+- 作業トピック: Step 83 residual correction and local integration closure
+- 実施: Product P1/P2二件と合意済みEvidence E2二件を局所修正。fail-closed Human Gate cleanup、
+  row-aware short-terminal F1、installed-shaped wrapper forwarding、late rollback survivalを追加
+- 検証: final narrow reviewはProduct GO Blocker/P1/P2 0、Verification complete E1/E2 0。owner
+  authoritative `v0:gate`は新運用どおり一回だけ実行し、full offline 715/715、check/fmt/lint/topology green
+- machine entry: repo-owned installerで一回installしcheck成功。targetはregular 0755、sourceと同じ
+  SHA-256 `0fc6bba0de3d5e6ba7701355b6cf12752b7bfad8e5f31d048f666a4abfb0d95e`。fixed backupは旧SHA
+  `33adeae91697778d5c648d948a2df50ff2d6476aa72b9fdf29ac3fe8437f1c12`
+- 次: separate final full-capability Human Gateのapproval packageを提示する。承認前にinstalled `henji`を
+  起動せず、credential/model/provider/cost preflightも実行しない
+- 注意: production `henji`、credential value、provider/network、acceptance workspace/session、final
+  Human Gate、commit/push/tag/publish/releaseは未実施。`_refs/*`を変更・stage・削除しない
+
+## 2026-09-01 22:10 JST
+
+- 実行エージェント: user / Codex coordinating owner
+- 作業トピック: Step 83 final full-capability Human Gate
+- 実施: installed bare `henji`をfixed workspaceから一回起動し、F1確認後にexact Turn 1を一回送信。
+  `contract_failure`で即停止し、Turn 2/3、retry/fallback/rerun、tool effect、final、commitは0
+- 次: `ASK-20260901-step-83-full-capability-disposition`の本人三択判断。必要な診断・修正・再試行は
+  それぞれ別途明示承認を得る
+- 注意: Ctrl-D確認でpending taskを破棄してexit 0。workspaceは700でexact 600 `request.txt`のみ、
+  `acceptance-note.md`なし、session list 0、temp/selected-session residueなし。credential valueは非表示、
+  exact provider request数はUIから観測不能。記録後のprovider-free package focused test 9/9と
+  `git diff --check`はgreen。workspace/state namespaceはcleanupせず保持
+
+## 2026-09-01 22:32 JST
+
+- 実行エージェント: user / Codex coordinating owner
+- 作業トピック: Step 83 acceptance overprotection record
+- 実施: user判断によりHuman Gateを`判定不能`へ訂正し三択要求を撤回。実在secret一つに対し、将来の
+  仮想private dataを理由にsafe diagnosticまで消した過剰防護と、one-shot受入を無効化した影響を
+  `ISS-20260901-step-83-overprotection-diagnostics`およびresultsへ記録
+- 次: safe failure evidenceのplanning/実装は別途承認待ち。provider再試行は行わない
+- 注意: 記録変更だけ。provider-free package文書検査9/9と`git diff --check`はgreen。credential value、
+  provider/network、production command、workspace cleanup、product code、dependency/lockfile、`_refs/`、
+  commit/push/tag/publish/releaseは未実施
+
+## 2026-09-01 23:24 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Step 83 sanitized failure diagnostics planning
+- 実施: revision 41 inputを現行failure/runtime/store/TUI/launcherへ接続しcanonical planを作成。initial
+  P1 1/P2 3/E2 1を限定修正し、single narrow re-review GO、Blocker/P1/P2/E1/E2 0
+- 次: `ASK-20260901-step-83-sanitized-failure-diagnostics`のHuman Gate 2承認待ち
+- 注意: planning/lifecycle文書だけを変更。implementation/test/provider/network/credential、production
+  command/actual state、workspace cleanup、machine install、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 03:22 JST
+
+- 実行エージェント: Codex coordinating owner / implementer / reviewer
+- 作業トピック: Step 83 sanitized failure diagnostics implementation
+- 実施: approved planを実装し、typed failure record、atomic diagnostic store、restricted CLI、retained
+  TUI correlationを追加。initial Product P1 3/P2 1・Evidence E2 2、残存E2、gateで判明した2 regressionを
+  closureし、exceptional ultra-narrow reviewはGO
+- 次: provider retryが必要なら別Human Gateで判断。現時点では実行しない
+- 注意: 全70 direct files / 763 offline testsを最終候補で網羅。Deno task exit 139はstop leaf単独3/3と
+  ordered suffix成功により非再現harness observation。credential/provider/production/actual state cleanup、
+  `_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 08:50 JST
+
+- 実行エージェント: Codex coordinating owner
+- 作業トピック: Step 83 sanitized failure diagnostics session closure
+- 実施: `POL-20260902-step-83-sanitized-failure-diagnostics-implementation`の実装・review・offline
+  verification・results/lifecycle更新を完了し、ユーザー指示により関連working treeをintegration commitへ記録する
+- 次: なし。provider retryを行う場合だけ別Human Gateから再開する
+- 注意: `_refs/`はcommit対象外。credential/provider/production `henji`/actual acceptance state cleanup、
+  push/tag/publish/releaseは未実施

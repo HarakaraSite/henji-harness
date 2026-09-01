@@ -23,6 +23,111 @@ export type PresentationOutcomeReason =
   | 'contract_failure'
   | 'cancelled';
 
+export type PresentationFailureStage =
+  | 'credential_resolution'
+  | 'request_build'
+  | 'request_admission'
+  | 'transport'
+  | 'http'
+  | 'response_parse'
+  | 'model_result_validation'
+  | 'session_commit'
+  | 'cancellation_cleanup'
+  | 'unknown_stage';
+
+export type PresentationFailureCode =
+  | 'missing_credential'
+  | 'invalid_input'
+  | 'request_budget_exhausted'
+  | 'transport_error'
+  | 'http_error'
+  | 'response_error'
+  | 'limit_exceeded'
+  | 'invalid_model_result'
+  | 'commit_error'
+  | 'cleanup_error'
+  | 'unknown_code';
+
+export type PresentationParseReason =
+  | 'unsupported_media_type'
+  | 'response_body_missing'
+  | 'response_body_too_large'
+  | 'response_stream_failed'
+  | 'invalid_utf8'
+  | 'invalid_sse_framing'
+  | 'invalid_sse_json'
+  | 'provider_reported_error'
+  | 'invalid_completion_identity'
+  | 'unsupported_choice_shape'
+  | 'unsupported_finish_reason'
+  | 'unsupported_delta_shape'
+  | 'mixed_text_and_tool_calls'
+  | 'invalid_tool_arguments'
+  | 'incomplete_tool_call'
+  | 'invalid_usage_frame'
+  | 'data_after_terminal'
+  | 'empty_terminal_result'
+  | 'stream_ended_before_done'
+  | 'unsupported_response_shape';
+
+export interface PresentationFailureDiagnostic {
+  readonly schemaVersion: 1;
+  readonly diagnosticId: string;
+  readonly stage: PresentationFailureStage;
+  readonly code: PresentationFailureCode;
+  readonly lane: 'parent' | 'planner';
+  readonly providerRequestCount: number;
+  readonly httpStatus?: number;
+  readonly parseReason?: PresentationParseReason;
+  readonly occurredAt: string;
+  readonly turnNumber: number;
+  readonly modelStep: number;
+  readonly retryCount: 0;
+}
+
+export type PresentationDiagnosticDurability = 'yes' | 'failed' | 'unknown';
+export type PresentationDiagnosticPersistenceError =
+  | 'diagnostic_not_found'
+  | 'diagnostic_busy'
+  | 'diagnostic_invalid'
+  | 'diagnostic_capacity'
+  | 'diagnostic_io_failure';
+
+/** Stable, data-only one-line diagnostic fields for retained presentation. */
+export const formatPresentationFailureDiagnostic = (
+  diagnostic: PresentationFailureDiagnostic,
+  durable: PresentationDiagnosticDurability,
+  persistenceError?: PresentationDiagnosticPersistenceError,
+): string => {
+  const fields = [
+    `id=${diagnostic.diagnosticId}`,
+    `stage=${diagnostic.stage}`,
+    `code=${diagnostic.code}`,
+    `lane=${diagnostic.lane}`,
+    `requests=${diagnostic.providerRequestCount}`,
+  ];
+  if (diagnostic.httpStatus !== undefined) {
+    fields.push(`http=${diagnostic.httpStatus}`);
+  }
+  if (diagnostic.parseReason !== undefined) {
+    fields.push(`reason=${diagnostic.parseReason}`);
+  }
+  if (
+    diagnostic.stage === 'unknown_stage' || diagnostic.code === 'unknown_code'
+  ) {
+    fields.push('reason=not_instrumented');
+  }
+  fields.push(
+    `turn=${diagnostic.turnNumber}`,
+    `step=${diagnostic.modelStep}`,
+    `occurredAt=${diagnostic.occurredAt}`,
+    'retry=0',
+    `durable=${durable}`,
+  );
+  if (persistenceError !== undefined) fields.push(`store=${persistenceError}`);
+  return fields.join(' · ');
+};
+
 export type PresentationJsonPrimitive = string | number | boolean | null;
 export type PresentationJson =
   | PresentationJsonPrimitive
@@ -78,6 +183,9 @@ export interface PresentationOutcome {
   readonly finalText?: string;
   readonly terminalKind?: 'json_result';
   readonly error?: string;
+  readonly diagnostic?: PresentationFailureDiagnostic;
+  readonly diagnosticDurability?: PresentationDiagnosticDurability;
+  readonly diagnosticPersistenceError?: PresentationDiagnosticPersistenceError;
   readonly steps: number;
   readonly toolCallCount: number;
   readonly toolResultCount: number;
@@ -155,7 +263,10 @@ export interface PresentationContextPreview {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
   };
-  readonly proposed?: { readonly coveredThroughTurn: number; readonly retainedFromTurn: number };
+  readonly proposed?: {
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  };
   readonly baselineMessagesBytes?: number;
   readonly projectedMessagesBytes?: number;
 }
@@ -175,8 +286,19 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'exit'; readonly code: 0 | 129 | 143 }>
   | Readonly<{ readonly kind: 'list_sessions' }>
   | Readonly<{ readonly kind: 'resume_session'; readonly id: string }>
-  | Readonly<{ readonly kind: 'history_page'; readonly page: number; readonly turn: number }>
-  | Readonly<{ readonly kind: 'compaction'; readonly action: 'preview' | 'confirm' | 'cancel' }>
+  | Readonly<
+    {
+      readonly kind: 'history_page';
+      readonly page: number;
+      readonly turn: number;
+    }
+  >
+  | Readonly<
+    {
+      readonly kind: 'compaction';
+      readonly action: 'preview' | 'confirm' | 'cancel';
+    }
+  >
   | Readonly<{ readonly kind: 'dismiss_overlay' }>;
 
 /**
@@ -187,10 +309,20 @@ export type PresentationIntent =
 export type PresentationIntentResult =
   | Readonly<{ readonly kind: 'accepted' }>
   | Readonly<
-    { readonly kind: 'rejected'; readonly reason: 'idle' | 'unavailable' | 'busy' | 'invalid' }
+    {
+      readonly kind: 'rejected';
+      readonly reason: 'idle' | 'unavailable' | 'busy' | 'invalid';
+    }
   >
-  | Readonly<{ readonly kind: 'outcome'; readonly outcome: PresentationOutcome }>
-  | Readonly<{ readonly kind: 'listing'; readonly listing: PresentationNavigationListing }>
+  | Readonly<
+    { readonly kind: 'outcome'; readonly outcome: PresentationOutcome }
+  >
+  | Readonly<
+    {
+      readonly kind: 'listing';
+      readonly listing: PresentationNavigationListing;
+    }
+  >
   | Readonly<{
     readonly kind: 'binding';
     readonly position: PresentationPosition;
@@ -199,9 +331,21 @@ export type PresentationIntentResult =
       readonly omitted: number;
     };
   }>
-  | Readonly<{ readonly kind: 'history'; readonly page?: PresentationHistoryPage }>
-  | Readonly<{ readonly kind: 'context_preview'; readonly preview?: PresentationContextPreview }>
-  | Readonly<{ readonly kind: 'context_result'; readonly result: PresentationContextResult }>
+  | Readonly<
+    { readonly kind: 'history'; readonly page?: PresentationHistoryPage }
+  >
+  | Readonly<
+    {
+      readonly kind: 'context_preview';
+      readonly preview?: PresentationContextPreview;
+    }
+  >
+  | Readonly<
+    {
+      readonly kind: 'context_result';
+      readonly result: PresentationContextResult;
+    }
+  >
   | Readonly<{ readonly kind: 'exit'; readonly code: 0 | 129 | 143 }>;
 
 export interface PresentationIntentDispatcher {
@@ -222,11 +366,19 @@ export type PresentationEvent =
     readonly turn: number;
     readonly message: PresentationAssistantMessage;
   }>
-  | Readonly<{ readonly kind: 'assistant_progress'; readonly turn: number; readonly text: string }>
+  | Readonly<
+    {
+      readonly kind: 'assistant_progress';
+      readonly turn: number;
+      readonly text: string;
+    }
+  >
   | Readonly<{
     readonly kind: 'tool_call';
     readonly turn: number;
-    readonly call: Omit<PresentationToolCall, 'kind'> & { readonly kind?: 'tool_call' };
+    readonly call: Omit<PresentationToolCall, 'kind'> & {
+      readonly kind?: 'tool_call';
+    };
   }>
   | Readonly<{
     readonly kind: 'tool_result';
@@ -271,17 +423,41 @@ export type PresentationEvent =
     readonly kind: 'session_binding_replaced';
     readonly position: PresentationPosition;
   }>
-  | Readonly<{ readonly kind: 'history_page'; readonly page: PresentationHistoryPage }>
-  | Readonly<{ readonly kind: 'context_preview'; readonly preview: PresentationContextPreview }>
-  | Readonly<{ readonly kind: 'context_result'; readonly result: PresentationContextResult }>;
+  | Readonly<
+    { readonly kind: 'history_page'; readonly page: PresentationHistoryPage }
+  >
+  | Readonly<
+    {
+      readonly kind: 'context_preview';
+      readonly preview: PresentationContextPreview;
+    }
+  >
+  | Readonly<
+    {
+      readonly kind: 'context_result';
+      readonly result: PresentationContextResult;
+    }
+  >
+  | Readonly<{
+    readonly kind: 'failure_diagnostic';
+    readonly turn: number;
+    readonly diagnostic: PresentationFailureDiagnostic;
+    readonly durable: PresentationDiagnosticDurability;
+    readonly persistenceError?: PresentationDiagnosticPersistenceError;
+  }>;
 
 export type PresentationEventSink = (event: PresentationEvent) => void;
 
 export interface PresentationStartupState {
   readonly workspace: string;
   readonly agentId: PresentationAgentId;
-  readonly model: { readonly provider: 'openrouter'; readonly profileId: string };
-  readonly sessionMode: { readonly kind: 'new' | 'continue' | 'exact' | 'none' };
+  readonly model: {
+    readonly provider: 'openrouter';
+    readonly profileId: string;
+  };
+  readonly sessionMode: {
+    readonly kind: 'new' | 'continue' | 'exact' | 'none';
+  };
   readonly instructions: {
     readonly loaded: boolean;
     readonly source: 'AGENTS.md' | 'AGENTS.MD' | 'none';
@@ -308,7 +484,12 @@ export interface PresentationProjection {
   readonly credentialPolicy: 'before_each_provider_request';
   readonly checkpoint?: PresentationCheckpoint;
   readonly pending: readonly {
-    readonly kind: 'editor' | 'active_task' | 'steering' | 'follow_up' | 'recovery';
+    readonly kind:
+      | 'editor'
+      | 'active_task'
+      | 'steering'
+      | 'follow_up'
+      | 'recovery';
     readonly lifecycle: 'draft' | 'active' | 'queued' | 'recoverable';
     readonly byteCount: number;
   }[];
@@ -356,18 +537,26 @@ export const movePresentationPickerSelection = (
 ): { readonly selected: number; readonly page: number } => {
   const total = Math.max(0, Number.isSafeInteger(count) ? count : 0);
   const pageCount = Math.max(1, Math.ceil(total / 8));
-  const boundedPage = Math.max(0, Math.min(pageCount - 1, Number.isSafeInteger(page) ? page : 0));
+  const boundedPage = Math.max(
+    0,
+    Math.min(pageCount - 1, Number.isSafeInteger(page) ? page : 0),
+  );
   if (total === 0) return { selected: 0, page: boundedPage };
   const first = boundedPage * 8;
   const last = Math.min(total - 1, first + 7);
   let nextPage = boundedPage;
   let nextSelected = selected >= first && selected <= last ? selected : first;
   if (direction === 'left') nextPage = Math.max(0, boundedPage - 1);
-  if (direction === 'right') nextPage = Math.min(pageCount - 1, boundedPage + 1);
+  if (direction === 'right') {
+    nextPage = Math.min(pageCount - 1, boundedPage + 1);
+  }
   if (direction === 'left' || direction === 'right') {
     nextSelected = Math.min(total - 1, nextPage * 8);
-  } else if (direction === 'up') nextSelected = nextSelected === first ? last : nextSelected - 1;
-  else if (direction === 'down') nextSelected = nextSelected === last ? first : nextSelected + 1;
+  } else if (direction === 'up') {
+    nextSelected = nextSelected === first ? last : nextSelected - 1;
+  } else if (direction === 'down') {
+    nextSelected = nextSelected === last ? first : nextSelected + 1;
+  }
   return { selected: nextSelected, page: nextPage };
 };
 
@@ -391,10 +580,13 @@ export const snapshotPresentation = <T>(value: T): T => {
     const visiting = new WeakSet<object>();
     const inspect = (current: unknown, depth: number): void => {
       if (
-        current === null || typeof current === 'string' || typeof current === 'number' ||
+        current === null || typeof current === 'string' ||
+        typeof current === 'number' ||
         typeof current === 'boolean' || current === undefined
       ) return;
-      if (typeof current !== 'object' || depth > 32) throw new PresentationDeliveryError();
+      if (typeof current !== 'object' || depth > 32) {
+        throw new PresentationDeliveryError();
+      }
       if (visiting.has(current)) throw new PresentationDeliveryError();
       const prototype = Object.getPrototypeOf(current);
       if (
@@ -452,10 +644,14 @@ export const snapshotPresentation = <T>(value: T): T => {
 };
 
 export const boundedPresentationText = (value: string): string => {
-  if (typeof value !== 'string' || !isWellFormed(value) || value.includes('\0')) {
+  if (
+    typeof value !== 'string' || !isWellFormed(value) || value.includes('\0')
+  ) {
     throw new PresentationDeliveryError();
   }
-  if (encoder.encode(value).byteLength <= PRESENTATION_MAX_TEXT_BYTES) return value;
+  if (encoder.encode(value).byteLength <= PRESENTATION_MAX_TEXT_BYTES) {
+    return value;
+  }
   let result = '';
   let used = 0;
   for (const character of value) {
@@ -467,14 +663,17 @@ export const boundedPresentationText = (value: string): string => {
   return result;
 };
 
-export const presentationIntent = (intent: PresentationIntent): PresentationIntent => {
+export const presentationIntent = (
+  intent: PresentationIntent,
+): PresentationIntent => {
   const copy = snapshotPresentation(intent);
   if (copy === null || typeof copy !== 'object' || !('kind' in copy)) {
     throw new PresentationDeliveryError();
   }
   const kind = copy.kind;
   if (
-    kind === 'ordinary_submit' || kind === 'steering_submit' || kind === 'follow_up_queue'
+    kind === 'ordinary_submit' || kind === 'steering_submit' ||
+    kind === 'follow_up_queue'
   ) {
     boundedPresentationText(copy.text);
   } else if (kind === 'exit') {
@@ -484,16 +683,23 @@ export const presentationIntent = (intent: PresentationIntent): PresentationInte
   } else if (kind === 'resume_session') {
     boundedPresentationText(copy.id);
   } else if (kind === 'history_page') {
-    if (!Number.isSafeInteger(copy.page) || copy.page < 0 || !Number.isSafeInteger(copy.turn)) {
+    if (
+      !Number.isSafeInteger(copy.page) || copy.page < 0 ||
+      !Number.isSafeInteger(copy.turn)
+    ) {
       throw new PresentationDeliveryError();
     }
   } else if (
-    kind !== 'cancel_active' && kind !== 'list_sessions' && kind !== 'dismiss_overlay' &&
+    kind !== 'cancel_active' && kind !== 'list_sessions' &&
+    kind !== 'dismiss_overlay' &&
     kind !== 'compaction'
   ) {
     throw new PresentationDeliveryError();
   }
-  if (kind === 'compaction' && !['preview', 'confirm', 'cancel'].includes(copy.action)) {
+  if (
+    kind === 'compaction' &&
+    !['preview', 'confirm', 'cancel'].includes(copy.action)
+  ) {
     throw new PresentationDeliveryError();
   }
   return copy;

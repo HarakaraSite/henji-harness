@@ -1,3 +1,9 @@
+import type {
+  FailureDiagnosticDurability,
+  FailureDiagnosticPersistenceErrorCode,
+  FailureDiagnosticV1,
+} from './failure_diagnostic.ts';
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
@@ -112,6 +118,11 @@ export interface LoopOutcome {
   readonly finalText?: string;
   readonly terminalKind?: 'json_result';
   readonly error?: string;
+  /** The one immutable sanitized failure record observed during this turn. */
+  readonly diagnostic?: FailureDiagnosticV1;
+  /** Diagnostic durability is finalized by the session after persistence settles. */
+  readonly diagnosticDurability?: FailureDiagnosticDurability;
+  readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;
   readonly steps: number;
   readonly toolCallCount: number;
   readonly toolResultCount: number;

@@ -24,10 +24,11 @@ const launcherArgs = async (
   const fakeDeno = `${fakeBin}/deno`;
   const launcher = `${root}/session-launcher.sh`;
   const capture = `${root}/argv.txt`;
+  const envCapture = `${root}/env.txt`;
   await Deno.mkdir(fakeBin, { recursive: true });
   await Deno.writeTextFile(
     fakeDeno,
-    '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "deno 2.9.4 (fake)\\n"; exit 0; fi\n: > "$HENJI_LAUNCH_CAPTURE"\nfor arg in "$@"; do printf \'%s\\n\' "$arg" >> "$HENJI_LAUNCH_CAPTURE"; done\n',
+    '#!/bin/sh\nif [ "$1" = "--version" ]; then printf "deno 2.9.4 (fake)\\n"; exit 0; fi\nif [ "${HENJI_LAUNCH_ENV_CAPTURE-}" != "" ]; then printf \'%s\\n\' "${HENJI_SESSION_STATE_ROOT-}" > "$HENJI_LAUNCH_ENV_CAPTURE"; fi\n: > "$HENJI_LAUNCH_CAPTURE"\nfor arg in "$@"; do printf \'%s\\n\' "$arg" >> "$HENJI_LAUNCH_CAPTURE"; done\n',
   );
   await Deno.chmod(fakeDeno, 0o700);
   await Deno.writeTextFile(
@@ -41,6 +42,7 @@ const launcherArgs = async (
       HOME: `${root}/home`,
       XDG_STATE_HOME: xdgStateHome,
       HENJI_LAUNCH_CAPTURE: capture,
+      HENJI_LAUNCH_ENV_CAPTURE: envCapture,
     },
     stdout: 'piped',
     stderr: 'piped',
@@ -48,6 +50,8 @@ const launcherArgs = async (
   const result = await command.output();
   assert(result.success, new TextDecoder().decode(result.stderr));
   const captured = await Deno.readTextFile(capture);
+  const stateBase = xdgStateHome.trim() === '' ? `${root}/home/.local/state` : xdgStateHome;
+  assertEquals(await Deno.readTextFile(envCapture), `${stateBase}/henji-harness\n`);
   return captured === '' ? [] : captured.trimEnd().split('\n');
 };
 
@@ -56,22 +60,22 @@ const expectedLauncherChildArgs = (
   args: readonly string[],
   xdgStateHome = `${root}/xdg state `,
 ): readonly string[] => {
-  const persistent = !args.includes('--no-session');
   const stateRoot = `${xdgStateHome}/henji-harness`;
   const workspace = Deno.cwd();
+  const stateEnvironment = '--allow-env=HENJI_SESSION_STATE_ROOT';
   return [
     'run',
     '--no-prompt',
     '--no-remote',
-    ...(persistent ? ['--allow-env=HENJI_SESSION_STATE_ROOT'] : []),
+    stateEnvironment,
     '--allow-net=openrouter.ai',
     '--allow-sys=uid',
     '--allow-read=/',
     `--allow-read=${workspace}`,
     '--allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key',
-    ...(persistent ? [`--allow-read=${stateRoot}`] : []),
+    `--allow-read=${stateRoot}`,
     `--allow-write=${workspace}`,
-    ...(persistent ? [`--allow-write=${stateRoot}`] : []),
+    `--allow-write=${stateRoot}`,
     '--allow-run=/bin/bash',
     `${root}/tui_cli.ts`,
     ...args,

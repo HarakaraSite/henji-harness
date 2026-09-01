@@ -69,7 +69,28 @@ case "$workspace" in
 esac
 
 if [ "$mode" = 'none' ]; then
-  state_root=''
+  # --no-session keeps session/context records disabled, but diagnostics use the same
+  # workspace-partitioned state root and are created only after a failure.
+  if [ "${XDG_STATE_HOME+x}" = x ]; then
+    case "$XDG_STATE_HOME" in
+      *[![:space:]]*) state_base=$XDG_STATE_HOME ;;
+      *) [ "${HOME+x}" = x ] && [ "$HOME" != '' ] || startup_fail; state_base=$HOME/.local/state ;;
+    esac
+  else
+    [ "${HOME+x}" = x ] && [ "$HOME" != '' ] || startup_fail
+    state_base=$HOME/.local/state
+  fi
+  case "$state_base" in
+    /*) ;;
+    *) startup_fail ;;
+  esac
+  case "$state_base" in
+    *,*|*"$newline"*|*"$carriage_return"*) startup_fail ;;
+  esac
+  state_root=$state_base/henji-harness
+  case "$state_root" in
+    *,*|*"$newline"*|*"$carriage_return"*) startup_fail ;;
+  esac
 else
   if [ "${XDG_STATE_HOME+x}" = x ]; then
     case "$XDG_STATE_HOME" in
@@ -112,11 +133,12 @@ case "$version" in
   *) startup_fail ;;
 esac
 if [ "$mode" = 'none' ]; then
-  exec "$deno" run --no-prompt --no-remote \
-    --allow-net=openrouter.ai --allow-sys=uid \
+  HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
+    --allow-env=HENJI_SESSION_STATE_ROOT --allow-net=openrouter.ai --allow-sys=uid \
     --allow-read="$repo_root" --allow-read="$workspace" \
     --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
-    --allow-write="$workspace" --allow-run=/bin/bash \
+    --allow-read="$state_root" --allow-write="$workspace" --allow-write="$state_root" \
+    --allow-run=/bin/bash \
     "$script_dir/tui_cli.ts" "$@"
 else
   HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \

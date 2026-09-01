@@ -1,4 +1,5 @@
 import { type TurnCancellation } from './cancellation.ts';
+import { type FailureDiagnosticOwner } from './failure_diagnostic.ts';
 
 /** The two independently bounded request lanes in one accepted turn. */
 export type RequestLane = 'parent' | 'child';
@@ -58,6 +59,10 @@ export interface ModelExecutionContext {
   readonly lane: RequestLane;
   readonly signal?: AbortSignal;
   readonly cancellation?: TurnCancellation;
+  readonly diagnosticOwner?: FailureDiagnosticOwner;
+  /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
+  readonly providerRequestCount?: () => number;
+  persistDiagnostic(): Promise<void>;
   claimModelRequest(): boolean;
   snapshot(): TurnRequestBudgetSnapshot;
 }
@@ -69,6 +74,8 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
     private readonly budget: TurnRequestBudget,
     readonly signal?: AbortSignal,
     readonly cancellation?: TurnCancellation,
+    readonly diagnosticOwner?: FailureDiagnosticOwner,
+    readonly providerRequestCount?: () => number,
   ) {}
 
   claimModelRequest(): boolean {
@@ -77,6 +84,10 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
 
   snapshot(): TurnRequestBudgetSnapshot {
     return this.budget.snapshot();
+  }
+
+  persistDiagnostic(): Promise<void> {
+    return this.diagnosticOwner?.persist() ?? Promise.resolve();
   }
 }
 
@@ -94,11 +105,19 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     private readonly budget = new TurnRequestBudget(),
     readonly signal?: AbortSignal,
     readonly cancellation?: TurnCancellation,
+    readonly diagnosticOwner?: FailureDiagnosticOwner,
+    readonly providerRequestCount?: () => number,
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
     }
-    this.child = new ChildTurnExecutionContext(budget, signal, cancellation);
+    this.child = new ChildTurnExecutionContext(
+      budget,
+      signal,
+      cancellation,
+      diagnosticOwner,
+      providerRequestCount,
+    );
   }
 
   claimModelRequest(): boolean {
@@ -107,6 +126,10 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
 
   snapshot(): TurnRequestBudgetSnapshot {
     return this.budget.snapshot();
+  }
+
+  persistDiagnostic(): Promise<void> {
+    return this.diagnosticOwner?.persist() ?? Promise.resolve();
   }
 
   /** Admit at most one child and return its restricted child-lane view. */
@@ -125,8 +148,17 @@ export const createTurnExecutionContext = (
   turn: number,
   signal?: AbortSignal,
   cancellation?: TurnCancellation,
+  diagnosticOwner?: FailureDiagnosticOwner,
+  providerRequestCount?: () => number,
 ): ParentTurnExecutionContext =>
-  new ParentTurnExecutionContext(turn, undefined, signal, cancellation);
+  new ParentTurnExecutionContext(
+    turn,
+    undefined,
+    signal,
+    cancellation,
+    diagnosticOwner,
+    providerRequestCount,
+  );
 
 /** The execution-only wrapper passed to tools; request admission remains nested separately. */
 export interface ToolExecutionContext {

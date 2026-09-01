@@ -468,7 +468,7 @@ Deno.test('deadline remains active while reading the response body', async () =>
   const started = Date.now();
   const model = new OpenRouterAgentModel(options(fetcher, { timeoutMs: 15 }));
   const error = await assertSafeError(() => model.generate(request()), 1);
-  assertEquals(error.code, 'transport_error');
+  assertEquals(error.code, 'response_error');
   assert(aborted);
   assert(Date.now() - started < 1000);
 });

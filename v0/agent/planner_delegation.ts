@@ -180,8 +180,17 @@ export const createPlannerDelegationTool = (
     let execution: PlannerDelegationExecution;
     try {
       execution = await handler(task, childContext);
+      // A child failure must be durably settled before its bounded envelope is returned to the
+      // parent loop. The shared owner makes this idempotent when the parent later settles.
+      await childContext.persistDiagnostic();
     } catch (error) {
       if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+      try {
+        await childContext.persistDiagnostic();
+      } catch {
+        // The parent still receives a fixed failure envelope; the owner retains the live record
+        // and the session marks the turn non-evaluable when its durable retry boundary settles.
+      }
       const usage = usageDelta(before, parentContext.snapshot(), 0);
       return failureEnvelope('planner_failed', usage);
     }

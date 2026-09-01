@@ -8,6 +8,7 @@ import {
   startupHelpLines,
   TuiRenderer,
 } from '../../v0/tui/render.ts';
+import { type PresentationFailureDiagnostic } from '../../v0/presentation/contract.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
 import { PendingInputCore } from '../../v0/tui/pending_input.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
@@ -40,6 +41,21 @@ class FakeTerminal implements TerminalPort {
     return this.writes.join('');
   }
 }
+
+const responseParseDiagnostic: PresentationFailureDiagnostic = Object.freeze({
+  schemaVersion: 1,
+  diagnosticId: '33333333-3333-4333-8333-333333333333',
+  stage: 'response_parse',
+  code: 'response_error',
+  lane: 'parent',
+  providerRequestCount: 1,
+  httpStatus: 200,
+  parseReason: 'invalid_sse_json',
+  occurredAt: '2026-09-02T00:00:00.000Z',
+  turnNumber: 1,
+  modelStep: 1,
+  retryCount: 0,
+});
 
 Deno.test('central terminal escaping neutralizes control and bidi markers', () => {
   assertEquals(
@@ -120,6 +136,75 @@ Deno.test('renderer maps completed events once without alternate screen', () => 
   assert(text.includes('tool< read success> result\n'));
   assert(!text.includes('\x1b[?1049h'));
   assert(!text.includes('\x1b[?1049l'));
+});
+
+Deno.test('retained renderer keeps one safe diagnostic line and exact readback command', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 120, rows: 8 };
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  renderer.eventSink({ kind: 'turn_start', turn: 1 });
+  renderer.eventSink({
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'partial provider text must be replaced',
+  });
+  renderer.eventSink({
+    kind: 'failure_diagnostic',
+    turn: 1,
+    diagnostic: responseParseDiagnostic,
+    durable: 'yes',
+  });
+
+  const frame = renderer.renderFrame(120, 8);
+  assert(frame.includes(
+    'failure> id=33333333-3333-4333-8333-333333333333 · stage=response_parse ·',
+  ));
+  const retainedText = renderer.stateSnapshot().log.entries[0].text;
+  assert(retainedText.includes('code=response_error · lane=parent · requests=1 · http=200'));
+  assert(
+    retainedText.includes(
+      'reason=invalid_sse_json · turn=1 · step=1 · occurredAt=2026-09-02T00:00:00.000Z · retry=0 · durable=yes',
+    ),
+  );
+  assert(frame.includes(
+    'readback> henji diagnostics show --id 33333333-3333-4333-8333-333333333333',
+  ));
+  assert(!frame.includes('partial provider text must be replaced'));
+  const entries = renderer.stateSnapshot().log.entries;
+  assertEquals(entries.length, 1);
+  assertEquals(entries[0].id, 'failure:33333333-3333-4333-8333-333333333333');
+  assertEquals(entries[0].live, false);
+
+  // The event bridge and controller fallback may both observe the same outcome. Dedupe by the
+  // immutable diagnostic ID, retaining exactly one scrollback record.
+  renderer.renderFailureDiagnostic(responseParseDiagnostic, 'yes');
+  assertEquals(renderer.stateSnapshot().log.entries.length, 1);
+  renderer.resize(80, 24);
+  assert(renderer.renderFrame().includes('failure>'));
+});
+
+Deno.test('legacy diagnostic rendering escapes dynamic fields and reports failed durability', () => {
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.renderFailureDiagnostic(
+    responseParseDiagnostic,
+    'failed',
+    'diagnostic_capacity',
+  );
+  const output = terminal.text();
+  assert(output.includes('failure> id=33333333-3333-4333-8333-333333333333'));
+  assert(output.includes('durable=failed'));
+  assert(output.includes('store=diagnostic_capacity'));
+  assert(output.includes(
+    'readback> henji diagnostics show --id 33333333-3333-4333-8333-333333333333',
+  ));
+  assertEquals(renderer.stateSnapshot().log.entries.length, 1);
+  renderer.renderFailureDiagnostic(
+    responseParseDiagnostic,
+    'failed',
+    'diagnostic_capacity',
+  );
+  assertEquals(renderer.stateSnapshot().log.entries.length, 1);
 });
 
 Deno.test('tool-terminal final event does not duplicate the assistant final', () => {
@@ -539,6 +624,35 @@ Deno.test('F1 keeps safety guidance visible through narrow resize and restores t
   renderer.clearModal();
   assertEquals(renderer.stateSnapshot().editor, before);
   assertEquals(renderer.stateSnapshot().overlay, { kind: 'none' });
+});
+
+Deno.test('F1 prioritizes safety guidance when row capacity is short', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const state = {
+    workspace: 'workspace',
+    agentId: 'default' as const,
+    model: { provider: 'openrouter' as const, profileId: 'PROFILE' },
+    sessionMode: { kind: 'none' as const },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [] as string[], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request' as const,
+  } as const;
+  renderer.setEditorSnapshot({ text: 'draft', cursorScalar: 2, byteLength: 5 });
+  const before = renderer.stateSnapshot().editor;
+  for (const size of [{ columns: 40, rows: 12 }, { columns: 120, rows: 12 }]) {
+    terminal.size = size;
+    renderer.renderStartupHelp(state);
+    const frame = renderer.renderFrame(size.columns, size.rows);
+    for (const topic of ['入力', '停止', '再開', 'trusted-local']) {
+      assert(frame.includes(topic), `${size.columns}x${size.rows} missing ${topic}`);
+    }
+    assert(frame.split('\n').length <= size.rows + 1);
+    renderer.clearModal();
+    assertEquals(renderer.stateSnapshot().editor, before);
+  }
 });
 
 Deno.test('retained terminal JSON final is one assistant entry and one frame record', () => {

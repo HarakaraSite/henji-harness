@@ -14,6 +14,8 @@ const CORE_FILES = [
   'v0/agent/context.ts',
   'v0/agent/contracts.ts',
   'v0/agent/events.ts',
+  'v0/agent/failure_diagnostic.ts',
+  'v0/agent/failure_diagnostic_store.ts',
   'v0/agent/execution_context.ts',
   'v0/agent/fixture_model.ts',
   'v0/agent/loop.ts',

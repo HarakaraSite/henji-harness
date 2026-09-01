@@ -65,6 +65,82 @@ Deno.test('machine launcher resolves fixed sources, preserves cwd, and forwards 
   } finally {
     await Deno.remove(installedRoot, { recursive: true });
   }
+
+  // Exercise the copied-wrapper boundary with a harmless local child. The production wrapper's
+  // fixed paths stay covered above; this seam proves that its final exec preserves arbitrary
+  // argv, child status, and signal disposition without starting a production session.
+  const boundaryRoot = await Deno.makeTempDir({ prefix: 'henji-wrapper-boundary-' });
+  try {
+    const boundaryBin = boundaryRoot + '/bin';
+    const boundaryInstalled = boundaryBin + '/henji';
+    const boundaryDeno = boundaryBin + '/deno';
+    const boundaryConfig = boundaryRoot + '/deno.v0.json';
+    const boundarySession = boundaryRoot + '/session.sh';
+    const capture = boundaryRoot + '/argv';
+    await Deno.mkdir(boundaryBin, { recursive: true });
+    await Deno.writeTextFile(boundaryDeno, "#!/bin/sh\nprintf '%s\\n' 'deno 2.9.4'\n");
+    await Deno.chmod(boundaryDeno, 0o755);
+    await Deno.writeTextFile(boundaryConfig, '{}\n');
+    await Deno.writeTextFile(
+      boundarySession,
+      [
+        '#!/bin/sh',
+        'set -eu',
+        'case "${1-}" in',
+        '  --status) exit 37 ;;',
+        '  --signal) printf \'signal-requested\\n\' > "$HENJI_BOUNDARY_CAPTURE"; kill -TERM "$$" ;;',
+        'esac',
+        'printf \'%s\\n\' "$@" > "$HENJI_BOUNDARY_CAPTURE"',
+        '',
+      ].join('\n'),
+    );
+    await Deno.chmod(boundarySession, 0o755);
+    const boundaryWrapper = wrapper
+      .replace('repo_root=/home/masat.guest/src/henji-harness', `repo_root=${boundaryRoot}`)
+      .replace(
+        'deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno',
+        `deno=${boundaryDeno}`,
+      )
+      .replace('config=$repo_root/deno.v0.json', `config=${boundaryConfig}`)
+      .replace(
+        'session_launcher=$repo_root/v0/agent/session_launcher.sh',
+        `session_launcher=${boundarySession}`,
+      );
+    await Deno.writeTextFile(boundaryInstalled, boundaryWrapper);
+    await Deno.chmod(boundaryInstalled, 0o755);
+    const env = {
+      PATH: '/usr/bin:/bin',
+      HOME: '/tmp',
+      HENJI_BOUNDARY_CAPTURE: capture,
+    };
+    const argv = ['--argv', 'arg with spaces', 'ümlaut', 'dash--'];
+    const runBoundary = (args: string[]) =>
+      new Deno.Command('/bin/sh', {
+        // Make the outer shell exec the copied wrapper so a signal from its child remains visible
+        // at this process boundary.
+        args: ['-c', 'exec "$0" "$@"', boundaryInstalled, ...args],
+        cwd: '/tmp',
+        env,
+        stdout: 'piped',
+        stderr: 'piped',
+      }).output();
+    const forwarded = await runBoundary(argv);
+    assert(forwarded.success);
+    assertEquals(await Deno.readTextFile(capture), `${argv.join('\n')}\n`);
+    const exited = await runBoundary(['--status']);
+    assert(!exited.success);
+    assertEquals(exited.code, 37);
+    assertEquals(exited.signal, null);
+    const signalled = await runBoundary(['--signal']);
+    assert(!signalled.success);
+    // The shell boundary reports the conventional 128+signal code and signal name; the wrapper
+    // cannot replace that status because it execs the session child directly.
+    assertEquals(signalled.code, 143);
+    assertEquals(signalled.signal, 'SIGTERM');
+    assertEquals(await Deno.readTextFile(capture), 'signal-requested\n');
+  } finally {
+    await Deno.remove(boundaryRoot, { recursive: true });
+  }
 });
 
 Deno.test('machine launcher and installer keep fixed permission and recovery boundaries', () => {
@@ -266,9 +342,13 @@ Deno.test('installer preserves the target across injected backup and candidate f
     ['stat', 1],
     ['mktemp', 1],
     ['cp', 1],
+    ['cp', 2],
     ['chmod', 1],
+    ['chmod', 2],
     ['cmp', 1],
+    ['cmp', 2],
     ['mv', 1],
+    ['mv', 2],
   ] as const;
   for (const [command, ordinal] of rollbackCases) {
     const root = await Deno.makeTempDir({ prefix: 'henji-rollback-failure-' });
@@ -420,11 +500,71 @@ Deno.test('full-capability package keeps the real three-task bounded contract', 
   assert(gate.includes('cat > "$henji_accept_expected" <<\'EOF\''));
   assert(gate.includes('diff -u -- "$henji_accept_expected"'));
   assert(gate.includes("-name '*.lock' -o -name '*.tmp*'"));
+  assert(gate.includes('if ! {'));
+  assert(gate.includes('henji_accept_ok=1'));
+  assert(gate.includes('|| henji_accept_ok=0'));
+  assert(gate.includes('test "$henji_accept_ok" -eq 1'));
+  assert(gate.includes('locks/$henji_accept_session_uuid.lock'));
+  assert(gate.includes('sessions/$henji_accept_session_uuid'));
+  assert(gate.includes('contexts/$henji_accept_session_uuid.json'));
+  assert(gate.includes('acceptance assertions failed; preserving diagnosis state'));
   assert(gate.includes('case "$henji_accept_workspace" in'));
   assert(gate.includes('test ! -e "$henji_accept_workspace"'));
   assert(!gate.includes('ui_retained_acceptance_launcher'));
   assert(!gate.includes('detached_ui_acceptance_fixture'));
   assert(!gate.includes('agent:ui-retained:acceptance'));
+});
+
+Deno.test('Human Gate assertion guard preserves diagnostics after an early mismatch', async () => {
+  const gate = await Deno.readTextFile(
+    'docs/plans/step-83-full-capability-human-acceptance-gate.md',
+  );
+  const start = gate.indexOf('henji_accept_session_uuid=');
+  const end = gate.indexOf('\n```', start);
+  assert(start >= 0 && end > start);
+  const guard = gate.slice(start, end).replace("'<SESSION_UUID>'", "'e1-session'");
+  const root = await Deno.makeTempDir({ prefix: 'henji-acceptance-guard-' });
+  const quote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+  const workspace = root + '/workspace';
+  const expected = root + '/expected';
+  const marker = root + '/cleanup-reached';
+  const scriptPath = root + '/assertions.sh';
+  try {
+    await Deno.mkdir(workspace);
+    await Deno.writeTextFile(
+      workspace + '/acceptance-note.md',
+      '# Henji acceptance\nOwner: Masato\nStatus: READY\nCheck: passed\nResumed: yes\n',
+    );
+    // The extra entry fails the first top-level assertion before guarded cleanup is eligible.
+    await Deno.writeTextFile(workspace + '/unexpected.txt', 'diagnosis\n');
+    await Deno.writeTextFile(
+      scriptPath,
+      [
+        '#!/bin/sh',
+        'set -u',
+        `henji_accept_workspace=${quote(workspace)}`,
+        `henji_accept_expected=${quote(expected)}`,
+        guard,
+        `printf '%s\\n' reached > ${quote(marker)}`,
+        '',
+      ].join('\n'),
+    );
+    await Deno.chmod(scriptPath, 0o755);
+    const result = await new Deno.Command('/bin/sh', {
+      args: [scriptPath],
+      cwd: '/tmp',
+      env: { PATH: '/usr/bin:/bin', HOME: root + '/home' },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assert(!result.success);
+    assert(new TextDecoder().decode(result.stderr).includes('preserving diagnosis state'));
+    assert((await Deno.lstat(workspace)).isDirectory);
+    assert((await Deno.lstat(expected)).isFile);
+    assert(!(await Deno.stat(marker).catch(() => undefined)));
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
 });
 
 void DENO;

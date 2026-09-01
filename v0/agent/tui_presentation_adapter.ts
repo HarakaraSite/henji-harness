@@ -1,5 +1,6 @@
 import { type AgentEvent } from './events.ts';
 import { type LoopOutcome, type Message } from './contracts.ts';
+import { type FailureDiagnosticV1, validateFailureDiagnostic } from './failure_diagnostic.ts';
 import { type ContextMetrics } from './context.ts';
 import {
   type ContextRecoveryPreview,
@@ -17,8 +18,11 @@ import {
   type PresentationContextPreview,
   type PresentationContextResult,
   PresentationDeliveryError,
+  type PresentationDiagnosticDurability,
+  type PresentationDiagnosticPersistenceError,
   type PresentationEvent,
   type PresentationEventSink,
+  type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
   type PresentationIntent,
   presentationIntent,
@@ -48,7 +52,10 @@ export interface AdapterSessionPort {
     page: number,
     turn?: number,
     rows?: number,
-  ): Promise<PresentationHistoryPage | undefined> | PresentationHistoryPage | undefined;
+  ):
+    | Promise<PresentationHistoryPage | undefined>
+    | PresentationHistoryPage
+    | undefined;
   currentPosition?(): PresentationPosition | undefined;
   contextCompactionPreview?(): PresentationContextPreview | undefined;
   compactContext?(signal?: AbortSignal): Promise<PresentationContextResult>;
@@ -104,11 +111,17 @@ const encoder = new TextEncoder();
 
 const bounded = (value: string): string => {
   const text = boundedPresentationText(value);
-  if (encoder.encode(text).byteLength > MAX_GENERATION_TEXT) throw new PresentationDeliveryError();
+  if (encoder.encode(text).byteLength > MAX_GENERATION_TEXT) {
+    throw new PresentationDeliveryError();
+  }
   return text;
 };
 
-const json = (value: unknown, depth = 0, seen = new WeakSet<object>()): PresentationJson => {
+const json = (
+  value: unknown,
+  depth = 0,
+  seen = new WeakSet<object>(),
+): PresentationJson => {
   if (value === null) return null;
   if (depth > 8) throw new PresentationDeliveryError();
   switch (typeof value) {
@@ -132,7 +145,8 @@ const json = (value: unknown, depth = 0, seen = new WeakSet<object>()): Presenta
             if (key === 'length') return false;
             if (typeof key !== 'string' || !/^\d+$/u.test(key)) return true;
             const index = Number(key);
-            return !Number.isSafeInteger(index) || index < 0 || index >= value.length;
+            return !Number.isSafeInteger(index) || index < 0 ||
+              index >= value.length;
           }) || [...Array(Math.min(value.length, 256)).keys()].some((index) =>
             !Object.hasOwn(value, String(index))
           )
@@ -148,7 +162,8 @@ const json = (value: unknown, depth = 0, seen = new WeakSet<object>()): Presenta
         return result;
       }
       if (
-        Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null
+        Object.getPrototypeOf(value) !== Object.prototype &&
+        Object.getPrototypeOf(value) !== null
       ) {
         throw new PresentationDeliveryError();
       }
@@ -182,7 +197,9 @@ const text = (value: unknown): string => {
   return bounded(value);
 };
 const count = (value: unknown): number => {
-  if (!Number.isSafeInteger(value) || (value as number) < 0) throw new PresentationDeliveryError();
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw new PresentationDeliveryError();
+  }
   return value as number;
 };
 const fixedCount = <T extends number>(value: unknown, expected: T): T => {
@@ -197,26 +214,52 @@ const outcomeReason = (value: unknown): PresentationOutcomeReason => {
   return value;
 };
 const agentId = (value: unknown): 'default' | 'planner' => {
-  if (value !== 'default' && value !== 'planner') throw new PresentationDeliveryError();
+  if (value !== 'default' && value !== 'planner') {
+    throw new PresentationDeliveryError();
+  }
   return value;
 };
-const historyRole = (value: unknown): PresentationHistoryPage['entries'][number]['role'] => {
+const historyRole = (
+  value: unknown,
+): PresentationHistoryPage['entries'][number]['role'] => {
   if (
-    value !== 'user' && value !== 'steer' && value !== 'assistant' && value !== 'tool>' &&
+    value !== 'user' && value !== 'steer' && value !== 'assistant' &&
+    value !== 'tool>' &&
     value !== 'tool<'
   ) {
     throw new PresentationDeliveryError();
   }
   return value;
 };
-const contextResultKind = (value: unknown): PresentationContextResult['kind'] => {
-  if (value !== 'installed' && value !== 'refused' && value !== 'failed' && value !== 'cancelled') {
+const contextResultKind = (
+  value: unknown,
+): PresentationContextResult['kind'] => {
+  if (
+    value !== 'installed' && value !== 'refused' && value !== 'failed' &&
+    value !== 'cancelled'
+  ) {
     throw new PresentationDeliveryError();
   }
   return value;
 };
 const boolean = (value: unknown): boolean => {
   if (typeof value !== 'boolean') throw new PresentationDeliveryError();
+  return value;
+};
+const diagnosticDurability = (value: unknown): PresentationDiagnosticDurability => {
+  if (value !== 'yes' && value !== 'failed' && value !== 'unknown') {
+    throw new PresentationDeliveryError();
+  }
+  return value;
+};
+const diagnosticPersistenceError = (
+  value: unknown,
+): PresentationDiagnosticPersistenceError => {
+  if (
+    value !== 'diagnostic_not_found' && value !== 'diagnostic_busy' &&
+    value !== 'diagnostic_invalid' && value !== 'diagnostic_capacity' &&
+    value !== 'diagnostic_io_failure'
+  ) throw new PresentationDeliveryError();
   return value;
 };
 
@@ -231,7 +274,11 @@ const userMessage = (message: Message): PresentationUserMessage => {
 };
 
 const callMessage = (
-  call: { readonly callId: string; readonly name: string; readonly arguments: unknown },
+  call: {
+    readonly callId: string;
+    readonly name: string;
+    readonly arguments: unknown;
+  },
   callId: string,
 ): PresentationToolCall =>
   Object.freeze({
@@ -250,7 +297,10 @@ const assistantMessage = (
   if (!Array.isArray(message.content) && 'text' in message.content) {
     return Object.freeze({
       role: 'assistant',
-      content: Object.freeze({ kind: 'text', text: text(message.content.text) }),
+      content: Object.freeze({
+        kind: 'text',
+        text: text(message.content.text),
+      }),
     });
   }
   const calls = message.content.map((call) => {
@@ -295,9 +345,11 @@ const position = (value: NavigationPosition): PresentationPosition =>
       checkpoint: Object.freeze({
         coveredThroughTurn: count(value.checkpoint.coveredThroughTurn),
         retainedFromTurn: count(value.checkpoint.retainedFromTurn),
-        ...(value.checkpoint.projectedMessagesBytes === undefined
-          ? {}
-          : { projectedMessagesBytes: count(value.checkpoint.projectedMessagesBytes) }),
+        ...(value.checkpoint.projectedMessagesBytes === undefined ? {} : {
+          projectedMessagesBytes: count(
+            value.checkpoint.projectedMessagesBytes,
+          ),
+        }),
       }),
     }),
   });
@@ -368,7 +420,9 @@ const preview = (value: ContextRecoveryPreview): PresentationContextPreview =>
       : { projectedMessagesBytes: count(value.projectedMessagesBytes) }),
   });
 
-const contextResult = (value: ContextRecoveryResult): PresentationContextResult =>
+const contextResult = (
+  value: ContextRecoveryResult,
+): PresentationContextResult =>
   Object.freeze({
     kind: contextResultKind(value.kind),
     ...(value.coveredThroughTurn === undefined
@@ -379,6 +433,26 @@ const contextResult = (value: ContextRecoveryResult): PresentationContextResult 
       : { retainedFromTurn: count(value.retainedFromTurn) }),
     reason: value.reason === undefined ? undefined : text(value.reason),
   });
+
+const failureDiagnostic = (
+  value: FailureDiagnosticV1,
+): PresentationFailureDiagnostic => {
+  if (!validateFailureDiagnostic(value)) throw new PresentationDeliveryError();
+  return Object.freeze({
+    schemaVersion: 1,
+    diagnosticId: value.diagnosticId,
+    stage: value.stage,
+    code: value.code,
+    lane: value.lane,
+    providerRequestCount: count(value.providerRequestCount),
+    ...(value.httpStatus === undefined ? {} : { httpStatus: count(value.httpStatus) }),
+    ...(value.parseReason === undefined ? {} : { parseReason: value.parseReason }),
+    occurredAt: text(value.occurredAt),
+    turnNumber: count(value.turnNumber),
+    modelStep: count(value.modelStep),
+    retryCount: 0,
+  });
+};
 
 const outcome = (value: LoopOutcome): PresentationOutcome => {
   const callIds = new Map<string, string>();
@@ -397,7 +471,15 @@ const outcome = (value: LoopOutcome): PresentationOutcome => {
     stopReason: outcomeReason(value.stopReason),
     finalText: value.finalText === undefined ? undefined : text(value.finalText),
     ...(value.terminalKind === undefined ? {} : { terminalKind: 'json_result' as const }),
-    error: value.error === undefined ? undefined : text(value.error),
+    ...(value.diagnostic === undefined ? {} : { diagnostic: failureDiagnostic(value.diagnostic) }),
+    ...(value.diagnostic === undefined || value.diagnosticDurability === undefined
+      ? {}
+      : { diagnosticDurability: diagnosticDurability(value.diagnosticDurability) }),
+    ...(value.diagnostic === undefined || value.diagnosticPersistenceError === undefined ? {} : {
+      diagnosticPersistenceError: diagnosticPersistenceError(
+        value.diagnosticPersistenceError,
+      ),
+    }),
     steps: count(value.steps),
     toolCallCount: count(value.toolCallCount),
     toolResultCount: count(value.toolResultCount),
@@ -408,7 +490,9 @@ const outcome = (value: LoopOutcome): PresentationOutcome => {
       }
       return Object.freeze({
         role: 'tool' as const,
-        content: Object.freeze(message.content.map((item) => result(item, opaque(item.callId)))),
+        content: Object.freeze(
+          message.content.map((item) => result(item, opaque(item.callId))),
+        ),
       });
     })) as readonly PresentationMessage[],
   });
@@ -433,7 +517,9 @@ const restoredPresentationMessages = (
     }
     return Object.freeze({
       role: 'tool' as const,
-      content: Object.freeze(message.content.map((item) => result(item, opaque(item.callId)))),
+      content: Object.freeze(
+        message.content.map((item) => result(item, opaque(item.callId))),
+      ),
     });
   }));
 };
@@ -483,7 +569,10 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
 
   private deliverCoreEventUnsafe(event: AgentEvent): void {
     const generation = ++this.generation;
-    if (event === null || typeof event !== 'object' || typeof event.kind !== 'string') {
+    if (
+      event === null || typeof event !== 'object' ||
+      typeof event.kind !== 'string'
+    ) {
       this.emit({
         kind: 'warning',
         code: 'unsupported_activity',
@@ -499,7 +588,11 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         this.emit({ kind: 'turn_start', turn: event.turn });
         return;
       case 'user_message':
-        this.emit({ kind: 'user_message', turn: event.turn, message: userMessage(event.message) });
+        this.emit({
+          kind: 'user_message',
+          turn: event.turn,
+          message: userMessage(event.message),
+        });
         return;
       case 'assistant_message':
         this.emit({
@@ -513,22 +606,37 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         });
         return;
       case 'assistant_progress':
-        this.emit({ kind: 'assistant_progress', turn: event.turn, text: text(event.text) });
+        this.emit({
+          kind: 'assistant_progress',
+          turn: event.turn,
+          text: text(event.text),
+        });
         return;
       case 'tool_call': {
-        const callId = this.callIds.get(event.call.callId) ?? `call-${++this.callOrdinal}`;
+        const callId = this.callIds.get(event.call.callId) ??
+          `call-${++this.callOrdinal}`;
         this.callIds.set(event.call.callId, callId);
-        this.emit({ kind: 'tool_call', turn: event.turn, call: callMessage(event.call, callId) });
+        this.emit({
+          kind: 'tool_call',
+          turn: event.turn,
+          call: callMessage(event.call, callId),
+        });
         return;
       }
       case 'tool_result': {
-        const callId = this.callIds.get(event.result.callId) ?? `call-${++this.callOrdinal}`;
+        const callId = this.callIds.get(event.result.callId) ??
+          `call-${++this.callOrdinal}`;
         this.callIds.set(event.result.callId, callId);
-        this.emit({ kind: 'tool_result', turn: event.turn, result: result(event.result, callId) });
+        this.emit({
+          kind: 'tool_result',
+          turn: event.turn,
+          result: result(event.result, callId),
+        });
         return;
       }
       case 'tool_progress': {
-        const callId = this.callIds.get(event.callId) ?? `call-${++this.callOrdinal}`;
+        const callId = this.callIds.get(event.callId) ??
+          `call-${++this.callOrdinal}`;
         this.callIds.set(event.callId, callId);
         this.emit({
           kind: 'tool_progress',
@@ -547,6 +655,20 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         });
         return;
       case 'turn_end':
+        if (event.diagnostic !== undefined) {
+          const durable = event.diagnosticDurability === undefined
+            ? 'unknown' as const
+            : diagnosticDurability(event.diagnosticDurability);
+          this.emit({
+            kind: 'failure_diagnostic',
+            turn: event.turn,
+            diagnostic: failureDiagnostic(event.diagnostic),
+            durable,
+            ...(event.diagnosticPersistenceError === undefined ? {} : {
+              persistenceError: diagnosticPersistenceError(event.diagnosticPersistenceError),
+            }),
+          });
+        }
         this.emit({
           kind: 'turn_end',
           turn: event.turn,
@@ -603,9 +725,9 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     turn?: number,
     rows?: number,
   ): Promise<PresentationHistoryPage | undefined> {
-    return Promise.resolve(this.core.historyPage?.(page, turn, rows)).then((value) =>
-      value === undefined ? undefined : history(value)
-    );
+    return Promise.resolve(this.core.historyPage?.(page, turn, rows)).then((
+      value,
+    ) => value === undefined ? undefined : history(value));
   }
   currentPosition(): PresentationPosition | undefined {
     const value = this.core.currentPosition?.();
@@ -642,7 +764,9 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
   }
 
   private cancelNavigationOperations(): void {
-    for (const abort of this.navigationAborts) abort.abort('navigation dismissed');
+    for (const abort of this.navigationAborts) {
+      abort.abort('navigation dismissed');
+    }
   }
 
   /**
@@ -723,12 +847,17 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     }
   }
 
-  private async dispatchHistory(page: number, turn: number): Promise<PresentationIntentResult> {
+  private async dispatchHistory(
+    page: number,
+    turn: number,
+  ): Promise<PresentationIntentResult> {
     const value = this.coreNavigation === undefined
       ? await this.core.historyPage?.(page, turn, 16)
       : await this.coreNavigation.historyPage(page, turn, 16);
     const pageValue = value === undefined ? undefined : history(value);
-    if (pageValue !== undefined) this.emit({ kind: 'history_page', page: pageValue });
+    if (pageValue !== undefined) {
+      this.emit({ kind: 'history_page', page: pageValue });
+    }
     return { kind: 'history', page: pageValue };
   }
 
@@ -769,7 +898,10 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       persistent: navigation.persistent,
       list: async (signal) => listing(await navigation.list(signal)),
       switchTo: async (id, signal) => {
-        const binding: NavigationBinding = await navigation.switchTo(id, signal);
+        const binding: NavigationBinding = await navigation.switchTo(
+          id,
+          signal,
+        );
         const restoredCallIds = new Map<string, string>();
         let restoredOrdinal = 0;
         const restoredCallId = (raw: string): string => {
@@ -780,26 +912,31 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           return next;
         };
         return Object.freeze({
-          session: new TuiPresentationAdapter(binding.session as CoreSession, this.sink),
+          session: new TuiPresentationAdapter(
+            binding.session as CoreSession,
+            this.sink,
+          ),
           position: position(binding.position),
           ...(binding.restored === undefined ? {} : {
             restored: Object.freeze({
-              messages: Object.freeze(binding.restored.messages.map((message) => {
-                if (message.role === 'user') return userMessage(message);
-                if (message.role === 'assistant') {
-                  return assistantMessage(
-                    message,
-                    restoredCallIds,
-                    () => `call-${++restoredOrdinal}`,
-                  );
-                }
-                return Object.freeze({
-                  role: 'tool' as const,
-                  content: Object.freeze(
-                    message.content.map((item) => result(item, restoredCallId(item.callId))),
-                  ),
-                });
-              })),
+              messages: Object.freeze(
+                binding.restored.messages.map((message) => {
+                  if (message.role === 'user') return userMessage(message);
+                  if (message.role === 'assistant') {
+                    return assistantMessage(
+                      message,
+                      restoredCallIds,
+                      () => `call-${++restoredOrdinal}`,
+                    );
+                  }
+                  return Object.freeze({
+                    role: 'tool' as const,
+                    content: Object.freeze(
+                      message.content.map((item) => result(item, restoredCallId(item.callId))),
+                    ),
+                  });
+                }),
+              ),
               omitted: binding.restored.omitted,
             }),
           }),

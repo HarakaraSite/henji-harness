@@ -588,7 +588,7 @@ Deno.test('SSE timeout after headers is sanitized and settles the reader', async
     responseMode: 'sse',
     timeoutMs: 5,
   });
-  await assertAdapterError(() => model.generate(request()), 'transport_error');
+  await assertAdapterError(() => model.generate(request()), 'response_error');
   assert(aborted);
 });
 
@@ -646,7 +646,7 @@ Deno.test('SSE requires the event-stream media type and sanitizes reader failure
     status: 200,
     headers: { 'content-type': 'text/event-stream' },
   });
-  await assertAdapterError(() => modelFor(failedResponse).generate(request()), 'transport_error');
+  await assertAdapterError(() => modelFor(failedResponse).generate(request()), 'response_error');
 });
 
 Deno.test('loop emits bounded assistant snapshots before one authoritative completed event', async () => {

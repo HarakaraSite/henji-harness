@@ -50,6 +50,8 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/context.ts',
   'v0/agent/contracts.ts',
   'v0/agent/events.ts',
+  'v0/agent/failure_diagnostic.ts',
+  'v0/agent/failure_diagnostic_store.ts',
   'v0/presentation/contract.ts',
   'v0/agent/execution_context.ts',
   'v0/agent/fixture_model.ts',
@@ -106,6 +108,9 @@ const CHECK_TARGETS = [
   'v0/agent/agent_catalog.ts',
   'v0/agent/agent_instructions.ts',
   'v0/agent/events.ts',
+  'v0/agent/failure_diagnostic.ts',
+  'v0/agent/failure_diagnostic_store.ts',
+  'v0/agent/failure_diagnostic_cli.ts',
   'v0/presentation/contract.ts',
   'v0/agent/tui_presentation_adapter.ts',
   'v0/agent/steering.ts',
@@ -210,6 +215,12 @@ const CHECK_TARGETS = [
   'tests/v0/tui_file_reference_test.ts',
   'tests/v0/credential_file_test.ts',
   'tests/v0/henji_machine_launcher_process_test.ts',
+  'tests/v0/agent_failure_diagnostic_test.ts',
+  'tests/v0/failure_diagnostic_store_test.ts',
+  'tests/v0/failure_diagnostic_cli_test.ts',
+  'tests/v0/failure_diagnostic_cli_process_test.ts',
+  'tests/v0/failure_diagnostic_cli_topology_test.ts',
+  'tests/v0/fixtures/failure_diagnostic_permission_probe.ts',
   TOPOLOGY_FILE,
 ] as const;
 const EXPECTED_CHECK = [DENO, 'check', ...CHECK_TARGETS];
@@ -235,6 +246,11 @@ const EXPECTED_LEAVES = [
   'v0:offline-gate:topology:test',
   'v0:legacy:test',
   'agent:test',
+  'agent:failure-diagnostic:test',
+  'agent:failure-diagnostic-store:test',
+  'agent:failure-diagnostic-cli:test',
+  'agent:failure-diagnostic-cli:process:test',
+  'agent:failure-diagnostic-cli:topology:test',
   'agent:resolved-manifest:test',
   'agent:comparison-variant:test',
   'agent:replay-record:test',
@@ -302,6 +318,17 @@ const assignTarget = (file: string, ...taskNames: string[]): void => {
 assignTarget('offline_gate_topology_test.ts', TOPOLOGY_TASK);
 assignTarget('v0_test.ts', 'v0:legacy:test');
 assignTarget('agent_loop_test.ts', 'agent:test');
+assignTarget('agent_failure_diagnostic_test.ts', 'agent:failure-diagnostic:test');
+assignTarget('failure_diagnostic_store_test.ts', 'agent:failure-diagnostic-store:test');
+assignTarget('failure_diagnostic_cli_test.ts', 'agent:failure-diagnostic-cli:test');
+assignTarget(
+  'failure_diagnostic_cli_process_test.ts',
+  'agent:failure-diagnostic-cli:process:test',
+);
+assignTarget(
+  'failure_diagnostic_cli_topology_test.ts',
+  'agent:failure-diagnostic-cli:topology:test',
+);
 assignTarget('agent_definition_test.ts', 'agent:definition:test');
 assignTarget('agent_resolved_manifest_test.ts', 'agent:resolved-manifest:test');
 assignTarget('agent_comparison_variant_test.ts', 'agent:comparison-variant:test');
@@ -438,6 +465,33 @@ assignPermission(
   'agent:tui:test',
   'agent:tui:pending:test',
   'agent:tui:file-reference:test',
+  'agent:failure-diagnostic:test',
+);
+assignPermission(
+  ['--allow-read', '--allow-write', '--allow-sys=uid'],
+  'agent:failure-diagnostic-store:test',
+);
+assignPermission(
+  [
+    '--allow-read=/tmp',
+    '--allow-write=/tmp',
+    '--allow-env=HENJI_SESSION_STATE_ROOT,XDG_STATE_HOME,HOME',
+    '--allow-sys=uid',
+  ],
+  'agent:failure-diagnostic-cli:test',
+);
+assignPermission(
+  [
+    '--allow-read=.,/tmp',
+    '--allow-write=/tmp',
+    `--allow-run=/bin/sh,${DENO}`,
+    '--allow-sys=uid',
+  ],
+  'agent:failure-diagnostic-cli:process:test',
+);
+assignPermission(
+  ['--allow-read=deno.v0.json,v0/agent'],
+  'agent:failure-diagnostic-cli:topology:test',
 );
 assignPermission(
   ['--allow-read=deno.v0.json'],
@@ -715,7 +769,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 65, 'expected 65 directly-owned tests');
+  assertEquals(owned.size, 70, 'expected 70 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {

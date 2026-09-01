@@ -5,6 +5,16 @@ import { main, type TuiSessionFactoryResult } from '../../../v0/agent/tui_cli.ts
 import { type BuiltinAgentSelection } from '../../../v0/agent/agent_catalog.ts';
 import { projectRuntimeDisplayState } from '../../../v0/agent/startup_orientation.ts';
 import { WorkspacePathIndex } from '../../../v0/tui/file_reference.ts';
+import {
+  createFailureDiagnostic,
+  type FailureDiagnosticPersister,
+} from '../../../v0/agent/failure_diagnostic.ts';
+import {
+  DenoFailureDiagnosticStore,
+  failureDiagnosticPaths,
+} from '../../../v0/agent/failure_diagnostic_store.ts';
+import { main as diagnosticMain } from '../../../v0/agent/failure_diagnostic_cli.ts';
+import { createRuntimeSession } from '../../../v0/agent/runtime.ts';
 
 const mode = Deno.args[0] ?? 'success';
 type FixtureSignal = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
@@ -16,10 +26,14 @@ const signalMode = parseSignal('signal-') ?? parseSignal('daily-signal-');
 const cleanupSignalMode = parseSignal('signal-cleanup-failure-') ??
   parseSignal('daily-signal-cleanup-failure-');
 const activeSignal = cleanupSignalMode ?? signalMode;
-const dailyMode = mode.startsWith('daily-');
+const dailyMode = mode.startsWith('daily-') || mode.startsWith('runtime-');
 const dailyRecoveryMode = mode === 'daily-recovery';
 const dailyMaxMode = mode === 'daily-max';
 const dailyContractMode = mode === 'daily-contract';
+const dailyDiagnosticMode = mode === 'daily-diagnostic';
+const runtimeDiagnosticMode = mode === 'runtime-diagnostic';
+const runtimeSuccessMode = mode === 'runtime-success';
+const diagnosticReadbackMode = mode === 'diagnostic-readback';
 const dailyFatalMode = mode === 'daily-fatal';
 const assistantProgressMode = mode === 'assistant-progress' || mode === 'assistant-progress-cancel';
 const followUpSteeringMode = mode === 'follow-up-steering';
@@ -27,7 +41,7 @@ const steeringMode = mode === 'steering' || followUpSteeringMode || mode === 'da
 const followUpMode = mode === 'follow-up' || mode === 'daily-follow-up';
 const delayedMode = mode === 'busy' || mode === 'busy-cleanup-failure' || followUpMode ||
   followUpSteeringMode || activeSignal !== undefined || assistantProgressMode || steeringMode ||
-  dailyRecoveryMode || dailyMaxMode || dailyContractMode || dailyFatalMode;
+  dailyRecoveryMode || dailyMaxMode || dailyContractMode || dailyDiagnosticMode || dailyFatalMode;
 const cleanupFailureMode = mode === 'busy-cleanup-failure' || cleanupSignalMode !== undefined;
 const task = (value: string, finalText = 'fixture response'): LoopOutcome => ({
   ok: true,
@@ -52,12 +66,34 @@ const cancelledTask = (value: string): LoopOutcome => ({
   transcript: [],
 });
 
+const diagnostic = createFailureDiagnostic(
+  {
+    stage: 'response_parse',
+    code: 'response_error',
+    lane: 'parent',
+    providerRequestCount: 1,
+    httpStatus: 200,
+    parseReason: 'invalid_sse_json',
+    turnNumber: 1,
+    modelStep: 1,
+    occurredAt: '2026-09-02T00:00:00.000Z',
+  },
+  {
+    uuid: () => '55555555-5555-4555-8555-555555555555',
+    now: () => '2026-09-02T00:00:00.000Z',
+  },
+);
+
 class FixtureSession {
   private turn = 0;
   private active = false;
   private cancellationRequested = false;
   private steeringText: string | null = null;
-  constructor(private readonly sink: AgentEventSink, private readonly delayed: boolean) {}
+  constructor(
+    private readonly sink: AgentEventSink,
+    private readonly delayed: boolean,
+    private readonly persist?: FailureDiagnosticPersister,
+  ) {}
   async submit(text: string): Promise<LoopOutcome> {
     const turn = ++this.turn;
     this.active = true;
@@ -185,8 +221,9 @@ class FixtureSession {
         const delay = followUpMode ? (turn === 1 ? 150 : 300) : dailyRecoveryMode ? 300 : 120;
         await new Promise((resolve) => setTimeout(resolve, delay));
       }
-      if (dailyMaxMode || dailyContractMode) {
+      if (dailyMaxMode || dailyContractMode || dailyDiagnosticMode) {
         const stopReason = dailyMaxMode ? 'max_steps' as const : 'contract_failure' as const;
+        if (dailyDiagnosticMode) await this.persist?.(diagnostic);
         const outcome = dailyMaxMode
           ? {
             ok: false,
@@ -204,13 +241,22 @@ class FixtureSession {
             task: text,
             outcome: 'contract_failure' as const,
             stopReason,
-            error: 'daily fixture contract failure',
+            error: dailyDiagnosticMode
+              ? 'daily diagnostic private marker'
+              : 'daily fixture contract failure',
             steps: 1,
             toolCallCount: 0,
             toolResultCount: 0,
             transcript: [],
+            ...(dailyDiagnosticMode ? { diagnostic } : {}),
           };
-        this.sink({ kind: 'turn_end', turn, outcome: stopReason, committed: false });
+        this.sink({
+          kind: 'turn_end',
+          turn,
+          outcome: stopReason,
+          committed: false,
+          ...(dailyDiagnosticMode ? { diagnostic } : {}),
+        });
         return outcome;
       }
       if (this.cancellationRequested) {
@@ -249,6 +295,51 @@ const createSession = (
   sink: AgentEventSink,
   selection: BuiltinAgentSelection,
 ): Promise<TuiSessionFactoryResult> => {
+  if (runtimeDiagnosticMode || runtimeSuccessMode) {
+    const stateRoot = diagnosticStateRoot;
+    const store = runtimeDiagnosticMode && stateRoot !== undefined
+      ? new DenoFailureDiagnosticStore(stateRoot, Deno.cwd())
+      : undefined;
+    const runtime = runtimeDiagnosticMode
+      ? createRuntimeSession(sink, {
+        credential: 'credential-value-marker',
+        responseMode: 'json',
+        fetcher: () =>
+          Promise.resolve(
+            new Response(
+              'credential-value-marker Authorization: Bearer authorization-shaped-marker private-payload-marker',
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            ),
+          ),
+        workspaceRoot: Deno.cwd(),
+        diagnosticPersistence: store?.persist,
+      }, selection)
+      : createRuntimeSession(sink, {
+        credential: 'credential-value-marker',
+        responseMode: 'json',
+        fetcher: () =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                choices: [{ message: { role: 'assistant', content: 'fixture response' } }],
+              }),
+              {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+              },
+            ),
+          ),
+        workspaceRoot: Deno.cwd(),
+      }, selection);
+    return runtime.then((result) => ({
+      session: result.session,
+      displayState: result.displayState,
+      workspaceRoot: Deno.cwd(),
+    }));
+  }
   if (mode === 'planner' && selection.id !== 'planner') {
     throw new Error('planner selection was not propagated');
   }
@@ -256,7 +347,7 @@ const createSession = (
     throw new Error('unexpected non-default selection');
   }
   return Promise.resolve({
-    session: new FixtureSession(sink, delayedMode),
+    session: new FixtureSession(sink, delayedMode, diagnosticPersistence),
     displayState: projectRuntimeDisplayState({
       workspaceRoot: '/tmp/tui-process-fixture',
       agentId: mode === 'planner' ? 'planner' : 'default',
@@ -272,6 +363,93 @@ const createSession = (
   });
 };
 
+const diagnosticStateRoot = Deno.args[1];
+const diagnosticPersistence = mode === 'daily-diagnostic' && diagnosticStateRoot !== undefined
+  ? new DenoFailureDiagnosticStore(diagnosticStateRoot, Deno.cwd()).persist
+  : undefined;
+
+if (diagnosticReadbackMode) {
+  const id = Deno.args[2];
+  if (diagnosticStateRoot === undefined || id === undefined) Deno.exit(1);
+  Deno.exit(
+    await diagnosticMain(['show', '--id', id], {
+      stateRoot: diagnosticStateRoot,
+      workspaceRoot: Deno.cwd(),
+    }),
+  );
+}
+
+if (mode === 'diagnostic-inspect') {
+  if (diagnosticStateRoot === undefined) Deno.exit(1);
+  const paths = await failureDiagnosticPaths(diagnosticStateRoot, Deno.cwd());
+  const inspectedId = Deno.args[2] ?? diagnostic.diagnosticId;
+  const exists = async (path: string): Promise<boolean> => {
+    try {
+      await Deno.lstat(path);
+      return true;
+    } catch (error) {
+      if (error instanceof Deno.errors.NotFound) return false;
+      throw error;
+    }
+  };
+  const record = `${paths.diagnostics}/${inspectedId}.json`;
+  let recordText = '';
+  try {
+    recordText = await Deno.readTextFile(record);
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+  const markerValues = [
+    'credential-value-marker',
+    'Authorization: Bearer',
+    'authorization-shaped-marker',
+    'private-payload-marker',
+  ];
+  await Deno.stdout.write(new TextEncoder().encode(
+    JSON.stringify({
+      record: await exists(record),
+      recordMarkers: markerValues.some((marker) => recordText.includes(marker)),
+      session: await exists(`${paths.root}/sessions`),
+      context: await exists(`${paths.root}/contexts`),
+    }) + '\n',
+  ));
+  Deno.exit(0);
+}
+
+if (mode === 'diagnostic-cleanup') {
+  if (diagnosticStateRoot !== undefined) {
+    try {
+      await Deno.remove(diagnosticStateRoot, { recursive: true });
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) Deno.exit(1);
+    }
+  }
+  Deno.exit(0);
+}
+
+if (mode === 'diagnostic-fill') {
+  if (diagnosticStateRoot === undefined) Deno.exit(1);
+  const store = new DenoFailureDiagnosticStore(diagnosticStateRoot, Deno.cwd());
+  for (let index = 0; index < 16; index += 1) {
+    const suffix = index.toString(16).padStart(2, '0');
+    const second = index.toString(10).padStart(2, '0');
+    await store.write(createFailureDiagnostic({
+      stage: 'response_parse',
+      code: 'response_error',
+      lane: 'parent',
+      providerRequestCount: 1,
+      httpStatus: 200,
+      parseReason: 'invalid_sse_json',
+      turnNumber: index + 1,
+      modelStep: 1,
+      occurredAt: `2026-09-02T00:00:${second}.000Z`,
+    }, {
+      uuid: () => `66666666-6666-4666-8666-6666666666${suffix}`,
+    }));
+  }
+  Deno.exit(0);
+}
+
 const delayedCrash = (kind: 'error' | 'rejection'): Promise<void> => {
   setTimeout(() => {
     if (kind === 'error') throw new Error('uncaught fixture failure');
@@ -281,7 +459,9 @@ const delayedCrash = (kind: 'error' | 'rejection'): Promise<void> => {
 };
 
 const exitCode = await main(
-  mode === 'planner'
+  runtimeDiagnosticMode || runtimeSuccessMode
+    ? ['--no-session']
+    : mode === 'planner'
     ? ['--agent', 'planner']
     : mode === 'invalid-selection'
     ? ['--agent', 'unknown']

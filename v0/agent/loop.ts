@@ -32,6 +32,11 @@ import {
 } from './execution_context.ts';
 import { prepareModelContext } from './context.ts';
 import { type SteeringConsumer } from './steering.ts';
+import {
+  type FailureDiagnosticFact,
+  FailureDiagnosticOwner,
+  type FailureDiagnosticV1,
+} from './failure_diagnostic.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
@@ -47,6 +52,8 @@ export interface AgentLoopOptions {
   readonly signal?: AbortSignal;
   /** Child loops share the owner for failure poisoning but do not settle the parent turn. */
   readonly ownsCancellation?: boolean;
+  /** Optional turn-local owner. Direct compatibility callers may omit diagnostics. */
+  readonly diagnosticOwner?: FailureDiagnosticOwner;
 }
 
 export interface AgentTurnOptions extends AgentLoopOptions {
@@ -140,17 +147,39 @@ const contractFailure = (
   toolCallCount: number,
   toolResultCount: number,
   error: string,
+  diagnostic?: FailureDiagnosticV1,
 ): LoopOutcome => ({
   ok: false,
   task,
   outcome: 'contract_failure',
   stopReason: 'contract_failure',
   error,
+  ...(diagnostic === undefined ? {} : { diagnostic }),
   steps,
   toolCallCount,
   toolResultCount,
   transcript: snapshotMessages(transcript),
 });
+
+const failureFact = (error: unknown): Partial<FailureDiagnosticFact> | undefined => {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const candidate = (error as { readonly failureFact?: unknown }).failureFact;
+  if (typeof candidate !== 'object' || candidate === null) return undefined;
+  const value = candidate as Record<string, unknown>;
+  if (
+    typeof value.stage !== 'string' || typeof value.code !== 'string' ||
+    (value.requestCount !== 0 && value.requestCount !== 1)
+  ) return undefined;
+  return {
+    stage: value.stage as FailureDiagnosticFact['stage'],
+    code: value.code as FailureDiagnosticFact['code'],
+    providerRequestCount: value.requestCount,
+    ...(typeof value.httpStatus === 'number' ? { httpStatus: value.httpStatus } : {}),
+    ...(typeof value.parseReason === 'string'
+      ? { parseReason: value.parseReason as FailureDiagnosticFact['parseReason'] }
+      : {}),
+  };
+};
 
 const cancelled = (
   task: string,
@@ -237,7 +266,48 @@ const runAgentTurnInternal = async (
   let toolCallCount = 0;
   let toolResultCount = 0;
 
-  const finishContractFailure = (error: string): LoopOutcome => {
+  const diagnosticFor = (
+    error: unknown,
+    fallback: Partial<FailureDiagnosticFact> = {
+      stage: 'unknown_stage',
+      code: 'unknown_code',
+    },
+  ): FailureDiagnosticV1 | undefined => {
+    const owner = options.diagnosticOwner ?? options.executionContext?.diagnosticOwner;
+    if (owner === undefined) return undefined;
+    const observed = failureFact(error);
+    const stage = observed?.stage ?? fallback.stage ?? 'unknown_stage';
+    const code = observed?.code ?? fallback.code ?? 'unknown_code';
+    const count = options.executionContext?.providerRequestCount?.() ??
+      (stage === 'request_build' || stage === 'credential_resolution'
+        ? observed?.providerRequestCount ?? fallback.providerRequestCount ?? 0
+        : observed?.providerRequestCount ?? options.executionContext?.snapshot().aggregate ??
+          fallback.providerRequestCount ?? 0);
+    const step = fallback.modelStep ??
+      (stage === 'request_build' || stage === 'request_admission' || stage === 'session_commit' ||
+          stage === 'cancellation_cleanup'
+        ? 0
+        : steps);
+    try {
+      return owner.record({
+        stage,
+        code,
+        lane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
+        providerRequestCount: count,
+        modelStep: step,
+        ...(observed?.httpStatus === undefined ? {} : { httpStatus: observed.httpStatus }),
+        ...(observed?.parseReason === undefined ? {} : { parseReason: observed.parseReason }),
+      });
+    } catch {
+      return owner.snapshot();
+    }
+  };
+
+  const finishContractFailure = (
+    error: string,
+    fallback?: Partial<FailureDiagnosticFact>,
+    cause: unknown = error,
+  ): LoopOutcome => {
     if (error === 'cancellation cleanup failed') {
       cancellation?.markCleanupFailed();
     }
@@ -246,6 +316,7 @@ const runAgentTurnInternal = async (
       cancellation !== undefined &&
       !cancellation.trySettleNormally()
     ) return finishCancelled();
+    const diagnostic = diagnosticFor(cause, fallback);
     const outcome = contractFailure(
       task,
       transcript,
@@ -253,12 +324,14 @@ const runAgentTurnInternal = async (
       toolCallCount,
       toolResultCount,
       error,
+      diagnostic,
     );
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'contract_failure',
       committed: false,
+      ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return outcome;
   };
@@ -274,13 +347,18 @@ const runAgentTurnInternal = async (
       toolCallCount,
       toolResultCount,
     );
+    const diagnostic = (
+      options.diagnosticOwner ?? options.executionContext?.diagnosticOwner
+    )?.snapshot();
+    const settledOutcome = diagnostic === undefined ? outcome : { ...outcome, diagnostic };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'cancelled',
       committed: false,
+      ...(diagnostic === undefined ? {} : { diagnostic }),
     });
-    return outcome;
+    return settledOutcome;
   };
   const finishNormal = (outcome: LoopOutcome): LoopOutcome => {
     // A re-entrant cancellation from the final event sink wins over normal settlement.
@@ -293,10 +371,19 @@ const runAgentTurnInternal = async (
     const successful = outcome.ok &&
       (outcome.stopReason === 'final' ||
         outcome.stopReason === 'tool_terminal');
+    const diagnostic = (
+      options.diagnosticOwner ?? options.executionContext?.diagnosticOwner
+    )?.snapshot();
+    const settledOutcome = diagnostic === undefined ? outcome : { ...outcome, diagnostic };
     if (successful) {
       try {
         options.commit?.(outcome.transcript);
       } catch (error) {
+        const diagnostic = diagnosticFor(error, {
+          stage: 'session_commit',
+          code: 'commit_error',
+          modelStep: 0,
+        });
         const failure = contractFailure(
           task,
           transcript,
@@ -304,12 +391,14 @@ const runAgentTurnInternal = async (
           toolCallCount,
           toolResultCount,
           `session commit failure: ${errorText(error)}`,
+          diagnostic,
         );
         deliverEvent(sink, {
           kind: 'turn_end',
           turn,
           outcome: 'contract_failure',
           committed: false,
+          ...(diagnostic === undefined ? {} : { diagnostic }),
         });
         return failure;
       }
@@ -317,10 +406,11 @@ const runAgentTurnInternal = async (
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
-      outcome: outcome.stopReason,
+      outcome: settledOutcome.stopReason,
       committed: successful && options.commit !== undefined,
+      ...(diagnostic === undefined ? {} : { diagnostic }),
     });
-    return outcome;
+    return settledOutcome;
   };
   const finishMaxSteps = (): LoopOutcome => {
     if (signal?.aborted) return finishCancelled();
@@ -358,16 +448,11 @@ const runAgentTurnInternal = async (
         : options.projectParentRequest(request);
       preparedRequest = prepareModelContext(projected).request;
     } catch (error) {
-      return finishNormal(
-        contractFailure(
-          task,
-          transcript,
-          steps,
-          toolCallCount,
-          toolResultCount,
-          `context preparation failure: ${errorText(error)}`,
-        ),
-      );
+      return finishContractFailure(`context preparation failure: ${errorText(error)}`, {
+        stage: 'request_build',
+        code: 'invalid_input',
+        modelStep: 0,
+      });
     }
     try {
       throwIfCancelled(signal);
@@ -375,16 +460,11 @@ const runAgentTurnInternal = async (
         options.executionContext !== undefined &&
         !options.executionContext.claimModelRequest()
       ) {
-        return finishNormal(
-          contractFailure(
-            task,
-            transcript,
-            steps,
-            toolCallCount,
-            toolResultCount,
-            'model request budget exhausted',
-          ),
-        );
+        return finishContractFailure('model request budget exhausted', {
+          stage: 'request_admission',
+          code: 'request_budget_exhausted',
+          modelStep: 0,
+        });
       }
       throwIfCancelled(signal);
     } catch (error) {
@@ -436,7 +516,11 @@ const runAgentTurnInternal = async (
       }
       if (isCancellationCleanupError(error)) {
         observer?.modelSettled('error');
-        return finishContractFailure('cancellation cleanup failed');
+        return finishContractFailure('cancellation cleanup failed', {
+          stage: 'cancellation_cleanup',
+          code: 'cleanup_error',
+          modelStep: 0,
+        });
       }
       if (cancellationFrom(error)) {
         observer?.modelSettled('cancelled');
@@ -445,6 +529,8 @@ const runAgentTurnInternal = async (
       observer?.modelSettled('error');
       return finishContractFailure(
         `model contract failure: ${errorText(error)}`,
+        undefined,
+        error,
       );
     }
     progressSettled = true;
@@ -455,16 +541,10 @@ const runAgentTurnInternal = async (
     }
     if (!isModelResult(result)) {
       observer?.modelSettled('error');
-      return finishNormal(
-        contractFailure(
-          task,
-          transcript,
-          steps,
-          toolCallCount,
-          toolResultCount,
-          'model contract failure: invalid result',
-        ),
-      );
+      return finishContractFailure('model contract failure: invalid result', {
+        stage: 'model_result_validation',
+        code: 'invalid_model_result',
+      });
     }
     if (result.kind === 'final') {
       observer?.modelSettled('final');

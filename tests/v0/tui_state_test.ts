@@ -1,5 +1,8 @@
 import { assert, assertEquals } from './test_helpers.ts';
-import { type PresentationEvent } from '../../v0/presentation/contract.ts';
+import {
+  type PresentationEvent,
+  type PresentationFailureDiagnostic,
+} from '../../v0/presentation/contract.ts';
 import {
   createUiState,
   reduceUiAction,
@@ -11,6 +14,21 @@ const event = (index: number): PresentationEvent => ({
   kind: 'user_message',
   turn: index,
   message: { role: 'user', content: { kind: 'text', text: `task-${index}` } },
+});
+
+const responseParseDiagnostic: PresentationFailureDiagnostic = Object.freeze({
+  schemaVersion: 1,
+  diagnosticId: '22222222-2222-4222-8222-222222222222',
+  stage: 'response_parse',
+  code: 'response_error',
+  lane: 'parent',
+  providerRequestCount: 1,
+  httpStatus: 200,
+  parseReason: 'invalid_sse_json',
+  occurredAt: '2026-09-02T00:00:00.000Z',
+  turnNumber: 1,
+  modelStep: 1,
+  retryCount: 0,
 });
 
 Deno.test('retained UI reducer leaves prior state untouched and coalesces assistant progress', () => {
@@ -31,6 +49,45 @@ Deno.test('retained UI reducer leaves prior state untouched and coalesces assist
   assertEquals(updated.log.entries.length, 2);
   assertEquals(updated.log.entries[1].text, 'second');
   assertEquals(updated.log.entries[1].revision, 1);
+});
+
+Deno.test('diagnostic entry is retained once with exact safe readback marker', () => {
+  const initial = createUiState();
+  const event: PresentationEvent = {
+    kind: 'failure_diagnostic',
+    turn: 1,
+    diagnostic: responseParseDiagnostic,
+    durable: 'yes',
+  };
+  const first = reduceUiEvent(initial, event);
+  const second = reduceUiEvent(first, event);
+  assertEquals(initial.log.entries, []);
+  assertEquals(first.lifecycle, 'recoverable_error');
+  assertEquals(first.log.entries.length, 1);
+  assertEquals(first.log.entries[0], {
+    id: 'failure:22222222-2222-4222-8222-222222222222',
+    kind: 'recoverable',
+    label: 'failure>',
+    text: 'id=22222222-2222-4222-8222-222222222222 · stage=response_parse · ' +
+      'code=response_error · lane=parent · requests=1 · http=200 · ' +
+      'reason=invalid_sse_json · turn=1 · step=1 · occurredAt=2026-09-02T00:00:00.000Z · retry=0 · durable=yes\n' +
+      'readback> henji diagnostics show --id 22222222-2222-4222-8222-222222222222',
+    revision: 0,
+    live: false,
+    turn: 1,
+  });
+  assertEquals(second.log.entries, first.log.entries);
+  assertEquals(second.log.entries.length, 1);
+  const failed = reduceUiEvent(first, {
+    ...event,
+    durable: 'failed',
+    persistenceError: 'diagnostic_capacity',
+  });
+  assertEquals(failed.log.entries.length, 1);
+  assert(failed.log.entries[0].text.includes('durable=failed · store=diagnostic_capacity'));
+  const restored = reduceUiEvent(failed, event);
+  assertEquals(restored.log.entries.length, 1);
+  assert(restored.log.entries[0].text.includes('durable=yes'));
 });
 
 Deno.test('retained log uses bounded omission and latest action resets new-below count', () => {

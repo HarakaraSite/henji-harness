@@ -1,6 +1,14 @@
 # Step 83 full-capability Human Gate
 
-Status: **separate final Human Gate required; not run by the offline implementation gate**
+Status: **separate final Human Gate consumed; Turn 1 failure is non-evaluable; no retry**
+
+The approved one-shot execution on 2026-09-01 stopped after the exact Turn 1 submission returned
+`contract_failure`. Turn 2, Continue/Turn 3, assertions, session deletion, and cleanup were not run.
+The insufficient evidence and overprotection finding are recorded in
+[step-83-full-capability-human-acceptance-results.md](step-83-full-capability-human-acceptance-results.md).
+This package is retained as the execution contract and does not authorize a retry or rerun.
+Its original three-way decision requirement cannot be applied because the implementation discarded
+the sanitized failure classification and request-count evidence needed for a meaningful judgment.
 
 This is the single real-screen acceptance package for the continuation. It must be run with the
 installed `/home/masat.guest/.local/bin/henji` after implementation review and machine launcher
@@ -31,6 +39,32 @@ diagnosis when stopped.
 The acceptance has exactly three accepted tasks: Turn 1, Turn 2, and Continue/Turn 3 below. The
 launcher must remain the installed `henji` command; do not substitute a fixture or test command.
 The complete run is bounded to 48 requests, with no retry, fallback, rerun, or additional follow-up.
+
+## Execution preflight refreshed 2026-09-01
+
+The fixed profile uses `google/gemini-3.7-flash` through OpenRouter
+`POST /api/v1/chat/completions`. The official OpenRouter model page currently lists two serving
+providers, tool calling, a 1,048,576-token context window, and prices of USD 0.75 per million input
+tokens and USD 3.75 per million output tokens.
+
+The runtime bounds each request to the existing conservative maximum of 77,824 input tokens and
+1,024 completion tokens. At the current prices the inference ceiling is:
+
+```text
+per request = 77,824 × 0.75 / 1,000,000 + 1,024 × 3.75 / 1,000,000
+            = USD 0.062208
+48 requests = USD 2.985984
+```
+
+This is an inference-cost ceiling, not a prediction of typical cost. Existing OpenRouter credits
+may already cover it; purchasing new credits can have a separate platform payment fee. Stop before
+launch if the model page, endpoint contract, or displayed prices no longer match these values.
+
+Official references:
+
+- <https://openrouter.ai/google/gemini-3.7-flash>
+- <https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request>
+- <https://openrouter.ai/docs/faq>
 
 ## Setup and launch
 
@@ -144,29 +178,43 @@ The following are literal post-run assertions. Run them after the final turn and
 cleanup; replace only `<SESSION_UUID>` with the UUID printed by the preceding list command.
 
 ```sh
-henji_accept_entries=$(find -- "$henji_accept_workspace" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
-test "$henji_accept_entries" = "$(printf '%s\n' acceptance-note.md request.txt)"
-cat > "$henji_accept_expected" <<'EOF'
+henji_accept_session_uuid='<SESSION_UUID>' # replace with the one UUID printed by list
+if ! {
+  henji_accept_ok=1
+  henji_accept_entries=$(find -- "$henji_accept_workspace" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) || henji_accept_ok=0
+  test "$henji_accept_entries" = "$(printf '%s\n' acceptance-note.md request.txt)" || henji_accept_ok=0
+  cat > "$henji_accept_expected" <<'EOF' || henji_accept_ok=0
 # Henji acceptance
 Owner: Masato
 Status: READY
 Check: passed
 Resumed: yes
 EOF
-diff -u -- "$henji_accept_expected" "$henji_accept_workspace/acceptance-note.md"
-test -z "$(find -- "$henji_accept_workspace" -maxdepth 1 \( -name '*.lock' -o -name '*.tmp*' \) -print)"
-henji_accept_state_root="${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness"
-test -z "$(find -- "$henji_accept_state_root" -maxdepth 4 \( -name '*.lock' -o -name '*.tmp*' \) -print 2>/dev/null)"
+  diff -u -- "$henji_accept_expected" "$henji_accept_workspace/acceptance-note.md" || henji_accept_ok=0
+  test -z "$(find -- "$henji_accept_workspace" -maxdepth 1 \( -name '*.lock' -o -name '*.tmp*' \) -print)" || henji_accept_ok=0
+  henji_accept_state_root="${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness"
+  henji_accept_workspace_digest=$(printf '%s' "$henji_accept_workspace" | sha256sum | awk '{print $1}')
+  henji_accept_state_namespace="$henji_accept_state_root/$henji_accept_workspace_digest"
+  # Only the selected session/workspace namespace is evidence for this run. A live index lock and
+  # unrelated sessions/locks in the shared state root are not acceptance residue.
+  test ! -e "$henji_accept_state_namespace/locks/$henji_accept_session_uuid.lock" || henji_accept_ok=0
+  test ! -e "$henji_accept_state_namespace/sessions/$henji_accept_session_uuid" || henji_accept_ok=0
+  test ! -e "$henji_accept_state_namespace/contexts/$henji_accept_session_uuid.json" || henji_accept_ok=0
+  case "$henji_accept_workspace" in
+    /tmp/henji-step83-full-capability-acceptance) ;;
+    *) henji_accept_ok=0 ;;
+  esac
+  case "$henji_accept_expected" in
+    /tmp/henji-step83-full-capability-expected) ;;
+    *) henji_accept_ok=0 ;;
+  esac
+  test -d "$henji_accept_workspace" && test -f "$henji_accept_expected" || henji_accept_ok=0
+  test "$henji_accept_ok" -eq 1
+}; then
+  printf '%s\n' 'acceptance assertions failed; preserving diagnosis state' >&2
+  exit 1
+fi
 
-case "$henji_accept_workspace" in
-  /tmp/henji-step83-full-capability-acceptance) ;;
-  *) exit 1 ;;
-esac
-case "$henji_accept_expected" in
-  /tmp/henji-step83-full-capability-expected) ;;
-  *) exit 1 ;;
-esac
-test -d "$henji_accept_workspace" && test -f "$henji_accept_expected"
 rm -rf -- "$henji_accept_workspace" "$henji_accept_expected"
 test ! -e "$henji_accept_workspace" && test ! -e "$henji_accept_expected"
 ```

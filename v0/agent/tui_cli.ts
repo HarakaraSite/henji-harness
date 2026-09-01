@@ -40,6 +40,8 @@ import {
   TuiPresentationAdapter,
 } from './tui_presentation_adapter.ts';
 import { readCredentialFile } from './credential_file.ts';
+import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
+import { DenoFailureDiagnosticStore } from './failure_diagnostic_store.ts';
 
 const encoder = new TextEncoder();
 
@@ -98,7 +100,10 @@ export interface TuiSessionFactoryResult {
     & Partial<
       Pick<
         AgentSession,
-        'cancelActiveTurn' | 'contextSnapshot' | 'steerActiveTurn' | 'isAvailable'
+        | 'cancelActiveTurn'
+        | 'contextSnapshot'
+        | 'steerActiveTurn'
+        | 'isAvailable'
       >
     >;
   readonly requestCount?: () => number;
@@ -132,6 +137,8 @@ export interface TuiCliDependencies {
   readonly dailyEditor?: boolean;
   /** Direct/process-test path-index seam; production always builds from the canonical workspace. */
   readonly pathIndex?: WorkspacePathIndex;
+  /** Direct-test/host seam for turn-scoped diagnostic persistence. */
+  readonly diagnosticPersistence?: FailureDiagnosticPersister;
 }
 
 const fatalMessages: Record<string, string> = {
@@ -284,7 +291,28 @@ export const main = async (
             selected,
             'none',
           );
-          const result = createRuntimeSessionFromPrepared(eventSink, prepared);
+          const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
+          const diagnosticStore = dependencies.runtimeSeam === undefined &&
+              dependencies.diagnosticPersistence === undefined &&
+              prepared.seam.diagnosticPersistence === undefined
+            ? new DenoFailureDiagnosticStore(stateRoot, prepared.workspace.root)
+            : undefined;
+          const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
+            dependencies.diagnosticPersistence ??
+            (diagnosticStore === undefined
+              ? undefined
+              : (diagnostic) => diagnosticStore.write(diagnostic));
+          const diagnosticPrepared = {
+            ...prepared,
+            seam: {
+              ...prepared.seam,
+              ...(diagnosticPersistence === undefined ? {} : { diagnosticPersistence }),
+            },
+          };
+          const result = createRuntimeSessionFromPrepared(
+            eventSink,
+            diagnosticPrepared,
+          );
           return {
             session: result.session,
             requestCount: result.requestCount,
@@ -300,6 +328,23 @@ export const main = async (
         );
         const workspace = prepared.workspace;
         const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
+        const diagnosticStore = dependencies.runtimeSeam === undefined &&
+            dependencies.diagnosticPersistence === undefined &&
+            prepared.seam.diagnosticPersistence === undefined
+          ? new DenoFailureDiagnosticStore(stateRoot, workspace.root)
+          : undefined;
+        const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
+          dependencies.diagnosticPersistence ??
+          (diagnosticStore === undefined
+            ? undefined
+            : (diagnostic) => diagnosticStore.write(diagnostic));
+        const diagnosticPrepared = {
+          ...prepared,
+          seam: {
+            ...prepared.seam,
+            ...(diagnosticPersistence === undefined ? {} : { diagnosticPersistence }),
+          },
+        };
         const store = new DenoSessionStore(stateRoot, workspace.root, {
           sourceProfileId: prepared.definition.model.profile.id,
         });
@@ -336,7 +381,7 @@ export const main = async (
         try {
           const result = createRuntimeSessionFromPrepared(
             eventSink,
-            prepared,
+            diagnosticPrepared,
             { persistence, initialRecord: record },
           );
           let currentHandle: SessionHandle = handle;
@@ -364,7 +409,10 @@ export const main = async (
                 resumed: metadata.id === currentHandle.id,
                 mismatch: metadata.agent !== selected.id,
               }));
-              if (currentRecord === undefined && !rows.some((row) => row.id === currentHandle.id)) {
+              if (
+                currentRecord === undefined &&
+                !rows.some((row) => row.id === currentHandle.id)
+              ) {
                 rows.push({
                   id: currentHandle.id,
                   agent: selected.id,
@@ -379,16 +427,26 @@ export const main = async (
               }
               return { sessions: rows, skippedInvalid: listed.skippedInvalid };
             },
-            async switchTo(id: string, signal?: AbortSignal): Promise<NavigationBinding> {
+            async switchTo(
+              id: string,
+              signal?: AbortSignal,
+            ): Promise<NavigationBinding> {
               throwIfNavigationAborted(signal);
-              if (!isSessionId(id)) throw new SessionStoreError('session_invalid');
+              if (!isSessionId(id)) {
+                throw new SessionStoreError('session_invalid');
+              }
               if (id === currentHandle.id) {
                 return {
                   session: currentSession,
                   position: position(),
                   ...(currentRecord === undefined ? {} : (() => {
                     const replay = restoredMessages(currentRecord!.transcript);
-                    return { restored: { messages: replay.messages, omitted: replay.omitted } };
+                    return {
+                      restored: {
+                        messages: replay.messages,
+                        omitted: replay.omitted,
+                      },
+                    };
                   })()),
                 };
               }
@@ -399,19 +457,24 @@ export const main = async (
                 try {
                   await targetHandle.close();
                 } catch {
-                  throw new NavigationFatalError('target session cleanup failed');
+                  throw new NavigationFatalError(
+                    'target session cleanup failed',
+                  );
                 }
                 throw error;
               }
               const targetRecord = targetHandle.record;
               if (
-                targetRecord === undefined || targetRecord.workspaceRoot !== workspace.root ||
+                targetRecord === undefined ||
+                targetRecord.workspaceRoot !== workspace.root ||
                 targetRecord.agent !== selected.id
               ) {
                 try {
                   await targetHandle.close();
                 } catch {
-                  throw new NavigationFatalError('target session cleanup failed');
+                  throw new NavigationFatalError(
+                    'target session cleanup failed',
+                  );
                 }
                 throw new SessionStoreError('session_invalid');
               }
@@ -426,8 +489,11 @@ export const main = async (
                 materializeTarget: () => {
                   const targetRuntime = createRuntimeSessionFromPrepared(
                     eventSink,
-                    prepared,
-                    { persistence: targetPersistence, initialRecord: targetRecord },
+                    diagnosticPrepared,
+                    {
+                      persistence: targetPersistence,
+                      initialRecord: targetRecord,
+                    },
                   );
                   return targetRuntime.session;
                 },
@@ -443,11 +509,20 @@ export const main = async (
               return {
                 session: targetSession,
                 position: position(),
-                restored: { messages: replay.messages, omitted: replay.omitted },
+                restored: {
+                  messages: replay.messages,
+                  omitted: replay.omitted,
+                },
               };
             },
-            historyPage(page, turn, rows): Promise<SessionHistoryPage | undefined> {
-              return Promise.resolve(currentSession.historyPage(page, turn, rows));
+            historyPage(
+              page,
+              turn,
+              rows,
+            ): Promise<SessionHistoryPage | undefined> {
+              return Promise.resolve(
+                currentSession.historyPage(page, turn, rows),
+              );
             },
             currentPosition: position,
           };
@@ -480,7 +555,9 @@ export const main = async (
     const presentationAdapterRef: { current?: TuiPresentationAdapter } = {};
     const pending = new PendingInputCore();
     const bridge: AgentEventSink = (event) => {
-      if (event.kind === 'steering_message' && controllerRef.current !== undefined) {
+      if (
+        event.kind === 'steering_message' && controllerRef.current !== undefined
+      ) {
         controllerRef.current.markSteeringConsumed();
       }
       presentationAdapterRef.current?.deliverCoreEvent(event);
@@ -493,8 +570,10 @@ export const main = async (
       created.navigation,
     );
     presentationAdapterRef.current = presentationAdapter;
-    const useDailyEditor = dependencies.dailyEditor ?? dependencies.createSession === undefined;
-    const workspaceRoot = created.workspaceRoot ?? created.displayState.workspace;
+    const useDailyEditor = dependencies.dailyEditor ??
+      dependencies.createSession === undefined;
+    const workspaceRoot = created.workspaceRoot ??
+      created.displayState.workspace;
     const pathIndex = useDailyEditor
       ? dependencies.pathIndex ?? await buildWorkspacePathIndex(workspaceRoot)
       : undefined;
@@ -523,7 +602,10 @@ export const main = async (
     // Production uses the compact retained-screen welcome.  The injected factory remains a
     // direct-test seam and keeps the historical twelve-line orientation for its assertions.
     if (retainedProduction) {
-      renderer.renderCompactStartup(created.displayState, created.sessionLine?.split(' ')[1]);
+      renderer.renderCompactStartup(
+        created.displayState,
+        created.sessionLine?.split(' ')[1],
+      );
     } else {
       renderer.renderStartupOrientation(created.displayState);
     }
@@ -540,20 +622,26 @@ export const main = async (
     if (initialPosition !== undefined) {
       renderer.setCurrentPosition(initialPosition);
       renderer.setProjection(
-        presentationProjectionFromStartup(created.displayState, initialPosition, {
+        presentationProjectionFromStartup(
+          created.displayState,
+          initialPosition,
+          {
+            canNavigate: created.navigation?.persistent === true,
+            canHistory: created.navigation !== undefined ||
+              presentationAdapter.historyPage !== undefined,
+            canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
+          },
+        ),
+      );
+    } else {
+      renderer.setProjection(
+        presentationProjectionFromStartup(created.displayState, undefined, {
           canNavigate: created.navigation?.persistent === true,
           canHistory: created.navigation !== undefined ||
             presentationAdapter.historyPage !== undefined,
           canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
         }),
       );
-    } else {
-      renderer.setProjection(presentationProjectionFromStartup(created.displayState, undefined, {
-        canNavigate: created.navigation?.persistent === true,
-        canHistory: created.navigation !== undefined ||
-          presentationAdapter.historyPage !== undefined,
-        canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
-      }));
     }
     await dependencies.afterAcquire?.();
     const exitCode = await controller.run();

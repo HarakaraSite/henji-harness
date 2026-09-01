@@ -5,7 +5,7 @@ import {
   type ModelRequest,
   type ModelResult,
 } from './contracts.ts';
-import { type AgentEventSink } from './events.ts';
+import { type AgentEvent, type AgentEventSink, deliverEvent } from './events.ts';
 import { type AgentTurnOptions, runAgentTurn } from './loop.ts';
 import { Registry } from './tools.ts';
 import { snapshotMessages } from './events.ts';
@@ -34,6 +34,11 @@ import {
   summaryRequest,
 } from './semantic_context.ts';
 import { measureModelRequestWire } from './openrouter_model.ts';
+import {
+  FailureDiagnosticOwner,
+  type FailureDiagnosticOwnerOptions,
+  type FailureDiagnosticPersistenceErrorCode,
+} from './failure_diagnostic.ts';
 
 export const AGENT_SESSION_UNAVAILABLE = 'agent session unavailable';
 
@@ -47,9 +52,17 @@ export interface AgentSessionOptions {
     turn: number,
     signal?: AbortSignal,
     cancellation?: TurnCancellationOwner,
+    diagnosticOwner?: FailureDiagnosticOwner,
+    providerRequestCount?: () => number,
   ) => ParentTurnExecutionContext;
   /** Optional durable owner. Ephemeral sessions leave this unset. */
   readonly persistence?: SessionPersistence;
+  /** Optional turn-local diagnostic persistence; omitted for in-memory diagnostics. */
+  readonly diagnosticPersistence?: FailureDiagnosticOwnerOptions['persist'];
+  /** Direct-test-only owner factory for deterministic identity and time. */
+  readonly diagnosticOwnerFactory?: (turn: number) => FailureDiagnosticOwner;
+  /** Host-owned aggregate fetch count used for occurrence-bound diagnostics. */
+  readonly providerRequestCount?: () => number;
   /** Hydrated committed state used by the persistent TUI modes. */
   readonly initialRecord?: SessionRecord;
   /** Dedicated no-tool semantic operation supplied by the selected runtime profile. */
@@ -84,6 +97,8 @@ export class AgentSession {
     turn: number,
     signal?: AbortSignal,
     cancellation?: TurnCancellationOwner,
+    diagnosticOwner?: FailureDiagnosticOwner,
+    providerRequestCount?: () => number,
   ) => ParentTurnExecutionContext;
   private committedTranscript: Message[] = [];
   private active = false;
@@ -100,6 +115,10 @@ export class AgentSession {
   private checkpoint?: SemanticContextCheckpointV1;
   private readonly summarizeContext?: AgentSessionOptions['summarizeContext'];
   private readonly sourceProfileId: string;
+  private readonly diagnosticPersistence?: FailureDiagnosticOwnerOptions['persist'];
+  private readonly diagnosticOwnerFactory?: (turn: number) => FailureDiagnosticOwner;
+  private readonly providerRequestCount?: () => number;
+  private activeDiagnosticOwner: FailureDiagnosticOwner | null = null;
 
   constructor(model: Model, registry: Registry, options: AgentSessionOptions = {}) {
     const maxSteps = options.maxSteps ?? 8;
@@ -115,6 +134,9 @@ export class AgentSession {
     };
     this.createTurnContext = options.createTurnExecutionContext;
     this.persistence = options.persistence;
+    this.diagnosticPersistence = options.diagnosticPersistence;
+    this.diagnosticOwnerFactory = options.diagnosticOwnerFactory;
+    this.providerRequestCount = options.providerRequestCount;
     this.summarizeContext = options.summarizeContext;
     this.sourceProfileId = options.sourceProfileId ??
       options.persistence?.checkpoint?.sourceProfileId ?? 'unknown-profile';
@@ -396,12 +418,40 @@ export class AgentSession {
     this.activeCancellation = cancellation;
     const steering = new SteeringOwner();
     this.activeSteering = steering;
+    const diagnosticOwner = this.diagnosticOwnerFactory?.(turn) ??
+      new FailureDiagnosticOwner(turn, {
+        persist: this.diagnosticPersistence,
+      });
+    this.activeDiagnosticOwner = diagnosticOwner;
+    const requestCountAtAdmission = this.providerRequestCount?.() ?? 0;
+    const turnProviderRequestCount = this.providerRequestCount === undefined
+      ? undefined
+      : () => Math.max(0, this.providerRequestCount!() - requestCountAtAdmission);
     const previousTranscript = snapshotMessages(this.committedTranscript);
     const previousContext = this.committedContextSnapshot === undefined
       ? undefined
       : { ...this.committedContextSnapshot };
+    // The loop emits its terminal event before returning. Hold only diagnostic terminal events
+    // until the owner has settled persistence, so live presentation can truthfully label the
+    // same immutable record as durable or failed.
+    const deferredDiagnosticEvents: AgentEvent[] = [];
+    const eventSink: AgentEventSink | undefined = this.options.eventSink === undefined
+      ? undefined
+      : (event) => {
+        if (event.kind === 'turn_end' && event.diagnostic !== undefined) {
+          deferredDiagnosticEvents.push(event);
+          return;
+        }
+        this.options.eventSink!(event);
+      };
     try {
-      const executionContext = this.createTurnContext?.(turn, cancellation.signal, cancellation) ??
+      const executionContext = this.createTurnContext?.(
+        turn,
+        cancellation.signal,
+        cancellation,
+        diagnosticOwner,
+        turnProviderRequestCount,
+      ) ??
         undefined;
       const outcome = await runAgentTurn(
         userText,
@@ -410,11 +460,13 @@ export class AgentSession {
         this.registry,
         {
           ...this.options,
+          eventSink,
           turn,
           executionContext,
           cancellation,
           signal: cancellation.signal,
           steering,
+          diagnosticOwner,
           projectParentRequest: this.checkpoint === undefined
             ? undefined
             : (request) => projectSemanticContext(request, this.checkpoint!),
@@ -440,12 +492,50 @@ export class AgentSession {
           },
         },
       );
+      let diagnosticPersistenceError: unknown;
+      try {
+        await diagnosticOwner.persist();
+      } catch (error) {
+        diagnosticPersistenceError = error;
+      }
+      if (diagnosticOwner.hasCollision) this.unavailable = true;
       if (this.commitAttempted && !outcome.ok && this.persistence !== undefined) {
         this.unavailable = true;
       }
       if (this.pendingRollback) this.pendingRollback = false;
-      return outcome;
+      const settledOutcome = outcome.diagnostic === undefined ? outcome : {
+        ...outcome,
+        diagnosticDurability: diagnosticOwner.durability,
+        ...(diagnosticOwner.persistenceErrorCode === undefined ? {} : {
+          diagnosticPersistenceError: diagnosticOwner
+            .persistenceErrorCode as FailureDiagnosticPersistenceErrorCode,
+        }),
+      };
+      // A diagnostic persistence failure is itself recoverable: retain the typed in-memory
+      // outcome and publish durable=failed with only the fixed store error code. A failure while
+      // there is no diagnostic remains an ordinary submit rejection.
+      if (diagnosticPersistenceError !== undefined && outcome.diagnostic === undefined) {
+        throw diagnosticPersistenceError;
+      }
+      for (const event of deferredDiagnosticEvents) {
+        if (event.kind !== 'turn_end') continue;
+        deliverEvent(this.options.eventSink, {
+          ...event,
+          diagnosticDurability: diagnosticOwner.durability,
+          ...(diagnosticOwner.persistenceErrorCode === undefined
+            ? {}
+            : { diagnosticPersistenceError: diagnosticOwner.persistenceErrorCode }),
+        });
+      }
+      return settledOutcome;
     } catch (error) {
+      try {
+        // A child may have already persisted before a parent exception. This second idempotent
+        // settlement also covers every submit rejection path without rewriting the record.
+        await diagnosticOwner.persist();
+      } catch {
+        this.unavailable = true;
+      }
       // This also undoes a successful draft committed just before a failing turn_end sink.
       this.committedTranscript = previousTranscript;
       this.committedContextSnapshot = previousContext;
@@ -468,6 +558,7 @@ export class AgentSession {
       this.activeSteering = null;
       if (cancellation.state === 'cleanup_failed') this.unavailable = true;
       this.activeCancellation = null;
+      this.activeDiagnosticOwner = null;
       this.active = false;
       this.commitAttempted = false;
     }
@@ -475,6 +566,14 @@ export class AgentSession {
 
   /** Release the durable session lock after the TUI has settled all work. */
   async close(): Promise<void> {
+    const owner = this.activeDiagnosticOwner;
+    if (owner !== null) {
+      try {
+        await owner.persist();
+      } catch {
+        this.unavailable = true;
+      }
+    }
     await this.persistence?.close();
   }
 }

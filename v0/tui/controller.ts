@@ -26,13 +26,18 @@ export interface TuiSessionLike {
   submit(text: string): Promise<PresentationOutcome>;
   cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
   steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
-  contextSnapshot?(): import('../presentation/contract.ts').PresentationContextMetrics | undefined;
+  contextSnapshot?():
+    | import('../presentation/contract.ts').PresentationContextMetrics
+    | undefined;
   isAvailable?(): boolean;
   historyPage?(
     page: number,
     turn?: number,
     rows?: number,
-  ): Promise<PresentationHistoryPage | undefined> | PresentationHistoryPage | undefined;
+  ):
+    | Promise<PresentationHistoryPage | undefined>
+    | PresentationHistoryPage
+    | undefined;
   currentPosition?(): PresentationPosition | undefined;
   contextCompactionPreview?(): PresentationContextPreview | undefined;
   compactContext?(
@@ -94,7 +99,13 @@ export interface TuiControllerOptions {
   readonly intents?: PresentationIntentDispatcher;
 }
 
-type ControllerState = 'starting' | 'idle' | 'busy' | 'compacting' | 'exiting' | 'failed';
+type ControllerState =
+  | 'starting'
+  | 'idle'
+  | 'busy'
+  | 'compacting'
+  | 'exiting'
+  | 'failed';
 type FollowUpSlot = 'closed' | 'open-empty' | 'pending';
 type DiscardKey = 'ctrl_c' | 'ctrl_d';
 type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
@@ -152,7 +163,8 @@ export class TuiController {
     this.pending = options.pending;
     this.history = options.history ?? new TuiEditorHistory();
     this.pathIndex = options.pathIndex;
-    this.modern = options.pending !== undefined || options.pathIndex !== undefined ||
+    this.modern = options.pending !== undefined ||
+      options.pathIndex !== undefined ||
       options.history !== undefined || options.navigation !== undefined;
     this.navigation = options.navigation;
     this.intents = options.intents;
@@ -188,7 +200,10 @@ export class TuiController {
     if (this.intents !== undefined) return this.intents.dispatch(intent);
     switch (intent.kind) {
       case 'ordinary_submit':
-        return this.session.submit(intent.text).then((outcome) => ({ kind: 'outcome', outcome }));
+        return this.session.submit(intent.text).then((outcome) => ({
+          kind: 'outcome',
+          outcome,
+        }));
       case 'steering_submit':
         return { kind: 'accepted' };
       case 'cancel_active':
@@ -196,18 +211,26 @@ export class TuiController {
         return { kind: 'accepted' };
       case 'compaction':
         if (intent.action === 'preview') {
-          return { kind: 'context_preview', preview: this.session.contextCompactionPreview?.() };
+          return {
+            kind: 'context_preview',
+            preview: this.session.contextCompactionPreview?.(),
+          };
         }
         if (intent.action === 'cancel') return { kind: 'accepted' };
         return (this.session.compactContext?.() ??
           Promise.resolve({ kind: 'refused', reason: 'unavailable' }))
           .then((result) => ({ kind: 'context_result', result }));
       case 'history_page':
-        return Promise.resolve(this.session.historyPage?.(intent.page, intent.turn, 16)).then((
+        return Promise.resolve(
+          this.session.historyPage?.(intent.page, intent.turn, 16),
+        ).then((
           page,
         ) => ({ kind: 'history', page }));
       case 'list_sessions':
-        return { kind: 'listing', listing: { sessions: [], skippedInvalid: 0 } };
+        return {
+          kind: 'listing',
+          listing: { sessions: [], skippedInvalid: 0 },
+        };
       case 'resume_session':
       case 'follow_up_queue':
       case 'exit':
@@ -219,7 +242,9 @@ export class TuiController {
   private submitIntent(text: string): Promise<PresentationOutcome> {
     const result = this.dispatchIntent({ kind: 'ordinary_submit', text });
     return Promise.resolve(result).then((value) => {
-      if (value.kind !== 'outcome') throw new TuiControllerError('agent_failure');
+      if (value.kind !== 'outcome') {
+        throw new TuiControllerError('agent_failure');
+      }
       return value.outcome;
     });
   }
@@ -227,7 +252,9 @@ export class TuiController {
   /** Synchronous event bridge used by the runtime before renderer delivery. */
   markSteeringConsumed(): void {
     if (this.pending === undefined) return;
-    if (!this.pending.markSteeringConsumed()) throw new TuiControllerError('agent_failure');
+    if (!this.pending.markSteeringConsumed()) {
+      throw new TuiControllerError('agent_failure');
+    }
     this.steeringConsumedBridge = true;
   }
 
@@ -276,14 +303,20 @@ export class TuiController {
         return this.exitCode;
       }
       this.state = 'idle';
-      this.renderer.setStatus(this.navigation === undefined ? 'ready' : this.readyStatus());
+      this.renderer.setStatus(
+        this.navigation === undefined ? 'ready' : this.readyStatus(),
+      );
       this.input = this.readEvents();
-      while (this.state === 'idle' || this.state === 'busy' || this.state === 'compacting') {
+      while (
+        this.state === 'idle' || this.state === 'busy' ||
+        this.state === 'compacting'
+      ) {
         if (this.active === null) {
           const events = await this.input;
           this.input = this.readEvents();
-          if ((this.state as ControllerState) === 'compacting') this.processCompacting(events);
-          else this.processIdle(events);
+          if ((this.state as ControllerState) === 'compacting') {
+            this.processCompacting(events);
+          } else this.processIdle(events);
           continue;
         }
         const input = this.input;
@@ -450,10 +483,13 @@ export class TuiController {
     const renderer = this.renderer as TuiRenderer & {
       setEditorSnapshot?: (value: typeof snapshot) => void;
     };
-    if (renderer.setEditorSnapshot !== undefined) renderer.setEditorSnapshot(snapshot);
-    else renderer.setEditor(snapshot.text);
+    if (renderer.setEditorSnapshot !== undefined) {
+      renderer.setEditorSnapshot(snapshot);
+    } else renderer.setEditor(snapshot.text);
     const withMetadata = this.renderer as TuiRenderer & {
-      setPendingMetadata?: (value: ReturnType<PendingInputCore['snapshot']> | undefined) => void;
+      setPendingMetadata?: (
+        value: ReturnType<PendingInputCore['snapshot']> | undefined,
+      ) => void;
     };
     withMetadata.setPendingMetadata?.(this.pending?.snapshot(snapshot));
   }
@@ -506,12 +542,20 @@ export class TuiController {
     if (changed) {
       if (textMutation) this.history.resetNavigation();
       this.renderEditorState();
-    } else if (event.kind === 'paste' || event.kind === 'printable' || event.kind === 'ctrl_o') {
-      this.renderer.setStatus(event.kind === 'paste' ? 'paste exceeds 64 KiB' : 'input too long');
+    } else if (
+      event.kind === 'paste' || event.kind === 'printable' ||
+      event.kind === 'ctrl_o'
+    ) {
+      this.renderer.setStatus(
+        event.kind === 'paste' ? 'paste exceeds 64 KiB' : 'input too long',
+      );
     }
   }
 
-  private processModernEvents(events: readonly InputEvent[], busy: boolean): void {
+  private processModernEvents(
+    events: readonly InputEvent[],
+    busy: boolean,
+  ): void {
     for (const event of events) {
       if (!busy && this.modal !== null) {
         this.processModalEvent(event);
@@ -527,7 +571,9 @@ export class TuiController {
       }
       if (event.kind === 'ctrl_d') {
         busy
-          ? this.renderer.setStatus('busy; Escape cancels, Ctrl-C twice discards and exits')
+          ? this.renderer.setStatus(
+            'busy; Escape cancels, Ctrl-C twice discards and exits',
+          )
           : this.modernCtrlD();
         continue;
       }
@@ -639,7 +685,12 @@ export class TuiController {
         event.kind === 'up' || event.kind === 'down' || event.kind === 'left' ||
         event.kind === 'right'
       ) {
-        const moved = movePresentationPickerSelection(count, selected, page, event.kind);
+        const moved = movePresentationPickerSelection(
+          count,
+          selected,
+          page,
+          event.kind,
+        );
         selected = moved.selected;
         page = moved.page;
         this.modal = { ...modal, selected, page };
@@ -692,12 +743,15 @@ export class TuiController {
     if (modal.kind === 'context') {
       if (event.kind === 'printable' && event.text === 'v') {
         if (this.intents !== undefined) {
-          this.renderer.setStatus('context checkpoint summary available after install');
+          this.renderer.setStatus(
+            'context checkpoint summary available after install',
+          );
           return;
         }
         const checkpoint = this.session.checkpointSnapshot?.();
-        if (checkpoint === undefined) this.renderer.setStatus('no active context checkpoint');
-        else {this.renderer.renderContextSummary?.(
+        if (checkpoint === undefined) {
+          this.renderer.setStatus('no active context checkpoint');
+        } else {this.renderer.renderContextSummary?.(
             checkpoint.summary,
             checkpoint.coveredThroughTurn,
           );}
@@ -739,13 +793,19 @@ export class TuiController {
       return;
     }
     if (
-      this.intents === undefined && (this.navigation === undefined || !this.navigation.persistent)
+      this.intents === undefined &&
+      (this.navigation === undefined || !this.navigation.persistent)
     ) {
       this.renderer.setStatus('session picker unavailable');
       return;
     }
     this.modal = { kind: 'picker-loading' };
-    this.renderer.renderSessionPicker?.({ sessions: [], skippedInvalid: 0 }, 0, 0, true);
+    this.renderer.renderSessionPicker?.(
+      { sessions: [], skippedInvalid: 0 },
+      0,
+      0,
+      true,
+    );
     const abort = new AbortController();
     const generation = ++this.navigationGeneration;
     const operation = Promise.resolve(
@@ -767,7 +827,10 @@ export class TuiController {
         this.renderer.renderSessionPicker?.(listing, 0, 0);
       },
       (error: unknown) => {
-        if (isPresentationError(error, 'NavigationCancelledError') || abort.signal.aborted) return;
+        if (
+          isPresentationError(error, 'NavigationCancelledError') ||
+          abort.signal.aborted
+        ) return;
         if (
           this.state !== 'idle' || this.modal?.kind !== 'picker-loading' ||
           this.navigationGeneration !== generation
@@ -819,7 +882,12 @@ export class TuiController {
   ): Promise<void> {
     if (this.intents === undefined && this.navigation === undefined) return;
     this.modal = { kind: 'picker-loading' };
-    this.renderer.renderSessionPicker?.({ sessions: [], skippedInvalid: 0 }, 0, 0, true);
+    this.renderer.renderSessionPicker?.(
+      { sessions: [], skippedInvalid: 0 },
+      0,
+      0,
+      true,
+    );
     try {
       let position: PresentationPosition;
       let restored: {
@@ -827,7 +895,10 @@ export class TuiController {
         readonly omitted: number;
       } | undefined;
       if (this.intents !== undefined) {
-        const result = await this.dispatchIntent({ kind: 'resume_session', id });
+        const result = await this.dispatchIntent({
+          kind: 'resume_session',
+          id,
+        });
         if (result.kind !== 'binding') throw new PresentationDeliveryError();
         position = result.position;
         restored = result.restored;
@@ -841,7 +912,8 @@ export class TuiController {
       // when it has already transferred ownership to the target; adopt that binding before
       // checking generation so shutdown/dismissal cannot retain a closed old session.
       if (
-        this.state !== 'idle' || signal.aborted || this.navigationGeneration !== generation
+        this.state !== 'idle' || signal.aborted ||
+        this.navigationGeneration !== generation
       ) return;
       this.modal = null;
       this.renderer.clearModal?.();
@@ -853,13 +925,18 @@ export class TuiController {
       this.renderer.setStatus(this.readyStatus());
     } catch (error) {
       if (
-        isPresentationError(error, 'NavigationFatalError') || isPresentationDeliveryError(error)
+        isPresentationError(error, 'NavigationFatalError') ||
+        isPresentationDeliveryError(error)
       ) throw error;
-      if (isPresentationError(error, 'NavigationCancelledError') || signal.aborted) return;
+      if (
+        isPresentationError(error, 'NavigationCancelledError') || signal.aborted
+      ) return;
       if (this.navigationGeneration !== generation) return;
       this.modal = null;
       this.renderer.clearModal?.();
-      this.renderer.setStatus('session resume failed; current session unchanged');
+      this.renderer.setStatus(
+        'session resume failed; current session unchanged',
+      );
     }
   }
 
@@ -932,7 +1009,12 @@ export class TuiController {
     this.cancelHistoryOperations();
     const abort = new AbortController();
     const generation = ++this.historyGeneration;
-    const operation = this.loadHistoryPage(page, turn, generation, abort.signal);
+    const operation = this.loadHistoryPage(
+      page,
+      turn,
+      generation,
+      abort.signal,
+    );
     const owned = { operation, abort, generation };
     this.historyOperations.add(owned);
     void operation.then(
@@ -967,7 +1049,8 @@ export class TuiController {
             : await this.session.historyPage?.(page, turn, 16),
         };
       if (
-        signal.aborted || generation !== this.historyGeneration || this.modal?.kind !== 'history'
+        signal.aborted || generation !== this.historyGeneration ||
+        this.modal?.kind !== 'history'
       ) return;
       if (result.kind !== 'history' || result.page === undefined) {
         this.modal = null;
@@ -975,7 +1058,9 @@ export class TuiController {
         return;
       }
       this.modal = { kind: 'history', page: result.page };
-      if (this.intents === undefined) this.renderer.renderHistoryPage?.(result.page);
+      if (this.intents === undefined) {
+        this.renderer.renderHistoryPage?.(result.page);
+      }
     } catch (error) {
       if (isPresentationDeliveryError(error)) throw error;
       if (signal.aborted || generation !== this.historyGeneration) return;
@@ -986,7 +1071,9 @@ export class TuiController {
 
   private openContextPanel(): void {
     if (!this.navigationIdleAllowed()) {
-      this.renderer.setStatus('context recovery requires an empty idle session');
+      this.renderer.setStatus(
+        'context recovery requires an empty idle session',
+      );
       return;
     }
     if (
@@ -1001,9 +1088,14 @@ export class TuiController {
     }
     try {
       const dispatched = this.intents === undefined
-        ? { kind: 'context_preview' as const, preview: this.session.contextCompactionPreview!() }
+        ? {
+          kind: 'context_preview' as const,
+          preview: this.session.contextCompactionPreview!(),
+        }
         : this.dispatchIntent({ kind: 'compaction', action: 'preview' });
-      if (dispatched instanceof Promise || dispatched.kind !== 'context_preview') {
+      if (
+        dispatched instanceof Promise || dispatched.kind !== 'context_preview'
+      ) {
         this.renderer.setStatus('context recovery unavailable');
         return;
       }
@@ -1021,9 +1113,11 @@ export class TuiController {
   }
 
   private navigationIdleAllowed(): boolean {
-    return this.state === 'idle' && this.active === null && this.editor.text.length === 0 &&
+    return this.state === 'idle' && this.active === null &&
+      this.editor.text.length === 0 &&
       this.discardIntent === null && this.pending?.hasActiveTask !== true &&
-      this.pending?.hasSteering !== true && this.pending?.hasFollowUp !== true &&
+      this.pending?.hasSteering !== true &&
+      this.pending?.hasFollowUp !== true &&
       this.pending?.hasRecovery !== true;
   }
 
@@ -1035,16 +1129,22 @@ export class TuiController {
     this.modal = null;
     this.renderer.clearModal?.();
     this.state = 'compacting';
-    if (this.intents === undefined) this.compactionAbort = new AbortController();
+    if (this.intents === undefined) {
+      this.compactionAbort = new AbortController();
+    }
     this.renderer.setStatus('compacting · one provider request');
     try {
       const dispatched = this.intents === undefined
         ? {
           kind: 'context_result' as const,
-          result: await this.session.compactContext!(this.compactionAbort!.signal),
+          result: await this.session.compactContext!(
+            this.compactionAbort!.signal,
+          ),
         }
         : await this.dispatchIntent({ kind: 'compaction', action: 'confirm' });
-      if (dispatched.kind !== 'context_result') throw new PresentationDeliveryError();
+      if (dispatched.kind !== 'context_result') {
+        throw new PresentationDeliveryError();
+      }
       const result = dispatched.result;
       if (
         this.exitIntent !== 'return' ||
@@ -1080,7 +1180,10 @@ export class TuiController {
       this.compactionAbort?.abort('context compaction cancelled');
       return;
     }
-    const dispatched = this.dispatchIntent({ kind: 'compaction', action: 'cancel' });
+    const dispatched = this.dispatchIntent({
+      kind: 'compaction',
+      action: 'cancel',
+    });
     if (dispatched instanceof Promise) {
       void dispatched.catch(() => {
         // The owned compaction operation reports the authoritative failure or cancellation.
@@ -1093,15 +1196,20 @@ export class TuiController {
     this.compactionOperation = operation;
     void operation.then(
       () => {
-        if (this.compactionOperation === operation) this.compactionOperation = null;
+        if (this.compactionOperation === operation) {
+          this.compactionOperation = null;
+        }
         if (this.exitIntent !== 'return' && this.state !== 'failed') {
-          void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent).catch(() => {
-            // The lifecycle owns the final sanitized failure result.
-          });
+          void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent)
+            .catch(() => {
+              // The lifecycle owns the final sanitized failure result.
+            });
         }
       },
       (error) => {
-        if (this.compactionOperation === operation) this.compactionOperation = null;
+        if (this.compactionOperation === operation) {
+          this.compactionOperation = null;
+        }
         void this.fail(error).catch(() => {
           // The controller has already entered its fatal shutdown path.
         });
@@ -1111,17 +1219,24 @@ export class TuiController {
 
   private modernCtrlD(): void {
     if (this.hasProcessPending()) {
-      this.armDiscardConfirmation('ctrl_d', 'pending input; Ctrl-D again to discard and exit');
+      this.armDiscardConfirmation(
+        'ctrl_d',
+        'pending input; Ctrl-D again to discard and exit',
+      );
     } else void this.shutdown(0);
   }
   private modernCtrlC(): void {
     if (this.hasProcessPending()) {
-      this.armDiscardConfirmation('ctrl_c', 'pending input; Ctrl-C again to discard and exit');
+      this.armDiscardConfirmation(
+        'ctrl_c',
+        'pending input; Ctrl-C again to discard and exit',
+      );
     } else this.idleCtrlC();
   }
   private hasProcessPending(): boolean {
     return this.editor.text.length > 0 || this.pending?.hasRecovery === true ||
-      this.pending?.hasActiveTask === true || this.pending?.hasSteering === true ||
+      this.pending?.hasActiveTask === true ||
+      this.pending?.hasSteering === true ||
       this.pending?.hasFollowUp === true;
   }
   private armDiscardConfirmation(key: DiscardKey, status: string): void {
@@ -1157,7 +1272,9 @@ export class TuiController {
     const fragment = points.slice(start, this.editor.cursorScalar).join('');
     const result = this.pathIndex.completePath(fragment);
     if (result.kind === 'inserted') {
-      points.splice(start, this.editor.cursorScalar - start, ...[...result.text]);
+      points.splice(start, this.editor.cursorScalar - start, ...[
+        ...result.text,
+      ]);
       const candidate = points.join('');
       const cursor = start + [...result.text].length;
       if (
@@ -1173,8 +1290,9 @@ export class TuiController {
       }
     } else if (result.kind === 'ambiguous') {
       this.renderer.setStatus(`path match ambiguous (${result.count})`);
-    } else if (result.kind === 'incomplete') this.renderer.setStatus('path index unavailable');
-    else this.renderer.setStatus('no path match');
+    } else if (result.kind === 'incomplete') {
+      this.renderer.setStatus('path index unavailable');
+    } else this.renderer.setStatus('no path match');
   }
   private popRecovery(): void {
     if (this.editor.text.length > 0 || this.pending === undefined) {
@@ -1199,7 +1317,9 @@ export class TuiController {
     this.history.resetNavigation();
     this.renderEditorState();
     if (this.pending.hasSideEffectWarning) {
-      this.renderer.setStatus('tools may have changed the workspace; inspect before resubmitting');
+      this.renderer.setStatus(
+        'tools may have changed the workspace; inspect before resubmitting',
+      );
     }
   }
 
@@ -1219,13 +1339,16 @@ export class TuiController {
         !this.steeringAccepted;
       switch (event.kind) {
         case 'printable':
-          if (!this.editor.append(event.text)) this.renderer.setStatus('input too long');
-          else this.renderer.setEditor(this.editor.text);
+          if (!this.editor.append(event.text)) {
+            this.renderer.setStatus('input too long');
+          } else this.renderer.setEditor(this.editor.text);
           break;
         case 'paste':
-          if (event.text.includes('\0')) this.renderer.setStatus('invalid steering input');
-          else if (!this.editor.append(event.text)) this.renderer.setStatus('paste exceeds 64 KiB');
-          else this.renderer.setEditor(this.editor.text);
+          if (event.text.includes('\0')) {
+            this.renderer.setStatus('invalid steering input');
+          } else if (!this.editor.append(event.text)) {
+            this.renderer.setStatus('paste exceeds 64 KiB');
+          } else this.renderer.setEditor(this.editor.text);
           break;
         case 'backspace':
           this.editor.backspace();
@@ -1285,6 +1408,13 @@ export class TuiController {
     }
     this.clearSteeringEditorStrict();
     this.renderer.clearLiveProgress();
+    if (outcome.diagnostic !== undefined) {
+      this.renderer.renderFailureDiagnostic(
+        outcome.diagnostic,
+        outcome.diagnosticDurability,
+        outcome.diagnosticPersistenceError,
+      );
+    }
     this.steeringAccepted = false;
     if (!outcome.ok && outcome.stopReason !== 'cancelled') {
       this.dropFollowUpStrict();
@@ -1312,7 +1442,8 @@ export class TuiController {
       void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent);
     } else if (
       outcome.ok &&
-      (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal') &&
+      (outcome.stopReason === 'final' ||
+        outcome.stopReason === 'tool_terminal') &&
       this.followUpSlot === 'pending' && this.followUpText !== null
     ) {
       const text = this.takeFollowUp();
@@ -1327,6 +1458,13 @@ export class TuiController {
 
   private finishModernTurn(outcome: PresentationOutcome): void {
     this.renderer.clearLiveProgress();
+    if (outcome.diagnostic !== undefined) {
+      this.renderer.renderFailureDiagnostic(
+        outcome.diagnostic,
+        outcome.diagnosticDurability,
+        outcome.diagnosticPersistenceError,
+      );
+    }
     if (this.exitIntent !== 'return' && outcome.stopReason === 'cancelled') {
       this.pending?.clearAll();
       this.editor.clear();
@@ -1335,19 +1473,28 @@ export class TuiController {
       return;
     }
     const recoverable = !outcome.ok && (
-      outcome.stopReason === 'cancelled' || outcome.stopReason === 'max_steps' ||
+      outcome.stopReason === 'cancelled' ||
+      outcome.stopReason === 'max_steps' ||
       outcome.stopReason === 'contract_failure'
-    ) && (this.intents !== undefined || (this.session.isAvailable?.() ?? true)) &&
+    ) &&
+      (this.intents !== undefined || (this.session.isAvailable?.() ?? true)) &&
       this.exitIntent === 'return';
-    if (outcome.ok && (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal')) {
+    if (
+      outcome.ok &&
+      (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal')
+    ) {
       this.pending?.commitTask();
       if (this.pending?.hasSteering) this.pending.recoverSteering();
-      if (outcome.stopReason === 'tool_terminal' && typeof outcome.finalText === 'string') {
+      if (
+        outcome.stopReason === 'tool_terminal' &&
+        typeof outcome.finalText === 'string'
+      ) {
         this.renderer.renderAssistantFinal(outcome.finalText);
       }
     } else if (recoverable) {
       if (
-        this.pending !== undefined && !this.pending.recoverAfterSettlement(outcome.toolCallCount)
+        this.pending !== undefined &&
+        !this.pending.recoverAfterSettlement(outcome.toolCallCount)
       ) {
         this.renderer.setStatus('agent failure');
         throw new TuiControllerError('agent_failure');
@@ -1373,7 +1520,9 @@ export class TuiController {
       return;
     }
     if (
-      outcome.ok && (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal') &&
+      outcome.ok &&
+      (outcome.stopReason === 'final' ||
+        outcome.stopReason === 'tool_terminal') &&
       this.pending?.hasFollowUp === true
     ) {
       const text = this.pending.takeFollowUpAsTask();
@@ -1385,7 +1534,9 @@ export class TuiController {
     }
     this.state = 'idle';
     (this.renderer as TuiRenderer & {
-      setPendingMetadata?: (value: ReturnType<PendingInputCore['snapshot']> | undefined) => void;
+      setPendingMetadata?: (
+        value: ReturnType<PendingInputCore['snapshot']> | undefined,
+      ) => void;
     }).setPendingMetadata?.(this.pending?.snapshot(this.editor.snapshot()));
     if (recoverable) {
       this.renderer.setStatus(
@@ -1400,7 +1551,9 @@ export class TuiController {
   private readyStatus(): string {
     if (this.intents !== undefined) {
       const projection = this.renderer.stateSnapshot().projection;
-      if (projection === undefined || projection.sessionId === undefined) return 'ready';
+      if (projection === undefined || projection.sessionId === undefined) {
+        return 'ready';
+      }
       const checkpoint = projection.checkpoint;
       const context = checkpoint === undefined
         ? ''
@@ -1413,7 +1566,8 @@ export class TuiController {
       } · agent ${projection.agentId} · turn ${projection.committedTurn} · ready${context}${semantic}`;
     }
     const metrics = this.session.contextSnapshot?.();
-    const position = this.navigation?.currentPosition() ?? this.session.currentPosition?.();
+    const position = this.navigation?.currentPosition() ??
+      this.session.currentPosition?.();
     const prefix = position?.sessionId === undefined
       ? undefined
       : `session ${
@@ -1469,7 +1623,10 @@ export class TuiController {
       }
       this.requestBusyCancellation('cancelling');
       setTimeout(() => {
-        if (this.discardIntent !== null && Date.now() >= this.discardIntent.deadline) {
+        if (
+          this.discardIntent !== null &&
+          Date.now() >= this.discardIntent.deadline
+        ) {
           this.discardIntent = null;
         }
       }, 2_001);
@@ -1477,7 +1634,9 @@ export class TuiController {
     }
     this.setExitIntent('exit-0');
     this.requestBusyCancellation('cancelling; exiting');
-    if (this.intents === undefined && this.session.cancelActiveTurn === undefined) {
+    if (
+      this.intents === undefined && this.session.cancelActiveTurn === undefined
+    ) {
       this.renderer.setStatus('exiting after current turn');
     }
   }
@@ -1487,7 +1646,9 @@ export class TuiController {
   }
 
   private requestBusyCancellation(status: string): void {
-    if (this.intents === undefined && this.session.cancelActiveTurn === undefined) {
+    if (
+      this.intents === undefined && this.session.cancelActiveTurn === undefined
+    ) {
       this.renderer.clearLiveProgress();
       this.dropFollowUpStrict();
       this.clearSteeringEditorBestEffort();
@@ -1549,7 +1710,9 @@ export class TuiController {
       return;
     }
     if (this.state === 'compacting') {
-      this.processCompacting([{ kind: signal === 'SIGINT' ? 'ctrl_c' : 'escape' }]);
+      this.processCompacting([{
+        kind: signal === 'SIGINT' ? 'ctrl_c' : 'escape',
+      }]);
       if (signal !== 'SIGINT') {
         const code = signal === 'SIGTERM' ? 143 : 129;
         this.setExitIntent(code);
@@ -1638,8 +1801,9 @@ export class TuiController {
     // promise. Request cancellation first and await owned tool/resource settlement before any
     // restore operation can close the terminal.
     try {
-      if (this.intents !== undefined) this.dispatchIntent({ kind: 'cancel_active' });
-      else this.session.cancelActiveTurn?.();
+      if (this.intents !== undefined) {
+        this.dispatchIntent({ kind: 'cancel_active' });
+      } else this.session.cancelActiveTurn?.();
     } catch {
       // The original controller failure remains authoritative; settlement is still awaited.
     }
@@ -1666,16 +1830,24 @@ export class TuiController {
       const dispatched = this.dispatchIntent({ kind: 'dismiss_overlay' });
       if (dispatched instanceof Promise) await Promise.allSettled([dispatched]);
     }
-    while (this.navigationOperations.size > 0 || this.historyOperations.size > 0) {
+    while (
+      this.navigationOperations.size > 0 || this.historyOperations.size > 0
+    ) {
       const navigation = [...this.navigationOperations];
       const history = [...this.historyOperations];
-      for (const operation of navigation) operation.abort.abort('controller settlement');
-      for (const operation of history) operation.abort.abort('controller settlement');
+      for (const operation of navigation) {
+        operation.abort.abort('controller settlement');
+      }
+      for (const operation of history) {
+        operation.abort.abort('controller settlement');
+      }
       await Promise.allSettled([
         ...navigation.map((operation) => operation.operation),
         ...history.map((operation) => operation.operation),
       ]);
-      for (const operation of navigation) this.navigationOperations.delete(operation);
+      for (const operation of navigation) {
+        this.navigationOperations.delete(operation);
+      }
       for (const operation of history) this.historyOperations.delete(operation);
     }
   }
@@ -1683,9 +1855,13 @@ export class TuiController {
   private async settleCompaction(): Promise<void> {
     const operation = this.compactionOperation;
     if (operation === null) return;
-    if (this.intents === undefined) this.compactionAbort?.abort('controller settlement');
-    else {
-      const dispatched = this.dispatchIntent({ kind: 'compaction', action: 'cancel' });
+    if (this.intents === undefined) {
+      this.compactionAbort?.abort('controller settlement');
+    } else {
+      const dispatched = this.dispatchIntent({
+        kind: 'compaction',
+        action: 'cancel',
+      });
       if (dispatched instanceof Promise) await Promise.allSettled([dispatched]);
     }
     try {
@@ -1791,14 +1967,20 @@ export class TuiController {
       this.renderer.setStatus('enter steering text');
       return;
     }
-    if (this.pending !== undefined && this.pending.reserveSteering(text) === 'refused') {
+    if (
+      this.pending !== undefined &&
+      this.pending.reserveSteering(text) === 'refused'
+    ) {
       this.renderer.setStatus('steering already accepted');
       return;
     }
     let result: 'accepted' | 'idle' | 'already_accepted';
     try {
       if (this.intents !== undefined) {
-        const dispatched = this.dispatchIntent({ kind: 'steering_submit', text });
+        const dispatched = this.dispatchIntent({
+          kind: 'steering_submit',
+          text,
+        });
         result = dispatched instanceof Promise
           ? 'accepted'
           : dispatched.kind === 'accepted'
@@ -1815,7 +1997,9 @@ export class TuiController {
       throw error;
     }
     if (result === 'accepted') {
-      if (this.pending !== undefined && !this.pending.commitSteeringReservation()) {
+      if (
+        this.pending !== undefined && !this.pending.commitSteeringReservation()
+      ) {
         throw new TuiControllerError('agent_failure');
       }
       this.steeringAccepted = true;

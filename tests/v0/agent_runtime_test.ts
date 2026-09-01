@@ -1639,7 +1639,7 @@ Deno.test('runtime session busy rejection consumes no context, child, or request
   });
 });
 
-Deno.test('runtime session failed first turn gets fresh delegation admission and budget', async () => {
+Deno.test('runtime session exposes a child credential failure before later parent diagnostics collide', async () => {
   await withWorkspace(async (root) => {
     let credentialCalls = 0;
     const sessionResult = await createRuntimeSession(() => {}, {
@@ -1660,13 +1660,11 @@ Deno.test('runtime session failed first turn gets fresh delegation admission and
     assert(!first.ok);
     assertEquals(first.stopReason, 'contract_failure');
     assertEquals(sessionResult.session.transcriptSnapshot(), []);
-    const second = await sessionResult.session.submit('second task');
-    assert(second.ok);
-    assertEquals(second.finalText, 'second parent');
-    assertEquals(sessionResult.requestCount(), 5);
-    assertEquals(credentialCalls, 6);
-    assert(JSON.stringify(second.transcript).includes('second child plan'));
-    assert(!JSON.stringify(second.transcript).includes('first task'));
+    assertEquals(first.diagnostic?.stage, 'credential_resolution');
+    assertEquals(first.diagnostic?.providerRequestCount, 1);
+    assert(!sessionResult.session.isAvailable());
+    assertEquals(sessionResult.requestCount(), 2);
+    assertEquals(credentialCalls, 3);
   });
 });
 

@@ -3,6 +3,7 @@ import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.
 import { PresentationDeliveryError } from '../../v0/presentation/contract.ts';
 import { type AgentEvent } from '../../v0/agent/events.ts';
 import { type LoopOutcome } from '../../v0/agent/contracts.ts';
+import { createFailureDiagnostic } from '../../v0/agent/failure_diagnostic.ts';
 
 const final = (task: string): LoopOutcome => ({
   ok: true,
@@ -15,6 +16,23 @@ const final = (task: string): LoopOutcome => ({
   toolResultCount: 1,
   transcript: [],
 });
+
+const responseParseDiagnostic = createFailureDiagnostic(
+  {
+    stage: 'response_parse',
+    code: 'response_error',
+    lane: 'parent',
+    providerRequestCount: 1,
+    httpStatus: 200,
+    parseReason: 'invalid_sse_json',
+    turnNumber: 1,
+    modelStep: 1,
+  },
+  {
+    uuid: () => '11111111-1111-4111-8111-111111111111',
+    now: () => '2026-09-02T00:00:00.000Z',
+  },
+);
 
 Deno.test('adapter emits causal opaque tool identity and no raw provider call id', () => {
   const events: unknown[] = [];
@@ -90,6 +108,71 @@ Deno.test('adapter maps core outcomes and retains only bounded context facts', a
   });
   assertEquals((await adapter.submit('bounded')).finalText, 'done');
   assertEquals(adapter.contextSnapshot()?.messageEstimatedTokensAfter, 2);
+});
+
+Deno.test('adapter freezes one diagnostic and correlates it across outcome and event', async () => {
+  const events: import('../../v0/presentation/contract.ts').PresentationEvent[] = [];
+  const coreOutcome: LoopOutcome = {
+    ok: false,
+    task: 'diagnose',
+    outcome: 'contract_failure',
+    stopReason: 'contract_failure',
+    // This intentionally unsafe core-only detail must not cross the presentation boundary.
+    error:
+      'credential-value-marker Authorization: Bearer authorization-shaped-marker private-payload-marker',
+    diagnostic: responseParseDiagnostic,
+    diagnosticDurability: 'failed',
+    diagnosticPersistenceError: 'diagnostic_capacity',
+    steps: 1,
+    toolCallCount: 0,
+    toolResultCount: 0,
+    transcript: [],
+  };
+  const adapter = new TuiPresentationAdapter(
+    { submit: () => Promise.resolve(coreOutcome) },
+    (event) => events.push(event),
+  );
+
+  const presented = await adapter.submit('diagnose');
+  assertEquals(presented.diagnostic, responseParseDiagnostic);
+  assertEquals(presented.diagnosticDurability, 'failed');
+  assertEquals(presented.diagnosticPersistenceError, 'diagnostic_capacity');
+  assert(Object.isFrozen(presented));
+  assert(Object.isFrozen(presented.diagnostic));
+  assert(!Object.hasOwn(presented, 'error'));
+  assert(!JSON.stringify(presented).includes('provider response secret marker'));
+
+  adapter.deliverCoreEvent({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'contract_failure',
+    committed: false,
+    diagnostic: responseParseDiagnostic,
+    diagnosticDurability: 'failed',
+    diagnosticPersistenceError: 'diagnostic_capacity',
+  });
+  assertEquals(events.map((event) => event.kind), [
+    'failure_diagnostic',
+    'turn_end',
+    'lifecycle',
+  ]);
+  const diagnosticEvent = events[0];
+  assertEquals(
+    diagnosticEvent.kind === 'failure_diagnostic' ? diagnosticEvent.diagnostic : undefined,
+    presented.diagnostic,
+  );
+  assert(
+    diagnosticEvent.kind === 'failure_diagnostic' &&
+      Object.isFrozen(diagnosticEvent.diagnostic),
+  );
+  assert(
+    diagnosticEvent.kind === 'failure_diagnostic' &&
+      diagnosticEvent.durable === 'failed' &&
+      diagnosticEvent.persistenceError === 'diagnostic_capacity',
+  );
+  assert(!JSON.stringify(events).includes('credential-value-marker'));
+  assert(!JSON.stringify(events).includes('authorization-shaped-marker'));
+  assert(!JSON.stringify(events).includes('private-payload-marker'));
 });
 
 Deno.test('adapter turns malformed argument graphs into a sanitized delivery error', () => {

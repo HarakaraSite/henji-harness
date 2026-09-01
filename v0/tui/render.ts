@@ -1,7 +1,11 @@
 import {
+  formatPresentationFailureDiagnostic,
   type PresentationContextPreview,
   PresentationDeliveryError,
+  type PresentationDiagnosticDurability,
+  type PresentationDiagnosticPersistenceError,
   type PresentationEvent,
+  type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
   type PresentationMessage,
   type PresentationNavigationListing,
@@ -147,7 +151,9 @@ export const layoutEditorText = (
   const all: EditorLayoutRow[] = [];
   let line = '', used = 0, cursorRow = 0, cursorCell = 0;
   const push = (force = false): void => {
-    if (force || line.length > 0 || all.length === 0) all.push({ text: line, cursorCell: null });
+    if (force || line.length > 0 || all.length === 0) {
+      all.push({ text: line, cursorCell: null });
+    }
     line = '';
     used = 0;
   };
@@ -166,15 +172,24 @@ export const layoutEditorText = (
       continue;
     }
     const escaped = escapeTerminalText(point, { editor: true });
-    const widthOf = [...escaped].reduce((sum, character) => sum + cellWidth(character), 0);
+    const widthOf = [...escaped].reduce(
+      (sum, character) => sum + cellWidth(character),
+      0,
+    );
     if (line.length > 0 && used + widthOf > width) push();
     line += escaped;
     used += widthOf;
   }
   if (all.length === 0) all.push({ text: '', cursorCell: cursorCell });
-  const first = Math.max(0, Math.min(cursorRow - limit + 1, all.length - limit));
+  const first = Math.max(
+    0,
+    Math.min(cursorRow - limit + 1, all.length - limit),
+  );
   const visible = all.slice(first, first + limit).map((row, index) =>
-    Object.freeze({ ...row, cursorCell: first + index === cursorRow ? cursorCell : null })
+    Object.freeze({
+      ...row,
+      cursorCell: first + index === cursorRow ? cursorCell : null,
+    })
   );
   return Object.freeze({
     rows: Object.freeze(visible),
@@ -219,7 +234,13 @@ export const pendingMetadataRows = (
   }
   if (recovery.length > 0) {
     rows.push(
-      trim(`r ${recovery.map((lane) => `${kind(lane.kind)}:${lane.byteCount}`).join(' ')}`),
+      trim(
+        `r ${
+          recovery.map((lane) => `${kind(lane.kind)}:${lane.byteCount}`).join(
+            ' ',
+          )
+        }`,
+      ),
     );
   }
   return Object.freeze(rows);
@@ -237,10 +258,13 @@ export const historyPageText = (page: PresentationHistoryPage): string => {
     'Up/Down page · Home oldest · End latest · Esc return',
   ];
   for (const entry of page.entries) {
-    lines.push(`${entry.role} [t${entry.turn}] ${escapeTerminalText(entry.text)}`);
+    lines.push(
+      `${entry.role} [t${entry.turn}] ${escapeTerminalText(entry.text)}`,
+    );
   }
   if (page.omitted) lines.push('history> page content bounded');
-  return truncateText(`${lines.map((line) => `${line}\n`).join('')}`, 32 * 1024).text;
+  return truncateText(`${lines.map((line) => `${line}\n`).join('')}`, 32 * 1024)
+    .text;
 };
 
 const orientationSession = (state: PresentationStartupState): string => {
@@ -317,7 +341,10 @@ export const renderStartupOrientationText = (
   const validColumns = Number.isSafeInteger(columns) && columns > 0
     ? Math.min(160, Math.max(8, columns))
     : 80;
-  const lines = startupOrientationLines(state, clippedWorkspace(state.workspace, validColumns));
+  const lines = startupOrientationLines(
+    state,
+    clippedWorkspace(state.workspace, validColumns),
+  );
   const output = `${lines.join('\n')}\n`;
   if (encoder.encode(output).byteLength > 2_048) {
     throw new PresentationDeliveryError();
@@ -333,12 +360,14 @@ export const startupHelpLines = (
   state: PresentationStartupState,
   columns = 80,
   committedTurn = 0,
+  rows = 24,
 ): readonly string[] => {
   const validColumns = Number.isSafeInteger(columns) && columns > 0
     ? Math.min(160, Math.max(8, columns))
     : 80;
+  const validRows = Number.isSafeInteger(rows) && rows > 0 ? Math.min(200, Math.max(1, rows)) : 24;
   const session = orientationSession(state);
-  if (validColumns < 40) {
+  if (validColumns < 40 || validRows < 16) {
     // Keep the four safety-critical actions as one short row each on degraded terminals. The
     // remaining detail stays available below them and is still bounded by the layout viewport.
     return Object.freeze([
@@ -393,7 +422,10 @@ export class TuiRenderer implements TerminalRendererGate {
   private ui = createUiState();
   private startupState: PresentationStartupState | undefined;
 
-  constructor(private readonly terminal: TerminalPort, options: TuiRendererOptions = {}) {
+  constructor(
+    private readonly terminal: TerminalPort,
+    options: TuiRendererOptions = {},
+  ) {
     this.retained = options.retained === true;
   }
 
@@ -407,23 +439,36 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   /** Pure layout of the current retained screen; no terminal I/O is performed. */
-  layoutSnapshot(columns = this.lastSize.columns, rows = this.lastSize.rows): UiLayout {
+  layoutSnapshot(
+    columns = this.lastSize.columns,
+    rows = this.lastSize.rows,
+  ): UiLayout {
     return layoutUi(this.ui, columns, rows);
   }
 
   /** Bounded three-band frame used by the production renderer and provider-free fixtures. */
-  renderFrame(columns = this.lastSize.columns, rows = this.lastSize.rows): string {
+  renderFrame(
+    columns = this.lastSize.columns,
+    rows = this.lastSize.rows,
+  ): string {
     const layout = this.layoutSnapshot(columns, rows);
     const cursorRow = Math.max(1, Math.min(layout.rows, layout.cursor.row + 1));
-    const cursorCell = Math.max(1, Math.min(layout.columns, layout.cursor.cell + 1));
+    const cursorCell = Math.max(
+      1,
+      Math.min(layout.columns, layout.cursor.cell + 1),
+    );
     const cursor = `\x1b[${cursorRow};${cursorCell}H`;
-    const frameBudget = Math.max(0, MAX_FRAME_BYTES - encoder.encode(cursor).byteLength);
+    const frameBudget = Math.max(
+      0,
+      MAX_FRAME_BYTES - encoder.encode(cursor).byteLength,
+    );
     const terminalFinal = this.ui.log.entries.find((entry) =>
       entry.kind === 'assistant' && entry.turn === this.lastTurn && !entry.live
     )?.text;
     const terminalResultIds = terminalFinal === undefined ? new Set<string>() : new Set(
       this.ui.log.entries.filter((entry) =>
-        entry.kind === 'tool' && entry.label.startsWith('tool<') && entry.text === terminalFinal
+        entry.kind === 'tool' && entry.label.startsWith('tool<') &&
+        entry.text === terminalFinal
       ).map((entry) => entry.id),
     );
     // Startup help is ordered as a safety guide: keep its first rows visible on a narrow screen,
@@ -432,7 +477,10 @@ export class TuiRenderer implements TerminalRendererGate {
     const log = (overlayLog.length > 0 ? overlayLog : layout.log)
       .filter((line) => line.entryId === undefined || !terminalResultIds.has(line.entryId))
       .map((line) => line.text);
-    const fixed = [...layout.input.map((line) => `> ${line.text}`), layout.footer.text];
+    const fixed = [
+      ...layout.input.map((line) => `> ${line.text}`),
+      layout.footer.text,
+    ];
     const fixedFrame = fixed.join('\n');
     if (encoder.encode(fixedFrame).byteLength > frameBudget) {
       return `${truncateText(fixedFrame, frameBudget).text}${cursor}`;
@@ -457,7 +505,10 @@ export class TuiRenderer implements TerminalRendererGate {
       model: Object.freeze({ ...state.model }),
       sessionMode: Object.freeze({ ...state.sessionMode }),
       instructions: Object.freeze({ ...state.instructions }),
-      skills: Object.freeze({ ...state.skills, names: Object.freeze([...state.skills.names]) }),
+      skills: Object.freeze({
+        ...state.skills,
+        names: Object.freeze([...state.skills.names]),
+      }),
       trust: Object.freeze({
         ...state.trust,
         osUserTools: Object.freeze([...state.trust.osUserTools]),
@@ -507,13 +558,18 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   /** Compact startup welcome kept outside ordinary scrollback and capped at two logical rows. */
-  renderCompactStartup(state: PresentationStartupState, sessionId?: string): void {
+  renderCompactStartup(
+    state: PresentationStartupState,
+    sessionId?: string,
+  ): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.setStartupState(state);
     let columns = 80;
     try {
       const size = this.terminal.consoleSize();
-      if (Number.isSafeInteger(size.columns) && size.columns > 0) columns = size.columns;
+      if (Number.isSafeInteger(size.columns) && size.columns > 0) {
+        columns = size.columns;
+      }
     } catch {
       // Use the documented fallback when terminal size is unavailable.
     }
@@ -528,7 +584,10 @@ export class TuiRenderer implements TerminalRendererGate {
     ).text;
     const second = 'trusted-local · credentials checked only when sending · F1 help';
     if (this.retained) {
-      this.ui = reduceUiAction(this.ui, { kind: 'startup', lines: [first, second] });
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'startup',
+        lines: [first, second],
+      });
       this.redraw();
     } else this.writeStatic(`${first}\n${second}\n`);
   }
@@ -538,15 +597,43 @@ export class TuiRenderer implements TerminalRendererGate {
     if (state === undefined) return;
     if (this.closing) throw new PresentationDeliveryError();
     this.setStartupState(state);
+    try {
+      const size = this.terminal.consoleSize();
+      if (
+        Number.isSafeInteger(size.columns) && size.columns > 0 &&
+        Number.isSafeInteger(size.rows) && size.rows > 0
+      ) {
+        this.lastSize = { columns: size.columns, rows: size.rows };
+        this.ui = reduceUiAction(this.ui, {
+          kind: 'resize',
+          columns: size.columns,
+          rows: size.rows,
+        });
+      }
+    } catch {
+      // Keep the last known size when the terminal cannot report dimensions.
+    }
     const committedTurn = this.currentPosition?.committedTurn ?? this.lastTurn;
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
       overlay: {
         kind: 'startupHelp',
-        lines: startupHelpLines(state, this.lastSize.columns, committedTurn),
+        lines: startupHelpLines(
+          state,
+          this.lastSize.columns,
+          committedTurn,
+          this.lastSize.rows,
+        ),
       },
     });
-    const help = `${startupHelpLines(state, this.lastSize.columns, committedTurn).join('\n')}\n`;
+    const help = `${
+      startupHelpLines(
+        state,
+        this.lastSize.columns,
+        committedTurn,
+        this.lastSize.rows,
+      ).join('\n')
+    }\n`;
     if (this.retained) this.redraw();
     else this.writeStatic(help);
   }
@@ -560,7 +647,10 @@ export class TuiRenderer implements TerminalRendererGate {
   eventSink = (event: PresentationEvent): void => {
     if (this.closing) throw new PresentationDeliveryError();
     this.ui = reduceUiEvent(this.ui, event);
-    if (event.kind === 'user_message' || event.kind === 'turn_start' || event.kind === 'turn_end') {
+    if (
+      event.kind === 'user_message' || event.kind === 'turn_start' ||
+      event.kind === 'turn_end'
+    ) {
       this.lastTurn = Math.max(this.lastTurn, event.turn);
     }
     switch (event.kind) {
@@ -636,6 +726,23 @@ export class TuiRenderer implements TerminalRendererGate {
             : event.outcome,
         );
         return;
+      case 'failure_diagnostic': {
+        this.clearLiveState();
+        const line = `${
+          formatPresentationFailureDiagnostic(
+            event.diagnostic,
+            event.durable,
+            event.persistenceError,
+          )
+        }\n` +
+          `readback> henji diagnostics show --id ${event.diagnostic.diagnosticId}`;
+        if (!this.retained) {
+          this.clearRecordLine();
+          this.write(dynamicLine('failure> ', line));
+        }
+        this.redraw();
+        return;
+      }
       case 'session_binding_replaced':
       case 'restored_log':
       case 'history_page':
@@ -665,15 +772,22 @@ export class TuiRenderer implements TerminalRendererGate {
   setEditorSnapshot(snapshot: EditorSnapshot): void {
     this.editorText = snapshot.text;
     this.editorSnapshot = Object.freeze({ ...snapshot });
-    this.ui = reduceUiAction(this.ui, { kind: 'editor', snapshot: this.editorSnapshot });
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'editor',
+      snapshot: this.editorSnapshot,
+    });
     this.redraw();
   }
 
   setPendingMetadata(metadata: PendingMetadataSnapshot | undefined): void {
-    this.pendingMetadata = metadata === undefined
-      ? undefined
-      : Object.freeze({ ...metadata, lanes: Object.freeze([...metadata.lanes]) });
-    this.ui = reduceUiAction(this.ui, { kind: 'pending', snapshot: this.pendingMetadata });
+    this.pendingMetadata = metadata === undefined ? undefined : Object.freeze({
+      ...metadata,
+      lanes: Object.freeze([...metadata.lanes]),
+    });
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'pending',
+      snapshot: this.pendingMetadata,
+    });
     this.redraw();
   }
 
@@ -696,13 +810,21 @@ export class TuiRenderer implements TerminalRendererGate {
       rows: Number.isSafeInteger(rows) && rows > 0 ? rows : this.lastSize.rows,
     };
     this.ui = reduceUiAction(this.ui, { kind: 'resize', columns, rows });
-    if (this.ui.overlay.kind === 'startupHelp' && this.startupState !== undefined) {
-      const committedTurn = this.currentPosition?.committedTurn ?? this.lastTurn;
+    if (
+      this.ui.overlay.kind === 'startupHelp' && this.startupState !== undefined
+    ) {
+      const committedTurn = this.currentPosition?.committedTurn ??
+        this.lastTurn;
       this.ui = reduceUiAction(this.ui, {
         kind: 'overlay',
         overlay: {
           kind: 'startupHelp',
-          lines: startupHelpLines(this.startupState, this.lastSize.columns, committedTurn),
+          lines: startupHelpLines(
+            this.startupState,
+            this.lastSize.columns,
+            committedTurn,
+            this.lastSize.rows,
+          ),
         },
       });
     }
@@ -712,7 +834,10 @@ export class TuiRenderer implements TerminalRendererGate {
   /** End a bounded modal projection and restore the main editor line. */
   clearModal(): void {
     if (this.closing) return;
-    this.ui = reduceUiAction(this.ui, { kind: 'overlay', overlay: { kind: 'none' } });
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: { kind: 'none' },
+    });
     if (!this.retained) this.writeStatic(`\r${ERASE_LINE}\n`);
     this.redraw();
   }
@@ -735,12 +860,19 @@ export class TuiRenderer implements TerminalRendererGate {
     const maxStart = Math.max(0, rows.length - viewport);
     const nextStart = Math.max(
       0,
-      Math.min(maxStart, currentStart + (direction === 'up' ? -viewport : viewport)),
+      Math.min(
+        maxStart,
+        currentStart + (direction === 'up' ? -viewport : viewport),
+      ),
     );
     let target = rows[nextStart];
     if (target?.entryId === undefined) {
       const step = direction === 'up' ? -1 : 1;
-      for (let index = nextStart; index >= 0 && index < rows.length; index += step) {
+      for (
+        let index = nextStart;
+        index >= 0 && index < rows.length;
+        index += step
+      ) {
         if (rows[index].entryId !== undefined) {
           target = rows[index];
           break;
@@ -775,7 +907,10 @@ export class TuiRenderer implements TerminalRendererGate {
   ): void {
     if (this.closing) throw new PresentationDeliveryError();
     const pageSize = 8;
-    const pageCount = Math.max(1, Math.ceil(listing.sessions.length / pageSize));
+    const pageCount = Math.max(
+      1,
+      Math.ceil(listing.sessions.length / pageSize),
+    );
     const boundedPage = Math.max(0, Math.min(pageCount - 1, page));
     const start = boundedPage * pageSize;
     const rows = listing.sessions.slice(start, start + pageSize);
@@ -802,7 +937,9 @@ export class TuiRenderer implements TerminalRendererGate {
         } ${updated} t${row.turnCount}/m${row.messageCount} ${state}`,
       );
     }
-    if (listing.skippedInvalid > 0) lines.push(`skipped invalid: ${listing.skippedInvalid}`);
+    if (listing.skippedInvalid > 0) {
+      lines.push(`skipped invalid: ${listing.skippedInvalid}`);
+    }
     if (this.retained) {
       this.ui = reduceUiAction(this.ui, {
         kind: 'overlay',
@@ -880,10 +1017,30 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
+  /** Retain one validated diagnostic when a host outcome arrives without its event bridge. */
+  renderFailureDiagnostic(
+    diagnostic: PresentationFailureDiagnostic,
+    durable: PresentationDiagnosticDurability = 'yes',
+    persistenceError?: PresentationDiagnosticPersistenceError,
+  ): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    this.eventSink({
+      kind: 'failure_diagnostic',
+      turn: diagnostic.turnNumber,
+      diagnostic,
+      durable,
+      ...(persistenceError === undefined ? {} : { persistenceError }),
+    });
+  }
+
   renderAssistantFinal(text: string): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.clearLiveState();
-    this.ui = reduceUiAction(this.ui, { kind: 'assistant_final', turn: this.lastTurn, text });
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'assistant_final',
+      turn: this.lastTurn,
+      text,
+    });
     if (!this.retained) {
       this.clearRecordLine();
       this.write(dynamicLine('assistant> ', text));
@@ -900,7 +1057,11 @@ export class TuiRenderer implements TerminalRendererGate {
       for (const message of messages) {
         if (message.role === 'user') {
           turn += 1;
-          this.ui = reduceUiEvent(this.ui, { kind: 'user_message', turn, message });
+          this.ui = reduceUiEvent(this.ui, {
+            kind: 'user_message',
+            turn,
+            message,
+          });
         } else if (message.role === 'assistant') {
           if (Array.isArray(message.content)) {
             for (const call of message.content) {
@@ -911,11 +1072,19 @@ export class TuiRenderer implements TerminalRendererGate {
               });
             }
           } else {
-            this.ui = reduceUiEvent(this.ui, { kind: 'assistant_message', turn, message });
+            this.ui = reduceUiEvent(this.ui, {
+              kind: 'assistant_message',
+              turn,
+              message,
+            });
           }
         } else {
           for (const result of message.content) {
-            this.ui = reduceUiEvent(this.ui, { kind: 'tool_result', turn, result });
+            this.ui = reduceUiEvent(this.ui, {
+              kind: 'tool_result',
+              turn,
+              result,
+            });
           }
         }
       }
@@ -983,8 +1152,15 @@ export class TuiRenderer implements TerminalRendererGate {
     const status = escapeTerminalText(this.displayStatus(), { editor: true });
     if (this.editorSnapshot !== null) {
       const metadata = pendingMetadataRows(this.pendingMetadata, columns);
-      const rows = Math.min(8, Math.max(1, this.lastSize.rows - 6 - metadata.length));
-      const layout = layoutEditorText(this.editorSnapshot, Math.max(1, columns - 4), rows);
+      const rows = Math.min(
+        8,
+        Math.max(1, this.lastSize.rows - 6 - metadata.length),
+      );
+      const layout = layoutEditorText(
+        this.editorSnapshot,
+        Math.max(1, columns - 4),
+        rows,
+      );
       if (this.editorBlockSpan > 0) this.clearEditorBlock();
       const editorRows = layout.rows.map((row) => `\r${ERASE_LINE}> ${row.text}`);
       const metadataRows = metadata.map((row) => `\r${ERASE_LINE}> ${row}`);

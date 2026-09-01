@@ -12,6 +12,7 @@ import {
 } from './contracts.ts';
 import { EventDeliveryError } from './events.ts';
 import { CancellationCleanupError, throwIfCancelled, TurnCancelledError } from './cancellation.ts';
+import { type FailureCode, type FailureStage, type ParseReason } from './failure_diagnostic.ts';
 
 const encoder = new TextEncoder();
 
@@ -43,23 +44,53 @@ export type AgentTransportErrorCode =
   | 'response_error'
   | 'limit_exceeded';
 
+/** Typed, sanitized facts projected at the provider boundary. */
+export interface OpenRouterFailureFact {
+  readonly stage: FailureStage;
+  readonly code: FailureCode;
+  /** Number of fetch calls made by this generate invocation (0 or 1). */
+  readonly requestCount: 0 | 1;
+  readonly httpStatus?: number;
+  readonly parseReason?: ParseReason;
+}
+
 /** A failure surface that deliberately retains no credential or provider body. */
 export class OpenRouterAgentError extends Error {
   readonly code: AgentTransportErrorCode;
   readonly requestCount: 0 | 1;
   readonly status?: number;
+  readonly failureFact: OpenRouterFailureFact;
 
   constructor(
     code: AgentTransportErrorCode,
     message: string,
     requestCount: 0 | 1,
     status?: number,
+    failureFact?: Omit<OpenRouterFailureFact, 'requestCount'>,
   ) {
     super(message);
     this.name = 'OpenRouterAgentError';
     this.code = code;
     this.requestCount = requestCount;
     this.status = status;
+    const defaultStage: FailureStage = code === 'missing_credential'
+      ? 'credential_resolution'
+      : code === 'transport_error'
+      ? 'transport'
+      : code === 'http_error'
+      ? 'http'
+      : code === 'response_error' || code === 'limit_exceeded' && requestCount === 1
+      ? 'response_parse'
+      : 'request_build';
+    this.failureFact = Object.freeze({
+      stage: failureFact?.stage ?? defaultStage,
+      code: failureFact?.code ?? code,
+      requestCount,
+      ...(status === undefined && failureFact?.httpStatus === undefined
+        ? {}
+        : { httpStatus: failureFact?.httpStatus ?? status }),
+      ...(failureFact?.parseReason === undefined ? {} : { parseReason: failureFact.parseReason }),
+    });
   }
 }
 
@@ -71,6 +102,7 @@ type ResponseBodyResult =
   }
   | { readonly kind: 'limit_exceeded'; readonly cleanupFailed: boolean }
   | { readonly kind: 'stream_error'; readonly cleanupFailed: boolean }
+  | { readonly kind: 'invalid_utf8'; readonly cleanupFailed: boolean }
   | { readonly kind: 'missing'; readonly cleanupFailed: false };
 
 /** Read one bounded response while retaining proof that the body reader was settled. */
@@ -113,11 +145,15 @@ const readResponseBody = async (
           body.set(chunk, offset);
           offset += chunk.byteLength;
         }
-        result = {
-          kind: 'text',
-          text: new TextDecoder().decode(body),
-          cleanupFailed: false,
-        };
+        try {
+          result = {
+            kind: 'text',
+            text: new TextDecoder('utf-8', { fatal: true }).decode(body),
+            cleanupFailed: false,
+          };
+        } catch {
+          result = { kind: 'invalid_utf8', cleanupFailed: false };
+        }
         break;
       }
       total += item.value.byteLength;
@@ -285,7 +321,10 @@ const safeJson = (value: unknown): string | undefined => {
 const bytes = (value: string): number => encoder.encode(value).byteLength;
 
 const invalid = (message: string): OpenRouterAgentError =>
-  new OpenRouterAgentError('invalid_input', message, 0);
+  new OpenRouterAgentError('invalid_input', message, 0, undefined, {
+    stage: 'request_build',
+    code: 'invalid_input',
+  });
 
 const toolCallWire = (call: ToolCallContent): WireToolCall | undefined => {
   if (
@@ -410,6 +449,8 @@ export const encodeRequest = (
       'limit_exceeded',
       'serialized model messages exceed 76 KiB',
       0,
+      undefined,
+      { stage: 'request_build', code: 'limit_exceeded' },
     );
   }
   return { messages, tools };
@@ -445,8 +486,15 @@ export const measureModelRequestWire = (
 
 const responseError = (
   message: string,
-  requestCount: 0 | 1 = 1,
-): OpenRouterAgentError => new OpenRouterAgentError('response_error', message, requestCount);
+  parseReason: ParseReason,
+): OpenRouterAgentError =>
+  new OpenRouterAgentError(
+    'response_error',
+    message,
+    1,
+    undefined,
+    { stage: 'response_parse', code: 'response_error', parseReason },
+  );
 
 const decodeToolCalls = (value: unknown): ModelResult | undefined => {
   if (!Array.isArray(value) || value.length === 0) return undefined;
@@ -480,22 +528,22 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
 
 const decodeResponse = (payload: unknown): ModelResult => {
   if (typeof payload !== 'object' || payload === null) {
-    throw responseError('provider response shape was unsupported');
+    throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
   const choices = (payload as { choices?: unknown }).choices;
   if (!Array.isArray(choices) || choices.length !== 1) {
-    throw responseError('provider response shape was unsupported');
+    throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
   const choice = choices[0];
   if (typeof choice !== 'object' || choice === null) {
-    throw responseError('provider response shape was unsupported');
+    throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
   const message = (choice as { message?: unknown }).message;
   if (typeof message !== 'object' || message === null) {
-    throw responseError('provider response shape was unsupported');
+    throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
   if ((message as { role?: unknown }).role !== 'assistant') {
-    throw responseError('provider response shape was unsupported');
+    throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
   const content = (message as { content?: unknown }).content;
   const toolCalls = (message as { tool_calls?: unknown }).tool_calls;
@@ -512,18 +560,79 @@ const decodeResponse = (payload: unknown): ModelResult => {
     const result = decodeToolCalls(toolCalls);
     if (result) return result;
   }
-  throw responseError('provider response contained no supported result');
+  throw responseError(
+    'provider response contained no supported result',
+    'unsupported_response_shape',
+  );
 };
 
 const sseResponseError = (
-  message = 'provider response stream was unsupported',
-): OpenRouterAgentError => new OpenRouterAgentError('response_error', message, 1);
+  message: string,
+  parseReason: ParseReason,
+  httpStatus?: number,
+): OpenRouterAgentError =>
+  new OpenRouterAgentError(
+    'response_error',
+    message,
+    1,
+    httpStatus,
+    {
+      stage: 'response_parse',
+      code: 'response_error',
+      parseReason,
+      ...(httpStatus === undefined ? {} : { httpStatus }),
+    },
+  );
+
+/** Attach the successful response status to parser facts at the response boundary. */
+const withResponseStatus = (
+  error: OpenRouterAgentError,
+  httpStatus: number,
+): OpenRouterAgentError => {
+  const fact = error.failureFact;
+  if (fact.stage !== 'response_parse' || fact.httpStatus !== undefined) return error;
+  if (fact.parseReason === undefined) {
+    return new OpenRouterAgentError(
+      'response_error',
+      error.message,
+      error.requestCount,
+      httpStatus,
+      {
+        stage: 'response_parse',
+        code: 'response_error',
+        httpStatus,
+        parseReason: 'unsupported_response_shape',
+      },
+    );
+  }
+  return new OpenRouterAgentError(
+    error.code,
+    error.message,
+    error.requestCount,
+    httpStatus,
+    {
+      stage: fact.stage,
+      code: fact.code,
+      httpStatus,
+      parseReason: fact.parseReason,
+    },
+  );
+};
 
 const sseTransportError = (): OpenRouterAgentError =>
   new OpenRouterAgentError(
     'transport_error',
     'provider response stream failed',
     1,
+    undefined,
+    { stage: 'transport', code: 'transport_error' },
+  );
+
+const responseStreamError = (httpStatus: number): OpenRouterAgentError =>
+  sseResponseError(
+    'provider response stream failed',
+    'response_stream_failed',
+    httpStatus,
   );
 
 const hasOwn = (value: object, key: string): boolean =>
@@ -560,7 +669,7 @@ class SseFramer {
     try {
       decoded = this.decoder.decode(bytes, { stream: true });
     } catch {
-      throw sseResponseError('provider response contained invalid UTF-8');
+      throw sseResponseError('provider response contained invalid UTF-8', 'invalid_utf8');
     }
     this.consume(decoded);
   }
@@ -571,7 +680,7 @@ class SseFramer {
     try {
       decoded = this.decoder.decode();
     } catch {
-      throw sseResponseError('provider response contained invalid UTF-8');
+      throw sseResponseError('provider response contained invalid UTF-8', 'invalid_utf8');
     }
     this.consume(decoded);
     if (this._done) return;
@@ -584,9 +693,13 @@ class SseFramer {
     if (this.line.length > 0 || this.dataLines.length > 0) {
       throw sseResponseError(
         'provider response stream ended with an incomplete event',
+        'invalid_sse_framing',
       );
     }
-    throw sseResponseError('provider response stream ended before [DONE]');
+    throw sseResponseError(
+      'provider response stream ended before [DONE]',
+      'stream_ended_before_done',
+    );
   }
 
   private consume(decoded: string): void {
@@ -632,7 +745,7 @@ class SseFramer {
     const payload = this.dataLines.join('\n');
     this.dataLines = [];
     if (payload.length === 0) {
-      throw sseResponseError('provider response contained empty data');
+      throw sseResponseError('provider response contained empty data', 'empty_terminal_result');
     }
     this.dataEvents += 1;
     if (this.dataEvents > MAX_SSE_DATA_EVENTS) {
@@ -640,6 +753,12 @@ class SseFramer {
         'limit_exceeded',
         'provider response has too many events',
         1,
+        undefined,
+        {
+          stage: 'response_parse',
+          code: 'limit_exceeded',
+          parseReason: 'response_stream_failed',
+        },
       );
     }
     this.onPayload(payload);
@@ -691,7 +810,9 @@ const updateStreamTool = (
   assembly: StreamAssembly,
   raw: unknown,
 ): void => {
-  if (typeof raw !== 'object' || raw === null) throw sseResponseError();
+  if (typeof raw !== 'object' || raw === null) {
+    throw sseResponseError('provider tool call shape was unsupported', 'unsupported_delta_shape');
+  }
   const fragment = raw as {
     index?: unknown;
     id?: unknown;
@@ -699,7 +820,7 @@ const updateStreamTool = (
     function?: unknown;
   };
   if (!safeIndex(fragment.index)) {
-    throw sseResponseError('provider tool-call index was invalid');
+    throw sseResponseError('provider tool-call index was invalid', 'incomplete_tool_call');
   }
   const index = fragment.index;
   let target = assembly.tools.get(index);
@@ -709,39 +830,42 @@ const updateStreamTool = (
   }
   if (hasOwn(fragment, 'id')) {
     if (!nonBlank(fragment.id)) {
-      throw sseResponseError('provider tool-call id was invalid');
+      throw sseResponseError('provider tool-call id was invalid', 'incomplete_tool_call');
     }
     if (target.id !== undefined && target.id !== fragment.id) {
-      throw sseResponseError('provider tool-call metadata conflicted');
+      throw sseResponseError('provider tool-call metadata conflicted', 'incomplete_tool_call');
     }
     target.id = fragment.id;
   }
   if (hasOwn(fragment, 'type')) {
     if (fragment.type !== 'function') {
-      throw sseResponseError('provider tool-call type was invalid');
+      throw sseResponseError('provider tool-call type was invalid', 'incomplete_tool_call');
     }
     if (target.type !== undefined && target.type !== fragment.type) {
-      throw sseResponseError('provider tool-call metadata conflicted');
+      throw sseResponseError('provider tool-call metadata conflicted', 'incomplete_tool_call');
     }
     target.type = 'function';
   }
   if (hasOwn(fragment, 'function')) {
     if (typeof fragment.function !== 'object' || fragment.function === null) {
-      throw sseResponseError('provider tool-call function was invalid');
+      throw sseResponseError('provider tool-call function was invalid', 'incomplete_tool_call');
     }
     const fn = fragment.function as { name?: unknown; arguments?: unknown };
     if (hasOwn(fn, 'name')) {
       if (!nonBlank(fn.name)) {
-        throw sseResponseError('provider tool-call name was invalid');
+        throw sseResponseError('provider tool-call name was invalid', 'incomplete_tool_call');
       }
       if (target.name !== undefined && target.name !== fn.name) {
-        throw sseResponseError('provider tool-call metadata conflicted');
+        throw sseResponseError('provider tool-call metadata conflicted', 'incomplete_tool_call');
       }
       target.name = fn.name;
     }
     if (hasOwn(fn, 'arguments')) {
       if (typeof fn.arguments !== 'string') {
-        throw sseResponseError('provider tool-call arguments were invalid');
+        throw sseResponseError(
+          'provider tool-call arguments were invalid',
+          'invalid_tool_arguments',
+        );
       }
       target.arguments += fn.arguments;
     }
@@ -754,23 +878,26 @@ const completeStreamTools = (assembly: StreamAssembly): ModelResult => {
     indices.length === 0 ||
     indices.some((index, position) => index !== position)
   ) {
-    throw sseResponseError('provider tool-call indices were not contiguous');
+    throw sseResponseError(
+      'provider tool-call indices were not contiguous',
+      'incomplete_tool_call',
+    );
   }
   const calls = indices.map((index) => {
     const tool = assembly.tools.get(index)!;
     if (
       !nonBlank(tool.id) || tool.type !== 'function' || !nonBlank(tool.name)
     ) {
-      throw sseResponseError('provider tool-call metadata was incomplete');
+      throw sseResponseError('provider tool-call metadata was incomplete', 'incomplete_tool_call');
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(tool.arguments);
     } catch {
-      throw sseResponseError('provider tool-call arguments were invalid');
+      throw sseResponseError('provider tool-call arguments were invalid', 'invalid_tool_arguments');
     }
     if (!isJsonValue(parsed)) {
-      throw sseResponseError('provider tool-call arguments were invalid');
+      throw sseResponseError('provider tool-call arguments were invalid', 'invalid_tool_arguments');
     }
     return { callId: tool.id, name: tool.name, arguments: parsed };
   });
@@ -785,7 +912,10 @@ const processSsePayload = (
 ): void => {
   if (payload === '[DONE]') {
     if (assembly.terminal === undefined || assembly.result === undefined) {
-      throw sseResponseError('provider stream ended before a terminal result');
+      throw sseResponseError(
+        'provider stream ended before a terminal result',
+        'stream_ended_before_done',
+      );
     }
     return;
   }
@@ -793,49 +923,66 @@ const processSsePayload = (
   try {
     raw = JSON.parse(payload);
   } catch {
-    throw sseResponseError('provider response contained invalid JSON');
+    throw sseResponseError('provider response contained invalid JSON', 'invalid_sse_json');
   }
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-    throw sseResponseError();
+    throw sseResponseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
   const object = raw as Record<string, unknown>;
   if (
     hasOwn(object, 'error') && object.error !== undefined &&
     object.error !== null
   ) {
-    throw sseResponseError('provider response reported an error');
+    throw sseResponseError('provider response reported an error', 'provider_reported_error');
   }
   const hasUsage = hasOwn(object, 'usage');
   if (!nonBlank(object.id)) {
-    throw sseResponseError('provider completion id was invalid');
+    throw sseResponseError('provider completion id was invalid', 'invalid_completion_identity');
   }
   if (assembly.completionId === undefined) assembly.completionId = object.id;
   else if (assembly.completionId !== object.id) {
-    throw sseResponseError('provider completion id changed');
+    throw sseResponseError('provider completion id changed', 'invalid_completion_identity');
   }
   const choices = object.choices;
   if (!Array.isArray(choices) || choices.length !== 1) {
-    throw sseResponseError('provider response choice shape was unsupported');
+    throw sseResponseError(
+      'provider response choice shape was unsupported',
+      'unsupported_choice_shape',
+    );
   }
   const choice = choices[0];
   if (typeof choice !== 'object' || choice === null || Array.isArray(choice)) {
-    throw sseResponseError('provider response choice shape was unsupported');
+    throw sseResponseError(
+      'provider response choice shape was unsupported',
+      'unsupported_choice_shape',
+    );
   }
   const choiceObject = choice as Record<string, unknown>;
   if (choiceObject.index !== 0) {
-    throw sseResponseError('provider response choice index was invalid');
+    throw sseResponseError(
+      'provider response choice index was invalid',
+      'unsupported_choice_shape',
+    );
   }
   const finishReason = choiceObject.finish_reason;
   if (
     finishReason !== undefined && finishReason !== null &&
     finishReason !== 'stop' && finishReason !== 'tool_calls'
-  ) throw sseResponseError('provider response finish reason was unsupported');
+  ) {
+    throw sseResponseError(
+      'provider response finish reason was unsupported',
+      'unsupported_finish_reason',
+    );
+  }
   const delta = choiceObject.delta;
   if (
     delta !== undefined &&
     (typeof delta !== 'object' || delta === null || Array.isArray(delta))
   ) {
-    throw sseResponseError('provider response delta shape was unsupported');
+    throw sseResponseError(
+      'provider response delta shape was unsupported',
+      'unsupported_delta_shape',
+    );
   }
   const deltaObject = (delta ?? {}) as Record<string, unknown>;
   const contentPresent = hasOwn(deltaObject, 'content');
@@ -845,10 +992,10 @@ const processSsePayload = (
     contentPresent && content !== null && content !== '' &&
     typeof content !== 'string'
   ) {
-    throw sseResponseError('provider response content was unsupported');
+    throw sseResponseError('provider response content was unsupported', 'unsupported_delta_shape');
   }
   if (hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant') {
-    throw sseResponseError('provider response role was invalid');
+    throw sseResponseError('provider response role was invalid', 'unsupported_delta_shape');
   }
   const toolCalls = deltaObject.tool_calls;
   const hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
@@ -856,7 +1003,10 @@ const processSsePayload = (
     hasOwn(deltaObject, 'tool_calls') && toolCalls !== null &&
     !Array.isArray(toolCalls)
   ) {
-    throw sseResponseError('provider response tool calls were unsupported');
+    throw sseResponseError(
+      'provider response tool calls were unsupported',
+      'unsupported_delta_shape',
+    );
   }
 
   if (assembly.terminal !== undefined) {
@@ -867,17 +1017,25 @@ const processSsePayload = (
       finishReason !== assembly.terminal || hasContent || hasToolCalls ||
       hasOwn(deltaObject, 'role') || hasOwn(deltaObject, 'content') ||
       hasOwn(deltaObject, 'tool_calls')
-    ) throw sseResponseError('provider response contained data after terminal');
+    ) {
+      throw sseResponseError(
+        'provider response contained data after terminal',
+        'data_after_terminal',
+      );
+    }
     assembly.usageSeen = true;
     return;
   }
 
   if (hasUsage) {
-    throw sseResponseError('provider usage frame arrived before terminal');
+    throw sseResponseError('provider usage frame arrived before terminal', 'invalid_usage_frame');
   }
 
   if ((hasContent && assembly.sawTools) || (hasToolCalls && assembly.sawText)) {
-    throw sseResponseError('provider response mixed text and tool calls');
+    throw sseResponseError(
+      'provider response mixed text and tool calls',
+      'mixed_text_and_tool_calls',
+    );
   }
   if (hasContent) {
     assembly.sawText = true;
@@ -916,13 +1074,19 @@ const processSsePayload = (
   if (finishReason === undefined || finishReason === null) return;
   if (finishReason === 'stop') {
     if (!assembly.sawText || assembly.sawTools || assembly.textBytes === 0) {
-      throw sseResponseError('provider stop result was empty or unsupported');
+      throw sseResponseError(
+        'provider stop result was empty or unsupported',
+        'empty_terminal_result',
+      );
     }
     assembly.terminal = 'stop';
     assembly.result = { kind: 'final', text: assembly.textParts.join('') };
   } else {
     if (!assembly.sawTools || assembly.sawText) {
-      throw sseResponseError('provider tool result was empty or unsupported');
+      throw sseResponseError(
+        'provider tool result was empty or unsupported',
+        'empty_terminal_result',
+      );
     }
     assembly.terminal = 'tool_calls';
     assembly.result = completeStreamTools(assembly);
@@ -936,12 +1100,18 @@ const readSseResponse = async (
   isTimedOut: () => boolean,
   observer?: StreamTextAccountingObserver,
 ): Promise<ModelResult> => {
-  if (!response.body) throw sseResponseError('provider response had no body');
+  if (!response.body) {
+    throw sseResponseError(
+      'provider response had no body',
+      'response_body_missing',
+      response.status,
+    );
+  }
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     reader = response.body.getReader();
   } catch {
-    throw sseTransportError();
+    throw responseStreamError(response.status);
   }
   const assembly: StreamAssembly = {
     textParts: [],
@@ -966,13 +1136,13 @@ const readSseResponse = async (
       if (error instanceof EventDeliveryError || isTurnCancelled()) {
         throw new CancellationCleanupError();
       }
-      throw sseTransportError();
+      throw responseStreamError(response.status);
     }
     if (error instanceof EventDeliveryError) throw error;
     if (isTurnCancelled()) throw new TurnCancelledError();
     if (isTimedOut()) throw sseTransportError();
-    if (error instanceof OpenRouterAgentError) throw error;
-    throw sseTransportError();
+    if (error instanceof OpenRouterAgentError) throw withResponseStatus(error, response.status);
+    throw responseStreamError(response.status);
   };
   let failure: unknown;
   let result: ModelResult | undefined;
@@ -1000,6 +1170,12 @@ const readSseResponse = async (
             'limit_exceeded',
             'provider response exceeds 1 MiB',
             1,
+            undefined,
+            {
+              stage: 'response_parse',
+              code: 'limit_exceeded',
+              parseReason: 'response_body_too_large',
+            },
           ),
         );
         break;
@@ -1013,6 +1189,12 @@ const readSseResponse = async (
             'limit_exceeded',
             'provider response exceeds 1 MiB',
             1,
+            undefined,
+            {
+              stage: 'response_parse',
+              code: 'limit_exceeded',
+              parseReason: 'response_body_too_large',
+            },
           ),
         );
         break;
@@ -1027,7 +1209,9 @@ const readSseResponse = async (
         try {
           await reader.cancel('provider stream complete');
         } catch (_error) {
-          failure = isTurnCancelled() ? new CancellationCleanupError() : sseTransportError();
+          failure = isTurnCancelled()
+            ? new CancellationCleanupError()
+            : responseStreamError(response.status);
           break;
         }
         result = assembly.result;
@@ -1042,11 +1226,11 @@ const readSseResponse = async (
           failure instanceof CancellationCleanupError ||
           isTurnCancelled()
         ? new CancellationCleanupError()
-        : sseTransportError();
+        : responseStreamError(response.status);
     }
   }
   if (failure !== undefined) throw failure;
-  if (result === undefined) throw sseTransportError();
+  if (result === undefined) throw responseStreamError(response.status);
   return result;
 };
 
@@ -1095,6 +1279,8 @@ export class OpenRouterAgentModel implements Model {
         'limit_exceeded',
         'provider request exceeds 256 KiB',
         0,
+        undefined,
+        { stage: 'request_build', code: 'limit_exceeded' },
       );
     }
     const turnSignal = generateOptions.signal ?? this.options.parentSignal;
@@ -1105,6 +1291,8 @@ export class OpenRouterAgentModel implements Model {
         'missing_credential',
         'host provider credential is not configured',
         0,
+        undefined,
+        { stage: 'credential_resolution', code: 'missing_credential' },
       );
     }
     // Credential resolution may itself cross a host-controlled boundary. Do not start a fetch
@@ -1145,6 +1333,8 @@ export class OpenRouterAgentModel implements Model {
           'transport_error',
           'provider transport failed',
           1,
+          undefined,
+          { stage: 'transport', code: 'transport_error' },
         );
       }
       // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
@@ -1159,6 +1349,8 @@ export class OpenRouterAgentModel implements Model {
           'transport_error',
           'provider transport failed',
           1,
+          undefined,
+          { stage: 'transport', code: 'transport_error' },
         );
       }
       if (!response.ok) {
@@ -1169,6 +1361,8 @@ export class OpenRouterAgentModel implements Model {
             'transport_error',
             'provider transport failed',
             1,
+            undefined,
+            { stage: 'transport', code: 'transport_error' },
           );
         }
         if (turnCancelled) throw new TurnCancelledError();
@@ -1177,6 +1371,8 @@ export class OpenRouterAgentModel implements Model {
             'transport_error',
             'provider transport failed',
             1,
+            undefined,
+            { stage: 'transport', code: 'transport_error' },
           );
         }
         throw new OpenRouterAgentError(
@@ -1184,6 +1380,7 @@ export class OpenRouterAgentModel implements Model {
           `provider request failed (${response.status})`,
           1,
           response.status,
+          { stage: 'http', code: 'http_error', httpStatus: response.status },
         );
       }
       if (this.options.responseMode === 'sse') {
@@ -1196,11 +1393,20 @@ export class OpenRouterAgentModel implements Model {
           const settled = await cancelResponseBody(response);
           if (!settled) {
             if (turnCancelled) throw new CancellationCleanupError();
-            throw sseTransportError();
+            throw responseStreamError(response.status);
           }
           if (turnCancelled) throw new TurnCancelledError();
+          if (!response.body) {
+            throw sseResponseError(
+              'provider response had no body',
+              'response_body_missing',
+              response.status,
+            );
+          }
           throw sseResponseError(
             'provider response media type was unsupported',
+            'unsupported_media_type',
+            response.status,
           );
         }
         const reportAssistantProgress = generateOptions.reportAssistantProgress === undefined
@@ -1223,6 +1429,8 @@ export class OpenRouterAgentModel implements Model {
             'transport_error',
             'provider transport failed',
             1,
+            undefined,
+            { stage: 'transport', code: 'transport_error' },
           );
         }
         return streamed;
@@ -1230,11 +1438,7 @@ export class OpenRouterAgentModel implements Model {
       const bounded = await readResponseBody(response);
       if (bounded.cleanupFailed) {
         if (turnCancelled) throw new CancellationCleanupError();
-        throw new OpenRouterAgentError(
-          'transport_error',
-          'provider response stream failed',
-          1,
-        );
+        throw responseStreamError(response.status);
       }
       if (turnCancelled) throw new TurnCancelledError();
       if (timedOut) {
@@ -1242,6 +1446,8 @@ export class OpenRouterAgentModel implements Model {
           'transport_error',
           'provider transport failed',
           1,
+          undefined,
+          { stage: 'transport', code: 'transport_error' },
         );
       }
       if (controller.signal.aborted) {
@@ -1249,6 +1455,8 @@ export class OpenRouterAgentModel implements Model {
           'transport_error',
           'provider transport failed',
           1,
+          undefined,
+          { stage: 'transport', code: 'transport_error' },
         );
       }
       if (bounded.kind === 'limit_exceeded') {
@@ -1256,22 +1464,71 @@ export class OpenRouterAgentModel implements Model {
           'limit_exceeded',
           'provider response exceeds 1 MiB',
           1,
+          response.status,
+          {
+            stage: 'response_parse',
+            code: 'limit_exceeded',
+            httpStatus: response.status,
+            parseReason: 'response_body_too_large',
+          },
+        );
+      }
+      if (bounded.kind === 'missing') {
+        throw new OpenRouterAgentError(
+          'response_error',
+          'provider response had no body',
+          1,
+          response.status,
+          {
+            stage: 'response_parse',
+            code: 'response_error',
+            httpStatus: response.status,
+            parseReason: 'response_body_missing',
+          },
         );
       }
       if (bounded.kind !== 'text') {
-        throw new OpenRouterAgentError(
-          'transport_error',
-          'provider response stream failed',
-          1,
-        );
+        if (bounded.kind === 'invalid_utf8') {
+          throw new OpenRouterAgentError(
+            'response_error',
+            'provider response contained invalid UTF-8',
+            1,
+            response.status,
+            {
+              stage: 'response_parse',
+              code: 'response_error',
+              httpStatus: response.status,
+              parseReason: 'invalid_utf8',
+            },
+          );
+        }
+        throw responseStreamError(response.status);
       }
       let payload: unknown;
       try {
         payload = JSON.parse(bounded.text);
       } catch {
-        throw responseError('provider response was invalid');
+        throw new OpenRouterAgentError(
+          'response_error',
+          'provider response was invalid',
+          1,
+          response.status,
+          {
+            stage: 'response_parse',
+            code: 'response_error',
+            httpStatus: response.status,
+            parseReason: 'invalid_sse_json',
+          },
+        );
       }
-      return decodeResponse(payload);
+      try {
+        return decodeResponse(payload);
+      } catch (error) {
+        if (error instanceof OpenRouterAgentError) {
+          throw withResponseStatus(error, response.status);
+        }
+        throw error;
+      }
     } finally {
       clearTimeout(timer);
       turnSignal?.removeEventListener('abort', abortFromTurn);

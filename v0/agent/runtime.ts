@@ -37,6 +37,8 @@ import {
   createTurnExecutionContext,
   type ParentTurnExecutionContext,
 } from './execution_context.ts';
+import { type FailureDiagnosticOwner } from './failure_diagnostic.ts';
+import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
 import type { PlannerDelegationHandler } from './planner_delegation.ts';
 import {
   CancellationCleanupError,
@@ -112,6 +114,8 @@ export interface RuntimeTestSeam {
   ) => void;
   /** Direct-test-only observer proving the display state is projected exactly once. */
   readonly onDisplayStateProjected?: (state: RuntimeDisplayState) => void;
+  /** Direct-test/host seam for turn-scoped diagnostic persistence. */
+  readonly diagnosticPersistence?: FailureDiagnosticPersister;
 }
 
 export interface RuntimeRun {
@@ -133,6 +137,8 @@ export interface RuntimeComposition {
     turn: number,
     signal?: AbortSignal,
     cancellation?: TurnCancellation,
+    diagnosticOwner?: FailureDiagnosticOwner,
+    providerRequestCount?: () => number,
   ) => ParentTurnExecutionContext;
 }
 
@@ -350,8 +356,10 @@ export const materializePreparedRuntimeComposition = (
               signal: childContext.signal,
               cancellation: childContext.cancellation,
               ownsCancellation: false,
+              diagnosticOwner: childContext.diagnosticOwner,
             },
           );
+          await childContext.persistDiagnostic();
           if (outcome.stopReason === 'cancelled') {
             throw new TurnCancelledError();
           }
@@ -379,8 +387,20 @@ export const materializePreparedRuntimeComposition = (
     displayState: prepared.displayState,
     resourceSelection: prepared.resourceSelection,
     requestCount,
-    createTurnExecutionContext: (turn, signal, cancellation) =>
-      createTurnExecutionContext(turn, signal, cancellation),
+    createTurnExecutionContext: (
+      turn,
+      signal,
+      cancellation,
+      diagnosticOwner,
+      providerRequestCount,
+    ) =>
+      createTurnExecutionContext(
+        turn,
+        signal,
+        cancellation,
+        diagnosticOwner,
+        providerRequestCount ?? requestCount,
+      ),
   };
 };
 
@@ -410,6 +430,8 @@ export const createRuntimeSessionFromPrepared = (
       systemInstruction: composition.systemInstruction,
       eventSink,
       createTurnExecutionContext: composition.createTurnExecutionContext,
+      diagnosticPersistence: prepared.seam.diagnosticPersistence,
+      providerRequestCount: composition.requestCount,
       persistence: sessionOptions.persistence,
       initialRecord: sessionOptions.initialRecord,
       summarizeContext: (request, signal) => composition.model.generate(request, { signal }),

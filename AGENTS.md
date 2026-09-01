@@ -23,6 +23,44 @@
 
 ## Current phase
 
+- The Step 83 full-capability acceptance continuation is locally integrated under
+  `docs/plans/step-83-full-capability-human-acceptance.md`. Residual Product P1/P2 and Evidence E2
+  findings were closed with focused checks; final narrow review is Product GO with Blocker/P1/P2
+  zero and Verification complete with E1/E2 zero. The coordinating owner then ran the authoritative
+  `v0:gate` exactly once and all 715 offline tests passed with topology/check/fmt/lint green. The
+  repository-owned installer updated `/home/masat.guest/.local/bin/henji`; `check`, mode/owner, and
+  source SHA-256 readback passed, and the prior launcher is preserved at the fixed backup. The
+  separately approved final real-screen Human Gate was then consumed once. Production `henji`
+  started in the fixed 0700 acceptance workspace, F1 was opened/dismissed, and the exact Turn 1 was
+  submitted once; the UI returned `contract_failure`, recoverable pending input, ready turn 0, and
+  no tool activity/final/commit. Turn 2 and Turn 3 were not attempted, and retry/fallback/rerun were
+  zero. Clean Ctrl-D discard exited 0; read-only inspection found only the exact 0600 `request.txt`,
+  no `acceptance-note.md`, no committed session, and no temp/selected-session residue. The workspace
+  remains for diagnosis. The exact provider-request count and safe typed cause were not exposed, so
+  the run is `判定不能` and the prior three-way adoption decision request is withdrawn. This is a
+  validated overprotection/diagnosability issue: the actual secret was the single OpenRouter API
+  credential, but existing non-secret error code/request-count/status/parser-reason evidence was
+  hidden for speculative future-data concerns and then lost on empty-session cleanup. Any diagnosis
+  that changes code or any further provider attempt requires separate authorization.
+  The corrective planning source is
+  `/tmp/planner-inputs/henji-step-83-sanitized-failure-diagnostics.md`, SHA-256
+  `d8e18cf34da80a3f65cb35ab0c5e5b5b0b1e25cd65d4a4bdae78811c72a70d58`; its canonical
+  implementation plan is `docs/plans/step-83-sanitized-failure-diagnostics.md`, SHA-256
+  `4e48a0ee23f830cd23019c4bab54b251c19048a814fa5f1af7aa8b4b5ec85608`, with results in
+  `docs/plans/step-83-sanitized-failure-diagnostics-results.md`. The approved implementation adds
+  immutable allowlisted failure records, occurrence-bound parent/planner request accounting,
+  atomic workspace-partitioned diagnostic storage, retained TUI correlation, and bounded
+  `henji diagnostics` readback/delete commands. Initial implementation review found Product P1 3 /
+  P2 1 and Evidence E2 2; the closure, narrow re-review, owner evidence closure and exceptional
+  ultra-narrow review close all findings at Product Blocker/P1/P2 zero and Evidence E1/E2 zero.
+  Two full-gate attempts exposed and then closed internal-error compatibility and portable
+  `--no-session` state-root regressions. A later Deno task process exited 139 without a test failure;
+  its stop leaf passed 3/3 alone and the remaining canonical suffix passed in order. The combined
+  verified coverage is all 70 direct files / 763 offline tests, with topology/check/fmt/lint/diff
+  green. No provider/network/credential/production command, actual persistent acceptance state,
+  `_refs/`, commit, push, tag, publish or release occurred. Any provider retry remains a separate
+  explicit Human Gate.
+
 - Roadmap Step 82 (`docs/plans/daily-editor-no-lost-input.md`, SHA-256
   `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`) is implemented. The bounded
   scalar multiline editor/history with mutation detachment, typed discard/signal transitions,

@@ -9,6 +9,8 @@ Deno.test('persistent commands use side-effect-free launcher topology', () => {
   assert(tasks['agent:sessions'] === 'v0/agent/session_cli_launcher.sh');
   assert(!launcher.includes('--allow-env=HENJI_OPENROUTER_API_KEY'));
   assert(launcher.includes('HENJI_SESSION_STATE_ROOT="$state_root" exec'));
+  assert(launcher.includes('HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run'));
+  assert(!launcher.includes('--allow-env=XDG_STATE_HOME,HOME'));
   assert(launcher.includes('--allow-net=openrouter.ai'));
   assert(launcher.includes('--allow-sys=uid'));
   assert(launcher.includes('--allow-read="$workspace"'));

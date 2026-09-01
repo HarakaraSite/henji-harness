@@ -147,13 +147,13 @@ const logRows = (state: UiState, columns: number): { rows: LayoutRow[]; sourceBy
   return { rows: result, sourceBytes };
 };
 
-const overlayRows = (state: UiState, columns: number): LayoutRow[] => {
+const overlayRows = (state: UiState, columns: number, rows: number): LayoutRow[] => {
   const overlay = state.overlay;
   if (overlay.kind === 'none') return [];
   const lines: string[] = [];
   if (overlay.kind === 'startupHelp') {
     lines.push(
-      columns < 40 ? 'F1 help · Esc return' : 'startup help · F1/Esc return',
+      columns < 40 || rows < 16 ? 'F1 help · Esc return' : 'startup help · F1/Esc return',
     );
     lines.push(...(overlay.lines ?? []).slice(0, 12));
   } else if (overlay.kind === 'sessionPicker') {
@@ -268,7 +268,7 @@ export const layoutUi = (
     heightLimit - editor.rows.length - 1,
   );
   const log = logRows(state, Math.max(1, widthLimit));
-  const overlay = overlayRows(state, Math.max(1, widthLimit));
+  const overlay = overlayRows(state, Math.max(1, widthLimit), heightLimit);
   let logStart = Math.max(0, log.rows.length - logHeight);
   if (state.scroll.kind === 'anchored') {
     const anchor = state.scroll.entryId;
