@@ -38,6 +38,15 @@ Deno.test('local TUI gate runs only local tests and check includes all TUI paths
       'tests/v0/tui_process_test.ts',
       'tests/v0/tui_topology_test.ts',
       'tests/v0/fixtures/tui_process_fixture.ts',
+      'v0/presentation/contract.ts',
+      'v0/agent/tui_presentation_adapter.ts',
+      'v0/tui/state.ts',
+      'v0/tui/layout.ts',
+      'tests/v0/presentation_contract_test.ts',
+      'tests/v0/tui_presentation_adapter_test.ts',
+      'tests/v0/tui_state_test.ts',
+      'tests/v0/tui_layout_test.ts',
+      'tests/v0/ui_boundary_topology_test.ts',
     ]
   ) assert(check.includes(path));
   assert(check.includes('v0/agent/agent_catalog.ts'));
@@ -49,7 +58,16 @@ Deno.test('local TUI gate runs only local tests and check includes all TUI paths
       .length,
     1,
   );
-  for (const task of ['agent:tui:test', 'agent:tui:process:test', 'agent:tui:topology:test']) {
+  for (
+    const task of [
+      'agent:tui:test',
+      'agent:tui:process:test',
+      'agent:tui:topology:test',
+      'agent:ui-presentation:test',
+      'agent:ui-boundary:topology:test',
+      'agent:ui-retained:acceptance:launcher:process:test',
+    ]
+  ) {
     const invocation = `${DENO} task --config deno.v0.json ${task}`;
     assertEquals(testSegments.filter((segment) => segment === invocation).length, 1);
   }
@@ -83,6 +101,51 @@ Deno.test('pending and file-reference leaves are exact permission-free commands'
   assertEquals(
     config.tasks['agent:tui:file-reference:test'],
     `${DENO} test --no-prompt tests/v0/tui_file_reference_test.ts`,
+  );
+});
+
+Deno.test('presentation and boundary leaves keep their narrow permission contracts', () => {
+  assertEquals(
+    config.tasks['agent:ui-presentation:test'],
+    `${DENO} test --no-prompt tests/v0/presentation_contract_test.ts tests/v0/tui_presentation_adapter_test.ts tests/v0/tui_state_test.ts tests/v0/tui_layout_test.ts`,
+  );
+  assertEquals(
+    config.tasks['agent:ui-boundary:topology:test'],
+    `${DENO} test --no-prompt --allow-read=deno.v0.json,v0/agent,v0/presentation,v0/tui,v0/domain.ts,v0/model.ts tests/v0/ui_boundary_topology_test.ts`,
+  );
+  assert(
+    config.tasks['agent:ui-retained:acceptance:test'].includes('detached_ui_acceptance_test.ts'),
+  );
+  assert(
+    config.tasks['agent:ui-retained:acceptance:process:test'].includes(
+      '--allow-run=/usr/bin/script',
+    ),
+  );
+  assertEquals(
+    config.tasks['agent:ui-retained:acceptance'],
+    'v0/agent/ui_retained_acceptance_launcher.sh',
+  );
+  const humanTask = config.tasks['agent:ui-retained:acceptance'];
+  assert(!humanTask.includes('--allow-'));
+  assert(!humanTask.includes('agent:tui'));
+  assert(
+    config.tasks['agent:ui-retained:acceptance:process:test'].includes(
+      'detached_ui_acceptance_process_test.ts',
+    ),
+  );
+  assertEquals(
+    config.tasks['agent:ui-retained:acceptance:process:test'],
+    `${DENO} test --no-prompt --allow-run=/usr/bin/script tests/v0/detached_ui_acceptance_process_test.ts`,
+  );
+  assertEquals(
+    config.tasks['agent:ui-retained:acceptance:launcher:process:test'],
+    `${DENO} test --no-prompt --allow-read=.,/tmp --allow-write=/tmp --allow-run=/bin/sh tests/v0/ui_retained_acceptance_launcher_process_test.ts`,
+  );
+  const testSegments = config.tasks['v0:test'].split(' && ');
+  assert(
+    !testSegments.some((segment) =>
+      segment === `${DENO} task --config deno.v0.json agent:ui-retained:acceptance`
+    ),
   );
 });
 

@@ -158,36 +158,24 @@ Deno.test('portable documented command resolves Deno from PATH and reaches orien
       `cd ${root} && sleep 0.1 && env -u HENJI_OPENROUTER_API_KEY -u HENJI_SESSION_STATE_ROOT PATH=${bin}:/usr/bin:/bin deno task --quiet --config deno.v0.json agent:tui --no-session`,
       '\x04',
       2_000,
-      'keys> busy Enter steer · Alt+Enter follow-up · Esc cancel · Ctrl-C/D exit',
+      'trusted-local · credentials checked only when sending · F1 help',
     );
     assert(result.status.success);
     assert(!result.timedOut);
     assertEquals(result.stderr, '');
     const orientation = result.stdout.indexOf('Henji Harness');
     const orientationComplete = result.stdout.indexOf(
-      'keys> Ctrl-P/N history · Tab path · Ctrl-R recover',
+      'trusted-local · credentials checked only when sending · F1 help',
     );
-    const prompt = result.stdout.indexOf('\x1b[2K> ');
+    const prompt = result.stdout.indexOf('> ');
     assert(
       orientation >= 0 && orientationComplete > orientation &&
         prompt > orientationComplete,
     );
-    assert(result.stdout.includes('workspace> '));
-    assert(result.stdout.includes('agent> default'));
-    assert(result.stdout.includes('model> openrouter /'));
-    assert(result.stdout.includes('session> no session'));
-    assert(
-      result.stdout.includes(
-        'credential> verified immediately before each provider request; not checked at startup',
-      ),
-    );
-    assert(
-      result.stdout.includes(
-        'trust> NO HARD SANDBOX; bash/edit/write run with your OS-user access',
-      ),
-    );
-    assert(result.stdout.includes('Alt+Enter follow-up'));
-    assert(result.stdout.includes('Ctrl-P/N history · Tab path · Ctrl-R recover'));
+    assert(result.stdout.includes('default'));
+    assert(result.stdout.includes('no session'));
+    assert(!result.stdout.includes('credential> verified immediately'));
+    assert(!result.stdout.includes('trust> NO HARD SANDBOX'));
     assertEquals(result.stdout.split('\x1b[?2004h').length - 1, 1);
     assertEquals(result.stdout.split('\x1b[?2004l').length - 1, 1);
     assert(!result.stdout.includes('provider_sensitive_marker'));

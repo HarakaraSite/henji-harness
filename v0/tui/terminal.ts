@@ -12,6 +12,9 @@ export interface TerminalPort {
   write(bytes: Uint8Array): void;
   addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
   removeSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
+  /** Optional UI-local resize signal hooks. They never enter the agent/session event stream. */
+  addResize?(handler: () => void): void;
+  removeResize?(handler: () => void): void;
 }
 
 const encoder = new TextEncoder();
@@ -146,6 +149,14 @@ export class DenoTerminal implements TerminalPort {
   removeSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void {
     Deno.removeSignalListener(signal, handler);
   }
+
+  addResize(handler: () => void): void {
+    Deno.addSignalListener('SIGWINCH', handler);
+  }
+
+  removeResize(handler: () => void): void {
+    Deno.removeSignalListener('SIGWINCH', handler);
+  }
 }
 
 export interface TerminalRendererGate {
@@ -164,6 +175,10 @@ export class TerminalLifecycle {
   private restoring: Promise<void> | null = null;
   private restoreFailed = false;
   private readonly signals = new Map<SignalName, SignalHandler>();
+  private readonly resizeHandlers = new Set<(size: { columns: number; rows: number }) => void>();
+  private resizeSignal: (() => void) | null = null;
+  private resizeTimer: ReturnType<typeof setTimeout> | null = null;
+  private resizeGeneration = 0;
 
   constructor(
     private readonly terminal: TerminalPort,
@@ -177,6 +192,40 @@ export class TerminalLifecycle {
       this.terminal.addSignal(signal, handler);
       this.signals.set(signal, handler);
     }
+  }
+
+  /**
+   * Subscribe to a bounded/coalesced UI-local resize notification. The callback receives a fresh
+   * size and is never called after the returned unregister function or restore begins.
+   */
+  subscribeResize(handler: (size: { columns: number; rows: number }) => void): () => void {
+    this.resizeHandlers.add(handler);
+    if (this.resizeSignal === null && this.terminal.addResize !== undefined) {
+      this.resizeSignal = () => {
+        if (this.restoring !== null || this.resizeTimer !== null) return;
+        const generation = this.resizeGeneration;
+        this.resizeTimer = setTimeout(() => {
+          this.resizeTimer = null;
+          if (this.restoring !== null || generation !== this.resizeGeneration) return;
+          let size: { columns: number; rows: number };
+          try {
+            size = this.terminal.consoleSize();
+          } catch {
+            return;
+          }
+          if (
+            !Number.isSafeInteger(size.columns) || !Number.isSafeInteger(size.rows) ||
+            size.columns <= 0 || size.rows <= 0
+          ) return;
+          for (const callback of this.resizeHandlers) callback(size);
+        }, 0);
+      };
+      this.terminal.addResize(this.resizeSignal);
+    }
+    return () => {
+      this.resizeHandlers.delete(handler);
+      if (this.resizeHandlers.size === 0) this.removeResizeHandlers();
+    };
   }
 
   async acquire(): Promise<void> {
@@ -216,6 +265,7 @@ export class TerminalLifecycle {
   }
 
   private async restoreOnce(): Promise<void> {
+    this.removeResizeHandlers();
     // Closing is the first operation: late event delivery can no longer write dynamic output.
     try {
       this.renderer?.close();
@@ -280,5 +330,22 @@ export class TerminalLifecycle {
       }
     }
     this.signals.clear();
+  }
+
+  private removeResizeHandlers(): void {
+    this.resizeGeneration += 1;
+    if (this.resizeTimer !== null) {
+      clearTimeout(this.resizeTimer);
+      this.resizeTimer = null;
+    }
+    if (this.resizeSignal !== null) {
+      try {
+        this.terminal.removeResize?.(this.resizeSignal);
+      } catch {
+        this.restoreFailed = true;
+      }
+      this.resizeSignal = null;
+    }
+    this.resizeHandlers.clear();
   }
 }

@@ -14,6 +14,7 @@ import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts'
 import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
 import { Registry } from '../../v0/agent/tools.ts';
 import { TuiController, TuiControllerError, type TuiSessionLike } from '../../v0/tui/controller.ts';
+import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
 import {
   NavigationCancelledError,
   NavigationFatalError,
@@ -646,6 +647,88 @@ const navigationSession = (id: string, turn = 1): TuiSessionLike => ({
   contextSnapshot: () => undefined,
 });
 
+const delayedTypedNavigation = () => {
+  const currentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const targetId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  let started = false;
+  let aborted = false;
+  let settled = false;
+  const oldClosed = false;
+  const targetOwned = false;
+  const navigation: SessionNavigationHost = {
+    persistent: true,
+    list: () =>
+      Promise.resolve({
+        sessions: [navigationRow(currentId, true), navigationRow(targetId, false)],
+        skippedInvalid: 0,
+      }),
+    switchTo: (id, signal) => {
+      assertEquals(id, targetId);
+      started = true;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener('abort', () => {
+          aborted = true;
+          setTimeout(() => {
+            settled = true;
+            reject(new NavigationCancelledError());
+          }, 8);
+        }, { once: true });
+      });
+    },
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => navigationPosition(currentId),
+  };
+  const terminal = new FakeTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  const adapter = new TuiPresentationAdapter(
+    { submit: () => Promise.resolve(finalOutcome('navigation task')) },
+    (event) => renderer.eventSink(event),
+    navigation,
+  );
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    adapter,
+    {
+      pending: new PendingInputCore(),
+      history: new TuiEditorHistory(),
+      intents: adapter,
+    },
+  );
+  const begin = async (): Promise<{ readonly running: Promise<number> }> => {
+    controller.installSignals();
+    await lifecycle.acquire();
+    const running = controller.run();
+    terminal.push('\x07');
+    await tick();
+    terminal.push('\x1b[B');
+    await tick();
+    terminal.push('\r');
+    await tick();
+    assert(started);
+    return { running };
+  };
+  return {
+    currentId,
+    terminal,
+    controller,
+    begin,
+    get aborted() {
+      return aborted;
+    },
+    get settled() {
+      return settled;
+    },
+    get oldClosed() {
+      return oldClosed;
+    },
+    get targetOwned() {
+      return targetOwned;
+    },
+  };
+};
+
 const historyPageFixture = (
   page: number,
   turn: number,
@@ -660,6 +743,83 @@ const historyPageFixture = (
   entries: [{ turn, role: 'user', messageIndex: 0, text: `history-${page}` }],
   sourceBytes: 10,
   omitted: false,
+});
+
+Deno.test('typed navigation Escape aborts before old close and settles the adapter operation', async () => {
+  const fixture = delayedTypedNavigation();
+  const { running } = await fixture.begin();
+  fixture.terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assertEquals(fixture.aborted, true);
+  fixture.terminal.push('\x04');
+  assertEquals(await running, 0);
+  assertEquals(fixture.aborted, true);
+  assertEquals(fixture.settled, true);
+  assertEquals(fixture.oldClosed, false);
+  assertEquals(fixture.targetOwned, false);
+  assertEquals(fixture.controller.currentState, 'exiting');
+  assertEquals(fixture.terminal.raw.filter((mode) => mode === false).length, 1);
+  assert(fixture.terminal.output().includes('session picker'));
+});
+
+Deno.test('typed navigation EOF aborts and settles before input-failure restoration', async () => {
+  const fixture = delayedTypedNavigation();
+  const { running } = await fixture.begin();
+  fixture.terminal.endInput();
+  await tick();
+  assertEquals(fixture.aborted, true);
+  let thrown: unknown;
+  try {
+    await running;
+  } catch (error) {
+    thrown = error;
+  }
+  assert(thrown instanceof TuiControllerError);
+  assertEquals((thrown as TuiControllerError).code, 'input_failure');
+  assertEquals(fixture.aborted, true);
+  assertEquals(fixture.settled, true);
+  assertEquals(fixture.oldClosed, false);
+  assertEquals(fixture.targetOwned, false);
+  assertEquals(fixture.terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('typed navigation signal aborts and settles before signal restoration', async () => {
+  const fixture = delayedTypedNavigation();
+  const { running } = await fixture.begin();
+  fixture.terminal.emitSignal('SIGTERM');
+  await tick();
+  assertEquals(fixture.aborted, true);
+  assertEquals(await running, 143);
+  assertEquals(fixture.aborted, true);
+  assertEquals(fixture.settled, true);
+  assertEquals(fixture.oldClosed, false);
+  assertEquals(fixture.targetOwned, false);
+  assertEquals(fixture.terminal.raw.filter((mode) => mode === false).length, 1);
+});
+
+Deno.test('typed navigation output failure aborts and settles before restoration', async () => {
+  const fixture = delayedTypedNavigation();
+  const { running } = await fixture.begin();
+  void running.catch(() => {
+    // Observe the expected fatal result before the delayed output-failure path settles.
+  });
+  fixture.terminal.failNextWrite = true;
+  fixture.terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 70));
+  assertEquals(fixture.aborted, true);
+  let thrown: unknown;
+  try {
+    await running;
+  } catch (error) {
+    thrown = error;
+  }
+  assert(thrown instanceof TuiControllerError);
+  assertEquals((thrown as TuiControllerError).code, 'output_failure');
+  assertEquals(fixture.aborted, true);
+  assertEquals(fixture.settled, true);
+  assertEquals(fixture.oldClosed, false);
+  assertEquals(fixture.targetOwned, false);
+  assertEquals(fixture.terminal.raw.filter((mode) => mode === false).length, 1);
 });
 
 Deno.test('production controller picker renders full UUIDs and resumes the visible page target', async () => {

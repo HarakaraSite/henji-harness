@@ -1,5 +1,13 @@
-import { type AgentEvent, EventDeliveryError } from '../agent/events.ts';
-import { type LoopOutcome, type Message } from '../agent/contracts.ts';
+import {
+  type PresentationContextPreview,
+  PresentationDeliveryError,
+  type PresentationEvent,
+  type PresentationHistoryPage,
+  type PresentationMessage,
+  type PresentationNavigationListing,
+  type PresentationOutcome,
+  type PresentationStartupState,
+} from '../presentation/contract.ts';
 import {
   DEFAULT_CURSOR_STYLE,
   ERASE_LINE,
@@ -10,15 +18,18 @@ import {
   TerminalPort,
   TerminalRendererGate,
 } from './terminal.ts';
-import { type RuntimeDisplayState } from '../agent/startup_orientation.ts';
 import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
+import { type PresentationPosition } from '../presentation/contract.ts';
+import { type PresentationProjection } from '../presentation/contract.ts';
 import {
-  type ContextRecoveryPreview,
-  type NavigationListing,
-  type NavigationPosition,
-} from '../agent/session_navigation.ts';
-import { type SessionHistoryPage } from '../agent/session_history.ts';
+  createUiState,
+  reduceUiAction,
+  reduceUiEvent,
+  setUiProjection,
+  type UiState,
+} from './state.ts';
+import { layoutUi, MAX_FRAME_BYTES, type UiLayout } from './layout.ts';
 
 const encoder = new TextEncoder();
 const DISPLAY_LIMIT = 64 * 1024;
@@ -29,6 +40,11 @@ const ESCAPED_BIDI = (code: number): boolean =>
 export interface EscapeOptions {
   /** Render line breaks as the one-line editor marker instead of logical host newlines. */
   readonly editor?: boolean;
+}
+
+export interface TuiRendererOptions {
+  /** Production uses the retained three-band frame; legacy mode is reserved for direct seams. */
+  readonly retained?: boolean;
 }
 
 const escapedCodePoint = (code: number): string => {
@@ -213,10 +229,10 @@ const dynamicLine = (prefix: string, value: string): Uint8Array =>
   staticBytes(`${prefix}${boundedEscaped(value)}\n`);
 
 /** Pure history modal projection shared by rendering and its byte admission checks. */
-export const historyPageText = (page: SessionHistoryPage): string => {
+export const historyPageText = (page: PresentationHistoryPage): string => {
   const lines = [
-    `history ${page.sessionId ?? 'none'} · ${
-      page.agent ?? 'default'
+    `history ${page.sessionId === undefined ? 'none' : escapeTerminalText(page.sessionId)} · ${
+      page.agent === undefined ? 'default' : escapeTerminalText(page.agent)
     } · turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount} · read-only`,
     'Up/Down page · Home oldest · End latest · Esc return',
   ];
@@ -224,10 +240,10 @@ export const historyPageText = (page: SessionHistoryPage): string => {
     lines.push(`${entry.role} [t${entry.turn}] ${escapeTerminalText(entry.text)}`);
   }
   if (page.omitted) lines.push('history> page content bounded');
-  return `${lines.map((line) => `${line}\n`).join('')}`;
+  return truncateText(`${lines.map((line) => `${line}\n`).join('')}`, 32 * 1024).text;
 };
 
-const orientationSession = (state: RuntimeDisplayState): string => {
+const orientationSession = (state: PresentationStartupState): string => {
   switch (state.sessionMode.kind) {
     case 'new':
       return 'new (autosave)';
@@ -240,24 +256,24 @@ const orientationSession = (state: RuntimeDisplayState): string => {
   }
 };
 
-const orientationInstruction = (state: RuntimeDisplayState): string =>
+const orientationInstruction = (state: PresentationStartupState): string =>
   state.instructions.loaded ? `./${state.instructions.source}` : 'none';
 
-const orientationSkills = (state: RuntimeDisplayState): string => {
+const orientationSkills = (state: PresentationStartupState): string => {
   const names = state.skills.names.length === 0 ? 'none' : state.skills.names.join(', ');
   return `${state.skills.count}: ${names}${
     state.skills.omitted > 0 ? ` (+${state.skills.omitted} more)` : ''
   }`;
 };
 
-const orientationTrust = (state: RuntimeDisplayState): string =>
+const orientationTrust = (state: PresentationStartupState): string =>
   state.agentId === 'default'
     ? 'NO HARD SANDBOX; bash/edit/write run with your OS-user access'
     : 'NO HARD SANDBOX; planner has no bash/edit/write';
 
 /** Build the exact twelve logical startup lines without consulting runtime objects. */
 export const startupOrientationLines = (
-  state: RuntimeDisplayState,
+  state: PresentationStartupState,
   workspace = state.workspace,
 ): readonly string[] => [
   'Henji Harness',
@@ -295,7 +311,7 @@ const clippedWorkspace = (value: string, columns: number): string => {
 
 /** Render one bounded orientation block; all dynamic values pass through terminal escaping. */
 export const renderStartupOrientationText = (
-  state: RuntimeDisplayState,
+  state: PresentationStartupState,
   columns = 80,
 ): string => {
   const validColumns = Number.isSafeInteger(columns) && columns > 0
@@ -304,13 +320,14 @@ export const renderStartupOrientationText = (
   const lines = startupOrientationLines(state, clippedWorkspace(state.workspace, validColumns));
   const output = `${lines.join('\n')}\n`;
   if (encoder.encode(output).byteLength > 2_048) {
-    throw new EventDeliveryError();
+    throw new PresentationDeliveryError();
   }
   return output;
 };
 
 /** Main-screen/scrollback renderer with one live editor line. */
 export class TuiRenderer implements TerminalRendererGate {
+  private readonly retained: boolean;
   private closing = false;
   private editorText = '';
   private editorSnapshot: EditorSnapshot | null = null;
@@ -326,12 +343,78 @@ export class TuiRenderer implements TerminalRendererGate {
   // retaining any user text.
   private editorBlockSpan = 0;
   private editorBlockCursorRow = 0;
-  private currentPosition: NavigationPosition | undefined;
+  private currentPosition: PresentationPosition | undefined;
+  private lastTurn = 0;
+  private ui = createUiState();
+  private startupState: PresentationStartupState | undefined;
 
-  constructor(private readonly terminal: TerminalPort) {}
+  constructor(private readonly terminal: TerminalPort, options: TuiRendererOptions = {}) {
+    this.retained = options.retained === true;
+  }
 
   get isClosing(): boolean {
     return this.closing;
+  }
+
+  /** Defensive retained state snapshot for alternate hosts and deterministic UI tests. */
+  stateSnapshot(): UiState {
+    return this.ui;
+  }
+
+  /** Pure layout of the current retained screen; no terminal I/O is performed. */
+  layoutSnapshot(columns = this.lastSize.columns, rows = this.lastSize.rows): UiLayout {
+    return layoutUi(this.ui, columns, rows);
+  }
+
+  /** Bounded three-band frame used by the production renderer and provider-free fixtures. */
+  renderFrame(columns = this.lastSize.columns, rows = this.lastSize.rows): string {
+    const layout = this.layoutSnapshot(columns, rows);
+    const cursorRow = Math.max(1, Math.min(layout.rows, layout.cursor.row + 1));
+    const cursorCell = Math.max(1, Math.min(layout.columns, layout.cursor.cell + 1));
+    const cursor = `\x1b[${cursorRow};${cursorCell}H`;
+    const frameBudget = Math.max(0, MAX_FRAME_BYTES - encoder.encode(cursor).byteLength);
+    const terminalFinal = this.ui.log.entries.find((entry) =>
+      entry.kind === 'assistant' && entry.turn === this.lastTurn && !entry.live
+    )?.text;
+    const terminalResultIds = terminalFinal === undefined ? new Set<string>() : new Set(
+      this.ui.log.entries.filter((entry) =>
+        entry.kind === 'tool' && entry.label.startsWith('tool<') && entry.text === terminalFinal
+      ).map((entry) => entry.id),
+    );
+    const log = (layout.overlay.length > 0 ? layout.overlay : layout.log)
+      .filter((line) => line.entryId === undefined || !terminalResultIds.has(line.entryId))
+      .map((line) => line.text);
+    const fixed = [...layout.input.map((line) => `> ${line.text}`), layout.footer.text];
+    const fixedFrame = fixed.join('\n');
+    if (encoder.encode(fixedFrame).byteLength > frameBudget) {
+      return `${truncateText(fixedFrame, frameBudget).text}${cursor}`;
+    }
+    const retainedLog: string[] = [];
+    for (let index = log.length - 1; index >= 0; index -= 1) {
+      const candidate = [log[index], ...retainedLog, ...fixed].join('\n');
+      if (encoder.encode(candidate).byteLength > frameBudget) break;
+      retainedLog.unshift(log[index]);
+    }
+    return `${[...retainedLog, ...fixed].join('\n')}${cursor}`;
+  }
+
+  setProjection(projection: PresentationProjection): void {
+    this.ui = setUiProjection(this.ui, projection);
+  }
+
+  /** Install the already-projected startup facts used by the local F1 help overlay. */
+  setStartupState(state: PresentationStartupState): void {
+    this.startupState = Object.freeze({
+      ...state,
+      model: Object.freeze({ ...state.model }),
+      sessionMode: Object.freeze({ ...state.sessionMode }),
+      instructions: Object.freeze({ ...state.instructions }),
+      skills: Object.freeze({ ...state.skills, names: Object.freeze([...state.skills.names]) }),
+      trust: Object.freeze({
+        ...state.trust,
+        osUserTools: Object.freeze([...state.trust.osUserTools]),
+      }),
+    });
   }
 
   close(): void {
@@ -360,8 +443,8 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   /** Write the startup orientation before any prompt or restored transcript. */
-  renderStartupOrientation(state: RuntimeDisplayState): void {
-    if (this.closing) throw new EventDeliveryError();
+  renderStartupOrientation(state: PresentationStartupState): void {
+    if (this.closing) throw new PresentationDeliveryError();
     let columns = 80;
     try {
       const size = this.terminal.consoleSize();
@@ -375,21 +458,67 @@ export class TuiRenderer implements TerminalRendererGate {
     this.write(staticBytes(renderStartupOrientationText(state, columns)));
   }
 
+  /** Compact startup welcome kept outside ordinary scrollback and capped at two logical rows. */
+  renderCompactStartup(state: PresentationStartupState, sessionId?: string): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    this.setStartupState(state);
+    let columns = 80;
+    try {
+      const size = this.terminal.consoleSize();
+      if (Number.isSafeInteger(size.columns) && size.columns > 0) columns = size.columns;
+    } catch {
+      // Use the documented fallback when terminal size is unavailable.
+    }
+    const identity = sessionId === undefined
+      ? orientationSession(state)
+      : `${orientationSession(state)} · ${sessionId.slice(0, 8)}`;
+    const first = truncateText(
+      `Henji Harness · ${escapeTerminalText(state.agentId)} · ${escapeTerminalText(identity)} · ${
+        clippedWorkspace(state.workspace, Math.min(160, Math.max(8, columns)))
+      }`,
+      512,
+    ).text;
+    const second = 'trusted-local · credentials checked only when sending · F1 help';
+    if (this.retained) {
+      this.ui = reduceUiAction(this.ui, { kind: 'startup', lines: [first, second] });
+      this.redraw();
+    } else this.writeStatic(`${first}\n${second}\n`);
+  }
+
+  /** Full startup facts are an overlay, never ordinary conversation scrollback. */
+  renderStartupHelp(state = this.startupState): void {
+    if (state === undefined) return;
+    if (this.closing) throw new PresentationDeliveryError();
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: { kind: 'startupHelp', lines: startupOrientationLines(state) },
+    });
+    const help = `${renderStartupOrientationText(state)}F1/Esc return\n`;
+    if (this.retained) this.redraw();
+    else this.writeStatic(help);
+  }
+
   clearLiveLine(): void {
     if (this.editorBlockSpan > 0) this.clearEditorBlock();
     else this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
   }
 
   /** Event sink entry point. It is intentionally synchronous. */
-  eventSink = (event: AgentEvent): void => {
-    if (this.closing) throw new EventDeliveryError();
+  eventSink = (event: PresentationEvent): void => {
+    if (this.closing) throw new PresentationDeliveryError();
+    this.ui = reduceUiEvent(this.ui, event);
+    if (event.kind === 'user_message' || event.kind === 'turn_start' || event.kind === 'turn_end') {
+      this.lastTurn = Math.max(this.lastTurn, event.turn);
+    }
     switch (event.kind) {
       case 'turn_start':
         this.setStatus('busy');
         return;
       case 'user_message':
-        this.clearRecordLine();
-        this.write(dynamicLine('user> ', event.message.content.text));
+        if (!this.retained) {
+          this.clearRecordLine();
+          this.write(dynamicLine('user> ', event.message.content.text));
+        }
         this.redraw();
         return;
       case 'assistant_message':
@@ -398,8 +527,10 @@ export class TuiRenderer implements TerminalRendererGate {
           !Array.isArray(event.message.content) &&
           'text' in event.message.content
         ) {
-          this.clearRecordLine();
-          this.write(dynamicLine('assistant> ', event.message.content.text));
+          if (!this.retained) {
+            this.clearRecordLine();
+            this.write(dynamicLine('assistant> ', event.message.content.text));
+          }
           this.redraw();
         }
         return;
@@ -411,8 +542,10 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'tool_call':
         this.clearLiveState();
-        this.clearRecordLine();
-        this.write(dynamicLine('tool> ', event.call.name));
+        if (!this.retained) {
+          this.clearRecordLine();
+          this.write(dynamicLine('tool> ', event.call.name));
+        }
         this.redraw();
         return;
       case 'tool_progress':
@@ -423,17 +556,21 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'tool_result':
         this.clearLiveState();
-        this.clearRecordLine();
-        this.write(dynamicLine(
-          `tool< ${boundedEscaped(event.result.name)} ${event.result.outcome}> `,
-          event.result.text,
-        ));
+        if (!this.retained) {
+          this.clearRecordLine();
+          this.write(dynamicLine(
+            `tool< ${boundedEscaped(event.result.name)} ${event.result.outcome}> `,
+            event.result.text,
+          ));
+        }
         this.redraw();
         return;
       case 'steering_message':
         this.clearLiveState();
-        this.clearRecordLine();
-        this.write(dynamicLine('steer> ', event.message.content.text));
+        if (!this.retained) {
+          this.clearRecordLine();
+          this.write(dynamicLine('steer> ', event.message.content.text));
+        }
         this.setStatus('busy · steer applied');
         return;
       case 'turn_end':
@@ -446,18 +583,36 @@ export class TuiRenderer implements TerminalRendererGate {
             : event.outcome,
         );
         return;
+      case 'session_binding_replaced':
+      case 'restored_log':
+      case 'history_page':
+      case 'context_preview':
+      case 'context_result':
+      case 'lifecycle':
+      case 'warning':
+        this.redraw();
+        return;
     }
   };
 
   setEditor(text: string): void {
     this.editorText = text;
     this.editorSnapshot = null;
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'editor',
+      snapshot: Object.freeze({
+        text,
+        cursorScalar: [...text].length,
+        byteLength: encoder.encode(text).byteLength,
+      }),
+    });
     this.redraw();
   }
 
   setEditorSnapshot(snapshot: EditorSnapshot): void {
     this.editorText = snapshot.text;
     this.editorSnapshot = Object.freeze({ ...snapshot });
+    this.ui = reduceUiAction(this.ui, { kind: 'editor', snapshot: this.editorSnapshot });
     this.redraw();
   }
 
@@ -465,34 +620,97 @@ export class TuiRenderer implements TerminalRendererGate {
     this.pendingMetadata = metadata === undefined
       ? undefined
       : Object.freeze({ ...metadata, lanes: Object.freeze([...metadata.lanes]) });
+    this.ui = reduceUiAction(this.ui, { kind: 'pending', snapshot: this.pendingMetadata });
     this.redraw();
   }
 
   setStatus(status: string): void {
     this.status = status;
+    this.ui = reduceUiAction(this.ui, { kind: 'status', text: status });
     this.redraw();
   }
 
-  setCurrentPosition(position: NavigationPosition): void {
+  setCurrentPosition(position: PresentationPosition): void {
     this.currentPosition = Object.freeze({ ...position });
     const short = position.sessionId === undefined ? 'none' : position.sessionId.slice(0, 8);
     this.setStatus(`session ${short} · turn ${position.committedTurn} latest`);
   }
 
+  /** Notify the retained layout of a UI-local resize without crossing into the core. */
+  resize(columns: number, rows: number): void {
+    this.lastSize = {
+      columns: Number.isSafeInteger(columns) && columns > 0 ? columns : this.lastSize.columns,
+      rows: Number.isSafeInteger(rows) && rows > 0 ? rows : this.lastSize.rows,
+    };
+    this.ui = reduceUiAction(this.ui, { kind: 'resize', columns, rows });
+    this.redraw();
+  }
+
   /** End a bounded modal projection and restore the main editor line. */
   clearModal(): void {
     if (this.closing) return;
-    this.writeStatic(`\r${ERASE_LINE}\n`);
+    this.ui = reduceUiAction(this.ui, { kind: 'overlay', overlay: { kind: 'none' } });
+    if (!this.retained) this.writeStatic(`\r${ERASE_LINE}\n`);
+    this.redraw();
+  }
+
+  /** UI-local scroll action; source anchors remain entry identity plus scalar offset. */
+  scrollPage(direction: 'up' | 'down'): void {
+    const layout = this.layoutSnapshot();
+    const rows = layout.allLog;
+    if (rows.length === 0) return;
+    const viewport = Math.max(1, layout.log.length);
+    let currentStart = layout.logStart;
+    if (this.ui.scroll.kind === 'anchored') {
+      const anchor = this.ui.scroll.entryId;
+      const offset = this.ui.scroll.sourceScalarOffset;
+      const anchored = rows.findIndex((row) =>
+        row.entryId === anchor && (row.sourceScalarOffset ?? 0) >= offset
+      );
+      if (anchored >= 0) currentStart = anchored;
+    }
+    const maxStart = Math.max(0, rows.length - viewport);
+    const nextStart = Math.max(
+      0,
+      Math.min(maxStart, currentStart + (direction === 'up' ? -viewport : viewport)),
+    );
+    let target = rows[nextStart];
+    if (target?.entryId === undefined) {
+      const step = direction === 'up' ? -1 : 1;
+      for (let index = nextStart; index >= 0 && index < rows.length; index += step) {
+        if (rows[index].entryId !== undefined) {
+          target = rows[index];
+          break;
+        }
+      }
+    }
+    if (target?.entryId === undefined) {
+      this.latest();
+      return;
+    }
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'scroll',
+      mode: {
+        kind: 'anchored',
+        entryId: target.entryId,
+        sourceScalarOffset: target.sourceScalarOffset ?? 0,
+      },
+    });
+    this.redraw();
+  }
+
+  latest(): void {
+    this.ui = reduceUiAction(this.ui, { kind: 'latest' });
     this.redraw();
   }
 
   renderSessionPicker(
-    listing: NavigationListing,
+    listing: PresentationNavigationListing,
     selected = 0,
     page = 0,
     loading = false,
   ): void {
-    if (this.closing) throw new EventDeliveryError();
+    if (this.closing) throw new PresentationDeliveryError();
     const pageSize = 8;
     const pageCount = Math.max(1, Math.ceil(listing.sessions.length / pageSize));
     const boundedPage = Math.max(0, Math.min(pageCount - 1, page));
@@ -516,22 +734,40 @@ export class TuiRenderer implements TerminalRendererGate {
         : 'available';
       const updated = escapeTerminalText(row.updatedAt);
       lines.push(
-        `${marker} ${row.id} ${
+        `${marker} ${escapeTerminalText(row.id)} ${
           escapeTerminalText(row.agent)
         } ${updated} t${row.turnCount}/m${row.messageCount} ${state}`,
       );
     }
     if (listing.skippedInvalid > 0) lines.push(`skipped invalid: ${listing.skippedInvalid}`);
-    this.writeStatic(`${lines.map((line) => `${line}\n`).join('')}`);
+    if (this.retained) {
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'overlay',
+        overlay: {
+          kind: 'sessionPicker',
+          listing,
+          selected,
+          page: boundedPage,
+          loading,
+        },
+      });
+      this.redraw();
+    } else this.writeStatic(`${lines.map((line) => `${line}\n`).join('')}`);
   }
 
-  renderHistoryPage(page: SessionHistoryPage): void {
-    if (this.closing) throw new EventDeliveryError();
-    this.writeStatic(historyPageText(page));
+  renderHistoryPage(page: PresentationHistoryPage): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    if (this.retained) {
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'overlay',
+        overlay: { kind: 'history', page, pageNumber: page.page },
+      });
+      this.redraw();
+    } else this.writeStatic(historyPageText(page));
   }
 
-  renderContextPanel(preview: ContextRecoveryPreview): void {
-    if (this.closing) throw new EventDeliveryError();
+  renderContextPanel(preview: PresentationContextPreview): void {
+    if (this.closing) throw new PresentationDeliveryError();
     const current = preview.currentCheckpoint === undefined
       ? 'none'
       : `through ${preview.currentCheckpoint.coveredThroughTurn}, retain ${preview.currentCheckpoint.retainedFromTurn}+`;
@@ -541,21 +777,37 @@ export class TuiRenderer implements TerminalRendererGate {
     const estimate = preview.projectedMessagesBytes === undefined
       ? 'unavailable'
       : `${preview.projectedMessagesBytes} bytes (baseline ${preview.baselineMessagesBytes} bytes)`;
-    this.writeStatic(
-      `context recovery · committed turns ${preview.currentTurn}\n` +
-        `checkpoint> ${current}\n` +
-        `proposed> ${proposed}\n` +
-        `provider view> ${estimate}\n` +
-        'Enter confirm one provider request · v view summary · Esc cancel\n',
-    );
+    if (this.retained) {
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'overlay',
+        overlay: { kind: 'compaction', preview },
+      });
+      this.redraw();
+    } else {
+      this.writeStatic(
+        `context recovery · committed turns ${preview.currentTurn}\n` +
+          `checkpoint> ${current}\n` +
+          `proposed> ${proposed}\n` +
+          `provider view> ${estimate}\n` +
+          'Enter confirm one provider request · v view summary · Esc cancel\n',
+      );
+    }
   }
 
   renderContextSummary(summary: string, coveredThroughTurn: number): void {
-    if (this.closing) throw new EventDeliveryError();
-    this.writeStatic(
-      `context checkpoint · covered through turn ${coveredThroughTurn} · read-only\n` +
-        `${boundedEscaped(summary)}\n`,
-    );
+    if (this.closing) throw new PresentationDeliveryError();
+    if (this.retained) {
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'status',
+        text: `context checkpoint · through turn ${coveredThroughTurn}`,
+      });
+      this.redraw();
+    } else {
+      this.writeStatic(
+        `context checkpoint · covered through turn ${coveredThroughTurn} · read-only\n` +
+          `${boundedEscaped(summary)}\n`,
+      );
+    }
   }
 
   /** Show only that one ordinary follow-up is pending; the text remains controller-local. */
@@ -566,17 +818,55 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   renderAssistantFinal(text: string): void {
-    if (this.closing) throw new EventDeliveryError();
+    if (this.closing) throw new PresentationDeliveryError();
     this.clearLiveState();
-    this.clearRecordLine();
-    this.write(dynamicLine('assistant> ', text));
+    this.ui = reduceUiAction(this.ui, { kind: 'assistant_final', turn: this.lastTurn, text });
+    if (!this.retained) {
+      this.clearRecordLine();
+      this.write(dynamicLine('assistant> ', text));
+    }
     this.redraw();
   }
 
   /** Render a bounded committed transcript before accepting new input. */
-  renderRestored(messages: readonly Message[], omitted = 0): void {
-    if (this.closing) throw new EventDeliveryError();
+  renderRestored(messages: readonly PresentationMessage[], omitted = 0): void {
+    if (this.closing) throw new PresentationDeliveryError();
     this.clearLiveState();
+    if (this.retained) {
+      let turn = 0;
+      for (const message of messages) {
+        if (message.role === 'user') {
+          turn += 1;
+          this.ui = reduceUiEvent(this.ui, { kind: 'user_message', turn, message });
+        } else if (message.role === 'assistant') {
+          if (Array.isArray(message.content)) {
+            for (const call of message.content) {
+              this.ui = reduceUiEvent(this.ui, {
+                kind: 'tool_call',
+                turn,
+                call,
+              });
+            }
+          } else {
+            this.ui = reduceUiEvent(this.ui, { kind: 'assistant_message', turn, message });
+          }
+        } else {
+          for (const result of message.content) {
+            this.ui = reduceUiEvent(this.ui, { kind: 'tool_result', turn, result });
+          }
+        }
+      }
+      if (omitted > 0) {
+        this.ui = reduceUiEvent(this.ui, {
+          kind: 'warning',
+          code: 'recoverable',
+          text: `${omitted} messages omitted`,
+          generation: this.ui.generation,
+        });
+      }
+      this.redraw();
+      return;
+    }
     for (const message of messages) {
       if (message.role === 'user') {
         this.write(dynamicLine('user> ', message.content.text));
@@ -620,6 +910,11 @@ export class TuiRenderer implements TerminalRendererGate {
       ) this.lastSize = size;
     } catch {
       // Keep the last valid size, defaulting to 80x24.
+    }
+    if (this.retained) {
+      const frame = this.renderFrame(this.lastSize.columns, this.lastSize.rows);
+      this.write(staticBytes(`\x1b[2J\x1b[H${frame}`));
+      return;
     }
     const columns = Math.max(8, this.lastSize.columns);
     const status = escapeTerminalText(this.displayStatus(), { editor: true });
@@ -685,30 +980,30 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   writeStatic(text: string): void {
-    if (this.closing) throw new EventDeliveryError();
+    if (this.closing) throw new PresentationDeliveryError();
     try {
       this.terminal.write(staticBytes(text));
     } catch {
-      throw new EventDeliveryError();
+      throw new PresentationDeliveryError();
     }
   }
 
   private write(bytes: Uint8Array): void {
-    if (this.closing) throw new EventDeliveryError();
+    if (this.closing) throw new PresentationDeliveryError();
     try {
       this.terminal.write(bytes);
     } catch {
-      throw new EventDeliveryError();
+      throw new PresentationDeliveryError();
     }
   }
 
   private clearRecordLine(): void {
-    if (this.closing) throw new EventDeliveryError();
+    if (this.closing) throw new PresentationDeliveryError();
     try {
       if (this.editorBlockSpan > 0) this.clearEditorBlock();
       else this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
     } catch {
-      throw new EventDeliveryError();
+      throw new PresentationDeliveryError();
     }
   }
 
@@ -724,7 +1019,7 @@ export class TuiRenderer implements TerminalRendererGate {
     try {
       this.terminal.write(staticBytes(output));
     } catch {
-      if (!bestEffort) throw new EventDeliveryError();
+      if (!bestEffort) throw new PresentationDeliveryError();
     } finally {
       this.editorBlockSpan = 0;
       this.editorBlockCursorRow = 0;
@@ -732,7 +1027,7 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 }
 
-export const renderFailureStatus = (outcome: LoopOutcome): string =>
+export const renderFailureStatus = (outcome: PresentationOutcome): string =>
   outcome.stopReason === 'max_steps' ? 'request limit reached' : 'agent failure';
 
 // Keep these imports/exports visible to callers constructing host-owned cleanup assertions.

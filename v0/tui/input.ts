@@ -35,6 +35,10 @@ export type InputEvent =
   | { readonly kind: 'down' }
   | { readonly kind: 'home' }
   | { readonly kind: 'end' }
+  | { readonly kind: 'page_up' }
+  | { readonly kind: 'page_down' }
+  | { readonly kind: 'ctrl_l' }
+  | { readonly kind: 'f1' }
   | { readonly kind: 'escape' }
   | { readonly kind: 'unknown' }
   | { readonly kind: 'invalid_utf8' }
@@ -149,7 +153,7 @@ export class InputDecoder {
     if (this.ss3Pending || this.expiredSs3) {
       this.ss3Pending = false;
       this.expiredSs3 = false;
-      events.push({ kind: 'unknown' });
+      events.push({ kind: byte === 0x50 ? 'f1' : 'unknown' });
       return;
     }
     if (this.expiredXterm !== null) {
@@ -251,6 +255,10 @@ export class InputDecoder {
       events.push({ kind: 'ctrl_k' });
       return;
     }
+    if (byte === 0x0c) {
+      events.push({ kind: 'ctrl_l' });
+      return;
+    }
     if (byte === 0x09) {
       events.push({ kind: 'tab' });
       return;
@@ -349,6 +357,18 @@ export class InputDecoder {
     }
     if (matches(sequence, [0x1b, 0x5b, 0x34, 0x7e])) {
       events.push({ kind: 'end' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x35, 0x7e])) {
+      events.push({ kind: 'page_up' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x36, 0x7e])) {
+      events.push({ kind: 'page_down' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x31, 0x31, 0x7e])) {
+      events.push({ kind: 'f1' });
       return;
     }
     events.push({ kind: 'unknown' });

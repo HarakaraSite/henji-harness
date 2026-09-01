@@ -4,7 +4,6 @@ import {
   causalTranscriptPrefixIndex,
   type SessionRecord,
 } from './session_store.ts';
-import { escapedTerminalTextBytes, historyPageText } from '../tui/render.ts';
 
 const encoder = new TextEncoder();
 
@@ -161,7 +160,7 @@ const splitEntry = (entry: SessionHistoryEntry): SessionHistoryEntry[] => {
   let escapedBytes = 0;
   for (const point of points) {
     const pointSourceBytes = encoder.encode(point).byteLength;
-    const pointEscapedBytes = escapedTerminalTextBytes(point);
+    const pointEscapedBytes = pointSourceBytes;
     if (
       text.length > 0 &&
       (sourceBytes + pointSourceBytes > HISTORY_CHUNK_SOURCE_BYTES ||
@@ -235,7 +234,7 @@ const paginate = (
         sourceBytes: nextSourceBytes,
       };
       if (
-        encoder.encode(historyPageText(framed)).byteLength > HISTORY_PAGE_ESCAPED_BYTES &&
+        encoder.encode(JSON.stringify(framed)).byteLength > HISTORY_PAGE_ESCAPED_BYTES &&
         pageEntries.length > 0
       ) break;
       pageEntries.push(entry);

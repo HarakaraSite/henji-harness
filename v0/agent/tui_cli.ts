@@ -34,6 +34,11 @@ import {
   type SessionNavigationHost,
 } from './session_navigation.ts';
 import { type SessionHistoryPage } from './session_history.ts';
+import {
+  createTuiPresentationAdapter,
+  presentationProjectionFromStartup,
+  TuiPresentationAdapter,
+} from './tui_presentation_adapter.ts';
 
 const encoder = new TextEncoder();
 
@@ -255,7 +260,9 @@ export const main = async (
     return 1;
   }
 
-  const renderer = new TuiRenderer(terminal);
+  const retainedProduction = dependencies.createSession === undefined &&
+    dependencies.runtimeSeam === undefined;
+  const renderer = new TuiRenderer(terminal, { retained: retainedProduction });
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   let crashGuard: CrashGuard | undefined;
   let acquisitionStarted = false;
@@ -464,15 +471,22 @@ export const main = async (
     }
     // Composition occurs before raw acquisition, so startup failures never touch terminal mode.
     const controllerRef: { current?: TuiController } = {};
+    const presentationAdapterRef: { current?: TuiPresentationAdapter } = {};
     const pending = new PendingInputCore();
     const bridge: AgentEventSink = (event) => {
       if (event.kind === 'steering_message' && controllerRef.current !== undefined) {
         controllerRef.current.markSteeringConsumed();
       }
-      renderer.eventSink(event);
+      presentationAdapterRef.current?.deliverCoreEvent(event);
     };
     const created = await sessionFactory(bridge, selection);
     createdResult = created;
+    const presentationAdapter = createTuiPresentationAdapter(
+      created.session,
+      (event) => renderer.eventSink(event),
+      created.navigation,
+    );
+    presentationAdapterRef.current = presentationAdapter;
     const useDailyEditor = dependencies.dailyEditor ?? dependencies.createSession === undefined;
     const workspaceRoot = created.workspaceRoot ?? created.displayState.workspace;
     const pathIndex = useDailyEditor
@@ -481,13 +495,13 @@ export const main = async (
     const controller = new TuiController(
       lifecycle,
       renderer,
-      created.session,
+      presentationAdapter,
       useDailyEditor
         ? {
           pending,
           history: new TuiEditorHistory(),
           pathIndex,
-          navigation: created.navigation,
+          intents: presentationAdapter,
         }
         : {},
     );
@@ -500,8 +514,14 @@ export const main = async (
     });
     acquisitionStarted = true;
     await lifecycle.acquire();
-    renderer.renderStartupOrientation(created.displayState);
-    if (created.sessionLine !== undefined) {
+    // Production uses the compact retained-screen welcome.  The injected factory remains a
+    // direct-test seam and keeps the historical twelve-line orientation for its assertions.
+    if (retainedProduction) {
+      renderer.renderCompactStartup(created.displayState, created.sessionLine?.split(' ')[1]);
+    } else {
+      renderer.renderStartupOrientation(created.displayState);
+    }
+    if (created.sessionLine !== undefined && !retainedProduction) {
       renderer.writeStatic(`${created.sessionLine}\n`);
     }
     if (created.restored !== undefined) {
@@ -510,8 +530,25 @@ export const main = async (
         created.restored.omitted,
       );
     }
-    const initialPosition = created.navigation?.currentPosition();
-    if (initialPosition !== undefined) renderer.setCurrentPosition(initialPosition);
+    const initialPosition = presentationAdapter.currentPosition();
+    if (initialPosition !== undefined) {
+      renderer.setCurrentPosition(initialPosition);
+      renderer.setProjection(
+        presentationProjectionFromStartup(created.displayState, initialPosition, {
+          canNavigate: created.navigation?.persistent === true,
+          canHistory: created.navigation !== undefined ||
+            presentationAdapter.historyPage !== undefined,
+          canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
+        }),
+      );
+    } else {
+      renderer.setProjection(presentationProjectionFromStartup(created.displayState, undefined, {
+        canNavigate: created.navigation?.persistent === true,
+        canHistory: created.navigation !== undefined ||
+          presentationAdapter.historyPage !== undefined,
+        canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
+      }));
+    }
     await dependencies.afterAcquire?.();
     const exitCode = await controller.run();
     if (crashDetected || crashGuard.hasFatal()) {

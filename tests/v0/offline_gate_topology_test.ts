@@ -49,6 +49,7 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/context.ts',
   'v0/agent/contracts.ts',
   'v0/agent/events.ts',
+  'v0/presentation/contract.ts',
   'v0/agent/execution_context.ts',
   'v0/agent/fixture_model.ts',
   'v0/agent/loop.ts',
@@ -69,6 +70,7 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/steering.ts',
   'v0/agent/tools.ts',
   'v0/agent/tui_cli.ts',
+  'v0/agent/tui_presentation_adapter.ts',
   'v0/agent/startup_orientation.ts',
   'v0/agent/work_tools.ts',
   'v0/tui/controller.ts',
@@ -77,6 +79,8 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/tui/file_reference.ts',
   'v0/tui/render.ts',
   'v0/tui/terminal.ts',
+  'v0/tui/state.ts',
+  'v0/tui/layout.ts',
 ] as const;
 
 const CHECK_TARGETS = [
@@ -101,6 +105,8 @@ const CHECK_TARGETS = [
   'v0/agent/agent_catalog.ts',
   'v0/agent/agent_instructions.ts',
   'v0/agent/events.ts',
+  'v0/presentation/contract.ts',
+  'v0/agent/tui_presentation_adapter.ts',
   'v0/agent/steering.ts',
   'v0/agent/loop.ts',
   'v0/agent/session.ts',
@@ -131,6 +137,8 @@ const CHECK_TARGETS = [
   'v0/tui/input.ts',
   'v0/tui/render.ts',
   'v0/tui/controller.ts',
+  'v0/tui/state.ts',
+  'v0/tui/layout.ts',
   'v0/tui/pending_input.ts',
   'v0/tui/file_reference.ts',
   'tests/v0/v0_test.ts',
@@ -174,6 +182,15 @@ const CHECK_TARGETS = [
   'tests/v0/tui_input_test.ts',
   'tests/v0/tui_render_test.ts',
   'tests/v0/tui_controller_test.ts',
+  'tests/v0/presentation_contract_test.ts',
+  'tests/v0/tui_presentation_adapter_test.ts',
+  'tests/v0/tui_state_test.ts',
+  'tests/v0/tui_layout_test.ts',
+  'tests/v0/detached_ui_acceptance_test.ts',
+  'tests/v0/detached_ui_acceptance_process_test.ts',
+  'tests/v0/ui_retained_acceptance_launcher_process_test.ts',
+  'tests/v0/fixtures/detached_ui_acceptance_fixture.ts',
+  'tests/v0/ui_boundary_topology_test.ts',
   'tests/v0/tui_process_test.ts',
   'tests/v0/agent_startup_orientation_test.ts',
   'tests/v0/portable_tui_launch_process_test.ts',
@@ -249,6 +266,11 @@ const EXPECTED_LEAVES = [
   'agent:tui:process:test',
   'agent:portable-tui:process:test',
   'agent:tui:topology:test',
+  'agent:ui-presentation:test',
+  'agent:ui-retained:acceptance:test',
+  'agent:ui-retained:acceptance:process:test',
+  'agent:ui-retained:acceptance:launcher:process:test',
+  'agent:ui-boundary:topology:test',
   'agent:selection:test',
   'agent:json-keys:test',
   'agent:corpus:test',
@@ -318,6 +340,22 @@ assignTarget('tui_file_reference_test.ts', 'agent:tui:file-reference:test');
 assignTarget('tui_process_test.ts', 'agent:tui:process:test');
 assignTarget('portable_tui_launch_process_test.ts', 'agent:portable-tui:process:test');
 assignTarget('tui_topology_test.ts', 'agent:tui:topology:test');
+targets['agent:ui-presentation:test'] = [
+  'tests/v0/presentation_contract_test.ts',
+  'tests/v0/tui_presentation_adapter_test.ts',
+  'tests/v0/tui_state_test.ts',
+  'tests/v0/tui_layout_test.ts',
+];
+assignTarget('detached_ui_acceptance_test.ts', 'agent:ui-retained:acceptance:test');
+assignTarget(
+  'detached_ui_acceptance_process_test.ts',
+  'agent:ui-retained:acceptance:process:test',
+);
+assignTarget(
+  'ui_retained_acceptance_launcher_process_test.ts',
+  'agent:ui-retained:acceptance:launcher:process:test',
+);
+assignTarget('ui_boundary_topology_test.ts', 'agent:ui-boundary:topology:test');
 assignTarget('two_tool_task_selection_test.ts', 'agent:selection:test');
 assignTarget('json_object_keys_tool_test.ts', 'agent:json-keys:test');
 assignTarget('task_corpus_test.ts', 'agent:corpus:test');
@@ -446,6 +484,16 @@ assignPermission(
   'agent:sessions:topology:test',
 );
 assignPermission(['--allow-run=/usr/bin/script'], 'agent:tui:process:test');
+assignPermission([], 'agent:ui-presentation:test', 'agent:ui-retained:acceptance:test');
+assignPermission(['--allow-run=/usr/bin/script'], 'agent:ui-retained:acceptance:process:test');
+assignPermission(
+  ['--allow-read=.,/tmp', '--allow-write=/tmp', '--allow-run=/bin/sh'],
+  'agent:ui-retained:acceptance:launcher:process:test',
+);
+assignPermission(
+  ['--allow-read=deno.v0.json,v0/agent,v0/presentation,v0/tui,v0/domain.ts,v0/model.ts'],
+  'agent:ui-boundary:topology:test',
+);
 assignPermission(
   ['--allow-read=.,/tmp', '--allow-write=/tmp', '--allow-run=/usr/bin/script'],
   'agent:portable-tui:process:test',
@@ -460,7 +508,7 @@ assignPermission(
   'v0:legacy:test',
 );
 assignPermission(
-  ['--allow-read=deno.v0.json,tests/v0,v0/agent,v0/tui,v0/model.ts,v0/domain.ts'],
+  ['--allow-read=deno.v0.json,tests/v0,v0/agent,v0/presentation,v0/tui,v0/model.ts,v0/domain.ts'],
   TOPOLOGY_TASK,
 );
 
@@ -657,7 +705,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 55, 'expected 55 directly-owned tests');
+  assertEquals(owned.size, 63, 'expected 63 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {

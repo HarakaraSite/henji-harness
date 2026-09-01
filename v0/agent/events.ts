@@ -6,6 +6,11 @@ import {
   type ToolResultContent,
   type UserMessage,
 } from './contracts.ts';
+import { PresentationDeliveryError as EventDeliveryError } from '../presentation/contract.ts';
+
+// Compatibility export: core delivery and the presentation boundary intentionally share one
+// stable error identity, while the neutral contract remains free of core/UI imports.
+export { PresentationDeliveryError as EventDeliveryError } from '../presentation/contract.ts';
 
 /** Completed lifecycle notifications emitted by one provider-neutral agent turn. */
 export type AgentEvent =
@@ -58,13 +63,6 @@ export type AgentEventSink = (event: AgentEvent) => void;
 
 /** Stable error surfaced when a synchronous event sink rejects delivery. */
 export const EVENT_DELIVERY_ERROR = 'agent event delivery failed';
-
-export class EventDeliveryError extends Error {
-  constructor() {
-    super(EVENT_DELIVERY_ERROR);
-    this.name = 'EventDeliveryError';
-  }
-}
 
 /**
  * Agent values are JSON-shaped. `structuredClone` preserves every valid JsonValue, including

@@ -235,6 +235,20 @@ Deno.test('new editor controls decode as exact events', () => {
       0x5b,
       0x34,
       0x7e,
+      0x1b,
+      0x5b,
+      0x35,
+      0x7e,
+      0x1b,
+      0x5b,
+      0x36,
+      0x7e,
+      0x1b,
+      0x5b,
+      0x31,
+      0x31,
+      0x7e,
+      0x0c,
     ]),
   );
   assertEquals(events.map((event) => event.kind), [
@@ -252,6 +266,10 @@ Deno.test('new editor controls decode as exact events', () => {
     'end',
     'home',
     'end',
+    'page_up',
+    'page_down',
+    'f1',
+    'ctrl_l',
   ]);
   decoder.end();
 });

@@ -3,8 +3,8 @@
 ## Start here
 
 Henji Harness is a pre-alpha, trusted-local Deno agent harness. The active implementation is in
-[`v0/`](v0/); archives are historical evidence only. Run from the repository root with Deno 2.9.4
-on `PATH`, a POSIX shell, and a real stdin/stdout TTY for the TUI:
+[`v0/`](v0/); archives are historical evidence only. Run from the repository root with Deno 2.9.4 on
+`PATH`, a POSIX shell, and a real stdin/stdout TTY for the TUI:
 
 ```text
 deno task --quiet --config deno.v0.json agent:tui
@@ -13,6 +13,11 @@ deno task --quiet --config deno.v0.json agent:tui
 The default starts a new autosaved session. The selected OpenRouter profile is contacted only after
 a submitted task reaches the provider adapter. Work tools run as the current OS user; there is no
 hard sandbox or per-tool confirmation.
+
+The human screen is a retained three-band view: a scrollable work/conversation log, a bounded
+multiline input band, and one status/footer row. It reflows on resize without sending resize events
+to the agent. The first screen keeps a compact two-line welcome; press F1 for the full startup facts
+and press F1 or Esc to return without submitting the draft.
 
 ## Read startup orientation
 
@@ -29,11 +34,15 @@ deno task --quiet --config deno.v0.json agent:tui --agent planner --no-session
 deno task --quiet --config deno.v0.json agent:tui --continue
 ```
 
-The TUI accepts one persistence selector (`--continue`, `--session UUID`, or `--no-session`) and
-the optional agent selector, in either order. Invalid, duplicate, conflicting, or positional
-arguments fail before workspace, terminal, session, provider, or credential setup. `--no-session`
-is ephemeral and does not access the session state root. `agent:run` is the non-interactive
-production provider command; do not invoke either production path without explicit approval.
+The TUI accepts one persistence selector (`--continue`, `--session UUID`, or `--no-session`) and the
+optional agent selector, in either order. Invalid, duplicate, conflicting, or positional arguments
+fail before workspace, terminal, session, provider, or credential setup. `--no-session` is ephemeral
+and does not access the session state root. `agent:run` is the non-interactive production provider
+command; do not invoke either production path without explicit approval.
+
+PageUp/PageDown scroll the retained log while Ctrl-L returns to the latest output. Anchors use
+source positions, so a resize or live progress update does not unexpectedly jump the viewport. Live
+assistant/tool activity replaces one bounded row and completed causal records remain in the log.
 
 ## Daily editing
 
@@ -50,8 +59,8 @@ outside the workspace, the network, and child processes as the current OS user.
 ## While work is running
 
 The TUI renders bounded live assistant and Bash progress snapshots as replaceable display state.
-Partial output is never committed, sent back to the model, or persisted; a completed model result
-is authoritative.
+Partial output is never committed, sent back to the model, or persisted; a completed model result is
+authoritative.
 
 While busy, Enter admits at most one NUL-free steering message up to 65,536 bytes, consumed only
 between complete nonterminal tool batches. Alt-Enter admits one ordinary follow-up slot, started
@@ -88,8 +97,8 @@ When idle with an empty editor and all pending lanes empty:
 - Ctrl-T opens the latest committed canonical history in read-only mode. Up/Down, Home, End, and
   Escape navigate bounded pages and return to the latest position. Causal `user`, `steer`,
   `assistant`, `tool>`, and `tool<` labels are preserved. Each page uses at most 8 KiB source text,
-  32 KiB escaped terminal output, and 16 content rows. It cannot submit, edit, branch, rewind,
-  call a provider, or write a session.
+  32 KiB escaped terminal output, and 16 content rows. It cannot submit, edit, branch, rewind, call
+  a provider, or write a session.
 
 The main status shows short session ID, agent, and latest committed turn; picker/history headers
 show the full UUID. An empty new reservation appears as one synthetic current row; listing alone
@@ -97,10 +106,10 @@ does not create state.
 
 ## Manual context recovery
 
-When persistent TUI is idle with an empty editor and no pending lane, Ctrl-K opens the context panel.
-It shows committed turns, current checkpoint state, proposed covered/retained range, and byte-aware
-provider-view estimate. It states that the operation uses one provider request and leaves canonical
-history unchanged.
+When persistent TUI is idle with an empty editor and no pending lane, Ctrl-K opens the context
+panel. It shows committed turns, current checkpoint state, proposed covered/retained range, and
+byte-aware provider-view estimate. It states that the operation uses one provider request and leaves
+canonical history unchanged.
 
 Enter confirms one semantic summary request. The selected profile receives the exact summary prompt,
 one compact user envelope containing canonical parent turns, and `tools: []`; accepted output is
@@ -118,10 +127,10 @@ summary read-only. Checkpoints rehydrate on restart; canonical history remains t
 
 ## Exit and recovery
 
-Empty Ctrl-D exits only when editor, active task, steering, follow-up, recovery, and discard lanes are
-empty. Successful turns commit before queued follow-up starts; failed/cancelled drafts do not commit.
-Restart restores the complete successful transcript and latest valid checkpoint, but not in-flight
-provider work, pending editor text, or uncommitted tool effects.
+Empty Ctrl-D exits only when editor, active task, steering, follow-up, recovery, and discard lanes
+are empty. Successful turns commit before queued follow-up starts; failed/cancelled drafts do not
+commit. Restart restores the complete successful transcript and latest valid checkpoint, but not
+in-flight provider work, pending editor text, or uncommitted tool effects.
 
 ## Security and stored data
 
@@ -153,12 +162,43 @@ deno task --quiet --config deno.v0.json v0:gate
 The last command is the authoritative offline gate. Real provider acceptance and credential-file
 launchers are separate explicit Human Gates and are excluded from the offline gate.
 
+## Provider-free retained UI acceptance
+
+The detached retained UI has a separate deterministic acceptance package. It uses the shipped
+controller, renderer, and presentation adapter with an in-memory fake host, and does not contact a
+provider, use the network or credentials, run a production command, or create persistent product
+state:
+
+```text
+deno task --quiet --config deno.v0.json agent:ui-retained:acceptance:test
+deno task --quiet --config deno.v0.json agent:ui-retained:acceptance:process:test
+```
+
+The direct leaf checks retained stream/tool/final, overlays, resize, cursor restoration, and
+sanitized opaque identity. The process leaf runs the same known-answer fixture in a bounded PTY. The
+explicit provider-free human task is the retained controller/renderer/adapter fake host under a real
+terminal:
+
+```text
+./v0/agent/ui_retained_acceptance_launcher.sh
+```
+
+The repository-owned launcher resolves the repository root and executes the fixed Deno
+`--no-prompt --no-remote` fixture from any working directory. It accepts ordinary fake
+stream/tool/final work and the actual F1, Ctrl-G/T/K, PageUp/PageDown, Ctrl-L, multiline, resize,
+cancellation, and clean-exit keys. It has no provider, network, environment, read, write, run, or
+persistent-state permission. The normal `agent:tui` production path is not this acceptance command
+and remains outside the pending Human Gate.
+
 ## Developer/reference appendix
 
 Product source is [`v0/`](v0/), tests [`tests/v0/`](tests/v0/), task configuration
 [`deno.v0.json`](deno.v0.json), plans/results [`docs/plans/`](docs/plans/), and continuation state
 [`.handoff/handoff.md`](.handoff/handoff.md). The Step 83 plan is
 [`docs/plans/session-navigation-context-recovery-readme.md`](docs/plans/session-navigation-context-recovery-readme.md).
+The detached three-band UI plan and implementation results are
+[`docs/plans/detached-three-band-human-ui.md`](docs/plans/detached-three-band-human-ui.md) and
+[`docs/plans/detached-three-band-human-ui-results.md`](docs/plans/detached-three-band-human-ui-results.md).
 
 Useful checks:
 

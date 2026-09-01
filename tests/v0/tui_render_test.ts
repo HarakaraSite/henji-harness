@@ -394,3 +394,145 @@ Deno.test('multiline editor layout retains cursor and renderer keeps pending met
   assert(!output.includes('secret task'));
   assert(output.includes('\x1b['));
 });
+
+Deno.test('retained overlays redraw over the same base state and restore the exact cursor', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  renderer.setEditorSnapshot({
+    text: 'draft\nsecond line',
+    cursorScalar: 3,
+    byteLength: new TextEncoder().encode('draft\nsecond line').byteLength,
+  });
+  const before = renderer.stateSnapshot();
+  renderer.renderStartupHelp({
+    workspace: 'workspace',
+    agentId: 'default',
+    model: { provider: 'openrouter', profileId: 'PROFILE' },
+    sessionMode: { kind: 'none' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  });
+  assert(renderer.renderFrame().includes('startup help'));
+  assert(renderer.renderFrame().includes('draft'));
+  const layout = renderer.layoutSnapshot();
+  assert(
+    renderer.renderFrame().endsWith(
+      `${String.fromCharCode(0x1b)}[${layout.cursor.row + 1};${layout.cursor.cell + 1}H`,
+    ),
+  );
+  assert(new RegExp(`${String.fromCharCode(0x1b)}\\[\\d+;\\d+H`, 'u').test(terminal.text()));
+  renderer.clearModal();
+  assertEquals(renderer.stateSnapshot().editor, before.editor);
+  assertEquals(renderer.stateSnapshot().log, before.log);
+  assertEquals(renderer.stateSnapshot().scroll, before.scroll);
+  assertEquals(renderer.stateSnapshot().overlay, { kind: 'none' });
+
+  renderer.renderSessionPicker({
+    sessions: [{
+      id: '11111111-1111-4111-8111-111111111111',
+      agent: 'default',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      turnCount: 1,
+      messageCount: 2,
+      current: false,
+      resumed: false,
+      mismatch: false,
+    }],
+    skippedInvalid: 0,
+  });
+  assert(renderer.renderFrame().includes('session picker'));
+  renderer.clearModal();
+  renderer.renderHistoryPage({
+    sessionId: '11111111-1111-4111-8111-111111111111',
+    agent: 'default',
+    turn: 1,
+    totalTurns: 1,
+    page: 0,
+    pageCount: 1,
+    entries: [{ role: 'user', turn: 1, messageIndex: 0, text: 'history task' }],
+    sourceBytes: 12,
+    omitted: false,
+  });
+  assert(renderer.renderFrame().includes('history task'));
+  renderer.clearModal();
+  renderer.renderContextPanel({
+    useful: true,
+    currentTurn: 1,
+    proposed: { coveredThroughTurn: 1, retainedFromTurn: 1 },
+  });
+  assert(renderer.renderFrame().includes('context recovery'));
+  renderer.resize(100, 30);
+  assert(renderer.renderFrame(100, 30).includes('context recovery'));
+  renderer.clearModal();
+  assertEquals(renderer.stateSnapshot().editor, before.editor);
+  assertEquals(renderer.stateSnapshot().overlay, { kind: 'none' });
+});
+
+Deno.test('retained terminal JSON final is one assistant entry and one frame record', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  renderer.eventSink({
+    kind: 'turn_start',
+    turn: 1,
+  });
+  renderer.eventSink({
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'raw', name: 'submit_json_result', arguments: {} },
+  });
+  renderer.eventSink({
+    kind: 'tool_progress',
+    turn: 1,
+    callId: 'raw',
+    name: 'submit_json_result',
+    text: 'submitting',
+  });
+  renderer.eventSink({
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'raw',
+      name: 'submit_json_result',
+      text: '{"ok":true}',
+      outcome: 'success',
+      terminal: 'json_result',
+    },
+  });
+  renderer.renderAssistantFinal('{"ok":true}');
+  const entries = renderer.stateSnapshot().log.entries;
+  assertEquals(entries.filter((entry) => entry.kind === 'assistant').length, 1);
+  assertEquals(entries.filter((entry) => entry.kind === 'tool').length, 1);
+  assertEquals(entries.filter((entry) => entry.kind === 'assistant')[0].text, '{"ok":true}');
+  assertEquals((renderer.renderFrame().match(/\{"ok":true\}/g) ?? []).length, 1);
+});
+
+Deno.test('retained source anchors page through one long multiline entry and survive reflow', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  renderer.eventSink({
+    kind: 'user_message',
+    turn: 1,
+    message: {
+      role: 'user',
+      content: { kind: 'text', text: 'line-0\nline-1\n' + 'x'.repeat(500) },
+    },
+  });
+  renderer.scrollPage('up');
+  const anchor = renderer.stateSnapshot().scroll;
+  assertEquals(anchor.kind, 'anchored');
+  if (anchor.kind === 'anchored') assert(anchor.sourceScalarOffset >= 0);
+  renderer.resize(100, 30);
+  const reflowed = renderer.stateSnapshot().scroll;
+  assertEquals(reflowed.kind, 'anchored');
+  if (reflowed.kind === 'anchored' && anchor.kind === 'anchored') {
+    assertEquals(reflowed.entryId, anchor.entryId);
+    assertEquals(reflowed.sourceScalarOffset, anchor.sourceScalarOffset);
+  }
+});
