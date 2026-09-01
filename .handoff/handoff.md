@@ -825,6 +825,24 @@
 - 境界: implementation/test/provider/network/credential/persistent product
   state/dependency/`_refs/`変更/commit/push/tag/publish/releaseは未承認
 
+### POL-20260901-step-83-full-capability-human-acceptance-plan
+
+- 計画: `docs/plans/step-83-full-capability-human-acceptance.md`、SHA-256
+  `7a5f12b308e554ca12bc81e2ef124bd65a28813e5e08b87bdf51089b31ee567b`。正本inputは
+  `/tmp/planner-inputs/henji-step-83-full-capability-human-acceptance.md`、concept revision 39、
+  SHA-256 `8334eb6e567b6fd527d76bedee8322110c2eae5637b72abfd450368e8f23f600`
+- 契約: Step 83R boundary/三領域UIを保持し、caller cwdを保つbare `henji`、per-request fixed-file
+  credential source、task-oriented F1、production default/full-tool/persistent-session Human Gate
+  packageだけを一つのcontinuationで追加する
+- review: initial planning review P1 1/P2 1をexternal-cwd session list/delete exact permission/
+  command/testと、machine installerのtarget-preserving backup/candidate atomic replacement・全failure
+  injectionで修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- gate: Human Gate 2 pending。承認範囲はlocal implementation/offline test/review/owner gateと一回の
+  machine launcher install/check/necessary rollbackまで。credential read/provider/network/production
+  `henji`/acceptance workspace・sessionは別のfinal Human Gate
+- 境界: credential value、provider/network、production command、actual persistent state、machine entry
+  change、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseはplanning中未実施
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -3881,3 +3899,85 @@
   help/acceptance redesignとsuccess condition 10は後回し
 - 注意: provider/network/credential/production command、real persistent state、dependency/
   lockfile、`_refs/`、push/tag/publish/releaseは未実施
+
+## 2026-09-01 19:07 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Step 83 full-capability human acceptance planning
+- 実施: revision 39 inputとlive launcher/credential/UI/session sourceを照合してcanonical planを作成。
+  initial P1 1/P2 1を修正し、narrow re-review GO、Blocker/P1/P2 0
+- 次: `POL-20260901-step-83-full-capability-human-acceptance-plan`のHuman Gate 2承認待ち
+- 注意: planning-only。credential value、provider/network、production command、actual persistent state、
+  machine launcher変更、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-01 20:00 JST
+
+- 実行エージェント: Codex Step 83 full-capability Human Gate 2 implementer
+- 作業トピック: repository implementation and final offline verification
+- 実施: fixed-Deno machine launcher/install-check-rollback source、任意cwd workspace authority、request-time
+  credential file seam、task-oriented F1 help、production acceptance package、README/task/topology/testsを実装。
+  canonical planは変更せず、resultsをreview-pendingへ更新。
+- 検証: transport/credential 19/19、TUI 113/113、launcher 6/6、session process 3/3、session topology 2/2、
+  TUI topology 6/6、UI boundary 3/3、credential-launcher 8/8 + topology 1/1、offline topology 2/2。
+  authoritative `v0:gate` full offline 709/709、check/fmt/lint/diff green。
+- 次: changed-lines reviewとowner final disposition。final real-screen Human Gate、machine install/readbackは別承認待ち。
+- 注意: review-pending。credential value、provider/network、production `henji`/TUI、actual persistent state、
+  dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。
+
+## 2026-09-01 20:12 JST
+
+- 実行エージェント: Codex Step 83 full-capability Human Gate 2 implementer
+- 作業トピック: approved five-finding closure
+- 実施: installed-shaped fixed-repository launcher resolution、installer success/check/rollbackとfailure
+  seam、狭幅F1優先表示/resize復元、literal Human Gate assertions、async credential settlement/cancel
+  recheckとrequest refresh evidenceを追加。resultsをreview-pendingへ更新。
+- 検証: transport 20/20、TUI 114/114、launcher/package 8/8、offline topology 2/2、authoritative
+  `v0:gate` full offline 713/713、`v0:check`、`v0:fmt` 152、`v0:lint` 149、`git diff --check`、shell
+  syntax pass。
+- 次: coordinating ownerのchanged-lines reviewとfinal disposition。実機Human Gateは別承認待ち。
+- 注意: provider/network/credential value/production `henji`/machine install/actual persistent state、
+  dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施。
+
+## 2026-09-01 20:16 JST
+
+- 実行エージェント: Codex coordinating owner / implementation reviewer
+- 作業トピック: Step 83 full-capability Human Gate 2 narrow re-review and stop disposition
+- 結果: initial review Blocker 1/P1 1/P2 3に対する承認済みsingle closure後も、narrow re-reviewは
+  NO-GO、Blocker 0/P1 1/P2 3。credential lifecycle findingとinstalled-locationの機能Blockerはclosed。
+  openはunsafe acceptance cleanup/shared-state lock predicateのP1、machine wrapper forwarding evidence、
+  short-terminal F1 priority、late rollback publication/target survival evidenceのP2三件
+- 判断: canonical planの「一回のbounded closureでBlocker/P1/P2 zeroにできない」stop conditionに該当。
+  owner final gate、machine-local launcher install/check、final real-provider Human Gateへ進めない
+- 検証済み状態: closure treeのauthoritative offline `v0:gate`は713/713、check/fmt/lint/diff green。
+  narrow reviewer focused rerunはmachine/package 4/4、transport/credential 20/20、TUI 114/114
+- 次: concept ownerが再計画または追加closureを明示承認するまで停止。現在のacceptance packageは実行不可
+- 注意: credential value、provider/network、production `henji`、machine install、actual persistent state、
+  dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-01 20:25 JST
+
+- 実行エージェント: user / Codex coordinating owner
+- 作業トピック: verification/review latency policy correction
+- 判断: implementation/closure中はfocused checksだけを使い、authoritative `v0:gate`はreview後の
+  stable candidateにownerが原則一回だけ実行する。review前とreviewerによるfull gate rerunを廃止
+- review分類: source-to-impactのある実装問題だけをProduct finding Blocker/P1/P2とし、test・matrix・
+  文書証拠だけの不足はEvidence gap E1/E2としてproduct GO/NO-GOと分離する。証拠要求の連鎖拡大を禁止
+- Step 83現状の再分類: Product P1 1（unsafe cleanup/lock predicate）、Product P2 1（short-terminal
+  F1 priority）、Evidence E2 2（wrapper forwarding、late rollback publication）。credentialとinstalled-
+  location Blockerはclosed。verification completeやmachine install可能とはまだ判断しない
+- 次: product二件を先に局所修正し、合意済みE2二件だけを最小testで閉じる。focused checks、narrow
+  review、最後のowner `v0:gate`一回の順にする
+
+## 2026-09-01 帰宅時 checkpoint
+
+- 現在地: Step 83 full-capability Human Gate 2のrepository実装とsingle closureはworking treeに存在。
+  closure treeの直近authoritative offline gateは713/713 greenだが、review後の最終候補ではない
+- 未解決: Product P1 1（acceptance cleanup sequencing/shared-state lock predicate）、Product P2 1
+  （short-terminal F1 priority）、Evidence E2 2（machine-wrapper forwarding、late rollback publication）
+- 運用改善: `AGENTS.md`へfocused-first、full `v0:gate`原則一回、Product findingとEvidence gapの
+  分離、証拠要求の連鎖拡大禁止を追加。Step 83 resultsも同じ分類へ更新済み
+- 次回: Product P1/P2を局所修正し、合意済みE2二件だけを最小testで補う。affected focused checks
+  → narrow review → stable candidateのowner `v0:gate`一回。途中のfull gateは実行しない
+- 未実施: machine-local `henji` install/check、production `henji`、credential value read、provider/network、
+  actual acceptance workspace/session、final Human Gate、commit/push/tag/publish/release
+- 注意: user-owned untracked `_refs/*`を変更・stage・削除しない。現在のacceptance packageは実行不可

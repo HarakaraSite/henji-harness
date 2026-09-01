@@ -10,7 +10,11 @@ import { type SessionRecord } from './session_store.ts';
 import { type AgentEventSink } from './events.ts';
 import { type Model } from './contracts.ts';
 import { Registry } from './tools.ts';
-import { OpenRouterAgentModel, type OpenRouterResponseMode } from './openrouter_model.ts';
+import {
+  type CredentialSource,
+  OpenRouterAgentModel,
+  type OpenRouterResponseMode,
+} from './openrouter_model.ts';
 import { createPlannerRegistry, createProductionRegistry } from './registries.ts';
 import { resolveWorkspace, type Workspace, type WorkToolSeams } from './work_tools.ts';
 import { discoverSkills, type SkillCatalog, type SkillFileSystem } from './skills.ts';
@@ -67,7 +71,7 @@ export const FIXED_JSON_PATH = 'deno.v0.json';
 export interface RuntimeTestSeam {
   readonly fetcher?: typeof fetch;
   readonly credential?: string;
-  readonly credentialSource?: () => string | undefined;
+  readonly credentialSource?: CredentialSource;
   /** Offline-only override for unchanged JSON sentinel/compatibility consumers. */
   readonly responseMode?: OpenRouterResponseMode;
   /** Direct-test-only workspace injection; production has no workspace option. */

@@ -8,9 +8,11 @@ import {
 } from '../../v0/agent/openrouter_model.ts';
 import { PROFILE } from '../../v0/model.ts';
 import { runAgent } from '../../v0/agent/loop.ts';
+import { AgentSession } from '../../v0/agent/session.ts';
 import { createCorpusRegistry } from '../../v0/agent/registries.ts';
 import { createFixtureTool, Registry } from '../../v0/agent/tools.ts';
 import { type ModelRequest } from '../../v0/agent/contracts.ts';
+import { TurnCancelledError } from '../../v0/agent/cancellation.ts';
 
 const ENDPOINT = 'https://offline.invalid/api/v1/chat/completions';
 const DUMMY_CREDENTIAL = 'dummy-credential-marker';
@@ -539,6 +541,90 @@ Deno.test('missing credential and invalid preflight never call fetch', async () 
   );
   assertEquals(invalidInstructionError.code, 'invalid_input');
   assertEquals(invalidInstructionCredentialReads, 0);
+});
+
+Deno.test('async credential resolution rechecks cancellation and refreshes each request', async () => {
+  let fetchCalls = 0;
+  const aborting = new AbortController();
+  const cancelledModel = new OpenRouterAgentModel({
+    endpoint: ENDPOINT,
+    fetcher: () => {
+      fetchCalls += 1;
+      return Promise.resolve(response(finalPayload('must not fetch')));
+    },
+    credentialSource: async () => {
+      await Promise.resolve();
+      aborting.abort('test cancellation');
+      return 'async-cancellation-token';
+    },
+  });
+  let cancelled = false;
+  try {
+    await cancelledModel.generate(request(), { signal: aborting.signal });
+  } catch (error) {
+    assert(error instanceof TurnCancelledError);
+    cancelled = true;
+  }
+  assert(cancelled);
+  assertEquals(fetchCalls, 0);
+
+  const calls: FetchCall[] = [];
+  let credentialReads = 0;
+  const refreshed = new OpenRouterAgentModel({
+    endpoint: ENDPOINT,
+    fetcher: makeFetcher([
+      response(finalPayload('first')),
+      response(finalPayload('second')),
+    ], calls),
+    credentialSource: async () => {
+      credentialReads += 1;
+      await Promise.resolve();
+      return `per-request-token-${credentialReads}`;
+    },
+  });
+  assertEquals(await refreshed.generate(request()), { kind: 'final', text: 'first' });
+  assertEquals(await refreshed.generate(request()), { kind: 'final', text: 'second' });
+  assertEquals(credentialReads, 2);
+  assertEquals(calls.length, 2);
+  assertEquals(
+    (calls[0].init?.headers as Record<string, string>).authorization,
+    'Bearer per-request-token-1',
+  );
+  assertEquals(
+    (calls[1].init?.headers as Record<string, string>).authorization,
+    'Bearer per-request-token-2',
+  );
+
+  const failing = new OpenRouterAgentModel({
+    endpoint: ENDPOINT,
+    fetcher: () => {
+      fetchCalls += 1;
+      return Promise.resolve(response(finalPayload('must not fetch')));
+    },
+    credentialSource: async () => {
+      await Promise.resolve();
+      throw new Error('credential-file-path-and-secret');
+    },
+  });
+  const failure = await assertSafeError(() => failing.generate(request()), 0);
+  assertEquals(failure.code, 'missing_credential');
+  assert(!failure.message.includes('credential-file-path-and-secret'));
+  assertEquals(fetchCalls, 0);
+
+  let commits = 0;
+  const persistent = new AgentSession(failing, new Registry([]), {
+    persistence: {
+      id: 'offline-session',
+      record: undefined,
+      commit: () => commits += 1,
+      rollback: () => {},
+      close: () => {},
+    },
+  });
+  const outcome = await persistent.submit('credential failure must not commit');
+  assert(!outcome.ok);
+  assertEquals(commits, 0);
+  assertEquals(persistent.transcriptSnapshot(), []);
 });
 
 Deno.test('message and full request bounds fail before request starts', async () => {

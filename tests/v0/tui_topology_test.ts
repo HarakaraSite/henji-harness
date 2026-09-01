@@ -139,7 +139,7 @@ Deno.test('presentation and boundary leaves keep their narrow permission contrac
   );
   assertEquals(
     config.tasks['agent:ui-retained:acceptance:launcher:process:test'],
-    `${DENO} test --no-prompt --allow-read=.,/tmp --allow-write=/tmp --allow-run=/bin/sh tests/v0/ui_retained_acceptance_launcher_process_test.ts`,
+    `${DENO} test --no-prompt --allow-read=.,/tmp --allow-write=/tmp --allow-run=/bin/sh tests/v0/ui_retained_acceptance_launcher_process_test.ts tests/v0/henji_machine_launcher_process_test.ts`,
   );
   const testSegments = config.tasks['v0:test'].split(' && ');
   assert(

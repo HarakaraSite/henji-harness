@@ -58,15 +58,20 @@ const expectedLauncherChildArgs = (
 ): readonly string[] => {
   const persistent = !args.includes('--no-session');
   const stateRoot = `${xdgStateHome}/henji-harness`;
+  const workspace = Deno.cwd();
   return [
     'run',
     '--no-prompt',
     '--no-remote',
-    '--allow-env=HENJI_OPENROUTER_API_KEY,HENJI_SESSION_STATE_ROOT',
+    ...(persistent ? ['--allow-env=HENJI_SESSION_STATE_ROOT'] : []),
     '--allow-net=openrouter.ai',
+    '--allow-sys=uid',
     '--allow-read=/',
-    '--allow-write=/',
-    ...(persistent ? [`--allow-read=${stateRoot}`, `--allow-write=${stateRoot}`] : []),
+    `--allow-read=${workspace}`,
+    '--allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key',
+    ...(persistent ? [`--allow-read=${stateRoot}`] : []),
+    `--allow-write=${workspace}`,
+    ...(persistent ? [`--allow-write=${stateRoot}`] : []),
     '--allow-run=/bin/bash',
     `${root}/tui_cli.ts`,
     ...args,

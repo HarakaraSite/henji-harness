@@ -53,6 +53,21 @@ parse_args() {
 }
 parse_args "$@"
 
+# The caller's physical directory is the workspace authority. Never change it while launching the
+# child: work tools, session records, and their permission root must describe this directory.
+workspace=$(pwd -P 2>/dev/null) || startup_fail
+[ -d "$workspace" ] || startup_fail
+case "$workspace" in
+  /*) ;;
+  *) startup_fail ;;
+esac
+newline='
+'
+carriage_return=$(printf '\r')
+case "$workspace" in
+  *,*|*"$newline"*|*"$carriage_return"*) startup_fail ;;
+esac
+
 if [ "$mode" = 'none' ]; then
   state_root=''
 else
@@ -98,13 +113,16 @@ case "$version" in
 esac
 if [ "$mode" = 'none' ]; then
   exec "$deno" run --no-prompt --no-remote \
-    --allow-env=HENJI_OPENROUTER_API_KEY,HENJI_SESSION_STATE_ROOT \
-    --allow-net=openrouter.ai --allow-read="$repo_root" --allow-write="$repo_root" \
-    --allow-run=/bin/bash "$script_dir/tui_cli.ts" "$@"
+    --allow-net=openrouter.ai --allow-sys=uid \
+    --allow-read="$repo_root" --allow-read="$workspace" \
+    --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
+    --allow-write="$workspace" --allow-run=/bin/bash \
+    "$script_dir/tui_cli.ts" "$@"
 else
   HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
-    --allow-env=HENJI_OPENROUTER_API_KEY,HENJI_SESSION_STATE_ROOT \
-    --allow-net=openrouter.ai --allow-read="$repo_root" --allow-write="$repo_root" \
-    --allow-read="$state_root" --allow-write="$state_root" \
+    --allow-env=HENJI_SESSION_STATE_ROOT --allow-net=openrouter.ai --allow-sys=uid \
+    --allow-read="$repo_root" --allow-read="$workspace" \
+    --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
+    --allow-read="$state_root" --allow-write="$workspace" --allow-write="$state_root" \
     --allow-run=/bin/bash "$script_dir/tui_cli.ts" "$@"
 fi

@@ -1,5 +1,26 @@
 # AGENTS.md
 
+## Verification and review efficiency
+
+- 実装中とfinding closure中は、変更箇所に対応するfocused test、必要なtype check、format、lint、
+  `git diff --check`だけを使う。`v0:test`と`v0:gate`を途中経過の確認に使わない。
+- initial implementation reviewへ渡す候補はfocused checksがgreenであればよく、review前のfull
+  `v0:gate`は要求しない。reviewerも原則としてfull gateを再実行しない。
+- authoritative `v0:gate`は、product findingsの修正とnarrow re-reviewが終わった安定候補に対して、
+  coordinating ownerが一回だけ実行する。失敗した場合は該当focused testで原因を直し、安定後に
+  一回だけ再実行する。例外的な再実行は理由と回数をresultsへ記録する。
+- reviewは次を分けて報告する。
+  - `Product finding`（Blocker/P1/P2）: source behaviorが要件、安全性、correctness、外部契約に
+    違反するsource-to-impactを示せるもの。Blocker/P1はproduct NO-GO、P2は計画のrisk基準に従う。
+  - `Evidence gap`（E1/E2）: 実装不具合を示すsource-to-impactはなく、test、matrix、文書化された
+    証明だけが不足するもの。product GO/NO-GOと分離し、単独ではproduct findingへ格上げしない。
+- acceptanceやreleaseに明示的な証拠契約がある場合、Evidence gapは`verification incomplete`を
+  意味し得るが、製品をNO-GOとは表現しない。実装修正と証拠追加を同じseverity countへ混ぜない。
+- finding closureはProduct findingsを先に閉じる。Evidence gapの追加は、承認済み計画が要求する
+  最小のknown-answerに限定し、reviewerが計画外の網羅matrixを新たに要求しない。
+- narrow re-reviewは変更箇所、既存Product findings、合意済みEvidence gapだけを確認する。新しい
+  source-to-impactのBlocker/P1がない限り、証拠要求を連鎖的に拡大しない。
+
 ## Current phase
 
 - Roadmap Step 82 (`docs/plans/daily-editor-no-lost-input.md`, SHA-256

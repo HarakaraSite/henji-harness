@@ -46,6 +46,7 @@ const PRODUCTION_SOURCE_FILES = [
   'v0/agent/cancellation.ts',
   'v0/agent/canonical_identity.ts',
   'v0/agent/cli.ts',
+  'v0/agent/credential_file.ts',
   'v0/agent/context.ts',
   'v0/agent/contracts.ts',
   'v0/agent/events.ts',
@@ -118,6 +119,7 @@ const CHECK_TARGETS = [
   'v0/agent/work_tools.ts',
   'v0/agent/runtime_cli.ts',
   'v0/agent/tui_cli.ts',
+  'v0/agent/credential_file.ts',
   'v0/agent/startup_orientation.ts',
   'v0/agent/openrouter_model.ts',
   'v0/agent/real_provider_acceptance.ts',
@@ -206,6 +208,8 @@ const CHECK_TARGETS = [
   'v0/extensions-src/task-planner/r2/main.ts',
   'tests/v0/tui_pending_input_test.ts',
   'tests/v0/tui_file_reference_test.ts',
+  'tests/v0/credential_file_test.ts',
+  'tests/v0/henji_machine_launcher_process_test.ts',
   TOPOLOGY_FILE,
 ] as const;
 const EXPECTED_CHECK = [DENO, 'check', ...CHECK_TARGETS];
@@ -326,7 +330,10 @@ assignTarget('agent_semantic_context_test.ts', 'agent:semantic-context:test');
 assignTarget('agent_steering_test.ts', 'agent:steering:test');
 assignTarget('agent_tool_progress_test.ts', 'agent:tool-progress:test');
 assignTarget('agent_streaming_test.ts', 'agent:streaming:test');
-assignTarget('agent_openrouter_model_test.ts', 'agent:transport:test');
+targets['agent:transport:test'] = [
+  'tests/v0/agent_openrouter_model_test.ts',
+  'tests/v0/credential_file_test.ts',
+];
 assignTarget('agent_runtime_test.ts', 'agent:runtime:test');
 assignTarget('agent_runtime_process_test.ts', 'agent:runtime:process:test');
 assignTarget('agent_work_tools_test.ts', 'agent:work-tools:test');
@@ -354,6 +361,9 @@ assignTarget(
 assignTarget(
   'ui_retained_acceptance_launcher_process_test.ts',
   'agent:ui-retained:acceptance:launcher:process:test',
+);
+targets['agent:ui-retained:acceptance:launcher:process:test'].push(
+  'tests/v0/henji_machine_launcher_process_test.ts',
 );
 assignTarget('ui_boundary_topology_test.ts', 'agent:ui-boundary:topology:test');
 assignTarget('two_tool_task_selection_test.ts', 'agent:selection:test');
@@ -705,7 +715,7 @@ const validateManifest = (manifest: Manifest, directFiles: string[]): void => {
   for (const file of directFiles) {
     assertEquals(owned.get(file), 1, `ownership drift for ${file}`);
   }
-  assertEquals(owned.size, 63, 'expected 63 directly-owned tests');
+  assertEquals(owned.size, 65, 'expected 65 directly-owned tests');
 
   const active = new Set<string>();
   const visit = (taskName: string): void => {

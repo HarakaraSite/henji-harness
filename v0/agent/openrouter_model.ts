@@ -154,7 +154,11 @@ const cancelResponseBody = async (response: Response): Promise<boolean> => {
   }
 };
 
-export type CredentialSource = () => string | undefined;
+/** A host-owned source is consulted afresh for every provider request. */
+export type CredentialSource = () =>
+  | string
+  | undefined
+  | Promise<string | undefined>;
 
 /** Direct-test-only observation of bounded stream text accounting work. */
 export interface StreamTextAccountingObserver {
@@ -1046,12 +1050,12 @@ const readSseResponse = async (
   return result;
 };
 
-const resolveCredential = (
+const resolveCredential = async (
   options: OpenRouterAgentModelOptions,
   profile: OpenRouterAgentProfile,
-): string | undefined => {
+): Promise<string | undefined> => {
   try {
-    if (options.credentialSource) return options.credentialSource();
+    if (options.credentialSource) return await options.credentialSource();
     if (options.credential !== undefined) return options.credential;
     return Deno.env.get(profile.secretEnv);
   } catch {
@@ -1095,7 +1099,7 @@ export class OpenRouterAgentModel implements Model {
     }
     const turnSignal = generateOptions.signal ?? this.options.parentSignal;
     throwIfCancelled(turnSignal);
-    const credential = resolveCredential(this.options, this.profile);
+    const credential = await resolveCredential(this.options, this.profile);
     if (!credential) {
       throw new OpenRouterAgentError(
         'missing_credential',

@@ -7,9 +7,15 @@ const managementLauncher = await Deno.readTextFile('v0/agent/session_cli_launche
 Deno.test('persistent commands use side-effect-free launcher topology', () => {
   assert(tasks['agent:tui'] === 'v0/agent/session_launcher.sh');
   assert(tasks['agent:sessions'] === 'v0/agent/session_cli_launcher.sh');
-  assert(launcher.includes('--allow-env=HENJI_OPENROUTER_API_KEY,HENJI_SESSION_STATE_ROOT'));
+  assert(!launcher.includes('--allow-env=HENJI_OPENROUTER_API_KEY'));
   assert(launcher.includes('HENJI_SESSION_STATE_ROOT="$state_root" exec'));
   assert(launcher.includes('--allow-net=openrouter.ai'));
+  assert(launcher.includes('--allow-sys=uid'));
+  assert(launcher.includes('--allow-read="$workspace"'));
+  assert(launcher.includes('--allow-write="$workspace"'));
+  assert(
+    launcher.includes('--allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key'),
+  );
   assert(launcher.includes('--no-remote'));
   assert(managementLauncher.includes('--allow-env=HENJI_SESSION_STATE_ROOT'));
   assert(managementLauncher.includes('HENJI_SESSION_STATE_ROOT="$state_root" exec'));

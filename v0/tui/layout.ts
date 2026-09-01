@@ -152,7 +152,9 @@ const overlayRows = (state: UiState, columns: number): LayoutRow[] => {
   if (overlay.kind === 'none') return [];
   const lines: string[] = [];
   if (overlay.kind === 'startupHelp') {
-    lines.push('startup help · F1/Esc return');
+    lines.push(
+      columns < 40 ? 'F1 help · Esc return' : 'startup help · F1/Esc return',
+    );
     lines.push(...(overlay.lines ?? []).slice(0, 12));
   } else if (overlay.kind === 'sessionPicker') {
     lines.push(
@@ -277,9 +279,12 @@ export const layoutUi = (
     );
     if (anchored >= 0) logStart = anchored;
   }
+  const overlayStart = state.overlay.kind === 'startupHelp'
+    ? 0
+    : Math.max(0, overlay.length - logHeight);
   const visibleLog = (overlay.length > 0 ? overlay : log.rows).slice(
-    overlay.length > 0 ? Math.max(0, overlay.length - logHeight) : logStart,
-    (overlay.length > 0 ? Math.max(0, overlay.length - logHeight) : logStart) + logHeight,
+    overlay.length > 0 ? overlayStart : logStart,
+    (overlay.length > 0 ? overlayStart : logStart) + logHeight,
   );
   const paddedLog = [...visibleLog];
   while (paddedLog.length < logHeight) paddedLog.unshift({ text: '', kind: 'log' });

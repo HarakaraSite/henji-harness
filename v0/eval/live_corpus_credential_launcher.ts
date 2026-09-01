@@ -1,3 +1,8 @@
+import {
+  CredentialFileError,
+  parseCredentialBytes as parseSharedCredentialBytes,
+} from '../agent/credential_file.ts';
+
 /**
  * Fixed, repo-external credential transport for the separately authorized live
  * sentinel.  This module deliberately has no caller-configurable production
@@ -91,9 +96,6 @@ export interface CredentialLauncherDependencies {
 }
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
-const unicodeWhitespace = /\p{White_Space}/u;
-
 const optionalNumber = (value: number | null | undefined): number | undefined =>
   typeof value === 'number' && Number.isSafeInteger(value) ? value : undefined;
 
@@ -204,37 +206,13 @@ const compareStableIdentity = (
 };
 
 /** Decode and validate the single-token credential without exposing its value. */
-const stripTerminalNewlineSequence = (text: string): string => {
-  let end = text.length;
-  while (end > 0 && text[end - 1] === '\n') {
-    end -= 1;
-    if (end > 0 && text[end - 1] === '\r') end -= 1;
-  }
-  return text.slice(0, end);
-};
-
 export const parseCredentialBytes = (bytes: Uint8Array): string => {
-  let text = '';
   try {
-    text = decoder.decode(bytes);
-  } catch {
-    fail('credential_invalid');
+    return parseSharedCredentialBytes(bytes);
+  } catch (error) {
+    if (error instanceof CredentialFileError) return fail(error.code);
+    return fail('credential_invalid');
   }
-
-  text = stripTerminalNewlineSequence(text);
-
-  if (
-    text.length === 0 || text.includes('\r') || text.includes('\n') ||
-    unicodeWhitespace.test(text) ||
-    [...text].some((character) => {
-      const codePoint = character.codePointAt(0)!;
-      return (codePoint >= 0x00 && codePoint <= 0x1f) ||
-        (codePoint >= 0x7f && codePoint <= 0x9f);
-    })
-  ) {
-    fail('credential_invalid');
-  }
-  return text;
 };
 
 /** Read, validate, close, and only then decode the fixed credential file. */

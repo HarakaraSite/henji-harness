@@ -190,6 +190,20 @@ cancellation, and clean-exit keys. It has no provider, network, environment, rea
 persistent-state permission. The normal `agent:tui` production path is not this acceptance command
 and remains outside the pending Human Gate.
 
+## Full-capability production acceptance (separate Human Gate)
+
+The full acceptance uses the installed bare `henji` from a disposable workspace, with the default
+agent, real provider, full workspace tools, and persistent session. It is a trusted-local command:
+tools and Bash run as the OS user and may reach outside the workspace or network. Follow the exact
+three-turn task, bounds, stop conditions, and cleanup in
+[`docs/plans/step-83-full-capability-human-acceptance-gate.md`](docs/plans/step-83-full-capability-human-acceptance-gate.md).
+The final Human Gate is separate and has not been run by the offline test gate.
+
+```text
+cd /tmp/henji-step83-full-capability-acceptance
+henji
+```
+
 ## Developer/reference appendix
 
 Product source is [`v0/`](v0/), tests [`tests/v0/`](tests/v0/), task configuration
@@ -199,6 +213,9 @@ Product source is [`v0/`](v0/), tests [`tests/v0/`](tests/v0/), task configurati
 The detached three-band UI plan and implementation results are
 [`docs/plans/detached-three-band-human-ui.md`](docs/plans/detached-three-band-human-ui.md) and
 [`docs/plans/detached-three-band-human-ui-results.md`](docs/plans/detached-three-band-human-ui-results.md).
+The full-capability acceptance package and implementation results are
+[`docs/plans/step-83-full-capability-human-acceptance-gate.md`](docs/plans/step-83-full-capability-human-acceptance-gate.md)
+and [`docs/plans/step-83-full-capability-human-acceptance-results.md`](docs/plans/step-83-full-capability-human-acceptance-results.md).
 
 Useful checks:
 

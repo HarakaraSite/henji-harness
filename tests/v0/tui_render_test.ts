@@ -5,6 +5,7 @@ import {
   escapeTerminalText,
   historyPageText,
   layoutEditorText,
+  startupHelpLines,
   TuiRenderer,
 } from '../../v0/tui/render.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
@@ -469,6 +470,74 @@ Deno.test('retained overlays redraw over the same base state and restore the exa
   assert(renderer.renderFrame(100, 30).includes('context recovery'));
   renderer.clearModal();
   assertEquals(renderer.stateSnapshot().editor, before.editor);
+  assertEquals(renderer.stateSnapshot().overlay, { kind: 'none' });
+});
+
+Deno.test('F1 help is a bounded task guide and omits internal startup metadata', () => {
+  const lines = startupHelpLines(
+    {
+      workspace: '…/acceptance/workspace',
+      agentId: 'default',
+      model: { provider: 'openrouter', profileId: 'secret-profile' },
+      sessionMode: { kind: 'continue' },
+      instructions: { loaded: true, source: 'AGENTS.md' },
+      skills: { count: 2, names: ['private-skill'], omitted: 1 },
+      trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+      credentialVerification: 'before_each_provider_request',
+    },
+    80,
+    3,
+  );
+  assertEquals(lines.length, 10);
+  assert(lines[0].includes('Henji help'));
+  for (
+    const topic of [
+      '作業を頼む',
+      '作業を見る',
+      '実行中に伝える',
+      '止める',
+      '終了と再開',
+      'session/history/context',
+      'default capability',
+      'trust',
+      '現在',
+    ]
+  ) {
+    assert(lines.some((line) => line.startsWith(topic)), `missing help topic: ${topic}`);
+  }
+  const text = lines.join('\n');
+  assert(!text.includes('secret-profile'));
+  assert(!text.includes('AGENTS.md'));
+  assert(!text.includes('private-skill'));
+  assert(!text.includes('credential'));
+});
+
+Deno.test('F1 keeps safety guidance visible through narrow resize and restores the draft', () => {
+  const terminal = new FakeTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const state = {
+    workspace: 'workspace',
+    agentId: 'default' as const,
+    model: { provider: 'openrouter' as const, profileId: 'PROFILE' },
+    sessionMode: { kind: 'none' as const },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [] as string[], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request' as const,
+  } as const;
+  renderer.setEditorSnapshot({ text: 'draft', cursorScalar: 2, byteLength: 5 });
+  const before = renderer.stateSnapshot().editor;
+  renderer.renderStartupHelp(state);
+  renderer.resize(24, 8);
+  const narrow = renderer.renderFrame(24, 8);
+  for (const topic of ['入力', '停止', '再開', 'trusted-local']) {
+    assert(narrow.includes(topic), `missing narrow priority topic: ${topic}`);
+  }
+  renderer.resize(80, 24);
+  assert(renderer.renderFrame(80, 24).includes('Henji help'));
+  renderer.clearModal();
+  assertEquals(renderer.stateSnapshot().editor, before);
   assertEquals(renderer.stateSnapshot().overlay, { kind: 'none' });
 });
 

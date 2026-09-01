@@ -25,6 +25,21 @@ else
   fail
 fi
 
+# Session metadata is partitioned by the caller's physical workspace. Keep this cwd for the child
+# and grant it only read access to that workspace.
+workspace=$(pwd -P 2>/dev/null) || session_fail
+[ -d "$workspace" ] || session_fail
+case "$workspace" in
+  /*) ;;
+  *) session_fail ;;
+esac
+newline='
+'
+carriage_return=$(printf '\r')
+case "$workspace" in
+  *,*|*"$newline"*|*"$carriage_return"*) session_fail ;;
+esac
+
 if [ "${XDG_STATE_HOME+x}" = x ]; then
   case "$XDG_STATE_HOME" in
     *[![:space:]]*) state_base=$XDG_STATE_HOME ;;
@@ -46,5 +61,5 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno
 HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
-  --allow-env=HENJI_SESSION_STATE_ROOT --allow-read="$repo_root" --allow-read="$state_root" \
-  --allow-write="$state_root" "$script_dir/session_cli.ts" "$@"
+  --allow-env=HENJI_SESSION_STATE_ROOT --allow-read="$repo_root" --allow-read="$workspace" \
+  --allow-read="$state_root" --allow-write="$state_root" "$script_dir/session_cli.ts" "$@"

@@ -10,6 +10,7 @@ const CORE_FILES = [
   'v0/agent/cancellation.ts',
   'v0/agent/canonical_identity.ts',
   'v0/agent/cli.ts',
+  'v0/agent/credential_file.ts',
   'v0/agent/context.ts',
   'v0/agent/contracts.ts',
   'v0/agent/events.ts',

@@ -325,6 +325,51 @@ export const renderStartupOrientationText = (
   return output;
 };
 
+/**
+ * The F1 overlay is a short task-oriented reference, not a runtime metadata report. Dynamic
+ * values are limited to the already-sanitized startup projection and the committed position.
+ */
+export const startupHelpLines = (
+  state: PresentationStartupState,
+  columns = 80,
+  committedTurn = 0,
+): readonly string[] => {
+  const validColumns = Number.isSafeInteger(columns) && columns > 0
+    ? Math.min(160, Math.max(8, columns))
+    : 80;
+  const session = orientationSession(state);
+  if (validColumns < 40) {
+    // Keep the four safety-critical actions as one short row each on degraded terminals. The
+    // remaining detail stays available below them and is still bounded by the layout viewport.
+    return Object.freeze([
+      'Henji help · F1/Esc',
+      '入力 Enter · Ctrl-O 改行',
+      '停止 Esc · Ctrl-C×2 exit',
+      '再開 Ctrl-D',
+      'trust trusted-local · OS user',
+      '表示 log/stream/tool/final',
+      'steer Enter · follow-up Alt+Enter',
+      'session Ctrl-G · history Ctrl-T · context Ctrl-K',
+      `現在 ${clippedWorkspace(state.workspace, validColumns)} · t${committedTurn}`,
+      'F1/Esc で作業画面へ戻る',
+    ]);
+  }
+  return Object.freeze([
+    'Henji help — F1 または Esc で作業画面へ戻る',
+    '作業を頼む: 下の`>`へ入力しEnter。Ctrl-Oで改行',
+    '作業を見る: logに依頼、assistant途中経過、tool、結果、finalが順に出る',
+    '実行中に伝える: Enterで一件steer、Alt+Enterで一件follow-up',
+    '止める: 実行中Escでcancel、Ctrl-C二回でsettlement後exit。completed effectは自動rollbackされない',
+    '終了と再開: 空入力Ctrl-D。同じdirectoryで`henji --continue`',
+    'session/history/context: Ctrl-G / Ctrl-T / Ctrl-K',
+    'default capability: workspace read/create/edit、Bash verification、必要時planner相談',
+    'trust: trusted-local。tools/BashはOS user権限で動きworkspace外/networkへ到達し得る',
+    `現在: ${clippedWorkspace(state.workspace, validColumns)} · agent ${
+      boundedEscaped(state.agentId)
+    } · session ${boundedEscaped(session)} · committed turn ${committedTurn}`,
+  ]);
+};
+
 /** Main-screen/scrollback renderer with one live editor line. */
 export class TuiRenderer implements TerminalRendererGate {
   private readonly retained: boolean;
@@ -381,7 +426,10 @@ export class TuiRenderer implements TerminalRendererGate {
         entry.kind === 'tool' && entry.label.startsWith('tool<') && entry.text === terminalFinal
       ).map((entry) => entry.id),
     );
-    const log = (layout.overlay.length > 0 ? layout.overlay : layout.log)
+    // Startup help is ordered as a safety guide: keep its first rows visible on a narrow screen,
+    // while other overlays retain their newest-page/tail behavior.
+    const overlayLog = this.ui.overlay.kind === 'startupHelp' ? layout.log : layout.overlay;
+    const log = (overlayLog.length > 0 ? overlayLog : layout.log)
       .filter((line) => line.entryId === undefined || !terminalResultIds.has(line.entryId))
       .map((line) => line.text);
     const fixed = [...layout.input.map((line) => `> ${line.text}`), layout.footer.text];
@@ -485,15 +533,20 @@ export class TuiRenderer implements TerminalRendererGate {
     } else this.writeStatic(`${first}\n${second}\n`);
   }
 
-  /** Full startup facts are an overlay, never ordinary conversation scrollback. */
+  /** Full startup help is an overlay, never ordinary conversation scrollback. */
   renderStartupHelp(state = this.startupState): void {
     if (state === undefined) return;
     if (this.closing) throw new PresentationDeliveryError();
+    this.setStartupState(state);
+    const committedTurn = this.currentPosition?.committedTurn ?? this.lastTurn;
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
-      overlay: { kind: 'startupHelp', lines: startupOrientationLines(state) },
+      overlay: {
+        kind: 'startupHelp',
+        lines: startupHelpLines(state, this.lastSize.columns, committedTurn),
+      },
     });
-    const help = `${renderStartupOrientationText(state)}F1/Esc return\n`;
+    const help = `${startupHelpLines(state, this.lastSize.columns, committedTurn).join('\n')}\n`;
     if (this.retained) this.redraw();
     else this.writeStatic(help);
   }
@@ -643,6 +696,16 @@ export class TuiRenderer implements TerminalRendererGate {
       rows: Number.isSafeInteger(rows) && rows > 0 ? rows : this.lastSize.rows,
     };
     this.ui = reduceUiAction(this.ui, { kind: 'resize', columns, rows });
+    if (this.ui.overlay.kind === 'startupHelp' && this.startupState !== undefined) {
+      const committedTurn = this.currentPosition?.committedTurn ?? this.lastTurn;
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'overlay',
+        overlay: {
+          kind: 'startupHelp',
+          lines: startupHelpLines(this.startupState, this.lastSize.columns, committedTurn),
+        },
+      });
+    }
     this.redraw();
   }
 

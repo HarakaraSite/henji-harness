@@ -39,6 +39,7 @@ import {
   presentationProjectionFromStartup,
   TuiPresentationAdapter,
 } from './tui_presentation_adapter.ts';
+import { readCredentialFile } from './credential_file.ts';
 
 const encoder = new TextEncoder();
 
@@ -271,10 +272,15 @@ export const main = async (
   try {
     let sessionFactory = dependencies.createSession;
     if (sessionFactory === undefined) {
+      // Production TUI requests use the fixed host-owned file source.  Direct tests retain their
+      // explicit seam, while the headless runtime keeps its existing environment contract.
+      const runtimeSeam = dependencies.runtimeSeam === undefined
+        ? { credentialSource: readCredentialFile }
+        : dependencies.runtimeSeam;
       sessionFactory = async (eventSink, selected) => {
         if (invocation.persistence === 'none') {
           const prepared = await prepareRuntimeComposition(
-            dependencies.runtimeSeam,
+            runtimeSeam,
             selected,
             'none',
           );
@@ -288,7 +294,7 @@ export const main = async (
         }
         // Parent Definition/manifest preparation must complete before any store operation.
         const prepared = await prepareRuntimeComposition(
-          dependencies.runtimeSeam,
+          runtimeSeam,
           selected,
           invocation.persistence,
         );
