@@ -60,6 +60,18 @@ repository document or prior practice conflicts with it, this section wins.
 
 ## Current work
 
+- Gate 1 general-agent production acceptance is accepted. The initial execution stopped after the
+  PTY driver submitted a multiline prompt at its first newline; its partial turn then reached a
+  planner `MAX_TOKENS` / `unsupported_finish_reason` after 5 HTTP-200 requests and did not commit.
+  The user explicitly authorized one fresh rerun. It completed three committed turns in session
+  `61297b14-c023-4c25-8cc6-f4db61b42e4f`, exactly one planner consultation, the required parent
+  file work, exact final files, two clean exits, same-session `--continue`, and Ctrl-T history.
+  Rerun requests were 8/4/4 = 16, all HTTP 200, with 28,524 reported tokens and USD 0.028308 cost.
+  Full accounting and evidence IDs are in
+  `docs/plans/gate-1-general-agent-production-acceptance-results.md`. FR2–FR4 and Gate 1 are
+  complete; next is FR5 integrated human UI candidate assessment. Both executions' retained state
+  remains; cleanup, additional provider attempts, product/test/launcher changes, `_refs/*`, and
+  commit/push/tag/publish/release require separate authorization.
 - Baselineはcommit `024071a`。旧`tests/v0/`は
   `/tmp/henji-tests-v0-pre-minimal-reset-20260902`へ復元可能に退避され、current offline suiteは6件。
 - Step 83 production retryは一回のprovider requestで

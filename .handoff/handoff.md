@@ -32,15 +32,16 @@
 - 境界: loader/plugin/追加provider/third production Definition/general safety、provider/credential/
   production/machine/cleanup、`_refs/*`、commit/push/tag/publish/releaseは未実施
 
-### ASK-20260902-gate1-general-agent-production-acceptance
+### POL-20260902-gate1-general-agent-production-acceptance
 
-- 判断待ち: `docs/plans/gate-1-general-agent-production-acceptance.md`、SHA-256
-  `0919f776a9dd14036163d7f6d5cdba0d33b63322292bb20ef12d3ce6f4c36ecb`のintegration commit後、
-  provider-free preflight結果を提示して一回のHuman Gate承認を得る
-- 範囲: fixed fresh workspace/state namespace、installed `henji`、3 turns、exactly one planner、
-  normal exit/`--continue`、session/history/evidence readback。最大32 requests、USD 2.00 ceiling
-- 境界: retry/fallback/rerun/追加turn、cleanup、code/test/launcher変更、別provider、`_refs/*`、
-  push/tag/publish/releaseは対象外
+- 状態: Gate 1はuser accepted。FR2–FR4完了。結果正本は
+  `docs/plans/gate-1-general-agent-production-acceptance-results.md`
+- 成功rerun: session `61297b14-c023-4c25-8cc6-f4db61b42e4f`、3 committed turns、planner一回、
+  request 8/4/4 = 16（全HTTP 200）、28,524 tokens、USD 0.028308、exact files、exit/continue/history成功
+- 初回停止: PTY driverがmultiline入力の最初の改行で早期submitし、partial turnのplannerが5 request目で
+  `MAX_TOKENS` / `unsupported_finish_reason`。turn未commit。userがfresh one-line rerunを明示承認した
+- 境界: 両workspace/state/evidence/diagnosticを保持。次はFR5。cleanup、追加provider attempt、code/test/
+  launcher変更、`_refs/*`、commit/push/tag/publish/releaseは新しい明示指示を要する
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
@@ -4387,3 +4388,13 @@
 - 次: plan integration commit後、provider-free preflightを行いHuman Gateを本人へ提示
 - 注意: 最大32 application requests、理論上限USD 1.990656、ceiling USD 2.00。provider request、
   credential read、workspace/state作成、production execution、code/test変更、cleanupは未実施
+
+## 2026-09-02 18:51 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: Gate 1 general-agent production acceptance
+- 実施: 初回driver早期submitとplanner出力上限失敗を保存し、user承認のfresh rerunで3 turns、planner一回、
+  exact file、exit/continue/history、16/16 HTTP 200を完了。userがGate 1を合格と判断した
+- 次: FR5 integrated human UI candidate assessment
+- 注意: 成功rerun費用USD 0.028308。両workspace/state/evidence/diagnostic保持。cleanup、追加provider attempt、
+  code/test/launcher変更、`_refs/*`、commit/push/tag/publish/release未実施
