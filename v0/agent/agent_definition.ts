@@ -1,6 +1,6 @@
 import { type OpenRouterAgentProfile } from './openrouter_model.ts';
-import { PROFILE } from '../model.ts';
 import { composeSystemInstruction } from './agent_instructions.ts';
+import { PRODUCTION_PROFILE } from './provider_profile.ts';
 import { type SkillCatalog } from './skills.ts';
 import { type Workspace } from './work_tools.ts';
 import {
@@ -136,26 +136,13 @@ const flattenResources = (
   ...capabilities.subagents,
 ];
 
-// The profile is declaration data, not the credential itself.  Keep a frozen provider snapshot so
-// callers cannot mutate the canonical profile after a Definition has been evaluated.
-const MODEL_PROFILE: OpenRouterAgentProfile = Object.freeze({
-  id: PROFILE.id,
-  model: PROFILE.model,
-  origin: PROFILE.origin,
-  path: PROFILE.path,
-  method: PROFILE.method,
-  secretEnv: PROFILE.secretEnv,
-  maxCompletionTokens: PROFILE.maxCompletionTokens,
-  stream: PROFILE.stream,
-});
-
 const resolveDefinition = (
   input: AgentDefinitionInput,
   kind: 'production' | 'planner',
 ): ResolvedAgentDefinition => {
   const model: AgentModelDefinition = Object.freeze({
     provider: 'openrouter',
-    profile: MODEL_PROFILE,
+    profile: PRODUCTION_PROFILE,
   });
   const capabilities = declarationsFor(input, kind);
   const limits = Object.freeze({ maxSteps: DEFAULT_AGENT_MAX_STEPS });

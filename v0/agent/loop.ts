@@ -43,7 +43,8 @@ import {
 } from './planner_delegation.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
-export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
+export const MAX_ASSISTANT_TEXT_BYTES = 1024 * 1024;
+export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
 
 /** Maximum accepted live assistant snapshots for one admitted model request. */
 export const MAX_ASSISTANT_PROGRESS_UPDATES_PER_REQUEST = 256;
@@ -110,7 +111,10 @@ const isToolCall = (value: unknown): value is ToolCall => {
 const isModelResult = (value: unknown): value is ModelResult => {
   if (typeof value !== 'object' || value === null) return false;
   const result = value as Record<string, unknown>;
-  if (result.kind === 'final') return typeof result.text === 'string';
+  if (result.kind === 'final') {
+    return typeof result.text === 'string' &&
+      new TextEncoder().encode(result.text).byteLength <= MAX_ASSISTANT_TEXT_BYTES;
+  }
   return result.kind === 'tool_calls' && Array.isArray(result.calls) &&
     result.calls.length > 0 &&
     result.calls.every(isToolCall);

@@ -60,6 +60,16 @@ repository document or prior practice conflicts with it, this section wins.
 
 ## Current work
 
+- The fixed output-limit expansion in `docs/plans/fixed-output-limit-expansion.md` is implemented.
+  The normal parent/planner profile is now owned under `v0/agent/`, separated from the legacy
+  `v0/model.ts` budgeted path, and requests 65,536 completion tokens. Completed answers,
+  saved/restored user/assistant text, and TUI entries use 1 MiB; the planner-to-parent JSON envelope
+  uses 2 MiB; serialized next-request messages use 5 MiB and the enclosing request 6 MiB; raw SSE
+  remains 1 MiB. Pi/Zot are reference information only, with model-specific limits, incremental
+  SSE, full-message flow, and token-based compaction deferred. Initial functional review's P1
+  (planner result blocked by the former 76 KiB next-request limit) was fixed and narrow re-review is
+  GO. Owner `v0:gate` ran once: current 9/9 + provider 9/9, check/fmt/lint green. No provider,
+  credential, launcher/state, legacy budget, `_refs/*`, dependency, or commit operation occurred.
 - Gate 1 general-agent production acceptance is accepted. The initial execution stopped after the
   PTY driver submitted a multiline prompt at its first newline; its partial turn then reached a
   planner `MAX_TOKENS` / `unsupported_finish_reason` after 5 HTTP-200 requests and did not commit.

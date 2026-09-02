@@ -7,7 +7,7 @@ export const MAX_COLUMNS = 512;
 export const MAX_ROWS = 200;
 export const MAX_EDITOR_ROWS = 8;
 export const MAX_FRAME_BYTES = 128 * 1024;
-export const MAX_LAYOUT_SOURCE_BYTES = 256 * 1024;
+export const MAX_LAYOUT_SOURCE_BYTES = 2 * 1024 * 1024;
 
 export interface LayoutRow {
   readonly text: string;

@@ -2,6 +2,9 @@ import {
   OpenRouterAgentModel,
   type OpenRouterAgentProfile,
 } from '../../v0/agent/openrouter_model.ts';
+import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
+import { runAgent } from '../../v0/agent/loop.ts';
+import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
 import {
   FakeProviderEvidenceStore,
   ProviderEvidenceRecorder,
@@ -79,6 +82,18 @@ const textStream = (id = 'gen-text'): string =>
     })
   }\n\n${usage(id, 'stop')}data: [DONE]\n\n`;
 
+const largeTextStream = (text: string, id = 'gen-large-text'): string =>
+  `data: ${
+    JSON.stringify({
+      id,
+      choices: [{
+        index: 0,
+        delta: { role: 'assistant', content: text },
+        finish_reason: 'stop',
+      }],
+    })
+  }\n\n${usage(id, 'stop')}data: [DONE]\n\n`;
+
 const toolStream = (id = 'gen-tool'): string =>
   `data: ${
     JSON.stringify({
@@ -94,6 +109,29 @@ const toolStream = (id = 'gen-tool'): string =>
             function: {
               name: 'submit_json_result',
               arguments: JSON.stringify({ json: '{"ok":true}' }),
+            },
+          }],
+        },
+        finish_reason: 'tool_calls',
+      }],
+    })
+  }\n\n${usage(id, 'tool_calls')}data: [DONE]\n\n`;
+
+const plannerDelegationStream = (id = 'gen-planner'): string =>
+  `data: ${
+    JSON.stringify({
+      id,
+      choices: [{
+        index: 0,
+        delta: {
+          role: 'assistant',
+          tool_calls: [{
+            index: 0,
+            id: 'delegate-large',
+            type: 'function',
+            function: {
+              name: 'delegate_to_planner',
+              arguments: JSON.stringify({ task: 'large plan' }),
             },
           }],
         },
@@ -208,6 +246,85 @@ Deno.test('documented text accounting reaches ModelResult through HTTP and SSE',
     unsupportedRecorder.snapshot().requests[0].response?.rawBody,
     'raw unsupported-media body',
   );
+});
+
+Deno.test('assistant output above 64 KiB remains reachable through the provider adapter', async () => {
+  const text = 'x'.repeat(300_000);
+  const seen = { requests: 0 };
+  const progress: string[] = [];
+  const result = await modelFor(largeTextStream(text), seen).generate(request, {
+    reportAssistantProgress: (snapshot) => progress.push(snapshot),
+  });
+  assertEquals(result, { kind: 'final', text });
+  assertEquals(seen.requests, 1);
+  assert(progress.at(-1) === text);
+});
+
+Deno.test('planner result above 76 KiB reaches the parent continuation request', async () => {
+  const plannerText = 'p'.repeat(300_000);
+  const seen = { requests: 0 };
+  let parentToolContent: string | undefined;
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'sse',
+    credential: 'dummy-credential-value',
+    fetcher: (_input, init) => {
+      seen.requests += 1;
+      if (seen.requests === 2) {
+        const body = JSON.parse(String(init?.body)) as {
+          readonly messages?: readonly {
+            readonly role?: unknown;
+            readonly content?: unknown;
+          }[];
+        };
+        const toolMessage = body.messages?.find((message) => message.role === 'tool');
+        assert(toolMessage !== undefined);
+        assert(typeof toolMessage.content === 'string');
+        parentToolContent = toolMessage.content;
+        assert(
+          new TextEncoder().encode(JSON.stringify(body.messages)).byteLength > 76 * 1024,
+        );
+      }
+      const responseBody = seen.requests === 1
+        ? plannerDelegationStream()
+        : textStream('gen-parent-final');
+      return Promise.resolve(
+        new Response(responseBody, {
+          status: 200,
+          headers: {
+            'content-type': 'text/event-stream; charset=utf-8',
+            'x-generation-id': `gen-${seen.requests}`,
+          },
+        }),
+      );
+    },
+  });
+  const outcome = await runAgent(
+    'parent task',
+    model,
+    new Registry([createPlannerDelegationTool((_task, child) => {
+      assert(child.claimModelRequest());
+      return {
+        externalRequests: 1,
+        outcome: {
+          ok: true,
+          task: 'large plan',
+          outcome: 'final',
+          stopReason: 'final',
+          finalText: plannerText,
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+        },
+      };
+    })]),
+    { executionContext: new ParentTurnExecutionContext(1) },
+  );
+  assert(outcome.ok);
+  assertEquals(outcome.finalText, 'hello');
+  assertEquals(seen.requests, 2);
+  assert(parentToolContent?.includes(plannerText));
 });
 
 Deno.test('documented tool accounting dispatches normally through the same transport', async () => {

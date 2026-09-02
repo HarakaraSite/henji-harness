@@ -43,6 +43,19 @@
 - 境界: 両workspace/state/evidence/diagnosticを保持。次はFR5。cleanup、追加provider attempt、code/test/
   launcher変更、`_refs/*`、commit/push/tag/publish/releaseは新しい明示指示を要する
 
+### POL-20260902-fixed-output-limit-expansion
+
+- 状態: `docs/plans/fixed-output-limit-expansion.md`のuser-approved実装完了。production agent profileを
+  legacy `v0/model.ts`から分離し、parent/planner completion 65,536 tokens、answer/session/TUI 1 MiB、
+  planner JSON envelope 2 MiB、serialized messages 5 MiB、request body 6 MiB、raw SSE 1 MiBとした
+- 判断済み: Pi/Zotは今回の仕様ではなく将来の参考情報。model別上限、aggregate capなしのincremental
+  SSE、full-message flow、token/context基準compactionは別の将来判断とする
+- 検証: initial review P1は旧76 KiBがplanner結果のparent再投入を阻害した実不具合。user判断で5/6 MiBへ
+  修正し、actual loop regression成功、narrow re-review GO。owner `v0:gate`一回でcurrent/provider各9/9、
+  check/fmt/lint green
+- 境界: provider/credential、production launcher/state、legacy budget、`_refs/*`、dependency、cleanup、
+  commit/push/tag/publish/releaseは未実施
+
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison
@@ -4398,3 +4411,13 @@
 - 次: FR5 integrated human UI candidate assessment
 - 注意: 成功rerun費用USD 0.028308。両workspace/state/evidence/diagnostic保持。cleanup、追加provider attempt、
   code/test/launcher変更、`_refs/*`、commit/push/tag/publish/release未実施
+
+## 2026-09-02 20:12 JST
+
+- 実行エージェント: Codex owner + planner + implementer + functional reviewer
+- 作業トピック: fixed output-limit expansion and legacy-profile separation
+- 実施: Gate 1結果をcommit `b46c2de`へ記録後、production profile分離と1 MiB/2 MiB出力上限を実装。
+  reviewで判明した旧76 KiB parent再投入P1をuser判断の5 MiB messages/6 MiB requestで閉じた
+- 次: user指示でこのincrementをcommit、またはFR5 integrated human UI candidate assessment
+- 注意: narrow re-review GO。owner full gate一回で18/18とcheck/fmt/lint green。provider/credential、
+  launcher/state、legacy budget、`_refs/*`、dependency/cleanup、追加commit/push/tag/release未実施

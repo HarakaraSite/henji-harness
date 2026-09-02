@@ -207,6 +207,8 @@ const isParsedJsonValue = (value: unknown): value is JsonValue => {
 const SUBMIT_JSON_RESULT_DESCRIPTION =
   'Submit the final answer when it is a JSON value. Call it as the only tool call in the assistant batch. Pass the complete JSON text in `json`. Use the normal assistant final response for plain text.';
 
+export const MAX_JSON_RESULT_BYTES = 1024 * 1024;
+
 export const createJsonResultSubmissionTool = (): Tool => ({
   name: 'submit_json_result',
   description: SUBMIT_JSON_RESULT_DESCRIPTION,
@@ -229,8 +231,8 @@ export const createJsonResultSubmissionTool = (): Tool => ({
       throw new ToolInputError('expected an object with only a json string');
     }
     const input = argumentsValue.json;
-    if (new TextEncoder().encode(input).byteLength > 65_536) {
-      throw new ToolInputError('json input exceeds 64 KiB');
+    if (new TextEncoder().encode(input).byteLength > MAX_JSON_RESULT_BYTES) {
+      throw new ToolInputError('json input exceeds 1 MiB');
     }
     let parsed: unknown;
     try {
@@ -245,8 +247,8 @@ export const createJsonResultSubmissionTool = (): Tool => ({
     if (typeof finalText !== 'string') {
       throw new ToolInputError('json must contain one complete JSON value');
     }
-    if (new TextEncoder().encode(finalText).byteLength > 65_536) {
-      throw new ToolInputError('canonical JSON exceeds 64 KiB');
+    if (new TextEncoder().encode(finalText).byteLength > MAX_JSON_RESULT_BYTES) {
+      throw new ToolInputError('canonical JSON exceeds 1 MiB');
     }
     if (context && 'signal' in context) {
       if (context.signal?.aborted) throw new TurnCancelledError();

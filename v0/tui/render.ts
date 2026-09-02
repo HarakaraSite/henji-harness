@@ -36,7 +36,7 @@ import {
 import { layoutUi, MAX_FRAME_BYTES, type UiLayout } from './layout.ts';
 
 const encoder = new TextEncoder();
-const DISPLAY_LIMIT = 64 * 1024;
+const DISPLAY_LIMIT = 1024 * 1024;
 const ESCAPED_BIDI = (code: number): boolean =>
   code === 0x061c || (code >= 0x200e && code <= 0x200f) ||
   (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069);

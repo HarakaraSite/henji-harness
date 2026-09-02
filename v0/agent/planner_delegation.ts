@@ -15,7 +15,8 @@ import { type Tool, type ToolContext, ToolInputError } from './tools.ts';
 
 const encoder = new TextEncoder();
 export const MAX_PLANNER_TASK_BYTES = 65_536;
-export const MAX_PLANNER_RESULT_BYTES = 65_536;
+export const MAX_PLANNER_ANSWER_BYTES = 1024 * 1024;
+export const MAX_PLANNER_RESULT_BYTES = 2 * 1024 * 1024;
 
 export const DELEGATE_TO_PLANNER_DESCRIPTION =
   'Delegate one explicit planning task to the built-in planner for this parent turn. The planner receives only task, can read the same workspace and saved skills, cannot mutate it, and returns one bounded synchronous result. Call at most once per turn.';
@@ -124,7 +125,7 @@ const failureMessage = (code: FailureCode): string => {
     case 'planner_output_invalid':
       return 'planner returned an invalid result';
     case 'planner_output_limit':
-      return 'planner result exceeds 64 KiB';
+      return 'planner result exceeds the configured output limit';
   }
 };
 
@@ -158,6 +159,9 @@ const successEnvelope = (
 
 const withinResultLimit = (value: string): boolean =>
   encoder.encode(value).byteLength <= MAX_PLANNER_RESULT_BYTES;
+
+const withinAnswerLimit = (value: string): boolean =>
+  encoder.encode(value).byteLength <= MAX_PLANNER_ANSWER_BYTES;
 
 const isParentContext = (
   context: ToolContext | undefined,
@@ -219,6 +223,13 @@ export const createPlannerDelegationTool = (
       typeof execution !== 'object' || execution === null ||
       typeof execution.outcome !== 'object' || execution.outcome === null
     ) throw new PlannerDelegationFailureError('planner_failed');
+
+    if (
+      typeof execution.outcome.finalText === 'string' &&
+      !withinAnswerLimit(execution.outcome.finalText)
+    ) {
+      throw new PlannerDelegationFailureError('planner_output_limit', execution.outcome.diagnostic);
+    }
 
     const output = successEnvelope(execution.outcome, usage);
     if (output === undefined) {

@@ -33,7 +33,11 @@ import {
   projectSemanticContext,
   summaryRequest,
 } from './semantic_context.ts';
-import { measureModelRequestWire } from './openrouter_model.ts';
+import {
+  MAX_MESSAGE_BYTES,
+  MAX_REQUEST_BYTES,
+  measureModelRequestWire,
+} from './openrouter_model.ts';
 import {
   FailureDiagnosticOwner,
   type FailureDiagnosticOwnerOptions,
@@ -366,7 +370,7 @@ export class AgentSession {
       const prepared = prepareProjectedRequest(draft, checkpoint);
       const actual = measureModelRequestWire(prepared.request);
       if (
-        actual.messagesBytes > 76 * 1024 || actual.bodyBytes > 256 * 1024 ||
+        actual.messagesBytes > MAX_MESSAGE_BYTES || actual.bodyBytes > MAX_REQUEST_BYTES ||
         actual.messagesBytes >= candidate.baselineMessagesBytes
       ) {
         return { kind: 'failed', reason: 'summary is not a useful fitting compaction' };

@@ -520,8 +520,8 @@ export interface PresentationProjection {
   readonly generation: number;
 }
 
-export const PRESENTATION_MAX_TEXT_BYTES = 64 * 1024;
-export const PRESENTATION_MAX_EVENT_BYTES = 64 * 1024;
+export const PRESENTATION_MAX_TEXT_BYTES = 1024 * 1024;
+export const PRESENTATION_MAX_EVENT_BYTES = 2 * 1024 * 1024;
 
 /** Stable error used whenever a presentation sink cannot accept a frame. */
 export class PresentationDeliveryError extends Error {

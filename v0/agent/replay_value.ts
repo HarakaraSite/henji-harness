@@ -5,7 +5,8 @@ export const MAX_REPLAY_VALUE_NODES = 4_096;
 export const MAX_REPLAY_VALUE_DEPTH = 16;
 export const MAX_REPLAY_VALUE_PROPERTIES = 128;
 export const MAX_REPLAY_ARRAY_ITEMS = 256;
-export const MAX_REPLAY_MESSAGE_TEXT_BYTES = 65_536;
+export const MAX_REPLAY_MESSAGE_TEXT_BYTES = 1024 * 1024;
+export const MAX_REPLAY_PLANNER_RESULT_BYTES = 2 * 1024 * 1024;
 export const MAX_REPLAY_TRANSCRIPT_MESSAGES = 512;
 
 const encoder = new TextEncoder();
@@ -152,9 +153,12 @@ const validResult = (value: unknown): value is ToolResultContent => {
     ? ['kind', 'callId', 'name', 'text', 'outcome', 'terminal']
     : ['kind', 'callId', 'name', 'text', 'outcome'];
   if (!ownDataKeys(value, expected)) return false;
+  const textLimit = value.name === 'delegate_to_planner'
+    ? MAX_REPLAY_PLANNER_RESULT_BYTES
+    : MAX_REPLAY_MESSAGE_TEXT_BYTES;
   return value.kind === 'tool_result' && stringOk(value.callId, 128, true) &&
     typeof value.name === 'string' && TOOL_NAME.test(value.name) &&
-    stringOk(value.text, MAX_REPLAY_MESSAGE_TEXT_BYTES) &&
+    stringOk(value.text, textLimit) &&
     (value.outcome === 'success' || value.outcome === 'error') &&
     (!terminal || (value.outcome === 'success' && value.terminal === 'json_result'));
 };

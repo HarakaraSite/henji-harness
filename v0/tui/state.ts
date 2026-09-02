@@ -12,8 +12,8 @@ import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
 
 export const UI_MAX_LOG_ENTRIES = 512;
-export const UI_MAX_LOG_BYTES = 256 * 1024;
-export const UI_MAX_ENTRY_BYTES = 64 * 1024;
+export const UI_MAX_LOG_BYTES = 2 * 1024 * 1024;
+export const UI_MAX_ENTRY_BYTES = 1024 * 1024;
 export const UI_MAX_NEW_BELOW = 512;
 
 export type UiLogKind =

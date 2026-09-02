@@ -1,4 +1,4 @@
-import { PROFILE } from '../model.ts';
+import { PRODUCTION_PROFILE } from './provider_profile.ts';
 import {
   type JsonValue,
   type Message,
@@ -17,11 +17,12 @@ import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
 
 const encoder = new TextEncoder();
 
-export const MAX_MESSAGE_BYTES = 76 * 1024;
-export const MAX_REQUEST_BYTES = 256 * 1024;
+export const MAX_MESSAGE_BYTES = 5 * 1024 * 1024;
+export const MAX_REQUEST_BYTES = 6 * 1024 * 1024;
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
 export const MAX_SSE_DATA_EVENTS = 4_096;
-export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
+export const MAX_ASSISTANT_TEXT_BYTES = 1024 * 1024;
+export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
 
 /** Structural provider profile consumed by the normal OpenRouter adapter. */
 export interface OpenRouterAgentProfile {
@@ -214,7 +215,7 @@ export interface OpenRouterAgentModelOptions {
   readonly credentialSource?: CredentialSource;
   /** Tests may use a local endpoint; callers cannot select it through ModelRequest. */
   readonly endpoint?: string;
-  /** Internal composition input; omitted callers retain the canonical PROFILE. */
+  /** Internal composition input; omitted callers retain the canonical production profile. */
   readonly profile?: OpenRouterAgentProfile;
   readonly timeoutMs?: number;
   readonly parentSignal?: AbortSignal;
@@ -450,7 +451,7 @@ export const encodeRequest = (
   if (enforceMessageLimit && bytes(messageBody) > MAX_MESSAGE_BYTES) {
     throw new OpenRouterAgentError(
       'limit_exceeded',
-      'serialized model messages exceed 76 KiB',
+      'serialized model messages exceed 5 MiB',
       0,
       undefined,
       { stage: 'request_build', code: 'limit_exceeded' },
@@ -462,7 +463,7 @@ export const encodeRequest = (
 /** Stable provider-wire measurement shared by context admission and the adapter itself. */
 export const measureModelRequestWire = (
   request: ModelRequest,
-  profile: OpenRouterAgentProfile = PROFILE,
+  profile: OpenRouterAgentProfile = PRODUCTION_PROFILE,
   responseMode: OpenRouterResponseMode = 'sse',
 ): {
   readonly messages: readonly unknown[];
@@ -554,6 +555,19 @@ const decodeResponse = (payload: unknown): ModelResult => {
     typeof content === 'string' && content.length > 0 &&
     (toolCalls === undefined || toolCalls === null)
   ) {
+    if (bytes(content) > MAX_ASSISTANT_TEXT_BYTES) {
+      throw new OpenRouterAgentError(
+        'limit_exceeded',
+        'assistant response exceeds 1 MiB',
+        1,
+        undefined,
+        {
+          stage: 'response_parse',
+          code: 'limit_exceeded',
+          parseReason: 'response_body_too_large',
+        },
+      );
+    }
     return { kind: 'final', text: content };
   }
   if (
@@ -1063,6 +1077,19 @@ const processSsePayload = (
     const contentBytes = bytes(content);
     observer?.onFragmentBytes?.(contentBytes);
     assembly.textBytes += contentBytes;
+    if (assembly.textBytes > MAX_ASSISTANT_TEXT_BYTES) {
+      throw new OpenRouterAgentError(
+        'limit_exceeded',
+        'assistant response exceeds 1 MiB',
+        1,
+        undefined,
+        {
+          stage: 'response_parse',
+          code: 'limit_exceeded',
+          parseReason: 'response_body_too_large',
+        },
+      );
+    }
     if (report && !assembly.liveFrozen) {
       for (const character of content) {
         observer?.onProgressCodePoint?.();
@@ -1336,7 +1363,7 @@ export class OpenRouterAgentModel implements Model {
   constructor(options: OpenRouterAgentModelOptions = {}) {
     this.options = options;
     this.fetcher = options.fetcher ?? fetch;
-    this.profile = options.profile ?? PROFILE;
+    this.profile = options.profile ?? PRODUCTION_PROFILE;
   }
 
   async generate(
@@ -1357,7 +1384,7 @@ export class OpenRouterAgentModel implements Model {
     if (bytes(body) > MAX_REQUEST_BYTES) {
       throw new OpenRouterAgentError(
         'limit_exceeded',
-        'provider request exceeds 256 KiB',
+        'provider request exceeds 6 MiB',
         0,
         undefined,
         { stage: 'request_build', code: 'limit_exceeded' },

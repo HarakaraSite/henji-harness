@@ -1,11 +1,12 @@
 import { type JsonValue, type Message } from './contracts.ts';
+import { MAX_REPLAY_MESSAGE_TEXT_BYTES, MAX_REPLAY_PLANNER_RESULT_BYTES } from './replay_value.ts';
 
 export const SESSION_SCHEMA_VERSION = 1 as const;
 export const MAX_SESSION_FILE_BYTES = 8 * 1024 * 1024;
 export const MAX_VALID_SESSIONS_PER_WORKSPACE = 256;
 export const MAX_WORKSPACE_DIRECTORY_ENTRIES = 512;
 export const MAX_RESTORED_DISPLAY_MESSAGES = 100;
-export const MAX_RESTORED_DISPLAY_BYTES = 256 * 1024;
+export const MAX_RESTORED_DISPLAY_BYTES = 2 * 1024 * 1024;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -100,6 +101,11 @@ const validString = (value: unknown): value is string =>
     return code >= 0xd800 && code <= 0xdfff;
   });
 
+const validMessageText = (
+  value: unknown,
+  max = MAX_REPLAY_MESSAGE_TEXT_BYTES,
+): value is string => validString(value) && encoder.encode(value).byteLength <= max;
+
 const validateToolCall = (value: unknown): boolean => {
   if (typeof value !== 'object' || value === null) return false;
   const call = value as Record<string, unknown>;
@@ -116,7 +122,12 @@ const validateToolResult = (value: unknown): boolean => {
   if (
     !common || result.kind !== 'tool_result' || !validString(result.callId) ||
     result.callId.length === 0 || !validString(result.name) || result.name.length === 0 ||
-    !validString(result.text)
+    !validMessageText(
+      result.text,
+      result.name === 'delegate_to_planner'
+        ? MAX_REPLAY_PLANNER_RESULT_BYTES
+        : MAX_REPLAY_MESSAGE_TEXT_BYTES,
+    )
   ) return false;
   if (result.outcome !== 'success' && result.outcome !== 'error') return false;
   if (Object.hasOwn(result, 'terminal')) {
@@ -133,14 +144,14 @@ const validateMessage = (value: unknown): value is Message => {
     return ownKeys(message, ['role', 'content']) && typeof content === 'object' &&
       content !== null &&
       ownKeys(content, ['kind', 'text']) && (content as Record<string, unknown>).kind === 'text' &&
-      validString((content as Record<string, unknown>).text);
+      validMessageText((content as Record<string, unknown>).text);
   }
   if (message.role === 'assistant') {
     const content = message.content;
     if (typeof content === 'object' && content !== null && !Array.isArray(content)) {
       return ownKeys(message, ['role', 'content']) && ownKeys(content, ['kind', 'text']) &&
         (content as Record<string, unknown>).kind === 'text' &&
-        validString((content as Record<string, unknown>).text);
+        validMessageText((content as Record<string, unknown>).text);
     }
     return ownKeys(message, ['role', 'content']) && Array.isArray(content) && content.length > 0 &&
       content.every(validateToolCall);

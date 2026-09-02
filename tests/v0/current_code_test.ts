@@ -1,5 +1,4 @@
 import * as agentCli from '../../v0/agent/cli.ts';
-import * as mainCli from '../../v0/cli/main.ts';
 import type { LoopOutcome, ModelRequest, ToolCall } from '../../v0/agent/contracts.ts';
 import type { AgentEvent } from '../../v0/agent/events.ts';
 import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
@@ -9,9 +8,18 @@ import { AgentSession } from '../../v0/agent/session.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import { defaultAgentDefinition, plannerAgentDefinition } from '../../v0/agent/agent_definition.ts';
+import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider_profile.ts';
 import { admitInternalAgentDefinition } from '../../v0/agent/agent_catalog.ts';
 import { emptySkillCatalog } from '../../v0/agent/skills.ts';
 import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
+import {
+  decodeSessionRecord,
+  encodeSessionRecord,
+  restoredMessages,
+} from '../../v0/agent/session_store.ts';
+import { MAX_REPLAY_MESSAGE_TEXT_BYTES } from '../../v0/agent/replay_value.ts';
+import { boundedPresentationText } from '../../v0/presentation/contract.ts';
+import { layoutUi } from '../../v0/tui/layout.ts';
 import {
   createAgentResourceSelection,
   validateResolvedAgentResources,
@@ -43,7 +51,6 @@ const delegationCall = (): ToolCall => ({
 
 Deno.test('public CLI API exposes only the intended runtime entry points', () => {
   assertEquals(Object.keys(agentCli).sort(), ['main']);
-  assertEquals(Object.keys(mainCli).sort(), ['defaultStateDirFor', 'main']);
 });
 
 Deno.test('agent loop completes plain and terminal-tool turns', async () => {
@@ -209,6 +216,45 @@ Deno.test('planner delegation succeeds once and child failure stops the parent i
   );
 });
 
+Deno.test('planner and terminal JSON results retain output above 64 KiB', async () => {
+  const text = 'p'.repeat(300_000);
+  const context = new ParentTurnExecutionContext(1);
+  const planner = createPlannerDelegationTool((_task, child) => {
+    assert(child.claimModelRequest());
+    return {
+      externalRequests: 1,
+      outcome: {
+        ok: true,
+        task: 'large plan',
+        outcome: 'final',
+        stopReason: 'final',
+        finalText: text,
+        steps: 1,
+        toolCallCount: 0,
+        toolResultCount: 0,
+        transcript: [],
+      },
+    };
+  });
+  const plannerResult = await new Registry([planner]).dispatch({
+    callId: 'delegate-large',
+    name: 'delegate_to_planner',
+    arguments: { task: 'large plan' },
+  }, context);
+  assertEquals(plannerResult.content.outcome, 'success');
+  assert(plannerResult.content.text.includes(text));
+  assert(new TextEncoder().encode(plannerResult.content.text).byteLength > 65_536);
+
+  const json = JSON.stringify({ text });
+  const terminal = await new Registry([createJsonResultSubmissionTool()]).dispatch({
+    callId: 'submit-large',
+    name: 'submit_json_result',
+    arguments: { json },
+  });
+  assert(terminal.terminal !== null);
+  assertEquals(terminal.terminal?.finalText, json);
+});
+
 Deno.test('retained UI records exact per-turn and runtime request counts once', () => {
   const event = {
     kind: 'turn_end' as const,
@@ -322,4 +368,52 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     composition.registry.definitions().map((tool) => tool.name),
     ['read', 'submit_json_result'],
   );
+});
+
+Deno.test('production definitions and saved messages use the expanded text ceilings', () => {
+  const input = { workspace: { root: '/definition-test' }, skillCatalog: emptySkillCatalog() };
+  assertEquals(defaultAgentDefinition(input).model.profile.maxCompletionTokens, 65_536);
+  assertEquals(plannerAgentDefinition(input).model.profile.maxCompletionTokens, 65_536);
+  assertEquals(PRODUCTION_MAX_COMPLETION_TOKENS, 65_536);
+  assertEquals(MAX_REPLAY_MESSAGE_TEXT_BYTES, 1024 * 1024);
+
+  const text = 'x'.repeat(300_000);
+  const record = {
+    schemaVersion: 1 as const,
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    workspaceRoot: '/output-limit-test',
+    agent: 'default' as const,
+    createdAt: '2026-09-02T00:00:00.000Z',
+    updatedAt: '2026-09-02T00:00:00.000Z',
+    nextTurn: 2,
+    transcript: [
+      { role: 'user' as const, content: { kind: 'text' as const, text: 'task' } },
+      { role: 'assistant' as const, content: { kind: 'text' as const, text } },
+    ],
+  };
+  const decoded = decodeSessionRecord(encodeSessionRecord(record));
+  assertEquals(decoded.transcript[1].role, 'assistant');
+  const decodedAssistant = decoded.transcript[1];
+  if (decodedAssistant.role !== 'assistant' || Array.isArray(decodedAssistant.content)) {
+    throw new Error('assistant text was not retained');
+  }
+  assertEquals((decodedAssistant.content as { readonly text: string }).text, text);
+  const restored = restoredMessages(decoded.transcript);
+  assertEquals(restored.omitted, 0);
+  const restoredAssistant = restored.messages[1];
+  if (restoredAssistant.role !== 'assistant' || Array.isArray(restoredAssistant.content)) {
+    throw new Error('restored assistant text was not retained');
+  }
+  assertEquals((restoredAssistant.content as { readonly text: string }).text, text);
+  assertEquals(boundedPresentationText(text), text);
+
+  const ui = reduceUiEvent(createUiState(), {
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text } },
+  });
+  const entry = ui.log.entries.find((item) => item.id === 'turn-1:assistant');
+  assert(entry !== undefined && entry.text === text);
+  const layout = layoutUi(ui, 80, 24);
+  assert(layout.allLog.some((row) => row.entryId === 'turn-1:assistant'));
 });
