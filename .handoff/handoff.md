@@ -32,6 +32,16 @@
 - 境界: loader/plugin/追加provider/third production Definition/general safety、provider/credential/
   production/machine/cleanup、`_refs/*`、commit/push/tag/publish/releaseは未実施
 
+### ASK-20260902-gate1-general-agent-production-acceptance
+
+- 判断待ち: `docs/plans/gate-1-general-agent-production-acceptance.md`、SHA-256
+  `0919f776a9dd14036163d7f6d5cdba0d33b63322292bb20ef12d3ce6f4c36ecb`のintegration commit後、
+  provider-free preflight結果を提示して一回のHuman Gate承認を得る
+- 範囲: fixed fresh workspace/state namespace、installed `henji`、3 turns、exactly one planner、
+  normal exit/`--continue`、session/history/evidence readback。最大32 requests、USD 2.00 ceiling
+- 境界: retry/fallback/rerun/追加turn、cleanup、code/test/launcher変更、別provider、`_refs/*`、
+  push/tag/publish/releaseは対象外
+
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison
@@ -4367,3 +4377,13 @@
 - 次: user判断でcommit、またはGate 1 preparation/次planning input
 - 注意: owner authoritative `v0:gate`は一回で14/14、check/fmt/lint/diff green。provider/credential/
   production/machine/cleanup、`_refs/*`、commitは未操作
+
+## 2026-09-02 18:01 JST
+
+- 実行エージェント: Codex owner + zero-context planner
+- 作業トピック: Gate 1 general-agent production acceptance planning
+- 実施: revision 47 inputからFR2〜FR4を一つの3-turn production taskで確認するexecution packageを作成。
+  exact prompts/effects、one planner、exit/continue/history、evidence、failure stopを固定した
+- 次: plan integration commit後、provider-free preflightを行いHuman Gateを本人へ提示
+- 注意: 最大32 application requests、理論上限USD 1.990656、ceiling USD 2.00。provider request、
+  credential read、workspace/state作成、production execution、code/test変更、cleanupは未実施

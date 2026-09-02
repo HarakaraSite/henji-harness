@@ -91,6 +91,12 @@ repository document or prior practice conflicts with it, this section wins.
   initial review P1 1件はsynthetic Definitionが実runtime pathを通らない不足で、局所修正後のsingle narrow
   re-reviewはGO。owner authoritative `v0:gate`は一回で成功し、current offline 14/14と
   check/fmt/lint/diffがgreen。結果は`docs/plans/d0-internal-agent-definition-seam-results.md`。
+- Revision 47 Gate 1 execution packageは
+  `docs/plans/gate-1-general-agent-production-acceptance.md`、SHA-256
+  `0919f776a9dd14036163d7f6d5cdba0d33b63322292bb20ef12d3ce6f4c36ecb`。post-D0 installed
+  production TUIでFR2〜FR4を一つの3-turn taskとして確認する。parent最大24＋planner最大8＝32
+  application requests、公式価格による理論上限USD 1.990656、Human Gate ceiling USD 2.00。
+  planning complete、plan integration commitとprovider-free preflight後の本人Human Gate待ち。
 
 ## Historical records
 
