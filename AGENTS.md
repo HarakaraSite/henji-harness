@@ -79,8 +79,9 @@ repository document or prior practice conflicts with it, this section wins.
   別の明示許可なしに操作しない。
 - 次のHuman Gate計画は`docs/plans/fr1-real-provider-human-acceptance.md`。product-source baseline
   `d6e737a`のinstalled production経路で旧失敗Turn 1だけを一度実行し、実tool完了とprovider evidence
-  readbackを確認する。
-  execution approvalは未取得であり、launcher更新、provider retry、追加turn、cleanupは許可されていない。
+  readbackを確認した。6 requestは全てHTTP 200、tool順`read/write/read/edit/bash`、final、turn commit、
+  exact files、single terminal transition、raw evidence readbackが成功し、実費はUSD 0.0055785。Human Gateは
+  消費済みで、retry/fallback/追加turnは0。workspace/session/evidenceは保持し、cleanupは未承認。
 
 ## Historical records
 

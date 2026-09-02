@@ -1,6 +1,6 @@
 # FR1 real-provider human acceptance
 
-Status: **execution approval pending**
+Status: **executed once and accepted — Human Gate consumed**
 
 ## Purpose
 

@@ -9,15 +9,16 @@
 - 判断済み: 原因特定に必要なlog、raw response、event、provider metadata、構造・実行証拠を保存・readback可能にする。credential値とAuthorization headerは露出させないが、仮想的private-data懸念で診断証拠を省かず、sanitized分類だけを十分な診断としない
 - 成功基準: 人間がproduction経路で目的機能を完了できること。test、review、gate、fixtureはその代替ではない
 
-### ASK-20260902-fr1-real-provider-human-acceptance
+### POL-20260902-fr1-real-provider-human-acceptance
 
-- 判断待ち: `docs/plans/fr1-real-provider-human-acceptance.md`に基づく一回のHuman Gateを実行するか
-- 範囲: product-source baseline `d6e737a`、clean plan-containing HEAD、read-only launcher check、fresh
-  workspace/state、既存credentialのrequest-time read、production `henji`、旧失敗Turn 1一回、実tool完了、
-  provider evidence readback、結果記録
-- 上限: accepted turn 1、provider request最大16、現在価格による推論費用上限USD 1.00、retry/fallback/
-  resubmission/additional turn 0
-- 対象外: launcher update/rollback、code/test/review/gate、cleanup、`_refs/*`、commit/push/tag/release
+- 状態: `docs/plans/fr1-real-provider-human-acceptance.md`の一回のHuman Gateはacceptedで消費済み
+- 結果: HEAD `a7d68ea`、product baseline `d6e737a`、6/6 HTTP 200、tool順
+  `read/write/read/edit/bash`、final、turn 1 commit、exact files、evidence
+  `9ebb80b6-065f-46c3-a661-2b7f75084aa8`、4,242 tokens、USD 0.0055785
+- provider互換: 全6 accounting frameのempty content/assistant role/repeated finish reason/usageを受理し、
+  terminal/result transitionは各1。request/raw response/SSE/provider/parser/tool/runtime/countをreadback済み
+- 境界: retry/fallback/resubmission/additional turn 0。workspace/session/evidenceは保持。cleanup、別provider
+  attempt、launcher変更、code修正は新しい明示指示を要する
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
@@ -4324,3 +4325,13 @@
   とし、実行時はclean plan-containing HEADを記録してproduct pathsのbaseline一致を確認する
 - 次: user-authorized plan integration commit後、Human Gate実行判断
 - 注意: product source、test、provider/credential、production/machine、workspace/state、`_refs/*`は未操作
+
+## 2026-09-02 15:57 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: FR1 real-provider human acceptance execution
+- 実施: approved one-turn Human Gateを消費し、installed `henji`でread/write/read/edit/bash/finalを完了。
+  6 request全てHTTP 200、turn 1 commit、exact files、raw provider evidence readbackを確認した
+- 次: product baselineの次段階をユーザー判断。追加provider attemptやcleanupは自動実行しない
+- 注意: 実費USD 0.0055785。retry/fallback/additional turn 0。workspace/session/evidenceを保持し、launcher
+  update、code/test/gate、cleanup、`_refs/*`、commit/push/tag/releaseは未実施
