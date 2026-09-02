@@ -10,7 +10,7 @@ import { type AgentTurnOptions, runAgentTurn } from './loop.ts';
 import { Registry } from './tools.ts';
 import { snapshotMessages } from './events.ts';
 import { type ContextMetrics, prepareModelContext } from './context.ts';
-import { type ParentTurnExecutionContext } from './execution_context.ts';
+import { ParentTurnExecutionContext } from './execution_context.ts';
 import {
   type CancelRequestResult,
   isCancellationCleanupError,
@@ -39,6 +39,7 @@ import {
   type FailureDiagnosticOwnerOptions,
   type FailureDiagnosticPersistenceErrorCode,
 } from './failure_diagnostic.ts';
+import { ProviderEvidenceRecorder, type ProviderEvidenceStore } from './provider_evidence.ts';
 
 export const AGENT_SESSION_UNAVAILABLE = 'agent session unavailable';
 
@@ -55,6 +56,7 @@ export interface AgentSessionOptions {
     diagnosticOwner?: FailureDiagnosticOwner,
     providerRequestCount?: () => number,
     runtimeProviderRequestCount?: () => number,
+    providerEvidence?: ProviderEvidenceRecorder,
   ) => ParentTurnExecutionContext;
   /** Optional durable owner. Ephemeral sessions leave this unset. */
   readonly persistence?: SessionPersistence;
@@ -62,6 +64,8 @@ export interface AgentSessionOptions {
   readonly diagnosticPersistence?: FailureDiagnosticOwnerOptions['persist'];
   /** Direct-test-only owner factory for deterministic identity and time. */
   readonly diagnosticOwnerFactory?: (turn: number) => FailureDiagnosticOwner;
+  /** Optional workspace-partitioned retained provider evidence store. */
+  readonly providerEvidenceStore?: ProviderEvidenceStore;
   /** Host-owned aggregate fetch count used for occurrence-bound diagnostics. */
   readonly providerRequestCount?: () => number;
   /** Hydrated committed state used by the persistent TUI modes. */
@@ -101,6 +105,7 @@ export class AgentSession {
     diagnosticOwner?: FailureDiagnosticOwner,
     providerRequestCount?: () => number,
     runtimeProviderRequestCount?: () => number,
+    providerEvidence?: ProviderEvidenceRecorder,
   ) => ParentTurnExecutionContext;
   private committedTranscript: Message[] = [];
   private active = false;
@@ -120,6 +125,7 @@ export class AgentSession {
   private readonly diagnosticPersistence?: FailureDiagnosticOwnerOptions['persist'];
   private readonly diagnosticOwnerFactory?: (turn: number) => FailureDiagnosticOwner;
   private readonly providerRequestCount?: () => number;
+  private readonly providerEvidenceStore?: ProviderEvidenceStore;
   private activeDiagnosticOwner: FailureDiagnosticOwner | null = null;
 
   constructor(model: Model, registry: Registry, options: AgentSessionOptions = {}) {
@@ -139,6 +145,7 @@ export class AgentSession {
     this.diagnosticPersistence = options.diagnosticPersistence;
     this.diagnosticOwnerFactory = options.diagnosticOwnerFactory;
     this.providerRequestCount = options.providerRequestCount;
+    this.providerEvidenceStore = options.providerEvidenceStore;
     this.summarizeContext = options.summarizeContext;
     this.sourceProfileId = options.sourceProfileId ??
       options.persistence?.checkpoint?.sourceProfileId ?? 'unknown-profile';
@@ -425,6 +432,14 @@ export class AgentSession {
         persist: this.diagnosticPersistence,
       });
     this.activeDiagnosticOwner = diagnosticOwner;
+    const evidenceRecorder = this.providerEvidenceStore === undefined
+      ? undefined
+      : new ProviderEvidenceRecorder(
+        crypto.randomUUID().toLowerCase(),
+        turn,
+        new Date().toISOString(),
+        this.providerEvidenceStore,
+      );
     const requestCountAtAdmission = this.providerRequestCount?.() ?? 0;
     const turnProviderRequestCount = this.providerRequestCount === undefined
       ? undefined
@@ -433,15 +448,18 @@ export class AgentSession {
     const previousContext = this.committedContextSnapshot === undefined
       ? undefined
       : { ...this.committedContextSnapshot };
-    // The loop emits its terminal event before returning. Hold only diagnostic terminal events
-    // until the owner has settled persistence, so live presentation can truthfully label the
-    // same immutable record as durable or failed.
-    const deferredDiagnosticEvents: AgentEvent[] = [];
+    // The loop emits its terminal event before returning. Hold evidence-backed terminal events
+    // (and diagnostic terminal events) until persistence settles, so presentation can truthfully
+    // label the same immutable record as durable or failed.
+    const deferredTurnEndEvents: AgentEvent[] = [];
     const eventSink: AgentEventSink | undefined = this.options.eventSink === undefined
       ? undefined
       : (event) => {
-        if (event.kind === 'turn_end' && event.diagnostic !== undefined) {
-          deferredDiagnosticEvents.push(event);
+        if (
+          event.kind === 'turn_end' &&
+          (evidenceRecorder !== undefined || event.diagnostic !== undefined)
+        ) {
+          deferredTurnEndEvents.push(event);
           return;
         }
         this.options.eventSink!(event);
@@ -454,8 +472,17 @@ export class AgentSession {
         diagnosticOwner,
         turnProviderRequestCount,
         this.providerRequestCount,
-      ) ??
-        undefined;
+        evidenceRecorder,
+      ) ?? (evidenceRecorder === undefined ? undefined : new ParentTurnExecutionContext(
+        turn,
+        undefined,
+        cancellation.signal,
+        cancellation,
+        diagnosticOwner,
+        turnProviderRequestCount,
+        this.providerRequestCount,
+        evidenceRecorder,
+      ));
       const outcome = await runAgentTurn(
         userText,
         snapshotMessages(this.committedTranscript),
@@ -497,6 +524,17 @@ export class AgentSession {
           },
         },
       );
+      try {
+        evidenceRecorder?.finalize({
+          outcome,
+          ...(outcome.diagnostic === undefined ? {} : {
+            diagnosticId: outcome.diagnostic.diagnosticId,
+          }),
+        });
+        await evidenceRecorder?.persist();
+      } catch {
+        // Evidence persistence is diagnostic metadata and must not replace the provider outcome.
+      }
       let diagnosticPersistenceError: unknown;
       try {
         await diagnosticOwner.persist();
@@ -516,23 +554,40 @@ export class AgentSession {
             .persistenceErrorCode as FailureDiagnosticPersistenceErrorCode,
         }),
       };
+      const withEvidence = evidenceRecorder === undefined ? settledOutcome : {
+        ...settledOutcome,
+        providerEvidenceId: evidenceRecorder.evidenceId,
+        providerEvidenceDurability: evidenceRecorder.durability,
+        ...(evidenceRecorder.persistenceErrorCode === undefined ? {} : {
+          providerEvidencePersistenceError: evidenceRecorder.persistenceErrorCode,
+        }),
+      };
       // A diagnostic persistence failure is itself recoverable: retain the typed in-memory
       // outcome and publish durable=failed with only the fixed store error code. A failure while
       // there is no diagnostic remains an ordinary submit rejection.
       if (diagnosticPersistenceError !== undefined && outcome.diagnostic === undefined) {
         throw diagnosticPersistenceError;
       }
-      for (const event of deferredDiagnosticEvents) {
+      for (const event of deferredTurnEndEvents) {
         if (event.kind !== 'turn_end') continue;
         deliverEvent(this.options.eventSink, {
           ...event,
-          diagnosticDurability: diagnosticOwner.durability,
-          ...(diagnosticOwner.persistenceErrorCode === undefined
-            ? {}
-            : { diagnosticPersistenceError: diagnosticOwner.persistenceErrorCode }),
+          ...(evidenceRecorder === undefined ? {} : {
+            providerEvidenceId: evidenceRecorder.evidenceId,
+            providerEvidenceDurability: evidenceRecorder.durability,
+            ...(evidenceRecorder.persistenceErrorCode === undefined ? {} : {
+              providerEvidencePersistenceError: evidenceRecorder.persistenceErrorCode,
+            }),
+          }),
+          ...(event.diagnostic === undefined ? {} : {
+            diagnosticDurability: diagnosticOwner.durability,
+            ...(diagnosticOwner.persistenceErrorCode === undefined
+              ? {}
+              : { diagnosticPersistenceError: diagnosticOwner.persistenceErrorCode }),
+          }),
         });
       }
-      return settledOutcome;
+      return withEvidence;
     } catch (error) {
       try {
         // A child may have already persisted before a parent exception. This second idempotent

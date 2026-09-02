@@ -1,5 +1,6 @@
 import { type TurnCancellation } from './cancellation.ts';
 import { type FailureDiagnosticOwner } from './failure_diagnostic.ts';
+import { type ProviderEvidenceRecorder } from './provider_evidence.ts';
 
 /** The two independently bounded request lanes in one accepted turn. */
 export type RequestLane = 'parent' | 'child';
@@ -60,6 +61,7 @@ export interface ModelExecutionContext {
   readonly signal?: AbortSignal;
   readonly cancellation?: TurnCancellation;
   readonly diagnosticOwner?: FailureDiagnosticOwner;
+  readonly providerEvidence?: ProviderEvidenceRecorder;
   /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
   readonly providerRequestCount?: () => number;
   /** Runtime-process cumulative fetch count, supplied by the host adapter. */
@@ -79,6 +81,7 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
     readonly diagnosticOwner?: FailureDiagnosticOwner,
     readonly providerRequestCount?: () => number,
     readonly runtimeProviderRequestCount?: () => number,
+    readonly providerEvidence?: ProviderEvidenceRecorder,
   ) {}
 
   claimModelRequest(): boolean {
@@ -111,6 +114,7 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     readonly diagnosticOwner?: FailureDiagnosticOwner,
     readonly providerRequestCount?: () => number,
     readonly runtimeProviderRequestCount?: () => number,
+    readonly providerEvidence?: ProviderEvidenceRecorder,
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
@@ -122,6 +126,7 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
       diagnosticOwner,
       providerRequestCount,
       runtimeProviderRequestCount,
+      providerEvidence,
     );
   }
 
@@ -156,6 +161,7 @@ export const createTurnExecutionContext = (
   diagnosticOwner?: FailureDiagnosticOwner,
   providerRequestCount?: () => number,
   runtimeProviderRequestCount?: () => number,
+  providerEvidence?: ProviderEvidenceRecorder,
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,
@@ -165,6 +171,7 @@ export const createTurnExecutionContext = (
     diagnosticOwner,
     providerRequestCount,
     runtimeProviderRequestCount,
+    providerEvidence,
   );
 
 /** The execution-only wrapper passed to tools; request admission remains nested separately. */

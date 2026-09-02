@@ -11,6 +11,10 @@ import type {
   FailureDiagnosticPersistenceErrorCode,
   FailureDiagnosticV1,
 } from './failure_diagnostic.ts';
+import type {
+  ProviderEvidenceDurability,
+  ProviderEvidencePersistenceErrorCode,
+} from './provider_evidence.ts';
 import { PresentationDeliveryError as EventDeliveryError } from '../presentation/contract.ts';
 
 // Compatibility export: core delivery and the presentation boundary intentionally share one
@@ -64,6 +68,9 @@ export type AgentEvent =
     readonly committed: boolean;
     readonly turnProviderRequestCount?: number;
     readonly runtimeProviderRequestCount?: number;
+    readonly providerEvidenceId?: string;
+    readonly providerEvidenceDurability?: ProviderEvidenceDurability;
+    readonly providerEvidencePersistenceError?: ProviderEvidencePersistenceErrorCode;
     readonly diagnostic?: FailureDiagnosticV1;
     readonly diagnosticDurability?: FailureDiagnosticDurability;
     readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;

@@ -39,6 +39,7 @@ import {
 } from './execution_context.ts';
 import { type FailureDiagnosticOwner } from './failure_diagnostic.ts';
 import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
+import { ProviderEvidenceRecorder, type ProviderEvidenceStore } from './provider_evidence.ts';
 import {
   isPlannerDelegationFailureError,
   PlannerDelegationFailureError,
@@ -120,6 +121,8 @@ export interface RuntimeTestSeam {
   readonly onDisplayStateProjected?: (state: RuntimeDisplayState) => void;
   /** Direct-test/host seam for turn-scoped diagnostic persistence. */
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
+  /** Direct-test/host seam for retained provider exchange evidence. */
+  readonly providerEvidenceStore?: ProviderEvidenceStore;
 }
 
 export interface RuntimeRun {
@@ -144,6 +147,7 @@ export interface RuntimeComposition {
     diagnosticOwner?: FailureDiagnosticOwner,
     providerRequestCount?: () => number,
     runtimeProviderRequestCount?: () => number,
+    providerEvidence?: ProviderEvidenceRecorder,
   ) => ParentTurnExecutionContext;
 }
 
@@ -403,6 +407,7 @@ export const materializePreparedRuntimeComposition = (
       diagnosticOwner,
       providerRequestCount,
       runtimeProviderRequestCount,
+      providerEvidence,
     ) =>
       createTurnExecutionContext(
         turn,
@@ -411,6 +416,7 @@ export const materializePreparedRuntimeComposition = (
         diagnosticOwner,
         providerRequestCount ?? requestCount,
         runtimeProviderRequestCount ?? requestCount,
+        providerEvidence,
       ),
   };
 };
@@ -442,6 +448,7 @@ export const createRuntimeSessionFromPrepared = (
       eventSink,
       createTurnExecutionContext: composition.createTurnExecutionContext,
       diagnosticPersistence: prepared.seam.diagnosticPersistence,
+      providerEvidenceStore: prepared.seam.providerEvidenceStore,
       providerRequestCount: composition.requestCount,
       persistence: sessionOptions.persistence,
       initialRecord: sessionOptions.initialRecord,
@@ -485,6 +492,14 @@ export const runRuntime = async (
   selection: BuiltinAgentSelection = DEFAULT_AGENT_SELECTION,
 ): Promise<RuntimeRun> => {
   const composition = await createRuntimeComposition(seam, selection);
+  const evidence = seam.providerEvidenceStore === undefined
+    ? undefined
+    : new ProviderEvidenceRecorder(
+      crypto.randomUUID().toLowerCase(),
+      1,
+      new Date().toISOString(),
+      seam.providerEvidenceStore,
+    );
   const outcome = await runAgent(
     task,
     composition.model,
@@ -492,8 +507,35 @@ export const runRuntime = async (
     {
       maxSteps: composition.resourceSelection.parameters.maxSteps,
       systemInstruction: composition.systemInstruction,
-      executionContext: composition.createTurnExecutionContext(1),
+      executionContext: composition.createTurnExecutionContext(
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        evidence,
+      ),
     },
   );
+  if (evidence !== undefined) {
+    evidence.finalize({ outcome });
+    try {
+      await evidence.persist();
+    } catch {
+      // Evidence durability must not replace an otherwise valid provider/parser outcome.
+    }
+    return {
+      outcome: {
+        ...outcome,
+        providerEvidenceId: evidence.evidenceId,
+        providerEvidenceDurability: evidence.durability,
+        ...(evidence.persistenceErrorCode === undefined ? {} : {
+          providerEvidencePersistenceError: evidence.persistenceErrorCode,
+        }),
+      },
+      requestCount: composition.requestCount(),
+    };
+  }
   return { outcome, requestCount: composition.requestCount() };
 };

@@ -3,6 +3,10 @@ import {
   FailureDiagnosticStoreError,
 } from './failure_diagnostic_store.ts';
 import { isFailureDiagnostic } from './failure_diagnostic.ts';
+import {
+  DenoProviderEvidenceStore,
+  ProviderEvidenceStoreError,
+} from './provider_evidence_store.ts';
 
 const encoder = new TextEncoder();
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -14,13 +18,18 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   diagnostic_invalid: 'diagnostic invalid',
   diagnostic_capacity: 'diagnostic capacity reached',
   diagnostic_io_failure: 'diagnostic I/O failure',
+  provider_evidence_not_found: 'provider evidence not found',
+  provider_evidence_invalid: 'provider evidence invalid',
+  provider_evidence_io_failure: 'provider evidence I/O failure',
 };
 
 export type FailureDiagnosticCliCommand =
   | { readonly kind: 'list' }
   | { readonly kind: 'latest' }
   | { readonly kind: 'show'; readonly id: string }
-  | { readonly kind: 'delete'; readonly id: string };
+  | { readonly kind: 'delete'; readonly id: string }
+  | { readonly kind: 'evidence_list' }
+  | { readonly kind: 'evidence_show'; readonly id: string };
 
 export class FailureDiagnosticCliInvocationError extends Error {
   constructor() {
@@ -34,6 +43,13 @@ export const parseFailureDiagnosticArgs = (
 ): FailureDiagnosticCliCommand => {
   if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
   if (args.length === 1 && args[0] === 'latest') return { kind: 'latest' };
+  if (args.length === 2 && args[0] === 'evidence' && args[1] === 'list') {
+    return { kind: 'evidence_list' };
+  }
+  if (
+    args.length === 4 && args[0] === 'evidence' && args[1] === 'show' &&
+    args[2] === '--id' && UUID_V4.test(args[3])
+  ) return { kind: 'evidence_show', id: args[3] };
   if (
     args.length === 3 && args[0] === 'show' && args[1] === '--id' &&
     UUID_V4.test(args[2])
@@ -125,7 +141,35 @@ export const main = async (
     );
     const stateRoot = dependencies.stateRoot ?? resolveStateRoot();
     const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
-    if (command.kind === 'list') {
+    if (command.kind === 'evidence_list') {
+      const evidenceStore = new DenoProviderEvidenceStore(stateRoot, workspace);
+      const evidence = await evidenceStore.list();
+      await writeOutput(
+        dependencies.writeStdout,
+        `${JSON.stringify({ schemaVersion: 1, evidence })}\n`,
+        'stdout',
+      );
+    } else if (command.kind === 'evidence_show') {
+      const evidenceStore = new DenoProviderEvidenceStore(stateRoot, workspace);
+      let evidence;
+      try {
+        evidence = await evidenceStore.read(command.id);
+      } catch (error) {
+        if (
+          !(error instanceof ProviderEvidenceStoreError) ||
+          error.code !== 'provider_evidence_not_found'
+        ) {
+          throw error;
+        }
+        const evidenceId = await evidenceStore.readDiagnosticLink(command.id);
+        evidence = await evidenceStore.read(evidenceId);
+      }
+      await writeOutput(
+        dependencies.writeStdout,
+        `${JSON.stringify(evidence)}\n`,
+        'stdout',
+      );
+    } else if (command.kind === 'list') {
       const diagnostics = await store.list();
       if (!diagnostics.every(isFailureDiagnostic)) {
         throw new FailureDiagnosticStoreError('diagnostic_invalid');
@@ -165,6 +209,10 @@ export const main = async (
   } catch (error) {
     const code = error instanceof FailureDiagnosticStoreError
       ? error.code
+      : error instanceof ProviderEvidenceStoreError
+      ? error.code
+      : command.kind === 'evidence_list' || command.kind === 'evidence_show'
+      ? 'provider_evidence_io_failure'
       : 'diagnostic_io_failure';
     await writeOutput(dependencies.writeStderr, errorLine(code), 'stderr');
     return 1;

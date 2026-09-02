@@ -42,6 +42,7 @@ import {
 import { readCredentialFile } from './credential_file.ts';
 import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
 import { DenoFailureDiagnosticStore } from './failure_diagnostic_store.ts';
+import { DenoProviderEvidenceStore } from './provider_evidence_store.ts';
 
 const encoder = new TextEncoder();
 
@@ -297,6 +298,9 @@ export const main = async (
               prepared.seam.diagnosticPersistence === undefined
             ? new DenoFailureDiagnosticStore(stateRoot, prepared.workspace.root)
             : undefined;
+          const providerEvidenceStore = dependencies.runtimeSeam === undefined
+            ? new DenoProviderEvidenceStore(stateRoot, prepared.workspace.root)
+            : prepared.seam.providerEvidenceStore;
           const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
             dependencies.diagnosticPersistence ??
             (diagnosticStore === undefined
@@ -307,6 +311,7 @@ export const main = async (
             seam: {
               ...prepared.seam,
               ...(diagnosticPersistence === undefined ? {} : { diagnosticPersistence }),
+              ...(providerEvidenceStore === undefined ? {} : { providerEvidenceStore }),
             },
           };
           const result = createRuntimeSessionFromPrepared(
@@ -333,6 +338,9 @@ export const main = async (
             prepared.seam.diagnosticPersistence === undefined
           ? new DenoFailureDiagnosticStore(stateRoot, workspace.root)
           : undefined;
+        const providerEvidenceStore = dependencies.runtimeSeam === undefined
+          ? new DenoProviderEvidenceStore(stateRoot, workspace.root)
+          : prepared.seam.providerEvidenceStore;
         const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
           dependencies.diagnosticPersistence ??
           (diagnosticStore === undefined
@@ -343,6 +351,7 @@ export const main = async (
           seam: {
             ...prepared.seam,
             ...(diagnosticPersistence === undefined ? {} : { diagnosticPersistence }),
+            ...(providerEvidenceStore === undefined ? {} : { providerEvidenceStore }),
           },
         };
         const store = new DenoSessionStore(stateRoot, workspace.root, {

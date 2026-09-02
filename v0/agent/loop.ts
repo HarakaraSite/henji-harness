@@ -302,6 +302,10 @@ const runAgentTurnInternal = async (
     };
   };
 
+  const evidence = options.executionContext?.providerEvidence;
+  const evidenceIdentity = (): Pick<LoopOutcome, 'providerEvidenceId'> =>
+    evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId };
+
   const diagnosticFor = (
     error: unknown,
     fallback: Partial<FailureDiagnosticFact> = {
@@ -369,15 +373,17 @@ const runAgentTurnInternal = async (
       diagnostic,
       terminalRequestCounts(),
     );
+    const withEvidence = { ...outcome, ...evidenceIdentity() };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'contract_failure',
       committed: false,
       ...terminalRequestCounts(),
+      ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
-    return outcome;
+    return withEvidence;
   };
   const finishCancelled = (): LoopOutcome => {
     if (cancellation?.state === 'cleanup_failed') {
@@ -397,14 +403,15 @@ const runAgentTurnInternal = async (
       toolResultCount,
     );
     const settledOutcome = diagnostic === undefined
-      ? { ...outcome, ...terminalRequestCounts() }
-      : { ...outcome, ...terminalRequestCounts(), diagnostic };
+      ? { ...outcome, ...terminalRequestCounts(), ...evidenceIdentity() }
+      : { ...outcome, ...terminalRequestCounts(), diagnostic, ...evidenceIdentity() };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'cancelled',
       committed: false,
       ...terminalRequestCounts(),
+      ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return settledOutcome;
@@ -425,8 +432,8 @@ const runAgentTurnInternal = async (
     )?.snapshot();
     const requestCounts = terminalRequestCounts();
     const settledOutcome = diagnostic === undefined
-      ? { ...outcome, ...requestCounts }
-      : { ...outcome, ...requestCounts, diagnostic };
+      ? { ...outcome, ...requestCounts, ...evidenceIdentity() }
+      : { ...outcome, ...requestCounts, diagnostic, ...evidenceIdentity() };
     if (successful) {
       try {
         options.commit?.(outcome.transcript);
@@ -452,9 +459,10 @@ const runAgentTurnInternal = async (
           outcome: 'contract_failure',
           committed: false,
           ...requestCounts,
+          ...evidenceIdentity(),
           ...(diagnostic === undefined ? {} : { diagnostic }),
         });
-        return failure;
+        return { ...failure, ...evidenceIdentity() };
       }
     }
     deliverEvent(sink, {
@@ -463,6 +471,7 @@ const runAgentTurnInternal = async (
       outcome: settledOutcome.stopReason,
       committed: successful && options.commit !== undefined,
       ...terminalRequestCounts(),
+      ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return settledOutcome;
@@ -559,10 +568,14 @@ const runAgentTurnInternal = async (
       }
     };
     try {
-      const generateOptions = signal === undefined && sink === undefined ? undefined : {
-        signal,
-        reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
-      };
+      const generateOptions: import('./contracts.ts').ModelGenerateOptions | undefined =
+        signal === undefined && sink === undefined && evidence === undefined ? undefined : {
+          signal,
+          reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
+          providerEvidence: evidence,
+          providerEvidenceLane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
+          modelStep: steps,
+        };
       result = generateOptions === undefined
         ? await model.generate(preparedRequest)
         : await model.generate(preparedRequest, generateOptions);
@@ -606,6 +619,7 @@ const runAgentTurnInternal = async (
         code: 'invalid_model_result',
       });
     }
+    evidence?.recordModelResult(result, steps);
     if (result.kind === 'final') {
       observer?.modelSettled('final');
       const assistant: AssistantMessage = {
@@ -653,6 +667,7 @@ const runAgentTurnInternal = async (
       if (signal?.aborted) return finishCancelled();
       deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
       toolCallCount += 1;
+      evidence?.recordToolCall(call, steps);
       observer?.toolCallAccepted(snapshot(call));
       if (signal?.aborted) return finishCancelled();
       if (invalidTerminalBatch) {
@@ -665,6 +680,7 @@ const runAgentTurnInternal = async (
         });
         toolResultCount += 1;
         observer?.toolResultAccepted(snapshot(resultContent));
+        evidence?.recordToolResult(resultContent, steps);
         continue;
       }
       let progressFailure: EventDeliveryError | undefined;
@@ -784,6 +800,7 @@ const runAgentTurnInternal = async (
       });
       toolResultCount += 1;
       observer?.toolResultAccepted(snapshot(results.at(-1)!));
+      evidence?.recordToolResult(results.at(-1)!, steps);
     }
     transcript.push({ role: 'tool', content: results });
     if (signal?.aborted) return finishCancelled();

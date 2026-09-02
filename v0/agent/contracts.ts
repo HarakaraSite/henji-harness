@@ -3,6 +3,11 @@ import type {
   FailureDiagnosticPersistenceErrorCode,
   FailureDiagnosticV1,
 } from './failure_diagnostic.ts';
+import type {
+  ProviderEvidenceDurability,
+  ProviderEvidencePersistenceErrorCode,
+  ProviderEvidenceRecorder,
+} from './provider_evidence.ts';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
@@ -90,6 +95,10 @@ export type AssistantProgressReporter = (snapshot: string) => void;
 export interface ModelGenerateOptions {
   readonly signal?: AbortSignal;
   readonly reportAssistantProgress?: AssistantProgressReporter;
+  /** Internal turn-scoped recorder; it never contains credential or Authorization values. */
+  readonly providerEvidence?: ProviderEvidenceRecorder;
+  readonly providerEvidenceLane?: 'parent' | 'planner';
+  readonly modelStep?: number;
 }
 
 export type ModelResult =
@@ -123,6 +132,10 @@ export interface LoopOutcome {
   /** Diagnostic durability is finalized by the session after persistence settles. */
   readonly diagnosticDurability?: FailureDiagnosticDurability;
   readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;
+  /** Retained provider exchange identity, when the runtime supplied an evidence recorder. */
+  readonly providerEvidenceId?: string;
+  readonly providerEvidenceDurability?: ProviderEvidenceDurability;
+  readonly providerEvidencePersistenceError?: ProviderEvidencePersistenceErrorCode;
   /** Actual provider fetch starts attributed to this accepted turn, when observed by a host. */
   readonly turnProviderRequestCount?: number;
   /** Cumulative actual provider fetch starts since this runtime process began, when observed. */

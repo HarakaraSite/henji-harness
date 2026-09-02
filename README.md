@@ -240,6 +240,29 @@ cancellation after an accepted turn creates one bounded `turn_control/turn_cance
 cleanup failure retains precedence, and failed-turn/session cleanup does not remove an existing
 record.
 
+## Provider evidence readback
+
+Each accepted provider turn in the normal retained session keeps one workspace-partitioned
+provider-evidence artifact. It correlates the serialized request body, non-credential request
+metadata, HTTP response status/headers and raw bytes, ordered SSE frames, parser transitions,
+model/tool events, outcome, and actual request counts. Successful and failed turns are retained;
+there is no automatic cleanup or quota in this pre-alpha slice.
+
+The read-only diagnostics surface lists or opens an artifact directly:
+
+```text
+henji diagnostics evidence list
+henji diagnostics evidence show --id <evidence-id>
+```
+
+When a parser failure has a diagnostic ID, the same `show` command accepts that diagnostic ID and
+resolves its evidence link. The capture boundary does not receive credential values or request
+headers, so the private request Authorization header is absent from stored evidence; response
+headers and provider metadata remain available for diagnosis. The repository-local HTTP/SSE fixture
+confirms OpenRouter's documented final usage chunk (content-free assistant delta, repeated terminal
+finish reason, usage before `[DONE]`); real-provider shape and human acceptance remain separate
+gates.
+
 ## Developer/reference appendix
 
 Product source is [`v0/`](v0/), tests [`tests/v0/`](tests/v0/), task configuration

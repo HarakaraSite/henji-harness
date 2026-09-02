@@ -727,6 +727,19 @@ export class TuiRenderer implements TerminalRendererGate {
             `turn=${event.turn} · actual=${event.turnProviderRequestCount} · runtime=${event.runtimeProviderRequestCount}`,
           ));
         }
+        if (!this.retained && event.providerEvidenceId !== undefined) {
+          const evidenceText = event.providerEvidenceDurability === 'failed'
+            ? `id=${event.providerEvidenceId} · persistence=failed${
+              event.providerEvidencePersistenceError === undefined
+                ? ''
+                : ` · store=${event.providerEvidencePersistenceError}`
+            }`
+            : `id=${event.providerEvidenceId} · readback> henji diagnostics evidence show --id ${event.providerEvidenceId}`;
+          this.write(dynamicLine(
+            'evidence> ',
+            evidenceText,
+          ));
+        }
         this.setStatus(
           event.committed && this.followUpPending
             ? 'busy · starting follow-up'

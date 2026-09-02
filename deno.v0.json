@@ -2,6 +2,7 @@
   "tasks": {
     "agent:fixture": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run v0/agent/cli.ts",
     "agent:run": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/runtime_cli.ts",
+    "agent:provider-stream-compatibility:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt --allow-read=/tmp --allow-write=/tmp --allow-sys=uid tests/v0/provider_stream_compatibility_test.ts",
     "agent:tui": "v0/agent/session_launcher.sh",
     "agent:sessions": "v0/agent/session_cli_launcher.sh",
     "agent:ui-retained:acceptance": "v0/agent/ui_retained_acceptance_launcher.sh",
@@ -15,7 +16,7 @@
     "v0:check": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno check v0/cli/main.ts v0/agent/*.ts v0/corpus/*.ts v0/eval/*.ts v0/tui/*.ts tests/v0/*.ts",
     "v0:fmt": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno fmt --check --config deno.v0.json v0 tests/v0",
     "v0:lint": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno lint --config deno.v0.json v0 tests/v0",
-    "v0:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/current_code_test.ts",
+    "v0:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/current_code_test.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:provider-stream-compatibility:test",
     "v0:gate": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:check && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:fmt && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:lint && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:test"
   },
   "fmt": {

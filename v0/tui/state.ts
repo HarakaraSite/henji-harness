@@ -462,8 +462,28 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           live: false,
           turn: event.turn,
         });
+      const evidenceId = event.providerEvidenceId;
+      const evidenceFailed = event.providerEvidenceDurability === 'failed';
+      const withEvidence = evidenceId === undefined ||
+          withRequests.log.entries.some((entry) => entry.id === `turn-${event.turn}:evidence`)
+        ? withRequests
+        : appendEntry(withRequests, {
+          id: `turn-${event.turn}:evidence`,
+          kind: 'system',
+          label: 'evidence>',
+          text: evidenceFailed
+            ? `id=${evidenceId}\npersistence=failed${
+              event.providerEvidencePersistenceError === undefined
+                ? ''
+                : `\nstore=${event.providerEvidencePersistenceError}`
+            }`
+            : `id=${evidenceId}\nreadback> henji diagnostics evidence show --id ${evidenceId}`,
+          revision: 0,
+          live: false,
+          turn: event.turn,
+        });
       return Object.freeze({
-        ...withRequests,
+        ...withEvidence,
         lifecycle: event.committed
           ? 'idle'
           : event.outcome === 'cancelled' || event.outcome === 'max_steps' ||

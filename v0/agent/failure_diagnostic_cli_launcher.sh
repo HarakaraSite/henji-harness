@@ -31,6 +31,21 @@ case "${1-}" in
     esac
     case "$3" in *[!0-9a-f-]*) fail ;; esac
     ;;
+  evidence)
+    case "${2-}" in
+      list) [ "$#" -eq 2 ] || fail ;;
+      show)
+        [ "$#" -eq 4 ] || fail
+        [ "$3" = '--id' ] || fail
+        case "$4" in
+          ????????-????-4???-[89ab]???-????????????) ;;
+          *) fail ;;
+        esac
+        case "$4" in *[!0-9a-f-]*) fail ;; esac
+        ;;
+      *) fail ;;
+    esac
+    ;;
   delete)
     mode=delete
     [ "$#" -eq 4 ] || fail

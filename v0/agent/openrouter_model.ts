@@ -13,6 +13,7 @@ import {
 import { EventDeliveryError } from './events.ts';
 import { CancellationCleanupError, throwIfCancelled, TurnCancelledError } from './cancellation.ts';
 import { type FailureCode, type FailureStage, type ParseReason } from './failure_diagnostic.ts';
+import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
 
 const encoder = new TextEncoder();
 
@@ -108,6 +109,7 @@ type ResponseBodyResult =
 /** Read one bounded response while retaining proof that the body reader was settled. */
 const readResponseBody = async (
   response: Response,
+  onBytes?: (bytes: Uint8Array) => void,
 ): Promise<ResponseBodyResult> => {
   if (!response.body) return { kind: 'missing', cleanupFailed: false };
   let reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -168,6 +170,7 @@ const readResponseBody = async (
         result = { kind: 'limit_exceeded', cleanupFailed };
         break;
       }
+      onBytes?.(item.value);
       chunks.push(item.value);
     }
   } finally {
@@ -638,7 +641,15 @@ const responseStreamError = (httpStatus: number): OpenRouterAgentError =>
 const hasOwn = (value: object, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(value, key);
 
-type SsePayloadHandler = (payload: string) => void;
+const responseHeaders = (headers: Headers): Readonly<Record<string, string>> => {
+  const result: Record<string, string> = {};
+  headers.forEach((value, name) => {
+    result[name] = value;
+  });
+  return result;
+};
+
+type SsePayloadHandler = (payload: string, rawFrame: string) => void;
 
 /**
  * Dependency-free SSE framer for the documented Chat Completions subset. It deliberately keeps
@@ -649,6 +660,7 @@ class SseFramer {
   private line = '';
   private pendingCr = false;
   private dataLines: string[] = [];
+  private eventLines: string[] = [];
   private bomHandled = false;
   private _done = false;
   private dataEvents = 0;
@@ -727,6 +739,7 @@ class SseFramer {
   private finishLine(): void {
     const line = this.line;
     this.line = '';
+    this.eventLines.push(line);
     if (line.length === 0) {
       this.dispatchEvent();
       return;
@@ -741,9 +754,14 @@ class SseFramer {
   }
 
   private dispatchEvent(): void {
-    if (this.dataLines.length === 0) return;
+    if (this.dataLines.length === 0) {
+      this.eventLines = [];
+      return;
+    }
     const payload = this.dataLines.join('\n');
+    const rawFrame = `${this.eventLines.join('\n')}\n`;
     this.dataLines = [];
+    this.eventLines = [];
     if (payload.length === 0) {
       throw sseResponseError('provider response contained empty data', 'empty_terminal_result');
     }
@@ -761,7 +779,7 @@ class SseFramer {
         },
       );
     }
-    this.onPayload(payload);
+    this.onPayload(payload, rawFrame);
     if (payload === '[DONE]') this._done = true;
   }
 }
@@ -1015,8 +1033,8 @@ const processSsePayload = (
     if (
       assembly.usageSeen || !hasUsage || !isStreamUsage(object.usage) ||
       finishReason !== assembly.terminal || hasContent || hasToolCalls ||
-      hasOwn(deltaObject, 'role') || hasOwn(deltaObject, 'content') ||
-      hasOwn(deltaObject, 'tool_calls')
+      hasOwn(deltaObject, 'content') && content !== '' ||
+      hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant'
     ) {
       throw sseResponseError(
         'provider response contained data after terminal',
@@ -1099,6 +1117,7 @@ const readSseResponse = async (
   isTurnCancelled: () => boolean,
   isTimedOut: () => boolean,
   observer?: StreamTextAccountingObserver,
+  evidence?: ProviderEvidenceRecorder,
 ): Promise<ModelResult> => {
   if (!response.body) {
     throw sseResponseError(
@@ -1124,7 +1143,66 @@ const readSseResponse = async (
     progressBytes: 0,
     usageSeen: false,
   };
-  const framer = new SseFramer((payload) => processSsePayload(assembly, payload, report, observer));
+  const framer = new SseFramer((payload, rawFrame) => {
+    let parsed: unknown;
+    if (payload === '[DONE]') parsed = '[DONE]';
+    else {
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        parsed = undefined;
+      }
+    }
+    const eventOrdinal = evidence?.recordSseEvent({
+      data: payload,
+      rawFrame,
+      ...(parsed === '[DONE]' || parsed !== undefined && isJsonValue(parsed) ? { parsed } : {}),
+    });
+    evidence?.recordParserTransition({
+      kind: 'event',
+      ...(eventOrdinal === undefined ? {} : { reason: `sse_event_${eventOrdinal}` }),
+      ...(parsed !== undefined && isJsonValue(parsed) ? { detail: parsed } : {}),
+    });
+    try {
+      processSsePayload(assembly, payload, report, observer);
+      if (assembly.terminal !== undefined && payload !== '[DONE]') {
+        evidence?.recordParserTransition({ kind: 'terminal', reason: assembly.terminal });
+      }
+      if (payload === '[DONE]') {
+        evidence?.recordParserTransition({ kind: 'result', reason: 'done' });
+      }
+    } catch (error) {
+      if (error instanceof OpenRouterAgentError) {
+        const parseReason = error.failureFact.parseReason;
+        let field = 'provider response';
+        if (
+          parseReason === 'data_after_terminal' && typeof parsed === 'object' && parsed !== null
+        ) {
+          const choice = (parsed as Record<string, unknown>).choices;
+          const delta = Array.isArray(choice) && choice[0] !== null && typeof choice[0] === 'object'
+            ? (choice[0] as Record<string, unknown>).delta
+            : undefined;
+          if (typeof delta === 'object' && delta !== null) {
+            const deltaObject = delta as Record<string, unknown>;
+            field = Object.hasOwn(deltaObject, 'content')
+              ? 'choices[0].delta.content'
+              : Object.hasOwn(deltaObject, 'tool_calls')
+              ? 'choices[0].delta.tool_calls'
+              : Object.hasOwn(deltaObject, 'role')
+              ? 'choices[0].delta.role'
+              : 'choices[0].delta';
+          }
+        }
+        evidence?.recordParserTransition({
+          kind: 'failure',
+          reason: parseReason ?? error.code,
+          field,
+          ...(parsed !== undefined && isJsonValue(parsed) ? { detail: parsed } : {}),
+        });
+      }
+      throw error;
+    }
+  });
   const settleFailure = async (error: unknown): Promise<never> => {
     let settled = true;
     try {
@@ -1199,6 +1277,7 @@ const readSseResponse = async (
         );
         break;
       }
+      evidence?.appendResponseBytes(item.value);
       try {
         framer.push(item.value);
       } catch (error) {
@@ -1314,6 +1393,19 @@ export class OpenRouterAgentModel implements Model {
     }, timeoutMs);
     const endpoint = this.options.endpoint ??
       `${this.profile.origin}${this.profile.path}`;
+    const evidence = generateOptions.providerEvidence;
+    evidence?.startRequest({
+      lane: generateOptions.providerEvidenceLane ?? 'parent',
+      modelStep: generateOptions.modelStep ?? 1,
+      endpoint,
+      method: this.profile.method,
+      requestBody: body,
+      requestMetadata: {
+        contentType: 'application/json',
+        redirect: 'error',
+        responseMode: this.options.responseMode ?? 'json',
+      },
+    });
     try {
       let response: Response;
       try {
@@ -1337,6 +1429,10 @@ export class OpenRouterAgentModel implements Model {
           { stage: 'transport', code: 'transport_error' },
         );
       }
+      evidence?.recordResponse({
+        status: response.status,
+        headers: responseHeaders(response.headers),
+      });
       // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
       // during fetch, settle that body before classifying the request outcome.
       if (turnCancelled || timedOut || controller.signal.aborted) {
@@ -1354,8 +1450,11 @@ export class OpenRouterAgentModel implements Model {
         );
       }
       if (!response.ok) {
-        const settled = await cancelResponseBody(response);
-        if (!settled) {
+        const bounded = await readResponseBody(
+          response,
+          (value) => evidence?.appendResponseBytes(value),
+        );
+        if (bounded.cleanupFailed) {
           if (turnCancelled) throw new CancellationCleanupError();
           throw new OpenRouterAgentError(
             'transport_error',
@@ -1390,8 +1489,11 @@ export class OpenRouterAgentModel implements Model {
         )[0].trim()
           .toLowerCase();
         if (!response.body || contentType !== 'text/event-stream') {
-          const settled = await cancelResponseBody(response);
-          if (!settled) {
+          const bounded = await readResponseBody(
+            response,
+            (value) => evidence?.appendResponseBytes(value),
+          );
+          if (bounded.cleanupFailed) {
             if (turnCancelled) throw new CancellationCleanupError();
             throw responseStreamError(response.status);
           }
@@ -1422,6 +1524,7 @@ export class OpenRouterAgentModel implements Model {
           () => turnCancelled,
           () => timedOut,
           this.options.testTextAccountingObserver,
+          evidence,
         );
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut || controller.signal.aborted) {
@@ -1435,7 +1538,10 @@ export class OpenRouterAgentModel implements Model {
         }
         return streamed;
       }
-      const bounded = await readResponseBody(response);
+      const bounded = await readResponseBody(
+        response,
+        (value) => evidence?.appendResponseBytes(value),
+      );
       if (bounded.cleanupFailed) {
         if (turnCancelled) throw new CancellationCleanupError();
         throw responseStreamError(response.status);
@@ -1522,8 +1628,18 @@ export class OpenRouterAgentModel implements Model {
         );
       }
       try {
-        return decodeResponse(payload);
+        const decoded = decodeResponse(payload);
+        evidence?.recordParserTransition({ kind: 'result', reason: 'json_result' });
+        return decoded;
       } catch (error) {
+        if (error instanceof OpenRouterAgentError) {
+          evidence?.recordParserTransition({
+            kind: 'failure',
+            reason: error.failureFact.parseReason ?? error.code,
+            field: 'response',
+            ...(isJsonValue(payload) ? { detail: payload } : {}),
+          });
+        }
         if (error instanceof OpenRouterAgentError) {
           throw withResponseStatus(error, response.status);
         }

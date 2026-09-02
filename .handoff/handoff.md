@@ -884,6 +884,18 @@
   authoritative verification incomplete。third gateは行わない。machine update/rollback、credential/
   provider/network、production `henji`、real state、cleanup、commit/push/tag/publish/releaseは未承認
 
+### POL-20260902-fr0-fr1-provider-stream-compatibility-implementation
+
+- 判断済み: plan `docs/plans/fr0-fr1-product-baseline-provider-stream-compatibility.md`、SHA-256
+  `eade1abd0fa586cd927b09f3124150871552d38b84b914e65b88b7c5fc0e2000`のlocal implementationを完了
+- 実装: 公式OpenRouter accounting frame互換、parent/planner共通raw provider evidence、diagnostic
+  correlation、read-only evidence list/show、保存失敗を製品結果と分離したretained UIを追加
+- 検証: initial functional review Product P2 2件を局所修正し、single narrow re-reviewはGO、
+  Blocker/P1/P2 0。authoritative `v0:gate`は一回で成功。results SHA-256
+  `3ffa22953db1cc9d7c6ec0b9c023872a4c1c8c2b79589a28953b8eb04a730fb7`
+- 境界: real provider/human acceptance、credential、production `henji`、machine launcher/state、cleanup、
+  `_refs/`、commit/push/tag/publish/releaseは未実施
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -4226,3 +4238,46 @@
 - 実施: user判断を`AGENTS.md`最上位方針と`POL-20260902-product-first-development`へ記録。test従属、機能安定先行、API/credential露出以外の安全後置、原因特定可能なlog/raw response/event evidence保持、人間のproduction利用成功を基準化
 - 次: 現行SSE parserとdiagnostic captureをこの方針に沿って修正する場合はuser指示に従う
 - 注意: 今回はpolicy文書のみ変更し、product code・test・provider retryは未実施
+
+## 2026-09-02 12:53 JST
+
+- 実行エージェント: Codex owner（計画作成のみ）
+- 作業トピック: FR0/FR1 product baseline provider stream compatibility
+- 実施: 現行変更をcommit `024071a`へ記録後、revision 45 inputからproduct-first計画を作成。plannerへも
+  repository `AGENTS.md`最上位方針を明示し、ownerが安全matrixの拡大を除いて統合した
+- 次: `ASK-20260902-fr0-fr1-provider-stream-compatibility-implementation`へのuser判断
+- 注意: 計画書以外のproduct変更、test実行、provider/credential、production/machine操作、`_refs/`変更なし
+
+## 2026-09-02 13:31 JST
+
+- 実行エージェント: Codex owner（直接是正）
+- 作業トピック: product-first planning/implementation/review governance correction
+- 実施: `AGENTS.md`を714行から現行指示78行へ縮約し、旧ledgerをcommit参照のhistory noteへ退避。
+  test件数先行とEvidence-gap closureを廃止し、実装agentの無断hardening禁止、通常reviewから一般安全性を
+  分離、finding採用三条件を追加。FR0/FR1計画から件数目標、未観測variant/parser matrix、artifact上限を削除
+- 次: SHA-256 `01f48aa0dd730288e94b6684b7b8088b0f3f7b3abf6415dd7c1823cc037a9bd8`の
+  revised implementation planについてuser判断
+- 注意: product source/test、provider/credential、production/machine、`_refs/*`、追加commitは未実施
+
+## 2026-09-02 13:45 JST
+
+- 実行エージェント: Codex owner + fresh zero-context planner
+- 作業トピック: FR0/FR1 product-first zero-base replanning
+- 実施: 新`AGENTS.md`、revision 45 input、current source、公式OpenRouter契約から完全な置換planを再作成。
+  owner統合ではinput必須の一回のnarrow re-reviewだけを保持し、件数目標、未観測variant、一般安全review、
+  Evidence-gap、permission/filesystem matrix、artifact cap/cleanup実装を除外
+- 次: SHA-256 `eade1abd0fa586cd927b09f3124150871552d38b84b914e65b88b7c5fc0e2000`の
+  replacement implementation planについてuser判断
+- 注意: planningのみ。product source/test、provider/credential、production/machine、`_refs/*`、commitは未実施
+
+## 2026-09-02 14:48 JST
+
+- 実行エージェント: Codex owner + single implementer + bounded functional reviewer
+- 作業トピック: FR0/FR1 provider stream compatibility local implementation
+- 実施: documented accounting frame互換とraw provider evidence/readbackを実装。owner監査でimplementerが
+  追加したfilesystem/strict-codec hardeningを除去し、正常store/CLI、raw failure body、task配線を修正。
+  reviewer P2 2件も局所修正しnarrow re-review GO
+- 検証: focused provider 7/7、current smoke 6/6、check/fmt/lint/diff/shell green。authoritative
+  `v0:gate`は一回だけ実行し成功
+- 次: real provider compatibilityと人間のtool利用は、別途明示Human Gateで確認する
+- 注意: provider/credential、production/machine、retained state cleanup、`_refs/*`、commit/push/tag/publish/release未実施
