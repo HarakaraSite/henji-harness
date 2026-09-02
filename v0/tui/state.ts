@@ -477,7 +477,11 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
                 ? ''
                 : `\nstore=${event.providerEvidencePersistenceError}`
             }`
-            : `id=${evidenceId}\nreadback> henji diagnostics evidence show --id ${evidenceId}`,
+            : `id=${evidenceId}\nreadback> henji diagnostics evidence show --id ${evidenceId}${
+              event.providerEvidencePersistenceError === undefined
+                ? ''
+                : `\nstore=${event.providerEvidencePersistenceError}`
+            }`,
           revision: 0,
           live: false,
           turn: event.turn,

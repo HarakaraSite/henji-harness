@@ -892,7 +892,9 @@
   correlation、read-only evidence list/show、保存失敗を製品結果と分離したretained UIを追加
 - 検証: initial functional review Product P2 2件を局所修正し、single narrow re-reviewはGO、
   Blocker/P1/P2 0。authoritative `v0:gate`は一回で成功。results SHA-256
-  `3ffa22953db1cc9d7c6ec0b9c023872a4c1c8c2b79589a28953b8eb04a730fb7`
+  `dd663f051d15d6fe6abc6b858e4978303fa0354dedd918a74f2cc91995b600a0`。commit `da30077`後の
+  fresh review P2 2件も局所修正しnarrow re-review GO。stable candidate変更を理由とするcorrection
+  `v0:gate`は一回で成功
 - 境界: real provider/human acceptance、credential、production `henji`、machine launcher/state、cleanup、
   `_refs/`、commit/push/tag/publish/releaseは未実施
 
@@ -4281,3 +4283,15 @@
   `v0:gate`は一回だけ実行し成功
 - 次: real provider compatibilityと人間のtool利用は、別途明示Human Gateで確認する
 - 注意: provider/credential、production/machine、retained state cleanup、`_refs/*`、commit/push/tag/publish/release未実施
+
+## 2026-09-02 15:14 JST
+
+- 実行エージェント: Codex owner + single implementer + fresh post-commit reviewer
+- 作業トピック: FR0/FR1 post-commit functional finding closure
+- 実施: review P2 2件を局所修正。artifact write成功/link失敗をdurability yesとtyped errorへ分離し、
+  accounting frameがduplicate terminal transitionを残さないよう修正。narrow re-reviewは両件Closed、
+  Blocker/P1/P2 0
+- 検証: focused 7/7、current smoke 6/6、check/fmt/lint/diff green。stable candidate変更を理由に
+  correction authoritative gateを一回実行し成功
+- 次: user判断。real provider/human acceptanceは別Human Gate
+- 注意: provider/credential、production/machine、retained state cleanup、`_refs/*`、追加commit未実施

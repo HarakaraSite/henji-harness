@@ -173,6 +173,7 @@ export class ProviderEvidenceRecorder {
   private finalized?: EvidenceFinalize;
   private persistence?: Promise<void>;
   private persistenceError?: unknown;
+  private artifactWritten = false;
   private persisted = false;
 
   constructor(
@@ -306,7 +307,7 @@ export class ProviderEvidenceRecorder {
   }
 
   get durability(): ProviderEvidenceDurability {
-    if (this.persisted) return 'yes';
+    if (this.persisted || this.artifactWritten) return 'yes';
     if (this.persistenceError !== undefined) return 'failed';
     return this.store === undefined ? 'unknown' : 'unknown';
   }
@@ -330,6 +331,7 @@ export class ProviderEvidenceRecorder {
     }
     if (this.persistence === undefined) {
       this.persistence = this.store.write(this.snapshot()).then(async () => {
+        this.artifactWritten = true;
         if (this.finalized?.diagnosticId !== undefined) {
           await this.store!.linkDiagnostic(this.finalized.diagnosticId, this.evidenceId);
         }
@@ -378,9 +380,14 @@ export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
   private readonly records = new Map<string, ProviderEvidenceV1>();
   private readonly links = new Map<string, string>();
   private writeFailure?: Error;
+  private linkFailure?: Error;
 
   failWrites(error = new Error('provider evidence I/O failure')): void {
     this.writeFailure = error;
+  }
+
+  failLinks(error = new Error('provider evidence link failure')): void {
+    this.linkFailure = error;
   }
 
   async list(): Promise<readonly ProviderEvidenceV1[]> {
@@ -412,6 +419,7 @@ export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
 
   async linkDiagnostic(diagnosticId: string, evidenceId: string): Promise<void> {
     await Promise.resolve();
+    if (this.linkFailure !== undefined) throw this.linkFailure;
     if (!this.records.has(evidenceId)) {
       throw Object.assign(new Error('provider evidence not found'), {
         code: 'provider_evidence_not_found',

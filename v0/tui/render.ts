@@ -734,7 +734,11 @@ export class TuiRenderer implements TerminalRendererGate {
                 ? ''
                 : ` · store=${event.providerEvidencePersistenceError}`
             }`
-            : `id=${event.providerEvidenceId} · readback> henji diagnostics evidence show --id ${event.providerEvidenceId}`;
+            : `id=${event.providerEvidenceId} · readback> henji diagnostics evidence show --id ${event.providerEvidenceId}${
+              event.providerEvidencePersistenceError === undefined
+                ? ''
+                : ` · store=${event.providerEvidencePersistenceError}`
+            }`;
           this.write(dynamicLine(
             'evidence> ',
             evidenceText,

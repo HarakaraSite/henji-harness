@@ -1,6 +1,6 @@
 # FR0/FR1 product baseline and OpenRouter stream compatibility results
 
-Status: **local implementation verified; real-provider and human acceptance pending**
+Status: **post-commit P2 closure locally verified; real-provider and human acceptance pending**
 
 Date: 2026-09-02
 
@@ -85,6 +85,14 @@ I/O code; the closure preserves typed provider-evidence errors, including `provi
 for a historical/no-link show. The focused confirmation covers both closures. The single narrow
 re-review confirmed both findings Closed and returned GO with Blocker/P1/P2 zero.
 
+The post-commit review admitted two additional Product P2 findings. P2-1 was that a successful
+artifact write followed by diagnostic-link failure was reported as failed durability; the closure
+keeps direct evidence-ID readback durable while separately reporting the link persistence error in
+the outcome, event, retained state, and live render. P2-2 was that the documented usage accounting
+frame could create a duplicate terminal parser transition; the closure records the transition only
+when assembly first becomes terminal. The narrow post-commit re-review confirmed both findings
+Closed with Blocker/P1/P2 zero.
+
 ## Local confirmation and remaining boundary
 
 The focused product confirmation is
@@ -94,14 +102,14 @@ post-terminal mismatch evidence and diagnostic linking, request/response/SSE/par
 correlation, and request credential/Authorization exclusion. `deno.v0.json` exposes the focused
 task and includes it in `v0:test`.
 
-Focused `v0:check`, `agent:provider-stream-compatibility:test`, `v0:fmt`, and `v0:lint` passed after
-the P2 closure, including the disposable Deno store/readback confirmation. The coordinating owner
-then ran the authoritative `v0:gate` exactly once: check, formatting of 83 files, lint of 80 files,
-the six current smoke behaviors, and the seven function-derived provider confirmations all passed.
-The counts describe what ran and are not completeness criteria. No provider request, credential
-read, production command, installed launcher/state operation, retained acceptance-state cleanup,
-dependency/lockfile change, `_refs/*` operation, commit, push, tag, publication, or release was
-performed.
+Focused `v0:check`, `agent:provider-stream-compatibility:test`, `v0:fmt`, and `v0:lint` passed for the
+post-commit P2 closure, including direct link-failure/readback and single-terminal-transition
+confirmations. Because the stable candidate changed after commit, the coordinating owner recorded
+that reason and ran one correction `v0:gate`: check, format, lint, the current smoke behaviors, and
+the function-derived provider confirmations all passed. Real-provider acceptance remains pending.
+No provider request, credential read, production command, installed launcher/state operation,
+retained acceptance-state cleanup, dependency/lockfile change, `_refs/*` operation, commit, push,
+tag, publication, or release was performed.
 
 Real-provider field shape, real tool completion, installed integration, human acceptance, retention
 policy, and D0/FR2+ work remain unverified or deferred. This document records local implementation

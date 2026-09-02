@@ -179,8 +179,10 @@ Deno.test('documented text accounting reaches ModelResult through HTTP and SSE',
   assert(evidence.requests[0].sseEvents[0].data.includes('"content":"hello"'));
   assert(evidence.requests[0].sseEvents[1].data.includes('"usage"'));
   assert(evidence.requests[0].sseEvents.some((event) => event.data === '[DONE]'));
-  assert(
-    evidence.requests[0].parserTransitions.some((transition) => transition.kind === 'terminal'),
+  assertEquals(
+    evidence.requests[0].parserTransitions.filter((transition) => transition.kind === 'terminal')
+      .length,
+    1,
   );
   assertEquals(evidence.outcome, 'final');
   assertEquals(evidence.turnProviderRequestCount, 1);
@@ -288,6 +290,24 @@ Deno.test('evidence persistence failure does not replace a valid provider result
   assert(turnEnd?.kind === 'turn_end');
   assertEquals(turnEnd.providerEvidenceDurability, 'failed');
   assertEquals(turnEnd.providerEvidencePersistenceError, 'provider_evidence_io_failure');
+
+  const linkSeen = { requests: 0 };
+  const linkStore = new FakeProviderEvidenceStore();
+  linkStore.failLinks();
+  const linkSession = new AgentSession(
+    modelFor(failingPostTerminalStream(), linkSeen),
+    new Registry([]),
+    { providerEvidenceStore: linkStore, providerRequestCount: () => linkSeen.requests },
+  );
+  const linkOutcome = await linkSession.submit('link');
+  assert(!linkOutcome.ok);
+  assert(typeof linkOutcome.providerEvidenceId === 'string');
+  assertEquals(linkOutcome.providerEvidenceDurability, 'yes');
+  assertEquals(linkOutcome.providerEvidencePersistenceError, 'provider_evidence_io_failure');
+  assertEquals(
+    (await linkStore.read(linkOutcome.providerEvidenceId!)).evidenceId,
+    linkOutcome.providerEvidenceId,
+  );
 });
 
 Deno.test('Deno evidence store and diagnostics readback retain one parent/planner artifact', async () => {
@@ -437,6 +457,22 @@ Deno.test('retained UI exposes only the opaque evidence ID and readback command'
   assert(entry !== undefined);
   assert(entry.text.includes(`henji diagnostics evidence show --id ${evidenceId}`));
   assert(!entry.text.toLowerCase().includes('authorization'));
+
+  const linkedFailureState = reduceUiEvent(createUiState(), {
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'final',
+    committed: true,
+    providerEvidenceId: evidenceId,
+    providerEvidenceDurability: 'yes',
+    providerEvidencePersistenceError: 'provider_evidence_io_failure',
+  });
+  const linkedFailureEntry = linkedFailureState.log.entries.find((value) =>
+    value.id === 'turn-1:evidence'
+  );
+  assert(linkedFailureEntry !== undefined);
+  assert(linkedFailureEntry.text.includes(`henji diagnostics evidence show --id ${evidenceId}`));
+  assert(linkedFailureEntry.text.includes('store=provider_evidence_io_failure'));
 
   const failedState = reduceUiEvent(createUiState(), {
     kind: 'turn_end',

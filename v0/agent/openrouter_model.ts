@@ -1164,8 +1164,9 @@ const readSseResponse = async (
       ...(parsed !== undefined && isJsonValue(parsed) ? { detail: parsed } : {}),
     });
     try {
+      const terminalBefore = assembly.terminal;
       processSsePayload(assembly, payload, report, observer);
-      if (assembly.terminal !== undefined && payload !== '[DONE]') {
+      if (terminalBefore === undefined && assembly.terminal !== undefined) {
         evidence?.recordParserTransition({ kind: 'terminal', reason: assembly.terminal });
       }
       if (payload === '[DONE]') {

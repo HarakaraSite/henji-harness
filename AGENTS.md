@@ -72,6 +72,9 @@ repository document or prior practice conflicts with it, this section wins.
   `docs/plans/fr0-fr1-product-baseline-provider-stream-compatibility.md`。initial functional reviewのProduct
   P2 2件を局所修正し、single narrow re-reviewはGO、Blocker/P1/P2 0。owner authoritative `v0:gate`は
   一回で成功し、current smoke 6件とfunction-derived provider confirmation 7件、check/fmt/lintがgreen。
+  commit `da30077`後のfresh functional reviewでP2 2件を検出し、artifact/link durability分離とaccounting
+  frameのsingle terminal transitionへ局所修正。narrow re-reviewはGOで、stable candidate変更を理由に行った
+  correction gateも一回で成功した。追加commitは未実施。
 - Provider/credential、production `henji`、installed launcher/state、`_refs/*`、commit/push/tag/publish/releaseは
   別の明示許可なしに操作しない。
 
