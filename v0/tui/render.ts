@@ -119,6 +119,8 @@ const toolResultText = (
   outcome: 'success' | 'error',
 ): string => `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`;
 
+const isFullwidthForm = (code: number): boolean =>
+  (code >= 0xff01 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6);
 const cellWidth = (character: string): number => {
   const code = character.codePointAt(0)!;
   // Conservative width for common full-width/emoji ranges; combining marks consume no extra cell.
@@ -129,7 +131,7 @@ const cellWidth = (character: string): number => {
     (code >= 0x1100 && code <= 0x115f) || (code >= 0x2329 && code <= 0x232a) ||
     (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
     (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe10 && code <= 0xfe6f) ||
-    (code >= 0x1f300 && code <= 0x1faff)
+    (code >= 0x1f300 && code <= 0x1faff) || isFullwidthForm(code)
   ) return 2;
   return 1;
 };
@@ -408,7 +410,7 @@ export const startupHelpLines = (
   ]);
 };
 
-/** Main-screen/scrollback renderer with one live editor line. */
+/** Renderer with one live editor line; retained production frames use the lifecycle's alternate screen. */
 export class TuiRenderer implements TerminalRendererGate {
   private readonly retained: boolean;
   private closing = false;
@@ -436,6 +438,10 @@ export class TuiRenderer implements TerminalRendererGate {
     options: TuiRendererOptions = {},
   ) {
     this.retained = options.retained === true;
+  }
+
+  get usesAlternateScreen(): boolean {
+    return this.retained;
   }
 
   get isClosing(): boolean {
@@ -866,6 +872,14 @@ export class TuiRenderer implements TerminalRendererGate {
           target = rows[index];
           break;
         }
+      }
+    }
+    if (target?.entryId === undefined) {
+      // Startup and omitted rows do not have conversation identity. At the oldest boundary,
+      // choose the first reachable entry instead of falling back to the latest page.
+      if (direction === 'up') {
+        const firstConversation = rows.find((row) => row.entryId !== undefined);
+        if (firstConversation !== undefined) target = firstConversation;
       }
     }
     if (target?.entryId === undefined) {

@@ -34,6 +34,8 @@ export interface UiLayout {
 const encoder = new TextEncoder();
 const clamp = (value: number, min: number, max: number): number =>
   Number.isSafeInteger(value) ? Math.max(min, Math.min(max, value)) : min;
+const isFullwidthForm = (code: number): boolean =>
+  (code >= 0xff01 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6);
 const cellWidth = (character: string): number => {
   const code = character.codePointAt(0)!;
   if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) return 0;
@@ -41,7 +43,7 @@ const cellWidth = (character: string): number => {
     (code >= 0x1100 && code <= 0x115f) || (code >= 0x2329 && code <= 0x232a) ||
     (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
     (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe10 && code <= 0xfe6f) ||
-    (code >= 0x1f300 && code <= 0x1faff)
+    (code >= 0x1f300 && code <= 0x1faff) || isFullwidthForm(code)
   ) return 2;
   return 1;
 };
@@ -115,7 +117,10 @@ const footerStatusParts = (
 };
 
 const footerText = (state: UiState, columns: number): string => {
-  const pending = state.pending?.lanes.filter((lane) => lane.present) ?? [];
+  // The editor draft is already visible in the input band. Keep active/recovery lanes available
+  // in the footer, but do not repeat its byte count as internal status in the normal footer.
+  const pending = state.pending?.lanes.filter((lane) => lane.present && lane.kind !== 'editor') ??
+    [];
   const pendingSegment = pending.length === 0
     ? undefined
     : `pending ${pending.map((lane) => `${lane.kind}:${lane.byteCount}B`).join(',')}`;

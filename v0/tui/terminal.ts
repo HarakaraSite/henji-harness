@@ -24,6 +24,8 @@ export const BRACKETED_PASTE_OFF = '\x1b[?2004l';
 export const EDITOR_CURSOR_STYLE = '\x1b[6 q';
 export const DEFAULT_CURSOR_STYLE = '\x1b[0 q';
 export const SHOW_CURSOR = '\x1b[?25h';
+export const ENTER_ALTERNATE_SCREEN = '\x1b[?1049h';
+export const EXIT_ALTERNATE_SCREEN = '\x1b[?1049l';
 export const ERASE_LINE = '\x1b[2K';
 export const RESET_SGR = '\x1b[0m';
 export const RESET_SCROLL_REGION = '\x1b[r';
@@ -162,6 +164,8 @@ export class DenoTerminal implements TerminalPort {
 export interface TerminalRendererGate {
   close(): void;
   clearLiveLine(): void;
+  /** Retained production rendering owns an isolated terminal screen. */
+  readonly usesAlternateScreen?: boolean;
 }
 
 type SignalName = 'SIGINT' | 'SIGTERM' | 'SIGHUP';
@@ -172,6 +176,7 @@ export class TerminalLifecycle {
   private acquired = false;
   private raw = false;
   private paste = false;
+  private alternateScreen = false;
   private restoring: Promise<void> | null = null;
   private restoreFailed = false;
   private readonly signals = new Map<SignalName, SignalHandler>();
@@ -230,6 +235,12 @@ export class TerminalLifecycle {
 
   async acquire(): Promise<void> {
     try {
+      // Enter the retained screen before any startup frame can be emitted. Mark the mode before
+      // writing so a partial host write still receives the best-effort matching restore sequence.
+      if (this.renderer?.usesAlternateScreen === true) {
+        this.alternateScreen = true;
+        this.terminal.write(staticBytes(ENTER_ALTERNATE_SCREEN));
+      }
       // Mark raw as needing restoration before invoking the host operation: setRaw may partially
       // change terminal state before reporting an error.
       this.raw = true;
@@ -274,7 +285,7 @@ export class TerminalLifecycle {
     }
     // Composition/startup can fail before terminal acquisition. Remove any signal hooks but do
     // not emit terminal controls or touch stdin when no terminal state was acquired.
-    if (!this.raw && !this.acquired && !this.paste) {
+    if (!this.raw && !this.acquired && !this.paste && !this.alternateScreen) {
       this.removeSignals();
       return;
     }
@@ -299,7 +310,10 @@ export class TerminalLifecycle {
       this.restoreFailed = true;
       // Continue with static controls and raw restore.
     }
-    for (const sequence of [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR]) {
+    const controls = this.alternateScreen
+      ? [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE]
+      : [RESET_SGR, RESET_SCROLL_REGION, DEFAULT_CURSOR_STYLE, SHOW_CURSOR];
+    for (const sequence of controls) {
       try {
         this.terminal.write(staticBytes(sequence));
       } catch {
@@ -315,6 +329,22 @@ export class TerminalLifecycle {
         // No further restoration is possible through this port.
       }
       this.raw = false;
+    }
+    if (this.alternateScreen) {
+      try {
+        this.terminal.write(staticBytes(EXIT_ALTERNATE_SCREEN));
+      } catch {
+        this.restoreFailed = true;
+      } finally {
+        this.alternateScreen = false;
+      }
+      // Show the cursor after returning to the user's original screen. This preserves the
+      // existing lifecycle contract for normal exit while ensuring the restored screen is usable.
+      try {
+        this.terminal.write(staticBytes(SHOW_CURSOR));
+      } catch {
+        this.restoreFailed = true;
+      }
     }
     this.removeSignals();
     this.acquired = false;

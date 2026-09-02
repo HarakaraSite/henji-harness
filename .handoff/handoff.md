@@ -68,11 +68,14 @@
 
 ### POL-20260902-fr5-ui-correction
 
-- 状態: `docs/plans/fr5-human-observed-ui-correction.md`のCycle 1を実装。通常logのdiagnostic/raw tool
-  詳細除去、tool一entry化、assistant final確定、実turn footer、cursor cell補正を行った
-- 検証: human-observed 6件を加え最小suite 24件。initial functional review P2 3件を局所修正し、narrow
-  re-review GO、Blocker/P1/P2 0。owner `v0:gate`一回で24/24、check/fmt/lint/diff green
-- 次: userがCycle 1を通常利用して評価する。合格または一度の局所補正後にCycle 2 alternate-screenへ進む
+- 状態: Cycle 1の通常log/tool/final/footer/cursor補正を本人利用で確認し、再描画frameがmain-screen
+  scrollbackへ重複する実不具合を観測。承認済みCycle 2でretained production TUIをalternate screenへ
+  隔離し、終了時復元と通常footerのeditor draft bytes除去を実装。本人確認で主要動作は成立し、追加観測した
+  U+FF15 cell幅不足と最古PageUpのlatest逆戻りを局所修正した
+- 検証: focused Cycle 1/2 10/10、check/fmt/lint/diff green。functional reviewはGO、Blocker/P1/P2 0。
+  Cycle 2でfull gateは追加実行していない
+- 次: userが`直近５コミットの`のpaste/backspace/再入力と、PageUpで最初の質問へ到達できることを再確認。
+  Cycle 3はその後
 - 境界: F1は全cycle外。provider/credential/production task/state、evidence保存、core semantics、dependency、
   `_refs/*`は未変更
 
@@ -4461,3 +4464,23 @@
 - 次: userが通常の質問とread/Bash taskでCycle 1を評価する。Cycle 2はその後
 - 注意: authoritative gate一回で24/24 green。F1/alternate screen、provider/credential/production state、
   `_refs/*`は未操作
+
+## 2026-09-02 23:19 JST
+
+- 実行エージェント: Codex owner + single implementer + functional reviewer
+- 作業トピック: FR5 human-observed UI correction Cycle 2
+- 実施: 本人利用で確認したmain-screen再描画のscrollback重複を、retained production TUIのalternate
+  screen隔離へ変更。終了時の元画面復元と、通常footerから`pending editor:<bytes>B`除去も実装した
+- 次: userが通常利用でstreaming/tool、現session scroll、正常終了後の元画面復元を評価する
+- 注意: focused Cycle 1/2 8/8とcheck/fmt/lint/diff green、review/re-review GO。追加full gate、F1/Cycle 3、
+  provider/credential/production state、dependency、`_refs/*`、commitは未実施
+
+## 2026-09-03 00:01 JST
+
+- 実行エージェント: Codex owner + single implementer + functional reviewer
+- 作業トピック: FR5 Cycle 1/2 human-observed local correction
+- 実施: pasteでも再現したU+FF15全角文字のcell幅不足をverified fullwidth formsへ限定して修正し、halfwidth
+  formsは維持。最古PageUpがidentityのないstartup rowからlatestへ戻る境界を最初のconversation anchorへ修正
+- 次: userがfullwidth paste/backspace/再入力と最古PageUpをproduction TUIで再確認する
+- 注意: focused 10/10とcheck/fmt/lint/diff green、functional review GO。full gate、F1/Cycle 3、provider/
+  credential/production state、dependency、`_refs/*`、commitは未実施

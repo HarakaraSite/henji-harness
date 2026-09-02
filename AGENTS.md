@@ -60,15 +60,23 @@ repository document or prior practice conflicts with it, this section wins.
 
 ## Current work
 
-- FR5 human-observed UI correction Cycle 1 is implemented under
+- FR5 human-observed UI correction Cycles 1 and 2 are implemented under
   `docs/plans/fr5-human-observed-ui-correction.md`; results are in the matching `-results.md`.
   Normal conversation no longer displays request/evidence/readback lines, full read output, or raw
   tool JSON. Tool activity uses one concise entry, assistant streaming settles to `assistant>`, the
   footer advances the real committed turn without duplicate identity, and cursor cell placement is
-  corrected for ASCII/Japanese/edit/wrap cases. Initial functional review P2 3 were fixed; narrow
-  re-review is GO with Blocker/P1/P2 zero. The minimal gate is now 24/24 and passed once with
-  check/fmt/lint/diff green. F1 and alternate-screen work are deferred to later cycles. Next is
-  direct user use of Cycle 1; do not start Cycle 2 until that feedback is received.
+  corrected for ASCII/Japanese/edit/wrap cases. Direct user use confirmed the concise tool path and
+  improved long Japanese input, and exposed main-screen redraw snapshots in terminal scrollback.
+  Cycle 2 now enters alternate screen before the first retained frame, restores the original screen
+  on exit, and omits editor draft bytes from the normal footer while retaining pending semantics.
+  Direct human use confirmed redraw isolation, PageUp/PageDown, Ctrl-L latest, and Ctrl-D original
+  screen restoration. It then exposed two concrete defects: U+FF15 fullwidth `５` was counted as
+  one display cell, and oldest PageUp jumped latest when startup rows lacked conversation identity.
+  Both are locally corrected with fullwidth/halfwidth-specific cell widths and first-conversation
+  anchoring. Functional review is GO with Blocker/P1/P2 zero; focused Cycle 1/2 tests 10/10 and
+  check/fmt/lint/diff are green. No additional full gate was run. Next is direct user recheck of
+  paste/backspace/insertion with `直近５コミットの` and oldest PageUp. F1 remains out of scope and
+  Cycle 3 must not start until that feedback is received.
 - The fixed output-limit expansion in `docs/plans/fixed-output-limit-expansion.md` is implemented.
   The normal parent/planner profile is now owned under `v0/agent/`, separated from the legacy
   `v0/model.ts` budgeted path, and requests 65,536 completion tokens. Completed answers,
