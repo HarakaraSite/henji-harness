@@ -54,7 +54,17 @@
   修正し、actual loop regression成功、narrow re-review GO。owner `v0:gate`一回でcurrent/provider各9/9、
   check/fmt/lint green
 - 境界: provider/credential、production launcher/state、legacy budget、`_refs/*`、dependency、cleanup、
-  commit/push/tag/publish/releaseは未実施
+  push/tag/publish/releaseは未実施。incrementはcommit `adc0e50`
+
+### POL-20260902-fr5-integrated-human-ui-candidate
+
+- 状態: `docs/plans/fr5-integrated-human-ui-candidate.md`のprovider-free Human Gateを実施し、user判断は
+  条件付き合格。正式なdaily-use判断はuser自身の継続使用後に行う
+- 成立: production `henji --continue`でlog/input/status/session/turn、過去表示、draft保持、history、
+  clean exitを確認。task submit/provider request/費用は0、session不変、evidence 3件、lock解放済み
+- 継続観測: raw planner/Bash JSON、tool三段表示、F1の内部用語が読みにくい。先回り修正はせず、実利用で
+  問題になった具体的表示・操作から別の最小実装計画を作る
+- 正本: `docs/plans/fr5-integrated-human-ui-candidate-results.md`
 
 ### Henji Harness Definition / Revision / Admission Cycle
 
@@ -4421,3 +4431,13 @@
 - 次: user指示でこのincrementをcommit、またはFR5 integrated human UI candidate assessment
 - 注意: narrow re-review GO。owner full gate一回で18/18とcheck/fmt/lint green。provider/credential、
   launcher/state、legacy budget、`_refs/*`、dependency/cleanup、追加commit/push/tag/release未実施
+
+## 2026-09-02 20:38 JST
+
+- 実行エージェント: Codex owner + zero-context planner
+- 作業トピック: FR5 integrated human UI candidate
+- 実施: 保持済みGate 1 sessionをproduction TUIでprovider-free再表示し、本体をF1より先に評価。userは
+  条件付き合格とし、正式判定は自身の継続使用後とした
+- 次: userが通常利用し、具体的な使いにくさがあれば観測箇所から最小改善を計画する
+- 注意: provider request/費用/task submit 0。session不変、evidence追加0、lock解放済み。raw JSON、tool
+  重複表示、F1内部用語は継続観測事項
