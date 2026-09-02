@@ -8,6 +8,19 @@ import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.t
 import { AgentSession } from '../../v0/agent/session.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
+import { defaultAgentDefinition, plannerAgentDefinition } from '../../v0/agent/agent_definition.ts';
+import { admitInternalAgentDefinition } from '../../v0/agent/agent_catalog.ts';
+import { emptySkillCatalog } from '../../v0/agent/skills.ts';
+import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
+import {
+  createAgentResourceSelection,
+  validateResolvedAgentResources,
+} from '../../v0/agent/resource_identity.ts';
+import { type AgentResolvedManifestV1 } from '../../v0/agent/resolved_manifest.ts';
+import {
+  materializePreparedRuntimeComposition,
+  prepareRuntimeComposition,
+} from '../../v0/agent/runtime.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -217,4 +230,96 @@ Deno.test('retained UI records exact per-turn and runtime request counts once', 
     turn: 2,
   }]);
   assertEquals(second.log.entries, first.log.entries);
+});
+
+Deno.test('Definitions declare capabilities while the host materializes matching registries', async () => {
+  const input = {
+    workspace: { root: '/definition-test' },
+    skillCatalog: emptySkillCatalog(),
+  };
+  const defaultDefinition = defaultAgentDefinition(input);
+  const plannerDefinition = plannerAgentDefinition(input);
+  assert(!('registry' in defaultDefinition));
+  assert(!('skillCatalog' in defaultDefinition));
+  assertEquals(defaultDefinition.capabilities.tools.map(String), [
+    'tool:bash',
+    'tool:edit',
+    'tool:read',
+    'tool:write',
+    'tool:delegate_to_planner',
+    'tool:submit_json_result',
+  ]);
+  const plannerDelegation = () => {
+    throw new Error('test planner delegation');
+  };
+  assertEquals(
+    createDeclaredRegistry(defaultDefinition.capabilities, {
+      ...input,
+      plannerDelegation,
+    }).definitions().map((tool) => tool.name),
+    ['bash', 'delegate_to_planner', 'edit', 'read', 'submit_json_result', 'write'],
+  );
+  assertEquals(
+    createDeclaredRegistry(plannerDefinition.capabilities, input).definitions().map((tool) =>
+      tool.name
+    ),
+    ['read', 'submit_json_result'],
+  );
+  validateResolvedAgentResources(defaultDefinition, 'default');
+  validateResolvedAgentResources(plannerDefinition, 'planner');
+
+  let observedManifest: AgentResolvedManifestV1 | undefined;
+  const synthetic = admitInternalAgentDefinition('default', (definitionInput) => {
+    const base = defaultAgentDefinition(definitionInput);
+    const customTools = Object.freeze(
+      base.capabilities.tools.filter((resource) =>
+        resource === 'tool:read' || resource === 'tool:submit_json_result'
+      ),
+    );
+    const custom = Object.freeze({
+      ...base,
+      capabilities: Object.freeze({
+        ...base.capabilities,
+        tools: customTools,
+        subagents: Object.freeze([]),
+      }),
+      limits: Object.freeze({ maxSteps: 5 }),
+      resourceSelection: createAgentResourceSelection(
+        base.resourceSelection.resources.filter((resource) =>
+          !resource.startsWith('tool:') || customTools.includes(resource)
+        ).filter((resource) => resource !== 'subagent:planner'),
+        5,
+      ),
+    });
+    validateResolvedAgentResources(custom);
+    return custom;
+  });
+  const prepared = await prepareRuntimeComposition({
+    workspace: input.workspace,
+    instructionFileSystem: {
+      lstat: () => Promise.reject(new Error('no instruction fixture')),
+      open: () => Promise.reject(new Error('no instruction fixture')),
+    },
+    skillFileSystem: {
+      lstat: () => Promise.reject(new Error('no skill fixture')),
+      readDirectory: async function* () {},
+      open: () => Promise.reject(new Error('no skill fixture')),
+    },
+    onResolvedManifestValidated: (_role, manifest) => {
+      observedManifest = manifest;
+    },
+  }, synthetic);
+  const composition = materializePreparedRuntimeComposition(prepared);
+  assert(observedManifest !== undefined);
+  assertEquals(
+    composition.registry.definitions().map((tool) => `tool:${tool.name}`),
+    prepared.definition.capabilities.tools,
+  );
+  assertEquals(observedManifest.resources, prepared.resourceSelection.resources);
+  assertEquals(observedManifest.parameters.maxSteps, 5);
+  assertEquals(observedManifest.definitionId, 'default');
+  assertEquals(
+    composition.registry.definitions().map((tool) => tool.name),
+    ['read', 'submit_json_result'],
+  );
 });

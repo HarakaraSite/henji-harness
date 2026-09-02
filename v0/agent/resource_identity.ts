@@ -1,4 +1,4 @@
-import type { ResolvedAgentDefinition } from './agent_definition.ts';
+import type { AgentCapabilityDeclaration, ResolvedAgentDefinition } from './agent_definition.ts';
 import type { AgentResourceTopologyId } from './agent_identity.ts';
 
 /** A stable, internal name for one selected agent resource. */
@@ -266,99 +266,115 @@ export const validateAgentResourceTopology = (
   ) return invalid();
 };
 
-const expectedResources = (
+const exactDataProperties = (
+  value: Record<string, unknown>,
+  names: readonly string[],
+): boolean => {
+  const ownNames = Object.getOwnPropertyNames(value);
+  if (Object.getOwnPropertySymbols(value).length !== 0) return false;
+  if (ownNames.length !== names.length || ownNames.some((name) => !names.includes(name))) {
+    return false;
+  }
+  return names.every((name) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, name);
+    return descriptor !== undefined && 'value' in descriptor && descriptor.enumerable;
+  });
+};
+
+const snapshotIdentityArray = (
+  value: unknown,
+): readonly AgentResourceIdentity[] => {
+  if (!Array.isArray(value) || !Object.isFrozen(value)) return invalid();
+  const identities: AgentResourceIdentity[] = [];
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (
+      descriptor === undefined || !('value' in descriptor) || !descriptor.enumerable
+    ) return invalid();
+    identities.push(createAgentResourceIdentity(descriptor.value as string));
+  }
+  return identities;
+};
+
+const declaredResources = (
   definition: ResolvedAgentDefinition,
 ): AgentResourceIdentity[] => {
-  if (typeof definition !== 'object' || definition === null) return invalid();
   if (
-    typeof definition.model !== 'object' || definition.model === null ||
+    !isPlainObject(definition) || !Object.isFrozen(definition) ||
+    !exactDataProperties(definition, [
+      'model',
+      'agentInstructions',
+      'systemInstruction',
+      'capabilities',
+      'limits',
+      'resourceSelection',
+    ]) ||
+    !isPlainObject(definition.model) || !Object.isFrozen(definition.model) ||
+    !exactDataProperties(definition.model, ['provider', 'profile']) ||
     definition.model.provider !== 'openrouter' ||
-    typeof definition.model.profile !== 'object' ||
-    definition.model.profile === null ||
-    typeof definition.model.profile.id !== 'string'
-  ) return invalid();
-  if (
-    typeof definition.agentInstructions !== 'undefined' &&
-    typeof definition.agentInstructions !== 'string'
-  ) {
-    return invalid();
-  }
-  const catalog = definition.skillCatalog;
-  if (
-    typeof catalog !== 'object' || catalog === null ||
-    !Array.isArray(catalog.skills) ||
-    (typeof catalog.manifest !== 'undefined' &&
-      typeof catalog.manifest !== 'string') ||
-    (catalog.skills.length > 0) !== (typeof catalog.manifest !== 'undefined')
-  ) return invalid();
-  if (
-    typeof definition.registry !== 'object' || definition.registry === null ||
-    definition.registry.skillCatalog !== catalog
+    !isPlainObject(definition.model.profile) ||
+    !Object.isFrozen(definition.model.profile) ||
+    typeof definition.model.profile.id !== 'string' ||
+    (typeof definition.agentInstructions !== 'undefined' &&
+      typeof definition.agentInstructions !== 'string') ||
+    (typeof definition.systemInstruction !== 'undefined' &&
+      typeof definition.systemInstruction !== 'string') ||
+    !isPlainObject(definition.capabilities) || !Object.isFrozen(definition.capabilities) ||
+    !exactDataProperties(definition.capabilities, [
+      'instructions',
+      'skills',
+      'tools',
+      'subagents',
+    ]) ||
+    !isPlainObject(definition.limits) || !Object.isFrozen(definition.limits) ||
+    !exactDataProperties(definition.limits, ['maxSteps']) ||
+    typeof definition.limits.maxSteps !== 'number' ||
+    !Number.isSafeInteger(definition.limits.maxSteps) ||
+    definition.limits.maxSteps <= 0
   ) return invalid();
 
-  const resources: AgentResourceIdentity[] = [
-    createAgentResourceIdentity(
-      `model:${definition.model.provider}:${definition.model.profile.id}`,
-    ),
-  ];
-  if (definition.agentInstructions !== undefined) {
-    resources.push(createAgentResourceIdentity('instruction:workspace-agents'));
+  const capabilities = definition.capabilities as AgentCapabilityDeclaration;
+  const instructions = snapshotIdentityArray(capabilities.instructions);
+  const skills = snapshotIdentityArray(capabilities.skills);
+  const tools = snapshotIdentityArray(capabilities.tools);
+  const subagents = snapshotIdentityArray(capabilities.subagents);
+  const all = [...instructions, ...skills, ...tools, ...subagents];
+  const names = new Set<string>();
+  for (const resource of all) {
+    if (names.has(`${resource}`)) return invalid();
+    names.add(`${resource}`);
   }
-  if (catalog.manifest !== undefined) {
-    resources.push(
-      createAgentResourceIdentity('instruction:project-skill-manifest'),
-    );
-  }
-  for (const skill of catalog.skills) {
-    if (
-      typeof skill !== 'object' || skill === null ||
-      typeof skill.name !== 'string'
-    ) {
-      return invalid();
-    }
-    resources.push(createAgentResourceIdentity(`skill:${skill.name}`));
-  }
+  const model = createAgentResourceIdentity(
+    `model:${definition.model.provider}:${definition.model.profile.id}`,
+  );
+  if (names.has(`${model}`)) return invalid();
+  all.push(model);
+  all.sort(compareAgentResourceIdentities);
+  return all;
+};
 
-  if (definition.registry.kind === 'production') {
-    if (definition.registry.plannerDelegation !== true) return invalid();
-    for (
-      const name of [
-        'bash',
-        'delegate_to_planner',
-        'edit',
-        'read',
-        'submit_json_result',
-        'write',
-      ]
-    ) {
-      resources.push(createAgentResourceIdentity(`tool:${name}`));
+/** Validate the shape of a declarative capability topology without assuming a built-in preset. */
+export const validateDeclaredAgentResourceTopology = (
+  resources: readonly AgentResourceIdentity[],
+): void => {
+  try {
+    if (!Array.isArray(resources) || resources.length === 0) return invalid();
+    const modelCount = resources.filter((resource) =>
+      agentResourceKind(resource) === 'model'
+    ).length;
+    if (modelCount !== 1) return invalid();
+    const names = new Set<string>();
+    for (let index = 0; index < resources.length; index += 1) {
+      const resource = resources[index];
+      if (names.has(`${resource}`)) return invalid();
+      names.add(`${resource}`);
+      if (index > 0 && compareAgentResourceIdentities(resources[index - 1], resource) >= 0) {
+        return invalid();
+      }
     }
-    if (catalog.skills.length > 0) {
-      resources.push(createAgentResourceIdentity('tool:skill'));
-    }
-    resources.push(createAgentResourceIdentity('subagent:planner'));
-  } else if (definition.registry.kind === 'planner') {
-    if (
-      Object.prototype.hasOwnProperty.call(
-        definition.registry,
-        'plannerDelegation',
-      )
-    ) {
-      return invalid();
-    }
-    resources.push(
-      createAgentResourceIdentity('instruction:builtin-planner-policy'),
-    );
-    resources.push(createAgentResourceIdentity('tool:read'));
-    if (catalog.skills.length > 0) {
-      resources.push(createAgentResourceIdentity('tool:skill'));
-    }
-    resources.push(createAgentResourceIdentity('tool:submit_json_result'));
-  } else {
+  } catch {
     return invalid();
   }
-  resources.sort(compareAgentResourceIdentities);
-  return resources;
 };
 
 /** Validate one resolved Definition against its independent stable resource declaration. */
@@ -369,20 +385,15 @@ export const validateResolvedAgentResources = (
   const selection = validateAgentResourceSelection(
     definition?.resourceSelection,
   );
-  const expected = expectedResources(definition);
-  validateAgentResourceTopology(
-    definitionId ??
-      (definition.registry.kind === 'production' ? 'default' : 'planner'),
-    selection.resources,
-  );
-  if (
-    selection.parameters.maxSteps <= 0 ||
-    selection.resources.length !== expected.length
-  ) {
-    return invalid();
-  }
+  const expected = declaredResources(definition);
+  validateDeclaredAgentResourceTopology(expected);
+  if (selection.parameters.maxSteps !== definition.limits.maxSteps) return invalid();
+  if (selection.resources.length !== expected.length) return invalid();
   for (let index = 0; index < expected.length; index += 1) {
     if (selection.resources[index] !== expected[index]) return invalid();
+  }
+  if (definitionId !== undefined) {
+    validateAgentResourceTopology(definitionId, selection.resources);
   }
   return selection;
 };

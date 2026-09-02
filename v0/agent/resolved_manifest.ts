@@ -1,4 +1,5 @@
 import type { AgentManifestDefinitionId, BuiltinAgentId } from './agent_identity.ts';
+import type { ResolvedAgentDefinition } from './agent_definition.ts';
 import { canonicalDomainSeparatedDigest } from './canonical_identity.ts';
 import {
   type AgentResourceIdentity,
@@ -7,6 +8,7 @@ import {
   createAgentResourceSelection,
   validateAgentResourceSelection,
   validateAgentResourceTopology,
+  validateResolvedAgentResources,
 } from './resource_identity.ts';
 
 export type AgentResolvedManifestIdentity = string & {
@@ -20,6 +22,9 @@ export interface AgentResolvedManifestV1 {
   readonly parameters: Readonly<{ readonly maxSteps: number }>;
   readonly identity: AgentResolvedManifestIdentity;
 }
+
+/** Whether manifest validation uses a public built-in topology or a Definition declaration. */
+export type AgentResolvedManifestValidationTopology = 'builtin' | 'declared';
 
 export const RESOLVED_MANIFEST_DOMAIN = 'henji-agent-resolved-manifest:v1\n';
 const IDENTITY_PREFIX = 'henji-agent-resolved-manifest:v1:sha256:';
@@ -154,7 +159,10 @@ const digestIdentity = async (
   ) as AgentResolvedManifestIdentity;
 };
 
-const snapshotInput = (value: unknown): {
+const snapshotInput = (
+  value: unknown,
+  topology: AgentResolvedManifestValidationTopology,
+): {
   readonly definitionId: AgentManifestDefinitionId;
   readonly resources: readonly AgentResourceIdentity[];
   readonly maxSteps: number;
@@ -194,7 +202,9 @@ const snapshotInput = (value: unknown): {
     }
     const names = snapshotResources(value.resources);
     const selection = createAgentResourceSelection(names, parameters.maxSteps);
-    validateAgentResourceTopology(contract.topologyId, selection.resources);
+    if (topology === 'builtin') {
+      validateAgentResourceTopology(contract.topologyId, selection.resources);
+    }
     if (
       contract.fixedMaxSteps !== undefined &&
       selection.parameters.maxSteps !== contract.fixedMaxSteps
@@ -215,13 +225,16 @@ const snapshotInput = (value: unknown): {
 export const createAgentResolvedManifest = async (
   definitionId: AgentManifestDefinitionId,
   selection: AgentResourceSelection,
+  topology: AgentResolvedManifestValidationTopology = 'builtin',
 ): Promise<AgentResolvedManifestV1> => {
   let resources: readonly AgentResourceIdentity[];
   let maxSteps: number;
   try {
     const validated = validateAgentResourceSelection(selection);
     const contract = resolveManifestDefinitionContract(definitionId);
-    validateAgentResourceTopology(contract.topologyId, validated.resources);
+    if (topology === 'builtin') {
+      validateAgentResourceTopology(contract.topologyId, validated.resources);
+    }
     if (
       contract.fixedMaxSteps !== undefined &&
       validated.parameters.maxSteps !== contract.fixedMaxSteps
@@ -237,11 +250,26 @@ export const createAgentResolvedManifest = async (
   return freezeManifest(definitionId, resources, maxSteps, identity);
 };
 
+/** Derive a manifest directly from one validated Definition's effective declaration. */
+export const createAgentResolvedManifestFromDefinition = async (
+  definitionId: AgentManifestDefinitionId,
+  definition: ResolvedAgentDefinition,
+  topology: AgentResolvedManifestValidationTopology = 'builtin',
+): Promise<AgentResolvedManifestV1> => {
+  const contract = resolveManifestDefinitionContract(definitionId);
+  const selection = validateResolvedAgentResources(
+    definition,
+    topology === 'builtin' ? contract.topologyId : undefined,
+  );
+  return await createAgentResolvedManifest(definitionId, selection, topology);
+};
+
 /** Validate an untrusted manifest without invoking getters or retaining caller-owned objects. */
 export const validateAgentResolvedManifest = async (
   value: unknown,
+  topology: AgentResolvedManifestValidationTopology = 'builtin',
 ): Promise<AgentResolvedManifestV1> => {
-  const snapshot = snapshotInput(value);
+  const snapshot = snapshotInput(value, topology);
   const expected = await digestIdentity(
     payloadBytes(snapshot.definitionId, snapshot.resources, snapshot.maxSteps),
   );

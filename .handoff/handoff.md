@@ -20,6 +20,18 @@
 - 境界: retry/fallback/resubmission/additional turn 0。workspace/session/evidenceは保持。cleanup、別provider
   attempt、launcher変更、code修正は新しい明示指示を要する
 
+### POL-20260902-d0-agent-definition-seam
+
+- 状態: `docs/plans/d0-internal-agent-definition-seam.md`の承認済みDisposition B実装を完了。結果は
+  `docs/plans/d0-internal-agent-definition-seam-results.md`
+- 契約: Definition capabilityをRegistry/manifestの単一正本とし、resolved Definitionをdata-only化。
+  public selectorを`default | planner`に保ったままinternal declared-topology admissionが実
+  prepare/manifest/materialize pathを通る
+- 検証: focused 7/7、initial review P1 1件を局所修正、single narrow re-review GO、owner
+  authoritative `v0:gate`一回でcurrent offline 14/14とcheck/fmt/lint/diff green
+- 境界: loader/plugin/追加provider/third production Definition/general safety、provider/credential/
+  production/machine/cleanup、`_refs/*`、commit/push/tag/publish/releaseは未実施
+
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison
@@ -4335,3 +4347,23 @@
 - 次: product baselineの次段階をユーザー判断。追加provider attemptやcleanupは自動実行しない
 - 注意: 実費USD 0.0055785。retry/fallback/additional turn 0。workspace/session/evidenceを保持し、launcher
   update、code/test/gate、cleanup、`_refs/*`、commit/push/tag/releaseは未実施
+
+## 2026-09-02 16:47 JST
+
+- 実行エージェント: Codex owner + zero-context planner
+- 作業トピック: D0 internal Agent Definition seam conformance
+- 実施: revision 46 inputとHEAD `ce508e0`をread-only auditし、3件のsource gapによりDisposition Bと判定。
+  product-firstのbounded implementation計画を正本化した
+- 次: `ASK-20260902-d0-agent-definition-seam-implementation`へのuser判断
+- 注意: planning文書とlifecycle記録のみ。product source/test、provider/credential、production/machine、
+  retained state、`_refs/*`、commitは未操作
+
+## 2026-09-02 17:29 JST
+
+- 実行エージェント: Codex owner + single implementer + bounded functional reviewer
+- 作業トピック: D0 internal Agent Definition seam implementation
+- 実施: 3件のD0 gapを閉じ、initial review P1をinternal admissionの実runtime経路化で修正。single narrow
+  re-review GO、D0 completion 7条件をreadbackした
+- 次: user判断でcommit、またはGate 1 preparation/次planning input
+- 注意: owner authoritative `v0:gate`は一回で14/14、check/fmt/lint/diff green。provider/credential/
+  production/machine/cleanup、`_refs/*`、commitは未操作

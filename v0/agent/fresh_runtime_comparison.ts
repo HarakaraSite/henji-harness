@@ -361,12 +361,12 @@ interface DefinitionProjection {
   readonly profileSecretEnv: string;
   readonly profileMaxCompletionTokens: number;
   readonly profileStream: boolean;
-  readonly registryKind: string;
-  readonly plannerDelegation: boolean;
   readonly agentInstructions: string | undefined;
-  readonly skillManifest: string | undefined;
-  readonly skillNames: readonly string[];
   readonly systemInstruction: string | undefined;
+  readonly instructions: readonly string[];
+  readonly skills: readonly string[];
+  readonly tools: readonly string[];
+  readonly subagents: readonly string[];
   readonly resources: readonly string[];
 }
 
@@ -382,14 +382,12 @@ const definitionProjection = (definition: ResolvedAgentDefinition): DefinitionPr
     profileSecretEnv: profile.secretEnv,
     profileMaxCompletionTokens: profile.maxCompletionTokens,
     profileStream: profile.stream,
-    registryKind: definition.registry.kind,
-    plannerDelegation: 'plannerDelegation' in definition.registry
-      ? definition.registry.plannerDelegation
-      : false,
     agentInstructions: definition.agentInstructions,
-    skillManifest: definition.skillCatalog.manifest,
-    skillNames: definition.skillCatalog.skills.map((skill) => skill.name),
     systemInstruction: definition.systemInstruction,
+    instructions: definition.capabilities.instructions.map((resource) => `${resource}`),
+    skills: definition.capabilities.skills.map((resource) => `${resource}`),
+    tools: definition.capabilities.tools.map((resource) => `${resource}`),
+    subagents: definition.capabilities.subagents.map((resource) => `${resource}`),
     resources: definition.resourceSelection.resources.map((resource) => `${resource}`),
   };
 };
@@ -410,12 +408,12 @@ const equalDefinitionProjection = (
   Object.is(left.profileSecretEnv, right.profileSecretEnv) &&
   Object.is(left.profileMaxCompletionTokens, right.profileMaxCompletionTokens) &&
   Object.is(left.profileStream, right.profileStream) &&
-  Object.is(left.registryKind, right.registryKind) &&
-  Object.is(left.plannerDelegation, right.plannerDelegation) &&
   Object.is(left.agentInstructions, right.agentInstructions) &&
-  Object.is(left.skillManifest, right.skillManifest) &&
-  equalStringArray(left.skillNames, right.skillNames) &&
   Object.is(left.systemInstruction, right.systemInstruction) &&
+  equalStringArray(left.instructions, right.instructions) &&
+  equalStringArray(left.skills, right.skills) &&
+  equalStringArray(left.tools, right.tools) &&
+  equalStringArray(left.subagents, right.subagents) &&
   equalStringArray(left.resources, right.resources);
 
 const equalJson = (left: unknown, right: unknown): boolean => {
@@ -466,10 +464,10 @@ const validateRunSpec = async (
   if (
     !Object.isFrozen(definition) || !plain(definition) || !exactDataProperties(definition, [
       'model',
-      'registry',
       'agentInstructions',
-      'skillCatalog',
       'systemInstruction',
+      'capabilities',
+      'limits',
       'resourceSelection',
     ])
   ) return invalid();

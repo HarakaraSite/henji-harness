@@ -82,6 +82,15 @@ repository document or prior practice conflicts with it, this section wins.
   readbackを確認した。6 requestは全てHTTP 200、tool順`read/write/read/edit/bash`、final、turn commit、
   exact files、single terminal transition、raw evidence readbackが成功し、実費はUSD 0.0055785。Human Gateは
   消費済みで、retry/fallback/追加turnは0。workspace/session/evidenceは保持し、cleanupは未承認。
+- Revision 46 D0 auditはDisposition B。計画書は
+  `docs/plans/d0-internal-agent-definition-seam.md`、SHA-256
+  `b5a578dfc9cbb457793c0b3073099380b803e8c7c70789626765e919f2fe04fe`。採用gapは、Definitionの
+  resource一覧とactual Registry presetの二重正本、resolved Definition内のhost object、internal
+  identity/topologyの`default | planner`閉包の3件。承認済み実装で3件を閉じ、実Definition capabilityから
+  Registry/manifestを導出するdata-only compositionとinternal declared-topology admissionを追加した。
+  initial review P1 1件はsynthetic Definitionが実runtime pathを通らない不足で、局所修正後のsingle narrow
+  re-reviewはGO。owner authoritative `v0:gate`は一回で成功し、current offline 14/14と
+  check/fmt/lint/diffがgreen。結果は`docs/plans/d0-internal-agent-definition-seam-results.md`。
 
 ## Historical records
 

@@ -1,9 +1,9 @@
 import {
+  type AgentCapabilityDeclaration,
   type AgentDefinition,
   type AgentDefinitionInput,
   DEFAULT_AGENT_MAX_STEPS,
   defaultAgentDefinition,
-  type ProductionRegistryDefinition,
   type ResolvedAgentDefinition,
 } from './agent_definition.ts';
 import {
@@ -171,42 +171,33 @@ const freezeParentDefinition = (
     !isPlainObject(definition) ||
     !exactDataProperties(definition, [
       'model',
-      'registry',
       'agentInstructions',
-      'skillCatalog',
       'systemInstruction',
+      'capabilities',
+      'limits',
       'resourceSelection',
     ]) ||
     !isPlainObject(definition.model) ||
     !exactDataProperties(definition.model, ['provider', 'profile']) ||
     definition.model.provider !== 'openrouter' ||
-    !isPlainObject(definition.registry) ||
-    !exactDataProperties(definition.registry, [
-      'kind',
-      'workspace',
-      'skillCatalog',
-      'plannerDelegation',
-    ]) ||
-    definition.registry.kind !== 'production' ||
-    definition.registry.plannerDelegation !== true ||
-    definition.registry.skillCatalog !== definition.skillCatalog
+    !isPlainObject(definition.capabilities) ||
+    !Object.isFrozen(definition.capabilities) ||
+    !isPlainObject(definition.limits) ||
+    !Object.isFrozen(definition.limits) ||
+    definition.limits.maxSteps !== DEFAULT_AGENT_MAX_STEPS
   ) return invalid();
   const model = Object.freeze({
     provider: definition.model.provider,
     profile: definition.model.profile,
   });
-  const registry: ProductionRegistryDefinition = Object.freeze({
-    kind: 'production',
-    workspace: definition.registry.workspace,
-    skillCatalog: definition.registry.skillCatalog,
-    plannerDelegation: true,
-  });
+  const capabilities = definition.capabilities as AgentCapabilityDeclaration;
+  const limits = Object.freeze({ maxSteps: definition.limits.maxSteps });
   return Object.freeze({
     model,
-    registry,
     agentInstructions: definition.agentInstructions,
-    skillCatalog: definition.skillCatalog,
     systemInstruction: definition.systemInstruction,
+    capabilities,
+    limits,
     resourceSelection: definition.resourceSelection,
   });
 };
@@ -247,18 +238,18 @@ export const validateComparisonVariantRelationship = (
       !isPlainObject(parent) || !isPlainObject(variant) ||
       !exactDataProperties(parent, [
         'model',
-        'registry',
         'agentInstructions',
-        'skillCatalog',
         'systemInstruction',
+        'capabilities',
+        'limits',
         'resourceSelection',
       ]) ||
       !exactDataProperties(variant, [
         'model',
-        'registry',
         'agentInstructions',
-        'skillCatalog',
         'systemInstruction',
+        'capabilities',
+        'limits',
         'resourceSelection',
       ])
     ) return invalid();
@@ -271,26 +262,12 @@ export const validateComparisonVariantRelationship = (
       parent.model.profile !== variant.model.profile
     ) return invalid();
     if (
-      !isPlainObject(parent.registry) || !Object.isFrozen(parent.registry) ||
-      !isPlainObject(variant.registry) || !Object.isFrozen(variant.registry) ||
-      !exactDataProperties(parent.registry, [
-        'kind',
-        'workspace',
-        'skillCatalog',
-        'plannerDelegation',
-      ]) ||
-      !exactDataProperties(variant.registry, [
-        'kind',
-        'workspace',
-        'skillCatalog',
-        'plannerDelegation',
-      ]) ||
-      parent.registry !== variant.registry || parent.registry.kind !== 'production' ||
-      parent.registry.plannerDelegation !== true ||
-      parent.registry.workspace !== variant.registry.workspace ||
-      parent.registry.skillCatalog !== variant.registry.skillCatalog ||
-      parent.skillCatalog !== variant.skillCatalog ||
-      parent.registry.skillCatalog !== parent.skillCatalog ||
+      !isPlainObject(parent.capabilities) || !Object.isFrozen(parent.capabilities) ||
+      !isPlainObject(variant.capabilities) || !Object.isFrozen(variant.capabilities) ||
+      parent.capabilities !== variant.capabilities ||
+      !isPlainObject(parent.limits) || !Object.isFrozen(parent.limits) ||
+      !isPlainObject(variant.limits) || !Object.isFrozen(variant.limits) ||
+      parent.limits.maxSteps !== 8 || variant.limits.maxSteps !== 4 ||
       parent.agentInstructions !== variant.agentInstructions ||
       parent.systemInstruction !== variant.systemInstruction
     ) return invalid();
@@ -338,6 +315,7 @@ const evaluateComparisonVariantWithDefinition = async (
   );
   const variant = Object.freeze({
     ...parent,
+    limits: Object.freeze({ maxSteps: entry.variantMaxSteps }),
     resourceSelection: variantSelection,
   });
   validateResolvedAgentResources(variant, 'default');
