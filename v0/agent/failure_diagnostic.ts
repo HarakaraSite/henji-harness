@@ -31,6 +31,7 @@ export type FailureStage =
   | 'model_result_validation'
   | 'session_commit'
   | 'cancellation_cleanup'
+  | 'turn_control'
   | 'unknown_stage';
 
 export type FailureCode =
@@ -44,6 +45,8 @@ export type FailureCode =
   | 'invalid_model_result'
   | 'commit_error'
   | 'cleanup_error'
+  | 'turn_cancelled'
+  | 'model_step_limit'
   | 'unknown_code';
 
 export type ParseReason =
@@ -119,6 +122,7 @@ const STAGES: readonly FailureStage[] = [
   'model_result_validation',
   'session_commit',
   'cancellation_cleanup',
+  'turn_control',
   'unknown_stage',
 ];
 const CODES: readonly FailureCode[] = [
@@ -132,6 +136,8 @@ const CODES: readonly FailureCode[] = [
   'invalid_model_result',
   'commit_error',
   'cleanup_error',
+  'turn_cancelled',
+  'model_step_limit',
   'unknown_code',
 ];
 const PARSE_REASONS: readonly ParseReason[] = [
@@ -261,6 +267,9 @@ export const validateFailureDiagnostic = (
     case 'cancellation_cleanup':
       return code === 'cleanup_error' && record.modelStep === 0 && !hasStatus &&
         !hasReason;
+    case 'turn_control':
+      return (code === 'turn_cancelled' || code === 'model_step_limit') &&
+        record.modelStep === 0 && !hasStatus && !hasReason;
     case 'unknown_stage':
       return code === 'unknown_code' && !hasStatus && !hasReason;
   }

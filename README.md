@@ -202,6 +202,11 @@ acceptance was consumed on 2026-09-01 and stopped at Turn 1 `contract_failure` w
 the linked gate and results. The run is non-evaluable because safe cause and request-count evidence
 were not exposed or retained; do not use it for an adoption decision or repeat it unchanged.
 
+The revision-42 retry has a separate, still-unapproved implementation package at
+[`docs/plans/step-83-full-capability-human-acceptance-retry-gate.md`](docs/plans/step-83-full-capability-human-acceptance-retry-gate.md).
+It is not authorized by the consumed acceptance and must not be executed until the repository
+implementation review and a separate final execution Human Gate are complete.
+
 ```text
 cd /tmp/henji-step83-full-capability-acceptance
 henji
@@ -230,8 +235,10 @@ henji diagnostics delete --id <UUID> --yes
 
 Diagnostic records contain only fixed allowlisted enums, counts, timestamps, and bounded status.
 They never contain credential values, Authorization headers, raw request/response or model data,
-tool/session content, paths, or arbitrary error text. Successful and normally cancelled turns do
-not create failure diagnostics, and failed-turn/session cleanup does not remove an existing record.
+tool/session content, paths, or arbitrary error text. Successful turns remain diagnostic-free. Clean
+cancellation after an accepted turn creates one bounded `turn_control/turn_cancelled` diagnostic;
+cleanup failure retains precedence, and failed-turn/session cleanup does not remove an existing
+record.
 
 ## Developer/reference appendix
 
@@ -245,6 +252,9 @@ The detached three-band UI plan and implementation results are
 The full-capability acceptance package and implementation results are
 [`docs/plans/step-83-full-capability-human-acceptance-gate.md`](docs/plans/step-83-full-capability-human-acceptance-gate.md)
 and [`docs/plans/step-83-full-capability-human-acceptance-results.md`](docs/plans/step-83-full-capability-human-acceptance-results.md).
+The revision-42 retry plan and results are
+[`docs/plans/step-83-full-capability-human-acceptance-retry.md`](docs/plans/step-83-full-capability-human-acceptance-retry.md)
+and [`docs/plans/step-83-full-capability-human-acceptance-retry-results.md`](docs/plans/step-83-full-capability-human-acceptance-retry-results.md).
 
 Useful checks:
 

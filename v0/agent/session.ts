@@ -54,6 +54,7 @@ export interface AgentSessionOptions {
     cancellation?: TurnCancellationOwner,
     diagnosticOwner?: FailureDiagnosticOwner,
     providerRequestCount?: () => number,
+    runtimeProviderRequestCount?: () => number,
   ) => ParentTurnExecutionContext;
   /** Optional durable owner. Ephemeral sessions leave this unset. */
   readonly persistence?: SessionPersistence;
@@ -99,6 +100,7 @@ export class AgentSession {
     cancellation?: TurnCancellationOwner,
     diagnosticOwner?: FailureDiagnosticOwner,
     providerRequestCount?: () => number,
+    runtimeProviderRequestCount?: () => number,
   ) => ParentTurnExecutionContext;
   private committedTranscript: Message[] = [];
   private active = false;
@@ -451,6 +453,7 @@ export class AgentSession {
         cancellation,
         diagnosticOwner,
         turnProviderRequestCount,
+        this.providerRequestCount,
       ) ??
         undefined;
       const outcome = await runAgentTurn(
@@ -467,6 +470,8 @@ export class AgentSession {
           signal: cancellation.signal,
           steering,
           diagnosticOwner,
+          turnProviderRequestCount,
+          runtimeProviderRequestCount: this.providerRequestCount,
           projectParentRequest: this.checkpoint === undefined
             ? undefined
             : (request) => projectSemanticContext(request, this.checkpoint!),

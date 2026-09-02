@@ -62,6 +62,8 @@ export type AgentEvent =
     readonly turn: number;
     readonly outcome: LoopOutcome['stopReason'];
     readonly committed: boolean;
+    readonly turnProviderRequestCount?: number;
+    readonly runtimeProviderRequestCount?: number;
     readonly diagnostic?: FailureDiagnosticV1;
     readonly diagnosticDurability?: FailureDiagnosticDurability;
     readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;

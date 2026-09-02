@@ -33,6 +33,7 @@ export type PresentationFailureStage =
   | 'model_result_validation'
   | 'session_commit'
   | 'cancellation_cleanup'
+  | 'turn_control'
   | 'unknown_stage';
 
 export type PresentationFailureCode =
@@ -46,6 +47,8 @@ export type PresentationFailureCode =
   | 'invalid_model_result'
   | 'commit_error'
   | 'cleanup_error'
+  | 'turn_cancelled'
+  | 'model_step_limit'
   | 'unknown_code';
 
 export type PresentationParseReason =
@@ -186,6 +189,8 @@ export interface PresentationOutcome {
   readonly diagnostic?: PresentationFailureDiagnostic;
   readonly diagnosticDurability?: PresentationDiagnosticDurability;
   readonly diagnosticPersistenceError?: PresentationDiagnosticPersistenceError;
+  readonly turnProviderRequestCount?: number;
+  readonly runtimeProviderRequestCount?: number;
   readonly steps: number;
   readonly toolCallCount: number;
   readonly toolResultCount: number;
@@ -402,6 +407,8 @@ export type PresentationEvent =
     readonly turn: number;
     readonly outcome: PresentationOutcomeReason;
     readonly committed: boolean;
+    readonly turnProviderRequestCount?: number;
+    readonly runtimeProviderRequestCount?: number;
   }>
   | Readonly<{
     readonly kind: 'lifecycle';

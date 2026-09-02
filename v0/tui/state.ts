@@ -447,8 +447,23 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         state,
         (entry) => entry.turn !== event.turn,
       );
+      const requestId = `turn-${event.turn}:requests`;
+      const withRequests = event.turnProviderRequestCount === undefined ||
+          event.runtimeProviderRequestCount === undefined ||
+          withoutLive.log.entries.some((entry) => entry.id === requestId)
+        ? withoutLive
+        : appendEntry(withoutLive, {
+          id: requestId,
+          kind: 'system',
+          label: 'requests>',
+          text:
+            `turn=${event.turn} · actual=${event.turnProviderRequestCount} · runtime=${event.runtimeProviderRequestCount}`,
+          revision: 0,
+          live: false,
+          turn: event.turn,
+        });
       return Object.freeze({
-        ...withoutLive,
+        ...withRequests,
         lifecycle: event.committed
           ? 'idle'
           : event.outcome === 'cancelled' || event.outcome === 'max_steps' ||

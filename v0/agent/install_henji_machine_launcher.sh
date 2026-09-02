@@ -9,7 +9,7 @@ failure() {
 
 [ "$#" -eq 1 ] || failure
 case "$1" in
-  check|install|rollback) ;;
+  check|install|rollback|update-retry|rollback-retry) ;;
   *) failure ;;
 esac
 
@@ -18,6 +18,8 @@ repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd) || failure
 source=$repo_root/v0/agent/henji_machine_launcher.sh
 target=/home/masat.guest/.local/bin/henji
 backup=/home/masat.guest/.local/bin/henji.pre-step83-continuation
+retry_backup=/home/masat.guest/.local/bin/henji.pre-step83-retry
+retry_recovery=/home/masat.guest/.local/bin/henji.retry-rollback-recovery
 target_dir=/home/masat.guest/.local/bin
 uid=$(id -u 2>/dev/null) || failure
 
@@ -34,6 +36,89 @@ entry_ok "$source" || failure
 if [ "$1" = 'check' ]; then
   entry_ok "$target" || failure
   cmp -s -- "$source" "$target" || failure
+  exit 0
+fi
+
+if [ "$1" = 'update-retry' ]; then
+  # The retry update is a separate atomic lifecycle. The original continuation backup is sacred,
+  # and every retry artifact must be absent before this one-way publication begins.
+  entry_ok "$target" || failure
+  entry_ok "$backup" || failure
+  if cmp -s -- "$source" "$target"; then
+    failure
+  else
+    cmp_status=$?
+    [ "$cmp_status" -eq 1 ] || failure
+  fi
+  [ ! -e "$retry_backup" ] && [ ! -L "$retry_backup" ] || failure
+  [ ! -e "$retry_recovery" ] && [ ! -L "$retry_recovery" ] || failure
+  retry_backup_fixed=$target_dir/.henji.retry-backup
+  retry_candidate_fixed=$target_dir/.henji.retry-candidate
+  [ ! -e "$retry_backup_fixed" ] && [ ! -L "$retry_backup_fixed" ] || failure
+  [ ! -e "$retry_candidate_fixed" ] && [ ! -L "$retry_candidate_fixed" ] || failure
+
+  umask 077
+  retry_backup_temp=$(mktemp "$target_dir/.henji.retry-backup.XXXXXX" 2>/dev/null) || failure
+  if ! cp -- "$target" "$retry_backup_temp" >/dev/null 2>&1 ||
+    ! chmod 0755 -- "$retry_backup_temp" >/dev/null 2>&1 ||
+    ! entry_ok "$retry_backup_temp" || ! cmp -s -- "$target" "$retry_backup_temp"; then
+    rm -f -- "$retry_backup_temp" >/dev/null 2>&1 || :
+    failure
+  fi
+  mv -- "$retry_backup_temp" "$retry_backup" >/dev/null 2>&1 || {
+    rm -f -- "$retry_backup_temp" >/dev/null 2>&1 || :
+    failure
+  }
+  entry_ok "$retry_backup" || failure
+  cmp -s -- "$target" "$retry_backup" || failure
+
+  retry_candidate=$(mktemp "$target_dir/.henji.retry-candidate.XXXXXX" 2>/dev/null) || failure
+  if ! cp -- "$source" "$retry_candidate" >/dev/null 2>&1 ||
+    ! chmod 0755 -- "$retry_candidate" >/dev/null 2>&1 ||
+    ! entry_ok "$retry_candidate" || ! cmp -s -- "$source" "$retry_candidate"; then
+    rm -f -- "$retry_candidate" >/dev/null 2>&1 || :
+    failure
+  fi
+  mv -- "$retry_candidate" "$target" >/dev/null 2>&1 || {
+    rm -f -- "$retry_candidate" >/dev/null 2>&1 || :
+    failure
+  }
+  entry_ok "$target" || failure
+  cmp -s -- "$source" "$target" || failure
+  exit 0
+fi
+
+if [ "$1" = 'rollback-retry' ]; then
+  # Recover only from the retry backup. The original backup remains untouched and the recovery
+  # publication intentionally survives any later failure for postmortem evidence.
+  entry_ok "$target" || failure
+  entry_ok "$retry_backup" || failure
+  [ ! -e "$retry_recovery" ] && [ ! -L "$retry_recovery" ] || failure
+  umask 077
+  retry_recovery_temp=$(mktemp "$target_dir/.henji.retry-recovery.XXXXXX" 2>/dev/null) || failure
+  if ! cp -- "$target" "$retry_recovery_temp" >/dev/null 2>&1 ||
+    ! chmod 0755 -- "$retry_recovery_temp" >/dev/null 2>&1 ||
+    ! entry_ok "$retry_recovery_temp" || ! cmp -s -- "$target" "$retry_recovery_temp"; then
+    rm -f -- "$retry_recovery_temp" >/dev/null 2>&1 || :
+    failure
+  fi
+  mv -- "$retry_recovery_temp" "$retry_recovery" >/dev/null 2>&1 || {
+    rm -f -- "$retry_recovery_temp" >/dev/null 2>&1 || :
+    failure
+  }
+  retry_restore_temp=$(mktemp "$target_dir/.henji.retry-restore.XXXXXX" 2>/dev/null) || failure
+  if ! cp -- "$retry_backup" "$retry_restore_temp" >/dev/null 2>&1 ||
+    ! chmod 0755 -- "$retry_restore_temp" >/dev/null 2>&1 ||
+    ! entry_ok "$retry_restore_temp" || ! cmp -s -- "$retry_backup" "$retry_restore_temp"; then
+    rm -f -- "$retry_restore_temp" >/dev/null 2>&1 || :
+    failure
+  fi
+  mv -- "$retry_restore_temp" "$target" >/dev/null 2>&1 || {
+    rm -f -- "$retry_restore_temp" >/dev/null 2>&1 || :
+    failure
+  }
+  entry_ok "$target" || failure
+  cmp -s -- "$retry_backup" "$target" || failure
   exit 0
 fi
 

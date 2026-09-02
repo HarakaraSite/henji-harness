@@ -161,6 +161,9 @@ export class Registry {
       };
     } catch (error) {
       if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+      // Planner delegation failures are a typed terminal control signal. Let the parent loop
+      // own the failure diagnostic and stop before it can issue another model request.
+      if (error instanceof Error && error.name === 'PlannerDelegationFailureError') throw error;
       const prefix = error instanceof ToolInputError ? 'invalid arguments' : 'tool execution error';
       return {
         content: {

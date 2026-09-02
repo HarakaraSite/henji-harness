@@ -1,5 +1,16 @@
 # AGENTS.md
 
+## Product-first development policy
+
+This section is the highest-priority project policy for design, implementation, testing, review,
+diagnostics, and acceptance. When another repository document or prior practice conflicts with it,
+this section wins.
+
+- ユーザーにとってtestは機能の担保機構であり、product機能や実際の利用可能性よりtestを優先してはならない。testは実装へ従属する検証手段であり、testを通すために機能を狭め、外部serviceの正常なresponseを拒否し、またはtest fixtureを実仕様として扱わない。機能とtestが競合した場合は、まずユーザーが利用する実経路と公式外部契約を確認し、誤ったtestを修正または削除する。
+- 安全機構は機能が実環境で安定してから組み込む。安全機構、fail-closed設計、拒否条件、permission・入力・状態matrixを機能成立より先に置かず、安全性を理由に正常機能、provider互換性、診断可能性、実使用acceptanceを犠牲にしない。機能安定前に必要な安全考慮は、明示されたAPI・credentialの露出防止に限定する。
+- 機能確認と障害原因特定に必要なlog、raw response、event、provider metadata、構造情報、実行証拠は保存・readback可能にする。credential値とAuthorization headerの露出は防ぐが、将来の仮想的なprivate-data懸念を理由に診断情報を省略しない。原因を特定できないsanitized分類だけを、十分な診断機能として扱わない。
+- 成功基準は、人間が実際のproduction経路で目的の機能を完了できること。offline fixture、test件数、review結果、sanitized failure、機械的gate成功を、人間の利用成功の代替にしない。
+
 ## Verification and review efficiency
 
 - 実装中とfinding closure中は、変更箇所に対応するfocused test、必要なtype check、format、lint、
@@ -22,6 +33,24 @@
   source-to-impactのBlocker/P1がない限り、証拠要求を連鎖的に拡大しない。
 
 ## Current phase
+
+- The Step 83 retry real Human Gate was explicitly authorized and consumed once on 2026-09-02.
+  `update-retry` and installed-launcher `check` passed. Exact Turn 1 made one provider request and
+  stopped before tool activity with evaluable `response_parse/response_error/data_after_terminal`,
+  HTTP 200. Diagnostic request count 1 matched terminal actual/runtime 1/1 and durable readback.
+  Turns 2/3, retry, fallback, rerun, and follow-up were zero. Confirmed Ctrl-D discard exited 0;
+  `request.txt` is unchanged, `acceptance-note.md` and committed sessions are absent, and the
+  workspace/state/diagnostic/retry backup are retained. Human-use acceptance is currently failed;
+  any code fix or provider retry requires a new instruction.
+
+- 2026-09-02 user decision replaced the repository-wide legacy `tests/v0/` matrix with one
+  zero-based current-code suite. The recoverable pre-reset copy is
+  `/tmp/henji-tests-v0-pre-minimal-reset-20260902`. `deno.v0.json` now has one six-case
+  permission-free `v0:test`; safety coverage is limited to public CLI API exposure. The suite covers
+  plain/terminal agent completion, committed session continuity and request accounting,
+  max-step diagnostics/noncommit, planner success and immediate failure propagation, and retained
+  UI request counts. All source type-checks, lint, 6/6 tests, and `git diff --check` pass. No
+  independent review or legacy full gate was run.
 
 - The Step 83 full-capability acceptance continuation is locally integrated under
   `docs/plans/step-83-full-capability-human-acceptance.md`. Residual Product P1/P2 and Evidence E2
@@ -60,6 +89,35 @@
   green. No provider/network/credential/production command, actual persistent acceptance state,
   `_refs/`, commit, push, tag, publish or release occurred. Any provider retry remains a separate
   explicit Human Gate.
+
+- The distinct revision-42 provider retry is planned in
+  `docs/plans/step-83-full-capability-human-acceptance-retry.md`, SHA-256
+  `1b4eca0c63a54a0f3e14019b038260d8c58be8fea49964674a1b87b25be98e6a`, with an unapproved draft
+  execution package in `docs/plans/step-83-full-capability-human-acceptance-retry-gate.md`, SHA-256
+  `fb74170c199152712f164f77225d2b13ec2310daa565ead4e7a515182fca1217`. Before any retry it plans
+  successful-turn actual request evidence, fail-fast planner-child failure propagation, typed
+  clean-cancel/model-step diagnostics, and a second atomic launcher update that preserves the
+  original backup. The conservative 48-request inference authorization ceiling is USD 3.10, not an
+  expected spend. Initial planning review P1 2/P2 1/E2 1 and one residual P1 were closed; final
+  ultra-narrow disposition is GO. Human Gate 2 approved repository implementation; finding closure
+  and changed-lines review are complete. Two authorized offline gate attempts were consumed by
+  stale compatibility expectations; their focused corrections pass, but authoritative verification
+  remains incomplete and no third gate is planned. Machine
+  update/rollback, credential/provider/network, production `henji`, real acceptance state, cleanup,
+  commit, push, tag, publish, and release remain unauthorized.
+
+- Revision-42 retry repository implementation is present locally under the approved plan and its
+  unapproved execution package/results
+(`docs/plans/step-83-full-capability-human-acceptance-retry-results.md`, SHA-256
+  `09a27bcd0b4ad7a3502a849b5d5d49a16538a2548cc2fe5cbe6bafe3e90b4a96`). Focused request accounting,
+  typed turn-control diagnostics, fail-fast planner propagation, retained request lines,
+  repository-only retry installer tests, strict acceptance metadata assertions, and bounded finding
+  closure regressions are green; Product Blocker/P1/P2 and listed Evidence E1/E2 are closed.
+  Authoritative gate attempt 1 exposed three stale planner-failure compatibility expectations;
+  the focused correction passed, and final gate attempt 2 exposed one stale cancellation expectation.
+  No third full-gate attempt is planned; authoritative verification remains incomplete.
+  Machine update/rollback, credential/provider/network, production `henji`, real
+  acceptance state, cleanup, commit, push, tag, publish, and release remain unauthorized.
 
 - Roadmap Step 82 (`docs/plans/daily-editor-no-lost-input.md`, SHA-256
   `a0be3aedc6e3612b123cdf92073dd3e4febf4da61d21323d4d7d113a9614d0fa`) is implemented. The bounded

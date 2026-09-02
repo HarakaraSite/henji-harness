@@ -62,6 +62,8 @@ export interface ModelExecutionContext {
   readonly diagnosticOwner?: FailureDiagnosticOwner;
   /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
   readonly providerRequestCount?: () => number;
+  /** Runtime-process cumulative fetch count, supplied by the host adapter. */
+  readonly runtimeProviderRequestCount?: () => number;
   persistDiagnostic(): Promise<void>;
   claimModelRequest(): boolean;
   snapshot(): TurnRequestBudgetSnapshot;
@@ -76,6 +78,7 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
     readonly cancellation?: TurnCancellation,
     readonly diagnosticOwner?: FailureDiagnosticOwner,
     readonly providerRequestCount?: () => number,
+    readonly runtimeProviderRequestCount?: () => number,
   ) {}
 
   claimModelRequest(): boolean {
@@ -107,6 +110,7 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     readonly cancellation?: TurnCancellation,
     readonly diagnosticOwner?: FailureDiagnosticOwner,
     readonly providerRequestCount?: () => number,
+    readonly runtimeProviderRequestCount?: () => number,
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
@@ -117,6 +121,7 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
       cancellation,
       diagnosticOwner,
       providerRequestCount,
+      runtimeProviderRequestCount,
     );
   }
 
@@ -150,6 +155,7 @@ export const createTurnExecutionContext = (
   cancellation?: TurnCancellation,
   diagnosticOwner?: FailureDiagnosticOwner,
   providerRequestCount?: () => number,
+  runtimeProviderRequestCount?: () => number,
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,
@@ -158,6 +164,7 @@ export const createTurnExecutionContext = (
     cancellation,
     diagnosticOwner,
     providerRequestCount,
+    runtimeProviderRequestCount,
   );
 
 /** The execution-only wrapper passed to tools; request admission remains nested separately. */

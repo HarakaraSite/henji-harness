@@ -2,6 +2,13 @@
 
 ## Records
 
+### POL-20260902-product-first-development
+
+- 判断済み: testはproduct機能に従属する担保機構であり、test成功のために機能、外部service互換性、人間の利用可能性を狭めない。競合時は実利用経路と公式契約を先に確認し、誤ったtestを修正または削除する
+- 判断済み: 安全機構は機能が実環境で安定した後に組み込む。機能安定前の安全考慮は明示されたAPI・credential露出防止に限定し、fail-closed・permission・異常系matrixを機能成立より優先しない
+- 判断済み: 原因特定に必要なlog、raw response、event、provider metadata、構造・実行証拠を保存・readback可能にする。credential値とAuthorization headerは露出させないが、仮想的private-data懸念で診断証拠を省かず、sanitized分類だけを十分な診断としない
+- 成功基準: 人間がproduction経路で目的機能を完了できること。test、review、gate、fixtureはその代替ではない
+
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison
@@ -860,6 +867,22 @@
 - 注意: Deno task processの非再現exit 139をharness observationとして記録。provider retry、credential
   access、production `henji`、actual acceptance state、cleanup、machine install、`_refs/`、commit/push/tag/
   publish/releaseは未実施。provider retryは別Human Gate
+
+### POL-20260902-step-83-full-capability-retry-plan
+
+- 計画: `docs/plans/step-83-full-capability-human-acceptance-retry.md`、SHA-256
+  `1b4eca0c63a54a0f3e14019b038260d8c58be8fea49964674a1b87b25be98e6a`。正本inputは
+  `/tmp/planner-inputs/henji-step-83-full-capability-human-acceptance-retry.md`、revision 42、SHA-256
+  `ed6989b955337954e10e5e51f71c8980e4a7a219c7f796534119dd8a4e945319`
+- 契約: success actual request表示、planner failure後の追加fetch 0、clean cancel/max-step typed診断、既存
+  original backupを保持する`update-retry|rollback-retry`をrepository内で実装・検証してから、別のfinal
+  execution Human Gateでfresh r2 workspaceのconditional三turnを一回だけ行う。最大48 requests、推論費用上限
+  USD 3.10、retry/fallback/rerun/cleanup 0
+- review: initial P1 2/P2 1/E2 1とnarrow re-review残存P1を閉じ、exceptional ultra-narrow reviewはGO
+- gate: repository implementationのHuman Gate 2はconsume済み。Product Blocker/P1/P2/E1/E2 zero。
+  offline full gateは2回ともstale compatibility expectationで停止し、focused修正はgreenだが
+  authoritative verification incomplete。third gateは行わない。machine update/rollback、credential/
+  provider/network、production `henji`、real state、cleanup、commit/push/tag/publish/releaseは未承認
 
 ## Checkpoints
 
@@ -4090,3 +4113,116 @@
 - 次: なし。provider retryを行う場合だけ別Human Gateから再開する
 - 注意: `_refs/`はcommit対象外。credential/provider/production `henji`/actual acceptance state cleanup、
   push/tag/publish/releaseは未実施
+
+## 2026-09-02 09:49 JST
+
+- 実行エージェント: Codex coordinating owner / planner / reviewer
+- 作業トピック: Step 83 full-capability provider retry planning
+- 実施: revision 42からcanonical planとunapproved execution packageを作成。success request実数、planner
+  failure fail-fast、cancel/max-step診断、second launcher update、fresh state partition、USD 3.10上限を固定し、
+  initial/narrow/ultra-narrow reviewで全findingを閉じた
+- 次: `POL-20260902-step-83-full-capability-retry-plan`のHuman Gate 2判断
+- 注意: 文書変更のみ。実装/test、machine update、credential/provider/network、production command、real
+  workspace/state、cleanup、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 retry implementation checkpoint
+
+- 実行エージェント: Codex Step 83 full-capability Human Gate 2 implementer
+- 作業トピック: revision-42 provider retry repository implementation
+- 実施: approved planに従い、terminal/runtime request-count projection、turn-control diagnostic
+  allowlist/settlement、planner child failure fail-fast propagation、retained request lines、及び
+  `update-retry`/`rollback-retry` atomic installer lifecycleを実装。既存planner/runtime期待値を
+  fail-fast契約へ更新し、session/diagnostic/TUI/installer focused regressionsを追加。retry gate
+  package、README pointers、results skeletonを作成した
+- identity: retry plan SHA-256 `1b4eca0c63a54a0f3e14019b038260d8c58be8fea49964674a1b87b25be98e6a`、package SHA-256
+  `9b6f41386fe85099b560c9e3a880104deaa32caa2059edaf7a020e7b64364543`、results SHA-256
+  `b9741ca069417e6a911f56139d41165e1aef7375b0a0490462e43ca1f03a46bb`
+- 検証: pinned Deno `v0:check`、planner 16/16、failure-diagnostic 15/15、session 17/17、runtime
+  51/51、UI state 10/10、render 21/21、retry launcher/package 6/6、shell syntax、`git diff --check`
+  green。`v0:test`/`v0:gate`は未実施
+- 次: coordinating ownerへchanged-lines reviewを依頼し、review/closure後にownerがauthoritative gate
+  を一回実施。final execution Human Gateまでretry packageは実行不可
+- 注意: provider/network/credential、production `henji`、machine target update/rollback、real
+  workspace/state、cleanup、dependency/lockfile、`_refs/`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 10:52 JST
+
+- 実行エージェント: Codex Step 83 retry finding-closure implementer
+- 作業トピック: approved single bounded retry finding closure
+- 実施: Product P1 installer cmp fail-closed、commit request-count identity、README cancellation
+  semanticsを修正。package strict session/diagnostic readback、provider-free mismatch guard、
+  planner/diagnostic/accounting/session-byte、installer refusal matrix evidenceを追加
+- 検証: failure-diagnostic 17/17、session 18/18、session-store 21/21、runtime 52/52、planner
+  16/16、launcher/package 13/13、ui-presentation 26/26、check/fmt/lint/diff/shell syntax green。
+  retry package SHA `fb74170c199152712f164f77225d2b13ec2310daa565ead4e7a515182fca1217`、results SHA
+  `d72015f2a30257cf695a3786fc735460d43b60d93fa364bc24b1bfcc78cafb50`
+- 次: coordinating ownerのchanged-lines narrow re-review後、stable candidateへauthoritative gateを一回実施
+- 注意: Human Gate 2 repository authorizationはconsume済み。provider/network/credential、production
+  `henji`、machine target、real acceptance state、cleanup、`_refs/*`、dependency/lockfile、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 11:06 JST
+
+- 実行エージェント: Codex Step 83 retry owner-evidence closure implementer
+- 作業トピック: production correlation boundary negative known answers
+- 実施: 実運用AgentSessionの terminal outcome/event pairに対し、diagnostic `providerRequestCount` と
+  terminal actual countの不一致、diagnostic `turnNumber` と terminal event turnの不一致を各1件追加。
+  両方とも well-formed recordのまま `non-evaluable` と判定され、sourceの値補正や再試行は行わない
+- 検証: `agent:session:test` 19/19、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` green。
+  retry package SHA `fb74170c199152712f164f77225d2b13ec2310daa565ead4e7a515182fca1217`、results SHA
+  `a10d227ad50b2c556825c4ad64c6e334bbaf892dab2b1b27ca3195673b67cf1e`
+- 次: Product Blocker/P1/P2/E1/E2 zeroを維持したまま、coordinating ownerのnarrow re-reviewと
+  authoritative offline gateを待つ
+- 注意: Human Gate 2 repository authorizationはconsume済み。provider/network/credential、production
+  `henji`、machine target、real acceptance state、cleanup、`_refs/*`、dependency/lockfile、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 11:11 JST
+
+- 実行エージェント: Codex Step 83 retry owner gate correction implementer
+- 作業トピック: authoritative gate attempt 1 stale planner compatibility expectations
+- 実施: `failure_diagnostic_store_test.ts`の3旧期待を、approved fail-fast planner contractへ更新。
+  child diagnosticのidentity/durability/no-collision、parent noncommit、後続parent exception/cancellation
+  未実行、zero post-failure fetchを検証し、product sourceは変更していない
+- 検証: `agent:failure-diagnostic-store:test` 16/16、`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check` green。
+  authoritative gate attempt 1は13/16で停止（3件はstale compatibility expectations）。results SHA
+  `b9cb809233593680a68e389b5c0d82fb4f387c0dcae92802dc4831a0cddbc6cb`
+- 次: coordinating ownerがexceptional authoritative gate attempt 2を計画。provider retryや別reviewは行わない
+- 注意: provider/network/credential、production `henji`、machine target、real acceptance state、cleanup、
+  dependency/lockfile、`_refs/*`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 11:14 JST
+
+- 実行エージェント: Codex Step 83 retry final gate correction implementer
+- 作業トピック: authoritative full gate attempt 2 stale cancellation expectation
+- 実施: `agent_cancellation_test.ts`先頭fixtureの旧exact event期待を、bounded
+  `turn_control/turn_cancelled` diagnostic、noncommit、zero-request count、event/outcome identity、
+  fresh next-turn signalへ更新。product sourceは変更していない
+- 検証: `agent:cancellation:test` 18/18、`v0:check`、`v0:fmt`、`git diff --check` green。
+  final authorized full gate attempt 2は17/18で停止（stale cancellation fixture）。results SHA
+  `09a27bcd0b4ad7a3502a849b5d5d49a16538a2548cc2fe5cbe6bafe3e90b4a96`
+- 次: third full-gate attemptは行わず、authoritative verification incompleteとしてowner判断待ち
+- 注意: provider/network/credential、production `henji`、machine target、real acceptance state、cleanup、
+  dependency/lockfile、`_refs/*`、commit/push/tag/publish/releaseは未実施
+
+## 2026-09-02 11:27 JST
+
+- 実行エージェント: Codex owner（直接実行、委譲・reviewなし）
+- 作業トピック: repository-wide minimal current-code test reset
+- 実施: legacy `tests/v0/`を`/tmp/henji-tests-v0-pre-minimal-reset-20260902`へ復元可能に退避し、permission-free 6-case suiteと単一gateへ置換。安全testはpublic CLI API exposureだけに限定
+- 次: user判断。provider retry、machine update、実acceptanceは未実行
+- 注意: 全source check、lint、6/6、diff check成功。新gate初回は新test helperの型annotationだけで停止し修正済み。旧suite再実行・independent review・provider/network/credential/production command・`_refs/*`変更なし
+
+## 2026-09-02 11:39 JST
+
+- 実行エージェント: Codex owner（直接実行）
+- 作業トピック: Step 83 retry final Human Gate
+- 実施: user明示承認により`update-retry`を一回実行しcheck成功。fresh workspaceでF1確認後、exact Turn 1を一回送信。1 requestで`response_parse/response_error/data_after_terminal`、HTTP 200となり、diagnostic count 1とterminal actual/runtime 1/1が一致
+- 次: code fixまたはprovider retryは新しいuser指示待ち
+- 注意: Turn 2/3・retry・fallback・rerun・follow-upなし。Ctrl-D discard exit 0。request.txt unchanged、acceptance-note/sessionなし、durable diagnostic `85d43242-4af7-4b2c-9bf7-6e71d47ab8ae`とworkspace/state/retry backupを保持
+
+## 2026-09-02 11:58 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: product-first development policy
+- 実施: user判断を`AGENTS.md`最上位方針と`POL-20260902-product-first-development`へ記録。test従属、機能安定先行、API/credential露出以外の安全後置、原因特定可能なlog/raw response/event evidence保持、人間のproduction利用成功を基準化
+- 次: 現行SSE parserとdiagnostic captureをこの方針に沿って修正する場合はuser指示に従う
+- 注意: 今回はpolicy文書のみ変更し、product code・test・provider retryは未実施

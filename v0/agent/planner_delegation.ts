@@ -1,4 +1,5 @@
 import { type JsonObject, type JsonValue, type LoopOutcome } from './contracts.ts';
+import { type FailureDiagnosticV1 } from './failure_diagnostic.ts';
 import {
   type ChildTurnExecutionContext,
   type ParentTurnExecutionContext,
@@ -43,6 +44,37 @@ export interface PlannerDelegationExecution {
   readonly externalRequests: number;
 }
 
+export type PlannerDelegationFailureKind =
+  | 'delegation_limit'
+  | 'planner_failed'
+  | 'planner_output_invalid'
+  | 'planner_output_limit';
+
+/** Internal terminal signal: a planner failure must stop its accepted parent turn. */
+export class PlannerDelegationFailureError extends Error {
+  override readonly name = 'PlannerDelegationFailureError';
+  readonly failureStage: 'model_result_validation' | 'request_admission';
+  readonly failureCode: 'invalid_model_result' | 'request_budget_exhausted';
+  constructor(
+    readonly kind: PlannerDelegationFailureKind,
+    readonly diagnostic?: FailureDiagnosticV1,
+  ) {
+    super(failureMessage(kind));
+    this.failureStage = kind === 'delegation_limit'
+      ? 'request_admission'
+      : 'model_result_validation';
+    this.failureCode = kind === 'delegation_limit'
+      ? 'request_budget_exhausted'
+      : 'invalid_model_result';
+  }
+}
+
+export const isPlannerDelegationFailureError = (
+  value: unknown,
+): value is PlannerDelegationFailureError =>
+  value instanceof PlannerDelegationFailureError ||
+  (value instanceof Error && value.name === 'PlannerDelegationFailureError');
+
 export type PlannerDelegationHandler = (
   task: string,
   childContext: ChildTurnExecutionContext,
@@ -81,11 +113,7 @@ const usageDelta = (
   externalRequests: safeCounter(externalRequests),
 });
 
-type FailureCode =
-  | 'delegation_limit'
-  | 'planner_failed'
-  | 'planner_output_invalid'
-  | 'planner_output_limit';
+type FailureCode = PlannerDelegationFailureKind;
 
 const failureMessage = (code: FailureCode): string => {
   switch (code) {
@@ -99,14 +127,6 @@ const failureMessage = (code: FailureCode): string => {
       return 'planner result exceeds 64 KiB';
   }
 };
-
-const failureEnvelope = (code: FailureCode, usage: PlannerDelegationUsage): string =>
-  JSON.stringify({
-    ok: false,
-    agent: 'planner',
-    error: { code, message: failureMessage(code) },
-    usage,
-  });
 
 const successEnvelope = (
   outcome: LoopOutcome,
@@ -148,8 +168,6 @@ const isParentContext = (
     typeof (candidate as Partial<ParentTurnExecutionContext>).admitPlannerExecution === 'function';
 };
 
-const emptyUsage: PlannerDelegationUsage = { modelRequests: 0, externalRequests: 0 };
-
 /** Create the sole normal-runtime nonterminal planner delegation tool. */
 export const createPlannerDelegationTool = (
   handler: PlannerDelegationHandler,
@@ -167,7 +185,7 @@ export const createPlannerDelegationTool = (
     }
 
     // A valid call without the parent context is an internal wiring failure, not user input.
-    if (!isParentContext(context)) return failureEnvelope('planner_failed', emptyUsage);
+    if (!isParentContext(context)) throw new PlannerDelegationFailureError('planner_failed');
     const parentContext =
       ('modelExecution' in context
         ? context.modelExecution
@@ -175,7 +193,9 @@ export const createPlannerDelegationTool = (
     const signal = 'modelExecution' in context ? context.signal : context.signal;
     throwIfCancelled(signal);
     const childContext = parentContext.admitPlannerExecution();
-    if (childContext === undefined) return failureEnvelope('delegation_limit', emptyUsage);
+    if (childContext === undefined) {
+      throw new PlannerDelegationFailureError('delegation_limit');
+    }
     const before = parentContext.snapshot();
     let execution: PlannerDelegationExecution;
     try {
@@ -185,27 +205,29 @@ export const createPlannerDelegationTool = (
       await childContext.persistDiagnostic();
     } catch (error) {
       if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+      if (isPlannerDelegationFailureError(error)) throw error;
       try {
         await childContext.persistDiagnostic();
       } catch {
-        // The parent still receives a fixed failure envelope; the owner retains the live record
+        // The parent still receives the typed terminal signal; the owner retains the live record
         // and the session marks the turn non-evaluable when its durable retry boundary settles.
       }
-      const usage = usageDelta(before, parentContext.snapshot(), 0);
-      return failureEnvelope('planner_failed', usage);
+      throw new PlannerDelegationFailureError('planner_failed');
     }
     const usage = usageDelta(before, parentContext.snapshot(), execution?.externalRequests);
     if (
       typeof execution !== 'object' || execution === null ||
       typeof execution.outcome !== 'object' || execution.outcome === null
-    ) return failureEnvelope('planner_failed', usage);
+    ) throw new PlannerDelegationFailureError('planner_failed');
 
     const output = successEnvelope(execution.outcome, usage);
     if (output === undefined) {
       const code = execution.outcome.ok ? 'planner_output_invalid' : 'planner_failed';
-      return failureEnvelope(code, usage);
+      throw new PlannerDelegationFailureError(code, execution.outcome.diagnostic);
     }
-    if (!withinResultLimit(output)) return failureEnvelope('planner_output_limit', usage);
+    if (!withinResultLimit(output)) {
+      throw new PlannerDelegationFailureError('planner_output_limit', execution.outcome.diagnostic);
+    }
     return output;
   },
 });

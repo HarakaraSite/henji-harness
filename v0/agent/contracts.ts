@@ -123,6 +123,10 @@ export interface LoopOutcome {
   /** Diagnostic durability is finalized by the session after persistence settles. */
   readonly diagnosticDurability?: FailureDiagnosticDurability;
   readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;
+  /** Actual provider fetch starts attributed to this accepted turn, when observed by a host. */
+  readonly turnProviderRequestCount?: number;
+  /** Cumulative actual provider fetch starts since this runtime process began, when observed. */
+  readonly runtimeProviderRequestCount?: number;
   readonly steps: number;
   readonly toolCallCount: number;
   readonly toolResultCount: number;

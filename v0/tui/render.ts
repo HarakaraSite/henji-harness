@@ -718,6 +718,15 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'turn_end':
         this.clearLiveState();
+        if (
+          !this.retained && event.turnProviderRequestCount !== undefined &&
+          event.runtimeProviderRequestCount !== undefined
+        ) {
+          this.write(dynamicLine(
+            'requests> ',
+            `turn=${event.turn} · actual=${event.turnProviderRequestCount} · runtime=${event.runtimeProviderRequestCount}`,
+          ));
+        }
         this.setStatus(
           event.committed && this.followUpPending
             ? 'busy · starting follow-up'

@@ -37,6 +37,10 @@ import {
   FailureDiagnosticOwner,
   type FailureDiagnosticV1,
 } from './failure_diagnostic.ts';
+import {
+  isPlannerDelegationFailureError,
+  type PlannerDelegationFailureError,
+} from './planner_delegation.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = 65_536;
@@ -54,6 +58,10 @@ export interface AgentLoopOptions {
   readonly ownsCancellation?: boolean;
   /** Optional turn-local owner. Direct compatibility callers may omit diagnostics. */
   readonly diagnosticOwner?: FailureDiagnosticOwner;
+  /** Actual fetch starts attributed to this accepted turn, supplied by a session host. */
+  readonly turnProviderRequestCount?: () => number;
+  /** Cumulative actual fetch starts since the runtime process began. */
+  readonly runtimeProviderRequestCount?: () => number;
 }
 
 export interface AgentTurnOptions extends AgentLoopOptions {
@@ -148,6 +156,7 @@ const contractFailure = (
   toolResultCount: number,
   error: string,
   diagnostic?: FailureDiagnosticV1,
+  requestCounts: RequestCounts = {},
 ): LoopOutcome => ({
   ok: false,
   task,
@@ -155,6 +164,7 @@ const contractFailure = (
   stopReason: 'contract_failure',
   error,
   ...(diagnostic === undefined ? {} : { diagnostic }),
+  ...requestCounts,
   steps,
   toolCallCount,
   toolResultCount,
@@ -215,6 +225,17 @@ const maxSteps = (
   transcript: snapshotMessages(transcript),
 });
 
+interface RequestCounts {
+  readonly turnProviderRequestCount?: number;
+  readonly runtimeProviderRequestCount?: number;
+}
+
+const boundedCount = (value: unknown, max?: number): number | undefined =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 &&
+    (max === undefined || value <= max)
+    ? value
+    : undefined;
+
 const terminalBatchError = (
   call: ToolCall,
 ): ToolMessage['content'][number] => ({
@@ -266,6 +287,21 @@ const runAgentTurnInternal = async (
   let toolCallCount = 0;
   let toolResultCount = 0;
 
+  const terminalRequestCounts = (): RequestCounts => {
+    const turn = boundedCount(
+      options.turnProviderRequestCount?.() ?? options.executionContext?.providerRequestCount?.(),
+      16,
+    );
+    const runtime = boundedCount(
+      options.runtimeProviderRequestCount?.() ??
+        options.executionContext?.runtimeProviderRequestCount?.(),
+    );
+    return {
+      ...(turn === undefined ? {} : { turnProviderRequestCount: turn }),
+      ...(runtime === undefined ? {} : { runtimeProviderRequestCount: runtime }),
+    };
+  };
+
   const diagnosticFor = (
     error: unknown,
     fallback: Partial<FailureDiagnosticFact> = {
@@ -275,17 +311,23 @@ const runAgentTurnInternal = async (
   ): FailureDiagnosticV1 | undefined => {
     const owner = options.diagnosticOwner ?? options.executionContext?.diagnosticOwner;
     if (owner === undefined) return undefined;
+    // A child or an earlier terminal path may already own the immutable record. Reuse it without
+    // calling record again: collision is evidence of two independently-created records, not the
+    // expected parent projection of one child failure.
+    const existing = owner.snapshot();
+    if (existing !== undefined) return existing;
     const observed = failureFact(error);
     const stage = observed?.stage ?? fallback.stage ?? 'unknown_stage';
     const code = observed?.code ?? fallback.code ?? 'unknown_code';
-    const count = options.executionContext?.providerRequestCount?.() ??
+    const count = options.turnProviderRequestCount?.() ??
+      options.executionContext?.providerRequestCount?.() ??
       (stage === 'request_build' || stage === 'credential_resolution'
         ? observed?.providerRequestCount ?? fallback.providerRequestCount ?? 0
         : observed?.providerRequestCount ?? options.executionContext?.snapshot().aggregate ??
           fallback.providerRequestCount ?? 0);
     const step = fallback.modelStep ??
       (stage === 'request_build' || stage === 'request_admission' || stage === 'session_commit' ||
-          stage === 'cancellation_cleanup'
+          stage === 'cancellation_cleanup' || stage === 'turn_control'
         ? 0
         : steps);
     try {
@@ -325,12 +367,14 @@ const runAgentTurnInternal = async (
       toolResultCount,
       error,
       diagnostic,
+      terminalRequestCounts(),
     );
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'contract_failure',
       committed: false,
+      ...terminalRequestCounts(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return outcome;
@@ -340,6 +384,11 @@ const runAgentTurnInternal = async (
       return finishContractFailure('cancellation cleanup failed');
     }
     if (ownsCancellation) cancellation?.settleCancelled();
+    const diagnostic = diagnosticFor(undefined, {
+      stage: 'turn_control',
+      code: 'turn_cancelled',
+      modelStep: 0,
+    });
     const outcome = cancelled(
       task,
       transcript,
@@ -347,15 +396,15 @@ const runAgentTurnInternal = async (
       toolCallCount,
       toolResultCount,
     );
-    const diagnostic = (
-      options.diagnosticOwner ?? options.executionContext?.diagnosticOwner
-    )?.snapshot();
-    const settledOutcome = diagnostic === undefined ? outcome : { ...outcome, diagnostic };
+    const settledOutcome = diagnostic === undefined
+      ? { ...outcome, ...terminalRequestCounts() }
+      : { ...outcome, ...terminalRequestCounts(), diagnostic };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'cancelled',
       committed: false,
+      ...terminalRequestCounts(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return settledOutcome;
@@ -374,7 +423,10 @@ const runAgentTurnInternal = async (
     const diagnostic = (
       options.diagnosticOwner ?? options.executionContext?.diagnosticOwner
     )?.snapshot();
-    const settledOutcome = diagnostic === undefined ? outcome : { ...outcome, diagnostic };
+    const requestCounts = terminalRequestCounts();
+    const settledOutcome = diagnostic === undefined
+      ? { ...outcome, ...requestCounts }
+      : { ...outcome, ...requestCounts, diagnostic };
     if (successful) {
       try {
         options.commit?.(outcome.transcript);
@@ -392,12 +444,14 @@ const runAgentTurnInternal = async (
           toolResultCount,
           `session commit failure: ${errorText(error)}`,
           diagnostic,
+          requestCounts,
         );
         deliverEvent(sink, {
           kind: 'turn_end',
           turn,
           outcome: 'contract_failure',
           committed: false,
+          ...requestCounts,
           ...(diagnostic === undefined ? {} : { diagnostic }),
         });
         return failure;
@@ -408,12 +462,18 @@ const runAgentTurnInternal = async (
       turn,
       outcome: settledOutcome.stopReason,
       committed: successful && options.commit !== undefined,
+      ...terminalRequestCounts(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return settledOutcome;
   };
   const finishMaxSteps = (): LoopOutcome => {
     if (signal?.aborted) return finishCancelled();
+    diagnosticFor(undefined, {
+      stage: 'turn_control',
+      code: 'model_step_limit',
+      modelStep: 0,
+    });
     return finishNormal(
       maxSteps(task, transcript, steps, toolCallCount, toolResultCount),
     );
@@ -674,6 +734,33 @@ const runAgentTurnInternal = async (
           return finishContractFailure('cancellation cleanup failed');
         }
         if (cancellationFrom(error)) return finishCancelled();
+        if (isPlannerDelegationFailureError(error)) {
+          const plannerFailure = error as PlannerDelegationFailureError;
+          const plannerResult: ToolMessage['content'][number] = {
+            kind: 'tool_result',
+            callId: call.callId,
+            name: call.name,
+            text: plannerFailure.message,
+            outcome: 'error',
+          };
+          results.push(plannerResult);
+          deliverEvent(sink, {
+            kind: 'tool_result',
+            turn,
+            result: snapshot(plannerResult),
+          });
+          toolResultCount += 1;
+          observer?.toolResultAccepted(snapshot(plannerResult));
+          return finishContractFailure(
+            'planner delegation failed',
+            {
+              stage: plannerFailure.failureStage,
+              code: plannerFailure.failureCode,
+              modelStep: 0,
+            },
+            error,
+          );
+        }
         results.push({
           kind: 'tool_result',
           callId: call.callId,

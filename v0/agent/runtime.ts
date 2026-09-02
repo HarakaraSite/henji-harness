@@ -39,7 +39,11 @@ import {
 } from './execution_context.ts';
 import { type FailureDiagnosticOwner } from './failure_diagnostic.ts';
 import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
-import type { PlannerDelegationHandler } from './planner_delegation.ts';
+import {
+  isPlannerDelegationFailureError,
+  PlannerDelegationFailureError,
+  type PlannerDelegationHandler,
+} from './planner_delegation.ts';
 import {
   CancellationCleanupError,
   isCancellationCleanupError,
@@ -139,6 +143,7 @@ export interface RuntimeComposition {
     cancellation?: TurnCancellation,
     diagnosticOwner?: FailureDiagnosticOwner,
     providerRequestCount?: () => number,
+    runtimeProviderRequestCount?: () => number,
   ) => ParentTurnExecutionContext;
 }
 
@@ -366,10 +371,14 @@ export const materializePreparedRuntimeComposition = (
           if (childContext.cancellation?.state === 'cleanup_failed') {
             throw new CancellationCleanupError();
           }
+          if (!outcome.ok) {
+            throw new PlannerDelegationFailureError('planner_failed', outcome.diagnostic);
+          }
           return { outcome, externalRequests: requestCount() - beforeRequests };
         } catch (error) {
           if (
-            isTurnCancelledError(error) || isCancellationCleanupError(error)
+            isTurnCancelledError(error) || isCancellationCleanupError(error) ||
+            isPlannerDelegationFailureError(error)
           ) throw error;
           return {
             outcome: childFailure(task),
@@ -393,6 +402,7 @@ export const materializePreparedRuntimeComposition = (
       cancellation,
       diagnosticOwner,
       providerRequestCount,
+      runtimeProviderRequestCount,
     ) =>
       createTurnExecutionContext(
         turn,
@@ -400,6 +410,7 @@ export const materializePreparedRuntimeComposition = (
         cancellation,
         diagnosticOwner,
         providerRequestCount ?? requestCount,
+        runtimeProviderRequestCount ?? requestCount,
       ),
   };
 };
