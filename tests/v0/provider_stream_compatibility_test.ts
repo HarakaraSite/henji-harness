@@ -561,7 +561,7 @@ Deno.test('diagnostics evidence commands have read-only list/show grammar', () =
   );
 });
 
-Deno.test('retained UI exposes only the opaque evidence ID and readback command', () => {
+Deno.test('retained UI keeps provider evidence out of the conversation log', () => {
   const evidenceId = '44444444-4444-4444-8444-444444444444';
   const state = reduceUiEvent(createUiState(), {
     kind: 'turn_end',
@@ -570,10 +570,7 @@ Deno.test('retained UI exposes only the opaque evidence ID and readback command'
     committed: true,
     providerEvidenceId: evidenceId,
   });
-  const entry = state.log.entries.find((value) => value.id === 'turn-1:evidence');
-  assert(entry !== undefined);
-  assert(entry.text.includes(`henji diagnostics evidence show --id ${evidenceId}`));
-  assert(!entry.text.toLowerCase().includes('authorization'));
+  assertEquals(state.log.entries, []);
 
   const linkedFailureState = reduceUiEvent(createUiState(), {
     kind: 'turn_end',
@@ -584,12 +581,7 @@ Deno.test('retained UI exposes only the opaque evidence ID and readback command'
     providerEvidenceDurability: 'yes',
     providerEvidencePersistenceError: 'provider_evidence_io_failure',
   });
-  const linkedFailureEntry = linkedFailureState.log.entries.find((value) =>
-    value.id === 'turn-1:evidence'
-  );
-  assert(linkedFailureEntry !== undefined);
-  assert(linkedFailureEntry.text.includes(`henji diagnostics evidence show --id ${evidenceId}`));
-  assert(linkedFailureEntry.text.includes('store=provider_evidence_io_failure'));
+  assertEquals(linkedFailureState.log.entries, []);
 
   const failedState = reduceUiEvent(createUiState(), {
     kind: 'turn_end',
@@ -600,8 +592,5 @@ Deno.test('retained UI exposes only the opaque evidence ID and readback command'
     providerEvidenceDurability: 'failed',
     providerEvidencePersistenceError: 'provider_evidence_io_failure',
   });
-  const failedEntry = failedState.log.entries.find((value) => value.id === 'turn-1:evidence');
-  assert(failedEntry !== undefined);
-  assert(failedEntry.text.includes('persistence=failed'));
-  assert(!failedEntry.text.includes('henji diagnostics evidence show --id'));
+  assertEquals(failedState.log.entries, []);
 });

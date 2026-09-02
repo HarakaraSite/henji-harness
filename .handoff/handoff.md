@@ -66,6 +66,16 @@
   問題になった具体的表示・操作から別の最小実装計画を作る
 - 正本: `docs/plans/fr5-integrated-human-ui-candidate-results.md`
 
+### POL-20260902-fr5-ui-correction
+
+- 状態: `docs/plans/fr5-human-observed-ui-correction.md`のCycle 1を実装。通常logのdiagnostic/raw tool
+  詳細除去、tool一entry化、assistant final確定、実turn footer、cursor cell補正を行った
+- 検証: human-observed 6件を加え最小suite 24件。initial functional review P2 3件を局所修正し、narrow
+  re-review GO、Blocker/P1/P2 0。owner `v0:gate`一回で24/24、check/fmt/lint/diff green
+- 次: userがCycle 1を通常利用して評価する。合格または一度の局所補正後にCycle 2 alternate-screenへ進む
+- 境界: F1は全cycle外。provider/credential/production task/state、evidence保存、core semantics、dependency、
+  `_refs/*`は未変更
+
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison
@@ -4441,3 +4451,13 @@
 - 次: userが通常利用し、具体的な使いにくさがあれば観測箇所から最小改善を計画する
 - 注意: provider request/費用/task submit 0。session不変、evidence追加0、lock解放済み。raw JSON、tool
   重複表示、F1内部用語は継続観測事項
+
+## 2026-09-02 22:04 JST
+
+- 実行エージェント: Codex owner + planner + implementer + functional reviewer
+- 作業トピック: FR5 human-observed UI correction Cycle 1
+- 実施: 本人の実利用指摘から通常log、tool entry、assistant final、footer/turn、cursorを補正。Pi/Zotの
+  既存UI挙動を参考にし、review P2 3件を閉じた
+- 次: userが通常の質問とread/Bash taskでCycle 1を評価する。Cycle 2はその後
+- 注意: authoritative gate一回で24/24 green。F1/alternate screen、provider/credential/production state、
+  `_refs/*`は未操作

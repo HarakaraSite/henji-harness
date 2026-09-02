@@ -1,5 +1,4 @@
 import {
-  formatPresentationFailureDiagnostic,
   type PresentationContextPreview,
   PresentationDeliveryError,
   type PresentationDiagnosticDurability,
@@ -28,6 +27,7 @@ import { type PresentationPosition } from '../presentation/contract.ts';
 import { type PresentationProjection } from '../presentation/contract.ts';
 import {
   createUiState,
+  presentationFailureReason,
   reduceUiAction,
   reduceUiEvent,
   setUiProjection,
@@ -109,6 +109,15 @@ const boundedEscaped = (text: string, options: EscapeOptions = {}): string => {
   const escaped = escapeTerminalText(bounded.text, options);
   return bounded.truncated ? `${escaped}… [display truncated]` : escaped;
 };
+
+const shortToolName = (name: string): string => {
+  const bounded = truncateText(name, 64);
+  return bounded.truncated ? `${bounded.text}…` : bounded.text;
+};
+const toolResultText = (
+  name: string,
+  outcome: 'success' | 'error',
+): string => `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`;
 
 const cellWidth = (character: string): number => {
   const code = character.codePointAt(0)!;
@@ -462,21 +471,10 @@ export class TuiRenderer implements TerminalRendererGate {
       0,
       MAX_FRAME_BYTES - encoder.encode(cursor).byteLength,
     );
-    const terminalFinal = this.ui.log.entries.find((entry) =>
-      entry.kind === 'assistant' && entry.turn === this.lastTurn && !entry.live
-    )?.text;
-    const terminalResultIds = terminalFinal === undefined ? new Set<string>() : new Set(
-      this.ui.log.entries.filter((entry) =>
-        entry.kind === 'tool' && entry.label.startsWith('tool<') &&
-        entry.text === terminalFinal
-      ).map((entry) => entry.id),
-    );
     // Startup help is ordered as a safety guide: keep its first rows visible on a narrow screen,
     // while other overlays retain their newest-page/tail behavior.
     const overlayLog = this.ui.overlay.kind === 'startupHelp' ? layout.log : layout.overlay;
-    const log = (overlayLog.length > 0 ? overlayLog : layout.log)
-      .filter((line) => line.entryId === undefined || !terminalResultIds.has(line.entryId))
-      .map((line) => line.text);
+    const log = (overlayLog.length > 0 ? overlayLog : layout.log).map((line) => line.text);
     const fixed = [
       ...layout.input.map((line) => `> ${line.text}`),
       layout.footer.text,
@@ -694,7 +692,7 @@ export class TuiRenderer implements TerminalRendererGate {
       case 'tool_progress':
         this.liveAssistant = null;
         this.liveProgressTool = event.name;
-        this.liveProgress = event.text;
+        this.liveProgress = 'running…';
         this.redraw();
         return;
       case 'tool_result':
@@ -702,8 +700,8 @@ export class TuiRenderer implements TerminalRendererGate {
         if (!this.retained) {
           this.clearRecordLine();
           this.write(dynamicLine(
-            `tool< ${boundedEscaped(event.result.name)} ${event.result.outcome}> `,
-            event.result.text,
+            'tool> ',
+            toolResultText(event.result.name, event.result.outcome),
           ));
         }
         this.redraw();
@@ -718,32 +716,6 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'turn_end':
         this.clearLiveState();
-        if (
-          !this.retained && event.turnProviderRequestCount !== undefined &&
-          event.runtimeProviderRequestCount !== undefined
-        ) {
-          this.write(dynamicLine(
-            'requests> ',
-            `turn=${event.turn} · actual=${event.turnProviderRequestCount} · runtime=${event.runtimeProviderRequestCount}`,
-          ));
-        }
-        if (!this.retained && event.providerEvidenceId !== undefined) {
-          const evidenceText = event.providerEvidenceDurability === 'failed'
-            ? `id=${event.providerEvidenceId} · persistence=failed${
-              event.providerEvidencePersistenceError === undefined
-                ? ''
-                : ` · store=${event.providerEvidencePersistenceError}`
-            }`
-            : `id=${event.providerEvidenceId} · readback> henji diagnostics evidence show --id ${event.providerEvidenceId}${
-              event.providerEvidencePersistenceError === undefined
-                ? ''
-                : ` · store=${event.providerEvidencePersistenceError}`
-            }`;
-          this.write(dynamicLine(
-            'evidence> ',
-            evidenceText,
-          ));
-        }
         this.setStatus(
           event.committed && this.followUpPending
             ? 'busy · starting follow-up'
@@ -754,14 +726,7 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'failure_diagnostic': {
         this.clearLiveState();
-        const line = `${
-          formatPresentationFailureDiagnostic(
-            event.diagnostic,
-            event.durable,
-            event.persistenceError,
-          )
-        }\n` +
-          `readback> henji diagnostics show --id ${event.diagnostic.diagnosticId}`;
+        const line = presentationFailureReason(event.diagnostic);
         if (!this.retained) {
           this.clearRecordLine();
           this.write(dynamicLine('failure> ', line));
@@ -825,8 +790,6 @@ export class TuiRenderer implements TerminalRendererGate {
 
   setCurrentPosition(position: PresentationPosition): void {
     this.currentPosition = Object.freeze({ ...position });
-    const short = position.sessionId === undefined ? 'none' : position.sessionId.slice(0, 8);
-    this.setStatus(`session ${short} · turn ${position.committedTurn} latest`);
   }
 
   /** Notify the retained layout of a UI-local resize without crossing into the core. */
@@ -1145,8 +1108,8 @@ export class TuiRenderer implements TerminalRendererGate {
         for (const result of message.content) {
           this.write(
             dynamicLine(
-              `tool< ${result.name} ${result.outcome}> `,
-              result.text,
+              'tool> ',
+              toolResultText(result.name, result.outcome),
             ),
           );
         }

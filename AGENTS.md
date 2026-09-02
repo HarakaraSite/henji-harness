@@ -60,6 +60,15 @@ repository document or prior practice conflicts with it, this section wins.
 
 ## Current work
 
+- FR5 human-observed UI correction Cycle 1 is implemented under
+  `docs/plans/fr5-human-observed-ui-correction.md`; results are in the matching `-results.md`.
+  Normal conversation no longer displays request/evidence/readback lines, full read output, or raw
+  tool JSON. Tool activity uses one concise entry, assistant streaming settles to `assistant>`, the
+  footer advances the real committed turn without duplicate identity, and cursor cell placement is
+  corrected for ASCII/Japanese/edit/wrap cases. Initial functional review P2 3 were fixed; narrow
+  re-review is GO with Blocker/P1/P2 zero. The minimal gate is now 24/24 and passed once with
+  check/fmt/lint/diff green. F1 and alternate-screen work are deferred to later cycles. Next is
+  direct user use of Cycle 1; do not start Cycle 2 until that feedback is received.
 - The fixed output-limit expansion in `docs/plans/fixed-output-limit-expansion.md` is implemented.
   The normal parent/planner profile is now owned under `v0/agent/`, separated from the legacy
   `v0/model.ts` budgeted path, and requests 65,536 completion tokens. Completed answers,

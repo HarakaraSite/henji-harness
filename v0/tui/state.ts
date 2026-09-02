@@ -1,7 +1,7 @@
 import {
-  formatPresentationFailureDiagnostic,
   type PresentationContextPreview,
   type PresentationEvent,
+  type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
   type PresentationLifecycle,
   type PresentationNavigationListing,
@@ -15,6 +15,7 @@ export const UI_MAX_LOG_ENTRIES = 512;
 export const UI_MAX_LOG_BYTES = 2 * 1024 * 1024;
 export const UI_MAX_ENTRY_BYTES = 1024 * 1024;
 export const UI_MAX_NEW_BELOW = 512;
+const UI_MAX_TOOL_NAME_BYTES = 64;
 
 export type UiLogKind =
   | 'user'
@@ -136,6 +137,51 @@ const safeTextToBytes = (text: string, limit: number): string => {
   return result;
 };
 
+/** The normal log describes an operation, while full tool output remains in the core transcript. */
+const shortToolName = (name: string): string => {
+  const bounded = safeTextToBytes(name, UI_MAX_TOOL_NAME_BYTES);
+  return bytes(bounded) < bytes(name) ? `${bounded}…` : bounded;
+};
+const toolActivityText = (name: string): string => `${shortToolName(name)} …`;
+const toolResultText = (
+  name: string,
+  outcome: 'success' | 'error',
+): string => `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`;
+
+/** Stable, short failure reasons; diagnostic identifiers and provider details stay out of the UI. */
+export const presentationFailureReason = (
+  diagnostic: PresentationFailureDiagnostic,
+): string => {
+  switch (diagnostic.code) {
+    case 'turn_cancelled':
+      return 'cancelled';
+    case 'missing_credential':
+      return 'credential unavailable';
+    case 'invalid_input':
+      return 'invalid input';
+    case 'request_budget_exhausted':
+      return 'request budget exhausted';
+    case 'transport_error':
+      return 'provider connection failed';
+    case 'http_error':
+      return 'provider request failed';
+    case 'response_error':
+      return 'provider response invalid';
+    case 'limit_exceeded':
+      return 'provider response limit exceeded';
+    case 'invalid_model_result':
+      return 'model result invalid';
+    case 'commit_error':
+      return 'session save failed';
+    case 'cleanup_error':
+      return 'cancellation cleanup failed';
+    case 'model_step_limit':
+      return 'step limit reached';
+    case 'unknown_code':
+      return diagnostic.stage === 'unknown_stage' ? 'agent failure' : 'operation failed';
+  }
+};
+
 const freezeEntry = (entry: UiLogEntry): UiLogEntry =>
   Object.freeze({ ...entry, text: safeText(entry.text) });
 
@@ -210,6 +256,7 @@ const replaceEntry = (
   id: string,
   text: string,
   live: boolean,
+  label?: string,
 ): UiState => {
   const index = state.log.entries.findIndex((entry) => entry.id === id);
   if (index < 0) return state;
@@ -219,6 +266,7 @@ const replaceEntry = (
     ...prior,
     text,
     live,
+    ...(label === undefined ? {} : { label }),
     revision: prior.revision + 1,
   });
   let omittedCount = state.log.omittedCount;
@@ -309,7 +357,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       const id = `turn-${event.turn}:assistant`;
       const existing = state.log.entries.some((entry) => entry.id === id);
       const next = existing
-        ? replaceEntry(state, id, event.message.content.text, false)
+        ? replaceEntry(state, id, event.message.content.text, false, 'assistant>')
         : appendEntry(state, {
           id,
           kind: 'assistant',
@@ -343,7 +391,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         label: 'tool>',
         text: event.call.name,
         revision: 0,
-        live: false,
+        live: true,
         turn: event.turn,
         callId: event.call.callId,
       });
@@ -361,8 +409,8 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         ? appendEntry(state, {
           id,
           kind: 'tool',
-          label: 'tool~',
-          text: `${event.name} ${event.text}`,
+          label: 'tool>',
+          text: toolActivityText(event.name),
           revision: 0,
           live: true,
           turn: event.turn,
@@ -371,7 +419,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         : replaceEntry(
           state,
           id,
-          `${event.name} ${event.text}`,
+          toolActivityText(event.name),
           true,
         );
       return Object.freeze({
@@ -388,8 +436,8 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         const next = appendEntry(state, {
           id,
           kind: 'tool',
-          label: `tool< ${event.result.name} ${event.result.outcome}>`,
-          text: event.result.text,
+          label: 'tool>',
+          text: toolResultText(event.result.name, event.result.outcome),
           revision: 0,
           live: false,
           turn: event.turn,
@@ -405,30 +453,14 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       const next = replaceEntry(
         state,
         id,
-        event.result.text,
+        toolResultText(event.result.name, event.result.outcome),
         false,
+        'tool>',
       );
-      const resultEntry = next.log.entries.find((entry) => entry.id === id);
-      const updated = resultEntry === undefined ? next : Object.freeze({
-        ...next,
-        log: Object.freeze({
-          ...next.log,
-          entries: Object.freeze(
-            next.log.entries.map((entry) =>
-              entry.id === id
-                ? freezeEntry({
-                  ...entry,
-                  label: `tool< ${event.result.name} ${event.result.outcome}>`,
-                })
-                : entry
-            ),
-          ),
-        }),
-      });
       return Object.freeze({
-        ...updated,
+        ...next,
         activeToolIds: Object.freeze(
-          updated.activeToolIds.filter((value) => value !== event.result.callId),
+          next.activeToolIds.filter((value) => value !== event.result.callId),
         ),
       });
     }
@@ -447,53 +479,23 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         state,
         (entry) => entry.turn !== event.turn,
       );
-      const requestId = `turn-${event.turn}:requests`;
-      const withRequests = event.turnProviderRequestCount === undefined ||
-          event.runtimeProviderRequestCount === undefined ||
-          withoutLive.log.entries.some((entry) => entry.id === requestId)
-        ? withoutLive
-        : appendEntry(withoutLive, {
-          id: requestId,
-          kind: 'system',
-          label: 'requests>',
-          text:
-            `turn=${event.turn} · actual=${event.turnProviderRequestCount} · runtime=${event.runtimeProviderRequestCount}`,
-          revision: 0,
-          live: false,
-          turn: event.turn,
-        });
-      const evidenceId = event.providerEvidenceId;
-      const evidenceFailed = event.providerEvidenceDurability === 'failed';
-      const withEvidence = evidenceId === undefined ||
-          withRequests.log.entries.some((entry) => entry.id === `turn-${event.turn}:evidence`)
-        ? withRequests
-        : appendEntry(withRequests, {
-          id: `turn-${event.turn}:evidence`,
-          kind: 'system',
-          label: 'evidence>',
-          text: evidenceFailed
-            ? `id=${evidenceId}\npersistence=failed${
-              event.providerEvidencePersistenceError === undefined
-                ? ''
-                : `\nstore=${event.providerEvidencePersistenceError}`
-            }`
-            : `id=${evidenceId}\nreadback> henji diagnostics evidence show --id ${evidenceId}${
-              event.providerEvidencePersistenceError === undefined
-                ? ''
-                : `\nstore=${event.providerEvidencePersistenceError}`
-            }`,
-          revision: 0,
-          live: false,
-          turn: event.turn,
-        });
+      const lifecycle = event.committed
+        ? 'idle' as const
+        : event.outcome === 'cancelled' || event.outcome === 'max_steps' ||
+            event.outcome === 'contract_failure'
+        ? 'recoverable_error' as const
+        : 'fatal' as const;
+      const projection = withoutLive.projection === undefined ? undefined : snapshotPresentation({
+        ...withoutLive.projection,
+        lifecycle,
+        ...(event.committed
+          ? { committedTurn: Math.max(withoutLive.projection.committedTurn, event.turn) }
+          : {}),
+      });
       return Object.freeze({
-        ...withEvidence,
-        lifecycle: event.committed
-          ? 'idle'
-          : event.outcome === 'cancelled' || event.outcome === 'max_steps' ||
-              event.outcome === 'contract_failure'
-          ? 'recoverable_error'
-          : 'fatal',
+        ...withoutLive,
+        projection,
+        lifecycle,
         status: event.committed ? 'ready' : event.outcome,
         activeAssistantId: undefined,
         activeToolIds: Object.freeze([]),
@@ -510,14 +512,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         activeAssistantId: undefined,
         activeToolIds: Object.freeze([]),
       });
-      const text = `${
-        formatPresentationFailureDiagnostic(
-          event.diagnostic,
-          event.durable,
-          event.persistenceError,
-        )
-      }\n` +
-        `readback> henji diagnostics show --id ${event.diagnostic.diagnosticId}`;
+      const text = presentationFailureReason(event.diagnostic);
       if (settled.log.entries.some((entry) => entry.id === id)) {
         return Object.freeze({
           ...settled,
@@ -718,15 +713,17 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
     case 'assistant_final': {
       const id = `turn-${action.turn}:assistant`;
       const existing = state.log.entries.some((entry) => entry.id === id);
-      const next = existing ? replaceEntry(state, id, action.text, false) : appendEntry(state, {
-        id,
-        kind: 'assistant',
-        label: 'assistant>',
-        text: action.text,
-        revision: 0,
-        live: false,
-        turn: action.turn,
-      });
+      const next = existing
+        ? replaceEntry(state, id, action.text, false, 'assistant>')
+        : appendEntry(state, {
+          id,
+          kind: 'assistant',
+          label: 'assistant>',
+          text: action.text,
+          revision: 0,
+          live: false,
+          turn: action.turn,
+        });
       return Object.freeze({ ...next, activeAssistantId: undefined });
     }
     case 'resize':

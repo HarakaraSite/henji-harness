@@ -255,7 +255,7 @@ Deno.test('planner and terminal JSON results retain output above 64 KiB', async 
   assertEquals(terminal.terminal?.finalText, json);
 });
 
-Deno.test('retained UI records exact per-turn and runtime request counts once', () => {
+Deno.test('retained UI keeps operational metadata out of the conversation log', () => {
   const event = {
     kind: 'turn_end' as const,
     turn: 2,
@@ -266,15 +266,7 @@ Deno.test('retained UI records exact per-turn and runtime request counts once', 
   };
   const first = reduceUiEvent(createUiState(), event);
   const second = reduceUiEvent(first, event);
-  assertEquals(first.log.entries, [{
-    id: 'turn-2:requests',
-    kind: 'system',
-    label: 'requests>',
-    text: 'turn=2 · actual=3 · runtime=7',
-    revision: 0,
-    live: false,
-    turn: 2,
-  }]);
+  assertEquals(first.log.entries, []);
   assertEquals(second.log.entries, first.log.entries);
 });
 

@@ -47,7 +47,11 @@ const cellWidth = (character: string): number => {
 };
 const width = (text: string): number =>
   [...text].reduce((sum, character) => sum + cellWidth(character), 0);
-const escapedCodePoint = (code: number): string => `\\u{${code.toString(16).toUpperCase()}}`;
+const escapedCodePoint = (code: number): string => {
+  let value = code.toString(16).toUpperCase();
+  while (value.length < 4) value = `0${value}`;
+  return `\\u{${value}}`;
+};
 const safeDisplay = (text: string, preserveNewline = true): string => {
   let result = '';
   for (const character of text) {
@@ -76,6 +80,40 @@ const truncateCells = (text: string, columns: number): string => {
   return result;
 };
 
+/** Controller ready-status strings contain position facts that are rendered separately below. */
+const footerStatus = (state: UiState): string => {
+  const parts = state.status.split(' · ');
+  const ready = parts.findIndex((part) => part === 'ready' || part.startsWith('ready '));
+  const hasPosition = parts[0]?.startsWith('session ') === true &&
+    parts.some((part) => part.startsWith('agent ')) &&
+    parts.some((part) => part.startsWith('turn '));
+  if (hasPosition && ready >= 0) return parts.slice(ready).join(' · ');
+  if (
+    parts.length === 3 && parts[0]?.startsWith('session ') &&
+    parts[1]?.startsWith('turn ') && parts[2] === 'latest'
+  ) return state.lifecycle === 'idle' ? 'ready' : state.lifecycle;
+  return state.status;
+};
+
+const footerStatusParts = (
+  status: string,
+): { readonly primary: string; readonly details?: string } => {
+  const parts = status.split(' · ');
+  const primaryIndex = parts.findIndex((part) =>
+    part === 'ready' || part.startsWith('ready ') ||
+    part === 'busy' || part.startsWith('busy ') ||
+    part === 'cancelling' || part.startsWith('cancelling ') ||
+    part === 'compacting' || part.startsWith('compacting ') ||
+    part === 'recoverable_error' || part.startsWith('recoverable_error ') ||
+    part === 'fatal' || part.startsWith('fatal ')
+  );
+  const index = primaryIndex >= 0 ? primaryIndex : 0;
+  const details = parts.slice(index + 1).join(' · ');
+  return details.length === 0
+    ? { primary: parts[index] ?? status }
+    : { primary: parts[index] ?? status, details };
+};
+
 const footerText = (state: UiState, columns: number): string => {
   const pending = state.pending?.lanes.filter((lane) => lane.present) ?? [];
   const pendingSegment = pending.length === 0
@@ -87,9 +125,20 @@ const footerText = (state: UiState, columns: number): string => {
     ? undefined
     : `session ${state.projection.sessionId.slice(0, 8)} · turn ${state.projection.committedTurn}`;
   const hint = state.lifecycle === 'idle' ? 'F1 help' : undefined;
-  const segments = [state.status, pendingSegment, belowSegment, identity, session, hint].filter(
-    (segment): segment is string => segment !== undefined && segment.length > 0,
-  ).map((segment) => safeDisplay(segment, false));
+  const status = footerStatusParts(footerStatus(state));
+  // Lifecycle, session position, and then optional detail are the durable facts at narrow widths.
+  const segments = [
+    status.primary,
+    session,
+    status.details,
+    identity,
+    pendingSegment,
+    belowSegment,
+    hint,
+  ]
+    .filter(
+      (segment): segment is string => segment !== undefined && segment.length > 0,
+    ).map((segment) => safeDisplay(segment, false));
   while (segments.length > 1 && width(`[${segments.join(' · ')}]`) > columns) segments.pop();
   return truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
 };
@@ -262,7 +311,9 @@ export const layoutUi = (
     kind: 'footer',
   };
   const maxInput = degraded ? 1 : Math.min(MAX_EDITOR_ROWS, Math.max(1, heightLimit - 5));
-  const editor = inputRows(state.editor, Math.max(1, widthLimit - 2), maxInput);
+  // Reserve one cell after the prompt for the cursor. Without this cell, a full-width final
+  // character leaves the hardware cursor on that character rather than at the insertion point.
+  const editor = inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
   const logHeight = Math.max(
     degraded && heightLimit >= 3 ? 1 : 0,
     heightLimit - editor.rows.length - 1,
