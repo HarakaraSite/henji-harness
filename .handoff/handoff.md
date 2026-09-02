@@ -9,6 +9,16 @@
 - 判断済み: 原因特定に必要なlog、raw response、event、provider metadata、構造・実行証拠を保存・readback可能にする。credential値とAuthorization headerは露出させないが、仮想的private-data懸念で診断証拠を省かず、sanitized分類だけを十分な診断としない
 - 成功基準: 人間がproduction経路で目的機能を完了できること。test、review、gate、fixtureはその代替ではない
 
+### ASK-20260902-fr1-real-provider-human-acceptance
+
+- 判断待ち: `docs/plans/fr1-real-provider-human-acceptance.md`に基づく一回のHuman Gateを実行するか
+- 範囲: product-source baseline `d6e737a`、clean plan-containing HEAD、read-only launcher check、fresh
+  workspace/state、既存credentialのrequest-time read、production `henji`、旧失敗Turn 1一回、実tool完了、
+  provider evidence readback、結果記録
+- 上限: accepted turn 1、provider request最大16、現在価格による推論費用上限USD 1.00、retry/fallback/
+  resubmission/additional turn 0
+- 対象外: launcher update/rollback、code/test/review/gate、cleanup、`_refs/*`、commit/push/tag/release
+
 ### Henji Harness Definition / Revision / Admission Cycle
 
 - 状態: roadmap step 77 resolved manifestはcommit `59b4ab3`で完了。roadmap step 78 local comparison
@@ -4295,3 +4305,22 @@
   correction authoritative gateを一回実行し成功
 - 次: user判断。real provider/human acceptanceは別Human Gate
 - 注意: provider/credential、production/machine、retained state cleanup、`_refs/*`、追加commit未実施
+
+## 2026-09-02 15:41 JST
+
+- 実行エージェント: Codex owner（plannerは時間上限で中断）
+- 作業トピック: FR1 real-provider human acceptance planning
+- 実施: commit `d6e737a`の既存bare `henji`を使い、fresh workspaceで旧失敗Turn 1だけを一回実行して
+  実tool完了とraw provider evidenceを確認するHuman Gate計画を作成。公式model/API/価格を再確認した
+- 次: `ASK-20260902-fr1-real-provider-human-acceptance`へのuser判断
+- 注意: 計画文書のみ。installed launcher/machine、credential/provider/network、production `henji`、workspace/
+  state、test/gate、cleanup、`_refs/*`、追加commitは未操作
+
+## 2026-09-02 15:52 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: FR1 acceptance plan identity correction and commit
+- 実施: plan commit後に旧HEAD固定preflightが必ず失敗する矛盾を修正。`d6e737a`をproduct-source baseline
+  とし、実行時はclean plan-containing HEADを記録してproduct pathsのbaseline一致を確認する
+- 次: user-authorized plan integration commit後、Human Gate実行判断
+- 注意: product source、test、provider/credential、production/machine、workspace/state、`_refs/*`は未操作

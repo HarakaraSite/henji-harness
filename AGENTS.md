@@ -77,6 +77,10 @@ repository document or prior practice conflicts with it, this section wins.
   correction gateも一回で成功した。追加commitは未実施。
 - Provider/credential、production `henji`、installed launcher/state、`_refs/*`、commit/push/tag/publish/releaseは
   別の明示許可なしに操作しない。
+- 次のHuman Gate計画は`docs/plans/fr1-real-provider-human-acceptance.md`。product-source baseline
+  `d6e737a`のinstalled production経路で旧失敗Turn 1だけを一度実行し、実tool完了とprovider evidence
+  readbackを確認する。
+  execution approvalは未取得であり、launcher更新、provider retry、追加turn、cleanupは許可されていない。
 
 ## Historical records
 
