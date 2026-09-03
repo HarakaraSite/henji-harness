@@ -1,4 +1,5 @@
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
+import { slashCommandOf } from '../../v0/tui/controller.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -123,4 +124,17 @@ Deno.test('Cycle 3 truncates a long command head with ellipsis', () => {
   assert(text.endsWith('…'));
   assert(!text.includes(longCommand));
   assert(new TextEncoder().encode(text).byteLength <= 64 + 1 + 96 + 1 + 3);
+});
+
+Deno.test('Slash commands parse exact built-ins only', () => {
+  assertEquals(slashCommandOf('/help'), 'help');
+  assertEquals(slashCommandOf('/history'), 'history');
+  assertEquals(slashCommandOf('/sessions'), 'sessions');
+  assertEquals(slashCommandOf('/context'), 'context');
+  assertEquals(slashCommandOf('/exit'), 'exit');
+  assertEquals(slashCommandOf('  /history  '), 'history');
+  assertEquals(slashCommandOf('read foo.ts'), null);
+  assertEquals(slashCommandOf('/unknown'), 'unknown');
+  assertEquals(slashCommandOf('/history foo'), 'unknown');
+  assertEquals(slashCommandOf('/HELP'), 'unknown');
 });

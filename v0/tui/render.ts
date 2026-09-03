@@ -384,46 +384,12 @@ export const renderStartupOrientationText = (
  * values are limited to the already-sanitized startup projection and the committed position.
  */
 export const startupHelpLines = (
-  state: PresentationStartupState,
-  columns = 80,
-  committedTurn = 0,
-  rows = 24,
+  _state: PresentationStartupState,
+  _columns = 80,
+  _committedTurn = 0,
+  _rows = 24,
 ): readonly string[] => {
-  const validColumns = Number.isSafeInteger(columns) && columns > 0
-    ? Math.min(160, Math.max(8, columns))
-    : 80;
-  const validRows = Number.isSafeInteger(rows) && rows > 0 ? Math.min(200, Math.max(1, rows)) : 24;
-  const session = orientationSession(state);
-  if (validColumns < 40 || validRows < 16) {
-    // Keep the four safety-critical actions as one short row each on degraded terminals. The
-    // remaining detail stays available below them and is still bounded by the layout viewport.
-    return Object.freeze([
-      'Henji help · F1/Esc',
-      '入力 Enter · Ctrl-O 改行',
-      '停止 Esc · Ctrl-C×2 exit',
-      '再開 Ctrl-D',
-      'trust trusted-local · OS user',
-      '表示 log/stream/tool/final',
-      'steer Enter · follow-up Alt+Enter',
-      'session Ctrl-G · history Ctrl-T · context Ctrl-K',
-      `現在 ${clippedWorkspace(state.workspace, validColumns)} · t${committedTurn}`,
-      'F1/Esc で作業画面へ戻る',
-    ]);
-  }
-  return Object.freeze([
-    'Henji help — F1 または Esc で作業画面へ戻る',
-    '作業を頼む: 下の`>`へ入力しEnter。Ctrl-Oで改行',
-    '作業を見る: logに依頼、assistant途中経過、tool、結果、finalが順に出る',
-    '実行中に伝える: Enterで一件steer、Alt+Enterで一件follow-up',
-    '止める: 実行中Escでcancel、Ctrl-C二回でsettlement後exit。completed effectは自動rollbackされない',
-    '終了と再開: 空入力Ctrl-D。同じdirectoryで`henji --continue`',
-    'session/history/context: Ctrl-G / Ctrl-T / Ctrl-K',
-    'default capability: workspace read/create/edit、Bash verification、必要時planner相談',
-    'trust: trusted-local。tools/BashはOS user権限で動きworkspace外/networkへ到達し得る',
-    `現在: ${clippedWorkspace(state.workspace, validColumns)} · agent ${
-      boundedEscaped(state.agentId)
-    } · session ${boundedEscaped(session)} · committed turn ${committedTurn}`,
-  ]);
+  return Object.freeze(['Henji help · 工事中']);
 };
 
 /** Renderer with one live editor line; retained production frames use the lifecycle's alternate screen. */

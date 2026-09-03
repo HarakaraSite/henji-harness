@@ -113,6 +113,19 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
 
+export type SlashCommand = 'help' | 'history' | 'sessions' | 'context' | 'exit';
+
+/** Exact-match built-in slash parse; args and unknown names are 'unknown', plain tasks are null. */
+export const slashCommandOf = (text: string): SlashCommand | 'unknown' | null => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('/')) return null;
+  if (
+    trimmed === '/help' || trimmed === '/history' || trimmed === '/sessions' ||
+    trimmed === '/context' || trimmed === '/exit'
+  ) return trimmed.slice(1) as SlashCommand;
+  return 'unknown';
+};
+
 /** Controller for the first TUI's intentionally small idle/busy state machine. */
 export class TuiController {
   readonly editor = new TuiEditor();
@@ -433,7 +446,7 @@ export class TuiController {
           this.renderer.setEditor(this.editor.text);
           break;
         case 'enter':
-          this.submitIfNonblank();
+          if (!this.trySlashCommand()) this.submitIfNonblank();
           break;
         case 'alt_enter':
           this.submitIfNonblank();
@@ -584,7 +597,7 @@ export class TuiController {
       }
       if (event.kind === 'enter') {
         if (busy) this.submitSteeringIfNonblank();
-        else this.submitIfNonblank();
+        else if (!this.trySlashCommand()) this.submitIfNonblank();
         continue;
       }
       if (event.kind === 'alt_enter') {
@@ -1372,6 +1385,32 @@ export class TuiController {
       this.renderer.setStatus('steering unavailable');
     }
     // Every other event is deliberately consumed and discarded.
+  }
+
+  /** Fixed built-in slash commands; exact match only, never sent to the model. */
+  private trySlashCommand(): boolean {
+    const parsed = slashCommandOf(this.editor.text);
+    if (parsed === null) return false;
+    if (parsed === 'unknown') {
+      // Keep the whole hint in one ' · '-free segment so the footer keeps it
+      // instead of popping the valid list at narrow widths.
+      this.renderer.setStatus(
+        `unknown command ${this.editor.text.trim()}, try: /help, /history, /sessions, /context, /exit`,
+      );
+      return true;
+    }
+    const command: SlashCommand = parsed;
+    this.editor.clear();
+    this.history.resetNavigation();
+    this.renderEditorState();
+    if (command === 'help') this.openStartupHelp();
+    else if (command === 'history') this.openHistory();
+    else if (command === 'sessions') this.openPicker();
+    else if (command === 'context') this.openContextPanel();
+    else if (this.modern) this.modernCtrlD();
+    else if (this.editor.text.length === 0) void this.shutdown(0);
+    else this.renderer.setStatus('Ctrl-D exits only on empty input');
+    return true;
   }
 
   private submitIfNonblank(): void {
