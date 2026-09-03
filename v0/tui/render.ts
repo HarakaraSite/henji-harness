@@ -336,7 +336,7 @@ export const startupOrientationLines = (
   `skills> ${orientationSkills(state)}`,
   'credential> verified immediately before each provider request; not checked at startup',
   `trust> ${orientationTrust(state)}`,
-  'keys> Enter submit · Ctrl-O newline · arrows/Home/End move · Ctrl-W delete',
+  'keys> Enter submit · Alt+Return newline · arrows/Home/End move · Ctrl-W delete',
   'keys> Ctrl-P/N history · Tab path · Ctrl-R recover',
   'keys> busy Enter steer · Alt+Enter follow-up · Esc cancel · Ctrl-C/D exit',
 ];

@@ -47,7 +47,8 @@ assistant/tool activity replaces one bounded row and completed causal records re
 ## Daily editing
 
 The editor accepts bounded multiline UTF-8 input up to 65,536 bytes. Enter submits a nonblank idle
-task; Ctrl-O inserts a newline; arrows/Home/End move the cursor; Ctrl-W deletes a word; Ctrl-P/N
+task; Alt+Return inserts a newline (Shift/Ctrl+Return where the terminal sends them); readline
+editing (Ctrl-A/E/B/F, Alt-B/F, Ctrl-K/U/W, Alt-D); arrows/Home/End move the cursor; Ctrl-P/N
 navigate process-local input history; Tab completes workspace-relative paths; Ctrl-R recovers one
 bounded failed tool turn; and empty Enter only updates status.
 
@@ -214,9 +215,9 @@ henji
 
 ## Failure diagnostics
 
-When a turn fails, the retained TUI log shows a bounded `failure>` line with the failure stage,
-safe code, actual provider-request count, applicable HTTP status and parser reason, turn/model
-step, and one diagnostic ID. The same ID is printed in the readback command:
+When a turn fails, the retained TUI log shows a bounded `failure>` line with the failure stage, safe
+code, actual provider-request count, applicable HTTP status and parser reason, turn/model step, and
+one diagnostic ID. The same ID is printed in the readback command:
 
 ```text
 henji diagnostics list
@@ -274,10 +275,12 @@ The detached three-band UI plan and implementation results are
 [`docs/plans/detached-three-band-human-ui-results.md`](docs/plans/detached-three-band-human-ui-results.md).
 The full-capability acceptance package and implementation results are
 [`docs/plans/step-83-full-capability-human-acceptance-gate.md`](docs/plans/step-83-full-capability-human-acceptance-gate.md)
-and [`docs/plans/step-83-full-capability-human-acceptance-results.md`](docs/plans/step-83-full-capability-human-acceptance-results.md).
+and
+[`docs/plans/step-83-full-capability-human-acceptance-results.md`](docs/plans/step-83-full-capability-human-acceptance-results.md).
 The revision-42 retry plan and results are
 [`docs/plans/step-83-full-capability-human-acceptance-retry.md`](docs/plans/step-83-full-capability-human-acceptance-retry.md)
-and [`docs/plans/step-83-full-capability-human-acceptance-retry-results.md`](docs/plans/step-83-full-capability-human-acceptance-retry-results.md).
+and
+[`docs/plans/step-83-full-capability-human-acceptance-retry-results.md`](docs/plans/step-83-full-capability-human-acceptance-retry-results.md).
 
 Useful checks:
 

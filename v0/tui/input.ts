@@ -22,6 +22,15 @@ export type InputEvent =
   | { readonly kind: 'ctrl_d' }
   | { readonly kind: 'ctrl_o' }
   | { readonly kind: 'ctrl_w' }
+  | { readonly kind: 'ctrl_a' }
+  | { readonly kind: 'ctrl_b' }
+  | { readonly kind: 'ctrl_e' }
+  | { readonly kind: 'ctrl_f' }
+  | { readonly kind: 'ctrl_u' }
+  | { readonly kind: 'alt_b' }
+  | { readonly kind: 'alt_f' }
+  | { readonly kind: 'alt_d' }
+  | { readonly kind: 'newline' }
   | { readonly kind: 'ctrl_p' }
   | { readonly kind: 'ctrl_n' }
   | { readonly kind: 'ctrl_r' }
@@ -231,6 +240,26 @@ export class InputDecoder {
       events.push({ kind: 'ctrl_w' });
       return;
     }
+    if (byte === 0x01) {
+      events.push({ kind: 'ctrl_a' });
+      return;
+    }
+    if (byte === 0x02) {
+      events.push({ kind: 'ctrl_b' });
+      return;
+    }
+    if (byte === 0x05) {
+      events.push({ kind: 'ctrl_e' });
+      return;
+    }
+    if (byte === 0x06) {
+      events.push({ kind: 'ctrl_f' });
+      return;
+    }
+    if (byte === 0x15) {
+      events.push({ kind: 'ctrl_u' });
+      return;
+    }
     if (byte === 0x10) {
       events.push({ kind: 'ctrl_p' });
       return;
@@ -305,6 +334,21 @@ export class InputDecoder {
   private consumeEscape(byte: number, events: InputEvent[], now: number): void {
     this.escape!.push(byte);
     if (this.escape!.length === 2 && byte !== 0x5b) {
+      if (byte === 0x62 || byte === 0x42) {
+        this.escape = null;
+        events.push({ kind: 'alt_b' });
+        return;
+      }
+      if (byte === 0x66 || byte === 0x46) {
+        this.escape = null;
+        events.push({ kind: 'alt_f' });
+        return;
+      }
+      if (byte === 0x64 || byte === 0x44) {
+        this.escape = null;
+        events.push({ kind: 'alt_d' });
+        return;
+      }
       if (byte === 0x4f) {
         this.ss3Pending = true;
         this.ss3StartedAt = this.escapeStartedAt;
@@ -369,6 +413,15 @@ export class InputDecoder {
     }
     if (matches(sequence, [0x1b, 0x5b, 0x31, 0x31, 0x7e])) {
       events.push({ kind: 'f1' });
+      return;
+    }
+    // Modified Return keys (CSI-u / modifyOtherKeys): Shift=2, Alt=3, Ctrl=5.
+    if (
+      matches(sequence, [0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x32, 0x75]) ||
+      matches(sequence, [0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x33, 0x75]) ||
+      matches(sequence, [0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x35, 0x75])
+    ) {
+      events.push({ kind: 'newline' });
       return;
     }
     events.push({ kind: 'unknown' });
@@ -538,8 +591,60 @@ export class TuiEditor {
     this.preferredColumn = null;
     return true;
   }
-  wordDelete(): boolean {
-    return this.deleteWordBackward();
+  deleteWordForward(): boolean {
+    if (this.cursor >= scalars(this.value).length) return false;
+    const points = scalars(this.value);
+    let finish = this.cursor;
+    while (finish < points.length && /^\s$/u.test(points[finish])) finish += 1;
+    while (finish < points.length && !/^\s$/u.test(points[finish])) finish += 1;
+    if (finish === this.cursor) return false;
+    points.splice(this.cursor, finish - this.cursor);
+    this.value = points.join('');
+    this.preferredColumn = null;
+    return true;
+  }
+  deleteToLineStart(): boolean {
+    const points = scalars(this.value);
+    let start = this.cursor;
+    while (start > 0 && points[start - 1] !== '\n') start -= 1;
+    if (start === this.cursor) return false;
+    points.splice(start, this.cursor - start);
+    this.value = points.join('');
+    this.cursor = start;
+    this.preferredColumn = null;
+    return true;
+  }
+  deleteToLineEnd(): boolean {
+    const points = scalars(this.value);
+    let finish = this.cursor;
+    while (finish < points.length && points[finish] !== '\n') finish += 1;
+    if (finish === this.cursor) return false;
+    points.splice(this.cursor, finish - this.cursor);
+    this.value = points.join('');
+    this.preferredColumn = null;
+    return true;
+  }
+  moveWordLeft(): boolean {
+    if (this.cursor === 0) return false;
+    const points = scalars(this.value);
+    let position = this.cursor;
+    while (position > 0 && /^\s$/u.test(points[position - 1])) position -= 1;
+    while (position > 0 && !/^\s$/u.test(points[position - 1])) position -= 1;
+    if (position === this.cursor) return false;
+    this.cursor = position;
+    this.preferredColumn = null;
+    return true;
+  }
+  moveWordRight(): boolean {
+    if (this.cursor >= scalars(this.value).length) return false;
+    const points = scalars(this.value);
+    let position = this.cursor;
+    while (position < points.length && /^\s$/u.test(points[position])) position += 1;
+    while (position < points.length && !/^\s$/u.test(points[position])) position += 1;
+    if (position === this.cursor) return false;
+    this.cursor = position;
+    this.preferredColumn = null;
+    return true;
   }
   moveLeft(): boolean {
     if (this.cursor === 0) return false;

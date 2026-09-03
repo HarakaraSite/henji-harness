@@ -523,11 +523,45 @@ export class TuiController {
         textMutation = true;
         break;
       case 'ctrl_o':
-        changed = this.editor.insert('\n');
-        textMutation = true;
+        this.renderer.setStatus('newline is Alt+Return (Shift/Ctrl+Return where sent)');
         break;
       case 'ctrl_w':
         changed = this.editor.deleteWordBackward();
+        textMutation = true;
+        break;
+      case 'ctrl_a':
+        changed = this.editor.home();
+        break;
+      case 'ctrl_e':
+        changed = this.editor.end();
+        break;
+      case 'ctrl_b':
+        changed = this.editor.moveLeft();
+        break;
+      case 'ctrl_f':
+        changed = this.editor.moveRight();
+        break;
+      case 'ctrl_u':
+        changed = this.editor.deleteToLineStart();
+        textMutation = true;
+        break;
+      case 'ctrl_k':
+        changed = this.editor.deleteToLineEnd();
+        textMutation = true;
+        break;
+      case 'alt_b':
+        changed = this.editor.moveWordLeft();
+        break;
+      case 'alt_f':
+        changed = this.editor.moveWordRight();
+        break;
+      case 'alt_d':
+        changed = this.editor.deleteWordForward();
+        textMutation = true;
+        break;
+      case 'newline':
+      case 'alt_enter':
+        changed = this.editor.insert('\n');
         textMutation = true;
         break;
       case 'left':
@@ -556,7 +590,7 @@ export class TuiController {
       this.renderEditorState();
     } else if (
       event.kind === 'paste' || event.kind === 'printable' ||
-      event.kind === 'ctrl_o'
+      event.kind === 'newline' || event.kind === 'alt_enter'
     ) {
       this.renderer.setStatus(
         event.kind === 'paste' ? 'paste exceeds 64 KiB' : 'input too long',
@@ -601,6 +635,7 @@ export class TuiController {
       }
       if (event.kind === 'alt_enter') {
         if (busy) this.queueFollowUpIfNonblank();
+        else this.editEvent(event);
         continue;
       }
       if (!busy && event.kind === 'ctrl_g') {
@@ -609,10 +644,6 @@ export class TuiController {
       }
       if (!busy && event.kind === 'ctrl_t') {
         this.openHistory();
-        continue;
-      }
-      if (!busy && event.kind === 'ctrl_k') {
-        this.openContextPanel();
         continue;
       }
       if (!busy && event.kind === 'page_up') {
