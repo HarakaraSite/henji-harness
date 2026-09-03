@@ -31,11 +31,6 @@ export type InputEvent =
   | { readonly kind: 'alt_f' }
   | { readonly kind: 'alt_d' }
   | { readonly kind: 'newline' }
-  | { readonly kind: 'ctrl_p' }
-  | { readonly kind: 'ctrl_n' }
-  | { readonly kind: 'ctrl_r' }
-  | { readonly kind: 'ctrl_g' }
-  | { readonly kind: 'ctrl_t' }
   | { readonly kind: 'ctrl_k' }
   | { readonly kind: 'tab' }
   | { readonly kind: 'left' }
@@ -46,7 +41,6 @@ export type InputEvent =
   | { readonly kind: 'end' }
   | { readonly kind: 'page_up' }
   | { readonly kind: 'page_down' }
-  | { readonly kind: 'ctrl_l' }
   | { readonly kind: 'f1' }
   | { readonly kind: 'escape' }
   | { readonly kind: 'unknown' }
@@ -261,23 +255,23 @@ export class InputDecoder {
       return;
     }
     if (byte === 0x10) {
-      events.push({ kind: 'ctrl_p' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x0e) {
-      events.push({ kind: 'ctrl_n' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x12) {
-      events.push({ kind: 'ctrl_r' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x07) {
-      events.push({ kind: 'ctrl_g' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x14) {
-      events.push({ kind: 'ctrl_t' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x0b) {
@@ -285,7 +279,7 @@ export class InputDecoder {
       return;
     }
     if (byte === 0x0c) {
-      events.push({ kind: 'ctrl_l' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x09) {
@@ -733,6 +727,9 @@ export class TuiEditorHistory {
   }
   get byteLength(): number {
     return this.totalBytes;
+  }
+  get navigating(): boolean {
+    return this.cursor !== null;
   }
   snapshot(): readonly EditorHistoryEntry[] {
     return Object.freeze(this.entries.map((text) => Object.freeze({ text })));

@@ -40,7 +40,7 @@ fail before workspace, terminal, session, provider, or credential setup. `--no-s
 and does not access the session state root. `agent:run` is the non-interactive production provider
 command; do not invoke either production path without explicit approval.
 
-PageUp/PageDown scroll the retained log while Ctrl-L returns to the latest output. Anchors use
+PageUp/PageDown scroll the retained log; repeated PageDown reaches the latest output. Anchors use
 source positions, so a resize or live progress update does not unexpectedly jump the viewport. Live
 assistant/tool activity replaces one bounded row and completed causal records remain in the log.
 
@@ -48,9 +48,9 @@ assistant/tool activity replaces one bounded row and completed causal records re
 
 The editor accepts bounded multiline UTF-8 input up to 65,536 bytes. Enter submits a nonblank idle
 task; Alt+Return inserts a newline (Shift/Ctrl+Return where the terminal sends them); readline
-editing (Ctrl-A/E/B/F, Alt-B/F, Ctrl-K/U/W, Alt-D); arrows/Home/End move the cursor; Ctrl-P/N
-navigate process-local input history; Tab completes workspace-relative paths; Ctrl-R recovers one
-bounded failed tool turn; and empty Enter only updates status.
+editing (Ctrl-A/E/B/F, Alt-B/F, Ctrl-K/U/W, Alt-D); arrows/Home/End move the cursor (Up/Down walk
+input history at empty input or the top edge); Tab completes workspace-relative paths; and empty
+Enter only updates status.
 
 `read`, `write`, and `edit` operate within the invocation workspace, reject symlinks/special files,
 and use synchronized sibling temporaries with atomic rename. `bash` runs
@@ -90,27 +90,24 @@ deno task --quiet --config deno.v0.json agent:sessions delete --session UUID --y
 
 When idle with an empty editor and all pending lanes empty:
 
-- Ctrl-G opens the current-workspace session picker, at most eight metadata rows per page, with
+- `/sessions` opens the current-workspace session picker, at most eight metadata rows per page, with
   short/full UUID, agent, updated time, turn/message counts, and current/resumed/mismatch state.
   Enter resumes the exact selected UUID only after opening and materializing its target. The old
   binding closes before current binding changes; failures retain the old session and never fall
   back.
-- Ctrl-T opens the latest committed canonical history in read-only mode. Up/Down, Home, End, and
-  Escape navigate bounded pages and return to the latest position. Causal `user`, `steer`,
-  `assistant`, `tool>`, and `tool<` labels are preserved. Each page uses at most 8 KiB source text,
-  32 KiB escaped terminal output, and 16 content rows. It cannot submit, edit, branch, rewind, call
-  a provider, or write a session.
+- The committed canonical history is read-only in the session store and currently has no TUI entry
+  point. Causal `user`, `steer`, `assistant`, `tool>`, and `tool<` records are preserved with at
+  most 8 KiB source text, 32 KiB escaped terminal output, and 16 content rows per page.
 
 The main status shows short session ID, agent, and latest committed turn; picker/history headers
 show the full UUID. An empty new reservation appears as one synthetic current row; listing alone
 does not create state.
 
-## Manual context recovery
+## Manual context recovery (currently no TUI entry point)
 
-When persistent TUI is idle with an empty editor and no pending lane, Ctrl-K opens the context
-panel. It shows committed turns, current checkpoint state, proposed covered/retained range, and
-byte-aware provider-view estimate. It states that the operation uses one provider request and leaves
-canonical history unchanged.
+The context panel shows committed turns, current checkpoint state, proposed covered/retained range,
+and byte-aware provider-view estimate. It states that the operation uses one provider request and
+leaves canonical history unchanged.
 
 Enter confirms one semantic summary request. The selected profile receives the exact summary prompt,
 one compact user envelope containing canonical parent turns, and `tools: []`; accepted output is

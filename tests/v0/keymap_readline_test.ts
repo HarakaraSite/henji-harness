@@ -1,4 +1,4 @@
-import { InputDecoder, TuiEditor } from '../../v0/tui/input.ts';
+import { InputDecoder, TuiEditor, TuiEditorHistory } from '../../v0/tui/input.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -82,4 +82,23 @@ Deno.test('Keymap kill operations keep the remainder', () => {
   const killWord = edit('ab cd ef', 3);
   assert(killWord.deleteWordForward());
   assertEquals(killWord.text, 'ab  ef');
+});
+
+Deno.test('Input history exposes navigation state for Up/Down-edge walk', () => {
+  const history = new TuiEditorHistory();
+  assertEquals(history.navigating, false);
+  assert(history.record('first task'));
+  assert(history.record('second task'));
+  const draft = { text: '', cursorScalar: 0, byteLength: 0 };
+  const back = history.previous(draft);
+  assert(back !== null);
+  assertEquals(back.text, 'second task');
+  assertEquals(history.navigating, true);
+  const older = history.previous(draft);
+  assertEquals(older?.text, 'first task');
+  const forward = history.next();
+  assertEquals(forward?.text, 'second task');
+  const restored = history.next();
+  assertEquals(restored?.text, '');
+  assertEquals(history.navigating, false);
 });

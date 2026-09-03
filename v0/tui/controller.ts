@@ -638,14 +638,6 @@ export class TuiController {
         else this.editEvent(event);
         continue;
       }
-      if (!busy && event.kind === 'ctrl_g') {
-        this.openPicker();
-        continue;
-      }
-      if (!busy && event.kind === 'ctrl_t') {
-        this.openHistory();
-        continue;
-      }
       if (!busy && event.kind === 'page_up') {
         this.renderer.scrollPage?.('up');
         continue;
@@ -654,34 +646,11 @@ export class TuiController {
         this.renderer.scrollPage?.('down');
         continue;
       }
-      if (!busy && event.kind === 'ctrl_l') {
-        this.renderer.latest?.();
-        continue;
+      if (!busy && (event.kind === 'up' || event.kind === 'down')) {
+        if (this.walkInputHistory(event.kind)) continue;
       }
       if (event.kind === 'tab') {
         this.completePathAtCursor();
-        continue;
-      }
-      if (event.kind === 'ctrl_r') {
-        this.popRecovery();
-        continue;
-      }
-      if (event.kind === 'ctrl_p') {
-        const snapshot = this.history.previous(this.editor.snapshot());
-        if (snapshot === null) this.renderer.setStatus('history empty');
-        else {
-          this.editor.setSnapshot(snapshot);
-          this.renderEditorState();
-        }
-        continue;
-      }
-      if (event.kind === 'ctrl_n') {
-        const snapshot = this.history.next();
-        if (snapshot === null) this.renderer.setStatus('history boundary');
-        else {
-          this.editor.setSnapshot(snapshot);
-          this.renderEditorState();
-        }
         continue;
       }
       if (event.kind === 'invalid_utf8') {
@@ -1438,6 +1407,34 @@ export class TuiController {
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
+    return true;
+  }
+
+  /** Up/Down-edge input-history walk; plain cursor moves stay in editEvent. */
+  private walkInputHistory(direction: 'up' | 'down'): boolean {
+    if (direction === 'down') {
+      if (!this.history.navigating) return false;
+      const snapshot = this.history.next();
+      if (snapshot === null) this.renderer.setStatus('history boundary');
+      else {
+        this.editor.setSnapshot(snapshot);
+        this.renderEditorState();
+      }
+      return true;
+    }
+    if (
+      !this.history.navigating && this.editor.text.length > 0 && this.editor.moveUp()
+    ) {
+      this.renderEditorState();
+      return true;
+    }
+    const snapshot = this.history.previous(this.editor.snapshot());
+    if (snapshot === null) {
+      if (this.editor.text.length === 0) this.renderer.setStatus('history empty');
+      return true;
+    }
+    this.editor.setSnapshot(snapshot);
+    this.renderEditorState();
     return true;
   }
 

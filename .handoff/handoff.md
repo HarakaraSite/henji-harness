@@ -87,6 +87,8 @@
   （contextパネル孤立は自動compactionまでの既知事項）。次は(b)改行移行
 - 決定: キーマップ(b)改行移行を実施し本人が確認OK。改行はAlt+Return確定
   （Shift/Ctrl+Returnは端末依存、ghostty要設定の可能性あり）。ctrl+o廃止、busy表示・入力もOK
+- 決定: キーマップ(c)機能系Ctrl除去とUp/Down端履歴置換を実施し本人が確認OK。
+  孤立物（履歴モーダル・contextパネル・回復）は自動compaction設計まで保持
 - 境界: F1は全cycle外。provider/credential/production task/state、evidence保存、core semantics、dependency、
   `_refs/*`は未変更
 
