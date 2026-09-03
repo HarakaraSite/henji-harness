@@ -434,6 +434,11 @@ export type PresentationEvent =
     readonly generation: number;
   }>
   | Readonly<{
+    readonly kind: 'notice';
+    readonly generation: number;
+    readonly text: string;
+  }>
+  | Readonly<{
     readonly kind: 'restored_log';
     readonly messages: readonly PresentationMessage[];
     readonly omitted: number;

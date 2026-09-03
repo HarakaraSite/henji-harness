@@ -376,6 +376,15 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         activeAssistantId: undefined,
         activeToolIds: Object.freeze([]),
       });
+    case 'notice':
+      return appendEntry(state, {
+        id: `notice:${event.generation}`,
+        kind: 'system',
+        label: 'system>',
+        text: event.text,
+        revision: 0,
+        live: false,
+      });
     case 'user_message':
       return Object.freeze({
         ...appendEntry(state, {

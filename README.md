@@ -103,11 +103,12 @@ The main status shows short session ID, agent, and latest committed turn; picker
 show the full UUID. An empty new reservation appears as one synthetic current row; listing alone
 does not create state.
 
-## Manual context recovery (currently no TUI entry point)
+## Context recovery
 
-The context panel shows committed turns, current checkpoint state, proposed covered/retained range,
-and byte-aware provider-view estimate. It states that the operation uses one provider request and
-leaves canonical history unchanged.
+Long sessions compact automatically before a turn starts (see above); the manual panel currently has
+no TUI entry point. The panel shows committed turns, current checkpoint state, proposed
+covered/retained range, and byte-aware provider-view estimate. It states that the operation uses one
+provider request and leaves canonical history unchanged.
 
 Enter confirms one semantic summary request. The selected profile receives the exact summary prompt,
 one compact user envelope containing canonical parent turns, and `tools: []`; accepted output is
@@ -139,10 +140,15 @@ only at request time; offline tests do not read credential files or access the p
 remains trusted-local OS-user execution without hard sandbox, network isolation, or full descendant
 containment.
 
-There is no branch/fork, rewind, history edit, search, export/import, rename/tagging, automatic or
-background compaction, summary chain, multiple checkpoint, login/model picker, pending-restart
-recovery, or tool-effect rollback. Context recovery may refuse when original history plus the 4 KiB
-draft reserve cannot fit a useful projection under live adapter ceilings.
+There is no branch/fork, rewind, history edit, search, export/import, rename/tagging, summary chain,
+multiple checkpoint, login/model picker, pending-restart recovery, or tool-effect rollback. Before a
+turn starts, an estimated provider view at or above 64K est triggers one automatic semantic
+compaction: the largest useful strict reduction is summarized with a single provider request and
+stored as a checkpoint beside (not inside) `session.json`, and the turn starts only after a
+successful install. A failed or cancelled compaction stops the submit with recoverable input; the
+normal log keeps one `system>` row for each automatic install. Context recovery may refuse when
+original history plus the 4 KiB draft reserve cannot fit a useful projection under live adapter
+ceilings.
 
 ## Provider-free guided confirmation
 

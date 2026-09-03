@@ -99,6 +99,10 @@ type CoreSession = {
   currentPosition?(): NavigationPosition;
   contextCompactionPreview?(): ContextRecoveryPreview;
   compactContext?(signal?: AbortSignal): Promise<ContextRecoveryResult>;
+  consumeAutoCompactionNotice?(): {
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | null;
   checkpointSnapshot?(): {
     readonly summary: string;
     readonly coveredThroughTurn: number;
@@ -846,10 +850,22 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     const admitted = presentationIntent(intent);
     switch (admitted.kind) {
       case 'ordinary_submit':
-        return this.core.submit(admitted.text).then((value) => ({
-          kind: 'outcome',
-          outcome: outcome(value),
-        }));
+        return this.core.submit(admitted.text).then((value) => {
+          const notice = this.core.consumeAutoCompactionNotice?.();
+          if (notice !== undefined && notice !== null) {
+            this.emit({
+              kind: 'notice',
+              generation: ++this.generation,
+              text: bounded(
+                `context auto-compacted through turn ${notice.coveredThroughTurn}; retained from turn ${notice.retainedFromTurn}; sending your message`,
+              ),
+            });
+          }
+          return {
+            kind: 'outcome',
+            outcome: outcome(value),
+          };
+        });
       case 'steering_submit': {
         const result = this.core.steerActiveTurn?.(admitted.text) ?? 'idle';
         return result === 'accepted'

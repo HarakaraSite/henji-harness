@@ -729,6 +729,7 @@ export class TuiRenderer implements TerminalRendererGate {
       case 'context_result':
       case 'lifecycle':
       case 'warning':
+      case 'notice':
         this.redraw();
         return;
     }

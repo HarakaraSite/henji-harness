@@ -89,6 +89,9 @@
   （Shift/Ctrl+Returnは端末依存、ghostty要設定の可能性あり）。ctrl+o廃止、busy表示・入力もOK
 - 決定: キーマップ(c)機能系Ctrl除去とUp/Down端履歴置換を実施し本人が確認OK。
   孤立物（履歴モーダル・contextパネル・回復）は自動compaction設計まで保持
+- 決定: 自動compactionを実装。送信前に64K到達＋有用境界で要約1件→成功時のみturn開始、
+  失敗/取消は停止、通知はstatus＋system行。zot pre-turn guardとpi shouldCompactを参照。
+  initial reviewのMust-1（64Kゲート欠落）をclosureしnarrow再レビューGO。focused 38/38 green
 - 境界: F1は全cycle外。provider/credential/production task/state、evidence保存、core semantics、dependency、
   `_refs/*`は未変更
 
