@@ -46,14 +46,17 @@ terminal制御に独自性を求めず、Piを第一参照、Zotを補助参照�
 最小のfocused PTY確認とcheck/fmt/lint/diff、terminal lifecycleに限定したfunctional review後、本人が
 streaming/tool task、session内scroll、終了復元を通常利用で判断する。問題があれば次へ進まない。
 
-## Cycle 3: tool/history詳細を仕上げる
+## Cycle 3: tool行頭previewを付ける（縮小版）
 
-Cycle 1・2の本人観測を正本に、adapter/contract、state、render、必要時だけcontrollerを変更する。
+本人判断により、個別tool開閉と詳細復帰は初期バージョンの必須としない。Cycle 3は
+`v0/tui/state.ts` の一行表示だけを変更する。
 
-- live logとrestored historyで、一つのtool操作を一つの人間向けrecordとして示す。
-- raw JSONや全文は通常historyへ出さず、必要時だけ詳細を開ける。
-- 詳細を閉じた後にdraft、cursor、scroll位置を戻す。
-- 質問、進行、最終回答、次入力を通常画面だけで理解できる状態を維持する。
+- 対象は `bash/read/write/edit` の4 toolのみ。live（`…`）と完了（`✓/✗`）で同一形式とする。
+- 引数の行頭のみを表示し、端末幅ではなく現行の表示セル幅とbyte上限の範囲で `…` 打切りする。
+  複数行commandも改行展開せず、最初の行相当のみとする。
+- raw JSONや全文は通常logへ出さない。Piの `renderCall/formatBashCall`、Zotの `ShortArgs`
+  と同じ発想の最小版とし、frameworkやstate modelの移植はしない。
+- 個別展開（開閉後のdraft/cursor/scroll復帰）は将来の必要時に別途計画する。
 
 focused checkとfunctional review後、本人が新規taskと継続sessionを使って評価する。
 

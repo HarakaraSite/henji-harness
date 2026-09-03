@@ -107,7 +107,7 @@ Deno.test('Cycle 1 reduces tool activity and results without source contents or 
     },
   });
   assertEquals(state.log.entries.length, 1);
-  assertEquals(state.log.entries[0].text, 'read ✓');
+  assertEquals(state.log.entries[0].text, 'read secret.txt ✓');
   assertEquals(state.log.entries[0].live, false);
   assert(!state.log.entries[0].text.includes('full file contents'));
   assert(!state.log.entries[0].text.includes('contents'));

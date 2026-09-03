@@ -74,8 +74,8 @@
   U+FF15 cell幅不足と最古PageUpのlatest逆戻りを局所修正した
 - 検証: focused Cycle 1/2 10/10、check/fmt/lint/diff green。functional reviewはGO、Blocker/P1/P2 0。
   Cycle 2でfull gateは追加実行していない
-- 次: userが`直近５コミットの`のpaste/backspace/再入力と、PageUpで最初の質問へ到達できることを再確認。
-  Cycle 3はその後
+- 次: Cycle 3縮小版は2026-09-03に本人確認OKで完了。残る磨き上げ（例：edit前後diff）は将来候補。
+  F1は将来の別incrementにparkすることを本人が同日確認済み
 - 境界: F1は全cycle外。provider/credential/production task/state、evidence保存、core semantics、dependency、
   `_refs/*`は未変更
 

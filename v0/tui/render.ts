@@ -114,6 +114,22 @@ const shortToolName = (name: string): string => {
   const bounded = truncateText(name, 64);
   return bounded.truncated ? `${bounded.text}…` : bounded.text;
 };
+const toolHeadPreview = (name: string, args: unknown): string => {
+  if (name !== 'bash' && name !== 'read' && name !== 'write' && name !== 'edit') return '';
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) return '';
+  const raw = name === 'bash'
+    ? (args as Record<string, unknown>)['command']
+    : (args as Record<string, unknown>)['path'];
+  if (typeof raw !== 'string') return '';
+  const head = raw.split('\n', 1)[0]?.trim() ?? '';
+  if (head.length === 0) return '';
+  const bounded = truncateText(head, 96);
+  return bounded.truncated ? `${bounded.text}…` : bounded.text;
+};
+const toolCallText = (name: string, args: unknown): string => {
+  const preview = toolHeadPreview(name, args);
+  return preview.length === 0 ? shortToolName(name) : `${shortToolName(name)} ${preview}`;
+};
 const toolResultText = (
   name: string,
   outcome: 'success' | 'error',
@@ -691,7 +707,7 @@ export class TuiRenderer implements TerminalRendererGate {
         this.clearLiveState();
         if (!this.retained) {
           this.clearRecordLine();
-          this.write(dynamicLine('tool> ', event.call.name));
+          this.write(dynamicLine('tool> ', toolCallText(event.call.name, event.call.arguments)));
         }
         this.redraw();
         return;
