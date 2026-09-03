@@ -113,16 +113,15 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
 
-export type SlashCommand = 'help' | 'history' | 'sessions' | 'context' | 'exit';
+export type SlashCommand = 'help' | 'sessions' | 'exit';
 
 /** Exact-match built-in slash parse; args and unknown names are 'unknown', plain tasks are null. */
 export const slashCommandOf = (text: string): SlashCommand | 'unknown' | null => {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
-  if (
-    trimmed === '/help' || trimmed === '/history' || trimmed === '/sessions' ||
-    trimmed === '/context' || trimmed === '/exit'
-  ) return trimmed.slice(1) as SlashCommand;
+  if (trimmed === '/help' || trimmed === '/sessions' || trimmed === '/exit') {
+    return trimmed.slice(1) as SlashCommand;
+  }
   return 'unknown';
 };
 
@@ -1395,7 +1394,7 @@ export class TuiController {
       // Keep the whole hint in one ' · '-free segment so the footer keeps it
       // instead of popping the valid list at narrow widths.
       this.renderer.setStatus(
-        `unknown command ${this.editor.text.trim()}, try: /help, /history, /sessions, /context, /exit`,
+        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /exit`,
       );
       return true;
     }
@@ -1404,9 +1403,7 @@ export class TuiController {
     this.history.resetNavigation();
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
-    else if (command === 'history') this.openHistory();
     else if (command === 'sessions') this.openPicker();
-    else if (command === 'context') this.openContextPanel();
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');

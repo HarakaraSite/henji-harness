@@ -79,6 +79,10 @@
 - 決定: キーマップ整理方針を本人が採用。編集系readline準拠（A/E/B/F、Alt+B/F、K/U/W等）、
   機能系Ctrl（G/T/K/R/L/P/N/O）廃止→slashへ、改行はshift/ctrl/alt+return、ctrl+tは未使用。
   外部エディタ起動はopencodeのみ `<leader>e` でpi/zot/Henjiに割当てなし。実装は別increment
+- 決定: roadmap再構築の運用原則を本人が承認。安全作業は明示incrementに分離、
+  各increment計画に安全項目を混ぜない、reviewは機能・要件・実経路のみ
+- 決定: slash最小は `/help`・`/sessions`・`/exit` の3件に縮小（`/history`・`/context` 除外）。
+  本人が2026-09-04に通常利用で確認OK
 - 境界: F1は全cycle外。provider/credential/production task/state、evidence保存、core semantics、dependency、
   `_refs/*`は未変更
 

@@ -128,13 +128,13 @@ Deno.test('Cycle 3 truncates a long command head with ellipsis', () => {
 
 Deno.test('Slash commands parse exact built-ins only', () => {
   assertEquals(slashCommandOf('/help'), 'help');
-  assertEquals(slashCommandOf('/history'), 'history');
   assertEquals(slashCommandOf('/sessions'), 'sessions');
-  assertEquals(slashCommandOf('/context'), 'context');
   assertEquals(slashCommandOf('/exit'), 'exit');
-  assertEquals(slashCommandOf('  /history  '), 'history');
+  assertEquals(slashCommandOf('  /sessions  '), 'sessions');
   assertEquals(slashCommandOf('read foo.ts'), null);
   assertEquals(slashCommandOf('/unknown'), 'unknown');
-  assertEquals(slashCommandOf('/history foo'), 'unknown');
+  assertEquals(slashCommandOf('/history'), 'unknown');
+  assertEquals(slashCommandOf('/context'), 'unknown');
+  assertEquals(slashCommandOf('/sessions foo'), 'unknown');
   assertEquals(slashCommandOf('/HELP'), 'unknown');
 });
