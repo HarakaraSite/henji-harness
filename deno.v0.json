@@ -1,5 +1,6 @@
 {
   "tasks": {
+    "agent:worker-foundation:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt --no-remote --unstable-worker-options --allow-read=. --allow-read=/tmp --allow-write=/tmp --config deno.v0.json tests/v0/agent_worker_foundation_test.ts",
     "agent:fixture": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run v0/agent/cli.ts",
     "agent:run": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno run --no-prompt --allow-env=HENJI_OPENROUTER_API_KEY --allow-net=openrouter.ai --allow-read=. --allow-write=. --allow-run=/bin/bash v0/agent/runtime_cli.ts",
     "agent:provider-stream-compatibility:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt --allow-read=/tmp --allow-write=/tmp --allow-sys=uid tests/v0/provider_stream_compatibility_test.ts",
@@ -18,6 +19,9 @@
     "v0:lint": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno lint --config deno.v0.json v0 tests/v0",
     "v0:test": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno test --no-prompt tests/v0/current_code_test.ts tests/v0/fr5_ui_cycle1_test.ts tests/v0/fr5_ui_cycle2_test.ts tests/v0/fr5_ui_cycle3_test.ts tests/v0/keymap_readline_test.ts tests/v0/auto_compaction_test.ts && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --quiet --config deno.v0.json agent:provider-stream-compatibility:test",
     "v0:gate": "/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:check && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:fmt && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:lint && /home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno task --config deno.v0.json v0:test"
+  },
+  "imports": {
+    "@henji/agent": "./v0/agent/worker_agent_api.ts"
   },
   "fmt": {
     "lineWidth": 100,

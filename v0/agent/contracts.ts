@@ -6,6 +6,7 @@ import type {
 import type {
   ProviderEvidenceDurability,
   ProviderEvidencePersistenceErrorCode,
+  ProviderEvidencePhase,
   ProviderEvidenceRecorder,
 } from './provider_evidence.ts';
 
@@ -98,6 +99,7 @@ export interface ModelGenerateOptions {
   /** Internal turn-scoped recorder; it never contains credential or Authorization values. */
   readonly providerEvidence?: ProviderEvidenceRecorder;
   readonly providerEvidenceLane?: 'parent' | 'planner';
+  readonly providerEvidencePhase?: ProviderEvidencePhase;
   readonly modelStep?: number;
 }
 

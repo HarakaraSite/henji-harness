@@ -43,6 +43,7 @@ import { readCredentialFile } from './credential_file.ts';
 import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
 import { DenoFailureDiagnosticStore } from './failure_diagnostic_store.ts';
 import { DenoProviderEvidenceStore } from './provider_evidence_store.ts';
+import { createWorkerTuiSession } from './worker_host.ts';
 
 const encoder = new TextEncoder();
 
@@ -158,6 +159,7 @@ export const parseTuiArgs = (args: readonly string[]): string | undefined => {
 
 export interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
+  readonly definitionPath?: string;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly sessionId?: string;
 }
@@ -166,8 +168,9 @@ export interface ParsedTuiInvocation {
 export const parseTuiInvocation = (
   args: readonly string[],
 ): ParsedTuiInvocation => {
-  if (args.length > 4) throw new Error('invalid invocation');
+  if (args.length > 6) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
+  let definitionPath: string | undefined;
   let persistence: ParsedTuiInvocation['persistence'] = 'new';
   let sessionId: string | undefined;
   for (let index = 0; index < args.length;) {
@@ -175,11 +178,22 @@ export const parseTuiInvocation = (
     if (flag === '--agent') {
       const value = args[index + 1];
       if (
-        rawAgentName !== undefined || value === undefined || value.length === 0
+        rawAgentName !== undefined || definitionPath !== undefined ||
+        value === undefined ||
+        value.length === 0
       ) {
         throw new Error('invalid invocation');
       }
       rawAgentName = value;
+      index += 2;
+    } else if (flag === '--definition') {
+      const value = args[index + 1];
+      if (
+        definitionPath !== undefined || rawAgentName !== undefined ||
+        value === undefined ||
+        value.length === 0
+      ) throw new Error('invalid invocation');
+      definitionPath = value;
       index += 2;
     } else if (flag === '--continue') {
       if (persistence !== 'new') throw new Error('invalid invocation');
@@ -204,6 +218,7 @@ export const parseTuiInvocation = (
   }
   return {
     rawAgentName,
+    ...(definitionPath === undefined ? {} : { definitionPath }),
     persistence,
     ...(sessionId === undefined ? {} : { sessionId }),
   };
@@ -286,6 +301,18 @@ export const main = async (
         ? { credentialSource: readCredentialFile }
         : dependencies.runtimeSeam;
       sessionFactory = async (eventSink, selected) => {
+        if (dependencies.runtimeSeam === undefined) {
+          return await createWorkerTuiSession({
+            workspaceRoot: undefined,
+            stateRoot: dependencies.stateRoot,
+            persistence: invocation.persistence,
+            sessionId: invocation.sessionId,
+            agent: selected.id,
+            externalDefinitionPath: invocation.definitionPath,
+            physicalIoMode: 'production',
+            eventSink,
+          });
+        }
         if (invocation.persistence === 'none') {
           const prepared = await prepareRuntimeComposition(
             runtimeSeam,

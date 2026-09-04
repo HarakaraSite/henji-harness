@@ -1013,6 +1013,43 @@
 - 境界: real provider/human acceptance、credential、production `henji`、machine launcher/state、cleanup、
   `_refs/`、commit/push/tag/publish/releaseは未実施
 
+### POL-20260904-agent-worker-foundation-proof-plan
+
+- 計画: `docs/plans/agent-worker-foundation-proof-stages-1-3.md`、SHA-256
+  `ddfd91a20098861a270c4c65cf81f4dc6817663cf98f2e48cefe6b2ca43c5247`。baselineはcommit
+  `2a2c47d`。executable trusted-local TS DefinitionをDeno Web Worker内でlive compositionし、
+  built-in/externalを同じloader/bootstrap/runtime/protocol/Host commit経路へ通すStages 1–3を対象とする
+- How: proof期間はprovider/tool I/Oをreplaceable seam背後のWorker-directとし、恒久placementは未決定の
+  まま残す。externalは`--definition`と`@henji/agent` default export契約を使い、entry
+  `DefinitionRevisionRef`と最小session schema-v2でdurable selectionを虚偽なく保持する
+- 境界: Host durable store成功がturnの唯一のcommit point。Worker ack失敗はcommitted/generation
+  unavailableでsettleする。automatic compactionはWorker checkpoint proposal→Host install→ack後の
+  held turn開始とし、HostのTUI/durabilityとWorkerのsemanticsを維持する
+- review: initial functional architecture reviewのP1 2件を上記commit pointとcheckpoint protocolで局所修正。
+  single narrow re-reviewはGO、Blocker/P1/P2 0
+- 見積り: 45–68 person-days、単一write agentで11–17暦週。Stage 4 replacement、resident agent、
+  mailbox/routing/schedule、sandbox/self-revision、恒久I/O placementは別計画。real-provider Human Gateは
+  実行直前の公式model/価格再確認と別承認を要する
+
+### POL-20260904-agent-worker-foundation-proof-implementation
+
+- 状態: user承認済み計画をprovider-freeで実装完了。結果は
+  `docs/plans/agent-worker-foundation-proof-stages-1-3-results.md`、SHA-256
+  `500b33319a80766e80f8e8a61a0295aec9e6324316c37464fab1366dabf88f5a`
+- 実装: pinned Deno 2.9.4 Workerでexecutable Definitionを評価・live compositionし、built-in
+  default/plannerとexternalを同じloader/bootstrap/runtime/protocol/Host commit経路へ統合。
+  `--definition`、最小session schema-v2/v1 read、Host-owned commit/checkpoint durabilityを追加した
+- 境界: provider/tool I/Oはproof-local Worker-direct seam。Host store成功が唯一のcommit pointで、ack失敗は
+  committed/generation unavailable。compactionはWorker proposal→Host install→ack後にheld turnを開始する
+- review: initial Blocker 2/P1 1/P2 1をclosure。narrow re-reviewで残ったP1 2/P2 1（新規P1含む）を
+  exceptional ultra-narrow closureし、最終GO、Blocker/P1/P2 0
+- 検証: Worker focused 22/22。owner authoritative `v0:gate`は一回で成功し、check、fmt 102、lint 99、
+  current offline 38/38、provider compatibility offline 9/9がgreen
+- 次: real-provider Human Gateは未実施。実行前に公式model availability/価格/tool対応/65,536 completionを
+  再確認し、最大28 requests、read tool最大2回、算出済みUSD ceilingを示して別承認を得る
+- 未実施: provider/network/credential、installed production `henji`、actual production state/cleanup、
+  `_refs/*`、commit/push/tag/publish/release
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -4583,3 +4620,24 @@
 - 次: ユーザーが指示する場合に、段階1 Deno 2.9.4 capsule probeの別計画を作る
 - 注意: `_refs/*`と`docs/plans/surface-roadmap.md`は既存未追跡のまま保持。push/tag/publish/release、
   product source/test/config、provider/credential/production stateは未操作
+
+## 2026-09-04 15:06 JST
+
+- 実行エージェント: Codex owner + zero-context planner + single implementer + functional architecture reviewer
+- 作業トピック: Agent Worker foundation proof Stages 1–3 planning
+- 実施: executable TS DefinitionをDeno Web Worker内でlive compositionし、built-in/externalを同一路へ
+  通す7 slice計画を作成。initial P1 2件をcommit pointとcompaction checkpoint境界で修正し、narrow
+  re-reviewはGO、Blocker/P1/P2 0
+- 次: `ASK-20260904-agent-worker-foundation-implementation`へのuser判断。承認後もprovider-free実装から開始する
+- 注意: 計画とhandoffだけを変更。product source/test/config、provider/credential/network/production state、
+  `_refs/*`、commit/push/tag/publish/releaseは未操作
+
+## 2026-09-04 17:06 JST
+
+- 実行エージェント: Codex owner + single implementer + functional reviewer
+- 作業トピック: Agent Worker foundation proof Stages 1–3 provider-free implementation
+- 実施: executable TS DefinitionのDeno Worker内composition、built-in/external同一路、Host commit/schema-v2/
+  compaction、TUI/CLI統合を実装。review findingを閉じ、最終GO、owner `v0:gate`一回成功
+- 次: real-provider Human Gateの準備時に公式model・価格を確認し、費用/tool上限付きで別承認を得る
+- 注意: `POL-20260904-agent-worker-foundation-proof-implementation`参照。provider/network/credential、
+  installed production state、cleanup、`_refs/*`、commit/push/tag/publish/releaseは未操作

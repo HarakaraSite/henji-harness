@@ -13,6 +13,7 @@ startup_fail() {
 }
 
 agent=''
+definition=''
 mode='new'
 session_id=''
 parse_args() {
@@ -20,9 +21,18 @@ parse_args() {
     case "$1" in
       --agent)
         [ "$agent" = '' ] || fail
+        [ "$definition" = '' ] || fail
         [ "$#" -ge 2 ] || fail
         agent=$2
         [ "$agent" = 'default' ] || [ "$agent" = 'planner' ] || fail
+        shift 2
+        ;;
+      --definition)
+        [ "$definition" = '' ] || fail
+        [ "$agent" = '' ] || fail
+        [ "$#" -ge 2 ] || fail
+        definition=$2
+        [ "$definition" != '' ] || fail
         shift 2
         ;;
       --continue)

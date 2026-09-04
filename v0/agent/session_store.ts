@@ -14,7 +14,9 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const canonicalAbsolutePath = (value: string): string | undefined => {
-  if (!value.startsWith('/') || value.includes('\0') || value.includes('//')) return undefined;
+  if (!value.startsWith('/') || value.includes('\0') || value.includes('//')) {
+    return undefined;
+  }
   if (value === '/') return value;
   const parts: string[] = [];
   for (const part of value.split('/').slice(1)) {
@@ -38,6 +40,38 @@ export interface SessionRecord {
   readonly nextTurn: number;
   readonly transcript: readonly Message[];
 }
+
+/** Exact executable Definition binding persisted by the Worker-backed Host schema. */
+export type DefinitionRevisionRef =
+  | {
+    readonly kind: 'builtin';
+    readonly id: 'default' | 'planner';
+    readonly canonicalSpecifier: string;
+    readonly entrySha256: string;
+    readonly sourceBytes: number;
+  }
+  | {
+    readonly kind: 'external';
+    readonly canonicalSpecifier: string;
+    readonly entrySha256: string;
+    readonly sourceBytes: number;
+  };
+
+/** Minimal Worker-backed record. Schema-v1 remains readable through the legacy codec. */
+export interface SessionRecordV2 {
+  readonly schemaVersion: 2;
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agent: 'default' | 'planner';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly transcript: readonly Message[];
+  readonly definition: DefinitionRevisionRef;
+}
+
+export type StoredSessionRecord = SessionRecord | SessionRecordV2;
 
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {
@@ -82,11 +116,14 @@ export const isSessionId = (value: unknown): value is string =>
 
 const ownKeys = (value: object, expected: readonly string[]): boolean => {
   const keys = Object.keys(value);
-  return keys.length === expected.length && keys.every((key, index) => key === expected[index]);
+  return keys.length === expected.length &&
+    keys.every((key, index) => key === expected[index]);
 };
 
 const isFiniteJson = (value: unknown): value is JsonValue => {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean'
+  ) return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) {
     return value.every((item, index) => Object.hasOwn(value, index) && isFiniteJson(item));
@@ -96,7 +133,8 @@ const isFiniteJson = (value: unknown): value is JsonValue => {
 };
 
 const validString = (value: unknown): value is string =>
-  typeof value === 'string' && !value.includes('\0') && ![...value].some((c) => {
+  typeof value === 'string' && !value.includes('\0') &&
+  ![...value].some((c) => {
     const code = c.codePointAt(0)!;
     return code >= 0xd800 && code <= 0xdfff;
   });
@@ -109,8 +147,10 @@ const validMessageText = (
 const validateToolCall = (value: unknown): boolean => {
   if (typeof value !== 'object' || value === null) return false;
   const call = value as Record<string, unknown>;
-  return ownKeys(call, ['kind', 'callId', 'name', 'arguments']) && call.kind === 'tool_call' &&
-    validString(call.callId) && call.callId.length > 0 && validString(call.name) &&
+  return ownKeys(call, ['kind', 'callId', 'name', 'arguments']) &&
+    call.kind === 'tool_call' &&
+    validString(call.callId) && call.callId.length > 0 &&
+    validString(call.name) &&
     call.name.length > 0 && isFiniteJson(call.arguments);
 };
 
@@ -121,7 +161,8 @@ const validateToolResult = (value: unknown): boolean => {
     ownKeys(result, ['kind', 'callId', 'name', 'text', 'outcome', 'terminal']);
   if (
     !common || result.kind !== 'tool_result' || !validString(result.callId) ||
-    result.callId.length === 0 || !validString(result.name) || result.name.length === 0 ||
+    result.callId.length === 0 || !validString(result.name) ||
+    result.name.length === 0 ||
     !validMessageText(
       result.text,
       result.name === 'delegate_to_planner'
@@ -141,23 +182,30 @@ const validateMessage = (value: unknown): value is Message => {
   const message = value as Record<string, unknown>;
   if (message.role === 'user') {
     const content = message.content;
-    return ownKeys(message, ['role', 'content']) && typeof content === 'object' &&
+    return ownKeys(message, ['role', 'content']) &&
+      typeof content === 'object' &&
       content !== null &&
-      ownKeys(content, ['kind', 'text']) && (content as Record<string, unknown>).kind === 'text' &&
+      ownKeys(content, ['kind', 'text']) &&
+      (content as Record<string, unknown>).kind === 'text' &&
       validMessageText((content as Record<string, unknown>).text);
   }
   if (message.role === 'assistant') {
     const content = message.content;
-    if (typeof content === 'object' && content !== null && !Array.isArray(content)) {
-      return ownKeys(message, ['role', 'content']) && ownKeys(content, ['kind', 'text']) &&
+    if (
+      typeof content === 'object' && content !== null && !Array.isArray(content)
+    ) {
+      return ownKeys(message, ['role', 'content']) &&
+        ownKeys(content, ['kind', 'text']) &&
         (content as Record<string, unknown>).kind === 'text' &&
         validMessageText((content as Record<string, unknown>).text);
     }
-    return ownKeys(message, ['role', 'content']) && Array.isArray(content) && content.length > 0 &&
+    return ownKeys(message, ['role', 'content']) && Array.isArray(content) &&
+      content.length > 0 &&
       content.every(validateToolCall);
   }
   if (message.role === 'tool') {
-    return ownKeys(message, ['role', 'content']) && Array.isArray(message.content) &&
+    return ownKeys(message, ['role', 'content']) &&
+      Array.isArray(message.content) &&
       message.content.length > 0 && message.content.every(validateToolResult);
   }
   return false;
@@ -186,7 +234,9 @@ const indexCausalTranscript = (
   transcript: readonly Message[],
   allowIncompleteTail: boolean,
 ): CausalTranscriptIndex | undefined => {
-  if (transcript.length === 0 || transcript[0].role !== 'user') return undefined;
+  if (transcript.length === 0 || transcript[0].role !== 'user') {
+    return undefined;
+  }
   const turns: CausalTranscriptTurn[] = [];
   let index = 0;
   let turn = 1;
@@ -212,10 +262,16 @@ const indexCausalTranscript = (
         return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
       }
       const tool = transcript[index++];
-      if (tool.role !== 'tool' || tool.content.length !== assistant.content.length) {
+      if (
+        tool.role !== 'tool' || tool.content.length !== assistant.content.length
+      ) {
         return allowIncompleteTail ? { turns, messageCount: transcript.length } : undefined;
       }
-      for (let resultIndex = 0; resultIndex < tool.content.length; resultIndex += 1) {
+      for (
+        let resultIndex = 0;
+        resultIndex < tool.content.length;
+        resultIndex += 1
+      ) {
         const call = assistant.content[resultIndex];
         const result = tool.content[resultIndex];
         if (call.callId !== result.callId || call.name !== result.name) {
@@ -264,7 +320,9 @@ const canonicalTimestamp = (value: unknown): value is string => {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString() === value;
 };
 
-export const validateSessionRecord = (value: unknown): value is SessionRecord => {
+export const validateSessionRecord = (
+  value: unknown,
+): value is SessionRecord => {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   if (
@@ -285,7 +343,8 @@ export const validateSessionRecord = (value: unknown): value is SessionRecord =>
     canonicalAbsolutePath(record.workspaceRoot) === undefined ||
     record.workspaceRoot.trim() !== record.workspaceRoot ||
     (record.agent !== 'default' && record.agent !== 'planner') ||
-    !canonicalTimestamp(record.createdAt) || !canonicalTimestamp(record.updatedAt) ||
+    !canonicalTimestamp(record.createdAt) ||
+    !canonicalTimestamp(record.updatedAt) ||
     Date.parse(record.updatedAt) < Date.parse(record.createdAt) ||
     !Number.isSafeInteger(record.nextTurn) || (record.nextTurn as number) < 2 ||
     !Array.isArray(record.transcript) || record.transcript.length === 0 ||
@@ -296,13 +355,153 @@ export const validateSessionRecord = (value: unknown): value is SessionRecord =>
     return false;
   }
   const completedParentTurns = parseCausalTranscript(record.transcript);
-  return completedParentTurns !== undefined && record.nextTurn === completedParentTurns + 1;
+  return completedParentTurns !== undefined &&
+    record.nextTurn === completedParentTurns + 1;
+};
+
+const SHA256 = /^[0-9a-f]{64}$/;
+
+const validRevisionSpecifier = (value: unknown): value is string => {
+  if (
+    typeof value !== 'string' || value.trim() !== value ||
+    !value.startsWith('file:///')
+  ) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'file:' && parsed.search === '' &&
+      parsed.hash === '' &&
+      parsed.href === value &&
+      canonicalAbsolutePath(decodeURIComponent(parsed.pathname)) !==
+        undefined;
+  } catch {
+    return false;
+  }
+};
+
+const validRevisionRef = (value: unknown): value is DefinitionRevisionRef => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const ref = value as Record<string, unknown>;
+  const common = ['canonicalSpecifier', 'entrySha256', 'sourceBytes'];
+  if (
+    !validRevisionSpecifier(ref.canonicalSpecifier) ||
+    typeof ref.entrySha256 !== 'string' || !SHA256.test(ref.entrySha256) ||
+    !Number.isSafeInteger(ref.sourceBytes) || (ref.sourceBytes as number) <= 0
+  ) return false;
+  if (ref.kind === 'builtin') {
+    return ownKeys(ref, ['kind', 'id', ...common]) &&
+      (ref.id === 'default' || ref.id === 'planner');
+  }
+  return ref.kind === 'external' && ownKeys(ref, ['kind', ...common]);
+};
+
+export const validateSessionRecordV2 = (
+  value: unknown,
+): value is SessionRecordV2 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    !ownKeys(record, [
+      'schemaVersion',
+      'sessionId',
+      'workspaceRoot',
+      'agent',
+      'createdAt',
+      'updatedAt',
+      'stateRevision',
+      'nextTurn',
+      'transcript',
+      'definition',
+    ])
+  ) return false;
+  if (
+    record.schemaVersion !== 2 || !validRevisionRef(record.definition) ||
+    !Number.isSafeInteger(record.stateRevision) ||
+    (record.stateRevision as number) < 1
+  ) return false;
+  const legacy: SessionRecord = {
+    schemaVersion: 1,
+    sessionId: record.sessionId as string,
+    workspaceRoot: record.workspaceRoot as string,
+    agent: record.agent as SessionRecord['agent'],
+    createdAt: record.createdAt as string,
+    updatedAt: record.updatedAt as string,
+    nextTurn: record.nextTurn as number,
+    transcript: record.transcript as readonly Message[],
+  };
+  return validateSessionRecord(legacy);
+};
+
+export const encodeSessionRecordV2 = (record: SessionRecordV2): Uint8Array => {
+  if (!validateSessionRecordV2(record)) {
+    throw new SessionStoreError('session_invalid');
+  }
+  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
+  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_limit');
+  }
+  return bytes;
+};
+
+export const decodeSessionRecordV2 = (bytes: Uint8Array): SessionRecordV2 => {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ||
+    bytes.includes(0)
+  ) {
+    throw new SessionStoreError('session_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (!validateSessionRecordV2(parsed)) {
+    throw new SessionStoreError('session_invalid');
+  }
+  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
+  if (
+    canonical.byteLength !== bytes.byteLength ||
+    canonical.some((byte, index) => byte !== bytes[index])
+  ) throw new SessionStoreError('session_invalid');
+  return structuredClone(parsed);
+};
+
+export const decodeStoredSessionRecord = (
+  bytes: Uint8Array,
+): StoredSessionRecord => {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new SessionStoreError('session_invalid');
+  }
+  const version = (parsed as Record<string, unknown>).schemaVersion;
+  return version === 1 ? decodeSessionRecord(bytes) : decodeSessionRecordV2(bytes);
 };
 
 export const encodeSessionRecord = (record: SessionRecord): Uint8Array => {
-  if (!validateSessionRecord(record)) throw new SessionStoreError('session_invalid');
+  if (!validateSessionRecord(record)) {
+    throw new SessionStoreError('session_invalid');
+  }
   const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
-  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
+  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_limit');
+  }
   return bytes;
 };
 
@@ -310,7 +509,10 @@ export const decodeSessionRecord = (bytes: Uint8Array): SessionRecord => {
   if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
     throw new SessionStoreError('session_invalid');
   }
-  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf || bytes.includes(0)) {
+  if (
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ||
+    bytes.includes(0)
+  ) {
     throw new SessionStoreError('session_invalid');
   }
   let text: string;
@@ -325,7 +527,9 @@ export const decodeSessionRecord = (bytes: Uint8Array): SessionRecord => {
   } catch {
     throw new SessionStoreError('session_invalid');
   }
-  if (!validateSessionRecord(parsed)) throw new SessionStoreError('session_invalid');
+  if (!validateSessionRecord(parsed)) {
+    throw new SessionStoreError('session_invalid');
+  }
   const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
   if (
     canonical.byteLength !== bytes.byteLength ||
@@ -356,17 +560,22 @@ const checkpointKeys = [
 export const validateSemanticContextCheckpoint = (
   value: unknown,
 ): value is SemanticContextCheckpointV1 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const checkpoint = value as Record<string, unknown>;
   if (!ownKeys(checkpoint, checkpointKeys)) return false;
   if (
     checkpoint.contextSchemaVersion !== CONTEXT_CHECKPOINT_SCHEMA_VERSION ||
-    !isSessionId(checkpoint.sessionId) || !canonicalTimestamp(checkpoint.createdAt) ||
-    !validCheckpointString(checkpoint.sourceProfileId) || checkpoint.sourceProfileId.length > 256 ||
+    !isSessionId(checkpoint.sessionId) ||
+    !canonicalTimestamp(checkpoint.createdAt) ||
+    !validCheckpointString(checkpoint.sourceProfileId) ||
+    checkpoint.sourceProfileId.length > 256 ||
     !Number.isSafeInteger(checkpoint.coveredThroughTurn) ||
     (checkpoint.coveredThroughTurn as number) < 1 ||
     !Number.isSafeInteger(checkpoint.retainedFromTurn) ||
-    checkpoint.retainedFromTurn !== (checkpoint.coveredThroughTurn as number) + 1 ||
+    checkpoint.retainedFromTurn !==
+      (checkpoint.coveredThroughTurn as number) + 1 ||
     !validCheckpointString(checkpoint.summary) ||
     encoder.encode(checkpoint.summary).byteLength > MAX_CONTEXT_SUMMARY_BYTES
   ) return false;
@@ -390,8 +599,10 @@ export const decodeSemanticContextCheckpoint = (
   bytes: Uint8Array,
 ): SemanticContextCheckpointV1 => {
   if (
-    bytes.byteLength === 0 || bytes.byteLength > MAX_CONTEXT_CHECKPOINT_FILE_BYTES ||
-    bytes.includes(0) || bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+    bytes.byteLength === 0 ||
+    bytes.byteLength > MAX_CONTEXT_CHECKPOINT_FILE_BYTES ||
+    bytes.includes(0) ||
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
   ) throw new SessionStoreError('session_invalid');
   let parsed: unknown;
   try {
@@ -399,7 +610,9 @@ export const decodeSemanticContextCheckpoint = (
   } catch {
     throw new SessionStoreError('session_invalid');
   }
-  if (!validateSemanticContextCheckpoint(parsed)) throw new SessionStoreError('session_invalid');
+  if (!validateSemanticContextCheckpoint(parsed)) {
+    throw new SessionStoreError('session_invalid');
+  }
   const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
   if (
     canonical.byteLength !== bytes.byteLength ||
@@ -417,14 +630,38 @@ export const metadataFromRecord = (record: SessionRecord): SessionMetadata => ({
   messageCount: record.transcript.length,
 });
 
-export const workspaceDigest = async (workspaceRoot: string): Promise<string> => {
+export const metadataFromStoredRecord = (
+  record: StoredSessionRecord,
+): WorkerSessionMetadata => ({
+  ...metadataFromRecord(
+    record.schemaVersion === 1 ? record : {
+      schemaVersion: 1,
+      sessionId: record.sessionId,
+      workspaceRoot: record.workspaceRoot,
+      agent: record.agent,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      nextTurn: record.nextTurn,
+      transcript: record.transcript,
+    },
+  ),
+  ...(record.schemaVersion === 2 ? { definition: structuredClone(record.definition) } : {}),
+});
+
+export const workspaceDigest = async (
+  workspaceRoot: string,
+): Promise<string> => {
   if (
-    typeof workspaceRoot !== 'string' || canonicalAbsolutePath(workspaceRoot) === undefined ||
+    typeof workspaceRoot !== 'string' ||
+    canonicalAbsolutePath(workspaceRoot) === undefined ||
     workspaceRoot.trim() !== workspaceRoot
   ) {
     throw new SessionStoreError('session_invalid');
   }
-  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(workspaceRoot));
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    encoder.encode(workspaceRoot),
+  );
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
@@ -433,7 +670,10 @@ export const selectStateRoot = (
 ): string => {
   const xdg = env.XDG_STATE_HOME;
   if (xdg !== undefined && xdg.trim() !== '') {
-    if (!xdg.startsWith('/') || xdg.includes('\0') || xdg.includes('\r') || xdg.includes('\n')) {
+    if (
+      !xdg.startsWith('/') || xdg.includes('\0') || xdg.includes('\r') ||
+      xdg.includes('\n')
+    ) {
       throw new SessionStoreError('session_io_failure');
     }
     return `${xdg}/henji-harness`;
@@ -441,7 +681,8 @@ export const selectStateRoot = (
   const home = env.HOME;
   if (home !== undefined && home.trim() !== '') {
     if (
-      !home.startsWith('/') || home.includes('\0') || home.includes('\r') || home.includes('\n')
+      !home.startsWith('/') || home.includes('\0') || home.includes('\r') ||
+      home.includes('\n')
     ) {
       throw new SessionStoreError('session_io_failure');
     }
@@ -460,7 +701,8 @@ export const launcherStateRoot = (): string => {
   }
   if (supplied !== undefined) {
     if (
-      supplied.trim() === '' || !supplied.startsWith('/') || supplied.includes('\0') ||
+      supplied.trim() === '' || !supplied.startsWith('/') ||
+      supplied.includes('\0') ||
       supplied.includes('\r') || supplied.includes('\n')
     ) throw new SessionStoreError('session_io_failure');
     return supplied;
@@ -468,10 +710,15 @@ export const launcherStateRoot = (): string => {
   return selectStateRoot();
 };
 
-export const sessionPaths = async (stateRoot: string, workspaceRoot: string) => {
+export const sessionPaths = async (
+  stateRoot: string,
+  workspaceRoot: string,
+) => {
   if (
-    typeof stateRoot !== 'string' || !stateRoot.startsWith('/') || stateRoot.trim() === '' ||
-    stateRoot.includes('\0') || stateRoot.includes('\r') || stateRoot.includes('\n')
+    typeof stateRoot !== 'string' || !stateRoot.startsWith('/') ||
+    stateRoot.trim() === '' ||
+    stateRoot.includes('\0') || stateRoot.includes('\r') ||
+    stateRoot.includes('\n')
   ) throw new SessionStoreError('session_io_failure');
   const digest = await workspaceDigest(workspaceRoot);
   const base = `${stateRoot}/${digest}`;
@@ -513,7 +760,9 @@ const isBusy = (error: unknown): boolean => error instanceof Deno.errors.Busy;
 const ensureDirectory = async (path: string, mode: number): Promise<void> => {
   try {
     const info = await Deno.lstat(path);
-    if (info.isSymlink || !info.isDirectory) throw new Error('invalid session directory');
+    if (info.isSymlink || !info.isDirectory) {
+      throw new Error('invalid session directory');
+    }
     if (info.mode !== null && (info.mode & 0o777) !== mode) {
       throw new Error('invalid session directory mode');
     }
@@ -522,7 +771,9 @@ const ensureDirectory = async (path: string, mode: number): Promise<void> => {
     if (!isNotFound(error)) throw error;
     await Deno.mkdir(path, { recursive: true, mode });
     const info = await Deno.lstat(path);
-    if (info.isSymlink || !info.isDirectory) throw new Error('invalid session directory');
+    if (info.isSymlink || !info.isDirectory) {
+      throw new Error('invalid session directory');
+    }
     if (info.mode !== null && (info.mode & 0o777) !== mode) {
       throw new Error('invalid session directory mode');
     }
@@ -534,13 +785,17 @@ const validateSessionDirectory = async (path: string): Promise<void> => {
   let tempCount = 0;
   try {
     for await (const entry of Deno.readDir(path)) {
-      const isTemp = entry.name.startsWith('.tmp-') && isSessionId(entry.name.slice(5));
+      const isTemp = entry.name.startsWith('.tmp-') &&
+        isSessionId(entry.name.slice(5));
       if (entry.name !== 'session.json' && !isTemp) {
         throw new SessionStoreError('session_invalid');
       }
       if (isTemp) tempCount += 1;
       const info = await Deno.lstat(`${path}/${entry.name}`);
-      if (info.isSymlink || !info.isFile || (info.mode !== null && (info.mode & 0o777) !== 0o600)) {
+      if (
+        info.isSymlink || !info.isFile ||
+        (info.mode !== null && (info.mode & 0o777) !== 0o600)
+      ) {
         throw new SessionStoreError('session_invalid');
       }
     }
@@ -556,7 +811,9 @@ const acquireLock = async (path: string): Promise<Lock> => {
   try {
     try {
       const existing = await Deno.lstat(path);
-      if (existing.isSymlink || !existing.isFile) throw new SessionStoreError('session_io_failure');
+      if (existing.isSymlink || !existing.isFile) {
+        throw new SessionStoreError('session_io_failure');
+      }
       if (existing.mode !== null && (existing.mode & 0o777) !== 0o600) {
         throw new SessionStoreError('session_io_failure');
       }
@@ -564,7 +821,12 @@ const acquireLock = async (path: string): Promise<Lock> => {
       if (error instanceof SessionStoreError) throw error;
       if (!isNotFound(error)) throw error;
     }
-    file = await Deno.open(path, { read: true, write: true, create: true, mode: 0o600 });
+    file = await Deno.open(path, {
+      read: true,
+      write: true,
+      create: true,
+      mode: 0o600,
+    });
     await Deno.chmod(path, 0o600);
     try {
       const locked = await file.tryLock(true);
@@ -597,12 +859,22 @@ const acquireLock = async (path: string): Promise<Lock> => {
   };
 };
 
-const writeAtomic = (target: string, bytes: Uint8Array, temporary: string): void => {
+const writeAtomic = (
+  target: string,
+  bytes: Uint8Array,
+  temporary: string,
+): void => {
   let file: Deno.FsFile | undefined;
   try {
-    file = Deno.openSync(temporary, { write: true, createNew: true, mode: 0o600 });
+    file = Deno.openSync(temporary, {
+      write: true,
+      createNew: true,
+      mode: 0o600,
+    });
     let offset = 0;
-    while (offset < bytes.byteLength) offset += file.writeSync(bytes.subarray(offset));
+    while (offset < bytes.byteLength) {
+      offset += file.writeSync(bytes.subarray(offset));
+    }
     file.syncSync();
     file.close();
     file = undefined;
@@ -633,6 +905,37 @@ export interface SessionHandle {
   close(): Promise<void>;
 }
 
+export interface WorkerSessionHandle {
+  readonly id: string;
+  readonly record?: StoredSessionRecord;
+  readonly checkpoint?: SemanticContextCheckpointV1;
+  commit(record: StoredSessionRecord): void;
+  rollback(): void;
+  installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
+  rollbackCheckpoint(): void;
+  close(): Promise<void>;
+}
+
+export interface WorkerSessionMetadata extends SessionMetadata {
+  readonly definition?: DefinitionRevisionRef;
+}
+
+export interface WorkerSessionListResult {
+  readonly sessions: readonly WorkerSessionMetadata[];
+  readonly skippedInvalid: number;
+}
+
+export interface WorkerSessionStorePort {
+  readWorker(id: string): Promise<StoredSessionRecord>;
+  readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined>;
+  listWorker(): Promise<WorkerSessionListResult>;
+  allocateWorker(
+    agent: SessionRecord['agent'],
+    definition: DefinitionRevisionRef,
+  ): Promise<WorkerSessionHandle>;
+  openExistingWorker(id: string): Promise<WorkerSessionHandle>;
+}
+
 /** Adapt a locked handle to AgentSession's provider-neutral durable commit port. */
 export const createSessionPersistence = (
   handle: SessionHandle,
@@ -643,7 +946,11 @@ export const createSessionPersistence = (
   readonly id: string;
   readonly record: SessionRecord | undefined;
   readonly checkpoint: SemanticContextCheckpointV1 | undefined;
-  commit(transcript: readonly Message[], nextTurn: number, updatedAt: string): void;
+  commit(
+    transcript: readonly Message[],
+    nextTurn: number,
+    updatedAt: string,
+  ): void;
   rollback(): void;
   installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
   rollbackCheckpoint(): void;
@@ -729,7 +1036,9 @@ type NamespaceEntries = {
 };
 
 /** Scan all top-level namespaces while holding the index lock, stopping at entry 513. */
-const scanBoundedNamespace = async (path: string): Promise<readonly Deno.DirEntry[]> => {
+const scanBoundedNamespace = async (
+  path: string,
+): Promise<readonly Deno.DirEntry[]> => {
   const entries: Deno.DirEntry[] = [];
   try {
     for await (const entry of Deno.readDir(path)) {
@@ -755,7 +1064,7 @@ const scanNamespaces = async (paths: {
   contexts: await scanBoundedNamespace(paths.contexts),
 });
 
-export class DenoSessionStore implements SessionStorePort {
+export class DenoSessionStore implements SessionStorePort, WorkerSessionStorePort {
   readonly pathsPromise: Promise<
     {
       readonly root: string;
@@ -781,7 +1090,10 @@ export class DenoSessionStore implements SessionStorePort {
     readonly workspaceRoot: string,
     options: SessionStoreOptions = {},
   ) {
-    if (!stateRoot.startsWith('/') || stateRoot.trim() === '' || stateRoot.includes('\0')) {
+    if (
+      !stateRoot.startsWith('/') || stateRoot.trim() === '' ||
+      stateRoot.includes('\0')
+    ) {
       throw new SessionStoreError('session_io_failure');
     }
     this.makeUuid = options.uuid ?? (() => crypto.randomUUID().toLowerCase());
@@ -818,14 +1130,19 @@ export class DenoSessionStore implements SessionStorePort {
       }
       await validateSessionDirectory(`${paths.sessions}/${id}`);
       const info = await Deno.lstat(path);
-      if (info.isSymlink || !info.isFile || (info.mode !== null && (info.mode & 0o777) !== 0o600)) {
+      if (
+        info.isSymlink || !info.isFile ||
+        (info.mode !== null && (info.mode & 0o777) !== 0o600)
+      ) {
         throw new SessionStoreError('session_invalid');
       }
       if (info.size <= 0 || info.size > MAX_SESSION_FILE_BYTES) {
         throw new SessionStoreError('session_invalid');
       }
       const record = decodeSessionRecord(await Deno.readFile(path));
-      if (record.sessionId !== id || record.workspaceRoot !== this.workspaceRoot) {
+      if (
+        record.sessionId !== id || record.workspaceRoot !== this.workspaceRoot
+      ) {
         throw new SessionStoreError('session_invalid');
       }
       return record;
@@ -836,22 +1153,163 @@ export class DenoSessionStore implements SessionStorePort {
     }
   }
 
-  async readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined> {
+  async readWorker(id: string): Promise<StoredSessionRecord> {
+    if (!isSessionId(id)) throw new SessionStoreError('session_invalid');
+    const paths = await this.layout();
+    const path = `${paths.sessions}/${id}/session.json`;
+    try {
+      const directory = await Deno.lstat(`${paths.sessions}/${id}`);
+      if (
+        directory.isSymlink || !directory.isDirectory ||
+        (directory.mode !== null && (directory.mode & 0o777) !== 0o700)
+      ) throw new SessionStoreError('session_invalid');
+      await validateSessionDirectory(`${paths.sessions}/${id}`);
+      const info = await Deno.lstat(path);
+      if (
+        info.isSymlink || !info.isFile ||
+        (info.mode !== null && (info.mode & 0o777) !== 0o600) ||
+        info.size <= 0 || info.size > MAX_SESSION_FILE_BYTES
+      ) throw new SessionStoreError('session_invalid');
+      const record = decodeStoredSessionRecord(await Deno.readFile(path));
+      if (
+        record.sessionId !== id || record.workspaceRoot !== this.workspaceRoot
+      ) {
+        throw new SessionStoreError('session_invalid');
+      }
+      return record;
+    } catch (error) {
+      if (error instanceof SessionStoreError) throw error;
+      if (isNotFound(error)) throw new SessionStoreError('session_not_found');
+      throw new SessionStoreError('session_io_failure');
+    }
+  }
+
+  async listWorker(): Promise<WorkerSessionListResult> {
+    const paths = await this.layout();
+    const index = await acquireLock(`${paths.locks}/.index.lock`);
+    try {
+      const entries = (await scanNamespaces(paths)).sessions;
+      const result: WorkerSessionMetadata[] = [];
+      let skippedInvalid = 0;
+      for (const entry of entries) {
+        if (!entry.isDirectory || entry.isSymlink || !isSessionId(entry.name)) {
+          skippedInvalid += 1;
+          continue;
+        }
+        try {
+          const record = await this.readWorker(entry.name);
+          const checkpoint = await this.readCheckpoint(entry.name);
+          if (
+            checkpoint !== undefined &&
+            (checkpoint.sourceProfileId.length === 0 ||
+              checkpoint.coveredThroughTurn >= record.nextTurn - 1 ||
+              checkpoint.retainedFromTurn !== checkpoint.coveredThroughTurn + 1)
+          ) throw new SessionStoreError('session_invalid');
+          result.push(metadataFromStoredRecord(record));
+        } catch (error) {
+          if (
+            error instanceof SessionStoreError &&
+            error.code === 'session_invalid'
+          ) {
+            skippedInvalid += 1;
+          } else if (
+            !(error instanceof SessionStoreError) ||
+            error.code !== 'session_not_found'
+          ) {
+            throw error;
+          }
+        }
+      }
+      result.sort(compareMetadata);
+      return skippedInvalid === 0
+        ? { sessions: result, skippedInvalid: 0 }
+        : { sessions: result, skippedInvalid };
+    } finally {
+      index.close();
+    }
+  }
+
+  async allocateWorker(
+    agent: SessionRecord['agent'],
+    definition: DefinitionRevisionRef,
+  ): Promise<WorkerSessionHandle> {
+    if (!validRevisionRef(definition)) {
+      throw new SessionStoreError('session_invalid');
+    }
+    const base = await this.allocate(agent);
+    return this.workerHandle(
+      base.id,
+      undefined,
+      undefined,
+      agent,
+      undefined,
+      base.close,
+    );
+  }
+
+  async openExistingWorker(id: string): Promise<WorkerSessionHandle> {
+    if (!isSessionId(id)) throw new SessionStoreError('session_invalid');
+    const paths = await this.layout();
+    const index = await acquireLock(`${paths.locks}/.index.lock`);
+    let record: StoredSessionRecord;
+    let checkpoint: SemanticContextCheckpointV1 | undefined;
+    let lock: Lock | undefined;
+    let previous: Uint8Array;
+    try {
+      await scanNamespaces(paths);
+      await this.beforeOpenExistingLock?.(id);
+      lock = await acquireLock(`${paths.locks}/${id}.lock`);
+      record = await this.readWorker(id);
+      checkpoint = await this.readCheckpoint(id);
+      if (
+        checkpoint !== undefined &&
+        (checkpoint.sourceProfileId.length === 0 ||
+          checkpoint.coveredThroughTurn >= record.nextTurn - 1 ||
+          checkpoint.retainedFromTurn !== checkpoint.coveredThroughTurn + 1)
+      ) throw new SessionStoreError('session_invalid');
+      previous = await Deno.readFile(`${paths.sessions}/${id}/session.json`);
+    } catch (error) {
+      lock?.close();
+      index.close();
+      if (isNotFound(error)) throw new SessionStoreError('session_not_found');
+      if (error instanceof SessionStoreError) throw error;
+      throw new SessionStoreError('session_io_failure');
+    }
+    index.close();
+    return this.workerHandle(
+      id,
+      record,
+      previous,
+      record.agent,
+      checkpoint,
+      () => lock!.close(),
+    );
+  }
+
+  async readCheckpoint(
+    id: string,
+  ): Promise<SemanticContextCheckpointV1 | undefined> {
     if (!isSessionId(id)) throw new SessionStoreError('session_invalid');
     const paths = await this.layout();
     const path = `${paths.contexts}/${id}.json`;
     try {
       const info = await Deno.lstat(path);
-      if (info.isSymlink || !info.isFile || (info.mode !== null && (info.mode & 0o777) !== 0o600)) {
+      if (
+        info.isSymlink || !info.isFile ||
+        (info.mode !== null && (info.mode & 0o777) !== 0o600)
+      ) {
         throw new SessionStoreError('session_invalid');
       }
       if (info.size <= 0 || info.size > MAX_CONTEXT_CHECKPOINT_FILE_BYTES) {
         throw new SessionStoreError('session_invalid');
       }
-      const checkpoint = decodeSemanticContextCheckpoint(await Deno.readFile(path));
+      const checkpoint = decodeSemanticContextCheckpoint(
+        await Deno.readFile(path),
+      );
       if (
         checkpoint.sessionId !== id ||
-        this.sourceProfileId !== undefined && checkpoint.sourceProfileId !== this.sourceProfileId
+        this.sourceProfileId !== undefined &&
+          checkpoint.sourceProfileId !== this.sourceProfileId
       ) throw new SessionStoreError('session_invalid');
       return checkpoint;
     } catch (error) {
@@ -872,15 +1330,22 @@ export class DenoSessionStore implements SessionStorePort {
       const sessionNames = new Set(entries.map((entry) => entry.name));
       for (const entry of namespaces.contexts) {
         const id = entry.name.endsWith('.json') ? entry.name.slice(0, -5) : '';
-        if (entry.isFile && !entry.isSymlink && isSessionId(id) && !sessionNames.has(id)) {
+        if (
+          entry.isFile && !entry.isSymlink && isSessionId(id) &&
+          !sessionNames.has(id)
+        ) {
           try {
             await Deno.remove(`${paths.contexts}/${entry.name}`);
           } catch (error) {
-            if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+            if (!isNotFound(error)) {
+              throw new SessionStoreError('session_io_failure');
+            }
           }
           continue;
         }
-        if (!entry.isFile || entry.isSymlink || !isSessionId(id)) skippedInvalid += 1;
+        if (!entry.isFile || entry.isSymlink || !isSessionId(id)) {
+          skippedInvalid += 1;
+        }
       }
       for (const entry of entries) {
         if (!entry.isDirectory || entry.isSymlink || !isSessionId(entry.name)) {
@@ -898,10 +1363,14 @@ export class DenoSessionStore implements SessionStorePort {
           ) throw new SessionStoreError('session_invalid');
           result.push(metadataFromRecord(record));
         } catch (error) {
-          if (error instanceof SessionStoreError && error.code === 'session_invalid') {
+          if (
+            error instanceof SessionStoreError &&
+            error.code === 'session_invalid'
+          ) {
             skippedInvalid += 1;
           } else if (
-            !(error instanceof SessionStoreError) || error.code !== 'session_not_found'
+            !(error instanceof SessionStoreError) ||
+            error.code !== 'session_not_found'
           ) throw error;
         }
       }
@@ -963,13 +1432,17 @@ export class DenoSessionStore implements SessionStorePort {
       // Context companions are deliberately data-only siblings. Remove only companions with no
       // canonical session; malformed companions remain visible to list/open as invalid data.
       for (const entry of namespaces.contexts) {
-        if (!entry.isFile || entry.isSymlink || !entry.name.endsWith('.json')) continue;
+        if (!entry.isFile || entry.isSymlink || !entry.name.endsWith('.json')) {
+          continue;
+        }
         const id = entry.name.slice(0, -5);
         if (!isSessionId(id) || !listing.includes(id)) {
           try {
             await Deno.remove(`${paths.contexts}/${entry.name}`);
           } catch (error) {
-            if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+            if (!isNotFound(error)) {
+              throw new SessionStoreError('session_io_failure');
+            }
           }
         }
       }
@@ -983,11 +1456,15 @@ export class DenoSessionStore implements SessionStorePort {
         } catch (error) {
           if (
             !(error instanceof SessionStoreError) ||
-            (error.code !== 'session_invalid' && error.code !== 'session_not_found')
+            (error.code !== 'session_invalid' &&
+              error.code !== 'session_not_found')
           ) {
             throw error;
           }
-          if (error instanceof SessionStoreError && error.code === 'session_not_found') {
+          if (
+            error instanceof SessionStoreError &&
+            error.code === 'session_not_found'
+          ) {
             empty.add(id);
           }
         }
@@ -1008,7 +1485,9 @@ export class DenoSessionStore implements SessionStorePort {
             }
           }
         } catch (error) {
-          if (error instanceof SessionStoreError && error.code === 'session_busy') active.add(id);
+          if (
+            error instanceof SessionStoreError && error.code === 'session_busy'
+          ) active.add(id);
           else throw error;
         }
       }
@@ -1016,10 +1495,16 @@ export class DenoSessionStore implements SessionStorePort {
         if (active.has(id)) continue;
         try {
           const entries = [];
-          for await (const entry of Deno.readDir(`${paths.sessions}/${id}`)) entries.push(entry);
-          if (entries.length === 0) await Deno.remove(`${paths.sessions}/${id}`);
+          for await (const entry of Deno.readDir(`${paths.sessions}/${id}`)) {
+            entries.push(entry);
+          }
+          if (entries.length === 0) {
+            await Deno.remove(`${paths.sessions}/${id}`);
+          }
         } catch (error) {
-          if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+          if (!isNotFound(error)) {
+            throw new SessionStoreError('session_io_failure');
+          }
         }
       }
       // A new allocation adds one direct entry to each namespace. Re-scan after orphan and
@@ -1029,13 +1514,18 @@ export class DenoSessionStore implements SessionStorePort {
         remaining.sessions.length >= MAX_WORKSPACE_DIRECTORY_ENTRIES ||
         remaining.locks.length >= MAX_WORKSPACE_DIRECTORY_ENTRIES
       ) throw new SessionStoreError('session_limit');
-      if (new Set([...valid, ...active]).size >= MAX_VALID_SESSIONS_PER_WORKSPACE) {
+      if (
+        new Set([...valid, ...active]).size >= MAX_VALID_SESSIONS_PER_WORKSPACE
+      ) {
         throw new SessionStoreError('session_limit');
       }
       let id = '';
       for (let attempt = 0; attempt < 16; attempt += 1) {
         const candidate = this.makeUuid().toLowerCase();
-        if (!isSessionId(candidate) || valid.has(candidate) || active.has(candidate)) continue;
+        if (
+          !isSessionId(candidate) || valid.has(candidate) ||
+          active.has(candidate)
+        ) continue;
         try {
           await Deno.mkdir(`${paths.sessions}/${candidate}`, { mode: 0o700 });
           id = candidate;
@@ -1080,7 +1570,7 @@ export class DenoSessionStore implements SessionStorePort {
       }
       const lock = await acquireLock(`${paths.locks}/${id}.lock`);
       try {
-        const record = await this.read(id);
+        const record = await this.readWorker(id);
         void record;
         await Deno.remove(`${paths.sessions}/${id}`, { recursive: true });
         try {
@@ -1091,7 +1581,9 @@ export class DenoSessionStore implements SessionStorePort {
         try {
           await Deno.remove(`${paths.contexts}/${id}.json`);
         } catch (error) {
-          if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+          if (!isNotFound(error)) {
+            throw new SessionStoreError('session_io_failure');
+          }
         }
       } finally {
         lock.close();
@@ -1103,6 +1595,137 @@ export class DenoSessionStore implements SessionStorePort {
     } finally {
       index.close();
     }
+  }
+
+  private workerHandle(
+    id: string,
+    initial: StoredSessionRecord | undefined,
+    previous: Uint8Array | undefined,
+    expectedAgent: SessionRecord['agent'],
+    initialCheckpoint: SemanticContextCheckpointV1 | undefined,
+    release: () => void | Promise<void>,
+  ): WorkerSessionHandle {
+    let current = previous;
+    let rollbackBytes = previous;
+    let record = initial;
+    let rollbackRecord = initial;
+    let checkpoint = initialCheckpoint;
+    let checkpointBytes: Uint8Array | undefined;
+    let rollbackCheckpointBytes: Uint8Array | undefined;
+    if (initialCheckpoint !== undefined) {
+      checkpointBytes = encodeSemanticContextCheckpoint(initialCheckpoint);
+      rollbackCheckpointBytes = checkpointBytes;
+    }
+    let closed = false;
+    return {
+      id,
+      get record() {
+        return record === undefined ? undefined : structuredClone(record);
+      },
+      get checkpoint() {
+        return checkpoint === undefined ? undefined : structuredClone(checkpoint);
+      },
+      commit: (next) => {
+        if (closed) throw new SessionStoreError('session_busy');
+        if (
+          next.sessionId !== id || next.workspaceRoot !== this.workspaceRoot ||
+          next.agent !== expectedAgent
+        ) throw new SessionStoreError('session_invalid');
+        const bytes = next.schemaVersion === 1
+          ? encodeSessionRecord(next)
+          : encodeSessionRecordV2(next);
+        const paths = this.paths!;
+        const temporary = `${paths.sessions}/${id}/.tmp-${this.makeUuid().toLowerCase()}`;
+        try {
+          rollbackBytes = current;
+          rollbackRecord = record;
+          writeAtomic(`${paths.sessions}/${id}/session.json`, bytes, temporary);
+          current = bytes;
+          record = structuredClone(next);
+        } catch (error) {
+          if (error instanceof SessionStoreError) throw error;
+          throw new SessionStoreError('session_io_failure');
+        }
+      },
+      rollback: () => {
+        if (closed) return;
+        const paths = this.paths!;
+        try {
+          if (current !== rollbackBytes) {
+            if (rollbackBytes === undefined) {
+              try {
+                this.removeSync(`${paths.sessions}/${id}/session.json`);
+              } catch (error) {
+                if (!isNotFound(error)) throw error;
+              }
+            } else {
+              writeAtomic(
+                `${paths.sessions}/${id}/session.json`,
+                rollbackBytes,
+                `${paths.sessions}/${id}/.tmp-${this.makeUuid().toLowerCase()}`,
+              );
+            }
+            current = rollbackBytes;
+          }
+          record = rollbackRecord;
+        } catch {
+          throw new SessionStoreError('session_io_failure');
+        }
+      },
+      installCheckpoint: (next) => {
+        if (closed) throw new SessionStoreError('session_busy');
+        if (next.sessionId !== id) {
+          throw new SessionStoreError('session_invalid');
+        }
+        const bytes = encodeSemanticContextCheckpoint(next);
+        const paths = this.paths!;
+        try {
+          rollbackCheckpointBytes = checkpointBytes;
+          writeAtomic(
+            `${paths.contexts}/${id}.json`,
+            bytes,
+            `${paths.contexts}/.tmp-${this.makeUuid().toLowerCase()}`,
+          );
+          checkpointBytes = bytes;
+          checkpoint = structuredClone(next);
+        } catch (error) {
+          if (error instanceof SessionStoreError) throw error;
+          throw new SessionStoreError('session_io_failure');
+        }
+      },
+      rollbackCheckpoint: () => {
+        if (closed) return;
+        const paths = this.paths!;
+        try {
+          if (checkpointBytes === rollbackCheckpointBytes) return;
+          if (rollbackCheckpointBytes === undefined) {
+            try {
+              Deno.removeSync(`${paths.contexts}/${id}.json`);
+            } catch (error) {
+              if (!isNotFound(error)) throw error;
+            }
+          } else {
+            writeAtomic(
+              `${paths.contexts}/${id}.json`,
+              rollbackCheckpointBytes,
+              `${paths.contexts}/.tmp-${this.makeUuid().toLowerCase()}`,
+            );
+          }
+          checkpointBytes = rollbackCheckpointBytes;
+          checkpoint = checkpointBytes === undefined
+            ? undefined
+            : decodeSemanticContextCheckpoint(checkpointBytes);
+        } catch {
+          throw new SessionStoreError('session_io_failure');
+        }
+      },
+      close: async () => {
+        if (closed) return;
+        closed = true;
+        await release();
+        if (current === undefined) await this.cleanupEmpty(id);
+      },
+    };
   }
 
   private handle(
@@ -1173,7 +1796,9 @@ export class DenoSessionStore implements SessionStorePort {
       },
       installCheckpoint: (next) => {
         if (closed) throw new SessionStoreError('session_busy');
-        if (next.sessionId !== id) throw new SessionStoreError('session_invalid');
+        if (next.sessionId !== id) {
+          throw new SessionStoreError('session_invalid');
+        }
         const bytes = encodeSemanticContextCheckpoint(next);
         const paths = this.paths!;
         try {
@@ -1233,7 +1858,9 @@ export class DenoSessionStore implements SessionStorePort {
     try {
       const entries: string[] = [];
       try {
-        for await (const entry of Deno.readDir(`${paths.sessions}/${id}`)) entries.push(entry.name);
+        for await (const entry of Deno.readDir(`${paths.sessions}/${id}`)) {
+          entries.push(entry.name);
+        }
       } catch (error) {
         if (isNotFound(error)) return;
         throw new SessionStoreError('session_io_failure');
@@ -1243,7 +1870,9 @@ export class DenoSessionStore implements SessionStorePort {
         try {
           await Deno.remove(`${paths.locks}/${id}.lock`);
         } catch (error) {
-          if (!isNotFound(error)) throw new SessionStoreError('session_io_failure');
+          if (!isNotFound(error)) {
+            throw new SessionStoreError('session_io_failure');
+          }
         }
       }
     } finally {
@@ -1268,7 +1897,9 @@ export class FakeSessionStore implements SessionStorePort {
     return structuredClone(value);
   }
 
-  async readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined> {
+  async readCheckpoint(
+    id: string,
+  ): Promise<SemanticContextCheckpointV1 | undefined> {
     await Promise.resolve();
     const value = this.checkpoints.get(id);
     return value === undefined ? undefined : structuredClone(value);
@@ -1276,7 +1907,9 @@ export class FakeSessionStore implements SessionStorePort {
 
   async list(): Promise<SessionListResult> {
     await Promise.resolve();
-    const sessions = [...this.records.values()].map(metadataFromRecord).sort(compareMetadata);
+    const sessions = [...this.records.values()].map(metadataFromRecord).sort(
+      compareMetadata,
+    );
     return { sessions, skippedInvalid: 0 };
   }
 
@@ -1286,7 +1919,8 @@ export class FakeSessionStore implements SessionStorePort {
       throw new SessionStoreError('session_invalid');
     }
     if (
-      new Set([...this.records.keys(), ...this.active]).size >= MAX_VALID_SESSIONS_PER_WORKSPACE
+      new Set([...this.records.keys(), ...this.active]).size >=
+        MAX_VALID_SESSIONS_PER_WORKSPACE
     ) {
       throw new SessionStoreError('session_limit');
     }
@@ -1330,10 +1964,15 @@ export class FakeSessionStore implements SessionStorePort {
         return value === undefined ? undefined : structuredClone(value);
       },
       commit: (next) => {
-        if (closed || next.sessionId !== id || next.workspaceRoot !== this.workspaceRoot) {
+        if (
+          closed || next.sessionId !== id ||
+          next.workspaceRoot !== this.workspaceRoot
+        ) {
           throw new SessionStoreError('session_invalid');
         }
-        if (next.agent !== agent) throw new SessionStoreError('session_invalid');
+        if (next.agent !== agent) {
+          throw new SessionStoreError('session_invalid');
+        }
         encodeSessionRecord(next);
         rollbackRecord = current;
         current = structuredClone(next);
@@ -1345,7 +1984,9 @@ export class FakeSessionStore implements SessionStorePort {
         current = rollbackRecord;
       },
       installCheckpoint: (next) => {
-        if (closed || next.sessionId !== id) throw new SessionStoreError('session_invalid');
+        if (closed || next.sessionId !== id) {
+          throw new SessionStoreError('session_invalid');
+        }
         encodeSemanticContextCheckpoint(next);
         checkpoints.set(id, structuredClone(next));
       },

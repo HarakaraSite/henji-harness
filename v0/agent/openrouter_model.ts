@@ -1424,6 +1424,7 @@ export class OpenRouterAgentModel implements Model {
     const evidence = generateOptions.providerEvidence;
     evidence?.startRequest({
       lane: generateOptions.providerEvidenceLane ?? 'parent',
+      phase: generateOptions.providerEvidencePhase ?? 'user_turn',
       modelStep: generateOptions.modelStep ?? 1,
       endpoint,
       method: this.profile.method,

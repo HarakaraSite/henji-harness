@@ -10,6 +10,8 @@ import type {
 export const PROVIDER_EVIDENCE_SCHEMA_VERSION = 1 as const;
 
 export type ProviderEvidenceLane = 'parent' | 'planner';
+/** Identifies whether a retained request belongs to compaction or the user turn. */
+export type ProviderEvidencePhase = 'user_turn' | 'compaction';
 export type ProviderEvidenceDurability = 'yes' | 'failed' | 'unknown';
 export type ProviderEvidencePersistenceErrorCode =
   | 'provider_evidence_not_found'
@@ -19,6 +21,8 @@ export type ProviderEvidencePersistenceErrorCode =
 export interface ProviderEvidenceRequest {
   readonly ordinal: number;
   readonly lane: ProviderEvidenceLane;
+  /** Additive metadata; absent on legacy evidence and therefore decodes compatibly. */
+  readonly phase?: ProviderEvidencePhase;
   readonly modelStep: number;
   readonly endpoint: string;
   readonly method: 'POST';
@@ -99,6 +103,7 @@ export interface ProviderEvidenceStore {
 
 export interface EvidenceRequestStart {
   readonly lane: ProviderEvidenceLane;
+  readonly phase?: ProviderEvidencePhase;
   readonly modelStep: number;
   readonly endpoint: string;
   readonly method: 'POST';
@@ -188,6 +193,7 @@ export class ProviderEvidenceRecorder {
     const request: ProviderEvidenceRequest = {
       ordinal,
       lane: input.lane,
+      ...(input.phase === undefined ? {} : { phase: input.phase }),
       modelStep: input.modelStep,
       endpoint: input.endpoint,
       method: input.method,
