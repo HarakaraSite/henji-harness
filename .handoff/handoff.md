@@ -9,6 +9,35 @@
 - 判断済み: 原因特定に必要なlog、raw response、event、provider metadata、構造・実行証拠を保存・readback可能にする。credential値とAuthorization headerは露出させないが、仮想的private-data懸念で診断証拠を省かず、sanitized分類だけを十分な診断としない
 - 成功基準: 人間がproduction経路で目的機能を完了できること。test、review、gate、fixtureはその代替ではない
 
+### POL-20260904-henji-host-agent-worker
+
+- 判断済み: `docs/architecture/henji-host-agent-worker.md`をaccepted architecture conceptとする。
+  `AgentDefinition`はtrusted executable TS composition functionであり、built-in/externalを同じ
+  trusted-local境界と単一のDeno Worker経路で扱う。現行のprovider/model/loop/tools/TUIは初期defaultで、
+  永続的なallowlistまたはcomposition制限ではない
+- 境界: Henji HostはWorker lifecycle、物理terminal/Surface I/O、交換可能なSurface、command変換、
+  durable storageを所有。
+  headless Agent WorkerはDefinition評価、live composition、turn/context semantics、commit proposalを所有する。
+  turnはHostのdurable store後だけcommittedとなり、tool effectのrollbackは保証しない
+- 将来構想: durable `AgentInstance`とephemeral `AgentWorkerGeneration`を分離し、mailbox/routing/scheduleは
+  resident Host側mechanismとする。常駐型agentにはHost、durable storage、service supervisionが必要。
+  self-revision、sandbox、wire/storage schema、migrationは別の承認済み計画とreal-product proofまで延期する
+- 不変条件: 起動前`DefinitionRevisionRef`と評価後`AgentManifest`を別authorityとし、Instanceのactive
+  revision bindingとgeneration/base-state fencingをHostがdurableに所有する。1 Instanceは0個以上のSessionを
+  持ちwriter generationは同時に1つ。未commitだけではeffect未発生を意味せず、契約または未開始証拠なしの
+  transparent replayを禁止する
+- review: max-effort architect reviewのP1 2件/P2 2件を上記不変条件でclosureし、narrow re-reviewはGO、
+  Blocker/P1/P2 0。`docs/plans/surface-roadmap.md`の旧二段階trust/data-only表現は非findingだが、将来planningで
+  参照競合を避けるため旧draftとして扱う
+- 比較: Deno Web Workerはlocal execution capsule、`AgentInstance`はdurable identity/state、HenjiHostは
+  lifecycle/routing/storage/supervisionを担うself-operated control planeとして、Cloudflare Agent/DO/platformと
+  三層で対比する。`workerd`はlocal/self-host可能だがmanaged semanticsとは同値でない
+- trade-off: Henjiはlocal physical tool/UIとoperator-controlled semanticsの自由を得る代わりに、control planeを
+  自ら構築・運用する。provider/tool I/O placementはWorker direct、Host RPC/capability、subprocess間の最重要未決事項
+- 順序: Deno 2.9.4 Worker probe→built-in 1 turn→built-in/external同一路→durable replacement→real local
+  tool＋第2Surface→resident Host/複数Session→human need後のresident featuresの順をfuture proof constraintとする。
+  実装認可ではなく、各実provider/tool実行は別Human Gateを要する
+
 ### POL-20260902-fr1-real-provider-human-acceptance
 
 - 状態: `docs/plans/fr1-real-provider-human-acceptance.md`の一回のHuman Gateはacceptedで消費済み
@@ -4500,3 +4529,57 @@
 - 次: userがfullwidth paste/backspace/再入力と最古PageUpをproduction TUIで再確認する
 - 注意: focused 10/10とcheck/fmt/lint/diff green、functional review GO。full gate、F1/Cycle 3、provider/
   credential/production state、dependency、`_refs/*`、commitは未実施
+
+## 2026-09-04 12:17 JST
+
+- 実行エージェント: Codex owner + zero-context planner + single implementer + functional reviewer
+- 作業トピック: Henji Host / headless Agent Worker architecture concept
+- 実施: 現会話の決定を`docs/architecture/henji-host-agent-worker.md`へ正本化。単一trust/Worker経路、
+  Host側Surfaceとdurability、Worker側composition/turn semantics、future resident-agent mechanism、
+  Deno Workerの限界と外部比較の範囲を明記した。reviewはGO、Blocker/P1/P2 0
+- 次: 実装へ進む場合は、別途承認された計画とreal product pathのminimal proofを作る。未追跡の旧
+  `docs/plans/surface-roadmap.md`は今回変更せず、将来参照時にaccepted conceptとの競合を整理する
+- 注意: architecture文書とhandoffのみ変更。product source/test/config、provider/credential/production state、
+  `_refs/*`、commit/push/tag/publish/releaseは未操作
+
+## 2026-09-04 12:30 JST
+
+- 実行エージェント: Codex owner + single implementer + functional reviewer
+- 作業トピック: Henji Host / Agent Worker architecture文書の日本語化
+- 実施: `docs/architecture/henji-host-agent-worker.md`を全面的に日本語化し、identifier、技術的留保、
+  architecture上の意味を維持。reviewはGO、Blocker/P1/P2 0
+- 次: 実装へ進む場合は`POL-20260904-henji-host-agent-worker`どおり別計画とminimal proofを作る
+- 注意: 対象architecture文書とhandoffのみ変更。product source/test/config、`_refs/*`、provider/
+  credential/production state、git historyは未操作
+
+## 2026-09-04 12:58 JST
+
+- 実行エージェント: Codex owner + single implementer + max-effort architect reviewer
+- 作業トピック: Henji Host / Agent Worker architecture finding closure
+- 実施: max reviewのP1 2件/P2 2件に対し、Definition revision/generation fencing、effect replay禁止、
+  Composition lifetime、Instance/Session state domainをarchitecture invariantとして文書へ追加。narrow
+  re-reviewで4件すべてClosed、GO、Blocker/P1/P2 0
+- 次: implementation planning前に、文書の「帰結と次のgate」に沿ったminimal proofの計画を別途承認する
+- 注意: architecture文書とhandoffのみ変更。product source/test/config、`_refs/*`、provider/credential/
+  production state、git historyは未操作
+
+## 2026-09-04 13:55 JST
+
+- 実行エージェント: Codex owner + single implementer + max-effort architect reviewer
+- 作業トピック: Deno/Cloudflare三層比較・実装難所・proof順序のarchitecture統合
+- 実施: `docs/architecture/henji-host-agent-worker.md`へDeno Web Worker/AgentInstance/HenjiHostの三層比較、
+  self-operated control-plane trade-off、Critical/High/Medium難所、7段階future proof順序を追加。initial reviewの
+  Host I/O範囲P2をterminal/Surfaceへ限定し、single closure re-reviewはGO、Blocker/P1/P2 0
+- 次: 実装へ進む場合は段階1 Deno 2.9.4 capsule probeの別計画を作り、user approvalを得る
+- 注意: architecture文書とhandoffのみ変更。product source/test/config、`_refs/*`、provider/credential/
+  production state、git historyは未操作
+
+## 2026-09-04 13:59 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: Henji Host / Agent Worker architecture integration commit
+- 実施: ユーザーの明示依頼により、accepted architecture文書と対応するdurable Record/checkpointを
+  単一のrepository commitへ統合
+- 次: ユーザーが指示する場合に、段階1 Deno 2.9.4 capsule probeの別計画を作る
+- 注意: `_refs/*`と`docs/plans/surface-roadmap.md`は既存未追跡のまま保持。push/tag/publish/release、
+  product source/test/config、provider/credential/production stateは未操作
