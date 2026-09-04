@@ -149,6 +149,7 @@ if [ "$mode" = 'none' ]; then
     --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
     --allow-read="$state_root" --allow-write="$workspace" --allow-write="$state_root" \
     --allow-run=/bin/bash \
+    --config "$repo_root/deno.v0.json" \
     "$script_dir/tui_cli.ts" "$@"
 else
   HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
@@ -156,5 +157,5 @@ else
     --allow-read="$repo_root" --allow-read="$workspace" \
     --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
     --allow-read="$state_root" --allow-write="$workspace" --allow-write="$state_root" \
-    --allow-run=/bin/bash "$script_dir/tui_cli.ts" "$@"
+    --allow-run=/bin/bash --config "$repo_root/deno.v0.json" "$script_dir/tui_cli.ts" "$@"
 fi

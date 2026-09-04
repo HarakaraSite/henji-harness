@@ -1,7 +1,7 @@
 import type { Model, ModelGenerateOptions, ModelRequest, ModelResult } from './contracts.ts';
 import { throwIfCancelled } from './cancellation.ts';
 import type { PhysicalIoBindings } from './worker_agent_api.ts';
-import { OpenRouterAgentModel } from './openrouter_model.ts';
+import { type CredentialSource, OpenRouterAgentModel } from './openrouter_model.ts';
 import { readCredentialFile } from './credential_file.ts';
 import { PRODUCTION_PROFILE } from './provider_profile.ts';
 
@@ -103,16 +103,21 @@ export const createProviderFreePhysicalIo = (): PhysicalIoBindings => ({
 /** Production Worker-local physical I/O; credentials resolve only at provider-request time. */
 export const createProductionPhysicalIo = (
   requestCounter?: WorkerRequestCounter,
+  options: {
+    readonly credentialSource?: CredentialSource;
+    readonly fetcher?: typeof fetch;
+  } = {},
 ): PhysicalIoBindings => ({
   createModel: () => {
     const fetcher: typeof fetch = (input, init) => {
       requestCounter?.increment();
-      return fetch(input, init);
+      return (options.fetcher ?? fetch)(input, init);
     };
     return new OpenRouterAgentModel({
       profile: PRODUCTION_PROFILE,
-      credentialSource: readCredentialFile,
+      credentialSource: options.credentialSource ?? readCredentialFile,
       fetcher,
+      responseMode: 'sse',
     });
   },
 });

@@ -20,6 +20,10 @@ import {
 import type { AgentEvent } from '../../v0/agent/events.ts';
 import { DenoProviderEvidenceStore } from '../../v0/agent/provider_evidence_store.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
+import {
+  createProductionPhysicalIo,
+  createWorkerRequestCounter,
+} from '../../v0/agent/worker_physical_io.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -245,6 +249,65 @@ Deno.test('documented text accounting reaches ModelResult through HTTP and SSE',
   assertEquals(
     unsupportedRecorder.snapshot().requests[0].response?.rawBody,
     'raw unsupported-media body',
+  );
+});
+
+Deno.test('Worker production physical I/O selects SSE on the actual model path', async () => {
+  const counter = createWorkerRequestCounter();
+  const bodies: string[] = [];
+  const bindings = createProductionPhysicalIo(counter, {
+    credentialSource: () => 'provider-free-test-credential',
+    fetcher: (_input, init) => {
+      bodies.push(String(init?.body));
+      return Promise.resolve(
+        new Response(textStream('worker-production-sse'), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+        }),
+      );
+    },
+  });
+  const recorder = new ProviderEvidenceRecorder(
+    '77777777-7777-4777-8777-777777777777',
+    1,
+    '2026-09-04T00:00:00.000Z',
+  );
+  const result = await bindings.createModel('parent').generate(request, {
+    providerEvidence: recorder,
+    providerEvidenceLane: 'parent',
+    providerEvidencePhase: 'user_turn',
+    modelStep: 1,
+  });
+  assertEquals(result, { kind: 'final', text: 'hello' });
+  recorder.finalize({
+    outcome: {
+      ok: true,
+      task: 'worker production SSE',
+      outcome: 'final',
+      stopReason: 'final',
+      finalText: 'hello',
+      steps: 1,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+      turnProviderRequestCount: 1,
+      runtimeProviderRequestCount: 1,
+    },
+  });
+  const evidence = recorder.snapshot();
+  assertEquals(counter.count(), 1);
+  assertEquals(bodies.length, 1);
+  assertEquals((JSON.parse(bodies[0]) as { readonly stream?: unknown }).stream, true);
+  assertEquals(evidence.requests[0].request.requestMetadata.responseMode, 'sse');
+  assertEquals(evidence.requests[0].sseEvents.map((event) => event.data), [
+    textStream('worker-production-sse').split('data: ')[1].split('\n\n')[0],
+    textStream('worker-production-sse').split('data: ')[2].split('\n\n')[0],
+    '[DONE]',
+  ]);
+  assertEquals(
+    evidence.requests[0].parserTransitions.filter((transition) => transition.kind === 'terminal')
+      .length,
+    1,
   );
 });
 

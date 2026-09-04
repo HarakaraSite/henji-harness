@@ -22,6 +22,21 @@ case "${1-}" in
   list|latest)
     [ "$#" -eq 1 ] || fail
     ;;
+  executions)
+    case "${2-}" in
+      list) [ "$#" -eq 2 ] || fail ;;
+      show)
+        [ "$#" -eq 4 ] || fail
+        [ "$3" = '--id' ] || fail
+        case "$4" in
+          ????????-????-4???-[89ab]???-????????????) ;;
+          *) fail ;;
+        esac
+        case "$4" in *[!0-9a-f-]*) fail ;; esac
+        ;;
+      *) fail ;;
+    esac
+    ;;
   show)
     [ "$#" -eq 3 ] || fail
     [ "$2" = '--id' ] || fail

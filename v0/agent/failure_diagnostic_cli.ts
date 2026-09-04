@@ -7,6 +7,11 @@ import {
   DenoProviderEvidenceStore,
   ProviderEvidenceStoreError,
 } from './provider_evidence_store.ts';
+import {
+  DenoWorkerExecutionArtifactStore,
+  WorkerExecutionArtifactStoreError,
+} from './worker_execution_artifact_store.ts';
+import type { WorkerExecutionArtifactV1 } from './worker_execution_artifact.ts';
 
 const encoder = new TextEncoder();
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -21,6 +26,9 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   provider_evidence_not_found: 'provider evidence not found',
   provider_evidence_invalid: 'provider evidence invalid',
   provider_evidence_io_failure: 'provider evidence I/O failure',
+  worker_execution_artifact_not_found: 'Worker execution artifact not found',
+  worker_execution_artifact_invalid: 'Worker execution artifact invalid',
+  worker_execution_artifact_io_failure: 'Worker execution artifact I/O failure',
 };
 
 export type FailureDiagnosticCliCommand =
@@ -29,7 +37,9 @@ export type FailureDiagnosticCliCommand =
   | { readonly kind: 'show'; readonly id: string }
   | { readonly kind: 'delete'; readonly id: string }
   | { readonly kind: 'evidence_list' }
-  | { readonly kind: 'evidence_show'; readonly id: string };
+  | { readonly kind: 'evidence_show'; readonly id: string }
+  | { readonly kind: 'execution_list' }
+  | { readonly kind: 'execution_show'; readonly id: string };
 
 export class FailureDiagnosticCliInvocationError extends Error {
   constructor() {
@@ -43,6 +53,13 @@ export const parseFailureDiagnosticArgs = (
 ): FailureDiagnosticCliCommand => {
   if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
   if (args.length === 1 && args[0] === 'latest') return { kind: 'latest' };
+  if (args.length === 2 && args[0] === 'executions' && args[1] === 'list') {
+    return { kind: 'execution_list' };
+  }
+  if (
+    args.length === 4 && args[0] === 'executions' && args[1] === 'show' &&
+    args[2] === '--id' && UUID_V4.test(args[3])
+  ) return { kind: 'execution_show', id: args[3] };
   if (args.length === 2 && args[0] === 'evidence' && args[1] === 'list') {
     return { kind: 'evidence_list' };
   }
@@ -69,6 +86,19 @@ const errorLine = (code: string): string =>
       message: ERROR_MESSAGES[code] ?? ERROR_MESSAGES.invalid_invocation,
     },
   }) + '\n';
+
+const executionSummary = (execution: WorkerExecutionArtifactV1) => ({
+  executionId: execution.executionId,
+  settledAt: execution.settledAt,
+  sessionId: execution.sessionId,
+  turn: execution.turn,
+  definitionKind: execution.definition.kind,
+  workerGeneration: execution.workerGeneration,
+  settlement: execution.settlement,
+  ...(execution.providerEvidenceId === undefined ? {} : {
+    providerEvidenceId: execution.providerEvidenceId,
+  }),
+});
 
 const absolutePath = (value: string): boolean =>
   value.startsWith('/') && value.trim() === value && !value.includes('\0') &&
@@ -140,8 +170,29 @@ export const main = async (
       dependencies.workspaceRoot,
     );
     const stateRoot = dependencies.stateRoot ?? resolveStateRoot();
-    const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
-    if (command.kind === 'evidence_list') {
+    if (command.kind === 'execution_list' || command.kind === 'execution_show') {
+      const executionStore = new DenoWorkerExecutionArtifactStore(stateRoot, workspace);
+      if (command.kind === 'execution_list') {
+        const executions = await executionStore.list();
+        await writeOutput(
+          dependencies.writeStdout,
+          `${
+            JSON.stringify({
+              schemaVersion: 1,
+              executions: executions.map(executionSummary),
+            })
+          }\n`,
+          'stdout',
+        );
+      } else {
+        const execution = await executionStore.read(command.id);
+        await writeOutput(
+          dependencies.writeStdout,
+          `${JSON.stringify(execution)}\n`,
+          'stdout',
+        );
+      }
+    } else if (command.kind === 'evidence_list') {
       const evidenceStore = new DenoProviderEvidenceStore(stateRoot, workspace);
       const evidence = await evidenceStore.list();
       await writeOutput(
@@ -170,6 +221,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'list') {
+      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
       const diagnostics = await store.list();
       if (!diagnostics.every(isFailureDiagnostic)) {
         throw new FailureDiagnosticStoreError('diagnostic_invalid');
@@ -180,6 +232,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'latest') {
+      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
       const diagnostics = await store.list();
       const latest = diagnostics.at(-1);
       if (latest === undefined) {
@@ -191,6 +244,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'show') {
+      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
       const diagnostic = await store.read(command.id);
       await writeOutput(
         dependencies.writeStdout,
@@ -198,6 +252,7 @@ export const main = async (
         'stdout',
       );
     } else {
+      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
       await store.delete(command.id);
       await writeOutput(
         dependencies.writeStdout,
@@ -211,8 +266,12 @@ export const main = async (
       ? error.code
       : error instanceof ProviderEvidenceStoreError
       ? error.code
+      : error instanceof WorkerExecutionArtifactStoreError
+      ? error.code
       : command.kind === 'evidence_list' || command.kind === 'evidence_show'
       ? 'provider_evidence_io_failure'
+      : command.kind === 'execution_list' || command.kind === 'execution_show'
+      ? 'worker_execution_artifact_io_failure'
       : 'diagnostic_io_failure';
     await writeOutput(dependencies.writeStderr, errorLine(code), 'stderr');
     return 1;

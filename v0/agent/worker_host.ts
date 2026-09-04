@@ -56,6 +56,21 @@ import type {
   WorkerRuntimeEventMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
+import {
+  type WorkerExecutionAcknowledgement,
+  type WorkerExecutionArtifactV1,
+  workerExecutionOutcome,
+  type WorkerExecutionSettlement,
+  type WorkerExecutionStoreResult,
+  type WorkerExecutionTraceEntry,
+  type WorkerExecutionTurnCommand,
+  workerHostCommandSubtype,
+  workerMessageSubtype,
+} from './worker_execution_artifact.ts';
+import {
+  DenoWorkerExecutionArtifactStore,
+  type WorkerExecutionArtifactStore,
+} from './worker_execution_artifact_store.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
@@ -294,6 +309,15 @@ const turnEndFromOutcome = (
   ...(outcome.providerEvidencePersistenceError === undefined ? {} : {
     providerEvidencePersistenceError: outcome.providerEvidencePersistenceError,
   }),
+  ...(outcome.executionArtifactId === undefined ? {} : {
+    executionArtifactId: outcome.executionArtifactId,
+  }),
+  ...(outcome.executionArtifactDurability === undefined ? {} : {
+    executionArtifactDurability: outcome.executionArtifactDurability,
+  }),
+  ...(outcome.executionArtifactPersistenceError === undefined ? {} : {
+    executionArtifactPersistenceError: outcome.executionArtifactPersistenceError,
+  }),
   ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
   ...(outcome.diagnosticDurability === undefined ? {} : {
     diagnosticDurability: outcome.diagnosticDurability,
@@ -313,6 +337,7 @@ export interface WorkerHostSessionOptions {
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
+  readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
 }
 
@@ -322,6 +347,22 @@ export interface WorkerHostCapsule {
   terminate(): void;
 }
 
+type ActiveWorkerExecution = {
+  readonly executionId: string;
+  readonly createdAt: string;
+  readonly turn: number;
+  readonly command: WorkerExecutionTurnCommand;
+  readonly baseStateRevision: number;
+  readonly protocolTrace: WorkerExecutionTraceEntry[];
+  storeResult: WorkerExecutionStoreResult;
+  storeError?: 'session_io_failure' | 'session_invalid';
+  proposedStateRevision?: number;
+  committedStateRevision?: number;
+  acknowledgement: WorkerExecutionAcknowledgement;
+  settlement: WorkerExecutionSettlement;
+  artifactWritten: boolean;
+};
+
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
   private readonly capsule: WorkerHostCapsule;
@@ -329,6 +370,8 @@ export class WorkerHostSession {
   private readonly unsubscribe: () => void;
   private readonly instanceCorrelation = crypto.randomUUID().toLowerCase();
   private readonly workerGeneration = crypto.randomUUID().toLowerCase();
+  private readonly bootstrapTrace: WorkerExecutionTraceEntry[] = [];
+  private traceSequence = 0;
   private currentCorrelation: WorkerCorrelation | undefined;
   private currentManifest: WorkerReadyMessage['manifest'];
   private transcript: Message[];
@@ -343,6 +386,7 @@ export class WorkerHostSession {
   private active = false;
   private unavailable = false;
   private closed = false;
+  private activeExecution: ActiveWorkerExecution | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
     this.capsule = options.capsuleFactory?.(workerUrl) ??
@@ -389,7 +433,47 @@ export class WorkerHostSession {
     return this.options.handle.id;
   }
 
+  private trace(
+    direction: WorkerExecutionTraceEntry['direction'],
+    kind: WorkerExecutionTraceEntry['kind'],
+    semanticSubtype: string,
+    correlation: WorkerCorrelation,
+    ackAccepted?: boolean,
+  ): void {
+    const entry: WorkerExecutionTraceEntry = {
+      direction,
+      kind,
+      semanticSubtype,
+      sequence: ++this.traceSequence,
+      correlation: structuredClone(correlation),
+      ...(ackAccepted === undefined ? {} : { ackAccepted }),
+    };
+    if (this.activeExecution === undefined) this.bootstrapTrace.push(entry);
+    else this.activeExecution.protocolTrace.push(entry);
+  }
+
+  private send(command: import('./worker_protocol.ts').WorkerHostCommand): void {
+    const subtype = workerHostCommandSubtype(command);
+    this.trace(
+      'host_to_worker',
+      subtype.kind,
+      subtype.semanticSubtype,
+      command.correlation,
+      subtype.ackAccepted,
+    );
+    this.capsule.send(command);
+  }
+
+  private receiveTrace(message: WorkerToHostMessage): void {
+    const subtype = workerMessageSubtype(message);
+    const correlation = 'correlation' in message && message.correlation !== undefined
+      ? message.correlation
+      : this.currentCorrelation ?? this.correlation('worker_error');
+    this.trace('worker_to_host', subtype.kind, subtype.semanticSubtype, correlation);
+  }
+
   private receive(message: WorkerToHostMessage): void {
+    this.receiveTrace(message);
     if (message.kind === 'runtime_event') {
       if (
         message.event.kind === 'agent_event' &&
@@ -524,6 +608,90 @@ export class WorkerHostSession {
     return settled;
   }
 
+  private async persistExecutionArtifact(
+    execution: ActiveWorkerExecution,
+    outcome: LoopOutcome,
+  ): Promise<LoopOutcome> {
+    if (execution.artifactWritten) return outcome;
+    execution.artifactWritten = true;
+    const store = this.options.executionArtifactStore;
+    if (store === undefined || this.currentManifest === undefined) return outcome;
+    const artifact: WorkerExecutionArtifactV1 = {
+      schemaVersion: 1,
+      executionId: execution.executionId,
+      createdAt: execution.createdAt,
+      settledAt: new Date().toISOString(),
+      sessionId: this.sessionId,
+      turn: execution.turn,
+      agent: this.options.agent,
+      instanceCorrelation: this.instanceCorrelation,
+      workerGeneration: this.workerGeneration,
+      definition: structuredClone(this.options.definition),
+      manifest: structuredClone(this.currentManifest),
+      command: structuredClone(execution.command),
+      baseStateRevision: execution.baseStateRevision,
+      ...(execution.proposedStateRevision === undefined ? {} : {
+        proposedStateRevision: execution.proposedStateRevision,
+      }),
+      ...(execution.committedStateRevision === undefined ? {} : {
+        committedStateRevision: execution.committedStateRevision,
+      }),
+      // The bootstrap prefix is shared by generations, while an artifact's sequence is
+      // deliberately local to this admitted turn. Preserve the observed order and correlation
+      // without leaking the Host-wide trace counter into the durable per-turn contract.
+      protocolTrace: execution.protocolTrace.map((entry, index) => ({
+        ...structuredClone(entry),
+        sequence: index + 1,
+      })),
+      ...(outcome.providerEvidenceId === undefined ? {} : {
+        providerEvidenceId: outcome.providerEvidenceId,
+      }),
+      ...(outcome.providerEvidenceDurability === undefined ? {} : {
+        providerEvidenceDurability: outcome.providerEvidenceDurability,
+      }),
+      ...(outcome.providerEvidencePersistenceError === undefined ? {} : {
+        providerEvidencePersistenceError: outcome.providerEvidencePersistenceError,
+      }),
+      storeResult: execution.storeResult,
+      ...(execution.storeError === undefined ? {} : { storeError: execution.storeError }),
+      acknowledgement: execution.acknowledgement,
+      settlement: execution.settlement,
+      outcome: workerExecutionOutcome(outcome),
+      effectCommitRelation: 'not_transactional',
+      automaticReplay: false,
+    };
+    try {
+      await store.write(artifact);
+      return {
+        ...outcome,
+        executionArtifactId: execution.executionId,
+        executionArtifactDurability: 'yes',
+        executionArtifactPersistenceError: undefined,
+      };
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null &&
+          (error as { readonly code?: unknown }).code === 'worker_execution_artifact_invalid'
+        ? 'worker_execution_artifact_invalid' as const
+        : 'worker_execution_artifact_io_failure' as const;
+      return {
+        ...outcome,
+        executionArtifactId: execution.executionId,
+        executionArtifactDurability: 'failed',
+        executionArtifactPersistenceError: code,
+      };
+    }
+  }
+
+  private async settleExecution(
+    execution: ActiveWorkerExecution,
+    outcome: LoopOutcome,
+    providerEvidence: ProviderEvidenceV1 | undefined,
+    diagnostic: FailureDiagnosticV1 | undefined,
+  ): Promise<LoopOutcome> {
+    const settled = await this.persistArtifacts(outcome, providerEvidence, diagnostic);
+    return await this.persistExecutionArtifact(execution, settled);
+  }
+
   private correlation(command: string): WorkerCorrelation {
     return {
       session: this.sessionId,
@@ -553,7 +721,7 @@ export class WorkerHostSession {
     ) throw new Error('Definition revision changed before Worker startup');
     this.currentCorrelation = correlation;
     try {
-      this.capsule.send({
+      this.send({
         kind: 'start',
         correlation,
         module: revision,
@@ -603,7 +771,7 @@ export class WorkerHostSession {
       };
       accepted = true;
       try {
-        this.capsule.send({
+        this.send({
           kind: 'checkpoint_acknowledgement',
           correlation: message.correlation,
           accepted,
@@ -620,7 +788,7 @@ export class WorkerHostSession {
       accepted = false;
     }
     try {
-      this.capsule.send({
+      this.send({
         kind: 'checkpoint_acknowledgement',
         correlation: message.correlation,
         accepted,
@@ -663,13 +831,26 @@ export class WorkerHostSession {
       `turn-${this.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
     );
     this.currentCorrelation = correlation;
+    const execution: ActiveWorkerExecution = {
+      executionId: crypto.randomUUID().toLowerCase(),
+      createdAt: new Date().toISOString(),
+      turn: this.nextTurn,
+      command: { kind: 'turn', correlation: structuredClone(correlation), task },
+      baseStateRevision: this.stateRevision,
+      protocolTrace: [...this.bootstrapTrace],
+      storeResult: 'not_attempted',
+      acknowledgement: 'not_sent',
+      settlement: 'uncommitted',
+      artifactWritten: false,
+    };
+    this.activeExecution = execution;
     try {
       try {
-        this.capsule.send({ kind: 'turn', correlation, task });
+        this.send({ kind: 'turn', correlation, task });
       } catch {
         this.markUnavailable();
         const outcome = failedOutcome(task, this.transcript, 'Worker transport unavailable');
-        const settled = await this.persistArtifacts(outcome, undefined, undefined);
+        const settled = await this.settleExecution(execution, outcome, undefined, undefined);
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
       }
@@ -686,7 +867,8 @@ export class WorkerHostSession {
       );
       if (message.kind === 'turn_failed') {
         const diagnostic = message.diagnostic ?? message.outcome.diagnostic;
-        const settled = await this.persistArtifacts(
+        const settled = await this.settleExecution(
+          execution,
           message.outcome,
           message.providerEvidence,
           diagnostic,
@@ -697,7 +879,7 @@ export class WorkerHostSession {
       if (message.kind === 'worker_error') {
         this.markUnavailable();
         const outcome = failedOutcome(task, this.transcript, message.message);
-        const settled = await this.persistArtifacts(outcome, undefined, undefined);
+        const settled = await this.settleExecution(execution, outcome, undefined, undefined);
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
       }
@@ -707,12 +889,14 @@ export class WorkerHostSession {
       const record = this.proposalRecord(message);
       if (record === undefined) {
         try {
-          this.capsule.send({
+          this.send({
             kind: 'commit_acknowledgement',
             correlation,
             accepted: false,
           });
+          execution.acknowledgement = 'rejected_sent';
         } catch {
+          execution.acknowledgement = 'delivery_failed';
           this.markUnavailable();
         }
         const outcome = failedOutcome(
@@ -720,7 +904,8 @@ export class WorkerHostSession {
           this.transcript,
           'commit proposal invalid',
         );
-        const settled = await this.persistArtifacts(
+        const settled = await this.settleExecution(
+          execution,
           outcome,
           message.providerEvidence,
           message.diagnostic,
@@ -736,24 +921,31 @@ export class WorkerHostSession {
           transcript: structuredClone(message.transcript),
         };
       const diagnostic = message.diagnostic ?? proposedOutcome.diagnostic;
+      execution.proposedStateRevision = record.stateRevision;
       try {
         this.options.handle.commit(record);
+        execution.storeResult = 'committed';
       } catch {
         try {
-          this.capsule.send({
+          this.send({
             kind: 'commit_acknowledgement',
             correlation,
             accepted: false,
           });
+          execution.acknowledgement = 'rejected_sent';
         } catch {
+          execution.acknowledgement = 'delivery_failed';
           this.markUnavailable();
         }
+        execution.storeResult = 'failed';
+        execution.storeError = 'session_io_failure';
         const outcome = failedOutcome(
           task,
           this.transcript,
           'durable session commit failed',
         );
-        const settled = await this.persistArtifacts(
+        const settled = await this.settleExecution(
+          execution,
           outcome,
           message.providerEvidence,
           diagnostic,
@@ -764,6 +956,7 @@ export class WorkerHostSession {
       this.transcript = structuredClone(record.transcript) as Message[];
       this.nextTurn = record.nextTurn;
       this.stateRevision = record.stateRevision;
+      execution.committedStateRevision = record.stateRevision;
       const committed = await this.persistArtifacts(
         proposedOutcome,
         message.providerEvidence,
@@ -771,20 +964,24 @@ export class WorkerHostSession {
       );
       const ackSent = (() => {
         try {
-          this.capsule.send({
+          this.send({
             kind: 'commit_acknowledgement',
             correlation,
             accepted: true,
           });
+          execution.acknowledgement = 'accepted_sent';
           return true;
         } catch {
+          execution.acknowledgement = 'delivery_failed';
           return false;
         }
       })();
       if (!ackSent) {
+        execution.settlement = 'committed_generation_unavailable';
         this.markUnavailable();
-        this.deliver(turnEndFromOutcome(this.nextTurn - 1, committed, true));
-        return committed;
+        const settled = await this.persistExecutionArtifact(execution, committed);
+        this.deliver(turnEndFromOutcome(this.nextTurn - 1, settled, true));
+        return settled;
       }
       let workerError: WorkerErrorMessage | undefined;
       try {
@@ -801,18 +998,24 @@ export class WorkerHostSession {
       if (workerError !== undefined) {
         this.markUnavailable();
       }
-      this.deliver(turnEndFromOutcome(this.nextTurn - 1, committed, true));
-      return committed;
+      execution.settlement = workerError === undefined && !this.unavailable
+        ? 'committed'
+        : 'committed_generation_unavailable';
+      const settled = await this.persistExecutionArtifact(execution, committed);
+      this.deliver(turnEndFromOutcome(this.nextTurn - 1, settled, true));
+      return settled;
     } catch (error) {
       const outcome = failedOutcome(
         task,
         this.transcript,
         error instanceof Error ? error.message : String(error),
       );
-      const settled = await this.persistArtifacts(outcome, undefined, undefined);
+      execution.settlement = 'uncommitted';
+      const settled = await this.settleExecution(execution, outcome, undefined, undefined);
       this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
       return settled;
     } finally {
+      this.activeExecution = undefined;
       this.active = false;
       this.currentCorrelation = undefined;
     }
@@ -821,7 +1024,7 @@ export class WorkerHostSession {
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
     if (!this.active || this.currentCorrelation === undefined) return 'idle';
     try {
-      this.capsule.send({
+      this.send({
         kind: 'cancel',
         correlation: this.currentCorrelation,
       });
@@ -835,7 +1038,7 @@ export class WorkerHostSession {
   steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
     if (!this.active || this.currentCorrelation === undefined) return 'idle';
     try {
-      this.capsule.send({
+      this.send({
         kind: 'steer',
         correlation: this.currentCorrelation,
         text,
@@ -912,7 +1115,7 @@ export class WorkerHostSession {
       ): value is Extract<WorkerToHostMessage, { kind: 'closed' }> | WorkerErrorMessage =>
         (value.kind === 'closed' || value.kind === 'worker_error') &&
         (value.kind === 'worker_error' || sameCorrelation(value.correlation, correlation)), 5_000);
-      this.capsule.send({ kind: 'close', correlation });
+      this.send({ kind: 'close', correlation });
       const settled = await closed;
       if (settled.kind === 'worker_error') throw new Error(settled.message);
     } catch {
@@ -973,6 +1176,7 @@ export interface WorkerTuiSessionOptions {
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
+  readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
 }
 
@@ -1064,6 +1268,13 @@ export const createWorkerTuiSession = async (
       options.providerEvidenceStore === undefined
     ? new DenoProviderEvidenceStore(productionStateRoot!, workspace.root)
     : undefined;
+  const defaultExecutionArtifactStore = options.executionArtifactStore ??
+    (options.physicalIoMode === 'production' || options.stateRoot !== undefined
+      ? new DenoWorkerExecutionArtifactStore(
+        options.stateRoot ?? launcherStateRoot(),
+        workspace.root,
+      )
+      : undefined);
   const displayState = projectRuntimeDisplayState({
     workspaceRoot: workspace.root,
     agentId: options.agent,
@@ -1124,6 +1335,7 @@ export const createWorkerTuiSession = async (
       eventSink: options.eventSink,
       diagnosticPersistence: options.diagnosticPersistence ?? defaultDiagnosticStore?.persist,
       providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
+      executionArtifactStore: defaultExecutionArtifactStore,
       capsuleFactory: options.capsuleFactory,
     });
     let currentHost = host;
@@ -1173,6 +1385,7 @@ export const createWorkerTuiSession = async (
             eventSink: options.eventSink,
             diagnosticPersistence: options.diagnosticPersistence ?? defaultDiagnosticStore?.persist,
             providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
+            executionArtifactStore: defaultExecutionArtifactStore,
             capsuleFactory: options.capsuleFactory,
           });
           await currentHost.close();

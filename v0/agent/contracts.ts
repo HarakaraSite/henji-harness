@@ -142,6 +142,12 @@ export interface LoopOutcome {
   readonly turnProviderRequestCount?: number;
   /** Cumulative actual provider fetch starts since this runtime process began, when observed. */
   readonly runtimeProviderRequestCount?: number;
+  /** Host-owned Worker execution artifact settlement metadata. */
+  readonly executionArtifactId?: string;
+  readonly executionArtifactDurability?: 'yes' | 'failed' | 'unknown';
+  readonly executionArtifactPersistenceError?:
+    | 'worker_execution_artifact_io_failure'
+    | 'worker_execution_artifact_invalid';
   readonly steps: number;
   readonly toolCallCount: number;
   readonly toolResultCount: number;

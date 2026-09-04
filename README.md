@@ -267,6 +267,30 @@ confirms OpenRouter's documented final usage chunk (content-free assistant delta
 finish reason, usage before `[DONE]`); real-provider shape and human acceptance remain separate
 gates.
 
+## Worker execution readback
+
+Each admitted Worker turn also has a Host-owned execution artifact. It correlates the immutable
+Definition revision and evaluated Manifest with the Worker generation, accepted turn command,
+ordered bootstrap/protocol trace, provider-evidence ID, Host session-store result, commit
+acknowledgement, and final settlement. The artifact is written once after Host settlement under the
+workspace's state namespace; it is separate from both `session.json` and provider evidence.
+
+Read-only execution diagnostics are available from the caller workspace:
+
+```text
+henji diagnostics executions list
+henji diagnostics executions show --id <execution-id>
+```
+
+`executions list` projects each record to `executionId`, `settledAt`, `sessionId`, `turn`,
+`definitionKind`, `workerGeneration`, `settlement`, and (when present) `providerEvidenceId`.
+`executions show` returns the complete execution artifact.
+
+`committed_generation_unavailable` means the canonical session was committed but the Worker
+generation could not receive or complete its acknowledgement. Artifact persistence failure is
+reported additively and never rolls back or replays the committed session. Effects remain
+non-transactional, and normal conversation output does not display artifact contents.
+
 ## Developer/reference appendix
 
 Product source is [`v0/`](v0/), tests [`tests/v0/`](tests/v0/), task configuration

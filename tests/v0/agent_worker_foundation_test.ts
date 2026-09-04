@@ -22,7 +22,11 @@ import type {
 } from '../../v0/agent/contracts.ts';
 import type { AgentEvent } from '../../v0/agent/events.ts';
 import { Registry } from '../../v0/agent/tools.ts';
-import { DenoSessionStore, type SessionRecord } from '../../v0/agent/session_store.ts';
+import {
+  DenoSessionStore,
+  type SessionRecord,
+  type WorkerSessionHandle,
+} from '../../v0/agent/session_store.ts';
 import {
   decodeProviderEvidence,
   encodeProviderEvidence,
@@ -39,6 +43,14 @@ import { parseTuiInvocation } from '../../v0/agent/tui_cli.ts';
 import { createTuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
 import { WorkerGeneration, type WorkerGenerationPort } from '../../v0/agent/worker_runtime.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
+import {
+  DenoWorkerExecutionArtifactStore,
+  FakeWorkerExecutionArtifactStore,
+} from '../../v0/agent/worker_execution_artifact_store.ts';
+import {
+  main as failureDiagnosticMain,
+  parseFailureDiagnosticArgs,
+} from '../../v0/agent/failure_diagnostic_cli.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -180,6 +192,133 @@ Deno.test('Slice 1 proves pre-read/hash, digest-query relative import, import-ma
     });
   } finally {
     capsule.terminate();
+  }
+});
+
+Deno.test('external Definition resolves @henji/agent from a temporary caller workspace', async () => {
+  const workspace = await Deno.makeTempDir({ prefix: 'henji-worker-external-cwd-' });
+  const definitionPath = `${workspace}/external_definition.ts`;
+  await Deno.writeTextFile(
+    definitionPath,
+    `import {
+  createDefaultAgentComposition,
+  type ExecutableAgentDefinition,
+  WORKER_PROTOCOL_VERSION,
+} from '@henji/agent';
+
+export const workerProbe = WORKER_PROTOCOL_VERSION;
+const definition: ExecutableAgentDefinition = (input) =>
+  createDefaultAgentComposition(input, { limits: { maxSteps: 4 } });
+export default definition;
+`,
+  );
+  try {
+    const events: AgentEvent[] = [];
+    const created = await createWorkerTuiSession({
+      workspaceRoot: workspace,
+      persistence: 'none',
+      agent: 'default',
+      externalDefinitionPath: definitionPath,
+      physicalIoMode: 'provider-free',
+      eventSink: (event) => events.push(event),
+    });
+    try {
+      const outcome = await created.session.submit('external alias common Worker path');
+      assert(outcome.ok);
+      assertEquals(created.session.currentPosition().committedTurn, 1);
+      assert(events.some((event) => event.kind === 'assistant_progress'));
+      assert(events.some((event) => event.kind === 'turn_end'));
+    } finally {
+      await created.close();
+    }
+  } finally {
+    await Deno.remove(workspace, { recursive: true });
+  }
+});
+
+Deno.test('session launcher passes repository config through both branches using fake Deno', async () => {
+  const workspace = await Deno.makeTempDir({ prefix: 'henji-launcher-cwd-' });
+  const stateBase = await Deno.makeTempDir({ prefix: 'henji-launcher-state-' });
+  const fakeBin = await Deno.makeTempDir({ prefix: 'henji-launcher-deno-' });
+  const fakeDeno = `${fakeBin}/deno`;
+  const launcher = new URL('../../v0/agent/session_launcher.sh', import.meta.url).pathname;
+  const config = new URL('../../deno.v0.json', import.meta.url).pathname;
+  await Deno.writeTextFile(
+    fakeDeno,
+    `#!/bin/sh
+set -eu
+if [ "\${1-}" = '--version' ]; then
+  printf '%s\\n' 'deno 2.9.4'
+  exit 0
+fi
+{
+  printf 'cwd=%s\\n' "\$PWD"
+  printf 'state=%s\\n' "\$HENJI_SESSION_STATE_ROOT"
+  printf 'argc=%s\\n' "\$#"
+  for arg in "\$@"; do printf 'arg=%s\\n' "\$arg"; done
+} > "\$FAKE_DENO_CAPTURE"
+`,
+  );
+  await Deno.chmod(fakeDeno, 0o755);
+  const run = async (
+    capture: string,
+    args: readonly string[],
+  ): Promise<
+    { readonly cwd: string; readonly state: string; readonly args: readonly string[] }
+  > => {
+    const result = await new Deno.Command('/bin/sh', {
+      args: ['-c', 'exec "$@"', '--', launcher, ...args],
+      cwd: workspace,
+      env: {
+        PATH: `${fakeBin}:/usr/bin:/bin`,
+        XDG_STATE_HOME: stateBase,
+        FAKE_DENO_CAPTURE: capture,
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assertEquals(result.code, 0);
+    assertEquals(new TextDecoder().decode(result.stdout), '');
+    assertEquals(new TextDecoder().decode(result.stderr), '');
+    const lines = (await Deno.readTextFile(capture)).trim().split('\n');
+    const cwd = lines.find((line) => line.startsWith('cwd='))?.slice(4);
+    const state = lines.find((line) => line.startsWith('state='))?.slice(6);
+    const capturedArgs = lines.filter((line) => line.startsWith('arg=')).map((line) =>
+      line.slice(4)
+    );
+    assert(cwd !== undefined && state !== undefined);
+    return { cwd, state, args: capturedArgs };
+  };
+  try {
+    const none = await run(`${fakeBin}/none.capture`, [
+      '--definition',
+      'external_definition.ts',
+      '--no-session',
+    ]);
+    const continued = await run(`${fakeBin}/continued.capture`, [
+      '--agent',
+      'default',
+      '--continue',
+    ]);
+    for (const captured of [none, continued]) {
+      assertEquals(captured.cwd, workspace);
+      assertEquals(captured.state, `${stateBase}/henji-harness`);
+      const configIndex = captured.args.indexOf('--config');
+      assert(configIndex >= 0);
+      assertEquals(captured.args[configIndex + 1], config);
+    }
+    assertEquals(none.args.slice(-3), [
+      '--definition',
+      'external_definition.ts',
+      '--no-session',
+    ]);
+    assertEquals(continued.args.slice(-3), ['--agent', 'default', '--continue']);
+    assertEquals(none.args[0], 'run');
+    assertEquals(continued.args[0], 'run');
+  } finally {
+    await Deno.remove(workspace, { recursive: true });
+    await Deno.remove(stateBase, { recursive: true });
+    await Deno.remove(fakeBin, { recursive: true });
   }
 });
 
@@ -550,10 +689,16 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
           endpoint: 'provider-free://counter-boundary',
           method: 'POST',
           requestBody: '{}',
-          requestMetadata: { contentType: 'application/json', responseMode: 'json' },
+          requestMetadata: {
+            contentType: 'application/json',
+            responseMode: 'json',
+          },
         });
         return options.providerEvidencePhase === 'compaction'
-          ? { kind: 'final', text: '{"schemaVersion":1,"summary":"retained context"}' }
+          ? {
+            kind: 'final',
+            text: '{"schemaVersion":1,"summary":"retained context"}',
+          }
           : { kind: 'final', text: 'user turn completed' };
       },
     };
@@ -569,7 +714,9 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
         profileId: 'provider-free-counter-boundary',
         resources: [],
       },
-      resolved: { model: { profile: { id: 'provider-free-counter-boundary' } } },
+      resolved: {
+        model: { profile: { id: 'provider-free-counter-boundary' } },
+      },
     } as unknown as WorkerAgentComposition;
     const counter = {
       increment: () => {},
@@ -587,7 +734,9 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
         return Promise.resolve(true);
       },
       turnFailed: (_correlation, outcome, evidence) => {
-        if (evidence === undefined) throw new Error('missing provider evidence');
+        if (evidence === undefined) {
+          throw new Error('missing provider evidence');
+        }
         failed = { outcome, evidence };
       },
     };
@@ -619,8 +768,13 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
   );
   const evidenceStore = new FakeProviderEvidenceStore();
   await evidenceStore.write(accepted.proposal.providerEvidence!);
-  const readback = await evidenceStore.read(accepted.proposal.providerEvidence!.evidenceId);
-  assertEquals(decodeProviderEvidence(encodeProviderEvidence(readback)), readback);
+  const readback = await evidenceStore.read(
+    accepted.proposal.providerEvidence!.evidenceId,
+  );
+  assertEquals(
+    decodeProviderEvidence(encodeProviderEvidence(readback)),
+    readback,
+  );
   const legacyWithoutPhase = {
     ...readback,
     requests: readback.requests.map((record) => ({
@@ -630,7 +784,9 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
       ),
     })),
   };
-  const legacyReadback = decodeProviderEvidence(JSON.stringify(legacyWithoutPhase));
+  const legacyReadback = decodeProviderEvidence(
+    JSON.stringify(legacyWithoutPhase),
+  );
   assertEquals(legacyReadback.requests.map((record) => record.request.phase), [
     undefined,
     undefined,
@@ -725,6 +881,281 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     await planner.close();
   } finally {
     await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('Worker execution artifacts correlate built-in/external settlement and diagnostics readback', async () => {
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-worker-execution-artifact-',
+  });
+  const artifacts = new DenoWorkerExecutionArtifactStore(stateRoot, Deno.cwd());
+  const evidenceStore = new FakeProviderEvidenceStore();
+  try {
+    const builtin = await createWorkerTuiSession({
+      stateRoot,
+      persistence: 'new',
+      agent: 'default',
+      physicalIoMode: 'provider-free',
+      providerEvidenceStore: evidenceStore,
+      executionArtifactStore: artifacts,
+    });
+    const builtinOutcome = await builtin.session.submit('read worker protocol');
+    assert(builtinOutcome.ok);
+    assertEquals({
+      durability: builtinOutcome.executionArtifactDurability,
+      error: builtinOutcome.executionArtifactPersistenceError,
+    }, { durability: 'yes', error: undefined });
+    await builtin.close();
+
+    const external = await createWorkerTuiSession({
+      stateRoot,
+      persistence: 'none',
+      agent: 'default',
+      externalDefinitionPath: fixture('external_definition.ts'),
+      physicalIoMode: 'provider-free',
+      providerEvidenceStore: evidenceStore,
+      executionArtifactStore: artifacts,
+    });
+    const externalOutcome = await external.session.submit(
+      'read worker protocol external',
+    );
+    assert(externalOutcome.ok);
+    assertEquals(externalOutcome.executionArtifactDurability, 'yes');
+    await external.close();
+
+    const listed = await artifacts.list();
+    assertEquals(listed.length, 2);
+    const ordered = [...listed].sort((left, right) =>
+      left.definition.kind.localeCompare(right.definition.kind)
+    );
+    assertEquals(ordered.map((artifact) => artifact.manifest.maxSteps), [8, 4]);
+    assertEquals(ordered.map((artifact) => artifact.definition.kind), [
+      'builtin',
+      'external',
+    ]);
+    for (const artifact of listed) {
+      assertEquals(artifact.storeResult, 'committed');
+      assertEquals(artifact.acknowledgement, 'accepted_sent');
+      assertEquals(artifact.settlement, 'committed');
+      assertEquals(artifact.effectCommitRelation, 'not_transactional');
+      assertEquals(artifact.automaticReplay, false);
+      assert(typeof artifact.providerEvidenceId === 'string');
+      assertEquals(
+        artifact.protocolTrace.map((entry) => `${entry.direction}:${entry.semanticSubtype}`).slice(
+          0,
+          4,
+        ),
+        [
+          'host_to_worker:start',
+          'worker_to_host:module_pre_read',
+          'worker_to_host:module_import_start',
+          'worker_to_host:module_imported',
+        ],
+      );
+      assert(
+        artifact.protocolTrace.some((entry) => entry.semanticSubtype === 'ready'),
+      );
+      assert(
+        artifact.protocolTrace.some((entry) => entry.semanticSubtype === 'commit_proposal'),
+      );
+      assert(
+        artifact.protocolTrace.some((entry) =>
+          entry.semanticSubtype === 'commit_acknowledgement' &&
+          entry.ackAccepted
+        ),
+      );
+      assert(
+        artifact.protocolTrace.some((entry) => entry.semanticSubtype === 'turn_end'),
+      );
+      assert(!JSON.stringify(artifact).toLowerCase().includes('authorization'));
+    }
+
+    assertEquals(parseFailureDiagnosticArgs(['executions', 'list']), {
+      kind: 'execution_list',
+    });
+    const output: string[] = [];
+    const status = await failureDiagnosticMain(['executions', 'list'], {
+      stateRoot,
+      workspaceRoot: Deno.cwd(),
+      writeStdout: (text) => {
+        output.push(text);
+      },
+    });
+    assertEquals(status, 0);
+    const payload = JSON.parse(output.join('')) as {
+      readonly schemaVersion: number;
+      readonly executions: readonly Record<string, unknown>[];
+    };
+    assertEquals(payload.schemaVersion, 1);
+    assertEquals(payload.executions.length, 2);
+    assertEquals(Object.keys(payload.executions[0]!), [
+      'executionId',
+      'settledAt',
+      'sessionId',
+      'turn',
+      'definitionKind',
+      'workerGeneration',
+      'settlement',
+      'providerEvidenceId',
+    ]);
+    assertEquals(payload.executions.map((execution) => execution.turn), [1, 1]);
+    assertEquals(payload.executions.map((execution) => execution.definitionKind), [
+      'builtin',
+      'external',
+    ]);
+    const showOutput: string[] = [];
+    const showStatus = await failureDiagnosticMain([
+      'executions',
+      'show',
+      '--id',
+      listed[0]!.executionId,
+    ], {
+      stateRoot,
+      workspaceRoot: Deno.cwd(),
+      writeStdout: (text) => {
+        showOutput.push(text);
+      },
+    });
+    assertEquals(showStatus, 0);
+    const shown = JSON.parse(showOutput.join('')) as Record<string, unknown>;
+    assertEquals(shown.executionId, listed[0]!.executionId);
+    assert(Array.isArray(shown.protocolTrace));
+    assert(typeof shown.definition === 'object' && shown.definition !== null);
+  } finally {
+    await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('Worker execution artifacts use turn-local sequences across one generation', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-execution-sequence-' });
+  const artifacts = new DenoWorkerExecutionArtifactStore(stateRoot, Deno.cwd());
+  const created = await createWorkerTuiSession({
+    stateRoot,
+    persistence: 'new',
+    agent: 'default',
+    physicalIoMode: 'provider-free',
+    executionArtifactStore: artifacts,
+  });
+  try {
+    const first = await created.session.submit('first Worker artifact turn');
+    const second = await created.session.submit('second Worker artifact turn');
+    assert(first.ok && second.ok);
+    assertEquals(first.executionArtifactDurability, 'yes');
+    assertEquals(second.executionArtifactDurability, 'yes');
+    assertEquals(created.session.currentPosition().committedTurn, 2);
+
+    const listed = await artifacts.list();
+    assertEquals(listed.length, 2);
+    assertEquals(listed.map((artifact) => artifact.turn), [1, 2]);
+    assertEquals(listed.map((artifact) => artifact.storeResult), [
+      'committed',
+      'committed',
+    ]);
+    for (const artifact of listed) {
+      assertEquals(
+        artifact.protocolTrace.map((entry) => entry.sequence),
+        Array.from({ length: artifact.protocolTrace.length }, (_, index) => index + 1),
+      );
+      const shown = await artifacts.read(artifact.executionId);
+      assertEquals(shown.executionId, artifact.executionId);
+      assertEquals(shown.turn, artifact.turn);
+    }
+  } finally {
+    await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('Worker execution artifact persistence failure is additive after a committed turn', async () => {
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-worker-artifact-failure-',
+  });
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  artifacts.failWrites();
+  try {
+    const definition = await readDefinitionRevision(
+      workerBuiltinModulePath('default'),
+      'builtin',
+      'default',
+    );
+    const store = new DenoSessionStore(stateRoot, Deno.cwd());
+    const handle = await store.allocateWorker('default', definition);
+    const host = await WorkerHostSession.open({
+      handle,
+      workspaceRoot: Deno.cwd(),
+      agent: 'default',
+      definition,
+      modulePath: workerBuiltinModulePath('default'),
+      physicalIoMode: 'provider-free',
+      executionArtifactStore: artifacts,
+    });
+    const outcome = await host.submit('artifact persistence failure task');
+    assert(outcome.ok);
+    assertEquals(outcome.executionArtifactDurability, 'failed');
+    assertEquals(
+      outcome.executionArtifactPersistenceError,
+      'worker_execution_artifact_io_failure',
+    );
+    assertEquals(host.currentPosition().committedTurn, 1);
+    assertEquals(artifacts.writeCount, 1);
+    const saved = await store.readWorker(handle.id);
+    assert(saved.schemaVersion === 2);
+    await host.close();
+  } finally {
+    await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('Worker execution artifact distinguishes Host store failure from committed generation loss', async () => {
+  class FailingCommitHandle implements WorkerSessionHandle {
+    readonly id = '88888888-8888-4888-8888-888888888888';
+    readonly record = undefined;
+    readonly checkpoint = undefined;
+    commit(
+      _record: import('../../v0/agent/session_store.ts').StoredSessionRecord,
+    ): void {
+      throw new Error('simulated Host store failure');
+    }
+    installCheckpoint(
+      _checkpoint: import('../../v0/agent/session_store.ts').SemanticContextCheckpointV1,
+    ): void {
+      throw new Error('unexpected checkpoint');
+    }
+    rollback(): void {}
+    rollbackCheckpoint(): void {}
+    close(): Promise<void> {
+      return Promise.resolve();
+    }
+  }
+
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const definition = await readDefinitionRevision(
+    workerBuiltinModulePath('default'),
+    'builtin',
+    'default',
+  );
+  const handle = new FailingCommitHandle();
+  const host = await WorkerHostSession.open({
+    handle,
+    workspaceRoot: Deno.cwd(),
+    agent: 'default',
+    definition,
+    modulePath: workerBuiltinModulePath('default'),
+    physicalIoMode: 'provider-free',
+    executionArtifactStore: artifacts,
+  });
+  try {
+    const outcome = await host.submit('Host store failure task');
+    assert(!outcome.ok);
+    const artifact = (await artifacts.list())[0];
+    assert(artifact !== undefined);
+    assertEquals(artifact.storeResult, 'failed');
+    assertEquals(artifact.acknowledgement, 'rejected_sent');
+    assertEquals(artifact.settlement, 'uncommitted');
+    assertEquals(artifact.automaticReplay, false);
+    assertEquals(host.currentPosition().committedTurn, 0);
+  } finally {
+    await host.close();
   }
 });
 
@@ -844,7 +1275,11 @@ Deno.test('Host turn settlement does not apply the five-second queue timeout', a
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-delayed-' });
   try {
     const modulePath = workerBuiltinModulePath('default');
-    const definition = await readDefinitionRevision(modulePath, 'builtin', 'default');
+    const definition = await readDefinitionRevision(
+      modulePath,
+      'builtin',
+      'default',
+    );
     const store = new DenoSessionStore(stateRoot, Deno.cwd());
     const handle = await store.allocateWorker('default', definition);
     const host = await WorkerHostSession.open({
@@ -912,10 +1347,16 @@ Deno.test('Worker TUI composition routes core events through the presentation ad
 });
 
 Deno.test('Worker shares request accounting and credential-free evidence across parent and planner', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-evidence-' });
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-worker-evidence-',
+  });
   try {
     const modulePath = workerBuiltinModulePath('default');
-    const definition = await readDefinitionRevision(modulePath, 'builtin', 'default');
+    const definition = await readDefinitionRevision(
+      modulePath,
+      'builtin',
+      'default',
+    );
     const evidenceStore = new FakeProviderEvidenceStore();
     const store = new DenoSessionStore(stateRoot, Deno.cwd());
     const handle = await store.allocateWorker('default', definition);
@@ -933,7 +1374,11 @@ Deno.test('Worker shares request accounting and credential-free evidence across 
     assert(readOutcome.ok && plannerOutcome.ok);
     assertEquals(
       {
-        read: [readOutcome.steps, readOutcome.toolCallCount, readOutcome.toolResultCount],
+        read: [
+          readOutcome.steps,
+          readOutcome.toolCallCount,
+          readOutcome.toolResultCount,
+        ],
         planner: [
           plannerOutcome.steps,
           plannerOutcome.toolCallCount,
@@ -951,8 +1396,12 @@ Deno.test('Worker shares request accounting and credential-free evidence across 
     const evidence = await evidenceStore.list();
     assertEquals(evidence.length, 2);
     assertEquals(evidence.map((item) => item.turnNumber), [1, 2]);
-    assert(evidence[1].runtimeEvents.some((event) => event.kind === 'model_result'));
-    assert(evidence[1].runtimeEvents.some((event) => event.kind === 'tool_call'));
+    assert(
+      evidence[1].runtimeEvents.some((event) => event.kind === 'model_result'),
+    );
+    assert(
+      evidence[1].runtimeEvents.some((event) => event.kind === 'tool_call'),
+    );
     assertEquals(host.requestCount(), 0);
     await host.close();
   } finally {
@@ -969,10 +1418,16 @@ Deno.test('WorkerHost exposes one-shot automatic compaction notice to the adapte
     sessionId = handle.id;
     const transcript: Message[] = [];
     for (let turn = 1; turn <= 2; turn += 1) {
-      transcript.push({ role: 'user', content: { kind: 'text', text: `old task ${turn}` } });
+      transcript.push({
+        role: 'user',
+        content: { kind: 'text', text: `old task ${turn}` },
+      });
       transcript.push({
         role: 'assistant',
-        content: { kind: 'text', text: `${'old answer '.repeat(20_000)}${turn}` },
+        content: {
+          kind: 'text',
+          text: `${'old answer '.repeat(20_000)}${turn}`,
+        },
       });
     }
     handle.commit({
@@ -1011,7 +1466,11 @@ Deno.test('WorkerHost exposes one-shot automatic compaction notice to the adapte
         (event as { readonly kind?: unknown }).kind === 'notice'
       );
       assertEquals(notices.length, 1);
-      assert((notices[0] as { readonly text: string }).text.includes('auto-compacted'));
+      assert(
+        (notices[0] as { readonly text: string }).text.includes(
+          'auto-compacted',
+        ),
+      );
       assertEquals(created.session.consumeAutoCompactionNotice(), null);
     } finally {
       await created.close();
@@ -1023,7 +1482,9 @@ Deno.test('WorkerHost exposes one-shot automatic compaction notice to the adapte
 
 Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack delivery fails', async () => {
   class CheckpointAckFailureCapsule implements WorkerHostCapsule {
-    private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
+    private readonly listeners = new Set<
+      (message: WorkerToHostMessage) => void
+    >();
     terminated = false;
 
     private emit(message: WorkerToHostMessage): void {
@@ -1077,7 +1538,9 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
     }
   }
 
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-notice-failure-' });
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-worker-notice-failure-',
+  });
   let sessionId: string | undefined;
   try {
     const store = new DenoSessionStore(stateRoot, Deno.cwd());
@@ -1147,7 +1610,9 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
 Deno.test('WorkerHost terminates on pre-commit event delivery failure and preserves post-commit state', async () => {
   type Mode = 'precommit' | 'postcommit';
   class EventFailureCapsule implements WorkerHostCapsule {
-    private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
+    private readonly listeners = new Set<
+      (message: WorkerToHostMessage) => void
+    >();
     terminated = false;
     commitProposals = 0;
 
@@ -1179,7 +1644,11 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
               sequence: 1,
               event: {
                 kind: 'agent_event',
-                event: { kind: 'assistant_progress', turn: 1, text: 'before commit' },
+                event: {
+                  kind: 'assistant_progress',
+                  turn: 1,
+                  text: 'before commit',
+                },
               },
             });
             if (this.terminated) return;
@@ -1191,11 +1660,16 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
             nextTurn: 2,
             transcript: [
               { role: 'user', content: { kind: 'text', text: command.task } },
-              { role: 'assistant', content: { kind: 'text', text: 'committed answer' } },
+              {
+                role: 'assistant',
+                content: { kind: 'text', text: 'committed answer' },
+              },
             ],
           });
         });
-      } else if (command.kind === 'commit_acknowledgement' && command.accepted) {
+      } else if (
+        command.kind === 'commit_acknowledgement' && command.accepted
+      ) {
         queueMicrotask(() => {
           if (this.terminated) return;
           this.emit({
@@ -1204,7 +1678,12 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
             sequence: 2,
             event: {
               kind: 'agent_event',
-              event: { kind: 'turn_end', turn: 1, outcome: 'final', committed: true },
+              event: {
+                kind: 'turn_end',
+                turn: 1,
+                outcome: 'final',
+                committed: true,
+              },
             },
           });
         });
@@ -1229,9 +1708,15 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
     readonly capsule: EventFailureCapsule;
     readonly cleanup: () => Promise<void>;
   }> => {
-    const stateRoot = await Deno.makeTempDir({ prefix: `henji-worker-event-${mode}-` });
+    const stateRoot = await Deno.makeTempDir({
+      prefix: `henji-worker-event-${mode}-`,
+    });
     const modulePath = workerBuiltinModulePath('default');
-    const definition = await readDefinitionRevision(modulePath, 'builtin', 'default');
+    const definition = await readDefinitionRevision(
+      modulePath,
+      'builtin',
+      'default',
+    );
     const store = new DenoSessionStore(stateRoot, Deno.cwd());
     const handle = await store.allocateWorker('default', definition);
     let capsule: EventFailureCapsule | undefined;
@@ -1247,7 +1732,9 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
         return capsule;
       },
       eventSink: (event) => {
-        if (event.kind === failingKind) throw new Error('simulated presentation failure');
+        if (event.kind === failingKind) {
+          throw new Error('simulated presentation failure');
+        }
       },
     });
     try {
@@ -1350,6 +1837,7 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
   }
 
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-ack-' });
+  const artifacts = new FakeWorkerExecutionArtifactStore();
   try {
     const modulePath = workerBuiltinModulePath('default');
     const definition = await readDefinitionRevision(
@@ -1366,10 +1854,12 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
       definition,
       modulePath,
       physicalIoMode: 'provider-free',
+      executionArtifactStore: artifacts,
       capsuleFactory: () => new AckFailureCapsule(),
     });
     const outcome = await host.submit('ack failure task');
     assert(outcome.ok);
+    assertEquals(outcome.executionArtifactDurability, 'yes');
     assertEquals(host.currentPosition().committedTurn, 1);
     assert(!host.isAvailable());
     const saved = await store.readWorker(handle.id);
@@ -1381,6 +1871,13 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
       rejected = true;
     }
     assert(rejected);
+    const artifact = (await artifacts.list())[0];
+    assert(artifact !== undefined);
+    assertEquals(artifact.storeResult, 'committed');
+    assertEquals(artifact.acknowledgement, 'delivery_failed');
+    assertEquals(artifact.settlement, 'committed_generation_unavailable');
+    assertEquals(artifact.automaticReplay, false);
+    assertEquals(artifacts.writeCount, 1);
     await host.close();
   } finally {
     await Deno.remove(stateRoot, { recursive: true });

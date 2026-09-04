@@ -71,6 +71,11 @@ export type AgentEvent =
     readonly providerEvidenceId?: string;
     readonly providerEvidenceDurability?: ProviderEvidenceDurability;
     readonly providerEvidencePersistenceError?: ProviderEvidencePersistenceErrorCode;
+    readonly executionArtifactId?: string;
+    readonly executionArtifactDurability?: 'yes' | 'failed' | 'unknown';
+    readonly executionArtifactPersistenceError?:
+      | 'worker_execution_artifact_io_failure'
+      | 'worker_execution_artifact_invalid';
     readonly diagnostic?: FailureDiagnosticV1;
     readonly diagnosticDurability?: FailureDiagnosticDurability;
     readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;

@@ -1050,6 +1050,27 @@
 - 未実施: provider/network/credential、installed production `henji`、actual production state/cleanup、
   `_refs/*`、commit/push/tag/publish/release
 
+### POL-20260904-agent-worker-real-provider-gate-corrections
+
+- 状態: reviewed plan `docs/plans/agent-worker-real-provider-gate-corrections.md`（SHA-256
+  `9f95cab1308216fb35a3a5683657819c7d8168cce41b3f83a6ce3c80b79602ac`）の実装を完了。結果は
+  `docs/plans/agent-worker-real-provider-gate-corrections-results.md`、SHA-256
+  `82483a858e1893f8cab5c4ad55b509d6e7b701268d913b58a9d12cf60d27b960`
+- 実装: production launcherのabsolute repository config、Worker production SSE、Host-owned execution
+  artifact、workspace-local read-only executions list/showを追加。session/provider evidence schemaとinstalled
+  outer wrapperは維持
+- review: initial P1 1件（同一generation turn 2以降のartifact validation）とP2 1件（listがfull artifact）を
+  局所修正。single narrow re-reviewはGO、Blocker/P1/P2 0
+- 検証: Worker focused 28/28、provider compatibility 10/10。owner authoritative `v0:gate`はstable
+  candidateへ一回で成功し、check、fmt 104、lint 101、current offline 38/38、provider compatibility 10/10がgreen
+- incident: external-cwd launcher probeでcontrol-Dではなくliteral `\\004`を送信し、未承認provider request
+  4件がHTTP 200、3,148 tokens、USD 0.003063、`max_steps`となった。credential値、repository、installed
+  production state、session recordは変更せず、一時workspace/stateとevidenceを保持。追加provider操作は停止
+- 次: planned real-provider Human Gateは未実施。別packageと明示承認が必要。task estimateは実測ベース
+  USD 0.004–0.01、expected 4 requests。28 requestsはstop/diagnostic boundであり見積り・予算ではない
+- 未実施: temporary incident state cleanup、planned Human Gate、installed production `henji`、Stage 4、
+  dependency、`_refs/*`、push/tag/publish/release
+
 ## Checkpoints
 
 ## 2026-08-26 19:28 JST
@@ -4641,3 +4662,41 @@
 - 次: real-provider Human Gateの準備時に公式model・価格を確認し、費用/tool上限付きで別承認を得る
 - 注意: `POL-20260904-agent-worker-foundation-proof-implementation`参照。provider/network/credential、
   installed production state、cleanup、`_refs/*`、commit/push/tag/publish/releaseは未操作
+
+## 2026-09-04 19:07 JST
+
+- 実行エージェント: Codex owner + zero-context planner
+- 作業トピック: Agent Worker real-provider Human Gate preflight
+- 実施: 公式OpenRouter model/APIとcurrent profileを再確認。Human Gate準備中にexternal aliasのlauncher
+  config欠落、Worker production SSE欠落、required Worker execution traceのreadback口欠落を確認し、実行計画を停止
+- 次: `ASK-20260904-agent-worker-real-provider-gate-corrections`へのuser判断
+- 注意: `ISS-20260904-agent-worker-real-provider-gate-blockers`参照。provider request、credential、production
+  `henji`/state、cleanup、product source/test/config、`_refs/*`、commit/push/tag/publish/releaseは未操作
+
+## 2026-09-04 19:35 JST
+
+- 実行エージェント: Codex owner + zero-context planner + functional architecture reviewer
+- 作業トピック: Agent Worker real-provider gate blocker correction planning
+- 実施: 3 blockerをlauncher config、Worker SSE、Host-owned execution artifact/read-only CLIで閉じる限定計画を
+  作成。reviewはGO、Blocker/P1/P2 0。costはtask実測ベースUSD 0.004–0.01へ修正し、28 requestsと分離
+- 次: `ASK-20260904-agent-worker-real-provider-gate-corrections`へのuser判断
+- 注意: plan SHA-256 `9f95cab1308216fb35a3a5683657819c7d8168cce41b3f83a6ce3c80b79602ac`。
+  planning/handoff以外、provider/credential/production state、`_refs/*`、git historyは未操作
+
+## 2026-09-04 20:19 JST
+
+- 実行エージェント: Codex owner + single implementer + functional reviewer
+- 作業トピック: Agent Worker real-provider gate blocker corrections
+- 実施: launcher config、Worker SSE、Host-owned execution artifact/read-only CLIを実装。initial P1/P2を局所修正し、
+  narrow re-review GO、owner `v0:gate`一回成功
+- 次: planned real-provider Human Gateを行う場合は、別packageを作り明示承認を得る
+- 注意: `POL-20260904-agent-worker-real-provider-gate-corrections`参照。誤probeの4 provider requests、USD
+  0.003063、一時state保持を記録。cleanup、追加provider、installed production、git history操作は未実施
+
+## 2026-09-04 20:26 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: Agent Worker real-provider gate blocker corrections integration
+- 実施: userの明示依頼によりcorrection実装、計画、結果、handoffをrepository commitへ統合
+- 次: pushには未設定のremote URLまたはremote名が必要
+- 注意: Git remote/upstreamは存在しない。`_refs/*`と`docs/plans/surface-roadmap.md`は未追跡のまま保持
