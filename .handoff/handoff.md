@@ -4,15 +4,15 @@
 
 ### Worker production acceptance
 
-- 状態: Agent Worker foundation Stages 1–3とreal-provider gate correctionsの実装は完了し、provider-free review/gateはGO。built-in 1 turn＋external 1 turnのexecution packageを準備し、公式public model/価格readback、installed launcher identity、workspace/state不在、actual encoder＋scripted SSEによるprovider-free各2-request preflightを確認済み。real-provider Human Gateは未承認・未実施
-- 次: `docs/plans/agent-worker-real-provider-human-acceptance.md`のexact execution Human Gateをユーザーが承認または却下する
-- 正本: `docs/plans/agent-worker-foundation-proof-stages-1-3.md`、`docs/plans/agent-worker-foundation-proof-stages-1-3-results.md`、`docs/plans/agent-worker-real-provider-gate-corrections.md`、`docs/plans/agent-worker-real-provider-gate-corrections-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance.md`
-- 注意: 実行はread各1回、planner 0、expected合計4 requests、retry/fallback/rerun/additional turn 0で別承認が必要。見積りUSD 0.004–0.01、公式full model limitsで4 requests最大USD 4.128768だがclient monetary capはない。28はdiagnostic/stop boundで予算ではない。corrections中の4 provider requests incidentは受入証拠外で一時evidenceを保持、cleanupや追加provider操作は未承認
+- 状態: Agent Worker foundation Stages 1–3、real-provider gate corrections、provider-free review/gate、built-in/external各1 turnのreal-provider Human Gateが完了。両経路はread 1回、他tool 0、exact final、各2 HTTP 200 requests、session turn 1、Host commit、durable evidence/execution artifact、clean Ctrl-D exitを満たし、合計1,841 tokens、provider報告cost USD 0.00197775。ユーザーは結果を確認しWorker production acceptanceを最終採用した
+- 次: Experience-driven self-revision / first experience choice Recordに従い、通常利用から最初の具体的な経験を一つ選ぶ
+- 正本: `docs/plans/agent-worker-foundation-proof-stages-1-3.md`、`docs/plans/agent-worker-foundation-proof-stages-1-3-results.md`、`docs/plans/agent-worker-real-provider-gate-corrections.md`、`docs/plans/agent-worker-real-provider-gate-corrections-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance.md`、`docs/plans/agent-worker-real-provider-human-acceptance-results.md`
+- 注意: exact Human Gate authorizationはconsume済み。retry/fallback/rerun/additional turn 0。built-in/external workspaceとworkspace-partitioned stateはinspection用に保持し、cleanupや追加provider操作は未承認。corrections中の4 provider requests incidentは今回の受入証拠外で一時evidenceを保持。追加のWorker受入判断は不要
 
 ### Experience-driven self-revision / first experience choice
 
 - 状態: ユーザーはHost / Worker分離の維持、experience-driven revision loopの製品中心化、pending Worker受入後に実経験から必要な境界を証明する順序を採用した。最初の改訂対象と個別実装は未決。permanent I/O placement、resident Host、Stage 4、migrationは観測されたneedがない限り将来範囲。surface-roadmapは未追跡draftで、Phase Bのdata-only / two-trust-tier表現は現行authorityではない
-- 次: Worker production acceptance Recordの限定受入を別承認で完了した後、通常利用から最初の具体的な経験を一つ選ぶ
+- 次: 通常利用から最初の具体的な経験を一つ選び、観測事実、利用者影響、望む変化をrevision candidateの入力にする
 - 正本: `docs/plans/experience-driven-self-revision-proposal.md`、`docs/architecture/henji-host-agent-worker.md`
 - 注意: 未追跡の旧draft `docs/plans/surface-roadmap.md`は非authority参照。採用判断はWorker gate package準備、provider実行、self-revision実装、候補適用を認可しない。最初のcycleでは実行entry ref、比較対象の改訂一式、有効化したWorkerを区別し、developer-assisted作業をHenji自身のself-revision証拠に数えない
 
