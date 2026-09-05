@@ -29,7 +29,7 @@ credentialは別Human Gateなしに実行しない。
   `10098e02a2d57897f647ad202aecfa9218934f83d215dd8d8ccf211884031e5e`
 - composition boundary: `docs/plans/agent-definition-composition-boundary.md`、SHA-256
   `226692cdc46f466460244dd6df655803831c30ecd06dad92a662f398367e6b55`
-- delivered roadmap input: `docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`
+- delivered roadmap input: `archive/history/docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`
 - implementation baseline: current uncommitted working tree with full v0 gate 297 tests and
   independent review `GO`、Blocker/P1/P2 zero
 

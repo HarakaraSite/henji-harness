@@ -1,35 +1,19 @@
-# Henji Host / Agent Worker アーキテクチャ概念
+# Henji Host / Agent Worker アーキテクチャ
 
-ステータス: 承認済みアーキテクチャ。Stages 1–3のprovider-free実装とreal-provider gate correctionsは
-完了している（[foundation results](../plans/agent-worker-foundation-proof-stages-1-3-results.md)、
-[corrections results](../plans/agent-worker-real-provider-gate-corrections-results.md)）。real-provider
-Human Gateは未実施であり、常駐Host/Stage 4以降のfull architectureは未実装。この文書は実装認可ではない
+ステータス: 承認済みアーキテクチャ。roadmap、実装計画、Human Gate、実装認可ではない
 
-2026-09-05 採用済み方針: セッションをまたぐ作業・目的・判断理由の継続と、handoff / delegation 等の
-経験から改訂対象を選び、必要に応じて実行可能な Definition や runtime の候補へつなぐ構想を
-[`docs/plans/experience-driven-self-revision-proposal.md`](../plans/experience-driven-self-revision-proposal.md)
-に記録した。Host / Worker 分離を維持し、experience-driven revision loop を製品の中心軸とする。
-この採用は、既存の Human Gate または個別の実装認可を置き換えない。
+対応するプロダクト構想は
+[`docs/concepts/experience-driven-self-revision.md`](../concepts/experience-driven-self-revision.md)
+である。このarchitectureはHenjiの実行基盤を構造化するとともに、将来Henji自身の機能を継続的に
+改訂できる余地を保つ。自己改訂の着手時期はこの文書で決めない。
 
-なお、未追跡の [`docs/plans/surface-roadmap.md`](../plans/surface-roadmap.md) にある Phase B の
-data-only / two-trust-tier 表現は旧 draft であり、現行 authority ではない。accepted architecture と
-その proof order を優先し、draft の表現だけでは構成や実装の採用を意味しない。
-
-この文書は、常駐する Henji Host とヘッドレスな Deno Agent Worker を将来分離するという
-プロダクトの方向性を記録する。これはアーキテクチャ決定記録であり、プロトコル仕様、
-移行の約束、または現行ランタイムを変更する認可ではない。
-
-この方向性の正本は、現在ユーザーが確認したプロダクト概念である。以下の決定と矛盾する
-範囲に限り、旧来の限定
-[`docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`](../roadmap-inputs/henji-agent-definition-composition-boundary.md)
-に優先する。この過去の入力文書を暗黙に書き換えることはしない。将来の実装には、別途
-承認された計画と、この境界が実際のプロダクト経路で機能することを示す最小限の証明が
-必要である。
+この文書は、Henji HostとヘッドレスなDeno Agent Workerの責務、状態、lifetime、commit境界を定める。
+具体的な実装順序、着手時期、機能優先順位はroadmapで扱う。
 
 ## プロダクト上の決定
 
-- Henji は Deno ベースの agent harness である。agent は TypeScript 関数で定義され、その
-  関数は実際に合成可能であり続けなければならない。
+- HenjiはDenoベースのagent harnessである。`AgentDefinition`はHenji内部の実行構成を表す、信頼された
+  executable TypeScript関数である。
 - この概念でいう実行 primitive は Deno Web Worker（`new Worker`）である。これは Cloudflare の
   デプロイ単位としての Worker とは別のものである。`AgentWorkerGeneration` は、この Deno Web
   Worker による一時的な実行を表す概念名として引き続き用いる。
@@ -43,18 +27,16 @@ data-only / two-trust-tier 表現は旧 draft であり、現行 authority で�
   選択内容を説明するが、admission/permission authority にはならない。
 - Deno Web Worker は、組み込み Definition と外部 Definition の双方に共通する単一の実行カプセル
   として提案する。Worker はライフサイクル境界であり、別の trust tier ではない。
-- Definition は、provider、model、effort、loop、tools、subagents、context をその Worker 内で
-  1 つの実行中の `AgentComposition` に合成できる。現在の OpenRouter profile、model、loop、tool
-  set、TUI は、開発とバグの範囲を抑えるために選んだ初期 default であり、恒久的なアーキテクチャ
-  制約でも、Definition が将来合成できるものの allowlist でもない。
+- Definitionは、provider、model、effort、loop、tools、subagents、contextをWorker内の一つの
+  `AgentComposition`へ合成できる。この合成可能性は、目的別のagent variantを増やすことを主目的とせず、
+  Henji自身の構成を将来継続的に改訂できる余地を保つためのmechanismである。
 - UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、将来の
   interface/protocol を通じてのみ Host と通信する。
-- 実利用の証拠から Henji が改訂候補を提案・生成し、通常利用で比較して採用を判断する流れを製品の
-  中心軸とする。現行の構造は Definition を含む改訂を妨げてはならないが、個別の自己改訂 cycle、
-  候補の適用、昇格は別途承認された計画で行う。
-- 常駐 Host があって初めて、永続的な agent が技術的に可能になる。その durable な
-  `AgentInstance` は ephemeral または再起動された Worker generation より長く存続しなければ
-  ならない。persistent-agent 機能は将来の範囲であり、現行実装の要件ではない。
+- 将来の自己改訂では、多数のDefinitionからagentを選ぶことではなく、Henji自身のinstruction、skill、
+  context、tool、loop、runtime等を経験に応じて変更できなければならない。このarchitectureはその変更を
+  不必要に妨げる固定化を避けるが、自己改訂の着手時期や実装方法を決めない。
+- 永続的なagentを採用する場合は常駐Hostが必要であり、durableな`AgentInstance`はephemeralまたは
+  再起動されたWorker generationより長く存続しなければならない。
 - Host の durable な `AgentInstance` metadata は、その Instance が現在使用する
   `DefinitionRevisionRef` を bind する。Definition revision の変更は、同じ revision の Worker
   restart とは区別され、明示的で durable な transition でなければならない。
@@ -123,12 +105,17 @@ UI を要求してはならない。
 
 物理的な terminal と Surface I/O は Host が所有する。一方、provider/tool effect の物理 I/O を
 Worker が直接実行するのか、Host の RPC/capability 経由にするのか、subprocess 境界に置くのかは
-重要な未決定事項であり、最初の proof が偶然に決めてはならない。
+重要な未決定事項である。現行または将来の個別実装上のplacementを、別途architectureで決定せずに
+確定事項とみなしてはならない。
 
-この境界を通るのは data と protocol message である。JavaScript 関数そのものが境界を越える
-とは想定しない。Deno Web Worker の通信は structured clone を使用し、以下で説明する local probe
-では、関数を `postMessage` で送ると `DataCloneError` が発生した。このため、Definition は
-Host から callable value として渡すのではなく Worker 内で評価する。
+この境界を通るのはdataとprotocol messageである。JavaScript関数そのものは境界を越えない。
+Deno Web Workerのstructured cloneでは関数を送れないため、DefinitionはHostからcallable valueとして
+渡さず、Worker内で評価する。根拠となるAPIとlocal probeは
+[`docs/research/host-worker-reference-comparison.md`](../research/host-worker-reference-comparison.md)
+に記録する。
+
+Deno Worker permissionだけでは、`--allow-run`で起動したsubprocessとそのdescendantを隔離できない。
+したがって、このWorker境界はlifecycleとdataの境界であり、完全なsandboxや別のtrust tierとは扱わない。
 
 ### Definition revision と generation の fencing
 
@@ -195,9 +182,9 @@ Persisted Host state が canonical であり、Worker state は ephemeral であ
 network、その他の effect には、それぞれ将来の semantics が必要である。この文書はそれらの
 semantics を定義しない。
 
-## 将来の常駐 agent の仕組み
+## 常駐agentを採用する場合のmechanism
 
-これらの mechanism は常駐 Host の帰結であり、意図的に現行要件には含めない。
+常駐agentをproduct機能として採用する場合、次の責務分離に従う。
 
 | Mechanism | Host の責務 | Worker の責務 |
 | --- | --- | --- |
@@ -212,263 +199,30 @@ generation は一度に 1 つだけであり、複数 Surface/Session からの 
 routing を担う。常に address 可能な persistent agent は ephemeral Worker だけでは提供できず、
 常駐 Host、durable storage、service supervisor または同等の lifecycle owner を必要とする。
 
-## 現在の証拠と既存の seam
+## 外部比較の位置付け
 
-この repository は現在 trusted-local な Deno harness であり、Stages 1–3 の Host / Worker 分割は
-provider-freeで実装済みである。現在のHostはTUI process内のsession coordinatorであり、常駐serviceや
-durable `AgentInstance`ではない。real-provider Worker Human GateとStage 4以降は未実施であり、現在の
-実装をfull architectureの完成とは扱わない。
+Deno、Cloudflare、Pi、Zot、OpenComputer、OpenClawとの詳細な比較は
+[`docs/research/host-worker-reference-comparison.md`](../research/host-worker-reference-comparison.md)
+に背景調査として分離する。このarchitectureが採用する結論は次に限る。
 
-- 運用上の baseline は Deno 2.9.4 である。現在の runtime と Definition path は
-  [`v0/agent/`](../../v0/agent/) にある。
-- [`v0/agent/worker_agent_api.ts`](../../v0/agent/worker_agent_api.ts) と
-  [`v0/agent/worker_bootstrap.ts`](../../v0/agent/worker_bootstrap.ts) は、built-in / external の実行可能な
-  Definitionを共通Worker経路で評価し、model、registry、system instruction、maxStepsを含む
-  Worker-local compositionを構築する。loop、context、compaction等を任意に合成できる証明ではなく、
-  それらは現時点でWorker runtime側に固定されたままである。
-- [`v0/agent/session.ts`](../../v0/agent/session.ts) には現在の session、transcript、persistence、
-  commit の挙動がある。 [`v0/agent/events.ts`](../../v0/agent/events.ts) には provider-neutral な
-  lifecycle event seam がある。 [`v0/agent/tui_presentation_adapter.ts`](../../v0/agent/tui_presentation_adapter.ts)
-  と [`v0/presentation/contract.ts`](../../v0/presentation/contract.ts) は presentation projection
-  boundary を示している。これらのファイルはいずれも最終的な Host/Worker protocol ではなく、
-  それ自体が移行を認可するものでもない。
-- [Deno Web Worker API](https://docs.deno.com/api/web/workers/) は Worker の実行と message passing を
-  文書化している。観測した local check では、Deno Web Worker は別の isolate/event loop で動作し、
-  `postMessage` は [structured clone を含む Web platform API](https://docs.deno.com/runtime/reference/web_platform_apis/)
-  を使用した。関数を送ると `DataCloneError` が発生した。
-- Deno Web Worker の permission はデフォルトで parent から継承される。Deno の
-  [`WorkerOptions`](https://docs.deno.com/api/web/~/WorkerOptions) は Worker ごとの permission
-  narrowing を公開しているが、インストール済み Deno 2.9.4 ではこの option に
-  `--unstable-worker-options` が必要だった。local `permissions: "none"` check では read と
-  environment access が `NotCapable` により阻止された。これらの観測は lifecycle と data の
-  境界を裏付けるが、完全な sandbox architecture を確立するものではない。
-- Deno の [security documentation](https://docs.deno.com/runtime/fundamentals/security/) は、
-  `--allow-run` で起動された subprocess が Deno permission sandbox の外側にあると記載している。
-  将来の設計文書では、Deno Web Worker permission だけで shell tool またはその descendant を閉じ込められる
-  と主張してはならない。
-- Deno Web Worker は単独では durable ではない。常駐 Host と durable storage、および service lifecycle
-  owner は、将来の persistence と recovery のアーキテクチャ上の前提条件である。
+- Henjiの実行primitiveはDeno Web Workerであり、Cloudflareのデプロイ単位としてのWorkerではない。
+- `AgentWorkerGeneration`はephemeralなexecutorであり、durable stateの正本ではない。
+- HenjiHostは、採用したlifecycle、routing、storage、supervisionを自身の責務として実装する。
+- 外部実装との類似は、Henjiのprotocol、managed semantics、機能優先順位を決めない。
 
-## 外部の類似例とその限界
+## 未決のアーキテクチャ判断
 
-これらの参照は用語と trade-off を考える材料である。いずれも Henji にそのまま適用できる
-設計でも、Henji が提案された Worker capsule をすでに持つことの証拠でもない。
+確定した制約は、それぞれの責務と境界を定める本文に置く。ここには選択肢が残る判断だけを、その理由と
+判断する契機とともに記録する。roadmapは契機となるproduct機能を採用するかを決め、個別計画は採用された
+機能に必要な判断を具体化する。
 
-### Deno Web Worker と Cloudflare の三層比較
-
-この文書で実行 primitive と呼ぶ Worker は Deno Web Worker（`new Worker`）であり、Cloudflare
-のデプロイ単位としての Worker ではない。次の対応は、実装上の同値性ではなく、責務と lifetime
-を比較するための大まかな analogy である。
-
-| 層 | Henji | Cloudflare 側とのおおよその対応 |
+| 未決の判断 | 今決めない理由 | 判断する契機 |
 | --- | --- | --- |
-| 実行 | [Deno Web Worker (`new Worker`)](https://docs.deno.com/api/web/workers/) / `AgentWorkerGeneration` | active な in-memory の [Cloudflare Agent incarnation](https://developers.cloudflare.com/agents/runtime/lifecycle/agent-class/) または [Durable Object lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) の一部に相当するにとどまる。 |
-| durable agent | `AgentInstance` | [Durable Object の ID/name と付随する永続 state](https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/) におおよそ対応する。 |
-| platform / control plane | HenjiHost の lifecycle、routing、storage、supervision mechanism | Cloudflare の managed [Workers / Durable Objects platform](https://developers.cloudflare.com/workers/local-development/) と [Agents SDK runtime](https://developers.cloudflare.com/agents/runtime/operations/configuration/) および [Agents routing](https://developers.cloudflare.com/agents/runtime/communication/routing/) が提供する制御面におおよそ対応する。 |
-
-この analogy は equivalence ではない。
-
-- Cloudflare Agent code は attached state に直接アクセスできるが、Henji Worker は commit proposal
-  を返し、canonical な storage authority は Host である。[Cloudflare Agent class の lifecycle](https://developers.cloudflare.com/agents/runtime/lifecycle/agent-class/)
-  と [Durable Objects の state](https://developers.cloudflare.com/durable-objects/concepts/what-are-durable-objects/)
-  を、Henji のこの境界と同一視してはならない。
-- Cloudflare Agent class/runtime と agent harness は別の概念である。[Cloudflare の harnesses](https://developers.cloudflare.com/agents/harnesses/)
-  が示すように、model/tool loop は custom harness/Think であり得る。したがって Cloudflare Agent
-  class は Henji `AgentDefinition` ではない。
-- Durable Object の single-threaded execution は、agent turn が常に一度に 1 つだけ処理されることを
-  自動的には意味しない。[Durable Objects の concurrency rules](https://developers.cloudflare.com/durable-objects/best-practices/rules-of-durable-objects/)
-  に関わる async interleaving/concurrent execution semantics は、Henji Host の admission semantics
-  とは異なる。
-
-Cloudflare の managed Workers は Cloudflare の platform 上で実行されるが、公式の
-`wrangler dev` は local `workerd` を使用し、[workerd は self-hosted use もサポートする](https://github.com/cloudflare/workerd/blob/main/README.md)。
-しかし workerd を self-host しても、Cloudflare の managed routing、placement/uniqueness、storage
-service、autoscaling、alarms、supervision、observability が再現されるわけではない。[Workers の
-local development](https://developers.cloudflare.com/workers/local-development/) と
-[Cloudflare Agents の configuration](https://developers.cloudflare.com/agents/runtime/operations/configuration/)
-が示す managed platform 依存を、単独の runtime の性質として扱わない。Cloudflare Agents の
-official production semantics も Durable Object bindings と managed platform に依存する。
-
-Henji の portability は「Deno が存在する」ことだけでは保証されない。正確な Deno/runtime/OS/TTY/
-storage/supervisor の依存関係を満たす machine 上で実行できる、という意味に限る。
-
-| 参照 | 有用な比較 | 明示し続けるべき限界 |
-| --- | --- | --- |
-| [Pi's coding-agent snapshot](../../_refs/pi/packages/coding-agent/README.md) | tool、command、event handler、UI component を追加できる、自由度の高い trusted TypeScript extension を示す。 | Pi の in-process extension model は Deno Worker boundary の証明にならない。Henji では Definition が合成可能なままでも、UI の所有権は Host に置く。 |
-| [Zot extension docs](../../_refs/zot/docs/extensions.md) と [RPC docs](../../_refs/zot/docs/rpc.md) | subprocess RPC は message boundary 越しの結合と障害分離を示し、RPC mode では persistence を Host が所有する。 | subprocess と JSON/RPC protocol だけで OS authority や security boundary になるわけではない。別の証拠なしに、Henji が提案する Deno Web Worker をそのように説明してはならない。 |
-| [OpenComputer Agent snapshot](../../_refs/opencomputer/agent/README.md) | 管理された runtime における同期的な TypeScript agent composition を示す。model、tools、subagents、関連 capability は code によって選択される。 | 公開情報または repository の証拠は、Deno-Worker 相当の capsule を証明しない。managed deployment、gateway secret、その reactive semantics はこの概念に採用しない。 |
-| [Cloudflare Agent internals](https://developers.cloudflare.com/agents/runtime/lifecycle/agent-class/) と [Durable Object lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) | durable identity と state を、破棄・再生成可能な in-memory execution と組み合わせられる、有用な actor/lifecycle 類似例である。 | 常時稼働 process model ではなく、Henji の storage、mailbox、scheduling、deployment 設計を決めるものでもない。 |
-| [OpenClaw runtime architecture](https://github.com/openclaw/openclaw/blob/main/docs/agent-runtime-architecture.md) とその [distributed-runtime proposal](https://github.com/openclaw/openclaw/issues/42026) | 共有 Gateway 内の複数の論理 agent と、別途提案された compute/lifecycle architecture を区別するのに役立つ。 | この proposal は現在の OpenClaw 実装ではなく、どちらの参照も Henji の Worker protocol を定義しない。 |
-
-## 将来計画のための実装難所（参照、実装範囲外）
-
-以下は、将来の planning で優先順位を付けるための参照記録であり、実装範囲でも、実装を
-開始する認可でもない。具体的な protocol field、schema、retry algorithm、limit、security matrix
-はここでは設計しない。
-
-### Critical
-
-- Deno Web Worker protocol と composition boundary: structured clone は関数を運べないため、Definition は
-  Deno Web Worker 内で import/evaluate しなければならない。message には、意味を持つ data-only な相関が
-  必要である。[Deno Web platform API](https://docs.deno.com/runtime/reference/web_platform_apis/) と
-  この文書の local probe は、その前提を示している。
-- tool/provider effect と durable commit: 共有 transaction はない。`effect request`、
-  `effect started/completed/unknown evidence`、`state commit proposal` を区別し、commit がないこと
-  だけから安全な replay を推論しない。
-- Definition revision、generation、base state の fencing: executable identity には dependency/import
-  の関係も含まれ得る。stale generation の proposal を拒否し、Manifest を authority にしない。
-- provider/tool の物理 I/O の配置: Worker 直接実行、Host RPC/capability、subprocess 境界のどれを
-  採るかは、最も重要な未解決の実装選択である。最初の proof がこの選択を偶然に決めてはならない。
-
-### High
-
-- 複数 Session にまたがる一 writer と head-of-line blocking。
-- cooperative cancel と強制的な `Worker.terminate()` の違い、および不明な effect outcome。
-- streaming/large output/backpressure と、structured clone の copy/memory cost。Worker の構成と
-  通信に関する [Deno worker pool の例](https://docs.deno.com/examples/worker_pool/) も参照する。
-- executable module の load と Definition revision の rollout。
-- lifecycle/resource ownership: durable な各 Instance を常駐 Worker に対応付けないこと。lazy
-  activation と idle teardown を前提にできる。
-- service supervision と Host crash recovery。
-
-### Medium
-
-- Surface reconnect と canonical replay。
-- credential/Authorization を露出させずに行う correlation/observability。
-- portability のための正確な Deno/OS/TTY/module/storage deployment profile。
-- human の product need が生じた場合に限る、将来の mailbox/schedule semantics。
-
-## 採用した proof 順序（個別の実装承認ではない）
-
-Stages 1–3 のprovider-free foundationは完了済みである。以降は固定されたStage 4–7を順番に実装せず、
-experience-driven revision loopを最初のproduct proofとし、観測したneedに必要な境界だけを進める。
-各段階の成功基準は、実際のHenji product pathで人間が目的を完了できることである。fixtureやprotocol
-stubはその代替にならない。実際のprovider/tool executionには、既存の別途Human Gateが引き続き必要である。
-
-1. Corrections plan §7の範囲を維持したpending Worker Human Gateで、built-in 1 turnとexternal 1 turnを
-   self-revision trialから分離して受け入れる。package準備と実行はそれぞれ別の承認を必要とする。
-2. 通常のHenji利用から、観測された具体的な困難または繰り返したい成功を一つ選び、目的、baseline、
-   evidence、比較する実用差を記録する。
-3. その経験に必要な境界だけを準備する。新sessionで比較できるならgeneration replacementを先行させず、
-   同一sessionのrevision transitionやloop/contextの選択が成功条件なら、該当境界だけを別途計画する。
-4. Henji自身に実行証拠を読ませ、改訂候補を提案・生成させる。外部Codexまたは人間が作成・編集した
-   artifactは`developer-assisted`と記録する。
-5. 実行entry ref、比較対象の改訂一式、有効化したWorkerを区別して候補を次の利用へ反映し、同じ目的の
-   通常利用でbaselineと比較する。
-6. 観測された次のneedに応じて、generation replacement、第2のSurface、resident Host、mailbox、schedule
-   等の基盤をそれぞれ別の計画で進める。
-
-## 延期する決定と対象外
-
-以下は、別の計画が証拠と明示的な scope を持つまで延期したままにしなければならない。
-
-- Worker message protocol、wire representation、handshake、error model、versioning。
-- Definition の load、module identity、source/revision lineage、dynamic import、plugin lifecycle、
-  distribution、および AI が生成した revision の approval または promotion。
-- 正確な provider-neutral adapter surface、model selection、composition を turn ごとまたは
-  generation ごとに再構築するかどうか。
-- Worker restart、cancellation、retry、concurrency、lease、backpressure の semantics。
-- persistence schema、mailbox acknowledgement/deduplication、routing policy、schedule timing、
-  compaction の詳細、Instance-wide mutable state、cross-session memory の具体機能。
-- effect の idempotency/deduplication 契約、exactly-once の保証、effect ledger、recovery UI、retry
-  algorithm。
-- 上記の実装難所に関する、具体的な protocol、execution placement、deployment profile、recovery の
-  詳細設計。
-- provider/tool effect の物理 I/O placement（Worker direct、Host RPC/capability、subprocess boundary）と、
-  tools の host/process/permission arrangement。`--allow-run` subprocess とその effect の扱いを含む。
-- portability のための正確な Deno/OS/TTY/module/storage deployment profile、および resident Host の
-  service supervision、recovery、capacity、observability の具体設計。
-- remote または multi-host Surface、deployment、rollout、現行 runtime からの migration。
-
-この概念は以下を行わない。
-
-- 現行の `v0/` 実装を移行せず、現在の provider、tools、session、TUI を変更しない。
-- 3 つ目の production Definition、loader、marketplace、plugin manager を導入しない。
-- `AgentManifest` を execution allowlist に変えない。
-- code provenance だけを理由に、信頼された Definition と信頼されていない Definition の別経路を
-  作らない。
-- UI rendering を Worker に移さず、特定の Surface も要求しない。
-- 現時点で Worker-only sandbox、tool effect の rollback、always-on persistence、self-revision を
-  約束しない。
-- Deno が利用できるというだけで、特定の runtime/OS/TTY/storage/supervisor の組み合わせと同等の
-  behavior が得られるとは主張しない。
-- Cloudflare の managed platform、Durable Object、Agents SDK runtime の lifecycle、routing、storage
-  semantics を Henji の現行 behavior として採用したり約束したりしない。
-- 詳細な schema、API name、limit、rollout step、test matrix を規定しない。
-
-## 帰結と次の gate
-
-この方向性は TypeScript の合成自由度を維持しつつ、Surface、storage、Worker lifecycle を Host が
-独立して制御できるようにする。同時に、境界を越える値は protocol で表現しなければならない
-こと、turn 中の state は ephemeral であること、durable commit は Host の操作であること、tool
-effect は自動的に transactional ではないことを明確にする。Deno Web Worker permission の挙動と subprocess
-への到達可能性は後続設計で特に注意を要するが、ここでは一般的な hardening policy を導入しない。
-また、Definition revision と generation/lease、base session state revision の binding、
-`AgentInstance` と Session の canonical domain、effect の replay 可否を曖昧にしないことで、後続の
-実装が古い generation の proposal、二重の正本、外部 effect の透明な再実行を正当化しないようにする。
-Cloudflare の managed platform は lifecycle、routing、durable storage、scheduling/wake-up、
-supervision、recovery、capacity、observability の control plane を提供するが、Henji はそれを
-前提にしない。Henji は local physical tool/UI の自由度と operator が制御する semantics を得る
-代わりに、これらの control-plane responsibility を自ら構築・運用する local-first trade-off を
-意図的に選ぶ。
-
-Stages 1–3 は、組み込みと外部の trusted TypeScript Definition が同じ Worker capsule、protocol、commit
-path を使うこと、UI を Host に維持すること、Host の durability 後にのみ turn が commit されることを
-provider-freeで証明した。pending Worker Human Gateは、その現行候補を実provider経路で限定受入する。
-その後のimplementation planは、通常利用から選んだ一つの経験に必要な性質だけを実製品経路で証明する。
-generation replacement、同じdurable Instanceの再開、第2のSurface、resident Host等を一律の前提にしない。
-採用した順序は「採用した proof 順序」に示すが、それ自体は個別の実装認可ではない。各段階でも、
-provider/toolの物理I/O配置、revision fencing、effect evidence、canonical durabilityを意図せず決めない。
-
-### レビュー用チェックリスト
-
-この概念またはその最初の proof を将来 review するときは、product correctness と概念への忠実性を確認する。
-
-- 文書は Definition、live Composition、Manifest、Instance、Worker generation、Surface、Host の区別を
-  保っているか。
-- 実行 primitive が Deno Web Worker（`new Worker`）として定義され、Cloudflare のデプロイ単位である
-  Worker と混同されていないか。また、実行・durable agent・platform/control plane の三層比較が analogy
-  であり、equivalence ではないと明記されているか。
-- Cloudflare Agent の attached state への直接アクセスと、Henji Worker の commit proposal / Host canonical
-  storage の違い、ならびに Durable Object の single-threaded execution と Henji の turn admission の違いが
-  保たれているか。
-- managed Cloudflare platform と local `workerd`/self-host の差、および Deno の存在だけでは portability が
-  保証されないことが、根拠付きで限定されているか。
-- 各 Worker generation に起動前の immutable な `DefinitionRevisionRef` が bind され、評価後の
-  `AgentManifest` は別の data-only projection として admission/permission authority から分離されているか。
-- Host は現在 admit された generation と一致する Definition/base session state revision の proposal だけを受理し、
-  同じ revision の restart と revision 変更を区別しているか。
-- `AgentComposition` の lifetime は Worker generation 内に閉じた 1 回の live evaluation とされ、
-  generation 単位で一度だけ構築するか turn ごとに再構築するかを未決のまま保っているか。
-- 組み込みと外部の trusted Definition は、Definition を manifest allowlist に縮小することなく、同じ
-  execution capsule と合成 semantics を使っているか。
-- Worker は headless で、交換可能な Surface の所有権は Host 側にあるか。
-- 物理的な Surface I/O は Host 所有として維持され、provider/tool effect の物理 I/O placement は未決定の
-  Worker direct / Host RPC・capability / subprocess 選択として残されているか。
-- session ID、lock、persistence、atomic commit、recovery、canonical state と ephemeral state の区別は、
-  正しい側に割り当てられているか。
-- 1 つの Session が必ず 1 つの `AgentInstance` に属し、1 つの `AgentInstance` が 0 個以上の Session を
-  持つこと、Session と Instance の canonical domain が混同されていないことが明記されているか。
-- 同じ `AgentInstance` の writer generation は一度に 1 つだけであり、複数 Surface/Session からの input
-  は Host がその generation へ serialize/routing することが明記されているか。
-- tool effect の暗黙の rollback を置かず、Host の durability 後にのみ turn が committed とされているか。
-- `effect request`、`effect started/completed/unknown evidence`、`state commit proposal` が区別され、durable commit
-  がないことだけで effect 未発生や安全な replay と判断せず、必要な契約または証拠なしに transparent replay
-  を許していないか。
-- mailbox、routing、schedule は将来の resident-Host mechanism として説明され、routing と tool dispatch は
-  区別されているか。
-- resident Host が durable な lifecycle owner/service であり、各 `AgentInstance` に永久常駐 Worker を要求せず、
-  0 個または 1 個の active generation と lazy activation / idle teardown を許しているか。
-- Cloudflare の managed control plane と、Henji が local physical tool/UI の自由度と operator-controlled
-  semantics の代わりに自ら lifecycle、routing、storage、scheduling、supervision、recovery、capacity、
-  observability を構築・運用する local-first trade-off が、バランスよく説明されているか。
-- 現在の source file は、既存の最終 protocol ではなく証拠・seam として説明されているか。
-- Deno Web Worker permission、structured clone、`--allow-run` に関する主張は、根拠があり、限定付きで説明されて
-  いるか。
-- 「採用した proof 順序」がexperience-drivenなordering constraintであり、いずれの段階の実装認可でも
-  ないこと、および各段階が実際のproduct pathと既存Human Gateの条件に従うことが明記されているか。
-- 最初のself-revision cycleで、実行entry ref、比較対象の改訂一式、有効化したWorker、通常利用での
-  adoption evidenceが区別され、developer-assisted作業をHenji自身の改訂実証と混同していないか。
-- Pi、Zot、OpenComputer、Cloudflare、OpenClaw の比較は、それぞれの参照が実際に示す範囲に限定されているか。
-- この概念が決定していない schema、limit、migration step、security matrix、test count を review で創作して
-  いないか。
+| provider/toolの物理I/OをWorker、Host RPC/capability、subprocessのどこに置くか | effect、latency、streaming、credential、利用するtoolの契約によって適切な境界が変わる | roadmapが具体的なprovider/tool利用経路を選んだとき |
+| Worker protocolのmessage、handshake、error、versioning | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる | 新しいHost / Worker間機能を実装するとき |
+| Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |
+| Definition moduleのidentity、dependency lineage、load、rollout | external moduleやrevision transitionで保証すべき再現性が、対象機能によって異なる | executable revisionの切替または配布をproduct機能として選んだとき |
+| Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |
+| mailbox、routing、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、常駐Hostから自動的には必要にならない | roadmapが対象機能を採用したとき |
+| effectのidempotency、deduplication、recovery | effect先の契約なしに共通のretryまたはexactly-once semanticsを決められない | recovery対象となる実tool effectを選んだとき |
+| deployment profile、service supervision、migration | 実行先、可用性、移行元と移行先が決まらなければ必要なmechanismを選べない | 常駐Hostの運用先または移行対象を決めたとき |

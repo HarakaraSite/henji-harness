@@ -2,19 +2,12 @@
 
 ## Records
 
-### Worker production acceptance
+### Project structure and canonical sources
 
-- 状態: Agent Worker foundation Stages 1–3、real-provider gate corrections、provider-free review/gate、built-in/external各1 turnのreal-provider Human Gateが完了。両経路はread 1回、他tool 0、exact final、各2 HTTP 200 requests、session turn 1、Host commit、durable evidence/execution artifact、clean Ctrl-D exitを満たし、合計1,841 tokens、provider報告cost USD 0.00197775。ユーザーは結果を確認しWorker production acceptanceを最終採用した
-- 次: Experience-driven self-revision / first experience choice Recordに従い、通常利用から最初の具体的な経験を一つ選ぶ
-- 正本: `docs/plans/agent-worker-foundation-proof-stages-1-3.md`、`docs/plans/agent-worker-foundation-proof-stages-1-3-results.md`、`docs/plans/agent-worker-real-provider-gate-corrections.md`、`docs/plans/agent-worker-real-provider-gate-corrections-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance.md`、`docs/plans/agent-worker-real-provider-human-acceptance-results.md`
-- 注意: exact Human Gate authorizationはconsume済み。retry/fallback/rerun/additional turn 0。built-in/external workspaceとworkspace-partitioned stateはinspection用に保持し、cleanupや追加provider操作は未承認。corrections中の4 provider requests incidentは今回の受入証拠外で一時evidenceを保持。追加のWorker受入判断は不要
-
-### Experience-driven self-revision / first experience choice
-
-- 状態: ユーザーはHost / Worker分離の維持、experience-driven revision loopの製品中心化、pending Worker受入後に実経験から必要な境界を証明する順序を採用した。最初の改訂対象と個別実装は未決。permanent I/O placement、resident Host、Stage 4、migrationは観測されたneedがない限り将来範囲。surface-roadmapは未追跡draftで、Phase Bのdata-only / two-trust-tier表現は現行authorityではない
-- 次: 通常利用から最初の具体的な経験を一つ選び、観測事実、利用者影響、望む変化をrevision candidateの入力にする
-- 正本: `docs/plans/experience-driven-self-revision-proposal.md`、`docs/architecture/henji-host-agent-worker.md`
-- 注意: 未追跡の旧draft `docs/plans/surface-roadmap.md`は非authority参照。採用判断はWorker gate package準備、provider実行、self-revision実装、候補適用を認可しない。最初のcycleでは実行entry ref、比較対象の改訂一式、有効化したWorkerを区別し、developer-assisted作業をHenji自身のself-revision証拠に数えない
+- 状態: Worker foundation Stages 1–3とreal-provider受入は完了済み。ユーザーは、将来構想であるHenji自身の継続的な改訂を直近の実装順序と誤って結び付けたことを確認し、現在地、構想、architecture、roadmapの順に正本を見直す計画を承認した。Step 1で現在地、Step 2で構想を正した。Step 3ではHost / Worker architectureから自己改訂を直近とするproof順序、実装の現在地、重複review checklistと帰結節を除き、runtime evidenceと外部比較を背景調査へ分離し、旧roadmap入力をhistoryへ移した。確定した制約は本文へ一元化し、未決判断には今決めない理由と判断契機を記録した。architectureは責務、状態、lifetime、commit境界を定め、機能の時期と優先順位を定めない
+- 次: 正した現在地、構想、architectureと現行productの実装・受入結果から、現在の機能不足と実装順序を示すroadmapを作る
+- 正本: `docs/plans/agent-worker-real-provider-human-acceptance-results.md`、`docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`
+- 注意: 自己改訂はactiveな次工程ではない。provider/production `henji`、Git config、commit/push/tag/publish/releaseは今回の文書見直しに含まれない。未追跡`docs/plans/surface-roadmap.md`と`_refs/*`は変更しない
 
 ### FR5 daily-use assessment and deferred UI
 
@@ -27,7 +20,7 @@
 
 - 状態: archived Spike2はProposal不在とcross-binding P1により最終結果NO-GO。後続のDefinition/Revision/Admission cycle（Step 78–80）は完了結果を保持する。source/target/transfer ledgerの現所有と範囲は未確認のまま、移管・採用・authority継承を判断できないdormant topic
 - 次: accessibleなoperations source、transfer ledger、対応するsource/target Recordsを取得してownerとdispositionを確定する
-- 正本: `archive/README.md`、`archive/safety-spikes/docs/plans/admission-builder-spike-2.md`、`archive/safety-spikes/docs/spikes/admission-builder-spike-2-results.md`、`docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`
+- 正本: `archive/README.md`、`archive/safety-spikes/docs/plans/admission-builder-spike-2.md`、`archive/safety-spikes/docs/spikes/admission-builder-spike-2-results.md`、`archive/history/docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`
 - 注意: local scopeの確認と関連henji/henjibot/abyssaeon handoffの照合ではoperations正本・transfer ledgerを確認できなかった。planner inputが示す旧operations正本（未アクセス）は`discovery/concepts/deno-self-revising-agent-harness/README.md`（`/tmp/planner-inputs/henji-agent-definition-resource-identity.md`）。archived safety workは明示判断なしに再開せず、移管先のRecordだけで完了・承認継承と判断しない
 
 ## Checkpoints

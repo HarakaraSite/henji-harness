@@ -58,15 +58,12 @@ repository document or prior practice conflicts with it, this section wins.
 - 承認済み計画が要求する場合、安定候補に対するauthoritative `v0:gate`はcoordinating ownerが一回だけ
   実行する。失敗時はfocused確認で原因を特定し、再実行には具体的理由を必要とする。
 
-## Current work
+## Continuation
 
-- Current resumption state is maintained in [`.handoff/handoff.md`](.handoff/handoff.md), whose Records contain only the active Worker acceptance, self-revision/first-experience choice, FR5 daily-use assessment, and dormant Spike2/operations transfer reconciliation topics. Preserved old checkpoints remain historical evidence.
-- Accepted architecture: [`docs/architecture/henji-host-agent-worker.md`](docs/architecture/henji-host-agent-worker.md). It preserves the Host/Worker direction and adopts an experience-driven proof order after the pending Worker gate; resident Host, Stage 4, permanent I/O placement, and migration remain future scope unless an observed product need requires one.
-- Worker foundation implementation and real-provider gate corrections are complete and reviewed provider-free. The separate [`agent-worker-real-provider-human-acceptance.md`](docs/plans/agent-worker-real-provider-human-acceptance.md) Human Gate passed once across the built-in and external Definition paths, and the user accepted the Worker production result recorded in [its results](docs/plans/agent-worker-real-provider-human-acceptance-results.md).
-- The experience-driven self-revision direction is adopted. It makes the actual-use evidence → revision candidate → normal-use comparison → adoption loop a product axis while leaving each implementation cycle and Human Gate separately scoped. See [`docs/plans/experience-driven-self-revision-proposal.md`](docs/plans/experience-driven-self-revision-proposal.md).
-- FR5 integrated UI candidate results and concrete Cycle 1–3 corrections are recorded in [`docs/plans/fr5-integrated-human-ui-candidate-results.md`](docs/plans/fr5-integrated-human-ui-candidate-results.md) and [`docs/plans/fr5-human-observed-ui-correction-results.md`](docs/plans/fr5-human-observed-ui-correction-results.md). Conditional candidate acceptance and concrete human-confirmed corrections do not establish final daily-use adoption; F1 is parked as 工事中.
-- Historical implementation and acceptance outcomes remain in their matching [`docs/plans/`](docs/plans/) results and Git history. Archived Spike2 remains dormant unresolved; later Definition/Revision/Admission implementation records have matching results and Git history, while external ownership/transfer remains unconfirmed.
-- Existing action boundaries remain: provider/credential access, production `henji`, installed launcher/state, `_refs/`, and commit/push/tag/publish/release operations require the applicable explicit authorization.
+- Current resumption state is maintained only in [`.handoff/handoff.md`](.handoff/handoff.md). Do not
+  duplicate changing project status or next actions in this file.
+- Keep product concepts, architecture decisions, roadmaps, implementation plans, and results in their
+  respective documents. Use this file for repository-wide working rules and pointers to authorities.
 
 ## Historical records
 

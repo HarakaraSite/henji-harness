@@ -19,7 +19,7 @@ parameterを解決する。Definitionは純粋な宣言関数とし、現行`cre
 ## Requirement and reference decisions
 
 正本入力は
-`docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`、SHA-256
+`archive/history/docs/roadmap-inputs/henji-agent-definition-composition-boundary.md`、SHA-256
 `4befcdb6489d3ad6a44328896508a1fc49f42cff45a469022c68c8fee1ffb1ec`である。
 
 OpenComputerの限定参照はApache-2.0、upstream commit
