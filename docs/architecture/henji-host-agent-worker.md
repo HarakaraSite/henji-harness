@@ -5,11 +5,11 @@
 [corrections results](../plans/agent-worker-real-provider-gate-corrections-results.md)）。real-provider
 Human Gateは未実施であり、常駐Host/Stage 4以降のfull architectureは未実装。この文書は実装認可ではない
 
-2026-09-05 draft 参照: セッションをまたぐ作業・目的・判断理由の継続と、handoff / delegation 等の経験から
-改訂対象を選び、必要に応じて実行可能な Definition や runtime の候補へつなぐ提案を
+2026-09-05 採用済み方針: セッションをまたぐ作業・目的・判断理由の継続と、handoff / delegation 等の
+経験から改訂対象を選び、必要に応じて実行可能な Definition や runtime の候補へつなぐ構想を
 [`docs/plans/experience-driven-self-revision-proposal.md`](../plans/experience-driven-self-revision-proposal.md)
-に追加した。これは draft の方向付けであり、この accepted concept、既存の Human Gate、または
-実装認可を置き換えない。
+に記録した。Host / Worker 分離を維持し、experience-driven revision loop を製品の中心軸とする。
+この採用は、既存の Human Gate または個別の実装認可を置き換えない。
 
 なお、未追跡の [`docs/plans/surface-roadmap.md`](../plans/surface-roadmap.md) にある Phase B の
 data-only / two-trust-tier 表現は旧 draft であり、現行 authority ではない。accepted architecture と
@@ -49,8 +49,9 @@ data-only / two-trust-tier 表現は旧 draft であり、現行 authority で�
   制約でも、Definition が将来合成できるものの allowlist でもない。
 - UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、将来の
   interface/protocol を通じてのみ Host と通信する。
-- AI が Agent Definition を改訂することは将来の概念である。現行の構造は Definition の改訂を
-  妨げてはならないが、自己改訂、候補生成、昇格は延期する。
+- 実利用の証拠から Henji が改訂候補を提案・生成し、通常利用で比較して採用を判断する流れを製品の
+  中心軸とする。現行の構造は Definition を含む改訂を妨げてはならないが、個別の自己改訂 cycle、
+  候補の適用、昇格は別途承認された計画で行う。
 - 常駐 Host があって初めて、永続的な agent が技術的に可能になる。その durable な
   `AgentInstance` は ephemeral または再起動された Worker generation より長く存続しなければ
   ならない。persistent-agent 機能は将来の範囲であり、現行実装の要件ではない。
@@ -213,17 +214,18 @@ routing を担う。常に address 可能な persistent agent は ephemeral Work
 
 ## 現在の証拠と既存の seam
 
-この repository は現在 trusted-local な Deno harness であり、この Host/Worker 分割はまだ実装
-していない。以下は証拠と利用可能な seam であって、すでに確定した Worker protocol ではない。
+この repository は現在 trusted-local な Deno harness であり、Stages 1–3 の Host / Worker 分割は
+provider-freeで実装済みである。現在のHostはTUI process内のsession coordinatorであり、常駐serviceや
+durable `AgentInstance`ではない。real-provider Worker Human GateとStage 4以降は未実施であり、現在の
+実装をfull architectureの完成とは扱わない。
 
 - 運用上の baseline は Deno 2.9.4 である。現在の runtime と Definition path は
   [`v0/agent/`](../../v0/agent/) にある。
-- [`v0/agent/agent_definition.ts`](../../v0/agent/agent_definition.ts) は現在 data-only declaration
-  を resolve している。したがって、その `AgentDefinition` type は上記の将来概念に向けた
-  implementation seam であり、実行可能な Definition composition がすでに Worker 内で動作する
-  証明ではない。 [`v0/agent/runtime.ts`](../../v0/agent/runtime.ts) と
-  [`v0/agent/registries.ts`](../../v0/agent/registries.ts) は、現在の prepare/materialize seam と
-  Host が所有する executable factory を示している。
+- [`v0/agent/worker_agent_api.ts`](../../v0/agent/worker_agent_api.ts) と
+  [`v0/agent/worker_bootstrap.ts`](../../v0/agent/worker_bootstrap.ts) は、built-in / external の実行可能な
+  Definitionを共通Worker経路で評価し、model、registry、system instruction、maxStepsを含む
+  Worker-local compositionを構築する。loop、context、compaction等を任意に合成できる証明ではなく、
+  それらは現時点でWorker runtime側に固定されたままである。
 - [`v0/agent/session.ts`](../../v0/agent/session.ts) には現在の session、transcript、persistence、
   commit の挙動がある。 [`v0/agent/events.ts`](../../v0/agent/events.ts) には provider-neutral な
   lifecycle event seam がある。 [`v0/agent/tui_presentation_adapter.ts`](../../v0/agent/tui_presentation_adapter.ts)
@@ -336,28 +338,25 @@ storage/supervisor の依存関係を満たす machine 上で実行できる、�
 - portability のための正確な Deno/OS/TTY/module/storage deployment profile。
 - human の product need が生じた場合に限る、将来の mailbox/schedule semantics。
 
-## 将来の段階的な proof 順序（推奨、実装承認ではない）
+## 採用した proof 順序（個別の実装承認ではない）
 
-これは将来の planning に向けた proof sequence と ordering constraint であり、いずれの段階の
-実装認可でもない。各段階の成功基準は、実際の Henji product path で人間が目的を完了できる
-ことである。fixture や protocol stub はその代替にならない。実際の provider/tool execution には、
-既存の別途 Human Gate が引き続き必要である。
+Stages 1–3 のprovider-free foundationは完了済みである。以降は固定されたStage 4–7を順番に実装せず、
+experience-driven revision loopを最初のproduct proofとし、観測したneedに必要な境界だけを進める。
+各段階の成功基準は、実際のHenji product pathで人間が目的を完了できることである。fixtureやprotocol
+stubはその代替にならない。実際のprovider/tool executionには、既存の別途Human Gateが引き続き必要である。
 
-1. 正確な Deno 2.9.4 上で Deno Web Worker capsule を probe する。structured clone、ordering、error、
-   terminate、permission option、large/stream event を確認する。daemon、mailbox、schedule、routing は
-   この段階に含めない。
-2. 現在の built-in Definition の 1 turn を Worker 経由で実行する。現行 TUI を Host の Surface として
-   維持し、ユーザーから見える production behavior を保つ。
-3. built-in と external の trusted Definition を、まったく同じ bootstrap/protocol/commit path に
-   通す。実行可能な TS composition が allowlist に縮小されていないことを証明する。
-4. 1 つの durable Instance/Session について Worker generation を置き換え、stale proposal rejection、
-   commit boundary、effect の可能性がある場合の automatic replay 不在を確認する。
-5. 1 つの実際の local tool と 2 つ目の Surface を用い、effect evidence、cancel、backpressure、Worker
-   内に UI logic がないことを確認する。
-6. resident Host/service supervision と複数 Session の routing を確認し、lazy Worker activation と
-   restart readback を含める。Instance の durability を常駐 thread に依存させない。
-7. human の need が生じた場合に限り、mailbox、schedule wake-up、remote ingress、multi-host、
-   self-revision をそれぞれ別の計画として扱う。
+1. Corrections plan §7の範囲を維持したpending Worker Human Gateで、built-in 1 turnとexternal 1 turnを
+   self-revision trialから分離して受け入れる。package準備と実行はそれぞれ別の承認を必要とする。
+2. 通常のHenji利用から、観測された具体的な困難または繰り返したい成功を一つ選び、目的、baseline、
+   evidence、比較する実用差を記録する。
+3. その経験に必要な境界だけを準備する。新sessionで比較できるならgeneration replacementを先行させず、
+   同一sessionのrevision transitionやloop/contextの選択が成功条件なら、該当境界だけを別途計画する。
+4. Henji自身に実行証拠を読ませ、改訂候補を提案・生成させる。外部Codexまたは人間が作成・編集した
+   artifactは`developer-assisted`と記録する。
+5. 実行entry ref、比較対象の改訂一式、有効化したWorkerを区別して候補を次の利用へ反映し、同じ目的の
+   通常利用でbaselineと比較する。
+6. 観測された次のneedに応じて、generation replacement、第2のSurface、resident Host、mailbox、schedule
+   等の基盤をそれぞれ別の計画で進める。
 
 ## 延期する決定と対象外
 
@@ -413,16 +412,13 @@ supervision、recovery、capacity、observability の control plane を提供す
 代わりに、これらの control-plane responsibility を自ら構築・運用する local-first trade-off を
 意図的に選ぶ。
 
-技術的な難しさは大きい。どのような migration よりも前に、別途承認された implementation plan が、
-実際のプロダクト経路で少なくとも次の性質を示す architecture の最小限の証明を定義しなければならない。
-組み込みの trusted TypeScript Definition と外部の trusted TypeScript Definition が同じ Worker capsule
-を使うこと、置換可能な Worker generation が同じ durable Instance を再開できること、UI code を Worker
-に置かずに Surface を変更できること、そして Host の durability 後にのみ turn が commit されることである。
-その証明は、fixture や protocol stub を product acceptance とみなすのではなく、未検証の事項も報告しなければ
-ならない。
-推奨する段階の順序は「将来の段階的な proof 順序」に示すが、それ自体は実装承認ではない。各段階でも、
-provider/tool の物理 I/O 配置、revision fencing、effect evidence、canonical durability を意図せず
-決めてしまわないことが必要である。
+Stages 1–3 は、組み込みと外部の trusted TypeScript Definition が同じ Worker capsule、protocol、commit
+path を使うこと、UI を Host に維持すること、Host の durability 後にのみ turn が commit されることを
+provider-freeで証明した。pending Worker Human Gateは、その現行候補を実provider経路で限定受入する。
+その後のimplementation planは、通常利用から選んだ一つの経験に必要な性質だけを実製品経路で証明する。
+generation replacement、同じdurable Instanceの再開、第2のSurface、resident Host等を一律の前提にしない。
+採用した順序は「採用した proof 順序」に示すが、それ自体は個別の実装認可ではない。各段階でも、
+provider/toolの物理I/O配置、revision fencing、effect evidence、canonical durabilityを意図せず決めない。
 
 ### レビュー用チェックリスト
 
@@ -469,8 +465,10 @@ provider/tool の物理 I/O 配置、revision fencing、effect evidence、canoni
 - 現在の source file は、既存の最終 protocol ではなく証拠・seam として説明されているか。
 - Deno Web Worker permission、structured clone、`--allow-run` に関する主張は、根拠があり、限定付きで説明されて
   いるか。
-- 「将来の段階的な proof 順序」が推奨される ordering constraint であり、いずれの段階の実装認可でもないこと、
-  および各段階が実際の product path と既存 Human Gate の条件に従うことが明記されているか。
+- 「採用した proof 順序」がexperience-drivenなordering constraintであり、いずれの段階の実装認可でも
+  ないこと、および各段階が実際のproduct pathと既存Human Gateの条件に従うことが明記されているか。
+- 最初のself-revision cycleで、実行entry ref、比較対象の改訂一式、有効化したWorker、通常利用での
+  adoption evidenceが区別され、developer-assisted作業をHenji自身の改訂実証と混同していないか。
 - Pi、Zot、OpenComputer、Cloudflare、OpenClaw の比較は、それぞれの参照が実際に示す範囲に限定されているか。
 - この概念が決定していない schema、limit、migration step、security matrix、test count を review で創作して
   いないか。

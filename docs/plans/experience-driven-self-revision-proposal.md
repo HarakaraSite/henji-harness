@@ -1,17 +1,21 @@
-# Henji experience-driven self-revision 構想・進め方 改訂案
+# Henji experience-driven self-revision 構想・進め方
 
-ステータス: レビュー用提案（draft）。承認済みの概念、実装計画、Human Gate、または実装認可ではない
+ステータス: 採用済みの構想・進め方。個別の実装計画、Human Gate、または実装認可ではない
 
 確認日: 2026-09-05
 
+採用日: 2026-09-05
+
 基準点: commit `f8b2496434c3cde7b642021713e23f2f25d46d90`
 
-初版 draft は commit `52aad50` でレビュー GO
-となったが、その結果は当時の文面に対するレビューであり、 この改訂の採用、Henji による
-self-revision、または実装認可を示さない。
+初版 draft は commit `52aad50` でレビュー GO となり、継続性と実行方法の改訂可能性を加えた
+commit `3b7e3aa` を基準に architecture reassessment を行った。ユーザーは、その評価で示された
+Host / Worker 分離の維持、experience-driven revision loop の中心化、Worker 受入後の proof 順序を
+採用した。この採用は、Henji による self-revision の実証、個別実装、または provider Human Gate の
+実行認可を示さない。
 
-この文書は、実際の利用経験を起点に構想と進め方を改訂する短い提案である。次の利用者判断と
-実製品経路での確認に戻せる形に限定し、文書作成以外の作業を認可しない。
+この文書は、実際の利用経験を起点に採用した構想と進め方を記録する。個別の改訂 cycle は、利用者判断と
+実製品経路での確認に戻せる形で別途計画する。
 
 ## 1. 先に結論
 
@@ -33,7 +37,7 @@ tool の選択、委譲・実行・待機・介入のタイミング、役割の
 モデルの重みを訓練することではなく、通常の利用で見つかった困難や有用な成功を次の利用に生かすこと
 である。
 
-### この文書で提案する中心軸
+### この文書で採用する中心軸
 
 Henji の自己改訂を、将来の遠い機能ではなく、次の経験ループとして説明する。
 
@@ -56,13 +60,13 @@ Henji の自己改訂を、将来の遠い機能ではなく、次の経験ル�
 
 ## 2. 何を改訂し、何を維持するか
 
-今回の提案で改訂する軸は次の三つである。
+今回採用した改訂軸は次の三つである。
 
-| 改訂する軸                       | 提案する置き方                                                                                                  |
+| 改訂する軸                       | 採用する置き方                                                                                                  |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | 自己改訂の位置付け               | resident agent 等の遠い将来機能ではなく、実利用と経験比較を結ぶ製品の中心軸にする。ただし最初の実証は小さく行う |
 | executable Definition の位置付け | 合成可能な Definition は主目的ではなく、改訂候補を実行可能な形で試すための手段とする                            |
-| proof の順序                     | Stages 1–3 の accepted foundation は維持し、Stages 4–7 の順序変更はこの提案が採用された場合だけ別途判断する     |
+| proof の順序                     | Stages 1–3 の accepted foundation と pending Worker gateを維持し、その後は実経験に必要な境界から証明する        |
 
 改訂対象を AGENTS.md や skill だけに狭めず、事実、指示・skill、Definition、context、loop、tool、
 delegation / role composition、実行・待機・介入の timing、model、実行コードまで、観測された need に
@@ -213,13 +217,13 @@ Henji が経験から自己改訂できることの証明ではない。loop と
 これらの限界を越えるには、generation replacement、migration、dependency lineage、または resident
 Host の別計画と、実製品経路での確認が必要になる。self-revision の最初の cycle はこの約束をしない。
 
-## 8. 提案する進め方
+## 8. 採用した進め方
 
 ### Step 0 — 現在の候補と限定受入れを分離する
 
 現在 review 済みの Host / Worker 候補を維持し、Corrections plan §7を元に real-provider 受入れ
 package を 別途準備する。package と実行には新しい承認が必要であり、self-revision trial
-へは拡張しない。この提案は gate の入力、cost、prompt、provider
+へは拡張しない。この構想は gate の入力、cost、prompt、provider
 条件を書き換えず、実行・承認もしない。
 
 ### Step 1 — 最初の実経験を一つ選ぶ
@@ -243,6 +247,10 @@ baseline、原因仮説、候補 artifact、比較する次の通常利用を一
 composition、model、実行コードのどれであっても、必要な 変更だけを対象にする。bootstrap のために外部
 Codex や人間がファイルを作成・編集した場合は `developer-assisted` と明示し、それを Henji 自身の
 self-revision の証拠に数えない。
+
+最初の cycle では、Worker 起動と session binding に使う実行 entry ref、比較対象となる指示・skill・
+Definition・依存・runtime 等の改訂一式、その候補を次の Worker へ有効化した事実を分けて記録する。
+全 import graph の管理基盤は前提にせず、比較する原因と結果を結べる範囲を対象にする。
 
 役割は少なくとも次のように記録する。
 
@@ -320,6 +328,5 @@ continuity は、それぞれ局所的な mechanism の参考である。Deno �
 自身の改訂実証ではない。Worker の現行受入れ後に、通常利用で一つの具体的な経験を対象として
 self-revision trial を行い、継続性が関係する場合だけ session resumption
 や新しい相談で採用を確認する。
-採否、最初の経験、実装計画への分解は、次の利用者判断と別の承認済み計画で決める。 この draft は
-accepted concept、既存 plan/results、Human Gate を置き換えず、実装、provider、credential、
-production state の操作を認可しない。
+最初の経験と実装計画への分解は、次の利用者判断と別の承認済み計画で決める。この採用判断は、既存の
+plan/resultsとHuman Gateを置き換えず、実装、provider、credential、production stateの操作を認可しない。

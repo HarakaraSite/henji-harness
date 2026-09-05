@@ -4,17 +4,17 @@
 
 ### Worker production acceptance
 
-- 状態: Agent Worker foundation Stages 1–3とreal-provider gate correctionsの承認済み実装は完了し、provider-free functional reviewとoffline gateはGO。planned real-provider Human Gateは未実施で、実装完了と実provider受入を分けて扱う
-- 次: corrections plan §7に基づくbuilt-in 1 turn＋external 1 turnの別execution packageを準備する。package準備と実行にはそれぞれ新しい承認が必要
-- 正本: `docs/plans/agent-worker-foundation-proof-stages-1-3.md`、`docs/plans/agent-worker-foundation-proof-stages-1-3-results.md`、`docs/plans/agent-worker-real-provider-gate-corrections.md`、`docs/plans/agent-worker-real-provider-gate-corrections-results.md`
-- 注意: 実行には公式model/価格preflightと別Human Gate承認が必要。expectedはread各1回、planner 0、合計4 requests。28はdiagnostic/stop boundで予算ではない。corrections中の4 provider requests incidentは受入証拠から除外し一時evidenceを保持、cleanupや追加provider操作は未承認
+- 状態: Agent Worker foundation Stages 1–3とreal-provider gate correctionsの実装は完了し、provider-free review/gateはGO。built-in 1 turn＋external 1 turnのexecution packageを準備し、公式public model/価格readback、installed launcher identity、workspace/state不在、actual encoder＋scripted SSEによるprovider-free各2-request preflightを確認済み。real-provider Human Gateは未承認・未実施
+- 次: `docs/plans/agent-worker-real-provider-human-acceptance.md`のexact execution Human Gateをユーザーが承認または却下する
+- 正本: `docs/plans/agent-worker-foundation-proof-stages-1-3.md`、`docs/plans/agent-worker-foundation-proof-stages-1-3-results.md`、`docs/plans/agent-worker-real-provider-gate-corrections.md`、`docs/plans/agent-worker-real-provider-gate-corrections-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance.md`
+- 注意: 実行はread各1回、planner 0、expected合計4 requests、retry/fallback/rerun/additional turn 0で別承認が必要。見積りUSD 0.004–0.01、公式full model limitsで4 requests最大USD 4.128768だがclient monetary capはない。28はdiagnostic/stop boundで予算ではない。corrections中の4 provider requests incidentは受入証拠外で一時evidenceを保持、cleanupや追加provider操作は未承認
 
-### Experience-driven self-revision proposal / roadmap choice
+### Experience-driven self-revision / first experience choice
 
-- 状態: self-revision proposalへ今回ユーザーが確認した構想の動機と進め方を反映し、proposal・architecture参照・本handoffを文書commitとして保存済み。提案全体の採否と最初の改訂対象は未決。Host / Worker architectureはaccepted conceptであり、permanent I/O placementやresident/Stage 4は未決・未実装。surface-roadmapは未追跡draftで、Phase Bのdata-only / two-trust-tier表現は現行authorityではない
-- 次: 改訂済みproposal §§2/8/10に基づき、残る提案の採否と次のscopeを利用者が判断する
+- 状態: ユーザーはHost / Worker分離の維持、experience-driven revision loopの製品中心化、pending Worker受入後に実経験から必要な境界を証明する順序を採用した。最初の改訂対象と個別実装は未決。permanent I/O placement、resident Host、Stage 4、migrationは観測されたneedがない限り将来範囲。surface-roadmapは未追跡draftで、Phase Bのdata-only / two-trust-tier表現は現行authorityではない
+- 次: Worker production acceptance Recordの限定受入を別承認で完了した後、通常利用から最初の具体的な経験を一つ選ぶ
 - 正本: `docs/plans/experience-driven-self-revision-proposal.md`、`docs/architecture/henji-host-agent-worker.md`
-- 注意: 未追跡の旧draft `docs/plans/surface-roadmap.md`は非authority参照であり、採用後の実装またはproof order変更は別途scoped planで承認する。提案上、最初の実revision cycleはWorker受入後に行う。proposal、roadmap、Git履歴は新しい実装・provider実行・承認を意味せず、accepted architectureがdraftに優先する
+- 注意: 未追跡の旧draft `docs/plans/surface-roadmap.md`は非authority参照。採用判断はWorker gate package準備、provider実行、self-revision実装、候補適用を認可しない。最初のcycleでは実行entry ref、比較対象の改訂一式、有効化したWorkerを区別し、developer-assisted作業をHenji自身のself-revision証拠に数えない
 
 ### FR5 daily-use assessment and deferred UI
 
