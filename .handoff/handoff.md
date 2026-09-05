@@ -2,6 +2,17 @@
 
 ## Records
 
+### ASK-20260905-experience-driven-self-revision-proposal
+
+- 状態: ユーザーが明確化した目的を踏まえた構想・進め方の改訂案を作成し、限定functional reviewはGO。
+  提案正本は`docs/plans/experience-driven-self-revision-proposal.md`。提案の採用とproduct実装の承認は別である
+- 判断対象: 同文書の目的・改訂循環・既存proof順序との変更点、および現行Worker受入を締めた後に
+  実利用から一件の改訂循環を選ぶ進め方。既存Host/Worker基盤と承認済み計画の実装・受入契約は維持し、
+  採用後の順序変更や新しい実装は対象を明記した後続計画で扱う
+- 境界: planned real-provider Human Gateは未実施。Corrections plan §7の条件を維持し、新しい実行
+  packageの準備と別途明示承認が必要。
+  本件は文書作成のみであり、provider実行、自己改訂機構の実装、Stage 4以降の開始を認可しない
+
 ### POL-20260902-product-first-development
 
 - 判断済み: testはproduct機能に従属する担保機構であり、test成功のために機能、外部service互換性、人間の利用可能性を狭めない。競合時は実利用経路と公式契約を先に確認し、誤ったtestを修正または削除する
@@ -4700,3 +4711,21 @@
 - 実施: userの明示依頼によりcorrection実装、計画、結果、handoffをrepository commitへ統合
 - 次: pushには未設定のremote URLまたはremote名が必要
 - 注意: Git remote/upstreamは存在しない。`_refs/*`と`docs/plans/surface-roadmap.md`は未追跡のまま保持
+
+## 2026-09-05 10:29 JST
+
+- 実行エージェント: Codex owner + single implementer + read-only functional reviewer
+- 作業トピック: 利用経験に基づく自己改訂の構想・進め方改訂案
+- 実施: 提案文書と既存architectureからの参照を追加。現行能力、revision識別、実provider受入待ちの
+  記述を照合・修正し、最終review GO、Blocker/P1/P2 0。文書fmt、local link、diff check成功
+- 次: `ASK-20260905-experience-driven-self-revision-proposal`の提案採否を確認する
+- 注意: 文書のみ変更。既存実装・受入契約を維持し、provider/credential/production state、Stage 4以降、
+  `_refs/*`、既存surface-roadmap、commit/push/tag/publish/releaseは未操作
+
+## 2026-09-05 10:36 JST
+
+- 実行エージェント: Codex owner
+- 作業トピック: 自己改訂の構想・進め方改訂案のcommit
+- 実施: ユーザーの明示依頼により、改訂案・architecture参照・handoffを単一commitへ統合
+- 次: `ASK-20260905-experience-driven-self-revision-proposal`の提案採否を確認する
+- 注意: commitは提案採用やproduct実装の承認を意味しない。既存未追跡ファイルを保持し、pushは未実施

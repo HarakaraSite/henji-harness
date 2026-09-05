@@ -2,6 +2,11 @@
 
 ステータス: 承認済み概念。未有効化であり、実装計画ではない
 
+2026-09-05 draft 参照: self-revision を実利用の経験比較から改訂候補へつなぐ提案を
+[`docs/plans/experience-driven-self-revision-proposal.md`](../plans/experience-driven-self-revision-proposal.md)
+に追加した。これは draft の方向付けであり、この accepted concept、既存の Human Gate、または
+実装認可を置き換えない。
+
 この文書は、常駐する Henji Host とヘッドレスな Deno Agent Worker を将来分離するという
 プロダクトの方向性を記録する。これはアーキテクチャ決定記録であり、プロトコル仕様、
 移行の約束、または現行ランタイムを変更する認可ではない。
