@@ -23,12 +23,39 @@ credential location.
 
 - Keep the credential outside the repository. Do not move or copy it into this tree.
 - Do not display, log, commit, or record its contents.
-- The current live model adapter reads only `HENJI_OPENROUTER_API_KEY`; it does not read this file
-  directly.
-- A future approved launcher may read this exact file in the parent process and pass the value only
-  through `HENJI_OPENROUTER_API_KEY`. Do not put the value in command arguments.
-- File content/format has not been inspected or verified. Any content read, credential injection,
-  remediation, or provider attempt requires its own explicit authorization.
+- The legacy eval credential launcher reads this exact file in its parent process and passes the
+  validated value only through `HENJI_OPENROUTER_API_KEY` to the fixed child environment. Its local
+  implementation and boundary are recorded in
+  [`repo-external-credential-launcher-results.md`](../plans/repo-external-credential-launcher-results.md).
+- Normal Worker production composition uses `readCredentialFile` from
+  [`credential_file.ts`](../../v0/agent/credential_file.ts) as a request-time source for
+  [`worker_physical_io.ts`](../../v0/agent/worker_physical_io.ts). It validates the fixed path and
+  reads the source for each provider request; it does not cache the value or put it in command
+  arguments. The adapter then places the resolved value in the provider Authorization header for
+  that request.
+- File content/format and current validity have not been inspected or verified in this document.
+  Any content read, credential injection, remediation, or provider attempt requires its own explicit
+  authorization.
 
 This document records location and non-secret metadata only. It is not evidence that the credential
 is valid or currently accepted by OpenRouter.
+
+## Historical provider results
+
+Past separately authorized sentinel, FR1, and Gate 1 runs have their execution and acceptance
+evidence in [`pi-style-json-result-submission-results.md`](../plans/pi-style-json-result-submission-results.md),
+[`fr1-real-provider-human-acceptance-results.md`](../plans/fr1-real-provider-human-acceptance-results.md),
+and [`gate-1-general-agent-production-acceptance-results.md`](../plans/gate-1-general-agent-production-acceptance-results.md).
+Those historical outcomes do not establish the credential's current validity or authorize another
+provider run.
+
+## Provider pricing preflight
+
+- Small bounded tests do not require a routine price refresh.
+- A material expected cost requires an official provider price refresh and an estimate before
+  execution.
+- Model availability and API/tool contract uncertainty are separate checks from price confirmation.
+- An explicit gate-specific requirement takes precedence; the Worker corrections plan §7 requires a
+  fresh official model and price readback before its Human Gate.
+- Production provider commands require explicit authorization, and automatic retry/fallback is not
+  performed without separate explicit authorization.

@@ -60,84 +60,15 @@ repository document or prior practice conflicts with it, this section wins.
 
 ## Current work
 
-- FR5 human-observed UI correction Cycles 1 and 2 are implemented under
-  `docs/plans/fr5-human-observed-ui-correction.md`; results are in the matching `-results.md`.
-  Normal conversation no longer displays request/evidence/readback lines, full read output, or raw
-  tool JSON. Tool activity uses one concise entry, assistant streaming settles to `assistant>`, the
-  footer advances the real committed turn without duplicate identity, and cursor cell placement is
-  corrected for ASCII/Japanese/edit/wrap cases. Direct user use confirmed the concise tool path and
-  improved long Japanese input, and exposed main-screen redraw snapshots in terminal scrollback.
-  Cycle 2 now enters alternate screen before the first retained frame, restores the original screen
-  on exit, and omits editor draft bytes from the normal footer while retaining pending semantics.
-  Direct human use confirmed redraw isolation, PageUp/PageDown, Ctrl-L latest, and Ctrl-D original
-  screen restoration. It then exposed two concrete defects: U+FF15 fullwidth `５` was counted as
-  one display cell, and oldest PageUp jumped latest when startup rows lacked conversation identity.
-  Both are locally corrected with fullwidth/halfwidth-specific cell widths and first-conversation
-  anchoring. Functional review is GO with Blocker/P1/P2 zero; focused Cycle 1/2 tests 10/10 and
-  check/fmt/lint/diff are green. No additional full gate was run. Next is direct user recheck of
-  paste/backspace/insertion with `直近５コミットの` and oldest PageUp. F1 remains out of scope and
-  Cycle 3 must not start until that feedback is received.
-- The fixed output-limit expansion in `docs/plans/fixed-output-limit-expansion.md` is implemented.
-  The normal parent/planner profile is now owned under `v0/agent/`, separated from the legacy
-  `v0/model.ts` budgeted path, and requests 65,536 completion tokens. Completed answers,
-  saved/restored user/assistant text, and TUI entries use 1 MiB; the planner-to-parent JSON envelope
-  uses 2 MiB; serialized next-request messages use 5 MiB and the enclosing request 6 MiB; raw SSE
-  remains 1 MiB. Pi/Zot are reference information only, with model-specific limits, incremental
-  SSE, full-message flow, and token-based compaction deferred. Initial functional review's P1
-  (planner result blocked by the former 76 KiB next-request limit) was fixed and narrow re-review is
-  GO. Owner `v0:gate` ran once: current 9/9 + provider 9/9, check/fmt/lint green. No provider,
-  credential, launcher/state, legacy budget, `_refs/*`, dependency, or commit operation occurred.
-- Gate 1 general-agent production acceptance is accepted. The initial execution stopped after the
-  PTY driver submitted a multiline prompt at its first newline; its partial turn then reached a
-  planner `MAX_TOKENS` / `unsupported_finish_reason` after 5 HTTP-200 requests and did not commit.
-  The user explicitly authorized one fresh rerun. It completed three committed turns in session
-  `61297b14-c023-4c25-8cc6-f4db61b42e4f`, exactly one planner consultation, the required parent
-  file work, exact final files, two clean exits, same-session `--continue`, and Ctrl-T history.
-  Rerun requests were 8/4/4 = 16, all HTTP 200, with 28,524 reported tokens and USD 0.028308 cost.
-  Full accounting and evidence IDs are in
-  `docs/plans/gate-1-general-agent-production-acceptance-results.md`. FR2–FR4 and Gate 1 are
-  complete; next is FR5 integrated human UI candidate assessment. Both executions' retained state
-  remains; cleanup, additional provider attempts, product/test/launcher changes, `_refs/*`, and
-  commit/push/tag/publish/release require separate authorization.
-- Baselineはcommit `024071a`。旧`tests/v0/`は
-  `/tmp/henji-tests-v0-pre-minimal-reset-20260902`へ復元可能に退避され、current offline suiteは6件。
-- Step 83 production retryは一回のprovider requestで
-  `response_parse/response_error/data_after_terminal`となった。Turn 2/3、retry、fallback、rerunは未実施。
-  raw provider payloadは保存されなかった。FR0/FR1 local implementationは、公式OpenRouter accounting
-  frame互換、credential/Authorizationを入力に持たないraw provider evidence、diagnostic相関、read-only
-  list/showを追加した。実provider shapeは次の明示Human Gateまで未確認である。
-- Canonical planning inputは
-  `/tmp/planner-inputs/henji-fr0-fr1-product-baseline-provider-stream-compatibility.md`。計画書は
-  `docs/plans/fr0-fr1-product-baseline-provider-stream-compatibility.md`。initial functional reviewのProduct
-  P2 2件を局所修正し、single narrow re-reviewはGO、Blocker/P1/P2 0。owner authoritative `v0:gate`は
-  一回で成功し、current smoke 6件とfunction-derived provider confirmation 7件、check/fmt/lintがgreen。
-  commit `da30077`後のfresh functional reviewでP2 2件を検出し、artifact/link durability分離とaccounting
-  frameのsingle terminal transitionへ局所修正。narrow re-reviewはGOで、stable candidate変更を理由に行った
-  correction gateも一回で成功した。追加commitは未実施。
-- Provider/credential、production `henji`、installed launcher/state、`_refs/*`、commit/push/tag/publish/releaseは
-  別の明示許可なしに操作しない。
-- 次のHuman Gate計画は`docs/plans/fr1-real-provider-human-acceptance.md`。product-source baseline
-  `d6e737a`のinstalled production経路で旧失敗Turn 1だけを一度実行し、実tool完了とprovider evidence
-  readbackを確認した。6 requestは全てHTTP 200、tool順`read/write/read/edit/bash`、final、turn commit、
-  exact files、single terminal transition、raw evidence readbackが成功し、実費はUSD 0.0055785。Human Gateは
-  消費済みで、retry/fallback/追加turnは0。workspace/session/evidenceは保持し、cleanupは未承認。
-- Revision 46 D0 auditはDisposition B。計画書は
-  `docs/plans/d0-internal-agent-definition-seam.md`、SHA-256
-  `b5a578dfc9cbb457793c0b3073099380b803e8c7c70789626765e919f2fe04fe`。採用gapは、Definitionの
-  resource一覧とactual Registry presetの二重正本、resolved Definition内のhost object、internal
-  identity/topologyの`default | planner`閉包の3件。承認済み実装で3件を閉じ、実Definition capabilityから
-  Registry/manifestを導出するdata-only compositionとinternal declared-topology admissionを追加した。
-  initial review P1 1件はsynthetic Definitionが実runtime pathを通らない不足で、局所修正後のsingle narrow
-  re-reviewはGO。owner authoritative `v0:gate`は一回で成功し、current offline 14/14と
-  check/fmt/lint/diffがgreen。結果は`docs/plans/d0-internal-agent-definition-seam-results.md`。
-- Revision 47 Gate 1 execution packageは
-  `docs/plans/gate-1-general-agent-production-acceptance.md`、SHA-256
-  `0919f776a9dd14036163d7f6d5cdba0d33b63322292bb20ef12d3ce6f4c36ecb`。post-D0 installed
-  production TUIでFR2〜FR4を一つの3-turn taskとして確認する。parent最大24＋planner最大8＝32
-  application requests、公式価格による理論上限USD 1.990656、Human Gate ceiling USD 2.00。
-  planning complete、plan integration commitとprovider-free preflight後の本人Human Gate待ち。
+- Current resumption state is maintained in [`.handoff/handoff.md`](.handoff/handoff.md), whose Records contain only the active Worker acceptance, self-revision proposal/roadmap choice, FR5 daily-use assessment, and dormant Spike2/operations transfer reconciliation topics. Preserved old checkpoints remain historical evidence.
+- Accepted architecture: [`docs/architecture/henji-host-agent-worker.md`](docs/architecture/henji-host-agent-worker.md). It defines the Host/Worker direction and proof order; resident Host, Stage 4, permanent I/O placement, migration, and self-revision remain future scope.
+- Worker foundation implementation and real-provider gate corrections are complete and reviewed provider-free. Plans and results are [`agent-worker-foundation-proof-stages-1-3.md`](docs/plans/agent-worker-foundation-proof-stages-1-3.md), [its results](docs/plans/agent-worker-foundation-proof-stages-1-3-results.md), [`agent-worker-real-provider-gate-corrections.md`](docs/plans/agent-worker-real-provider-gate-corrections.md), and [its results](docs/plans/agent-worker-real-provider-gate-corrections-results.md). The real-provider Worker gate remains a separate pending Human Gate.
+- The experience-driven self-revision document is a reviewed proposal draft; adoption is unconfirmed. See [`docs/plans/experience-driven-self-revision-proposal.md`](docs/plans/experience-driven-self-revision-proposal.md).
+- FR5 integrated UI candidate results and concrete Cycle 1–3 corrections are recorded in [`docs/plans/fr5-integrated-human-ui-candidate-results.md`](docs/plans/fr5-integrated-human-ui-candidate-results.md) and [`docs/plans/fr5-human-observed-ui-correction-results.md`](docs/plans/fr5-human-observed-ui-correction-results.md). Conditional candidate acceptance and concrete human-confirmed corrections do not establish final daily-use adoption; F1 is parked as 工事中.
+- Historical implementation and acceptance outcomes remain in their matching [`docs/plans/`](docs/plans/) results and Git history. Archived Spike2 remains dormant unresolved; later Definition/Revision/Admission implementation records have matching results and Git history, while external ownership/transfer remains unconfirmed.
+- Existing action boundaries remain: provider/credential access, production `henji`, installed launcher/state, `_refs/`, and commit/push/tag/publish/release operations require the applicable explicit authorization.
 
 ## Historical records
 
-- Durable policy and checkpoints: `.handoff/handoff.md`
-- The former 714-line current-phase ledger: `docs/history/agents-current-phase-through-024071a.md`
+- Resumption state and preserved old checkpoints: [`.handoff/handoff.md`](.handoff/handoff.md)
+- Former current-phase ledger preserved as historical evidence: [`docs/history/agents-current-phase-through-024071a.md`](docs/history/agents-current-phase-through-024071a.md)

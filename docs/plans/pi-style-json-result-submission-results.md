@@ -5,6 +5,14 @@ Plan: `docs/plans/pi-style-json-result-submission.md`
 Approved plan SHA-256:
 `56fcfc5044993db7ede70ed88ded5931cc15d8500869d7b94815e0e59bda143e`
 
+## Historical live sentinel result
+
+A separately authorized real sentinel execution recorded in Git commit `d2c624b` completed 6/6
+cases, with 12/12 external requests, four JSON-result submissions, two assistant-final
+completions, and zero retry, fallback, rerun, or follow-up. This is consumed historical evidence,
+not a current attempt or execution authorization. The retained one-shot contract is
+[`pi-json-result-live-sentinel.md`](pi-json-result-live-sentinel.md).
+
 ## Scope and implementation
 
 Implemented the provider-neutral terminal execution boundary and the fixed
@@ -158,11 +166,11 @@ used.
 
 ## Safety and unperformed work
 
-Provider/network calls, credential reads or probes, live sentinel/canonical
-provider tasks, credential-launcher production tasks, `agent:run`, and
-`agent:acceptance` were not run. No commit, push, tag, publish, release, or
-persistent state migration was performed. No raw credential/provider material is
-recorded.
+During the local implementation phase, provider/network calls, credential reads
+or probes, live sentinel/canonical provider tasks, credential-launcher production
+tasks, `agent:run`, and `agent:acceptance` were not run. No commit, push, tag,
+publish, release, or persistent state migration was performed in that phase. No
+raw credential/provider material is recorded.
 
 The local implementation gate is complete. Deferred risks remain real-model
 adherence, provider availability/cost behavior, broader structured-output

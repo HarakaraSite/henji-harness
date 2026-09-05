@@ -1,9 +1,8 @@
 # Step 83 full-capability Human Gate retry — implementation results
 
-Status: **repository implementation and owner evidence closure complete; Product
-Blocker/P1/P2/E1/E2 zero; authoritative gate attempt 2 exposed one stale
-cancellation expectation, no third gate planned, final execution Human Gate
-pending**
+Status: **repository implementation and owner evidence closure complete; the
+separate final real Human Gate was consumed and failed at Turn 1 with one HTTP
+200 `data_after_terminal` response; no Turn 2/3, retry, fallback, or rerun**
 
 Owner-evidence checkpoint: `2026-09-02 11:14 JST`
 
@@ -100,14 +99,16 @@ incomplete.
 
 ## Boundaries and remaining gates
 
-Human Gate 2 repository authorization is consumed. Product Blocker/P1/P2
-findings and the listed Evidence E1/E2 gaps are closed locally. Both authorized
-full-gate attempts are consumed and authoritative verification remains
-incomplete; no third attempt is planned. No provider/network/credential access,
-production `henji`, real acceptance workspace/state, machine launcher target,
-cleanup, dependency or lockfile change, `_refs/*` access, commit, push, tag,
-publish, or release occurred. A separate final execution approval is required
-before any machine update or real three-turn acceptance.
+Human Gate 2 repository authorization and the separate final real Human Gate are
+consumed. The final execution stopped at Turn 1 with HTTP 200
+`response_parse/response_error/data_after_terminal`; Turns 2 and 3, retry,
+fallback, rerun, and follow-up were zero. Product Blocker/P1/P2 findings and the
+listed Evidence E1/E2 gaps were closed locally before that execution. The older
+offline-gate attempt details and `pending` status above are historical checkpoints
+and do not describe a pending run or a successful fix. No additional provider or production
+attempt is authorized. The consumed execution's launcher update, workspace, state, and evidence
+are described below; this result update performed no further machine-state, cleanup, dependency,
+`_refs/*`, commit, push, tag, publish, or release operation.
 
 ## Repository-wide minimal test reset
 

@@ -1,5 +1,13 @@
 # Pi-style terminal JSON result live sentinel — one-shot Human Gate plan
 
+## Lifecycle status
+
+This one-shot plan is historical. Its separately authorized execution is recorded in
+[`pi-style-json-result-submission-results.md`](pi-style-json-result-submission-results.md) as
+consumed: 6/6 passed, 12/12 external requests, four JSON-result submissions, two assistant-final
+completions, and zero retry, fallback, rerun, or follow-up. The contract below is retained for
+provenance and is not current execution authorization.
+
 ## Recommendation and assumptions
 
 Present one new **Human Gate** for exactly one execution of the existing fixed

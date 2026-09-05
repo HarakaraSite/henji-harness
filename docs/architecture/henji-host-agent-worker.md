@@ -1,11 +1,18 @@
 # Henji Host / Agent Worker アーキテクチャ概念
 
-ステータス: 承認済み概念。未有効化であり、実装計画ではない
+ステータス: 承認済みアーキテクチャ。Stages 1–3のprovider-free実装とreal-provider gate correctionsは
+完了している（[foundation results](../plans/agent-worker-foundation-proof-stages-1-3-results.md)、
+[corrections results](../plans/agent-worker-real-provider-gate-corrections-results.md)）。real-provider
+Human Gateは未実施であり、常駐Host/Stage 4以降のfull architectureは未実装。この文書は実装認可ではない
 
 2026-09-05 draft 参照: self-revision を実利用の経験比較から改訂候補へつなぐ提案を
 [`docs/plans/experience-driven-self-revision-proposal.md`](../plans/experience-driven-self-revision-proposal.md)
 に追加した。これは draft の方向付けであり、この accepted concept、既存の Human Gate、または
 実装認可を置き換えない。
+
+なお、未追跡の [`docs/plans/surface-roadmap.md`](../plans/surface-roadmap.md) にある Phase B の
+data-only / two-trust-tier 表現は旧 draft であり、現行 authority ではない。accepted architecture と
+その proof order を優先し、draft の表現だけでは構成や実装の採用を意味しない。
 
 この文書は、常駐する Henji Host とヘッドレスな Deno Agent Worker を将来分離するという
 プロダクトの方向性を記録する。これはアーキテクチャ決定記録であり、プロトコル仕様、

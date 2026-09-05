@@ -16,18 +16,25 @@ hard sandbox or per-tool confirmation.
 
 The human screen is a retained three-band view: a scrollable work/conversation log, a bounded
 multiline input band, and one status/footer row. It reflows on resize without sending resize events
-to the agent. The first screen keeps a compact two-line welcome; press F1 for the full startup facts
-and press F1 or Esc to return without submitting the draft.
+to the agent. The first screen keeps a compact two-line welcome. Full F1 startup help is parked as
+工事中. When idle, the available slash commands are `/help`, `/sessions`, and `/exit`.
 
 ## Read startup orientation
 
 Startup orientation states the workspace, selected agent/profile, session mode, discovered
 `AGENTS.md` and project-local skills, request-time credential rule, and trusted-local tool boundary.
 
-The normal runtime selects one built-in Definition once at startup. Omitted `--agent` selects
+The normal runtime selects one Definition once at startup. Omitted `--agent` selects the built-in
 `default`, with `bash`, `edit`, `read`, `submit_json_result`, `write`, and bounded planner
-delegation. `--agent planner` selects the read-only planner, with `read`, optional `skill`, and
-`submit_json_result`. Selection cannot change between turns.
+delegation. `--agent planner` selects the read-only built-in planner, with `read`, optional `skill`,
+and `submit_json_result`. `--definition ./henji.agent.ts` selects a trusted external Definition;
+`--agent` and `--definition` are mutually exclusive, and the selection cannot change between turns.
+
+Built-in Definitions and a caller-workspace trusted external Definition selected with
+`--definition ./henji.agent.ts` use the same Worker loader, bootstrap, runtime, protocol, and Host
+commit path. Existing schema-v1 sessions remain readable; a Worker commit writes schema-v2 with its
+Definition revision binding. The provider-free implementation and its boundaries are recorded in
+[`agent-worker-foundation-proof-stages-1-3-results.md`](docs/plans/agent-worker-foundation-proof-stages-1-3-results.md).
 
 ```text
 deno task --quiet --config deno.v0.json agent:tui --agent planner --no-session
@@ -35,7 +42,7 @@ deno task --quiet --config deno.v0.json agent:tui --continue
 ```
 
 The TUI accepts one persistence selector (`--continue`, `--session UUID`, or `--no-session`) and the
-optional agent selector, in either order. Invalid, duplicate, conflicting, or positional arguments
+optional agent or Definition selector, in either order. Invalid, duplicate, conflicting, or positional arguments
 fail before workspace, terminal, session, provider, or credential setup. `--no-session` is ephemeral
 and does not access the session state root. `agent:run` is the non-interactive production provider
 command; do not invoke either production path without explicit approval.
@@ -76,10 +83,10 @@ restored on handled exits and failures.
 
 ## Sessions and history
 
-Persistent successful parent turns are canonical schema-v1 `session.json` records containing the
-complete parent transcript. Provider views, progress, credentials, Definition/manifest data, and
-display history are not stored. State is repo-external, workspace-partitioned, bounded, locked, and
-atomically replaced.
+Persistent successful parent turns are canonical `session.json` records containing the complete
+parent transcript. Existing schema-v1 records remain readable; Worker commits write schema-v2 with
+the Definition revision binding. Provider views, progress, credentials, and Manifest data are not
+stored. State is repo-external, workspace-partitioned, bounded, locked, and atomically replaced.
 
 Metadata-only list and confirmed delete:
 
@@ -116,8 +123,8 @@ strict JSON `{"schemaVersion":1,"summary":"..."}`. One checkpoint is stored besi
 `session.json` as `contexts/<session UUID>.json`, bounded to 16 KiB file bytes and 12,288-byte
 summary bytes.
 
-Admission uses the production wire encoder: serialized `messages` below 77,824 bytes and full body
-below 256 KiB. It reserves a worst-case 4,096-byte next draft and a 16,384-byte checkpoint-message
+Admission uses the production wire encoder: serialized `messages` at most 5 MiB (inclusive) and full
+body at most 6 MiB (inclusive). It reserves a worst-case 4,096-byte next draft and a 16,384-byte checkpoint-message
 contribution, retains at least the latest complete turn, and selects the largest useful strict
 reduction. Semantic projection precedes mechanical old-tool-result omission. No useful boundary,
 generation/validation/cancellation/timeout failure, or durable replacement failure leaves canonical
@@ -150,77 +157,55 @@ normal log keeps one `system>` row for each automatic install. Context recovery 
 original history plus the 4 KiB draft reserve cannot fit a useful projection under live adapter
 ceilings.
 
-## Provider-free guided confirmation
+## Provider-free verification
 
-These local fake-session checks exercise navigation/context contracts without provider requests,
-network, credentials, production commands, or persistent product state:
+The current task definitions in `deno.v0.json` provide focused Worker and provider-compatibility
+checks plus the repository checks:
 
 ```text
-deno task --quiet --config deno.v0.json agent:session:navigation:test
-deno task --quiet --config deno.v0.json agent:semantic-context:test
-deno task --quiet --config deno.v0.json agent:session-store:test
-deno task --quiet --config deno.v0.json agent:tui:test
+deno task --quiet --config deno.v0.json agent:worker-foundation:test
+deno task --quiet --config deno.v0.json agent:provider-stream-compatibility:test
+deno task --quiet --config deno.v0.json v0:check
+deno task --quiet --config deno.v0.json v0:fmt
+deno task --quiet --config deno.v0.json v0:lint
 deno task --quiet --config deno.v0.json v0:gate
 ```
 
-The last command is the authoritative offline gate. Real provider acceptance and credential-file
-launchers are separate explicit Human Gates and are excluded from the offline gate.
+`v0:gate` is the authoritative repository gate. It does not run the production provider path,
+credential-file launchers, or a real-provider Human Gate.
 
-## Provider-free retained UI acceptance
+## Historical detached retained UI evidence
 
-The detached retained UI has a separate deterministic acceptance package. It uses the shipped
-controller, renderer, and presentation adapter with an in-memory fake host, and does not contact a
-provider, use the network or credentials, run a production command, or create persistent product
-state:
-
-```text
-deno task --quiet --config deno.v0.json agent:ui-retained:acceptance:test
-deno task --quiet --config deno.v0.json agent:ui-retained:acceptance:process:test
-```
-
-The direct leaf checks retained stream/tool/final, overlays, resize, cursor restoration, and
-sanitized opaque identity. The process leaf runs the same known-answer fixture in a bounded PTY. The
-explicit provider-free human task is the retained controller/renderer/adapter fake host under a real
-terminal:
-
-```text
-./v0/agent/ui_retained_acceptance_launcher.sh
-```
-
-The repository-owned launcher resolves the repository root and executes the fixed Deno
-`--no-prompt --no-remote` fixture from any working directory. It accepts ordinary fake
-stream/tool/final work and the actual F1, Ctrl-G/T/K, PageUp/PageDown, Ctrl-L, multiline, resize,
-cancellation, and clean-exit keys. It has no provider, network, environment, read, write, run, or
-persistent-state permission. The normal `agent:tui` production path is not this acceptance command
-and remains outside the pending Human Gate.
+Earlier detached retained-UI fixture checks are historical evidence preserved in
+[`detached-three-band-human-ui-results.md`](docs/plans/detached-three-band-human-ui-results.md).
+Those old standalone acceptance tasks are not current task definitions. The normal `agent:tui`
+production path and the focused tasks above are the current entry points; F1 remains parked as
+工事中.
 
 ## Full-capability production acceptance (separate Human Gate)
 
-The full acceptance uses the installed bare `henji` from a disposable workspace, with the default
-agent, real provider, full workspace tools, and persistent session. It is a trusted-local command:
-tools and Bash run as the OS user and may reach outside the workspace or network. Follow the exact
-three-turn task, bounds, stop conditions, and cleanup in
-[`docs/plans/step-83-full-capability-human-acceptance-gate.md`](docs/plans/step-83-full-capability-human-acceptance-gate.md).
-The offline test gate does not run this acceptance. The separately approved one-shot production
-acceptance was consumed on 2026-09-01 and stopped at Turn 1 `contract_failure` without retry; see
-the linked gate and results. The run is non-evaluable because safe cause and request-count evidence
-were not exposed or retained; do not use it for an adoption decision or repeat it unchanged.
+The full-capability acceptance records are historical Human Gates for the installed bare `henji`
+from a disposable workspace, with the default agent, real provider, full workspace tools, and
+persistent session. The original Step 83 attempt and its separately authorized retry were both
+consumed failures before the intended three-turn completion; neither is adoption evidence. See
+[`step-83-full-capability-human-acceptance-results.md`](docs/plans/step-83-full-capability-human-acceptance-results.md)
+and
+[`step-83-full-capability-human-acceptance-retry-results.md`](docs/plans/step-83-full-capability-human-acceptance-retry-results.md).
 
-The revision-42 retry has a separate, still-unapproved implementation package at
-[`docs/plans/step-83-full-capability-human-acceptance-retry-gate.md`](docs/plans/step-83-full-capability-human-acceptance-retry-gate.md).
-It is not authorized by the consumed acceptance and must not be executed until the repository
-implementation review and a separate final execution Human Gate are complete.
-
-```text
-cd /tmp/henji-step83-full-capability-acceptance
-henji
-```
+FR1 and Gate 1 were accepted in later, separate real-provider Human Gates; their results are
+[`fr1-real-provider-human-acceptance-results.md`](docs/plans/fr1-real-provider-human-acceptance-results.md)
+and
+[`gate-1-general-agent-production-acceptance-results.md`](docs/plans/gate-1-general-agent-production-acceptance-results.md).
+The Worker real-provider gate remains a separate unexecuted Human Gate after its provider-free
+implementation and corrections; see
+[`agent-worker-real-provider-gate-corrections-results.md`](docs/plans/agent-worker-real-provider-gate-corrections-results.md).
+The Worker acceptance needs its separate execution package and explicit approval.
 
 ## Failure diagnostics
 
-When a turn fails, the retained TUI log shows a bounded `failure>` line with the failure stage, safe
-code, actual provider-request count, applicable HTTP status and parser reason, turn/model step, and
-one diagnostic ID. The same ID is printed in the readback command:
+When a turn fails, the retained TUI log shows a short fixed `failure>` reason. Detailed failure stage,
+safe code, actual provider-request count, applicable HTTP status and parser reason, turn/model step,
+and the diagnostic ID are available through the read-only diagnostics commands:
 
 ```text
 henji diagnostics list
@@ -308,13 +293,18 @@ The revision-42 retry plan and results are
 [`docs/plans/step-83-full-capability-human-acceptance-retry.md`](docs/plans/step-83-full-capability-human-acceptance-retry.md)
 and
 [`docs/plans/step-83-full-capability-human-acceptance-retry-results.md`](docs/plans/step-83-full-capability-human-acceptance-retry-results.md).
+The Worker foundation and gate-correction plans and results are
+[`docs/plans/agent-worker-foundation-proof-stages-1-3.md`](docs/plans/agent-worker-foundation-proof-stages-1-3.md),
+[`agent-worker-foundation-proof-stages-1-3-results.md`](docs/plans/agent-worker-foundation-proof-stages-1-3-results.md),
+[`docs/plans/agent-worker-real-provider-gate-corrections.md`](docs/plans/agent-worker-real-provider-gate-corrections.md),
+and
+[`agent-worker-real-provider-gate-corrections-results.md`](docs/plans/agent-worker-real-provider-gate-corrections-results.md).
 
 Useful checks:
 
 ```text
-deno task --quiet --config deno.v0.json agent:session:navigation:test
-deno task --quiet --config deno.v0.json agent:semantic-context:test
-deno task --quiet --config deno.v0.json v0:offline-gate:topology:test
+deno task --quiet --config deno.v0.json agent:worker-foundation:test
+deno task --quiet --config deno.v0.json agent:provider-stream-compatibility:test
 deno task --quiet --config deno.v0.json v0:check
 deno task --quiet --config deno.v0.json v0:fmt
 deno task --quiet --config deno.v0.json v0:lint
@@ -322,8 +312,9 @@ deno task --quiet --config deno.v0.json v0:test
 deno task --quiet --config deno.v0.json v0:gate
 ```
 
-`v0:gate` runs topology, check, format, lint, and full offline composition. Every direct test file
-is owned by exactly one bounded leaf, with only declared minimum permissions. Production TUI/run,
-credential launchers, provider network, dependency/lockfile changes, and `_refs/` are outside this
-gate. Earlier plans and archives remain historical evidence; [`archive/`](archive/) is not active
-source and [`_refs/`](_refs/) is not a dependency.
+`v0:gate` runs the current configured check, format, lint, and offline test tasks. The task list in
+`deno.v0.json` is the authority for current ownership and scope; earlier exact-once leaf and
+detached-fixture descriptions remain historical evidence. Production TUI/run, credential launchers,
+provider network, dependency/lockfile changes, and `_refs/` are outside this gate. Earlier plans and
+archives remain historical evidence; [`archive/`](archive/) is not active source and
+[`_refs/`](_refs/) is not a dependency.

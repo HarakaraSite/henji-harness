@@ -2,6 +2,20 @@
 
 Status: **local integration GO; final real-screen Human Gate consumed but non-evaluable**
 
+## Historical VM launcher antecedent
+
+On 2026-09-01, the earlier VM-local launcher wrapper changed the process working directory to the
+repository root before executing the fixed Deno entry point. The later Step 83 implementation
+superseded that behavior with a caller-cwd-preserving wrapper while retaining the same repository
+authority. The replaced Go executable was retained at
+`/home/masat.guest/.local/bin/henji.previous-e7f9ef8c`, and the legacy state tree was retained at
+`/home/masat.guest/.local/state/henji-harness.pre-current-20260901-130038`; the old wrapper SHA-256
+`33adeae91697778d5c648d948a2df50ff2d6476aa72b9fdf29ac3fe8437f1c12` is recorded below.
+
+These are dated historical observations. Their existence and current state were not checked during
+this documentation migration. No cleanup, rollback, or machine-state operation is authorized by
+this result update.
+
 The approved continuation adds a fixed repository-owned machine launcher and check/install/rollback
 entry point, physical caller-workspace authority to the persistent launchers, a request-time fixed
 credential-file source for production TUI composition, and task-oriented F1 help. The existing

@@ -2,9 +2,22 @@
 
 Plan: `docs/plans/fr5-human-observed-ui-correction.md`
 
+## Acceptance boundary
+
+The integrated UI candidate was conditionally accepted under the separate integrated-candidate
+result. The concrete Cycle 1–3 corrections below, followed by the slash and keymap choices in
+commits `4e3b498`, `8686cb3`, `78983f9`, and `58d908d`, were confirmed in direct human use. These
+observations do not establish final daily-use adoption; continued ordinary use is still required
+for that decision. F1 is explicitly parked as 工事中. Optional edit-before/after
+diffs, expanded editor behavior, and external-editor additions were not approved.
+
+Automatic compaction was implemented in `ddbe109`; the original Record snapshot at `52aad50`
+records its focused review as GO with 38/38 checks. A natural 64K production-path observation
+remains unconfirmed; the implementation result is not provider acceptance.
+
 ## Cycle 1
 
-Status: **implemented; awaiting human use**
+Status: **implemented; human-confirmed in integrated use**
 
 実利用で確認された通常画面の問題だけを補正した。
 
@@ -26,12 +39,12 @@ session/turn脱落）は局所修正し、narrow re-reviewで全件Closed、Bloc
 一回だけ実行し、24/24、check/fmt/lint/diffがgreen。provider、credential、production task、retained
 state、dependency、`_refs/*`は操作していない。
 
-次は本人が通常利用し、質問・短いtool activity・final・次入力、footer、cursorを評価する。合格または
-Cycle 1の一度の補正後にCycle 2へ進む。
+後続の本人利用で、質問・短いtool activity・final・次入力、footer、cursorの表示を確認した。
+その利用で再描画frameがmain-screen scrollbackへ重複する問題を観測し、Cycle 2の対象にした。
 
 ## Cycle 2
 
-Status: **implemented; awaiting human use**
+Status: **implemented; human-confirmed in integrated use**
 
 retained production TUIは最初のframeより前にalternate screenへ入り、streaming/tool/progressの全再描画を
 現在sessionの画面内へ隔離する。終了時はrendererを閉じ、inputとterminal modeを復元してからalternate
@@ -39,12 +52,13 @@ screenを離れ、cursorを表示する。PageUp/PageDown/Ctrl-Lの現session vi
 維持した。通常footerからはeditor draftの`pending editor:<bytes>B`だけを外し、editor metadata表示と
 active/recovery laneは保持した。
 
-focused Cycle 1/Cycle 2 tests、check、fmt、lint、diff checkは実行済み。alternate screenの実利用での
-scrollback、終了復元、streaming/tool taskの本人確認は未実施であり、Cycle 3は開始していない。
+focused Cycle 1/Cycle 2 tests、check、fmt、lint、diff checkは実行済み。本人利用でalternate screenの
+scrollback隔離、終了時の元画面復元、PageUp/PageDown/Ctrl-L、Ctrl-Dを確認した。その後の入力観測で
+下記の二つの具体的な補正を得た。
 
 ### Cycle 2 local correction
 
-Status: **implemented; awaiting follow-up human use**
+Status: **implemented; human-confirmed**
 
 本人利用で確認された二点だけを補正した。`５`（U+FF15）を含むverified fullwidth formsをlayout/renderの
 両方で2 display cellsとして扱い、halfwidth formsは1 cellのままにした。paste後のcursor、backspace、
@@ -68,8 +82,14 @@ focused Cycle 1/2/3 tests 16/16、check/fmt/lint/diff checkはgreen。functional
 （追加のwrite/error/96B境界3 assertsをclosure済み）。provider、credential、production task、
 retained state、dependency、`_refs/*`は操作していない。
 
-次は本人が新規taskと継続sessionを使い、通常利用で `tool> bash …` 等のpreviewと
-質問・進行・最終回答・次入力の見つけやすさを評価する。
-
 2026-09-03に本人確認OK。残りの磨き上げ（例：opencode風のedit前後diff表示）は将来の
 brush-up候補とし、本incrementでは行わない。
+
+## Later interaction choices
+
+後続の本人判断で、idle slashは `/help`・`/sessions`・`/exit` に縮小し（`4e3b498`, `8686cb3`）、
+readline編集（A/E/B/F、Alt-B/F、Ctrl-K/U/W等）とAlt+Return改行を採用した（`78983f9`）。
+機能系Ctrl操作を除去し、slashは上記3件に限定した。Up/Downは空入力または上端で入力履歴を歩く形に
+した（`58d908d`）。Ctrl-Kはreadlineの行末削除として残り、旧context panel等は現在entry pointなしで
+保持し、復活・削除は未決定。F1は工事中としてparkし、Shift/Ctrl+Returnは端末依存の
+未確認事項である。

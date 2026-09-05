@@ -59,8 +59,17 @@ reran TUI 83/83, pending 3/3, file-reference 6/6, PTY 33/33, and authoritative `
 final owner disposition is Blocker/P1/P2 zero.
 
 Credential reads, provider/network requests, production task execution, actual persistent product
-state, dependency/lockfile changes, `_refs/` access, and representative human acceptance: 0 / not
-performed. The separate provider-free representative human acceptance remains an unconsumed Human Gate.
+state, dependency/lockfile changes, `_refs/` access, and representative human acceptance were 0 / not
+performed during this local verification phase. A later separate provider-free representative human
+acceptance is recorded below.
+
+Later, the separate provider-free representative human acceptance was accepted as recorded in the
+baseline of the
+[`Step 83 session-navigation plan`](session-navigation-context-recovery-readme.md) and the original Record
+snapshot at Git commit `52aad50`. An initial PTY driver failure was corrected by one expressly
+approved direct-PTY rerun, which confirmed recovery, edit, discard, and restore. It used no
+provider, credential, or real tool and cleaned disposable state. This later acceptance does not
+change the local verification facts above.
 
 ## Changed files
 
