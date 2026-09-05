@@ -11,8 +11,8 @@
 
 ### Experience-driven self-revision proposal / roadmap choice
 
-- 状態: self-revision proposalはcommit `52aad50`でreview GOだが採用未確認。Host / Worker architectureはaccepted conceptであり、permanent I/O placementやresident/Stage 4は未決・未実装。surface-roadmapは未追跡draftで、Phase Bのdata-only / two-trust-tier表現は現行authorityではない
-- 次: proposal §§2/8/10の採否と次のscopeを利用者が判断する
+- 状態: self-revision proposalへ今回ユーザーが確認した構想の動機と進め方を反映し、proposal・architecture参照・本handoffを文書commitとして保存済み。提案全体の採否と最初の改訂対象は未決。Host / Worker architectureはaccepted conceptであり、permanent I/O placementやresident/Stage 4は未決・未実装。surface-roadmapは未追跡draftで、Phase Bのdata-only / two-trust-tier表現は現行authorityではない
+- 次: 改訂済みproposal §§2/8/10に基づき、残る提案の採否と次のscopeを利用者が判断する
 - 正本: `docs/plans/experience-driven-self-revision-proposal.md`、`docs/architecture/henji-host-agent-worker.md`
 - 注意: 未追跡の旧draft `docs/plans/surface-roadmap.md`は非authority参照であり、採用後の実装またはproof order変更は別途scoped planで承認する。提案上、最初の実revision cycleはWorker受入後に行う。proposal、roadmap、Git履歴は新しい実装・provider実行・承認を意味せず、accepted architectureがdraftに優先する
 
@@ -3677,3 +3677,11 @@
 - 実施: ユーザーの明示依頼により、改訂案・architecture参照・handoffを単一commitへ統合
 - 次: `ASK-20260905-experience-driven-self-revision-proposal`の提案採否を確認する
 - 注意: commitは提案採用やproduct実装の承認を意味しない。既存未追跡ファイルを保持し、pushは未実施
+
+## 2026-09-05 12:34 JST
+
+- 実行エージェント: Codex owner + single implementer + read-only functional reviewer
+- 作業トピック: 継続性と実行方法の改訂可能性を構想・進め方へ反映
+- 実施: ユーザーが確認した動機をself-revision proposalとarchitectureの参照へ反映。functional reviewは指摘なし、提案文書fmt・local link・diff check成功
+- 次: Experience-driven self-revision proposal / roadmap choice Recordから、残る提案の採否と次のscopeを判断する
+- 注意: 文書改訂のみ。既存Worker受入とproof順序を維持。architecture全体のfmt差分は変更前から存在し、今回の整形対象外

@@ -5,7 +5,8 @@
 [corrections results](../plans/agent-worker-real-provider-gate-corrections-results.md)）。real-provider
 Human Gateは未実施であり、常駐Host/Stage 4以降のfull architectureは未実装。この文書は実装認可ではない
 
-2026-09-05 draft 参照: self-revision を実利用の経験比較から改訂候補へつなぐ提案を
+2026-09-05 draft 参照: セッションをまたぐ作業・目的・判断理由の継続と、handoff / delegation 等の経験から
+改訂対象を選び、必要に応じて実行可能な Definition や runtime の候補へつなぐ提案を
 [`docs/plans/experience-driven-self-revision-proposal.md`](../plans/experience-driven-self-revision-proposal.md)
 に追加した。これは draft の方向付けであり、この accepted concept、既存の Human Gate、または
 実装認可を置き換えない。

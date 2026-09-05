@@ -6,6 +6,10 @@
 
 基準点: commit `f8b2496434c3cde7b642021713e23f2f25d46d90`
 
+初版 draft は commit `52aad50` でレビュー GO
+となったが、その結果は当時の文面に対するレビューであり、 この改訂の採用、Henji による
+self-revision、または実装認可を示さない。
+
 この文書は、実際の利用経験を起点に構想と進め方を改訂する短い提案である。次の利用者判断と
 実製品経路での確認に戻せる形に限定し、文書作成以外の作業を認可しない。
 
@@ -14,6 +18,14 @@
 ### ユーザーが確認したプロダクト定義
 
 > 使う中で得た経験から、指示・スキル・実行方法まで改良していくagent harness。
+
+この定義の動機には、セッションをまたいで作業、目的、判断理由を引き継ぎ、同じ説明や判断の再構成を
+減らしたいという継続性への要求がある。同じく、AGENTS.md の委譲規則や subagent 定義を見直す経験から、
+tool の選択、委譲・実行・待機・介入のタイミング、役割の組み合わせ、context と runtime
+の挙動も改良対象 になる。どちらも、Henji
+が人間の作業を続けながら、その作業方法を経験に応じて改良するための中心的な
+経験である。これらの運用経験は構想の動機と改訂候補を考える材料であり、Henji
+自身が自己改訂した証拠とは 区別する。
 
 この定義でいう改良の対象は、AGENTS.md や skill の文章だけではない。モデルへの入力、context
 の選択と圧縮、loop、tool、delegation、model の使い方、そして必要なら実行可能な TypeScript Definition
@@ -39,6 +51,9 @@ Henji の自己改訂を、将来の遠い機能ではなく、次の経験ル�
 使って候補を提案・生成できることを中心に置き、観測、提案、編集、比較、採用の自動化水準は段階ごと
 に決める。完全自律の適用はこの定義からは導かれず、新しい権限としても扱わない。
 
+継続性は経験と次の改訂をつなぐ前提である。改訂は、次に何を残し、何を読み、どう解釈するかも改善し、
+その理由と継続中の目的を次の利用へ持ち越せるようにする。
+
 ## 2. 何を改訂し、何を維持するか
 
 今回の提案で改訂する軸は次の三つである。
@@ -49,11 +64,12 @@ Henji の自己改訂を、将来の遠い機能ではなく、次の経験ル�
 | executable Definition の位置付け | 合成可能な Definition は主目的ではなく、改訂候補を実行可能な形で試すための手段とする                            |
 | proof の順序                     | Stages 1–3 の accepted foundation は維持し、Stages 4–7 の順序変更はこの提案が採用された場合だけ別途判断する     |
 
-改訂対象を AGENTS.md や skill だけに狭めず、指示、skill、context、loop、tool、delegation、model、
-実行コードまで観測に応じて候補にする。事実を覚える、指示・skill を改訂する、実行可能な挙動を
-改訂する、という三分類は入口であり、固定順序や恒久的 allowlist ではない。ここで維持するのは、
-既存の作業権限、product-first 方針、Human Gate の要否、trusted-local の境界である。新しい承認制度、
-一般 hardening、権限表はこの提案から導入しない。
+改訂対象を AGENTS.md や skill だけに狭めず、事実、指示・skill、Definition、context、loop、tool、
+delegation / role composition、実行・待機・介入の timing、model、実行コードまで、観測された need に
+応じて候補にする。事実を覚える、指示・skill を改訂する、実行可能な挙動を改訂する、という三分類は
+入口であり、固定順序や恒久的 allowlist ではない。ここで維持するのは、 既存の作業権限、product-first
+方針、Human Gate の要否、trusted-local の境界である。新しい承認制度、 一般
+hardening、権限表はこの提案から導入しない。
 
 ## 3. 経験をどう扱うか
 
@@ -64,6 +80,10 @@ Henji の自己改訂を、将来の遠い機能ではなく、次の経験ル�
 - 「この作業で同じ説明や確認を何度も行った」など、明確な困難。
 - 「同じ種類の作業が短く、少ない介入で完了した」など、再利用したい成功。
 - 結果、操作、表示、context、tool、delegation のどこに人間の負担が残ったか。
+
+現在の handoff の読み返しや delegation
+運用の改訂も、この最初の経験を選ぶための入力にできる。ただし、 それらは要件や hypothesis
+を得るための人間の利用経験であり、Henji の self-revision の実証ではない。
 
 未観測の provider variant や、想像上の compaction memory loss を最初の対象にしない。context の
 compaction では、どの model input が選ばれたか、どの boundary で圧縮されたか、summary を含めて
@@ -100,7 +120,8 @@ seam だけを候補にする。依存更新だけは自己改訂の本体とし
 5. 変更した artifact または提案した revision。entry ref だけでは依存の同一性を示せないため、変更した
    source / dependency version、または lineage 未解決であることも記録する。
 6. baseline と候補の比較条件・結果。
-7. 次の通常利用で adoption をどう観測したか、または何が未確認か。
+7. 次の通常利用で adoption をどう観測したか。継続性が関係する cycle では、再説明が減ったか、目的と
+   判断理由が新しい相談や session resumption でも保たれたかも記録し、未確認事項を残す。
 
 原因特定に必要な raw diagnostic evidence は repository policy に従って保存・読み返し可能にする。
 credential 値と Authorization は記録しないが、それ以外を仮想的な private-data 懸念だけで省略しない。
@@ -113,7 +134,8 @@ production 経路で完了でき、改訂の前後で少なくとも次の実用
 
 - 同じ種類の作業での繰り返し作業が減ったか。
 - 人間の介入回数、手戻り、待ち時間、作業時間、または provider 費用が減ったか。
-- もともとの困難が解消したか、または成功した使い方を次の通常利用で再現できたか。
+- もともとの困難が解消したか、または成功した使い方を次の通常利用で再現できたか。継続性が関係する
+  場合は、目的・判断理由が保たれ、同じ説明の繰り返しが減ったかも確認する。
 - 改訂の原因と結果を evidence で追え、未解決の副作用を隠していないか。
 
 baseline と候補は、task、必要な入力、model、context/compaction 状態など比較に影響する
@@ -203,13 +225,22 @@ package を 別途準備する。package と実行には新しい承認が必要
 ### Step 1 — 最初の実経験を一つ選ぶ
 
 通常利用で観測された具体的な困難、または繰り返し使いたい成功を一つ選び、最小の経験記録を作る。
-compaction の仮想 defect、未観測の provider failure、将来欲しい機能を最初の対象にしない。記録には、
-人間が何を完了したかったか、どの操作で困ったか、どの evidence があるか、どの条件が変動したかを書く。
+現在の handoff / delegation 運用で得た、再説明の多さ、目的・判断理由の継続、委譲・tool・実行 timing
+の 負担も、ここで扱う経験の候補である。これらを今の requirements / hypothesis
+の入力に使うことはできるが、 現在の人間による運用を Henji 自身の self-revision
+の証拠とは数えない。compaction の仮想 defect、未観測の provider
+failure、将来欲しい機能を最初の対象にしない。記録には、人間が何を完了したかったか、どの操作で
+困ったか、どの evidence があるか、どの条件が変動したかを書く。
+
+継続性の確認は session resumption や新しい相談が関係する cycle に適用する。すべての cycle に handoff
+の 網羅確認を課すものではない。Henji による最初の実 revision trial は、現行 Worker
+の受入れ後に行う。
 
 ### Step 2 — 一つの改訂 cycle を計画する
 
-baseline、原因仮説、候補 artifact、比較する次の通常利用を一つの plan に束ねる。候補が skill、
-AGENTS.md、context、実行コードのどれであっても、必要な変更だけを対象にする。bootstrap のために外部
+baseline、原因仮説、候補 artifact、比較する次の通常利用を一つの plan
+に束ねる。候補が事実、指示・skill、 Definition、context、tool、loop、delegation / role
+composition、model、実行コードのどれであっても、必要な 変更だけを対象にする。bootstrap のために外部
 Codex や人間がファイルを作成・編集した場合は `developer-assisted` と明示し、それを Henji 自身の
 self-revision の証拠に数えない。
 
@@ -225,16 +256,21 @@ self-revision の証拠に数えない。
 
 ### Step 3 — 次の通常利用で adoption を比較する
 
-候補を適用した後、同じ目的の通常利用で、元の困難または成功の再現性を観測する。新規セッションを使う
-場合はその事実と revision binding を記録し、同一セッションの移行とは表現しない。結果が改善、
+候補を適用した後、同じ目的の通常利用で、元の困難または成功の再現性を観測する。継続性が関係する場合は、
+session resumption
+や新しい相談で目的・判断理由が保たれ、同じ説明の繰り返しが減ったかも観測する。新規
+セッションを使う場合はその事実と revision binding
+を記録し、同一セッションの移行とは表現しない。結果が改善、
 不変、悪化、または判断不能のいずれであっても、条件と evidence を経験記録へ追記する。
 
 ### Step 4 — 経験に応じて反復する
 
 一回の成功で一般化せず、同じ種類の利用で有用性が続くかを人間の必要に応じて観測する。複数 cycle
 が必要になった場合だけ、経験記録の検索、候補の lineage、比較の再現性、Instance replacement 等の
-追加設計を別途提案する。Stage 4 replacement、第2の Surface、resident Host、mailbox/schedule は、
-最初の cycle の前提条件ではない。
+追加設計を別途提案する。各 cycle で
+handoff、delegation、その他の観測項目をすべて網羅する必要はなく、 その cycle
+の目的に関係する確認だけを行う。Stage 4 replacement、第2の Surface、resident Host、 mailbox/schedule
+は、最初の cycle の前提条件ではない。
 
 ## 9. 参照した固定 snapshot と適用範囲
 
@@ -275,10 +311,15 @@ continuity は、それぞれ局所的な mechanism の参考である。Deno �
 - 原因仮説は、事実、指示・skill、context/loop、または実行可能な挙動のどこにあるか。
 - generator / applier のどこまでを Henji に任せ、どこを developer-assisted と明示するか。
 - 新規セッションの比較で十分か、durable replacement が必要か。
+- 現在の handoff / delegation 運用を requirements / hypothesis の入力としてどう記録し、どの cycle で
+  継続性を確認するか。
 
 推奨する次の一手は、Corrections plan §7を元に新しい real-provider 受入れ package
-を準備し、別途承認を 得た Human Gate を self-revision trial
-と分離して行うことである。その後、通常利用で一つの具体的な
-経験記録を作る。採否、最初の経験、実装計画への分解は、次の利用者判断と別の承認済み計画で決める。
-この draft は accepted concept、既存 plan/results、Human Gate
-を置き換えず、実装、provider、credential、 production state の操作を認可しない。
+を準備し、別途承認を得た Human Gate を self-revision trial と分離して行うことである。現在の handoff
+/ delegation 運用から requirements / hypothesis の経験記録を先に作ることはできるが、それは Henji
+自身の改訂実証ではない。Worker の現行受入れ後に、通常利用で一つの具体的な経験を対象として
+self-revision trial を行い、継続性が関係する場合だけ session resumption
+や新しい相談で採用を確認する。
+採否、最初の経験、実装計画への分解は、次の利用者判断と別の承認済み計画で決める。 この draft は
+accepted concept、既存 plan/results、Human Gate を置き換えず、実装、provider、credential、
+production state の操作を認可しない。
