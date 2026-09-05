@@ -4,8 +4,8 @@
 
 ### Project structure and canonical sources
 
-- 状態: Worker foundation Stages 1–3とreal-provider受入は完了済み。ユーザーは、将来構想であるHenji自身の継続的な改訂を直近の実装順序と誤って結び付けたことを確認し、現在地、構想、architecture、roadmapの順に正本を見直す計画を承認した。Step 1で現在地、Step 2で構想を正した。Step 3ではHost / Worker architectureから自己改訂を直近とするproof順序、実装の現在地、重複review checklistと帰結節を除き、runtime evidenceと外部比較を背景調査へ分離し、旧roadmap入力をhistoryへ移した。確定した制約は本文へ一元化し、未決判断には今決めない理由と判断契機を記録した。architectureは責務、状態、lifetime、commit境界を定め、機能の時期と優先順位を定めない。OpenCodeが現コードと参照実装から再構成した未承認`surface-roadmap` draftもhistoryへ移した
-- 次: 正した現在地、構想、architectureと現行productの実装・受入結果から、現在の機能不足と実装順序を示すroadmapを作る
+- 状態: Worker foundation Stages 1–3とreal-provider受入は完了済み。ユーザーは、将来構想であるHenji自身の継続的な改訂を直近の実装順序と誤って結び付けたことを確認し、現在地、構想、architecture、roadmapの順に正本を見直す計画を承認した。Step 1で現在地、Step 2で構想を正した。Step 3ではHost / Worker architectureから自己改訂を直近とするproof順序、実装の現在地、重複review checklistと帰結節を除き、runtime evidenceと外部比較を背景調査へ分離し、旧roadmap入力をhistoryへ移した。確定した制約は本文へ一元化し、未決判断には今決めない理由と判断契機を記録した。architectureは責務、状態、lifetime、commit境界を定め、機能の時期と優先順位を定めない。さらに構想目的の重複を除き、AgentInstanceの継続性とmailbox・非同期routing・scheduleの個別採否を分離した。自己改訂の観測モデルを定量比較ではなく人間的な学習として明記し、経験保存、AI解釈、Definition候補、採用、通常利用へ戻る粗いループをarchitectureへ追加した。OpenCodeが現コードと参照実装から再構成した未承認`surface-roadmap` draftもhistoryへ移した
+- 次: 経験保存 → Worker内AIの解釈 → Definition候補 → 採用 → 通常利用という改訂ループの意味と粗い責務分担をユーザーと確認する。その後、正した現在地、構想、architectureと現行productの実装・受入結果からroadmapを作る
 - 正本: `docs/plans/agent-worker-real-provider-human-acceptance-results.md`、`docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`
 - 注意: 自己改訂はactiveな次工程ではない。provider/production `henji`、Git config、commit/push/tag/publish/releaseは今回の文書見直しに含まれない。未追跡`_refs/*`は変更しない
 

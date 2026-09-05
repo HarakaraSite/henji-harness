@@ -4,20 +4,18 @@
 
 対応するプロダクト構想は
 [`docs/concepts/experience-driven-self-revision.md`](../concepts/experience-driven-self-revision.md)
-である。このarchitectureはHenjiの実行基盤を構造化するとともに、将来Henji自身の機能を継続的に
-改訂できる余地を保つ。自己改訂の着手時期はこの文書で決めない。
+である。この文書は構想の目的を再定義せず、その実行基盤の構造を定める。
 
 この文書は、Henji HostとヘッドレスなDeno Agent Workerの責務、状態、lifetime、commit境界を定める。
-具体的な実装順序、着手時期、機能優先順位はroadmapで扱う。
 
 ## プロダクト上の決定
 
 - HenjiはDenoベースのagent harnessである。`AgentDefinition`はHenji内部の実行構成を表す、信頼された
   executable TypeScript関数である。
-- この概念でいう実行 primitive は Deno Web Worker（`new Worker`）である。これは Cloudflare の
+- このarchitectureでいう実行 primitive は Deno Web Worker（`new Worker`）である。これは Cloudflare の
   デプロイ単位としての Worker とは別のものである。`AgentWorkerGeneration` は、この Deno Web
   Worker による一時的な実行を表す概念名として引き続き用いる。
-- 将来の `AgentDefinition` は、信頼された実行可能な TypeScript の合成コードである。外部の
+- `AgentDefinition` は、信頼された実行可能な TypeScript の合成コードである。外部の
   TypeScript 関数や plugin も Henji core と同じ trusted-local 実行境界に置かれる。それらの
   出所、レビュー、リビジョン、配布は開発プロセス上の関心事であり、信頼された Definition
   と信頼されていない Definition に別々の実行経路を作るものではない。
@@ -26,15 +24,12 @@
   では定めない。評価後の data-only な `AgentManifest` はこの参照とは別の authority であり、
   選択内容を説明するが、admission/permission authority にはならない。
 - Deno Web Worker は、組み込み Definition と外部 Definition の双方に共通する単一の実行カプセル
-  として提案する。Worker はライフサイクル境界であり、別の trust tier ではない。
+  とする。Worker はライフサイクル境界であり、別の trust tier ではない。
 - Definitionは、provider、model、effort、loop、tools、subagents、contextをWorker内の一つの
-  `AgentComposition`へ合成できる。この合成可能性は、目的別のagent variantを増やすことを主目的とせず、
-  Henji自身の構成を将来継続的に改訂できる余地を保つためのmechanismである。
-- UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、将来の
+  `AgentComposition`へ合成する。Definitionを目的別variantの固定集合や閉じたcapability schemaには
+  しない。
+- UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、Host / Worker
   interface/protocol を通じてのみ Host と通信する。
-- 将来の自己改訂では、多数のDefinitionからagentを選ぶことではなく、Henji自身のinstruction、skill、
-  context、tool、loop、runtime等を経験に応じて変更できなければならない。このarchitectureはその変更を
-  不必要に妨げる固定化を避けるが、自己改訂の着手時期や実装方法を決めない。
 - 永続的なagentを採用する場合は常駐Hostが必要であり、durableな`AgentInstance`はephemeralまたは
   再起動されたWorker generationより長く存続しなければならない。
 - Host の durable な `AgentInstance` metadata は、その Instance が現在使用する
@@ -51,10 +46,10 @@
 | `AgentDefinition` | 信頼された実行可能な TypeScript 合成関数。Host が所有する UI や session object ではなく、agent をどのように組み立てるかを記述する。 | 1 つの Definition revision。Worker generation 内で評価される。 |
 | `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/subagent/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
-| `AgentInstance` | 安定した agent identity、その durable state、active な `DefinitionRevisionRef` の binding、および mailbox association。 | Worker generation より長く存続し、置き換えられた Worker で再開できる。 |
+| `AgentInstance` | 安定した agent identity、その durable metadata、および active な `DefinitionRevisionRef` の binding。 | Worker generation より長く存続し、置き換えられた Worker で再開できる。 |
 | `AgentWorkerGeneration` | 1 つの Definition revision を実行する 1 回の ephemeral な実行。Instance identity を変えずに停止、再起動、置換できる。 | process/thread/isolate の存続期間。 |
 | `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Worker とは独立して所有・置換される。 |
-| `HenjiHost` | Worker lifecycle、物理 terminal / Surface I/O、Surface の load、UI から command への変換、storage mechanism を所有する常駐 coordinator。将来の mailbox、routing、schedule mechanism もここに属する。 | 常駐 process/service。durability の管轄。 |
+| `HenjiHost` | Worker lifecycle、物理 terminal / Surface I/O、Surface の load、UI から command への変換、storage mechanism を所有する coordinator。 | Worker generation の lifecycle owner。常時稼働serviceにするかは未決である。 |
 
 `AgentManifest` と `AgentComposition` を区別するのは意図的である。manifest は、実行可能な
 Definition が合成できるものを制限する仕組みになることなく、読み取り、比較、または revision
@@ -85,8 +80,6 @@ HenjiHost ───── interface / protocol ───── AgentWorkerGenera
 - Surface 実装の load と置換、および Surface action の Worker 向け command または message
   への変換。
 - 以下で説明する durable session 境界を含む storage mechanism。
-- 将来の resident-agent 設計における、mailbox persistence、inbound routing、schedule wake-up
-  mechanics。
 
 Host は、Definition code が外部にあるというだけで、別の Definition 実行経路を選択しない。
 組み込み Definition と外部の信頼された Definition は、同じ Worker capsule と同じ概念上の
@@ -141,11 +134,9 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 - 1 つの Session は必ず 1 つの `AgentInstance` に属し、1 つの `AgentInstance` は 0 個以上の
   Session を持てる。
 - Session は transcript、context、turn commit などの conversation semantic state を所有する。
-  `AgentInstance` は stable identity、active な Definition revision binding、mailbox association
-  を所有する。
+  `AgentInstance` は stable identity と active な Definition revision binding を所有する。
 - 同じ `AgentInstance` に admit される writer Worker generation は、一度に 1 つだけとする。
-  複数の Surface または Session からの input は、Host がその Instance の generation へ serialize
-  および routing する。
+  Host は admit した input を serialize して、その Instance の generation へ渡す。
 - mutable datum は Session または Instance のいずれか 1 つの canonical domain に属する。将来
   Instance-wide mutable state を導入する場合、Host は Instance 単位の revision、lock、persistence
   も所有し、session state と二重の正本にしない。
@@ -164,7 +155,7 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 2. Worker が snapshot を解釈して composition を実行し、turn 中の output と commit proposal を
    生成する。
 3. Host が適用対象の session revision を検証し、受け入れた proposal を atomic に保存する。
-4. durable storage が成功した後にのみ、Host が Surface または将来の mailbox consumer に turn
+4. durable storage が成功した後にのみ、Host が Surface または採用済みの output consumer に turn
    を committed と報告する。
 
 ### Effect と commit proposal
@@ -182,22 +173,41 @@ Persisted Host state が canonical であり、Worker state は ephemeral であ
 network、その他の effect には、それぞれ将来の semantics が必要である。この文書はそれらの
 semantics を定義しない。
 
-## 常駐agentを採用する場合のmechanism
+## 経験からDefinitionへ進む改訂ループ
 
-常駐agentをproduct機能として採用する場合、次の責務分離に従う。
+このarchitectureがDefinitionについて定める改訂ループは、次の関係である。
 
-| Mechanism | Host の責務 | Worker の責務 |
+1. Hostのstorage mechanismが、通常利用で観測された経験を、必要ならSessionをまたいで後のWorker
+   generationから読める形で継続的に保存する。
+2. Worker内のAIが保存された経験を読み、その意味を解釈して、Definitionの改訂候補をsource、diff、
+   またはdataとして生成し、interfaceを通じてHostへ返す。
+3. Hostは改訂候補を現在使用中の`DefinitionRevisionRef`と区別して保存し、生成されただけでは実行対象に
+   しない。
+4. 採用が決まった候補をimmutableなDefinition revisionとして確定し、Hostが`AgentInstance`のbindingを
+   明示的かつdurableに切り替える。
+5. 改訂後も通常利用を続け、そこで観測された変化を次の経験として保存する。
+
+このループは、変更前後の比較実験、改善の定量測定、Henji全体の構成追跡を要求しない。何を経験として
+残すか、AIがどの経験を読むか、候補の採否を誰がどう決めるかは、このarchitectureでは固定しない。
+
+## AgentInstanceの継続性とHostの追加機能
+
+`AgentInstance`の継続性は、Worker generationを置き換えてもidentity、durable metadata、activeな
+Definition revision bindingをHostが維持することで成立する。同じInstanceに対するwriter generationは
+一度に1つだけとし、Hostがinputをserializeする。この構造だけでは、mailbox、複数Surface間のrouting、
+scheduleをproduct機能として採用したことにはならない。
+
+roadmapが各機能を個別に採用した場合は、次の責務分離に従う。
+
+| 追加機能 | Host の責務 | Worker の責務 |
 | --- | --- | --- |
 | Mailbox | Worker が不在または置換中である間も含め、`AgentInstance` の input queue を永続化する。 | dequeue した event を解釈し、agent の response または次の intent を決める。 |
-| Routing | inbound Surface message を `AgentInstance` と session に対応付け、正しい Surface に output を返す。これは tool-name dispatch ではなく、message/Instance routing である。 | 現在の execution context が宛先となる output を生成する。物理 channel の選択は所有しない。 |
+| 非同期または複数Surface間のRouting | inbound message を `AgentInstance` と Session に対応付け、正しい Surface に output を返す。これは tool-name dispatch ではなく、message/Instance routing である。 | 現在の execution context が宛先となる output を生成する。物理channelの選択は所有しない。 |
 | Schedule | wake-up intent、time、delivery mechanics を永続化し、通常の mailbox event を enqueue する。 | schedule intent の意味を所有し、結果の event を通常の agent input として処理する。 |
 
-したがって、`AgentInstance` は durable な address と state association、および active な
-Definition revision binding を持ち、0 個以上の Session に対応付く。一方、
-`AgentWorkerGeneration` は置換可能な executor である。同じ `AgentInstance` に対する writer
-generation は一度に 1 つだけであり、複数 Surface/Session からの input は Host が serialize と
-routing を担う。常に address 可能な persistent agent は ephemeral Worker だけでは提供できず、
-常駐 Host、durable storage、service supervisor または同等の lifecycle owner を必要とする。
+常にaddress可能なagentをproduct機能として採用する場合は、ephemeral Workerだけでは成立せず、
+常時稼働するHost、durable storage、service supervisorまたは同等のlifecycle ownerを必要とする。
+その場合もWorker自体を常駐させる必要はなく、mailbox、routing、scheduleの採否はそれぞれ別に決める。
 
 ## 外部比較の位置付け
 
@@ -223,6 +233,6 @@ Deno、Cloudflare、Pi、Zot、OpenComputer、OpenClawとの詳細な比較は
 | Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |
 | Definition moduleのidentity、dependency lineage、load、rollout | external moduleやrevision transitionで保証すべき再現性が、対象機能によって異なる | executable revisionの切替または配布をproduct機能として選んだとき |
 | Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |
-| mailbox、routing、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、常駐Hostから自動的には必要にならない | roadmapが対象機能を採用したとき |
+| mailbox、非同期または複数Surface間のrouting、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、AgentInstanceの継続性やHost / Worker分割だけからは必要にならない | roadmapが対象機能を採用したとき |
 | effectのidempotency、deduplication、recovery | effect先の契約なしに共通のretryまたはexactly-once semanticsを決められない | recovery対象となる実tool effectを選んだとき |
-| deployment profile、service supervision、migration | 実行先、可用性、移行元と移行先が決まらなければ必要なmechanismを選べない | 常駐Hostの運用先または移行対象を決めたとき |
+| deployment profile、service supervision、migration | 実行先、可用性、移行元と移行先が決まらなければ必要なmechanismを選べない | 常時address可能なHost serviceの運用先または移行対象を決めたとき |
