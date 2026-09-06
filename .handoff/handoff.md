@@ -4,8 +4,8 @@
 
 ### Project structure and canonical sources
 
-- 状態: `docs/roadmap.md`はユーザー確認を終了し、採用済み。次のloopは現行Henjiの通常利用とし、気づきを未整理の一行メモでも蓄積できるinboxを用意した
-- 次: ユーザーがHenjiを通常利用し、気づいたことを`docs/experience/normal-use-inbox.md`へ随時メモする
+- 状態: `docs/roadmap.md`はユーザー確認を終了し、採用済み。現行Henjiの第1回通常利用incrementを終了し、通常利用中のfeedback蓄積が具体的な改善候補の発見に有効だとユーザーが評価した
+- 次: 再開時に`docs/experience/normal-use-inbox.md`の未振り分け項目を確認し、次に扱う改善または次の通常利用incrementをユーザーが判断する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`、`docs/experience/normal-use-inbox.md`
 - 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmapの採用は各phaseの実装認可ではない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
@@ -17,6 +17,16 @@
 - 注意: local scopeの確認と関連henji/henjibot/abyssaeon handoffの照合ではoperations正本・transfer ledgerを確認できなかった。planner inputが示す旧operations正本（未アクセス）は`discovery/concepts/deno-self-revising-agent-harness/README.md`（`/tmp/planner-inputs/henji-agent-definition-resource-identity.md`）。archived safety workは明示判断なしに再開せず、移管先のRecordだけで完了・承認継承と判断しない
 
 ## Checkpoints
+
+## 2026-09-06 JST
+
+- 実行エージェント: Codex default
+- 作業トピック: First normal-use increment completion
+- 実施: 現行Henjiの第1回通常利用incrementを終了。通常利用中に得たTUI表示、回答format、tool表示、
+  step上限、tool選択、tool definition metadataに関するfeedbackをinboxへ蓄積し、この方法が改善候補の
+  発見に有効だというユーザー所感を記録した
+- 次: inboxの未振り分け項目から次に扱う改善を選ぶか、次の通常利用incrementを開始する
+- 注意: inboxの各候補は未採用。roadmapやarchitectureの変更、改善の実装認可、commit、pushは含まない
 
 ## 2026-08-26 19:28 JST
 
