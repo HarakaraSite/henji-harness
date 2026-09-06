@@ -53,11 +53,10 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 | 実装済み | active sourceに現在のproduct動作がある。未観測の将来variantまでは含めない |
 | 部分実装 | 後続機能に使える実装はあるが、列挙したproduct動作全体は成立していない |
 | 未実装 | active production経路にそのproduct動作がない |
-| 条件付き未採用 | architectureは採用時の責務だけを定めるが、product機能としてはまだ採用していない |
 
 ## 構想とarchitectureから導かれる機能一覧
 
-### 通常利用と現在のagent機能
+### SurfaceとSessionの通常利用
 
 | ID | 必要な機能 | 構想・architectureとの関係 | 現コードの状態 |
 | --- | --- | --- | --- |
@@ -67,7 +66,7 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 | F04 | Sessionのtranscriptとcontext checkpointを再起動後も利用する | Hostがstorageを所有し、Workerがconversation/contextの意味を所有する | **実装済み**。workspace-partitioned session schema-v1/v2、atomic commit、reopen、automatic compactionがある |
 | F05 | 人間が保存済みSession、history、contextを通常利用中に参照する | 経験を人間が確認し、後の改訂指示へ使うSurface機能 | **部分実装**。session picker、再開時のconversation表示、現在Sessionのviewport移動、process-localな入力履歴はTUIから利用可能。保存済みcausal historyとcontextのprojection・controller処理は残るが、現TUIにはkeyまたはslashの入口がない |
 
-### Definition、Host / Worker、durability
+### AgentCompositionと現在のHost / Worker runtime
 
 | ID | 必要な機能 | architecture上の責務・境界 | 現コードの状態 |
 | --- | --- | --- | --- |
@@ -81,15 +80,24 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 | F13 | WorkerのproposalをHostが検証・永続化し、durable write後だけcommittedとする | durable Session storeがcanonical。Worker stateはephemeral | **実装済み**。base state revision、transcript、next turn、Definition bindingを検証してcommit/ackする |
 | F14 | Instance、Definition revision、generation、base state revisionを相関し、admit済みwriterだけをcommitできる | Hostのadmissionとrevision fencing | **部分実装**。Session、ephemeral instance correlation、generation、base state revision、Definition refを現在の一Session内で検証する。durable `AgentInstance` identityがない |
 | F15 | tool effectとstate commitを区別し、不明なeffectを自動replayしない | Workerはeffect evidenceを返し、Hostはsettlementを記録する | **実装済み（現在のtool経路）**。tool event、execution artifact、`automaticReplay: false`、`effectCommitRelation: not_transactional`がある |
-| F16 | Worker generationより長く存続するdurable AgentInstanceを持つ | resident Hostがdurable lifecycle ownerとなり、stable identity、metadata、active Definition bindingを所有する | **未実装**。現`instanceCorrelation`は`WorkerHostSession`ごとに生成され、永続化されない |
-| F17 | SessionをAgentInstanceへ所属させ、Instance単位でwriterとinputをserializeする | 一Sessionは一Instanceに属し、同一Instanceのwriter generationは同時に一つ | **未実装**。Sessionはworkspace、agent、Definitionには結び付くがInstance IDを持たず、別Sessionをまたぐwriter ownershipはない |
-| F18 | 同じInstanceのDefinition revision bindingを人間の判断でdurableに切り替える | restartとrevision transitionを区別し、Hostがbindingをcommitする | **未実装**。現行はstartup selectorと保存済みrefが一致する場合だけreopenし、revision transitionを拒否する |
 
 F02、F03、F06の境界は次のとおりである。F03がWorker generation起動時にinstruction snapshotとskill
 catalogを作り、F06がinstruction本文とskill manifestをsystem instructionへ合成するとともに`skill` toolを
 registryへ組み込む。F02は、そのsystem instructionを各model requestへ渡し、modelが`skill` toolを呼んだ
 場合は、起動時のcatalogに保存した該当skill本文をtool resultとしてtranscriptへ加え、次のmodel stepへ渡す。
 したがって、skill一覧は最初のmodel requestから見えるが、skill本文は最初から一括してmodelへ渡されない。
+
+### durable AgentInstanceとrevision transition
+
+F16〜F18は現在の通常利用に必要な機能ではない。人間が将来self-revision loopを開始すると決めた場合に、
+同じagent identityをSessionやWorker generationをまたいで維持し、採用したDefinition revisionへ切り替える
+ための基盤である。
+
+| ID | 必要な機能 | architecture上の責務・境界 | 現コードの状態 |
+| --- | --- | --- | --- |
+| F16 | Worker generationより長く存続するdurable AgentInstanceを持つ | resident Hostがdurable lifecycle ownerとなり、stable identity、metadata、active Definition bindingを所有する | **未実装**。現`instanceCorrelation`は`WorkerHostSession`ごとに生成され、永続化されない |
+| F17 | SessionをAgentInstanceへ所属させ、Instance単位でwriterとinputをserializeする | 一Sessionは一Instanceに属し、同一Instanceのwriter generationは同時に一つ | **未実装**。Sessionはworkspace、agent、Definitionには結び付くがInstance IDを持たず、別Sessionをまたぐwriter ownershipはない |
+| F18 | 同じInstanceのDefinition revision bindingを人間の判断でdurableに切り替える | restartとrevision transitionを区別し、Hostがbindingをcommitする | **未実装**。現行はstartup selectorと保存済みrefが一致する場合だけreopenし、revision transitionを拒否する |
 
 ### 経験駆動の改訂ループ
 
@@ -102,29 +110,30 @@ registryへ組み込む。F02は、そのsystem instructionを各model request�
 | F23 | 改訂後のHenjiで通常利用へ戻り、そこで得た変化を次の経験にする | loopを閉じるproduct動作。統制実験や定量測定は必須ではない | **未実装（end-to-end）**。通常利用自体はあるが、候補生成・採用との一続きのloopがない |
 | F24 | 経験に応じてDefinition以外のinstruction、skill、context、tool、delegation、model、loop、runtime、Host / Worker連携、Surfaceも改訂対象にできる | 構想は対象を固定componentへ閉じない。必要な境界は対象選択時にarchitectureへ戻って決める | **未実装**。最初のloopでは採用せず、後続loopで一対象ずつ判断する |
 
-### architectureが採用時の責務だけを定める機能
+## architectureで例示する採用未決の将来オプション
 
-次はAgentInstanceやHost / Worker分割から自動的に採用される機能ではない。利用経験が必要性を示し、別の
-roadmap判断で採用した場合だけ実装する。
+以下は、現時点のarchitectureで例示している採用未決の将来オプションであり、将来機能の網羅的な一覧では
+ない。現時点の構想から実装を要求されるものでもない。人間が明示的に機能を要求するか、通常利用の経験から
+必要性を判断して採用した場合に、architecture上の責務を具体化してroadmapへ追加する。ここにない機能も、
+同じ構想・architecture・roadmapのloopで追加できる。
 
-| ID | 条件付き機能 | 採用した場合のarchitecture | 現コードの状態 |
-| --- | --- | --- | --- |
-| C01 | Worker不在時にもInstance宛てinputを保持するmailbox | Hostがdurable queue、Workerがdequeue eventの意味を所有 | **条件付き未採用** |
-| C02 | 非同期または複数Surface間のmessage routing | HostがmessageをInstance/Sessionへ対応付け、Workerはoutputの意味を生成 | **条件付き未採用** |
-| C03 | scheduleによるwake-up | Hostがtime/deliveryとenqueue、Workerがschedule intentとevent処理を所有 | **条件付き未採用** |
-| C04 | 常にaddress可能なagent operationとdelivery | Phase 1のresident Hostへ継続稼働、到達経路、delivery、必要なsupervisorを加える。Worker常駐は不要 | **条件付き未採用** |
-| C05 | 一般的なInstance-wide mutable state | HostがInstance revision、lock、persistenceを所有し、Sessionとの二重正本を避ける | **条件付き未採用**。最初の経験保存に必要な最小domainだけPhase 2で判断する |
+| 例示ID | 将来オプション | 採用した場合のarchitecture |
+| --- | --- | --- |
+| C01 | Worker不在時にもInstance宛てinputを保持するmailbox | Hostがdurable queue、Workerがdequeue eventの意味を所有する |
+| C02 | 非同期または複数Surface間のmessage routing | HostがmessageをInstance/Sessionへ対応付け、Workerはoutputの意味を生成する |
+| C03 | scheduleによるwake-up | Hostがtime/deliveryとenqueue、Workerがschedule intentとevent処理を所有する |
+| C04 | 常にaddress可能なagent operationとdelivery | Phase 1のresident Hostへ継続稼働、到達経路、delivery、必要なsupervisorを加える。Worker常駐は不要 |
+| C05 | 一般的なInstance-wide mutable state | HostがInstance revision、lock、persistenceを所有し、Sessionとの二重正本を避ける |
 
 ## 機能一覧とarchitectureの対比
 
-| architecture領域 | 対応する機能 | 現在ある実装 | roadmapで閉じる主な差分 |
-| --- | --- | --- | --- |
-| Surface / human interaction | F01、F05、F10、F20、F22 | TUI、non-interactive command、presentation contract、session picker | 改訂開始、候補readback、採用の人間向けinterface。Surfaceのload/置換は後述のrequired loopで再判断 |
-| HenjiHost lifecycle | F07、F11、F14、F16–F18 | WorkerCapsule、WorkerHostSession、startup Definition pre-read、turn correlation | resident Host、durable Instance、generation replacement、Instance writer/input admission、revision transition |
-| Host storage | F04、F13、F15、F16–F19、F21–F23 | Session/checkpoint/evidence/diagnostic/execution artifact store | Instance metadata、cross-session経験、non-active candidate、immutable revisionとbinding transition |
-| Agent Worker | F02、F03、F06、F08、F09、F12、F19、F20、F24 | instruction/skill discovery、Definition evaluation、AgentComposition、system instructionとskill toolのmodel delivery、turn/context semantics、provider/tool/planner | 保存経験の読込・解釈、明示要求された候補生成、後続loopで選ぶ改訂対象 |
-| commit / revision boundary | F07、F13–F15、F18、F21、F22 | Session state revision、commit proposal/ack、entry digest、no automatic replay | candidateとactive revisionの分離、人間承認に相関するimmutable revision作成とInstance rebind |
-| optional addressability capabilities | C01–C05 | なし | 各機能を採用したloopでのみresident Hostへ追加する責務とprotocolを具体化 |
+| architecture領域 | 対応する機能 |
+| --- | --- |
+| Surface / human interaction | F01、F05、F10、F20、F22 |
+| HenjiHost lifecycle | F07、F11、F14、F16〜F18 |
+| Host storage | F04、F13、F15〜F19、F21〜F23 |
+| Agent Worker | F02、F03、F06、F08、F09、F12、F19、F20、F24 |
+| commit / revision boundary | F07、F13〜F15、F18、F21、F22 |
 
 現在のprovider/tool物理I/OはWorker bootstrap内で構築される。architectureはこのplacementを将来も固定する
 決定にはしていない。最初のloopで変更する具体的理由がなければ現配置を保ち、別の境界を設計しない。
@@ -136,8 +145,8 @@ roadmap判断で採用した場合だけ実装する。
 1. 現在activeなのは、既存Henjiを通常利用し、具体的な不足を観測するproduct loopである。
 2. durable AgentInstanceから始まるPhase 1–5は、将来self-revision loopを開始すると人間が決めた場合の
    dependency orderであり、直近の着手決定ではない。
-3. mailbox、routing、schedule、常時address可能なoperation等は、通常利用から必要性が示された場合だけ別loopで
-   採用する。self-revision pathの完了条件にはしない。
+3. mailbox、routing、schedule、常時address可能なoperation等の将来オプションは、人間が直接要求するか、
+   通常利用から必要性を判断して採用した場合だけ別loopへ加える。self-revision pathの完了条件にはしない。
 
 ### Current loop — 現在の通常利用baseline
 
