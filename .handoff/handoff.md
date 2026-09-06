@@ -4,9 +4,9 @@
 
 ### Project structure and canonical sources
 
-- 状態: `docs/roadmap.md`はユーザー確認を終了し、採用済み。確認中の修正、第三者clarity review、構想・architecture・roadmap・コードの論理的整合性・実行順序・機能的な抜け漏れの第三者reviewを反映済み
-- 次: ユーザーが採用済みroadmapを踏まえて次に扱う作業を指示する
-- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`
+- 状態: `docs/roadmap.md`はユーザー確認を終了し、採用済み。次のloopは現行Henjiの通常利用とし、気づきを未整理の一行メモでも蓄積できるinboxを用意した
+- 次: ユーザーがHenjiを通常利用し、気づいたことを`docs/experience/normal-use-inbox.md`へ随時メモする
+- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`、`docs/experience/normal-use-inbox.md`
 - 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmapの採用は各phaseの実装認可ではない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
