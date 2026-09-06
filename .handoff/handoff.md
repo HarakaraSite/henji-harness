@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: `docs/roadmap.md` draftのユーザー確認中。ユーザー確認の修正点1〜12と第三者clarity reviewを反映済み。構想・architecture・roadmap・コードの論理的整合性、実行順序、機能的な抜け漏れの第三者reviewはBlocker / P1なし。唯一のP2だったPhase 2の経験のcanonical domainと物理保存先の混同を修正し、roadmap自体のユーザー確認は継続中
-- 次: ユーザーが`docs/roadmap.md` draft全体を確認し、採用または修正を判断する
+- 状態: `docs/roadmap.md`はユーザー確認を終了し、採用済み。確認中の修正、第三者clarity review、構想・architecture・roadmap・コードの論理的整合性・実行順序・機能的な抜け漏れの第三者reviewを反映済み
+- 次: ユーザーが採用済みroadmapを踏まえて次に扱う作業を指示する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`
-- 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmap draftを正本として置くことは内容の採用完了を意味せず、各phaseの実装認可でもない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmapの採用は各phaseの実装認可ではない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 
