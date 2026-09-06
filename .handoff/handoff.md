@@ -4,7 +4,7 @@
 
 ### Project structure and canonical sources
 
-- 状態: `docs/roadmap.md` draftのユーザー確認中。確認で確定した修正点1〜12を反映した。実装状況はactive sourceを正本とし、Human Gateの結果を実装状況から外した。F02・F03・F06の責務とlifetime、F15/F16間の現在runtimeと将来self-revision基盤の境界を明記した。C01〜C05は非網羅的な将来オプション例として構想由来の機能一覧から分離し、architecture対比をF番号の逆引きへ簡略化した。実装roadmapは4分類の索引、通常利用の改善、Self-revision Cycle 1のPhase 1〜5、Cycle 1後のF24へ整理し、変化する現在地と重複する説明を除いた。TUIはF01・F05・F10を横断するSurface実装として位置付け、重複していた末尾のloop説明を削除した。既存の第三者reviewとre-reviewはこれらの修正前の結果であり、修正後の追加reviewは未実施
+- 状態: `docs/roadmap.md` draftのユーザー確認中。ユーザー確認の修正点1〜12に続き、「重複記載」と「理解しやすさ・誤解のなさ」の第三者review 4件と軽微2件を反映した。同reviewerのchanged-lines re-reviewでは5件を解消、Phase 1のresident HostとC04の文言1件だけが残ったため、指摘どおり「外部deliveryのための常時稼働保証」へ限定して修正した。この最後の文言修正後の第三者再確認は未実施
 - 次: ユーザーが`docs/roadmap.md` draft全体を確認し、採用または修正を判断する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`
 - 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmap draftを正本として置くことは内容の採用完了を意味せず、各phaseの実装認可でもない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない

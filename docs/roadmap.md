@@ -4,7 +4,7 @@
 
 作成日: 2026-09-06
 
-実装状況の照合基準commit: `29c84cf17063da3565672ce4a37cdbf76334995e`
+実装状況の初回照合基準commit: `29c84cf17063da3565672ce4a37cdbf76334995e`
 
 ## 目的と正本
 
@@ -15,8 +15,9 @@ architectureとの対応、未実装機能の実装順序、各phaseで必要に
 - architecture: [`architecture/henji-host-agent-worker.md`](architecture/henji-host-agent-worker.md)
 - active sourceとcommand authority: [`../v0/`](../v0/)、[`../deno.v0.json`](../deno.v0.json)
 
-現コードの実装状況はactive sourceを正本とする。`docs/plans/`に残る個別計画と結果は過去の実装・検証の
-証拠であり、現在の実装状況やこのroadmapの機能順序を決める正本ではない。
+上記commitはこの文書を作成したときの初回照合時点を示す。その後の変更を含む現コードの実装状況はactive
+sourceを正本とする。両者に差があればactive sourceを優先する。`docs/plans/`に残る個別計画と結果は過去の
+実装・検証の証拠であり、現在の実装状況やこのroadmapの機能順序を決める正本ではない。
 `archive/`の旧roadmap、spike、旧extension管理実装も現在のproduct経路またはroadmapとはみなさない。
 
 ## roadmapもループする
@@ -60,7 +61,7 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 
 | ID | 必要な機能 | 構想・architectureとの関係 | 現コードの状態 |
 | --- | --- | --- | --- |
-| F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがある。保存済みcausal historyとcontextの人間向け入口、一般的なSurface load/selectionはない |
+| F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。product内で通常利用を案内するhelpは`F1`キーの「工事中」一行だけである |
 | F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される |
 | F03 | workspaceのinstructionとskillを発見し、実行中に共有するsnapshot/catalogを作る | 現在は通常利用時の入力。将来、別loopでinstruction・skillの改訂を採用した場合の基盤になる | **実装済み**。Worker generationの起動時にworkspaceのinstructionとskillを一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。tool call時には再読せず、snapshot/catalog自体はSessionへ永続化しない。`skill` toolを呼んだ場合の結果はF02のtranscriptへ入る。改訂候補の生成・採用機能ではない |
 | F04 | Sessionのtranscriptとcontext checkpointを再起動後も利用する | Hostがstorageを所有し、Workerがconversation/contextの意味を所有する | **実装済み**。workspace-partitioned session schema-v1/v2、atomic commit、reopen、automatic compactionがある |
@@ -103,8 +104,8 @@ TUI自体には独立したF番号を付けない。現在のproduction TUIに�
 
 現行sourceでは、旧Ctrl-G / Ctrl-T / Ctrl-Lの機能入口を除去し、Ctrl-Kをreadlineの行末削除としている。
 保存済みcausal historyとcontextの内部projection・controller処理は残るが、現在の人間向け入口はない。
-F1 helpは「工事中」の一行だけである。modified ReturnのdecoderはShift / Alt / Ctrl sequenceを改行として
-処理するが、各terminalがどのsequenceを送るかはactive sourceが規定するproduct動作ではない。
+modified ReturnのdecoderはShift / Alt / Ctrl sequenceを改行として処理するが、各terminalがどのsequenceを
+送るかはactive sourceが規定するproduct動作ではない。
 
 この実装状況は、`v0/tui/input.ts`、`v0/tui/state.ts`、`v0/tui/layout.ts`、`v0/tui/render.ts`、
 `v0/tui/controller.ts`、`v0/tui/terminal.ts`、`v0/tui/pending_input.ts`、`v0/tui/file_reference.ts`、
@@ -145,18 +146,24 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 | C01 | Worker不在時にもInstance宛てinputを保持するmailbox | Hostがdurable queue、Workerがdequeue eventの意味を所有する |
 | C02 | 非同期または複数Surface間のmessage routing | HostがmessageをInstance/Sessionへ対応付け、Workerはoutputの意味を生成する |
 | C03 | scheduleによるwake-up | Hostがtime/deliveryとenqueue、Workerがschedule intentとevent処理を所有する |
-| C04 | 常にaddress可能なagent operationとdelivery | Phase 1のresident Hostへ継続稼働、到達経路、delivery、必要なsupervisorを加える。Worker常駐は不要 |
+| C04 | 常にaddress可能なagent operationとdelivery | Phase 1のlifecycle ownerへ、外部からの常時到達性、delivery、継続稼働とそのservice supervisorを加える。Worker常駐は不要 |
 | C05 | 一般的なInstance-wide mutable state | HostがInstance revision、lock、persistenceを所有し、Sessionとの二重正本を避ける |
 
-## 機能一覧とarchitectureの対比
+## 機能一覧と主なarchitecture領域の対比
+
+一つの機能が複数領域に関わる場合があるため、この表は各F番号の主な対応先を引く索引であり、網羅的な
+責務表ではない。
 
 | architecture領域 | 対応する機能 |
 | --- | --- |
-| Surface / human interaction | F01、F05、F10、F20、F22 |
+| Surface / human interaction | F01、F05、F10、F20〜F23 |
 | HenjiHost lifecycle | F07、F11、F14、F16〜F18 |
 | Host storage | F04、F13、F15〜F19、F21〜F23 |
-| Agent Worker | F02、F03、F06、F08、F09、F12、F19、F20、F24 |
+| Agent Worker | F02、F03、F06、F08、F09、F12、F19、F20 |
 | commit / revision boundary | F07、F13〜F15、F18、F21、F22 |
+
+F24のarchitecture領域は固定しない。次のself-revision loopで選んだ改訂対象に応じて、Agent Worker、Host、
+storage、Surface、またはそれらの境界のどこへ対応させるかを決める。
 
 現在のprovider/tool物理I/OはWorker bootstrap内で構築される。architectureはこのplacementを将来も固定する
 決定にはしていない。最初のloopで変更する具体的理由がなければ現配置を保ち、別の境界を設計しない。
@@ -201,6 +208,10 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 する。resident HostはPhase 1の前提に含め、Definition以外の改訂対象と採用未決の追加オプションは含めない。
 各phaseの実装には個別の計画と承認が必要である。
 
+ここでresident Hostとは、TUIやWorker generationから独立してAgentInstanceのlifecycleとdurable stateを所有する
+役割を指す。外部から常時到達できるようHost processの稼働を保証することと、その非同期deliveryはPhase 1に
+含めず、C04などの追加オプションを人間が採用した場合にだけ扱う。
+
 ### Phase 1 — durable AgentInstanceとrevision binding
 
 対象機能: F11、F14、F16、F17、F18の基盤
@@ -219,10 +230,11 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 - AgentInstance ID、durable metadata、workspaceとの関係、作成・選択・再開の人間向け操作。
 - SessionからInstanceへの所属を保存するschemaと、既存schema-v1/v2 Sessionの扱い。
 - active `DefinitionRevisionRef`をInstance metadataへ置く方法と、Session側に残す相関情報。
-- Definition entryだけで足りる最初のrevision identityと、immutable revisionを保存・loadする場所。
+- candidate生成前からInstanceが使用するcurrent/base Definitionについて、最初のrevision identityとimmutableな
+  保存・load方法を決める。candidateからrevisionを確定してbindingを切り替える方法はPhase 4で決める。
 - compositionをgenerationごとに一度構築する現挙動をCycle 1でも維持するか。
-- resident Hostのprocess/service境界、起動、停止、durable stateからの再開、supervisorまたは同等の
-  lifecycle ownerをどの実行環境へ置くか。
+- resident Hostのprocess/service境界、起動、停止、durable stateからの再開、Hostを起動する主体をどの
+  実行環境へ置くか。外部deliveryのための常時稼働保証とservice supervisorはC04を採用した場合に決める。
 - Instance writer admission、generation/lease identity、base Session revisionを運ぶprotocol変更。
 - 同じInstanceへ複数inputが来たとき、どれをadmitし、拒否、待機、順次実行のどの動作を人間へ返すか。
   admitしたinputは一つのwriter generationへ順序付きで渡す。
@@ -230,6 +242,7 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 このphaseで決めないこと:
 
 - mailbox、routing、schedule、常にaddress可能な到達経路とdelivery。
+- 外部deliveryのためにHost processの常時稼働を保証するservice supervision。
 - candidateの形式や採用UI。
 - Definition以外の改訂対象。
 
@@ -259,7 +272,8 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 - 何を自動的に保存し、何を人間の操作で明示的に残すか。
 - Workerが読む経験を誰が選ぶか、どの時点でsnapshotにし、contextへどう投影するか。
 - 長期間の経験をどう選択・圧縮するか。現checkpointを再利用するか、別の意味を持つ仕組みにするか。
-- history/experienceのreadbackと、改訂開始アクションをどのSurfaceから提供するか。
+- history/experienceのreadbackと改訂開始の入口を置くSurfaceを選ぶ。入口のexact actionとHost / Worker
+  protocolはPhase 3で決める。
 - cross-session経験にInstance-wide stateが必要なら、そのrevision、lock、persistenceをどう置くか。
 
 完了のproduct証拠:
@@ -284,7 +298,7 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 - Cycle 1の候補表現をcomplete source、diff、dataのどれにするか。
 - AIへ渡す経験、current Definition、目的、人間の指示のexactな入力構成。
 - 候補生成を担当するAgentComposition、必要なtool、model、maxSteps、turnとの関係。
-- 人間の開始操作を表すSurface actionとHost / Worker protocol message。
+- Phase 2で選んだSurface上で、人間の開始操作を表すexact actionとHost / Worker protocol messageを決める。
 - candidate ID、base Definition revision、対象Instance、生成結果を保存するnon-active schema。
 - 候補のsource/diff/dataと生成経緯を人間がreadbackするinterface。
 - candidate生成がfile write等のeffectを使う場合、そのeffect evidenceと失敗時の状態をどう記録するか。
@@ -314,7 +328,8 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 
 - 人間に何を表示し、どのexact candidate/revisionへの採用・承認だと識別するHuman Gateにするか。
 - 採用action、明示的承認、取消をSurfaceとprotocolでどう表すか。
-- candidateからimmutable revisionを作るstore、identity、dependency lineage、loader。
+- Phase 1で決めたcurrent/base revisionのidentity、保存、loadを基盤として、candidateをimmutable revisionへ
+  確定するpromotion、dependency lineage、transition後のloader動作を決める。
 - Instance binding transitionのatomic commitと、SessionのDefinition相関を更新する順序。
 - active turnがある場合の採用可否、Worker close/restart、古いgenerationのfencing。
 - 採用失敗時に旧bindingを維持する境界と、採用済み旧revisionへ人間が戻す操作を同じtransitionとして
@@ -366,15 +381,15 @@ context、tool、delegation、model、agent loop、runtime、Host / Worker連携
 | 未決事項 | 判断するphase | Cycle 1での扱い |
 | --- | --- | --- |
 | 経験の具体的な残し方と読み方 | Phase 2 | 一つのInstanceをまたぐ最小のexperience flowだけ決める |
-| 人間の候補生成アクション・指示のinterface | Phase 2–3 | 現在採用しているSurface上の最短経路を選ぶ。一般Surface APIは必要時だけ扱う |
+| 人間の候補生成アクション・指示のinterface | Phase 2–3 | Phase 2で入口を置くSurfaceを選び、Phase 3でexact actionとprotocolを決める。一般Surface APIは必要時だけ扱う |
 | 人間の採用アクション・承認とHuman Gate | Phase 4 | exact candidateを人間が識別し承認できる最小経路を決める |
 | provider/tool物理I/Oのplacement | Phase 3で必要性を確認 | 具体的理由がなければ現在のWorker内配置を維持し、永久決定にはしない |
 | Worker protocolのmessage、handshake、error、versioning | Phase 1–4の採用機能ごと | 各phaseに必要なmessageとfailure semanticsだけ追加する |
 | Compositionをgeneration単位またはturn単位で構築するか | Phase 1 | Cycle 1で実行中再構成を必要としなければ現行generation単位を維持する |
-| Definition identity、dependency lineage、load、rollout | Phase 1と4 | 最初のimmutable revision保存とtransitionに必要な範囲を決める |
+| Definition identity、dependency lineage、load、rollout | Phase 1と4 | Phase 1でcurrent/base revisionのidentity・保存・loadを決め、Phase 4でcandidate promotionとbinding transitionを決める |
 | Worker restart、cancel、concurrency、lease、backpressure | Phase 1と4 | Instance writerとrevision transitionに実際に必要なsemanticsだけ決める |
 | cross-session memory / Instance-wide state | Phase 2 | 経験のcanonical domainに必要な場合だけ採用する |
 | mailbox、routing、schedule | 後続loopで採用時 | Cycle 1には含めない |
 | effectのidempotency、deduplication、recovery | Phase 3–4で実effectを選んだ場合 | 使用するcandidate/adoption effectの契約に合わせる。一般解は作らない |
-| deployment、service supervision、migration | Phase 1と、C04を採用する後続loop | Phase 1でresident Hostの実行先、再開、lifecycle ownerを決める。常時address可能性とdeliveryはC04まで延期する |
+| deployment、service supervision、migration | Phase 1と、C04を採用する後続loop | Phase 1でHostの実行先、起動主体、durable stateからの再開を決める。外部deliveryのための常時稼働保証、service supervision、常時到達性はC04採用時に決める |
 | Definition以外の改訂対象 | Phase 5の次loop判断 | 通常利用の経験から一つずつ選ぶ |
