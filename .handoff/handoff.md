@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: Worker foundation Stages 1–3とreal-provider受入は完了済み。ユーザーは、将来構想であるHenji自身の継続的な改訂を直近の実装順序と誤って結び付けたことを確認し、現在地、構想、architecture、roadmapの順に正本を見直す計画を承認した。Step 1で現在地、Step 2で構想を正した。Step 3ではHost / Worker architectureから自己改訂を直近とするproof順序、実装の現在地、重複review checklistと帰結節を除き、runtime evidenceと外部比較を背景調査へ分離し、旧roadmap入力をhistoryへ移した。確定した制約は本文へ一元化し、未決判断には今決めない理由と判断契機を記録した。architectureは責務、状態、lifetime、commit境界を定め、機能の時期と優先順位を定めない。さらに構想目的の重複を除き、AgentInstanceの継続性とmailbox・非同期routing・scheduleの個別採否を分離した。自己改訂の観測モデルを定量比較ではなく人間的な学習として明記し、経験保存、AI解釈、Definition候補、採用、通常利用へ戻る粗いループをarchitectureへ追加した。改訂候補は人間の明示的なアクションまたは指示でAIが生成し、人間の採用アクションまたは明示的承認がある場合だけ採用する人間主導の原則を、構想とarchitectureへ反映した。OpenCodeが現コードと参照実装から再構成した未承認`surface-roadmap` draftもhistoryへ移した
-- 次: 正した現在地、構想、architectureと現行productの実装・受入結果からroadmapを作る
-- 正本: `docs/plans/agent-worker-real-provider-human-acceptance-results.md`、`docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`
-- 注意: 自己改訂はactiveな次工程ではない。provider/production `henji`、Git config、commit/push/tag/publish/releaseは今回の文書見直しに含まれない。未追跡`_refs/*`は変更しない
+- 状態: 構想、Host / Worker architecture、commit `29c84cf`のactive sourceを照合した`docs/roadmap.md` draftを作成し、第三者bounded reviewを実施した。reviewはNO-GO（Blocker 0、P1 1、P2 4）。findingsは、durable AgentInstanceとresident Hostの依存不整合、F06 compositionの実装済み判定過大、部分実装F10の再判断点欠落、Phase 1のInstance単位input semantics不足、READMEとWorker受入結果の矛盾であり、ownerは5件とも採用した。詳細は`docs/roadmap-review-results.md`へ保存した
+- 次: ユーザーの指示後、roadmapの5 findingsとREADMEの古いWorker gate記述を修正し、変更箇所だけを一回re-reviewする
+- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance-results.md`
+- 注意: roadmap draftは各phaseの実装認可ではない。正しいWorker gate状態はresultsのacceptedであり、`README.md:199-202`は未修正。provider/production `henji`、Git config、commit/push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### FR5 daily-use assessment and deferred UI
 
