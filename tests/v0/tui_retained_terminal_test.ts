@@ -65,7 +65,7 @@ class RecordingTerminal implements TerminalPort {
 const indexOfWrite = (writes: readonly string[], value: string): number =>
   writes.findIndex((write) => write.includes(value));
 
-Deno.test('Cycle 2 retained rendering isolates redraws in the alternate screen', async () => {
+Deno.test('retained rendering isolates redraws in the alternate screen', async () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal, { retained: true });
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -117,7 +117,7 @@ Deno.test('Cycle 2 retained rendering isolates redraws in the alternate screen',
   assertEquals(terminal.writes.filter((write) => write.includes(EXIT_ALTERNATE_SCREEN)).length, 1);
 });
 
-Deno.test('Cycle 2 footer omits editor bytes while retaining pending and recovery lanes', () => {
+Deno.test('retained footer omits editor bytes while keeping pending and recovery lanes', () => {
   const pending: PendingMetadataSnapshot = {
     lanes: [
       { kind: 'editor', lifecycle: 'draft', present: true, byteCount: 30 },
@@ -147,7 +147,7 @@ Deno.test('Cycle 2 footer omits editor bytes while retaining pending and recover
   assert(!layoutUi(editorOnly, 160, 24).footer.text.includes('pending'));
 });
 
-Deno.test('Cycle 2 keeps verified fullwidth form cells consistent through edit and render layout', () => {
+Deno.test('retained layout keeps fullwidth form cells consistent through edit and render', () => {
   const editor = new TuiEditor();
   const pasted = '直近５コミットの';
   assert(editor.paste(pasted));
@@ -176,7 +176,7 @@ Deno.test('Cycle 2 keeps verified fullwidth form cells consistent through edit a
   assertEquals(halfwidthLayout.cursor.cell, 5); // prompt (2) + fullwidth 2 + halfwidth 1
 });
 
-Deno.test('Cycle 2 PageUp at the oldest boundary anchors the first conversation entry', () => {
+Deno.test('retained PageUp at the oldest boundary anchors the first conversation entry', () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal, { retained: true });
   const startup: PresentationStartupState = {

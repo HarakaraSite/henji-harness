@@ -4,17 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 構想、Host / Worker architecture、commit `29c84cf`のactive sourceを照合した`docs/roadmap.md` draftを作成し、第三者bounded reviewを実施した。reviewはNO-GO（Blocker 0、P1 1、P2 4）。findingsは、durable AgentInstanceとresident Hostの依存不整合、F06 compositionの実装済み判定過大、部分実装F10の再判断点欠落、Phase 1のInstance単位input semantics不足、READMEとWorker受入結果の矛盾であり、ownerは5件とも採用した。詳細は`docs/roadmap-review-results.md`へ保存した
-- 次: ユーザーの指示後、roadmapの5 findingsとREADMEの古いWorker gate記述を修正し、変更箇所だけを一回re-reviewする
+- 状態: 第三者reviewと一回のre-reviewでGOとなった`docs/roadmap.md`をユーザーが採用した。READMEは構想要約5行だけとし、変動する現在地の正本から外した。TUIの目的、Host-owned Surface境界、現在のbaseline、未決事項、改善loopを構想、architecture、roadmapへ集約し、旧FR5の4文書は`archive/history/docs/plans/`へ履歴証拠として移した。active sourceを照合し、旧Ctrl-G/T/L入口の除去、F1一行、modified Return、現editor/pending/path機能をroadmapへ訂正した。activeなFR5名の回帰test 3件も動作別名称へ変え、`deno.v0.json`を同期した。focused 17件、`v0:test` 48件、check、fmt、lintはgreen。FR5を独立した現行要件・作業topicとして扱わない。この正本整理はre-review後の変更で、追加reviewは未実施
+- 次: roadmapのCurrent loopにあるHuman Gateとしてproduction TUIを日常利用し、最終採用、具体的な支障、または改善機会を人間が判断する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance-results.md`
-- 注意: roadmap draftは各phaseの実装認可ではない。正しいWorker gate状態はresultsのacceptedであり、`README.md:199-202`は未修正。provider/production `henji`、Git config、commit/push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
-
-### FR5 daily-use assessment and deferred UI
-
-- 状態: integrated UI candidateは条件付き合格。Cycle 1–3と後続のslash、readline、newline、feature-Ctrl除去、Up/Down edge history、tool preview等は本人確認済みだが、最終daily-use adoptionは未記録。F1は工事中としてparkし、自動compactionは実装済みだが自然な64K production-path観測は未確認
-- 次: 継続通常利用後にintegrated candidateの最終daily-use判断を取得する
-- 正本: `README.md`、`docs/plans/fr5-integrated-human-ui-candidate-results.md`、`docs/plans/fr5-human-observed-ui-correction.md`、`docs/plans/fr5-human-observed-ui-correction-results.md`
-- 注意: Shift/Ctrl+Returnの端末依存、edit前後diffやeditor拡張は未確認または将来候補。natural 64K観測はunconfirmedで、F1はこのtopicの自動開始条件ではない
+- 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmapは各phaseの実装認可ではない。TUI最終daily-use adoption、natural 64K production compaction、現Web Worker production経路のreal-provider planner delegation、schema-v2/checkpoint reopenのHuman Gateは未確認。provider/production `henji`、Git config、commit/push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

@@ -1,6 +1,6 @@
 # Henji 機能インベントリと反復型実装ロードマップ 第三者review結果
 
-ステータス: **NO-GO — Blocker 0、P1 1、P2 4**
+ステータス: **GO — 初回Blocker 0、P1 1、P2 4を修正し、re-reviewで5件closed**
 
 確認日: 2026-09-06
 
@@ -100,7 +100,7 @@ roadmapの承認前に矛盾を解消する必要がある。
 - `README.md:199-202`
 
 原因は、2026-09-05のWorker real-provider human acceptance完了後に、READMEの受入前説明が更新されなかった
-ことである。正しい現在地は受入resultsの`accepted`である。README自体は今回変更していない。
+ことである。正しい現在地は受入resultsの`accepted`である。初回review時点ではREADMEを変更していなかった。
 
 ## 未確認のproduct動作
 
@@ -128,6 +128,25 @@ roadmapの承認前に矛盾を解消する必要がある。
 coordinating ownerは5 findingsを採用した。input serialization findingは、reviewerが例示したqueueを
 必須仕様とはせず、Phase 1で拒否、待機、順次実行のproduct semanticsを決める問題として扱う。
 
-次は、ユーザーの修正指示を受けてroadmapの5 findingsとREADMEの不一致を修正する。その後のre-reviewは
-変更箇所と既存findingの解消確認だけを15分以内で一回行う。roadmapの各phase実装、provider/production
-実行、commit、push、tag、publish、releaseは、このreview結果から認可されない。
+ユーザーの修正指示を受け、`docs/roadmap.md`と`README.md`を修正した。同じ第三者reviewerが変更箇所と
+既存5 findingsだけを15分以内で一回re-reviewし、次のclosureを確認した。
+
+| Finding | closure |
+| --- | --- |
+| durable AgentInstanceとresident Hostの依存 | **closed**。resident HostをPhase 1の必須前提にし、常時address可能なC04と分離した |
+| F06 compositionの実装状況 | **closed**。部分実装へ訂正し、effort欠落と固定loop/context、および将来のrequired loopを明記した |
+| F10 Surfaceの再判断点 | **closed**。第二Surface、Surface置換、self-revision UI追加を開始契機とするrequired loopを追加した |
+| Phase 1のInstance単位input semantics | **closed**。拒否、待機、順次実行を決める地点、admit後の順序、重なるinputのproduct証拠を追加した |
+| READMEとWorker受入状態 | **closed**。受入前の記述を除き、初回修正ではaccepted resultsへ同期した。その後READMEを構想要約5行だけにして、現在地を置かない方針へ変更した |
+
+re-review結果はGOで、新規Blocker/P1は0件、保持要求の後退はない。roadmapの各phase実装、
+provider/production実行、commit、push、tag、publish、releaseは、このreview結果から認可されない。
+
+re-review後、ユーザーはREADMEを変動する現在地の正本にしないと決定した。READMEは見出しと構想要約5行
+だけへ置き換え、roadmapもREADMEをproduction利用方法の正本として参照しないようにした。これにより同じ
+README findingは、acceptedへの同期ではなく競合する現在地をREADMEから除く形で引き続きclosedである。
+この変更に対する追加reviewは実施していない。
+
+その後ユーザーはroadmapを採用し、TUIの目的・境界・開発順序も構想、architecture、roadmapを正本とする
+よう指示した。旧FR5文書から現行TUIの動作、設計判断、未決事項を3文書へ反映し、旧FR5文書を履歴へ
+archiveした。この正本整理はre-review後の変更であり、このreview結果の評価対象には含まれない。

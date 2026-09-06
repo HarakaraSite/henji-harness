@@ -56,7 +56,7 @@ class FakeTerminal implements TerminalPort {
   removeSignal(): void {}
 }
 
-Deno.test('Cycle 1 keeps successful operational metadata out of the normal log', () => {
+Deno.test('conversation presentation keeps successful operational metadata out of the normal log', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'user_message',
@@ -81,7 +81,7 @@ Deno.test('Cycle 1 keeps successful operational metadata out of the normal log',
   assert(!state.log.entries.some((entry) => /requests>|evidence>|readback>/.test(entry.text)));
 });
 
-Deno.test('Cycle 1 reduces tool activity and results without source contents or raw JSON', () => {
+Deno.test('conversation presentation reduces tool activity without source contents or raw JSON', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -127,7 +127,7 @@ Deno.test('Cycle 1 reduces tool activity and results without source contents or 
   assertEquals(cancelled.log.entries, []);
 });
 
-Deno.test('Cycle 1 settles assistant progress to the same assistant entry', () => {
+Deno.test('conversation presentation settles assistant progress to the same assistant entry', () => {
   let state = reduceUiEvent(createUiState(), {
     kind: 'assistant_progress',
     turn: 1,
@@ -144,7 +144,7 @@ Deno.test('Cycle 1 settles assistant progress to the same assistant entry', () =
   assertEquals(state.log.entries[0].live, false);
 });
 
-Deno.test('Cycle 1 footer uses the committed turn and emits identity facts once', () => {
+Deno.test('conversation footer uses the committed turn and emits identity facts once', () => {
   let state = setUiProjection(createUiState(), {
     lifecycle: 'idle',
     agentId: 'default',
@@ -181,7 +181,7 @@ Deno.test('Cycle 1 footer uses the committed turn and emits identity facts once'
   assert(contextFooter.includes('session abcdef12 · turn 3'));
 });
 
-Deno.test('Cycle 1 cursor cells match ASCII, Japanese wide characters, mid-line, and wrapping', () => {
+Deno.test('conversation cursor cells match ASCII, Japanese, mid-line, and wrapping', () => {
   const make = (text: string, cursorScalar: number, columns = 80) =>
     layoutUi(
       reduceUiEvent(
@@ -211,7 +211,7 @@ Deno.test('Cycle 1 cursor cells match ASCII, Japanese wide characters, mid-line,
   assertEquals(wrapped.cursor.cell, 7); // prompt (2) + "本語x" (5 cells)
 });
 
-Deno.test('Cycle 1 failure display is short and leaves diagnostic readback available elsewhere', () => {
+Deno.test('conversation failure display is short and keeps diagnostic readback elsewhere', () => {
   const diagnosticId = '22222222-2222-4222-8222-222222222222';
   const state = reduceUiEvent(createUiState(), {
     kind: 'failure_diagnostic',

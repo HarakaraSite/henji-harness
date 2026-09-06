@@ -1,6 +1,6 @@
 # FR5 integrated human UI candidate results
 
-Plan: `docs/plans/fr5-integrated-human-ui-candidate.md`
+Plan: `archive/history/docs/plans/fr5-integrated-human-ui-candidate.md`
 
 Status: **条件付き合格**
 
@@ -34,4 +34,3 @@ User decision: 2026-09-02 20:38 JST
   `74be6d7c3cce81c2f85de0ba6d16cf55f7dc8f3593b4e050ca330aae60421978`。
 - provider evidenceは3件のまま、diagnostic追加0、session lockは終了後に再取得可能。
 - workspaceは既存の`brief.txt`と`release-note.md`だけで、追加ファイルなし。
-

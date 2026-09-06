@@ -96,6 +96,32 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 Worker は terminal、TUI layout、その他の Surface を所有しない。turn を実行するために特定の
 UI を要求してはならない。
 
+### Surfaceと現在のTUI
+
+Surfaceは、人間のactionをHost commandまたはWorker向けprotocol messageへ変換し、Workerから返る意味上の
+進捗、tool activity、assistant output、turn settlementを人間へ提示するHost adapterである。Surface固有の
+key binding、layout、draft、cursor、viewportはWorker protocolやcanonical Session stateへ混入させない。
+
+現在の対話SurfaceであるTUIは、通常利用の画面を次の三領域として構成する。
+
+- 人間の依頼、assistantの応答、短いtool activity、結果を追えるconversation log。
+- draftを保持し、複数行を編集できる入力欄。
+- ready / busy、Session、committed turnなど、次の操作判断に必要な一行footer。
+
+通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
+request/evidence metadataを通常logへ常時展開することは要求しない。一方、原因特定に必要なraw response、
+tool event、diagnostic、evidenceは通常表示から失われるのではなく、保存して明示的にreadbackできる経路を
+維持する。
+
+Terminal TUIの起動中は現在のSessionの画面をalternate screenへ隔離し、streamingやprogressの再描画で
+terminal scrollbackへ途中frameを蓄積しない。正常終了、cancel、signal、出力失敗では、input、terminal
+mode、起動前画面、cursorをHostが復元する。未送信draft、viewport、入力履歴などのUI-local stateと、
+Host storageに保存するcanonical transcriptやSession identityは区別する。
+
+具体的なkey binding、slash command、表示量、editor機能はarchitectureの固定事項にしない。人間の通常利用で
+観測した必要に応じ、roadmap上のTUI incrementとして変更できる。第二Surfaceまたは一般的なSurface load /
+selection / replacementを採用するときも、WorkerをSurface依存にせず同じ境界を使う。
+
 物理的な terminal と Surface I/O は Host が所有する。一方、provider/tool effect の物理 I/O を
 Worker が直接実行するのか、Host の RPC/capability 経由にするのか、subprocess 境界に置くのかは
 重要な未決定事項である。現行または将来の個別実装上のplacementを、別途architectureで決定せずに
@@ -235,6 +261,7 @@ Deno、Cloudflare、Pi、Zot、OpenComputer、OpenClawとの詳細な比較は
 | Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |
 | Definition moduleのidentity、dependency lineage、load、rollout | external moduleやrevision transitionで保証すべき再現性が、対象機能によって異なる | executable revisionの切替または配布をproduct機能として選んだとき |
 | Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |
+| Surface identity、load / selection / replacement、置換時のUI-local state引継ぎ | 現在はTUIとnon-interactive commandで通常利用でき、一般化に必要な第二Surfaceの契約がない | 第二Surface、現Surfaceの置換、またはself-revision操作をTUI固有実装へ閉じない必要をroadmapが採用したとき |
 | mailbox、非同期または複数Surface間のrouting、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、AgentInstanceの継続性やHost / Worker分割だけからは必要にならない | roadmapが対象機能を採用したとき |
 | effectのidempotency、deduplication、recovery | effect先の契約なしに共通のretryまたはexactly-once semanticsを決められない | recovery対象となる実tool effectを選んだとき |
 | deployment profile、service supervision、migration | 実行先、可用性、移行元と移行先が決まらなければ必要なmechanismを選べない | 常時address可能なHost serviceの運用先または移行対象を決めたとき |

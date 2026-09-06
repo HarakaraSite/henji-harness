@@ -1,6 +1,6 @@
 # FR5 human-observed UI correction results
 
-Plan: `docs/plans/fr5-human-observed-ui-correction.md`
+Plan: `archive/history/docs/plans/fr5-human-observed-ui-correction.md`
 
 ## Acceptance boundary
 

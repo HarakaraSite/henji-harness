@@ -5,9 +5,10 @@ Nothing here is part of the current `v0` build, test, or runtime path.
 
 - `legacy-two-plugin/`: the stopped pre-v0 `src/`, `plugins/`, non-v0 tests, and root Deno config.
 - `safety-spikes/`: Spike 0–2 implementations, tests, configs, bootstrap script, and evidence.
-- `history/`: superseded pre-alpha plans, results, and delivered inputs that do not define the current
-  implementation.
+- `history/`: superseded plans, results, delivered inputs, and former requirement labels such as FR5
+  that remain only as implementation and acceptance evidence.
 
-The active source of truth is the repository root `README.md`, `AGENTS.md`, `deno.v0.json`, `v0/`,
-`tests/v0/`, `docs/plans/`, and `.handoff/handoff.md`. Archived files must not be imported, executed,
-or treated as current requirements unless a later explicit decision restores them.
+Current product direction is defined by `docs/concepts/`, `docs/architecture/`, and `docs/roadmap.md`.
+Active implementation and command authority are `v0/` and `deno.v0.json`; `.handoff/handoff.md` only
+maintains resumption state. Archived files must not be imported, executed, or treated as current
+requirements unless a later explicit decision restores them.

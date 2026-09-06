@@ -14,7 +14,7 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-Deno.test('Cycle 3 shows bash head preview on one line', () => {
+Deno.test('tool preview shows the bash head on one line', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -41,7 +41,7 @@ Deno.test('Cycle 3 shows bash head preview on one line', () => {
   assert(!state.log.entries[0].text.includes('full output must not leak'));
 });
 
-Deno.test('Cycle 3 keeps only the head line for multiline commands', () => {
+Deno.test('tool preview keeps only the head line for multiline commands', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -56,7 +56,7 @@ Deno.test('Cycle 3 keeps only the head line for multiline commands', () => {
   assert(!state.log.entries[0].text.includes('echo two'));
 });
 
-Deno.test('Cycle 3 preserves preview across progress updates', () => {
+Deno.test('tool preview persists across progress updates', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -74,7 +74,7 @@ Deno.test('Cycle 3 preserves preview across progress updates', () => {
   assert(!state.log.entries[0].text.includes('progress body'));
 });
 
-Deno.test('Cycle 3 leaves other tools without preview', () => {
+Deno.test('tool preview leaves other tools without arguments', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -88,7 +88,7 @@ Deno.test('Cycle 3 leaves other tools without preview', () => {
   assertEquals(state.log.entries[0].text, 'delegate_to_planner …');
 });
 
-Deno.test('Cycle 3 shows write path and keeps preview on error', () => {
+Deno.test('tool preview shows write path and persists on error', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -111,7 +111,7 @@ Deno.test('Cycle 3 shows write path and keeps preview on error', () => {
   assert(!state.log.entries[0].text.includes('failure body'));
 });
 
-Deno.test('Cycle 3 truncates a long command head with ellipsis', () => {
+Deno.test('tool preview truncates a long command head with ellipsis', () => {
   const longCommand = `curl ${'a'.repeat(200)}`;
   let state = createUiState();
   state = reduceUiEvent(state, {
