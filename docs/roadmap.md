@@ -87,9 +87,11 @@ registryへ組み込む。F02は、そのsystem instructionを各model request�
 場合は、起動時のcatalogに保存した該当skill本文をtool resultとしてtranscriptへ加え、次のmodel stepへ渡す。
 したがって、skill一覧は最初のmodel requestから見えるが、skill本文は最初から一括してmodelへ渡されない。
 
-### F01、F05、F10に対応するproduction TUIの現状
+### 現在のSurface実装であるproduction TUI
 
-現在のproduction TUIには、次の実装がある。
+F番号はcomponentではなく、利用者が必要とするproduct機能に付ける。production TUIはF01の通常対話、
+F05のSession/history/context参照、F10のHost-owned Surfaceを横断して実現する現在のSurfaceであるため、
+TUI自体には独立したF番号を付けない。現在のproduction TUIには、次の実装がある。
 
 - conversation log、複数行入力欄、一行footerからなる通常画面。
 - request/evidence metadataやraw tool resultを常時展開せず、assistantと短いtool activityを追える表示。
@@ -174,8 +176,10 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 product動作に関わるかを確認し、通常利用へ戻せる狭いincrementをこのroadmapへ追加する。契機がなければ
 実装作業は発生しない。この改善とSelf-revision Cycle 1は別であり、一方から他方の開始は自動決定しない。
 
-TUIの改善もこの扱いに含む。独立した旧要件番号では管理せず、F01、F05、F10のいずれに関わるかを確認する。
-目的を変える場合は構想、Host / Worker / Surface境界を変える場合はarchitectureへ先に戻る。
+TUIの改善もこの扱いに含む。入力・表示・操作性は主にF01、Session/history/contextの利用はF05、Surfaceの
+分離・load・置換はF10へ対応付ける。既存Fで表せない新しいproduct動作には新しいF番号を付ける。Surface
+自体をself-revisionの対象にする場合は、Cycle 1後のF24で扱う。目的を変える場合は構想、Host / Worker /
+Surface境界を変える場合はarchitectureへ先に戻る。
 
 #### AgentCompositionを拡張する場合（F06）
 
@@ -374,16 +378,3 @@ context、tool、delegation、model、agent loop、runtime、Host / Worker連携
 | effectのidempotency、deduplication、recovery | Phase 3–4で実effectを選んだ場合 | 使用するcandidate/adoption effectの契約に合わせる。一般解は作らない |
 | deployment、service supervision、migration | Phase 1と、C04を採用する後続loop | Phase 1でresident Hostの実行先、再開、lifecycle ownerを決める。常時address可能性とdeliveryはC04まで延期する |
 | Definition以外の改訂対象 | Phase 5の次loop判断 | 通常利用の経験から一つずつ選ぶ |
-
-## 次のloopへの戻り方
-
-| 観測されたこと | 戻る先 | 行うこと |
-| --- | --- | --- |
-| 目的や「Henjiが何をできるべきか」が違う | 構想 | 構想を修正し、必要な機能を引き直す |
-| Host / Workerの責務、状態、lifetime、commit境界では目的を実現できない | architecture | 境界を修正し、影響する機能とphaseを組み直す |
-| 機能の順序、増分、前提が不適切 | roadmap | phaseを並べ替える、分割する、または不要なphaseを外す |
-| 合意済み動作に対する局所的なcode不具合 | 現phaseの実装 | 原因と利用者影響を確認し、承認範囲で修正・再確認する |
-| 改訂後の通常利用から新しい必要が見えた | 次のloop | 経験として残し、人間が次の改訂開始を指示する |
-
-このloop自体も固定手順ではない。通常利用の経験から、構想とarchitectureを含む開発方法そのものを見直せる。
-ただし、Henjiの改訂候補生成と採用は、構想で確定した人間主導の原則を維持する。
