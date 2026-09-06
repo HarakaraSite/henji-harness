@@ -147,6 +147,7 @@ re-review後、ユーザーはREADMEを変動する現在地の正本にしな�
 README findingは、acceptedへの同期ではなく競合する現在地をREADMEから除く形で引き続きclosedである。
 この変更に対する追加reviewは実施していない。
 
-その後ユーザーはroadmapを採用し、TUIの目的・境界・開発順序も構想、architecture、roadmapを正本とする
-よう指示した。旧FR5文書から現行TUIの動作、設計判断、未決事項を3文書へ反映し、旧FR5文書を履歴へ
-archiveした。この正本整理はre-review後の変更であり、このreview結果の評価対象には含まれない。
+その後ユーザーは、TUIの目的・境界・開発順序も構想、architecture、roadmapを正本とするよう指示した。
+旧FR5文書から現行TUIの動作、設計判断、未決事項を3文書へ反映し、旧FR5文書を履歴へarchiveした。
+この正本整理はre-review後の変更であり、このreview結果の評価対象には含まれない。roadmap全体は引き続き
+ユーザー確認待ちであり、正本として置くことを内容の採用完了とはみなさない。

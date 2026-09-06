@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 第三者reviewと一回のre-reviewでGOとなった`docs/roadmap.md`をユーザーが採用した。READMEは構想要約5行だけとし、変動する現在地の正本から外した。TUIの目的、Host-owned Surface境界、現在のbaseline、未決事項、改善loopを構想、architecture、roadmapへ集約し、旧FR5の4文書は`archive/history/docs/plans/`へ履歴証拠として移した。active sourceを照合し、旧Ctrl-G/T/L入口の除去、F1一行、modified Return、現editor/pending/path機能をroadmapへ訂正した。activeなFR5名の回帰test 3件も動作別名称へ変え、`deno.v0.json`を同期した。focused 17件、`v0:test` 48件、check、fmt、lintはgreen。FR5を独立した現行要件・作業topicとして扱わない。この正本整理はre-review後の変更で、追加reviewは未実施
-- 次: roadmapのCurrent loopにあるHuman Gateとしてproduction TUIを日常利用し、最終採用、具体的な支障、または改善機会を人間が判断する
+- 状態: `docs/roadmap.md` draftは第三者reviewと一回のre-reviewでGO。READMEを構想要約5行だけにし、TUIの目的、Host-owned Surface境界、baseline、未決事項、改善loopを構想、architecture、roadmapへ集約した。旧FR5の4文書は履歴へ移し、activeなFR5名の回帰test 3件も動作別名称へ変えて`deno.v0.json`を同期した。active sourceとの照合、focused 17件、`v0:test` 48件、check、fmt、lintはgreen。commit `0661cbf`でroadmap採用済み・TUI Human Gateを現在地と誤記したが、ユーザー確認によりroadmap自体の人間確認待ちへ訂正した。正本整理後の追加reviewは未実施
+- 次: ユーザーが`docs/roadmap.md` draft全体を確認し、採用または修正を判断する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`、`docs/plans/agent-worker-real-provider-human-acceptance-results.md`
-- 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmapは各phaseの実装認可ではない。TUI最終daily-use adoption、natural 64K production compaction、現Web Worker production経路のreal-provider planner delegation、schema-v2/checkpoint reopenのHuman Gateは未確認。provider/production `henji`、Git config、commit/push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmap draftを正本として置くことは内容の採用完了を意味せず、各phaseの実装認可でもない。TUI最終daily-use adoptionはroadmap内の未確認事項であり現在の作業gateではない。natural 64K production compaction、現Web Worker production経路のreal-provider planner delegation、schema-v2/checkpoint reopenのHuman Gateも未確認。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

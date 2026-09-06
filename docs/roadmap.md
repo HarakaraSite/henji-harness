@@ -1,6 +1,6 @@
 # Henji 機能インベントリと反復型実装ロードマップ
 
-ステータス: **採用済みroadmap。各phaseの実装認可ではない**
+ステータス: **draft — ユーザー確認待ち。roadmapであり、各phaseの実装認可ではない**
 
 作成日: 2026-09-06
 
@@ -137,13 +137,13 @@ roadmap判断で採用した場合だけ実装する。
 
 ### Current loop — 現在の通常利用baseline
 
-状態: **実装baselineは完了。現在地はproduction TUIの日常利用を人間が確認するHuman Gate**
+状態: **実装baselineは完了。通常利用と経験の観測は継続中**
 
 Workerでbuilt-in/external Definitionを実行し、real provider、tool、planner、persistent Session、Host commit、
 TUIへ結果を返す経路は成立している。これは次のloopを作る土台であり、自己改訂の実証ではない。
 
-現在のHuman Gateは、F01のproduction TUIを実際の日常利用で最終採用するかという人間判断である。通常利用で
-具体的な支障が観測された場合だけ、対応する機能incrementを次のproduct loopとして計画する。自己改訂の将来構想
+F01のproduction TUIには、実際の日常利用で最終採用するかという人間判断が残る。通常利用で具体的な支障が
+観測された場合だけ、対応する機能incrementを次のproduct loopとして計画する。自己改訂の将来構想
 だけを理由に、そのincrementを飛ばしてPhase 1へ着手しない。
 
 #### 現在のTUI baselineと改善loop
