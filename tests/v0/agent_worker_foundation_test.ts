@@ -293,6 +293,8 @@ fi
     const none = await run(`${fakeBin}/none.capture`, [
       '--definition',
       'external_definition.ts',
+      '--max-steps',
+      '12',
       '--no-session',
     ]);
     const continued = await run(`${fakeBin}/continued.capture`, [
@@ -307,14 +309,32 @@ fi
       assert(configIndex >= 0);
       assertEquals(captured.args[configIndex + 1], config);
     }
-    assertEquals(none.args.slice(-3), [
+    assertEquals(none.args.slice(-5), [
       '--definition',
       'external_definition.ts',
+      '--max-steps',
+      '12',
       '--no-session',
     ]);
     assertEquals(continued.args.slice(-3), ['--agent', 'default', '--continue']);
     assertEquals(none.args[0], 'run');
     assertEquals(continued.args[0], 'run');
+    const rejected = await new Deno.Command('/bin/sh', {
+      args: ['-c', 'exec "$@"', '--', launcher, '--max-steps', '0'],
+      cwd: workspace,
+      env: {
+        PATH: `${fakeBin}:/usr/bin:/bin`,
+        XDG_STATE_HOME: stateBase,
+        FAKE_DENO_CAPTURE: `${fakeBin}/rejected.capture`,
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assertEquals(rejected.code, 1);
+    assertEquals(
+      new TextDecoder().decode(rejected.stderr),
+      '{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}\n',
+    );
   } finally {
     await Deno.remove(workspace, { recursive: true });
     await Deno.remove(stateBase, { recursive: true });
@@ -449,6 +469,7 @@ Deno.test('Slice 1 reports an uncaught Worker error through the Host bridge', as
 const runCompositionTurn = async (
   definitionFile: string,
   expectedMaxSteps: number,
+  rootMaxSteps?: number,
 ): Promise<WorkerReadyMessage> => {
   const capsule = new WorkerCapsule(workerUrl);
   try {
@@ -463,6 +484,7 @@ const runCompositionTurn = async (
       correlation: correlation(`composition-${definitionFile}`),
       module: revision,
       workspaceRoot: Deno.cwd(),
+      ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     });
     const ready = await readyPromise;
     assert(ready.manifest !== undefined);
@@ -503,10 +525,92 @@ const runCompositionTurn = async (
 };
 
 Deno.test('Slices 2–3 run built-in and external Definitions through the same Worker composition path', async () => {
-  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 8);
+  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 64);
   const external = await runCompositionTurn('external_definition.ts', 4);
   assert(builtin.manifest !== undefined && external.manifest !== undefined);
   assertEquals(builtin.manifest.resources, external.manifest.resources);
+});
+
+Deno.test('Worker applies a root maxSteps request to built-in and external Definitions', async () => {
+  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 12, 12);
+  const external = await runCompositionTurn('external_definition.ts', 12, 12);
+  assertEquals(builtin.manifest?.maxSteps, 12);
+  assertEquals(external.manifest?.maxSteps, 12);
+
+  const plannerCapsule = new WorkerCapsule(workerUrl);
+  try {
+    const revision = await readWorkerModuleRevision(workerBuiltinModulePath('planner'));
+    const readyPromise = plannerCapsule.waitForMessage(isReady);
+    plannerCapsule.send({
+      kind: 'start',
+      correlation: correlation('planner-root-override'),
+      module: revision,
+      workspaceRoot: Deno.cwd(),
+      rootMaxSteps: 12,
+    });
+    const planner = await readyPromise;
+    assertEquals(planner.manifest?.role, 'planner');
+    assertEquals(planner.manifest?.maxSteps, 12);
+  } finally {
+    plannerCapsule.terminate();
+  }
+});
+
+Deno.test('Worker uses the requested root maxSteps as the turn budget', async () => {
+  const created = await createWorkerTuiSession({
+    persistence: 'none',
+    agent: 'default',
+    rootMaxSteps: 1,
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    const outcome = await created.session.submit('read worker protocol');
+    assert(!outcome.ok);
+    assertEquals({ stopReason: outcome.stopReason, steps: outcome.steps }, {
+      stopReason: 'max_steps',
+      steps: 1,
+    });
+  } finally {
+    await created.close();
+  }
+});
+
+Deno.test('Worker root request admission follows maxSteps beyond the former eight-step ceiling', async () => {
+  const created = await createWorkerTuiSession({
+    persistence: 'none',
+    agent: 'default',
+    rootMaxSteps: 10,
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    const outcome = await created.session.submit('ten-step worker turn');
+    assert(outcome.ok);
+    assertEquals({ stopReason: outcome.stopReason, steps: outcome.steps }, {
+      stopReason: 'final',
+      steps: 10,
+    });
+  } finally {
+    await created.close();
+  }
+});
+
+Deno.test('root maxSteps override does not reduce the delegated planner 64-step budget', async () => {
+  const created = await createWorkerTuiSession({
+    persistence: 'none',
+    agent: 'default',
+    rootMaxSteps: 2,
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    const outcome = await created.session.submit('delegate-long planner turn');
+    assert(outcome.ok);
+    assertEquals({ stopReason: outcome.stopReason, steps: outcome.steps }, {
+      stopReason: 'final',
+      steps: 2,
+    });
+  } finally {
+    await created.close();
+  }
 });
 
 Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the Worker generation', async () => {
@@ -895,6 +999,7 @@ Deno.test('Worker execution artifacts correlate built-in/external settlement and
       stateRoot,
       persistence: 'new',
       agent: 'default',
+      rootMaxSteps: 12,
       physicalIoMode: 'provider-free',
       providerEvidenceStore: evidenceStore,
       executionArtifactStore: artifacts,
@@ -928,7 +1033,7 @@ Deno.test('Worker execution artifacts correlate built-in/external settlement and
     const ordered = [...listed].sort((left, right) =>
       left.definition.kind.localeCompare(right.definition.kind)
     );
-    assertEquals(ordered.map((artifact) => artifact.manifest.maxSteps), [8, 4]);
+    assertEquals(ordered.map((artifact) => artifact.manifest.maxSteps), [12, 4]);
     assertEquals(ordered.map((artifact) => artifact.definition.kind), [
       'builtin',
       'external',
@@ -1021,6 +1126,48 @@ Deno.test('Worker execution artifacts correlate built-in/external settlement and
     assertEquals(shown.executionId, listed[0]!.executionId);
     assert(Array.isArray(shown.protocolTrace));
     assert(typeof shown.definition === 'object' && shown.definition !== null);
+  } finally {
+    await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('Worker TUI navigation reuses the invocation root maxSteps without session persistence', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-navigation-max-steps-' });
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  try {
+    const first = await createWorkerTuiSession({
+      stateRoot,
+      persistence: 'new',
+      agent: 'default',
+      rootMaxSteps: 12,
+      physicalIoMode: 'provider-free',
+      executionArtifactStore: artifacts,
+    });
+    const firstId = first.session.currentPosition().sessionId;
+    assert((await first.session.submit('first invocation turn')).ok);
+    await first.close();
+
+    const second = await createWorkerTuiSession({
+      stateRoot,
+      persistence: 'new',
+      agent: 'default',
+      rootMaxSteps: 12,
+      physicalIoMode: 'provider-free',
+      executionArtifactStore: artifacts,
+    });
+    try {
+      assert(second.navigation !== undefined);
+      const switched = await second.navigation.switchTo(firstId);
+      assert((await switched.session.submit('reopened invocation turn')).ok);
+      const stored = await new DenoSessionStore(stateRoot, Deno.cwd()).readWorker(firstId);
+      assert(!Object.hasOwn(stored, 'maxSteps'));
+      assertEquals((await artifacts.list()).map((artifact) => artifact.manifest.maxSteps), [
+        12,
+        12,
+      ]);
+    } finally {
+      await second.close();
+    }
   } finally {
     await Deno.remove(stateRoot, { recursive: true });
   }
@@ -1269,6 +1416,41 @@ Deno.test('Slice 5 parses --definition with the existing persistence flags befor
     rejected = true;
   }
   assert(rejected);
+});
+
+Deno.test('TUI parses root maxSteps with agent and persistence selectors', () => {
+  assertEquals(
+    parseTuiInvocation([
+      '--continue',
+      '--max-steps',
+      '64',
+      '--agent',
+      'planner',
+    ]),
+    {
+      rawAgentName: 'planner',
+      rootMaxSteps: 64,
+      persistence: 'continue',
+    },
+  );
+  for (
+    const args of [
+      ['--max-steps'],
+      ['--max-steps', '0'],
+      ['--max-steps', '-1'],
+      ['--max-steps', '1.5'],
+      ['--max-steps', '9007199254740992'],
+      ['--max-steps', '4', '--max-steps', '5'],
+    ]
+  ) {
+    let rejected = false;
+    try {
+      parseTuiInvocation(args);
+    } catch {
+      rejected = true;
+    }
+    assert(rejected, `expected rejection for ${JSON.stringify(args)}`);
+  }
 });
 
 Deno.test('Host turn settlement does not apply the five-second queue timeout', async () => {

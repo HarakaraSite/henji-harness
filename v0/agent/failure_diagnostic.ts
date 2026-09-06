@@ -6,8 +6,8 @@
  */
 
 export const FAILURE_DIAGNOSTIC_SCHEMA_VERSION = 1 as const;
-export const MAX_DIAGNOSTIC_REQUESTS = 16;
-export const MAX_DIAGNOSTIC_MODEL_STEP = 8;
+export const MAX_DIAGNOSTIC_REQUESTS = Number.MAX_SAFE_INTEGER;
+export const MAX_DIAGNOSTIC_MODEL_STEP = Number.MAX_SAFE_INTEGER;
 export const MAX_DIAGNOSTIC_BYTES = 1_024;
 export const DIAGNOSTIC_RETRY_COUNT = 0 as const;
 

@@ -334,6 +334,7 @@ export interface WorkerHostSessionOptions {
   readonly definition: DefinitionRevisionRef;
   readonly modulePath: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
+  readonly rootMaxSteps?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
@@ -727,6 +728,9 @@ export class WorkerHostSession {
         module: revision,
         workspaceRoot: this.options.workspaceRoot,
         physicalIoMode: this.options.physicalIoMode ?? 'production',
+        ...(this.options.rootMaxSteps === undefined
+          ? {}
+          : { rootMaxSteps: this.options.rootMaxSteps }),
         initialTranscript: this.transcript,
         nextTurn: this.nextTurn,
         ...(this.checkpoint === undefined ? {} : { checkpoint: this.checkpoint }),
@@ -738,8 +742,12 @@ export class WorkerHostSession {
     const ready = await readyPromise;
     if (ready.kind === 'worker_error') throw new Error(ready.message);
     const expectedRole = this.options.agent === 'planner' ? 'planner' : 'parent';
-    if (ready.manifest === undefined || ready.manifest.role !== expectedRole) {
-      throw new Error('Worker manifest role did not match Host selection');
+    if (
+      ready.manifest === undefined || ready.manifest.role !== expectedRole ||
+      (this.options.rootMaxSteps !== undefined &&
+        ready.manifest.maxSteps !== this.options.rootMaxSteps)
+    ) {
+      throw new Error('Worker manifest did not match Host selection');
     }
     this.currentManifest = ready.manifest;
   }
@@ -1173,6 +1181,7 @@ export interface WorkerTuiSessionOptions {
   readonly agent: SessionRecord['agent'];
   readonly externalDefinitionPath?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
+  readonly rootMaxSteps?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
@@ -1332,6 +1341,7 @@ export const createWorkerTuiSession = async (
       definition,
       modulePath,
       physicalIoMode: options.physicalIoMode,
+      rootMaxSteps: options.rootMaxSteps,
       eventSink: options.eventSink,
       diagnosticPersistence: options.diagnosticPersistence ?? defaultDiagnosticStore?.persist,
       providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
@@ -1382,6 +1392,7 @@ export const createWorkerTuiSession = async (
             definition,
             modulePath,
             physicalIoMode: options.physicalIoMode,
+            rootMaxSteps: options.rootMaxSteps,
             eventSink: options.eventSink,
             diagnosticPersistence: options.diagnosticPersistence ?? defaultDiagnosticStore?.persist,
             providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,

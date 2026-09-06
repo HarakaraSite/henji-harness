@@ -7,7 +7,10 @@ import {
   type WorkerRuntimeEvent,
   type WorkerToHostMessage,
 } from './worker_protocol.ts';
-import type { ExecutableAgentDefinition } from './worker_agent_api.ts';
+import {
+  type ExecutableAgentDefinition,
+  finalizeRootAgentComposition,
+} from './worker_agent_api.ts';
 import { WorkerGeneration, type WorkerGenerationPort } from './worker_runtime.ts';
 import {
   createProductionPhysicalIo,
@@ -203,6 +206,7 @@ const createGeneration = async (
   module: Awaited<ReturnType<typeof loadVerifiedModule>>,
   workspaceRoot: string,
   physicalIoMode: 'provider-free' | 'production',
+  rootMaxSteps?: number,
   initialTranscript: readonly import('./contracts.ts').Message[] = [],
   nextTurn = 1,
   checkpoint?: import('./session_store.ts').SemanticContextCheckpointV1,
@@ -216,7 +220,7 @@ const createGeneration = async (
   );
   const skillCatalog = await discoverSkills(workspace.root);
   const requestCounter = createWorkerRequestCounter();
-  const composition = module.definition({
+  const returnedComposition = module.definition({
     workspace,
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
@@ -224,9 +228,13 @@ const createGeneration = async (
       ? createProductionPhysicalIo(requestCounter)
       : createProviderFreePhysicalIo(),
   });
-  if (composition === undefined || typeof composition !== 'object') {
+  if (returnedComposition === undefined || typeof returnedComposition !== 'object') {
     throw new Error('Worker Definition did not return a composition');
   }
+  const composition = finalizeRootAgentComposition(
+    returnedComposition,
+    rootMaxSteps,
+  );
   return new WorkerGeneration(
     composition,
     correlation.session,
@@ -303,6 +311,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             module,
             command.workspaceRoot,
             command.physicalIoMode ?? 'provider-free',
+            command.rootMaxSteps,
             command.initialTranscript,
             command.nextTurn,
             command.checkpoint,

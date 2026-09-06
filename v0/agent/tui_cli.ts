@@ -160,6 +160,7 @@ export const parseTuiArgs = (args: readonly string[]): string | undefined => {
 export interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
   readonly definitionPath?: string;
+  readonly rootMaxSteps?: number;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly sessionId?: string;
 }
@@ -171,6 +172,7 @@ export const parseTuiInvocation = (
   if (args.length > 6) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
   let definitionPath: string | undefined;
+  let rootMaxSteps: number | undefined;
   let persistence: ParsedTuiInvocation['persistence'] = 'new';
   let sessionId: string | undefined;
   for (let index = 0; index < args.length;) {
@@ -212,6 +214,18 @@ export const parseTuiInvocation = (
       if (persistence !== 'new') throw new Error('invalid invocation');
       persistence = 'none';
       index += 1;
+    } else if (flag === '--max-steps') {
+      const value = args[index + 1];
+      if (
+        rootMaxSteps !== undefined || value === undefined ||
+        !/^[0-9]+$/.test(value)
+      ) throw new Error('invalid invocation');
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+        throw new Error('invalid invocation');
+      }
+      rootMaxSteps = parsed;
+      index += 2;
     } else {
       throw new Error('invalid invocation');
     }
@@ -219,6 +233,7 @@ export const parseTuiInvocation = (
   return {
     rawAgentName,
     ...(definitionPath === undefined ? {} : { definitionPath }),
+    ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     persistence,
     ...(sessionId === undefined ? {} : { sessionId }),
   };
@@ -310,6 +325,7 @@ export const main = async (
             agent: selected.id,
             externalDefinitionPath: invocation.definitionPath,
             physicalIoMode: 'production',
+            rootMaxSteps: invocation.rootMaxSteps,
             eventSink,
           });
         }

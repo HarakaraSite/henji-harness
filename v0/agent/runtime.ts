@@ -425,6 +425,14 @@ export const materializePreparedRuntimeComposition = (
         providerRequestCount ?? requestCount,
         runtimeProviderRequestCount ?? requestCount,
         providerEvidence,
+        {
+          parent: prepared.resourceSelection.parameters.maxSteps,
+          child: DEFAULT_AGENT_MAX_STEPS,
+          aggregate: Math.min(
+            Number.MAX_SAFE_INTEGER,
+            prepared.resourceSelection.parameters.maxSteps + DEFAULT_AGENT_MAX_STEPS,
+          ),
+        },
       ),
   };
 };
@@ -490,7 +498,7 @@ export const createRuntimeSession = async (
  * Run one normal single-shot agent invocation.
  *
  * The model and registry are constructed once per call, and the existing
- * provider-neutral loop is called once with the fixed eight-step bound. The
+ * provider-neutral loop is called once with the selected Definition's finite step bound. The
  * fetch wrapper is intentionally local so offline tests can observe starts
  * without changing the shared provider adapter or making a second attempt.
  */

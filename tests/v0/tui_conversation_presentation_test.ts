@@ -167,6 +167,8 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   assert(footer.includes('ready'));
   assert(footer.includes('agent default'));
   assert(footer.includes('session abcdef12 · turn 3'));
+  assert(footer.includes('cwd /tmp/workspace'));
+  assert(!footer.includes('F1 help'));
   assert(!footer.includes('turn 0'));
   assertEquals((footer.match(/agent default/g) ?? []).length, 1);
   assertEquals((footer.match(/session abcdef12/g) ?? []).length, 1);
@@ -179,6 +181,23 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   const contextFooter = layoutUi(contextRich, 80, 24).footer.text;
   assert(contextFooter.includes('ready'));
   assert(contextFooter.includes('session abcdef12 · turn 3'));
+
+  const narrow = setUiProjection(createUiState(), {
+    lifecycle: 'idle',
+    agentId: 'default',
+    sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
+    committedTurn: 0,
+    workspace: '/home/masat.guest/src/a/very/deep/path/forgejo-agent',
+    trust: 'trusted_local',
+    credentialPolicy: 'before_each_provider_request',
+    pending: [],
+    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    generation: 0,
+  });
+  const narrowFooter = layoutUi(narrow, 40, 24).footer.text;
+  assert(narrowFooter.includes('cwd …'));
+  assert(narrowFooter.includes('forgejo-agent'));
+  assert(!narrowFooter.includes('F1 help'));
 });
 
 Deno.test('conversation cursor cells match ASCII, Japanese, mid-line, and wrapping', () => {

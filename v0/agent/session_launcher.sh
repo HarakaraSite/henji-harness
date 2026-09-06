@@ -16,6 +16,7 @@ agent=''
 definition=''
 mode='new'
 session_id=''
+max_steps=''
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -55,6 +56,14 @@ parse_args() {
         esac
         case "$session_id" in *[!0-9a-f-]*) fail ;; esac
         mode='session'
+        shift 2
+        ;;
+      --max-steps)
+        [ "$max_steps" = '' ] || fail
+        [ "$#" -ge 2 ] || fail
+        max_steps=$2
+        case "$max_steps" in ''|*[!0-9]*) fail ;; esac
+        case "$max_steps" in *[1-9]*) ;; *) fail ;; esac
         shift 2
         ;;
       *) fail ;;

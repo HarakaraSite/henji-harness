@@ -54,11 +54,11 @@ const AGENTS_DIGEST =
 const DENO_DIGEST =
   'henji-workspace-content:v1:sha256:371631304952cb768c5d06dbf46fae0e60bee30cf2f38578ad48a6d3b0f951e4';
 const CURRENT_MANIFEST_ID =
-  'henji-agent-resolved-manifest:v1:sha256:bdf0e5c7e70ac5d928aab4681bb3228c642d0af89a498ae9f3f9c2940f7a4a58' as AgentResolvedManifestIdentity;
+  'henji-agent-resolved-manifest:v1:sha256:12c53d857e34bb44046d701e0c4144c228138111970f91bde0e3a0854f8a7b3c' as AgentResolvedManifestIdentity;
 const VARIANT_MANIFEST_ID =
   'henji-agent-resolved-manifest:v1:sha256:90121c85e8c3a26f48eeca0ede02667584cd9056d53ba85173b2022812dca389' as AgentResolvedManifestIdentity;
 const CURRENT_ENVELOPE_ID =
-  'henji-agent-replay-envelope:v1:sha256:d2100020f44dbb1072d39c3ad83f5adc842f120d6725c26e4188bd61a352a0e8' as AgentReplayEnvelopeIdentity;
+  'henji-agent-replay-envelope:v1:sha256:e780cb275901d7d479b646f79b767f08a8094a99d6046fe490ef1635f2dbefc1' as AgentReplayEnvelopeIdentity;
 const VARIANT_ENVELOPE_ID =
   'henji-agent-replay-envelope:v1:sha256:09251dd6a3028d50efe09dbe31e2cbc19418556c3c659ee1d5ebd12c9212b633' as AgentReplayEnvelopeIdentity;
 
@@ -438,7 +438,7 @@ const expectedManifestIdentity = (side: 'current' | 'variant'): AgentResolvedMan
   side === 'current' ? CURRENT_MANIFEST_ID : VARIANT_MANIFEST_ID;
 const expectedEnvelopeIdentity = (side: 'current' | 'variant'): AgentReplayEnvelopeIdentity =>
   side === 'current' ? CURRENT_ENVELOPE_ID : VARIANT_ENVELOPE_ID;
-const expectedMaxSteps = (side: 'current' | 'variant'): 8 | 4 => side === 'current' ? 8 : 4;
+const expectedMaxSteps = (side: 'current' | 'variant'): 64 | 4 => side === 'current' ? 64 : 4;
 
 const validateRunSpec = async (
   value: unknown,
@@ -582,7 +582,7 @@ const derivePair = async (
   const variantManifest = second.variantManifest;
   const makeEnvelope = async (
     manifest: AgentResolvedManifestV1,
-    maxSteps: 8 | 4,
+    maxSteps: 64 | 4,
   ): Promise<AgentReplayEnvelopeV1> =>
     await createAgentReplayEnvelope({
       caseId: comparisonCase.caseId,
@@ -608,7 +608,7 @@ const derivePair = async (
     definitionId: 'default',
     definition: first.parent,
     manifest: currentManifest,
-    envelope: await makeEnvelope(currentManifest, 8),
+    envelope: await makeEnvelope(currentManifest, 64),
     scriptId: comparisonCase.scriptId,
     toolFixtureId: comparisonCase.toolFixtureId,
   });
@@ -891,7 +891,7 @@ export interface AgentFreshRuntimeRunResult {
   readonly definitionId: 'default' | 'default-max-steps-4';
   readonly manifestIdentity: AgentResolvedManifestIdentity;
   readonly envelopeIdentity: AgentReplayEnvelopeIdentity;
-  readonly maxSteps: 8 | 4;
+  readonly maxSteps: 64 | 4;
   readonly state: 'completed' | 'stopped';
   readonly counts: AgentFreshRuntimeRunCounts;
   readonly record: AgentExecutionRecordV1;
@@ -905,9 +905,9 @@ export interface AgentFreshRuntimePair<T> {
 
 export interface AgentFreshRuntimeAllowedEnvelopeDiff {
   readonly definitionId: AgentFreshRuntimePair<'default' | 'default-max-steps-4'>;
-  readonly maxSteps: AgentFreshRuntimePair<8 | 4>;
-  readonly parentModelRequestCeiling: AgentFreshRuntimePair<8 | 4>;
-  readonly aggregateModelRequestCeiling: AgentFreshRuntimePair<8 | 4>;
+  readonly maxSteps: AgentFreshRuntimePair<64 | 4>;
+  readonly parentModelRequestCeiling: AgentFreshRuntimePair<64 | 4>;
+  readonly aggregateModelRequestCeiling: AgentFreshRuntimePair<64 | 4>;
   readonly manifestIdentity: AgentFreshRuntimePair<AgentResolvedManifestIdentity>;
   readonly envelopeIdentity: AgentFreshRuntimePair<AgentReplayEnvelopeIdentity>;
 }
@@ -989,7 +989,7 @@ const runResult = (
     definitionId: spec.definitionId,
     manifestIdentity: spec.manifest.identity,
     envelopeIdentity: spec.envelope.identity,
-    maxSteps: spec.manifest.parameters.maxSteps as 8 | 4,
+    maxSteps: spec.manifest.parameters.maxSteps as 64 | 4,
     state: expected.state,
     counts: Object.freeze({
       modelRequests: record.usage.modelRequests.aggregate,
@@ -1143,7 +1143,7 @@ export const validateAgentFreshRuntimeComparisonResult = (
         ? {
           ordinal: 1,
           definitionId: 'default',
-          maxSteps: 8,
+          maxSteps: 64,
           state: 'completed',
           stop: 'final',
           model: 5,
@@ -1230,7 +1230,7 @@ export const validateAgentFreshRuntimeComparisonResult = (
         definitionId: run.definitionId as 'default' | 'default-max-steps-4',
         manifestIdentity: run.manifestIdentity as AgentResolvedManifestIdentity,
         envelopeIdentity: run.envelopeIdentity as AgentReplayEnvelopeIdentity,
-        maxSteps: run.maxSteps as 8 | 4,
+        maxSteps: run.maxSteps as 64 | 4,
         state: run.state as 'completed' | 'stopped',
         counts: Object.freeze({
           modelRequests: counts.modelRequests,
@@ -1264,9 +1264,9 @@ export const validateAgentFreshRuntimeComparisonResult = (
     ) return invalid();
     const pairKeys = [
       ['definitionId', 'default', 'default-max-steps-4'],
-      ['maxSteps', 8, 4],
-      ['parentModelRequestCeiling', 8, 4],
-      ['aggregateModelRequestCeiling', 8, 4],
+      ['maxSteps', 64, 4],
+      ['parentModelRequestCeiling', 64, 4],
+      ['aggregateModelRequestCeiling', 64, 4],
       ['manifestIdentity', CURRENT_MANIFEST_ID, VARIANT_MANIFEST_ID],
       ['envelopeIdentity', CURRENT_ENVELOPE_ID, VARIANT_ENVELOPE_ID],
     ] as const;
@@ -1398,11 +1398,11 @@ const runFreshRuntimeComparisonInternal = async (
         }),
         maxSteps: Object.freeze({ current: current.maxSteps, variant: variant.maxSteps }),
         parentModelRequestCeiling: Object.freeze({
-          current: pair.current.envelope.budget.modelRequests.parent as 8,
+          current: pair.current.envelope.budget.modelRequests.parent as 64,
           variant: pair.variant.envelope.budget.modelRequests.parent as 4,
         }),
         aggregateModelRequestCeiling: Object.freeze({
-          current: pair.current.envelope.budget.modelRequests.aggregate as 8,
+          current: pair.current.envelope.budget.modelRequests.aggregate as 64,
           variant: pair.variant.envelope.budget.modelRequests.aggregate as 4,
         }),
         manifestIdentity: Object.freeze({

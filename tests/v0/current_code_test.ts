@@ -7,7 +7,11 @@ import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.t
 import { AgentSession } from '../../v0/agent/session.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
-import { defaultAgentDefinition, plannerAgentDefinition } from '../../v0/agent/agent_definition.ts';
+import {
+  DEFAULT_AGENT_MAX_STEPS,
+  defaultAgentDefinition,
+  plannerAgentDefinition,
+} from '../../v0/agent/agent_definition.ts';
 import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider_profile.ts';
 import { admitInternalAgentDefinition } from '../../v0/agent/agent_catalog.ts';
 import { emptySkillCatalog } from '../../v0/agent/skills.ts';
@@ -29,6 +33,15 @@ import {
   materializePreparedRuntimeComposition,
   prepareRuntimeComposition,
 } from '../../v0/agent/runtime.ts';
+import { displayWorkspaceLabel } from '../../v0/agent/startup_orientation.ts';
+import {
+  createDefaultAgentComposition,
+  finalizeRootAgentComposition,
+} from '../../v0/agent/worker_agent_api.ts';
+import {
+  freshRuntimeComparisonCase,
+  runFreshRuntimeComparison,
+} from '../../v0/agent/fresh_runtime_comparison.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -277,6 +290,9 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   };
   const defaultDefinition = defaultAgentDefinition(input);
   const plannerDefinition = plannerAgentDefinition(input);
+  assertEquals(DEFAULT_AGENT_MAX_STEPS, 64);
+  assertEquals(defaultDefinition.limits.maxSteps, 64);
+  assertEquals(plannerDefinition.limits.maxSteps, 64);
   assert(!('registry' in defaultDefinition));
   assert(!('skillCatalog' in defaultDefinition));
   assertEquals(defaultDefinition.capabilities.tools.map(String), [
@@ -360,6 +376,56 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     composition.registry.definitions().map((tool) => tool.name),
     ['read', 'submit_json_result'],
   );
+  const requestBudget = composition.createTurnExecutionContext(1);
+  for (let step = 0; step < 5; step += 1) assert(requestBudget.claimModelRequest());
+  assert(!requestBudget.claimModelRequest());
+});
+
+Deno.test('root maxSteps finalization keeps Definition evidence coherent', () => {
+  const composition = createDefaultAgentComposition({
+    workspace: { root: '/definition-test' },
+    skillCatalog: emptySkillCatalog(),
+    physicalIo: {
+      createModel: () => ({
+        generate: () => ({ kind: 'final' as const, text: 'done' }),
+      }),
+    },
+  });
+  const finalized = finalizeRootAgentComposition(composition, 12);
+  assertEquals(composition.maxSteps, 64);
+  assertEquals({
+    maxSteps: finalized.maxSteps,
+    resolved: finalized.resolved.limits.maxSteps,
+    selection: finalized.resolved.resourceSelection.parameters.maxSteps,
+    manifest: finalized.manifest.maxSteps,
+  }, { maxSteps: 12, resolved: 12, selection: 12, manifest: 12 });
+});
+
+Deno.test('workspace display keeps a short physical path and bounds a long path from the front', () => {
+  assertEquals(
+    displayWorkspaceLabel('/home/masat.guest/src/henji-harness'),
+    '/home/masat.guest/src/henji-harness',
+  );
+  const long = `/home/${'deep/'.repeat(30)}henji-harness`;
+  const displayed = displayWorkspaceLabel(long);
+  assert(displayed.startsWith('…'));
+  assert(displayed.endsWith('/henji-harness'));
+  assert(new TextEncoder().encode(displayed).byteLength <= 96);
+});
+
+Deno.test('fresh runtime comparison keeps the current 64 versus variant 4 axis', async () => {
+  const result = await runFreshRuntimeComparison(freshRuntimeComparisonCase);
+  assertEquals({
+    currentMaxSteps: result.current.maxSteps,
+    variantMaxSteps: result.variant.maxSteps,
+    currentState: result.current.state,
+    variantState: result.variant.state,
+  }, {
+    currentMaxSteps: 64,
+    variantMaxSteps: 4,
+    currentState: 'completed',
+    variantState: 'stopped',
+  });
 });
 
 Deno.test('production definitions and saved messages use the expanded text ceilings', () => {

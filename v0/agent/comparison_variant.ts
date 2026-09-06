@@ -84,7 +84,7 @@ export interface ComparisonVariantEntry {
   readonly parentId: BuiltinAgentId;
   readonly topologyId: AgentResourceTopologyId;
   readonly changedAxis: 'maxSteps';
-  readonly parentMaxSteps: 8;
+  readonly parentMaxSteps: 64;
   readonly variantMaxSteps: 4;
 }
 
@@ -100,7 +100,7 @@ type RawComparisonVariant = {
   readonly id: ComparisonVariantId;
   readonly parentId: BuiltinAgentId;
   readonly changedAxis: 'maxSteps';
-  readonly parentMaxSteps: 8;
+  readonly parentMaxSteps: 64;
   readonly variantMaxSteps: 4;
 };
 
@@ -109,7 +109,7 @@ const RAW_COMPARISON_VARIANTS: readonly RawComparisonVariant[] = Object.freeze([
     id: 'default-max-steps-4',
     parentId: 'default',
     changedAxis: 'maxSteps' as const,
-    parentMaxSteps: 8 as const,
+    parentMaxSteps: 64 as const,
     variantMaxSteps: 4 as const,
   }),
 ]);
@@ -127,7 +127,7 @@ const validateRawEntry = (value: unknown): ComparisonVariantEntry => {
   ) return invalid();
   if (
     value.id !== 'default-max-steps-4' || value.parentId !== 'default' ||
-    value.changedAxis !== 'maxSteps' || value.parentMaxSteps !== 8 ||
+    value.changedAxis !== 'maxSteps' || value.parentMaxSteps !== 64 ||
     value.variantMaxSteps !== 4
   ) return invalid();
   const topologyId = resolveManifestDefinitionContract(value.parentId).topologyId;
@@ -217,14 +217,14 @@ const validateResolvedEntry = (value: unknown): ComparisonVariantEntry => {
   if (
     value.id !== 'default-max-steps-4' || value.parentId !== 'default' ||
     value.topologyId !== 'default' || value.changedAxis !== 'maxSteps' ||
-    value.parentMaxSteps !== 8 || value.variantMaxSteps !== 4
+    value.parentMaxSteps !== 64 || value.variantMaxSteps !== 4
   ) return invalid();
   return value as unknown as ComparisonVariantEntry;
 };
 
 /**
  * Check the relationship between parent and variant without serializing opaque host objects.
- * Exactly one semantic axis may differ: the fresh selection's maxSteps 8 -> 4.
+ * Exactly one semantic axis may differ: the fresh selection's maxSteps 64 -> 4.
  */
 export const validateComparisonVariantRelationship = (
   entry: ComparisonVariantEntry,
@@ -267,7 +267,7 @@ export const validateComparisonVariantRelationship = (
       parent.capabilities !== variant.capabilities ||
       !isPlainObject(parent.limits) || !Object.isFrozen(parent.limits) ||
       !isPlainObject(variant.limits) || !Object.isFrozen(variant.limits) ||
-      parent.limits.maxSteps !== 8 || variant.limits.maxSteps !== 4 ||
+      parent.limits.maxSteps !== 64 || variant.limits.maxSteps !== 4 ||
       parent.agentInstructions !== variant.agentInstructions ||
       parent.systemInstruction !== variant.systemInstruction
     ) return invalid();
@@ -284,7 +284,7 @@ export const validateComparisonVariantRelationship = (
     if (
       parentSelection.resources === variantSelection.resources ||
       parentSelection.parameters === variantSelection.parameters ||
-      parentSelection.parameters.maxSteps !== 8 ||
+      parentSelection.parameters.maxSteps !== 64 ||
       variantSelection.parameters.maxSteps !== 4 ||
       parentSelection.resources.length !== variantSelection.resources.length ||
       parentSelection.resources.some((resource, index) =>
@@ -306,7 +306,7 @@ const evaluateComparisonVariantWithDefinition = async (
   const parent = freezeParentDefinition(evaluatedParent);
   const parentSelection = validateResolvedAgentResources(parent, 'default');
   if (
-    DEFAULT_AGENT_MAX_STEPS !== 8 ||
+    DEFAULT_AGENT_MAX_STEPS !== 64 ||
     parentSelection.parameters.maxSteps !== entry.parentMaxSteps
   ) return invalid();
   const variantSelection = createAgentResourceSelection(

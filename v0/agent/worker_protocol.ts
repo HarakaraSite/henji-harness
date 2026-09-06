@@ -43,6 +43,7 @@ export type WorkerHostCommand =
     readonly module?: WorkerModuleRevisionRequest;
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
+    readonly rootMaxSteps?: number;
     readonly initialTranscript?: readonly Message[];
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;

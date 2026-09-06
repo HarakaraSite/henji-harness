@@ -81,6 +81,23 @@ const truncateCells = (text: string, columns: number): string => {
   }
   return result;
 };
+const suffixCells = (text: string, columns: number): string => {
+  if (width(text) <= columns) return text;
+  if (columns <= 0) return '';
+  const marker = '…';
+  const markerWidth = width(marker);
+  if (columns <= markerWidth) return marker;
+  let used = markerWidth;
+  let result = '';
+  const characters = [...text];
+  for (let index = characters.length - 1; index >= 0; index -= 1) {
+    const next = cellWidth(characters[index]);
+    if (used + next > columns) break;
+    result = characters[index] + result;
+    used += next;
+  }
+  return `${marker}${result}`;
+};
 
 /** Controller ready-status strings contain position facts that are rendered separately below. */
 const footerStatus = (state: UiState): string => {
@@ -129,22 +146,30 @@ const footerText = (state: UiState, columns: number): string => {
   const session = state.projection?.sessionId === undefined
     ? undefined
     : `session ${state.projection.sessionId.slice(0, 8)} · turn ${state.projection.committedTurn}`;
-  const hint = state.lifecycle === 'idle' ? 'F1 help' : undefined;
+  const workspace = state.projection === undefined
+    ? undefined
+    : safeDisplay(state.projection.workspace, false);
   const status = footerStatusParts(footerStatus(state));
-  // Lifecycle, session position, and then optional detail are the durable facts at narrow widths.
-  const segments = [
-    status.primary,
-    session,
-    status.details,
-    identity,
-    pendingSegment,
-    belowSegment,
-    hint,
-  ]
+  const fixed = [safeDisplay(status.primary, false)];
+  if (session !== undefined) fixed.push(safeDisplay(session, false));
+  if (workspace !== undefined) {
+    const minimumTail = workspace === '/' ? '/' : `…/${workspace.split('/').at(-1) ?? workspace}`;
+    const availableWith = (values: readonly string[]): number =>
+      columns - width(`[${[...values, 'cwd '].join(' · ')}]`);
+    if (
+      fixed.length > 1 &&
+      availableWith(fixed) < Math.min(width(workspace), width(minimumTail))
+    ) fixed.splice(1, 1);
+    fixed.push(`cwd ${suffixCells(workspace, Math.max(1, availableWith(fixed)))}`);
+  }
+  const optional = [status.details, identity, pendingSegment, belowSegment]
     .filter(
       (segment): segment is string => segment !== undefined && segment.length > 0,
     ).map((segment) => safeDisplay(segment, false));
-  while (segments.length > 1 && width(`[${segments.join(' · ')}]`) > columns) segments.pop();
+  const segments = [...fixed, ...optional];
+  while (segments.length > fixed.length && width(`[${segments.join(' · ')}]`) > columns) {
+    segments.pop();
+  }
   return truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
 };
 

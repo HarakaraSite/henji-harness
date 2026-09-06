@@ -15,7 +15,10 @@ import type { Workspace, WorkToolSeams } from './work_tools.ts';
 import type { ChildTurnExecutionContext } from './execution_context.ts';
 import { runAgent } from './loop.ts';
 import { WORKER_PROTOCOL_VERSION } from './worker_protocol.ts';
-import { createAgentResourceSelection } from './resource_identity.ts';
+import {
+  createAgentResourceSelection,
+  validateAgentResourceSelection,
+} from './resource_identity.ts';
 
 export { WORKER_PROTOCOL_VERSION };
 export type { AgentEventSink };
@@ -59,6 +62,56 @@ export interface WorkerAgentComposition {
 export type ExecutableAgentDefinition = (
   input: ExecutableAgentDefinitionInput,
 ) => WorkerAgentComposition;
+
+const assertCoherentRootComposition = (
+  composition: WorkerAgentComposition,
+): void => {
+  const selection = validateAgentResourceSelection(
+    composition.resolved.resourceSelection,
+  );
+  if (
+    !Number.isSafeInteger(composition.maxSteps) || composition.maxSteps <= 0 ||
+    composition.resolved.limits.maxSteps !== composition.maxSteps ||
+    selection.parameters.maxSteps !== composition.maxSteps ||
+    composition.manifest.maxSteps !== composition.maxSteps ||
+    composition.manifest.role !== composition.role
+  ) {
+    throw new Error('Worker Definition returned an incoherent root composition');
+  }
+};
+
+/** Apply a Host-requested limit only to the returned root composition. */
+export const finalizeRootAgentComposition = (
+  composition: WorkerAgentComposition,
+  requestedMaxSteps?: number,
+): WorkerAgentComposition => {
+  if (requestedMaxSteps === undefined) {
+    assertCoherentRootComposition(composition);
+    return composition;
+  }
+  if (!Number.isSafeInteger(requestedMaxSteps) || requestedMaxSteps <= 0) {
+    throw new RangeError('maxSteps must be a positive integer');
+  }
+  const resolved = Object.freeze({
+    ...composition.resolved,
+    limits: Object.freeze({ maxSteps: requestedMaxSteps }),
+    resourceSelection: createAgentResourceSelection(
+      composition.resolved.resourceSelection.resources.map(String),
+      requestedMaxSteps,
+    ),
+  });
+  const finalized = Object.freeze({
+    ...composition,
+    maxSteps: requestedMaxSteps,
+    manifest: Object.freeze({
+      ...composition.manifest,
+      maxSteps: requestedMaxSteps,
+    }),
+    resolved,
+  });
+  assertCoherentRootComposition(finalized);
+  return finalized;
+};
 
 const manifestFor = (
   role: 'parent' | 'planner',

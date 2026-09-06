@@ -59,7 +59,7 @@ export interface ResolvedAgentDefinition {
 export type AgentDefinition = (input: AgentDefinitionInput) => ResolvedAgentDefinition;
 
 /** The finite request bound declared by the normal runtime's default Agent Definition. */
-export const DEFAULT_AGENT_MAX_STEPS = 8;
+export const DEFAULT_AGENT_MAX_STEPS = 64;
 
 /** Fixed planner policy appended after all discovered workspace context. */
 export const PLANNER_AGENT_INSTRUCTION =

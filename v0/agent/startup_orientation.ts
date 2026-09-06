@@ -105,10 +105,7 @@ export const displayWorkspaceLabel = (workspaceRoot: string): string => {
   if (!isSafeDisplayText(workspaceRoot) || !workspaceRoot.startsWith('/')) return 'workspace';
   const components = workspaceRoot.split('/').filter((component) => component.length > 0);
   if (components.length === 0) return '/';
-  const label = components.length > 2
-    ? `…/${components.slice(-2).join('/')}`
-    : `/${components.join('/')}`;
-  return suffixWithinBytes(label, MAX_WORKSPACE_DISPLAY_BYTES);
+  return suffixWithinBytes(workspaceRoot, MAX_WORKSPACE_DISPLAY_BYTES);
 };
 
 const boundedProfileId = (profileId: string): string => {

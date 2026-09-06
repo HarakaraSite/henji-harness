@@ -15,7 +15,8 @@ import {
   type SemanticContextCheckpointV1,
 } from './session_store.ts';
 import { runAgentTurn } from './loop.ts';
-import { ParentTurnExecutionContext } from './execution_context.ts';
+import { ParentTurnExecutionContext, TurnRequestBudget } from './execution_context.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from './agent_definition.ts';
 import { TurnCancellationOwner } from './cancellation.ts';
 import { SteeringOwner, validateSteeringText } from './steering.ts';
 import { measureModelRequestWire } from './openrouter_model.ts';
@@ -176,9 +177,17 @@ export class WorkerGeneration {
     );
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
+    const childMaxSteps = DEFAULT_AGENT_MAX_STEPS;
     const executionContext = new ParentTurnExecutionContext(
       turn,
-      undefined,
+      new TurnRequestBudget({
+        parent: this.composition.maxSteps,
+        child: childMaxSteps,
+        aggregate: Math.min(
+          Number.MAX_SAFE_INTEGER,
+          this.composition.maxSteps + childMaxSteps,
+        ),
+      }),
       cancellation.signal,
       cancellation,
       diagnosticOwner,

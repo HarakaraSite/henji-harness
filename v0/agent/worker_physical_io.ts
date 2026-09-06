@@ -19,6 +19,13 @@ const hasCurrentTurnToolResult = (request: ModelRequest): boolean => {
     request.transcript.slice(lastUser + 1).some((message) => message.role === 'tool');
 };
 
+const currentTurnToolResultCount = (request: ModelRequest): number => {
+  const lastUser = request.transcript.findLastIndex((message) => message.role === 'user');
+  return lastUser < 0
+    ? 0
+    : request.transcript.slice(lastUser + 1).filter((message) => message.role === 'tool').length;
+};
+
 const delayed = async (options: ModelGenerateOptions): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 40));
   throwIfCancelled(options.signal);
@@ -69,7 +76,24 @@ class WorkerProbeModel implements Model {
         calls: [{
           callId: 'worker-planner-1',
           name: 'delegate_to_planner',
-          arguments: { task: 'worker planner child task' },
+          arguments: {
+            task: task.includes('delegate-long')
+              ? 'ten-step worker planner child task'
+              : 'worker planner child task',
+          },
+        }],
+      };
+    }
+    if (
+      task.includes('ten-step') && currentTurnToolResultCount(request) < 9
+    ) {
+      const ordinal = currentTurnToolResultCount(request) + 1;
+      return {
+        kind: 'tool_calls',
+        calls: [{
+          callId: `worker-read-${ordinal}`,
+          name: 'read',
+          arguments: { path: 'v0/agent/worker_protocol.ts' },
         }],
       };
     }

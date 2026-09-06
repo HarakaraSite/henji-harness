@@ -5,6 +5,7 @@ import {
   validateAgentResolvedManifest,
 } from './resolved_manifest.ts';
 import type { AgentResourceIdentity } from './resource_identity.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from './agent_definition.ts';
 import {
   cloneReplayTranscript,
   isReplayText,
@@ -121,16 +122,19 @@ const snapshotBudget = (value: unknown, maxSteps: number) => {
     !plain(value) ||
     !ownDataKeys(value, ['maxSteps', 'modelRequests', 'maxExternalRequests', 'maxWallTimeMicros'])
   ) return invalid();
-  if (!exactInteger(value.maxSteps, 1, 8) || value.maxSteps !== maxSteps) return invalid();
+  if (
+    !exactInteger(value.maxSteps, 1, DEFAULT_AGENT_MAX_STEPS) || value.maxSteps !== maxSteps
+  ) return invalid();
   if (
     !plain(value.modelRequests) ||
     !ownDataKeys(value.modelRequests, ['parent', 'planner', 'aggregate'])
   ) return invalid();
   const modelRequests = value.modelRequests;
   if (
-    !exactInteger(modelRequests.parent, 1, 8) || modelRequests.parent !== maxSteps ||
-    !exactInteger(modelRequests.planner, 0, 8) ||
-    !exactInteger(modelRequests.aggregate, 1, 16) ||
+    !exactInteger(modelRequests.parent, 1, DEFAULT_AGENT_MAX_STEPS) ||
+    modelRequests.parent !== maxSteps ||
+    !exactInteger(modelRequests.planner, 0, DEFAULT_AGENT_MAX_STEPS) ||
+    !exactInteger(modelRequests.aggregate, 1, DEFAULT_AGENT_MAX_STEPS * 2) ||
     modelRequests.aggregate !== modelRequests.parent + modelRequests.planner ||
     !exactInteger(value.maxExternalRequests, 0, modelRequests.aggregate) ||
     !exactInteger(value.maxWallTimeMicros, 1, 3_600_000_000)

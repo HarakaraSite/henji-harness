@@ -17,6 +17,12 @@ export const REQUEST_LIMITS = Object.freeze({
   aggregate: 16,
 });
 
+export interface TurnRequestLimits {
+  readonly parent: number;
+  readonly child: number;
+  readonly aggregate: number;
+}
+
 /** Maximum encoded size of one provider-neutral progress snapshot. */
 export const MAX_TOOL_PROGRESS_TEXT_BYTES = 8_192;
 
@@ -34,9 +40,18 @@ export class TurnRequestBudget {
   private parent = 0;
   private child = 0;
 
+  constructor(private readonly limits: TurnRequestLimits = REQUEST_LIMITS) {
+    if (
+      !Number.isSafeInteger(limits.parent) || limits.parent <= 0 ||
+      !Number.isSafeInteger(limits.child) || limits.child <= 0 ||
+      !Number.isSafeInteger(limits.aggregate) ||
+      limits.aggregate < Math.max(limits.parent, limits.child)
+    ) throw new RangeError('request limits must be positive safe integers');
+  }
+
   claim(lane: RequestLane): boolean {
     const used = lane === 'parent' ? this.parent : this.child;
-    if (used >= REQUEST_LIMITS[lane] || this.aggregate >= REQUEST_LIMITS.aggregate) return false;
+    if (used >= this.limits[lane] || this.aggregate >= this.limits.aggregate) return false;
     if (lane === 'parent') this.parent += 1;
     else this.child += 1;
     return true;
@@ -162,10 +177,11 @@ export const createTurnExecutionContext = (
   providerRequestCount?: () => number,
   runtimeProviderRequestCount?: () => number,
   providerEvidence?: ProviderEvidenceRecorder,
+  limits?: TurnRequestLimits,
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,
-    undefined,
+    limits === undefined ? undefined : new TurnRequestBudget(limits),
     signal,
     cancellation,
     diagnosticOwner,

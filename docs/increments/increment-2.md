@@ -1,6 +1,6 @@
 # 通常利用 increment 2 — step budgetとworkspace表示
 
-ステータス: 実装計画案。ユーザー承認前であり、実装認可ではない。
+ステータス: local実装と機械確認が完了。通常利用での人間による確認待ち。
 
 ## この文書の位置付け
 
@@ -156,5 +156,4 @@ repository調査が8 stepsを越えても継続し、64以内で回答へ到達�
 - workspaceをfooterへ表示するためにHost / Worker責務またはcanonical Session schemaを変える必要が生じる。
 - Markdown、tool利用効率、self-revisionをincrement 2へ追加する必要が生じる。
 
-この計画の作成と編集は実装認可ではない。ユーザーがこの文書を確認し、increment 2の実装を明示承認した後に
-code、test、resultsの変更を開始する。
+ユーザーはこの計画を確認し、increment 2の実装を明示承認した。
