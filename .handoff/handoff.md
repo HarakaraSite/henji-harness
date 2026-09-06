@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: `docs/roadmap.md`はユーザー確認を終了し、採用済み。現行Henjiの第1回通常利用incrementを終了し、通常利用中のfeedback蓄積が具体的な改善候補の発見に有効だとユーザーが評価した
-- 次: 再開時に`docs/experience/normal-use-inbox.md`の未振り分け項目を確認し、次に扱う改善または次の通常利用incrementをユーザーが判断する
-- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`、`docs/experience/normal-use-inbox.md`
-- 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmapの採用は各phaseの実装認可ではない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 状態: 第1回通常利用で採用したstep budgetとTUI workspace表示の改善を、通常利用increment 2の個別実装計画案へ整理した。roadmapは個々のincrementや作業履歴を保持せず、`docs/increments/increment-N.md`を各incrementの正本とする規則へ変更済み
+- 次: ユーザーが`docs/increments/increment-2.md`を確認し、修正点または実装承認を判断する
+- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/experience/normal-use-inbox.md`
+- 注意: increment 2は計画案であり実装未認可。READMEは構想要約であり現在地の正本にしない。provider/production `henji`、credential、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

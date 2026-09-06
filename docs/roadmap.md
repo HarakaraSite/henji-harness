@@ -180,8 +180,10 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 ### 通常利用で見つかった問題を改善する（F01〜F15）
 
 人間が改善を直接要求するか、通常利用で具体的な問題や改善機会が見つかった場合は、F01〜F15のどの
-product動作に関わるかを確認し、通常利用へ戻せる狭いincrementをこのroadmapへ追加する。契機がなければ
-実装作業は発生しない。この改善とSelf-revision Cycle 1は別であり、一方から他方の開始は自動決定しない。
+product動作に関わるかを確認し、通常利用へ戻せる狭いincrementの個別実装計画を
+`docs/increments/increment-N.md`として作る。このroadmapへ個々のincrementや作業履歴を追加しない。
+契機がなければ実装作業は発生しない。この改善とSelf-revision Cycle 1は別であり、一方から他方の開始は
+自動決定しない。
 
 TUIの改善もこの扱いに含む。入力・表示・操作性は主にF01、Session/history/contextの利用はF05、Surfaceの
 分離・load・置換はF10へ対応付ける。既存Fで表せない新しいproduct動作には新しいF番号を付ける。Surface
