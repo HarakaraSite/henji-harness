@@ -179,16 +179,18 @@ semantics を定義しない。
 
 1. Hostのstorage mechanismが、通常利用で観測された経験を、必要ならSessionをまたいで後のWorker
    generationから読める形で継続的に保存する。
-2. Worker内のAIが保存された経験を読み、その意味を解釈して、Definitionの改訂候補をsource、diff、
-   またはdataとして生成し、interfaceを通じてHostへ返す。
+2. 人間の明示的なアクションまたは指示を受けて、Worker内のAIが保存された経験を読み、その意味を解釈
+   して、Definitionの改訂候補をsource、diff、またはdataとして生成し、interfaceを通じてHostへ返す。
 3. Hostは改訂候補を現在使用中の`DefinitionRevisionRef`と区別して保存し、生成されただけでは実行対象に
    しない。
-4. 採用が決まった候補をimmutableなDefinition revisionとして確定し、Hostが`AgentInstance`のbindingを
-   明示的かつdurableに切り替える。
+4. 人間が採用アクションを行うか、提示された候補を明示的に承認した場合だけ、その候補をimmutableな
+   Definition revisionとして確定し、Hostが`AgentInstance`のbindingを明示的かつdurableに切り替える。
 5. 改訂後も通常利用を続け、そこで観測された変化を次の経験として保存する。
 
 このループは、変更前後の比較実験、改善の定量測定、Henji全体の構成追跡を要求しない。何を経験として
-残すか、AIがどの経験を読むか、候補の採否を誰がどう決めるかは、このarchitectureでは固定しない。
+残すか、AIがどの経験を読むか、人間のアクション、指示、承認をどのSurfaceとprotocolで表現するかは、
+このarchitectureでは固定しない。Workerが人間の契機なしに改訂候補を自発的に生成することや、Hostが
+候補を自動採用することはない。
 
 ## AgentInstanceの継続性とHostの追加機能
 
