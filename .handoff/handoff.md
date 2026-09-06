@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 通常利用increment 2はユーザー承認済み計画どおりlocal実装と機械確認が完了。built-in root/planner既定64、TUI `--max-steps`のroot override、実効request budget/evidenceの同期、footerのphysical workspace表示、通常footerの`F1 help`削除を実装し、focused testと最終treeのauthoritative `v0:gate`が成功した
+- 状態: 通常利用increment 2はlocal実装、採用した第三者review P1/P2の修正、変更箇所の再review、local commitまで完了。Presentation Adapterは64-step turnのrequest countを受理し、長いstatusでも40/80列footerにrepository名を含むworkspace末尾を保持する。再reviewはGO（Blocker/P1/P2各0）、focused testとreview修正後treeのauthoritative `v0:gate`が成功した
 - 次: ユーザーがproduction TUIを通常利用し、footerのworkspace識別と8 model stepsを越えるrepository調査の完遂を確認する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/experience/normal-use-inbox.md`
-- 注意: production TUI/provider/credential確認と人間による受入は未実施。READMEは構想要約であり現在地の正本にしない。commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 注意: production TUI/provider/credential確認と人間による受入は未実施。READMEは構想要約であり現在地の正本にしない。push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

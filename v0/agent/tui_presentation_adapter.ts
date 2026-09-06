@@ -207,11 +207,9 @@ const count = (value: unknown): number => {
   }
   return value as number;
 };
-const optionalBoundedCount = (value: unknown, max?: number): number | undefined => {
+const optionalBoundedCount = (value: unknown): number | undefined => {
   if (value === undefined) return undefined;
-  const result = count(value);
-  if (max !== undefined && result > max) throw new PresentationDeliveryError();
-  return result;
+  return count(value);
 };
 const fixedCount = <T extends number>(value: unknown, expected: T): T => {
   if (value !== expected) throw new PresentationDeliveryError();
@@ -527,7 +525,7 @@ const outcome = (value: LoopOutcome): PresentationOutcome => {
         ),
       }),
     ...(value.turnProviderRequestCount === undefined ? {} : {
-      turnProviderRequestCount: optionalBoundedCount(value.turnProviderRequestCount, 16),
+      turnProviderRequestCount: optionalBoundedCount(value.turnProviderRequestCount),
     }),
     ...(value.runtimeProviderRequestCount === undefined ? {} : {
       runtimeProviderRequestCount: optionalBoundedCount(value.runtimeProviderRequestCount),
@@ -727,7 +725,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           outcome: event.outcome,
           committed: event.committed,
           ...(event.turnProviderRequestCount === undefined ? {} : {
-            turnProviderRequestCount: optionalBoundedCount(event.turnProviderRequestCount, 16),
+            turnProviderRequestCount: optionalBoundedCount(event.turnProviderRequestCount),
           }),
           ...(event.runtimeProviderRequestCount === undefined ? {} : {
             runtimeProviderRequestCount: optionalBoundedCount(event.runtimeProviderRequestCount),

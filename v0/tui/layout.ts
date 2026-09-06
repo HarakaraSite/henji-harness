@@ -81,6 +81,14 @@ const truncateCells = (text: string, columns: number): string => {
   }
   return result;
 };
+const prefixCells = (text: string, columns: number): string => {
+  if (width(text) <= columns) return text;
+  if (columns <= 0) return '';
+  const marker = '…';
+  const markerWidth = width(marker);
+  if (columns <= markerWidth) return marker;
+  return `${truncateCells(text, columns - markerWidth)}${marker}`;
+};
 const suffixCells = (text: string, columns: number): string => {
   if (width(text) <= columns) return text;
   if (columns <= 0) return '';
@@ -150,17 +158,28 @@ const footerText = (state: UiState, columns: number): string => {
     ? undefined
     : safeDisplay(state.projection.workspace, false);
   const status = footerStatusParts(footerStatus(state));
-  const fixed = [safeDisplay(status.primary, false)];
-  if (session !== undefined) fixed.push(safeDisplay(session, false));
+  const primary = safeDisplay(status.primary, false);
+  const fixed: string[] = [primary];
   if (workspace !== undefined) {
     const minimumTail = workspace === '/' ? '/' : `…/${workspace.split('/').at(-1) ?? workspace}`;
     const availableWith = (values: readonly string[]): number =>
       columns - width(`[${[...values, 'cwd '].join(' · ')}]`);
+
+    const safeSession = session === undefined ? undefined : safeDisplay(session, false);
     if (
-      fixed.length > 1 &&
-      availableWith(fixed) < Math.min(width(workspace), width(minimumTail))
-    ) fixed.splice(1, 1);
+      safeSession !== undefined &&
+      availableWith([...fixed, safeSession]) >= width(minimumTail)
+    ) fixed.push(safeSession);
+
+    if (availableWith(fixed) < width(minimumTail)) {
+      fixed.splice(1);
+      const statusBudget = columns - width(`[ · cwd ${minimumTail}]`);
+      fixed[0] = prefixCells(primary, Math.max(0, statusBudget));
+      if (fixed[0].length === 0) fixed.pop();
+    }
     fixed.push(`cwd ${suffixCells(workspace, Math.max(1, availableWith(fixed)))}`);
+  } else if (session !== undefined) {
+    fixed.push(safeDisplay(session, false));
   }
   const optional = [status.details, identity, pendingSegment, belowSegment]
     .filter(

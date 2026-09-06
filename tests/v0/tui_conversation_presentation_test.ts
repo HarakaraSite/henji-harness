@@ -7,6 +7,7 @@ import {
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
+import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -79,6 +80,51 @@ Deno.test('conversation presentation keeps successful operational metadata out o
   });
   assertEquals(state.log.entries.map((entry) => entry.label), ['user>', 'assistant>']);
   assert(!state.log.entries.some((entry) => /requests>|evidence>|readback>/.test(entry.text)));
+});
+
+Deno.test('presentation adapter accepts request counts through the 64-step root budget', async () => {
+  const events: unknown[] = [];
+  const adapter = new TuiPresentationAdapter(
+    {
+      submit: () =>
+        Promise.resolve({
+          ok: true,
+          task: 'inspect',
+          outcome: 'final' as const,
+          stopReason: 'final' as const,
+          finalText: 'done',
+          turnProviderRequestCount: 64,
+          runtimeProviderRequestCount: 128,
+          steps: 64,
+          toolCallCount: 63,
+          toolResultCount: 63,
+          transcript: [],
+        }),
+    },
+    (event) => events.push(event),
+  );
+
+  const submitted = await adapter.submit('inspect');
+  assertEquals(submitted.turnProviderRequestCount, 64);
+  assertEquals(submitted.runtimeProviderRequestCount, 128);
+
+  adapter.deliverCoreEvent({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'final',
+    committed: true,
+    turnProviderRequestCount: 64,
+    runtimeProviderRequestCount: 128,
+  });
+  const ended = events.find((event) =>
+    typeof event === 'object' && event !== null &&
+    (event as { readonly kind?: unknown }).kind === 'turn_end'
+  ) as {
+    readonly turnProviderRequestCount?: number;
+    readonly runtimeProviderRequestCount?: number;
+  } | undefined;
+  assertEquals(ended?.turnProviderRequestCount, 64);
+  assertEquals(ended?.runtimeProviderRequestCount, 128);
 });
 
 Deno.test('conversation presentation reduces tool activity without source contents or raw JSON', () => {
@@ -198,6 +244,17 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   assert(narrowFooter.includes('cwd …'));
   assert(narrowFooter.includes('forgejo-agent'));
   assert(!narrowFooter.includes('F1 help'));
+
+  const cancelling = reduceUiAction(narrow, {
+    kind: 'status',
+    text: 'cancelling context compaction; Ctrl-C again to discard and exit',
+  });
+  for (const columns of [40, 80]) {
+    const cancellingFooter = layoutUi(cancelling, columns, 24).footer.text;
+    assert(cancellingFooter.includes('cancelling'));
+    assert(cancellingFooter.includes('cwd …/forgejo-agent'));
+    assert(cancellingFooter.length <= columns);
+  }
 });
 
 Deno.test('conversation cursor cells match ASCII, Japanese, mid-line, and wrapping', () => {
