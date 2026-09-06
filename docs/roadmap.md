@@ -87,6 +87,27 @@ registryへ組み込む。F02は、そのsystem instructionを各model request�
 場合は、起動時のcatalogに保存した該当skill本文をtool resultとしてtranscriptへ加え、次のmodel stepへ渡す。
 したがって、skill一覧は最初のmodel requestから見えるが、skill本文は最初から一括してmodelへ渡されない。
 
+### F01、F05、F10に対応するproduction TUIの現状
+
+現在のproduction TUIには、次の実装がある。
+
+- conversation log、複数行入力欄、一行footerからなる通常画面。
+- request/evidence metadataやraw tool resultを常時展開せず、assistantと短いtool activityを追える表示。
+- ready / busy、Session、committed turnの表示と、ASCII・日本語・wrapを含むcursor位置。
+- alternate screenによる現在Sessionの隔離、PageUp / PageDownによるviewport移動、終了時のterminal復元。
+- 過去表示中のdraft保持、boundedな入力履歴、Session選択、`/help`・`/sessions`・`/exit`、readline編集、
+  Tabによるworkspace-relative path補完、Alt+Returnによる改行。
+- busy中の一回のsteeringとfollow-up、cancel、uncommitted inputの固定laneとrecoverable input。
+
+現行sourceでは、旧Ctrl-G / Ctrl-T / Ctrl-Lの機能入口を除去し、Ctrl-Kをreadlineの行末削除としている。
+保存済みcausal historyとcontextの内部projection・controller処理は残るが、現在の人間向け入口はない。
+F1 helpは「工事中」の一行だけである。modified ReturnのdecoderはShift / Alt / Ctrl sequenceを改行として
+処理するが、各terminalがどのsequenceを送るかはactive sourceが規定するproduct動作ではない。
+
+この実装状況は、`v0/tui/input.ts`、`v0/tui/state.ts`、`v0/tui/layout.ts`、`v0/tui/render.ts`、
+`v0/tui/controller.ts`、`v0/tui/terminal.ts`、`v0/tui/pending_input.ts`、`v0/tui/file_reference.ts`、
+`v0/agent/tui_cli.ts`、`v0/agent/tui_presentation_adapter.ts`と照合した。
+
 ### durable AgentInstanceとrevision transition
 
 F16〜F18は現在の通常利用に必要な機能ではない。人間が将来self-revision loopを開始すると決めた場合に、
@@ -138,65 +159,43 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 現在のprovider/tool物理I/OはWorker bootstrap内で構築される。architectureはこのplacementを将来も固定する
 決定にはしていない。最初のloopで変更する具体的理由がなければ現配置を保ち、別の境界を設計しない。
 
-## 未実装機能の実装ロードマップ
+## 反復型実装ロードマップ
 
-このroadmapは次の3レーンを区別する。
+| 分類 | 対応する機能 | 詳細 |
+| --- | --- | --- |
+| 通常利用と改善 | F01〜F15 | 通常利用で見つかった問題を改善する |
+| Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
+| Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
+| 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
 
-1. 現在activeなのは、既存Henjiを通常利用し、具体的な不足を観測するproduct loopである。
-2. durable AgentInstanceから始まるPhase 1–5は、将来self-revision loopを開始すると人間が決めた場合の
-   dependency orderであり、直近の着手決定ではない。
-3. mailbox、routing、schedule、常時address可能なoperation等の将来オプションは、人間が直接要求するか、
-   通常利用から必要性を判断して採用した場合だけ別loopへ加える。self-revision pathの完了条件にはしない。
+### 通常利用で見つかった問題を改善する（F01〜F15）
 
-### Current loop — 現在の通常利用baseline
+人間が改善を直接要求するか、通常利用で具体的な問題や改善機会が見つかった場合は、F01〜F15のどの
+product動作に関わるかを確認し、通常利用へ戻せる狭いincrementをこのroadmapへ追加する。契機がなければ
+実装作業は発生しない。この改善とSelf-revision Cycle 1は別であり、一方から他方の開始は自動決定しない。
 
-状態: **実装baselineは完了。通常利用と経験の観測は継続中**
+TUIの改善もこの扱いに含む。独立した旧要件番号では管理せず、F01、F05、F10のいずれに関わるかを確認する。
+目的を変える場合は構想、Host / Worker / Surface境界を変える場合はarchitectureへ先に戻る。
 
-active sourceには、Workerでbuilt-in/external Definitionを実行し、provider、tool、planner、persistent
-Session、Host commit、TUIへ結果を返すproduction経路がある。これは次のloopを作る土台であり、自己改訂の
-実証ではない。通常利用で具体的な支障が観測された場合だけ、対応する機能incrementを次のproduct loopとして
-計画する。自己改訂の将来構想だけを理由に、そのincrementを飛ばしてPhase 1へ着手しない。
+#### AgentCompositionを拡張する場合（F06）
 
-#### 現在のTUI baselineと改善loop
+通常利用またはself-revision loopで、effort、loop、context/compactionのいずれかをDefinitionごとに変更する
+具体的な必要が生じた場合は、その一要素についてDefinition input/output、AgentComposition内の表現、
+Manifestの説明範囲、generation/turn単位の構築時期を決める。全要素を一度に一般化せず、変更がWorkerの
+責務内に収まらなければ実装前にarchitectureへ戻る。
 
-現在のproduction TUIでは、次を実装している。
+#### Surfaceをload・置換する場合（F10）
 
-- conversation log、複数行入力欄、一行footerからなる通常画面。
-- request/evidence metadataやraw tool resultを常時展開せず、assistantと短いtool activityを追える表示。
-- ready / busy、Session、committed turnの表示と、ASCII・日本語・wrapを含むcursor位置。
-- alternate screenによる現在Sessionの隔離、PageUp / PageDownによるviewport移動、終了時のterminal復元。
-- 過去表示中のdraft保持、boundedな入力履歴、Session選択、`/help`・`/sessions`・`/exit`、readline編集、
-  Tabによるworkspace-relative path補完、Alt+Returnによる改行。
-- busy中の一回のsteeringとfollow-up、cancel、uncommitted inputの固定laneとrecoverable input。
+第二のSurfaceを採用する、現在のSurfaceを置換する、またはself-revision操作をTUI固有実装へ閉じない必要が
+生じた場合に開始する。その時点でSurface identity、Hostによるload/selection、input actionからWorker
+commandへの変換、output delivery、active Sessionとのbinding、置換時の状態引継ぎを決める。
 
-現行sourceでは、旧Ctrl-G / Ctrl-T / Ctrl-Lの機能入口を除去し、Ctrl-Kをreadlineの行末削除としている。
-保存済みcausal historyとcontextの内部projection・controller処理は残るが、現在の人間向け入口はない。
+### Self-revision Cycle 1（F16〜F23を中心とするPhase 1〜5）
 
-F1 helpの実装は「工事中」の一行だけで、help改善をparkしている。modified ReturnのdecoderはShift / Alt /
-Ctrl sequenceを改行として処理する。各terminalがどのsequenceを送るかはactive sourceが規定するproduct動作
-ではない。
-edit前後diff、現editorを越える追加拡張、external editor、個別tool詳細展開は採用済み機能ではなく、通常利用で
-必要性が観測された場合の候補に留める。
-
-この状態は、active sourceの`v0/tui/input.ts`、`state.ts`、`layout.ts`、`render.ts`、`controller.ts`、
-`terminal.ts`、`pending_input.ts`、`file_reference.ts`、`v0/agent/tui_cli.ts`、
-`tui_presentation_adapter.ts`と照合した。旧FR5記録よりactive sourceを優先する。
-
-TUIの改善は独立した旧要件番号では管理しない。通常利用で具体的な支障や有用な改善機会を観測したら、
-F01、F05、F10のどのproduct動作に関わるかを確認し、次の狭いincrementをこのroadmapへ置く。目的を変える
-必要があれば構想、Host / Worker / Surface境界を変える必要があればarchitectureへ先に戻る。個別計画と
-結果は、そのincrementの過去の実装・検証証拠であり、TUI方針や順序、現在の実装状況の正本にはしない。
-
-### Self-revision Cycle 1 の将来提案範囲
-
-最初のloopは、一つのdurable AgentInstance、一つのworkspace、Definitionだけを改訂対象とする。人間が
-改訂を開始し、AIが候補を生成し、人間が採用し、次のWorker generationで通常利用へ戻る最短の縦断経路を
-作る。durable lifecycle ownerであるresident HostはPhase 1の前提に含める。mailbox、routing、schedule、
-常にaddress可能なoperation、Definition以外の改訂対象は含めない。
-
-これはself-revisionを実装するときのdependency roadmapである。このpathをactiveにするかは、現在の
-通常利用loopとは別に人間が判断する。この範囲自体もユーザー確認対象であり、以下の各phaseには個別の
-実装計画と承認が必要である。
+人間がSelf-revision Cycle 1の実装を開始すると決めた場合に、以下のPhase 1〜5をdependency orderとして使う。
+対象は一つのdurable AgentInstance、一つのworkspace、Definitionだけとし、F01、F05、F11、F14を拡張・再利用
+する。resident HostはPhase 1の前提に含め、Definition以外の改訂対象と採用未決の追加オプションは含めない。
+各phaseの実装には個別の計画と承認が必要である。
 
 ### Phase 1 — durable AgentInstanceとrevision binding
 
@@ -348,35 +347,15 @@ F01、F05、F10のどのproduct動作に関わるかを確認し、次の狭いi
 - その経験が次のloopから参照可能である。
 - 人間がCycle 1の結論と次に戻る層を決める。
 
-### Future required loop — AgentCompositionの未実装要素
+### Cycle 1後に改訂対象を拡張する（F24）
 
-対象機能: F06、F24
+Phase 5で得た経験を基に、人間が次のself-revision loopを開始すると決めた場合に扱う。instruction、skill、
+context、tool、delegation、model、agent loop、runtime、Host / Worker連携、Surfaceの中から、そのloopで必要な
+対象を一つ選ぶ。対象はこの一覧に限定せず、人間から別の要求があれば同じloopで検討する。
 
-開始契機:
-
-- 通常利用またはself-revision loopで、effort、loop、context/compactionのいずれかをDefinitionごとに
-  変更する具体的な必要が観測されたとき。
-- 現在固定されているWorker runtimeの動作が、選ばれたproduct機能を実現できないとき。
-
-そのloopでは、必要になった一要素についてDefinition input/output、AgentComposition内の表現、Manifestの
-説明範囲、generation/turn単位の構築時期を決める。全要素を一度に一般化せず、通常利用へ戻せる一要素だけ
-実装する。変更がWorkerの責務内に収まらなければ、実装前にarchitectureへ戻る。
-
-### Future required loop — Surfaceのloadと置換
-
-対象機能: F10
-
-開始契機:
-
-- TUI以外の第二のSurfaceをproduct機能として採用するとき。
-- 現Surfaceを置換する必要が生じ、既存のpresentation contractとHost-owned adapterだけでは、同じ
-  AgentInstance / Session / Worker経路を保ったまま置換できないとき。
-- 改訂開始、candidate readback、採用の人間向け操作を追加する際に、TUI固有実装へ閉じ込めずSurfaceを
-  load・置換する必要が具体化したとき。
-
-そのloopでは、Surface identity、Hostによるload/selection、input actionからWorker commandへの変換、
-output delivery、active Sessionとのbinding、置換時の状態引継ぎを決める。第二Surfaceを先回りして
-fixture化せず、採用された実Surfaceで人間が同じtaskを完了できることをproduct証拠にする。
+目的を変える必要があれば構想、責務・状態・lifetime・commit境界を変える必要があればarchitectureを先に
+改訂し、その結果から対象機能と実装順序をroadmapへ追加する。Cycle 1の完了だけを理由に対象を自動的に
+拡張しない。
 
 ## 構想・architectureの未決事項と判断phase
 
