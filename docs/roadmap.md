@@ -268,7 +268,11 @@ commandへの変換、output delivery、active Sessionとのbinding、置換時�
 このphaseで決めること:
 
 - transcriptをそのまま経験とみなす範囲と、利用者判断などを別の経験recordとして残す範囲。
-- 経験のcanonical domainをSession、Instance、または独立storeのどこに置くか。二重の正本にはしない。
+- 経験のcanonical domainをSessionまたはInstanceのどちらに置くか。個々のdatumは一方だけに属し、
+  二重の正本にはしない。
+- その物理保存先として既存のSession / Instance storeを拡張するか、経験専用storeを使うか。経験専用storeを
+  使っても、それ自体をSession / Instanceとは別のcanonical domainにはしない。第三のcanonical domainが
+  必要なら、このphase内で選ばずarchitectureへ戻って責務境界を決め直す。
 - 何を自動的に保存し、何を人間の操作で明示的に残すか。
 - Workerが読む経験を誰が選ぶか、どの時点でsnapshotにし、contextへどう投影するか。
 - 長期間の経験をどう選択・圧縮するか。現checkpointを再利用するか、別の意味を持つ仕組みにするか。

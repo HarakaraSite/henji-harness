@@ -4,7 +4,7 @@
 
 ### Project structure and canonical sources
 
-- 状態: `docs/roadmap.md` draftのユーザー確認中。ユーザー確認の修正点1〜12に続き、「重複記載」と「理解しやすさ・誤解のなさ」の第三者review 4件と軽微2件を反映した。同reviewerのchanged-lines re-reviewで残ったPhase 1のresident HostとC04の文言を「外部deliveryのための常時稼働保証」へ限定して修正し、最後の第三者再確認はresolved / GO。roadmap自体のユーザー確認は継続中
+- 状態: `docs/roadmap.md` draftのユーザー確認中。ユーザー確認の修正点1〜12と第三者clarity reviewを反映済み。構想・architecture・roadmap・コードの論理的整合性、実行順序、機能的な抜け漏れの第三者reviewはBlocker / P1なし。唯一のP2だったPhase 2の経験のcanonical domainと物理保存先の混同を修正し、roadmap自体のユーザー確認は継続中
 - 次: ユーザーが`docs/roadmap.md` draft全体を確認し、採用または修正を判断する
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/roadmap-review-results.md`
 - 注意: READMEはHenji Harnessの構想要約であり、現在地、実行方法、gate結果、未確認事項の正本にしない。roadmap draftを正本として置くことは内容の採用完了を意味せず、各phaseの実装認可でもない。provider/production `henji`、Git config、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
