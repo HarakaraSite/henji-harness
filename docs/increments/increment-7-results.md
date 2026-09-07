@@ -1,7 +1,7 @@
 # 通常利用 increment 7 — 実装結果
 
 ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateとユーザー受入は未実施。
+production retained TUIでmechanismの成立を確認したが、grounding品質は未受入。increment 8で修正する。
 
 ## 成立した動作
 
@@ -74,8 +74,16 @@ stable candidateへ`deno task --config deno.v0.json v0:gate`を一回実行し�
 このgateとfocused verificationはprovider-free responseだけを使用し、新しいprovider requestやcredential読取りを
 行っていない。
 
-## Pending production human gate
+## Production利用での確認
 
-production retained TUIでの`tool> web_search`、実Sonar responseからのvisible answer/source、main → Sonar → main
-evidence readback、実測usage/cost/所要時間は未確認である。追加のcredential/provider操作となるため、計画どおり
-ユーザーの別の明示承認後に一回実施する。それまではincrement 7のproduction受入を完了扱いにしない。
+2026-09-07にユーザーが`/home/masat.guest/src/forgejo-agent`からproduction retained TUIを通常利用し、Session
+`59a37c41-5f6d-4607-a700-39be01f857cd`でDeno 3.0候補の調査を二turn行った。保存済みtranscriptとprovider
+evidenceから、初回4回、追質問3回の`web_search`、main → Sonar → mainの交互実行、全HTTP 200、合計140件の
+ordered annotation、二つのfinal settlementを確認した。Sonar 7回の合計は2,282 tokens、$0.03727、mainを含む
+provider costは$0.072676825、各turnの所要時間は約33秒だった。evidence recordにはAuthorization、credential値、
+credential pathを持つshapeも文字列もなかった。
+
+mechanismはproduction経路で成立した。一方、追質問へのfinalはsource URLを表示せず、Sonarが公式なDeno 3
+roadmapを確認できないと返した後も、親modelが将来topicを確認済みのように断定した。したがってincrement 7を
+grounding品質まで受入済みとはせず、具体的query、Sonarの検索結果限定回答、親のsource URL・不足・推論表示を
+increment 8で修正する。確認後のreadbackでは追加provider requestを実行していない。

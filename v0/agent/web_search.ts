@@ -7,6 +7,9 @@ import { type Tool, ToolInputError } from './tools.ts';
 
 export const OPENROUTER_SONAR_SEARCH_MODEL = 'perplexity/sonar';
 
+const SONAR_GROUNDING_SYSTEM_MESSAGE =
+  'Only answer using facts supported by the search results. If the results do not contain the answer, say so explicitly rather than guessing. If the results are related but do not match the question, state the mismatch before answering. Clearly distinguish verified facts from inference.';
+
 export interface WebSearchSource {
   readonly title: string;
   readonly url: string;
@@ -116,9 +119,12 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
 
     const body = JSON.stringify({
       model: OPENROUTER_SONAR_SEARCH_MODEL,
-      messages: [{ role: 'user', content: query }],
+      messages: [
+        { role: 'system', content: SONAR_GROUNDING_SYSTEM_MESSAGE },
+        { role: 'user', content: query },
+      ],
       stream: false,
-      web_search_options: { search_context_size: 'low' },
+      web_search_options: { search_context_size: 'medium' },
     });
     const endpoint = this.options.endpoint ??
       `${PRODUCTION_PROFILE.origin}${PRODUCTION_PROFILE.path}`;
@@ -256,7 +262,7 @@ export const createWebSearchTool = (backend: WebSearchBackend): Tool => ({
     additionalProperties: false,
   },
   promptGuidelines: [
-    'Use web_search when current or external information is needed. Cite the returned source URLs in the final answer.',
+    'Use web_search when current or external information is needed. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: cite its source URLs near supported claims in the final answer, say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.',
   ],
   async execute(argumentsValue, context) {
     return formatResult(await backend.search(parseArguments(argumentsValue), context));

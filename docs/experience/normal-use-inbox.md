@@ -121,8 +121,8 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 現在の扱い:
 
 - increment 7へ採用し、local実装、focused verification、コード／テストreview、authoritative offline gateを
-  完了した。結果は`docs/increments/increment-7-results.md`へ移した。production retained TUI human gateと
-  ユーザー受入は未実施である。
+  完了した。production retained TUIでmechanismは成立したが、具体性の低いquery、source URLを示さないfinal、
+  検索結果に反する推測を確認した。このgrounding修正をincrement 8へ採用した。
 
 現行component境界の確認:
 
@@ -147,6 +147,19 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 直近のtool選択改善では、まず`Tool`へ`promptGuidelines`を追加し、`Registry`で集約して
   AgentCompositionのsystem instructionへ合成する。この継ぎ目は将来のF24に再利用できるが、toolの
   candidate生成・revision保存・人間による採用がない段階ではF24完了とはしない。
+
+### Repository構成と未参照file
+
+観測と利用者要望:
+
+- `v0/agent`直下は75 file、うちTypeScriptが72 fileとなり、機能追加に伴って見通しが落ちている。
+- 利用者はdirectory構成を見直し、参照されなくなったfileも調査したいと2026-09-07に要望した。
+
+現在の扱い:
+
+- increment 8のgrounding修正と混ぜない。production受入後、static importだけでなくCLI entrypoint、Deno task、
+  public export、Worker dynamic load、testと文書参照を調べ、未参照候補と配置案を分けた別計画を作る。
+- 参照が見つからないことだけで削除せず、実行入口と公開contractを確認してから移動・削除を判断する。
 
 ### F24候補: tool実行権限とsandboxed Deno program
 

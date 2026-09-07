@@ -237,9 +237,16 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   ]);
   assertEquals(requestBodies[1], {
     model: OPENROUTER_SONAR_SEARCH_MODEL,
-    messages: [{ role: 'user', content: 'Deno 2.9 changes' }],
+    messages: [
+      {
+        role: 'system',
+        content:
+          'Only answer using facts supported by the search results. If the results do not contain the answer, say so explicitly rather than guessing. If the results are related but do not match the question, state the mismatch before answering. Clearly distinguish verified facts from inference.',
+      },
+      { role: 'user', content: 'Deno 2.9 changes' },
+    ],
     stream: false,
-    web_search_options: { search_context_size: 'low' },
+    web_search_options: { search_context_size: 'medium' },
   });
 
   const toolMessage = outcome.transcript.find((message) => message.role === 'tool');

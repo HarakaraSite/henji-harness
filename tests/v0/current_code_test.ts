@@ -428,7 +428,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   const bashOutputGuideline =
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
   const webSearchGuideline =
-    'Use web_search when current or external information is needed. Cite the returned source URLs in the final answer.';
+    'Use web_search when current or external information is needed. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: cite its source URLs near supported claims in the final answer, say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.';
   assert(parent.systemInstruction?.includes(guideline));
   assert(parent.systemInstruction?.includes(bashOutputGuideline));
   assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
