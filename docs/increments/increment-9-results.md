@@ -1,7 +1,7 @@
 # 通常利用 increment 9 — 実装結果
 
-ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateとユーザー受入は未実施。
+ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate、
+production retained TUI human gate、ユーザー受入完了。
 
 ## 成立した動作
 
@@ -39,10 +39,19 @@ production retained TUI human gateとユーザー受入は未実施。
   productionで親modelがlinkを正しく使い、未裏付けの事実を追加しないことはhuman gateで確認する。
 - 未解決Blocker/P1/P2は0。
 
-## Pending production human gate
+## Production human gate
 
-code変更後の新しいWorker generationで、increment 8と同じ二turnをproduction retained TUIから実行する。
-tool resultと親finalに裸のprovider-local `[n]`がなく、対応する直接URLが表示されること、Sonarが答えを
-確認できない場合に親modelが具体的事実を補わないこと、実測usage・costを確認する。
+2026-09-08、code変更後のWorker generation `8f35a761-fbdc-4f0d-82f6-d0a1ab97e7b2`、Session
+`dd984286-a8bb-41ae-b177-b0e49f30d150`で、increment 8と同じ二turnと、予測根拠をURL付きで求める三turn目を
+production retained TUIから実行した。
 
-この操作はcredentialとprovider requestを使うため、ユーザーの別の明示承認まで実行しない。
+- 四回の`web_search` tool resultはSonarのlocal citationをすべてtitle付き直接linkへ変換し、親finalにも裸の
+  provider-local `[n]`はなかった。一turn目は公式Deno 3 roadmapが未公開であることを公式URLとともに回答した。
+- 二turn目は、公式情報がないことを前置きし、追加内容を確認済み仕様ではなくDeno 2.xの傾向からの推測として
+  表示した。三turn目は八つの固有URLを予測領域ごとに示し、根拠が弱かったWasm GC、V8 snapshot、cold start
+  等の具体論を落とした。URLはDeno 3仕様そのものではなく予測に至る過去の傾向を支えるものとして扱った。
+- 三turnのprovider requestは5 + 5 + 1の合計11、すべてHTTP 200。Sonar四回は1,467 tokens、$0.03347、mainを
+  含む合計は36,791 tokens、$0.065888075、各turnの所要時間は約17.9秒、24.6秒、8.8秒だった。readbackでは
+  追加provider requestを行っていない。
+- Geminiが根拠不足時にも妥当そうな予測を補完する傾向は残るが、推測表示と利用者の根拠確認に応答できることを
+  確認し、利用者はこの通常利用結果を受け入れてWeb searchを完成と判断した。

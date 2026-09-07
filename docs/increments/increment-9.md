@@ -1,7 +1,7 @@
 # 通常利用 increment 9 — Web search citation links
 
-ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateとユーザー受入は未実施。
+ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate、
+production retained TUI human gate、ユーザー受入完了。
 
 ## 利用者が必要とする動作
 

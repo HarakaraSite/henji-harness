@@ -127,7 +127,9 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   確認できないことを明示した一方、親modelは複数のtool result内だけで有効な`[8][31]`等の参照番号を
   URLなしでfinalへ持ち出し、検索結果にない具体的予測も追加した。各searchで番号が振り直される現行text
   contractを、人間と親modelが直接利用できるinline URLへ正規化する修正をincrement 9へ採用し、local実装、
-  focused verification、コード／テストreview、authoritative offline gateを完了した。production受入は未実施。
+  focused verification、コード／テストreview、authoritative offline gateを完了した。production Session
+  `dd984286-a8bb-41ae-b177-b0e49f30d150`では裸の`[n]`がなく、直接URL、不足と推測の表示、根拠URLを求める
+  追質問への応答を確認し、2026-09-08にユーザーがWeb searchを受け入れて完成と判断した。
 
 現行component境界の確認:
 
