@@ -93,6 +93,10 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
 
+有効toolが利用指針を持つ場合、tool metadataはprovider向けtool definitionとは分離して保持し、Definitionが
+registryをmaterializeした後にAgentCompositionのsystem instructionへ合成する。現在は`read`の選択と
+`offset`・`limit`による継続読込みの指針だけをこの経路で合成し、default parentとplannerへ同じ規則を使う。
+
 Worker は terminal、TUI layout、その他の Surface を所有しない。turn を実行するために特定の
 UI を要求してはならない。
 
@@ -114,6 +118,17 @@ conversation logのturn境界、user入力と最初のtoolまたはassistant出�
 追加しない。現在SessionのviewportはHost-localな`followLatest` / `anchored` stateで管理し、過去表示中は
 位置と`Esc latest`を示す。PageDownで末尾へ到達した場合、idleのEsc、または通常taskのadmission成功時に
 最新追尾へ戻る。
+
+conversationの`user>`とsettledした`assistant>`のlabel styleもHost側の表示metadataであり、ANSI sequenceは
+最終的なterminal frame生成時だけ加える。layout、canonical transcript、Presentation eventはplain textの
+ままとする。assistant本文はHost TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは
+入力textをそのまま返すため、streamingとsettled outputの内容を変更しない。
+
+`/history export`は現在bindingのcommit済みcanonical transcriptをHost側で同期的にsnapshotし、既存の
+workspace別state root配下へMarkdownを新規保存するHost-local operationである。表示中のbounded viewport、
+active response、draft、TUI-local noticeはsourceにしない。export中は通常task、Session切替、重複exportを
+直列化し、shutdownはwrite settlementを待つ。typed Presentation intent/resultはcommandとbounded receiptだけを
+運び、transcriptやstorage handleをWorker protocolへ追加しない。
 
 通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
 request/evidence metadataを通常logへ常時展開することは要求しない。一方、原因特定に必要なraw response、

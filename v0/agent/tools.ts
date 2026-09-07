@@ -19,6 +19,7 @@ export interface Tool {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: JsonValue;
+  readonly promptGuidelines?: readonly string[];
   readonly terminal?: boolean;
   execute(
     argumentsValue: JsonValue,
@@ -64,6 +65,16 @@ export class Registry {
         description: tool.description,
         inputSchema: tool.inputSchema,
       }));
+  }
+
+  promptGuidelines(): readonly Readonly<{ readonly tool: string; readonly text: string }>[] {
+    return Object.freeze(
+      [...this.byName.values()]
+        .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+        .flatMap((tool) =>
+          (tool.promptGuidelines ?? []).map((text) => Object.freeze({ tool: tool.name, text }))
+        ),
+    );
   }
 
   resolve(name: string): Tool | undefined {

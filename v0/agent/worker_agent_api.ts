@@ -19,6 +19,7 @@ import {
   createAgentResourceSelection,
   validateAgentResourceSelection,
 } from './resource_identity.ts';
+import { composeSystemInstruction } from './agent_instructions.ts';
 
 export { WORKER_PROTOCOL_VERSION };
 export type { AgentEventSink };
@@ -151,6 +152,18 @@ const definitionInput = (
   skillCatalog: input.skillCatalog,
 });
 
+const compositionInstruction = (
+  base: string | undefined,
+  registry: Registry,
+): string | undefined => {
+  const guidelines = registry.promptGuidelines();
+  if (guidelines.length === 0) return base;
+  const component = `## Active tool guidelines\n\n${
+    guidelines.map((item) => `- ${item.tool}: ${item.text}`).join('\n')
+  }`;
+  return composeSystemInstruction(base, component);
+};
+
 const createPlannerHandler = (
   input: ExecutableAgentDefinitionInput,
   planner: ResolvedAgentDefinition,
@@ -165,13 +178,17 @@ async (task: string, childContext: ChildTurnExecutionContext): Promise<{
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
   });
+  const systemInstruction = compositionInstruction(
+    planner.systemInstruction,
+    plannerRegistry,
+  );
   const outcome = await runAgent(
     task,
     input.physicalIo.createModel('planner'),
     plannerRegistry,
     {
       maxSteps: planner.limits.maxSteps,
-      systemInstruction: planner.systemInstruction,
+      systemInstruction,
       executionContext: childContext,
       signal: childContext.signal,
       cancellation: childContext.cancellation,
@@ -203,9 +220,14 @@ export const createDefaultAgentComposition = (
     workTools: input.physicalIo.workTools,
     plannerDelegation: plannerHandler,
   });
+  const systemInstruction = compositionInstruction(
+    resolved.systemInstruction,
+    registry,
+  );
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
+    systemInstruction,
     limits: Object.freeze({ maxSteps }),
     resourceSelection: createAgentResourceSelection(
       resolved.resourceSelection.resources.map(String),
@@ -217,7 +239,7 @@ export const createDefaultAgentComposition = (
     model: input.physicalIo.createModel('parent'),
     registry,
     maxSteps,
-    systemInstruction: resolved.systemInstruction,
+    systemInstruction,
     manifest: manifestFor(
       'parent',
       resolved.capabilities,
@@ -241,9 +263,14 @@ export const createPlannerAgentComposition = (
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
   });
+  const systemInstruction = compositionInstruction(
+    resolved.systemInstruction,
+    registry,
+  );
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
+    systemInstruction,
     limits: Object.freeze({ maxSteps }),
     resourceSelection: createAgentResourceSelection(
       resolved.resourceSelection.resources.map(String),
@@ -255,7 +282,7 @@ export const createPlannerAgentComposition = (
     model: input.physicalIo.createModel('planner'),
     registry,
     maxSteps,
-    systemInstruction: resolved.systemInstruction,
+    systemInstruction,
     manifest: manifestFor(
       'planner',
       resolved.capabilities,

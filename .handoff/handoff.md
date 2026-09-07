@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 通常利用increment 2とincrement 3は完了。increment 3は承認済み計画に沿うlocal実装、focused verification、authoritative `v0:gate`に加え、production TUIでの人間による通常利用確認とユーザー受入を2026-09-07に完了した。startupの`F1 help`非表示、PageUp後のPageDown・Escによる最新復帰、過去表示中のtask送信による自動復帰、turn・入力欄・status・cwdの読みやすい境界を確認済み。tool component境界の確認は通常利用メモへ保存済み
-- 次: ユーザーが未採用候補から次に扱う改善を選ぶか、次の通常利用incrementを開始する
-- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/increments/increment-3.md`、`docs/increments/increment-3-results.md`、`docs/experience/normal-use-inbox.md`
-- 注意: mouse、`/history`/vi mode、外部editor、Markdown renderer、tool利用戦略とreadback、F24のAgent instruction案はincrement 3に含めず未採用候補のまま。F1 keyとhelp overlayは残した。追加のprovider/credential操作、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 状態: 通常利用increment 2とincrement 3は完了。increment 4は承認済み計画に基づくlocal実装、focused verification、authoritative gate、独立reviewを完了。初回code reviewのP1を修正し、focused regression test成功、changed-lines re-reviewはGO、新しいBlocker/P1なし。production TUIのhuman gateは未実施
+- 次: ユーザー判断後、production TUIでlabel色、二turn時点の二回の`/history export`、Henji自身によるlarge fileの`read`継続取得を確認する
+- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/increments/increment-3.md`、`docs/increments/increment-3-results.md`、`docs/increments/increment-4.md`、`docs/increments/increment-4-results.md`、`docs/experience/normal-use-inbox.md`
+- 注意: increment 4のscopeと対象外は計画、実装・検証・review結果はresultsを正本とする。production/provider/credential操作、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

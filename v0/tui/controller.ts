@@ -104,6 +104,7 @@ type ControllerState =
   | 'idle'
   | 'busy'
   | 'compacting'
+  | 'history-exporting'
   | 'exiting'
   | 'failed';
 type FollowUpSlot = 'closed' | 'open-empty' | 'pending';
@@ -113,7 +114,7 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
 
-export type SlashCommand = 'help' | 'sessions' | 'exit';
+export type SlashCommand = 'help' | 'sessions' | 'history_export' | 'exit';
 
 /** Exact-match built-in slash parse; args and unknown names are 'unknown', plain tasks are null. */
 export const slashCommandOf = (
@@ -121,6 +122,7 @@ export const slashCommandOf = (
 ): SlashCommand | 'unknown' | null => {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
+  if (trimmed === '/history export') return 'history_export';
   if (trimmed === '/help' || trimmed === '/sessions' || trimmed === '/exit') {
     return trimmed.slice(1) as SlashCommand;
   }
@@ -144,6 +146,15 @@ export class TuiController {
   private shutdownPromise: Promise<void> | null = null;
   private compactionAbort: AbortController | null = null;
   private compactionOperation: Promise<void> | null = null;
+  private historyExportOperation:
+    | Readonly<{
+      readonly operation: Promise<void>;
+      readonly binding: string;
+      readonly generation: number;
+    }>
+    | null = null;
+  private historyExportGeneration = 0;
+  private noticeGeneration = 1_000_000;
   private readonly navigationOperations = new Set<{
     readonly operation: Promise<void>;
     readonly abort: AbortController;
@@ -240,6 +251,8 @@ export class TuiController {
         ).then((
           page,
         ) => ({ kind: 'history', page }));
+      case 'history_export':
+        return { kind: 'rejected', reason: 'unavailable' };
       case 'list_sessions':
         return {
           kind: 'listing',
@@ -323,13 +336,15 @@ export class TuiController {
       this.input = this.readEvents();
       while (
         this.state === 'idle' || this.state === 'busy' ||
-        this.state === 'compacting'
+        this.state === 'compacting' || this.state === 'history-exporting'
       ) {
         if (this.active === null) {
           const events = await this.input;
           this.input = this.readEvents();
           if ((this.state as ControllerState) === 'compacting') {
             this.processCompacting(events);
+          } else if ((this.state as ControllerState) === 'history-exporting') {
+            this.processHistoryExporting(events);
           } else this.processIdle(events);
           continue;
         }
@@ -425,6 +440,10 @@ export class TuiController {
       return;
     }
     for (const event of events) {
+      if (this.state === 'history-exporting') {
+        this.processHistoryExporting([event]);
+        continue;
+      }
       if (this.state !== 'idle') {
         this.processBusyEvent(event);
         continue;
@@ -607,6 +626,10 @@ export class TuiController {
     busy: boolean,
   ): void {
     for (const event of events) {
+      if (this.state === 'history-exporting') {
+        this.processHistoryExporting([event]);
+        continue;
+      }
       if (!busy && this.modal !== null) {
         this.processModalEvent(event);
         continue;
@@ -635,7 +658,9 @@ export class TuiController {
         continue;
       }
       if (event.kind === 'enter') {
-        if (busy) this.submitSteeringIfNonblank();
+        if (busy && slashCommandOf(this.editor.text) === 'history_export') {
+          this.renderer.setStatus('busy; /history export waits for ready');
+        } else if (busy) this.submitSteeringIfNonblank();
         else if (!this.trySlashCommand()) this.submitIfNonblank();
         continue;
       }
@@ -1235,6 +1260,141 @@ export class TuiController {
     );
   }
 
+  private currentBindingIdentity(): string {
+    if (this.intents !== undefined) {
+      const projection = this.renderer.stateSnapshot().projection;
+      return projection === undefined
+        ? 'unbound'
+        : `${projection.sessionId ?? 'no-session'}:${projection.agentId}`;
+    }
+    const position = this.navigation?.currentPosition() ??
+      this.session.currentPosition?.();
+    return position === undefined
+      ? 'unbound'
+      : `${position.sessionId ?? 'no-session'}:${position.agent}`;
+  }
+
+  private startHistoryExport(): void {
+    if (this.state !== 'idle' || this.historyExportOperation !== null) {
+      this.renderer.setStatus('history export already in progress');
+      return;
+    }
+    const binding = this.currentBindingIdentity();
+    let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
+    try {
+      dispatched = this.dispatchIntent({ kind: 'history_export' });
+    } catch (error) {
+      if (isPresentationDeliveryError(error)) throw error;
+      this.renderer.setStatus('history export failed');
+      return;
+    }
+    const generation = ++this.historyExportGeneration;
+    this.state = 'history-exporting';
+    const operation = Promise.resolve(dispatched).then((result) => {
+      const owned = this.historyExportOperation;
+      if (owned === null || owned.generation !== generation) return;
+      if (result.kind === 'rejected') {
+        if (this.state === 'history-exporting') {
+          this.state = 'idle';
+          this.renderer.setStatus('history export unavailable');
+        }
+        return;
+      }
+      if (result.kind !== 'history_export') throw new PresentationDeliveryError();
+      if (this.state !== 'history-exporting') return;
+      if (this.currentBindingIdentity() !== binding) {
+        this.state = 'idle';
+        this.renderer.setStatus('history export completed for previous session');
+        return;
+      }
+      this.renderer.eventSink({
+        kind: 'notice',
+        generation: ++this.noticeGeneration,
+        text: `history exported through turn ${result.throughTurn}: ${result.path}`,
+      });
+      this.state = 'idle';
+      this.renderer.setStatus(`history exported through turn ${result.throughTurn}`);
+    }).catch((error: unknown) => {
+      if (isPresentationDeliveryError(error)) throw error;
+      const owned = this.historyExportOperation;
+      if (
+        owned !== null && owned.generation === generation &&
+        this.state === 'history-exporting'
+      ) {
+        this.state = 'idle';
+        this.renderer.setStatus('history export failed');
+      }
+    });
+    const owned = Object.freeze({ operation, binding, generation });
+    this.historyExportOperation = owned;
+    void operation.then(
+      () => {
+        if (this.historyExportOperation === owned) this.historyExportOperation = null;
+      },
+      (error) => {
+        if (this.historyExportOperation === owned) this.historyExportOperation = null;
+        void this.fail(error).catch(() => {
+          // The controller has already entered its fatal shutdown path.
+        });
+      },
+    );
+    // Once dispatch starts Host-local I/O, ownership must precede any fallible terminal redraw.
+    this.renderer.setStatus('exporting history');
+  }
+
+  private processHistoryExporting(events: readonly InputEvent[]): void {
+    for (const event of events) {
+      if (this.state !== 'history-exporting') return;
+      if (event.kind === 'enter') {
+        if (slashCommandOf(this.editor.text) === 'exit') {
+          this.trySlashCommand();
+        } else {
+          this.renderer.setStatus('history export in progress; retry when ready');
+        }
+        continue;
+      }
+      if (event.kind === 'ctrl_d') {
+        this.modern ? this.modernCtrlD() : void this.shutdown(0);
+        continue;
+      }
+      if (event.kind === 'ctrl_c') {
+        this.modern ? this.modernCtrlC() : this.idleCtrlC();
+        continue;
+      }
+      if (event.kind === 'page_up') {
+        this.renderer.scrollPage?.('up');
+        continue;
+      }
+      if (event.kind === 'page_down') {
+        this.renderer.scrollPage?.('down');
+        continue;
+      }
+      if (event.kind === 'escape') {
+        if (this.renderer.stateSnapshot().scroll.kind === 'anchored') {
+          this.renderer.latest();
+        } else this.renderer.setStatus('history export in progress');
+        continue;
+      }
+      if (event.kind === 'tab') {
+        this.completePathAtCursor();
+        continue;
+      }
+      if (event.kind === 'f1' || event.kind === 'unknown') {
+        this.renderer.setStatus('history export in progress');
+        continue;
+      }
+      if (event.kind === 'invalid_utf8') {
+        this.renderer.setStatus('invalid UTF-8');
+        continue;
+      }
+      if (event.kind === 'paste_rejected') {
+        this.renderer.setStatus('paste exceeds 64 KiB');
+        continue;
+      }
+      this.editEvent(event);
+    }
+  }
+
   private modernCtrlD(): void {
     if (this.hasProcessPending()) {
       this.armDiscardConfirmation(
@@ -1373,7 +1533,9 @@ export class TuiController {
           this.renderer.setEditor(this.editor.text);
           break;
         case 'enter':
-          if (steeringAvailable) this.submitSteeringIfNonblank();
+          if (slashCommandOf(this.editor.text) === 'history_export') {
+            this.renderer.setStatus('busy; /history export waits for ready');
+          } else if (steeringAvailable) this.submitSteeringIfNonblank();
           else this.renderer.setStatus('steering unavailable');
           break;
         case 'invalid_utf8':
@@ -1387,7 +1549,11 @@ export class TuiController {
           break;
       }
     } else if (event.kind === 'enter') {
-      this.renderer.setStatus('steering unavailable');
+      this.renderer.setStatus(
+        slashCommandOf(this.editor.text) === 'history_export'
+          ? 'busy; /history export waits for ready'
+          : 'steering unavailable',
+      );
     }
     // Every other event is deliberately consumed and discarded.
   }
@@ -1400,7 +1566,7 @@ export class TuiController {
       // Keep the whole hint in one ' · '-free segment so the footer keeps it
       // instead of popping the valid list at narrow widths.
       this.renderer.setStatus(
-        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /exit`,
+        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /history export, /exit`,
       );
       return true;
     }
@@ -1410,6 +1576,7 @@ export class TuiController {
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
     else if (command === 'sessions') this.openPicker();
+    else if (command === 'history_export') this.startHistoryExport();
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
@@ -1840,6 +2007,7 @@ export class TuiController {
     this.shutdownPromise = (async () => {
       await this.settleNavigation();
       await this.settleCompaction();
+      await this.settleHistoryExport();
       await this.lifecycle.restore();
     })();
     await this.shutdownPromise;
@@ -1855,6 +2023,7 @@ export class TuiController {
     await this.settleActive();
     await this.settleNavigation();
     await this.settleCompaction();
+    await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
       this.exitCode = 1;
@@ -1895,6 +2064,7 @@ export class TuiController {
     await this.settleActive();
     await this.settleNavigation();
     await this.settleCompaction();
+    await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       this.shutdownPromise = this.lifecycle.restore();
     }
@@ -1946,6 +2116,13 @@ export class TuiController {
       // The operation's failure is already routed through the controller's fatal path.
     }
     if (this.compactionOperation === operation) this.compactionOperation = null;
+  }
+
+  private async settleHistoryExport(): Promise<void> {
+    const owned = this.historyExportOperation;
+    if (owned === null) return;
+    await Promise.allSettled([owned.operation]);
+    if (this.historyExportOperation === owned) this.historyExportOperation = null;
   }
 
   private clearLiveActivity(): void {

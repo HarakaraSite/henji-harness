@@ -8,6 +8,7 @@ import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
 import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
+import { type AssistantContentRenderer } from '../../v0/tui/conversation_renderer.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -85,6 +86,42 @@ Deno.test('conversation presentation keeps successful operational metadata out o
   assert(
     !state.log.entries.some((entry) => /requests>|evidence>|readback>/.test(entry.text)),
   );
+});
+
+Deno.test('conversation layout stays plain while retained frame colors only settled role labels', () => {
+  const terminal = new FakeTerminal();
+  const phases: string[] = [];
+  const assistantRenderer: AssistantContentRenderer = {
+    render: (text, phase) => {
+      phases.push(phase);
+      return text;
+    },
+  };
+  const renderer = new TuiRenderer(terminal, { retained: true, assistantRenderer });
+  renderer.eventSink({
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: '質問' } },
+  });
+  renderer.eventSink({ kind: 'assistant_progress', turn: 1, text: '途中' });
+  const streaming = renderer.layoutSnapshot(4, 24);
+  assert(streaming.allLog.map((row) => row.text).join('').includes('assistant~'));
+  assert(streaming.allLog.every((row) => !row.text.includes('\x1b')));
+  renderer.eventSink({
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text: '回答' } },
+  });
+  const layout = renderer.layoutSnapshot(80, 24);
+  assert(layout.allLog.every((row) => !row.text.includes('\x1b')));
+  assert(layout.allLog.some((row) => row.labelTone === 'user'));
+  assert(layout.allLog.some((row) => row.labelTone === 'assistant'));
+  const frame = renderer.renderFrame(80, 24);
+  assert(frame.includes('\x1b[34muser>\x1b[0m 質問'));
+  assert(frame.includes('\x1b[33massistant>\x1b[0m 回答'));
+  assert(!frame.includes('\x1b[33m回答'));
+  assert(phases.includes('streaming'));
+  assert(phases.includes('settled'));
 });
 
 Deno.test('presentation adapter accepts request counts through the 64-step root budget', async () => {

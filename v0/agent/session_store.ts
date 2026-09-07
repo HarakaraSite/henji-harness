@@ -727,6 +727,7 @@ export const sessionPaths = async (
     sessions: `${base}/sessions`,
     locks: `${base}/locks`,
     contexts: `${base}/contexts`,
+    historyExports: `${base}/history-exports`,
   } as const;
 };
 

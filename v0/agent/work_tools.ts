@@ -265,6 +265,111 @@ const readTarget = async (
   return { checked, bytes, text };
 };
 
+const readWindow = async (
+  workspace: Workspace,
+  input: unknown,
+  offset: number,
+  limit: number | undefined,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const checked = await checkedPath(workspace, input, false, signal).catch((error: unknown) => {
+    if (error instanceof ToolInputError) throw error;
+    if (isTurnCancelledError(error)) throw error;
+    if (error instanceof Deno.errors.NotFound) throw new Error('file not found');
+    throw new Error('local read failed');
+  });
+  if (!checked.targetInfo?.isFile) throw new Error('target is not a regular file');
+  const file = await Deno.open(checked.absolute, { read: true }).catch(() => {
+    throw new Error('local read failed');
+  });
+  const streamDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  const selected: string[] = [];
+  const selectedSizes: number[] = [];
+  let selectedBytes = 0;
+  let totalLines = 0;
+  let line = '';
+  let lineBytes = 0;
+  let linePresent = false;
+  let selectionClosed = false;
+
+  const finishLine = (): void => {
+    const lineNumber = totalLines + 1;
+    if (
+      !selectionClosed && lineNumber >= offset &&
+      (limit === undefined || selected.length < limit)
+    ) {
+      if (lineBytes > MAX_TEXT_BYTES) {
+        throw new Error(`line ${lineNumber} exceeds 64 KiB read result limit`);
+      }
+      if (selectedBytes + lineBytes <= MAX_TEXT_BYTES) {
+        selected.push(line);
+        selectedSizes.push(lineBytes);
+        selectedBytes += lineBytes;
+      } else selectionClosed = true;
+    }
+    totalLines += 1;
+    line = '';
+    lineBytes = 0;
+    linePresent = false;
+  };
+
+  const consume = (text: string): void => {
+    for (const character of text) {
+      if (character === '\0') throw new Error('file is not valid UTF-8 text');
+      linePresent = true;
+      const characterBytes = encoder.encode(character).byteLength;
+      lineBytes += characterBytes;
+      if (lineBytes <= MAX_TEXT_BYTES + 1) line += character;
+      if (character === '\n') finishLine();
+    }
+  };
+
+  try {
+    const chunk = new Uint8Array(8192);
+    for (;;) {
+      throwIfCancelled(signal);
+      const count = await file.read(chunk);
+      if (count === null) break;
+      consume(streamDecoder.decode(chunk.subarray(0, count), { stream: true }));
+    }
+    consume(streamDecoder.decode());
+    if (linePresent) finishLine();
+    throwIfCancelled(signal);
+  } catch (error) {
+    if (isTurnCancelledError(error)) throw error;
+    if (
+      error instanceof Error &&
+      (error.message === 'file is not valid UTF-8 text' ||
+        error.message.startsWith('line '))
+    ) throw error;
+    if (error instanceof TypeError) throw new Error('file is not valid UTF-8 text');
+    throw new Error('local read failed');
+  } finally {
+    file.close();
+  }
+
+  const hasMore = (): boolean => offset + selected.length <= totalLines;
+  while (hasMore()) {
+    const next = offset + selected.length;
+    const last = next - 1;
+    const marker = selected.length === 0
+      ? `[More content available. Use offset=${next} to continue.]`
+      : `[Showing lines ${offset}-${last} of ${totalLines}. Use offset=${next} to continue.]`;
+    const text = selected.join('');
+    const separator = text.endsWith('\n') ? '\n' : '\n\n';
+    if (encoder.encode(`${text}${separator}${marker}`).byteLength <= MAX_TEXT_BYTES) {
+      return `${text}${separator}${marker}`;
+    }
+    const removed = selectedSizes.pop();
+    selected.pop();
+    if (removed === undefined) {
+      throw new Error(`line ${offset} exceeds 64 KiB read result limit`);
+    }
+    selectedBytes -= removed;
+  }
+  return selected.join('');
+};
+
 const atomicReplace = async (
   workspace: Workspace,
   checked: CheckedPath,
@@ -353,7 +458,11 @@ const atomicReplace = async (
 
 const readSchema = {
   type: 'object',
-  properties: { path: { type: 'string' } },
+  properties: {
+    path: { type: 'string' },
+    offset: { type: 'integer', minimum: 1 },
+    limit: { type: 'integer', minimum: 1 },
+  },
   required: ['path'],
   additionalProperties: false,
 } as const;
@@ -402,12 +511,33 @@ const validateObject = (value: JsonValue, keys: readonly string[], name: string)
 
 export const createReadTool = (workspace: Workspace): Tool => ({
   name: 'read',
-  description: 'Read one UTF-8 text file inside the workspace (maximum 64 KiB).',
+  description:
+    'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
   inputSchema: readSchema,
+  promptGuidelines: Object.freeze([
+    'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。',
+  ]),
   async execute(argumentsValue, context?: ToolExecutionContext) {
-    const args = validateObject(argumentsValue, ['path'], 'read');
-    if (typeof args.path !== 'string') throw invalidToolArguments('read');
-    return (await readTarget(workspace, args.path, 'read', context?.signal)).text;
+    if (!isObject(argumentsValue)) throw invalidToolArguments('read');
+    const keys = Object.keys(argumentsValue);
+    if (
+      !keys.includes('path') ||
+      keys.some((key) => key !== 'path' && key !== 'offset' && key !== 'limit') ||
+      typeof argumentsValue.path !== 'string' ||
+      (argumentsValue.offset !== undefined &&
+        (typeof argumentsValue.offset !== 'number' ||
+          !Number.isSafeInteger(argumentsValue.offset) || argumentsValue.offset < 1)) ||
+      (argumentsValue.limit !== undefined &&
+        (typeof argumentsValue.limit !== 'number' ||
+          !Number.isSafeInteger(argumentsValue.limit) || argumentsValue.limit < 1))
+    ) throw invalidToolArguments('read');
+    return await readWindow(
+      workspace,
+      argumentsValue.path,
+      typeof argumentsValue.offset === 'number' ? argumentsValue.offset : 1,
+      typeof argumentsValue.limit === 'number' ? argumentsValue.limit : undefined,
+      context?.signal,
+    );
   },
 });
 

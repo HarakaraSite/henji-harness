@@ -12,6 +12,7 @@ import {
   type PresentationStartupState,
 } from '../presentation/contract.ts';
 import {
+  BLUE_SGR,
   DEFAULT_CURSOR_STYLE,
   ERASE_LINE,
   RESET_SCROLL_REGION,
@@ -20,6 +21,7 @@ import {
   staticBytes,
   TerminalPort,
   TerminalRendererGate,
+  YELLOW_SGR,
 } from './terminal.ts';
 import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
@@ -33,7 +35,11 @@ import {
   setUiProjection,
   type UiState,
 } from './state.ts';
-import { layoutUi, MAX_FRAME_BYTES, type UiLayout } from './layout.ts';
+import { type LayoutRow, layoutUi, MAX_FRAME_BYTES, type UiLayout } from './layout.ts';
+import {
+  type AssistantContentRenderer,
+  plainTextAssistantRenderer,
+} from './conversation_renderer.ts';
 
 const encoder = new TextEncoder();
 const DISPLAY_LIMIT = 1024 * 1024;
@@ -49,7 +55,21 @@ export interface EscapeOptions {
 export interface TuiRendererOptions {
   /** Production uses the retained three-band frame; legacy mode is reserved for direct seams. */
   readonly retained?: boolean;
+  /** Host-local assistant body renderer; the default preserves exact plain text. */
+  readonly assistantRenderer?: AssistantContentRenderer;
 }
+
+const renderLayoutRow = (row: LayoutRow): string => {
+  if (
+    row.labelTone === undefined || row.labelScalarLength === undefined ||
+    row.labelScalarLength <= 0
+  ) return row.text;
+  const points = [...row.text];
+  const label = points.slice(0, row.labelScalarLength).join('');
+  const body = points.slice(row.labelScalarLength).join('');
+  const sgr = row.labelTone === 'user' ? BLUE_SGR : YELLOW_SGR;
+  return `${sgr}${label}${RESET_SGR}${body}`;
+};
 
 const escapedCodePoint = (code: number): string => {
   let value = code.toString(16).toUpperCase();
@@ -399,6 +419,7 @@ export const startupHelpLines = (
 /** Renderer with one live editor line; retained production frames use the lifecycle's alternate screen. */
 export class TuiRenderer implements TerminalRendererGate {
   private readonly retained: boolean;
+  private readonly assistantRenderer: AssistantContentRenderer;
   private closing = false;
   private editorText = '';
   private editorSnapshot: EditorSnapshot | null = null;
@@ -424,6 +445,7 @@ export class TuiRenderer implements TerminalRendererGate {
     options: TuiRendererOptions = {},
   ) {
     this.retained = options.retained === true;
+    this.assistantRenderer = options.assistantRenderer ?? plainTextAssistantRenderer;
   }
 
   get usesAlternateScreen(): boolean {
@@ -444,7 +466,7 @@ export class TuiRenderer implements TerminalRendererGate {
     columns = this.lastSize.columns,
     rows = this.lastSize.rows,
   ): UiLayout {
-    return layoutUi(this.ui, columns, rows);
+    return layoutUi(this.ui, columns, rows, this.assistantRenderer);
   }
 
   /** Bounded retained frame used by the production renderer and provider-free fixtures. */
@@ -466,7 +488,7 @@ export class TuiRenderer implements TerminalRendererGate {
     // Startup help is ordered as a safety guide: keep its first rows visible on a narrow screen,
     // while other overlays retain their newest-page/tail behavior.
     const overlayLog = this.ui.overlay.kind === 'startupHelp' ? layout.log : layout.overlay;
-    const log = (overlayLog.length > 0 ? overlayLog : layout.log).map((line) => line.text);
+    const log = (overlayLog.length > 0 ? overlayLog : layout.log).map(renderLayoutRow);
     const fixed = [
       ...layout.beforeInput.map((line) => line.text),
       ...layout.input.map((line) => `> ${line.text}`),

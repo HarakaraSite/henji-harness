@@ -36,6 +36,7 @@ import {
 import { displayWorkspaceLabel } from '../../v0/agent/startup_orientation.ts';
 import {
   createDefaultAgentComposition,
+  createPlannerAgentComposition,
   finalizeRootAgentComposition,
 } from '../../v0/agent/worker_agent_api.ts';
 import {
@@ -379,6 +380,47 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   const requestBudget = composition.createTurnExecutionContext(1);
   for (let step = 0; step < 5; step += 1) assert(requestBudget.claimModelRequest());
   assert(!requestBudget.claimModelRequest());
+});
+
+Deno.test('active read guidelines compose into parent and planner instructions only', async () => {
+  const requests: Array<{ role: 'parent' | 'planner'; request: ModelRequest }> = [];
+  const input = {
+    workspace: { root: '/definition-test' },
+    skillCatalog: emptySkillCatalog(),
+    agentInstructions: 'workspace instructions',
+    physicalIo: {
+      createModel: (role: 'parent' | 'planner') => ({
+        generate: (request: ModelRequest) => {
+          requests.push({ role, request });
+          return { kind: 'final' as const, text: 'done' };
+        },
+      }),
+    },
+  };
+  const parent = createDefaultAgentComposition(input);
+  const directPlanner = createPlannerAgentComposition(input);
+  const guideline =
+    'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
+  assert(parent.systemInstruction?.includes(guideline));
+  assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
+  assert(directPlanner.systemInstruction?.includes(guideline));
+  assertEquals(directPlanner.systemInstruction, directPlanner.resolved.systemInstruction);
+  assertEquals(parent.registry.promptGuidelines(), [{ tool: 'read', text: guideline }]);
+  assertEquals(new Registry([]).promptGuidelines(), []);
+  const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
+  assert(readDefinition !== undefined);
+  assert(!('promptGuidelines' in readDefinition));
+  assertEquals(parent.systemInstruction?.split(guideline).length, 2);
+
+  const delegated = await parent.registry.dispatch(
+    delegationCall(),
+    new ParentTurnExecutionContext(1),
+  );
+  assertEquals(delegated.content.outcome, 'success');
+  const plannerRequest = requests.find((entry) => entry.role === 'planner');
+  assert(plannerRequest !== undefined);
+  assert(plannerRequest.request.systemInstruction?.includes(guideline));
+  assertEquals(plannerRequest.request.systemInstruction?.split(guideline).length, 2);
 });
 
 Deno.test('root maxSteps finalization keeps Definition evidence coherent', () => {

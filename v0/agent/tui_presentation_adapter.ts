@@ -11,6 +11,7 @@ import {
   type SessionNavigationHost,
 } from './session_navigation.ts';
 import { type SessionHistoryPage } from './session_history.ts';
+import { type HistoryExporter, type HistoryExportSessionIdentity } from './history_export.ts';
 import {
   boundedPresentationText,
   type PresentationAssistantMessage,
@@ -91,6 +92,7 @@ type CoreSession = {
   steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
   contextSnapshot?(): ContextMetrics | undefined;
   isAvailable?(): boolean;
+  transcriptSnapshot?(): readonly Message[];
   historyPage?(
     page: number,
     turn?: number,
@@ -109,6 +111,11 @@ type CoreSession = {
     readonly retainedFromTurn: number;
   } | undefined;
 };
+
+export interface TuiPresentationAdapterOptions {
+  readonly historyExporter?: HistoryExporter;
+  readonly historySessionMode?: 'durable' | 'none';
+}
 
 const MAX_GENERATION_TEXT = 1024 * 1024;
 const encoder = new TextEncoder();
@@ -590,6 +597,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     private core: CoreSession,
     sink?: PresentationEventSink,
     private readonly coreNavigation?: SessionNavigationHost,
+    private readonly options: TuiPresentationAdapterOptions = {},
   ) {
     this.sink = sink;
   }
@@ -891,6 +899,38 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           );
       case 'resume_session':
         return this.dispatchResume(admitted.id);
+      case 'history_export': {
+        const core = this.core;
+        const positionValue = core.currentPosition?.();
+        const transcript = core.transcriptSnapshot?.();
+        const exporter = this.options.historyExporter;
+        const mode = this.options.historySessionMode;
+        if (
+          positionValue === undefined || transcript === undefined || exporter === undefined ||
+          mode === undefined
+        ) return { kind: 'rejected', reason: 'unavailable' };
+        const session: HistoryExportSessionIdentity = mode === 'none'
+          ? Object.freeze({ kind: 'none' as const })
+          : positionValue.sessionId === undefined
+          ? (() => {
+            throw new PresentationDeliveryError();
+          })()
+          : Object.freeze({ kind: 'durable' as const, sessionId: positionValue.sessionId });
+        // Capture every mutable binding value before the writer's first asynchronous boundary.
+        const operation = exporter.write({
+          transcript,
+          position: {
+            agent: positionValue.agent,
+            committedTurn: positionValue.committedTurn,
+          },
+          session,
+        });
+        return operation.then((receipt) => ({
+          kind: 'history_export' as const,
+          path: bounded(receipt.path),
+          throughTurn: receipt.throughTurn,
+        }));
+      }
       case 'history_page':
         return this.dispatchHistory(admitted.page, admitted.turn);
       case 'compaction': {
@@ -1036,7 +1076,8 @@ export const createTuiPresentationAdapter = (
   session: CoreSession,
   sink?: PresentationEventSink,
   navigation?: SessionNavigationHost,
-): TuiPresentationAdapter => new TuiPresentationAdapter(session, sink, navigation);
+  options: TuiPresentationAdapterOptions = {},
+): TuiPresentationAdapter => new TuiPresentationAdapter(session, sink, navigation, options);
 
 /** Build the neutral retained-screen projection from the runtime's already-resolved facts. */
 export const presentationProjectionFromStartup = (

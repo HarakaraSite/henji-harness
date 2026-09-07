@@ -1,5 +1,11 @@
 import { type EditorSnapshot } from './input.ts';
 import { type UiLogEntry, type UiState } from './state.ts';
+import {
+  type AssistantContentRenderer,
+  type ConversationLabelTone,
+  plainTextAssistantRenderer,
+  projectConversationEntry,
+} from './conversation_renderer.ts';
 
 export const MIN_COLUMNS = 80;
 export const MIN_ROWS = 24;
@@ -13,6 +19,8 @@ export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
   readonly sourceScalarOffset?: number;
+  readonly labelScalarLength?: number;
+  readonly labelTone?: ConversationLabelTone;
   readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
 }
 
@@ -218,11 +226,31 @@ const wrap = (
   columns: number,
   kind: LayoutRow['kind'],
   entryId?: string,
+  styledPrefix?: Readonly<{
+    readonly scalarLength: number;
+    readonly tone: ConversationLabelTone;
+  }>,
 ): LayoutRow[] => {
   const result: LayoutRow[] = [];
   const points = [...text];
+  const row = (line: string, sourceScalarOffset: number): LayoutRow => {
+    const labelScalarLength = styledPrefix === undefined ? 0 : Math.max(
+      0,
+      Math.min([...line].length, styledPrefix.scalarLength - sourceScalarOffset),
+    );
+    return {
+      text: line,
+      kind,
+      entryId,
+      sourceScalarOffset,
+      ...(labelScalarLength === 0 ? {} : {
+        labelScalarLength,
+        labelTone: styledPrefix!.tone,
+      }),
+    };
+  };
   if (points.length === 0) {
-    return [{ text: '', kind, entryId, sourceScalarOffset: 0 }];
+    return [row('', 0)];
   }
   let line = '';
   let lineOffset = 0;
@@ -230,12 +258,7 @@ const wrap = (
   for (const point of points) {
     const displayPoint = safeDisplay(point);
     if (point === '\n' || width(line + displayPoint) > columns) {
-      result.push({
-        text: line,
-        kind,
-        entryId,
-        sourceScalarOffset: lineOffset,
-      });
+      result.push(row(line, lineOffset));
       lineOffset = sourceOffset;
       line = '';
       if (point === '\n') {
@@ -247,13 +270,14 @@ const wrap = (
     line += displayPoint;
     sourceOffset += 1;
   }
-  result.push({ text: line, kind, entryId, sourceScalarOffset: lineOffset });
+  result.push(row(line, lineOffset));
   return result;
 };
 
 const logRows = (
   state: UiState,
   columns: number,
+  assistantRenderer: AssistantContentRenderer,
 ): { rows: LayoutRow[]; sourceBytes: number } => {
   const result: LayoutRow[] = [];
   let sourceBytes = 0;
@@ -281,12 +305,21 @@ const logRows = (
     const userOutputBoundary = entry.turn !== undefined &&
       awaitingUserOutput.has(entry.turn) &&
       (entry.kind === 'tool' || entry.kind === 'assistant');
-    const label = `${entry.label} `;
-    const content = `${label}${entry.text}`;
+    const projection = projectConversationEntry(entry, assistantRenderer);
+    const content = projection.text;
     sourceBytes += encoder.encode(content).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
     if ((turnStart && seenTurnStart) || userOutputBoundary) appendSeparator();
-    result.push(...wrap(content, columns, 'log', entry.id));
+    result.push(...wrap(
+      content,
+      columns,
+      'log',
+      entry.id,
+      projection.labelTone === undefined ? undefined : {
+        scalarLength: projection.labelScalarLength,
+        tone: projection.labelTone,
+      },
+    ));
     if (turnStart && entry.turn !== undefined) {
       seenTurnStart = true;
       awaitingUserOutput.add(entry.turn);
@@ -423,6 +456,7 @@ export const layoutUi = (
   state: UiState,
   columns = state.terminalSize.columns,
   rows = state.terminalSize.rows,
+  assistantRenderer: AssistantContentRenderer = plainTextAssistantRenderer,
 ): UiLayout => {
   const widthLimit = clamp(columns, 1, MAX_COLUMNS);
   const heightLimit = clamp(rows, 1, MAX_ROWS);
@@ -455,7 +489,7 @@ export const layoutUi = (
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -
       footerCount,
   );
-  const log = logRows(state, Math.max(1, widthLimit));
+  const log = logRows(state, Math.max(1, widthLimit), assistantRenderer);
   const overlay = overlayRows(state, Math.max(1, widthLimit), heightLimit);
   let logStart = Math.max(0, log.rows.length - logHeight);
   if (state.scroll.kind === 'anchored') {

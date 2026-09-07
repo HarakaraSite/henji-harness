@@ -307,6 +307,7 @@ export type PresentationIntent =
       readonly turn: number;
     }
   >
+  | Readonly<{ readonly kind: 'history_export' }>
   | Readonly<
     {
       readonly kind: 'compaction';
@@ -347,6 +348,13 @@ export type PresentationIntentResult =
   }>
   | Readonly<
     { readonly kind: 'history'; readonly page?: PresentationHistoryPage }
+  >
+  | Readonly<
+    {
+      readonly kind: 'history_export';
+      readonly path: string;
+      readonly throughTurn: number;
+    }
   >
   | Readonly<
     {
@@ -715,6 +723,7 @@ export const presentationIntent = (
     }
   } else if (
     kind !== 'cancel_active' && kind !== 'list_sessions' &&
+    kind !== 'history_export' &&
     kind !== 'dismiss_overlay' &&
     kind !== 'compaction'
   ) {

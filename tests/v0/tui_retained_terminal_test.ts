@@ -2,8 +2,12 @@ import { createUiState, reduceUiAction } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
 import { layoutEditorText, pendingMetadataRows, TuiRenderer } from '../../v0/tui/render.ts';
-import { TuiController, type TuiSessionLike } from '../../v0/tui/controller.ts';
-import { type PresentationStartupState } from '../../v0/presentation/contract.ts';
+import { TuiController, TuiControllerError, type TuiSessionLike } from '../../v0/tui/controller.ts';
+import {
+  type PresentationIntentDispatcher,
+  type PresentationIntentResult,
+  type PresentationStartupState,
+} from '../../v0/presentation/contract.ts';
 import {
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
@@ -84,6 +88,18 @@ class InteractiveTerminal extends RecordingTerminal {
     for (const reader of this.readers.splice(0)) reader(null);
     this.queued.splice(0);
     return Promise.resolve();
+  }
+}
+
+class FallibleInteractiveTerminal extends InteractiveTerminal {
+  failNextWrite = false;
+
+  override write(bytes: Uint8Array): void {
+    if (this.failNextWrite) {
+      this.failNextWrite = false;
+      throw new Error('injected terminal write failure');
+    }
+    super.write(bytes);
   }
 }
 
@@ -476,4 +492,156 @@ Deno.test('retained controller keeps the anchor when ordinary task admission fai
   assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
   terminal.push('\x04\x04');
   assertEquals(await run, 0);
+});
+
+Deno.test('history export serializes task, session listing, and duplicate export', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const intentsSeen: string[] = [];
+  let resolveExport!: (result: PresentationIntentResult) => void;
+  const intents: PresentationIntentDispatcher = {
+    dispatch: (intent) => {
+      intentsSeen.push(intent.kind);
+      if (intent.kind === 'history_export') {
+        return new Promise((resolve) => {
+          resolveExport = resolve;
+        });
+      }
+      if (intent.kind === 'ordinary_submit') {
+        throw new Error('task admitted during history export');
+      }
+      if (intent.kind === 'list_sessions' || intent.kind === 'resume_session') {
+        throw new Error('navigation admitted during history export');
+      }
+      return { kind: 'accepted' };
+    },
+  };
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession([]),
+    { pending: new PendingInputCore(), intents },
+  );
+  const run = controller.run();
+  terminal.push('/history export\r');
+  await waitFor(() => controller.currentState === 'history-exporting');
+  terminal.push('blocked task\r');
+  await waitFor(() => renderer.stateSnapshot().status.includes('retry when ready'));
+  terminal.push('\x15/sessions\r');
+  terminal.push('\x15/history export\r');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assertEquals(intentsSeen.filter((kind) => kind === 'history_export').length, 1);
+  assert(!intentsSeen.includes('ordinary_submit'));
+  assert(!intentsSeen.includes('list_sessions'));
+  assert(!intentsSeen.includes('resume_session'));
+  resolveExport({
+    kind: 'history_export',
+    path: '/tmp/history-export.md',
+    throughTurn: 2,
+  });
+  await waitFor(() => controller.currentState === 'idle');
+  assert(
+    renderer.stateSnapshot().log.entries.some((entry) =>
+      entry.text === 'history exported through turn 2: /tmp/history-export.md'
+    ),
+  );
+  terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('history export shutdown waits for settlement and emits no late receipt', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let resolveExport!: (result: PresentationIntentResult) => void;
+  const intents: PresentationIntentDispatcher = {
+    dispatch: (intent) => {
+      if (intent.kind === 'history_export') {
+        return new Promise((resolve) => {
+          resolveExport = resolve;
+        });
+      }
+      return { kind: 'accepted' };
+    },
+  };
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession([]),
+    { pending: new PendingInputCore(), intents },
+  );
+  let settled = false;
+  const run = controller.run().then((code) => {
+    settled = true;
+    return code;
+  });
+  terminal.push('/history export\r');
+  await waitFor(() => controller.currentState === 'history-exporting');
+  terminal.push('\x04');
+  await waitFor(() => controller.currentState === 'exiting');
+  assert(!settled);
+  assertEquals(terminal.rawModes.at(-1), true);
+  resolveExport({
+    kind: 'history_export',
+    path: '/tmp/late-history-export.md',
+    throughTurn: 1,
+  });
+  assertEquals(await run, 0);
+  assertEquals(terminal.rawModes.at(-1), false);
+  assert(
+    !renderer.stateSnapshot().log.entries.some((entry) =>
+      entry.text.includes('late-history-export.md')
+    ),
+  );
+});
+
+Deno.test('history export output failure waits for the already-started writer', async () => {
+  const terminal = new FallibleInteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let resolveExport!: (result: PresentationIntentResult) => void;
+  const intents: PresentationIntentDispatcher = {
+    dispatch: (intent) => {
+      if (intent.kind !== 'history_export') return { kind: 'accepted' };
+      terminal.failNextWrite = true;
+      return new Promise((resolve) => {
+        resolveExport = resolve;
+      });
+    },
+  };
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession([]),
+    { pending: new PendingInputCore(), intents },
+  );
+  let settled = false;
+  const run = controller.run().then(
+    (code) => {
+      settled = true;
+      return { kind: 'code' as const, code };
+    },
+    (error: unknown) => {
+      settled = true;
+      return { kind: 'error' as const, error };
+    },
+  );
+  terminal.push('/history export\r');
+  await waitFor(() => controller.currentState === 'failed');
+  assert(!settled);
+  assertEquals(terminal.rawModes.at(-1), true);
+  resolveExport({
+    kind: 'history_export',
+    path: '/tmp/output-failure-history-export.md',
+    throughTurn: 1,
+  });
+  const result = await run;
+  assertEquals(result.kind, 'error');
+  assert(result.kind === 'error' && result.error instanceof TuiControllerError);
+  assertEquals(result.error.code, 'output_failure');
+  assertEquals(terminal.rawModes.at(-1), false);
 });

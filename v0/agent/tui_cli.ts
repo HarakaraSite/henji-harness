@@ -44,6 +44,7 @@ import { type FailureDiagnosticPersister } from './failure_diagnostic.ts';
 import { DenoFailureDiagnosticStore } from './failure_diagnostic_store.ts';
 import { DenoProviderEvidenceStore } from './provider_evidence_store.ts';
 import { createWorkerTuiSession } from './worker_host.ts';
+import { DenoHistoryExporter, type HistoryExporter } from './history_export.ts';
 
 const encoder = new TextEncoder();
 
@@ -141,6 +142,8 @@ export interface TuiCliDependencies {
   readonly pathIndex?: WorkspacePathIndex;
   /** Direct-test/host seam for turn-scoped diagnostic persistence. */
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
+  /** Direct-test seam; production writes exports below the existing workspace state root. */
+  readonly historyExporter?: HistoryExporter;
 }
 
 const fatalMessages: Record<string, string> = {
@@ -616,16 +619,27 @@ export const main = async (
     };
     const created = await sessionFactory(bridge, selection);
     createdResult = created;
+    const workspaceRoot = created.workspaceRoot ??
+      created.displayState.workspace;
+    const historyExporter = dependencies.historyExporter ??
+      (dependencies.createSession === undefined
+        ? new DenoHistoryExporter(
+          dependencies.stateRoot ?? launcherStateRoot(),
+          workspaceRoot,
+        )
+        : undefined);
     const presentationAdapter = createTuiPresentationAdapter(
       created.session,
       (event) => renderer.eventSink(event),
       created.navigation,
+      historyExporter === undefined ? {} : {
+        historyExporter,
+        historySessionMode: created.displayState.sessionMode.kind === 'none' ? 'none' : 'durable',
+      },
     );
     presentationAdapterRef.current = presentationAdapter;
     const useDailyEditor = dependencies.dailyEditor ??
       dependencies.createSession === undefined;
-    const workspaceRoot = created.workspaceRoot ??
-      created.displayState.workspace;
     const pathIndex = useDailyEditor
       ? dependencies.pathIndex ?? await buildWorkspacePathIndex(workspaceRoot)
       : undefined;

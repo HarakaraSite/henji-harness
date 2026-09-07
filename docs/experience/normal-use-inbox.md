@@ -10,15 +10,18 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
+increment 4へ採用した四項目は`docs/increments/increment-4.md`へ移した。以下は同incrementへ採用していない
+観測と候補だけを残す。
+
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
-increment 3は、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を
-対象に採用した。次はincrement 3の対象外として残す。
+increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を
+実装し、通常利用で受け入れた。`/history export`はincrement 4へ移し、それ以外の操作候補を残す。
 
 - `/history`等の明示的なread-only履歴閲覧modeと、vi風の`j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、
   `q`/Esc。
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
-- shortcutまたはslash commandでcanonical history bufferを外部editorへ渡す閲覧出口。
+- exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
 
 ### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
@@ -40,27 +43,7 @@ increment 3は、現在SessionのPageUp/PageDown、Esc、task送信による最�
 
 現在の扱い:
 
-- 未採用の改善候補として保存し、increment 3のscopeへは追加しない。
-
-### Surface: conversation labelの色分け（F01、F10）
-
-利用者要望:
-
-- conversation履歴を識別しやすくするため、`user>`をblue、`assistant>`をamber等で色分けしたい。
-
-実装候補:
-
-- まず本文全体ではなくrole labelだけを着色する。長文の可読性とterminal themeへの依存を抑える。
-- ANSI escapeを`LayoutRow.text`へ埋め込まず、layoutはplain text、role、label幅等の表示metadataを返し、
-  Host rendererがterminal出力直前に色を適用する。既存のcell幅、wrap、cursor計算を変えない。
-- 各label直後にSGR resetを入れて色漏れを防ぎ、frame byte上限ではANSI code分も数える。
-- amberは標準16色に固有名がないため、ANSI yellowをthemeへ委ねるか256-colorを使うかを実装incrementで
-  決める。`tool>`等の追加色、色無効化、legacy/non-retained表示への適用は同時採用を前提にしない。
-- canonical transcript、Worker protocol、Presentation contractは変えず、Host TUI内の表示変更として扱う。
-
-現在の扱い:
-
-- 未採用の改善候補として保存し、increment 3のscopeへは追加しない。
+- 未採用の改善候補として保存する。
 
 ### Surface: assistant本文のrendering（F01、F10、将来のF24候補）
 
@@ -71,8 +54,8 @@ increment 3は、現在SessionのPageUp/PageDown、Esc、task送信による最�
 改善候補:
 
 - TUIへのMarkdown renderer導入を検討する。通常利用increment 2では対応せずpendingとした。
-- increment 3以降では、まず現在のplain text出力を変えず、assistant本文のrendererだけをTUI内部の
-  差し替え可能なcomponentへ抽出する。その後Markdownを採用する場合も対応範囲を限定して始める。
+- plain textのassistant renderer component抽出はincrement 4へ移した。その実装後、Markdownを採用する
+  場合も対応範囲を限定して始める。
 - Mermaid等が必要になった場合はrenderer全体の交換だけでなく、Markdown内のblock rendererを拡張する。
   一般的なplugin/load機構までは現時点で決めない。
 - agentが具体的なrenderer実装を選ぶのではなく、plain text、Markdown、Mermaid等の意味上のcontent kind
@@ -102,8 +85,8 @@ increment 3は、現在SessionのPageUp/PageDown、Esc、task送信による最�
 - 固定instruction、tool description、tool設計のどこで効率的な選択を支えるか検討する。
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
-- `read`へ`offset`・`limit`と続きを示すtruncation resultを追加し、`bash`は切り詰め前の全出力を保存して
-  必要時にreadbackできるようにする案を検討する。
+- `bash`は切り詰め前の全出力を保存し、必要時にreadbackできるようにする案を検討する。`read`の
+  `offset`・`limit`と継続案内はincrement 4へ移した。
 
 参照実装から得た未採用の示唆:
 
@@ -121,6 +104,8 @@ increment 3は、現在SessionのPageUp/PageDown、Esc、task送信による最�
   指針の合成はAgentCompositionの責務候補として検討する。
 - tool利用効率は現時点ではF02・F06の通常改善として扱う。ここで整えるtool metadataやinterfaceは将来の
   F24実装基盤として再利用できるが、それだけでF24完了とはしない。
+- `read`のline windowとactive guidelineはincrement 4へ移した。`bash`全出力readbackと他toolのguidelineは
+  未採用のまま残す。
 
 現行component境界の確認:
 
@@ -204,5 +189,4 @@ Agent-level instruction候補:
 - instructionは振る舞いを誘導するものであり、必須のcapability境界はtool構成でも表現する。たとえば
   read-only agentはinstructionだけでなくwrite/edit toolを持たせない。
 - componentの選択結果、revision identity、合成順と競合規則をManifestへ記録できる形を、F24で
-  instructionを改訂対象にするときの候補とする。現時点では採用済みarchitectureまたはincrement 3の
-  追加scopeとはしない。
+  instructionを改訂対象にするときの候補とする。現時点では採用済みarchitectureとはしない。
