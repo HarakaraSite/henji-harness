@@ -1,7 +1,7 @@
 # 通常利用 increment 5 — conversation label識別とbash全出力readback
 
 ステータス: local実装、focused verification、implementation review、authoritative offline gateを完了。
-production retained TUIでのhuman gateとユーザー受入は未実施。
+production retained TUIでの初回human gateはproviderの空の最終回答で未完了。ユーザー受入は未実施。
 
 ## この文書の位置付け
 

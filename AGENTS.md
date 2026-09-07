@@ -67,5 +67,5 @@ repository document or prior practice conflicts with it, this section wins.
 
 ## Historical records
 
-- Resumption state and preserved old checkpoints: [`.handoff/handoff.md`](.handoff/handoff.md)
+- Resumption state records: [`.handoff/handoff.md`](.handoff/handoff.md)
 - Former current-phase ledger preserved as historical evidence: [`docs/history/agents-current-phase-through-024071a.md`](docs/history/agents-current-phase-through-024071a.md)

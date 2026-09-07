@@ -1,7 +1,8 @@
 # 通常利用 increment 5 — 実装結果
 
 ステータス: local実装、focused verification、authoritative offline gate、独立implementation reviewを
-2026-09-07に完了。production retained TUIでのhuman gateとユーザー受入は未実施。
+2026-09-07に完了。production retained TUIでの初回human gateはproviderの空の最終回答で未完了。ユーザー
+受入は未実施。
 
 ## 成立した動作
 
@@ -49,7 +50,16 @@
 
 ## 残るhuman gate
 
-production/provider/credentialは使用していない。別の明示承認後、production retained TUIでlabel四色と、
-4,096 bytes超のmulti-byte `bash`出力をmodelが`bash_output`で末尾まで読み、同じcommandを再実行しないことを
-一回確認する。32 MiB/128 MiBの固定値と同じcode pathの上限動作はlocal testで確認済みのため、human gateでは
-大量出力を生成しない。
+2026-09-07の初回attemptでは、modelは60,050 bytesのmulti-byte stdoutを出す`bash`を一回だけ実行し、
+`bash_output`をoffset 0と49,150で二回呼んだ。二回目は`complete: true`、総1,201行、最後は
+`末尾マーカー: HENJI-BASH-OUTPUT-完了-1200`であり、command再実行や代替取得はなかった。
+
+続く4回目のprovider requestはHTTP 200だったが、modelは正しい行数と末尾をreasoning内で確認しながらvisible
+`content`を空のまま`finish_reason: stop`で終了した。Henjiは`empty_terminal_result`として拒否し、turnは
+commitされなかった。このため`bash` full-output readbackはproduction経路で成立したが、modelの最終報告を
+含むhuman gate全体は未完了である。診断IDは`ad50975f-e366-4c02-878d-a1d762f6b541`。
+
+同じSessionで再試行できるが、同じTUI processではrecoverable taskをeditorへ戻すUIが未接続のため再送を
+拒否した。この別のSurface改善候補は`docs/experience/normal-use-inbox.md`へ保存した。human gateを再試行する
+場合はprocessを再起動し、同じSessionのturn 0から同じpromptを新しいattemptとして送る。32 MiB/128 MiBの
+固定値と同じcode pathの上限動作はlocal testで確認済みのため、human gateでは大量出力を生成しない。

@@ -23,6 +23,32 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
 
+### Surface: recoverable inputとCtrl-C（F01、F10）
+
+通常利用での観測:
+
+- increment 5のproduction確認中、`bash`と二回の`bash_output`が成功した後、providerがvisible contentを
+  空にしたまま`finish_reason: stop`を返し、turnは`contract_failure`になった。TUIは失敗したtaskを
+  recoverable active-task laneへ保持したが、同じpromptを再送すると`active task recovery pending`として
+  拒否した。
+- `PendingInputCore.popRecovery()`とcontroller内のeditor復元処理は存在する一方、現行key eventまたはslash
+  commandからその処理へ到達する入口がない。同じTUI process内では、保持したtaskをeditorへ戻して編集・
+  再送できず、double Ctrl-C/Ctrl-Dでprocess-local inputを破棄して再起動する必要がある。
+- idleでpromptを編集中のCtrl-Cは、現在のshell型操作感と異なり、pending inputの破棄確認とprocess終了へ
+  進む。利用者はshellと同様に、Ctrl-Cを現在の入力バッファのclearとして使いたい。
+
+改善候補:
+
+- recoverable active taskをeditorへ一回戻し、必要なら編集して明示的に再送できるUI操作を接続する。
+- 少なくともidle時のCtrl-Cは現在のeditor inputをclearしてreadyへ戻す。active task実行中のcancel、
+  recoverable laneの扱い、process終了操作との分担は、採用incrementで既存pending-input contractと合わせて
+  決める。
+
+現在の扱い:
+
+- productionで観測した未採用のSurface改善候補として保存する。increment 5の`bash_output`自体は末尾まで
+  取得できており、このrecovery UI問題とは分けて扱う。
+
 ### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
 観測と利用者要望:
