@@ -64,6 +64,7 @@ import {
   type RuntimeDisplaySessionMode,
   type RuntimeDisplayState,
 } from './startup_orientation.ts';
+import { OpenRouterSonarWebSearchBackend, type WebSearchBackend } from './web_search.ts';
 
 /** The normal runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
@@ -92,6 +93,8 @@ export interface RuntimeTestSeam {
   readonly skillFileSystem?: SkillFileSystem;
   /** Direct-test-only local mutation hook. */
   readonly workTools?: WorkToolSeams;
+  /** Direct-test-only search backend; production constructs the fixed Sonar backend. */
+  readonly webSearchBackend?: WebSearchBackend;
   /** Direct-test-only materialization counters; production leaves these unset. */
   readonly onModelMaterialized?: (definition: ResolvedAgentDefinition) => void;
   readonly onRegistryMaterialized?: (
@@ -190,6 +193,7 @@ const materializeRegistry = (
   plannerDelegation: PlannerDelegationHandler | undefined,
   workspace: Workspace,
   skillCatalog: SkillCatalog,
+  webSearchBackend?: WebSearchBackend,
 ): Registry => {
   seam.onRegistryMaterialized?.(definition);
   return createDeclaredRegistry(definition.capabilities, {
@@ -197,6 +201,7 @@ const materializeRegistry = (
     skillCatalog,
     workTools: seam.workTools,
     plannerDelegation,
+    webSearchBackend,
   });
 };
 
@@ -318,6 +323,11 @@ export const materializePreparedRuntimeComposition = (
   prepared: PreparedRuntimeComposition,
 ): RuntimeComposition => {
   const { definition, seam, fetcher, requestCount } = prepared;
+  const webSearchBackend = seam.webSearchBackend ?? new OpenRouterSonarWebSearchBackend({
+    fetcher,
+    credential: seam.credential,
+    credentialSource: seam.credentialSource,
+  });
   const hasPlannerSubagent = definition.capabilities.subagents.some((resource) =>
     `${resource}` === 'subagent:planner'
   );
@@ -354,6 +364,7 @@ export const materializePreparedRuntimeComposition = (
           undefined,
           prepared.workspace,
           prepared.skillCatalog,
+          undefined,
         );
         const outcome = await runAgentTurn(
           task,
@@ -400,6 +411,7 @@ export const materializePreparedRuntimeComposition = (
     plannerDelegation,
     prepared.workspace,
     prepared.skillCatalog,
+    webSearchBackend,
   );
   return {
     model,

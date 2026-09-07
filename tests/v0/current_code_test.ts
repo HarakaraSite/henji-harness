@@ -46,6 +46,7 @@ import {
   freshRuntimeComparisonCase,
   runFreshRuntimeComparison,
 } from '../../v0/agent/fresh_runtime_comparison.ts';
+import type { WebSearchBackend } from '../../v0/agent/web_search.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -58,6 +59,13 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
+};
+
+const providerFreeWebSearchBackend: WebSearchBackend = {
+  search: (query) => ({
+    answer: `search result for ${query}`,
+    sources: [{ title: 'test source', url: 'provider-free://web-search' }],
+  }),
 };
 
 const delegationCall = (): ToolCall => ({
@@ -304,6 +312,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     'tool:bash_output',
     'tool:edit',
     'tool:read',
+    'tool:web_search',
     'tool:write',
     'tool:delegate_to_planner',
     'tool:submit_json_result',
@@ -315,8 +324,18 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     createDeclaredRegistry(defaultDefinition.capabilities, {
       ...input,
       plannerDelegation,
+      webSearchBackend: providerFreeWebSearchBackend,
     }).definitions().map((tool) => tool.name),
-    ['bash', 'bash_output', 'delegate_to_planner', 'edit', 'read', 'submit_json_result', 'write'],
+    [
+      'bash',
+      'bash_output',
+      'delegate_to_planner',
+      'edit',
+      'read',
+      'submit_json_result',
+      'web_search',
+      'write',
+    ],
   );
   assertEquals(
     createDeclaredRegistry(plannerDefinition.capabilities, input).definitions().map((tool) =>
@@ -399,6 +418,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
           return { kind: 'final' as const, text: 'done' };
         },
       }),
+      webSearchBackend: providerFreeWebSearchBackend,
     },
   };
   const parent = createDefaultAgentComposition(input);
@@ -407,15 +427,20 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
   const bashOutputGuideline =
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
+  const webSearchGuideline =
+    'Use web_search when current or external information is needed. Cite the returned source URLs in the final answer.';
   assert(parent.systemInstruction?.includes(guideline));
   assert(parent.systemInstruction?.includes(bashOutputGuideline));
   assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
   assert(directPlanner.systemInstruction?.includes(guideline));
   assert(!directPlanner.systemInstruction?.includes(bashOutputGuideline));
+  assert(parent.systemInstruction?.includes(webSearchGuideline));
+  assert(!directPlanner.systemInstruction?.includes(webSearchGuideline));
   assertEquals(directPlanner.systemInstruction, directPlanner.resolved.systemInstruction);
   assertEquals(parent.registry.promptGuidelines(), [
     { tool: 'bash_output', text: bashOutputGuideline },
     { tool: 'read', text: guideline },
+    { tool: 'web_search', text: webSearchGuideline },
   ]);
   assertEquals(new Registry([]).promptGuidelines(), []);
   const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
@@ -423,6 +448,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assert(!('promptGuidelines' in readDefinition));
   assertEquals(parent.systemInstruction?.split(guideline).length, 2);
   assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
+  assertEquals(parent.systemInstruction?.split(webSearchGuideline).length, 2);
 
   const delegated = await parent.registry.dispatch(
     delegationCall(),
@@ -466,6 +492,7 @@ Deno.test('Executable Definition replaces one selected root tool component only'
           return { kind: 'final' as const, text: 'done' };
         },
       }),
+      webSearchBackend: providerFreeWebSearchBackend,
     },
   };
   const definition: ExecutableAgentDefinition = (definitionInput) =>
@@ -524,6 +551,7 @@ Deno.test('root maxSteps finalization keeps Definition evidence coherent', () =>
       createModel: () => ({
         generate: () => ({ kind: 'final' as const, text: 'done' }),
       }),
+      webSearchBackend: providerFreeWebSearchBackend,
     },
   });
   const finalized = finalizeRootAgentComposition(composition, 12);

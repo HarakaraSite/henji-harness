@@ -4,6 +4,10 @@ import type { PhysicalIoBindings } from './worker_agent_api.ts';
 import { type CredentialSource, OpenRouterAgentModel } from './openrouter_model.ts';
 import { readCredentialFile } from './credential_file.ts';
 import { PRODUCTION_PROFILE } from './provider_profile.ts';
+import {
+  createProviderFreeWebSearchBackend,
+  OpenRouterSonarWebSearchBackend,
+} from './web_search.ts';
 
 const lastUserText = (request: ModelRequest): string => {
   for (let index = request.transcript.length - 1; index >= 0; index -= 1) {
@@ -122,6 +126,7 @@ class WorkerProbeModel implements Model {
  */
 export const createProviderFreePhysicalIo = (): PhysicalIoBindings => ({
   createModel: (role) => new WorkerProbeModel(role),
+  webSearchBackend: createProviderFreeWebSearchBackend(),
 });
 
 /** Production Worker-local physical I/O; credentials resolve only at provider-request time. */
@@ -131,17 +136,23 @@ export const createProductionPhysicalIo = (
     readonly credentialSource?: CredentialSource;
     readonly fetcher?: typeof fetch;
   } = {},
-): PhysicalIoBindings => ({
-  createModel: () => {
-    const fetcher: typeof fetch = (input, init) => {
-      requestCounter?.increment();
-      return (options.fetcher ?? fetch)(input, init);
-    };
-    return new OpenRouterAgentModel({
-      profile: PRODUCTION_PROFILE,
-      credentialSource: options.credentialSource ?? readCredentialFile,
+): PhysicalIoBindings => {
+  const fetcher: typeof fetch = (input, init) => {
+    requestCounter?.increment();
+    return (options.fetcher ?? fetch)(input, init);
+  };
+  const credentialSource = options.credentialSource ?? readCredentialFile;
+  return {
+    createModel: () =>
+      new OpenRouterAgentModel({
+        profile: PRODUCTION_PROFILE,
+        credentialSource,
+        fetcher,
+        responseMode: 'sse',
+      }),
+    webSearchBackend: new OpenRouterSonarWebSearchBackend({
+      credentialSource,
       fetcher,
-      responseMode: 'sse',
-    });
-  },
-});
+    }),
+  };
+};

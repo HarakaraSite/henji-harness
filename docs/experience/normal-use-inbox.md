@@ -110,21 +110,29 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - `web_search`をincrement 5とincrement 6には含めず、既存work toolのcomponent化後にincrement 7として扱う。
 - URL本文を取得して人間向けtextへ変換する`web_open`は、人間にはbrowserがあるため現時点では必要性を
   感じず、候補に含めない。
-- OpenRouter server toolへ直接依存させず、provider-neutralなHenji-owned tool componentと交換可能な検索
-  backendに分ける方針をユーザーが2026-09-07に選んだ。
+- provider-neutralなHenji-owned tool componentと交換可能な検索backendに分ける方針をユーザーが
+  2026-09-07に選んだ。
+- 初期backendは、既存OpenRouter credentialで`perplexity/sonar`を一回呼ぶ。実測した
+  `message.content`と順序付き`message.annotations[].url_citation`から、回答とtitle/URLのsource一覧を
+  modelへ返す。
+- OpenRouterの`openrouter:web_search` server toolを使うbackendは将来案として保持し、現在の実装には
+  含めない。Exa MCPは却下し、MCP component自体も将来構想へ送る。
 
-未決事項:
+現在の扱い:
 
-- search provider、公式API contract、credential、cost、query/result schema、取得結果をmodelと
-  transcriptへ渡す範囲は未選定である。increment 7の計画時に、実際の利用環境と公式文書を確認して決める。
+- increment 7へ採用し、local実装、focused verification、コード／テストreview、authoritative offline gateを
+  完了した。結果は`docs/increments/increment-7-results.md`へ移した。production retained TUI human gateと
+  ユーザー受入は未実施である。
 
 現行component境界の確認:
 
 - 現行の`Tool`はname、description、input schema、guideline、executorを一単位にし、`Registry`がproviderへ
   渡すdefinition生成とtool call時のexecutor解決を担う。
-- increment 6で、選択済みの`read`、`write`、`edit`、`bash`、`bash_output`をWorker-local
+- increment 6で既存work toolのcomponent境界を作り、increment 7で`web_search`をbuilt-in componentとして
+  追加した。選択済みの`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`をWorker-local
   `ToolComponentCatalog`からmaterializeする境界を追加した。公開`@henji/agent`のroot composition optionで
-  同一identity・nameのcomponentを明示置換できる。選択されていない新tool identityの追加はまだない。
+  同一identity・nameのcomponentを明示置換できる。catalog外の新tool identityをexternal Definitionから追加する
+  一般seamはまだない。
 - 現在の`DefinitionRevisionRef`はentry moduleを固定するが、別moduleとしてimportするtool componentまで
   含むdependency lineageは未実装である。したがって、toolは「実行component」ではあるが「独立したrevisionを
   持ち、自己改訂候補としてDefinitionへ組み込めるcomponent」にはまだなっていない。

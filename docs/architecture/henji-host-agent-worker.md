@@ -96,14 +96,23 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 有効toolが利用指針を持つ場合、tool metadataはprovider向けtool definitionとは分離して保持し、Definitionが
 registryをmaterializeした後にAgentCompositionのsystem instructionへ合成する。現在は`read`の選択と
 `offset`・`limit`による継続読込みの指針をdefault parentとplannerへ、切り捨てられた`bash`出力を
-`bash_output`の`outputId`と`nextOffset`で継続取得する指針を、そのtoolを持つdefault parentだけへ合成する。
+`bash_output`の`outputId`と`nextOffset`で継続取得する指針と、currentまたは外部情報に`web_search`を使って
+返されたsource URLを引用する指針を、それぞれのtoolを持つdefault parentだけへ合成する。
 
-現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`をWorker-local
+現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`をWorker-local
 `ToolComponentCatalog`からmaterializeする。built-in componentは既存tool factoryをruntime bindingへ結び付ける
 薄いfactoryである。Executable Definitionはroot compositionで選択済みの同一`tool:*` identity・tool nameの
 componentを明示置換し、model向けcontract、guideline、executorを差し替えられる。置換はdelegated
-plannerへ暗黙に伝播せず、manifestには従来どおりdata-only resource identityだけを記録する。新しい
-tool identityの追加、plugin探索、hot reload、componentの独立revision・import dependency lineageはまだない。
+plannerへ暗黙に伝播せず、manifestには従来どおりdata-only resource identityだけを記録する。external
+Definitionがcatalog外の新しいtool identityを追加する一般seam、plugin探索、hot reload、componentの独立revision・
+import dependency lineageはまだない。
+
+default parentの`web_search`は、provider-neutralなHenji-owned tool contractと交換可能な`WebSearchBackend`を
+分ける。初期production backendは既存OpenRouter credentialで`perplexity/sonar`を一回呼び、回答本文と
+順序付きURL citationをmodel-visibleなtool resultへ変換する。Sonar requestは親turnのmodel request budgetを
+一件消費し、main modelと同じcounted fetch、AbortSignal、provider evidenceを共有する。tool call元のmodel stepを
+request recordへ関連付け、raw responseとparser transitionをreadback可能にする。plannerには`web_search`を
+追加しない。OpenRouter `openrouter:web_search` server toolは現在使わず、同じbackend境界への将来候補とする。
 
 default parentの`bash`と`bash_output`は、一つのRegistry lifetimeで一つのtemporary output storeを共有する。
 4 KiBを超えたstdout/stderrはprocess-localなopaque identityへ保存し、UTF-8 byte offsetのbounded windowで

@@ -193,6 +193,8 @@ export const createTurnExecutionContext = (
 /** The execution-only wrapper passed to tools; request admission remains nested separately. */
 export interface ToolExecutionContext {
   readonly modelExecution?: ModelExecutionContext;
+  /** Parent-loop model step whose tool call is currently executing. */
+  readonly modelStep?: number;
   readonly signal?: AbortSignal;
   readonly cancellation?: TurnCancellation;
   readonly reportProgress?: ToolProgressReporter;

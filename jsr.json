@@ -33,6 +33,7 @@
       "v0/agent/steering.ts",
       "v0/agent/tool_components.ts",
       "v0/agent/tools.ts",
+      "v0/agent/web_search.ts",
       "v0/agent/work_tools.ts",
       "v0/agent/worker_agent_api.ts",
       "v0/agent/worker_protocol.ts",

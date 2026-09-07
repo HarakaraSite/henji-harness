@@ -716,17 +716,16 @@ const runAgentTurnInternal = async (
       };
       let dispatched: RegistryDispatchResult | undefined;
       try {
-        const toolContext = signal === undefined && options.executionContext === undefined &&
-            cancellation === undefined && sink === undefined
-          ? undefined
-          : sink === undefined
+        const toolContext = sink === undefined
           ? {
             modelExecution: options.executionContext,
+            modelStep: steps,
             signal,
             cancellation,
           }
           : {
             modelExecution: options.executionContext,
+            modelStep: steps,
             signal,
             cancellation,
             reportProgress,

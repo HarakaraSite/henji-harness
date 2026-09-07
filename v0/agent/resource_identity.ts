@@ -249,6 +249,7 @@ export const validateAgentResourceTopology = (
         'tool:edit',
         'tool:read',
         'tool:submit_json_result',
+        'tool:web_search',
         'tool:write',
       ].map((name) => createAgentResourceIdentity(name)),
     );

@@ -26,6 +26,7 @@ import {
   type ToolComponent,
   ToolComponentCatalog,
 } from './tool_components.ts';
+import type { WebSearchBackend } from './web_search.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -35,6 +36,7 @@ export interface RegistryMaterializationContext {
   readonly skillCatalog: SkillCatalog;
   readonly workTools?: WorkToolSeams;
   readonly bashOutputStore?: BashOutputStore;
+  readonly webSearchBackend?: WebSearchBackend;
   readonly plannerDelegation?: PlannerDelegationHandler;
   /** Explicit replacements for selected root work-tool components. */
   readonly toolComponents?: readonly ToolComponent[];
@@ -63,6 +65,7 @@ export const createDeclaredTool = (
       workspace: context.workspace,
       workTools: context.workTools ?? {},
       bashOutputStore: outputStore,
+      webSearchBackend: context.webSearchBackend,
     });
   }
   switch (`${identity}`) {

@@ -1,8 +1,8 @@
 # 通常利用 increment 6 — 実装結果
 
-ステータス: local実装後のproduction利用で見つかったidle Ctrl-Cの端末設定不備を2026-09-07に修正し、
-focused verification、実端末経路、bounded review、authoritative offline gateを完了。通常利用での再確認と
-ユーザー受入は未実施。
+ステータス: 完了。local実装後のproduction利用で見つかったidle Ctrl-Cの端末設定不備を2026-09-07に修正し、
+focused verification、実端末経路、bounded review、authoritative offline gate、production retained TUI
+human gate、ユーザー受入を同日に完了。
 
 ## 成立した動作
 
@@ -70,8 +70,11 @@ raw modeを`cbreak: false`で開始し、物理Ctrl-Cを既存のHost-local inpu
 
 ## Production human gate
 
-provider request、credential、networkを使う確認は実施していない。idle Ctrl-Cはprovider-freeな実PTYで確認
-したが、次はユーザーが通常のproduction TUIで一回押下によるclearを再確認する。cancel後のeditor復元・再送を
-含む残りのhuman gateは、ユーザーの別の明示承認後に`docs/increments/increment-6.md`へ従って実施する。tool
-component置換はlocal Definitionのprovider-free focused testで確認済みであり、human gateで任意の外部componentを
-追加しない。
+2026-09-07にユーザーが通常のproduction retained TUIで`READMEを読み韓国語で翻訳して`を実行中にcancelし、
+`failure> cancelled`後、同じpromptを再送できることを確認した。再送turnは`bash ls -la`と`read README.md`を
+実行し、韓国語のvisible responseまで完了した。`active task recovery pending`による拒否はなく、cancel後の
+復元・明示的な再送・同じ通常利用の継続が成立した。
+
+同じ通常利用でidle Ctrl-Cも一回の押下で入力をclearし、TUIを終了せずreadyへ戻ることをユーザーが確認した。
+これによりproduction human gateとincrement 6のユーザー受入は完了した。tool component置換はlocal Definitionの
+provider-free focused testを正本とし、human gateでは任意の外部componentを追加していない。

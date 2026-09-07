@@ -9,6 +9,7 @@ import {
   type WorkToolSeams,
 } from './work_tools.ts';
 import { type BashOutputStore, createBashOutputTool } from './bash_output.ts';
+import { createWebSearchTool, type WebSearchBackend } from './web_search.ts';
 
 const workToolNames = Object.freeze(
   [
@@ -16,6 +17,7 @@ const workToolNames = Object.freeze(
     'bash_output',
     'edit',
     'read',
+    'web_search',
     'write',
   ] as const,
 );
@@ -27,6 +29,7 @@ export interface ToolComponentBindings {
   readonly workspace: Workspace;
   readonly workTools: WorkToolSeams;
   readonly bashOutputStore: BashOutputStore;
+  readonly webSearchBackend?: WebSearchBackend;
 }
 
 /** Executable work-tool component. Functions stay inside the Worker and never enter manifests. */
@@ -55,6 +58,12 @@ export const builtinToolComponents = (): readonly ToolComponent[] =>
     component('bash_output', (bindings) => createBashOutputTool(bindings.bashOutputStore)),
     component('edit', (bindings) => createEditTool(bindings.workspace, bindings.workTools)),
     component('read', (bindings) => createReadTool(bindings.workspace)),
+    component('web_search', (bindings) => {
+      if (bindings.webSearchBackend === undefined) {
+        throw new Error('web search backend is unavailable');
+      }
+      return createWebSearchTool(bindings.webSearchBackend);
+    }),
     component('write', (bindings) => createWriteTool(bindings.workspace, bindings.workTools)),
   ]);
 

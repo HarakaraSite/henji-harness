@@ -100,6 +100,7 @@ const declarationsFor = (
         'tool:bash_output',
         'tool:edit',
         'tool:read',
+        'tool:web_search',
         'tool:write',
       ].map((name) => createAgentResourceIdentity(name)),
     );

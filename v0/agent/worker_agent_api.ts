@@ -21,9 +21,18 @@ import {
 } from './resource_identity.ts';
 import { composeSystemInstruction } from './agent_instructions.ts';
 import type { ToolComponent } from './tool_components.ts';
+import type { WebSearchBackend } from './web_search.ts';
 
 export { type ToolComponent, ToolComponentCatalog } from './tool_components.ts';
 export { createAgentResourceIdentity } from './resource_identity.ts';
+export {
+  createProviderFreeWebSearchBackend,
+  OpenRouterSonarWebSearchBackend,
+  type OpenRouterSonarWebSearchBackendOptions,
+  type WebSearchBackend,
+  type WebSearchResult,
+  type WebSearchSource,
+} from './web_search.ts';
 
 export { WORKER_PROTOCOL_VERSION };
 export type { AgentEventSink };
@@ -32,6 +41,7 @@ export type { AgentEventSink };
 export interface PhysicalIoBindings {
   readonly createModel: (role: 'parent' | 'planner') => Model;
   readonly workTools?: WorkToolSeams;
+  readonly webSearchBackend?: WebSearchBackend;
 }
 
 /** Data and Worker-local factories supplied to an executable Definition. */
@@ -226,6 +236,7 @@ export const createDefaultAgentComposition = (
     workTools: input.physicalIo.workTools,
     plannerDelegation: plannerHandler,
     toolComponents: options.toolComponents,
+    webSearchBackend: input.physicalIo.webSearchBackend,
   });
   const systemInstruction = compositionInstruction(
     resolved.systemInstruction,
