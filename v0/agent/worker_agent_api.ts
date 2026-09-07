@@ -5,26 +5,26 @@ import {
   defaultAgentDefinition,
   plannerAgentDefinition,
   type ResolvedAgentDefinition,
-} from './agent_definition.ts';
-import type { AgentEventSink } from './events.ts';
-import type { LoopOutcome, Model } from './contracts.ts';
-import { createDeclaredRegistry } from './registries.ts';
-import type { Registry } from './tools.ts';
-import type { SkillCatalog } from './skills.ts';
-import type { Workspace, WorkToolSeams } from './work_tools.ts';
-import type { ChildTurnExecutionContext } from './execution_context.ts';
-import { runAgent } from './loop.ts';
-import { WORKER_PROTOCOL_VERSION } from './worker_protocol.ts';
+} from './definitions/agent_definition.ts';
+import type { AgentEventSink } from './core/events.ts';
+import type { LoopOutcome, Model } from './core/contracts.ts';
+import { createDeclaredRegistry } from './tools/registries.ts';
+import type { Registry } from './tools/tools.ts';
+import type { SkillCatalog } from './definitions/skills.ts';
+import type { Workspace, WorkToolSeams } from './tools/work_tools.ts';
+import type { ChildTurnExecutionContext } from './core/execution_context.ts';
+import { runAgent } from './core/loop.ts';
+import { WORKER_PROTOCOL_VERSION } from './worker/worker_protocol.ts';
 import {
   createAgentResourceSelection,
   validateAgentResourceSelection,
-} from './resource_identity.ts';
-import { composeSystemInstruction } from './agent_instructions.ts';
-import type { ToolComponent } from './tool_components.ts';
-import type { WebSearchBackend } from './web_search.ts';
+} from './definitions/resource_identity.ts';
+import { composeSystemInstruction } from './definitions/agent_instructions.ts';
+import type { ToolComponent } from './tools/tool_components.ts';
+import type { WebSearchBackend } from './tools/web_search.ts';
 
-export { type ToolComponent, ToolComponentCatalog } from './tool_components.ts';
-export { createAgentResourceIdentity } from './resource_identity.ts';
+export { type ToolComponent, ToolComponentCatalog } from './tools/tool_components.ts';
+export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
 export {
   createProviderFreeWebSearchBackend,
   OpenRouterSonarWebSearchBackend,
@@ -32,7 +32,7 @@ export {
   type WebSearchBackend,
   type WebSearchResult,
   type WebSearchSource,
-} from './web_search.ts';
+} from './tools/web_search.ts';
 
 export { WORKER_PROTOCOL_VERSION };
 export type { AgentEventSink };

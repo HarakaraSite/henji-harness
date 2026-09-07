@@ -8,17 +8,17 @@ import {
   scoreCorpusObservation,
   type ValidatedTaskCorpus,
 } from '../corpus/task_corpus.ts';
-import { type JsonValue, type LoopOutcome, type Model } from '../agent/contracts.ts';
+import { type JsonValue, type LoopOutcome, type Model } from '../agent/core/contracts.ts';
 import {
   type CredentialSource,
   OpenRouterAgentError,
   OpenRouterAgentModel,
   type OpenRouterAgentModelOptions,
-} from '../agent/openrouter_model.ts';
-import { runAgent } from '../agent/loop.ts';
-import { createCorpusRegistry } from '../agent/registries.ts';
-import { Registry, type Registry as RegistryType } from '../agent/tools.ts';
-import { PROFILE } from '../model.ts';
+} from '../agent/provider/openrouter_model.ts';
+import { runAgent } from '../agent/core/loop.ts';
+import { createCorpusRegistry } from '../agent/tools/registries.ts';
+import { Registry, type Registry as RegistryType } from '../agent/tools/tools.ts';
+import { PRODUCTION_PROFILE } from '../agent/provider/provider_profile.ts';
 import {
   observationFromLoopOutcome,
   OfflineCorpusEvalError,
@@ -143,8 +143,8 @@ export interface LiveCorpusEvalReportV1 {
   readonly mode: 'live_openrouter';
   readonly suite: LiveReportSuite;
   readonly profile: {
-    readonly id: typeof PROFILE.id;
-    readonly model: typeof PROFILE.model;
+    readonly id: typeof PRODUCTION_PROFILE.id;
+    readonly model: typeof PRODUCTION_PROFILE.model;
   };
   readonly corpus: {
     readonly schemaVersion: 1;
@@ -654,8 +654,8 @@ export const validateLiveCorpusEvalReportV1 = (
   }
   const profile = isRecord(object.profile) ? object.profile : fail('report_contract_invalid');
   if (
-    !exactKeys(profile, ['id', 'model']) || profile.id !== PROFILE.id ||
-    profile.model !== PROFILE.model
+    !exactKeys(profile, ['id', 'model']) || profile.id !== PRODUCTION_PROFILE.id ||
+    profile.model !== PRODUCTION_PROFILE.model
   ) {
     fail('report_contract_invalid');
   }
@@ -849,8 +849,8 @@ export const validateLiveCorpusEvalReportV2 = (
   const tasks = suiteTasks(corpus, suite);
   const profile = isRecord(object.profile) ? object.profile : fail('report_contract_invalid');
   if (
-    !exactKeys(profile, ['id', 'model']) || profile.id !== PROFILE.id ||
-    profile.model !== PROFILE.model
+    !exactKeys(profile, ['id', 'model']) || profile.id !== PRODUCTION_PROFILE.id ||
+    profile.model !== PRODUCTION_PROFILE.model
   ) {
     fail('report_contract_invalid');
   }
@@ -1010,7 +1010,7 @@ const reportFor = (
     reportId: REPORT_ID_V1,
     mode: 'live_openrouter',
     suite: suiteReportName(suite),
-    profile: { id: PROFILE.id, model: PROFILE.model },
+    profile: { id: PRODUCTION_PROFILE.id, model: PRODUCTION_PROFILE.model },
     corpus: { schemaVersion: corpus.schemaVersion, corpusId: corpus.corpusId },
     requestCeiling: suiteRequestCeiling(suite),
     externalRequests: state.externalRequests,
@@ -1205,7 +1205,7 @@ const reportForV2 = (
     reportId: REPORT_ID,
     mode: 'live_openrouter',
     suite: suiteReportName(suite),
-    profile: { id: PROFILE.id, model: PROFILE.model },
+    profile: { id: PRODUCTION_PROFILE.id, model: PRODUCTION_PROFILE.model },
     corpus: { schemaVersion: corpus.schemaVersion, corpusId: corpus.corpusId },
     requestCeiling: suiteRequestCeiling(suite),
     externalRequests: state.externalRequests,

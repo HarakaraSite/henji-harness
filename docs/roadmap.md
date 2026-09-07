@@ -138,7 +138,7 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 | F19 | 通常利用の困難、成功、違和感、利用者判断を、後のWorkerがSessionをまたいで読める経験として残す | Hostがstorage mechanism、Workerが経験の意味と選択を所有する | **部分実装**。canonical transcriptとcheckpointはあるが、Instance/cross-sessionの経験正本、利用者判断、目的・理由を扱う機能はない |
 | F20 | 人間の明示的なアクションまたは指示を契機に、Worker内AIが経験を解釈して改訂候補を作る | 候補生成の意味はWorker。人間の契機なしに自発生成しない | **未実装**。通常agentがfileを編集できることは、この候補生成product flowの実装とはみなさない |
 | F21 | 生成候補をactive revisionと分離して保存し、人間が内容と由来をreadbackできる | Workerがsource/diff/data候補を返し、Hostがnon-active candidateとして保存する | **未実装** |
-| F22 | 人間の採用アクションまたは明示的承認でだけ候補を採用する | Hostがimmutable revisionを確定し、AgentInstance bindingをdurableに切り替える | **未実装**。旧`v0/cli/main.ts`のextension操作は現在のWorker Definition production経路ではない |
+| F22 | 人間の採用アクションまたは明示的承認でだけ候補を採用する | Hostがimmutable revisionを確定し、AgentInstance bindingをdurableに切り替える | **未実装**。production経路ではなかった旧extension操作実装は削除済み |
 | F23 | 改訂後のHenjiで通常利用へ戻り、そこで得た変化を次の経験にする | loopを閉じるproduct動作。統制実験や定量測定は必須ではない | **未実装（end-to-end）**。通常利用自体はあるが、候補生成・採用との一続きのloopがない |
 | F24 | 経験に応じてDefinition以外のinstruction、skill、context、tool、delegation、model、loop、runtime、Host / Worker連携、Surfaceも改訂対象にできる | 構想は対象を固定componentへ閉じない。必要な境界は対象選択時にarchitectureへ戻って決める | **未実装**。最初のloopでは採用せず、後続loopで一対象ずつ判断する |
 

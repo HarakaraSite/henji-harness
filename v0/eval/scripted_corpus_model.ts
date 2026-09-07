@@ -5,8 +5,8 @@ import {
   type ModelResult,
   type ToolCall,
   type ToolDefinition,
-} from '../agent/contracts.ts';
-import { FixtureModelContractError } from '../agent/fixture_model.ts';
+} from '../agent/core/contracts.ts';
+import { FixtureModelContractError } from '../agent/validation/fixture_model.ts';
 import { type CorpusTask } from '../corpus/task_corpus.ts';
 
 interface ScriptCall {

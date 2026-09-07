@@ -1,29 +1,29 @@
 import {
   OpenRouterAgentModel,
   type OpenRouterAgentProfile,
-} from '../../v0/agent/openrouter_model.ts';
-import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
-import { runAgent } from '../../v0/agent/loop.ts';
-import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
+} from '../../v0/agent/provider/openrouter_model.ts';
+import { ParentTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
+import { runAgent } from '../../v0/agent/core/loop.ts';
+import { createPlannerDelegationTool } from '../../v0/agent/tools/planner_delegation.ts';
 import {
   FakeProviderEvidenceStore,
   ProviderEvidenceRecorder,
-} from '../../v0/agent/provider_evidence.ts';
-import { AgentSession } from '../../v0/agent/session.ts';
-import { FailureDiagnosticOwner } from '../../v0/agent/failure_diagnostic.ts';
-import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools.ts';
-import type { ModelRequest } from '../../v0/agent/contracts.ts';
+} from '../../v0/agent/provider/provider_evidence.ts';
+import { AgentSession } from '../../v0/agent/session/session.ts';
+import { FailureDiagnosticOwner } from '../../v0/agent/session/failure_diagnostic.ts';
+import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
+import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import {
   main as failureDiagnosticMain,
   parseFailureDiagnosticArgs,
-} from '../../v0/agent/failure_diagnostic_cli.ts';
-import type { AgentEvent } from '../../v0/agent/events.ts';
-import { DenoProviderEvidenceStore } from '../../v0/agent/provider_evidence_store.ts';
+} from '../../v0/agent/cli/failure_diagnostic_cli.ts';
+import type { AgentEvent } from '../../v0/agent/core/events.ts';
+import { DenoProviderEvidenceStore } from '../../v0/agent/provider/provider_evidence_store.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
-} from '../../v0/agent/worker_physical_io.ts';
+} from '../../v0/agent/worker/worker_physical_io.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,

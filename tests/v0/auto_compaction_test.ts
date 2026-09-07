@@ -1,7 +1,7 @@
-import { AgentSession } from '../../v0/agent/session.ts';
-import type { Message, ModelResult } from '../../v0/agent/contracts.ts';
-import type { SemanticContextCheckpointV1 } from '../../v0/agent/session_store.ts';
-import { Registry } from '../../v0/agent/tools.ts';
+import { AgentSession } from '../../v0/agent/session/session.ts';
+import type { Message, ModelResult } from '../../v0/agent/core/contracts.ts';
+import type { SemanticContextCheckpointV1 } from '../../v0/agent/session/session_store.ts';
+import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -151,7 +151,7 @@ Deno.test('Notice events land on the normal log without changing lifecycle', () 
 
 Deno.test('Adapter emits a notice row after automatic compaction', async () => {
   const { TuiPresentationAdapter } = await import(
-    '../../v0/agent/tui_presentation_adapter.ts'
+    '../../v0/presentation/adapter.ts'
   );
   const seen: unknown[] = [];
   const adapter = new TuiPresentationAdapter(

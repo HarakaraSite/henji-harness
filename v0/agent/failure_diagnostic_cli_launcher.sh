@@ -136,11 +136,11 @@ if [ "$mode" = 'delete' ]; then
     --allow-read="$repo_root" --allow-read="$workspace" \
     --allow-read="$diagnostics_dir" --allow-read="$locks_dir" --allow-read="$lock_path" \
     --allow-write="$selected_path" --allow-write="$lock_path" \
-    "$script_dir/failure_diagnostic_cli.ts" "$@"
+    "$script_dir/cli/failure_diagnostic_cli.ts" "$@"
 fi
 
 # Readback has no write, network, run, credential, or workspace-write capability.
 HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
   --allow-env=HENJI_SESSION_STATE_ROOT --allow-sys=uid \
   --allow-read="$repo_root" --allow-read="$workspace" --allow-read="$state_root" \
-  "$script_dir/failure_diagnostic_cli.ts" "$@"
+  "$script_dir/cli/failure_diagnostic_cli.ts" "$@"

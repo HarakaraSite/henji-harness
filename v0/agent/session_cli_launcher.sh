@@ -62,4 +62,4 @@ repo_root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
 deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno
 HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
   --allow-env=HENJI_SESSION_STATE_ROOT --allow-read="$repo_root" --allow-read="$workspace" \
-  --allow-read="$state_root" --allow-write="$state_root" "$script_dir/session_cli.ts" "$@"
+  --allow-read="$state_root" --allow-write="$state_root" "$script_dir/cli/session_cli.ts" "$@"

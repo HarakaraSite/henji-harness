@@ -1,15 +1,19 @@
-import { type Message } from '../../v0/agent/contracts.ts';
+import { type Message } from '../../v0/agent/core/contracts.ts';
 import {
   DenoHistoryExporter,
   type HistoryExporter,
   type HistoryExportReceipt,
   type HistoryExportRequest,
-} from '../../v0/agent/history_export.ts';
-import { createEditTool, createReadTool, resolveWorkspace } from '../../v0/agent/work_tools.ts';
-import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
-import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
-import { createAgentResourceIdentity } from '../../v0/agent/resource_identity.ts';
-import { emptySkillCatalog } from '../../v0/agent/skills.ts';
+} from '../../v0/agent/session/history_export.ts';
+import {
+  createEditTool,
+  createReadTool,
+  resolveWorkspace,
+} from '../../v0/agent/tools/work_tools.ts';
+import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
+import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
+import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,

@@ -2,7 +2,7 @@ import {
   readWorkerModuleRevision,
   WorkerCapsule,
   workerTextByteLength,
-} from '../../v0/agent/worker_capsule.ts';
+} from '../../v0/agent/worker/worker_capsule.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerClosedMessage,
@@ -12,45 +12,48 @@ import type {
   WorkerReadyMessage,
   WorkerRuntimeEventMessage,
   WorkerToHostMessage,
-} from '../../v0/agent/worker_protocol.ts';
-import type { AssistantMessage, Message } from '../../v0/agent/contracts.ts';
+} from '../../v0/agent/worker/worker_protocol.ts';
+import type { AssistantMessage, Message } from '../../v0/agent/core/contracts.ts';
 import type {
   Model,
   ModelGenerateOptions,
   ModelRequest,
   ModelResult,
-} from '../../v0/agent/contracts.ts';
-import type { AgentEvent } from '../../v0/agent/events.ts';
-import { Registry } from '../../v0/agent/tools.ts';
+} from '../../v0/agent/core/contracts.ts';
+import type { AgentEvent } from '../../v0/agent/core/events.ts';
+import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   DenoSessionStore,
   type SessionRecord,
   type WorkerSessionHandle,
-} from '../../v0/agent/session_store.ts';
+} from '../../v0/agent/session/session_store.ts';
 import {
   decodeProviderEvidence,
   encodeProviderEvidence,
   FakeProviderEvidenceStore,
-} from '../../v0/agent/provider_evidence.ts';
+} from '../../v0/agent/provider/provider_evidence.ts';
 import {
   createWorkerTuiSession,
   readDefinitionRevision,
   workerBuiltinModulePath,
   type WorkerHostCapsule,
   WorkerHostSession,
-} from '../../v0/agent/worker_host.ts';
-import { parseTuiInvocation } from '../../v0/agent/tui_cli.ts';
-import { createTuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
-import { WorkerGeneration, type WorkerGenerationPort } from '../../v0/agent/worker_runtime.ts';
+} from '../../v0/agent/worker/worker_host.ts';
+import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
+import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
+import {
+  WorkerGeneration,
+  type WorkerGenerationPort,
+} from '../../v0/agent/worker/worker_runtime.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import {
   DenoWorkerExecutionArtifactStore,
   FakeWorkerExecutionArtifactStore,
-} from '../../v0/agent/worker_execution_artifact_store.ts';
+} from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 import {
   main as failureDiagnosticMain,
   parseFailureDiagnosticArgs,
-} from '../../v0/agent/failure_diagnostic_cli.ts';
+} from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -66,11 +69,11 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 };
 
 const workerUrl = new URL(
-  '../../v0/agent/worker_bootstrap.ts',
+  '../../v0/agent/worker/worker_bootstrap.ts',
   import.meta.url,
 );
 const fixture = (name: string): string =>
-  new URL(`../../v0/agent/worker_fixtures/${name}`, import.meta.url).pathname;
+  new URL(`../../v0/agent/worker/fixtures/${name}`, import.meta.url).pathname;
 
 const correlation = (command: string) => ({
   session: 'worker-probe-session',
@@ -437,7 +440,7 @@ Deno.test('Slice 1 observes Worker permission narrowing without changing the pro
     capsule.send({
       kind: 'permission',
       correlation: correlation('permission'),
-      readSpecifier: new URL('../../v0/agent/worker_protocol.ts', import.meta.url).href,
+      readSpecifier: new URL('../../v0/agent/worker/worker_protocol.ts', import.meta.url).href,
       envKey: 'HOME',
     });
     const message = await capsule.waitForMessage(isRuntime);
@@ -476,7 +479,7 @@ const runCompositionTurn = async (
   const capsule = new WorkerCapsule(workerUrl);
   try {
     const definitionPath = definitionFile === 'worker_builtin_definition.ts'
-      ? new URL('../../v0/agent/worker_builtin_definition.ts', import.meta.url)
+      ? new URL('../../v0/agent/worker/worker_builtin_definition.ts', import.meta.url)
         .pathname
       : fixture(definitionFile);
     const revision = await readWorkerModuleRevision(definitionPath);
@@ -619,7 +622,7 @@ Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the 
   const capsule = new WorkerCapsule(workerUrl);
   try {
     const revision = await readWorkerModuleRevision(
-      new URL('../../v0/agent/worker_builtin_definition.ts', import.meta.url)
+      new URL('../../v0/agent/worker/worker_builtin_definition.ts', import.meta.url)
         .pathname,
     );
     const readyPromise = capsule.waitForMessage(isReady);
@@ -684,7 +687,7 @@ Deno.test('Slice 3 holds a user turn across automatic checkpoint proposal and Ho
   const sessionCorrelation = compactionCorrelation('compaction-start');
   try {
     const revision = await readWorkerModuleRevision(
-      new URL('../../v0/agent/worker_builtin_definition.ts', import.meta.url)
+      new URL('../../v0/agent/worker/worker_builtin_definition.ts', import.meta.url)
         .pathname,
     );
     const readyPromise = capsule.waitForMessage(isReady);
@@ -757,8 +760,8 @@ Deno.test('Slice 3 holds a user turn across automatic checkpoint proposal and Ho
 
 Deno.test('Compaction evidence and request counts stop at the checkpoint acknowledgement boundary', async () => {
   type FailedTurn = {
-    readonly outcome: import('../../v0/agent/contracts.ts').LoopOutcome;
-    readonly evidence: import('../../v0/agent/provider_evidence.ts').ProviderEvidenceV1;
+    readonly outcome: import('../../v0/agent/core/contracts.ts').LoopOutcome;
+    readonly evidence: import('../../v0/agent/provider/provider_evidence.ts').ProviderEvidenceV1;
   };
   const initialTranscript: Message[] = [];
   for (let turn = 1; turn <= 2; turn += 1) {
@@ -1261,12 +1264,12 @@ Deno.test('Worker execution artifact distinguishes Host store failure from commi
     readonly record = undefined;
     readonly checkpoint = undefined;
     commit(
-      _record: import('../../v0/agent/session_store.ts').StoredSessionRecord,
+      _record: import('../../v0/agent/session/session_store.ts').StoredSessionRecord,
     ): void {
       throw new Error('simulated Host store failure');
     }
     installCheckpoint(
-      _checkpoint: import('../../v0/agent/session_store.ts').SemanticContextCheckpointV1,
+      _checkpoint: import('../../v0/agent/session/session_store.ts').SemanticContextCheckpointV1,
     ): void {
       throw new Error('unexpected checkpoint');
     }
@@ -1887,7 +1890,7 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
   }
 
   const run = async (mode: Mode, failingKind: AgentEvent['kind']): Promise<{
-    readonly outcome: import('../../v0/agent/contracts.ts').LoopOutcome;
+    readonly outcome: import('../../v0/agent/core/contracts.ts').LoopOutcome;
     readonly host: WorkerHostSession;
     readonly capsule: EventFailureCapsule;
     readonly cleanup: () => Promise<void>;

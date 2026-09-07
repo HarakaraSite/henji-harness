@@ -1,0 +1,196 @@
+import {
+  createCharacterCountTool,
+  createFixtureTool,
+  createJsonArrayCountTool,
+  createJsonObjectKeysTool,
+  createJsonResultSubmissionTool,
+  Registry,
+  type Tool,
+} from './tools.ts';
+import {
+  createReadTool,
+  createWorkTools,
+  type Workspace,
+  type WorkToolSeams,
+} from './work_tools.ts';
+import { createSkillTool, type SkillCatalog } from '../definitions/skills.ts';
+import {
+  createPlannerDelegationTool,
+  type PlannerDelegationHandler,
+} from './planner_delegation.ts';
+import type { AgentCapabilityDeclaration } from '../definitions/agent_definition.ts';
+import type { AgentResourceIdentity } from '../definitions/resource_identity.ts';
+import { type BashOutputStore, createBashOutputStore } from './bash_output.ts';
+import {
+  isWorkToolComponentIdentity,
+  type ToolComponent,
+  ToolComponentCatalog,
+} from './tool_components.ts';
+import type { WebSearchBackend } from './web_search.ts';
+
+export const FIXED_JSON_PATH = 'deno.v0.json';
+
+/** Host-owned values needed to turn declarative capability identities into executable tools. */
+export interface RegistryMaterializationContext {
+  readonly workspace: Workspace;
+  readonly skillCatalog: SkillCatalog;
+  readonly workTools?: WorkToolSeams;
+  readonly bashOutputStore?: BashOutputStore;
+  readonly webSearchBackend?: WebSearchBackend;
+  readonly plannerDelegation?: PlannerDelegationHandler;
+  /** Explicit replacements for selected root work-tool components. */
+  readonly toolComponents?: readonly ToolComponent[];
+  /** Internal per-Registry catalog so every selected component shares one materialization set. */
+  readonly toolComponentCatalog?: ToolComponentCatalog;
+}
+
+const materializationFailure = (identity: AgentResourceIdentity): never => {
+  throw new Error(`unsupported agent capability: ${identity}`);
+};
+
+/**
+ * Materialize one declared tool identity.  This lookup is intentionally per-capability: the
+ * Definition declares membership and order while the host owns workspace/catalog/closures.
+ */
+export const createDeclaredTool = (
+  identity: AgentResourceIdentity,
+  context: RegistryMaterializationContext,
+): Tool => {
+  if (isWorkToolComponentIdentity(identity)) {
+    const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
+      createBashOutputStore();
+    const catalog = context.toolComponentCatalog ??
+      new ToolComponentCatalog(context.toolComponents);
+    return catalog.materialize(identity, {
+      workspace: context.workspace,
+      workTools: context.workTools ?? {},
+      bashOutputStore: outputStore,
+      webSearchBackend: context.webSearchBackend,
+    });
+  }
+  switch (`${identity}`) {
+    case 'tool:skill':
+      if (context.skillCatalog.skills.length === 0) return materializationFailure(identity);
+      return createSkillTool(context.skillCatalog);
+    case 'tool:delegate_to_planner':
+      if (context.plannerDelegation === undefined) return materializationFailure(identity);
+      return createPlannerDelegationTool(context.plannerDelegation);
+    case 'tool:submit_json_result':
+      return createJsonResultSubmissionTool();
+    default:
+      return materializationFailure(identity);
+  }
+};
+
+const hasIdentity = (
+  identities: readonly AgentResourceIdentity[],
+  identity: string,
+): boolean => identities.some((candidate) => `${candidate}` === identity);
+
+const declaredSkillNames = (
+  declaration: AgentCapabilityDeclaration,
+): readonly string[] => declaration.skills.map((identity) => `${identity}`.slice('skill:'.length));
+
+/**
+ * Materialize a Registry from the effective Definition declaration in declared order.
+ * Subagent identities do not create arbitrary runtime plugins; the built-in planner delegation
+ * handler is supplied by the host only when the declaration asks for that subagent.
+ */
+export const createDeclaredRegistry = (
+  declaration: AgentCapabilityDeclaration,
+  context: RegistryMaterializationContext,
+): Registry => {
+  for (const subagent of declaration.subagents) {
+    if (`${subagent}` !== 'subagent:planner') return materializationFailure(subagent);
+  }
+  const requiresPlanner = hasIdentity(declaration.subagents, 'subagent:planner');
+  const declaresDelegation = hasIdentity(declaration.tools, 'tool:delegate_to_planner');
+  if (requiresPlanner !== declaresDelegation) {
+    throw new Error('planner delegation declaration is incoherent');
+  }
+  if (requiresPlanner && context.plannerDelegation === undefined) {
+    throw new Error('declared planner subagent requires planner delegation handler');
+  }
+  if (hasIdentity(declaration.tools, 'tool:skill')) {
+    const declared = [...declaredSkillNames(declaration)].sort();
+    const materialized = context.skillCatalog.skills.map((skill) => skill.name).sort();
+    if (
+      declared.length !== materialized.length ||
+      declared.some((name, index) => name !== materialized[index])
+    ) {
+      throw new Error('declared skills do not match host skill catalog');
+    }
+  }
+  for (const replacement of context.toolComponents ?? []) {
+    if (!hasIdentity(declaration.tools, `${replacement.identity}`)) {
+      throw new Error(`work tool component is not selected: ${replacement.identity}`);
+    }
+  }
+  const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
+    createBashOutputStore();
+  const materializationContext = {
+    ...context,
+    bashOutputStore: outputStore,
+    toolComponentCatalog: new ToolComponentCatalog(context.toolComponents),
+  };
+  const tools = declaration.tools.map((identity) =>
+    createDeclaredTool(identity, materializationContext)
+  );
+  return new Registry(tools);
+};
+
+/** The exact five definitions used by the versioned corpus and eval runners. */
+export const createCorpusRegistry = (
+  readFile?: (path: string) => Promise<Uint8Array>,
+): Registry =>
+  new Registry([
+    createCharacterCountTool(),
+    createJsonArrayCountTool(),
+    createJsonObjectKeysTool({ allowedPath: FIXED_JSON_PATH, readFile }),
+    createJsonResultSubmissionTool(),
+    createFixtureTool(),
+  ]);
+
+/** The normal trusted-local production composition. */
+export const createProductionRegistry = (
+  workspace: Workspace,
+  seams: WorkToolSeams,
+  skillCatalog: SkillCatalog,
+  plannerDelegation: PlannerDelegationHandler,
+): Registry =>
+  new Registry(
+    [
+      ...createWorkTools(workspace, seams),
+      ...(skillCatalog.skills.length > 0 ? [createSkillTool(skillCatalog)] : []),
+      createPlannerDelegationTool(plannerDelegation),
+      createJsonResultSubmissionTool(),
+    ] as readonly Tool[],
+  );
+
+/**
+ * Explicit work-tools-only registry for the fixed offline sentinel. It is not a production
+ * Definition materializer and intentionally has no planner delegation capability.
+ */
+export const createWorkToolsRegistry = (
+  workspace: Workspace,
+  seams: WorkToolSeams = {},
+): Registry =>
+  new Registry(
+    [
+      ...createWorkTools(workspace, seams),
+      createJsonResultSubmissionTool(),
+    ] as readonly Tool[],
+  );
+
+/** The planner capability registry: context reads, optional saved skills, and JSON submission. */
+export const createPlannerRegistry = (
+  workspace: Workspace,
+  skillCatalog: SkillCatalog,
+): Registry =>
+  new Registry(
+    [
+      createReadTool(workspace),
+      ...(skillCatalog.skills.length > 0 ? [createSkillTool(skillCatalog)] : []),
+      createJsonResultSubmissionTool(),
+    ] as readonly Tool[],
+  );

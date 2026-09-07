@@ -14,10 +14,10 @@ import {
   type Model,
   type ToolCallContent,
   type ToolMessage,
-} from '../agent/contracts.ts';
-import { runAgent } from '../agent/loop.ts';
-import { createCorpusRegistry } from '../agent/registries.ts';
-import { Registry, type Registry as RegistryType } from '../agent/tools.ts';
+} from '../agent/core/contracts.ts';
+import { runAgent } from '../agent/core/loop.ts';
+import { createCorpusRegistry } from '../agent/tools/registries.ts';
+import { Registry, type Registry as RegistryType } from '../agent/tools/tools.ts';
 import { assertScriptedCorpusTaskSet, createScriptedCorpusModel } from './scripted_corpus_model.ts';
 
 export const MAX_STEPS = 8;

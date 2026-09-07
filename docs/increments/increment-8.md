@@ -30,7 +30,7 @@ production retained TUI human gateとユーザー受入は未実施。
 
 ## 実装範囲
 
-- `v0/agent/web_search.ts`
+- `v0/agent/tools/web_search.ts`
   - Sonar requestへgrounding用system messageを追加する。
   - modelが生成したqueryは書き換えず、具体的なquestionとしてuser messageへそのまま渡す。
   - `web_search_options.search_context_size`を`medium`へ変更する。

@@ -3,27 +3,30 @@ import type {
   ModelGenerateOptions,
   ModelRequest,
   ModelResult,
-} from '../../v0/agent/contracts.ts';
-import { ParentTurnExecutionContext, TurnRequestBudget } from '../../v0/agent/execution_context.ts';
-import { runAgent } from '../../v0/agent/loop.ts';
-import { ProviderEvidenceRecorder } from '../../v0/agent/provider_evidence.ts';
-import { PRODUCTION_PROFILE } from '../../v0/agent/provider_profile.ts';
+} from '../../v0/agent/core/contracts.ts';
+import {
+  ParentTurnExecutionContext,
+  TurnRequestBudget,
+} from '../../v0/agent/core/execution_context.ts';
+import { runAgent } from '../../v0/agent/core/loop.ts';
+import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
+import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
 import {
   materializePreparedRuntimeComposition,
   prepareRuntimeComposition,
-} from '../../v0/agent/runtime.ts';
-import { emptySkillCatalog } from '../../v0/agent/skills.ts';
-import { Registry } from '../../v0/agent/tools.ts';
+} from '../../v0/agent/runtime/runtime.ts';
+import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   createWebSearchTool,
   OPENROUTER_SONAR_SEARCH_MODEL,
   OpenRouterSonarWebSearchBackend,
-} from '../../v0/agent/web_search.ts';
+} from '../../v0/agent/tools/web_search.ts';
 import { createDefaultAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
-} from '../../v0/agent/worker_physical_io.ts';
+} from '../../v0/agent/worker/worker_physical_io.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,

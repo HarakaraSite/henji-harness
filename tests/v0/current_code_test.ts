@@ -1,39 +1,39 @@
-import * as agentCli from '../../v0/agent/cli.ts';
-import type { LoopOutcome, ModelRequest, ToolCall } from '../../v0/agent/contracts.ts';
-import type { AgentEvent } from '../../v0/agent/events.ts';
-import { ParentTurnExecutionContext } from '../../v0/agent/execution_context.ts';
-import { runAgent } from '../../v0/agent/loop.ts';
-import { createPlannerDelegationTool } from '../../v0/agent/planner_delegation.ts';
-import { AgentSession } from '../../v0/agent/session.ts';
-import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools.ts';
+import * as agentCli from '../../v0/agent/cli/fixture_cli.ts';
+import type { LoopOutcome, ModelRequest, ToolCall } from '../../v0/agent/core/contracts.ts';
+import type { AgentEvent } from '../../v0/agent/core/events.ts';
+import { ParentTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
+import { runAgent } from '../../v0/agent/core/loop.ts';
+import { createPlannerDelegationTool } from '../../v0/agent/tools/planner_delegation.ts';
+import { AgentSession } from '../../v0/agent/session/session.ts';
+import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import {
   DEFAULT_AGENT_MAX_STEPS,
   defaultAgentDefinition,
   plannerAgentDefinition,
-} from '../../v0/agent/agent_definition.ts';
-import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider_profile.ts';
-import { admitInternalAgentDefinition } from '../../v0/agent/agent_catalog.ts';
-import { emptySkillCatalog } from '../../v0/agent/skills.ts';
-import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
+} from '../../v0/agent/definitions/agent_definition.ts';
+import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider/provider_profile.ts';
+import { admitInternalAgentDefinition } from '../../v0/agent/definitions/agent_catalog.ts';
+import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
 import {
   decodeSessionRecord,
   encodeSessionRecord,
   restoredMessages,
-} from '../../v0/agent/session_store.ts';
-import { MAX_REPLAY_MESSAGE_TEXT_BYTES } from '../../v0/agent/replay_value.ts';
+} from '../../v0/agent/session/session_store.ts';
+import { MAX_REPLAY_MESSAGE_TEXT_BYTES } from '../../v0/agent/session/replay_value.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import {
   createAgentResourceSelection,
   validateResolvedAgentResources,
-} from '../../v0/agent/resource_identity.ts';
-import { type AgentResolvedManifestV1 } from '../../v0/agent/resolved_manifest.ts';
+} from '../../v0/agent/definitions/resource_identity.ts';
+import { type AgentResolvedManifestV1 } from '../../v0/agent/definitions/resolved_manifest.ts';
 import {
   materializePreparedRuntimeComposition,
   prepareRuntimeComposition,
-} from '../../v0/agent/runtime.ts';
-import { displayWorkspaceLabel } from '../../v0/agent/startup_orientation.ts';
+} from '../../v0/agent/runtime/runtime.ts';
+import { displayWorkspaceLabel } from '../../v0/agent/runtime/startup_orientation.ts';
 import {
   createAgentResourceIdentity,
   createDefaultAgentComposition,
@@ -45,8 +45,8 @@ import {
 import {
   freshRuntimeComparisonCase,
   runFreshRuntimeComparison,
-} from '../../v0/agent/fresh_runtime_comparison.ts';
-import type { WebSearchBackend } from '../../v0/agent/web_search.ts';
+} from '../../v0/agent/validation/fresh_runtime_comparison.ts';
+import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,

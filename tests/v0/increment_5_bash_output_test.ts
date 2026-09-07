@@ -9,13 +9,13 @@ import {
   BashOutputPersistenceError,
   createBashOutputStoreForTest,
   createBashOutputTool,
-} from '../../v0/agent/bash_output.ts';
-import { Registry, ToolInputError } from '../../v0/agent/tools.ts';
-import { TurnCancelledError } from '../../v0/agent/cancellation.ts';
-import { createBashTool } from '../../v0/agent/work_tools.ts';
-import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
-import { createAgentResourceIdentity } from '../../v0/agent/resource_identity.ts';
-import { emptySkillCatalog } from '../../v0/agent/skills.ts';
+} from '../../v0/agent/tools/bash_output.ts';
+import { Registry, ToolInputError } from '../../v0/agent/tools/tools.ts';
+import { TurnCancelledError } from '../../v0/agent/core/cancellation.ts';
+import { createBashTool } from '../../v0/agent/tools/work_tools.ts';
+import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
+import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,

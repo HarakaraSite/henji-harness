@@ -1,7 +1,7 @@
 import {
   CredentialFileError,
   parseCredentialBytes as parseSharedCredentialBytes,
-} from '../agent/credential_file.ts';
+} from '../agent/provider/credential_file.ts';
 
 /**
  * Fixed, repo-external credential transport for the separately authorized live

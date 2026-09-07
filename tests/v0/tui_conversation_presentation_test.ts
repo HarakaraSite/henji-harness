@@ -7,7 +7,7 @@ import {
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
-import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
+import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import { type AssistantContentRenderer } from '../../v0/tui/conversation_renderer.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
