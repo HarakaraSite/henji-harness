@@ -1,6 +1,6 @@
 import { createUiState, reduceUiAction } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
-import { TuiEditor } from '../../v0/tui/input.ts';
+import { TuiEditor, TuiEditorHistory } from '../../v0/tui/input.ts';
 import { layoutEditorText, pendingMetadataRows, TuiRenderer } from '../../v0/tui/render.ts';
 import { TuiController, TuiControllerError, type TuiSessionLike } from '../../v0/tui/controller.ts';
 import {
@@ -491,6 +491,151 @@ Deno.test('retained controller keeps the anchor when ordinary task admission fai
   await waitFor(() => renderer.stateSnapshot().status === 'active task recovery pending');
   assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
   terminal.push('\x04\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('cancelled active task returns to the empty editor and can be resubmitted', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  let settleCancelled: (() => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: (task) => {
+      submitted.push(task);
+      if (submitted.length > 1) {
+        return Promise.resolve({
+          ok: true,
+          task,
+          outcome: 'final',
+          stopReason: 'final',
+          finalText: 'done',
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+        });
+      }
+      return new Promise((resolve) => {
+        settleCancelled = () =>
+          resolve({
+            ok: false,
+            task,
+            outcome: 'cancelled',
+            stopReason: 'cancelled',
+            error: 'cancelled',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      });
+    },
+    cancelActiveTurn: () => {
+      settleCancelled?.();
+      return 'requested';
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  const task = 'READMEを韓国語に翻訳して表示して';
+  terminal.push(`${task}\r`);
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('\x1b');
+  await waitFor(() => controller.currentState === 'idle' && controller.editor.text === task);
+  assertEquals(renderer.stateSnapshot().status, 'recovered input; edit or resubmit');
+
+  terminal.push('\r');
+  await waitFor(() => submitted.length === 2 && controller.currentState === 'idle');
+  assertEquals(submitted, [task, task]);
+  assert(!renderer.stateSnapshot().status.includes('active task recovery pending'));
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('occupied editor keeps recoverable task until idle /recover', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let settleFailure: (() => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: (task) =>
+      new Promise((resolve) => {
+        settleFailure = () =>
+          resolve({
+            ok: false,
+            task,
+            outcome: 'contract_failure',
+            stopReason: 'contract_failure',
+            error: 'failed',
+            steps: 1,
+            toolCallCount: 1,
+            toolResultCount: 1,
+            transcript: [],
+          });
+      }),
+  };
+  const pending = new PendingInputCore();
+  const controller = new TuiController(lifecycle, renderer, session, { pending });
+  const run = controller.run();
+  terminal.push('original task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('draft in progress');
+  await waitFor(() => controller.editor.text === 'draft in progress');
+  settleFailure?.();
+  await waitFor(() => controller.currentState === 'idle');
+  assertEquals(controller.editor.text, 'draft in progress');
+  assert(pending.hasRecovery);
+  assert(renderer.stateSnapshot().status.includes('tools may have changed the workspace'));
+
+  terminal.push('\x15/recover\r');
+  await waitFor(() => controller.editor.text === 'original task');
+  assert(!pending.hasRecovery);
+  assertEquals(
+    renderer.stateSnapshot().status,
+    'tools may have changed the workspace; inspect before resubmitting',
+  );
+  terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('idle Ctrl-C clears input without arming or triggering exit', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  const history = new TuiEditorHistory();
+  const controller = new TuiController(lifecycle, renderer, successfulSession(submitted), {
+    pending: new PendingInputCore(),
+    history,
+  });
+  let exited = false;
+  const run = controller.run().then((code) => {
+    exited = true;
+    return code;
+  });
+  terminal.push('remember this\r');
+  await waitFor(() => submitted.length === 1 && controller.currentState === 'idle');
+  terminal.push('line one\x1b\rline two');
+  await waitFor(() => controller.editor.text === 'line one\nline two');
+  terminal.push('\x03');
+  await waitFor(() => controller.editor.text.length === 0);
+  assertEquals(controller.currentState, 'idle');
+  assert(!exited);
+  terminal.push('\x1b[A');
+  await waitFor(() => history.navigating && controller.editor.text === 'remember this');
+  terminal.push('\x03');
+  await waitFor(() => controller.editor.text.length === 0 && !history.navigating);
+  terminal.push('\x03');
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assertEquals(controller.currentState, 'idle');
+  assert(!exited);
+  terminal.push('\x04');
   assertEquals(await run, 0);
 });
 

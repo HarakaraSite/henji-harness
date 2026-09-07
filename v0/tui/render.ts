@@ -370,7 +370,7 @@ export const startupOrientationLines = (
   `trust> ${orientationTrust(state)}`,
   'keys> Enter submit · Alt+Return newline · arrows/Home/End move · Ctrl-W delete',
   'keys> Up/Down history · Tab path',
-  'keys> busy Enter steer · Alt+Enter follow-up · Esc cancel · Ctrl-C/D exit',
+  'keys> idle Ctrl-C clear · Ctrl-D exit · busy Esc cancel · Ctrl-C twice discard/exit',
 ];
 
 const clippedWorkspace = (value: string, columns: number): string => {

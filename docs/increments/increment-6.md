@@ -1,6 +1,7 @@
 # 通常利用 increment 6 — recoverable inputとwork tool component化
 
-ステータス: 初期実装計画review GO。2026-09-07にユーザーが計画を承認し、実装開始可能。
+ステータス: local実装、focused verification、bounded implementation review、authoritative offline gateは
+2026-09-07に完了。production retained TUI human gate待ち。
 
 ## この文書の位置付け
 

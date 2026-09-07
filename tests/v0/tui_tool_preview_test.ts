@@ -130,6 +130,7 @@ Deno.test('Slash commands parse exact built-ins only', () => {
   assertEquals(slashCommandOf('/help'), 'help');
   assertEquals(slashCommandOf('/sessions'), 'sessions');
   assertEquals(slashCommandOf('/history export'), 'history_export');
+  assertEquals(slashCommandOf('/recover'), 'recover');
   assertEquals(slashCommandOf('/exit'), 'exit');
   assertEquals(slashCommandOf('  /sessions  '), 'sessions');
   assertEquals(slashCommandOf('read foo.ts'), null);

@@ -98,6 +98,13 @@ registryをmaterializeした後にAgentCompositionのsystem instructionへ合成
 `offset`・`limit`による継続読込みの指針をdefault parentとplannerへ、切り捨てられた`bash`出力を
 `bash_output`の`outputId`と`nextOffset`で継続取得する指針を、そのtoolを持つdefault parentだけへ合成する。
 
+現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`をWorker-local
+`ToolComponentCatalog`からmaterializeする。built-in componentは既存tool factoryをruntime bindingへ結び付ける
+薄いfactoryである。Executable Definitionはroot compositionで選択済みの同一`tool:*` identity・tool nameの
+componentを明示置換し、model向けcontract、guideline、executorを差し替えられる。置換はdelegated
+plannerへ暗黙に伝播せず、manifestには従来どおりdata-only resource identityだけを記録する。新しい
+tool identityの追加、plugin探索、hot reload、componentの独立revision・import dependency lineageはまだない。
+
 default parentの`bash`と`bash_output`は、一つのRegistry lifetimeで一つのtemporary output storeを共有する。
 4 KiBを超えたstdout/stderrはprocess-localなopaque identityへ保存し、UTF-8 byte offsetのbounded windowで
 後続callから取得できる。storeは`/tmp`で一つのfile handleを開いて直ちにunlinkし、1 command 32 MiB、
@@ -148,6 +155,12 @@ Terminal TUIの起動中は現在のSessionの画面をalternate screenへ隔離
 terminal scrollbackへ途中frameを蓄積しない。正常終了、cancel、signal、出力失敗では、input、terminal
 mode、起動前画面、cursorをHostが復元する。未送信draft、viewport、入力履歴などのUI-local stateと、
 Host storageに保存するcanonical transcriptやSession identityは区別する。
+
+recoverable settlementで未commitのactive taskが残る場合、Hostは空のeditorへそのtextを一回戻し、
+人間の明示的な編集・再送を待つ。別draftがある場合はrecovery laneに保持し、Host-local `/recover`で
+一件ずつ取り出す。これらのeditor操作はcanonical Sessionへcommitしない。idle Ctrl-Cはeditorと
+input-history navigationだけをclearし、exitは空editorのCtrl-Dまたは`/exit`で明示する。busy cancelと
+外部signalの遷移は別に保つ。
 
 具体的なkey binding、slash command、表示量、editor機能はarchitectureの固定事項にしない。人間の通常利用で
 観測した必要に応じ、roadmap上のTUI incrementとして変更できる。第二Surfaceまたは一般的なSurface load /

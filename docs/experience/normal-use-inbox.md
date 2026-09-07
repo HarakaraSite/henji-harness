@@ -10,8 +10,8 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
-increment 4へ採用した四項目は`docs/increments/increment-4.md`、increment 5へ採用したlabel色と`bash`全出力
-readbackは`docs/increments/increment-5.md`へ移した。以下は各incrementへ採用していない観測と候補だけを残す。
+increment 4から6へ採用した項目は各`docs/increments/increment-N.md`へ移した。以下は各incrementへ
+採用していない観測と候補だけを残す。
 
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
@@ -22,33 +22,6 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   `q`/Esc。
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
-
-### Surface: recoverable inputとCtrl-C（F01、F10）
-
-通常利用での観測:
-
-- increment 5のproduction確認中、`bash`と二回の`bash_output`が成功した後、providerがvisible contentを
-  空にしたまま`finish_reason: stop`を返し、turnは`contract_failure`になった。TUIは失敗したtaskを
-  recoverable active-task laneへ保持したが、同じpromptを再送すると`active task recovery pending`として
-  拒否した。
-- `PendingInputCore.popRecovery()`とcontroller内のeditor復元処理は存在する一方、現行key eventまたはslash
-  commandからその処理へ到達する入口がない。同じTUI process内では、保持したtaskをeditorへ戻して編集・
-  再送できず、double Ctrl-C/Ctrl-Dでprocess-local inputを破棄して再起動する必要がある。
-- idleでpromptを編集中のCtrl-Cは、現在のshell型操作感と異なり、pending inputの破棄確認とprocess終了へ
-  進む。利用者はshellと同様に、Ctrl-Cを現在の入力バッファのclearとして使いたい。
-
-改善候補:
-
-- recoverable active taskをeditorへ一回戻し、必要なら編集して明示的に再送できるUI操作を接続する。
-- 少なくともidle時のCtrl-Cは現在のeditor inputをclearしてreadyへ戻す。active task実行中のcancel、
-  recoverable laneの扱い、process終了操作との分担は、採用incrementで既存pending-input contractと合わせて
-  決める。
-
-現在の扱い:
-
-- ユーザーが2026-09-07にincrement 6へ採用した。確定scopeとreview済み初期実装計画は
-  `docs/increments/increment-6.md`を正本とする。increment 5の`bash_output`自体は末尾まで取得できており、
-  このrecovery UI問題とは分けて扱う。
 
 ### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
@@ -123,7 +96,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 - byte・line上限はtool実装またはtool設定、tool固有の選択指針はtool definition metadata、有効toolと
   指針の合成はAgentCompositionの責務候補として検討する。既存`read`、`write`、`edit`、`bash`、
-  `bash_output`のcomponent化はincrement 6へ採用し、`web_search`追加より先に実施する。
+  `bash_output`のcomponent化はincrement 6で実装済み。
 - tool利用効率は現時点ではF02・F06の通常改善として扱う。ここで整えるtool metadataやinterfaceは将来の
   F24実装基盤として再利用できるが、それだけでF24完了とはしない。
 - `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5へ移した。他toolの
@@ -147,12 +120,11 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 現行component境界の確認:
 
-- 現行の`Tool`はname、description、input schema、executorを一単位にし、`Registry`がproviderへ渡す
-  definition生成とtool call時のexecutor解決を担う。`AgentComposition`も`Registry`を保持するため、実行時の
-  部品としてはcomponent化されている。
-- `AgentDefinition`は`tool:read`や`tool:bash`等をresource identityとして表現できるが、実際のmaterializeは
-  core内の固定switchである。公開`@henji/agent`にも任意のtool componentを追加・差し替えるauthoring APIは
-  ないため、external Definitionが新しいtoolやmetadata variantを通常の契約で組み込める状態ではない。
+- 現行の`Tool`はname、description、input schema、guideline、executorを一単位にし、`Registry`がproviderへ
+  渡すdefinition生成とtool call時のexecutor解決を担う。
+- increment 6で、選択済みの`read`、`write`、`edit`、`bash`、`bash_output`をWorker-local
+  `ToolComponentCatalog`からmaterializeする境界を追加した。公開`@henji/agent`のroot composition optionで
+  同一identity・nameのcomponentを明示置換できる。選択されていない新tool identityの追加はまだない。
 - 現在の`DefinitionRevisionRef`はentry moduleを固定するが、別moduleとしてimportするtool componentまで
   含むdependency lineageは未実装である。したがって、toolは「実行component」ではあるが「独立したrevisionを
   持ち、自己改訂候補としてDefinitionへ組み込めるcomponent」にはまだなっていない。

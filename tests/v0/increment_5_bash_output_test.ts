@@ -13,6 +13,9 @@ import {
 import { Registry, ToolInputError } from '../../v0/agent/tools.ts';
 import { TurnCancelledError } from '../../v0/agent/cancellation.ts';
 import { createBashTool } from '../../v0/agent/work_tools.ts';
+import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/resource_identity.ts';
+import { emptySkillCatalog } from '../../v0/agent/skills.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -264,6 +267,53 @@ Deno.test('bash keeps short JSON stable and exposes complete stdout and stderr r
       (await store.read(outputId, 'stderr', 0, 5_000)).text.length,
       5_000,
     );
+  } finally {
+    await store.close();
+    await Deno.remove(workspace, { recursive: true });
+  }
+});
+
+Deno.test('declared bash components share one output store for readback', async () => {
+  const workspace = await Deno.makeTempDir({
+    dir: '/tmp',
+    prefix: 'henji-bash-component-test-',
+  });
+  const store = createBashOutputStoreForTest({
+    limits: {
+      commandBytes: 32 * 1024,
+      registryBytes: 64 * 1024,
+      retainedStreams: 8,
+      segmentBytes: 1024,
+    },
+  });
+  try {
+    const registry = createDeclaredRegistry({
+      instructions: [],
+      skills: [],
+      tools: ['tool:bash', 'tool:bash_output'].map(createAgentResourceIdentity),
+      subagents: [],
+    }, {
+      workspace: { root: workspace },
+      skillCatalog: emptySkillCatalog(),
+      bashOutputStore: store,
+    });
+    const execution = await registry.dispatch({
+      callId: 'bash-component',
+      name: 'bash',
+      arguments: { command: "printf '%05000d' 0" },
+    });
+    const result = JSON.parse(execution.content.text) as Record<string, unknown>;
+    assertEquals(result.stdoutTruncated, true);
+    assert(typeof result.outputId === 'string');
+    const readback = await registry.dispatch({
+      callId: 'bash-output-component',
+      name: 'bash_output',
+      arguments: { outputId: result.outputId, stream: 'stdout', offset: 4096 },
+    });
+    const window = JSON.parse(readback.content.text) as Record<string, unknown>;
+    assertEquals(window.offset, 4096);
+    assertEquals(window.complete, true);
+    assertEquals(typeof window.text === 'string' ? window.text.length : -1, 904);
   } finally {
     await store.close();
     await Deno.remove(workspace, { recursive: true });

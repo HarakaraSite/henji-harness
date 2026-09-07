@@ -114,7 +114,7 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
 
-export type SlashCommand = 'help' | 'sessions' | 'history_export' | 'exit';
+export type SlashCommand = 'help' | 'sessions' | 'history_export' | 'recover' | 'exit';
 
 /** Exact-match built-in slash parse; args and unknown names are 'unknown', plain tasks are null. */
 export const slashCommandOf = (
@@ -123,7 +123,10 @@ export const slashCommandOf = (
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
   if (trimmed === '/history export') return 'history_export';
-  if (trimmed === '/help' || trimmed === '/sessions' || trimmed === '/exit') {
+  if (
+    trimmed === '/help' || trimmed === '/sessions' || trimmed === '/recover' ||
+    trimmed === '/exit'
+  ) {
     return trimmed.slice(1) as SlashCommand;
   }
   return 'unknown';
@@ -142,7 +145,7 @@ export class TuiController {
   private steeringAccepted = false;
   private followUpSlot: FollowUpSlot = 'closed';
   private followUpText: string | null = null;
-  private firstCtrlCAt: number | null = null;
+  private firstIdleSigintAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private compactionAbort: AbortController | null = null;
   private compactionOperation: Promise<void> | null = null;
@@ -658,8 +661,11 @@ export class TuiController {
         continue;
       }
       if (event.kind === 'enter') {
-        if (busy && slashCommandOf(this.editor.text) === 'history_export') {
+        const slashCommand = slashCommandOf(this.editor.text);
+        if (busy && slashCommand === 'history_export') {
           this.renderer.setStatus('busy; /history export waits for ready');
+        } else if (busy && slashCommand === 'recover') {
+          this.renderer.setStatus('busy; /recover waits for ready');
         } else if (busy) this.submitSteeringIfNonblank();
         else if (!this.trySlashCommand()) this.submitIfNonblank();
         continue;
@@ -1404,12 +1410,7 @@ export class TuiController {
     } else void this.shutdown(0);
   }
   private modernCtrlC(): void {
-    if (this.hasProcessPending()) {
-      this.armDiscardConfirmation(
-        'ctrl_c',
-        'pending input; Ctrl-C again to discard and exit',
-      );
-    } else this.idleCtrlC();
+    this.idleCtrlC();
   }
   private hasProcessPending(): boolean {
     return this.editor.text.length > 0 || this.pending?.hasRecovery === true ||
@@ -1498,7 +1499,7 @@ export class TuiController {
       this.renderer.setStatus(
         'tools may have changed the workspace; inspect before resubmitting',
       );
-    }
+    } else this.renderer.setStatus('recovered input; edit or resubmit');
   }
 
   private processBusyEvent(event: InputEvent): void {
@@ -1535,6 +1536,8 @@ export class TuiController {
         case 'enter':
           if (slashCommandOf(this.editor.text) === 'history_export') {
             this.renderer.setStatus('busy; /history export waits for ready');
+          } else if (slashCommandOf(this.editor.text) === 'recover') {
+            this.renderer.setStatus('busy; /recover waits for ready');
           } else if (steeringAvailable) this.submitSteeringIfNonblank();
           else this.renderer.setStatus('steering unavailable');
           break;
@@ -1549,9 +1552,12 @@ export class TuiController {
           break;
       }
     } else if (event.kind === 'enter') {
+      const slashCommand = slashCommandOf(this.editor.text);
       this.renderer.setStatus(
-        slashCommandOf(this.editor.text) === 'history_export'
+        slashCommand === 'history_export'
           ? 'busy; /history export waits for ready'
+          : slashCommand === 'recover'
+          ? 'busy; /recover waits for ready'
           : 'steering unavailable',
       );
     }
@@ -1566,7 +1572,7 @@ export class TuiController {
       // Keep the whole hint in one ' · '-free segment so the footer keeps it
       // instead of popping the valid list at narrow widths.
       this.renderer.setStatus(
-        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /history export, /exit`,
+        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /history export, /recover, /exit`,
       );
       return true;
     }
@@ -1577,6 +1583,7 @@ export class TuiController {
     if (command === 'help') this.openStartupHelp();
     else if (command === 'sessions') this.openPicker();
     else if (command === 'history_export') this.startHistoryExport();
+    else if (command === 'recover') this.popRecovery();
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
@@ -1776,6 +1783,10 @@ export class TuiController {
       return;
     }
     this.state = 'idle';
+    if (recoverable && this.editor.text.length === 0 && this.pending?.hasRecovery === true) {
+      this.popRecovery();
+      return;
+    }
     (this.renderer as TuiRenderer & {
       setPendingMetadata?: (
         value: ReturnType<PendingInputCore['snapshot']> | undefined,
@@ -1836,18 +1847,40 @@ export class TuiController {
   }
 
   private idleCtrlC(): void {
+    this.discardIntent = null;
+    this.editor.clear();
+    this.history.resetNavigation();
+    this.renderEditorState();
+    this.renderer.setStatus(
+      this.pending?.hasRecovery === true
+        ? 'ready · recoverable input available; use /recover'
+        : this.readyStatus(),
+    );
+  }
+
+  /** Preserve the pre-increment-6 external SIGINT transition independently of keyboard Ctrl-C. */
+  private idleSigint(): void {
+    if (this.modern && this.hasProcessPending()) {
+      this.armDiscardConfirmation(
+        'ctrl_c',
+        'pending input; Ctrl-C again to discard and exit',
+      );
+      return;
+    }
     const now = Date.now();
-    if (this.firstCtrlCAt !== null && now - this.firstCtrlCAt <= 500) {
+    if (this.firstIdleSigintAt !== null && now - this.firstIdleSigintAt <= 500) {
       void this.shutdown(0);
       return;
     }
     this.editor.clear();
     this.renderer.setEditor('');
-    this.firstCtrlCAt = now;
+    this.firstIdleSigintAt = now;
     this.renderer.setStatus('press Ctrl-C again to exit');
     setTimeout(() => {
-      if (this.firstCtrlCAt !== null && Date.now() - this.firstCtrlCAt > 500) {
-        this.firstCtrlCAt = null;
+      if (
+        this.firstIdleSigintAt !== null && Date.now() - this.firstIdleSigintAt > 500
+      ) {
+        this.firstIdleSigintAt = null;
       }
     }, 501);
   }
@@ -1964,7 +1997,7 @@ export class TuiController {
     }
     if (signal === 'SIGINT') {
       if (this.state === 'busy') this.busyCtrlC();
-      else this.modern ? this.modernCtrlC() : this.idleCtrlC();
+      else this.idleSigint();
       return;
     }
     const code = signal === 'SIGTERM' ? 143 : 129;

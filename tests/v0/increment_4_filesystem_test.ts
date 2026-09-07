@@ -7,6 +7,9 @@ import {
 } from '../../v0/agent/history_export.ts';
 import { createEditTool, createReadTool, resolveWorkspace } from '../../v0/agent/work_tools.ts';
 import { TuiPresentationAdapter } from '../../v0/agent/tui_presentation_adapter.ts';
+import { createDeclaredRegistry } from '../../v0/agent/registries.ts';
+import { createAgentResourceIdentity } from '../../v0/agent/resource_identity.ts';
+import { emptySkillCatalog } from '../../v0/agent/skills.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -76,6 +79,42 @@ Deno.test('read keeps small calls exact and returns complete line windows with c
       read.execute({ path: 'sample.txt', offset: 0 }),
       /invalid read arguments/u,
     );
+  });
+});
+
+Deno.test('declared work components preserve write, edit, and read behavior', async () => {
+  await withTempWorkspace(async (_stateRoot, workspaceRoot) => {
+    const workspace = await resolveWorkspace(workspaceRoot);
+    const registry = createDeclaredRegistry({
+      instructions: [],
+      skills: [],
+      tools: ['tool:write', 'tool:edit', 'tool:read'].map(createAgentResourceIdentity),
+      subagents: [],
+    }, {
+      workspace,
+      skillCatalog: emptySkillCatalog(),
+    });
+    const written = await registry.dispatch({
+      callId: 'write-component',
+      name: 'write',
+      arguments: { path: 'component.txt', content: 'alpha\nbeta\n' },
+    });
+    assertEquals(written.content.outcome, 'success');
+    const edited = await registry.dispatch({
+      callId: 'edit-component',
+      name: 'edit',
+      arguments: {
+        path: 'component.txt',
+        edits: [{ oldText: 'beta', newText: '韓国語' }],
+      },
+    });
+    assertEquals(edited.content.outcome, 'success');
+    const read = await registry.dispatch({
+      callId: 'read-component',
+      name: 'read',
+      arguments: { path: 'component.txt' },
+    });
+    assertEquals(read.content.text, 'alpha\n韓国語\n');
   });
 });
 

@@ -35,9 +35,12 @@ import {
 } from '../../v0/agent/runtime.ts';
 import { displayWorkspaceLabel } from '../../v0/agent/startup_orientation.ts';
 import {
+  createAgentResourceIdentity,
   createDefaultAgentComposition,
   createPlannerAgentComposition,
+  type ExecutableAgentDefinition,
   finalizeRootAgentComposition,
+  type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
 import {
   freshRuntimeComparisonCase,
@@ -430,6 +433,87 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assert(plannerRequest !== undefined);
   assert(plannerRequest.request.systemInstruction?.includes(guideline));
   assertEquals(plannerRequest.request.systemInstruction?.split(guideline).length, 2);
+});
+
+Deno.test('Executable Definition replaces one selected root tool component only', async () => {
+  const plannerRequests: ModelRequest[] = [];
+  let readMaterializations = 0;
+  const replacement: ToolComponent = {
+    identity: createAgentResourceIdentity('tool:read'),
+    materialize: () => {
+      readMaterializations += 1;
+      return {
+        name: 'read',
+        description: 'Definition-local read replacement',
+        inputSchema: {
+          type: 'object',
+          properties: { query: { type: 'string' } },
+          required: ['query'],
+          additionalProperties: false,
+        },
+        promptGuidelines: ['Use the Definition-local read replacement.'],
+        execute: () => 'replacement result',
+      };
+    },
+  };
+  const input = {
+    workspace: { root: '/definition-test' },
+    skillCatalog: emptySkillCatalog(),
+    physicalIo: {
+      createModel: (role: 'parent' | 'planner') => ({
+        generate: (request: ModelRequest) => {
+          if (role === 'planner') plannerRequests.push(request);
+          return { kind: 'final' as const, text: 'done' };
+        },
+      }),
+    },
+  };
+  const definition: ExecutableAgentDefinition = (definitionInput) =>
+    createDefaultAgentComposition(definitionInput, { toolComponents: [replacement] });
+  const root = definition(input);
+  assertEquals(readMaterializations, 1);
+  assertEquals(
+    root.registry.definitions().find((tool) => tool.name === 'read'),
+    {
+      name: 'read',
+      description: 'Definition-local read replacement',
+      inputSchema: {
+        type: 'object',
+        properties: { query: { type: 'string' } },
+        required: ['query'],
+        additionalProperties: false,
+      },
+    },
+  );
+  const replacementResult = await root.registry.dispatch({
+    callId: 'read-replacement',
+    name: 'read',
+    arguments: { query: 'README.md' },
+  });
+  assertEquals(replacementResult.content.text, 'replacement result');
+  assert(root.systemInstruction?.includes('Use the Definition-local read replacement.'));
+  assert(root.manifest.resources.includes('tool:read'));
+  assert(!JSON.stringify(root.manifest).includes('replacement result'));
+
+  const delegated = await root.registry.dispatch(
+    delegationCall(),
+    new ParentTurnExecutionContext(1),
+  );
+  assertEquals(delegated.content.outcome, 'success');
+  assertEquals(plannerRequests.length, 1);
+  const plannerRead = plannerRequests[0].tools.find((tool) => tool.name === 'read');
+  assert(plannerRead !== undefined);
+  assertEquals(
+    plannerRead.description,
+    'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
+  );
+  assert(!plannerRequests[0].systemInstruction?.includes('Definition-local'));
+
+  const builtin = createDefaultAgentComposition(input);
+  assertEquals(
+    builtin.registry.definitions().find((tool) => tool.name === 'read')?.description,
+    plannerRead.description,
+  );
 });
 
 Deno.test('root maxSteps finalization keeps Definition evidence coherent', () => {

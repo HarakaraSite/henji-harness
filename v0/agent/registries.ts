@@ -8,11 +8,8 @@ import {
   type Tool,
 } from './tools.ts';
 import {
-  createBashTool,
-  createEditTool,
   createReadTool,
   createWorkTools,
-  createWriteTool,
   type Workspace,
   type WorkToolSeams,
 } from './work_tools.ts';
@@ -23,11 +20,12 @@ import {
 } from './planner_delegation.ts';
 import type { AgentCapabilityDeclaration } from './agent_definition.ts';
 import type { AgentResourceIdentity } from './resource_identity.ts';
+import { type BashOutputStore, createBashOutputStore } from './bash_output.ts';
 import {
-  type BashOutputStore,
-  createBashOutputStore,
-  createBashOutputTool,
-} from './bash_output.ts';
+  isWorkToolComponentIdentity,
+  type ToolComponent,
+  ToolComponentCatalog,
+} from './tool_components.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -38,6 +36,10 @@ export interface RegistryMaterializationContext {
   readonly workTools?: WorkToolSeams;
   readonly bashOutputStore?: BashOutputStore;
   readonly plannerDelegation?: PlannerDelegationHandler;
+  /** Explicit replacements for selected root work-tool components. */
+  readonly toolComponents?: readonly ToolComponent[];
+  /** Internal per-Registry catalog so every selected component shares one materialization set. */
+  readonly toolComponentCatalog?: ToolComponentCatalog;
 }
 
 const materializationFailure = (identity: AgentResourceIdentity): never => {
@@ -52,23 +54,18 @@ export const createDeclaredTool = (
   identity: AgentResourceIdentity,
   context: RegistryMaterializationContext,
 ): Tool => {
+  if (isWorkToolComponentIdentity(identity)) {
+    const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
+      createBashOutputStore();
+    const catalog = context.toolComponentCatalog ??
+      new ToolComponentCatalog(context.toolComponents);
+    return catalog.materialize(identity, {
+      workspace: context.workspace,
+      workTools: context.workTools ?? {},
+      bashOutputStore: outputStore,
+    });
+  }
   switch (`${identity}`) {
-    case 'tool:bash':
-      return createBashTool(
-        context.workspace,
-        context.bashOutputStore ?? context.workTools?.bashOutputStore ?? createBashOutputStore(),
-        context.workTools?.bash ?? {},
-      );
-    case 'tool:bash_output':
-      return createBashOutputTool(
-        context.bashOutputStore ?? context.workTools?.bashOutputStore ?? createBashOutputStore(),
-      );
-    case 'tool:edit':
-      return createEditTool(context.workspace, context.workTools ?? {});
-    case 'tool:read':
-      return createReadTool(context.workspace);
-    case 'tool:write':
-      return createWriteTool(context.workspace, context.workTools ?? {});
     case 'tool:skill':
       if (context.skillCatalog.skills.length === 0) return materializationFailure(identity);
       return createSkillTool(context.skillCatalog);
@@ -121,9 +118,18 @@ export const createDeclaredRegistry = (
       throw new Error('declared skills do not match host skill catalog');
     }
   }
+  for (const replacement of context.toolComponents ?? []) {
+    if (!hasIdentity(declaration.tools, `${replacement.identity}`)) {
+      throw new Error(`work tool component is not selected: ${replacement.identity}`);
+    }
+  }
   const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
     createBashOutputStore();
-  const materializationContext = { ...context, bashOutputStore: outputStore };
+  const materializationContext = {
+    ...context,
+    bashOutputStore: outputStore,
+    toolComponentCatalog: new ToolComponentCatalog(context.toolComponents),
+  };
   const tools = declaration.tools.map((identity) =>
     createDeclaredTool(identity, materializationContext)
   );

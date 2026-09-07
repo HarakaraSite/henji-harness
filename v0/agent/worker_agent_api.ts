@@ -20,6 +20,10 @@ import {
   validateAgentResourceSelection,
 } from './resource_identity.ts';
 import { composeSystemInstruction } from './agent_instructions.ts';
+import type { ToolComponent } from './tool_components.ts';
+
+export { type ToolComponent, ToolComponentCatalog } from './tool_components.ts';
+export { createAgentResourceIdentity } from './resource_identity.ts';
 
 export { WORKER_PROTOCOL_VERSION };
 export type { AgentEventSink };
@@ -41,6 +45,8 @@ export interface ExecutableAgentDefinitionInput {
 export interface AgentCompositionOptions {
   readonly limits?: Partial<AgentDefinitionLimits>;
   readonly eventSink?: AgentEventSink;
+  /** Same-identity work-tool replacements applied only to the returned root composition. */
+  readonly toolComponents?: readonly ToolComponent[];
 }
 
 export interface WorkerAgentManifest {
@@ -219,6 +225,7 @@ export const createDefaultAgentComposition = (
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
     plannerDelegation: plannerHandler,
+    toolComponents: options.toolComponents,
   });
   const systemInstruction = compositionInstruction(
     resolved.systemInstruction,
