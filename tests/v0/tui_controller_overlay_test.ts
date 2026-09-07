@@ -43,39 +43,10 @@ const outcomeSession = (id: string): TuiSessionLike => ({
     }),
 });
 
-Deno.test('controller overlay owns help, picker resume, history, and context transitions', async () => {
+Deno.test('controller overlay owns help and session picker resume transitions', async () => {
   const calls: string[] = [];
-  const historyRequests: Array<readonly [number, number | undefined, number | undefined]> = [];
-  let compactionStarts = 0;
   let session = outcomeSession('old');
   const resumed = outcomeSession('resumed');
-  Object.assign(session, {
-    historyPage: (page: number, turn?: number, rows?: number) => {
-      historyRequests.push([page, turn, rows]);
-      return {
-        sessionId: 'old-session',
-        agent: 'default' as const,
-        turn: turn ?? 2,
-        totalTurns: 2,
-        page,
-        pageCount: 1,
-        entries: [],
-        sourceBytes: 0,
-        omitted: false,
-      };
-    },
-    contextCompactionPreview: () => ({
-      useful: true,
-      currentTurn: 2,
-      proposed: { coveredThroughTurn: 1, retainedFromTurn: 2 },
-    }),
-    compactContext: () => Promise.resolve({ kind: 'installed' as const }),
-    checkpointSnapshot: () => ({
-      summary: 'checkpoint summary',
-      coveredThroughTurn: 1,
-      retainedFromTurn: 2,
-    }),
-  });
   const listing: PresentationNavigationListing = {
     sessions: [
       {
@@ -116,7 +87,7 @@ Deno.test('controller overlay owns help, picker resume, history, and context tra
           messageCount: 2,
         },
       }),
-    historyPage: async (page, turn, rows) => await session.historyPage!(page, turn, rows),
+    historyPage: () => Promise.resolve(undefined),
     currentPosition: () => ({
       sessionId: 'old-session',
       agent: 'default',
@@ -136,9 +107,6 @@ Deno.test('controller overlay owns help, picker resume, history, and context tra
     ) => calls.push(`picker:${selected}:${page}:${loading}`),
     renderRestored: () => calls.push('restored'),
     setCurrentPosition: () => calls.push('position'),
-    renderHistoryPage: () => calls.push('history'),
-    renderContextPanel: () => calls.push('context'),
-    renderContextSummary: (summary: string) => calls.push(`summary:${summary}`),
   } as unknown as TuiRenderer;
   const overlay = new ControllerOverlay({
     renderer,
@@ -147,16 +115,12 @@ Deno.test('controller overlay owns help, picker resume, history, and context tra
       kind: 'rejected',
       reason: 'unavailable',
     }),
-    getSession: () => session,
     setSession: (next) => {
       session = next;
     },
     idleAllowed: () => true,
     isIdle: () => true,
     readyStatus: () => 'ready',
-    startContextCompaction: () => {
-      compactionStarts += 1;
-    },
     fail: (error) => Promise.reject(error),
   });
 
@@ -170,47 +134,6 @@ Deno.test('controller overlay owns help, picker resume, history, and context tra
   overlay.process({ kind: 'enter' });
   await waitFor(() => calls.includes('position'));
   assert(session === resumed);
-
-  session = Object.assign(outcomeSession('history'), {
-    historyPage: (page: number, turn?: number, rows?: number) => {
-      historyRequests.push([page, turn, rows]);
-      return {
-        sessionId: 'next-session',
-        agent: 'default' as const,
-        turn: turn ?? 2,
-        totalTurns: 2,
-        page,
-        pageCount: 1,
-        entries: [],
-        sourceBytes: 0,
-        omitted: false,
-      };
-    },
-    contextCompactionPreview: () => ({
-      useful: true,
-      currentTurn: 2,
-      proposed: { coveredThroughTurn: 1, retainedFromTurn: 2 },
-    }),
-    compactContext: () => Promise.resolve({ kind: 'installed' as const }),
-    checkpointSnapshot: () => ({
-      summary: 'checkpoint summary',
-      coveredThroughTurn: 1,
-      retainedFromTurn: 2,
-    }),
-  });
-  overlay.openHistory();
-  await waitFor(() => calls.includes('history'));
-  assertEquals(historyRequests.at(-1), [0, 2, 16]);
-  overlay.process({ kind: 'home' });
-  await waitFor(() => historyRequests.some((request) => request[1] === 1));
-  overlay.process({ kind: 'escape' });
-
-  overlay.openContextPanel();
-  overlay.process({ kind: 'printable', text: 'v', codePoint: 0x76 });
-  overlay.process({ kind: 'enter' });
-  assert(calls.includes('context'));
-  assert(calls.includes('summary:checkpoint summary'));
-  assertEquals(compactionStarts, 1);
   assert(!overlay.isOpen);
   await overlay.settle();
 });

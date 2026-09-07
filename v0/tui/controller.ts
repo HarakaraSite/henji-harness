@@ -39,14 +39,10 @@ const isPresentationDeliveryError = (error: unknown): boolean =>
   error instanceof PresentationDeliveryError ||
   isPresentationError(error, 'PresentationDeliveryError') ||
   isPresentationError(error, 'EventDeliveryError');
-const isCancellationCleanup = (error: unknown): boolean =>
-  isPresentationError(error, 'CancellationCleanupError');
-
 type ControllerState =
   | 'starting'
   | 'idle'
   | 'busy'
-  | 'compacting'
   | 'history-exporting'
   | 'exiting'
   | 'failed';
@@ -73,8 +69,6 @@ export class TuiController {
   private followUpText: string | null = null;
   private firstIdleSigintAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
-  private compactionAbort: AbortController | null = null;
-  private compactionOperation: Promise<void> | null = null;
   private historyExportOperation:
     | Readonly<{
       readonly operation: Promise<void>;
@@ -120,14 +114,12 @@ export class TuiController {
       navigation: this.navigation,
       intents: this.intents,
       dispatch: (intent) => this.dispatchIntent(intent),
-      getSession: () => this.session,
       setSession: (session) => {
         this.session = session;
       },
       idleAllowed: () => this.navigationIdleAllowed(),
       isIdle: () => this.state === 'idle',
       readyStatus: () => this.readyStatus(),
-      startContextCompaction: () => this.startContextCompaction(),
       fail: (error) => this.fail(error),
     });
   }
@@ -261,14 +253,12 @@ export class TuiController {
       this.input = this.readEvents();
       while (
         this.state === 'idle' || this.state === 'busy' ||
-        this.state === 'compacting' || this.state === 'history-exporting'
+        this.state === 'history-exporting'
       ) {
         if (this.active === null) {
           const events = await this.input;
           this.input = this.readEvents();
-          if ((this.state as ControllerState) === 'compacting') {
-            this.processCompacting(events);
-          } else if ((this.state as ControllerState) === 'history-exporting') {
+          if ((this.state as ControllerState) === 'history-exporting') {
             this.processHistoryExporting(events);
           } else this.processIdle(events);
           continue;
@@ -526,46 +516,12 @@ export class TuiController {
     this.overlay.process(event);
   }
 
-  private processCompacting(events: readonly InputEvent[]): void {
-    for (const event of events) {
-      if (event.kind === 'escape') {
-        this.requestCompactionCancellation();
-        this.renderer.setStatus('cancelling context compaction');
-      } else if (event.kind === 'ctrl_c') {
-        const now = Date.now();
-        if (
-          this.discardIntent !== null && this.discardIntent.key === 'ctrl_c' &&
-          this.discardIntent.deadline >= now
-        ) {
-          this.discardIntent = null;
-          this.setExitIntent('exit-0');
-        } else {
-          this.discardIntent = { key: 'ctrl_c', deadline: now + 2_000 };
-        }
-        this.requestCompactionCancellation();
-        this.renderer.setStatus(
-          this.exitIntent === 'exit-0'
-            ? 'cancelling context compaction; exiting'
-            : 'cancelling context compaction; Ctrl-C again to discard and exit',
-        );
-      }
-    }
-  }
-
   private openPicker(): void {
     this.overlay.openPicker();
   }
 
   private openStartupHelp(): void {
     this.overlay.openStartupHelp();
-  }
-
-  private openHistory(): void {
-    this.overlay.openHistory();
-  }
-
-  private openContextPanel(): void {
-    this.overlay.openContextPanel();
   }
 
   private navigationIdleAllowed(): boolean {
@@ -575,97 +531,6 @@ export class TuiController {
       this.pending?.hasSteering !== true &&
       this.pending?.hasFollowUp !== true &&
       this.pending?.hasRecovery !== true;
-  }
-
-  private async confirmContextCompaction(): Promise<void> {
-    if (this.intents === undefined && this.session.compactContext === undefined) return;
-    this.state = 'compacting';
-    if (this.intents === undefined) {
-      this.compactionAbort = new AbortController();
-    }
-    this.renderer.setStatus('compacting · one provider request');
-    try {
-      const dispatched = this.intents === undefined
-        ? {
-          kind: 'context_result' as const,
-          result: await this.session.compactContext!(
-            this.compactionAbort!.signal,
-          ),
-        }
-        : await this.dispatchIntent({ kind: 'compaction', action: 'confirm' });
-      if (dispatched.kind !== 'context_result') {
-        throw new PresentationDeliveryError();
-      }
-      const result = dispatched.result;
-      if (
-        this.exitIntent !== 'return' ||
-        (this.state as ControllerState) === 'failed' ||
-        (this.state as ControllerState) === 'exiting'
-      ) return;
-      this.state = 'idle';
-      this.renderer.setStatus(
-        result.kind === 'installed'
-          ? `context checkpoint · through turn ${result.coveredThroughTurn}`
-          : result.reason ?? 'context compaction refused',
-      );
-    } catch (error) {
-      if (isCancellationCleanup(error)) {
-        this.state = 'failed';
-        throw error;
-      }
-      if (isPresentationDeliveryError(error)) throw error;
-      if (
-        (this.state as ControllerState) !== 'failed' &&
-        (this.state as ControllerState) !== 'exiting'
-      ) {
-        this.state = 'idle';
-        this.renderer.setStatus('context compaction failed');
-      }
-    } finally {
-      this.compactionAbort = null;
-    }
-  }
-
-  private requestCompactionCancellation(): void {
-    if (this.intents === undefined) {
-      this.compactionAbort?.abort('context compaction cancelled');
-      return;
-    }
-    const dispatched = this.dispatchIntent({
-      kind: 'compaction',
-      action: 'cancel',
-    });
-    if (dispatched instanceof Promise) {
-      void dispatched.catch(() => {
-        // The owned compaction operation reports the authoritative failure or cancellation.
-      });
-    }
-  }
-
-  private startContextCompaction(): void {
-    const operation = this.confirmContextCompaction();
-    this.compactionOperation = operation;
-    void operation.then(
-      () => {
-        if (this.compactionOperation === operation) {
-          this.compactionOperation = null;
-        }
-        if (this.exitIntent !== 'return' && this.state !== 'failed') {
-          void this.shutdown(this.exitIntent === 'exit-0' ? 0 : this.exitIntent)
-            .catch(() => {
-              // The lifecycle owns the final sanitized failure result.
-            });
-        }
-      },
-      (error) => {
-        if (this.compactionOperation === operation) {
-          this.compactionOperation = null;
-        }
-        void this.fail(error).catch(() => {
-          // The controller has already entered its fatal shutdown path.
-        });
-      },
-    );
   }
 
   private currentBindingIdentity(): string {
@@ -1305,16 +1170,6 @@ export class TuiController {
       if (this.lifecycle.isAcquired()) void this.shutdown(code);
       return;
     }
-    if (this.state === 'compacting') {
-      this.processCompacting([{
-        kind: signal === 'SIGINT' ? 'ctrl_c' : 'escape',
-      }]);
-      if (signal !== 'SIGINT') {
-        const code = signal === 'SIGTERM' ? 143 : 129;
-        this.setExitIntent(code);
-      }
-      return;
-    }
     if (signal === 'SIGINT') {
       if (this.state === 'busy') this.busyCtrlC();
       else this.idleSigint();
@@ -1359,7 +1214,6 @@ export class TuiController {
     this.clearSteeringEditorBestEffort();
     this.shutdownPromise = (async () => {
       await this.settleNavigation();
-      await this.settleCompaction();
       await this.settleHistoryExport();
       await this.lifecycle.restore();
     })();
@@ -1375,7 +1229,6 @@ export class TuiController {
     this.clearSteeringEditorBestEffort();
     await this.settleActive();
     await this.settleNavigation();
-    await this.settleCompaction();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
@@ -1416,7 +1269,6 @@ export class TuiController {
   private async settleCrash(): Promise<void> {
     await this.settleActive();
     await this.settleNavigation();
-    await this.settleCompaction();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       this.shutdownPromise = this.lifecycle.restore();
@@ -1426,26 +1278,6 @@ export class TuiController {
 
   private async settleNavigation(): Promise<void> {
     await this.overlay.settle();
-  }
-
-  private async settleCompaction(): Promise<void> {
-    const operation = this.compactionOperation;
-    if (operation === null) return;
-    if (this.intents === undefined) {
-      this.compactionAbort?.abort('controller settlement');
-    } else {
-      const dispatched = this.dispatchIntent({
-        kind: 'compaction',
-        action: 'cancel',
-      });
-      if (dispatched instanceof Promise) await Promise.allSettled([dispatched]);
-    }
-    try {
-      await operation;
-    } catch {
-      // The operation's failure is already routed through the controller's fatal path.
-    }
-    if (this.compactionOperation === operation) this.compactionOperation = null;
   }
 
   private async settleHistoryExport(): Promise<void> {
