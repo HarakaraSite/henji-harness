@@ -1,6 +1,6 @@
 # 通常利用 increment 2 — step budgetとworkspace表示
 
-ステータス: local実装と機械確認が完了。通常利用での人間による確認待ち。
+ステータス: 完了。local実装と機械確認後、production TUIの通常利用を人間が確認・受入済み。
 
 ## この文書の位置付け
 

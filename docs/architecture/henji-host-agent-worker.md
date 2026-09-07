@@ -102,11 +102,18 @@ Surfaceは、人間のactionをHost commandまたはWorker向けprotocol message
 進捗、tool activity、assistant output、turn settlementを人間へ提示するHost adapterである。Surface固有の
 key binding、layout、draft、cursor、viewportはWorker protocolやcanonical Session stateへ混入させない。
 
-現在の対話SurfaceであるTUIは、通常利用の画面を次の三領域として構成する。
+現在の対話SurfaceであるTUIは、通常利用の画面を次の領域として構成する。
 
 - 人間の依頼、assistantの応答、短いtool activity、結果を追えるconversation log。
 - draftを保持し、複数行を編集できる入力欄。
-- ready / busy、Session、committed turnなど、次の操作判断に必要な一行footer。
+- ready / busy、Session、committed turn、過去表示中の位置と復帰操作など、次の操作判断に必要なstatus行。
+- 対象physical workspaceを独立して示すcwd行。
+
+conversation logのturn境界、user入力と最初のtoolまたはassistant出力の境界、logと入力欄およびfooterの
+境界は、Host側layoutが表示専用の空行として導く。canonical transcriptやWorker eventへ空messageを
+追加しない。現在SessionのviewportはHost-localな`followLatest` / `anchored` stateで管理し、過去表示中は
+位置と`Esc latest`を示す。PageDownで末尾へ到達した場合、idleのEsc、または通常taskのadmission成功時に
+最新追尾へ戻る。
 
 通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
 request/evidence metadataを通常logへ常時展開することは要求しない。一方、原因特定に必要なraw response、

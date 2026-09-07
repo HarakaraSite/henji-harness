@@ -116,7 +116,9 @@ const sleep = (duration: number): Promise<'timeout'> =>
 export type SlashCommand = 'help' | 'sessions' | 'exit';
 
 /** Exact-match built-in slash parse; args and unknown names are 'unknown', plain tasks are null. */
-export const slashCommandOf = (text: string): SlashCommand | 'unknown' | null => {
+export const slashCommandOf = (
+  text: string,
+): SlashCommand | 'unknown' | null => {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
   if (trimmed === '/help' || trimmed === '/sessions' || trimmed === '/exit') {
@@ -523,7 +525,9 @@ export class TuiController {
         textMutation = true;
         break;
       case 'ctrl_o':
-        this.renderer.setStatus('newline is Alt+Return (Shift/Ctrl+Return where sent)');
+        this.renderer.setStatus(
+          'newline is Alt+Return (Shift/Ctrl+Return where sent)',
+        );
         break;
       case 'ctrl_w':
         changed = this.editor.deleteWordBackward();
@@ -625,7 +629,9 @@ export class TuiController {
       }
       if (event.kind === 'escape') {
         if (busy) this.busyEscape();
-        else this.renderer.setStatus('input ignored');
+        else if (this.renderer.stateSnapshot().scroll.kind === 'anchored') {
+          this.renderer.latest();
+        } else this.renderer.setStatus('input ignored');
         continue;
       }
       if (event.kind === 'enter') {
@@ -1423,14 +1429,17 @@ export class TuiController {
       return true;
     }
     if (
-      !this.history.navigating && this.editor.text.length > 0 && this.editor.moveUp()
+      !this.history.navigating && this.editor.text.length > 0 &&
+      this.editor.moveUp()
     ) {
       this.renderEditorState();
       return true;
     }
     const snapshot = this.history.previous(this.editor.snapshot());
     if (snapshot === null) {
-      if (this.editor.text.length === 0) this.renderer.setStatus('history empty');
+      if (this.editor.text.length === 0) {
+        this.renderer.setStatus('history empty');
+      }
       return true;
     }
     this.editor.setSnapshot(snapshot);
@@ -1447,6 +1456,9 @@ export class TuiController {
     if (this.pending !== undefined && !this.pending.admitTask(text)) {
       this.renderer.setStatus('active task recovery pending');
       return;
+    }
+    if (this.renderer.stateSnapshot().scroll.kind === 'anchored') {
+      this.renderer.latest(false);
     }
     this.pending?.clearSideEffectWarning();
     if (this.modern) this.history.record(text);

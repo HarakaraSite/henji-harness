@@ -13,7 +13,7 @@ export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
   readonly sourceScalarOffset?: number;
-  readonly kind: 'log' | 'input' | 'footer' | 'omitted';
+  readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
 }
 
 export interface UiLayout {
@@ -25,8 +25,10 @@ export interface UiLayout {
   readonly logStart: number;
   readonly totalLogRows: number;
   readonly overlay: readonly LayoutRow[];
+  readonly beforeInput: readonly LayoutRow[];
   readonly input: readonly LayoutRow[];
-  readonly footer: LayoutRow;
+  readonly afterInput: readonly LayoutRow[];
+  readonly footer: readonly LayoutRow[];
   readonly cursor: { readonly row: number; readonly cell: number };
   readonly sourceBytes: number;
 }
@@ -38,7 +40,9 @@ const isFullwidthForm = (code: number): boolean =>
   (code >= 0xff01 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6);
 const cellWidth = (character: string): number => {
   const code = character.codePointAt(0)!;
-  if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) return 0;
+  if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) {
+    return 0;
+  }
   if (
     (code >= 0x1100 && code <= 0x115f) || (code >= 0x2329 && code <= 0x232a) ||
     (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
@@ -80,14 +84,6 @@ const truncateCells = (text: string, columns: number): string => {
     used += next;
   }
   return result;
-};
-const prefixCells = (text: string, columns: number): string => {
-  if (width(text) <= columns) return text;
-  if (columns <= 0) return '';
-  const marker = '…';
-  const markerWidth = width(marker);
-  if (columns <= markerWidth) return marker;
-  return `${truncateCells(text, columns - markerWidth)}${marker}`;
 };
 const suffixCells = (text: string, columns: number): string => {
   if (width(text) <= columns) return text;
@@ -141,7 +137,17 @@ const footerStatusParts = (
     : { primary: parts[index] ?? status, details };
 };
 
-const footerText = (state: UiState, columns: number): string => {
+interface HistoryViewport {
+  readonly first: number;
+  readonly last: number;
+  readonly total: number;
+}
+
+const footerStatusText = (
+  state: UiState,
+  columns: number,
+  history?: HistoryViewport,
+): string => {
   // The editor draft is already visible in the input band. Keep active/recovery lanes available
   // in the footer, but do not repeat its byte count as internal status in the normal footer.
   const pending = state.pending?.lanes.filter((lane) => lane.present && lane.kind !== 'editor') ??
@@ -154,42 +160,57 @@ const footerText = (state: UiState, columns: number): string => {
   const session = state.projection?.sessionId === undefined
     ? undefined
     : `session ${state.projection.sessionId.slice(0, 8)} · turn ${state.projection.committedTurn}`;
-  const workspace = state.projection === undefined
-    ? undefined
-    : safeDisplay(state.projection.workspace, false);
   const status = footerStatusParts(footerStatus(state));
   const primary = safeDisplay(status.primary, false);
-  const fixed: string[] = [primary];
-  if (workspace !== undefined) {
-    const minimumTail = workspace === '/' ? '/' : `…/${workspace.split('/').at(-1) ?? workspace}`;
-    const availableWith = (values: readonly string[]): number =>
-      columns - width(`[${[...values, 'cwd '].join(' · ')}]`);
-
-    const safeSession = session === undefined ? undefined : safeDisplay(session, false);
-    if (
-      safeSession !== undefined &&
-      availableWith([...fixed, safeSession]) >= width(minimumTail)
-    ) fixed.push(safeSession);
-
-    if (availableWith(fixed) < width(minimumTail)) {
-      fixed.splice(1);
-      const statusBudget = columns - width(`[ · cwd ${minimumTail}]`);
-      fixed[0] = prefixCells(primary, Math.max(0, statusBudget));
-      if (fixed[0].length === 0) fixed.pop();
-    }
-    fixed.push(`cwd ${suffixCells(workspace, Math.max(1, availableWith(fixed)))}`);
-  } else if (session !== undefined) {
-    fixed.push(safeDisplay(session, false));
-  }
-  const optional = [status.details, identity, pendingSegment, belowSegment]
+  const safeSession = session === undefined ? undefined : safeDisplay(session, false);
+  const historyFull = history === undefined
+    ? undefined
+    : `history rows ${history.first}-${history.last}/${history.total} · Esc latest`;
+  const historyRequired = historyFull === undefined
+    ? undefined
+    : width(`[${historyFull}]`) <= columns
+    ? historyFull
+    : 'history · Esc latest';
+  const fixed: string[] = historyRequired === undefined ? [primary] : [historyRequired];
+  const optional = [
+    ...(historyRequired === undefined ? [] : [primary]),
+    safeSession,
+    status.details,
+    identity,
+    pendingSegment,
+    belowSegment,
+  ]
     .filter(
       (segment): segment is string => segment !== undefined && segment.length > 0,
     ).map((segment) => safeDisplay(segment, false));
+  if (historyRequired === undefined && safeSession !== undefined) {
+    const candidate = `[${[...fixed, safeSession].join(' · ')}]`;
+    if (width(candidate) <= columns) {
+      fixed.push(safeSession);
+      optional.splice(optional.indexOf(safeSession), 1);
+    }
+  }
   const segments = [...fixed, ...optional];
-  while (segments.length > fixed.length && width(`[${segments.join(' · ')}]`) > columns) {
+  while (
+    segments.length > fixed.length &&
+    width(`[${segments.join(' · ')}]`) > columns
+  ) {
     segments.pop();
   }
   return truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
+};
+
+const footerWorkspaceText = (
+  state: UiState,
+  columns: number,
+): string | undefined => {
+  if (state.projection === undefined) return undefined;
+  const workspace = safeDisplay(state.projection.workspace, false);
+  const available = Math.max(1, columns - width('[cwd ]'));
+  return truncateCells(
+    `[cwd ${suffixCells(workspace, available)}]`,
+    Math.max(1, columns),
+  );
 };
 
 const wrap = (
@@ -200,14 +221,21 @@ const wrap = (
 ): LayoutRow[] => {
   const result: LayoutRow[] = [];
   const points = [...text];
-  if (points.length === 0) return [{ text: '', kind, entryId, sourceScalarOffset: 0 }];
+  if (points.length === 0) {
+    return [{ text: '', kind, entryId, sourceScalarOffset: 0 }];
+  }
   let line = '';
   let lineOffset = 0;
   let sourceOffset = 0;
   for (const point of points) {
     const displayPoint = safeDisplay(point);
     if (point === '\n' || width(line + displayPoint) > columns) {
-      result.push({ text: line, kind, entryId, sourceScalarOffset: lineOffset });
+      result.push({
+        text: line,
+        kind,
+        entryId,
+        sourceScalarOffset: lineOffset,
+      });
       lineOffset = sourceOffset;
       line = '';
       if (point === '\n') {
@@ -223,9 +251,17 @@ const wrap = (
   return result;
 };
 
-const logRows = (state: UiState, columns: number): { rows: LayoutRow[]; sourceBytes: number } => {
+const logRows = (
+  state: UiState,
+  columns: number,
+): { rows: LayoutRow[]; sourceBytes: number } => {
   const result: LayoutRow[] = [];
   let sourceBytes = 0;
+  const appendSeparator = (): void => {
+    if (result.at(-1)?.kind !== 'separator') {
+      result.push({ text: '', kind: 'separator' });
+    }
+  };
   for (const line of state.startup.slice(0, 2)) {
     const content = safeDisplay(line);
     sourceBytes += encoder.encode(content).byteLength;
@@ -233,19 +269,40 @@ const logRows = (state: UiState, columns: number): { rows: LayoutRow[]; sourceBy
     result.push(...wrap(content, columns, 'log'));
   }
   if (state.log.omittedCount > 0) {
-    result.push({ text: `[${state.log.omittedCount} older entries omitted]`, kind: 'omitted' });
+    result.push({
+      text: `[${state.log.omittedCount} older entries omitted]`,
+      kind: 'omitted',
+    });
   }
+  let seenTurnStart = false;
+  const awaitingUserOutput = new Set<number>();
   for (const entry of state.log.entries) {
+    const turnStart = entry.kind === 'user' && entry.label === 'user>';
+    const userOutputBoundary = entry.turn !== undefined &&
+      awaitingUserOutput.has(entry.turn) &&
+      (entry.kind === 'tool' || entry.kind === 'assistant');
     const label = `${entry.label} `;
     const content = `${label}${entry.text}`;
     sourceBytes += encoder.encode(content).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
+    if ((turnStart && seenTurnStart) || userOutputBoundary) appendSeparator();
     result.push(...wrap(content, columns, 'log', entry.id));
+    if (turnStart && entry.turn !== undefined) {
+      seenTurnStart = true;
+      awaitingUserOutput.add(entry.turn);
+    }
+    if (userOutputBoundary && entry.turn !== undefined) {
+      awaitingUserOutput.delete(entry.turn);
+    }
   }
   return { rows: result, sourceBytes };
 };
 
-const overlayRows = (state: UiState, columns: number, rows: number): LayoutRow[] => {
+const overlayRows = (
+  state: UiState,
+  columns: number,
+  rows: number,
+): LayoutRow[] => {
   const overlay = state.overlay;
   if (overlay.kind === 'none') return [];
   const lines: string[] = [];
@@ -262,7 +319,11 @@ const overlayRows = (state: UiState, columns: number, rows: number): LayoutRow[]
     const rows = overlay.listing?.sessions ?? [];
     const pageSize = 8;
     const start = overlay.page * pageSize;
-    for (let index = 0; index < Math.min(pageSize, rows.length - start); index += 1) {
+    for (
+      let index = 0;
+      index < Math.min(pageSize, rows.length - start);
+      index += 1
+    ) {
       const row = rows[start + index];
       lines.push(
         `${
@@ -273,10 +334,14 @@ const overlayRows = (state: UiState, columns: number, rows: number): LayoutRow[]
     if (rows.length === 0 && !overlay.loading) lines.push('no sessions');
   } else if (overlay.kind === 'history') {
     const page = overlay.page;
-    lines.push('history · read-only · Up/Down page · Home oldest · End latest · Esc return');
+    lines.push(
+      'history · read-only · Up/Down page · Home oldest · End latest · Esc return',
+    );
     if (page === undefined) lines.push('history loading');
     else {
-      lines.push(`turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount}`);
+      lines.push(
+        `turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount}`,
+      );
       for (const entry of page.entries.slice(0, 16)) {
         lines.push(`${entry.role} [t${entry.turn}] ${entry.text}`);
       }
@@ -293,11 +358,15 @@ const overlayRows = (state: UiState, columns: number, rows: number): LayoutRow[]
           ? 'no useful fitting compaction'
           : `proposed through turn ${preview.proposed.coveredThroughTurn}, retain ${preview.proposed.retainedFromTurn}+`,
       );
-      lines.push('Enter confirm one provider request · v view summary · Esc cancel');
+      lines.push(
+        'Enter confirm one provider request · v view summary · Esc cancel',
+      );
     }
   }
   const result: LayoutRow[] = [];
-  for (const line of lines.slice(0, 32)) result.push(...wrap(line, columns, 'log'));
+  for (const line of lines.slice(0, 32)) {
+    result.push(...wrap(line, columns, 'log'));
+  }
   return result;
 };
 
@@ -338,7 +407,10 @@ const inputRows = (
     text += displayPoint;
     offset = index;
   }
-  const first = Math.max(0, Math.min(cursorRow - maxRows + 1, all.length - maxRows));
+  const first = Math.max(
+    0,
+    Math.min(cursorRow - maxRows + 1, all.length - maxRows),
+  );
   const visible = all.slice(first, first + maxRows).map((row) => ({
     text: row.text,
     kind: 'input' as const,
@@ -346,7 +418,7 @@ const inputRows = (
   return { rows: visible, cursorRow: cursorRow - first, cursorCell };
 };
 
-/** Pure three-band layout. It only reads immutable UI state and a bounded terminal size. */
+/** Pure retained-screen layout. It only reads immutable UI state and a bounded terminal size. */
 export const layoutUi = (
   state: UiState,
   columns = state.terminalSize.columns,
@@ -355,17 +427,33 @@ export const layoutUi = (
   const widthLimit = clamp(columns, 1, MAX_COLUMNS);
   const heightLimit = clamp(rows, 1, MAX_ROWS);
   const degraded = widthLimit < MIN_COLUMNS || heightLimit < MIN_ROWS;
-  const footer: LayoutRow = {
-    text: footerText(state, Math.max(1, widthLimit)),
-    kind: 'footer',
-  };
-  const maxInput = degraded ? 1 : Math.min(MAX_EDITOR_ROWS, Math.max(1, heightLimit - 5));
+  const workspaceFooter = footerWorkspaceText(state, Math.max(1, widthLimit));
+  const standardHeight = heightLimit >= MIN_ROWS;
+  const beforeInputCount = standardHeight ? 1 : 0;
+  const afterInputCount = standardHeight ? 1 : 0;
+  const footerCount = standardHeight
+    ? (workspaceFooter === undefined ? 1 : 2)
+    : heightLimit >= 3
+    ? (workspaceFooter === undefined ? 1 : 2)
+    : heightLimit === 2
+    ? 1
+    : 0;
+  const maxInput = standardHeight
+    ? Math.min(
+      MAX_EDITOR_ROWS,
+      Math.max(
+        1,
+        heightLimit - beforeInputCount - afterInputCount - footerCount - 1,
+      ),
+    )
+    : 1;
   // Reserve one cell after the prompt for the cursor. Without this cell, a full-width final
   // character leaves the hardware cursor on that character rather than at the insertion point.
   const editor = inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
   const logHeight = Math.max(
-    degraded && heightLimit >= 3 ? 1 : 0,
-    heightLimit - editor.rows.length - 1,
+    0,
+    heightLimit - editor.rows.length - beforeInputCount - afterInputCount -
+      footerCount,
   );
   const log = logRows(state, Math.max(1, widthLimit));
   const overlay = overlayRows(state, Math.max(1, widthLimit), heightLimit);
@@ -387,7 +475,31 @@ export const layoutUi = (
     (overlay.length > 0 ? overlayStart : logStart) + logHeight,
   );
   const paddedLog = [...visibleLog];
-  while (paddedLog.length < logHeight) paddedLog.unshift({ text: '', kind: 'log' });
+  while (paddedLog.length < logHeight) {
+    paddedLog.unshift({ text: '', kind: 'log' });
+  }
+  const history = state.scroll.kind === 'anchored' && state.overlay.kind === 'none'
+    ? {
+      first: Math.min(log.rows.length, logStart + 1),
+      last: Math.min(log.rows.length, logStart + logHeight),
+      total: log.rows.length,
+    }
+    : undefined;
+  const footer = [
+    {
+      text: footerStatusText(state, Math.max(1, widthLimit), history),
+      kind: 'footer' as const,
+    },
+    ...(workspaceFooter === undefined ? [] : [{ text: workspaceFooter, kind: 'footer' as const }]),
+  ].slice(0, footerCount);
+  const beforeInput = Array.from(
+    { length: beforeInputCount },
+    () => ({ text: '', kind: 'separator' as const }),
+  );
+  const afterInput = Array.from(
+    { length: afterInputCount },
+    () => ({ text: '', kind: 'separator' as const }),
+  );
   return Object.freeze({
     columns: widthLimit,
     rows: heightLimit,
@@ -397,10 +509,12 @@ export const layoutUi = (
     logStart,
     totalLogRows: log.rows.length,
     overlay: Object.freeze(overlay),
+    beforeInput: Object.freeze(beforeInput),
     input: Object.freeze(editor.rows),
-    footer: Object.freeze(footer),
+    afterInput: Object.freeze(afterInput),
+    footer: Object.freeze(footer.map((row) => Object.freeze(row))),
     cursor: Object.freeze({
-      row: logHeight + editor.cursorRow,
+      row: logHeight + beforeInput.length + editor.cursorRow,
       cell: Math.min(widthLimit, editor.cursorCell + 2),
     }),
     sourceBytes: Math.min(MAX_LAYOUT_SOURCE_BYTES, log.sourceBytes),

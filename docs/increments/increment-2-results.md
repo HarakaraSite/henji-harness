@@ -1,6 +1,6 @@
 # 通常利用 increment 2 — 実装結果
 
-ステータス: local実装と機械確認が完了。production TUIでの通常利用確認は未実施。
+ステータス: 完了。local実装、機械確認、production TUIでの通常利用確認まで完了。
 
 ## 成立した動作
 
@@ -42,6 +42,15 @@ commit `75c388a`への第三者reviewは、Presentation Adapterに残る16-reque
 末尾を切るfooter配置をP2として検出した。両方を修正後、同じreviewerによる変更箇所の再確認はGO、
 Blocker/P1/P2各0件だった。上記authoritative gateはこのreview修正後の最終treeへ実行した結果である。
 
-provider request、credential read、real-TTY E2E、production TUIの起動は実施していない。次の通常利用で、
-対象repositoryがfooterから識別できることと、8 model stepsを越えるrepository調査が回答まで継続することを
-人間が確認する。
+## Production normal-use acceptance
+
+ユーザーがinstalled `henji`を`/home/masat.guest/src/forgejo-agent`から起動し、production TUIで通常利用した。
+
+- footerに`cwd /home/masat.guest/src/forgejo-agent`が表示され、対象repositoryを識別できた。
+- READMEとcodeの照合taskは多数のread/bash tool利用を含み、従来の8-step不足を再発せず回答まで完遂した。
+  ユーザーはmax-step改善を「大丈夫そう」と評価した。
+- 通常利用中に、compact startupの`F1 help`、conversation履歴から最新追尾へ戻れない動作、turn/input/footer
+  の視覚的な境界、tool利用戦略、source-grounded transformationに関する改善候補が見つかった。これらは
+  `docs/experience/normal-use-inbox.md`へ未採用項目として保存し、increment 2のscopeへ追加しない。
+
+ユーザーはこの通常利用結果をもってincrement 2を終了した。

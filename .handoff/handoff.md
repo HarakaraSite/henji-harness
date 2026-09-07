@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 通常利用increment 2はlocal実装、採用した第三者review P1/P2の修正、変更箇所の再review、local commitまで完了。Presentation Adapterは64-step turnのrequest countを受理し、長いstatusでも40/80列footerにrepository名を含むworkspace末尾を保持する。再reviewはGO（Blocker/P1/P2各0）、focused testとreview修正後treeのauthoritative `v0:gate`が成功した
-- 次: ユーザーがproduction TUIを通常利用し、footerのworkspace識別と8 model stepsを越えるrepository調査の完遂を確認する
-- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/experience/normal-use-inbox.md`
-- 注意: production TUI/provider/credential確認と人間による受入は未実施。READMEは構想要約であり現在地の正本にしない。push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 状態: 通常利用increment 2とincrement 3は完了。increment 3は承認済み計画に沿うlocal実装、focused verification、authoritative `v0:gate`に加え、production TUIでの人間による通常利用確認とユーザー受入を2026-09-07に完了した。startupの`F1 help`非表示、PageUp後のPageDown・Escによる最新復帰、過去表示中のtask送信による自動復帰、turn・入力欄・status・cwdの読みやすい境界を確認済み。tool component境界の確認は通常利用メモへ保存済み
+- 次: ユーザーが未採用候補から次に扱う改善を選ぶか、次の通常利用incrementを開始する
+- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/increments/increment-3.md`、`docs/increments/increment-3-results.md`、`docs/experience/normal-use-inbox.md`
+- 注意: mouse、`/history`/vi mode、外部editor、Markdown renderer、tool利用戦略とreadback、F24のAgent instruction案はincrement 3に含めず未採用候補のまま。F1 keyとhelp overlayは残した。追加のprovider/credential操作、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

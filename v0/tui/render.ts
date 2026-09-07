@@ -115,8 +115,12 @@ const shortToolName = (name: string): string => {
   return bounded.truncated ? `${bounded.text}…` : bounded.text;
 };
 const toolHeadPreview = (name: string, args: unknown): string => {
-  if (name !== 'bash' && name !== 'read' && name !== 'write' && name !== 'edit') return '';
-  if (typeof args !== 'object' || args === null || Array.isArray(args)) return '';
+  if (
+    name !== 'bash' && name !== 'read' && name !== 'write' && name !== 'edit'
+  ) return '';
+  if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+    return '';
+  }
   const raw = name === 'bash'
     ? (args as Record<string, unknown>)['command']
     : (args as Record<string, unknown>)['path'];
@@ -443,7 +447,7 @@ export class TuiRenderer implements TerminalRendererGate {
     return layoutUi(this.ui, columns, rows);
   }
 
-  /** Bounded three-band frame used by the production renderer and provider-free fixtures. */
+  /** Bounded retained frame used by the production renderer and provider-free fixtures. */
   renderFrame(
     columns = this.lastSize.columns,
     rows = this.lastSize.rows,
@@ -464,8 +468,10 @@ export class TuiRenderer implements TerminalRendererGate {
     const overlayLog = this.ui.overlay.kind === 'startupHelp' ? layout.log : layout.overlay;
     const log = (overlayLog.length > 0 ? overlayLog : layout.log).map((line) => line.text);
     const fixed = [
+      ...layout.beforeInput.map((line) => line.text),
       ...layout.input.map((line) => `> ${line.text}`),
-      layout.footer.text,
+      ...layout.afterInput.map((line) => line.text),
+      ...layout.footer.map((line) => line.text),
     ];
     const fixedFrame = fixed.join('\n');
     if (encoder.encode(fixedFrame).byteLength > frameBudget) {
@@ -568,7 +574,7 @@ export class TuiRenderer implements TerminalRendererGate {
       }`,
       512,
     ).text;
-    const second = 'trusted-local · credentials checked only when sending · F1 help';
+    const second = 'trusted-local · credentials checked only when sending';
     if (this.retained) {
       this.ui = reduceUiAction(this.ui, {
         kind: 'startup',
@@ -673,7 +679,12 @@ export class TuiRenderer implements TerminalRendererGate {
         this.clearLiveState();
         if (!this.retained) {
           this.clearRecordLine();
-          this.write(dynamicLine('tool> ', toolCallText(event.call.name, event.call.arguments)));
+          this.write(
+            dynamicLine(
+              'tool> ',
+              toolCallText(event.call.name, event.call.arguments),
+            ),
+          );
         }
         this.redraw();
         return;
@@ -836,6 +847,10 @@ export class TuiRenderer implements TerminalRendererGate {
       if (anchored >= 0) currentStart = anchored;
     }
     const maxStart = Math.max(0, rows.length - viewport);
+    if (maxStart === 0) {
+      if (this.ui.scroll.kind === 'anchored') this.latest();
+      return;
+    }
     const nextStart = Math.max(
       0,
       Math.min(
@@ -843,6 +858,10 @@ export class TuiRenderer implements TerminalRendererGate {
         currentStart + (direction === 'up' ? -viewport : viewport),
       ),
     );
+    if (direction === 'down' && nextStart === maxStart) {
+      this.latest();
+      return;
+    }
     let target = rows[nextStart];
     if (target?.entryId === undefined) {
       const step = direction === 'up' ? -1 : 1;
@@ -880,9 +899,9 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  latest(): void {
+  latest(redraw = true): void {
     this.ui = reduceUiAction(this.ui, { kind: 'latest' });
-    this.redraw();
+    if (redraw) this.redraw();
   }
 
   renderSessionPicker(

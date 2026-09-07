@@ -78,8 +78,13 @@ Deno.test('conversation presentation keeps successful operational metadata out o
     runtimeProviderRequestCount: 2,
     providerEvidenceId: '11111111-1111-4111-8111-111111111111',
   });
-  assertEquals(state.log.entries.map((entry) => entry.label), ['user>', 'assistant>']);
-  assert(!state.log.entries.some((entry) => /requests>|evidence>|readback>/.test(entry.text)));
+  assertEquals(state.log.entries.map((entry) => entry.label), [
+    'user>',
+    'assistant>',
+  ]);
+  assert(
+    !state.log.entries.some((entry) => /requests>|evidence>|readback>/.test(entry.text)),
+  );
 });
 
 Deno.test('presentation adapter accepts request counts through the 64-step root budget', async () => {
@@ -161,7 +166,11 @@ Deno.test('conversation presentation reduces tool activity without source conten
   const pending = reduceUiEvent(createUiState(), {
     kind: 'tool_call',
     turn: 2,
-    call: { callId: 'bash-2', name: 'bash', arguments: { command: 'long-running' } },
+    call: {
+      callId: 'bash-2',
+      name: 'bash',
+      arguments: { command: 'long-running' },
+    },
   });
   assertEquals(pending.log.entries[0].live, true);
   const cancelled = reduceUiEvent(pending, {
@@ -182,7 +191,10 @@ Deno.test('conversation presentation settles assistant progress to the same assi
   state = reduceUiEvent(state, {
     kind: 'assistant_message',
     turn: 1,
-    message: { role: 'assistant', content: { kind: 'text', text: 'final answer' } },
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: 'final answer' },
+    },
   });
   assertEquals(state.log.entries.length, 1);
   assertEquals(state.log.entries[0].label, 'assistant>');
@@ -209,22 +221,23 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     outcome: 'final',
     committed: true,
   });
-  const footer = layoutUi(state, 80, 24).footer.text;
-  assert(footer.includes('ready'));
-  assert(footer.includes('agent default'));
-  assert(footer.includes('session abcdef12 · turn 3'));
-  assert(footer.includes('cwd /tmp/workspace'));
-  assert(!footer.includes('F1 help'));
-  assert(!footer.includes('turn 0'));
-  assertEquals((footer.match(/agent default/g) ?? []).length, 1);
-  assertEquals((footer.match(/session abcdef12/g) ?? []).length, 1);
+  const footer = layoutUi(state, 80, 24).footer;
+  assertEquals(footer.length, 2);
+  assert(footer[0].text.includes('ready'));
+  assert(footer[0].text.includes('agent default'));
+  assert(footer[0].text.includes('session abcdef12 · turn 3'));
+  assertEquals(footer[1].text, '[cwd /tmp/workspace]');
+  assert(!footer.some((row) => row.text.includes('F1 help')));
+  assert(!footer[0].text.includes('turn 0'));
+  assertEquals((footer[0].text.match(/agent default/g) ?? []).length, 1);
+  assertEquals((footer[0].text.match(/session abcdef12/g) ?? []).length, 1);
 
   const contextRich = reduceUiAction(state, {
     kind: 'status',
     text:
       'session abcdef12 · agent default · turn 3 · ready · context through turn 3 · retain 2+ · semantic ≤123456B · ctx ≤64K/64K est · 4 omitted',
   });
-  const contextFooter = layoutUi(contextRich, 80, 24).footer.text;
+  const contextFooter = layoutUi(contextRich, 80, 24).footer[0].text;
   assert(contextFooter.includes('ready'));
   assert(contextFooter.includes('session abcdef12 · turn 3'));
 
@@ -240,20 +253,223 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     capabilities: { canNavigate: true, canHistory: true, canCompact: true },
     generation: 0,
   });
-  const narrowFooter = layoutUi(narrow, 40, 24).footer.text;
-  assert(narrowFooter.includes('cwd …'));
-  assert(narrowFooter.includes('forgejo-agent'));
-  assert(!narrowFooter.includes('F1 help'));
+  const narrowFooter = layoutUi(narrow, 40, 24).footer;
+  assert(narrowFooter[1].text.includes('cwd …'));
+  assert(narrowFooter[1].text.includes('forgejo-agent'));
+  assert(!narrowFooter.some((row) => row.text.includes('F1 help')));
 
   const cancelling = reduceUiAction(narrow, {
     kind: 'status',
     text: 'cancelling context compaction; Ctrl-C again to discard and exit',
   });
   for (const columns of [40, 80]) {
-    const cancellingFooter = layoutUi(cancelling, columns, 24).footer.text;
-    assert(cancellingFooter.includes('cancelling'));
-    assert(cancellingFooter.includes('cwd …/forgejo-agent'));
-    assert(cancellingFooter.length <= columns);
+    const cancellingFooter = layoutUi(cancelling, columns, 24).footer;
+    assert(cancellingFooter[0].text.includes('cancelling'));
+    assert(cancellingFooter[1].text.includes('cwd '));
+    assert(cancellingFooter[1].text.includes('forgejo-agent'));
+    assert(cancellingFooter.every((row) => row.text.length <= columns));
+  }
+});
+
+Deno.test('conversation layout derives turn and input boundaries without changing log entries', () => {
+  let state = setUiProjection(createUiState(), {
+    lifecycle: 'idle',
+    agentId: 'default',
+    sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
+    committedTurn: 2,
+    workspace: '/tmp/workspace',
+    trust: 'trusted_local',
+    credentialPolicy: 'before_each_provider_request',
+    pending: [],
+    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    generation: 0,
+  });
+  state = reduceUiEvent(state, {
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'first' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      kind: 'tool_call',
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'read-1',
+      name: 'read',
+      text: 'body',
+      outcome: 'success',
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      kind: 'tool_call',
+      callId: 'bash-1',
+      name: 'bash',
+      arguments: { command: 'git status --short' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'bash-1',
+      name: 'bash',
+      text: '',
+      outcome: 'success',
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: 'first answer' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'user_message',
+    turn: 2,
+    message: { role: 'user', content: { kind: 'text', text: 'second' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 2,
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: 'second answer' },
+    },
+  });
+  state = reduceUiAction(state, { kind: 'status', text: 'ready' });
+
+  const layout = layoutUi(state, 80, 24);
+  assertEquals(state.log.entries.length, 6);
+  assertEquals(layout.allLog.map((row) => row.text), [
+    'user> first',
+    '',
+    'tool> read README.md ✓',
+    'tool> bash git status --short ✓',
+    'assistant> first answer',
+    '',
+    'user> second',
+    '',
+    'assistant> second answer',
+  ]);
+  assertEquals(layout.beforeInput.map((row) => row.text), ['']);
+  assertEquals(layout.afterInput.map((row) => row.text), ['']);
+  assertEquals(layout.footer.map((row) => row.text), [
+    '[ready · session abcdef12 · turn 2 · agent default]',
+    '[cwd /tmp/workspace]',
+  ]);
+
+  const restored = reduceUiEvent(createUiState(), {
+    kind: 'restored_log',
+    omitted: 0,
+    messages: [
+      { role: 'user', content: { kind: 'text', text: 'first' } },
+      {
+        role: 'assistant',
+        content: [
+          {
+            kind: 'tool_call',
+            callId: 'read-1',
+            name: 'read',
+            arguments: { path: 'README.md' },
+          },
+          {
+            kind: 'tool_call',
+            callId: 'bash-1',
+            name: 'bash',
+            arguments: { command: 'git status --short' },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            kind: 'tool_result',
+            callId: 'read-1',
+            name: 'read',
+            text: 'body',
+            outcome: 'success',
+          },
+          {
+            kind: 'tool_result',
+            callId: 'bash-1',
+            name: 'bash',
+            text: '',
+            outcome: 'success',
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: { kind: 'text', text: 'first answer' },
+      },
+    ],
+  });
+  assertEquals(layoutUi(restored, 80, 24).allLog.map((row) => row.text), [
+    'user> first',
+    '',
+    'tool> read README.md ✓',
+    'tool> bash git status --short ✓',
+    'assistant> first answer',
+  ]);
+});
+
+Deno.test('conversation degraded height keeps only rows that physically fit', () => {
+  let state = setUiProjection(
+    createUiState({ text: 'draft', cursorScalar: 5, byteLength: 5 }),
+    {
+      lifecycle: 'idle',
+      agentId: 'default',
+      sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
+      committedTurn: 1,
+      workspace: '/tmp/workspace',
+      trust: 'trusted_local',
+      credentialPolicy: 'before_each_provider_request',
+      pending: [],
+      capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+      generation: 0,
+    },
+  );
+  state = reduceUiEvent(state, {
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'question' } },
+  });
+  for (
+    const [rows, expected] of [
+      [4, { log: 1, footer: 2, cursor: 1 }],
+      [3, { log: 0, footer: 2, cursor: 0 }],
+      [2, { log: 0, footer: 1, cursor: 0 }],
+      [1, { log: 0, footer: 0, cursor: 0 }],
+    ] as const
+  ) {
+    const layout = layoutUi(state, 80, rows);
+    assertEquals(layout.log.length, expected.log);
+    assertEquals(layout.input.length, 1);
+    assertEquals(layout.footer.length, expected.footer);
+    assertEquals(layout.beforeInput.length, 0);
+    assertEquals(layout.afterInput.length, 0);
+    assertEquals(layout.cursor.row, expected.cursor);
+    assertEquals(
+      layout.log.length + layout.input.length + layout.footer.length,
+      rows,
+    );
   }
 });
 
@@ -282,8 +498,14 @@ Deno.test('conversation cursor cells match ASCII, Japanese, mid-line, and wrappi
 
   const wrappedText = `${'a'.repeat(75)}日本語x`;
   const wrapped = make(wrappedText, [...wrappedText].length);
-  assertEquals(wrapped.input.map((row) => row.text), [`${'a'.repeat(75)}日`, '本語x']);
-  assertEquals(wrapped.cursor.row, wrapped.log.length + 1);
+  assertEquals(wrapped.input.map((row) => row.text), [
+    `${'a'.repeat(75)}日`,
+    '本語x',
+  ]);
+  assertEquals(
+    wrapped.cursor.row,
+    wrapped.log.length + wrapped.beforeInput.length + 1,
+  );
   assertEquals(wrapped.cursor.cell, 7); // prompt (2) + "本語x" (5 cells)
 });
 

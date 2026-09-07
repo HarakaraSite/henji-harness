@@ -61,11 +61,11 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 
 | ID | 必要な機能 | 構想・architectureとの関係 | 現コードの状態 |
 | --- | --- | --- | --- |
-| F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。通常footerには対象physical workspaceを表示する。product内で通常利用を案内するhelpは`F1`キーの「工事中」一行だけである |
+| F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。TUIはturnとuser/output境界、入力前後を空行で分け、statusとphysical workspaceを二行footerへ表示する。F1 keyと`/help`のhelp overlayは残るが、compact startupに固定help hintは表示しない |
 | F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUI起動時にrootだけを明示overrideできる。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される |
 | F03 | workspaceのinstructionとskillを発見し、実行中に共有するsnapshot/catalogを作る | 現在は通常利用時の入力。将来、別loopでinstruction・skillの改訂を採用した場合の基盤になる | **実装済み**。Worker generationの起動時にworkspaceのinstructionとskillを一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。tool call時には再読せず、snapshot/catalog自体はSessionへ永続化しない。`skill` toolを呼んだ場合の結果はF02のtranscriptへ入る。改訂候補の生成・採用機能ではない |
 | F04 | Sessionのtranscriptとcontext checkpointを再起動後も利用する | Hostがstorageを所有し、Workerがconversation/contextの意味を所有する | **実装済み**。workspace-partitioned session schema-v1/v2、atomic commit、reopen、automatic compactionがある |
-| F05 | 人間が保存済みSession、history、contextを通常利用中に参照する | 経験を人間が確認し、後の改訂指示へ使うSurface機能 | **部分実装**。session picker、再開時のconversation表示、現在Sessionのviewport移動、process-localな入力履歴はTUIから利用可能。保存済みcausal historyとcontextのprojection・controller処理は残るが、現TUIにはkeyまたはslashの入口がない |
+| F05 | 人間が保存済みSession、history、contextを通常利用中に参照する | 経験を人間が確認し、後の改訂指示へ使うSurface機能 | **部分実装**。session picker、再開時のconversation表示、現在Sessionのviewport移動と位置表示、PageDown・Esc・task送信による最新追尾への復帰、process-localな入力履歴はTUIから利用可能。保存済みcausal historyとcontextのprojection・controller処理は残るが、現TUIにはkeyまたはslashの入口がない |
 
 ### AgentCompositionと現在のHost / Worker runtime
 
@@ -75,7 +75,7 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 | F07 | Worker起動前にDefinition code/source revisionをimmutableに参照する | Hostが`DefinitionRevisionRef`を確定し、Workerが同じentryをpre-readして照合する | **実装済み（現entry moduleの範囲）**。canonical specifier、entry SHA-256、source bytesをv2 Sessionにも保存する。dependency lineageやrevision repositoryは未実装 |
 | F08 | 評価後の構成をdata-onlyなAgentManifestとして説明する | Workerがprojectionを返し、Hostはidentity/admission authorityと混同しない | **実装済み**。role、maxSteps、profile、resource IDsをexecution artifactにも残す |
 | F09 | built-inとexternal Definitionを同じDeno Web Worker capsuleで実行する | Web Workerはlifecycle/data境界であり別trust tierではない | **実装済み**。同じloader、bootstrap、runtime、protocol、commit経路を使用する |
-| F10 | UIをWorkerから分離し、Host側の交換可能なSurfaceとして扱う | terminal / Surface I/O、layout、draft、cursor、viewportはHost、Workerはheadless | **部分実装**。data-only presentation contract、Host-owned TUI adapter、terminal lifecycle分離はある。Surfaceを選択・load・置換する一般product interfaceはない |
+| F10 | UIをWorkerから分離し、Host側の交換可能なSurfaceとして扱う | terminal / Surface I/O、layout、draft、cursor、viewportはHost、Workerはheadless | **部分実装**。data-only presentation contract、Host-owned TUI adapter、terminal lifecycle分離があり、turn/input境界、二行footer、viewport復帰もHost-local projectionとして実装する。Surfaceを選択・load・置換する一般product interfaceはない |
 | F11 | HostがWorker generationを起動、停止、監視、置換する | Worker generationのlifecycle ownerはHost | **部分実装**。起動、cooperative close、cancel、terminate、settlementはある。durable Instanceを保ったrestart/replacementはない |
 | F12 | Host / Worker間でdata-only command、event、effect、proposal、ackを交換する | 関数は境界を越えず、protocolがapplication semanticsを運ぶ | **実装済み（現在のslice）**。start/turn/steer/cancel/checkpoint/commit/closeがある。将来機能のmessage、handshake、version migrationは未決 |
 | F13 | WorkerのproposalをHostが検証・永続化し、durable write後だけcommittedとする | durable Session storeがcanonical。Worker stateはephemeral | **実装済み**。base state revision、transcript、next turn、Definition bindingを検証してcommit/ackする |
@@ -94,10 +94,13 @@ F番号はcomponentではなく、利用者が必要とするproduct機能に付
 F05のSession/history/context参照、F10のHost-owned Surfaceを横断して実現する現在のSurfaceであるため、
 TUI自体には独立したF番号を付けない。現在のproduction TUIには、次の実装がある。
 
-- conversation log、複数行入力欄、一行footerからなる通常画面。
+- turnとuser/outputの表示専用境界を持つconversation log、前後を空行で分けた複数行入力欄、status行と
+  cwd行からなる二行footer。
 - request/evidence metadataやraw tool resultを常時展開せず、assistantと短いtool activityを追える表示。
 - ready / busy、Session、committed turnの表示と、ASCII・日本語・wrapを含むcursor位置。
-- alternate screenによる現在Sessionの隔離、PageUp / PageDownによるviewport移動、終了時のterminal復元。
+- alternate screenによる現在Sessionの隔離、PageUp / PageDownによるviewport移動、過去表示中の位置と
+  `Esc latest`表示、PageDown末尾到達・idle Esc・通常task admissionによる最新追尾への復帰、終了時の
+  terminal復元。
 - 過去表示中のdraft保持、boundedな入力履歴、Session選択、`/help`・`/sessions`・`/exit`、readline編集、
   Tabによるworkspace-relative path補完、Alt+Returnによる改行。
 - busy中の一回のsteeringとfollow-up、cancel、uncommitted inputの固定laneとrecoverable input。
