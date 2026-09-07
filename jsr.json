@@ -1,0 +1,42 @@
+{
+  "$schema": "https://jsr.io/schema/config-file.v1.json",
+  "name": "@henji/harness",
+  "version": "0.1.0-alpha.1",
+  "license": "MIT",
+  "exports": "./mod.ts",
+  "publish": {
+    "include": [
+      "LICENSE",
+      "README.md",
+      "mod.ts",
+      "v0/agent/agent_definition.ts",
+      "v0/agent/agent_identity.ts",
+      "v0/agent/agent_instructions.ts",
+      "v0/agent/bash_output.ts",
+      "v0/agent/cancellation.ts",
+      "v0/agent/context.ts",
+      "v0/agent/contracts.ts",
+      "v0/agent/events.ts",
+      "v0/agent/execution_context.ts",
+      "v0/agent/failure_diagnostic.ts",
+      "v0/agent/loop.ts",
+      "v0/agent/openrouter_model.ts",
+      "v0/agent/planner_delegation.ts",
+      "v0/agent/provider_evidence.ts",
+      "v0/agent/provider_profile.ts",
+      "v0/agent/registries.ts",
+      "v0/agent/replay_value.ts",
+      "v0/agent/resource_identity.ts",
+      "v0/agent/session_cli.ts",
+      "v0/agent/session_store.ts",
+      "v0/agent/skills.ts",
+      "v0/agent/steering.ts",
+      "v0/agent/tool_components.ts",
+      "v0/agent/tools.ts",
+      "v0/agent/work_tools.ts",
+      "v0/agent/worker_agent_api.ts",
+      "v0/agent/worker_protocol.ts",
+      "v0/presentation/contract.ts"
+    ]
+  }
+}

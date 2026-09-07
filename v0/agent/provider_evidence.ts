@@ -182,9 +182,9 @@ export class ProviderEvidenceRecorder {
   private persisted = false;
 
   constructor(
-    readonly evidenceId = crypto.randomUUID().toLowerCase(),
+    readonly evidenceId: string = crypto.randomUUID().toLowerCase(),
     readonly turnNumber = 1,
-    readonly createdAt = new Date().toISOString(),
+    readonly createdAt: string = new Date().toISOString(),
     private readonly store?: ProviderEvidenceStore,
   ) {}
 

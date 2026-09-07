@@ -2,6 +2,13 @@
 
 ## Records
 
+### JSR alpha publication
+
+- 状態: `@henji/harness@0.1.0-alpha.1`のMIT公開準備を完了。Agent Definition APIだけを`mod.ts`から公開し、JSR slow-types修正、公開対象32ファイルのdry-run、authoritative offline gate 84/84を通過した。実公開、push、tagは未実施
+- 次: 利用者承認後、公開準備commitを含む`main`をForgejoへpushし、同じcommitからJSRへpublishする
+- 正本: `jsr.json`、`mod.ts`、`LICENSE`、`v0/agent/worker_agent_api.ts`
+- 注意: CLI/TUI、tests、docs、archive、`_refs/*`は初回JSR packageの公開対象外。JSR公開versionは差し替え・削除できないため、publish前にcommitとdry-run対象の一致を再確認する
+
 ### Project structure and canonical sources
 
 - 状態: 通常利用increment 2から5は完了。increment 6はrecoverable input、idle Ctrl-C、既存work toolのcomponent化についてlocal実装、focused verification、bounded implementation review GO、authoritative offline gate 84/84を完了。production human gateとユーザー受入は未実施
