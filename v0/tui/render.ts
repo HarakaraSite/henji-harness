@@ -15,6 +15,8 @@ import {
   BLUE_SGR,
   DEFAULT_CURSOR_STYLE,
   ERASE_LINE,
+  GREEN_SGR,
+  MAGENTA_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
   SHOW_CURSOR,
@@ -67,7 +69,13 @@ const renderLayoutRow = (row: LayoutRow): string => {
   const points = [...row.text];
   const label = points.slice(0, row.labelScalarLength).join('');
   const body = points.slice(row.labelScalarLength).join('');
-  const sgr = row.labelTone === 'user' ? BLUE_SGR : YELLOW_SGR;
+  const sgr = row.labelTone === 'user'
+    ? BLUE_SGR
+    : row.labelTone === 'assistant'
+    ? YELLOW_SGR
+    : row.labelTone === 'tool'
+    ? GREEN_SGR
+    : MAGENTA_SGR;
   return `${sgr}${label}${RESET_SGR}${body}`;
 };
 

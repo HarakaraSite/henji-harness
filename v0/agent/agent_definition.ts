@@ -97,6 +97,7 @@ const declarationsFor = (
     tools.push(
       ...[
         'tool:bash',
+        'tool:bash_output',
         'tool:edit',
         'tool:read',
         'tool:write',

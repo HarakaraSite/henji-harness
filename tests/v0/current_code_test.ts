@@ -298,6 +298,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   assert(!('skillCatalog' in defaultDefinition));
   assertEquals(defaultDefinition.capabilities.tools.map(String), [
     'tool:bash',
+    'tool:bash_output',
     'tool:edit',
     'tool:read',
     'tool:write',
@@ -312,7 +313,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
       ...input,
       plannerDelegation,
     }).definitions().map((tool) => tool.name),
-    ['bash', 'delegate_to_planner', 'edit', 'read', 'submit_json_result', 'write'],
+    ['bash', 'bash_output', 'delegate_to_planner', 'edit', 'read', 'submit_json_result', 'write'],
   );
   assertEquals(
     createDeclaredRegistry(plannerDefinition.capabilities, input).definitions().map((tool) =>
@@ -382,7 +383,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   assert(!requestBudget.claimModelRequest());
 });
 
-Deno.test('active read guidelines compose into parent and planner instructions only', async () => {
+Deno.test('active tool guidelines compose only where their tools are materialized', async () => {
   const requests: Array<{ role: 'parent' | 'planner'; request: ModelRequest }> = [];
   const input = {
     workspace: { root: '/definition-test' },
@@ -401,16 +402,24 @@ Deno.test('active read guidelines compose into parent and planner instructions o
   const directPlanner = createPlannerAgentComposition(input);
   const guideline =
     'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
+  const bashOutputGuideline =
+    'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
   assert(parent.systemInstruction?.includes(guideline));
+  assert(parent.systemInstruction?.includes(bashOutputGuideline));
   assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
   assert(directPlanner.systemInstruction?.includes(guideline));
+  assert(!directPlanner.systemInstruction?.includes(bashOutputGuideline));
   assertEquals(directPlanner.systemInstruction, directPlanner.resolved.systemInstruction);
-  assertEquals(parent.registry.promptGuidelines(), [{ tool: 'read', text: guideline }]);
+  assertEquals(parent.registry.promptGuidelines(), [
+    { tool: 'bash_output', text: bashOutputGuideline },
+    { tool: 'read', text: guideline },
+  ]);
   assertEquals(new Registry([]).promptGuidelines(), []);
   const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
   assert(readDefinition !== undefined);
   assert(!('promptGuidelines' in readDefinition));
   assertEquals(parent.systemInstruction?.split(guideline).length, 2);
+  assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
 
   const delegated = await parent.registry.dispatch(
     delegationCall(),

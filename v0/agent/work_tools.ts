@@ -8,6 +8,16 @@ import {
   throwIfCancelled,
   TurnCancelledError,
 } from './cancellation.ts';
+import {
+  BASH_OUTPUT_DEFAULT_WINDOW_BYTES,
+  type BashOutputCommandCapture,
+  type BashOutputLimitSnapshot,
+  BashOutputPersistenceError,
+  type BashOutputStore,
+  type BashOutputStream,
+  createBashOutputStore,
+  createBashOutputTool,
+} from './bash_output.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
@@ -27,11 +37,20 @@ export interface Workspace {
 
 export interface WorkToolSeams {
   /** Test-only hook executed after the temp file is synced and before rename. */
-  readonly beforeRename?: (target: string, temporary: string) => void | Promise<void>;
+  readonly beforeRename?: (
+    target: string,
+    temporary: string,
+  ) => void | Promise<void>;
   /** Test-only hook executed after rename and before cancellation arbitration. */
-  readonly afterRename?: (target: string, temporary: string) => void | Promise<void>;
+  readonly afterRename?: (
+    target: string,
+    temporary: string,
+  ) => void | Promise<void>;
   /** Test-only hook for exercising cancellation cleanup failures. */
   readonly cleanupTemporary?: (temporary: string) => void | Promise<void>;
+  /** Direct-test store injection; production creates one Registry-owned store. */
+  readonly bashOutputStore?: BashOutputStore;
+  readonly bash?: BashToolSeams;
 }
 
 export interface BashToolSeams {
@@ -39,7 +58,9 @@ export interface BashToolSeams {
   readonly beforeCapture?: (waitForSettlement: boolean) => void | Promise<void>;
 }
 
-export const resolveWorkspace = async (root = Deno.cwd()): Promise<Workspace> => {
+export const resolveWorkspace = async (
+  root = Deno.cwd(),
+): Promise<Workspace> => {
   const canonical = await Deno.realPath(root);
   const info = await Deno.lstat(canonical);
   if (!info.isDirectory) throw new Error('workspace root is not a directory');
@@ -64,13 +85,15 @@ const hasWellFormedUnicode = (value: string): boolean => {
 };
 
 const validTextArgument = (value: unknown, maxBytes: number): value is string =>
-  typeof value === 'string' && hasWellFormedUnicode(value) && !value.includes('\0') &&
+  typeof value === 'string' && hasWellFormedUnicode(value) &&
+  !value.includes('\0') &&
   encoder.encode(value).byteLength <= maxBytes;
 
 const exactKeys = (value: JsonObject, keys: readonly string[]): boolean => {
   const actual = Object.keys(value).sort();
   const expected = [...keys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+  return actual.length === expected.length &&
+    actual.every((key, index) => key === expected[index]);
 };
 
 const invalidToolArguments = (name: string): ToolInputError =>
@@ -122,9 +145,13 @@ const checkedPath = async (
     throw invalidPath();
   }
   const path = input;
-  const absolute = normalizeAbsolute(path.startsWith('/') ? path : `${workspace.root}/${path}`);
+  const absolute = normalizeAbsolute(
+    path.startsWith('/') ? path : `${workspace.root}/${path}`,
+  );
   if (!isWithin(workspace.root, absolute)) throw invalidPath();
-  const components = splitAbsolute(absolute).slice(splitAbsolute(workspace.root).length);
+  const components = splitAbsolute(absolute).slice(
+    splitAbsolute(workspace.root).length,
+  );
   let current = workspace.root;
   for (const component of components) {
     current = current === '/' ? `/${component}` : `${current}/${component}`;
@@ -147,9 +174,16 @@ const checkedPath = async (
     if (targetInfo.isSymlink) throw invalidSymlink();
   } catch (error) {
     if (error instanceof ToolInputError) throw error;
-    if (!(error instanceof Deno.errors.NotFound) || !allowMissingTarget) throw error;
+    if (!(error instanceof Deno.errors.NotFound) || !allowMissingTarget) {
+      throw error;
+    }
   }
-  return { absolute, relative: relativePath(workspace.root, absolute), parent, targetInfo };
+  return {
+    absolute,
+    relative: relativePath(workspace.root, absolute),
+    parent,
+    targetInfo,
+  };
 };
 
 const ensureParent = async (
@@ -213,7 +247,10 @@ const readBytesBounded = async (path: string): Promise<Uint8Array> => {
   return concatBytes(chunks, total);
 };
 
-const concatBytes = (chunks: readonly Uint8Array[], total: number): Uint8Array => {
+const concatBytes = (
+  chunks: readonly Uint8Array[],
+  total: number,
+): Uint8Array => {
   const bytes = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -241,13 +278,19 @@ const readTarget = async (
   toolName: string,
   signal?: AbortSignal,
 ) => {
-  const checked = await checkedPath(workspace, input, false, signal).catch((error: unknown) => {
-    if (error instanceof ToolInputError) throw error;
-    if (isTurnCancelledError(error)) throw error;
-    if (error instanceof Deno.errors.NotFound) throw new Error('file not found');
-    throw new Error(`local ${toolName} failed`);
-  });
-  if (!checked.targetInfo?.isFile) throw new Error('target is not a regular file');
+  const checked = await checkedPath(workspace, input, false, signal).catch(
+    (error: unknown) => {
+      if (error instanceof ToolInputError) throw error;
+      if (isTurnCancelledError(error)) throw error;
+      if (error instanceof Deno.errors.NotFound) {
+        throw new Error('file not found');
+      }
+      throw new Error(`local ${toolName} failed`);
+    },
+  );
+  if (!checked.targetInfo?.isFile) {
+    throw new Error('target is not a regular file');
+  }
   let bytes: Uint8Array;
   try {
     bytes = await readBytesBounded(checked.absolute);
@@ -256,7 +299,8 @@ const readTarget = async (
     if (isTurnCancelledError(error)) throw error;
     if (
       error instanceof Error &&
-      (error.message === 'file exceeds 64 KiB' || error.message === 'file is not valid UTF-8 text')
+      (error.message === 'file exceeds 64 KiB' ||
+        error.message === 'file is not valid UTF-8 text')
     ) throw error;
     throw new Error(`local ${toolName} failed`);
   }
@@ -272,17 +316,26 @@ const readWindow = async (
   limit: number | undefined,
   signal?: AbortSignal,
 ): Promise<string> => {
-  const checked = await checkedPath(workspace, input, false, signal).catch((error: unknown) => {
-    if (error instanceof ToolInputError) throw error;
-    if (isTurnCancelledError(error)) throw error;
-    if (error instanceof Deno.errors.NotFound) throw new Error('file not found');
-    throw new Error('local read failed');
-  });
-  if (!checked.targetInfo?.isFile) throw new Error('target is not a regular file');
+  const checked = await checkedPath(workspace, input, false, signal).catch(
+    (error: unknown) => {
+      if (error instanceof ToolInputError) throw error;
+      if (isTurnCancelledError(error)) throw error;
+      if (error instanceof Deno.errors.NotFound) {
+        throw new Error('file not found');
+      }
+      throw new Error('local read failed');
+    },
+  );
+  if (!checked.targetInfo?.isFile) {
+    throw new Error('target is not a regular file');
+  }
   const file = await Deno.open(checked.absolute, { read: true }).catch(() => {
     throw new Error('local read failed');
   });
-  const streamDecoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+  const streamDecoder = new TextDecoder('utf-8', {
+    fatal: true,
+    ignoreBOM: true,
+  });
   const selected: string[] = [];
   const selectedSizes: number[] = [];
   let selectedBytes = 0;
@@ -342,7 +395,9 @@ const readWindow = async (
       (error.message === 'file is not valid UTF-8 text' ||
         error.message.startsWith('line '))
     ) throw error;
-    if (error instanceof TypeError) throw new Error('file is not valid UTF-8 text');
+    if (error instanceof TypeError) {
+      throw new Error('file is not valid UTF-8 text');
+    }
     throw new Error('local read failed');
   } finally {
     file.close();
@@ -357,7 +412,10 @@ const readWindow = async (
       : `[Showing lines ${offset}-${last} of ${totalLines}. Use offset=${next} to continue.]`;
     const text = selected.join('');
     const separator = text.endsWith('\n') ? '\n' : '\n\n';
-    if (encoder.encode(`${text}${separator}${marker}`).byteLength <= MAX_TEXT_BYTES) {
+    if (
+      encoder.encode(`${text}${separator}${marker}`).byteLength <=
+        MAX_TEXT_BYTES
+    ) {
       return `${text}${separator}${marker}`;
     }
     const removed = selectedSizes.pop();
@@ -381,7 +439,8 @@ const atomicReplace = async (
 ): Promise<void> => {
   throwIfCancelled(signal);
   await ensureParent(workspace, checked.parent, true, signal);
-  const base = checked.absolute.slice(checked.absolute.lastIndexOf('/') + 1) || 'target';
+  const base = checked.absolute.slice(checked.absolute.lastIndexOf('/') + 1) ||
+    'target';
   let temporary: string | undefined;
   let file: Deno.FsFile | undefined;
   let cleanupError: unknown;
@@ -391,7 +450,11 @@ const atomicReplace = async (
     for (let attempt = 0; attempt < TEMP_ATTEMPTS; attempt += 1) {
       const candidate = `${checked.parent}/.${base}.henji-${attempt}`;
       try {
-        file = await Deno.open(candidate, { write: true, createNew: true, mode: 0o600 });
+        file = await Deno.open(candidate, {
+          write: true,
+          createNew: true,
+          mode: 0o600,
+        });
         temporary = candidate;
         break;
       } catch (error) {
@@ -417,11 +480,15 @@ const atomicReplace = async (
     throwIfCancelled(signal);
     await ensureParent(workspace, checked.parent, true, signal);
     await ensureParent(workspace, checked.parent, false, signal);
-    const current = await Deno.lstat(checked.absolute).catch((error: unknown) => {
-      if (error instanceof Deno.errors.NotFound) return undefined;
-      throw error;
-    });
-    if (current?.isSymlink || (current && !current.isFile)) throw new Error('target changed');
+    const current = await Deno.lstat(checked.absolute).catch(
+      (error: unknown) => {
+        if (error instanceof Deno.errors.NotFound) return undefined;
+        throw error;
+      },
+    );
+    if (current?.isSymlink || (current && !current.isFile)) {
+      throw new Error('target changed');
+    }
     if (expectedBytes !== undefined) {
       if (!current) throw new Error('target changed');
       const latest = await readBytesBounded(checked.absolute);
@@ -484,7 +551,10 @@ const editSchema = {
       maxItems: 32,
       items: {
         type: 'object',
-        properties: { oldText: { type: 'string' }, newText: { type: 'string' } },
+        properties: {
+          oldText: { type: 'string' },
+          newText: { type: 'string' },
+        },
         required: ['oldText', 'newText'],
         additionalProperties: false,
       },
@@ -504,8 +574,14 @@ const bashSchema = {
   additionalProperties: false,
 } as const;
 
-const validateObject = (value: JsonValue, keys: readonly string[], name: string): JsonObject => {
-  if (!isObject(value) || !exactKeys(value, keys)) throw invalidToolArguments(name);
+const validateObject = (
+  value: JsonValue,
+  keys: readonly string[],
+  name: string,
+): JsonObject => {
+  if (!isObject(value) || !exactKeys(value, keys)) {
+    throw invalidToolArguments(name);
+  }
   return value;
 };
 
@@ -526,10 +602,12 @@ export const createReadTool = (workspace: Workspace): Tool => ({
       typeof argumentsValue.path !== 'string' ||
       (argumentsValue.offset !== undefined &&
         (typeof argumentsValue.offset !== 'number' ||
-          !Number.isSafeInteger(argumentsValue.offset) || argumentsValue.offset < 1)) ||
+          !Number.isSafeInteger(argumentsValue.offset) ||
+          argumentsValue.offset < 1)) ||
       (argumentsValue.limit !== undefined &&
         (typeof argumentsValue.limit !== 'number' ||
-          !Number.isSafeInteger(argumentsValue.limit) || argumentsValue.limit < 1))
+          !Number.isSafeInteger(argumentsValue.limit) ||
+          argumentsValue.limit < 1))
     ) throw invalidToolArguments('read');
     return await readWindow(
       workspace,
@@ -541,7 +619,10 @@ export const createReadTool = (workspace: Workspace): Tool => ({
   },
 });
 
-export const createWriteTool = (workspace: Workspace, seams: WorkToolSeams = {}): Tool => ({
+export const createWriteTool = (
+  workspace: Workspace,
+  seams: WorkToolSeams = {},
+): Tool => ({
   name: 'write',
   description:
     'Create or replace one UTF-8 text file inside the workspace. Missing parent directories are created.',
@@ -549,11 +630,17 @@ export const createWriteTool = (workspace: Workspace, seams: WorkToolSeams = {})
   async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'content'], 'write');
     if (
-      typeof args.path !== 'string' || !validTextArgument(args.content, MAX_TEXT_BYTES)
+      typeof args.path !== 'string' ||
+      !validTextArgument(args.content, MAX_TEXT_BYTES)
     ) throw invalidToolArguments('write');
     const content = args.content;
     const encoded = encoder.encode(content);
-    const checked = await checkedPath(workspace, args.path, true, context?.signal).catch(
+    const checked = await checkedPath(
+      workspace,
+      args.path,
+      true,
+      context?.signal,
+    ).catch(
       (error: unknown) => {
         if (error instanceof ToolInputError) throw error;
         if (isTurnCancelledError(error)) throw error;
@@ -565,13 +652,26 @@ export const createWriteTool = (workspace: Workspace, seams: WorkToolSeams = {})
     }
     const mode = checked.targetInfo?.mode == null ? 0o644 : checked.targetInfo.mode & 0o7777;
     try {
-      await atomicReplace(workspace, checked, encoded, mode, seams, undefined, context?.signal);
+      await atomicReplace(
+        workspace,
+        checked,
+        encoded,
+        mode,
+        seams,
+        undefined,
+        context?.signal,
+      );
     } catch (error) {
       if (error instanceof ToolInputError) throw error;
-      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) {
+        throw error;
+      }
       throw new Error('local write failed');
     }
-    return JSON.stringify({ path: checked.relative, bytes: encoded.byteLength });
+    return JSON.stringify({
+      path: checked.relative,
+      bytes: encoded.byteLength,
+    });
   },
 });
 
@@ -580,7 +680,10 @@ interface EditOperation {
   readonly newText: string;
 }
 
-export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}): Tool => ({
+export const createEditTool = (
+  workspace: Workspace,
+  seams: WorkToolSeams = {},
+): Tool => ({
   name: 'edit',
   description:
     'Apply up to 32 non-overlapping exact replacements to one existing UTF-8 text file. Each oldText must match exactly once in the original file.',
@@ -588,7 +691,8 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
   async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, ['path', 'edits'], 'edit');
     if (
-      typeof args.path !== 'string' || !Array.isArray(args.edits) || args.edits.length < 1 ||
+      typeof args.path !== 'string' || !Array.isArray(args.edits) ||
+      args.edits.length < 1 ||
       args.edits.length > 32
     ) {
       throw invalidToolArguments('edit');
@@ -598,7 +702,8 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
       const operation = args.edits[index];
       if (
         !isObject(operation) || !exactKeys(operation, ['oldText', 'newText']) ||
-        typeof operation.oldText !== 'string' || typeof operation.newText !== 'string' ||
+        typeof operation.oldText !== 'string' ||
+        typeof operation.newText !== 'string' ||
         !validTextArgument(operation.oldText, MAX_TEXT_BYTES) ||
         !validTextArgument(operation.newText, MAX_TEXT_BYTES)
       ) {
@@ -610,32 +715,51 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
       if (operation.oldText === operation.newText) {
         throw new ToolInputError(`edit ${index + 1} does not change content`);
       }
-      operations.push({ oldText: operation.oldText, newText: operation.newText });
+      operations.push({
+        oldText: operation.oldText,
+        newText: operation.newText,
+      });
     }
-    const snapshot = await readTarget(workspace, args.path, 'edit', context?.signal);
+    const snapshot = await readTarget(
+      workspace,
+      args.path,
+      'edit',
+      context?.signal,
+    );
     const spans: { start: number; end: number; operation: EditOperation }[] = [];
     for (let index = 0; index < operations.length; index += 1) {
       const operation = operations[index];
       const first = snapshot.text.indexOf(operation.oldText);
-      if (first < 0) throw new ToolInputError(`edit ${index + 1} oldText was not found`);
+      if (first < 0) {
+        throw new ToolInputError(`edit ${index + 1} oldText was not found`);
+      }
       if (snapshot.text.indexOf(operation.oldText, first + 1) >= 0) {
         throw new ToolInputError(`edit ${index + 1} oldText is not unique`);
       }
-      spans.push({ start: first, end: first + operation.oldText.length, operation });
+      spans.push({
+        start: first,
+        end: first + operation.oldText.length,
+        operation,
+      });
     }
     spans.sort((left, right) => left.start - right.start);
     for (let index = 1; index < spans.length; index += 1) {
-      if (spans[index - 1].end > spans[index].start) throw new ToolInputError('edits overlap');
+      if (spans[index - 1].end > spans[index].start) {
+        throw new ToolInputError('edits overlap');
+      }
     }
     let output = '';
     let cursor = 0;
     for (const span of spans) {
-      output += snapshot.text.slice(cursor, span.start) + span.operation.newText;
+      output += snapshot.text.slice(cursor, span.start) +
+        span.operation.newText;
       cursor = span.end;
     }
     output += snapshot.text.slice(cursor);
     const encoded = encoder.encode(output);
-    if (encoded.byteLength > MAX_TEXT_BYTES) throw new Error('file exceeds 64 KiB');
+    if (encoded.byteLength > MAX_TEXT_BYTES) {
+      throw new Error('file exceeds 64 KiB');
+    }
     throwIfCancelled(context?.signal);
     let latest: Uint8Array;
     try {
@@ -645,7 +769,9 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
       if (isTurnCancelledError(error)) throw error;
       throw new Error('local edit failed');
     }
-    if (!bytesEqual(snapshot.bytes, latest)) throw new Error('local edit failed');
+    if (!bytesEqual(snapshot.bytes, latest)) {
+      throw new Error('local edit failed');
+    }
     const mode = snapshot.checked.targetInfo?.mode == null
       ? 0o644
       : snapshot.checked.targetInfo.mode & 0o7777;
@@ -661,7 +787,9 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
       );
     } catch (error) {
       if (error instanceof ToolInputError) throw error;
-      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) throw error;
+      if (isTurnCancelledError(error) || isCancellationCleanupError(error)) {
+        throw error;
+      }
       throw new Error('local edit failed');
     }
     return JSON.stringify({
@@ -673,7 +801,8 @@ export const createEditTool = (workspace: Workspace, seams: WorkToolSeams = {}):
 });
 
 const bytesEqual = (left: Uint8Array, right: Uint8Array): boolean =>
-  left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+  left.byteLength === right.byteLength &&
+  left.every((byte, index) => byte === right[index]);
 
 interface CapturedStream {
   readonly bytes: Uint8Array;
@@ -687,8 +816,22 @@ interface CaptureState {
   readonly progressText: () => string;
 }
 
+type BashOutputStopEvent =
+  | { readonly kind: 'limit'; readonly limit: BashOutputLimitSnapshot }
+  | { readonly kind: 'persistence' };
+
+class BashOutputToolResultError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BashOutputToolResultError';
+  }
+}
+
 const startDrain = (
   stream: ReadableStream<Uint8Array>,
+  output: BashOutputCommandCapture,
+  outputStream: BashOutputStream,
+  onOutputStop: (event: BashOutputStopEvent) => void,
   onProgress?: (prefix: string) => void,
 ): CaptureState => {
   const reader = stream.getReader();
@@ -700,6 +843,10 @@ const startDrain = (
   let progressFrozen = false;
   let progressDisabled = false;
   const progressDecoder = new TextDecoder('utf-8', { fatal: true });
+  const outputDecoder = new TextDecoder('utf-8');
+  let pendingOutput = '';
+  let spooling = false;
+  let storageStopped = false;
   const snapshot = (): CapturedStream => ({
     bytes: concatBytes(chunks, total),
     truncated,
@@ -744,6 +891,48 @@ const startDrain = (
         }
         if (item.value.byteLength > remaining) truncated = true;
         observe(item.value);
+        const decoded = outputDecoder.decode(item.value, { stream: true });
+        if (!spooling) {
+          pendingOutput += decoded;
+          if (truncated) {
+            spooling = true;
+            if (pendingOutput.length > 0) {
+              try {
+                const result = await output.append(outputStream, pendingOutput);
+                if (result.limit) {
+                  storageStopped = true;
+                  onOutputStop({ kind: 'limit', limit: result.limit });
+                }
+              } catch {
+                storageStopped = true;
+                onOutputStop({ kind: 'persistence' });
+              }
+              pendingOutput = '';
+            }
+          }
+        } else if (!storageStopped && decoded.length > 0) {
+          try {
+            const result = await output.append(outputStream, decoded);
+            if (result.limit) {
+              storageStopped = true;
+              onOutputStop({ kind: 'limit', limit: result.limit });
+            }
+          } catch {
+            storageStopped = true;
+            onOutputStop({ kind: 'persistence' });
+          }
+        }
+      }
+      const finalText = outputDecoder.decode();
+      if (spooling && !storageStopped && finalText.length > 0) {
+        try {
+          const result = await output.append(outputStream, finalText);
+          if (result.limit) {
+            onOutputStop({ kind: 'limit', limit: result.limit });
+          }
+        } catch {
+          onOutputStop({ kind: 'persistence' });
+        }
       }
       if (!progressDisabled && !progressFrozen) {
         try {
@@ -796,7 +985,10 @@ const waitForCapture = async (
       }),
     ]);
     if (completed) return [await stdout.done, await stderr.done];
-    const settled = await Promise.allSettled([stdout.cancelAndWait(), stderr.cancelAndWait()]);
+    const settled = await Promise.allSettled([
+      stdout.cancelAndWait(),
+      stderr.cancelAndWait(),
+    ]);
     if (settled.some((result) => result.status === 'rejected')) {
       throw new Error('capture cleanup failed');
     }
@@ -806,10 +998,14 @@ const waitForCapture = async (
   }
 };
 
-export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}): Tool => ({
+export const createBashTool = (
+  workspace: Workspace,
+  outputStore: BashOutputStore = createBashOutputStore(),
+  seams: BashToolSeams = {},
+): Tool => ({
   name: 'bash',
   description:
-    'Run one Bash command from the workspace. Default timeout 30000 ms; maximum 120000 ms. stdout and stderr are captured separately and truncated.',
+    'Run one Bash command from the workspace. Default timeout 30000 ms; maximum 120000 ms. stdout and stderr are captured separately. Truncated output can be continued with bash_output.',
   inputSchema: bashSchema,
   async execute(argumentsValue, context?: ToolExecutionContext) {
     const args = validateObject(argumentsValue, [
@@ -818,42 +1014,81 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
     ], 'bash');
     if (
       !Object.hasOwn(args, 'command') || typeof args.command !== 'string' ||
-      !validTextArgument(args.command, MAX_COMMAND_BYTES) || args.command.trim().length === 0
+      !validTextArgument(args.command, MAX_COMMAND_BYTES) ||
+      args.command.trim().length === 0
     ) {
       throw invalidToolArguments('bash');
     }
     const timeoutMs = Object.hasOwn(args, 'timeoutMs') ? args.timeoutMs : DEFAULT_TIMEOUT_MS;
     if (
-      typeof timeoutMs !== 'number' || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 ||
+      typeof timeoutMs !== 'number' || !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs < 1 ||
       timeoutMs > MAX_TIMEOUT_MS
     ) throw invalidToolArguments('bash');
     throwIfCancelled(context?.signal);
+    const outputCapture = outputStore.beginCommand();
+    const abandonCancelledCapture = async (): Promise<void> => {
+      try {
+        await outputCapture.abandon();
+      } catch {
+        throw new CancellationCleanupError();
+      }
+    };
     let child: Deno.ChildProcess;
     try {
       child = new Deno.Command('/bin/bash', {
         args: ['--noprofile', '--norc', '-c', args.command],
         cwd: workspace.root,
         clearEnv: true,
-        env: { PATH: '/usr/local/bin:/usr/bin:/bin', LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8' },
+        env: {
+          PATH: '/usr/local/bin:/usr/bin:/bin',
+          LANG: 'C.UTF-8',
+          LC_ALL: 'C.UTF-8',
+        },
         stdin: 'null',
         stdout: 'piped',
         stderr: 'piped',
       }).spawn();
     } catch {
+      await outputCapture.finish().catch(() => undefined);
       throw new Error('bash could not start');
     }
     let timedOut = false;
     let cancellationRequested = false;
+    let outputStopEvent: BashOutputStopEvent | undefined;
+    let outputStopResolve!: (value: 'output') => void;
+    const outputStop = new Promise<'output'>((resolve) => {
+      outputStopResolve = resolve;
+    });
+    const noteOutputStop = (event: BashOutputStopEvent): void => {
+      if (outputStopEvent !== undefined) return;
+      outputStopEvent = event;
+      outputStopResolve('output');
+    };
     const reportProgress = context?.reportProgress;
     const stderrCapture: { current?: CaptureState } = {};
-    const stdout = startDrain(child.stdout, (prefix) => {
-      reportProgress?.(
-        `stdout:\n${prefix}\nstderr:\n${stderrCapture.current?.progressText() ?? ''}`,
-      );
-    });
-    const stderr = startDrain(child.stderr, (prefix) => {
-      reportProgress?.(`stdout:\n${stdout.progressText()}\nstderr:\n${prefix}`);
-    });
+    const stdout = startDrain(
+      child.stdout,
+      outputCapture,
+      'stdout',
+      noteOutputStop,
+      (prefix) => {
+        reportProgress?.(
+          `stdout:\n${prefix}\nstderr:\n${stderrCapture.current?.progressText() ?? ''}`,
+        );
+      },
+    );
+    const stderr = startDrain(
+      child.stderr,
+      outputCapture,
+      'stderr',
+      noteOutputStop,
+      (prefix) => {
+        reportProgress?.(
+          `stdout:\n${stdout.progressText()}\nstderr:\n${prefix}`,
+        );
+      },
+    );
     stderrCapture.current = stderr;
     let status: Deno.CommandStatus | undefined;
     const statusPromise = child.status.then((value) => {
@@ -913,8 +1148,13 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
         }
       } catch {
         noteCleanupFailure();
-        const settled = await Promise.allSettled([stdout.cancelAndWait(), stderr.cancelAndWait()]);
-        if (settled.some((result) => result.status === 'rejected')) noteCleanupFailure();
+        const settled = await Promise.allSettled([
+          stdout.cancelAndWait(),
+          stderr.cancelAndWait(),
+        ]);
+        if (settled.some((result) => result.status === 'rejected')) {
+          noteCleanupFailure();
+        }
       }
       if (cancellationWon() && cleanupFailedAfterCancellation) {
         throw new CancellationCleanupError();
@@ -925,8 +1165,9 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
         statusPromise.then(() => 'status' as const),
         timeout,
         cancellation,
+        outputStop,
       ]);
-      if (first === 'timeout' || first === 'cancelled') {
+      if (first === 'timeout' || first === 'cancelled' || first === 'output') {
         if (first === 'cancelled') cancellationRequested = true;
         if (first === 'timeout') timedOut = true;
         await teardown(cancellationRequested);
@@ -939,9 +1180,33 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
         }
         await waitForCapture(stdout, stderr, false, seams);
       }
-      if (cancellationRequested || context?.signal?.aborted) throw new TurnCancelledError();
-      const [capturedStdout, capturedStderr] = await waitForCapture(stdout, stderr, false, seams);
-      return JSON.stringify({
+      if (cancellationRequested || context?.signal?.aborted) {
+        await abandonCancelledCapture();
+        throw new TurnCancelledError();
+      }
+      const [capturedStdout, capturedStderr] = await waitForCapture(
+        stdout,
+        stderr,
+        false,
+        seams,
+      );
+      let outputSummary;
+      try {
+        outputSummary = await outputCapture.finish();
+      } catch (error) {
+        if (error instanceof BashOutputPersistenceError) {
+          outputStopEvent = { kind: 'persistence' };
+          outputSummary = await outputCapture.summary();
+        } else throw error;
+      }
+      // The final partial segment is persisted asynchronously. Cancellation that arrives while
+      // that flush is in flight still owns the turn, so do not retain an identity that the loop
+      // will never commit to the transcript.
+      if (cancellationRequested || context?.signal?.aborted) {
+        await abandonCancelledCapture();
+        throw new TurnCancelledError();
+      }
+      const result: Record<string, unknown> = {
         stdout: new TextDecoder().decode(capturedStdout.bytes),
         stderr: new TextDecoder().decode(capturedStderr.bytes),
         exitCode: status?.signal === null ? status.code : null,
@@ -949,10 +1214,44 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
         timedOut,
         stdoutTruncated: capturedStdout.truncated,
         stderrTruncated: capturedStderr.truncated,
-      });
+      };
+      if (outputSummary.available && outputSummary.outputId !== undefined) {
+        const streams = Object.entries(outputSummary.streams).map((
+          [stream, totalBytes],
+        ) => ({
+          stream,
+          totalBytes,
+          offset: 0,
+          limit: BASH_OUTPUT_DEFAULT_WINDOW_BYTES,
+        }));
+        result.outputId = outputSummary.outputId;
+        result.savedStreams = outputSummary.streams;
+        result.outputComplete = outputSummary.limit === undefined;
+        result.readback = {
+          tool: 'bash_output',
+          outputId: outputSummary.outputId,
+          streams,
+        };
+      }
+      if (outputSummary.limit !== undefined) {
+        result.outputLimitExceeded = true;
+        result.outputComplete = false;
+        result.outputLimit = outputSummary.limit;
+      }
+      if (outputStopEvent?.kind === 'persistence') {
+        result.outputComplete = false;
+        result.error = 'bash output persistence failed';
+        throw new BashOutputToolResultError(JSON.stringify(result));
+      }
+      return JSON.stringify(result);
     } catch (error) {
-      if (error instanceof CancellationCleanupError) throw error;
-      if (isTurnCancelledError(error)) throw error;
+      if (
+        error instanceof CancellationCleanupError || isTurnCancelledError(error)
+      ) {
+        await abandonCancelledCapture();
+        throw error;
+      }
+      if (error instanceof BashOutputToolResultError) throw error;
       throw new Error('bash could not start');
     } finally {
       if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
@@ -964,9 +1263,13 @@ export const createBashTool = (workspace: Workspace, seams: BashToolSeams = {}):
 export const createWorkTools = (
   workspace: Workspace,
   seams: WorkToolSeams = {},
-): readonly Tool[] => [
-  createBashTool(workspace),
-  createEditTool(workspace, seams),
-  createReadTool(workspace),
-  createWriteTool(workspace, seams),
-];
+): readonly Tool[] => {
+  const outputStore = seams.bashOutputStore ?? createBashOutputStore();
+  return [
+    createBashTool(workspace, outputStore, seams.bash ?? {}),
+    createBashOutputTool(outputStore),
+    createEditTool(workspace, seams),
+    createReadTool(workspace),
+    createWriteTool(workspace, seams),
+  ];
+};

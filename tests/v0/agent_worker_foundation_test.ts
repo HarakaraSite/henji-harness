@@ -308,6 +308,8 @@ fi
       const configIndex = captured.args.indexOf('--config');
       assert(configIndex >= 0);
       assertEquals(captured.args[configIndex + 1], config);
+      assert(captured.args.includes('--allow-read=/tmp'));
+      assert(captured.args.includes('--allow-write=/tmp'));
     }
     assertEquals(none.args.slice(-5), [
       '--definition',

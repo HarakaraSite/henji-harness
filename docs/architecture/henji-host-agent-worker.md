@@ -95,7 +95,15 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 
 有効toolが利用指針を持つ場合、tool metadataはprovider向けtool definitionとは分離して保持し、Definitionが
 registryをmaterializeした後にAgentCompositionのsystem instructionへ合成する。現在は`read`の選択と
-`offset`・`limit`による継続読込みの指針だけをこの経路で合成し、default parentとplannerへ同じ規則を使う。
+`offset`・`limit`による継続読込みの指針をdefault parentとplannerへ、切り捨てられた`bash`出力を
+`bash_output`の`outputId`と`nextOffset`で継続取得する指針を、そのtoolを持つdefault parentだけへ合成する。
+
+default parentの`bash`と`bash_output`は、一つのRegistry lifetimeで一つのtemporary output storeを共有する。
+4 KiBを超えたstdout/stderrはprocess-localなopaque identityへ保存し、UTF-8 byte offsetのbounded windowで
+後続callから取得できる。storeは`/tmp`で一つのfile handleを開いて直ちにunlinkし、1 command 32 MiB、
+1 Registry 128 MiB、retained stream 4,096件を固定上限とする。上限到達時は実行commandを停止してpartial
+readbackを残し、未commitのcancelled outputは同じhandle上でextentを詰めて容量を回収する。process再起動、
+Session resume、別Worker generationをまたぐdurabilityは持たない。
 
 Worker は terminal、TUI layout、その他の Surface を所有しない。turn を実行するために特定の
 UI を要求してはならない。
@@ -119,10 +127,11 @@ conversation logのturn境界、user入力と最初のtoolまたはassistant出�
 位置と`Esc latest`を示す。PageDownで末尾へ到達した場合、idleのEsc、または通常taskのadmission成功時に
 最新追尾へ戻る。
 
-conversationの`user>`とsettledした`assistant>`のlabel styleもHost側の表示metadataであり、ANSI sequenceは
-最終的なterminal frame生成時だけ加える。layout、canonical transcript、Presentation eventはplain textの
-ままとする。assistant本文はHost TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは
-入力textをそのまま返すため、streamingとsettled outputの内容を変更しない。
+conversationの`user>`、settledした`assistant>`、`tool>`、`system>`のlabel styleもHost側の表示metadataで
+あり、現在はそれぞれblue、yellow、green、magentaで識別する。ANSI sequenceは最終的なterminal frame生成時
+だけ加え、layout、canonical transcript、Presentation eventはplain textのままとする。assistant本文はHost
+TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは入力textをそのまま返すため、
+streamingとsettled outputの内容を変更しない。
 
 `/history export`は現在bindingのcommit済みcanonical transcriptをHost側で同期的にsnapshotし、既存の
 workspace別state root配下へMarkdownを新規保存するHost-local operationである。表示中のbounded viewport、

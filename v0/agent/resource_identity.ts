@@ -244,6 +244,7 @@ export const validateAgentResourceTopology = (
     expected.push(
       ...[
         'tool:bash',
+        'tool:bash_output',
         'tool:delegate_to_planner',
         'tool:edit',
         'tool:read',

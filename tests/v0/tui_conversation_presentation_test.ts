@@ -88,7 +88,7 @@ Deno.test('conversation presentation keeps successful operational metadata out o
   );
 });
 
-Deno.test('conversation layout stays plain while retained frame colors only settled role labels', () => {
+Deno.test('conversation layout stays plain while retained frame colors exact conversation labels', () => {
   const terminal = new FakeTerminal();
   const phases: string[] = [];
   const assistantRenderer: AssistantContentRenderer = {
@@ -112,14 +112,42 @@ Deno.test('conversation layout stays plain while retained frame colors only sett
     turn: 1,
     message: { role: 'assistant', content: { kind: 'text', text: '回答' } },
   });
+  renderer.eventSink({
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      kind: 'tool_call',
+      callId: 'bash-1',
+      name: 'bash',
+      arguments: { command: 'printf result' },
+    },
+  });
+  renderer.eventSink({
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'bash-1',
+      name: 'bash',
+      text: 'result',
+      outcome: 'success',
+    },
+  });
+  renderer.eventSink({ kind: 'notice', generation: 1, text: '履歴を保存しました' });
   const layout = renderer.layoutSnapshot(80, 24);
   assert(layout.allLog.every((row) => !row.text.includes('\x1b')));
   assert(layout.allLog.some((row) => row.labelTone === 'user'));
   assert(layout.allLog.some((row) => row.labelTone === 'assistant'));
+  assert(layout.allLog.some((row) => row.labelTone === 'tool'));
+  assert(layout.allLog.some((row) => row.labelTone === 'system'));
   const frame = renderer.renderFrame(80, 24);
   assert(frame.includes('\x1b[34muser>\x1b[0m 質問'));
   assert(frame.includes('\x1b[33massistant>\x1b[0m 回答'));
+  assert(frame.includes('\x1b[32mtool>\x1b[0m bash printf result ✓'));
+  assert(frame.includes('\x1b[35msystem>\x1b[0m 履歴を保存しました'));
   assert(!frame.includes('\x1b[33m回答'));
+  assert(!frame.includes('\x1b[32mbash'));
+  assert(!frame.includes('\x1b[35m履歴'));
   assert(phases.includes('streaming'));
   assert(phases.includes('settled'));
 });

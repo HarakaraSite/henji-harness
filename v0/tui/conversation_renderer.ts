@@ -1,6 +1,6 @@
 import { type UiLogEntry } from './state.ts';
 
-export type ConversationLabelTone = 'user' | 'assistant';
+export type ConversationLabelTone = 'user' | 'assistant' | 'tool' | 'system';
 
 export interface AssistantContentRenderer {
   render(text: string, phase: 'streaming' | 'settled'): string;
@@ -29,6 +29,10 @@ export const projectConversationEntry = (
     ? 'user' as const
     : entry.label === 'assistant>'
     ? 'assistant' as const
+    : entry.label === 'tool>'
+    ? 'tool' as const
+    : entry.label === 'system>'
+    ? 'system' as const
     : undefined;
   return Object.freeze({
     text: `${entry.label} ${body}`,

@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 通常利用increment 2、increment 3、increment 4は完了。increment 4はlocal実装、focused verification、authoritative gate、独立reviewに加え、production TUIでlabel色、二turn時点の二回の`/history export`、64 KiB超fileの`read`継続取得を確認し、2026-09-07にユーザーが完了を受け入れた。ユーザー評価は「かなり使いやすくなってきた」。`tool>`のgreen、Host-local `system>` noticeのpink系standard magenta、現行`bash`のOS権限に対するsandboxed Deno tool案は通常利用inboxの未採用候補
-- 次: 通常利用を継続し、ユーザーが選んだ未採用候補または新しい観測から次のincrementを決める
-- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/increments/increment-3.md`、`docs/increments/increment-3-results.md`、`docs/increments/increment-4.md`、`docs/increments/increment-4-results.md`、`docs/experience/normal-use-inbox.md`
-- 注意: 完了済みincrement 4のscopeと対象外は計画、実装・検証・review・human gate結果はresultsを正本とする。通常利用inboxの候補は未採用。production/provider/credential操作、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 状態: 通常利用increment 2、increment 3、increment 4は完了。increment 5は`tool>` green、`system>` magenta、`bash` full-output readback、1 command 32 MiB・1 Registry 128 MiB上限をlocal実装済み。focused verification、cancellation quota/extent findingのclosure、独立review GO、authoritative offline gate 78/78を完了。production retained TUI human gateとユーザー受入は未実施
+- 次: increment 5のproduction human gateを行う場合は、計画記載の一回のTUI/provider確認について別の明示承認を得る
+- 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/increments/increment-3.md`、`docs/increments/increment-3-results.md`、`docs/increments/increment-4.md`、`docs/increments/increment-4-results.md`、`docs/increments/increment-5.md`、`docs/increments/increment-5-results.md`、`docs/experience/normal-use-inbox.md`
+- 注意: increment 5のscopeは計画、local実装・検証・review結果はresultsを正本とする。最初のfull gateはconfigured format不一致で停止し、対象3ファイルをrepository設定で整形後、具体的原因に限って再実行したfinal gateが成功。今回の上限はstdout/stderr captureだけであり、既存`bash`がworkspace内へ直接巨大fileを作れる権限の制限はF24候補のまま。production/provider/credential、commit、push/tag/publish/releaseは未実施。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 
@@ -17,6 +17,21 @@
 - 注意: local scopeの確認と関連henji/henjibot/abyssaeon handoffの照合ではoperations正本・transfer ledgerを確認できなかった。planner inputが示す旧operations正本（未アクセス）は`discovery/concepts/deno-self-revising-agent-harness/README.md`（`/tmp/planner-inputs/henji-agent-definition-resource-identity.md`）。archived safety workは明示判断なしに再開せず、移管先のRecordだけで完了・承認継承と判断しない
 
 ## Checkpoints
+
+## 2026-09-07 increment 5 local implementation checkpoint
+
+- 実行エージェント: Codex owner + bounded read-only implementation reviewer
+- 作業トピック: 通常利用increment 5 local implementation
+- 実施: TUIの`tool>` green・`system>` magenta、default parentの`bash_output`、single unlinked temporary
+  store、32 MiB/128 MiB/4,096 stream上限、UTF-8 window readback、exact `/tmp` permissionを実装。reviewで
+  cancellation時の到達不能recordとfinal flush raceを検出し、quota・extent compaction回収とpost-finish
+  arbitrationで閉じた。追加closure reviewはGO、Blocker/P1/P2 0
+- 検証: increment 5 focused 10/10、final authoritative `v0:gate` 78/78、check、format 109 files、lint
+  106 files、`git diff --check`成功。最初のgate試行はrepository configなしのfocused formatterが作ったquote
+  style不一致だけで停止し、設定付きformatterで修正後の再実行が成功
+- 次: 別承認がある場合だけproduction retained TUI/provider human gateを一回行う
+- 注意: production/provider/credential、32 MiB/128 MiBのhuman gate生成、commit/push/tag/publish/release、
+  `_refs/*`の変更は未実施
 
 ## 2026-09-06 JST
 

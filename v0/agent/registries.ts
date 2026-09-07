@@ -23,6 +23,11 @@ import {
 } from './planner_delegation.ts';
 import type { AgentCapabilityDeclaration } from './agent_definition.ts';
 import type { AgentResourceIdentity } from './resource_identity.ts';
+import {
+  type BashOutputStore,
+  createBashOutputStore,
+  createBashOutputTool,
+} from './bash_output.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -31,6 +36,7 @@ export interface RegistryMaterializationContext {
   readonly workspace: Workspace;
   readonly skillCatalog: SkillCatalog;
   readonly workTools?: WorkToolSeams;
+  readonly bashOutputStore?: BashOutputStore;
   readonly plannerDelegation?: PlannerDelegationHandler;
 }
 
@@ -48,7 +54,15 @@ export const createDeclaredTool = (
 ): Tool => {
   switch (`${identity}`) {
     case 'tool:bash':
-      return createBashTool(context.workspace);
+      return createBashTool(
+        context.workspace,
+        context.bashOutputStore ?? context.workTools?.bashOutputStore ?? createBashOutputStore(),
+        context.workTools?.bash ?? {},
+      );
+    case 'tool:bash_output':
+      return createBashOutputTool(
+        context.bashOutputStore ?? context.workTools?.bashOutputStore ?? createBashOutputStore(),
+      );
     case 'tool:edit':
       return createEditTool(context.workspace, context.workTools ?? {});
     case 'tool:read':
@@ -107,7 +121,12 @@ export const createDeclaredRegistry = (
       throw new Error('declared skills do not match host skill catalog');
     }
   }
-  const tools = declaration.tools.map((identity) => createDeclaredTool(identity, context));
+  const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
+    createBashOutputStore();
+  const materializationContext = { ...context, bashOutputStore: outputStore };
+  const tools = declaration.tools.map((identity) =>
+    createDeclaredTool(identity, materializationContext)
+  );
   return new Registry(tools);
 };
 

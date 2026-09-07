@@ -10,8 +10,8 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
-increment 4へ採用した四項目は`docs/increments/increment-4.md`へ移した。以下は同incrementへ採用していない
-観測と候補だけを残す。
+increment 4へ採用した四項目は`docs/increments/increment-4.md`、increment 5へ採用したlabel色と`bash`全出力
+readbackは`docs/increments/increment-5.md`へ移した。以下は各incrementへ採用していない観測と候補だけを残す。
 
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
@@ -63,32 +63,6 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   候補とする。現在のstring出力contractを変える必要が生じた場合は、F10と将来のF24として構想・
   architectureへ戻って検討する。
 
-### Surface: tool activityの表示（F01）
-
-観測:
-
-- tool callの内容の一部を確認できる点はよい。例:
-  `tool> bash GOCACHE=/tmp/gocache go run ./cmd/fja --help ✓`
-- increment 4で`user>`をblue、`assistant>`をyellowにした後の通常利用では、`tool>`が従来どおり
-  無着色であることが目に留まった。
-
-改善候補:
-
-- `tool>`の識別色としてgreenを検討する。通常利用から得た暫定候補であり、採用や具体的な着色範囲は
-  未決定。
-
-### Surface: Host-local system noticeの表示（F01）
-
-観測:
-
-- `/history export`成功時の`system>` noticeは現在無着色であり、conversation内で識別色を付けたい。
-
-改善候補:
-
-- `system>`のlabelだけをpink系にする。既存のstandard ANSI colorを使う場合はmagenta（SGR 35）を第一候補
-  とし、実際のpinkからpurpleの見え方はterminal themeで確認する。bright magenta（SGR 95）を使うかを含め、
-  採用と具体値は未決定。
-
 ### Agent実行: 調査時のtool選択と結果readback（F02、F06、将来のF24候補）
 
 観測:
@@ -103,8 +77,6 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 固定instruction、tool description、tool設計のどこで効率的な選択を支えるか検討する。
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
-- `bash`は切り詰め前の全出力を保存し、必要時にreadbackできるようにする案を検討する。`read`の
-  `offset`・`limit`と継続案内はincrement 4へ移した。
 
 参照実装から得た未採用の示唆:
 
@@ -122,8 +94,23 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   指針の合成はAgentCompositionの責務候補として検討する。
 - tool利用効率は現時点ではF02・F06の通常改善として扱う。ここで整えるtool metadataやinterfaceは将来の
   F24実装基盤として再利用できるが、それだけでF24完了とはしない。
-- `read`のline windowとactive guidelineはincrement 4へ移した。`bash`全出力readbackと他toolのguidelineは
-  未採用のまま残す。
+- `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5へ移した。他toolの
+  guidelineは未採用のまま残す。
+
+### Agent実行: Web search tool（F02、F06、将来のF24候補）
+
+利用者判断:
+
+- 通常利用を続けるうえで、modelがtool callとして使えるWeb searchの必要性が高まりつつある。
+- `web_search`をincrement 5には含めず、increment 6候補として保存する。
+- URL本文を取得して人間向けtextへ変換する`web_open`は、人間にはbrowserがあるため現時点では必要性を
+  感じず、候補に含めない。
+
+未決事項:
+
+- search provider、公式API contract、credential、cost、query/result schema、取得結果をmodelと
+  transcriptへ渡す範囲は未選定である。increment 6へ採用する場合に、実際の利用環境と公式文書を確認して
+  決める。
 
 現行component境界の確認:
 
