@@ -32,6 +32,7 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 class RecordingTerminal implements TerminalPort {
   readonly writes: string[] = [];
   readonly rawModes: boolean[] = [];
+  readonly rawCbreaks: boolean[] = [];
   size = { columns: 80, rows: 24 };
 
   stdinIsTerminal(): boolean {
@@ -46,8 +47,9 @@ class RecordingTerminal implements TerminalPort {
     return this.size;
   }
 
-  setRaw(mode: boolean): void {
+  setRaw(mode: boolean, options: { cbreak: boolean } = { cbreak: true }): void {
     this.rawModes.push(mode);
+    this.rawCbreaks.push(options.cbreak);
   }
 
   read(): Promise<Uint8Array | null> {
@@ -200,6 +202,7 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
     terminal.writes.slice(enter + 1, exit).some((write) => write.includes('\x1b[2J\x1b[H')),
   );
   assertEquals(terminal.rawModes, [true, false]);
+  assertEquals(terminal.rawCbreaks, [false, true]);
   assertEquals(
     terminal.writes.filter((write) => write.includes(EXIT_ALTERNATE_SCREEN))
       .length,

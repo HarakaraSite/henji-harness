@@ -1,7 +1,8 @@
 # 通常利用 increment 6 — 実装結果
 
-ステータス: local実装、focused verification、bounded implementation review、authoritative offline gateを
-2026-09-07に完了。production retained TUI human gateとユーザー受入は未実施。
+ステータス: local実装後のproduction利用で見つかったidle Ctrl-Cの端末設定不備を2026-09-07に修正し、
+focused verification、実端末経路、bounded review、authoritative offline gateを完了。通常利用での再確認と
+ユーザー受入は未実施。
 
 ## 成立した動作
 
@@ -40,6 +41,22 @@
   - increment 5 bash output 11 passed
   - 合計84 passed、0 failed
 
+## Production follow-up correction
+
+commit `b19b5dd`後の通常利用で、idleの物理Ctrl-Cが一回ではdraftをclearせず、二回押下を要求することを
+ユーザーが確認した。`TerminalLifecycle.acquire()`がraw modeを`cbreak: true`で開始していたため、物理Ctrl-Cは
+`InputDecoder`へbyte `0x03`として届かず、外部SIGINTと同じ二段階のdiscard-and-exit経路へ入っていた。
+test terminalはbyteを直接注入していたため、このproduction terminal設定を通していなかった。
+
+raw modeを`cbreak: false`で開始し、物理Ctrl-Cを既存のHost-local input handlerへ届けるよう修正した。外部から
+送られるSIGINTは既存のsignal listenerと従来遷移を維持する。端末lifecycle testへactivation時のcbreak設定を
+追加し、関連focused testは27 passed、0 failed。providerを使わない実PTYで`draft`入力、Ctrl-C一回、Ctrl-Dの
+順に操作し、discard-and-exit警告を出さずexit code 0で終了することを確認した。
+
+この修正で以前のterminal受入証拠が無効になったため、修正版stable candidateへauthoritative `v0:gate`を
+一回再実行し、通常suite 57、provider stream compatibility 10、filesystem 6、bash output 11の合計84 passed、
+0 failedを確認した。changed-lines reviewはGOで、未解決Blocker/P1/P2は0。
+
 ## Bounded implementation review
 
 - 初回reviewはBlocker 0、P1 1、P2 1でNO-GOだった。P1はkeyboard Ctrl-Cの共通handler変更が、対象外の
@@ -53,7 +70,8 @@
 
 ## Production human gate
 
-provider request、credential、networkを使う確認は実施していない。次はユーザーの別の明示承認後、
-`docs/increments/increment-6.md`のproduction retained TUI human gateに従い、cancel後のeditor復元・再送と
-idle Ctrl-Cを一回のproduction TUI processで確認する。tool component置換はlocal Definitionのprovider-free
-focused testで確認済みであり、human gateで任意の外部componentを追加しない。
+provider request、credential、networkを使う確認は実施していない。idle Ctrl-Cはprovider-freeな実PTYで確認
+したが、次はユーザーが通常のproduction TUIで一回押下によるclearを再確認する。cancel後のeditor復元・再送を
+含む残りのhuman gateは、ユーザーの別の明示承認後に`docs/increments/increment-6.md`へ従って実施する。tool
+component置換はlocal Definitionのprovider-free focused testで確認済みであり、human gateで任意の外部componentを
+追加しない。

@@ -248,7 +248,10 @@ export class TerminalLifecycle {
       // Mark raw as needing restoration before invoking the host operation: setRaw may partially
       // change terminal state before reporting an error.
       this.raw = true;
-      this.terminal.setRaw(true, { cbreak: true });
+      // Ctrl-C is a Host-local input action while the retained TUI is idle. Keep signal
+      // generation disabled so the terminal delivers byte 0x03 through InputDecoder; external
+      // SIGINT still arrives through the separately installed signal listener.
+      this.terminal.setRaw(true, { cbreak: false });
       this.acquired = true;
       this.paste = true;
       this.terminal.write(staticBytes(BRACKETED_PASTE_ON));

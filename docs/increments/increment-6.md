@@ -1,7 +1,8 @@
 # 通常利用 increment 6 — recoverable inputとwork tool component化
 
-ステータス: local実装、focused verification、bounded implementation review、authoritative offline gateは
-2026-09-07に完了。production retained TUI human gate待ち。
+ステータス: local実装後のproduction利用で見つかったidle Ctrl-Cの端末設定不備を2026-09-07に修正し、
+focused verification、実端末経路、bounded review、authoritative offline gateを完了。通常利用での再確認と
+残りのproduction retained TUI human gate待ち。
 
 ## この文書の位置付け
 
