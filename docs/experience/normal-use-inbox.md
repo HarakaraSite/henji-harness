@@ -69,7 +69,25 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 - tool callの内容の一部を確認できる点はよい。例:
   `tool> bash GOCACHE=/tmp/gocache go run ./cmd/fja --help ✓`
-- 現在の表示にはさらに改善の余地があるが、具体的な変更内容は未整理。
+- increment 4で`user>`をblue、`assistant>`をyellowにした後の通常利用では、`tool>`が従来どおり
+  無着色であることが目に留まった。
+
+改善候補:
+
+- `tool>`の識別色としてgreenを検討する。通常利用から得た暫定候補であり、採用や具体的な着色範囲は
+  未決定。
+
+### Surface: Host-local system noticeの表示（F01）
+
+観測:
+
+- `/history export`成功時の`system>` noticeは現在無着色であり、conversation内で識別色を付けたい。
+
+改善候補:
+
+- `system>`のlabelだけをpink系にする。既存のstandard ANSI colorを使う場合はmagenta（SGR 35）を第一候補
+  とし、実際のpinkからpurpleの見え方はterminal themeで確認する。bright magenta（SGR 95）を使うかを含め、
+  採用と具体値は未決定。
 
 ### Agent実行: 調査時のtool選択と結果readback（F02、F06、将来のF24候補）
 
@@ -129,6 +147,42 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 直近のtool選択改善では、まず`Tool`へ`promptGuidelines`を追加し、`Registry`で集約して
   AgentCompositionのsystem instructionへ合成する。この継ぎ目は将来のF24に再利用できるが、toolの
   candidate生成・revision保存・人間による採用がない段階ではF24完了とはしない。
+
+### F24候補: tool実行権限とsandboxed Deno program
+
+通常利用での観測:
+
+- 現行`bash` toolはmodelが生成したcommandを`/bin/bash` subprocessへ渡す。
+  [Deno公式のpermission文書](https://docs.deno.com/runtime/reference/permissions/#subprocesses)どおり、
+  subprocessは親runtimeのfilesystem・network permission内には閉じず、OS userの権限で動く。
+- 2026-09-07の実利用環境では`python3`、`apt`、`sudo`がPATH上にあり、`pip` executableとPythonの`pip`
+  moduleはなかった。実行userにはpasswordless sudo権限があるため、modelがpackage導入commandを選ばなかった
+  ことは、実行可能性を制限する境界ではない。
+- Forgejo API文書の調査では、modelは未導入のBeautifulSoupを試した後、packageを導入せずPython標準
+  libraryと正規表現へ切り替えた。この一回の選択から、別のtaskやmodelでも`pip`、`apt`等を自発的に
+  使わないとは判断できない。
+
+検討候補:
+
+- 「packageを導入しない」というAgent instructionと、「共有VM状態へ導入できない」というtool実行権限を
+  区別する。`pip`や`apt`というcommand名の禁止だけでは、downloadしたbinaryや別package managerによる
+  同じeffectを制限できないため、必要な境界はprocess起動、write先、network、credential等のcapabilityで
+  表現する。
+- modelが必要なprogramをTypeScriptとして組み立て、Hostまたはtool executorが固定したDeno permission内で
+  実行するtoolを検討する。modelはprogramとdataだけを渡し、Deno CLI option、permission flag、executorを
+  制御しない。特に任意の`deno run`、`--allow-all`、shellまたはsubprocess起動を許す構成はsandboxとして
+  扱わない。
+- Hostが改訂対象外のpermission ceilingを所有し、Agent Definitionとrevision付きtool componentはその部分集合を
+  選択する。Manifestは選択結果を説明するがpermission authorityにはしない。権限拡張はtool candidateの
+  自動採用から導かず、人間が明示的に判断する。
+- sandboxed program toolの通常導入はF06を含む通常改善として先に実施できる。経験からtool contractや
+  executorの改訂候補を生成し、revisionとして保存し、人間が採用するproduct flowまで成立した段階をF24の
+  tool改訂として扱う。
+
+現在の扱い:
+
+- 議論から得た未採用のarchitecture・tool候補として保存する。permission profile、実行配置、dependency
+  取得、永続化範囲、unrestricted `bash`との併存方法は、具体的なproduct incrementを選ぶ時点で決める。
 
 ### F24: sourceから派生物を作るAgent instruction
 

@@ -1,7 +1,7 @@
 # 通常利用 increment 4 — 実装結果
 
-ステータス: local実装、focused verification、authoritative gate、独立reviewを2026-09-07に完了。
-production TUIでのhuman gateは未完了。
+ステータス: 完了。local実装、focused verification、authoritative gate、独立review、production TUIでの
+human gate、ユーザー受入を2026-09-07に完了。
 
 ## 成立した動作
 
@@ -46,11 +46,20 @@ production TUIでのhuman gateは未完了。
 - changed-lines re-reviewはGO。初回P1解消、新しいBlocker/P1なし。初回P2は唯一の再開状態が実装前のままという
   文書不整合であり、`.handoff/handoff.md`をこの結果とhuman gate待ちへ更新して解消した。
 
-## 未実施のhuman gate
+## Production human gateとユーザー受入
 
-production TUIとproviderを使う確認は、このlocal実装承認には含めず未実施である。次の利用者確認を残す。
+2026-09-07にproduction TUIとproviderを使い、次の実利用経路を確認した。
 
-- 実際のterminal themeで`user>`のblueと`assistant>`のyellowが見分けやすく、本文へ色が漏れない。
-- 二つのturn後にそれぞれ`/history export`を実行し、表示された別々の絶対pathを開くと、その時点までの
-  commit済みhistoryだけが読みやすいMarkdownとして入っている。
-- Henji自身が64 KiB超のfileを`read`し、continuation案内の次offsetを使って続きを取得する。
+- 実際のterminal themeで`user>`はblue、settledした`assistant>`はyellowとして見分けられ、本文へ色が
+  漏れなかった。increment 4のscopeどおり`tool>`と`system>`は無着色であり、それぞれgreenとpink系を
+  後続の未採用表示改善候補として通常利用inboxへ残した。
+- 同じdurable Sessionでturn 1後とturn 2後に`/history export`を実行した。最初のfileはturn 1だけを保持し、
+  二つ目はturn 1の同一内容とturn 2を順序どおり保持した。fileは異なるUUIDとinodeを持ち、最初のfileを
+  上書きせず、いずれもmode `0600`だった。user、tool call arguments、tool result、assistant本文を含み、
+  ANSI sequenceとexport完了noticeは混入しなかった。
+- workspace内に72,800 bytes、56行のUTF-8 `test.txt`を用意した。Henji自身の最初の`read`はpathだけで
+  lines 1–50を返し、`Use offset=51 to continue.`を案内した。二回目の`read`は実際に`offset: 51`を使って
+  lines 51–56を取得し、全56行を最後まで読んだ。最終回答の行数と、各行が12桁の数字100個をカンマ区切りに
+  した1,299文字であるという報告は実fileと一致した。
+
+ユーザーは全human gateの確認後にincrement 4の完了を受け入れ、「かなり使いやすくなってきた」と評価した。

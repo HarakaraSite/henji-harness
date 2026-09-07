@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 通常利用increment 2とincrement 3は完了。increment 4は承認済み計画に基づくlocal実装、focused verification、authoritative gate、独立reviewを完了。初回code reviewのP1を修正し、focused regression test成功、changed-lines re-reviewはGO、新しいBlocker/P1なし。production TUIのhuman gateは未実施
-- 次: ユーザー判断後、production TUIでlabel色、二turn時点の二回の`/history export`、Henji自身によるlarge fileの`read`継続取得を確認する
+- 状態: 通常利用increment 2、increment 3、increment 4は完了。increment 4はlocal実装、focused verification、authoritative gate、独立reviewに加え、production TUIでlabel色、二turn時点の二回の`/history export`、64 KiB超fileの`read`継続取得を確認し、2026-09-07にユーザーが完了を受け入れた。ユーザー評価は「かなり使いやすくなってきた」。`tool>`のgreen、Host-local `system>` noticeのpink系standard magenta、現行`bash`のOS権限に対するsandboxed Deno tool案は通常利用inboxの未採用候補
+- 次: 通常利用を継続し、ユーザーが選んだ未採用候補または新しい観測から次のincrementを決める
 - 正本: `docs/concepts/experience-driven-self-revision.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`docs/increments/increment-2.md`、`docs/increments/increment-2-results.md`、`docs/increments/increment-3.md`、`docs/increments/increment-3-results.md`、`docs/increments/increment-4.md`、`docs/increments/increment-4-results.md`、`docs/experience/normal-use-inbox.md`
-- 注意: increment 4のscopeと対象外は計画、実装・検証・review結果はresultsを正本とする。production/provider/credential操作、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
+- 注意: 完了済みincrement 4のscopeと対象外は計画、実装・検証・review・human gate結果はresultsを正本とする。通常利用inboxの候補は未採用。production/provider/credential操作、commit、push/tag/publish/releaseは未認可。未追跡`_refs/*`は変更しない
 
 ### Legacy Spike2 and operations transfer reconciliation
 

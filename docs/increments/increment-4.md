@@ -1,7 +1,7 @@
 # 通常利用 increment 4 — conversation識別、history export、read継続読込み
 
-ステータス: 承認済み計画。2026-09-07にscopeと計画をユーザーが承認し、local実装、機械確認、
-独立reviewを完了。production TUIのhuman gateは未実施。
+ステータス: 完了。2026-09-07にscopeと計画をユーザーが承認し、local実装、機械確認、独立review、
+production TUIのhuman gate、ユーザー受入を完了。
 
 ## この文書の位置付け
 
