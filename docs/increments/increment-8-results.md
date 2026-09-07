@@ -1,7 +1,7 @@
 # 通常利用 increment 8 — 実装結果
 
 ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateとユーザー受入は未実施。
+production retained TUI human gateでSonar側のgrounding改善と親finalの未解決問題を確認し、ユーザー未受入。
 
 ## 成立した動作
 
@@ -37,11 +37,14 @@ production retained TUI human gateとユーザー受入は未実施。
 - 実利用で観測した具体的な問題へ対応しないpermission、入力制限、search filter、回数制限、hardening testは
   追加していない。未解決Blocker/P1/P2は0。
 
-## Pending production human gate
+## Production human gate
 
-code変更後の新しいWorker generationで、曖昧さを含むcurrent-information taskをproduction retained TUIから
-一回実行する。modelがcompleteでspecificなquestionを選ぶこと、Sonarと親finalが不足・near miss・推論を
-確認済み事実から分けること、使用したsource URLをfinalで示すこと、実測usage・costを確認する。
+2026-09-07、code変更後のWorker generation `9d614362-214f-48c1-9f61-c7cddf85456c`、Session
+`0aa262b8-724e-462c-9340-249703627b36`で二turnを実行した。Sonarは公式Deno 3 roadmapを確認できないことと
+near missを明示し、grounding system messageの効果は確認できた。
 
-この操作はcredentialとprovider requestを使うため、ユーザーの別の明示承認まで実行しない。既に起動していた
-Session `59a37c41-5f6d-4607-a700-39be01f857cd`のWorker generationには、disk上の変更は反映されない。
+一方、親modelはcomplete questionよりBoolean検索を選び、tool resultごとに1から振られる`[8][31]`等の参照番号を
+URLなしでfinalへ転載した。また、Sonarが裏付けていないクロスコンパイル完全対応等の具体的予測を追加し、推論と
+確認済み事実を十分に分けなかった。したがってincrement 8はproduction未受入とする。次のincrementでは、Sonar
+answer内の有効な`[n]`を対応するannotationの直接URL linkへtool component内で正規化し、親modelへ裸のlocal
+番号を渡さない。readbackでは追加provider requestを行っていない。

@@ -252,8 +252,17 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   const toolMessage = outcome.transcript.find((message) => message.role === 'tool');
   assert(toolMessage?.role === 'tool');
   const resultText = toolMessage.content[0].text;
-  assert(resultText.includes('Answer:\nDeno 2.9 added important changes.[2][1]'));
-  assert(resultText.indexOf('Secondary source') < resultText.indexOf('Deno 2.9\n'));
+  assert(
+    resultText.includes(
+      'Answer:\nDeno 2.9 added important changes. [Deno 2.9](<https://deno.com/blog/v2.9>) [Secondary source](<https://example.com/secondary>)',
+    ),
+  );
+  assert(!resultText.includes('[2][1]'));
+  assert(!/\n\[\d+\] /u.test(resultText));
+  assert(resultText.includes('- [Secondary source](<https://example.com/secondary>)'));
+  assert(resultText.includes('- [Deno 2.9](<https://deno.com/blog/v2.9>)'));
+  const sourceList = resultText.split('\n\nSources:\n')[1];
+  assert(sourceList.indexOf('Secondary source') < sourceList.indexOf('Deno 2.9'));
   assert(resultText.includes('https://example.com/secondary'));
   assert(resultText.includes('https://deno.com/blog/v2.9'));
 

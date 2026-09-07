@@ -241,9 +241,26 @@ const parseArguments = (value: JsonValue): string => {
   return value.query;
 };
 
+const markdownSourceLink = (source: WebSearchSource): string =>
+  `[${
+    source.title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')
+  }](<${source.url}>)`;
+
+const inlineSourceLinks = (
+  answer: string,
+  sources: readonly WebSearchSource[],
+): string =>
+  answer.replace(/[ \t]*(?:\[\d+\])+/gu, (group, offset: number) => {
+    const links = [...group.matchAll(/\[(\d+)\]/gu)].map((match) => {
+      const source = sources[Number(match[1]) - 1];
+      return source === undefined ? match[0] : markdownSourceLink(source);
+    });
+    return `${offset === 0 ? '' : ' '}${links.join(' ')}`;
+  });
+
 const formatResult = (result: WebSearchResult): string =>
-  `Answer:\n${result.answer}\n\nSources:\n${
-    result.sources.map((source, index) => `[${index + 1}] ${source.title}\n${source.url}`).join(
+  `Answer:\n${inlineSourceLinks(result.answer, result.sources)}\n\nSources:\n${
+    result.sources.map((source) => `- ${markdownSourceLink(source)}`).join(
       '\n',
     )
   }`;
@@ -252,7 +269,7 @@ const formatResult = (result: WebSearchResult): string =>
 export const createWebSearchTool = (backend: WebSearchBackend): Tool => ({
   name: 'web_search',
   description:
-    'Search the public web for current or external information and return an answer with ordered source URLs.',
+    'Search the public web for current or external information and return an answer with direct inline source links and an ordered source list.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -262,7 +279,7 @@ export const createWebSearchTool = (backend: WebSearchBackend): Tool => ({
     additionalProperties: false,
   },
   promptGuidelines: [
-    'Use web_search when current or external information is needed. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: cite its source URLs near supported claims in the final answer, say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.',
+    'Use web_search when current or external information is needed. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: use its inline source links near supported claims in the final answer, never copy provider-local citation markers such as [1], and do not add factual details that the returned material does not support. Say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.',
   ],
   async execute(argumentsValue, context) {
     return formatResult(await backend.search(parseArguments(argumentsValue), context));

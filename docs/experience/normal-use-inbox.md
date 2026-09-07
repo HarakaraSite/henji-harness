@@ -123,6 +123,11 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - increment 7へ採用し、local実装、focused verification、コード／テストreview、authoritative offline gateを
   完了した。production retained TUIでmechanismは成立したが、具体性の低いquery、source URLを示さないfinal、
   検索結果に反する推測を確認した。このgrounding修正をincrement 8へ採用した。
+- increment 8のproduction Session `0aa262b8-724e-462c-9340-249703627b36`では、Sonarは公式roadmapが
+  確認できないことを明示した一方、親modelは複数のtool result内だけで有効な`[8][31]`等の参照番号を
+  URLなしでfinalへ持ち出し、検索結果にない具体的予測も追加した。各searchで番号が振り直される現行text
+  contractを、人間と親modelが直接利用できるinline URLへ正規化する修正をincrement 9へ採用し、local実装、
+  focused verification、コード／テストreview、authoritative offline gateを完了した。production受入は未実施。
 
 現行component境界の確認:
 
@@ -136,6 +141,15 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 現在の`DefinitionRevisionRef`はentry moduleを固定するが、別moduleとしてimportするtool componentまで
   含むdependency lineageは未実装である。したがって、toolは「実行component」ではあるが「独立したrevisionを
   持ち、自己改訂候補としてDefinitionへ組み込めるcomponent」にはまだなっていない。
+
+設計メモ:
+
+- Web searchはfilesystem toolと異なり、検索結果の取得だけでなく、結果を解釈して回答とcitationへまとめる
+  modelをcomponent内部に持つ実装が一般的にあり得る。現行Henjiでは`web_search`を一つの機能／tool component、
+  Sonarを交換可能backendが内部利用するmodelとして扱っている。
+- 将来も「modelを内包する機能」として扱うか、検索・解釈を担当する`WebSearch AgentDefinition`として会話、
+  prompt、model、tool利用を明示的に所有させるかは未決である。今回のcitation表示修正では境界を変更せず、
+  agent化が必要になる具体的なtask、状態、委譲、revision上の利点が観測された時点で比較する。
 
 将来の境界候補:
 

@@ -110,8 +110,10 @@ import dependency lineageはまだない。
 
 default parentの`web_search`は、provider-neutralなHenji-owned tool contractと交換可能な`WebSearchBackend`を
 分ける。初期production backendは既存OpenRouter credentialで`perplexity/sonar`を一回呼び、回答本文と
-順序付きURL citationをmodel-visibleなtool resultへ変換する。Sonarには具体的なuser questionと、検索結果に
-限定して不足・near miss・推論を明示するsystem messageを渡し、通常検索のcontext sizeは`medium`とする。
+順序付きURL citationを受け取る。model-visibleなtool resultではSonar answer内の有効な`[n]`を同じresponseの
+annotationに対応する直接Markdown linkへ変換し、source一覧も番号なしのlinkとして返す。Sonarには具体的な
+user questionと、検索結果に限定して不足・near miss・推論を明示するsystem messageを渡し、通常検索のcontext
+sizeは`medium`とする。
 Sonar requestは親turnのmodel request budgetを一件消費し、main modelと同じcounted fetch、AbortSignal、
 provider evidenceを共有する。tool call元のmodel stepを
 request recordへ関連付け、raw responseとparser transitionをreadback可能にする。plannerには`web_search`を
