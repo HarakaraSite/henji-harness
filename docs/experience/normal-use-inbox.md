@@ -46,8 +46,9 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 現在の扱い:
 
-- productionで観測した未採用のSurface改善候補として保存する。increment 5の`bash_output`自体は末尾まで
-  取得できており、このrecovery UI問題とは分けて扱う。
+- ユーザーが2026-09-07にincrement 6へ採用した。確定scopeとreview済み初期実装計画は
+  `docs/increments/increment-6.md`を正本とする。increment 5の`bash_output`自体は末尾まで取得できており、
+  このrecovery UI問題とは分けて扱う。
 
 ### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
@@ -89,6 +90,10 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   候補とする。現在のstring出力contractを変える必要が生じた場合は、F10と将来のF24として構想・
   architectureへ戻って検討する。
 
+現在の扱い:
+
+- ユーザーが2026-09-07に、increment 6の作業量を限定するためincrement 7より後へ送ると決定した。
+
 ### Agent実行: 調査時のtool選択と結果readback（F02、F06、将来のF24候補）
 
 観測:
@@ -117,7 +122,8 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 現在の扱い:
 
 - byte・line上限はtool実装またはtool設定、tool固有の選択指針はtool definition metadata、有効toolと
-  指針の合成はAgentCompositionの責務候補として検討する。
+  指針の合成はAgentCompositionの責務候補として検討する。既存`read`、`write`、`edit`、`bash`、
+  `bash_output`のcomponent化はincrement 6へ採用し、`web_search`追加より先に実施する。
 - tool利用効率は現時点ではF02・F06の通常改善として扱う。ここで整えるtool metadataやinterfaceは将来の
   F24実装基盤として再利用できるが、それだけでF24完了とはしない。
 - `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5へ移した。他toolの
@@ -128,15 +134,16 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 利用者判断:
 
 - 通常利用を続けるうえで、modelがtool callとして使えるWeb searchの必要性が高まりつつある。
-- `web_search`をincrement 5には含めず、increment 6候補として保存する。
+- `web_search`をincrement 5とincrement 6には含めず、既存work toolのcomponent化後にincrement 7として扱う。
 - URL本文を取得して人間向けtextへ変換する`web_open`は、人間にはbrowserがあるため現時点では必要性を
   感じず、候補に含めない。
+- OpenRouter server toolへ直接依存させず、provider-neutralなHenji-owned tool componentと交換可能な検索
+  backendに分ける方針をユーザーが2026-09-07に選んだ。
 
 未決事項:
 
 - search provider、公式API contract、credential、cost、query/result schema、取得結果をmodelと
-  transcriptへ渡す範囲は未選定である。increment 6へ採用する場合に、実際の利用環境と公式文書を確認して
-  決める。
+  transcriptへ渡す範囲は未選定である。increment 7の計画時に、実際の利用環境と公式文書を確認して決める。
 
 現行component境界の確認:
 

@@ -1,8 +1,7 @@
 # 通常利用 increment 5 — 実装結果
 
-ステータス: local実装、focused verification、authoritative offline gate、独立implementation reviewを
-2026-09-07に完了。production retained TUIでの初回human gateはproviderの空の最終回答で未完了。ユーザー
-受入は未実施。
+ステータス: 完了。local実装、focused verification、authoritative offline gate、独立implementation review、
+production retained TUI human gate、ユーザー受入を2026-09-07に完了。
 
 ## 成立した動作
 
@@ -48,7 +47,7 @@
 - `finish()`直後にもcancelを再裁定し、結果を組み立てる前に`abandon()`するよう修正した。final-flush seamから
   abortする決定的testを追加し、追加closure reviewはGO、未解決Blocker/P1/P2 0となった。
 
-## 残るhuman gate
+## Production human gate
 
 2026-09-07の初回attemptでは、modelは60,050 bytesのmulti-byte stdoutを出す`bash`を一回だけ実行し、
 `bash_output`をoffset 0と49,150で二回呼んだ。二回目は`complete: true`、総1,201行、最後は
@@ -59,7 +58,22 @@
 commitされなかった。このため`bash` full-output readbackはproduction経路で成立したが、modelの最終報告を
 含むhuman gate全体は未完了である。診断IDは`ad50975f-e366-4c02-878d-a1d762f6b541`。
 
-同じSessionで再試行できるが、同じTUI processではrecoverable taskをeditorへ戻すUIが未接続のため再送を
-拒否した。この別のSurface改善候補は`docs/experience/normal-use-inbox.md`へ保存した。human gateを再試行する
-場合はprocessを再起動し、同じSessionのturn 0から同じpromptを新しいattemptとして送る。32 MiB/128 MiBの
-固定値と同じcode pathの上限動作はlocal testで確認済みのため、human gateでは大量出力を生成しない。
+同じTUI processではrecoverable taskをeditorへ戻すUIが未接続のため再送を拒否した。この別のSurface改善
+候補は`docs/experience/normal-use-inbox.md`へ保存した。残っていたprocessを通常のSIGTERM shutdown経路で
+終了し、空の未commit Session namespaceが回収された後、新しいproduction TUI processから同じpromptを
+turn 0へ一回送った。
+
+再試行はSession `e68a9c50-3611-46f9-994b-bb93112c9653`、provider evidence
+`943a5dce-e890-4f72-9246-6a9e2197f948`で成功した。4 requestはすべてHTTP 200、合計26,700 tokens、
+USD 0.021609だった。`bash`は一回だけ、`bash_output`はoffset 0と49,150の二回だけで、二回目は
+`complete: true`、総60,050 bytesだった。`read`、`cat`、`sed`、`head`、`tail`、command再実行はなく、
+modelは総1,201行、最初の行、`行1200`、末尾markerをvisible final answerで正しく報告し、turn 1がcommit
+された。
+
+retained TTY frameでは`user>`がSGR 34、`tool>`がSGR 32、`assistant>`がSGR 33、`/history export`の
+`system>`がSGR 35で、それぞれlabel直後にSGR resetを持つことを確認した。history exportはprovider requestを
+追加せず、TUIは`/exit`でexit 0となった。これによりproduction human gateは完了した。32 MiB/128 MiBの
+固定値と同じcode pathの上限動作はlocal testで確認済みのため、human gateでは大量出力を生成していない。
+
+ユーザーは開始時の三つの対応事項とincrement 5中に通常利用inboxへ追加した未採用候補を確認したうえで、
+2026-09-07にincrement 5の完了を受け入れた。
