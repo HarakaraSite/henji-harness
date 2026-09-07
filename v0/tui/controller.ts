@@ -1,15 +1,10 @@
 import {
   isPresentationError,
-  movePresentationPickerSelection,
-  type PresentationContextPreview,
   PresentationDeliveryError,
-  type PresentationHistoryPage,
   type PresentationIntent,
   type PresentationIntentDispatcher,
   type PresentationIntentResult,
-  type PresentationNavigationListing,
   type PresentationOutcome,
-  type PresentationPosition,
 } from '../presentation/contract.ts';
 import {
   InputDecodeError,
@@ -19,55 +14,26 @@ import {
   TuiEditorHistory,
 } from './input.ts';
 import { PendingInputCore } from './pending_input.ts';
-import { WorkspacePathIndex } from './file_reference.ts';
 import { renderFailureStatus, TuiRenderer } from './render.ts';
 import { TerminalLifecycle } from './terminal.ts';
-export interface TuiSessionLike {
-  submit(text: string): Promise<PresentationOutcome>;
-  cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
-  steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
-  contextSnapshot?():
-    | import('../presentation/contract.ts').PresentationContextMetrics
-    | undefined;
-  isAvailable?(): boolean;
-  historyPage?(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ):
-    | Promise<PresentationHistoryPage | undefined>
-    | PresentationHistoryPage
-    | undefined;
-  currentPosition?(): PresentationPosition | undefined;
-  contextCompactionPreview?(): PresentationContextPreview | undefined;
-  compactContext?(
-    signal?: AbortSignal,
-  ): Promise<import('../presentation/contract.ts').PresentationContextResult>;
-  checkpointSnapshot?(): {
-    readonly summary: string;
-    readonly coveredThroughTurn: number;
-    readonly retainedFromTurn: number;
-  } | undefined;
-}
+import {
+  TuiControllerError,
+  type TuiControllerOptions,
+  type TuiNavigationLike,
+  type TuiSessionLike,
+} from './controller_contract.ts';
+import { type SlashCommand, slashCommandOf } from './slash_command.ts';
+import { ControllerEditor } from './controller_editor.ts';
+import { ControllerOverlay } from './controller_overlay.ts';
 
-export interface TuiNavigationLike {
-  readonly persistent: boolean;
-  list(signal?: AbortSignal): Promise<PresentationNavigationListing>;
-  switchTo(id: string, signal?: AbortSignal): Promise<{
-    readonly session: TuiSessionLike;
-    readonly position: PresentationPosition;
-    readonly restored?: {
-      readonly messages: readonly import('../presentation/contract.ts').PresentationMessage[];
-      readonly omitted: number;
-    };
-  }>;
-  historyPage(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): Promise<PresentationHistoryPage | undefined>;
-  currentPosition(): PresentationPosition;
-}
+export {
+  TuiControllerError,
+  type TuiControllerOptions,
+  type TuiFailureCode,
+  type TuiNavigationLike,
+  type TuiSessionLike,
+} from './controller_contract.ts';
+export { type SlashCommand, slashCommandOf } from './slash_command.ts';
 
 const isPresentationDeliveryError = (error: unknown): boolean =>
   error instanceof PresentationDeliveryError ||
@@ -75,29 +41,6 @@ const isPresentationDeliveryError = (error: unknown): boolean =>
   isPresentationError(error, 'EventDeliveryError');
 const isCancellationCleanup = (error: unknown): boolean =>
   isPresentationError(error, 'CancellationCleanupError');
-
-export type TuiFailureCode =
-  | 'input_failure'
-  | 'output_failure'
-  | 'agent_failure';
-
-export class TuiControllerError extends Error {
-  constructor(readonly code: TuiFailureCode, message?: string) {
-    super(message);
-    this.name = 'TuiControllerError';
-  }
-}
-
-export interface TuiControllerOptions {
-  /** Enables the Step 82 fixed-lane/editor behavior when supplied by the TUI runtime. */
-  readonly pending?: PendingInputCore;
-  readonly history?: TuiEditorHistory;
-  readonly pathIndex?: WorkspacePathIndex;
-  /** Persistent host-owned picker/resume/history navigation. */
-  readonly navigation?: TuiNavigationLike;
-  /** Production-only typed intent authority; legacy session calls remain test-seam compatible. */
-  readonly intents?: PresentationIntentDispatcher;
-}
 
 type ControllerState =
   | 'starting'
@@ -114,27 +57,10 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
 
-export type SlashCommand = 'help' | 'sessions' | 'history_export' | 'recover' | 'exit';
-
-/** Exact-match built-in slash parse; args and unknown names are 'unknown', plain tasks are null. */
-export const slashCommandOf = (
-  text: string,
-): SlashCommand | 'unknown' | null => {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('/')) return null;
-  if (trimmed === '/history export') return 'history_export';
-  if (
-    trimmed === '/help' || trimmed === '/sessions' || trimmed === '/recover' ||
-    trimmed === '/exit'
-  ) {
-    return trimmed.slice(1) as SlashCommand;
-  }
-  return 'unknown';
-};
-
 /** Controller for the first TUI's intentionally small idle/busy state machine. */
 export class TuiController {
-  readonly editor = new TuiEditor();
+  readonly editor: TuiEditor;
+  private readonly editorController: ControllerEditor;
   private readonly decoder = new InputDecoder();
   private state: ControllerState = 'starting';
   private active: Promise<PresentationOutcome> | null = null;
@@ -158,25 +84,12 @@ export class TuiController {
     | null = null;
   private historyExportGeneration = 0;
   private noticeGeneration = 1_000_000;
-  private readonly navigationOperations = new Set<{
-    readonly operation: Promise<void>;
-    readonly abort: AbortController;
-    readonly generation: number;
-  }>();
-  private navigationGeneration = 0;
-  private readonly historyOperations = new Set<{
-    readonly operation: Promise<void>;
-    readonly abort: AbortController;
-    readonly generation: number;
-  }>();
-  private historyGeneration = 0;
   private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
   private signalCode: number | null = null;
   private signalsInstalled = false;
   private readonly pending?: PendingInputCore;
-  private readonly history: TuiEditorHistory;
-  private readonly pathIndex?: WorkspacePathIndex;
+  private readonly overlay: ControllerOverlay;
   private readonly modern: boolean;
   private discardIntent: DiscardIntent | null = null;
   private steeringConsumedBridge = false;
@@ -189,29 +102,38 @@ export class TuiController {
     options: TuiControllerOptions = {},
   ) {
     this.pending = options.pending;
-    this.history = options.history ?? new TuiEditorHistory();
-    this.pathIndex = options.pathIndex;
     this.modern = options.pending !== undefined ||
       options.pathIndex !== undefined ||
       options.history !== undefined || options.navigation !== undefined;
+    this.editorController = new ControllerEditor(
+      renderer,
+      this.pending,
+      options.history ?? new TuiEditorHistory(),
+      options.pathIndex,
+      this.modern,
+    );
+    this.editor = this.editorController.editor;
     this.navigation = options.navigation;
     this.intents = options.intents;
+    this.overlay = new ControllerOverlay({
+      renderer,
+      navigation: this.navigation,
+      intents: this.intents,
+      dispatch: (intent) => this.dispatchIntent(intent),
+      getSession: () => this.session,
+      setSession: (session) => {
+        this.session = session;
+      },
+      idleAllowed: () => this.navigationIdleAllowed(),
+      isIdle: () => this.state === 'idle',
+      readyStatus: () => this.readyStatus(),
+      startContextCompaction: () => this.startContextCompaction(),
+      fail: (error) => this.fail(error),
+    });
   }
 
   private readonly navigation?: TuiNavigationLike;
   private readonly intents?: PresentationIntentDispatcher;
-  private modal:
-    | { readonly kind: 'startup-help' }
-    | {
-      readonly kind: 'picker';
-      readonly listing: PresentationNavigationListing;
-      readonly selected: number;
-      readonly page: number;
-    }
-    | { readonly kind: 'picker-loading' }
-    | { readonly kind: 'history'; readonly page: PresentationHistoryPage }
-    | { readonly kind: 'context'; readonly preview: PresentationContextPreview }
-    | null = null;
 
   get currentState(): ControllerState {
     return this.state;
@@ -511,117 +433,11 @@ export class TuiController {
   }
 
   private renderEditorState(): void {
-    const snapshot = this.editor.snapshot();
-    if (!this.modern) {
-      this.renderer.setEditor(snapshot.text);
-      return;
-    }
-    const renderer = this.renderer as TuiRenderer & {
-      setEditorSnapshot?: (value: typeof snapshot) => void;
-    };
-    if (renderer.setEditorSnapshot !== undefined) {
-      renderer.setEditorSnapshot(snapshot);
-    } else renderer.setEditor(snapshot.text);
-    const withMetadata = this.renderer as TuiRenderer & {
-      setPendingMetadata?: (
-        value: ReturnType<PendingInputCore['snapshot']> | undefined,
-      ) => void;
-    };
-    withMetadata.setPendingMetadata?.(this.pending?.snapshot(snapshot));
+    this.editorController.render();
   }
 
   private editEvent(event: InputEvent): void {
-    let changed = false;
-    let textMutation = false;
-    switch (event.kind) {
-      case 'printable':
-        changed = this.editor.insert(event.text);
-        textMutation = true;
-        break;
-      case 'paste':
-        changed = this.editor.paste(event.text);
-        textMutation = true;
-        break;
-      case 'backspace':
-        changed = this.editor.backspace();
-        textMutation = true;
-        break;
-      case 'ctrl_o':
-        this.renderer.setStatus(
-          'newline is Alt+Return (Shift/Ctrl+Return where sent)',
-        );
-        break;
-      case 'ctrl_w':
-        changed = this.editor.deleteWordBackward();
-        textMutation = true;
-        break;
-      case 'ctrl_a':
-        changed = this.editor.home();
-        break;
-      case 'ctrl_e':
-        changed = this.editor.end();
-        break;
-      case 'ctrl_b':
-        changed = this.editor.moveLeft();
-        break;
-      case 'ctrl_f':
-        changed = this.editor.moveRight();
-        break;
-      case 'ctrl_u':
-        changed = this.editor.deleteToLineStart();
-        textMutation = true;
-        break;
-      case 'ctrl_k':
-        changed = this.editor.deleteToLineEnd();
-        textMutation = true;
-        break;
-      case 'alt_b':
-        changed = this.editor.moveWordLeft();
-        break;
-      case 'alt_f':
-        changed = this.editor.moveWordRight();
-        break;
-      case 'alt_d':
-        changed = this.editor.deleteWordForward();
-        textMutation = true;
-        break;
-      case 'newline':
-      case 'alt_enter':
-        changed = this.editor.insert('\n');
-        textMutation = true;
-        break;
-      case 'left':
-        changed = this.editor.moveLeft();
-        break;
-      case 'right':
-        changed = this.editor.moveRight();
-        break;
-      case 'up':
-        changed = this.editor.moveUp();
-        break;
-      case 'down':
-        changed = this.editor.moveDown();
-        break;
-      case 'home':
-        changed = this.editor.home();
-        break;
-      case 'end':
-        changed = this.editor.end();
-        break;
-      default:
-        return;
-    }
-    if (changed) {
-      if (textMutation) this.history.resetNavigation();
-      this.renderEditorState();
-    } else if (
-      event.kind === 'paste' || event.kind === 'printable' ||
-      event.kind === 'newline' || event.kind === 'alt_enter'
-    ) {
-      this.renderer.setStatus(
-        event.kind === 'paste' ? 'paste exceeds 64 KiB' : 'input too long',
-      );
-    }
+    this.editorController.apply(event);
   }
 
   private processModernEvents(
@@ -633,7 +449,7 @@ export class TuiController {
         this.processHistoryExporting([event]);
         continue;
       }
-      if (!busy && this.modal !== null) {
+      if (!busy && this.overlay.isOpen) {
         this.processModalEvent(event);
         continue;
       }
@@ -707,107 +523,7 @@ export class TuiController {
   }
 
   private processModalEvent(event: InputEvent): void {
-    const modal = this.modal;
-    if (modal === null) return;
-    if (event.kind === 'escape') {
-      if (modal.kind === 'picker-loading') this.cancelNavigationOperations();
-      else if (modal.kind === 'history') this.cancelHistoryOperations();
-      this.modal = null;
-      this.renderer.clearModal?.();
-      this.renderer.setStatus(this.readyStatus());
-      return;
-    }
-    if (modal.kind === 'startup-help') {
-      if (event.kind === 'f1') {
-        this.modal = null;
-        this.renderer.clearModal?.();
-        this.renderer.setStatus(this.readyStatus());
-      }
-      return;
-    }
-    if (modal.kind === 'picker-loading') return;
-    if (modal.kind === 'picker') {
-      const count = modal.listing.sessions.length;
-      let selected = modal.selected;
-      let page = modal.page;
-      if (
-        event.kind === 'up' || event.kind === 'down' || event.kind === 'left' ||
-        event.kind === 'right'
-      ) {
-        const moved = movePresentationPickerSelection(
-          count,
-          selected,
-          page,
-          event.kind,
-        );
-        selected = moved.selected;
-        page = moved.page;
-        this.modal = { ...modal, selected, page };
-        this.renderer.renderSessionPicker?.(modal.listing, selected, page);
-        return;
-      }
-      if (event.kind === 'enter') {
-        const row = modal.listing.sessions[selected];
-        if (row === undefined || row.current) {
-          this.modal = null;
-          this.renderer.clearModal?.();
-          this.renderer.setStatus(this.readyStatus());
-          return;
-        }
-        const abort = new AbortController();
-        const generation = ++this.navigationGeneration;
-        this.trackNavigationOperation(
-          this.resumeSelected(row.id, generation, abort.signal),
-          abort,
-          generation,
-        );
-      }
-      return;
-    }
-    if (modal.kind === 'history') {
-      let page = modal.page.page;
-      let turn = modal.page.turn;
-      if (event.kind === 'up') {
-        if (page > 0) page -= 1;
-        else turn = Math.max(1, turn - 1);
-      } else if (event.kind === 'down') {
-        if (page + 1 < modal.page.pageCount) page += 1;
-        else turn = Math.min(modal.page.totalTurns, turn + 1);
-      } else if (event.kind === 'home') {
-        turn = 1;
-        page = 0;
-      } else if (event.kind === 'end') {
-        turn = modal.page.totalTurns;
-        page = Number.MAX_SAFE_INTEGER;
-      } else if (!(event.kind === 'printable' && event.text === 'v')) {
-        return;
-      }
-      if (
-        this.intents === undefined && this.navigation === undefined &&
-        this.session.historyPage === undefined
-      ) return;
-      this.startHistoryPageLoad(page, turn);
-      return;
-    }
-    if (modal.kind === 'context') {
-      if (event.kind === 'printable' && event.text === 'v') {
-        if (this.intents !== undefined) {
-          this.renderer.setStatus(
-            'context checkpoint summary available after install',
-          );
-          return;
-        }
-        const checkpoint = this.session.checkpointSnapshot?.();
-        if (checkpoint === undefined) {
-          this.renderer.setStatus('no active context checkpoint');
-        } else {this.renderer.renderContextSummary?.(
-            checkpoint.summary,
-            checkpoint.coveredThroughTurn,
-          );}
-      } else if (event.kind === 'enter') {
-        this.startContextCompaction();
-      }
-    }
+    this.overlay.process(event);
   }
 
   private processCompacting(events: readonly InputEvent[]): void {
@@ -837,328 +553,19 @@ export class TuiController {
   }
 
   private openPicker(): void {
-    if (!this.navigationIdleAllowed()) {
-      this.renderer.setStatus('navigation requires an empty idle session');
-      return;
-    }
-    if (
-      this.intents === undefined &&
-      (this.navigation === undefined || !this.navigation.persistent)
-    ) {
-      this.renderer.setStatus('session picker unavailable');
-      return;
-    }
-    this.modal = { kind: 'picker-loading' };
-    this.renderer.renderSessionPicker?.(
-      { sessions: [], skippedInvalid: 0 },
-      0,
-      0,
-      true,
-    );
-    const abort = new AbortController();
-    const generation = ++this.navigationGeneration;
-    const operation = Promise.resolve(
-      this.intents !== undefined
-        ? this.dispatchIntent({ kind: 'list_sessions' })
-        : this.navigation!.list(abort.signal).then((listing) => ({
-          kind: 'listing' as const,
-          listing,
-        })),
-    ).then(
-      (result) => {
-        if (result.kind !== 'listing') return;
-        const listing = result.listing;
-        if (
-          this.state !== 'idle' || this.modal?.kind !== 'picker-loading' ||
-          abort.signal.aborted || this.navigationGeneration !== generation
-        ) return;
-        this.modal = { kind: 'picker', listing, selected: 0, page: 0 };
-        this.renderer.renderSessionPicker?.(listing, 0, 0);
-      },
-      (error: unknown) => {
-        if (
-          isPresentationError(error, 'NavigationCancelledError') ||
-          abort.signal.aborted
-        ) return;
-        if (
-          this.state !== 'idle' || this.modal?.kind !== 'picker-loading' ||
-          this.navigationGeneration !== generation
-        ) return;
-        this.modal = null;
-        this.renderer.clearModal?.();
-        this.renderer.setStatus('session list unavailable');
-      },
-    );
-    this.trackNavigationOperation(operation, abort, generation);
+    this.overlay.openPicker();
   }
 
   private openStartupHelp(): void {
-    this.modal = { kind: 'startup-help' };
-    this.renderer.renderStartupHelp?.();
-  }
-
-  /** Keep modal I/O inside the controller's shutdown/failure settlement boundary. */
-  private trackNavigationOperation(
-    operation: Promise<void>,
-    abort: AbortController,
-    generation: number,
-  ): void {
-    const owned = { operation, abort, generation };
-    this.navigationOperations.add(owned);
-    void operation.then(
-      () => {
-        this.navigationOperations.delete(owned);
-      },
-      (error) => {
-        this.navigationOperations.delete(owned);
-        if (
-          isPresentationError(error, 'NavigationCancelledError') ||
-          abort.signal.aborted &&
-            !isPresentationError(error, 'NavigationFatalError') &&
-            !isPresentationDeliveryError(error)
-        ) return;
-        void this.fail(error).catch(() => {
-          // The controller has already entered its fatal shutdown path.
-        });
-      },
-    );
-  }
-
-  private async resumeSelected(
-    id: string,
-    generation: number,
-    signal: AbortSignal,
-  ): Promise<void> {
-    if (this.intents === undefined && this.navigation === undefined) return;
-    this.modal = { kind: 'picker-loading' };
-    this.renderer.renderSessionPicker?.(
-      { sessions: [], skippedInvalid: 0 },
-      0,
-      0,
-      true,
-    );
-    try {
-      let position: PresentationPosition;
-      let restored: {
-        readonly messages: readonly import('../presentation/contract.ts').PresentationMessage[];
-        readonly omitted: number;
-      } | undefined;
-      if (this.intents !== undefined) {
-        const result = await this.dispatchIntent({
-          kind: 'resume_session',
-          id,
-        });
-        if (result.kind !== 'binding') throw new PresentationDeliveryError();
-        position = result.position;
-        restored = result.restored;
-      } else {
-        const binding = await this.navigation!.switchTo(id, signal);
-        this.session = binding.session;
-        position = binding.position;
-        restored = binding.restored;
-      }
-      // switchTo owns an irreversible old-close boundary. It may resolve after cancellation only
-      // when it has already transferred ownership to the target; adopt that binding before
-      // checking generation so shutdown/dismissal cannot retain a closed old session.
-      if (
-        this.state !== 'idle' || signal.aborted ||
-        this.navigationGeneration !== generation
-      ) return;
-      this.modal = null;
-      this.renderer.clearModal?.();
-      if (this.intents === undefined && restored !== undefined) {
-        this.renderer.renderRestored(restored.messages, restored.omitted);
-      }
-      if (this.state !== 'idle') return;
-      this.renderer.setCurrentPosition?.(position);
-      this.renderer.setStatus(this.readyStatus());
-    } catch (error) {
-      if (
-        isPresentationError(error, 'NavigationFatalError') ||
-        isPresentationDeliveryError(error)
-      ) throw error;
-      if (
-        isPresentationError(error, 'NavigationCancelledError') || signal.aborted
-      ) return;
-      if (this.navigationGeneration !== generation) return;
-      this.modal = null;
-      this.renderer.clearModal?.();
-      this.renderer.setStatus(
-        'session resume failed; current session unchanged',
-      );
-    }
-  }
-
-  /** Invalidate and abort every unresolved navigation operation, not just the latest one. */
-  private cancelNavigationOperations(): void {
-    this.navigationGeneration += 1;
-    if (this.intents !== undefined) {
-      const dispatched = this.dispatchIntent({ kind: 'dismiss_overlay' });
-      if (dispatched instanceof Promise) {
-        void dispatched.catch(() => {
-          // The owned navigation operation remains responsible for its settlement result.
-        });
-      }
-    }
-    for (const operation of this.navigationOperations) {
-      operation.abort.abort('navigation dismissed');
-    }
-    this.cancelHistoryOperations();
-  }
-
-  private cancelHistoryOperations(): void {
-    this.historyGeneration += 1;
-    for (const operation of this.historyOperations) {
-      operation.abort.abort('history dismissed');
-    }
+    this.overlay.openStartupHelp();
   }
 
   private openHistory(): void {
-    if (!this.navigationIdleAllowed()) {
-      this.renderer.setStatus('history requires an empty idle session');
-      return;
-    }
-    if (
-      this.intents === undefined && this.navigation === undefined &&
-      this.session.historyPage === undefined
-    ) {
-      this.renderer.setStatus('history unavailable');
-      return;
-    }
-    const position = this.navigation?.currentPosition() ??
-      (this.intents !== undefined
-        ? (() => {
-          const projection = this.renderer.stateSnapshot().projection;
-          return projection === undefined ? undefined : {
-            sessionId: projection.sessionId,
-            agent: projection.agentId,
-            committedTurn: projection.committedTurn,
-            messageCount: 0,
-            checkpoint: projection.checkpoint,
-          };
-        })()
-        : this.session.currentPosition?.());
-    const turn = position?.committedTurn ?? 1;
-    this.modal = {
-      kind: 'history',
-      page: {
-        turn,
-        totalTurns: turn,
-        page: 0,
-        pageCount: 1,
-        entries: [],
-        sourceBytes: 0,
-        omitted: false,
-      },
-    };
-    this.startHistoryPageLoad(0, turn);
-  }
-
-  private startHistoryPageLoad(page: number, turn: number): void {
-    this.cancelHistoryOperations();
-    const abort = new AbortController();
-    const generation = ++this.historyGeneration;
-    const operation = this.loadHistoryPage(
-      page,
-      turn,
-      generation,
-      abort.signal,
-    );
-    const owned = { operation, abort, generation };
-    this.historyOperations.add(owned);
-    void operation.then(
-      () => {
-        this.historyOperations.delete(owned);
-      },
-      (error) => {
-        this.historyOperations.delete(owned);
-        if (isPresentationDeliveryError(error) || !abort.signal.aborted) {
-          void this.fail(error).catch(() => {
-            // The controller has already entered its fatal shutdown path.
-          });
-        }
-      },
-    );
-  }
-
-  private async loadHistoryPage(
-    page: number,
-    turn: number,
-    generation: number,
-    signal: AbortSignal,
-  ): Promise<void> {
-    try {
-      if (signal.aborted || generation !== this.historyGeneration) return;
-      const result = this.intents !== undefined
-        ? await this.dispatchIntent({ kind: 'history_page', page, turn })
-        : {
-          kind: 'history' as const,
-          page: this.navigation !== undefined
-            ? await this.navigation.historyPage(page, turn, 16)
-            : await this.session.historyPage?.(page, turn, 16),
-        };
-      if (
-        signal.aborted || generation !== this.historyGeneration ||
-        this.modal?.kind !== 'history'
-      ) return;
-      if (result.kind !== 'history' || result.page === undefined) {
-        this.modal = null;
-        this.renderer.setStatus('history unavailable');
-        return;
-      }
-      this.modal = { kind: 'history', page: result.page };
-      if (this.intents === undefined) {
-        this.renderer.renderHistoryPage?.(result.page);
-      }
-    } catch (error) {
-      if (isPresentationDeliveryError(error)) throw error;
-      if (signal.aborted || generation !== this.historyGeneration) return;
-      this.modal = null;
-      this.renderer.setStatus('history unavailable');
-    }
+    this.overlay.openHistory();
   }
 
   private openContextPanel(): void {
-    if (!this.navigationIdleAllowed()) {
-      this.renderer.setStatus(
-        'context recovery requires an empty idle session',
-      );
-      return;
-    }
-    if (
-      this.intents === undefined && (
-        this.navigation === undefined || !this.navigation.persistent ||
-        this.session.contextCompactionPreview === undefined ||
-        this.session.compactContext === undefined
-      )
-    ) {
-      this.renderer.setStatus('context recovery unavailable');
-      return;
-    }
-    try {
-      const dispatched = this.intents === undefined
-        ? {
-          kind: 'context_preview' as const,
-          preview: this.session.contextCompactionPreview!(),
-        }
-        : this.dispatchIntent({ kind: 'compaction', action: 'preview' });
-      if (
-        dispatched instanceof Promise || dispatched.kind !== 'context_preview'
-      ) {
-        this.renderer.setStatus('context recovery unavailable');
-        return;
-      }
-      const preview = dispatched.preview;
-      if (preview === undefined) {
-        this.renderer.setStatus('context recovery unavailable');
-        return;
-      }
-      this.modal = { kind: 'context', preview };
-      this.renderer.renderContextPanel?.(preview);
-    } catch (error) {
-      if (isPresentationDeliveryError(error)) throw error;
-      this.renderer.setStatus('context recovery unavailable');
-    }
+    this.overlay.openContextPanel();
   }
 
   private navigationIdleAllowed(): boolean {
@@ -1171,12 +578,7 @@ export class TuiController {
   }
 
   private async confirmContextCompaction(): Promise<void> {
-    if (
-      this.modal?.kind !== 'context' ||
-      (this.intents === undefined && this.session.compactContext === undefined)
-    ) return;
-    this.modal = null;
-    this.renderer.clearModal?.();
+    if (this.intents === undefined && this.session.compactContext === undefined) return;
     this.state = 'compacting';
     if (this.intents === undefined) {
       this.compactionAbort = new AbortController();
@@ -1428,7 +830,7 @@ export class TuiController {
       this.discardIntent = null;
       this.pending?.clearAll();
       this.editor.clear();
-      this.history.resetNavigation();
+      this.editorController.resetHistory();
       this.renderEditorState();
       void this.shutdown(0);
       return;
@@ -1440,66 +842,10 @@ export class TuiController {
     }, 2_001);
   }
   private completePathAtCursor(): void {
-    if (this.pathIndex === undefined) {
-      this.renderer.setStatus('path index unavailable');
-      return;
-    }
-    const text = this.editor.text;
-    let start = this.editor.cursorScalar;
-    const points = [...text];
-    while (start > 0 && !/[ \t\n]/u.test(points[start - 1])) start -= 1;
-    const fragment = points.slice(start, this.editor.cursorScalar).join('');
-    const result = this.pathIndex.completePath(fragment);
-    if (result.kind === 'inserted') {
-      points.splice(start, this.editor.cursorScalar - start, ...[
-        ...result.text,
-      ]);
-      const candidate = points.join('');
-      const cursor = start + [...result.text].length;
-      if (
-        !this.editor.setSnapshot({
-          text: candidate,
-          cursorScalar: cursor,
-          byteLength: new TextEncoder().encode(candidate).byteLength,
-        })
-      ) this.renderer.setStatus('path replacement too long');
-      else {
-        this.history.resetNavigation();
-        this.renderEditorState();
-      }
-    } else if (result.kind === 'ambiguous') {
-      this.renderer.setStatus(`path match ambiguous (${result.count})`);
-    } else if (result.kind === 'incomplete') {
-      this.renderer.setStatus('path index unavailable');
-    } else this.renderer.setStatus('no path match');
+    this.editorController.completePath();
   }
   private popRecovery(): void {
-    if (this.editor.text.length > 0 || this.pending === undefined) {
-      this.renderer.setStatus('recovery requires empty editor');
-      return;
-    }
-    const item = this.pending.popRecovery();
-    if (item === null) {
-      this.renderer.setStatus('no recoverable input');
-      return;
-    }
-    if (
-      !this.editor.setSnapshot({
-        text: item.text,
-        cursorScalar: [...item.text].length,
-        byteLength: new TextEncoder().encode(item.text).byteLength,
-      })
-    ) {
-      this.renderer.setStatus('recovery unavailable');
-      return;
-    }
-    this.history.resetNavigation();
-    this.renderEditorState();
-    if (this.pending.hasSideEffectWarning) {
-      this.renderer.setStatus(
-        'tools may have changed the workspace; inspect before resubmitting',
-      );
-    } else this.renderer.setStatus('recovered input; edit or resubmit');
+    this.editorController.recover();
   }
 
   private processBusyEvent(event: InputEvent): void {
@@ -1578,7 +924,7 @@ export class TuiController {
     }
     const command: SlashCommand = parsed;
     this.editor.clear();
-    this.history.resetNavigation();
+    this.editorController.resetHistory();
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
     else if (command === 'sessions') this.openPicker();
@@ -1592,33 +938,7 @@ export class TuiController {
 
   /** Up/Down-edge input-history walk; plain cursor moves stay in editEvent. */
   private walkInputHistory(direction: 'up' | 'down'): boolean {
-    if (direction === 'down') {
-      if (!this.history.navigating) return false;
-      const snapshot = this.history.next();
-      if (snapshot === null) this.renderer.setStatus('history boundary');
-      else {
-        this.editor.setSnapshot(snapshot);
-        this.renderEditorState();
-      }
-      return true;
-    }
-    if (
-      !this.history.navigating && this.editor.text.length > 0 &&
-      this.editor.moveUp()
-    ) {
-      this.renderEditorState();
-      return true;
-    }
-    const snapshot = this.history.previous(this.editor.snapshot());
-    if (snapshot === null) {
-      if (this.editor.text.length === 0) {
-        this.renderer.setStatus('history empty');
-      }
-      return true;
-    }
-    this.editor.setSnapshot(snapshot);
-    this.renderEditorState();
-    return true;
+    return this.editorController.walkHistory(direction);
   }
 
   private submitIfNonblank(): void {
@@ -1635,7 +955,7 @@ export class TuiController {
       this.renderer.latest(false);
     }
     this.pending?.clearSideEffectWarning();
-    if (this.modern) this.history.record(text);
+    if (this.modern) this.editorController.record(text);
     this.editor.clear();
     this.renderEditorState();
     this.followUpSlot = 'open-empty';
@@ -1777,7 +1097,7 @@ export class TuiController {
     ) {
       const text = this.pending.takeFollowUpAsTask();
       if (text === null) throw new TuiControllerError('agent_failure');
-      this.history.record(text);
+      this.editorController.record(text);
       this.renderer.setStatus('busy · starting follow-up');
       this.startAutomaticTurn(text);
       return;
@@ -1849,7 +1169,7 @@ export class TuiController {
   private idleCtrlC(): void {
     this.discardIntent = null;
     this.editor.clear();
-    this.history.resetNavigation();
+    this.editorController.resetHistory();
     this.renderEditorState();
     this.renderer.setStatus(
       this.pending?.hasRecovery === true
@@ -2008,7 +1328,7 @@ export class TuiController {
         // A signal-driven shutdown discards the steering editor immediately so the warning redraw
         // cannot echo a partially typed secret while the active turn settles.
         this.editor.clear();
-        this.history.resetNavigation();
+        this.editorController.resetHistory();
         this.renderEditorState();
       }
       this.requestBusyCancellation(
@@ -2024,7 +1344,7 @@ export class TuiController {
   private signalShutdown(code: 129 | 143): void {
     this.pending?.clearAll();
     this.editor.clear();
-    this.history.resetNavigation();
+    this.editorController.resetHistory();
     this.renderEditorState();
     this.renderer.setStatus('discarding pending input for signal shutdown');
     void this.shutdown(code);
@@ -2105,30 +1425,7 @@ export class TuiController {
   }
 
   private async settleNavigation(): Promise<void> {
-    if (this.intents !== undefined) {
-      const dispatched = this.dispatchIntent({ kind: 'dismiss_overlay' });
-      if (dispatched instanceof Promise) await Promise.allSettled([dispatched]);
-    }
-    while (
-      this.navigationOperations.size > 0 || this.historyOperations.size > 0
-    ) {
-      const navigation = [...this.navigationOperations];
-      const history = [...this.historyOperations];
-      for (const operation of navigation) {
-        operation.abort.abort('controller settlement');
-      }
-      for (const operation of history) {
-        operation.abort.abort('controller settlement');
-      }
-      await Promise.allSettled([
-        ...navigation.map((operation) => operation.operation),
-        ...history.map((operation) => operation.operation),
-      ]);
-      for (const operation of navigation) {
-        this.navigationOperations.delete(operation);
-      }
-      for (const operation of history) this.historyOperations.delete(operation);
-    }
+    await this.overlay.settle();
   }
 
   private async settleCompaction(): Promise<void> {
@@ -2238,7 +1535,7 @@ export class TuiController {
       this.renderer.setStatus('follow-up already queued');
       return;
     }
-    if (this.modern) this.history.resetNavigation();
+    if (this.modern) this.editorController.resetHistory();
     this.editor.clear();
     this.renderEditorState();
     this.renderer.setFollowUpPending(true);
@@ -2289,7 +1586,7 @@ export class TuiController {
         throw new TuiControllerError('agent_failure');
       }
       this.steeringAccepted = true;
-      if (this.modern) this.history.resetNavigation();
+      if (this.modern) this.editorController.resetHistory();
       this.editor.clear();
       this.renderEditorState();
       this.renderer.setStatus('busy · steer pending');
