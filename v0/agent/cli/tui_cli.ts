@@ -684,6 +684,7 @@ export const main = async (
         created.restored.omitted,
       );
     }
+    presentationAdapter.announceLegacyModelDefault();
     const initialPosition = presentationAdapter.currentPosition();
     if (initialPosition !== undefined) {
       renderer.setCurrentPosition(initialPosition);

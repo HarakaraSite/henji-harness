@@ -5,6 +5,11 @@ Henji Harnessは、実際の利用経験から自身の機能を継続的に改�
 候補は人間の採用アクションまたは明示的承認によってのみ採用され、その後の通常利用へ戻る。 Henji
 HostはSurface、lifecycle、storage、revisionを担い、headless Agent
 WorkerがDefinitionを合成・実行する。
+
+Production TUIでは、`/model`でcurated OpenRouter modelを検索・選択し、`/effort`でreasoning effortを
+別に変更できる。選択は同じSessionの次のroot turnから有効になり、`/sessions`でmodel/effortを表示して
+Sessionと一緒に復元する。delegated plannerはrootの選択を継承せず、planner defaultを使う。
+
 現在は開発中であり、詳細は[構想](docs/concepts/experience-driven-self-revision.md)、[architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を正本とする。
 
 ## JSR package

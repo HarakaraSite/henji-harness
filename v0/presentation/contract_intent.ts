@@ -21,6 +21,9 @@ export const presentationIntent = (
     }
   } else if (kind === 'resume_session') {
     boundedPresentationText(copy.id);
+  } else if (kind === 'select_model') {
+    boundedPresentationText(copy.modelId);
+    boundedPresentationText(copy.effort);
   } else if (kind === 'history_page') {
     if (
       !Number.isSafeInteger(copy.page) || copy.page < 0 ||

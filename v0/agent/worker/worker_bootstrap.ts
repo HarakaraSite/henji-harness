@@ -20,6 +20,12 @@ import {
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructions.ts';
 import { discoverSkills } from '../definitions/skills.ts';
+import type { Model } from '../core/contracts.ts';
+import {
+  isOpenRouterModelSelection,
+  type OpenRouterModelSelection,
+  ROOT_DEFAULT_MODEL_SELECTION,
+} from '../provider/openrouter_model_catalog.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -210,6 +216,8 @@ const createGeneration = async (
   initialTranscript: readonly import('../core/contracts.ts').Message[] = [],
   nextTurn = 1,
   checkpoint?: import('../session/session_store.ts').SemanticContextCheckpointV1,
+  initialModelSelection: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+  rootRole: 'parent' | 'planner' = 'parent',
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
     throw new Error('Worker Definition is unavailable');
@@ -220,13 +228,25 @@ const createGeneration = async (
   );
   const skillCatalog = await discoverSkills(workspace.root);
   const requestCounter = createWorkerRequestCounter();
+  const physicalIo = physicalIoMode === 'production'
+    ? createProductionPhysicalIo(requestCounter)
+    : createProviderFreePhysicalIo();
+  let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
+  const rootRouter: Model = {
+    generate: (request, options) => rootModel.generate(request, options),
+  };
+  const routedPhysicalIo = {
+    ...physicalIo,
+    createModel: (
+      role: 'parent' | 'planner',
+      selection?: OpenRouterModelSelection,
+    ): Model => role === rootRole ? rootRouter : physicalIo.createModel('planner', selection),
+  };
   const returnedComposition = module.definition({
     workspace,
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
-    physicalIo: physicalIoMode === 'production'
-      ? createProductionPhysicalIo(requestCounter)
-      : createProviderFreePhysicalIo(),
+    physicalIo: routedPhysicalIo,
   });
   if (returnedComposition === undefined || typeof returnedComposition !== 'object') {
     throw new Error('Worker Definition did not return a composition');
@@ -243,6 +263,10 @@ const createGeneration = async (
     nextTurn,
     checkpoint,
     requestCounter,
+    initialModelSelection,
+    (selection) => {
+      rootModel = physicalIo.createModel(rootRole, selection);
+    },
   );
 };
 
@@ -315,6 +339,8 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.initialTranscript,
             command.nextTurn,
             command.checkpoint,
+            command.modelSelection,
+            command.rootRole,
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -341,6 +367,18 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           },
         }),
         ...(workerGeneration === undefined ? {} : { manifest: workerGeneration.manifest }),
+      });
+      return;
+    }
+    case 'select_model': {
+      const accepted = generation !== undefined &&
+        isOpenRouterModelSelection(command.selection) &&
+        generation.selectRootModel(command.selection);
+      post({
+        kind: 'model_selected',
+        correlation: command.correlation,
+        accepted,
+        ...(accepted && generation !== undefined ? { manifest: generation.manifest } : {}),
       });
       return;
     }

@@ -64,6 +64,10 @@ export type UiOverlay =
     readonly page: number;
     readonly loading?: boolean;
   }>
+  | Readonly<{
+    readonly kind: 'choicePicker';
+    readonly lines: readonly string[];
+  }>
   | Readonly<
     {
       readonly kind: 'history';

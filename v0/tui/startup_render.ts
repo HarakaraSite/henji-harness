@@ -60,7 +60,9 @@ export const startupOrientationLines = (
   'Henji Harness',
   `workspace> ${escapeTerminalText(workspace)}`,
   `agent> ${escapeTerminalText(state.agentId)}`,
-  `model> openrouter / ${escapeTerminalText(state.model.profileId)}`,
+  `model> openrouter / ${escapeTerminalText(state.model.modelId)} / effort ${
+    escapeTerminalText(state.model.effort)
+  }`,
   `session> ${orientationSession(state)}`,
   `instructions> ${orientationInstruction(state)}`,
   `skills> ${orientationSkills(state)}`,
@@ -119,5 +121,13 @@ export const startupHelpLines = (
   _committedTurn = 0,
   _rows = 24,
 ): readonly string[] => {
-  return Object.freeze(['Henji help · 工事中']);
+  return Object.freeze([
+    'Henji help · F1/Esc return',
+    '/model · search and select the root model',
+    '/effort · select effort for the current root model',
+    '/sessions · resume a saved session',
+    '/history export · save committed history as Markdown',
+    '/recover · restore recoverable input',
+    '/exit · exit Henji',
+  ]);
 };

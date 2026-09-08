@@ -27,6 +27,7 @@ import {
   encodeSemanticContextCheckpoint,
   encodeSessionRecord,
   encodeSessionRecordV2,
+  encodeSessionRecordV3,
   metadataFromRecord,
   metadataFromStoredRecord,
   validRevisionRef,
@@ -612,7 +613,9 @@ export class DenoSessionStore implements SessionStorePort, WorkerSessionStorePor
         ) throw new SessionStoreError('session_invalid');
         const bytes = next.schemaVersion === 1
           ? encodeSessionRecord(next)
-          : encodeSessionRecordV2(next);
+          : next.schemaVersion === 2
+          ? encodeSessionRecordV2(next)
+          : encodeSessionRecordV3(next);
         const paths = this.paths!;
         const temporary = `${paths.sessions}/${id}/.tmp-${this.makeUuid().toLowerCase()}`;
         try {

@@ -13,11 +13,16 @@ import {
   type SessionMetadata,
   type SessionRecord,
   type SessionRecordV2,
+  type SessionRecordV3,
   SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionMetadata,
 } from './session_store_contract.ts';
 import { canonicalAbsolutePath } from './session_store_paths.ts';
+import {
+  isOpenRouterModelSelection,
+  type OpenRouterModelSelection,
+} from '../provider/openrouter_model_catalog.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -98,16 +103,32 @@ const validateMessage = (value: unknown): value is Message => {
       validMessageText((content as Record<string, unknown>).text);
   }
   if (message.role === 'assistant') {
+    const hasProviderState = Object.hasOwn(message, 'providerState');
+    const state = message.providerState;
+    const reasoningDetails = typeof state === 'object' && state !== null
+      ? (state as Record<string, unknown>).reasoningDetails
+      : undefined;
+    if (
+      hasProviderState &&
+      (typeof state !== 'object' || state === null || Array.isArray(state) ||
+        !ownKeys(state, ['provider', 'reasoningDetails']) ||
+        (state as Record<string, unknown>).provider !== 'openrouter' ||
+        !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+        !reasoningDetails.every(isFiniteJson))
+    ) return false;
+    const messageKeys = hasProviderState
+      ? ['role', 'content', 'providerState']
+      : ['role', 'content'];
     const content = message.content;
     if (
       typeof content === 'object' && content !== null && !Array.isArray(content)
     ) {
-      return ownKeys(message, ['role', 'content']) &&
+      return ownKeys(message, messageKeys) &&
         ownKeys(content, ['kind', 'text']) &&
         (content as Record<string, unknown>).kind === 'text' &&
         validMessageText((content as Record<string, unknown>).text);
     }
-    return ownKeys(message, ['role', 'content']) && Array.isArray(content) &&
+    return ownKeys(message, messageKeys) && Array.isArray(content) &&
       content.length > 0 &&
       content.every(validateToolCall);
   }
@@ -385,6 +406,123 @@ export const decodeSessionRecordV2 = (bytes: Uint8Array): SessionRecordV2 => {
   return structuredClone(parsed);
 };
 
+const sameSelection = (
+  left: OpenRouterModelSelection,
+  right: OpenRouterModelSelection,
+): boolean =>
+  left.provider === right.provider && left.modelId === right.modelId &&
+  left.effort === right.effort;
+
+export const validateSessionRecordV3 = (
+  value: unknown,
+): value is SessionRecordV3 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (
+    !ownKeys(record, [
+      'schemaVersion',
+      'sessionId',
+      'workspaceRoot',
+      'agent',
+      'createdAt',
+      'updatedAt',
+      'stateRevision',
+      'nextTurn',
+      'transcript',
+      'definition',
+      'activeModel',
+      'modelChanges',
+      'turnModels',
+    ]) || record.schemaVersion !== 3 || !isOpenRouterModelSelection(record.activeModel) ||
+    !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
+    !Array.isArray(record.turnModels)
+  ) return false;
+  const legacyV2: SessionRecordV2 = {
+    schemaVersion: 2,
+    sessionId: record.sessionId as string,
+    workspaceRoot: record.workspaceRoot as string,
+    agent: record.agent as SessionRecord['agent'],
+    createdAt: record.createdAt as string,
+    updatedAt: record.updatedAt as string,
+    stateRevision: record.stateRevision as number,
+    nextTurn: record.nextTurn as number,
+    transcript: record.transcript as readonly Message[],
+    definition: record.definition as DefinitionRevisionRef,
+  };
+  const emptyBeforeFirstTurn = isSessionId(legacyV2.sessionId) &&
+    typeof legacyV2.workspaceRoot === 'string' &&
+    canonicalAbsolutePath(legacyV2.workspaceRoot) !== undefined &&
+    legacyV2.workspaceRoot.trim() === legacyV2.workspaceRoot &&
+    (legacyV2.agent === 'default' || legacyV2.agent === 'planner') &&
+    canonicalTimestamp(legacyV2.createdAt) && canonicalTimestamp(legacyV2.updatedAt) &&
+    Date.parse(legacyV2.updatedAt) >= Date.parse(legacyV2.createdAt) &&
+    Number.isSafeInteger(legacyV2.stateRevision) && legacyV2.stateRevision >= 1 &&
+    legacyV2.nextTurn === 1 && Array.isArray(legacyV2.transcript) &&
+    legacyV2.transcript.length === 0 && validRevisionRef(legacyV2.definition);
+  if (!emptyBeforeFirstTurn && !validateSessionRecordV2(legacyV2)) return false;
+  let previousEffectiveTurn = 0;
+  let latestSelection: OpenRouterModelSelection | undefined;
+  for (const value of record.modelChanges) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const change = value as Record<string, unknown>;
+    if (
+      !ownKeys(change, ['effectiveFromTurn', 'changedAt', 'selection']) ||
+      !Number.isSafeInteger(change.effectiveFromTurn) ||
+      (change.effectiveFromTurn as number) < previousEffectiveTurn ||
+      (change.effectiveFromTurn as number) < 1 ||
+      (change.effectiveFromTurn as number) > legacyV2.nextTurn ||
+      !canonicalTimestamp(change.changedAt) ||
+      !isOpenRouterModelSelection(change.selection)
+    ) return false;
+    previousEffectiveTurn = change.effectiveFromTurn as number;
+    latestSelection = change.selection;
+  }
+  if (latestSelection === undefined || !sameSelection(latestSelection, record.activeModel)) {
+    return false;
+  }
+  let previousAttributedTurn = 0;
+  for (const value of record.turnModels) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const attribution = value as Record<string, unknown>;
+    if (
+      !ownKeys(attribution, ['turn', 'selection']) ||
+      !Number.isSafeInteger(attribution.turn) ||
+      (attribution.turn as number) <= previousAttributedTurn ||
+      (attribution.turn as number) < 1 ||
+      (attribution.turn as number) >= legacyV2.nextTurn ||
+      !isOpenRouterModelSelection(attribution.selection)
+    ) return false;
+    previousAttributedTurn = attribution.turn as number;
+  }
+  return true;
+};
+
+export const encodeSessionRecordV3 = (record: SessionRecordV3): Uint8Array => {
+  if (!validateSessionRecordV3(record)) throw new SessionStoreError('session_invalid');
+  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
+  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
+  return bytes;
+};
+
+export const decodeSessionRecordV3 = (bytes: Uint8Array): SessionRecordV3 => {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (!validateSessionRecordV3(parsed)) throw new SessionStoreError('session_invalid');
+  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
+  if (
+    canonical.byteLength !== bytes.byteLength ||
+    canonical.some((byte, index) => byte !== bytes[index])
+  ) throw new SessionStoreError('session_invalid');
+  return structuredClone(parsed);
+};
+
 export const decodeStoredSessionRecord = (
   bytes: Uint8Array,
 ): StoredSessionRecord => {
@@ -401,7 +539,10 @@ export const decodeStoredSessionRecord = (
     throw new SessionStoreError('session_invalid');
   }
   const version = (parsed as Record<string, unknown>).schemaVersion;
-  return version === 1 ? decodeSessionRecord(bytes) : decodeSessionRecordV2(bytes);
+  if (version === 1) return decodeSessionRecord(bytes);
+  if (version === 2) return decodeSessionRecordV2(bytes);
+  if (version === 3) return decodeSessionRecordV3(bytes);
+  throw new SessionStoreError('session_invalid');
 };
 
 export const encodeSessionRecord = (record: SessionRecord): Uint8Array => {
@@ -555,7 +696,8 @@ export const metadataFromStoredRecord = (
       transcript: record.transcript,
     },
   ),
-  ...(record.schemaVersion === 2 ? { definition: structuredClone(record.definition) } : {}),
+  ...(record.schemaVersion === 1 ? {} : { definition: structuredClone(record.definition) }),
+  ...(record.schemaVersion === 3 ? { modelSelection: structuredClone(record.activeModel) } : {}),
 });
 
 export const compareSessionMetadata = (

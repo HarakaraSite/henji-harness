@@ -6,6 +6,7 @@ import type {
   WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
+import { isOpenRouterModelSelection } from '../provider/openrouter_model_catalog.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
 export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 1 as const;
@@ -161,12 +162,21 @@ const validManifest = (
     return false;
   }
   const manifest = value as Record<string, unknown>;
-  return ownKeys(manifest, ['role', 'maxSteps', 'profileId', 'resources']) &&
+  return ownKeys(manifest, [
+    'role',
+    'maxSteps',
+    'profileId',
+    'resources',
+    'rootModel',
+    'plannerModel',
+  ]) &&
     (manifest.role === 'parent' || manifest.role === 'planner') &&
     Number.isSafeInteger(manifest.maxSteps) &&
     (manifest.maxSteps as number) > 0 &&
     validText(manifest.profileId, true) && Array.isArray(manifest.resources) &&
-    manifest.resources.every((resource) => validText(resource, true));
+    manifest.resources.every((resource) => validText(resource, true)) &&
+    isOpenRouterModelSelection(manifest.rootModel) &&
+    isOpenRouterModelSelection(manifest.plannerModel);
 };
 
 const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {

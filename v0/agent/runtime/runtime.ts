@@ -300,6 +300,8 @@ export const prepareRuntimeComposition = async (
     workspaceRoot: workspace.root,
     agentId: selection.id,
     profileId: definition.model.profile.id,
+    modelId: definition.model.profile.model,
+    effort: definition.model.profile.reasoningEffort ?? 'auto',
     sessionMode,
     instructionSource: instructionSnapshot?.source,
     skillNames: skillCatalog.skills.map((skill) => skill.name),

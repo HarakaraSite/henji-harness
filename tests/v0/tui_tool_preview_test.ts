@@ -129,6 +129,8 @@ Deno.test('tool preview truncates a long command head with ellipsis', () => {
 Deno.test('Slash commands parse exact built-ins only', () => {
   assertEquals(slashCommandOf('/help'), 'help');
   assertEquals(slashCommandOf('/sessions'), 'sessions');
+  assertEquals(slashCommandOf('/model'), 'model');
+  assertEquals(slashCommandOf('/effort'), 'effort');
   assertEquals(slashCommandOf('/history export'), 'history_export');
   assertEquals(slashCommandOf('/recover'), 'recover');
   assertEquals(slashCommandOf('/exit'), 'exit');

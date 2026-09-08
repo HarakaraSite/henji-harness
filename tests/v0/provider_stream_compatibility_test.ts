@@ -106,6 +106,7 @@ const toolStream = (id = 'gen-tool'): string =>
         index: 0,
         delta: {
           role: 'assistant',
+          reasoning_details: [{ type: 'reasoning.text', text: 'tool continuity' }],
           tool_calls: [{
             index: 0,
             id: 'submit-1',
@@ -404,6 +405,10 @@ Deno.test('documented tool accounting dispatches normally through the same trans
   assert(outcome.ok);
   assertEquals(outcome.stopReason, 'tool_terminal');
   assertEquals(outcome.finalText, '{"ok":true}');
+  const assistant = outcome.transcript.find((message) => message.role === 'assistant');
+  assertEquals(assistant?.providerState?.reasoningDetails, [
+    { type: 'reasoning.text', text: 'tool continuity' },
+  ]);
   assertEquals(seen.requests, 1);
   assert(outcome.providerEvidenceId !== undefined);
   const evidence = await store.read(outcome.providerEvidenceId!);

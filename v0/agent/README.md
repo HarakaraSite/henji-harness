@@ -27,6 +27,13 @@ Both production entrypoints use the same headless Worker capsule and Host commit
 - `runtime_cli_launcher.sh` starts one noninteractive turn without persisting a Session transcript;
   diagnostics, provider evidence, and execution artifacts still use the workspace state root.
 
+The interactive Session owns its active OpenRouter model and reasoning effort independently of the
+Definition revision. `/model` opens the searchable repository-curated model list; choosing a model
+also selects that model's curated default effort. `/effort` changes only the current model's effort.
+Both commands are idle-only and take effect on the next root turn. Delegated planner calls use the
+fixed planner default. Session schema v3 persists the active selection, change history, and
+per-committed-turn attribution; `/sessions` displays and restores the active selection.
+
 `validation/production_cli_e2e.ts` starts that production launcher only when invoked with the exact
 `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
 evidence, and the Worker execution artifact under `/tmp/henji-production-e2e-*`, then emits one JSON

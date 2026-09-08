@@ -11,6 +11,14 @@ import {
 import type { TuiNavigationLike, TuiSessionLike } from './controller_contract.ts';
 import type { InputEvent } from './input.ts';
 import type { TuiRenderer } from './render.ts';
+import {
+  openRouterCatalogEntry,
+  type OpenRouterModelCatalogEntry,
+  type OpenRouterModelSelection,
+  type OpenRouterReasoningEffort,
+  searchOpenRouterModels,
+  selectOpenRouterModel,
+} from '../agent/provider/openrouter_model_catalog.ts';
 
 type ControllerModal =
   | { readonly kind: 'startup-help' }
@@ -20,7 +28,20 @@ type ControllerModal =
     readonly selected: number;
     readonly page: number;
   }
-  | { readonly kind: 'picker-loading' };
+  | { readonly kind: 'picker-loading' }
+  | {
+    readonly kind: 'model-picker';
+    readonly query: string;
+    readonly entries: readonly OpenRouterModelCatalogEntry[];
+    readonly selected: number;
+  }
+  | {
+    readonly kind: 'effort-picker';
+    readonly modelId: string;
+    readonly efforts: readonly OpenRouterReasoningEffort[];
+    readonly selected: number;
+  }
+  | { readonly kind: 'model-selecting' };
 
 type OwnedNavigationOperation = {
   readonly operation: Promise<void>;
@@ -44,6 +65,7 @@ export interface ControllerOverlayOptions {
   readonly idleAllowed: () => boolean;
   readonly isIdle: () => boolean;
   readonly readyStatus: () => string;
+  readonly modelSelection: () => OpenRouterModelSelection | undefined;
   readonly fail: (error: unknown) => Promise<void>;
 }
 
@@ -52,6 +74,7 @@ export class ControllerOverlay {
   private modal: ControllerModal | null = null;
   private readonly navigationOperations = new Set<OwnedNavigationOperation>();
   private navigationGeneration = 0;
+  private modelSelectionOperation: Promise<void> | null = null;
 
   constructor(private readonly options: ControllerOverlayOptions) {}
 
@@ -118,10 +141,42 @@ export class ControllerOverlay {
     this.options.renderer.renderStartupHelp?.();
   }
 
+  openModelPicker(): void {
+    const selection = this.options.modelSelection();
+    if (selection === undefined) {
+      this.options.renderer.setStatus('model picker unavailable');
+      return;
+    }
+    const entries = searchOpenRouterModels('');
+    const selected = Math.max(
+      0,
+      entries.findIndex((entry) => entry.modelId === selection.modelId),
+    );
+    this.modal = { kind: 'model-picker', query: '', entries, selected };
+    this.renderModelPicker();
+  }
+
+  openEffortPicker(): void {
+    const selection = this.options.modelSelection();
+    const entry = selection === undefined ? undefined : openRouterCatalogEntry(selection.modelId);
+    if (selection === undefined || entry === undefined) {
+      this.options.renderer.setStatus('effort picker unavailable');
+      return;
+    }
+    this.modal = {
+      kind: 'effort-picker',
+      modelId: selection.modelId,
+      efforts: entry.efforts,
+      selected: Math.max(0, entry.efforts.indexOf(selection.effort)),
+    };
+    this.renderEffortPicker();
+  }
+
   process(event: InputEvent): void {
     const modal = this.modal;
     if (modal === null) return;
     const { renderer } = this.options;
+    if (modal.kind === 'model-selecting') return;
     if (event.kind === 'escape') {
       if (modal.kind === 'picker-loading') this.cancelNavigationOperations();
       this.modal = null;
@@ -172,6 +227,127 @@ export class ControllerOverlay {
       }
       return;
     }
+    if (modal.kind === 'model-picker') {
+      if (event.kind === 'up' || event.kind === 'down') {
+        const count = modal.entries.length;
+        if (count === 0) return;
+        const delta = event.kind === 'up' ? -1 : 1;
+        this.modal = {
+          ...modal,
+          selected: (modal.selected + delta + count) % count,
+        };
+        this.renderModelPicker();
+        return;
+      }
+      if (event.kind === 'backspace') {
+        this.updateModelQuery([...modal.query].slice(0, -1).join(''));
+        return;
+      }
+      if (event.kind === 'printable' || event.kind === 'paste') {
+        if (!event.text.includes('\0')) {
+          this.updateModelQuery(`${modal.query}${event.text}`);
+        }
+        return;
+      }
+      if (event.kind === 'enter') {
+        const entry = modal.entries[modal.selected];
+        if (entry !== undefined) {
+          this.applyModelSelection(selectOpenRouterModel(entry.modelId));
+        }
+      }
+      return;
+    }
+    if (modal.kind === 'effort-picker') {
+      if (event.kind === 'up' || event.kind === 'down') {
+        const delta = event.kind === 'up' ? -1 : 1;
+        const count = modal.efforts.length;
+        this.modal = {
+          ...modal,
+          selected: (modal.selected + delta + count) % count,
+        };
+        this.renderEffortPicker();
+        return;
+      }
+      if (event.kind === 'enter') {
+        const effort = modal.efforts[modal.selected];
+        if (effort !== undefined) {
+          this.applyModelSelection(selectOpenRouterModel(modal.modelId, effort));
+        }
+      }
+    }
+  }
+
+  private updateModelQuery(query: string): void {
+    const entries = searchOpenRouterModels(query);
+    this.modal = { kind: 'model-picker', query, entries, selected: 0 };
+    this.renderModelPicker();
+  }
+
+  private renderModelPicker(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'model-picker') return;
+    const lines = [
+      'model picker · type to search · Up/Down select · Enter choose · Esc cancel',
+      `search> ${modal.query}`,
+      ...modal.entries.map((entry, index) =>
+        `${
+          index === modal.selected ? '>' : ' '
+        } ${entry.modelId} · default effort ${entry.defaultEffort}`
+      ),
+    ];
+    if (modal.entries.length === 0) lines.push('no matching models');
+    this.options.renderer.renderChoicePicker?.(lines);
+  }
+
+  private renderEffortPicker(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'effort-picker') return;
+    this.options.renderer.renderChoicePicker?.([
+      `effort picker · ${modal.modelId} · Up/Down select · Enter choose · Esc cancel`,
+      ...modal.efforts.map((effort, index) => `${index === modal.selected ? '>' : ' '} ${effort}`),
+    ]);
+  }
+
+  private applyModelSelection(selection: OpenRouterModelSelection): void {
+    if (this.modelSelectionOperation !== null) return;
+    this.modal = { kind: 'model-selecting' };
+    this.options.renderer.renderChoicePicker?.([
+      `selecting ${selection.modelId} · effort ${selection.effort}`,
+    ]);
+    const operation = Promise.resolve(
+      this.options.dispatch({
+        kind: 'select_model',
+        modelId: selection.modelId,
+        effort: selection.effort,
+      }),
+    ).then((result) => {
+      if (result.kind === 'model_selection') {
+        this.modal = null;
+        this.options.renderer.clearModal?.();
+        this.options.renderer.setStatus(
+          `model ${result.selection.modelId} · effort ${result.selection.effort}`,
+        );
+        return;
+      }
+      this.modal = null;
+      this.options.renderer.clearModal?.();
+      this.options.renderer.setStatus(
+        result.kind === 'rejected' && result.reason === 'busy'
+          ? 'model selection requires idle session'
+          : 'model selection unavailable',
+      );
+    }).catch((error: unknown) => {
+      this.modal = null;
+      this.options.renderer.clearModal?.();
+      if (isPresentationDeliveryError(error)) {
+        void this.options.fail(error);
+      } else this.options.renderer.setStatus('model selection failed');
+    }).finally(() => {
+      if (this.modelSelectionOperation === operation) {
+        this.modelSelectionOperation = null;
+      }
+    });
+    this.modelSelectionOperation = operation;
   }
 
   private trackNavigationOperation(
@@ -285,6 +461,9 @@ export class ControllerOverlay {
         ...navigation.map((operation) => operation.operation),
       ]);
       for (const operation of navigation) this.navigationOperations.delete(operation);
+    }
+    if (this.modelSelectionOperation !== null) {
+      await Promise.allSettled([this.modelSelectionOperation]);
     }
   }
 }

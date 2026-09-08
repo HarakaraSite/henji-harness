@@ -3,6 +3,7 @@ import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
 import type { SemanticContextCheckpointV1 } from '../session/session_store.ts';
+import type { OpenRouterModelSelection } from '../provider/openrouter_model_catalog.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -43,10 +44,17 @@ export type WorkerHostCommand =
     readonly module?: WorkerModuleRevisionRequest;
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
+    readonly rootRole?: 'parent' | 'planner';
     readonly rootMaxSteps?: number;
     readonly initialTranscript?: readonly Message[];
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
+    readonly modelSelection?: OpenRouterModelSelection;
+  }
+  | {
+    readonly kind: 'select_model';
+    readonly correlation: WorkerCorrelation;
+    readonly selection: OpenRouterModelSelection;
   }
   | {
     readonly kind: 'turn';
@@ -149,7 +157,16 @@ export interface WorkerReadyMessage {
     readonly maxSteps: number;
     readonly profileId: string;
     readonly resources: readonly string[];
+    readonly rootModel: OpenRouterModelSelection;
+    readonly plannerModel: OpenRouterModelSelection;
   };
+}
+
+export interface WorkerModelSelectedMessage {
+  readonly kind: 'model_selected';
+  readonly correlation: WorkerCorrelation;
+  readonly accepted: boolean;
+  readonly manifest?: WorkerReadyMessage['manifest'];
 }
 
 export interface WorkerRuntimeEventMessage {
@@ -217,6 +234,7 @@ export interface WorkerErrorMessage {
 
 export type WorkerToHostMessage =
   | WorkerReadyMessage
+  | WorkerModelSelectedMessage
   | WorkerRuntimeEventMessage
   | WorkerEffectObservationMessage
   | WorkerCommitProposalMessage
@@ -235,6 +253,7 @@ export const parseWorkerHostCommand = (
   if (!isRecord(value) || typeof value.kind !== 'string') return undefined;
   switch (value.kind) {
     case 'start':
+    case 'select_model':
     case 'turn':
     case 'steer':
     case 'cancel':

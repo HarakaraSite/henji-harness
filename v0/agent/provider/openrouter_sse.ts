@@ -1,4 +1,4 @@
-import type { ModelGenerateOptions, ModelResult } from '../core/contracts.ts';
+import type { JsonValue, ModelGenerateOptions, ModelResult } from '../core/contracts.ts';
 import { EventDeliveryError } from '../core/events.ts';
 import { CancellationCleanupError, TurnCancelledError } from '../core/cancellation.ts';
 import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
@@ -172,6 +172,7 @@ interface StreamAssembly {
   sawText: boolean;
   sawTools: boolean;
   tools: Map<number, StreamToolAssembly>;
+  reasoningDetails: JsonValue[];
   liveFrozen: boolean;
   progressText: string;
   progressBytes: number;
@@ -375,6 +376,16 @@ const processSsePayload = (
     );
   }
   const deltaObject = (delta ?? {}) as Record<string, unknown>;
+  const reasoningDetails = deltaObject.reasoning_details;
+  if (reasoningDetails !== undefined && reasoningDetails !== null) {
+    if (!Array.isArray(reasoningDetails) || !reasoningDetails.every(isJsonValue)) {
+      throw sseResponseError(
+        'provider reasoning details were unsupported',
+        'unsupported_delta_shape',
+      );
+    }
+    assembly.reasoningDetails.push(...structuredClone(reasoningDetails));
+  }
   const contentPresent = hasOwn(deltaObject, 'content');
   const content = deltaObject.content;
   const hasContent = typeof content === 'string' && content.length > 0;
@@ -483,7 +494,16 @@ const processSsePayload = (
       );
     }
     assembly.terminal = 'stop';
-    assembly.result = { kind: 'final', text: assembly.textParts.join('') };
+    assembly.result = {
+      kind: 'final',
+      text: assembly.textParts.join(''),
+      ...(assembly.reasoningDetails.length === 0 ? {} : {
+        providerState: {
+          provider: 'openrouter' as const,
+          reasoningDetails: structuredClone(assembly.reasoningDetails),
+        },
+      }),
+    };
   } else {
     if (!assembly.sawTools || assembly.sawText) {
       throw sseResponseError(
@@ -492,7 +512,14 @@ const processSsePayload = (
       );
     }
     assembly.terminal = 'tool_calls';
-    assembly.result = completeStreamTools(assembly);
+    const result = completeStreamTools(assembly);
+    assembly.result = assembly.reasoningDetails.length === 0 ? result : {
+      ...result,
+      providerState: {
+        provider: 'openrouter' as const,
+        reasoningDetails: structuredClone(assembly.reasoningDetails),
+      },
+    };
   }
 };
 
@@ -523,6 +550,7 @@ export const readSseResponse = async (
     sawText: false,
     sawTools: false,
     tools: new Map(),
+    reasoningDetails: [],
     liveFrozen: false,
     progressText: '',
     progressBytes: 0,

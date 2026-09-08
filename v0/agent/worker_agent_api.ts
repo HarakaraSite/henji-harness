@@ -22,6 +22,11 @@ import {
 import { composeSystemInstruction } from './definitions/agent_instructions.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
+import {
+  type OpenRouterModelSelection,
+  PLANNER_DEFAULT_MODEL_SELECTION,
+  ROOT_DEFAULT_MODEL_SELECTION,
+} from './provider/openrouter_model_catalog.ts';
 
 export { type ToolComponent, ToolComponentCatalog } from './tools/tool_components.ts';
 export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
@@ -39,7 +44,10 @@ export type { AgentEventSink };
 
 /** Worker-local physical construction seam; no value from this interface crosses postMessage. */
 export interface PhysicalIoBindings {
-  readonly createModel: (role: 'parent' | 'planner') => Model;
+  readonly createModel: (
+    role: 'parent' | 'planner',
+    selection?: OpenRouterModelSelection,
+  ) => Model;
   readonly workTools?: WorkToolSeams;
   readonly webSearchBackend?: WebSearchBackend;
 }
@@ -64,6 +72,8 @@ export interface WorkerAgentManifest {
   readonly maxSteps: number;
   readonly profileId: string;
   readonly resources: readonly string[];
+  readonly rootModel: OpenRouterModelSelection;
+  readonly plannerModel: OpenRouterModelSelection;
 }
 
 export interface WorkerAgentComposition {
@@ -136,6 +146,8 @@ const manifestFor = (
   maxSteps: number,
   modelResource: string,
   profileId: string,
+  rootModel: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+  plannerModel: OpenRouterModelSelection = PLANNER_DEFAULT_MODEL_SELECTION,
 ): WorkerAgentManifest => ({
   role,
   maxSteps,
@@ -147,6 +159,8 @@ const manifestFor = (
     ...capabilities.tools.map(String),
     ...capabilities.subagents.map(String),
   ].sort()),
+  rootModel: Object.freeze(structuredClone(rootModel)),
+  plannerModel: Object.freeze(structuredClone(plannerModel)),
 });
 
 const maxStepsFor = (

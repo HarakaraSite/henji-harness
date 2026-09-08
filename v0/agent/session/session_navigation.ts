@@ -2,6 +2,7 @@ import { type LoopOutcome, type Message } from '../core/contracts.ts';
 import { type SessionHistoryPage } from './session_history.ts';
 import { type SessionMetadata, type SessionRecord } from './session_store.ts';
 import { type ContextMetrics } from '../core/context.ts';
+import type { OpenRouterModelSelection } from '../provider/openrouter_model_catalog.ts';
 
 export const SESSION_PICKER_PAGE_SIZE = 8;
 
@@ -43,6 +44,11 @@ export interface NavigationSessionLike {
   steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
   contextSnapshot?(): ContextMetrics | undefined;
   isAvailable?(): boolean;
+  modelSelectionSnapshot?(): OpenRouterModelSelection | undefined;
+  selectModel?(
+    selection: OpenRouterModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
+  consumeLegacyModelNotice?(): boolean;
 }
 
 export interface NavigationPosition {

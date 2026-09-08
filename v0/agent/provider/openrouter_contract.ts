@@ -1,4 +1,5 @@
 import type { FailureCode, FailureStage, ParseReason } from '../session/failure_diagnostic.ts';
+import type { OpenRouterExplicitReasoningEffort } from './openrouter_model_catalog.ts';
 
 export const MAX_MESSAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_REQUEST_BYTES = 6 * 1024 * 1024;
@@ -17,6 +18,7 @@ export interface OpenRouterAgentProfile {
   readonly secretEnv: string;
   readonly maxCompletionTokens: number;
   readonly stream: false;
+  readonly reasoningEffort?: OpenRouterExplicitReasoningEffort;
 }
 
 export type OpenRouterResponseMode = 'json' | 'sse';

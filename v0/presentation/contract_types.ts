@@ -16,6 +16,11 @@ export type PresentationLifecycle =
   | 'fatal';
 
 export type PresentationAgentId = 'default' | 'planner';
+export interface PresentationModelSelection {
+  readonly provider: 'openrouter';
+  readonly modelId: string;
+  readonly effort: string;
+}
 export type PresentationOutcomeReason =
   | 'final'
   | 'tool_terminal'
@@ -209,6 +214,7 @@ export interface PresentationNavigationRow {
   readonly current: boolean;
   readonly resumed: boolean;
   readonly mismatch: boolean;
+  readonly modelSelection?: PresentationModelSelection;
 }
 
 export interface PresentationNavigationListing {
@@ -265,6 +271,11 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'exit'; readonly code: 0 | 129 | 143 }>
   | Readonly<{ readonly kind: 'list_sessions' }>
   | Readonly<{ readonly kind: 'resume_session'; readonly id: string }>
+  | Readonly<{
+    readonly kind: 'select_model';
+    readonly modelId: string;
+    readonly effort: string;
+  }>
   | Readonly<
     {
       readonly kind: 'history_page';
@@ -310,6 +321,11 @@ export type PresentationIntentResult =
       readonly messages: readonly PresentationMessage[];
       readonly omitted: number;
     };
+  }>
+  | Readonly<{
+    readonly kind: 'model_selection';
+    readonly status: 'selected' | 'unchanged';
+    readonly selection: PresentationModelSelection;
   }>
   | Readonly<
     { readonly kind: 'history'; readonly page?: PresentationHistoryPage }
@@ -451,6 +467,8 @@ export interface PresentationStartupState {
   readonly model: {
     readonly provider: 'openrouter';
     readonly profileId: string;
+    readonly modelId: string;
+    readonly effort: string;
   };
   readonly sessionMode: {
     readonly kind: 'new' | 'continue' | 'exact' | 'none';

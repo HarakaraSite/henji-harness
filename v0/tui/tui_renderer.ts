@@ -626,10 +626,15 @@ export class TuiRenderer implements TerminalRendererGate {
         ? 'mismatch'
         : 'available';
       const updated = escapeTerminalText(row.updatedAt);
+      const model = row.modelSelection === undefined
+        ? 'legacy model'
+        : `${escapeTerminalText(row.modelSelection.modelId)} effort:${
+          escapeTerminalText(row.modelSelection.effort)
+        }`;
       lines.push(
         `${marker} ${escapeTerminalText(row.id)} ${
           escapeTerminalText(row.agent)
-        } ${updated} t${row.turnCount}/m${row.messageCount} ${state}`,
+        } ${updated} t${row.turnCount}/m${row.messageCount} ${model} ${state}`,
       );
     }
     if (listing.skippedInvalid > 0) {
@@ -648,6 +653,19 @@ export class TuiRenderer implements TerminalRendererGate {
       });
       this.redraw();
     } else this.writeStatic(`${lines.map((line) => `${line}\n`).join('')}`);
+  }
+
+  renderChoicePicker(lines: readonly string[]): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    if (this.retained) {
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'overlay',
+        overlay: { kind: 'choicePicker', lines: Object.freeze([...lines]) },
+      });
+      this.redraw();
+    } else {
+      this.writeStatic(lines.map((line) => `${line}\n`).join(''));
+    }
   }
 
   renderHistoryPage(page: PresentationHistoryPage): void {

@@ -1,4 +1,4 @@
-import type { JsonValue, ModelResult } from '../core/contracts.ts';
+import type { JsonValue, ModelResult, OpenRouterProviderState } from '../core/contracts.ts';
 import type { ParseReason } from '../session/failure_diagnostic.ts';
 import {
   MAX_ASSISTANT_TEXT_BYTES,
@@ -153,6 +153,13 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
     : undefined;
 };
 
+const providerState = (message: Record<string, unknown>): OpenRouterProviderState | undefined => {
+  const details = message.reasoning_details;
+  return Array.isArray(details) && details.length > 0 && details.every(isJsonValue)
+    ? { provider: 'openrouter', reasoningDetails: structuredClone(details) }
+    : undefined;
+};
+
 export const decodeResponse = (payload: unknown): ModelResult => {
   if (typeof payload !== 'object' || payload === null) {
     throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
@@ -172,8 +179,10 @@ export const decodeResponse = (payload: unknown): ModelResult => {
   if ((message as { role?: unknown }).role !== 'assistant') {
     throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
-  const content = (message as { content?: unknown }).content;
-  const toolCalls = (message as { tool_calls?: unknown }).tool_calls;
+  const messageObject = message as Record<string, unknown>;
+  const content = messageObject.content;
+  const toolCalls = messageObject.tool_calls;
+  const state = providerState(messageObject);
   if (
     typeof content === 'string' && content.length > 0 &&
     (toolCalls === undefined || toolCalls === null)
@@ -191,14 +200,18 @@ export const decodeResponse = (payload: unknown): ModelResult => {
         },
       );
     }
-    return { kind: 'final', text: content };
+    return {
+      kind: 'final',
+      text: content,
+      ...(state === undefined ? {} : { providerState: state }),
+    };
   }
   if (
     (content === null || content === undefined || content === '') &&
     toolCalls !== undefined
   ) {
     const result = decodeToolCalls(toolCalls);
-    if (result) return result;
+    if (result) return state === undefined ? result : { ...result, providerState: state };
   }
   throw responseError(
     'provider response contained no supported result',

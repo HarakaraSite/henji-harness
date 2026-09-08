@@ -2,7 +2,7 @@ import type { AgentEventSink } from '../core/events.ts';
 import type { Message } from '../core/contracts.ts';
 import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructions.ts';
 import { discoverSkills } from '../definitions/skills.ts';
-import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
+import { openRouterProfileFor } from '../provider/openrouter_model_catalog.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
 import {
@@ -186,22 +186,11 @@ export const createWorkerSession = async (
         workspace.root,
       )
       : undefined);
-  const displayState = projectRuntimeDisplayState({
-    workspaceRoot: workspace.root,
-    agentId: options.agent,
-    profileId: PRODUCTION_PROFILE.id,
-    sessionMode: options.persistence,
-    instructionSource: instructionSnapshot?.source,
-    skillNames: skillCatalog.skills.map((skill) => skill.name),
-  });
   const store: WorkerSessionStorePort | undefined = options.persistence === 'none'
     ? undefined
     : new DenoSessionStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
-      {
-        sourceProfileId: PRODUCTION_PROFILE.id,
-      },
     );
   let handle: WorkerSessionHandle;
   let record: StoredSessionRecord | undefined;
@@ -250,6 +239,17 @@ export const createWorkerSession = async (
       providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
       executionArtifactStore: defaultExecutionArtifactStore,
       capsuleFactory: options.capsuleFactory,
+    });
+    const initialSelection = host.modelSelectionSnapshot();
+    const displayState = projectRuntimeDisplayState({
+      workspaceRoot: workspace.root,
+      agentId: options.agent,
+      profileId: openRouterProfileFor(initialSelection).id,
+      modelId: initialSelection.modelId,
+      effort: initialSelection.effort,
+      sessionMode: options.persistence,
+      instructionSource: instructionSnapshot?.source,
+      skillNames: skillCatalog.skills.map((skill) => skill.name),
     });
     let currentHost = host;
     let currentHandle = handle;

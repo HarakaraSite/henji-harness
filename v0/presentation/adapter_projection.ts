@@ -316,6 +316,13 @@ export const listing = (value: NavigationListing): PresentationNavigationListing
         current: boolean(row.current),
         resumed: boolean(row.resumed),
         mismatch: boolean(row.mismatch),
+        ...(row.modelSelection === undefined ? {} : {
+          modelSelection: Object.freeze({
+            provider: 'openrouter' as const,
+            modelId: text(row.modelSelection.modelId),
+            effort: text(row.modelSelection.effort),
+          }),
+        }),
       })
     )),
     skippedInvalid: count(value.skippedInvalid),

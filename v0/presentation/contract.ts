@@ -22,6 +22,7 @@ export type {
   PresentationJsonPrimitive,
   PresentationLifecycle,
   PresentationMessage,
+  PresentationModelSelection,
   PresentationNavigationListing,
   PresentationNavigationRow,
   PresentationOutcome,

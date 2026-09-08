@@ -17,6 +17,7 @@ import type {
   PresentationOutcome,
   PresentationPosition,
 } from './contract.ts';
+import type { OpenRouterModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
 
 export interface AdapterSessionPort {
   submit(text: string): Promise<PresentationOutcome>;
@@ -40,6 +41,11 @@ export interface AdapterSessionPort {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
   } | undefined;
+  modelSelectionSnapshot?(): OpenRouterModelSelection | undefined;
+  selectModel?(
+    selection: OpenRouterModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
+  consumeLegacyModelNotice?(): boolean;
 }
 
 export interface AdapterNavigationPort {
@@ -80,6 +86,11 @@ export type CoreSession = {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
   } | null;
+  modelSelectionSnapshot?(): OpenRouterModelSelection | undefined;
+  selectModel?(
+    selection: OpenRouterModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
+  consumeLegacyModelNotice?(): boolean;
   checkpointSnapshot?(): {
     readonly summary: string;
     readonly coveredThroughTurn: number;

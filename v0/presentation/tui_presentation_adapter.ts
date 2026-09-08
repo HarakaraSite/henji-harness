@@ -26,6 +26,10 @@ import type {
   TuiPresentationAdapterOptions,
 } from './adapter_contract.ts';
 import {
+  type OpenRouterModelSelection,
+  selectOpenRouterModel,
+} from '../agent/provider/openrouter_model_catalog.ts';
+import {
   assistantMessage,
   bounded,
   callMessage,
@@ -297,6 +301,31 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     });
   }
 
+  modelSelectionSnapshot(): OpenRouterModelSelection | undefined {
+    return this.core.modelSelectionSnapshot?.();
+  }
+
+  selectModel(
+    selection: OpenRouterModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
+    return this.core.selectModel?.(selection) ?? Promise.resolve('unavailable');
+  }
+
+  /** Emit the one-shot legacy fallback notice after the terminal startup frame exists. */
+  announceLegacyModelDefault(): void {
+    if (!this.core.consumeLegacyModelNotice?.()) return;
+    const selection = this.core.modelSelectionSnapshot?.();
+    this.emit({
+      kind: 'notice',
+      generation: ++this.generation,
+      text: bounded(
+        selection === undefined
+          ? 'legacy session resumed with the current root model default'
+          : `legacy session resumed with ${selection.modelId} / effort ${selection.effort}`,
+      ),
+    });
+  }
+
   /** Own every in-flight navigation signal; the UI can only request cancellation by intent. */
   private navigationOperation<T>(
     operation: (signal: AbortSignal) => Promise<T>,
@@ -367,6 +396,36 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           );
       case 'resume_session':
         return this.dispatchResume(admitted.id);
+      case 'select_model': {
+        let selection: OpenRouterModelSelection;
+        try {
+          selection = selectOpenRouterModel(
+            admitted.modelId,
+            admitted.effort as OpenRouterModelSelection['effort'],
+          );
+        } catch {
+          return { kind: 'rejected', reason: 'invalid' };
+        }
+        if (this.core.selectModel === undefined) {
+          return { kind: 'rejected', reason: 'unavailable' };
+        }
+        return this.core.selectModel(selection).then((status) =>
+          status === 'selected' || status === 'unchanged'
+            ? {
+              kind: 'model_selection' as const,
+              status,
+              selection: {
+                provider: 'openrouter' as const,
+                modelId: selection.modelId,
+                effort: selection.effort,
+              },
+            }
+            : {
+              kind: 'rejected' as const,
+              reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
+            }
+        );
+      }
       case 'history_export': {
         const core = this.core;
         const positionValue = core.currentPosition?.();
@@ -461,6 +520,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       this.core = binding.session as CoreSession;
       const positionValue = position(binding.position);
       this.emit({ kind: 'session_binding_replaced', position: positionValue });
+      this.announceLegacyModelDefault();
       let restoredValue: {
         readonly messages: readonly PresentationMessage[];
         readonly omitted: number;

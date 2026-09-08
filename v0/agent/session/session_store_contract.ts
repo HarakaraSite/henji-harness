@@ -1,4 +1,5 @@
 import type { Message } from '../core/contracts.ts';
+import type { OpenRouterModelSelection } from '../provider/openrouter_model_catalog.ts';
 
 export const SESSION_SCHEMA_VERSION = 1 as const;
 export const MAX_SESSION_FILE_BYTES = 8 * 1024 * 1024;
@@ -49,7 +50,35 @@ export interface SessionRecordV2 {
   readonly definition: DefinitionRevisionRef;
 }
 
-export type StoredSessionRecord = SessionRecord | SessionRecordV2;
+export interface SessionModelChange {
+  readonly effectiveFromTurn: number;
+  readonly changedAt: string;
+  readonly selection: OpenRouterModelSelection;
+}
+
+export interface SessionTurnModelAttribution {
+  readonly turn: number;
+  readonly selection: OpenRouterModelSelection;
+}
+
+/** Worker-backed record with one durable root-model selection and committed-turn attribution. */
+export interface SessionRecordV3 {
+  readonly schemaVersion: 3;
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agent: 'default' | 'planner';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly transcript: readonly Message[];
+  readonly definition: DefinitionRevisionRef;
+  readonly activeModel: OpenRouterModelSelection;
+  readonly modelChanges: readonly SessionModelChange[];
+  readonly turnModels: readonly SessionTurnModelAttribution[];
+}
+
+export type StoredSessionRecord = SessionRecord | SessionRecordV2 | SessionRecordV3;
 
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {
@@ -73,6 +102,7 @@ export interface SessionMetadata {
   readonly updatedAt: string;
   readonly turnCount: number;
   readonly messageCount: number;
+  readonly modelSelection?: OpenRouterModelSelection;
 }
 
 export type SessionErrorCode =

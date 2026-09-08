@@ -12,6 +12,7 @@ import type {
 import type { TuiEditorHistory } from './input.ts';
 import type { PendingInputCore } from './pending_input.ts';
 import type { WorkspacePathIndex } from './file_reference.ts';
+import type { OpenRouterModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
 
 export interface TuiSessionLike {
   submit(text: string): Promise<PresentationOutcome>;
@@ -32,6 +33,11 @@ export interface TuiSessionLike {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
   } | undefined;
+  modelSelectionSnapshot?(): OpenRouterModelSelection | undefined;
+  selectModel?(
+    selection: OpenRouterModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
+  consumeLegacyModelNotice?(): boolean;
 }
 
 export interface TuiNavigationLike {

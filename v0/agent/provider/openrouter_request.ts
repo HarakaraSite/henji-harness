@@ -34,12 +34,14 @@ interface WireSystemMessage {
 interface WireAssistantTextMessage {
   readonly role: 'assistant';
   readonly content: string;
+  readonly reasoning_details?: readonly JsonValue[];
 }
 
 interface WireAssistantToolMessage {
   readonly role: 'assistant';
   readonly content: null;
   readonly tool_calls: readonly WireToolCall[];
+  readonly reasoning_details?: readonly JsonValue[];
 }
 
 interface WireToolMessage {
@@ -118,6 +120,13 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
       : undefined;
   }
   if (message.role === 'assistant') {
+    const reasoningDetails = message.providerState?.provider === 'openrouter' &&
+        Array.isArray(message.providerState.reasoningDetails) &&
+        message.providerState.reasoningDetails.length > 0 &&
+        message.providerState.reasoningDetails.every(isJsonValue)
+      ? message.providerState.reasoningDetails
+      : undefined;
+    if (message.providerState !== undefined && reasoningDetails === undefined) return undefined;
     const content = message.content;
     if (
       !Array.isArray(content) && typeof content === 'object' &&
@@ -125,14 +134,23 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
       'kind' in content && content.kind === 'text' &&
       typeof content.text === 'string'
     ) {
-      return [{ role: 'assistant', content: content.text }];
+      return [{
+        role: 'assistant',
+        content: content.text,
+        ...(reasoningDetails === undefined ? {} : { reasoning_details: reasoningDetails }),
+      }];
     }
     if (!Array.isArray(message.content) || message.content.length === 0) {
       return undefined;
     }
     const calls = message.content.map(toolCallWire);
     return calls.every((call): call is WireToolCall => call !== undefined)
-      ? [{ role: 'assistant', content: null, tool_calls: calls }]
+      ? [{
+        role: 'assistant',
+        content: null,
+        tool_calls: calls,
+        ...(reasoningDetails === undefined ? {} : { reasoning_details: reasoningDetails }),
+      }]
       : undefined;
   }
   if (message.role === 'tool') {
@@ -227,6 +245,9 @@ export const measureModelRequestWire = (
     tools: encoded.tools,
     stream: responseMode === 'sse' ? true : profile.stream,
     max_completion_tokens: profile.maxCompletionTokens,
+    ...(profile.reasoningEffort === undefined
+      ? {}
+      : { reasoning: { effort: profile.reasoningEffort } }),
   });
   if (body === undefined) throw invalidRequestError('provider request is not JSON serializable');
   return {

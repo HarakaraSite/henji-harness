@@ -321,7 +321,12 @@ Deno.test('retained PageUp at the oldest boundary anchors the first conversation
   const startup: PresentationStartupState = {
     workspace: '/tmp/henji-ui',
     agentId: 'default',
-    model: { provider: 'openrouter', profileId: 'test' },
+    model: {
+      provider: 'openrouter',
+      profileId: 'test',
+      modelId: 'deepseek/deepseek-v4-pro-0813',
+      effort: 'high',
+    },
     sessionMode: { kind: 'new' },
     instructions: { loaded: false, source: 'none' },
     skills: { count: 0, names: [], omitted: 0 },

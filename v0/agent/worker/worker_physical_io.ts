@@ -5,6 +5,11 @@ import { type CredentialSource, OpenRouterAgentModel } from '../provider/openrou
 import { readCredentialFile } from '../provider/credential_file.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import {
+  type OpenRouterModelSelection,
+  openRouterProfileFor,
+  PLANNER_DEFAULT_MODEL_SELECTION,
+} from '../provider/openrouter_model_catalog.ts';
+import {
   createProviderFreeWebSearchBackend,
   OpenRouterSonarWebSearchBackend,
 } from '../tools/web_search.ts';
@@ -146,9 +151,13 @@ export const createProductionPhysicalIo = (
   };
   const credentialSource = options.credentialSource ?? readCredentialFile;
   return {
-    createModel: () =>
+    createModel: (role, selection?: OpenRouterModelSelection) =>
       new OpenRouterAgentModel({
-        profile: PRODUCTION_PROFILE,
+        profile: role === 'planner' && selection === undefined
+          ? openRouterProfileFor(PLANNER_DEFAULT_MODEL_SELECTION)
+          : selection === undefined
+          ? PRODUCTION_PROFILE
+          : openRouterProfileFor(selection),
         credentialSource,
         fetcher,
         responseMode: 'sse',

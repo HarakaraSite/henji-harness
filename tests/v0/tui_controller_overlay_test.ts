@@ -6,6 +6,11 @@ import type {
 import type { TuiNavigationLike, TuiSessionLike } from '../../v0/tui/controller.ts';
 import { ControllerOverlay } from '../../v0/tui/controller_overlay.ts';
 import type { TuiRenderer } from '../../v0/tui/render.ts';
+import {
+  type OpenRouterModelSelection,
+  ROOT_DEFAULT_MODEL_SELECTION,
+  selectOpenRouterModel,
+} from '../../v0/agent/provider/openrouter_model_catalog.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -121,6 +126,7 @@ Deno.test('controller overlay owns help and session picker resume transitions', 
     idleAllowed: () => true,
     isIdle: () => true,
     readyStatus: () => 'ready',
+    modelSelection: () => undefined,
     fail: (error) => Promise.reject(error),
   });
 
@@ -135,5 +141,53 @@ Deno.test('controller overlay owns help and session picker resume transitions', 
   await waitFor(() => calls.includes('position'));
   assert(session === resumed);
   assert(!overlay.isOpen);
+  await overlay.settle();
+});
+
+Deno.test('controller overlay searches models and changes effort separately', async () => {
+  const rendered: string[][] = [];
+  const statuses: string[] = [];
+  let selection: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION;
+  const renderer = {
+    renderChoicePicker: (lines: readonly string[]) => rendered.push([...lines]),
+    clearModal: () => {},
+    setStatus: (status: string) => statuses.push(status),
+  } as unknown as TuiRenderer;
+  const overlay = new ControllerOverlay({
+    renderer,
+    dispatch: (intent: PresentationIntent): PresentationIntentResult => {
+      if (intent.kind !== 'select_model') return { kind: 'accepted' };
+      selection = selectOpenRouterModel(
+        intent.modelId,
+        intent.effort as OpenRouterModelSelection['effort'],
+      );
+      return {
+        kind: 'model_selection',
+        status: 'selected',
+        selection,
+      };
+    },
+    setSession: () => {},
+    idleAllowed: () => true,
+    isIdle: () => true,
+    readyStatus: () => 'ready',
+    modelSelection: () => selection,
+    fail: (error) => Promise.reject(error),
+  });
+
+  overlay.openModelPicker();
+  overlay.process({ kind: 'paste', text: 'grok' });
+  assert(rendered.at(-1)?.some((line) => line.includes('x-ai/grok-4.6')));
+  assert(!rendered.at(-1)?.some((line) => line.includes('deepseek/')));
+  overlay.process({ kind: 'enter' });
+  await waitFor(() => selection.modelId === 'x-ai/grok-4.6');
+  await overlay.settle();
+  assertEquals(selection.effort, 'high');
+
+  overlay.openEffortPicker();
+  overlay.process({ kind: 'down' });
+  overlay.process({ kind: 'enter' });
+  await waitFor(() => selection.effort === 'medium');
+  assert(statuses.some((status) => status.includes('effort medium')));
   await overlay.settle();
 });

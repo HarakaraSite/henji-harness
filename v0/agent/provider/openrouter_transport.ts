@@ -60,6 +60,9 @@ export class OpenRouterAgentModel implements Model {
       tools: encoded.tools,
       stream: this.options.responseMode === 'sse' ? true : this.profile.stream,
       max_completion_tokens: this.profile.maxCompletionTokens,
+      ...(this.profile.reasoningEffort === undefined
+        ? {}
+        : { reasoning: { effort: this.profile.reasoningEffort } }),
     });
     if (body === undefined) {
       throw invalidRequestError('provider request is not JSON serializable');

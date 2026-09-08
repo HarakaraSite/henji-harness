@@ -111,6 +111,17 @@ const isToolCall = (value: unknown): value is ToolCall => {
 const isModelResult = (value: unknown): value is ModelResult => {
   if (typeof value !== 'object' || value === null) return false;
   const result = value as Record<string, unknown>;
+  const providerState = result.providerState;
+  const reasoningDetails = typeof providerState === 'object' && providerState !== null
+    ? (providerState as Record<string, unknown>).reasoningDetails
+    : undefined;
+  if (
+    providerState !== undefined &&
+    (typeof providerState !== 'object' || providerState === null ||
+      (providerState as Record<string, unknown>).provider !== 'openrouter' ||
+      !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+      !reasoningDetails.every(isJsonValue))
+  ) return false;
   if (result.kind === 'final') {
     return typeof result.text === 'string' &&
       new TextEncoder().encode(result.text).byteLength <= MAX_ASSISTANT_TEXT_BYTES;
@@ -147,9 +158,11 @@ const isValidToolProgressSnapshot = (value: unknown): value is string =>
 
 const assistantToolMessage = (
   calls: readonly ToolCall[],
+  providerState?: ModelResult['providerState'],
 ): AssistantMessage => ({
   role: 'assistant',
   content: calls.map((call): ToolCallContent => snapshot({ kind: 'tool_call', ...call })),
+  ...(providerState === undefined ? {} : { providerState: snapshot(providerState) }),
 });
 
 const contractFailure = (
@@ -629,6 +642,9 @@ const runAgentTurnInternal = async (
       const assistant: AssistantMessage = {
         role: 'assistant',
         content: { kind: 'text', text: result.text },
+        ...(result.providerState === undefined
+          ? {}
+          : { providerState: snapshot(result.providerState) }),
       };
       transcript.push(assistant);
       deliverEvent(sink, {
@@ -652,7 +668,7 @@ const runAgentTurnInternal = async (
 
     const calls = snapshot(result.calls);
     observer?.modelSettled('tool_calls');
-    const assistant = assistantToolMessage(calls);
+    const assistant = assistantToolMessage(calls, result.providerState);
     transcript.push(assistant);
     deliverEvent(sink, {
       kind: 'assistant_message',

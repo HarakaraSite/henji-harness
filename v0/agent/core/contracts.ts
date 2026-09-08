@@ -19,6 +19,12 @@ export interface TextContent {
   readonly text: string;
 }
 
+/** Provider replay state attached to an assistant message, never rendered as conversation text. */
+export interface OpenRouterProviderState {
+  readonly provider: 'openrouter';
+  readonly reasoningDetails: readonly JsonValue[];
+}
+
 export interface ToolCall {
   readonly callId: string;
   readonly name: string;
@@ -69,6 +75,7 @@ export interface UserMessage {
 export interface AssistantMessage {
   readonly role: 'assistant';
   readonly content: TextContent | readonly ToolCallContent[];
+  readonly providerState?: OpenRouterProviderState;
 }
 
 export interface ToolMessage {
@@ -104,8 +111,16 @@ export interface ModelGenerateOptions {
 }
 
 export type ModelResult =
-  | { readonly kind: 'final'; readonly text: string }
-  | { readonly kind: 'tool_calls'; readonly calls: readonly ToolCall[] };
+  | {
+    readonly kind: 'final';
+    readonly text: string;
+    readonly providerState?: OpenRouterProviderState;
+  }
+  | {
+    readonly kind: 'tool_calls';
+    readonly calls: readonly ToolCall[];
+    readonly providerState?: OpenRouterProviderState;
+  };
 
 export interface Model {
   generate(

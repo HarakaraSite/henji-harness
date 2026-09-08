@@ -358,13 +358,18 @@ const overlayRows = (
       index += 1
     ) {
       const row = rows[start + index];
+      const model = row.modelSelection === undefined
+        ? 'legacy model'
+        : `${row.modelSelection.modelId} effort:${row.modelSelection.effort}`;
       lines.push(
         `${
           start + index === overlay.selected ? '>' : ' '
-        } ${row.id} ${row.agent} t${row.turnCount}/m${row.messageCount}`,
+        } ${row.id} ${row.agent} t${row.turnCount}/m${row.messageCount} ${model}`,
       );
     }
     if (rows.length === 0 && !overlay.loading) lines.push('no sessions');
+  } else if (overlay.kind === 'choicePicker') {
+    lines.push(...overlay.lines);
   } else if (overlay.kind === 'history') {
     const page = overlay.page;
     lines.push(

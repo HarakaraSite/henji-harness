@@ -31,6 +31,12 @@ import {
 } from '../provider/provider_evidence.ts';
 import type { WorkerAgentComposition } from '../worker_agent_api.ts';
 import type { WorkerRequestCounter } from './worker_physical_io.ts';
+import {
+  type OpenRouterModelSelection,
+  openRouterProfileFor,
+  PLANNER_DEFAULT_MODEL_SELECTION,
+  ROOT_DEFAULT_MODEL_SELECTION,
+} from '../provider/openrouter_model_catalog.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
@@ -114,6 +120,7 @@ export class WorkerGeneration {
   private activeCancellation: TurnCancellationOwner | null = null;
   private activeSteering: SteeringOwner | null = null;
   private active = false;
+  private rootModelSelection: OpenRouterModelSelection;
 
   constructor(
     private readonly composition: WorkerAgentComposition,
@@ -126,16 +133,32 @@ export class WorkerGeneration {
       increment: () => {},
       count: () => 0,
     },
+    initialModelSelection: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+    private readonly replaceRootModel: (selection: OpenRouterModelSelection) => void = () => {},
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
     this.checkpoint = initialCheckpoint === undefined
       ? undefined
       : structuredClone(initialCheckpoint);
+    this.rootModelSelection = structuredClone(initialModelSelection);
   }
 
   get manifest(): WorkerAgentComposition['manifest'] {
-    return this.composition.manifest;
+    const rootModel = structuredClone(this.rootModelSelection);
+    return Object.freeze({
+      ...this.composition.manifest,
+      profileId: openRouterProfileFor(rootModel).id,
+      rootModel: Object.freeze(rootModel),
+      plannerModel: Object.freeze(structuredClone(PLANNER_DEFAULT_MODEL_SELECTION)),
+    });
+  }
+
+  selectRootModel(selection: OpenRouterModelSelection): boolean {
+    if (this.active) return false;
+    this.replaceRootModel(selection);
+    this.rootModelSelection = structuredClone(selection);
+    return true;
   }
 
   transcriptSnapshot(): readonly Message[] {
@@ -374,7 +397,7 @@ export class WorkerGeneration {
     const options: ContextAdmissionOptions = {
       systemInstruction: this.composition.systemInstruction,
       tools: this.composition.registry.definitions(),
-      sourceProfileId: this.composition.resolved.model.profile.id,
+      sourceProfileId: this.manifest.profileId,
       checkpoint: this.checkpoint,
     };
     const candidate = findContextCandidate(this.committedTranscript, options);
@@ -436,7 +459,7 @@ export class WorkerGeneration {
       contextSchemaVersion: 1,
       sessionId: this.sessionId,
       createdAt: new Date().toISOString(),
-      sourceProfileId: this.composition.resolved.model.profile.id,
+      sourceProfileId: this.manifest.profileId,
       coveredThroughTurn: candidate.coveredThroughTurn,
       retainedFromTurn: candidate.retainedFromTurn,
       summary,

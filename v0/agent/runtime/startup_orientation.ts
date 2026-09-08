@@ -23,6 +23,8 @@ export interface RuntimeDisplayState {
   readonly model: {
     readonly provider: 'openrouter';
     readonly profileId: string;
+    readonly modelId: string;
+    readonly effort: string;
   };
   readonly sessionMode:
     | { readonly kind: 'new' }
@@ -49,6 +51,8 @@ export interface RuntimeDisplayProjectionInput {
   readonly workspaceRoot: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly profileId: string;
+  readonly modelId?: string;
+  readonly effort?: string;
   readonly sessionMode: RuntimeDisplaySessionMode;
   readonly instructionSource?: RuntimeDisplayInstructionSource;
   readonly skillNames: readonly string[];
@@ -172,6 +176,8 @@ export const projectRuntimeDisplayState = (
     model: Object.freeze({
       provider: 'openrouter' as const,
       profileId: boundedProfileId(input.profileId),
+      modelId: boundedProfileId(input.modelId ?? input.profileId),
+      effort: boundedProfileId(input.effort ?? 'auto'),
     }),
     sessionMode: sessionMode(input.sessionMode),
     instructions,
@@ -184,7 +190,12 @@ export const projectRuntimeDisplayState = (
     // fallback instead of allowing malformed direct input to create an unbounded state.
     const fallback = Object.freeze({
       ...state,
-      model: Object.freeze({ provider: 'openrouter' as const, profileId: 'profile' }),
+      model: Object.freeze({
+        provider: 'openrouter' as const,
+        profileId: 'profile',
+        modelId: 'model',
+        effort: 'auto',
+      }),
       skills: Object.freeze({ count: 0, names: Object.freeze([] as string[]), omitted: 0 }),
     });
     if (canonicalBytes(fallback) > MAX_RUNTIME_DISPLAY_STATE_BYTES) {

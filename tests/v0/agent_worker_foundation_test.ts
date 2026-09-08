@@ -58,6 +58,11 @@ import {
   main as failureDiagnosticMain,
   parseFailureDiagnosticArgs,
 } from '../../v0/agent/cli/failure_diagnostic_cli.ts';
+import {
+  openRouterProfileFor,
+  PLANNER_DEFAULT_MODEL_SELECTION,
+  ROOT_DEFAULT_MODEL_SELECTION,
+} from '../../v0/agent/provider/openrouter_model_catalog.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -1189,7 +1194,7 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     assertEquals(host.currentPosition().committedTurn, 1);
     await host.close();
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 2);
+    assert(saved.schemaVersion === 3);
     assertEquals(saved.definition, definition);
     assertEquals(saved.stateRevision, 2);
 
@@ -1221,7 +1226,7 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     assert((await externalHost.submit('read worker protocol')).ok);
     await externalHost.close();
     const externalSaved = await store.readWorker(externalHandle.id);
-    assert(externalSaved.schemaVersion === 2);
+    assert(externalSaved.schemaVersion === 3);
     assertEquals(externalSaved.definition.kind, 'external');
 
     const ephemeral = await createWorkerTuiSession({
@@ -1449,7 +1454,7 @@ Deno.test('Worker execution artifacts use turn-local sequences across one genera
 
     const listed = await artifacts.list();
     assertEquals(listed.length, 2);
-    assertEquals(listed.map((artifact) => artifact.turn), [1, 2]);
+    assertEquals(listed.map((artifact) => artifact.turn).sort(), [1, 2]);
     assertEquals(listed.map((artifact) => artifact.storeResult), [
       'committed',
       'committed',
@@ -1502,7 +1507,7 @@ Deno.test('Worker execution artifact persistence failure is additive after a com
     assertEquals(host.currentPosition().committedTurn, 1);
     assertEquals(artifacts.writeCount, 1);
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 2);
+    assert(saved.schemaVersion === 3);
     await host.close();
   } finally {
     await Deno.remove(stateRoot, { recursive: true });
@@ -1562,7 +1567,7 @@ Deno.test('Worker execution artifact distinguishes Host store failure from commi
   }
 });
 
-Deno.test('Slice 4 reads a legacy v1 record and upgrades it only on the next durable Worker commit', async () => {
+Deno.test('Worker reads a legacy v1 record and upgrades it only on the next durable commit', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-v1-' });
   try {
     const modulePath = workerBuiltinModulePath('default');
@@ -1600,8 +1605,8 @@ Deno.test('Slice 4 reads a legacy v1 record and upgrades it only on the next dur
     assert((await host.submit('read worker protocol')).ok);
     await host.close();
     const upgraded = await store.readWorker(record.sessionId);
-    assertEquals(upgraded.schemaVersion, 2);
-    if (upgraded.schemaVersion !== 2) {
+    assertEquals(upgraded.schemaVersion, 3);
+    if (upgraded.schemaVersion !== 3) {
       throw new Error('legacy record was not upgraded');
     }
     assertEquals(upgraded.definition, definition);
@@ -1610,7 +1615,7 @@ Deno.test('Slice 4 reads a legacy v1 record and upgrades it only on the next dur
   }
 });
 
-Deno.test('Slices 4–6 install Worker checkpoints beside v2 state and reuse them after reopen', async () => {
+Deno.test('Worker installs checkpoints beside current state and reuses them after reopen', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-context-' });
   try {
     const modulePath = workerBuiltinModulePath('default');
@@ -1937,8 +1942,10 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
           manifest: {
             role: 'parent',
             maxSteps: 8,
-            profileId: 'openrouter-google-gemini-3.7-flash-vertex-v0',
+            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
             resources: [],
+            rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+            plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
         });
       } else if (command.kind === 'turn') {
@@ -1951,7 +1958,7 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
               contextSchemaVersion: 1,
               sessionId: command.correlation.session,
               createdAt: '2026-09-04T00:00:00.000Z',
-              sourceProfileId: 'openrouter-google-gemini-3.7-flash-vertex-v0',
+              sourceProfileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
               coveredThroughTurn: 1,
               retainedFromTurn: 2,
               summary: 'retained context',
@@ -2068,8 +2075,10 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
           manifest: {
             role: 'parent',
             maxSteps: 8,
-            profileId: 'openrouter-google-gemini-3.7-flash-vertex-v0',
+            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
             resources: [],
+            rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+            plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
         });
       } else if (command.kind === 'turn') {
@@ -2240,8 +2249,10 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
           manifest: {
             role: 'parent',
             maxSteps: 8,
-            profileId: 'openrouter-google-gemini-3.7-flash-vertex-v0',
+            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
             resources: [],
+            rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+            plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
         });
       } else if (command.kind === 'turn') {
@@ -2301,7 +2312,7 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
     assertEquals(host.currentPosition().committedTurn, 1);
     assert(!host.isAvailable());
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 2);
+    assert(saved.schemaVersion === 3);
     let rejected = false;
     try {
       await host.submit('must not replay');

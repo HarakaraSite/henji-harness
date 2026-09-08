@@ -120,6 +120,7 @@ export class TuiController {
       idleAllowed: () => this.navigationIdleAllowed(),
       isIdle: () => this.state === 'idle',
       readyStatus: () => this.readyStatus(),
+      modelSelection: () => this.session.modelSelectionSnapshot?.(),
       fail: (error) => this.fail(error),
     });
   }
@@ -175,6 +176,28 @@ export class TuiController {
           kind: 'listing',
           listing: { sessions: [], skippedInvalid: 0 },
         };
+      case 'select_model':
+        return (this.session.selectModel?.({
+          provider: 'openrouter',
+          modelId: intent.modelId,
+          effort: intent
+            .effort as import('../agent/provider/openrouter_model_catalog.ts').OpenRouterReasoningEffort,
+        }) ?? Promise.resolve('unavailable')).then((status) =>
+          status === 'selected' || status === 'unchanged'
+            ? {
+              kind: 'model_selection' as const,
+              status,
+              selection: {
+                provider: 'openrouter' as const,
+                modelId: intent.modelId,
+                effort: intent.effort,
+              },
+            }
+            : {
+              kind: 'rejected' as const,
+              reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
+            }
+        );
       case 'resume_session':
       case 'follow_up_queue':
       case 'exit':
@@ -468,10 +491,12 @@ export class TuiController {
       }
       if (event.kind === 'enter') {
         const slashCommand = slashCommandOf(this.editor.text);
-        if (busy && slashCommand === 'history_export') {
-          this.renderer.setStatus('busy; /history export waits for ready');
-        } else if (busy && slashCommand === 'recover') {
-          this.renderer.setStatus('busy; /recover waits for ready');
+        if (
+          busy &&
+          (slashCommand === 'history_export' || slashCommand === 'recover' ||
+            slashCommand === 'model' || slashCommand === 'effort')
+        ) {
+          this.renderer.setStatus(`busy; ${this.editor.text.trim()} waits for ready`);
         } else if (busy) this.submitSteeringIfNonblank();
         else if (!this.trySlashCommand()) this.submitIfNonblank();
         continue;
@@ -522,6 +547,14 @@ export class TuiController {
 
   private openStartupHelp(): void {
     this.overlay.openStartupHelp();
+  }
+
+  private openModelPicker(): void {
+    this.overlay.openModelPicker();
+  }
+
+  private openEffortPicker(): void {
+    this.overlay.openEffortPicker();
   }
 
   private navigationIdleAllowed(): boolean {
@@ -745,10 +778,13 @@ export class TuiController {
           this.renderer.setEditor(this.editor.text);
           break;
         case 'enter':
-          if (slashCommandOf(this.editor.text) === 'history_export') {
-            this.renderer.setStatus('busy; /history export waits for ready');
-          } else if (slashCommandOf(this.editor.text) === 'recover') {
-            this.renderer.setStatus('busy; /recover waits for ready');
+          if (
+            slashCommandOf(this.editor.text) === 'history_export' ||
+            slashCommandOf(this.editor.text) === 'recover' ||
+            slashCommandOf(this.editor.text) === 'model' ||
+            slashCommandOf(this.editor.text) === 'effort'
+          ) {
+            this.renderer.setStatus(`busy; ${this.editor.text.trim()} waits for ready`);
           } else if (steeringAvailable) this.submitSteeringIfNonblank();
           else this.renderer.setStatus('steering unavailable');
           break;
@@ -769,6 +805,10 @@ export class TuiController {
           ? 'busy; /history export waits for ready'
           : slashCommand === 'recover'
           ? 'busy; /recover waits for ready'
+          : slashCommand === 'model'
+          ? 'busy; /model waits for ready'
+          : slashCommand === 'effort'
+          ? 'busy; /effort waits for ready'
           : 'steering unavailable',
       );
     }
@@ -783,7 +823,7 @@ export class TuiController {
       // Keep the whole hint in one ' · '-free segment so the footer keeps it
       // instead of popping the valid list at narrow widths.
       this.renderer.setStatus(
-        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /history export, /recover, /exit`,
+        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /model, /effort, /history export, /recover, /exit`,
       );
       return true;
     }
@@ -793,6 +833,8 @@ export class TuiController {
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
     else if (command === 'sessions') this.openPicker();
+    else if (command === 'model') this.openModelPicker();
+    else if (command === 'effort') this.openEffortPicker();
     else if (command === 'history_export') this.startHistoryExport();
     else if (command === 'recover') this.popRecovery();
     else if (this.modern) this.modernCtrlD();

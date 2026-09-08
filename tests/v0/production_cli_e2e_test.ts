@@ -1,5 +1,9 @@
 import type { ProviderEvidenceV1 } from '../../v0/agent/provider/provider_evidence.ts';
 import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
+import {
+  PLANNER_DEFAULT_MODEL_SELECTION,
+  ROOT_DEFAULT_MODEL_SELECTION,
+} from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type {
   WorkerExecutionArtifactV1,
   WorkerExecutionTraceEntry,
@@ -80,6 +84,8 @@ const executionFixture = (overrides: Partial<WorkerExecutionArtifactV1> = {}) =>
       maxSteps: 64,
       profileId: PRODUCTION_PROFILE.id,
       resources: [],
+      rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+      plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
     },
     command: { kind: 'turn', correlation, task: PRODUCTION_CLI_E2E_TASK },
     baseStateRevision: 1,

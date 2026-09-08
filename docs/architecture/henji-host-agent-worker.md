@@ -165,6 +165,12 @@ active response、draft、TUI-local noticeはsourceにしない。export中は�
 直列化し、shutdownはwrite settlementを待つ。typed Presentation intent/resultはcommandとbounded receiptだけを
 運び、transcriptやstorage handleをWorker protocolへ追加しない。
 
+同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
+revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は
+選択を固定し、delegated plannerはrootの選択を継承せずplanner defaultを使う。Session schema v3はactive選択、
+変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
+checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
+
 通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
 request/evidence metadataを通常logへ常時展開することは要求しない。一方、原因特定に必要なraw response、
 tool event、diagnostic、evidenceは通常表示から失われるのではなく、保存して明示的にreadbackできる経路を
