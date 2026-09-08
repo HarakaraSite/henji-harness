@@ -1,4 +1,4 @@
-import type { OpenRouterAgentProfile } from './openrouter_model.ts';
+import type { OpenRouterAgentProfile } from './openrouter_contract.ts';
 
 /** Maximum completion requested by the normal production agent. */
 export const PRODUCTION_MAX_COMPLETION_TOKENS = 65_536;
