@@ -19,21 +19,32 @@ deadline到達時は`provider deadline exceeded`と表示し、自動retryやmod
 
 ## JSR package
 
-最初のpre-releaseでは、Agent Definitionを組み立てるためのpublic APIだけを公開する。
-開発中のCLIとTUIは、まだJSR packageの公開interfaceに含めない。
+JSR packageは、信頼されたexecutable TypeScriptのAgent DefinitionをWorker内で組み立てるための
+composition APIを公開する。Henji HostはSurface、lifecycle、storage、revision bindingを所有し、headlessな
+Agent WorkerはDefinitionを評価してmodel、instruction、tool、delegation、context、loopを合成する。
+
+現在のpre-releaseに、開発中のCLI、TUI、Host、Session永続化、自己改訂workflowはpackage entrypointとして
+含めない。自己改訂候補は将来も、人間の指示を契機として生成し、人間の明示的な採用または承認によってのみ
+反映する。
 
 ```sh
-deno add jsr:@henji/harness@0.1.0-alpha.3
+deno add jsr:@henji/harness@0.1.0-alpha.4
 ```
 
 ```ts
 import {
   createDefaultAgentComposition,
-  createPlannerAgentComposition,
-} from 'jsr:@henji/harness@0.1.0-alpha.3';
+  type ExecutableAgentDefinition,
+} from 'jsr:@henji/harness@0.1.0-alpha.4';
+
+const definition: ExecutableAgentDefinition = (input) =>
+  createDefaultAgentComposition(input);
+
+export default definition;
 ```
 
-Pre-release中は、stable releaseまでにAPIが変更される可能性がある。
+`createPlannerAgentComposition`も同じ入力境界でplanner Definitionを構成できる。Pre-release中は、stable
+releaseまでにAPIが変更される可能性がある。
 
 ## Source
 
