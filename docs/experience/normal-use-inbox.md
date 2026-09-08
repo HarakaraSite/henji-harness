@@ -173,9 +173,12 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 現在の扱い:
 
-- increment 8のgrounding修正と混ぜない。production受入後、static importだけでなくCLI entrypoint、Deno task、
-  public export、Worker dynamic load、testと文書参照を調べ、未参照候補と配置案を分けた別計画を作る。
-- 参照が見つからないことだけで削除せず、実行入口と公開contractを確認してから移動・削除を判断する。
+- static importだけでなくCLI entrypoint、Deno task、public export、Worker dynamic load、testと文書参照を調べ、
+  commit `7a1ae74`でactive Agent sourceを責務別directoryへ再編した。公開API facadeとoperator向けshell pathを
+  維持し、到達不能なmodule、壊れた旧acceptance入口、production非到達だった旧extension実装を削除した。
+- 同時点のactive source graphに未到達TypeScript fileが残っていないこと、focused Worker testと`v0:gate`の成功を
+  確認した。その後も責務境界を保ったfile分割を進め、commit `5ab7f27`までにexecution record、TUI input、
+  presentation contractを含む対象を互換facadeと専用moduleへ分けた。現在の配置は`v0/agent/README.md`を正本とする。
 
 ### F24候補: tool実行権限とsandboxed Deno program
 

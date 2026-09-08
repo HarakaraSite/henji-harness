@@ -117,7 +117,7 @@ modified ReturnのdecoderはShift / Alt / Ctrl sequenceを改行として処理�
 
 この実装状況は、`v0/tui/input.ts`、`v0/tui/state.ts`、`v0/tui/layout.ts`、`v0/tui/render.ts`、
 `v0/tui/controller.ts`、`v0/tui/terminal.ts`、`v0/tui/pending_input.ts`、`v0/tui/file_reference.ts`、
-`v0/agent/tui_cli.ts`、`v0/agent/tui_presentation_adapter.ts`と照合した。
+`v0/agent/cli/tui_cli.ts`、`v0/presentation/tui_presentation_adapter.ts`と照合した。
 
 ### durable AgentInstanceとrevision transition
 

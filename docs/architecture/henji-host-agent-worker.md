@@ -70,8 +70,9 @@ HenjiHost ───── interface / protocol ───── AgentWorkerGenera
    └────────────── 永続化状態 ────────────────┘
 ```
 
-この図が示すのは所有関係であり、wire schema ではない。物理的な Deno Web Worker mechanism は
-重要な証拠だが、正確な application protocol の設計は延期されたままである。
+この図が示すのは所有関係であり、wire schema ではない。現行sliceにはversion付きのdata-only protocolが
+実装されているが、この文書はそのwire schemaを固定しない。将来機能のmessage、handshake、error、version
+migrationは未決のままである。
 
 ### HenjiHost が所有するもの
 
