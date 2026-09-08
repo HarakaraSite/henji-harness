@@ -1,6 +1,6 @@
 # 通常利用 increment 13 — provider deadlineと固定Session footer
 
-ステータス: 実装・offline検証・review完了（通常利用確認待ち）
+ステータス: 完了（実装・offline検証・review・通常利用確認済み）
 
 ## 通常利用で確認した問題
 
@@ -117,11 +117,14 @@ Increment 13では固定footer 2段目に実際のeffortを常時表示して、
   `git diff --check`も成功した。
 - product経路、timeoutとcancelの分類順、Session切替時のinvocation設定保持、model/effort projection更新、80 columns
   layoutを差分reviewし、BlockerまたはP1 findingはなかった。
-- 利用者の承認範囲に含まれないため、実provider request、installed launcher更新、commit、push、tag、publish、
-  releaseは実施していない。
+- 実装・review時の自動検証では、利用者の承認範囲に含まれない実provider request、installed launcher更新、
+  commit、push、tag、publish、releaseを実施していない。実providerでの確認は、その後の通常利用で行った。
 
-## 次のhuman gate
+## 通常利用確認と完了
 
-利用者がsource launcherによる通常利用確認を行うか、この差分をcommitするかを決める。通常利用では、必要なら
-`--provider-timeout-ms`を指定し、reasoning応答が30秒を越えて継続すること、timeout時の表示、footer 2段目の
-Session/model/effort更新を確認する。
+- 通常利用Session `84597d99-69f7-4f78-ac2f-091a4978ad9e`で複数modelへ切り替え、4 turn・15 provider
+  requestsをtimeoutなくcommitできた。GLM-5.3 / maxのcommit成功まで約99秒だったため、既定値120秒を維持し、
+  実際にtimeoutが起きた時点で追加確認する方針とした。
+- footer 2段目のSession ID、model、effort常時表示を利用者が通常利用で確認した。続く省スペース化で`cwd:`と
+  `effort:`のlabelを削除し、commit `b3609dc`へ記録した。
+- 2026-09-08、利用者がincrement 13の終了を確定した。

@@ -10,6 +10,21 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
+### Surface: Session一覧の識別情報（低優先度、F01、F05、F10）
+
+- 保存済みSessionに、人間が一覧で内容を識別できるtitleを持たせたい。
+- default titleは、最初のturnの内容をもとにAIが自動で付ける。
+- 自動生成後も、人間がtitleを変更できるようにする。
+- Session一覧には最終turn等の日時も表示したい。ただし、現行の1行表示には十分な幅がない。
+- 自動生成の実行時点、利用model、再生成の扱い、変更用UIと、日時を含む識別情報の表示方法は、
+  個別incrementへ採用するときに決める。
+
+### Surface: slash command候補の逐次絞り込みと補完（低優先度、F01、F10）
+
+- 入力が先頭の`/`から始まる場合、その後のkey入力ごとに一致するslash command候補を絞り込んで表示する。
+- 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
+- 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
+
 ### Surface: 複数provider対応時のfooter identity（F01、F02、F10）
 
 - 現在の固定footer 2段目はOpenRouterだけを扱うため、`model:<model ID> <effort>`を表示する。
