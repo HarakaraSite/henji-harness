@@ -484,6 +484,9 @@ export class WorkerHostSession {
         ...(this.options.rootMaxSteps === undefined
           ? {}
           : { rootMaxSteps: this.options.rootMaxSteps }),
+        ...(this.options.providerTimeoutMs === undefined
+          ? {}
+          : { providerTimeoutMs: this.options.providerTimeoutMs }),
         initialTranscript: this.transcript,
         nextTurn: this.nextTurn,
         ...(this.checkpoint === undefined ? {} : { checkpoint: this.checkpoint }),

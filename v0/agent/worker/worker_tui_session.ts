@@ -84,6 +84,7 @@ export interface WorkerSessionOptions {
   readonly externalDefinitionPath?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
+  readonly providerTimeoutMs?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
@@ -233,6 +234,7 @@ export const createWorkerSession = async (
       modulePath,
       physicalIoMode: options.physicalIoMode,
       rootMaxSteps: options.rootMaxSteps,
+      providerTimeoutMs: options.providerTimeoutMs,
       eventSink: options.eventSink,
       diagnosticPersistence: options.diagnosticPersistence ??
         defaultDiagnosticStore?.persist,
@@ -296,6 +298,7 @@ export const createWorkerSession = async (
             modulePath,
             physicalIoMode: options.physicalIoMode,
             rootMaxSteps: options.rootMaxSteps,
+            providerTimeoutMs: options.providerTimeoutMs,
             eventSink: options.eventSink,
             diagnosticPersistence: options.diagnosticPersistence ??
               defaultDiagnosticStore?.persist,

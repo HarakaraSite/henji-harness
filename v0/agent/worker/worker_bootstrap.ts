@@ -213,6 +213,7 @@ const createGeneration = async (
   workspaceRoot: string,
   physicalIoMode: 'provider-free' | 'production',
   rootMaxSteps?: number,
+  providerTimeoutMs?: number,
   initialTranscript: readonly import('../core/contracts.ts').Message[] = [],
   nextTurn = 1,
   checkpoint?: import('../session/session_store.ts').SemanticContextCheckpointV1,
@@ -229,7 +230,7 @@ const createGeneration = async (
   const skillCatalog = await discoverSkills(workspace.root);
   const requestCounter = createWorkerRequestCounter();
   const physicalIo = physicalIoMode === 'production'
-    ? createProductionPhysicalIo(requestCounter)
+    ? createProductionPhysicalIo(requestCounter, { providerTimeoutMs })
     : createProviderFreePhysicalIo();
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
   const rootRouter: Model = {
@@ -336,6 +337,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.workspaceRoot,
             command.physicalIoMode ?? 'provider-free',
             command.rootMaxSteps,
+            command.providerTimeoutMs,
             command.initialTranscript,
             command.nextTurn,
             command.checkpoint,

@@ -8,7 +8,12 @@ WorkerがDefinitionを合成・実行する。
 
 Production TUIでは、`/model`でcurated OpenRouter modelを検索・選択し、`/effort`でreasoning effortを
 別に変更できる。選択は同じSessionの次のroot turnから有効になり、`/sessions`でmodel/effortを表示して
-Sessionと一緒に復元する。delegated plannerはrootの選択を継承せず、planner defaultを使う。
+Sessionと一緒に復元する。delegated plannerはrootの選択を継承せず、planner defaultを使う。footerは
+1段目へ一時的なstatus、2段目へcwd、Session短縮ID、現在のroot model/effortを常時表示する。
+
+OpenRouter requestのdeadlineはTUI起動時の`--provider-timeout-ms N`で変更でき、未指定時は120,000 msである。
+同じ起動内のroot、delegated planner、context compactionへrequest単位で適用し、Sessionには保存しない。
+deadline到達時は`provider deadline exceeded`と表示し、自動retryやmodel fallbackは行わない。
 
 現在は開発中であり、詳細は[構想](docs/concepts/experience-driven-self-revision.md)、[architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を正本とする。
 

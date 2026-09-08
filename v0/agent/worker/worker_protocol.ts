@@ -46,6 +46,7 @@ export type WorkerHostCommand =
     readonly physicalIoMode?: 'provider-free' | 'production';
     readonly rootRole?: 'parent' | 'planner';
     readonly rootMaxSteps?: number;
+    readonly providerTimeoutMs?: number;
     readonly initialTranscript?: readonly Message[];
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;

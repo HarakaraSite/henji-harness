@@ -143,6 +143,7 @@ export const createProductionPhysicalIo = (
   options: {
     readonly credentialSource?: CredentialSource;
     readonly fetcher?: typeof fetch;
+    readonly providerTimeoutMs?: number;
   } = {},
 ): PhysicalIoBindings => {
   const fetcher: typeof fetch = (input, init) => {
@@ -161,6 +162,7 @@ export const createProductionPhysicalIo = (
         credentialSource,
         fetcher,
         responseMode: 'sse',
+        timeoutMs: options.providerTimeoutMs,
       }),
     webSearchBackend: new OpenRouterSonarWebSearchBackend({
       credentialSource,

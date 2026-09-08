@@ -17,6 +17,7 @@ definition=''
 mode='new'
 session_id=''
 max_steps=''
+provider_timeout_ms=''
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -64,6 +65,14 @@ parse_args() {
         max_steps=$2
         case "$max_steps" in ''|*[!0-9]*) fail ;; esac
         case "$max_steps" in *[1-9]*) ;; *) fail ;; esac
+        shift 2
+        ;;
+      --provider-timeout-ms)
+        [ "$provider_timeout_ms" = '' ] || fail
+        [ "$#" -ge 2 ] || fail
+        provider_timeout_ms=$2
+        case "$provider_timeout_ms" in ''|*[!0-9]*) fail ;; esac
+        case "$provider_timeout_ms" in *[1-9]*) ;; *) fail ;; esac
         shift 2
         ;;
       *) fail ;;

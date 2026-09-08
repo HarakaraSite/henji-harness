@@ -144,8 +144,9 @@ final-only stdout、failure JSON、exit codeだけをSurface contractとして�
 
 - 人間の依頼、assistantの応答、短いtool activity、結果を追えるconversation log。
 - draftを保持し、複数行を編集できる入力欄。
-- ready / busy、Session、committed turn、過去表示中の位置と復帰操作など、次の操作判断に必要なstatus行。
-- 対象physical workspaceを独立して示すcwd行。
+- ready / busy / failure、過去表示中の位置と復帰操作、pending input、操作結果など、その時点の判断に必要な
+  一時status行。
+- 対象physical workspace、現在のSession短縮ID、root model、effortを常時示すidentity行。
 
 conversation logのturn境界、user入力と最初のtoolまたはassistant出力の境界、logと入力欄およびfooterの
 境界は、Host側layoutが表示専用の空行として導く。canonical transcriptやWorker eventへ空messageを
@@ -170,6 +171,12 @@ revisionではない。idle時の選択をHostが先に永続化し、Workerは�
 選択を固定し、delegated plannerはrootの選択を継承せずplanner defaultを使う。Session schema v3はactive選択、
 変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
+
+production TUI invocationは、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
+渡す。Workerは同じ値をroot、delegated planner、context compactionが生成する各OpenRouter model adapterへ
+適用する。このrequest単位deadlineはSession stateではなくinvocation stateであり、Session切替では変わらない。
+未指定時は120,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
+shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。
 
 通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
 request/evidence metadataを通常logへ常時展開することは要求しない。一方、原因特定に必要なraw response、

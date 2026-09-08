@@ -7,6 +7,7 @@ export const MAX_RESPONSE_BYTES = 1024 * 1024;
 export const MAX_SSE_DATA_EVENTS = 4_096;
 export const MAX_ASSISTANT_TEXT_BYTES = 1024 * 1024;
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
+export const DEFAULT_PROVIDER_TIMEOUT_MS = 120_000;
 
 /** Structural provider profile consumed by the normal OpenRouter adapter. */
 export interface OpenRouterAgentProfile {
@@ -26,6 +27,7 @@ export type OpenRouterResponseMode = 'json' | 'sse';
 export type AgentTransportErrorCode =
   | 'invalid_input'
   | 'missing_credential'
+  | 'provider_timeout'
   | 'transport_error'
   | 'http_error'
   | 'response_error'
@@ -62,7 +64,7 @@ export class OpenRouterAgentError extends Error {
     this.status = status;
     const defaultStage: FailureStage = code === 'missing_credential'
       ? 'credential_resolution'
-      : code === 'transport_error'
+      : code === 'transport_error' || code === 'provider_timeout'
       ? 'transport'
       : code === 'http_error'
       ? 'http'

@@ -281,6 +281,15 @@ export const sseTransportError = (): OpenRouterAgentError =>
     { stage: 'transport', code: 'transport_error' },
   );
 
+export const providerTimeoutError = (): OpenRouterAgentError =>
+  new OpenRouterAgentError(
+    'provider_timeout',
+    'provider deadline exceeded',
+    1,
+    undefined,
+    { stage: 'transport', code: 'provider_timeout' },
+  );
+
 export const responseStreamError = (httpStatus: number): OpenRouterAgentError =>
   sseResponseError(
     'provider response stream failed',

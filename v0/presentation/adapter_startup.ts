@@ -20,6 +20,11 @@ export const presentationProjectionFromStartup = (
     sessionId: position?.sessionId,
     committedTurn: position?.committedTurn ?? 0,
     workspace: startup.workspace,
+    model: Object.freeze({
+      provider: 'openrouter',
+      modelId: startup.model.modelId,
+      effort: startup.model.effort,
+    }),
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     checkpoint: position?.checkpoint,

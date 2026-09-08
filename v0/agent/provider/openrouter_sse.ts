@@ -12,9 +12,9 @@ import {
 } from './openrouter_contract.ts';
 import {
   hasOwn,
+  providerTimeoutError,
   responseStreamError,
   sseResponseError,
-  sseTransportError,
   withResponseStatus,
 } from './openrouter_response.ts';
 import { bytes, isJsonValue, nonBlank } from './openrouter_value.ts';
@@ -628,11 +628,12 @@ export const readSseResponse = async (
       if (error instanceof EventDeliveryError || isTurnCancelled()) {
         throw new CancellationCleanupError();
       }
+      if (isTimedOut()) throw providerTimeoutError();
       throw responseStreamError(response.status);
     }
     if (error instanceof EventDeliveryError) throw error;
     if (isTurnCancelled()) throw new TurnCancelledError();
-    if (isTimedOut()) throw sseTransportError();
+    if (isTimedOut()) throw providerTimeoutError();
     if (error instanceof OpenRouterAgentError) throw withResponseStatus(error, response.status);
     throw responseStreamError(response.status);
   };
@@ -704,6 +705,8 @@ export const readSseResponse = async (
         } catch (_error) {
           failure = isTurnCancelled()
             ? new CancellationCleanupError()
+            : isTimedOut()
+            ? providerTimeoutError()
             : responseStreamError(response.status);
           break;
         }
@@ -719,6 +722,8 @@ export const readSseResponse = async (
           failure instanceof CancellationCleanupError ||
           isTurnCancelled()
         ? new CancellationCleanupError()
+        : isTimedOut()
+        ? providerTimeoutError()
         : responseStreamError(response.status);
     }
   }

@@ -331,6 +331,8 @@ fi
       'external_definition.ts',
       '--max-steps',
       '12',
+      '--provider-timeout-ms',
+      '180000',
       '--no-session',
     ]);
     const continued = await run(`${fakeBin}/continued.capture`, [
@@ -347,11 +349,13 @@ fi
       assert(captured.args.includes('--allow-read=/tmp'));
       assert(captured.args.includes('--allow-write=/tmp'));
     }
-    assertEquals(none.args.slice(-5), [
+    assertEquals(none.args.slice(-7), [
       '--definition',
       'external_definition.ts',
       '--max-steps',
       '12',
+      '--provider-timeout-ms',
+      '180000',
       '--no-session',
     ]);
     assertEquals(continued.args.slice(-3), ['--agent', 'default', '--continue']);
@@ -371,6 +375,22 @@ fi
     assertEquals(rejected.code, 1);
     assertEquals(
       new TextDecoder().decode(rejected.stderr),
+      '{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}\n',
+    );
+    const timeoutRejected = await new Deno.Command('/bin/sh', {
+      args: ['-c', 'exec "$@"', '--', launcher, '--provider-timeout-ms', '0'],
+      cwd: workspace,
+      env: {
+        PATH: `${fakeBin}:/usr/bin:/bin`,
+        XDG_STATE_HOME: stateBase,
+        FAKE_DENO_CAPTURE: `${fakeBin}/timeout-rejected.capture`,
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assertEquals(timeoutRejected.code, 1);
+    assertEquals(
+      new TextDecoder().decode(timeoutRejected.stderr),
       '{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}\n',
     );
   } finally {

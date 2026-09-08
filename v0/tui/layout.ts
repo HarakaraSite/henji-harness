@@ -164,13 +164,8 @@ const footerStatusText = (
     ? undefined
     : `pending ${pending.map((lane) => `${lane.kind}:${lane.byteCount}B`).join(',')}`;
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
-  const identity = state.projection === undefined ? undefined : `agent ${state.projection.agentId}`;
-  const session = state.projection?.sessionId === undefined
-    ? undefined
-    : `session ${state.projection.sessionId.slice(0, 8)} · turn ${state.projection.committedTurn}`;
   const status = footerStatusParts(footerStatus(state));
   const primary = safeDisplay(status.primary, false);
-  const safeSession = session === undefined ? undefined : safeDisplay(session, false);
   const historyFull = history === undefined
     ? undefined
     : `history rows ${history.first}-${history.last}/${history.total} · Esc latest`;
@@ -182,22 +177,13 @@ const footerStatusText = (
   const fixed: string[] = historyRequired === undefined ? [primary] : [historyRequired];
   const optional = [
     ...(historyRequired === undefined ? [] : [primary]),
-    safeSession,
     status.details,
-    identity,
     pendingSegment,
     belowSegment,
   ]
     .filter(
       (segment): segment is string => segment !== undefined && segment.length > 0,
     ).map((segment) => safeDisplay(segment, false));
-  if (historyRequired === undefined && safeSession !== undefined) {
-    const candidate = `[${[...fixed, safeSession].join(' · ')}]`;
-    if (width(candidate) <= columns) {
-      fixed.push(safeSession);
-      optional.splice(optional.indexOf(safeSession), 1);
-    }
-  }
   const segments = [...fixed, ...optional];
   while (
     segments.length > fixed.length &&
@@ -208,16 +194,37 @@ const footerStatusText = (
   return truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
 };
 
-const footerWorkspaceText = (
+const footerIdentityText = (
   state: UiState,
   columns: number,
 ): string | undefined => {
   if (state.projection === undefined) return undefined;
   const workspace = safeDisplay(state.projection.workspace, false);
-  const available = Math.max(1, columns - width('[cwd ]'));
+  const session = state.projection.sessionId?.slice(0, 8) ?? 'none';
+  const model = state.projection.model;
+  if (model === undefined) {
+    const available = Math.max(1, columns - width('[cwd ]'));
+    return truncateCells(`[cwd ${suffixCells(workspace, available)}]`, columns);
+  }
+  const effort = safeDisplay(model.effort, false);
+  const fullModel = safeDisplay(model.modelId, false);
+  const fixed = ` session:${session} model:${fullModel} effort:${effort}]`;
+  const cwdAvailable = columns - width(`[cwd:${fixed}`);
+  if (cwdAvailable >= 1) {
+    return `[cwd:${suffixCells(workspace, cwdAvailable)}${fixed}`;
+  }
+
+  const withoutCwd = `[session:${session} model:${fullModel} effort:${effort}]`;
+  if (width(withoutCwd) <= columns) return withoutCwd;
+
+  const unprefixedModel = fullModel.includes('/')
+    ? fullModel.slice(fullModel.indexOf('/') + 1)
+    : fullModel;
+  const compactFixed = `[session:${session} model: effort:${effort}]`;
+  const modelAvailable = Math.max(1, columns - width(compactFixed));
   return truncateCells(
-    `[cwd ${suffixCells(workspace, available)}]`,
-    Math.max(1, columns),
+    `[session:${session} model:${suffixCells(unprefixedModel, modelAvailable)} effort:${effort}]`,
+    columns,
   );
 };
 
@@ -466,14 +473,14 @@ export const layoutUi = (
   const widthLimit = clamp(columns, 1, MAX_COLUMNS);
   const heightLimit = clamp(rows, 1, MAX_ROWS);
   const degraded = widthLimit < MIN_COLUMNS || heightLimit < MIN_ROWS;
-  const workspaceFooter = footerWorkspaceText(state, Math.max(1, widthLimit));
+  const identityFooter = footerIdentityText(state, Math.max(1, widthLimit));
   const standardHeight = heightLimit >= MIN_ROWS;
   const beforeInputCount = standardHeight ? 1 : 0;
   const afterInputCount = standardHeight ? 1 : 0;
   const footerCount = standardHeight
-    ? (workspaceFooter === undefined ? 1 : 2)
+    ? (identityFooter === undefined ? 1 : 2)
     : heightLimit >= 3
-    ? (workspaceFooter === undefined ? 1 : 2)
+    ? (identityFooter === undefined ? 1 : 2)
     : heightLimit === 2
     ? 1
     : 0;
@@ -529,7 +536,7 @@ export const layoutUi = (
       text: footerStatusText(state, Math.max(1, widthLimit), history),
       kind: 'footer' as const,
     },
-    ...(workspaceFooter === undefined ? [] : [{ text: workspaceFooter, kind: 'footer' as const }]),
+    ...(identityFooter === undefined ? [] : [{ text: identityFooter, kind: 'footer' as const }]),
   ].slice(0, footerCount);
   const beforeInput = Array.from(
     { length: beforeInputCount },

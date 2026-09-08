@@ -1,6 +1,7 @@
 export {
   type AgentTransportErrorCode,
   type CredentialSource,
+  DEFAULT_PROVIDER_TIMEOUT_MS,
   MAX_ASSISTANT_PROGRESS_TEXT_BYTES,
   MAX_ASSISTANT_TEXT_BYTES,
   MAX_MESSAGE_BYTES,

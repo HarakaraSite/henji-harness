@@ -202,6 +202,8 @@ export const presentationFailureReason = (
       return 'invalid input';
     case 'request_budget_exhausted':
       return 'request budget exhausted';
+    case 'provider_timeout':
+      return 'provider deadline exceeded';
     case 'transport_error':
       return 'provider connection failed';
     case 'http_error':
@@ -650,10 +652,19 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           sessionId: event.position.sessionId,
           committedTurn: event.position.committedTurn,
           checkpoint: event.position.checkpoint,
+          ...(event.modelSelection === undefined ? {} : { model: event.modelSelection }),
         }),
         scroll: Object.freeze({ kind: 'followLatest' as const }),
         newBelowCount: 0,
         overlay: Object.freeze({ kind: 'none' }),
+      });
+    case 'model_selection_changed':
+      return Object.freeze({
+        ...state,
+        projection: state.projection === undefined ? undefined : snapshotPresentation({
+          ...state.projection,
+          model: event.selection,
+        }),
       });
     case 'history_page':
       return Object.freeze({

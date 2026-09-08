@@ -20,19 +20,6 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
 
-### Surface: 現在のmodel/effortをフッターへ表示（F01、F10）
-
-観測と利用者要望:
-
-- increment 12で同一Session内のOpenRouter root model/effort切替を実装したが、現在の選択を通常画面で
-  常時確認できない。
-- production TUIのフッターへ、現在のroot modelとeffortを表示したい。
-- `/model`、`/effort`、`/sessions`による選択・Session切替の直後に表示を現在値へ更新する。
-
-現在の扱い:
-
-- 次回以降の通常利用incrementへ未採用の改善候補として保存する。
-
 ### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
 観測と利用者要望:

@@ -274,6 +274,11 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
     committedTurn: 0,
     workspace: '/tmp/workspace',
+    model: {
+      provider: 'openrouter',
+      modelId: 'qwen/qwen3.8-max-0902',
+      effort: 'xhigh',
+    },
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
@@ -288,14 +293,14 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   });
   const footer = layoutUi(state, 80, 24).footer;
   assertEquals(footer.length, 2);
-  assert(footer[0].text.includes('ready'));
-  assert(footer[0].text.includes('agent default'));
-  assert(footer[0].text.includes('session abcdef12 · turn 3'));
-  assertEquals(footer[1].text, '[cwd /tmp/workspace]');
+  assertEquals(footer[0].text, '[ready]');
+  assert(footer[1].text.includes('cwd:'));
+  assert(footer[1].text.includes('session:abcdef12'));
+  assert(footer[1].text.includes('model:qwen/qwen3.8-max-0902'));
+  assert(footer[1].text.includes('effort:xhigh'));
   assert(!footer.some((row) => row.text.includes('F1 help')));
   assert(!footer[0].text.includes('turn 0'));
-  assertEquals((footer[0].text.match(/agent default/g) ?? []).length, 1);
-  assertEquals((footer[0].text.match(/session abcdef12/g) ?? []).length, 1);
+  assertEquals((footer[1].text.match(/session:abcdef12/g) ?? []).length, 1);
 
   const contextRich = reduceUiAction(state, {
     kind: 'status',
@@ -304,7 +309,8 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   });
   const contextFooter = layoutUi(contextRich, 80, 24).footer[0].text;
   assert(contextFooter.includes('ready'));
-  assert(contextFooter.includes('session abcdef12 · turn 3'));
+  assert(!contextFooter.includes('session abcdef12'));
+  assertEquals(layoutUi(contextRich, 80, 24).footer[1].text, footer[1].text);
 
   const narrow = setUiProjection(createUiState(), {
     lifecycle: 'idle',
@@ -312,6 +318,11 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
     committedTurn: 0,
     workspace: '/home/masat.guest/src/a/very/deep/path/forgejo-agent',
+    model: {
+      provider: 'openrouter',
+      modelId: 'qwen/qwen3.8-max-0902',
+      effort: 'xhigh',
+    },
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
@@ -319,8 +330,8 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     generation: 0,
   });
   const narrowFooter = layoutUi(narrow, 40, 24).footer;
-  assert(narrowFooter[1].text.includes('cwd …'));
-  assert(narrowFooter[1].text.includes('forgejo-agent'));
+  assert(narrowFooter[1].text.includes('session:abcdef12'));
+  assert(narrowFooter[1].text.includes('effort:xhigh'));
   assert(!narrowFooter.some((row) => row.text.includes('F1 help')));
 
   const cancelling = reduceUiAction(narrow, {
@@ -330,8 +341,8 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   for (const columns of [40, 80]) {
     const cancellingFooter = layoutUi(cancelling, columns, 24).footer;
     assert(cancellingFooter[0].text.includes('cancelling'));
-    assert(cancellingFooter[1].text.includes('cwd '));
-    assert(cancellingFooter[1].text.includes('forgejo-agent'));
+    assert(cancellingFooter[1].text.includes('session:abcdef12'));
+    assert(cancellingFooter[1].text.includes('effort:xhigh'));
     assert(cancellingFooter.every((row) => row.text.length <= columns));
   }
 });
@@ -343,6 +354,11 @@ Deno.test('conversation layout derives turn and input boundaries without changin
     sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
     committedTurn: 2,
     workspace: '/tmp/workspace',
+    model: {
+      provider: 'openrouter',
+      modelId: 'qwen/qwen3.8-max-0902',
+      effort: 'xhigh',
+    },
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
@@ -434,10 +450,10 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   ]);
   assertEquals(layout.beforeInput.map((row) => row.text), ['']);
   assertEquals(layout.afterInput.map((row) => row.text), ['']);
-  assertEquals(layout.footer.map((row) => row.text), [
-    '[ready · session abcdef12 · turn 2 · agent default]',
-    '[cwd /tmp/workspace]',
-  ]);
+  assertEquals(layout.footer[0].text, '[ready]');
+  assert(layout.footer[1].text.includes('session:abcdef12'));
+  assert(layout.footer[1].text.includes('model:qwen/qwen3.8-max-0902'));
+  assert(layout.footer[1].text.includes('effort:xhigh'));
 
   const restored = reduceUiEvent(createUiState(), {
     kind: 'restored_log',

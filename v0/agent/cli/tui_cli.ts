@@ -164,6 +164,7 @@ export interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
   readonly definitionPath?: string;
   readonly rootMaxSteps?: number;
+  readonly providerTimeoutMs?: number;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly sessionId?: string;
 }
@@ -172,10 +173,11 @@ export interface ParsedTuiInvocation {
 export const parseTuiInvocation = (
   args: readonly string[],
 ): ParsedTuiInvocation => {
-  if (args.length > 6) throw new Error('invalid invocation');
+  if (args.length > 8) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
   let definitionPath: string | undefined;
   let rootMaxSteps: number | undefined;
+  let providerTimeoutMs: number | undefined;
   let persistence: ParsedTuiInvocation['persistence'] = 'new';
   let sessionId: string | undefined;
   for (let index = 0; index < args.length;) {
@@ -229,6 +231,18 @@ export const parseTuiInvocation = (
       }
       rootMaxSteps = parsed;
       index += 2;
+    } else if (flag === '--provider-timeout-ms') {
+      const value = args[index + 1];
+      if (
+        providerTimeoutMs !== undefined || value === undefined ||
+        !/^[0-9]+$/.test(value)
+      ) throw new Error('invalid invocation');
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+        throw new Error('invalid invocation');
+      }
+      providerTimeoutMs = parsed;
+      index += 2;
     } else {
       throw new Error('invalid invocation');
     }
@@ -237,6 +251,7 @@ export const parseTuiInvocation = (
     rawAgentName,
     ...(definitionPath === undefined ? {} : { definitionPath }),
     ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
+    ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
     persistence,
     ...(sessionId === undefined ? {} : { sessionId }),
   };
@@ -329,6 +344,7 @@ export const main = async (
             externalDefinitionPath: invocation.definitionPath,
             physicalIoMode: 'production',
             rootMaxSteps: invocation.rootMaxSteps,
+            providerTimeoutMs: invocation.providerTimeoutMs,
             eventSink,
           });
         }

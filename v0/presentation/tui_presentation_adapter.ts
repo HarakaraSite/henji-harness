@@ -409,22 +409,25 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         if (this.core.selectModel === undefined) {
           return { kind: 'rejected', reason: 'unavailable' };
         }
-        return this.core.selectModel(selection).then((status) =>
-          status === 'selected' || status === 'unchanged'
-            ? {
-              kind: 'model_selection' as const,
-              status,
-              selection: {
-                provider: 'openrouter' as const,
-                modelId: selection.modelId,
-                effort: selection.effort,
-              },
-            }
-            : {
+        return this.core.selectModel(selection).then((status) => {
+          if (status !== 'selected' && status !== 'unchanged') {
+            return {
               kind: 'rejected' as const,
               reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
-            }
-        );
+            };
+          }
+          const projected = {
+            provider: 'openrouter' as const,
+            modelId: selection.modelId,
+            effort: selection.effort,
+          };
+          this.emit({ kind: 'model_selection_changed', selection: projected });
+          return {
+            kind: 'model_selection' as const,
+            status,
+            selection: projected,
+          };
+        });
       }
       case 'history_export': {
         const core = this.core;
@@ -519,7 +522,18 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       // target before delivery so stale modal dismissal cannot resurrect the closed binding.
       this.core = binding.session as CoreSession;
       const positionValue = position(binding.position);
-      this.emit({ kind: 'session_binding_replaced', position: positionValue });
+      const selected = this.core.modelSelectionSnapshot?.();
+      this.emit({
+        kind: 'session_binding_replaced',
+        position: positionValue,
+        ...(selected === undefined ? {} : {
+          modelSelection: {
+            provider: 'openrouter',
+            modelId: selected.modelId,
+            effort: selected.effort,
+          },
+        }),
+      });
       this.announceLegacyModelDefault();
       let restoredValue: {
         readonly messages: readonly PresentationMessage[];

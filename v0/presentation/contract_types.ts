@@ -45,6 +45,7 @@ export type PresentationFailureCode =
   | 'missing_credential'
   | 'invalid_input'
   | 'request_budget_exhausted'
+  | 'provider_timeout'
   | 'transport_error'
   | 'http_error'
   | 'response_error'
@@ -435,6 +436,11 @@ export type PresentationEvent =
   | Readonly<{
     readonly kind: 'session_binding_replaced';
     readonly position: PresentationPosition;
+    readonly modelSelection?: PresentationModelSelection;
+  }>
+  | Readonly<{
+    readonly kind: 'model_selection_changed';
+    readonly selection: PresentationModelSelection;
   }>
   | Readonly<
     { readonly kind: 'history_page'; readonly page: PresentationHistoryPage }
@@ -495,6 +501,7 @@ export interface PresentationProjection {
   readonly sessionId?: string;
   readonly committedTurn: number;
   readonly workspace: string;
+  readonly model?: PresentationModelSelection;
   readonly trust: 'trusted_local';
   readonly credentialPolicy: 'before_each_provider_request';
   readonly checkpoint?: PresentationCheckpoint;

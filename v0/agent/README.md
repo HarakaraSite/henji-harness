@@ -34,6 +34,14 @@ Both commands are idle-only and take effect on the next root turn. Delegated pla
 fixed planner default. Session schema v3 persists the active selection, change history, and
 per-committed-turn attribution; `/sessions` displays and restores the active selection.
 
+The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request
+deadline. It defaults to 120,000 ms and applies to each root, delegated-planner, and context-
+compaction OpenRouter model request in that Worker invocation. The value is not Session state, so a
+Session switch keeps the invocation value and a later invocation returns to the default unless the
+flag is supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does
+not automatically retry or select another model. The TUI footer keeps transient status on row one
+and cwd, the short Session ID, root model, and effort on row two.
+
 `validation/production_cli_e2e.ts` starts that production launcher only when invoked with the exact
 `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
 evidence, and the Worker execution artifact under `/tmp/henji-production-e2e-*`, then emits one JSON

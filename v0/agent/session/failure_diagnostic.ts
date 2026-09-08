@@ -38,6 +38,7 @@ export type FailureCode =
   | 'missing_credential'
   | 'invalid_input'
   | 'request_budget_exhausted'
+  | 'provider_timeout'
   | 'transport_error'
   | 'http_error'
   | 'response_error'
@@ -129,6 +130,7 @@ const CODES: readonly FailureCode[] = [
   'missing_credential',
   'invalid_input',
   'request_budget_exhausted',
+  'provider_timeout',
   'transport_error',
   'http_error',
   'response_error',
@@ -251,7 +253,8 @@ export const validateFailureDiagnostic = (
         record.modelStep === 0 &&
         !hasStatus && !hasReason;
     case 'transport':
-      return code === 'transport_error' && count >= 1 && !hasStatus &&
+      return (code === 'transport_error' || code === 'provider_timeout') &&
+        count >= 1 && !hasStatus &&
         !hasReason;
     case 'http':
       return code === 'http_error' && count >= 1 && hasStatus && !hasReason;

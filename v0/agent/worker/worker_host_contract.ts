@@ -18,6 +18,7 @@ export interface WorkerHostSessionOptions {
   readonly modulePath: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
+  readonly providerTimeoutMs?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;

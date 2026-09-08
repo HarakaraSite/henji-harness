@@ -6,6 +6,7 @@ import {
   TurnCancelledError,
 } from '../core/cancellation.ts';
 import {
+  DEFAULT_PROVIDER_TIMEOUT_MS,
   MAX_REQUEST_BYTES,
   OpenRouterAgentError,
   type OpenRouterAgentModelOptions,
@@ -15,6 +16,7 @@ import { encodeRequest, invalidRequestError } from './openrouter_request.ts';
 import {
   cancelResponseBody,
   decodeResponse,
+  providerTimeoutError,
   readResponseBody,
   responseHeaders,
   responseStreamError,
@@ -100,7 +102,7 @@ export class OpenRouterAgentModel implements Model {
       controller.abort(turnSignal?.reason);
     };
     turnSignal?.addEventListener('abort', abortFromTurn, { once: true });
-    const timeoutMs = this.options.timeoutMs ?? 30_000;
+    const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort('provider deadline exceeded');
@@ -136,6 +138,7 @@ export class OpenRouterAgentModel implements Model {
         });
       } catch {
         if (turnCancelled) throw new TurnCancelledError();
+        if (timedOut) throw providerTimeoutError();
         throw new OpenRouterAgentError(
           'transport_error',
           'provider transport failed',
@@ -156,6 +159,7 @@ export class OpenRouterAgentModel implements Model {
           throw new CancellationCleanupError();
         }
         if (turnCancelled) throw new TurnCancelledError();
+        if (timedOut) throw providerTimeoutError();
         throw new OpenRouterAgentError(
           'transport_error',
           'provider transport failed',
@@ -171,6 +175,7 @@ export class OpenRouterAgentModel implements Model {
         );
         if (bounded.cleanupFailed) {
           if (turnCancelled) throw new CancellationCleanupError();
+          if (timedOut) throw providerTimeoutError();
           throw new OpenRouterAgentError(
             'transport_error',
             'provider transport failed',
@@ -181,13 +186,7 @@ export class OpenRouterAgentModel implements Model {
         }
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut) {
-          throw new OpenRouterAgentError(
-            'transport_error',
-            'provider transport failed',
-            1,
-            undefined,
-            { stage: 'transport', code: 'transport_error' },
-          );
+          throw providerTimeoutError();
         }
         throw new OpenRouterAgentError(
           'http_error',
@@ -210,9 +209,11 @@ export class OpenRouterAgentModel implements Model {
           );
           if (bounded.cleanupFailed) {
             if (turnCancelled) throw new CancellationCleanupError();
+            if (timedOut) throw providerTimeoutError();
             throw responseStreamError(response.status);
           }
           if (turnCancelled) throw new TurnCancelledError();
+          if (timedOut) throw providerTimeoutError();
           if (!response.body) {
             throw sseResponseError(
               'provider response had no body',
@@ -243,6 +244,7 @@ export class OpenRouterAgentModel implements Model {
         );
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut || controller.signal.aborted) {
+          if (timedOut) throw providerTimeoutError();
           throw new OpenRouterAgentError(
             'transport_error',
             'provider transport failed',
@@ -259,17 +261,12 @@ export class OpenRouterAgentModel implements Model {
       );
       if (bounded.cleanupFailed) {
         if (turnCancelled) throw new CancellationCleanupError();
+        if (timedOut) throw providerTimeoutError();
         throw responseStreamError(response.status);
       }
       if (turnCancelled) throw new TurnCancelledError();
       if (timedOut) {
-        throw new OpenRouterAgentError(
-          'transport_error',
-          'provider transport failed',
-          1,
-          undefined,
-          { stage: 'transport', code: 'transport_error' },
-        );
+        throw providerTimeoutError();
       }
       if (controller.signal.aborted) {
         throw new OpenRouterAgentError(

@@ -76,6 +76,8 @@ const providerFailureCode = (
       return 'provider_invalid_input';
     case 'missing_credential':
       return 'provider_missing_credential';
+    case 'provider_timeout':
+      return 'provider_transport_error';
     case 'transport_error':
       return 'provider_transport_error';
     case 'http_error':
