@@ -18,6 +18,28 @@ repository document or prior practice conflicts with it, this section wins.
 - 成功基準は、人間がproduction経路で目的の機能を完了できることである。offline fixture、test件数、
   review結果、sanitized failure、機械的gate成功をその代替にしない。
 
+## Product文書の正本
+
+各文書を一列の優先順位として扱わず、次の担当領域の正本として参照する。
+
+- 構想: [`docs/concepts/experience-driven-self-revision.md`](docs/concepts/experience-driven-self-revision.md)
+  はproductの目的、Why、人間による採用境界を定義する。
+- architecture: [`docs/architecture/henji-host-agent-worker.md`](docs/architecture/henji-host-agent-worker.md)
+  は責務分担、状態所有、component境界、不変条件を定義する。
+- roadmap: [`docs/roadmap.md`](docs/roadmap.md)は必要機能、実装状態、未実装範囲を管理する。
+- 通常利用メモ: [`docs/experience/normal-use-inbox.md`](docs/experience/normal-use-inbox.md)は、通常利用で
+  得た観測と、まだ個別incrementへ採用していない改善候補の正本である。記載だけでは採用または実装を
+  意味しない。
+- 個別increment: [`docs/increments/`](docs/increments/)の`increment-N.md`は、採用されたincrementの要件、
+  対象範囲、計画、結果の正本である。
+
+未採用候補はhandoffではなく通常利用メモへ記録する。個別incrementへ採用した項目は通常利用メモから
+該当increment文書へ移し、完了史を未採用候補へ残さない。`.handoff/handoff.md`は現在地、次の一手、正本への
+pointer、承認境界だけを保持し、product構想、改善候補、計画、完了履歴の保存先として使わない。
+
+担当領域をまたぐ不整合を見つけた場合は、独自に一方へ寄せず、利用者の目的と明示要件を確認して該当する
+正本を更新する。Why・What・Whetherを変える判断は利用者へ戻す。
+
 ## Planning
 
 - 計画は最初に、利用者が必要とする動作、根拠となる明示要件・実行証拠・公式外部契約、実際のproduct

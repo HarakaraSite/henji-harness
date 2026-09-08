@@ -10,18 +10,28 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
-increment 4から6へ採用した項目は各`docs/increments/increment-N.md`へ移した。以下は各incrementへ
-採用していない観測と候補だけを残す。
-
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
 increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を
-実装し、通常利用で受け入れた。`/history export`はincrement 4へ移し、それ以外の操作候補を残す。
+実装し、通常利用で受け入れた。`/history export`はincrement 4へ採用済み。次の操作は未採用である。
 
 - `/history`等の明示的なread-only履歴閲覧modeと、vi風の`j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、
   `q`/Esc。
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
+
+### Surface: 現在のmodel/effortをフッターへ表示（F01、F10）
+
+観測と利用者要望:
+
+- increment 12で同一Session内のOpenRouter root model/effort切替を実装したが、現在の選択を通常画面で
+  常時確認できない。
+- production TUIのフッターへ、現在のroot modelとeffortを表示したい。
+- `/model`、`/effort`、`/sessions`による選択・Session切替の直後に表示を現在値へ更新する。
+
+現在の扱い:
+
+- 次回以降の通常利用incrementへ未採用の改善候補として保存する。
 
 ### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
@@ -41,21 +51,16 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 現Sessionと未送信draftを保ったままWorker generationを置換するのか、現在のgeneration内でresourceだけを
   再構成するのか。Definition revision bindingとSessionの整合性を含め、実装increment採用時に決める。
 
-現在の扱い:
-
-- 未採用の改善候補として保存する。
-
 ### Surface: assistant本文のrendering（F01、F10、将来のF24候補）
 
 観測:
 
-- Henjiの回答をterminal向けplain textとして読みやすくする余地がある。
+- Henjiの回答をterminal向けにさらに読みやすくする余地がある。
+- plain textのassistant renderer component抽出はincrement 4で実装済みである。
 
-改善候補:
+未採用候補:
 
-- TUIへのMarkdown renderer導入を検討する。通常利用increment 2では対応せずpendingとした。
-- plain textのassistant renderer component抽出はincrement 4へ移した。その実装後、Markdownを採用する
-  場合も対応範囲を限定して始める。
+- TUIへのMarkdown renderer導入を検討する。採用する場合も対応範囲を限定して始める。
 - Mermaid等が必要になった場合はrenderer全体の交換だけでなく、Markdown内のblock rendererを拡張する。
   一般的なplugin/load機構までは現時点で決めない。
 - agentが具体的なrenderer実装を選ぶのではなく、plain text、Markdown、Mermaid等の意味上のcontent kind
@@ -63,122 +68,55 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   候補とする。現在のstring出力contractを変える必要が生じた場合は、F10と将来のF24として構想・
   architectureへ戻って検討する。
 
-現在の扱い:
-
-- ユーザーが2026-09-07に、increment 6の作業量を限定するためincrement 7より後へ送ると決定した。
-
-### Agent実行: 調査時のtool選択と結果readback（F02、F06、将来のF24候補）
+### Agent実行: 調査時のtool選択（F02、F06、将来のF24候補）
 
 観測:
 
 - repository調査で、8.7 KiBのREADMEに`read`を使わず、4 KiBで出力が切れる`bash cat`と`tail`を
   繰り返してstepを消費した。
-- 対象repositoryにtool選択を導くinstructionはなく、productionのtool descriptionにも`read`を優先する
-  方針はない。Henjiのbash環境では`rg`がPATH外なので`grep`の選択は妥当だった。
+- 対象repositoryにtool選択を導くinstructionはなく、productionのtool descriptionにも当時は`read`を
+  優先する方針がなかった。Henjiのbash環境では`rg`がPATH外なので`grep`の選択は妥当だった。
+- `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5、既存work toolの
+  component化はincrement 6で実装済みである。
 
-改善候補:
+未採用候補:
 
-- 固定instruction、tool description、tool設計のどこで効率的な選択を支えるか検討する。
+- `read`以外のtoolについて、実際の誤選択が観測された場合にtool固有guidelineまたはdescriptionを改善する。
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
 
-参照実装から得た未採用の示唆:
+### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
 
-- Piはtoolごとのdefinition metadataにdescription、schema、実行処理、TUI表示に加えて
-  `promptGuidelines`を持たせ、有効なtoolのguidelineだけをsystem promptへ合成する。`read`には
-  「`cat`や`sed`ではなく`read`でfileを調べる」という選択指針がある。
-- Zotはtool利用指針をsystem promptへ追加せず、tool schema・descriptionとmodelの判断に任せる。
-  CLIのstep上限は既定で無制限であり、必要な場合だけ`--max-steps`で指定する。
-- PiとZotの`read`は50 KiBまたは2,000行で区切り、`offset`・`limit`で続きを読める。`bash`も同じ上限で
-  区切るが、全出力を一時fileへ保存し、必要なら読み返せる。
+現行確認:
 
-現在の扱い:
+- Increment 7から9で、Henji-owned `web_search`、OpenRouter Sonar backend、groundingと直接URL citationを
+  実装し、production通常利用で受け入れ済みである。
+- 現行の`web_search`は一つのtool componentであり、Sonarを交換可能backendが内部利用するmodelとして扱う。
 
-- byte・line上限はtool実装またはtool設定、tool固有の選択指針はtool definition metadata、有効toolと
-  指針の合成はAgentCompositionの責務候補として検討する。既存`read`、`write`、`edit`、`bash`、
-  `bash_output`のcomponent化はincrement 6で実装済み。
-- tool利用効率は現時点ではF02・F06の通常改善として扱う。ここで整えるtool metadataやinterfaceは将来の
-  F24実装基盤として再利用できるが、それだけでF24完了とはしない。
-- `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5へ移した。他toolの
-  guidelineは未採用のまま残す。
+未採用候補:
 
-### Agent実行: Web search tool（F02、F06、将来のF24候補）
+- OpenRouterの`openrouter:web_search` server toolを、同じ`WebSearchBackend`境界へ追加する将来backend候補
+  として保持する。
+- 将来も「modelを内包する機能」として扱うか、検索・解釈を担当する`WebSearch AgentDefinition`として
+  conversation、prompt、model、tool利用を明示的に所有させるかは未決である。agent化が必要になる具体的な
+  task、状態、委譲、revision上の利点が観測された時点で比較する。
 
-利用者判断:
+### F24候補: revision付きtool componentとMCP component
 
-- 通常利用を続けるうえで、modelがtool callとして使えるWeb searchの必要性が高まりつつある。
-- `web_search`をincrement 5とincrement 6には含めず、既存work toolのcomponent化後にincrement 7として扱う。
-- URL本文を取得して人間向けtextへ変換する`web_open`は、人間にはbrowserがあるため現時点では必要性を
-  感じず、候補に含めない。
-- provider-neutralなHenji-owned tool componentと交換可能な検索backendに分ける方針をユーザーが
-  2026-09-07に選んだ。
-- 初期backendは、既存OpenRouter credentialで`perplexity/sonar`を一回呼ぶ。実測した
-  `message.content`と順序付き`message.annotations[].url_citation`から、回答とtitle/URLのsource一覧を
-  modelへ返す。
-- OpenRouterの`openrouter:web_search` server toolを使うbackendは将来案として保持し、現在の実装には
-  含めない。Exa MCPは却下し、MCP component自体も将来構想へ送る。
-
-現在の扱い:
-
-- increment 7へ採用し、local実装、focused verification、コード／テストreview、authoritative offline gateを
-  完了した。production retained TUIでmechanismは成立したが、具体性の低いquery、source URLを示さないfinal、
-  検索結果に反する推測を確認した。このgrounding修正をincrement 8へ採用した。
-- increment 8のproduction Session `0aa262b8-724e-462c-9340-249703627b36`では、Sonarは公式roadmapが
-  確認できないことを明示した一方、親modelは複数のtool result内だけで有効な`[8][31]`等の参照番号を
-  URLなしでfinalへ持ち出し、検索結果にない具体的予測も追加した。各searchで番号が振り直される現行text
-  contractを、人間と親modelが直接利用できるinline URLへ正規化する修正をincrement 9へ採用し、local実装、
-  focused verification、コード／テストreview、authoritative offline gateを完了した。production Session
-  `dd984286-a8bb-41ae-b177-b0e49f30d150`では裸の`[n]`がなく、直接URL、不足と推測の表示、根拠URLを求める
-  追質問への応答を確認し、2026-09-08にユーザーがWeb searchを受け入れて完成と判断した。
-
-現行component境界の確認:
-
-- 現行の`Tool`はname、description、input schema、guideline、executorを一単位にし、`Registry`がproviderへ
-  渡すdefinition生成とtool call時のexecutor解決を担う。
-- increment 6で既存work toolのcomponent境界を作り、increment 7で`web_search`をbuilt-in componentとして
-  追加した。選択済みの`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`をWorker-local
-  `ToolComponentCatalog`からmaterializeする境界を追加した。公開`@henji/agent`のroot composition optionで
-  同一identity・nameのcomponentを明示置換できる。catalog外の新tool identityをexternal Definitionから追加する
-  一般seamはまだない。
-- 現在の`DefinitionRevisionRef`はentry moduleを固定するが、別moduleとしてimportするtool componentまで
-  含むdependency lineageは未実装である。したがって、toolは「実行component」ではあるが「独立したrevisionを
-  持ち、自己改訂候補としてDefinitionへ組み込めるcomponent」にはまだなっていない。
-
-設計メモ:
-
-- Web searchはfilesystem toolと異なり、検索結果の取得だけでなく、結果を解釈して回答とcitationへまとめる
-  modelをcomponent内部に持つ実装が一般的にあり得る。現行Henjiでは`web_search`を一つの機能／tool component、
-  Sonarを交換可能backendが内部利用するmodelとして扱っている。
-- 将来も「modelを内包する機能」として扱うか、検索・解釈を担当する`WebSearch AgentDefinition`として会話、
-  prompt、model、tool利用を明示的に所有させるかは未決である。今回のcitation表示修正では境界を変更せず、
-  agent化が必要になる具体的なtask、状態、委譲、revision上の利点が観測された時点で比較する。
-
-将来の境界候補:
+未採用候補:
 
 - tool componentを、revision identity、model向けcontract（name、description、schema、
   `promptGuidelines`）、Worker内で物理I/Oへbindするexecutorに分ける。
 - `AgentDefinition`がrevision付きtool componentを選択・合成し、`Registry`は有効なtoolのdefinitionと
-  guidelineだけを組み立てる。選択結果はmanifestへ出し、Definition revisionはimportしたcomponentの
+  guidelineだけを組み立てる。選択結果はManifestへ出し、Definition revisionはimportしたcomponentの
   dependency revisionも固定する。
-- 直近のtool選択改善では、まず`Tool`へ`promptGuidelines`を追加し、`Registry`で集約して
-  AgentCompositionのsystem instructionへ合成する。この継ぎ目は将来のF24に再利用できるが、toolの
-  candidate生成・revision保存・人間による採用がない段階ではF24完了とはしない。
-
-### Repository構成と未参照file
-
-観測と利用者要望:
-
-- `v0/agent`直下は75 file、うちTypeScriptが72 fileとなり、機能追加に伴って見通しが落ちている。
-- 利用者はdirectory構成を見直し、参照されなくなったfileも調査したいと2026-09-07に要望した。
-
-現在の扱い:
-
-- static importだけでなくCLI entrypoint、Deno task、public export、Worker dynamic load、testと文書参照を調べ、
-  commit `7a1ae74`でactive Agent sourceを責務別directoryへ再編した。公開API facadeとoperator向けshell pathを
-  維持し、到達不能なmodule、壊れた旧acceptance入口、production非到達だった旧extension実装を削除した。
-- 同時点のactive source graphに未到達TypeScript fileが残っていないこと、focused Worker testと`v0:gate`の成功を
-  確認した。その後も責務境界を保ったfile分割を進め、commit `5ab7f27`までにexecution record、TUI input、
-  presentation contractを含む対象を互換facadeと専用moduleへ分けた。現在の配置は`v0/agent/README.md`を正本とする。
+- catalog外の新tool identityをexternal Definitionから追加する一般seamと、importしたtool componentを
+  Definition revisionのdependency lineageへ含める境界は未実装である。F24でtoolを改訂対象にするときに
+  検討する。
+- Exa MCPの採用は却下済みだが、一般的なMCP componentは将来構想候補として保持する。具体的なserviceを
+  導入する判断とは分ける。
+- 上記のcomponent境界だけではF24完了とせず、tool candidate生成、revision保存、人間による採用まで
+  product flowとして成立した段階をtool改訂として扱う。
 
 ### F24候補: tool実行権限とsandboxed Deno program
 
@@ -216,7 +154,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 議論から得た未採用のarchitecture・tool候補として保存する。permission profile、実行配置、dependency
   取得、永続化範囲、unrestricted `bash`との併存方法は、具体的なproduct incrementを選ぶ時点で決める。
 
-### F24: sourceから派生物を作るAgent instruction
+### F24候補: sourceから派生物を作るAgent instruction
 
 観測:
 
@@ -224,6 +162,8 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   command、設定名、JSON contract、exit codeを変更し、架空のcommandと章を追加した。
 - git管理外という依頼に対してtrackedな`.gitignore`も変更した。
 - 完了後にsourceとの自己監査を明示すると、modelは不整合を検出できた。
+- fresh Sessionで日本語の「READMEを読み10行で要約」という依頼に対し、modelは`README.ja.md`だけを
+  readしたが、回答では未読の`README.md`も読んだように述べた。
 
 Agent-level instruction候補:
 
@@ -234,18 +174,10 @@ Agent-level instruction候補:
 - 完了前にsourceと成果物を照合し、意図しない追加、欠落、構造変更、contract変更を確認する。意図した
   差異は明示する。
 - temporaryまたはuntracked artifactのためだけに、明示依頼なくtracked fileへ変更を広げない。
-- この規則は`write` tool固有ではなく、source-grounded transformationを扱うAgent-level instruction候補とする。
+- 実際にtoolで取得したsourceだけを確認済みとして述べ、推定したsourceは区別する。
+- これらは`write` tool固有ではなく、source-grounded transformationを扱うAgent-level instruction候補とする。
 
-追加観測:
-
-- fresh Sessionで日本語の「READMEを読み10行で要約」という依頼に対し、modelは`ls`後に
-  `README.ja.md`だけをreadした。日本語版の自動選択自体は妥当だったが、回答では未読の`README.md`も
-  読んだように「`README.ja.md`（および`README.md`）」と述べた。
-- これは、関連sourceの存在や翻訳関係の推定を、toolで確認済みのsource attributionへ昇格させた事例と
-  扱う。共通instruction候補として、実際にtoolで取得したsourceだけを確認済みとして述べ、推定した
-  sourceは区別する規則を検討する。
-
-### F24: agent別instruction componentとPi型の合成
+### F24候補: agent別instruction componentとPi型の合成
 
 利用者判断:
 

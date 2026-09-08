@@ -4,10 +4,10 @@
 
 ### Project structure and canonical sources
 
-- 状態: 通常利用increment 2から12、Web search受入、source再編・分割は完了済み。increment 12は同一Session内のcurated OpenRouter root model/effort切替、検索picker、Session v3永続化、planner default分離を実装し、authoritative `v0:gate`（99 tests）と2-requestのlive production経路に成功した。変更はworking treeにあり未commit。既存release candidate `2a57d73`はForgejo `main`へpush済みで、JSR `@henji/harness@0.1.0-alpha.3`を同commitから公開済み
+- 状態: 通常利用increment 2から12、Web search受入、source再編・分割は完了済み。increment 12は同一Session内のcurated OpenRouter root model/effort切替、検索picker、Session v3永続化、planner default分離を実装し、authoritative `v0:gate`（99 tests）と2-requestのlive production経路に成功した。commit `0576fa9`で確定済み。既存release candidate `2a57d73`はForgejo `main`へpush済みで、JSR `@henji/harness@0.1.0-alpha.3`を同commitから公開済み
 - 次: 利用者がproduction TUIでincrement 12を通常利用するか、次の通常利用incrementを選択する
 - 正本: `docs/increments/increment-12.md`、`README.md`、`docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`、`v0/agent/README.md`、`deno.v0.json`
-- 注意: increment 12 live run root `/tmp/henji-increment12-live-a0c10d05d8d9990d`とSession `94d53a9a-b878-4950-b4d7-f7407db98b05`を成功証拠として保持。credential値とAuthorizationは表示・保存していない。commit、push、tag、publish、releaseは未依頼・未実施。未追跡`_refs/*`は変更しない
+- 注意: increment 12 live run root `/tmp/henji-increment12-live-a0c10d05d8d9990d`とSession `94d53a9a-b878-4950-b4d7-f7407db98b05`を成功証拠として保持。credential値とAuthorizationは表示・保存していない。increment 12 commit後のpush、tag、publish、releaseは未依頼・未実施。未追跡`_refs/*`は変更しない
 
 ### Next JSR package description
 
