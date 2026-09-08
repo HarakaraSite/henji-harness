@@ -59,3 +59,16 @@ provider run.
   fresh official model and price readback before its Human Gate.
 - Production provider commands require explicit authorization, and automatic retry/fallback is not
   performed without separate explicit authorization.
+
+## Production CLI basic E2E
+
+`deno task --config deno.v0.json agent:e2e:live --confirm-external-call` exercises the normal
+`runtime_cli_launcher.sh` → headless Host / Worker route. The E2E orchestrator does not read the
+credential and does not receive it through an environment variable or command argument. The child
+production Worker uses the same fixed request-time credential source described above.
+
+The task is not called by `v0:test`, `v0:gate`, CI, publish, or release automation. A user must
+explicitly authorize each live invocation; implementation or offline-test approval does not count
+as that authorization. One invocation runs one fixed `read`-tool scenario, expects two provider
+requests, has no automatic retry, and retains its workspace, child stdout/stderr, provider evidence,
+and Worker execution artifact under the reported `/tmp/henji-production-e2e-*` directory.

@@ -13,7 +13,8 @@
 - `worker/`: production Host/Worker sessions, headless runner, protocol, bootstrap, physical
   bindings, and Worker fixtures.
 - `cli/`: TypeScript command entrypoints.
-- `validation/`: provider acceptance, sentinels, fixtures, and runtime comparison utilities.
+- `validation/`: provider acceptance, the user-confirmed production CLI E2E, sentinels, fixtures,
+  and runtime comparison utilities.
 
 `worker_agent_api.ts` remains the public composition facade. The shell launchers stay at this
 directory root because the installed `henji` command and operator workflows use those stable paths.
@@ -25,3 +26,9 @@ Both production entrypoints use the same headless Worker capsule and Host commit
 - `session_launcher.sh` starts the interactive terminal Surface and optionally persists a Session.
 - `runtime_cli_launcher.sh` starts one noninteractive turn without persisting a Session transcript;
   diagnostics, provider evidence, and execution artifacts still use the workspace state root.
+
+`validation/production_cli_e2e.ts` starts that production launcher only when invoked with the exact
+`--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
+evidence, and the Worker execution artifact under `/tmp/henji-production-e2e-*`, then emits one JSON
+report. The live task is intentionally absent from `v0:test`, `v0:gate`, and CI; its provider call
+requires a separate user instruction for each invocation.
