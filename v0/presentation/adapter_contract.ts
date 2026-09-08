@@ -1,0 +1,93 @@
+import type { LoopOutcome, Message } from '../agent/core/contracts.ts';
+import type { ContextMetrics } from '../agent/core/context.ts';
+import type {
+  ContextRecoveryPreview,
+  ContextRecoveryResult,
+  NavigationPosition,
+} from '../agent/session/session_navigation.ts';
+import type { SessionHistoryPage } from '../agent/session/session_history.ts';
+import type { HistoryExporter } from '../agent/session/history_export.ts';
+import type {
+  PresentationContextMetrics,
+  PresentationContextPreview,
+  PresentationContextResult,
+  PresentationHistoryPage,
+  PresentationMessage,
+  PresentationNavigationListing,
+  PresentationOutcome,
+  PresentationPosition,
+} from './contract.ts';
+
+export interface AdapterSessionPort {
+  submit(text: string): Promise<PresentationOutcome>;
+  cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
+  steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
+  contextSnapshot?(): PresentationContextMetrics | undefined;
+  isAvailable?(): boolean;
+  historyPage?(
+    page: number,
+    turn?: number,
+    rows?: number,
+  ):
+    | Promise<PresentationHistoryPage | undefined>
+    | PresentationHistoryPage
+    | undefined;
+  currentPosition?(): PresentationPosition | undefined;
+  contextCompactionPreview?(): PresentationContextPreview | undefined;
+  compactContext?(signal?: AbortSignal): Promise<PresentationContextResult>;
+  checkpointSnapshot?(): {
+    readonly summary: string;
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | undefined;
+}
+
+export interface AdapterNavigationPort {
+  readonly persistent: boolean;
+  list(signal?: AbortSignal): Promise<PresentationNavigationListing>;
+  switchTo(id: string, signal?: AbortSignal): Promise<{
+    readonly session: AdapterSessionPort;
+    readonly position: PresentationPosition;
+    readonly restored?: {
+      readonly messages: readonly PresentationMessage[];
+      readonly omitted: number;
+    };
+  }>;
+  historyPage(
+    page: number,
+    turn?: number,
+    rows?: number,
+  ): Promise<PresentationHistoryPage | undefined>;
+  currentPosition(): PresentationPosition;
+}
+
+export type CoreSession = {
+  submit(text: string): Promise<LoopOutcome>;
+  cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';
+  steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
+  contextSnapshot?(): ContextMetrics | undefined;
+  isAvailable?(): boolean;
+  transcriptSnapshot?(): readonly Message[];
+  historyPage?(
+    page: number,
+    turn?: number,
+    rows?: number,
+  ): Promise<SessionHistoryPage | undefined> | SessionHistoryPage | undefined;
+  currentPosition?(): NavigationPosition;
+  contextCompactionPreview?(): ContextRecoveryPreview;
+  compactContext?(signal?: AbortSignal): Promise<ContextRecoveryResult>;
+  consumeAutoCompactionNotice?(): {
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | null;
+  checkpointSnapshot?(): {
+    readonly summary: string;
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | undefined;
+};
+
+export interface TuiPresentationAdapterOptions {
+  readonly historyExporter?: HistoryExporter;
+  readonly historySessionMode?: 'durable' | 'none';
+}
