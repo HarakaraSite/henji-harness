@@ -136,6 +136,10 @@ Surfaceは、人間のactionをHost commandまたはWorker向けprotocol message
 進捗、tool activity、assistant output、turn settlementを人間へ提示するHost adapterである。Surface固有の
 key binding、layout、draft、cursor、viewportはWorker protocolやcanonical Session stateへ混入させない。
 
+現在の非対話CLIもHost側のheadless Surfaceであり、TUIと同じWorker session factory、Definition評価、
+composition、proposal / commit / acknowledgement、close経路を一turnだけ使う。Session transcriptは永続化せず、
+final-only stdout、failure JSON、exit codeだけをSurface contractとして持つ。
+
 現在の対話SurfaceであるTUIは、通常利用の画面を次の領域として構成する。
 
 - 人間の依頼、assistantの応答、短いtool activity、結果を追えるconversation log。

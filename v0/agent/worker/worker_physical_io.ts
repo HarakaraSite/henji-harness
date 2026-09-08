@@ -67,6 +67,9 @@ class WorkerProbeModel implements Model {
       };
     }
     const task = lastUserText(request);
+    if (task === 'return active tool guidelines') {
+      return { kind: 'final', text: request.systemInstruction ?? '' };
+    }
     if (task.includes('very-slow')) {
       await new Promise<void>((resolve) => setTimeout(resolve, 5_200));
       throwIfCancelled(options.signal);

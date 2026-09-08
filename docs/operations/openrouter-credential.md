@@ -28,11 +28,11 @@ credential location.
   implementation and boundary are recorded in
   [`repo-external-credential-launcher-results.md`](../plans/repo-external-credential-launcher-results.md).
 - Normal Worker production composition uses `readCredentialFile` from
-  [`credential_file.ts`](../../v0/agent/credential_file.ts) as a request-time source for
-  [`worker_physical_io.ts`](../../v0/agent/worker_physical_io.ts). It validates the fixed path and
-  reads the source for each provider request; it does not cache the value or put it in command
-  arguments. The adapter then places the resolved value in the provider Authorization header for
-  that request.
+  [`credential_file.ts`](../../v0/agent/provider/credential_file.ts) as a request-time source for
+  [`worker_physical_io.ts`](../../v0/agent/worker/worker_physical_io.ts). Both the interactive TUI
+  and noninteractive `agent:run` enter this Worker composition. It validates the fixed path and reads
+  the source for each provider request; it does not cache the value or put it in command arguments.
+  The adapter then places the resolved value in the provider Authorization header for that request.
 - File content/format and current validity have not been inspected or verified in this document.
   Any content read, credential injection, remediation, or provider attempt requires its own explicit
   authorization.

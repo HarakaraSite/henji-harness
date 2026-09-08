@@ -9,8 +9,9 @@
 - `tools/`: tool declarations, registries, components, and tool implementations including web
   search.
 - `session/`: durable sessions, history, replay values, context checkpoints, and diagnostics.
-- `runtime/`: normal runtime composition and startup projection.
-- `worker/`: Worker host/runtime protocol, bootstrap, physical bindings, and Worker fixtures.
+- `runtime/`: direct evaluation composition and shared startup projection.
+- `worker/`: production Host/Worker sessions, headless runner, protocol, bootstrap, physical
+  bindings, and Worker fixtures.
 - `cli/`: TypeScript command entrypoints.
 - `validation/`: provider acceptance, sentinels, fixtures, and runtime comparison utilities.
 
@@ -18,3 +19,9 @@
 directory root because the installed `henji` command and operator workflows use those stable paths.
 Terminal-specific implementation remains under `v0/tui`; the UI-neutral presentation contract and
 adapter remain under `v0/presentation`.
+
+Both production entrypoints use the same headless Worker capsule and Host commit path:
+
+- `session_launcher.sh` starts the interactive terminal Surface and optionally persists a Session.
+- `runtime_cli_launcher.sh` starts one noninteractive turn without persisting a Session transcript;
+  diagnostics, provider evidence, and execution artifacts still use the workspace state root.

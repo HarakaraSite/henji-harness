@@ -43,7 +43,7 @@ import { readCredentialFile } from '../provider/credential_file.ts';
 import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import { DenoFailureDiagnosticStore } from '../session/failure_diagnostic_store.ts';
 import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
-import { createWorkerTuiSession } from '../worker/worker_host.ts';
+import { createWorkerSession } from '../worker/worker_host.ts';
 import { DenoHistoryExporter, type HistoryExporter } from '../session/history_export.ts';
 
 const encoder = new TextEncoder();
@@ -313,14 +313,14 @@ export const main = async (
   try {
     let sessionFactory = dependencies.createSession;
     if (sessionFactory === undefined) {
-      // Production TUI requests use the fixed host-owned file source.  Direct tests retain their
-      // explicit seam, while the headless runtime keeps its existing environment contract.
+      // Production TUI requests use the fixed Worker-local file source. Direct tests retain their
+      // explicit runtime seam without entering the production Host/Worker path.
       const runtimeSeam = dependencies.runtimeSeam === undefined
         ? { credentialSource: readCredentialFile }
         : dependencies.runtimeSeam;
       sessionFactory = async (eventSink, selected) => {
         if (dependencies.runtimeSeam === undefined) {
-          return await createWorkerTuiSession({
+          return await createWorkerSession({
             workspaceRoot: undefined,
             stateRoot: dependencies.stateRoot,
             persistence: invocation.persistence,

@@ -24,6 +24,7 @@ import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   DenoSessionStore,
+  sessionPaths,
   type SessionRecord,
   type WorkerSessionHandle,
 } from '../../v0/agent/session/session_store.ts';
@@ -39,6 +40,9 @@ import {
   type WorkerHostCapsule,
   WorkerHostSession,
 } from '../../v0/agent/worker/worker_host.ts';
+import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
+import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
+import { main as runtimeCliMain } from '../../v0/agent/cli/runtime_cli.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
 import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import {
@@ -125,6 +129,30 @@ const start = async (
   capsule.send({ kind: 'start', correlation: correlation(command) });
   return await readyPromise;
 };
+
+const textStream = (text: string): ReadableStream<Uint8Array> =>
+  new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(text));
+      controller.close();
+    },
+  });
+
+const successfulHeadlessRun = (task: string) =>
+  Promise.resolve({
+    outcome: {
+      ok: true as const,
+      task,
+      outcome: 'final' as const,
+      stopReason: 'final' as const,
+      finalText: 'headless answer',
+      steps: 1,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+    },
+    requestCount: 1,
+  });
 
 Deno.test('Slice 1 starts a module Worker and preserves protocol ordering and clone isolation', async () => {
   const capsule = new WorkerCapsule(workerUrl);
@@ -344,6 +372,229 @@ fi
     await Deno.remove(workspace, { recursive: true });
     await Deno.remove(stateBase, { recursive: true });
     await Deno.remove(fakeBin, { recursive: true });
+  }
+});
+
+Deno.test('headless runner commits one real Worker turn and closes the generation', async () => {
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  let closed = false;
+  const result = await runHeadlessWorker(
+    'read worker protocol',
+    resolveBuiltinAgent(),
+    {
+      physicalIoMode: 'provider-free',
+      executionArtifactStore: artifacts,
+      capsuleFactory: (url) => {
+        const capsule = new WorkerCapsule(url);
+        return {
+          send: (command) => capsule.send(command),
+          subscribe: (listener) =>
+            capsule.subscribe((message) => {
+              if (message.kind === 'closed') closed = true;
+              listener(message);
+            }),
+          terminate: () => capsule.terminate(),
+        };
+      },
+    },
+  );
+  assert(result.outcome.ok);
+  assertEquals(result.outcome.stopReason, 'final');
+  assertEquals(result.requestCount, 0);
+  assertEquals(closed, true);
+  const written = await artifacts.list();
+  assertEquals(written.length, 1);
+  assertEquals(written[0]?.storeResult, 'committed');
+  assertEquals(written[0]?.acknowledgement, 'accepted_sent');
+  assert(
+    written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'module_pre_read'),
+  );
+  assert(
+    written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'commit_proposal'),
+  );
+});
+
+Deno.test('headless Worker model receives each active tool guideline once', async () => {
+  const result = await runHeadlessWorker(
+    'return active tool guidelines',
+    resolveBuiltinAgent(),
+    { physicalIoMode: 'provider-free' },
+  );
+  assert(result.outcome.ok);
+  const instruction = result.outcome.finalText ?? '';
+  assert(instruction.includes('## Active tool guidelines'));
+  for (const tool of ['bash_output', 'read', 'web_search']) {
+    assertEquals(instruction.match(new RegExp(`- ${tool}:`, 'g'))?.length, 1);
+  }
+});
+
+Deno.test('headless runner persists execution evidence without a Session transcript', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-headless-state-' });
+  await Deno.chmod(stateRoot, 0o700);
+  try {
+    const result = await runHeadlessWorker(
+      'headless artifact turn',
+      resolveBuiltinAgent(),
+      { physicalIoMode: 'provider-free', stateRoot },
+    );
+    assert(result.outcome.ok);
+    assertEquals(result.outcome.executionArtifactDurability, 'yes');
+    const paths = await sessionPaths(stateRoot, Deno.cwd());
+    let sessionDirectoryExists = true;
+    try {
+      await Deno.lstat(paths.sessions);
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+      sessionDirectoryExists = false;
+    }
+    assertEquals(sessionDirectoryExists, false);
+    const artifacts = await new DenoWorkerExecutionArtifactStore(stateRoot, Deno.cwd()).list();
+    assertEquals(artifacts.length, 1);
+    assertEquals(artifacts[0]?.settlement, 'committed');
+  } finally {
+    await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', async () => {
+  const observed: Array<{ task: string; agent: string }> = [];
+  let stdout = '';
+  let stderr = '';
+  const argvExit = await runtimeCliMain(
+    ['--agent', 'planner', '--task', '  plan this  '],
+    {
+      stdinIsTerminal: () => true,
+      run: (task, selection) => {
+        observed.push({ task, agent: selection.id });
+        return successfulHeadlessRun(task);
+      },
+      writeStdout: (text) => {
+        stdout += text;
+      },
+      writeStderr: (text) => {
+        stderr += text;
+      },
+    },
+  );
+  assertEquals({ argvExit, stdout, stderr }, {
+    argvExit: 0,
+    stdout: 'headless answer\n',
+    stderr: '',
+  });
+
+  stdout = '';
+  const stdinExit = await runtimeCliMain([], {
+    stdinIsTerminal: () => false,
+    stdin: textStream('  stdin task\n'),
+    run: (task, selection) => {
+      observed.push({ task, agent: selection.id });
+      return successfulHeadlessRun(task);
+    },
+    writeStdout: (text) => {
+      stdout += text;
+    },
+    writeStderr: (text) => {
+      stderr += text;
+    },
+  });
+  assertEquals(stdinExit, 0);
+  assertEquals(stdout, 'headless answer\n');
+  assertEquals(observed, [
+    { task: 'plan this', agent: 'planner' },
+    { task: 'stdin task', agent: 'default' },
+  ]);
+});
+
+Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () => {
+  let stdout = '';
+  let stderr = '';
+  const exit = await runtimeCliMain(['--task', 'bounded task'], {
+    stdinIsTerminal: () => true,
+    run: (task) =>
+      Promise.resolve({
+        outcome: {
+          ok: false,
+          task,
+          outcome: 'max_steps',
+          stopReason: 'max_steps',
+          error: 'maximum model steps reached',
+          steps: 64,
+          toolCallCount: 63,
+          toolResultCount: 63,
+          transcript: [],
+        },
+        requestCount: 64,
+      }),
+    writeStdout: (text) => {
+      stdout += text;
+    },
+    writeStderr: (text) => {
+      stderr += text;
+    },
+  });
+  assertEquals(exit, 1);
+  assertEquals(stdout, '');
+  assertEquals(JSON.parse(stderr), {
+    ok: false,
+    outcome: 'max_steps',
+    stopReason: 'max_steps',
+    steps: 64,
+    toolCallCount: 63,
+    toolResultCount: 63,
+    requestCount: 64,
+    error: { code: 'max_steps', message: 'agent request limit reached' },
+  });
+});
+
+Deno.test('headless launcher grants Worker resources without environment credentials', async () => {
+  const workspace = await Deno.makeTempDir({ prefix: 'henji-headless-launcher-cwd-' });
+  const stateBase = await Deno.makeTempDir({ prefix: 'henji-headless-launcher-state-' });
+  const launcher = new URL('../../v0/agent/runtime_cli_launcher.sh', import.meta.url).pathname;
+  const config = JSON.parse(await Deno.readTextFile('deno.v0.json')) as {
+    readonly tasks: Record<string, string>;
+  };
+  assertEquals(config.tasks['agent:run'], 'v0/agent/runtime_cli_launcher.sh');
+  const runtimeCliSource = await Deno.readTextFile('v0/agent/cli/runtime_cli.ts');
+  assert(!runtimeCliSource.includes('runRuntime'));
+  const launcherSource = await Deno.readTextFile(launcher);
+  assert(launcherSource.includes('umask 077'));
+  assert(
+    launcherSource.includes(
+      'deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno',
+    ),
+  );
+  assert(launcherSource.includes('--allow-env=HENJI_SESSION_STATE_ROOT'));
+  assert(!launcherSource.includes('HENJI_OPENROUTER_API_KEY'));
+  assert(
+    launcherSource.includes(
+      '--allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key',
+    ),
+  );
+  try {
+    const output = await new Deno.Command('/bin/sh', {
+      args: [launcher, '--unknown'],
+      cwd: workspace,
+      env: {
+        XDG_STATE_HOME: stateBase,
+      },
+      stdout: 'piped',
+      stderr: 'piped',
+    }).output();
+    assertEquals(output.code, 1);
+    assertEquals(new TextDecoder().decode(output.stdout), '');
+    assertEquals(JSON.parse(new TextDecoder().decode(output.stderr)), {
+      ok: false,
+      outcome: 'contract_failure',
+      stopReason: 'contract_failure',
+      steps: 0,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      requestCount: 0,
+      error: { code: 'invalid_input', message: 'invalid agent invocation' },
+    });
+  } finally {
+    await Deno.remove(workspace, { recursive: true });
+    await Deno.remove(stateBase, { recursive: true });
   }
 });
 

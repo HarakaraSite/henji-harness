@@ -69,16 +69,15 @@ import {
 } from './startup_orientation.ts';
 import { OpenRouterSonarWebSearchBackend, type WebSearchBackend } from '../tools/web_search.ts';
 
-/** The normal runtime has one fixed finite model-request bound. */
+/** The direct evaluation runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
 
-/** The only local file exposed through the normal runtime's JSON tool. */
+/** The only local file exposed through the direct evaluation runtime's JSON tool. */
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
 /**
- * Offline-only seams for direct tests. The production CLI calls `runRuntime`
- * without options, which resolves the fixed profile, host fetch, and host
- * credential source inside the existing adapter.
+ * Offline-only seams for direct tests, corpus evaluation, and sentinels. Production CLI and TUI
+ * turns use the Host/Worker route instead of `runRuntime`.
  */
 export interface RuntimeTestSeam {
   readonly fetcher?: typeof fetch;
@@ -140,7 +139,7 @@ export interface RuntimeRun {
   readonly requestCount: number;
 }
 
-/** The fixed normal-runtime wiring shared by one-shot CLI and the TUI. */
+/** Fixed direct-runtime wiring retained for offline evaluation and compatibility checks. */
 export interface RuntimeComposition {
   readonly model: Model;
   readonly registry: Registry;
@@ -510,7 +509,7 @@ export const createRuntimeSession = async (
   );
 
 /**
- * Run one normal single-shot agent invocation.
+ * Run one direct single-shot evaluation invocation outside the production Host/Worker path.
  *
  * The model and registry are constructed once per call, and the existing
  * provider-neutral loop is called once with the selected Definition's finite step bound. The

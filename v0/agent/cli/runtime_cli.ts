@@ -1,5 +1,5 @@
-import { runRuntime, type RuntimeRun, type RuntimeTestSeam } from '../runtime/runtime.ts';
 import { type BuiltinAgentSelection, resolveBuiltinAgent } from '../definitions/agent_catalog.ts';
+import { type HeadlessWorkerRun, runHeadlessWorker } from '../worker/worker_headless_runner.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
@@ -13,13 +13,12 @@ export class AgentInputError extends Error {
 
 export type OutputWriter = (text: string) => void | PromiseLike<void>;
 
-/** Test seams keep direct validation permission-free; production uses Deno I/O. */
+/** Test seams keep channel validation provider-free; production uses the headless Worker route. */
 export interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
-  readonly run?: (task: string, selection: BuiltinAgentSelection) => Promise<RuntimeRun>;
-  readonly runtimeSeam?: RuntimeTestSeam;
+  readonly run?: (task: string, selection: BuiltinAgentSelection) => Promise<HeadlessWorkerRun>;
   readonly writeStdout?: OutputWriter;
   readonly writeStderr?: OutputWriter;
 }
@@ -143,7 +142,7 @@ const failureLine = (
     error: { code, message },
   }) + '\n';
 
-const runtimeFailureLine = (run: RuntimeRun): string => {
+const runtimeFailureLine = (run: HeadlessWorkerRun): string => {
   const outcome = run.outcome;
   const counters = {
     steps: safeCounter(outcome.steps),
@@ -214,9 +213,7 @@ export const main = async (
       task = decodeTask(bytes);
     }
 
-    const runner = dependencies.run ??
-      ((value: string, selected: BuiltinAgentSelection) =>
-        runRuntime(value, dependencies.runtimeSeam, selected));
+    const runner = dependencies.run ?? runHeadlessWorker;
     const run = await runner(task, selection);
     if (
       run.outcome.ok &&

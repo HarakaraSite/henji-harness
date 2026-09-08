@@ -75,7 +75,7 @@ class MemoryWorkerHandle implements WorkerSessionHandle {
   }
 }
 
-export interface WorkerTuiSessionOptions {
+export interface WorkerSessionOptions {
   readonly workspaceRoot?: string;
   readonly stateRoot?: string;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
@@ -91,7 +91,7 @@ export interface WorkerTuiSessionOptions {
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
 }
 
-export interface WorkerTuiSessionResult {
+export interface WorkerSessionResult {
   readonly session: WorkerHostSession;
   readonly requestCount: () => number;
   readonly close: () => Promise<void>;
@@ -148,10 +148,10 @@ const restoreRecordMessages = (
   | { readonly messages: readonly Message[]; readonly omitted: number }
   | undefined => record === undefined ? undefined : restoredMessages(record.transcript);
 
-/** Build the production-equivalent TUI session through the Host/Worker route. */
-export const createWorkerTuiSession = async (
-  options: WorkerTuiSessionOptions,
-): Promise<WorkerTuiSessionResult> => {
+/** Build one Host-owned session through the common headless Worker route. */
+export const createWorkerSession = async (
+  options: WorkerSessionOptions,
+): Promise<WorkerSessionResult> => {
   const workspace = await resolveWorkspace(options.workspaceRoot);
   const instructionSnapshot = await discoverAgentInstructionSnapshot(
     workspace.root,
@@ -341,6 +341,11 @@ export const createWorkerTuiSession = async (
     throw error;
   }
 };
+
+/** Compatibility alias for the current terminal Surface. */
+export const createWorkerTuiSession = createWorkerSession;
+export type WorkerTuiSessionOptions = WorkerSessionOptions;
+export type WorkerTuiSessionResult = WorkerSessionResult;
 
 export const workerSessionRecord = (
   record: StoredSessionRecord | undefined,
