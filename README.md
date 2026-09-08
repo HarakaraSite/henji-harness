@@ -13,14 +13,14 @@ WorkerがDefinitionを合成・実行する。
 開発中のCLIとTUIは、まだJSR packageの公開interfaceに含めない。
 
 ```sh
-deno add jsr:@henji/harness@0.1.0-alpha.2
+deno add jsr:@henji/harness@0.1.0-alpha.3
 ```
 
 ```ts
 import {
   createDefaultAgentComposition,
   createPlannerAgentComposition,
-} from 'jsr:@henji/harness@0.1.0-alpha.2';
+} from 'jsr:@henji/harness@0.1.0-alpha.3';
 ```
 
 Pre-release中は、stable releaseまでにAPIが変更される可能性がある。
