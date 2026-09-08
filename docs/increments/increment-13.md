@@ -103,7 +103,9 @@ Increment 13では固定footer 2段目に実際のeffortを常時表示して、
   `provider deadline exceeded`と表示する。利用者cancelが確定している場合はcancelを優先する。
 - startup projection、成功したmodel/effort選択、Session binding replacementから現在のroot model/effortを
   Presentation projectionへ反映する。footer 1段目を一時status、2段目をcwd、Session短縮ID、完全なroot model
-  ID、effortの固定identity表示へ分けた。80 columnsではcurated catalog全entryの完全なmodel IDとeffortを保持する。
+  ID、effortの固定identity表示へ分けた。2段目は`[<cwd> session:<短縮ID> model:<model ID> <effort>]`とし、
+  将来のprovider表示にも幅を使えるよう`cwd:`と`effort:`のlabelは付けない。80 columnsではcurated catalog
+  全entryの完全なmodel IDとeffortを保持する。
 - model選択時にcatalogのdefault effortを自動適用するIncrement 12の仕様は変更していない。自動retry、fallback、
   Session schema変更も追加していない。
 

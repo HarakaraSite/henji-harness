@@ -239,9 +239,15 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
   assertEquals(first[0].text, '[ready]');
   assert(first[1].text.includes('session:abcdef12'));
   assert(first[1].text.includes('model:qwen/qwen3.8-max-0902'));
-  assert(first[1].text.includes('effort:xhigh'));
-  assert(first[1].text.includes('cwd:'));
+  assert(first[1].text.endsWith(' xhigh]'));
+  assert(first[1].text.includes('forgejo-agent'));
+  assert(!first[1].text.includes('cwd:'));
+  assert(!first[1].text.includes('effort:'));
   assert(first[1].text.length <= 80);
+  assertEquals(
+    layoutUi(state, 160, 24).footer[1].text,
+    '[/home/masat.guest/src/forgejo-agent session:abcdef12 model:qwen/qwen3.8-max-0902 xhigh]',
+  );
 
   state = reduceUiAction(state, { kind: 'status', text: 'contract_failure' });
   assertEquals(layoutUi(state, 80, 24).footer[1].text, first[1].text);
@@ -253,7 +259,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
   });
   let second = layoutUi(state, 80, 24).footer[1].text;
   assert(second.includes('model:deepseek/deepseek-v4-pro-0813'));
-  assert(second.includes('effort:high'));
+  assert(second.endsWith(' high]'));
 
   state = reduceUiEvent(state, {
     kind: 'session_binding_replaced',
@@ -268,7 +274,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
   second = layoutUi(state, 80, 24).footer[1].text;
   assert(second.includes('session:87654321'));
   assert(second.includes('model:qwen/qwen3.8-max-0902'));
-  assert(second.includes('effort:xhigh'));
+  assert(second.endsWith(' xhigh]'));
 
   for (const entry of OPENROUTER_MODEL_CATALOG) {
     const selection = selectOpenRouterModel(entry.modelId);
@@ -278,7 +284,9 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
     });
     const identity = layoutUi(state, 80, 24).footer[1].text;
     assert(identity.includes(`model:${entry.modelId}`));
-    assert(identity.includes(`effort:${entry.defaultEffort}`));
+    assert(identity.endsWith(` ${entry.defaultEffort}]`));
+    assert(!identity.includes('cwd:'));
+    assert(!identity.includes('effort:'));
     assert(identity.length <= 80);
   }
 });

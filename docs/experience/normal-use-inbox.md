@@ -10,6 +10,13 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
+### Surface: 複数provider対応時のfooter identity（F01、F02、F10）
+
+- 現在の固定footer 2段目はOpenRouterだけを扱うため、`model:<model ID> <effort>`を表示する。
+- 将来、Session内でproviderも切り替えられるようにする場合は、現在のproviderを独立したidentityとして
+  model、effortと一緒に常時表示する。
+- その表示幅を残すため、increment 13の通常利用確認後に`cwd:`と`effort:`のlabelを削除した。
+
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
 increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を

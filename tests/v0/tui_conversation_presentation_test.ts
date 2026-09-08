@@ -294,10 +294,12 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   const footer = layoutUi(state, 80, 24).footer;
   assertEquals(footer.length, 2);
   assertEquals(footer[0].text, '[ready]');
-  assert(footer[1].text.includes('cwd:'));
+  assert(footer[1].text.includes('/tmp/workspace'));
   assert(footer[1].text.includes('session:abcdef12'));
   assert(footer[1].text.includes('model:qwen/qwen3.8-max-0902'));
-  assert(footer[1].text.includes('effort:xhigh'));
+  assert(footer[1].text.endsWith(' xhigh]'));
+  assert(!footer[1].text.includes('cwd:'));
+  assert(!footer[1].text.includes('effort:'));
   assert(!footer.some((row) => row.text.includes('F1 help')));
   assert(!footer[0].text.includes('turn 0'));
   assertEquals((footer[1].text.match(/session:abcdef12/g) ?? []).length, 1);
@@ -331,7 +333,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   });
   const narrowFooter = layoutUi(narrow, 40, 24).footer;
   assert(narrowFooter[1].text.includes('session:abcdef12'));
-  assert(narrowFooter[1].text.includes('effort:xhigh'));
+  assert(narrowFooter[1].text.endsWith(' xhigh]'));
   assert(!narrowFooter.some((row) => row.text.includes('F1 help')));
 
   const cancelling = reduceUiAction(narrow, {
@@ -342,7 +344,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     const cancellingFooter = layoutUi(cancelling, columns, 24).footer;
     assert(cancellingFooter[0].text.includes('cancelling'));
     assert(cancellingFooter[1].text.includes('session:abcdef12'));
-    assert(cancellingFooter[1].text.includes('effort:xhigh'));
+    assert(cancellingFooter[1].text.endsWith(' xhigh]'));
     assert(cancellingFooter.every((row) => row.text.length <= columns));
   }
 });
@@ -453,7 +455,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   assertEquals(layout.footer[0].text, '[ready]');
   assert(layout.footer[1].text.includes('session:abcdef12'));
   assert(layout.footer[1].text.includes('model:qwen/qwen3.8-max-0902'));
-  assert(layout.footer[1].text.includes('effort:xhigh'));
+  assert(layout.footer[1].text.endsWith(' xhigh]'));
 
   const restored = reduceUiEvent(createUiState(), {
     kind: 'restored_log',

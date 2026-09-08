@@ -203,27 +203,27 @@ const footerIdentityText = (
   const session = state.projection.sessionId?.slice(0, 8) ?? 'none';
   const model = state.projection.model;
   if (model === undefined) {
-    const available = Math.max(1, columns - width('[cwd ]'));
-    return truncateCells(`[cwd ${suffixCells(workspace, available)}]`, columns);
+    const available = Math.max(1, columns - width('[]'));
+    return truncateCells(`[${suffixCells(workspace, available)}]`, columns);
   }
   const effort = safeDisplay(model.effort, false);
   const fullModel = safeDisplay(model.modelId, false);
-  const fixed = ` session:${session} model:${fullModel} effort:${effort}]`;
-  const cwdAvailable = columns - width(`[cwd:${fixed}`);
+  const fixed = ` session:${session} model:${fullModel} ${effort}]`;
+  const cwdAvailable = columns - width(`[${fixed}`);
   if (cwdAvailable >= 1) {
-    return `[cwd:${suffixCells(workspace, cwdAvailable)}${fixed}`;
+    return `[${suffixCells(workspace, cwdAvailable)}${fixed}`;
   }
 
-  const withoutCwd = `[session:${session} model:${fullModel} effort:${effort}]`;
+  const withoutCwd = `[session:${session} model:${fullModel} ${effort}]`;
   if (width(withoutCwd) <= columns) return withoutCwd;
 
   const unprefixedModel = fullModel.includes('/')
     ? fullModel.slice(fullModel.indexOf('/') + 1)
     : fullModel;
-  const compactFixed = `[session:${session} model: effort:${effort}]`;
+  const compactFixed = `[session:${session} model: ${effort}]`;
   const modelAvailable = Math.max(1, columns - width(compactFixed));
   return truncateCells(
-    `[session:${session} model:${suffixCells(unprefixedModel, modelAvailable)} effort:${effort}]`,
+    `[session:${session} model:${suffixCells(unprefixedModel, modelAvailable)} ${effort}]`,
     columns,
   );
 };
