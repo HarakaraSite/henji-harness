@@ -8,6 +8,11 @@
 
 この文書は、Henji HostとヘッドレスなDeno Agent Workerの責務、状態、lifetime、commit境界を定める。
 
+複数providerを同一SessionとWorker内で扱うroute、認証profile、provider state、evidence、Increment 14〜17の境界は、
+専門設計
+[`docs/architecture/multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)
+を正本とする。
+
 ## プロダクト上の決定
 
 - HenjiはDenoベースのagent harnessである。`AgentDefinition`はHenji内部の実行構成を表す、信頼された

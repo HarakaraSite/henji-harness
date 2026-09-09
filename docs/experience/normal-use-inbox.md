@@ -25,13 +25,6 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
 
-### Surface: 複数provider対応時のfooter identity（F01、F02、F10）
-
-- 現在の固定footer 2段目はOpenRouterだけを扱うため、`model:<model ID> <effort>`を表示する。
-- 将来、Session内でproviderも切り替えられるようにする場合は、現在のproviderを独立したidentityとして
-  model、effortと一緒に常時表示する。
-- その表示幅を残すため、increment 13の通常利用確認後に`cwd:`と`effort:`のlabelを削除した。
-
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
 increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を
@@ -104,6 +97,10 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 未採用候補:
 
+- OpenAI Responses APIのbuilt-in Web searchを、現行OpenRouter Sonarと同居可能な将来backend候補として保持する。
+  初期候補は、modelに`websearch1`、`websearch2`という実装名を直接選ばせるより、一つの意味上の`web_search`
+  toolに対してAgent Definitionまたはtool componentがbackendを選ぶ構成とする。二つを同時にmodelへ公開する必要が
+  生じた場合は、品質、費用、検索範囲など、人間とmodelが選択理由を理解できる別contractとして検討する。
 - OpenRouterの`openrouter:web_search` server toolを、同じ`WebSearchBackend`境界へ追加する将来backend候補
   として保持する。
 - 将来も「modelを内包する機能」として扱うか、検索・解釈を担当する`WebSearch AgentDefinition`として
@@ -186,12 +183,11 @@ Agent-level instruction候補:
 - 実際にtoolで取得したsourceだけを確認済みとして述べ、推定したsourceは区別する。
 - これらは`write` tool固有ではなく、source-grounded transformationを扱うAgent-level instruction候補とする。
 
-### F24候補: agent別instruction componentとPi型の合成
+### F24候補: instruction componentのrevision化と自己改定
 
-利用者判断:
-
-- HenjiもPiのようにbuilt-inの共通instructionを持ち、agentごとのinstructionをcomponentとして合成する
-  方式が好ましい。
+Increment 16で採用するruntime instruction合成は
+[`docs/architecture/multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)
+を正本とし、ここにはF24で検討するrevision管理と自己改定だけを残す。
 
 現行確認:
 
@@ -202,18 +198,9 @@ Agent-level instruction候補:
   技術的には設定できる。一方、公開`createDefaultAgentComposition()`にはagent固有instructionを追加する
   first-class optionがなく、任意のnamed agent catalog、instruction resource identity、manifestとの一貫した
   authoring契約は未整備である。
-- Piはbuilt-in coding-agent promptを基礎に、append prompt、globalからcwdまでのproject context、skill、
-  tool guideline、runtime factsを合成し、extensionによる差し替えも持つ。Zotもbuilt-in identity、custom
-  system prompt、globalからcwdまでのAGENTS、skill、runtime factsを分離している。どちらもAGENTSだけを
-  唯一のagent-wide instruction層にはしていない。
 
-設計候補:
+未採用候補:
 
-- `Henji共通instruction + agent role instruction + 有効toolのguideline + global/rootからcwdまでのworkspace
-  instruction + skill manifest + runtime facts`を独立componentとして合成する。
-- source attributionのような全agent共通規則はHenji共通componentへ、原文構造を維持する翻訳規則や
-  read-only planningなどはagent role componentへ置く。全文をagentごとに複製せず、共通部分のdriftを防ぐ。
-- instructionは振る舞いを誘導するものであり、必須のcapability境界はtool構成でも表現する。たとえば
-  read-only agentはinstructionだけでなくwrite/edit toolを持たせない。
-- componentの選択結果、revision identity、合成順と競合規則をManifestへ記録できる形を、F24で
-  instructionを改訂対象にするときの候補とする。現時点では採用済みarchitectureとはしない。
+- runtime componentをrevision付きresourceとして保存・比較し、F24の候補生成、人間による採用、rollbackの対象にする。
+- 任意のnamed agentがcomponentを選択できるauthoring契約と、component revisionのdependency lineageを定める。
+- 自己改定で複数componentを変更する場合の合成順、競合規則、Manifest attributionを定める。
