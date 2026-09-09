@@ -19,7 +19,10 @@ import {
   createAgentResourceSelection,
   validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
-import { composeSystemInstruction } from './definitions/agent_instructions.ts';
+import {
+  type BuiltinInstructionRole,
+  resolveBuiltinDefinitionInstruction,
+} from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
 import {
@@ -183,16 +186,17 @@ const definitionInput = (
 });
 
 const compositionInstruction = (
-  base: string | undefined,
+  role: BuiltinInstructionRole,
+  input: ExecutableAgentDefinitionInput,
   registry: Registry,
-): string | undefined => {
-  const guidelines = registry.promptGuidelines();
-  if (guidelines.length === 0) return base;
-  const component = `## Active tool guidelines\n\n${
-    guidelines.map((item) => `- ${item.tool}: ${item.text}`).join('\n')
-  }`;
-  return composeSystemInstruction(base, component);
-};
+): string =>
+  resolveBuiltinDefinitionInstruction(
+    role,
+    input.workspace.root,
+    input.agentInstructions,
+    input.skillCatalog,
+    registry.promptGuidelines(),
+  ).systemInstruction;
 
 const createPlannerHandler = (
   input: ExecutableAgentDefinitionInput,
@@ -209,7 +213,8 @@ async (task: string, childContext: ChildTurnExecutionContext): Promise<{
     workTools: input.physicalIo.workTools,
   });
   const systemInstruction = compositionInstruction(
-    planner.systemInstruction,
+    'planner',
+    input,
     plannerRegistry,
   );
   const outcome = await runAgent(
@@ -253,7 +258,8 @@ export const createDefaultAgentComposition = (
     webSearchBackend: input.physicalIo.webSearchBackend,
   });
   const systemInstruction = compositionInstruction(
-    resolved.systemInstruction,
+    'default',
+    input,
     registry,
   );
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
@@ -296,7 +302,8 @@ export const createPlannerAgentComposition = (
     workTools: input.physicalIo.workTools,
   });
   const systemInstruction = compositionInstruction(
-    resolved.systemInstruction,
+    'planner',
+    input,
     registry,
   );
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;

@@ -68,6 +68,7 @@ import {
   type RuntimeDisplayState,
 } from './startup_orientation.ts';
 import { OpenRouterSonarWebSearchBackend, type WebSearchBackend } from '../tools/web_search.ts';
+import { resolveBuiltinDefinitionInstruction } from '../instructions/compose.ts';
 
 /** The direct evaluation runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
@@ -228,6 +229,7 @@ export interface PreparedRuntimeComposition {
   readonly definition: ResolvedAgentDefinition;
   readonly resourceSelection: AgentResourceSelection;
   readonly selectionId: BuiltinAgentId;
+  readonly topology: AgentResolvedManifestValidationTopology;
   readonly seam: RuntimeTestSeam;
   readonly fetcher: typeof fetch;
   readonly requestCount: () => number;
@@ -315,6 +317,7 @@ export const prepareRuntimeComposition = async (
     definition,
     resourceSelection,
     selectionId: selection.id,
+    topology,
     seam,
     fetcher,
     requestCount: () => requestCount,
@@ -370,6 +373,13 @@ export const materializePreparedRuntimeComposition = (
           prepared.skillCatalog,
           undefined,
         );
+        const childSystemInstruction = resolveBuiltinDefinitionInstruction(
+          'planner',
+          prepared.workspace.root,
+          prepared.agentInstructions,
+          prepared.skillCatalog,
+          childRegistry.promptGuidelines(),
+        ).systemInstruction;
         const outcome = await runAgentTurn(
           task,
           [],
@@ -377,7 +387,7 @@ export const materializePreparedRuntimeComposition = (
           childRegistry,
           {
             maxSteps: childResourceSelection.parameters.maxSteps,
-            systemInstruction: childDefinition.systemInstruction,
+            systemInstruction: childSystemInstruction,
             executionContext: childContext,
             signal: childContext.signal,
             cancellation: childContext.cancellation,
@@ -417,10 +427,19 @@ export const materializePreparedRuntimeComposition = (
     prepared.skillCatalog,
     webSearchBackend,
   );
+  const systemInstruction = prepared.topology === 'builtin'
+    ? resolveBuiltinDefinitionInstruction(
+      prepared.selectionId === 'planner' ? 'planner' : 'default',
+      prepared.workspace.root,
+      prepared.agentInstructions,
+      prepared.skillCatalog,
+      registry.promptGuidelines(),
+    ).systemInstruction
+    : definition.systemInstruction;
   return {
     model,
     registry,
-    systemInstruction: definition.systemInstruction,
+    systemInstruction,
     displayState: prepared.displayState,
     resourceSelection: prepared.resourceSelection,
     requestCount,

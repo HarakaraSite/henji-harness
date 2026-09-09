@@ -48,13 +48,13 @@ const AGENTS_DIGEST =
 const DENO_DIGEST =
   'henji-workspace-content:v1:sha256:371631304952cb768c5d06dbf46fae0e60bee30cf2f38578ad48a6d3b0f951e4';
 export const CURRENT_MANIFEST_ID =
-  'henji-agent-resolved-manifest:v1:sha256:1a97306776a70b84b8f74c3a99af37c809afbda55c90763be3967cb170c95c30' as AgentResolvedManifestIdentity;
+  'henji-agent-resolved-manifest:v1:sha256:397313bfac661ea8280626efbf07281ca437bcdc0e974459d7fd54c9cf54ac10' as AgentResolvedManifestIdentity;
 export const VARIANT_MANIFEST_ID =
-  'henji-agent-resolved-manifest:v1:sha256:0ad98fa0768bd69f341aeb6f60e2956f7cc756f8ac542086598ec68d3112046b' as AgentResolvedManifestIdentity;
+  'henji-agent-resolved-manifest:v1:sha256:01ed801a6f3819e5e5ed550d42c5b6fe689899af60fb23fe5e831117f93f4f99' as AgentResolvedManifestIdentity;
 export const CURRENT_ENVELOPE_ID =
-  'henji-agent-replay-envelope:v1:sha256:667c33c6828f2e39e3c1454e942ca05f51735bc4fdeebb6adce359a957a79ea0' as AgentReplayEnvelopeIdentity;
+  'henji-agent-replay-envelope:v1:sha256:a5ffece76b11d36be37f5f4ade69386803c3dbb2e40c4399c53a21b341731927' as AgentReplayEnvelopeIdentity;
 export const VARIANT_ENVELOPE_ID =
-  'henji-agent-replay-envelope:v1:sha256:7a1938734db1c2dcdb9919314e105648a0abd2da01b8e2686e32050b2bd3e085' as AgentReplayEnvelopeIdentity;
+  'henji-agent-replay-envelope:v1:sha256:efddce60fc81ec45baddac3c198f01e5ec3731233722a83664995845360449d1' as AgentReplayEnvelopeIdentity;
 
 export const MODEL_ID = createAgentResourceIdentity(FRESH_RUNTIME_MODEL_IDENTITY);
 const frozenCase = (): FreshRuntimeComparisonCaseV1 =>

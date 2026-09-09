@@ -3,8 +3,10 @@
 `v0/agent` groups the active Agent implementation by responsibility:
 
 - `core/`: provider-neutral messages, events, turn control, context, cancellation, and steering.
-- `definitions/`: Agent definitions, selection, instructions, skills, identities, and resolved
-  manifests.
+- `definitions/`: Agent definitions, selection, workspace instruction discovery, skills, identities,
+  and resolved manifests.
+- `instructions/`: named built-in instruction components and their canonical composer; role text is
+  kept under `instructions/roles/`.
 - `provider/`: OpenRouter and OpenAI transports, route catalogs, credential access, and provider
   evidence.
 - `tools/`: tool declarations, registries, components, and tool implementations including web

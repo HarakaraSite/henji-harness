@@ -1,0 +1,199 @@
+import type { Model, ModelRequest } from '../../v0/agent/core/contracts.ts';
+import { emptySkillCatalog, type SkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import { resolveBuiltinInstructionComposition } from '../../v0/agent/instructions/compose.ts';
+import { DEFAULT_ROLE_INSTRUCTION } from '../../v0/agent/instructions/roles/default.ts';
+import { PLANNER_AGENT_INSTRUCTION } from '../../v0/agent/instructions/roles/planner.ts';
+import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
+import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
+import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
+import {
+  createDefaultAgentComposition,
+  createPlannerAgentComposition,
+} from '../../v0/agent/worker_agent_api.ts';
+import { createRuntimeComposition } from '../../v0/agent/runtime/runtime.ts';
+import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+
+const assert: (condition: unknown, message?: string) => asserts condition = (
+  condition,
+  message = 'assertion failed',
+) => {
+  if (!condition) throw new Error(message);
+};
+
+const assertEquals = (actual: unknown, expected: unknown): void => {
+  const left = JSON.stringify(actual);
+  const right = JSON.stringify(expected);
+  if (left !== right) throw new Error(left + ' !== ' + right);
+};
+
+const providerFreeWebSearchBackend: WebSearchBackend = {
+  search: (query) => ({
+    answer: 'result for ' + query,
+    sources: [{ title: 'fixture', url: 'provider-free://increment-16' }],
+  }),
+};
+
+const finalModel = (): Model => ({
+  generate: () => ({ kind: 'final', text: 'done' }),
+});
+
+const noInstructionFileSystem = {
+  lstat: () => Promise.reject(new Deno.errors.NotFound()),
+  open: () => Promise.reject(new Deno.errors.NotFound()),
+};
+
+const noSkillFileSystem = {
+  lstat: () => Promise.reject(new Deno.errors.NotFound()),
+  async *readDirectory(): AsyncIterable<string> {},
+  open: () => Promise.reject(new Deno.errors.NotFound()),
+};
+
+Deno.test('Increment 16 composes named instruction components in the canonical order', () => {
+  const composition = resolveBuiltinInstructionComposition({
+    role: 'default',
+    workspaceRoot: '/work/increment-16',
+    toolGuidelines: [{ tool: 'read', text: 'Prefer read for workspace files.' }],
+    workspaceInstruction: 'WORKSPACE INSTRUCTION',
+    skillManifest: 'SKILL MANIFEST',
+  });
+  assertEquals(composition.components.map((component) => String(component.identity)), [
+    'instruction:builtin-henji-common',
+    'instruction:builtin-default-role',
+    'instruction:active-tool-guidelines',
+    'instruction:workspace-agents',
+    'instruction:project-skill-manifest',
+    'instruction:runtime-facts',
+  ]);
+  const positions = [
+    DEFAULT_ROLE_INSTRUCTION,
+    '## Active tool guidelines',
+    'WORKSPACE INSTRUCTION',
+    'SKILL MANIFEST',
+    '## Runtime facts',
+    'Current working directory: /work/increment-16',
+  ].map((text) => composition.systemInstruction.indexOf(text));
+  assert(positions.every((position) => position >= 0));
+  assert(positions.every((position, index) => index === 0 || positions[index - 1] < position));
+  for (const staleFact of ['provider:openai', 'model:gpt', 'effort:high', 'session:', '2026-']) {
+    assert(!composition.systemInstruction.includes(staleFact));
+  }
+});
+
+Deno.test('Increment 16 isolates default/planner roles, active tools, and manifest identities', () => {
+  const skillCatalog: SkillCatalog = Object.freeze({
+    manifest: 'PROJECT SKILL MANIFEST',
+    skills: Object.freeze([Object.freeze({
+      name: 'fixture-skill',
+      description: 'Fixture skill.',
+      sourceDirectory: '.agents/skills/fixture-skill',
+      body: 'Fixture body.',
+      toolResult: 'Fixture body.',
+    })]),
+  });
+  const input = {
+    workspace: { root: '/work/increment-16' },
+    agentInstructions: 'WORKSPACE INSTRUCTION',
+    skillCatalog,
+    physicalIo: {
+      createModel: finalModel,
+      webSearchBackend: providerFreeWebSearchBackend,
+    },
+  };
+  const root = createDefaultAgentComposition(input);
+  const planner = createPlannerAgentComposition(input);
+
+  assert(root.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
+  assert(!root.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
+  assert(planner.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
+  assert(!planner.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
+  assert(root.systemInstruction?.includes('- bash_output:'));
+  assert(root.systemInstruction?.includes('- web_search:'));
+  assert(!planner.systemInstruction?.includes('- bash_output:'));
+  assert(!planner.systemInstruction?.includes('- web_search:'));
+  assert(planner.systemInstruction?.includes('- read:'));
+
+  for (const manifest of [root.manifest, planner.manifest]) {
+    assert(manifest.resources.includes('instruction:builtin-henji-common'));
+    assert(manifest.resources.includes('instruction:active-tool-guidelines'));
+    assert(manifest.resources.includes('instruction:workspace-agents'));
+    assert(manifest.resources.includes('instruction:project-skill-manifest'));
+    assert(manifest.resources.includes('instruction:runtime-facts'));
+  }
+  assert(root.manifest.resources.includes('instruction:builtin-default-role'));
+  assert(!root.manifest.resources.includes('instruction:builtin-planner-policy'));
+  assert(planner.manifest.resources.includes('instruction:builtin-planner-policy'));
+  assert(!planner.manifest.resources.includes('instruction:builtin-default-role'));
+});
+
+Deno.test('Increment 16 gives Worker and direct built-in runtimes the same resolved instruction', async () => {
+  const workspace = { root: '/work/increment-16-parity' };
+  const worker = createDefaultAgentComposition({
+    workspace,
+    skillCatalog: emptySkillCatalog(),
+    physicalIo: {
+      createModel: finalModel,
+      webSearchBackend: providerFreeWebSearchBackend,
+    },
+  });
+  const direct = await createRuntimeComposition({
+    workspace,
+    instructionFileSystem: noInstructionFileSystem,
+    skillFileSystem: noSkillFileSystem,
+    webSearchBackend: providerFreeWebSearchBackend,
+  });
+  assertEquals(direct.systemInstruction, worker.systemInstruction);
+  assert(
+    direct.systemInstruction?.includes('Current working directory: /work/increment-16-parity'),
+  );
+});
+
+const openAICompletedStream = (text: string): string => {
+  const response = {
+    id: 'resp_increment_16',
+    object: 'response',
+    created_at: 1_788_800_000,
+    status: 'completed',
+    model: OPENAI_DEFAULT_MODEL_SELECTION.modelId,
+    output: [{
+      id: 'msg_increment_16',
+      type: 'message',
+      status: 'completed',
+      role: 'assistant',
+      content: [{ type: 'output_text', text, annotations: [], logprobs: [] }],
+    }],
+    output_text: text,
+  };
+  return 'data: ' + JSON.stringify({ type: 'response.completed', response }) + '\n\n';
+};
+
+Deno.test('Increment 16 maps one semantic instruction to both provider wire contracts', async () => {
+  const resolved = resolveBuiltinInstructionComposition({
+    role: 'default',
+    workspaceRoot: '/work/provider-wire',
+    toolGuidelines: [{ tool: 'read', text: 'Read files.' }],
+  }).systemInstruction;
+  const request: ModelRequest = {
+    systemInstruction: resolved,
+    transcript: [{ role: 'user', content: { kind: 'text', text: 'Hello.' } }],
+    tools: [],
+  };
+  const openRouter = encodeRequest(request);
+  assertEquals(openRouter.messages[0], { role: 'system', content: resolved });
+
+  let openAIBody: Record<string, unknown> | undefined;
+  const model = new OpenAIResponsesModel({
+    selection: OPENAI_DEFAULT_MODEL_SELECTION,
+    credentialSource: () => Promise.resolve('fixture-secret'),
+    fetcher: async (input, init) => {
+      const wireRequest = input instanceof Request ? input : new Request(input, init);
+      openAIBody = JSON.parse(await wireRequest.clone().text());
+      return new Response(openAICompletedStream('done'), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    },
+  });
+  const result = await model.generate(request);
+  assertEquals(result.kind, 'final');
+  assertEquals(openAIBody?.instructions, resolved);
+});

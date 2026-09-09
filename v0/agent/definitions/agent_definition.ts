@@ -1,8 +1,12 @@
 import { type OpenRouterAgentProfile } from '../provider/openrouter_model.ts';
-import { composeSystemInstruction } from './agent_instructions.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { type SkillCatalog } from './skills.ts';
 import { type Workspace } from '../tools/work_tools.ts';
+import {
+  builtinInstructionResourceIdentities,
+  resolveBuiltinDefinitionInstruction,
+} from '../instructions/compose.ts';
+export { PLANNER_AGENT_INSTRUCTION } from '../instructions/roles/planner.ts';
 import {
   type AgentResourceIdentity,
   type AgentResourceSelection,
@@ -61,10 +65,6 @@ export type AgentDefinition = (input: AgentDefinitionInput) => ResolvedAgentDefi
 /** The finite request bound declared by the normal runtime's default Agent Definition. */
 export const DEFAULT_AGENT_MAX_STEPS = 64;
 
-/** Fixed planner policy appended after all discovered workspace context. */
-export const PLANNER_AGENT_INSTRUCTION =
-  'You are the built-in planner agent. Inspect the available workspace context needed for the task and produce a clear implementation plan. Do not mutate the workspace.';
-
 const canonicalSelection = (
   resources: readonly AgentResourceIdentity[],
   maxSteps: number,
@@ -78,16 +78,11 @@ const declarationsFor = (
   input: AgentDefinitionInput,
   registryKind: 'production' | 'planner',
 ): AgentCapabilityDeclaration => {
-  const instructions: AgentResourceIdentity[] = [];
-  if (input.agentInstructions !== undefined) {
-    instructions.push(createAgentResourceIdentity('instruction:workspace-agents'));
-  }
-  if (input.skillCatalog.manifest !== undefined) {
-    instructions.push(createAgentResourceIdentity('instruction:project-skill-manifest'));
-  }
-  if (registryKind === 'planner') {
-    instructions.push(createAgentResourceIdentity('instruction:builtin-planner-policy'));
-  }
+  const instructions = [...builtinInstructionResourceIdentities(
+    registryKind === 'production' ? 'default' : 'planner',
+    input.agentInstructions !== undefined,
+    input.skillCatalog.manifest !== undefined,
+  )];
   const skills = input.skillCatalog.skills.map((skill) =>
     createAgentResourceIdentity(`skill:${skill.name}`)
   );
@@ -148,12 +143,13 @@ const resolveDefinition = (
   });
   const capabilities = declarationsFor(input, kind);
   const limits = Object.freeze({ maxSteps: DEFAULT_AGENT_MAX_STEPS });
-  const systemInstruction = kind === 'planner'
-    ? composeSystemInstruction(
-      composeSystemInstruction(input.agentInstructions, input.skillCatalog.manifest),
-      PLANNER_AGENT_INSTRUCTION,
-    )
-    : composeSystemInstruction(input.agentInstructions, input.skillCatalog.manifest);
+  const systemInstruction = resolveBuiltinDefinitionInstruction(
+    kind === 'production' ? 'default' : 'planner',
+    input.workspace.root,
+    input.agentInstructions,
+    input.skillCatalog,
+    [],
+  ).systemInstruction;
   const resourceSelection = canonicalSelection(
     flattenResources(model, capabilities),
     limits.maxSteps,

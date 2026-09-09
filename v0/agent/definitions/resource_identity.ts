@@ -232,6 +232,14 @@ export const validateAgentResourceTopology = (
     .map((resource) => `${resource}`);
   const expected: AgentResourceIdentity[] = [
     createAgentResourceIdentity(`${resources[parsed.indexOf(model)]}`),
+    createAgentResourceIdentity('instruction:builtin-henji-common'),
+    createAgentResourceIdentity(
+      definitionId === 'default'
+        ? 'instruction:builtin-default-role'
+        : 'instruction:builtin-planner-policy',
+    ),
+    createAgentResourceIdentity('instruction:active-tool-guidelines'),
+    createAgentResourceIdentity('instruction:runtime-facts'),
   ];
   if (has('instruction:workspace-agents')) {
     expected.push(createAgentResourceIdentity('instruction:workspace-agents'));
@@ -256,7 +264,6 @@ export const validateAgentResourceTopology = (
     if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
     expected.push(createAgentResourceIdentity('subagent:planner'));
   } else {
-    expected.push(createAgentResourceIdentity('instruction:builtin-planner-policy'));
     expected.push(createAgentResourceIdentity('tool:read'));
     if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
     expected.push(createAgentResourceIdentity('tool:submit_json_result'));

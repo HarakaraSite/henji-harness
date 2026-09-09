@@ -206,9 +206,16 @@ Increment 16で採用するruntime instruction合成は
 
 現行確認:
 
-- 現行Henjiはworkspace rootの`AGENTS.md`または`AGENTS.MD`一つとskill manifestをsystem instructionへ
-  合成する。built-in `planner`だけは末尾にplanner policyを追加するため、`default`と`planner`の
-  振る舞いをinstructionとtool構成の両方で既に分けている。
+- 現行HenjiはHenji共通、agent role、active tool guideline、workspace instruction、skill manifest、
+  runtime factsをこの順でsystem instructionへ合成する。workspace instructionはworkspace rootの
+  `AGENTS.md`または`AGENTS.MD`一つであり、defaultとplannerは自分のroleと利用可能toolのguidelineだけを受け取る。
+- Henji全体へ適用する`~/.config/henji-harness/AGENTS.md`は採用せず、`AGENTS.md`はworkspace rootの
+  project固有instructionだけに使う。Henji共通とbuilt-in agent固有のinstructionは
+  `v0/agent/instructions/`の独立したTypeScript componentが所有する。
+- 現在のinstalled `henji`はrepository内のTypeScriptを`deno run`するlauncherなので、built-in
+  instructionのsource変更はHenji再起動後に反映できる。一方、将来`deno compile`等のstandalone
+  executableへ移行すると、静的importされたinstructionもbinaryへ埋め込まれ、sourceを変更するだけでは
+  installed binaryへ反映されず、再build・再installが必要になる。
 - workspace-local external Definitionは異なる`systemInstruction`を返せるため、agent AへX、agent BへYを
   技術的には設定できる。一方、公開`createDefaultAgentComposition()`にはagent固有instructionを追加する
   first-class optionがなく、任意のnamed agent catalog、instruction resource identity、manifestとの一貫した
@@ -219,3 +226,6 @@ Increment 16で採用するruntime instruction合成は
 - runtime componentをrevision付きresourceとして保存・比較し、F24の候補生成、人間による採用、rollbackの対象にする。
 - 任意のnamed agentがcomponentを選択できるauthoring契約と、component revisionのdependency lineageを定める。
 - 自己改定で複数componentを変更する場合の合成順、競合規則、Manifest attributionを定める。
+- standalone binaryでもinstruction置換と自己改定を成立させるため、immutableなbinary内built-inを直接書き換えるのか、
+  writableな外部revision storeを正本にするのか、build・install・rollbackを伴う更新機構にするのかを決める。開発時の
+  source編集可能性を、配布後のruntime変更可能性と同一視しない。

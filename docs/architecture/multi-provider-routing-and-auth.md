@@ -257,7 +257,7 @@ Increment 14の計画へ戻して決める。
 | Worker protocol / manifest / execution artifact | exact shapeにOpenRouter selection、root/plannerの二lane | protocol・artifact schema migration。request originはtool backendも区別 |
 | provider evidence v1 | endpoint/bodyから推定できるがprovider、API、auth profile、tool originがない | request metadataを明示する新schema。既存evidenceはreadableなまま保持 |
 | failure diagnostic | OpenRouter error classとparent/planner laneを前提 | provider-neutral error factにroute attributionを追加。表示は既存の短いfailureを維持 |
-| instruction composition | generation生成時の`composition.systemInstruction`に固定 | Increment 14では同じresolved instructionを両adapterへ写像。Increment 16でrole/route-aware component合成へ分離 |
+| instruction composition | Increment 16で共通・role・active tool・workspace・skill・runtime factsをnamed component化し、generation生成時に合成 | 同じresolved instructionを両adapterへ写像し、provider routeは本文へ混ぜない。revision・置換・自己改定は後続F24候補 |
 | TUI picker / presentation / footer | `/model`と`/effort`がOpenRouter catalogを直接参照 | Increment 14はstartup route、15で`/provider`とprovider-scoped pickerへ分離 |
 | `web_search.ts` | backend interfaceは中立だがSonarがmainと同じcredential sourceを受ける | backend専用OpenRouter auth resolverをbindし、OpenAI rootとの組合せを実経路で確認 |
 | checkpoint `sourceProfileId` | current OpenRouter profileとの一致検証が残る箇所がある | provenanceとactive selection compatibilityを分離し、provider切替後もsemantic summaryを利用 |
@@ -314,6 +314,15 @@ planner/subagent routeの対話的変更、自動provider fallback、複数auth 
   Henjiのagent instruction本文へ混ぜない。
 - OpenAI direct rootとOpenRouter plannerの組合せでも、planner policyとtool capabilityがrootへ漏れず、rootのproviderを
   plannerが暗黙継承しないことを確認する。
+
+実装結果（2026-09-09）:
+
+- `v0/agent/instructions/`へ共通、role別、runtime facts、component型、固定順composerを配置した。project
+  instructionはworkspace rootの`AGENTS.md`または`AGENTS.MD`だけで、Henji-global AGENTSは設けていない。
+- Workerとdirect互換runtimeは、各roleでmaterializeしたregistryのguidelineから同じcomposerを使う。runtime
+  factsはcwdだけで、provider、model、effort、Session ID、日付を含めない。
+- built-in manifestは共通、role、active tool guideline、任意のworkspace/skill、runtime factsのidentityを記録する。
+  OpenRouterのsystem messageとOpenAI Responsesの`instructions`には、同じresolved本文を既存adapterが写像する。
 
 ### Increment 17 — Codex subscription経路
 
