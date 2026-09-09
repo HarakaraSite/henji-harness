@@ -10,7 +10,16 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ## 未採用候補
 
-### Surface: Session一覧の識別情報（低優先度、F01、F05、F10）
+### 一覧
+
+- [Surface](#surface)
+- [Agent実行](#agent実行)
+- [F24・自己改定](#f24自己改定)
+- [配布・外部化](#配布外部化)
+
+### Surface
+
+#### Surface: Session一覧の識別情報（低優先度、F01、F05、F10）
 
 - 保存済みSessionに、人間が一覧で内容を識別できるtitleを持たせたい。
 - default titleは、最初のturnの内容をもとにAIが自動で付ける。
@@ -19,29 +28,13 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - 自動生成の実行時点、利用model、再生成の扱い、変更用UIと、日時を含む識別情報の表示方法は、
   個別incrementへ採用するときに決める。
 
-### Surface: slash command候補の逐次絞り込みと補完（低優先度、F01、F10）
+#### Surface: slash command候補の逐次絞り込みと補完（低優先度、F01、F10）
 
 - 入力が先頭の`/`から始まる場合、その後のkey入力ごとに一致するslash command候補を絞り込んで表示する。
 - 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
 
-### Agent実行: 有用なslash command操作のtool化（F02、F06、F10）
-
-- slash commandのうち、AI自身が作業中に利用できると有用な操作は、人間向けcommandだけでなくmodel向けtoolとしても
-  提供することを検討する。初期候補はresourceを再読込する`/reload`と、保存済みSessionを扱う`/sessions`である。
-- slash command文字列をmodelに擬似入力させるのではなく、Hostが所有する同じapplication serviceへ、型付きslash command
-  handlerと型付きtool handlerの双方を接続する構成を候補とする。
-- 一覧取得などのread-only操作と、Session切替・runtime再読込のように現在のtool callやconversation contextを置換する操作を
-  区別する。後者はtool resultを返す前に呼出元を破棄せず、次turnへの予約、Host control event、完了後の切替など、実行順序を
-  個別incrementで定める。
-- `/sessions`のtool化では、Session一覧取得、詳細取得、選択・切替を一つのtoolにするか分けるかを決める。AIによる自動切替と、
-  候補提示後に人間が選択する操作も区別する。
-- `/reload`のtool化では、再読込対象、active response中の扱い、Worker generation・Definition revision・Session bindingとの
-  整合を、既存の「`/reload`によるresource再読込」候補と一緒に設計する。
-- 今後slash commandを追加するときは、同じ意味操作をAIが利用する価値があるかを確認し、必要ならtool surfaceも併せて検討する。
-  UIだけに意味があるcommandや、人間の明示選択そのものが目的のcommandまで一律にtool化はしない。
-
-### Surface: `read`分割範囲のtool表示（低優先度、F01、F10）
+#### Surface: `read`分割範囲のtool表示（低優先度、F01、F10）
 
 通常利用で254行のREADMEを1–200行、201–254行に分けて正しく読んだが、TUIは両方を
 `tool> read README.md`とだけ表示したため、同じ内容を二重に読んだように見えた。
@@ -50,7 +43,7 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - settled後に実際の最終行まで表示するか、request時点の予定範囲だけにするかは、個別increment採用時に決める。
 - tool argument全体やfile内容を常時表示する変更には広げない。
 
-### Surface: provider認証statusとHenji内credential登録（F01、F02、F10）
+#### Surface: provider認証statusとHenji内credential登録（F01、F02、F10）
 
 通常利用での観測と要望:
 
@@ -65,7 +58,7 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
   fixed credential fileへの保存と更新結果の表示。
 - OpenRouter、OpenAI direct、将来providerで共通化する範囲と、Sessionのroot routeを切り替えた時のstatus更新時点。
 
-### Surface: 履歴閲覧の後続候補（F01、F05、F10）
+#### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
 increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を
 実装し、通常利用で受け入れた。`/history export`はincrement 4へ採用済み。次の操作は未採用である。
@@ -75,7 +68,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
 
-### Surface: `/reload`によるresource再読込（F01、F03、F10）
+#### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
 観測と利用者要望:
 
@@ -93,7 +86,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 現Sessionと未送信draftを保ったままWorker generationを置換するのか、現在のgeneration内でresourceだけを
   再構成するのか。Definition revision bindingとSessionの整合性を含め、実装increment採用時に決める。
 
-### Surface: assistant本文のrendering（F01、F10、将来のF24候補）
+#### Surface: assistant本文のrendering（F01、F10、将来のF24候補）
 
 観測:
 
@@ -110,7 +103,25 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   候補とする。現在のstring出力contractを変える必要が生じた場合は、F10と将来のF24として構想・
   architectureへ戻って検討する。
 
-### Agent実行: 調査時のtool選択（F02、F06、将来のF24候補）
+### Agent実行
+
+#### Agent実行: 有用なslash command操作のtool化（F02、F06、F10）
+
+- slash commandのうち、AI自身が作業中に利用できると有用な操作は、人間向けcommandだけでなくmodel向けtoolとしても
+  提供することを検討する。初期候補はresourceを再読込する`/reload`と、保存済みSessionを扱う`/sessions`である。
+- slash command文字列をmodelに擬似入力させるのではなく、Hostが所有する同じapplication serviceへ、型付きslash command
+  handlerと型付きtool handlerの双方を接続する構成を候補とする。
+- 一覧取得などのread-only操作と、Session切替・runtime再読込のように現在のtool callやconversation contextを置換する操作を
+  区別する。後者はtool resultを返す前に呼出元を破棄せず、次turnへの予約、Host control event、完了後の切替など、実行順序を
+  個別incrementで定める。
+- `/sessions`のtool化では、Session一覧取得、詳細取得、選択・切替を一つのtoolにするか分けるかを決める。AIによる自動切替と、
+  候補提示後に人間が選択する操作も区別する。
+- `/reload`のtool化では、再読込対象、active response中の扱い、Worker generation・Definition revision・Session bindingとの
+  整合を、既存の「`/reload`によるresource再読込」候補と一緒に設計する。
+- 今後slash commandを追加するときは、同じ意味操作をAIが利用する価値があるかを確認し、必要ならtool surfaceも併せて検討する。
+  UIだけに意味があるcommandや、人間の明示選択そのものが目的のcommandまで一律にtool化はしない。
+
+#### Agent実行: 調査時のtool選択（F02、F06、将来のF24候補）
 
 観測:
 
@@ -127,7 +138,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
 
-### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
+#### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
 
 現行確認:
 
@@ -147,7 +158,9 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   conversation、prompt、model、tool利用を明示的に所有させるかは未決である。agent化が必要になる具体的な
   task、状態、委譲、revision上の利点が観測された時点で比較する。
 
-### F24候補: revision付きtool componentとMCP component
+### F24・自己改定
+
+#### F24候補: revision付きtool componentとMCP component
 
 未採用候補:
 
@@ -164,7 +177,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 上記のcomponent境界だけではF24完了とせず、tool candidate生成、revision保存、人間による採用まで
   product flowとして成立した段階をtool改訂として扱う。
 
-### F24候補: tool実行権限とsandboxed Deno program
+#### F24候補: tool実行権限とsandboxed Deno program
 
 通常利用での観測:
 
@@ -200,7 +213,7 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 議論から得た未採用のarchitecture・tool候補として保存する。permission profile、実行配置、dependency
   取得、永続化範囲、unrestricted `bash`との併存方法は、具体的なproduct incrementを選ぶ時点で決める。
 
-### F24候補: sourceから派生物を作るAgent instruction
+#### F24候補: sourceから派生物を作るAgent instruction
 
 観測:
 
@@ -223,7 +236,7 @@ Agent-level instruction候補:
 - 実際にtoolで取得したsourceだけを確認済みとして述べ、推定したsourceは区別する。
 - これらは`write` tool固有ではなく、source-grounded transformationを扱うAgent-level instruction候補とする。
 
-### F24候補: instruction componentのrevision化と自己改定
+#### F24候補: instruction componentのrevision化と自己改定
 
 Increment 16で採用するruntime instruction合成は
 [`docs/architecture/multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)
@@ -255,7 +268,9 @@ Increment 16で採用するruntime instruction合成は
   writableな外部revision storeを正本にするのか、build・install・rollbackを伴う更新機構にするのかを決める。開発時の
   source編集可能性を、配布後のruntime変更可能性と同一視しない。
 
-### 配布・F24候補: 各種Definitionの外部化とPiのProvider構成
+### 配布・外部化
+
+#### 配布・F24候補: 各種Definitionの外部化とPiのProvider構成
 
 対象はAgent Definition、instruction component、tool component、Provider Definitionである。現時点では将来課題として
 保存し、共通plugin方式や外部化の採用は決定しない。
