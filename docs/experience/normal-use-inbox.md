@@ -105,6 +105,16 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 ### Agent実行
 
+#### Agent実行: ChatGPT subscription root provider（F02、F06）
+
+- Increment 17で、公式Codex境界、非公開ChatGPT Codex backendへのdirect route、Pi・OpenCode・Zotの比較実装、
+  OpenAIのOSS支援方針を調査した。詳細な確認結果は
+  [`docs/increments/increment-17.md`](../increments/increment-17.md)を正本とする。
+- 技術的な実装候補は存在するが、OpenAI subscription対応は現段階のHenjiに必須ではないため、利用者判断で
+  runtime実装を将来incrementへ延期した。
+- Henjiの既存機能の完成度を高めた後、利用者が必要性を判断して再採用する場合に、OpenAIの最新方針、公式contract、
+  現行の参照実装を再確認し、新しい個別increment計画を作る。
+
 #### Agent実行: 有用なslash command操作のtool化（F02、F06、F10）
 
 - slash commandのうち、AI自身が作業中に利用できると有用な操作は、人間向けcommandだけでなくmodel向けtoolとしても

@@ -1,6 +1,6 @@
 # Henji 複数provider routing・認証アーキテクチャ
 
-ステータス: **Increment 14〜17を通す採用済み設計。各incrementの実装計画・実装認可ではない**
+ステータス: **Increment 14〜16の採用済み設計。ChatGPT subscription routeはfeasibility確認後に将来へ延期**
 
 作成日: 2026-09-09
 
@@ -9,8 +9,9 @@
 ## 目的
 
 Henjiのdefault parent、delegated planner等のsubagent、modelを内部利用するtoolが、同じturnまたはSession内で
-別々のproviderと認証経路を安全かつ正確に使えるようにする。Increment 14から17は、個別adapterを順番に
-足すのではなく、本書の共通route、認証、Session、provider evidence契約へ一つずつ接続する。
+別々のproviderと認証経路を安全かつ正確に使えるようにする。Increment 14から16は、個別adapterを順番に
+足すのではなく、本書の共通route、認証、Session、provider evidence契約へ一つずつ接続した。Increment 17で
+ChatGPT subscription routeのfeasibilityを確認したが、runtime実装は将来incrementへ延期した。
 
 必要なproduct動作は次のとおりである。
 
@@ -18,8 +19,8 @@ Henjiのdefault parent、delegated planner等のsubagent、modelを内部利用�
   `web_search`を同じturnで利用できる。
 - parentとsubagentが異なるproviderでも、各model requestは自分に指定されたprovider・model・effort・
   認証profileを使う。親のcredentialを子へ暗黙継承しない。
-- OpenAI Platform API-key認証とOpenAI CodexのChatGPT subscription認証を同じprocessで利用できるが、
-  endpoint、API contract、課金・管理境界、credentialを混同しない。
+- 将来OpenAI CodexのChatGPT subscription認証を追加する場合も、OpenAI Platform API-key認証とendpoint、
+  API contract、課金・管理境界、credentialを混同しない。
 - providerを切り替えてもHenji Sessionとsemantic transcriptは継続する。一turnの途中でroot routeは変えない。
 - request、raw response bytes、SSEまたはprovider protocol event、parser transition、runtime outcome、provider・
   model・request originをcredentialなしで保存し、各model/providerの挙動を後から照合できる。
@@ -64,8 +65,8 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 - OpenAI modelごとの利用可能effortとtool continuationに必要な全output item。curated catalog候補ごとに公式schemaと
   簡単な実requestで確認する。
 - Codex SDK/app-serverはHenjiの低水準`Model.generate()`を置換するmodel providerではなく、agent loop、history、
-  approvalも所有する高水準境界である。Henjiのroot model routeとして統合できるか、delegated agent backendとして
-  扱うべきか、またHenjiが必要とするraw upstream evidenceを取得できるかはIncrement 17の公式契約・probeで決める。
+  approvalも所有する高水準境界である。Increment 17のfeasibility確認では、Henjiのroot model routeに適合する
+  公式の低水準subscription model APIを確認できなかった。
 - ChatGPT subscription tokenを直接`chatgpt.com` backendへ送る方式は、pinned比較実装には存在するが、現時点で
   Henjiが依拠する公式public API contractとしては確認していない。本書はそれを既定経路にしない。
 
@@ -77,7 +78,7 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 | --- | --- | --- | --- |
 | `openrouter` | OpenRouter Chat Completions互換API | `openrouter-api-key` | 実装済み |
 | `openai` | 公開OpenAI Responses API | `openai-api-key` | 14 |
-| `openai-codex` | Codexが正式に提供するsubscription実行境界 | `openai-codex-managed` | 17で経路決定後 |
+| `openai-codex` | 将来再確認するChatGPT Codex subscription経路 | 未決定 | 将来incrementで再採用した場合 |
 
 `openai`と`openai-codex`は同じvendorのmodelを使えても別providerである。model IDが同じでも、API surface、
 認証、課金、provider state、evidenceの意味が異なるためである。
@@ -110,8 +111,9 @@ interface ModelSelection {
 
 初期auth profileは固定identityでよい。将来複数accountを選ぶ必要が生じた場合にopaqueなprofile IDへ拡張する。
 email、account ID、API key、access/refresh tokenはselectionへ含めない。
-`openai-codex` branchはIncrement 17のfeasibility gateで実際の公式境界を確定してからこのunionへ追加し、
-未確認の`api`やstate shapeを先にruntime contractへ固定しない。
+`openai-codex` branchは現時点ではこのunionへ追加しない。将来の個別incrementで再採用した場合に、OpenAIの
+最新方針、公式contract、現行の比較実装と実行証拠を確認してから追加し、未確認の`api`やstate shapeを先にruntime
+contractへ固定しない。
 
 ## 不変条件
 
@@ -324,9 +326,9 @@ planner/subagent routeの対話的変更、自動provider fallback、複数auth 
 - built-in manifestは共通、role、active tool guideline、任意のworkspace/skill、runtime factsのidentityを記録する。
   OpenRouterのsystem messageとOpenAI Responsesの`instructions`には、同じresolved本文を既存adapterが写像する。
 
-### Increment 17 — Codex subscription経路
+### Increment 17 — Codex subscription経路のfeasibility
 
-最初に次のfeasibility gateを行う。
+次のfeasibility gateを行った。
 
 1. official Codex app-serverのmanaged authでChatGPT browserまたはdevice-code login、token refresh、account stateを
    credentialをHenjiへ渡さず利用できるか確認する。
@@ -337,9 +339,14 @@ planner/subagent routeの対話的変更、自動provider fallback、複数auth 
 3. Henjiが必要とするrequest、stream event、model output、runtime outcomeをどこまで取得できるか確認する。upstream raw
    SSEが取得できない場合は、その証拠差を明示し、同等と称さない。
 
-gate後に採用したrouteだけを`openai-codex`としてprovider registryへ追加する。ChatGPT OAuth tokenをOpenAI public API-key
-adapterへ渡さず、OpenAI API keyをCodex subscription routeへ渡さない。Sessionには`openai-codex-managed`という非秘密の
-auth profile identityだけを保存する。
+確認の結果、Pi、OpenCode、Zotには、Codex CLIやapp-serverへagent taskを委譲せず、それぞれのagent/tool loopを
+維持したままChatGPT Codex backendへ直接接続する比較実装がある。一方、公式の低水準subscription model APIと
+非公開backendの安定したpublic contractは確認できなかった。
+
+2026-09-09、利用者はOpenAI subscription対応を現段階の必須機能とせず、Henjiの既存機能の完成度を先に高めてから
+将来incrementとして採否を判断すると決めた。そのため`openai-codex`はprovider registryへ追加していない。将来
+再採用する場合も、ChatGPT OAuth tokenをOpenAI public API-key adapterへ渡さず、OpenAI API keyをCodex subscription
+routeへ渡さない。
 
 ## 各incrementの確認原則
 
@@ -353,16 +360,18 @@ auth profile identityだけを保存する。
   Authorizationを含まない。
 - regression: 既存OpenRouter model/effort切替、planner delegation、Sonar検索、deadline、footerが引き続き成立する。
 
-Increment 14と17は外部contractが実装可否を左右するため、簡単なreal-provider probeを詳細計画に含める。credentialを
-使うが、値、Authorization、credential pathを出力・evidence・repositoryへ保存しない。
+Increment 14では外部contractが実装可否を左右するため、簡単なreal-provider probeを詳細計画に含めた。将来
+ChatGPT subscription routeを再採用する場合も、その時点の個別increment計画で同様に外部contractを確認する。
+credentialを使う場合も、値、Authorization、credential pathを出力・evidence・repositoryへ保存しない。
 
 ## 実装順序を変える条件
 
 - Increment 14のSDK evidence probeが成立しない場合、raw evidenceを落とさずSDK統合方式を再設計する。
 - generic routeをSession/protocol/evidenceまで通せない場合、OpenAI adapterだけをOpenRouter型へ押し込んで先へ進まない。
-- Increment 17でofficial Codex境界がHenjiのmodel provider contractと一致しない場合、同一provider pickerへ見せる前に
-  delegated agent backendとしての意味を利用者と決める。
-- OpenAI built-in Web searchは、上記route/auth基盤とは独立した後続判断とする。Increment 14〜17を止める依存にしない。
+- ChatGPT subscription routeを将来再採用する場合、official Codex境界とdirect backendの現行contractを再確認し、
+  Henjiのmodel provider contractと一致しない経路を同一provider pickerへ追加しない。
+- OpenAI built-in Web searchは、上記route/auth基盤とは独立した後続判断とし、provider実装やfeasibility確認を
+  止める依存にしない。
 
 ## Review記録
 
@@ -374,5 +383,5 @@ variantの列挙は対象外とする。
 - P2は、採用済みfooter/runtime instruction事項の未採用inboxからの移動、direct runtime・live eval・
   real-provider acceptance経路の衝突追記、Codex app-server managed authとSDK/app-server実行境界のgate分離で解消した。
 - 変更箇所の再reviewで3件の解消と追加Blocker/P1なしを確認した。
-- 残余未確認は、本書に記載したIncrement 14のOpenAI SDK/evidence/Deno probeと、Increment 17のCodex公式境界・
-  evidence probeである。実装前の推測で閉じない。
+- Increment 17ではCodex公式境界、Pi・OpenCode・Zotのdirect実装、OpenAIのOSS支援方針を確認し、runtime実装を
+  将来へ延期した。再採用時には、その時点の外部contractと実行証拠を改めて確認する。
