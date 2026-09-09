@@ -21,7 +21,14 @@ export const presentationIntent = (
     }
   } else if (kind === 'resume_session') {
     boundedPresentationText(copy.id);
+  } else if (kind === 'select_provider') {
+    if (copy.provider !== 'openrouter' && copy.provider !== 'openai') {
+      throw new PresentationDeliveryError();
+    }
   } else if (kind === 'select_model') {
+    if (copy.provider !== 'openrouter' && copy.provider !== 'openai') {
+      throw new PresentationDeliveryError();
+    }
     boundedPresentationText(copy.modelId);
     boundedPresentationText(copy.effort);
   } else if (kind === 'history_page') {

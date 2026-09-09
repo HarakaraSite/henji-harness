@@ -207,23 +207,29 @@ const footerIdentityText = (
     return truncateCells(`[${suffixCells(workspace, available)}]`, columns);
   }
   const effort = safeDisplay(model.effort, false);
+  const provider = safeDisplay(model.provider, false);
   const fullModel = safeDisplay(model.modelId, false);
-  const fixed = ` session:${session} model:${fullModel} ${effort}]`;
+  const fixed = ` session:${session} provider:${provider} model:${fullModel} ${effort}]`;
   const cwdAvailable = columns - width(`[${fixed}`);
   if (cwdAvailable >= 1) {
     return `[${suffixCells(workspace, cwdAvailable)}${fixed}`;
   }
 
-  const withoutCwd = `[session:${session} model:${fullModel} ${effort}]`;
+  const withoutCwd = `[session:${session} provider:${provider} model:${fullModel} ${effort}]`;
   if (width(withoutCwd) <= columns) return withoutCwd;
 
-  const unprefixedModel = fullModel.includes('/')
-    ? fullModel.slice(fullModel.indexOf('/') + 1)
-    : fullModel;
-  const compactFixed = `[session:${session} model: ${effort}]`;
-  const modelAvailable = Math.max(1, columns - width(compactFixed));
+  const compactFixed = `[session:${session} provider:${provider} model: ${effort}]`;
+  if (width(compactFixed) < columns) {
+    const modelAvailable = columns - width(compactFixed);
+    return `[session:${session} provider:${provider} model:${
+      suffixCells(fullModel, modelAvailable)
+    } ${effort}]`;
+  }
+
+  const narrowFixed = `[${session} ${provider}  ${effort}]`;
+  const modelAvailable = Math.max(1, columns - width(narrowFixed));
   return truncateCells(
-    `[session:${session} model:${suffixCells(unprefixedModel, modelAvailable)} ${effort}]`,
+    `[${session} ${provider} ${suffixCells(fullModel, modelAvailable)} ${effort}]`,
     columns,
   );
 };

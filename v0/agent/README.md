@@ -35,10 +35,12 @@ calls and Sonar `web_search` keep independent OpenRouter routes and credentials.
 persists provider, API, auth-profile identity, active selection, change history, and
 per-committed-turn attribution; schema v1-v3 records remain readable and upgrade on the next commit.
 
-For the current OpenRouter route, `/model` opens the searchable repository-curated model list;
-choosing a model also selects that model's curated default effort. `/effort` changes only the
-current model's effort. Both commands are idle-only and take effect on the next root turn. The
-same-Session provider picker is planned for the next increment.
+`/provider` switches the root between OpenRouter and OpenAI in the current idle Session and applies
+the selected provider's complete default model/effort selection. `/model` opens the active
+provider's searchable repository-curated model list; choosing a model also selects that model's
+curated default effort. `/effort` changes only the active provider/model's effort. These commands
+are idle-only and take effect on the next root turn. OpenAI's initial direct catalog contains
+`gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
 The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request
 deadline. It defaults to 120,000 ms and applies to each root, delegated-planner, and context-
@@ -46,7 +48,7 @@ compaction model request in that Worker invocation. The value is not Session sta
 switch keeps the invocation value and a later invocation returns to the default unless the flag is
 supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not
 automatically retry or select another model. The TUI footer keeps transient status on row one and
-cwd, the short Session ID, root model, and effort on row two.
+cwd, the short Session ID, root provider, model, and effort on row two.
 
 `validation/production_cli_e2e.ts` starts that production launcher only when invoked with the exact
 `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider

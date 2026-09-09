@@ -26,9 +26,12 @@ import type {
   TuiPresentationAdapterOptions,
 } from './adapter_contract.ts';
 import {
+  defaultModelSelectionFor,
   type ModelSelection,
-  selectOpenRouterModel,
-} from '../agent/provider/openrouter_model_catalog.ts';
+  type ProviderId,
+  type ReasoningEffort,
+  selectModelFor,
+} from '../agent/provider/model_catalog.ts';
 import {
   assistantMessage,
   bounded,
@@ -343,6 +346,33 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     }
   }
 
+  private dispatchModelSelection(
+    selection: ModelSelection,
+  ): PresentationIntentResult | Promise<PresentationIntentResult> {
+    if (this.core.selectModel === undefined) {
+      return { kind: 'rejected', reason: 'unavailable' };
+    }
+    return this.core.selectModel(selection).then((status) => {
+      if (status !== 'selected' && status !== 'unchanged') {
+        return {
+          kind: 'rejected' as const,
+          reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
+        };
+      }
+      const projected = {
+        provider: selection.provider,
+        modelId: selection.modelId,
+        effort: selection.effort,
+      };
+      this.emit({ kind: 'model_selection_changed', selection: projected });
+      return {
+        kind: 'model_selection' as const,
+        status,
+        selection: projected,
+      };
+    });
+  }
+
   /**
    * Single typed command authority for the human UI.  Validation happens before any core call;
    * session/navigation handles and abort owners remain private to this adapter.
@@ -396,38 +426,29 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           );
       case 'resume_session':
         return this.dispatchResume(admitted.id);
+      case 'select_provider': {
+        const current = this.core.modelSelectionSnapshot?.();
+        const selection = current?.provider === admitted.provider
+          ? current
+          : defaultModelSelectionFor(admitted.provider as ProviderId);
+        return this.dispatchModelSelection(selection);
+      }
       case 'select_model': {
+        const current = this.core.modelSelectionSnapshot?.();
+        if (current !== undefined && current.provider !== admitted.provider) {
+          return { kind: 'rejected', reason: 'invalid' };
+        }
         let selection: ModelSelection;
         try {
-          selection = selectOpenRouterModel(
+          selection = selectModelFor(
+            admitted.provider as ProviderId,
             admitted.modelId,
-            admitted.effort as ModelSelection['effort'],
+            admitted.effort as ReasoningEffort,
           );
         } catch {
           return { kind: 'rejected', reason: 'invalid' };
         }
-        if (this.core.selectModel === undefined) {
-          return { kind: 'rejected', reason: 'unavailable' };
-        }
-        return this.core.selectModel(selection).then((status) => {
-          if (status !== 'selected' && status !== 'unchanged') {
-            return {
-              kind: 'rejected' as const,
-              reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
-            };
-          }
-          const projected = {
-            provider: 'openrouter' as const,
-            modelId: selection.modelId,
-            effort: selection.effort,
-          };
-          this.emit({ kind: 'model_selection_changed', selection: projected });
-          return {
-            kind: 'model_selection' as const,
-            status,
-            selection: projected,
-          };
-        });
+        return this.dispatchModelSelection(selection);
       }
       case 'history_export': {
         const core = this.core;

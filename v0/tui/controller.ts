@@ -25,6 +25,11 @@ import {
 import { type SlashCommand, slashCommandOf } from './slash_command.ts';
 import { ControllerEditor } from './controller_editor.ts';
 import { ControllerOverlay } from './controller_overlay.ts';
+import {
+  defaultModelSelectionFor,
+  type ModelSelection,
+  selectModelFor,
+} from '../agent/provider/model_catalog.ts';
 
 export {
   TuiControllerError,
@@ -136,6 +141,28 @@ export class TuiController {
     return this.active !== null;
   }
 
+  private selectModelFallback(
+    selection: ModelSelection,
+  ): Promise<PresentationIntentResult> {
+    return (this.session.selectModel?.(selection) ?? Promise.resolve('unavailable')).then(
+      (status) =>
+        status === 'selected' || status === 'unchanged'
+          ? {
+            kind: 'model_selection' as const,
+            status,
+            selection: {
+              provider: selection.provider,
+              modelId: selection.modelId,
+              effort: selection.effort,
+            },
+          }
+          : {
+            kind: 'rejected' as const,
+            reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
+          },
+    );
+  }
+
   /** Route production semantic effects through the neutral adapter command channel. */
   private dispatchIntent(
     intent: PresentationIntent,
@@ -176,30 +203,31 @@ export class TuiController {
           kind: 'listing',
           listing: { sessions: [], skippedInvalid: 0 },
         };
-      case 'select_model':
-        return (this.session.selectModel?.({
-          provider: 'openrouter',
-          api: 'openrouter-chat-completions',
-          authProfile: 'openrouter-api-key',
-          modelId: intent.modelId,
-          effort: intent
-            .effort as import('../agent/provider/openrouter_model_catalog.ts').OpenRouterReasoningEffort,
-        }) ?? Promise.resolve('unavailable')).then((status) =>
-          status === 'selected' || status === 'unchanged'
-            ? {
-              kind: 'model_selection' as const,
-              status,
-              selection: {
-                provider: 'openrouter' as const,
-                modelId: intent.modelId,
-                effort: intent.effort,
-              },
-            }
-            : {
-              kind: 'rejected' as const,
-              reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
-            }
+      case 'select_provider': {
+        const current = this.session.modelSelectionSnapshot?.();
+        return this.selectModelFallback(
+          current?.provider === intent.provider
+            ? current
+            : defaultModelSelectionFor(intent.provider),
         );
+      }
+      case 'select_model': {
+        const current = this.session.modelSelectionSnapshot?.();
+        if (current !== undefined && current.provider !== intent.provider) {
+          return { kind: 'rejected', reason: 'invalid' };
+        }
+        try {
+          return this.selectModelFallback(
+            selectModelFor(
+              intent.provider,
+              intent.modelId,
+              intent.effort as ModelSelection['effort'],
+            ),
+          );
+        } catch {
+          return { kind: 'rejected', reason: 'invalid' };
+        }
+      }
       case 'resume_session':
       case 'follow_up_queue':
       case 'exit':
@@ -496,6 +524,7 @@ export class TuiController {
         if (
           busy &&
           (slashCommand === 'history_export' || slashCommand === 'recover' ||
+            slashCommand === 'provider' ||
             slashCommand === 'model' || slashCommand === 'effort')
         ) {
           this.renderer.setStatus(`busy; ${this.editor.text.trim()} waits for ready`);
@@ -549,6 +578,10 @@ export class TuiController {
 
   private openStartupHelp(): void {
     this.overlay.openStartupHelp();
+  }
+
+  private openProviderPicker(): void {
+    this.overlay.openProviderPicker();
   }
 
   private openModelPicker(): void {
@@ -783,6 +816,7 @@ export class TuiController {
           if (
             slashCommandOf(this.editor.text) === 'history_export' ||
             slashCommandOf(this.editor.text) === 'recover' ||
+            slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
             slashCommandOf(this.editor.text) === 'effort'
           ) {
@@ -807,6 +841,8 @@ export class TuiController {
           ? 'busy; /history export waits for ready'
           : slashCommand === 'recover'
           ? 'busy; /recover waits for ready'
+          : slashCommand === 'provider'
+          ? 'busy; /provider waits for ready'
           : slashCommand === 'model'
           ? 'busy; /model waits for ready'
           : slashCommand === 'effort'
@@ -825,7 +861,7 @@ export class TuiController {
       // Keep the whole hint in one ' · '-free segment so the footer keeps it
       // instead of popping the valid list at narrow widths.
       this.renderer.setStatus(
-        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /model, /effort, /history export, /recover, /exit`,
+        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /provider, /model, /effort, /history export, /recover, /exit`,
       );
       return true;
     }
@@ -835,6 +871,7 @@ export class TuiController {
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
     else if (command === 'sessions') this.openPicker();
+    else if (command === 'provider') this.openProviderPicker();
     else if (command === 'model') this.openModelPicker();
     else if (command === 'effort') this.openEffortPicker();
     else if (command === 'history_export') this.startHistoryExport();

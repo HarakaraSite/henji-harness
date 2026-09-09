@@ -294,10 +294,10 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   const footer = layoutUi(state, 80, 24).footer;
   assertEquals(footer.length, 2);
   assertEquals(footer[0].text, '[ready]');
-  assert(footer[1].text.includes('/tmp/workspace'));
   assert(footer[1].text.includes('session:abcdef12'));
-  assert(footer[1].text.includes('model:qwen/qwen3.8-max-0902'));
-  assert(footer[1].text.endsWith(' xhigh]'));
+  assert(footer[1].text.includes('provider:openrouter'));
+  assert(footer[1].text.includes('model:'));
+  assert(footer[1].text.endsWith('0902 xhigh]'));
   assert(!footer[1].text.includes('cwd:'));
   assert(!footer[1].text.includes('effort:'));
   assert(!footer.some((row) => row.text.includes('F1 help')));
@@ -332,7 +332,9 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     generation: 0,
   });
   const narrowFooter = layoutUi(narrow, 40, 24).footer;
-  assert(narrowFooter[1].text.includes('session:abcdef12'));
+  assert(narrowFooter[1].text.includes('abcdef12'));
+  assert(narrowFooter[1].text.includes('openrouter'));
+  assert(narrowFooter[1].text.includes('…'));
   assert(narrowFooter[1].text.endsWith(' xhigh]'));
   assert(!narrowFooter.some((row) => row.text.includes('F1 help')));
 
@@ -343,7 +345,8 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   for (const columns of [40, 80]) {
     const cancellingFooter = layoutUi(cancelling, columns, 24).footer;
     assert(cancellingFooter[0].text.includes('cancelling'));
-    assert(cancellingFooter[1].text.includes('session:abcdef12'));
+    assert(cancellingFooter[1].text.includes('abcdef12'));
+    assert(cancellingFooter[1].text.includes('openrouter'));
     assert(cancellingFooter[1].text.endsWith(' xhigh]'));
     assert(cancellingFooter.every((row) => row.text.length <= columns));
   }

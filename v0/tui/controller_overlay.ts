@@ -12,13 +12,15 @@ import type { TuiNavigationLike, TuiSessionLike } from './controller_contract.ts
 import type { InputEvent } from './input.ts';
 import type { TuiRenderer } from './render.ts';
 import {
+  modelCatalogEntryFor,
   type ModelSelection,
-  openRouterCatalogEntry,
-  type OpenRouterModelCatalogEntry,
-  type OpenRouterReasoningEffort,
-  searchOpenRouterModels,
-  selectOpenRouterModel,
-} from '../agent/provider/openrouter_model_catalog.ts';
+  type ProviderId,
+  type ProviderModelCatalogEntry,
+  PROVIDERS,
+  type ReasoningEffort,
+  searchModelsFor,
+  selectModelFor,
+} from '../agent/provider/model_catalog.ts';
 
 type ControllerModal =
   | { readonly kind: 'startup-help' }
@@ -30,15 +32,22 @@ type ControllerModal =
   }
   | { readonly kind: 'picker-loading' }
   | {
+    readonly kind: 'provider-picker';
+    readonly providers: readonly ProviderId[];
+    readonly selected: number;
+  }
+  | {
     readonly kind: 'model-picker';
+    readonly provider: ProviderId;
     readonly query: string;
-    readonly entries: readonly OpenRouterModelCatalogEntry[];
+    readonly entries: readonly ProviderModelCatalogEntry[];
     readonly selected: number;
   }
   | {
     readonly kind: 'effort-picker';
+    readonly provider: ProviderId;
     readonly modelId: string;
-    readonly efforts: readonly OpenRouterReasoningEffort[];
+    readonly efforts: readonly ReasoningEffort[];
     readonly selected: number;
   }
   | { readonly kind: 'model-selecting' };
@@ -141,30 +150,53 @@ export class ControllerOverlay {
     this.options.renderer.renderStartupHelp?.();
   }
 
+  openProviderPicker(): void {
+    const selection = this.options.modelSelection();
+    if (selection === undefined) {
+      this.options.renderer.setStatus('provider picker unavailable');
+      return;
+    }
+    this.modal = {
+      kind: 'provider-picker',
+      providers: PROVIDERS,
+      selected: Math.max(0, PROVIDERS.indexOf(selection.provider)),
+    };
+    this.renderProviderPicker();
+  }
+
   openModelPicker(): void {
     const selection = this.options.modelSelection();
     if (selection === undefined) {
       this.options.renderer.setStatus('model picker unavailable');
       return;
     }
-    const entries = searchOpenRouterModels('');
+    const entries = searchModelsFor(selection.provider, '');
     const selected = Math.max(
       0,
       entries.findIndex((entry) => entry.modelId === selection.modelId),
     );
-    this.modal = { kind: 'model-picker', query: '', entries, selected };
+    this.modal = {
+      kind: 'model-picker',
+      provider: selection.provider,
+      query: '',
+      entries,
+      selected,
+    };
     this.renderModelPicker();
   }
 
   openEffortPicker(): void {
     const selection = this.options.modelSelection();
-    const entry = selection === undefined ? undefined : openRouterCatalogEntry(selection.modelId);
+    const entry = selection === undefined
+      ? undefined
+      : modelCatalogEntryFor(selection.provider, selection.modelId);
     if (selection === undefined || entry === undefined) {
       this.options.renderer.setStatus('effort picker unavailable');
       return;
     }
     this.modal = {
       kind: 'effort-picker',
+      provider: selection.provider,
       modelId: selection.modelId,
       efforts: entry.efforts,
       selected: Math.max(0, entry.efforts.indexOf(selection.effort)),
@@ -227,6 +259,30 @@ export class ControllerOverlay {
       }
       return;
     }
+    if (modal.kind === 'provider-picker') {
+      if (event.kind === 'up' || event.kind === 'down') {
+        const delta = event.kind === 'up' ? -1 : 1;
+        const count = modal.providers.length;
+        this.modal = {
+          ...modal,
+          selected: (modal.selected + delta + count) % count,
+        };
+        this.renderProviderPicker();
+        return;
+      }
+      if (event.kind === 'enter') {
+        const provider = modal.providers[modal.selected];
+        const current = this.options.modelSelection();
+        if (provider === undefined || provider === current?.provider) {
+          this.modal = null;
+          renderer.clearModal?.();
+          renderer.setStatus(this.options.readyStatus());
+        } else {
+          this.applyProviderSelection(provider);
+        }
+      }
+      return;
+    }
     if (modal.kind === 'model-picker') {
       if (event.kind === 'up' || event.kind === 'down') {
         const count = modal.entries.length;
@@ -252,7 +308,7 @@ export class ControllerOverlay {
       if (event.kind === 'enter') {
         const entry = modal.entries[modal.selected];
         if (entry !== undefined) {
-          this.applyModelSelection(selectOpenRouterModel(entry.modelId));
+          this.applyModelSelection(selectModelFor(modal.provider, entry.modelId));
         }
       }
       return;
@@ -271,23 +327,36 @@ export class ControllerOverlay {
       if (event.kind === 'enter') {
         const effort = modal.efforts[modal.selected];
         if (effort !== undefined) {
-          this.applyModelSelection(selectOpenRouterModel(modal.modelId, effort));
+          this.applyModelSelection(selectModelFor(modal.provider, modal.modelId, effort));
         }
       }
     }
   }
 
   private updateModelQuery(query: string): void {
-    const entries = searchOpenRouterModels(query);
-    this.modal = { kind: 'model-picker', query, entries, selected: 0 };
+    const modal = this.modal;
+    if (modal?.kind !== 'model-picker') return;
+    const entries = searchModelsFor(modal.provider, query);
+    this.modal = { ...modal, query, entries, selected: 0 };
     this.renderModelPicker();
+  }
+
+  private renderProviderPicker(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'provider-picker') return;
+    this.options.renderer.renderChoicePicker?.([
+      'provider picker · Up/Down select · Enter choose · Esc cancel',
+      ...modal.providers.map((provider, index) =>
+        `${index === modal.selected ? '>' : ' '} ${provider}`
+      ),
+    ]);
   }
 
   private renderModelPicker(): void {
     const modal = this.modal;
     if (modal?.kind !== 'model-picker') return;
     const lines = [
-      'model picker · type to search · Up/Down select · Enter choose · Esc cancel',
+      `model picker · ${modal.provider} · type to search · Up/Down select · Enter choose · Esc cancel`,
       `search> ${modal.query}`,
       ...modal.entries.map((entry, index) =>
         `${
@@ -303,29 +372,45 @@ export class ControllerOverlay {
     const modal = this.modal;
     if (modal?.kind !== 'effort-picker') return;
     this.options.renderer.renderChoicePicker?.([
-      `effort picker · ${modal.modelId} · Up/Down select · Enter choose · Esc cancel`,
+      `effort picker · ${modal.provider} · ${modal.modelId} · Up/Down select · Enter choose · Esc cancel`,
       ...modal.efforts.map((effort, index) => `${index === modal.selected ? '>' : ' '} ${effort}`),
     ]);
   }
 
   private applyModelSelection(selection: ModelSelection): void {
-    if (this.modelSelectionOperation !== null) return;
-    this.modal = { kind: 'model-selecting' };
-    this.options.renderer.renderChoicePicker?.([
-      `selecting ${selection.modelId} · effort ${selection.effort}`,
-    ]);
-    const operation = Promise.resolve(
-      this.options.dispatch({
+    this.applySelection(
+      {
         kind: 'select_model',
+        provider: selection.provider,
         modelId: selection.modelId,
         effort: selection.effort,
-      }),
+      },
+      `selecting ${selection.provider} · ${selection.modelId} · effort ${selection.effort}`,
+    );
+  }
+
+  private applyProviderSelection(provider: ProviderId): void {
+    this.applySelection(
+      { kind: 'select_provider', provider },
+      `selecting provider ${provider}`,
+    );
+  }
+
+  private applySelection(
+    intent: Extract<PresentationIntent, { kind: 'select_model' | 'select_provider' }>,
+    pendingText: string,
+  ): void {
+    if (this.modelSelectionOperation !== null) return;
+    this.modal = { kind: 'model-selecting' };
+    this.options.renderer.renderChoicePicker?.([pendingText]);
+    const operation = Promise.resolve(
+      this.options.dispatch(intent),
     ).then((result) => {
       if (result.kind === 'model_selection') {
         this.modal = null;
         this.options.renderer.clearModal?.();
         this.options.renderer.setStatus(
-          `model ${result.selection.modelId} · effort ${result.selection.effort}`,
+          `provider ${result.selection.provider} · model ${result.selection.modelId} · effort ${result.selection.effort}`,
         );
         return;
       }
@@ -333,15 +418,15 @@ export class ControllerOverlay {
       this.options.renderer.clearModal?.();
       this.options.renderer.setStatus(
         result.kind === 'rejected' && result.reason === 'busy'
-          ? 'model selection requires idle session'
-          : 'model selection unavailable',
+          ? 'provider/model selection requires idle session'
+          : 'provider/model selection unavailable',
       );
     }).catch((error: unknown) => {
       this.modal = null;
       this.options.renderer.clearModal?.();
       if (isPresentationDeliveryError(error)) {
         void this.options.fail(error);
-      } else this.options.renderer.setStatus('model selection failed');
+      } else this.options.renderer.setStatus('provider/model selection failed');
     }).finally(() => {
       if (this.modelSelectionOperation === operation) {
         this.modelSelectionOperation = null;

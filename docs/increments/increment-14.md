@@ -1,6 +1,6 @@
 # 通常利用 increment 14 — generic provider routeとOpenAI direct API
 
-ステータス: **実装・offline検証・第三者review完了。OpenAI実provider確認待ち**
+ステータス: **実装・offline検証・第三者review・OpenAI production通常利用確認完了**
 
 対応architecture:
 [`docs/architecture/multi-provider-routing-and-auth.md`](../architecture/multi-provider-routing-and-auth.md)
@@ -26,9 +26,9 @@
 - 現行sourceはOpenRouter selection、provider state、Session v3、Worker
   protocol、manifest、presentation、 credential
   source、context計測へ直接結合している。衝突一覧はarchitecture正本に記録済みである。
-- 2026-09-09時点の実行環境にはOpenRouter credential fileだけがあり、OpenAI credential
-  fileと対象環境変数はない。
-  したがってOpenAI実provider確認はcredentialが用意されるまで実行できない。offlineのproduction構成経路は実装・確認する。
+- Increment 14の計画時点にはOpenRouter credential fileだけがあり、OpenAI credential fileと対象環境変数は
+  なかったため、最初にofflineのproduction構成経路を実装・確認した。その後のcredential登録と実provider確認は
+  この文書の「検証とreview」に記録する。
 
 ## 採用する入口と初期catalog
 
@@ -101,6 +101,11 @@
 - repository authoritative `v0:gate`はtype check、format、lintと全114 testsを通過した。初回はAgent READMEの
   format、次は旧Increment 7 taskの`--no-remote`が新しいvendored SDK module graphを拒否して停止したため、各原因を
   focused修正・確認してから再実行した。
-- 実行環境にOpenAI credential fileまたは環境credentialが存在しないため、実OpenAI APIへのproduction callは未実施である。
-  credentialを用意した時点で、production TUIのtext final、tool continuation、plannerまたは`web_search`併用とevidence
-  readbackを人間が確認する。
+- 2026-09-09、利用者がOpenAI Platform API keyをfixed credential fileへ登録し、production TUIを
+  `--root-provider openai`で起動した。`gpt-5.6-sol` / `medium`が`read README.md`のtool callとtool result
+  continuationを経て最終要約を返すことを、Session `7656d48a`で確認した。
+- 同Sessionの保存済みprovider evidenceをcredential値を読まずにmetadata readbackした。2回のOpenAI requestはともに
+  HTTP 200で、raw response bytes、SSE event、parser transition、provider/API/model/auth-profile attributionを保持し、
+  Authorizationとcredential pathを含まないことを確認した。
+- Increment 15の実装前preflightで、OpenAI root、OpenRouter Sonar `web_search`、OpenAI rootの3 requestを
+  同一turnで完了し、mixed-provider request列とroute別evidenceをreadbackした。

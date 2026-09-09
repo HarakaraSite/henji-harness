@@ -611,6 +611,50 @@ Deno.test('occupied editor keeps recoverable task until idle /recover', async ()
   assertEquals(await run, 0);
 });
 
+Deno.test('busy /provider waits for idle instead of steering the active turn', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let settle: (() => void) | undefined;
+  const steering: string[] = [];
+  const session: TuiSessionLike = {
+    submit: (task) =>
+      new Promise((resolve) => {
+        settle = () =>
+          resolve({
+            ok: true,
+            task,
+            outcome: 'final',
+            stopReason: 'final',
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      }),
+    steerActiveTurn: (text) => {
+      steering.push(text);
+      return 'accepted';
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  terminal.push('active task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('/provider\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'busy; /provider waits for ready');
+  assertEquals(steering, []);
+  assertEquals(controller.editor.text, '/provider');
+  settle?.();
+  await waitFor(() => controller.currentState === 'idle');
+  terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
+
 Deno.test('idle Ctrl-C clears input without arming or triggering exit', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal, { retained: true });

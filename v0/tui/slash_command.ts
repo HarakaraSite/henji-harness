@@ -1,6 +1,7 @@
 export type SlashCommand =
   | 'help'
   | 'sessions'
+  | 'provider'
   | 'model'
   | 'effort'
   | 'history_export'
@@ -15,7 +16,8 @@ export const slashCommandOf = (
   if (!trimmed.startsWith('/')) return null;
   if (trimmed === '/history export') return 'history_export';
   if (
-    trimmed === '/help' || trimmed === '/sessions' || trimmed === '/model' ||
+    trimmed === '/help' || trimmed === '/sessions' || trimmed === '/provider' ||
+    trimmed === '/model' ||
     trimmed === '/effort' || trimmed === '/recover' || trimmed === '/exit'
   ) {
     return trimmed.slice(1) as SlashCommand;

@@ -25,6 +25,21 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
 
+### Surface: provider認証statusとHenji内credential登録（F01、F02、F10）
+
+通常利用での観測と要望:
+
+- `henji --root-provider openai`はcredential未登録でも起動でき、最初のprovider request時にcredential不足が分かる。
+- 選択中providerが未認証の状態なら、requestを送る前からフッター1行目の一時status欄へその旨を表示したい。
+- API keyの登録をHenji内のslash commandから行えるようにしたい。
+
+個別incrementで決めること:
+
+- credential fileが存在しない状態と、登録値がproviderに拒否された状態をどう区別し、何を「未認証」と表示するか。
+- slash command名、secretを通常の入力buffer・会話履歴・process argumentへ残さない入力方法、登録先auth profileの選択、
+  fixed credential fileへの保存と更新結果の表示。
+- OpenRouter、OpenAI direct、将来providerで共通化する範囲と、Sessionのroot routeを切り替えた時のstatus更新時点。
+
 ### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
 increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を

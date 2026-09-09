@@ -614,9 +614,6 @@ export class WorkerHostSession {
     if (this.closed || this.unavailable) return 'unavailable';
     if (this.active || this.currentCorrelation !== undefined) return 'busy';
     if (!isModelSelection(selection)) throw new RangeError('invalid model selection');
-    if (selection.provider !== this.modelSelection.provider) {
-      throw new RangeError('provider switching is not available in increment 14');
-    }
     if (sameModelSelection(this.modelSelection, selection)) return 'unchanged';
     const changedAt = new Date().toISOString();
     const nextChanges: SessionModelChange[] = [

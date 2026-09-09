@@ -273,7 +273,12 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'list_sessions' }>
   | Readonly<{ readonly kind: 'resume_session'; readonly id: string }>
   | Readonly<{
+    readonly kind: 'select_provider';
+    readonly provider: 'openrouter' | 'openai';
+  }>
+  | Readonly<{
     readonly kind: 'select_model';
+    readonly provider: 'openrouter' | 'openai';
     readonly modelId: string;
     readonly effort: string;
   }>

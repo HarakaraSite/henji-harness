@@ -6,17 +6,18 @@ export interface OpenAIModelCatalogEntry {
   readonly efforts: readonly ReasoningEffort[];
 }
 
+const entry = (
+  modelId: string,
+  defaultEffort: ReasoningEffort,
+  efforts: readonly ReasoningEffort[],
+): OpenAIModelCatalogEntry =>
+  Object.freeze({ modelId, defaultEffort, efforts: Object.freeze([...efforts]) });
+
 export const OPENAI_MODEL_CATALOG: readonly OpenAIModelCatalogEntry[] = Object.freeze([
-  Object.freeze({
-    modelId: 'gpt-5.6-sol',
-    defaultEffort: 'medium',
-    efforts: Object.freeze(['none', 'low', 'medium', 'high', 'xhigh'] as const),
-  }),
-  Object.freeze({
-    modelId: 'gpt-5.6-luna',
-    defaultEffort: 'medium',
-    efforts: Object.freeze(['none', 'low', 'medium', 'high', 'xhigh'] as const),
-  }),
+  entry('gpt-5.6-sol', 'medium', ['none', 'low', 'medium', 'high', 'xhigh']),
+  entry('gpt-5.6-luna', 'medium', ['none', 'low', 'medium', 'high', 'xhigh']),
+  entry('gpt-5.6-terra', 'medium', ['none', 'low', 'medium', 'high', 'xhigh', 'max']),
+  entry('gpt-6-astra', 'low', ['low', 'medium', 'high', 'xhigh', 'max']),
 ]);
 
 export const OPENAI_DEFAULT_MODEL_SELECTION: OpenAIModelSelection = Object.freeze({
@@ -44,4 +45,35 @@ export const isOpenAIModelSelection = (
   ) return false;
   const catalog = openAIModelCatalogEntry(selection.modelId);
   return catalog !== undefined && catalog.efforts.includes(selection.effort as ReasoningEffort);
+};
+
+export const selectOpenAIModel = (
+  modelId: string,
+  effort?: ReasoningEffort,
+): OpenAIModelSelection => {
+  const catalog = openAIModelCatalogEntry(modelId);
+  if (catalog === undefined) throw new RangeError(`unknown OpenAI model: ${modelId}`);
+  const selectedEffort = effort ?? catalog.defaultEffort;
+  if (!catalog.efforts.includes(selectedEffort)) {
+    throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
+  }
+  return Object.freeze({
+    provider: 'openai',
+    api: 'openai-responses',
+    authProfile: 'openai-api-key',
+    modelId,
+    effort: selectedEffort,
+  });
+};
+
+export const searchOpenAIModels = (
+  query: string,
+): readonly OpenAIModelCatalogEntry[] => {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (normalized.length === 0) return OPENAI_MODEL_CATALOG;
+  return Object.freeze(
+    OPENAI_MODEL_CATALOG.filter((candidate) =>
+      candidate.modelId.toLocaleLowerCase().includes(normalized)
+    ),
+  );
 };
