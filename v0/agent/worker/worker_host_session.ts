@@ -10,10 +10,10 @@ import {
   type SemanticContextCheckpointV1,
   type SessionModelChange,
   type SessionRecord,
-  type SessionRecordV3,
+  type SessionRecordV4,
   type SessionTurnModelAttribution,
   validateSemanticContextCheckpoint,
-  validateSessionRecordV3,
+  validateSessionRecordV4,
 } from '../session/session_store.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
@@ -28,12 +28,16 @@ import type {
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import {
-  isOpenRouterModelSelection,
-  type OpenRouterModelSelection,
-  openRouterProfileFor,
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
+import { isModelSelection } from '../provider/model_catalog.ts';
+import {
+  modelRouteProfileId,
+  type ModelSelection,
+  sameModelSelection,
+  upgradeOpenRouterSelection,
+} from '../provider/model_selection.ts';
 import {
   type WorkerExecutionAcknowledgement,
   type WorkerExecutionArtifactV1,
@@ -60,13 +64,6 @@ import { HostMessageQueue } from './worker_host_queue.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
-const sameModelSelection = (
-  left: OpenRouterModelSelection,
-  right: OpenRouterModelSelection,
-): boolean =>
-  left.provider === right.provider && left.modelId === right.modelId &&
-  left.effort === right.effort;
-
 type ActiveWorkerExecution = {
   readonly executionId: string;
   readonly createdAt: string;
@@ -106,7 +103,7 @@ export class WorkerHostSession {
   private unavailable = false;
   private closed = false;
   private activeExecution: ActiveWorkerExecution | undefined;
-  private modelSelection: OpenRouterModelSelection;
+  private modelSelection: ModelSelection;
   private modelChanges: SessionModelChange[];
   private turnModels: SessionTurnModelAttribution[];
   private legacyModelNotice = false;
@@ -135,20 +132,32 @@ export class WorkerHostSession {
       (options.agent === 'planner'
         ? PLANNER_DEFAULT_MODEL_SELECTION
         : ROOT_DEFAULT_MODEL_SELECTION);
-    this.modelSelection = record?.schemaVersion === 3
+    this.modelSelection = record?.schemaVersion === 4
       ? structuredClone(record.activeModel)
+      : record?.schemaVersion === 3
+      ? upgradeOpenRouterSelection(record.activeModel)
       : structuredClone(defaultSelection);
-    this.modelChanges = record?.schemaVersion === 3
+    this.modelChanges = record?.schemaVersion === 4
       ? structuredClone(record.modelChanges) as SessionModelChange[]
+      : record?.schemaVersion === 3
+      ? record.modelChanges.map((change) => ({
+        ...change,
+        selection: upgradeOpenRouterSelection(change.selection),
+      }))
       : [{
         effectiveFromTurn: this.nextTurn,
         changedAt: new Date().toISOString(),
         selection: structuredClone(this.modelSelection),
       }];
-    this.turnModels = record?.schemaVersion === 3
+    this.turnModels = record?.schemaVersion === 4
       ? structuredClone(record.turnModels) as SessionTurnModelAttribution[]
+      : record?.schemaVersion === 3
+      ? record.turnModels.map((attribution) => ({
+        ...attribution,
+        selection: upgradeOpenRouterSelection(attribution.selection),
+      }))
       : [];
-    this.legacyModelNotice = record !== undefined && record.schemaVersion !== 3;
+    this.legacyModelNotice = record !== undefined && record.schemaVersion !== 4;
     this.checkpoint = options.handle.checkpoint === undefined
       ? undefined
       : structuredClone(options.handle.checkpoint);
@@ -176,7 +185,7 @@ export class WorkerHostSession {
     return this.options.handle.id;
   }
 
-  modelSelectionSnapshot(): OpenRouterModelSelection {
+  modelSelectionSnapshot(): ModelSelection {
     return structuredClone(this.modelSelection);
   }
 
@@ -504,7 +513,7 @@ export class WorkerHostSession {
         ready.manifest === undefined || ready.manifest.role !== expectedRole ||
         !sameModelSelection(ready.manifest.rootModel, this.modelSelection) ||
         !sameModelSelection(ready.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
-        ready.manifest.profileId !== openRouterProfileFor(this.modelSelection).id ||
+        ready.manifest.profileId !== modelRouteProfileId(this.modelSelection) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps)
       ) {
@@ -573,9 +582,9 @@ export class WorkerHostSession {
 
   private proposalRecord(
     proposal: WorkerCommitProposalMessage,
-  ): SessionRecordV3 | undefined {
-    const record: SessionRecordV3 = {
-      schemaVersion: 3,
+  ): SessionRecordV4 | undefined {
+    const record: SessionRecordV4 = {
+      schemaVersion: 4,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
@@ -596,19 +605,19 @@ export class WorkerHostSession {
         },
       ],
     };
-    return validateSessionRecordV3(record) ? record : undefined;
+    return validateSessionRecordV4(record) ? record : undefined;
   }
 
   async selectModel(
-    selection: OpenRouterModelSelection,
+    selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
     if (this.closed || this.unavailable) return 'unavailable';
     if (this.active || this.currentCorrelation !== undefined) return 'busy';
-    if (!isOpenRouterModelSelection(selection)) throw new RangeError('invalid model selection');
-    if (
-      this.modelSelection.modelId === selection.modelId &&
-      this.modelSelection.effort === selection.effort
-    ) return 'unchanged';
+    if (!isModelSelection(selection)) throw new RangeError('invalid model selection');
+    if (selection.provider !== this.modelSelection.provider) {
+      throw new RangeError('provider switching is not available in increment 14');
+    }
+    if (sameModelSelection(this.modelSelection, selection)) return 'unchanged';
     const changedAt = new Date().toISOString();
     const nextChanges: SessionModelChange[] = [
       ...structuredClone(this.modelChanges),
@@ -620,8 +629,8 @@ export class WorkerHostSession {
     ];
     const existing = this.options.handle.record;
     const nextRevision = this.stateRevision + 1;
-    const persisted: SessionRecordV3 = {
-      schemaVersion: 3,
+    const persisted: SessionRecordV4 = {
+      schemaVersion: 4,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
@@ -635,7 +644,7 @@ export class WorkerHostSession {
       modelChanges: nextChanges,
       turnModels: structuredClone(this.turnModels),
     };
-    if (!validateSessionRecordV3(persisted)) throw new Error('model selection record invalid');
+    if (!validateSessionRecordV4(persisted)) throw new Error('model selection record invalid');
     this.options.handle.commit(persisted);
     const correlation: WorkerCorrelation = {
       ...this.correlation('select-model-' + crypto.randomUUID().toLowerCase()),
@@ -657,7 +666,7 @@ export class WorkerHostSession {
         message.manifest === undefined ||
         !sameModelSelection(message.manifest.rootModel, selection) ||
         !sameModelSelection(message.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
-        message.manifest.profileId !== openRouterProfileFor(selection).id
+        message.manifest.profileId !== modelRouteProfileId(selection)
       ) throw new Error('Worker rejected model selection');
       this.currentManifest = message.manifest;
       this.modelSelection = structuredClone(selection);

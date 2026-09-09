@@ -26,7 +26,7 @@ import type {
   TuiPresentationAdapterOptions,
 } from './adapter_contract.ts';
 import {
-  type OpenRouterModelSelection,
+  type ModelSelection,
   selectOpenRouterModel,
 } from '../agent/provider/openrouter_model_catalog.ts';
 import {
@@ -301,12 +301,12 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     });
   }
 
-  modelSelectionSnapshot(): OpenRouterModelSelection | undefined {
+  modelSelectionSnapshot(): ModelSelection | undefined {
     return this.core.modelSelectionSnapshot?.();
   }
 
   selectModel(
-    selection: OpenRouterModelSelection,
+    selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
     return this.core.selectModel?.(selection) ?? Promise.resolve('unavailable');
   }
@@ -397,11 +397,11 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       case 'resume_session':
         return this.dispatchResume(admitted.id);
       case 'select_model': {
-        let selection: OpenRouterModelSelection;
+        let selection: ModelSelection;
         try {
           selection = selectOpenRouterModel(
             admitted.modelId,
-            admitted.effort as OpenRouterModelSelection['effort'],
+            admitted.effort as ModelSelection['effort'],
           );
         } catch {
           return { kind: 'rejected', reason: 'invalid' };
@@ -528,7 +528,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         position: positionValue,
         ...(selected === undefined ? {} : {
           modelSelection: {
-            provider: 'openrouter',
+            provider: selected.provider,
             modelId: selected.modelId,
             effort: selected.effort,
           },

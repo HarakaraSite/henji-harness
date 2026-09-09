@@ -140,6 +140,12 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
         contentType: 'application/json',
         redirect: 'error',
         responseMode: 'json',
+        origin: 'web_search',
+        provider: 'openrouter',
+        api: 'openrouter-chat-completions',
+        modelId: OPENROUTER_SONAR_SEARCH_MODEL,
+        authProfile: 'openrouter-api-key',
+        protocol: 'json',
       },
     });
 

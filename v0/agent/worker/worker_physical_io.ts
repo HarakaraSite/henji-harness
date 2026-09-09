@@ -3,11 +3,14 @@ import { throwIfCancelled } from '../core/cancellation.ts';
 import type { PhysicalIoBindings } from '../worker_agent_api.ts';
 import { type CredentialSource, OpenRouterAgentModel } from '../provider/openrouter_model.ts';
 import { readCredentialFile } from '../provider/credential_file.ts';
+import { createCredentialResolver } from '../provider/credential_resolver.ts';
+import { OpenAIResponsesModel } from '../provider/openai_responses_model.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import {
-  type OpenRouterModelSelection,
+  type ModelSelection,
   openRouterProfileFor,
   PLANNER_DEFAULT_MODEL_SELECTION,
+  ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
 import {
   createProviderFreeWebSearchBackend,
@@ -142,6 +145,7 @@ export const createProductionPhysicalIo = (
   requestCounter?: WorkerRequestCounter,
   options: {
     readonly credentialSource?: CredentialSource;
+    readonly openAICredentialSource?: CredentialSource;
     readonly fetcher?: typeof fetch;
     readonly providerTimeoutMs?: number;
   } = {},
@@ -150,22 +154,38 @@ export const createProductionPhysicalIo = (
     requestCounter?.increment();
     return (options.fetcher ?? fetch)(input, init);
   };
-  const credentialSource = options.credentialSource ?? readCredentialFile;
+  const resolver = createCredentialResolver({
+    openRouter: options.credentialSource ?? readCredentialFile,
+    ...(options.openAICredentialSource === undefined
+      ? {}
+      : { openAI: options.openAICredentialSource }),
+  });
   return {
-    createModel: (role, selection?: OpenRouterModelSelection) =>
-      new OpenRouterAgentModel({
+    createModel: (role, selection?: ModelSelection) => {
+      const resolved = selection ??
+        (role === 'planner' ? PLANNER_DEFAULT_MODEL_SELECTION : ROOT_DEFAULT_MODEL_SELECTION);
+      if (resolved.provider === 'openai') {
+        return new OpenAIResponsesModel({
+          selection: resolved,
+          credentialSource: () => resolver.resolve(resolved.authProfile),
+          fetcher,
+          timeoutMs: options.providerTimeoutMs,
+        });
+      }
+      return new OpenRouterAgentModel({
         profile: role === 'planner' && selection === undefined
           ? openRouterProfileFor(PLANNER_DEFAULT_MODEL_SELECTION)
           : selection === undefined
           ? PRODUCTION_PROFILE
-          : openRouterProfileFor(selection),
-        credentialSource,
+          : openRouterProfileFor(resolved),
+        credentialSource: () => resolver.resolve(resolved.authProfile),
         fetcher,
         responseMode: 'sse',
         timeoutMs: options.providerTimeoutMs,
-      }),
+      });
+    },
     webSearchBackend: new OpenRouterSonarWebSearchBackend({
-      credentialSource,
+      credentialSource: () => resolver.resolve('openrouter-api-key'),
       fetcher,
     }),
   };

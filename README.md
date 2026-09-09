@@ -7,9 +7,15 @@ HostはSurface、lifecycle、storage、revisionを担い、headless Agent
 WorkerがDefinitionを合成・実行する。
 
 Production TUIでは、`/model`でcurated OpenRouter modelを検索・選択し、`/effort`でreasoning effortを
-別に変更できる。選択は同じSessionの次のroot turnから有効になり、`/sessions`でmodel/effortを表示して
+別に変更できる。選択は同じSessionの次のroot turnから有効になり、`/sessions`でprovider/model/effortを表示して
 Sessionと一緒に復元する。delegated plannerはrootの選択を継承せず、planner defaultを使う。footerは
 1段目へ一時的なstatus、2段目へcwd、Session短縮ID、現在のroot model/effortを常時表示する。
+
+root providerは既定のOpenRouterに加え、起動時に`henji --root-provider openai`でOpenAI direct
+Responses APIを選べる。OpenAI Platform API keyは
+`/home/masat.guest/.config/henji-harness/openai-api-key`からrequest時に読み、OpenRouterを使うdelegated
+plannerとSonar `web_search`は従来のOpenRouter credentialを独立して使う。同一Session内のprovider切替UIは
+次incrementで追加する。
 
 OpenRouter requestのdeadlineはTUI起動時の`--provider-timeout-ms N`で変更でき、未指定時は120,000 msである。
 同じ起動内のroot、delegated planner、context compactionへrequest単位で適用し、Sessionには保存しない。

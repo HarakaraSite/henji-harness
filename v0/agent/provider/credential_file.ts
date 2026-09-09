@@ -8,6 +8,8 @@
 
 export const CREDENTIAL_PATH =
   '/home/masat.guest/.config/henji-harness/openrouter-api-key' as const;
+export const OPENAI_CREDENTIAL_PATH =
+  '/home/masat.guest/.config/henji-harness/openai-api-key' as const;
 export const MAX_CREDENTIAL_BYTES = 4096 as const;
 
 export type CredentialFileFailureCode =
@@ -161,7 +163,13 @@ export const parseCredentialBytes = (bytes: Uint8Array): string => {
 };
 
 /** Read and validate the fixed credential file for exactly one provider request. */
-export const readCredentialFile = async (
+export const readCredentialFile = (
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<string> => readCredentialFileAt(CREDENTIAL_PATH, filesystem);
+
+/** Read one fixed, caller-owned provider profile path with the same stable-file contract. */
+export const readCredentialFileAt = async (
+  path: string,
   filesystem: CredentialFileSystem = defaultFileSystem,
 ): Promise<string> => {
   let effectiveUid: number | undefined;
@@ -172,7 +180,7 @@ export const readCredentialFile = async (
   }
   let metadata!: CredentialFileMetadata;
   try {
-    metadata = await filesystem.lstat(CREDENTIAL_PATH);
+    metadata = await filesystem.lstat(path);
   } catch {
     fail('credential_metadata_invalid');
   }
@@ -180,7 +188,7 @@ export const readCredentialFile = async (
 
   let file!: CredentialFileHandle;
   try {
-    file = await filesystem.open(CREDENTIAL_PATH);
+    file = await filesystem.open(path);
   } catch {
     fail('credential_open_failed');
   }
@@ -240,3 +248,6 @@ export const readCredentialFile = async (
 
 /** The model adapter accepts this source before each request and does not cache it. */
 export const credentialSource = readCredentialFile;
+
+export const readOpenAICredentialFile = (): Promise<string> =>
+  readCredentialFileAt(OPENAI_CREDENTIAL_PATH);

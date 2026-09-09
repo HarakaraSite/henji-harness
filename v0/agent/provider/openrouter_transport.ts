@@ -12,7 +12,11 @@ import {
   type OpenRouterAgentModelOptions,
   type OpenRouterAgentProfile,
 } from './openrouter_contract.ts';
-import { encodeRequest, invalidRequestError } from './openrouter_request.ts';
+import {
+  encodeRequest,
+  invalidRequestError,
+  measureModelRequestWire,
+} from './openrouter_request.ts';
 import {
   cancelResponseBody,
   decodeResponse,
@@ -41,6 +45,7 @@ const resolveCredential = async (
 
 /** Additive offline-composable adapter for the existing provider-neutral Model contract. */
 export class OpenRouterAgentModel implements Model {
+  readonly measureRequestWire = measureModelRequestWire;
   private readonly fetcher: typeof fetch;
   private readonly options: OpenRouterAgentModelOptions;
   private readonly profile: OpenRouterAgentProfile;
@@ -121,6 +126,16 @@ export class OpenRouterAgentModel implements Model {
         contentType: 'application/json',
         redirect: 'error',
         responseMode: this.options.responseMode ?? 'json',
+        origin: generateOptions.providerEvidencePhase === 'compaction'
+          ? 'context_compaction'
+          : generateOptions.providerEvidenceLane === 'planner'
+          ? 'planner_model'
+          : 'root_model',
+        provider: 'openrouter',
+        api: 'openrouter-chat-completions',
+        modelId: this.profile.model,
+        authProfile: 'openrouter-api-key',
+        protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
       },
     });
     try {

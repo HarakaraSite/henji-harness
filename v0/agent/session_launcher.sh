@@ -18,6 +18,8 @@ mode='new'
 session_id=''
 max_steps=''
 provider_timeout_ms=''
+root_provider='openrouter'
+root_provider_seen='false'
 parse_args() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -73,6 +75,14 @@ parse_args() {
         provider_timeout_ms=$2
         case "$provider_timeout_ms" in ''|*[!0-9]*) fail ;; esac
         case "$provider_timeout_ms" in *[1-9]*) ;; *) fail ;; esac
+        shift 2
+        ;;
+      --root-provider)
+        [ "$root_provider_seen" = 'false' ] || fail
+        [ "$#" -ge 2 ] || fail
+        root_provider=$2
+        [ "$root_provider" = 'openrouter' ] || [ "$root_provider" = 'openai' ] || fail
+        root_provider_seen='true'
         shift 2
         ;;
       *) fail ;;
@@ -161,20 +171,24 @@ case "$version" in
   *) startup_fail ;;
 esac
 if [ "$mode" = 'none' ]; then
-  HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
-    --allow-env=HENJI_SESSION_STATE_ROOT --allow-net=openrouter.ai --allow-sys=uid \
+  HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --cached-only --no-check \
+    --allow-env=HENJI_SESSION_STATE_ROOT,OPENAI_LOG,OPENAI_CUSTOM_HEADERS \
+    --allow-net=openrouter.ai,api.openai.com --allow-sys=uid \
     --allow-read="$repo_root" --allow-read="$workspace" \
     --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
+    --allow-read=/home/masat.guest/.config/henji-harness/openai-api-key \
     --allow-read="$state_root" --allow-read=/tmp \
     --allow-write="$workspace" --allow-write="$state_root" --allow-write=/tmp \
     --allow-run=/bin/bash \
     --config "$repo_root/deno.v0.json" \
     "$script_dir/cli/tui_cli.ts" "$@"
 else
-  HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
-    --allow-env=HENJI_SESSION_STATE_ROOT --allow-net=openrouter.ai --allow-sys=uid \
+  HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --cached-only --no-check \
+    --allow-env=HENJI_SESSION_STATE_ROOT,OPENAI_LOG,OPENAI_CUSTOM_HEADERS \
+    --allow-net=openrouter.ai,api.openai.com --allow-sys=uid \
     --allow-read="$repo_root" --allow-read="$workspace" \
     --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \
+    --allow-read=/home/masat.guest/.config/henji-harness/openai-api-key \
     --allow-read="$state_root" --allow-read=/tmp \
     --allow-write="$workspace" --allow-write="$state_root" --allow-write=/tmp \
     --allow-run=/bin/bash --config "$repo_root/deno.v0.json" "$script_dir/cli/tui_cli.ts" "$@"

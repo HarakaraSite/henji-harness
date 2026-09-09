@@ -28,6 +28,7 @@ import {
   encodeSessionRecord,
   encodeSessionRecordV2,
   encodeSessionRecordV3,
+  encodeSessionRecordV4,
   metadataFromRecord,
   metadataFromStoredRecord,
   validRevisionRef,
@@ -615,7 +616,9 @@ export class DenoSessionStore implements SessionStorePort, WorkerSessionStorePor
           ? encodeSessionRecord(next)
           : next.schemaVersion === 2
           ? encodeSessionRecordV2(next)
-          : encodeSessionRecordV3(next);
+          : next.schemaVersion === 3
+          ? encodeSessionRecordV3(next)
+          : encodeSessionRecordV4(next);
         const paths = this.paths!;
         const temporary = `${paths.sessions}/${id}/.tmp-${this.makeUuid().toLowerCase()}`;
         try {

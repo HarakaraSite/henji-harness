@@ -318,7 +318,7 @@ export const listing = (value: NavigationListing): PresentationNavigationListing
         mismatch: boolean(row.mismatch),
         ...(row.modelSelection === undefined ? {} : {
           modelSelection: Object.freeze({
-            provider: 'openrouter' as const,
+            provider: row.modelSelection.provider,
             modelId: text(row.modelSelection.modelId),
             effort: text(row.modelSelection.effort),
           }),

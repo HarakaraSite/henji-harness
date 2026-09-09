@@ -17,7 +17,7 @@ export type PresentationLifecycle =
 
 export type PresentationAgentId = 'default' | 'planner';
 export interface PresentationModelSelection {
-  readonly provider: 'openrouter';
+  readonly provider: 'openrouter' | 'openai';
   readonly modelId: string;
   readonly effort: string;
 }
@@ -471,7 +471,7 @@ export interface PresentationStartupState {
   readonly workspace: string;
   readonly agentId: PresentationAgentId;
   readonly model: {
-    readonly provider: 'openrouter';
+    readonly provider: 'openrouter' | 'openai';
     readonly profileId: string;
     readonly modelId: string;
     readonly effort: string;

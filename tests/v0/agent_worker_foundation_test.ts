@@ -59,10 +59,10 @@ import {
   parseFailureDiagnosticArgs,
 } from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 import {
-  openRouterProfileFor,
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -333,6 +333,8 @@ fi
       '12',
       '--provider-timeout-ms',
       '180000',
+      '--root-provider',
+      'openai',
       '--no-session',
     ]);
     const continued = await run(`${fakeBin}/continued.capture`, [
@@ -348,14 +350,24 @@ fi
       assertEquals(captured.args[configIndex + 1], config);
       assert(captured.args.includes('--allow-read=/tmp'));
       assert(captured.args.includes('--allow-write=/tmp'));
+      assert(captured.args.includes('--cached-only'));
+      assert(captured.args.includes('--no-check'));
+      assert(captured.args.includes('--allow-net=openrouter.ai,api.openai.com'));
+      assert(
+        captured.args.includes(
+          '--allow-read=/home/masat.guest/.config/henji-harness/openai-api-key',
+        ),
+      );
     }
-    assertEquals(none.args.slice(-7), [
+    assertEquals(none.args.slice(-9), [
       '--definition',
       'external_definition.ts',
       '--max-steps',
       '12',
       '--provider-timeout-ms',
       '180000',
+      '--root-provider',
+      'openai',
       '--no-session',
     ]);
     assertEquals(continued.args.slice(-3), ['--agent', 'default', '--continue']);
@@ -1214,7 +1226,7 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     assertEquals(host.currentPosition().committedTurn, 1);
     await host.close();
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 3);
+    assert(saved.schemaVersion === 4);
     assertEquals(saved.definition, definition);
     assertEquals(saved.stateRevision, 2);
 
@@ -1246,7 +1258,7 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     assert((await externalHost.submit('read worker protocol')).ok);
     await externalHost.close();
     const externalSaved = await store.readWorker(externalHandle.id);
-    assert(externalSaved.schemaVersion === 3);
+    assert(externalSaved.schemaVersion === 4);
     assertEquals(externalSaved.definition.kind, 'external');
 
     const ephemeral = await createWorkerTuiSession({
@@ -1527,7 +1539,7 @@ Deno.test('Worker execution artifact persistence failure is additive after a com
     assertEquals(host.currentPosition().committedTurn, 1);
     assertEquals(artifacts.writeCount, 1);
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 3);
+    assert(saved.schemaVersion === 4);
     await host.close();
   } finally {
     await Deno.remove(stateRoot, { recursive: true });
@@ -1625,8 +1637,8 @@ Deno.test('Worker reads a legacy v1 record and upgrades it only on the next dura
     assert((await host.submit('read worker protocol')).ok);
     await host.close();
     const upgraded = await store.readWorker(record.sessionId);
-    assertEquals(upgraded.schemaVersion, 3);
-    if (upgraded.schemaVersion !== 3) {
+    assertEquals(upgraded.schemaVersion, 4);
+    if (upgraded.schemaVersion !== 4) {
       throw new Error('legacy record was not upgraded');
     }
     assertEquals(upgraded.definition, definition);
@@ -1962,7 +1974,7 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
           manifest: {
             role: 'parent',
             maxSteps: 8,
-            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
+            profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
@@ -1978,7 +1990,7 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
               contextSchemaVersion: 1,
               sessionId: command.correlation.session,
               createdAt: '2026-09-04T00:00:00.000Z',
-              sourceProfileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
+              sourceProfileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
               coveredThroughTurn: 1,
               retainedFromTurn: 2,
               summary: 'retained context',
@@ -2095,7 +2107,7 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
           manifest: {
             role: 'parent',
             maxSteps: 8,
-            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
+            profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
@@ -2269,7 +2281,7 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
           manifest: {
             role: 'parent',
             maxSteps: 8,
-            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
+            profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
@@ -2332,7 +2344,7 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
     assertEquals(host.currentPosition().committedTurn, 1);
     assert(!host.isAvailable());
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 3);
+    assert(saved.schemaVersion === 4);
     let rejected = false;
     try {
       await host.submit('must not replay');

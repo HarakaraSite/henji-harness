@@ -406,9 +406,14 @@ Deno.test('documented tool accounting dispatches normally through the same trans
   assertEquals(outcome.stopReason, 'tool_terminal');
   assertEquals(outcome.finalText, '{"ok":true}');
   const assistant = outcome.transcript.find((message) => message.role === 'assistant');
-  assertEquals(assistant?.providerState?.reasoningDetails, [
-    { type: 'reasoning.text', text: 'tool continuity' },
-  ]);
+  assertEquals(
+    assistant?.providerState?.provider === 'openrouter'
+      ? assistant.providerState.reasoningDetails
+      : undefined,
+    [
+      { type: 'reasoning.text', text: 'tool continuity' },
+    ],
+  );
   assertEquals(seen.requests, 1);
   assert(outcome.providerEvidenceId !== undefined);
   const evidence = await store.read(outcome.providerEvidenceId!);

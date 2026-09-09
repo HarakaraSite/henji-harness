@@ -21,7 +21,7 @@ export const presentationProjectionFromStartup = (
     committedTurn: position?.committedTurn ?? 0,
     workspace: startup.workspace,
     model: Object.freeze({
-      provider: 'openrouter',
+      provider: startup.model.provider,
       modelId: startup.model.modelId,
       effort: startup.model.effort,
     }),

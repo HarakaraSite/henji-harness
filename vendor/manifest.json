@@ -1,0 +1,97 @@
+{
+  "modules": {
+    "https://jsr.io/@openai/node_modules/@types/node-fetch/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/node_modules/node-fetch": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/node_modules/undici-types/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/node_modules/undici/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/7.2.0/lib/AbstractChatCompletionRunner.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/AssistantStream.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/ChatCompletionRunner.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/ChatCompletionStream.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/ChatCompletionStreamingRunner.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/EventStream.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/ResponsesParser.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/RunnableFunction.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/Util.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/chatCompletionUtils.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/responses/EventTypes.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/responses/ResponseAccumulator.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/lib/responses/ResponseStream.ts": {},
+    "https://jsr.io/@openai/openai/7.2.0/node_modules/@types/node-fetch/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/7.2.0/node_modules/node-fetch": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/7.2.0/node_modules/undici-types/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/7.2.0/node_modules/undici/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/node_modules/@types/node-fetch/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/node_modules/node-fetch": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/node_modules/undici-types/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/@openai/openai/node_modules/undici/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/node_modules/@types/node-fetch/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/node_modules/node-fetch": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/node_modules/undici-types/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    },
+    "https://jsr.io/node_modules/undici/index.d.ts": {
+      "headers": {
+        "x-deno-not-found": "404"
+      }
+    }
+  }
+}

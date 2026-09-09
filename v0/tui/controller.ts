@@ -179,6 +179,8 @@ export class TuiController {
       case 'select_model':
         return (this.session.selectModel?.({
           provider: 'openrouter',
+          api: 'openrouter-chat-completions',
+          authProfile: 'openrouter-api-key',
           modelId: intent.modelId,
           effort: intent
             .effort as import('../agent/provider/openrouter_model_catalog.ts').OpenRouterReasoningEffort,

@@ -2,7 +2,8 @@ import type { AgentEventSink } from '../core/events.ts';
 import type { Message } from '../core/contracts.ts';
 import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructions.ts';
 import { discoverSkills } from '../definitions/skills.ts';
-import { openRouterProfileFor } from '../provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../provider/model_selection.ts';
+import type { ModelSelection } from '../provider/model_selection.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
 import {
@@ -85,6 +86,7 @@ export interface WorkerSessionOptions {
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
+  readonly initialModelSelection?: ModelSelection;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
@@ -235,6 +237,7 @@ export const createWorkerSession = async (
       physicalIoMode: options.physicalIoMode,
       rootMaxSteps: options.rootMaxSteps,
       providerTimeoutMs: options.providerTimeoutMs,
+      initialModelSelection: options.initialModelSelection,
       eventSink: options.eventSink,
       diagnosticPersistence: options.diagnosticPersistence ??
         defaultDiagnosticStore?.persist,
@@ -246,7 +249,8 @@ export const createWorkerSession = async (
     const displayState = projectRuntimeDisplayState({
       workspaceRoot: workspace.root,
       agentId: options.agent,
-      profileId: openRouterProfileFor(initialSelection).id,
+      profileId: modelRouteProfileId(initialSelection),
+      provider: initialSelection.provider,
       modelId: initialSelection.modelId,
       effort: initialSelection.effort,
       sessionMode: options.persistence,

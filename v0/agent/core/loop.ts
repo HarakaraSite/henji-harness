@@ -108,20 +108,21 @@ const isToolCall = (value: unknown): value is ToolCall => {
     isJsonValue(call.arguments);
 };
 
+const isProviderState = (value: unknown): value is NonNullable<ModelResult['providerState']> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const state = value as Record<string, unknown>;
+  if (state.provider === 'openrouter') {
+    return Array.isArray(state.reasoningDetails) && state.reasoningDetails.length > 0 &&
+      state.reasoningDetails.every(isJsonValue);
+  }
+  return state.provider === 'openai' && Array.isArray(state.replayItems) &&
+    state.replayItems.length > 0 && state.replayItems.every(isJsonValue);
+};
+
 const isModelResult = (value: unknown): value is ModelResult => {
   if (typeof value !== 'object' || value === null) return false;
   const result = value as Record<string, unknown>;
-  const providerState = result.providerState;
-  const reasoningDetails = typeof providerState === 'object' && providerState !== null
-    ? (providerState as Record<string, unknown>).reasoningDetails
-    : undefined;
-  if (
-    providerState !== undefined &&
-    (typeof providerState !== 'object' || providerState === null ||
-      (providerState as Record<string, unknown>).provider !== 'openrouter' ||
-      !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
-      !reasoningDetails.every(isJsonValue))
-  ) return false;
+  if (result.providerState !== undefined && !isProviderState(result.providerState)) return false;
   if (result.kind === 'final') {
     return typeof result.text === 'string' &&
       new TextEncoder().encode(result.text).byteLength <= MAX_ASSISTANT_TEXT_BYTES;

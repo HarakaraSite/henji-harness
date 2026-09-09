@@ -126,7 +126,9 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
         message.providerState.reasoningDetails.every(isJsonValue)
       ? message.providerState.reasoningDetails
       : undefined;
-    if (message.providerState !== undefined && reasoningDetails === undefined) return undefined;
+    if (message.providerState?.provider === 'openrouter' && reasoningDetails === undefined) {
+      return undefined;
+    }
     const content = message.content;
     if (
       !Array.isArray(content) && typeof content === 'object' &&

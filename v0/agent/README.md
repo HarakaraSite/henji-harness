@@ -5,7 +5,8 @@
 - `core/`: provider-neutral messages, events, turn control, context, cancellation, and steering.
 - `definitions/`: Agent definitions, selection, instructions, skills, identities, and resolved
   manifests.
-- `provider/`: OpenRouter transport and profile, credential access, and provider evidence.
+- `provider/`: OpenRouter and OpenAI transports, route catalogs, credential access, and provider
+  evidence.
 - `tools/`: tool declarations, registries, components, and tool implementations including web
   search.
 - `session/`: durable sessions, history, replay values, context checkpoints, and diagnostics.
@@ -27,20 +28,25 @@ Both production entrypoints use the same headless Worker capsule and Host commit
 - `runtime_cli_launcher.sh` starts one noninteractive turn without persisting a Session transcript;
   diagnostics, provider evidence, and execution artifacts still use the workspace state root.
 
-The interactive Session owns its active OpenRouter model and reasoning effort independently of the
-Definition revision. `/model` opens the searchable repository-curated model list; choosing a model
-also selects that model's curated default effort. `/effort` changes only the current model's effort.
-Both commands are idle-only and take effect on the next root turn. Delegated planner calls use the
-fixed planner default. Session schema v3 persists the active selection, change history, and
-per-committed-turn attribution; `/sessions` displays and restores the active selection.
+The interactive Session owns its active provider/model route and reasoning effort independently of
+the Definition revision. The launcher defaults to OpenRouter; `--root-provider openai` starts a new
+OpenAI Responses root using the fixed direct catalog and Platform API-key file. Delegated planner
+calls and Sonar `web_search` keep independent OpenRouter routes and credentials. Session schema v4
+persists provider, API, auth-profile identity, active selection, change history, and
+per-committed-turn attribution; schema v1-v3 records remain readable and upgrade on the next commit.
+
+For the current OpenRouter route, `/model` opens the searchable repository-curated model list;
+choosing a model also selects that model's curated default effort. `/effort` changes only the
+current model's effort. Both commands are idle-only and take effect on the next root turn. The
+same-Session provider picker is planned for the next increment.
 
 The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request
 deadline. It defaults to 120,000 ms and applies to each root, delegated-planner, and context-
-compaction OpenRouter model request in that Worker invocation. The value is not Session state, so a
-Session switch keeps the invocation value and a later invocation returns to the default unless the
-flag is supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does
-not automatically retry or select another model. The TUI footer keeps transient status on row one
-and cwd, the short Session ID, root model, and effort on row two.
+compaction model request in that Worker invocation. The value is not Session state, so a Session
+switch keeps the invocation value and a later invocation returns to the default unless the flag is
+supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not
+automatically retry or select another model. The TUI footer keeps transient status on row one and
+cwd, the short Session ID, root model, and effort on row two.
 
 `validation/production_cli_e2e.ts` starts that production launcher only when invoked with the exact
 `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider

@@ -37,6 +37,12 @@ export interface ProviderEvidenceRequestMetadata {
   readonly contentType?: string;
   readonly redirect?: string;
   readonly responseMode?: 'json' | 'sse';
+  readonly origin?: 'root_model' | 'planner_model' | 'context_compaction' | 'web_search';
+  readonly provider?: 'openrouter' | 'openai';
+  readonly api?: 'openrouter-chat-completions' | 'openai-responses';
+  readonly modelId?: string;
+  readonly authProfile?: 'openrouter-api-key' | 'openai-api-key';
+  readonly protocol?: 'json' | 'sse';
 }
 
 export interface ProviderEvidenceResponse {

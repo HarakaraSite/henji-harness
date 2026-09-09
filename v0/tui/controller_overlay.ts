@@ -12,9 +12,9 @@ import type { TuiNavigationLike, TuiSessionLike } from './controller_contract.ts
 import type { InputEvent } from './input.ts';
 import type { TuiRenderer } from './render.ts';
 import {
+  type ModelSelection,
   openRouterCatalogEntry,
   type OpenRouterModelCatalogEntry,
-  type OpenRouterModelSelection,
   type OpenRouterReasoningEffort,
   searchOpenRouterModels,
   selectOpenRouterModel,
@@ -65,7 +65,7 @@ export interface ControllerOverlayOptions {
   readonly idleAllowed: () => boolean;
   readonly isIdle: () => boolean;
   readonly readyStatus: () => string;
-  readonly modelSelection: () => OpenRouterModelSelection | undefined;
+  readonly modelSelection: () => ModelSelection | undefined;
   readonly fail: (error: unknown) => Promise<void>;
 }
 
@@ -308,7 +308,7 @@ export class ControllerOverlay {
     ]);
   }
 
-  private applyModelSelection(selection: OpenRouterModelSelection): void {
+  private applyModelSelection(selection: ModelSelection): void {
     if (this.modelSelectionOperation !== null) return;
     this.modal = { kind: 'model-selecting' };
     this.options.renderer.renderChoicePicker?.([

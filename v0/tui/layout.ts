@@ -367,7 +367,7 @@ const overlayRows = (
       const row = rows[start + index];
       const model = row.modelSelection === undefined
         ? 'legacy model'
-        : `${row.modelSelection.modelId} effort:${row.modelSelection.effort}`;
+        : `${row.modelSelection.provider} ${row.modelSelection.modelId} effort:${row.modelSelection.effort}`;
       lines.push(
         `${
           start + index === overlay.selected ? '>' : ' '

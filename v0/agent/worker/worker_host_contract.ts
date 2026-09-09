@@ -8,7 +8,7 @@ import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.t
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import type { WorkerHostCommand, WorkerToHostMessage } from './worker_protocol.ts';
-import type { OpenRouterModelSelection } from '../provider/openrouter_model_catalog.ts';
+import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 
 export interface WorkerHostSessionOptions {
   readonly handle: WorkerSessionHandle;
@@ -24,7 +24,7 @@ export interface WorkerHostSessionOptions {
   readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
-  readonly initialModelSelection?: OpenRouterModelSelection;
+  readonly initialModelSelection?: ModelSelection;
 }
 
 export interface WorkerHostCapsule {

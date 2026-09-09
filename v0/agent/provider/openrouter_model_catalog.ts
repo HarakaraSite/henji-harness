@@ -1,22 +1,15 @@
 import type { OpenRouterAgentProfile } from './openrouter_contract.ts';
+import {
+  type OpenRouterModelSelection,
+  openRouterStoredSelection,
+  type ReasoningEffort,
+} from './model_selection.ts';
 
-export type OpenRouterReasoningEffort =
-  | 'auto'
-  | 'none'
-  | 'minimal'
-  | 'low'
-  | 'medium'
-  | 'high'
-  | 'xhigh'
-  | 'max';
+export type OpenRouterReasoningEffort = ReasoningEffort;
 
 export type OpenRouterExplicitReasoningEffort = Exclude<OpenRouterReasoningEffort, 'auto'>;
 
-export interface OpenRouterModelSelection {
-  readonly provider: 'openrouter';
-  readonly modelId: string;
-  readonly effort: OpenRouterReasoningEffort;
-}
+export type { ModelSelection, OpenRouterModelSelection } from './model_selection.ts';
 
 export interface OpenRouterModelCatalogEntry {
   readonly modelId: string;
@@ -88,12 +81,16 @@ export const PLANNER_DEFAULT_EFFORT: OpenRouterReasoningEffort = 'high';
 
 export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
   provider: 'openrouter',
+  api: 'openrouter-chat-completions',
+  authProfile: 'openrouter-api-key',
   modelId: ROOT_DEFAULT_MODEL_ID,
   effort: ROOT_DEFAULT_EFFORT,
 });
 
 export const PLANNER_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
   provider: 'openrouter',
+  api: 'openrouter-chat-completions',
+  authProfile: 'openrouter-api-key',
   modelId: PLANNER_DEFAULT_MODEL_ID,
   effort: PLANNER_DEFAULT_EFFORT,
 });
@@ -109,7 +106,9 @@ export const isOpenRouterModelSelection = (
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const selection = value as Record<string, unknown>;
   if (
-    Object.keys(selection).length !== 3 || selection.provider !== 'openrouter' ||
+    Object.keys(selection).length !== 5 || selection.provider !== 'openrouter' ||
+    selection.api !== 'openrouter-chat-completions' ||
+    selection.authProfile !== 'openrouter-api-key' ||
     typeof selection.modelId !== 'string' || typeof selection.effort !== 'string'
   ) return false;
   const catalog = openRouterCatalogEntry(selection.modelId);
@@ -127,7 +126,7 @@ export const selectOpenRouterModel = (
   if (!catalog.efforts.includes(selectedEffort)) {
     throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
   }
-  return Object.freeze({ provider: 'openrouter', modelId, effort: selectedEffort });
+  return openRouterStoredSelection(modelId, selectedEffort);
 };
 
 export const searchOpenRouterModels = (

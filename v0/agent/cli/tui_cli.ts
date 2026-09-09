@@ -45,6 +45,8 @@ import { DenoFailureDiagnosticStore } from '../session/failure_diagnostic_store.
 import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
 import { createWorkerSession } from '../worker/worker_host.ts';
 import { DenoHistoryExporter, type HistoryExporter } from '../session/history_export.ts';
+import type { ProviderId } from '../provider/model_selection.ts';
+import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 
 const encoder = new TextEncoder();
 
@@ -165,6 +167,7 @@ export interface ParsedTuiInvocation {
   readonly definitionPath?: string;
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
+  readonly rootProvider?: ProviderId;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly sessionId?: string;
 }
@@ -173,11 +176,13 @@ export interface ParsedTuiInvocation {
 export const parseTuiInvocation = (
   args: readonly string[],
 ): ParsedTuiInvocation => {
-  if (args.length > 8) throw new Error('invalid invocation');
+  if (args.length > 10) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
   let definitionPath: string | undefined;
   let rootMaxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
+  let rootProvider: ProviderId = 'openrouter';
+  let rootProviderSeen = false;
   let persistence: ParsedTuiInvocation['persistence'] = 'new';
   let sessionId: string | undefined;
   for (let index = 0; index < args.length;) {
@@ -243,6 +248,15 @@ export const parseTuiInvocation = (
       }
       providerTimeoutMs = parsed;
       index += 2;
+    } else if (flag === '--root-provider') {
+      const value = args[index + 1];
+      if (
+        rootProviderSeen ||
+        (value !== 'openrouter' && value !== 'openai')
+      ) throw new Error('invalid invocation');
+      rootProvider = value;
+      rootProviderSeen = true;
+      index += 2;
     } else {
       throw new Error('invalid invocation');
     }
@@ -252,6 +266,7 @@ export const parseTuiInvocation = (
     ...(definitionPath === undefined ? {} : { definitionPath }),
     ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
+    ...(rootProviderSeen ? { rootProvider } : {}),
     persistence,
     ...(sessionId === undefined ? {} : { sessionId }),
   };
@@ -345,6 +360,9 @@ export const main = async (
             physicalIoMode: 'production',
             rootMaxSteps: invocation.rootMaxSteps,
             providerTimeoutMs: invocation.providerTimeoutMs,
+            initialModelSelection: defaultModelSelectionFor(
+              invocation.rootProvider ?? 'openrouter',
+            ),
             eventSink,
           });
         }

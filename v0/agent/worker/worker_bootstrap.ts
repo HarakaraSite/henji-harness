@@ -22,10 +22,10 @@ import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructi
 import { discoverSkills } from '../definitions/skills.ts';
 import type { Model } from '../core/contracts.ts';
 import {
-  isOpenRouterModelSelection,
-  type OpenRouterModelSelection,
+  type ModelSelection,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
+import { isModelSelection } from '../provider/model_catalog.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -217,7 +217,7 @@ const createGeneration = async (
   initialTranscript: readonly import('../core/contracts.ts').Message[] = [],
   nextTurn = 1,
   checkpoint?: import('../session/session_store.ts').SemanticContextCheckpointV1,
-  initialModelSelection: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+  initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
   rootRole: 'parent' | 'planner' = 'parent',
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
@@ -234,13 +234,16 @@ const createGeneration = async (
     : createProviderFreePhysicalIo();
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
   const rootRouter: Model = {
+    get measureRequestWire() {
+      return rootModel.measureRequestWire;
+    },
     generate: (request, options) => rootModel.generate(request, options),
   };
   const routedPhysicalIo = {
     ...physicalIo,
     createModel: (
       role: 'parent' | 'planner',
-      selection?: OpenRouterModelSelection,
+      selection?: ModelSelection,
     ): Model => role === rootRole ? rootRouter : physicalIo.createModel('planner', selection),
   };
   const returnedComposition = module.definition({
@@ -374,7 +377,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
     }
     case 'select_model': {
       const accepted = generation !== undefined &&
-        isOpenRouterModelSelection(command.selection) &&
+        isModelSelection(command.selection) &&
         generation.selectRootModel(command.selection);
       post({
         kind: 'model_selected',

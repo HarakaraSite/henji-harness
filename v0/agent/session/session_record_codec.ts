@@ -14,15 +14,18 @@ import {
   type SessionRecord,
   type SessionRecordV2,
   type SessionRecordV3,
+  type SessionRecordV4,
   SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionMetadata,
 } from './session_store_contract.ts';
 import { canonicalAbsolutePath } from './session_store_paths.ts';
 import {
-  isOpenRouterModelSelection,
-  type OpenRouterModelSelection,
-} from '../provider/openrouter_model_catalog.ts';
+  isLegacyOpenRouterModelSelection,
+  isStoredModelSelection,
+  type LegacyOpenRouterModelSelection,
+  type ModelSelection,
+} from '../provider/model_selection.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -105,16 +108,23 @@ const validateMessage = (value: unknown): value is Message => {
   if (message.role === 'assistant') {
     const hasProviderState = Object.hasOwn(message, 'providerState');
     const state = message.providerState;
-    const reasoningDetails = typeof state === 'object' && state !== null
-      ? (state as Record<string, unknown>).reasoningDetails
+    const stateRecord = typeof state === 'object' && state !== null && !Array.isArray(state)
+      ? state as Record<string, unknown>
       : undefined;
+    const reasoningDetails = stateRecord?.reasoningDetails;
+    const replayItems = stateRecord?.replayItems;
     if (
       hasProviderState &&
-      (typeof state !== 'object' || state === null || Array.isArray(state) ||
-        !ownKeys(state, ['provider', 'reasoningDetails']) ||
-        (state as Record<string, unknown>).provider !== 'openrouter' ||
-        !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
-        !reasoningDetails.every(isFiniteJson))
+      (stateRecord === undefined ||
+        (stateRecord.provider === 'openrouter'
+          ? !ownKeys(stateRecord, ['provider', 'reasoningDetails']) ||
+            !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+            !reasoningDetails.every(isFiniteJson)
+          : stateRecord.provider === 'openai'
+          ? !ownKeys(stateRecord, ['provider', 'replayItems']) ||
+            !Array.isArray(replayItems) || replayItems.length === 0 ||
+            !replayItems.every(isFiniteJson)
+          : true))
     ) return false;
     const messageKeys = hasProviderState
       ? ['role', 'content', 'providerState']
@@ -406,16 +416,21 @@ export const decodeSessionRecordV2 = (bytes: Uint8Array): SessionRecordV2 => {
   return structuredClone(parsed);
 };
 
-const sameSelection = (
-  left: OpenRouterModelSelection,
-  right: OpenRouterModelSelection,
-): boolean =>
-  left.provider === right.provider && left.modelId === right.modelId &&
-  left.effort === right.effort;
+type PersistedSelection = LegacyOpenRouterModelSelection | ModelSelection;
 
-export const validateSessionRecordV3 = (
+const sameSelection = (left: PersistedSelection, right: PersistedSelection): boolean => {
+  const leftRoute = left as Partial<ModelSelection>;
+  const rightRoute = right as Partial<ModelSelection>;
+  return left.provider === right.provider && left.modelId === right.modelId &&
+    left.effort === right.effort && leftRoute.api === rightRoute.api &&
+    leftRoute.authProfile === rightRoute.authProfile;
+};
+
+const validateModelSessionRecord = (
   value: unknown,
-): value is SessionRecordV3 => {
+  schemaVersion: 3 | 4,
+  validateSelection: (value: unknown) => value is PersistedSelection,
+): boolean => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (
@@ -433,7 +448,7 @@ export const validateSessionRecordV3 = (
       'activeModel',
       'modelChanges',
       'turnModels',
-    ]) || record.schemaVersion !== 3 || !isOpenRouterModelSelection(record.activeModel) ||
+    ]) || record.schemaVersion !== schemaVersion || !validateSelection(record.activeModel) ||
     !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
     !Array.isArray(record.turnModels)
   ) return false;
@@ -461,7 +476,7 @@ export const validateSessionRecordV3 = (
     legacyV2.transcript.length === 0 && validRevisionRef(legacyV2.definition);
   if (!emptyBeforeFirstTurn && !validateSessionRecordV2(legacyV2)) return false;
   let previousEffectiveTurn = 0;
-  let latestSelection: OpenRouterModelSelection | undefined;
+  let latestSelection: PersistedSelection | undefined;
   for (const value of record.modelChanges) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
     const change = value as Record<string, unknown>;
@@ -472,7 +487,7 @@ export const validateSessionRecordV3 = (
       (change.effectiveFromTurn as number) < 1 ||
       (change.effectiveFromTurn as number) > legacyV2.nextTurn ||
       !canonicalTimestamp(change.changedAt) ||
-      !isOpenRouterModelSelection(change.selection)
+      !validateSelection(change.selection)
     ) return false;
     previousEffectiveTurn = change.effectiveFromTurn as number;
     latestSelection = change.selection;
@@ -490,12 +505,21 @@ export const validateSessionRecordV3 = (
       (attribution.turn as number) <= previousAttributedTurn ||
       (attribution.turn as number) < 1 ||
       (attribution.turn as number) >= legacyV2.nextTurn ||
-      !isOpenRouterModelSelection(attribution.selection)
+      !validateSelection(attribution.selection)
     ) return false;
     previousAttributedTurn = attribution.turn as number;
   }
   return true;
 };
+
+export const validateSessionRecordV3 = (
+  value: unknown,
+): value is SessionRecordV3 =>
+  validateModelSessionRecord(value, 3, isLegacyOpenRouterModelSelection);
+
+export const validateSessionRecordV4 = (
+  value: unknown,
+): value is SessionRecordV4 => validateModelSessionRecord(value, 4, isStoredModelSelection);
 
 export const encodeSessionRecordV3 = (record: SessionRecordV3): Uint8Array => {
   if (!validateSessionRecordV3(record)) throw new SessionStoreError('session_invalid');
@@ -523,6 +547,32 @@ export const decodeSessionRecordV3 = (bytes: Uint8Array): SessionRecordV3 => {
   return structuredClone(parsed);
 };
 
+export const encodeSessionRecordV4 = (record: SessionRecordV4): Uint8Array => {
+  if (!validateSessionRecordV4(record)) throw new SessionStoreError('session_invalid');
+  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
+  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
+  return bytes;
+};
+
+export const decodeSessionRecordV4 = (bytes: Uint8Array): SessionRecordV4 => {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (!validateSessionRecordV4(parsed)) throw new SessionStoreError('session_invalid');
+  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
+  if (
+    canonical.byteLength !== bytes.byteLength ||
+    canonical.some((byte, index) => byte !== bytes[index])
+  ) throw new SessionStoreError('session_invalid');
+  return structuredClone(parsed);
+};
+
 export const decodeStoredSessionRecord = (
   bytes: Uint8Array,
 ): StoredSessionRecord => {
@@ -542,6 +592,7 @@ export const decodeStoredSessionRecord = (
   if (version === 1) return decodeSessionRecord(bytes);
   if (version === 2) return decodeSessionRecordV2(bytes);
   if (version === 3) return decodeSessionRecordV3(bytes);
+  if (version === 4) return decodeSessionRecordV4(bytes);
   throw new SessionStoreError('session_invalid');
 };
 
@@ -697,7 +748,19 @@ export const metadataFromStoredRecord = (
     },
   ),
   ...(record.schemaVersion === 1 ? {} : { definition: structuredClone(record.definition) }),
-  ...(record.schemaVersion === 3 ? { modelSelection: structuredClone(record.activeModel) } : {}),
+  ...(record.schemaVersion === 3
+    ? {
+      modelSelection: {
+        provider: 'openrouter' as const,
+        api: 'openrouter-chat-completions' as const,
+        authProfile: 'openrouter-api-key' as const,
+        modelId: record.activeModel.modelId,
+        effort: record.activeModel.effort,
+      },
+    }
+    : record.schemaVersion === 4
+    ? { modelSelection: structuredClone(record.activeModel) }
+    : {}),
 });
 
 export const compareSessionMetadata = (

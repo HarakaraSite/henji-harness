@@ -32,11 +32,11 @@ import {
 import type { WorkerAgentComposition } from '../worker_agent_api.ts';
 import type { WorkerRequestCounter } from './worker_physical_io.ts';
 import {
-  type OpenRouterModelSelection,
-  openRouterProfileFor,
+  type ModelSelection,
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
@@ -120,7 +120,7 @@ export class WorkerGeneration {
   private activeCancellation: TurnCancellationOwner | null = null;
   private activeSteering: SteeringOwner | null = null;
   private active = false;
-  private rootModelSelection: OpenRouterModelSelection;
+  private rootModelSelection: ModelSelection;
 
   constructor(
     private readonly composition: WorkerAgentComposition,
@@ -133,8 +133,8 @@ export class WorkerGeneration {
       increment: () => {},
       count: () => 0,
     },
-    initialModelSelection: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
-    private readonly replaceRootModel: (selection: OpenRouterModelSelection) => void = () => {},
+    initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+    private readonly replaceRootModel: (selection: ModelSelection) => void = () => {},
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
@@ -146,15 +146,20 @@ export class WorkerGeneration {
 
   get manifest(): WorkerAgentComposition['manifest'] {
     const rootModel = structuredClone(this.rootModelSelection);
+    const profileId = modelRouteProfileId(rootModel);
+    const resources = this.composition.manifest.resources.map((resource) =>
+      resource.startsWith('model:') ? `model:${rootModel.provider}:${profileId}` : resource
+    ).sort();
     return Object.freeze({
       ...this.composition.manifest,
-      profileId: openRouterProfileFor(rootModel).id,
+      profileId,
+      resources: Object.freeze(resources),
       rootModel: Object.freeze(rootModel),
       plannerModel: Object.freeze(structuredClone(PLANNER_DEFAULT_MODEL_SELECTION)),
     });
   }
 
-  selectRootModel(selection: OpenRouterModelSelection): boolean {
+  selectRootModel(selection: ModelSelection): boolean {
     if (this.active) return false;
     this.replaceRootModel(selection);
     this.rootModelSelection = structuredClone(selection);
@@ -399,6 +404,7 @@ export class WorkerGeneration {
       tools: this.composition.registry.definitions(),
       sourceProfileId: this.manifest.profileId,
       checkpoint: this.checkpoint,
+      measureRequestWire: this.composition.model.measureRequestWire,
     };
     const candidate = findContextCandidate(this.committedTranscript, options);
     if (
@@ -493,7 +499,8 @@ export class WorkerGeneration {
         checkpoint,
       );
       if (
-        measureModelRequestWire(projected.request).messagesBytes >=
+        (this.composition.model.measureRequestWire ?? measureModelRequestWire)(projected.request)
+          .messagesBytes >=
           candidate.baselineMessagesBytes
       ) {
         recordFailure('request_build', 'invalid_input');

@@ -1,0 +1,418 @@
+import OpenAI from '@openai/openai';
+import type {
+  JsonValue,
+  Message,
+  Model,
+  ModelGenerateOptions,
+  ModelRequest,
+  ModelResult,
+  ToolCall,
+} from '../core/contracts.ts';
+import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
+import {
+  type CredentialSource,
+  DEFAULT_PROVIDER_TIMEOUT_MS,
+  OpenRouterAgentError,
+} from './openrouter_contract.ts';
+import type { OpenAIModelSelection } from './model_selection.ts';
+import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
+
+export interface OpenAIResponsesModelOptions {
+  readonly selection: OpenAIModelSelection;
+  readonly credentialSource: CredentialSource;
+  readonly fetcher?: typeof fetch;
+  readonly timeoutMs?: number;
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isJsonValue = (value: unknown): value is JsonValue => {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every(isJsonValue);
+  return isRecord(value) && Object.values(value).every(isJsonValue);
+};
+
+const jsonValue = (value: unknown): JsonValue | undefined => {
+  try {
+    const parsed: unknown = JSON.parse(JSON.stringify(value));
+    return isJsonValue(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const requestInput = (transcript: readonly Message[]): unknown[] => {
+  const input: unknown[] = [];
+  for (const message of transcript) {
+    if (message.role === 'user') {
+      input.push({ role: 'user', content: message.content.text });
+      continue;
+    }
+    if (message.role === 'assistant') {
+      if (message.providerState?.provider === 'openai') {
+        input.push(...message.providerState.replayItems);
+        continue;
+      }
+      if (!Array.isArray(message.content)) {
+        input.push({
+          role: 'assistant',
+          content: (message.content as { readonly text: string }).text,
+        });
+        continue;
+      }
+      for (const call of message.content) {
+        input.push({
+          type: 'function_call',
+          call_id: call.callId,
+          name: call.name,
+          arguments: JSON.stringify(call.arguments),
+        });
+      }
+      continue;
+    }
+    for (const result of message.content) {
+      input.push({
+        type: 'function_call_output',
+        call_id: result.callId,
+        output: result.text,
+      });
+    }
+  }
+  return input;
+};
+
+const responseHeaders = (headers: Headers): Readonly<Record<string, string>> => {
+  const values: Record<string, string> = {};
+  headers.forEach((value, name) => {
+    values[name] = value;
+  });
+  return values;
+};
+
+class EvidenceSseTap {
+  private readonly decoder = new TextDecoder('utf-8', { fatal: false });
+  private pending = '';
+
+  constructor(private readonly evidence?: ProviderEvidenceRecorder) {}
+
+  push(bytes: Uint8Array): void {
+    this.pending += this.decoder.decode(bytes, { stream: true });
+    this.dispatchCompleteFrames();
+  }
+
+  finish(): void {
+    this.pending += this.decoder.decode();
+    this.dispatchCompleteFrames();
+  }
+
+  private dispatchCompleteFrames(): void {
+    while (true) {
+      const match = /\r?\n\r?\n/.exec(this.pending);
+      if (match === null || match.index === undefined) return;
+      const end = match.index + match[0].length;
+      const rawFrame = this.pending.slice(0, end);
+      this.pending = this.pending.slice(end);
+      const data = rawFrame
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).replace(/^ /, ''))
+        .join('\n');
+      if (data.length === 0) continue;
+      let parsed: JsonValue | '[DONE]' | undefined;
+      if (data === '[DONE]') parsed = '[DONE]';
+      else {
+        try {
+          const candidate: unknown = JSON.parse(data);
+          if (isJsonValue(candidate)) parsed = candidate;
+        } catch {
+          // The SDK remains the response parser; raw bytes and frame stay available for diagnosis.
+        }
+      }
+      this.evidence?.recordSseEvent({
+        data,
+        rawFrame,
+        ...(parsed === undefined ? {} : { parsed }),
+      });
+    }
+  }
+}
+
+const evidenceOrigin = (
+  options: ModelGenerateOptions,
+): 'root_model' | 'planner_model' | 'context_compaction' =>
+  options.providerEvidencePhase === 'compaction'
+    ? 'context_compaction'
+    : options.providerEvidenceLane === 'planner'
+    ? 'planner_model'
+    : 'root_model';
+
+const evidenceFetch = (
+  fetcher: typeof fetch,
+  selection: OpenAIModelSelection,
+  options: ModelGenerateOptions,
+): typeof fetch =>
+async (input, init) => {
+  const request = input instanceof Request ? input : undefined;
+  const endpoint = request?.url ?? String(input);
+  const requestBody = typeof init?.body === 'string'
+    ? init.body
+    : request === undefined
+    ? ''
+    : await request.clone().text();
+  const evidence = options.providerEvidence;
+  evidence?.startRequest({
+    lane: options.providerEvidenceLane ?? 'parent',
+    phase: options.providerEvidencePhase ?? 'user_turn',
+    modelStep: options.modelStep ?? 1,
+    endpoint,
+    method: 'POST',
+    requestBody,
+    requestMetadata: {
+      contentType: 'application/json',
+      redirect: 'error',
+      responseMode: 'sse',
+      origin: evidenceOrigin(options),
+      provider: 'openai',
+      api: 'openai-responses',
+      modelId: selection.modelId,
+      authProfile: 'openai-api-key',
+      protocol: 'sse',
+    },
+  });
+  const response = await fetcher(input, init);
+  evidence?.recordResponse({
+    status: response.status,
+    headers: responseHeaders(response.headers),
+  });
+  if (response.body === null) return response;
+  const reader = response.body.getReader();
+  const tap = new EvidenceSseTap(evidence);
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      const next = await reader.read();
+      if (next.done) {
+        tap.finish();
+        controller.close();
+        return;
+      }
+      evidence?.appendResponseBytes(next.value);
+      tap.push(next.value);
+      controller.enqueue(next.value);
+    },
+    async cancel(reason) {
+      await reader.cancel(reason);
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+};
+
+const providerError = (
+  code:
+    | 'missing_credential'
+    | 'provider_timeout'
+    | 'transport_error'
+    | 'http_error'
+    | 'response_error',
+  message: string,
+  requestCount: 0 | 1,
+  status?: number,
+): OpenRouterAgentError =>
+  new OpenRouterAgentError(code, message, requestCount, status, {
+    stage: code === 'missing_credential'
+      ? 'credential_resolution'
+      : code === 'provider_timeout' || code === 'transport_error'
+      ? 'transport'
+      : code === 'http_error'
+      ? 'http'
+      : 'response_parse',
+    code,
+    ...(status === undefined ? {} : { httpStatus: status }),
+    ...(code === 'response_error' ? { parseReason: 'unsupported_response_shape' } : {}),
+  });
+
+const toolCalls = (output: readonly unknown[]): readonly ToolCall[] | undefined => {
+  const calls: ToolCall[] = [];
+  for (const item of output) {
+    if (!isRecord(item) || item.type !== 'function_call') continue;
+    if (
+      typeof item.call_id !== 'string' || item.call_id.length === 0 ||
+      typeof item.name !== 'string' || item.name.length === 0 ||
+      typeof item.arguments !== 'string'
+    ) return undefined;
+    let args: unknown;
+    try {
+      args = JSON.parse(item.arguments);
+    } catch {
+      return undefined;
+    }
+    if (!isJsonValue(args)) return undefined;
+    calls.push(Object.freeze({ callId: item.call_id, name: item.name, arguments: args }));
+  }
+  return Object.freeze(calls);
+};
+
+/** Official-SDK Responses adapter. Henji retains the tool loop and durable transcript. */
+export class OpenAIResponsesModel implements Model {
+  constructor(private readonly options: OpenAIResponsesModelOptions) {}
+
+  readonly measureRequestWire = (request: ModelRequest): {
+    readonly messagesBytes: number;
+    readonly bodyBytes: number;
+  } => {
+    const input = requestInput(request.transcript);
+    const body = JSON.stringify({
+      model: this.options.selection.modelId,
+      instructions: request.systemInstruction,
+      input,
+      tools: request.tools,
+      stream: true,
+      store: false,
+    });
+    const encoder = new TextEncoder();
+    return {
+      messagesBytes: encoder.encode(JSON.stringify(input)).byteLength,
+      bodyBytes: encoder.encode(body).byteLength,
+    };
+  };
+
+  async generate(
+    request: ModelRequest,
+    generateOptions: ModelGenerateOptions = {},
+  ): Promise<ModelResult> {
+    const signal = generateOptions.signal;
+    throwIfCancelled(signal);
+    let credential: string | undefined;
+    try {
+      credential = await this.options.credentialSource();
+    } catch {
+      credential = undefined;
+    }
+    if (!credential) {
+      throw providerError('missing_credential', 'host provider credential is not configured', 0);
+    }
+    throwIfCancelled(signal);
+
+    const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    const controller = new AbortController();
+    let timedOut = false;
+    let cancelled = false;
+    const abortFromTurn = () => {
+      cancelled = true;
+      controller.abort(signal?.reason);
+    };
+    signal?.addEventListener('abort', abortFromTurn, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort('provider deadline exceeded');
+    }, timeoutMs);
+    const fetcher = evidenceFetch(
+      this.options.fetcher ?? fetch,
+      this.options.selection,
+      generateOptions,
+    );
+    const client = new OpenAI({
+      apiKey: credential,
+      baseURL: 'https://api.openai.com/v1',
+      adminAPIKey: null,
+      organization: null,
+      project: null,
+      webhookSecret: null,
+      logLevel: 'off',
+      // The SDK also reads OPENAI_CUSTOM_HEADERS. Keep the resolved auth profile
+      // authoritative when that ambient variable contains an Authorization header.
+      defaultHeaders: { Authorization: `Bearer ${credential}` },
+      fetch: fetcher,
+      maxRetries: 0,
+      timeout: timeoutMs,
+    });
+    try {
+      const stream = await client.responses.create({
+        model: this.options.selection.modelId,
+        instructions: request.systemInstruction,
+        input: requestInput(request.transcript) as never,
+        tools: request.tools.map((tool) => ({
+          type: 'function' as const,
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema as Record<string, unknown>,
+          strict: false,
+        })),
+        include: ['reasoning.encrypted_content'],
+        reasoning: { effort: this.options.selection.effort as never },
+        stream: true,
+        store: false,
+      }, {
+        signal: controller.signal,
+        maxRetries: 0,
+        timeout: timeoutMs,
+      });
+      let completed: Record<string, unknown> | undefined;
+      let progress = '';
+      for await (const event of stream) {
+        const detail = jsonValue(event);
+        generateOptions.providerEvidence?.recordParserTransition({
+          kind: 'event',
+          reason: event.type,
+          ...(detail === undefined ? {} : { detail }),
+        });
+        if (event.type === 'response.output_text.delta') {
+          progress += event.delta;
+          generateOptions.reportAssistantProgress?.(progress);
+        } else if (event.type === 'response.completed') {
+          completed = event.response as unknown as Record<string, unknown>;
+        } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
+          throw providerError('response_error', 'OpenAI response did not complete', 1);
+        }
+      }
+      if (completed === undefined || !Array.isArray(completed.output)) {
+        throw providerError('response_error', 'OpenAI response shape was unsupported', 1);
+      }
+      const replayItems = completed.output.map(jsonValue);
+      if (replayItems.some((item) => item === undefined)) {
+        throw providerError('response_error', 'OpenAI response items were not JSON values', 1);
+      }
+      const state = Object.freeze({
+        provider: 'openai' as const,
+        replayItems: Object.freeze(replayItems as JsonValue[]),
+      });
+      const calls = toolCalls(completed.output);
+      if (calls === undefined) {
+        throw providerError('response_error', 'OpenAI function call shape was unsupported', 1);
+      }
+      if (calls.length > 0) {
+        generateOptions.providerEvidence?.recordParserTransition({
+          kind: 'result',
+          reason: 'tool_calls',
+        });
+        return { kind: 'tool_calls', calls, providerState: state };
+      }
+      const text = typeof completed.output_text === 'string' ? completed.output_text : progress;
+      if (text.length === 0) {
+        throw providerError('response_error', 'OpenAI response had no assistant text', 1);
+      }
+      generateOptions.providerEvidence?.recordParserTransition({
+        kind: 'terminal',
+        reason: 'response.completed',
+      });
+      generateOptions.providerEvidence?.recordParserTransition({ kind: 'result', reason: 'final' });
+      return { kind: 'final', text, providerState: state };
+    } catch (error) {
+      if (cancelled) throw new TurnCancelledError();
+      if (timedOut) throw providerError('provider_timeout', 'provider deadline exceeded', 1);
+      if (error instanceof OpenRouterAgentError) throw error;
+      const status = isRecord(error) && typeof error.status === 'number' ? error.status : undefined;
+      throw status === undefined
+        ? providerError('transport_error', 'OpenAI provider transport failed', 1)
+        : providerError('http_error', 'OpenAI provider request failed', 1, status);
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abortFromTurn);
+    }
+  }
+}

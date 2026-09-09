@@ -142,7 +142,12 @@ export interface ContextAdmissionOptions {
   readonly tools: ModelRequest['tools'];
   readonly sourceProfileId: string;
   readonly checkpoint?: SemanticContextCheckpointV1;
+  readonly measureRequestWire?: RequestWireMeasure;
 }
+
+type RequestWireMeasure = (
+  request: ModelRequest,
+) => { readonly messagesBytes: number; readonly bodyBytes: number };
 
 export interface ContextCandidate {
   readonly coveredThroughTurn: number;
@@ -215,6 +220,7 @@ const summaryRequestFromIndex = (
 
 const fits = (
   request: ModelRequest,
+  measureRequestWire: RequestWireMeasure,
 ): {
   readonly prepared: PreparedModelContext;
   readonly messagesBytes: number;
@@ -222,7 +228,7 @@ const fits = (
 } | undefined => {
   try {
     const prepared = prepareModelContext(request);
-    const measured = measureModelRequestWire(prepared.request);
+    const measured = measureRequestWire(prepared.request);
     if (measured.messagesBytes > MAX_MESSAGE_BYTES || measured.bodyBytes > MAX_REQUEST_BYTES) {
       return undefined;
     }
@@ -234,6 +240,7 @@ const fits = (
 
 const measurePrepared = (
   request: ModelRequest,
+  measureRequestWire: RequestWireMeasure,
 ): {
   readonly prepared: PreparedModelContext;
   readonly messagesBytes: number;
@@ -241,7 +248,7 @@ const measurePrepared = (
 } | undefined => {
   try {
     const prepared = prepareModelContext(request);
-    const measured = measureModelRequestWire(prepared.request);
+    const measured = measureRequestWire(prepared.request);
     return { prepared, messagesBytes: measured.messagesBytes, bodyBytes: measured.bodyBytes };
   } catch {
     return undefined;
@@ -257,13 +264,14 @@ export const findContextCandidate = (
   const turns = indexed?.turns ?? [];
   const count = turns.length;
   if (count < 2) return undefined;
+  const measure = options.measureRequestWire ?? measureModelRequestWire;
   const baselineInput = options.checkpoint === undefined
     ? requestWithDraft(transcript, options)
     : requestForCheckpoint(transcript, options.checkpoint, options);
   // The comparison baseline is measured even when the current request already exceeds a
   // provider ceiling; only the candidate must fit. This allows compaction to recover a long
   // canonical session without using a hidden truncation fallback.
-  const baseline = measurePrepared(baselineInput);
+  const baseline = measurePrepared(baselineInput, measure);
   if (baseline === undefined) return undefined;
   const currentCovered = options.checkpoint?.coveredThroughTurn ?? 0;
   const firstCandidate = currentCovered + 1;
@@ -276,7 +284,7 @@ export const findContextCandidate = (
   const summaryFor = (covered: number): ReturnType<typeof fits> => {
     const cached = summaryFits.get(covered);
     if (cached !== undefined || summaryFits.has(covered)) return cached;
-    const value = fits(summaryRequestFromIndex(indexed!, covered));
+    const value = fits(summaryRequestFromIndex(indexed!, covered), measure);
     summaryFits.set(covered, value);
     return value;
   };
@@ -326,7 +334,10 @@ export const findContextCandidate = (
         candidates.set(covered, undefined);
         return undefined;
       }
-      projectedFit = fits(requestForCheckpointFromIndex(transcript, indexed!, reserved, options));
+      projectedFit = fits(
+        requestForCheckpointFromIndex(transcript, indexed!, reserved, options),
+        measure,
+      );
     } catch {
       candidates.set(covered, undefined);
       return undefined;
@@ -337,9 +348,11 @@ export const findContextCandidate = (
     }
     let checkpointMessageBytes: number;
     try {
-      checkpointMessageBytes =
-        measureModelRequestWire({ transcript: [checkpointMessage(reserved)], tools: [] })
-          .messagesBytes;
+      checkpointMessageBytes = (options.measureRequestWire ?? measureModelRequestWire)({
+        transcript: [checkpointMessage(reserved)],
+        tools: [],
+      })
+        .messagesBytes;
     } catch {
       candidates.set(covered, undefined);
       return undefined;

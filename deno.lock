@@ -1,0 +1,16 @@
+{
+  "version": "5",
+  "specifiers": {
+    "jsr:@openai/openai@7.2.0": "7.2.0"
+  },
+  "jsr": {
+    "@openai/openai@7.2.0": {
+      "integrity": "73ffde8f4c85d6650fdffcd98308c26bec28d8ca6e883ccf511ff728e6266414"
+    }
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@openai/openai@7.2.0"
+    ]
+  }
+}

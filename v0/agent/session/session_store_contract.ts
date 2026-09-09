@@ -1,5 +1,6 @@
 import type { Message } from '../core/contracts.ts';
-import type { OpenRouterModelSelection } from '../provider/openrouter_model_catalog.ts';
+import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
+import type { LegacyOpenRouterModelSelection } from '../provider/model_selection.ts';
 
 export const SESSION_SCHEMA_VERSION = 1 as const;
 export const MAX_SESSION_FILE_BYTES = 8 * 1024 * 1024;
@@ -50,15 +51,26 @@ export interface SessionRecordV2 {
   readonly definition: DefinitionRevisionRef;
 }
 
+export interface SessionModelChangeV3 {
+  readonly effectiveFromTurn: number;
+  readonly changedAt: string;
+  readonly selection: LegacyOpenRouterModelSelection;
+}
+
+export interface SessionTurnModelAttributionV3 {
+  readonly turn: number;
+  readonly selection: LegacyOpenRouterModelSelection;
+}
+
 export interface SessionModelChange {
   readonly effectiveFromTurn: number;
   readonly changedAt: string;
-  readonly selection: OpenRouterModelSelection;
+  readonly selection: ModelSelection;
 }
 
 export interface SessionTurnModelAttribution {
   readonly turn: number;
-  readonly selection: OpenRouterModelSelection;
+  readonly selection: ModelSelection;
 }
 
 /** Worker-backed record with one durable root-model selection and committed-turn attribution. */
@@ -73,12 +85,33 @@ export interface SessionRecordV3 {
   readonly nextTurn: number;
   readonly transcript: readonly Message[];
   readonly definition: DefinitionRevisionRef;
-  readonly activeModel: OpenRouterModelSelection;
+  readonly activeModel: LegacyOpenRouterModelSelection;
+  readonly modelChanges: readonly SessionModelChangeV3[];
+  readonly turnModels: readonly SessionTurnModelAttributionV3[];
+}
+
+/** Worker-backed record with provider-neutral route identity and attribution. */
+export interface SessionRecordV4 {
+  readonly schemaVersion: 4;
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agent: 'default' | 'planner';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly transcript: readonly Message[];
+  readonly definition: DefinitionRevisionRef;
+  readonly activeModel: ModelSelection;
   readonly modelChanges: readonly SessionModelChange[];
   readonly turnModels: readonly SessionTurnModelAttribution[];
 }
 
-export type StoredSessionRecord = SessionRecord | SessionRecordV2 | SessionRecordV3;
+export type StoredSessionRecord =
+  | SessionRecord
+  | SessionRecordV2
+  | SessionRecordV3
+  | SessionRecordV4;
 
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {
@@ -102,7 +135,7 @@ export interface SessionMetadata {
   readonly updatedAt: string;
   readonly turnCount: number;
   readonly messageCount: number;
-  readonly modelSelection?: OpenRouterModelSelection;
+  readonly modelSelection?: ModelSelection;
 }
 
 export type SessionErrorCode =

@@ -628,9 +628,9 @@ export class TuiRenderer implements TerminalRendererGate {
       const updated = escapeTerminalText(row.updatedAt);
       const model = row.modelSelection === undefined
         ? 'legacy model'
-        : `${escapeTerminalText(row.modelSelection.modelId)} effort:${
-          escapeTerminalText(row.modelSelection.effort)
-        }`;
+        : `${row.modelSelection.provider} ${
+          escapeTerminalText(row.modelSelection.modelId)
+        } effort:${escapeTerminalText(row.modelSelection.effort)}`;
       lines.push(
         `${marker} ${escapeTerminalText(row.id)} ${
           escapeTerminalText(row.agent)

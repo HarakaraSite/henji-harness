@@ -7,11 +7,11 @@ import {
 } from '../../v0/agent/provider/openrouter_model.ts';
 import {
   OPENROUTER_MODEL_CATALOG,
-  openRouterProfileFor,
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
@@ -157,7 +157,7 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
           manifest: {
             role: 'parent',
             maxSteps: 64,
-            profileId: openRouterProfileFor(ROOT_DEFAULT_MODEL_SELECTION).id,
+            profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
@@ -214,9 +214,20 @@ Deno.test('Increment 13 projects successful model and effort selection immediate
   assertEquals(result, {
     kind: 'model_selection',
     status: 'selected',
-    selection: qwen,
+    selection: {
+      provider: 'openrouter',
+      modelId: qwen.modelId,
+      effort: qwen.effort,
+    },
   });
-  assertEquals(events, [{ kind: 'model_selection_changed', selection: qwen }]);
+  assertEquals(events, [{
+    kind: 'model_selection_changed',
+    selection: {
+      provider: 'openrouter',
+      modelId: qwen.modelId,
+      effort: qwen.effort,
+    },
+  }]);
 });
 
 Deno.test('Increment 13 keeps Session model and effort in the second footer row', () => {

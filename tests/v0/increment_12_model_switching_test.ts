@@ -41,6 +41,8 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
   ]);
   assertEquals(ROOT_DEFAULT_MODEL_SELECTION, {
     provider: 'openrouter',
+    api: 'openrouter-chat-completions',
+    authProfile: 'openrouter-api-key',
     modelId: 'deepseek/deepseek-v4-pro-0813',
     effort: 'high',
   });
@@ -173,7 +175,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     const sessionId = first.session.currentPosition().sessionId;
     assert(typeof sessionId === 'string');
     const selectedBeforeTurn = await store.readWorker(sessionId);
-    assert(selectedBeforeTurn.schemaVersion === 3);
+    assert(selectedBeforeTurn.schemaVersion === 4);
     assertEquals(selectedBeforeTurn.activeModel, qwen);
     assertEquals(selectedBeforeTurn.nextTurn, 1);
     assertEquals(selectedBeforeTurn.turnModels, []);
@@ -188,7 +190,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     assertEquals(await first.session.selectModel(gpt), 'selected');
     assert((await first.session.submit('delegate this small task')).ok);
     const record = await store.readWorker(sessionId);
-    assert(record.schemaVersion === 3);
+    assert(record.schemaVersion === 4);
     assertEquals(record.activeModel, gpt);
     assertEquals(record.turnModels, [
       { turn: 1, selection: qwen },
@@ -220,7 +222,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
 
     const legacyHandle = await store.openExistingWorker(sessionId);
     const current = legacyHandle.record;
-    assert(current !== undefined && current.schemaVersion === 3);
+    assert(current !== undefined && current.schemaVersion === 4);
     legacyHandle.commit({
       schemaVersion: 2,
       sessionId: current.sessionId,

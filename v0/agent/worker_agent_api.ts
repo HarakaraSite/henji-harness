@@ -23,7 +23,7 @@ import { composeSystemInstruction } from './definitions/agent_instructions.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
 import {
-  type OpenRouterModelSelection,
+  type ModelSelection,
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from './provider/openrouter_model_catalog.ts';
@@ -46,7 +46,7 @@ export type { AgentEventSink };
 export interface PhysicalIoBindings {
   readonly createModel: (
     role: 'parent' | 'planner',
-    selection?: OpenRouterModelSelection,
+    selection?: ModelSelection,
   ) => Model;
   readonly workTools?: WorkToolSeams;
   readonly webSearchBackend?: WebSearchBackend;
@@ -72,8 +72,8 @@ export interface WorkerAgentManifest {
   readonly maxSteps: number;
   readonly profileId: string;
   readonly resources: readonly string[];
-  readonly rootModel: OpenRouterModelSelection;
-  readonly plannerModel: OpenRouterModelSelection;
+  readonly rootModel: ModelSelection;
+  readonly plannerModel: ModelSelection;
 }
 
 export interface WorkerAgentComposition {
@@ -146,8 +146,8 @@ const manifestFor = (
   maxSteps: number,
   modelResource: string,
   profileId: string,
-  rootModel: OpenRouterModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
-  plannerModel: OpenRouterModelSelection = PLANNER_DEFAULT_MODEL_SELECTION,
+  rootModel: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
+  plannerModel: ModelSelection = PLANNER_DEFAULT_MODEL_SELECTION,
 ): WorkerAgentManifest => ({
   role,
   maxSteps,

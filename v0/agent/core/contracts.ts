@@ -25,6 +25,14 @@ export interface OpenRouterProviderState {
   readonly reasoningDetails: readonly JsonValue[];
 }
 
+/** Ordered Responses output items needed when continuing an OpenAI tool/model exchange. */
+export interface OpenAIProviderState {
+  readonly provider: 'openai';
+  readonly replayItems: readonly JsonValue[];
+}
+
+export type ProviderState = OpenRouterProviderState | OpenAIProviderState;
+
 export interface ToolCall {
   readonly callId: string;
   readonly name: string;
@@ -75,7 +83,7 @@ export interface UserMessage {
 export interface AssistantMessage {
   readonly role: 'assistant';
   readonly content: TextContent | readonly ToolCallContent[];
-  readonly providerState?: OpenRouterProviderState;
+  readonly providerState?: ProviderState;
 }
 
 export interface ToolMessage {
@@ -114,15 +122,20 @@ export type ModelResult =
   | {
     readonly kind: 'final';
     readonly text: string;
-    readonly providerState?: OpenRouterProviderState;
+    readonly providerState?: ProviderState;
   }
   | {
     readonly kind: 'tool_calls';
     readonly calls: readonly ToolCall[];
-    readonly providerState?: OpenRouterProviderState;
+    readonly providerState?: ProviderState;
   };
 
 export interface Model {
+  /** Provider-specific wire measurement used by context admission and compaction. */
+  readonly measureRequestWire?: (request: ModelRequest) => {
+    readonly messagesBytes: number;
+    readonly bodyBytes: number;
+  };
   generate(
     request: ModelRequest,
     options?: ModelGenerateOptions,
