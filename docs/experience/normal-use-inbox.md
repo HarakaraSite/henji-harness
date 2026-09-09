@@ -25,6 +25,31 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
 
+### Agent実行: 有用なslash command操作のtool化（F02、F06、F10）
+
+- slash commandのうち、AI自身が作業中に利用できると有用な操作は、人間向けcommandだけでなくmodel向けtoolとしても
+  提供することを検討する。初期候補はresourceを再読込する`/reload`と、保存済みSessionを扱う`/sessions`である。
+- slash command文字列をmodelに擬似入力させるのではなく、Hostが所有する同じapplication serviceへ、型付きslash command
+  handlerと型付きtool handlerの双方を接続する構成を候補とする。
+- 一覧取得などのread-only操作と、Session切替・runtime再読込のように現在のtool callやconversation contextを置換する操作を
+  区別する。後者はtool resultを返す前に呼出元を破棄せず、次turnへの予約、Host control event、完了後の切替など、実行順序を
+  個別incrementで定める。
+- `/sessions`のtool化では、Session一覧取得、詳細取得、選択・切替を一つのtoolにするか分けるかを決める。AIによる自動切替と、
+  候補提示後に人間が選択する操作も区別する。
+- `/reload`のtool化では、再読込対象、active response中の扱い、Worker generation・Definition revision・Session bindingとの
+  整合を、既存の「`/reload`によるresource再読込」候補と一緒に設計する。
+- 今後slash commandを追加するときは、同じ意味操作をAIが利用する価値があるかを確認し、必要ならtool surfaceも併せて検討する。
+  UIだけに意味があるcommandや、人間の明示選択そのものが目的のcommandまで一律にtool化はしない。
+
+### Surface: `read`分割範囲のtool表示（低優先度、F01、F10）
+
+通常利用で254行のREADMEを1–200行、201–254行に分けて正しく読んだが、TUIは両方を
+`tool> read README.md`とだけ表示したため、同じ内容を二重に読んだように見えた。
+
+- `read` activityへrequestの`offset`・`limit`、または人間向けの行範囲を短く表示する。
+- settled後に実際の最終行まで表示するか、request時点の予定範囲だけにするかは、個別increment採用時に決める。
+- tool argument全体やfile内容を常時表示する変更には広げない。
+
 ### Surface: provider認証statusとHenji内credential登録（F01、F02、F10）
 
 通常利用での観測と要望:
@@ -229,3 +254,52 @@ Increment 16で採用するruntime instruction合成は
 - standalone binaryでもinstruction置換と自己改定を成立させるため、immutableなbinary内built-inを直接書き換えるのか、
   writableな外部revision storeを正本にするのか、build・install・rollbackを伴う更新機構にするのかを決める。開発時の
   source編集可能性を、配布後のruntime変更可能性と同一視しない。
+
+### 配布・F24候補: 各種Definitionの外部化とPiのProvider構成
+
+対象はAgent Definition、instruction component、tool component、Provider Definitionである。現時点では将来課題として
+保存し、共通plugin方式や外部化の採用は決定しない。
+
+現行Henjiの境界:
+
+- workspace-local external Agent DefinitionはTypeScriptとしてWorker内で評価できる。一方、配置先はworkspace内に限定され、
+  任意のnamed agent catalog、共通の外部resource store、配布後の更新・rollback契約は未整備である。
+- built-in instruction componentは独立したTypeScript sourceになったが、standalone executableでは静的importされた内容が
+  binaryへ埋め込まれる。配布後も置換可能にするには、外部revision storeまたは更新機構が別途必要になる。
+- external Agent Definitionはroot compositionの既存toolを同一identity・nameで置換できるが、catalog外の新tool identityを
+  一般登録するseamはない。
+- Providerは`openrouter` / `openai`、API種別、auth profileのclosed unionであり、adapter factory、credential resolver、
+  provider state、raw evidence、model catalog、Denoのnetwork permissionも現在の二providerを前提にしている。新providerを
+  外部定義だけで追加できるregistry contractはまだない。
+
+pinned `_refs/pi` v0.84.2の調査結果:
+
+- PiのProvider構成は三層である。組み込みproviderは`packages/ai/src/providers/*.ts`と生成model catalogを本体へ組み込み、
+  `builtinProviders()`で登録する。
+- OpenAI Completions、OpenAI Responses、Anthropic Messages、Google Generative AIのいずれかと互換なproviderは、
+  `~/.pi/agent/models.json`でbase URL、API種別、認証値の解決方法、header、model、model overrideを外部定義できる。
+- 独自protocol、独自streaming、OAuth、modelの動的取得が必要なproviderは、globalまたはproject-localのTypeScript extensionから
+  `pi.registerProvider()`で登録できる。簡易configだけでなく、auth、model取得・filter・refresh、`stream`、
+  `streamSimple`を持つ完全な`Provider` objectも登録できる。
+- extensionは`jiti`で外部TypeScriptを同一processへloadする。compiled binaryではextensionがimportするPi APIを
+  `virtualModules`としてbinaryへ組み込み、外部extension自体は再buildなしで読めるようにしている。auto-discovery対象は
+  `~/.pi/agent/extensions/`と`.pi/extensions/`で、`/reload`による再読込にも対応する。
+- 完全なextension Providerは同じIDのbuilt-inをcomposition baseとして置き換えられ、`models.json`のmodel overrideは
+  さらに上位のuser configとして適用される。登録・解除は初期load後なら即時反映できる。
+- Pi extensionは独立processのExecutable Definitionではなく、Pi本体とsystem permissionを共有するin-process pluginである。
+  外部化、hot reload、強い実装自由度には有効だが、実行分離やpermission ceilingは提供しない。
+
+Henjiで個別incrementへ採用するときの検討候補:
+
+- Piと同様に、互換providerをdata-only Definition、独自protocolをexecutable Provider Definitionとして分けるか。
+- Agent、instruction、tool、providerを同じloaderへ載せるか、resourceの性質ごとにloaderと更新単位を分けるか。
+- executable DefinitionをWorker内TypeScript pluginとするか、process・permissionを分離したExecutable Definitionとするか。
+- Provider registryへ移行する場合も、credential値の非継承、adapter固有state、raw SSE evidence、request count、timeout、
+  network permissionをprovider definitionへ無条件に委譲せず、Henji-owned contractとしてどこまで固定するか。
+- 外部resourceのidentity、revision、dependency lineage、Manifest attribution、reload時のSession binding、rollbackを、
+  F24の候補生成・人間による採用flowとどう接続するか。
+
+Pi調査箇所: `_refs/pi/packages/ai/src/providers/all.ts`、`_refs/pi/packages/ai/src/models.ts`、
+`_refs/pi/packages/coding-agent/src/core/model-runtime.ts`、`_refs/pi/packages/coding-agent/src/core/provider-composer.ts`、
+`_refs/pi/packages/coding-agent/src/core/extensions/loader.ts`、`_refs/pi/packages/coding-agent/docs/models.md`、
+`_refs/pi/packages/coding-agent/docs/custom-provider.md`、`_refs/pi/packages/coding-agent/docs/extensions.md`。
