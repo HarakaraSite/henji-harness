@@ -598,6 +598,8 @@ Deno.test('headless launcher grants Worker resources without environment credent
   assert(!runtimeCliSource.includes('runRuntime'));
   const launcherSource = await Deno.readTextFile(launcher);
   assert(launcherSource.includes('umask 077'));
+  assert(launcherSource.includes('--cached-only'));
+  assert(!launcherSource.includes('--no-remote'));
   assert(
     launcherSource.includes(
       'deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno',

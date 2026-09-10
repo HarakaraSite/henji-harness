@@ -4,6 +4,7 @@ import {
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import type {
   WorkerExecutionArtifactV1,
   WorkerExecutionTraceEntry,
@@ -82,7 +83,7 @@ const executionFixture = (overrides: Partial<WorkerExecutionArtifactV1> = {}) =>
     manifest: {
       role: 'parent',
       maxSteps: 64,
-      profileId: PRODUCTION_PROFILE.id,
+      profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
       resources: [],
       rootModel: ROOT_DEFAULT_MODEL_SELECTION,
       plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
@@ -146,7 +147,17 @@ const evidenceFixture = (overrides: Partial<ProviderEvidenceV1> = {}) => {
       method: 'POST' as const,
       requestBody: JSON.stringify({ model: PRODUCTION_PROFILE.model, stream: true }),
       requestBodyBytes: 64,
-      requestMetadata: { responseMode: 'sse' as const },
+      requestMetadata: {
+        contentType: 'application/json',
+        redirect: 'error',
+        responseMode: 'sse' as const,
+        origin: 'root_model' as const,
+        provider: ROOT_DEFAULT_MODEL_SELECTION.provider,
+        api: ROOT_DEFAULT_MODEL_SELECTION.api,
+        modelId: ROOT_DEFAULT_MODEL_SELECTION.modelId,
+        authProfile: ROOT_DEFAULT_MODEL_SELECTION.authProfile,
+        protocol: 'sse' as const,
+      },
     },
     response: { status: 200, headers: {}, rawBodyBytes: 1 },
     sseEvents: [{

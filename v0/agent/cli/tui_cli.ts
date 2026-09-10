@@ -332,9 +332,7 @@ export const main = async (
     return 1;
   }
 
-  const retainedProduction = dependencies.createSession === undefined &&
-    dependencies.runtimeSeam === undefined;
-  const renderer = new TuiRenderer(terminal, { retained: retainedProduction });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   let crashGuard: CrashGuard | undefined;
   let acquisitionStarted = false;
@@ -699,19 +697,10 @@ export const main = async (
     });
     acquisitionStarted = true;
     await lifecycle.acquire();
-    // Production uses the compact retained-screen welcome.  The injected factory remains a
-    // direct-test seam and keeps the historical twelve-line orientation for its assertions.
-    if (retainedProduction) {
-      renderer.renderCompactStartup(
-        created.displayState,
-        created.sessionLine?.split(' ')[1],
-      );
-    } else {
-      renderer.renderStartupOrientation(created.displayState);
-    }
-    if (created.sessionLine !== undefined && !retainedProduction) {
-      renderer.writeStatic(`${created.sessionLine}\n`);
-    }
+    renderer.renderCompactStartup(
+      created.displayState,
+      created.sessionLine?.split(' ')[1],
+    );
     if (created.restored !== undefined) {
       renderer.renderRestored(
         created.restored.messages,

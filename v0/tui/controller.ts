@@ -953,7 +953,7 @@ export class TuiController {
       return;
     }
     this.clearSteeringEditorStrict();
-    this.renderer.clearLiveProgress();
+    this.renderer.clearLiveActivity();
     if (outcome.diagnostic !== undefined) {
       this.renderer.renderFailureDiagnostic(
         outcome.diagnostic,
@@ -1003,7 +1003,7 @@ export class TuiController {
   }
 
   private finishModernTurn(outcome: PresentationOutcome): void {
-    this.renderer.clearLiveProgress();
+    this.renderer.clearLiveActivity();
     if (outcome.diagnostic !== undefined) {
       this.renderer.renderFailureDiagnostic(
         outcome.diagnostic,
@@ -1239,7 +1239,7 @@ export class TuiController {
     if (
       this.intents === undefined && this.session.cancelActiveTurn === undefined
     ) {
-      this.renderer.clearLiveProgress();
+      this.renderer.clearLiveActivity();
       this.dropFollowUpStrict();
       this.clearSteeringEditorBestEffort();
       this.renderer.setStatus('cancellation unavailable; turn continues');
@@ -1257,7 +1257,7 @@ export class TuiController {
     // Clear replaceable live activity before redrawing the editor so no stale tool snapshot is
     // emitted after cancellation. The strict editor clear still precedes the status redraw; its
     // failure becomes output_failure and `fail()` waits for this active turn before restoration.
-    this.renderer.clearLiveProgress();
+    this.renderer.clearLiveActivity();
     if (this.modern) {
       this.renderer.setStatus(status);
       return;

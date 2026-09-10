@@ -1,5 +1,7 @@
 import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../provider/model_selection.ts';
 import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import type { WorkerExecutionArtifactV1 } from '../worker/worker_execution_artifact.ts';
 
@@ -12,6 +14,10 @@ export const PRODUCTION_CLI_E2E_TASK =
   'Do not call any other tool and do not infer or invent the contents before using read.';
 export const PRODUCTION_CLI_E2E_EXPECTED_REQUESTS = 2 as const;
 export const PRODUCTION_CLI_E2E_CHILD_DEADLINE_MS = 120_000 as const;
+
+const PRODUCTION_CLI_E2E_ROUTE_PROFILE_ID = modelRouteProfileId(
+  ROOT_DEFAULT_MODEL_SELECTION,
+);
 
 export type ProductionCliE2eStage =
   | 'preflight'
@@ -189,7 +195,15 @@ const requestMatchesProduction = (record: ProviderEvidenceV1['requests'][number]
     record.request.endpoint !== `${PRODUCTION_PROFILE.origin}${PRODUCTION_PROFILE.path}` ||
     record.request.method !== PRODUCTION_PROFILE.method ||
     record.request.lane !== 'parent' || record.request.phase !== 'user_turn' ||
-    record.request.requestMetadata.responseMode !== 'sse'
+    record.request.requestMetadata.contentType !== 'application/json' ||
+    record.request.requestMetadata.redirect !== 'error' ||
+    record.request.requestMetadata.responseMode !== 'sse' ||
+    record.request.requestMetadata.origin !== 'root_model' ||
+    record.request.requestMetadata.provider !== ROOT_DEFAULT_MODEL_SELECTION.provider ||
+    record.request.requestMetadata.api !== ROOT_DEFAULT_MODEL_SELECTION.api ||
+    record.request.requestMetadata.modelId !== ROOT_DEFAULT_MODEL_SELECTION.modelId ||
+    record.request.requestMetadata.authProfile !== ROOT_DEFAULT_MODEL_SELECTION.authProfile ||
+    record.request.requestMetadata.protocol !== 'sse'
   ) return false;
   const requestKeys = Object.keys(record.request).sort();
   const expectedRequestKeys = [
@@ -207,8 +221,22 @@ const requestMatchesProduction = (record: ProviderEvidenceV1['requests'][number]
     requestKeys.length !== expectedRequestKeys.length ||
     requestKeys.some((key, index) => key !== expectedRequestKeys[index])
   ) return false;
-  const metadataKeys = Object.keys(record.request.requestMetadata);
-  if (metadataKeys.some((key) => !['contentType', 'redirect', 'responseMode'].includes(key))) {
+  const metadataKeys = Object.keys(record.request.requestMetadata).sort();
+  const expectedMetadataKeys = [
+    'api',
+    'authProfile',
+    'contentType',
+    'modelId',
+    'origin',
+    'protocol',
+    'provider',
+    'redirect',
+    'responseMode',
+  ];
+  if (
+    metadataKeys.length !== expectedMetadataKeys.length ||
+    metadataKeys.some((key, index) => key !== expectedMetadataKeys[index])
+  ) {
     return false;
   }
   try {
@@ -314,7 +342,7 @@ export const evaluateProductionCliE2e = (
   if (
     artifact.agent !== 'default' || artifact.definition.kind !== 'builtin' ||
     artifact.definition.id !== 'default' || artifact.manifest.role !== 'parent' ||
-    artifact.manifest.profileId !== PRODUCTION_PROFILE.id ||
+    artifact.manifest.profileId !== PRODUCTION_CLI_E2E_ROUTE_PROFILE_ID ||
     artifact.manifest.maxSteps !== DEFAULT_AGENT_MAX_STEPS ||
     artifact.command.kind !== 'turn' || artifact.command.task !== PRODUCTION_CLI_E2E_TASK ||
     artifact.storeResult !== 'committed' || artifact.acknowledgement !== 'accepted_sent' ||

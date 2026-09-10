@@ -158,7 +158,7 @@ const indexOfWrite = (writes: readonly string[], value: string): number =>
 
 Deno.test('retained rendering isolates redraws in the alternate screen', async () => {
   const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
 
   await lifecycle.acquire();
@@ -222,7 +222,7 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
 
 Deno.test('retained busy footer blinks only its primary status and shows cancel help', () => {
   const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
 
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   let layout = renderer.layoutSnapshot(80, 24);
@@ -303,16 +303,11 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   });
   assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[contract_failure]');
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
-
-  const directTerminal = new RecordingTerminal();
-  const direct = new TuiRenderer(directTerminal);
-  direct.eventSink({ kind: 'turn_start', turn: 1 });
-  assert(directTerminal.writes.every((write) => !write.includes(BLINK_SGR)));
 });
 
 Deno.test('retained controller shows credential absence and slash candidates without completion', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   let credentialStatus: 'missing' | 'present' = 'missing';
@@ -470,7 +465,7 @@ Deno.test('retained layout keeps fullwidth form cells consistent through edit an
 
 Deno.test('retained PageUp at the oldest boundary anchors the first conversation entry', () => {
   const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const startup: PresentationStartupState = {
     workspace: '/tmp/henji-ui',
     agentId: 'default',
@@ -551,7 +546,7 @@ Deno.test('retained PageUp at the oldest boundary anchors the first conversation
 
 Deno.test('retained PageUp keeps latest when the conversation fits one page', () => {
   const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   renderer.eventSink({
     kind: 'user_message',
     turn: 1,
@@ -570,7 +565,7 @@ Deno.test('retained PageUp keeps latest when the conversation fits one page', ()
 Deno.test('retained controller Escape returns an anchored viewport to latest', async () => {
   const terminal = new InteractiveTerminal();
   terminal.size = { columns: 80, rows: 10 };
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   renderer.resize(80, 10);
@@ -596,7 +591,7 @@ Deno.test('retained controller Escape returns an anchored viewport to latest', a
 Deno.test('retained controller returns to latest only after ordinary task admission', async () => {
   const terminal = new InteractiveTerminal();
   terminal.size = { columns: 80, rows: 10 };
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   renderer.resize(80, 10);
@@ -628,7 +623,7 @@ Deno.test('retained controller returns to latest only after ordinary task admiss
 Deno.test('retained controller keeps the anchor when ordinary task admission fails', async () => {
   const terminal = new InteractiveTerminal();
   terminal.size = { columns: 80, rows: 10 };
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   renderer.resize(80, 10);
@@ -657,7 +652,7 @@ Deno.test('retained controller keeps the anchor when ordinary task admission fai
 
 Deno.test('cancelled active task returns to the empty editor and can be resubmitted', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   const submitted: string[] = [];
@@ -719,7 +714,7 @@ Deno.test('cancelled active task returns to the empty editor and can be resubmit
 
 Deno.test('occupied editor keeps recoverable task until idle /recover', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   let settleFailure: (() => void) | undefined;
@@ -766,7 +761,7 @@ Deno.test('occupied editor keeps recoverable task until idle /recover', async ()
 
 Deno.test('busy /provider waits for idle instead of steering the active turn', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   let settle: (() => void) | undefined;
@@ -811,7 +806,7 @@ Deno.test('busy /provider waits for idle instead of steering the active turn', a
 
 Deno.test('idle Ctrl-C clears input without arming or triggering exit', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   const submitted: string[] = [];
@@ -847,7 +842,7 @@ Deno.test('idle Ctrl-C clears input without arming or triggering exit', async ()
 
 Deno.test('history export serializes task, session listing, and duplicate export', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   const intentsSeen: string[] = [];
@@ -904,7 +899,7 @@ Deno.test('history export serializes task, session listing, and duplicate export
 
 Deno.test('history export shutdown waits for settlement and emits no late receipt', async () => {
   const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   let resolveExport!: (result: PresentationIntentResult) => void;
@@ -951,7 +946,7 @@ Deno.test('history export shutdown waits for settlement and emits no late receip
 
 Deno.test('history export output failure waits for the already-started writer', async () => {
   const terminal = new FallibleInteractiveTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
   let resolveExport!: (result: PresentationIntentResult) => void;

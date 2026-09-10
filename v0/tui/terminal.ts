@@ -169,7 +169,7 @@ export class DenoTerminal implements TerminalPort {
 export interface TerminalRendererGate {
   close(): void;
   clearLiveLine(): void;
-  /** Retained production rendering owns an isolated terminal screen. */
+  /** The TUI renderer owns an isolated terminal screen. */
   readonly usesAlternateScreen?: boolean;
 }
 

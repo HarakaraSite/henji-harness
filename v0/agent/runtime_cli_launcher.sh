@@ -36,7 +36,7 @@ case "$deno" in /*) [ -f "$deno" ] && [ -x "$deno" ] || startup_fail ;; *) start
 version=$("$deno" --version 2>/dev/null) || startup_fail
 case "$version" in "deno 2.9.4"|"deno 2.9.4 "*) ;; *) startup_fail ;; esac
 
-HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --no-remote \
+HENJI_SESSION_STATE_ROOT="$state_root" exec "$deno" run --no-prompt --cached-only \
   --allow-env=HENJI_SESSION_STATE_ROOT --allow-net=openrouter.ai --allow-sys=uid \
   --allow-read="$repo_root" --allow-read="$workspace" \
   --allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key \

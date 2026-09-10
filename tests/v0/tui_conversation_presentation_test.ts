@@ -97,7 +97,7 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
       return text;
     },
   };
-  const renderer = new TuiRenderer(terminal, { retained: true, assistantRenderer });
+  const renderer = new TuiRenderer(terminal, { assistantRenderer });
   renderer.eventSink({
     kind: 'user_message',
     turn: 1,
@@ -674,7 +674,7 @@ Deno.test('conversation failure display is short and keeps diagnostic readback e
   assert(!state.log.entries[0].text.includes('readback>'));
 
   const terminal = new FakeTerminal();
-  const renderer = new TuiRenderer(terminal, { retained: true });
+  const renderer = new TuiRenderer(terminal);
   renderer.eventSink({
     kind: 'failure_diagnostic',
     turn: 1,
