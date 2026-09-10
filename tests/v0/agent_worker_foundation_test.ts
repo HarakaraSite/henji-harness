@@ -63,6 +63,9 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
+import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_model.ts';
+import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
+import { presentationFailureReason } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -1204,6 +1207,116 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
     rejected.failed.evidence.requests.map((record) => record.request.phase),
     ['compaction'],
   );
+});
+
+Deno.test('Compaction provider timeout preserves its diagnostic before user-turn admission', async () => {
+  const initialTranscript: Message[] = [];
+  for (let turn = 1; turn <= 2; turn += 1) {
+    initialTranscript.push({
+      role: 'user',
+      content: { kind: 'text', text: `old task ${turn}` },
+    });
+    initialTranscript.push({
+      role: 'assistant',
+      content: { kind: 'text', text: `${'old answer '.repeat(20_000)}${turn}` },
+    });
+  }
+
+  let physicalRequests = 0;
+  const counter = {
+    increment: () => {
+      physicalRequests += 1;
+    },
+    count: () => physicalRequests,
+  };
+  const model: Model = {
+    generate(_request, options = {}) {
+      counter.increment();
+      options.providerEvidence?.startRequest({
+        lane: options.providerEvidenceLane ?? 'parent',
+        phase: options.providerEvidencePhase ?? 'user_turn',
+        modelStep: options.modelStep ?? 1,
+        endpoint: 'provider-free://compaction-timeout',
+        method: 'POST',
+        requestBody: '{}',
+        requestMetadata: {
+          contentType: 'application/json',
+          responseMode: 'json',
+        },
+      });
+      throw new OpenRouterAgentError(
+        'provider_timeout',
+        'provider deadline exceeded',
+        1,
+      );
+    },
+  };
+  const composition = {
+    role: 'parent',
+    model,
+    registry: new Registry([]),
+    maxSteps: 2,
+    systemInstruction: undefined,
+    manifest: {
+      role: 'parent',
+      maxSteps: 2,
+      profileId: 'provider-free-compaction-timeout',
+      resources: [],
+    },
+    resolved: {
+      model: { profile: { id: 'provider-free-compaction-timeout' } },
+    },
+  } as unknown as WorkerAgentComposition;
+  let failed:
+    | {
+      readonly outcome: import('../../v0/agent/core/contracts.ts').LoopOutcome;
+      readonly evidence: import('../../v0/agent/provider/provider_evidence.ts').ProviderEvidenceV1;
+    }
+    | undefined;
+  const port: WorkerGenerationPort = {
+    runtimeEvent: () => {},
+    effectObservation: () => {},
+    checkpointProposal: () => {
+      throw new Error('timeout compaction must not propose a checkpoint');
+    },
+    commitProposal: () => {
+      throw new Error('timeout compaction must not propose a turn commit');
+    },
+    turnFailed: (_correlation, outcome, evidence) => {
+      if (evidence === undefined) throw new Error('missing provider evidence');
+      failed = { outcome, evidence };
+    },
+  };
+  const generation = new WorkerGeneration(
+    composition,
+    compactionCorrelation('compaction-timeout-session').session,
+    port,
+    initialTranscript,
+    3,
+    undefined,
+    counter,
+  );
+
+  await generation.runTurn(
+    compactionCorrelation('compaction-timeout-turn'),
+    'held user turn',
+  );
+
+  assert(failed !== undefined);
+  const diagnostic = failed.outcome.diagnostic;
+  assert(diagnostic !== undefined);
+  assert(validateFailureDiagnostic(diagnostic));
+  assertEquals(diagnostic.stage, 'transport');
+  assertEquals(diagnostic.code, 'provider_timeout');
+  assertEquals(diagnostic.lane, 'parent');
+  assertEquals(diagnostic.providerRequestCount, 1);
+  assertEquals(diagnostic.retryCount, 0);
+  assertEquals(diagnostic.modelStep, 0);
+  assertEquals(failed.outcome.turnProviderRequestCount, 0);
+  assertEquals(failed.outcome.runtimeProviderRequestCount, 1);
+  assertEquals(presentationFailureReason(diagnostic), 'provider deadline exceeded');
+  assertEquals(failed.evidence.requests.map((record) => record.request.phase), ['compaction']);
+  assertEquals(failed.evidence.diagnosticId, diagnostic.diagnosticId);
 });
 
 Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/external bindings', async () => {

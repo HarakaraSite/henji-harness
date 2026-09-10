@@ -434,7 +434,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   const guideline =
     'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
   const bashGuideline =
-    'Each bash call runs in a fresh shell. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.';
+    'Each bash call starts in the current workspace directory shown in Runtime facts and runs in a fresh shell. For commands targeting that directory, use relative paths and do not cd to the same directory. Change directory within the call only when the command must run from a different directory. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.';
   const bashOutputGuideline =
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
   const webSearchGuideline =
@@ -458,6 +458,9 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assertEquals(new Registry([]).promptGuidelines(), []);
   const bashDefinition = parent.registry.definitions().find((tool) => tool.name === 'bash');
   assert(bashDefinition?.description.includes('fresh shell'));
+  assert(
+    bashDefinition?.description.includes('current workspace directory shown in Runtime facts'),
+  );
   assert(bashDefinition?.description.includes('does not persist to later bash calls'));
   const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
   assert(readDefinition !== undefined);

@@ -102,6 +102,33 @@ export interface FailureDiagnosticFact {
   readonly occurredAt?: string;
 }
 
+/** Project the bounded provider-neutral diagnostic fields carried by a model error. */
+export const projectFailureDiagnosticFact = (
+  error: unknown,
+): Partial<FailureDiagnosticFact> | undefined => {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const candidate = (error as { readonly failureFact?: unknown }).failureFact;
+  if (typeof candidate !== 'object' || candidate === null) return undefined;
+  const value = candidate as Record<string, unknown>;
+  if (
+    typeof value.stage !== 'string' || typeof value.code !== 'string' ||
+    typeof value.requestCount !== 'number' || !Number.isSafeInteger(value.requestCount) ||
+    value.requestCount < 0 || typeof value.retryCount !== 'number' ||
+    !Number.isSafeInteger(value.retryCount) || value.retryCount < 0 ||
+    value.retryCount > value.requestCount
+  ) return undefined;
+  return {
+    stage: value.stage as FailureDiagnosticFact['stage'],
+    code: value.code as FailureDiagnosticFact['code'],
+    providerRequestCount: value.requestCount,
+    retryCount: value.retryCount,
+    ...(typeof value.httpStatus === 'number' ? { httpStatus: value.httpStatus } : {}),
+    ...(typeof value.parseReason === 'string'
+      ? { parseReason: value.parseReason as FailureDiagnosticFact['parseReason'] }
+      : {}),
+  };
+};
+
 export type FailureDiagnosticPersister = (
   diagnostic: FailureDiagnosticV1,
 ) => void | PromiseLike<void>;

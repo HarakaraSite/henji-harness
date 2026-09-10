@@ -129,7 +129,11 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
   assert(planner.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
   assert(!planner.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
   assert(root.systemInstruction?.includes('- bash_output:'));
-  assert(root.systemInstruction?.includes('- bash: Each bash call runs in a fresh shell.'));
+  assert(
+    root.systemInstruction?.includes(
+      '- bash: Each bash call starts in the current workspace directory shown in Runtime facts',
+    ),
+  );
   assert(root.systemInstruction?.includes('- web_search:'));
   assert(!planner.systemInstruction?.includes('- bash:'));
   assert(!planner.systemInstruction?.includes('- bash_output:'));

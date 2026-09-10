@@ -135,21 +135,12 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   優先する方針がなかった。Henjiのbash環境では`rg`がPATH外なので`grep`の選択は妥当だった。
 - `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5、既存work toolの
   component化はincrement 6で実装済みである。
-- Increment 23のHuman Gateでは、Qwenが複数の`bash` callへ毎回
-  `cd /home/masat.guest/src/forgejo-agent && ...`を付けた。現行system instructionはRuntime factsとして同じcwdを
-  注入し、bash executorも各callの`cwd`をworkspace rootへ設定済みなので、この`cd`は不要だった。
-- fresh-shell guidelineは`cd`の状態が後続callへ残らないことと、必要なsetupを同じcallに置くことを伝えるが、
-  各callが最初からworkspace rootで始まることを明記していない。このためmodelがworkspace rootへの`cd`も
-  毎回必要なsetupと解釈した可能性がある。
 
 未採用候補:
 
 - `read`以外のtoolについて、実際の誤選択が観測された場合にtool固有guidelineまたはdescriptionを改善する。
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
-- bash descriptionまたはactive guidelineへ、各callがRuntime factsに示したcurrent workspace directoryから
-  始まること、同じdirectoryへ`cd`せずrelative pathを使うこと、別subdirectoryから実行する必要がある場合だけ
-  そのcall内で`cd`することを明記する。新しいcwd注入機構は追加しない。
 
 #### Agent実行: Qwen xhighの長時間調査（利用者所感、対応候補ではない）
 

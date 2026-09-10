@@ -229,6 +229,12 @@ Deno.test('bash keeps short JSON stable and exposes complete stdout and stderr r
   });
   try {
     const bash = createBashTool({ root: workspace }, store);
+    const startingDirectory = await parsed(
+      bash.execute({ command: 'pwd' }) as PromiseLike<string>,
+    );
+    assertEquals(startingDirectory.stdout, workspace + '\n');
+    assertEquals(startingDirectory.exitCode, 0);
+
     const short = await bash.execute({ command: "printf 'short'" });
     assertEquals(
       short,

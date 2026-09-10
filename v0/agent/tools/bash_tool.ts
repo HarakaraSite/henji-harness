@@ -242,9 +242,9 @@ export const createBashTool = (
 ): Tool => ({
   name: 'bash',
   description:
-    'Run one Bash command in a fresh shell from the workspace. Shell state does not persist to later bash calls. Default timeout 30000 ms; maximum 120000 ms. stdout and stderr are captured separately. Truncated output can be continued with bash_output.',
+    'Run one Bash command in a fresh shell starting in the current workspace directory shown in Runtime facts. Shell state does not persist to later bash calls. Default timeout 30000 ms; maximum 120000 ms. stdout and stderr are captured separately. Truncated output can be continued with bash_output.',
   promptGuidelines: Object.freeze([
-    'Each bash call runs in a fresh shell. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.',
+    'Each bash call starts in the current workspace directory shown in Runtime facts and runs in a fresh shell. For commands targeting that directory, use relative paths and do not cd to the same directory. Change directory within the call only when the command must run from a different directory. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.',
   ]),
   inputSchema: bashSchema,
   async execute(argumentsValue, context?: ToolExecutionContext) {

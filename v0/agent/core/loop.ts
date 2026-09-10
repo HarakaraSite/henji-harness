@@ -36,6 +36,7 @@ import {
   type FailureDiagnosticFact,
   FailureDiagnosticOwner,
   type FailureDiagnosticV1,
+  projectFailureDiagnosticFact,
 } from '../session/failure_diagnostic.ts';
 import {
   isPlannerDelegationFailureError,
@@ -195,30 +196,6 @@ const contractFailure = (
   transcript: snapshotMessages(transcript),
 });
 
-const failureFact = (error: unknown): Partial<FailureDiagnosticFact> | undefined => {
-  if (typeof error !== 'object' || error === null) return undefined;
-  const candidate = (error as { readonly failureFact?: unknown }).failureFact;
-  if (typeof candidate !== 'object' || candidate === null) return undefined;
-  const value = candidate as Record<string, unknown>;
-  if (
-    typeof value.stage !== 'string' || typeof value.code !== 'string' ||
-    typeof value.requestCount !== 'number' || !Number.isSafeInteger(value.requestCount) ||
-    value.requestCount < 0 || typeof value.retryCount !== 'number' ||
-    !Number.isSafeInteger(value.retryCount) || value.retryCount < 0 ||
-    value.retryCount > value.requestCount
-  ) return undefined;
-  return {
-    stage: value.stage as FailureDiagnosticFact['stage'],
-    code: value.code as FailureDiagnosticFact['code'],
-    providerRequestCount: value.requestCount,
-    retryCount: value.retryCount,
-    ...(typeof value.httpStatus === 'number' ? { httpStatus: value.httpStatus } : {}),
-    ...(typeof value.parseReason === 'string'
-      ? { parseReason: value.parseReason as FailureDiagnosticFact['parseReason'] }
-      : {}),
-  };
-};
-
 const cancelled = (
   task: string,
   transcript: readonly Message[],
@@ -348,7 +325,7 @@ const runAgentTurnInternal = async (
     // expected parent projection of one child failure.
     const existing = owner.snapshot();
     if (existing !== undefined) return existing;
-    const observed = failureFact(error);
+    const observed = projectFailureDiagnosticFact(error);
     const stage = observed?.stage ?? fallback.stage ?? 'unknown_stage';
     const code = observed?.code ?? fallback.code ?? 'unknown_code';
     const count = options.turnProviderRequestCount?.() ??

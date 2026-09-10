@@ -24,6 +24,7 @@ import {
   type FailureCode,
   FailureDiagnosticOwner,
   type FailureStage,
+  projectFailureDiagnosticFact,
 } from '../session/failure_diagnostic.ts';
 import {
   ProviderEvidenceRecorder,
@@ -256,17 +257,31 @@ export class WorkerGeneration {
         : { diagnostic: outcome.diagnostic ?? diagnosticOwner.snapshot()! }),
     });
     const recordCompactionFailure = (
-      stage: FailureStage,
-      code: FailureCode,
+      fallbackStage: FailureStage,
+      fallbackCode: FailureCode,
+      error?: unknown,
     ): void => {
       if (diagnosticOwner.snapshot() !== undefined) return;
+      const observed = projectFailureDiagnosticFact(error);
+      const compactionRequestCount = Math.max(
+        0,
+        this.requestCounter.count() - requestCountAtAdmission,
+      );
       try {
         diagnosticOwner.record({
-          stage,
-          code,
+          stage: observed?.stage ?? fallbackStage,
+          code: observed?.code ?? fallbackCode,
           lane: 'parent',
-          providerRequestCount: turnProviderRequestCount(),
+          providerRequestCount: Math.max(
+            compactionRequestCount,
+            observed?.providerRequestCount ?? 0,
+          ),
+          retryCount: observed?.retryCount ?? 0,
           modelStep: 0,
+          ...(observed?.httpStatus === undefined ? {} : { httpStatus: observed.httpStatus }),
+          ...(observed?.parseReason === undefined ? {} : {
+            parseReason: observed.parseReason,
+          }),
         });
       } catch {
         // The immutable owner retains the first valid fact when another boundary won the race.
@@ -408,7 +423,7 @@ export class WorkerGeneration {
     task: string,
     signal: AbortSignal,
     evidence: ProviderEvidenceRecorder,
-    recordFailure: (stage: FailureStage, code: FailureCode) => void,
+    recordFailure: (stage: FailureStage, code: FailureCode, error?: unknown) => void,
   ): Promise<
     | { readonly kind: 'proceed' }
     | { readonly kind: 'failed'; readonly outcome: LoopOutcome }
@@ -442,7 +457,7 @@ export class WorkerGeneration {
       );
     } catch (error) {
       if (signal.aborted) return { kind: 'cancelled' };
-      recordFailure('unknown_stage', 'unknown_code');
+      recordFailure('unknown_stage', 'unknown_code', error);
       return {
         kind: 'failed',
         outcome: failureOutcome(

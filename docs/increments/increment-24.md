@@ -1,6 +1,6 @@
 # 通常利用 Increment 24 — OpenRouter provider request retry
 
-ステータス: **local実装・検証完了、Human Gate待ち**
+ステータス: **完了**
 
 ## 利用者が必要とする動作
 
@@ -70,6 +70,12 @@ provider requestだけを再試行する。利用者がturn全体を手動再送
 production retained TUIでOpenRouter requestが一時的なSSE開始前HTTP 5xxになった場合に自動回復することを
 実利用で確認する。自然発生を待つ必要があるため、再現可能なfocused testと保存evidenceを先に提示し、
 productionで観測できた時点で利用者がIncrement完了を判断する。
+
+2026-09-10に利用者がproduction retained TUIを通常利用し、OpenRouterのparent request 3回が
+すべてHTTP 200でturn `final`に至ったことを、実利用workspaceのprovider evidence
+`fc419637-1a60-4b81-be4e-9ec1a5843039`で確認した。このturnで自然発生5xxはなく、productionでの自動retry自体は
+未観測である。利用者は、通常利用の完遂と再現可能なfocused testによるretry動作の検証をもって、
+本Incrementをいったん完了と判断した。
 
 ## 実装結果
 
