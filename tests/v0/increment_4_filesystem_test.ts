@@ -182,6 +182,7 @@ const turnTwo = (): Message[] => [{
   content: { kind: 'text', text: 'second request' },
 }, {
   role: 'assistant',
+  text: 'I will read the current source.',
   content: [{
     kind: 'tool_call',
     callId: 'call-2',
@@ -233,6 +234,8 @@ Deno.test('history export writes distinct complete snapshots and explicit no-ses
     assert(secondText.includes('## Turn 1'));
     assert(secondText.includes('## Turn 2'));
     assert(secondText.includes('### tool> read'));
+    assert(secondText.includes('### assistant>\n\n```\nI will read the current source.\n```'));
+    assert(secondText.indexOf('### assistant>') < secondText.indexOf('### tool> read'));
     assert(secondText.includes('"offset": 2'));
     assert(secondText.includes('### tool< read · success'));
     assert(firstText.includes('````\nfirst answer with ``` fence\n````'));

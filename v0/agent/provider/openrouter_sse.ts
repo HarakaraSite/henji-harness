@@ -5,8 +5,6 @@ import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
 import {
   MAX_ASSISTANT_PROGRESS_TEXT_BYTES,
   MAX_ASSISTANT_TEXT_BYTES,
-  MAX_RESPONSE_BYTES,
-  MAX_SSE_DATA_EVENTS,
   OpenRouterAgentError,
   type StreamTextAccountingObserver,
 } from './openrouter_contract.ts';
@@ -35,16 +33,11 @@ class SseFramer {
   private eventLines: string[] = [];
   private bomHandled = false;
   private _done = false;
-  private dataEvents = 0;
 
   constructor(private readonly onPayload: SsePayloadHandler) {}
 
   get done(): boolean {
     return this._done;
-  }
-
-  get eventCount(): number {
-    return this.dataEvents;
   }
 
   push(bytes: Uint8Array): void {
@@ -136,20 +129,6 @@ class SseFramer {
     this.eventLines = [];
     if (payload.length === 0) {
       throw sseResponseError('provider response contained empty data', 'empty_terminal_result');
-    }
-    this.dataEvents += 1;
-    if (this.dataEvents > MAX_SSE_DATA_EVENTS) {
-      throw new OpenRouterAgentError(
-        'limit_exceeded',
-        'provider response has too many events',
-        1,
-        undefined,
-        {
-          stage: 'response_parse',
-          code: 'limit_exceeded',
-          parseReason: 'response_stream_failed',
-        },
-      );
     }
     this.onPayload(payload, rawFrame);
     if (payload === '[DONE]') this._done = true;
@@ -432,12 +411,6 @@ const processSsePayload = (
     throw sseResponseError('provider usage frame arrived before terminal', 'invalid_usage_frame');
   }
 
-  if ((hasContent && assembly.sawTools) || (hasToolCalls && assembly.sawText)) {
-    throw sseResponseError(
-      'provider response mixed text and tool calls',
-      'mixed_text_and_tool_calls',
-    );
-  }
   if (hasContent) {
     assembly.sawText = true;
     // Keep fragments until the terminal result. Repeatedly concatenating an ever-growing
@@ -505,7 +478,7 @@ const processSsePayload = (
       }),
     };
   } else {
-    if (!assembly.sawTools || assembly.sawText) {
+    if (!assembly.sawTools) {
       throw sseResponseError(
         'provider tool result was empty or unsupported',
         'empty_terminal_result',
@@ -513,8 +486,9 @@ const processSsePayload = (
     }
     assembly.terminal = 'tool_calls';
     const result = completeStreamTools(assembly);
-    assembly.result = assembly.reasoningDetails.length === 0 ? result : {
-      ...result,
+    const mixed = assembly.sawText ? { ...result, text: assembly.textParts.join('') } : result;
+    assembly.result = assembly.reasoningDetails.length === 0 ? mixed : {
+      ...mixed,
       providerState: {
         provider: 'openrouter' as const,
         reasoningDetails: structuredClone(assembly.reasoningDetails),
@@ -639,7 +613,6 @@ export const readSseResponse = async (
   };
   let failure: unknown;
   let result: ModelResult | undefined;
-  let rawBytes = 0;
   try {
     for (;;) {
       let item: ReadableStreamReadResult<Uint8Array>;
@@ -655,41 +628,6 @@ export const readSseResponse = async (
         } catch (error) {
           failure = await settleFailure(error);
         }
-        break;
-      }
-      if (item.value.byteLength > MAX_RESPONSE_BYTES) {
-        failure = await settleFailure(
-          new OpenRouterAgentError(
-            'limit_exceeded',
-            'provider response exceeds 1 MiB',
-            1,
-            undefined,
-            {
-              stage: 'response_parse',
-              code: 'limit_exceeded',
-              parseReason: 'response_body_too_large',
-            },
-          ),
-        );
-        break;
-      }
-      // Count all bytes, including comments, ignored fields, and separators. The body is bounded
-      // before decoding so an oversized UTF-8 scalar sequence cannot be accepted.
-      rawBytes += item.value.byteLength;
-      if (rawBytes > MAX_RESPONSE_BYTES) {
-        failure = await settleFailure(
-          new OpenRouterAgentError(
-            'limit_exceeded',
-            'provider response exceeds 1 MiB',
-            1,
-            undefined,
-            {
-              stage: 'response_parse',
-              code: 'limit_exceeded',
-              parseReason: 'response_body_too_large',
-            },
-          ),
-        );
         break;
       }
       evidence?.appendResponseBytes(item.value);

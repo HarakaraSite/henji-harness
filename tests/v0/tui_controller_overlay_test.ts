@@ -170,7 +170,7 @@ Deno.test('controller overlay searches models and changes effort separately', as
     setSession: () => {},
     idleAllowed: () => true,
     isIdle: () => true,
-    readyStatus: () => 'ready',
+    readyStatus: () => 'ready · credential missing: openrouter',
     modelSelection: () => selection,
     fail: (error) => Promise.reject(error),
   });
@@ -183,6 +183,11 @@ Deno.test('controller overlay searches models and changes effort separately', as
   await waitFor(() => selection.modelId === 'x-ai/grok-4.6');
   await overlay.settle();
   assertEquals(selection.effort, 'high');
+  assert(
+    statuses.some((status) =>
+      status.includes('ready · credential missing: openrouter · provider openrouter')
+    ),
+  );
 
   overlay.openEffortPicker();
   overlay.process({ kind: 'down' });

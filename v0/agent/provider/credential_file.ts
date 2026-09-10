@@ -52,6 +52,8 @@ export interface CredentialFileSystem {
   readonly effectiveUid: () => number | undefined;
 }
 
+export type CredentialFilePresence = 'present' | 'missing' | 'unknown';
+
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const unicodeWhitespace = /\p{White_Space}/u;
 
@@ -87,6 +89,27 @@ const defaultFileSystem: CredentialFileSystem = {
     }
   },
 };
+
+/** Check only fixed-file presence; do not open, decode, or validate credential material. */
+export const credentialFilePresenceAt = async (
+  path: string,
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<CredentialFilePresence> => {
+  try {
+    await filesystem.lstat(path);
+    return 'present';
+  } catch (error) {
+    return error instanceof Deno.errors.NotFound ? 'missing' : 'unknown';
+  }
+};
+
+export const openRouterCredentialFilePresence = (
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<CredentialFilePresence> => credentialFilePresenceAt(CREDENTIAL_PATH, filesystem);
+
+export const openAICredentialFilePresence = (
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<CredentialFilePresence> => credentialFilePresenceAt(OPENAI_CREDENTIAL_PATH, filesystem);
 
 const fail = (code: CredentialFileFailureCode): never => {
   throw new CredentialFileError(code);

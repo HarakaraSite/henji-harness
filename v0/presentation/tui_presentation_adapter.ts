@@ -308,6 +308,10 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     return this.core.modelSelectionSnapshot?.();
   }
 
+  credentialAvailabilitySnapshot() {
+    return this.core.credentialAvailabilitySnapshot?.();
+  }
+
   selectModel(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {

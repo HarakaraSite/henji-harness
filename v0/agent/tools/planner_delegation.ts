@@ -12,11 +12,15 @@ import {
   throwIfCancelled,
 } from '../core/cancellation.ts';
 import { type Tool, type ToolContext, ToolInputError } from './tools.ts';
+import {
+  MAX_CONVERSATION_TEXT_BYTES,
+  MAX_PLANNER_RESULT_ENVELOPE_BYTES,
+} from '../../resource_limits.ts';
 
 const encoder = new TextEncoder();
 export const MAX_PLANNER_TASK_BYTES = 65_536;
-export const MAX_PLANNER_ANSWER_BYTES = 1024 * 1024;
-export const MAX_PLANNER_RESULT_BYTES = 2 * 1024 * 1024;
+export const MAX_PLANNER_ANSWER_BYTES = MAX_CONVERSATION_TEXT_BYTES;
+export const MAX_PLANNER_RESULT_BYTES = MAX_PLANNER_RESULT_ENVELOPE_BYTES;
 
 export const DELEGATE_TO_PLANNER_DESCRIPTION =
   'Delegate one explicit planning task to the built-in planner for this parent turn. The planner receives only task, can read the same workspace and saved skills, cannot mutate it, and returns one bounded synchronous result. Call at most once per turn.';

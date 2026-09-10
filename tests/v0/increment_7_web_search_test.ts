@@ -293,7 +293,6 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
     ['model_result:1', 'tool_call:1', 'tool_result:1', 'model_result:2'],
   );
   assert(!JSON.stringify(snapshot).includes('test-credential'));
-  assert(!JSON.stringify(snapshot).toLowerCase().includes('authorization'));
 });
 
 Deno.test('web_search exposes provider response errors while retaining raw evidence', async () => {

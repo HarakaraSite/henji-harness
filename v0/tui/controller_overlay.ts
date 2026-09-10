@@ -409,8 +409,11 @@ export class ControllerOverlay {
       if (result.kind === 'model_selection') {
         this.modal = null;
         this.options.renderer.clearModal?.();
+        const selected =
+          `provider ${result.selection.provider} · model ${result.selection.modelId} · effort ${result.selection.effort}`;
+        const ready = this.options.readyStatus();
         this.options.renderer.setStatus(
-          `provider ${result.selection.provider} · model ${result.selection.modelId} · effort ${result.selection.effort}`,
+          ready.includes('credential missing:') ? `${ready} · ${selected}` : selected,
         );
         return;
       }

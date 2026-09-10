@@ -781,6 +781,10 @@ const runCompositionTurn = async (
     });
     const ready = await readyPromise;
     assert(ready.manifest !== undefined);
+    assertEquals(ready.credentialAvailability, {
+      authProfile: ready.manifest.rootModel.authProfile,
+      status: 'unknown',
+    });
     assertEquals(ready.manifest.maxSteps, expectedMaxSteps);
     assertEquals(ready.manifest.role, 'parent');
 
@@ -1979,6 +1983,10 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
+          credentialAvailability: {
+            authProfile: 'openrouter-api-key',
+            status: 'unknown',
+          },
         });
       } else if (command.kind === 'turn') {
         queueMicrotask(() => {
@@ -2111,6 +2119,10 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          },
+          credentialAvailability: {
+            authProfile: 'openrouter-api-key',
+            status: 'unknown',
           },
         });
       } else if (command.kind === 'turn') {
@@ -2285,6 +2297,10 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          },
+          credentialAvailability: {
+            authProfile: 'openrouter-api-key',
+            status: 'unknown',
           },
         });
       } else if (command.kind === 'turn') {

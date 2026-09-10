@@ -48,7 +48,8 @@ const asText = (message: Message): string => {
   if (message.role === 'user') return (message.content as { readonly text: string }).text;
   if (message.role === 'assistant') {
     if (Array.isArray(message.content)) {
-      return message.content.map((call) => call.name).join(', ');
+      const calls = message.content.map((call) => call.name).join(', ');
+      return message.text === undefined ? calls : `${message.text}\n${calls}`;
     }
     return (message.content as { readonly text: string }).text;
   }

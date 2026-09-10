@@ -74,6 +74,28 @@ Deno.test('Increment 16 composes named instruction components in the canonical o
   ].map((text) => composition.systemInstruction.indexOf(text));
   assert(positions.every((position) => position >= 0));
   assert(positions.every((position, index) => index === 0 || positions[index - 1] < position));
+  for (
+    const sourceGroundedBehavior of [
+      'read the designated current sources directly',
+      'When summarizing',
+      'compare the result with the sources',
+      'Do not modify unrelated tracked files',
+      'distinguish assumptions and unverified sources',
+      'reuse successful tool results already present in the conversation',
+      'the previous result was truncated or indicated a continuation',
+      'request only the missing non-overlapping range',
+      'make each query address that specific information need',
+      'stop investigating and answer',
+      'Identify source conflicts and unverified matters',
+      'Do not use tools to read or source credential configuration',
+      'explicitly asks to use that real instance or authenticated client',
+      'inspect, research, explain, or summarize a repository, source code, documentation, API, product, or service',
+      'does not by itself authorize reading or sourcing credential configuration',
+      'do not display credential values',
+    ]
+  ) {
+    assert(composition.systemInstruction.includes(sourceGroundedBehavior));
+  }
   for (const staleFact of ['provider:openai', 'model:gpt', 'effort:high', 'session:', '2026-']) {
     assert(!composition.systemInstruction.includes(staleFact));
   }
@@ -107,10 +129,25 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
   assert(planner.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
   assert(!planner.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
   assert(root.systemInstruction?.includes('- bash_output:'));
+  assert(root.systemInstruction?.includes('- bash: Each bash call runs in a fresh shell.'));
   assert(root.systemInstruction?.includes('- web_search:'));
+  assert(!planner.systemInstruction?.includes('- bash:'));
   assert(!planner.systemInstruction?.includes('- bash_output:'));
   assert(!planner.systemInstruction?.includes('- web_search:'));
   assert(planner.systemInstruction?.includes('- read:'));
+  for (const composition of [root, planner]) {
+    assert(
+      composition.systemInstruction?.includes(
+        'reuse successful tool results already present in the conversation',
+      ),
+    );
+    assert(composition.systemInstruction?.includes('stop investigating and answer'));
+    assert(
+      composition.systemInstruction?.includes(
+        'Do not use tools to read or source credential configuration',
+      ),
+    );
+  }
 
   for (const manifest of [root.manifest, planner.manifest]) {
     assert(manifest.resources.includes('instruction:builtin-henji-common'));

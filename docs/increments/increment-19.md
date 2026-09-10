@@ -1,6 +1,6 @@
 # 通常利用 increment 19 — busy activity indicator
 
-ステータス: **local実装・gate完了、production目視確認待ち**
+ステータス: **完了。local実装・gateとproduction目視確認を完了し、2026-09-10に利用者が受け入れた**
 
 対応architecture:
 [`docs/architecture/henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)
@@ -87,8 +87,10 @@ local実装とauthoritative gate後、利用者がproduction retained TUIの通�
 - 差分reviewはBlocker/P1/P2なし。blinkはprimary status直後でresetされ、他表示へstyleを漏らさない。
 - stable candidateへauthoritative `v0:gate`を一回実行し、type check、format 195 files、lint 192 files、
   全130 testが成功した。
-- provider request、credential read、real-TTY E2Eは実行していない。利用者のproduction retained TUIで、
-  実terminal設定下の点滅とsettlement後の通常表示を目視確認するhuman gateが残る。
+- provider request、credential read、real-TTY E2Eは実行していない。利用者はMacからVMへSSH接続した
+  production retained TUIで確認し、SGR 5を受け取ってもprimary statusが点滅しないことを観測した。同じ
+  SSH sessionで直接`printf '\033[5mBLINK TEST\033[0m\n'`を実行しても点滅しなかったため、利用者は
+  terminal側の表示制約であり実装上の問題ではないと判断した。
 - 後続の利用者判断により、構想、architecture、roadmapの修正は個別の事前承認を必要とする運用へ明確化した。
   Increment 18・19の詳細をこれらの正本へ追記した未承認差分は破棄し、個別increment文書へ留めた。
 
@@ -105,5 +107,6 @@ local実装とauthoritative gate後、利用者がproduction retained TUIの通�
 
 利用者は2026-09-10、busy中に点滅または分かりやすい動きを表示する改善をIncrement 19として採用した。
 同日、spinnerより単純なblinkを選び、busy/cancellingのprimary statusだけのblinkとbusy中の`Esc cancel`表示に
-絞った上記初期実装計画を明示承認した。local実装とauthoritative gateは完了しており、Increment 19の完了判断は
-production目視確認後に利用者が行う。
+絞った上記初期実装計画を明示承認した。local実装とauthoritative gate後、MacからVMへのSSH接続による
+production目視確認では点滅しなかったが、同じsessionでSGR 5を直接出力しても点滅しないことを確認した。
+利用者はこれをterminal側の制約と判断し、実装上の問題とは扱わずIncrement 19を完了として受け入れた。

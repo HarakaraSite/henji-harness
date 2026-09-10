@@ -62,6 +62,9 @@ const requestInput = (transcript: readonly Message[]): unknown[] => {
         });
         continue;
       }
+      if (message.text !== undefined) {
+        input.push({ role: 'assistant', content: message.text });
+      }
       for (const call of message.content) {
         input.push({
           type: 'function_call',

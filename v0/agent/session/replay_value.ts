@@ -1,12 +1,16 @@
 import type { JsonValue, Message, ToolCall, ToolResultContent } from '../core/contracts.ts';
+import {
+  MAX_CONVERSATION_TEXT_BYTES,
+  MAX_PLANNER_RESULT_ENVELOPE_BYTES,
+} from '../../resource_limits.ts';
 
 export const MAX_REPLAY_VALUE_BYTES = 65_536;
 export const MAX_REPLAY_VALUE_NODES = 4_096;
 export const MAX_REPLAY_VALUE_DEPTH = 16;
 export const MAX_REPLAY_VALUE_PROPERTIES = 128;
 export const MAX_REPLAY_ARRAY_ITEMS = 256;
-export const MAX_REPLAY_MESSAGE_TEXT_BYTES = 1024 * 1024;
-export const MAX_REPLAY_PLANNER_RESULT_BYTES = 2 * 1024 * 1024;
+export const MAX_REPLAY_MESSAGE_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
+export const MAX_REPLAY_PLANNER_RESULT_BYTES = MAX_PLANNER_RESULT_ENVELOPE_BYTES;
 export const MAX_REPLAY_TRANSCRIPT_MESSAGES = 512;
 
 const encoder = new TextEncoder();
@@ -180,9 +184,13 @@ export const cloneReplayMessage = (value: unknown): Message => {
     });
   }
   if (value.role === 'assistant') {
-    if (!ownDataKeys(value, ['role', 'content'])) return invalid();
+    const hasText = Object.hasOwn(value, 'text');
+    if (!ownDataKeys(value, hasText ? ['role', 'content', 'text'] : ['role', 'content'])) {
+      return invalid();
+    }
     if (plain(value.content)) {
       if (
+        hasText ||
         !ownDataKeys(value.content, ['kind', 'text']) || value.content.kind !== 'text' ||
         !stringOk(value.content.text, MAX_REPLAY_MESSAGE_TEXT_BYTES)
       ) return invalid();
@@ -193,7 +201,8 @@ export const cloneReplayMessage = (value: unknown): Message => {
     }
     if (
       !arrayData(value.content) || value.content.length < 1 || value.content.length > 32 ||
-      !value.content.every(validCall)
+      !value.content.every(validCall) ||
+      hasText && !stringOk(value.text, MAX_REPLAY_MESSAGE_TEXT_BYTES)
     ) return invalid();
     return Object.freeze({
       role: 'assistant' as const,
@@ -205,6 +214,7 @@ export const cloneReplayMessage = (value: unknown): Message => {
           arguments: cloneReplayJsonValue(call.arguments),
         })
       )),
+      ...(hasText ? { text: value.text as string } : {}),
     });
   }
   if (value.role === 'tool') {

@@ -283,6 +283,24 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
   const transcript: Message[] = [{
     role: 'user',
     content: { kind: 'text', text: 'first' },
+  }, {
+    role: 'assistant',
+    content: [{
+      kind: 'tool_call',
+      callId: 'read-cross-provider',
+      name: 'read',
+      arguments: { path: 'README.md' },
+    }],
+    text: 'I will inspect the current source.',
+  }, {
+    role: 'tool',
+    content: [{
+      kind: 'tool_result',
+      callId: 'read-cross-provider',
+      name: 'read',
+      text: 'contents',
+      outcome: 'success',
+    }],
   }];
   const baseRequest = (messages: readonly Message[]): ModelRequest => ({
     transcript: messages,
@@ -300,6 +318,8 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
   const openAIResult = await openAI.generate(baseRequest(transcript));
   assert(openAIResult.kind === 'final');
   assert(JSON.stringify(openAIBody).includes('router answer'));
+  assert(JSON.stringify(openAIBody).includes('I will inspect the current source.'));
+  assert(JSON.stringify(openAIBody).includes('read-cross-provider'));
   assert(!JSON.stringify(openAIBody).includes('router-private-replay'));
   transcript.push({
     role: 'assistant',
@@ -334,8 +354,16 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     });
     assert((await first.session.submit('turn on OpenRouter')).ok);
     assertEquals(await first.session.selectModel(OPENAI_DEFAULT_MODEL_SELECTION), 'selected');
+    assertEquals(first.session.credentialAvailabilitySnapshot(), {
+      authProfile: 'openai-api-key',
+      status: 'unknown',
+    });
     assert((await first.session.submit('turn on OpenAI')).ok);
     assertEquals(await first.session.selectModel(ROOT_DEFAULT_MODEL_SELECTION), 'selected');
+    assertEquals(first.session.credentialAvailabilitySnapshot(), {
+      authProfile: 'openrouter-api-key',
+      status: 'unknown',
+    });
     assert((await first.session.submit('back on OpenRouter')).ok);
 
     const sessionId = first.session.sessionId;

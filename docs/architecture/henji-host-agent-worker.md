@@ -75,9 +75,10 @@ HenjiHost ───── interface / protocol ───── AgentWorkerGenera
    └────────────── 永続化状態 ────────────────┘
 ```
 
-この図が示すのは所有関係であり、wire schema ではない。現行sliceにはversion付きのdata-only protocolが
-実装されているが、この文書はそのwire schemaを固定しない。将来機能のmessage、handshake、error、version
-migrationは未決のままである。
+この図が示すのは所有関係であり、wire schema ではない。現行sliceでは、`slice1-data-only-v1`と名付けた
+Host–Worker間のdata-only message contractを実装している。ただしprotocol versionのnegotiationはなく、
+現在のmessage schemaを恒久的な契約として固定しない。将来拡張時のmessage、handshake、error互換性、
+version migrationは未設計である。
 
 ### HenjiHost が所有するもの
 

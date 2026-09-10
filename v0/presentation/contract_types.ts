@@ -6,6 +6,8 @@
  * these bounded values.
  */
 
+import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
+
 export type PresentationLifecycle =
   | 'starting'
   | 'idle'
@@ -91,7 +93,7 @@ export interface PresentationFailureDiagnostic {
   readonly occurredAt: string;
   readonly turnNumber: number;
   readonly modelStep: number;
-  readonly retryCount: 0;
+  readonly retryCount: number;
 }
 
 export type PresentationDiagnosticDurability = 'yes' | 'failed' | 'unknown';
@@ -134,6 +136,7 @@ export interface PresentationUserMessage {
 export interface PresentationAssistantMessage {
   readonly role: 'assistant';
   readonly content: PresentationText | readonly PresentationToolCall[];
+  readonly text?: string;
 }
 
 export interface PresentationToolResult {
@@ -528,5 +531,5 @@ export interface PresentationProjection {
   readonly generation: number;
 }
 
-export const PRESENTATION_MAX_TEXT_BYTES = 1024 * 1024;
+export const PRESENTATION_MAX_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const PRESENTATION_MAX_EVENT_BYTES = 2 * 1024 * 1024;

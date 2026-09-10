@@ -2,7 +2,7 @@ import type { JsonValue, ModelResult, OpenRouterProviderState } from '../core/co
 import type { ParseReason } from '../session/failure_diagnostic.ts';
 import {
   MAX_ASSISTANT_TEXT_BYTES,
-  MAX_RESPONSE_BYTES,
+  MAX_BUFFERED_RESPONSE_BYTES,
   OpenRouterAgentError,
 } from './openrouter_contract.ts';
 import { bytes, isJsonValue, nonBlank } from './openrouter_value.ts';
@@ -77,7 +77,7 @@ export const readResponseBody = async (
         break;
       }
       total += item.value.byteLength;
-      if (total > MAX_RESPONSE_BYTES) {
+      if (total > MAX_BUFFERED_RESPONSE_BYTES) {
         let cleanupFailed = true;
         try {
           await reader.cancel('response limit exceeded');
@@ -207,11 +207,29 @@ export const decodeResponse = (payload: unknown): ModelResult => {
     };
   }
   if (
-    (content === null || content === undefined || content === '') &&
+    (content === null || content === undefined || typeof content === 'string') &&
     toolCalls !== undefined
   ) {
     const result = decodeToolCalls(toolCalls);
-    if (result) return state === undefined ? result : { ...result, providerState: state };
+    if (result) {
+      if (typeof content === 'string' && bytes(content) > MAX_ASSISTANT_TEXT_BYTES) {
+        throw new OpenRouterAgentError(
+          'limit_exceeded',
+          'assistant response exceeds 1 MiB',
+          1,
+          undefined,
+          {
+            stage: 'response_parse',
+            code: 'limit_exceeded',
+            parseReason: 'response_body_too_large',
+          },
+        );
+      }
+      const mixed = typeof content === 'string' && content.length > 0
+        ? { ...result, text: content }
+        : result;
+      return state === undefined ? mixed : { ...mixed, providerState: state };
+    }
   }
   throw responseError(
     'provider response contained no supported result',

@@ -22,6 +22,7 @@ import {
   restoredMessages,
 } from '../../v0/agent/session/session_store.ts';
 import { MAX_REPLAY_MESSAGE_TEXT_BYTES } from '../../v0/agent/session/replay_value.ts';
+import { historyPage } from '../../v0/agent/session/session_history.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import {
@@ -47,6 +48,13 @@ import {
   runFreshRuntimeComparison,
 } from '../../v0/agent/validation/fresh_runtime_comparison.ts';
 import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import {
+  MAX_COMPLETE_MODEL_REQUEST_BYTES,
+  MAX_CONVERSATION_TEXT_BYTES,
+  MAX_PLANNER_RESULT_ENVELOPE_BYTES,
+  MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS,
+  MAX_SERIALIZED_MODEL_MESSAGES_BYTES,
+} from '../../v0/resource_limits.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -425,28 +433,37 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   const directPlanner = createPlannerAgentComposition(input);
   const guideline =
     'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
+  const bashGuideline =
+    'Each bash call runs in a fresh shell. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.';
   const bashOutputGuideline =
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
   const webSearchGuideline =
     'Use web_search when current or external information is needed. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: use its inline source links near supported claims in the final answer, never copy provider-local citation markers such as [1], and do not add factual details that the returned material does not support. Say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.';
   assert(parent.systemInstruction?.includes(guideline));
+  assert(parent.systemInstruction?.includes(bashGuideline));
   assert(parent.systemInstruction?.includes(bashOutputGuideline));
   assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
   assert(directPlanner.systemInstruction?.includes(guideline));
+  assert(!directPlanner.systemInstruction?.includes(bashGuideline));
   assert(!directPlanner.systemInstruction?.includes(bashOutputGuideline));
   assert(parent.systemInstruction?.includes(webSearchGuideline));
   assert(!directPlanner.systemInstruction?.includes(webSearchGuideline));
   assertEquals(directPlanner.systemInstruction, directPlanner.resolved.systemInstruction);
   assertEquals(parent.registry.promptGuidelines(), [
+    { tool: 'bash', text: bashGuideline },
     { tool: 'bash_output', text: bashOutputGuideline },
     { tool: 'read', text: guideline },
     { tool: 'web_search', text: webSearchGuideline },
   ]);
   assertEquals(new Registry([]).promptGuidelines(), []);
+  const bashDefinition = parent.registry.definitions().find((tool) => tool.name === 'bash');
+  assert(bashDefinition?.description.includes('fresh shell'));
+  assert(bashDefinition?.description.includes('does not persist to later bash calls'));
   const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
   assert(readDefinition !== undefined);
   assert(!('promptGuidelines' in readDefinition));
   assertEquals(parent.systemInstruction?.split(guideline).length, 2);
+  assertEquals(parent.systemInstruction?.split(bashGuideline).length, 2);
   assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
   assertEquals(parent.systemInstruction?.split(webSearchGuideline).length, 2);
 
@@ -595,8 +612,13 @@ Deno.test('production definitions and saved messages use the expanded text ceili
   const input = { workspace: { root: '/definition-test' }, skillCatalog: emptySkillCatalog() };
   assertEquals(defaultAgentDefinition(input).model.profile.maxCompletionTokens, 65_536);
   assertEquals(plannerAgentDefinition(input).model.profile.maxCompletionTokens, 65_536);
-  assertEquals(PRODUCTION_MAX_COMPLETION_TOKENS, 65_536);
-  assertEquals(MAX_REPLAY_MESSAGE_TEXT_BYTES, 1024 * 1024);
+  assertEquals(PRODUCTION_MAX_COMPLETION_TOKENS, MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS);
+  assertEquals(MAX_REPLAY_MESSAGE_TEXT_BYTES, MAX_CONVERSATION_TEXT_BYTES);
+  assertEquals(MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS, 65_536);
+  assertEquals(MAX_CONVERSATION_TEXT_BYTES, 1024 * 1024);
+  assertEquals(MAX_PLANNER_RESULT_ENVELOPE_BYTES, 2 * 1024 * 1024);
+  assertEquals(MAX_SERIALIZED_MODEL_MESSAGES_BYTES, 5 * 1024 * 1024);
+  assertEquals(MAX_COMPLETE_MODEL_REQUEST_BYTES, 6 * 1024 * 1024);
 
   const text = 'x'.repeat(300_000);
   const record = {
@@ -637,4 +659,47 @@ Deno.test('production definitions and saved messages use the expanded text ceili
   assert(entry !== undefined && entry.text === text);
   const layout = layoutUi(ui, 80, 24);
   assert(layout.allLog.some((row) => row.entryId === 'turn-1:assistant'));
+});
+
+Deno.test('saved sessions preserve assistant text accompanying tool calls', () => {
+  const record = {
+    schemaVersion: 1 as const,
+    sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    workspaceRoot: '/mixed-tool-message-test',
+    agent: 'default' as const,
+    createdAt: '2026-09-10T00:00:00.000Z',
+    updatedAt: '2026-09-10T00:00:00.000Z',
+    nextTurn: 2,
+    transcript: [
+      { role: 'user' as const, content: { kind: 'text' as const, text: 'inspect' } },
+      {
+        role: 'assistant' as const,
+        content: [{
+          kind: 'tool_call' as const,
+          callId: 'read-1',
+          name: 'read',
+          arguments: { path: 'README.md' },
+        }],
+        text: 'I will inspect the current source.',
+      },
+      {
+        role: 'tool' as const,
+        content: [{
+          kind: 'tool_result' as const,
+          callId: 'read-1',
+          name: 'read',
+          text: 'contents',
+          outcome: 'success' as const,
+        }],
+      },
+      { role: 'assistant' as const, content: { kind: 'text' as const, text: 'done' } },
+    ],
+  };
+  const decoded = decodeSessionRecord(encodeSessionRecord(record));
+  assertEquals(decoded.transcript, record.transcript);
+  assertEquals(restoredMessages(decoded.transcript).messages, record.transcript);
+  const assistantHistory = historyPage(decoded.transcript, 1)?.entries.find((entry) =>
+    entry.role === 'assistant'
+  );
+  assertEquals(assistantHistory?.text, 'I will inspect the current source.\nread');
 });

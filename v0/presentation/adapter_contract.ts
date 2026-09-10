@@ -18,6 +18,7 @@ import type {
   PresentationPosition,
 } from './contract.ts';
 import type { ModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
+import type { CredentialAvailability } from '../agent/provider/model_selection.ts';
 
 export interface AdapterSessionPort {
   submit(text: string): Promise<PresentationOutcome>;
@@ -42,6 +43,7 @@ export interface AdapterSessionPort {
     readonly retainedFromTurn: number;
   } | undefined;
   modelSelectionSnapshot?(): ModelSelection | undefined;
+  credentialAvailabilitySnapshot?(): CredentialAvailability | undefined;
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
@@ -87,6 +89,7 @@ export type CoreSession = {
     readonly retainedFromTurn: number;
   } | null;
   modelSelectionSnapshot?(): ModelSelection | undefined;
+  credentialAvailabilitySnapshot?(): CredentialAvailability | undefined;
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;

@@ -22,7 +22,12 @@ import {
   type TuiNavigationLike,
   type TuiSessionLike,
 } from './controller_contract.ts';
-import { type SlashCommand, slashCommandOf } from './slash_command.ts';
+import {
+  SLASH_COMMANDS,
+  type SlashCommand,
+  slashCommandCandidates,
+  slashCommandOf,
+} from './slash_command.ts';
 import { ControllerEditor } from './controller_editor.ts';
 import { ControllerOverlay } from './controller_overlay.ts';
 import {
@@ -38,7 +43,12 @@ export {
   type TuiNavigationLike,
   type TuiSessionLike,
 } from './controller_contract.ts';
-export { type SlashCommand, slashCommandOf } from './slash_command.ts';
+export {
+  SLASH_COMMANDS,
+  type SlashCommand,
+  slashCommandCandidates,
+  slashCommandOf,
+} from './slash_command.ts';
 
 const isPresentationDeliveryError = (error: unknown): boolean =>
   error instanceof PresentationDeliveryError ||
@@ -300,8 +310,12 @@ export class TuiController {
         return this.exitCode;
       }
       this.state = 'idle';
+      const ready = this.readyStatus();
       this.renderer.setStatus(
-        this.navigation === undefined ? 'ready' : this.readyStatus(),
+        this.navigation === undefined && this.intents === undefined &&
+          !ready.includes('credential missing:')
+          ? 'ready'
+          : ready,
       );
       this.input = this.readEvents();
       while (
@@ -477,10 +491,20 @@ export class TuiController {
 
   private renderEditorState(): void {
     this.editorController.render();
+    this.refreshSlashCommandCandidates();
   }
 
   private editEvent(event: InputEvent): void {
     this.editorController.apply(event);
+    this.refreshSlashCommandCandidates();
+  }
+
+  private refreshSlashCommandCandidates(): void {
+    this.renderer.setSlashCommandCandidates(
+      this.state === 'idle' || this.state === 'busy'
+        ? slashCommandCandidates(this.editor.text)
+        : [],
+    );
   }
 
   private processModernEvents(
@@ -776,9 +800,11 @@ export class TuiController {
   }
   private completePathAtCursor(): void {
     this.editorController.completePath();
+    this.refreshSlashCommandCandidates();
   }
   private popRecovery(): void {
     this.editorController.recover();
+    this.refreshSlashCommandCandidates();
   }
 
   private processBusyEvent(event: InputEvent): void {
@@ -861,7 +887,9 @@ export class TuiController {
       // Keep the whole hint in one ' · '-free segment so the footer keeps it
       // instead of popping the valid list at narrow widths.
       this.renderer.setStatus(
-        `unknown command ${this.editor.text.trim()}, try: /help, /sessions, /provider, /model, /effort, /history export, /recover, /exit`,
+        `unknown command ${this.editor.text.trim()}, try: ${
+          SLASH_COMMANDS.map((definition) => definition.text).join(', ')
+        }`,
       );
       return true;
     }
@@ -884,7 +912,9 @@ export class TuiController {
 
   /** Up/Down-edge input-history walk; plain cursor moves stay in editEvent. */
   private walkInputHistory(direction: 'up' | 'down'): boolean {
-    return this.editorController.walkHistory(direction);
+    const handled = this.editorController.walkHistory(direction);
+    this.refreshSlashCommandCandidates();
+    return handled;
   }
 
   private submitIfNonblank(): void {
@@ -1069,6 +1099,24 @@ export class TuiController {
 
   /** Read committed context only after the settled turn is returning to idle. */
   private readyStatus(): string {
+    const base = this.readyStatusWithoutCredential();
+    const availability = this.session.credentialAvailabilitySnapshot?.();
+    const selection = this.session.modelSelectionSnapshot?.();
+    if (
+      availability?.status !== 'missing' || selection === undefined ||
+      availability.authProfile !== selection.authProfile
+    ) return base;
+    const parts = base.split(' · ');
+    const ready = parts.findIndex((part) => part === 'ready' || part.startsWith('ready '));
+    parts.splice(
+      ready < 0 ? parts.length : ready + 1,
+      0,
+      `credential missing: ${selection.provider}`,
+    );
+    return parts.join(' · ');
+  }
+
+  private readyStatusWithoutCredential(): string {
     if (this.intents !== undefined) {
       const projection = this.renderer.stateSnapshot().projection;
       if (projection === undefined || projection.sessionId === undefined) {

@@ -30,8 +30,9 @@ import {
   type PresentationToolResult,
   type PresentationUserMessage,
 } from './contract.ts';
+import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
-export const MAX_GENERATION_TEXT = 1024 * 1024;
+export const MAX_GENERATION_TEXT = MAX_CONVERSATION_TEXT_BYTES;
 export const encoder = new TextEncoder();
 export const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
@@ -257,7 +258,11 @@ export const assistantMessage = (
     callIds.set(call.callId, id);
     return callMessage(call, id);
   });
-  return Object.freeze({ role: 'assistant', content: Object.freeze(calls) });
+  return Object.freeze({
+    role: 'assistant',
+    content: Object.freeze(calls),
+    ...(message.text === undefined ? {} : { text: text(message.text) }),
+  });
 };
 
 export const result = (
@@ -406,7 +411,7 @@ export const failureDiagnostic = (
     occurredAt: text(value.occurredAt),
     turnNumber: count(value.turnNumber),
     modelStep: count(value.modelStep),
-    retryCount: 0,
+    retryCount: count(value.retryCount),
   });
 };
 

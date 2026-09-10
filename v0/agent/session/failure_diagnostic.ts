@@ -86,7 +86,7 @@ export interface FailureDiagnosticV1 {
   readonly occurredAt: string;
   readonly turnNumber: number;
   readonly modelStep: number;
-  readonly retryCount: 0;
+  readonly retryCount: number;
 }
 
 export interface FailureDiagnosticFact {
@@ -94,6 +94,7 @@ export interface FailureDiagnosticFact {
   readonly code: FailureCode;
   readonly lane?: DiagnosticLane;
   readonly providerRequestCount: number;
+  readonly retryCount?: number;
   readonly httpStatus?: number;
   readonly parseReason?: ParseReason;
   readonly turnNumber: number;
@@ -187,6 +188,9 @@ const modelStep = (value: unknown): value is number =>
 const requestCount = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 &&
   value <= MAX_DIAGNOSTIC_REQUESTS;
+const retryCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 &&
+  value <= MAX_DIAGNOSTIC_REQUESTS;
 const status = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 100 &&
   value <= 599;
@@ -222,7 +226,7 @@ export const validateFailureDiagnostic = (
     !requestCount(record.providerRequestCount) ||
     !validTimestamp(record.occurredAt) ||
     !positiveTurn(record.turnNumber) || !modelStep(record.modelStep) ||
-    record.retryCount !== 0
+    !retryCount(record.retryCount) || record.retryCount > record.providerRequestCount
   ) {
     return false;
   }
@@ -298,7 +302,7 @@ export const createFailureDiagnostic = (
       (options.now ?? (() => new Date().toISOString()))(),
     turnNumber: fact.turnNumber,
     modelStep: fact.modelStep,
-    retryCount: 0,
+    retryCount: fact.retryCount ?? DIAGNOSTIC_RETRY_COUNT,
   };
   if (!validateFailureDiagnostic(diagnostic)) {
     throw new RangeError('invalid failure diagnostic');

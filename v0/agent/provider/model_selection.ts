@@ -11,6 +11,12 @@ export type ReasoningEffort =
 export type ProviderId = 'openrouter' | 'openai';
 export type ProviderApi = 'openrouter-chat-completions' | 'openai-responses';
 export type AuthProfileId = 'openrouter-api-key' | 'openai-api-key';
+export type CredentialAvailabilityStatus = 'present' | 'missing' | 'unknown';
+
+export interface CredentialAvailability {
+  readonly authProfile: AuthProfileId;
+  readonly status: CredentialAvailabilityStatus;
+}
 
 export interface OpenRouterModelSelection {
   readonly provider: 'openrouter';

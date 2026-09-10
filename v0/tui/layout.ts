@@ -130,7 +130,7 @@ const footerStatus = (state: UiState): string => {
 
 const footerStatusParts = (
   status: string,
-): { readonly primary: string; readonly details?: string } => {
+): { readonly primary: string; readonly credential?: string; readonly details?: string } => {
   const parts = status.split(' · ');
   const primaryIndex = parts.findIndex((part) =>
     part === 'ready' || part.startsWith('ready ') ||
@@ -152,8 +152,14 @@ const footerStatusParts = (
       .join(' · ');
     return details.length === 0 ? { primary: activePrimary } : { primary: activePrimary, details };
   }
-  const details = parts.slice(index + 1).join(' · ');
-  return details.length === 0 ? { primary: segment } : { primary: segment, details };
+  const trailing = parts.slice(index + 1);
+  const credential = trailing.find((part) => part.startsWith('credential missing:'));
+  const details = trailing.filter((part) => part !== credential).join(' · ');
+  return {
+    primary: segment,
+    ...(credential === undefined ? {} : { credential }),
+    ...(details.length === 0 ? {} : { details }),
+  };
 };
 
 interface HistoryViewport {
@@ -171,6 +177,8 @@ const footerStatusText = (
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
 }> => {
+  const renderSegments = (segments: readonly string[]): string =>
+    `[${segments.map((segment) => segment.replaceAll(' · ', ' │ ')).join(' │ ')}]`;
   // The editor draft is already visible in the input band. Keep active/recovery lanes available
   // in the footer, but do not repeat its byte count as internal status in the normal footer.
   const pending = state.pending?.lanes.filter((lane) => lane.present && lane.kind !== 'editor') ??
@@ -181,6 +189,12 @@ const footerStatusText = (
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
   const primary = safeDisplay(status.primary, false);
+  const commandSegment = state.slashCommandCandidates.length === 0
+    ? undefined
+    : `cmds: ${state.slashCommandCandidates.join(', ')}`;
+  const commandItem = commandSegment === undefined
+    ? []
+    : [{ kind: 'commands', text: safeDisplay(commandSegment, false) }];
   const cancelSegment = state.lifecycle === 'busy' ? 'Esc cancel' : undefined;
   const historyFull = history === undefined
     ? undefined
@@ -192,23 +206,38 @@ const footerStatusText = (
     : 'history · Esc latest';
   const fixed: string[] = historyRequired === undefined ? [primary] : [historyRequired];
   const optional = [
-    ...(historyRequired === undefined ? [] : [primary]),
-    status.details,
-    pendingSegment,
-    belowSegment,
-    cancelSegment,
-  ]
-    .filter(
-      (segment): segment is string => segment !== undefined && segment.length > 0,
-    ).map((segment) => safeDisplay(segment, false));
-  const segments = [...fixed, ...optional];
+    ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: primary }]),
+    ...(state.lifecycle === 'busy' ? [] : commandItem),
+    ...(status.credential === undefined
+      ? []
+      : [{ kind: 'credential', text: safeDisplay(status.credential, false) }]),
+    ...(status.details === undefined
+      ? []
+      : [{ kind: 'details', text: safeDisplay(status.details, false) }]),
+    ...(pendingSegment === undefined
+      ? []
+      : [{ kind: 'pending', text: safeDisplay(pendingSegment, false) }]),
+    ...(belowSegment === undefined
+      ? []
+      : [{ kind: 'below', text: safeDisplay(belowSegment, false) }]),
+    ...(cancelSegment === undefined
+      ? []
+      : [{ kind: 'cancel', text: safeDisplay(cancelSegment, false) }]),
+    ...(state.lifecycle === 'busy' ? commandItem : []),
+  ];
+  let segments = [...fixed, ...optional.map((segment) => segment.text)];
   while (
     segments.length > fixed.length &&
-    width(`[${segments.join(' · ')}]`) > columns
+    width(renderSegments(segments)) > columns
   ) {
-    segments.pop();
+    const commandIndex = cancelSegment === undefined && status.credential === undefined
+      ? -1
+      : optional.findIndex((segment) => segment.kind === 'commands');
+    if (commandIndex >= 0) optional.splice(commandIndex, 1);
+    else optional.pop();
+    segments = [...fixed, ...optional.map((segment) => segment.text)];
   }
-  const text = truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
+  const text = truncateCells(renderSegments(segments), Math.max(1, columns));
   const blinkToken = state.lifecycle === 'busy' &&
       (primary === 'busy' || primary === 'cancelling')
     ? primary

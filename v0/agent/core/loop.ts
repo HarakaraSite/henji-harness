@@ -41,9 +41,10 @@ import {
   isPlannerDelegationFailureError,
   type PlannerDelegationFailureError,
 } from '../tools/planner_delegation.ts';
+import { MAX_CONVERSATION_TEXT_BYTES } from '../../resource_limits.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
-export const MAX_ASSISTANT_TEXT_BYTES = 1024 * 1024;
+export const MAX_ASSISTANT_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
 
 /** Maximum accepted live assistant snapshots for one admitted model request. */
@@ -129,7 +130,10 @@ const isModelResult = (value: unknown): value is ModelResult => {
   }
   return result.kind === 'tool_calls' && Array.isArray(result.calls) &&
     result.calls.length > 0 &&
-    result.calls.every(isToolCall);
+    result.calls.every(isToolCall) &&
+    (result.text === undefined ||
+      typeof result.text === 'string' && result.text.length > 0 &&
+        new TextEncoder().encode(result.text).byteLength <= MAX_ASSISTANT_TEXT_BYTES);
 };
 
 const hasWellFormedUnicode = (value: string): boolean => {
@@ -159,10 +163,12 @@ const isValidToolProgressSnapshot = (value: unknown): value is string =>
 
 const assistantToolMessage = (
   calls: readonly ToolCall[],
+  text?: string,
   providerState?: ModelResult['providerState'],
 ): AssistantMessage => ({
   role: 'assistant',
   content: calls.map((call): ToolCallContent => snapshot({ kind: 'tool_call', ...call })),
+  ...(text === undefined ? {} : { text }),
   ...(providerState === undefined ? {} : { providerState: snapshot(providerState) }),
 });
 
@@ -196,12 +202,16 @@ const failureFact = (error: unknown): Partial<FailureDiagnosticFact> | undefined
   const value = candidate as Record<string, unknown>;
   if (
     typeof value.stage !== 'string' || typeof value.code !== 'string' ||
-    (value.requestCount !== 0 && value.requestCount !== 1)
+    typeof value.requestCount !== 'number' || !Number.isSafeInteger(value.requestCount) ||
+    value.requestCount < 0 || typeof value.retryCount !== 'number' ||
+    !Number.isSafeInteger(value.retryCount) || value.retryCount < 0 ||
+    value.retryCount > value.requestCount
   ) return undefined;
   return {
     stage: value.stage as FailureDiagnosticFact['stage'],
     code: value.code as FailureDiagnosticFact['code'],
     providerRequestCount: value.requestCount,
+    retryCount: value.retryCount,
     ...(typeof value.httpStatus === 'number' ? { httpStatus: value.httpStatus } : {}),
     ...(typeof value.parseReason === 'string'
       ? { parseReason: value.parseReason as FailureDiagnosticFact['parseReason'] }
@@ -358,6 +368,7 @@ const runAgentTurnInternal = async (
         code,
         lane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
         providerRequestCount: count,
+        retryCount: observed?.retryCount ?? 0,
         modelStep: step,
         ...(observed?.httpStatus === undefined ? {} : { httpStatus: observed.httpStatus }),
         ...(observed?.parseReason === undefined ? {} : { parseReason: observed.parseReason }),
@@ -669,7 +680,7 @@ const runAgentTurnInternal = async (
 
     const calls = snapshot(result.calls);
     observer?.modelSettled('tool_calls');
-    const assistant = assistantToolMessage(calls, result.providerState);
+    const assistant = assistantToolMessage(calls, result.text, result.providerState);
     transcript.push(assistant);
     deliverEvent(sink, {
       kind: 'assistant_message',

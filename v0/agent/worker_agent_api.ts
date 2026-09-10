@@ -30,6 +30,7 @@ import {
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from './provider/openrouter_model_catalog.ts';
+import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
 
 export { type ToolComponent, ToolComponentCatalog } from './tools/tool_components.ts';
 export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
@@ -53,6 +54,10 @@ export interface PhysicalIoBindings {
   ) => Model;
   readonly workTools?: WorkToolSeams;
   readonly webSearchBackend?: WebSearchBackend;
+  /** Worker-local metadata probe. It never returns credential material. */
+  readonly credentialAvailability?: (
+    authProfile: AuthProfileId,
+  ) => Promise<CredentialAvailabilityStatus>;
 }
 
 /** Data and Worker-local factories supplied to an executable Definition. */

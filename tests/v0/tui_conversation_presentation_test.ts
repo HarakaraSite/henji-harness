@@ -267,6 +267,61 @@ Deno.test('conversation presentation settles assistant progress to the same assi
   assertEquals(state.log.entries[0].live, false);
 });
 
+Deno.test('conversation presentation retains assistant text accompanying a tool call', () => {
+  let state = reduceUiEvent(createUiState(), {
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'I will inspect the current source.',
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      text: 'I will inspect the current source.',
+      content: [{
+        kind: 'tool_call',
+        callId: 'read-1',
+        name: 'read',
+        arguments: { path: 'README.md' },
+      }],
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      kind: 'tool_call',
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md' },
+    },
+  });
+  assertEquals(state.log.entries.map((entry) => [entry.label, entry.text, entry.live]), [
+    ['assistant>', 'I will inspect the current source.', false],
+    ['tool>', 'read README.md …', true],
+  ]);
+
+  const restored = reduceUiEvent(createUiState(), {
+    kind: 'restored_log',
+    omitted: 0,
+    messages: [{
+      role: 'assistant',
+      content: [{
+        kind: 'tool_call',
+        callId: 'read-1',
+        name: 'read',
+        arguments: { path: 'README.md' },
+      }],
+      text: 'I will inspect the current source.',
+    }],
+  });
+  assertEquals(restored.log.entries.map((entry) => [entry.label, entry.text]), [
+    ['assistant>', 'I will inspect the current source.'],
+    ['tool>', 'read README.md …'],
+  ]);
+});
+
 Deno.test('conversation footer uses the committed turn and emits identity facts once', () => {
   let state = setUiProjection(createUiState(), {
     lifecycle: 'idle',

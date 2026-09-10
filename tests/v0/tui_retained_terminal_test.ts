@@ -226,33 +226,60 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
 
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   let layout = renderer.layoutSnapshot(80, 24);
-  assertEquals(layout.footer[0].text, '[busy · Esc cancel]');
+  assertEquals(layout.footer[0].text, '[busy │ Esc cancel]');
   assert(!layout.footer[0].text.includes('\x1b'));
   assertEquals(layout.footer[0].blinkScalarStart, 1);
   assertEquals(layout.footer[0].blinkScalarLength, 4);
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} · Esc cancel]`,
+      `[${BLINK_SGR}busy${RESET_SGR} │ Esc cancel]`,
     ),
   );
 
   renderer.setStatus('busy · steer applied');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} · steer applied · Esc cancel]`,
+      `[${BLINK_SGR}busy${RESET_SGR} │ steer applied │ Esc cancel]`,
     ),
   );
+  renderer.setSlashCommandCandidates(['/help', '/history export']);
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[busy │ steer applied │ Esc cancel │ cmds: /help, /history export]',
+  );
+  assertEquals(
+    renderer.layoutSnapshot(40, 24).footer[0].text,
+    '[busy │ steer applied │ Esc cancel]',
+  );
+  renderer.setSlashCommandCandidates([]);
+  renderer.setStatus('busy');
+  renderer.setPendingMetadata({
+    lanes: [{
+      kind: 'active_task',
+      lifecycle: 'active_uncommitted',
+      present: true,
+      byteCount: 44,
+    }],
+    recoveryCount: 0,
+  });
+  renderer.setSlashCommandCandidates(['/provider']);
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[busy │ pending active_task:44B │ Esc cancel │ cmds: /provider]',
+  );
+  renderer.setSlashCommandCandidates([]);
+  renderer.setPendingMetadata(undefined);
   renderer.setStatus('busy; /provider waits for ready');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} · /provider waits for ready · Esc cancel]`,
+      `[${BLINK_SGR}busy${RESET_SGR} │ /provider waits for ready │ Esc cancel]`,
     ),
   );
 
   renderer.setStatus('cancelling context compaction');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}cancelling${RESET_SGR} · context compaction · Esc cancel]`,
+      `[${BLINK_SGR}cancelling${RESET_SGR} │ context compaction │ Esc cancel]`,
     ),
   );
   layout = renderer.layoutSnapshot(12, 24);
@@ -281,6 +308,67 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   const direct = new TuiRenderer(directTerminal);
   direct.eventSink({ kind: 'turn_start', turn: 1 });
   assert(directTerminal.writes.every((write) => !write.includes(BLINK_SGR)));
+});
+
+Deno.test('retained controller shows credential absence and slash candidates without completion', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let credentialStatus: 'missing' | 'present' = 'missing';
+  const session: TuiSessionLike = {
+    submit: () => Promise.reject(new Error('not used')),
+    modelSelectionSnapshot: () => ({
+      provider: 'openai',
+      api: 'openai-responses',
+      authProfile: 'openai-api-key',
+      modelId: 'gpt-5.6',
+      effort: 'medium',
+    }),
+    credentialAvailabilitySnapshot: () => ({
+      authProfile: 'openai-api-key',
+      status: credentialStatus,
+    }),
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  await waitFor(() => renderer.stateSnapshot().status.includes('credential missing: openai'));
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[ready │ credential missing: openai]',
+  );
+
+  terminal.push('/h');
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 2);
+  assertEquals(controller.editor.text, '/h');
+  assertEquals(controller.editor.cursorScalar, 2);
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[ready │ cmds: /help, /history export │ credential missing: openai]',
+  );
+  assertEquals(
+    renderer.layoutSnapshot(36, 24).footer[0].text,
+    '[ready │ credential missing: openai]',
+  );
+  renderer.setStatus(
+    'session 12345678 · agent default · turn 9 · ready · context through 8 · retain 9+ · semantic ≤65536B · credential missing: openai',
+  );
+  assertEquals(
+    renderer.layoutSnapshot(36, 24).footer[0].text,
+    '[ready │ credential missing: openai]',
+  );
+
+  terminal.push('\x15ordinary');
+  await waitFor(() => controller.editor.text === 'ordinary');
+  assertEquals(renderer.stateSnapshot().slashCommandCandidates, []);
+  credentialStatus = 'present';
+  terminal.push('\x03');
+  await waitFor(() => renderer.stateSnapshot().status === 'ready');
+  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[ready]');
+  terminal.push('\x04');
+  assertEquals(await run, 0);
 });
 
 Deno.test('retained footer omits editor bytes while keeping pending and recovery lanes', () => {
@@ -401,7 +489,7 @@ Deno.test('retained PageUp at the oldest boundary anchors the first conversation
   renderer.renderCompactStartup(startup);
   assertEquals(
     renderer.stateSnapshot().startup[1],
-    'trusted-local · credentials checked only when sending',
+    'trusted-local · credential presence shown; value checked only when sending',
   );
   terminal.size = { columns: 80, rows: 10 };
   renderer.resize(80, 10);
@@ -714,6 +802,7 @@ Deno.test('busy /provider waits for idle instead of steering the active turn', a
   await waitFor(() => renderer.stateSnapshot().status === 'busy; /provider waits for ready');
   assertEquals(steering, []);
   assertEquals(controller.editor.text, '/provider');
+  assertEquals(renderer.stateSnapshot().slashCommandCandidates, ['/provider']);
   settle?.();
   await waitFor(() => controller.currentState === 'idle');
   terminal.push('\x15\x04');

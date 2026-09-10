@@ -4,6 +4,7 @@ import {
   openRouterStoredSelection,
   type ReasoningEffort,
 } from './model_selection.ts';
+import { MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS } from '../../resource_limits.ts';
 
 export type OpenRouterReasoningEffort = ReasoningEffort;
 
@@ -146,7 +147,7 @@ const profileComponent = (value: string): string =>
 
 export const openRouterProfileFor = (
   selection: OpenRouterModelSelection,
-  maxCompletionTokens = 65_536,
+  maxCompletionTokens = MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS,
 ): OpenRouterAgentProfile => {
   if (!isOpenRouterModelSelection(selection)) throw new RangeError('invalid OpenRouter selection');
   return Object.freeze({

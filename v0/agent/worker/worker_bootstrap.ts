@@ -271,6 +271,7 @@ const createGeneration = async (
     (selection) => {
       rootModel = physicalIo.createModel(rootRole, selection);
     },
+    physicalIo.credentialAvailability,
   );
 };
 
@@ -359,6 +360,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         }
       }
       generation = workerGeneration;
+      const credentialAvailability = await workerGeneration?.rootCredentialAvailability();
       post({
         kind: 'ready',
         correlation: command.correlation,
@@ -372,6 +374,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           },
         }),
         ...(workerGeneration === undefined ? {} : { manifest: workerGeneration.manifest }),
+        ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
       });
       return;
     }
@@ -379,11 +382,15 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       const accepted = generation !== undefined &&
         isModelSelection(command.selection) &&
         generation.selectRootModel(command.selection);
+      const credentialAvailability = accepted
+        ? await generation?.rootCredentialAvailability()
+        : undefined;
       post({
         kind: 'model_selected',
         correlation: command.correlation,
         accepted,
         ...(accepted && generation !== undefined ? { manifest: generation.manifest } : {}),
+        ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
       });
       return;
     }

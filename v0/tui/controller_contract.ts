@@ -13,6 +13,7 @@ import type { TuiEditorHistory } from './input.ts';
 import type { PendingInputCore } from './pending_input.ts';
 import type { WorkspacePathIndex } from './file_reference.ts';
 import type { ModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
+import type { CredentialAvailability } from '../agent/provider/model_selection.ts';
 
 export interface TuiSessionLike {
   submit(text: string): Promise<PresentationOutcome>;
@@ -34,6 +35,7 @@ export interface TuiSessionLike {
     readonly retainedFromTurn: number;
   } | undefined;
   modelSelectionSnapshot?(): ModelSelection | undefined;
+  credentialAvailabilitySnapshot?(): CredentialAvailability | undefined;
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;

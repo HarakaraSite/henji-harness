@@ -43,6 +43,44 @@ const resolveCredential = async (
   }
 };
 
+const OPENROUTER_HTTP_5XX_RETRY_DELAYS_MS = [500, 750] as const;
+
+const waitForRetry = (delayMs: number, signal: AbortSignal): Promise<void> => {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+};
+
+const withRequestCount = (
+  error: OpenRouterAgentError,
+  requestCount: number,
+): OpenRouterAgentError => {
+  const fact = error.failureFact;
+  return new OpenRouterAgentError(
+    error.code,
+    error.message,
+    requestCount,
+    error.status,
+    {
+      stage: fact.stage,
+      code: fact.code,
+      retryCount: Math.max(0, requestCount - 1),
+      ...(fact.httpStatus === undefined ? {} : { httpStatus: fact.httpStatus }),
+      ...(fact.parseReason === undefined ? {} : { parseReason: fact.parseReason }),
+    },
+  );
+};
+
 /** Additive offline-composable adapter for the existing provider-neutral Model contract. */
 export class OpenRouterAgentModel implements Model {
   readonly measureRequestWire = measureModelRequestWire;
@@ -115,75 +153,81 @@ export class OpenRouterAgentModel implements Model {
     const endpoint = this.options.endpoint ??
       `${this.profile.origin}${this.profile.path}`;
     const evidence = generateOptions.providerEvidence;
-    evidence?.startRequest({
-      lane: generateOptions.providerEvidenceLane ?? 'parent',
-      phase: generateOptions.providerEvidencePhase ?? 'user_turn',
-      modelStep: generateOptions.modelStep ?? 1,
-      endpoint,
-      method: this.profile.method,
-      requestBody: body,
-      requestMetadata: {
-        contentType: 'application/json',
-        redirect: 'error',
-        responseMode: this.options.responseMode ?? 'json',
-        origin: generateOptions.providerEvidencePhase === 'compaction'
-          ? 'context_compaction'
-          : generateOptions.providerEvidenceLane === 'planner'
-          ? 'planner_model'
-          : 'root_model',
-        provider: 'openrouter',
-        api: 'openrouter-chat-completions',
-        modelId: this.profile.model,
-        authProfile: 'openrouter-api-key',
-        protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
-      },
-    });
+    let requestCount = 0;
     try {
       let response: Response;
-      try {
-        response = await this.fetcher(endpoint, {
+      while (true) {
+        if (turnCancelled) throw new TurnCancelledError();
+        if (timedOut) throw providerTimeoutError();
+        evidence?.startRequest({
+          lane: generateOptions.providerEvidenceLane ?? 'parent',
+          phase: generateOptions.providerEvidencePhase ?? 'user_turn',
+          modelStep: generateOptions.modelStep ?? 1,
+          endpoint,
           method: this.profile.method,
-          signal: controller.signal,
-          redirect: 'error',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${credential}`,
+          requestBody: body,
+          requestMetadata: {
+            contentType: 'application/json',
+            redirect: 'error',
+            responseMode: this.options.responseMode ?? 'json',
+            origin: generateOptions.providerEvidencePhase === 'compaction'
+              ? 'context_compaction'
+              : generateOptions.providerEvidenceLane === 'planner'
+              ? 'planner_model'
+              : 'root_model',
+            provider: 'openrouter',
+            api: 'openrouter-chat-completions',
+            modelId: this.profile.model,
+            authProfile: 'openrouter-api-key',
+            protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
           },
-          body,
         });
-      } catch {
-        if (turnCancelled) throw new TurnCancelledError();
-        if (timedOut) throw providerTimeoutError();
-        throw new OpenRouterAgentError(
-          'transport_error',
-          'provider transport failed',
-          1,
-          undefined,
-          { stage: 'transport', code: 'transport_error' },
-        );
-      }
-      evidence?.recordResponse({
-        status: response.status,
-        headers: responseHeaders(response.headers),
-      });
-      // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
-      // during fetch, settle that body before classifying the request outcome.
-      if (turnCancelled || timedOut || controller.signal.aborted) {
-        const settled = await cancelResponseBody(response);
-        if (!settled && turnCancelled) {
-          throw new CancellationCleanupError();
+        requestCount += 1;
+        try {
+          response = await this.fetcher(endpoint, {
+            method: this.profile.method,
+            signal: controller.signal,
+            redirect: 'error',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${credential}`,
+            },
+            body,
+          });
+        } catch {
+          if (turnCancelled) throw new TurnCancelledError();
+          if (timedOut) throw providerTimeoutError();
+          throw new OpenRouterAgentError(
+            'transport_error',
+            'provider transport failed',
+            requestCount,
+            undefined,
+            { stage: 'transport', code: 'transport_error' },
+          );
         }
-        if (turnCancelled) throw new TurnCancelledError();
-        if (timedOut) throw providerTimeoutError();
-        throw new OpenRouterAgentError(
-          'transport_error',
-          'provider transport failed',
-          1,
-          undefined,
-          { stage: 'transport', code: 'transport_error' },
-        );
-      }
-      if (!response.ok) {
+        evidence?.recordResponse({
+          status: response.status,
+          headers: responseHeaders(response.headers),
+        });
+        // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
+        // during fetch, settle that body before classifying the request outcome.
+        if (turnCancelled || timedOut || controller.signal.aborted) {
+          const settled = await cancelResponseBody(response);
+          if (!settled && turnCancelled) {
+            throw new CancellationCleanupError();
+          }
+          if (turnCancelled) throw new TurnCancelledError();
+          if (timedOut) throw providerTimeoutError();
+          throw new OpenRouterAgentError(
+            'transport_error',
+            'provider transport failed',
+            requestCount,
+            undefined,
+            { stage: 'transport', code: 'transport_error' },
+          );
+        }
+        if (response.ok) break;
+
         const bounded = await readResponseBody(
           response,
           (value) => evidence?.appendResponseBytes(value),
@@ -194,7 +238,7 @@ export class OpenRouterAgentModel implements Model {
           throw new OpenRouterAgentError(
             'transport_error',
             'provider transport failed',
-            1,
+            requestCount,
             undefined,
             { stage: 'transport', code: 'transport_error' },
           );
@@ -203,10 +247,27 @@ export class OpenRouterAgentModel implements Model {
         if (timedOut) {
           throw providerTimeoutError();
         }
+        const retryDelay = OPENROUTER_HTTP_5XX_RETRY_DELAYS_MS[requestCount - 1];
+        if (response.status >= 500 && response.status <= 599 && retryDelay !== undefined) {
+          try {
+            await waitForRetry(retryDelay, controller.signal);
+          } catch {
+            if (turnCancelled) throw new TurnCancelledError();
+            if (timedOut) throw providerTimeoutError();
+            throw new OpenRouterAgentError(
+              'transport_error',
+              'provider transport failed',
+              requestCount,
+              undefined,
+              { stage: 'transport', code: 'transport_error' },
+            );
+          }
+          continue;
+        }
         throw new OpenRouterAgentError(
           'http_error',
           `provider request failed (${response.status})`,
-          1,
+          requestCount,
           response.status,
           { stage: 'http', code: 'http_error', httpStatus: response.status },
         );
@@ -372,6 +433,15 @@ export class OpenRouterAgentModel implements Model {
         }
         throw error;
       }
+    } catch (error) {
+      if (
+        error instanceof OpenRouterAgentError && requestCount > 0 &&
+        (error.requestCount !== requestCount ||
+          error.failureFact.retryCount !== Math.max(0, requestCount - 1))
+      ) {
+        throw withRequestCount(error, requestCount);
+      }
+      throw error;
     } finally {
       clearTimeout(timer);
       turnSignal?.removeEventListener('abort', abortFromTurn);

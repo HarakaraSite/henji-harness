@@ -1,5 +1,5 @@
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
-import { slashCommandOf } from '../../v0/tui/controller.ts';
+import { slashCommandCandidates, slashCommandOf } from '../../v0/tui/controller.ts';
 import { toolCallText } from '../../v0/tui/terminal_text.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -267,4 +267,24 @@ Deno.test('Slash commands parse exact built-ins only', () => {
   assertEquals(slashCommandOf('/context'), 'unknown');
   assertEquals(slashCommandOf('/sessions foo'), 'unknown');
   assertEquals(slashCommandOf('/HELP'), 'unknown');
+});
+
+Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () => {
+  assertEquals(slashCommandCandidates('/'), [
+    '/help',
+    '/sessions',
+    '/provider',
+    '/model',
+    '/effort',
+    '/history export',
+    '/recover',
+    '/exit',
+  ]);
+  assertEquals(slashCommandCandidates('/h'), ['/help', '/history export']);
+  assertEquals(slashCommandCandidates('/history'), ['/history export']);
+  assertEquals(slashCommandCandidates('/history export'), ['/history export']);
+  assertEquals(slashCommandCandidates('/unknown'), []);
+  assertEquals(slashCommandCandidates('/H'), []);
+  assertEquals(slashCommandCandidates(' /help'), []);
+  assertEquals(slashCommandCandidates('ordinary task'), []);
 });

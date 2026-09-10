@@ -28,26 +28,29 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - 自動生成の実行時点、利用model、再生成の扱い、変更用UIと、日時を含む識別情報の表示方法は、
   個別incrementへ採用するときに決める。
 
-#### Surface: slash command候補の逐次絞り込みと補完（低優先度、F01、F10）
+#### Surface: slash command候補の選択・補完（低優先度、F01、F10）
 
-- 入力が先頭の`/`から始まる場合、その後のkey入力ごとに一致するslash command候補を絞り込んで表示する。
-- 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
+- 表示中のslash command候補を選択し、現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
 
-#### Surface: provider認証statusとHenji内credential登録（F01、F02、F10）
+#### Surface: busy中の経過時間表示（F01、F10）
+
+- 長いprovider生成やtool loopを人間が判断できるよう、フッター1行目の`busy`表示の直後へtask開始後の経過時間を
+  表示したい。
+- 表示形式、更新間隔、task受付・provider request・tool実行のどこを起点とするかは、個別incrementへ採用するときに
+  決める。
+
+#### Surface: Henji内credential登録（F01、F02、F10）
 
 通常利用での観測と要望:
 
-- `henji --root-provider openai`はcredential未登録でも起動でき、最初のprovider request時にcredential不足が分かる。
-- 選択中providerが未認証の状態なら、requestを送る前からフッター1行目の一時status欄へその旨を表示したい。
 - API keyの登録をHenji内のslash commandから行えるようにしたい。
 
 個別incrementで決めること:
 
-- credential fileが存在しない状態と、登録値がproviderに拒否された状態をどう区別し、何を「未認証」と表示するか。
 - slash command名、secretを通常の入力buffer・会話履歴・process argumentへ残さない入力方法、登録先auth profileの選択、
   fixed credential fileへの保存と更新結果の表示。
-- OpenRouter、OpenAI direct、将来providerで共通化する範囲と、Sessionのroot routeを切り替えた時のstatus更新時点。
+- OpenRouter、OpenAI direct、将来providerで共通化する範囲。
 
 #### Surface: 履歴閲覧の後続候補（F01、F05、F10）
 
@@ -132,12 +135,29 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
   優先する方針がなかった。Henjiのbash環境では`rg`がPATH外なので`grep`の選択は妥当だった。
 - `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5、既存work toolの
   component化はincrement 6で実装済みである。
+- Increment 23のHuman Gateでは、Qwenが複数の`bash` callへ毎回
+  `cd /home/masat.guest/src/forgejo-agent && ...`を付けた。現行system instructionはRuntime factsとして同じcwdを
+  注入し、bash executorも各callの`cwd`をworkspace rootへ設定済みなので、この`cd`は不要だった。
+- fresh-shell guidelineは`cd`の状態が後続callへ残らないことと、必要なsetupを同じcallに置くことを伝えるが、
+  各callが最初からworkspace rootで始まることを明記していない。このためmodelがworkspace rootへの`cd`も
+  毎回必要なsetupと解釈した可能性がある。
 
 未採用候補:
 
 - `read`以外のtoolについて、実際の誤選択が観測された場合にtool固有guidelineまたはdescriptionを改善する。
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
+- bash descriptionまたはactive guidelineへ、各callがRuntime factsに示したcurrent workspace directoryから
+  始まること、同じdirectoryへ`cd`せずrelative pathを使うこと、別subdirectoryから実行する必要がある場合だけ
+  そのcall内で`cd`することを明記する。新しいcwd注入機構は追加しない。
+
+#### Agent実行: Qwen xhighの長時間調査（利用者所感、対応候補ではない）
+
+- Session `c41865cf`のForgejo API概要調査は完遂したが、約9分6秒、24 root model requests、5 web searches、
+  33 tool callsを要した。成功runのprovider responseは全29件がHTTP 200で、root modelのraw responseは約1.84 MB、
+  4,813 SSE eventsだったため、provider failureよりQwen `xhigh`の長い推論と調査反復が時間の中心だった。
+- 利用者所感として、これはQwenのmodel特性である可能性があり、利用時に気をつける。modelごとに個別対応すると
+  際限がないため、この観測をmodel固有のinstruction、step・tool上限、effort既定値等のproduct対応候補にはしない。
 
 #### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
 
@@ -213,29 +233,6 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 - 議論から得た未採用のarchitecture・tool候補として保存する。permission profile、実行配置、dependency
   取得、永続化範囲、unrestricted `bash`との併存方法は、具体的なproduct incrementを選ぶ時点で決める。
-
-#### F24候補: sourceから派生物を作るAgent instruction
-
-観測:
-
-- 既存READMEの実験的な中国語版を依頼したところ、modelは原文を忠実に翻訳せず、章構成、Go要件、
-  command、設定名、JSON contract、exit codeを変更し、架空のcommandと章を追加した。
-- git管理外という依頼に対してtrackedな`.gitignore`も変更した。
-- 完了後にsourceとの自己監査を明示すると、modelは不整合を検出できた。
-- fresh Sessionで日本語の「READMEを読み10行で要約」という依頼に対し、modelは`README.ja.md`だけを
-  readしたが、回答では未読の`README.md`も読んだように述べた。
-
-Agent-level instruction候補:
-
-- 既存sourceから派生物を作るtaskでは、current sourceを正本として直接使い、記憶や一般templateから
-  再構成しない。
-- 明示された変換以外では、構造、事実、identifier、command、設定名、schema、example、link、product
-  behaviorを維持する。
-- 完了前にsourceと成果物を照合し、意図しない追加、欠落、構造変更、contract変更を確認する。意図した
-  差異は明示する。
-- temporaryまたはuntracked artifactのためだけに、明示依頼なくtracked fileへ変更を広げない。
-- 実際にtoolで取得したsourceだけを確認済みとして述べ、推定したsourceは区別する。
-- これらは`write` tool固有ではなく、source-grounded transformationを扱うAgent-level instruction候補とする。
 
 #### F24候補: instruction componentのrevision化と自己改定
 

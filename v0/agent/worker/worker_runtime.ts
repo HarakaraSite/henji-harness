@@ -36,7 +36,11 @@ import {
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
-import { modelRouteProfileId } from '../provider/model_selection.ts';
+import {
+  type CredentialAvailability,
+  type CredentialAvailabilityStatus,
+  modelRouteProfileId,
+} from '../provider/model_selection.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
@@ -135,6 +139,9 @@ export class WorkerGeneration {
     },
     initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
     private readonly replaceRootModel: (selection: ModelSelection) => void = () => {},
+    private readonly inspectCredentialAvailability: (
+      authProfile: ModelSelection['authProfile'],
+    ) => Promise<CredentialAvailabilityStatus> = () => Promise.resolve('unknown'),
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
@@ -164,6 +171,14 @@ export class WorkerGeneration {
     this.replaceRootModel(selection);
     this.rootModelSelection = structuredClone(selection);
     return true;
+  }
+
+  async rootCredentialAvailability(): Promise<CredentialAvailability> {
+    const authProfile = this.rootModelSelection.authProfile;
+    return Object.freeze({
+      authProfile,
+      status: await this.inspectCredentialAvailability(authProfile),
+    });
   }
 
   transcriptSnapshot(): readonly Message[] {

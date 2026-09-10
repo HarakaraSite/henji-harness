@@ -83,6 +83,8 @@ export interface UserMessage {
 export interface AssistantMessage {
   readonly role: 'assistant';
   readonly content: TextContent | readonly ToolCallContent[];
+  /** Visible assistant text emitted in the same provider message as tool calls. */
+  readonly text?: string;
   readonly providerState?: ProviderState;
 }
 
@@ -127,6 +129,7 @@ export type ModelResult =
   | {
     readonly kind: 'tool_calls';
     readonly calls: readonly ToolCall[];
+    readonly text?: string;
     readonly providerState?: ProviderState;
   };
 

@@ -11,10 +11,11 @@ import {
 import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
 import { toolActivityPreview } from './tool_activity.ts';
+import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const UI_MAX_LOG_ENTRIES = 512;
 export const UI_MAX_LOG_BYTES = 2 * 1024 * 1024;
-export const UI_MAX_ENTRY_BYTES = 1024 * 1024;
+export const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const UI_MAX_NEW_BELOW = 512;
 const UI_MAX_TOOL_NAME_BYTES = 64;
 
@@ -94,6 +95,7 @@ export interface UiState {
   readonly newBelowCount: number;
   readonly overlay: UiOverlay;
   readonly status: string;
+  readonly slashCommandCandidates: readonly string[];
   readonly terminalSize: Readonly<
     { readonly columns: number; readonly rows: number }
   >;
@@ -117,6 +119,10 @@ export type UiAction =
     { readonly kind: 'resize'; readonly columns: number; readonly rows: number }
   >
   | Readonly<{ readonly kind: 'status'; readonly text: string }>
+  | Readonly<{
+    readonly kind: 'slash_command_candidates';
+    readonly candidates: readonly string[];
+  }>
   | Readonly<{ readonly kind: 'startup'; readonly lines: readonly string[] }>
   | Readonly<{ readonly kind: 'scroll'; readonly mode: UiScroll }>
   | Readonly<{ readonly kind: 'latest' }>
@@ -391,16 +397,19 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         startup: Object.freeze([]),
       });
     case 'assistant_message': {
-      if (!('text' in event.message.content)) return state;
+      const assistantText = 'text' in event.message.content
+        ? event.message.content.text
+        : event.message.text;
+      if (assistantText === undefined) return state;
       const id = `turn-${event.turn}:assistant`;
       const existing = state.log.entries.some((entry) => entry.id === id);
       const next = existing
-        ? replaceEntry(state, id, event.message.content.text, false, 'assistant>')
+        ? replaceEntry(state, id, assistantText, false, 'assistant>')
         : appendEntry(state, {
           id,
           kind: 'assistant',
           label: 'assistant>',
-          text: event.message.content.text,
+          text: assistantText,
           revision: 0,
           live: false,
           turn: event.turn,
@@ -605,6 +614,9 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           next = eventLog(next, { kind: 'user_message', turn, message });
         } else if (message.role === 'assistant') {
           if (Array.isArray(message.content)) {
+            if (message.text !== undefined) {
+              next = eventLog(next, { kind: 'assistant_message', turn, message });
+            }
             for (const call of message.content) {
               next = eventLog(next, { kind: 'tool_call', turn, call });
             }
@@ -724,6 +736,7 @@ export const createUiState = (
     newBelowCount: 0,
     overlay: Object.freeze({ kind: 'none' }),
     status: projection?.lifecycle === 'idle' ? 'ready' : 'starting',
+    slashCommandCandidates: Object.freeze([]),
     terminalSize: Object.freeze({ columns: 80, rows: 24 }),
     generation: projection?.generation ?? 0,
   });
@@ -788,6 +801,13 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       });
     case 'status':
       return Object.freeze({ ...state, status: safeText(action.text) });
+    case 'slash_command_candidates':
+      return Object.freeze({
+        ...state,
+        slashCommandCandidates: Object.freeze(
+          action.candidates.map((candidate) => safeText(candidate)),
+        ),
+      });
     case 'startup':
       return Object.freeze({
         ...state,

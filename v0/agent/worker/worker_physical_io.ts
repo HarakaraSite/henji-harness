@@ -2,7 +2,11 @@ import type { Model, ModelGenerateOptions, ModelRequest, ModelResult } from '../
 import { throwIfCancelled } from '../core/cancellation.ts';
 import type { PhysicalIoBindings } from '../worker_agent_api.ts';
 import { type CredentialSource, OpenRouterAgentModel } from '../provider/openrouter_model.ts';
-import { readCredentialFile } from '../provider/credential_file.ts';
+import {
+  openAICredentialFilePresence,
+  openRouterCredentialFilePresence,
+  readCredentialFile,
+} from '../provider/credential_file.ts';
 import { createCredentialResolver } from '../provider/credential_resolver.ts';
 import { OpenAIResponsesModel } from '../provider/openai_responses_model.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
@@ -188,5 +192,15 @@ export const createProductionPhysicalIo = (
       credentialSource: () => resolver.resolve('openrouter-api-key'),
       fetcher,
     }),
+    credentialAvailability: (authProfile) => {
+      if (authProfile === 'openrouter-api-key') {
+        return options.credentialSource === undefined
+          ? openRouterCredentialFilePresence()
+          : Promise.resolve('unknown');
+      }
+      return options.openAICredentialSource === undefined
+        ? openAICredentialFilePresence()
+        : Promise.resolve('unknown');
+    },
   };
 };

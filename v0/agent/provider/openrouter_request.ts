@@ -39,7 +39,7 @@ interface WireAssistantTextMessage {
 
 interface WireAssistantToolMessage {
   readonly role: 'assistant';
-  readonly content: null;
+  readonly content: string | null;
   readonly tool_calls: readonly WireToolCall[];
   readonly reasoning_details?: readonly JsonValue[];
 }
@@ -134,7 +134,7 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
       !Array.isArray(content) && typeof content === 'object' &&
       content !== null &&
       'kind' in content && content.kind === 'text' &&
-      typeof content.text === 'string'
+      typeof content.text === 'string' && message.text === undefined
     ) {
       return [{
         role: 'assistant',
@@ -145,11 +145,15 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
     if (!Array.isArray(message.content) || message.content.length === 0) {
       return undefined;
     }
+    if (
+      message.text !== undefined &&
+      (typeof message.text !== 'string' || message.text.length === 0)
+    ) return undefined;
     const calls = message.content.map(toolCallWire);
     return calls.every((call): call is WireToolCall => call !== undefined)
       ? [{
         role: 'assistant',
-        content: null,
+        content: message.text ?? null,
         tool_calls: calls,
         ...(reasoningDetails === undefined ? {} : { reasoning_details: reasoningDetails }),
       }]

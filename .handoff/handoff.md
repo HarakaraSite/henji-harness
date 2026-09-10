@@ -2,13 +2,9 @@
 
 ## Records
 
-### Increment 19 busy activity indicator
+### Increment 24 provider request retry
 
-- 状態: Increment 19のlocal実装と検証が完了した。production retained footerはbusy/cancelling primary
-  statusだけをblinkし、busy中に通常styleの`Esc cancel`を表示する。authoritative `v0:gate`は一回で全130
-  testを通過した。
-- 次: 利用者がproduction retained TUIで通常taskを実行し、busy/cancellingの点滅とsettlement後の通常表示を
-  目視確認してIncrement 19の完了可否を判断する。
-- 正本: `docs/increments/increment-19.md`
-- 注意: local source/testへ追加変更する承認は残っていない。実際の点滅はterminal設定にも依存する。
-  構想・architecture・roadmapは個別の事前承認なしに変更しない。利用者所有の未追跡`_refs/*`は変更していない。
+- 状態: Increment 24のOpenRouter transport内HTTP 5xx retryはlocal実装・検証済みである。focused test 20件と、修正理由を確定した再実行後のauthoritative `v0:gate`全144 testが成功した。
+- 次: 利用者がproduction retained TUIで通常利用し、一時的なSSE開始前HTTP 5xxが発生した際の自動回復を確認してIncrement 24の完了可否を判断する。
+- 正本: `docs/increments/increment-24.md`
+- 注意: 自然発生する5xxのHuman Gate待ち。OpenAI direct・Sonar web search retry、provider/model fallback、SSE開始後retry、構想、architecture、roadmap、commit、pushは対象外または未承認。

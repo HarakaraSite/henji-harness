@@ -3,7 +3,7 @@ import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
 import type { SemanticContextCheckpointV1 } from '../session/session_store.ts';
-import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
+import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -161,6 +161,7 @@ export interface WorkerReadyMessage {
     readonly rootModel: ModelSelection;
     readonly plannerModel: ModelSelection;
   };
+  readonly credentialAvailability?: CredentialAvailability;
 }
 
 export interface WorkerModelSelectedMessage {
@@ -168,6 +169,7 @@ export interface WorkerModelSelectedMessage {
   readonly correlation: WorkerCorrelation;
   readonly accepted: boolean;
   readonly manifest?: WorkerReadyMessage['manifest'];
+  readonly credentialAvailability?: CredentialAvailability;
 }
 
 export interface WorkerRuntimeEventMessage {

@@ -66,7 +66,7 @@ export const startupOrientationLines = (
   `session> ${orientationSession(state)}`,
   `instructions> ${orientationInstruction(state)}`,
   `skills> ${orientationSkills(state)}`,
-  'credential> verified immediately before each provider request; not checked at startup',
+  'credential> file presence checked at startup; value verified before each provider request',
   `trust> ${orientationTrust(state)}`,
   'keys> Enter submit · Alt+Return newline · arrows/Home/End move · Ctrl-W delete',
   'keys> Up/Down history · Tab path',

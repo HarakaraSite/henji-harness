@@ -107,6 +107,7 @@ const validateMessage = (value: unknown): value is Message => {
   }
   if (message.role === 'assistant') {
     const hasProviderState = Object.hasOwn(message, 'providerState');
+    const hasText = Object.hasOwn(message, 'text');
     const state = message.providerState;
     const stateRecord = typeof state === 'object' && state !== null && !Array.isArray(state)
       ? state as Record<string, unknown>
@@ -126,19 +127,25 @@ const validateMessage = (value: unknown): value is Message => {
             !replayItems.every(isFiniteJson)
           : true))
     ) return false;
-    const messageKeys = hasProviderState
-      ? ['role', 'content', 'providerState']
-      : ['role', 'content'];
+    const messageKeys = [
+      'role',
+      'content',
+      ...(hasText ? ['text'] : []),
+      ...(hasProviderState ? ['providerState'] : []),
+    ];
     const content = message.content;
     if (
       typeof content === 'object' && content !== null && !Array.isArray(content)
     ) {
-      return ownKeys(message, messageKeys) &&
+      return !hasText && ownKeys(message, messageKeys) &&
         ownKeys(content, ['kind', 'text']) &&
         (content as Record<string, unknown>).kind === 'text' &&
         validMessageText((content as Record<string, unknown>).text);
     }
-    return ownKeys(message, messageKeys) && Array.isArray(content) &&
+    return ownKeys(message, messageKeys) &&
+      (!hasText || typeof message.text === 'string' && message.text.length > 0 &&
+          validMessageText(message.text)) &&
+      Array.isArray(content) &&
       content.length > 0 &&
       content.every(validateToolCall);
   }

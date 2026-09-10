@@ -1,11 +1,16 @@
 import type { FailureCode, FailureStage, ParseReason } from '../session/failure_diagnostic.ts';
 import type { OpenRouterExplicitReasoningEffort } from './openrouter_model_catalog.ts';
+import {
+  MAX_COMPLETE_MODEL_REQUEST_BYTES,
+  MAX_CONVERSATION_TEXT_BYTES,
+  MAX_SERIALIZED_MODEL_MESSAGES_BYTES,
+} from '../../resource_limits.ts';
 
-export const MAX_MESSAGE_BYTES = 5 * 1024 * 1024;
-export const MAX_REQUEST_BYTES = 6 * 1024 * 1024;
-export const MAX_RESPONSE_BYTES = 1024 * 1024;
-export const MAX_SSE_DATA_EVENTS = 4_096;
-export const MAX_ASSISTANT_TEXT_BYTES = 1024 * 1024;
+export const MAX_MESSAGE_BYTES = MAX_SERIALIZED_MODEL_MESSAGES_BYTES;
+export const MAX_REQUEST_BYTES = MAX_COMPLETE_MODEL_REQUEST_BYTES;
+/** Buffered provider bodies are distinct from incrementally consumed SSE responses. */
+export const MAX_BUFFERED_RESPONSE_BYTES = 1024 * 1024;
+export const MAX_ASSISTANT_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 120_000;
 
@@ -37,25 +42,34 @@ export type AgentTransportErrorCode =
 export interface OpenRouterFailureFact {
   readonly stage: FailureStage;
   readonly code: FailureCode;
-  /** Number of fetch calls made by this generate invocation (0 or 1). */
-  readonly requestCount: 0 | 1;
+  /** Number of fetch calls made by this generate invocation. */
+  readonly requestCount: number;
+  /** Provider-owned retries performed inside this generate invocation. */
+  readonly retryCount: number;
   readonly httpStatus?: number;
   readonly parseReason?: ParseReason;
 }
 
+type OpenRouterFailureFactInput =
+  & Omit<
+    OpenRouterFailureFact,
+    'requestCount' | 'retryCount'
+  >
+  & { readonly retryCount?: number };
+
 /** A failure surface that deliberately retains no credential or provider body. */
 export class OpenRouterAgentError extends Error {
   readonly code: AgentTransportErrorCode;
-  readonly requestCount: 0 | 1;
+  readonly requestCount: number;
   readonly status?: number;
   readonly failureFact: OpenRouterFailureFact;
 
   constructor(
     code: AgentTransportErrorCode,
     message: string,
-    requestCount: 0 | 1,
+    requestCount: number,
     status?: number,
-    failureFact?: Omit<OpenRouterFailureFact, 'requestCount'>,
+    failureFact?: OpenRouterFailureFactInput,
   ) {
     super(message);
     this.name = 'OpenRouterAgentError';
@@ -75,6 +89,7 @@ export class OpenRouterAgentError extends Error {
       stage: failureFact?.stage ?? defaultStage,
       code: failureFact?.code ?? code,
       requestCount,
+      retryCount: failureFact?.retryCount ?? 0,
       ...(status === undefined && failureFact?.httpStatus === undefined
         ? {}
         : { httpStatus: failureFact?.httpStatus ?? status }),

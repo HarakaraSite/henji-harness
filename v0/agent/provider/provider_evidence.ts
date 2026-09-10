@@ -131,35 +131,9 @@ const encoder = new TextEncoder();
 
 const cloneValue = <T>(value: T): T => structuredClone(value);
 
-const base64 = (value: Uint8Array): string => {
-  let binary = '';
-  for (let index = 0; index < value.length; index += 1) {
-    binary += String.fromCharCode(value[index]);
-  }
-  return btoa(binary);
-};
-
 const cloneRequest = (request: ProviderEvidenceRequest): ProviderEvidenceRequest => ({
   ...request,
   requestMetadata: cloneValue(request.requestMetadata),
-});
-
-const cloneRecord = (record: ProviderEvidenceRequestRecord): ProviderEvidenceRequestRecord => ({
-  request: cloneRequest(record.request),
-  ...(record.response === undefined ? {} : {
-    response: {
-      ...record.response,
-      headers: { ...record.response.headers },
-    },
-  }),
-  sseEvents: record.sseEvents.map((event) => ({
-    ...event,
-    ...(event.parsed === undefined ? {} : { parsed: cloneValue(event.parsed) }),
-  })),
-  parserTransitions: record.parserTransitions.map((transition) => ({
-    ...transition,
-    ...(transition.detail === undefined ? {} : { detail: cloneValue(transition.detail) }),
-  })),
 });
 
 interface MutableProviderEvidenceRequestRecord {
@@ -169,6 +143,45 @@ interface MutableProviderEvidenceRequestRecord {
   readonly sseEvents: ProviderEvidenceSseEvent[];
   readonly parserTransitions: ProviderEvidenceParserTransition[];
 }
+
+const joinBytes = (chunks: readonly Uint8Array[], total: number): Uint8Array => {
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+};
+
+const materializeRecord = (
+  record: MutableProviderEvidenceRequestRecord,
+): ProviderEvidenceRequestRecord => {
+  const response = record.response;
+  const materializedResponse = response === undefined ? undefined : (() => {
+    const raw = joinBytes(record.rawBytes, response.rawBodyBytes);
+    return {
+      ...response,
+      headers: { ...response.headers },
+      ...(raw.byteLength === 0 ? {} : {
+        rawBody: new TextDecoder().decode(raw),
+        rawBodyBase64: raw.toBase64(),
+      }),
+    };
+  })();
+  return {
+    request: cloneRequest(record.request),
+    ...(materializedResponse === undefined ? {} : { response: materializedResponse }),
+    sseEvents: record.sseEvents.map((event) => ({
+      ...event,
+      ...(event.parsed === undefined ? {} : { parsed: cloneValue(event.parsed) }),
+    })),
+    parserTransitions: record.parserTransitions.map((transition) => ({
+      ...transition,
+      ...(transition.detail === undefined ? {} : { detail: cloneValue(transition.detail) }),
+    })),
+  };
+};
 
 const activeRecord = (
   records: MutableProviderEvidenceRequestRecord[],
@@ -228,17 +241,9 @@ export class ProviderEvidenceRecorder {
     const response = record.response;
     if (response === undefined) return;
     record.rawBytes.push(bytes.slice());
-    const all = new Uint8Array(record.rawBytes.reduce((sum, chunk) => sum + chunk.byteLength, 0));
-    let offset = 0;
-    for (const chunk of record.rawBytes) {
-      all.set(chunk, offset);
-      offset += chunk.byteLength;
-    }
     record.response = {
       ...response,
-      rawBody: new TextDecoder().decode(all),
-      rawBodyBase64: base64(all),
-      rawBodyBytes: all.byteLength,
+      rawBodyBytes: response.rawBodyBytes + bytes.byteLength,
     };
   }
 
@@ -303,7 +308,7 @@ export class ProviderEvidenceRecorder {
       evidenceId: this.evidenceId,
       turnNumber: this.turnNumber,
       createdAt: this.createdAt,
-      requests: this.records.map(cloneRecord),
+      requests: this.records.map(materializeRecord),
       runtimeEvents: this.runtimeEvents,
       ...(outcome?.turnProviderRequestCount === undefined ? {} : {
         turnProviderRequestCount: outcome.turnProviderRequestCount,

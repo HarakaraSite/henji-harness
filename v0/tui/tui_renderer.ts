@@ -276,7 +276,7 @@ export class TuiRenderer implements TerminalRendererGate {
       }`,
       512,
     ).text;
-    const second = 'trusted-local · credentials checked only when sending';
+    const second = 'trusted-local · credential presence shown; value checked only when sending';
     if (this.retained) {
       this.ui = reduceUiAction(this.ui, {
         kind: 'startup',
@@ -360,17 +360,18 @@ export class TuiRenderer implements TerminalRendererGate {
         return;
       case 'assistant_message':
         this.clearLiveState();
-        if (
-          !Array.isArray(event.message.content) &&
-          'text' in event.message.content
-        ) {
+        {
+          const assistantText = 'text' in event.message.content
+            ? event.message.content.text
+            : event.message.text;
+          if (assistantText === undefined) return;
           if (!this.retained) {
             this.clearRecordLine();
-            this.write(dynamicLine('assistant> ', event.message.content.text));
+            this.write(dynamicLine('assistant> ', assistantText));
           }
           this.redraw();
+          return;
         }
-        return;
       case 'assistant_progress':
         this.liveProgress = null;
         this.liveProgressTool = '';
@@ -487,6 +488,14 @@ export class TuiRenderer implements TerminalRendererGate {
   setStatus(status: string): void {
     this.status = status;
     this.ui = reduceUiAction(this.ui, { kind: 'status', text: status });
+    this.redraw();
+  }
+
+  setSlashCommandCandidates(candidates: readonly string[]): void {
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'slash_command_candidates',
+      candidates,
+    });
     this.redraw();
   }
 

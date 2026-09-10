@@ -74,6 +74,10 @@ const markdownChunks = function* (
           yield fenced(message.content.text);
           continue;
         }
+        if (message.text !== undefined) {
+          yield '### assistant>\n\n';
+          yield fenced(message.text);
+        }
         for (const call of message.content) {
           yield `### tool> ${call.name}\n\n`;
           yield `- Call: \`${call.callId}\`\n\n`;

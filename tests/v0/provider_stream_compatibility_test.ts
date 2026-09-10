@@ -1,8 +1,13 @@
 import {
+  MAX_BUFFERED_RESPONSE_BYTES,
+  OpenRouterAgentError,
   OpenRouterAgentModel,
   type OpenRouterAgentProfile,
 } from '../../v0/agent/provider/openrouter_model.ts';
-import { ParentTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
+import {
+  createTurnExecutionContext,
+  ParentTurnExecutionContext,
+} from '../../v0/agent/core/execution_context.ts';
 import { runAgent } from '../../v0/agent/core/loop.ts';
 import { createPlannerDelegationTool } from '../../v0/agent/tools/planner_delegation.ts';
 import {
@@ -24,6 +29,13 @@ import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
 } from '../../v0/agent/worker/worker_physical_io.ts';
+import {
+  credentialFilePresenceAt,
+  type CredentialFileSystem,
+} from '../../v0/agent/provider/credential_file.ts';
+import { decodeResponse } from '../../v0/agent/provider/openrouter_response.ts';
+import { MAX_CONVERSATION_TEXT_BYTES } from '../../v0/resource_limits.ts';
+import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -48,6 +60,50 @@ const PROFILE: OpenRouterAgentProfile = {
   maxCompletionTokens: 128,
   stream: false,
 };
+
+Deno.test('credential presence probe distinguishes absence without opening credential bytes', async () => {
+  let opens = 0;
+  const filesystem = (
+    lstat: CredentialFileSystem['lstat'],
+  ): CredentialFileSystem => ({
+    lstat,
+    open: () => {
+      opens += 1;
+      return Promise.reject(new Error('credential must not be opened'));
+    },
+    effectiveUid: () => 1000,
+  });
+  assertEquals(
+    await credentialFilePresenceAt(
+      '/fixed/missing',
+      filesystem(() => Promise.reject(new Deno.errors.NotFound())),
+    ),
+    'missing',
+  );
+  assertEquals(
+    await credentialFilePresenceAt(
+      '/fixed/unavailable',
+      filesystem(() => Promise.reject(new Deno.errors.PermissionDenied())),
+    ),
+    'unknown',
+  );
+  assertEquals(
+    await credentialFilePresenceAt(
+      '/fixed/present',
+      filesystem(() =>
+        Promise.resolve({
+          isFile: false,
+          isSymlink: true,
+          mode: 0o777,
+          size: 0,
+          uid: 1000,
+        })
+      ),
+    ),
+    'present',
+  );
+  assertEquals(opens, 0);
+});
 
 const request: ModelRequest = {
   transcript: [{ role: 'user', content: { kind: 'text', text: 'hello' } }],
@@ -98,6 +154,56 @@ const largeTextStream = (text: string, id = 'gen-large-text'): string =>
     })
   }\n\n${usage(id, 'stop')}data: [DONE]\n\n`;
 
+const largeEnvelopeStream = (eventCount = 4_100): {
+  readonly raw: string;
+  readonly chunks: readonly Uint8Array[];
+} => {
+  const id = 'gen-large-envelope';
+  const frames = Array.from({ length: eventCount }, (_, index) =>
+    `data: ${
+      JSON.stringify({
+        id,
+        model: 'deepseek/deepseek-v4-pro-0813',
+        provider: `provider-metadata-${'m'.repeat(220)}`,
+        choices: [{
+          index: 0,
+          delta: { role: 'assistant', content: 'x' },
+          finish_reason: index === eventCount - 1 ? 'stop' : null,
+        }],
+      })
+    }\n\n`);
+  frames.push(usage(id, 'stop'), 'data: [DONE]\n\n');
+  const groups: string[] = [];
+  for (let index = 0; index < frames.length; index += 500) {
+    groups.push(frames.slice(index, index + 500).join(''));
+  }
+  return {
+    raw: groups.join(''),
+    chunks: groups.map((group) => new TextEncoder().encode(group)),
+  };
+};
+
+const responseFromChunks = (chunks: readonly Uint8Array[]): Response =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(chunk);
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } },
+  );
+
+const capturedOpenRouterError = async (action: () => unknown | Promise<unknown>) => {
+  try {
+    await action();
+  } catch (error) {
+    assert(error instanceof OpenRouterAgentError);
+    return error;
+  }
+  throw new Error('expected OpenRouterAgentError');
+};
+
 const toolStream = (id = 'gen-tool'): string =>
   `data: ${
     JSON.stringify({
@@ -121,6 +227,26 @@ const toolStream = (id = 'gen-tool'): string =>
       }],
     })
   }\n\n${usage(id, 'tool_calls')}data: [DONE]\n\n`;
+
+const mixedToolStream = (id = 'gen-mixed-tool'): string => {
+  const event = (delta: unknown, finishReason: 'tool_calls' | null = null): string =>
+    `data: ${
+      JSON.stringify({
+        id,
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+      })
+    }\n\n`;
+  return `${event({ role: 'assistant', content: 'I will read the current source first.' })}${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: 'read-mixed-1',
+        type: 'function',
+        function: { name: 'read', arguments: '{"path":"README.md"}' },
+      }],
+    })
+  }${event({ content: '' }, 'tool_calls')}${usage(id, 'tool_calls')}data: [DONE]\n\n`;
+};
 
 const plannerDelegationStream = (id = 'gen-planner'): string =>
   `data: ${
@@ -176,6 +302,194 @@ const modelFor = (
       );
     },
   });
+
+Deno.test('OpenRouter retries a pre-SSE 5xx inside one logical model step', async () => {
+  const bodies: string[] = [];
+  let requests = 0;
+  const recorder = new ProviderEvidenceRecorder(
+    '24242424-2424-4242-8242-242424242424',
+    1,
+    '2026-09-10T00:00:00.000Z',
+  );
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'sse',
+    credential: 'dummy-credential-value',
+    fetcher: (_input, init) => {
+      requests += 1;
+      bodies.push(String(init?.body));
+      if (requests === 1) {
+        return Promise.resolve(
+          new Response('{"error":"temporary upstream failure"}', {
+            status: 502,
+            headers: { 'content-type': 'application/json', 'x-provider': 'test-upstream' },
+          }),
+        );
+      }
+      return Promise.resolve(
+        new Response(toolStream('gen-after-retry'), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream; charset=utf-8' },
+        }),
+      );
+    },
+  });
+  const outcome = await runAgent(
+    'submit once',
+    model,
+    new Registry([createJsonResultSubmissionTool()]),
+    {
+      executionContext: createTurnExecutionContext(
+        1,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        recorder,
+      ),
+    },
+  );
+
+  assert(outcome.ok);
+  assertEquals(outcome.stopReason, 'tool_terminal');
+  assertEquals(outcome.steps, 1);
+  assertEquals(outcome.toolCallCount, 1);
+  assertEquals(outcome.toolResultCount, 1);
+  assertEquals(requests, 2);
+  assertEquals(bodies[0], bodies[1]);
+  const evidence = recorder.snapshot();
+  assertEquals(evidence.requests.map((entry) => entry.request.modelStep), [1, 1]);
+  assertEquals(evidence.requests.map((entry) => entry.response?.status), [502, 200]);
+  assertEquals(evidence.requests[0].response?.rawBody, '{"error":"temporary upstream failure"}');
+  assertEquals(evidence.requests[0].response?.headers['x-provider'], 'test-upstream');
+  assertEquals(
+    evidence.runtimeEvents.filter((event) => event.kind === 'tool_call').length,
+    1,
+  );
+  assertEquals(
+    evidence.runtimeEvents.filter((event) => event.kind === 'tool_result').length,
+    1,
+  );
+});
+
+Deno.test('OpenRouter exhausts two 5xx retries and reports physical attempts', async () => {
+  let requests = 0;
+  const recorder = new ProviderEvidenceRecorder(
+    '25252525-2525-4252-8252-252525252525',
+    1,
+    '2026-09-10T00:00:00.000Z',
+  );
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'sse',
+    credential: 'dummy-credential-value',
+    fetcher: () => {
+      requests += 1;
+      return Promise.resolve(
+        new Response(`attempt-${requests}`, {
+          status: 502,
+          headers: { 'content-type': 'text/plain' },
+        }),
+      );
+    },
+  });
+  const owner = new FailureDiagnosticOwner(1, {
+    uuid: () => '26262626-2626-4262-8262-262626262626',
+    now: () => '2026-09-10T00:00:00.000Z',
+  });
+  const outcome = await runAgent('fail after retries', model, new Registry([]), {
+    diagnosticOwner: owner,
+    turnProviderRequestCount: () => requests,
+    executionContext: createTurnExecutionContext(
+      1,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      recorder,
+    ),
+  });
+
+  assert(!outcome.ok);
+  assertEquals(requests, 3);
+  assertEquals(outcome.steps, 1);
+  assertEquals(outcome.diagnostic?.providerRequestCount, 3);
+  assertEquals(outcome.diagnostic?.retryCount, 2);
+  assertEquals(outcome.diagnostic?.httpStatus, 502);
+  assertEquals(recorder.snapshot().requests.map((entry) => entry.response?.rawBody), [
+    'attempt-1',
+    'attempt-2',
+    'attempt-3',
+  ]);
+});
+
+Deno.test('OpenRouter cancel during 5xx backoff prevents another attempt', async () => {
+  let requests = 0;
+  const controller = new AbortController();
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'sse',
+    credential: 'dummy-credential-value',
+    fetcher: () => {
+      requests += 1;
+      return Promise.resolve(new Response('retry later', { status: 503 }));
+    },
+  });
+  const pending = model.generate(request, { signal: controller.signal });
+  setTimeout(() => controller.abort('user cancelled'), 20);
+  try {
+    await pending;
+    throw new Error('expected cancellation');
+  } catch (error) {
+    assert(isTurnCancelledError(error));
+  }
+  assertEquals(requests, 1);
+});
+
+Deno.test('OpenRouter does not retry 429 or an SSE stream failure', async () => {
+  let rateLimitedRequests = 0;
+  const rateLimited = await capturedOpenRouterError(() =>
+    new OpenRouterAgentModel({
+      profile: PROFILE,
+      responseMode: 'sse',
+      credential: 'dummy-credential-value',
+      fetcher: () => {
+        rateLimitedRequests += 1;
+        return Promise.resolve(new Response('rate limited', { status: 429 }));
+      },
+    }).generate(request)
+  );
+  assertEquals(rateLimited.code, 'http_error');
+  assertEquals(rateLimited.requestCount, 1);
+  assertEquals(rateLimitedRequests, 1);
+
+  let streamRequests = 0;
+  const streamFailure = await capturedOpenRouterError(() =>
+    new OpenRouterAgentModel({
+      profile: PROFILE,
+      responseMode: 'sse',
+      credential: 'dummy-credential-value',
+      fetcher: () => {
+        streamRequests += 1;
+        return Promise.resolve(
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('data: {"id":"partial"}\n\n'));
+                controller.error(new Error('stream interrupted'));
+              },
+            }),
+            { status: 200, headers: { 'content-type': 'text/event-stream' } },
+          ),
+        );
+      },
+    }).generate(request)
+  );
+  assertEquals(streamFailure.requestCount, 1);
+  assertEquals(streamRequests, 1);
+});
 
 Deno.test('documented text accounting reaches ModelResult through HTTP and SSE', async () => {
   const seen = { requests: 0 };
@@ -324,6 +638,107 @@ Deno.test('assistant output above 64 KiB remains reachable through the provider 
   assert(progress.at(-1) === text);
 });
 
+Deno.test('SSE above 1 MiB and 4096 events reaches terminal result with exact evidence', async () => {
+  const fixture = largeEnvelopeStream();
+  const encoded = new TextEncoder().encode(fixture.raw);
+  assert(encoded.byteLength > 1024 * 1024);
+  const recorder = new ProviderEvidenceRecorder(
+    '88888888-8888-4888-8888-888888888888',
+    1,
+    '2026-09-10T00:00:00.000Z',
+  );
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'sse',
+    credential: 'dummy-credential-value',
+    fetcher: () => Promise.resolve(responseFromChunks(fixture.chunks)),
+  });
+
+  const result = await model.generate(request, {
+    providerEvidence: recorder,
+    providerEvidenceLane: 'parent',
+    modelStep: 1,
+  });
+  assertEquals(result, { kind: 'final', text: 'x'.repeat(4_100) });
+
+  const retained = recorder.snapshot().requests[0];
+  assertEquals(retained.response?.rawBodyBytes, encoded.byteLength);
+  assertEquals(retained.response?.rawBody, fixture.raw);
+  assertEquals(retained.response?.rawBodyBase64, encoded.toBase64());
+  assertEquals(retained.sseEvents.length, 4_102);
+  assert((retained.sseEvents[0].responseBodyOffset ?? 0) < encoded.byteLength);
+  assertEquals(retained.sseEvents.at(-1)?.responseBodyOffset, encoded.byteLength);
+  assert(
+    retained.sseEvents.every((event, index, events) =>
+      index === 0 || event.responseBodyOffset >= events[index - 1].responseBodyOffset
+    ),
+  );
+});
+
+Deno.test('evidence snapshots materialize exactly the bytes received so far', () => {
+  const recorder = new ProviderEvidenceRecorder(
+    '99999999-9999-4999-8999-999999999999',
+    1,
+    '2026-09-10T00:00:00.000Z',
+  );
+  recorder.startRequest({
+    lane: 'parent',
+    modelStep: 1,
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    method: 'POST',
+    requestBody: '{}',
+  });
+  recorder.recordResponse({ status: 200, headers: {} });
+  recorder.appendResponseBytes(new TextEncoder().encode('first-'));
+  assertEquals(recorder.snapshot().requests[0].response, {
+    status: 200,
+    headers: {},
+    rawBodyBytes: 6,
+    rawBody: 'first-',
+    rawBodyBase64: new TextEncoder().encode('first-').toBase64(),
+  });
+  recorder.appendResponseBytes(new TextEncoder().encode('second'));
+  assertEquals(recorder.snapshot().requests[0].response, {
+    status: 200,
+    headers: {},
+    rawBodyBytes: 12,
+    rawBody: 'first-second',
+    rawBodyBase64: new TextEncoder().encode('first-second').toBase64(),
+  });
+});
+
+Deno.test('buffered response and assistant semantic limits remain unchanged', async () => {
+  const bufferedError = await capturedOpenRouterError(() =>
+    new OpenRouterAgentModel({
+      profile: PROFILE,
+      responseMode: 'json',
+      credential: 'dummy-credential-value',
+      fetcher: () =>
+        Promise.resolve(
+          new Response('x'.repeat(MAX_BUFFERED_RESPONSE_BYTES + 1), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+    }).generate(request)
+  );
+  assertEquals(bufferedError.code, 'limit_exceeded');
+  assertEquals(bufferedError.failureFact.parseReason, 'response_body_too_large');
+
+  const semanticError = await capturedOpenRouterError(() =>
+    decodeResponse({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: 'x'.repeat(MAX_CONVERSATION_TEXT_BYTES + 1),
+        },
+      }],
+    })
+  );
+  assertEquals(semanticError.code, 'limit_exceeded');
+  assertEquals(semanticError.failureFact.parseReason, 'response_body_too_large');
+});
+
 Deno.test('planner result above 76 KiB reaches the parent continuation request', async () => {
   const plannerText = 'p'.repeat(300_000);
   const seen = { requests: 0 };
@@ -423,6 +838,113 @@ Deno.test('documented tool accounting dispatches normally through the same trans
   assert(evidence.runtimeEvents.some((event) => event.kind === 'tool_call'));
   assert(evidence.runtimeEvents.some((event) => event.kind === 'tool_result'));
   assert(events.some((event) => (event as { readonly kind?: string }).kind === 'turn_end'));
+});
+
+Deno.test('OpenRouter mixed assistant text and tool calls remain visible and continue', async () => {
+  const bodies: unknown[] = [];
+  const store = new FakeProviderEvidenceStore();
+  let requestNumber = 0;
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'sse',
+    credential: 'dummy-credential-value',
+    fetcher: (_input, init) => {
+      bodies.push(JSON.parse(String(init?.body)));
+      requestNumber += 1;
+      return Promise.resolve(
+        new Response(
+          requestNumber === 1 ? mixedToolStream() : textStream('gen-mixed-final'),
+          { status: 200, headers: { 'content-type': 'text/event-stream; charset=utf-8' } },
+        ),
+      );
+    },
+  });
+  const events: AgentEvent[] = [];
+  const session = new AgentSession(
+    model,
+    new Registry([{
+      name: 'read',
+      description: 'Read the current source.',
+      inputSchema: { type: 'object' },
+      execute: () => '# current source',
+    }]),
+    {
+      eventSink: (event) => events.push(event),
+      providerEvidenceStore: store,
+    },
+  );
+  const outcome = await session.submit('inspect current source');
+
+  assert(outcome.ok);
+  assertEquals(outcome.finalText, 'hello');
+  assertEquals(requestNumber, 2);
+  const assistant = outcome.transcript.find((message) =>
+    message.role === 'assistant' && Array.isArray(message.content)
+  );
+  assert(assistant?.role === 'assistant' && Array.isArray(assistant.content));
+  assertEquals(assistant.text, 'I will read the current source first.');
+  assertEquals(assistant.content, [{
+    kind: 'tool_call',
+    callId: 'read-mixed-1',
+    name: 'read',
+    arguments: { path: 'README.md' },
+  }]);
+  const assistantEventIndex = events.findIndex((event) =>
+    event.kind === 'assistant_message' && event.message.text !== undefined
+  );
+  const toolCallEventIndex = events.findIndex((event) => event.kind === 'tool_call');
+  assert(assistantEventIndex >= 0 && toolCallEventIndex > assistantEventIndex);
+  assert(outcome.providerEvidenceId !== undefined);
+  const evidence = await store.read(outcome.providerEvidenceId);
+  const mixedResult = evidence.runtimeEvents.find((event) =>
+    event.kind === 'model_result' && event.result.kind === 'tool_calls'
+  );
+  assert(mixedResult?.kind === 'model_result' && mixedResult.result.kind === 'tool_calls');
+  assertEquals(mixedResult.result.text, 'I will read the current source first.');
+
+  const continuation = bodies[1] as {
+    readonly messages: readonly {
+      readonly role: string;
+      readonly content: unknown;
+      readonly tool_calls?: readonly unknown[];
+    }[];
+  };
+  const replayed = continuation.messages.find((message) =>
+    message.role === 'assistant' && Array.isArray(message.tool_calls)
+  );
+  assertEquals(replayed?.content, 'I will read the current source first.');
+  assertEquals(replayed?.tool_calls, [{
+    id: 'read-mixed-1',
+    type: 'function',
+    function: { name: 'read', arguments: '{"path":"README.md"}' },
+  }]);
+});
+
+Deno.test('OpenRouter JSON response preserves text attached to tool calls', () => {
+  assertEquals(
+    decodeResponse({
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: 'I will inspect the source.',
+          tool_calls: [{
+            id: 'read-json-1',
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"README.md"}' },
+          }],
+        },
+      }],
+    }),
+    {
+      kind: 'tool_calls',
+      calls: [{
+        callId: 'read-json-1',
+        name: 'read',
+        arguments: { path: 'README.md' },
+      }],
+      text: 'I will inspect the source.',
+    },
+  );
 });
 
 Deno.test('post-terminal content is rejected and diagnostic ID reaches the saved artifact', async () => {

@@ -1,8 +1,9 @@
 import { staticBytes } from './terminal.ts';
 import { toolActivityPreview } from './tool_activity.ts';
+import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const encoder = new TextEncoder();
-const DISPLAY_LIMIT = 1024 * 1024;
+const DISPLAY_LIMIT = MAX_CONVERSATION_TEXT_BYTES;
 const ESCAPED_BIDI = (code: number): boolean =>
   code === 0x061c || (code >= 0x200e && code <= 0x200f) ||
   (code >= 0x202a && code <= 0x202e) || (code >= 0x2066 && code <= 0x2069);

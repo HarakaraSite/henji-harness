@@ -33,6 +33,7 @@ import {
 } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
 import {
+  type CredentialAvailability,
   modelRouteProfileId,
   type ModelSelection,
   sameModelSelection,
@@ -64,6 +65,12 @@ import { HostMessageQueue } from './worker_host_queue.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
+const validCredentialAvailability = (
+  value: CredentialAvailability | undefined,
+  selection: ModelSelection,
+): value is CredentialAvailability =>
+  value !== undefined && value.authProfile === selection.authProfile &&
+  (value.status === 'present' || value.status === 'missing' || value.status === 'unknown');
 type ActiveWorkerExecution = {
   readonly executionId: string;
   readonly createdAt: string;
@@ -107,6 +114,7 @@ export class WorkerHostSession {
   private modelChanges: SessionModelChange[];
   private turnModels: SessionTurnModelAttribution[];
   private legacyModelNotice = false;
+  private credentialAvailability: CredentialAvailability | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
     this.capsule = options.capsuleFactory?.(workerUrl) ??
@@ -187,6 +195,12 @@ export class WorkerHostSession {
 
   modelSelectionSnapshot(): ModelSelection {
     return structuredClone(this.modelSelection);
+  }
+
+  credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
+    return this.credentialAvailability === undefined
+      ? undefined
+      : structuredClone(this.credentialAvailability);
   }
 
   consumeLegacyModelNotice(): boolean {
@@ -515,11 +529,13 @@ export class WorkerHostSession {
         !sameModelSelection(ready.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
         ready.manifest.profileId !== modelRouteProfileId(this.modelSelection) ||
         (this.options.rootMaxSteps !== undefined &&
-          ready.manifest.maxSteps !== this.options.rootMaxSteps)
+          ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
+        !validCredentialAvailability(ready.credentialAvailability, this.modelSelection)
       ) {
         throw new Error('Worker manifest did not match Host selection');
       }
       this.currentManifest = ready.manifest;
+      this.credentialAvailability = structuredClone(ready.credentialAvailability);
     } finally {
       this.currentCorrelation = undefined;
     }
@@ -663,9 +679,11 @@ export class WorkerHostSession {
         message.manifest === undefined ||
         !sameModelSelection(message.manifest.rootModel, selection) ||
         !sameModelSelection(message.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
-        message.manifest.profileId !== modelRouteProfileId(selection)
+        message.manifest.profileId !== modelRouteProfileId(selection) ||
+        !validCredentialAvailability(message.credentialAvailability, selection)
       ) throw new Error('Worker rejected model selection');
       this.currentManifest = message.manifest;
+      this.credentialAvailability = structuredClone(message.credentialAvailability);
       this.modelSelection = structuredClone(selection);
       this.modelChanges = nextChanges;
       this.stateRevision = nextRevision;

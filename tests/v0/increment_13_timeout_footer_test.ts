@@ -126,6 +126,7 @@ Deno.test('Increment 13 preserves provider_timeout when an aborted SSE body reje
     stage: 'transport',
     code: 'provider_timeout',
     requestCount: 1,
+    retryCount: 0,
   });
   const diagnostic = {
     schemaVersion: 1 as const,
@@ -161,6 +162,10 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          },
+          credentialAvailability: {
+            authProfile: 'openrouter-api-key',
+            status: 'unknown',
           },
         });
       } else if (command.kind === 'close') {
