@@ -280,6 +280,9 @@ export const createWorkerSession = async (
           skippedInvalid: listed.skippedInvalid,
         };
       },
+      renameCurrent(title: string) {
+        return currentHost.renameTitle(title);
+      },
       async switchTo(
         id: string,
         signal?: AbortSignal,

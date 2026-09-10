@@ -316,6 +316,7 @@ export const listing = (value: NavigationListing): PresentationNavigationListing
         agent: agentId(row.agent),
         createdAt: text(row.createdAt),
         updatedAt: text(row.updatedAt),
+        ...(row.title === undefined ? {} : { title: text(row.title) }),
         turnCount: count(row.turnCount),
         messageCount: count(row.messageCount),
         current: boolean(row.current),

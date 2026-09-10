@@ -2,7 +2,12 @@ import { createUiState, reduceUiAction } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor, TuiEditorHistory } from '../../v0/tui/input.ts';
 import { layoutEditorText, pendingMetadataRows, TuiRenderer } from '../../v0/tui/render.ts';
-import { TuiController, TuiControllerError, type TuiSessionLike } from '../../v0/tui/controller.ts';
+import {
+  TuiController,
+  TuiControllerError,
+  type TuiNavigationLike,
+  type TuiSessionLike,
+} from '../../v0/tui/controller.ts';
 import {
   type PresentationIntentDispatcher,
   type PresentationIntentResult,
@@ -222,34 +227,49 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
 
 Deno.test('retained busy footer blinks only its primary status and shows cancel help', () => {
   const terminal = new RecordingTerminal();
-  const renderer = new TuiRenderer(terminal);
+  let now = 0;
+  let tick = () => {};
+  const cleared: unknown[] = [];
+  const renderer = new TuiRenderer(terminal, {
+    now: () => now,
+    setInterval: (callback, milliseconds) => {
+      assertEquals(milliseconds, 1000);
+      tick = callback;
+      return 'busy-timer';
+    },
+    clearInterval: (id) => cleared.push(id),
+  });
 
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   let layout = renderer.layoutSnapshot(80, 24);
-  assertEquals(layout.footer[0].text, '[busy │ Esc cancel]');
+  assertEquals(layout.footer[0].text, '[busy 00:00 │ Esc cancel]');
   assert(!layout.footer[0].text.includes('\x1b'));
   assertEquals(layout.footer[0].blinkScalarStart, 1);
   assertEquals(layout.footer[0].blinkScalarLength, 4);
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} │ Esc cancel]`,
+      `[${BLINK_SGR}busy${RESET_SGR} 00:00 │ Esc cancel]`,
     ),
   );
+
+  now = 62_000;
+  tick();
+  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[busy 01:02 │ Esc cancel]');
 
   renderer.setStatus('busy · steer applied');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} │ steer applied │ Esc cancel]`,
+      `[${BLINK_SGR}busy${RESET_SGR} 01:02 │ steer applied │ Esc cancel]`,
     ),
   );
   renderer.setSlashCommandCandidates(['/help', '/history export']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[busy │ steer applied │ Esc cancel │ cmds: /help, /history export]',
+    '[busy 01:02 │ steer applied │ Esc cancel │ cmds: /help, /history export]',
   );
   assertEquals(
     renderer.layoutSnapshot(40, 24).footer[0].text,
-    '[busy │ steer applied │ Esc cancel]',
+    '[busy 01:02 │ Esc cancel]',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setStatus('busy');
@@ -265,21 +285,23 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   renderer.setSlashCommandCandidates(['/provider']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[busy │ pending active_task:44B │ Esc cancel │ cmds: /provider]',
+    '[busy 01:02 │ pending active_task:44B │ Esc cancel │ cmds: /provider]',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setPendingMetadata(undefined);
   renderer.setStatus('busy; /provider waits for ready');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} │ /provider waits for ready │ Esc cancel]`,
+      `[${BLINK_SGR}busy${RESET_SGR} 01:02 │ /provider waits for ready │ Esc cancel]`,
     ),
   );
 
+  now = 3_661_000;
+  tick();
   renderer.setStatus('cancelling context compaction');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}cancelling${RESET_SGR} │ context compaction │ Esc cancel]`,
+      `[${BLINK_SGR}cancelling${RESET_SGR} 1:01:01 │ context compaction │ Esc cancel]`,
     ),
   );
   layout = renderer.layoutSnapshot(12, 24);
@@ -288,6 +310,7 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   assertEquals(layout.footer[0].blinkScalarLength, 10);
 
   renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+  assertEquals(cleared, ['busy-timer']);
   layout = renderer.layoutSnapshot(80, 24);
   assertEquals(layout.footer[0].text, '[ready]');
   assertEquals(layout.footer[0].blinkScalarStart, undefined);
@@ -303,6 +326,52 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   });
   assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[contract_failure]');
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
+
+  renderer.eventSink({ kind: 'turn_start', turn: 3 });
+  assertEquals(renderer.stateSnapshot().busyElapsedSeconds, 0);
+  renderer.close();
+  assertEquals(renderer.stateSnapshot().busyElapsedSeconds, undefined);
+  assertEquals(cleared, ['busy-timer', 'busy-timer', 'busy-timer']);
+});
+
+Deno.test('retained session picker identifies sessions by updated time and human title', () => {
+  const renderer = new TuiRenderer(new RecordingTerminal());
+  renderer.renderSessionPicker({
+    sessions: [{
+      id: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
+      agent: 'default',
+      createdAt: '2026-09-10T08:00:00.000Z',
+      updatedAt: '2026-09-10T08:39:06.612Z',
+      title: 'Release notes',
+      turnCount: 3,
+      messageCount: 6,
+      current: true,
+      resumed: true,
+      mismatch: false,
+      modelSelection: {
+        provider: 'openrouter',
+        modelId: 'deepseek/deepseek-v4-pro-0813',
+        effort: 'high',
+      },
+    }, {
+      id: '10761646-79a8-4a8d-8ae0-6aaee23af1b2',
+      agent: 'default',
+      createdAt: '2026-09-09T04:00:00.000Z',
+      updatedAt: '2026-09-09T04:05:00.000Z',
+      turnCount: 1,
+      messageCount: 2,
+      current: false,
+      resumed: false,
+      mismatch: false,
+    }],
+    skippedInvalid: 0,
+  });
+  const rows = renderer.layoutSnapshot(80, 24).overlay.map((row) => row.text);
+  assert(rows.includes('> 2026-09-10 08:39Z  Release notes'));
+  assert(rows.includes('  fc419637 · 3 turns · current'));
+  assert(rows.includes('  2026-09-09 04:05Z  untitled'));
+  assert(rows.includes('  10761646 · 1 turns · resumable'));
+  assert(!rows.some((row) => row.includes('openrouter') || row.includes('deepseek')));
 });
 
 Deno.test('retained controller shows credential absence and slash candidates without completion', async () => {
@@ -335,7 +404,12 @@ Deno.test('retained controller shows credential absence and slash candidates wit
     '[ready │ credential missing: openai]',
   );
 
-  terminal.push('/h');
+  terminal.push('/');
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 9);
+  const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
+  assert(allCommandsFooter.includes('cmds:'));
+  assert(allCommandsFooter.includes('/rename'));
+  terminal.push('h');
   await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 2);
   assertEquals(controller.editor.text, '/h');
   assertEquals(controller.editor.cursorScalar, 2);
@@ -801,6 +875,98 @@ Deno.test('busy /provider waits for idle instead of steering the active turn', a
   settle?.();
   await waitFor(() => controller.currentState === 'idle');
   terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('busy /rename waits for idle and then renames without model submission', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let settle: (() => void) | undefined;
+  const steering: string[] = [];
+  const renamed: string[] = [];
+  const session: TuiSessionLike = {
+    submit: (task) =>
+      new Promise((resolve) => {
+        settle = () =>
+          resolve({
+            ok: true,
+            task,
+            outcome: 'final',
+            stopReason: 'final',
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      }),
+    steerActiveTurn: (text) => {
+      steering.push(text);
+      return 'accepted';
+    },
+  };
+  const navigation: TuiNavigationLike = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
+    renameCurrent: (title) => {
+      if (title.length === 0) return 'unchanged';
+      renamed.push(title);
+      return 'renamed';
+    },
+    switchTo: () => Promise.reject(new Error('not used')),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => ({
+      sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
+      agent: 'default',
+      committedTurn: 0,
+      messageCount: 0,
+    }),
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+    navigation,
+  });
+  const run = controller.run();
+  terminal.push('active task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('/rename Release notes\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'busy; /rename waits for ready');
+  assertEquals(steering, []);
+  assertEquals(renamed, []);
+  assertEquals(controller.editor.text, '/rename Release notes');
+
+  settle?.();
+  await waitFor(() => controller.currentState === 'idle');
+  terminal.push('\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'session renamed');
+  assertEquals(renamed, ['Release notes']);
+
+  terminal.push('/rename\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'session title unchanged');
+  assertEquals(renamed, ['Release notes']);
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('/rename is unavailable when Session persistence is disabled', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession(submitted),
+    { pending: new PendingInputCore() },
+  );
+  const run = controller.run();
+  terminal.push('/rename\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'session rename unavailable');
+  assertEquals(submitted, []);
+  terminal.push('\x04');
   assertEquals(await run, 0);
 });
 

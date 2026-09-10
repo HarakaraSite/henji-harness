@@ -368,7 +368,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
 
     const sessionId = first.session.sessionId;
     const record = await store.readWorker(sessionId);
-    assert(record.schemaVersion === 4);
+    assert(record.schemaVersion === 5);
     assertEquals(record.activeModel, ROOT_DEFAULT_MODEL_SELECTION);
     assertEquals(record.modelChanges.map((change) => change.selection), [
       ROOT_DEFAULT_MODEL_SELECTION,

@@ -21,6 +21,8 @@ export const presentationIntent = (
     }
   } else if (kind === 'resume_session') {
     boundedPresentationText(copy.id);
+  } else if (kind === 'rename_session') {
+    boundedPresentationText(copy.title);
   } else if (kind === 'select_provider') {
     if (copy.provider !== 'openrouter' && copy.provider !== 'openai') {
       throw new PresentationDeliveryError();

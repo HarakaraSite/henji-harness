@@ -95,6 +95,12 @@ const truncateCells = (text: string, columns: number): string => {
   }
   return result;
 };
+const ellipsisCells = (text: string, columns: number): string => {
+  if (width(text) <= columns) return text;
+  if (columns <= 0) return '';
+  if (columns === 1) return '…';
+  return `${truncateCells(text, columns - 1)}…`;
+};
 const suffixCells = (text: string, columns: number): string => {
   if (width(text) <= columns) return text;
   if (columns <= 0) return '';
@@ -189,6 +195,21 @@ const footerStatusText = (
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
   const primary = safeDisplay(status.primary, false);
+  const elapsed = state.lifecycle === 'busy' &&
+      state.busyElapsedSeconds !== undefined &&
+      (primary === 'busy' || primary === 'cancelling')
+    ? (() => {
+      const total = state.busyElapsedSeconds!;
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor(total % 3600 / 60);
+      const seconds = total % 60;
+      return hours > 0
+        ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    })()
+    : undefined;
+  const elapsedPrimary = elapsed === undefined ? primary : `${primary} ${elapsed}`;
+  const displayedPrimary = width(`[${elapsedPrimary}]`) <= columns ? elapsedPrimary : primary;
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
@@ -204,9 +225,9 @@ const footerStatusText = (
     : width(`[${historyFull}]`) <= columns
     ? historyFull
     : 'history · Esc latest';
-  const fixed: string[] = historyRequired === undefined ? [primary] : [historyRequired];
+  const fixed: string[] = historyRequired === undefined ? [displayedPrimary] : [historyRequired];
   const optional = [
-    ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: primary }]),
+    ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: displayedPrimary }]),
     ...(state.lifecycle === 'busy' ? [] : commandItem),
     ...(status.credential === undefined
       ? []
@@ -230,11 +251,26 @@ const footerStatusText = (
     segments.length > fixed.length &&
     width(renderSegments(segments)) > columns
   ) {
-    const commandIndex = cancelSegment === undefined && status.credential === undefined
-      ? -1
-      : optional.findIndex((segment) => segment.kind === 'commands');
-    if (commandIndex >= 0) optional.splice(commandIndex, 1);
-    else optional.pop();
+    const commandIndex = optional.findIndex((segment) => segment.kind === 'commands');
+    if (commandIndex >= 0) {
+      const withoutCommand = optional.filter((_, index) => index !== commandIndex);
+      const shell = renderSegments([
+        ...fixed,
+        ...withoutCommand.map((segment) => segment.text),
+        '',
+      ]);
+      const available = columns - width(shell);
+      if (available >= width('cmds: …')) {
+        optional[commandIndex] = {
+          kind: 'commands',
+          text: ellipsisCells(optional[commandIndex].text, available),
+        };
+      } else optional.splice(commandIndex, 1);
+    } else {
+      const nonCancel = optional.findLastIndex((segment) => segment.kind !== 'cancel');
+      if (nonCancel >= 0) optional.splice(nonCancel, 1);
+      else optional.pop();
+    }
     segments = [...fixed, ...optional.map((segment) => segment.text)];
   }
   const text = truncateCells(renderSegments(segments), Math.max(1, columns));
@@ -427,13 +463,19 @@ const overlayRows = (
       index += 1
     ) {
       const row = rows[start + index];
-      const model = row.modelSelection === undefined
-        ? 'legacy model'
-        : `${row.modelSelection.provider} ${row.modelSelection.modelId} effort:${row.modelSelection.effort}`;
+      const selected = start + index === overlay.selected;
+      const timestamp = `${row.updatedAt.slice(0, 16).replace('T', ' ')}Z`;
+      const title = row.title ?? 'untitled';
+      const availability = row.current ? 'current' : row.mismatch ? 'unavailable' : 'resumable';
       lines.push(
-        `${
-          start + index === overlay.selected ? '>' : ' '
-        } ${row.id} ${row.agent} t${row.turnCount}/m${row.messageCount} ${model}`,
+        truncateCells(
+          `${selected ? '>' : ' '} ${timestamp}  ${safeDisplay(title, false)}`,
+          columns,
+        ),
+        truncateCells(
+          `  ${row.id.slice(0, 8)} · ${row.turnCount} turns · ${availability}`,
+          columns,
+        ),
       );
     }
     if (rows.length === 0 && !overlay.loading) lines.push('no sessions');

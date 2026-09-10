@@ -4,6 +4,7 @@ import {
   CONTEXT_CHECKPOINT_SCHEMA_VERSION,
   type DefinitionRevisionRef,
   isSessionId,
+  isSessionTitle,
   MAX_CONTEXT_CHECKPOINT_FILE_BYTES,
   MAX_CONTEXT_SUMMARY_BYTES,
   MAX_RESTORED_DISPLAY_BYTES,
@@ -15,6 +16,7 @@ import {
   type SessionRecordV2,
   type SessionRecordV3,
   type SessionRecordV4,
+  type SessionRecordV5,
   SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionMetadata,
@@ -435,27 +437,49 @@ const sameSelection = (left: PersistedSelection, right: PersistedSelection): boo
 
 const validateModelSessionRecord = (
   value: unknown,
-  schemaVersion: 3 | 4,
+  schemaVersion: 3 | 4 | 5,
   validateSelection: (value: unknown) => value is PersistedSelection,
 ): boolean => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (
-    !ownKeys(record, [
-      'schemaVersion',
-      'sessionId',
-      'workspaceRoot',
-      'agent',
-      'createdAt',
-      'updatedAt',
-      'stateRevision',
-      'nextTurn',
-      'transcript',
-      'definition',
-      'activeModel',
-      'modelChanges',
-      'turnModels',
-    ]) || record.schemaVersion !== schemaVersion || !validateSelection(record.activeModel) ||
+    !ownKeys(
+      record,
+      schemaVersion === 5
+        ? [
+          'schemaVersion',
+          'sessionId',
+          'workspaceRoot',
+          'agent',
+          'createdAt',
+          'updatedAt',
+          'title',
+          'stateRevision',
+          'nextTurn',
+          'transcript',
+          'definition',
+          'activeModel',
+          'modelChanges',
+          'turnModels',
+        ]
+        : [
+          'schemaVersion',
+          'sessionId',
+          'workspaceRoot',
+          'agent',
+          'createdAt',
+          'updatedAt',
+          'stateRevision',
+          'nextTurn',
+          'transcript',
+          'definition',
+          'activeModel',
+          'modelChanges',
+          'turnModels',
+        ],
+    ) || record.schemaVersion !== schemaVersion ||
+    (schemaVersion === 5 && record.title !== null && !isSessionTitle(record.title)) ||
+    !validateSelection(record.activeModel) ||
     !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
     !Array.isArray(record.turnModels)
   ) return false;
@@ -528,6 +552,10 @@ export const validateSessionRecordV4 = (
   value: unknown,
 ): value is SessionRecordV4 => validateModelSessionRecord(value, 4, isStoredModelSelection);
 
+export const validateSessionRecordV5 = (
+  value: unknown,
+): value is SessionRecordV5 => validateModelSessionRecord(value, 5, isStoredModelSelection);
+
 export const encodeSessionRecordV3 = (record: SessionRecordV3): Uint8Array => {
   if (!validateSessionRecordV3(record)) throw new SessionStoreError('session_invalid');
   const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
@@ -580,6 +608,32 @@ export const decodeSessionRecordV4 = (bytes: Uint8Array): SessionRecordV4 => {
   return structuredClone(parsed);
 };
 
+export const encodeSessionRecordV5 = (record: SessionRecordV5): Uint8Array => {
+  if (!validateSessionRecordV5(record)) throw new SessionStoreError('session_invalid');
+  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
+  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
+  return bytes;
+};
+
+export const decodeSessionRecordV5 = (bytes: Uint8Array): SessionRecordV5 => {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (!validateSessionRecordV5(parsed)) throw new SessionStoreError('session_invalid');
+  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
+  if (
+    canonical.byteLength !== bytes.byteLength ||
+    canonical.some((byte, index) => byte !== bytes[index])
+  ) throw new SessionStoreError('session_invalid');
+  return structuredClone(parsed);
+};
+
 export const decodeStoredSessionRecord = (
   bytes: Uint8Array,
 ): StoredSessionRecord => {
@@ -600,6 +654,7 @@ export const decodeStoredSessionRecord = (
   if (version === 2) return decodeSessionRecordV2(bytes);
   if (version === 3) return decodeSessionRecordV3(bytes);
   if (version === 4) return decodeSessionRecordV4(bytes);
+  if (version === 5) return decodeSessionRecordV5(bytes);
   throw new SessionStoreError('session_invalid');
 };
 
@@ -754,6 +809,7 @@ export const metadataFromStoredRecord = (
       transcript: record.transcript,
     },
   ),
+  ...(record.schemaVersion === 5 && record.title !== null ? { title: record.title } : {}),
   ...(record.schemaVersion === 1 ? {} : { definition: structuredClone(record.definition) }),
   ...(record.schemaVersion === 3
     ? {
@@ -765,7 +821,7 @@ export const metadataFromStoredRecord = (
         effort: record.activeModel.effort,
       },
     }
-    : record.schemaVersion === 4
+    : record.schemaVersion === 4 || record.schemaVersion === 5
     ? { modelSelection: structuredClone(record.activeModel) }
     : {}),
 });

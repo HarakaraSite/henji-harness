@@ -23,6 +23,7 @@ import {
   type TuiSessionLike,
 } from './controller_contract.ts';
 import {
+  renameTitleOf,
   SLASH_COMMANDS,
   type SlashCommand,
   slashCommandCandidates,
@@ -44,6 +45,7 @@ export {
   type TuiSessionLike,
 } from './controller_contract.ts';
 export {
+  renameTitleOf,
   SLASH_COMMANDS,
   type SlashCommand,
   slashCommandCandidates,
@@ -213,6 +215,15 @@ export class TuiController {
           kind: 'listing',
           listing: { sessions: [], skippedInvalid: 0 },
         };
+      case 'rename_session': {
+        const status = this.navigation?.renameCurrent?.(intent.title) ?? 'unavailable';
+        return status === 'renamed' || status === 'unchanged'
+          ? { kind: 'session_title', status, title: intent.title }
+          : {
+            kind: 'rejected',
+            reason: status === 'busy' ? 'busy' : 'unavailable',
+          };
+      }
       case 'select_provider': {
         const current = this.session.modelSelectionSnapshot?.();
         return this.selectModelFallback(
@@ -549,9 +560,14 @@ export class TuiController {
           busy &&
           (slashCommand === 'history_export' || slashCommand === 'recover' ||
             slashCommand === 'provider' ||
-            slashCommand === 'model' || slashCommand === 'effort')
+            slashCommand === 'model' || slashCommand === 'effort' ||
+            slashCommand === 'rename')
         ) {
-          this.renderer.setStatus(`busy; ${this.editor.text.trim()} waits for ready`);
+          this.renderer.setStatus(
+            slashCommand === 'rename'
+              ? 'busy; /rename waits for ready'
+              : `busy; ${this.editor.text.trim()} waits for ready`,
+          );
         } else if (busy) this.submitSteeringIfNonblank();
         else if (!this.trySlashCommand()) this.submitIfNonblank();
         continue;
@@ -844,9 +860,14 @@ export class TuiController {
             slashCommandOf(this.editor.text) === 'recover' ||
             slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
-            slashCommandOf(this.editor.text) === 'effort'
+            slashCommandOf(this.editor.text) === 'effort' ||
+            slashCommandOf(this.editor.text) === 'rename'
           ) {
-            this.renderer.setStatus(`busy; ${this.editor.text.trim()} waits for ready`);
+            this.renderer.setStatus(
+              slashCommandOf(this.editor.text) === 'rename'
+                ? 'busy; /rename waits for ready'
+                : `busy; ${this.editor.text.trim()} waits for ready`,
+            );
           } else if (steeringAvailable) this.submitSteeringIfNonblank();
           else this.renderer.setStatus('steering unavailable');
           break;
@@ -873,6 +894,8 @@ export class TuiController {
           ? 'busy; /model waits for ready'
           : slashCommand === 'effort'
           ? 'busy; /effort waits for ready'
+          : slashCommand === 'rename'
+          ? 'busy; /rename waits for ready'
           : 'steering unavailable',
       );
     }
@@ -894,11 +917,13 @@ export class TuiController {
       return true;
     }
     const command: SlashCommand = parsed;
+    const renameTitle = command === 'rename' ? renameTitleOf(this.editor.text) : null;
     this.editor.clear();
     this.editorController.resetHistory();
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
     else if (command === 'sessions') this.openPicker();
+    else if (command === 'rename') this.renameSession(renameTitle ?? '');
     else if (command === 'provider') this.openProviderPicker();
     else if (command === 'model') this.openModelPicker();
     else if (command === 'effort') this.openEffortPicker();
@@ -908,6 +933,31 @@ export class TuiController {
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
     return true;
+  }
+
+  private renameSession(title: string): void {
+    let result: PresentationIntentResult | Promise<PresentationIntentResult>;
+    try {
+      result = this.dispatchIntent({ kind: 'rename_session', title });
+    } catch {
+      this.renderer.setStatus('session rename failed');
+      return;
+    }
+    const finish = (value: PresentationIntentResult): void => {
+      if (value.kind === 'session_title') {
+        this.renderer.setStatus(
+          value.status === 'renamed' ? 'session renamed' : 'session title unchanged',
+        );
+      } else if (value.kind === 'rejected') {
+        this.renderer.setStatus(
+          value.reason === 'busy' ? 'busy; /rename waits for ready' : 'session rename unavailable',
+        );
+      } else this.renderer.setStatus('session rename failed');
+    };
+    if (result instanceof Promise) {
+      this.renderer.setStatus('renaming session');
+      void result.then(finish, () => this.renderer.setStatus('session rename failed'));
+    } else finish(result);
   }
 
   /** Up/Down-edge input-history walk; plain cursor moves stay in editEvent. */

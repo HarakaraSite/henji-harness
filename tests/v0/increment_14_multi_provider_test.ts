@@ -407,7 +407,7 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     await first.close();
     first = undefined;
     const stored = await new DenoSessionStore(stateRoot, workspaceRoot).readWorker(sessionId);
-    assert(stored.schemaVersion === 4);
+    assert(stored.schemaVersion === 5);
     assertEquals(stored.activeModel, OPENAI_DEFAULT_MODEL_SELECTION);
 
     resumed = await createWorkerSession({
@@ -446,15 +446,16 @@ Deno.test('Increment 14 resumes a schema-v3 OpenRouter Session and upgrades on c
     session = undefined;
     const store = new DenoSessionStore(stateRoot, workspaceRoot);
     const current = await store.readWorker(sessionId);
-    assert(current.schemaVersion === 4);
+    assert(current.schemaVersion === 5);
     const legacySelection = (selection: typeof ROOT_DEFAULT_MODEL_SELECTION) => ({
       provider: 'openrouter' as const,
       modelId: selection.modelId,
       effort: selection.effort,
     });
     const handle = await store.openExistingWorker(sessionId);
+    const { title: _title, ...currentWithoutTitle } = current;
     handle.commit({
-      ...current,
+      ...currentWithoutTitle,
       schemaVersion: 3,
       activeModel: legacySelection(ROOT_DEFAULT_MODEL_SELECTION),
       modelChanges: current.modelChanges.map((change) => ({
@@ -477,7 +478,7 @@ Deno.test('Increment 14 resumes a schema-v3 OpenRouter Session and upgrades on c
     });
     assertEquals(session.session.modelSelectionSnapshot(), ROOT_DEFAULT_MODEL_SELECTION);
     assert((await session.session.submit('commit upgraded route')).ok);
-    assertEquals((await store.readWorker(sessionId)).schemaVersion, 4);
+    assertEquals((await store.readWorker(sessionId)).schemaVersion, 5);
   } finally {
     await session?.close();
     await Deno.remove(stateRoot, { recursive: true });

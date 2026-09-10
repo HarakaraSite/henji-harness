@@ -48,6 +48,9 @@ import { encoder, escapeTerminalText, truncateText } from './terminal_text.ts';
 export interface TuiRendererOptions {
   /** Host-local assistant body renderer; the default preserves exact plain text. */
   readonly assistantRenderer?: AssistantContentRenderer;
+  readonly now?: () => number;
+  readonly setInterval?: (callback: () => void, milliseconds: number) => unknown;
+  readonly clearInterval?: (id: unknown) => void;
 }
 
 const renderLayoutRow = (row: LayoutRow): string => {
@@ -88,12 +91,22 @@ export class TuiRenderer implements TerminalRendererGate {
   private lastTurn = 0;
   private ui = createUiState();
   private startupState: PresentationStartupState | undefined;
+  private readonly now: () => number;
+  private readonly scheduleInterval: (callback: () => void, milliseconds: number) => unknown;
+  private readonly cancelInterval: (id: unknown) => void;
+  private busyStartedAt: number | undefined;
+  private busyInterval: unknown;
 
   constructor(
     private readonly terminal: TerminalPort,
     options: TuiRendererOptions = {},
   ) {
     this.assistantRenderer = options.assistantRenderer ?? plainTextAssistantRenderer;
+    this.now = options.now ?? Date.now;
+    this.scheduleInterval = options.setInterval ??
+      ((callback, milliseconds) => globalThis.setInterval(callback, milliseconds));
+    this.cancelInterval = options.clearInterval ??
+      ((id) => globalThis.clearInterval(id as ReturnType<typeof globalThis.setInterval>));
   }
 
   get usesAlternateScreen(): boolean {
@@ -179,8 +192,31 @@ export class TuiRenderer implements TerminalRendererGate {
   }
 
   close(): void {
+    this.stopBusyElapsed();
     this.closing = true;
     this.followUpPending = false;
+  }
+
+  private startBusyElapsed(): void {
+    this.stopBusyElapsed();
+    this.busyStartedAt = this.now();
+    this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed', seconds: 0 });
+    this.busyInterval = this.scheduleInterval(() => {
+      if (this.closing || this.busyStartedAt === undefined) return;
+      const seconds = Math.max(0, Math.floor((this.now() - this.busyStartedAt) / 1000));
+      if (seconds === this.ui.busyElapsedSeconds) return;
+      this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed', seconds });
+      this.redraw();
+    }, 1000);
+  }
+
+  private stopBusyElapsed(): void {
+    if (this.busyInterval !== undefined) this.cancelInterval(this.busyInterval);
+    this.busyInterval = undefined;
+    this.busyStartedAt = undefined;
+    if (this.ui.busyElapsedSeconds !== undefined) {
+      this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed' });
+    }
   }
 
   /** Clear all replaceable live activity without adding a completed scrollback record. */
@@ -274,6 +310,7 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     switch (event.kind) {
       case 'turn_start':
+        this.startBusyElapsed();
         this.setStatus('busy');
         return;
       case 'user_message':
@@ -298,6 +335,7 @@ export class TuiRenderer implements TerminalRendererGate {
         this.setStatus('busy · steer applied');
         return;
       case 'turn_end':
+        this.stopBusyElapsed();
         this.setStatus(
           event.committed && this.followUpPending
             ? 'busy · starting follow-up'
@@ -307,6 +345,7 @@ export class TuiRenderer implements TerminalRendererGate {
         );
         return;
       case 'failure_diagnostic': {
+        this.stopBusyElapsed();
         this.redraw();
         return;
       }
@@ -315,8 +354,16 @@ export class TuiRenderer implements TerminalRendererGate {
       case 'history_page':
       case 'context_preview':
       case 'context_result':
+        this.redraw();
+        return;
       case 'lifecycle':
+        if (event.lifecycle !== 'busy') this.stopBusyElapsed();
+        this.redraw();
+        return;
       case 'warning':
+        if (event.code === 'fatal') this.stopBusyElapsed();
+        this.redraw();
+        return;
       case 'notice':
         this.redraw();
         return;

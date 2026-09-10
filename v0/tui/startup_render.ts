@@ -50,6 +50,7 @@ export const startupHelpLines = (
     '/model · search and select the root model',
     '/effort · select effort for the current root model',
     '/sessions · resume a saved session',
+    '/rename <title> · name the current saved session',
     '/history export · save committed history as Markdown',
     '/recover · restore recoverable input',
     '/exit · exit Henji',

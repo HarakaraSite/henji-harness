@@ -45,6 +45,7 @@ export interface TuiSessionLike {
 export interface TuiNavigationLike {
   readonly persistent: boolean;
   list(signal?: AbortSignal): Promise<PresentationNavigationListing>;
+  renameCurrent?(title: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable';
   switchTo(id: string, signal?: AbortSignal): Promise<{
     readonly session: TuiSessionLike;
     readonly position: PresentationPosition;

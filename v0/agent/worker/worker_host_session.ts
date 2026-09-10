@@ -7,13 +7,14 @@ import {
 } from '../session/session_history.ts';
 import {
   type DefinitionRevisionRef,
+  normalizeSessionTitle,
   type SemanticContextCheckpointV1,
   type SessionModelChange,
   type SessionRecord,
-  type SessionRecordV4,
+  type SessionRecordV5,
   type SessionTurnModelAttribution,
   validateSemanticContextCheckpoint,
-  validateSessionRecordV4,
+  validateSessionRecordV5,
 } from '../session/session_store.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
@@ -113,6 +114,7 @@ export class WorkerHostSession {
   private modelSelection: ModelSelection;
   private modelChanges: SessionModelChange[];
   private turnModels: SessionTurnModelAttribution[];
+  private title: string | null;
   private legacyModelNotice = false;
   private credentialAvailability: CredentialAvailability | undefined;
 
@@ -140,12 +142,12 @@ export class WorkerHostSession {
       (options.agent === 'planner'
         ? PLANNER_DEFAULT_MODEL_SELECTION
         : ROOT_DEFAULT_MODEL_SELECTION);
-    this.modelSelection = record?.schemaVersion === 4
+    this.modelSelection = record?.schemaVersion === 4 || record?.schemaVersion === 5
       ? structuredClone(record.activeModel)
       : record?.schemaVersion === 3
       ? upgradeOpenRouterSelection(record.activeModel)
       : structuredClone(defaultSelection);
-    this.modelChanges = record?.schemaVersion === 4
+    this.modelChanges = record?.schemaVersion === 4 || record?.schemaVersion === 5
       ? structuredClone(record.modelChanges) as SessionModelChange[]
       : record?.schemaVersion === 3
       ? record.modelChanges.map((change) => ({
@@ -157,7 +159,7 @@ export class WorkerHostSession {
         changedAt: new Date().toISOString(),
         selection: structuredClone(this.modelSelection),
       }];
-    this.turnModels = record?.schemaVersion === 4
+    this.turnModels = record?.schemaVersion === 4 || record?.schemaVersion === 5
       ? structuredClone(record.turnModels) as SessionTurnModelAttribution[]
       : record?.schemaVersion === 3
       ? record.turnModels.map((attribution) => ({
@@ -165,7 +167,8 @@ export class WorkerHostSession {
         selection: upgradeOpenRouterSelection(attribution.selection),
       }))
       : [];
-    this.legacyModelNotice = record !== undefined && record.schemaVersion !== 4;
+    this.title = record?.schemaVersion === 5 ? record.title : null;
+    this.legacyModelNotice = record !== undefined && record.schemaVersion < 4;
     this.checkpoint = options.handle.checkpoint === undefined
       ? undefined
       : structuredClone(options.handle.checkpoint);
@@ -598,15 +601,16 @@ export class WorkerHostSession {
 
   private proposalRecord(
     proposal: WorkerCommitProposalMessage,
-  ): SessionRecordV4 | undefined {
-    const record: SessionRecordV4 = {
-      schemaVersion: 4,
+  ): SessionRecordV5 | undefined {
+    const record: SessionRecordV5 = {
+      schemaVersion: 5,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
       createdAt: this.options.handle.record?.createdAt ??
         new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      title: this.title,
       stateRevision: this.stateRevision + 1,
       nextTurn: proposal.nextTurn,
       transcript: structuredClone(proposal.transcript),
@@ -621,7 +625,7 @@ export class WorkerHostSession {
         },
       ],
     };
-    return validateSessionRecordV4(record) ? record : undefined;
+    return validateSessionRecordV5(record) ? record : undefined;
   }
 
   async selectModel(
@@ -642,13 +646,14 @@ export class WorkerHostSession {
     ];
     const existing = this.options.handle.record;
     const nextRevision = this.stateRevision + 1;
-    const persisted: SessionRecordV4 = {
-      schemaVersion: 4,
+    const persisted: SessionRecordV5 = {
+      schemaVersion: 5,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
       createdAt: existing?.createdAt ?? changedAt,
       updatedAt: changedAt,
+      title: this.title,
       stateRevision: nextRevision,
       nextTurn: this.nextTurn,
       transcript: structuredClone(this.transcript),
@@ -657,7 +662,7 @@ export class WorkerHostSession {
       modelChanges: nextChanges,
       turnModels: structuredClone(this.turnModels),
     };
-    if (!validateSessionRecordV4(persisted)) throw new Error('model selection record invalid');
+    if (!validateSessionRecordV5(persisted)) throw new Error('model selection record invalid');
     this.options.handle.commit(persisted);
     const correlation: WorkerCorrelation = {
       ...this.correlation('select-model-' + crypto.randomUUID().toLowerCase()),
@@ -696,6 +701,39 @@ export class WorkerHostSession {
     } finally {
       this.currentCorrelation = undefined;
     }
+  }
+
+  renameTitle(
+    value: string,
+  ): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
+    if (this.closed || this.unavailable) return 'unavailable';
+    if (this.active || this.currentCorrelation !== undefined) return 'busy';
+    const title = normalizeSessionTitle(value);
+    if (title.length === 0 || title === this.title) return 'unchanged';
+    const changedAt = new Date().toISOString();
+    const existing = this.options.handle.record;
+    const nextRevision = this.stateRevision + 1;
+    const persisted: SessionRecordV5 = {
+      schemaVersion: 5,
+      sessionId: this.sessionId,
+      workspaceRoot: this.options.workspaceRoot,
+      agent: this.options.agent,
+      createdAt: existing?.createdAt ?? changedAt,
+      updatedAt: changedAt,
+      title,
+      stateRevision: nextRevision,
+      nextTurn: this.nextTurn,
+      transcript: structuredClone(this.transcript),
+      definition: structuredClone(this.options.definition),
+      activeModel: structuredClone(this.modelSelection),
+      modelChanges: structuredClone(this.modelChanges),
+      turnModels: structuredClone(this.turnModels),
+    };
+    if (!validateSessionRecordV5(persisted)) throw new Error('session title record invalid');
+    this.options.handle.commit(persisted);
+    this.title = title;
+    this.stateRevision = nextRevision;
+    return 'renamed';
   }
 
   async submit(task: string): Promise<LoopOutcome> {

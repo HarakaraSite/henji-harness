@@ -213,6 +213,7 @@ export interface PresentationNavigationRow {
   readonly agent: PresentationAgentId;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly title?: string;
   readonly turnCount: number;
   readonly messageCount: number;
   readonly current: boolean;
@@ -274,6 +275,7 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'cancel_active' }>
   | Readonly<{ readonly kind: 'exit'; readonly code: 0 | 129 | 143 }>
   | Readonly<{ readonly kind: 'list_sessions' }>
+  | Readonly<{ readonly kind: 'rename_session'; readonly title: string }>
   | Readonly<{ readonly kind: 'resume_session'; readonly id: string }>
   | Readonly<{
     readonly kind: 'select_provider';
@@ -335,6 +337,11 @@ export type PresentationIntentResult =
     readonly kind: 'model_selection';
     readonly status: 'selected' | 'unchanged';
     readonly selection: PresentationModelSelection;
+  }>
+  | Readonly<{
+    readonly kind: 'session_title';
+    readonly status: 'renamed' | 'unchanged';
+    readonly title: string;
   }>
   | Readonly<
     { readonly kind: 'history'; readonly page?: PresentationHistoryPage }

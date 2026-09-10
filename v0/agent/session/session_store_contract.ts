@@ -10,6 +10,17 @@ export const MAX_RESTORED_DISPLAY_MESSAGES = 100;
 export const MAX_RESTORED_DISPLAY_BYTES = 2 * 1024 * 1024;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+export const normalizeSessionTitle = (value: string): string =>
+  value.replaceAll('\r\n', ' ').replaceAll('\r', ' ').replaceAll('\n', ' ').trim();
+
+export const isSessionTitle = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.trim() === value &&
+  !value.includes('\0') && !/[\r\n]/.test(value) &&
+  ![...value].some((character) => {
+    const code = character.codePointAt(0)!;
+    return code >= 0xd800 && code <= 0xdfff;
+  });
+
 export interface SessionRecord {
   readonly schemaVersion: 1;
   readonly sessionId: string;
@@ -107,11 +118,30 @@ export interface SessionRecordV4 {
   readonly turnModels: readonly SessionTurnModelAttribution[];
 }
 
+/** Worker-backed record with an optional human-authored Session title. */
+export interface SessionRecordV5 {
+  readonly schemaVersion: 5;
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agent: 'default' | 'planner';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly title: string | null;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly transcript: readonly Message[];
+  readonly definition: DefinitionRevisionRef;
+  readonly activeModel: ModelSelection;
+  readonly modelChanges: readonly SessionModelChange[];
+  readonly turnModels: readonly SessionTurnModelAttribution[];
+}
+
 export type StoredSessionRecord =
   | SessionRecord
   | SessionRecordV2
   | SessionRecordV3
-  | SessionRecordV4;
+  | SessionRecordV4
+  | SessionRecordV5;
 
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {
@@ -133,6 +163,7 @@ export interface SessionMetadata {
   readonly agent: SessionRecord['agent'];
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly title?: string;
   readonly turnCount: number;
   readonly messageCount: number;
   readonly modelSelection?: ModelSelection;

@@ -53,6 +53,7 @@ export interface AdapterSessionPort {
 export interface AdapterNavigationPort {
   readonly persistent: boolean;
   list(signal?: AbortSignal): Promise<PresentationNavigationListing>;
+  renameCurrent?(title: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable';
   switchTo(id: string, signal?: AbortSignal): Promise<{
     readonly session: AdapterSessionPort;
     readonly position: PresentationPosition;

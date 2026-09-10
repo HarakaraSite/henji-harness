@@ -9,9 +9,10 @@ WorkerがDefinitionを合成・実行する。
 Production TUIでは、idle時の`/provider`でOpenRouterとOpenAI directを切り替え、`/model`でactive
 providerのcurated modelを検索・選択し、`/effort`でreasoning effortを別に変更できる。provider変更はその
 providerのdefault model/effortを一度に適用し、各選択は同じSessionの次のroot turnから有効になる。`/sessions`は
-provider/model/effortを表示し、Sessionと一緒に復元する。delegated plannerはrootの選択を継承せず、planner
-defaultを使う。footerは1段目へ一時的なstatus、2段目へcwd、Session短縮ID、現在のroot
-provider/model/effortを常時表示する。
+更新日時、手動title、短縮Session ID、turn数を表示し、`/rename <title>`でcurrent Sessionへtitleを付けられる。
+provider/model/effortは一覧には表示しないがSessionと一緒に復元する。delegated plannerはrootの選択を継承せず、
+planner defaultを使う。footerは1段目へbusy開始からの経過時間を含む一時的なstatus、2段目へcwd、Session短縮ID、
+現在のroot provider/model/effortを常時表示する。
 
 root providerは既定のOpenRouterに加え、起動時に`henji --root-provider openai`でOpenAI direct
 Responses APIを選べる。OpenAI Platform API keyは

@@ -514,6 +514,7 @@ export const main = async (
               }
               return { sessions: rows, skippedInvalid: listed.skippedInvalid };
             },
+            renameCurrent: () => 'unavailable',
             async switchTo(
               id: string,
               signal?: AbortSignal,

@@ -1,6 +1,7 @@
 export type SlashCommand =
   | 'help'
   | 'sessions'
+  | 'rename'
   | 'provider'
   | 'model'
   | 'effort'
@@ -16,6 +17,7 @@ export interface SlashCommandDefinition {
 export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
   Object.freeze({ text: '/help', command: 'help' }),
   Object.freeze({ text: '/sessions', command: 'sessions' }),
+  Object.freeze({ text: '/rename', command: 'rename' }),
   Object.freeze({ text: '/provider', command: 'provider' }),
   Object.freeze({ text: '/model', command: 'model' }),
   Object.freeze({ text: '/effort', command: 'effort' }),
@@ -39,5 +41,15 @@ export const slashCommandOf = (
 ): SlashCommand | 'unknown' | null => {
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
+  if (/^\/rename(?:\s|$)/u.test(trimmed)) return 'rename';
   return SLASH_COMMANDS.find((definition) => definition.text === trimmed)?.command ?? 'unknown';
+};
+
+export const renameTitleOf = (text: string): string | null => {
+  const trimmed = text.trim();
+  if (!/^\/rename(?:\s|$)/u.test(trimmed)) return null;
+  return trimmed.slice('/rename'.length).replaceAll('\r\n', ' ')
+    .replaceAll('\r', ' ')
+    .replaceAll('\n', ' ')
+    .trim();
 };

@@ -19,26 +19,10 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 ### Surface
 
-#### Surface: Session一覧の識別情報（低優先度、F01、F05、F10）
-
-- 保存済みSessionに、人間が一覧で内容を識別できるtitleを持たせたい。
-- default titleは、最初のturnの内容をもとにAIが自動で付ける。
-- 自動生成後も、人間がtitleを変更できるようにする。
-- Session一覧には最終turn等の日時も表示したい。ただし、現行の1行表示には十分な幅がない。
-- 自動生成の実行時点、利用model、再生成の扱い、変更用UIと、日時を含む識別情報の表示方法は、
-  個別incrementへ採用するときに決める。
-
 #### Surface: slash command候補の選択・補完（低優先度、F01、F10）
 
 - 表示中のslash command候補を選択し、現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
-
-#### Surface: busy中の経過時間表示（F01、F10）
-
-- 長いprovider生成やtool loopを人間が判断できるよう、フッター1行目の`busy`表示の直後へtask開始後の経過時間を
-  表示したい。
-- 表示形式、更新間隔、task受付・provider request・tool実行のどこを起点とするかは、個別incrementへ採用するときに
-  決める。
 
 #### Surface: Henji内credential登録（F01、F02、F10）
 
@@ -142,13 +126,51 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
 
-#### Agent実行: Qwen xhighの長時間調査（利用者所感、対応候補ではない）
+#### Agent実行: context圧縮による取得済みtool結果の早期省略（F02、F06）
 
-- Session `c41865cf`のForgejo API概要調査は完遂したが、約9分6秒、24 root model requests、5 web searches、
-  33 tool callsを要した。成功runのprovider responseは全29件がHTTP 200で、root modelのraw responseは約1.84 MB、
-  4,813 SSE eventsだったため、provider failureよりQwen `xhigh`の長い推論と調査反復が時間の中心だった。
-- 利用者所感として、これはQwenのmodel特性である可能性があり、利用時に気をつける。modelごとに個別対応すると
-  際限がないため、この観測をmodel固有のinstruction、step・tool上限、effort既定値等のproduct対応候補にはしない。
+観測:
+
+- provider-neutral context圧縮は、実tokenizerではなくserialized JSONのUTF-8 byte数を使い、65,536 bytesで開始して
+  49,152 bytesを目標に、最新ToolMessageより前のtool resultを
+  `[older tool result omitted for context]`へ置換する。この閾値は旧76 KiB message上限を前提に導入されたが、
+  現行のprovider上限がmessages 5 MiB／request 6 MiBへ拡張された後も変わっていない。
+- 2026-09-10のDeepSeekによるForgejo API概要調査では、step 4から圧縮が始まり、最大34件のtool resultが省略された。
+  modelは省略をreasoning内で認識し、`docs/FORGEJO_API_RESEARCH.md`を11回、`README.md`を4回読み直した。
+  31回目のroot request中に利用者がcancelし、root 31件と`web_search` backend 11件の計42 provider requests、
+  35 tool callsで終了した。provider evidenceは`580408a3-8dcb-4fda-9d87-1f28635e5afe`である。
+- 同workspaceの保存済みprovider evidence 66件中19件で省略markerを確認した。8件には同一引数のtool call重複があり、
+  6件ではmodelがreasoning内で省略を明示していたため、過去の調査反復にも同じ圧縮が関与したと判断できる。
+- Session `c41865cf`のQwen `xhigh`による長時間調査は、24 root model requests、5 web searches、33 tool callsという
+  件数がevidence `12acfbf4-2936-4a97-89da-3a3d6f9039b7`と一致する。このrunもstep 5から圧縮され、最大32件の
+  tool resultが省略されていたため、従来の「model特性」という評価だけでは説明できない。
+- 上記DeepSeek runのcancelは別に`cancellation_cleanup`／`cleanup_error`となった。現行diagnosticはcleanup内部の
+  exceptionを保存しないため、body readerのどのcleanup操作が失敗したかは未確認である。
+
+未採用候補:
+
+- context圧縮全体を再設計するまで、64 KiBで行うtool-resultの機械的な自動省略だけを一時的に外す。現行の
+  messages 5 MiB／request 6 MiBのprovider送信上限は維持し、到達時は結果を黙って省略せず明示的なfailureとする。
+- 将来の圧縮方式は、実token usage、provider/modelのcontext契約、`reasoning_details`とtool resultの因果関係、
+  turn途中とturn間のsemantic checkpointを分けて検討する。この記録だけでは採用または実装を意味しない。
+
+#### Agent実行: canonical transcriptの物理的な保持方式（F02、F05、F06）
+
+現行確認:
+
+- commit済みの完全なcanonical transcriptをSessionの正本として保持し、semantic checkpointをprovider向けの
+  派生投影として分離する性質は、履歴閲覧、再投影、診断、rollbackのために維持したい。
+- 現行実装は完全な`committedTranscript`を常時RAMへ展開し、turn開始やmodel requestの構築時に全体の
+  `structuredClone`、走査、serializationを行う。またturn commitでは完全な`session.json`をatomic rewriteする。
+  Sessionが長くなるほど、providerへ送る投影後contextとは別に、local CPU、memory、GC、disk I/Oの負担が増える。
+- この負担は完全履歴を正本として残すことの必然ではなく、正本の論理的な所有と物理的なmaterializationを
+  現在は同じ構造で実装していることによる。現時点では体感性能への影響を実測していない。
+
+未採用候補:
+
+- canonical transcriptの完全性を変えず、永続層をappend-onlyな完全履歴、RAM上のactive stateを履歴index、
+  semantic checkpoint以降のsuffix、current draftへ分けることを検討する。
+- history表示のpaged read、turn単位のincremental commit、provider requestを投影済みcontextから直接構築する方式を
+  比較し、完全履歴をmodel requestごとにclone・走査しない構成を将来incrementで検討する。
 
 #### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
 

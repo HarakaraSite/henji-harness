@@ -428,6 +428,15 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
               listing: listing(value),
             }),
           );
+      case 'rename_session': {
+        const status = this.coreNavigation?.renameCurrent(admitted.title) ?? 'unavailable';
+        return status === 'renamed' || status === 'unchanged'
+          ? { kind: 'session_title', status, title: admitted.title }
+          : {
+            kind: 'rejected',
+            reason: status === 'busy' ? 'busy' : 'unavailable',
+          };
+      }
       case 'resume_session':
         return this.dispatchResume(admitted.id);
       case 'select_provider': {
@@ -585,6 +594,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     return {
       persistent: navigation.persistent,
       list: async (signal) => listing(await navigation.list(signal)),
+      renameCurrent: (title) => navigation.renameCurrent(title),
       switchTo: async (id, signal) => {
         const binding: NavigationBinding = await navigation.switchTo(
           id,
