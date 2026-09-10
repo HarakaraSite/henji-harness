@@ -2,9 +2,13 @@
 
 ## Records
 
-### 次Incrementの候補選定
+### Increment 19 busy activity indicator
 
-- 状態: 通常利用メモの未採用候補を比較し、次の小規模対応として`read`分割範囲のtool表示を推奨した。request時点の予定範囲を短く表示し、settled後も維持する案であり、まだIncrement 18への採用・計画作成・実装は行っていない。
-- 次: 利用者がこの候補をIncrement 18として採用するか確認する。
-- 正本: `docs/experience/normal-use-inbox.md`
-- 注意: 現行案は、`offset`・`limit`がある場合だけ`lines 1–200`や`lines 201+`のように表示し、tool引数全体やfile内容の表示には広げない。リポジトリ内には利用者所有の未追跡`_refs/*`があり、変更対象にしない。
+- 状態: Increment 19のlocal実装と検証が完了した。production retained footerはbusy/cancelling primary
+  statusだけをblinkし、busy中に通常styleの`Esc cancel`を表示する。authoritative `v0:gate`は一回で全130
+  testを通過した。
+- 次: 利用者がproduction retained TUIで通常taskを実行し、busy/cancellingの点滅とsettlement後の通常表示を
+  目視確認してIncrement 19の完了可否を判断する。
+- 正本: `docs/increments/increment-19.md`
+- 注意: local source/testへ追加変更する承認は残っていない。実際の点滅はterminal設定にも依存する。
+  構想・architecture・roadmapは個別の事前承認なしに変更しない。利用者所有の未追跡`_refs/*`は変更していない。

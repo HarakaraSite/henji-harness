@@ -9,8 +9,10 @@ import {
   type PresentationStartupState,
 } from '../../v0/presentation/contract.ts';
 import {
+  BLINK_SGR,
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
+  RESET_SGR,
   TerminalLifecycle,
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
@@ -216,6 +218,69 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
       .length,
     1,
   );
+});
+
+Deno.test('retained busy footer blinks only its primary status and shows cancel help', () => {
+  const terminal = new RecordingTerminal();
+  const renderer = new TuiRenderer(terminal, { retained: true });
+
+  renderer.eventSink({ kind: 'turn_start', turn: 1 });
+  let layout = renderer.layoutSnapshot(80, 24);
+  assertEquals(layout.footer[0].text, '[busy · Esc cancel]');
+  assert(!layout.footer[0].text.includes('\x1b'));
+  assertEquals(layout.footer[0].blinkScalarStart, 1);
+  assertEquals(layout.footer[0].blinkScalarLength, 4);
+  assert(
+    renderer.renderFrame(80, 24).includes(
+      `[${BLINK_SGR}busy${RESET_SGR} · Esc cancel]`,
+    ),
+  );
+
+  renderer.setStatus('busy · steer applied');
+  assert(
+    renderer.renderFrame(80, 24).includes(
+      `[${BLINK_SGR}busy${RESET_SGR} · steer applied · Esc cancel]`,
+    ),
+  );
+  renderer.setStatus('busy; /provider waits for ready');
+  assert(
+    renderer.renderFrame(80, 24).includes(
+      `[${BLINK_SGR}busy${RESET_SGR} · /provider waits for ready · Esc cancel]`,
+    ),
+  );
+
+  renderer.setStatus('cancelling context compaction');
+  assert(
+    renderer.renderFrame(80, 24).includes(
+      `[${BLINK_SGR}cancelling${RESET_SGR} · context compaction · Esc cancel]`,
+    ),
+  );
+  layout = renderer.layoutSnapshot(12, 24);
+  assertEquals(layout.footer[0].text, '[cancelling]');
+  assertEquals(layout.footer[0].blinkScalarStart, 1);
+  assertEquals(layout.footer[0].blinkScalarLength, 10);
+
+  renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+  layout = renderer.layoutSnapshot(80, 24);
+  assertEquals(layout.footer[0].text, '[ready]');
+  assertEquals(layout.footer[0].blinkScalarStart, undefined);
+  assertEquals(layout.footer[0].blinkScalarLength, undefined);
+  assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
+
+  renderer.eventSink({ kind: 'turn_start', turn: 2 });
+  renderer.eventSink({
+    kind: 'turn_end',
+    turn: 2,
+    outcome: 'contract_failure',
+    committed: false,
+  });
+  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[contract_failure]');
+  assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
+
+  const directTerminal = new RecordingTerminal();
+  const direct = new TuiRenderer(directTerminal);
+  direct.eventSink({ kind: 'turn_start', turn: 1 });
+  assert(directTerminal.writes.every((write) => !write.includes(BLINK_SGR)));
 });
 
 Deno.test('retained footer omits editor bytes while keeping pending and recovery lanes', () => {

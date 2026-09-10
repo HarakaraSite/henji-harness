@@ -382,7 +382,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
       kind: 'tool_call',
       callId: 'read-1',
       name: 'read',
-      arguments: { path: 'README.md' },
+      arguments: { path: 'README.md', limit: 200 },
     },
   });
   state = reduceUiEvent(state, {
@@ -445,7 +445,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   assertEquals(layout.allLog.map((row) => row.text), [
     'user> first',
     '',
-    'tool> read README.md ✓',
+    'tool> read README.md lines 1–200 ✓',
     'tool> bash git status --short ✓',
     'assistant> first answer',
     '',
@@ -472,7 +472,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
             kind: 'tool_call',
             callId: 'read-1',
             name: 'read',
-            arguments: { path: 'README.md' },
+            arguments: { path: 'README.md', limit: 200 },
           },
           {
             kind: 'tool_call',
@@ -510,7 +510,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   assertEquals(layoutUi(restored, 80, 24).allLog.map((row) => row.text), [
     'user> first',
     '',
-    'tool> read README.md ✓',
+    'tool> read README.md lines 1–200 ✓',
     'tool> bash git status --short ✓',
     'assistant> first answer',
   ]);

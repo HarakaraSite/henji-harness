@@ -14,6 +14,7 @@ import {
   type PresentationStartupState,
 } from '../presentation/contract.ts';
 import {
+  BLINK_SGR,
   BLUE_SGR,
   DEFAULT_CURSOR_STYLE,
   ERASE_LINE,
@@ -68,6 +69,17 @@ export interface TuiRendererOptions {
 }
 
 const renderLayoutRow = (row: LayoutRow): string => {
+  if (
+    row.blinkScalarStart !== undefined && row.blinkScalarLength !== undefined &&
+    row.blinkScalarLength > 0
+  ) {
+    const points = [...row.text];
+    const start = Math.max(0, Math.min(points.length, row.blinkScalarStart));
+    const end = Math.max(start, Math.min(points.length, start + row.blinkScalarLength));
+    return `${points.slice(0, start).join('')}${BLINK_SGR}${
+      points.slice(start, end).join('')
+    }${RESET_SGR}${points.slice(end).join('')}`;
+  }
   if (
     row.labelTone === undefined || row.labelScalarLength === undefined ||
     row.labelScalarLength <= 0
@@ -161,7 +173,7 @@ export class TuiRenderer implements TerminalRendererGate {
       ...layout.beforeInput.map((line) => line.text),
       ...layout.input.map((line) => `> ${line.text}`),
       ...layout.afterInput.map((line) => line.text),
-      ...layout.footer.map((line) => line.text),
+      ...layout.footer.map(renderLayoutRow),
     ];
     const fixedFrame = fixed.join('\n');
     if (encoder.encode(fixedFrame).byteLength > frameBudget) {

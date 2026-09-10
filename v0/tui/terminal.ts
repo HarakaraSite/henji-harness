@@ -28,6 +28,7 @@ export const ENTER_ALTERNATE_SCREEN = '\x1b[?1049h';
 export const EXIT_ALTERNATE_SCREEN = '\x1b[?1049l';
 export const ERASE_LINE = '\x1b[2K';
 export const RESET_SGR = '\x1b[0m';
+export const BLINK_SGR = '\x1b[5m';
 export const BLUE_SGR = '\x1b[34m';
 export const YELLOW_SGR = '\x1b[33m';
 export const GREEN_SGR = '\x1b[32m';

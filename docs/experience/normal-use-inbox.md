@@ -34,15 +34,6 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 - 可能なら、選択した候補を現在の入力bufferへ補完できるようにする。
 - 候補の選択key、補完を確定するkey、引数を持つcommandの扱いは、個別incrementへ採用するときに決める。
 
-#### Surface: `read`分割範囲のtool表示（低優先度、F01、F10）
-
-通常利用で254行のREADMEを1–200行、201–254行に分けて正しく読んだが、TUIは両方を
-`tool> read README.md`とだけ表示したため、同じ内容を二重に読んだように見えた。
-
-- `read` activityへrequestの`offset`・`limit`、または人間向けの行範囲を短く表示する。
-- settled後に実際の最終行まで表示するか、request時点の予定範囲だけにするかは、個別increment採用時に決める。
-- tool argument全体やfile内容を常時表示する変更には広げない。
-
 #### Surface: provider認証statusとHenji内credential登録（F01、F02、F10）
 
 通常利用での観測と要望:

@@ -21,6 +21,8 @@ export interface LayoutRow {
   readonly sourceScalarOffset?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
+  readonly blinkScalarStart?: number;
+  readonly blinkScalarLength?: number;
   readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
 }
 
@@ -139,10 +141,19 @@ const footerStatusParts = (
     part === 'fatal' || part.startsWith('fatal ')
   );
   const index = primaryIndex >= 0 ? primaryIndex : 0;
+  const segment = parts[index] ?? status;
+  const activePrimary = ['busy', 'cancelling'].find((candidate) =>
+    segment === candidate || segment.startsWith(`${candidate} `) ||
+    segment.startsWith(`${candidate};`)
+  );
+  if (activePrimary !== undefined) {
+    const inlineDetails = segment.slice(activePrimary.length).replace(/^[ ;]+/, '');
+    const details = [inlineDetails, ...parts.slice(index + 1)].filter((part) => part.length > 0)
+      .join(' · ');
+    return details.length === 0 ? { primary: activePrimary } : { primary: activePrimary, details };
+  }
   const details = parts.slice(index + 1).join(' · ');
-  return details.length === 0
-    ? { primary: parts[index] ?? status }
-    : { primary: parts[index] ?? status, details };
+  return details.length === 0 ? { primary: segment } : { primary: segment, details };
 };
 
 interface HistoryViewport {
@@ -155,7 +166,11 @@ const footerStatusText = (
   state: UiState,
   columns: number,
   history?: HistoryViewport,
-): string => {
+): Readonly<{
+  readonly text: string;
+  readonly blinkScalarStart?: number;
+  readonly blinkScalarLength?: number;
+}> => {
   // The editor draft is already visible in the input band. Keep active/recovery lanes available
   // in the footer, but do not repeat its byte count as internal status in the normal footer.
   const pending = state.pending?.lanes.filter((lane) => lane.present && lane.kind !== 'editor') ??
@@ -166,6 +181,7 @@ const footerStatusText = (
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
   const primary = safeDisplay(status.primary, false);
+  const cancelSegment = state.lifecycle === 'busy' ? 'Esc cancel' : undefined;
   const historyFull = history === undefined
     ? undefined
     : `history rows ${history.first}-${history.last}/${history.total} · Esc latest`;
@@ -180,6 +196,7 @@ const footerStatusText = (
     status.details,
     pendingSegment,
     belowSegment,
+    cancelSegment,
   ]
     .filter(
       (segment): segment is string => segment !== undefined && segment.length > 0,
@@ -191,7 +208,17 @@ const footerStatusText = (
   ) {
     segments.pop();
   }
-  return truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
+  const text = truncateCells(`[${segments.join(' · ')}]`, Math.max(1, columns));
+  const blinkToken = state.lifecycle === 'busy' &&
+      (primary === 'busy' || primary === 'cancelling')
+    ? primary
+    : undefined;
+  const blinkOffset = blinkToken === undefined ? -1 : text.indexOf(blinkToken);
+  return blinkOffset < 0 || blinkToken === undefined ? { text } : {
+    text,
+    blinkScalarStart: [...text.slice(0, blinkOffset)].length,
+    blinkScalarLength: [...blinkToken].length,
+  };
 };
 
 const footerIdentityText = (
@@ -537,9 +564,10 @@ export const layoutUi = (
       total: log.rows.length,
     }
     : undefined;
+  const statusFooter = footerStatusText(state, Math.max(1, widthLimit), history);
   const footer = [
     {
-      text: footerStatusText(state, Math.max(1, widthLimit), history),
+      ...statusFooter,
       kind: 'footer' as const,
     },
     ...(identityFooter === undefined ? [] : [{ text: identityFooter, kind: 'footer' as const }]),

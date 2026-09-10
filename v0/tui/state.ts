@@ -10,27 +10,13 @@ import {
 } from '../presentation/contract.ts';
 import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
+import { toolActivityPreview } from './tool_activity.ts';
 
 export const UI_MAX_LOG_ENTRIES = 512;
 export const UI_MAX_LOG_BYTES = 2 * 1024 * 1024;
 export const UI_MAX_ENTRY_BYTES = 1024 * 1024;
 export const UI_MAX_NEW_BELOW = 512;
 const UI_MAX_TOOL_NAME_BYTES = 64;
-const UI_MAX_TOOL_PREVIEW_BYTES = 96;
-
-/** Single-line head preview for bash/read/write/edit; raw JSON and full text stay out of the log. */
-const toolPreview = (name: string, args: unknown): string => {
-  if (name !== 'bash' && name !== 'read' && name !== 'write' && name !== 'edit') return '';
-  if (typeof args !== 'object' || args === null || Array.isArray(args)) return '';
-  const raw = name === 'bash'
-    ? (args as Record<string, unknown>)['command']
-    : (args as Record<string, unknown>)['path'];
-  if (typeof raw !== 'string') return '';
-  const head = raw.split('\n', 1)[0]?.trim() ?? '';
-  if (head.length === 0) return '';
-  const bounded = safeTextToBytes(head, UI_MAX_TOOL_PREVIEW_BYTES);
-  return bytes(bounded) < bytes(head) ? `${bounded}…` : bounded;
-};
 
 export type UiLogKind =
   | 'user'
@@ -437,7 +423,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     }
     case 'tool_call': {
       const id = `turn-${event.turn}:tool:${event.call.callId}`;
-      const preview = toolPreview(event.call.name, event.call.arguments);
+      const preview = toolActivityPreview(event.call.name, event.call.arguments);
       const next = state.log.entries.some((entry) => entry.id === id) ? state : appendEntry(state, {
         id,
         kind: 'tool',

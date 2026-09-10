@@ -1,5 +1,6 @@
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import { slashCommandOf } from '../../v0/tui/controller.ts';
+import { toolCallText } from '../../v0/tui/terminal_text.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -56,12 +57,16 @@ Deno.test('tool preview keeps only the head line for multiline commands', () => 
   assert(!state.log.entries[0].text.includes('echo two'));
 });
 
-Deno.test('tool preview persists across progress updates', () => {
+Deno.test('read range preview persists across progress and result updates', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
     turn: 1,
-    call: { callId: 'read-1', name: 'read', arguments: { path: 'src/foo.ts' } },
+    call: {
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'src/foo.ts', offset: 201, limit: 200 },
+    },
   });
   state = reduceUiEvent(state, {
     kind: 'tool_progress',
@@ -70,8 +75,127 @@ Deno.test('tool preview persists across progress updates', () => {
     name: 'read',
     text: 'progress body must not leak',
   });
-  assertEquals(state.log.entries[0].text, 'read src/foo.ts …');
+  assertEquals(state.log.entries[0].text, 'read src/foo.ts lines 201–400 …');
   assert(!state.log.entries[0].text.includes('progress body'));
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'read-1',
+      name: 'read',
+      text: 'result body must not leak',
+      outcome: 'success',
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'read src/foo.ts lines 201–400 ✓');
+  assert(!state.log.entries[0].text.includes('result body'));
+});
+
+Deno.test('read preview distinguishes a bounded first window from an open continuation', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md', limit: 200 },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'read-2',
+      name: 'read',
+      arguments: { path: 'README.md', offset: 201 },
+    },
+  });
+  assertEquals(state.log.entries.map((entry) => entry.text), [
+    'read README.md lines 1–200 …',
+    'read README.md lines 201+ …',
+  ]);
+});
+
+Deno.test('bash_output preview shows its stream and requested byte window', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'output-1',
+      name: 'bash_output',
+      arguments: {
+        outputId: '12345678-1234-4123-8123-123456789abc',
+        stream: 'stdout',
+      },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'output-1',
+      name: 'bash_output',
+      text: 'saved output must not leak',
+      outcome: 'success',
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'output-2',
+      name: 'bash_output',
+      arguments: {
+        outputId: '12345678-1234-4123-8123-123456789abc',
+        stream: 'stderr',
+        offset: 49_152,
+        limit: 4_096,
+      },
+    },
+  });
+  assertEquals(state.log.entries.map((entry) => entry.text), [
+    'bash_output stdout bytes 0–49151 ✓',
+    'bash_output stderr bytes 49152–53247 …',
+  ]);
+  assert(!state.log.entries[0].text.includes('12345678'));
+  assert(!state.log.entries[0].text.includes('saved output'));
+});
+
+Deno.test('web_search and skill previews show their semantic target', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'search-1',
+      name: 'web_search',
+      arguments: { query: 'Deno 3.0 release status' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'skill-1',
+      name: 'skill',
+      arguments: { name: 'handoff-read' },
+    },
+  });
+  assertEquals(state.log.entries.map((entry) => entry.text), [
+    'web_search Deno 3.0 release status …',
+    'skill handoff-read …',
+  ]);
+});
+
+Deno.test('direct renderer seam uses the same semantic preview', () => {
+  assertEquals(
+    toolCallText('skill', { name: 'handoff-read' }),
+    'skill handoff-read',
+  );
 });
 
 Deno.test('tool preview leaves other tools without arguments', () => {
