@@ -9,11 +9,7 @@ import { type AgentEvent, type AgentEventSink, deliverEvent } from '../core/even
 import { type AgentTurnOptions, runAgentTurn } from '../core/loop.ts';
 import { Registry } from '../tools/tools.ts';
 import { snapshotMessages } from '../core/events.ts';
-import {
-  CONTEXT_TRIGGER_ESTIMATED_TOKENS,
-  type ContextMetrics,
-  prepareModelContext,
-} from '../core/context.ts';
+import { type ContextMetrics, prepareModelContext } from '../core/context.ts';
 import { ParentTurnExecutionContext } from '../core/execution_context.ts';
 import {
   type CancelRequestResult,
@@ -445,39 +441,6 @@ export class AgentSession {
       throw new RangeError('user text must not be blank');
     }
     if (this.active) throw new Error('agent session is busy');
-
-    // Pre-turn automatic compaction (zot-style pre-turn guard): once the estimated
-    // provider view reaches the token threshold and a useful boundary exists, condense
-    // before sending so the next outbound request stays under the limit. The submitted
-    // text is held in the caller frame and the turn starts only after a successful install.
-    // A failed or cancelled compaction stops the submit; a refused one proceeds because
-    // the request-time admission and mechanical omission still guard the request.
-    const compactionPreview = this.contextCompactionPreview();
-    // Threshold gate and useful-boundary selection stay separate (pi shouldCompact):
-    // below 64K est the turn proceeds untouched even when a strict reduction exists.
-    if (
-      compactionPreview.useful &&
-      (compactionPreview.baselineMessagesBytes ?? 0) >= CONTEXT_TRIGGER_ESTIMATED_TOKENS
-    ) {
-      const compaction = await this.compactContext();
-      if (compaction.kind === 'installed') {
-        this.autoCompactionNotice = Object.freeze({
-          coveredThroughTurn: compaction.coveredThroughTurn!,
-          retainedFromTurn: compaction.retainedFromTurn!,
-        });
-      } else if (compaction.kind === 'failed' || compaction.kind === 'cancelled') {
-        return {
-          ok: false,
-          task: userText,
-          outcome: 'contract_failure',
-          stopReason: 'contract_failure',
-          steps: 0,
-          toolCallCount: 0,
-          toolResultCount: 0,
-          transcript: snapshotMessages(this.committedTranscript),
-        };
-      }
-    }
 
     this.active = true;
     const turn = this.nextTurn;

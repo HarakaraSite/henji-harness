@@ -1,31 +1,13 @@
 import type { AgentEvent, AgentEventSink } from '../core/events.ts';
-import { type LoopOutcome, type Message, type ModelResult } from '../core/contracts.ts';
-import { CONTEXT_TRIGGER_ESTIMATED_TOKENS } from '../core/context.ts';
-import {
-  type ContextAdmissionOptions,
-  findContextCandidate,
-  parseSummaryResult,
-  prepareProjectedRequest,
-  projectSemanticContext,
-  summaryRequest,
-} from '../session/semantic_context.ts';
-import {
-  encodeSemanticContextCheckpoint,
-  MAX_CONTEXT_CHECKPOINT_FILE_BYTES,
-  type SemanticContextCheckpointV1,
-} from '../session/session_store.ts';
+import { type LoopOutcome, type Message } from '../core/contracts.ts';
+import { projectSemanticContext } from '../session/semantic_context.ts';
+import { type SemanticContextCheckpointV1 } from '../session/session_store.ts';
 import { runAgentTurn } from '../core/loop.ts';
 import { ParentTurnExecutionContext, TurnRequestBudget } from '../core/execution_context.ts';
 import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import { TurnCancellationOwner } from '../core/cancellation.ts';
 import { SteeringOwner, validateSteeringText } from '../core/steering.ts';
-import { measureModelRequestWire } from '../provider/openrouter_model.ts';
-import {
-  type FailureCode,
-  FailureDiagnosticOwner,
-  type FailureStage,
-  projectFailureDiagnosticFact,
-} from '../session/failure_diagnostic.ts';
+import { FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
 import {
   ProviderEvidenceRecorder,
   type ProviderEvidenceV1,
@@ -256,37 +238,6 @@ export class WorkerGeneration {
         ? {}
         : { diagnostic: outcome.diagnostic ?? diagnosticOwner.snapshot()! }),
     });
-    const recordCompactionFailure = (
-      fallbackStage: FailureStage,
-      fallbackCode: FailureCode,
-      error?: unknown,
-    ): void => {
-      if (diagnosticOwner.snapshot() !== undefined) return;
-      const observed = projectFailureDiagnosticFact(error);
-      const compactionRequestCount = Math.max(
-        0,
-        this.requestCounter.count() - requestCountAtAdmission,
-      );
-      try {
-        diagnosticOwner.record({
-          stage: observed?.stage ?? fallbackStage,
-          code: observed?.code ?? fallbackCode,
-          lane: 'parent',
-          providerRequestCount: Math.max(
-            compactionRequestCount,
-            observed?.providerRequestCount ?? 0,
-          ),
-          retryCount: observed?.retryCount ?? 0,
-          modelStep: 0,
-          ...(observed?.httpStatus === undefined ? {} : { httpStatus: observed.httpStatus }),
-          ...(observed?.parseReason === undefined ? {} : {
-            parseReason: observed.parseReason,
-          }),
-        });
-      } catch {
-        // The immutable owner retains the first valid fact when another boundary won the race.
-      }
-    };
     const finalizeEvidence = (outcome: LoopOutcome): {
       readonly outcome: LoopOutcome;
       readonly providerEvidence: ProviderEvidenceV1;
@@ -312,23 +263,6 @@ export class WorkerGeneration {
       );
     };
     try {
-      const compaction = await this.prepareCompaction(
-        correlation,
-        task,
-        cancellation.signal,
-        evidence,
-        recordCompactionFailure,
-      );
-      if (compaction.kind === 'failed') {
-        failTurn(compaction.outcome);
-        return;
-      }
-      if (compaction.kind === 'cancelled') {
-        failTurn(failureOutcome(task, this.committedTranscript, 'turn cancelled', true));
-        return;
-      }
-      // The checkpoint acknowledgement is the boundary: compaction fetches belong to runtime
-      // total/evidence only, while this accepted user turn starts a fresh turn-local count.
       requestCountAtAdmission = this.requestCounter.count();
       userTurnAdmitted = true;
 
@@ -416,161 +350,5 @@ export class WorkerGeneration {
       this.activeCancellation = null;
       this.active = false;
     }
-  }
-
-  private async prepareCompaction(
-    correlation: WorkerCorrelation,
-    task: string,
-    signal: AbortSignal,
-    evidence: ProviderEvidenceRecorder,
-    recordFailure: (stage: FailureStage, code: FailureCode, error?: unknown) => void,
-  ): Promise<
-    | { readonly kind: 'proceed' }
-    | { readonly kind: 'failed'; readonly outcome: LoopOutcome }
-    | { readonly kind: 'cancelled' }
-  > {
-    const options: ContextAdmissionOptions = {
-      systemInstruction: this.composition.systemInstruction,
-      tools: this.composition.registry.definitions(),
-      sourceProfileId: this.manifest.profileId,
-      checkpoint: this.checkpoint,
-      measureRequestWire: this.composition.model.measureRequestWire,
-    };
-    const candidate = findContextCandidate(this.committedTranscript, options);
-    if (
-      candidate === undefined ||
-      candidate.baselineMessagesBytes < CONTEXT_TRIGGER_ESTIMATED_TOKENS
-    ) return { kind: 'proceed' };
-    if (signal.aborted) return { kind: 'cancelled' };
-
-    let generated: ModelResult;
-    try {
-      generated = await this.composition.model.generate(
-        summaryRequest(this.committedTranscript, candidate.coveredThroughTurn),
-        {
-          signal,
-          providerEvidence: evidence,
-          providerEvidenceLane: 'parent',
-          providerEvidencePhase: 'compaction',
-          modelStep: 0,
-        },
-      );
-    } catch (error) {
-      if (signal.aborted) return { kind: 'cancelled' };
-      recordFailure('unknown_stage', 'unknown_code', error);
-      return {
-        kind: 'failed',
-        outcome: failureOutcome(
-          task,
-          this.committedTranscript,
-          error instanceof Error ? error.message : 'context summary failed',
-        ),
-      };
-    }
-    if (signal.aborted) return { kind: 'cancelled' };
-    if (generated.kind !== 'final') {
-      recordFailure('model_result_validation', 'invalid_model_result');
-      return {
-        kind: 'failed',
-        outcome: failureOutcome(
-          task,
-          this.committedTranscript,
-          'context summary result invalid',
-        ),
-      };
-    }
-    const summary = parseSummaryResult(generated.text);
-    if (summary === undefined) {
-      recordFailure('model_result_validation', 'invalid_model_result');
-      return {
-        kind: 'failed',
-        outcome: failureOutcome(
-          task,
-          this.committedTranscript,
-          'context summary result invalid',
-        ),
-      };
-    }
-    const checkpoint: SemanticContextCheckpointV1 = {
-      contextSchemaVersion: 1,
-      sessionId: this.sessionId,
-      createdAt: new Date().toISOString(),
-      sourceProfileId: this.manifest.profileId,
-      coveredThroughTurn: candidate.coveredThroughTurn,
-      retainedFromTurn: candidate.retainedFromTurn,
-      summary,
-    };
-    try {
-      if (
-        encodeSemanticContextCheckpoint(checkpoint).byteLength >
-          MAX_CONTEXT_CHECKPOINT_FILE_BYTES
-      ) {
-        recordFailure('request_build', 'limit_exceeded');
-        return {
-          kind: 'failed',
-          outcome: failureOutcome(
-            task,
-            this.committedTranscript,
-            'context checkpoint is too large',
-          ),
-        };
-      }
-      const projected = prepareProjectedRequest(
-        {
-          ...(this.composition.systemInstruction === undefined
-            ? {}
-            : { systemInstruction: this.composition.systemInstruction }),
-          transcript: [...this.committedTranscript, {
-            role: 'user' as const,
-            content: { kind: 'text' as const, text: task },
-          }],
-          tools: this.composition.registry.definitions(),
-        },
-        checkpoint,
-      );
-      if (
-        (this.composition.model.measureRequestWire ?? measureModelRequestWire)(projected.request)
-          .messagesBytes >=
-          candidate.baselineMessagesBytes
-      ) {
-        recordFailure('request_build', 'invalid_input');
-        return {
-          kind: 'failed',
-          outcome: failureOutcome(
-            task,
-            this.committedTranscript,
-            'context summary is not useful',
-          ),
-        };
-      }
-    } catch {
-      recordFailure('request_build', 'invalid_input');
-      return {
-        kind: 'failed',
-        outcome: failureOutcome(
-          task,
-          this.committedTranscript,
-          'context checkpoint is invalid',
-        ),
-      };
-    }
-    const proposal: WorkerCheckpointProposalMessage = {
-      kind: 'checkpoint_proposal',
-      correlation,
-      checkpoint,
-      heldUserText: task,
-    };
-    if (!await this.port.checkpointProposal(correlation, proposal, signal)) {
-      return signal.aborted ? { kind: 'cancelled' } : {
-        kind: 'failed',
-        outcome: failureOutcome(
-          task,
-          this.committedTranscript,
-          'Host did not acknowledge checkpoint',
-        ),
-      };
-    }
-    this.checkpoint = structuredClone(checkpoint);
-    return { kind: 'proceed' };
   }
 }

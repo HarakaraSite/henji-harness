@@ -362,7 +362,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   const contextRich = reduceUiAction(state, {
     kind: 'status',
     text:
-      'session abcdef12 · agent default · turn 3 · ready · context through turn 3 · retain 2+ · semantic ≤123456B · ctx ≤64K/64K est · 4 omitted',
+      'session abcdef12 · agent default · turn 3 · ready · context through turn 3 · retain 2+ · semantic ≤123456B · ctx 64 KiB',
   });
   const contextFooter = layoutUi(contextRich, 80, 24).footer[0].text;
   assert(contextFooter.includes('ready'));

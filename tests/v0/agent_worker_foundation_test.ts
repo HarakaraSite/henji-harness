@@ -115,9 +115,6 @@ const isError = (message: WorkerToHostMessage): message is WorkerErrorMessage =>
 const isCommitProposal = (
   message: WorkerToHostMessage,
 ): message is WorkerCommitProposalMessage => message.kind === 'commit_proposal';
-const isCheckpointProposal = (
-  message: WorkerToHostMessage,
-): message is WorkerCheckpointProposalMessage => message.kind === 'checkpoint_proposal';
 const isTerminalAgentRuntime = (
   message: WorkerToHostMessage,
 ): message is WorkerRuntimeEventMessage =>
@@ -979,7 +976,7 @@ Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the 
   }
 });
 
-Deno.test('Slice 3 holds a user turn across automatic checkpoint proposal and Host acknowledgement', async () => {
+Deno.test('Slice 3 sends long user turns directly to commit without checkpoint proposals', async () => {
   const capsule = new WorkerCapsule(workerUrl);
   const sessionCorrelation = compactionCorrelation('compaction-start');
   try {
@@ -1024,19 +1021,15 @@ Deno.test('Slice 3 holds a user turn across automatic checkpoint proposal and Ho
       correlation: compactionCorrelation('compaction-turn-3'),
       task: heldText,
     });
-    const checkpoint = await capsule.waitForMessage(isCheckpointProposal);
-    assertEquals(checkpoint.heldUserText, heldText);
-    assertEquals(checkpoint.checkpoint.contextSchemaVersion, 1);
-    assert(checkpoint.checkpoint.coveredThroughTurn >= 1);
-    capsule.send({
-      kind: 'checkpoint_acknowledgement',
-      correlation: checkpoint.correlation,
-      accepted: true,
-    });
     const proposal = await capsule.waitForMessage(isCommitProposal);
     assert(
       proposal.transcript.some((message) =>
         isTextAssistant(message) && message.content.text.includes(heldText)
+      ),
+    );
+    assert(
+      proposal.transcript.some((message) =>
+        message.role === 'user' && message.content.text.includes('x'.repeat(30_000))
       ),
     );
     capsule.send({
@@ -1055,7 +1048,7 @@ Deno.test('Slice 3 holds a user turn across automatic checkpoint proposal and Ho
   }
 });
 
-Deno.test('Compaction evidence and request counts stop at the checkpoint acknowledgement boundary', async () => {
+Deno.test('Long Worker history records only the admitted user-turn request', async () => {
   type FailedTurn = {
     readonly outcome: import('../../v0/agent/core/contracts.ts').LoopOutcome;
     readonly evidence: import('../../v0/agent/provider/provider_evidence.ts').ProviderEvidenceV1;
@@ -1163,14 +1156,14 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
   };
 
   const accepted = await run(true);
-  assert(accepted.checkpoint !== undefined, JSON.stringify(accepted));
+  assertEquals(accepted.checkpoint, undefined);
   assert(accepted.proposal?.outcome !== undefined);
-  assertEquals(accepted.requestCount, 2);
+  assertEquals(accepted.requestCount, 1);
   assertEquals(accepted.proposal.outcome.turnProviderRequestCount, 1);
-  assertEquals(accepted.proposal.outcome.runtimeProviderRequestCount, 2);
+  assertEquals(accepted.proposal.outcome.runtimeProviderRequestCount, 1);
   assertEquals(
     accepted.proposal.providerEvidence?.requests.map((record) => record.request.phase),
-    ['compaction', 'user_turn'],
+    ['user_turn'],
   );
   const evidenceStore = new FakeProviderEvidenceStore();
   await evidenceStore.write(accepted.proposal.providerEvidence!);
@@ -1195,23 +1188,10 @@ Deno.test('Compaction evidence and request counts stop at the checkpoint acknowl
   );
   assertEquals(legacyReadback.requests.map((record) => record.request.phase), [
     undefined,
-    undefined,
   ]);
-
-  const rejected = await run(false);
-  assert(rejected.checkpoint !== undefined);
-  assert(rejected.failed !== undefined);
-  assertEquals(rejected.proposal, undefined);
-  assertEquals(rejected.requestCount, 1);
-  assertEquals(rejected.failed.outcome.turnProviderRequestCount, 0);
-  assertEquals(rejected.failed.outcome.runtimeProviderRequestCount, 1);
-  assertEquals(
-    rejected.failed.evidence.requests.map((record) => record.request.phase),
-    ['compaction'],
-  );
 });
 
-Deno.test('Compaction provider timeout preserves its diagnostic before user-turn admission', async () => {
+Deno.test('Provider timeout on long history is attributed to the admitted user turn', async () => {
   const initialTranscript: Message[] = [];
   for (let turn = 1; turn <= 2; turn += 1) {
     initialTranscript.push({
@@ -1313,11 +1293,11 @@ Deno.test('Compaction provider timeout preserves its diagnostic before user-turn
   assertEquals(diagnostic.lane, 'parent');
   assertEquals(diagnostic.providerRequestCount, 1);
   assertEquals(diagnostic.retryCount, 0);
-  assertEquals(diagnostic.modelStep, 0);
-  assertEquals(failed.outcome.turnProviderRequestCount, 0);
+  assertEquals(diagnostic.modelStep, 1);
+  assertEquals(failed.outcome.turnProviderRequestCount, 1);
   assertEquals(failed.outcome.runtimeProviderRequestCount, 1);
   assertEquals(presentationFailureReason(diagnostic), 'provider deadline exceeded');
-  assertEquals(failed.evidence.requests.map((record) => record.request.phase), ['compaction']);
+  assertEquals(failed.evidence.requests.map((record) => record.request.phase), ['user_turn']);
   assertEquals(failed.evidence.diagnosticId, diagnostic.diagnosticId);
 });
 
@@ -1827,7 +1807,7 @@ Deno.test('Worker reads a legacy v1 record and upgrades it only on the next dura
   }
 });
 
-Deno.test('Worker installs checkpoints beside current state and reuses them after reopen', async () => {
+Deno.test('Worker reuses an explicitly stored checkpoint after reopen', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-context-' });
   try {
     const modulePath = workerBuiltinModulePath('default');
@@ -1848,15 +1828,23 @@ Deno.test('Worker installs checkpoints beside current state and reuses them afte
     });
     assert((await host.submit(`first ${'x'.repeat(30_000)}`)).ok);
     assert((await host.submit(`second ${'y'.repeat(30_000)}`)).ok);
-    assert((await host.submit('held after automatic compaction')).ok);
-    const checkpoint = host.checkpointSnapshot();
-    assert(checkpoint !== undefined);
-    assert(checkpoint.coveredThroughTurn >= 1);
-    assertEquals((await store.readCheckpoint(handle.id))?.sessionId, handle.id);
+    assertEquals(host.checkpointSnapshot(), undefined);
+    assertEquals(await store.readCheckpoint(handle.id), undefined);
     await host.close();
 
-    const reopenedHandle = await store.openExistingWorker(handle.id);
+    const checkpointHandle = await store.openExistingWorker(handle.id);
+    checkpointHandle.installCheckpoint({
+      contextSchemaVersion: 1,
+      sessionId: handle.id,
+      createdAt: '2026-09-10T00:00:00.000Z',
+      sourceProfileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
+      coveredThroughTurn: 1,
+      retainedFromTurn: 2,
+      summary: 'explicitly retained first turn',
+    });
+    await checkpointHandle.close();
     assert((await store.readCheckpoint(handle.id))?.sessionId === handle.id);
+    const reopenedHandle = await store.openExistingWorker(handle.id);
     const reopened = await WorkerHostSession.open({
       handle: reopenedHandle,
       workspaceRoot: Deno.cwd(),
@@ -2064,7 +2052,7 @@ Deno.test('Worker shares request accounting and credential-free evidence across 
   }
 });
 
-Deno.test('WorkerHost exposes one-shot automatic compaction notice to the adapter', async () => {
+Deno.test('WorkerHost emits no automatic compaction notice for long history', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-notice-' });
   let sessionId: string | undefined;
   try {
@@ -2114,19 +2102,15 @@ Deno.test('WorkerHost exposes one-shot automatic compaction notice to the adapte
       );
       await adapter.dispatch({
         kind: 'ordinary_submit',
-        text: 'read after automatic compaction',
+        text: 'read without automatic compaction',
       });
       const notices = presentationEvents.filter((event) =>
         typeof event === 'object' && event !== null &&
         (event as { readonly kind?: unknown }).kind === 'notice'
       );
-      assertEquals(notices.length, 1);
-      assert(
-        (notices[0] as { readonly text: string }).text.includes(
-          'auto-compacted',
-        ),
-      );
+      assertEquals(notices.length, 0);
       assertEquals(created.session.consumeAutoCompactionNotice(), null);
+      assertEquals(created.session.checkpointSnapshot(), undefined);
     } finally {
       await created.close();
     }

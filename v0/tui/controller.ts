@@ -1202,12 +1202,9 @@ export class TuiController {
       return `${base}${context}${semantic}`;
     }
     const estimateK = Math.ceil(metrics.messageEstimatedTokensAfter / 1024);
-    const base = `${
+    return `${
       prefix === undefined ? 'ready' : `${prefix} · ready`
-    }${context}${semantic} · ctx ≤${estimateK}K/64K est`;
-    return metrics.compressedResultCount === 0
-      ? base
-      : `${base} · ${metrics.compressedResultCount} omitted`;
+    }${context}${semantic} · ctx ${estimateK} KiB`;
   }
 
   private idleCtrlC(): void {

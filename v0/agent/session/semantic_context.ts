@@ -115,7 +115,7 @@ export const checkpointMessage = (
   },
 });
 
-/** Compose summary + retained canonical suffix + current draft, without mechanical omission. */
+/** Compose summary + retained canonical suffix + current draft without changing their content. */
 export const projectSemanticContext = (
   request: ModelRequest,
   checkpoint: SemanticContextCheckpointV1,
@@ -374,10 +374,8 @@ export const findContextCandidate = (
     return candidate;
   };
 
-  // Summary fit is monotonic, but the prepared request is not: context management may replace
-  // older tool results at its 65,536-byte trigger, introducing a discontinuity in projected wire
-  // size. Walk the summary-fitting boundaries in the reference evaluator's descending order so
-  // the largest useful boundary remains authoritative without rescanning or reparsing prefixes.
+  // Walk summary-fitting boundaries from newest to oldest so the largest useful boundary remains
+  // authoritative without rescanning or reparsing prefixes.
   for (let covered = highestSummary; covered >= firstCandidate; covered -= 1) {
     const candidate = evaluate(covered);
     if (candidate !== undefined) return candidate;

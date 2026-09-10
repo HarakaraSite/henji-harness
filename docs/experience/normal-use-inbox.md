@@ -126,32 +126,20 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
 
-#### Agent実行: context圧縮による取得済みtool結果の早期省略（F02、F06）
+#### Agent実行: Context Strategyの外部化（F02、F06、将来のF24候補）
 
-観測:
-
-- provider-neutral context圧縮は、実tokenizerではなくserialized JSONのUTF-8 byte数を使い、65,536 bytesで開始して
-  49,152 bytesを目標に、最新ToolMessageより前のtool resultを
-  `[older tool result omitted for context]`へ置換する。この閾値は旧76 KiB message上限を前提に導入されたが、
-  現行のprovider上限がmessages 5 MiB／request 6 MiBへ拡張された後も変わっていない。
-- 2026-09-10のDeepSeekによるForgejo API概要調査では、step 4から圧縮が始まり、最大34件のtool resultが省略された。
-  modelは省略をreasoning内で認識し、`docs/FORGEJO_API_RESEARCH.md`を11回、`README.md`を4回読み直した。
-  31回目のroot request中に利用者がcancelし、root 31件と`web_search` backend 11件の計42 provider requests、
-  35 tool callsで終了した。provider evidenceは`580408a3-8dcb-4fda-9d87-1f28635e5afe`である。
-- 同workspaceの保存済みprovider evidence 66件中19件で省略markerを確認した。8件には同一引数のtool call重複があり、
-  6件ではmodelがreasoning内で省略を明示していたため、過去の調査反復にも同じ圧縮が関与したと判断できる。
-- Session `c41865cf`のQwen `xhigh`による長時間調査は、24 root model requests、5 web searches、33 tool callsという
-  件数がevidence `12acfbf4-2936-4a97-89da-3a3d6f9039b7`と一致する。このrunもstep 5から圧縮され、最大32件の
-  tool resultが省略されていたため、従来の「model特性」という評価だけでは説明できない。
-- 上記DeepSeek runのcancelは別に`cancellation_cleanup`／`cleanup_error`となった。現行diagnosticはcleanup内部の
-  exceptionを保存しないため、body readerのどのcleanup操作が失敗したかは未確認である。
-
-未採用候補:
-
-- context圧縮全体を再設計するまで、64 KiBで行うtool-resultの機械的な自動省略だけを一時的に外す。現行の
-  messages 5 MiB／request 6 MiBのprovider送信上限は維持し、到達時は結果を黙って省略せず明示的なfailureとする。
-- 将来の圧縮方式は、実token usage、provider/modelのcontext契約、`reasoning_details`とtool resultの因果関係、
-  turn途中とturn間のsemantic checkpointを分けて検討する。この記録だけでは採用または実装を意味しない。
+- 64 KiBでのtool-result機械的省略とpre-turnの自動semantic compactionを止める修正はIncrement 29へ採用した。
+  観測証拠、停止する現動作、維持するcheckpoint境界は
+  [`docs/increments/increment-29.md`](../increments/increment-29.md)を正本とする。
+- 将来のコンパクションは単なる容量対策ではなく、何を覚え、捨て、抽象化するかを決めるContext Strategyとして
+  扱う。発動判断、対象選択、保持予算、semantic summary、使用model、failure方針、結果の説明を交換可能な
+  component境界にすることを検討する。
+- Agent Definitionがrevision付きContext Strategyを選び、Workerが実行する構成を候補とする。一方、完全な
+  canonical transcript、checkpointの永続化と相関、tool call/resultの因果構造、credential、provider evidence、
+  strategy結果の採否はHenji-owned境界に残す。
+- 実token usage、provider/modelのcontext契約、turn途中とturn間のsemantic checkpoint、機械的・意味的・階層的な
+  strategyの比較は、長期Sessionの実利用証拠が得られた後の個別incrementで行う。この記録だけでは外部化や
+  F24への採用を意味しない。
 
 #### Agent実行: canonical transcriptの物理的な保持方式（F02、F05、F06）
 
@@ -167,10 +155,17 @@ increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による�
 
 未採用候補:
 
-- canonical transcriptの完全性を変えず、永続層をappend-onlyな完全履歴、RAM上のactive stateを履歴index、
-  semantic checkpoint以降のsuffix、current draftへ分けることを検討する。
+- canonical transcriptの完全性を変えず、SQLite等のappend-onlyな永続層を完全履歴の正本とし、RAM上のactive
+  stateを履歴index、semantic checkpoint以降のsuffix、current draftへ分けることを検討する。SQLite採用は
+  現時点では候補であり、storage技術の決定ではない。
 - history表示のpaged read、turn単位のincremental commit、provider requestを投影済みcontextから直接構築する方式を
   比較し、完全履歴をmodel requestごとにclone・走査しない構成を将来incrementで検討する。
+- tool callと完全なtool resultをSession内の安定した参照identityで保存し、semantic checkpointには必要に応じて
+  その参照を残す。modelが圧縮後に原文を必要と判断した場合、専用のread-only toolから参照identityを指定して
+  canonical resultを取得できる構成を候補とする。
+- providerの一時的な`callId`だけを永続参照として十分と仮定せず、Session、turn、message、tool resultとの相関、
+  access contract、複数result batchを含むidentityを設計時に決める。再取得は過去のprovider tool pairをそのまま
+  replayするのではなく、現在turnの新しいtool resultとして返す方法を候補とする。
 
 #### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
 

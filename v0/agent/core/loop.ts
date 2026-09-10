@@ -75,7 +75,7 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly steering?: SteeringConsumer;
   /** Backwards-compatible internal port spelling for direct loop callers. */
   readonly steeringConsumer?: SteeringConsumer;
-  /** Optional pure semantic parent projection, applied before mechanical omission. */
+  /** Optional pure semantic parent projection, applied before defensive request preparation. */
   readonly projectParentRequest?: (request: ModelRequest) => ModelRequest;
 }
 
