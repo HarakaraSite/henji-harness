@@ -38,6 +38,24 @@ export interface SessionHistoryEntry {
   readonly role: 'user' | 'steer' | 'assistant' | 'tool>' | 'tool<';
   readonly messageIndex: number;
   readonly text: string;
+  readonly sourceScalarStart?: number;
+}
+
+export interface SessionHistoryMatch {
+  readonly query: string;
+  readonly ordinal: number;
+  readonly total: number;
+  readonly turn: number;
+  readonly role: SessionHistoryEntry['role'];
+  readonly messageIndex: number;
+  readonly sourceScalarStart: number;
+  readonly sourceScalarLength: number;
+  readonly pageEntry: number;
+}
+
+export interface SessionHistorySearchResult {
+  readonly page: SessionHistoryPage;
+  readonly match: SessionHistoryMatch;
 }
 
 export const HISTORY_PAGE_SOURCE_BYTES = 8_192;
@@ -154,11 +172,12 @@ const entryRows = (turn: SessionHistoryTurn): SessionHistoryEntry[] => {
 
 const splitEntry = (entry: SessionHistoryEntry): SessionHistoryEntry[] => {
   const points = [...entry.text];
-  if (points.length === 0) return [entry];
+  if (points.length === 0) return [{ ...entry, sourceScalarStart: 0 }];
   const chunks: SessionHistoryEntry[] = [];
   let text = '';
   let sourceBytes = 0;
   let escapedBytes = 0;
+  let sourceScalarStart = 0;
   for (const point of points) {
     const pointSourceBytes = encoder.encode(point).byteLength;
     const pointEscapedBytes = pointSourceBytes;
@@ -167,7 +186,8 @@ const splitEntry = (entry: SessionHistoryEntry): SessionHistoryEntry[] => {
       (sourceBytes + pointSourceBytes > HISTORY_CHUNK_SOURCE_BYTES ||
         escapedBytes + pointEscapedBytes > HISTORY_CHUNK_ESCAPED_BYTES)
     ) {
-      chunks.push(Object.freeze({ ...entry, text }));
+      chunks.push(Object.freeze({ ...entry, text, sourceScalarStart }));
+      sourceScalarStart += [...text].length;
       text = '';
       sourceBytes = 0;
       escapedBytes = 0;
@@ -176,12 +196,103 @@ const splitEntry = (entry: SessionHistoryEntry): SessionHistoryEntry[] => {
     sourceBytes += pointSourceBytes;
     escapedBytes += pointEscapedBytes;
   }
-  if (text.length > 0) chunks.push(Object.freeze({ ...entry, text }));
+  if (text.length > 0) {
+    chunks.push(Object.freeze({ ...entry, text, sourceScalarStart }));
+  }
   return chunks;
 };
 
 const expandedRows = (turn: SessionHistoryTurn): readonly SessionHistoryEntry[] =>
   Object.freeze(entryRows(turn).flatMap(splitEntry));
+
+interface ExpandedHistoryEntry {
+  readonly entry: SessionHistoryEntry;
+  readonly entryOrdinal: number;
+  readonly sourceScalarStart: number;
+  readonly sourceScalarLength: number;
+}
+
+const expandedRowsWithSource = (
+  turn: SessionHistoryTurn,
+): readonly ExpandedHistoryEntry[] =>
+  Object.freeze(
+    entryRows(turn).flatMap((entry, entryOrdinal) => {
+      return splitEntry(entry).map((chunk) => {
+        const sourceScalarLength = [...chunk.text].length;
+        const expanded = Object.freeze({
+          entry: chunk,
+          entryOrdinal,
+          sourceScalarStart: chunk.sourceScalarStart ?? 0,
+          sourceScalarLength,
+        });
+        return expanded;
+      });
+    }),
+  );
+
+interface FoldedText {
+  readonly points: readonly string[];
+  readonly sourceOffsets: readonly number[];
+}
+
+const foldedText = (value: string): FoldedText => {
+  const points: string[] = [];
+  const sourceOffsets: number[] = [];
+  let sourceOffset = 0;
+  for (const point of value) {
+    for (const folded of point.toLowerCase()) {
+      points.push(folded);
+      sourceOffsets.push(sourceOffset);
+    }
+    sourceOffset += 1;
+  }
+  return Object.freeze({
+    points: Object.freeze(points),
+    sourceOffsets: Object.freeze(sourceOffsets),
+  });
+};
+
+const foldedNeedle = (value: string): readonly string[] =>
+  Object.freeze([...value].flatMap((point) => [...point.toLowerCase()]));
+
+const pointMatchAt = (
+  source: readonly string[],
+  needle: readonly string[],
+  offset: number,
+): boolean => needle.every((point, index) => source[offset + index] === point);
+
+interface IndexedMatch {
+  readonly turn: number;
+  readonly entryOrdinal: number;
+  readonly role: SessionHistoryEntry['role'];
+  readonly messageIndex: number;
+  readonly sourceScalarStart: number;
+  readonly sourceScalarLength: number;
+}
+
+const entryMatches = (
+  entry: SessionHistoryEntry,
+  turn: number,
+  entryOrdinal: number,
+  needle: readonly string[],
+): readonly IndexedMatch[] => {
+  const source = foldedText(entry.text);
+  const matches: IndexedMatch[] = [];
+  for (let offset = 0; offset + needle.length <= source.points.length; offset += 1) {
+    if (!pointMatchAt(source.points, needle, offset)) continue;
+    const start = source.sourceOffsets[offset];
+    const last = source.sourceOffsets[offset + needle.length - 1];
+    matches.push(Object.freeze({
+      turn,
+      entryOrdinal,
+      role: entry.role,
+      messageIndex: entry.messageIndex,
+      sourceScalarStart: start,
+      sourceScalarLength: Math.max(1, last - start + 1),
+    }));
+  }
+  return Object.freeze(matches);
+};
 
 const emptyPage = (
   turn: number,
@@ -300,4 +411,84 @@ export const historyPageWindow = (
     Math.min(pages.length - 1, Number.isSafeInteger(pageNumber) ? pageNumber : pages.length - 1),
   );
   return pages[page];
+};
+
+/**
+ * Find a literal, case-insensitive match in the complete committed transcript and return only the
+ * bounded history page that contains it. Match ordinals are chronological and zero-based.
+ */
+export const searchSessionHistory = (
+  transcript: readonly Message[],
+  query: string,
+  matchOrdinal = 0,
+  options: {
+    readonly sessionId?: string;
+    readonly agent?: SessionRecord['agent'];
+    readonly rows?: number;
+  } = {},
+): SessionHistorySearchResult | undefined => {
+  const needle = foldedNeedle(query);
+  if (needle.length === 0) return undefined;
+  const index = indexSessionHistory(transcript);
+  if (index === undefined || index.turnCount === 0) return undefined;
+
+  const matches = index.turns.flatMap((turn) =>
+    entryRows(turn).flatMap((entry, entryOrdinal) =>
+      entryMatches(entry, turn.turn, entryOrdinal, needle)
+    )
+  );
+  if (matches.length === 0) return undefined;
+
+  const ordinal = Math.max(
+    0,
+    Math.min(
+      matches.length - 1,
+      Number.isSafeInteger(matchOrdinal) ? matchOrdinal : 0,
+    ),
+  );
+  const selected = matches[ordinal];
+  const turn = index.turns[selected.turn - 1];
+  if (turn === undefined) return undefined;
+
+  const expanded = expandedRowsWithSource(turn);
+  const chunkIndex = expanded.findIndex((chunk) =>
+    chunk.entryOrdinal === selected.entryOrdinal &&
+    selected.sourceScalarStart >= chunk.sourceScalarStart &&
+    selected.sourceScalarStart < chunk.sourceScalarStart + chunk.sourceScalarLength
+  );
+  if (chunkIndex < 0) return undefined;
+
+  const pages = paginate(
+    expanded.map((chunk) => chunk.entry),
+    selected.turn,
+    index.turnCount,
+    options,
+  );
+  let pageOffset = 0;
+  const pageIndex = pages.findIndex((page) => {
+    const contains = chunkIndex >= pageOffset && chunkIndex < pageOffset + page.entries.length;
+    pageOffset += page.entries.length;
+    return contains;
+  });
+  if (pageIndex < 0) return undefined;
+  const page = pages[pageIndex];
+  const precedingEntries = pages.slice(0, pageIndex).reduce(
+    (count, candidate) => count + candidate.entries.length,
+    0,
+  );
+
+  return Object.freeze({
+    page,
+    match: Object.freeze({
+      query,
+      ordinal,
+      total: matches.length,
+      turn: selected.turn,
+      role: selected.role,
+      messageIndex: selected.messageIndex,
+      sourceScalarStart: selected.sourceScalarStart,
+      sourceScalarLength: selected.sourceScalarLength,
+      pageEntry: chunkIndex - precedingEntries,
+    }),
+  });
 };

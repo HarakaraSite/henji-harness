@@ -2,6 +2,7 @@ import {
   type PresentationContextPreview,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
+  type PresentationHistoryMatch,
   type PresentationHistoryPage,
   type PresentationLifecycle,
   type PresentationNavigationListing,
@@ -59,6 +60,7 @@ export type UiOverlay =
     {
       readonly kind: 'history';
       readonly page?: PresentationHistoryPage;
+      readonly match?: PresentationHistoryMatch;
       readonly pageNumber?: number;
     }
   >

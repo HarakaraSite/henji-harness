@@ -9,7 +9,10 @@ import type {
   NavigationListing,
   NavigationPosition,
 } from '../agent/session/session_navigation.ts';
-import type { SessionHistoryPage } from '../agent/session/session_history.ts';
+import type {
+  SessionHistoryPage,
+  SessionHistorySearchResult,
+} from '../agent/session/session_history.ts';
 import {
   boundedPresentationText,
   type PresentationAssistantMessage,
@@ -20,6 +23,7 @@ import {
   type PresentationDiagnosticPersistenceError,
   type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
+  type PresentationHistorySearchResult,
   type PresentationJson,
   type PresentationMessage,
   type PresentationNavigationListing,
@@ -354,9 +358,30 @@ export const history = (value: SessionHistoryPage): PresentationHistoryPage =>
           role: historyRole(entry.role),
           messageIndex: count(entry.messageIndex),
           text: text(entry.text),
+          ...(entry.sourceScalarStart === undefined ? {} : {
+            sourceScalarStart: count(entry.sourceScalarStart),
+          }),
         })
       )),
     });
+
+export const historySearch = (
+  value: SessionHistorySearchResult,
+): PresentationHistorySearchResult =>
+  Object.freeze({
+    page: history(value.page),
+    match: Object.freeze({
+      query: text(value.match.query),
+      ordinal: count(value.match.ordinal),
+      total: count(value.match.total),
+      turn: count(value.match.turn),
+      role: historyRole(value.match.role),
+      messageIndex: count(value.match.messageIndex),
+      sourceScalarStart: count(value.match.sourceScalarStart),
+      sourceScalarLength: count(value.match.sourceScalarLength),
+      pageEntry: count(value.match.pageEntry),
+    }),
+  });
 
 export const preview = (value: ContextRecoveryPreview): PresentationContextPreview =>
   Object.freeze({

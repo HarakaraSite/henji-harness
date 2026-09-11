@@ -138,6 +138,7 @@ export class TuiController {
       isIdle: () => this.state === 'idle',
       readyStatus: () => this.readyStatus(),
       modelSelection: () => this.session.modelSelectionSnapshot?.(),
+      bindingIdentity: () => this.currentBindingIdentity(),
       fail: (error) => this.fail(error),
     });
   }
@@ -208,6 +209,10 @@ export class TuiController {
         ).then((
           page,
         ) => ({ kind: 'history', page }));
+      case 'history_search':
+        return Promise.resolve(
+          this.session.historySearch?.(intent.query, intent.match, 16),
+        ).then((result) => ({ kind: 'history_search', result }));
       case 'history_export':
         return { kind: 'rejected', reason: 'unavailable' };
       case 'list_sessions':
@@ -533,6 +538,13 @@ export class TuiController {
       }
       if (!busy && event.kind === 'f1') {
         this.openStartupHelp();
+        continue;
+      }
+      if (
+        !busy && event.kind === 'printable' && event.text === '/' &&
+        this.renderer.stateSnapshot().scroll.kind === 'anchored'
+      ) {
+        this.overlay.openHistorySearch();
         continue;
       }
       if (event.kind === 'ctrl_c') {

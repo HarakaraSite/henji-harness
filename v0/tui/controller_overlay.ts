@@ -2,6 +2,7 @@ import {
   isPresentationError,
   movePresentationPickerSelection,
   PresentationDeliveryError,
+  type PresentationHistorySearchResult,
   type PresentationIntent,
   type PresentationIntentDispatcher,
   type PresentationIntentResult,
@@ -50,7 +51,17 @@ type ControllerModal =
     readonly efforts: readonly ReasoningEffort[];
     readonly selected: number;
   }
-  | { readonly kind: 'model-selecting' };
+  | { readonly kind: 'model-selecting' }
+  | {
+    readonly kind: 'history-query';
+    readonly query: string;
+    readonly previous?: PresentationHistorySearchResult;
+    readonly noMatches?: boolean;
+  }
+  | {
+    readonly kind: 'history-view';
+    readonly result: PresentationHistorySearchResult;
+  };
 
 type OwnedNavigationOperation = {
   readonly operation: Promise<void>;
@@ -75,6 +86,7 @@ export interface ControllerOverlayOptions {
   readonly isIdle: () => boolean;
   readonly readyStatus: () => string;
   readonly modelSelection: () => ModelSelection | undefined;
+  readonly bindingIdentity?: () => string;
   readonly fail: (error: unknown) => Promise<void>;
 }
 
@@ -84,6 +96,8 @@ export class ControllerOverlay {
   private readonly navigationOperations = new Set<OwnedNavigationOperation>();
   private navigationGeneration = 0;
   private modelSelectionOperation: Promise<void> | null = null;
+  private historyOperation: Promise<void> | null = null;
+  private historyGeneration = 0;
 
   constructor(private readonly options: ControllerOverlayOptions) {}
 
@@ -204,10 +218,70 @@ export class ControllerOverlay {
     this.renderEffortPicker();
   }
 
+  openHistorySearch(): void {
+    this.modal = { kind: 'history-query', query: '' };
+    this.renderHistoryQuery();
+  }
+
   process(event: InputEvent): void {
     const modal = this.modal;
     if (modal === null) return;
     const { renderer } = this.options;
+    if (modal.kind === 'history-query') {
+      if (event.kind === 'escape') {
+        this.historyGeneration += 1;
+        if (modal.previous === undefined) {
+          this.modal = null;
+          renderer.clearModal?.();
+          renderer.setStatus(this.options.readyStatus());
+        } else {
+          this.modal = { kind: 'history-view', result: modal.previous };
+          renderer.renderHistoryPage(modal.previous.page, modal.previous.match);
+        }
+        return;
+      }
+      if (this.historyOperation !== null) return;
+      if (event.kind === 'backspace') {
+        this.modal = { ...modal, query: [...modal.query].slice(0, -1).join(''), noMatches: false };
+        this.renderHistoryQuery();
+        return;
+      }
+      if (event.kind === 'printable' || event.kind === 'paste') {
+        if (!event.text.includes('\0')) {
+          this.modal = { ...modal, query: `${modal.query}${event.text}`, noMatches: false };
+          this.renderHistoryQuery();
+        }
+        return;
+      }
+      if (event.kind === 'enter' && modal.query.trim().length > 0) {
+        this.searchHistory(modal.query, 0);
+      }
+      return;
+    }
+    if (modal.kind === 'history-view') {
+      if (event.kind === 'escape') {
+        this.closeHistoryView();
+        return;
+      }
+      if (this.historyOperation !== null) return;
+      if (event.kind === 'printable') {
+        if (event.text === '/') {
+          this.modal = { kind: 'history-query', query: '', previous: modal.result };
+          this.renderHistoryQuery();
+        } else if (
+          event.text === 'n' && modal.result.match.ordinal + 1 < modal.result.match.total
+        ) {
+          this.searchHistory(modal.result.match.query, modal.result.match.ordinal + 1);
+        } else if (event.text === 'N' && modal.result.match.ordinal > 0) {
+          this.searchHistory(modal.result.match.query, modal.result.match.ordinal - 1);
+        }
+        return;
+      }
+      if (event.kind === 'page_up' || event.kind === 'page_down') {
+        this.moveHistoryPage(event.kind === 'page_up' ? 'older' : 'newer');
+      }
+      return;
+    }
     if (modal.kind === 'model-selecting') return;
     if (event.kind === 'escape') {
       if (modal.kind === 'picker-loading') this.cancelNavigationOperations();
@@ -375,6 +449,112 @@ export class ControllerOverlay {
       `effort picker · ${modal.provider} · ${modal.modelId} · Up/Down select · Enter choose · Esc cancel`,
       ...modal.efforts.map((effort, index) => `${index === modal.selected ? '>' : ' '} ${effort}`),
     ]);
+  }
+
+  private renderHistoryQuery(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'history-query') return;
+    this.options.renderer.renderChoicePicker?.([
+      'history search · literal, case-insensitive · Enter oldest match · Esc cancel',
+      `search> ${modal.query}`,
+      ...(modal.noMatches ? ['no matches'] : []),
+    ]);
+  }
+
+  private closeHistoryView(): void {
+    this.historyGeneration += 1;
+    this.modal = null;
+    this.options.renderer.clearModal?.();
+    this.options.renderer.latest();
+    this.options.renderer.setStatus(this.options.readyStatus());
+  }
+
+  private searchHistory(query: string, match: number): void {
+    if (this.historyOperation !== null) return;
+    const generation = ++this.historyGeneration;
+    const binding = this.options.bindingIdentity?.();
+    this.options.renderer.setStatus('searching history');
+    const operation = Promise.resolve(
+      this.options.dispatch({ kind: 'history_search', query, match }),
+    ).then((value) => {
+      if (
+        generation !== this.historyGeneration ||
+        binding !== this.options.bindingIdentity?.()
+      ) return;
+      if (value.kind !== 'history_search') throw new PresentationDeliveryError();
+      if (value.result === undefined) {
+        const previous = this.modal?.kind === 'history-query'
+          ? this.modal.previous
+          : this.modal?.kind === 'history-view'
+          ? this.modal.result
+          : undefined;
+        this.modal = { kind: 'history-query', query, previous, noMatches: true };
+        this.renderHistoryQuery();
+        this.options.renderer.setStatus('no history matches');
+        return;
+      }
+      this.modal = { kind: 'history-view', result: value.result };
+      this.options.renderer.renderHistoryPage(value.result.page, value.result.match);
+      this.options.renderer.setStatus(
+        `history "${value.result.match.query}" · match ${
+          value.result.match.ordinal + 1
+        }/${value.result.match.total}`,
+      );
+    }).catch((error: unknown) => {
+      if (generation !== this.historyGeneration) return;
+      if (isPresentationDeliveryError(error)) {
+        void this.options.fail(error);
+      } else this.options.renderer.setStatus('history search failed');
+    }).finally(() => {
+      if (this.historyOperation === operation) this.historyOperation = null;
+    });
+    this.historyOperation = operation;
+  }
+
+  private moveHistoryPage(direction: 'older' | 'newer'): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'history-view' || this.historyOperation !== null) return;
+    const current = modal.result.page;
+    let turn = current.turn;
+    let page = current.page;
+    if (direction === 'older') {
+      if (page > 0) page -= 1;
+      else if (turn > 1) {
+        turn -= 1;
+        page = Number.MAX_SAFE_INTEGER;
+      } else return;
+    } else if (page + 1 < current.pageCount) page += 1;
+    else if (turn < current.totalTurns) {
+      turn += 1;
+      page = 0;
+    } else {
+      this.closeHistoryView();
+      return;
+    }
+
+    const generation = ++this.historyGeneration;
+    const binding = this.options.bindingIdentity?.();
+    const operation = Promise.resolve(
+      this.options.dispatch({ kind: 'history_page', turn, page }),
+    ).then((value) => {
+      if (
+        generation !== this.historyGeneration || binding !== this.options.bindingIdentity?.() ||
+        value.kind !== 'history' ||
+        value.page === undefined
+      ) {
+        return;
+      }
+      const result = Object.freeze({ ...modal.result, page: value.page });
+      this.modal = { kind: 'history-view', result };
+      this.options.renderer.renderHistoryPage(value.page, result.match);
+    }).catch((error: unknown) => {
+      if (generation !== this.historyGeneration) return;
+      if (isPresentationDeliveryError(error)) void this.options.fail(error);
+      else this.options.renderer.setStatus('history page unavailable');
+    }).finally(() => {
+      if (this.historyOperation === operation) this.historyOperation = null;
+    });
+    this.historyOperation = operation;
   }
 
   private applyModelSelection(selection: ModelSelection): void {
@@ -552,6 +732,9 @@ export class ControllerOverlay {
     }
     if (this.modelSelectionOperation !== null) {
       await Promise.allSettled([this.modelSelectionOperation]);
+    }
+    if (this.historyOperation !== null) {
+      await Promise.allSettled([this.historyOperation]);
     }
   }
 }

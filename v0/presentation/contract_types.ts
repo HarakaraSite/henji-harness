@@ -232,6 +232,7 @@ export interface PresentationHistoryEntry {
   readonly role: 'user' | 'steer' | 'assistant' | 'tool>' | 'tool<';
   readonly messageIndex: number;
   readonly text: string;
+  readonly sourceScalarStart?: number;
 }
 
 export interface PresentationHistoryPage {
@@ -244,6 +245,23 @@ export interface PresentationHistoryPage {
   readonly entries: readonly PresentationHistoryEntry[];
   readonly sourceBytes: number;
   readonly omitted: boolean;
+}
+
+export interface PresentationHistoryMatch {
+  readonly query: string;
+  readonly ordinal: number;
+  readonly total: number;
+  readonly turn: number;
+  readonly role: PresentationHistoryEntry['role'];
+  readonly messageIndex: number;
+  readonly sourceScalarStart: number;
+  readonly sourceScalarLength: number;
+  readonly pageEntry: number;
+}
+
+export interface PresentationHistorySearchResult {
+  readonly page: PresentationHistoryPage;
+  readonly match: PresentationHistoryMatch;
 }
 
 export interface PresentationContextPreview {
@@ -294,6 +312,11 @@ export type PresentationIntent =
       readonly turn: number;
     }
   >
+  | Readonly<{
+    readonly kind: 'history_search';
+    readonly query: string;
+    readonly match: number;
+  }>
   | Readonly<{ readonly kind: 'history_export' }>
   | Readonly<
     {
@@ -346,6 +369,10 @@ export type PresentationIntentResult =
   | Readonly<
     { readonly kind: 'history'; readonly page?: PresentationHistoryPage }
   >
+  | Readonly<{
+    readonly kind: 'history_search';
+    readonly result?: PresentationHistorySearchResult;
+  }>
   | Readonly<
     {
       readonly kind: 'history_export';

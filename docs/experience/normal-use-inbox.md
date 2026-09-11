@@ -36,15 +36,18 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
   fixed credential fileへの保存と更新結果の表示。
 - OpenRouter、OpenAI direct、将来providerで共通化する範囲。
 
-#### Surface: 履歴閲覧の後続候補（F01、F05、F10）
+#### Surface: 履歴閲覧の追加候補（F01、F05、F10）
 
-increment 3では、現在SessionのPageUp/PageDown、Esc、task送信による最新追尾への復帰と、history位置表示を
-実装し、通常利用で受け入れた。`/history export`はincrement 4へ採用済み。次の操作は未採用である。
+PageUp / PageDownから入る現在Sessionの全文検索とjumpはincrement 30へ採用した。次の操作は未採用である。
 
-- `/history`等の明示的なread-only履歴閲覧modeと、vi風の`j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、
-  `q`/Esc。
+- vi風の`j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、`q`による追加navigation。
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
+
+#### Surface: セッション開始時のヘッダー充実（F01、F05、F10）
+
+- セッション開始時に、そのSessionを識別し、利用を始めるために必要な情報を今より分かりやすく表示したい。
+- 表示する情報、layout、既存のcompact startupとfooterとの分担は、個別incrementへ採用するときに決める。
 
 #### Surface: `/reload`によるresource再読込（F01、F03、F10）
 

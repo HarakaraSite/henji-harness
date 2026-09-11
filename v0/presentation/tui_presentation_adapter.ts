@@ -10,6 +10,7 @@ import {
   type PresentationEvent,
   type PresentationEventSink,
   type PresentationHistoryPage,
+  type PresentationHistorySearchResult,
   type PresentationIntent,
   presentationIntent,
   type PresentationIntentDispatcher,
@@ -43,6 +44,7 @@ import {
   failureDiagnostic,
   fixedCount,
   history,
+  historySearch as projectHistorySearch,
   listing,
   optionalBoundedCount,
   outcome,
@@ -281,6 +283,15 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       value,
     ) => value === undefined ? undefined : history(value));
   }
+  historySearch(
+    query: string,
+    match?: number,
+    rows?: number,
+  ): Promise<PresentationHistorySearchResult | undefined> {
+    return Promise.resolve(this.core.historySearch?.(query, match, rows)).then((value) =>
+      value === undefined ? undefined : projectHistorySearch(value)
+    );
+  }
   currentPosition(): PresentationPosition | undefined {
     const value = this.core.currentPosition?.();
     return value === undefined ? undefined : position(value);
@@ -497,6 +508,8 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       }
       case 'history_page':
         return this.dispatchHistory(admitted.page, admitted.turn);
+      case 'history_search':
+        return this.dispatchHistorySearch(admitted.query, admitted.match);
       case 'compaction': {
         if (admitted.action === 'cancel') {
           this.compactionAbort?.abort('context compaction cancelled');
@@ -540,10 +553,18 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       ? await this.core.historyPage?.(page, turn, 16)
       : await this.coreNavigation.historyPage(page, turn, 16);
     const pageValue = value === undefined ? undefined : history(value);
-    if (pageValue !== undefined) {
-      this.emit({ kind: 'history_page', page: pageValue });
-    }
     return { kind: 'history', page: pageValue };
+  }
+
+  private async dispatchHistorySearch(
+    query: string,
+    match: number,
+  ): Promise<PresentationIntentResult> {
+    const value = await this.core.historySearch?.(query, match, 16);
+    return {
+      kind: 'history_search',
+      result: value === undefined ? undefined : projectHistorySearch(value),
+    };
   }
 
   private dispatchResume(id: string): Promise<PresentationIntentResult> {

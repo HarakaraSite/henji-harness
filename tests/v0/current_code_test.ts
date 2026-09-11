@@ -22,7 +22,7 @@ import {
   restoredMessages,
 } from '../../v0/agent/session/session_store.ts';
 import { MAX_REPLAY_MESSAGE_TEXT_BYTES } from '../../v0/agent/session/replay_value.ts';
-import { historyPage } from '../../v0/agent/session/session_history.ts';
+import { historyPage, searchSessionHistory } from '../../v0/agent/session/session_history.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import {
@@ -705,4 +705,71 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
     entry.role === 'assistant'
   );
   assertEquals(assistantHistory?.text, 'I will inspect the current source.\nread');
+});
+
+Deno.test('history search uses the full canonical transcript and stable source coordinates', () => {
+  const transcript = [
+    { role: 'user' as const, content: { kind: 'text' as const, text: 'Alpha first' } },
+    { role: 'assistant' as const, content: { kind: 'text' as const, text: 'middle' } },
+    { role: 'user' as const, content: { kind: 'text' as const, text: '日本語を探す' } },
+    {
+      role: 'assistant' as const,
+      content: [{
+        kind: 'tool_call' as const,
+        callId: 'search-1',
+        name: 'lookup',
+        arguments: {},
+      }],
+    },
+    {
+      role: 'tool' as const,
+      content: [{
+        kind: 'tool_result' as const,
+        callId: 'search-1',
+        name: 'lookup',
+        text: 'second ALPHA and 日本語',
+        outcome: 'success' as const,
+      }],
+    },
+    { role: 'assistant' as const, content: { kind: 'text' as const, text: 'done' } },
+  ];
+
+  const oldest = searchSessionHistory(transcript, 'alpha', 0);
+  assertEquals(oldest?.match, {
+    query: 'alpha',
+    ordinal: 0,
+    total: 2,
+    turn: 1,
+    role: 'user',
+    messageIndex: 0,
+    sourceScalarStart: 0,
+    sourceScalarLength: 5,
+    pageEntry: 0,
+  });
+  const newer = searchSessionHistory(transcript, 'alpha', 1);
+  assertEquals(newer?.match.role, 'tool<');
+  assertEquals(newer?.match.sourceScalarStart, 7);
+  assertEquals(newer?.page.entries[newer.match.pageEntry].text, 'second ALPHA and 日本語');
+
+  const japanese = searchSessionHistory(transcript, '日本語', 0);
+  assertEquals(japanese?.match.turn, 2);
+  assertEquals(japanese?.match.role, 'user');
+
+  const longTranscript = Array.from({ length: 101 }, (_, index) => [
+    {
+      role: 'user' as const,
+      content: {
+        kind: 'text' as const,
+        text: index === 0 ? 'older-than-resume-limit' : `question ${index + 1}`,
+      },
+    },
+    {
+      role: 'assistant' as const,
+      content: { kind: 'text' as const, text: `answer ${index + 1}` },
+    },
+  ]).flat();
+  const oldMatch = searchSessionHistory(longTranscript, 'older-than-resume-limit', 0);
+  assertEquals(oldMatch?.match.turn, 1);
+  assertEquals(oldMatch?.match.messageIndex, 0);
+  assertEquals(oldMatch?.page.entries[oldMatch.match.pageEntry].sourceScalarStart, 0);
 });

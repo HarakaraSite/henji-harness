@@ -20,8 +20,10 @@ import { type SemanticContextCheckpointV1, type SessionRecord } from './session_
 import {
   historyPageWindow,
   indexSessionHistory,
+  searchSessionHistory,
   type SessionHistoryIndex,
   type SessionHistoryPage,
+  type SessionHistorySearchResult,
 } from './session_history.ts';
 import { SteeringOwner, type SteerRequestResult, validateSteeringText } from '../core/steering.ts';
 import {
@@ -252,6 +254,14 @@ export class AgentSession {
 
   historyPage(page: number, turn = this.nextTurn - 1, rows = 16): SessionHistoryPage | undefined {
     return historyPageWindow(this.committedTranscript, turn, page, {
+      sessionId: this.sessionId,
+      agent: this.sessionAgent,
+      rows,
+    });
+  }
+
+  historySearch(query: string, match = 0, rows = 16): SessionHistorySearchResult | undefined {
+    return searchSessionHistory(this.committedTranscript, query, match, {
       sessionId: this.sessionId,
       agent: this.sessionAgent,
       rows,

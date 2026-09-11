@@ -19,6 +19,7 @@ export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
   readonly sourceScalarOffset?: number;
+  readonly sourceScalarLength?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
   readonly blinkScalarStart?: number;
@@ -483,19 +484,52 @@ const overlayRows = (
     lines.push(...overlay.lines);
   } else if (overlay.kind === 'history') {
     const page = overlay.page;
-    lines.push(
-      'history · read-only · Up/Down page · Home oldest · End latest · Esc return',
-    );
-    if (page === undefined) lines.push('history loading');
+    const match = overlay.match;
+    const historyRows: LayoutRow[] = [];
+    const heading = match === undefined
+      ? 'history · read-only · PageUp/PageDown · Esc latest'
+      : `search "${safeDisplay(match.query, false)}" · ${
+        match.ordinal + 1
+      }/${match.total} · n/N repeat · / search · Esc latest`;
+    historyRows.push(...wrap(heading, columns, 'log'));
+    if (page === undefined) historyRows.push(...wrap('history loading', columns, 'log'));
     else {
-      lines.push(
+      historyRows.push(...wrap(
         `turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount}`,
-      );
-      for (const entry of page.entries.slice(0, 16)) {
-        lines.push(`${entry.role} [t${entry.turn}] ${entry.text}`);
+        columns,
+        'log',
+      ));
+      for (const [entryIndex, entry] of page.entries.slice(0, 16).entries()) {
+        const prefix = `${entry.role} [t${entry.turn}] `;
+        const prefixScalars = [...prefix].length;
+        const entryId = `history:${entry.turn}:${entry.messageIndex}:${entry.role}:${entryIndex}`;
+        const wrapped = wrap(`${prefix}${entry.text}`, columns, 'log', entryId, {
+          scalarLength: prefixScalars,
+          tone: entry.role === 'user' || entry.role === 'steer'
+            ? 'user'
+            : entry.role === 'assistant'
+            ? 'assistant'
+            : 'tool',
+        });
+        const sourceLength = [...entry.text].length;
+        for (let rowIndex = 0; rowIndex < wrapped.length; rowIndex += 1) {
+          const row = wrapped[rowIndex];
+          const localStart = Math.max(0, (row.sourceScalarOffset ?? 0) - prefixScalars);
+          const nextStart = rowIndex + 1 < wrapped.length
+            ? Math.max(0, (wrapped[rowIndex + 1].sourceScalarOffset ?? 0) - prefixScalars)
+            : sourceLength;
+          historyRows.push({
+            ...row,
+            sourceScalarOffset: (entry.sourceScalarStart ?? 0) + localStart,
+            sourceScalarLength: Math.max(0, nextStart - localStart),
+          });
+        }
       }
-      if (page.omitted) lines.push('history> page content bounded');
+      if (page.omitted) {
+        historyRows.push(...wrap('history> page content bounded', columns, 'log'));
+      }
     }
+    return historyRows;
   } else if (overlay.kind === 'compaction') {
     lines.push('context recovery · read-only');
     const preview = overlay.preview;
@@ -617,8 +651,20 @@ export const layoutUi = (
     );
     if (anchored >= 0) logStart = anchored;
   }
+  const historyMatch = state.overlay.kind === 'history' ? state.overlay.match : undefined;
+  const historyMatchRow = historyMatch !== undefined
+    ? overlay.findIndex((row) =>
+      row.entryId ===
+        `history:${historyMatch.turn}:${historyMatch.messageIndex}:${historyMatch.role}:${historyMatch.pageEntry}` &&
+      (row.sourceScalarOffset ?? 0) <= historyMatch.sourceScalarStart &&
+      (row.sourceScalarOffset ?? 0) + (row.sourceScalarLength ?? 0) >
+        historyMatch.sourceScalarStart
+    )
+    : -1;
   const overlayStart = state.overlay.kind === 'startupHelp'
     ? 0
+    : historyMatchRow >= 0
+    ? Math.max(0, Math.min(overlay.length - logHeight, historyMatchRow - 2))
     : Math.max(0, overlay.length - logHeight);
   const visibleLog = (overlay.length > 0 ? overlay : log.rows).slice(
     overlay.length > 0 ? overlayStart : logStart,

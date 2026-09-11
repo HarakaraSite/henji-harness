@@ -5,6 +5,7 @@ import {
   type PresentationDiagnosticPersistenceError,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
+  type PresentationHistoryMatch,
   type PresentationHistoryPage,
   type PresentationMessage,
   type PresentationNavigationListing,
@@ -565,11 +566,16 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  renderHistoryPage(page: PresentationHistoryPage): void {
+  renderHistoryPage(page: PresentationHistoryPage, match?: PresentationHistoryMatch): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
-      overlay: { kind: 'history', page, pageNumber: page.page },
+      overlay: {
+        kind: 'history',
+        page,
+        ...(match === undefined ? {} : { match }),
+        pageNumber: page.page,
+      },
     });
     this.redraw();
   }

@@ -196,3 +196,110 @@ Deno.test('controller overlay searches models and changes effort separately', as
   assert(statuses.some((status) => status.includes('effort medium')));
   await overlay.settle();
 });
+
+Deno.test('controller overlay searches history and repeats matches without replacing the draft', async () => {
+  const intents: PresentationIntent[] = [];
+  const rendered: string[] = [];
+  let latest = 0;
+  const page = {
+    turn: 1,
+    totalTurns: 2,
+    page: 0,
+    pageCount: 1,
+    entries: [{ turn: 1, role: 'user' as const, messageIndex: 0, text: 'alpha' }],
+    sourceBytes: 5,
+    omitted: false,
+  };
+  const result = (ordinal: number) => ({
+    page,
+    match: {
+      query: 'alpha',
+      ordinal,
+      total: 2,
+      turn: 1,
+      role: 'user' as const,
+      messageIndex: 0,
+      sourceScalarStart: 0,
+      sourceScalarLength: 5,
+      pageEntry: 0,
+    },
+  });
+  const renderer = {
+    renderChoicePicker: (lines: readonly string[]) => rendered.push(lines.join('\n')),
+    renderHistoryPage: (_page: unknown, match: { readonly ordinal: number }) =>
+      rendered.push(`match:${match.ordinal}`),
+    clearModal: () => rendered.push('clear'),
+    latest: () => latest += 1,
+    setStatus: () => {},
+  } as unknown as TuiRenderer;
+  const overlay = new ControllerOverlay({
+    renderer,
+    dispatch: (intent: PresentationIntent): PresentationIntentResult => {
+      intents.push(intent);
+      if (intent.kind === 'history_search') {
+        return { kind: 'history_search', result: result(intent.match) };
+      }
+      return { kind: 'rejected', reason: 'unavailable' };
+    },
+    setSession: () => {},
+    idleAllowed: () => true,
+    isIdle: () => true,
+    readyStatus: () => 'ready',
+    modelSelection: () => undefined,
+    fail: (error) => Promise.reject(error),
+  });
+
+  overlay.openHistorySearch();
+  overlay.process({ kind: 'paste', text: 'alpha' });
+  overlay.process({ kind: 'enter' });
+  await waitFor(() => rendered.includes('match:0'));
+  overlay.process({ kind: 'printable', text: 'n', codePoint: 110 });
+  await waitFor(() => rendered.includes('match:1'));
+  overlay.process({ kind: 'printable', text: 'N', codePoint: 78 });
+  await waitFor(() => rendered.filter((value) => value === 'match:0').length === 2);
+  overlay.process({ kind: 'escape' });
+
+  assertEquals(
+    intents.filter((intent) => intent.kind === 'history_search'),
+    [
+      { kind: 'history_search', query: 'alpha', match: 0 },
+      { kind: 'history_search', query: 'alpha', match: 1 },
+      { kind: 'history_search', query: 'alpha', match: 0 },
+    ],
+  );
+  assertEquals(latest, 1);
+  assert(!overlay.isOpen);
+  await overlay.settle();
+});
+
+Deno.test('controller overlay ignores a history result from a replaced Session binding', async () => {
+  let binding = 'session-one';
+  let resolveSearch!: (result: PresentationIntentResult) => void;
+  let historyRendered = false;
+  const overlay = new ControllerOverlay({
+    renderer: {
+      renderChoicePicker: () => {},
+      renderHistoryPage: () => historyRendered = true,
+      setStatus: () => {},
+    } as unknown as TuiRenderer,
+    dispatch: () =>
+      new Promise<PresentationIntentResult>((resolve) => {
+        resolveSearch = resolve;
+      }),
+    setSession: () => {},
+    idleAllowed: () => true,
+    isIdle: () => true,
+    readyStatus: () => 'ready',
+    modelSelection: () => undefined,
+    bindingIdentity: () => binding,
+    fail: (error) => Promise.reject(error),
+  });
+
+  overlay.openHistorySearch();
+  overlay.process({ kind: 'printable', text: 'x', codePoint: 120 });
+  overlay.process({ kind: 'enter' });
+  binding = 'session-two';
+  resolveSearch({ kind: 'history_search' });
+  await overlay.settle();
+  assert(!historyRendered);
+});
