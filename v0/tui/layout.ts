@@ -513,19 +513,25 @@ const overlayRows = (
         'log',
       ));
       for (const [entryIndex, entry] of page.entries.slice(0, 16).entries()) {
-        const prefix = `${entry.role} [t${entry.turn}] `;
+        const prefix = (entry.sourceScalarStart ?? 0) > 0 ? '' : `${entry.role} [t${entry.turn}] `;
         const prefixScalars = [...prefix].length;
         const entryId = `history:${entry.turn}:${entry.messageIndex}:${entry.role}:${entryIndex}`;
         const combinedText = `${prefix}${entry.text}`;
         const combinedPoints = [...combinedText];
-        const wrapped = wrap(combinedText, columns, 'log', entryId, {
-          scalarLength: prefixScalars,
-          tone: entry.role === 'user' || entry.role === 'steer'
-            ? 'user'
-            : entry.role === 'assistant'
-            ? 'assistant'
-            : 'tool',
-        });
+        const wrapped = wrap(
+          combinedText,
+          columns,
+          'log',
+          entryId,
+          prefixScalars === 0 ? undefined : {
+            scalarLength: prefixScalars,
+            tone: entry.role === 'user' || entry.role === 'steer'
+              ? 'user'
+              : entry.role === 'assistant'
+              ? 'assistant'
+              : 'tool',
+          },
+        );
         const sourceLength = [...entry.text].length;
         for (let rowIndex = 0; rowIndex < wrapped.length; rowIndex += 1) {
           const row = wrapped[rowIndex];

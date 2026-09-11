@@ -553,7 +553,7 @@ Deno.test('history layout retains canonical source ranges across wrapping', () =
           role: 'assistant',
           messageIndex: 3,
           text: 'abcdefghij',
-          sourceScalarStart: 100,
+          sourceScalarStart: 0,
         }],
         sourceBytes: 10,
         omitted: false,
@@ -565,7 +565,7 @@ Deno.test('history layout retains canonical source ranges across wrapping', () =
         turn: 1,
         role: 'assistant',
         messageIndex: 3,
-        sourceScalarStart: 107,
+        sourceScalarStart: 7,
         sourceScalarLength: 3,
         pageEntry: 0,
       },
@@ -574,19 +574,71 @@ Deno.test('history layout retains canonical source ranges across wrapping', () =
   const layout = layoutUi(state, 15, 24);
   const sourceRows = layout.overlay.filter((row) => row.entryId?.startsWith('history:1:3'));
   assert(sourceRows.length > 1);
-  assertEquals(sourceRows[0].sourceScalarOffset, 100);
+  assertEquals(sourceRows[0].sourceScalarOffset, 0);
   assertEquals(
     sourceRows.reduce((total, row) => total + (row.sourceScalarLength ?? 0), 0),
     10,
   );
   assert(sourceRows.some((row) =>
-    (row.sourceScalarOffset ?? 0) <= 107 &&
-    (row.sourceScalarOffset ?? 0) + (row.sourceScalarLength ?? 0) > 107
+    (row.sourceScalarOffset ?? 0) <= 7 &&
+    (row.sourceScalarOffset ?? 0) + (row.sourceScalarLength ?? 0) > 7
   ));
   const highlighted = sourceRows.filter((row) => (row.highlightScalarLength ?? 0) > 0);
   assertEquals(highlighted.length, 1);
   assertEquals(highlighted[0].highlightScalarStart, 7);
   assertEquals(highlighted[0].highlightScalarLength, 3);
+});
+
+Deno.test('history layout labels only the first chunk of one canonical message', () => {
+  const state = reduceUiAction(createUiState(), {
+    kind: 'overlay',
+    overlay: {
+      kind: 'history',
+      page: {
+        turn: 1,
+        totalTurns: 1,
+        page: 0,
+        pageCount: 1,
+        entries: [
+          {
+            turn: 1,
+            role: 'assistant',
+            messageIndex: 33,
+            text: 'first chunk',
+            sourceScalarStart: 0,
+          },
+          {
+            turn: 1,
+            role: 'assistant',
+            messageIndex: 33,
+            text: 'continued chunk',
+            sourceScalarStart: 11,
+          },
+        ],
+        sourceBytes: 26,
+        omitted: false,
+      },
+      match: {
+        query: 'tin',
+        ordinal: 0,
+        total: 1,
+        turn: 1,
+        role: 'assistant',
+        messageIndex: 33,
+        sourceScalarStart: 14,
+        sourceScalarLength: 3,
+        pageEntry: 1,
+      },
+    },
+  });
+  const layout = layoutUi(state, 80, 24);
+  const rows = layout.overlay.map((row) => row.text);
+  assertEquals(rows.filter((row) => row.includes('assistant [t1]')).length, 1);
+  assert(rows.includes('assistant [t1] first chunk'));
+  assert(rows.includes('continued chunk'));
+  const continuation = layout.overlay.find((row) => row.text === 'continued chunk');
+  assertEquals(continuation?.highlightScalarStart, 3);
+  assertEquals(continuation?.highlightScalarLength, 3);
 });
 
 Deno.test('retained PageUp at the oldest boundary anchors the first conversation entry', () => {
