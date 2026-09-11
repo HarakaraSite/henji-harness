@@ -5,17 +5,13 @@ import type {
   ContextRecoveryResult,
   NavigationPosition,
 } from '../agent/session/session_navigation.ts';
-import type {
-  SessionHistoryPage,
-  SessionHistorySearchResult,
-} from '../agent/session/session_history.ts';
+import type { SessionHistoryPage } from '../agent/session/session_history.ts';
 import type { HistoryExporter } from '../agent/session/history_export.ts';
 import type {
   PresentationContextMetrics,
   PresentationContextPreview,
   PresentationContextResult,
   PresentationHistoryPage,
-  PresentationHistorySearchResult,
   PresentationMessage,
   PresentationNavigationListing,
   PresentationOutcome,
@@ -37,14 +33,6 @@ export interface AdapterSessionPort {
   ):
     | Promise<PresentationHistoryPage | undefined>
     | PresentationHistoryPage
-    | undefined;
-  historySearch?(
-    query: string,
-    match?: number,
-    rows?: number,
-  ):
-    | Promise<PresentationHistorySearchResult | undefined>
-    | PresentationHistorySearchResult
     | undefined;
   currentPosition?(): PresentationPosition | undefined;
   contextCompactionPreview?(): PresentationContextPreview | undefined;
@@ -94,14 +82,6 @@ export type CoreSession = {
     turn?: number,
     rows?: number,
   ): Promise<SessionHistoryPage | undefined> | SessionHistoryPage | undefined;
-  historySearch?(
-    query: string,
-    match?: number,
-    rows?: number,
-  ):
-    | Promise<SessionHistorySearchResult | undefined>
-    | SessionHistorySearchResult
-    | undefined;
   currentPosition?(): NavigationPosition;
   contextCompactionPreview?(): ContextRecoveryPreview;
   compactContext?(signal?: AbortSignal): Promise<ContextRecoveryResult>;

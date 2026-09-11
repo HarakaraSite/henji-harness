@@ -40,11 +40,6 @@ export const presentationIntent = (
     ) {
       throw new PresentationDeliveryError();
     }
-  } else if (kind === 'history_search') {
-    boundedPresentationText(copy.query);
-    if (!Number.isSafeInteger(copy.match) || copy.match < 0) {
-      throw new PresentationDeliveryError();
-    }
   } else if (
     kind !== 'cancel_active' && kind !== 'list_sessions' &&
     kind !== 'history_export' &&

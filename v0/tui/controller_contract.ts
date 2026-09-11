@@ -3,7 +3,6 @@ import type {
   PresentationContextPreview,
   PresentationContextResult,
   PresentationHistoryPage,
-  PresentationHistorySearchResult,
   PresentationIntentDispatcher,
   PresentationMessage,
   PresentationNavigationListing,
@@ -27,14 +26,6 @@ export interface TuiSessionLike {
     turn?: number,
     rows?: number,
   ): Promise<PresentationHistoryPage | undefined> | PresentationHistoryPage | undefined;
-  historySearch?(
-    query: string,
-    match?: number,
-    rows?: number,
-  ):
-    | Promise<PresentationHistorySearchResult | undefined>
-    | PresentationHistorySearchResult
-    | undefined;
   currentPosition?(): PresentationPosition | undefined;
   contextCompactionPreview?(): PresentationContextPreview | undefined;
   compactContext?(signal?: AbortSignal): Promise<PresentationContextResult>;

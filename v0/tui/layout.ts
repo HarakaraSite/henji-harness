@@ -19,13 +19,10 @@ export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
   readonly sourceScalarOffset?: number;
-  readonly sourceScalarLength?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
-  readonly highlightScalarStart?: number;
-  readonly highlightScalarLength?: number;
   readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
 }
 
@@ -216,32 +213,21 @@ const footerStatusText = (
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
-  const commandItem = commandSegment === undefined || state.historySearchQuery !== undefined
+  const commandItem = commandSegment === undefined
     ? []
     : [{ kind: 'commands', text: safeDisplay(commandSegment, false) }];
   const cancelSegment = state.lifecycle === 'busy' ? 'Esc cancel' : undefined;
-  const overlayHistory = state.overlay.kind === 'history' ? state.overlay.page : undefined;
-  const historyFull = history !== undefined
-    ? `history rows ${history.first}-${history.last}/${history.total} · Esc latest`
-    : overlayHistory === undefined
+  const historyFull = history === undefined
     ? undefined
-    : `history turn ${overlayHistory.turn}/${overlayHistory.totalTurns} · page ${
-      overlayHistory.page + 1
-    }/${overlayHistory.pageCount} · Esc latest`;
+    : `history rows ${history.first}-${history.last}/${history.total} · Esc latest`;
   const historyRequired = historyFull === undefined
     ? undefined
     : width(`[${historyFull}]`) <= columns
     ? historyFull
     : 'history · Esc latest';
-  const fixed: string[] = state.historySearchQuery !== undefined
-    ? ['search', ...(historyRequired === undefined ? ['Esc latest'] : [historyRequired])]
-    : historyRequired === undefined
-    ? [displayedPrimary]
-    : [historyRequired];
+  const fixed: string[] = historyRequired === undefined ? [displayedPrimary] : [historyRequired];
   const optional = [
-    ...(historyRequired === undefined && state.historySearchQuery === undefined
-      ? []
-      : [{ kind: 'primary', text: displayedPrimary }]),
+    ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: displayedPrimary }]),
     ...(state.lifecycle === 'busy' ? [] : commandItem),
     ...(status.credential === undefined
       ? []
@@ -497,93 +483,19 @@ const overlayRows = (
     lines.push(...overlay.lines);
   } else if (overlay.kind === 'history') {
     const page = overlay.page;
-    const match = overlay.match;
-    const historyRows: LayoutRow[] = [];
-    const heading = match === undefined
-      ? 'history · read-only · PageUp/PageDown · Esc latest'
-      : `search "${safeDisplay(match.query, false)}" · ${
-        match.ordinal + 1
-      }/${match.total} · n/N repeat · / search · Esc latest`;
-    historyRows.push(...wrap(heading, columns, 'log'));
-    if (page === undefined) historyRows.push(...wrap('history loading', columns, 'log'));
+    lines.push(
+      'history · read-only · Up/Down page · Home oldest · End latest · Esc return',
+    );
+    if (page === undefined) lines.push('history loading');
     else {
-      historyRows.push(...wrap(
+      lines.push(
         `turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount}`,
-        columns,
-        'log',
-      ));
-      for (const [entryIndex, entry] of page.entries.slice(0, 16).entries()) {
-        const label = entry.role.endsWith('>') ? entry.role : `${entry.role}>`;
-        const prefix = (entry.sourceScalarStart ?? 0) > 0 ? '' : `${label} `;
-        const prefixScalars = [...prefix].length;
-        const entryId = `history:${entry.turn}:${entry.messageIndex}:${entry.role}:${entryIndex}`;
-        const combinedText = `${prefix}${entry.text}`;
-        const combinedPoints = [...combinedText];
-        const wrapped = wrap(
-          combinedText,
-          columns,
-          'log',
-          entryId,
-          prefixScalars === 0 ? undefined : {
-            scalarLength: prefixScalars,
-            tone: entry.role === 'user' || entry.role === 'steer'
-              ? 'user'
-              : entry.role === 'assistant'
-              ? 'assistant'
-              : 'tool',
-          },
-        );
-        const sourceLength = [...entry.text].length;
-        for (let rowIndex = 0; rowIndex < wrapped.length; rowIndex += 1) {
-          const row = wrapped[rowIndex];
-          const wrappedStart = row.sourceScalarOffset ?? 0;
-          const localStart = Math.max(0, wrappedStart - prefixScalars);
-          const nextStart = rowIndex + 1 < wrapped.length
-            ? Math.max(0, (wrapped[rowIndex + 1].sourceScalarOffset ?? 0) - prefixScalars)
-            : sourceLength;
-          const sourceStart = (entry.sourceScalarStart ?? 0) + localStart;
-          const sourceEnd = (entry.sourceScalarStart ?? 0) + nextStart;
-          const selected = match !== undefined && entryIndex === match.pageEntry &&
-            entry.turn === match.turn && entry.messageIndex === match.messageIndex &&
-            entry.role === match.role;
-          const highlightStart = selected
-            ? Math.max(sourceStart, match.sourceScalarStart)
-            : sourceEnd;
-          const highlightEnd = selected
-            ? Math.min(sourceEnd, match.sourceScalarStart + match.sourceScalarLength)
-            : sourceEnd;
-          historyRows.push({
-            ...row,
-            sourceScalarOffset: sourceStart,
-            sourceScalarLength: Math.max(0, nextStart - localStart),
-            ...(highlightEnd <= highlightStart ? {} : {
-              highlightScalarStart: [
-                ...safeDisplay(
-                  combinedPoints.slice(
-                    wrappedStart,
-                    prefixScalars + highlightStart - (entry.sourceScalarStart ?? 0),
-                  ).join(''),
-                  false,
-                ),
-              ].length,
-              highlightScalarLength: [
-                ...safeDisplay(
-                  combinedPoints.slice(
-                    prefixScalars + highlightStart - (entry.sourceScalarStart ?? 0),
-                    prefixScalars + highlightEnd - (entry.sourceScalarStart ?? 0),
-                  ).join(''),
-                  false,
-                ),
-              ].length,
-            }),
-          });
-        }
+      );
+      for (const entry of page.entries.slice(0, 16)) {
+        lines.push(`${entry.role} [t${entry.turn}] ${entry.text}`);
       }
-      if (page.omitted) {
-        historyRows.push(...wrap('history> page content bounded', columns, 'log'));
-      }
+      if (page.omitted) lines.push('history> page content bounded');
     }
-    return historyRows;
   } else if (overlay.kind === 'compaction') {
     lines.push('context recovery · read-only');
     const preview = overlay.preview;
@@ -687,12 +599,7 @@ export const layoutUi = (
     : 1;
   // Reserve one cell after the prompt for the cursor. Without this cell, a full-width final
   // character leaves the hardware cursor on that character rather than at the insertion point.
-  const activeEditor = state.historySearchQuery === undefined ? state.editor : Object.freeze({
-    text: state.historySearchQuery.text,
-    cursorScalar: [...state.historySearchQuery.text].length,
-    byteLength: encoder.encode(state.historySearchQuery.text).byteLength,
-  });
-  const editor = inputRows(activeEditor, Math.max(1, widthLimit - 3), maxInput);
+  const editor = inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
   const logHeight = Math.max(
     0,
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -
@@ -710,22 +617,7 @@ export const layoutUi = (
     );
     if (anchored >= 0) logStart = anchored;
   }
-  const historyMatch = state.overlay.kind === 'history' ? state.overlay.match : undefined;
-  const historyMatchRow = historyMatch !== undefined
-    ? overlay.findIndex((row) =>
-      row.entryId ===
-        `history:${historyMatch.turn}:${historyMatch.messageIndex}:${historyMatch.role}:${historyMatch.pageEntry}` &&
-      (row.sourceScalarOffset ?? 0) <= historyMatch.sourceScalarStart &&
-      (row.sourceScalarOffset ?? 0) + (row.sourceScalarLength ?? 0) >
-        historyMatch.sourceScalarStart
-    )
-    : -1;
-  const overlayStart = state.overlay.kind === 'startupHelp' ? 0 : historyMatchRow >= 0
-    ? Math.max(
-      0,
-      Math.min(overlay.length - logHeight, historyMatchRow - Math.floor(logHeight / 2)),
-    )
-    : state.overlay.kind === 'history' && state.overlay.placement === 'start'
+  const overlayStart = state.overlay.kind === 'startupHelp'
     ? 0
     : Math.max(0, overlay.length - logHeight);
   const visibleLog = (overlay.length > 0 ? overlay : log.rows).slice(
@@ -733,27 +625,8 @@ export const layoutUi = (
     (overlay.length > 0 ? overlayStart : logStart) + logHeight,
   );
   const paddedLog = [...visibleLog];
-  if (state.overlay.kind === 'history' && paddedLog.length < logHeight) {
-    const missing = logHeight - paddedLog.length;
-    const visibleMatchRow = historyMatchRow - overlayStart;
-    const topPadding = historyMatchRow >= 0
-      ? Math.max(0, Math.min(missing, Math.floor(logHeight / 2) - visibleMatchRow))
-      : state.overlay.placement === 'start'
-      ? 0
-      : missing;
-    paddedLog.unshift(
-      ...Array.from({ length: topPadding }, () => ({ text: '', kind: 'log' as const })),
-    );
-    paddedLog.push(
-      ...Array.from(
-        { length: missing - topPadding },
-        () => ({ text: '', kind: 'log' as const }),
-      ),
-    );
-  } else {
-    while (paddedLog.length < logHeight) {
-      paddedLog.unshift({ text: '', kind: 'log' });
-    }
+  while (paddedLog.length < logHeight) {
+    paddedLog.unshift({ text: '', kind: 'log' });
   }
   const history = state.scroll.kind === 'anchored' && state.overlay.kind === 'none'
     ? {

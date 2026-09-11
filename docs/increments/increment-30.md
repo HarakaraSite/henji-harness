@@ -1,123 +1,82 @@
-# 通常利用 Increment 30 — 現在Sessionの履歴検索とjump
+# 通常利用 Increment 30 — 履歴表示の一貫性と検索試行の取り下げ
 
-ステータス: **実装・検証完了、通常利用確認待ち**
+ステータス: **完了**
 
 ## 利用者が必要とする動作
 
-- 現在のPageUp / PageDownによる即時の履歴閲覧を維持したまま、現在Sessionのcommit済み履歴をkeywordで
-  検索し、該当箇所へjumpできる。
-- 再開時の表示上限やTUIのretained log上限より古い履歴も検索できる。
-- 検索後もPageUp / PageDownで周辺を閲覧し、Escで最新表示へ戻れる。
-- 将来assistant本文をMarkdown表示へ差し替えても、検索位置がterminal styleやwrap後の文字列に依存しない。
+- PageUp / PageDownで現在Sessionの過去表示へ即座に移動し、Escで最新表示へ戻れる。
+- live表示、起動時のSession復元、`/sessions`からの復元、履歴閲覧で同じconversation表示を使う。
+- userとassistantの本文、および集約済みの短いtool行を確認し、terminalの機能で必要な箇所をcopyできる。
+- commit済みcanonical transcript全体は`/history export`で別々のMarkdown snapshotとして保存できる。
 
 ## 根拠となる現行動作
 
-- 現行PageUp / PageDownは、同じconversation領域を`entryId`とscalar offsetでanchorし、Escまたは最新pageへの
-  PageDownで`followLatest`へ戻る。別の履歴modeを開く操作は必要ない。
-- Session再開時にTUIへ復元するのは最大100 messages / 2 MiB、retained logは最大512 entries / 2 MiBであり、
-  画面上のlogだけではcommit済みcanonical transcript全体を検索できない。
-- Host側Sessionはcommit済みtranscript全体を保持し、既存のhistory projectionはturn、message index、role、
-  bounded textを返せる。
-- 現在の`AssistantContentRenderer`はHost-localに差し替えられるが、返り値はplain stringである。layout rowの
-  offsetは投影後stringを基準にしており、Markdown変換後も使えるsource coordinateではない。
+- PageUp / PageDownは、TUIが実際に描画したconversation rowを`entryId`とscalar offsetでanchorする。
+- Sessionはtool callとtool result本文を含む完全なcanonical transcriptを保持する。一方、通常表示ではtool名、
+  既知toolの短いcall preview、成否を一つの`tool>`行へ集約する。
+- Session側にはsemantic contextとexportに使うcausal history index、および内部presentation contractに残る
+  bounded page projectionがある。後者はTUIが描画したterminal rowによるviewportとは異なる単位である。
 
-## Product動作
+## 採用したProduct動作
 
-- idle時のPageUpは現在と同様に最新付近から一page古い表示へ即座に移動し、履歴閲覧状態に入る。Session
-  先頭へ自動移動しない。PageUp / PageDownとEscの現動作を維持する。
-- 履歴閲覧中の`/`はtask editorへ入力せず、keyword入力を開始する。keyword入力中はprintable text、paste、
-  Backspaceを編集に使い、Enterで確定し、Escで検索入力だけを取り消す。入力中も履歴表示を維持し、通常の
-  task draftとは別の入力欄として`>/keyword`を表示する。
-- 履歴表示、起動時のSession復元、`/sessions`からの復元は、turn完了後のlive conversation logと同じsettled
-  表示を使う。userとassistantの本文を表示し、tool callとresultはtool名、既知toolの短いcall preview、成否を
-  一つの`tool>`行へ集約する。tool result本文はcanonical transcriptに保持するが、この表示へ展開しない。
-- 最初の検索は現在の表示位置に関係なく、commit済みcanonical transcriptの先頭から上記settled表示へ投影した
-  user、assistant、tool行の可視textをliteralかつcase-insensitiveに検索する。tool result本文にはmatchせず、
-  正規表現は使わない。
-- Enterは最も古い一致へjumpする。検索確定後の`n`は次の新しい一致、`N`は一つ古い一致へjumpし、端では
-  wrapせず停止する。match ordinal / totalとkeywordをfooterへ表示し、選択中の一致だけをhighlightする。
-- 検索一致を含むpageでは、利用可能なconversation表示領域の中央付近へhighlightを配置する。その状態の
-  PageUp / PageDownは検索modeを維持して前後のbounded history pageへ移動し、履歴の端では現在pageに留まる。
-  検索modeとhighlightを解除して最新表示へ戻す操作はEscとする。
-- 一致箇所が通常retained logより古い場合も、Hostはそのexact messageを含むbounded history windowを返し、
-  conversation領域はそのwindowを同じ表示規則で描画する。検索表示からPageUp / PageDownで前後のbounded
-  windowへ移動できる。
-- Escは検索入力中なら入力だけを取消し、それ以外の履歴閲覧中なら検索状態を破棄して元のretained logの
-  最新表示へ戻る。未送信draftは変更しない。
-- 検索対象とmatch identityはcanonical sourceのturn、message index、roleと、settled可視entry内のscalar rangeで
-  表す。terminal escape、label、label色、wrapを検索対象にしない。
-- layout rowは対応するsettled可視entryのsource rangeを保持し、viewport jumpはそのcoordinateから表示rowへ
-  解決する。長い一つのentryを内部chunkへ分けても、継続chunkへ同じlabelを繰り返さない。
+- idle時のPageUpは最新付近から一page古い表示へ移動し、PageDownは新しい側へ移動する。先頭へ自動移動
+  しない。履歴末尾へのPageDown、Esc、または通常taskの受付後に最新追尾へ戻る。
+- 過去表示中も未送信draftを変更しない。
+- live、起動時復元、`/sessions`復元、PageUp / PageDownによる履歴閲覧は同じsettled conversation表示を
+  使う。tool result本文はcanonical transcriptに保持するが通常表示へ展開しない。
+- keyword検索、検索入力、match移動、highlightは提供しない。
+- `/history export`は変更せず利用できる。
 
-## 実装計画
+## 検索試行を取り下げた理由
 
-1. canonical transcriptを一回走査し、turn完了後のlive logと同じsettled可視entryとsource coordinateを作る
-   Host-owned history searchを追加する。queryごとに全match identityを返さず、現在matchとcount、および
-   bounded windowを返す。
-2. presentation intent / resultへ、現在Sessionに対するhistory search、次・前match、window移動をdata-onlyで
-   追加する。Session切替後の古い結果を適用しないようbinding identityと相関させる。
-3. retained TUIにhistory browsing / search query stateを追加し、PageUpによる現在の即時閲覧、`/`入力、Enter、
-   `n` / `N`、Esc、PageUp / PageDownをcontrollerへ接続する。
-4. conversation projectionとlayout rowへcanonical source identity / rangeを運び、plain rendererと将来rendererの
-   表示投影から検索anchorを分離する。
-5. focused testで、現行PageUpの開始位置、表示上限より古いmatch、日本語とASCII、複数match、端での停止、
-   draft保持、wrap後のsource anchor、Session bindingの切替を確認する。
-6. repository定義のformat、type check、lint、`git diff --check`を実行し、安定候補に対する`v0:gate`を一回だけ
-   実行する。
+初回実装では、PageUp後の`/`、keyword入力、Enter、`n` / `N`、highlightを追加し、Session側のbounded
+history pageへjumpした。通常利用で、同じ履歴が通常のPageUp / PageDownでは3 page、検索後には4 pageに
+なることを確認した。
 
-## 成功条件
-
-- 100 messagesより古いcommit済み履歴にだけ存在するkeywordを検索し、最も古いmatchへjumpできる。
-- `n` / `N`でchronologicalな次・前matchへ移動し、footerのordinalと表示内容が一致する。
-- PageUpだけの既存利用では最新付近からの即時閲覧、PageDown末尾とEscによる最新復帰が変わらない。
-- 検索、履歴window移動、終了の前後でcanonical transcript、Session commit、未送信draftが変わらない。
-- assistant rendererが本文を別の表示へ投影しても、canonical source coordinateからmatchを識別できる。
-
-## 対象外
-
-- Markdown renderer、Markdown parser、code block / table / hyperlinkのterminal表示
-- `j` / `k`、`h` / `l`、`Ctrl-U` / `Ctrl-D`、`g` / `G`によるvi風の一般移動
-- mouse wheel、横scroll、同じwindow内の非選択matchのhighlight、正規表現
-- 複数Sessionを横断する検索、provider context、未commitのstreaming output
-- `$VISUAL` / `$EDITOR`で履歴を開く操作、`/history export`の変更
-- architecture、roadmap、canonical Session schemaの変更
-
-## 承認
-
-- 利用者は、PageUp / PageDownの即時閲覧を維持し、keyword確定時はSession先頭から最も古い一致へjump、
-  `n`で新しい一致、`N`で古い一致へ移動する動作を承認した。
-- Markdown renderer自体は実装せず、検索とviewport anchorをcanonical source coordinateへ分離する基盤だけを
-  このincrementへ含める。
+原因は、通常閲覧がterminal高とwrap後の描画rowをpage単位にする一方、検索がHost側の固定byte上限による
+bounded entry pageを使い、二つのpage定義を一画面で混在させたことである。検索結果への追補だけでは、
+閲覧・検索・page移動を一つの連続したdocumentとして扱えないため、このincrementでは検索UIと検索専用
+contractを取り下げた。causal history indexはsemantic contextおよびhistory export、bounded projectionは
+既存の内部presentation contractで使うため残した。
 
 ## 実装結果
 
-- Host-owned canonical transcript検索を追加し、literalかつcase-insensitiveな全一致から、指定ordinalとその
-  一致を含むbounded history pageだけをpresentation境界へ返すようにした。
-- PageUpでanchorした閲覧中の`/`、keyword入力、Enter、`n` / `N`、PageUp / PageDown、Escをretained TUIへ
-  接続した。検索前のdraftとmain retained logは置換しない。
-- matchはturn、message index、role、source scalar rangeで保持し、history layout rowもwrap後に対応するsource
-  rangeを保持する。検索結果はSession binding identityが変わった場合に適用しない。
-- focused testで101 turnの先頭にだけあるmatch、日本語とASCII、複数match、`n` / `N`、draft保持、wrap後の
-  source range、古いSession bindingの結果破棄を確認した。
-- 通常利用前の追補として、検索語入力を履歴を隠すmodalから`>/keyword`形式の専用入力laneへ変更した。footer
-  はsearch状態とhistory位置を表示し、canonical source rangeから選択中の一致だけをreverse-videoでhighlight
-  する。`n` / `N`で選択matchが変わるとhighlightも追従する。追補後のauthoritative `v0:gate`も成功した。
-- 通常利用で、履歴検索がtool result本文を通常logへ展開して検索対象にもしていた不整合を確認した。live、
-  起動時復元、`/sessions`復元、履歴、検索を同じsettled可視entryへ揃え、tool result本文は完全なcanonical
-  transcriptだけに保持する方針へ要件を修正した。事象が発生した保存Sessionでも復元と履歴のtool行22件が
-  一致し、result本文だけの語が検索にmatchしないことを確認し、追補後のauthoritative `v0:gate`も成功した。
-- 通常利用で、検索一致が画面上端寄りになり、PageDownが履歴末尾で検索modeを解除する操作性を確認した。
-  highlightを表示領域の中央へ配置し、PageUp / PageDownを前後pageの移動として維持し、履歴端では留まる
-  page方式へ修正した。この操作性追補後のauthoritative `v0:gate`も成功した。
-- 初回実装のauthoritative `v0:gate`でformat、type check、lint、全testが成功した。主要test群75件、provider
-  stream compatibility 20件、および各increment / production CLI testがすべて成功した。
+- live、起動時復元、`/sessions`復元のsettled表示を共通化し、assistant本文の分割表示とtool call / resultが
+  離れて表示される不整合を修正した。
+- 履歴検索のHost API、presentation intent / result、controller state、検索入力、`n` / `N`、一致位置、
+  reverse-video highlightを削除した。
+- PageUp / PageDown、Esc、draft保持、`/history export`、compact tool行、canonical transcriptの完全な保存を
+  維持した。
+- focused type checkと関連する50 testが成功した。安定候補に対するauthoritative `v0:gate`も一回実行し、
+  format、type check、lint、全testが成功した。
+
+## 後続候補
+
+履歴閲覧で人間が行いたいことは、過去turn、指示、結果を確認し、terminalでcopyすることである。keyword
+検索は、人間が記憶している場所へ素早く移動する手段として有用になり得る。再採用時は、閲覧と検索で
+同じ連続document、wrap、viewport、page移動を使うread-only text viewerとして設計し、Host側bounded pageを
+画面上のpage定義として直接使わない。
+
+## 対象外
+
+- read-only text viewerとkeyword検索の再実装
+- Markdown renderer、vi風navigation、mouse wheel、横scroll
+- `$VISUAL` / `$EDITOR`でexportを開く操作
+- architecture、canonical Session schemaの変更
 
 ## 通常利用で確認する操作
 
-1. PageUpで現在Sessionの履歴を開き、`/`を入力する。
-2. keywordを入力してEnterを押し、最も古い一致へjumpすることを確認する。
-3. `n`で新しい一致、`N`で古い一致へ移動し、PageUp / PageDownで周辺を閲覧する。
-4. live表示、起動時復元、`/sessions`復元、履歴で同じuser、assistant、集約済みtool行が表示され、tool result
-   本文が通常logへ展開されないことを確認する。
-5. liveのtool previewには検索がmatchし、tool result本文だけにあるkeywordにはmatchしないことを確認する。
-6. Escで最新表示へ戻り、検索前の未送信draftが残っていることを確認する。
+1. PageUp / PageDownで同じconversation rowを前後に移動できることを確認する。
+2. Escで最新表示へ戻り、未送信draftが保持されることを確認する。
+3. live、起動時復元、`/sessions`復元でuser、assistant、集約済みtool行が同じ順序と内容で表示されることを
+   確認する。
+4. 必要に応じて`/history export`でcanonical transcript全体をMarkdownへ保存できることを確認する。
+
+## 完了判断
+
+- production TTYの通常利用でPageUp後のretained conversationと`history rows ... · Esc latest`の位置表示を
+  確認した。
+- 利用者はkeyword検索を取り下げ、PageUp / PageDownと`/history export`を現在の閲覧手段とする結果を受け入れ、
+  2026-09-11にIncrement 30を完了と判断した。
+- 同じ通常利用で観測した外部情報調査時のtool選択は、このincrementを再開せず、通常利用メモの未採用候補として
+  別に記録した。

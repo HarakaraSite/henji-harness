@@ -18,7 +18,6 @@ import {
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
   RESET_SGR,
-  REVERSE_SGR,
   TerminalLifecycle,
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
@@ -538,113 +537,6 @@ Deno.test('retained layout keeps fullwidth form cells consistent through edit an
   assertEquals(halfwidthLayout.cursor.cell, 5); // prompt (2) + fullwidth 2 + halfwidth 1
 });
 
-Deno.test('history layout retains canonical source ranges across wrapping', () => {
-  const state = reduceUiAction(createUiState(), {
-    kind: 'overlay',
-    overlay: {
-      kind: 'history',
-      page: {
-        turn: 1,
-        totalTurns: 1,
-        page: 0,
-        pageCount: 1,
-        entries: [{
-          turn: 1,
-          role: 'assistant',
-          messageIndex: 3,
-          text: 'abcdefghij',
-          sourceScalarStart: 0,
-        }],
-        sourceBytes: 10,
-        omitted: false,
-      },
-      match: {
-        query: 'hij',
-        ordinal: 0,
-        total: 1,
-        turn: 1,
-        role: 'assistant',
-        messageIndex: 3,
-        sourceScalarStart: 7,
-        sourceScalarLength: 3,
-        pageEntry: 0,
-      },
-    },
-  });
-  const layout = layoutUi(state, 15, 24);
-  const sourceRows = layout.overlay.filter((row) => row.entryId?.startsWith('history:1:3'));
-  assert(sourceRows.length > 1);
-  assertEquals(sourceRows[0].sourceScalarOffset, 0);
-  assertEquals(
-    sourceRows.reduce((total, row) => total + (row.sourceScalarLength ?? 0), 0),
-    10,
-  );
-  assert(sourceRows.some((row) =>
-    (row.sourceScalarOffset ?? 0) <= 7 &&
-    (row.sourceScalarOffset ?? 0) + (row.sourceScalarLength ?? 0) > 7
-  ));
-  const highlighted = sourceRows.filter((row) => (row.highlightScalarLength ?? 0) > 0);
-  assertEquals(highlighted.length, 1);
-  assertEquals(highlighted[0].highlightScalarStart, 3);
-  assertEquals(highlighted[0].highlightScalarLength, 3);
-  assertEquals(
-    layout.log.findIndex((row) => (row.highlightScalarLength ?? 0) > 0),
-    Math.floor(layout.log.length / 2),
-  );
-});
-
-Deno.test('history layout labels only the first chunk of one canonical message', () => {
-  const state = reduceUiAction(createUiState(), {
-    kind: 'overlay',
-    overlay: {
-      kind: 'history',
-      page: {
-        turn: 1,
-        totalTurns: 1,
-        page: 0,
-        pageCount: 1,
-        entries: [
-          {
-            turn: 1,
-            role: 'assistant',
-            messageIndex: 33,
-            text: 'first chunk',
-            sourceScalarStart: 0,
-          },
-          {
-            turn: 1,
-            role: 'assistant',
-            messageIndex: 33,
-            text: 'continued chunk',
-            sourceScalarStart: 11,
-          },
-        ],
-        sourceBytes: 26,
-        omitted: false,
-      },
-      match: {
-        query: 'tin',
-        ordinal: 0,
-        total: 1,
-        turn: 1,
-        role: 'assistant',
-        messageIndex: 33,
-        sourceScalarStart: 14,
-        sourceScalarLength: 3,
-        pageEntry: 1,
-      },
-    },
-  });
-  const layout = layoutUi(state, 80, 24);
-  const rows = layout.overlay.map((row) => row.text);
-  assertEquals(rows.filter((row) => row.includes('assistant>')).length, 1);
-  assert(rows.includes('assistant> first chunk'));
-  assert(rows.includes('continued chunk'));
-  const continuation = layout.overlay.find((row) => row.text === 'continued chunk');
-  assertEquals(continuation?.highlightScalarStart, 3);
-  assertEquals(continuation?.highlightScalarLength, 3);
-});
-
 Deno.test('retained PageUp at the oldest boundary anchors the first conversation entry', () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);
@@ -770,7 +662,7 @@ Deno.test('retained controller Escape returns an anchored viewport to latest', a
   assertEquals(await run, 0);
 });
 
-Deno.test('anchored slash searches canonical history while preserving the editor draft', async () => {
+Deno.test('anchored slash remains ordinary editor input without history search', async () => {
   const terminal = new InteractiveTerminal();
   terminal.size = { columns: 80, rows: 10 };
   const renderer = new TuiRenderer(terminal);
@@ -779,67 +671,19 @@ Deno.test('anchored slash searches canonical history while preserving the editor
   renderer.resize(80, 10);
   fillConversation(renderer);
   renderer.scrollPage('up');
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
 
-  const page = {
-    turn: 1,
-    totalTurns: 1,
-    page: 0,
-    pageCount: 1,
-    entries: [{ turn: 1, role: 'user' as const, messageIndex: 0, text: 'alpha and alpha' }],
-    sourceBytes: 15,
-    omitted: false,
-  };
   const controller = new TuiController(
     lifecycle,
     renderer,
-    {
-      ...successfulSession([]),
-      historySearch: (query, match = 0) => ({
-        page,
-        match: {
-          query,
-          ordinal: match,
-          total: 2,
-          turn: 1,
-          role: 'user',
-          messageIndex: 0,
-          sourceScalarStart: match === 0 ? 0 : 10,
-          sourceScalarLength: 5,
-          pageEntry: 0,
-        },
-      }),
-    },
+    successfulSession([]),
     { pending: new PendingInputCore() },
   );
   const run = controller.run();
-  terminal.push('keep this draft/alpha');
-  await waitFor(() => renderer.stateSnapshot().historySearchQuery?.text === 'alpha');
+  terminal.push('/ordinary');
+  await waitFor(() => controller.editor.text === '/ordinary');
   assertEquals(renderer.stateSnapshot().overlay.kind, 'none');
-  assertEquals(controller.editor.text, 'keep this draft');
-  assert(renderer.renderFrame(80, 10).includes('>/alpha'));
-  const searchFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(searchFooter.includes('search'));
-  assert(searchFooter.includes('history rows'));
-  assert(searchFooter.includes('Esc latest'));
-  terminal.push('\r');
-  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'history');
-  const overlay = renderer.stateSnapshot().overlay;
-  assert(overlay.kind === 'history');
-  assertEquals(overlay.match?.ordinal, 0);
-  assertEquals(controller.editor.text, 'keep this draft');
-  assert(renderer.renderFrame(80, 10).includes(`${REVERSE_SGR}alpha${RESET_SGR}`));
-  terminal.push('n');
-  await waitFor(() => {
-    const current = renderer.stateSnapshot().overlay;
-    return current.kind === 'history' && current.match?.ordinal === 1;
-  });
-  const newerFrame = renderer.renderFrame(80, 10);
-  assert(newerFrame.includes(`alpha and ${REVERSE_SGR}alpha${RESET_SGR}`));
-  assertEquals(newerFrame.split(REVERSE_SGR).length - 1, 1);
-  terminal.push('\x1b');
-  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'none');
-  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
-  assertEquals(controller.editor.text, 'keep this draft');
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
   terminal.push('\x15\x04');
   assertEquals(await run, 0);
 });

@@ -5,7 +5,6 @@ import {
   type PresentationDiagnosticPersistenceError,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
-  type PresentationHistoryMatch,
   type PresentationHistoryPage,
   type PresentationMessage,
   type PresentationNavigationListing,
@@ -23,7 +22,6 @@ import {
   MAGENTA_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
-  REVERSE_SGR,
   SHOW_CURSOR,
   staticBytes,
   type TerminalPort,
@@ -64,28 +62,6 @@ const renderLayoutRow = (row: LayoutRow): string => {
     const start = Math.max(0, Math.min(points.length, row.blinkScalarStart));
     const end = Math.max(start, Math.min(points.length, start + row.blinkScalarLength));
     return `${points.slice(0, start).join('')}${BLINK_SGR}${
-      points.slice(start, end).join('')
-    }${RESET_SGR}${points.slice(end).join('')}`;
-  }
-  if (
-    row.highlightScalarStart !== undefined && row.highlightScalarLength !== undefined &&
-    row.highlightScalarLength > 0
-  ) {
-    const points = [...row.text];
-    const start = Math.max(0, Math.min(points.length, row.highlightScalarStart));
-    const end = Math.max(start, Math.min(points.length, start + row.highlightScalarLength));
-    const labelEnd = row.labelTone === undefined || row.labelScalarLength === undefined
-      ? 0
-      : Math.max(0, Math.min(start, row.labelScalarLength));
-    const sgr = row.labelTone === 'user'
-      ? BLUE_SGR
-      : row.labelTone === 'assistant'
-      ? YELLOW_SGR
-      : row.labelTone === 'tool'
-      ? GREEN_SGR
-      : MAGENTA_SGR;
-    const label = labelEnd === 0 ? '' : `${sgr}${points.slice(0, labelEnd).join('')}${RESET_SGR}`;
-    return `${label}${points.slice(labelEnd, start).join('')}${REVERSE_SGR}${
       points.slice(start, end).join('')
     }${RESET_SGR}${points.slice(end).join('')}`;
   }
@@ -174,10 +150,9 @@ export class TuiRenderer implements TerminalRendererGate {
     // while other overlays retain their newest-page/tail behavior.
     const overlayLog = this.ui.overlay.kind === 'startupHelp' ? layout.log : layout.overlay;
     const log = (overlayLog.length > 0 ? overlayLog : layout.log).map(renderLayoutRow);
-    const inputPrompt = this.ui.historySearchQuery === undefined ? '> ' : '>/';
     const fixed = [
       ...layout.beforeInput.map((line) => line.text),
-      ...layout.input.map((line) => `${inputPrompt}${line.text}`),
+      ...layout.input.map((line) => `> ${line.text}`),
       ...layout.afterInput.map((line) => line.text),
       ...layout.footer.map(renderLayoutRow),
     ];
@@ -432,20 +407,6 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  setHistorySearchQuery(text: string, noMatches = false): void {
-    this.ui = reduceUiAction(this.ui, {
-      kind: 'history_search_query',
-      text,
-      noMatches,
-    });
-    this.redraw();
-  }
-
-  clearHistorySearchQuery(): void {
-    this.ui = reduceUiAction(this.ui, { kind: 'history_search_query' });
-    this.redraw();
-  }
-
   setSlashCommandCandidates(candidates: readonly string[]): void {
     this.ui = reduceUiAction(this.ui, {
       kind: 'slash_command_candidates',
@@ -604,20 +565,14 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  renderHistoryPage(
-    page: PresentationHistoryPage,
-    match?: PresentationHistoryMatch,
-    placement: 'match' | 'start' | 'end' = 'match',
-  ): void {
+  renderHistoryPage(page: PresentationHistoryPage): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
       overlay: {
         kind: 'history',
         page,
-        ...(match === undefined ? {} : { match }),
         pageNumber: page.page,
-        placement,
       },
     });
     this.redraw();

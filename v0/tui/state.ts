@@ -2,7 +2,6 @@ import {
   type PresentationContextPreview,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
-  type PresentationHistoryMatch,
   type PresentationHistoryPage,
   type PresentationLifecycle,
   type PresentationNavigationListing,
@@ -64,9 +63,7 @@ export type UiOverlay =
     {
       readonly kind: 'history';
       readonly page?: PresentationHistoryPage;
-      readonly match?: PresentationHistoryMatch;
       readonly pageNumber?: number;
-      readonly placement?: 'match' | 'start' | 'end';
     }
   >
   | Readonly<
@@ -97,10 +94,6 @@ export interface UiState {
   readonly activeAssistantId?: string;
   readonly activeToolIds: readonly string[];
   readonly editor: EditorSnapshot;
-  readonly historySearchQuery?: Readonly<{
-    readonly text: string;
-    readonly noMatches: boolean;
-  }>;
   readonly pending?: PendingMetadataSnapshot;
   readonly scroll: UiScroll;
   readonly newBelowCount: number;
@@ -116,11 +109,6 @@ export interface UiState {
 
 export type UiAction =
   | Readonly<{ readonly kind: 'editor'; readonly snapshot: EditorSnapshot }>
-  | Readonly<{
-    readonly kind: 'history_search_query';
-    readonly text?: string;
-    readonly noMatches?: boolean;
-  }>
   | Readonly<{ readonly kind: 'clear_live' }>
   | Readonly<
     {
@@ -770,14 +758,6 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       return Object.freeze({
         ...state,
         editor: Object.freeze({ ...action.snapshot }),
-      });
-    case 'history_search_query':
-      return Object.freeze({
-        ...state,
-        historySearchQuery: action.text === undefined ? undefined : Object.freeze({
-          text: safeText(action.text),
-          noMatches: action.noMatches === true,
-        }),
       });
     case 'clear_live':
       return removeLiveEntries(state);

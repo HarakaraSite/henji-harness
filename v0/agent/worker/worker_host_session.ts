@@ -3,9 +3,7 @@ import type { LoopOutcome, Message } from '../core/contracts.ts';
 import {
   historyPageWindow,
   indexSessionHistory,
-  searchSessionHistory,
   type SessionHistoryPage,
-  type SessionHistorySearchResult,
 } from '../session/session_history.ts';
 import {
   type DefinitionRevisionRef,
@@ -1009,18 +1007,6 @@ export class WorkerHostSession {
     rows = 16,
   ): SessionHistoryPage | undefined {
     return historyPageWindow(this.transcript, turn, page, {
-      sessionId: this.sessionId,
-      agent: this.options.agent,
-      rows,
-    });
-  }
-
-  historySearch(
-    query: string,
-    match = 0,
-    rows = 16,
-  ): SessionHistorySearchResult | undefined {
-    return searchSessionHistory(this.transcript, query, match, {
       sessionId: this.sessionId,
       agent: this.options.agent,
       rows,

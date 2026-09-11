@@ -38,8 +38,18 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
 
 #### Surface: 履歴閲覧の追加候補（F01、F05、F10）
 
-PageUp / PageDownから入る現在Sessionの全文検索とjumpはincrement 30へ採用した。次の操作は未採用である。
+Increment 30ではPageUp / PageDown中のkeyword検索を試行したが、通常viewportのterminal描画rowと
+Host側bounded history entryという二つのpage単位が混在したため取り下げた。現在はPageUp / PageDown、
+Escによる最新復帰、および`/history export`を利用できる。
 
+履歴閲覧で人間が行いたいことは、過去のturn、指示、結果を確認し、terminalの機能で必要な箇所をcopyする
+ことである。次に採用する場合は、簡易なread-only text editorのように、閲覧と検索で同じ連続document、
+wrap、viewport、page移動を共有する履歴viewerとして設計する。keyword検索は人間が記憶している場所へ
+素早く移動する入口とする。
+
+追加候補:
+
+- 上記viewer内のliteral keyword検索、現在位置からのjump、一致箇所のhighlight。
 - vi風の`j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、`q`による追加navigation。
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
@@ -48,6 +58,13 @@ PageUp / PageDownから入る現在Sessionの全文検索とjumpはincrement 30�
 
 - セッション開始時に、そのSessionを識別し、利用を始めるために必要な情報を今より分かりやすく表示したい。
 - 表示する情報、layout、既存のcompact startupとfooterとの分担は、個別incrementへ採用するときに決める。
+
+#### Surface: `/new`で新しいSessionを開始（F01、F04、F05、F10）
+
+- Henji processを終了・再起動せず、`/new`で現在のworkspaceに新しいpersistent Sessionを作成し、
+  そのSessionへ切り替えたい。
+- active turn中の扱い、未送信draftを保持するか、新しいSessionへ引き継ぐmodel selectionなどの初期状態は、
+  個別incrementへ採用するときに決める。
 
 #### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
@@ -122,10 +139,28 @@ PageUp / PageDownから入る現在Sessionの全文検索とjumpはincrement 30�
   優先する方針がなかった。Henjiのbash環境では`rg`がPATH外なので`grep`の選択は妥当だった。
 - `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5、既存work toolの
   component化はincrement 6で実装済みである。
+- 「giteaの直近10件のPR」という外部の現在情報を求めるtaskで、modelは対象identityとcanonical sourceを
+  確立する前にrepository内をgrepし、その後GitHub API等を`curl`で繰り返し取得した。現行共通instructionは
+  既存sourceで現在・外部情報が未解決なら`web_search`を使うが、外部対象の発見時にlocal探索や`curl`より
+  先に使う優先規則はない。
+- 上記taskのtool traceでは、workspace、sibling repository、`.handoff`、通常利用メモ、複数のHTTP endpointを
+  調べ、GitHub APIからPR一覧を取得した後、14番目のtool callで初めて`web_search`を「念のため」の事後確認に
+  使った。ユーザーは現在repositoryを調べるよう指定しておらず、workspaceが存在すること自体をlocal探索の
+  根拠にしない方がよい。
+- 最終回答は、対象を`go-gitea/gitea`と解釈したこと、API取得時刻、並び順を明示し、古かった`web_search`の
+  「最新は#39285」より新しいGitHub公式API snapshotを優先しており、結果の判断は適切だった。この証拠は、
+  `web_search`を変化の速い一覧の最終正本にするのではなく、対象identityとcanonical sourceの発見へ使う方が
+  よいことも示す。
 
 未採用候補:
 
 - `read`以外のtoolについて、実際の誤選択が観測された場合にtool固有guidelineまたはdescriptionを改善する。
+- 外部対象のidentityまたはcanonical sourceが会話・workspaceで確立しておらず、現在情報を求められた場合は、
+  repository全体の探索や`curl`による推測より先に`web_search`を一回使う。ユーザーが現在のrepositoryやlocal
+  fileを明示した場合はlocal toolを先に使う。この優先規則はmodel判断を改善するinstructionであり、未知語の
+  機械的な禁止・強制routerとは分けて検討する。
+- taskを外部情報だけで完遂できる場合は、software engineering workspace内で動いていることだけを理由に
+  `pwd`、repository、sibling、handoffを調査しない、というtask-source選択も共通instruction候補とする。
 - 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
   fallbackは順次行う。
 
@@ -211,9 +246,15 @@ SQLite backendを持つagent harnessの比較調査（2026-09-11）:
 
 未採用候補:
 
-- model向けtool callを、検索候補を得る`search`と、指定URLの本文を取得する`fetch`へ分けて実装すべきか
-  検討する。現行`web_search`との置換・併存、search結果からfetchへ渡すidentity、取得内容とcitation・provider
-  evidenceの対応、追加stepを使う代わりに調査経路を明示できる利点を、実際の調査taskで比較する。
+- model向けtool callを、対象identityとcanonical sourceを発見する`search`と、指定URLの本文・公開API responseを
+  正確に取得する`fetch`へ分けて実装すべきか検討する。`search`で公式URLを特定し、`fetch`でそのURLを取得し、
+  特殊なrequestだけ`curl`を使う流れを候補とする。現行`web_search`との置換・併存、search結果からfetchへ渡す
+  identity、取得内容とcitation・provider evidenceの対応、追加stepを使う代わりに調査経路を明示できる利点を、
+  実際の調査taskで比較する。
+- canonical API確定後の一回の`curl`は意味上誤りではない。`fetch`で置き換えたい主対象は、対象発見のための
+  filesystem探索と複数endpointの試行、shell quoting、temporary file、別commandによる再読込・解析が連なる
+  経路である。first-class toolにすることでGET取得、response metadata、cancel、evidence、表示を同じcontractへ
+  揃えられるかを確認する。
 - OpenAI Responses APIのbuilt-in Web searchを、現行OpenRouter Sonarと同居可能な将来backend候補として保持する。
   初期候補は、modelに`websearch1`、`websearch2`という実装名を直接選ばせるより、一つの意味上の`web_search`
   toolに対してAgent Definitionまたはtool componentがbackendを選ぶ構成とする。二つを同時にmodelへ公開する必要が
@@ -225,6 +266,98 @@ SQLite backendを持つagent harnessの比較調査（2026-09-11）:
   task、状態、委譲、revision上の利点が観測された時点で比較する。
 
 ### F24・自己改定
+
+#### F24候補: 自己改訂対象の重心とagent loop
+
+利用者の仮説:
+
+- Agent Definition、とくにrole定義はmodel能力への依存が大きく、有用なvariationもそれほど多くないため、
+  実際には改訂余地が小さい可能性がある。Definition variantを増やすこと自体を自己改訂の中心にしない。
+- tool定義はagentの手足に当たる部分であり、自己改善・自己拡張の余地が大きい。例えばfile検索で`find`を
+  使っていた経験から、より適した`fd`を使うtoolまたはtool実装を候補化するような改訂が考えられる。
+- 仕事の進め方、どこに人間のgateを置くか、何をしてはいけないかというinstruction、policy、workflowも、
+  経験に応じて改訂する価値が大きい。これらとcore agent loopの違いを整理する必要がある。
+
+現行Henjiとの対応:
+
+- 現行`AgentDefinition`はmodel、instruction、tool・skill・subagentのresource identity、`maxSteps`を選ぶ
+  composition envelopeである。Definitionそのものを頻繁に書き換える代わりに、revision付きtoolやinstruction、
+  workflow componentを選択する安定した入れ物として使う構成も考えられる。
+- 現行のcore agent loopは、一つのuser turnについてcommit済みtranscriptとtool definitionsからmodel requestを
+  作り、modelがfinalを返せば終了し、tool callsを返せばRegistryで実行してassistant tool-call messageとtool
+  resultをtranscriptへ追加し、次のmodel requestへ進む反復である。step budget、cancel、steering、progress、
+  failure、turn末尾のcommit proposalもこの実行semanticsに含まれる。
+- 「外部対象ならweb searchを先に使う」「実装後にreviewし、ここで人間を待つ」「pushは人間の指示後だけ」
+  のような判断規則は、通常はloopそのものではなく、loopへ渡すinstruction、workflow、Host / Surface側の
+  admission・gateである。一方、tool callsを並列に実行するか、reviewを別Workerへ自動dispatchするか、turnを
+  どの条件で終了・commitするかまで変える場合はagent loopまたはruntime semanticsの改訂になる。
+- 自己改訂candidateの採用を人間の明示操作・承認だけに限定する境界は、現在の採用済み構想が定める
+  user-owned invariantである。日常taskのcommit、push、外部変更、review等に置く運用上のhuman gateとは分ける。
+  後者の配置や表現を改訂候補にできても、前者をcandidate自身が外す構成にはしない。
+
+agent loop比較調査（2026-09-11）:
+
+- `user input -> model request -> final、またはtool calls -> tool resultsを履歴へ追加 -> 次のmodel request`
+  という最小骨格は各harnessに共通するが、これは鉄板の全architectureではない。履歴をいつ確定するか、toolを
+  逐次・並列のどちらで実行するか、steeringとfollow-upをどの境界で取り込むか、approvalでどう停止・再開するか、
+  compactionとretryを誰が所有するかに各harnessの設計差が現れる。
+- Henjiはcommit済みtranscriptの防御copy上で一つのuser turnを実行し、`final`またはterminal tool成功時にturn全体を
+  commitする。cancel、provider failure、途中のtool failureで未成立turnをcanonical transcriptへ混ぜない単純さ、
+  transcriptと実行順の一致、復元時に成立済み履歴を判別しやすい点を利用者は好ましく評価している。一方、process
+  crash時の未commit turn、すでに発生したtool副作用、長時間turnの途中観測は別の実行journalがなければ復元しにくい。
+- Codexの公開App Server contractは、永続conversationを`thread`、user処理を`turn`、assistant message、command、
+  file change、tool call、compaction等を`item`として表す。`item/started`と`item/completed`の間にapproval requestを
+  挟んで停止・再開でき、`turn/steer`は新しいturnを作らず実行中turnへ入力を追加する。これは外部から観測できる
+  protocol上の状態機械であり、今回の調査ではCodex内部Rust loopの具体的な制御関数までは確認していない。
+- OpenCode V1は`SessionPrompt.runLoop`の`while (true)`でcompact済みmessage履歴をstepごとに再読込し、assistant
+  messageとtext・reasoning・toolのpartを実行途中からDBへ逐次保存する。session単位の`ensureRunning`、provider retry、
+  subtask、max steps、compactionをloopとprocessorで扱うため、Henjiのturn末尾atomic commitとは異なる。
+- OpenCode `dev` commit `193de13a88d62a6409c6d385831180f1def527dc`の移行中V2は、SQLite上のdurable eventと
+  user-input inboxを基礎に、外側でqueued input、内側でtool continuationとsteerを処理する二重loopを持つ。完成した
+  local tool callを先に永続eventへ投影してからfiberで実行し、provider stream終了後に全tool settlementを待ち、結果を
+  保存して履歴を再投影する。同一Sessionはcoordinatorが直列化し、別Sessionは並行実行できる。crash後に残った
+  `pending` / `running` toolを黙って再実行せず、interruptedとして確定する境界も明示されている。
+- human gateの「どの操作を承認対象にするか」という方針はinstruction、policy、workflow側に置けるが、approval待ちの
+  toolを安全に停止し、回答後に同じcallを再開・拒否する実行地点はruntime / loop境界に必要である。したがってhuman
+  gateはcore loopと完全に無関係な外層ではなく、方針とenforcementを分けて接続する機能と捉える。
+- Henjiのatomic turn commitと逐次実行を捨てず、未commit中のprovider request、tool requested / started / completed、
+  cancel等だけをappend-only execution journalへ逐次記録する折衷案が考えられる。canonical transcriptは成功時に一括
+  commitし、journalはcrash recoveryと診断証拠、context projectionはcommit済み正本から再生成する。この分離は既存の
+  provider evidenceをcanonical transcriptとは別に保存する考え方とも整合するが、まだ採用判断ではない。
+- tool call並列化の主な利点は、独立したread/search等の待ち時間短縮である。AIが混乱するかは物理的な完了順より、
+  `callId`とresultの対応、modelへ返す順序、依存関係を保持できるかに左右される。同じfileへのwrite、生成物を読む後続
+  call、test、git操作、複数approvalなどは順序で意味が変わる。現行Henjiの逐次実行は決定性、cancel・failure semantics、
+  atomic commitとの相性がよく、実測上の必要が出るまでは妥当な既定値である。
+- 将来部分並列化する場合は、同一responseに複数callがあるだけで並列可能とみなさず、tool componentに
+  `parallel-safe`または`exclusive`相当の実行特性を持たせ、独立したread-only callだけを並列化して全件settlement後に
+  安定した対応関係でmodelへ返すschedulerを候補とする。これは未採用であり、現行loopを変更する要件ではない。
+- Codex UIの`Explored`はRead/Search等をまとめる表示分類、`Ran`はcommand executionの表示分類であり、label自体は
+  並列・逐次を示さない。探索agent起動の証拠にもならない。実際の並列性は、個別itemのstarted/completed区間または
+  subagent threadの重なりで確認する必要がある。OpenAI公式文書には`Explored` / `Ran`をscheduler semanticsとして
+  定義した記述は見つからなかった。
+
+比較参照:
+
+- Henji: `v0/agent/core/loop.ts`
+- Pi: `_refs/pi/packages/agent/src/agent-loop.ts`
+- Zot: `_refs/zot/packages/core/agent.go`
+- DeepSeek Harness: `_refs/deepseek-harness/packages/core/agent-loop/README.md`
+- Codex: [App Server](https://learn.chatgpt.com/docs/app-server)、
+  [Open Source](https://learn.chatgpt.com/docs/open-source)、
+  [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)
+- OpenCode V1: [prompt.ts](https://github.com/anomalyco/opencode/blob/193de13a88d62a6409c6d385831180f1def527dc/packages/opencode/src/session/prompt.ts)、
+  [processor.ts](https://github.com/anomalyco/opencode/blob/193de13a88d62a6409c6d385831180f1def527dc/packages/opencode/src/session/processor.ts)
+- OpenCode V2: [Session API specification](https://github.com/anomalyco/opencode/blob/193de13a88d62a6409c6d385831180f1def527dc/specs/v2/session.md)、
+  [runner](https://github.com/anomalyco/opencode/blob/193de13a88d62a6409c6d385831180f1def527dc/packages/core/src/session/runner/llm.ts)、
+  [run coordinator](https://github.com/anomalyco/opencode/blob/193de13a88d62a6409c6d385831180f1def527dc/packages/core/src/session/run-coordinator.ts)
+
+未採用の検討候補:
+
+- 最初の自己改訂実証で、Agent Definition sourceの変更そのものより、tool componentまたは作業方針componentの
+  candidate生成、差分確認、人間による採用、通常利用への反映を対象にする方が経験上の価値を示しやすいか
+  比較する。
+- Definition、tool、instruction・policy・workflow、core loop、Host enforcementの各revision boundaryを、
+  どの経験からどれを改訂するか判断できる単位として整理する。
 
 #### F24候補: revision付きtool componentとMCP component
 
