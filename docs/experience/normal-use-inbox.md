@@ -307,10 +307,15 @@ Increment 16で採用するruntime instruction合成は
 
 ### 配布・外部化
 
-#### 配布・F24候補: standalone executable、各種Definitionの外部化、reload
+#### 配布・外部化の調査背景と未決事項
 
-対象はAgent Definition、instruction component、tool component、Provider Definitionである。現時点では将来課題として
-保存し、共通plugin方式や外部化の採用は決定しない。
+standalone executableとAgent Definition専用のmanaged revision store / resolverは、Self-revision Cycle 1前段として
+採用した。決定の正本は[`docs/roadmap.md`](../roadmap.md)と
+[`docs/architecture/henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)である。この節には判断の
+背景となった実機確認と外部比較、および未採用の後続候補だけを残し、採用済み方針は再掲しない。
+
+instruction component、tool component、Provider Definitionの外部化、共通plugin方式、hot reloadは採用していない。
+Agent Definitionで採用したloader、dependency、promotion、activationのsemanticsを、それらへ自動的に一般化しない。
 
 現行Henjiの境界:
 
@@ -338,32 +343,9 @@ Deno 2.9.4の公式仕様と実機確認:
 - `--app-name`はDeno KV、`localStorage`、cache等のorigin-bound storage identityをbinaryのrename後も安定させるが、
   Henjiが明示pathで所有するSessionやmodule storeの配置を自動的に決めるものではない。
 
-今回議論した未採用の配布・module配置案:
-
-- executableは`~/.local/bin/henji`等の`PATH`上へ置けるようrepositoryと導入済みDenoへの固定参照を除く。既存Session等は
-  `$XDG_STATE_HOME/henji-harness`、外部moduleは`$XDG_DATA_HOME/henji-harness/modules`のように用途別rootへ分離する。
-  正式なproduct path名は個別incrementで決める。
-- local sourceは任意pathからinstallできる入口を持てるが、採用後も元pathを実行正本にはせず、Henji-owned module storeへ
-  sourceと依存をsnapshot化したimmutable revisionを登録する案を優先して検討する。開発用の直接path loadは別のescape
-  hatchとして残せる。
-- CLIは`henji --install`一個より、将来のlist・remove・updateを表現できる`henji module install <source>`のような
-  subcommand構成を候補とする。LLM向けには同じHost operationを呼ぶ`module-install` toolを提供できる。
-
-Agentによる自己改定へ接続する未採用flow:
-
-```text
-Agentが外部TypeScript candidateを生成・修正
-  -> module-install toolがHostへ登録を依頼
-  -> Hostがmanifest、source、依存をsnapshot化しimmutable revisionを登録
-  -> 現在のtool callとturnを旧revisionのまま完了
-  -> 人間による採用、またはそのturnで明示済みの採用指示
-  -> follow-upでactive revisionを切替
-  -> 次のWorker generationが新revisionをload
-```
-
-`install`と`activate`は概念上分ける。実行中のDefinitionが自身をtool call途中で置換せず、module storeとWorker lifecycleを
-所有するHostがturn境界後にgenerationを交換する。Sessionは元source pathではなくmodule identityとrevisionへbindし、
-F24の候補生成・人間による採用・rollbackへ接続する。
+AgentによるDefinition候補生成、登録、人間による採用、Instance binding transitionはF24ではなく、Self-revision Cycle 1の
+F20〜F22で扱う。LLM-callableなmodule install tool、receipt、Host follow-upをどのexactなSurface / protocolで表すかは、
+Cycle 1の個別phaseで決める。
 
 pinned `_refs/pi` commit `08dc60bc52d89d6823a9738cc90b1916e5e446e5`（package version 0.85.1）の調査結果:
 
@@ -480,12 +462,13 @@ Henjiで個別incrementへ採用するときの検討候補:
 - executable DefinitionをWorker内TypeScript pluginとするか、process・permissionを分離したExecutable Definitionとするか。
 - Provider registryへ移行する場合も、credential値の非継承、adapter固有state、raw SSE evidence、request count、timeout、
   network permissionをprovider definitionへ無条件に委譲せず、Henji-owned contractとしてどこまで固定するか。
-- 外部resourceのidentity、revision、dependency lineage、Manifest attribution、reload時のSession binding、rollbackを、
-  F24の候補生成・人間による採用flowとどう接続するか。
-- F24の前にstandalone executable化と外部revision store・loaderの最小骨格を同時に置くか。全resource kindを最初から
-  外部化せず、Agent Definitionから始めても将来instruction、tool、providerへ拡張できるmanifestとresolver境界を作るか。
-- Piのfollow-up reloadと同様に、`module-install` toolは登録結果を返して現turnを終え、activationはHost-owned follow-upと
-  次Worker generationで行うか。installだけでactivateするのか、人間の採用操作と分けるのかをproduct要件として決める。
+- instruction、tool、providerその他の外部resourceについて、identity、revision、dependency lineage、Manifest attribution、
+  reload時のbinding、rollbackを、F24で選んだ対象の候補生成・人間による採用flowへどう接続するか。
+- 採用済みのAgent Definition専用storeとは別に、instruction、tool、providerを同じloaderへ載せる必要が実利用から
+  生じるか。共通化する場合も、評価後の`AgentManifest`をrevision authorityにせず、対象resourceごとのdependency、
+  promotion、activation semanticsをF24で決める。
+- Cycle 1でLLM-callableな`module-install` toolを採用するか。採用する場合、登録receiptを返して現turnを終え、既に分離した
+  人間の採用操作とHost-owned activationを、どのfollow-upと次Worker generationで表すか。
 - DeepSeek Harnessの`define -> inspect -> run/update -> stop/rollback`を参考に、HenjiのCLI/toolも
   `module install`、`module inspect`、`module activate/update`、`module stop/rollback`へ責務を分けるか。candidate登録時には実行せず、
   activation成功時だけSessionのactive revisionを更新する契約を置くか。

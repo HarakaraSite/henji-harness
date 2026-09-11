@@ -22,12 +22,17 @@
   Worker による一時的な実行を表す概念名として引き続き用いる。
 - `AgentDefinition` は、信頼された実行可能な TypeScript の合成コードである。外部の
   TypeScript 関数や plugin も Henji core と同じ trusted-local 実行境界に置かれる。それらの
-  出所、レビュー、リビジョン、配布は開発プロセス上の関心事であり、信頼された Definition
-  と信頼されていない Definition に別々の実行経路を作るものではない。
+  出所とレビューはtrusted-local codeを採用する人間の関心事であり、信頼された Definitionと信頼されて
+  いない Definition に別々の実行経路を作るものではない。一方、採用済みDefinition moduleの登録、
+  immutable revision、保存、解決、readbackはHenji Hostが所有するproduct runtime上の関心事である。
 - 各 Worker generation の起動前に、選択された Definition code/source revision を参照する
-  immutable な `DefinitionRevisionRef` を確定する。hash 形式、loader、promotion 方式はこの概念
-  では定めない。評価後の data-only な `AgentManifest` はこの参照とは別の authority であり、
+  immutable な `DefinitionRevisionRef` を確定する。外部Definitionではentry fileだけでなく、許可された
+  import contractに従う実行可能なlocal module closureまたは同等の自己完結bundleを一つのrevisionとして
+  固定する。評価後の data-only な `AgentManifest` はこの参照とは別の authority であり、
   選択内容を説明するが、admission/permission authority にはならない。
+- 配布されるHenji executableはimmutableなcore/runtime artifactとして扱い、Hostが書き換えるstate、config、
+  Definition module revision storeとは配置とlifecycleを分離する。executableの配置先やbinary隣接pathを
+  writable storageの正本にしない。
 - Deno Web Worker は、組み込み Definition と外部 Definition の双方に共通する単一の実行カプセル
   とする。Worker はライフサイクル境界であり、別の trust tier ではない。
 - Definitionは、provider、model、effort、loop、tools、subagents、contextをWorker内の一つの
@@ -49,6 +54,7 @@
 | 用語 | この概念での意味 | 存続期間 / 管轄 |
 | --- | --- | --- |
 | `AgentDefinition` | 信頼された実行可能な TypeScript 合成関数。Host が所有する UI や session object ではなく、agent をどのように組み立てるかを記述する。 | 1 つの Definition revision。Worker generation 内で評価される。 |
+| `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
 | `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/subagent/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
 | `AgentInstance` | 安定した agent identity、その durable metadata、および active な `DefinitionRevisionRef` の binding。 | Worker generation より長く存続し、置き換えられた Worker で再開できる。 |
@@ -87,6 +93,8 @@ version migrationは未設計である。
 - Surface 実装の load と置換、および Surface action の Worker 向け command または message
   への変換。
 - 以下で説明する durable session 境界を含む storage mechanism。
+- Agent Definition sourceの取込、実行可能なmodule closureの固定、immutable revisionの保存、selectorから
+  `DefinitionRevisionRef`への解決、revision metadataとsource lineageのreadback。
 
 Host は、Definition code が外部にあるというだけで、別の Definition 実行経路を選択しない。
 組み込み Definition と外部の信頼された Definition は、同じ Worker capsule と同じ概念上の
@@ -94,11 +102,42 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 
 ### Agent Worker が所有するもの
 
-- 選択された `AgentDefinition` revision の評価。
+- Hostが確定した`DefinitionRevisionRef`に対応するexact `AgentDefinition` revisionの評価。外部Definitionでは
+  managed store内の確定closureを使い、元source pathを再解決せず、そのclosureの外側を実行時の正本にしない。
 - provider/model、effort、loop、tools、subagents、context component を含む、その
   `AgentComposition` の構築と実行。
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
+
+### 配布artifactとDefinition module revision
+
+Henjiは、Deno runtimeと現在のproduction entryを含むstandalone executableとして配布できる。executableは
+任意のpathから任意のworkspaceを対象に起動でき、repository checkoutまたは別途導入されたDenoをruntime
+dependencyにしない。Deno compile時に固定するpermissionとembedded resourceは、現行production経路と、
+Hostが解決したDefinition module revisionをWorkerが読むために必要な範囲を個別計画で確定する。
+
+Hostは外部Agent Definitionを次の境界で扱う。
+
+1. 人間が指定した任意pathのsourceをimport inputとして読み、初期incrementで許可するimport contractに従って
+   entryと実行に必要なlocal module closure、または同等の自己完結bundleを確定する。
+2. 元source pathとは独立した`DefinitionModuleRevision`としてmanaged storeへimmutableに保存し、module
+   identity、revision、entry、dependency lineage、由来をreadback可能にする。
+3. 新しいSessionまたは後続のInstance bindingが指定したmodule identityとrevisionを
+   `DefinitionRevisionRef`へ解決してからWorker generationを起動する。
+4. Workerはbuilt-inとexternalのどちらも同じcapsule、protocol、commit境界で評価する。
+
+同じrevisionは、登録後に元sourceとrelative dependencyが変更または削除されても起動・再開できなければ
+ならない。remote、JSR、npm dependencyを初期import contractに含めるか、その固定方法は個別計画で決める。
+
+Definition moduleの`install`または登録と、実行対象への`activate`またはbinding transitionは別のoperationである。
+登録だけでは実行中のWorker generation、既存Session、`AgentInstance`のactive bindingを変更しない。Cycle 1前段は
+登録、list / inspect相当のreadback、新しいSessionへのexact revision指定までを扱う。既存Instanceのdurableな
+binding transitionとcandidate promotionは、人間の採用を扱う後続機能で決める。turn途中でDefinitionを置換せず、
+新revisionを使う場合はHostが後続のWorker generationを起動する。
+
+初期managed storeとloaderはAgent Definition専用である。将来resource kindを追加できるidentity envelopeまたは
+namespaceを妨げないが、instruction、tool、providerが同じloader、dependency、promotion、activation semanticsを
+使うとは決めない。それぞれを改訂対象に選んだloopでarchitectureへ戻って決める。
 
 有効toolが利用指針を持つ場合、tool metadataはprovider向けtool definitionとは分離して保持し、Definitionが
 registryをmaterializeした後にAgentCompositionのsystem instructionへ合成する。現在は`read`の選択と
@@ -292,7 +331,7 @@ semantics を定義しない。
 3. Hostは改訂候補を現在使用中の`DefinitionRevisionRef`と区別して保存し、生成されただけでは実行対象に
    しない。
 4. 人間が採用アクションを行うか、提示された候補を明示的に承認した場合だけ、その候補をimmutableな
-   Definition revisionとして確定し、Hostが`AgentInstance`のbindingを明示的かつdurableに切り替える。
+   `DefinitionModuleRevision`として確定し、Hostが`AgentInstance`のbindingを明示的かつdurableに切り替える。
 5. 改訂後も通常利用を続け、そこで観測された変化を次の経験として保存する。
 
 このループは、変更前後の比較実験、改善の定量測定、Henji全体の構成追跡を要求しない。何を経験として
@@ -341,7 +380,7 @@ Deno、Cloudflare、Pi、Zot、OpenComputer、OpenClawとの詳細な比較は
 | provider/toolの物理I/OをWorker、Host RPC/capability、subprocessのどこに置くか | effect、latency、streaming、credential、利用するtoolの契約によって適切な境界が変わる | roadmapが具体的なprovider/tool利用経路を選んだとき |
 | Worker protocolのmessage、handshake、error、versioning | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる | 新しいHost / Worker間機能を実装するとき |
 | Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |
-| Definition moduleのidentity、dependency lineage、load、rollout | external moduleやrevision transitionで保証すべき再現性が、対象機能によって異なる | executable revisionの切替または配布をproduct機能として選んだとき |
+| Definition moduleで許すremote、JSR、npm dependencyの固定方法、revisionの更新・削除・GC、開発用direct-path load | local module closureを保持する初期managed revisionと、新しいSessionへのexact revision指定には不要であり、実際の利用経路ごとに必要なsemanticsが異なる | 対象dependencyまたはrevision管理operationをproduct機能として選んだとき |
 | Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |
 | Surface identity、load / selection / replacement、置換時のUI-local state引継ぎ | 現在はTUIとnon-interactive commandで通常利用でき、一般化に必要な第二Surfaceの契約がない | 第二Surface、現Surfaceの置換、またはself-revision操作をTUI固有実装へ閉じない必要をroadmapが採用したとき |
 | mailbox、非同期または複数Surface間のrouting、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、AgentInstanceの継続性やHost / Worker分割だけからは必要にならない | roadmapが対象機能を採用したとき |
