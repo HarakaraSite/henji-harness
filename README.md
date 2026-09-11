@@ -95,19 +95,19 @@ JSR packageは、信頼されたexecutable TypeScriptのAgent DefinitionをWorke
 composition APIを公開する。Henji HostはSurface、lifecycle、storage、revision bindingを所有し、headlessな
 Agent WorkerはDefinitionを評価してmodel、instruction、tool、delegation、context、loopを合成する。
 
-現在のpre-releaseに、開発中のCLI、TUI、Host、Session永続化、自己改訂workflowはpackage entrypointとして
+安定版0.1では、開発中のCLI、TUI、Host、Session永続化、自己改訂workflowはpackage entrypointとして
 含めない。自己改訂候補は将来も、人間の指示を契機として生成し、人間の明示的な採用または承認によってのみ
 反映する。
 
 ```sh
-deno add jsr:@henji/harness@0.1.0-alpha.6
+deno add jsr:@henji/harness@0.1.0
 ```
 
 ```ts
 import {
   createDefaultAgentComposition,
   type ExecutableAgentDefinition,
-} from 'jsr:@henji/harness@0.1.0-alpha.6';
+} from 'jsr:@henji/harness@0.1.0';
 
 const definition: ExecutableAgentDefinition = (input) =>
   createDefaultAgentComposition(input);
@@ -115,8 +115,8 @@ const definition: ExecutableAgentDefinition = (input) =>
 export default definition;
 ```
 
-`createPlannerAgentComposition`も同じ入力境界でplanner Definitionを構成できる。Pre-release中は、stable
-releaseまでにAPIが変更される可能性がある。
+`createPlannerAgentComposition`も同じ入力境界でplanner Definitionを構成できる。以後の互換性変更はSemVerに
+従ってversionを更新する。
 
 ## Source
 

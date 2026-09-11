@@ -1,6 +1,6 @@
 # Increment 33 — local managed Agent Definition revision
 
-ステータス: **承認済み計画の実装・検証完了（2026-09-12）**
+ステータス: **利用者確認済み・完了（2026-09-12）**
 
 基準commit: `988022ba`
 

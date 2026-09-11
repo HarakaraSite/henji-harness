@@ -17,7 +17,7 @@ const DEVELOPMENT_DIGEST = 'c738494fbbf99c577b5c91b957df9f3f0efcfc755442293665f7
 
 const DEVELOPMENT_MANIFEST: BuildManifestV1 = Object.freeze({
   schemaVersion: BUILD_MANIFEST_SCHEMA_VERSION,
-  productVersion: '0.1.0-alpha.6',
+  productVersion: '0.1.0',
   buildId: DEVELOPMENT_DIGEST,
   sourceRevision: 'development',
   sourceDirty: true,
