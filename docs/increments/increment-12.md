@@ -23,12 +23,13 @@ detailsをassistant messageのprovider stateとして保存し、tool continuati
 
 catalogはrepository-owned TypeScript module `v0/agent/provider/openrouter_model_catalog.ts`に置き、UIはproviderへ
 一覧requestを送らず検索する。root defaultとplanner defaultはともに
-`deepseek/deepseek-v4-pro-0813` / `high`である。
+`deepseek/deepseek-v4.1-flash` / `high`である。
 
 | model | model選択時のdefault effort | `/effort`の選択肢 |
 | --- | --- | --- |
 | `qwen/qwen3.8-max-0902` | `xhigh` | `auto`, `xhigh`, `high`, `medium`, `low`, `minimal` |
 | `qwen/qwen3.8-flash` | `auto` | `auto` |
+| `deepseek/deepseek-v4.1-flash` | `high` | `auto`, `max`, `high`, `low` |
 | `deepseek/deepseek-v4-pro-0813` | `high` | `auto`, `max`, `high`, `low` |
 | `deepseek/deepseek-v4-flash-0731` | `high` | `auto`, `max`, `high`, `low` |
 | `openai/gpt-5.6-sol` | `medium` | `auto`, `max`, `xhigh`, `high`, `medium`, `low`, `none` |
@@ -38,6 +39,11 @@ catalogはrepository-owned TypeScript module `v0/agent/provider/openrouter_model
 | `google/gemini-3.8-flash` | `medium` | `auto`, `high`, `medium`, `low` |
 | `meta/muse-spark-1.3` | `medium` | `auto`, `max`, `xhigh`, `high`, `medium`, `low`, `minimal` |
 | `x-ai/grok-4.6` | `high` | `auto`, `xhigh`, `high`, `medium`, `low` |
+
+2026-09-11に利用者の指示で`deepseek/deepseek-v4.1-flash`を追加し、root defaultとplanner defaultを
+同modelの`high`へ変更した。OpenRouterのmodel catalogとmodel pageで、tool calling、reasoning effort、
+default effort `high`、effort `max` / `high` / `low`を確認した。`auto`はreasoning parameterを送らない
+Henji共通の選択肢として加えた。以下の実装前probeと実production経路の記録は当時の実行証拠なので書き換えない。
 
 旧active defaultのGemini 3.7 Flashはcatalogとdefaultから除いた。過去のplan/result文書は当時の実行証拠なので
 書き換えない。

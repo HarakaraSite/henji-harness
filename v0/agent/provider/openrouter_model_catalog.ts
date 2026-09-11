@@ -40,6 +40,7 @@ export const OPENROUTER_MODEL_CATALOG: readonly OpenRouterModelCatalogEntry[] = 
     'minimal',
   ]),
   entry('qwen/qwen3.8-flash', 'auto', ['auto']),
+  entry('deepseek/deepseek-v4.1-flash', 'high', ['auto', 'max', 'high', 'low']),
   entry('deepseek/deepseek-v4-pro-0813', 'high', ['auto', 'max', 'high', 'low']),
   entry('deepseek/deepseek-v4-flash-0731', 'high', ['auto', 'max', 'high', 'low']),
   entry('openai/gpt-5.6-sol', 'medium', [
@@ -75,9 +76,9 @@ export const OPENROUTER_MODEL_CATALOG: readonly OpenRouterModelCatalogEntry[] = 
   entry('x-ai/grok-4.6', 'high', ['auto', 'xhigh', 'high', 'medium', 'low']),
 ]);
 
-export const ROOT_DEFAULT_MODEL_ID = 'deepseek/deepseek-v4-pro-0813';
+export const ROOT_DEFAULT_MODEL_ID = 'deepseek/deepseek-v4.1-flash';
 export const ROOT_DEFAULT_EFFORT: OpenRouterReasoningEffort = 'high';
-export const PLANNER_DEFAULT_MODEL_ID = 'deepseek/deepseek-v4-pro-0813';
+export const PLANNER_DEFAULT_MODEL_ID = 'deepseek/deepseek-v4.1-flash';
 export const PLANNER_DEFAULT_EFFORT: OpenRouterReasoningEffort = 'high';
 
 export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({

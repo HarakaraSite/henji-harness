@@ -29,6 +29,7 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
   assertEquals(OPENROUTER_MODEL_CATALOG.map((entry) => entry.modelId), [
     'qwen/qwen3.8-max-0902',
     'qwen/qwen3.8-flash',
+    'deepseek/deepseek-v4.1-flash',
     'deepseek/deepseek-v4-pro-0813',
     'deepseek/deepseek-v4-flash-0731',
     'openai/gpt-5.6-sol',
@@ -43,7 +44,7 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
     provider: 'openrouter',
     api: 'openrouter-chat-completions',
     authProfile: 'openrouter-api-key',
-    modelId: 'deepseek/deepseek-v4-pro-0813',
+    modelId: 'deepseek/deepseek-v4.1-flash',
     effort: 'high',
   });
   assertEquals(PLANNER_DEFAULT_MODEL_SELECTION, ROOT_DEFAULT_MODEL_SELECTION);
@@ -51,6 +52,7 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
     searchOpenRouterModels('FLASH').map((entry) => entry.modelId),
     [
       'qwen/qwen3.8-flash',
+      'deepseek/deepseek-v4.1-flash',
       'deepseek/deepseek-v4-flash-0731',
       'z-ai/glm-5.3-flash',
       'google/gemini-3.8-flash',
