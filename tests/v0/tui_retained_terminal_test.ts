@@ -22,6 +22,7 @@ import {
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
 import { PendingInputCore, type PendingMetadataSnapshot } from '../../v0/tui/pending_input.ts';
+import { startupHeaderLines } from '../../v0/tui/startup_render.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -537,7 +538,7 @@ Deno.test('retained layout keeps fullwidth form cells consistent through edit an
   assertEquals(halfwidthLayout.cursor.cell, 5); // prompt (2) + fullwidth 2 + halfwidth 1
 });
 
-Deno.test('retained PageUp at the oldest boundary anchors the first conversation entry', () => {
+Deno.test('retained PageUp at the oldest boundary shows the startup header', () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);
   const startup: PresentationStartupState = {
@@ -555,11 +556,21 @@ Deno.test('retained PageUp at the oldest boundary anchors the first conversation
     trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
     credentialVerification: 'before_each_provider_request',
   };
-  renderer.renderCompactStartup(startup);
-  assertEquals(
-    renderer.stateSnapshot().startup[1],
-    'trusted-local · credential presence shown; value checked only when sending',
-  );
+  const startupPosition = {
+    sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
+    createdAt: '2026-09-11T12:34:56.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  renderer.renderCompactStartup(startup, startupPosition);
+  assertEquals(renderer.stateSnapshot().startup?.position, startupPosition);
+  const wideHeader = renderer.layoutSnapshot(80, 24).allLog.map((row) => row.text);
+  assertEquals(wideHeader.length, 9);
+  assert(wideHeader[0].includes('Henji Harness'));
+  assert(wideHeader.some((line) => line.includes('2026-09-11 12:34Z · untitled')));
+  assert(wideHeader.some((line) => line.includes('new (autosave) · fc419637')));
+  assert(wideHeader.some((line) => line.includes('runtime:')));
   terminal.size = { columns: 80, rows: 10 };
   renderer.resize(80, 10);
   for (let turn = 1; turn <= 6; turn += 1) {
@@ -580,18 +591,13 @@ Deno.test('retained PageUp at the oldest boundary anchors the first conversation
       },
     });
   }
-  // Keep the startup projection present so the oldest page begins with a non-conversation row,
-  // matching the production boundary that previously jumped back to the latest page.
-  renderer.renderCompactStartup(startup);
-
   for (let page = 0; page < 4; page += 1) renderer.scrollPage('up');
   const oldest = renderer.stateSnapshot().scroll;
-  assertEquals(oldest, {
-    kind: 'anchored',
-    entryId: 'turn-1:user',
-    sourceScalarOffset: 0,
-  });
-  assertEquals(renderer.layoutSnapshot(80, 10).logStart, 2); // two startup rows precede conversation
+  assertEquals(oldest, { kind: 'oldest' });
+  assertEquals(renderer.layoutSnapshot(80, 10).logStart, 0);
+  assert(
+    renderer.layoutSnapshot(80, 10).log.some((row) => row.text.includes('Henji Harness')),
+  );
   assert(
     renderer.layoutSnapshot(80, 10).footer[0].text.includes('history rows'),
   );
@@ -616,6 +622,94 @@ Deno.test('retained PageUp at the oldest boundary anchors the first conversation
 
   for (let page = 0; page < 4; page += 1) renderer.scrollPage('down');
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
+});
+
+Deno.test('startup header follows rename, session replacement, and terminal size', () => {
+  const terminal = new RecordingTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const startup: PresentationStartupState = {
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: {
+      provider: 'openrouter',
+      profileId: 'test',
+      modelId: 'deepseek/deepseek-v4.1-flash',
+      effort: 'high',
+    },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: true, source: 'AGENTS.md' },
+    skills: { count: 7, names: ['one', 'two', 'three', 'four', 'five'], omitted: 2 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  renderer.renderCompactStartup(startup, {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    createdAt: '2026-09-11T01:02:03.000Z',
+    agent: 'default',
+    committedTurn: 0,
+    messageCount: 0,
+  });
+  renderer.setSessionTitle('API research');
+  assert(
+    renderer.layoutSnapshot(80, 24).allLog.some((row) => row.text.includes('API research')),
+  );
+
+  renderer.eventSink({
+    kind: 'session_binding_replaced',
+    position: {
+      sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      createdAt: '2026-09-10T04:05:06.000Z',
+      title: 'Restored session',
+      agent: 'default',
+      committedTurn: 3,
+      messageCount: 6,
+    },
+  });
+  const switched = renderer.layoutSnapshot(80, 24).allLog.map((row) => row.text);
+  assert(switched.some((line) => line.includes('Restored session')));
+  assert(switched.some((line) => line.includes('exact session · bbbbbbbb')));
+
+  terminal.size = { columns: 50, rows: 12 };
+  renderer.resize(50, 12);
+  const compact = renderer.layoutSnapshot(50, 12).allLog.map((row) => row.text);
+  assertEquals(compact.length, 2);
+  assert(compact[0].includes('Henji Harness'));
+  assert(compact[1].includes('exact session · bbbbbbbb'));
+  assert(compact[1].includes('henji-ui'));
+});
+
+Deno.test('startup header distinguishes continue, exact, and no-session modes', () => {
+  const base: PresentationStartupState = {
+    workspace: '/tmp/henji-ui',
+    agentId: 'planner',
+    model: {
+      provider: 'openrouter',
+      profileId: 'test',
+      modelId: 'deepseek/deepseek-v4.1-flash',
+      effort: 'high',
+    },
+    sessionMode: { kind: 'continue' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: [] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  const position = {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    createdAt: '2026-09-11T01:02:03.000Z',
+    agent: 'planner' as const,
+    committedTurn: 4,
+    messageCount: 8,
+  };
+  assert(startupHeaderLines(base, position).some((line) => line.includes('continue newest')));
+  assert(
+    startupHeaderLines({ ...base, sessionMode: { kind: 'exact' } }, position).some((line) =>
+      line.includes('exact session')
+    ),
+  );
+  const none = startupHeaderLines({ ...base, sessionMode: { kind: 'none' } }, position);
+  assert(none.some((line) => line.includes('no session')));
+  assert(!none.some((line) => line.includes('aaaaaaaa')));
 });
 
 Deno.test('retained PageUp keeps latest when the conversation fits one page', () => {
@@ -945,6 +1039,7 @@ Deno.test('busy /rename waits for idle and then renames without model submission
     historyPage: () => Promise.resolve(undefined),
     currentPosition: () => ({
       sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
+      createdAt: '2026-09-11T00:00:00.000Z',
       agent: 'default',
       committedTurn: 0,
       messageCount: 0,

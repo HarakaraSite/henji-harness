@@ -430,8 +430,11 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           );
       case 'rename_session': {
         const status = this.coreNavigation?.renameCurrent(admitted.title) ?? 'unavailable';
+        const title = status === 'renamed' || status === 'unchanged'
+          ? this.coreNavigation?.currentPosition().title ?? admitted.title
+          : admitted.title;
         return status === 'renamed' || status === 'unchanged'
-          ? { kind: 'session_title', status, title: admitted.title }
+          ? { kind: 'session_title', status, title }
           : {
             kind: 'rejected',
             reason: status === 'busy' ? 'busy' : 'unavailable',
@@ -486,8 +489,18 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           position: {
             agent: positionValue.agent,
             committedTurn: positionValue.committedTurn,
+            createdAt: positionValue.createdAt,
+            ...(positionValue.title === undefined ? {} : { title: positionValue.title }),
           },
           session,
+          ...(this.options.startupState === undefined ? {} : {
+            runtime: {
+              instructionSource: this.options.startupState.instructions.source,
+              skillNames: [...this.options.startupState.skills.names],
+              omittedSkills: this.options.startupState.skills.omitted,
+              hardSandbox: this.options.startupState.trust.hardSandbox,
+            },
+          }),
         });
         return operation.then((receipt) => ({
           kind: 'history_export' as const,

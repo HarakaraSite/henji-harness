@@ -291,6 +291,8 @@ export const result = (
 export const position = (value: NavigationPosition): PresentationPosition =>
   Object.freeze({
     ...(value.sessionId === undefined ? {} : { sessionId: text(value.sessionId) }),
+    createdAt: text(value.createdAt),
+    ...(value.title === undefined ? {} : { title: text(value.title) }),
     agent: agentId(value.agent),
     committedTurn: count(value.committedTurn),
     messageCount: count(value.messageCount),

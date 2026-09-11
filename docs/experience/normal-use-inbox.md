@@ -54,11 +54,6 @@ wrap、viewport、page移動を共有する履歴viewerとして設計する。k
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
 
-#### Surface: セッション開始時のヘッダー充実（F01、F05、F10）
-
-- セッション開始時に、そのSessionを識別し、利用を始めるために必要な情報を今より分かりやすく表示したい。
-- 表示する情報、layout、既存のcompact startupとfooterとの分担は、個別incrementへ採用するときに決める。
-
 #### Surface: `/new`で新しいSessionを開始（F01、F04、F05、F10）
 
 - Henji processを終了・再起動せず、`/new`で現在のworkspaceに新しいpersistent Sessionを作成し、
@@ -392,6 +387,22 @@ agent loop比較調査（2026-09-11）:
 
 検討候補:
 
+- startup headerの`trusted-local · no hard sandbox`は、単一のmode名ではなく、少なくともtrust、tool
+  capability、permission、human gate、isolationという独立した軸の現在値として扱う。`trusted-local`は
+  信頼されたlocal利用を前提に確認なしでtoolを使う運用model、`no hard sandbox`はsubprocessをOS userから
+  強制分離するcontainer、VM、mount namespace等がないことを示す。plannerのようにtool capabilityが少ない
+  ことや、Deno launcherのpermissionが限定されることをhard sandboxと同一視しない。
+- 将来のexecution profileとして、read-only、write・shell・networkをhuman approval後に使う
+  approval-gated、workspaceだけをread-write mountするworkspace-sandbox、一時containerまたはVMで実行する
+  isolated-runner等を検討できる。たとえば`approval-gated · no hard sandbox`と
+  `trusted-local · workspace sandbox`は別々に成立する。
+- 内部表現は一つの列挙modeへ早期に固定せず、`trust`、`isolation`、filesystem範囲、network範囲、approval
+  policyの構造化profileとして持つ候補を残す。Agent Definitionやtool componentはHostが所有するpermission
+  ceilingの部分集合だけを選び、human gateの配置とOS-level isolationを別々に変更できるようにする。
+- hard sandboxを名乗る場合は、`bash`を単にDenoの`--allow-run`で起動する構成では足りない。subprocess自体を
+  bubblewrap、Landlock、container、専用VM等へ配置し、workspace mount、他pathとcredentialの可視性、network、
+  process実行範囲をHost側で強制する必要がある。これはcore agent loopではなく、主にHostとtool executorの
+  execution profile境界として検討する。
 - 「packageを導入しない」というAgent instructionと、「共有VM状態へ導入できない」というtool実行権限を
   区別する。`pip`や`apt`というcommand名の禁止だけでは、downloadしたbinaryや別package managerによる
   同じeffectを制限できないため、必要な境界はprocess起動、write先、network、credential等のcapabilityで

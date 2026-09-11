@@ -5,7 +5,9 @@ import {
   type PresentationHistoryPage,
   type PresentationLifecycle,
   type PresentationNavigationListing,
+  type PresentationPosition,
   type PresentationProjection,
+  type PresentationStartupState,
   snapshotPresentation,
 } from '../presentation/contract.ts';
 import { type EditorSnapshot } from './input.ts';
@@ -75,6 +77,7 @@ export type UiOverlay =
 
 export type UiScroll =
   | Readonly<{ readonly kind: 'followLatest' }>
+  | Readonly<{ readonly kind: 'oldest' }>
   | Readonly<
     {
       readonly kind: 'anchored';
@@ -86,8 +89,11 @@ export type UiScroll =
 export interface UiState {
   readonly projection?: PresentationProjection;
   readonly lifecycle: PresentationLifecycle;
-  /** Compact startup facts live in the log band but never become conversation entries. */
-  readonly startup: readonly string[];
+  /** Structured startup facts live in the log band but never become conversation entries. */
+  readonly startup?: Readonly<{
+    readonly state: PresentationStartupState;
+    readonly position: PresentationPosition;
+  }>;
   readonly log: Readonly<
     { readonly entries: readonly UiLogEntry[]; readonly omittedCount: number }
   >;
@@ -129,7 +135,12 @@ export type UiAction =
     readonly kind: 'slash_command_candidates';
     readonly candidates: readonly string[];
   }>
-  | Readonly<{ readonly kind: 'startup'; readonly lines: readonly string[] }>
+  | Readonly<{
+    readonly kind: 'startup';
+    readonly state: PresentationStartupState;
+    readonly position: PresentationPosition;
+  }>
+  | Readonly<{ readonly kind: 'session_title'; readonly title: string }>
   | Readonly<{ readonly kind: 'scroll'; readonly mode: UiScroll }>
   | Readonly<{ readonly kind: 'latest' }>
   | Readonly<{ readonly kind: 'overlay'; readonly overlay: UiOverlay }>;
@@ -374,7 +385,6 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           live: false,
           turn: event.turn,
         }),
-        startup: Object.freeze([]),
       });
     case 'assistant_message': {
       const assistantText = 'text' in event.message.content
@@ -595,7 +605,6 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     case 'restored_log': {
       let next: UiState = Object.freeze({
         ...state,
-        startup: Object.freeze([]),
         log: Object.freeze({ entries: Object.freeze([]), omittedCount: 0 }),
         scroll: Object.freeze({ kind: 'followLatest' as const }),
         newBelowCount: 0,
@@ -639,6 +648,13 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     case 'session_binding_replaced':
       return Object.freeze({
         ...state,
+        startup: state.startup === undefined ? undefined : Object.freeze({
+          state: Object.freeze({
+            ...state.startup.state,
+            sessionMode: Object.freeze({ kind: 'exact' as const }),
+          }),
+          position: event.position,
+        }),
         projection: state.projection === undefined ? undefined : snapshotPresentation({
           ...state.projection,
           sessionId: event.position.sessionId,
@@ -722,7 +738,6 @@ export const createUiState = (
   Object.freeze({
     projection: projection === undefined ? undefined : snapshotPresentation(projection),
     lifecycle: projection?.lifecycle ?? 'starting',
-    startup: Object.freeze([]),
     log: Object.freeze({ entries: Object.freeze([]), omittedCount: 0 }),
     activeToolIds: Object.freeze([]),
     editor: Object.freeze({ ...editor }),
@@ -812,9 +827,21 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
     case 'startup':
       return Object.freeze({
         ...state,
-        startup: Object.freeze(
-          action.lines.slice(0, 2).map((line) => safeText(line)),
-        ),
+        startup: Object.freeze({
+          state: snapshot(action.state),
+          position: snapshot(action.position),
+        }),
+      });
+    case 'session_title':
+      return state.startup === undefined ? state : Object.freeze({
+        ...state,
+        startup: Object.freeze({
+          ...state.startup,
+          position: Object.freeze({
+            ...state.startup.position,
+            title: safeText(action.title),
+          }),
+        }),
       });
     case 'scroll':
       return Object.freeze({

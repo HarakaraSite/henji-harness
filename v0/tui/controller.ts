@@ -549,7 +549,7 @@ export class TuiController {
       }
       if (event.kind === 'escape') {
         if (busy) this.busyEscape();
-        else if (this.renderer.stateSnapshot().scroll.kind === 'anchored') {
+        else if (this.renderer.stateSnapshot().scroll.kind !== 'followLatest') {
           this.renderer.latest();
         } else this.renderer.setStatus('input ignored');
         continue;
@@ -751,7 +751,7 @@ export class TuiController {
         continue;
       }
       if (event.kind === 'escape') {
-        if (this.renderer.stateSnapshot().scroll.kind === 'anchored') {
+        if (this.renderer.stateSnapshot().scroll.kind !== 'followLatest') {
           this.renderer.latest();
         } else this.renderer.setStatus('history export in progress');
         continue;
@@ -945,6 +945,7 @@ export class TuiController {
     }
     const finish = (value: PresentationIntentResult): void => {
       if (value.kind === 'session_title') {
+        this.renderer.setSessionTitle(value.title);
         this.renderer.setStatus(
           value.status === 'renamed' ? 'session renamed' : 'session title unchanged',
         );
@@ -977,7 +978,7 @@ export class TuiController {
       this.renderer.setStatus('active task recovery pending');
       return;
     }
-    if (this.renderer.stateSnapshot().scroll.kind === 'anchored') {
+    if (this.renderer.stateSnapshot().scroll.kind !== 'followLatest') {
       this.renderer.latest(false);
     }
     this.pending?.clearSideEffectWarning();

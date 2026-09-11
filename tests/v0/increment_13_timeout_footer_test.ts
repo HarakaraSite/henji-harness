@@ -282,6 +282,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
     kind: 'session_binding_replaced',
     position: {
       sessionId: '87654321-3456-4789-8123-abcdefabcdef',
+      createdAt: '2026-09-11T00:00:00.000Z',
       agent: 'default',
       committedTurn: 7,
       messageCount: 14,

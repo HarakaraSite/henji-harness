@@ -6,6 +6,7 @@ import {
   plainTextAssistantRenderer,
   projectConversationEntry,
 } from './conversation_renderer.ts';
+import { startupHeaderLines } from './startup_render.ts';
 
 export const MIN_COLUMNS = 80;
 export const MIN_ROWS = 24;
@@ -391,7 +392,13 @@ const logRows = (
       result.push({ text: '', kind: 'separator' });
     }
   };
-  for (const line of state.startup.slice(0, 2)) {
+  const startupLines = state.startup === undefined ? [] : startupHeaderLines(
+    state.startup.state,
+    state.startup.position,
+    columns,
+    state.terminalSize.rows,
+  );
+  for (const line of startupLines) {
     const content = safeDisplay(line);
     sourceBytes += encoder.encode(content).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
@@ -608,7 +615,9 @@ export const layoutUi = (
   const log = logRows(state, Math.max(1, widthLimit), assistantRenderer);
   const overlay = overlayRows(state, Math.max(1, widthLimit), heightLimit);
   let logStart = Math.max(0, log.rows.length - logHeight);
-  if (state.scroll.kind === 'anchored') {
+  if (state.scroll.kind === 'oldest') {
+    logStart = 0;
+  } else if (state.scroll.kind === 'anchored') {
     const anchor = state.scroll.entryId;
     const sourceOffset = state.scroll.sourceScalarOffset;
     const anchored = log.rows.findIndex((row) =>
@@ -628,7 +637,7 @@ export const layoutUi = (
   while (paddedLog.length < logHeight) {
     paddedLog.unshift({ text: '', kind: 'log' });
   }
-  const history = state.scroll.kind === 'anchored' && state.overlay.kind === 'none'
+  const history = state.scroll.kind !== 'followLatest' && state.overlay.kind === 'none'
     ? {
       first: Math.min(log.rows.length, logStart + 1),
       last: Math.min(log.rows.length, logStart + logHeight),

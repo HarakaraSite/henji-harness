@@ -1,4 +1,4 @@
-import type { PresentationStartupState } from '../presentation/contract.ts';
+import type { PresentationPosition, PresentationStartupState } from '../presentation/contract.ts';
 import { cellWidth } from './editor_render.ts';
 import { escapeTerminalText } from './terminal_text.ts';
 
@@ -15,23 +15,104 @@ export const orientationSession = (state: PresentationStartupState): string => {
   }
 };
 
-export const clippedWorkspace = (value: string, columns: number): string => {
-  const escaped = escapeTerminalText(value);
-  const prefixWidth = [...'workspace> '].reduce(
-    (total, character) => total + cellWidth(character),
-    0,
-  );
-  const available = Math.max(1, columns - prefixWidth);
+const fitCells = (value: string, columns: number): string => {
+  const limit = Math.max(1, columns);
   let used = 0;
-  const suffix: string[] = [];
-  for (const character of [...escaped].reverse()) {
+  let result = '';
+  for (const character of value) {
     const width = cellWidth(character);
-    if (used + width > Math.max(1, available - 1)) break;
+    if (used + width > limit) break;
+    result += character;
+    used += width;
+  }
+  if (result === value) return result + ' '.repeat(Math.max(0, limit - used));
+  const marker = '…';
+  while (result.length > 0 && used + cellWidth(marker) > limit) {
+    const points = [...result];
+    const removed = points.pop()!;
+    result = points.join('');
+    used -= cellWidth(removed);
+  }
+  return result + marker + ' '.repeat(Math.max(0, limit - used - cellWidth(marker)));
+};
+
+const textCells = (value: string): number =>
+  [...value].reduce((total, character) => total + cellWidth(character), 0);
+
+const fitSuffixCells = (value: string, columns: number): string => {
+  const limit = Math.max(1, columns);
+  if (textCells(value) <= limit) return value;
+  const marker = '…';
+  let used = cellWidth(marker);
+  const suffix: string[] = [];
+  for (const character of [...value].reverse()) {
+    const width = cellWidth(character);
+    if (used + width > limit) break;
     suffix.push(character);
     used += width;
   }
-  const result = suffix.reverse().join('');
-  return result === escaped ? result : `…${result}`;
+  return marker + suffix.reverse().join('');
+};
+
+const createdMinute = (value: string): string => {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/u.exec(value);
+  return match === null ? 'unknown' : `${match[1]} ${match[2]}Z`;
+};
+
+const sessionIdentity = (
+  state: PresentationStartupState,
+  position: PresentationPosition,
+): string => {
+  if (state.sessionMode.kind === 'none') return orientationSession(state);
+  const id = position.sessionId?.slice(0, 8);
+  return id === undefined ? orientationSession(state) : `${orientationSession(state)} · ${id}`;
+};
+
+/** Render the responsive, transcript-independent session orientation block. */
+export const startupHeaderLines = (
+  state: PresentationStartupState,
+  position: PresentationPosition,
+  columns = 80,
+  rows = 24,
+): readonly string[] => {
+  const width = Math.max(8, Math.min(160, columns));
+  const title = escapeTerminalText(position.title ?? 'untitled');
+  const created = createdMinute(position.createdAt);
+  const identity = escapeTerminalText(sessionIdentity(state, position));
+  const workspace = escapeTerminalText(state.workspace);
+  if (width < 64 || rows < 16) {
+    const identityPrefix = `${identity} · `;
+    const compactWorkspace = fitSuffixCells(
+      workspace,
+      Math.max(1, width - textCells(identityPrefix)),
+    );
+    return Object.freeze([
+      fitCells(`Henji Harness · ${created} · ${title}`, width),
+      fitCells(`${identityPrefix}${compactWorkspace}`, width),
+    ]);
+  }
+
+  const inside = width - 2;
+  const content = (label: string, value: string): string =>
+    `│${fitCells(` ${label.padEnd(11)}${value}`, inside)}│`;
+  const heading = '─ Henji Harness ';
+  const top = `╭${heading}${'─'.repeat(Math.max(0, inside - textCells(heading)))}╮`;
+  const skills = state.skills.names.length === 0
+    ? 'none'
+    : `${state.skills.names.map((name) => escapeTerminalText(name)).join(', ')}${
+      state.skills.omitted > 0 ? ` (+${state.skills.omitted} more)` : ''
+    }`;
+  return Object.freeze([
+    top,
+    content('session:', `${created} · ${title}`),
+    content('', identity),
+    content('workspace:', workspace),
+    content('agent:', escapeTerminalText(state.agentId)),
+    content('context:', state.instructions.loaded ? state.instructions.source : 'none'),
+    content('skills:', skills),
+    content('runtime:', `trusted-local · ${state.trust.hardSandbox ? '' : 'no '}hard sandbox`),
+    `╰${'─'.repeat(inside)}╯`,
+  ]);
 };
 
 /**

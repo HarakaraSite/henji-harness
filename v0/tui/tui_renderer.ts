@@ -42,8 +42,8 @@ import {
   type AssistantContentRenderer,
   plainTextAssistantRenderer,
 } from './conversation_renderer.ts';
-import { clippedWorkspace, orientationSession, startupHelpLines } from './startup_render.ts';
-import { encoder, escapeTerminalText, truncateText } from './terminal_text.ts';
+import { startupHelpLines } from './startup_render.ts';
+import { encoder, truncateText } from './terminal_text.ts';
 
 export interface TuiRendererOptions {
   /** Host-local assistant body renderer; the default preserves exact plain text. */
@@ -224,36 +224,23 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  /** Compact startup welcome kept outside ordinary scrollback and capped at two logical rows. */
+  /** Structured startup orientation kept outside ordinary conversation entries. */
   renderCompactStartup(
     state: PresentationStartupState,
-    sessionId?: string,
+    position: PresentationPosition,
   ): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.setStartupState(state);
-    let columns = 80;
-    try {
-      const size = this.terminal.consoleSize();
-      if (Number.isSafeInteger(size.columns) && size.columns > 0) {
-        columns = size.columns;
-      }
-    } catch {
-      // Use the documented fallback when terminal size is unavailable.
-    }
-    const identity = sessionId === undefined
-      ? orientationSession(state)
-      : `${orientationSession(state)} · ${sessionId.slice(0, 8)}`;
-    const first = truncateText(
-      `Henji Harness · ${escapeTerminalText(state.agentId)} · ${escapeTerminalText(identity)} · ${
-        clippedWorkspace(state.workspace, Math.min(160, Math.max(8, columns)))
-      }`,
-      512,
-    ).text;
-    const second = 'trusted-local · credential presence shown; value checked only when sending';
     this.ui = reduceUiAction(this.ui, {
       kind: 'startup',
-      lines: [first, second],
+      state,
+      position,
     });
+    this.redraw();
+  }
+
+  setSessionTitle(title: string): void {
+    this.ui = reduceUiAction(this.ui, { kind: 'session_title', title });
     this.redraw();
   }
 
@@ -464,7 +451,9 @@ export class TuiRenderer implements TerminalRendererGate {
     if (rows.length === 0) return;
     const viewport = Math.max(1, layout.log.length);
     let currentStart = layout.logStart;
-    if (this.ui.scroll.kind === 'anchored') {
+    if (this.ui.scroll.kind === 'oldest') {
+      currentStart = 0;
+    } else if (this.ui.scroll.kind === 'anchored') {
       const anchor = this.ui.scroll.entryId;
       const offset = this.ui.scroll.sourceScalarOffset;
       const anchored = rows.findIndex((row) =>
@@ -474,7 +463,7 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const maxStart = Math.max(0, rows.length - viewport);
     if (maxStart === 0) {
-      if (this.ui.scroll.kind === 'anchored') this.latest();
+      if (this.ui.scroll.kind !== 'followLatest') this.latest();
       return;
     }
     const nextStart = Math.max(
@@ -486,6 +475,14 @@ export class TuiRenderer implements TerminalRendererGate {
     );
     if (direction === 'down' && nextStart === maxStart) {
       this.latest();
+      return;
+    }
+    if (direction === 'up' && nextStart === 0) {
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'scroll',
+        mode: { kind: 'oldest' },
+      });
+      this.redraw();
       return;
     }
     let target = rows[nextStart];
@@ -500,14 +497,6 @@ export class TuiRenderer implements TerminalRendererGate {
           target = rows[index];
           break;
         }
-      }
-    }
-    if (target?.entryId === undefined) {
-      // Startup and omitted rows do not have conversation identity. At the oldest boundary,
-      // choose the first reachable entry instead of falling back to the latest page.
-      if (direction === 'up') {
-        const firstConversation = rows.find((row) => row.entryId !== undefined);
-        if (firstConversation !== undefined) target = firstConversation;
       }
     }
     if (target?.entryId === undefined) {

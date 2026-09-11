@@ -15,8 +15,16 @@ export interface HistoryExportRequest {
   readonly position: Readonly<{
     readonly agent: SessionRecord['agent'];
     readonly committedTurn: number;
+    readonly createdAt: string;
+    readonly title?: string;
   }>;
   readonly session: HistoryExportSessionIdentity;
+  readonly runtime?: Readonly<{
+    readonly instructionSource: 'AGENTS.md' | 'AGENTS.MD' | 'none';
+    readonly skillNames: readonly string[];
+    readonly omittedSkills: number;
+    readonly hardSandbox: false;
+  }>;
 }
 
 export interface HistoryExportReceipt {
@@ -45,20 +53,43 @@ const fenced = (text: string, language = ''): string => {
   return `${fence}${language}\n${text}${text.endsWith('\n') ? '' : '\n'}${fence}\n`;
 };
 
+const inlineCode = (text: string): string => {
+  const fence = '`'.repeat(Math.max(1, longestBacktickRun(text) + 1));
+  const padding = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${padding}${text}${padding}${fence}`;
+};
+
 const markdownChunks = function* (
   index: SessionHistoryIndex,
   workspaceRoot: string,
   agent: SessionRecord['agent'],
   session: HistoryExportSessionIdentity,
+  createdAt: string,
+  title: string | undefined,
+  runtime: HistoryExportRequest['runtime'],
 ): Generator<string> {
   const throughTurn = index.turns.at(-1)?.turn ?? 0;
   const sessionLabel = session.kind === 'none' ? 'no-session' : session.sessionId;
   yield '# Henji Session History\n\n';
+  yield `- Title: ${inlineCode(title ?? 'untitled')}\n`;
+  yield `- Created: ${inlineCode(createdAt)}\n`;
   yield `- Session: \`${sessionLabel}\`\n`;
   yield `- Agent: \`${agent}\`\n`;
   yield `- Through turn: ${throughTurn}\n`;
   yield '- Workspace:\n\n';
   yield fenced(workspaceRoot);
+  if (runtime !== undefined) {
+    yield '\n## Runtime at export\n\n';
+    yield `- Context: ${inlineCode(runtime.instructionSource)}\n`;
+    const skills = runtime.skillNames.length === 0
+      ? 'none'
+      : `${runtime.skillNames.join(', ')}${
+        runtime.omittedSkills > 0 ? ` (+${runtime.omittedSkills} more)` : ''
+      }`;
+    yield `- Skills: ${inlineCode(skills)}\n`;
+    yield '- Trust: `trusted-local`\n';
+    yield `- Hard sandbox: ${runtime.hardSandbox ? 'yes' : 'no'}\n`;
+  }
   for (const turn of index.turns) {
     yield `\n## Turn ${turn.turn}\n\n`;
     for (let offset = 0; offset < turn.messages.length; offset += 1) {
@@ -108,6 +139,9 @@ interface PreparedExport {
   readonly session: HistoryExportSessionIdentity;
   readonly agent: SessionRecord['agent'];
   readonly throughTurn: number;
+  readonly createdAt: string;
+  readonly title?: string;
+  readonly runtime?: HistoryExportRequest['runtime'];
 }
 
 const prepareExport = (request: HistoryExportRequest): PreparedExport => {
@@ -134,6 +168,9 @@ const prepareExport = (request: HistoryExportRequest): PreparedExport => {
       : Object.freeze({ kind: 'durable' as const, sessionId: request.session.sessionId }),
     agent: request.position.agent,
     throughTurn,
+    createdAt: request.position.createdAt,
+    ...(request.position.title === undefined ? {} : { title: request.position.title }),
+    ...(request.runtime === undefined ? {} : { runtime: structuredClone(request.runtime) }),
   });
 };
 
@@ -190,6 +227,9 @@ export class DenoHistoryExporter implements HistoryExporter {
           this.workspaceRoot,
           prepared.agent,
           prepared.session,
+          prepared.createdAt,
+          prepared.title,
+          prepared.runtime,
         )
       ) {
         await writeBytes(file, encoder.encode(chunk));

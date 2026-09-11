@@ -16,6 +16,7 @@ import type {
   PresentationNavigationListing,
   PresentationOutcome,
   PresentationPosition,
+  PresentationStartupState,
 } from './contract.ts';
 import type { ModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
 import type { CredentialAvailability } from '../agent/provider/model_selection.ts';
@@ -105,4 +106,5 @@ export type CoreSession = {
 export interface TuiPresentationAdapterOptions {
   readonly historyExporter?: HistoryExporter;
   readonly historySessionMode?: 'durable' | 'none';
+  readonly startupState?: PresentationStartupState;
 }

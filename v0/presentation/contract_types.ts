@@ -202,6 +202,8 @@ export interface PresentationCheckpoint {
 
 export interface PresentationPosition {
   readonly sessionId?: string;
+  readonly createdAt: string;
+  readonly title?: string;
   readonly agent: PresentationAgentId;
   readonly committedTurn: number;
   readonly messageCount: number;

@@ -53,6 +53,8 @@ export interface NavigationSessionLike {
 
 export interface NavigationPosition {
   readonly sessionId?: string;
+  readonly createdAt: string;
+  readonly title?: string;
   readonly agent: SessionRecord['agent'];
   readonly committedTurn: number;
   readonly messageCount: number;

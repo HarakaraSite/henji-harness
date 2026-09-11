@@ -115,7 +115,6 @@ export interface TuiSessionFactoryResult {
   readonly close?: () => void | Promise<void>;
   /** Canonical workspace root for the startup-bounded local path index. */
   readonly workspaceRoot?: string;
-  readonly sessionLine?: string;
   readonly restored?: {
     readonly messages: readonly Message[];
     readonly omitted: number;
@@ -473,11 +472,13 @@ export const main = async (
           );
           let currentHandle: SessionHandle = handle;
           let currentRecord: SessionRecord | undefined = record;
+          let currentCreatedAt = record?.createdAt ?? new Date().toISOString();
           let currentSession = result.session;
           const position = (): NavigationPosition => {
             const value = currentSession.currentPosition();
             return {
               sessionId: value.sessionId ?? currentHandle.id,
+              createdAt: currentCreatedAt,
               agent: value.agent,
               committedTurn: value.committedTurn,
               messageCount: value.messageCount,
@@ -590,6 +591,7 @@ export const main = async (
                 commitTarget: (session) => {
                   currentHandle = targetHandle;
                   currentRecord = targetRecord;
+                  currentCreatedAt = targetRecord.createdAt;
                   currentSession = session;
                 },
               });
@@ -620,7 +622,6 @@ export const main = async (
             close: () => currentSession.close(),
             displayState: result.displayState,
             workspaceRoot: prepared.workspace.root,
-            sessionLine: `session> ${handle.id} ${record === undefined ? '(new)' : '(resumed)'}`,
             navigation,
             ...(record === undefined ? {} : (() => {
               const replay = restoredMessages(record.transcript);
@@ -668,6 +669,7 @@ export const main = async (
       historyExporter === undefined ? {} : {
         historyExporter,
         historySessionMode: created.displayState.sessionMode.kind === 'none' ? 'none' : 'durable',
+        startupState: created.displayState,
       },
     );
     presentationAdapterRef.current = presentationAdapter;
@@ -698,10 +700,10 @@ export const main = async (
     });
     acquisitionStarted = true;
     await lifecycle.acquire();
-    renderer.renderCompactStartup(
-      created.displayState,
-      created.sessionLine?.split(' ')[1],
-    );
+    const initialPosition = presentationAdapter.currentPosition();
+    if (initialPosition !== undefined) {
+      renderer.renderCompactStartup(created.displayState, initialPosition);
+    }
     if (created.restored !== undefined) {
       renderer.renderRestored(
         created.restored.messages,
@@ -709,7 +711,6 @@ export const main = async (
       );
     }
     presentationAdapter.announceLegacyModelDefault();
-    const initialPosition = presentationAdapter.currentPosition();
     if (initialPosition !== undefined) {
       renderer.setCurrentPosition(initialPosition);
       renderer.setProjection(

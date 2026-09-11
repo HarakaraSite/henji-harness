@@ -216,12 +216,28 @@ Deno.test('history export writes distinct complete snapshots and explicit no-ses
     const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const first = await exporter.write({
       transcript: turnOne(),
-      position: { agent: 'default', committedTurn: 1 },
+      position: {
+        agent: 'default',
+        committedTurn: 1,
+        createdAt: '2026-09-11T00:00:00.000Z',
+        title: 'First session',
+      },
       session: { kind: 'durable', sessionId },
+      runtime: {
+        instructionSource: 'AGENTS.md',
+        skillNames: ['handoff-read', 'handoff-write'],
+        omittedSkills: 1,
+        hardSandbox: false,
+      },
     });
     const second = await exporter.write({
       transcript: [...turnOne(), ...turnTwo()],
-      position: { agent: 'default', committedTurn: 2 },
+      position: {
+        agent: 'default',
+        committedTurn: 2,
+        createdAt: '2026-09-11T00:00:00.000Z',
+        title: 'First session',
+      },
       session: { kind: 'durable', sessionId },
     });
     assert(first.path.startsWith('/'));
@@ -233,6 +249,12 @@ Deno.test('history export writes distinct complete snapshots and explicit no-ses
     assert(!firstText.includes('## Turn 2'));
     assert(secondText.includes('## Turn 1'));
     assert(secondText.includes('## Turn 2'));
+    assert(secondText.includes('- Title: `First session`'));
+    assert(secondText.includes('- Created: `2026-09-11T00:00:00.000Z`'));
+    assert(firstText.includes('## Runtime at export'));
+    assert(firstText.includes('- Context: `AGENTS.md`'));
+    assert(firstText.includes('- Skills: `handoff-read, handoff-write (+1 more)`'));
+    assert(firstText.includes('- Hard sandbox: no'));
     assert(secondText.includes('### tool> read'));
     assert(secondText.includes('### assistant>\n\n```\nI will read the current source.\n```'));
     assert(secondText.indexOf('### assistant>') < secondText.indexOf('### tool> read'));
@@ -242,7 +264,11 @@ Deno.test('history export writes distinct complete snapshots and explicit no-ses
 
     const none = await exporter.write({
       transcript: [],
-      position: { agent: 'planner', committedTurn: 0 },
+      position: {
+        agent: 'planner',
+        committedTurn: 0,
+        createdAt: '2026-09-11T01:00:00.000Z',
+      },
       session: { kind: 'none' },
     });
     assert(none.path.includes('/no-session-through-turn-000000-'));
@@ -271,6 +297,7 @@ Deno.test('presentation adapter captures transcript and ignores no-session inter
       transcriptSnapshot: () => structuredClone(transcript),
       currentPosition: () => ({
         sessionId: internalId,
+        createdAt: '2026-09-11T00:00:00.000Z',
         agent: 'default',
         committedTurn: 1,
         messageCount: 2,
@@ -281,12 +308,34 @@ Deno.test('presentation adapter captures transcript and ignores no-session inter
     {
       historyExporter: exporter,
       historySessionMode: 'none',
+      startupState: {
+        workspace: '/tmp/workspace',
+        agentId: 'default',
+        model: {
+          provider: 'openrouter',
+          profileId: 'test',
+          modelId: 'deepseek/deepseek-v4.1-flash',
+          effort: 'high',
+        },
+        sessionMode: { kind: 'none' },
+        instructions: { loaded: true, source: 'AGENTS.md' },
+        skills: { count: 1, names: ['handoff-read'], omitted: 0 },
+        trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+        credentialVerification: 'before_each_provider_request',
+      },
     },
   );
   const operation = adapter.dispatch({ kind: 'history_export' });
   assert(operation instanceof Promise);
   assert(captured !== undefined);
   assertEquals(captured.session, { kind: 'none' });
+  assertEquals(captured.position.createdAt, '2026-09-11T00:00:00.000Z');
+  assertEquals(captured.runtime, {
+    instructionSource: 'AGENTS.md',
+    skillNames: ['handoff-read'],
+    omittedSkills: 0,
+    hardSandbox: false,
+  });
   assertEquals(captured.transcript, turnOne());
   transcript = [...turnOne(), ...turnTwo()];
   resolveWrite({ path: '/tmp/export.md', throughTurn: 1 });

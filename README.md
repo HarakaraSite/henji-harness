@@ -38,14 +38,14 @@ Agent WorkerはDefinitionを評価してmodel、instruction、tool、delegation�
 反映する。
 
 ```sh
-deno add jsr:@henji/harness@0.1.0-alpha.5
+deno add jsr:@henji/harness@0.1.0-alpha.6
 ```
 
 ```ts
 import {
   createDefaultAgentComposition,
   type ExecutableAgentDefinition,
-} from 'jsr:@henji/harness@0.1.0-alpha.5';
+} from 'jsr:@henji/harness@0.1.0-alpha.6';
 
 const definition: ExecutableAgentDefinition = (input) =>
   createDefaultAgentComposition(input);

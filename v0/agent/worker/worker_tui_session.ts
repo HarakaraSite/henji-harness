@@ -99,7 +99,6 @@ export interface WorkerSessionResult {
   readonly requestCount: () => number;
   readonly close: () => Promise<void>;
   readonly workspaceRoot: string;
-  readonly sessionLine?: string;
   readonly restored?: {
     readonly messages: readonly Message[];
     readonly omitted: number;
@@ -122,6 +121,8 @@ const navigationPosition = (
   value: ReturnType<WorkerHostSession['currentPosition']>,
 ): NavigationPosition => ({
   sessionId: value.sessionId,
+  createdAt: value.createdAt,
+  ...(value.title === undefined ? {} : { title: value.title }),
   agent: value.agent,
   committedTurn: value.committedTurn,
   messageCount: value.messageCount,
@@ -341,9 +342,6 @@ export const createWorkerSession = async (
       workspaceRoot: workspace.root,
       displayState,
       ...(currentRecord === undefined ? {} : { restored: restoreRecordMessages(currentRecord) }),
-      ...(options.persistence === 'none' ? {} : {
-        sessionLine: `session> ${handle.id} ${currentRecord === undefined ? '(new)' : '(resumed)'}`,
-      }),
       ...(navigation === undefined ? {} : { navigation }),
     };
   } catch (error) {

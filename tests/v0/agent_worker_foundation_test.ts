@@ -1396,6 +1396,7 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
     const navigation = created.navigation;
     assert(navigation !== undefined);
     const sessionId = created.session.sessionId;
+    const createdAt = navigation.currentPosition().createdAt;
     const adapter = createTuiPresentationAdapter(created.session, () => {}, navigation);
     assertEquals(
       await adapter.dispatch({ kind: 'rename_session', title: 'Release notes' }),
@@ -1405,6 +1406,7 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
     const renamed = await store.readWorker(sessionId);
     assert(renamed.schemaVersion === 5);
     assertEquals(renamed.title, 'Release notes');
+    assertEquals(renamed.createdAt, createdAt);
     assertEquals(renamed.stateRevision, 2);
     assertEquals(
       (await navigation.list()).sessions.find((row) => row.id === sessionId)?.title,
@@ -1417,6 +1419,7 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
     const committed = await store.readWorker(sessionId);
     assert(committed.schemaVersion === 5);
     assertEquals(committed.title, 'Release notes');
+    assertEquals(committed.createdAt, createdAt);
     assertEquals(committed.stateRevision, 3);
 
     await created.close();
@@ -1430,6 +1433,8 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
       physicalIoMode: 'provider-free',
     });
     assertEquals(resumed.navigation?.renameCurrent('Release notes'), 'unchanged');
+    assertEquals(resumed.navigation?.currentPosition().createdAt, createdAt);
+    assertEquals(resumed.navigation?.currentPosition().title, 'Release notes');
     assertEquals(
       (await resumed.navigation?.list())?.sessions.find((row) => row.id === sessionId)?.title,
       'Release notes',

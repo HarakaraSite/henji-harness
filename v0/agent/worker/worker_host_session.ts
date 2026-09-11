@@ -114,6 +114,7 @@ export class WorkerHostSession {
   private modelSelection: ModelSelection;
   private modelChanges: SessionModelChange[];
   private turnModels: SessionTurnModelAttribution[];
+  private readonly createdAt: string;
   private title: string | null;
   private legacyModelNotice = false;
   private credentialAvailability: CredentialAvailability | undefined;
@@ -167,6 +168,7 @@ export class WorkerHostSession {
         selection: upgradeOpenRouterSelection(attribution.selection),
       }))
       : [];
+    this.createdAt = record?.createdAt ?? new Date().toISOString();
     this.title = record?.schemaVersion === 5 ? record.title : null;
     this.legacyModelNotice = record !== undefined && record.schemaVersion < 4;
     this.checkpoint = options.handle.checkpoint === undefined
@@ -607,8 +609,7 @@ export class WorkerHostSession {
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
-      createdAt: this.options.handle.record?.createdAt ??
-        new Date().toISOString(),
+      createdAt: this.createdAt,
       updatedAt: new Date().toISOString(),
       title: this.title,
       stateRevision: this.stateRevision + 1,
@@ -644,14 +645,13 @@ export class WorkerHostSession {
         selection: structuredClone(selection),
       },
     ];
-    const existing = this.options.handle.record;
     const nextRevision = this.stateRevision + 1;
     const persisted: SessionRecordV5 = {
       schemaVersion: 5,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
-      createdAt: existing?.createdAt ?? changedAt,
+      createdAt: this.createdAt,
       updatedAt: changedAt,
       title: this.title,
       stateRevision: nextRevision,
@@ -711,14 +711,13 @@ export class WorkerHostSession {
     const title = normalizeSessionTitle(value);
     if (title.length === 0 || title === this.title) return 'unchanged';
     const changedAt = new Date().toISOString();
-    const existing = this.options.handle.record;
     const nextRevision = this.stateRevision + 1;
     const persisted: SessionRecordV5 = {
       schemaVersion: 5,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
-      createdAt: existing?.createdAt ?? changedAt,
+      createdAt: this.createdAt,
       updatedAt: changedAt,
       title,
       stateRevision: nextRevision,
@@ -979,6 +978,8 @@ export class WorkerHostSession {
 
   currentPosition(): {
     readonly sessionId: string;
+    readonly createdAt: string;
+    readonly title?: string;
     readonly agent: SessionRecord['agent'];
     readonly committedTurn: number;
     readonly messageCount: number;
@@ -989,6 +990,8 @@ export class WorkerHostSession {
   } {
     return {
       sessionId: this.sessionId,
+      createdAt: this.createdAt,
+      ...(this.title === null ? {} : { title: this.title }),
       agent: this.options.agent,
       committedTurn: this.nextTurn - 1,
       messageCount: this.transcript.length,
