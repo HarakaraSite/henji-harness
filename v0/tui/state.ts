@@ -11,14 +11,18 @@ import {
 } from '../presentation/contract.ts';
 import { type EditorSnapshot } from './input.ts';
 import { type PendingMetadataSnapshot } from './pending_input.ts';
-import { toolActivityPreview } from './tool_activity.ts';
+import {
+  pendingToolActivityText,
+  previewFromToolActivityText,
+  settledToolActivityText,
+  toolActivityPreview,
+} from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const UI_MAX_LOG_ENTRIES = 512;
 export const UI_MAX_LOG_BYTES = 2 * 1024 * 1024;
 export const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const UI_MAX_NEW_BELOW = 512;
-const UI_MAX_TOOL_NAME_BYTES = 64;
 
 export type UiLogKind =
   | 'user'
@@ -62,6 +66,7 @@ export type UiOverlay =
       readonly page?: PresentationHistoryPage;
       readonly match?: PresentationHistoryMatch;
       readonly pageNumber?: number;
+      readonly placement?: 'match' | 'start' | 'end';
     }
   >
   | Readonly<
@@ -159,39 +164,6 @@ const safeTextToBytes = (text: string, limit: number): string => {
     used += size;
   }
   return result;
-};
-
-/** The normal log describes an operation, while full tool output remains in the core transcript. */
-const shortToolName = (name: string): string => {
-  const bounded = safeTextToBytes(name, UI_MAX_TOOL_NAME_BYTES);
-  return bytes(bounded) < bytes(name) ? `${bounded}…` : bounded;
-};
-const toolActivityText = (name: string, preview = ''): string =>
-  preview.length === 0 ? `${shortToolName(name)} …` : `${shortToolName(name)} ${preview} …`;
-const toolResultText = (
-  name: string,
-  outcome: 'success' | 'error',
-  preview = '',
-): string =>
-  preview.length === 0
-    ? `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`
-    : `${shortToolName(name)} ${preview} ${outcome === 'success' ? '✓' : '✗'}`;
-
-/** Keep the head preview across progress/result updates; events after tool_call carry no arguments. */
-const previewFromEntry = (text: string, name: string): string => {
-  const base = shortToolName(name);
-  if (!text.startsWith(base)) return '';
-  const rest = text.slice(base.length).trim();
-  for (const marker of ['…', '✓', '✗']) {
-    if (rest.endsWith(marker)) {
-      const preview = rest.slice(0, rest.length - marker.length).trim();
-      return preview;
-    }
-  }
-  const preview = rest.trim();
-  return preview.length === 0 || preview === '…' || preview === '✓' || preview === '✗'
-    ? ''
-    : preview;
 };
 
 /** Stable, short failure reasons; diagnostic identifiers and provider details stay out of the UI. */
@@ -469,7 +441,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         id,
         kind: 'tool',
         label: 'tool>',
-        text: toolActivityText(event.call.name, preview),
+        text: pendingToolActivityText(event.call.name, preview),
         revision: 0,
         live: true,
         turn: event.turn,
@@ -485,13 +457,15 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     case 'tool_progress': {
       const id = `turn-${event.turn}:tool:${event.callId}`;
       const existing = state.log.entries.find((entry) => entry.id === id);
-      const preview = existing === undefined ? '' : previewFromEntry(existing.text, event.name);
+      const preview = existing === undefined
+        ? ''
+        : previewFromToolActivityText(existing.text, event.name);
       const next = existing === undefined
         ? appendEntry(state, {
           id,
           kind: 'tool',
           label: 'tool>',
-          text: toolActivityText(event.name, preview),
+          text: pendingToolActivityText(event.name, preview),
           revision: 0,
           live: true,
           turn: event.turn,
@@ -500,7 +474,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         : replaceEntry(
           state,
           id,
-          toolActivityText(event.name, preview),
+          pendingToolActivityText(event.name, preview),
           true,
         );
       return Object.freeze({
@@ -515,13 +489,13 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       const existing = state.log.entries.find((entry) => entry.id === id);
       const preview = existing === undefined
         ? ''
-        : previewFromEntry(existing.text, event.result.name);
+        : previewFromToolActivityText(existing.text, event.result.name);
       if (existing === undefined) {
         const next = appendEntry(state, {
           id,
           kind: 'tool',
           label: 'tool>',
-          text: toolResultText(event.result.name, event.result.outcome, preview),
+          text: settledToolActivityText(event.result.name, event.result.outcome, preview),
           revision: 0,
           live: false,
           turn: event.turn,
@@ -537,7 +511,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       const next = replaceEntry(
         state,
         id,
-        toolResultText(event.result.name, event.result.outcome, preview),
+        settledToolActivityText(event.result.name, event.result.outcome, preview),
         false,
         'tool>',
       );

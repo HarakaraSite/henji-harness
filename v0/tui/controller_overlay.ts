@@ -528,10 +528,7 @@ export class ControllerOverlay {
     else if (turn < current.totalTurns) {
       turn += 1;
       page = 0;
-    } else {
-      this.closeHistoryView();
-      return;
-    }
+    } else return;
 
     const generation = ++this.historyGeneration;
     const binding = this.options.bindingIdentity?.();
@@ -547,7 +544,11 @@ export class ControllerOverlay {
       }
       const result = Object.freeze({ ...modal.result, page: value.page });
       this.modal = { kind: 'history-view', result };
-      this.options.renderer.renderHistoryPage(value.page, result.match);
+      this.options.renderer.renderHistoryPage(
+        value.page,
+        result.match,
+        direction === 'older' ? 'end' : 'start',
+      );
     }).catch((error: unknown) => {
       if (generation !== this.historyGeneration) return;
       if (isPresentationDeliveryError(error)) void this.options.fail(error);

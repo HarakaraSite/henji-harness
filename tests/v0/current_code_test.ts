@@ -701,13 +701,17 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
   const decoded = decodeSessionRecord(encodeSessionRecord(record));
   assertEquals(decoded.transcript, record.transcript);
   assertEquals(restoredMessages(decoded.transcript).messages, record.transcript);
-  const assistantHistory = historyPage(decoded.transcript, 1)?.entries.find((entry) =>
-    entry.role === 'assistant'
+  assertEquals(
+    historyPage(decoded.transcript, 1)?.entries.map((entry) => [entry.role, entry.text]),
+    [
+      ['user', 'inspect'],
+      ['tool>', 'read README.md ✓'],
+      ['assistant', 'done'],
+    ],
   );
-  assertEquals(assistantHistory?.text, 'I will inspect the current source.\nread');
 });
 
-Deno.test('history search uses the full canonical transcript and stable source coordinates', () => {
+Deno.test('history search uses the settled visible log and excludes tool result bodies', () => {
   const transcript = [
     { role: 'user' as const, content: { kind: 'text' as const, text: 'Alpha first' } },
     { role: 'assistant' as const, content: { kind: 'text' as const, text: 'middle' } },
@@ -717,8 +721,8 @@ Deno.test('history search uses the full canonical transcript and stable source c
       content: [{
         kind: 'tool_call' as const,
         callId: 'search-1',
-        name: 'lookup',
-        arguments: {},
+        name: 'read',
+        arguments: { path: 'visible-ALPHA.txt' },
       }],
     },
     {
@@ -726,8 +730,8 @@ Deno.test('history search uses the full canonical transcript and stable source c
       content: [{
         kind: 'tool_result' as const,
         callId: 'search-1',
-        name: 'lookup',
-        text: 'second ALPHA and 日本語',
+        name: 'read',
+        text: 'hidden ALPHA, tool-only-token, and 日本語',
         outcome: 'success' as const,
       }],
     },
@@ -747,13 +751,15 @@ Deno.test('history search uses the full canonical transcript and stable source c
     pageEntry: 0,
   });
   const newer = searchSessionHistory(transcript, 'alpha', 1);
-  assertEquals(newer?.match.role, 'tool<');
-  assertEquals(newer?.match.sourceScalarStart, 7);
-  assertEquals(newer?.page.entries[newer.match.pageEntry].text, 'second ALPHA and 日本語');
+  assertEquals(newer?.match.role, 'tool>');
+  assertEquals(newer?.match.sourceScalarStart, 13);
+  assertEquals(newer?.page.entries[newer.match.pageEntry].text, 'read visible-ALPHA.txt ✓');
+  assertEquals(searchSessionHistory(transcript, 'tool-only-token', 0), undefined);
 
   const japanese = searchSessionHistory(transcript, '日本語', 0);
   assertEquals(japanese?.match.turn, 2);
   assertEquals(japanese?.match.role, 'user');
+  assertEquals(japanese?.match.total, 1);
 
   const longTranscript = Array.from({ length: 101 }, (_, index) => [
     {

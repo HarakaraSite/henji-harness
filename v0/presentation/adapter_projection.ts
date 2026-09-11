@@ -159,8 +159,7 @@ export const historyRole = (
 ): PresentationHistoryPage['entries'][number]['role'] => {
   if (
     value !== 'user' && value !== 'steer' && value !== 'assistant' &&
-    value !== 'tool>' &&
-    value !== 'tool<'
+    value !== 'tool>'
   ) {
     throw new PresentationDeliveryError();
   }

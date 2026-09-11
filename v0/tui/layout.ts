@@ -513,7 +513,8 @@ const overlayRows = (
         'log',
       ));
       for (const [entryIndex, entry] of page.entries.slice(0, 16).entries()) {
-        const prefix = (entry.sourceScalarStart ?? 0) > 0 ? '' : `${entry.role} [t${entry.turn}] `;
+        const label = entry.role.endsWith('>') ? entry.role : `${entry.role}>`;
+        const prefix = (entry.sourceScalarStart ?? 0) > 0 ? '' : `${label} `;
         const prefixScalars = [...prefix].length;
         const entryId = `history:${entry.turn}:${entry.messageIndex}:${entry.role}:${entryIndex}`;
         const combinedText = `${prefix}${entry.text}`;
@@ -719,18 +720,40 @@ export const layoutUi = (
         historyMatch.sourceScalarStart
     )
     : -1;
-  const overlayStart = state.overlay.kind === 'startupHelp'
+  const overlayStart = state.overlay.kind === 'startupHelp' ? 0 : historyMatchRow >= 0
+    ? Math.max(
+      0,
+      Math.min(overlay.length - logHeight, historyMatchRow - Math.floor(logHeight / 2)),
+    )
+    : state.overlay.kind === 'history' && state.overlay.placement === 'start'
     ? 0
-    : historyMatchRow >= 0
-    ? Math.max(0, Math.min(overlay.length - logHeight, historyMatchRow - 2))
     : Math.max(0, overlay.length - logHeight);
   const visibleLog = (overlay.length > 0 ? overlay : log.rows).slice(
     overlay.length > 0 ? overlayStart : logStart,
     (overlay.length > 0 ? overlayStart : logStart) + logHeight,
   );
   const paddedLog = [...visibleLog];
-  while (paddedLog.length < logHeight) {
-    paddedLog.unshift({ text: '', kind: 'log' });
+  if (state.overlay.kind === 'history' && paddedLog.length < logHeight) {
+    const missing = logHeight - paddedLog.length;
+    const visibleMatchRow = historyMatchRow - overlayStart;
+    const topPadding = historyMatchRow >= 0
+      ? Math.max(0, Math.min(missing, Math.floor(logHeight / 2) - visibleMatchRow))
+      : state.overlay.placement === 'start'
+      ? 0
+      : missing;
+    paddedLog.unshift(
+      ...Array.from({ length: topPadding }, () => ({ text: '', kind: 'log' as const })),
+    );
+    paddedLog.push(
+      ...Array.from(
+        { length: missing - topPadding },
+        () => ({ text: '', kind: 'log' as const }),
+      ),
+    );
+  } else {
+    while (paddedLog.length < logHeight) {
+      paddedLog.unshift({ text: '', kind: 'log' });
+    }
   }
   const history = state.scroll.kind === 'anchored' && state.overlay.kind === 'none'
     ? {

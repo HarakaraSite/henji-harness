@@ -4,6 +4,7 @@ import {
   causalTranscriptPrefixIndex,
   type SessionRecord,
 } from './session_store.ts';
+import { settledToolActivityText, toolActivityPreview } from '../tools/tool_activity.ts';
 
 const encoder = new TextEncoder();
 
@@ -35,7 +36,7 @@ export interface SessionHistoryPage {
 
 export interface SessionHistoryEntry {
   readonly turn: number;
-  readonly role: 'user' | 'steer' | 'assistant' | 'tool>' | 'tool<';
+  readonly role: 'user' | 'steer' | 'assistant' | 'tool>';
   readonly messageIndex: number;
   readonly text: string;
   readonly sourceScalarStart?: number;
@@ -61,18 +62,6 @@ export interface SessionHistorySearchResult {
 export const HISTORY_PAGE_SOURCE_BYTES = 8_192;
 export const HISTORY_PAGE_ESCAPED_BYTES = 32 * 1_024;
 export const HISTORY_PAGE_ROWS = 16;
-
-const asText = (message: Message): string => {
-  if (message.role === 'user') return (message.content as { readonly text: string }).text;
-  if (message.role === 'assistant') {
-    if (Array.isArray(message.content)) {
-      const calls = message.content.map((call) => call.name).join(', ');
-      return message.text === undefined ? calls : `${message.text}\n${calls}`;
-    }
-    return (message.content as { readonly text: string }).text;
-  }
-  return message.content.map((result) => result.text).join('\n');
-};
 
 /**
  * Build a bounded structural view of the schema-v1 transcript. The parser is deliberately
@@ -130,6 +119,23 @@ const HISTORY_CHUNK_ESCAPED_BYTES = Math.floor(HISTORY_PAGE_ESCAPED_BYTES / HIST
 
 const entryRows = (turn: SessionHistoryTurn): SessionHistoryEntry[] => {
   const rows: SessionHistoryEntry[] = [];
+  let assistantRowIndex: number | undefined;
+  const updateAssistant = (entry: SessionHistoryEntry, final: boolean): void => {
+    if (assistantRowIndex === undefined) {
+      assistantRowIndex = rows.length;
+      rows.push(entry);
+      return;
+    }
+    const relocateAfterTools = final &&
+      rows.slice(assistantRowIndex + 1).some((row) => row.role === 'tool>');
+    if (relocateAfterTools) {
+      rows.splice(assistantRowIndex, 1);
+      assistantRowIndex = rows.length;
+      rows.push(entry);
+      return;
+    }
+    rows[assistantRowIndex] = entry;
+  };
   for (let offset = 0; offset < turn.messages.length; offset += 1) {
     const message = turn.messages[offset];
     if (message.role === 'user') {
@@ -137,33 +143,42 @@ const entryRows = (turn: SessionHistoryTurn): SessionHistoryEntry[] => {
         turn: turn.turn,
         role: offset === 0 ? 'user' : 'steer',
         messageIndex: turn.start + offset,
-        text: asText(message),
+        text: message.content.text,
       });
     } else if (message.role === 'assistant') {
-      rows.push({
-        turn: turn.turn,
-        role: 'assistant',
-        messageIndex: turn.start + offset,
-        text: asText(message),
-      });
       if (Array.isArray(message.content)) {
+        if (message.text !== undefined) {
+          updateAssistant({
+            turn: turn.turn,
+            role: 'assistant',
+            messageIndex: turn.start + offset,
+            text: message.text,
+          }, false);
+        }
         const tool = turn.messages[offset + 1];
         if (tool?.role === 'tool') {
-          for (const result of tool.content) {
+          const results = new Map(tool.content.map((result) => [result.callId, result]));
+          for (const call of message.content) {
+            const result = results.get(call.callId);
+            if (result === undefined) continue;
+            const preview = call.name === result.name
+              ? toolActivityPreview(call.name, call.arguments)
+              : '';
             rows.push({
               turn: turn.turn,
               role: 'tool>',
               messageIndex: turn.start + offset,
-              text: result.name,
-            });
-            rows.push({
-              turn: turn.turn,
-              role: 'tool<',
-              messageIndex: turn.start + offset + 1,
-              text: result.text,
+              text: settledToolActivityText(result.name, result.outcome, preview),
             });
           }
         }
+      } else {
+        updateAssistant({
+          turn: turn.turn,
+          role: 'assistant',
+          messageIndex: turn.start + offset,
+          text: (message.content as { readonly text: string }).text,
+        }, true);
       }
     }
   }

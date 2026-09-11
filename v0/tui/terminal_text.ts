@@ -1,5 +1,5 @@
 import { staticBytes } from './terminal.ts';
-import { toolActivityPreview } from './tool_activity.ts';
+import { toolActivityPreview } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const encoder = new TextEncoder();

@@ -272,6 +272,88 @@ Deno.test('controller overlay searches history and repeats matches without repla
   await overlay.settle();
 });
 
+Deno.test('history search pages move around the match without returning to latest', async () => {
+  const intents: PresentationIntent[] = [];
+  const rendered: string[] = [];
+  let latest = 0;
+  const pageAt = (page: number) => ({
+    turn: 1,
+    totalTurns: 1,
+    page,
+    pageCount: 3,
+    entries: [{ turn: 1, role: 'user' as const, messageIndex: page, text: `page ${page}` }],
+    sourceBytes: 6,
+    omitted: false,
+  });
+  const match = {
+    query: 'page',
+    ordinal: 0,
+    total: 1,
+    turn: 1,
+    role: 'user' as const,
+    messageIndex: 1,
+    sourceScalarStart: 0,
+    sourceScalarLength: 4,
+    pageEntry: 0,
+  };
+  const overlay = new ControllerOverlay({
+    renderer: {
+      renderHistoryPage: (
+        page: ReturnType<typeof pageAt>,
+        _match: unknown,
+        placement = 'match',
+      ) => rendered.push(`${page.page}:${placement}`),
+      clearModal: () => {},
+      latest: () => latest += 1,
+      setStatus: () => {},
+    } as unknown as TuiRenderer,
+    dispatch: (intent: PresentationIntent): PresentationIntentResult => {
+      intents.push(intent);
+      if (intent.kind === 'history_search') {
+        return { kind: 'history_search', result: { page: pageAt(1), match } };
+      }
+      if (intent.kind === 'history_page') {
+        return { kind: 'history', page: pageAt(intent.page) };
+      }
+      return { kind: 'rejected', reason: 'unavailable' };
+    },
+    setSession: () => {},
+    idleAllowed: () => true,
+    isIdle: () => true,
+    readyStatus: () => 'ready',
+    modelSelection: () => undefined,
+    fail: (error) => Promise.reject(error),
+  });
+
+  overlay.openHistorySearch();
+  overlay.process({ kind: 'paste', text: 'page' });
+  overlay.process({ kind: 'enter' });
+  await waitFor(() => rendered.includes('1:match'));
+  overlay.process({ kind: 'page_up' });
+  await waitFor(() => rendered.includes('0:end'));
+  overlay.process({ kind: 'page_down' });
+  await waitFor(() => rendered.includes('1:start'));
+  overlay.process({ kind: 'page_down' });
+  await waitFor(() => rendered.includes('2:start'));
+  const renderCountAtNewest = rendered.length;
+  overlay.process({ kind: 'page_down' });
+  await overlay.settle();
+
+  assertEquals(rendered.length, renderCountAtNewest);
+  assertEquals(latest, 0);
+  assert(overlay.isOpen);
+  assertEquals(
+    intents.filter((intent) => intent.kind === 'history_page'),
+    [
+      { kind: 'history_page', turn: 1, page: 0 },
+      { kind: 'history_page', turn: 1, page: 1 },
+      { kind: 'history_page', turn: 1, page: 2 },
+    ],
+  );
+  overlay.process({ kind: 'escape' });
+  assertEquals(latest, 1);
+});
+
 Deno.test('controller overlay ignores a history result from a replaced Session binding', async () => {
   let binding = 'session-one';
   let resolveSearch!: (result: PresentationIntentResult) => void;

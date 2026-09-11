@@ -585,8 +585,12 @@ Deno.test('history layout retains canonical source ranges across wrapping', () =
   ));
   const highlighted = sourceRows.filter((row) => (row.highlightScalarLength ?? 0) > 0);
   assertEquals(highlighted.length, 1);
-  assertEquals(highlighted[0].highlightScalarStart, 7);
+  assertEquals(highlighted[0].highlightScalarStart, 3);
   assertEquals(highlighted[0].highlightScalarLength, 3);
+  assertEquals(
+    layout.log.findIndex((row) => (row.highlightScalarLength ?? 0) > 0),
+    Math.floor(layout.log.length / 2),
+  );
 });
 
 Deno.test('history layout labels only the first chunk of one canonical message', () => {
@@ -633,8 +637,8 @@ Deno.test('history layout labels only the first chunk of one canonical message',
   });
   const layout = layoutUi(state, 80, 24);
   const rows = layout.overlay.map((row) => row.text);
-  assertEquals(rows.filter((row) => row.includes('assistant [t1]')).length, 1);
-  assert(rows.includes('assistant [t1] first chunk'));
+  assertEquals(rows.filter((row) => row.includes('assistant>')).length, 1);
+  assert(rows.includes('assistant> first chunk'));
   assert(rows.includes('continued chunk'));
   const continuation = layout.overlay.find((row) => row.text === 'continued chunk');
   assertEquals(continuation?.highlightScalarStart, 3);

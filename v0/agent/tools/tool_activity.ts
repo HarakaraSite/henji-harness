@@ -1,21 +1,53 @@
-import { BASH_OUTPUT_DEFAULT_WINDOW_BYTES } from '../agent/tools/bash_output.ts';
+import { BASH_OUTPUT_DEFAULT_WINDOW_BYTES } from './bash_output.ts';
 
 const TOOL_PREVIEW_HEAD_BYTES = 96;
+const TOOL_NAME_BYTES = 64;
 const encoder = new TextEncoder();
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const boundedHead = (text: string): string => {
+const boundedHead = (text: string, limit = TOOL_PREVIEW_HEAD_BYTES): string => {
   let used = 0;
   let result = '';
   for (const character of text) {
     const size = encoder.encode(character).byteLength;
-    if (used + size > TOOL_PREVIEW_HEAD_BYTES) break;
+    if (used + size > limit) break;
     result += character;
     used += size;
   }
   return used < encoder.encode(text).byteLength ? `${result}…` : result;
+};
+
+const shortToolName = (name: string): string => boundedHead(name, TOOL_NAME_BYTES);
+
+export const pendingToolActivityText = (name: string, preview = ''): string =>
+  preview.length === 0 ? `${shortToolName(name)} …` : `${shortToolName(name)} ${preview} …`;
+
+export const settledToolActivityText = (
+  name: string,
+  outcome: 'success' | 'error',
+  preview = '',
+): string =>
+  preview.length === 0
+    ? `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`
+    : `${shortToolName(name)} ${preview} ${outcome === 'success' ? '✓' : '✗'}`;
+
+/** Recover the stable call preview when progress and result events no longer carry arguments. */
+export const previewFromToolActivityText = (text: string, name: string): string => {
+  const base = shortToolName(name);
+  if (!text.startsWith(base)) return '';
+  const rest = text.slice(base.length).trim();
+  for (const marker of ['…', '✓', '✗']) {
+    if (rest.endsWith(marker)) {
+      const preview = rest.slice(0, rest.length - marker.length).trim();
+      return preview;
+    }
+  }
+  const preview = rest.trim();
+  return preview.length === 0 || preview === '…' || preview === '✓' || preview === '✗'
+    ? ''
+    : preview;
 };
 
 const firstLine = (value: unknown): string | undefined => {
@@ -59,7 +91,7 @@ const bashOutputPreview = (args: Record<string, unknown>): string | undefined =>
   return `${args.stream} bytes ${inclusiveRange(offset, limit)}`;
 };
 
-/** TUI-owned semantic preview for known tools; unknown tools remain name-only. */
+/** Host-visible semantic preview for known tools; unknown tools remain name-only. */
 export const toolActivityPreview = (name: string, args: unknown): string => {
   if (!isObject(args)) return '';
   let preview: string | undefined;

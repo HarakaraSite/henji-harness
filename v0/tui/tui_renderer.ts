@@ -604,7 +604,11 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  renderHistoryPage(page: PresentationHistoryPage, match?: PresentationHistoryMatch): void {
+  renderHistoryPage(
+    page: PresentationHistoryPage,
+    match?: PresentationHistoryMatch,
+    placement: 'match' | 'start' | 'end' = 'match',
+  ): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
@@ -613,6 +617,7 @@ export class TuiRenderer implements TerminalRendererGate {
         page,
         ...(match === undefined ? {} : { match }),
         pageNumber: page.page,
+        placement,
       },
     });
     this.redraw();
@@ -672,49 +677,7 @@ export class TuiRenderer implements TerminalRendererGate {
   /** Render a bounded committed transcript before accepting new input. */
   renderRestored(messages: readonly PresentationMessage[], omitted = 0): void {
     if (this.closing) throw new PresentationDeliveryError();
-    let turn = 0;
-    for (const message of messages) {
-      if (message.role === 'user') {
-        turn += 1;
-        this.ui = reduceUiEvent(this.ui, {
-          kind: 'user_message',
-          turn,
-          message,
-        });
-      } else if (message.role === 'assistant') {
-        if (Array.isArray(message.content)) {
-          for (const call of message.content) {
-            this.ui = reduceUiEvent(this.ui, {
-              kind: 'tool_call',
-              turn,
-              call,
-            });
-          }
-        } else {
-          this.ui = reduceUiEvent(this.ui, {
-            kind: 'assistant_message',
-            turn,
-            message,
-          });
-        }
-      } else {
-        for (const result of message.content) {
-          this.ui = reduceUiEvent(this.ui, {
-            kind: 'tool_result',
-            turn,
-            result,
-          });
-        }
-      }
-    }
-    if (omitted > 0) {
-      this.ui = reduceUiEvent(this.ui, {
-        kind: 'warning',
-        code: 'recoverable',
-        text: `${omitted} messages omitted`,
-        generation: this.ui.generation,
-      });
-    }
+    this.ui = reduceUiEvent(this.ui, { kind: 'restored_log', messages, omitted });
     this.redraw();
   }
 

@@ -229,7 +229,7 @@ export interface PresentationNavigationListing {
 
 export interface PresentationHistoryEntry {
   readonly turn: number;
-  readonly role: 'user' | 'steer' | 'assistant' | 'tool>' | 'tool<';
+  readonly role: 'user' | 'steer' | 'assistant' | 'tool>';
   readonly messageIndex: number;
   readonly text: string;
   readonly sourceScalarStart?: number;

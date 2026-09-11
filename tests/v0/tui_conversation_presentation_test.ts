@@ -353,23 +353,45 @@ Deno.test('conversation presentation retains assistant text accompanying a tool 
     ['tool>', 'read README.md …', true],
   ]);
 
-  const restored = reduceUiEvent(createUiState(), {
-    kind: 'restored_log',
-    omitted: 0,
-    messages: [{
-      role: 'assistant',
+  const restoredMessages = [
+    {
+      role: 'assistant' as const,
       content: [{
-        kind: 'tool_call',
+        kind: 'tool_call' as const,
         callId: 'read-1',
         name: 'read',
         arguments: { path: 'README.md' },
       }],
       text: 'I will inspect the current source.',
-    }],
+    },
+    {
+      role: 'tool' as const,
+      content: [{
+        kind: 'tool_result' as const,
+        callId: 'read-1',
+        name: 'read',
+        text: 'full file contents',
+        outcome: 'success' as const,
+      }],
+    },
+  ];
+  const restored = reduceUiEvent(createUiState(), {
+    kind: 'restored_log',
+    omitted: 2,
+    messages: restoredMessages,
   });
   assertEquals(restored.log.entries.map((entry) => [entry.label, entry.text]), [
     ['assistant>', 'I will inspect the current source.'],
-    ['tool>', 'read README.md …'],
+    ['tool>', 'read README.md ✓'],
+    ['history>', '2 messages omitted'],
+  ]);
+
+  const renderer = new TuiRenderer(new FakeTerminal());
+  renderer.renderRestored(restoredMessages, 2);
+  assertEquals(renderer.stateSnapshot().log.entries.map((entry) => [entry.label, entry.text]), [
+    ['assistant>', 'I will inspect the current source.'],
+    ['tool>', 'read README.md ✓'],
+    ['history>', '2 messages omitted'],
   ]);
 });
 
