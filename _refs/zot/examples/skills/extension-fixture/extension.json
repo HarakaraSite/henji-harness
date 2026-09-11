@@ -1,0 +1,7 @@
+{
+  "name": "demo-tools",
+  "version": "1.0.0",
+  "description": "Example skill-only extension bundle",
+  "skills": ["./skills"],
+  "enabled": true
+}

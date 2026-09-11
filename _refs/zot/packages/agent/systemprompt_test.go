@@ -1,0 +1,43 @@
+package agent
+
+import (
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestBuildSystemPromptCustomOmitsBuiltInDocs(t *testing.T) {
+	got := BuildSystemPrompt(SystemPromptOpts{
+		CWD:        "/workspace",
+		Custom:     "Custom instructions",
+		Append:     []string{"Additional context"},
+		Now:        time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
+		ZotDocsDir: "/zot/docs",
+	})
+
+	if strings.Contains(got, "Zot's own docs") || strings.Contains(got, "/zot/docs") {
+		t.Fatalf("custom prompt includes built-in docs guidance:\n%s", got)
+	}
+	for _, want := range []string{
+		"Custom instructions",
+		"Additional context",
+		"Current date: 2026-08-06",
+		"Current working directory: /workspace",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("custom prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBuildSystemPromptDefaultIncludesBuiltInDocs(t *testing.T) {
+	got := BuildSystemPrompt(SystemPromptOpts{
+		CWD:        "/workspace",
+		Now:        time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
+		ZotDocsDir: "/zot/docs",
+	})
+
+	if !strings.Contains(got, "Zot's own docs are installed under /zot/docs") {
+		t.Fatalf("default prompt missing built-in docs guidance:\n%s", got)
+	}
+}

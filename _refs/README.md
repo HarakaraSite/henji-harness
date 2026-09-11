@@ -9,8 +9,9 @@ the repository's current approval process.
 
 | Local path | Upstream | Pinned commit | License | Intended comparison |
 |---|---|---|---|---|
-| `pi/` | <https://github.com/earendil-works/pi> | `a69bef789bc95abf0acee16f7b4660b70b650bb9` | MIT; see `pi/LICENSE` | Agent loop, provider abstraction, tool-call flow, extension boundaries |
-| `zot/` | <https://github.com/patriceckhart/zot> | `9b7bb6a4f36bc8c8deb2cc5796a8f557f4fb7479` | MIT; see `zot/LICENSE` | Lightweight harness structure, subprocess JSON-RPC extensions, explicit extension opt-in |
+| `pi/` | <https://github.com/earendil-works/pi> | `08dc60bc52d89d6823a9738cc90b1916e5e446e5` | MIT; see `pi/LICENSE` | Agent loop, provider abstraction, tool-call flow, extension boundaries, and runtime reload |
+| `zot/` | <https://github.com/patriceckhart/zot> | `f60e492e551892e737d24a7eaf7730f1f60b75af` | MIT; see `zot/LICENSE` | Lightweight harness structure, subprocess JSON-RPC extensions, extension lifecycle, and explicit extension opt-in |
+| `deepseek-harness/` | <https://github.com/deepseek-ai/deepseek-harness> | `c291e7961a515f6d7af9304e7fd1d257929aef26` | MIT; see `deepseek-harness/LICENSE` | Plugin composition, dynamic package definition and activation, immutable versions, effect cleanup, and session event sourcing |
 | `deno-docs/examples/scripts/openai_tool_use.ts` | <https://github.com/denoland/docs/blob/main/examples/scripts/openai_tool_use.ts> | `eb8f78e90dbc72f3b3ab7dcd85609622379b5bca` | MIT; see `deno-docs/LICENSE` | Minimal OpenAI tool-use loop in Deno |
 | `deno-docs/examples/scripts/anthropic_tool_use.ts` | <https://github.com/denoland/docs/blob/main/examples/scripts/anthropic_tool_use.ts> | `eb8f78e90dbc72f3b3ab7dcd85609622379b5bca` | MIT; see `deno-docs/LICENSE` | Minimal Anthropic tool-use loop in Deno |
 | `opencomputer/` | <https://github.com/diggerhq/opencomputer> | `d54f2c239a293216ff13f069ffc1ed7b853f9761` | Apache-2.0; see `opencomputer/LICENSE` | Limited comparison of the agent package and TypeScript SDK examples; infrastructure, web, and deployment trees are excluded |

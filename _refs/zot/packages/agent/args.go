@@ -1,0 +1,472 @@
+package agent
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/patriceckhart/zot/packages/agent/tools"
+	"github.com/patriceckhart/zot/packages/tui"
+	"golang.org/x/term"
+)
+
+// Mode is the CLI run mode.
+type Mode string
+
+const (
+	ModeInteractive Mode = "interactive"
+	ModePrint       Mode = "print"
+	ModeStream      Mode = "stream"
+	ModeJSON        Mode = "json"
+	ModeRPC         Mode = "rpc"
+	// ModeSwarmAgent is the long-lived, headless daemon mode used by
+	// swarm-spawned agents. The binary opens a unix-socket inbox at
+	// the path provided by --swarm-agent, reads supervisor messages
+	// off it ("user ...", "cancel", "shutdown"), runs each user turn
+	// against a persistent session, and streams JSONL events on
+	// stdout. See packages/agent/swarm/inbox.go for the wire protocol.
+	ModeSwarmAgent Mode = "swarm-agent"
+)
+
+// Args holds parsed command-line options.
+type Args struct {
+	Mode     Mode
+	Provider string
+	Model    string
+	APIKey   string
+
+	// inheritedCredential is populated only by swarm-agent mode from
+	// the supervisor's stdin. It is never accepted as a CLI argument.
+	inheritedCredential string
+	inheritedAuthMethod string
+	inheritedAccountID  string
+
+	BaseURL      string // override provider base URL (for tests/self-hosted)
+	SystemPrompt string
+	// SystemPromptSet records whether --system-prompt was provided. An empty
+	// value is an intentional override, distinct from leaving the flag absent.
+	SystemPromptSet    bool
+	AppendSystemPrompt []string
+	Reasoning          string
+	Temperature        *float32
+
+	Continue bool
+	Resume   bool
+	Session  string
+	NoSess   bool
+
+	CWD      string
+	NoTools  bool
+	Tools    []string
+	MaxSteps int
+
+	// Exts is a list of directory paths the user passed via --ext.
+	// Each must contain an extension.json. Loaded for one session
+	// only; never persisted. Take precedence over installed exts of
+	// the same name.
+	Exts []string
+
+	// NoExt disables extension discovery + spawn entirely for this
+	// run. --ext PATH still works (explicit beats implicit) so you
+	// can run "with only this one extension" via --no-ext --ext PATH.
+	NoExt bool
+
+	// NoSkill disables ALL skill discovery for this run, including
+	// the built-in skills compiled into the binary. The system
+	// prompt loses its "Available skills" manifest and the `skill`
+	// tool isn't registered. Useful for running zot without any
+	// extra context biasing the model.
+	NoSkill bool
+
+	// WithSkills controls loading user-installed skills from
+	// $ZOT_HOME/skills/, .zot/skills/, .claude/skills/, and
+	// .agents/skills/. It defaults to true; --no-skill disables all
+	// skill discovery, including built-ins.
+	WithSkills bool
+
+	// NoContextFiles disables discovery and loading of AGENTS.md files
+	// from $ZOT_HOME and the cwd's ancestor directories.
+	NoContextFiles bool
+
+	// InsecureTLS skips TLS verification for custom inference endpoints.
+	InsecureTLS bool
+
+	// NoYolo turns on per-tool confirmation. Before each tool
+	// invocation the TUI prompts the user with the tool name + args
+	// and waits for an explicit yes/no. The user can also pick
+	// "always for this tool this session" or "always for anything
+	// this session" to stop being prompted again. Defaults off
+	// (yolo mode): tools run without asking.
+	//
+	// No effect in -p / --json / rpc modes, which have no
+	// interactive prompt. A warning is printed to stderr on startup
+	// so scripts know the flag is ignored, but tools still run
+	// freely so automated workflows keep working.
+	NoYolo bool
+
+	// Yes accepts zotfile launch consent without an interactive
+	// Allow? prompt (zot run -y / --yes). Durable consent receipts
+	// are still written for modes other than bash ask.
+	Yes bool
+
+	ListModels bool
+	Help       bool
+	Version    bool
+	StatsPath  string // write print-mode generation statistics as JSON
+
+	Prompt string // concatenated positional args
+
+	// StartupPre is an optional zotfile entry.pre value. Interactive
+	// mode auto-submits it once at startup before InitialInput handling.
+	StartupPre string
+
+	// SwarmAgent is the inbox-socket path when this process is a
+	// swarm-spawned agent. Empty in every other mode. Set by
+	// --swarm-agent <path>; presence flips Mode to ModeSwarmAgent.
+	SwarmAgent string
+
+	// AgentName/AgentDataDir/PermissionSet are populated by `zot run`
+	// for local zotfile agents. They scope sessions and enforce the
+	// manifest's declared file/bash permissions.
+	AgentName     string
+	AgentDataDir  string
+	PermissionSet *tools.PermissionSet
+}
+
+// ParseArgs parses the process arguments (excluding argv[0]).
+func ParseArgs(in []string) (Args, error) {
+	a := Args{Mode: ModeInteractive, MaxSteps: 0, WithSkills: true}
+	positional := []string{}
+
+	want := func(i *int, flag string) (string, error) {
+		*i++
+		if *i >= len(in) {
+			return "", fmt.Errorf("%s requires a value", flag)
+		}
+		return in[*i], nil
+	}
+
+	for i := 0; i < len(in); i++ {
+		arg := in[i]
+		switch arg {
+		case "-h", "--help":
+			a.Help = true
+		case "-v", "--version":
+			a.Version = true
+		case "-p", "--print":
+			a.Mode = ModePrint
+		case "--stream":
+			a.Mode = ModeStream
+		case "--json":
+			a.Mode = ModeJSON
+		case "--rpc":
+			a.Mode = ModeRPC
+		case "-c", "--continue":
+			a.Continue = true
+		case "-r", "--resume":
+			a.Resume = true
+		case "--no-session":
+			a.NoSess = true
+		case "--no-tools":
+			a.NoTools = true
+		case "--list-models":
+			a.ListModels = true
+		case "--experimental-oauth":
+			// deprecated: subscription login is always available.
+			// accepted silently for backwards compatibility.
+		case "--provider":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.Provider = v
+		case "--model":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.Model = v
+		case "--api-key":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.APIKey = v
+		case "--base-url":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.BaseURL = v
+		case "--system-prompt":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.SystemPrompt = v
+			a.SystemPromptSet = true
+		case "--append-system-prompt":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.AppendSystemPrompt = append(a.AppendSystemPrompt, v)
+		case "--ext", "-e":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			// Repeatable; each value is a directory containing an
+			// extension.json. Resolved to absolute later so paths like
+			// "." survive a later cwd change.
+			a.Exts = append(a.Exts, v)
+		case "--no-ext", "--no-extensions":
+			a.NoExt = true
+		case "--no-skill", "--no-skills":
+			a.NoSkill = true
+		case "--no-context-files", "-nc":
+			a.NoContextFiles = true
+		case "--with-skills", "--with-skill":
+			// Deprecated no-op: user skills are loaded by default.
+			a.WithSkills = true
+		case "--insecure":
+			a.InsecureTLS = true
+		case "--no-yolo":
+			a.NoYolo = true
+		case "-y", "--yes":
+			a.Yes = true
+		case "--reasoning":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			switch strings.ToLower(v) {
+			case "", "off", "minimum", "minimal", "low", "medium", "high", "xhigh", "maximum", "max":
+				a.Reasoning = strings.ToLower(v)
+			default:
+				return a, fmt.Errorf("--reasoning must be off|minimum|low|medium|high|xhigh|max")
+			}
+		case "--temperature":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			f, err := strconv.ParseFloat(v, 32)
+			if err != nil || f < 0 || f > 2 {
+				return a, fmt.Errorf("--temperature must be a number between 0 and 2")
+			}
+			t := float32(f)
+			a.Temperature = &t
+		case "--stats":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.StatsPath = v
+		case "--session":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.Session = v
+		case "--cwd":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.CWD = v
+		case "--swarm-agent":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			a.SwarmAgent = v
+			a.Mode = ModeSwarmAgent
+		case "--tools":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			for _, t := range strings.Split(v, ",") {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					a.Tools = append(a.Tools, t)
+				}
+			}
+		case "--max-steps":
+			v, err := want(&i, arg)
+			if err != nil {
+				return a, err
+			}
+			var n int
+			if _, err := fmt.Sscanf(v, "%d", &n); err != nil || n <= 0 {
+				return a, fmt.Errorf("--max-steps must be a positive integer")
+			}
+			a.MaxSteps = n
+		default:
+			if strings.HasPrefix(arg, "-") && arg != "-" {
+				return a, fmt.Errorf("unknown flag %q", arg)
+			}
+			positional = append(positional, arg)
+		}
+	}
+
+	if len(positional) > 0 {
+		a.Prompt = strings.Join(positional, " ")
+	}
+
+	if a.StatsPath != "" && a.Mode != ModePrint {
+		return a, fmt.Errorf("--stats requires -p or --print")
+	}
+	if a.CWD == "" {
+		a.CWD, _ = os.Getwd()
+	}
+	return a, nil
+}
+
+// PrintHelp writes the help text to stderr for argument-error paths.
+func PrintHelp(version string) {
+	printHelp(os.Stderr, version)
+}
+
+// printHelp writes help to out. When out is a TTY it uses the same palette as
+// zot's TUI; when redirected it falls back to plain text with no ANSI escapes.
+func printHelp(out *os.File, version string) {
+	th := tui.Dark
+	fd := int(out.Fd())
+	useColor := term.IsTerminal(fd)
+	style := func(c int, s string) string {
+		if !useColor {
+			return s
+		}
+		return th.FG256(c, s)
+	}
+	assistant := func(s string) string { return style(th.Assistant, s) }
+	muted := func(s string) string { return style(th.Muted, s) }
+	fg := func(s string) string { return style(th.FG, s) }
+	width := 96
+	if useColor {
+		if w, _, err := term.GetSize(fd); err == nil && w > 20 {
+			width = w
+		}
+	}
+	ruleWidth := width
+	if ruleWidth < 40 {
+		ruleWidth = 40
+	}
+	rule := strings.Repeat("─", ruleWidth)
+	if useColor {
+		rule = muted(rule)
+	}
+	leftW := 34
+	if width >= 120 {
+		leftW = 40
+	}
+	if width >= 140 {
+		leftW = 46
+	}
+	type row struct{ left, right string }
+	section := func(title string, rows ...row) {
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, assistant(title))
+		fmt.Fprintln(out, rule)
+		narrow := width < 100
+		for _, r := range rows {
+			if narrow {
+				fmt.Fprintf(out, "  %s\n", fg(r.left))
+				fmt.Fprintf(out, "    %s\n", muted(r.right))
+				fmt.Fprintln(out)
+				continue
+			}
+			left := r.left
+			if len([]rune(left)) < leftW {
+				left += strings.Repeat(" ", leftW-len([]rune(left)))
+			}
+			fmt.Fprintf(out, "  %s    %s\n", fg(left), muted(r.right))
+		}
+	}
+
+	fmt.Fprintln(out)
+	var headline string
+	if useColor {
+		headline = th.AccentBar(th.Assistant) + assistant(tui.Bold("zot. yet another coding agent harness."))
+	} else {
+		headline = "zot. yet another coding agent harness."
+	}
+	fmt.Fprintln(out, headline)
+	fmt.Fprintln(out, muted("ask anything, or type /help inside the tui to see commands."))
+	fmt.Fprintf(out, "%s %s\n", muted("version:"), fg(version))
+
+	section("modes",
+		row{"zot", "interactive tui"},
+		row{"zot \"prompt\"", "interactive, pre-filled prompt"},
+		row{"zot -p \"prompt\"", "print final text, exit"},
+		row{"echo \"prompt\" | zot", "piped stdin implies print mode"},
+		row{"zot --stream \"prompt\"", "stream assistant text live, exit"},
+		row{"zot --json \"prompt\"", "newline-delimited json events, exit"},
+		row{"zot rpc", "json-rpc loop on stdin/stdout (see docs/rpc.md)"},
+	)
+	section("extensions",
+		row{"zot ext list", "list installed extensions"},
+		row{"zot ext install <path|url>", "install into $ZOT_HOME/extensions/"},
+		row{"zot --ext ./path/to/ext", "load an extension for this run only"},
+		row{"zot ext help", "show all extension subcommands"},
+	)
+	section("self-update",
+		row{"zot update", "download and install the latest release"},
+		row{"zot update --check", "show whether a new release is available"},
+	)
+	section("session management",
+		row{"zot sessions prune", "select sessions for directories that no longer exist"},
+		row{"zot sessions prune --older-than 30d", "select sessions by time since last activity"},
+		row{"zot sessions prune --dry-run", "list matching session groups without deleting them"},
+	)
+	section("telegram",
+		row{"zot telegram-bot setup", "configure a telegram bot (from BotFather)"},
+		row{"zot telegram-bot run", "foreground bridge (ctrl+c to stop)"},
+		row{"zot telegram-bot start", "background bridge (detached)"},
+		row{"zot telegram-bot stop", "stop the background bridge"},
+		row{"zot telegram-bot logs [-f]", "tail the background bridge log"},
+		row{"zot telegram-bot status", "config + running state"},
+		row{"zot telegram-bot reset", "forget saved token"},
+		row{"zot tg ...", "short alias for telegram-bot"},
+	)
+	section("provider and model flags",
+		row{"--provider", "provider to use (anthropic|openai|openai-codex|kimi|deepseek|google|ollama|llama.cpp)"},
+		row{"--model ID", "model id (see --list-models)"},
+		row{"--api-key KEY", "api key for this run (env / auth.json fallback)"},
+		row{"--base-url URL", "override provider api base url"},
+		row{"--insecure", "skip TLS certificate verification (for self-signed-cert endpoints)"},
+		row{"--reasoning off|minimum|low|medium|high|xhigh|max", "set reasoning level on supported models"},
+		row{"--temperature N", "sampling temperature, 0 to 2 (omit for provider default)"},
+	)
+	section("prompt and session flags",
+		row{"--stats PATH", "write print-mode generation stats as json"},
+		row{"--system-prompt TEXT", "replace the default system prompt"},
+		row{"--append-system-prompt TEXT", "append to the system prompt (repeatable)"},
+		row{"-c, --continue", "continue the most recent session for this cwd"},
+		row{"-r, --resume", "pick a session to resume"},
+		row{"--session PATH", "resume a specific session file"},
+		row{"--no-session", "do not read or write a session file"},
+	)
+	section("workspace, tools, skills",
+		row{"--cwd PATH", "treat PATH as the working directory"},
+		row{"--no-tools", "disable all tools"},
+		row{"--tools csv", "only enable the listed tools"},
+		row{"--no-yolo", "ask before running every tool call"},
+		row{"-y, --yes", "accept zot run consent without prompting"},
+		row{"--no-ext", "skip extension discovery for this run"},
+		row{"--no-skill", "skip all skill discovery for this run"},
+		row{"--no-context-files, -nc", "skip AGENTS.md discovery for this run"},
+	)
+	section("misc",
+		row{"--max-steps N", "agent loop iteration cap (default: unlimited)"},
+		row{"--list-models", "print known models and exit"},
+		row{"-h, --help", "show this help"},
+		row{"-v, --version", "show version info"},
+	)
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, assistant("see also: docs/extensions.md, docs/rpc.md, docs/skills.md"))
+	fmt.Fprintln(out)
+}
