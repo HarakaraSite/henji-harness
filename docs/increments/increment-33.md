@@ -287,8 +287,10 @@ managed storeは`resolveRuntimePaths().dataRoot`だけをauthorityにし、概�
   exact ref、typed code、resolution stage、具体的reasonを返すことを確認した。受入証拠は
   `/tmp/henji-increment-33-acceptance-XbeQE3`に保持している。source削除相当の確認では元install pathを不在にしつつ
   回復可能にするため、source directoryを同じ一時root内へ移動した。
-- 本Incrementのrepository差分はcurrent HEADへcommitした。installed binaryの置換、push、tag、publishは行っていない。
-  architecture・roadmapの実装状態更新も、正本変更の別承認が必要なため行っていない。
+- 本Incrementのrepository差分とstable `0.1.0` release準備をcommitし、`origin/main`へpushした。
+  `@henji/harness@0.1.0`はclean release worktreeからJSRへpublishし、registry metadataとexact version importを確認した。
+  installed binaryの置換とGit tagは行っていない。architecture・roadmapの実装状態更新も、正本変更の別承認が必要なため
+  行っていない。
 
 ## 変更予定領域
 

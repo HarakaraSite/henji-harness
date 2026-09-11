@@ -10,7 +10,9 @@
   authoritative `v0:gate`（計165 test）が成功した。standalone binaryの隔離production受入では、元source path不在の
   旧revision、編集後の新revision、planner real-TTY turn、別processのexact Session再開、実provider turnとexact
   attribution、破損/API非互換時のno-fallbackを確認した。実装・検証結果はIncrement 33正本へ保存済みであり、
-  利用者がIncrement 33の完了を確認した。
+  利用者がIncrement 33の完了を確認した。JSR packageをpre-release `0.1.0-alpha.6`からstable `0.1.0`へ更新し、
+  release candidateのauthoritative `v0:gate`一回、clean worktreeでのJSR dry-run、main push、publish、registry metadata、
+  exact version importがすべて成功した。JSRのlatestは`@henji/harness@0.1.0`である。
 - 次: 利用者が次に着手するIncrementまたは作業を指示する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
@@ -23,8 +25,8 @@
   個別Incrementで扱い、34を必須前提にしない。`--definition <path>`はIncrement 32で廃止し、外部sourceを
   Increment 33以降のinstall inputに限定する。自然言語resourceのnative discoveryにinstallを要求しない。MCPは
   32〜34の実装範囲外であり、managed化の採否とclient等の物理配置は後続Integration Incrementで決める。Increment 32の
-  installed binary置換、commit `988022ba`、`origin/main`へのpushは実施済みで、publishは未実施。Increment 33の
-  実装はcurrent HEADへcommit済みである。architecture・roadmap実装状態更新、installed binary置換、push、tag、
-  publishは未承認・未実施である。
+  installed binary置換と、Increment 33実装・stable `0.1.0` release準備のcommit/pushは実施済みである。
+  `@henji/harness@0.1.0`はJSRへpublish済みである。architecture・roadmap実装状態更新、Increment 33のinstalled binary
+  置換、Git tagは未承認・未実施である。
   production受入の一時証拠は`/tmp/henji-increment-33-acceptance-XbeQE3`に保持している。利用者の指定に従いIncrement
   境界で停止する。
