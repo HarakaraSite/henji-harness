@@ -44,10 +44,12 @@ roadmap
 各loopの完了はHenji全体の完成を意味しない。将来、自己改訂の実装を人間が開始すると決めた場合の最初の
 self-revision loopは、対象をDefinitionの改訂に絞って一度通常利用へ戻るところまでを目標にする。その前に、
 repositoryと導入済みDenoへ依存しないstandalone executableと、Agent Definitionの実行可能なmodule closureを
-immutable revisionとして保持・解決する基盤を通常利用で成立させる。
+immutable revisionとして保持・解決する基盤を通常利用で成立させ、別installationへ同じrevisionを移送できる
+ところまでをIncrement 32〜34で段階的に扱う。
 instructions、skills、context、tool、delegation、model、agent loop、runtime、Host / Worker連携、
-Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一つずつ選ぶ。この依存順は、自己改訂を直近の
-実装incrementとして採用したことを意味しない。
+Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一つずつ選ぶ。`AGENTS.md`と`SKILL.md`のnative
+discoveryはmanaged installへ置き換えず、Henji独自Instructionや任意のmanaged Skillとは別authorityにする。
+この依存順は、自己改訂を直近の実装incrementとして採用したことを意味しない。
 
 ## 実装状況の読み方
 
@@ -65,8 +67,8 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 | --- | --- | --- | --- |
 | F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる。配布後はrepositoryや導入済みDenoへの固定参照なしに、任意のworkspaceから同じproduction経路を利用できる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。非対話commandはHost側のheadless SurfaceとしてTUIと同じWorker経路を一turn使い、final-only stdoutまたはfailure JSONを返す。TUIはturnとuser/output境界、入力前後を空行で分け、busy/cancelling開始から毎秒進む経過時間を含む一時statusとcwd・Session短縮ID・root provider・model・effortを二行footerへ表示し、`user>`、settledした`assistant>`、`tool>`、`system>`のlabelをblue/yellow/green/magentaで識別する。選択中root providerのcredential fileが存在しなければrequest前からfooter第一行へ表示し、editor先頭の`/`に一致するbuilt-in slash command候補を`ready`または`busy`の直後へ逐次表示する。候補による入力補完はしない。recoverable taskは空editorへ戻り、別draftがあれば`/recover`で取り出せる。idle Ctrl-Cは入力をclearしてreadyを保つ。F1 keyと`/help`のhelp overlayは残るが、compact startupに固定help hintは表示しない。現在のinstalled launcherはrepository内のTypeScriptと導入済みDenoに依存し、standalone executableではない |
 | F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUIはOpenRouterを既定に保ちつつ、起動時の`--root-provider openai`またはidle時の`/provider`でOpenAI direct Responses rootへ切り替えられる。`/model`と`/effort`はactive providerのcurated catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定し、delegated plannerはrootから継承せずOpenRouter planner defaultを使う。TUI起動時の`--provider-timeout-ms`は、未指定時120,000 msのrequest単位deadlineを同じWorker invocationのroot、planner、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、未加工のraw response、SSE/parser transition、provider/API/model/auth-profile identityをevidenceへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み |
-| F03 | workspaceのinstructionとskillを発見し、実行中に共有するsnapshot/catalogを作る | 現在は通常利用時の入力。将来、別loopでinstruction・skillの改訂を採用した場合の基盤になる | **実装済み**。Worker generationの起動時にworkspaceのinstructionとskillを一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。tool call時には再読せず、snapshot/catalog自体はSessionへ永続化しない。`skill` toolを呼んだ場合の結果はF02のtranscriptへ入る。改訂候補の生成・採用機能ではない |
-| F04 | Sessionのtranscriptとcontext checkpointを再起動後も利用する | Hostがstorageを所有し、Workerがconversation/contextの意味を所有する | **実装済み**。workspace-partitioned session schema-v1/v2/v3/v4、atomic commit、reopen、保存済みsemantic checkpointの読込とprovider向け投影がある。自動checkpoint生成はIncrement 29で停止中である。v4はactive root provider/API/auth-profile/model/effort、変更履歴、commit済みturnごとのroute attributionを保持する。v1〜v3は読み取り可能で、次のdurable commit時にv4へ更新する |
+| F03 | workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`をnative規約でzero-install discoveryし、実行中に共有するsnapshot/catalogを作る | 他harnessと共有するfile format、配置、discovery、activationをHenji独自managed resourceで置換しない。将来のmanaged SkillとHenji Instructionは追加authorityとして分離する | **部分実装**。Worker generationの起動時にworkspace rootのinstructionとworkspace配下の`.zot/skills`、`.claude/skills`、`.agents/skills`を一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。user-scope Skill discoveryは未実装である。tool call時には再読せず、snapshot/catalog自体はSessionへ永続化しない。`skill` toolを呼んだ場合の結果はF02のtranscriptへ入る。managed Skill revision、Henji Instruction revision、改訂候補の生成・採用も未実装である |
+| F04 | Sessionのtranscriptとcontext checkpointを再起動後も利用する | Hostがstorageを所有し、Workerがconversation/contextの意味を所有する | **実装済み**。workspace-partitioned session schema-v1〜v5、atomic commit、reopen、保存済みsemantic checkpointの読込とprovider向け投影がある。自動checkpoint生成はIncrement 29で停止中である。v4はactive root provider/API/auth-profile/model/effort、変更履歴、commit済みturnごとのroute attributionを追加し、v5は任意の人間作成titleを追加する。v1〜v4は読み取り可能で、次のdurable commit時にv5へ更新する。Increment 32では開発版legacy migrationを終了し、新しいlogical resource ref schemaへ破壊的cutoverする |
 | F05 | 人間が保存済みSession、history、contextを通常利用中に参照する | 経験を人間が確認し、後の改訂指示へ使うSurface機能 | **部分実装**。`/sessions`のsession pickerは各SessionをUTC分単位の更新日時、手動title、短縮ID、turn数、resume可否で二行表示する。provider/model/effortは一覧から外すが、選択したSessionのselectionとconversationは復元する。`/rename <title>`はcurrent persistent Sessionの手動titleを更新し、AIによる自動title生成はしない。titleを持つschema v5に加え旧schemaも読み、次のdurable writeでv5へ移行する。現在SessionはPageUp / PageDownでretained viewportを移動し、位置を表示し、PageDown・Esc・task送信で最新追尾へ復帰できる。process-localな入力履歴もTUIから利用できる。`/history export`は現在Sessionのcommit済みcanonical transcript全体を、その時点の別々のMarkdown snapshotとしてworkspace別state rootへ保存する。閲覧と検索で一つの連続documentとviewportを共有するread-only history viewerおよびkeyword検索は未実装である |
 
 ### AgentCompositionと現在のHost / Worker runtime
@@ -74,7 +76,7 @@ Surfaceへの対象拡張は、通常利用の経験を受けて後続loopで一
 | ID | 必要な機能 | architecture上の責務・境界 | 現コードの状態 |
 | --- | --- | --- | --- |
 | F06 | executable TypeScriptのAgentDefinitionがprovider、model、effort、loop、tools、subagents、context、instruction、skillをAgentCompositionへ合成する。外部DefinitionはHenjiが管理するmodule identityとrevisionから選べる | Definition moduleの取込・保存・解決・readbackはHost、Definition評価とcomposition実行はWorker。F03のinstruction snapshot本文とskill catalogのmanifestをsystem instructionへ合成し、skill本文を取得する`skill` toolをregistryへ組み込む | **部分実装**。built-in `default` / `planner`とworkspace-local external Definitionがある。現Definitionはmodel、registry/tools、subagent、maxSteps、system instruction等を選べ、built-inのmaxSteps既定値は64である。TUIのsession-level model/effort overrideはDefinition revisionを変えず、Workerが返されたroot compositionのmodel routeだけへ反映する。delegated plannerは固定planner defaultを使う。選択済みwork toolと`web_search`はWorker-local `ToolComponentCatalog`からmaterializeし、external Definitionは同一identity・nameのroot componentを明示置換できるが、plannerへは暗黙伝播しない。`web_search`はHenji-owned contractと交換可能backendを分離し、初期backendにOpenRouter Sonarを使う。built-in instructionは`v0/agent/instructions/`でHenji共通、role、active tool guideline、workspace instruction、skill manifest、runtime facts（cwdのみ）の順にnamed componentを合成し、実際のcomponent identityをmanifestへ記録する。Henji共通componentは、翻訳・要約・派生物作成でcurrent sourceを直接読み、指示外の事実・contract変更やtemporary artifactだけのtracked file変更を避け、完了前のsource照合と確認済み・推定情報の区別を求める。defaultとplannerはmaterialize済みregistryから自分が持つtoolのguidelineだけを受け、OpenRouter/OpenAI adapterには同じresolved本文をprovider固有fieldへ写像する。skill本文は一括注入せず、modelが`skill` toolを呼んだ場合だけtool resultとして渡す。loopとcontext/compactionは`WorkerGeneration`の固定実装である。任意pathからのmanaged install、module catalog、revision readbackは未実装である |
-| F07 | Worker起動前にDefinitionの実行可能なmodule closureまたは同等の自己完結bundleをimmutable revisionとして参照する | Hostがentryと実行に必要なlocal dependencyをmanaged storeへ固定して`DefinitionRevisionRef`を確定し、Workerがstore内の確定revisionだけを解決・評価する | **部分実装**。canonical specifier、entry SHA-256、source bytesをv2/v3/v4 Sessionにも保存するが、現Workerは元specifierから依存を解決する。local dependency closure、dependency lineage、managed revision storeは未実装 |
+| F07 | Worker起動前にDefinitionの実行可能なmodule closureまたは同等の自己完結bundleをimmutable revisionとして参照する | Hostがentryと実行に必要なlocal dependencyをmanaged storeへ固定して`DefinitionRevisionRef`を確定し、Workerがstore内の確定revisionだけを解決・評価する | **部分実装**。canonical specifier、entry SHA-256、source bytesをv2〜v5 Sessionに保存するが、現Workerは元specifierから依存を解決する。local dependency closure、dependency lineage、managed revision storeは未実装 |
 | F08 | 評価後の構成をdata-onlyなAgentManifestとして説明する | Workerがprojectionを返し、Hostはidentity/admission authorityと混同しない | **実装済み**。role、maxSteps、実際のroot provider/model/effort、planner provider/model/effort、profile、effective model resource IDsをexecution artifactにも残す |
 | F09 | built-inとexternal Definitionを同じDeno Web Worker capsuleで実行する | Web Workerはlifecycle/data境界であり別trust tierではない | **実装済み**。TUIと非対話commandが同じsession factoryを入口に、同じloader、bootstrap、runtime、protocol、commit経路を使用する |
 | F10 | UIをWorkerから分離し、Host側の交換可能なSurfaceとして扱う | terminal / Surface I/O、layout、draft、cursor、viewportはHost、Workerはheadless | **部分実装**。data-only presentation contract、Host-owned TUI adapter、terminal lifecycle分離があり、turn/input境界、二行footer、viewport復帰、plain assistant本文renderer、conversation label style、history export operationもHost-localに実装する。Surfaceを選択・load・置換する一般product interfaceはない |
@@ -89,6 +91,8 @@ catalogを作り、F06がinstruction本文とskill manifestをsystem instruction
 registryへ組み込む。F02は、そのsystem instructionを各model requestへ渡し、modelが`skill` toolを呼んだ
 場合は、起動時のcatalogに保存した該当skill本文をtool resultとしてtranscriptへ加え、次のmodel stepへ渡す。
 したがって、skill一覧は最初のmodel requestから見えるが、skill本文は最初から一括してmodelへ渡されない。
+これはnative discovery経路の責務である。将来のmanaged Skill revisionとHenji独自Instruction revisionはF03の
+zero-install入力を置換せず、F24で各resource kindのselection authorityと合成順を決めて追加する。
 
 ### 現在のSurface実装であるproduction TUI
 
@@ -144,7 +148,8 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 | F21 | 生成候補をactive revisionと分離して保存し、人間が内容と由来をreadbackできる | Workerがsource/diff/data候補を返し、Hostがnon-active candidateとして保存する | **未実装** |
 | F22 | 人間の採用アクションまたは明示的承認でだけ候補を採用する | Hostがimmutable revisionを確定し、AgentInstance bindingをdurableに切り替える | **未実装**。production経路ではなかった旧extension操作実装は削除済み |
 | F23 | 改訂後のHenjiで通常利用へ戻り、そこで得た変化を次の経験にする | loopを閉じるproduct動作。統制実験や定量測定は必須ではない | **未実装（end-to-end）**。通常利用自体はあるが、候補生成・採用との一続きのloopがない |
-| F24 | 経験に応じてDefinition以外のinstruction、skill、context、tool、delegation、model、loop、runtime、Host / Worker連携、Surfaceも改訂対象にできる | 構想は対象を固定componentへ閉じない。必要な境界は対象選択時にarchitectureへ戻って決める | **未実装**。最初のloopでは採用せず、後続loopで一対象ずつ判断する |
+| F24 | 経験に応じてDefinition以外のresourceも改訂対象にできる | managed revision候補、native external input/state、binary platform authority、追加architecture判断が必要な対象を区別する。対象kindごとにcontent、contract、dependency、activation、scope、execution placement、lifecycle、durability、evidenceをarchitectureへ反映してから実装する | **未実装**。候補にはHenji Instruction、任意のmanaged Skill、tool、model profile、subagent、Surface data/code、integration declaration、context/compaction、provider adapter、loop、storage等がある。native `AGENTS.md`/Skill discoveryやMCP connectionをmanaged installへ置換せず、最初のloopではDefinition以外を採用しない |
+| F25 | exact managed resource revisionをinstallation間でtransportする | export packageはstore layoutと分離し、manifestとcontent closureを運ぶ。credential、Session、workspace、binary、active bindingを混入させず、import先がidentity、contract、digestを検証してlocal custodyへpublishする | **未実装**。Increment 34ではAgent Definitionだけをexport/importする。他resourceのlocal managed化はtransportを必須前提にしない |
 
 ## architectureで例示する採用未決の将来オプション
 
@@ -168,11 +173,11 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 
 | architecture領域 | 対応する機能 |
 | --- | --- |
-| Surface / human interaction | F01、F05、F10、F20〜F23 |
-| HenjiHost lifecycle | F07、F11、F14、F16〜F18 |
-| Host storage | F04、F13、F15〜F19、F21〜F23 |
+| Surface / human interaction | F01、F05、F10、F20〜F23、F25 |
+| HenjiHost lifecycle | F07、F11、F14、F16〜F18、F25 |
+| Host storage | F04、F13、F15〜F19、F21〜F23、F25 |
 | Agent Worker | F02、F03、F06、F08、F09、F12、F19、F20 |
-| commit / revision boundary | F07、F13〜F15、F18、F21、F22 |
+| commit / revision boundary | F07、F13〜F15、F18、F21、F22、F25 |
 
 F24のarchitecture領域は固定しない。次のself-revision loopで選んだ改訂対象に応じて、Agent Worker、Host、
 storage、Surface、またはそれらの境界のどこへ対応させるかを決める。
@@ -185,7 +190,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 分類 | 対応する機能 | 詳細 |
 | --- | --- | --- |
 | 通常利用と改善 | F01〜F15 | 通常利用で見つかった問題を改善する |
-| 配布とDefinition revisionの前段基盤 | F01、F06、F07、F09 | standalone executableとmanaged Agent Definition revisionを通常利用で成立させる |
+| 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
@@ -216,59 +221,71 @@ Manifestの説明範囲、generation/turn単位の構築時期を決める。全
 生じた場合に開始する。その時点でSurface identity、Hostによるload/selection、input actionからWorker
 commandへの変換、output delivery、active Sessionとのbinding、置換時の状態引継ぎを決める。
 
-### Self-revision Cycle 1前段 — 配布とDefinition revision基盤
+### Increment 32 — standalone executableとexternalization共通境界
 
-対象機能: F01、F06、F07、F09
+対象機能: F01、F03、F04、F06、F07、F09
 
-Self-revision Cycle 1へ入る前に、開発repository内のmutable sourceを実行正本とする状態を終え、配布された
-Henji本体と、後から追加・選択できるAgent Definition revisionを分離する。二つを同じ前段で扱うが、binary
-自体の配布とDefinition moduleの登録は別のproduct operationとする。
+Self-revision Cycle 1へ入る前に、Deno runtimeとproduction entryを含む単一の`henji` executableを作り、binary、
+XDG config/data/state、workspace inputの配置とauthorityを分離する。同時に、将来のresource kindが共有できる
+versioned `ManagedResourceRef` envelope、logical refとprocess-local physical descriptorの分離、build/API contract
+attributionを導入する。汎用plugin loaderやexternal Definition installはまだ実装しない。
 
-利用者が必要とする動作:
+- executableはrepositoryやPATH上のDenoを参照せず、任意path・任意workspaceからTUI、非対話command、
+  diagnostics、`--version`を利用できる。
+- Worker bootstrap、built-in Definition、embedded `@henji/agent` API、現行runtimeをcompile artifactへ含め、
+  build revision、Deno version、target、embedded runtime digest、supported API contractをreadbackできる。
+- Session、execution artifact、diagnostic/evidenceをpath非依存logical ref schemaへ切り替える。開発版旧schemaは
+  移行せず、別identityへ黙って再解釈しない。
+- 現行`--definition <path>`を廃止し、unmanaged Definition refを新schemaへ持ち込まない。Increment 33完了までは
+  built-in Definitionだけを利用する。
+- workspace `AGENTS.md`とworkspace Skillのnative zero-install discoveryをcompiled binaryでも維持し、未実装の
+  user-scope Skill discoveryを加える。具体的な互換locationとprecedenceは個別計画で現行sourceと参照するnative
+  contractを照合して確定する。managed installは要求しない。MCPと他resource kindは実装対象外である。
+- release automation、tag/publish、複数platform matrix、新しいsandbox/permission modelは対象外とする。
 
-- Deno runtimeを内包したHenji executableを任意のpathへ配置し、repositoryや別途導入したDenoへの固定参照
-  なしに、任意のworkspaceから現行TUIと非対話commandを利用できる。
-- executable、Hostのstate/config、書換可能なDefinition module storeは互いの配置を前提にせず、binaryの
-  隣接pathへの書込みを必要としない。
-- 人間が任意pathにあるAgent Definition sourceをHenjiへ登録し、module identity、immutable revision、由来、
-  登録内容をlist / inspect相当のHost operationでreadbackできる。
-- 登録されたrevisionを指定して新しいSessionを開始し、built-in Definitionと同じDeno Web Worker capsule、
-  protocol、commit経路で通常taskを完了できる。
-- 登録後に元sourceまたはそのrelative dependencyを変更・削除しても、同じrevisionを指定して同じ実行可能な
-  Definition moduleを起動できる。
+完了時は、別path・isolated XDG root・任意workspaceからcompiled binaryのTUI/非対話turnを実providerで完了し、
+Session/evidenceからbuild identityとbuilt-in logical refをreadbackできることを確認する。同じproduction経路で
+workspace `AGENTS.md`、workspace Skill、user-scope Skillがinstall操作なしに発見・適用されることも確認する。
 
-この前段で決めること:
+### Increment 33 — local managed Agent Definition revision
 
-- `deno compile`のentry、現行production経路に必要なembedded resource、target、runtime permission、buildと
-  installの最小command。release automation、複数platform配布matrixは実際に採用するdeliveryに必要な時点で扱う。
-- executableの配置と独立したstate、config、Definition module storeの正式なpath解決規則。
-- 初期Agent Definitionが許すimport contractと、それに対応するlocal module closureまたは自己完結bundleの
-  作り方。remote、JSR、npm dependencyは、初期contractで実際に許すものだけ扱う。
-- `AgentManifest`とは別のauthorityとして、module identity、revision、entry、dependency lineage、sourceの
-  由来を保持するDefinition module metadataと`DefinitionRevisionRef`の関係。
-- 任意pathからの登録、list、inspect、新しいSessionへのexact revision指定を表すHost operationとSurface。
-  exactなCLI spellingは個別incrementで決める。
-- managed store内の確定closureだけをWorkerが解決し、元source pathを実行時の正本にしないloader契約。
-- 将来別のresource kindを識別できるidentity envelopeまたはnamespace。instruction、tool、providerが同じ
-  loader、dependency、promotion、activation契約を使うとは決めない。
+対象機能: F06、F07、F09
 
-この前段で決めないこと:
+任意pathのTypeScript Definitionと許可されたlocal module closureをHenji管理下へinstallし、元source pathではなく
+exact managed revisionから新しいSessionを開始できるようにする。
 
-- AIがDefinition候補を生成する操作、LLM-callableなmodule install tool、人間の候補採用操作。
-- 既存Instanceのactive revision binding transition、hot reload、turn途中のcomposition置換。
-- instruction、tool、providerその他のresource kindの外部化。
-- resident Host、service supervision、外部から常時到達可能なdelivery。
+- `module install`、list、inspect、exact revision selectorを提供し、module ID、parent/planner role、entry、closure、
+  API contract、origin lineage、local custodyを区別してreadbackできる。role未指定時はparentとする。
+- static relative `.ts` import/exportとembedded `@henji/agent`だけを初期contractに含め、remote URL、JSR、npm、
+  computed dynamic importは対象外とする。
+- identity manifest、origin lineage、local custody metadataを分け、closure全fileとdependency bindingをcanonical
+  digestへ含める。初期binding listは空でよい。
+- installとactivationを分離し、登録だけで既存SessionやWorkerを変更しない。元sourceを変更・削除しても保存済み
+  revisionを起動でき、sourceを編集して再installした場合は新revision、同じcontentなら同じrevisionにする。
+- external parent Definitionに同梱したbuilt-in toolのsame-identity replacementは許すが、新tool identity、planner
+  replacement、独立tool revision、AIから呼べるinstall、hot reload、remove/GCは対象外とする。
+- built-in/externalの両方を同じWorker capsule、protocol、atomic commit経路で実provider turnまで確認し、Session、
+  execution artifact、provider evidenceからHenji buildとexact Definition refを相関できるようにする。
 
-完了のproduct証拠:
+### Increment 34 — Definition revision transport
 
-- repositoryと導入済みDenoを参照しないstandalone executableを別pathから起動し、任意のworkspaceで現行の
-  TUI taskと非対話taskを完了できる。
-- external Agent Definitionを登録し、そのmodule identity、revision、entry、固定されたlocal dependencyを
-  readbackできる。
-- 元sourceとrelative dependencyを変更または削除した後も、登録済みの同じrevisionから新しいSessionを開始し、
-  同じDefinitionによる通常taskを完了できる。
-- そのSessionとexecution evidenceから使用したexact `DefinitionRevisionRef`を確認でき、built-inとexternalで
-  Worker、protocol、commit経路が分岐しない。
+対象機能: F07、F25
+
+Increment 33のexact Agent Definition revisionをstore layoutとは独立したpackageへexportし、別PCまたは別XDG data
+rootへ同じlogical identityとしてimportできるようにする。
+
+- packageはrevision manifestとsource closureを含み、import時にresource kind、module ID、role、API contract、
+  closure全file、canonical digestを検証してtarget managed storeへatomicにpublishする。
+- original source lineageとimport先のlocal custody metadataを分け、同一revisionがあれば既存revisionを返す。
+- target binaryがsupportしないcontractでもcustody目的のimportは許し、実行時にidentityを変えず明示的な
+  compatibility failureを返す。
+- credential、Session、workspace、Henji binary、built-in Definition、AgentInstance active binding、remote registryは
+  packageへ含めない。
+- 初期package contentはAgent Definitionだけとする。他resourceのlocal managed化はIncrement 34を必須前提にせず、
+  transportが必要なkindだけ後からpackage envelopeを拡張する。
+
+完了時は、異なるisolated XDG data rootへexport/importしたrevisionのlogical refとdigestが一致し、元sourceなしで
+通常taskを完了し、target Henji buildと移送したDefinition refをexecution evidenceからreadbackできることを確認する。
 
 ### Self-revision Cycle 1（F16〜F23を中心とするPhase 1〜5）
 
@@ -442,9 +459,19 @@ Phase 1の前提に含め、Definition以外の改訂対象と採用未決の追
 
 ### Cycle 1後に改訂対象を拡張する（F24）
 
-Phase 5で得た経験を基に、人間が次のself-revision loopを開始すると決めた場合に扱う。instruction、skill、
-context、tool、delegation、model、agent loop、runtime、Host / Worker連携、Surfaceの中から、そのloopで必要な
-対象を一つ選ぶ。対象はこの一覧に限定せず、人間から別の要求があれば同じloopで検討する。
+Phase 5で得た経験を基に、人間が次のself-revision loopを開始すると決めた場合に扱う。Henji Instruction、任意の
+managed Skill、context、tool、delegation、model profile、agent loop、runtime、Host / Worker連携、Surface data/code、
+integration declaration等から、そのloopで必要な対象を一つ選ぶ。対象はこの一覧に限定しない。
+
+選択時には、managed revision候補、すでに外部にあるinput/state、binaryに残すplatform authority、追加architecture
+判断が必要な対象のどれかを先に分類する。そのうえでcontent、contract、exact dependency、activation authority、
+scope、execution placement、lifecycle、durability、Session/evidence attributionを決める。共通envelopeへ格納できる
+ことだけを外部化理由にしない。
+
+native `AGENTS.md`/Skillはzero-install discoveryを維持し、managed SkillやHenji Instructionを追加しても置換しない。
+MCPもnative protocol connection、credential、server、runtime capability、実行recordを分け、Henji managed installを
+接続の前提にしない。MCP connection/server artifactのexact pinやtransportが必要になった場合だけ、Integration
+resourceとして別incrementを採用する。
 
 目的を変える必要があれば構想、責務・状態・lifetime・commit境界を変える必要があればarchitectureを先に
 改訂し、その結果から対象機能と実装順序をroadmapへ追加する。Cycle 1の完了だけを理由に対象を自動的に
@@ -460,7 +487,7 @@ context、tool、delegation、model、agent loop、runtime、Host / Worker連携
 | provider/tool物理I/Oのplacement | Phase 3で必要性を確認 | 具体的理由がなければ現在のWorker内配置を維持し、永久決定にはしない |
 | Worker protocolのmessage、handshake、error、versioning | Phase 1–4の採用機能ごと | 各phaseに必要なmessageとfailure semanticsだけ追加する |
 | Compositionをgeneration単位またはturn単位で構築するか | Phase 1 | Cycle 1で実行中再構成を必要としなければ現行generation単位を維持する |
-| Definition identity、dependency lineage、load、rollout | Cycle 1前段、Phase 1、Phase 4 | 前段でAgent Definitionのlocal module closure、identity、保存、loadを成立させ、Phase 1でcurrent/base binding、Phase 4でcandidate promotionとbinding transitionを決める |
+| Definition identity、dependency lineage、load、rollout | Increment 32〜34、Phase 1、Phase 4 | Increment 32で共通identity/cutover、33でlocal closureのinstall/load、34でtransportを成立させ、Phase 1でcurrent/base binding、Phase 4でcandidate promotionとbinding transitionを決める |
 | Worker restart、cancel、concurrency、lease、backpressure | Phase 1と4 | Instance writerとrevision transitionに実際に必要なsemanticsだけ決める |
 | cross-session memory / Instance-wide state | Phase 2 | 経験のcanonical domainに必要な場合だけ採用する |
 | mailbox、routing、schedule | 後続loopで採用時 | Cycle 1には含めない |

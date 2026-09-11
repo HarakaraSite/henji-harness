@@ -25,6 +25,10 @@
   出所とレビューはtrusted-local codeを採用する人間の関心事であり、信頼された Definitionと信頼されて
   いない Definition に別々の実行経路を作るものではない。一方、採用済みDefinition moduleの登録、
   immutable revision、保存、解決、readbackはHenji Hostが所有するproduct runtime上の関心事である。
+- Agent Definitionは最初に実装するmanaged resource kindであり、managed externalization全体をDefinition専用の
+  modelにはしない。共通層はresource kindに依存しないlogical identity、exact dependency binding、local custody、
+  activation前のgraph resolution、execution evidenceへのattributionだけを定める。kind固有のcontent contract、
+  discovery、execution placement、lifecycle、mutable instance stateは、そのkindを採用するincrementで決める。
 - 各 Worker generation の起動前に、選択された Definition code/source revision を参照する
   immutable な `DefinitionRevisionRef` を確定する。外部Definitionではentry fileだけでなく、許可された
   import contractに従う実行可能なlocal module closureまたは同等の自己完結bundleを一つのrevisionとして
@@ -33,6 +37,9 @@
 - 配布されるHenji executableはimmutableなcore/runtime artifactとして扱い、Hostが書き換えるstate、config、
   Definition module revision storeとは配置とlifecycleを分離する。executableの配置先やbinary隣接pathを
   writable storageの正本にしない。
+- `AGENTS.md`と`SKILL.md`等、他のagent harnessと共有するnative discovery規約を持つresourceは、所定scopeへ
+  配置するだけで検出・適用できるzero-install経路を維持する。Henji独自のmanaged revisionはこの経路を
+  置換せず、exact pin、transport、Definition bindingが必要な場合だけ追加する。
 - Deno Web Worker は、組み込み Definition と外部 Definition の双方に共通する単一の実行カプセル
   とする。Worker はライフサイクル境界であり、別の trust tier ではない。
 - Definitionは、provider、model、effort、loop、tools、subagents、contextをWorker内の一つの
@@ -54,6 +61,10 @@
 | 用語 | この概念での意味 | 存続期間 / 管轄 |
 | --- | --- | --- |
 | `AgentDefinition` | 信頼された実行可能な TypeScript 合成関数。Host が所有する UI や session object ではなく、agent をどのように組み立てるかを記述する。 | 1 つの Definition revision。Worker generation 内で評価される。 |
+| `ManagedResourceRef` | resource kind、logical resource ID、contentで固定したrevision digestからなるmachine/path非依存のexact ref。 | immutable revisionを識別し、Sessionやevidenceからreadbackできる。 |
+| `DefinitionRevisionRef` | `resourceKind = agent-definition`である`ManagedResourceRef`のkind固有specialization。別のidentity authorityではなく、built-in/external Definitionを同じlogical IDとexact revisionで表す。 | Session、Instance binding、evidenceへ永続化する。physical module specifierやstore pathを含めない。 |
+| `ManagedResourceManifest` | resource contract、content identity、`ResourceSlotIdentity`からexact `ManagedResourceRef`へのdependency bindingを記録するportable authority。評価後の`AgentManifest`とは異なる。 | managed revision artifactの一部。local store pathやactive bindingを含めない。 |
+| `ResourceSlotIdentity` | dependency元resourceのcontract内でresourceが果たすsemanticな役割を表すkind非依存のlocal key。dependencyの競合keyはconsumerのexact refとこのkeyの組である。`AgentResourceIdentity`はAgent composition内で使うkind固有表現である。 | exact refそのものではなく、一つのconsumer manifest内で一つのbindingへ対応する。activation全体の共有slotとは別namespaceである。 |
 | `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
 | `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/subagent/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
@@ -65,6 +76,20 @@
 `AgentManifest` と `AgentComposition` を区別するのは意図的である。manifest は、実行可能な
 Definition が合成できるものを制限する仕組みになることなく、読み取り、比較、または revision
 との関連付けができる。
+
+## externalization taxonomy
+
+外部化できることを、すべて同じloaderへ載せることとはみなさない。Henjiのresourceとstateを次の四つへ分類する。
+
+| 分類 | 対象 | architecture上の扱い |
+| --- | --- | --- |
+| managed revision候補 | Agent Definition、Henji Instruction、任意のmanaged Skill、tool component、model profile、subagent Definition、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
+| external input/state | credential/config、Sessionとcanonical transcript、provider evidence、workspace file、native `AGENTS.md`/Skill、active binding、runtime projection、resource instance state、tool call/result | 実行定義artifactへ混ぜず、それぞれの所有者と保存先を維持する。native discovery resourceへmanaged installを要求しない |
+| binary platform authority | Host coordinator、Worker lifecycle/protocol、canonical Session ownership、atomic turn commit、managed loader/verifier、credential resolver、build manifest、最低限のCLI/diagnostics/recovery Definition | managed hot-loadまたはself-replacementの対象にせず、変更時は新しいHenji binaryとして配布する |
+| 追加architecture判断が必要 | tool/providerのphysical I/O、context/compaction、agent loop strategy、Human Gate、Surface code、storage backend、MCP/integration runtime、remote distribution | 技術的に外部化不能とは決めないが、実行placementとauthorityを個別機能の採用時に決める |
+
+この分類は閉じたallowlistではない。F24で新しいkindを選ぶときは、共通managed envelopeへ載せられるという理由だけで
+採用せず、native ecosystem contractとplatform authorityを維持したうえでkind固有の境界をarchitectureへ追加する。
 
 ## Host / Worker 境界
 
@@ -95,6 +120,9 @@ version migrationは未設計である。
 - 以下で説明する durable session 境界を含む storage mechanism。
 - Agent Definition sourceの取込、実行可能なmodule closureの固定、immutable revisionの保存、selectorから
   `DefinitionRevisionRef`への解決、revision metadataとsource lineageのreadback。
+- managed resourceのlogical ref、identity manifest、origin lineage、installation固有のlocal custody metadataの
+  分離。activation authorityが選んだroot resource setからexact dependency graphを解決し、そのgraphを使う
+  Worker、Host、subprocess、client等のgenerationがactiveになる前に固定する。
 
 Host は、Definition code が外部にあるというだけで、別の Definition 実行経路を選択しない。
 組み込み Definition と外部の信頼された Definition は、同じ Worker capsule と同じ概念上の
@@ -109,12 +137,38 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
 
-### 配布artifactとDefinition module revision
+### 配布artifactとmanaged resource
 
 Henjiは、Deno runtimeと現在のproduction entryを含むstandalone executableとして配布できる。executableは
 任意のpathから任意のworkspaceを対象に起動でき、repository checkoutまたは別途導入されたDenoをruntime
 dependencyにしない。Deno compile時に固定するpermissionとembedded resourceは、現行production経路と、
 Hostが解決したDefinition module revisionをWorkerが読むために必要な範囲を個別計画で確定する。
+
+Hostのwritableな場所はXDGの役割に分ける。credentialとmutable preferenceはconfig、managed revisionのlocal
+custodyはdata、Session、canonical transcript、provider evidence、failure diagnostic、execution artifactはstateに
+置く。workspace fileとworkspace native discovery resourceはworkspace、user-scope native resourceは利用者の
+該当scopeが所有する。binary path、source checkout、XDG rootのいずれもportable logical identityへ含めない。
+
+managed resourceの共通表現は、`ManagedResourceRef`と`ManagedResourceManifest`である。`DefinitionRevisionRef`は
+`resourceKind = agent-definition`である共通refのkind固有specializationであり、別の永続identity schemaではない。
+manifestが他resourceへ依存する場合は、`ResourceSlotIdentity`とexact `ManagedResourceRef`のbinding listをrevision
+digestへ含める。各bindingの競合keyはconsumerのexact `ManagedResourceRef`と`ResourceSlotIdentity`の組であり、
+異なるconsumer contractが同じlocal slot名を使うことは競合ではない。activation authorityが選んだroot resource
+setから到達するtransitive graphを実行前に解決し、同じ競合keyへ複数revisionが残る場合は暗黙の優先順位を付けない。
+将来root間で共有するactivation-level slotが必要になった場合は、このlocal keyを流用せず別namespaceとauthorityを
+定義する。global/workspace等のsource discovery precedenceは、resolved graph conflictとは別のkind固有selection
+ruleである。
+
+logical refを実行可能contentへ解決した後、Hostはbuilt-in module descriptorやmanaged store内path等のkind固有な
+physical load descriptorを現在process内で構築できる。このdescriptorは`DefinitionRevisionRef`の一部ではなく、
+Session、artifact、evidenceへportable identityとして永続化しない。現行のphysical `canonicalSpecifier`を含む
+`DefinitionRevisionRef` schemaは、Increment 32でこのlogical/physical分離へ置き換える。
+
+immutable revision、active binding、resource instanceのmutable state、Session/tool call/resultは別authorityである。
+managed resource kindごとにscope/activation owner、execution placement、install・select・activate・reload・rollback・
+removeのlifecycle、durabilityを決める。
+
+#### Agent Definition revision
 
 Hostは外部Agent Definitionを次の境界で扱う。
 
@@ -126,6 +180,11 @@ Hostは外部Agent Definitionを次の境界で扱う。
    `DefinitionRevisionRef`へ解決してからWorker generationを起動する。
 4. Workerはbuilt-inとexternalのどちらも同じcapsule、protocol、commit境界で評価する。
 
+現行`--definition <path>`はstandalone/externalization schema cutoverで廃止する。外部source pathはmanaged installの
+inputに限り、実行時authority、durable Session ref、暗黙のdevelopment fallbackにはしない。編集後のsourceを
+再installすると新しいexact revisionになり、同じcontentの再installは同じrevisionを返す。開発版の既存
+direct-path Sessionは新schemaへ移行または自動importしない。
+
 同じrevisionは、登録後に元sourceとrelative dependencyが変更または削除されても起動・再開できなければ
 ならない。remote、JSR、npm dependencyを初期import contractに含めるか、その固定方法は個別計画で決める。
 
@@ -135,9 +194,46 @@ Definition moduleの`install`または登録と、実行対象への`activate`�
 binding transitionとcandidate promotionは、人間の採用を扱う後続機能で決める。turn途中でDefinitionを置換せず、
 新revisionを使う場合はHostが後続のWorker generationを起動する。
 
-初期managed storeとloaderはAgent Definition専用である。将来resource kindを追加できるidentity envelopeまたは
-namespaceを妨げないが、instruction、tool、providerが同じloader、dependency、promotion、activation semanticsを
-使うとは決めない。それぞれを改訂対象に選んだloopでarchitectureへ戻って決める。
+standalone cutoverではversioned envelope、logical/physical ref分離、XDG data namespace、build/API contract
+attributionを共通境界として導入するが、汎用plugin loaderを先行実装しない。最初に実装するkind固有loaderとstoreは
+Agent Definition用である。instruction、tool、provider等が同じloader、dependency、promotion、activation semanticsを
+使うとは決めず、それぞれを改訂対象に選んだloopでarchitectureへ戻る。
+
+#### native discoveryとHenji Instruction
+
+workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`は、source-nativeなfile/directory layoutを保ったまま
+起動時に自動発見する。利用にmanaged installを要求せず、Henji固有のidentity、custody、bindingを本文へ埋め込まない。
+source、scope、content digestをSession/evidenceへ記録しても、それはnative inputのsnapshot attributionであり、
+managed revisionのinstallまたはactivationではない。
+
+managed Skill revisionはnative Skillの代替ではなく、exact pin、transport、Definitionからのbindingが必要な場合の
+追加authorityである。Henji独自のInstruction revisionも、workspace `AGENTS.md`、native Skill、managed Skillとは
+別resource kindにする。最終的に同じprovider instructionへ合成されても、identity、selection authority、合成順、
+provenanceを失わない。native版とmanaged版のpriorityや重複解決は、そのresource kindを実装するincrementで決める。
+
+#### MCP integration
+
+MCPは一つのHenji toolまたはmanaged moduleではなく、外部serverが提供するtool、resource、prompt等をHenji側clientが
+発見・利用するprotocol境界である。HenjiはMCP protocol client/version/transport adapter、server connection
+declaration、credential、local server packageまたはremote service、実行時に発見したcapability projection、
+call/result evidenceを別authorityとして扱う。
+
+native MCP connectionにHenji managed installを必須にしない。接続後に発見した個々のMCP toolは、connection identityと
+server内tool nameを対応付けたWorker向けtool projectionとして提示し、MCP `tools/call`へdispatchする。resource、prompt、
+server instructionsはtool revisionへ変換せず、それぞれのMCP protocol operationから得るruntime inputとする。
+connection declarationやserver artifactのexact pin/transportが必要になった場合だけ、後続Integration resourceとして
+managed pathを追加する。credentialはportable artifactへ含めず、capability snapshotとcall/resultはSession/evidenceへ
+相関する。client、transport、dispatchをHost、Worker、subprocessまたは別processのどこへ置くかはここでは固定せず、
+後続Integration Incrementで実利用経路とauthorityに合わせて決める。
+
+#### managed revision transport
+
+local custodyとinstallation間transportは別contractである。export packageはstore directory layoutを公開形式にせず、
+選択したexact revisionのmanifestとcontent closureを含める。import先はlogical identity、contract、content digestを
+検証して自身のmanaged storeへatomicにpublishする。credential、Session、workspace、Henji binary、built-in resourceは
+Definition transport packageへ含めない。初期transportはAgent Definitionだけを扱うが、transportを必要とする後続
+resource kindはkindを識別できるpackage envelopeを拡張できる。transport実装は、他resource kindのlocal managed化の
+必須前提ではない。
 
 有効toolが利用指針を持つ場合、tool metadataはprovider向けtool definitionとは分離して保持し、Definitionが
 registryをmaterializeした後にAgentCompositionのsystem instructionへ合成する。現在は`read`の選択と
@@ -369,6 +465,11 @@ Deno、Cloudflare、Pi、Zot、OpenComputer、OpenClawとの詳細な比較は
 - HenjiHostは、採用したlifecycle、routing、storage、supervisionを自身の責務として実装する。
 - 外部実装との類似は、Henjiのprotocol、managed semantics、機能優先順位を決めない。
 
+managed externalization、native discovery、MCP境界の比較根拠は
+[`docs/research/externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)に分離する。
+参照実装や外部protocolはHenjiの仕様そのものではなく、この文書に明記したtaxonomy、identity、authority、
+compatibility境界だけを採用する。
+
 ## 未決のアーキテクチャ判断
 
 確定した制約は、それぞれの責務と境界を定める本文に置く。ここには選択肢が残る判断だけを、その理由と
@@ -380,7 +481,8 @@ Deno、Cloudflare、Pi、Zot、OpenComputer、OpenClawとの詳細な比較は
 | provider/toolの物理I/OをWorker、Host RPC/capability、subprocessのどこに置くか | effect、latency、streaming、credential、利用するtoolの契約によって適切な境界が変わる | roadmapが具体的なprovider/tool利用経路を選んだとき |
 | Worker protocolのmessage、handshake、error、versioning | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる | 新しいHost / Worker間機能を実装するとき |
 | Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |
-| Definition moduleで許すremote、JSR、npm dependencyの固定方法、revisionの更新・削除・GC、開発用direct-path load | local module closureを保持する初期managed revisionと、新しいSessionへのexact revision指定には不要であり、実際の利用経路ごとに必要なsemanticsが異なる | 対象dependencyまたはrevision管理operationをproduct機能として選んだとき |
+| Definition moduleで許すremote、JSR、npm dependencyの固定方法、revisionの更新・削除・GC | local module closureを保持する初期managed revisionと、新しいSessionへのexact revision指定には不要であり、実際の利用経路ごとに必要なsemanticsが異なる | 対象dependencyまたはrevision管理operationをproduct機能として選んだとき |
+| MCP connection discovery/config format、tool name mapping、capability変更時のgeneration更新、server packageのmanaged化 | MCP protocol compatibilityとHenji固有のselection・durabilityは別contractであり、具体的な利用経路をまだ採用していない | roadmapがMCP integrationを採用したとき |
 | Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |
 | Surface identity、load / selection / replacement、置換時のUI-local state引継ぎ | 現在はTUIとnon-interactive commandで通常利用でき、一般化に必要な第二Surfaceの契約がない | 第二Surface、現Surfaceの置換、またはself-revision操作をTUI固有実装へ閉じない必要をroadmapが採用したとき |
 | mailbox、非同期または複数Surface間のrouting、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、AgentInstanceの継続性やHost / Worker分割だけからは必要にならない | roadmapが対象機能を採用したとき |
