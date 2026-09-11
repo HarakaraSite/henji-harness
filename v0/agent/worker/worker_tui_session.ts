@@ -3,6 +3,12 @@ import type { Message } from '../core/contracts.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
+import {
+  DefinitionStartupError,
+  type HostDefinitionSelection,
+  resolveDefinitionRef,
+  resolveRequestedDefinition,
+} from '../definitions/definition_selection.ts';
 import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
 import {
   projectRuntimeDisplayState,
@@ -23,15 +29,17 @@ import {
   restoredMessages,
   type SemanticContextCheckpointV1,
   type SessionRecord,
+  SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionHandle,
   type WorkerSessionStorePort,
 } from '../session/session_store.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
-import { readDefinitionRevision, workerBuiltinModulePath } from './worker_definition_revision.ts';
+import { managedWorkerDefinitionLoadRequest } from './worker_capsule.ts';
+import { workerBuiltinModulePath } from './worker_definition_revision.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
-import { WorkerHostSession } from './worker_host_session.ts';
+import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
 import {
   DenoWorkerExecutionArtifactStore,
   type WorkerExecutionArtifactStore,
@@ -79,7 +87,9 @@ export interface WorkerSessionOptions {
   readonly stateRoot?: string;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly sessionId?: string;
-  readonly agent: SessionRecord['agent'];
+  readonly agent?: SessionRecord['agent'];
+  readonly selection?: HostDefinitionSelection;
+  readonly dataRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
@@ -134,30 +144,9 @@ export const createWorkerSession = async (
   options: WorkerSessionOptions,
 ): Promise<WorkerSessionResult> => {
   const workspace = await resolveWorkspace(options.workspaceRoot);
-  const modulePath = workerBuiltinModulePath(options.agent);
-  const definition = await readDefinitionRevision(
-    modulePath,
-    'builtin',
-    options.agent,
-  );
   const productionStateRoot = options.physicalIoMode === 'production'
     ? options.stateRoot ?? launcherStateRoot()
     : undefined;
-  const defaultDiagnosticStore = options.physicalIoMode === 'production' &&
-      options.diagnosticPersistence === undefined
-    ? new DenoFailureDiagnosticStore(productionStateRoot!, workspace.root)
-    : undefined;
-  const defaultEvidenceStore = options.physicalIoMode === 'production' &&
-      options.providerEvidenceStore === undefined
-    ? new DenoProviderEvidenceStore(productionStateRoot!, workspace.root)
-    : undefined;
-  const defaultExecutionArtifactStore = options.executionArtifactStore ??
-    (options.physicalIoMode === 'production' || options.stateRoot !== undefined
-      ? new DenoWorkerExecutionArtifactStore(
-        options.stateRoot ?? launcherStateRoot(),
-        workspace.root,
-      )
-      : undefined);
   const store: WorkerSessionStorePort | undefined = options.persistence === 'none'
     ? undefined
     : new DenoSessionStore(
@@ -166,57 +155,161 @@ export const createWorkerSession = async (
     );
   let handle: WorkerSessionHandle;
   let record: StoredSessionRecord | undefined;
+  let selection = options.selection;
+  if (selection !== undefined && options.agent !== undefined && selection.id !== options.agent) {
+    throw new DefinitionStartupError(
+      'definition_role_mismatch',
+      'session_binding',
+      'Explicit Agent role does not match the selected Definition',
+      selection.ref,
+    );
+  }
+  const requestedSelection = async (): Promise<HostDefinitionSelection> =>
+    selection ??= await resolveRequestedDefinition(options.agent, undefined, options.dataRoot);
+  const bindRecord = async (
+    candidate: StoredSessionRecord,
+    requested?: HostDefinitionSelection,
+  ): Promise<HostDefinitionSelection> => {
+    if (candidate.workspaceRoot !== workspace.root) {
+      throw new SessionStoreError('session_invalid');
+    }
+    const resolved = await resolveDefinitionRef(candidate.definition, options.dataRoot);
+    if (candidate.agent !== resolved.id) {
+      throw new DefinitionStartupError(
+        'definition_role_mismatch',
+        'session_binding',
+        'Session Agent role does not match its exact Definition revision',
+        candidate.definition,
+      );
+    }
+    if (requested !== undefined && !sameRef(requested.ref, candidate.definition)) {
+      throw new DefinitionStartupError(
+        'definition_invalid',
+        'session_binding',
+        'Session exact Definition revision does not match the explicit selector',
+        candidate.definition,
+      );
+    }
+    return resolved;
+  };
   if (options.persistence === 'none') {
+    selection = await requestedSelection();
     handle = new MemoryWorkerHandle(crypto.randomUUID().toLowerCase());
   } else if (options.persistence === 'continue') {
+    const requested = await requestedSelection();
     const listed = await store!.listWorker();
     const candidate = listed.sessions.find((item) =>
-      item.agent === options.agent && item.definition !== undefined &&
-      sameRef(item.definition, definition)
+      item.agent === requested.id && item.definition !== undefined &&
+      sameRef(item.definition, requested.ref)
     );
     if (candidate === undefined) throw new Error('session not found');
     handle = await store!.openExistingWorker(candidate.id);
     record = handle.record;
+    if (record === undefined) {
+      await handle.close();
+      throw new SessionStoreError('session_invalid');
+    }
+    try {
+      selection = await bindRecord(record, requested);
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
   } else if (options.persistence === 'session') {
     if (options.sessionId === undefined) throw new Error('session id required');
     handle = await store!.openExistingWorker(options.sessionId);
     record = handle.record;
+    if (record === undefined) {
+      await handle.close();
+      throw new SessionStoreError('session_invalid');
+    }
+    try {
+      selection = await bindRecord(record, selection);
+    } catch (error) {
+      await handle.close();
+      throw error;
+    }
   } else {
-    handle = await store!.allocateWorker(options.agent, definition);
+    selection = await requestedSelection();
+    handle = await store!.allocateWorker(selection.id, selection.ref);
   }
   try {
+    if (selection === undefined) throw new SessionStoreError('session_invalid');
+    const activeSelection = selection;
+    const modulePath = activeSelection.kind === 'builtin'
+      ? workerBuiltinModulePath(activeSelection.id)
+      : undefined;
+    const loadDescriptor = activeSelection.kind === 'managed'
+      ? managedWorkerDefinitionLoadRequest(activeSelection.revision)
+      : undefined;
+    const definition = activeSelection.ref;
+    const defaultDiagnosticStore = options.physicalIoMode === 'production' &&
+        options.diagnosticPersistence === undefined
+      ? new DenoFailureDiagnosticStore(productionStateRoot!, workspace.root)
+      : undefined;
+    const defaultEvidenceStore = options.physicalIoMode === 'production' &&
+        options.providerEvidenceStore === undefined
+      ? new DenoProviderEvidenceStore(productionStateRoot!, workspace.root)
+      : undefined;
+    const defaultExecutionArtifactStore = options.executionArtifactStore ??
+      (options.physicalIoMode === 'production' || options.stateRoot !== undefined
+        ? new DenoWorkerExecutionArtifactStore(
+          options.stateRoot ?? launcherStateRoot(),
+          workspace.root,
+        )
+        : undefined);
     if (
       record !== undefined &&
       (record.workspaceRoot !== workspace.root ||
-        record.agent !== options.agent ||
+        record.agent !== activeSelection.id ||
         !recordRefMatches(record, definition))
     ) {
       throw new Error(
         'session Definition revision does not match the selected binding',
       );
     }
-    const host = await WorkerHostSession.open({
-      handle,
-      workspaceRoot: workspace.root,
-      agent: options.agent,
-      definition,
-      modulePath,
-      physicalIoMode: options.physicalIoMode,
-      rootMaxSteps: options.rootMaxSteps,
-      providerTimeoutMs: options.providerTimeoutMs,
-      initialModelSelection: options.initialModelSelection,
-      eventSink: options.eventSink,
-      diagnosticPersistence: options.diagnosticPersistence ??
-        defaultDiagnosticStore?.persist,
-      providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
-      executionArtifactStore: defaultExecutionArtifactStore,
-      capsuleFactory: options.capsuleFactory,
-    });
+    const openHost = async (workerHandle: WorkerSessionHandle): Promise<WorkerHostSession> => {
+      try {
+        return await WorkerHostSession.open({
+          handle: workerHandle,
+          workspaceRoot: workspace.root,
+          agent: activeSelection.id,
+          definition,
+          modulePath,
+          loadDescriptor,
+          physicalIoMode: options.physicalIoMode,
+          rootMaxSteps: options.rootMaxSteps,
+          providerTimeoutMs: options.providerTimeoutMs,
+          initialModelSelection: options.initialModelSelection,
+          eventSink: options.eventSink,
+          diagnosticPersistence: options.diagnosticPersistence ??
+            defaultDiagnosticStore?.persist,
+          providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
+          executionArtifactStore: defaultExecutionArtifactStore,
+          capsuleFactory: options.capsuleFactory,
+        });
+      } catch (error) {
+        if (activeSelection.kind !== 'managed' || !(error instanceof WorkerHostStartupError)) {
+          throw error;
+        }
+        throw new DefinitionStartupError(
+          error.code === 'module_invalid'
+            ? 'definition_invalid'
+            : error.code === 'role_mismatch'
+            ? 'definition_role_mismatch'
+            : 'definition_evaluation_failed',
+          'worker_start',
+          error.message,
+          definition,
+        );
+      }
+    };
+    const host = await openHost(handle);
     const initialSelection = host.modelSelectionSnapshot();
     const startupSnapshot = host.startupSnapshot();
     const displayState = projectRuntimeDisplayState({
       workspaceRoot: workspace.root,
-      agentId: options.agent,
+      agentId: activeSelection.id,
       profileId: modelRouteProfileId(initialSelection),
       provider: initialSelection.provider,
       modelId: initialSelection.modelId,
@@ -240,7 +333,7 @@ export const createWorkerSession = async (
             ...item,
             current: item.id === currentHandle.id,
             resumed: item.id === currentHandle.id,
-            mismatch: item.agent !== options.agent || item.definition === undefined ||
+            mismatch: item.agent !== activeSelection.id || item.definition === undefined ||
               !sameRef(item.definition, definition),
           })),
           skippedInvalid: listed.skippedInvalid,
@@ -260,26 +353,10 @@ export const createWorkerSession = async (
           if (
             targetRecord === undefined ||
             targetRecord.workspaceRoot !== workspace.root ||
-            targetRecord.agent !== options.agent ||
+            targetRecord.agent !== activeSelection.id ||
             !recordRefMatches(targetRecord, definition)
           ) throw new Error('session Definition revision mismatch');
-          const targetHost = await WorkerHostSession.open({
-            handle: targetHandle,
-            workspaceRoot: workspace.root,
-            agent: options.agent,
-            definition,
-            modulePath,
-            physicalIoMode: options.physicalIoMode,
-            rootMaxSteps: options.rootMaxSteps,
-            providerTimeoutMs: options.providerTimeoutMs,
-            eventSink: options.eventSink,
-            diagnosticPersistence: options.diagnosticPersistence ??
-              defaultDiagnosticStore?.persist,
-            providerEvidenceStore: options.providerEvidenceStore ??
-              defaultEvidenceStore,
-            executionArtifactStore: defaultExecutionArtifactStore,
-            capsuleFactory: options.capsuleFactory,
-          });
+          const targetHost = await openHost(targetHandle);
           await currentHost.close();
           currentHost = targetHost;
           currentHandle = targetHandle;

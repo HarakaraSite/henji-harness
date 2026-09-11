@@ -3,7 +3,13 @@ import {
   prepareRuntimeComposition,
   type RuntimeTestSeam,
 } from '../runtime/runtime.ts';
-import { type BuiltinAgentSelection, resolveBuiltinAgent } from '../definitions/agent_catalog.ts';
+import {
+  DefinitionStartupError,
+  definitionStartupErrorValue,
+  type HostDefinitionSelection,
+  parseDefinitionRevisionSelector,
+  resolveRequestedDefinition,
+} from '../definitions/definition_selection.ts';
 import { AgentSession } from '../session/session.ts';
 import { type AgentEventSink } from '../core/events.ts';
 import { TuiController, TuiControllerError } from '../../tui/controller.ts';
@@ -129,10 +135,14 @@ export interface TuiCliDependencies {
   readonly runtimeSeam?: RuntimeTestSeam;
   readonly createSession?: (
     eventSink: AgentEventSink,
-    selection: BuiltinAgentSelection,
+    selection: HostDefinitionSelection | undefined,
   ) => Promise<TuiSessionFactoryResult>;
   /** Direct-test-only state-root seam; production selects XDG_STATE_HOME/HOME. */
   readonly stateRoot?: string;
+  /** Direct-test-only data-root seam; production selects XDG_DATA_HOME/HOME. */
+  readonly dataRoot?: string;
+  /** Direct-test-only workspace seam; production selects the current working directory. */
+  readonly workspaceRoot?: string;
   readonly writeStderr?: (text: string) => void | PromiseLike<void>;
   /** Test-only crash injection, invoked after raw acquisition and before controller.run. */
   readonly afterAcquire?: () => void | Promise<void>;
@@ -162,6 +172,7 @@ export const parseTuiArgs = (args: readonly string[]): string | undefined => {
 
 export interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
+  readonly rawDefinitionRevision?: string;
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
   readonly rootProvider?: ProviderId;
@@ -175,6 +186,7 @@ export const parseTuiInvocation = (
 ): ParsedTuiInvocation => {
   if (args.length > 10) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
+  let rawDefinitionRevision: string | undefined;
   let rootMaxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
   let rootProvider: ProviderId = 'openrouter';
@@ -193,6 +205,22 @@ export const parseTuiInvocation = (
         throw new Error('invalid invocation');
       }
       rawAgentName = value;
+      index += 2;
+    } else if (flag === '--definition-revision') {
+      const value = args[index + 1];
+      if (
+        rawDefinitionRevision !== undefined ||
+        value === undefined ||
+        value.length === 0
+      ) {
+        throw new Error('invalid invocation');
+      }
+      try {
+        parseDefinitionRevisionSelector(value);
+      } catch {
+        throw new Error('invalid invocation');
+      }
+      rawDefinitionRevision = value;
       index += 2;
     } else if (flag === '--continue') {
       if (persistence !== 'new') throw new Error('invalid invocation');
@@ -248,8 +276,12 @@ export const parseTuiInvocation = (
       throw new Error('invalid invocation');
     }
   }
+  if (rawAgentName !== undefined && rawDefinitionRevision !== undefined) {
+    throw new Error('invalid invocation');
+  }
   return {
     rawAgentName,
+    ...(rawDefinitionRevision === undefined ? {} : { rawDefinitionRevision }),
     ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
     ...(rootProviderSeen ? { rootProvider } : {}),
@@ -261,6 +293,9 @@ export const parseTuiInvocation = (
 const failureLine = (code: keyof typeof fatalMessages): string =>
   JSON.stringify({ ok: false, error: { code, message: fatalMessages[code] } }) +
   '\n';
+
+const definitionFailureLine = (error: DefinitionStartupError): string =>
+  JSON.stringify({ ok: false, error: definitionStartupErrorValue(error) }) + '\n';
 
 type CrashGuard = {
   readonly close: () => void;
@@ -303,12 +338,26 @@ export const main = async (
   const stderr = dependencies.writeStderr ?? (async (text: string) => {
     await Deno.stderr.write(encoder.encode(text));
   });
-  let selection: BuiltinAgentSelection;
+  let selection: HostDefinitionSelection | undefined;
   let invocation: ParsedTuiInvocation;
   try {
     invocation = parseTuiInvocation(args);
-    selection = resolveBuiltinAgent(invocation.rawAgentName);
-  } catch {
+    if (
+      invocation.persistence !== 'session' ||
+      invocation.rawAgentName !== undefined ||
+      invocation.rawDefinitionRevision !== undefined
+    ) {
+      selection = await resolveRequestedDefinition(
+        invocation.rawAgentName,
+        invocation.rawDefinitionRevision,
+        dependencies.dataRoot,
+      );
+    }
+  } catch (error) {
+    if (error instanceof DefinitionStartupError) {
+      await stderr(definitionFailureLine(error));
+      return 1;
+    }
     await stderr(failureLine('invalid_invocation'));
     return 1;
   }
@@ -335,11 +384,12 @@ export const main = async (
       sessionFactory = async (eventSink, selected) => {
         if (dependencies.runtimeSeam === undefined) {
           return await createWorkerSession({
-            workspaceRoot: undefined,
+            workspaceRoot: dependencies.workspaceRoot,
             stateRoot: dependencies.stateRoot,
             persistence: invocation.persistence,
             sessionId: invocation.sessionId,
-            agent: selected.id,
+            selection: selected,
+            dataRoot: dependencies.dataRoot,
             physicalIoMode: 'production',
             rootMaxSteps: invocation.rootMaxSteps,
             providerTimeoutMs: invocation.providerTimeoutMs,
@@ -348,6 +398,14 @@ export const main = async (
             ),
             eventSink,
           });
+        }
+        if (selected === undefined || selected.kind !== 'builtin') {
+          throw new DefinitionStartupError(
+            'definition_execution_unavailable',
+            'worker_start',
+            'Managed Definition execution begins in Slice C',
+            selected?.ref,
+          );
         }
         if (invocation.persistence === 'none') {
           const prepared = await prepareRuntimeComposition(
@@ -726,6 +784,11 @@ export const main = async (
       resultCode = exitCode;
     }
   } catch (error) {
+    if (error instanceof DefinitionStartupError) {
+      await stderr(definitionFailureLine(error));
+      resultCode = 1;
+      return resultCode;
+    }
     const code = error instanceof TuiControllerError
       ? error.code
       : acquisitionStarted

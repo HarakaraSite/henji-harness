@@ -24,6 +24,7 @@ import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
   WorkerCorrelation,
+  WorkerDefinitionLoadRequest,
   WorkerErrorMessage,
   WorkerModelSelectedMessage,
   WorkerReadyMessage,
@@ -84,6 +85,23 @@ const validStartupSnapshot = (
   return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
     new Set(value.skillNames).size === value.skillNames.length;
 };
+
+export type WorkerHostStartupErrorCode =
+  | 'module_invalid'
+  | 'definition_evaluation_failed'
+  | 'role_mismatch'
+  | 'manifest_invalid';
+
+export class WorkerHostStartupError extends Error {
+  constructor(
+    readonly code: WorkerHostStartupErrorCode,
+    readonly workerStage: WorkerErrorMessage['stage'],
+    message: string,
+  ) {
+    super(message);
+    this.name = 'WorkerHostStartupError';
+  }
+}
 type ActiveWorkerExecution = {
   readonly executionId: string;
   readonly createdAt: string;
@@ -511,7 +529,18 @@ export class WorkerHostSession {
       (message.kind === 'worker_error' &&
         (message.correlation === undefined ||
           sameCorrelation(message.correlation, correlation))), 5_000);
-    const revision = await readWorkerModuleRevision(this.options.modulePath);
+    let revision: WorkerDefinitionLoadRequest;
+    if (this.options.loadDescriptor !== undefined) {
+      revision = this.options.loadDescriptor;
+    } else if (this.options.modulePath !== undefined) {
+      revision = await readWorkerModuleRevision(this.options.modulePath);
+    } else {
+      throw new WorkerHostStartupError(
+        'module_invalid',
+        'module_pre_read',
+        'Worker Definition physical descriptor is unavailable',
+      );
+    }
     this.currentCorrelation = correlation;
     try {
       this.send({
@@ -538,10 +567,23 @@ export class WorkerHostSession {
     }
     try {
       const ready = await readyPromise;
-      if (ready.kind === 'worker_error') throw new Error(ready.message);
+      if (ready.kind === 'worker_error') {
+        throw new WorkerHostStartupError(
+          ready.stage === 'module_pre_read' ? 'module_invalid' : 'definition_evaluation_failed',
+          ready.stage,
+          ready.message,
+        );
+      }
       const expectedRole = this.options.agent === 'planner' ? 'planner' : 'parent';
+      if (ready.manifest !== undefined && ready.manifest.role !== expectedRole) {
+        throw new WorkerHostStartupError(
+          'role_mismatch',
+          'module_validation',
+          'Worker Definition effective role did not match its declared role',
+        );
+      }
       if (
-        ready.manifest === undefined || ready.manifest.role !== expectedRole ||
+        ready.manifest === undefined ||
         !sameModelSelection(ready.manifest.rootModel, this.modelSelection) ||
         !sameModelSelection(ready.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
         ready.manifest.profileId !== modelRouteProfileId(this.modelSelection) ||
@@ -550,7 +592,11 @@ export class WorkerHostSession {
         !validStartupSnapshot(ready.startupSnapshot) ||
         !validCredentialAvailability(ready.credentialAvailability, this.modelSelection)
       ) {
-        throw new Error('Worker manifest did not match Host selection');
+        throw new WorkerHostStartupError(
+          'manifest_invalid',
+          'module_validation',
+          'Worker manifest did not match Host selection',
+        );
       }
       this.currentManifest = ready.manifest;
       this.currentStartupSnapshot = ready.startupSnapshot;

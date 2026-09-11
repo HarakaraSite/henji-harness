@@ -1,8 +1,10 @@
 import type {
   WorkerCorrelation,
+  WorkerDefinitionLoadRequest,
   WorkerHostCommand,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
+import type { ManagedDefinitionRevision } from '../definitions/managed_definition_store.ts';
 
 const encoder = new TextEncoder();
 
@@ -37,6 +39,29 @@ export const readWorkerModuleRevision = async (
     entrySha256: await sha256Hex(source),
     sourceBytes: source.byteLength,
   };
+};
+
+/** Build a process-local managed closure descriptor from an already verified exact revision. */
+export const managedWorkerDefinitionLoadRequest = (
+  revision: ManagedDefinitionRevision,
+): WorkerDefinitionLoadRequest => {
+  const files = revision.manifest.files.map((file) => ({
+    relativePath: file.path,
+    canonicalSpecifier: fileSpecifier(`${revision.physicalRoot}/files/${file.path}`),
+    sha256: file.sha256,
+    sourceBytes: file.byteLength,
+  }));
+  const entry = files.find((file) => file.relativePath === revision.manifest.entry);
+  if (entry === undefined) throw new Error('Managed Definition entry is absent from its closure');
+  return Object.freeze({
+    kind: 'managed' as const,
+    entry: Object.freeze({
+      canonicalSpecifier: entry.canonicalSpecifier,
+      entrySha256: entry.sha256,
+      sourceBytes: entry.sourceBytes,
+    }),
+    files: Object.freeze(files.map((file) => Object.freeze(file))),
+  });
 };
 
 export type WorkerCapsuleStatus =

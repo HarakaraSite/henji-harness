@@ -38,11 +38,27 @@ export interface WorkerModuleRevisionRequest {
   readonly sourceBytes: number;
 }
 
+export interface WorkerManagedClosureFileRequest {
+  readonly relativePath: string;
+  readonly canonicalSpecifier: string;
+  readonly sha256: string;
+  readonly sourceBytes: number;
+}
+
+/** Process-local physical input. Logical Definition identity remains a separate Host concern. */
+export type WorkerDefinitionLoadRequest =
+  | WorkerModuleRevisionRequest
+  | {
+    readonly kind: 'managed';
+    readonly entry: WorkerModuleRevisionRequest;
+    readonly files: readonly WorkerManagedClosureFileRequest[];
+  };
+
 export type WorkerHostCommand =
   | {
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
-    readonly module?: WorkerModuleRevisionRequest;
+    readonly module?: WorkerDefinitionLoadRequest;
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
     readonly rootRole?: 'parent' | 'planner';
@@ -135,6 +151,7 @@ export type WorkerRuntimeEvent =
     readonly sourceBytes: number;
     readonly entrySha256: string;
   }
+  | { readonly kind: 'module_closure_verified'; readonly fileCount: number }
   | { readonly kind: 'module_import_start'; readonly specifier: string }
   | { readonly kind: 'module_imported'; readonly specifier: string }
   | { readonly kind: 'worker_error_observed'; readonly message: string };

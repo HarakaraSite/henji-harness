@@ -2,7 +2,9 @@ import {
   type DataValue,
   parseWorkerHostCommand,
   type WorkerCorrelation,
+  type WorkerDefinitionLoadRequest,
   type WorkerHostCommand,
+  type WorkerManagedClosureFileRequest,
   type WorkerModuleRevisionRequest,
   type WorkerRuntimeEvent,
   type WorkerToHostMessage,
@@ -94,19 +96,47 @@ const digestHex = async (bytes: Uint8Array): Promise<string> => {
 
 const loadVerifiedModule = async (
   correlation: WorkerCorrelation,
-  request: WorkerModuleRevisionRequest,
+  request: WorkerDefinitionLoadRequest,
 ): Promise<{
   readonly entrySha256: string;
   readonly sourceBytes: number;
   readonly probe?: string;
   readonly definition?: ExecutableAgentDefinition;
 }> => {
+  const entry = 'kind' in request ? request.entry : request;
+  const readAndVerify = async (
+    file: WorkerManagedClosureFileRequest | WorkerModuleRevisionRequest,
+    expectedDigest: string,
+  ): Promise<Uint8Array> => {
+    let source: Uint8Array;
+    try {
+      source = await Deno.readFile(new URL(file.canonicalSpecifier));
+    } catch (error) {
+      throw new Error(
+        `module pre-read failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    const digest = await digestHex(source);
+    if (source.byteLength !== file.sourceBytes || digest !== expectedDigest) {
+      throw new Error('module pre-read identity did not match the Host revision');
+    }
+    return source;
+  };
+
   let source: Uint8Array;
   try {
-    source = await Deno.readFile(new URL(request.canonicalSpecifier));
+    if ('kind' in request) {
+      for (const file of request.files) await readAndVerify(file, file.sha256);
+      runtimeEvent(correlation, {
+        kind: 'module_closure_verified',
+        fileCount: request.files.length,
+      });
+    }
+    source = await readAndVerify(entry, entry.entrySha256);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `module pre-read failed: ${error instanceof Error ? error.message : String(error)}`,
+      message.startsWith('module pre-read') ? message : `module pre-read failed: ${message}`,
     );
   }
   const digest = await digestHex(source);
@@ -116,19 +146,19 @@ const loadVerifiedModule = async (
     entrySha256: digest,
   });
   if (
-    source.byteLength !== request.sourceBytes || digest !== request.entrySha256
+    source.byteLength !== entry.sourceBytes || digest !== entry.entrySha256
   ) {
     throw new Error('module pre-read identity did not match the Host revision');
   }
 
   runtimeEvent(correlation, {
     kind: 'module_import_start',
-    specifier: request.canonicalSpecifier,
+    specifier: entry.canonicalSpecifier,
   });
   let moduleNamespace: Record<string, unknown>;
   try {
     moduleNamespace = await import(
-      withDigestQuery(request.canonicalSpecifier, digest)
+      withDigestQuery(entry.canonicalSpecifier, digest)
     ) as Record<
       string,
       unknown
@@ -143,7 +173,7 @@ const loadVerifiedModule = async (
   }
   runtimeEvent(correlation, {
     kind: 'module_imported',
-    specifier: request.canonicalSpecifier,
+    specifier: entry.canonicalSpecifier,
   });
   return {
     entrySha256: digest,
@@ -372,7 +402,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         correlation: command.correlation,
         ...(command.module === undefined || module === undefined ? {} : {
           module: {
-            canonicalSpecifier: command.module.canonicalSpecifier,
+            canonicalSpecifier: 'kind' in command.module
+              ? command.module.entry.canonicalSpecifier
+              : command.module.canonicalSpecifier,
             entrySha256: module.entrySha256,
             sourceBytes: module.sourceBytes,
             defaultExport: 'function' as const,

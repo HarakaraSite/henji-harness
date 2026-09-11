@@ -7,7 +7,11 @@ import type {
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
-import type { WorkerHostCommand, WorkerToHostMessage } from './worker_protocol.ts';
+import type {
+  WorkerDefinitionLoadRequest,
+  WorkerHostCommand,
+  WorkerToHostMessage,
+} from './worker_protocol.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 
 export interface WorkerHostSessionOptions {
@@ -15,7 +19,8 @@ export interface WorkerHostSessionOptions {
   readonly workspaceRoot: string;
   readonly agent: SessionRecord['agent'];
   readonly definition: DefinitionRevisionRef;
-  readonly modulePath: string;
+  readonly modulePath?: string;
+  readonly loadDescriptor?: WorkerDefinitionLoadRequest;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;

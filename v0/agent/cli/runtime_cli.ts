@@ -1,4 +1,10 @@
-import { type BuiltinAgentSelection, resolveBuiltinAgent } from '../definitions/agent_catalog.ts';
+import {
+  DefinitionStartupError,
+  definitionStartupErrorValue,
+  type HostDefinitionSelection,
+  parseDefinitionRevisionSelector,
+  resolveRequestedDefinition,
+} from '../definitions/definition_selection.ts';
 import { type HeadlessWorkerRun, runHeadlessWorker } from '../worker/worker_headless_runner.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
@@ -18,7 +24,8 @@ export interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
-  readonly run?: (task: string, selection: BuiltinAgentSelection) => Promise<HeadlessWorkerRun>;
+  readonly run?: (task: string, selection: HostDefinitionSelection) => Promise<HeadlessWorkerRun>;
+  readonly dataRoot?: string;
   readonly writeStdout?: OutputWriter;
   readonly writeStderr?: OutputWriter;
 }
@@ -36,26 +43,46 @@ const normalizedTask = (text: string): string => {
 export interface ParsedRuntimeArgs {
   readonly taskArg: string | undefined;
   readonly rawAgentName: string | undefined;
+  readonly rawDefinitionRevision?: string;
 }
 
 /** Parse the exact application argv contract, returning undefined task for stdin. */
 export const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
   let task: string | undefined;
   let rawAgentName: string | undefined;
+  let rawDefinitionRevision: string | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument !== '--task' && argument !== '--agent') throw invalidInput();
+    if (
+      argument !== '--task' && argument !== '--agent' &&
+      argument !== '--definition-revision'
+    ) throw invalidInput();
     if (index + 1 >= args.length) throw invalidInput();
     if (argument === '--task') {
       if (task !== undefined) throw invalidInput();
       task = args[index + 1];
     } else {
-      if (rawAgentName !== undefined) throw invalidInput();
-      rawAgentName = args[index + 1];
+      if (argument === '--agent') {
+        if (rawAgentName !== undefined) throw invalidInput();
+        rawAgentName = args[index + 1];
+      } else {
+        if (rawDefinitionRevision !== undefined) throw invalidInput();
+        rawDefinitionRevision = args[index + 1];
+        try {
+          parseDefinitionRevisionSelector(rawDefinitionRevision);
+        } catch {
+          throw invalidInput();
+        }
+      }
     }
     index += 1;
   }
-  return { taskArg: task, rawAgentName };
+  if (rawAgentName !== undefined && rawDefinitionRevision !== undefined) throw invalidInput();
+  return {
+    taskArg: task,
+    rawAgentName,
+    ...(rawDefinitionRevision === undefined ? {} : { rawDefinitionRevision }),
+  };
 };
 
 /** Alias with a name that makes the combined parser intent explicit to internal callers. */
@@ -174,6 +201,18 @@ const preflightFailureLine = (): string =>
     { steps: 0, toolCallCount: 0, toolResultCount: 0, requestCount: 0 },
   );
 
+const definitionFailureLine = (error: DefinitionStartupError): string =>
+  JSON.stringify({
+    ok: false,
+    outcome: 'contract_failure',
+    stopReason: 'contract_failure',
+    steps: 0,
+    toolCallCount: 0,
+    toolResultCount: 0,
+    requestCount: 0,
+    error: definitionStartupErrorValue(error),
+  }) + '\n';
+
 /** Run the normal print-only command and return its process exit code. */
 export const main = async (
   args: readonly string[] = Deno.args,
@@ -184,10 +223,15 @@ export const main = async (
   try {
     const parsed = parseTaskArg(args);
     // Resolve before probing or reading stdin and before any runtime/workspace construction.
-    let selection: BuiltinAgentSelection;
+    let selection: HostDefinitionSelection;
     try {
-      selection = resolveBuiltinAgent(parsed.rawAgentName);
-    } catch {
+      selection = await resolveRequestedDefinition(
+        parsed.rawAgentName,
+        parsed.rawDefinitionRevision,
+        dependencies.dataRoot,
+      );
+    } catch (error) {
+      if (error instanceof DefinitionStartupError) throw error;
       throw invalidInput();
     }
     const argvTask = parsed.taskArg;
@@ -227,6 +271,10 @@ export const main = async (
     await stderr(runtimeFailureLine(run));
     return 1;
   } catch (error) {
+    if (error instanceof DefinitionStartupError) {
+      await stderr(definitionFailureLine(error));
+      return 1;
+    }
     if (error instanceof AgentInputError) {
       await stderr(preflightFailureLine());
       return 1;

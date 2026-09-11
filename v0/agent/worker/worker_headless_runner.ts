@@ -1,4 +1,5 @@
 import type { LoopOutcome } from '../core/contracts.ts';
+import type { HostDefinitionSelection } from '../definitions/definition_selection.ts';
 import type { BuiltinAgentSelection } from '../definitions/agent_catalog.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
@@ -25,14 +26,14 @@ export interface HeadlessWorkerRunOptions {
 /** Run one nonpersistent turn through the same Host/Worker path as the terminal Surface. */
 export const runHeadlessWorker = async (
   task: string,
-  selection: BuiltinAgentSelection,
+  selection: HostDefinitionSelection | BuiltinAgentSelection,
   options: HeadlessWorkerRunOptions = {},
 ): Promise<HeadlessWorkerRun> => {
   const created = await createWorkerSession({
     workspaceRoot: options.workspaceRoot,
     stateRoot: options.stateRoot,
     persistence: 'none',
-    agent: selection.id,
+    ...('kind' in selection ? { selection } : { agent: selection.id }),
     physicalIoMode: options.physicalIoMode ?? 'production',
     rootMaxSteps: options.rootMaxSteps,
     diagnosticPersistence: options.diagnosticPersistence,

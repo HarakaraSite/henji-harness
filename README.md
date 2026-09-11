@@ -45,8 +45,43 @@ printf '依頼内容\n' | ./dist/henji run
 ./dist/henji sessions list
 ```
 
+### Managed Agent Definition lifecycle
+
+任意pathにあるstatic local TypeScript Agent Definitionは、実行前にHenjiのmanaged dataへinstallする。installは
+sourceを実行せず、entryとrelative `.ts` dependencyのclosure、declared role、現在の`@henji/agent` API contractを
+一つのimmutable revisionとして保存する。既定のmodule rootはentryの親directoryで、より上位のrootが必要な場合は
+`--root`を指定する。
+
+```sh
+./dist/henji module install ./agent/entry.ts --id team/answer-agent
+./dist/henji module install ./planner/entry.ts --id team/planner --role planner
+./dist/henji module list
+./dist/henji module inspect --id team/answer-agent --revision sha256:<full-digest>
+```
+
+`install`のJSON結果にある`manifest.logicalRef`が実行identityである。activationはinstallとは別で、module IDとfull
+64桁digestを明示して新しいTUI Sessionまたは非対話turnを開始する。`--agent default|planner`はbuilt-in専用で、
+`--definition-revision`とは同時指定しない。
+
+```sh
+./dist/henji --definition-revision team/answer-agent@sha256:<full-digest>
+./dist/henji run --task '依頼内容' \
+  --definition-revision team/answer-agent@sha256:<full-digest>
+```
+
+closure内で使えるmodule edgeはrelative `.ts`のstatic import/exportと、binaryが提供するexact
+`@henji/agent`だけである。dynamic import、remote URL、JSR、npm、absolute import、その他のbare specifierは
+このmanaged lifecycleでは扱わない。install後の実行はmanaged copyだけを使うため、元sourceを変更・削除しても
+保存済みexact revisionは変わらない。編集したsourceの再installは同じmodule IDに別revisionを追加し、既存revisionを
+置換しない。
+
+identity manifestとclosureは`${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`に保持する。`module inspect`が示す
+origin lineage、local custody、physical store pathは診断情報であり、logical refやrevision digestには含まれない。
+Sessionは選択したexact refへbindされ、欠損・破損・API非互換・role不一致・Definition評価失敗時にbuilt-inや別revisionへ
+fallbackしない。
+
 runtime配置は`diagnostics runtime`からcredential値を含めず確認できる。configは
-`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、将来のmanaged dataは
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataは
 `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Sessionと診断stateは
 `${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`がauthorityである。Increment 32以前のstateは移行・削除
 せず、新binaryからは読み込まない。workspace `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換

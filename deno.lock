@@ -1,16 +1,28 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@openai/openai@7.2.0": "7.2.0"
+    "jsr:@deno/graph@0.111.0": "0.111.0",
+    "jsr:@openai/openai@7.2.0": "7.2.0",
+    "npm:es-module-lexer@3.0.2": "3.0.2"
   },
   "jsr": {
+    "@deno/graph@0.111.0": {
+      "integrity": "ffb61e93ab838d1b8f66798b99a1eb75ef96915e5aa53f9c5118e4d8cdefd776"
+    },
     "@openai/openai@7.2.0": {
       "integrity": "73ffde8f4c85d6650fdffcd98308c26bec28d8ca6e883ccf511ff728e6266414"
     }
   },
+  "npm": {
+    "es-module-lexer@3.0.2": {
+      "integrity": "sha512-BuIB67FngDSyQ/dpQNOZybwdEBDUGJQvOqwWr4ha/ufYiqzuEwPkKO2zLhRAgay28tStRIHUeWmszZAJo3GCOg=="
+    }
+  },
   "workspace": {
     "dependencies": [
-      "jsr:@openai/openai@7.2.0"
+      "jsr:@deno/graph@0.111.0",
+      "jsr:@openai/openai@7.2.0",
+      "npm:es-module-lexer@3.0.2"
     ]
   }
 }
