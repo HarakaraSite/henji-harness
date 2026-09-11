@@ -9,6 +9,7 @@
       "LICENSE",
       "README.md",
       "mod.ts",
+      "v0/resource_limits.ts",
       "v0/agent/definitions/agent_definition.ts",
       "v0/agent/definitions/agent_identity.ts",
       "v0/agent/definitions/agent_instructions.ts",
