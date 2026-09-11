@@ -230,13 +230,14 @@ export class ControllerOverlay {
     if (modal.kind === 'history-query') {
       if (event.kind === 'escape') {
         this.historyGeneration += 1;
+        renderer.clearHistorySearchQuery?.();
         if (modal.previous === undefined) {
           this.modal = null;
-          renderer.clearModal?.();
           renderer.setStatus(this.options.readyStatus());
         } else {
           this.modal = { kind: 'history-view', result: modal.previous };
           renderer.renderHistoryPage(modal.previous.page, modal.previous.match);
+          this.setHistoryStatus(modal.previous);
         }
         return;
       }
@@ -454,16 +455,13 @@ export class ControllerOverlay {
   private renderHistoryQuery(): void {
     const modal = this.modal;
     if (modal?.kind !== 'history-query') return;
-    this.options.renderer.renderChoicePicker?.([
-      'history search · literal, case-insensitive · Enter oldest match · Esc cancel',
-      `search> ${modal.query}`,
-      ...(modal.noMatches ? ['no matches'] : []),
-    ]);
+    this.options.renderer.setHistorySearchQuery?.(modal.query, modal.noMatches === true);
   }
 
   private closeHistoryView(): void {
     this.historyGeneration += 1;
     this.modal = null;
+    this.options.renderer.clearHistorySearchQuery?.();
     this.options.renderer.clearModal?.();
     this.options.renderer.latest();
     this.options.renderer.setStatus(this.options.readyStatus());
@@ -494,12 +492,9 @@ export class ControllerOverlay {
         return;
       }
       this.modal = { kind: 'history-view', result: value.result };
+      this.options.renderer.clearHistorySearchQuery?.();
       this.options.renderer.renderHistoryPage(value.result.page, value.result.match);
-      this.options.renderer.setStatus(
-        `history "${value.result.match.query}" · match ${
-          value.result.match.ordinal + 1
-        }/${value.result.match.total}`,
-      );
+      this.setHistoryStatus(value.result);
     }).catch((error: unknown) => {
       if (generation !== this.historyGeneration) return;
       if (isPresentationDeliveryError(error)) {
@@ -509,6 +504,12 @@ export class ControllerOverlay {
       if (this.historyOperation === operation) this.historyOperation = null;
     });
     this.historyOperation = operation;
+  }
+
+  private setHistoryStatus(result: PresentationHistorySearchResult): void {
+    this.options.renderer.setStatus(
+      `history "${result.match.query}" · match ${result.match.ordinal + 1}/${result.match.total}`,
+    );
   }
 
   private moveHistoryPage(direction: 'older' | 'newer'): void {

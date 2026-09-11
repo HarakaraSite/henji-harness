@@ -92,6 +92,10 @@ export interface UiState {
   readonly activeAssistantId?: string;
   readonly activeToolIds: readonly string[];
   readonly editor: EditorSnapshot;
+  readonly historySearchQuery?: Readonly<{
+    readonly text: string;
+    readonly noMatches: boolean;
+  }>;
   readonly pending?: PendingMetadataSnapshot;
   readonly scroll: UiScroll;
   readonly newBelowCount: number;
@@ -107,6 +111,11 @@ export interface UiState {
 
 export type UiAction =
   | Readonly<{ readonly kind: 'editor'; readonly snapshot: EditorSnapshot }>
+  | Readonly<{
+    readonly kind: 'history_search_query';
+    readonly text?: string;
+    readonly noMatches?: boolean;
+  }>
   | Readonly<{ readonly kind: 'clear_live' }>
   | Readonly<
     {
@@ -296,18 +305,25 @@ const replaceEntry = (
   text: string,
   live: boolean,
   label?: string,
+  relocateToEnd = false,
 ): UiState => {
   const index = state.log.entries.findIndex((entry) => entry.id === id);
   if (index < 0) return state;
   const entries = [...state.log.entries];
   const prior = entries[index];
-  entries[index] = freezeEntry({
+  const replacement = freezeEntry({
     ...prior,
     text,
     live,
     ...(label === undefined ? {} : { label }),
     revision: prior.revision + 1,
   });
+  if (relocateToEnd && index < entries.length - 1) {
+    entries.splice(index, 1);
+    entries.push(replacement);
+  } else {
+    entries[index] = replacement;
+  }
   let omittedCount = state.log.omittedCount;
   let total = entries.reduce((sum, item) => sum + bytes(item.text), 0);
   const protectedEntry = (item: UiLogEntry): boolean =>
@@ -406,9 +422,21 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         : event.message.text;
       if (assistantText === undefined) return state;
       const id = `turn-${event.turn}:assistant`;
-      const existing = state.log.entries.some((entry) => entry.id === id);
-      const next = existing
-        ? replaceEntry(state, id, assistantText, false, 'assistant>')
+      const existingIndex = state.log.entries.findIndex((entry) => entry.id === id);
+      const relocateFinalAfterTools = !Array.isArray(event.message.content) &&
+        existingIndex >= 0 &&
+        state.log.entries.slice(existingIndex + 1).some((entry) =>
+          entry.turn === event.turn && entry.kind === 'tool'
+        );
+      const next = existingIndex >= 0
+        ? replaceEntry(
+          state,
+          id,
+          assistantText,
+          false,
+          'assistant>',
+          relocateFinalAfterTools,
+        )
         : appendEntry(state, {
           id,
           kind: 'assistant',
@@ -768,6 +796,14 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       return Object.freeze({
         ...state,
         editor: Object.freeze({ ...action.snapshot }),
+      });
+    case 'history_search_query':
+      return Object.freeze({
+        ...state,
+        historySearchQuery: action.text === undefined ? undefined : Object.freeze({
+          text: safeText(action.text),
+          noMatches: action.noMatches === true,
+        }),
       });
     case 'clear_live':
       return removeLiveEntries(state);

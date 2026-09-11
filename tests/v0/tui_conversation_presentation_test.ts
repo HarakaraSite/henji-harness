@@ -267,6 +267,57 @@ Deno.test('conversation presentation settles assistant progress to the same assi
   assertEquals(state.log.entries[0].live, false);
 });
 
+Deno.test('conversation presentation keeps the final answer after tools that followed early progress', () => {
+  let state = reduceUiEvent(createUiState(), {
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'inspect' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'I will inspect this.',
+  });
+  for (let ordinal = 1; ordinal <= 22; ordinal += 1) {
+    const callId = `bash-${ordinal}`;
+    state = reduceUiEvent(state, {
+      kind: 'tool_call',
+      turn: 1,
+      call: {
+        kind: 'tool_call',
+        callId,
+        name: 'bash',
+        arguments: { command: `command ${ordinal}` },
+      },
+    });
+    state = reduceUiEvent(state, {
+      kind: 'tool_result',
+      turn: 1,
+      result: {
+        kind: 'tool_result',
+        callId,
+        name: 'bash',
+        text: `result ${ordinal}`,
+        outcome: 'success',
+      },
+    });
+  }
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: 'final answer' },
+    },
+  });
+
+  assertEquals(state.log.entries.at(-1)?.label, 'assistant>');
+  assertEquals(state.log.entries.at(-1)?.text, 'final answer');
+  const layout = layoutUi(state, 80, 24);
+  assert(layout.log.some((row) => row.text.includes('final answer')));
+  assertEquals(layout.allLog.at(-1)?.text, 'assistant> final answer');
+});
+
 Deno.test('conversation presentation retains assistant text accompanying a tool call', () => {
   let state = reduceUiEvent(createUiState(), {
     kind: 'assistant_progress',

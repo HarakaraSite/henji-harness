@@ -24,6 +24,8 @@ export interface LayoutRow {
   readonly labelTone?: ConversationLabelTone;
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
+  readonly highlightScalarStart?: number;
+  readonly highlightScalarLength?: number;
   readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
 }
 
@@ -214,21 +216,32 @@ const footerStatusText = (
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
-  const commandItem = commandSegment === undefined
+  const commandItem = commandSegment === undefined || state.historySearchQuery !== undefined
     ? []
     : [{ kind: 'commands', text: safeDisplay(commandSegment, false) }];
   const cancelSegment = state.lifecycle === 'busy' ? 'Esc cancel' : undefined;
-  const historyFull = history === undefined
+  const overlayHistory = state.overlay.kind === 'history' ? state.overlay.page : undefined;
+  const historyFull = history !== undefined
+    ? `history rows ${history.first}-${history.last}/${history.total} · Esc latest`
+    : overlayHistory === undefined
     ? undefined
-    : `history rows ${history.first}-${history.last}/${history.total} · Esc latest`;
+    : `history turn ${overlayHistory.turn}/${overlayHistory.totalTurns} · page ${
+      overlayHistory.page + 1
+    }/${overlayHistory.pageCount} · Esc latest`;
   const historyRequired = historyFull === undefined
     ? undefined
     : width(`[${historyFull}]`) <= columns
     ? historyFull
     : 'history · Esc latest';
-  const fixed: string[] = historyRequired === undefined ? [displayedPrimary] : [historyRequired];
+  const fixed: string[] = state.historySearchQuery !== undefined
+    ? ['search', ...(historyRequired === undefined ? ['Esc latest'] : [historyRequired])]
+    : historyRequired === undefined
+    ? [displayedPrimary]
+    : [historyRequired];
   const optional = [
-    ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: displayedPrimary }]),
+    ...(historyRequired === undefined && state.historySearchQuery === undefined
+      ? []
+      : [{ kind: 'primary', text: displayedPrimary }]),
     ...(state.lifecycle === 'busy' ? [] : commandItem),
     ...(status.credential === undefined
       ? []
@@ -503,7 +516,9 @@ const overlayRows = (
         const prefix = `${entry.role} [t${entry.turn}] `;
         const prefixScalars = [...prefix].length;
         const entryId = `history:${entry.turn}:${entry.messageIndex}:${entry.role}:${entryIndex}`;
-        const wrapped = wrap(`${prefix}${entry.text}`, columns, 'log', entryId, {
+        const combinedText = `${prefix}${entry.text}`;
+        const combinedPoints = [...combinedText];
+        const wrapped = wrap(combinedText, columns, 'log', entryId, {
           scalarLength: prefixScalars,
           tone: entry.role === 'user' || entry.role === 'steer'
             ? 'user'
@@ -514,14 +529,46 @@ const overlayRows = (
         const sourceLength = [...entry.text].length;
         for (let rowIndex = 0; rowIndex < wrapped.length; rowIndex += 1) {
           const row = wrapped[rowIndex];
-          const localStart = Math.max(0, (row.sourceScalarOffset ?? 0) - prefixScalars);
+          const wrappedStart = row.sourceScalarOffset ?? 0;
+          const localStart = Math.max(0, wrappedStart - prefixScalars);
           const nextStart = rowIndex + 1 < wrapped.length
             ? Math.max(0, (wrapped[rowIndex + 1].sourceScalarOffset ?? 0) - prefixScalars)
             : sourceLength;
+          const sourceStart = (entry.sourceScalarStart ?? 0) + localStart;
+          const sourceEnd = (entry.sourceScalarStart ?? 0) + nextStart;
+          const selected = match !== undefined && entryIndex === match.pageEntry &&
+            entry.turn === match.turn && entry.messageIndex === match.messageIndex &&
+            entry.role === match.role;
+          const highlightStart = selected
+            ? Math.max(sourceStart, match.sourceScalarStart)
+            : sourceEnd;
+          const highlightEnd = selected
+            ? Math.min(sourceEnd, match.sourceScalarStart + match.sourceScalarLength)
+            : sourceEnd;
           historyRows.push({
             ...row,
-            sourceScalarOffset: (entry.sourceScalarStart ?? 0) + localStart,
+            sourceScalarOffset: sourceStart,
             sourceScalarLength: Math.max(0, nextStart - localStart),
+            ...(highlightEnd <= highlightStart ? {} : {
+              highlightScalarStart: [
+                ...safeDisplay(
+                  combinedPoints.slice(
+                    wrappedStart,
+                    prefixScalars + highlightStart - (entry.sourceScalarStart ?? 0),
+                  ).join(''),
+                  false,
+                ),
+              ].length,
+              highlightScalarLength: [
+                ...safeDisplay(
+                  combinedPoints.slice(
+                    prefixScalars + highlightStart - (entry.sourceScalarStart ?? 0),
+                    prefixScalars + highlightEnd - (entry.sourceScalarStart ?? 0),
+                  ).join(''),
+                  false,
+                ),
+              ].length,
+            }),
           });
         }
       }
@@ -633,7 +680,12 @@ export const layoutUi = (
     : 1;
   // Reserve one cell after the prompt for the cursor. Without this cell, a full-width final
   // character leaves the hardware cursor on that character rather than at the insertion point.
-  const editor = inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
+  const activeEditor = state.historySearchQuery === undefined ? state.editor : Object.freeze({
+    text: state.historySearchQuery.text,
+    cursorScalar: [...state.historySearchQuery.text].length,
+    byteLength: encoder.encode(state.historySearchQuery.text).byteLength,
+  });
+  const editor = inputRows(activeEditor, Math.max(1, widthLimit - 3), maxInput);
   const logHeight = Math.max(
     0,
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -

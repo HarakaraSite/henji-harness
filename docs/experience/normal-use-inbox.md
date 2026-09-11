@@ -211,6 +211,9 @@ SQLite backendを持つagent harnessの比較調査（2026-09-11）:
 
 未採用候補:
 
+- model向けtool callを、検索候補を得る`search`と、指定URLの本文を取得する`fetch`へ分けて実装すべきか
+  検討する。現行`web_search`との置換・併存、search結果からfetchへ渡すidentity、取得内容とcitation・provider
+  evidenceの対応、追加stepを使う代わりに調査経路を明示できる利点を、実際の調査taskで比較する。
 - OpenAI Responses APIのbuilt-in Web searchを、現行OpenRouter Sonarと同居可能な将来backend候補として保持する。
   初期候補は、modelに`websearch1`、`websearch2`という実装名を直接選ばせるより、一つの意味上の`web_search`
   toolに対してAgent Definitionまたはtool componentがbackendを選ぶ構成とする。二つを同時にmodelへ公開する必要が

@@ -18,6 +18,7 @@ import {
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
   RESET_SGR,
+  REVERSE_SGR,
   TerminalLifecycle,
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
@@ -582,6 +583,10 @@ Deno.test('history layout retains canonical source ranges across wrapping', () =
     (row.sourceScalarOffset ?? 0) <= 107 &&
     (row.sourceScalarOffset ?? 0) + (row.sourceScalarLength ?? 0) > 107
   ));
+  const highlighted = sourceRows.filter((row) => (row.highlightScalarLength ?? 0) > 0);
+  assertEquals(highlighted.length, 1);
+  assertEquals(highlighted[0].highlightScalarStart, 7);
+  assertEquals(highlighted[0].highlightScalarLength, 3);
 });
 
 Deno.test('retained PageUp at the oldest boundary anchors the first conversation entry', () => {
@@ -724,8 +729,8 @@ Deno.test('anchored slash searches canonical history while preserving the editor
     totalTurns: 1,
     page: 0,
     pageCount: 1,
-    entries: [{ turn: 1, role: 'user' as const, messageIndex: 0, text: 'alpha' }],
-    sourceBytes: 5,
+    entries: [{ turn: 1, role: 'user' as const, messageIndex: 0, text: 'alpha and alpha' }],
+    sourceBytes: 15,
     omitted: false,
   };
   const controller = new TuiController(
@@ -742,7 +747,7 @@ Deno.test('anchored slash searches canonical history while preserving the editor
           turn: 1,
           role: 'user',
           messageIndex: 0,
-          sourceScalarStart: 0,
+          sourceScalarStart: match === 0 ? 0 : 10,
           sourceScalarLength: 5,
           pageEntry: 0,
         },
@@ -751,17 +756,30 @@ Deno.test('anchored slash searches canonical history while preserving the editor
     { pending: new PendingInputCore() },
   );
   const run = controller.run();
-  terminal.push('keep this draft/alpha\r');
+  terminal.push('keep this draft/alpha');
+  await waitFor(() => renderer.stateSnapshot().historySearchQuery?.text === 'alpha');
+  assertEquals(renderer.stateSnapshot().overlay.kind, 'none');
+  assertEquals(controller.editor.text, 'keep this draft');
+  assert(renderer.renderFrame(80, 10).includes('>/alpha'));
+  const searchFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
+  assert(searchFooter.includes('search'));
+  assert(searchFooter.includes('history rows'));
+  assert(searchFooter.includes('Esc latest'));
+  terminal.push('\r');
   await waitFor(() => renderer.stateSnapshot().overlay.kind === 'history');
   const overlay = renderer.stateSnapshot().overlay;
   assert(overlay.kind === 'history');
   assertEquals(overlay.match?.ordinal, 0);
   assertEquals(controller.editor.text, 'keep this draft');
+  assert(renderer.renderFrame(80, 10).includes(`${REVERSE_SGR}alpha${RESET_SGR}`));
   terminal.push('n');
   await waitFor(() => {
     const current = renderer.stateSnapshot().overlay;
     return current.kind === 'history' && current.match?.ordinal === 1;
   });
+  const newerFrame = renderer.renderFrame(80, 10);
+  assert(newerFrame.includes(`alpha and ${REVERSE_SGR}alpha${RESET_SGR}`));
+  assertEquals(newerFrame.split(REVERSE_SGR).length - 1, 1);
   terminal.push('\x1b');
   await waitFor(() => renderer.stateSnapshot().overlay.kind === 'none');
   assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');

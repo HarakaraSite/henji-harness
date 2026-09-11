@@ -26,11 +26,12 @@
 - idle時のPageUpは現在と同様に最新付近から一page古い表示へ即座に移動し、履歴閲覧状態に入る。Session
   先頭へ自動移動しない。PageUp / PageDownとEscの現動作を維持する。
 - 履歴閲覧中の`/`はtask editorへ入力せず、keyword入力を開始する。keyword入力中はprintable text、paste、
-  Backspaceを編集に使い、Enterで確定し、Escで検索入力だけを取り消す。
+  Backspaceを編集に使い、Enterで確定し、Escで検索入力だけを取り消す。入力中も履歴表示を維持し、通常の
+  task draftとは別の入力欄として`>/keyword`を表示する。
 - 最初の検索は現在の表示位置に関係なく、commit済みcanonical transcriptの先頭から、表示対象となるuser、
   assistant、tool call / result textをliteralかつcase-insensitiveに検索する。正規表現は使わない。
 - Enterは最も古い一致へjumpする。検索確定後の`n`は次の新しい一致、`N`は一つ古い一致へjumpし、端では
-  wrapせず停止する。match ordinal / totalとkeywordをfooterへ表示する。
+  wrapせず停止する。match ordinal / totalとkeywordをfooterへ表示し、選択中の一致だけをhighlightする。
 - 一致箇所が通常retained logより古い場合も、Hostはそのexact messageを含むbounded history windowを返し、
   conversation領域はそのwindowを同じ表示規則で描画する。検索表示からPageUp / PageDownで前後のbounded
   windowへ移動できる。
@@ -68,7 +69,7 @@
 
 - Markdown renderer、Markdown parser、code block / table / hyperlinkのterminal表示
 - `j` / `k`、`h` / `l`、`Ctrl-U` / `Ctrl-D`、`g` / `G`によるvi風の一般移動
-- mouse wheel、横scroll、検索結果のhighlight、正規表現
+- mouse wheel、横scroll、同じwindow内の非選択matchのhighlight、正規表現
 - 複数Sessionを横断する検索、provider context、未commitのstreaming output
 - `$VISUAL` / `$EDITOR`で履歴を開く操作、`/history export`の変更
 - architecture、roadmap、canonical Session schemaの変更
@@ -90,7 +91,10 @@
   rangeを保持する。検索結果はSession binding identityが変わった場合に適用しない。
 - focused testで101 turnの先頭にだけあるmatch、日本語とASCII、複数match、`n` / `N`、draft保持、wrap後の
   source range、古いSession bindingの結果破棄を確認した。
-- authoritative `v0:gate`を一回実行し、format、type check、lint、全testが成功した。主要test群75件、provider
+- 通常利用前の追補として、検索語入力を履歴を隠すmodalから`>/keyword`形式の専用入力laneへ変更した。footer
+  はsearch状態とhistory位置を表示し、canonical source rangeから選択中の一致だけをreverse-videoでhighlight
+  する。`n` / `N`で選択matchが変わるとhighlightも追従する。追補後のauthoritative `v0:gate`も成功した。
+- 初回実装のauthoritative `v0:gate`でformat、type check、lint、全testが成功した。主要test群75件、provider
   stream compatibility 20件、および各increment / production CLI testがすべて成功した。
 
 ## 通常利用で確認する操作
