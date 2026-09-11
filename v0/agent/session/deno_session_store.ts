@@ -26,10 +26,7 @@ import {
   decodeStoredSessionRecord,
   encodeSemanticContextCheckpoint,
   encodeSessionRecord,
-  encodeSessionRecordV2,
-  encodeSessionRecordV3,
-  encodeSessionRecordV4,
-  encodeSessionRecordV5,
+  encodeSessionRecordV6,
   metadataFromRecord,
   metadataFromStoredRecord,
   validRevisionRef,
@@ -436,6 +433,19 @@ export class DenoSessionStore implements SessionStorePort, WorkerSessionStorePor
           await this.read(id);
           valid.add(id);
         } catch (error) {
+          if (error instanceof SessionStoreError && error.code === 'session_invalid') {
+            try {
+              await this.readWorker(id);
+              valid.add(id);
+              continue;
+            } catch (workerError) {
+              if (
+                !(workerError instanceof SessionStoreError) ||
+                (workerError.code !== 'session_invalid' &&
+                  workerError.code !== 'session_not_found')
+              ) throw workerError;
+            }
+          }
           if (
             !(error instanceof SessionStoreError) ||
             (error.code !== 'session_invalid' &&
@@ -613,15 +623,7 @@ export class DenoSessionStore implements SessionStorePort, WorkerSessionStorePor
           next.sessionId !== id || next.workspaceRoot !== this.workspaceRoot ||
           next.agent !== expectedAgent
         ) throw new SessionStoreError('session_invalid');
-        const bytes = next.schemaVersion === 1
-          ? encodeSessionRecord(next)
-          : next.schemaVersion === 2
-          ? encodeSessionRecordV2(next)
-          : next.schemaVersion === 3
-          ? encodeSessionRecordV3(next)
-          : next.schemaVersion === 4
-          ? encodeSessionRecordV4(next)
-          : encodeSessionRecordV5(next);
+        const bytes = encodeSessionRecordV6(next);
         const paths = this.paths!;
         const temporary = `${paths.sessions}/${id}/.tmp-${this.makeUuid().toLowerCase()}`;
         try {

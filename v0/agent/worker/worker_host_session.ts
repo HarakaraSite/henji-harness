@@ -11,13 +11,14 @@ import {
   type SemanticContextCheckpointV1,
   type SessionModelChange,
   type SessionRecord,
-  type SessionRecordV5,
+  type SessionRecordV6,
+  type SessionTurnExecutionAttribution,
   type SessionTurnModelAttribution,
   validateSemanticContextCheckpoint,
-  validateSessionRecordV5,
+  validateSessionRecordV6,
 } from '../session/session_store.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceV1, ProviderEvidenceV2 } from '../provider/provider_evidence.ts';
 import { readWorkerModuleRevision, WorkerCapsule } from './worker_capsule.ts';
 import type {
   WorkerCheckpointProposalMessage,
@@ -38,11 +39,10 @@ import {
   modelRouteProfileId,
   type ModelSelection,
   sameModelSelection,
-  upgradeOpenRouterSelection,
 } from '../provider/model_selection.ts';
 import {
   type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV1,
+  type WorkerExecutionArtifactV2,
   workerExecutionOutcome,
   type WorkerExecutionSettlement,
   type WorkerExecutionStoreResult,
@@ -63,6 +63,7 @@ import {
   turnEndFromOutcome,
 } from './worker_host_outcome.ts';
 import { HostMessageQueue } from './worker_host_queue.ts';
+import { buildManifest } from '../runtime/build_manifest.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
@@ -72,6 +73,17 @@ const validCredentialAvailability = (
 ): value is CredentialAvailability =>
   value !== undefined && value.authProfile === selection.authProfile &&
   (value.status === 'present' || value.status === 'missing' || value.status === 'unknown');
+const validStartupSnapshot = (
+  value: WorkerReadyMessage['startupSnapshot'],
+): value is NonNullable<WorkerReadyMessage['startupSnapshot']> => {
+  if (value === undefined || !Array.isArray(value.skillNames)) return false;
+  if (
+    value.instructionSource !== undefined && value.instructionSource !== 'AGENTS.md' &&
+    value.instructionSource !== 'AGENTS.MD'
+  ) return false;
+  return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
+    new Set(value.skillNames).size === value.skillNames.length;
+};
 type ActiveWorkerExecution = {
   readonly executionId: string;
   readonly createdAt: string;
@@ -98,6 +110,7 @@ export class WorkerHostSession {
   private traceSequence = 0;
   private currentCorrelation: WorkerCorrelation | undefined;
   private currentManifest: WorkerReadyMessage['manifest'];
+  private currentStartupSnapshot: WorkerReadyMessage['startupSnapshot'];
   private transcript: Message[];
   private nextTurn: number;
   private stateRevision: number;
@@ -114,6 +127,8 @@ export class WorkerHostSession {
   private modelSelection: ModelSelection;
   private modelChanges: SessionModelChange[];
   private turnModels: SessionTurnModelAttribution[];
+  private turnExecutions: SessionTurnExecutionAttribution[];
+  private readonly build = buildManifest();
   private readonly createdAt: string;
   private title: string | null;
   private legacyModelNotice = false;
@@ -127,8 +142,7 @@ export class WorkerHostSession {
       record !== undefined &&
       (record.workspaceRoot !== options.workspaceRoot ||
         record.agent !== options.agent ||
-        record.schemaVersion !== 1 &&
-          !sameRef(record.definition, options.definition))
+        !sameRef(record.definition, options.definition))
     ) {
       throw new Error(
         'session Definition revision does not match the selected binding',
@@ -136,41 +150,30 @@ export class WorkerHostSession {
     }
     this.transcript = record === undefined ? [] : structuredClone(record.transcript) as Message[];
     this.nextTurn = record?.nextTurn ?? 1;
-    this.stateRevision = record !== undefined && record.schemaVersion !== 1
-      ? record.stateRevision
-      : 1;
+    this.stateRevision = record?.stateRevision ?? 1;
     const defaultSelection = options.initialModelSelection ??
       (options.agent === 'planner'
         ? PLANNER_DEFAULT_MODEL_SELECTION
         : ROOT_DEFAULT_MODEL_SELECTION);
-    this.modelSelection = record?.schemaVersion === 4 || record?.schemaVersion === 5
-      ? structuredClone(record.activeModel)
-      : record?.schemaVersion === 3
-      ? upgradeOpenRouterSelection(record.activeModel)
-      : structuredClone(defaultSelection);
-    this.modelChanges = record?.schemaVersion === 4 || record?.schemaVersion === 5
-      ? structuredClone(record.modelChanges) as SessionModelChange[]
-      : record?.schemaVersion === 3
-      ? record.modelChanges.map((change) => ({
-        ...change,
-        selection: upgradeOpenRouterSelection(change.selection),
-      }))
-      : [{
+    this.modelSelection = record === undefined
+      ? structuredClone(defaultSelection)
+      : structuredClone(record.activeModel);
+    this.modelChanges = record === undefined
+      ? [{
         effectiveFromTurn: this.nextTurn,
         changedAt: new Date().toISOString(),
         selection: structuredClone(this.modelSelection),
-      }];
-    this.turnModels = record?.schemaVersion === 4 || record?.schemaVersion === 5
-      ? structuredClone(record.turnModels) as SessionTurnModelAttribution[]
-      : record?.schemaVersion === 3
-      ? record.turnModels.map((attribution) => ({
-        ...attribution,
-        selection: upgradeOpenRouterSelection(attribution.selection),
-      }))
-      : [];
+      }]
+      : structuredClone(record.modelChanges) as SessionModelChange[];
+    this.turnModels = record === undefined
+      ? []
+      : structuredClone(record.turnModels) as SessionTurnModelAttribution[];
+    this.turnExecutions = record === undefined
+      ? []
+      : structuredClone(record.turnExecutions) as SessionTurnExecutionAttribution[];
     this.createdAt = record?.createdAt ?? new Date().toISOString();
-    this.title = record?.schemaVersion === 5 ? record.title : null;
-    this.legacyModelNotice = record !== undefined && record.schemaVersion < 4;
+    this.title = record?.title ?? null;
+    this.legacyModelNotice = false;
     this.checkpoint = options.handle.checkpoint === undefined
       ? undefined
       : structuredClone(options.handle.checkpoint);
@@ -200,6 +203,13 @@ export class WorkerHostSession {
 
   modelSelectionSnapshot(): ModelSelection {
     return structuredClone(this.modelSelection);
+  }
+
+  startupSnapshot(): NonNullable<WorkerReadyMessage['startupSnapshot']> {
+    if (this.currentStartupSnapshot === undefined) {
+      throw new Error('Worker startup snapshot is unavailable');
+    }
+    return structuredClone(this.currentStartupSnapshot);
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
@@ -331,7 +341,14 @@ export class WorkerHostSession {
         evidenceDurability = 'unknown';
       } else {
         try {
-          await this.options.providerEvidenceStore.write(providerEvidence);
+          const attributed: ProviderEvidenceV2 = {
+            ...structuredClone(providerEvidence),
+            schemaVersion: 2,
+            sessionId: this.sessionId,
+            build: structuredClone(this.build),
+            definition: structuredClone(this.options.definition),
+          };
+          await this.options.providerEvidenceStore.write(attributed);
           if (diagnostic?.diagnosticId !== undefined) {
             await this.options.providerEvidenceStore.linkDiagnostic(
               diagnostic.diagnosticId,
@@ -397,8 +414,8 @@ export class WorkerHostSession {
     execution.artifactWritten = true;
     const store = this.options.executionArtifactStore;
     if (store === undefined || this.currentManifest === undefined) return outcome;
-    const artifact: WorkerExecutionArtifactV1 = {
-      schemaVersion: 1,
+    const artifact: WorkerExecutionArtifactV2 = {
+      schemaVersion: 2,
       executionId: execution.executionId,
       createdAt: execution.createdAt,
       settledAt: new Date().toISOString(),
@@ -407,6 +424,7 @@ export class WorkerHostSession {
       agent: this.options.agent,
       instanceCorrelation: this.instanceCorrelation,
       workerGeneration: this.workerGeneration,
+      build: structuredClone(this.build),
       definition: structuredClone(this.options.definition),
       manifest: structuredClone(this.currentManifest),
       command: structuredClone(execution.command),
@@ -494,12 +512,6 @@ export class WorkerHostSession {
         (message.correlation === undefined ||
           sameCorrelation(message.correlation, correlation))), 5_000);
     const revision = await readWorkerModuleRevision(this.options.modulePath);
-    if (
-      revision.canonicalSpecifier !==
-        this.options.definition.canonicalSpecifier ||
-      revision.entrySha256 !== this.options.definition.entrySha256 ||
-      revision.sourceBytes !== this.options.definition.sourceBytes
-    ) throw new Error('Definition revision changed before Worker startup');
     this.currentCorrelation = correlation;
     try {
       this.send({
@@ -535,11 +547,13 @@ export class WorkerHostSession {
         ready.manifest.profileId !== modelRouteProfileId(this.modelSelection) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
+        !validStartupSnapshot(ready.startupSnapshot) ||
         !validCredentialAvailability(ready.credentialAvailability, this.modelSelection)
       ) {
         throw new Error('Worker manifest did not match Host selection');
       }
       this.currentManifest = ready.manifest;
+      this.currentStartupSnapshot = ready.startupSnapshot;
       this.credentialAvailability = structuredClone(ready.credentialAvailability);
     } finally {
       this.currentCorrelation = undefined;
@@ -603,9 +617,10 @@ export class WorkerHostSession {
 
   private proposalRecord(
     proposal: WorkerCommitProposalMessage,
-  ): SessionRecordV5 | undefined {
-    const record: SessionRecordV5 = {
-      schemaVersion: 5,
+  ): SessionRecordV6 | undefined {
+    const committedTurn = proposal.nextTurn - 1;
+    const record: SessionRecordV6 = {
+      schemaVersion: 6,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
@@ -625,8 +640,16 @@ export class WorkerHostSession {
           selection: structuredClone(this.modelSelection),
         },
       ],
+      turnExecutions: [
+        ...structuredClone(this.turnExecutions),
+        {
+          turn: committedTurn,
+          build: structuredClone(this.build),
+          definition: structuredClone(this.options.definition),
+        },
+      ],
     };
-    return validateSessionRecordV5(record) ? record : undefined;
+    return validateSessionRecordV6(record) ? record : undefined;
   }
 
   async selectModel(
@@ -646,8 +669,8 @@ export class WorkerHostSession {
       },
     ];
     const nextRevision = this.stateRevision + 1;
-    const persisted: SessionRecordV5 = {
-      schemaVersion: 5,
+    const persisted: SessionRecordV6 = {
+      schemaVersion: 6,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
@@ -661,8 +684,9 @@ export class WorkerHostSession {
       activeModel: structuredClone(selection),
       modelChanges: nextChanges,
       turnModels: structuredClone(this.turnModels),
+      turnExecutions: structuredClone(this.turnExecutions),
     };
-    if (!validateSessionRecordV5(persisted)) throw new Error('model selection record invalid');
+    if (!validateSessionRecordV6(persisted)) throw new Error('model selection record invalid');
     this.options.handle.commit(persisted);
     const correlation: WorkerCorrelation = {
       ...this.correlation('select-model-' + crypto.randomUUID().toLowerCase()),
@@ -712,8 +736,8 @@ export class WorkerHostSession {
     if (title.length === 0 || title === this.title) return 'unchanged';
     const changedAt = new Date().toISOString();
     const nextRevision = this.stateRevision + 1;
-    const persisted: SessionRecordV5 = {
-      schemaVersion: 5,
+    const persisted: SessionRecordV6 = {
+      schemaVersion: 6,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
@@ -727,8 +751,9 @@ export class WorkerHostSession {
       activeModel: structuredClone(this.modelSelection),
       modelChanges: structuredClone(this.modelChanges),
       turnModels: structuredClone(this.turnModels),
+      turnExecutions: structuredClone(this.turnExecutions),
     };
-    if (!validateSessionRecordV5(persisted)) throw new Error('session title record invalid');
+    if (!validateSessionRecordV6(persisted)) throw new Error('session title record invalid');
     this.options.handle.commit(persisted);
     this.title = title;
     this.stateRevision = nextRevision;
@@ -874,6 +899,9 @@ export class WorkerHostSession {
       this.nextTurn = record.nextTurn;
       this.stateRevision = record.stateRevision;
       this.turnModels = structuredClone(record.turnModels) as SessionTurnModelAttribution[];
+      this.turnExecutions = structuredClone(
+        record.turnExecutions,
+      ) as SessionTurnExecutionAttribution[];
       execution.committedStateRevision = record.stateRevision;
       const committed = await this.persistArtifacts(
         proposedOutcome,

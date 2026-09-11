@@ -6,10 +6,10 @@
  * returned only to the provider adapter for the current request.
  */
 
-export const CREDENTIAL_PATH =
-  '/home/masat.guest/.config/henji-harness/openrouter-api-key' as const;
-export const OPENAI_CREDENTIAL_PATH =
-  '/home/masat.guest/.config/henji-harness/openai-api-key' as const;
+import { credentialPath } from '../runtime/runtime_paths.ts';
+
+export const openRouterCredentialPath = (): string => credentialPath('openrouter-api-key');
+export const openAICredentialPath = (): string => credentialPath('openai-api-key');
 export const MAX_CREDENTIAL_BYTES = 4096 as const;
 
 export type CredentialFileFailureCode =
@@ -105,11 +105,12 @@ export const credentialFilePresenceAt = async (
 
 export const openRouterCredentialFilePresence = (
   filesystem: CredentialFileSystem = defaultFileSystem,
-): Promise<CredentialFilePresence> => credentialFilePresenceAt(CREDENTIAL_PATH, filesystem);
+): Promise<CredentialFilePresence> =>
+  credentialFilePresenceAt(openRouterCredentialPath(), filesystem);
 
 export const openAICredentialFilePresence = (
   filesystem: CredentialFileSystem = defaultFileSystem,
-): Promise<CredentialFilePresence> => credentialFilePresenceAt(OPENAI_CREDENTIAL_PATH, filesystem);
+): Promise<CredentialFilePresence> => credentialFilePresenceAt(openAICredentialPath(), filesystem);
 
 const fail = (code: CredentialFileFailureCode): never => {
   throw new CredentialFileError(code);
@@ -188,7 +189,7 @@ export const parseCredentialBytes = (bytes: Uint8Array): string => {
 /** Read and validate the fixed credential file for exactly one provider request. */
 export const readCredentialFile = (
   filesystem: CredentialFileSystem = defaultFileSystem,
-): Promise<string> => readCredentialFileAt(CREDENTIAL_PATH, filesystem);
+): Promise<string> => readCredentialFileAt(openRouterCredentialPath(), filesystem);
 
 /** Read one fixed, caller-owned provider profile path with the same stable-file contract. */
 export const readCredentialFileAt = async (
@@ -273,4 +274,4 @@ export const readCredentialFileAt = async (
 export const credentialSource = readCredentialFile;
 
 export const readOpenAICredentialFile = (): Promise<string> =>
-  readCredentialFileAt(OPENAI_CREDENTIAL_PATH);
+  readCredentialFileAt(openAICredentialPath());

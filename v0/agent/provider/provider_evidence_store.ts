@@ -2,7 +2,7 @@ import {
   decodeProviderEvidence,
   encodeProviderEvidence,
   type ProviderEvidenceStore,
-  type ProviderEvidenceV1,
+  type ProviderEvidenceV2,
   validateProviderEvidence,
 } from './provider_evidence.ts';
 import { workspaceDigest } from '../session/session_store.ts';
@@ -48,7 +48,13 @@ export const providerEvidencePaths = async (
 const isNotFound = (error: unknown): boolean => error instanceof Deno.errors.NotFound;
 const ensureDirectory = async (path: string): Promise<void> => {
   try {
-    await Deno.mkdir(path, { recursive: true });
+    await Deno.mkdir(path, { recursive: true, mode: 0o700 });
+    const info = await Deno.lstat(path);
+    if (
+      info.isSymlink || !info.isDirectory ||
+      info.mode !== null && (info.mode & 0o777) !== 0o700
+    ) throw new ProviderEvidenceStoreError('provider_evidence_invalid');
+    await Deno.chmod(path, 0o700);
   } catch (error) {
     throw error instanceof ProviderEvidenceStoreError
       ? error
@@ -70,15 +76,16 @@ export class DenoProviderEvidenceStore implements ProviderEvidenceStore {
 
   private async layout(): Promise<ProviderEvidencePaths> {
     const paths = await this.pathsPromise;
+    await ensureDirectory(this.stateRoot);
     await ensureDirectory(paths.root);
     await ensureDirectory(paths.evidence);
     await ensureDirectory(paths.links);
     return paths;
   }
 
-  async list(): Promise<readonly ProviderEvidenceV1[]> {
+  async list(): Promise<readonly ProviderEvidenceV2[]> {
     const paths = await this.pathsPromise;
-    const result: ProviderEvidenceV1[] = [];
+    const result: ProviderEvidenceV2[] = [];
     try {
       for await (const entry of Deno.readDir(paths.evidence)) {
         if (!entry.name.endsWith('.json')) continue;
@@ -103,7 +110,7 @@ export class DenoProviderEvidenceStore implements ProviderEvidenceStore {
     );
   }
 
-  async read(id: string): Promise<ProviderEvidenceV1> {
+  async read(id: string): Promise<ProviderEvidenceV2> {
     const paths = await this.pathsPromise;
     const name = idFromPath(id, '.json');
     try {
@@ -119,7 +126,7 @@ export class DenoProviderEvidenceStore implements ProviderEvidenceStore {
     }
   }
 
-  async write(evidence: ProviderEvidenceV1): Promise<void> {
+  async write(evidence: ProviderEvidenceV2): Promise<void> {
     if (!validateProviderEvidence(evidence)) {
       throw new ProviderEvidenceStoreError('provider_evidence_invalid');
     }

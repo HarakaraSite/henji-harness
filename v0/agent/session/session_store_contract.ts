@@ -1,6 +1,10 @@
 import type { Message } from '../core/contracts.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import type { LegacyOpenRouterModelSelection } from '../provider/model_selection.ts';
+import type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
+
+export type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 
 export const SESSION_SCHEMA_VERSION = 1 as const;
 export const MAX_SESSION_FILE_BYTES = 8 * 1024 * 1024;
@@ -31,22 +35,6 @@ export interface SessionRecord {
   readonly nextTurn: number;
   readonly transcript: readonly Message[];
 }
-
-/** Exact executable Definition binding persisted by the Worker-backed Host schema. */
-export type DefinitionRevisionRef =
-  | {
-    readonly kind: 'builtin';
-    readonly id: 'default' | 'planner';
-    readonly canonicalSpecifier: string;
-    readonly entrySha256: string;
-    readonly sourceBytes: number;
-  }
-  | {
-    readonly kind: 'external';
-    readonly canonicalSpecifier: string;
-    readonly entrySha256: string;
-    readonly sourceBytes: number;
-  };
 
 /** Minimal Worker-backed record. Schema-v1 remains readable through the legacy codec. */
 export interface SessionRecordV2 {
@@ -136,12 +124,32 @@ export interface SessionRecordV5 {
   readonly turnModels: readonly SessionTurnModelAttribution[];
 }
 
-export type StoredSessionRecord =
-  | SessionRecord
-  | SessionRecordV2
-  | SessionRecordV3
-  | SessionRecordV4
-  | SessionRecordV5;
+export interface SessionTurnExecutionAttribution {
+  readonly turn: number;
+  readonly build: BuildManifestV1;
+  readonly definition: DefinitionRevisionRef;
+}
+
+/** Standalone-era record with machine-independent Definition and build attribution. */
+export interface SessionRecordV6 {
+  readonly schemaVersion: 6;
+  readonly sessionId: string;
+  readonly workspaceRoot: string;
+  readonly agent: 'default' | 'planner';
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly title: string | null;
+  readonly stateRevision: number;
+  readonly nextTurn: number;
+  readonly transcript: readonly Message[];
+  readonly definition: DefinitionRevisionRef;
+  readonly activeModel: ModelSelection;
+  readonly modelChanges: readonly SessionModelChange[];
+  readonly turnModels: readonly SessionTurnModelAttribution[];
+  readonly turnExecutions: readonly SessionTurnExecutionAttribution[];
+}
+
+export type StoredSessionRecord = SessionRecordV6;
 
 /** Strict, single-entry derived provider context kept beside (never inside) session.json. */
 export interface SemanticContextCheckpointV1 {

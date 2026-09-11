@@ -77,33 +77,14 @@ export const main = async (
     const store = new DenoSessionStore(stateRoot, workspace.root);
     if (command.kind === 'list') {
       const result = await store.listWorker();
-      const hasV2 = result.sessions.some((session) => session.definition !== undefined);
-      if (!hasV2) {
-        const legacy = await store.list();
-        const payload = legacy.skippedInvalid === 0
-          ? { schemaVersion: 1, sessions: legacy.sessions }
-          : {
-            schemaVersion: 1,
-            sessions: legacy.sessions,
-            skippedInvalid: legacy.skippedInvalid,
-          };
-        await writeOut(
-          dependencies.writeStdout,
-          `${JSON.stringify(payload)}\n`,
-        );
-      } else {
-        const payload = result.skippedInvalid === 0
-          ? { schemaVersion: 2, sessions: result.sessions }
-          : {
-            schemaVersion: 2,
-            sessions: result.sessions,
-            skippedInvalid: result.skippedInvalid,
-          };
-        await writeOut(
-          dependencies.writeStdout,
-          `${JSON.stringify(payload)}\n`,
-        );
-      }
+      const payload = result.skippedInvalid === 0
+        ? { schemaVersion: 2, sessions: result.sessions }
+        : {
+          schemaVersion: 2,
+          sessions: result.sessions,
+          skippedInvalid: result.skippedInvalid,
+        };
+      await writeOut(dependencies.writeStdout, `${JSON.stringify(payload)}\n`);
     } else {
       await store.delete(command.id);
       await writeOut(

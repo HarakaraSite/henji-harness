@@ -160,7 +160,6 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
   const store = new DenoSessionStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
-  let legacyResumed: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
   let planner: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
   try {
     first = await createWorkerTuiSession({
@@ -177,7 +176,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     const sessionId = first.session.currentPosition().sessionId;
     assert(typeof sessionId === 'string');
     const selectedBeforeTurn = await store.readWorker(sessionId);
-    assert(selectedBeforeTurn.schemaVersion === 5);
+    assert(selectedBeforeTurn.schemaVersion === 6);
     assertEquals(selectedBeforeTurn.activeModel, qwen);
     assertEquals(selectedBeforeTurn.nextTurn, 1);
     assertEquals(selectedBeforeTurn.turnModels, []);
@@ -192,7 +191,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     assertEquals(await first.session.selectModel(gpt), 'selected');
     assert((await first.session.submit('delegate this small task')).ok);
     const record = await store.readWorker(sessionId);
-    assert(record.schemaVersion === 5);
+    assert(record.schemaVersion === 6);
     assertEquals(record.activeModel, gpt);
     assertEquals(record.turnModels, [
       { turn: 1, selection: qwen },
@@ -222,35 +221,6 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     await resumed.close();
     resumed = undefined;
 
-    const legacyHandle = await store.openExistingWorker(sessionId);
-    const current = legacyHandle.record;
-    assert(current !== undefined && current.schemaVersion === 5);
-    legacyHandle.commit({
-      schemaVersion: 2,
-      sessionId: current.sessionId,
-      workspaceRoot: current.workspaceRoot,
-      agent: current.agent,
-      createdAt: current.createdAt,
-      updatedAt: current.updatedAt,
-      stateRevision: current.stateRevision,
-      nextTurn: current.nextTurn,
-      transcript: current.transcript,
-      definition: current.definition,
-    });
-    await legacyHandle.close();
-    legacyResumed = await createWorkerTuiSession({
-      stateRoot,
-      workspaceRoot,
-      persistence: 'session',
-      sessionId,
-      agent: 'default',
-      physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
-    });
-    assertEquals(legacyResumed.session.modelSelectionSnapshot(), ROOT_DEFAULT_MODEL_SELECTION);
-    assert(legacyResumed.session.consumeLegacyModelNotice());
-    assert(!legacyResumed.session.consumeLegacyModelNotice());
-
     planner = await createWorkerTuiSession({
       stateRoot,
       workspaceRoot,
@@ -264,7 +234,6 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     assertEquals(plannerOutcome.finalText, 'worker planner result');
   } finally {
     await planner?.close();
-    await legacyResumed?.close();
     await resumed?.close();
     await first?.close();
     await Deno.remove(stateRoot, { recursive: true });

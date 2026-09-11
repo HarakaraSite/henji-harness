@@ -163,6 +163,7 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
+          startupSnapshot: { skillNames: [] },
           credentialAvailability: {
             authProfile: 'openrouter-api-key',
             status: 'unknown',

@@ -44,8 +44,8 @@ import {
   type FailureDiagnosticPersistenceErrorCode,
 } from './failure_diagnostic.ts';
 import {
+  type ProviderEvidenceDraftStore,
   ProviderEvidenceRecorder,
-  type ProviderEvidenceStore,
 } from '../provider/provider_evidence.ts';
 
 export const AGENT_SESSION_UNAVAILABLE = 'agent session unavailable';
@@ -72,7 +72,7 @@ export interface AgentSessionOptions {
   /** Direct-test-only owner factory for deterministic identity and time. */
   readonly diagnosticOwnerFactory?: (turn: number) => FailureDiagnosticOwner;
   /** Optional workspace-partitioned retained provider evidence store. */
-  readonly providerEvidenceStore?: ProviderEvidenceStore;
+  readonly providerEvidenceStore?: ProviderEvidenceDraftStore;
   /** Host-owned aggregate fetch count used for occurrence-bound diagnostics. */
   readonly providerRequestCount?: () => number;
   /** Hydrated committed state used by the persistent TUI modes. */
@@ -136,7 +136,7 @@ export class AgentSession {
   private readonly diagnosticPersistence?: FailureDiagnosticOwnerOptions['persist'];
   private readonly diagnosticOwnerFactory?: (turn: number) => FailureDiagnosticOwner;
   private readonly providerRequestCount?: () => number;
-  private readonly providerEvidenceStore?: ProviderEvidenceStore;
+  private readonly providerEvidenceStore?: ProviderEvidenceDraftStore;
   private activeDiagnosticOwner: FailureDiagnosticOwner | null = null;
 
   constructor(model: Model, registry: Registry, options: AgentSessionOptions = {}) {

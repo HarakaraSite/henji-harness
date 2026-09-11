@@ -15,7 +15,6 @@ export const MAX_SKILL_MANIFEST_BYTES = 8 * 1024;
 export const MAX_SKILL_FRONTMATTER_BYTES = 4 * 1024;
 export const MAX_SKILL_DESCRIPTION_BYTES = 160;
 
-const LOCATIONS = ['.zot/skills', '.claude/skills', '.agents/skills'] as const;
 const IDENTIFIER = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const MANIFEST_HEADER =
   'Available project skills. When a request matches one, call `skill` with its exact name to load the saved instructions.';
@@ -50,6 +49,12 @@ export interface SkillCatalog {
   readonly skills: readonly DiscoveredSkill[];
   readonly manifest?: string;
 }
+
+const skillEnvironment = (): Readonly<Record<string, string | undefined>> => ({
+  HOME: Deno.env.get('HOME'),
+  XDG_STATE_HOME: Deno.env.get('XDG_STATE_HOME'),
+  ZOT_HOME: Deno.env.get('ZOT_HOME'),
+});
 
 interface ParsedSkill {
   readonly name: string;
@@ -259,20 +264,52 @@ const frozenCatalog = (skills: readonly DiscoveredSkill[]): SkillCatalog => {
 
 export const emptySkillCatalog = (): SkillCatalog => frozenCatalog([]);
 
-/** Discover a single immutable project-local catalog. All candidate failures are silent. */
+/** Discover one immutable workspace/user catalog in fixed native precedence. */
 export const discoverSkills = async (
   workspaceRoot: string,
   fileSystem: SkillFileSystem = productionFileSystem,
+  environment?: Readonly<Record<string, string | undefined>>,
 ): Promise<SkillCatalog> => {
   const root = normalizeAbsolute(workspaceRoot);
+  let env = environment;
+  if (env === undefined) {
+    try {
+      env = skillEnvironment();
+    } catch {
+      env = {};
+    }
+  }
+  const home = env.HOME?.startsWith('/') ? normalizeAbsolute(env.HOME) : undefined;
+  const stateHome = env.XDG_STATE_HOME?.startsWith('/')
+    ? normalizeAbsolute(env.XDG_STATE_HOME)
+    : home === undefined
+    ? undefined
+    : `${home}/.local/state`;
+  const zotHome = env.ZOT_HOME?.startsWith('/')
+    ? normalizeAbsolute(env.ZOT_HOME)
+    : stateHome === undefined
+    ? undefined
+    : `${stateHome}/zot`;
+  const locations: readonly { readonly path: string; readonly source: string }[] = [
+    { path: join(root, '.zot/skills'), source: './.zot/skills' },
+    ...(zotHome === undefined ? [] : [{ path: `${zotHome}/skills`, source: `${zotHome}/skills` }]),
+    { path: join(root, '.claude/skills'), source: './.claude/skills' },
+    ...(home === undefined
+      ? []
+      : [{ path: `${home}/.claude/skills`, source: `${home}/.claude/skills` }]),
+    { path: join(root, '.agents/skills'), source: './.agents/skills' },
+    ...(home === undefined
+      ? []
+      : [{ path: `${home}/.agents/skills`, source: `${home}/.agents/skills` }]),
+  ];
   const reserved = new Set<string>();
   const accepted: DiscoveredSkill[] = [];
   let aggregateBytes = 0;
   let stopped = false;
 
-  for (const location of LOCATIONS) {
+  for (const location of locations) {
     if (stopped) break;
-    const absoluteLocation = join(root, location);
+    const absoluteLocation = location.path;
     let locationInfo: SkillPathInfo;
     try {
       locationInfo = await fileSystem.lstat(absoluteLocation);
@@ -293,8 +330,7 @@ export const discoverSkills = async (
     entries.sort();
     for (const directoryName of entries) {
       if (!IDENTIFIER.test(directoryName)) continue;
-      const relativeDirectory = `${location}/${directoryName}`;
-      const absoluteDirectory = join(root, relativeDirectory);
+      const absoluteDirectory = `${absoluteLocation}/${directoryName}`;
       let directoryInfo: SkillPathInfo;
       try {
         directoryInfo = await fileSystem.lstat(absoluteDirectory);
@@ -306,7 +342,7 @@ export const discoverSkills = async (
       if (text === undefined) continue;
       const parsed = parseSkillFile(text, directoryName);
       if (parsed === undefined || reserved.has(parsed.name)) continue;
-      const sourceDirectory = `./${relativeDirectory}`;
+      const sourceDirectory = `${location.source}/${directoryName}`;
       reserved.add(parsed.name);
       if (parsed.disabled) continue;
       const base = {

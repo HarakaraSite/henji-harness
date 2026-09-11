@@ -1,37 +1,22 @@
 import type { DefinitionRevisionRef, SessionRecord } from '../session/session_store.ts';
-import { readWorkerModuleRevision, type WorkerModuleRevision } from './worker_capsule.ts';
+import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
+import { buildManifest } from '../runtime/build_manifest.ts';
+import type { WorkerModuleRevision } from './worker_capsule.ts';
 
 export interface WorkerDefinitionRevision extends WorkerModuleRevision {
-  readonly kind: DefinitionRevisionRef['kind'];
-  readonly id?: 'default' | 'planner';
+  readonly ref: DefinitionRevisionRef;
 }
 
 export const readDefinitionRevision = async (
   path: string,
-  kind: DefinitionRevisionRef['kind'],
+  kind: 'builtin' | 'external',
   id?: 'default' | 'planner',
 ): Promise<DefinitionRevisionRef> => {
-  const revision = await readWorkerModuleRevision(path);
-  if (kind === 'builtin' && id === undefined) {
-    throw new Error('built-in Definition id required');
+  void path;
+  if (kind !== 'builtin' || id === undefined) {
+    throw new Error('external Definition install is not available until Increment 33');
   }
-  if (kind === 'external' && id !== undefined) {
-    throw new Error('external Definition has no id');
-  }
-  return kind === 'builtin'
-    ? {
-      kind,
-      id: id!,
-      canonicalSpecifier: revision.canonicalSpecifier,
-      entrySha256: revision.entrySha256,
-      sourceBytes: revision.sourceBytes,
-    }
-    : {
-      kind,
-      canonicalSpecifier: revision.canonicalSpecifier,
-      entrySha256: revision.entrySha256,
-      sourceBytes: revision.sourceBytes,
-    };
+  return await builtinDefinitionRef(id, buildManifest());
 };
 
 export const workerBuiltinModulePath = (

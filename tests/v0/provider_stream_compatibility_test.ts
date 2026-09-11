@@ -11,9 +11,11 @@ import {
 import { runAgent } from '../../v0/agent/core/loop.ts';
 import { createPlannerDelegationTool } from '../../v0/agent/tools/planner_delegation.ts';
 import {
-  FakeProviderEvidenceStore,
+  FakeProviderEvidenceDraftStore,
   ProviderEvidenceRecorder,
 } from '../../v0/agent/provider/provider_evidence.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { AgentSession } from '../../v0/agent/session/session.ts';
 import { FailureDiagnosticOwner } from '../../v0/agent/session/failure_diagnostic.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
@@ -493,7 +495,7 @@ Deno.test('OpenRouter does not retry 429 or an SSE stream failure', async () => 
 
 Deno.test('documented text accounting reaches ModelResult through HTTP and SSE', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceStore();
+  const store = new FakeProviderEvidenceDraftStore();
   const recorder = new ProviderEvidenceRecorder(
     '11111111-1111-4111-8111-111111111111',
     1,
@@ -808,7 +810,7 @@ Deno.test('planner result above 76 KiB reaches the parent continuation request',
 
 Deno.test('documented tool accounting dispatches normally through the same transport', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceStore();
+  const store = new FakeProviderEvidenceDraftStore();
   const model = modelFor(toolStream(), seen);
   const events: unknown[] = [];
   const session = new AgentSession(model, new Registry([createJsonResultSubmissionTool()]), {
@@ -842,7 +844,7 @@ Deno.test('documented tool accounting dispatches normally through the same trans
 
 Deno.test('OpenRouter mixed assistant text and tool calls remain visible and continue', async () => {
   const bodies: unknown[] = [];
-  const store = new FakeProviderEvidenceStore();
+  const store = new FakeProviderEvidenceDraftStore();
   let requestNumber = 0;
   const model = new OpenRouterAgentModel({
     profile: PROFILE,
@@ -949,7 +951,7 @@ Deno.test('OpenRouter JSON response preserves text attached to tool calls', () =
 
 Deno.test('post-terminal content is rejected and diagnostic ID reaches the saved artifact', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceStore();
+  const store = new FakeProviderEvidenceDraftStore();
   const diagnostics: string[] = [];
   const model = modelFor(failingPostTerminalStream(), seen);
   const session = new AgentSession(model, new Registry([]), {
@@ -985,7 +987,7 @@ Deno.test('post-terminal content is rejected and diagnostic ID reaches the saved
 
 Deno.test('evidence persistence failure does not replace a valid provider result', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceStore();
+  const store = new FakeProviderEvidenceDraftStore();
   store.failWrites();
   const events: AgentEvent[] = [];
   const session = new AgentSession(modelFor(textStream('gen-persist'), seen), new Registry([]), {
@@ -1004,7 +1006,7 @@ Deno.test('evidence persistence failure does not replace a valid provider result
   assertEquals(turnEnd.providerEvidencePersistenceError, 'provider_evidence_io_failure');
 
   const linkSeen = { requests: 0 };
-  const linkStore = new FakeProviderEvidenceStore();
+  const linkStore = new FakeProviderEvidenceDraftStore();
   linkStore.failLinks();
   const linkSession = new AgentSession(
     modelFor(failingPostTerminalStream(), linkSeen),
@@ -1032,7 +1034,7 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
   try {
     const store = new DenoProviderEvidenceStore(stateRoot, workspaceRoot);
     assertEquals(await store.list(), []);
-    const recorder = new ProviderEvidenceRecorder(evidenceId, 1, '2026-09-02T00:00:00.000Z', store);
+    const recorder = new ProviderEvidenceRecorder(evidenceId, 1, '2026-09-02T00:00:00.000Z');
     recorder.startRequest({
       lane: 'parent',
       modelStep: 1,
@@ -1070,7 +1072,16 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
         transcript: [],
       },
     });
-    await recorder.persist();
+    const build = buildManifest();
+    await store.write({
+      ...recorder.snapshot(),
+      schemaVersion: 2,
+      sessionId: '77777777-7777-4777-8777-777777777777',
+      build,
+      definition: await builtinDefinitionRef('default', build),
+    });
+    await store.linkDiagnostic(diagnosticId, evidenceId);
+    assertEquals((await Deno.lstat(stateRoot)).mode! & 0o777, 0o700);
 
     const listed: string[] = [];
     const listStatus = await failureDiagnosticMain(['evidence', 'list'], {

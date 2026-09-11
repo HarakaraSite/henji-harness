@@ -1,6 +1,7 @@
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
+import { sameDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type { FailureDiagnosticPersistenceErrorCode } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidencePersistenceErrorCode } from '../provider/provider_evidence.ts';
 import type { WorkerCorrelation, WorkerRuntimeEventMessage } from './worker_protocol.ts';
@@ -8,13 +9,7 @@ import type { WorkerCorrelation, WorkerRuntimeEventMessage } from './worker_prot
 export const sameRef = (
   left: DefinitionRevisionRef,
   right: DefinitionRevisionRef,
-): boolean =>
-  left.kind === right.kind &&
-  (left.kind !== 'builtin' ||
-    right.kind !== 'external' && left.id === right.id) &&
-  left.canonicalSpecifier === right.canonicalSpecifier &&
-  left.entrySha256 === right.entrySha256 &&
-  left.sourceBytes === right.sourceBytes;
+): boolean => sameDefinitionRevisionRef(left, right);
 
 export const sameCorrelation = (
   left: WorkerCorrelation,

@@ -1,4 +1,5 @@
-import type { ProviderEvidenceV1 } from '../../v0/agent/provider/provider_evidence.ts';
+import type { ProviderEvidenceV2 } from '../../v0/agent/provider/provider_evidence.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
 import {
   PLANNER_DEFAULT_MODEL_SELECTION,
@@ -6,7 +7,7 @@ import {
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import type {
-  WorkerExecutionArtifactV1,
+  WorkerExecutionArtifactV2,
   WorkerExecutionTraceEntry,
 } from '../../v0/agent/worker/worker_execution_artifact.ts';
 import {
@@ -62,9 +63,9 @@ const traceEntry = (
   ...(ackAccepted === undefined ? {} : { ackAccepted }),
 });
 
-const executionFixture = (overrides: Partial<WorkerExecutionArtifactV1> = {}) =>
+const executionFixture = (overrides: Partial<WorkerExecutionArtifactV2> = {}) =>
   ({
-    schemaVersion: 1,
+    schemaVersion: 2,
     executionId: EXECUTION_ID,
     createdAt: '2026-09-08T00:00:00.000Z',
     settledAt: '2026-09-08T00:00:01.000Z',
@@ -73,12 +74,12 @@ const executionFixture = (overrides: Partial<WorkerExecutionArtifactV1> = {}) =>
     agent: 'default',
     instanceCorrelation: correlation.instanceCorrelation,
     workerGeneration: correlation.workerGeneration,
+    build: buildManifest(),
     definition: {
-      kind: 'builtin',
-      id: 'default',
-      canonicalSpecifier: 'file:///repo/v0/agent/definitions/default.ts',
-      entrySha256: 'a'.repeat(64),
-      sourceBytes: 100,
+      schemaVersion: 1,
+      resourceKind: 'agent-definition',
+      resourceId: 'builtin/default',
+      revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
     },
     manifest: {
       role: 'parent',
@@ -129,9 +130,9 @@ const executionFixture = (overrides: Partial<WorkerExecutionArtifactV1> = {}) =>
     effectCommitRelation: 'not_transactional',
     automaticReplay: false,
     ...overrides,
-  }) satisfies WorkerExecutionArtifactV1;
+  }) satisfies WorkerExecutionArtifactV2;
 
-const evidenceFixture = (overrides: Partial<ProviderEvidenceV1> = {}) => {
+const evidenceFixture = (overrides: Partial<ProviderEvidenceV2> = {}) => {
   const call = {
     callId: CALL_ID,
     name: 'read',
@@ -171,8 +172,16 @@ const evidenceFixture = (overrides: Partial<ProviderEvidenceV1> = {}) => {
     parserTransitions: [{ ordinal: 1, kind: 'result' as const, reason: 'done' }],
   });
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     evidenceId: EVIDENCE_ID,
+    sessionId: correlation.session,
+    build: buildManifest(),
+    definition: {
+      schemaVersion: 1,
+      resourceKind: 'agent-definition',
+      resourceId: 'builtin/default',
+      revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
+    },
     turnNumber: 1,
     createdAt: '2026-09-08T00:00:00.000Z',
     requests: [request(1), request(2)],
@@ -197,7 +206,7 @@ const evidenceFixture = (overrides: Partial<ProviderEvidenceV1> = {}) => {
     runtimeProviderRequestCount: 2,
     outcome: 'final',
     ...overrides,
-  } satisfies ProviderEvidenceV1;
+  } satisfies ProviderEvidenceV2;
 };
 
 const retainedRoot = async (report: { readonly runRoot: string | null }): Promise<void> => {
@@ -252,11 +261,14 @@ Deno.test('production CLI E2E launches one fixed production command and accepts 
   try {
     assert(report.ok);
     assertEquals(childCount, 1);
-    assertEquals(observed?.args, []);
+    assertEquals(observed?.args, ['run']);
     assertEquals(observed?.input, `${PRODUCTION_CLI_E2E_TASK}\n`);
     assertEquals(observed?.stdin, 'piped');
     assertEquals(observed?.clearEnv, true);
     assertEquals(observed?.env, {
+      HOME: Deno.env.get('HOME'),
+      XDG_CONFIG_HOME: `${Deno.env.get('HOME')}/.config`,
+      XDG_DATA_HOME: `${report.runRoot}/data`,
       XDG_STATE_HOME: `${report.runRoot}/state`,
       PATH: PRODUCTION_CLI_E2E_PATH,
     });
@@ -399,7 +411,7 @@ Deno.test('offline gate cannot reach the production E2E live task', async () => 
   assert(!live.includes('openrouter-api-key'));
   assert(!offline.includes('--allow-run'));
   assert(!offline.includes('--allow-net'));
-  assert(!offline.includes('--allow-env'));
+  assert(offline.includes('--allow-env=HOME'));
   assert(config.tasks['v0:test'].includes('agent:e2e:test'));
   assert(!config.tasks['v0:test'].includes('agent:e2e:live'));
   assert(!config.tasks['v0:gate'].includes('agent:e2e:live'));

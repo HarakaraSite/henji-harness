@@ -1,9 +1,9 @@
-import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceV2 } from '../provider/provider_evidence.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
-import type { WorkerExecutionArtifactV1 } from '../worker/worker_execution_artifact.ts';
+import type { WorkerExecutionArtifactV2 } from '../worker/worker_execution_artifact.ts';
 
 export const PRODUCTION_CLI_E2E_SCHEMA_VERSION = 1 as const;
 export const PRODUCTION_CLI_E2E_TASK_ID = 'production-cli-basic-read-v1' as const;
@@ -125,9 +125,9 @@ export interface ProductionCliE2eObservation {
   readonly paths: ProductionCliE2ePaths;
   readonly nonce: string;
   readonly child: ProductionCliE2eChildResult;
-  readonly executions: readonly WorkerExecutionArtifactV1[] | null;
+  readonly executions: readonly WorkerExecutionArtifactV2[] | null;
   readonly executionReadError?: string;
-  readonly evidence: readonly ProviderEvidenceV1[] | null;
+  readonly evidence: readonly ProviderEvidenceV2[] | null;
   readonly evidenceReadError?: string;
   readonly sessionTranscriptExists: boolean | null;
 }
@@ -164,11 +164,11 @@ export const preflightFailureReport = (
   retryCount: 0,
 });
 
-const orderedTrace = (artifact: WorkerExecutionArtifactV1): boolean => {
+const orderedTrace = (artifact: WorkerExecutionArtifactV2): boolean => {
   const trace = artifact.protocolTrace;
   let cursor = 0;
   const find = (
-    predicate: (entry: WorkerExecutionArtifactV1['protocolTrace'][number]) => boolean,
+    predicate: (entry: WorkerExecutionArtifactV2['protocolTrace'][number]) => boolean,
   ) => {
     const index = trace.findIndex((entry, position) => position >= cursor && predicate(entry));
     if (index < 0) return false;
@@ -188,7 +188,7 @@ const orderedTrace = (artifact: WorkerExecutionArtifactV1): boolean => {
     ) && find((entry) => entry.semanticSubtype === 'turn_end');
 };
 
-const requestMatchesProduction = (record: ProviderEvidenceV1['requests'][number]): boolean => {
+const requestMatchesProduction = (record: ProviderEvidenceV2['requests'][number]): boolean => {
   if (
     record.response?.status !== 200 || record.sseEvents.length === 0 ||
     record.parserTransitions.length === 0 ||
@@ -247,7 +247,7 @@ const requestMatchesProduction = (record: ProviderEvidenceV1['requests'][number]
   }
 };
 
-const runtimeMatchesScenario = (evidence: ProviderEvidenceV1, nonce: string): boolean => {
+const runtimeMatchesScenario = (evidence: ProviderEvidenceV2, nonce: string): boolean => {
   if (evidence.runtimeEvents.length !== 5) return false;
   const [firstModel, toolCall, toolResult, secondModel, outcome] = evidence.runtimeEvents;
   if (
@@ -275,8 +275,8 @@ const runtimeMatchesScenario = (evidence: ProviderEvidenceV1, nonce: string): bo
 };
 
 const observedExternalRequests = (
-  executions: readonly WorkerExecutionArtifactV1[] | null,
-  evidence: readonly ProviderEvidenceV1[] | null,
+  executions: readonly WorkerExecutionArtifactV2[] | null,
+  evidence: readonly ProviderEvidenceV2[] | null,
 ): number | null => {
   if (evidence !== null) return evidence.reduce((sum, item) => sum + item.requests.length, 0);
   const count = executions?.at(0)?.outcome.runtimeProviderRequestCount;
@@ -340,8 +340,8 @@ export const evaluateProductionCliE2e = (
   }
   const artifact = executions[0];
   if (
-    artifact.agent !== 'default' || artifact.definition.kind !== 'builtin' ||
-    artifact.definition.id !== 'default' || artifact.manifest.role !== 'parent' ||
+    artifact.agent !== 'default' || artifact.definition.resourceKind !== 'agent-definition' ||
+    artifact.definition.resourceId !== 'builtin/default' || artifact.manifest.role !== 'parent' ||
     artifact.manifest.profileId !== PRODUCTION_CLI_E2E_ROUTE_PROFILE_ID ||
     artifact.manifest.maxSteps !== DEFAULT_AGENT_MAX_STEPS ||
     artifact.command.kind !== 'turn' || artifact.command.task !== PRODUCTION_CLI_E2E_TASK ||
@@ -370,7 +370,12 @@ export const evaluateProductionCliE2e = (
     return failure(observation, 'provider_evidence', 'evidence_count_mismatch');
   }
   const retained = evidence[0];
-  if (retained.evidenceId !== artifact.providerEvidenceId) {
+  if (
+    retained.evidenceId !== artifact.providerEvidenceId ||
+    retained.sessionId !== artifact.sessionId || retained.turnNumber !== artifact.turn ||
+    retained.build.buildId !== artifact.build.buildId ||
+    JSON.stringify(retained.definition) !== JSON.stringify(artifact.definition)
+  ) {
     return failure(observation, 'provider_evidence', 'evidence_link_mismatch');
   }
   if (

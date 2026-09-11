@@ -42,7 +42,6 @@ import {
 import { readCredentialFile } from '../provider/credential_file.ts';
 import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import { DenoFailureDiagnosticStore } from '../session/failure_diagnostic_store.ts';
-import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
 import { createWorkerSession } from '../worker/worker_host.ts';
 import { DenoHistoryExporter, type HistoryExporter } from '../session/history_export.ts';
 import type { ProviderId } from '../provider/model_selection.ts';
@@ -163,7 +162,6 @@ export const parseTuiArgs = (args: readonly string[]): string | undefined => {
 
 export interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
-  readonly definitionPath?: string;
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
   readonly rootProvider?: ProviderId;
@@ -177,7 +175,6 @@ export const parseTuiInvocation = (
 ): ParsedTuiInvocation => {
   if (args.length > 10) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
-  let definitionPath: string | undefined;
   let rootMaxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
   let rootProvider: ProviderId = 'openrouter';
@@ -189,22 +186,13 @@ export const parseTuiInvocation = (
     if (flag === '--agent') {
       const value = args[index + 1];
       if (
-        rawAgentName !== undefined || definitionPath !== undefined ||
+        rawAgentName !== undefined ||
         value === undefined ||
         value.length === 0
       ) {
         throw new Error('invalid invocation');
       }
       rawAgentName = value;
-      index += 2;
-    } else if (flag === '--definition') {
-      const value = args[index + 1];
-      if (
-        definitionPath !== undefined || rawAgentName !== undefined ||
-        value === undefined ||
-        value.length === 0
-      ) throw new Error('invalid invocation');
-      definitionPath = value;
       index += 2;
     } else if (flag === '--continue') {
       if (persistence !== 'new') throw new Error('invalid invocation');
@@ -262,7 +250,6 @@ export const parseTuiInvocation = (
   }
   return {
     rawAgentName,
-    ...(definitionPath === undefined ? {} : { definitionPath }),
     ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
     ...(rootProviderSeen ? { rootProvider } : {}),
@@ -353,7 +340,6 @@ export const main = async (
             persistence: invocation.persistence,
             sessionId: invocation.sessionId,
             agent: selected.id,
-            externalDefinitionPath: invocation.definitionPath,
             physicalIoMode: 'production',
             rootMaxSteps: invocation.rootMaxSteps,
             providerTimeoutMs: invocation.providerTimeoutMs,
@@ -375,9 +361,7 @@ export const main = async (
               prepared.seam.diagnosticPersistence === undefined
             ? new DenoFailureDiagnosticStore(stateRoot, prepared.workspace.root)
             : undefined;
-          const providerEvidenceStore = dependencies.runtimeSeam === undefined
-            ? new DenoProviderEvidenceStore(stateRoot, prepared.workspace.root)
-            : prepared.seam.providerEvidenceStore;
+          const providerEvidenceStore = prepared.seam.providerEvidenceStore;
           const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
             dependencies.diagnosticPersistence ??
             (diagnosticStore === undefined
@@ -415,9 +399,7 @@ export const main = async (
             prepared.seam.diagnosticPersistence === undefined
           ? new DenoFailureDiagnosticStore(stateRoot, workspace.root)
           : undefined;
-        const providerEvidenceStore = dependencies.runtimeSeam === undefined
-          ? new DenoProviderEvidenceStore(stateRoot, workspace.root)
-          : prepared.seam.providerEvidenceStore;
+        const providerEvidenceStore = prepared.seam.providerEvidenceStore;
         const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
           dependencies.diagnosticPersistence ??
           (diagnosticStore === undefined

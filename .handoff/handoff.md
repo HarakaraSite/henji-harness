@@ -16,12 +16,16 @@
   connection、credential、server、runtime capability、実行recordを分離する案を統合資料へ反映した。
   利用者の承認を受け、externalization taxonomyと共通identity/authority、native discovery、MCP境界、Increment
   32〜34、Definition transportをarchitecture・roadmap正本へ反映した。最新差分の第三者reviewで得たP1 2件、P2
-  2件を正本へ反映し、同じreviewerによる差分再reviewで全件解消、新しいBlocker/P1なしと確認した。個別Increment
-  計画と実装は未承認である。
-- 次: Increment 32の個別計画を`docs/increments/`へ正本化し、利用者の実装承認を得る。
+  2件を正本へ反映し、同じreviewerによる差分再reviewで全件解消、新しいBlocker/P1なしと確認した。設計一式は
+  commit `a27b3be0`で保存した。Increment 32は利用者承認済み個別計画に沿って実装、focused test、第三者差分review、
+  authoritative `v0:gate` 1回、compiled binaryの実provider run/real-TTY/Session復元受入まで完了し、実装差分を
+  commitした。利用者の明示指示によりcompiled artifactを`~/.local/bin/henji`へinstallし、旧shell launcherは
+  `~/.local/bin/henji.pre-standalone-launcher`へ退避した。利用者は別workspaceの既存Session exact復元、native Skill
+  発見、repository調査のtool実行がinstalled binaryで成立することを確認した。
+- 次: Increment 33の個別計画を作成する。architecture・roadmapの実装状態更新は正本変更として別途承認を得る。
 - 正本:
-  `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`の「Self-revision
-  Cycle 1前段 — 配布とDefinition revision基盤」。現行の検討資料は
+  `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
+  `docs/increments/increment-32.md`。現行の検討資料は
   `docs/roadmap-inputs/increment-32-34-externalization-concept-plan.md`。当初案と初回reviewの履歴は
   `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。参照実装比較の背景資料は
   `docs/research/externalization-reference-comparison.md`。
@@ -29,5 +33,6 @@
   あるAgent Definition、Increment 34はDefinition transportである。tool等の他resource kindは33のlocal基盤後に
   個別Incrementで扱い、34を必須前提にしない。`--definition <path>`はIncrement 32で廃止し、外部sourceを
   Increment 33以降のinstall inputに限定する。自然言語resourceのnative discoveryにinstallを要求しない。MCPは
-  32〜34の実装範囲外であり、managed化の採否とclient等の物理配置は後続Integration Incrementで決める。統合資料は
-  承認済みincrement正本ではない。実装、test、provider E2E、commit、push、publishは未許可・未実施。
+  32〜34の実装範囲外であり、managed化の採否とclient等の物理配置は後続Integration Incrementで決める。Increment 32の
+  production受入中に見つかったcompiled manifestのproperty-order誤拒否とheadless→TUI state mode衝突は修正・focused
+  検証・追加第三者review済みである。installed binary置換とcommitは実施済み。push、publishは未実施。

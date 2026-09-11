@@ -1,7 +1,5 @@
 import type { AgentEventSink } from '../core/events.ts';
 import type { Message } from '../core/contracts.ts';
-import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructions.ts';
-import { discoverSkills } from '../definitions/skills.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
@@ -82,7 +80,6 @@ export interface WorkerSessionOptions {
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly sessionId?: string;
   readonly agent: SessionRecord['agent'];
-  readonly externalDefinitionPath?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
@@ -111,10 +108,7 @@ const recordRefMatches = (
   record: StoredSessionRecord | undefined,
   definition: DefinitionRevisionRef,
 ): boolean => {
-  if (record === undefined || record.schemaVersion === 1) {
-    return definition.kind === 'builtin';
-  }
-  return sameRef(record.definition, definition);
+  return record === undefined || sameRef(record.definition, definition);
 };
 
 const navigationPosition = (
@@ -129,23 +123,6 @@ const navigationPosition = (
   ...(value.checkpoint === undefined ? {} : { checkpoint: value.checkpoint }),
 });
 
-const workerDefinitionPath = async (
-  workspaceRoot: string,
-  externalPath: string,
-): Promise<string> => {
-  if (!externalPath.endsWith('.ts')) {
-    throw new Error('external Definition must be a TypeScript file');
-  }
-  const candidate = externalPath.startsWith('/') ? externalPath : `${Deno.cwd()}/${externalPath}`;
-  const canonical = await Deno.realPath(candidate);
-  if (
-    canonical !== workspaceRoot && !canonical.startsWith(`${workspaceRoot}/`)
-  ) {
-    throw new Error('external Definition must stay within the workspace');
-  }
-  return canonical;
-};
-
 const restoreRecordMessages = (
   record: StoredSessionRecord | undefined,
 ):
@@ -157,20 +134,11 @@ export const createWorkerSession = async (
   options: WorkerSessionOptions,
 ): Promise<WorkerSessionResult> => {
   const workspace = await resolveWorkspace(options.workspaceRoot);
-  const instructionSnapshot = await discoverAgentInstructionSnapshot(
-    workspace.root,
-  );
-  const skillCatalog = await discoverSkills(workspace.root);
-  const modulePath = options.externalDefinitionPath === undefined
-    ? workerBuiltinModulePath(options.agent)
-    : await workerDefinitionPath(
-      workspace.root,
-      options.externalDefinitionPath,
-    );
+  const modulePath = workerBuiltinModulePath(options.agent);
   const definition = await readDefinitionRevision(
     modulePath,
-    options.externalDefinitionPath === undefined ? 'builtin' : 'external',
-    options.externalDefinitionPath === undefined ? options.agent : undefined,
+    'builtin',
+    options.agent,
   );
   const productionStateRoot = options.physicalIoMode === 'production'
     ? options.stateRoot ?? launcherStateRoot()
@@ -203,10 +171,8 @@ export const createWorkerSession = async (
   } else if (options.persistence === 'continue') {
     const listed = await store!.listWorker();
     const candidate = listed.sessions.find((item) =>
-      item.agent === options.agent &&
-      (item.definition === undefined
-        ? definition.kind === 'builtin'
-        : sameRef(item.definition, definition))
+      item.agent === options.agent && item.definition !== undefined &&
+      sameRef(item.definition, definition)
     );
     if (candidate === undefined) throw new Error('session not found');
     handle = await store!.openExistingWorker(candidate.id);
@@ -247,6 +213,7 @@ export const createWorkerSession = async (
       capsuleFactory: options.capsuleFactory,
     });
     const initialSelection = host.modelSelectionSnapshot();
+    const startupSnapshot = host.startupSnapshot();
     const displayState = projectRuntimeDisplayState({
       workspaceRoot: workspace.root,
       agentId: options.agent,
@@ -255,8 +222,8 @@ export const createWorkerSession = async (
       modelId: initialSelection.modelId,
       effort: initialSelection.effort,
       sessionMode: options.persistence,
-      instructionSource: instructionSnapshot?.source,
-      skillNames: skillCatalog.skills.map((skill) => skill.name),
+      instructionSource: startupSnapshot.instructionSource,
+      skillNames: startupSnapshot.skillNames,
     });
     let currentHost = host;
     let currentHandle = handle;
@@ -273,10 +240,8 @@ export const createWorkerSession = async (
             ...item,
             current: item.id === currentHandle.id,
             resumed: item.id === currentHandle.id,
-            mismatch: item.agent !== options.agent ||
-              (item.definition === undefined
-                ? definition.kind !== 'builtin'
-                : !sameRef(item.definition, definition)),
+            mismatch: item.agent !== options.agent || item.definition === undefined ||
+              !sameRef(item.definition, definition),
           })),
           skippedInvalid: listed.skippedInvalid,
         };

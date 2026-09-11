@@ -272,6 +272,12 @@ const createGeneration = async (
       rootModel = physicalIo.createModel(rootRole, selection);
     },
     physicalIo.credentialAvailability,
+    Object.freeze({
+      ...(instructionSnapshot?.source === undefined
+        ? {}
+        : { instructionSource: instructionSnapshot.source }),
+      skillNames: Object.freeze(skillCatalog.skills.map((skill) => skill.name)),
+    }),
   );
 };
 
@@ -374,6 +380,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
           },
         }),
         ...(workerGeneration === undefined ? {} : { manifest: workerGeneration.manifest }),
+        ...(workerGeneration === undefined
+          ? {}
+          : { startupSnapshot: workerGeneration.startupSnapshot }),
         ...(credentialAvailability === undefined ? {} : { credentialAvailability }),
       });
       return;

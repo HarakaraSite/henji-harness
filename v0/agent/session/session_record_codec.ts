@@ -17,6 +17,7 @@ import {
   type SessionRecordV3,
   type SessionRecordV4,
   type SessionRecordV5,
+  type SessionRecordV6,
   SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionMetadata,
@@ -28,6 +29,8 @@ import {
   type LegacyOpenRouterModelSelection,
   type ModelSelection,
 } from '../provider/model_selection.ts';
+import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
@@ -307,46 +310,9 @@ export const validateSessionRecord = (
     record.nextTurn === completedParentTurns + 1;
 };
 
-const SHA256 = /^[0-9a-f]{64}$/;
-
-const validRevisionSpecifier = (value: unknown): value is string => {
-  if (
-    typeof value !== 'string' || value.trim() !== value ||
-    !value.startsWith('file:///')
-  ) {
-    return false;
-  }
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === 'file:' && parsed.search === '' &&
-      parsed.hash === '' &&
-      parsed.href === value &&
-      canonicalAbsolutePath(decodeURIComponent(parsed.pathname)) !==
-        undefined;
-  } catch {
-    return false;
-  }
-};
-
 export const validRevisionRef = (
   value: unknown,
-): value is DefinitionRevisionRef => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const ref = value as Record<string, unknown>;
-  const common = ['canonicalSpecifier', 'entrySha256', 'sourceBytes'];
-  if (
-    !validRevisionSpecifier(ref.canonicalSpecifier) ||
-    typeof ref.entrySha256 !== 'string' || !SHA256.test(ref.entrySha256) ||
-    !Number.isSafeInteger(ref.sourceBytes) || (ref.sourceBytes as number) <= 0
-  ) return false;
-  if (ref.kind === 'builtin') {
-    return ownKeys(ref, ['kind', 'id', ...common]) &&
-      (ref.id === 'default' || ref.id === 'planner');
-  }
-  return ref.kind === 'external' && ownKeys(ref, ['kind', ...common]);
-};
+): value is DefinitionRevisionRef => isDefinitionRevisionRef(value);
 
 export const validateSessionRecordV2 = (
   value: unknown,
@@ -556,6 +522,70 @@ export const validateSessionRecordV5 = (
   value: unknown,
 ): value is SessionRecordV5 => validateModelSessionRecord(value, 5, isStoredModelSelection);
 
+const validBuildManifest = (value: unknown): value is BuildManifestV1 => {
+  return isBuildManifest(value);
+};
+
+export const validateSessionRecordV6 = (
+  value: unknown,
+): value is SessionRecordV6 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (
+    !ownKeys(record, [
+      'schemaVersion',
+      'sessionId',
+      'workspaceRoot',
+      'agent',
+      'createdAt',
+      'updatedAt',
+      'title',
+      'stateRevision',
+      'nextTurn',
+      'transcript',
+      'definition',
+      'activeModel',
+      'modelChanges',
+      'turnModels',
+      'turnExecutions',
+    ]) || record.schemaVersion !== 6 || !Array.isArray(record.turnExecutions)
+  ) return false;
+  const base: SessionRecordV5 = {
+    schemaVersion: 5,
+    sessionId: record.sessionId as string,
+    workspaceRoot: record.workspaceRoot as string,
+    agent: record.agent as SessionRecord['agent'],
+    createdAt: record.createdAt as string,
+    updatedAt: record.updatedAt as string,
+    title: record.title as string | null,
+    stateRevision: record.stateRevision as number,
+    nextTurn: record.nextTurn as number,
+    transcript: record.transcript as readonly Message[],
+    definition: record.definition as DefinitionRevisionRef,
+    activeModel: record.activeModel as ModelSelection,
+    modelChanges: record.modelChanges as SessionRecordV5['modelChanges'],
+    turnModels: record.turnModels as SessionRecordV5['turnModels'],
+  };
+  if (!validateSessionRecordV5(base)) return false;
+  let previous = 0;
+  for (const value of record.turnExecutions) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const attribution = value as Record<string, unknown>;
+    if (
+      !ownKeys(attribution, ['turn', 'build', 'definition']) ||
+      !Number.isSafeInteger(attribution.turn) || (attribution.turn as number) <= previous ||
+      (attribution.turn as number) < 1 || (attribution.turn as number) >= base.nextTurn ||
+      !validBuildManifest(attribution.build) || !validRevisionRef(attribution.definition)
+    ) {
+      return false;
+    }
+    previous = attribution.turn as number;
+  }
+  const turnModels = record.turnModels as SessionRecordV5['turnModels'];
+  return record.turnExecutions.length === turnModels.length &&
+    record.turnExecutions.every((item, index) => item.turn === turnModels[index].turn);
+};
+
 export const encodeSessionRecordV3 = (record: SessionRecordV3): Uint8Array => {
   if (!validateSessionRecordV3(record)) throw new SessionStoreError('session_invalid');
   const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
@@ -634,6 +664,34 @@ export const decodeSessionRecordV5 = (bytes: Uint8Array): SessionRecordV5 => {
   return structuredClone(parsed);
 };
 
+export const encodeSessionRecordV6 = (record: SessionRecordV6): Uint8Array => {
+  if (!validateSessionRecordV6(record)) throw new SessionStoreError('session_invalid');
+  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
+  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
+  return bytes;
+};
+
+export const decodeSessionRecordV6 = (bytes: Uint8Array): SessionRecordV6 => {
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
+    throw new SessionStoreError('session_invalid');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decoder.decode(bytes));
+  } catch {
+    throw new SessionStoreError('session_invalid');
+  }
+  if (!validateSessionRecordV6(parsed)) throw new SessionStoreError('session_invalid');
+  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
+  if (
+    canonical.byteLength !== bytes.byteLength ||
+    canonical.some((byte, index) => byte !== bytes[index])
+  ) {
+    throw new SessionStoreError('session_invalid');
+  }
+  return structuredClone(parsed);
+};
+
 export const decodeStoredSessionRecord = (
   bytes: Uint8Array,
 ): StoredSessionRecord => {
@@ -649,13 +707,10 @@ export const decodeStoredSessionRecord = (
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new SessionStoreError('session_invalid');
   }
-  const version = (parsed as Record<string, unknown>).schemaVersion;
-  if (version === 1) return decodeSessionRecord(bytes);
-  if (version === 2) return decodeSessionRecordV2(bytes);
-  if (version === 3) return decodeSessionRecordV3(bytes);
-  if (version === 4) return decodeSessionRecordV4(bytes);
-  if (version === 5) return decodeSessionRecordV5(bytes);
-  throw new SessionStoreError('session_invalid');
+  if ((parsed as Record<string, unknown>).schemaVersion !== 6) {
+    throw new SessionStoreError('session_invalid');
+  }
+  return decodeSessionRecordV6(bytes);
 };
 
 export const encodeSessionRecord = (record: SessionRecord): Uint8Array => {
@@ -797,33 +852,19 @@ export const metadataFromRecord = (record: SessionRecord): SessionMetadata => ({
 export const metadataFromStoredRecord = (
   record: StoredSessionRecord,
 ): WorkerSessionMetadata => ({
-  ...metadataFromRecord(
-    record.schemaVersion === 1 ? record : {
-      schemaVersion: 1,
-      sessionId: record.sessionId,
-      workspaceRoot: record.workspaceRoot,
-      agent: record.agent,
-      createdAt: record.createdAt,
-      updatedAt: record.updatedAt,
-      nextTurn: record.nextTurn,
-      transcript: record.transcript,
-    },
-  ),
-  ...(record.schemaVersion === 5 && record.title !== null ? { title: record.title } : {}),
-  ...(record.schemaVersion === 1 ? {} : { definition: structuredClone(record.definition) }),
-  ...(record.schemaVersion === 3
-    ? {
-      modelSelection: {
-        provider: 'openrouter' as const,
-        api: 'openrouter-chat-completions' as const,
-        authProfile: 'openrouter-api-key' as const,
-        modelId: record.activeModel.modelId,
-        effort: record.activeModel.effort,
-      },
-    }
-    : record.schemaVersion === 4 || record.schemaVersion === 5
-    ? { modelSelection: structuredClone(record.activeModel) }
-    : {}),
+  ...metadataFromRecord({
+    schemaVersion: 1,
+    sessionId: record.sessionId,
+    workspaceRoot: record.workspaceRoot,
+    agent: record.agent,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    nextTurn: record.nextTurn,
+    transcript: record.transcript,
+  }),
+  ...(record.title === null ? {} : { title: record.title }),
+  definition: structuredClone(record.definition),
+  modelSelection: structuredClone(record.activeModel),
 });
 
 export const compareSessionMetadata = (

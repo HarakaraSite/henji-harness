@@ -40,8 +40,8 @@ import {
 import { type FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
 import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import {
+  type ProviderEvidenceDraftStore,
   ProviderEvidenceRecorder,
-  type ProviderEvidenceStore,
 } from '../provider/provider_evidence.ts';
 import {
   isPlannerDelegationFailureError,
@@ -131,7 +131,7 @@ export interface RuntimeTestSeam {
   /** Direct-test/host seam for turn-scoped diagnostic persistence. */
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   /** Direct-test/host seam for retained provider exchange evidence. */
-  readonly providerEvidenceStore?: ProviderEvidenceStore;
+  readonly providerEvidenceStore?: ProviderEvidenceDraftStore;
 }
 
 export interface RuntimeRun {

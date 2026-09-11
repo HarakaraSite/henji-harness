@@ -7,9 +7,11 @@ import type {
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import { isStoredModelSelection } from '../provider/model_selection.ts';
+import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
-export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 1 as const;
+export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 2 as const;
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -62,8 +64,8 @@ export interface WorkerExecutionOutcome {
   readonly runtimeProviderRequestCount?: number;
 }
 
-export interface WorkerExecutionArtifactV1 {
-  readonly schemaVersion: 1;
+export interface WorkerExecutionArtifactV2 {
+  readonly schemaVersion: 2;
   readonly executionId: string;
   readonly createdAt: string;
   readonly settledAt: string;
@@ -72,6 +74,7 @@ export interface WorkerExecutionArtifactV1 {
   readonly agent: 'default' | 'planner';
   readonly instanceCorrelation: string;
   readonly workerGeneration: string;
+  readonly build: BuildManifestV1;
   readonly definition: DefinitionRevisionRef;
   readonly manifest: NonNullable<WorkerReadyMessage['manifest']>;
   readonly command: WorkerExecutionTurnCommand;
@@ -94,8 +97,6 @@ export interface WorkerExecutionArtifactV1 {
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
-const SHA256 = /^[0-9a-f]{64}$/u;
-
 const ownKeys = (value: object, keys: readonly string[]): boolean => {
   const actual = Object.keys(value);
   return actual.length === keys.length &&
@@ -135,24 +136,7 @@ const validCorrelation = (value: unknown): value is WorkerCorrelation => {
 };
 
 const validDefinition = (value: unknown): value is DefinitionRevisionRef => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
-  const common = ['canonicalSpecifier', 'entrySha256', 'sourceBytes'];
-  if (
-    typeof record.canonicalSpecifier !== 'string' ||
-    !record.canonicalSpecifier.startsWith('file:///') ||
-    typeof record.entrySha256 !== 'string' ||
-    !SHA256.test(record.entrySha256) ||
-    !Number.isSafeInteger(record.sourceBytes) ||
-    (record.sourceBytes as number) <= 0
-  ) return false;
-  if (record.kind === 'builtin') {
-    return ownKeys(record, ['kind', 'id', ...common]) &&
-      (record.id === 'default' || record.id === 'planner');
-  }
-  return record.kind === 'external' && ownKeys(record, ['kind', ...common]);
+  return isDefinitionRevisionRef(value);
 };
 
 const validManifest = (
@@ -261,7 +245,7 @@ const validExecutionId = (value: unknown): value is string =>
 /** Validate the additive artifact without reading any provider/session payload. */
 export const validateWorkerExecutionArtifact = (
   value: unknown,
-): value is WorkerExecutionArtifactV1 => {
+): value is WorkerExecutionArtifactV2 => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
@@ -294,6 +278,7 @@ export const validateWorkerExecutionArtifact = (
       'agent',
       'instanceCorrelation',
       'workerGeneration',
+      'build',
       'definition',
       'manifest',
       'command',
@@ -313,7 +298,7 @@ export const validateWorkerExecutionArtifact = (
   ) return false;
   const command = artifact.command as Record<string, unknown>;
   const trace = artifact.protocolTrace;
-  const valid = artifact.schemaVersion === 1 &&
+  const valid = artifact.schemaVersion === 2 &&
     validExecutionId(artifact.executionId) &&
     validTimestamp(artifact.createdAt) && validTimestamp(artifact.settledAt) &&
     Date.parse(artifact.settledAt as string) >=
@@ -324,7 +309,8 @@ export const validateWorkerExecutionArtifact = (
     (artifact.agent === 'default' || artifact.agent === 'planner') &&
     validText(artifact.instanceCorrelation, true) &&
     validText(artifact.workerGeneration, true) &&
-    validDefinition(artifact.definition) && validManifest(artifact.manifest) &&
+    isBuildManifest(artifact.build) && validDefinition(artifact.definition) &&
+    validManifest(artifact.manifest) &&
     ownKeys(command, ['kind', 'correlation', 'task']) &&
     command.kind === 'turn' &&
     validCorrelation(command.correlation) && validText(command.task) &&
@@ -371,7 +357,7 @@ export const validateWorkerExecutionArtifact = (
 };
 
 export const encodeWorkerExecutionArtifact = (
-  value: WorkerExecutionArtifactV1,
+  value: WorkerExecutionArtifactV2,
 ): string => {
   if (!validateWorkerExecutionArtifact(value)) {
     throw new TypeError('invalid Worker execution artifact');
@@ -388,7 +374,7 @@ export class WorkerExecutionArtifactCodecError extends Error {
 
 export const decodeWorkerExecutionArtifact = (
   bytes: Uint8Array | string,
-): WorkerExecutionArtifactV1 => {
+): WorkerExecutionArtifactV2 => {
   try {
     const text = typeof bytes === 'string'
       ? bytes

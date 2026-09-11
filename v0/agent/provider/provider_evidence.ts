@@ -5,9 +5,14 @@ import type {
   ToolCall,
   ToolResultContent,
 } from '../core/contracts.ts';
+import {
+  type DefinitionRevisionRef,
+  isDefinitionRevisionRef,
+} from '../definitions/managed_resource_ref.ts';
+import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** One retained exchange is owned by one accepted parent turn. */
-export const PROVIDER_EVIDENCE_SCHEMA_VERSION = 1 as const;
+export const PROVIDER_EVIDENCE_SCHEMA_VERSION = 2 as const;
 
 export type ProviderEvidenceLane = 'parent' | 'planner';
 /** Identifies whether a retained request belongs to compaction or the user turn. */
@@ -99,7 +104,23 @@ export interface ProviderEvidenceV1 {
   readonly diagnosticId?: string;
 }
 
+export interface ProviderEvidenceV2 extends Omit<ProviderEvidenceV1, 'schemaVersion'> {
+  readonly schemaVersion: 2;
+  readonly sessionId: string;
+  readonly build: BuildManifestV1;
+  readonly definition: DefinitionRevisionRef;
+}
+
 export interface ProviderEvidenceStore {
+  list(): Promise<readonly ProviderEvidenceV2[]>;
+  read(id: string): Promise<ProviderEvidenceV2>;
+  write(evidence: ProviderEvidenceV2): Promise<void>;
+  linkDiagnostic(diagnosticId: string, evidenceId: string): Promise<void>;
+  readDiagnosticLink(diagnosticId: string): Promise<string>;
+}
+
+/** Direct-runtime seam. Production Worker drafts cross the protocol and are attributed by Host. */
+export interface ProviderEvidenceDraftStore {
   list(): Promise<readonly ProviderEvidenceV1[]>;
   read(id: string): Promise<ProviderEvidenceV1>;
   write(evidence: ProviderEvidenceV1): Promise<void>;
@@ -204,7 +225,7 @@ export class ProviderEvidenceRecorder {
     readonly evidenceId: string = crypto.randomUUID().toLowerCase(),
     readonly turnNumber = 1,
     readonly createdAt: string = new Date().toISOString(),
-    private readonly store?: ProviderEvidenceStore,
+    private readonly store?: ProviderEvidenceDraftStore,
   ) {}
 
   startRequest(input: EvidenceRequestStart): number {
@@ -363,23 +384,25 @@ export class ProviderEvidenceRecorder {
 }
 
 /** Structural validation is intentionally about the evidence envelope, not provider variants. */
-export const validateProviderEvidence = (value: unknown): value is ProviderEvidenceV1 => {
+export const validateProviderEvidence = (value: unknown): value is ProviderEvidenceV2 => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (
-    record.schemaVersion !== 1 || typeof record.evidenceId !== 'string' ||
+    record.schemaVersion !== 2 || typeof record.evidenceId !== 'string' ||
+    typeof record.sessionId !== 'string' || record.sessionId.length === 0 ||
+    !isBuildManifest(record.build) || !isDefinitionRevisionRef(record.definition) ||
     typeof record.turnNumber !== 'number' || typeof record.createdAt !== 'string' ||
     !Array.isArray(record.requests) || !Array.isArray(record.runtimeEvents)
   ) return false;
   return true;
 };
 
-export const encodeProviderEvidence = (value: ProviderEvidenceV1): string => {
+export const encodeProviderEvidence = (value: ProviderEvidenceV2): string => {
   if (!validateProviderEvidence(value)) throw new TypeError('invalid provider evidence');
   return JSON.stringify(value);
 };
 
-export const decodeProviderEvidence = (value: string | Uint8Array): ProviderEvidenceV1 => {
+export const decodeProviderEvidence = (value: string | Uint8Array): ProviderEvidenceV2 => {
   let text: string;
   try {
     text = typeof value === 'string'
@@ -394,6 +417,71 @@ export const decodeProviderEvidence = (value: string | Uint8Array): ProviderEvid
 };
 
 export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
+  private readonly records = new Map<string, ProviderEvidenceV2>();
+  private readonly links = new Map<string, string>();
+  private writeFailure?: Error;
+  private linkFailure?: Error;
+
+  failWrites(error = new Error('provider evidence I/O failure')): void {
+    this.writeFailure = error;
+  }
+
+  failLinks(error = new Error('provider evidence link failure')): void {
+    this.linkFailure = error;
+  }
+
+  async list(): Promise<readonly ProviderEvidenceV2[]> {
+    await Promise.resolve();
+    return [...this.records.values()].map((value) => structuredClone(value));
+  }
+
+  async read(id: string): Promise<ProviderEvidenceV2> {
+    await Promise.resolve();
+    const value = this.records.get(id);
+    if (value === undefined) {
+      throw Object.assign(new Error('provider evidence not found'), {
+        code: 'provider_evidence_not_found',
+      });
+    }
+    return structuredClone(value);
+  }
+
+  async write(evidence: ProviderEvidenceV2): Promise<void> {
+    await Promise.resolve();
+    if (this.writeFailure !== undefined) throw this.writeFailure;
+    if (!validateProviderEvidence(evidence)) {
+      throw Object.assign(new Error('invalid provider evidence'), {
+        code: 'provider_evidence_invalid',
+      });
+    }
+    this.records.set(evidence.evidenceId, structuredClone(evidence));
+  }
+
+  async linkDiagnostic(diagnosticId: string, evidenceId: string): Promise<void> {
+    await Promise.resolve();
+    if (this.linkFailure !== undefined) throw this.linkFailure;
+    if (!this.records.has(evidenceId)) {
+      throw Object.assign(new Error('provider evidence not found'), {
+        code: 'provider_evidence_not_found',
+      });
+    }
+    this.links.set(diagnosticId, evidenceId);
+  }
+
+  async readDiagnosticLink(diagnosticId: string): Promise<string> {
+    await Promise.resolve();
+    const value = this.links.get(diagnosticId);
+    if (value === undefined) {
+      throw Object.assign(new Error('provider evidence not found'), {
+        code: 'provider_evidence_not_found',
+      });
+    }
+    return value;
+  }
+}
+
+/** In-memory compatibility seam for direct AgentSession/provider contract tests. */
+export class FakeProviderEvidenceDraftStore implements ProviderEvidenceDraftStore {
   private readonly records = new Map<string, ProviderEvidenceV1>();
   private readonly links = new Map<string, string>();
   private writeFailure?: Error;
@@ -426,8 +514,8 @@ export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
   async write(evidence: ProviderEvidenceV1): Promise<void> {
     await Promise.resolve();
     if (this.writeFailure !== undefined) throw this.writeFailure;
-    if (!validateProviderEvidence(evidence)) {
-      throw Object.assign(new Error('invalid provider evidence'), {
+    if (evidence.schemaVersion !== 1) {
+      throw Object.assign(new Error('invalid provider evidence draft'), {
         code: 'provider_evidence_invalid',
       });
     }

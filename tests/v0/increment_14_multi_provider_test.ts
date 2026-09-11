@@ -363,11 +363,10 @@ Deno.test('Increment 14 Session v4 round-trips route and auth identity', () => {
     nextTurn: 1,
     transcript: [],
     definition: {
-      kind: 'builtin',
-      id: 'default',
-      canonicalSpecifier: 'file:///tmp/default.ts',
-      entrySha256: 'a'.repeat(64),
-      sourceBytes: 1,
+      schemaVersion: 1,
+      resourceKind: 'agent-definition',
+      resourceId: 'builtin/default',
+      revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
     },
     activeModel: OPENAI_DEFAULT_MODEL_SELECTION,
     modelChanges: [{
@@ -407,7 +406,7 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     await first.close();
     first = undefined;
     const stored = await new DenoSessionStore(stateRoot, workspaceRoot).readWorker(sessionId);
-    assert(stored.schemaVersion === 5);
+    assert(stored.schemaVersion === 6);
     assertEquals(stored.activeModel, OPENAI_DEFAULT_MODEL_SELECTION);
 
     resumed = await createWorkerSession({
@@ -428,69 +427,10 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
   }
 });
 
-Deno.test('Increment 14 resumes a schema-v3 OpenRouter Session and upgrades on commit', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-14-v3-' });
-  const workspaceRoot = Deno.cwd();
-  let session: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
-  try {
-    session = await createWorkerSession({
-      stateRoot,
-      workspaceRoot,
-      persistence: 'new',
-      agent: 'default',
-      physicalIoMode: 'provider-free',
-    });
-    assert((await session.session.submit('create migration source')).ok);
-    const sessionId = session.session.currentPosition().sessionId;
-    await session.close();
-    session = undefined;
-    const store = new DenoSessionStore(stateRoot, workspaceRoot);
-    const current = await store.readWorker(sessionId);
-    assert(current.schemaVersion === 5);
-    const legacySelection = (selection: typeof ROOT_DEFAULT_MODEL_SELECTION) => ({
-      provider: 'openrouter' as const,
-      modelId: selection.modelId,
-      effort: selection.effort,
-    });
-    const handle = await store.openExistingWorker(sessionId);
-    const { title: _title, ...currentWithoutTitle } = current;
-    handle.commit({
-      ...currentWithoutTitle,
-      schemaVersion: 3,
-      activeModel: legacySelection(ROOT_DEFAULT_MODEL_SELECTION),
-      modelChanges: current.modelChanges.map((change) => ({
-        ...change,
-        selection: legacySelection(ROOT_DEFAULT_MODEL_SELECTION),
-      })),
-      turnModels: current.turnModels.map((attribution) => ({
-        ...attribution,
-        selection: legacySelection(ROOT_DEFAULT_MODEL_SELECTION),
-      })),
-    });
-    await handle.close();
-    session = await createWorkerSession({
-      stateRoot,
-      workspaceRoot,
-      persistence: 'session',
-      sessionId,
-      agent: 'default',
-      physicalIoMode: 'provider-free',
-    });
-    assertEquals(session.session.modelSelectionSnapshot(), ROOT_DEFAULT_MODEL_SELECTION);
-    assert((await session.session.submit('commit upgraded route')).ok);
-    assertEquals((await store.readWorker(sessionId)).schemaVersion, 5);
-  } finally {
-    await session?.close();
-    await Deno.remove(stateRoot, { recursive: true });
-  }
-});
-
-Deno.test('Increment 14 production launcher grants both credential files and provider hosts', async () => {
-  const launcher = await Deno.readTextFile(
-    new URL('../../v0/agent/session_launcher.sh', import.meta.url),
-  );
-  assert(launcher.includes('--allow-net=openrouter.ai,api.openai.com'));
-  assert(launcher.includes('/henji-harness/openrouter-api-key'));
-  assert(launcher.includes('/henji-harness/openai-api-key'));
-  assert(launcher.includes('--cached-only'));
+Deno.test('Increment 32 compile entry grants both provider hosts and XDG credential discovery', async () => {
+  const build = await Deno.readTextFile('scripts/build_henji.ts');
+  assert(build.includes('--allow-net=openrouter.ai,api.openai.com'));
+  assert(build.includes('XDG_CONFIG_HOME'));
+  assert(build.includes('HOME'));
+  assert(build.includes('--cached-only'));
 });

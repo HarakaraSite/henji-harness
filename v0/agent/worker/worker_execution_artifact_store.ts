@@ -3,7 +3,7 @@ import {
   encodeWorkerExecutionArtifact,
   validateWorkerExecutionArtifact,
   type WorkerExecutionArtifactPersistenceErrorCode,
-  type WorkerExecutionArtifactV1,
+  type WorkerExecutionArtifactV2,
   type WorkerExecutionStoreResult,
 } from './worker_execution_artifact.ts';
 import { workspaceDigest } from '../session/session_store.ts';
@@ -29,9 +29,9 @@ export interface WorkerExecutionArtifactPaths {
 }
 
 export interface WorkerExecutionArtifactStore {
-  list(): Promise<readonly WorkerExecutionArtifactV1[]>;
-  read(id: string): Promise<WorkerExecutionArtifactV1>;
-  write(artifact: WorkerExecutionArtifactV1): Promise<void>;
+  list(): Promise<readonly WorkerExecutionArtifactV2[]>;
+  read(id: string): Promise<WorkerExecutionArtifactV2>;
+  write(artifact: WorkerExecutionArtifactV2): Promise<void>;
 }
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -70,6 +70,20 @@ const ioError = (error: unknown): WorkerExecutionArtifactStoreError =>
     ? error
     : new WorkerExecutionArtifactStoreError('worker_execution_artifact_io_failure');
 
+const ensureDirectory = async (path: string): Promise<void> => {
+  try {
+    await Deno.mkdir(path, { recursive: true, mode: 0o700 });
+    const info = await Deno.lstat(path);
+    if (
+      info.isSymlink || !info.isDirectory ||
+      info.mode !== null && (info.mode & 0o777) !== 0o700
+    ) throw new WorkerExecutionArtifactStoreError('worker_execution_artifact_invalid');
+    await Deno.chmod(path, 0o700);
+  } catch (error) {
+    throw ioError(error);
+  }
+};
+
 /** Durable, workspace-partitioned store. Each execution ID is written at most once. */
 export class DenoWorkerExecutionArtifactStore implements WorkerExecutionArtifactStore {
   readonly pathsPromise: Promise<WorkerExecutionArtifactPaths>;
@@ -83,17 +97,15 @@ export class DenoWorkerExecutionArtifactStore implements WorkerExecutionArtifact
 
   private async layout(): Promise<WorkerExecutionArtifactPaths> {
     const paths = await this.pathsPromise;
-    try {
-      await Deno.mkdir(paths.executions, { recursive: true });
-    } catch (error) {
-      throw ioError(error);
-    }
+    await ensureDirectory(this.stateRoot);
+    await ensureDirectory(paths.root);
+    await ensureDirectory(paths.executions);
     return paths;
   }
 
-  async list(): Promise<readonly WorkerExecutionArtifactV1[]> {
+  async list(): Promise<readonly WorkerExecutionArtifactV2[]> {
     const paths = await this.pathsPromise;
-    const result: WorkerExecutionArtifactV1[] = [];
+    const result: WorkerExecutionArtifactV2[] = [];
     try {
       for await (const entry of Deno.readDir(paths.executions)) {
         if (!entry.name.endsWith('.json')) continue;
@@ -120,7 +132,7 @@ export class DenoWorkerExecutionArtifactStore implements WorkerExecutionArtifact
     );
   }
 
-  async read(id: string): Promise<WorkerExecutionArtifactV1> {
+  async read(id: string): Promise<WorkerExecutionArtifactV2> {
     const paths = await this.pathsPromise;
     const name = artifactIdFromPath(id);
     try {
@@ -140,7 +152,7 @@ export class DenoWorkerExecutionArtifactStore implements WorkerExecutionArtifact
     }
   }
 
-  async write(artifact: WorkerExecutionArtifactV1): Promise<void> {
+  async write(artifact: WorkerExecutionArtifactV2): Promise<void> {
     if (!validateWorkerExecutionArtifact(artifact)) {
       throw new WorkerExecutionArtifactStoreError('worker_execution_artifact_invalid');
     }
@@ -172,7 +184,7 @@ export class DenoWorkerExecutionArtifactStore implements WorkerExecutionArtifact
 
 /** Provider-free store seam for the focused Host lifecycle proof. */
 export class FakeWorkerExecutionArtifactStore implements WorkerExecutionArtifactStore {
-  private readonly artifacts = new Map<string, WorkerExecutionArtifactV1>();
+  private readonly artifacts = new Map<string, WorkerExecutionArtifactV2>();
   private writes = 0;
   private writeError?: WorkerExecutionArtifactStoreError;
 
@@ -186,12 +198,12 @@ export class FakeWorkerExecutionArtifactStore implements WorkerExecutionArtifact
     this.writeError = new WorkerExecutionArtifactStoreError(code);
   }
 
-  async list(): Promise<readonly WorkerExecutionArtifactV1[]> {
+  async list(): Promise<readonly WorkerExecutionArtifactV2[]> {
     await Promise.resolve();
     return [...this.artifacts.values()].map((artifact) => structuredClone(artifact));
   }
 
-  async read(id: string): Promise<WorkerExecutionArtifactV1> {
+  async read(id: string): Promise<WorkerExecutionArtifactV2> {
     await Promise.resolve();
     const artifact = this.artifacts.get(id);
     if (artifact === undefined) {
@@ -200,7 +212,7 @@ export class FakeWorkerExecutionArtifactStore implements WorkerExecutionArtifact
     return structuredClone(artifact);
   }
 
-  async write(artifact: WorkerExecutionArtifactV1): Promise<void> {
+  async write(artifact: WorkerExecutionArtifactV2): Promise<void> {
     await Promise.resolve();
     this.writes += 1;
     if (this.writeError !== undefined) throw this.writeError;

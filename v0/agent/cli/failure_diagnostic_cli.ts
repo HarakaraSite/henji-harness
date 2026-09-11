@@ -11,7 +11,8 @@ import {
   DenoWorkerExecutionArtifactStore,
   WorkerExecutionArtifactStoreError,
 } from '../worker/worker_execution_artifact_store.ts';
-import type { WorkerExecutionArtifactV1 } from '../worker/worker_execution_artifact.ts';
+import type { WorkerExecutionArtifactV2 } from '../worker/worker_execution_artifact.ts';
+import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 const encoder = new TextEncoder();
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -87,22 +88,19 @@ const errorLine = (code: string): string =>
     },
   }) + '\n';
 
-const executionSummary = (execution: WorkerExecutionArtifactV1) => ({
+const executionSummary = (execution: WorkerExecutionArtifactV2) => ({
   executionId: execution.executionId,
   settledAt: execution.settledAt,
   sessionId: execution.sessionId,
   turn: execution.turn,
-  definitionKind: execution.definition.kind,
+  buildId: execution.build.buildId,
+  definition: execution.definition,
   workerGeneration: execution.workerGeneration,
   settlement: execution.settlement,
   ...(execution.providerEvidenceId === undefined ? {} : {
     providerEvidenceId: execution.providerEvidenceId,
   }),
 });
-
-const absolutePath = (value: string): boolean =>
-  value.startsWith('/') && value.trim() === value && !value.includes('\0') &&
-  !value.includes('\r') && !value.includes('\n');
 
 const resolvePhysicalWorkspace = async (root = Deno.cwd()): Promise<string> => {
   const workspace = await Deno.realPath(root);
@@ -113,22 +111,7 @@ const resolvePhysicalWorkspace = async (root = Deno.cwd()): Promise<string> => {
   return workspace;
 };
 
-const resolveStateRoot = (): string => {
-  const supplied = Deno.env.get('HENJI_SESSION_STATE_ROOT');
-  if (supplied !== undefined) {
-    if (!absolutePath(supplied)) throw new Error('invalid state root');
-    return supplied;
-  }
-  const xdg = Deno.env.get('XDG_STATE_HOME');
-  const home = Deno.env.get('HOME');
-  const base = xdg !== undefined && xdg.trim() !== ''
-    ? xdg
-    : home === undefined || home.trim() === ''
-    ? ''
-    : `${home}/.local/state`;
-  if (!absolutePath(base)) throw new Error('invalid state root');
-  return `${base}/henji-harness`;
-};
+const resolveStateRoot = (): string => resolveRuntimePaths().stateRoot;
 
 export interface FailureDiagnosticCliDependencies {
   readonly writeStdout?: (text: string) => void | PromiseLike<void>;
@@ -178,7 +161,7 @@ export const main = async (
           dependencies.writeStdout,
           `${
             JSON.stringify({
-              schemaVersion: 1,
+              schemaVersion: 2,
               executions: executions.map(executionSummary),
             })
           }\n`,
@@ -197,7 +180,7 @@ export const main = async (
       const evidence = await evidenceStore.list();
       await writeOutput(
         dependencies.writeStdout,
-        `${JSON.stringify({ schemaVersion: 1, evidence })}\n`,
+        `${JSON.stringify({ schemaVersion: 2, evidence })}\n`,
         'stdout',
       );
     } else if (command.kind === 'evidence_show') {

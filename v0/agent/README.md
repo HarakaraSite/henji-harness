@@ -19,23 +19,26 @@
 - `validation/`: provider acceptance, the user-confirmed production CLI E2E, sentinels, fixtures,
   and runtime comparison utilities.
 
-`worker_agent_api.ts` remains the public composition facade. The shell launchers stay at this
-directory root because the installed `henji` command and operator workflows use those stable paths.
-Terminal-specific implementation remains under `v0/tui`; the UI-neutral presentation contract and
-adapter remain under `v0/presentation`.
+`worker_agent_api.ts` remains the public composition facade. `cli/henji_cli.ts` is the one
+production entry and `scripts/build_henji.ts` compiles it with the Worker bootstrap and built-in
+Definitions. Terminal-specific implementation remains under `v0/tui`; the UI-neutral presentation
+contract and adapter remain under `v0/presentation`.
 
-Both production entrypoints use the same headless Worker capsule and Host commit path:
+The compiled command dispatches both Surfaces through the same headless Worker capsule and Host
+commit path:
 
-- `session_launcher.sh` starts the interactive terminal Surface and optionally persists a Session.
-- `runtime_cli_launcher.sh` starts one noninteractive turn without persisting a Session transcript;
-  diagnostics, provider evidence, and execution artifacts still use the workspace state root.
+- `henji [TUI flags]` starts the interactive terminal Surface and optionally persists a Session.
+- `henji run` starts one noninteractive turn without persisting a Session transcript; diagnostics,
+  provider evidence, and execution artifacts still use the workspace state root.
 
 The interactive Session owns its active provider/model route and reasoning effort independently of
 the Definition revision. The launcher defaults to OpenRouter; `--root-provider openai` starts a new
 OpenAI Responses root using the fixed direct catalog and Platform API-key file. Delegated planner
 calls and Sonar `web_search` keep independent OpenRouter routes and credentials. Session schema v4
 persists provider, API, auth-profile identity, active selection, change history, and
-per-committed-turn attribution; schema v1-v3 records remain readable and upgrade on the next commit.
+per-committed-turn attribution. Standalone-era Session schema v6 also records the logical built-in
+Definition ref and build manifest for every committed turn. Previous development schemas remain in
+the old state namespace and are not interpreted by the compiled command.
 
 `/provider` switches the root between OpenRouter and OpenAI in the current idle Session and applies
 the selected provider's complete default model/effort selection. `/model` opens the active
@@ -52,8 +55,8 @@ supplied again. A reached deadline is reported as `provider deadline exceeded`; 
 automatically retry or select another model. The TUI footer keeps transient status on row one and
 cwd, the short Session ID, root provider, model, and effort on row two.
 
-`validation/production_cli_e2e.ts` starts that production launcher only when invoked with the exact
-`--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
+`validation/production_cli_e2e.ts` starts the compiled production command only when invoked with the
+exact `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
 evidence, and the Worker execution artifact under `/tmp/henji-production-e2e-*`, then emits one JSON
 report. The live task is intentionally absent from `v0:test`, `v0:gate`, and CI; its provider call
 requires a separate user instruction for each invocation.

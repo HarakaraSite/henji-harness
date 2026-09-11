@@ -25,14 +25,11 @@ import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   DenoSessionStore,
   sessionPaths,
-  type SessionRecord,
+  validateSessionRecordV6,
   type WorkerSessionHandle,
 } from '../../v0/agent/session/session_store.ts';
-import {
-  decodeProviderEvidence,
-  encodeProviderEvidence,
-  FakeProviderEvidenceStore,
-} from '../../v0/agent/provider/provider_evidence.ts';
+import { FakeProviderEvidenceStore } from '../../v0/agent/provider/provider_evidence.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import {
   createWorkerTuiSession,
   readDefinitionRevision,
@@ -231,187 +228,6 @@ Deno.test('Slice 1 proves pre-read/hash, digest-query relative import, import-ma
   }
 });
 
-Deno.test('external Definition resolves @henji/agent from a temporary caller workspace', async () => {
-  const workspace = await Deno.makeTempDir({ prefix: 'henji-worker-external-cwd-' });
-  const definitionPath = `${workspace}/external_definition.ts`;
-  await Deno.writeTextFile(
-    definitionPath,
-    `import {
-  createDefaultAgentComposition,
-  type ExecutableAgentDefinition,
-  WORKER_PROTOCOL_VERSION,
-} from '@henji/agent';
-
-export const workerProbe = WORKER_PROTOCOL_VERSION;
-const definition: ExecutableAgentDefinition = (input) =>
-  createDefaultAgentComposition(input, { limits: { maxSteps: 4 } });
-export default definition;
-`,
-  );
-  try {
-    const events: AgentEvent[] = [];
-    const created = await createWorkerTuiSession({
-      workspaceRoot: workspace,
-      persistence: 'none',
-      agent: 'default',
-      externalDefinitionPath: definitionPath,
-      physicalIoMode: 'provider-free',
-      eventSink: (event) => events.push(event),
-    });
-    try {
-      const outcome = await created.session.submit('external alias common Worker path');
-      assert(outcome.ok);
-      assertEquals(created.session.currentPosition().committedTurn, 1);
-      assert(events.some((event) => event.kind === 'assistant_progress'));
-      assert(events.some((event) => event.kind === 'turn_end'));
-    } finally {
-      await created.close();
-    }
-  } finally {
-    await Deno.remove(workspace, { recursive: true });
-  }
-});
-
-Deno.test('session launcher passes repository config through both branches using fake Deno', async () => {
-  const workspace = await Deno.makeTempDir({ prefix: 'henji-launcher-cwd-' });
-  const stateBase = await Deno.makeTempDir({ prefix: 'henji-launcher-state-' });
-  const fakeBin = await Deno.makeTempDir({ prefix: 'henji-launcher-deno-' });
-  const fakeDeno = `${fakeBin}/deno`;
-  const launcher = new URL('../../v0/agent/session_launcher.sh', import.meta.url).pathname;
-  const config = new URL('../../deno.v0.json', import.meta.url).pathname;
-  await Deno.writeTextFile(
-    fakeDeno,
-    `#!/bin/sh
-set -eu
-if [ "\${1-}" = '--version' ]; then
-  printf '%s\\n' 'deno 2.9.4'
-  exit 0
-fi
-{
-  printf 'cwd=%s\\n' "\$PWD"
-  printf 'state=%s\\n' "\$HENJI_SESSION_STATE_ROOT"
-  printf 'argc=%s\\n' "\$#"
-  for arg in "\$@"; do printf 'arg=%s\\n' "\$arg"; done
-} > "\$FAKE_DENO_CAPTURE"
-`,
-  );
-  await Deno.chmod(fakeDeno, 0o755);
-  const run = async (
-    capture: string,
-    args: readonly string[],
-  ): Promise<
-    { readonly cwd: string; readonly state: string; readonly args: readonly string[] }
-  > => {
-    const result = await new Deno.Command('/bin/sh', {
-      args: ['-c', 'exec "$@"', '--', launcher, ...args],
-      cwd: workspace,
-      env: {
-        PATH: `${fakeBin}:/usr/bin:/bin`,
-        XDG_STATE_HOME: stateBase,
-        FAKE_DENO_CAPTURE: capture,
-      },
-      stdout: 'piped',
-      stderr: 'piped',
-    }).output();
-    assertEquals(result.code, 0);
-    assertEquals(new TextDecoder().decode(result.stdout), '');
-    assertEquals(new TextDecoder().decode(result.stderr), '');
-    const lines = (await Deno.readTextFile(capture)).trim().split('\n');
-    const cwd = lines.find((line) => line.startsWith('cwd='))?.slice(4);
-    const state = lines.find((line) => line.startsWith('state='))?.slice(6);
-    const capturedArgs = lines.filter((line) => line.startsWith('arg=')).map((line) =>
-      line.slice(4)
-    );
-    assert(cwd !== undefined && state !== undefined);
-    return { cwd, state, args: capturedArgs };
-  };
-  try {
-    const none = await run(`${fakeBin}/none.capture`, [
-      '--definition',
-      'external_definition.ts',
-      '--max-steps',
-      '12',
-      '--provider-timeout-ms',
-      '180000',
-      '--root-provider',
-      'openai',
-      '--no-session',
-    ]);
-    const continued = await run(`${fakeBin}/continued.capture`, [
-      '--agent',
-      'default',
-      '--continue',
-    ]);
-    for (const captured of [none, continued]) {
-      assertEquals(captured.cwd, workspace);
-      assertEquals(captured.state, `${stateBase}/henji-harness`);
-      const configIndex = captured.args.indexOf('--config');
-      assert(configIndex >= 0);
-      assertEquals(captured.args[configIndex + 1], config);
-      assert(captured.args.includes('--allow-read=/tmp'));
-      assert(captured.args.includes('--allow-write=/tmp'));
-      assert(captured.args.includes('--cached-only'));
-      assert(captured.args.includes('--no-check'));
-      assert(captured.args.includes('--allow-net=openrouter.ai,api.openai.com'));
-      assert(
-        captured.args.includes(
-          '--allow-read=/home/masat.guest/.config/henji-harness/openai-api-key',
-        ),
-      );
-    }
-    assertEquals(none.args.slice(-9), [
-      '--definition',
-      'external_definition.ts',
-      '--max-steps',
-      '12',
-      '--provider-timeout-ms',
-      '180000',
-      '--root-provider',
-      'openai',
-      '--no-session',
-    ]);
-    assertEquals(continued.args.slice(-3), ['--agent', 'default', '--continue']);
-    assertEquals(none.args[0], 'run');
-    assertEquals(continued.args[0], 'run');
-    const rejected = await new Deno.Command('/bin/sh', {
-      args: ['-c', 'exec "$@"', '--', launcher, '--max-steps', '0'],
-      cwd: workspace,
-      env: {
-        PATH: `${fakeBin}:/usr/bin:/bin`,
-        XDG_STATE_HOME: stateBase,
-        FAKE_DENO_CAPTURE: `${fakeBin}/rejected.capture`,
-      },
-      stdout: 'piped',
-      stderr: 'piped',
-    }).output();
-    assertEquals(rejected.code, 1);
-    assertEquals(
-      new TextDecoder().decode(rejected.stderr),
-      '{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}\n',
-    );
-    const timeoutRejected = await new Deno.Command('/bin/sh', {
-      args: ['-c', 'exec "$@"', '--', launcher, '--provider-timeout-ms', '0'],
-      cwd: workspace,
-      env: {
-        PATH: `${fakeBin}:/usr/bin:/bin`,
-        XDG_STATE_HOME: stateBase,
-        FAKE_DENO_CAPTURE: `${fakeBin}/timeout-rejected.capture`,
-      },
-      stdout: 'piped',
-      stderr: 'piped',
-    }).output();
-    assertEquals(timeoutRejected.code, 1);
-    assertEquals(
-      new TextDecoder().decode(timeoutRejected.stderr),
-      '{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}\n',
-    );
-  } finally {
-    await Deno.remove(workspace, { recursive: true });
-    await Deno.remove(stateBase, { recursive: true });
-    await Deno.remove(fakeBin, { recursive: true });
-  }
-});
-
 Deno.test('headless runner commits one real Worker turn and closes the generation', async () => {
   const artifacts = new FakeWorkerExecutionArtifactStore();
   let closed = false;
@@ -583,58 +399,16 @@ Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () 
   });
 });
 
-Deno.test('headless launcher grants Worker resources without environment credentials', async () => {
-  const workspace = await Deno.makeTempDir({ prefix: 'henji-headless-launcher-cwd-' });
-  const stateBase = await Deno.makeTempDir({ prefix: 'henji-headless-launcher-state-' });
-  const launcher = new URL('../../v0/agent/runtime_cli_launcher.sh', import.meta.url).pathname;
+Deno.test('headless development task uses the unified TypeScript entry', async () => {
   const config = JSON.parse(await Deno.readTextFile('deno.v0.json')) as {
     readonly tasks: Record<string, string>;
   };
-  assertEquals(config.tasks['agent:run'], 'v0/agent/runtime_cli_launcher.sh');
-  const runtimeCliSource = await Deno.readTextFile('v0/agent/cli/runtime_cli.ts');
-  assert(!runtimeCliSource.includes('runRuntime'));
-  const launcherSource = await Deno.readTextFile(launcher);
-  assert(launcherSource.includes('umask 077'));
-  assert(launcherSource.includes('--cached-only'));
-  assert(!launcherSource.includes('--no-remote'));
-  assert(
-    launcherSource.includes(
-      'deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno',
-    ),
-  );
-  assert(launcherSource.includes('--allow-env=HENJI_SESSION_STATE_ROOT'));
-  assert(!launcherSource.includes('HENJI_OPENROUTER_API_KEY'));
-  assert(
-    launcherSource.includes(
-      '--allow-read=/home/masat.guest/.config/henji-harness/openrouter-api-key',
-    ),
-  );
-  try {
-    const output = await new Deno.Command('/bin/sh', {
-      args: [launcher, '--unknown'],
-      cwd: workspace,
-      env: {
-        XDG_STATE_HOME: stateBase,
-      },
-      stdout: 'piped',
-      stderr: 'piped',
-    }).output();
-    assertEquals(output.code, 1);
-    assertEquals(new TextDecoder().decode(output.stdout), '');
-    assertEquals(JSON.parse(new TextDecoder().decode(output.stderr)), {
-      ok: false,
-      outcome: 'contract_failure',
-      stopReason: 'contract_failure',
-      steps: 0,
-      toolCallCount: 0,
-      toolResultCount: 0,
-      requestCount: 0,
-      error: { code: 'invalid_input', message: 'invalid agent invocation' },
-    });
-  } finally {
-    await Deno.remove(workspace, { recursive: true });
-    await Deno.remove(stateBase, { recursive: true });
-  }
+  const task = config.tasks['agent:run'];
+  assert(task.includes('v0/agent/cli/henji_cli.ts run'));
+  assert(task.includes('--unstable-worker-options'));
+  assert(task.includes('--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME'));
+  assert(!task.includes('runtime_cli_launcher.sh'));
+  assert(!task.includes('HENJI_SESSION_STATE_ROOT'));
 });
 
 Deno.test('Slice 1 rejects a non-function default export and reports a Worker command error', async () => {
@@ -1165,30 +939,6 @@ Deno.test('Long Worker history records only the admitted user-turn request', asy
     accepted.proposal.providerEvidence?.requests.map((record) => record.request.phase),
     ['user_turn'],
   );
-  const evidenceStore = new FakeProviderEvidenceStore();
-  await evidenceStore.write(accepted.proposal.providerEvidence!);
-  const readback = await evidenceStore.read(
-    accepted.proposal.providerEvidence!.evidenceId,
-  );
-  assertEquals(
-    decodeProviderEvidence(encodeProviderEvidence(readback)),
-    readback,
-  );
-  const legacyWithoutPhase = {
-    ...readback,
-    requests: readback.requests.map((record) => ({
-      ...record,
-      request: Object.fromEntries(
-        Object.entries(record.request).filter(([key]) => key !== 'phase'),
-      ),
-    })),
-  };
-  const legacyReadback = decodeProviderEvidence(
-    JSON.stringify(legacyWithoutPhase),
-  );
-  assertEquals(legacyReadback.requests.map((record) => record.request.phase), [
-    undefined,
-  ]);
 });
 
 Deno.test('Provider timeout on long history is attributed to the admitted user turn', async () => {
@@ -1301,7 +1051,7 @@ Deno.test('Provider timeout on long history is attributed to the admitted user t
   assertEquals(failed.evidence.diagnosticId, diagnostic.diagnosticId);
 });
 
-Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/external bindings', async () => {
+Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in bindings', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-host-' });
   try {
     const modulePath = workerBuiltinModulePath('default');
@@ -1325,9 +1075,17 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     assertEquals(host.currentPosition().committedTurn, 1);
     await host.close();
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 5);
+    assert(saved.schemaVersion === 6);
     assertEquals(saved.definition, definition);
     assertEquals(saved.stateRevision, 2);
+    const { buildId, ...identityBeforeBuildId } = saved.turnExecutions[0].build;
+    assert(validateSessionRecordV6({
+      ...saved,
+      turnExecutions: [{
+        ...saved.turnExecutions[0],
+        build: { ...identityBeforeBuildId, buildId },
+      }],
+    }));
 
     const resumedHandle = await store.openExistingWorker(handle.id);
     const resumed = await WorkerHostSession.open({
@@ -1343,31 +1101,6 @@ Deno.test('Slices 4–6 commit Worker proposals durably and reopen built-in/exte
     assertEquals(resumed.currentPosition().committedTurn, 2);
     await resumed.close();
 
-    const externalPath = fixture('external_definition.ts');
-    const external = await readDefinitionRevision(externalPath, 'external');
-    const externalHandle = await store.allocateWorker('default', external);
-    const externalHost = await WorkerHostSession.open({
-      handle: externalHandle,
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition: external,
-      modulePath: externalPath,
-      physicalIoMode: 'provider-free',
-    });
-    assert((await externalHost.submit('read worker protocol')).ok);
-    await externalHost.close();
-    const externalSaved = await store.readWorker(externalHandle.id);
-    assert(externalSaved.schemaVersion === 5);
-    assertEquals(externalSaved.definition.kind, 'external');
-
-    const ephemeral = await createWorkerTuiSession({
-      persistence: 'none',
-      agent: 'default',
-      externalDefinitionPath: externalPath,
-      physicalIoMode: 'provider-free',
-    });
-    assert((await ephemeral.session.submit('read worker protocol')).ok);
-    await ephemeral.close();
     const planner = await createWorkerTuiSession({
       persistence: 'none',
       agent: 'planner',
@@ -1404,7 +1137,7 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
     );
     assertEquals(navigation.renameCurrent('  Release\nnotes  '), 'unchanged');
     const renamed = await store.readWorker(sessionId);
-    assert(renamed.schemaVersion === 5);
+    assert(renamed.schemaVersion === 6);
     assertEquals(renamed.title, 'Release notes');
     assertEquals(renamed.createdAt, createdAt);
     assertEquals(renamed.stateRevision, 2);
@@ -1417,7 +1150,7 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
     assertEquals(navigation.renameCurrent('Busy rename'), 'busy');
     assert((await activeTurn).ok);
     const committed = await store.readWorker(sessionId);
-    assert(committed.schemaVersion === 5);
+    assert(committed.schemaVersion === 6);
     assertEquals(committed.title, 'Release notes');
     assertEquals(committed.createdAt, createdAt);
     assertEquals(committed.stateRevision, 3);
@@ -1446,7 +1179,7 @@ Deno.test('Increment 28 renames the current durable Session and preserves its ti
   }
 });
 
-Deno.test('Worker execution artifacts correlate built-in/external settlement and diagnostics readback', async () => {
+Deno.test('Worker execution artifacts correlate built-in settlement and diagnostics readback', async () => {
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-worker-execution-artifact-',
   });
@@ -1470,32 +1203,10 @@ Deno.test('Worker execution artifacts correlate built-in/external settlement and
     }, { durability: 'yes', error: undefined });
     await builtin.close();
 
-    const external = await createWorkerTuiSession({
-      stateRoot,
-      persistence: 'none',
-      agent: 'default',
-      externalDefinitionPath: fixture('external_definition.ts'),
-      physicalIoMode: 'provider-free',
-      providerEvidenceStore: evidenceStore,
-      executionArtifactStore: artifacts,
-    });
-    const externalOutcome = await external.session.submit(
-      'read worker protocol external',
-    );
-    assert(externalOutcome.ok);
-    assertEquals(externalOutcome.executionArtifactDurability, 'yes');
-    await external.close();
-
     const listed = await artifacts.list();
-    assertEquals(listed.length, 2);
-    const ordered = [...listed].sort((left, right) =>
-      left.definition.kind.localeCompare(right.definition.kind)
-    );
-    assertEquals(ordered.map((artifact) => artifact.manifest.maxSteps), [12, 4]);
-    assertEquals(ordered.map((artifact) => artifact.definition.kind), [
-      'builtin',
-      'external',
-    ]);
+    assertEquals(listed.length, 1);
+    assertEquals(listed.map((artifact) => artifact.manifest.maxSteps), [12]);
+    assertEquals(listed[0].definition.resourceId, 'builtin/default');
     for (const artifact of listed) {
       assertEquals(artifact.storeResult, 'committed');
       assertEquals(artifact.acknowledgement, 'accepted_sent');
@@ -1549,23 +1260,26 @@ Deno.test('Worker execution artifacts correlate built-in/external settlement and
       readonly schemaVersion: number;
       readonly executions: readonly Record<string, unknown>[];
     };
-    assertEquals(payload.schemaVersion, 1);
-    assertEquals(payload.executions.length, 2);
+    assertEquals(payload.schemaVersion, 2);
+    assertEquals(payload.executions.length, 1);
     assertEquals(Object.keys(payload.executions[0]!), [
       'executionId',
       'settledAt',
       'sessionId',
       'turn',
-      'definitionKind',
+      'buildId',
+      'definition',
       'workerGeneration',
       'settlement',
       'providerEvidenceId',
     ]);
-    assertEquals(payload.executions.map((execution) => execution.turn), [1, 1]);
-    assertEquals(payload.executions.map((execution) => execution.definitionKind), [
-      'builtin',
-      'external',
-    ]);
+    assertEquals(payload.executions.map((execution) => execution.turn), [1]);
+    assertEquals(
+      payload.executions.map((execution) =>
+        (execution.definition as { readonly resourceId: string }).resourceId
+      ),
+      ['builtin/default'],
+    );
     const showOutput: string[] = [];
     const showStatus = await failureDiagnosticMain([
       'executions',
@@ -1704,7 +1418,7 @@ Deno.test('Worker execution artifact persistence failure is additive after a com
     assertEquals(host.currentPosition().committedTurn, 1);
     assertEquals(artifacts.writeCount, 1);
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 5);
+    assert(saved.schemaVersion === 6);
     await host.close();
   } finally {
     await Deno.remove(stateRoot, { recursive: true });
@@ -1764,54 +1478,6 @@ Deno.test('Worker execution artifact distinguishes Host store failure from commi
   }
 });
 
-Deno.test('Worker reads a legacy v1 record and upgrades it only on the next durable commit', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-v1-' });
-  try {
-    const modulePath = workerBuiltinModulePath('default');
-    const definition = await readDefinitionRevision(
-      modulePath,
-      'builtin',
-      'default',
-    );
-    const store = new DenoSessionStore(stateRoot, Deno.cwd());
-    const handle = await store.allocate('default');
-    const record: SessionRecord = {
-      schemaVersion: 1,
-      sessionId: handle.id,
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      createdAt: '2026-09-04T00:00:00.000Z',
-      updatedAt: '2026-09-04T00:00:00.000Z',
-      nextTurn: 2,
-      transcript: [
-        { role: 'user', content: { kind: 'text', text: 'legacy turn' } },
-        { role: 'assistant', content: { kind: 'text', text: 'legacy answer' } },
-      ],
-    };
-    handle.commit(record);
-    await handle.close();
-    const reopened = await store.openExistingWorker(record.sessionId);
-    const host = await WorkerHostSession.open({
-      handle: reopened,
-      workspaceRoot: Deno.cwd(),
-      agent: 'default',
-      definition,
-      modulePath,
-      physicalIoMode: 'provider-free',
-    });
-    assert((await host.submit('read worker protocol')).ok);
-    await host.close();
-    const upgraded = await store.readWorker(record.sessionId);
-    assertEquals(upgraded.schemaVersion, 5);
-    if (upgraded.schemaVersion !== 5) {
-      throw new Error('legacy record was not upgraded');
-    }
-    assertEquals(upgraded.definition, definition);
-  } finally {
-    await Deno.remove(stateRoot, { recursive: true });
-  }
-});
-
 Deno.test('Worker reuses an explicitly stored checkpoint after reopen', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-worker-context-' });
   try {
@@ -1866,18 +1532,10 @@ Deno.test('Worker reuses an explicitly stored checkpoint after reopen', async ()
   }
 });
 
-Deno.test('Slice 5 parses --definition with the existing persistence flags before startup', () => {
-  assertEquals(
-    parseTuiInvocation(['--definition', 'worker.ts', '--no-session']),
-    {
-      rawAgentName: undefined,
-      definitionPath: 'worker.ts',
-      persistence: 'none',
-    },
-  );
+Deno.test('Increment 32 rejects unmanaged --definition before startup', () => {
   let rejected = false;
   try {
-    parseTuiInvocation(['--agent', 'default', '--definition', 'worker.ts']);
+    parseTuiInvocation(['--definition', 'worker.ts', '--no-session']);
   } catch {
     rejected = true;
   }
@@ -2062,7 +1720,12 @@ Deno.test('WorkerHost emits no automatic compaction notice for long history', as
   let sessionId: string | undefined;
   try {
     const store = new DenoSessionStore(stateRoot, Deno.cwd());
-    const handle = await store.allocate('default');
+    const definition = await readDefinitionRevision(
+      workerBuiltinModulePath('default'),
+      'builtin',
+      'default',
+    );
+    const handle = await store.allocateWorker('default', definition);
     sessionId = handle.id;
     const transcript: Message[] = [];
     for (let turn = 1; turn <= 2; turn += 1) {
@@ -2079,14 +1742,32 @@ Deno.test('WorkerHost emits no automatic compaction notice for long history', as
       });
     }
     handle.commit({
-      schemaVersion: 1,
+      schemaVersion: 6,
       sessionId: handle.id,
       workspaceRoot: Deno.cwd(),
       agent: 'default',
       createdAt: '2026-09-04T00:00:00.000Z',
       updatedAt: '2026-09-04T00:00:00.000Z',
+      title: null,
+      stateRevision: 1,
       nextTurn: 3,
       transcript,
+      definition,
+      activeModel: ROOT_DEFAULT_MODEL_SELECTION,
+      modelChanges: [{
+        effectiveFromTurn: 1,
+        changedAt: '2026-09-04T00:00:00.000Z',
+        selection: ROOT_DEFAULT_MODEL_SELECTION,
+      }],
+      turnModels: [1, 2].map((turn) => ({
+        turn,
+        selection: ROOT_DEFAULT_MODEL_SELECTION,
+      })),
+      turnExecutions: [1, 2].map((turn) => ({
+        turn,
+        build: buildManifest(),
+        definition,
+      })),
     });
     await handle.close();
     const presentationEvents: unknown[] = [];
@@ -2148,6 +1829,7 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
+          startupSnapshot: { skillNames: [] },
           credentialAvailability: {
             authProfile: 'openrouter-api-key',
             status: 'unknown',
@@ -2194,15 +1876,22 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
   let sessionId: string | undefined;
   try {
     const store = new DenoSessionStore(stateRoot, Deno.cwd());
-    const handle = await store.allocate('default');
+    const definition = await readDefinitionRevision(
+      workerBuiltinModulePath('default'),
+      'builtin',
+      'default',
+    );
+    const handle = await store.allocateWorker('default', definition);
     sessionId = handle.id;
     handle.commit({
-      schemaVersion: 1,
+      schemaVersion: 6,
       sessionId: handle.id,
       workspaceRoot: Deno.cwd(),
       agent: 'default',
       createdAt: '2026-09-04T00:00:00.000Z',
       updatedAt: '2026-09-04T00:00:00.000Z',
+      title: null,
+      stateRevision: 1,
       nextTurn: 3,
       transcript: [
         { role: 'user', content: { kind: 'text', text: 'old task 1' } },
@@ -2210,13 +1899,24 @@ Deno.test('WorkerHost clears an automatic compaction notice when checkpoint ack 
         { role: 'user', content: { kind: 'text', text: 'old task 2' } },
         { role: 'assistant', content: { kind: 'text', text: 'old answer 2' } },
       ],
+      definition,
+      activeModel: ROOT_DEFAULT_MODEL_SELECTION,
+      modelChanges: [{
+        effectiveFromTurn: 1,
+        changedAt: '2026-09-04T00:00:00.000Z',
+        selection: ROOT_DEFAULT_MODEL_SELECTION,
+      }],
+      turnModels: [1, 2].map((turn) => ({
+        turn,
+        selection: ROOT_DEFAULT_MODEL_SELECTION,
+      })),
+      turnExecutions: [1, 2].map((turn) => ({
+        turn,
+        build: buildManifest(),
+        definition,
+      })),
     });
     await handle.close();
-    const definition = await readDefinitionRevision(
-      workerBuiltinModulePath('default'),
-      'builtin',
-      'default',
-    );
     const reopened = await store.openExistingWorker(sessionId);
     let adapter: ReturnType<typeof createTuiPresentationAdapter> | undefined;
     const presentationEvents: unknown[] = [];
@@ -2285,6 +1985,7 @@ Deno.test('WorkerHost terminates on pre-commit event delivery failure and preser
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
+          startupSnapshot: { skillNames: [] },
           credentialAvailability: {
             authProfile: 'openrouter-api-key',
             status: 'unknown',
@@ -2463,6 +2164,7 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
           },
+          startupSnapshot: { skillNames: [] },
           credentialAvailability: {
             authProfile: 'openrouter-api-key',
             status: 'unknown',
@@ -2525,7 +2227,7 @@ Deno.test('Slice 6 keeps a durable commit after commit-ack delivery failure with
     assertEquals(host.currentPosition().committedTurn, 1);
     assert(!host.isAvailable());
     const saved = await store.readWorker(handle.id);
-    assert(saved.schemaVersion === 5);
+    assert(saved.schemaVersion === 6);
     let rejected = false;
     try {
       await host.submit('must not replay');

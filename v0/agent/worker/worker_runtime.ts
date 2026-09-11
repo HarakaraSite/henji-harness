@@ -13,6 +13,7 @@ import {
   type ProviderEvidenceV1,
 } from '../provider/provider_evidence.ts';
 import type { WorkerAgentComposition } from '../worker_agent_api.ts';
+import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
 import type { WorkerRequestCounter } from './worker_physical_io.ts';
 import {
   type ModelSelection,
@@ -125,6 +126,10 @@ export class WorkerGeneration {
     private readonly inspectCredentialAvailability: (
       authProfile: ModelSelection['authProfile'],
     ) => Promise<CredentialAvailabilityStatus> = () => Promise.resolve('unknown'),
+    readonly startupSnapshot: {
+      readonly instructionSource?: AgentInstructionSource;
+      readonly skillNames: readonly string[];
+    } = { skillNames: [] },
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;

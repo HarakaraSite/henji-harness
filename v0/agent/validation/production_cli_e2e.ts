@@ -1,10 +1,10 @@
-import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceV2 } from '../provider/provider_evidence.ts';
 import {
   DenoProviderEvidenceStore,
   providerEvidencePaths,
 } from '../provider/provider_evidence_store.ts';
 import { sessionPaths } from '../session/session_store.ts';
-import type { WorkerExecutionArtifactV1 } from '../worker/worker_execution_artifact.ts';
+import type { WorkerExecutionArtifactV2 } from '../worker/worker_execution_artifact.ts';
 import {
   DenoWorkerExecutionArtifactStore,
   workerExecutionArtifactPaths,
@@ -20,18 +20,20 @@ import {
   type ProductionCliE2eReport,
 } from './production_cli_e2e_contract.ts';
 
-export const PRODUCTION_CLI_LAUNCHER =
-  '/home/masat.guest/src/henji-harness/v0/agent/runtime_cli_launcher.sh' as const;
+export const PRODUCTION_CLI_LAUNCHER = new URL('../../../dist/henji', import.meta.url).pathname;
 export const PRODUCTION_CLI_E2E_PATH = '/usr/bin:/bin' as const;
 const RUN_PARENT = '/tmp' as const;
 const RUN_PREFIX = 'henji-production-e2e-' as const;
 
 export interface ProductionCliCommandOptions {
-  readonly args: readonly [];
+  readonly args: readonly ['run'];
   readonly input: `${typeof PRODUCTION_CLI_E2E_TASK}\n`;
   readonly cwd: string;
   readonly clearEnv: true;
   readonly env: Readonly<{
+    HOME: string;
+    XDG_CONFIG_HOME: string;
+    XDG_DATA_HOME: string;
     XDG_STATE_HOME: string;
     PATH: typeof PRODUCTION_CLI_E2E_PATH;
   }>;
@@ -50,11 +52,11 @@ export interface ProductionCliE2eDependencies {
   readonly listExecutions?: (
     stateRoot: string,
     workspaceRoot: string,
-  ) => Promise<readonly WorkerExecutionArtifactV1[]>;
+  ) => Promise<readonly WorkerExecutionArtifactV2[]>;
   readonly listEvidence?: (
     stateRoot: string,
     workspaceRoot: string,
-  ) => Promise<readonly ProviderEvidenceV1[]>;
+  ) => Promise<readonly ProviderEvidenceV2[]>;
   readonly sessionTranscriptExists?: (
     stateRoot: string,
     workspaceRoot: string,
@@ -85,7 +87,7 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
   await validateOwnedDirectory(runRoot);
   await validateOwnedDirectory(workspaceRoot);
   await validateOwnedDirectory(stateBase);
-  const stateRoot = `${stateBase}/henji-harness`;
+  const stateRoot = `${stateBase}/henji-harness/v1`;
   const executionLayout = await workerExecutionArtifactPaths(stateRoot, workspaceRoot);
   const evidenceLayout = await providerEvidencePaths(stateRoot, workspaceRoot);
   return {
@@ -185,13 +187,13 @@ const defaultRunChild = async (
 const defaultListExecutions = (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly WorkerExecutionArtifactV1[]> =>
+): Promise<readonly WorkerExecutionArtifactV2[]> =>
   new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot).list();
 
 const defaultListEvidence = (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly ProviderEvidenceV1[]> =>
+): Promise<readonly ProviderEvidenceV2[]> =>
   new DenoProviderEvidenceStore(stateRoot, workspaceRoot).list();
 
 const defaultSessionTranscriptExists = async (
@@ -239,11 +241,14 @@ export const runProductionCliE2e = async (
     return preflightFailureReport('run_layout_failed', errorText(error), paths);
   }
   const options: ProductionCliCommandOptions = {
-    args: [],
+    args: ['run'],
     input: `${PRODUCTION_CLI_E2E_TASK}\n`,
     cwd: paths.workspaceRoot,
     clearEnv: true,
     env: {
+      HOME: Deno.env.get('HOME')!,
+      XDG_CONFIG_HOME: `${Deno.env.get('HOME')!}/.config`,
+      XDG_DATA_HOME: `${paths.runRoot}/data`,
       XDG_STATE_HOME: `${paths.runRoot}/state`,
       PATH: PRODUCTION_CLI_E2E_PATH,
     },
@@ -277,7 +282,7 @@ export const runProductionCliE2e = async (
     return preflightFailureReport('run_layout_failed', errorText(error), paths);
   }
 
-  let executions: readonly WorkerExecutionArtifactV1[] | null = null;
+  let executions: readonly WorkerExecutionArtifactV2[] | null = null;
   let executionReadError: string | undefined;
   try {
     executions = await (dependencies.listExecutions ?? defaultListExecutions)(
@@ -287,7 +292,7 @@ export const runProductionCliE2e = async (
   } catch (error) {
     executionReadError = errorText(error);
   }
-  let evidence: readonly ProviderEvidenceV1[] | null = null;
+  let evidence: readonly ProviderEvidenceV2[] | null = null;
   let evidenceReadError: string | undefined;
   try {
     evidence = await (dependencies.listEvidence ?? defaultListEvidence)(

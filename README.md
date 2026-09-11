@@ -16,7 +16,7 @@ planner defaultを使う。footerは1段目へbusy開始からの経過時間を
 
 root providerは既定のOpenRouterに加え、起動時に`henji --root-provider openai`でOpenAI direct
 Responses APIを選べる。OpenAI Platform API keyは
-`/home/masat.guest/.config/henji-harness/openai-api-key`からrequest時に読み、OpenRouterを使うdelegated
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/openai-api-key`からrequest時に読み、OpenRouterを使うdelegated
 plannerとSonar `web_search`は従来のOpenRouter credentialを独立して使う。同一Session内のprovider切替UIは
 `/provider`から利用できる。OpenAIの初期curated listは`gpt-5.6-sol`、`gpt-5.6-luna`、
 `gpt-5.6-terra`、`gpt-6-astra`である。
@@ -24,6 +24,33 @@ plannerとSonar `web_search`は従来のOpenRouter credentialを独立して使�
 OpenRouter requestのdeadlineはTUI起動時の`--provider-timeout-ms N`で変更でき、未指定時は120,000 msである。
 同じ起動内のroot、delegated planner、context compactionへrequest単位で適用し、Sessionには保存しない。
 deadline到達時は`provider deadline exceeded`と表示し、自動retryやmodel fallbackは行わない。
+
+## Standalone executable
+
+Deno 2.9.4を使うLinux ARM64の開発checkoutでは、次のcommandでrepositoryや別途導入したDenoへruntime依存
+しない単一executableを作れる。
+
+```sh
+deno task --config deno.v0.json henji:compile
+```
+
+既定outputは`dist/henji`で、`--output /path/to/henji`をtask引数として指定できる。完成したbinaryは任意pathへ
+移動でき、TUI、`run`、`sessions`、`diagnostics`、`--version`を同じentryから提供する。build taskは既存の
+installed `henji`を自動置換しない。
+
+```sh
+./dist/henji --version
+./dist/henji diagnostics runtime
+printf '依頼内容\n' | ./dist/henji run
+./dist/henji sessions list
+```
+
+runtime配置は`diagnostics runtime`からcredential値を含めず確認できる。configは
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、将来のmanaged dataは
+`${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Sessionと診断stateは
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`がauthorityである。Increment 32以前のstateは移行・削除
+せず、新binaryからは読み込まない。workspace `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換
+Skillはinstallなしに発見する。
 
 現在は開発中であり、詳細は[構想](docs/concepts/experience-driven-self-revision.md)、[architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を正本とする。
 

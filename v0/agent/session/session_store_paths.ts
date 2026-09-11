@@ -1,4 +1,5 @@
 import { SessionStoreError } from './session_store_contract.ts';
+import { readRuntimeEnvironment, resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 const encoder = new TextEncoder();
 
@@ -37,48 +38,22 @@ export const workspaceDigest = async (
 };
 
 export const selectStateRoot = (
-  env: Readonly<Record<string, string | undefined>> = Deno.env.toObject(),
+  env: Readonly<Record<string, string | undefined>> = readRuntimeEnvironment(),
 ): string => {
-  const xdg = env.XDG_STATE_HOME;
-  if (xdg !== undefined && xdg.trim() !== '') {
-    if (
-      !xdg.startsWith('/') || xdg.includes('\0') || xdg.includes('\r') ||
-      xdg.includes('\n')
-    ) {
-      throw new SessionStoreError('session_io_failure');
-    }
-    return `${xdg}/henji-harness`;
+  try {
+    return resolveRuntimePaths({ env }).stateRoot;
+  } catch {
+    throw new SessionStoreError('session_io_failure');
   }
-  const home = env.HOME;
-  if (home !== undefined && home.trim() !== '') {
-    if (
-      !home.startsWith('/') || home.includes('\0') || home.includes('\r') ||
-      home.includes('\n')
-    ) {
-      throw new SessionStoreError('session_io_failure');
-    }
-    return `${home}/.local/state/henji-harness`;
-  }
-  throw new SessionStoreError('session_io_failure');
 };
 
 /** Resolve the launcher-owned root when production startup has already completed preflight. */
 export const launcherStateRoot = (): string => {
-  let supplied: string | undefined;
   try {
-    supplied = Deno.env.get('HENJI_SESSION_STATE_ROOT');
+    return resolveRuntimePaths().stateRoot;
   } catch {
-    // Permission-free direct callers use the explicit XDG/HOME seam below.
+    throw new SessionStoreError('session_io_failure');
   }
-  if (supplied !== undefined) {
-    if (
-      supplied.trim() === '' || !supplied.startsWith('/') ||
-      supplied.includes('\0') ||
-      supplied.includes('\r') || supplied.includes('\n')
-    ) throw new SessionStoreError('session_io_failure');
-    return supplied;
-  }
-  return selectStateRoot();
 };
 
 export const sessionPaths = async (
