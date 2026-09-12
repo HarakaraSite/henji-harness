@@ -1,18 +1,11 @@
-import {
-  DenoFailureDiagnosticStore,
-  FailureDiagnosticStoreError,
-} from '../session/failure_diagnostic_store.ts';
+import { FailureDiagnosticStoreError } from '../session/failure_diagnostic_store.ts';
 import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
-import {
-  DenoProviderEvidenceStore,
-  ProviderEvidenceStoreError,
-} from '../provider/provider_evidence_store.ts';
-import {
-  DenoWorkerExecutionArtifactStore,
-  WorkerExecutionArtifactStoreError,
-} from '../worker/worker_execution_artifact_store.ts';
+import { ProviderEvidenceStoreError } from '../provider/provider_evidence_store.ts';
+import { WorkerExecutionArtifactStoreError } from '../worker/worker_execution_artifact_store.ts';
 import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
+import { HistoryStoreError } from '../history/history_store_contract.ts';
 
 const encoder = new TextEncoder();
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -30,6 +23,7 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   worker_execution_artifact_not_found: 'Worker execution artifact not found',
   worker_execution_artifact_invalid: 'Worker execution artifact invalid',
   worker_execution_artifact_io_failure: 'Worker execution artifact I/O failure',
+  history_busy: 'history busy',
 };
 
 export type FailureDiagnosticCliCommand =
@@ -153,8 +147,10 @@ export const main = async (
       dependencies.workspaceRoot,
     );
     const stateRoot = dependencies.stateRoot ?? resolveStateRoot();
+    const history = new SqliteHistoryStore(stateRoot, workspace);
+    await history.initialize();
     if (command.kind === 'execution_list' || command.kind === 'execution_show') {
-      const executionStore = new DenoWorkerExecutionArtifactStore(stateRoot, workspace);
+      const executionStore = history.executionArtifacts;
       if (command.kind === 'execution_list') {
         const executions = await executionStore.list();
         await writeOutput(
@@ -176,7 +172,7 @@ export const main = async (
         );
       }
     } else if (command.kind === 'evidence_list') {
-      const evidenceStore = new DenoProviderEvidenceStore(stateRoot, workspace);
+      const evidenceStore = history.providerEvidence;
       const evidence = await evidenceStore.list();
       await writeOutput(
         dependencies.writeStdout,
@@ -184,7 +180,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'evidence_show') {
-      const evidenceStore = new DenoProviderEvidenceStore(stateRoot, workspace);
+      const evidenceStore = history.providerEvidence;
       let evidence;
       try {
         evidence = await evidenceStore.read(command.id);
@@ -204,7 +200,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'list') {
-      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
+      const store = history.diagnostics;
       const diagnostics = await store.list();
       if (!diagnostics.every(isFailureDiagnostic)) {
         throw new FailureDiagnosticStoreError('diagnostic_invalid');
@@ -215,7 +211,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'latest') {
-      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
+      const store = history.diagnostics;
       const diagnostics = await store.list();
       const latest = diagnostics.at(-1);
       if (latest === undefined) {
@@ -227,7 +223,7 @@ export const main = async (
         'stdout',
       );
     } else if (command.kind === 'show') {
-      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
+      const store = history.diagnostics;
       const diagnostic = await store.read(command.id);
       await writeOutput(
         dependencies.writeStdout,
@@ -235,7 +231,7 @@ export const main = async (
         'stdout',
       );
     } else {
-      const store = new DenoFailureDiagnosticStore(stateRoot, workspace);
+      const store = history.diagnostics;
       await store.delete(command.id);
       await writeOutput(
         dependencies.writeStdout,
@@ -245,7 +241,24 @@ export const main = async (
     }
     return 0;
   } catch (error) {
-    const code = error instanceof FailureDiagnosticStoreError
+    const code = error instanceof HistoryStoreError
+      ? error.code === 'history_busy'
+        ? command.kind === 'list' || command.kind === 'latest' ||
+            command.kind === 'show' || command.kind === 'delete'
+          ? 'diagnostic_busy'
+          : 'history_busy'
+        : command.kind === 'evidence_list' || command.kind === 'evidence_show'
+        ? error.code === 'history_invalid'
+          ? 'provider_evidence_invalid'
+          : 'provider_evidence_io_failure'
+        : command.kind === 'execution_list' || command.kind === 'execution_show'
+        ? error.code === 'history_invalid'
+          ? 'worker_execution_artifact_invalid'
+          : 'worker_execution_artifact_io_failure'
+        : error.code === 'history_invalid'
+        ? 'diagnostic_invalid'
+        : 'diagnostic_io_failure'
+      : error instanceof FailureDiagnosticStoreError
       ? error.code
       : error instanceof ProviderEvidenceStoreError
       ? error.code

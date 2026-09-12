@@ -70,6 +70,7 @@ import {
 } from './worker_host_outcome.ts';
 import { HostMessageQueue } from './worker_host_queue.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
+import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
@@ -78,13 +79,15 @@ const validCredentialAvailability = (
   selection: ModelSelection,
 ): value is CredentialAvailability =>
   value !== undefined && value.authProfile === selection.authProfile &&
-  (value.status === 'present' || value.status === 'missing' || value.status === 'unknown');
+  (value.status === 'present' || value.status === 'missing' ||
+    value.status === 'unknown');
 const validStartupSnapshot = (
   value: WorkerReadyMessage['startupSnapshot'],
 ): value is NonNullable<WorkerReadyMessage['startupSnapshot']> => {
   if (value === undefined || !Array.isArray(value.skillNames)) return false;
   if (
-    value.instructionSource !== undefined && value.instructionSource !== 'AGENTS.md' &&
+    value.instructionSource !== undefined &&
+    value.instructionSource !== 'AGENTS.md' &&
     value.instructionSource !== 'AGENTS.MD'
   ) return false;
   return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
@@ -122,6 +125,7 @@ export class WorkerRecallSelectionError extends Error {
   }
 }
 type ActiveWorkerExecution = {
+  readonly taskId: string;
   readonly executionId: string;
   readonly createdAt: string;
   readonly turn: number;
@@ -130,7 +134,7 @@ type ActiveWorkerExecution = {
   readonly baseStateRevision: number;
   readonly protocolTrace: WorkerExecutionTraceEntry[];
   storeResult: WorkerExecutionStoreResult;
-  storeError?: 'session_io_failure' | 'session_invalid';
+  storeError?: 'session_io_failure' | 'session_invalid' | 'history_busy';
   proposedStateRevision?: number;
   committedStateRevision?: number;
   acknowledgement: WorkerExecutionAcknowledgement;
@@ -207,9 +211,9 @@ export class WorkerHostSession {
     this.turnModels = record === undefined
       ? []
       : structuredClone(record.turnModels) as SessionTurnModelAttribution[];
-    this.turnExecutions = record === undefined
-      ? []
-      : structuredClone(record.turnExecutions) as SessionTurnExecutionAttribution[];
+    this.turnExecutions = record === undefined ? [] : structuredClone(
+      record.turnExecutions,
+    ) as SessionTurnExecutionAttribution[];
     this.createdAt = record?.createdAt ?? new Date().toISOString();
     this.title = record?.title ?? null;
     this.legacyModelNotice = false;
@@ -282,7 +286,9 @@ export class WorkerHostSession {
     else this.activeExecution.protocolTrace.push(entry);
   }
 
-  private send(command: import('./worker_protocol.ts').WorkerHostCommand): void {
+  private send(
+    command: import('./worker_protocol.ts').WorkerHostCommand,
+  ): void {
     const subtype = workerHostCommandSubtype(command);
     this.trace(
       'host_to_worker',
@@ -299,7 +305,12 @@ export class WorkerHostSession {
     const correlation = 'correlation' in message && message.correlation !== undefined
       ? message.correlation
       : this.currentCorrelation ?? this.correlation('worker_error');
-    this.trace('worker_to_host', subtype.kind, subtype.semanticSubtype, correlation);
+    this.trace(
+      'worker_to_host',
+      subtype.kind,
+      subtype.semanticSubtype,
+      correlation,
+    );
   }
 
   private receive(message: WorkerToHostMessage): void {
@@ -347,7 +358,10 @@ export class WorkerHostSession {
 
   private observeRequestCount(outcome: LoopOutcome): void {
     const count = outcome.runtimeProviderRequestCount;
-    if (count !== undefined && Number.isSafeInteger(count) && count >= this.runtimeRequestCount) {
+    if (
+      count !== undefined && Number.isSafeInteger(count) &&
+      count >= this.runtimeRequestCount
+    ) {
       this.runtimeRequestCount = count;
     }
   }
@@ -370,7 +384,8 @@ export class WorkerHostSession {
     providerEvidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
   ): Promise<LoopOutcome> {
-    const evidenceId = providerEvidence?.evidenceId ?? outcome.providerEvidenceId;
+    const evidenceId = providerEvidence?.evidenceId ??
+      outcome.providerEvidenceId;
     let evidenceDurability = providerEvidence === undefined
       ? outcome.providerEvidenceDurability
       : 'unknown' as const;
@@ -445,6 +460,59 @@ export class WorkerHostSession {
     return settled;
   }
 
+  private attributedEvidence(
+    evidence: ProviderEvidenceV1 | undefined,
+  ): ProviderEvidenceV3 | undefined {
+    return evidence === undefined ? undefined : {
+      ...structuredClone(evidence),
+      schemaVersion: 3,
+      sessionId: this.sessionId,
+      build: structuredClone(this.build),
+      definition: structuredClone(this.options.definition),
+    };
+  }
+
+  private historyExecutionAttribution() {
+    return {
+      agent: this.options.agent,
+      model: structuredClone(this.modelSelection),
+      build: structuredClone(this.build),
+      definition: structuredClone(this.options.definition),
+      ...(this.currentManifest === undefined ? {} : {
+        manifest: structuredClone(this.currentManifest),
+      }),
+      instanceCorrelation: this.instanceCorrelation,
+      workerGeneration: this.workerGeneration,
+    };
+  }
+
+  private applyHistoryCapture(
+    outcome: LoopOutcome,
+    evidence: ProviderEvidenceV1 | undefined,
+    diagnostic: FailureDiagnosticV1 | undefined,
+    capture: HistoryCaptureResult,
+  ): LoopOutcome {
+    const settled: LoopOutcome = {
+      ...outcome,
+      ...(evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId }),
+      ...(capture.evidenceDurability === undefined ? {} : {
+        providerEvidenceDurability: capture.evidenceDurability,
+      }),
+      ...(capture.evidencePersistenceError === undefined ? {} : {
+        providerEvidencePersistenceError: capture.evidencePersistenceError,
+      }),
+      ...(diagnostic === undefined ? {} : { diagnostic }),
+      ...(capture.diagnosticDurability === undefined ? {} : {
+        diagnosticDurability: capture.diagnosticDurability,
+      }),
+      ...(capture.diagnosticPersistenceError === undefined ? {} : {
+        diagnosticPersistenceError: capture.diagnosticPersistenceError,
+      }),
+    };
+    this.observeRequestCount(settled);
+    return settled;
+  }
+
   private async persistExecutionArtifact(
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
@@ -452,8 +520,46 @@ export class WorkerHostSession {
     if (execution.artifactWritten) return outcome;
     execution.artifactWritten = true;
     const store = this.options.executionArtifactStore;
-    if (store === undefined || this.currentManifest === undefined) return outcome;
-    const artifact: WorkerExecutionArtifactV3 = {
+    const history = this.options.historyPersistence;
+    if (
+      (store === undefined && history === undefined) ||
+      this.currentManifest === undefined
+    ) {
+      return outcome;
+    }
+    const artifact = this.executionArtifact(execution, outcome);
+    try {
+      if (history !== undefined) history.recordPostCommitObservation(artifact);
+      else await store!.write(artifact);
+      return {
+        ...outcome,
+        executionArtifactId: execution.executionId,
+        executionArtifactDurability: 'yes',
+        executionArtifactPersistenceError: undefined,
+      };
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null &&
+          (error as { readonly code?: unknown }).code ===
+            'worker_execution_artifact_invalid'
+        ? 'worker_execution_artifact_invalid' as const
+        : 'worker_execution_artifact_io_failure' as const;
+      return {
+        ...outcome,
+        executionArtifactId: execution.executionId,
+        executionArtifactDurability: 'failed',
+        executionArtifactPersistenceError: code,
+      };
+    }
+  }
+
+  private executionArtifact(
+    execution: ActiveWorkerExecution,
+    outcome: LoopOutcome,
+  ): WorkerExecutionArtifactV3 {
+    if (this.currentManifest === undefined) {
+      throw new Error('Worker manifest unavailable for execution artifact');
+    }
+    return {
       schemaVersion: 3,
       executionId: execution.executionId,
       createdAt: execution.createdAt,
@@ -471,7 +577,9 @@ export class WorkerHostSession {
         recall: {
           schemaVersion: 1,
           sourceExecutionId: execution.recalledContext.sourceExecutionId,
-          projectedContext: recalledExecutionProjectionText(execution.recalledContext),
+          projectedContext: recalledExecutionProjectionText(
+            execution.recalledContext,
+          ),
         },
       }),
       baseStateRevision: execution.baseStateRevision,
@@ -505,26 +613,6 @@ export class WorkerHostSession {
       effectCommitRelation: 'not_transactional',
       automaticReplay: false,
     };
-    try {
-      await store.write(artifact);
-      return {
-        ...outcome,
-        executionArtifactId: execution.executionId,
-        executionArtifactDurability: 'yes',
-        executionArtifactPersistenceError: undefined,
-      };
-    } catch (error) {
-      const code = typeof error === 'object' && error !== null &&
-          (error as { readonly code?: unknown }).code === 'worker_execution_artifact_invalid'
-        ? 'worker_execution_artifact_invalid' as const
-        : 'worker_execution_artifact_io_failure' as const;
-      return {
-        ...outcome,
-        executionArtifactId: execution.executionId,
-        executionArtifactDurability: 'failed',
-        executionArtifactPersistenceError: code,
-      };
-    }
   }
 
   private async settleExecution(
@@ -533,7 +621,78 @@ export class WorkerHostSession {
     providerEvidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
   ): Promise<LoopOutcome> {
-    const settled = await this.persistArtifacts(outcome, providerEvidence, diagnostic);
+    if (this.options.historyPersistence !== undefined) {
+      try {
+        let capturedOutcome: LoopOutcome | undefined;
+        const capture = this.options.historyPersistence
+          .settleNonCanonicalExecution({
+            taskId: execution.taskId,
+            executionId: execution.executionId,
+            createdAt: execution.createdAt,
+            sessionCorrelation: this.sessionId,
+            ...(this.options.durableCanonicalHistory === true &&
+                this.options.handle.record !== undefined
+              ? { canonicalSessionId: this.sessionId }
+              : {}),
+            turn: execution.turn,
+            task: execution.command.task,
+            baseStateRevision: execution.baseStateRevision,
+            ...this.historyExecutionAttribution(),
+            ...(execution.recalledContext === undefined ? {} : {
+              recalledContext: execution.recalledContext,
+            }),
+            outcome,
+            ...(providerEvidence === undefined ? {} : {
+              evidence: this.attributedEvidence(providerEvidence),
+            }),
+            ...(diagnostic === undefined ? {} : { diagnostic }),
+            artifactForCapture: (captured) => {
+              capturedOutcome = this.applyHistoryCapture(
+                outcome,
+                providerEvidence,
+                diagnostic,
+                captured,
+              );
+              return this.executionArtifact(execution, capturedOutcome);
+            },
+          });
+        const settled = capturedOutcome ?? this.applyHistoryCapture(
+          outcome,
+          providerEvidence,
+          diagnostic,
+          capture,
+        );
+        execution.artifactWritten = true;
+        return {
+          ...settled,
+          executionArtifactId: execution.executionId,
+          executionArtifactDurability: 'yes',
+          executionArtifactPersistenceError: undefined,
+        };
+      } catch (error) {
+        const busy = typeof error === 'object' && error !== null &&
+          (error as { readonly code?: unknown }).code === 'history_busy';
+        const failed: LoopOutcome = {
+          ...outcome,
+          ...(providerEvidence === undefined ? {} : {
+            providerEvidenceId: providerEvidence.evidenceId,
+            providerEvidenceDurability: 'failed',
+            providerEvidencePersistenceError: 'provider_evidence_io_failure',
+          }),
+          ...(diagnostic === undefined ? {} : {
+            diagnostic,
+            diagnosticDurability: 'failed',
+            diagnosticPersistenceError: busy ? 'diagnostic_busy' : 'diagnostic_io_failure',
+          }),
+        };
+        return await this.persistExecutionArtifact(execution, failed);
+      }
+    }
+    const settled = await this.persistArtifacts(
+      outcome,
+      providerEvidence,
+      diagnostic,
+    );
     return await this.persistExecutionArtifact(execution, settled);
   }
 
@@ -603,7 +762,9 @@ export class WorkerHostSession {
         );
       }
       const expectedRole = this.options.agent === 'planner' ? 'planner' : 'parent';
-      if (ready.manifest !== undefined && ready.manifest.role !== expectedRole) {
+      if (
+        ready.manifest !== undefined && ready.manifest.role !== expectedRole
+      ) {
         throw new WorkerHostStartupError(
           'role_mismatch',
           'module_validation',
@@ -613,12 +774,18 @@ export class WorkerHostSession {
       if (
         ready.manifest === undefined ||
         !sameModelSelection(ready.manifest.rootModel, this.modelSelection) ||
-        !sameModelSelection(ready.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
+        !sameModelSelection(
+          ready.manifest.plannerModel,
+          PLANNER_DEFAULT_MODEL_SELECTION,
+        ) ||
         ready.manifest.profileId !== modelRouteProfileId(this.modelSelection) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
         !validStartupSnapshot(ready.startupSnapshot) ||
-        !validCredentialAvailability(ready.credentialAvailability, this.modelSelection)
+        !validCredentialAvailability(
+          ready.credentialAvailability,
+          this.modelSelection,
+        )
       ) {
         throw new WorkerHostStartupError(
           'manifest_invalid',
@@ -628,7 +795,9 @@ export class WorkerHostSession {
       }
       this.currentManifest = ready.manifest;
       this.currentStartupSnapshot = ready.startupSnapshot;
-      this.credentialAvailability = structuredClone(ready.credentialAvailability);
+      this.credentialAvailability = structuredClone(
+        ready.credentialAvailability,
+      );
     } finally {
       this.currentCorrelation = undefined;
     }
@@ -731,7 +900,9 @@ export class WorkerHostSession {
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
     if (this.closed || this.unavailable) return 'unavailable';
     if (this.active || this.currentCorrelation !== undefined) return 'busy';
-    if (!isModelSelection(selection)) throw new RangeError('invalid model selection');
+    if (!isModelSelection(selection)) {
+      throw new RangeError('invalid model selection');
+    }
     if (sameModelSelection(this.modelSelection, selection)) return 'unchanged';
     const changedAt = new Date().toISOString();
     const nextChanges: SessionModelChange[] = [
@@ -760,7 +931,9 @@ export class WorkerHostSession {
       turnModels: structuredClone(this.turnModels),
       turnExecutions: structuredClone(this.turnExecutions),
     };
-    if (!validateSessionRecordV6(persisted)) throw new Error('model selection record invalid');
+    if (!validateSessionRecordV6(persisted)) {
+      throw new Error('model selection record invalid');
+    }
     this.options.handle.commit(persisted);
     const correlation: WorkerCorrelation = {
       ...this.correlation('select-model-' + crypto.randomUUID().toLowerCase()),
@@ -781,12 +954,17 @@ export class WorkerHostSession {
         message.kind === 'worker_error' || !message.accepted ||
         message.manifest === undefined ||
         !sameModelSelection(message.manifest.rootModel, selection) ||
-        !sameModelSelection(message.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION) ||
+        !sameModelSelection(
+          message.manifest.plannerModel,
+          PLANNER_DEFAULT_MODEL_SELECTION,
+        ) ||
         message.manifest.profileId !== modelRouteProfileId(selection) ||
         !validCredentialAvailability(message.credentialAvailability, selection)
       ) throw new Error('Worker rejected model selection');
       this.currentManifest = message.manifest;
-      this.credentialAvailability = structuredClone(message.credentialAvailability);
+      this.credentialAvailability = structuredClone(
+        message.credentialAvailability,
+      );
       this.modelSelection = structuredClone(selection);
       this.modelChanges = nextChanges;
       this.stateRevision = nextRevision;
@@ -827,7 +1005,9 @@ export class WorkerHostSession {
       turnModels: structuredClone(this.turnModels),
       turnExecutions: structuredClone(this.turnExecutions),
     };
-    if (!validateSessionRecordV6(persisted)) throw new Error('session title record invalid');
+    if (!validateSessionRecordV6(persisted)) {
+      throw new Error('session title record invalid');
+    }
     this.options.handle.commit(persisted);
     this.title = title;
     this.stateRevision = nextRevision;
@@ -838,7 +1018,10 @@ export class WorkerHostSession {
     readonly sourceExecutionId: string;
     readonly evidence: 'available' | 'unavailable';
   }> {
-    if (this.closed || this.unavailable || this.options.executionArtifactStore === undefined) {
+    if (
+      this.closed || this.unavailable ||
+      this.options.executionArtifactStore === undefined
+    ) {
       throw new WorkerRecallSelectionError('unavailable');
     }
     if (this.active || this.currentCorrelation !== undefined) {
@@ -851,12 +1034,15 @@ export class WorkerHostSession {
     } catch {
       throw new WorkerRecallSelectionError('failed');
     }
-    if (this.closed || this.unavailable) throw new WorkerRecallSelectionError('unavailable');
+    if (this.closed || this.unavailable) {
+      throw new WorkerRecallSelectionError('unavailable');
+    }
     if (this.active || this.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
     const eligible = artifacts.filter((artifact) =>
-      artifact.sessionId === this.sessionId && artifact.settlement === 'uncommitted'
+      artifact.sessionId === this.sessionId &&
+      artifact.settlement === 'uncommitted'
     );
     let selected: (typeof eligible)[number] | undefined;
     if (id === undefined) {
@@ -870,7 +1056,9 @@ export class WorkerHostSession {
       if (matches.length > 1) throw new WorkerRecallSelectionError('ambiguous');
       selected = matches[0];
     }
-    if (selected === undefined) throw new WorkerRecallSelectionError('not_found');
+    if (selected === undefined) {
+      throw new WorkerRecallSelectionError('not_found');
+    }
     let recalled: RecalledExecutionContextV1;
     try {
       recalled = await resolveRecalledExecutionContext({
@@ -882,7 +1070,9 @@ export class WorkerHostSession {
     } catch {
       throw new WorkerRecallSelectionError('failed');
     }
-    if (this.closed || this.unavailable) throw new WorkerRecallSelectionError('unavailable');
+    if (this.closed || this.unavailable) {
+      throw new WorkerRecallSelectionError('unavailable');
+    }
     if (this.active || this.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
@@ -915,7 +1105,11 @@ export class WorkerHostSession {
       admittedRecall !== undefined &&
       (admittedRecall.sessionId !== this.sessionId ||
         admittedRecall.settlement !== 'uncommitted')
-    ) throw new RangeError('recalled execution context does not match current Session');
+    ) {
+      throw new RangeError(
+        'recalled execution context does not match current Session',
+      );
+    }
     if (recalledContext === undefined) this.pendingRecall = undefined;
     this.active = true;
     const correlation = this.correlation(
@@ -923,10 +1117,15 @@ export class WorkerHostSession {
     );
     this.currentCorrelation = correlation;
     const execution: ActiveWorkerExecution = {
+      taskId: crypto.randomUUID().toLowerCase(),
       executionId: crypto.randomUUID().toLowerCase(),
       createdAt: new Date().toISOString(),
       turn: this.nextTurn,
-      command: { kind: 'turn', correlation: structuredClone(correlation), task },
+      command: {
+        kind: 'turn',
+        correlation: structuredClone(correlation),
+        task,
+      },
       ...(admittedRecall === undefined ? {} : {
         recalledContext: structuredClone(admittedRecall),
       }),
@@ -950,8 +1149,17 @@ export class WorkerHostSession {
         });
       } catch {
         this.markUnavailable();
-        const outcome = failedOutcome(task, this.transcript, 'Worker transport unavailable');
-        const settled = await this.settleExecution(execution, outcome, undefined, undefined);
+        const outcome = failedOutcome(
+          task,
+          this.transcript,
+          'Worker transport unavailable',
+        );
+        const settled = await this.settleExecution(
+          execution,
+          outcome,
+          undefined,
+          undefined,
+        );
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
       }
@@ -975,7 +1183,8 @@ export class WorkerHostSession {
           diagnostic,
         );
         if (
-          diagnostic?.stage === 'cancellation_cleanup' && diagnostic.code === 'cleanup_error'
+          diagnostic?.stage === 'cancellation_cleanup' &&
+          diagnostic.code === 'cleanup_error'
         ) this.markUnavailable();
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
@@ -983,7 +1192,12 @@ export class WorkerHostSession {
       if (message.kind === 'worker_error') {
         this.markUnavailable();
         const outcome = failedOutcome(task, this.transcript, message.message);
-        const settled = await this.settleExecution(execution, outcome, undefined, undefined);
+        const settled = await this.settleExecution(
+          execution,
+          outcome,
+          undefined,
+          undefined,
+        );
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
       }
@@ -1026,10 +1240,107 @@ export class WorkerHostSession {
         };
       const diagnostic = message.diagnostic ?? proposedOutcome.diagnostic;
       execution.proposedStateRevision = record.stateRevision;
+      let committed: LoopOutcome;
       try {
-        this.options.handle.commit(record);
+        if (
+          this.options.historyPersistence !== undefined &&
+          this.options.durableCanonicalHistory === true
+        ) {
+          const capture = this.options.historyPersistence.commitCanonicalTurn({
+            taskId: execution.taskId,
+            executionId: execution.executionId,
+            createdAt: execution.createdAt,
+            sessionCorrelation: this.sessionId,
+            canonicalSessionId: this.sessionId,
+            turn: execution.turn,
+            task,
+            baseStateRevision: execution.baseStateRevision,
+            ...this.historyExecutionAttribution(),
+            ...(execution.recalledContext === undefined ? {} : {
+              recalledContext: execution.recalledContext,
+            }),
+            record,
+            outcome: proposedOutcome,
+            ...(message.providerEvidence === undefined ? {} : {
+              evidence: this.attributedEvidence(message.providerEvidence),
+            }),
+            ...(diagnostic === undefined ? {} : { diagnostic }),
+            artifactForCapture: (captured) => {
+              const capturedOutcome = this.applyHistoryCapture(
+                proposedOutcome,
+                message.providerEvidence,
+                diagnostic,
+                captured,
+              );
+              return this.executionArtifact({
+                ...execution,
+                committedStateRevision: record.stateRevision,
+                storeResult: 'committed',
+                acknowledgement: 'not_sent',
+                settlement: 'committed_observation_pending',
+              }, capturedOutcome);
+            },
+          });
+          if (this.options.handle.acceptCommitted === undefined) {
+            throw new Error(
+              'SQLite history handle cannot accept an atomic commit',
+            );
+          }
+          this.options.handle.acceptCommitted(record);
+          committed = this.applyHistoryCapture(
+            proposedOutcome,
+            message.providerEvidence,
+            diagnostic,
+            capture,
+          );
+        } else {
+          this.options.handle.commit(record);
+          if (this.options.historyPersistence !== undefined) {
+            let capturedOutcome: LoopOutcome | undefined;
+            const capture = this.options.historyPersistence
+              .settleNonCanonicalExecution({
+                taskId: execution.taskId,
+                executionId: execution.executionId,
+                createdAt: execution.createdAt,
+                sessionCorrelation: this.sessionId,
+                turn: execution.turn,
+                task,
+                baseStateRevision: execution.baseStateRevision,
+                ...this.historyExecutionAttribution(),
+                ...(execution.recalledContext === undefined ? {} : {
+                  recalledContext: execution.recalledContext,
+                }),
+                outcome: proposedOutcome,
+                ...(message.providerEvidence === undefined ? {} : {
+                  evidence: this.attributedEvidence(message.providerEvidence),
+                }),
+                ...(diagnostic === undefined ? {} : { diagnostic }),
+                artifactForCapture: (captured) => {
+                  capturedOutcome = this.applyHistoryCapture(
+                    proposedOutcome,
+                    message.providerEvidence,
+                    diagnostic,
+                    captured,
+                  );
+                  return this.executionArtifact(execution, capturedOutcome);
+                },
+              });
+            committed = capturedOutcome ?? this.applyHistoryCapture(
+              proposedOutcome,
+              message.providerEvidence,
+              diagnostic,
+              capture,
+            );
+          } else {
+            committed = await this.persistArtifacts(
+              proposedOutcome,
+              message.providerEvidence,
+              diagnostic,
+            );
+          }
+        }
         execution.storeResult = 'committed';
-      } catch {
+      } catch (error) {
         try {
           this.send({
             kind: 'commit_acknowledgement',
@@ -1042,7 +1353,10 @@ export class WorkerHostSession {
           this.markUnavailable();
         }
         execution.storeResult = 'failed';
-        execution.storeError = 'session_io_failure';
+        execution.storeError = typeof error === 'object' && error !== null &&
+            (error as { readonly code?: unknown }).code === 'history_busy'
+          ? 'history_busy'
+          : 'session_io_failure';
         const outcome = failedOutcome(
           task,
           this.transcript,
@@ -1060,16 +1374,13 @@ export class WorkerHostSession {
       this.transcript = structuredClone(record.transcript) as Message[];
       this.nextTurn = record.nextTurn;
       this.stateRevision = record.stateRevision;
-      this.turnModels = structuredClone(record.turnModels) as SessionTurnModelAttribution[];
+      this.turnModels = structuredClone(
+        record.turnModels,
+      ) as SessionTurnModelAttribution[];
       this.turnExecutions = structuredClone(
         record.turnExecutions,
       ) as SessionTurnExecutionAttribution[];
       execution.committedStateRevision = record.stateRevision;
-      const committed = await this.persistArtifacts(
-        proposedOutcome,
-        message.providerEvidence,
-        diagnostic,
-      );
       const ackSent = (() => {
         try {
           this.send({
@@ -1087,7 +1398,10 @@ export class WorkerHostSession {
       if (!ackSent) {
         execution.settlement = 'committed_generation_unavailable';
         this.markUnavailable();
-        const settled = await this.persistExecutionArtifact(execution, committed);
+        const settled = await this.persistExecutionArtifact(
+          execution,
+          committed,
+        );
         this.deliver(turnEndFromOutcome(this.nextTurn - 1, settled, true));
         return settled;
       }
@@ -1095,9 +1409,12 @@ export class WorkerHostSession {
       try {
         const settled = await this.messages.wait((
           value,
-        ): value is Extract<WorkerToHostMessage, { kind: 'runtime_event' }> | WorkerErrorMessage =>
+        ): value is
+          | Extract<WorkerToHostMessage, { kind: 'runtime_event' }>
+          | WorkerErrorMessage =>
           (value.kind === 'runtime_event' || value.kind === 'worker_error') &&
-          (value.kind === 'worker_error' || sameCorrelation(value.correlation, correlation))
+          (value.kind === 'worker_error' ||
+            sameCorrelation(value.correlation, correlation))
         );
         if (settled.kind === 'worker_error') workerError = settled;
       } catch {
@@ -1119,7 +1436,12 @@ export class WorkerHostSession {
         error instanceof Error ? error.message : String(error),
       );
       execution.settlement = 'uncommitted';
-      const settled = await this.settleExecution(execution, outcome, undefined, undefined);
+      const settled = await this.settleExecution(
+        execution,
+        outcome,
+        undefined,
+        undefined,
+      );
       this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
       return settled;
     } finally {
@@ -1214,8 +1536,10 @@ export class WorkerHostSession {
   materializeEmptySession(): void {
     if (this.options.handle.record !== undefined) return;
     if (
-      this.closed || this.unavailable || this.active || this.currentCorrelation !== undefined ||
-      this.nextTurn !== 1 || this.transcript.length !== 0 || this.checkpoint !== undefined ||
+      this.closed || this.unavailable || this.active ||
+      this.currentCorrelation !== undefined ||
+      this.nextTurn !== 1 || this.transcript.length !== 0 ||
+      this.checkpoint !== undefined ||
       this.title !== null
     ) throw new Error('only a new idle Session can be materialized empty');
     const record: SessionRecordV6 = {
@@ -1235,7 +1559,9 @@ export class WorkerHostSession {
       turnModels: [],
       turnExecutions: [],
     };
-    if (!validateSessionRecordV6(record)) throw new Error('empty session record invalid');
+    if (!validateSessionRecordV6(record)) {
+      throw new Error('empty session record invalid');
+    }
     this.options.handle.commit(record);
   }
 
@@ -1254,9 +1580,12 @@ export class WorkerHostSession {
     try {
       const closed = this.messages.wait((
         value,
-      ): value is Extract<WorkerToHostMessage, { kind: 'closed' }> | WorkerErrorMessage =>
+      ): value is
+        | Extract<WorkerToHostMessage, { kind: 'closed' }>
+        | WorkerErrorMessage =>
         (value.kind === 'closed' || value.kind === 'worker_error') &&
-        (value.kind === 'worker_error' || sameCorrelation(value.correlation, correlation)), 5_000);
+        (value.kind === 'worker_error' ||
+          sameCorrelation(value.correlation, correlation)), 5_000);
       this.send({ kind: 'close', correlation });
       const settled = await closed;
       if (settled.kind === 'worker_error') throw new Error(settled.message);

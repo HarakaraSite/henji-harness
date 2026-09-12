@@ -210,6 +210,8 @@ export interface WorkerSessionHandle {
   readonly record?: StoredSessionRecord;
   readonly checkpoint?: SemanticContextCheckpointV1;
   commit(record: StoredSessionRecord): void;
+  /** SQLite history seam: update the owner-stable in-memory snapshot after an external atomic commit. */
+  acceptCommitted?(record: StoredSessionRecord): void;
   rollback(): void;
   installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
   rollbackCheckpoint(): void;

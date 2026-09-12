@@ -63,6 +63,7 @@ import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts'
 import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_model.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -1243,6 +1244,27 @@ Deno.test('Worker execution artifacts correlate built-in settlement and diagnost
       );
       assert(!JSON.stringify(artifact).toLowerCase().includes('authorization'));
     }
+
+    const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
+    await history.initialize();
+    history.settleNonCanonicalExecution({
+      taskId: crypto.randomUUID().toLowerCase(),
+      executionId: listed[0]!.executionId,
+      createdAt: listed[0]!.createdAt,
+      sessionCorrelation: listed[0]!.sessionId,
+      turn: listed[0]!.turn,
+      task: listed[0]!.command.task,
+      baseStateRevision: listed[0]!.baseStateRevision,
+      agent: listed[0]!.agent,
+      model: listed[0]!.manifest.rootModel,
+      build: listed[0]!.build,
+      definition: listed[0]!.definition,
+      manifest: listed[0]!.manifest,
+      instanceCorrelation: listed[0]!.instanceCorrelation,
+      workerGeneration: listed[0]!.workerGeneration,
+      outcome: builtinOutcome,
+    });
+    history.recordPostCommitObservation(listed[0]!);
 
     assertEquals(parseFailureDiagnosticArgs(['executions', 'list']), {
       kind: 'execution_list',

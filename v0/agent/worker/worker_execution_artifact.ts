@@ -24,6 +24,7 @@ export type WorkerExecutionAcknowledgement =
   | 'delivery_failed';
 export type WorkerExecutionSettlement =
   | 'uncommitted'
+  | 'committed_observation_pending'
   | 'committed'
   | 'committed_generation_unavailable';
 
@@ -86,7 +87,10 @@ export interface WorkerExecutionArtifactV2 {
   readonly providerEvidenceDurability?: 'yes' | 'failed' | 'unknown';
   readonly providerEvidencePersistenceError?: string;
   readonly storeResult: WorkerExecutionStoreResult;
-  readonly storeError?: 'session_io_failure' | 'session_invalid';
+  readonly storeError?:
+    | 'session_io_failure'
+    | 'session_invalid'
+    | 'history_busy';
   readonly acknowledgement: WorkerExecutionAcknowledgement;
   readonly settlement: WorkerExecutionSettlement;
   readonly outcome: WorkerExecutionOutcome;
@@ -262,9 +266,15 @@ const validExecutionId = (value: unknown): value is string =>
 const validRecallAttribution = (
   value: unknown,
 ): value is WorkerExecutionRecallAttributionV1 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const recall = value as Record<string, unknown>;
-  return ownKeys(recall, ['schemaVersion', 'sourceExecutionId', 'projectedContext']) &&
+  return ownKeys(recall, [
+    'schemaVersion',
+    'sourceExecutionId',
+    'projectedContext',
+  ]) &&
     recall.schemaVersion === 1 && validExecutionId(recall.sourceExecutionId) &&
     validText(recall.projectedContext, true);
 };
@@ -329,7 +339,8 @@ export const validateWorkerExecutionArtifact = (
   const trace = artifact.protocolTrace;
   const valid = (artifact.schemaVersion === 2 || artifact.schemaVersion === 3) &&
     (artifact.schemaVersion === 3 || !Object.hasOwn(artifact, 'recall')) &&
-    (!Object.hasOwn(artifact, 'recall') || validRecallAttribution(artifact.recall)) &&
+    (!Object.hasOwn(artifact, 'recall') ||
+      validRecallAttribution(artifact.recall)) &&
     validExecutionId(artifact.executionId) &&
     validTimestamp(artifact.createdAt) && validTimestamp(artifact.settledAt) &&
     Date.parse(artifact.settledAt as string) >=
@@ -368,12 +379,14 @@ export const validateWorkerExecutionArtifact = (
       artifact.storeResult === 'committed') &&
     (!Object.hasOwn(artifact, 'storeError') ||
       artifact.storeError === 'session_io_failure' ||
-      artifact.storeError === 'session_invalid') &&
+      artifact.storeError === 'session_invalid' ||
+      artifact.storeError === 'history_busy') &&
     (artifact.acknowledgement === 'not_sent' ||
       artifact.acknowledgement === 'rejected_sent' ||
       artifact.acknowledgement === 'accepted_sent' ||
       artifact.acknowledgement === 'delivery_failed') &&
     (artifact.settlement === 'uncommitted' ||
+      artifact.settlement === 'committed_observation_pending' ||
       artifact.settlement === 'committed' ||
       artifact.settlement === 'committed_generation_unavailable') &&
     validOutcome(artifact.outcome) &&

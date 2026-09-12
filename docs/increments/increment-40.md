@@ -1,6 +1,6 @@
 # Increment 40 — destructive SQLite canonical history cutover
 
-ステータス: **第三者review済み・利用者承認済み・実装未着手**
+ステータス: **完了（計画承認、実装、test、production受入、差分review済み）**
 
 基準commit: `b41346ab`
 
@@ -203,6 +203,50 @@ read側はSession、execution artifact、provider evidence、diagnosticの既存
 
 承認後はSlice AからCまで継続し、下記Human Gateまたは停止条件でだけ利用者へ戻す。
 
+## 実装結果
+
+2026-09-12にSlice A〜Cを実装した。workspaceごとの`history.sqlite3`をschema v1で作成し、Session
+metadata/checkpoint、task、canonical/non-canonical execution、canonical turn/message、recall projection、provider
+evidence、diagnostic、execution artifactを同じauthorityへ保存する。canonical commitとnon-canonical settlementはそれぞれ
+明示的な`BEGIN IMMEDIATE`からcommit/rollbackし、canonical commit後のacknowledgementとgeneration状態は
+post-commit observationとして分離した。Session削除後もexecution/evidence/diagnostic/artifactは保持する。
+
+productionのTUI、Session navigation、`sessions`、`diagnostics`、`/recall`、`/history export`はSQLiteからの
+projectionを使う。旧Session/checkpoint/execution/evidence/diagnostic JSONはscan、import、conversion、compatibility
+readせず、SQLite unavailableまたは未知schema時もfallbackしない。同一Sessionのper-Session writer lockを維持し、
+異なるSessionのSQLite write競合は250 msまで待つ。
+
+実装後reviewで、canonical commitとpost-commit observationの間でprocessが停止した場合に、既存CLIから
+executionを読み出せない窓を発見した。canonical transaction内に`committed_observation_pending`のartifactを
+保存し、通常のpost-commit observationで置換するよう修正した。またtransaction helperが
+`session_not_found`、`diagnostic_not_found`などを汎用history I/O failureへ変換していたため、既存adapterのtyped
+errorを保持するよう修正した。model selection rejectionのSQLite rollback、diagnostic 17件目の
+`diagnostic_capacity`、busy probeのevent同期も追加・修正し、再reviewで未解決のBlocker/P1はない。
+
+`agent:increment-40-sqlite-history:test`は14件すべて成功した。Worker foundation 39件、provider stream
+20件、Increment 38 recall 6件、Increment 39 cancellation 4件、production CLI E2E 5件のfocused・関連
+regressionも成功した。`v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`は成功し、full `v0:test`も
+exit 0だった。authoritative `v0:gate`は一回だけ実行したが、実行終了後にtool出力が回収上限を超えて
+終了codeの記録が欠けた。gateを再実行せず、直前のcheck/format/lintのexit 0と、回収のため一回実行した
+full `v0:test`のexit 0によりgateの各componentを確認した。
+
+一時standaloneとisolated XDG rootを使うreal TTY受入で、非既定`openai/gpt-5.6-sol`/mediumへの変更、
+Session rename、最初のturn、別processからのexact reopenとselection保持、二つ目のturn、canonical-only history
+export、SQLite CLI readbackが成功した。異なる二Sessionを二つのreal TTY processで同時実行し、双方の
+turnがcommitされた。別のSessionでreal-provider turnをEsc cancelし、source execution
+`ec687cfd-f285-44aa-9c98-2f14379a3f50`を`/recall`した次taskが`recall-applied`と応答し、target execution
+`ad9c1041-e968-4624-9a93-746e72630bb8`だけをcanonical commitした。history exportにcancelled taskとrecall markerは
+混入せず、source/target attribution、diagnostic、evidence、artifactはSQLite CLIでreadbackでき、orphanは0件だった。
+read-onlyのDB整合性確認は`integrity_check=ok`、foreign-key violation 0件で、Session 3、task/execution 6、
+canonical turn 5、canonical message 10、evidence/artifact 6、diagnostic 1を保持していた。
+
+最終working treeから一時binary `/tmp/henji-i40-candidate`（build
+`709539b66e829e21c2f6dfde82adcb3c7fad660835f75f8884cfcaff9b926ee6`）を再生成し、上記SQLiteのSession、execution、
+evidence、diagnosticをreadbackできた。validな旧V6 Session/checkpoint sentinelだけを置いたcopyではSession 0件、
+旧IDは`session_not_found`となり、sentinelのSHA-256は前後一致した。`history.sqlite3`を利用不能にした
+copyは`session_io_failure`となり、旧JSONは同じく変化しなかった。installed binaryは置換しておらず、
+実装差分は未commitである。
+
 ## Verification
 
 新しい`tests/v0/increment_40_sqlite_history_test.ts`と
@@ -293,7 +337,11 @@ evidence FKだけをprovider requestなしfailureのためnullableとした。or
 schemaとCLI payloadを変えず、Hostがtransaction inputとして既知のexecution IDを渡す契約へ修正し、payload内の一致検証は
 execution artifactだけへ限定した。provider evidence/diagnosticはそれぞれのIDと、payloadに存在するsession、turn、build、
 Definition属性を照合する。追加のbounded確認で既存2件のP1は解消し、変更箇所に新しいBlocker/P1はないと判定された。
-read-only reviewのためtestは実行していない。計画は利用者承認候補である。
+read-only reviewのためtestは実行していない。計画はその後、利用者が承認した。
+
+実装後の差分reviewは、機能correctness、明示要件、production経路、transaction不変条件、旧JSON非到達性、
+変更したproduct動作の回帰確認を対象に行った。canonical post-commitのreadback窓とtyped error保持の
+不具合を修正し、追加したtestとproduction probeで確認した。最終差分に未解決のBlocker/P1はない。
 
 ## Human Gateと停止条件
 

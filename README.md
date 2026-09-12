@@ -109,9 +109,12 @@ fallbackしない。
 
 runtime配置は`diagnostics runtime`からcredential値を含めず確認できる。configは
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataは
-`${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Sessionと診断stateは
-`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`がauthorityである。Increment 32以前のstateは移行・削除
-せず、新binaryからは読み込まない。workspace `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換
+`${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Session、execution、provider evidence、診断stateは
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/<workspace-digest>/history.sqlite3`がauthorityである。
+旧JSON stateは移行・変換・互換読込せず、削除もしない。新binaryのSession、`/recall`、`/history export`、
+`sessions`、`diagnostics`はSQLiteだけを使い、SQLite unavailable、未知schema、破損時も旧JSONへfallbackしない。
+同じSessionのwriter exclusionを維持し、異なるSession間の短いSQLite write競合は250 msまで待つ。workspace
+`AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換
 Skillはinstallなしに発見する。
 
 現在は開発中であり、詳細は[構想](docs/concepts/experience-driven-self-revision.md)、[architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を正本とする。

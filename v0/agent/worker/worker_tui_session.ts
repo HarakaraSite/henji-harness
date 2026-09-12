@@ -44,6 +44,7 @@ import {
   DenoWorkerExecutionArtifactStore,
   type WorkerExecutionArtifactStore,
 } from './worker_execution_artifact_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 
 class MemoryWorkerHandle implements WorkerSessionHandle {
   private current: StoredSessionRecord | undefined;
@@ -147,9 +148,15 @@ export const createWorkerSession = async (
   const productionStateRoot = options.physicalIoMode === 'production'
     ? options.stateRoot ?? launcherStateRoot()
     : undefined;
-  const store: DenoSessionStore | undefined = options.persistence === 'none'
+  const sqliteHistory = options.physicalIoMode === 'production'
+    ? new SqliteHistoryStore(
+      options.stateRoot ?? launcherStateRoot(),
+      workspace.root,
+    )
+    : undefined;
+  const store: DenoSessionStore | SqliteHistoryStore | undefined = options.persistence === 'none'
     ? undefined
-    : new DenoSessionStore(
+    : sqliteHistory ?? new DenoSessionStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
     );
@@ -235,6 +242,7 @@ export const createWorkerSession = async (
   }
   try {
     if (selection === undefined) throw new SessionStoreError('session_invalid');
+    if (options.persistence === 'none') await sqliteHistory?.initialize();
     const activeSelection = selection;
     const modulePath = activeSelection.kind === 'builtin'
       ? workerBuiltinModulePath(activeSelection.id)
@@ -243,15 +251,18 @@ export const createWorkerSession = async (
       ? managedWorkerDefinitionLoadRequest(activeSelection.revision)
       : undefined;
     const definition = activeSelection.ref;
-    const defaultDiagnosticStore = options.physicalIoMode === 'production' &&
-        options.diagnosticPersistence === undefined
-      ? new DenoFailureDiagnosticStore(productionStateRoot!, workspace.root)
-      : undefined;
-    const defaultEvidenceStore = options.physicalIoMode === 'production' &&
-        options.providerEvidenceStore === undefined
-      ? new DenoProviderEvidenceStore(productionStateRoot!, workspace.root)
-      : undefined;
+    const defaultDiagnosticStore = sqliteHistory?.diagnostics ??
+      (options.physicalIoMode === 'production' &&
+          options.diagnosticPersistence === undefined
+        ? new DenoFailureDiagnosticStore(productionStateRoot!, workspace.root)
+        : undefined);
+    const defaultEvidenceStore = sqliteHistory?.providerEvidence ??
+      (options.physicalIoMode === 'production' &&
+          options.providerEvidenceStore === undefined
+        ? new DenoProviderEvidenceStore(productionStateRoot!, workspace.root)
+        : undefined);
     const defaultExecutionArtifactStore = options.executionArtifactStore ??
+      sqliteHistory?.executionArtifacts ??
       (options.physicalIoMode === 'production' || options.stateRoot !== undefined
         ? new DenoWorkerExecutionArtifactStore(
           options.stateRoot ?? launcherStateRoot(),
@@ -272,6 +283,10 @@ export const createWorkerSession = async (
       workerHandle: WorkerSessionHandle,
       initialModelSelection = options.initialModelSelection,
     ): Promise<WorkerHostSession> => {
+      const unifiedHistory = sqliteHistory !== undefined &&
+        options.diagnosticPersistence === undefined &&
+        options.providerEvidenceStore === undefined &&
+        options.executionArtifactStore === undefined;
       try {
         return await WorkerHostSession.open({
           handle: workerHandle,
@@ -289,6 +304,12 @@ export const createWorkerSession = async (
             defaultDiagnosticStore?.persist,
           providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
           executionArtifactStore: defaultExecutionArtifactStore,
+          ...(unifiedHistory
+            ? {
+              historyPersistence: sqliteHistory,
+              durableCanonicalHistory: options.persistence !== 'none',
+            }
+            : {}),
           capsuleFactory: options.capsuleFactory,
         });
       } catch (error) {

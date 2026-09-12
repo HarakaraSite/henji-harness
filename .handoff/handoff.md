@@ -64,8 +64,13 @@
   利用者はIncrement 40を過去Sessionの移行・変換・互換読込なしの破壊的cutoverと決めた。個別計画は空のSQLite
   authority、旧JSON非表示/no-fallback、post-cutover schema/API、250 ms busy、production受入まで具体化した。
   要件変更後の全体reviewで報告されたexecution FKとpayload contractのP1 2件を反映し、bounded確認で両方の解消と
-  新しいBlocker/P1なしを確認した。利用者は個別計画を承認した。
-- 次: 承認済み`docs/increments/increment-40.md`のSlice AからSQLite schema、transaction、portを実装する。
+  新しいBlocker/P1なしを確認した。利用者は個別計画を承認した。Slice A〜CのSQLite history実装、focused・関連検証、
+  full test、standalone/isolated XDGによるreal-provider TTY production受入、最終差分reviewを完了した。新規Session、
+  exact reopen、model保持、history export、異なる二Sessionの同時turn commit、cancelled executionの`/recall`、
+  canonical-only export、SQLite unavailable/unknown schemaのno-fallbackが成立した。実装後reviewで発見したcanonical
+  post-commit readback窓とtyped error保持の不具合は修正・回帰確認済みで、未解決のBlocker/P1はない。
+  詳細な結果はIncrement 40正本へ保存済みである。実装差分は未commitであり、installed binaryは置換していない。
+- 次: 利用者がIncrement 40の実装差分と結果を確認し、commitまたはinstalled binary置換を行う場合はそれぞれ明示的に指示する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
@@ -93,6 +98,9 @@
   clean artifactは`/tmp/henji-post-commit-build-eNk6hK/henji`に保持している。
   Increment 38 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-38-acceptance-nL6Ufc`に保持している。
   Increment 39 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-39-acceptance-xA5Jxs`に保持している。
+  Increment 40最終working treeの一時binaryは`/tmp/henji-i40-candidate`（build
+  `709539b66e829e21c2f6dfde82adcb3c7fad660835f75f8884cfcaff9b926ee6`）、isolated stateは
+  `/tmp/henji-i40-human-gate`に保持している。
   durable historyの全体program、破壊的cutover方針、Increment 40個別計画は承認済みである。過去Sessionのmigration、
   conversion、compatibility readは実装しない。Slice A〜Cのrepository内実装・検証は許可済みである。installed binary
   置換、実装成果のcommit、push、tag、publishは未承認・未実施である。

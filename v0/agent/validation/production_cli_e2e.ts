@@ -1,14 +1,7 @@
 import type { StoredProviderEvidence } from '../provider/provider_evidence.ts';
-import {
-  DenoProviderEvidenceStore,
-  providerEvidencePaths,
-} from '../provider/provider_evidence_store.ts';
 import { sessionPaths } from '../session/session_store.ts';
 import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
-import {
-  DenoWorkerExecutionArtifactStore,
-  workerExecutionArtifactPaths,
-} from '../worker/worker_execution_artifact_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import {
   evaluateProductionCliE2e,
   preflightFailureReport,
@@ -88,8 +81,8 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
   await validateOwnedDirectory(workspaceRoot);
   await validateOwnedDirectory(stateBase);
   const stateRoot = `${stateBase}/henji-harness/v1`;
-  const executionLayout = await workerExecutionArtifactPaths(stateRoot, workspaceRoot);
-  const evidenceLayout = await providerEvidencePaths(stateRoot, workspaceRoot);
+  const history = await sessionPaths(stateRoot, workspaceRoot);
+  const database = `${history.root}/history.sqlite3`;
   return {
     runRoot,
     workspaceRoot,
@@ -97,8 +90,8 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
     noncePath: `${workspaceRoot}/e2e-input.txt`,
     childStdoutPath: `${runRoot}/child-stdout.txt`,
     childStderrPath: `${runRoot}/child-stderr.txt`,
-    executionsPath: executionLayout.executions,
-    evidencePath: evidenceLayout.evidence,
+    executionsPath: database,
+    evidencePath: database,
   };
 };
 
@@ -184,30 +177,31 @@ const defaultRunChild = async (
   };
 };
 
-const defaultListExecutions = (
+const defaultListExecutions = async (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly StoredWorkerExecutionArtifact[]> =>
-  new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot).list();
+): Promise<readonly StoredWorkerExecutionArtifact[]> => {
+  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  await history.initialize();
+  return await history.executionArtifacts.list();
+};
 
-const defaultListEvidence = (
+const defaultListEvidence = async (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly StoredProviderEvidence[]> =>
-  new DenoProviderEvidenceStore(stateRoot, workspaceRoot).list();
+): Promise<readonly StoredProviderEvidence[]> => {
+  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  await history.initialize();
+  return await history.providerEvidence.list();
+};
 
 const defaultSessionTranscriptExists = async (
   stateRoot: string,
   workspaceRoot: string,
 ): Promise<boolean> => {
-  const paths = await sessionPaths(stateRoot, workspaceRoot);
-  try {
-    await Deno.lstat(paths.sessions);
-    return true;
-  } catch (error) {
-    if (error instanceof Deno.errors.NotFound) return false;
-    throw error;
-  }
+  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  await history.initialize();
+  return (await history.listWorker()).sessions.length !== 0;
 };
 
 const writeReport = async (

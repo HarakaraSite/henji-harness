@@ -13,6 +13,7 @@ import type {
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
+import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
 
 export interface WorkerHostSessionOptions {
   readonly handle: WorkerSessionHandle;
@@ -28,6 +29,8 @@ export interface WorkerHostSessionOptions {
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
+  readonly historyPersistence?: HistoryPersistencePort;
+  readonly durableCanonicalHistory?: boolean;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
   readonly initialModelSelection?: ModelSelection;
 }

@@ -38,6 +38,8 @@ import {
 import { decodeResponse } from '../../v0/agent/provider/openrouter_response.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../v0/resource_limits.ts';
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -1073,15 +1075,56 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
       },
     });
     const build = buildManifest();
-    await store.write({
+    const attributed = {
       ...recorder.snapshot(),
-      schemaVersion: 2,
+      schemaVersion: 3 as const,
       sessionId: '77777777-7777-4777-8777-777777777777',
       build,
       definition: await builtinDefinitionRef('default', build),
-    });
+    };
+    await store.write(attributed);
     await store.linkDiagnostic(diagnosticId, evidenceId);
     assertEquals((await Deno.lstat(stateRoot)).mode! & 0o777, 0o700);
+
+    const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    await history.initialize();
+    history.settleNonCanonicalExecution({
+      taskId: '11111111-1111-4111-8111-111111111111',
+      executionId: '22222222-2222-4222-8222-222222222222',
+      createdAt: attributed.createdAt,
+      sessionCorrelation: attributed.sessionId,
+      turn: attributed.turnNumber,
+      task: 'readback',
+      baseStateRevision: 1,
+      agent: 'default',
+      model: ROOT_DEFAULT_MODEL_SELECTION,
+      build,
+      definition: attributed.definition,
+      outcome: {
+        ok: true,
+        task: 'readback',
+        outcome: 'final',
+        stopReason: 'final',
+        finalText: 'ok',
+        steps: 1,
+        toolCallCount: 0,
+        toolResultCount: 0,
+        transcript: [],
+      },
+      evidence: attributed,
+      diagnostic: {
+        schemaVersion: 1,
+        diagnosticId,
+        stage: 'unknown_stage',
+        code: 'unknown_code',
+        lane: 'parent',
+        providerRequestCount: 2,
+        occurredAt: '2026-09-02T00:00:01.000Z',
+        turnNumber: 1,
+        modelStep: 1,
+        retryCount: 0,
+      },
+    });
 
     const listed: string[] = [];
     const listStatus = await failureDiagnosticMain(['evidence', 'list'], {

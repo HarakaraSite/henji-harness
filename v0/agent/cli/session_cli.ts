@@ -1,10 +1,7 @@
 import { resolveWorkspace } from '../tools/work_tools.ts';
-import {
-  DenoSessionStore,
-  isSessionId,
-  launcherStateRoot,
-  SessionStoreError,
-} from '../session/session_store.ts';
+import { isSessionId, launcherStateRoot, SessionStoreError } from '../session/session_store.ts';
+import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
+import { HistoryStoreError } from '../history/history_store_contract.ts';
 
 const encoder = new TextEncoder();
 const errorMessages: Record<string, string> = {
@@ -74,7 +71,8 @@ export const main = async (
   try {
     const workspace = await resolveWorkspace(dependencies.workspaceRoot);
     const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
-    const store = new DenoSessionStore(stateRoot, workspace.root);
+    const store = new SqliteHistoryStore(stateRoot, workspace.root);
+    await store.initialize();
     if (command.kind === 'list') {
       const result = await store.listWorker();
       const payload = result.skippedInvalid === 0
@@ -94,7 +92,15 @@ export const main = async (
     }
     return 0;
   } catch (error) {
-    const code = error instanceof SessionStoreError ? error.code : 'session_io_failure';
+    const code = error instanceof SessionStoreError
+      ? error.code
+      : error instanceof HistoryStoreError
+      ? error.code === 'history_busy'
+        ? 'session_busy'
+        : error.code === 'history_invalid'
+        ? 'session_invalid'
+        : 'session_io_failure'
+      : 'session_io_failure';
     await writeOut(dependencies.writeStderr, line(code));
     return 1;
   }
