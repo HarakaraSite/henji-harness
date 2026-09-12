@@ -69,14 +69,22 @@
   exact reopen、model保持、history export、異なる二Sessionの同時turn commit、cancelled executionの`/recall`、
   canonical-only export、SQLite unavailable/unknown schemaのno-fallbackが成立した。実装後reviewで発見したcanonical
   post-commit readback窓とtyped error保持の不具合は修正・回帰確認済みで、未解決のBlocker/P1はない。
-  詳細な結果はIncrement 40正本へ保存済みである。実装差分は未commitであり、installed binaryは置換していない。
-- 次: 利用者がIncrement 40の実装差分と結果を確認し、commitまたはinstalled binary置換を行う場合はそれぞれ明示的に指示する。
+  詳細な結果はIncrement 40正本へ保存済みであり、実装差分は`daaef099`へcommit済みである。
+  installed binaryは置換していない。Increment 41は現行source、architecture/program、Forge/OpenCodeの
+  参照実装、導入済みSQLiteの実測を調査し、active executionのbegin-before-dispatch、append-only live
+  journal、tool effect projection、Session/no-session lock内のreconciliation、no-replay、partial evidence/recall、
+  schema v2の破壊的cutoverを個別計画化した。初回第三者reviewのP1 4件を採用し、nullable
+  outcome、canonical commit後のjournal failure境界、coalesceを考慮したevidence照合、V2 recall projectionを
+  計画へ反映済みである。変更箇所のbounded re-reviewで全件の解消と新しいBlocker/P1なしを
+  確認し、個別計画は利用者承認候補である。Increment 41の実装は未承認・未着手である。
+- 次: 利用者がIncrement 41の個別計画を承認または修正指示する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
   `docs/increments/increment-34.md`、
   `docs/increments/increment-35.md`、`docs/increments/increment-37.md`、`docs/increments/increment-38.md`、
-  `docs/increments/increment-39.md`、`docs/increments/increment-40.md`、`docs/experience/normal-use-inbox.md`、
+  `docs/increments/increment-39.md`、`docs/increments/increment-40.md`、`docs/increments/increment-41.md`、
+  `docs/experience/normal-use-inbox.md`、
   `docs/research/agent-loop-and-durable-state-comparison.md`、
   `docs/research/externalization-reference-comparison.md`。現行の採用済み全体programは
   `docs/roadmap-inputs/durable-history-and-context-rebuild.md`、
@@ -102,5 +110,6 @@
   `709539b66e829e21c2f6dfde82adcb3c7fad660835f75f8884cfcaff9b926ee6`）、isolated stateは
   `/tmp/henji-i40-human-gate`に保持している。
   durable historyの全体program、破壊的cutover方針、Increment 40個別計画は承認済みである。過去Sessionのmigration、
-  conversion、compatibility readは実装しない。Slice A〜Cのrepository内実装・検証は許可済みである。installed binary
-  置換、実装成果のcommit、push、tag、publishは未承認・未実施である。
+  conversion、compatibility readは実装しない。Increment 40のrepository内実装はcommit済みだが、installed binary
+  置換、push、tag、publishは未承認・未実施である。Increment 41の計画は未commitで、実装、architecture・roadmap・
+  構想の変更、installed binary置換、commit、push、tag、publishは承認されていない。
