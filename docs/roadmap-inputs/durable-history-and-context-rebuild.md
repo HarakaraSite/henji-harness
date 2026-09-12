@@ -246,19 +246,18 @@ rollback、Hostが観測できなかった事象の復元は要求しない。
 - 意味のあるAgent executionについて、canonical transactionは`lifecycle=settled`、`outcome=completed`、
   `adoption=canonical`、canonical turn、Session revisionを原子的に確定する。Worker acknowledgementとWorker
   generation availabilityはcommit後の観測/eventであり、失敗してもcanonical transactionをrollbackしない。
-- 旧JSONのcanonical turnをexecutionへ結び付けるのは、`sessionId`、turn、`committedStateRevision`等から一意に
-  証明できる場合だけとする。それ以外はstableな`legacy_imported_execution`を作り、import provenanceと
-  `evidenceAvailability=unknown`を残す。対応しないartifact/evidence/diagnosticを推定で結合せず、存在しない
-  orderingやtimestampを作らない。import revision、件数、unmatched件数、完了markerを保存してidempotentにする。
-- import成功後はSQLiteを正本とし、旧JSONは保持する。dual-write、旧storeへのsilent fallbackは行わない。
-  通常Session経路に加え、既存のexecution/evidence/diagnostic CLI adapterも同じcutoverで切り替える。現在の
-  `/history export`はcanonical-onlyのまま維持する。
+- 破壊的cutoverとし、旧Session JSONとcompanion recordをscan、import、変換、互換読込しない。SQLiteは空の
+  authorityから開始し、migration marker、legacy provenance、synthetic legacy executionを作らない。旧JSONは
+  自動削除せずbyteを変更しないが、新しいSession、diagnostics、`/recall`、history exportの全経路から到達不能にする。
+- 通常Session経路に加え、既存のexecution/evidence/diagnostic CLI adapterも同じcutoverでSQLiteへ切り替える。
+  SQLite unavailable、未知schema、破損時も旧storeへfallbackしない。現在の`/history export`はcanonical-onlyのまま維持する。
 - model inputは前節の式に従う。過去executionの暗黙継承だけをcanonical由来に限定し、現在executionのmessageと
   明示projectionを維持する。`/recall`本文はcanonical turnへ複製しない。
 - 異なるSessionの並行実行を維持する。短いwrite競合はbounded busy wait後にtyped storage-busyとして返す。
   正確なtimeoutは個別計画で実際の並行transactionを測定し、利用者承認を得て決める。
-- 受入では、非空の旧Sessionをimport/reopenし、checkpoint、model、`/recall`、diagnosticsをreadbackしたうえで、
-  同じSessionの次turnをproduction経路で完了できることを確認する。
+- 受入では、非空の旧Sessionをsentinelとして置いてもlist/openされずbyte-identicalに残ることを確認する。そのうえで
+  新しいSessionを作成・reopenし、checkpoint、model、cutover後の`/recall`、diagnosticsを使って次turnをproduction経路で
+  完了できることを確認する。
 
 ### Increment 41 — live execution journal
 
@@ -291,14 +290,16 @@ rollback、Hostが観測できなかった事象の復元は要求しない。
 
 ## 第三者review
 
-初回reviewはBlockerなし、P1を4件、P2を2件報告した。指摘は、model projectionをcanonical-onlyと誤読できる
-表現、legacy executionの誤った推定link、canonical commitとWorker acknowledgementの順序、restart reconciliationの
-lock範囲、diagnostic CLI cutover漏れ、durability/concurrency条件の未定義だった。上記programはすべてを修正した。
-同じreviewerによる15分以内のbounded re-reviewでは未解決findingがなく、個別計画へ進められる候補と評価された。
+初回reviewはBlockerなし、P1を4件、P2を2件報告した。model projection、canonical commitとWorker acknowledgementの
+順序、restart reconciliationのlock範囲、diagnostic CLI cutover、durability/concurrencyに関する指摘は上記programへ
+反映した。legacy executionの推定linkに関する指摘も当初のmigration案へ反映していたが、その後、利用者が過去Sessionを
+移行・変換しない破壊的cutoverを選んだため、そのmigration固有部分は廃止した。変更後のIncrement 40全計画を独立reviewerが
+再確認した。post-cutover captureのexecution FKと現行payload contractに関するP1 2件を個別計画へ反映し、bounded確認で
+両方の解消と新しいBlocker/P1なしを確認した。詳細は`docs/increments/increment-40.md`を正本とする。
 
 ## 個別increment前に残す判断
 
-- Increment 40の具体的schema/APIと、実測に基づくSQLite busy timeout。
+- Increment 40の具体的schema/API、破壊的cutover、実測に基づくSQLite busy timeout。
 - Increment 41で保存するraw SSE/parser transitionと意味上のprogressのevent粒度。
 - Increment 42のsnapshot単位、content identity、model requestとの具体的な相関方法。
 - Increment 43のSurface操作とfull-history export format。

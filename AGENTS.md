@@ -17,6 +17,9 @@ repository document or prior practice conflicts with it, this section wins.
   仮想的なprivate-data懸念で他の診断証拠を省略またはsanitizationしない。
 - 成功基準は、人間がproduction経路で目的の機能を完了できることである。offline fixture、test件数、
   review結果、sanitized failure、機械的gate成功をその代替にしない。
+- 利用者から明確な指示がない修正は、後方互換を要求しない破壊的変更として扱う。旧形式のmigration、
+  converter、compatibility read、dual-read/write、fallbackを推測で追加しない。この既定はcontractと実装の
+  切替方針であり、既存dataやfileを削除する許可は含まない。実データの削除は利用者の明示指示を必要とする。
 
 ## Product文書の正本
 

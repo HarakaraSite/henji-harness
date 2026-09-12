@@ -228,12 +228,13 @@ Surface境界を変える場合はarchitectureへ先に戻る。
 
 #### Durable history program（F04、F05、F08、F11、F15、F26）
 
-workspace-local SQLiteを正本とする次の順序を採用する。詳細な調査、migration/cutover条件、第三者reviewの結果は
+workspace-local SQLiteを正本とする次の順序を採用する。詳細な調査、破壊的cutover条件、第三者reviewの結果は
 [`roadmap-inputs/durable-history-and-context-rebuild.md`](roadmap-inputs/durable-history-and-context-rebuild.md)を
 正本とし、各Incrementの具体的schema/APIと検証方法は個別計画で承認する。
 
-1. Increment 40: SQLite canonical history cutover。task、execution、canonical turn、model requestを関係付け、
-   旧JSONをproven linkまたはsynthetic legacy executionとしてidempotentにimportする。
+1. Increment 40: destructive SQLite canonical history cutover。task、execution、canonical turn、model requestを
+   関係付ける。旧JSONはscan、import、変換、互換読込せず、空のSQLite authorityから開始する。旧filesは自動削除
+   しないが新しいproduct経路からは到達不能とし、SQLite failure時もfallbackしない。
 2. Increment 41: live execution journal。dispatch前のactive executionとHost-observed eventをdurableにし、
    Session writer lockの内側でrestart reconciliationする。
 3. Increment 42: exact context attribution。instruction、skill、tool contract、runtime factのcontent snapshotを

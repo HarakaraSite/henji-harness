@@ -60,15 +60,18 @@
   P1 4件・P2 2件を反映した全体programを利用者が採用した。workspace-local SQLiteを正本とし、Increment 40の
   canonical history cutover、41のlive execution journal、42のexact context attribution、43のhuman history viewの
   順で進める。bounded re-reviewに未解決findingはなかった。`/rebuild`は40〜43から分離し、Increment 44以降で
-  対象resourceから判断する。architectureは変更していない。HEADは`3b766697`で、開始時のworking treeはcleanだった。
-- 次: Increment 40の具体的schema/API、migration、cutover、実測するSQLite busy timeout、product受入を個別計画へ
-  落とし込み、利用者の承認を得る。
+  対象resourceから判断する。architectureは変更していない。全体programは`b41346ab`へcommit済みである。
+  利用者はIncrement 40を過去Sessionの移行・変換・互換読込なしの破壊的cutoverと決めた。個別計画は空のSQLite
+  authority、旧JSON非表示/no-fallback、post-cutover schema/API、250 ms busy、production受入まで具体化した。
+  要件変更後の全体reviewで報告されたexecution FKとpayload contractのP1 2件を反映し、bounded確認で両方の解消と
+  新しいBlocker/P1なしを確認した。利用者は個別計画を承認した。
+- 次: 承認済み`docs/increments/increment-40.md`のSlice AからSQLite schema、transaction、portを実装する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
   `docs/increments/increment-34.md`、
   `docs/increments/increment-35.md`、`docs/increments/increment-37.md`、`docs/increments/increment-38.md`、
-  `docs/increments/increment-39.md`、`docs/experience/normal-use-inbox.md`、
+  `docs/increments/increment-39.md`、`docs/increments/increment-40.md`、`docs/experience/normal-use-inbox.md`、
   `docs/research/agent-loop-and-durable-state-comparison.md`、
   `docs/research/externalization-reference-comparison.md`。現行の採用済み全体programは
   `docs/roadmap-inputs/durable-history-and-context-rebuild.md`、
@@ -90,5 +93,6 @@
   clean artifactは`/tmp/henji-post-commit-build-eNk6hK/henji`に保持している。
   Increment 38 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-38-acceptance-nL6Ufc`に保持している。
   Increment 39 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-39-acceptance-xA5Jxs`に保持している。
-  durable historyの全体programとroadmap反映は承認済みだが、Increment 40の個別計画・実装は未承認である。
-  installed binary置換、実装、commit、push、tag、publishは未承認・未実施である。
+  durable historyの全体program、破壊的cutover方針、Increment 40個別計画は承認済みである。過去Sessionのmigration、
+  conversion、compatibility readは実装しない。Slice A〜Cのrepository内実装・検証は許可済みである。installed binary
+  置換、実装成果のcommit、push、tag、publishは未承認・未実施である。
