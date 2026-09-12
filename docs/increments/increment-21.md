@@ -132,6 +132,6 @@ Increment 21を完了とした。
   同じ位置を維持する。
 - 観測したevent列を再現するfocused testを追加し、conversation presentation 13件、対象type check、format、lint、
   `git diff --check`が成功した。provider requestは行っていない。
-- build ID `115d371ce58950f84f26e5d9889dd206e2fa37cb1b883db47e8bc260a26f4531`、SHA-256
-  `c4dc99daa72c30f00945164039a8d5e1c739e4af852c85fc884bc5c05bae3b4a`のartifactへ`dist/henji`と
+- code commit `91e091b6`からbuildしたbuild ID `f8fb18486d0d54e45e936329c1a58de509a07d794324d23e46d19c894bc9ddc8`、
+  SHA-256 `5b32dce0c17f53ae321587de1aabcc0e3e7303cf87239e7d170948b74051bd11`のartifactへ`dist/henji`と
   `~/.local/bin/henji`をatomicに置換した。

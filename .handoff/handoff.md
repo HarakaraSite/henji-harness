@@ -39,9 +39,9 @@
   `~/.local/bin/henji`をatomicに置換した。続く通常利用で、tool完了後のfinal assistant responseがstreaming中だけtool行より
   上に表示され、settle時に下へ移る不自然な順序変更を観測した。active tool完了後の最初の`assistant_progress`でassistant
   entryをtool行の後ろへ移すよう修正し、conversation presentation 13件、対象type check、format、lint、
-  `git diff --check`が成功した。build ID `115d371ce58950f84f26e5d9889dd206e2fa37cb1b883db47e8bc260a26f4531`の
-  artifactへ`dist/henji`と`~/.local/bin/henji`を再びatomicに置換済みである。二つの修正と結果文書はlocal mainへ
-  commit済みであり、未pushである。
+  `git diff --check`が成功した。二つの修正と結果文書はlocal mainのcode commit `91e091b6`へcommit済みである。同commitから
+  clean buildしたbuild ID `f8fb18486d0d54e45e936329c1a58de509a07d794324d23e46d19c894bc9ddc8`のartifactへ
+  `dist/henji`と`~/.local/bin/henji`を再びatomicに置換済みであり、未pushである。
 - 次: 利用者が指定する次のIncrementまたはpush等の作業から再開する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
@@ -63,7 +63,7 @@
   Increment 33 production受入の一時証拠は`/tmp/henji-increment-33-acceptance-XbeQE3`、Increment 34は
   `/tmp/henji-increment-34-acceptance-MGN78b`、Increment 35は`/tmp/henji-increment-35-acceptance-a6qHOF`に保持している。
   Increment 37 Slice Bの一時証拠は`/tmp/henji-increment-37-acceptance-b3kQMl`に保持している。
-  standalone shadowing修正のproduction artifactは`/tmp/henji-standalone-fix-HSqJ6U/henji`、TUI順序修正を含む現行artifactは
-  `/tmp/henji-tui-order-fix-gJ3csS/henji`に保持している。
+  standalone shadowing修正のproduction artifactは`/tmp/henji-standalone-fix-HSqJ6U/henji`、TUI順序修正を含む現行の
+  clean artifactは`/tmp/henji-post-commit-build-eNk6hK/henji`に保持している。
   architecture・roadmap実装状態更新、push、tag、publishは未承認・未実施である。利用者の指定に従い、今後も各実装slice
   境界で停止する。
