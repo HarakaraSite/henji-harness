@@ -12,11 +12,31 @@
   attribution、破損/API非互換時のno-fallbackを確認した。実装・検証結果はIncrement 33正本へ保存済みであり、
   利用者がIncrement 33の完了を確認した。JSR packageをpre-release `0.1.0-alpha.6`からstable `0.1.0`へ更新し、
   release candidateのauthoritative `v0:gate`一回、clean worktreeでのJSR dry-run、main push、publish、registry metadata、
-  exact version importがすべて成功した。JSRのlatestは`@henji/harness@0.1.0`である。
-- 次: 利用者が次に着手するIncrementまたは作業を指示する。
+  exact version importがすべて成功した。JSRのlatestは`@henji/harness@0.1.0`である。利用者は当面の実装順を
+  Increment 34 Definition transport、Increment 35 TUI `/new`、Increment 37 外部情報調査時のtool選択instruction改善と
+  決めた。Increment 34の承認済みSlice A〜Cは実装・検証済みである。portable transport/store、unified CLIのexact
+  export/import、atomic no-clobber artifact publish、未知API contractのcustody readbackと実行時拒否、source不在の
+  parent/planner exact実行が成立した。focused test 6件、Increment 33 regression 11件、一回のauthoritative `v0:gate`
+  （全171 test）が成功した。compiled binaryのDenoなし・二XDG root production受入では実provider parent turn、real-TTY
+  planner turn、Session/execution/evidenceのbuild・exact ref相関、byte-identical re-exportを確認した。利用者が
+  Increment 34の完了を確認した。Increment 35は承認済み
+  Slice A〜Bの実装・検証が完了した。production TUIの`/new`によるdurable empty Session作成とbinding
+  replacement、exact Definitionとroot selectionの継承、busy/no-session/failure時の挙動、provider非介入を確認し、
+  authoritative `v0:gate`とstandalone real-TTY受入も成功した。結果はIncrement 35正本へ保存済みで、
+  利用者が完了を確認した。Increment 37は利用者が初期計画を承認し、Slice Aのactive `web_search`
+  guideline変更とdeterministic verificationが完了した。一回のauthoritative `v0:gate`は全176 test成功済みである。
+  Slice Bのproduction retained TUI Human Gateを一回実行したが、配送済みの新guidelineと利用可能な`web_search`が
+  ある状態でも、最初に`bash`でworkspace remoteとhandoffを探索し、全10 tool callが`bash`、`web_search`は0だった。
+  最終回答は公式Forgejo APIからidentity、取得時刻、並び順、直接linkを提示したが、local target未指定のtaskを
+  current remoteへ結び付けており受入条件は未達である。credential値の露出はなかったが、不要なconfig名と環境変数名の
+  探索も観測した。利用者はこれをrepository contextの与え方として別途検討し、Human Gate未達を結果として保持したまま
+  Increment 37を完了とした。未採用のcontext配送候補は通常利用メモへ分離済みである。Increment 34・35・37の変更は
+  local mainへcommit済みであり、未pushである。
+- 次: 利用者が指定する次のIncrementまたはpush等の作業から再開する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
-  `docs/increments/increment-32.md`、`docs/increments/increment-33.md`。現行の検討資料は
+  `docs/increments/increment-32.md`、`docs/increments/increment-33.md`、`docs/increments/increment-34.md`、
+  `docs/increments/increment-35.md`、`docs/increments/increment-37.md`。現行の検討資料は
   `docs/roadmap-inputs/increment-32-34-externalization-concept-plan.md`。当初案と初回reviewの履歴は
   `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。参照実装比較の背景資料は
   `docs/research/externalization-reference-comparison.md`。
@@ -27,6 +47,10 @@
   32〜34の実装範囲外であり、managed化の採否とclient等の物理配置は後続Integration Incrementで決める。Increment 32の
   installed binary置換と、Increment 33実装・stable `0.1.0` release準備のcommit/pushは実施済みである。
   `@henji/harness@0.1.0`はJSRへpublish済みである。architecture・roadmap実装状態更新、Increment 33のinstalled binary
-  置換、Git tagは未承認・未実施である。
-  production受入の一時証拠は`/tmp/henji-increment-33-acceptance-XbeQE3`に保持している。利用者の指定に従いIncrement
-  境界で停止する。
+  置換、Git tagは未承認・未実施である。slash補完は当面の順序から外し、Provider外部化を採用するときはexternal
+  Providerのauth profile declarationとHost-owned credential registryを接続し、credential登録を同時または直後に扱う。
+  Increment 33 production受入の一時証拠は`/tmp/henji-increment-33-acceptance-XbeQE3`、Increment 34は
+  `/tmp/henji-increment-34-acceptance-MGN78b`、Increment 35は`/tmp/henji-increment-35-acceptance-a6qHOF`に保持している。
+  Increment 37 Slice Bの一時証拠は`/tmp/henji-increment-37-acceptance-b3kQMl`に保持している。
+  architecture・roadmap実装状態更新、installed binary置換、push、tag、publishは未承認・未実施である。利用者の指定に
+  従い、今後も各実装slice境界で停止する。

@@ -55,6 +55,14 @@ export interface AdapterNavigationPort {
   readonly persistent: boolean;
   list(signal?: AbortSignal): Promise<PresentationNavigationListing>;
   renameCurrent?(title: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable';
+  createNew?(signal?: AbortSignal): Promise<{
+    readonly session: AdapterSessionPort;
+    readonly position: PresentationPosition;
+    readonly restored?: {
+      readonly messages: readonly PresentationMessage[];
+      readonly omitted: number;
+    };
+  }>;
   switchTo(id: string, signal?: AbortSignal): Promise<{
     readonly session: AdapterSessionPort;
     readonly position: PresentationPosition;

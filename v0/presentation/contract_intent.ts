@@ -41,7 +41,7 @@ export const presentationIntent = (
       throw new PresentationDeliveryError();
     }
   } else if (
-    kind !== 'cancel_active' && kind !== 'list_sessions' &&
+    kind !== 'cancel_active' && kind !== 'list_sessions' && kind !== 'new_session' &&
     kind !== 'history_export' &&
     kind !== 'dismiss_overlay' &&
     kind !== 'compaction'

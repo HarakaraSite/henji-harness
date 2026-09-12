@@ -36,6 +36,13 @@ Henjiを通常利用して得た観測と未採用の改善候補を、topicご�
   fixed credential fileへの保存と更新結果の表示。
 - OpenRouter、OpenAI direct、将来providerで共通化する範囲。
 
+利用者判断（2026-09-12）:
+
+- built-in二providerだけに固定したcredential登録を先行実装しない。Provider外部化を採用するときに、external Providerが
+  宣言する非secretなauth profile identity、Host-owned credential registry、TUIの登録対象catalog、request時解決を
+  一つの接続として設計し、Provider外部化と同時または直後の個別incrementで扱う。
+- credential値はexternal Provider Definition、managed transport package、Session、evidenceへ含めない。
+
 #### Surface: 履歴閲覧の追加候補（F01、F05、F10）
 
 Increment 30ではPageUp / PageDown中のkeyword検索を試行したが、通常viewportのterminal描画rowと
@@ -53,13 +60,6 @@ wrap、viewport、page移動を共有する履歴viewerとして設計する。k
 - vi風の`j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、`q`による追加navigation。
 - mouse wheelを共通scroll actionへ接続するためのterminal mouse tracking。
 - exportした履歴を`$VISUAL`または`$EDITOR`で自動的に開く閲覧出口。
-
-#### Surface: `/new`で新しいSessionを開始（F01、F04、F05、F10）
-
-- Henji processを終了・再起動せず、`/new`で現在のworkspaceに新しいpersistent Sessionを作成し、
-  そのSessionへ切り替えたい。
-- active turn中の扱い、未送信draftを保持するか、新しいSessionへ引き継ぐmodel selectionなどの初期状態は、
-  個別incrementへ採用するときに決める。
 
 #### Surface: `/reload`によるresource再読込（F01、F03、F10）
 
@@ -123,41 +123,6 @@ wrap、viewport、page移動を共有する履歴viewerとして設計する。k
   整合を、既存の「`/reload`によるresource再読込」候補と一緒に設計する。
 - 今後slash commandを追加するときは、同じ意味操作をAIが利用する価値があるかを確認し、必要ならtool surfaceも併せて検討する。
   UIだけに意味があるcommandや、人間の明示選択そのものが目的のcommandまで一律にtool化はしない。
-
-#### Agent実行: 調査時のtool選択（F02、F06、将来のF24候補）
-
-観測:
-
-- repository調査で、8.7 KiBのREADMEに`read`を使わず、4 KiBで出力が切れる`bash cat`と`tail`を
-  繰り返してstepを消費した。
-- 対象repositoryにtool選択を導くinstructionはなく、productionのtool descriptionにも当時は`read`を
-  優先する方針がなかった。Henjiのbash環境では`rg`がPATH外なので`grep`の選択は妥当だった。
-- `read`のline windowとactive guidelineはincrement 4、`bash`全出力readbackはincrement 5、既存work toolの
-  component化はincrement 6で実装済みである。
-- 「giteaの直近10件のPR」という外部の現在情報を求めるtaskで、modelは対象identityとcanonical sourceを
-  確立する前にrepository内をgrepし、その後GitHub API等を`curl`で繰り返し取得した。現行共通instructionは
-  既存sourceで現在・外部情報が未解決なら`web_search`を使うが、外部対象の発見時にlocal探索や`curl`より
-  先に使う優先規則はない。
-- 上記taskのtool traceでは、workspace、sibling repository、`.handoff`、通常利用メモ、複数のHTTP endpointを
-  調べ、GitHub APIからPR一覧を取得した後、14番目のtool callで初めて`web_search`を「念のため」の事後確認に
-  使った。ユーザーは現在repositoryを調べるよう指定しておらず、workspaceが存在すること自体をlocal探索の
-  根拠にしない方がよい。
-- 最終回答は、対象を`go-gitea/gitea`と解釈したこと、API取得時刻、並び順を明示し、古かった`web_search`の
-  「最新は#39285」より新しいGitHub公式API snapshotを優先しており、結果の判断は適切だった。この証拠は、
-  `web_search`を変化の速い一覧の最終正本にするのではなく、対象identityとcanonical sourceの発見へ使う方が
-  よいことも示す。
-
-未採用候補:
-
-- `read`以外のtoolについて、実際の誤選択が観測された場合にtool固有guidelineまたはdescriptionを改善する。
-- 外部対象のidentityまたはcanonical sourceが会話・workspaceで確立しておらず、現在情報を求められた場合は、
-  repository全体の探索や`curl`による推測より先に`web_search`を一回使う。ユーザーが現在のrepositoryやlocal
-  fileを明示した場合はlocal toolを先に使う。この優先規則はmodel判断を改善するinstructionであり、未知語の
-  機械的な禁止・強制routerとは分けて検討する。
-- taskを外部情報だけで完遂できる場合は、software engineering workspace内で動いていることだけを理由に
-  `pwd`、repository、sibling、handoffを調査しない、というtask-source選択も共通instruction候補とする。
-- 独立したread-only調査は、可読性を保った別tool callとして同じmodel stepにまとめる。結果依存の調査や
-  fallbackは順次行う。
 
 #### Agent実行: Context Strategyの外部化（F02、F06、将来のF24候補）
 
@@ -230,6 +195,28 @@ SQLite backendを持つagent harnessの比較調査（2026-09-11）:
 - `_refs`へ次に追加するならForgeを第一候補とする。ただし、この調査記録だけではsnapshot追加、SQLite採用、storage
   architectureの決定を意味しない。採用時はcurrent commitとlicenseを再確認し、現行Henjiのevent・checkpoint・
   canonical transcript contractとの差分を個別incrementで整理する。
+
+#### Agent実行: ambient repository contextの配送（F02、F06）
+
+通常利用での観測:
+
+- Increment 37のproduction Human Gateでは、local targetを指定しない外部調査taskにsource-selection instructionを
+  配送し、`web_search`も利用可能だったが、modelは最初に`bash`でworkspaceのGit remoteとhandoffを探索した。
+- modelはambient workspaceから得たForgejo hostをtask targetとして扱った。repository情報を知らないために探索した
+  可能性と、存在するrepository contextをユーザー指定targetとして過剰に結び付けた問題を分ける必要がある。
+- 実行証拠とIncrement内の完了判断は
+  [`docs/increments/increment-37.md`](../increments/increment-37.md)を正本とする。
+
+未採用候補:
+
+- Hostがmodelへ、working directoryのrepository identityをtool探索不要なambient contextとして明示的に配送する
+  構成を検討する。同時に、それはtask targetではなく、ユーザーが「このrepository」「current repository」等と
+  結び付けた場合だけsourceとして扱う意味境界を示す。
+- 外部product・project名だけが指定されたtaskではambient remoteからidentityを推定せず、外部source discoveryを
+  行う規則との組合せを確認する。単にremote URLを追加して今回の誤認を強めない。
+- 配送する情報、snapshot時点、HostとAgent Definitionの責務を個別increment採用時に決める。候補はrepository root、
+  VCS種別、非secretなcanonical repository identityであり、credentialやremote URL内の認証情報は含めない。
+- この記録はcontext配送方式、architecture、instruction componentの採用を意味しない。
 
 #### Agent実行: Web searchの後続境界（F02、F06、将来のF24候補）
 

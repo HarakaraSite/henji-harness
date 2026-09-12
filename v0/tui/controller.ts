@@ -60,6 +60,7 @@ type ControllerState =
   | 'starting'
   | 'idle'
   | 'busy'
+  | 'session-switching'
   | 'history-exporting'
   | 'exiting'
   | 'failed';
@@ -94,6 +95,7 @@ export class TuiController {
     }>
     | null = null;
   private historyExportGeneration = 0;
+  private sessionSwitchOperation: Promise<void> | null = null;
   private noticeGeneration = 1_000_000;
   private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
@@ -224,6 +226,19 @@ export class TuiController {
             reason: status === 'busy' ? 'busy' : 'unavailable',
           };
       }
+      case 'new_session': {
+        if (this.navigation?.createNew === undefined) {
+          return { kind: 'rejected', reason: 'unavailable' };
+        }
+        return this.navigation.createNew().then((binding) => {
+          this.session = binding.session;
+          return {
+            kind: 'binding' as const,
+            position: binding.position,
+            ...(binding.restored === undefined ? {} : { restored: binding.restored }),
+          };
+        });
+      }
       case 'select_provider': {
         const current = this.session.modelSelectionSnapshot?.();
         return this.selectModelFallback(
@@ -331,13 +346,15 @@ export class TuiController {
       this.input = this.readEvents();
       while (
         this.state === 'idle' || this.state === 'busy' ||
-        this.state === 'history-exporting'
+        this.state === 'history-exporting' || this.state === 'session-switching'
       ) {
         if (this.active === null) {
           const events = await this.input;
           this.input = this.readEvents();
           if ((this.state as ControllerState) === 'history-exporting') {
             this.processHistoryExporting(events);
+          } else if ((this.state as ControllerState) === 'session-switching') {
+            this.processSessionSwitching(events);
           } else this.processIdle(events);
           continue;
         }
@@ -437,6 +454,10 @@ export class TuiController {
         this.processHistoryExporting([event]);
         continue;
       }
+      if (this.state === 'session-switching') {
+        this.processSessionSwitching([event]);
+        continue;
+      }
       if (this.state !== 'idle') {
         this.processBusyEvent(event);
         continue;
@@ -527,6 +548,10 @@ export class TuiController {
         this.processHistoryExporting([event]);
         continue;
       }
+      if (this.state === 'session-switching') {
+        this.processSessionSwitching([event]);
+        continue;
+      }
       if (!busy && this.overlay.isOpen) {
         this.processModalEvent(event);
         continue;
@@ -561,11 +586,11 @@ export class TuiController {
           (slashCommand === 'history_export' || slashCommand === 'recover' ||
             slashCommand === 'provider' ||
             slashCommand === 'model' || slashCommand === 'effort' ||
-            slashCommand === 'rename')
+            slashCommand === 'rename' || slashCommand === 'new')
         ) {
           this.renderer.setStatus(
-            slashCommand === 'rename'
-              ? 'busy; /rename waits for ready'
+            slashCommand === 'rename' || slashCommand === 'new'
+              ? `busy; /${slashCommand} waits for ready`
               : `busy; ${this.editor.text.trim()} waits for ready`,
           );
         } else if (busy) this.submitSteeringIfNonblank();
@@ -776,6 +801,17 @@ export class TuiController {
     }
   }
 
+  private processSessionSwitching(events: readonly InputEvent[]): void {
+    for (const event of events) {
+      if (this.state !== 'session-switching') return;
+      if (event.kind === 'ctrl_d') {
+        this.modern ? this.modernCtrlD() : void this.shutdown(0);
+      } else {
+        this.renderer.setStatus('new session in progress; retry when ready');
+      }
+    }
+  }
+
   private modernCtrlD(): void {
     if (this.hasProcessPending()) {
       this.armDiscardConfirmation(
@@ -861,11 +897,13 @@ export class TuiController {
             slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
             slashCommandOf(this.editor.text) === 'effort' ||
-            slashCommandOf(this.editor.text) === 'rename'
+            slashCommandOf(this.editor.text) === 'rename' ||
+            slashCommandOf(this.editor.text) === 'new'
           ) {
             this.renderer.setStatus(
-              slashCommandOf(this.editor.text) === 'rename'
-                ? 'busy; /rename waits for ready'
+              slashCommandOf(this.editor.text) === 'rename' ||
+                slashCommandOf(this.editor.text) === 'new'
+                ? `busy; /${slashCommandOf(this.editor.text)} waits for ready`
                 : `busy; ${this.editor.text.trim()} waits for ready`,
             );
           } else if (steeringAvailable) this.submitSteeringIfNonblank();
@@ -896,6 +934,8 @@ export class TuiController {
           ? 'busy; /effort waits for ready'
           : slashCommand === 'rename'
           ? 'busy; /rename waits for ready'
+          : slashCommand === 'new'
+          ? 'busy; /new waits for ready'
           : 'steering unavailable',
       );
     }
@@ -922,6 +962,7 @@ export class TuiController {
     this.editorController.resetHistory();
     this.renderEditorState();
     if (command === 'help') this.openStartupHelp();
+    else if (command === 'new') this.startNewSession();
     else if (command === 'sessions') this.openPicker();
     else if (command === 'rename') this.renameSession(renameTitle ?? '');
     else if (command === 'provider') this.openProviderPicker();
@@ -933,6 +974,78 @@ export class TuiController {
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
     return true;
+  }
+
+  private startNewSession(): void {
+    if (this.state !== 'idle' || this.sessionSwitchOperation !== null) {
+      this.renderer.setStatus('new session already in progress');
+      return;
+    }
+    let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
+    try {
+      dispatched = this.dispatchIntent({ kind: 'new_session' });
+    } catch (error) {
+      if (isPresentationDeliveryError(error)) throw error;
+      this.renderer.setStatus('new session failed; current session unchanged');
+      return;
+    }
+    this.state = 'session-switching';
+    const operation = Promise.resolve(dispatched).then((result) => {
+      if (result.kind === 'rejected') {
+        if (this.state === 'session-switching') {
+          this.state = 'idle';
+          this.renderer.setStatus(
+            result.reason === 'busy' ? 'busy; /new waits for ready' : 'new session unavailable',
+          );
+        }
+        return;
+      }
+      if (result.kind !== 'binding') throw new PresentationDeliveryError();
+      if (this.intents === undefined) {
+        const selection = this.session.modelSelectionSnapshot?.();
+        this.renderer.eventSink({
+          kind: 'session_binding_replaced',
+          position: result.position,
+          ...(selection === undefined ? {} : {
+            modelSelection: {
+              provider: selection.provider,
+              modelId: selection.modelId,
+              effort: selection.effort,
+            },
+          }),
+        });
+        this.renderer.renderRestored(
+          result.restored?.messages ?? [],
+          result.restored?.omitted ?? 0,
+        );
+      }
+      this.renderer.setCurrentPosition(result.position);
+      if (this.state !== 'session-switching') return;
+      this.state = 'idle';
+      this.renderer.setStatus('new session ready');
+    }).catch((error: unknown) => {
+      if (
+        isPresentationDeliveryError(error) ||
+        isPresentationError(error, 'NavigationFatalError')
+      ) throw error;
+      if (this.state === 'session-switching') {
+        this.state = 'idle';
+        this.renderer.setStatus('new session failed; current session unchanged');
+      }
+    });
+    this.sessionSwitchOperation = operation;
+    void operation.then(
+      () => {
+        if (this.sessionSwitchOperation === operation) this.sessionSwitchOperation = null;
+      },
+      (error) => {
+        if (this.sessionSwitchOperation === operation) this.sessionSwitchOperation = null;
+        void this.fail(error).catch(() => {
+          // The controller has already entered its fatal shutdown path.
+        });
+      },
+    );
+    this.renderer.setStatus('creating new session');
   }
 
   private renameSession(title: string): void {
@@ -1391,6 +1504,7 @@ export class TuiController {
     this.clearSteeringEditorBestEffort();
     this.shutdownPromise = (async () => {
       await this.settleNavigation();
+      await this.settleSessionSwitch();
       await this.settleHistoryExport();
       await this.lifecycle.restore();
     })();
@@ -1406,6 +1520,7 @@ export class TuiController {
     this.clearSteeringEditorBestEffort();
     await this.settleActive();
     await this.settleNavigation();
+    await this.settleSessionSwitch();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
@@ -1446,6 +1561,7 @@ export class TuiController {
   private async settleCrash(): Promise<void> {
     await this.settleActive();
     await this.settleNavigation();
+    await this.settleSessionSwitch();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       this.shutdownPromise = this.lifecycle.restore();
@@ -1455,6 +1571,13 @@ export class TuiController {
 
   private async settleNavigation(): Promise<void> {
     await this.overlay.settle();
+  }
+
+  private async settleSessionSwitch(): Promise<void> {
+    const operation = this.sessionSwitchOperation;
+    if (operation === null) return;
+    await Promise.allSettled([operation]);
+    if (this.sessionSwitchOperation === operation) this.sessionSwitchOperation = null;
   }
 
   private async settleHistoryExport(): Promise<void> {

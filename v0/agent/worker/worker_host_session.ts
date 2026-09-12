@@ -1094,6 +1094,35 @@ export class WorkerHostSession {
     return this.checkpoint === undefined ? undefined : structuredClone(this.checkpoint);
   }
 
+  /** Persist a newly allocated, turn-zero Session before it becomes the active TUI binding. */
+  materializeEmptySession(): void {
+    if (this.options.handle.record !== undefined) return;
+    if (
+      this.closed || this.unavailable || this.active || this.currentCorrelation !== undefined ||
+      this.nextTurn !== 1 || this.transcript.length !== 0 || this.checkpoint !== undefined ||
+      this.title !== null
+    ) throw new Error('only a new idle Session can be materialized empty');
+    const record: SessionRecordV6 = {
+      schemaVersion: 6,
+      sessionId: this.sessionId,
+      workspaceRoot: this.options.workspaceRoot,
+      agent: this.options.agent,
+      createdAt: this.createdAt,
+      updatedAt: this.createdAt,
+      title: null,
+      stateRevision: this.stateRevision,
+      nextTurn: 1,
+      transcript: [],
+      definition: structuredClone(this.options.definition),
+      activeModel: structuredClone(this.modelSelection),
+      modelChanges: structuredClone(this.modelChanges),
+      turnModels: [],
+      turnExecutions: [],
+    };
+    if (!validateSessionRecordV6(record)) throw new Error('empty session record invalid');
+    this.options.handle.commit(record);
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;

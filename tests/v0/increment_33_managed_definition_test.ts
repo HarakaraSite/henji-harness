@@ -255,6 +255,8 @@ Deno.test('Increment 33 installs and retains exact managed Definition revisions'
       resourceId: 'example/parent',
       declaredRole: 'parent',
     });
+    assertEquals(duplicate.custody.localCustody.kind, 'installed');
+    assert(duplicate.custody.localCustody.kind === 'installed');
     assertEquals(duplicate.custody.localCustody.installedAt, '2026-09-12T01:02:03.000Z');
 
     const planner = await store.install({
@@ -645,7 +647,7 @@ Deno.test('Increment 33 re-resolves the saved exact Definition for Session reope
   }
 });
 
-Deno.test('Increment 33 distinguishes invalid and unsupported managed revisions', async () => {
+Deno.test('Increment 33 rejects corrupted managed revision content and identity', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-resolution-' });
   try {
     const dataRoot = `${root}/data`;
@@ -687,7 +689,7 @@ Deno.test('Increment 33 distinguishes invalid and unsupported managed revisions'
           `example/api@sha256:${apiRevision.manifest.logicalRef.revision.digest}`,
           dataRoot,
         ),
-      'definition_api_unsupported',
+      'definition_invalid',
       'resolution',
       apiRevision.manifest.logicalRef,
     );

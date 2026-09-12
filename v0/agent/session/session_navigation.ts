@@ -122,6 +122,7 @@ export interface SessionNavigationHost {
   readonly persistent: boolean;
   list(signal?: AbortSignal): Promise<NavigationListing>;
   renameCurrent(title: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable';
+  createNew?(signal?: AbortSignal): Promise<NavigationBinding>;
   switchTo(id: string, signal?: AbortSignal): Promise<NavigationBinding>;
   historyPage(page: number, turn?: number, rows?: number): Promise<SessionHistoryPage | undefined>;
   currentPosition(): NavigationPosition;

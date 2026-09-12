@@ -22,6 +22,7 @@ import type {
   NavigationPosition,
   SessionNavigationHost,
 } from '../session/session_navigation.ts';
+import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
 import {
   type DefinitionRevisionRef,
   DenoSessionStore,
@@ -32,7 +33,6 @@ import {
   SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionHandle,
-  type WorkerSessionStorePort,
 } from '../session/session_store.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { managedWorkerDefinitionLoadRequest } from './worker_capsule.ts';
@@ -147,7 +147,7 @@ export const createWorkerSession = async (
   const productionStateRoot = options.physicalIoMode === 'production'
     ? options.stateRoot ?? launcherStateRoot()
     : undefined;
-  const store: WorkerSessionStorePort | undefined = options.persistence === 'none'
+  const store: DenoSessionStore | undefined = options.persistence === 'none'
     ? undefined
     : new DenoSessionStore(
       options.stateRoot ?? launcherStateRoot(),
@@ -268,7 +268,10 @@ export const createWorkerSession = async (
         'session Definition revision does not match the selected binding',
       );
     }
-    const openHost = async (workerHandle: WorkerSessionHandle): Promise<WorkerHostSession> => {
+    const openHost = async (
+      workerHandle: WorkerSessionHandle,
+      initialModelSelection = options.initialModelSelection,
+    ): Promise<WorkerHostSession> => {
       try {
         return await WorkerHostSession.open({
           handle: workerHandle,
@@ -280,7 +283,7 @@ export const createWorkerSession = async (
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,
           providerTimeoutMs: options.providerTimeoutMs,
-          initialModelSelection: options.initialModelSelection,
+          initialModelSelection,
           eventSink: options.eventSink,
           diagnosticPersistence: options.diagnosticPersistence ??
             defaultDiagnosticStore?.persist,
@@ -341,6 +344,51 @@ export const createWorkerSession = async (
       },
       renameCurrent(title: string) {
         return currentHost.renameTitle(title);
+      },
+      async createNew(signal?: AbortSignal): Promise<NavigationBinding> {
+        if (signal?.aborted) throw new NavigationCancelledError();
+        const inheritedSelection = currentHost.modelSelectionSnapshot();
+        const targetHandle = await store!.allocateWorker(activeSelection.id, definition);
+        let targetHost: WorkerHostSession | undefined;
+        let materialized = false;
+        const cleanupTarget = async (): Promise<void> => {
+          if (targetHost === undefined) await targetHandle.close();
+          else await targetHost.close();
+          if (materialized) await store!.delete(targetHandle.id);
+        };
+        try {
+          if (signal?.aborted) throw new NavigationCancelledError();
+          targetHost = await openHost(targetHandle, inheritedSelection);
+          if (signal?.aborted) throw new NavigationCancelledError();
+          targetHost.materializeEmptySession();
+          materialized = true;
+          if (signal?.aborted) throw new NavigationCancelledError();
+        } catch (error) {
+          try {
+            await cleanupTarget();
+          } catch {
+            throw new NavigationFatalError('new session cleanup failed');
+          }
+          throw error;
+        }
+        try {
+          await currentHost.close();
+        } catch {
+          try {
+            await cleanupTarget();
+          } catch {
+            throw new NavigationFatalError('new session cleanup failed');
+          }
+          throw new NavigationFatalError('current session close failed');
+        }
+        currentHost = targetHost;
+        currentHandle = targetHandle;
+        currentRecord = targetHandle.record;
+        return {
+          session: currentHost,
+          position: position(),
+          restored: { messages: [], omitted: 0 },
+        };
       },
       async switchTo(
         id: string,

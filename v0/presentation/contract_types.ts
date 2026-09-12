@@ -278,6 +278,7 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'exit'; readonly code: 0 | 129 | 143 }>
   | Readonly<{ readonly kind: 'list_sessions' }>
   | Readonly<{ readonly kind: 'rename_session'; readonly title: string }>
+  | Readonly<{ readonly kind: 'new_session' }>
   | Readonly<{ readonly kind: 'resume_session'; readonly id: string }>
   | Readonly<{
     readonly kind: 'select_provider';

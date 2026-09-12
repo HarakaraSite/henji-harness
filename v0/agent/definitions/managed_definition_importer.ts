@@ -7,7 +7,10 @@ import {
   type ManagedDefinitionCustodyV1,
   type ManagedDefinitionManifestV1,
 } from './managed_definition_manifest.ts';
-import { isExternalDefinitionResourceId } from './managed_resource_ref.ts';
+import {
+  type DefinitionRevisionRef,
+  isExternalDefinitionResourceId,
+} from './managed_resource_ref.ts';
 import { AGENT_DEFINITION_API_CONTRACT } from '../runtime/build_manifest.ts';
 
 export type ManagedDefinitionErrorCode =
@@ -15,10 +18,17 @@ export type ManagedDefinitionErrorCode =
   | 'module_invalid'
   | 'module_api_unsupported'
   | 'module_io_failure'
-  | 'module_import_unsupported';
+  | 'module_import_unsupported'
+  | 'module_artifact_not_found'
+  | 'module_artifact_exists'
+  | 'module_artifact_io_failure';
 
 export class ManagedDefinitionError extends Error {
-  constructor(readonly code: ManagedDefinitionErrorCode, message: string) {
+  constructor(
+    readonly code: ManagedDefinitionErrorCode,
+    message: string,
+    readonly definition?: DefinitionRevisionRef,
+  ) {
     super(message);
     this.name = 'ManagedDefinitionError';
   }
@@ -75,10 +85,11 @@ const relativePath = (rootUrl: URL, moduleUrl: URL): string => {
   return value;
 };
 
-const sourceDependencies = (
+export const analyzeDefinitionSourceDependencies = (
   source: string,
   moduleUrl: URL,
   rootUrl: URL,
+  apiContract: string,
 ): readonly DefinitionLocalDependencyV1[] => {
   let imports: ReturnType<typeof parse>[0];
   try {
@@ -110,7 +121,7 @@ const sourceDependencies = (
     if (specifier === '@henji/agent') {
       dependencies.push({
         specifier,
-        target: { kind: 'embedded-api', contract: AGENT_DEFINITION_API_CONTRACT },
+        target: { kind: 'embedded-api', contract: apiContract },
         typeOnly: item.typeOnly,
       });
       continue;
@@ -253,7 +264,12 @@ export const importManagedDefinition = async (
           loaded.set(specifier, {
             path: relative,
             bytes,
-            dependencies: sourceDependencies(source, url, rootUrl),
+            dependencies: analyzeDefinitionSourceDependencies(
+              source,
+              url,
+              rootUrl,
+              AGENT_DEFINITION_API_CONTRACT,
+            ),
           });
           return { kind: 'module', specifier, content: bytes };
         } catch (error) {
@@ -290,6 +306,7 @@ export const importManagedDefinition = async (
   const content: DefinitionRevisionContent = {
     resourceId: options.resourceId,
     declaredRole: options.declaredRole,
+    apiContract: AGENT_DEFINITION_API_CONTRACT,
     entry,
     files,
   };

@@ -130,6 +130,7 @@ export const startupHelpLines = (
     '/provider · select the root provider and its default model',
     '/model · search and select the root model',
     '/effort · select effort for the current root model',
+    '/new · start a new saved session',
     '/sessions · resume a saved session',
     '/rename <title> · name the current saved session',
     '/history export · save committed history as Markdown',

@@ -3,8 +3,6 @@ import {
   isDefinitionRevisionRef,
   isExternalDefinitionResourceId,
 } from './managed_resource_ref.ts';
-import { AGENT_DEFINITION_API_CONTRACT } from '../runtime/build_manifest.ts';
-
 export const DEFINITION_REVISION_DOMAIN = 'henji-definition-revision-v1';
 export const DEFINITION_CLOSURE_SCHEMA_VERSION = 1 as const;
 
@@ -15,7 +13,7 @@ export interface DefinitionLocalDependencyV1 {
     readonly path: string;
   } | {
     readonly kind: 'embedded-api';
-    readonly contract: typeof AGENT_DEFINITION_API_CONTRACT;
+    readonly contract: string;
   };
   readonly typeOnly: boolean;
 }
@@ -32,28 +30,37 @@ export interface ManagedDefinitionManifestV1 {
   readonly closureSchemaVersion: typeof DEFINITION_CLOSURE_SCHEMA_VERSION;
   readonly logicalRef: DefinitionRevisionRef;
   readonly declaredRole: 'parent' | 'planner';
-  readonly apiContract: typeof AGENT_DEFINITION_API_CONTRACT;
+  readonly apiContract: string;
   readonly entry: string;
   readonly exactResourceBindings: readonly [];
   readonly files: readonly DefinitionClosureFileV1[];
 }
 
+export interface ManagedDefinitionOriginLineageV1 {
+  readonly kind: 'source';
+  readonly entryPath: string;
+  readonly moduleRoot: string;
+}
+
+export type ManagedDefinitionLocalCustodyV1 = {
+  readonly kind: 'installed';
+  readonly installedAt: string;
+} | {
+  readonly kind: 'imported';
+  readonly importedAt: string;
+  readonly artifactPath: string;
+};
+
 export interface ManagedDefinitionCustodyV1 {
   readonly schemaVersion: 1;
-  readonly originLineage: {
-    readonly kind: 'source';
-    readonly entryPath: string;
-    readonly moduleRoot: string;
-  };
-  readonly localCustody: {
-    readonly kind: 'installed';
-    readonly installedAt: string;
-  };
+  readonly originLineage: ManagedDefinitionOriginLineageV1;
+  readonly localCustody: ManagedDefinitionLocalCustodyV1;
 }
 
 export interface DefinitionRevisionContent {
   readonly resourceId: string;
   readonly declaredRole: 'parent' | 'planner';
+  readonly apiContract: string;
   readonly entry: string;
   readonly files: readonly {
     readonly path: string;
@@ -104,14 +111,14 @@ const append = (chunks: Uint8Array[], value: string | Uint8Array): void => {
 };
 
 export const canonicalDefinitionRevisionBytes = (
-  content: Pick<DefinitionRevisionContent, 'declaredRole' | 'entry' | 'files'>,
+  content: Pick<DefinitionRevisionContent, 'declaredRole' | 'apiContract' | 'entry' | 'files'>,
 ): Uint8Array => {
   const files = [...content.files].sort((left, right) => compareUtf8(left.path, right.path));
   const chunks: Uint8Array[] = [];
   append(chunks, DEFINITION_REVISION_DOMAIN);
   append(chunks, 'agent-definition');
   append(chunks, content.declaredRole);
-  append(chunks, AGENT_DEFINITION_API_CONTRACT);
+  append(chunks, content.apiContract);
   append(chunks, content.entry);
   append(chunks, 'exact-resource-bindings');
   chunks.push(u64(0));
@@ -149,7 +156,7 @@ export const createManagedDefinitionManifest = async (
       revision: Object.freeze({ algorithm: 'sha256', digest }),
     }),
     declaredRole: content.declaredRole,
-    apiContract: AGENT_DEFINITION_API_CONTRACT,
+    apiContract: content.apiContract,
     entry: content.entry,
     exactResourceBindings,
     files: Object.freeze(files),
@@ -174,8 +181,15 @@ const isDependency = (value: unknown): value is DefinitionLocalDependencyV1 => {
   return value.target.kind === 'local'
     ? isCanonicalRelativeDefinitionPath(value.target.path)
     : value.target.kind === 'embedded-api' &&
-      value.target.contract === AGENT_DEFINITION_API_CONTRACT;
+      typeof value.target.contract === 'string' && value.target.contract.length > 0;
 };
+
+export const isManagedDefinitionOriginLineage = (
+  value: unknown,
+): value is ManagedDefinitionOriginLineageV1 =>
+  isRecord(value) && value.kind === 'source' &&
+  typeof value.entryPath === 'string' && value.entryPath.startsWith('/') &&
+  typeof value.moduleRoot === 'string' && value.moduleRoot.startsWith('/');
 
 export const isManagedDefinitionManifest = (
   value: unknown,
@@ -186,7 +200,7 @@ export const isManagedDefinitionManifest = (
     !isDefinitionRevisionRef(value.logicalRef) ||
     !isExternalDefinitionResourceId(value.logicalRef.resourceId) ||
     (value.declaredRole !== 'parent' && value.declaredRole !== 'planner') ||
-    value.apiContract !== AGENT_DEFINITION_API_CONTRACT ||
+    typeof value.apiContract !== 'string' || value.apiContract.length === 0 ||
     !isCanonicalRelativeDefinitionPath(value.entry) ||
     !Array.isArray(value.exactResourceBindings) || value.exactResourceBindings.length !== 0 ||
     !Array.isArray(value.files) || value.files.length === 0
@@ -205,7 +219,9 @@ export const isManagedDefinitionManifest = (
   return paths.has(value.entry) &&
     value.files.every((file) =>
       file.dependencies.every((dependency: DefinitionLocalDependencyV1) =>
-        dependency.target.kind !== 'local' || paths.has(dependency.target.path)
+        dependency.target.kind === 'local'
+          ? paths.has(dependency.target.path)
+          : dependency.target.contract === value.apiContract
       )
     );
 };
@@ -217,14 +233,16 @@ export const isManagedDefinitionCustody = (
     !isRecord(value) || value.schemaVersion !== 1 || !isRecord(value.originLineage) ||
     !isRecord(value.localCustody)
   ) return false;
-  return value.originLineage.kind === 'source' &&
-    typeof value.originLineage.entryPath === 'string' &&
-    value.originLineage.entryPath.startsWith('/') &&
-    typeof value.originLineage.moduleRoot === 'string' &&
-    value.originLineage.moduleRoot.startsWith('/') &&
-    value.localCustody.kind === 'installed' &&
-    typeof value.localCustody.installedAt === 'string' &&
-    !Number.isNaN(Date.parse(value.localCustody.installedAt));
+  if (!isManagedDefinitionOriginLineage(value.originLineage)) return false;
+  if (value.localCustody.kind === 'installed') {
+    return typeof value.localCustody.installedAt === 'string' &&
+      !Number.isNaN(Date.parse(value.localCustody.installedAt));
+  }
+  return value.localCustody.kind === 'imported' &&
+    typeof value.localCustody.importedAt === 'string' &&
+    !Number.isNaN(Date.parse(value.localCustody.importedAt)) &&
+    typeof value.localCustody.artifactPath === 'string' &&
+    value.localCustody.artifactPath.startsWith('/');
 };
 
 export const definitionFileSha256 = sha256Hex;

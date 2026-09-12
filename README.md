@@ -10,6 +10,9 @@ Production TUIでは、idle時の`/provider`でOpenRouterとOpenAI directを切�
 providerのcurated modelを検索・選択し、`/effort`でreasoning effortを別に変更できる。provider変更はその
 providerのdefault model/effortを一度に適用し、各選択は同じSessionの次のroot turnから有効になる。`/sessions`は
 更新日時、手動title、短縮Session ID、turn数を表示し、`/rename <title>`でcurrent Sessionへtitleを付けられる。
+`/new`はprocessを終了せず、current exact Definitionとroot provider/model/effortを引き継いだturn 0の新しい
+persistent Sessionを同じworkspaceに作成して切り替える。busy中は`/new`をeditorに残してready後の再Enterを待ち、
+`--no-session`では利用できない。`/new`自体はproviderへ送信しない。
 provider/model/effortは一覧には表示しないがSessionと一緒に復元する。delegated plannerはrootの選択を継承せず、
 planner defaultを使う。footerは1段目へbusy開始からの経過時間を含む一時的なstatus、2段目へcwd、Session短縮ID、
 現在のroot provider/model/effortを常時表示する。
@@ -58,6 +61,24 @@ sourceを実行せず、entryとrelative `.ts` dependencyのclosure、declared r
 ./dist/henji module list
 ./dist/henji module inspect --id team/answer-agent --revision sha256:<full-digest>
 ```
+
+managed storeにある一つのexact revisionは、一つのJSON artifactとして別installationへ移せる。exportは元sourceを
+再読込せず、full exact refだけを受け取る。outputが存在する場合は上書きしない。
+
+```sh
+./dist/henji module export team/answer-agent@sha256:<full-digest> \
+  --output ./answer-agent.henji.json
+XDG_DATA_HOME=/path/to/other/data \
+  ./dist/henji module import ./answer-agent.henji.json
+```
+
+artifactにはportable manifest、最初のsource origin lineage、closure全fileのexact bytesが含まれる。export元のlocal
+custody、XDG root、credential、Session、workspace state、Henji binary、built-in Definition、active bindingは含まれない。
+import先では同じlogical refとmanifestを保持しながら、artifact pathとimport日時を新しいlocal custodyとして記録する。
+export/importはactivationを行わないため、実行時は従来どおり`--definition-revision`へexact refを指定する。
+
+現在のbinaryがsupportしないDefinition API contractを持つ正しいartifactも、custody目的でimport、list、inspect、再export
+できる。そのexact revisionを実行しようとした時点でのみcompatibility errorとなり、built-inや別revisionへfallbackしない。
 
 `install`のJSON結果にある`manifest.logicalRef`が実行identityである。activationはinstallとは別で、module IDとfull
 64桁digestを明示して新しいTUI Sessionまたは非対話turnを開始する。`--agent default|planner`はbuilt-in専用で、

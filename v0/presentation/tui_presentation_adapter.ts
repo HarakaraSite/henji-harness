@@ -440,6 +440,8 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
             reason: status === 'busy' ? 'busy' : 'unavailable',
           };
       }
+      case 'new_session':
+        return this.dispatchNewSession();
       case 'resume_session':
         return this.dispatchResume(admitted.id);
       case 'select_provider': {
@@ -598,6 +600,39 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     });
   }
 
+  private dispatchNewSession(): PresentationIntentResult | Promise<PresentationIntentResult> {
+    if (this.coreNavigation?.createNew === undefined) {
+      return { kind: 'rejected', reason: 'unavailable' };
+    }
+    return this.navigationOperation(async (signal) => {
+      const binding = await this.coreNavigation!.createNew!(signal);
+      this.core = binding.session as CoreSession;
+      const positionValue = position(binding.position);
+      const selected = this.core.modelSelectionSnapshot?.();
+      this.emit({
+        kind: 'session_binding_replaced',
+        position: positionValue,
+        ...(selected === undefined ? {} : {
+          modelSelection: {
+            provider: selected.provider,
+            modelId: selected.modelId,
+            effort: selected.effort,
+          },
+        }),
+      });
+      const restoredValue = {
+        messages: restoredPresentationMessages(binding.restored?.messages ?? []),
+        omitted: binding.restored?.omitted ?? 0,
+      };
+      this.emit({ kind: 'restored_log', ...restoredValue });
+      return {
+        kind: 'binding' as const,
+        position: positionValue,
+        restored: restoredValue,
+      };
+    });
+  }
+
   navigationPort(): AdapterNavigationPort | undefined {
     const navigation = this.coreNavigation;
     if (navigation === undefined) return undefined;
@@ -605,6 +640,19 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       persistent: navigation.persistent,
       list: async (signal) => listing(await navigation.list(signal)),
       renameCurrent: (title) => navigation.renameCurrent(title),
+      ...(navigation.createNew === undefined ? {} : {
+        createNew: async (signal?: AbortSignal) => {
+          const binding = await navigation.createNew!(signal);
+          return Object.freeze({
+            session: new TuiPresentationAdapter(binding.session as CoreSession, this.sink),
+            position: position(binding.position),
+            restored: Object.freeze({
+              messages: Object.freeze([]),
+              omitted: 0,
+            }),
+          });
+        },
+      }),
       switchTo: async (id, signal) => {
         const binding: NavigationBinding = await navigation.switchTo(
           id,

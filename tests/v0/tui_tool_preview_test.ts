@@ -252,6 +252,7 @@ Deno.test('tool preview truncates a long command head with ellipsis', () => {
 
 Deno.test('Slash commands parse exact built-ins and rename title arguments', () => {
   assertEquals(slashCommandOf('/help'), 'help');
+  assertEquals(slashCommandOf('/new'), 'new');
   assertEquals(slashCommandOf('/sessions'), 'sessions');
   assertEquals(slashCommandOf('/rename Project notes'), 'rename');
   assertEquals(slashCommandOf('/provider'), 'provider');
@@ -267,6 +268,7 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('/history export now'), 'unknown');
   assertEquals(slashCommandOf('/context'), 'unknown');
   assertEquals(slashCommandOf('/sessions foo'), 'unknown');
+  assertEquals(slashCommandOf('/new session'), 'unknown');
   assertEquals(slashCommandOf('/renamefoo'), 'unknown');
   assertEquals(slashCommandOf('/HELP'), 'unknown');
   assertEquals(renameTitleOf('/rename Project\nnotes'), 'Project notes');
@@ -277,6 +279,7 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
 Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () => {
   assertEquals(slashCommandCandidates('/'), [
     '/help',
+    '/new',
     '/sessions',
     '/rename',
     '/provider',
@@ -287,6 +290,7 @@ Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () 
     '/exit',
   ]);
   assertEquals(slashCommandCandidates('/h'), ['/help', '/history export']);
+  assertEquals(slashCommandCandidates('/n'), ['/new']);
   assertEquals(slashCommandCandidates('/r'), ['/rename', '/recover']);
   assertEquals(slashCommandCandidates('/history'), ['/history export']);
   assertEquals(slashCommandCandidates('/history export'), ['/history export']);

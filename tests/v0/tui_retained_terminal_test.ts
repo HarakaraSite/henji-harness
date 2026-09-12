@@ -13,6 +13,8 @@ import {
   type PresentationIntentResult,
   type PresentationStartupState,
 } from '../../v0/presentation/contract.ts';
+import { presentationProjectionFromStartup } from '../../v0/presentation/adapter.ts';
+import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import {
   BLINK_SGR,
   ENTER_ALTERNATE_SCREEN,
@@ -406,7 +408,7 @@ Deno.test('retained controller shows credential absence and slash candidates wit
   );
 
   terminal.push('/');
-  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 9);
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 10);
   const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
   assert(allCommandsFooter.includes('cmds:'));
   assert(allCommandsFooter.includes('/rename'));
@@ -1086,6 +1088,196 @@ Deno.test('/rename is unavailable when Session persistence is disabled', async (
   const run = controller.run();
   terminal.push('/rename\r');
   await waitFor(() => renderer.stateSnapshot().status === 'session rename unavailable');
+  assertEquals(submitted, []);
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('busy /new waits for ready then replaces the retained Session without submission', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let settle: (() => void) | undefined;
+  const submitted: string[] = [];
+  const steering: string[] = [];
+  const inherited = defaultModelSelectionFor('openai');
+  const oldSession: TuiSessionLike = {
+    submit: (task) => {
+      submitted.push(task);
+      return new Promise((resolve) => {
+        settle = () =>
+          resolve({
+            ok: true,
+            task,
+            outcome: 'final',
+            stopReason: 'final',
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      });
+    },
+    steerActiveTurn: (text) => {
+      steering.push(text);
+      return 'accepted';
+    },
+  };
+  const newSession: TuiSessionLike = {
+    ...successfulSession(submitted),
+    modelSelectionSnapshot: () => inherited,
+  };
+  const oldPosition = {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    createdAt: '2026-09-12T00:00:00.000Z',
+    agent: 'default' as const,
+    committedTurn: 1,
+    messageCount: 2,
+  };
+  const newPosition = {
+    sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    createdAt: '2026-09-12T00:01:00.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  let currentPosition = oldPosition;
+  let createCount = 0;
+  const navigation: TuiNavigationLike = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
+    createNew: () => {
+      createCount += 1;
+      currentPosition = newPosition;
+      return Promise.resolve({
+        session: newSession,
+        position: newPosition,
+        restored: { messages: [], omitted: 0 },
+      });
+    },
+    switchTo: () => Promise.reject(new Error('not used')),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => currentPosition,
+  };
+  const startup: PresentationStartupState = {
+    workspace: '/tmp/henji-new-session',
+    agentId: 'default',
+    model: {
+      provider: 'openrouter',
+      profileId: 'test',
+      modelId: 'z-ai/glm-5.3-flash',
+      effort: 'low',
+    },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: [] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  renderer.renderCompactStartup(startup, oldPosition);
+  renderer.setProjection(
+    presentationProjectionFromStartup(startup, oldPosition, {
+      canNavigate: true,
+      canHistory: true,
+      canCompact: false,
+    }),
+  );
+  renderer.eventSink({
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'old conversation' } },
+  });
+  const controller = new TuiController(lifecycle, renderer, oldSession, {
+    pending: new PendingInputCore(),
+    navigation,
+  });
+  const run = controller.run();
+
+  terminal.push('active task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('/new\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'busy; /new waits for ready');
+  assertEquals(controller.editor.text, '/new');
+  assertEquals(steering, []);
+  assertEquals(createCount, 0);
+
+  settle?.();
+  await waitFor(() => controller.currentState === 'idle');
+  terminal.push('\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'new session ready');
+  assertEquals(createCount, 1);
+  assertEquals(submitted, ['active task']);
+  assertEquals(controller.editor.text, '');
+  assertEquals(renderer.stateSnapshot().log.entries, []);
+  assertEquals(renderer.stateSnapshot().startup?.position, newPosition);
+  assertEquals(renderer.stateSnapshot().projection?.sessionId, newPosition.sessionId);
+  assertEquals(renderer.stateSnapshot().projection?.committedTurn, 0);
+  assertEquals(renderer.stateSnapshot().projection?.model, {
+    provider: inherited.provider,
+    modelId: inherited.modelId,
+    effort: inherited.effort,
+  });
+
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('/new is unavailable without persistent Session navigation', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession(submitted),
+    { pending: new PendingInputCore() },
+  );
+  const run = controller.run();
+  terminal.push('/new\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'new session unavailable');
+  assertEquals(submitted, []);
+  assertEquals(controller.editor.text, '');
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('/new setup failure keeps the current retained Session', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  const position = {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    createdAt: '2026-09-12T00:00:00.000Z',
+    agent: 'default' as const,
+    committedTurn: 1,
+    messageCount: 2,
+  };
+  const navigation: TuiNavigationLike = {
+    persistent: true,
+    list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
+    createNew: () => Promise.reject(new Error('target setup failed')),
+    switchTo: () => Promise.reject(new Error('not used')),
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => position,
+  };
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession(submitted),
+    { pending: new PendingInputCore(), navigation },
+  );
+  const run = controller.run();
+  terminal.push('/new\r');
+  await waitFor(() =>
+    renderer.stateSnapshot().status === 'new session failed; current session unchanged'
+  );
+  assertEquals(navigation.currentPosition(), position);
   assertEquals(submitted, []);
   terminal.push('\x04');
   assertEquals(await run, 0);

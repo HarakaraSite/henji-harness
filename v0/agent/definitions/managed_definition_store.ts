@@ -1,6 +1,5 @@
 import {
   compareUtf8,
-  createManagedDefinitionManifest,
   definitionFileSha256,
   isManagedDefinitionCustody,
   isManagedDefinitionManifest,
@@ -8,16 +7,23 @@ import {
   type ManagedDefinitionManifestV1,
 } from './managed_definition_manifest.ts';
 import {
+  type ImportedManagedDefinition,
   importManagedDefinition,
   ManagedDefinitionError,
   type ManagedDefinitionImportOptions,
 } from './managed_definition_importer.ts';
+import { validateManagedDefinitionRevision } from './managed_definition_revision_validator.ts';
+import {
+  createManagedDefinitionTransport,
+  decodeManagedDefinitionTransport,
+  encodeManagedDefinitionTransport,
+} from './managed_definition_transport.ts';
 import {
   type DefinitionRevisionRef,
   isDefinitionRevisionRef,
   isExternalDefinitionResourceId,
 } from './managed_resource_ref.ts';
-import { AGENT_DEFINITION_API_CONTRACT } from '../runtime/build_manifest.ts';
+import { buildManifest } from '../runtime/build_manifest.ts';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -26,6 +32,7 @@ const SHA256 = /^[0-9a-f]{64}$/u;
 export interface ManagedDefinitionRevision {
   readonly manifest: ManagedDefinitionManifestV1;
   readonly custody: ManagedDefinitionCustodyV1;
+  readonly files: ReadonlyMap<string, Uint8Array>;
   readonly physicalRoot: string;
   readonly entryPath: string;
 }
@@ -159,19 +166,6 @@ const readRevisionAt = async (
   const manifestValue = await readJson(`${path}/manifest.json`);
   const custodyValue = await readJson(`${path}/custody.json`);
   if (
-    typeof manifestValue === 'object' && manifestValue !== null &&
-    !Array.isArray(manifestValue) &&
-    typeof (manifestValue as Record<string, unknown>).apiContract === 'string' &&
-    (manifestValue as Record<string, unknown>).apiContract !== AGENT_DEFINITION_API_CONTRACT
-  ) {
-    throw new ManagedDefinitionError(
-      'module_api_unsupported',
-      `Managed Definition API contract is unsupported: ${
-        (manifestValue as Record<string, unknown>).apiContract
-      }`,
-    );
-  }
-  if (
     !isManagedDefinitionManifest(manifestValue) ||
     !isManagedDefinitionCustody(custodyValue)
   ) {
@@ -221,21 +215,12 @@ const readRevisionAt = async (
       dependencies: descriptor.dependencies,
     });
   }
-  const rebuilt = await createManagedDefinitionManifest({
-    resourceId: manifest.logicalRef.resourceId,
-    declaredRole: manifest.declaredRole,
-    entry: manifest.entry,
-    files,
-  });
-  if (rebuilt.logicalRef.revision.digest !== manifest.logicalRef.revision.digest) {
-    throw new ManagedDefinitionError(
-      'module_invalid',
-      'Managed Definition revision digest mismatch',
-    );
-  }
+  const revisionFiles = new Map(files.map((file) => [file.path, file.bytes] as const));
+  await validateManagedDefinitionRevision(manifest, revisionFiles);
   return {
     manifest: structuredClone(manifest),
     custody: structuredClone(custody),
+    files: revisionFiles,
     physicalRoot: path,
     entryPath: `${path}/files/${manifest.entry}`,
   };
@@ -252,6 +237,41 @@ export class ManagedDefinitionStore {
     options: Omit<ManagedDefinitionImportOptions, 'now'>,
   ): Promise<ManagedDefinitionRevision> {
     const imported = await importManagedDefinition({ ...options, now: this.options.now });
+    return await this.publish(imported);
+  }
+
+  async exportTransport(ref: DefinitionRevisionRef): Promise<Uint8Array> {
+    if (!isDefinitionRevisionRef(ref) || !isExternalDefinitionResourceId(ref.resourceId)) {
+      throw new ManagedDefinitionError('module_invalid', 'Managed Definition ref is invalid');
+    }
+    const revision = await this.inspect(ref.resourceId, ref.revision.digest);
+    const transport = createManagedDefinitionTransport(
+      revision.manifest,
+      revision.custody.originLineage,
+      revision.files,
+    );
+    return encodeManagedDefinitionTransport(transport);
+  }
+
+  async importTransport(
+    bytes: Uint8Array,
+    artifactPath: string,
+  ): Promise<ManagedDefinitionRevision> {
+    const imported = await decodeManagedDefinitionTransport(bytes, {
+      artifactPath,
+      now: this.options.now,
+    });
+    try {
+      return await this.publish(imported);
+    } catch (error) {
+      if (error instanceof ManagedDefinitionError && error.definition === undefined) {
+        throw new ManagedDefinitionError(error.code, error.message, imported.manifest.logicalRef);
+      }
+      throw error;
+    }
+  }
+
+  private async publish(imported: ImportedManagedDefinition): Promise<ManagedDefinitionRevision> {
     const ref = imported.manifest.logicalRef;
     const target = await revisionPath(this.root, ref.resourceId, ref.revision.digest);
     try {
@@ -306,7 +326,16 @@ export class ManagedDefinitionStore {
     if (!isDefinitionRevisionRef(ref) || !isExternalDefinitionResourceId(ref.resourceId)) {
       throw new ManagedDefinitionError('module_invalid', 'Managed Definition ref is invalid');
     }
-    return await this.inspect(ref.resourceId, ref.revision.digest);
+    const revision = await this.inspect(ref.resourceId, ref.revision.digest);
+    if (
+      !buildManifest().supportedAgentDefinitionApiContracts.includes(revision.manifest.apiContract)
+    ) {
+      throw new ManagedDefinitionError(
+        'module_api_unsupported',
+        `Managed Definition API contract is unsupported: ${revision.manifest.apiContract}`,
+      );
+    }
+    return revision;
   }
 
   async list(): Promise<readonly ManagedDefinitionSummary[]> {

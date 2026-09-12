@@ -1,5 +1,6 @@
 export type SlashCommand =
   | 'help'
+  | 'new'
   | 'sessions'
   | 'rename'
   | 'provider'
@@ -16,6 +17,7 @@ export interface SlashCommandDefinition {
 
 export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
   Object.freeze({ text: '/help', command: 'help' }),
+  Object.freeze({ text: '/new', command: 'new' }),
   Object.freeze({ text: '/sessions', command: 'sessions' }),
   Object.freeze({ text: '/rename', command: 'rename' }),
   Object.freeze({ text: '/provider', command: 'provider' }),
