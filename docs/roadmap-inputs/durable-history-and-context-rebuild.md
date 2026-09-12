@@ -1,7 +1,7 @@
-# Durable historyとcontext rebuildの概念整理
+# Durable historyとcontext rebuildの全体program
 
-ステータス: 構想・architecture・roadmapを更新するための議論整理。個別incrementの計画、実装認可、
-SQLite採用決定ではない
+ステータス: 調査・第三者reviewを経て採用した全体program。SQLite採用とIncrement 40〜43の順序を定める。
+個別incrementの実装計画、実装認可、`/rebuild`の対象resource採用ではない
 
 確認日: 2026-09-12
 
@@ -47,8 +47,9 @@ canonical conversationはdurable history全体ではなく、Hostが正常完了
 順序付きで並べた会話上の正本である。ここでいう正常完了は、回答内容の正しさや利用者の満足を意味しない。
 期待と違う回答も、正常に完了して採用され、その後の改訂材料になり得る。
 
-canonical採用はturn全体を単位とし、途中状態だけを採用しない。turnへ含めるmessage、tool interaction、
-projectionの具体的範囲は、storage設計時に決める。
+canonical採用はturn全体を単位とし、途中状態だけを採用しない。採用するturnには、そのexecutionで生成した
+user、assistant、toolのmessageを含める。`/recall`で投入したprojection本文はcanonical turnへ複製せず、
+source execution、target execution、実際のprojectionの関係として別に保持する。
 
 ### 二つのcommit
 
@@ -83,12 +84,16 @@ canonical conversationだが、現在execution内で得たtool result等は同�
 概念上の入力は次のようになる。
 
 ```text
-canonicalな過去会話
+canonicalな過去turnの選択済みprojection
   + activeなAgent側の基底設定
-  + 現在execution内で得た文脈
-  + /recall等で明示選択されたprojection
+  + 現在executionのuser / assistant / tool message
+  + /recall等で明示的にadmitされたprojection
   + 現在のtaskとruntime input
 ```
+
+「canonicalだけからmodel contextを作る」は、過去executionから暗黙に継承する会話にだけ適用する。現在の
+executionで得たmessageと、利用者が明示的に選んだprojectionを除外する意味ではない。semantic checkpointは
+canonical historyから作るderived projectionであり、canonical conversationそのものとは区別する。
 
 ## `/recall`
 
@@ -102,7 +107,8 @@ Host operationである。
 - 「一度だけ」はprojectionを投入する対象taskを意味する。同じtask内の各model requestでは利用できる。
 - targetから生成されcanonical採用された回答は通常の会話として後続へ残り得る。
 
-projection本文そのものをcanonical turnへどこまで含めるかは未決である。
+projection本文そのものはcanonical turnへ複製しない。target executionが生成し、通常の採用条件を満たした
+user、assistant、toolのmessageはcanonical conversationへ残り得る。
 
 ## InstructionとAgent状態の来歴
 
@@ -193,16 +199,110 @@ AIがresourceの改訂候補生成へ関与し、人間が明示的に採用ま�
 - tool外部effectのrollback
 - 完全なevent captureを前提にした説明
 
-## SQLite設計前の未決事項
+## 調査結果
 
-1. `task`、`execution`、`turn`、`model request`の正確な関係。
-2. canonicalへ採用するturnの内容とatomicな単位。
-3. execution evidenceをどの時点・粒度でdurableにするか。
-4. context generationが所有する基底設定と、execution単位の動的inputの境界。
-5. `/rebuild`対象resourceと、各resourceのselection/activation authority。
-6. `/recall` projection本文をcanonical turnへ含める範囲。
-7. human history viewから各execution、context、projection、transitionをどう辿るか。
-8. 現行Session JSONを発展させるかSQLiteを採用するかを含む物理schemaとmigration。
+### 現行実装との対応
 
-SQLiteは候補であり、この整理自体から採用を導かない。採用する場合も、durable history、canonical adoption、
-model context projection、resource revision、toolの外部作業状態を一つの曖昧な`messages`状態へ混在させない。
+architectureが定めるdurable/canonical、execution状態、context attribution、human history viewとmodel
+projectionの分離は、必要な意味としては現行product方針と整合している。一方、実装には次の差がある。
+
+- canonical transcriptは`SessionRecordV6`全体をJSONとして書き換え、execution artifact、provider evidence、
+  diagnostic、semantic checkpointは別JSONへ保存する。task、execution、canonical turn、model requestを一つの
+  durableな関係として辿れない。
+- canonical turnはatomicに保存するが、active executionと途中のtool/progress/evidenceは主にsettlement時まで
+  durableではない。progressはstep/tool callごとの最新状態へcoalesceされ、Hostが観測した順序を保持しない。
+- build、Definition、manifest、model、`/recall`のattributionは一部あるが、実際に使ったinstruction本文、
+  skill catalogと読み込んだskill、tool contract、runtime factをmodel requestまで正確に相関できない。
+- 人間向けにはcanonical transcript exportと個別のdiagnostic操作があり、canonical/non-canonical executionを
+  一続きに辿るhistory viewはない。model向けにはcanonical historyと一task限りの`/recall` projectionがある。
+
+導入済みDeno 2.9.4の`node:sqlite`は実機で利用でき、SQLite 3.53.2へ接続することを確認した。このprogramでは
+新しいglobal dependencyを追加せず、workspace-local SQLiteを使用できる。
+
+### 参照実装から採るものと採らないもの
+
+- [Forge durable](https://github.com/NorviaLabs/forge/blob/d0bb0788e7c1fdfbe16291818c39293c1de755f7/crates/forge-durable/src/lib.rs)
+  から、append-onlyなeventとside effect前の記録を参考にする。per-session DB、async SQLx、`synchronous=NORMAL`
+  という物理構成はそのまま採用しない。
+- [OpenCode V2 session proposal](https://github.com/anomalyco/opencode/blob/193de13a88d62a6409c6d385831180f1def527dc/specs/v2/session.md)
+  から、admissionとvisible historyの分離、tool実行前の記録、interrupted executionを自動replayしない考え方を
+  参考にする。未配送の提案schemaであり、既存Henji JSONのcompatibility import根拠にはしない。
+- [Prime Agent session format](https://github.com/PrimeIntellect-ai/prime-agent/blob/1eee2938b4eeb7a4d72e17035adda669a89b63de/packages/coding-agent/docs/session-format.md)
+  から、append-only historyとmodel context projectionの分離を参考にする。branch/tree modelは要求がないため
+  持ち込まない。
+- SQLiteのruntime APIは[Deno公式例](https://docs.deno.com/examples/sqlite/)、durabilityの意味は
+  [SQLite `synchronous` PRAGMA](https://sqlite.org/pragma.html#pragma_synchronous)を根拠にする。
+
+## 採用した全体program
+
+物理storageにはworkspace-local SQLiteを採用し、WALと`synchronous=FULL`を使用する。成功したcommitは、
+SQLite/VFSが提供するOS crash・power lossに対するdurabilityを意図する。完全なexecution再現、外部effectの
+rollback、Hostが観測できなかった事象の復元は要求しない。
+
+### Increment 40 — SQLite canonical history cutover
+
+- task、execution、canonical turn、model requestのidentityと関係をschema/APIで定義する。messageとevidenceは
+  executionへ所属し、canonical turnは採用したexecutionを参照する。
+- 意味のあるAgent executionについて、canonical transactionは`lifecycle=settled`、`outcome=completed`、
+  `adoption=canonical`、canonical turn、Session revisionを原子的に確定する。Worker acknowledgementとWorker
+  generation availabilityはcommit後の観測/eventであり、失敗してもcanonical transactionをrollbackしない。
+- 旧JSONのcanonical turnをexecutionへ結び付けるのは、`sessionId`、turn、`committedStateRevision`等から一意に
+  証明できる場合だけとする。それ以外はstableな`legacy_imported_execution`を作り、import provenanceと
+  `evidenceAvailability=unknown`を残す。対応しないartifact/evidence/diagnosticを推定で結合せず、存在しない
+  orderingやtimestampを作らない。import revision、件数、unmatched件数、完了markerを保存してidempotentにする。
+- import成功後はSQLiteを正本とし、旧JSONは保持する。dual-write、旧storeへのsilent fallbackは行わない。
+  通常Session経路に加え、既存のexecution/evidence/diagnostic CLI adapterも同じcutoverで切り替える。現在の
+  `/history export`はcanonical-onlyのまま維持する。
+- model inputは前節の式に従う。過去executionの暗黙継承だけをcanonical由来に限定し、現在executionのmessageと
+  明示projectionを維持する。`/recall`本文はcanonical turnへ複製しない。
+- 異なるSessionの並行実行を維持する。短いwrite競合はbounded busy wait後にtyped storage-busyとして返す。
+  正確なtimeoutは個別計画で実際の並行transactionを測定し、利用者承認を得て決める。
+- 受入では、非空の旧Sessionをimport/reopenし、checkpoint、model、`/recall`、diagnosticsをreadbackしたうえで、
+  同じSessionの次turnをproduction経路で完了できることを確認する。
+
+### Increment 41 — live execution journal
+
+- provider/tool dispatch前にactiveかつnon-canonicalなexecutionをdurableにし、Hostが観測したeventを順序付きで
+  追記する。tool callごとの状態とterminal outcomeを保持する。
+- restart時は、対象Sessionのwriter lock取得後に、そのSessionのactive executionだけを`interrupted`または
+  `unknown`へreconcileする。workspace全体のsingle-process lockは追加せず、異なるSessionの並行性を維持する。
+- interrupted executionを自動replayまたはcanonical採用せず、既存canonical conversationを変更しない。
+- raw SSE/parser transitionと意味上のprogressをどの粒度でevent化するかは、現行の実送出経路とlatencyを確認して
+  個別計画で決める。
+
+### Increment 42 — exact context attribution
+
+- instruction、skill catalog、実際に読み込んだskill、tool contract、runtime factをcontent-addressed snapshotとして
+  保存し、discovered、loaded、projected、observedを区別する。
+- snapshotをexecutionと各model requestへ相関し、当時modelへ何を渡したかをreadbackできるようにする。
+- この段階では実装概念をcontext attribution/snapshotとして扱い、`AgentContextGeneration` identityや完全再現を
+  要求しない。
+
+### Increment 43 — human history view
+
+- canonical/non-canonicalを同じSession timelineで表示し、outcome、tool activity、context attribution、projection、
+  evidenceへ辿れるread-only viewとkeyword検索を提供する。
+- `HumanHistoryProjector`と`ModelContextProjector`を別責務にし、閲覧操作からcanonical/adoption状態を変更しない。
+- canonical-onlyの既存`/history export`とは別に、durable history全体のexportを提供する。
+
+`/rebuild`はIncrement 40〜43へ含めない。historyとattributionが通常利用で成立した後のIncrement 44以降として、
+対象resource、`AgentContextGeneration` identity、Worker交換、draft維持、transitionのcommit/failure semanticsを
+別に計画し、利用者の採用判断を受ける。
+
+## 第三者review
+
+初回reviewはBlockerなし、P1を4件、P2を2件報告した。指摘は、model projectionをcanonical-onlyと誤読できる
+表現、legacy executionの誤った推定link、canonical commitとWorker acknowledgementの順序、restart reconciliationの
+lock範囲、diagnostic CLI cutover漏れ、durability/concurrency条件の未定義だった。上記programはすべてを修正した。
+同じreviewerによる15分以内のbounded re-reviewでは未解決findingがなく、個別計画へ進められる候補と評価された。
+
+## 個別increment前に残す判断
+
+- Increment 40の具体的schema/APIと、実測に基づくSQLite busy timeout。
+- Increment 41で保存するraw SSE/parser transitionと意味上のprogressのevent粒度。
+- Increment 42のsnapshot単位、content identity、model requestとの具体的な相関方法。
+- Increment 43のSurface操作とfull-history export format。
+- Increment 44以降で扱う`/rebuild`対象resourceとselection/activation authority。
+
+durable history、canonical adoption、model context projection、resource revision、toolの外部作業状態を一つの曖昧な
+`messages`状態へ混在させない。

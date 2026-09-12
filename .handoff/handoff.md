@@ -56,9 +56,13 @@
   atomic history、canonical/non-canonical execution、human history viewとmodel projection、execution context
   attribution、`/recall`と未実装`/rebuild`の境界を構想・architecture・roadmapへ反映した。詳細な議論と
   SQLite設計前の未決事項はroadmap inputへ分離し、通常利用メモの`/reload`候補を`/rebuild`へ更新した。
-  SQLite採用、完全再現性、`/rebuild`対象resource、次incrementと実装順序は未決のままである。
-  Increment 38・39、メモ整理、履歴/rebuild文書更新の変更は未commitである。
-- 次: 利用者が現在の未commit差分をcommitするか、次increment候補を選ぶ。
+  その後、現行source、導入済みDeno/SQLite、Forge/OpenCode/Prime Agentの参照実装を調査し、独立reviewの
+  P1 4件・P2 2件を反映した全体programを利用者が採用した。workspace-local SQLiteを正本とし、Increment 40の
+  canonical history cutover、41のlive execution journal、42のexact context attribution、43のhuman history viewの
+  順で進める。bounded re-reviewに未解決findingはなかった。`/rebuild`は40〜43から分離し、Increment 44以降で
+  対象resourceから判断する。architectureは変更していない。HEADは`3b766697`で、開始時のworking treeはcleanだった。
+- 次: Increment 40の具体的schema/API、migration、cutover、実測するSQLite busy timeout、product受入を個別計画へ
+  落とし込み、利用者の承認を得る。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
@@ -66,7 +70,7 @@
   `docs/increments/increment-35.md`、`docs/increments/increment-37.md`、`docs/increments/increment-38.md`、
   `docs/increments/increment-39.md`、`docs/experience/normal-use-inbox.md`、
   `docs/research/agent-loop-and-durable-state-comparison.md`、
-  `docs/research/externalization-reference-comparison.md`。現行の検討資料は
+  `docs/research/externalization-reference-comparison.md`。現行の採用済み全体programは
   `docs/roadmap-inputs/durable-history-and-context-rebuild.md`、
   `docs/roadmap-inputs/increment-32-34-externalization-concept-plan.md`。当初案と初回reviewの履歴は
   `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。
@@ -86,4 +90,5 @@
   clean artifactは`/tmp/henji-post-commit-build-eNk6hK/henji`に保持している。
   Increment 38 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-38-acceptance-nL6Ufc`に保持している。
   Increment 39 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-39-acceptance-xA5Jxs`に保持している。
-  installed binary置換、architecture・roadmap実装状態更新、commit、push、tag、publishは未承認・未実施である。
+  durable historyの全体programとroadmap反映は承認済みだが、Increment 40の個別計画・実装は未承認である。
+  installed binary置換、実装、commit、push、tag、publishは未承認・未実施である。
