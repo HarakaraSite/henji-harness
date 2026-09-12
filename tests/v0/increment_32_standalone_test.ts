@@ -7,6 +7,7 @@ import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import { stagedCompileInputs } from '../../scripts/build_henji.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -139,6 +140,19 @@ Deno.test('Increment 32 removes unmanaged Definition invocation', () => {
     rejected = true;
   }
   assert(rejected);
+});
+
+Deno.test('Increment 32 compiles runtime modules from an ephemeral staging tree', () => {
+  const checkout = '/work/henji-harness';
+  const staging = '/tmp/henji-compile-example/runtime';
+  const inputs = stagedCompileInputs(staging);
+  assertEquals(inputs.entry, `${staging}/henji_entry.ts`);
+  assertEquals(inputs.manifestModule, './v0/agent/runtime/build_manifest.ts');
+  assertEquals(inputs.cliModule, './v0/agent/cli/henji_cli.ts');
+  assertEquals(inputs.config, `${staging}/deno.v0.json`);
+  assert(inputs.includes.length > 0);
+  assert(inputs.includes.every((path) => path.startsWith(`${staging}/`)));
+  assert(!JSON.stringify(inputs).includes(checkout));
 });
 
 Deno.test('Increment 32 projects the Worker generation startup snapshot', async () => {

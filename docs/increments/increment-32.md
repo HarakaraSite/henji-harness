@@ -330,6 +330,18 @@ authoritative `v0:gate`を一回実行する。
   `~/.local/bin/henji.pre-standalone-launcher`へ退避した。利用者は別workspace
   `/home/masat.guest/src/henji`から既存Sessionのexact復元、repository調査、workspace Skill `handoff-read`の発見、
   tool実行がinstalled binaryで成立することを確認した。
+- 後続Incrementのsourceが同じcheckoutへ追加された後、Increment 32時点のinstalled binaryがtemporary entryに埋め込まれた
+  absolute checkout URLから新しいsourceをruntime importし、古いcompile時import mapにない`@deno/graph`で起動失敗することを
+  別workspaceから実測した。compiled artifactがcheckout不在なら動く確認だけでは、checkoutが存在するときのdisk source
+  shadowingを検出できていなかった。
+- compile対象のruntime graph、config、vendorをephemeral staging treeへcopyし、entryも同じtreeに置いた。entryから
+  build manifestをrelative static importし、CLIをliteral relative dynamic importすることで、Deno 2.9.4が実行module
+  graphとしてbinaryへ含め、build後に消えるstaging pathをdiskから再読込しない構成へ修正した。
+- focused test 7件、対象type check、format、`git diff --check`が成功した。build ID
+  `a0ba65035114e869a451c74a6198ee4e9286211aa6c05614fd29e72e60a6ddb5`のartifactを別workspaceから実行し、version、
+  runtime diagnostics、module list、隔離XDG stateでのreal-TTY TUI起動と`/exit`を確認した。利用者の明示指示により、
+  SHA-256 `0e9229ac75b4725717089a66398b22b3a260cc3e92756bc8ec38abd80036f204`のartifactを
+  `dist/henji`と`~/.local/bin/henji`を同じartifactへatomicに置換した。
 
 ## 対象外
 

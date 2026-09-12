@@ -31,11 +31,22 @@
   current remoteへ結び付けており受入条件は未達である。credential値の露出はなかったが、不要なconfig名と環境変数名の
   探索も観測した。利用者はこれをrepository contextの与え方として別途検討し、Human Gate未達を結果として保持したまま
   Increment 37を完了とした。未採用のcontext配送候補は通常利用メモへ分離済みである。Increment 34・35・37の変更は
-  local mainへcommit済みであり、未pushである。
+  local mainへcommit済みであり、未pushである。その後、Increment 32時点のinstalled binaryが同じcheckoutにある後続sourceを
+  runtime importし、compile時より新しい`@deno/graph`を解決できず別workspaceから起動失敗する不具合を実測した。runtime
+  graphをephemeral staging treeからrelative importしてcompileするよう修正し、focused test 7件、対象type check、format、
+  `git diff --check`、別workspaceでのversion/runtime/module readback、隔離XDG stateでのreal-TTY TUI起動が成功した。build ID
+  `a0ba65035114e869a451c74a6198ee4e9286211aa6c05614fd29e72e60a6ddb5`のartifactへ`dist/henji`と
+  `~/.local/bin/henji`をatomicに置換した。続く通常利用で、tool完了後のfinal assistant responseがstreaming中だけtool行より
+  上に表示され、settle時に下へ移る不自然な順序変更を観測した。active tool完了後の最初の`assistant_progress`でassistant
+  entryをtool行の後ろへ移すよう修正し、conversation presentation 13件、対象type check、format、lint、
+  `git diff --check`が成功した。build ID `115d371ce58950f84f26e5d9889dd206e2fa37cb1b883db47e8bc260a26f4531`の
+  artifactへ`dist/henji`と`~/.local/bin/henji`を再びatomicに置換済みである。二つの修正と結果文書はlocal mainへ
+  commit済みであり、未pushである。
 - 次: 利用者が指定する次のIncrementまたはpush等の作業から再開する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
-  `docs/increments/increment-32.md`、`docs/increments/increment-33.md`、`docs/increments/increment-34.md`、
+  `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
+  `docs/increments/increment-34.md`、
   `docs/increments/increment-35.md`、`docs/increments/increment-37.md`。現行の検討資料は
   `docs/roadmap-inputs/increment-32-34-externalization-concept-plan.md`。当初案と初回reviewの履歴は
   `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。参照実装比較の背景資料は
@@ -46,11 +57,13 @@
   Increment 33以降のinstall inputに限定する。自然言語resourceのnative discoveryにinstallを要求しない。MCPは
   32〜34の実装範囲外であり、managed化の採否とclient等の物理配置は後続Integration Incrementで決める。Increment 32の
   installed binary置換と、Increment 33実装・stable `0.1.0` release準備のcommit/pushは実施済みである。
-  `@henji/harness@0.1.0`はJSRへpublish済みである。architecture・roadmap実装状態更新、Increment 33のinstalled binary
-  置換、Git tagは未承認・未実施である。slash補完は当面の順序から外し、Provider外部化を採用するときはexternal
+  `@henji/harness@0.1.0`はJSRへpublish済みである。architecture・roadmap実装状態更新とGit tagは未承認・未実施である。
+  slash補完は当面の順序から外し、Provider外部化を採用するときはexternal
   Providerのauth profile declarationとHost-owned credential registryを接続し、credential登録を同時または直後に扱う。
   Increment 33 production受入の一時証拠は`/tmp/henji-increment-33-acceptance-XbeQE3`、Increment 34は
   `/tmp/henji-increment-34-acceptance-MGN78b`、Increment 35は`/tmp/henji-increment-35-acceptance-a6qHOF`に保持している。
   Increment 37 Slice Bの一時証拠は`/tmp/henji-increment-37-acceptance-b3kQMl`に保持している。
-  architecture・roadmap実装状態更新、installed binary置換、push、tag、publishは未承認・未実施である。利用者の指定に
-  従い、今後も各実装slice境界で停止する。
+  standalone shadowing修正のproduction artifactは`/tmp/henji-standalone-fix-HSqJ6U/henji`、TUI順序修正を含む現行artifactは
+  `/tmp/henji-tui-order-fix-gJ3csS/henji`に保持している。
+  architecture・roadmap実装状態更新、push、tag、publishは未承認・未実施である。利用者の指定に従い、今後も各実装slice
+  境界で停止する。

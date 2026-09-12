@@ -119,3 +119,19 @@
 完了した後、本書の計画を承認した。local実装とgateの完了後、production再実行で`web_search`の継続を確認した。
 同じ実行の後段で見つかったraw SSE上限はmixed response拒否とは別の問題としてIncrement 22へ分離し、利用者は
 Increment 21を完了とした。
+
+## 2026-09-12 post-completion TUI ordering fix
+
+- 別workspaceでの通常利用により、tool result完了後のfinal assistant textがstreaming中だけtool行より上へ表示され、
+  settle時にtool行の下へ移動する不自然な順序変更を観測した。
+- TUIは一turnのassistant表示に同じentry IDを再利用する。tool callに先行したassistant entryがある状態で後続の
+  `assistant_progress`を同じ位置へ上書きし、settled `assistant_message`だけがtool行の後ろへentryを移していたことが
+  原因だった。
+- active toolがすべて完了し、同じturnのtool entryがassistant entryより後ろにある場合、最初の
+  `assistant_progress`でassistant entryをtool行の後ろへ移すようにした。以後のstreaming updateとsettled responseは
+  同じ位置を維持する。
+- 観測したevent列を再現するfocused testを追加し、conversation presentation 13件、対象type check、format、lint、
+  `git diff --check`が成功した。provider requestは行っていない。
+- build ID `115d371ce58950f84f26e5d9889dd206e2fa37cb1b883db47e8bc260a26f4531`、SHA-256
+  `c4dc99daa72c30f00945164039a8d5e1c739e4af852c85fc884bc5c05bae3b4a`のartifactへ`dist/henji`と
+  `~/.local/bin/henji`をatomicに置換した。

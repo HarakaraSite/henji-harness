@@ -420,16 +420,22 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     }
     case 'assistant_progress': {
       const id = `turn-${event.turn}:assistant`;
-      const existing = state.log.entries.some((entry) => entry.id === id);
-      const next = existing ? replaceEntry(state, id, event.text, true) : appendEntry(state, {
-        id,
-        kind: 'assistant',
-        label: 'assistant~',
-        text: event.text,
-        revision: 0,
-        live: true,
-        turn: event.turn,
-      });
+      const existingIndex = state.log.entries.findIndex((entry) => entry.id === id);
+      const relocateProgressAfterTools = existingIndex >= 0 && state.activeToolIds.length === 0 &&
+        state.log.entries.slice(existingIndex + 1).some((entry) =>
+          entry.turn === event.turn && entry.kind === 'tool'
+        );
+      const next = existingIndex >= 0
+        ? replaceEntry(state, id, event.text, true, undefined, relocateProgressAfterTools)
+        : appendEntry(state, {
+          id,
+          kind: 'assistant',
+          label: 'assistant~',
+          text: event.text,
+          revision: 0,
+          live: true,
+          turn: event.turn,
+        });
       return Object.freeze({ ...next, activeAssistantId: id });
     }
     case 'tool_call': {

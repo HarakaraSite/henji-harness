@@ -90,6 +90,47 @@ const parseOutput = (args: readonly string[], root: string): string => {
   throw new Error('usage: henji:compile [--output PATH]');
 };
 
+export interface StagedCompileInputs {
+  readonly entry: string;
+  readonly manifestModule: string;
+  readonly cliModule: string;
+  readonly config: string;
+  readonly includes: readonly string[];
+}
+
+export const stagedCompileInputs = (stagingRoot: string): StagedCompileInputs => ({
+  entry: `${stagingRoot}/henji_entry.ts`,
+  manifestModule: './v0/agent/runtime/build_manifest.ts',
+  cliModule: './v0/agent/cli/henji_cli.ts',
+  config: `${stagingRoot}/deno.v0.json`,
+  includes: ROOTS.slice(1).map((path) => `${stagingRoot}/${path}`),
+});
+
+const copyDirectory = async (source: string, target: string): Promise<void> => {
+  await Deno.mkdir(target, { recursive: true });
+  for await (const entry of Deno.readDir(source)) {
+    const sourcePath = `${source}/${entry.name}`;
+    const targetPath = `${target}/${entry.name}`;
+    if (entry.isDirectory) await copyDirectory(sourcePath, targetPath);
+    else if (entry.isFile) await Deno.copyFile(sourcePath, targetPath);
+    else if (entry.isSymlink) await Deno.symlink(await Deno.readLink(sourcePath), targetPath);
+  }
+};
+
+const copyRuntimeToStaging = async (
+  root: string,
+  stagingRoot: string,
+  paths: readonly string[],
+): Promise<void> => {
+  for (const path of paths) {
+    const target = `${stagingRoot}/${path}`;
+    const slash = target.lastIndexOf('/');
+    if (slash > 0) await Deno.mkdir(target.slice(0, slash), { recursive: true });
+    await Deno.copyFile(`${root}/${path}`, target);
+  }
+  await copyDirectory(`${root}/vendor`, `${stagingRoot}/vendor`);
+};
+
 const main = async (): Promise<void> => {
   if (Deno.version.deno !== EXPECTED_DENO) {
     throw new Error(`Deno ${EXPECTED_DENO} required; found ${Deno.version.deno}`);
@@ -116,19 +157,18 @@ const main = async (): Promise<void> => {
   const manifest: BuildManifestV1 = { ...identity, buildId };
   const temporary = await Deno.makeTempDir({ prefix: 'henji-compile-' });
   try {
-    const manifestModule = new URL(`file://${root}/v0/agent/runtime/build_manifest.ts`).href;
-    const cliModule = new URL(`file://${root}/v0/agent/cli/henji_cli.ts`).href;
-    const entry = `${temporary}/henji_entry.ts`;
+    const stagingRoot = `${temporary}/runtime`;
+    await copyRuntimeToStaging(root, stagingRoot, files);
+    const inputs = stagedCompileInputs(stagingRoot);
     await Deno.writeTextFile(
-      entry,
-      `import { installBuildManifest } from ${JSON.stringify(manifestModule)};\n` +
+      inputs.entry,
+      `import { installBuildManifest } from ${JSON.stringify(inputs.manifestModule)};\n` +
         `installBuildManifest(${JSON.stringify(manifest)});\n` +
-        `const { main } = await import(${JSON.stringify(cliModule)});\n` +
+        `const { main } = await import(${JSON.stringify(inputs.cliModule)});\n` +
         `Deno.exit(await main(Deno.args));\n`,
     );
     const slash = output.lastIndexOf('/');
     if (slash > 0) await Deno.mkdir(output.slice(0, slash), { recursive: true });
-    const include = ROOTS.slice(1).map((path) => `--include=${root}/${path}`);
     await run(Deno.execPath(), [
       'compile',
       '--no-prompt',
@@ -140,10 +180,10 @@ const main = async (): Promise<void> => {
       '--allow-net=openrouter.ai,api.openai.com',
       '--allow-sys=uid',
       '--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME,OPENAI_LOG,OPENAI_CUSTOM_HEADERS',
-      `--config=${root}/deno.v0.json`,
-      ...include,
+      `--config=${inputs.config}`,
+      ...inputs.includes.map((path) => `--include=${path}`),
       `--output=${output}`,
-      entry,
+      inputs.entry,
     ]);
   } finally {
     await Deno.remove(temporary, { recursive: true });

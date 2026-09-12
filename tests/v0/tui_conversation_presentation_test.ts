@@ -395,6 +395,72 @@ Deno.test('conversation presentation retains assistant text accompanying a tool 
   ]);
 });
 
+Deno.test('conversation presentation streams the final assistant response after completed tools', () => {
+  let state = reduceUiEvent(createUiState(), {
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'I will inspect the current source.',
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      text: 'I will inspect the current source.',
+      content: [{
+        kind: 'tool_call',
+        callId: 'read-1',
+        name: 'read',
+        arguments: { path: 'README.md' },
+      }],
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      kind: 'tool_call',
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'read-1',
+      name: 'read',
+      text: 'README contents',
+      outcome: 'success',
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_progress',
+    turn: 1,
+    text: 'Final answer in progress',
+  });
+
+  assertEquals(state.log.entries.map((entry) => [entry.label, entry.text, entry.live]), [
+    ['tool>', 'read README.md ✓', false],
+    ['assistant>', 'Final answer in progress', true],
+  ]);
+
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: 'Final answer' },
+    },
+  });
+  assertEquals(state.log.entries.map((entry) => [entry.label, entry.text, entry.live]), [
+    ['tool>', 'read README.md ✓', false],
+    ['assistant>', 'Final answer', false],
+  ]);
+});
+
 Deno.test('conversation footer uses the committed turn and emits identity facts once', () => {
   let state = setUiProjection(createUiState(), {
     lifecycle: 'idle',
