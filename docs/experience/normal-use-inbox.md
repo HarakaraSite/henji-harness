@@ -306,6 +306,24 @@ agent loop比較調査（2026-09-11）:
   cancel等だけをappend-only execution journalへ逐次記録する折衷案が考えられる。canonical transcriptは成功時に一括
   commitし、journalはcrash recoveryと診断証拠、context projectionはcommit済み正本から再生成する。この分離は既存の
   provider evidenceをcanonical transcriptとは別に保存する考え方とも整合するが、まだ採用判断ではない。
+- 2026-09-12の通常利用後、長いtool callやassistant進捗の途中でユーザーがcancelするか不具合でturnが停止し、その直後に
+  ユーザーが停止turnについて質問・指示する場合を検討した。現行Henjiは`uncommitted` turnを次のmodel contextへ含めないため、
+  TUIに途中経過が見えていてもAIは元の指示、assistant進捗、tool call/result、provider reasoning stateを会話記憶として
+  参照できない。diagnostic、provider evidence、execution artifactはreadback可能でも、自動的には次turnへ投影されない。
+- uncommitted情報が必要になる具体例は、成功済みtool resultを使って方針変更する場合、provider障害後に同じ調査を繰り返さず
+  続ける場合、途中まで発生したworkspace変更と実行経緯を照合する場合、停止原因をAIへ診断させる場合である。一方、意図的な
+  cancelが破棄か一時停止かは自動判定できず、未完了tool pairを通常transcriptとして扱うと実行済みの作用を再実行し得る。
+- 未採用候補として、atomic canonical transcriptを維持したまま、ユーザーが停止turnの参照を明示した場合だけ、元の指示、
+  完了済みtool call/result、未完了箇所、停止理由、execution IDを区別したrecovery contextを次turnへ投影する経路を検討する。
+  slash command、model向けread-only tool、通常指示からの明示選択のどれを入口にするか、投影内容をcanonical transcriptへ
+  正式採用する時点、意図的cancelと予期しないfailureの既定動作は個別incrementで決める。この記録だけでは実装を採用しない。
+- atomic履歴を守る設計境界として、(1) 成功turnだけのcanonical transcript、(2) cancel/failureを含む独立した
+  append-only execution journal、(3) ユーザーが選択した途中結果を新しいturnへ投影するrecovery adoption、の三層を分ける。
+  failed turnを遡って部分commitせず、recoveryは元executionを参照する新規turnとして開始し、そのturnが成功した場合だけ
+  通常どおりatomic commitする。
+- 不変条件候補は、uncommitted message/tool pairをcanonical transcriptへ直接追加しない、TUI表示をcommit済み履歴と
+  みなさない、完了済み・未完了・停止理由を区別する、実行済みtoolを自動再実行しない、recoveryに使ったexecution IDと
+  実際に投影したcontextを記録する、である。この分離を保てない方式は現行のatomic history contractと競合するため採用しない。
 - tool call並列化の主な利点は、独立したread/search等の待ち時間短縮である。AIが混乱するかは物理的な完了順より、
   `callId`とresultの対応、modelへ返す順序、依存関係を保持できるかに左右される。同じfileへのwrite、生成物を読む後続
   call、test、git操作、複数approvalなどは順序で意味が変わる。現行Henjiの逐次実行は決定性、cancel・failure semantics、
