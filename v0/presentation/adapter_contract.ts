@@ -104,6 +104,11 @@ export type CoreSession = {
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
   consumeLegacyModelNotice?(): boolean;
+  prepareRecall?(id?: string): Promise<{
+    readonly sourceExecutionId: string;
+    readonly evidence: 'available' | 'unavailable';
+  }>;
+  clearPendingRecall?(): boolean;
   checkpointSnapshot?(): {
     readonly summary: string;
     readonly coveredThroughTurn: number;

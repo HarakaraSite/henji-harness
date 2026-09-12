@@ -1,9 +1,9 @@
-import type { ProviderEvidenceV2 } from '../provider/provider_evidence.ts';
+import type { StoredProviderEvidence } from '../provider/provider_evidence.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
-import type { WorkerExecutionArtifactV2 } from '../worker/worker_execution_artifact.ts';
+import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 
 export const PRODUCTION_CLI_E2E_SCHEMA_VERSION = 1 as const;
 export const PRODUCTION_CLI_E2E_TASK_ID = 'production-cli-basic-read-v1' as const;
@@ -125,9 +125,9 @@ export interface ProductionCliE2eObservation {
   readonly paths: ProductionCliE2ePaths;
   readonly nonce: string;
   readonly child: ProductionCliE2eChildResult;
-  readonly executions: readonly WorkerExecutionArtifactV2[] | null;
+  readonly executions: readonly StoredWorkerExecutionArtifact[] | null;
   readonly executionReadError?: string;
-  readonly evidence: readonly ProviderEvidenceV2[] | null;
+  readonly evidence: readonly StoredProviderEvidence[] | null;
   readonly evidenceReadError?: string;
   readonly sessionTranscriptExists: boolean | null;
 }
@@ -164,11 +164,11 @@ export const preflightFailureReport = (
   retryCount: 0,
 });
 
-const orderedTrace = (artifact: WorkerExecutionArtifactV2): boolean => {
+const orderedTrace = (artifact: StoredWorkerExecutionArtifact): boolean => {
   const trace = artifact.protocolTrace;
   let cursor = 0;
   const find = (
-    predicate: (entry: WorkerExecutionArtifactV2['protocolTrace'][number]) => boolean,
+    predicate: (entry: StoredWorkerExecutionArtifact['protocolTrace'][number]) => boolean,
   ) => {
     const index = trace.findIndex((entry, position) => position >= cursor && predicate(entry));
     if (index < 0) return false;
@@ -188,7 +188,7 @@ const orderedTrace = (artifact: WorkerExecutionArtifactV2): boolean => {
     ) && find((entry) => entry.semanticSubtype === 'turn_end');
 };
 
-const requestMatchesProduction = (record: ProviderEvidenceV2['requests'][number]): boolean => {
+const requestMatchesProduction = (record: StoredProviderEvidence['requests'][number]): boolean => {
   if (
     record.response?.status !== 200 || record.sseEvents.length === 0 ||
     record.parserTransitions.length === 0 ||
@@ -247,9 +247,12 @@ const requestMatchesProduction = (record: ProviderEvidenceV2['requests'][number]
   }
 };
 
-const runtimeMatchesScenario = (evidence: ProviderEvidenceV2, nonce: string): boolean => {
-  if (evidence.runtimeEvents.length !== 5) return false;
-  const [firstModel, toolCall, toolResult, secondModel, outcome] = evidence.runtimeEvents;
+const runtimeMatchesScenario = (evidence: StoredProviderEvidence, nonce: string): boolean => {
+  const completed = evidence.runtimeEvents.filter((event) =>
+    event.kind !== 'assistant_progress' && event.kind !== 'tool_progress'
+  );
+  if (completed.length !== 5) return false;
+  const [firstModel, toolCall, toolResult, secondModel, outcome] = completed;
   if (
     firstModel.kind !== 'model_result' || firstModel.modelStep !== 1 ||
     firstModel.result.kind !== 'tool_calls' || firstModel.result.calls.length !== 1
@@ -275,8 +278,8 @@ const runtimeMatchesScenario = (evidence: ProviderEvidenceV2, nonce: string): bo
 };
 
 const observedExternalRequests = (
-  executions: readonly WorkerExecutionArtifactV2[] | null,
-  evidence: readonly ProviderEvidenceV2[] | null,
+  executions: readonly StoredWorkerExecutionArtifact[] | null,
+  evidence: readonly StoredProviderEvidence[] | null,
 ): number | null => {
   if (evidence !== null) return evidence.reduce((sum, item) => sum + item.requests.length, 0);
   const count = executions?.at(0)?.outcome.runtimeProviderRequestCount;

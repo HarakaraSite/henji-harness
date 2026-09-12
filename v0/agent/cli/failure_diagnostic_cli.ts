@@ -11,7 +11,7 @@ import {
   DenoWorkerExecutionArtifactStore,
   WorkerExecutionArtifactStoreError,
 } from '../worker/worker_execution_artifact_store.ts';
-import type { WorkerExecutionArtifactV2 } from '../worker/worker_execution_artifact.ts';
+import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 const encoder = new TextEncoder();
@@ -88,7 +88,7 @@ const errorLine = (code: string): string =>
     },
   }) + '\n';
 
-const executionSummary = (execution: WorkerExecutionArtifactV2) => ({
+const executionSummary = (execution: StoredWorkerExecutionArtifact) => ({
   executionId: execution.executionId,
   settledAt: execution.settledAt,
   sessionId: execution.sessionId,

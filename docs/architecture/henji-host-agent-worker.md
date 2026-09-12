@@ -55,6 +55,14 @@
 - 常駐 Host とは、durable な lifecycle owner/service を指す。durable な各 `AgentInstance` に
   永久常駐の thread や Worker を 1 つずつ置くことを意味しない。Instance には active な Worker
   generation が 0 個または 1 個存在でき、lazy activation や idle teardown を後続設計で採用できる。
+- Hostが観測できたexecution evidenceのdurableな保存と、turnのcanonical conversationへの採用は別の
+  operationである。cancel、failure、途中のtool result等を保存することは、そのexecutionをcanonicalへ
+  採用することを意味しない。
+- 人間向けhistory viewはcanonical/non-canonical双方へ到達できる方向を保つ。modelが過去executionから
+  既定で引き継ぐconversationはcanonicalに限定し、現在execution内の文脈と人間が明示したprojectionは
+  別の入力として扱う。Surface上のrendererとmodel context projectionは別責務である。
+- executionは、その判断に関与したAgent側の基底設定と相関できなければならない。このattributionは
+  過去Worker、外部状態、tool effect、model内部状態の再現またはreplayを保証しない。
 
 ## 用語
 
@@ -70,6 +78,11 @@
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
 | `AgentInstance` | 安定した agent identity、その durable metadata、および active な `DefinitionRevisionRef` の binding。 | Worker generation より長く存続し、置き換えられた Worker で再開できる。 |
 | `AgentWorkerGeneration` | 1 つの Definition revision を実行する 1 回の ephemeral な実行。Instance identity を変えずに停止、再起動、置換できる。 | process/thread/isolate の存続期間。 |
+| `Task` | 人間またはHostが一回の依頼としてadmitする入力。`/recall`等の次回限定projectionはこの境界で消費する。 | 一つのexecutionを開始する入力単位。再送やretryは新しいexecutionとして識別する。 |
+| `Execution` | 一つのtaskを、あるbase Session revisionとAgent側の基底設定から実行する独立したattempt。進捗、model request、tool activity、outcome、canonical採用状態を相関する。 | activeからsettledまで。canonical/non-canonicalにかかわらずevidenceをdurableに保持できる。 |
+| `Turn` | executionが正常完了し、Hostがconversationへ一括採用するuser/assistant interactionのsemanticな単位。 | canonical Session state内で順序を持つ。回答の正しさや利用者の満足を意味しない。 |
+| `ModelRequest` | 一つのexecution内でprovider/modelへ行う一回のrequest。tool loopやdelegationにより一execution内に複数存在できる。 | request/response evidenceとexecutionを相関する。 |
+| `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続executionが参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
 | `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Worker とは独立して所有・置換される。 |
 | `HenjiHost` | Worker lifecycle、物理 terminal / Surface I/O、Surface の load、UI から command への変換、storage mechanism を所有する coordinator。 | Worker generation の lifecycle owner。常時稼働serviceにするかは未決である。 |
 
@@ -118,6 +131,8 @@ version migrationは未設計である。
 - Surface 実装の load と置換、および Surface action の Worker 向け command または message
   への変換。
 - 以下で説明する durable session 境界を含む storage mechanism。
+- canonical/non-canonical双方のexecution identity、Hostが受け取ったevidence、outcome、canonical採用、
+  context attribution、明示projectionとcontext transitionを相関して保存・readbackするmechanism。
 - Agent Definition sourceの取込、実行可能なmodule closureの固定、immutable revisionの保存、selectorから
   `DefinitionRevisionRef`への解決、revision metadataとsource lineageのreadback。
 - managed resourceのlogical ref、identity manifest、origin lineage、installation固有のlocal custody metadataの
@@ -135,6 +150,8 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 - provider/model、effort、loop、tools、subagents、context component を含む、その
   `AgentComposition` の構築と実行。
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
+- Hostが確定した基底設定、canonical conversation、明示projection、現在execution内のtool result等から、
+  各model requestへ渡す実効contextを構成する意味。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
 
 ### 配布artifactとmanaged resource
@@ -353,6 +370,83 @@ Deno Web Workerのstructured cloneでは関数を送れないため、Definition
 Deno Worker permissionだけでは、`--allow-run`で起動したsubprocessとそのdescendantを隔離できない。
 したがって、このWorker境界はlifecycleとdataの境界であり、完全なsandboxや別のtrust tierとは扱わない。
 
+### Durable history、canonical conversation、context projection
+
+Henjiの履歴全体と、以後の通常会話へ既定で引き継ぐconversationを同じ状態として扱わない。
+
+durable historyは、Hostが取得・記録できた各executionの入力、progress、assistant output、Hostが受け取れる
+thinking/reasoning出力、model request、tool call/result、provider evidence、outcome、context attributionを保持する。
+crashや外部effectによりHostが観測できなかった事象まで記録したことにはしない。
+
+canonical conversationは、Hostが正常完了と会話への採用を確定したturnを順序付きで保持するSessionの正本で
+ある。正常完了は回答内容の正しさや人間の満足を意味しない。canonical採用はturn全体を単位とし、途中の
+assistant outputやtool interactionだけを部分的に採用しない。turnへ含める具体的なmessageとprojectionの範囲は、
+storage schemaを採用するincrementで定める。
+
+executionの状態は少なくとも次の独立した軸で扱う。
+
+- lifecycle: active / settled
+- outcome: completed / cancelled / failed / interrupted / unknown等
+- conversation adoption: canonical / non-canonical
+- effect observation: requested / started / completed / failed / outcome unknown等
+
+non-canonical executionも、観測済みevidenceをstorageへ物理的にcommitしてreadbackできる。storageへのdurable
+writeとcanonical conversationへの意味上の採用は別operationであり、`uncommitted`という語は後者だけを指す
+場面でも誤解を招くため、通常は`non-canonical`を使う。
+
+人間向けhistory viewは、canonical turnとnon-canonical executionの双方を識別して辿れるようにする。
+Markdown、tool summary/detail、status等のrendererはHost/Surfaceの表示責務であり、保存内容、採用状態、
+model contextを変更しない。
+
+model context projectionはhistory viewとは別責務である。過去executionから既定で引き継ぐconversationは
+canonicalに限定する。一方、現在execution内で得たassistant stepやtool resultはそのexecutionの後続model requestへ
+渡すことができ、人間が明示的に選んだreferenceも目的と期間を限定して追加できる。
+
+Increment 38の`/recall`は、settled non-canonical executionを人間が選び、保存済み内容を次の一つのtaskへ
+data-only contextとして投影するHost operationである。sourceをcanonical化、resume、自動retryせず、source identity、
+実際のprojection、target executionを相関する。projectionの選択は次taskのadmissionで消費し、そのtask内の各model
+requestで利用できる。targetがcanonical採用されてもsourceはnon-canonicalのままであり、targetが生成した内容は通常の
+canonical conversationとして後続へ残り得る。projection本文をcanonical turnへ含める具体的範囲は未決である。
+
+### Execution context attribution
+
+各executionは、使用したAgent側の基底設定、base canonical Session revision、明示projection、実行中に読み込んだ
+resourceや観測情報と相関できるようにする。存在していたresource、discoveryで発見したresource、実際に読み込んだ
+resource、modelへ渡した内容を同じ事実として扱わない。
+
+振り返りの対象候補は、Henji共通instruction、agent role、workspace `AGENTS.md`、skill catalogと実際に読み込んだ
+skill、Henjiが所有または観測できるsystem instruction、Agent Definition、modelへ提示したtool contract、modelへ
+供給したruntime facts、toolで観測した環境情報である。現在のmutable fileへのpathだけでは当時の内容を振り返れない
+resourceは、Henjiが観測した内容または同等のattributionをevidenceへ残す。
+
+このattributionは完全再現性を目的にしない。過去Worker、model内部状態、dependency、binary、OS、filesystem、
+外部service、tool effectをsnapshotまたは再構築する保証にはしない。
+
+`AgentContextGeneration`を採用する場合、それは`/rebuild`によって構築・有効化したAgent側の基底設定を表す。
+canonical conversationはturnごとに進み、skill本文やtool result等はexecution中にも追加されるため、generation ID
+だけで実際のmodel input全体を表さない。process/isolateのlifetimeを表す`AgentWorkerGeneration`と同じidentityに
+するかも未決である。
+
+### Context rebuild候補
+
+人間向けHost operationの候補である`/rebuild`は、再解決の対象として定めたresourceから新しいAgentの実効状態を
+構築し、後続executionへ適用する。単なるfile rereadではなく、改訂されたresourceを次のAgent側基底設定へ反映する
+activation境界として扱う。
+
+対象resourceと更新可能範囲は未決である。workspace instructionとskillに加え、Agent Definition、tool contract、
+tool implementationも候補に含む。toolを対象にする場合は、modelへ提示するcontractと実際にdispatchするimplementation
+の対応を定める。native resourceの現在内容を再解決する操作と、managed candidateの人間承認、immutable revisionへの
+promotion、active binding transitionを同じoperationにするとは決めない。
+
+採用時には、active executionの途中で基底設定を切り替えず、新しい設定の構築成功後だけ後続executionのactive
+generationを変更する方向を保つ。canonical conversation、未送信draft、過去executionとそのattributionは書き換えない。
+構築失敗時に旧generationを維持すること、context transitionをHost-owned evidenceとして記録することの具体的な
+identity、commit順序、failure semanticsは個別incrementで定める。
+
+cancel/failed executionのtool effectとしてresource fileが変更された場合、その変更自体は既に外部副作用として
+存在し得る。`/rebuild`は、対象resourceの現在内容を新しいAgent状態へ取り込む境界であり、source executionの
+canonical化、既に生じた副作用の承認または取消しを意味しない。
+
 ### Definition revision と generation の fencing
 
 この境界での admission と commit は、次の revision binding 不変条件に従う。これは具体的な
@@ -391,6 +485,7 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 | Persistence | load/store、storage revision、atomic replacement、recovery を所有する。 | commit を提案する。durable state の canonical source にはしない。 |
 | Conversation の意味 | 受け入れた canonical state を保存する。 | 実行中の transcript/context semantics と compaction decision を所有する。 |
 | Turn の settlement | proposed commit を受け入れ、committed と報告する前に durable に保存する。 | 境界を通じて outcome と proposed state/effect を報告する。 |
+| Execution evidence | canonical採用とは独立して、観測済みprogress、effect、outcome、context attributionを相関・保存する。 | 実行中のsemantic eventとsettlementをprotocol経由で返す。 |
 
 概念上の turn の流れは次のとおりである。
 
@@ -410,8 +505,9 @@ durable commit が存在しないことだけでは、effect が発生してい�
 idempotency/deduplication 契約、または effect が開始されていないことの証拠がない限り、transparent
 に再実行しない。これは product correctness の不変条件である。
 
-Persisted Host state が canonical であり、Worker state は ephemeral である。Worker の crash
-または置換によって、commit されていない作業状態が破棄される可能性がある。turn または commit
+Persisted Host state が durable truth であり、その中でcanonical conversationとnon-canonical execution evidenceを
+区別する。Worker state は ephemeral である。Worker の crashまたは置換によって、まだHostが受け取ってdurableに
+保存していない作業状態が破棄される可能性がある。turn または canonical commit
 が失敗した場合に tool effect が rollback されるとは限らない。local filesystem、subprocess、
 network、その他の effect には、それぞれ将来の semantics が必要である。この文書はそれらの
 semantics を定義しない。
@@ -434,6 +530,11 @@ semantics を定義しない。
 残すか、AIがどの経験を読むか、人間のアクション、指示、承認をどのSurfaceとprotocolで表現するかは、
 このarchitectureでは固定しない。Workerが人間の契機なしに改訂候補を自発的に生成することや、Hostが
 候補を自動採用することはない。
+
+Definition以外のinstruction、skill、tool等を改訂対象にする場合も、経験、candidate、active resource、
+後続executionへの適用を区別する。`/rebuild`を採用しても、candidate生成や人間の採用判断を自動化したことには
+ならない。native resourceの現在内容を再解決するflowと、managed candidateをimmutable revisionへpromotionするflowの
+対応は、対象kindを選んだroadmap incrementで定める。
 
 ## AgentInstanceの継続性とHostの追加機能
 
@@ -478,6 +579,10 @@ compatibility境界だけを採用する。
 
 | 未決の判断 | 今決めない理由 | 判断する契機 |
 | --- | --- | --- |
+| canonical turnに含めるmessage/tool interaction/projectionの範囲と、execution evidenceのdurable write粒度 | 会話への採用単位と観測途中の保存頻度は別であり、現在のSession JSONから物理storageを変更するかも未採用である | durable historyまたはstorage backendのincrementを採用するとき |
+| `AgentContextGeneration`のidentity、所有する基底設定、`AgentWorkerGeneration`との対応 | `/rebuild`対象resourceとcomposition再構築のlifetimeが未決であり、execution単位の動的inputまでgenerationへ固定しない | `/rebuild`または同等のcontext再構築をroadmapで採用するとき |
+| `/rebuild`対象resource、selection/activation authority、transitionのcommit/failure semantics | native instruction、skill、Agent Definition、toolでは更新方法とauthorityが異なる | 最初の`/rebuild` incrementで対象resourceを選ぶとき |
+| `/recall` projection本文をcanonical turnへ含める範囲 | source/target identityと一回限りのmodel projectionは成立したが、将来のhistory viewとstorage schemaで必要なcanonical表現は未決である | durable historyまたはhistory viewのschemaを採用するとき |
 | provider/toolの物理I/OをWorker、Host RPC/capability、subprocessのどこに置くか | effect、latency、streaming、credential、利用するtoolの契約によって適切な境界が変わる | roadmapが具体的なprovider/tool利用経路を選んだとき |
 | Worker protocolのmessage、handshake、error、versioning | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる | 新しいHost / Worker間機能を実装するとき |
 | Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |

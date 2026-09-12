@@ -2,7 +2,7 @@ import {
   decodeProviderEvidence,
   encodeProviderEvidence,
   type ProviderEvidenceStore,
-  type ProviderEvidenceV2,
+  type StoredProviderEvidence,
   validateProviderEvidence,
 } from './provider_evidence.ts';
 import { workspaceDigest } from '../session/session_store.ts';
@@ -83,9 +83,9 @@ export class DenoProviderEvidenceStore implements ProviderEvidenceStore {
     return paths;
   }
 
-  async list(): Promise<readonly ProviderEvidenceV2[]> {
+  async list(): Promise<readonly StoredProviderEvidence[]> {
     const paths = await this.pathsPromise;
-    const result: ProviderEvidenceV2[] = [];
+    const result: StoredProviderEvidence[] = [];
     try {
       for await (const entry of Deno.readDir(paths.evidence)) {
         if (!entry.name.endsWith('.json')) continue;
@@ -110,7 +110,7 @@ export class DenoProviderEvidenceStore implements ProviderEvidenceStore {
     );
   }
 
-  async read(id: string): Promise<ProviderEvidenceV2> {
+  async read(id: string): Promise<StoredProviderEvidence> {
     const paths = await this.pathsPromise;
     const name = idFromPath(id, '.json');
     try {
@@ -126,7 +126,7 @@ export class DenoProviderEvidenceStore implements ProviderEvidenceStore {
     }
   }
 
-  async write(evidence: ProviderEvidenceV2): Promise<void> {
+  async write(evidence: StoredProviderEvidence): Promise<void> {
     if (!validateProviderEvidence(evidence)) {
       throw new ProviderEvidenceStoreError('provider_evidence_invalid');
     }

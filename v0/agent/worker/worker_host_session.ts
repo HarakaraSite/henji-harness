@@ -18,7 +18,7 @@ import {
   validateSessionRecordV6,
 } from '../session/session_store.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidenceV1, ProviderEvidenceV2 } from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceV1, ProviderEvidenceV3 } from '../provider/provider_evidence.ts';
 import { readWorkerModuleRevision, WorkerCapsule } from './worker_capsule.ts';
 import type {
   WorkerCheckpointProposalMessage,
@@ -43,7 +43,7 @@ import {
 } from '../provider/model_selection.ts';
 import {
   type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV2,
+  type WorkerExecutionArtifactV3,
   workerExecutionOutcome,
   type WorkerExecutionSettlement,
   type WorkerExecutionStoreResult,
@@ -52,6 +52,11 @@ import {
   workerHostCommandSubtype,
   workerMessageSubtype,
 } from './worker_execution_artifact.ts';
+import {
+  type RecalledExecutionContextV1,
+  recalledExecutionProjectionText,
+  resolveRecalledExecutionContext,
+} from './recalled_execution_context.ts';
 import type { WorkerHostCapsule, WorkerHostSessionOptions } from './worker_host_contract.ts';
 import {
   diagnosticPersistenceCodes,
@@ -102,11 +107,26 @@ export class WorkerHostStartupError extends Error {
     this.name = 'WorkerHostStartupError';
   }
 }
+
+export type WorkerRecallSelectionErrorCode =
+  | 'unavailable'
+  | 'busy'
+  | 'not_found'
+  | 'ambiguous'
+  | 'failed';
+
+export class WorkerRecallSelectionError extends Error {
+  constructor(readonly code: WorkerRecallSelectionErrorCode) {
+    super(code);
+    this.name = 'WorkerRecallSelectionError';
+  }
+}
 type ActiveWorkerExecution = {
   readonly executionId: string;
   readonly createdAt: string;
   readonly turn: number;
   readonly command: WorkerExecutionTurnCommand;
+  readonly recalledContext?: RecalledExecutionContextV1;
   readonly baseStateRevision: number;
   readonly protocolTrace: WorkerExecutionTraceEntry[];
   storeResult: WorkerExecutionStoreResult;
@@ -151,6 +171,7 @@ export class WorkerHostSession {
   private title: string | null;
   private legacyModelNotice = false;
   private credentialAvailability: CredentialAvailability | undefined;
+  private pendingRecall: RecalledExecutionContextV1 | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
     this.capsule = options.capsuleFactory?.(workerUrl) ??
@@ -359,9 +380,9 @@ export class WorkerHostSession {
         evidenceDurability = 'unknown';
       } else {
         try {
-          const attributed: ProviderEvidenceV2 = {
+          const attributed: ProviderEvidenceV3 = {
             ...structuredClone(providerEvidence),
-            schemaVersion: 2,
+            schemaVersion: 3,
             sessionId: this.sessionId,
             build: structuredClone(this.build),
             definition: structuredClone(this.options.definition),
@@ -432,8 +453,8 @@ export class WorkerHostSession {
     execution.artifactWritten = true;
     const store = this.options.executionArtifactStore;
     if (store === undefined || this.currentManifest === undefined) return outcome;
-    const artifact: WorkerExecutionArtifactV2 = {
-      schemaVersion: 2,
+    const artifact: WorkerExecutionArtifactV3 = {
+      schemaVersion: 3,
       executionId: execution.executionId,
       createdAt: execution.createdAt,
       settledAt: new Date().toISOString(),
@@ -446,6 +467,13 @@ export class WorkerHostSession {
       definition: structuredClone(this.options.definition),
       manifest: structuredClone(this.currentManifest),
       command: structuredClone(execution.command),
+      ...(execution.recalledContext === undefined ? {} : {
+        recall: {
+          schemaVersion: 1,
+          sourceExecutionId: execution.recalledContext.sourceExecutionId,
+          projectedContext: recalledExecutionProjectionText(execution.recalledContext),
+        },
+      }),
       baseStateRevision: execution.baseStateRevision,
       ...(execution.proposedStateRevision === undefined ? {} : {
         proposedStateRevision: execution.proposedStateRevision,
@@ -806,7 +834,75 @@ export class WorkerHostSession {
     return 'renamed';
   }
 
-  async submit(task: string): Promise<LoopOutcome> {
+  async prepareRecall(id?: string): Promise<{
+    readonly sourceExecutionId: string;
+    readonly evidence: 'available' | 'unavailable';
+  }> {
+    if (this.closed || this.unavailable || this.options.executionArtifactStore === undefined) {
+      throw new WorkerRecallSelectionError('unavailable');
+    }
+    if (this.active || this.currentCorrelation !== undefined) {
+      throw new WorkerRecallSelectionError('busy');
+    }
+    let artifacts:
+      readonly import('./worker_execution_artifact.ts').StoredWorkerExecutionArtifact[];
+    try {
+      artifacts = await this.options.executionArtifactStore.list();
+    } catch {
+      throw new WorkerRecallSelectionError('failed');
+    }
+    if (this.closed || this.unavailable) throw new WorkerRecallSelectionError('unavailable');
+    if (this.active || this.currentCorrelation !== undefined) {
+      throw new WorkerRecallSelectionError('busy');
+    }
+    const eligible = artifacts.filter((artifact) =>
+      artifact.sessionId === this.sessionId && artifact.settlement === 'uncommitted'
+    );
+    let selected: (typeof eligible)[number] | undefined;
+    if (id === undefined) {
+      selected = [...eligible].sort((left, right) =>
+        left.settledAt === right.settledAt
+          ? left.executionId.localeCompare(right.executionId)
+          : left.settledAt.localeCompare(right.settledAt)
+      ).at(-1);
+    } else {
+      const matches = eligible.filter((artifact) => artifact.executionId.startsWith(id));
+      if (matches.length > 1) throw new WorkerRecallSelectionError('ambiguous');
+      selected = matches[0];
+    }
+    if (selected === undefined) throw new WorkerRecallSelectionError('not_found');
+    let recalled: RecalledExecutionContextV1;
+    try {
+      recalled = await resolveRecalledExecutionContext({
+        sessionId: this.sessionId,
+        executionId: selected.executionId,
+        executionArtifactStore: this.options.executionArtifactStore,
+        providerEvidenceStore: this.options.providerEvidenceStore,
+      });
+    } catch {
+      throw new WorkerRecallSelectionError('failed');
+    }
+    if (this.closed || this.unavailable) throw new WorkerRecallSelectionError('unavailable');
+    if (this.active || this.currentCorrelation !== undefined) {
+      throw new WorkerRecallSelectionError('busy');
+    }
+    this.pendingRecall = structuredClone(recalled);
+    return {
+      sourceExecutionId: recalled.sourceExecutionId,
+      evidence: recalled.evidence,
+    };
+  }
+
+  clearPendingRecall(): boolean {
+    const present = this.pendingRecall !== undefined;
+    this.pendingRecall = undefined;
+    return present;
+  }
+
+  async submit(
+    task: string,
+    recalledContext?: RecalledExecutionContextV1,
+  ): Promise<LoopOutcome> {
     if (this.closed || this.unavailable) {
       throw new Error('agent session unavailable');
     }
@@ -814,6 +910,13 @@ export class WorkerHostSession {
     if (typeof task !== 'string' || task.trim().length === 0) {
       throw new RangeError('user text must not be blank');
     }
+    const admittedRecall = recalledContext ?? this.pendingRecall;
+    if (
+      admittedRecall !== undefined &&
+      (admittedRecall.sessionId !== this.sessionId ||
+        admittedRecall.settlement !== 'uncommitted')
+    ) throw new RangeError('recalled execution context does not match current Session');
+    if (recalledContext === undefined) this.pendingRecall = undefined;
     this.active = true;
     const correlation = this.correlation(
       `turn-${this.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
@@ -824,6 +927,9 @@ export class WorkerHostSession {
       createdAt: new Date().toISOString(),
       turn: this.nextTurn,
       command: { kind: 'turn', correlation: structuredClone(correlation), task },
+      ...(admittedRecall === undefined ? {} : {
+        recalledContext: structuredClone(admittedRecall),
+      }),
       baseStateRevision: this.stateRevision,
       protocolTrace: [...this.bootstrapTrace],
       storeResult: 'not_attempted',
@@ -834,7 +940,14 @@ export class WorkerHostSession {
     this.activeExecution = execution;
     try {
       try {
-        this.send({ kind: 'turn', correlation, task });
+        this.send({
+          kind: 'turn',
+          correlation,
+          task,
+          ...(admittedRecall === undefined ? {} : {
+            recalledContext: structuredClone(admittedRecall),
+          }),
+        });
       } catch {
         this.markUnavailable();
         const outcome = failedOutcome(task, this.transcript, 'Worker transport unavailable');
@@ -861,6 +974,9 @@ export class WorkerHostSession {
           message.providerEvidence,
           diagnostic,
         );
+        if (
+          diagnostic?.stage === 'cancellation_cleanup' && diagnostic.code === 'cleanup_error'
+        ) this.markUnavailable();
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
       }
@@ -1126,6 +1242,7 @@ export class WorkerHostSession {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.pendingRecall = undefined;
     if (this.currentManifest === undefined) {
       this.unsubscribe();
       this.messages.fail(new Error('Worker host session closed'));

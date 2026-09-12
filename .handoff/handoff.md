@@ -42,15 +42,34 @@
   `git diff --check`が成功した。二つの修正と結果文書はlocal mainのcode commit `91e091b6`へcommit済みである。同commitから
   clean buildしたbuild ID `f8fb18486d0d54e45e936329c1a58de509a07d794324d23e46d19c894bc9ddc8`のartifactへ
   `dist/henji`と`~/.local/bin/henji`を再びatomicに置換済みであり、未pushである。
-- 次: 利用者が指定する次のIncrementまたはpush等の作業から再開する。
+  利用者は停止したexecutionの観測済み情報を次turnへ明示的に引き継ぐcommand名を`/recall`と決定した。
+  Increment 38は承認済みSlice A〜Cの実装、focused検証、一回のauthoritative `v0:gate`（全187 test）、isolated
+  standalone real-TTY Human Gate、差分reviewまで完了した。source uncommitted executionの保存情報を次taskだけへ投影し、
+  source非commit・no replay・targetだけのatomic commitをproduction経路で確認した。結果はIncrement 38正本へ保存済みで、
+  変更は未commitである。受入中に観測したreal provider Esc cancelの
+  `cancellation cleanup failed`誤分類は、承認済みIncrement 39で修正した。terminalなread rejectionで二重cancelせず、
+  真のcleanup failureはartifact保存後にWorkerをunavailableにする。focused検証と一回のauthoritative `v0:gate`
+  （全192 test）が成功し、isolated real-TTY/OpenRouter Human GateでEscが`cancelled`、同じSessionの次turnが
+  `committed`になることを確認した。通常利用メモは未採用候補16件の一覧と「観測・候補・再検討条件」へ
+  整理し、agent loop/durable stateとexternalizationの長い比較証拠をresearch文書へ分離した。
+  その後の利用者との議論とGPT-6 Astra xhighのreviewを受け、自己改訂を支えつつ独立した価値を持つ
+  atomic history、canonical/non-canonical execution、human history viewとmodel projection、execution context
+  attribution、`/recall`と未実装`/rebuild`の境界を構想・architecture・roadmapへ反映した。詳細な議論と
+  SQLite設計前の未決事項はroadmap inputへ分離し、通常利用メモの`/reload`候補を`/rebuild`へ更新した。
+  SQLite採用、完全再現性、`/rebuild`対象resource、次incrementと実装順序は未決のままである。
+  Increment 38・39、メモ整理、履歴/rebuild文書更新の変更は未commitである。
+- 次: 利用者が現在の未commit差分をcommitするか、次increment候補を選ぶ。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
   `docs/increments/increment-34.md`、
-  `docs/increments/increment-35.md`、`docs/increments/increment-37.md`。現行の検討資料は
+  `docs/increments/increment-35.md`、`docs/increments/increment-37.md`、`docs/increments/increment-38.md`、
+  `docs/increments/increment-39.md`、`docs/experience/normal-use-inbox.md`、
+  `docs/research/agent-loop-and-durable-state-comparison.md`、
+  `docs/research/externalization-reference-comparison.md`。現行の検討資料は
+  `docs/roadmap-inputs/durable-history-and-context-rebuild.md`、
   `docs/roadmap-inputs/increment-32-34-externalization-concept-plan.md`。当初案と初回reviewの履歴は
-  `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。参照実装比較の背景資料は
-  `docs/research/externalization-reference-comparison.md`。
+  `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。
 - 注意: Increment 32はstandalone binaryとresource共通identity・配置境界、Increment 33は最初のmanaged kindで
   あるAgent Definition、Increment 34はDefinition transportである。tool等の他resource kindは33のlocal基盤後に
   個別Incrementで扱い、34を必須前提にしない。`--definition <path>`はIncrement 32で廃止し、外部sourceを
@@ -65,5 +84,6 @@
   Increment 37 Slice Bの一時証拠は`/tmp/henji-increment-37-acceptance-b3kQMl`に保持している。
   standalone shadowing修正のproduction artifactは`/tmp/henji-standalone-fix-HSqJ6U/henji`、TUI順序修正を含む現行の
   clean artifactは`/tmp/henji-post-commit-build-eNk6hK/henji`に保持している。
-  architecture・roadmap実装状態更新、push、tag、publishは未承認・未実施である。利用者の指定に従い、今後も各実装slice
-  境界で停止する。
+  Increment 38 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-38-acceptance-nL6Ufc`に保持している。
+  Increment 39 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-39-acceptance-xA5Jxs`に保持している。
+  installed binary置換、architecture・roadmap実装状態更新、commit、push、tag、publishは未承認・未実施である。

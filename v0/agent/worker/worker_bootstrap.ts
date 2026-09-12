@@ -445,7 +445,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         });
         return;
       }
-      await generation.runTurn(command.correlation, command.task);
+      await generation.runTurn(command.correlation, command.task, command.recalledContext);
       return;
     case 'steer':
       generation?.steerActiveTurn(command.text);

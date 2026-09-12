@@ -408,7 +408,7 @@ Deno.test('retained controller shows credential absence and slash candidates wit
   );
 
   terminal.push('/');
-  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 10);
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 11);
   const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
   assert(allCommandsFooter.includes('cmds:'));
   assert(allCommandsFooter.includes('/rename'));
@@ -952,6 +952,213 @@ Deno.test('occupied editor keeps recoverable task until idle /recover', async ()
     'tools may have changed the workspace; inspect before resubmitting',
   );
   terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('/recall selects next-task-only context while /recover remains input recovery', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  const intentsSeen: string[] = [];
+  let clearCount = 0;
+  const intents: PresentationIntentDispatcher = {
+    dispatch: (intent) => {
+      intentsSeen.push(intent.kind);
+      if (intent.kind === 'recall_execution') {
+        return {
+          kind: 'recall',
+          sourceExecutionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          evidence: 'available',
+        };
+      }
+      if (intent.kind === 'clear_recall') {
+        clearCount += 1;
+        return { kind: 'accepted' };
+      }
+      if (intent.kind === 'ordinary_submit') {
+        submitted.push(intent.text);
+        return {
+          kind: 'outcome',
+          outcome: {
+            ok: true,
+            task: intent.text,
+            outcome: 'final',
+            stopReason: 'final',
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          },
+        };
+      }
+      return { kind: 'accepted' };
+    },
+  };
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession([]),
+    { pending: new PendingInputCore(), intents },
+  );
+  const run = controller.run();
+
+  terminal.push('/recall aaaaaaaa\r');
+  await waitFor(() =>
+    controller.currentState === 'idle' &&
+    renderer.stateSnapshot().status === 'recall aaaaaaaa ready · next task only'
+  );
+  assertEquals(controller.editor.text, '');
+  terminal.push('what was completed?\r');
+  await waitFor(() => submitted.length === 1 && controller.currentState === 'idle');
+  assertEquals(submitted, ['what was completed?']);
+  assert(!renderer.stateSnapshot().status.startsWith('recall '));
+
+  terminal.push('/recover\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'no recoverable input');
+  assertEquals(intentsSeen.filter((kind) => kind === 'recall_execution').length, 1);
+
+  terminal.push('/recall aaaaaaaa\r');
+  await waitFor(() => renderer.stateSnapshot().status.startsWith('recall aaaaaaaa ready'));
+  terminal.push('draft');
+  await waitFor(() => controller.editor.text === 'draft');
+  terminal.push('\x03');
+  await waitFor(() => controller.editor.text === '' && clearCount === 1);
+  assert(!renderer.stateSnapshot().status.startsWith('recall '));
+
+  terminal.push('/recall short\r');
+  await waitFor(() => renderer.stateSnapshot().status.startsWith('invalid recall id'));
+  assertEquals(controller.editor.text, '/recall short');
+  terminal.push('\x03\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('/recall is unavailable with --no-session and keeps the command in the editor', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession([]),
+    { pending: new PendingInputCore() },
+  );
+  const run = controller.run();
+  terminal.push('/recall\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'recall unavailable with --no-session');
+  assertEquals(controller.editor.text, '/recall');
+  terminal.push('\x03\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('genuine cancellation cleanup failure does not return to reusable ready', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let available = true;
+  let submitted = false;
+  const session: TuiSessionLike = {
+    submit: () => Promise.reject(new Error('intent owns submission')),
+    isAvailable: () => available,
+  };
+  const intents: PresentationIntentDispatcher = {
+    dispatch: (intent) => {
+      if (intent.kind !== 'ordinary_submit') return { kind: 'accepted' };
+      submitted = true;
+      available = false;
+      return {
+        kind: 'outcome',
+        outcome: {
+          ok: false,
+          task: intent.text,
+          outcome: 'contract_failure',
+          stopReason: 'contract_failure',
+          error: 'cancellation cleanup failed',
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+          diagnostic: {
+            schemaVersion: 1,
+            diagnosticId: '39393939-3939-4939-8939-393939393939',
+            stage: 'cancellation_cleanup',
+            code: 'cleanup_error',
+            lane: 'parent',
+            providerRequestCount: 1,
+            occurredAt: '2026-09-12T00:00:00.000Z',
+            turnNumber: 1,
+            modelStep: 0,
+            retryCount: 0,
+          },
+        },
+      };
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+    intents,
+  });
+  const run = controller.run().then(
+    (code) => ({ kind: 'code' as const, code }),
+    (error: unknown) => ({ kind: 'error' as const, error }),
+  );
+  terminal.push('trigger cleanup failure\r');
+  await waitFor(() =>
+    submitted && (controller.currentState === 'idle' || controller.currentState === 'failed')
+  );
+  const returnedReady = controller.currentState === 'idle';
+  if (returnedReady) terminal.push('\x03\x04');
+  const result = await run;
+  assert(!returnedReady);
+  assert(result.kind === 'error' && result.error instanceof TuiControllerError);
+  assertEquals(result.error.code, 'agent_failure');
+});
+
+Deno.test('busy /recall stays in the editor and is not dispatched as steering', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let settle: (() => void) | undefined;
+  const steering: string[] = [];
+  const session: TuiSessionLike = {
+    submit: (task) =>
+      new Promise((resolve) => {
+        settle = () =>
+          resolve({
+            ok: true,
+            task,
+            outcome: 'final',
+            stopReason: 'final',
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      }),
+    steerActiveTurn: (text) => {
+      steering.push(text);
+      return 'accepted';
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  terminal.push('active task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('/recall aaaaaaaa\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'busy; /recall waits for ready');
+  assertEquals(controller.editor.text, '/recall aaaaaaaa');
+  assertEquals(steering, []);
+  settle?.();
+  await waitFor(() => controller.currentState === 'idle');
+  terminal.push('\x03\x04');
   assertEquals(await run, 0);
 });
 

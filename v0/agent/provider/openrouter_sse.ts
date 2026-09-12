@@ -591,7 +591,16 @@ export const readSseResponse = async (
       throw error;
     }
   });
-  const settleFailure = async (error: unknown): Promise<never> => {
+  const classifySettledFailure = (error: unknown): Error => {
+    if (error instanceof EventDeliveryError) return error;
+    if (isTurnCancelled()) return new TurnCancelledError();
+    if (isTimedOut()) return providerTimeoutError();
+    if (error instanceof OpenRouterAgentError) {
+      return withResponseStatus(error, response.status);
+    }
+    return responseStreamError(response.status);
+  };
+  const settleActiveReaderFailure = async (error: unknown): Promise<never> => {
     let settled = true;
     try {
       await reader.cancel('provider response stream failed');
@@ -605,11 +614,7 @@ export const readSseResponse = async (
       if (isTimedOut()) throw providerTimeoutError();
       throw responseStreamError(response.status);
     }
-    if (error instanceof EventDeliveryError) throw error;
-    if (isTurnCancelled()) throw new TurnCancelledError();
-    if (isTimedOut()) throw providerTimeoutError();
-    if (error instanceof OpenRouterAgentError) throw withResponseStatus(error, response.status);
-    throw responseStreamError(response.status);
+    throw classifySettledFailure(error);
   };
   let failure: unknown;
   let result: ModelResult | undefined;
@@ -619,14 +624,16 @@ export const readSseResponse = async (
       try {
         item = await reader.read();
       } catch (error) {
-        failure = await settleFailure(error);
+        // A rejected read means the stream is already errored. Calling cancel again returns the
+        // stored stream error in Deno and does not prove a new cleanup failure.
+        failure = classifySettledFailure(error);
         break;
       }
       if (item.done) {
         try {
           framer.finish();
         } catch (error) {
-          failure = await settleFailure(error);
+          failure = await settleActiveReaderFailure(error);
         }
         break;
       }
@@ -634,7 +641,7 @@ export const readSseResponse = async (
       try {
         framer.push(item.value);
       } catch (error) {
-        failure = await settleFailure(error);
+        failure = await settleActiveReaderFailure(error);
         break;
       }
       if (framer.done) {

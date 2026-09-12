@@ -135,6 +135,7 @@ export const startupHelpLines = (
     '/rename <title> · name the current saved session',
     '/history export · save committed history as Markdown',
     '/recover · restore recoverable input',
+    '/recall [execution-id] · use a stopped execution for the next task',
     '/exit · exit Henji',
   ]);
 };

@@ -280,6 +280,8 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'rename_session'; readonly title: string }>
   | Readonly<{ readonly kind: 'new_session' }>
   | Readonly<{ readonly kind: 'resume_session'; readonly id: string }>
+  | Readonly<{ readonly kind: 'recall_execution'; readonly id?: string }>
+  | Readonly<{ readonly kind: 'clear_recall' }>
   | Readonly<{
     readonly kind: 'select_provider';
     readonly provider: 'openrouter' | 'openai';
@@ -316,7 +318,14 @@ export type PresentationIntentResult =
   | Readonly<
     {
       readonly kind: 'rejected';
-      readonly reason: 'idle' | 'unavailable' | 'busy' | 'invalid';
+      readonly reason:
+        | 'idle'
+        | 'unavailable'
+        | 'busy'
+        | 'invalid'
+        | 'not_found'
+        | 'ambiguous'
+        | 'failed';
     }
   >
   | Readonly<
@@ -345,6 +354,11 @@ export type PresentationIntentResult =
     readonly kind: 'session_title';
     readonly status: 'renamed' | 'unchanged';
     readonly title: string;
+  }>
+  | Readonly<{
+    readonly kind: 'recall';
+    readonly sourceExecutionId: string;
+    readonly evidence: 'available' | 'unavailable';
   }>
   | Readonly<
     { readonly kind: 'history'; readonly page?: PresentationHistoryPage }

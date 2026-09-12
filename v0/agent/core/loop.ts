@@ -308,6 +308,7 @@ const runAgentTurnInternal = async (
   };
 
   const evidence = options.executionContext?.providerEvidence;
+  const evidenceLane = options.executionContext?.lane === 'child' ? 'planner' : 'parent';
   const evidenceIdentity = (): Pick<LoopOutcome, 'providerEvidenceId'> =>
     evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId };
 
@@ -565,6 +566,7 @@ const runAgentTurnInternal = async (
           turn,
           text: progressText,
         });
+        evidence?.recordAssistantProgress(progressText, steps, evidenceLane);
       } catch (error) {
         progressFailure = error instanceof EventDeliveryError ? error : new EventDeliveryError();
         // Delivery failure owns cancellation synchronously. The model remains responsible for
@@ -625,7 +627,7 @@ const runAgentTurnInternal = async (
         code: 'invalid_model_result',
       });
     }
-    evidence?.recordModelResult(result, steps);
+    evidence?.recordModelResult(result, steps, evidenceLane);
     if (result.kind === 'final') {
       observer?.modelSettled('final');
       const assistant: AssistantMessage = {
@@ -676,7 +678,7 @@ const runAgentTurnInternal = async (
       if (signal?.aborted) return finishCancelled();
       deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
       toolCallCount += 1;
-      evidence?.recordToolCall(call, steps);
+      evidence?.recordToolCall(call, steps, evidenceLane);
       observer?.toolCallAccepted(snapshot(call));
       if (signal?.aborted) return finishCancelled();
       if (invalidTerminalBatch) {
@@ -689,7 +691,7 @@ const runAgentTurnInternal = async (
         });
         toolResultCount += 1;
         observer?.toolResultAccepted(snapshot(resultContent));
-        evidence?.recordToolResult(resultContent, steps);
+        evidence?.recordToolResult(resultContent, steps, evidenceLane);
         continue;
       }
       let progressFailure: EventDeliveryError | undefined;
@@ -711,6 +713,7 @@ const runAgentTurnInternal = async (
             name: call.name,
             text: progressText,
           });
+          evidence?.recordToolProgress(call, progressText, steps, evidenceLane);
         } catch (error) {
           progressFailure = error instanceof EventDeliveryError ? error : new EventDeliveryError();
           // The cancellation owner is synchronous by contract. The callback caller observes
@@ -775,6 +778,7 @@ const runAgentTurnInternal = async (
           });
           toolResultCount += 1;
           observer?.toolResultAccepted(snapshot(plannerResult));
+          evidence?.recordToolResult(plannerResult, steps, evidenceLane);
           return finishContractFailure(
             'planner delegation failed',
             {
@@ -808,7 +812,7 @@ const runAgentTurnInternal = async (
       });
       toolResultCount += 1;
       observer?.toolResultAccepted(snapshot(results.at(-1)!));
-      evidence?.recordToolResult(results.at(-1)!, steps);
+      evidence?.recordToolResult(results.at(-1)!, steps, evidenceLane);
     }
     transcript.push({ role: 'tool', content: results });
     if (signal?.aborted) return finishCancelled();

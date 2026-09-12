@@ -5,6 +5,7 @@ import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
 import type { SemanticContextCheckpointV1 } from '../session/session_store.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
+import type { RecalledExecutionContextV1 } from './recalled_execution_context.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -78,6 +79,7 @@ export type WorkerHostCommand =
     readonly kind: 'turn';
     readonly correlation: WorkerCorrelation;
     readonly task: string;
+    readonly recalledContext?: RecalledExecutionContextV1;
   }
   | {
     readonly kind: 'steer';

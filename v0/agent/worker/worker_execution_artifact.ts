@@ -11,7 +11,7 @@ import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts'
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
-export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 2 as const;
+export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 3 as const;
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -94,6 +94,23 @@ export interface WorkerExecutionArtifactV2 {
   readonly automaticReplay: false;
   readonly artifactPersistenceError?: WorkerExecutionArtifactPersistenceErrorCode;
 }
+
+export interface WorkerExecutionRecallAttributionV1 {
+  readonly schemaVersion: 1;
+  readonly sourceExecutionId: string;
+  /** Exact user-context text projected into every model request for this turn. */
+  readonly projectedContext: string;
+}
+
+export interface WorkerExecutionArtifactV3
+  extends Omit<WorkerExecutionArtifactV2, 'schemaVersion'> {
+  readonly schemaVersion: 3;
+  readonly recall?: WorkerExecutionRecallAttributionV1;
+}
+
+export type StoredWorkerExecutionArtifact =
+  | WorkerExecutionArtifactV2
+  | WorkerExecutionArtifactV3;
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -242,10 +259,20 @@ const validTrace = (value: unknown): value is WorkerExecutionTraceEntry => {
 const validExecutionId = (value: unknown): value is string =>
   typeof value === 'string' && UUID_V4.test(value);
 
+const validRecallAttribution = (
+  value: unknown,
+): value is WorkerExecutionRecallAttributionV1 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const recall = value as Record<string, unknown>;
+  return ownKeys(recall, ['schemaVersion', 'sourceExecutionId', 'projectedContext']) &&
+    recall.schemaVersion === 1 && validExecutionId(recall.sourceExecutionId) &&
+    validText(recall.projectedContext, true);
+};
+
 /** Validate the additive artifact without reading any provider/session payload. */
 export const validateWorkerExecutionArtifact = (
   value: unknown,
-): value is WorkerExecutionArtifactV2 => {
+): value is StoredWorkerExecutionArtifact => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
@@ -267,6 +294,7 @@ export const validateWorkerExecutionArtifact = (
   const artifactOptional = [
     ...(Object.hasOwn(artifact, 'artifactPersistenceError') ? ['artifactPersistenceError'] : []),
   ];
+  const recallOptional = Object.hasOwn(artifact, 'recall') ? ['recall'] : [];
   if (
     !ownKeys(artifact, [
       'schemaVersion',
@@ -282,6 +310,7 @@ export const validateWorkerExecutionArtifact = (
       'definition',
       'manifest',
       'command',
+      ...recallOptional,
       'baseStateRevision',
       ...stateOptional,
       'protocolTrace',
@@ -298,7 +327,9 @@ export const validateWorkerExecutionArtifact = (
   ) return false;
   const command = artifact.command as Record<string, unknown>;
   const trace = artifact.protocolTrace;
-  const valid = artifact.schemaVersion === 2 &&
+  const valid = (artifact.schemaVersion === 2 || artifact.schemaVersion === 3) &&
+    (artifact.schemaVersion === 3 || !Object.hasOwn(artifact, 'recall')) &&
+    (!Object.hasOwn(artifact, 'recall') || validRecallAttribution(artifact.recall)) &&
     validExecutionId(artifact.executionId) &&
     validTimestamp(artifact.createdAt) && validTimestamp(artifact.settledAt) &&
     Date.parse(artifact.settledAt as string) >=
@@ -357,7 +388,7 @@ export const validateWorkerExecutionArtifact = (
 };
 
 export const encodeWorkerExecutionArtifact = (
-  value: WorkerExecutionArtifactV2,
+  value: StoredWorkerExecutionArtifact,
 ): string => {
   if (!validateWorkerExecutionArtifact(value)) {
     throw new TypeError('invalid Worker execution artifact');
@@ -374,7 +405,7 @@ export class WorkerExecutionArtifactCodecError extends Error {
 
 export const decodeWorkerExecutionArtifact = (
   bytes: Uint8Array | string,
-): WorkerExecutionArtifactV2 => {
+): StoredWorkerExecutionArtifact => {
   try {
     const text = typeof bytes === 'string'
       ? bytes

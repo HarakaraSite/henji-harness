@@ -8,6 +8,7 @@ export type SlashCommand =
   | 'effort'
   | 'history_export'
   | 'recover'
+  | 'recall'
   | 'exit';
 
 export interface SlashCommandDefinition {
@@ -25,6 +26,7 @@ export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
   Object.freeze({ text: '/effort', command: 'effort' }),
   Object.freeze({ text: '/history export', command: 'history_export' }),
   Object.freeze({ text: '/recover', command: 'recover' }),
+  Object.freeze({ text: '/recall', command: 'recall' }),
   Object.freeze({ text: '/exit', command: 'exit' }),
 ]);
 
@@ -44,7 +46,28 @@ export const slashCommandOf = (
   const trimmed = text.trim();
   if (!trimmed.startsWith('/')) return null;
   if (/^\/rename(?:\s|$)/u.test(trimmed)) return 'rename';
+  if (/^\/recall(?:\s|$)/u.test(trimmed)) return 'recall';
   return SLASH_COMMANDS.find((definition) => definition.text === trimmed)?.command ?? 'unknown';
+};
+
+/** Missing means latest; null means that an explicit execution ID/prefix is invalid. */
+export const recallExecutionIdOf = (text: string): string | undefined | null => {
+  const trimmed = text.trim();
+  if (!/^\/recall(?:\s|$)/u.test(trimmed)) return null;
+  const reference = trimmed.slice('/recall'.length).trim();
+  if (reference.length === 0) return undefined;
+  const normalized = reference.toLowerCase();
+  if (normalized.length < 8 || normalized.length > 36) return null;
+  const hyphens = new Set([8, 13, 18, 23]);
+  for (let index = 0; index < normalized.length; index += 1) {
+    const scalar = normalized[index];
+    if (hyphens.has(index)) {
+      if (scalar !== '-') return null;
+    } else if (!/[0-9a-f]/u.test(scalar)) return null;
+  }
+  if (normalized.length > 14 && normalized[14] !== '4') return null;
+  if (normalized.length > 19 && !/[89ab]/u.test(normalized[19])) return null;
+  return normalized;
 };
 
 export const renameTitleOf = (text: string): string | null => {

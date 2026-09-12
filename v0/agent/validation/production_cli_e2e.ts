@@ -1,10 +1,10 @@
-import type { ProviderEvidenceV2 } from '../provider/provider_evidence.ts';
+import type { StoredProviderEvidence } from '../provider/provider_evidence.ts';
 import {
   DenoProviderEvidenceStore,
   providerEvidencePaths,
 } from '../provider/provider_evidence_store.ts';
 import { sessionPaths } from '../session/session_store.ts';
-import type { WorkerExecutionArtifactV2 } from '../worker/worker_execution_artifact.ts';
+import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 import {
   DenoWorkerExecutionArtifactStore,
   workerExecutionArtifactPaths,
@@ -52,11 +52,11 @@ export interface ProductionCliE2eDependencies {
   readonly listExecutions?: (
     stateRoot: string,
     workspaceRoot: string,
-  ) => Promise<readonly WorkerExecutionArtifactV2[]>;
+  ) => Promise<readonly StoredWorkerExecutionArtifact[]>;
   readonly listEvidence?: (
     stateRoot: string,
     workspaceRoot: string,
-  ) => Promise<readonly ProviderEvidenceV2[]>;
+  ) => Promise<readonly StoredProviderEvidence[]>;
   readonly sessionTranscriptExists?: (
     stateRoot: string,
     workspaceRoot: string,
@@ -187,13 +187,13 @@ const defaultRunChild = async (
 const defaultListExecutions = (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly WorkerExecutionArtifactV2[]> =>
+): Promise<readonly StoredWorkerExecutionArtifact[]> =>
   new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot).list();
 
 const defaultListEvidence = (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly ProviderEvidenceV2[]> =>
+): Promise<readonly StoredProviderEvidence[]> =>
   new DenoProviderEvidenceStore(stateRoot, workspaceRoot).list();
 
 const defaultSessionTranscriptExists = async (
@@ -282,7 +282,7 @@ export const runProductionCliE2e = async (
     return preflightFailureReport('run_layout_failed', errorText(error), paths);
   }
 
-  let executions: readonly WorkerExecutionArtifactV2[] | null = null;
+  let executions: readonly StoredWorkerExecutionArtifact[] | null = null;
   let executionReadError: string | undefined;
   try {
     executions = await (dependencies.listExecutions ?? defaultListExecutions)(
@@ -292,7 +292,7 @@ export const runProductionCliE2e = async (
   } catch (error) {
     executionReadError = errorText(error);
   }
-  let evidence: readonly ProviderEvidenceV2[] | null = null;
+  let evidence: readonly StoredProviderEvidence[] | null = null;
   let evidenceReadError: string | undefined;
   try {
     evidence = await (dependencies.listEvidence ?? defaultListEvidence)(

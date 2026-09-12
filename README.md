@@ -17,6 +17,12 @@ provider/model/effortは一覧には表示しないがSessionと一緒に復元�
 planner defaultを使う。footerは1段目へbusy開始からの経過時間を含む一時的なstatus、2段目へcwd、Session短縮ID、
 現在のroot provider/model/effortを常時表示する。
 
+停止したturnの保存済み実行情報は、idle時の`/recall`でcurrent Session内の最新executionを、
+`/recall <execution-id>`で8文字以上の一意なID prefixまたは完全IDを選び、次の通常taskだけへ参照contextとして渡せる。
+`/recall`はsource turnをcommitせず、source toolを自動再実行しない。`--no-session`では利用できない。
+一方`/recover`は、送信に失敗した入力文をeditorへ戻して人間が編集・再送する操作であり、execution情報をAIへ渡す
+`/recall`とは別の機能である。
+
 root providerは既定のOpenRouterに加え、起動時に`henji --root-provider openai`でOpenAI direct
 Responses APIを選べる。OpenAI Platform API keyは
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/openai-api-key`からrequest時に読み、OpenRouterを使うdelegated

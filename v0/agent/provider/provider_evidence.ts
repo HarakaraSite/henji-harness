@@ -12,7 +12,7 @@ import {
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** One retained exchange is owned by one accepted parent turn. */
-export const PROVIDER_EVIDENCE_SCHEMA_VERSION = 2 as const;
+export const PROVIDER_EVIDENCE_SCHEMA_VERSION = 3 as const;
 
 export type ProviderEvidenceLane = 'parent' | 'planner';
 /** Identifies whether a retained request belongs to compaction or the user turn. */
@@ -79,9 +79,38 @@ export interface ProviderEvidenceParserTransition {
 }
 
 export type ProviderEvidenceRuntimeEvent =
-  | { readonly kind: 'model_result'; readonly result: ModelResult; readonly modelStep: number }
-  | { readonly kind: 'tool_call'; readonly call: ToolCall; readonly modelStep: number }
-  | { readonly kind: 'tool_result'; readonly result: ToolResultContent; readonly modelStep: number }
+  | {
+    readonly kind: 'assistant_progress';
+    readonly text: string;
+    readonly modelStep: number;
+    readonly lane?: ProviderEvidenceLane;
+  }
+  | {
+    readonly kind: 'model_result';
+    readonly result: ModelResult;
+    readonly modelStep: number;
+    readonly lane?: ProviderEvidenceLane;
+  }
+  | {
+    readonly kind: 'tool_call';
+    readonly call: ToolCall;
+    readonly modelStep: number;
+    readonly lane?: ProviderEvidenceLane;
+  }
+  | {
+    readonly kind: 'tool_progress';
+    readonly callId: string;
+    readonly name: string;
+    readonly text: string;
+    readonly modelStep: number;
+    readonly lane?: ProviderEvidenceLane;
+  }
+  | {
+    readonly kind: 'tool_result';
+    readonly result: ToolResultContent;
+    readonly modelStep: number;
+    readonly lane?: ProviderEvidenceLane;
+  }
   | { readonly kind: 'turn_outcome'; readonly outcome: LoopOutcome['stopReason'] };
 
 export interface ProviderEvidenceRequestRecord {
@@ -111,10 +140,16 @@ export interface ProviderEvidenceV2 extends Omit<ProviderEvidenceV1, 'schemaVers
   readonly definition: DefinitionRevisionRef;
 }
 
+export interface ProviderEvidenceV3 extends Omit<ProviderEvidenceV2, 'schemaVersion'> {
+  readonly schemaVersion: 3;
+}
+
+export type StoredProviderEvidence = ProviderEvidenceV2 | ProviderEvidenceV3;
+
 export interface ProviderEvidenceStore {
-  list(): Promise<readonly ProviderEvidenceV2[]>;
-  read(id: string): Promise<ProviderEvidenceV2>;
-  write(evidence: ProviderEvidenceV2): Promise<void>;
+  list(): Promise<readonly StoredProviderEvidence[]>;
+  read(id: string): Promise<StoredProviderEvidence>;
+  write(evidence: StoredProviderEvidence): Promise<void>;
   linkDiagnostic(diagnosticId: string, evidenceId: string): Promise<void>;
   readDiagnosticLink(diagnosticId: string): Promise<string>;
 }
@@ -298,16 +333,81 @@ export class ProviderEvidenceRecorder {
     });
   }
 
-  recordModelResult(result: ModelResult, modelStep: number): void {
-    this.runtimeEvents.push({ kind: 'model_result', result: cloneValue(result), modelStep });
+  recordAssistantProgress(
+    text: string,
+    modelStep: number,
+    lane?: ProviderEvidenceLane,
+  ): void {
+    const event: ProviderEvidenceRuntimeEvent = {
+      kind: 'assistant_progress',
+      text,
+      modelStep,
+      ...(lane === undefined ? {} : { lane }),
+    };
+    const index = this.runtimeEvents.findIndex((existing) =>
+      existing.kind === 'assistant_progress' && existing.modelStep === modelStep &&
+      existing.lane === lane
+    );
+    if (index < 0) this.runtimeEvents.push(event);
+    else this.runtimeEvents[index] = event;
   }
 
-  recordToolCall(call: ToolCall, modelStep: number): void {
-    this.runtimeEvents.push({ kind: 'tool_call', call: cloneValue(call), modelStep });
+  recordModelResult(
+    result: ModelResult,
+    modelStep: number,
+    lane?: ProviderEvidenceLane,
+  ): void {
+    this.runtimeEvents.push({
+      kind: 'model_result',
+      result: cloneValue(result),
+      modelStep,
+      ...(lane === undefined ? {} : { lane }),
+    });
   }
 
-  recordToolResult(result: ToolResultContent, modelStep: number): void {
-    this.runtimeEvents.push({ kind: 'tool_result', result: cloneValue(result), modelStep });
+  recordToolCall(call: ToolCall, modelStep: number, lane?: ProviderEvidenceLane): void {
+    this.runtimeEvents.push({
+      kind: 'tool_call',
+      call: cloneValue(call),
+      modelStep,
+      ...(lane === undefined ? {} : { lane }),
+    });
+  }
+
+  recordToolProgress(
+    call: Pick<ToolCall, 'callId' | 'name'>,
+    text: string,
+    modelStep: number,
+    lane?: ProviderEvidenceLane,
+  ): void {
+    const event: ProviderEvidenceRuntimeEvent = {
+      kind: 'tool_progress',
+      callId: call.callId,
+      name: call.name,
+      text,
+      modelStep,
+      ...(lane === undefined ? {} : { lane }),
+    };
+    const index = this.runtimeEvents.findIndex((existing) =>
+      existing.kind === 'tool_progress' && existing.callId === call.callId &&
+      existing.name === call.name && existing.modelStep === modelStep &&
+      existing.lane === lane
+    );
+    if (index < 0) this.runtimeEvents.push(event);
+    else this.runtimeEvents[index] = event;
+  }
+
+  recordToolResult(
+    result: ToolResultContent,
+    modelStep: number,
+    lane?: ProviderEvidenceLane,
+  ): void {
+    this.runtimeEvents.push({
+      kind: 'tool_result',
+      result: cloneValue(result),
+      modelStep,
+      ...(lane === undefined ? {} : { lane }),
+    });
   }
 
   recordOutcome(outcome: LoopOutcome['stopReason']): void {
@@ -384,11 +484,12 @@ export class ProviderEvidenceRecorder {
 }
 
 /** Structural validation is intentionally about the evidence envelope, not provider variants. */
-export const validateProviderEvidence = (value: unknown): value is ProviderEvidenceV2 => {
+export const validateProviderEvidence = (value: unknown): value is StoredProviderEvidence => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (
-    record.schemaVersion !== 2 || typeof record.evidenceId !== 'string' ||
+    (record.schemaVersion !== 2 && record.schemaVersion !== 3) ||
+    typeof record.evidenceId !== 'string' ||
     typeof record.sessionId !== 'string' || record.sessionId.length === 0 ||
     !isBuildManifest(record.build) || !isDefinitionRevisionRef(record.definition) ||
     typeof record.turnNumber !== 'number' || typeof record.createdAt !== 'string' ||
@@ -397,12 +498,12 @@ export const validateProviderEvidence = (value: unknown): value is ProviderEvide
   return true;
 };
 
-export const encodeProviderEvidence = (value: ProviderEvidenceV2): string => {
+export const encodeProviderEvidence = (value: StoredProviderEvidence): string => {
   if (!validateProviderEvidence(value)) throw new TypeError('invalid provider evidence');
   return JSON.stringify(value);
 };
 
-export const decodeProviderEvidence = (value: string | Uint8Array): ProviderEvidenceV2 => {
+export const decodeProviderEvidence = (value: string | Uint8Array): StoredProviderEvidence => {
   let text: string;
   try {
     text = typeof value === 'string'
@@ -417,7 +518,7 @@ export const decodeProviderEvidence = (value: string | Uint8Array): ProviderEvid
 };
 
 export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
-  private readonly records = new Map<string, ProviderEvidenceV2>();
+  private readonly records = new Map<string, StoredProviderEvidence>();
   private readonly links = new Map<string, string>();
   private writeFailure?: Error;
   private linkFailure?: Error;
@@ -430,12 +531,12 @@ export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
     this.linkFailure = error;
   }
 
-  async list(): Promise<readonly ProviderEvidenceV2[]> {
+  async list(): Promise<readonly StoredProviderEvidence[]> {
     await Promise.resolve();
     return [...this.records.values()].map((value) => structuredClone(value));
   }
 
-  async read(id: string): Promise<ProviderEvidenceV2> {
+  async read(id: string): Promise<StoredProviderEvidence> {
     await Promise.resolve();
     const value = this.records.get(id);
     if (value === undefined) {
@@ -446,7 +547,7 @@ export class FakeProviderEvidenceStore implements ProviderEvidenceStore {
     return structuredClone(value);
   }
 
-  async write(evidence: ProviderEvidenceV2): Promise<void> {
+  async write(evidence: StoredProviderEvidence): Promise<void> {
     await Promise.resolve();
     if (this.writeFailure !== undefined) throw this.writeFailure;
     if (!validateProviderEvidence(evidence)) {

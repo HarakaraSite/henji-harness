@@ -21,6 +21,8 @@ export const presentationIntent = (
     }
   } else if (kind === 'resume_session') {
     boundedPresentationText(copy.id);
+  } else if (kind === 'recall_execution') {
+    if (copy.id !== undefined) boundedPresentationText(copy.id);
   } else if (kind === 'rename_session') {
     boundedPresentationText(copy.title);
   } else if (kind === 'select_provider') {
@@ -42,7 +44,7 @@ export const presentationIntent = (
     }
   } else if (
     kind !== 'cancel_active' && kind !== 'list_sessions' && kind !== 'new_session' &&
-    kind !== 'history_export' &&
+    kind !== 'history_export' && kind !== 'clear_recall' &&
     kind !== 'dismiss_overlay' &&
     kind !== 'compaction'
   ) {

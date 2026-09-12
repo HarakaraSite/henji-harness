@@ -71,6 +71,7 @@ export interface ControllerOverlayOptions {
     intent: PresentationIntent,
   ) => PresentationIntentResult | Promise<PresentationIntentResult>;
   readonly setSession: (session: TuiSessionLike) => void;
+  readonly bindingReplaced?: () => void;
   readonly idleAllowed: () => boolean;
   readonly isIdle: () => boolean;
   readonly readyStatus: () => string;
@@ -495,6 +496,7 @@ export class ControllerOverlay {
         position = binding.position;
         restored = binding.restored;
       }
+      this.options.bindingReplaced?.();
       if (
         !this.options.isIdle() || signal.aborted ||
         this.navigationGeneration !== generation

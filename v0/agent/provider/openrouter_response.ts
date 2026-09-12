@@ -48,14 +48,9 @@ export const readResponseBody = async (
       try {
         item = await reader.read();
       } catch {
-        let cleanupFailed = true;
-        try {
-          await reader.cancel('provider response stream failed');
-          cleanupFailed = false;
-        } catch {
-          // The body is not proven settled when cancellation itself fails.
-        }
-        result = { kind: 'stream_error', cleanupFailed };
+        // Read rejection is the terminal errored state. A second cancel would only reject with
+        // that stored stream error and falsely report a distinct cleanup failure.
+        result = { kind: 'stream_error', cleanupFailed: false };
         break;
       }
       if (item.done) {

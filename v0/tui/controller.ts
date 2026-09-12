@@ -23,6 +23,7 @@ import {
   type TuiSessionLike,
 } from './controller_contract.ts';
 import {
+  recallExecutionIdOf,
   renameTitleOf,
   SLASH_COMMANDS,
   type SlashCommand,
@@ -45,6 +46,7 @@ export {
   type TuiSessionLike,
 } from './controller_contract.ts';
 export {
+  recallExecutionIdOf,
   renameTitleOf,
   SLASH_COMMANDS,
   type SlashCommand,
@@ -61,6 +63,7 @@ type ControllerState =
   | 'idle'
   | 'busy'
   | 'session-switching'
+  | 'recall-selecting'
   | 'history-exporting'
   | 'exiting'
   | 'failed';
@@ -96,6 +99,8 @@ export class TuiController {
     | null = null;
   private historyExportGeneration = 0;
   private sessionSwitchOperation: Promise<void> | null = null;
+  private recallOperation: Promise<void> | null = null;
+  private pendingRecallShortId: string | null = null;
   private noticeGeneration = 1_000_000;
   private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
@@ -135,6 +140,9 @@ export class TuiController {
       dispatch: (intent) => this.dispatchIntent(intent),
       setSession: (session) => {
         this.session = session;
+      },
+      bindingReplaced: () => {
+        this.pendingRecallShortId = null;
       },
       idleAllowed: () => this.navigationIdleAllowed(),
       isIdle: () => this.state === 'idle',
@@ -212,6 +220,10 @@ export class TuiController {
         ) => ({ kind: 'history', page }));
       case 'history_export':
         return { kind: 'rejected', reason: 'unavailable' };
+      case 'recall_execution':
+        return { kind: 'rejected', reason: 'unavailable' };
+      case 'clear_recall':
+        return { kind: 'accepted' };
       case 'list_sessions':
         return {
           kind: 'listing',
@@ -346,7 +358,8 @@ export class TuiController {
       this.input = this.readEvents();
       while (
         this.state === 'idle' || this.state === 'busy' ||
-        this.state === 'history-exporting' || this.state === 'session-switching'
+        this.state === 'history-exporting' || this.state === 'session-switching' ||
+        this.state === 'recall-selecting'
       ) {
         if (this.active === null) {
           const events = await this.input;
@@ -355,6 +368,8 @@ export class TuiController {
             this.processHistoryExporting(events);
           } else if ((this.state as ControllerState) === 'session-switching') {
             this.processSessionSwitching(events);
+          } else if ((this.state as ControllerState) === 'recall-selecting') {
+            this.processRecallSelecting(events);
           } else this.processIdle(events);
           continue;
         }
@@ -458,6 +473,10 @@ export class TuiController {
         this.processSessionSwitching([event]);
         continue;
       }
+      if (this.state === 'recall-selecting') {
+        this.processRecallSelecting([event]);
+        continue;
+      }
       if (this.state !== 'idle') {
         this.processBusyEvent(event);
         continue;
@@ -552,6 +571,10 @@ export class TuiController {
         this.processSessionSwitching([event]);
         continue;
       }
+      if (this.state === 'recall-selecting') {
+        this.processRecallSelecting([event]);
+        continue;
+      }
       if (!busy && this.overlay.isOpen) {
         this.processModalEvent(event);
         continue;
@@ -584,12 +607,13 @@ export class TuiController {
         if (
           busy &&
           (slashCommand === 'history_export' || slashCommand === 'recover' ||
+            slashCommand === 'recall' ||
             slashCommand === 'provider' ||
             slashCommand === 'model' || slashCommand === 'effort' ||
             slashCommand === 'rename' || slashCommand === 'new')
         ) {
           this.renderer.setStatus(
-            slashCommand === 'rename' || slashCommand === 'new'
+            slashCommand === 'rename' || slashCommand === 'new' || slashCommand === 'recall'
               ? `busy; /${slashCommand} waits for ready`
               : `busy; ${this.editor.text.trim()} waits for ready`,
           );
@@ -812,6 +836,14 @@ export class TuiController {
     }
   }
 
+  private processRecallSelecting(events: readonly InputEvent[]): void {
+    for (const event of events) {
+      if (this.state !== 'recall-selecting') return;
+      if (event.kind === 'ctrl_d') this.modernCtrlD();
+      else this.renderer.setStatus('recall selection in progress; retry when ready');
+    }
+  }
+
   private modernCtrlD(): void {
     if (this.hasProcessPending()) {
       this.armDiscardConfirmation(
@@ -894,6 +926,7 @@ export class TuiController {
           if (
             slashCommandOf(this.editor.text) === 'history_export' ||
             slashCommandOf(this.editor.text) === 'recover' ||
+            slashCommandOf(this.editor.text) === 'recall' ||
             slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
             slashCommandOf(this.editor.text) === 'effort' ||
@@ -902,7 +935,8 @@ export class TuiController {
           ) {
             this.renderer.setStatus(
               slashCommandOf(this.editor.text) === 'rename' ||
-                slashCommandOf(this.editor.text) === 'new'
+                slashCommandOf(this.editor.text) === 'new' ||
+                slashCommandOf(this.editor.text) === 'recall'
                 ? `busy; /${slashCommandOf(this.editor.text)} waits for ready`
                 : `busy; ${this.editor.text.trim()} waits for ready`,
             );
@@ -926,6 +960,8 @@ export class TuiController {
           ? 'busy; /history export waits for ready'
           : slashCommand === 'recover'
           ? 'busy; /recover waits for ready'
+          : slashCommand === 'recall'
+          ? 'busy; /recall waits for ready'
           : slashCommand === 'provider'
           ? 'busy; /provider waits for ready'
           : slashCommand === 'model'
@@ -958,6 +994,13 @@ export class TuiController {
     }
     const command: SlashCommand = parsed;
     const renameTitle = command === 'rename' ? renameTitleOf(this.editor.text) : null;
+    if (command === 'recall') {
+      const id = recallExecutionIdOf(this.editor.text);
+      if (id === null) {
+        this.renderer.setStatus('invalid recall id; use at least 8 UUID characters');
+      } else this.startRecallSelection(id);
+      return true;
+    }
     this.editor.clear();
     this.editorController.resetHistory();
     this.renderEditorState();
@@ -974,6 +1017,69 @@ export class TuiController {
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
     return true;
+  }
+
+  private startRecallSelection(id?: string): void {
+    if (this.state !== 'idle' || this.recallOperation !== null) {
+      this.renderer.setStatus('recall selection already in progress');
+      return;
+    }
+    let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
+    try {
+      dispatched = this.dispatchIntent({
+        kind: 'recall_execution',
+        ...(id === undefined ? {} : { id }),
+      });
+    } catch (error) {
+      if (isPresentationDeliveryError(error)) throw error;
+      this.renderer.setStatus('recall failed; current selection unchanged');
+      return;
+    }
+    this.state = 'recall-selecting';
+    const operation = Promise.resolve(dispatched).then((result) => {
+      if (this.state !== 'recall-selecting') return;
+      this.state = 'idle';
+      if (result.kind === 'recall') {
+        this.pendingRecallShortId = result.sourceExecutionId.slice(0, 8);
+        this.editor.clear();
+        this.editorController.resetHistory();
+        this.renderEditorState();
+        this.renderer.setStatus(
+          `recall ${this.pendingRecallShortId} ready · next task only`,
+        );
+        return;
+      }
+      if (result.kind !== 'rejected') throw new PresentationDeliveryError();
+      const status = result.reason === 'busy'
+        ? 'busy; /recall waits for ready'
+        : result.reason === 'not_found'
+        ? 'recall execution not found'
+        : result.reason === 'ambiguous'
+        ? 'recall id is ambiguous'
+        : result.reason === 'unavailable'
+        ? 'recall unavailable with --no-session'
+        : 'recall failed; current selection unchanged';
+      this.renderer.setStatus(status);
+    }).catch((error: unknown) => {
+      if (isPresentationDeliveryError(error)) throw error;
+      if (this.state === 'recall-selecting') {
+        this.state = 'idle';
+        this.renderer.setStatus('recall failed; current selection unchanged');
+      }
+    });
+    this.recallOperation = operation;
+    void operation.then(
+      () => {
+        if (this.recallOperation === operation) this.recallOperation = null;
+      },
+      (error) => {
+        if (this.recallOperation === operation) this.recallOperation = null;
+        void this.fail(error).catch(() => {
+          // The controller has already entered its fatal shutdown path.
+        });
+      },
+    );
+    this.renderer.setStatus('selecting recall execution');
   }
 
   private startNewSession(): void {
@@ -1001,6 +1107,7 @@ export class TuiController {
         return;
       }
       if (result.kind !== 'binding') throw new PresentationDeliveryError();
+      this.pendingRecallShortId = null;
       if (this.intents === undefined) {
         const selection = this.session.modelSelectionSnapshot?.();
         this.renderer.eventSink({
@@ -1091,6 +1198,7 @@ export class TuiController {
       this.renderer.setStatus('active task recovery pending');
       return;
     }
+    this.pendingRecallShortId = null;
     if (this.renderer.stateSnapshot().scroll.kind !== 'followLatest') {
       this.renderer.latest(false);
     }
@@ -1187,7 +1295,7 @@ export class TuiController {
       outcome.stopReason === 'max_steps' ||
       outcome.stopReason === 'contract_failure'
     ) &&
-      (this.intents !== undefined || (this.session.isAvailable?.() ?? true)) &&
+      (this.session.isAvailable?.() ?? true) &&
       this.exitIntent === 'return';
     if (
       outcome.ok &&
@@ -1263,7 +1371,9 @@ export class TuiController {
 
   /** Read committed context only after the settled turn is returning to idle. */
   private readyStatus(): string {
-    const base = this.readyStatusWithoutCredential();
+    const base = this.pendingRecallShortId === null
+      ? this.readyStatusWithoutCredential()
+      : `recall ${this.pendingRecallShortId} ready · next task only`;
     const availability = this.session.credentialAvailabilitySnapshot?.();
     const selection = this.session.modelSelectionSnapshot?.();
     if (
@@ -1323,6 +1433,12 @@ export class TuiController {
 
   private idleCtrlC(): void {
     this.discardIntent = null;
+    try {
+      this.dispatchIntent({ kind: 'clear_recall' });
+    } catch {
+      // Editor clearing remains available when the backing session is already unavailable.
+    }
+    this.pendingRecallShortId = null;
     this.editor.clear();
     this.editorController.resetHistory();
     this.renderEditorState();
@@ -1505,6 +1621,7 @@ export class TuiController {
     this.shutdownPromise = (async () => {
       await this.settleNavigation();
       await this.settleSessionSwitch();
+      await this.settleRecall();
       await this.settleHistoryExport();
       await this.lifecycle.restore();
     })();
@@ -1521,6 +1638,7 @@ export class TuiController {
     await this.settleActive();
     await this.settleNavigation();
     await this.settleSessionSwitch();
+    await this.settleRecall();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
@@ -1562,6 +1680,7 @@ export class TuiController {
     await this.settleActive();
     await this.settleNavigation();
     await this.settleSessionSwitch();
+    await this.settleRecall();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       this.shutdownPromise = this.lifecycle.restore();
@@ -1578,6 +1697,13 @@ export class TuiController {
     if (operation === null) return;
     await Promise.allSettled([operation]);
     if (this.sessionSwitchOperation === operation) this.sessionSwitchOperation = null;
+  }
+
+  private async settleRecall(): Promise<void> {
+    const operation = this.recallOperation;
+    if (operation === null) return;
+    await Promise.allSettled([operation]);
+    if (this.recallOperation === operation) this.recallOperation = null;
   }
 
   private async settleHistoryExport(): Promise<void> {

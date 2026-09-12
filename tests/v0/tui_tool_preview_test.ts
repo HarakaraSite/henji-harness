@@ -1,5 +1,10 @@
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
-import { renameTitleOf, slashCommandCandidates, slashCommandOf } from '../../v0/tui/controller.ts';
+import {
+  recallExecutionIdOf,
+  renameTitleOf,
+  slashCommandCandidates,
+  slashCommandOf,
+} from '../../v0/tui/controller.ts';
 import { toolCallText } from '../../v0/tui/terminal_text.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -260,6 +265,8 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('/effort'), 'effort');
   assertEquals(slashCommandOf('/history export'), 'history_export');
   assertEquals(slashCommandOf('/recover'), 'recover');
+  assertEquals(slashCommandOf('/recall'), 'recall');
+  assertEquals(slashCommandOf('/recall aaaaaaaa'), 'recall');
   assertEquals(slashCommandOf('/exit'), 'exit');
   assertEquals(slashCommandOf('  /sessions  '), 'sessions');
   assertEquals(slashCommandOf('read foo.ts'), null);
@@ -274,6 +281,14 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(renameTitleOf('/rename Project\nnotes'), 'Project notes');
   assertEquals(renameTitleOf('/rename'), '');
   assertEquals(renameTitleOf('/sessions'), null);
+  assertEquals(recallExecutionIdOf('/recall'), undefined);
+  assertEquals(
+    recallExecutionIdOf('/recall AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA'),
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  );
+  assertEquals(recallExecutionIdOf('/recall aaaaaaaa'), 'aaaaaaaa');
+  assertEquals(recallExecutionIdOf('/recall short'), null);
+  assertEquals(recallExecutionIdOf('/recall aaaaaaaa extra'), null);
 });
 
 Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () => {
@@ -287,11 +302,12 @@ Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () 
     '/effort',
     '/history export',
     '/recover',
+    '/recall',
     '/exit',
   ]);
   assertEquals(slashCommandCandidates('/h'), ['/help', '/history export']);
   assertEquals(slashCommandCandidates('/n'), ['/new']);
-  assertEquals(slashCommandCandidates('/r'), ['/rename', '/recover']);
+  assertEquals(slashCommandCandidates('/r'), ['/rename', '/recover', '/recall']);
   assertEquals(slashCommandCandidates('/history'), ['/history export']);
   assertEquals(slashCommandCandidates('/history export'), ['/history export']);
   assertEquals(slashCommandCandidates('/unknown'), []);

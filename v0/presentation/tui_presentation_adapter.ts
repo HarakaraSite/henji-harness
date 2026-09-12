@@ -32,6 +32,18 @@ import {
   type ReasoningEffort,
   selectModelFor,
 } from '../agent/provider/model_catalog.ts';
+
+const recallRejectionReason = (
+  error: unknown,
+): Extract<PresentationIntentResult, { readonly kind: 'rejected' }>['reason'] => {
+  if (typeof error !== 'object' || error === null) return 'failed';
+  const value = error as { readonly name?: unknown; readonly code?: unknown };
+  if (value.name !== 'WorkerRecallSelectionError') return 'failed';
+  return value.code === 'unavailable' || value.code === 'busy' || value.code === 'not_found' ||
+      value.code === 'ambiguous'
+    ? value.code
+    : 'failed';
+};
 import {
   assistantMessage,
   bounded,
@@ -444,6 +456,21 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         return this.dispatchNewSession();
       case 'resume_session':
         return this.dispatchResume(admitted.id);
+      case 'recall_execution':
+        if (
+          this.coreNavigation?.persistent !== true || this.core.prepareRecall === undefined
+        ) return { kind: 'rejected', reason: 'unavailable' };
+        return this.core.prepareRecall(admitted.id).then((selected) => ({
+          kind: 'recall' as const,
+          sourceExecutionId: selected.sourceExecutionId,
+          evidence: selected.evidence,
+        }), (error: unknown) => ({
+          kind: 'rejected' as const,
+          reason: recallRejectionReason(error),
+        }));
+      case 'clear_recall':
+        this.core.clearPendingRecall?.();
+        return { kind: 'accepted' };
       case 'select_provider': {
         const current = this.core.modelSelectionSnapshot?.();
         const selection = current?.provider === admitted.provider

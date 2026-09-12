@@ -1,6 +1,7 @@
 import type { AgentEvent, AgentEventSink } from '../core/events.ts';
 import { type LoopOutcome, type Message } from '../core/contracts.ts';
 import { projectSemanticContext } from '../session/semantic_context.ts';
+import { indexSessionHistory } from '../session/session_history.ts';
 import { type SemanticContextCheckpointV1 } from '../session/session_store.ts';
 import { runAgentTurn } from '../core/loop.ts';
 import { ParentTurnExecutionContext, TurnRequestBudget } from '../core/execution_context.ts';
@@ -31,6 +32,10 @@ import type {
   WorkerCorrelation,
   WorkerEffectObservation,
 } from './worker_protocol.ts';
+import {
+  projectRecalledExecutionContext,
+  type RecalledExecutionContextV1,
+} from './recalled_execution_context.ts';
 
 export interface WorkerGenerationPort {
   readonly runtimeEvent: (
@@ -183,7 +188,11 @@ export class WorkerGeneration {
     return this.activeSteering.admit(validateSteeringText(text));
   }
 
-  async runTurn(correlation: WorkerCorrelation, task: string): Promise<void> {
+  async runTurn(
+    correlation: WorkerCorrelation,
+    task: string,
+    recalledContext?: RecalledExecutionContextV1,
+  ): Promise<void> {
     if (this.active) {
       this.port.turnFailed(
         correlation,
@@ -282,6 +291,24 @@ export class WorkerGeneration {
           this.port.runtimeEvent(correlation, event);
         }
       };
+      const projectParentRequest = this.checkpoint === undefined && recalledContext === undefined
+        ? undefined
+        : (request: import('../core/contracts.ts').ModelRequest) => {
+          let projected = request;
+          let currentUserMessageIndex = this.committedTranscript.length;
+          if (this.checkpoint !== undefined) {
+            const indexed = indexSessionHistory(this.committedTranscript);
+            const coveredEnd = indexed?.turns[this.checkpoint.coveredThroughTurn - 1]?.end;
+            if (coveredEnd === undefined) throw new Error('checkpoint boundary is invalid');
+            projected = projectSemanticContext(projected, this.checkpoint);
+            currentUserMessageIndex = 1 + this.committedTranscript.length - coveredEnd;
+          }
+          return recalledContext === undefined ? projected : projectRecalledExecutionContext(
+            projected,
+            recalledContext,
+            currentUserMessageIndex,
+          );
+        };
       const outcome = await runAgentTurn(
         task,
         this.committedTranscript,
@@ -296,9 +323,7 @@ export class WorkerGeneration {
           cancellation,
           signal: cancellation.signal,
           steering,
-          projectParentRequest: this.checkpoint === undefined
-            ? undefined
-            : (request) => projectSemanticContext(request, this.checkpoint!),
+          projectParentRequest,
           commit: (transcript) => {
             proposal = {
               kind: 'commit_proposal',

@@ -6,14 +6,39 @@
 
 位置付け修正日: 2026-09-06
 
+履歴と改訂適用の構想更新日: 2026-09-12
+
 ## 構想
 
 Henjiは、使う中で得た経験から、指示、skill、実行方法を含むHenji自身の機能を継続的に改訂できる
 agent harnessを目指す。
 
+Henjiは同時に、正常に成立した会話だけを正本へ原子的に採用しながら、cancel、failure、途中のtool
+result等も後から振り返れる材料として失わないagent harnessを目指す。このアトミックな履歴は、
+自己改訂の根拠となる経験を保つ基盤であるとともに、通常利用の信頼性、診断、履歴参照において
+独立したproduct価値を持つ。
+
 この発想の具体例は、外部CodexがVMのhandoff skillを見直し、その新しい形式へrepositoryのhandoffを
 移行した経験である。ここで重要なのは、その作業自体をHenjiの自己改訂とみなすことではない。実際の
 利用で得た知見を、次のHenjiの機能へ反映し続けられることを将来の性質として捉えた点にある。
+
+目指す関係は、履歴の正本を壊さずに、自分を改訂できるagentである。
+
+## アトミックな履歴
+
+Henjiが保持する履歴全体は、会話として採用されたturnだけではない。Hostが観測できた成功、cancel、failure、
+途中のassistant出力、tool call/result、終了状態と、それらを解釈するためのAgent側の状態をdurable historyとして
+残す。そのうち、Hostが正常完了と会話への採用を確定したturnだけをcanonical conversationとして以後の通常会話へ
+引き継ぐ。ここでいう正常完了は、回答内容の正しさや利用者の満足を意味しない。
+
+人間はcanonicalとnon-canonicalの双方を履歴として参照できる必要がある。AIが過去executionから既定で引き継ぐ
+会話履歴はcanonical conversationに限定するが、現在execution内で得たtool result等や、人間が明示的に選んだ
+過去の材料は、その目的に応じてmodel contextへ投影できる。
+
+履歴は過去の実行を完全に再現するためのsnapshotではない。過去にHenjiが観測できた内容と、その判断に関与した
+instruction、skill、Agent Definition、tool contract、供給・観測した環境情報等を振り返り、次の改訂を考えるための
+材料である。過去Worker、model内部状態、OS、filesystem、外部service、toolの副作用を再現することはこの構想の
+目的に含めない。
 
 ## 自由度の意味
 
@@ -53,6 +78,11 @@ Surfaceの使いやすさは、機械testやhelpの記載だけでは確定し�
 読み、意味を考え、自身の変更候補を作る。採用された変更はその後の通常利用に現れ、そこで観測された変化が
 また新しい経験になる。
 
+経験を解釈するには、会話とtool activityだけでなく、そのexecutionがどのAgent側の状態と会話状態を使ったかを
+相関できる必要がある。改訂後は、人間の明示操作によって新しい実効状態を後続executionへ適用し、過去のturnと
+その来歴は書き換えない。改訂候補の生成、候補の採用、現在resourceからの実効状態の再構築をどの操作へ分けるかは、
+対象resourceのarchitectureとroadmapで決める。
+
 これは、人間が経験から学び、考え方や行動を変え、その後の経験からまた学ぶような変化の観測モデルである。
 変更前後を統制された条件で比較すること、改善を定量的に測定すること、変化の原因を一つの構成差分へ帰属
 させることを前提にしない。この関係は自己改訂の性質を説明するものであり、固定された実施手順を定めない。
@@ -89,7 +119,9 @@ variantを増やすこと自体は目的ではなく、Definitionを読み込め
 
 現在のHenjiは、この構想を実装・実証するための機能が十分ではない。自己改訂はactiveな次工程ではなく、
 着手時期、前提機能、実装順序、経験の具体的な残し方と読み方、人間のアクション、指示、承認を受け取る
-具体的なinterfaceとHuman Gateは未決定である。
+具体的なinterfaceとHuman Gateは未決定である。人間がcanonical/non-canonical双方を辿るhistory view、executionと
+Agent状態のattribution、改訂されたresourceから実効状態を再構築する`/rebuild`相当の操作も、具体的な保存方式、
+対象resource、実装順序をまだ決めていない。
 
 現在のroadmapは、現行のproduct機能と利用者に不足している通常機能から組み立てる。この構想は、将来の
 自己改訂を不必要に妨げる固定化を避けるための方向を示すが、直近の機能優先順位を決定しない。
