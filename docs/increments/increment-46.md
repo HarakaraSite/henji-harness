@@ -44,8 +44,9 @@
   通常幅・compact両方のヘッダへ`Henji Harness v0.1.2`と表示する。
 - Increment 32 suite全7件とTUI retained terminal suite全32件が成功した。`v0:check`、`v0:fmt`、`v0:lint`、
   `git diff --check`も成功した。version更新、release、full `v0:gate`は実行していない。
-- 利用者の別途明示指示により、Increment 45〜48の未commit runtime差分を含むdevelopment binaryを
-  `dist/henji`と`/home/masat.guest/.local/bin/henji`へ配置した。version `0.1.2`、build ID
-  `a86f640ec6f0dd50b98dcb4e4448c8b7a3c3b39ee5c4bbe4912953dde536a93a`、`sourceDirty: true`をreadbackし、
-  両配置先のartifact SHA-256 `1c5a4a5a4c48e1fa46f5c4887290973202236a5cc8ff83976691280b252d97b6`が一致した。
-- 配置後、利用者がinstalled binaryを確認し、OKと判断した。
+- 利用者の別途明示指示により、Increment 45〜48を含むbinaryを`dist/henji`と
+  `/home/masat.guest/.local/bin/henji`へ配置した。commit前の同一runtimeを含む配置後動作を利用者が確認し、
+  OKと判断した。実装commit後にattributionを揃えて再build・再配置し、version `0.1.2`、source revision
+  `229e40ee79e448f6895a6480a69aaf607ea756fd`、`sourceDirty: false`、build ID
+  `9bf545653b420811ceabdcd02e2c95bf3fea2569605b94e47659b97cfc86e7f3`をreadbackした。両配置先のartifact
+  SHA-256 `1e5c87759b20981cd966682d689fefb637bb71d618d76dd55321a1ef8b8af71f`も一致した。
