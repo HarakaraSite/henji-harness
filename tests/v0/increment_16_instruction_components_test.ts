@@ -1,6 +1,10 @@
 import type { Model, ModelRequest } from '../../v0/agent/core/contracts.ts';
 import { emptySkillCatalog, type SkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { resolveBuiltinInstructionComposition } from '../../v0/agent/instructions/compose.ts';
+import {
+  finalizeWorkerInstructionComposition,
+  finalSystemInstructionForContribution,
+} from '../../v0/agent/instructions/worker_core_finalizer.ts';
 import { DEFAULT_ROLE_INSTRUCTION } from '../../v0/agent/instructions/roles/default.ts';
 import { PLANNER_AGENT_INSTRUCTION } from '../../v0/agent/instructions/roles/planner.ts';
 import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
@@ -48,7 +52,7 @@ const noSkillFileSystem = {
   open: () => Promise.reject(new Deno.errors.NotFound()),
 };
 
-Deno.test('Increment 16 composes named instruction components in the canonical order', () => {
+Deno.test('Increment 16 composes the Definition contribution in the canonical order', () => {
   const composition = resolveBuiltinInstructionComposition({
     role: 'default',
     workspaceRoot: '/work/increment-16',
@@ -57,7 +61,6 @@ Deno.test('Increment 16 composes named instruction components in the canonical o
     skillManifest: 'SKILL MANIFEST',
   });
   assertEquals(composition.components.map((component) => String(component.identity)), [
-    'instruction:builtin-henji-common',
     'instruction:builtin-default-role',
     'instruction:active-tool-guidelines',
     'instruction:workspace-agents',
@@ -74,6 +77,7 @@ Deno.test('Increment 16 composes named instruction components in the canonical o
   ].map((text) => composition.systemInstruction.indexOf(text));
   assert(positions.every((position) => position >= 0));
   assert(positions.every((position, index) => index === 0 || positions[index - 1] < position));
+  const finalizedInstruction = finalSystemInstructionForContribution(composition.systemInstruction);
   for (
     const sourceGroundedBehavior of [
       'read the designated current sources directly',
@@ -94,7 +98,7 @@ Deno.test('Increment 16 composes named instruction components in the canonical o
       'do not display credential values',
     ]
   ) {
-    assert(composition.systemInstruction.includes(sourceGroundedBehavior));
+    assert(finalizedInstruction.includes(sourceGroundedBehavior));
   }
   for (const staleFact of ['provider:openai', 'model:gpt', 'effort:high', 'session:', '2026-']) {
     assert(!composition.systemInstruction.includes(staleFact));
@@ -121,8 +125,8 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
       webSearchBackend: providerFreeWebSearchBackend,
     },
   };
-  const root = createDefaultAgentComposition(input);
-  const planner = createPlannerAgentComposition(input);
+  const root = finalizeWorkerInstructionComposition(createDefaultAgentComposition(input));
+  const planner = finalizeWorkerInstructionComposition(createPlannerAgentComposition(input));
 
   assert(root.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
   assert(!root.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
@@ -154,7 +158,7 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
   }
 
   for (const manifest of [root.manifest, planner.manifest]) {
-    assert(manifest.resources.includes('instruction:builtin-henji-common'));
+    assert(manifest.resources.includes('instruction:henji-base'));
     assert(manifest.resources.includes('instruction:active-tool-guidelines'));
     assert(manifest.resources.includes('instruction:workspace-agents'));
     assert(manifest.resources.includes('instruction:project-skill-manifest'));
@@ -168,14 +172,16 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
 
 Deno.test('Increment 16 gives Worker and direct built-in runtimes the same resolved instruction', async () => {
   const workspace = { root: '/work/increment-16-parity' };
-  const worker = createDefaultAgentComposition({
-    workspace,
-    skillCatalog: emptySkillCatalog(),
-    physicalIo: {
-      createModel: finalModel,
-      webSearchBackend: providerFreeWebSearchBackend,
-    },
-  });
+  const worker = finalizeWorkerInstructionComposition(
+    createDefaultAgentComposition({
+      workspace,
+      skillCatalog: emptySkillCatalog(),
+      physicalIo: {
+        createModel: finalModel,
+        webSearchBackend: providerFreeWebSearchBackend,
+      },
+    }),
+  );
   const direct = await createRuntimeComposition({
     workspace,
     instructionFileSystem: noInstructionFileSystem,
@@ -208,11 +214,13 @@ const openAICompletedStream = (text: string): string => {
 };
 
 Deno.test('Increment 16 maps one semantic instruction to both provider wire contracts', async () => {
-  const resolved = resolveBuiltinInstructionComposition({
-    role: 'default',
-    workspaceRoot: '/work/provider-wire',
-    toolGuidelines: [{ tool: 'read', text: 'Read files.' }],
-  }).systemInstruction;
+  const resolved = finalSystemInstructionForContribution(
+    resolveBuiltinInstructionComposition({
+      role: 'default',
+      workspaceRoot: '/work/provider-wire',
+      toolGuidelines: [{ tool: 'read', text: 'Read files.' }],
+    }).systemInstruction,
+  );
   const request: ModelRequest = {
     systemInstruction: resolved,
     transcript: [{ role: 'user', content: { kind: 'text', text: 'Hello.' } }],

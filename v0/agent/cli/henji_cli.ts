@@ -3,6 +3,7 @@ import { main as runMain } from './runtime_cli.ts';
 import { main as sessionsMain } from './session_cli.ts';
 import { main as diagnosticsMain } from './failure_diagnostic_cli.ts';
 import { main as moduleMain } from './module_cli.ts';
+import { main as instructionMain } from './instruction_cli.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
@@ -68,6 +69,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   if (args[0] === 'run') return await runMain(args.slice(1));
   if (args[0] === 'sessions') return await sessionsMain(args.slice(1));
   if (args[0] === 'module') return await moduleMain(args.slice(1));
+  if (args[0] === 'instruction') return await instructionMain(args.slice(1));
   if (args[0] === 'diagnostics') {
     if (args.length === 2 && args[1] === 'runtime') return await runtimeDiagnostics();
     return await diagnosticsMain(args.slice(1));

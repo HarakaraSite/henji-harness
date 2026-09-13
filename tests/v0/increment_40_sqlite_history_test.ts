@@ -132,6 +132,14 @@ class ScriptedCapsule implements WorkerHostCapsule {
           resources: [],
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
           plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          ...(command.baseInstruction === undefined ? {} : {
+            baseInstruction: {
+              slot: command.baseInstruction.slot,
+              selectionSource: command.baseInstruction.selectionSource,
+              ref: command.baseInstruction.ref,
+              contentDigest: command.baseInstruction.contentDigest,
+            },
+          }),
         },
         startupSnapshot: { skillNames: [] },
         credentialAvailability: {
@@ -414,6 +422,8 @@ Deno.test('Increment 40 production composition creates and reopens a persistent 
     created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
+      dataRoot: `${root}/data`,
+      configRoot: `${root}/config`,
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'production',
@@ -427,6 +437,8 @@ Deno.test('Increment 40 production composition creates and reopens a persistent 
     reopened = await createWorkerSession({
       workspaceRoot,
       stateRoot,
+      dataRoot: `${root}/data`,
+      configRoot: `${root}/config`,
       persistence: 'session',
       sessionId,
       physicalIoMode: 'production',
@@ -726,6 +738,8 @@ Deno.test('Increment 40 persists no-session execution without a canonical Sessio
     created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
+      dataRoot: `${root}/data`,
+      configRoot: `${root}/config`,
       persistence: 'none',
       agent: 'default',
       physicalIoMode: 'production',

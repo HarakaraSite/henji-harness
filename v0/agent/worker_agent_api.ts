@@ -26,6 +26,8 @@ import {
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
 import type { InstructionComponent } from './instructions/component.ts';
+import { finalSystemInstructionForContribution } from './instructions/worker_core_finalizer.ts';
+import type { HenjiInstructionRevisionRef } from './definitions/managed_resource_ref.ts';
 import {
   type ModelSelection,
   PLANNER_DEFAULT_MODEL_SELECTION,
@@ -83,6 +85,12 @@ export interface WorkerAgentManifest {
   readonly resources: readonly string[];
   readonly rootModel: ModelSelection;
   readonly plannerModel: ModelSelection;
+  readonly baseInstruction?: {
+    readonly slot: 'instruction:henji-base';
+    readonly selectionSource: 'built-in' | 'external';
+    readonly ref: HenjiInstructionRevisionRef;
+    readonly contentDigest: string;
+  };
 }
 
 export interface WorkerAgentComposition {
@@ -233,10 +241,8 @@ async (task: string, childContext: ChildTurnExecutionContext): Promise<{
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
   });
-  const systemInstruction = compositionInstruction(
-    'planner',
-    input,
-    plannerRegistry,
+  const systemInstruction = finalSystemInstructionForContribution(
+    compositionInstruction('planner', input, plannerRegistry),
   );
   const outcome = await runAgent(
     task,

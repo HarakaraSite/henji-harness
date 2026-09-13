@@ -29,6 +29,10 @@
   modelにはしない。共通層はresource kindに依存しないlogical identity、exact dependency binding、local custody、
   activation前のgraph resolution、execution evidenceへのattributionだけを定める。kind固有のcontent contract、
   discovery、execution placement、lifecycle、mutable instance stateは、そのkindを採用するincrementで決める。
+- Henji InstructionはDefinition以外で最初に実装するmanaged resource kindである。初期kind
+  `henji-instruction`は一つのsemantic slot `instruction:henji-base`だけを持ち、現binaryが所有するbuilt-in
+  revisionか、人間がinstallation/user scopeでactivateしたexternal exact revisionのどちらか一つを、次の
+  Worker generationの共通base instructionとして選ぶ。native `AGENTS.md`とSkillを置換しない。
 - 各 Worker generation の起動前に、選択された Definition code/source revision を参照する
   immutable な `DefinitionRevisionRef` を確定する。外部Definitionではentry fileだけでなく、許可された
   import contractに従う実行可能なlocal module closureまたは同等の自己完結bundleを一つのrevisionとして
@@ -71,6 +75,7 @@
 | `AgentDefinition` | 信頼された実行可能な TypeScript 合成関数。Host が所有する UI や session object ではなく、agent をどのように組み立てるかを記述する。 | 1 つの Definition revision。Worker generation 内で評価される。 |
 | `ManagedResourceRef` | resource kind、logical resource ID、contentで固定したrevision digestからなるmachine/path非依存のexact ref。 | immutable revisionを識別し、Sessionやevidenceからreadbackできる。 |
 | `DefinitionRevisionRef` | `resourceKind = agent-definition`である`ManagedResourceRef`のkind固有specialization。別のidentity authorityではなく、built-in/external Definitionを同じlogical IDとexact revisionで表す。 | Session、Instance binding、evidenceへ永続化する。physical module specifierやstore pathを含めない。 |
+| `HenjiInstructionRevision` | `resourceKind = henji-instruction`、`slot = instruction:henji-base`であるdata-only instruction contentとmanifest。built-in/externalのexact ref、content digest、byte-equivalent textを持つ。 | built-inはbinary、externalはHost-owned managed storeにある。選択結果はWorker generationとexecution attributionへ固定する。 |
 | `ManagedResourceManifest` | resource contract、content identity、`ResourceSlotIdentity`からexact `ManagedResourceRef`へのdependency bindingを記録するportable authority。評価後の`AgentManifest`とは異なる。 | managed revision artifactの一部。local store pathやactive bindingを含めない。 |
 | `ResourceSlotIdentity` | dependency元resourceのcontract内でresourceが果たすsemanticな役割を表すkind非依存のlocal key。dependencyの競合keyはconsumerのexact refとこのkeyの組である。`AgentResourceIdentity`はAgent composition内で使うkind固有表現である。 | exact refそのものではなく、一つのconsumer manifest内で一つのbindingへ対応する。activation全体の共有slotとは別namespaceである。 |
 | `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
@@ -135,6 +140,9 @@ version migrationは未設計である。
   context attribution、明示projectionとcontext transitionを相関して保存・readbackするmechanism。
 - Agent Definition sourceの取込、実行可能なmodule closureの固定、immutable revisionの保存、selectorから
   `DefinitionRevisionRef`への解決、revision metadataとsource lineageのreadback。
+- Henji Instruction packageのinstall、immutable revisionとcustodyの保存、installation/user scopeのactive
+  binding、Worker generation開始前のbuilt-in/external exact revision解決。active external refがmissing、corrupt、
+  incompatibleならbuilt-inへ暗黙fallbackせず、Worker開始前に失敗させる。
 - managed resourceのlogical ref、identity manifest、origin lineage、installation固有のlocal custody metadataの
   分離。activation authorityが選んだroot resource setからexact dependency graphを解決し、そのgraphを使う
   Worker、Host、subprocess、client等のgenerationがactiveになる前に固定する。
@@ -152,6 +160,10 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - Hostが確定した基底設定、canonical conversation、明示projection、現在execution内のtool result等から、
   各model requestへ渡す実効contextを構成する意味。
+- HostがDefinition評価結果とは独立して渡したselected `instruction:henji-base`を、mandatory finalizerで
+  Definition-owned instruction contributionの先頭へ一度だけ合成する。rootとdelegated plannerは同じselected
+  exact revisionとfinalizerを使い、Definitionがcore-owned base slotをnamed componentとして返した場合は実行前に
+  composition failureとする。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
 
 ### 配布artifactとmanaged resource
@@ -226,7 +238,25 @@ managed revisionのinstallまたはactivationではない。
 managed Skill revisionはnative Skillの代替ではなく、exact pin、transport、Definitionからのbindingが必要な場合の
 追加authorityである。Henji独自のInstruction revisionも、workspace `AGENTS.md`、native Skill、managed Skillとは
 別resource kindにする。最終的に同じprovider instructionへ合成されても、identity、selection authority、合成順、
-provenanceを失わない。native版とmanaged版のpriorityや重複解決は、そのresource kindを実装するincrementで決める。
+provenanceを失わない。
+
+最初のHenji Instruction kindは、Henji共通baseだけを表す`henji-instruction-v1`である。authoring packageは
+`henji-resource.json`と一つのUTF-8 `instruction.md`からなり、manifest metadataとinstruction exact bytesをcanonical
+revision digestへ含める。instruction contentはvalidation後もtrim、改行変換、Unicode normalizationを行わず、managed
+revisionとmodel向けcomponentへbyte-equivalentに投影する。source pathとinstall日時、XDG rootはportable revisionでは
+なくorigin lineageとlocal custodyが所有する。
+
+installはexternal revisionをXDG data rootへatomicにpublishするだけでactive selectionを変えない。activateはstoreに
+存在し検証できる一つのexact refをXDG configのinstallation/user scope bindingへatomicに保存し、deactivateはbindingを
+外してbuilt-in selectionへ戻す。どちらもactive Worker generationをhot replacementせず、次のgenerationから適用する。
+managed revisionはdeactivate後もcustodyに残る。workspace scope、transport、remove、`/rebuild`はこの初期kindに含めない。
+
+Hostはgeneration開始前にselected built-in/external baseのexact ref、content digest、exact bytesとbyte-equivalent textを
+解決し、Definition評価結果とは独立したdata-only Worker-core入力へ固定する。Definitionはrole、active tool guideline、
+workspace instruction、Skill manifest、runtime facts等のbaseを除くinstruction contributionを返す。Workerのmandatory
+finalizerはselected baseを先頭に置き、Henji-ownedな二つのLFだけをcomponent境界として後続contributionへ連結する。
+delegated plannerも同じselected baseを再解決せず使う。resolved exact ref/content、final system instruction内のprojection、
+provider requestとの関係はexecution context attributionへ保存し、完成payloadの別authorityを追加しない。
 
 #### MCP integration
 
@@ -418,6 +448,11 @@ resource、modelへ渡した内容を同じ事実として扱わない。
 skill、Henjiが所有または観測できるsystem instruction、Agent Definition、modelへ提示したtool contract、modelへ
 供給したruntime facts、toolで観測した環境情報である。現在のmutable fileへのpathだけでは当時の内容を振り返れない
 resourceは、Henjiが観測した内容または同等のattributionをevidenceへ残す。
+
+`instruction:henji-base`では、実行時にselectedだったbuilt-in/external exact ref、slot、selection source、content digest、
+exact contentを記録し、同じexecutionのfinal system instructionと各provider requestへ投影されたbyte rangeを相関する。
+authoring source、managed custody、active binding、execution attributionは別authorityであり、現在のbinding変更で過去の
+attributionを書き換えない。
 
 このattributionは完全再現性を目的にしない。過去Worker、model内部状態、dependency、binary、OS、filesystem、
 外部service、tool effectをsnapshotまたは再構築する保証にはしない。

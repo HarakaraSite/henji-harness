@@ -31,6 +31,10 @@ import {
 } from '../history/human_history_export.ts';
 import type { ProviderId } from '../provider/model_selection.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
+import {
+  HenjiInstructionError,
+  henjiInstructionErrorValue,
+} from '../instructions/managed_instruction.ts';
 
 const encoder = new TextEncoder();
 
@@ -71,6 +75,8 @@ export interface TuiCliDependencies {
   readonly stateRoot?: string;
   /** Direct-test-only data-root seam; production selects XDG_DATA_HOME/HOME. */
   readonly dataRoot?: string;
+  /** Direct-test-only config-root seam; production selects XDG_CONFIG_HOME/HOME. */
+  readonly configRoot?: string;
   /** Direct-test-only workspace seam; production selects the current working directory. */
   readonly workspaceRoot?: string;
   readonly writeStderr?: (text: string) => void | PromiseLike<void>;
@@ -221,6 +227,9 @@ const failureLine = (code: keyof typeof fatalMessages): string =>
 const definitionFailureLine = (error: DefinitionStartupError): string =>
   JSON.stringify({ ok: false, error: definitionStartupErrorValue(error) }) + '\n';
 
+const instructionFailureLine = (error: HenjiInstructionError): string =>
+  JSON.stringify({ ok: false, error: henjiInstructionErrorValue(error) }) + '\n';
+
 type CrashGuard = {
   readonly close: () => void;
   readonly hasFatal: () => boolean;
@@ -307,6 +316,7 @@ export const main = async (
           sessionId: invocation.sessionId,
           selection: selected,
           dataRoot: dependencies.dataRoot,
+          configRoot: dependencies.configRoot,
           physicalIoMode: 'production',
           rootMaxSteps: invocation.rootMaxSteps,
           providerTimeoutMs: invocation.providerTimeoutMs,
@@ -431,6 +441,11 @@ export const main = async (
   } catch (error) {
     if (error instanceof DefinitionStartupError) {
       await stderr(definitionFailureLine(error));
+      resultCode = 1;
+      return resultCode;
+    }
+    if (error instanceof HenjiInstructionError) {
+      await stderr(instructionFailureLine(error));
       resultCode = 1;
       return resultCode;
     }

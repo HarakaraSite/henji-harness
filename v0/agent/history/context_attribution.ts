@@ -349,8 +349,9 @@ export const validateWorkerContextSnapshot = (value: unknown): value is WorkerCo
   return hasSnapshotKeys(facts, ['cwd']) && validText(facts.cwd, false) &&
     (snapshot.systemInstruction === undefined || validText(snapshot.systemInstruction)) &&
     snapshot.instructionComponents.every((component) =>
-      hasSnapshotKeys(component, ['identity', 'text']) &&
-      validText(component.identity, false) && validText(component.text, false)
+      hasSnapshotKeys(component, ['identity', 'text'], ['sourceLocator']) &&
+      validText(component.identity, false) && validText(component.text, false) &&
+      (component.sourceLocator === undefined || validText(component.sourceLocator, false))
     ) &&
     snapshot.toolDefinitions.every((tool) =>
       hasSnapshotKeys(tool, ['name', 'description', 'inputSchema']) &&

@@ -82,6 +82,8 @@ import {
   type ExecutionContextManifestV1,
   validateWorkerContextSnapshot,
 } from '../history/context_attribution.ts';
+import { isHenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
@@ -104,6 +106,20 @@ const validStartupSnapshot = (
   return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
     new Set(value.skillNames).size === value.skillNames.length &&
     (value.context === undefined || validateWorkerContextSnapshot(value.context));
+};
+const validBaseInstructionManifest = (
+  value:
+    | NonNullable<NonNullable<WorkerReadyMessage['manifest']>['baseInstruction']>
+    | undefined,
+  selected: SelectedHenjiBaseInstruction | undefined,
+): boolean => {
+  if (selected === undefined) {
+    return value === undefined || value.selectionSource === 'built-in';
+  }
+  if (value === undefined || typeof value !== 'object' || value === null) return false;
+  return value.slot === selected.slot && value.selectionSource === selected.selectionSource &&
+    value.contentDigest === selected.contentDigest && isHenjiInstructionRevisionRef(value.ref) &&
+    JSON.stringify(value.ref) === JSON.stringify(selected.ref);
 };
 
 export type WorkerHostStartupErrorCode =
@@ -1178,6 +1194,9 @@ export class WorkerHostSession {
           ? {}
           : { checkpoint: this.projection.checkpoint }),
         modelSelection: this.projection.modelSelection,
+        ...(this.options.baseInstruction === undefined
+          ? {}
+          : { baseInstruction: this.options.baseInstruction }),
       });
     } catch {
       this.markUnavailable();
@@ -1210,6 +1229,10 @@ export class WorkerHostSession {
           PLANNER_DEFAULT_MODEL_SELECTION,
         ) ||
         ready.manifest.profileId !== modelRouteProfileId(this.projection.modelSelection) ||
+        !validBaseInstructionManifest(
+          ready.manifest.baseInstruction,
+          this.options.baseInstruction,
+        ) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
         !validStartupSnapshot(ready.startupSnapshot) ||

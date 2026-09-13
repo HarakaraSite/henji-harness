@@ -7,7 +7,10 @@ import type {
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import { isStoredModelSelection } from '../provider/model_selection.ts';
-import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import {
+  isDefinitionRevisionRef,
+  isHenjiInstructionRevisionRef,
+} from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
@@ -209,14 +212,32 @@ const validManifest = (
     return false;
   }
   const manifest = value as Record<string, unknown>;
-  return ownKeys(manifest, [
+  const manifestKeys = [
     'role',
     'maxSteps',
     'profileId',
     'resources',
     'rootModel',
     'plannerModel',
-  ]) &&
+    ...(Object.hasOwn(manifest, 'baseInstruction') ? ['baseInstruction'] : []),
+  ];
+  const baseInstruction = manifest.baseInstruction;
+  const baseInstructionValid = baseInstruction === undefined ||
+    typeof baseInstruction === 'object' && baseInstruction !== null &&
+      !Array.isArray(baseInstruction) && ownKeys(baseInstruction as Record<string, unknown>, [
+        'slot',
+        'selectionSource',
+        'ref',
+        'contentDigest',
+      ]) && (baseInstruction as Record<string, unknown>).slot === 'instruction:henji-base' &&
+      ((baseInstruction as Record<string, unknown>).selectionSource === 'built-in' ||
+        (baseInstruction as Record<string, unknown>).selectionSource === 'external') &&
+      isHenjiInstructionRevisionRef((baseInstruction as Record<string, unknown>).ref) &&
+      typeof (baseInstruction as Record<string, unknown>).contentDigest === 'string' &&
+      /^sha256:[0-9a-f]{64}$/u.test(
+        (baseInstruction as Record<string, string>).contentDigest,
+      );
+  return ownKeys(manifest, manifestKeys) && baseInstructionValid &&
     (manifest.role === 'parent' || manifest.role === 'planner') &&
     Number.isSafeInteger(manifest.maxSteps) &&
     (manifest.maxSteps as number) > 0 &&

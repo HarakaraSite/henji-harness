@@ -15,12 +15,14 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
+| S6 | Surface | Session pickerのlocal timezone・1行表示 | Session一覧の時刻と情報密度を改善する小Incrementを選ぶ |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
+| A8 | Agent実行 | OpenRouter Responses API経路 | OpenRouterでもResponses固有機能または共通transportが必要になる |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -69,6 +71,14 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   比較候補にする。
 - 再検討条件: plain textでは意味・可読性を安定して保てない回答が観測されること。string出力contractを
   変える場合はF10/F24として構想・architectureへ戻る。
+
+### S6 — Session pickerのlocal timezone・1行表示（F01、F10）
+
+- 観測（2026-09-13）: 現行pickerは保存されたISO timestampの先頭を切り出して`Z`を付けるためUTC表示である。
+  また、更新時刻とtitleを1行目、Session ID・turn数・再開可否を2行目に表示し、各Sessionが2行を使う。
+- 利用者希望: 日付・時刻はHenjiを利用している環境のtimezoneに合わせ、title、Session ID、turn数、再開可否を
+  含めて各Sessionを1行で表示する。保存timestampの形式は変えず、pickerの表示時だけlocal timeへ変換する候補とする。
+- 再検討条件: 次の小さなSurface改善Incrementを選ぶとき。
 
 ## Agent実行
 
@@ -147,6 +157,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   durable child lifecycle、LangGraphのfuture/checkpointを補助参照にできる。調査結果だけではarchitecture・
   roadmapへの採用を意味しない。詳細は
   [`async-parallel-subagent-reference-comparison.md`](../research/async-parallel-subagent-reference-comparison.md)。
+
+### A8 — OpenRouter Responses API経路（F02、F06、将来候補）
+
+- 観測（2026-09-13）: 現行HenjiはOpenAI directだけをResponses API adapterへ接続し、OpenRouterは
+  Chat Completions互換APIの独立adapterを使う。
+- 候補: OpenRouterでもResponses API経路を選べるようにする。現行OpenRouter経路の置換か併設か、Responses固有の
+  input/output item、tool continuation、reasoning state、stream event、evidence、model対応範囲をどう扱うかは、
+  採用時に最新のOpenRouter公式contractと実provider応答を確認して決める。
+- 再検討条件: OpenRouter経由でResponses固有機能を使う必要が出る、またはOpenAI directとOpenRouterで
+  Responses transportを共通化する具体的なproduct上の利点が得られること。
 
 ## F24・自己改訂
 

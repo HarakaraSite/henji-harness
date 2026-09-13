@@ -162,6 +162,14 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
             plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+            ...(command.baseInstruction === undefined ? {} : {
+              baseInstruction: {
+                slot: command.baseInstruction.slot,
+                selectionSource: command.baseInstruction.selectionSource,
+                ref: command.baseInstruction.ref,
+                contentDigest: command.baseInstruction.contentDigest,
+              },
+            }),
           },
           startupSnapshot: { skillNames: [] },
           credentialAvailability: {

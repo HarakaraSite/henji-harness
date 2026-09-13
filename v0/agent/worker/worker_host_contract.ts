@@ -14,6 +14,7 @@ import type {
 } from './worker_protocol.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
+import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
 
 export interface WorkerHostSessionOptions {
   readonly handle: WorkerSessionHandle;
@@ -33,6 +34,7 @@ export interface WorkerHostSessionOptions {
   readonly durableCanonicalHistory?: boolean;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
   readonly initialModelSelection?: ModelSelection;
+  readonly baseInstruction?: SelectedHenjiBaseInstruction;
 }
 
 export interface WorkerHostCapsule {

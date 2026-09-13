@@ -520,9 +520,52 @@ export class WorkerGeneration {
         let itemOrdinal = 1;
         if (observation.request.systemInstruction !== undefined) {
           const blob = await textBlob(observation.request.systemInstruction);
-          const hasNamedInstructionComponents =
-            (this.startupSnapshot.context?.instructionComponents.length ?? 0) >
-              0;
+          const rootInstructionComponents = this.startupSnapshot.context?.instructionComponents ??
+            [];
+          const namedInstructionComponents = observation.lane !== 'child'
+            ? rootInstructionComponents
+            : (() => {
+              const base = rootInstructionComponents.find((component) =>
+                String(component.identity) === 'instruction:henji-base'
+              );
+              if (base === undefined) {
+                throw new Error('Worker planner Henji base attribution is unavailable');
+              }
+              const boundary = `${base.text}\n\n`;
+              if (!observation.request.systemInstruction!.startsWith(boundary)) {
+                throw new Error('Worker planner Henji base projection is incoherent');
+              }
+              const contribution = observation.request.systemInstruction!.slice(boundary.length);
+              return [
+                base,
+                {
+                  identity: 'instruction:definition-contribution',
+                  text: contribution,
+                  sourceLocator: 'worker-planner-composition',
+                },
+              ];
+            })();
+          const hasNamedInstructionComponents = namedInstructionComponents.length > 0;
+          let componentByteOffset = 0;
+          const componentRelations: ContextSourceRelation[] = [];
+          for (const [index, component] of namedInstructionComponents.entries()) {
+            const componentBlob = await textBlob(component.text);
+            const byteStart = componentByteOffset;
+            const byteEnd = byteStart + componentBlob.byteLength;
+            componentRelations.push({
+              stage: 'projected',
+              resourceKind: 'instruction_component',
+              logicalIdentity: String(component.identity),
+              sourceLocator: `${
+                component.sourceLocator ?? 'worker-composition'
+              }#bytes=${byteStart}-${byteEnd}`,
+              lane: observation.lane === 'child' ? 'planner' : 'parent',
+              modelStep: observation.modelStep,
+              requestOrdinal,
+              contentDigest: componentBlob.digest,
+            });
+            componentByteOffset = byteEnd + (index + 1 < namedInstructionComponents.length ? 2 : 0);
+          }
           items.push({
             ordinal: itemOrdinal++,
             kind: 'system',
@@ -533,14 +576,10 @@ export class WorkerGeneration {
             },
             bytesBase64: blob.bytes.toBase64(),
             relationOrdinals: [],
-            sourceRelations: [{
+            sourceRelations: hasNamedInstructionComponents ? componentRelations : [{
               stage: 'projected',
-              resourceKind: hasNamedInstructionComponents
-                ? 'instruction_component'
-                : 'definition_output',
-              logicalIdentity: hasNamedInstructionComponents
-                ? `composition:${correlation.session}:system`
-                : `definition-output:${correlation.session}`,
+              resourceKind: 'definition_output',
+              logicalIdentity: `definition-output:${correlation.session}`,
               lane: observation.lane === 'child' ? 'planner' : 'parent',
               modelStep: observation.modelStep,
               requestOrdinal,

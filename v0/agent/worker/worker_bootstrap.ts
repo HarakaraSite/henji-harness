@@ -29,6 +29,15 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
+import {
+  builtinHenjiBaseInstruction,
+  type SelectedHenjiBaseInstruction,
+  verifySelectedHenjiBaseInstruction,
+} from '../instructions/managed_instruction.ts';
+import {
+  finalizeWorkerInstructionComposition,
+  selectWorkerHenjiBaseInstruction,
+} from '../instructions/worker_core_finalizer.ts';
 import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
 
 type WorkerScope = {
@@ -269,6 +278,7 @@ const createGeneration = async (
   checkpoint?: import('../session/session_store.ts').SemanticContextCheckpointV1,
   initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
   rootRole: 'parent' | 'planner' = 'parent',
+  baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
     throw new Error('Worker Definition is unavailable');
@@ -296,6 +306,10 @@ const createGeneration = async (
       selection?: ModelSelection,
     ): Model => role === rootRole ? rootRouter : physicalIo.createModel('planner', selection),
   };
+  if (!await verifySelectedHenjiBaseInstruction(baseInstruction)) {
+    throw new Error('Worker Henji base instruction is invalid');
+  }
+  selectWorkerHenjiBaseInstruction(baseInstruction);
   const returnedComposition = module.definition({
     workspace,
     agentInstructions: instructionSnapshot?.formatted,
@@ -305,9 +319,11 @@ const createGeneration = async (
   if (returnedComposition === undefined || typeof returnedComposition !== 'object') {
     throw new Error('Worker Definition did not return a composition');
   }
-  const composition = finalizeRootAgentComposition(
-    returnedComposition,
-    rootMaxSteps,
+  const composition = finalizeWorkerInstructionComposition(
+    finalizeRootAgentComposition(
+      returnedComposition,
+      rootMaxSteps,
+    ),
   );
   const contextSnapshot: WorkerContextSnapshot = Object.freeze({
     schemaVersion: 1,
@@ -425,6 +441,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.checkpoint,
             command.modelSelection,
             command.rootRole,
+            command.baseInstruction,
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

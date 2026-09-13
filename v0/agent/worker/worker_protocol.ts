@@ -15,6 +15,8 @@ import type {
   ExecutionContextRelation,
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
+import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
+import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -78,6 +80,7 @@ export type WorkerHostCommand =
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
     readonly modelSelection?: ModelSelection;
+    readonly baseInstruction?: SelectedHenjiBaseInstruction;
   }
   | {
     readonly kind: 'select_model';
@@ -189,6 +192,12 @@ export interface WorkerReadyMessage {
     readonly resources: readonly string[];
     readonly rootModel: ModelSelection;
     readonly plannerModel: ModelSelection;
+    readonly baseInstruction?: {
+      readonly slot: 'instruction:henji-base';
+      readonly selectionSource: 'built-in' | 'external';
+      readonly ref: HenjiInstructionRevisionRef;
+      readonly contentDigest: string;
+    };
   };
   readonly startupSnapshot?: {
     readonly instructionSource?: AgentInstructionSource;

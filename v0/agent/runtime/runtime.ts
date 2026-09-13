@@ -70,6 +70,7 @@ import {
 } from './startup_orientation.ts';
 import { OpenRouterSonarWebSearchBackend, type WebSearchBackend } from '../tools/web_search.ts';
 import { resolveBuiltinDefinitionInstruction } from '../instructions/compose.ts';
+import { finalSystemInstructionForContribution } from '../instructions/worker_core_finalizer.ts';
 
 /** The direct evaluation runtime has one fixed finite model-request bound. */
 export const MAX_STEPS = DEFAULT_AGENT_MAX_STEPS;
@@ -375,13 +376,15 @@ export const materializePreparedRuntimeComposition = (
           prepared.skillCatalog,
           undefined,
         );
-        const childSystemInstruction = resolveBuiltinDefinitionInstruction(
-          'planner',
-          prepared.workspace.root,
-          prepared.agentInstructions,
-          prepared.skillCatalog,
-          childRegistry.promptGuidelines(),
-        ).systemInstruction;
+        const childSystemInstruction = finalSystemInstructionForContribution(
+          resolveBuiltinDefinitionInstruction(
+            'planner',
+            prepared.workspace.root,
+            prepared.agentInstructions,
+            prepared.skillCatalog,
+            childRegistry.promptGuidelines(),
+          ).systemInstruction,
+        );
         const outcome = await runAgentTurn(
           task,
           [],
@@ -429,7 +432,7 @@ export const materializePreparedRuntimeComposition = (
     prepared.skillCatalog,
     webSearchBackend,
   );
-  const systemInstruction = prepared.topology === 'builtin'
+  const systemInstructionContribution = prepared.topology === 'builtin'
     ? resolveBuiltinDefinitionInstruction(
       prepared.selectionId === 'planner' ? 'planner' : 'default',
       prepared.workspace.root,
@@ -438,6 +441,9 @@ export const materializePreparedRuntimeComposition = (
       registry.promptGuidelines(),
     ).systemInstruction
     : definition.systemInstruction;
+  const systemInstruction = finalSystemInstructionForContribution(
+    systemInstructionContribution,
+  );
   return {
     model,
     registry,

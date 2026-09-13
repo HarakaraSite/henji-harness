@@ -64,6 +64,7 @@ OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkey�
 - SQLiteへ保存するSession、会話履歴、失敗・中断を含む実行記録
 - `/new`、`/sessions`、`/history`、`/recall`などのTUI command
 - TypeScript Agent Definitionのinstall、versioned revision、export/import、実行
+- Henji base instructionのinstall、exact revisionのactivate/deactivate、実行時attribution
 - `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換Skillの読込み
 
 runtime配置は、credential値を表示しない`henji diagnostics runtime`で確認できる。既定ではconfigを
@@ -81,6 +82,41 @@ local TypeScript Agent Definitionは、実行前にmanaged dataへinstallする�
 ./dist/henji module list
 ./dist/henji --definition-revision team/answer-agent@sha256:<full-digest>
 ```
+
+## Henji Instruction
+
+Henji共通のbase instructionは、built-inの`instruction:henji-base`を既定で使う。外部packageは
+`henji-resource.json`と`instruction.md`を置いたdirectoryとして作成し、managed dataへinstallした
+exact revisionを明示的にactivateする。
+
+```json
+{
+  "schemaVersion": 1,
+  "resourceKind": "henji-instruction",
+  "resourceId": "example/henji-base",
+  "slot": "instruction:henji-base",
+  "apiContract": "henji-instruction-v1",
+  "format": "text/markdown",
+  "entry": "instruction.md",
+  "metadata": {
+    "title": "Example Henji base instruction",
+    "description": "Base working policy for this Henji installation"
+  }
+}
+```
+
+```sh
+./dist/henji instruction install ./henji-base
+./dist/henji instruction list
+./dist/henji instruction inspect --id example/henji-base --revision sha256:<full-digest>
+./dist/henji instruction activate --id example/henji-base --revision sha256:<full-digest>
+./dist/henji instruction active
+./dist/henji instruction deactivate
+```
+
+installはactive selectionを変更しない。activate/deactivateは次に作るWorker generationから反映され、
+既に動作中のgenerationや過去のSession履歴を書き換えない。external revisionが選択されているのにmanaged
+contentがmissingまたはinvalidなら、built-inへ暗黙fallbackせず起動前に失敗する。
 
 詳細な設計と実装状況は[構想](docs/concepts/experience-driven-self-revision.md)、
 [architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を参照する。

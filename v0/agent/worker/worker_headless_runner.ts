@@ -15,6 +15,8 @@ export interface HeadlessWorkerRun {
 export interface HeadlessWorkerRunOptions {
   readonly workspaceRoot?: string;
   readonly stateRoot?: string;
+  readonly dataRoot?: string;
+  readonly configRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
@@ -32,6 +34,8 @@ export const runHeadlessWorker = async (
   const created = await createWorkerSession({
     workspaceRoot: options.workspaceRoot,
     stateRoot: options.stateRoot,
+    dataRoot: options.dataRoot,
+    configRoot: options.configRoot,
     persistence: 'none',
     ...('kind' in selection ? { selection } : { agent: selection.id }),
     physicalIoMode: options.physicalIoMode ?? 'production',

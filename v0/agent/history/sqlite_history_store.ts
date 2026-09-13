@@ -1250,6 +1250,9 @@ export class SqliteHistoryStore
     for (const component of snapshot.instructionComponents) {
       await addText('resolved', 'instruction_component', component.text, {
         logicalIdentity: String(component.identity),
+        ...(component.sourceLocator === undefined
+          ? {}
+          : { sourceLocator: component.sourceLocator }),
       });
     }
     if (
@@ -2071,29 +2074,44 @@ export class SqliteHistoryStore
             source.contentDigest !== undefined &&
             source.contentDigest !== descriptor.digest
           ) {
-            // A loaded skill is linked to the exact returned skill body, rather than to the
-            // enclosing tool message.  The result is already present in this item; materialize
-            // and verify that content-addressed blob before writing the relation.
-            let sourceValue: unknown;
-            try {
-              sourceValue = JSON.parse(decoder.decode(bytes));
-            } catch {
-              throw new HistoryStoreError('history_invalid');
+            // Component relations identify an exact byte projection within the enclosing system
+            // instruction. Loaded skills identify an exact returned body within a tool message.
+            let resultBytes: Uint8Array;
+            if (
+              source.resourceKind === 'instruction_component' &&
+              typeof source.sourceLocator === 'string'
+            ) {
+              const range = source.sourceLocator.match(/#bytes=(\d+)-(\d+)$/u);
+              if (range === null) throw new HistoryStoreError('history_invalid');
+              const start = Number(range[1]);
+              const end = Number(range[2]);
+              if (
+                !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
+                start < 0 || end <= start || end > bytes.byteLength
+              ) throw new HistoryStoreError('history_invalid');
+              resultBytes = bytes.slice(start, end);
+            } else {
+              let sourceValue: unknown;
+              try {
+                sourceValue = JSON.parse(decoder.decode(bytes));
+              } catch {
+                throw new HistoryStoreError('history_invalid');
+              }
+              const sourceObject = validJsonObject(sourceValue) ? sourceValue : undefined;
+              const sourceResults = sourceObject?.role === 'tool' &&
+                  Array.isArray(sourceObject.content)
+                ? sourceObject.content
+                : [];
+              const result = sourceResults.find((candidate) =>
+                validJsonObject(candidate) &&
+                candidate.callId === source.callId &&
+                typeof candidate.text === 'string'
+              );
+              if (!validJsonObject(result)) {
+                throw new HistoryStoreError('history_invalid');
+              }
+              resultBytes = encoder.encode(String(result.text));
             }
-            const sourceObject = validJsonObject(sourceValue) ? sourceValue : undefined;
-            const sourceResults = sourceObject?.role === 'tool' &&
-                Array.isArray(sourceObject.content)
-              ? sourceObject.content
-              : [];
-            const result = sourceResults.find((candidate) =>
-              validJsonObject(candidate) &&
-              candidate.callId === source.callId &&
-              typeof candidate.text === 'string'
-            );
-            if (!validJsonObject(result)) {
-              throw new HistoryStoreError('history_invalid');
-            }
-            const resultBytes = encoder.encode(String(result.text));
             const resultDigest = contextDigestSync(resultBytes);
             if (resultDigest !== source.contentDigest) {
               throw new HistoryStoreError('history_invalid');
@@ -5091,6 +5109,7 @@ export class SqliteHistoryStore
     ).map((row) => ({
       identity: String(row.logical_identity),
       text: text(row),
+      ...(row.source_locator === null ? {} : { sourceLocator: String(row.source_locator) }),
     }));
     const tools = rows.filter((row) =>
       row.resource_kind === 'tool_contract' && row.stage === 'resolved'

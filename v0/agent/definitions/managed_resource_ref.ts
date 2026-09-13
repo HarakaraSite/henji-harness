@@ -15,6 +15,11 @@ export type DefinitionRevisionRef = ManagedResourceRefV1 & {
   readonly resourceId: string;
 };
 
+export type HenjiInstructionRevisionRef = ManagedResourceRefV1 & {
+  readonly resourceKind: 'henji-instruction';
+  readonly resourceId: string;
+};
+
 const encoder = new TextEncoder();
 const SHA256 = /^[0-9a-f]{64}$/u;
 
@@ -33,6 +38,9 @@ export const isWellFormedResourceId = (value: unknown): value is string => {
 
 export const isExternalDefinitionResourceId = (value: unknown): value is string =>
   isWellFormedResourceId(value) && value !== 'builtin/default' && value !== 'builtin/planner';
+
+export const isExternalHenjiInstructionResourceId = (value: unknown): value is string =>
+  isWellFormedResourceId(value) && value !== 'builtin/henji-base';
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> =>
   [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer))]
@@ -62,6 +70,20 @@ export const isDefinitionRevisionRef = (value: unknown): value is DefinitionRevi
   const ref = value as Record<string, unknown>;
   const revision = ref.revision;
   return ref.schemaVersion === 1 && ref.resourceKind === 'agent-definition' &&
+    isWellFormedResourceId(ref.resourceId) &&
+    typeof revision === 'object' && revision !== null && !Array.isArray(revision) &&
+    (revision as Record<string, unknown>).algorithm === 'sha256' &&
+    typeof (revision as Record<string, unknown>).digest === 'string' &&
+    SHA256.test((revision as Record<string, string>).digest);
+};
+
+export const isHenjiInstructionRevisionRef = (
+  value: unknown,
+): value is HenjiInstructionRevisionRef => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const ref = value as Record<string, unknown>;
+  const revision = ref.revision;
+  return ref.schemaVersion === 1 && ref.resourceKind === 'henji-instruction' &&
     isWellFormedResourceId(ref.resourceId) &&
     typeof revision === 'object' && revision !== null && !Array.isArray(revision) &&
     (revision as Record<string, unknown>).algorithm === 'sha256' &&

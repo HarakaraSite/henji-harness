@@ -6,6 +6,10 @@ import {
   resolveRequestedDefinition,
 } from '../definitions/definition_selection.ts';
 import { type HeadlessWorkerRun, runHeadlessWorker } from '../worker/worker_headless_runner.ts';
+import {
+  HenjiInstructionError,
+  henjiInstructionErrorValue,
+} from '../instructions/managed_instruction.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
@@ -26,6 +30,7 @@ export interface RuntimeCliDependencies {
   readonly readStdin?: () => Promise<Uint8Array>;
   readonly run?: (task: string, selection: HostDefinitionSelection) => Promise<HeadlessWorkerRun>;
   readonly dataRoot?: string;
+  readonly configRoot?: string;
   readonly writeStdout?: OutputWriter;
   readonly writeStderr?: OutputWriter;
 }
@@ -213,6 +218,18 @@ const definitionFailureLine = (error: DefinitionStartupError): string =>
     error: definitionStartupErrorValue(error),
   }) + '\n';
 
+const instructionFailureLine = (error: HenjiInstructionError): string =>
+  JSON.stringify({
+    ok: false,
+    outcome: 'contract_failure',
+    stopReason: 'contract_failure',
+    steps: 0,
+    toolCallCount: 0,
+    toolResultCount: 0,
+    requestCount: 0,
+    error: henjiInstructionErrorValue(error),
+  }) + '\n';
+
 /** Run the normal print-only command and return its process exit code. */
 export const main = async (
   args: readonly string[] = Deno.args,
@@ -257,7 +274,11 @@ export const main = async (
       task = decodeTask(bytes);
     }
 
-    const runner = dependencies.run ?? runHeadlessWorker;
+    const runner = dependencies.run ?? ((input, selected) =>
+      runHeadlessWorker(input, selected, {
+        dataRoot: dependencies.dataRoot,
+        configRoot: dependencies.configRoot,
+      }));
     const run = await runner(task, selection);
     if (
       run.outcome.ok &&
@@ -273,6 +294,10 @@ export const main = async (
   } catch (error) {
     if (error instanceof DefinitionStartupError) {
       await stderr(definitionFailureLine(error));
+      return 1;
+    }
+    if (error instanceof HenjiInstructionError) {
+      await stderr(instructionFailureLine(error));
       return 1;
     }
     if (error instanceof AgentInputError) {

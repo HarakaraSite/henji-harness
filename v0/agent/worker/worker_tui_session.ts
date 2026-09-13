@@ -41,6 +41,12 @@ import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import type { HumanHistoryReadPort } from '../history/human_history.ts';
+import {
+  builtinHenjiBaseInstruction,
+  resolveActiveHenjiBaseInstruction,
+  type SelectedHenjiBaseInstruction,
+} from '../instructions/managed_instruction.ts';
+import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 class MemoryWorkerHandle implements WorkerSessionHandle {
   private current: StoredSessionRecord | undefined;
@@ -87,6 +93,7 @@ export interface WorkerSessionOptions {
   readonly agent?: SessionRecord['agent'];
   readonly selection?: HostDefinitionSelection;
   readonly dataRoot?: string;
+  readonly configRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
@@ -142,6 +149,19 @@ export const createWorkerSession = async (
   options: WorkerSessionOptions,
 ): Promise<WorkerSessionResult> => {
   const workspace = await resolveWorkspace(options.workspaceRoot);
+  const resolveManagedInstruction = options.physicalIoMode !== 'provider-free' ||
+    options.dataRoot !== undefined || options.configRoot !== undefined;
+  const runtimePaths = resolveManagedInstruction && options.dataRoot === undefined
+    ? resolveRuntimePaths()
+    : undefined;
+  const dataRoot = options.dataRoot ?? runtimePaths?.dataRoot;
+  const configRoot = options.configRoot ??
+    (options.dataRoot === undefined ? runtimePaths?.configRoot : `${options.dataRoot}/config`);
+  const resolveBaseInstruction = (): Promise<SelectedHenjiBaseInstruction> =>
+    !resolveManagedInstruction
+      ? Promise.resolve(builtinHenjiBaseInstruction())
+      : resolveActiveHenjiBaseInstruction(dataRoot!, configRoot!);
+  let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
     ? new SqliteHistoryStore(
       options.stateRoot ?? launcherStateRoot(),
@@ -259,6 +279,7 @@ export const createWorkerSession = async (
       initialModelSelection = options.initialModelSelection,
     ): Promise<WorkerHostSession> => {
       try {
+        baseInstruction = await resolveBaseInstruction();
         return await WorkerHostSession.open({
           handle: workerHandle,
           workspaceRoot: workspace.root,
@@ -270,6 +291,7 @@ export const createWorkerSession = async (
           rootMaxSteps: options.rootMaxSteps,
           providerTimeoutMs: options.providerTimeoutMs,
           initialModelSelection,
+          baseInstruction,
           eventSink: options.eventSink,
           diagnosticPersistence: options.diagnosticPersistence ??
             defaultDiagnosticStore?.persist,

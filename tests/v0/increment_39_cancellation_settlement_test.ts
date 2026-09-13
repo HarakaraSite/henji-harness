@@ -163,6 +163,14 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
           resources: [],
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
           plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          ...(command.baseInstruction === undefined ? {} : {
+            baseInstruction: {
+              slot: command.baseInstruction.slot,
+              selectionSource: command.baseInstruction.selectionSource,
+              ref: command.baseInstruction.ref,
+              contentDigest: command.baseInstruction.contentDigest,
+            },
+          }),
         },
         startupSnapshot: { skillNames: [] },
         credentialAvailability: {

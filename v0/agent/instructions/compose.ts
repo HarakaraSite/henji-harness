@@ -4,7 +4,6 @@ import {
 } from '../definitions/resource_identity.ts';
 import type { SkillCatalog } from '../definitions/skills.ts';
 import { defineInstructionComponent, type InstructionComponent } from './component.ts';
-import { HENJI_COMMON_COMPONENT } from './henji_common.ts';
 import { DEFAULT_ROLE_COMPONENT } from './roles/default.ts';
 import { PLANNER_ROLE_COMPONENT } from './roles/planner.ts';
 import { runtimeFactsComponent } from './runtime_facts.ts';
@@ -44,13 +43,12 @@ const optionalComponent = (
 ): InstructionComponent | undefined =>
   text === undefined ? undefined : defineInstructionComponent(identity, text);
 
-/** Compose the complete built-in instruction in its canonical component order. */
+/** Compose the Definition-owned contribution; Worker core prepends the selected Henji base. */
 export const resolveBuiltinInstructionComposition = (
   input: BuiltinInstructionCompositionInput,
 ): BuiltinInstructionComposition => {
   const role = input.role === 'default' ? DEFAULT_ROLE_COMPONENT : PLANNER_ROLE_COMPONENT;
   const components = [
-    HENJI_COMMON_COMPONENT,
     role,
     toolGuidelinesComponent(input.toolGuidelines),
     optionalComponent('instruction:workspace-agents', input.workspaceInstruction),
@@ -70,7 +68,6 @@ export const builtinInstructionResourceIdentities = (
   hasSkillManifest: boolean,
 ): readonly AgentResourceIdentity[] => {
   const identities = [
-    HENJI_COMMON_COMPONENT.identity,
     role === 'default' ? DEFAULT_ROLE_COMPONENT.identity : PLANNER_ROLE_COMPONENT.identity,
     createAgentResourceIdentity('instruction:active-tool-guidelines'),
     ...(hasWorkspaceInstruction

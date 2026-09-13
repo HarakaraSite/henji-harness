@@ -5,8 +5,8 @@
 - `core/`: provider-neutral messages, events, turn control, context, cancellation, and steering.
 - `definitions/`: Agent definitions, selection, workspace instruction discovery, skills, identities,
   and resolved manifests.
-- `instructions/`: named built-in instruction components and their canonical composer; role text is
-  kept under `instructions/roles/`.
+- `instructions/`: the managed/built-in Henji base instruction, Worker-core finalizer, and named
+  Definition contribution components; role text is kept under `instructions/roles/`.
 - `provider/`: OpenRouter and OpenAI transports, route catalogs, credential access, and provider
   evidence.
 - `tools/`: tool declarations, registries, components, and tool implementations including web
@@ -39,6 +39,13 @@ persists provider, API, auth-profile identity, active selection, change history,
 per-committed-turn attribution. Standalone-era Session schema v6 also records the logical built-in
 Definition ref and build manifest for every committed turn. Previous development schemas remain in
 the old state namespace and are not interpreted by the compiled command.
+
+`henji instruction` manages the installation-wide `instruction:henji-base` slot. The Host resolves
+the active exact revision before creating each Worker generation and passes its ref and exact bytes
+as a data-only core input. The Worker-core finalizer prepends that base once to both root and
+delegated-planner Definition contributions. Install and activation are separate operations;
+deactivation selects the built-in revision for the next generation. Context history retains the
+selected ref, component content digest, exact text, and byte projection into provider requests.
 
 `/provider` switches the root between OpenRouter and OpenAI in the current idle Session and applies
 the selected provider's complete default model/effort selection. `/model` opens the active

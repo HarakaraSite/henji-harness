@@ -232,7 +232,6 @@ export const validateAgentResourceTopology = (
     .map((resource) => `${resource}`);
   const expected: AgentResourceIdentity[] = [
     createAgentResourceIdentity(`${resources[parsed.indexOf(model)]}`),
-    createAgentResourceIdentity('instruction:builtin-henji-common'),
     createAgentResourceIdentity(
       definitionId === 'default'
         ? 'instruction:builtin-default-role'
