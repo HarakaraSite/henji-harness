@@ -18,6 +18,7 @@ export type RuntimeDisplayInstructionSource = 'AGENTS.md' | 'AGENTS.MD' | 'none'
 export type RuntimeDisplaySessionMode = 'new' | 'continue' | 'session' | 'none';
 
 export interface RuntimeDisplayState {
+  readonly productVersion: string;
   readonly workspace: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly model: {
@@ -48,6 +49,7 @@ export interface RuntimeDisplayState {
 }
 
 export interface RuntimeDisplayProjectionInput {
+  readonly productVersion: string;
   readonly workspaceRoot: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly profileId: string;
@@ -172,6 +174,7 @@ export const projectRuntimeDisplayState = (
     source: instructionSource(input.instructionSource),
   });
   const state = Object.freeze({
+    productVersion: input.productVersion,
     workspace: displayWorkspaceLabel(input.workspaceRoot),
     agentId,
     model: Object.freeze({

@@ -38,6 +38,7 @@ import {
   type ParentTurnExecutionContext,
 } from '../core/execution_context.ts';
 import { type FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
+import { buildManifest } from './build_manifest.ts';
 import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import {
   type ProviderEvidenceDraftStore,
@@ -299,6 +300,7 @@ export const prepareRuntimeComposition = async (
   );
   seam.onResolvedManifestValidated?.(role, manifest);
   const displayState = projectRuntimeDisplayState({
+    productVersion: buildManifest().productVersion,
     workspaceRoot: workspace.root,
     agentId: selection.id,
     profileId: definition.model.profile.id,

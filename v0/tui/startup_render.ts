@@ -77,6 +77,7 @@ export const startupHeaderLines = (
 ): readonly string[] => {
   const width = Math.max(8, Math.min(160, columns));
   const title = escapeTerminalText(position.title ?? 'untitled');
+  const productVersion = escapeTerminalText(state.productVersion);
   const created = createdMinute(position.createdAt);
   const identity = escapeTerminalText(sessionIdentity(state, position));
   const workspace = escapeTerminalText(state.workspace);
@@ -87,7 +88,7 @@ export const startupHeaderLines = (
       Math.max(1, width - textCells(identityPrefix)),
     );
     return Object.freeze([
-      fitCells(`Henji Harness · ${created} · ${title}`, width),
+      fitCells(`Henji Harness v${productVersion} · ${created} · ${title}`, width),
       fitCells(`${identityPrefix}${compactWorkspace}`, width),
     ]);
   }
@@ -95,7 +96,7 @@ export const startupHeaderLines = (
   const inside = width - 2;
   const content = (label: string, value: string): string =>
     `│${fitCells(` ${label.padEnd(11)}${value}`, inside)}│`;
-  const heading = '─ Henji Harness ';
+  const heading = `─ Henji Harness v${productVersion} `;
   const top = `╭${heading}${'─'.repeat(Math.max(0, inside - textCells(heading)))}╮`;
   const skills = state.skills.names.length === 0
     ? 'none'

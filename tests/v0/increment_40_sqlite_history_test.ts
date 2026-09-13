@@ -845,7 +845,7 @@ Deno.test('Increment 40 rolls back a failed canonical SQL statement without part
   try {
     await store.initialize();
     opened = await openHistoryHost(store, workspaceRoot);
-    opened.host.materializeEmptySession();
+    assertEquals(opened.host.renameTitle('rollback baseline'), 'renamed');
     const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
     const db = new DatabaseSync(path);
     db.exec(`
@@ -857,10 +857,10 @@ Deno.test('Increment 40 rolls back a failed canonical SQL statement without part
     const outcome = await opened.host.submit('must roll back');
     assert(!outcome.ok);
     const saved = await store.readWorker(opened.id);
-    assertEquals({ revision: saved.stateRevision, nextTurn: saved.nextTurn }, {
-      revision: 1,
-      nextTurn: 1,
-    });
+    assertEquals(
+      { revision: saved.stateRevision, nextTurn: saved.nextTurn, title: saved.title },
+      { revision: 2, nextTurn: 1, title: 'rollback baseline' },
+    );
     const verify = new DatabaseSync(path, { readOnly: true });
     try {
       assertEquals(

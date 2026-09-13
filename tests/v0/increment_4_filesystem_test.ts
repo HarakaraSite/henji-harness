@@ -309,6 +309,7 @@ Deno.test('presentation adapter captures transcript and ignores no-session inter
       historyExporter: exporter,
       historySessionMode: 'none',
       startupState: {
+        productVersion: '0.1.2',
         workspace: '/tmp/workspace',
         agentId: 'default',
         model: {

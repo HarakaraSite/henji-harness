@@ -4,7 +4,7 @@ import type { PendingInputCore } from './pending_input.ts';
 import type { WorkspacePathIndex } from './file_reference.ts';
 import type { TuiRenderer } from './render.ts';
 
-/** Owns editable text, input history, path completion, and recovery presentation. */
+/** Owns editable text, input history, completion, and recovery presentation. */
 export class ControllerEditor {
   readonly editor = new TuiEditor();
 
@@ -193,6 +193,24 @@ export class ControllerEditor {
     } else if (result.kind === 'incomplete') {
       this.renderer.setStatus('path index unavailable');
     } else this.renderer.setStatus('no path match');
+  }
+
+  completeSlashCommand(candidate: string): boolean {
+    const text = this.editor.text;
+    if (
+      this.editor.cursorScalar !== [...text].length ||
+      !text.startsWith('/') || !candidate.startsWith(text)
+    ) return false;
+    if (
+      !this.editor.setSnapshot({
+        text: candidate,
+        cursorScalar: [...candidate].length,
+        byteLength: new TextEncoder().encode(candidate).byteLength,
+      })
+    ) return false;
+    this.history.resetNavigation();
+    this.render();
+    return true;
   }
 
   recover(): void {

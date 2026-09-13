@@ -1,3 +1,5 @@
+import packageConfig from '../../../jsr.json' with { type: 'json' };
+
 export const BUILD_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const AGENT_DEFINITION_API_CONTRACT = 'henji-agent-definition-v1' as const;
 
@@ -17,7 +19,7 @@ const DEVELOPMENT_DIGEST = 'c738494fbbf99c577b5c91b957df9f3f0efcfc755442293665f7
 
 const DEVELOPMENT_MANIFEST: BuildManifestV1 = Object.freeze({
   schemaVersion: BUILD_MANIFEST_SCHEMA_VERSION,
-  productVersion: '0.1.1',
+  productVersion: packageConfig.version,
   buildId: DEVELOPMENT_DIGEST,
   sourceRevision: 'development',
   sourceDirty: true,

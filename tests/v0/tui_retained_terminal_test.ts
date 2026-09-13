@@ -25,6 +25,7 @@ import {
 } from '../../v0/tui/terminal.ts';
 import { PendingInputCore, type PendingMetadataSnapshot } from '../../v0/tui/pending_input.ts';
 import { startupHeaderLines } from '../../v0/tui/startup_render.ts';
+import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -377,7 +378,7 @@ Deno.test('retained session picker identifies sessions by updated time and human
   assert(!rows.some((row) => row.includes('openrouter') || row.includes('deepseek')));
 });
 
-Deno.test('retained controller shows credential absence and slash candidates without completion', async () => {
+Deno.test('retained controller completes a sole slash candidate and preserves path completion', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -399,6 +400,7 @@ Deno.test('retained controller shows credential absence and slash candidates wit
   };
   const controller = new TuiController(lifecycle, renderer, session, {
     pending: new PendingInputCore(),
+    pathIndex: WorkspacePathIndex.fromCandidates(['docs/readme.md']),
   });
   const run = controller.run();
   await waitFor(() => renderer.stateSnapshot().status.includes('credential missing: openai'));
@@ -431,6 +433,22 @@ Deno.test('retained controller shows credential absence and slash candidates wit
     renderer.layoutSnapshot(36, 24).footer[0].text,
     '[ready │ credential missing: openai]',
   );
+
+  const writesBeforeAmbiguousTab = terminal.writes.length;
+  terminal.push('\t');
+  await waitFor(() => terminal.writes.length > writesBeforeAmbiguousTab);
+  assertEquals(controller.editor.text, '/h');
+  assertEquals(renderer.stateSnapshot().slashCommandCandidates.length, 4);
+
+  terminal.push('\x15/n');
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 1);
+  terminal.push('\t');
+  await waitFor(() => controller.editor.text === '/new');
+  assertEquals(controller.editor.cursorScalar, 4);
+
+  terminal.push('\x15docs/r\t');
+  await waitFor(() => controller.editor.text === '"./docs/readme.md"');
+  assertEquals(controller.editor.cursorScalar, 18);
 
   terminal.push('\x15ordinary');
   await waitFor(() => controller.editor.text === 'ordinary');
@@ -544,6 +562,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);
   const startup: PresentationStartupState = {
+    productVersion: '0.1.2',
     workspace: '/tmp/henji-ui',
     agentId: 'default',
     model: {
@@ -569,7 +588,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   assertEquals(renderer.stateSnapshot().startup?.position, startupPosition);
   const wideHeader = renderer.layoutSnapshot(80, 24).allLog.map((row) => row.text);
   assertEquals(wideHeader.length, 9);
-  assert(wideHeader[0].includes('Henji Harness'));
+  assert(wideHeader[0].includes('Henji Harness v0.1.2'));
   assert(wideHeader.some((line) => line.includes('2026-09-11 12:34Z · untitled')));
   assert(wideHeader.some((line) => line.includes('new (autosave) · fc419637')));
   assert(wideHeader.some((line) => line.includes('runtime:')));
@@ -630,6 +649,7 @@ Deno.test('startup header follows rename, session replacement, and terminal size
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);
   const startup: PresentationStartupState = {
+    productVersion: '0.1.2',
     workspace: '/tmp/henji-ui',
     agentId: 'default',
     model: {
@@ -675,13 +695,14 @@ Deno.test('startup header follows rename, session replacement, and terminal size
   renderer.resize(50, 12);
   const compact = renderer.layoutSnapshot(50, 12).allLog.map((row) => row.text);
   assertEquals(compact.length, 2);
-  assert(compact[0].includes('Henji Harness'));
+  assert(compact[0].includes('Henji Harness v0.1.2'));
   assert(compact[1].includes('exact session · bbbbbbbb'));
   assert(compact[1].includes('henji-ui'));
 });
 
 Deno.test('startup header distinguishes continue, exact, and no-session modes', () => {
   const base: PresentationStartupState = {
+    productVersion: '0.1.2',
     workspace: '/tmp/henji-ui',
     agentId: 'planner',
     model: {
@@ -1369,6 +1390,7 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
     currentPosition: () => currentPosition,
   };
   const startup: PresentationStartupState = {
+    productVersion: '0.1.2',
     workspace: '/tmp/henji-new-session',
     agentId: 'default',
     model: {

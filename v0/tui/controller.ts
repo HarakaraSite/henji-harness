@@ -1314,6 +1314,14 @@ export class TuiController {
     }, 2_001);
   }
   private completePathAtCursor(): void {
+    if (this.editor.text.startsWith('/')) {
+      const candidates = slashCommandCandidates(this.editor.text);
+      if (candidates.length === 1) {
+        this.editorController.completeSlashCommand(candidates[0]);
+      }
+      this.refreshSlashCommandCandidates();
+      return;
+    }
     this.editorController.completePath();
     this.refreshSlashCommandCandidates();
   }

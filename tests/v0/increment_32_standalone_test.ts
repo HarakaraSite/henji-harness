@@ -8,6 +8,7 @@ import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { stagedCompileInputs } from '../../scripts/build_henji.ts';
+import packageConfig from '../../jsr.json' with { type: 'json' };
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -78,6 +79,7 @@ Deno.test('Increment 32 resolves binary, workspace, and XDG authorities independ
 
 Deno.test('Increment 32 built-in Definition ref is logical and build-bound', async () => {
   const manifest = buildManifest();
+  assertEquals(manifest.productVersion, packageConfig.version);
   const first = await builtinDefinitionRef('default', manifest);
   const second = await builtinDefinitionRef('default', manifest);
   const planner = await builtinDefinitionRef('planner', manifest);
@@ -182,6 +184,7 @@ Deno.test('Increment 32 projects the Worker generation startup snapshot', async 
     physicalIoMode: 'provider-free',
   });
   try {
+    assertEquals(created.displayState.productVersion, packageConfig.version);
     assertEquals(created.displayState.instructions, { loaded: true, source: 'AGENTS.md' });
     assert(created.displayState.skills.names.includes('worker-snapshot'));
   } finally {

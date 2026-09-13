@@ -599,6 +599,7 @@ export type PresentationEvent =
 export type PresentationEventSink = (event: PresentationEvent) => void;
 
 export interface PresentationStartupState {
+  readonly productVersion: string;
   readonly workspace: string;
   readonly agentId: PresentationAgentId;
   readonly model: {

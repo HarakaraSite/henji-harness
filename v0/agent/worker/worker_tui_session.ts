@@ -13,6 +13,7 @@ import {
   projectRuntimeDisplayState,
   type RuntimeDisplayState,
 } from '../runtime/startup_orientation.ts';
+import { buildManifest } from '../runtime/build_manifest.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import type {
   NavigationBinding,
@@ -300,6 +301,7 @@ export const createWorkerSession = async (
     const initialSelection = host.modelSelectionSnapshot();
     const startupSnapshot = host.startupSnapshot();
     const displayState = projectRuntimeDisplayState({
+      productVersion: buildManifest().productVersion,
       workspaceRoot: workspace.root,
       agentId: activeSelection.id,
       profileId: modelRouteProfileId(initialSelection),
@@ -339,18 +341,13 @@ export const createWorkerSession = async (
         const inheritedSelection = currentHost.modelSelectionSnapshot();
         const targetHandle = await store!.allocateWorker(activeSelection.id, definition);
         let targetHost: WorkerHostSession | undefined;
-        let materialized = false;
         const cleanupTarget = async (): Promise<void> => {
           if (targetHost === undefined) await targetHandle.close();
           else await targetHost.close();
-          if (materialized) await store!.delete(targetHandle.id);
         };
         try {
           if (signal?.aborted) throw new NavigationCancelledError();
           targetHost = await openHost(targetHandle, inheritedSelection);
-          if (signal?.aborted) throw new NavigationCancelledError();
-          targetHost.materializeEmptySession();
-          materialized = true;
           if (signal?.aborted) throw new NavigationCancelledError();
         } catch (error) {
           try {

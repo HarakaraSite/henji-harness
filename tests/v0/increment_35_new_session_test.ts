@@ -1,4 +1,4 @@
-import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
+import { defaultModelSelectionFor, selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type {
   NavigationBinding,
@@ -21,15 +21,37 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-Deno.test('Increment 35 creates and adopts a durable empty Session with the current binding', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-35-new-session-' });
+const presentationSelection = (
+  selection: ReturnType<typeof selectModelFor>,
+) => ({
+  provider: selection.provider,
+  modelId: selection.modelId,
+  effort: selection.effort,
+});
+
+const assertSessionNotFound = async (
+  store: SqliteHistoryStore,
+  id: string,
+): Promise<void> => {
+  let notFound = false;
+  try {
+    await store.readWorker(id);
+  } catch (error) {
+    notFound = typeof error === 'object' && error !== null &&
+      (error as { readonly code?: unknown }).code === 'session_not_found';
+  }
+  assert(notFound, `expected ${id} not to be materialized`);
+};
+
+Deno.test('Increment 47 keeps a new binding temporary until its first durable change', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-47-new-session-',
+  });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
-  const events: PresentationEvent[] = [];
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
-  let reopened: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({
       workspaceRoot,
@@ -40,80 +62,188 @@ Deno.test('Increment 35 creates and adopts a durable empty Session with the curr
     });
     const navigation = created.navigation;
     assert(navigation?.createNew !== undefined);
+    assert((await created.session.submit('preserve the old Session')).ok);
     const oldId = navigation.currentPosition().sessionId;
     assert(oldId !== undefined);
-    const oldDefinition = created.session.definition;
-    assert((await created.session.submit('preserve the old Session')).ok);
-    assertEquals(navigation.renameCurrent('Previous work'), 'renamed');
     const inherited = selectModelFor('openai', 'gpt-5.6-terra', 'high');
     assertEquals(await created.session.selectModel(inherited), 'selected');
-    const requestCount = created.requestCount();
     const adapter = createTuiPresentationAdapter(
       created.session,
-      (event) => events.push(event),
+      undefined,
       navigation,
     );
 
     const result = await adapter.dispatch({ kind: 'new_session' });
     assert(result.kind === 'binding');
-    const newId = result.position.sessionId;
-    assert(newId !== undefined && newId !== oldId);
+    const temporaryId = result.position.sessionId;
+    assert(temporaryId !== undefined && temporaryId !== oldId);
     assertEquals(result.position.committedTurn, 0);
     assertEquals(result.position.messageCount, 0);
-    assertEquals(result.position.title, undefined);
-    assertEquals(result.position.checkpoint, undefined);
     assertEquals(result.restored, { messages: [], omitted: 0 });
     assertEquals(adapter.modelSelectionSnapshot(), inherited);
-    assertEquals(created.requestCount(), requestCount);
+    await assertSessionNotFound(store, temporaryId);
 
-    const storedNew = await store.readWorker(newId);
-    assertEquals(storedNew.nextTurn, 1);
-    assertEquals(storedNew.transcript, []);
-    assertEquals(storedNew.title, null);
-    assertEquals(storedNew.activeModel, inherited);
-    assertEquals(storedNew.definition, oldDefinition);
-    assertEquals(storedNew.turnModels, []);
-    assertEquals(storedNew.turnExecutions, []);
-    assertEquals(await store.readCheckpoint(newId), undefined);
-
-    const storedOld = await store.readWorker(oldId);
-    assertEquals(storedOld.title, 'Previous work');
-    assert(storedOld.transcript.length > 0);
     const listed = await navigation.list();
-    assert(listed.sessions.some((row) => row.id === oldId && !row.current));
-    assert(listed.sessions.some((row) => row.id === newId && row.current));
-    assertEquals(
-      events.slice(-2).map((event) => event.kind),
-      ['session_binding_replaced', 'restored_log'],
-    );
-    const resumedOld = await adapter.dispatch({ kind: 'resume_session', id: oldId });
-    assert(resumedOld.kind === 'binding');
-    assertEquals(resumedOld.position.sessionId, oldId);
-    assertEquals(resumedOld.position.title, 'Previous work');
-    assert((resumedOld.restored?.messages.length ?? 0) > 0);
-    assertEquals(created.requestCount(), requestCount);
+    assert(listed.sessions.some((row) => row.id === oldId));
+    assert(!listed.sessions.some((row) => row.id === temporaryId));
 
+    const resumed = await adapter.dispatch({
+      kind: 'resume_session',
+      id: oldId,
+    });
+    assert(resumed.kind === 'binding');
+    assertEquals(resumed.position.sessionId, oldId);
+    await assertSessionNotFound(store, temporaryId);
+
+    const second = await adapter.dispatch({ kind: 'new_session' });
+    assert(second.kind === 'binding');
+    const exitWithoutChangeId = second.position.sessionId;
+    assert(exitWithoutChangeId !== undefined);
     await created.close();
     created = undefined;
-    reopened = await createWorkerSession({
+    await assertSessionNotFound(store, exitWithoutChangeId);
+  } finally {
+    await created?.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 47 materializes temporary bindings on existing durable admissions', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-47-admissions-',
+  });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  try {
+    created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
-      persistence: 'session',
-      sessionId: newId,
+      persistence: 'new',
+      agent: 'default',
       physicalIoMode: 'provider-free',
     });
-    assertEquals(reopened.navigation?.currentPosition().committedTurn, 0);
-    assertEquals(reopened.session.modelSelectionSnapshot(), inherited);
-    assertEquals(reopened.restored, { messages: [], omitted: 0 });
+    const navigation = created.navigation;
+    assert(navigation?.createNew !== undefined);
+    const adapter = createTuiPresentationAdapter(
+      created.session,
+      undefined,
+      navigation,
+    );
+
+    const renamed = await adapter.dispatch({ kind: 'new_session' });
+    assert(
+      renamed.kind === 'binding' && renamed.position.sessionId !== undefined,
+    );
+    assertEquals(
+      await adapter.dispatch({
+        kind: 'rename_session',
+        title: 'Named before turn one',
+      }),
+      {
+        kind: 'session_title',
+        status: 'renamed',
+        title: 'Named before turn one',
+      },
+    );
+    assertEquals(
+      (await store.readWorker(renamed.position.sessionId)).title,
+      'Named before turn one',
+    );
+
+    const providerChanged = await adapter.dispatch({ kind: 'new_session' });
+    assert(
+      providerChanged.kind === 'binding' &&
+        providerChanged.position.sessionId !== undefined,
+    );
+    assertEquals(
+      await adapter.dispatch({ kind: 'select_provider', provider: 'openai' }),
+      {
+        kind: 'model_selection',
+        status: 'selected',
+        selection: presentationSelection(defaultModelSelectionFor('openai')),
+      },
+    );
+    assertEquals(
+      (await store.readWorker(providerChanged.position.sessionId)).activeModel,
+      defaultModelSelectionFor('openai'),
+    );
+
+    const modelChanged = await adapter.dispatch({ kind: 'new_session' });
+    assert(
+      modelChanged.kind === 'binding' &&
+        modelChanged.position.sessionId !== undefined,
+    );
+    const nextModel = selectModelFor('openai', 'gpt-6-astra', 'medium');
+    assertEquals(
+      await adapter.dispatch({
+        kind: 'select_model',
+        provider: nextModel.provider,
+        modelId: nextModel.modelId,
+        effort: nextModel.effort,
+      }),
+      {
+        kind: 'model_selection',
+        status: 'selected',
+        selection: presentationSelection(nextModel),
+      },
+    );
+    assertEquals(
+      (await store.readWorker(modelChanged.position.sessionId)).activeModel,
+      nextModel,
+    );
+
+    const effortChanged = await adapter.dispatch({ kind: 'new_session' });
+    assert(
+      effortChanged.kind === 'binding' &&
+        effortChanged.position.sessionId !== undefined,
+    );
+    const nextEffort = selectModelFor('openai', 'gpt-6-astra', 'high');
+    assertEquals(
+      await adapter.dispatch({
+        kind: 'select_model',
+        provider: nextEffort.provider,
+        modelId: nextEffort.modelId,
+        effort: nextEffort.effort,
+      }),
+      {
+        kind: 'model_selection',
+        status: 'selected',
+        selection: presentationSelection(nextEffort),
+      },
+    );
+    assertEquals(
+      (await store.readWorker(effortChanged.position.sessionId)).activeModel,
+      nextEffort,
+    );
+
+    const submitted = await adapter.dispatch({ kind: 'new_session' });
+    assert(
+      submitted.kind === 'binding' &&
+        submitted.position.sessionId !== undefined,
+    );
+    const outcome = await adapter.dispatch({
+      kind: 'ordinary_submit',
+      text: 'first durable turn',
+    });
+    assert(outcome.kind === 'outcome' && outcome.outcome.ok);
+    const storedTurn = await store.readWorker(submitted.position.sessionId);
+    assertEquals(storedTurn.nextTurn, 2);
+    assert(storedTurn.transcript.length > 0);
   } finally {
-    await reopened?.close();
     await created?.close();
     await Deno.remove(root, { recursive: true });
   }
 });
 
 Deno.test('Increment 35 keeps the current presentation binding when new Session setup fails', async () => {
-  const oldSelection = selectModelFor('openrouter', 'z-ai/glm-5.3-flash', 'low');
+  const oldSelection = selectModelFor(
+    'openrouter',
+    'z-ai/glm-5.3-flash',
+    'low',
+  );
   const core = {
     submit: () => Promise.reject(new Error('not used')),
     modelSelectionSnapshot: () => oldSelection,
@@ -135,12 +265,17 @@ Deno.test('Increment 35 keeps the current presentation binding when new Session 
     currentPosition: () => position,
   };
   const events: PresentationEvent[] = [];
-  const adapter = createTuiPresentationAdapter(core, (event) => events.push(event), navigation);
+  const adapter = createTuiPresentationAdapter(
+    core,
+    (event) => events.push(event),
+    navigation,
+  );
   let rejected = false;
   try {
     await adapter.dispatch({ kind: 'new_session' });
   } catch (error) {
-    rejected = error instanceof Error && error.message === 'target setup failed';
+    rejected = error instanceof Error &&
+      error.message === 'target setup failed';
   }
   assert(rejected);
   assertEquals(adapter.modelSelectionSnapshot(), oldSelection);
