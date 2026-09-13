@@ -332,6 +332,24 @@ isolated XDG state、独立workspace、real TTY、OpenRouter `deepseek/deepseek-
   読み出さず、TTYへAuthorization/cookie/headerは表示されなかった。installed binaryのSHA-256は既存の
   `5b32dce0c17f53ae321587de1aabcc0e3e7303cf87239e7d170948b74051bd11`のままで置換していない。
 
+### Installed binaryでの通常利用確認
+
+利用者の指示により、上記Human Gate済みcandidateで`dist/henji`と`~/.local/bin/henji`をatomicに置換した。
+通常利用で作成したSession `44966747-ae25-4e81-9dc5-996ff21dbeb6`をCLIとSQLiteのread-only queryで照合し、
+次を確認した。
+
+- schema versionは3、`PRAGMA quick_check`は`ok`、foreign key違反は0だった。
+- canonical turn 2件、message 8件、execution 2件が一致し、両executionともsettled／completed／canonicalだった。
+  activeまたはnon-canonicalな余剰executionはなかった。
+- model request 4件、tool effect 3件、execution evidence／artifact／complete context captureが保存され、tool effectは
+  すべてsuccessだった。
+- turn 1はOpenAI `gpt-5.6-sol` medium、turn 2と最終Session selectionはOpenRouter
+  `deepseek/deepseek-v4.1-flash` highで、通常TUI上の会話と一致した。
+- 最終turnのcommitted revision 5よりSession state revisionが6であるのは、turn完了後のSession metadata更新時刻と
+  一致し、canonical turnやexecutionの追加ではなかった。
+
+2026-09-13、利用者はこの通常利用確認を踏まえ、Increment 43の完了を確認した。
+
 ## 第三者review
 
 2026-09-13、stable candidateのhuman document、paging、search、exact detail、export、TUI integrationを対象にbounded

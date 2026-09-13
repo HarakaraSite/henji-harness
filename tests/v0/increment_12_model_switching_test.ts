@@ -8,9 +8,8 @@ import {
   searchOpenRouterModels,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { DenoSessionStore } from '../../v0/agent/session/session_store.ts';
-import { createWorkerTuiSession } from '../../v0/agent/worker/worker_host.ts';
-import { DenoWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -156,19 +155,17 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
 Deno.test('Increment 12 switches and restores the root model while planner stays fixed', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-model-switch-' });
   const workspaceRoot = Deno.cwd();
-  const artifacts = new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot);
-  const store = new DenoSessionStore(stateRoot, workspaceRoot);
-  let first: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
-  let resumed: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
-  let planner: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  let planner: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    first = await createWorkerTuiSession({
+    first = await createWorkerSession({
       stateRoot,
       workspaceRoot,
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
     });
     assertEquals(first.session.modelSelectionSnapshot(), ROOT_DEFAULT_MODEL_SELECTION);
     const qwen = selectOpenRouterModel('qwen/qwen3.8-max-0902');
@@ -199,21 +196,20 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     ]);
     const listed = await store.listWorker();
     assertEquals(listed.sessions.find((item) => item.id === sessionId)?.modelSelection, gpt);
-    const execution = (await artifacts.list()).at(-1);
+    const execution = (await store.executionArtifacts.list()).at(-1);
     assert(execution !== undefined);
     assertEquals(execution.manifest.rootModel, gpt);
     assertEquals(execution.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION);
 
     await first.close();
     first = undefined;
-    resumed = await createWorkerTuiSession({
+    resumed = await createWorkerSession({
       stateRoot,
       workspaceRoot,
       persistence: 'session',
       sessionId,
       agent: 'default',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
     });
     assertEquals(resumed.session.modelSelectionSnapshot(), gpt);
     assertEquals(resumed.displayState.model.modelId, gpt.modelId);
@@ -221,13 +217,12 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     await resumed.close();
     resumed = undefined;
 
-    planner = await createWorkerTuiSession({
+    planner = await createWorkerSession({
       stateRoot,
       workspaceRoot,
       persistence: 'none',
       agent: 'planner',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
     });
     assertEquals(await planner.session.selectModel(gpt), 'selected');
     const plannerOutcome = await planner.session.submit('standalone planner turn');

@@ -783,5 +783,4 @@ export const layoutUi = (
   });
 };
 
-export const layoutMainScreen = layoutUi;
 export type { UiLogEntry };

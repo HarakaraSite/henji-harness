@@ -333,21 +333,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
     return this.core.selectModel?.(selection) ?? Promise.resolve('unavailable');
   }
 
-  /** Emit the one-shot legacy fallback notice after the terminal startup frame exists. */
-  announceLegacyModelDefault(): void {
-    if (!this.core.consumeLegacyModelNotice?.()) return;
-    const selection = this.core.modelSelectionSnapshot?.();
-    this.emit({
-      kind: 'notice',
-      generation: ++this.generation,
-      text: bounded(
-        selection === undefined
-          ? 'legacy session resumed with the current root model default'
-          : `legacy session resumed with ${selection.modelId} / effort ${selection.effort}`,
-      ),
-    });
-  }
-
   /** Own every in-flight navigation signal; the UI can only request cancellation by intent. */
   private navigationOperation<T>(
     operation: (signal: AbortSignal) => Promise<T>,
@@ -690,7 +675,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           },
         }),
       });
-      this.announceLegacyModelDefault();
       let restoredValue: {
         readonly messages: readonly PresentationMessage[];
         readonly omitted: number;

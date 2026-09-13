@@ -9,28 +9,17 @@ export {
   MAX_RESTORED_DISPLAY_MESSAGES,
   MAX_SESSION_FILE_BYTES,
   MAX_VALID_SESSIONS_PER_WORKSPACE,
-  MAX_WORKSPACE_DIRECTORY_ENTRIES,
   normalizeSessionTitle,
   type SemanticContextCheckpointV1,
   SESSION_SCHEMA_VERSION,
   type SessionErrorCode,
-  type SessionHandle,
-  type SessionListResult,
   type SessionMetadata,
   type SessionModelChange,
-  type SessionModelChangeV3,
   type SessionRecord,
-  type SessionRecordV2,
-  type SessionRecordV3,
-  type SessionRecordV4,
-  type SessionRecordV5,
   type SessionRecordV6,
   SessionStoreError,
-  type SessionStoreOptions,
-  type SessionStorePort,
   type SessionTurnExecutionAttribution,
   type SessionTurnModelAttribution,
-  type SessionTurnModelAttributionV3,
   type StoredSessionRecord,
   type WorkerSessionHandle,
   type WorkerSessionListResult,
@@ -44,18 +33,10 @@ export {
   type CausalTranscriptTurn,
   decodeSemanticContextCheckpoint,
   decodeSessionRecord,
-  decodeSessionRecordV2,
-  decodeSessionRecordV3,
-  decodeSessionRecordV4,
-  decodeSessionRecordV5,
   decodeSessionRecordV6,
   decodeStoredSessionRecord,
   encodeSemanticContextCheckpoint,
   encodeSessionRecord,
-  encodeSessionRecordV2,
-  encodeSessionRecordV3,
-  encodeSessionRecordV4,
-  encodeSessionRecordV5,
   encodeSessionRecordV6,
   metadataFromRecord,
   metadataFromStoredRecord,
@@ -63,10 +44,6 @@ export {
   restoredMessages,
   validateSemanticContextCheckpoint,
   validateSessionRecord,
-  validateSessionRecordV2,
-  validateSessionRecordV3,
-  validateSessionRecordV4,
-  validateSessionRecordV5,
   validateSessionRecordV6,
 } from './session_record_codec.ts';
 export {
@@ -75,10 +52,6 @@ export {
   sessionPaths,
   workspaceDigest,
 } from './session_store_paths.ts';
-export { createSessionPersistence } from './session_persistence.ts';
-export { DenoSessionStore } from './deno_session_store.ts';
-export { FakeSessionStore } from './fake_session_store.ts';
-
 // Keep the management command part of the checked v0 module graph without introducing a
 // runtime dependency cycle; the CLI itself still remains a provider-free entry point.
 export type { SessionCliCommand } from '../cli/session_cli.ts';

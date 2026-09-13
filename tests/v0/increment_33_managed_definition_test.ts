@@ -18,16 +18,14 @@ import {
   isExternalDefinitionResourceId,
 } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
-import { DenoProviderEvidenceStore } from '../../v0/agent/provider/provider_evidence_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import {
   type DefinitionRevisionRef,
-  DenoSessionStore,
   type StoredSessionRecord,
 } from '../../v0/agent/session/session_store.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { DenoWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -175,7 +173,7 @@ const persistEmptyExternalSession = async (
   agent: StoredSessionRecord['agent'],
   definition: DefinitionRevisionRef,
 ): Promise<string> => {
-  const store = new DenoSessionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   const handle = await store.allocateWorker(agent, definition);
   const timestamp = '2026-09-12T01:02:03.000Z';
   const model = defaultModelSelectionFor('openrouter');
@@ -704,8 +702,7 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
   const stateRoot = `${root}/state`;
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const evidenceStore = new DenoProviderEvidenceStore(stateRoot, workspaceRoot);
-  const artifactStore = new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
     for (const role of ['parent', 'planner'] as const) {
       const sourceRoot = `${root}/source-${role}`;
@@ -729,8 +726,6 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
         persistence: 'new',
         selection,
         physicalIoMode: 'provider-free',
-        providerEvidenceStore: evidenceStore,
-        executionArtifactStore: artifactStore,
       });
       try {
         const outcome = await created.session.submit(`managed ${role} turn`);
@@ -743,13 +738,11 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
         await created.close();
       }
 
-      const session = await new DenoSessionStore(stateRoot, workspaceRoot).readWorker(
-        created.session.sessionId,
-      );
-      const artifact = (await artifactStore.list()).find((item) =>
+      const session = await history.readWorker(created.session.sessionId);
+      const artifact = (await history.executionArtifacts.list()).find((item) =>
         item.sessionId === created.session.sessionId
       );
-      const evidence = (await evidenceStore.list()).find((item) =>
+      const evidence = (await history.providerEvidence.list()).find((item) =>
         item.sessionId === created.session.sessionId
       );
       assert(artifact !== undefined);

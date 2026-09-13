@@ -25,7 +25,6 @@ import {
   parseFailureDiagnosticArgs,
 } from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import { DenoProviderEvidenceStore } from '../../v0/agent/provider/provider_evidence_store.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import {
   createProductionPhysicalIo,
@@ -1026,7 +1025,7 @@ Deno.test('evidence persistence failure does not replace a valid provider result
   );
 });
 
-Deno.test('Deno evidence store and diagnostics readback retain one parent/planner artifact', async () => {
+Deno.test('SQLite evidence and diagnostics readback retain one parent/planner artifact', async () => {
   const tempRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-provider-evidence-' });
   const workspaceRoot = `${tempRoot}/workspace`;
   const stateRoot = `${tempRoot}/state`;
@@ -1034,8 +1033,6 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
   const evidenceId = '55555555-5555-4555-8555-555555555555';
   const diagnosticId = '33333333-3333-4333-8333-333333333333';
   try {
-    const store = new DenoProviderEvidenceStore(stateRoot, workspaceRoot);
-    assertEquals(await store.list(), []);
     const recorder = new ProviderEvidenceRecorder(evidenceId, 1, '2026-09-02T00:00:00.000Z');
     recorder.startRequest({
       lane: 'parent',
@@ -1089,12 +1086,9 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
         request: { ...record.request, contextRequestOrdinal: index + 1 },
       })),
     };
-    await store.write(attributed);
-    await store.linkDiagnostic(diagnosticId, evidenceId);
-    assertEquals((await Deno.lstat(stateRoot)).mode! & 0o777, 0o700);
-
     const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
     await history.initialize();
+    assertEquals(await history.providerEvidence.list(), []);
     const historyInput = {
       taskId: '11111111-1111-4111-8111-111111111111',
       executionId: '22222222-2222-4222-8222-222222222222',

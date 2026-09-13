@@ -1,4 +1,4 @@
-import type { JsonValue, Message, ModelRequest, ToolDefinition } from '../core/contracts.ts';
+import type { JsonValue, ModelRequest, ToolDefinition } from '../core/contracts.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
 import type { DiscoveredSkill } from '../definitions/skills.ts';
 import type { InstructionComponent } from '../instructions/component.ts';
@@ -154,13 +154,6 @@ export interface WorkerContextSnapshot {
   };
 }
 
-export interface ExecutionContextAttributionV1 {
-  readonly schemaVersion: 1;
-  readonly basis: WorkerContextSnapshot;
-  readonly relations: readonly ExecutionContextRelation[];
-  readonly requests: readonly ContextModelRequestRecord[];
-}
-
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const SHA256 = /^sha256:[0-9a-f]{64}$/u;
@@ -303,9 +296,6 @@ export const isContextBlobDescriptor = (value: unknown): value is ContextBlobDes
     (value as Record<string, unknown>).mediaType === 'application/vnd.henji.tool+json' ||
     (value as Record<string, unknown>).mediaType === 'application/octet-stream');
 
-export const cloneContextSnapshot = (value: WorkerContextSnapshot): WorkerContextSnapshot =>
-  structuredClone(value);
-
 const hasSnapshotKeys = (
   value: unknown,
   required: readonly string[],
@@ -367,9 +357,6 @@ export const validateWorkerContextSnapshot = (value: unknown): value is WorkerCo
       validText(tool.name, false) && validText(tool.description) && isJson(tool.inputSchema)
     );
 };
-
-export const messageToContextValue = (message: Message): JsonValue =>
-  structuredClone(message) as unknown as JsonValue;
 
 const exactKeys = (
   value: unknown,

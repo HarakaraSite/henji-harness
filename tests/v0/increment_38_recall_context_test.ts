@@ -11,10 +11,9 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { DenoSessionStore } from '../../v0/agent/session/session_store.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
-  createWorkerTuiSession,
+  createWorkerSession,
   readDefinitionRevision,
   workerBuiltinModulePath,
 } from '../../v0/agent/worker/worker_host.ts';
@@ -23,7 +22,6 @@ import type {
   WorkerExecutionArtifactV3,
 } from '../../v0/agent/worker/worker_execution_artifact.ts';
 import {
-  DenoWorkerExecutionArtifactStore,
   FakeWorkerExecutionArtifactStore,
 } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 import {
@@ -37,6 +35,7 @@ import {
 } from '../../v0/agent/worker/worker_runtime.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
+import type { SessionNavigationHost } from '../../v0/agent/session/session_navigation.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -536,14 +535,14 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
 
 Deno.test('Increment 38 target artifact retains exact recall attribution', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-attribution-' });
-  const artifacts = new DenoWorkerExecutionArtifactStore(stateRoot, Deno.cwd());
+  const artifacts = new FakeWorkerExecutionArtifactStore();
   const evidence = new FakeProviderEvidenceStore();
-  let created: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    created = await createWorkerTuiSession({
+    created = await createWorkerSession({
       stateRoot,
       workspaceRoot: Deno.cwd(),
-      persistence: 'new',
+      persistence: 'none',
       agent: 'default',
       physicalIoMode: 'provider-free',
       providerEvidenceStore: evidence,
@@ -575,8 +574,11 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
     const retainedEvidence = (await evidence.list())[0];
     assert(retainedEvidence?.schemaVersion === 5);
     assert(retainedEvidence.runtimeEvents.some((event) => event.kind === 'assistant_progress'));
-    const stored = await new DenoSessionStore(stateRoot, Deno.cwd()).readWorker(sessionId);
-    assert(!JSON.stringify(stored.transcript).includes('[henji-recalled-execution:v1]'));
+    assert(
+      !JSON.stringify(created.session.transcriptSnapshot()).includes(
+        '[henji-recalled-execution:v1]',
+      ),
+    );
   } finally {
     await created?.close();
     await Deno.remove(stateRoot, { recursive: true });
@@ -586,12 +588,12 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
 Deno.test('Increment 38 selects latest or explicit current-Session execution and consumes once', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-selection-' });
   const artifacts = new FakeWorkerExecutionArtifactStore();
-  let created: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    created = await createWorkerTuiSession({
+    created = await createWorkerSession({
       stateRoot,
       workspaceRoot: Deno.cwd(),
-      persistence: 'new',
+      persistence: 'none',
       agent: 'default',
       physicalIoMode: 'provider-free',
       executionArtifactStore: artifacts,
@@ -616,7 +618,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const adapter = createTuiPresentationAdapter(
       created.session,
       undefined,
-      created.navigation,
+      { persistent: true } as SessionNavigationHost,
     );
 
     assertEquals(await adapter.dispatch({ kind: 'recall_execution' }), {
@@ -675,20 +677,6 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
       kind: 'rejected',
       reason: 'unavailable',
     });
-
-    assert((await adapter.dispatch({ kind: 'recall_execution' })).kind === 'recall');
-    const replacement = await adapter.dispatch({ kind: 'new_session' });
-    assert(replacement.kind === 'binding');
-    const afterReplacement = await adapter.dispatch({
-      kind: 'ordinary_submit',
-      text: 'task after Session replacement',
-    });
-    assert(afterReplacement.kind === 'outcome' && afterReplacement.outcome.ok);
-    const replacementTarget = (await artifacts.list()).find((artifact) =>
-      artifact.command.task === 'task after Session replacement'
-    );
-    assert(replacementTarget?.schemaVersion === 5);
-    assertEquals(replacementTarget.recall, undefined);
   } finally {
     await created?.close();
     await Deno.remove(stateRoot, { recursive: true });

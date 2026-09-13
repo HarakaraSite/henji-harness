@@ -1,7 +1,7 @@
 import { AGENT_DEFINITION_API_CONTRACT } from '../v0/agent/runtime/build_manifest.ts';
 import type { BuildManifestV1 } from '../v0/agent/runtime/build_manifest.ts';
 
-const EXPECTED_DENO = '2.9.4';
+const EXPECTED_DENO = '2.9.6';
 const ROOTS = [
   'v0/agent/cli/henji_cli.ts',
   'v0/agent/worker/worker_bootstrap.ts',

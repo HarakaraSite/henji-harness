@@ -1,6 +1,5 @@
 import type { Message } from '../core/contracts.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
-import type { LegacyOpenRouterModelSelection } from '../provider/model_selection.ts';
 import type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 
@@ -9,7 +8,6 @@ export type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.
 export const SESSION_SCHEMA_VERSION = 1 as const;
 export const MAX_SESSION_FILE_BYTES = 8 * 1024 * 1024;
 export const MAX_VALID_SESSIONS_PER_WORKSPACE = 256;
-export const MAX_WORKSPACE_DIRECTORY_ENTRIES = 512;
 export const MAX_RESTORED_DISPLAY_MESSAGES = 100;
 export const MAX_RESTORED_DISPLAY_BYTES = 2 * 1024 * 1024;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -36,31 +34,6 @@ export interface SessionRecord {
   readonly transcript: readonly Message[];
 }
 
-/** Minimal Worker-backed record. Schema-v1 remains readable through the legacy codec. */
-export interface SessionRecordV2 {
-  readonly schemaVersion: 2;
-  readonly sessionId: string;
-  readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner';
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly stateRevision: number;
-  readonly nextTurn: number;
-  readonly transcript: readonly Message[];
-  readonly definition: DefinitionRevisionRef;
-}
-
-export interface SessionModelChangeV3 {
-  readonly effectiveFromTurn: number;
-  readonly changedAt: string;
-  readonly selection: LegacyOpenRouterModelSelection;
-}
-
-export interface SessionTurnModelAttributionV3 {
-  readonly turn: number;
-  readonly selection: LegacyOpenRouterModelSelection;
-}
-
 export interface SessionModelChange {
   readonly effectiveFromTurn: number;
   readonly changedAt: string;
@@ -70,40 +43,6 @@ export interface SessionModelChange {
 export interface SessionTurnModelAttribution {
   readonly turn: number;
   readonly selection: ModelSelection;
-}
-
-/** Worker-backed record with one durable root-model selection and committed-turn attribution. */
-export interface SessionRecordV3 {
-  readonly schemaVersion: 3;
-  readonly sessionId: string;
-  readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner';
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly stateRevision: number;
-  readonly nextTurn: number;
-  readonly transcript: readonly Message[];
-  readonly definition: DefinitionRevisionRef;
-  readonly activeModel: LegacyOpenRouterModelSelection;
-  readonly modelChanges: readonly SessionModelChangeV3[];
-  readonly turnModels: readonly SessionTurnModelAttributionV3[];
-}
-
-/** Worker-backed record with provider-neutral route identity and attribution. */
-export interface SessionRecordV4 {
-  readonly schemaVersion: 4;
-  readonly sessionId: string;
-  readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner';
-  readonly createdAt: string;
-  readonly updatedAt: string;
-  readonly stateRevision: number;
-  readonly nextTurn: number;
-  readonly transcript: readonly Message[];
-  readonly definition: DefinitionRevisionRef;
-  readonly activeModel: ModelSelection;
-  readonly modelChanges: readonly SessionModelChange[];
-  readonly turnModels: readonly SessionTurnModelAttribution[];
 }
 
 /** Worker-backed record with an optional human-authored Session title. */
@@ -194,17 +133,6 @@ export class SessionStoreError extends Error {
 export const isSessionId = (value: unknown): value is string =>
   typeof value === 'string' && UUID_V4.test(value);
 
-export interface SessionHandle {
-  readonly id: string;
-  readonly record?: SessionRecord;
-  readonly checkpoint?: SemanticContextCheckpointV1;
-  commit(record: SessionRecord): void;
-  rollback(): void;
-  installCheckpoint(checkpoint: SemanticContextCheckpointV1): void;
-  rollbackCheckpoint(): void;
-  close(): Promise<void>;
-}
-
 export interface WorkerSessionHandle {
   readonly id: string;
   readonly record?: StoredSessionRecord;
@@ -236,29 +164,4 @@ export interface WorkerSessionStorePort {
     definition: DefinitionRevisionRef,
   ): Promise<WorkerSessionHandle>;
   openExistingWorker(id: string): Promise<WorkerSessionHandle>;
-}
-
-export interface SessionListResult {
-  readonly sessions: readonly SessionMetadata[];
-  readonly skippedInvalid: number;
-}
-
-export interface SessionStorePort {
-  read(id: string): Promise<SessionRecord>;
-  readCheckpoint(id: string): Promise<SemanticContextCheckpointV1 | undefined>;
-  list(): Promise<SessionListResult>;
-  allocate(agent: SessionRecord['agent']): Promise<SessionHandle>;
-  openExisting(id: string): Promise<SessionHandle>;
-  delete(id: string): Promise<void>;
-}
-
-export interface SessionStoreOptions {
-  /** Direct-test seam for deterministic UUIDs and collision handling. */
-  readonly uuid?: () => string;
-  /** Direct-test-only fault seam for first-turn rollback removal. */
-  readonly removeSync?: (path: string) => void;
-  /** Direct-test-only barrier immediately before an existing-session lock attempt. */
-  readonly beforeOpenExistingLock?: (id: string) => Promise<void>;
-  /** Selected built-in profile used to reject checkpoints from another composition early. */
-  readonly sourceProfileId?: string;
 }

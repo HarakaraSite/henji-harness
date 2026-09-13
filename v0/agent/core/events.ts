@@ -94,7 +94,6 @@ export type AgentEvent =
 export type AgentEventSink = (event: AgentEvent) => void;
 
 /** Stable error surfaced when a synchronous event sink rejects delivery. */
-export const EVENT_DELIVERY_ERROR = 'agent event delivery failed';
 
 /**
  * Agent values are JSON-shaped. `structuredClone` preserves every valid JsonValue, including

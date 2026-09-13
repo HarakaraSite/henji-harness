@@ -173,36 +173,3 @@ Deno.test('Increment 32 projects the Worker generation startup snapshot', async 
     await Deno.remove(workspace, { recursive: true });
   }
 });
-
-Deno.test('Increment 32 headless artifacts leave the state root ready for durable TUI', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-32-shared-state-' });
-  const stateRoot = `${root}/state-home/henji-harness/v1`;
-  const workspace = `${root}/workspace`;
-  await Deno.mkdir(workspace);
-  const headless = await createWorkerSession({
-    workspaceRoot: workspace,
-    stateRoot,
-    persistence: 'none',
-    agent: 'default',
-    physicalIoMode: 'provider-free',
-  });
-  try {
-    assert((await headless.session.submit('create execution artifact')).ok);
-  } finally {
-    await headless.close();
-  }
-  assertEquals((await Deno.lstat(stateRoot)).mode! & 0o777, 0o700);
-  const durable = await createWorkerSession({
-    workspaceRoot: workspace,
-    stateRoot,
-    persistence: 'new',
-    agent: 'default',
-    physicalIoMode: 'provider-free',
-  });
-  try {
-    assert(durable.navigation?.persistent);
-  } finally {
-    await durable.close();
-    await Deno.remove(root, { recursive: true });
-  }
-});

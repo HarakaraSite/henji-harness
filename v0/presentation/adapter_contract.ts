@@ -50,7 +50,6 @@ export interface AdapterSessionPort {
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
-  consumeLegacyModelNotice?(): boolean;
 }
 
 export interface AdapterNavigationPort {
@@ -105,7 +104,6 @@ export type CoreSession = {
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
-  consumeLegacyModelNotice?(): boolean;
   prepareRecall?(id?: string): Promise<{
     readonly sourceExecutionId: string;
     readonly evidence: 'available' | 'unavailable';

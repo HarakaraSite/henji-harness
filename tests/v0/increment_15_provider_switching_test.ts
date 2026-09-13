@@ -18,9 +18,8 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
-import { DenoSessionStore } from '../../v0/agent/session/session_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { DenoWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 import type {
   PresentationIntent,
   PresentationIntentResult,
@@ -339,8 +338,7 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
 Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Session', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-15-' });
   const workspaceRoot = Deno.cwd();
-  const store = new DenoSessionStore(stateRoot, workspaceRoot);
-  const artifacts = new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
@@ -350,7 +348,6 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
     });
     assert((await first.session.submit('turn on OpenRouter')).ok);
     assertEquals(await first.session.selectModel(OPENAI_DEFAULT_MODEL_SELECTION), 'selected');
@@ -387,7 +384,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       ['turn on OpenRouter', 'turn on OpenAI', 'back on OpenRouter'],
     );
 
-    const savedArtifacts = await artifacts.list();
+    const savedArtifacts = await store.executionArtifacts.list();
     assertEquals(savedArtifacts.map((artifact) => artifact.manifest.rootModel), [
       ROOT_DEFAULT_MODEL_SELECTION,
       OPENAI_DEFAULT_MODEL_SELECTION,

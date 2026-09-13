@@ -1,5 +1,5 @@
 import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
-import { DenoSessionStore } from '../../v0/agent/session/session_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type {
   NavigationBinding,
   SessionNavigationHost,
@@ -26,7 +26,7 @@ Deno.test('Increment 35 creates and adopts a durable empty Session with the curr
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new DenoSessionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   const events: PresentationEvent[] = [];
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let reopened: Awaited<ReturnType<typeof createWorkerSession>> | undefined;

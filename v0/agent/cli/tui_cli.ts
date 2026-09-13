@@ -1,9 +1,4 @@
 import {
-  createRuntimeSessionFromPrepared,
-  prepareRuntimeComposition,
-  type RuntimeTestSeam,
-} from '../runtime/runtime.ts';
-import {
   DefinitionStartupError,
   definitionStartupErrorValue,
   type HostDefinitionSelection,
@@ -15,39 +10,18 @@ import { type AgentEventSink } from '../core/events.ts';
 import { TuiController, TuiControllerError } from '../../tui/controller.ts';
 import { TuiRenderer } from '../../tui/render.ts';
 import { DenoTerminal, TerminalLifecycle, type TerminalPort } from '../../tui/terminal.ts';
-import {
-  createSessionPersistence,
-  DenoSessionStore,
-  isSessionId,
-  launcherStateRoot,
-  restoredMessages,
-  type SessionHandle,
-  type SessionMetadata,
-  type SessionRecord,
-  SessionStoreError,
-} from '../session/session_store.ts';
+import { isSessionId, launcherStateRoot } from '../session/session_store.ts';
 import { type Message } from '../core/contracts.ts';
 import { type RuntimeDisplayState } from '../runtime/startup_orientation.ts';
 import { PendingInputCore } from '../../tui/pending_input.ts';
 import { TuiEditorHistory } from '../../tui/input.ts';
 import { buildWorkspacePathIndex, type WorkspacePathIndex } from '../../tui/file_reference.ts';
-import {
-  type NavigationBinding,
-  NavigationCancelledError,
-  NavigationFatalError,
-  type NavigationListing,
-  type NavigationPosition,
-  type SessionNavigationHost,
-} from '../session/session_navigation.ts';
-import { type SessionHistoryPage } from '../session/session_history.ts';
+import type { SessionNavigationHost } from '../session/session_navigation.ts';
 import {
   createTuiPresentationAdapter,
   presentationProjectionFromStartup,
   TuiPresentationAdapter,
 } from '../../presentation/adapter.ts';
-import { readCredentialFile } from '../provider/credential_file.ts';
-import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import { DenoFailureDiagnosticStore } from '../session/failure_diagnostic_store.ts';
 import { createWorkerSession } from '../worker/worker_host.ts';
 import { DenoHistoryExporter, type HistoryExporter } from '../session/history_export.ts';
 import type { HumanHistoryReadPort } from '../history/human_history.ts';
@@ -59,55 +33,6 @@ import type { ProviderId } from '../provider/model_selection.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 
 const encoder = new TextEncoder();
-
-const throwIfNavigationAborted = (signal?: AbortSignal): void => {
-  if (signal?.aborted) throw new NavigationCancelledError();
-};
-
-/**
- * Commit the prepared target only after materialization and old-session close succeed.
- *
- * This small transaction seam is production-owned and is intentionally direct-testable: every
- * failure path must close the target factory/persistence, while a successful commit transfers
- * ownership exactly once.
- */
-export interface NavigationSwitchTransaction {
-  readonly signal?: AbortSignal;
-  readonly materializeTarget: () => AgentSession;
-  readonly closeTarget: () => Promise<void>;
-  readonly closeCurrent: () => Promise<void>;
-  readonly commitTarget: (session: AgentSession) => void;
-}
-
-export const runNavigationSwitchTransaction = async (
-  transaction: NavigationSwitchTransaction,
-): Promise<AgentSession> => {
-  throwIfNavigationAborted(transaction.signal);
-  let ownershipTransferred = false;
-  try {
-    const targetSession = transaction.materializeTarget();
-    throwIfNavigationAborted(transaction.signal);
-    try {
-      await transaction.closeCurrent();
-    } catch {
-      throw new NavigationFatalError('current session close failed');
-    }
-    // Closing the old binding is irreversible. Once this boundary is crossed, an abort only
-    // cancels the still-pending redraw; it must never send the caller back to the closed binding.
-    transaction.commitTarget(targetSession);
-    ownershipTransferred = true;
-    return targetSession;
-  } catch (error) {
-    if (!ownershipTransferred) {
-      try {
-        await transaction.closeTarget();
-      } catch {
-        throw new NavigationFatalError('target session cleanup failed');
-      }
-    }
-    throw error;
-  }
-};
 
 export interface TuiSessionFactoryResult {
   readonly session:
@@ -138,7 +63,6 @@ export interface TuiSessionFactoryResult {
 
 export interface TuiCliDependencies {
   readonly terminal?: TerminalPort;
-  readonly runtimeSeam?: RuntimeTestSeam;
   readonly createSession?: (
     eventSink: AgentEventSink,
     selection: HostDefinitionSelection | undefined,
@@ -156,8 +80,6 @@ export interface TuiCliDependencies {
   readonly dailyEditor?: boolean;
   /** Direct/process-test path-index seam; production always builds from the canonical workspace. */
   readonly pathIndex?: WorkspacePathIndex;
-  /** Direct-test/host seam for turn-scoped diagnostic persistence. */
-  readonly diagnosticPersistence?: FailureDiagnosticPersister;
   /** Direct-test seam; production writes exports below the existing workspace state root. */
   readonly historyExporter?: HistoryExporter;
   readonly humanHistoryExporter?: HumanHistoryExporter;
@@ -170,11 +92,6 @@ const fatalMessages: Record<string, string> = {
   input_failure: 'input failure',
   output_failure: 'output failure',
   agent_failure: 'agent failure',
-};
-
-/** Parse the exact optional TUI selector. */
-export const parseTuiArgs = (args: readonly string[]): string | undefined => {
-  return parseTuiInvocation(args).rawAgentName;
 };
 
 export interface ParsedTuiInvocation {
@@ -381,311 +298,23 @@ export const main = async (
   let createdResult: TuiSessionFactoryResult | undefined;
   let resultCode = 1;
   try {
-    let sessionFactory = dependencies.createSession;
-    if (sessionFactory === undefined) {
-      // Production TUI requests use the fixed Worker-local file source. Direct tests retain their
-      // explicit runtime seam without entering the production Host/Worker path.
-      const runtimeSeam = dependencies.runtimeSeam === undefined
-        ? { credentialSource: readCredentialFile }
-        : dependencies.runtimeSeam;
-      sessionFactory = async (eventSink, selected) => {
-        if (dependencies.runtimeSeam === undefined) {
-          return await createWorkerSession({
-            workspaceRoot: dependencies.workspaceRoot,
-            stateRoot: dependencies.stateRoot,
-            persistence: invocation.persistence,
-            sessionId: invocation.sessionId,
-            selection: selected,
-            dataRoot: dependencies.dataRoot,
-            physicalIoMode: 'production',
-            rootMaxSteps: invocation.rootMaxSteps,
-            providerTimeoutMs: invocation.providerTimeoutMs,
-            initialModelSelection: defaultModelSelectionFor(
-              invocation.rootProvider ?? 'openrouter',
-            ),
-            eventSink,
-          });
-        }
-        if (selected === undefined || selected.kind !== 'builtin') {
-          throw new DefinitionStartupError(
-            'definition_execution_unavailable',
-            'worker_start',
-            'Managed Definition execution begins in Slice C',
-            selected?.ref,
-          );
-        }
-        if (invocation.persistence === 'none') {
-          const prepared = await prepareRuntimeComposition(
-            runtimeSeam,
-            selected,
-            'none',
-          );
-          const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
-          const diagnosticStore = dependencies.runtimeSeam === undefined &&
-              dependencies.diagnosticPersistence === undefined &&
-              prepared.seam.diagnosticPersistence === undefined
-            ? new DenoFailureDiagnosticStore(stateRoot, prepared.workspace.root)
-            : undefined;
-          const providerEvidenceStore = prepared.seam.providerEvidenceStore;
-          const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
-            dependencies.diagnosticPersistence ??
-            (diagnosticStore === undefined
-              ? undefined
-              : (diagnostic) => diagnosticStore.write(diagnostic));
-          const diagnosticPrepared = {
-            ...prepared,
-            seam: {
-              ...prepared.seam,
-              ...(diagnosticPersistence === undefined ? {} : { diagnosticPersistence }),
-              ...(providerEvidenceStore === undefined ? {} : { providerEvidenceStore }),
-            },
-          };
-          const result = createRuntimeSessionFromPrepared(
-            eventSink,
-            diagnosticPrepared,
-          );
-          return {
-            session: result.session,
-            requestCount: result.requestCount,
-            displayState: result.displayState,
-            workspaceRoot: prepared.workspace.root,
-          };
-        }
-        // Parent Definition/manifest preparation must complete before any store operation.
-        const prepared = await prepareRuntimeComposition(
-          runtimeSeam,
-          selected,
-          invocation.persistence,
-        );
-        const workspace = prepared.workspace;
-        const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
-        const diagnosticStore = dependencies.runtimeSeam === undefined &&
-            dependencies.diagnosticPersistence === undefined &&
-            prepared.seam.diagnosticPersistence === undefined
-          ? new DenoFailureDiagnosticStore(stateRoot, workspace.root)
-          : undefined;
-        const providerEvidenceStore = prepared.seam.providerEvidenceStore;
-        const diagnosticPersistence = prepared.seam.diagnosticPersistence ??
-          dependencies.diagnosticPersistence ??
-          (diagnosticStore === undefined
-            ? undefined
-            : (diagnostic) => diagnosticStore.write(diagnostic));
-        const diagnosticPrepared = {
-          ...prepared,
-          seam: {
-            ...prepared.seam,
-            ...(diagnosticPersistence === undefined ? {} : { diagnosticPersistence }),
-            ...(providerEvidenceStore === undefined ? {} : { providerEvidenceStore }),
-          },
-        };
-        const store = new DenoSessionStore(stateRoot, workspace.root, {
-          sourceProfileId: prepared.definition.model.profile.id,
-        });
-        let record: SessionRecord | undefined;
-        let handle;
-        if (invocation.persistence === 'continue') {
-          const listed = await store.list();
-          const first = listed.sessions.find((candidate) => candidate.agent === selected.id);
-          if (first === undefined) {
-            throw new SessionStoreError('session_not_found');
-          }
-          handle = await store.openExisting(first.id);
-          record = handle.record;
-        } else if (invocation.persistence === 'session') {
-          handle = await store.openExisting(invocation.sessionId!);
-          record = handle.record;
-        } else {
-          handle = await store.allocate(selected.id);
-        }
-        if (
-          record !== undefined &&
-          (record.workspaceRoot !== workspace.root ||
-            record.agent !== selected.id)
-        ) {
-          await handle.close();
-          throw new SessionStoreError('session_invalid');
-        }
-        const persistence = createSessionPersistence(
-          handle,
-          workspace.root,
-          selected.id,
-          record,
-        );
-        try {
-          const result = createRuntimeSessionFromPrepared(
-            eventSink,
-            diagnosticPrepared,
-            { persistence, initialRecord: record },
-          );
-          let currentHandle: SessionHandle = handle;
-          let currentRecord: SessionRecord | undefined = record;
-          let currentCreatedAt = record?.createdAt ?? new Date().toISOString();
-          let currentSession = result.session;
-          const position = (): NavigationPosition => {
-            const value = currentSession.currentPosition();
-            return {
-              sessionId: value.sessionId ?? currentHandle.id,
-              createdAt: currentCreatedAt,
-              agent: value.agent,
-              committedTurn: value.committedTurn,
-              messageCount: value.messageCount,
-              ...(value.checkpoint === undefined ? {} : { checkpoint: value.checkpoint }),
-            };
-          };
-          const navigation: SessionNavigationHost = {
-            persistent: true,
-            async list(signal?: AbortSignal): Promise<NavigationListing> {
-              throwIfNavigationAborted(signal);
-              const listed = await store.list();
-              throwIfNavigationAborted(signal);
-              const rows = listed.sessions.map((metadata: SessionMetadata) => ({
-                ...metadata,
-                current: metadata.id === currentHandle.id,
-                resumed: metadata.id === currentHandle.id,
-                mismatch: metadata.agent !== selected.id,
-              }));
-              if (
-                currentRecord === undefined &&
-                !rows.some((row) => row.id === currentHandle.id)
-              ) {
-                rows.push({
-                  id: currentHandle.id,
-                  agent: selected.id,
-                  createdAt: new Date(0).toISOString(),
-                  updatedAt: new Date(0).toISOString(),
-                  turnCount: 0,
-                  messageCount: 0,
-                  current: true,
-                  resumed: false,
-                  mismatch: false,
-                });
-              }
-              return { sessions: rows, skippedInvalid: listed.skippedInvalid };
-            },
-            renameCurrent: () => 'unavailable',
-            async switchTo(
-              id: string,
-              signal?: AbortSignal,
-            ): Promise<NavigationBinding> {
-              throwIfNavigationAborted(signal);
-              if (!isSessionId(id)) {
-                throw new SessionStoreError('session_invalid');
-              }
-              if (id === currentHandle.id) {
-                return {
-                  session: currentSession,
-                  position: position(),
-                  ...(currentRecord === undefined ? {} : (() => {
-                    const replay = restoredMessages(currentRecord!.transcript);
-                    return {
-                      restored: {
-                        messages: replay.messages,
-                        omitted: replay.omitted,
-                      },
-                    };
-                  })()),
-                };
-              }
-              const targetHandle = await store.openExisting(id);
-              try {
-                throwIfNavigationAborted(signal);
-              } catch (error) {
-                try {
-                  await targetHandle.close();
-                } catch {
-                  throw new NavigationFatalError(
-                    'target session cleanup failed',
-                  );
-                }
-                throw error;
-              }
-              const targetRecord = targetHandle.record;
-              if (
-                targetRecord === undefined ||
-                targetRecord.workspaceRoot !== workspace.root ||
-                targetRecord.agent !== selected.id
-              ) {
-                try {
-                  await targetHandle.close();
-                } catch {
-                  throw new NavigationFatalError(
-                    'target session cleanup failed',
-                  );
-                }
-                throw new SessionStoreError('session_invalid');
-              }
-              const targetPersistence = createSessionPersistence(
-                targetHandle,
-                workspace.root,
-                selected.id,
-                targetRecord,
-              );
-              const targetSession = await runNavigationSwitchTransaction({
-                signal,
-                materializeTarget: () => {
-                  const targetRuntime = createRuntimeSessionFromPrepared(
-                    eventSink,
-                    diagnosticPrepared,
-                    {
-                      persistence: targetPersistence,
-                      initialRecord: targetRecord,
-                    },
-                  );
-                  return targetRuntime.session;
-                },
-                closeTarget: () => targetPersistence.close(),
-                closeCurrent: () => currentSession.close(),
-                commitTarget: (session) => {
-                  currentHandle = targetHandle;
-                  currentRecord = targetRecord;
-                  currentCreatedAt = targetRecord.createdAt;
-                  currentSession = session;
-                },
-              });
-              const replay = restoredMessages(targetRecord.transcript);
-              return {
-                session: targetSession,
-                position: position(),
-                restored: {
-                  messages: replay.messages,
-                  omitted: replay.omitted,
-                },
-              };
-            },
-            historyPage(
-              page,
-              turn,
-              rows,
-            ): Promise<SessionHistoryPage | undefined> {
-              return Promise.resolve(
-                currentSession.historyPage(page, turn, rows),
-              );
-            },
-            currentPosition: position,
-          };
-          return {
-            session: result.session,
-            requestCount: result.requestCount,
-            close: () => currentSession.close(),
-            displayState: result.displayState,
-            workspaceRoot: prepared.workspace.root,
-            navigation,
-            ...(record === undefined ? {} : (() => {
-              const replay = restoredMessages(record.transcript);
-              return {
-                restored: {
-                  messages: replay.messages,
-                  omitted: replay.omitted,
-                },
-              };
-            })()),
-          };
-        } catch (error) {
-          await persistence.close();
-          throw error;
-        }
-      };
-    }
+    const sessionFactory = dependencies.createSession ??
+      ((eventSink: AgentEventSink, selected: HostDefinitionSelection | undefined) =>
+        createWorkerSession({
+          workspaceRoot: dependencies.workspaceRoot,
+          stateRoot: dependencies.stateRoot,
+          persistence: invocation.persistence,
+          sessionId: invocation.sessionId,
+          selection: selected,
+          dataRoot: dependencies.dataRoot,
+          physicalIoMode: 'production',
+          rootMaxSteps: invocation.rootMaxSteps,
+          providerTimeoutMs: invocation.providerTimeoutMs,
+          initialModelSelection: defaultModelSelectionFor(
+            invocation.rootProvider ?? 'openrouter',
+          ),
+          eventSink,
+        }));
     // Composition occurs before raw acquisition, so startup failures never touch terminal mode.
     const controllerRef: { current?: TuiController } = {};
     const presentationAdapterRef: { current?: TuiPresentationAdapter } = {};
@@ -767,7 +396,6 @@ export const main = async (
         created.restored.omitted,
       );
     }
-    presentationAdapter.announceLegacyModelDefault();
     if (initialPosition !== undefined) {
       renderer.setCurrentPosition(initialPosition);
       renderer.setProjection(

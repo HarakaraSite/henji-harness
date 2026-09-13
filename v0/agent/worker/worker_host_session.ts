@@ -192,7 +192,6 @@ export class WorkerHostSession {
   private readonly build = buildManifest();
   private readonly createdAt: string;
   private title: string | null;
-  private legacyModelNotice = false;
   private credentialAvailability: CredentialAvailability | undefined;
   private pendingRecall: RecalledExecutionContext | undefined;
 
@@ -235,7 +234,6 @@ export class WorkerHostSession {
     ) as SessionTurnExecutionAttribution[];
     this.createdAt = record?.createdAt ?? new Date().toISOString();
     this.title = record?.title ?? null;
-    this.legacyModelNotice = false;
     this.checkpoint = options.handle.checkpoint === undefined
       ? undefined
       : structuredClone(options.handle.checkpoint);
@@ -278,12 +276,6 @@ export class WorkerHostSession {
     return this.credentialAvailability === undefined
       ? undefined
       : structuredClone(this.credentialAvailability);
-  }
-
-  consumeLegacyModelNotice(): boolean {
-    const notice = this.legacyModelNotice;
-    this.legacyModelNotice = false;
-    return notice;
   }
 
   private trace(
@@ -1348,7 +1340,6 @@ export class WorkerHostSession {
       this.modelSelection = structuredClone(selection);
       this.modelChanges = nextChanges;
       this.stateRevision = nextRevision;
-      this.legacyModelNotice = false;
       return 'selected';
     } catch (error) {
       this.options.handle.rollback();

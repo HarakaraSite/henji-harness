@@ -37,7 +37,7 @@ shows the wrong JSR account, do not approve; sign out and authenticate with the 
 4. Run the repository's authoritative offline gate once on the release candidate:
 
    ```sh
-   henji_deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno
+   henji_deno=$(command -v deno)
    "$henji_deno" task --config deno.v0.json v0:gate
    ```
 
@@ -71,7 +71,7 @@ Keep this shell open through verification and cleanup so `release_version`, `rel
 Run JSR's complete validation without uploading anything:
 
 ```sh
-henji_deno=/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno
+henji_deno=$(command -v deno)
 cd "$release_dir"
 "$henji_deno" publish --dry-run --config jsr.json
 ```

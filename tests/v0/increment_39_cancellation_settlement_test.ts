@@ -19,8 +19,8 @@ import type {
   WorkerHostCommand,
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
-import { createWorkerTuiSession } from '../../v0/agent/worker/worker_host.ts';
-import { FakeWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -219,16 +219,15 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
 
 Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after persistence', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-39-worker-' });
-  const artifacts = new FakeWorkerExecutionArtifactStore();
-  let created: Awaited<ReturnType<typeof createWorkerTuiSession>> | undefined;
+  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let capsule: CleanupFailureCapsule | undefined;
   try {
-    created = await createWorkerTuiSession({
+    created = await createWorkerSession({
       stateRoot,
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
       capsuleFactory: () => {
         capsule = new CleanupFailureCapsule();
         return capsule;
@@ -239,7 +238,8 @@ Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after
     assertEquals(outcome.diagnostic?.stage, 'cancellation_cleanup');
     assert(!created.session.isAvailable());
     assert(capsule?.terminated);
-    const retained = (await artifacts.list())[0];
+    await history.initialize();
+    const retained = (await history.executionArtifacts.list())[0];
     assertEquals(retained?.settlement, 'uncommitted');
     assert(retained?.outcome !== undefined);
     assertEquals(retained.outcome.error, 'cancellation cleanup failed');

@@ -39,7 +39,6 @@ export interface TuiSessionLike {
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
-  consumeLegacyModelNotice?(): boolean;
 }
 
 export interface TuiNavigationLike {

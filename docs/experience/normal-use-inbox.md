@@ -16,6 +16,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
+| S6 | Surface | TUIヘッダのHenji version表示 | buildと公開packageのversionを通常利用時に確認する |
+| S7 | Surface | `/new`の空Session永続化を通常起動と揃える | 空Sessionが不要に残ることが通常利用で気になる |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -23,6 +25,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
+| A8 | Agent実行 | native Skill descriptionの受理上限 | 実際に使うSkillがdescription長だけでdiscoveryから消える |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -54,10 +57,13 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   instructionや新しいskillを現在Sessionの後続executionへ適用するには新しいgenerationが必要である。目的は
   fileを再読込することだけでなく、改訂後のresourceからAgent側の基底設定を再構築することであるため、
   command候補名を従来の`/reload`から`/rebuild`へ変更した。
+- 利用者判断（2026-09-13）: 少なくとも`AGENTS.md`と個々のnative Skillは、Session内の人間操作から後続execution
+  に対して有効化・無効化できるようにしたい。他resourceを同じ操作対象に含めるかは個別に検討する。過去executionの
+  attributionは変更しない。選択状態をSessionへ永続化するか、操作と`/rebuild`の順序、既定の有効状態は未決である。
 - 候補: 人間の`/rebuild`で、対象として定めたresourceから新しい`AgentContextGeneration`を構築し、現Session、
   canonical conversation、未送信draft、過去executionのattributionを維持したまま後続executionへ適用する。
-  最初の対象を`AGENTS.md`とskillsに限るか、Agent Definition、tool、将来componentまで含めるかは未決である。
-  context generationとWorker generationを同じidentityにすることも決めていない。
+  最初の対象では`AGENTS.md`とnative Skillの有効・無効selectionを扱い、Agent Definition、tool、将来componentは
+  対象kindとして採用するまで含めない。context generationとWorker generationを同じidentityにすることも決めていない。
 - 再検討条件: instruction等を改善した通常利用で、Henji自体を終了せず同じSessionの次taskへ適用したい事例が
   得られること。個別incrementでは対象resource、selection/activation authority、transitionのcommit/failure
   semanticsを決める。
@@ -74,6 +80,33 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   比較候補にする。
 - 再検討条件: plain textでは意味・可読性を安定して保てない回答が観測されること。string出力contractを
   変える場合はF10/F24として構想・architectureへ戻る。
+
+### S6 — TUIヘッダのHenji version表示（F01、F10）
+
+- 観測: 通常幅とcompact表示の起動ヘッダは`Henji Harness`だけを示す。standalone buildには`jsr.json`の
+  package versionがbuild manifestの`productVersion`として埋め込まれ、`henji --version`では確認できるが、
+  通常利用中のヘッダからは確認できない。
+- 利用者判断（2026-09-13）: ヘッダを`Henji Harness v0.1.0`の形式にし、固定文字列ではなく実行中buildの
+  `productVersion`を表示する。当面の0.1系列では、JSRへpublishするたびにpatch versionを一つ進め、
+  `0.1.0`、`0.1.1`、…、`0.1.12`のように記録する。version更新、publish、installed binary置換はそれぞれ
+  repositoryのrelease承認境界に従う。
+- 候補: 通常幅の枠見出しとcompact一行目へ同じversionを表示し、次の個別incrementで表示とrelease時の
+  version更新箇所を具体化する。
+- 再検討条件: この表示変更を個別incrementへ採用するとき。
+
+### S7 — `/new`の空Session永続化を通常起動と揃える（低優先度、F01、F04、F05、F10）
+
+- 観測: 通常起動はSession handleだけを予約し、最初のturn開始前に終了するとSessionを保存しない。一方、
+  `/new`はIncrement 35の契約によりturn 0のempty Sessionを即時materializeするため、実行直後に終了しても
+  Session一覧へ残る。SQLite化後の通常利用でもこの挙動差を確認したが、SQLite化によるregressionではない。
+- 利用者判断（2026-09-13）: 優先度は高くない。将来揃える場合は`/new`を通常起動側へ合わせ、新しいbindingを
+  仮Sessionとして開始し、最初のdurable state変更がないまま終了した場合は保存しない。通常起動時にempty
+  Sessionを即時保存する方向は採らない。
+- 候補: `/new`の切替前に行う`materializeEmptySession()`を外し、turn開始等の既存durable admissionで初めて
+  Sessionを保存する。`/sessions`表示、renameやmodel変更を最初に行った場合の保存契機、target setup failure時の
+  cleanupを個別incrementで現行sourceに即して確定し、Increment 35の旧契約も同時に更新する。
+- 再検討条件: turn 0の空Sessionが一覧へ残ることが通常利用上の負担になるか、他のSession lifecycle変更と
+  一緒に扱うとき。
 
 ## Agent実行
 
@@ -168,6 +201,19 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   durable child lifecycle、LangGraphのfuture/checkpointを補助参照にできる。調査結果だけではarchitecture・
   roadmapへの採用を意味しない。詳細は
   [`async-parallel-subagent-reference-comparison.md`](../research/async-parallel-subagent-reference-comparison.md)。
+
+### A8 — native Skill descriptionの受理上限（F02、F03、F06）
+
+- 観測: Henjiはnative `SKILL.md`のdescriptionをUTF-8で160 bytesに制限し、超過したskillをdiagnosticなしで
+  discovery結果から除外する。実環境では`handoff-read`の158 bytesだけが受理され、`handoff-write`の176 bytes、
+  `playwright-e2e`の370 bytes、`apply-forgejo-go-release-profile`の575 bytesが除外された。配置やTUIの最大5件表示が
+  原因ではない。
+- 利用者判断（2026-09-13）: 160 bytesは短すぎる。description単体は1 KiBまたはそれ以上を許容する方向で検討する。
+- 候補: architecture上の固定値ではないdescription単体上限を、観測済みnative Skillを受理できる値へ改める。
+  現行のfrontmatter全体4 KiB、skill manifest全体8 KiB、callable 24件との関係を保ち、単体上限のexact値は
+  個別incrementで決める。実際に有効な外部Skillを短縮してfixture側へ合わせない。
+- 再検討条件: native Skill discoveryのproduct bugとして修正するincrementを採用するとき、または`/rebuild`で
+  Skill catalogのselection/activationを扱うとき。
 
 ## F24・自己改訂
 

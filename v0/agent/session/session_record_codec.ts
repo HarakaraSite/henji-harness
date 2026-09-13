@@ -13,9 +13,6 @@ import {
   type SemanticContextCheckpointV1,
   type SessionMetadata,
   type SessionRecord,
-  type SessionRecordV2,
-  type SessionRecordV3,
-  type SessionRecordV4,
   type SessionRecordV5,
   type SessionRecordV6,
   SessionStoreError,
@@ -23,12 +20,7 @@ import {
   type WorkerSessionMetadata,
 } from './session_store_contract.ts';
 import { canonicalAbsolutePath } from './session_store_paths.ts';
-import {
-  isLegacyOpenRouterModelSelection,
-  isStoredModelSelection,
-  type LegacyOpenRouterModelSelection,
-  type ModelSelection,
-} from '../provider/model_selection.ts';
+import { isStoredModelSelection, type ModelSelection } from '../provider/model_selection.ts';
 import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
@@ -314,33 +306,47 @@ export const validRevisionRef = (
   value: unknown,
 ): value is DefinitionRevisionRef => isDefinitionRevisionRef(value);
 
-export const validateSessionRecordV2 = (
+const sameSelection = (left: ModelSelection, right: ModelSelection): boolean => {
+  return left.provider === right.provider && left.modelId === right.modelId &&
+    left.effort === right.effort && left.api === right.api &&
+    left.authProfile === right.authProfile;
+};
+
+const validateModelSessionRecord = (
   value: unknown,
-): value is SessionRecordV2 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
+): boolean => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   if (
-    !ownKeys(record, [
-      'schemaVersion',
-      'sessionId',
-      'workspaceRoot',
-      'agent',
-      'createdAt',
-      'updatedAt',
-      'stateRevision',
-      'nextTurn',
-      'transcript',
-      'definition',
-    ])
+    !ownKeys(
+      record,
+      [
+        'schemaVersion',
+        'sessionId',
+        'workspaceRoot',
+        'agent',
+        'createdAt',
+        'updatedAt',
+        'title',
+        'stateRevision',
+        'nextTurn',
+        'transcript',
+        'definition',
+        'activeModel',
+        'modelChanges',
+        'turnModels',
+      ],
+    ) || record.schemaVersion !== 5 ||
+    (record.title !== null && !isSessionTitle(record.title)) ||
+    !isStoredModelSelection(record.activeModel) ||
+    !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
+    !Array.isArray(record.turnModels)
   ) return false;
   if (
-    record.schemaVersion !== 2 || !validRevisionRef(record.definition) ||
-    !Number.isSafeInteger(record.stateRevision) ||
+    !validRevisionRef(record.definition) || !Number.isSafeInteger(record.stateRevision) ||
     (record.stateRevision as number) < 1
   ) return false;
-  const legacy: SessionRecord = {
+  const base: SessionRecord = {
     schemaVersion: 1,
     sessionId: record.sessionId as string,
     workspaceRoot: record.workspaceRoot as string,
@@ -350,130 +356,17 @@ export const validateSessionRecordV2 = (
     nextTurn: record.nextTurn as number,
     transcript: record.transcript as readonly Message[],
   };
-  return validateSessionRecord(legacy);
-};
-
-export const encodeSessionRecordV2 = (record: SessionRecordV2): Uint8Array => {
-  if (!validateSessionRecordV2(record)) {
-    throw new SessionStoreError('session_invalid');
-  }
-  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
-  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) {
-    throw new SessionStoreError('session_limit');
-  }
-  return bytes;
-};
-
-export const decodeSessionRecordV2 = (bytes: Uint8Array): SessionRecordV2 => {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
-    throw new SessionStoreError('session_invalid');
-  }
-  if (
-    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ||
-    bytes.includes(0)
-  ) {
-    throw new SessionStoreError('session_invalid');
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decoder.decode(bytes));
-  } catch {
-    throw new SessionStoreError('session_invalid');
-  }
-  if (!validateSessionRecordV2(parsed)) {
-    throw new SessionStoreError('session_invalid');
-  }
-  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
-  if (
-    canonical.byteLength !== bytes.byteLength ||
-    canonical.some((byte, index) => byte !== bytes[index])
-  ) throw new SessionStoreError('session_invalid');
-  return structuredClone(parsed);
-};
-
-type PersistedSelection = LegacyOpenRouterModelSelection | ModelSelection;
-
-const sameSelection = (left: PersistedSelection, right: PersistedSelection): boolean => {
-  const leftRoute = left as Partial<ModelSelection>;
-  const rightRoute = right as Partial<ModelSelection>;
-  return left.provider === right.provider && left.modelId === right.modelId &&
-    left.effort === right.effort && leftRoute.api === rightRoute.api &&
-    leftRoute.authProfile === rightRoute.authProfile;
-};
-
-const validateModelSessionRecord = (
-  value: unknown,
-  schemaVersion: 3 | 4 | 5,
-  validateSelection: (value: unknown) => value is PersistedSelection,
-): boolean => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
-  if (
-    !ownKeys(
-      record,
-      schemaVersion === 5
-        ? [
-          'schemaVersion',
-          'sessionId',
-          'workspaceRoot',
-          'agent',
-          'createdAt',
-          'updatedAt',
-          'title',
-          'stateRevision',
-          'nextTurn',
-          'transcript',
-          'definition',
-          'activeModel',
-          'modelChanges',
-          'turnModels',
-        ]
-        : [
-          'schemaVersion',
-          'sessionId',
-          'workspaceRoot',
-          'agent',
-          'createdAt',
-          'updatedAt',
-          'stateRevision',
-          'nextTurn',
-          'transcript',
-          'definition',
-          'activeModel',
-          'modelChanges',
-          'turnModels',
-        ],
-    ) || record.schemaVersion !== schemaVersion ||
-    (schemaVersion === 5 && record.title !== null && !isSessionTitle(record.title)) ||
-    !validateSelection(record.activeModel) ||
-    !Array.isArray(record.modelChanges) || record.modelChanges.length === 0 ||
-    !Array.isArray(record.turnModels)
-  ) return false;
-  const legacyV2: SessionRecordV2 = {
-    schemaVersion: 2,
-    sessionId: record.sessionId as string,
-    workspaceRoot: record.workspaceRoot as string,
-    agent: record.agent as SessionRecord['agent'],
-    createdAt: record.createdAt as string,
-    updatedAt: record.updatedAt as string,
-    stateRevision: record.stateRevision as number,
-    nextTurn: record.nextTurn as number,
-    transcript: record.transcript as readonly Message[],
-    definition: record.definition as DefinitionRevisionRef,
-  };
-  const emptyBeforeFirstTurn = isSessionId(legacyV2.sessionId) &&
-    typeof legacyV2.workspaceRoot === 'string' &&
-    canonicalAbsolutePath(legacyV2.workspaceRoot) !== undefined &&
-    legacyV2.workspaceRoot.trim() === legacyV2.workspaceRoot &&
-    (legacyV2.agent === 'default' || legacyV2.agent === 'planner') &&
-    canonicalTimestamp(legacyV2.createdAt) && canonicalTimestamp(legacyV2.updatedAt) &&
-    Date.parse(legacyV2.updatedAt) >= Date.parse(legacyV2.createdAt) &&
-    Number.isSafeInteger(legacyV2.stateRevision) && legacyV2.stateRevision >= 1 &&
-    legacyV2.nextTurn === 1 && Array.isArray(legacyV2.transcript) &&
-    legacyV2.transcript.length === 0 && validRevisionRef(legacyV2.definition);
-  if (!emptyBeforeFirstTurn && !validateSessionRecordV2(legacyV2)) return false;
+  const emptyBeforeFirstTurn = isSessionId(base.sessionId) &&
+    typeof base.workspaceRoot === 'string' &&
+    canonicalAbsolutePath(base.workspaceRoot) !== undefined &&
+    base.workspaceRoot.trim() === base.workspaceRoot &&
+    (base.agent === 'default' || base.agent === 'planner') &&
+    canonicalTimestamp(base.createdAt) && canonicalTimestamp(base.updatedAt) &&
+    Date.parse(base.updatedAt) >= Date.parse(base.createdAt) &&
+    base.nextTurn === 1 && Array.isArray(base.transcript) && base.transcript.length === 0;
+  if (!emptyBeforeFirstTurn && !validateSessionRecord(base)) return false;
   let previousEffectiveTurn = 0;
-  let latestSelection: PersistedSelection | undefined;
+  let latestSelection: ModelSelection | undefined;
   for (const value of record.modelChanges) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
     const change = value as Record<string, unknown>;
@@ -482,9 +375,9 @@ const validateModelSessionRecord = (
       !Number.isSafeInteger(change.effectiveFromTurn) ||
       (change.effectiveFromTurn as number) < previousEffectiveTurn ||
       (change.effectiveFromTurn as number) < 1 ||
-      (change.effectiveFromTurn as number) > legacyV2.nextTurn ||
+      (change.effectiveFromTurn as number) > base.nextTurn ||
       !canonicalTimestamp(change.changedAt) ||
-      !validateSelection(change.selection)
+      !isStoredModelSelection(change.selection)
     ) return false;
     previousEffectiveTurn = change.effectiveFromTurn as number;
     latestSelection = change.selection;
@@ -501,26 +394,17 @@ const validateModelSessionRecord = (
       !Number.isSafeInteger(attribution.turn) ||
       (attribution.turn as number) <= previousAttributedTurn ||
       (attribution.turn as number) < 1 ||
-      (attribution.turn as number) >= legacyV2.nextTurn ||
-      !validateSelection(attribution.selection)
+      (attribution.turn as number) >= base.nextTurn ||
+      !isStoredModelSelection(attribution.selection)
     ) return false;
     previousAttributedTurn = attribution.turn as number;
   }
   return true;
 };
 
-export const validateSessionRecordV3 = (
+const validateSessionRecordV5 = (
   value: unknown,
-): value is SessionRecordV3 =>
-  validateModelSessionRecord(value, 3, isLegacyOpenRouterModelSelection);
-
-export const validateSessionRecordV4 = (
-  value: unknown,
-): value is SessionRecordV4 => validateModelSessionRecord(value, 4, isStoredModelSelection);
-
-export const validateSessionRecordV5 = (
-  value: unknown,
-): value is SessionRecordV5 => validateModelSessionRecord(value, 5, isStoredModelSelection);
+): value is SessionRecordV5 => validateModelSessionRecord(value);
 
 const validBuildManifest = (value: unknown): value is BuildManifestV1 => {
   return isBuildManifest(value);
@@ -584,84 +468,6 @@ export const validateSessionRecordV6 = (
   const turnModels = record.turnModels as SessionRecordV5['turnModels'];
   return record.turnExecutions.length === turnModels.length &&
     record.turnExecutions.every((item, index) => item.turn === turnModels[index].turn);
-};
-
-export const encodeSessionRecordV3 = (record: SessionRecordV3): Uint8Array => {
-  if (!validateSessionRecordV3(record)) throw new SessionStoreError('session_invalid');
-  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
-  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
-  return bytes;
-};
-
-export const decodeSessionRecordV3 = (bytes: Uint8Array): SessionRecordV3 => {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
-    throw new SessionStoreError('session_invalid');
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decoder.decode(bytes));
-  } catch {
-    throw new SessionStoreError('session_invalid');
-  }
-  if (!validateSessionRecordV3(parsed)) throw new SessionStoreError('session_invalid');
-  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
-  if (
-    canonical.byteLength !== bytes.byteLength ||
-    canonical.some((byte, index) => byte !== bytes[index])
-  ) throw new SessionStoreError('session_invalid');
-  return structuredClone(parsed);
-};
-
-export const encodeSessionRecordV4 = (record: SessionRecordV4): Uint8Array => {
-  if (!validateSessionRecordV4(record)) throw new SessionStoreError('session_invalid');
-  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
-  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
-  return bytes;
-};
-
-export const decodeSessionRecordV4 = (bytes: Uint8Array): SessionRecordV4 => {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
-    throw new SessionStoreError('session_invalid');
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decoder.decode(bytes));
-  } catch {
-    throw new SessionStoreError('session_invalid');
-  }
-  if (!validateSessionRecordV4(parsed)) throw new SessionStoreError('session_invalid');
-  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
-  if (
-    canonical.byteLength !== bytes.byteLength ||
-    canonical.some((byte, index) => byte !== bytes[index])
-  ) throw new SessionStoreError('session_invalid');
-  return structuredClone(parsed);
-};
-
-export const encodeSessionRecordV5 = (record: SessionRecordV5): Uint8Array => {
-  if (!validateSessionRecordV5(record)) throw new SessionStoreError('session_invalid');
-  const bytes = encoder.encode(`${JSON.stringify(record)}\n`);
-  if (bytes.byteLength > MAX_SESSION_FILE_BYTES) throw new SessionStoreError('session_limit');
-  return bytes;
-};
-
-export const decodeSessionRecordV5 = (bytes: Uint8Array): SessionRecordV5 => {
-  if (bytes.byteLength === 0 || bytes.byteLength > MAX_SESSION_FILE_BYTES) {
-    throw new SessionStoreError('session_invalid');
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(decoder.decode(bytes));
-  } catch {
-    throw new SessionStoreError('session_invalid');
-  }
-  if (!validateSessionRecordV5(parsed)) throw new SessionStoreError('session_invalid');
-  const canonical = encoder.encode(`${JSON.stringify(parsed)}\n`);
-  if (
-    canonical.byteLength !== bytes.byteLength ||
-    canonical.some((byte, index) => byte !== bytes[index])
-  ) throw new SessionStoreError('session_invalid');
-  return structuredClone(parsed);
 };
 
 export const encodeSessionRecordV6 = (record: SessionRecordV6): Uint8Array => {

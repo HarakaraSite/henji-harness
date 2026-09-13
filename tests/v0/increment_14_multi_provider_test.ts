@@ -10,14 +10,8 @@ import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_m
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
-import {
-  decodeSessionRecordV4,
-  DenoSessionStore,
-  encodeSessionRecordV4,
-  type SessionRecordV4,
-} from '../../v0/agent/session/session_store.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import { DenoWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -352,41 +346,13 @@ Deno.test('Increment 14 keeps OpenRouter web search usable beside an OpenAI root
   assertEquals(seen.authorization, 'Bearer router-secret');
 });
 
-Deno.test('Increment 14 Session v4 round-trips route and auth identity', () => {
-  const record: SessionRecordV4 = {
-    schemaVersion: 4,
-    sessionId: '11111111-1111-4111-8111-111111111111',
-    workspaceRoot: '/tmp/increment-14',
-    agent: 'default',
-    createdAt: '2026-09-09T00:00:00.000Z',
-    updatedAt: '2026-09-09T00:00:00.000Z',
-    stateRevision: 1,
-    nextTurn: 1,
-    transcript: [],
-    definition: {
-      schemaVersion: 1,
-      resourceKind: 'agent-definition',
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
-    },
-    activeModel: OPENAI_DEFAULT_MODEL_SELECTION,
-    modelChanges: [{
-      effectiveFromTurn: 1,
-      changedAt: '2026-09-09T00:00:00.000Z',
-      selection: OPENAI_DEFAULT_MODEL_SELECTION,
-    }],
-    turnModels: [],
-  };
-  assertEquals(decodeSessionRecordV4(encodeSessionRecordV4(record)), record);
-});
-
 Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence and resume', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-14-' });
   const workspaceRoot = Deno.cwd();
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    const artifacts = new DenoWorkerExecutionArtifactStore(stateRoot, workspaceRoot);
+    const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
     first = await createWorkerSession({
       stateRoot,
       workspaceRoot,
@@ -394,19 +360,19 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
       agent: 'default',
       physicalIoMode: 'provider-free',
       initialModelSelection: OPENAI_DEFAULT_MODEL_SELECTION,
-      executionArtifactStore: artifacts,
     });
+    await store.initialize();
     assertEquals(first.session.modelSelectionSnapshot(), OPENAI_DEFAULT_MODEL_SELECTION);
     assertEquals(first.displayState.model.provider, 'openai');
     assert((await first.session.submit('persist direct provider selection')).ok);
-    const artifact = (await artifacts.list()).at(-1);
+    const artifact = (await store.executionArtifacts.list()).at(-1);
     assert(artifact !== undefined);
     assertEquals(artifact.manifest.rootModel, OPENAI_DEFAULT_MODEL_SELECTION);
     assert(artifact.manifest.resources.some((resource) => resource.startsWith('model:openai:')));
     const sessionId = first.session.currentPosition().sessionId;
     await first.close();
     first = undefined;
-    const stored = await new DenoSessionStore(stateRoot, workspaceRoot).readWorker(sessionId);
+    const stored = await store.readWorker(sessionId);
     assert(stored.schemaVersion === 6);
     assertEquals(stored.activeModel, OPENAI_DEFAULT_MODEL_SELECTION);
 

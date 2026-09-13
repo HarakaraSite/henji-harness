@@ -36,13 +36,6 @@ export interface OpenAIModelSelection {
 
 export type ModelSelection = OpenRouterModelSelection | OpenAIModelSelection;
 
-/** Schema-v3 persisted shape, retained only for deterministic read migration. */
-export interface LegacyOpenRouterModelSelection {
-  readonly provider: 'openrouter';
-  readonly modelId: string;
-  readonly effort: ReasoningEffort;
-}
-
 const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'auto',
   'none',
@@ -72,17 +65,6 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
     selection.authProfile === 'openai-api-key';
 };
 
-export const isLegacyOpenRouterModelSelection = (
-  value: unknown,
-): value is LegacyOpenRouterModelSelection => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const selection = value as Record<string, unknown>;
-  return Object.keys(selection).length === 3 && selection.provider === 'openrouter' &&
-    typeof selection.modelId === 'string' && selection.modelId.trim() === selection.modelId &&
-    selection.modelId.length > 0 && typeof selection.effort === 'string' &&
-    EFFORTS.includes(selection.effort as ReasoningEffort);
-};
-
 export const sameModelSelection = (
   left: ModelSelection,
   right: ModelSelection,
@@ -107,7 +89,3 @@ export const openRouterStoredSelection = (
     modelId,
     effort,
   });
-
-export const upgradeOpenRouterSelection = (
-  selection: LegacyOpenRouterModelSelection,
-): OpenRouterModelSelection => openRouterStoredSelection(selection.modelId, selection.effort);

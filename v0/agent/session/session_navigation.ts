@@ -48,7 +48,6 @@ export interface NavigationSessionLike {
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
-  consumeLegacyModelNotice?(): boolean;
 }
 
 export interface NavigationPosition {

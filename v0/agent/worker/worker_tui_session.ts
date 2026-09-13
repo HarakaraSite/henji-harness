@@ -9,13 +9,11 @@ import {
   resolveDefinitionRef,
   resolveRequestedDefinition,
 } from '../definitions/definition_selection.ts';
-import { DenoProviderEvidenceStore } from '../provider/provider_evidence_store.ts';
 import {
   projectRuntimeDisplayState,
   type RuntimeDisplayState,
 } from '../runtime/startup_orientation.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import { DenoFailureDiagnosticStore } from '../session/failure_diagnostic_store.ts';
 import type {
   NavigationBinding,
   NavigationListing,
@@ -25,7 +23,6 @@ import type {
 import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
 import {
   type DefinitionRevisionRef,
-  DenoSessionStore,
   launcherStateRoot,
   restoredMessages,
   type SemanticContextCheckpointV1,
@@ -40,10 +37,7 @@ import { workerBuiltinModulePath } from './worker_definition_revision.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
-import {
-  DenoWorkerExecutionArtifactStore,
-  type WorkerExecutionArtifactStore,
-} from './worker_execution_artifact_store.ts';
+import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import type { HumanHistoryReadPort } from '../history/human_history.ts';
 
@@ -147,21 +141,13 @@ export const createWorkerSession = async (
   options: WorkerSessionOptions,
 ): Promise<WorkerSessionResult> => {
   const workspace = await resolveWorkspace(options.workspaceRoot);
-  const productionStateRoot = options.physicalIoMode === 'production'
-    ? options.stateRoot ?? launcherStateRoot()
-    : undefined;
-  const sqliteHistory = options.physicalIoMode === 'production'
+  const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
     ? new SqliteHistoryStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
     )
     : undefined;
-  const store: DenoSessionStore | SqliteHistoryStore | undefined = options.persistence === 'none'
-    ? undefined
-    : sqliteHistory ?? new DenoSessionStore(
-      options.stateRoot ?? launcherStateRoot(),
-      workspace.root,
-    );
+  const store = options.persistence === 'none' ? undefined : sqliteHistory;
   let handle: WorkerSessionHandle;
   let record: StoredSessionRecord | undefined;
   let selection = options.selection;
@@ -253,24 +239,10 @@ export const createWorkerSession = async (
       ? managedWorkerDefinitionLoadRequest(activeSelection.revision)
       : undefined;
     const definition = activeSelection.ref;
-    const defaultDiagnosticStore = sqliteHistory?.diagnostics ??
-      (options.physicalIoMode === 'production' &&
-          options.diagnosticPersistence === undefined
-        ? new DenoFailureDiagnosticStore(productionStateRoot!, workspace.root)
-        : undefined);
-    const defaultEvidenceStore = sqliteHistory?.providerEvidence ??
-      (options.physicalIoMode === 'production' &&
-          options.providerEvidenceStore === undefined
-        ? new DenoProviderEvidenceStore(productionStateRoot!, workspace.root)
-        : undefined);
+    const defaultDiagnosticStore = sqliteHistory?.diagnostics;
+    const defaultEvidenceStore = sqliteHistory?.providerEvidence;
     const defaultExecutionArtifactStore = options.executionArtifactStore ??
-      sqliteHistory?.executionArtifacts ??
-      (options.physicalIoMode === 'production' || options.stateRoot !== undefined
-        ? new DenoWorkerExecutionArtifactStore(
-          options.stateRoot ?? launcherStateRoot(),
-          workspace.root,
-        )
-        : undefined);
+      sqliteHistory?.executionArtifacts;
     if (
       record !== undefined &&
       (record.workspaceRoot !== workspace.root ||
@@ -285,10 +257,6 @@ export const createWorkerSession = async (
       workerHandle: WorkerSessionHandle,
       initialModelSelection = options.initialModelSelection,
     ): Promise<WorkerHostSession> => {
-      const unifiedHistory = sqliteHistory !== undefined &&
-        options.diagnosticPersistence === undefined &&
-        options.providerEvidenceStore === undefined &&
-        options.executionArtifactStore === undefined;
       try {
         return await WorkerHostSession.open({
           handle: workerHandle,
@@ -306,12 +274,10 @@ export const createWorkerSession = async (
             defaultDiagnosticStore?.persist,
           providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
           executionArtifactStore: defaultExecutionArtifactStore,
-          ...(unifiedHistory
-            ? {
-              historyPersistence: sqliteHistory,
-              durableCanonicalHistory: options.persistence !== 'none',
-            }
-            : {}),
+          ...(sqliteHistory === undefined ? {} : {
+            historyPersistence: sqliteHistory,
+            durableCanonicalHistory: options.persistence !== 'none',
+          }),
           capsuleFactory: options.capsuleFactory,
         });
       } catch (error) {
@@ -465,12 +431,3 @@ export const createWorkerSession = async (
     throw error;
   }
 };
-
-/** Compatibility alias for the current terminal Surface. */
-export const createWorkerTuiSession = createWorkerSession;
-export type WorkerTuiSessionOptions = WorkerSessionOptions;
-export type WorkerTuiSessionResult = WorkerSessionResult;
-
-export const workerSessionRecord = (
-  record: StoredSessionRecord | undefined,
-): StoredSessionRecord | undefined => record === undefined ? undefined : structuredClone(record);
