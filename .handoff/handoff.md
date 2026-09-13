@@ -84,15 +84,21 @@
   schema v2のbyte不変な`history_invalid`拒否を確認した。実装reviewで報告されたskill relation重複、原因request ordinal欠落、
   active projection欠落、diagnosticsのwriter lock P1はすべて修正し、最終bounded reviewで新しいBlocker/P1はなかった。
   結果はIncrement 42正本へ保存済みである。非同期・並行subagentは未採用候補として通常利用メモへ記録し、一次資料による
-  参照実装比較をresearch文書へ保存した。architectureとroadmapは変更していない。Increment 41・42の変更は未commitである。
-- 次: 利用者判断によりIncrement 41・42の変更をcommitし、Increment 43の調査・計画へ進む。
+  参照実装比較をresearch文書へ保存した。architectureとroadmapは変更していない。Increment 41・42の変更は
+  `f6ef75c5`へcommit済みである。Increment 43は現行source/schema v3、Increment 30の検索取り下げ、Codex App Server、
+  OpenCode、Prime Agent、導入済みSQLite/FTS5を調査し、Session-scoped `HumanHistoryProjector`、同一documentのTUI閲覧と
+  literal検索、exact detail navigation、canonical-only exportと分離したdurable JSONL exportを初期計画化した。
+  schema v3は変更せず、planner固有表示・操作・受入を外し、保存済みlane/purposeだけをgenericに扱う。通常利用メモS3は
+  採用済みIncrement 43へ移した。利用者はplanner除外と`/history export all` JSONL contractを含む初期計画を
+  2026-09-13に承認した。計画差分は未commitで、architectureとroadmapは変更していない。
+- 次: Increment 43の承認済みSlice Aからhuman history read modelを実装する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
   `docs/increments/increment-34.md`、
   `docs/increments/increment-35.md`、`docs/increments/increment-37.md`、`docs/increments/increment-38.md`、
   `docs/increments/increment-39.md`、`docs/increments/increment-40.md`、`docs/increments/increment-41.md`、
-  `docs/increments/increment-42.md`、
+  `docs/increments/increment-42.md`、`docs/increments/increment-43.md`、
   `docs/experience/normal-use-inbox.md`、
   `docs/research/agent-loop-and-durable-state-comparison.md`、
   `docs/research/externalization-reference-comparison.md`、
@@ -120,6 +126,6 @@
   `709539b66e829e21c2f6dfde82adcb3c7fad660835f75f8884cfcaff9b926ee6`）、isolated stateは
   `/tmp/henji-i40-human-gate`に保持している。
   durable historyの全体programと破壊的cutover方針、Increment 40〜42の個別計画は承認済みである。過去Sessionの
-  migration、conversion、compatibility readは実装しない。Increment 40のrepository内実装はcommit済みで、
-  Increment 41・42の実装・結果文書は未commitである。architecture・roadmap・構想の変更、installed binary置換、
-  commit、push、tag、publishは承認されていない。
+  migration、conversion、compatibility readは実装しない。Increment 40〜42のrepository内実装はcommit済みである。
+  Increment 43の初期計画は承認済み・未commitである。architecture・roadmap・構想の変更、installed binary置換、
+  実装後の追加commit、push、tag、publishは承認されていない。

@@ -14,7 +14,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | --- | --- | --- | --- |
 | S1 | Surface | slash command候補の選択・補完 | 候補からの入力が繰り返し必要になる |
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
-| S3 | Surface | canonical/non-canonicalを辿る履歴viewer | 長い履歴の検索・copy・execution詳細確認が実利用で問題になる |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
@@ -48,19 +47,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 候補: secretを通常のinput buffer、会話履歴、process argumentへ残さない入力、auth profile選択、fixed
   credential fileの更新と結果表示を設計する。
 - 再検討条件: E1でProvider外部化を採用すること。
-
-### S3 — canonical/non-canonicalを辿る履歴viewer（F01、F05、F10）
-
-- 観測: Increment 30でPageUp/PageDown中のkeyword検索を試したが、terminalのdrawing rowとHostのbounded
-  history entryという二つのpage単位が混在したため取り下げた。現在はPageUp/PageDown、Escによる最新復帰、
-  `/history export`を使える。
-- 候補: canonical turnとsettled non-canonical executionを同じSession historyから識別して辿り、outcome、
-  tool call/result、context attribution、`/recall` source/target、将来の`/rebuild` transitionを必要に応じて
-  展開できるread-only viewにする。閲覧、literal keyword検索、wrap、viewport、page移動を同じ連続document上で
-  扱い、Markdown assistant rendererとtool summary/detail inspectorは保存・採用状態を変えないSurface部品にする。
-  `j`/`k`、`Ctrl-U`/`Ctrl-D`、`g`/`G`、`q`、mouse wheel、`$VISUAL`/`$EDITOR`へのexportは個別に選べる。
-- 再検討条件: 人間が過去turn、cancel/failed execution、toolの詳細を探してcopy・確認する作業で、現行の
-  scroll、`/recall` selector、canonical transcript exportでは十分でない事例が出ること。
 
 ### S4 — `/rebuild`によるAgent context再構築（F01、F03、F08、F10、F11、F27）
 
