@@ -15,8 +15,8 @@
   `@henji/harness@0.1.2`はJSRへpublish済みで、metadataのlatest versionとexact importを確認した。VMの
   `~/.local/bin/henji`もrelease commit `c6ad7330`からbuildしたv0.1.2へ置換し、versionを確認した。Increment 45で
   native Skill description上限を160 bytesから1 KiBへ広げ、観測済みの長いdescriptionを持つ実Skillがすべて
-  discoveryされることを確認した。Increment 45の差分は未commit・未releaseである。
-- 次: Increment 45の差分を確認し、指示があればcommitと次releaseを行う。
+  discoveryされることを確認し、commit `f78d0eda`へ記録した。Increment 45は未push・未releaseである。
+- 次: 小さな修正として、TUIヘッダへ実行中buildのversionを表示するS6を次Incrementに採用するか判断する。
 - 正本: `docs/increments/increment-44.md`、`docs/increments/increment-45.md`、`README.md`、`mod.ts`、`jsr.json`、
   `docs/operations/jsr-publish.md`、`docs/experience/normal-use-inbox.md`。
 - 注意: 既存SQLite・旧JSON dataは変更・削除していない。architecture・roadmap・構想の変更、Git tag、Forgejo
