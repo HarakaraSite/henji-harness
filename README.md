@@ -114,6 +114,10 @@ exact revisionを明示的にactivateする。
 ./dist/henji instruction deactivate
 ```
 
+`instruction install`は、installしたresource IDとexact revisionに加え、そのまま実行できる`inspect`・
+`activate` commandだけを短いreceiptとして表示する。metadata、origin/custody、physical store、instruction本文の
+詳細は、receiptの`inspect` commandで確認する。
+
 installはactive selectionを変更しない。activate/deactivateは次に作るWorker generationから反映され、
 既に動作中のgenerationや過去のSession履歴を書き換えない。external revisionが選択されているのにmanaged
 contentがmissingまたはinvalidなら、built-inへ暗黙fallbackせず起動前に失敗する。

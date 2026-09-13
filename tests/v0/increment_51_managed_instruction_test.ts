@@ -102,14 +102,15 @@ Deno.test('Increment 51 installs an exact instruction revision independently of 
   }
 });
 
-Deno.test('Increment 51 instruction CLI separates install, inspect, active binding, and deactivate', async () => {
+Deno.test('Increment 52 instruction install returns a short human receipt before inspect and activate', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-51-cli-' });
   try {
     const source = `${root}/source`;
     const dataRoot = `${root}/data`;
     const configRoot = `${root}/config`;
-    await writePackage(source, 'CLI EXTERNAL BASE');
-    const invoke = async (args: string[]) => {
+    const resourceId = "example/o'henji";
+    await writePackage(source, 'CLI EXTERNAL BASE', resourceId);
+    const invokeRaw = async (args: string[]) => {
       let stdout = '';
       let stderr = '';
       const code = await instructionMain(args, {
@@ -125,8 +126,16 @@ Deno.test('Increment 51 instruction CLI separates install, inspect, active bindi
       });
       return {
         code,
-        stdout: stdout === '' ? undefined : JSON.parse(stdout),
-        stderr: stderr === '' ? undefined : JSON.parse(stderr),
+        stdout,
+        stderr,
+      };
+    };
+    const invoke = async (args: string[]) => {
+      const result = await invokeRaw(args);
+      return {
+        code: result.code,
+        stdout: result.stdout === '' ? undefined : JSON.parse(result.stdout),
+        stderr: result.stderr === '' ? undefined : JSON.parse(result.stderr),
       };
     };
 
@@ -134,11 +143,25 @@ Deno.test('Increment 51 instruction CLI separates install, inspect, active bindi
     assertEquals(before.code, 0);
     assertEquals(before.stdout.selectionSource, 'built-in');
 
-    const installed = await invoke(['install', source]);
+    const installed = await invokeRaw(['install', source]);
     assertEquals(installed.code, 0);
-    const ref = installed.stdout.manifest.logicalRef;
     assertEquals((await invoke(['active'])).stdout.selectionSource, 'built-in');
-    assertEquals((await invoke(['list'])).stdout.instructions.length, 1);
+    const listed = await invoke(['list']);
+    assertEquals(listed.stdout.instructions.length, 1);
+    const ref = listed.stdout.instructions[0].logicalRef;
+    const exactRevision = `sha256:${ref.revision.digest}`;
+    const expectedSelector = `--id 'example/o'"'"'henji' --revision '${exactRevision}'`;
+    assertEquals(
+      installed.stdout,
+      `Installed: ${JSON.stringify(resourceId)}\n` +
+        `Revision:  ${exactRevision}\n\n` +
+        `Inspect:\n` +
+        `henji instruction inspect ${expectedSelector}\n\n` +
+        `Activate:\n` +
+        `henji instruction activate ${expectedSelector}\n`,
+    );
+    assert(!installed.stdout.includes('CLI EXTERNAL BASE'));
+    assert(!installed.stdout.includes(dataRoot));
     const selector = [
       '--id',
       ref.resourceId,

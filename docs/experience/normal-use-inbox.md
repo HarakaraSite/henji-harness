@@ -16,6 +16,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
 | S6 | Surface | Session pickerのlocal timezone・1行表示 | Session一覧の時刻と情報密度を改善する小Incrementを選ぶ |
+| S7 | Surface | managed Henji Instructionのuninstall/remove | 不要revisionや誤ってinstallしたrevisionをmanaged dataから削除する必要が出る |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -79,6 +80,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 利用者希望: 日付・時刻はHenjiを利用している環境のtimezoneに合わせ、title、Session ID、turn数、再開可否を
   含めて各Sessionを1行で表示する。保存timestampの形式は変えず、pickerの表示時だけlocal timeへ変換する候補とする。
 - 再検討条件: 次の小さなSurface改善Incrementを選ぶとき。
+
+### S7 — managed Henji Instructionのuninstall/remove（F03、F10）
+
+- 観測（2026-09-14）: `henji instruction deactivate`は次のWorker generationをbuilt-inへ戻すが、install済みの
+  managed exact revisionはXDG dataに残る。現行CLIにはrevisionをmanaged storeから削除する正式な
+  `uninstall`または`remove`操作がない。
+- 候補: 人間がresource IDと完全digestで選んだexact revisionを削除できるCLIを追加する。command名、active revisionを
+  対象にした場合の操作順、削除receipt、過去execution attributionとの関係は、採用時の実利用要件に基づいて決める。
+- 再検討条件: 不要revisionの蓄積を整理したい、または誤ってinstallしたrevisionをmanaged dataから削除したい事例が
+  得られること。
 
 ## Agent実行
 

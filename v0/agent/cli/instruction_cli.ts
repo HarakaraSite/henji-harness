@@ -13,6 +13,8 @@ import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 const encoder = new TextEncoder();
 const FULL_REVISION = /^sha256:([0-9a-f]{64})$/u;
 
+const shellWord = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
+
 export type InstructionCliCommand =
   | { readonly kind: 'install'; readonly directoryPath: string }
   | { readonly kind: 'list' }
@@ -87,6 +89,15 @@ const write = async (
   else await stream.write(encoder.encode(text));
 };
 
+const writeText = async (
+  writer: ((text: string) => void | PromiseLike<void>) | undefined,
+  stream: typeof Deno.stdout | typeof Deno.stderr,
+  text: string,
+): Promise<void> => {
+  if (writer !== undefined) await writer(text);
+  else await stream.write(encoder.encode(text));
+};
+
 const ref = (
   resourceId: string,
   digest: string,
@@ -107,6 +118,25 @@ const detail = (
   physicalStore: { root: revision.physicalRoot, entry: revision.entryPath },
   content: revision.content,
 });
+
+const installReceipt = (
+  revision: Awaited<ReturnType<ManagedHenjiInstructionStore['install']>>,
+): string => {
+  const resourceId = revision.manifest.logicalRef.resourceId;
+  const exactRevision = `sha256:${revision.manifest.logicalRef.revision.digest}`;
+  const selector = `--id ${shellWord(resourceId)} --revision ${shellWord(exactRevision)}`;
+  return [
+    `Installed: ${JSON.stringify(resourceId)}`,
+    `Revision:  ${exactRevision}`,
+    '',
+    'Inspect:',
+    `henji instruction inspect ${selector}`,
+    '',
+    'Activate:',
+    `henji instruction activate ${selector}`,
+    '',
+  ].join('\n');
+};
 
 const selected = (value: ReturnType<typeof builtinHenjiBaseInstruction>) => ({
   schemaVersion: 1,
@@ -156,10 +186,11 @@ export const main = async (
   try {
     if (command.kind === 'install') {
       const revision = await store.install(command.directoryPath);
-      await write(dependencies.writeStdout, Deno.stdout, {
-        ok: true,
-        ...detail(revision),
-      });
+      await writeText(
+        dependencies.writeStdout,
+        Deno.stdout,
+        installReceipt(revision),
+      );
     } else if (command.kind === 'list') {
       await write(dependencies.writeStdout, Deno.stdout, {
         schemaVersion: 1,
