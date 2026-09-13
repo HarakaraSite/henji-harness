@@ -50,5 +50,13 @@ digestを探さず、install直後に人間がexact revisionを確認し、
   check、format、lint、`git diff --check`は成功した。
 - isolated XDG rootsの実CLI
   processで`/tmp/henji-harness`をinstallし、完全digestと二つのcopy可能なcommandだけが
-  stdoutへ出ることを確認した。実provider request、active binding変更、installed
-  binary置換は行っていない。
+  stdoutへ出ることを確認した。実provider requestとactive binding変更は行っていない。
+- 利用者の明示指示により、managed revisionのuninstall/removeを通常利用メモS7へ未採用候補として記録し、
+  実装と文書をcommit `1ee500ab`へ確定した。そのclean commitからbuild
+  `0a6fcd9ae0a450d5ba16ccad2e3bbf271fc2f1001f2f76c6cce2819322d0ab99`を生成し、
+  `dist/henji`と`~/.local/bin/henji`を同一artifactへatomicに置換した。両方のSHA-256は
+  `95ba883b691e67637166ed63f1335956ffa770cf0597a5cd587c3116bb829ee1`である。
+- 導入版から新しいinstall receipt、source `1ee500ab150aaf2e14f8e9aa59b2ed60e6398fe5`、
+  `sourceDirty=false`をreadbackし、既存のactive external revision
+  `local/henji-base@sha256:2e00f40b9d3160f6047eda0a3c7e3f325b3fcfc85766ad16d57549e27b70355f`が
+  置換後も維持されることを確認した。tag、release、publishは行っていない。
