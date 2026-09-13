@@ -180,6 +180,7 @@ async (input, init) => {
       provider: 'openai',
       api: 'openai-responses',
       modelId: selection.modelId,
+      effort: selection.effort,
       authProfile: 'openai-api-key',
       protocol: 'sse',
     },

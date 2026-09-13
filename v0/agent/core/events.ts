@@ -76,6 +76,16 @@ export type AgentEvent =
     readonly executionArtifactPersistenceError?:
       | 'worker_execution_artifact_io_failure'
       | 'worker_execution_artifact_invalid';
+    readonly executionAdmissionDurability?: 'failed';
+    readonly executionAdmissionPersistenceError?:
+      | 'history_busy'
+      | 'history_invalid'
+      | 'history_io_failure';
+    readonly executionObservationDurability?: 'failed';
+    readonly executionObservationPersistenceError?:
+      | 'history_busy'
+      | 'history_invalid'
+      | 'history_io_failure';
     readonly diagnostic?: FailureDiagnosticV1;
     readonly diagnosticDurability?: FailureDiagnosticDurability;
     readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;

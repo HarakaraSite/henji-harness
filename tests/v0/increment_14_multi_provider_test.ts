@@ -193,6 +193,7 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK and retains 
     provider: 'openai',
     api: 'openai-responses',
     modelId: 'gpt-5.6-sol',
+    effort: 'medium',
     authProfile: 'openai-api-key',
     protocol: 'sse',
   });

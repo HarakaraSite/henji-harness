@@ -25,6 +25,7 @@ import {
 } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
+import type { InstructionComponent } from './instructions/component.ts';
 import {
   type ModelSelection,
   PLANNER_DEFAULT_MODEL_SELECTION,
@@ -90,6 +91,8 @@ export interface WorkerAgentComposition {
   readonly registry: Registry;
   readonly maxSteps: number;
   readonly systemInstruction?: string;
+  /** Built-in named boundaries; external Definitions remain opaque when omitted. */
+  readonly instructionComponents?: readonly InstructionComponent[];
   readonly manifest: WorkerAgentManifest;
   readonly resolved: ResolvedAgentDefinition;
 }
@@ -203,6 +206,19 @@ const compositionInstruction = (
     registry.promptGuidelines(),
   ).systemInstruction;
 
+const compositionComponents = (
+  role: BuiltinInstructionRole,
+  input: ExecutableAgentDefinitionInput,
+  registry: Registry,
+): readonly InstructionComponent[] =>
+  resolveBuiltinDefinitionInstruction(
+    role,
+    input.workspace.root,
+    input.agentInstructions,
+    input.skillCatalog,
+    registry.promptGuidelines(),
+  ).components;
+
 const createPlannerHandler = (
   input: ExecutableAgentDefinitionInput,
   planner: ResolvedAgentDefinition,
@@ -267,6 +283,7 @@ export const createDefaultAgentComposition = (
     input,
     registry,
   );
+  const instructionComponents = compositionComponents('default', input, registry);
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
@@ -283,6 +300,7 @@ export const createDefaultAgentComposition = (
     registry,
     maxSteps,
     systemInstruction,
+    instructionComponents,
     manifest: manifestFor(
       'parent',
       resolved.capabilities,
@@ -311,6 +329,7 @@ export const createPlannerAgentComposition = (
     input,
     registry,
   );
+  const instructionComponents = compositionComponents('planner', input, registry);
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
@@ -327,6 +346,7 @@ export const createPlannerAgentComposition = (
     registry,
     maxSteps,
     systemInstruction,
+    instructionComponents,
     manifest: manifestFor(
       'planner',
       resolved.capabilities,

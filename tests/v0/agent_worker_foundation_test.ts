@@ -1247,8 +1247,26 @@ Deno.test('Worker execution artifacts correlate built-in settlement and diagnost
 
     const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
     await history.initialize();
+    const importedTaskId = crypto.randomUUID().toLowerCase();
+    await history.beginExecution({
+      taskId: importedTaskId,
+      executionId: listed[0]!.executionId,
+      createdAt: listed[0]!.createdAt,
+      sessionCorrelation: listed[0]!.sessionId,
+      sessionMode: 'no_session',
+      turn: listed[0]!.turn,
+      task: listed[0]!.command.task,
+      baseStateRevision: listed[0]!.baseStateRevision,
+      agent: listed[0]!.agent,
+      model: listed[0]!.manifest.rootModel,
+      build: listed[0]!.build,
+      definition: listed[0]!.definition,
+      manifest: listed[0]!.manifest,
+      instanceCorrelation: listed[0]!.instanceCorrelation,
+      workerGeneration: listed[0]!.workerGeneration,
+    });
     history.settleNonCanonicalExecution({
-      taskId: crypto.randomUUID().toLowerCase(),
+      taskId: importedTaskId,
       executionId: listed[0]!.executionId,
       createdAt: listed[0]!.createdAt,
       sessionCorrelation: listed[0]!.sessionId,
@@ -1264,7 +1282,13 @@ Deno.test('Worker execution artifacts correlate built-in settlement and diagnost
       workerGeneration: listed[0]!.workerGeneration,
       outcome: builtinOutcome,
     });
-    history.recordPostCommitObservation(listed[0]!);
+    const imported = listed[0]!;
+    if (imported.schemaVersion !== 5) throw new Error('expected v5 artifact');
+    const { committedStateRevision: _committedRevision, ...nonCanonicalArtifact } = imported;
+    history.recordPostCommitObservation({
+      ...nonCanonicalArtifact,
+      adoption: 'non_canonical',
+    });
 
     assertEquals(parseFailureDiagnosticArgs(['executions', 'list']), {
       kind: 'execution_list',
@@ -1286,14 +1310,30 @@ Deno.test('Worker execution artifacts correlate built-in settlement and diagnost
     assertEquals(payload.executions.length, 1);
     assertEquals(Object.keys(payload.executions[0]!), [
       'executionId',
-      'settledAt',
-      'sessionId',
+      'taskId',
+      'task',
+      'sessionCorrelation',
       'turn',
-      'buildId',
+      'createdAt',
+      'settledAt',
+      'lifecycle',
+      'outcome',
+      'outcomeJson',
+      'adoption',
+      'baseRevision',
+      'agent',
+      'model',
+      'build',
       'definition',
+      'manifest',
+      'instanceCorrelation',
       'workerGeneration',
-      'settlement',
-      'providerEvidenceId',
+      'acknowledgement',
+      'generationAvailability',
+      'evidenceCapture',
+      'diagnosticCapture',
+      'artifactCapture',
+      'contextCapture',
     ]);
     assertEquals(payload.executions.map((execution) => execution.turn), [1]);
     assertEquals(
@@ -1318,7 +1358,8 @@ Deno.test('Worker execution artifacts correlate built-in settlement and diagnost
     assertEquals(showStatus, 0);
     const shown = JSON.parse(showOutput.join('')) as Record<string, unknown>;
     assertEquals(shown.executionId, listed[0]!.executionId);
-    assert(Array.isArray(shown.protocolTrace));
+    assert(Array.isArray(shown.events));
+    assert(Array.isArray(shown.effects));
     assert(typeof shown.definition === 'object' && shown.definition !== null);
   } finally {
     await Deno.remove(stateRoot, { recursive: true });

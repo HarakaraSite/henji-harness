@@ -248,6 +248,7 @@ Deno.test('Increment 38 resolves exact completed and incomplete source observati
     executionArtifactStore: artifacts,
     providerEvidenceStore: evidence,
   });
+  if (recalled.schemaVersion !== 1) throw new Error('expected legacy recall context');
   assertEquals({
     task: recalled.task,
     stopReason: recalled.stopReason,
@@ -565,14 +566,14 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
     const outcome = await created.session.submit('read worker protocol', context);
     assert(outcome.ok);
     const artifact = (await artifacts.list())[0];
-    assert(artifact?.schemaVersion === 3);
+    assert(artifact?.schemaVersion === 5);
     assertEquals(artifact.recall, {
       schemaVersion: 1,
       sourceExecutionId: SOURCE_ID,
       projectedContext: recalledExecutionProjectionText(context),
     });
     const retainedEvidence = (await evidence.list())[0];
-    assert(retainedEvidence?.schemaVersion === 3);
+    assert(retainedEvidence?.schemaVersion === 5);
     assert(retainedEvidence.runtimeEvents.some((event) => event.kind === 'assistant_progress'));
     const stored = await new DenoSessionStore(stateRoot, Deno.cwd()).readWorker(sessionId);
     assert(!JSON.stringify(stored.transcript).includes('[henji-recalled-execution:v1]'));
@@ -632,7 +633,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const firstTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use latest source'
     );
-    assert(firstTarget?.schemaVersion === 3);
+    assert(firstTarget?.schemaVersion === 5);
     assertEquals(firstTarget.recall?.sourceExecutionId, latestId);
 
     assertEquals(await adapter.dispatch({ kind: 'recall_execution', id: 'aaaaaaaa-aaaa' }), {
@@ -645,7 +646,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const secondTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use explicit source'
     );
-    assert(secondTarget?.schemaVersion === 3);
+    assert(secondTarget?.schemaVersion === 5);
     assertEquals(secondTarget.recall?.sourceExecutionId, olderId);
 
     const third = await adapter.dispatch({ kind: 'ordinary_submit', text: 'ordinary next task' });
@@ -653,7 +654,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const thirdTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'ordinary next task'
     );
-    assert(thirdTarget?.schemaVersion === 3);
+    assert(thirdTarget?.schemaVersion === 5);
     assertEquals(thirdTarget.recall, undefined);
 
     assert((await adapter.dispatch({ kind: 'recall_execution' })).kind === 'recall');
@@ -666,7 +667,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const clearedTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'task after recall clear'
     );
-    assert(clearedTarget?.schemaVersion === 3);
+    assert(clearedTarget?.schemaVersion === 5);
     assertEquals(clearedTarget.recall, undefined);
 
     const noSession = createTuiPresentationAdapter(created.session);
@@ -686,7 +687,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const replacementTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'task after Session replacement'
     );
-    assert(replacementTarget?.schemaVersion === 3);
+    assert(replacementTarget?.schemaVersion === 5);
     assertEquals(replacementTarget.recall, undefined);
   } finally {
     await created?.close();

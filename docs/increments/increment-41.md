@@ -1,6 +1,6 @@
 # Increment 41 — durable active execution and live journal
 
-ステータス: **調査・個別計画・第三者review完了（利用者承認待ち）**
+ステータス: **完了（利用者承認、実装、検証、第三者review、production Human Gate完了）**
 
 基準commit: `daaef099`
 
@@ -285,6 +285,43 @@ Increment 38 recall、Increment 39 cancellation、Increment 40 SQLite historyを
   旧JSON fallbackが起きないことを確認する。
 - 受入は一時binary/stateだけを使い、installed binaryを置換しない。credential値とAuthorizationは記録しない。
 
+### 実施結果（2026-09-13）
+
+- working treeから一時standaloneをbuildした。build IDは
+  `baa798c8a17941671e1e2dfb47c73d2996395368f52915645f03d7f7d6afd301`で、installed binaryは
+  置換していない。`/tmp`の空き容量不足はrepository内の一時directoryをcompile用`TMPDIR`にして回避し、
+  product stateはempty isolated XDG stateへ限定した。
+- real-provider turn `a9f2da71-2033-4568-af4d-49054a58c309`を長時間`bash`実行まで進め、別processの
+  diagnosticsからactive rowとordinal 1〜254の増加するjournalをreadbackした。journalにはprovider request、
+  response bytes、SSE、parser transition、runtime eventと`bash`の`observed_requested`が含まれ、
+  Authorization、cookie、request headerは含まれなかった。
+- active TUIと子`bash`を強制停止し、Session `ba7b7480-8038-4379-9f84-583823066a76`をexact reopenした。
+  source executionはordinal 255の`execution_reconciled`を末尾に持つ`settled/interrupted/non_canonical`となり、
+  partial evidenceとartifactは保存済み、未完了`bash` effectは`outcome_unknown`となった。Sessionはturn 0、
+  revision 1のままで、過去taskの自動送信はなかった。
+- `/recall a9f2da71`後の次task `2816313a-4ba4-44d3-bef2-bb392e39f64d`は、観測済みtool名`bash`と
+  `outcome_unknown`を参照して`completed/canonical`、committed revision 2となった。sourceはnon-canonicalの
+  ままで、Sessionのcanonical turnはtarget一件だけ増えた。
+- 二つのreal TTY/processで異なるSessionの20秒`bash` turnを重ねた。execution
+  `6a8760da-ac5a-477f-8fd3-f1d25764c918`と`6529f9d9-721a-4162-b106-dadfde7da604`は異なる
+  Session correlationを持ち、双方がtool終了後に`settled/completed/canonical`へcommitした。250 ms busyの
+  typed failureとno-partial-writeはIncrement 40 focused regressionで確認済みである。
+- schema v1だけを持つDBを別のisolated stateへ配置するとCLIは`history_invalid`で拒否した。実行前後のDB
+  SHA-256はともに`175196efd5d687eb6d948bb955952be819b711b9b8affc6e752683ed266618d2`で、移行、削除、
+  旧JSON fallbackは起きなかった。
+
+## 実装・検証結果
+
+- schema v2、active execution admission、append-only journal、tool effect projection、normal settlement、
+  persistent/no-session restart reconciliation、partial evidence/artifact、row-authoritative diagnosticsと
+  `RecalledExecutionContextV2`をproduction Host/Worker経路へ実装した。READMEも破壊的cutoverと診断契約へ更新した。
+- Increment 41 focused testは12件成功した。変更経路に対応するWorker foundation 39件、provider stream 20件、
+  Increment 38 recall 6件、Increment 39 cancellation 4件、Increment 40 SQLite 14件も成功した。
+- `v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`は成功した。authoritative `v0:gate`の初回実行は
+  `provider_evidence.ts`のインデント一箇所だけでformat check停止し、同fileをformatterで直した具体的理由により
+  再実行して全206 testを含め成功した。その後、Increment 41 focused taskが将来のgateから漏れないよう
+  `v0:test`連鎖へ追加し、統合後の全218 testが成功した。
+
 ## 完了条件
 
 - dispatch前のactive executionとtaskがdurableで、begin失敗時にprovider/toolが起動しない。
@@ -323,8 +360,15 @@ reviewを実施した。Blockerはなく、次のP1 4件を採用して本計画
 4. `RecalledExecutionContextV2`とprovider-only partial observationの構造化projectionを定義する。
 
 変更箇所と既存findingの解消に限定した15分以内のre-reviewで、4件の解消と新しい
-Blocker/P1がないことを確認した。本計画は利用者承認候補である。reviewerはファイル変更、test、
+Blocker/P1がないことを確認した。利用者はこの計画を承認した。計画reviewerはファイル変更、test、
 full gateを行っていない。
+
+実装後のread-only reviewでは次のP1 6件を採用した。(1) crash後の`/recall`がjournal上の
+user/assistant/tool eventを落とす、(2) complete evidence照合がprovider観測0件とruntime/effect progress欠落を
+拒否しない、(3) canonical commit後のjournal append failureがSurfaceへ出ない、(4) admission failureのtyped codeが
+失われる、(5) `ProviderEvidenceV4`のnested codecが浅い、(6) journal payload unionがkindごとのexact contractでない、
+の各問題である。修正後の一回のbounded re-reviewで6件すべての解消をsourceとfocused test 12件で確認し、
+新しいBlocker/P1はなかった。reviewerはfull gateとproduction Human Gateを実行していない。
 
 ## Human Gateと停止条件
 

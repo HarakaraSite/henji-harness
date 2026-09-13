@@ -282,7 +282,7 @@ const observedExternalRequests = (
   evidence: readonly StoredProviderEvidence[] | null,
 ): number | null => {
   if (evidence !== null) return evidence.reduce((sum, item) => sum + item.requests.length, 0);
-  const count = executions?.at(0)?.outcome.runtimeProviderRequestCount;
+  const count = executions?.at(0)?.outcome?.runtimeProviderRequestCount;
   return typeof count === 'number' ? count : null;
 };
 
@@ -342,6 +342,10 @@ export const evaluateProductionCliE2e = (
     return failure(observation, 'execution_artifact', 'execution_count_mismatch');
   }
   const artifact = executions[0];
+  const artifactOutcome = artifact.outcome;
+  if (artifactOutcome === undefined) {
+    return failure(observation, 'execution_artifact', 'execution_contract_mismatch');
+  }
   if (
     artifact.agent !== 'default' || artifact.definition.resourceKind !== 'agent-definition' ||
     artifact.definition.resourceId !== 'builtin/default' || artifact.manifest.role !== 'parent' ||
@@ -349,12 +353,12 @@ export const evaluateProductionCliE2e = (
     artifact.manifest.maxSteps !== DEFAULT_AGENT_MAX_STEPS ||
     artifact.command.kind !== 'turn' || artifact.command.task !== PRODUCTION_CLI_E2E_TASK ||
     artifact.storeResult !== 'committed' || artifact.acknowledgement !== 'accepted_sent' ||
-    artifact.settlement !== 'committed' || artifact.outcome.ok !== true ||
-    artifact.outcome.outcome !== 'final' || artifact.outcome.stopReason !== 'final' ||
-    artifact.outcome.finalText !== nonce || artifact.outcome.steps !== 2 ||
-    artifact.outcome.toolCallCount !== 1 || artifact.outcome.toolResultCount !== 1 ||
-    artifact.outcome.turnProviderRequestCount !== PRODUCTION_CLI_E2E_EXPECTED_REQUESTS ||
-    artifact.outcome.runtimeProviderRequestCount !== PRODUCTION_CLI_E2E_EXPECTED_REQUESTS ||
+    artifact.settlement !== 'committed' || artifactOutcome.ok !== true ||
+    artifactOutcome.outcome !== 'final' || artifactOutcome.stopReason !== 'final' ||
+    artifactOutcome.finalText !== nonce || artifactOutcome.steps !== 2 ||
+    artifactOutcome.toolCallCount !== 1 || artifactOutcome.toolResultCount !== 1 ||
+    artifactOutcome.turnProviderRequestCount !== PRODUCTION_CLI_E2E_EXPECTED_REQUESTS ||
+    artifactOutcome.runtimeProviderRequestCount !== PRODUCTION_CLI_E2E_EXPECTED_REQUESTS ||
     artifact.providerEvidenceDurability !== 'yes' ||
     typeof artifact.providerEvidenceId !== 'string'
   ) return failure(observation, 'execution_artifact', 'execution_contract_mismatch');

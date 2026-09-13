@@ -1,11 +1,20 @@
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
+import type {
+  ProviderEvidenceObservation,
+  ProviderEvidenceV1,
+} from '../provider/provider_evidence.ts';
 import type { SemanticContextCheckpointV1 } from '../session/session_store.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
-import type { RecalledExecutionContextV1 } from './recalled_execution_context.ts';
+import type { RecalledExecutionContext } from './recalled_execution_context.ts';
+import type {
+  ContextModelRequestRecord,
+  ExecutionContextManifestV1,
+  ExecutionContextRelation,
+  WorkerContextSnapshot,
+} from '../history/context_attribution.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -79,7 +88,7 @@ export type WorkerHostCommand =
     readonly kind: 'turn';
     readonly correlation: WorkerCorrelation;
     readonly task: string;
-    readonly recalledContext?: RecalledExecutionContextV1;
+    readonly recalledContext?: RecalledExecutionContext;
   }
   | {
     readonly kind: 'steer';
@@ -184,8 +193,21 @@ export interface WorkerReadyMessage {
   readonly startupSnapshot?: {
     readonly instructionSource?: AgentInstructionSource;
     readonly skillNames: readonly string[];
+    /** Exact generation basis retained by the Worker and copied by Host admission. */
+    readonly context?: WorkerContextSnapshot;
   };
   readonly credentialAvailability?: CredentialAvailability;
+}
+
+export type WorkerContextObservation =
+  | { readonly kind: 'model_request'; readonly request: ContextModelRequestRecord }
+  | { readonly kind: 'relation'; readonly relation: ExecutionContextRelation };
+
+export interface WorkerContextObservationMessage {
+  readonly kind: 'context_observation';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly observation: WorkerContextObservation;
 }
 
 export interface WorkerModelSelectedMessage {
@@ -215,6 +237,13 @@ export interface WorkerEffectObservationMessage {
   readonly effect: WorkerEffectObservation;
 }
 
+export interface WorkerProviderObservationMessage {
+  readonly kind: 'provider_observation';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly observation: ProviderEvidenceObservation;
+}
+
 export interface WorkerCommitProposalMessage {
   readonly kind: 'commit_proposal';
   readonly correlation: WorkerCorrelation;
@@ -224,6 +253,8 @@ export interface WorkerCommitProposalMessage {
   readonly outcome?: LoopOutcome;
   /** Credential-free evidence captured inside Worker; Host owns persistence. */
   readonly providerEvidence?: ProviderEvidenceV1;
+  /** Final ordered context descriptor manifest for normal settlement validation. */
+  readonly contextManifest?: ExecutionContextManifestV1;
   readonly diagnostic?: FailureDiagnosticV1;
 }
 
@@ -240,6 +271,8 @@ export interface WorkerTurnFailedMessage {
   readonly outcome: LoopOutcome;
   /** Credential-free evidence captured inside Worker; Host owns persistence. */
   readonly providerEvidence?: ProviderEvidenceV1;
+  /** Final ordered context descriptor manifest for normal settlement validation. */
+  readonly contextManifest?: ExecutionContextManifestV1;
   readonly diagnostic?: FailureDiagnosticV1;
 }
 
@@ -264,6 +297,8 @@ export type WorkerToHostMessage =
   | WorkerModelSelectedMessage
   | WorkerRuntimeEventMessage
   | WorkerEffectObservationMessage
+  | WorkerProviderObservationMessage
+  | WorkerContextObservationMessage
   | WorkerCommitProposalMessage
   | WorkerCheckpointProposalMessage
   | WorkerTurnFailedMessage

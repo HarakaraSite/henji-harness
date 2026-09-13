@@ -146,6 +146,18 @@ export const turnEndFromOutcome = (
   ...(outcome.executionArtifactPersistenceError === undefined ? {} : {
     executionArtifactPersistenceError: outcome.executionArtifactPersistenceError,
   }),
+  ...(outcome.executionAdmissionDurability === undefined ? {} : {
+    executionAdmissionDurability: outcome.executionAdmissionDurability,
+  }),
+  ...(outcome.executionAdmissionPersistenceError === undefined ? {} : {
+    executionAdmissionPersistenceError: outcome.executionAdmissionPersistenceError,
+  }),
+  ...(outcome.executionObservationDurability === undefined ? {} : {
+    executionObservationDurability: outcome.executionObservationDurability,
+  }),
+  ...(outcome.executionObservationPersistenceError === undefined ? {} : {
+    executionObservationPersistenceError: outcome.executionObservationPersistenceError,
+  }),
   ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
   ...(outcome.diagnosticDurability === undefined ? {} : {
     diagnosticDurability: outcome.diagnosticDurability,

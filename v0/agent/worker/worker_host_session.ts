@@ -17,8 +17,11 @@ import {
   validateSemanticContextCheckpoint,
   validateSessionRecordV6,
 } from '../session/session_store.ts';
-import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidenceV1, ProviderEvidenceV3 } from '../provider/provider_evidence.ts';
+import {
+  createFailureDiagnostic,
+  type FailureDiagnosticV1,
+} from '../session/failure_diagnostic.ts';
+import type { ProviderEvidenceV1, ProviderEvidenceV5 } from '../provider/provider_evidence.ts';
 import { readWorkerModuleRevision, WorkerCapsule } from './worker_capsule.ts';
 import type {
   WorkerCheckpointProposalMessage,
@@ -43,7 +46,7 @@ import {
 } from '../provider/model_selection.ts';
 import {
   type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV3,
+  type WorkerExecutionArtifactV5,
   workerExecutionOutcome,
   type WorkerExecutionSettlement,
   type WorkerExecutionStoreResult,
@@ -53,7 +56,7 @@ import {
   workerMessageSubtype,
 } from './worker_execution_artifact.ts';
 import {
-  type RecalledExecutionContextV1,
+  type RecalledExecutionContext,
   recalledExecutionProjectionText,
   resolveRecalledExecutionContext,
 } from './recalled_execution_context.ts';
@@ -71,6 +74,14 @@ import {
 import { HostMessageQueue } from './worker_host_queue.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
+import type {
+  ExecutionEventInput,
+  ExecutionEventPayloadByKind,
+} from '../history/history_store_contract.ts';
+import {
+  type ExecutionContextManifestV1,
+  validateWorkerContextSnapshot,
+} from '../history/context_attribution.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const profileIdPattern = /^[^\0]+$/u;
@@ -91,7 +102,8 @@ const validStartupSnapshot = (
     value.instructionSource !== 'AGENTS.MD'
   ) return false;
   return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
-    new Set(value.skillNames).size === value.skillNames.length;
+    new Set(value.skillNames).size === value.skillNames.length &&
+    (value.context === undefined || validateWorkerContextSnapshot(value.context));
 };
 
 export type WorkerHostStartupErrorCode =
@@ -130,9 +142,15 @@ type ActiveWorkerExecution = {
   readonly createdAt: string;
   readonly turn: number;
   readonly command: WorkerExecutionTurnCommand;
-  readonly recalledContext?: RecalledExecutionContextV1;
+  readonly recalledContext?: RecalledExecutionContext;
   readonly baseStateRevision: number;
   readonly protocolTrace: WorkerExecutionTraceEntry[];
+  journalFailure?: boolean;
+  postCommitObservationFailure?: boolean;
+  postCommitObservationError?:
+    | 'history_busy'
+    | 'history_invalid'
+    | 'history_io_failure';
   storeResult: WorkerExecutionStoreResult;
   storeError?: 'session_io_failure' | 'session_invalid' | 'history_busy';
   proposedStateRevision?: number;
@@ -140,6 +158,7 @@ type ActiveWorkerExecution = {
   acknowledgement: WorkerExecutionAcknowledgement;
   settlement: WorkerExecutionSettlement;
   artifactWritten: boolean;
+  contextCapture?: 'complete' | 'failed' | 'none';
 };
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
@@ -175,7 +194,7 @@ export class WorkerHostSession {
   private title: string | null;
   private legacyModelNotice = false;
   private credentialAvailability: CredentialAvailability | undefined;
-  private pendingRecall: RecalledExecutionContextV1 | undefined;
+  private pendingRecall: RecalledExecutionContext | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
     this.capsule = options.capsuleFactory?.(workerUrl) ??
@@ -300,6 +319,42 @@ export class WorkerHostSession {
     this.capsule.send(command);
   }
 
+  private sendCommitAcknowledgement(
+    execution: ActiveWorkerExecution,
+    correlation: WorkerCorrelation,
+    accepted: boolean,
+  ): boolean {
+    this.appendJournal({
+      executionId: execution.executionId,
+      direction: 'host_to_worker',
+      source: 'host',
+      kind: 'acknowledgement_requested',
+      payload: { accepted },
+    });
+    try {
+      this.send({ kind: 'commit_acknowledgement', correlation, accepted });
+      execution.acknowledgement = accepted ? 'accepted_sent' : 'rejected_sent';
+      this.appendJournal({
+        executionId: execution.executionId,
+        direction: 'host_to_worker',
+        source: 'host',
+        kind: 'acknowledgement_sent',
+        payload: { accepted },
+      });
+      return true;
+    } catch {
+      execution.acknowledgement = 'delivery_failed';
+      this.appendJournal({
+        executionId: execution.executionId,
+        direction: 'host_to_worker',
+        source: 'host',
+        kind: 'acknowledgement_failed',
+        payload: { accepted },
+      });
+      return false;
+    }
+  }
+
   private receiveTrace(message: WorkerToHostMessage): void {
     const subtype = workerMessageSubtype(message);
     const correlation = 'correlation' in message && message.correlation !== undefined
@@ -314,7 +369,40 @@ export class WorkerHostSession {
   }
 
   private receive(message: WorkerToHostMessage): void {
-    this.receiveTrace(message);
+    try {
+      this.receiveTrace(message);
+    } catch {
+      // A structured-clone payload can still be shape-invalid at runtime. Do not let a
+      // malformed Worker envelope reach the Surface; retain the same admission/post-commit
+      // distinction used by journal validation before making the generation unavailable.
+      if (this.activeExecution !== undefined) {
+        if (this.activeExecution.settlement === 'uncommitted') {
+          this.activeExecution.journalFailure = true;
+        } else {
+          this.activeExecution.postCommitObservationFailure = true;
+          this.activeExecution.postCommitObservationError = 'history_invalid';
+        }
+      }
+      this.markUnavailable();
+      return;
+    }
+    // A malformed Worker fact must never be projected to the Surface after the journal
+    // boundary rejected it. `appendJournal` also records whether this was a pre- or
+    // post-commit observation failure so the committed outcome remains distinguishable.
+    if (!this.appendWorkerObservation(message)) {
+      // A final proposal with a malformed/missing context manifest still needs the dedicated
+      // normal contract-failure settlement. The proposal is not projected to the Surface; it is
+      // handed to the turn waiter after the failed journal append has poisoned pre-commit state.
+      if (
+        this.activeExecution?.settlement === 'uncommitted' &&
+        (message.kind === 'commit_proposal' || message.kind === 'turn_failed')
+      ) {
+        this.messages.publish(message);
+        return;
+      }
+      this.markUnavailable();
+      return;
+    }
     if (message.kind === 'runtime_event') {
       if (
         message.event.kind === 'agent_event' &&
@@ -330,11 +418,105 @@ export class WorkerHostSession {
       this.deliver(message.effect);
       return;
     }
+    if (message.kind === 'context_observation') return;
     if (message.kind === 'checkpoint_proposal') {
       void this.installCheckpoint(message);
       return;
     }
     this.messages.publish(message);
+  }
+
+  private appendJournal(input: ExecutionEventInput): boolean {
+    const history = this.options.historyPersistence;
+    if (history === undefined || this.activeExecution === undefined) {
+      return true;
+    }
+    try {
+      history.appendExecutionEvent(input);
+      return true;
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null &&
+          ((error as { readonly code?: unknown }).code === 'history_busy' ||
+            (error as { readonly code?: unknown }).code === 'history_invalid' ||
+            (error as { readonly code?: unknown }).code ===
+              'history_io_failure')
+        ? (error as {
+          readonly code:
+            | 'history_busy'
+            | 'history_invalid'
+            | 'history_io_failure';
+        }).code
+        : 'history_io_failure' as const;
+      if (
+        this.activeExecution.settlement === 'uncommitted'
+      ) {
+        const alreadyFailed = this.activeExecution.journalFailure === true;
+        this.activeExecution.journalFailure = true;
+        if (!alreadyFailed && this.currentCorrelation !== undefined) {
+          try {
+            this.send({ kind: 'cancel', correlation: this.currentCorrelation });
+          } catch {
+            // The execution remains active for restart reconciliation when cancellation is unavailable.
+          }
+        }
+        if (this.activeExecution.settlement === 'uncommitted') {
+          try {
+            this.capsule.terminate();
+          } catch {
+            // The execution remains active and is reconciled on the next open.
+          }
+        }
+      } else {
+        // The canonical transaction is already durable. Keep its result and make the
+        // acknowledgement loss visible to the Surface without attempting a second settle.
+        this.activeExecution.postCommitObservationFailure = true;
+        this.activeExecution.postCommitObservationError = code;
+      }
+      return false;
+    }
+  }
+
+  private appendWorkerObservation(message: WorkerToHostMessage): boolean {
+    if (this.activeExecution === undefined) return true;
+    if (
+      message.kind === 'ready' || message.kind === 'model_selected' ||
+      message.kind === 'closed' || message.kind === 'checkpoint_proposal'
+    ) return true;
+    const workerSequence = message.kind === 'runtime_event' ||
+        message.kind === 'effect_observation' ||
+        message.kind === 'provider_observation' ||
+        message.kind === 'context_observation'
+      ? message.sequence
+      : undefined;
+    const kind = message.kind === 'runtime_event'
+      ? 'runtime_event'
+      : message.kind === 'effect_observation'
+      ? 'effect_observation'
+      : message.kind === 'provider_observation'
+      ? message.observation.kind === 'request_start'
+        ? 'provider_request_start' as const
+        : message.observation.kind === 'response_start'
+        ? 'provider_response_start' as const
+        : message.observation.kind === 'response_bytes'
+        ? 'provider_response_bytes' as const
+        : message.observation.kind === 'sse_event'
+        ? 'provider_sse_event' as const
+        : message.observation.kind === 'parser_transition'
+        ? 'provider_parser_transition' as const
+        : 'runtime_event' as const
+      : message.kind === 'context_observation'
+      ? 'context_observation' as const
+      : 'runtime_event' as const;
+    return this.appendJournal({
+      executionId: this.activeExecution.executionId,
+      direction: 'worker_to_host',
+      source: 'worker',
+      kind,
+      ...(workerSequence === undefined ? {} : { workerSequence }),
+      payload: structuredClone(
+        message,
+      ) as unknown as ExecutionEventPayloadByKind[typeof kind],
+    } as ExecutionEventInput);
   }
 
   private deliver(event: AgentEvent): void {
@@ -395,13 +577,10 @@ export class WorkerHostSession {
         evidenceDurability = 'unknown';
       } else {
         try {
-          const attributed: ProviderEvidenceV3 = {
-            ...structuredClone(providerEvidence),
-            schemaVersion: 3,
-            sessionId: this.sessionId,
-            build: structuredClone(this.build),
-            definition: structuredClone(this.options.definition),
-          };
+          const attributed = this.attributedEvidence(providerEvidence, outcome);
+          if (attributed === undefined) {
+            throw new Error('provider evidence unavailable');
+          }
           await this.options.providerEvidenceStore.write(attributed);
           if (diagnostic?.diagnosticId !== undefined) {
             await this.options.providerEvidenceStore.linkDiagnostic(
@@ -462,14 +641,55 @@ export class WorkerHostSession {
 
   private attributedEvidence(
     evidence: ProviderEvidenceV1 | undefined,
-  ): ProviderEvidenceV3 | undefined {
-    return evidence === undefined ? undefined : {
+    outcome: LoopOutcome,
+  ): ProviderEvidenceV5 | undefined {
+    if (evidence === undefined) return undefined;
+    const base = {
       ...structuredClone(evidence),
-      schemaVersion: 3,
+      schemaVersion: 5 as const,
       sessionId: this.sessionId,
       build: structuredClone(this.build),
       definition: structuredClone(this.options.definition),
+      capture: 'complete' as const,
+      requests: evidence.requests.map((record, index) => ({
+        ...structuredClone(record),
+        request: {
+          ...structuredClone(record.request),
+          ...(record.request.contextRequestOrdinal === undefined &&
+              this.currentStartupSnapshot?.context === undefined
+            ? { contextRequestOrdinal: index + 1 }
+            : record.request.contextRequestOrdinal === undefined
+            ? {}
+            : { contextRequestOrdinal: record.request.contextRequestOrdinal }),
+        },
+      })),
     };
+    // The Worker recorder normally supplies this field. When a legacy/custom Worker omits it
+    // while the startup basis is present, keep the malformed V5 shape visible so the history
+    // store's strict validator rejects the settlement instead of fabricating a logical link.
+    const asEvidence = (value: unknown): ProviderEvidenceV5 => value as ProviderEvidenceV5;
+    switch (outcome.stopReason) {
+      case 'final':
+      case 'tool_terminal':
+        return asEvidence({
+          ...base,
+          normalizedOutcome: 'completed',
+          outcome: outcome.stopReason,
+        });
+      case 'cancelled':
+        return asEvidence({
+          ...base,
+          normalizedOutcome: 'cancelled',
+          outcome: 'cancelled',
+        });
+      case 'max_steps':
+      case 'contract_failure':
+        return asEvidence({
+          ...base,
+          normalizedOutcome: 'failed',
+          outcome: outcome.stopReason,
+        });
+    }
   }
 
   private historyExecutionAttribution() {
@@ -517,7 +737,9 @@ export class WorkerHostSession {
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
   ): Promise<LoopOutcome> {
-    if (execution.artifactWritten) return outcome;
+    if (execution.artifactWritten) {
+      return this.withObservationFailure(execution, outcome);
+    }
     execution.artifactWritten = true;
     const store = this.options.executionArtifactStore;
     const history = this.options.historyPersistence;
@@ -525,42 +747,61 @@ export class WorkerHostSession {
       (store === undefined && history === undefined) ||
       this.currentManifest === undefined
     ) {
-      return outcome;
+      return this.withObservationFailure(execution, outcome);
     }
     const artifact = this.executionArtifact(execution, outcome);
     try {
       if (history !== undefined) history.recordPostCommitObservation(artifact);
       else await store!.write(artifact);
-      return {
+      return this.withObservationFailure(execution, {
         ...outcome,
         executionArtifactId: execution.executionId,
         executionArtifactDurability: 'yes',
         executionArtifactPersistenceError: undefined,
-      };
+      });
     } catch (error) {
       const code = typeof error === 'object' && error !== null &&
           (error as { readonly code?: unknown }).code ===
             'worker_execution_artifact_invalid'
         ? 'worker_execution_artifact_invalid' as const
         : 'worker_execution_artifact_io_failure' as const;
-      return {
+      return this.withObservationFailure(execution, {
         ...outcome,
         executionArtifactId: execution.executionId,
         executionArtifactDurability: 'failed',
         executionArtifactPersistenceError: code,
-      };
+      });
     }
+  }
+
+  private withObservationFailure(
+    execution: ActiveWorkerExecution,
+    outcome: LoopOutcome,
+  ): LoopOutcome {
+    return execution.postCommitObservationFailure !== true ? outcome : {
+      ...outcome,
+      executionObservationDurability: 'failed',
+      executionObservationPersistenceError: execution.postCommitObservationError ??
+        'history_io_failure',
+    };
   }
 
   private executionArtifact(
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
-  ): WorkerExecutionArtifactV3 {
+  ): WorkerExecutionArtifactV5 {
     if (this.currentManifest === undefined) {
       throw new Error('Worker manifest unavailable for execution artifact');
     }
+    const canonicalAdoption = (this.options.historyPersistence === undefined ||
+      this.options.durableCanonicalHistory === true) &&
+      execution.committedStateRevision !== undefined;
     return {
-      schemaVersion: 3,
+      schemaVersion: 5,
+      contextCapture: execution.journalFailure === true ||
+          execution.postCommitObservationFailure === true
+        ? 'failed'
+        : execution.contextCapture ?? 'none',
       executionId: execution.executionId,
       createdAt: execution.createdAt,
       settledAt: new Date().toISOString(),
@@ -586,7 +827,7 @@ export class WorkerHostSession {
       ...(execution.proposedStateRevision === undefined ? {} : {
         proposedStateRevision: execution.proposedStateRevision,
       }),
-      ...(execution.committedStateRevision === undefined ? {} : {
+      ...(!canonicalAdoption ? {} : {
         committedStateRevision: execution.committedStateRevision,
       }),
       // The bootstrap prefix is shared by generations, while an artifact's sequence is
@@ -609,10 +850,99 @@ export class WorkerHostSession {
       ...(execution.storeError === undefined ? {} : { storeError: execution.storeError }),
       acknowledgement: execution.acknowledgement,
       settlement: execution.settlement,
+      lifecycle: 'settled',
+      normalizedOutcome: outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal'
+        ? 'completed'
+        : outcome.stopReason === 'cancelled'
+        ? 'cancelled'
+        : 'failed',
+      adoption: canonicalAdoption ? 'canonical' : 'non_canonical',
       outcome: workerExecutionOutcome(outcome),
       effectCommitRelation: 'not_transactional',
       automaticReplay: false,
     };
+  }
+
+  /**
+   * Keep an admitted execution inspectable when normal settlement rejects the Worker manifest.
+   * The canonical transaction has not committed in this path, so the row is deliberately
+   * settled as failed/non-canonical with a Host-owned contract outcome; no untrusted evidence
+   * or malformed final manifest is reused.
+   */
+  private settleHistoryFailure(
+    execution: ActiveWorkerExecution,
+    outcome: LoopOutcome,
+    diagnostic: FailureDiagnosticV1 | undefined,
+    providerEvidence?: ProviderEvidenceV1,
+    evidenceOutcome: LoopOutcome = outcome,
+  ): LoopOutcome | undefined {
+    const history = this.options.historyPersistence;
+    if (history === undefined) return undefined;
+    execution.journalFailure = true;
+    execution.contextCapture = 'failed';
+    try {
+      let capturedOutcome: LoopOutcome | undefined;
+      const capture = history.settleNonCanonicalExecution({
+        taskId: execution.taskId,
+        executionId: execution.executionId,
+        createdAt: execution.createdAt,
+        sessionCorrelation: this.sessionId,
+        ...(this.options.durableCanonicalHistory === true
+          ? { canonicalSessionId: this.sessionId }
+          : {}),
+        turn: execution.turn,
+        task: execution.command.task,
+        baseStateRevision: execution.baseStateRevision,
+        ...this.historyExecutionAttribution(),
+        outcome,
+        ...(providerEvidence === undefined ? {} : {
+          evidence: this.attributedEvidence(providerEvidence, evidenceOutcome),
+        }),
+        ...(diagnostic === undefined ? {} : { diagnostic }),
+        artifactForCapture: (captured) => {
+          capturedOutcome = this.applyHistoryCapture(
+            outcome,
+            providerEvidence,
+            diagnostic,
+            captured,
+          );
+          return this.executionArtifact(execution, capturedOutcome);
+        },
+      });
+      const settled = capturedOutcome ?? this.applyHistoryCapture(
+        outcome,
+        providerEvidence,
+        diagnostic,
+        capture,
+      );
+      execution.artifactWritten = true;
+      return {
+        ...settled,
+        executionArtifactId: execution.executionId,
+        executionArtifactDurability: 'yes',
+        executionArtifactPersistenceError: undefined,
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
+  private contextContractDiagnostic(
+    execution: ActiveWorkerExecution,
+    providerEvidence?: ProviderEvidenceV1,
+    outcome?: LoopOutcome,
+  ): FailureDiagnosticV1 {
+    const providerRequestCount = outcome?.turnProviderRequestCount ??
+      providerEvidence?.requests.length ?? this.runtimeRequestCount;
+    return createFailureDiagnostic({
+      stage: 'session_commit',
+      code: 'commit_error',
+      lane: this.options.agent === 'planner' ? 'planner' : 'parent',
+      providerRequestCount,
+      turnNumber: execution.turn,
+      modelStep: 0,
+      retryCount: 0,
+    });
   }
 
   private async settleExecution(
@@ -620,6 +950,7 @@ export class WorkerHostSession {
     outcome: LoopOutcome,
     providerEvidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
+    contextManifest?: ExecutionContextManifestV1,
   ): Promise<LoopOutcome> {
     if (this.options.historyPersistence !== undefined) {
       try {
@@ -630,8 +961,7 @@ export class WorkerHostSession {
             executionId: execution.executionId,
             createdAt: execution.createdAt,
             sessionCorrelation: this.sessionId,
-            ...(this.options.durableCanonicalHistory === true &&
-                this.options.handle.record !== undefined
+            ...(this.options.durableCanonicalHistory === true
               ? { canonicalSessionId: this.sessionId }
               : {}),
             turn: execution.turn,
@@ -641,9 +971,13 @@ export class WorkerHostSession {
             ...(execution.recalledContext === undefined ? {} : {
               recalledContext: execution.recalledContext,
             }),
+            ...(contextManifest === undefined ? {} : { contextManifest }),
+            ...(this.currentStartupSnapshot?.context === undefined ? {} : {
+              contextSnapshot: this.currentStartupSnapshot.context,
+            }),
             outcome,
             ...(providerEvidence === undefined ? {} : {
-              evidence: this.attributedEvidence(providerEvidence),
+              evidence: this.attributedEvidence(providerEvidence, outcome),
             }),
             ...(diagnostic === undefined ? {} : { diagnostic }),
             artifactForCapture: (captured) => {
@@ -653,6 +987,9 @@ export class WorkerHostSession {
                 diagnostic,
                 captured,
               );
+              execution.contextCapture = captured.contextDurability === 'partial'
+                ? 'failed'
+                : captured.contextDurability;
               return this.executionArtifact(execution, capturedOutcome);
             },
           });
@@ -672,6 +1009,23 @@ export class WorkerHostSession {
       } catch (error) {
         const busy = typeof error === 'object' && error !== null &&
           (error as { readonly code?: unknown }).code === 'history_busy';
+        if (
+          typeof error === 'object' && error !== null &&
+          (error as { readonly code?: unknown }).code === 'history_invalid'
+        ) {
+          const failedSettlement = this.settleHistoryFailure(
+            execution,
+            failedOutcome(
+              outcome.task,
+              this.transcript,
+              'durable execution settlement failed',
+            ),
+            diagnostic ?? this.contextContractDiagnostic(execution, providerEvidence, outcome),
+            providerEvidence,
+            outcome,
+          );
+          if (failedSettlement !== undefined) return failedSettlement;
+        }
         const failed: LoopOutcome = {
           ...outcome,
           ...(providerEvidence === undefined ? {} : {
@@ -694,6 +1048,32 @@ export class WorkerHostSession {
       diagnostic,
     );
     return await this.persistExecutionArtifact(execution, settled);
+  }
+
+  private admissionSessionRecord(): SessionRecordV6 | undefined {
+    if (this.options.handle.record !== undefined) return undefined;
+    if (this.options.durableCanonicalHistory !== true) return undefined;
+    const record: SessionRecordV6 = {
+      schemaVersion: 6,
+      sessionId: this.sessionId,
+      workspaceRoot: this.options.workspaceRoot,
+      agent: this.options.agent,
+      createdAt: this.createdAt,
+      updatedAt: this.createdAt,
+      title: null,
+      stateRevision: this.stateRevision,
+      nextTurn: this.nextTurn,
+      transcript: [],
+      definition: structuredClone(this.options.definition),
+      activeModel: structuredClone(this.modelSelection),
+      modelChanges: structuredClone(this.modelChanges),
+      turnModels: [],
+      turnExecutions: [],
+    };
+    if (!validateSessionRecordV6(record)) {
+      throw new Error('empty session record invalid');
+    }
+    return record;
   }
 
   private correlation(command: string): WorkerCorrelation {
@@ -1020,18 +1400,70 @@ export class WorkerHostSession {
   }> {
     if (
       this.closed || this.unavailable ||
-      this.options.executionArtifactStore === undefined
+      this.options.executionArtifactStore === undefined &&
+        this.options.historyPersistence === undefined
     ) {
       throw new WorkerRecallSelectionError('unavailable');
     }
     if (this.active || this.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
-    let artifacts:
-      readonly import('./worker_execution_artifact.ts').StoredWorkerExecutionArtifact[];
+    let selectedExecutionId: string | undefined;
     try {
-      artifacts = await this.options.executionArtifactStore.list();
-    } catch {
+      if (this.options.historyPersistence !== undefined) {
+        const rows = this.options.historyPersistence.listExecutions().filter((
+          row,
+        ) =>
+          row.lifecycle === 'settled' && row.adoption === 'non_canonical' &&
+          ['cancelled', 'failed', 'interrupted', 'unknown'].includes(
+            row.outcome,
+          ) &&
+          (row.canonicalSessionId === this.sessionId ||
+            (row.canonicalSessionId === undefined &&
+              row.sessionCorrelation === this.sessionId))
+        );
+        const eligible = [...rows].sort((left, right) => {
+          const leftAt = left.settledAt ?? left.createdAt;
+          const rightAt = right.settledAt ?? right.createdAt;
+          return leftAt === rightAt
+            ? left.executionId.localeCompare(right.executionId)
+            : leftAt.localeCompare(rightAt);
+        });
+        if (id === undefined) {
+          selectedExecutionId = eligible.at(-1)?.executionId;
+        } else {
+          const matches = eligible.filter((row) => row.executionId.startsWith(id));
+          if (matches.length > 1) {
+            throw new WorkerRecallSelectionError('ambiguous');
+          }
+          selectedExecutionId = matches[0]?.executionId;
+        }
+      } else {
+        const artifacts = await this.options.executionArtifactStore!.list();
+        const eligible = artifacts.filter((artifact) =>
+          artifact.sessionId === this.sessionId &&
+          (artifact.settlement === 'uncommitted' ||
+            artifact.settlement === 'interrupted' ||
+            artifact.settlement === 'unknown')
+        );
+        let selected: (typeof eligible)[number] | undefined;
+        if (id === undefined) {
+          selected = [...eligible].sort((left, right) =>
+            left.settledAt === right.settledAt
+              ? left.executionId.localeCompare(right.executionId)
+              : left.settledAt.localeCompare(right.settledAt)
+          ).at(-1);
+        } else {
+          const matches = eligible.filter((artifact) => artifact.executionId.startsWith(id));
+          if (matches.length > 1) {
+            throw new WorkerRecallSelectionError('ambiguous');
+          }
+          selected = matches[0];
+        }
+        selectedExecutionId = selected?.executionId;
+      }
+    } catch (error) {
+      if (error instanceof WorkerRecallSelectionError) throw error;
       throw new WorkerRecallSelectionError('failed');
     }
     if (this.closed || this.unavailable) {
@@ -1040,32 +1472,21 @@ export class WorkerHostSession {
     if (this.active || this.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
-    const eligible = artifacts.filter((artifact) =>
-      artifact.sessionId === this.sessionId &&
-      artifact.settlement === 'uncommitted'
-    );
-    let selected: (typeof eligible)[number] | undefined;
-    if (id === undefined) {
-      selected = [...eligible].sort((left, right) =>
-        left.settledAt === right.settledAt
-          ? left.executionId.localeCompare(right.executionId)
-          : left.settledAt.localeCompare(right.settledAt)
-      ).at(-1);
-    } else {
-      const matches = eligible.filter((artifact) => artifact.executionId.startsWith(id));
-      if (matches.length > 1) throw new WorkerRecallSelectionError('ambiguous');
-      selected = matches[0];
-    }
-    if (selected === undefined) {
+    if (selectedExecutionId === undefined) {
       throw new WorkerRecallSelectionError('not_found');
     }
-    let recalled: RecalledExecutionContextV1;
+    let recalled: RecalledExecutionContext;
     try {
       recalled = await resolveRecalledExecutionContext({
         sessionId: this.sessionId,
-        executionId: selected.executionId,
-        executionArtifactStore: this.options.executionArtifactStore,
+        executionId: selectedExecutionId,
+        ...(this.options.executionArtifactStore === undefined ? {} : {
+          executionArtifactStore: this.options.executionArtifactStore,
+        }),
         providerEvidenceStore: this.options.providerEvidenceStore,
+        ...(this.options.historyPersistence === undefined ? {} : {
+          historyPersistence: this.options.historyPersistence,
+        }),
       });
     } catch {
       throw new WorkerRecallSelectionError('failed');
@@ -1091,7 +1512,7 @@ export class WorkerHostSession {
 
   async submit(
     task: string,
-    recalledContext?: RecalledExecutionContextV1,
+    recalledContext?: RecalledExecutionContext,
   ): Promise<LoopOutcome> {
     if (this.closed || this.unavailable) {
       throw new Error('agent session unavailable');
@@ -1104,7 +1525,9 @@ export class WorkerHostSession {
     if (
       admittedRecall !== undefined &&
       (admittedRecall.sessionId !== this.sessionId ||
-        admittedRecall.settlement !== 'uncommitted')
+        (admittedRecall.schemaVersion === 1
+          ? admittedRecall.settlement !== 'uncommitted'
+          : admittedRecall.lifecycle !== 'settled'))
     ) {
       throw new RangeError(
         'recalled execution context does not match current Session',
@@ -1138,6 +1561,63 @@ export class WorkerHostSession {
     };
     this.activeExecution = execution;
     try {
+      if (this.options.historyPersistence !== undefined) {
+        try {
+          await this.options.historyPersistence.beginExecution({
+            taskId: execution.taskId,
+            executionId: execution.executionId,
+            createdAt: execution.createdAt,
+            sessionCorrelation: this.sessionId,
+            sessionMode: this.options.durableCanonicalHistory === true
+              ? 'persistent'
+              : 'no_session',
+            ...(this.options.durableCanonicalHistory === true
+              ? { canonicalSessionId: this.sessionId }
+              : {}),
+            turn: execution.turn,
+            task,
+            baseStateRevision: execution.baseStateRevision,
+            ...this.historyExecutionAttribution(),
+            ...(this.admissionSessionRecord() === undefined
+              ? {}
+              : { sessionRecord: this.admissionSessionRecord() }),
+            ...(this.currentStartupSnapshot?.context === undefined
+              ? {}
+              : { contextSnapshot: this.currentStartupSnapshot.context }),
+          });
+        } catch (error) {
+          const historyFailure = typeof error === 'object' && error !== null &&
+              ((error as { readonly code?: unknown }).code === 'history_busy' ||
+                (error as { readonly code?: unknown }).code ===
+                  'history_invalid' ||
+                (error as { readonly code?: unknown }).code ===
+                  'history_io_failure')
+            ? (error as {
+              readonly code:
+                | 'history_busy'
+                | 'history_invalid'
+                | 'history_io_failure';
+            }).code
+            : 'history_io_failure' as const;
+          execution.storeResult = 'failed';
+          execution.storeError = historyFailure === 'history_busy'
+            ? 'history_busy'
+            : historyFailure === 'history_invalid'
+            ? 'session_invalid'
+            : 'session_io_failure';
+          const failed: LoopOutcome = {
+            ...failedOutcome(
+              task,
+              this.transcript,
+              `durable execution admission failed: ${historyFailure}`,
+            ),
+            executionAdmissionDurability: 'failed',
+            executionAdmissionPersistenceError: historyFailure,
+          };
+          this.deliver(turnEndFromOutcome(this.nextTurn, failed, false));
+          return failed;
+        }
+      }
       try {
         this.send({
           kind: 'turn',
@@ -1147,7 +1627,21 @@ export class WorkerHostSession {
             recalledContext: structuredClone(admittedRecall),
           }),
         });
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'turn_dispatch_sent',
+          payload: { task },
+        });
       } catch {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'turn_dispatch_failed',
+          payload: { task },
+        });
         this.markUnavailable();
         const outcome = failedOutcome(
           task,
@@ -1181,6 +1675,7 @@ export class WorkerHostSession {
           message.outcome,
           message.providerEvidence,
           diagnostic,
+          message.contextManifest,
         );
         if (
           diagnostic?.stage === 'cancellation_cleanup' &&
@@ -1204,17 +1699,26 @@ export class WorkerHostSession {
       if (!sameCorrelation(message.correlation, correlation)) {
         throw new Error('commit proposal correlation invalid');
       }
+      if (execution.journalFailure) {
+        // A pre-commit observation gap must not be promoted to canonical history.
+        this.sendCommitAcknowledgement(execution, correlation, false);
+        const settled = await this.settleExecution(
+          execution,
+          failedOutcome(
+            task,
+            this.transcript,
+            'durable execution journal failed',
+          ),
+          message.providerEvidence,
+          message.diagnostic,
+          message.contextManifest,
+        );
+        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        return settled;
+      }
       const record = this.proposalRecord(message);
       if (record === undefined) {
-        try {
-          this.send({
-            kind: 'commit_acknowledgement',
-            correlation,
-            accepted: false,
-          });
-          execution.acknowledgement = 'rejected_sent';
-        } catch {
-          execution.acknowledgement = 'delivery_failed';
+        if (!this.sendCommitAcknowledgement(execution, correlation, false)) {
           this.markUnavailable();
         }
         const outcome = failedOutcome(
@@ -1227,6 +1731,7 @@ export class WorkerHostSession {
           outcome,
           message.providerEvidence,
           message.diagnostic,
+          message.contextManifest,
         );
         this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
         return settled;
@@ -1259,10 +1764,17 @@ export class WorkerHostSession {
             ...(execution.recalledContext === undefined ? {} : {
               recalledContext: execution.recalledContext,
             }),
+            contextManifest: message.contextManifest,
+            ...(this.currentStartupSnapshot?.context === undefined ? {} : {
+              contextSnapshot: this.currentStartupSnapshot.context,
+            }),
             record,
             outcome: proposedOutcome,
             ...(message.providerEvidence === undefined ? {} : {
-              evidence: this.attributedEvidence(message.providerEvidence),
+              evidence: this.attributedEvidence(
+                message.providerEvidence,
+                proposedOutcome,
+              ),
             }),
             ...(diagnostic === undefined ? {} : { diagnostic }),
             artifactForCapture: (captured) => {
@@ -1272,8 +1784,14 @@ export class WorkerHostSession {
                 diagnostic,
                 captured,
               );
+              execution.contextCapture = captured.contextDurability === 'partial'
+                ? 'failed'
+                : captured.contextDurability;
               return this.executionArtifact({
                 ...execution,
+                contextCapture: captured.contextDurability === 'partial'
+                  ? 'failed'
+                  : captured.contextDurability,
                 committedStateRevision: record.stateRevision,
                 storeResult: 'committed',
                 acknowledgement: 'not_sent',
@@ -1287,6 +1805,7 @@ export class WorkerHostSession {
             );
           }
           this.options.handle.acceptCommitted(record);
+          execution.settlement = 'committed_observation_pending';
           committed = this.applyHistoryCapture(
             proposedOutcome,
             message.providerEvidence,
@@ -1310,9 +1829,16 @@ export class WorkerHostSession {
                 ...(execution.recalledContext === undefined ? {} : {
                   recalledContext: execution.recalledContext,
                 }),
+                contextManifest: message.contextManifest,
+                ...(this.currentStartupSnapshot?.context === undefined ? {} : {
+                  contextSnapshot: this.currentStartupSnapshot.context,
+                }),
                 outcome: proposedOutcome,
                 ...(message.providerEvidence === undefined ? {} : {
-                  evidence: this.attributedEvidence(message.providerEvidence),
+                  evidence: this.attributedEvidence(
+                    message.providerEvidence,
+                    proposedOutcome,
+                  ),
                 }),
                 ...(diagnostic === undefined ? {} : { diagnostic }),
                 artifactForCapture: (captured) => {
@@ -1322,6 +1848,9 @@ export class WorkerHostSession {
                     diagnostic,
                     captured,
                   );
+                  execution.contextCapture = captured.contextDurability === 'partial'
+                    ? 'failed'
+                    : captured.contextDurability;
                   return this.executionArtifact(execution, capturedOutcome);
                 },
               });
@@ -1338,18 +1867,13 @@ export class WorkerHostSession {
               diagnostic,
             );
           }
+          // Session/evidence settlement is durable before acknowledgement delivery. Any
+          // later journal loss is therefore post-commit observation failure, not a rollback.
+          execution.settlement = 'committed_observation_pending';
         }
         execution.storeResult = 'committed';
       } catch (error) {
-        try {
-          this.send({
-            kind: 'commit_acknowledgement',
-            correlation,
-            accepted: false,
-          });
-          execution.acknowledgement = 'rejected_sent';
-        } catch {
-          execution.acknowledgement = 'delivery_failed';
+        if (!this.sendCommitAcknowledgement(execution, correlation, false)) {
           this.markUnavailable();
         }
         execution.storeResult = 'failed';
@@ -1362,6 +1886,26 @@ export class WorkerHostSession {
           this.transcript,
           'durable session commit failed',
         );
+        if (
+          typeof error === 'object' && error !== null &&
+          (error as { readonly code?: unknown }).code === 'history_invalid'
+        ) {
+          const failedSettlement = await this.settleHistoryFailure(
+            execution,
+            outcome,
+            diagnostic ?? this.contextContractDiagnostic(
+              execution,
+              message.providerEvidence,
+              proposedOutcome,
+            ),
+            message.providerEvidence,
+            proposedOutcome,
+          );
+          if (failedSettlement !== undefined) {
+            this.deliver(turnEndFromOutcome(this.nextTurn, failedSettlement, false));
+            return failedSettlement;
+          }
+        }
         const settled = await this.settleExecution(
           execution,
           outcome,
@@ -1380,21 +1924,17 @@ export class WorkerHostSession {
       this.turnExecutions = structuredClone(
         record.turnExecutions,
       ) as SessionTurnExecutionAttribution[];
-      execution.committedStateRevision = record.stateRevision;
-      const ackSent = (() => {
-        try {
-          this.send({
-            kind: 'commit_acknowledgement',
-            correlation,
-            accepted: true,
-          });
-          execution.acknowledgement = 'accepted_sent';
-          return true;
-        } catch {
-          execution.acknowledgement = 'delivery_failed';
-          return false;
-        }
-      })();
+      if (
+        this.options.historyPersistence === undefined ||
+        this.options.durableCanonicalHistory === true
+      ) {
+        execution.committedStateRevision = record.stateRevision;
+      }
+      const ackSent = this.sendCommitAcknowledgement(
+        execution,
+        correlation,
+        true,
+      );
       if (!ackSent) {
         execution.settlement = 'committed_generation_unavailable';
         this.markUnavailable();
@@ -1453,13 +1993,42 @@ export class WorkerHostSession {
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
     if (!this.active || this.currentCorrelation === undefined) return 'idle';
+    const execution = this.activeExecution;
+    if (execution !== undefined) {
+      const journaled = this.appendJournal({
+        executionId: execution.executionId,
+        direction: 'host_to_worker',
+        source: 'host',
+        kind: 'cancel_requested',
+        payload: { command: 'cancel' },
+      });
+      if (!journaled) return 'requested';
+    }
     try {
       this.send({
         kind: 'cancel',
         correlation: this.currentCorrelation,
       });
+      if (execution !== undefined) {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'cancel_sent',
+          payload: { command: 'cancel' },
+        });
+      }
       return 'requested';
     } catch {
+      if (execution !== undefined) {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'cancel_failed',
+          payload: { command: 'cancel' },
+        });
+      }
       this.markUnavailable();
       return 'requested';
     }
@@ -1467,14 +2036,43 @@ export class WorkerHostSession {
 
   steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
     if (!this.active || this.currentCorrelation === undefined) return 'idle';
+    const execution = this.activeExecution;
+    if (execution !== undefined) {
+      const journaled = this.appendJournal({
+        executionId: execution.executionId,
+        direction: 'host_to_worker',
+        source: 'host',
+        kind: 'steer_requested',
+        payload: { text },
+      });
+      if (!journaled) return 'accepted';
+    }
     try {
       this.send({
         kind: 'steer',
         correlation: this.currentCorrelation,
         text,
       });
+      if (execution !== undefined) {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'steer_sent',
+          payload: { text },
+        });
+      }
       return 'accepted';
     } catch {
+      if (execution !== undefined) {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'steer_failed',
+          payload: { text },
+        });
+      }
       this.markUnavailable();
       return 'accepted';
     }

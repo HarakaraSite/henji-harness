@@ -179,6 +179,18 @@ export interface LoopOutcome {
   readonly executionArtifactPersistenceError?:
     | 'worker_execution_artifact_io_failure'
     | 'worker_execution_artifact_invalid';
+  /** Admission failed before a Worker turn was dispatched. */
+  readonly executionAdmissionDurability?: 'failed';
+  readonly executionAdmissionPersistenceError?:
+    | 'history_busy'
+    | 'history_invalid'
+    | 'history_io_failure';
+  /** Canonical state is committed, but a later Host observation append failed. */
+  readonly executionObservationDurability?: 'failed';
+  readonly executionObservationPersistenceError?:
+    | 'history_busy'
+    | 'history_invalid'
+    | 'history_io_failure';
   readonly steps: number;
   readonly toolCallCount: number;
   readonly toolResultCount: number;

@@ -1077,10 +1077,17 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
     const build = buildManifest();
     const attributed = {
       ...recorder.snapshot(),
-      schemaVersion: 3 as const,
+      schemaVersion: 5 as const,
       sessionId: '77777777-7777-4777-8777-777777777777',
       build,
       definition: await builtinDefinitionRef('default', build),
+      capture: 'complete' as const,
+      normalizedOutcome: 'completed' as const,
+      outcome: 'final' as const,
+      requests: recorder.snapshot().requests.map((record, index) => ({
+        ...record,
+        request: { ...record.request, contextRequestOrdinal: index + 1 },
+      })),
     };
     await store.write(attributed);
     await store.linkDiagnostic(diagnosticId, evidenceId);
@@ -1088,18 +1095,112 @@ Deno.test('Deno evidence store and diagnostics readback retain one parent/planne
 
     const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
     await history.initialize();
-    history.settleNonCanonicalExecution({
+    const historyInput = {
       taskId: '11111111-1111-4111-8111-111111111111',
       executionId: '22222222-2222-4222-8222-222222222222',
       createdAt: attributed.createdAt,
       sessionCorrelation: attributed.sessionId,
+      sessionMode: 'no_session' as const,
       turn: attributed.turnNumber,
       task: 'readback',
       baseStateRevision: 1,
-      agent: 'default',
+      agent: 'default' as const,
       model: ROOT_DEFAULT_MODEL_SELECTION,
       build,
       definition: attributed.definition,
+    };
+    await history.beginExecution(historyInput);
+    const journalCorrelation = {
+      session: attributed.sessionId,
+      instanceCorrelation: 'i41-provider-test',
+      workerGeneration: 'i41-provider-generation',
+      baseStateRevision: 1,
+      command: 'turn-1',
+    };
+    let journalSequence = 0;
+    for (const record of attributed.requests) {
+      journalSequence += 1;
+      history.appendExecutionEvent({
+        executionId: historyInput.executionId,
+        direction: 'worker_to_host',
+        source: 'worker',
+        kind: 'provider_request_start',
+        workerSequence: journalSequence,
+        payload: {
+          kind: 'provider_observation',
+          correlation: journalCorrelation,
+          sequence: journalSequence,
+          observation: { kind: 'request_start', request: record.request },
+        } as never,
+      });
+      if (record.response !== undefined) {
+        journalSequence += 1;
+        history.appendExecutionEvent({
+          executionId: historyInput.executionId,
+          direction: 'worker_to_host',
+          source: 'worker',
+          kind: 'provider_response_start',
+          workerSequence: journalSequence,
+          payload: {
+            kind: 'provider_observation',
+            correlation: journalCorrelation,
+            sequence: journalSequence,
+            observation: {
+              kind: 'response_start',
+              requestOrdinal: record.request.ordinal,
+              response: { status: record.response.status, headers: record.response.headers },
+            },
+          } as never,
+        });
+        if (record.response.rawBodyBase64 !== undefined) {
+          journalSequence += 1;
+          history.appendExecutionEvent({
+            executionId: historyInput.executionId,
+            direction: 'worker_to_host',
+            source: 'worker',
+            kind: 'provider_response_bytes',
+            workerSequence: journalSequence,
+            payload: {
+              kind: 'provider_observation',
+              correlation: journalCorrelation,
+              sequence: journalSequence,
+              observation: {
+                kind: 'response_bytes',
+                requestOrdinal: record.request.ordinal,
+                offset: record.response.rawBodyBytes,
+                bytesBase64: record.response.rawBodyBase64,
+              },
+            } as never,
+          });
+        }
+      }
+    }
+    for (const event of attributed.runtimeEvents) {
+      journalSequence += 1;
+      history.appendExecutionEvent({
+        executionId: historyInput.executionId,
+        direction: 'worker_to_host',
+        source: 'worker',
+        kind: 'runtime_event',
+        workerSequence: journalSequence,
+        payload: {
+          kind: 'provider_observation',
+          correlation: journalCorrelation,
+          sequence: journalSequence,
+          observation: {
+            kind: 'runtime_event',
+            ...('requestOrdinal' in event && event.requestOrdinal === undefined
+              ? {}
+              : 'requestOrdinal' in event
+              ? { requestOrdinal: event.requestOrdinal }
+              : {}),
+            event,
+          },
+        } as never,
+      });
+    }
+    history.settleNonCanonicalExecution({
+      ...historyInput,
       outcome: {
         ok: true,
         task: 'readback',

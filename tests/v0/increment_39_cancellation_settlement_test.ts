@@ -241,7 +241,8 @@ Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after
     assert(capsule?.terminated);
     const retained = (await artifacts.list())[0];
     assertEquals(retained?.settlement, 'uncommitted');
-    assertEquals(retained?.outcome.error, 'cancellation cleanup failed');
+    assert(retained?.outcome !== undefined);
+    assertEquals(retained.outcome.error, 'cancellation cleanup failed');
     let retryRejected = false;
     try {
       await created.session.submit('must not reuse failed generation');

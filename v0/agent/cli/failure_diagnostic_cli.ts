@@ -1,8 +1,7 @@
 import { FailureDiagnosticStoreError } from '../session/failure_diagnostic_store.ts';
 import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import { ProviderEvidenceStoreError } from '../provider/provider_evidence_store.ts';
-import { WorkerExecutionArtifactStoreError } from '../worker/worker_execution_artifact_store.ts';
-import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
+import type { StoredExecutionRow } from '../history/history_store_contract.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
 import { HistoryStoreError } from '../history/history_store_contract.ts';
@@ -24,6 +23,8 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   worker_execution_artifact_invalid: 'Worker execution artifact invalid',
   worker_execution_artifact_io_failure: 'Worker execution artifact I/O failure',
   history_busy: 'history busy',
+  history_invalid: 'history store invalid',
+  history_io_failure: 'history store I/O failure',
 };
 
 export type FailureDiagnosticCliCommand =
@@ -34,7 +35,10 @@ export type FailureDiagnosticCliCommand =
   | { readonly kind: 'evidence_list' }
   | { readonly kind: 'evidence_show'; readonly id: string }
   | { readonly kind: 'execution_list' }
-  | { readonly kind: 'execution_show'; readonly id: string };
+  | { readonly kind: 'execution_show'; readonly id: string }
+  | { readonly kind: 'execution_events'; readonly id: string }
+  | { readonly kind: 'execution_context'; readonly id: string }
+  | { readonly kind: 'execution_request'; readonly id: string; readonly ordinal: number };
 
 export class FailureDiagnosticCliInvocationError extends Error {
   constructor() {
@@ -55,6 +59,19 @@ export const parseFailureDiagnosticArgs = (
     args.length === 4 && args[0] === 'executions' && args[1] === 'show' &&
     args[2] === '--id' && UUID_V4.test(args[3])
   ) return { kind: 'execution_show', id: args[3] };
+  if (
+    args.length === 4 && args[0] === 'executions' && args[1] === 'events' &&
+    args[2] === '--id' && UUID_V4.test(args[3])
+  ) return { kind: 'execution_events', id: args[3] };
+  if (
+    args.length === 4 && args[0] === 'executions' && args[1] === 'context' &&
+    args[2] === '--id' && UUID_V4.test(args[3])
+  ) return { kind: 'execution_context', id: args[3] };
+  if (
+    args.length === 6 && args[0] === 'executions' && args[1] === 'request' &&
+    args[2] === '--id' && UUID_V4.test(args[3]) && args[4] === '--ordinal' &&
+    /^\d+$/u.test(args[5]) && Number(args[5]) >= 1 && Number.isSafeInteger(Number(args[5]))
+  ) return { kind: 'execution_request', id: args[3], ordinal: Number(args[5]) };
   if (args.length === 2 && args[0] === 'evidence' && args[1] === 'list') {
     return { kind: 'evidence_list' };
   }
@@ -82,19 +99,52 @@ const errorLine = (code: string): string =>
     },
   }) + '\n';
 
-const executionSummary = (execution: StoredWorkerExecutionArtifact) => ({
+const executionSummary = (execution: StoredExecutionRow) => ({
   executionId: execution.executionId,
-  settledAt: execution.settledAt,
-  sessionId: execution.sessionId,
+  taskId: execution.taskId,
+  task: execution.task,
+  ...(execution.canonicalSessionId === undefined ? {} : {
+    canonicalSessionId: execution.canonicalSessionId,
+  }),
+  sessionCorrelation: execution.sessionCorrelation,
   turn: execution.turn,
-  buildId: execution.build.buildId,
+  createdAt: execution.createdAt,
+  ...(execution.settledAt === undefined ? {} : { settledAt: execution.settledAt }),
+  lifecycle: execution.lifecycle,
+  outcome: execution.outcome,
+  ...(execution.outcomeJson === undefined ? {} : { outcomeJson: execution.outcomeJson }),
+  adoption: execution.adoption,
+  baseRevision: execution.baseRevision,
+  ...(execution.committedRevision === undefined ? {} : {
+    committedRevision: execution.committedRevision,
+  }),
+  agent: execution.agent,
+  model: execution.model,
+  build: execution.build,
   definition: execution.definition,
+  ...(execution.manifest === undefined ? {} : { manifest: execution.manifest }),
+  ...(execution.instanceCorrelation === undefined ? {} : {
+    instanceCorrelation: execution.instanceCorrelation,
+  }),
   workerGeneration: execution.workerGeneration,
-  settlement: execution.settlement,
+  acknowledgement: execution.acknowledgement,
+  generationAvailability: execution.generationAvailability,
+  evidenceCapture: execution.evidenceCapture,
   ...(execution.providerEvidenceId === undefined ? {} : {
     providerEvidenceId: execution.providerEvidenceId,
   }),
+  diagnosticCapture: execution.diagnosticCapture,
+  artifactCapture: execution.artifactCapture,
+  contextCapture: execution.contextCapture,
 });
+
+const contextCaptureForReadback = (
+  execution: StoredExecutionRow,
+  hasContext: boolean,
+): StoredExecutionRow['contextCapture'] =>
+  execution.lifecycle === 'active' && execution.contextCapture === 'none' && hasContext
+    ? 'partial'
+    : execution.contextCapture;
 
 const resolvePhysicalWorkspace = async (root = Deno.cwd()): Promise<string> => {
   const workspace = await Deno.realPath(root);
@@ -149,10 +199,13 @@ export const main = async (
     const stateRoot = dependencies.stateRoot ?? resolveStateRoot();
     const history = new SqliteHistoryStore(stateRoot, workspace);
     await history.initialize();
-    if (command.kind === 'execution_list' || command.kind === 'execution_show') {
-      const executionStore = history.executionArtifacts;
+    if (
+      command.kind === 'execution_list' || command.kind === 'execution_show' ||
+      command.kind === 'execution_events' || command.kind === 'execution_context' ||
+      command.kind === 'execution_request'
+    ) {
       if (command.kind === 'execution_list') {
-        const executions = await executionStore.list();
+        const executions = history.listExecutions();
         await writeOutput(
           dependencies.writeStdout,
           `${
@@ -163,11 +216,91 @@ export const main = async (
           }\n`,
           'stdout',
         );
-      } else {
-        const execution = await executionStore.read(command.id);
+      } else if (command.kind === 'execution_show') {
+        const execution = history.readExecution(command.id);
         await writeOutput(
           dependencies.writeStdout,
-          `${JSON.stringify(execution)}\n`,
+          `${
+            JSON.stringify({
+              ...executionSummary(execution),
+              events: history.listExecutionEvents(command.id),
+              effects: history.listExecutionEffects(command.id),
+            })
+          }\n`,
+          'stdout',
+        );
+      } else if (command.kind === 'execution_events') {
+        const execution = history.readExecution(command.id);
+        await writeOutput(
+          dependencies.writeStdout,
+          `${
+            JSON.stringify({
+              schemaVersion: 3,
+              executionId: execution.executionId,
+              events: history.listExecutionEvents(command.id),
+              effects: history.listExecutionEffects(command.id),
+            })
+          }\n`,
+          'stdout',
+        );
+      } else if (command.kind === 'execution_context') {
+        const execution = history.readExecution(command.id);
+        const context = history.listExecutionContext(command.id);
+        const contextCapture = contextCaptureForReadback(
+          execution,
+          context.snapshot !== undefined || context.requests.length > 0 ||
+            context.relations.length > 0,
+        );
+        await writeOutput(
+          dependencies.writeStdout,
+          `${
+            JSON.stringify({
+              schemaVersion: 1,
+              execution: {
+                ...executionSummary(execution),
+                contextCapture,
+              },
+              capture: contextCapture,
+              ...context,
+            })
+          }\n`,
+          'stdout',
+        );
+      } else {
+        const execution = history.readExecution(command.id);
+        const context = history.listExecutionContext(command.id);
+        // `listExecutionContext` already performs the active read projection. Select from that
+        // single read model so a large active capture is not projected a second time.
+        const request = context.requests.find((item) => item.requestOrdinal === command.ordinal);
+        if (request === undefined) {
+          throw new HistoryStoreError('history_io_failure');
+        }
+        const contextCapture = contextCaptureForReadback(
+          execution,
+          context.snapshot !== undefined || context.requests.length > 0 ||
+            context.relations.length > 0,
+        );
+        const evidence = (await history.providerEvidence.list()).flatMap((item) =>
+          item.schemaVersion === 5
+            ? item.requests.filter((record) =>
+              record.request.contextRequestOrdinal === command.ordinal
+            ).map((record) => ({ evidenceId: item.evidenceId, record }))
+            : []
+        );
+        await writeOutput(
+          dependencies.writeStdout,
+          `${
+            JSON.stringify({
+              schemaVersion: 1,
+              execution: {
+                ...executionSummary(execution),
+                contextCapture,
+              },
+              capture: contextCapture,
+              request,
+              providerEvidence: evidence,
+            })
+          }\n`,
           'stdout',
         );
       }
@@ -247,27 +380,23 @@ export const main = async (
             command.kind === 'show' || command.kind === 'delete'
           ? 'diagnostic_busy'
           : 'history_busy'
+        : error.code === 'history_invalid' || error.code === 'history_io_failure'
+        ? error.code
         : command.kind === 'evidence_list' || command.kind === 'evidence_show'
-        ? error.code === 'history_invalid'
-          ? 'provider_evidence_invalid'
-          : 'provider_evidence_io_failure'
-        : command.kind === 'execution_list' || command.kind === 'execution_show'
-        ? error.code === 'history_invalid'
-          ? 'worker_execution_artifact_invalid'
-          : 'worker_execution_artifact_io_failure'
-        : error.code === 'history_invalid'
-        ? 'diagnostic_invalid'
+        ? 'provider_evidence_io_failure'
+        : command.kind === 'execution_list' || command.kind === 'execution_show' ||
+            command.kind === 'execution_events'
+        ? 'history_io_failure'
         : 'diagnostic_io_failure'
       : error instanceof FailureDiagnosticStoreError
       ? error.code
       : error instanceof ProviderEvidenceStoreError
       ? error.code
-      : error instanceof WorkerExecutionArtifactStoreError
-      ? error.code
       : command.kind === 'evidence_list' || command.kind === 'evidence_show'
       ? 'provider_evidence_io_failure'
-      : command.kind === 'execution_list' || command.kind === 'execution_show'
-      ? 'worker_execution_artifact_io_failure'
+      : command.kind === 'execution_list' || command.kind === 'execution_show' ||
+          command.kind === 'execution_events'
+      ? 'history_io_failure'
       : 'diagnostic_io_failure';
     await writeOutput(dependencies.writeStderr, errorLine(code), 'stderr');
     return 1;

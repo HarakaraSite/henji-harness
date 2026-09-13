@@ -29,6 +29,8 @@ import {
   MAX_TOOL_PROGRESS_TEXT_BYTES,
   MAX_TOOL_PROGRESS_UPDATES_PER_CALL,
   type ModelExecutionContext,
+  type ModelRequestSourceAttribution,
+  type RequestMessageSourceFactory,
 } from './execution_context.ts';
 import { prepareModelContext } from './context.ts';
 import { type SteeringConsumer } from './steering.ts';
@@ -77,6 +79,13 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly steeringConsumer?: SteeringConsumer;
   /** Optional pure semantic parent projection, applied before defensive request preparation. */
   readonly projectParentRequest?: (request: ModelRequest) => ModelRequest;
+  /** Projection that transforms transcript provenance in the same operation as its messages. */
+  readonly projectParentRequestWithSources?: (
+    request: ModelRequest,
+    sources: ModelRequestSourceAttribution,
+  ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution };
+  /** Worker-provided causal source factory used as messages are appended to the transcript. */
+  readonly requestMessageSource?: RequestMessageSourceFactory;
 }
 
 /**
@@ -275,12 +284,38 @@ const runAgentTurnInternal = async (
   const cancellation = options.cancellation;
   const steering = options.steering ?? options.steeringConsumer;
   const ownsCancellation = options.ownsCancellation !== false;
+  const requestMessageSource = options.requestMessageSource ??
+    options.executionContext?.requestMessageSource;
+  const projectParentRequestWithSources = options.projectParentRequestWithSources ??
+    options.executionContext?.projectParentRequestWithSources;
   const transcript: Message[] = snapshotMessages(committedTranscript);
+  const transcriptSources: Array<
+    readonly import('../history/context_attribution.ts').ContextSourceRelation[]
+  > = committedTranscript.map((message, messageIndex) =>
+    requestMessageSource?.(
+      message,
+      'committed',
+      messageIndex,
+      undefined,
+      options.executionContext?.lane,
+      options.executionContext?.sourceCallId,
+    ) ?? []
+  );
   const userMessage: Message = {
     role: 'user',
     content: { kind: 'text', text: task },
   };
   transcript.push(userMessage);
+  transcriptSources.push(
+    requestMessageSource?.(
+      userMessage,
+      'task',
+      committedTranscript.length,
+      undefined,
+      options.executionContext?.lane,
+      options.executionContext?.sourceCallId,
+    ) ?? [],
+  );
   deliverEvent(sink, { kind: 'turn_start', turn });
   deliverEvent(sink, {
     kind: 'user_message',
@@ -508,6 +543,9 @@ const runAgentTurnInternal = async (
       throw error;
     }
     let preparedRequest: ModelRequest;
+    let preparedSources: import('./execution_context.ts').ModelRequestSourceAttribution = {
+      transcript: transcriptSources,
+    };
     try {
       const request: ModelRequest = options.systemInstruction === undefined
         ? {
@@ -519,9 +557,17 @@ const runAgentTurnInternal = async (
           transcript: snapshotMessages(transcript),
           tools: snapshot(registry.definitions()),
         };
-      const projected = options.projectParentRequest === undefined
-        ? request
-        : options.projectParentRequest(request);
+      let projected = request;
+      if (projectParentRequestWithSources !== undefined) {
+        const projectedWithSources = projectParentRequestWithSources(
+          request,
+          preparedSources,
+        );
+        projected = projectedWithSources.request;
+        preparedSources = projectedWithSources.sources;
+      } else if (options.projectParentRequest !== undefined) {
+        projected = options.projectParentRequest(request);
+      }
       preparedRequest = prepareModelContext(projected).request;
     } catch (error) {
       return finishContractFailure(`context preparation failure: ${errorText(error)}`, {
@@ -548,6 +594,25 @@ const runAgentTurnInternal = async (
       throw error;
     }
     steps += 1;
+    let contextRequestOrdinal: number | undefined;
+    try {
+      contextRequestOrdinal = await options.executionContext?.observeModelRequest?.({
+        request: snapshot(preparedRequest),
+        lane: options.executionContext?.lane ?? 'parent',
+        modelStep: steps,
+        modelSelection: options.executionContext?.modelSelection,
+        sourceAttribution: {
+          transcript: structuredClone(preparedSources.transcript),
+        },
+      });
+      evidence?.setContextRequestOrdinal(contextRequestOrdinal);
+    } catch (error) {
+      return finishContractFailure(`context request observation failure: ${errorText(error)}`, {
+        stage: 'request_build',
+        code: 'invalid_input',
+        modelStep: steps,
+      }, error);
+    }
     let result: unknown;
     let progressFailure: EventDeliveryError | undefined;
     let progressSettled = false;
@@ -588,6 +653,7 @@ const runAgentTurnInternal = async (
         ? await model.generate(preparedRequest)
         : await model.generate(preparedRequest, generateOptions);
     } catch (error) {
+      evidence?.setContextRequestOrdinal(undefined);
       progressSettled = true;
       if (progressFailure !== undefined) {
         if (isCancellationCleanupError(error)) {
@@ -629,6 +695,7 @@ const runAgentTurnInternal = async (
     }
     evidence?.recordModelResult(result, steps, evidenceLane);
     if (result.kind === 'final') {
+      evidence?.setContextRequestOrdinal(undefined);
       observer?.modelSettled('final');
       const assistant: AssistantMessage = {
         role: 'assistant',
@@ -637,7 +704,18 @@ const runAgentTurnInternal = async (
           ? {}
           : { providerState: snapshot(result.providerState) }),
       };
+      const assistantIndex = transcript.length;
       transcript.push(assistant);
+      transcriptSources.push(
+        requestMessageSource?.(
+          assistant,
+          'assistant',
+          assistantIndex,
+          steps,
+          options.executionContext?.lane,
+          options.executionContext?.sourceCallId,
+        ) ?? [],
+      );
       deliverEvent(sink, {
         kind: 'assistant_message',
         turn,
@@ -660,7 +738,18 @@ const runAgentTurnInternal = async (
     const calls = snapshot(result.calls);
     observer?.modelSettled('tool_calls');
     const assistant = assistantToolMessage(calls, result.text, result.providerState);
+    const assistantIndex = transcript.length;
     transcript.push(assistant);
+    transcriptSources.push(
+      requestMessageSource?.(
+        assistant,
+        'assistant',
+        assistantIndex,
+        steps,
+        options.executionContext?.lane,
+        options.executionContext?.sourceCallId,
+      ) ?? [],
+    );
     deliverEvent(sink, {
       kind: 'assistant_message',
       turn,
@@ -728,12 +817,14 @@ const runAgentTurnInternal = async (
           ? {
             modelExecution: options.executionContext,
             modelStep: steps,
+            callId: call.callId,
             signal,
             cancellation,
           }
           : {
             modelExecution: options.executionContext,
             modelStep: steps,
+            callId: call.callId,
             signal,
             cancellation,
             reportProgress,
@@ -814,7 +905,19 @@ const runAgentTurnInternal = async (
       observer?.toolResultAccepted(snapshot(results.at(-1)!));
       evidence?.recordToolResult(results.at(-1)!, steps, evidenceLane);
     }
-    transcript.push({ role: 'tool', content: results });
+    const toolMessage: ToolMessage = { role: 'tool', content: results };
+    transcript.push(toolMessage);
+    transcriptSources.push(
+      requestMessageSource?.(
+        toolMessage,
+        'tool',
+        transcript.length - 1,
+        steps,
+        options.executionContext?.lane,
+        options.executionContext?.sourceCallId,
+      ) ?? [],
+    );
+    evidence?.setContextRequestOrdinal(undefined);
     if (signal?.aborted) return finishCancelled();
     if (terminalResult !== null) {
       return finishNormal({
@@ -839,6 +942,16 @@ const runAgentTurnInternal = async (
         content: { kind: 'text', text: steeringText },
       };
       transcript.push(steeringMessage);
+      transcriptSources.push(
+        requestMessageSource?.(
+          steeringMessage,
+          'steering',
+          transcript.length - 1,
+          steps,
+          options.executionContext?.lane,
+          options.executionContext?.sourceCallId,
+        ) ?? [],
+      );
       deliverEvent(sink, {
         kind: 'steering_message',
         turn,

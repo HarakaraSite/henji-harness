@@ -558,6 +558,15 @@ Deno.test('Increment 40 exposes a canonical execution while post-commit observat
     );
     const handle = await store.allocateWorker('default', definition);
     const observationFails: HistoryPersistencePort = {
+      beginExecution: (input) => store.beginExecution(input),
+      appendExecutionEvent: (input) => store.appendExecutionEvent(input),
+      reconcileExecution: (input) => store.reconcileExecution(input),
+      listExecutions: () => store.listExecutions(),
+      readExecution: (id) => store.readExecution(id),
+      listExecutionEvents: (id) => store.listExecutionEvents(id),
+      listExecutionEffects: (id) => store.listExecutionEffects(id),
+      listExecutionContext: (id) => store.listExecutionContext(id),
+      readExecutionRequest: (id, ordinal) => store.readExecutionRequest(id, ordinal),
       commitCanonicalTurn: (input) => store.commitCanonicalTurn(input),
       settleNonCanonicalExecution: (input) => store.settleNonCanonicalExecution(input),
       recordPostCommitObservation: () => {
@@ -812,7 +821,7 @@ Deno.test('Increment 40 recalls a post-cutover non-canonical execution only', as
     const artifacts = await store.executionArtifacts.list();
     assertEquals(artifacts.length, 2);
     const target = artifacts[1];
-    assert(target?.schemaVersion === 3);
+    assert(target?.schemaVersion === 5);
     assertEquals(target.recall?.sourceExecutionId, source.executionId);
     const record = await store.readWorker(handle.id);
     assert(
@@ -938,7 +947,11 @@ Deno.test('Increment 40 settles non-canonical execution and artifact in one tran
             (SELECT count(*) FROM failure_diagnostics) AS diagnostics,
             (SELECT count(*) FROM execution_artifacts) AS artifacts
         `).get(),
-        { tasks: 0, executions: 0, evidence: 0, diagnostics: 0, artifacts: 0 },
+        { tasks: 1, executions: 1, evidence: 0, diagnostics: 0, artifacts: 0 },
+      );
+      assertEquals(
+        verify.prepare('SELECT lifecycle, outcome, outcome_json FROM executions').get(),
+        { lifecycle: 'active', outcome: 'unknown', outcome_json: null },
       );
     } finally {
       verify.close();
@@ -960,6 +973,7 @@ Deno.test('Increment 40 keeps diagnostic capacity local to diagnostic capture', 
     for (let ordinal = 1; ordinal <= 17; ordinal += 1) {
       const input = nonCanonicalInput(ordinal);
       const suffix = ordinal.toString(16).padStart(12, '0');
+      await store.beginExecution({ ...input, sessionMode: 'no_session' });
       const result = store.settleNonCanonicalExecution({
         ...input,
         diagnostic: {
@@ -1032,7 +1046,9 @@ Deno.test('Increment 40 waits briefly and returns typed busy after 250 ms', asyn
       worker.postMessage({ database: path, holdMs });
       await locked;
       try {
-        return store.settleNonCanonicalExecution(nonCanonicalInput(ordinal));
+        const input = nonCanonicalInput(ordinal);
+        await store.beginExecution({ ...input, sessionMode: 'no_session' });
+        return store.settleNonCanonicalExecution(input);
       } finally {
         await released;
         worker.terminate();

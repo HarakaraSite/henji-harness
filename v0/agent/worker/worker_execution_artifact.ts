@@ -11,7 +11,7 @@ import { isDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts'
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
-export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 3 as const;
+export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 5 as const;
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -114,7 +114,49 @@ export interface WorkerExecutionArtifactV3
 
 export type StoredWorkerExecutionArtifact =
   | WorkerExecutionArtifactV2
-  | WorkerExecutionArtifactV3;
+  | WorkerExecutionArtifactV3
+  | WorkerExecutionArtifactV4
+  | WorkerExecutionArtifactV5;
+
+/** Schema-v2 history artifact used for reconciled executions. */
+type WorkerExecutionArtifactV4Base =
+  & Omit<
+    WorkerExecutionArtifactV3,
+    'schemaVersion' | 'outcome' | 'settlement'
+  >
+  & {
+    readonly schemaVersion: 4;
+    readonly lifecycle: 'settled';
+    readonly adoption: 'canonical' | 'non_canonical';
+  };
+
+/** Normal settlement keeps the real Worker outcome and an ordinary settlement state. */
+type WorkerExecutionArtifactV4Complete = WorkerExecutionArtifactV4Base & {
+  readonly normalizedOutcome: 'completed' | 'cancelled' | 'failed';
+  readonly settlement: WorkerExecutionSettlement;
+  readonly outcome: WorkerExecutionOutcome;
+};
+
+/** Restart reconciliation has no fabricated LoopOutcome and names its uncertainty explicitly. */
+type WorkerExecutionArtifactV4Reconciled = WorkerExecutionArtifactV4Base & {
+  readonly normalizedOutcome: 'interrupted' | 'unknown';
+  readonly settlement: 'interrupted' | 'unknown';
+  readonly outcome?: never;
+};
+
+export type WorkerExecutionArtifactV4 =
+  | WorkerExecutionArtifactV4Complete
+  | WorkerExecutionArtifactV4Reconciled;
+
+export type WorkerExecutionArtifactV5 =
+  | (Omit<WorkerExecutionArtifactV4Complete, 'schemaVersion'> & {
+    readonly schemaVersion: 5;
+    readonly contextCapture: 'complete' | 'failed' | 'none';
+  })
+  | (Omit<WorkerExecutionArtifactV4Reconciled, 'schemaVersion'> & {
+    readonly schemaVersion: 5;
+    readonly contextCapture: 'partial';
+  });
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -287,6 +329,19 @@ export const validateWorkerExecutionArtifact = (
     return false;
   }
   const artifact = value as Record<string, unknown>;
+  if (artifact.schemaVersion === 5) {
+    if (
+      artifact.contextCapture !== 'none' && artifact.contextCapture !== 'partial' &&
+      artifact.contextCapture !== 'complete' && artifact.contextCapture !== 'failed'
+    ) return false;
+    if (
+      (artifact.normalizedOutcome === 'interrupted' || artifact.normalizedOutcome === 'unknown') &&
+      artifact.contextCapture !== 'partial'
+    ) return false;
+    const legacy = { ...artifact };
+    delete legacy.contextCapture;
+    return validateWorkerExecutionArtifact({ ...legacy, schemaVersion: 4 });
+  }
   const stateOptional = [
     ...(Object.hasOwn(artifact, 'proposedStateRevision') ? ['proposedStateRevision'] : []),
     ...(Object.hasOwn(artifact, 'committedStateRevision') ? ['committedStateRevision'] : []),
@@ -305,6 +360,9 @@ export const validateWorkerExecutionArtifact = (
     ...(Object.hasOwn(artifact, 'artifactPersistenceError') ? ['artifactPersistenceError'] : []),
   ];
   const recallOptional = Object.hasOwn(artifact, 'recall') ? ['recall'] : [];
+  const v4Optional = artifact.schemaVersion === 4
+    ? ['lifecycle', 'normalizedOutcome', 'adoption']
+    : [];
   if (
     !ownKeys(artifact, [
       'schemaVersion',
@@ -329,7 +387,8 @@ export const validateWorkerExecutionArtifact = (
       ...storeOptional,
       'acknowledgement',
       'settlement',
-      'outcome',
+      ...v4Optional,
+      ...(Object.hasOwn(artifact, 'outcome') ? ['outcome'] : []),
       'effectCommitRelation',
       'automaticReplay',
       ...artifactOptional,
@@ -337,8 +396,10 @@ export const validateWorkerExecutionArtifact = (
   ) return false;
   const command = artifact.command as Record<string, unknown>;
   const trace = artifact.protocolTrace;
-  const valid = (artifact.schemaVersion === 2 || artifact.schemaVersion === 3) &&
-    (artifact.schemaVersion === 3 || !Object.hasOwn(artifact, 'recall')) &&
+  const valid = (artifact.schemaVersion === 2 || artifact.schemaVersion === 3 ||
+    artifact.schemaVersion === 4) &&
+    ((artifact.schemaVersion === 3 || artifact.schemaVersion === 4) ||
+      !Object.hasOwn(artifact, 'recall')) &&
     (!Object.hasOwn(artifact, 'recall') ||
       validRecallAttribution(artifact.recall)) &&
     validExecutionId(artifact.executionId) &&
@@ -364,7 +425,8 @@ export const validateWorkerExecutionArtifact = (
     (!Object.hasOwn(artifact, 'committedStateRevision') ||
       Number.isSafeInteger(artifact.committedStateRevision) &&
         (artifact.committedStateRevision as number) >= 1) &&
-    Array.isArray(trace) && trace.length > 0 && trace.every(validTrace) &&
+    Array.isArray(trace) && (artifact.schemaVersion === 4 || trace.length > 0) &&
+    trace.every(validTrace) &&
     trace.every((entry, index) => entry.sequence === index + 1) &&
     (!Object.hasOwn(artifact, 'providerEvidenceId') ||
       validExecutionId(artifact.providerEvidenceId)) &&
@@ -388,8 +450,21 @@ export const validateWorkerExecutionArtifact = (
     (artifact.settlement === 'uncommitted' ||
       artifact.settlement === 'committed_observation_pending' ||
       artifact.settlement === 'committed' ||
-      artifact.settlement === 'committed_generation_unavailable') &&
-    validOutcome(artifact.outcome) &&
+      artifact.settlement === 'committed_generation_unavailable' ||
+      artifact.settlement === 'interrupted' || artifact.settlement === 'unknown') &&
+    (artifact.schemaVersion === 4
+      ? artifact.lifecycle === 'settled' &&
+        ['unknown', 'completed', 'cancelled', 'failed', 'interrupted'].includes(
+          String(artifact.normalizedOutcome),
+        ) &&
+        (artifact.adoption === 'canonical' || artifact.adoption === 'non_canonical') &&
+        (artifact.normalizedOutcome === 'unknown' || artifact.normalizedOutcome === 'interrupted'
+          ? artifact.adoption === 'non_canonical' &&
+            artifact.normalizedOutcome === artifact.settlement &&
+            !Object.hasOwn(artifact, 'outcome')
+          : artifact.settlement !== 'interrupted' && artifact.settlement !== 'unknown' &&
+            Object.hasOwn(artifact, 'outcome') && validOutcome(artifact.outcome))
+      : validOutcome(artifact.outcome)) &&
     artifact.effectCommitRelation === 'not_transactional' &&
     artifact.automaticReplay === false &&
     (!Object.hasOwn(artifact, 'artifactPersistenceError') ||
@@ -492,6 +567,9 @@ export const workerMessageSubtype = (
   }
   if (message.kind === 'effect_observation') {
     return { kind: message.kind, semanticSubtype: message.effect.kind };
+  }
+  if (message.kind === 'provider_observation') {
+    return { kind: message.kind, semanticSubtype: message.observation.kind };
   }
   if (message.kind === 'worker_error') {
     return { kind: message.kind, semanticSubtype: message.stage };

@@ -9,6 +9,7 @@ import {
   type WorkerRuntimeEvent,
   type WorkerToHostMessage,
 } from './worker_protocol.ts';
+import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import {
   type ExecutableAgentDefinition,
   finalizeRootAgentComposition,
@@ -28,6 +29,7 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
+import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -219,6 +221,22 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       effect,
     });
   },
+  providerObservation: (
+    correlation: WorkerCorrelation,
+    observation: ProviderEvidenceObservation,
+  ) => {
+    eventSequence += 1;
+    post({ kind: 'provider_observation', correlation, sequence: eventSequence, observation });
+  },
+  contextObservation: (correlation, observation) => {
+    eventSequence += 1;
+    post({
+      kind: 'context_observation',
+      correlation,
+      sequence: eventSequence,
+      observation: { kind: 'model_request', request: observation },
+    });
+  },
   checkpointProposal: async (correlation, proposal, signal) => {
     post(proposal);
     return await waitForAcknowledgement('checkpoint', correlation, signal);
@@ -227,12 +245,13 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     post(proposal);
     return await waitForAcknowledgement('commit', correlation, signal);
   },
-  turnFailed: (correlation, outcome, providerEvidence) =>
+  turnFailed: (correlation, outcome, providerEvidence, contextManifest) =>
     post({
       kind: 'turn_failed',
       correlation,
       outcome,
       ...(providerEvidence === undefined ? {} : { providerEvidence }),
+      ...(contextManifest === undefined ? {} : { contextManifest }),
       ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
     }),
 });
@@ -289,6 +308,27 @@ const createGeneration = async (
     returnedComposition,
     rootMaxSteps,
   );
+  const contextSnapshot: WorkerContextSnapshot = Object.freeze({
+    schemaVersion: 1,
+    workspaceRoot: workspace.root,
+    ...(instructionSnapshot === undefined ? {} : {
+      workspaceInstruction: structuredClone(instructionSnapshot),
+    }),
+    skillCatalog: Object.freeze({
+      ...(skillCatalog.manifest === undefined ? {} : { manifest: skillCatalog.manifest }),
+      skills: Object.freeze(skillCatalog.skills.map((skill) => structuredClone(skill))),
+    }),
+    instructionComponents: Object.freeze(
+      (composition.instructionComponents ?? []).map((component) => structuredClone(component)),
+    ),
+    ...(composition.systemInstruction === undefined ? {} : {
+      systemInstruction: composition.systemInstruction,
+    }),
+    toolDefinitions: Object.freeze(
+      composition.registry.definitions().map((definition) => structuredClone(definition)),
+    ),
+    runtimeFacts: Object.freeze({ cwd: workspace.root }),
+  });
   return new WorkerGeneration(
     composition,
     correlation.session,
@@ -307,6 +347,7 @@ const createGeneration = async (
         ? {}
         : { instructionSource: instructionSnapshot.source }),
       skillNames: Object.freeze(skillCatalog.skills.map((skill) => skill.name)),
+      context: contextSnapshot,
     }),
   );
 };

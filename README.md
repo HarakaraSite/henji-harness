@@ -117,6 +117,16 @@ runtime配置は`diagnostics runtime`からcredential値を含めず確認でき
 `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換
 Skillはinstallなしに発見する。
 
+SQLiteのschema v3では、turnをWorkerへ送る前にactive executionとgeneration context basisがdurableになる。各実行の
+instruction、skill catalog、loaded skill、runtime fact、model-facing tool contract、ordered model requestはcontent
+descriptorとして保存され、`discovered`、`resolved`、`loaded`、`observed`、`projected`を別のrelationで追跡する。
+`diagnostics executions context --id <execution-id>`はsnapshotとrelationsを、`diagnostics executions request --id <execution-id> --ordinal N`
+は再構成可能なrequestとlinked provider evidenceをreadbackする。`show`と`events`は従来どおりexecution row、effect
+projection、DB採番ordinal順のcredential-free raw journalを表示する。process停止後のactive executionは
+Sessionまたはno-sessionのlock内でinterrupted/unknownへreconcileされ、保存済みcontextだけをpartialとして保持する。
+normal settlementはjournalと最終manifestを照合してcompleteを確定し、停止したeffectやprovider requestを自動replayせず、
+過去のcanonical conversationも変更しない。schema v1/v2 stateはmigration・互換読込せず`history_invalid`として拒否する。
+
 現在は開発中であり、詳細は[構想](docs/concepts/experience-driven-self-revision.md)、[architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を正本とする。
 
 ## JSR package

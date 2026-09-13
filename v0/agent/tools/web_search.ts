@@ -2,10 +2,20 @@ import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
 import type { JsonValue } from '../core/contracts.ts';
 import type { ToolExecutionContext } from '../core/execution_context.ts';
 import type { CredentialSource } from '../provider/openrouter_model.ts';
+import type { OpenRouterModelSelection } from '../provider/model_selection.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { type Tool, ToolInputError } from './tools.ts';
 
 export const OPENROUTER_SONAR_SEARCH_MODEL = 'perplexity/sonar';
+
+/** Sonar is a fixed auxiliary route, independent of the parent or planner selection. */
+const SONAR_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
+  provider: 'openrouter',
+  api: 'openrouter-chat-completions',
+  authProfile: 'openrouter-api-key',
+  modelId: OPENROUTER_SONAR_SEARCH_MODEL,
+  effort: 'auto',
+});
 
 const SONAR_GROUNDING_SYSTEM_MESSAGE =
   'Only answer using facts supported by the search results. If the results do not contain the answer, say so explicitly rather than guessing. If the results are related but do not match the question, state the mismatch before answering. Clearly distinguish verified facts from inference.';
@@ -113,10 +123,6 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
       throw new Error('web search model request budget exhausted');
     }
     throwIfCancelled(context.signal);
-    const credential = await resolveCredential(this.options);
-    if (!credential) throw new Error('host provider credential is not configured');
-    throwIfCancelled(context.signal);
-
     const body = JSON.stringify({
       model: OPENROUTER_SONAR_SEARCH_MODEL,
       messages: [
@@ -126,115 +132,133 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
       stream: false,
       web_search_options: { search_context_size: 'medium' },
     });
+    const contextRequestOrdinal = await context.modelExecution?.observeAuxiliaryRequest?.({
+      purpose: 'web_search',
+      body,
+      callId: context.callId ??
+        (context.modelStep === undefined ? 'web-search' : `web-search-${context.modelStep}`),
+      lane: context.modelExecution?.lane ?? 'parent',
+      modelStep: context.modelStep ?? 1,
+      modelSelection: SONAR_MODEL_SELECTION,
+    });
     const endpoint = this.options.endpoint ??
       `${PRODUCTION_PROFILE.origin}${PRODUCTION_PROFILE.path}`;
     const evidence = context.modelExecution?.providerEvidence;
-    evidence?.startRequest({
-      lane: context.modelExecution?.lane === 'child' ? 'planner' : 'parent',
-      phase: 'user_turn',
-      modelStep: context.modelStep ?? 1,
-      endpoint,
-      method: 'POST',
-      requestBody: body,
-      requestMetadata: {
-        contentType: 'application/json',
-        redirect: 'error',
-        responseMode: 'json',
-        origin: 'web_search',
-        provider: 'openrouter',
-        api: 'openrouter-chat-completions',
-        modelId: OPENROUTER_SONAR_SEARCH_MODEL,
-        authProfile: 'openrouter-api-key',
-        protocol: 'json',
-      },
-    });
-
-    let response: Response;
+    evidence?.setContextRequestOrdinal(contextRequestOrdinal);
     try {
-      response = await this.fetcher(endpoint, {
+      const credential = await resolveCredential(this.options);
+      if (!credential) throw new Error('host provider credential is not configured');
+      throwIfCancelled(context.signal);
+      evidence?.startRequest({
+        lane: context.modelExecution?.lane === 'child' ? 'planner' : 'parent',
+        phase: 'user_turn',
+        modelStep: context.modelStep ?? 1,
+        endpoint,
         method: 'POST',
-        signal: context.signal,
-        redirect: 'error',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${credential}`,
+        requestBody: body,
+        requestMetadata: {
+          contentType: 'application/json',
+          redirect: 'error',
+          responseMode: 'json',
+          origin: 'web_search',
+          provider: 'openrouter',
+          api: 'openrouter-chat-completions',
+          modelId: OPENROUTER_SONAR_SEARCH_MODEL,
+          effort: 'auto',
+          authProfile: 'openrouter-api-key',
+          protocol: 'json',
         },
-        body,
       });
-    } catch {
-      if (context.signal?.aborted) throw new TurnCancelledError();
-      throw new Error('web search provider transport failed');
-    }
-    evidence?.recordResponse({
-      status: response.status,
-      headers: responseHeaders(response.headers),
-    });
 
-    let rawBytes: Uint8Array;
-    try {
-      rawBytes = new Uint8Array(await response.arrayBuffer());
-    } catch {
-      if (context.signal?.aborted) throw new TurnCancelledError();
-      throw new Error('web search provider response read failed');
-    }
-    evidence?.appendResponseBytes(rawBytes);
-    throwIfCancelled(context.signal);
+      let response: Response;
+      try {
+        response = await this.fetcher(endpoint, {
+          method: 'POST',
+          signal: context.signal,
+          redirect: 'error',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${credential}`,
+          },
+          body,
+        });
+      } catch {
+        if (context.signal?.aborted) throw new TurnCancelledError();
+        throw new Error('web search provider transport failed');
+      }
+      evidence?.recordResponse({
+        status: response.status,
+        headers: responseHeaders(response.headers),
+      });
 
-    if (!response.ok) {
-      evidence?.recordParserTransition({
-        kind: 'failure',
-        reason: 'http_error',
-        field: 'status',
-      });
-      throw new Error(`web search provider request failed (${response.status})`);
-    }
+      let rawBytes: Uint8Array;
+      try {
+        rawBytes = new Uint8Array(await response.arrayBuffer());
+      } catch {
+        if (context.signal?.aborted) throw new TurnCancelledError();
+        throw new Error('web search provider response read failed');
+      }
+      evidence?.appendResponseBytes(rawBytes);
+      throwIfCancelled(context.signal);
 
-    let rawText: string;
-    try {
-      rawText = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes);
-    } catch {
+      if (!response.ok) {
+        evidence?.recordParserTransition({
+          kind: 'failure',
+          reason: 'http_error',
+          field: 'status',
+        });
+        throw new Error(`web search provider request failed (${response.status})`);
+      }
+
+      let rawText: string;
+      try {
+        rawText = new TextDecoder('utf-8', { fatal: true }).decode(rawBytes);
+      } catch {
+        evidence?.recordParserTransition({
+          kind: 'failure',
+          reason: 'invalid_utf8',
+          field: 'response.body',
+        });
+        throw new Error('web search provider response was not valid UTF-8');
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        evidence?.recordParserTransition({
+          kind: 'failure',
+          reason: 'invalid_json',
+          field: 'response.body',
+        });
+        throw new Error('web search provider response was not valid JSON');
+      }
       evidence?.recordParserTransition({
-        kind: 'failure',
-        reason: 'invalid_utf8',
-        field: 'response.body',
-      });
-      throw new Error('web search provider response was not valid UTF-8');
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      evidence?.recordParserTransition({
-        kind: 'failure',
-        reason: 'invalid_json',
-        field: 'response.body',
-      });
-      throw new Error('web search provider response was not valid JSON');
-    }
-    evidence?.recordParserTransition({
-      kind: 'event',
-      reason: 'json_response',
-      ...(isJsonValue(parsed) ? { detail: parsed } : {}),
-    });
-    const result = parseSearchResult(parsed);
-    if (result === undefined) {
-      evidence?.recordParserTransition({
-        kind: 'failure',
-        reason: 'missing_answer_or_url_citations',
-        field: 'choices[0].message',
+        kind: 'event',
+        reason: 'json_response',
         ...(isJsonValue(parsed) ? { detail: parsed } : {}),
       });
-      throw new Error('web search provider response had no answer with URL citations');
+      const result = parseSearchResult(parsed);
+      if (result === undefined) {
+        evidence?.recordParserTransition({
+          kind: 'failure',
+          reason: 'missing_answer_or_url_citations',
+          field: 'choices[0].message',
+          ...(isJsonValue(parsed) ? { detail: parsed } : {}),
+        });
+        throw new Error('web search provider response had no answer with URL citations');
+      }
+      evidence?.recordParserTransition({
+        kind: 'terminal',
+        reason: 'answer_with_url_citations',
+      });
+      evidence?.recordParserTransition({
+        kind: 'result',
+        reason: 'web_search_result',
+      });
+      return result;
+    } finally {
+      evidence?.setContextRequestOrdinal(undefined);
     }
-    evidence?.recordParserTransition({
-      kind: 'terminal',
-      reason: 'answer_with_url_citations',
-    });
-    evidence?.recordParserTransition({
-      kind: 'result',
-      reason: 'web_search_result',
-    });
-    return result;
   }
 }
 

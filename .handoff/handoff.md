@@ -70,23 +70,33 @@
   canonical-only export、SQLite unavailable/unknown schemaのno-fallbackが成立した。実装後reviewで発見したcanonical
   post-commit readback窓とtyped error保持の不具合は修正・回帰確認済みで、未解決のBlocker/P1はない。
   詳細な結果はIncrement 40正本へ保存済みであり、実装差分は`daaef099`へcommit済みである。
-  installed binaryは置換していない。Increment 41は現行source、architecture/program、Forge/OpenCodeの
-  参照実装、導入済みSQLiteの実測を調査し、active executionのbegin-before-dispatch、append-only live
-  journal、tool effect projection、Session/no-session lock内のreconciliation、no-replay、partial evidence/recall、
-  schema v2の破壊的cutoverを個別計画化した。初回第三者reviewのP1 4件を採用し、nullable
-  outcome、canonical commit後のjournal failure境界、coalesceを考慮したevidence照合、V2 recall projectionを
-  計画へ反映済みである。変更箇所のbounded re-reviewで全件の解消と新しいBlocker/P1なしを
-  確認し、個別計画は利用者承認候補である。Increment 41の実装は未承認・未着手である。
-- 次: 利用者がIncrement 41の個別計画を承認または修正指示する。
+  installed binaryは置換していない。Increment 41の計画は`abdb9f4e`へcommit済みで、利用者承認後にschema v2、
+  active execution admission、append-only live journal、restart reconciliation、partial evidence、diagnostics、
+  `/recall`を実装した。focused 12件、関連回帰、authoritative `v0:gate`、統合後`v0:test`全218件、read-only実装review、
+  isolated standalone/real-provider/real-TTY Human Gateが成功した。強制停止後の`interrupted/non_canonical`、
+  pending effectの`outcome_unknown`、no replay、次taskだけのrecall、異なる二Sessionの並行commit、schema v1の
+  byte不変な`history_invalid`拒否をproduction経路で確認した。未解決Blocker/P1はなく、結果はIncrement 41正本へ
+  保存済みである。Increment 42はreview済み個別計画のSlice A〜Dを実装し、破壊的schema v3、content-addressed
+  context snapshot、stage別relation、parent/planner/web-searchのexact request attribution、provider evidence相関、
+  active/partial/complete/failed diagnosticsを成立させた。focused 26件と関連回帰、check/format/lint、authoritative
+  `v0:gate`全243件が成功した。isolated standalone/real-provider/real-TTY Human Gateではskill load/tool observation、
+  multi-step ordered request、mutable source変更後の旧snapshot不変と新snapshot分離、強制停止後のpartial context/no replay、
+  schema v2のbyte不変な`history_invalid`拒否を確認した。実装reviewで報告されたskill relation重複、原因request ordinal欠落、
+  active projection欠落、diagnosticsのwriter lock P1はすべて修正し、最終bounded reviewで新しいBlocker/P1はなかった。
+  結果はIncrement 42正本へ保存済みである。非同期・並行subagentは未採用候補として通常利用メモへ記録し、一次資料による
+  参照実装比較をresearch文書へ保存した。architectureとroadmapは変更していない。Increment 41・42の変更は未commitである。
+- 次: 利用者判断によりIncrement 41・42の変更をcommitし、Increment 43の調査・計画へ進む。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
   `docs/increments/increment-34.md`、
   `docs/increments/increment-35.md`、`docs/increments/increment-37.md`、`docs/increments/increment-38.md`、
   `docs/increments/increment-39.md`、`docs/increments/increment-40.md`、`docs/increments/increment-41.md`、
+  `docs/increments/increment-42.md`、
   `docs/experience/normal-use-inbox.md`、
   `docs/research/agent-loop-and-durable-state-comparison.md`、
-  `docs/research/externalization-reference-comparison.md`。現行の採用済み全体programは
+  `docs/research/externalization-reference-comparison.md`、
+  `docs/research/async-parallel-subagent-reference-comparison.md`。現行の採用済み全体programは
   `docs/roadmap-inputs/durable-history-and-context-rebuild.md`、
   `docs/roadmap-inputs/increment-32-34-externalization-concept-plan.md`。当初案と初回reviewの履歴は
   `docs/roadmap-inputs/increment-32-33-initial-plan-review.md`。
@@ -109,7 +119,7 @@
   Increment 40最終working treeの一時binaryは`/tmp/henji-i40-candidate`（build
   `709539b66e829e21c2f6dfde82adcb3c7fad660835f75f8884cfcaff9b926ee6`）、isolated stateは
   `/tmp/henji-i40-human-gate`に保持している。
-  durable historyの全体program、破壊的cutover方針、Increment 40個別計画は承認済みである。過去Sessionのmigration、
-  conversion、compatibility readは実装しない。Increment 40のrepository内実装はcommit済みだが、installed binary
-  置換、push、tag、publishは未承認・未実施である。Increment 41の計画は未commitで、実装、architecture・roadmap・
-  構想の変更、installed binary置換、commit、push、tag、publishは承認されていない。
+  durable historyの全体programと破壊的cutover方針、Increment 40〜42の個別計画は承認済みである。過去Sessionの
+  migration、conversion、compatibility readは実装しない。Increment 40のrepository内実装はcommit済みで、
+  Increment 41・42の実装・結果文書は未commitである。architecture・roadmap・構想の変更、installed binary置換、
+  commit、push、tag、publishは承認されていない。

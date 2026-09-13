@@ -200,7 +200,9 @@ export const createPlannerDelegationTool = (
         : context) as ParentTurnExecutionContext;
     const signal = 'modelExecution' in context ? context.signal : context.signal;
     throwIfCancelled(signal);
-    const childContext = parentContext.admitPlannerExecution();
+    const childContext = parentContext.admitPlannerExecution(
+      'callId' in context && typeof context.callId === 'string' ? context.callId : undefined,
+    );
     if (childContext === undefined) {
       throw new PlannerDelegationFailureError('delegation_limit');
     }

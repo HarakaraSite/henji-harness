@@ -178,6 +178,7 @@ export class OpenRouterAgentModel implements Model {
             provider: 'openrouter',
             api: 'openrouter-chat-completions',
             modelId: this.profile.model,
+            effort: this.profile.reasoningEffort ?? 'auto',
             authProfile: 'openrouter-api-key',
             protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
           },

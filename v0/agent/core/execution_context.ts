@@ -1,9 +1,52 @@
 import { type TurnCancellation } from './cancellation.ts';
 import { type FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
 import { type ProviderEvidenceRecorder } from '../provider/provider_evidence.ts';
+import type { ModelRequest } from './contracts.ts';
+import type { ModelSelection } from '../provider/model_selection.ts';
+import type { ContextSourceRelation } from '../history/context_attribution.ts';
 
 /** The two independently bounded request lanes in one accepted turn. */
 export type RequestLane = 'parent' | 'child';
+
+/** The append operation that gave one transcript message its causal source. */
+export type RequestMessageSourceKind =
+  | 'committed'
+  | 'task'
+  | 'assistant'
+  | 'tool'
+  | 'steering';
+
+/** Parallel provenance sidecars for a request transcript. */
+export interface ModelRequestSourceAttribution {
+  readonly transcript: readonly (readonly ContextSourceRelation[])[];
+}
+
+export type RequestMessageSourceFactory = (
+  message: import('./contracts.ts').Message,
+  kind: RequestMessageSourceKind,
+  messageIndex: number,
+  modelStep?: number,
+  lane?: RequestLane,
+  sourceCallId?: string,
+) => readonly ContextSourceRelation[];
+
+export interface ModelRequestObservation {
+  readonly request: ModelRequest;
+  readonly lane: RequestLane;
+  readonly modelStep: number;
+  readonly modelSelection?: ModelSelection;
+  /** Explicit sidecars built alongside the request projection, never inferred from bytes. */
+  readonly sourceAttribution?: ModelRequestSourceAttribution;
+}
+
+export interface AuxiliaryRequestObservation {
+  readonly purpose: 'web_search';
+  readonly body: string;
+  readonly callId: string;
+  readonly lane: RequestLane;
+  readonly modelStep: number;
+  readonly modelSelection?: ModelSelection;
+}
 
 export interface TurnRequestBudgetSnapshot {
   readonly parent: number;
@@ -77,6 +120,23 @@ export interface ModelExecutionContext {
   readonly cancellation?: TurnCancellation;
   readonly diagnosticOwner?: FailureDiagnosticOwner;
   readonly providerEvidence?: ProviderEvidenceRecorder;
+  /** Exact logical request observation at the model.generate boundary. */
+  readonly observeModelRequest?: (
+    observation: ModelRequestObservation,
+  ) => number | PromiseLike<number>;
+  readonly observeAuxiliaryRequest?: (
+    observation: AuxiliaryRequestObservation,
+  ) => number | PromiseLike<number>;
+  readonly modelSelection?: ModelSelection;
+  /** Worker-owned source projection inherited by delegated planner loops. */
+  readonly requestMessageSource?: RequestMessageSourceFactory;
+  /** Worker-owned parent projection inherited by delegated planner loops. */
+  readonly projectParentRequestWithSources?: (
+    request: ModelRequest,
+    sources: ModelRequestSourceAttribution,
+  ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution };
+  /** Parent tool call that admitted this planner execution, if any. */
+  readonly sourceCallId?: string;
   /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
   readonly providerRequestCount?: () => number;
   /** Runtime-process cumulative fetch count, supplied by the host adapter. */
@@ -89,6 +149,7 @@ export interface ModelExecutionContext {
 /** The restricted context visible to one synchronously delegated planner child. */
 export class ChildTurnExecutionContext implements ModelExecutionContext {
   readonly lane = 'child' as const;
+  private delegatedCallId: string | undefined;
   constructor(
     private readonly budget: TurnRequestBudget,
     readonly signal?: AbortSignal,
@@ -97,7 +158,27 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
     readonly providerRequestCount?: () => number,
     readonly runtimeProviderRequestCount?: () => number,
     readonly providerEvidence?: ProviderEvidenceRecorder,
+    readonly observeModelRequest?: (
+      observation: ModelRequestObservation,
+    ) => number | PromiseLike<number>,
+    readonly modelSelection?: ModelSelection,
+    readonly observeAuxiliaryRequest?: (
+      observation: AuxiliaryRequestObservation,
+    ) => number | PromiseLike<number>,
+    readonly requestMessageSource?: RequestMessageSourceFactory,
+    readonly projectParentRequestWithSources?: (
+      request: ModelRequest,
+      sources: ModelRequestSourceAttribution,
+    ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution },
   ) {}
+
+  get sourceCallId(): string | undefined {
+    return this.delegatedCallId;
+  }
+
+  setDelegatedCallId(callId: string | undefined): void {
+    this.delegatedCallId = callId;
+  }
 
   claimModelRequest(): boolean {
     return this.budget.claim('child');
@@ -130,6 +211,19 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     readonly providerRequestCount?: () => number,
     readonly runtimeProviderRequestCount?: () => number,
     readonly providerEvidence?: ProviderEvidenceRecorder,
+    readonly observeModelRequest?: (
+      observation: ModelRequestObservation,
+    ) => number | PromiseLike<number>,
+    readonly modelSelection?: ModelSelection,
+    private readonly plannerModelSelection?: ModelSelection,
+    readonly observeAuxiliaryRequest?: (
+      observation: AuxiliaryRequestObservation,
+    ) => number | PromiseLike<number>,
+    readonly requestMessageSource?: RequestMessageSourceFactory,
+    readonly projectParentRequestWithSources?: (
+      request: ModelRequest,
+      sources: ModelRequestSourceAttribution,
+    ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution },
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
@@ -142,6 +236,11 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
       providerRequestCount,
       runtimeProviderRequestCount,
       providerEvidence,
+      observeModelRequest,
+      plannerModelSelection,
+      observeAuxiliaryRequest,
+      requestMessageSource,
+      projectParentRequestWithSources,
     );
   }
 
@@ -158,9 +257,10 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
   }
 
   /** Admit at most one child and return its restricted child-lane view. */
-  admitPlannerExecution(): ChildTurnExecutionContext | undefined {
+  admitPlannerExecution(callId?: string): ChildTurnExecutionContext | undefined {
     if (this.plannerAdmitted) return undefined;
     this.plannerAdmitted = true;
+    this.child.setDelegatedCallId(callId);
     return this.child;
   }
 
@@ -178,6 +278,17 @@ export const createTurnExecutionContext = (
   runtimeProviderRequestCount?: () => number,
   providerEvidence?: ProviderEvidenceRecorder,
   limits?: TurnRequestLimits,
+  observeModelRequest?: (observation: ModelRequestObservation) => number | PromiseLike<number>,
+  modelSelection?: ModelSelection,
+  plannerModelSelection?: ModelSelection,
+  observeAuxiliaryRequest?: (
+    observation: AuxiliaryRequestObservation,
+  ) => number | PromiseLike<number>,
+  requestMessageSource?: RequestMessageSourceFactory,
+  projectParentRequestWithSources?: (
+    request: ModelRequest,
+    sources: ModelRequestSourceAttribution,
+  ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution },
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,
@@ -188,6 +299,12 @@ export const createTurnExecutionContext = (
     providerRequestCount,
     runtimeProviderRequestCount,
     providerEvidence,
+    observeModelRequest,
+    modelSelection,
+    plannerModelSelection,
+    observeAuxiliaryRequest,
+    requestMessageSource,
+    projectParentRequestWithSources,
   );
 
 /** The execution-only wrapper passed to tools; request admission remains nested separately. */
@@ -195,6 +312,8 @@ export interface ToolExecutionContext {
   readonly modelExecution?: ModelExecutionContext;
   /** Parent-loop model step whose tool call is currently executing. */
   readonly modelStep?: number;
+  /** Exact model-issued tool call identity when the tool is invoked by the loop. */
+  readonly callId?: string;
   readonly signal?: AbortSignal;
   readonly cancellation?: TurnCancellation;
   readonly reportProgress?: ToolProgressReporter;
