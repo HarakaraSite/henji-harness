@@ -1,6 +1,6 @@
 # Increment 43 — human history view
 
-ステータス: **利用者承認済み（実装前）**
+ステータス: **完了**
 
 基準commit: `f6ef75c5`
 
@@ -279,6 +279,72 @@ coordinating ownerがauthoritative `v0:gate`を一回だけ実行する。
 - general Markdown/HTML/image renderer、mouse、横scroll、branch/tree、diff view、cost/usage集計、cross-workspace検索。
 - full exportのimport/restore、SQLite backup、portable Session transport、長期互換性保証、外部serviceへのshare。
 - architecture、構想、roadmap、installed binary、commit、push、tag、publish、releaseの変更。
+
+## 実装・検証結果
+
+2026-09-13、承認済みSlice A〜Dを実装した。
+
+- data-only `HumanHistoryReadPort` / `HumanHistoryProjector`を追加し、schema v3のcanonical messageと
+  canonical/non-canonical execution、semantic event、tool effect、projection、context、model request、provider
+  evidence、diagnostic、artifactをSession-scopedな安定順へ投影した。schema、migration、compatibility read、planner固有
+  contractは追加していない。
+- 通常TUIの`/history`に、一つの連続documentとして動くread-only viewerを接続した。logical row／visual page／先頭末尾
+  navigation、stable entry/scalar anchor、adjacent storage batchの追加読込、exact detail stack、Unicode scalar-safe chunk、
+  case-sensitive literal検索と同一entry内の複数occurrence navigationを実装した。viewerを閉じると既存conversation
+  viewportへ戻り、履歴操作をtaskやsteeringとしてdispatchしない。
+- 現行のcanonical-only Markdown `/history export`を維持し、`/history export all`へSession-scoped、schema-versioned、
+  deterministic JSONL streaming exportを追加した。deferred read snapshot、stable record order、reachable contentのdigest単位
+  deduplication、unique mode 0600 file、byte length／SHA-256 receipt、failure時partial cleanupを実装した。
+- evidence、diagnostic、artifact detailは既存codecで検証してから表示し、tampered rowを`history_invalid`にする。
+  READMEへ操作、二種類のexport、read-only性、planner非依存境界を記載した。architecture、構想、roadmap、installed
+  binaryは変更していない。
+
+Increment 43 focused test 2件、関連TUI test 46件、Increment 40 regression 14件、Increment 41 regression 12件、
+Increment 42 regression 26件が成功した。`v0:check`、format、lint、`git diff --check`を完了し、最終candidateに対する
+authoritative `v0:gate`は一回目で成功した。途中のfocused確認で`/tmp`容量不足を観測したため、再生成可能な旧build
+artifact一件を削除し、別の既存artifact一件をchecksum照合付きで一時退避・復元してからfull gateを実行した。full gateの
+再実行はしていない。
+
+### Production Human Gate結果
+
+source `671670c53beb7147570e12cff888d0ef4f43ee26+dirty`からbuild ID
+`2c1a6f4e325e44bd85d8d134eabc944c68ffae160fad7bca420b1b493326865a`、SHA-256
+`708e91c79200eb479739a8e7de0294f14d3389f239243075099bf4ce37970cb1`のstandalone candidateを作り、empty
+isolated XDG state、独立workspace、real TTY、OpenRouter `deepseek/deepseek-v4.1-flash` highで確認した。
+
+- Session `2cf873b1-761a-4e1b-8eec-7494da0884a3`に、multi-tool canonical execution、tool中Escでsettleした
+  cancelled/non-canonical execution、そのexecutionを`/recall`したcanonical executionを作った。SQLite readbackでは
+  turn 1 attempt 1がcompleted/canonical、turn 2 attempt 1がcancelled/non-canonical、turn 2 attempt 2が
+  completed/canonicalで、recall projectionはsource executionへ`linked`だった。
+- `/history`は上記3 executionを同じtimelineに表示し、cancelled task nonceの前後occurrenceへ移動できた。cancelled
+  bash detailはcall ID、requested ordinal 245、completion/resultなし、effect status `observed_requested`を表示した。
+  context、request、evidence、diagnostic、artifact、projectionの各linkも同じexecution identity上に表示された。
+- canonical-only Markdownは2 canonical turnだけを出力した。full JSONLは1826 record、5,904,242 byte、SHA-256
+  `08fee5bb4f14719cf3767ec23ccffd262b361b3047f30f7df4cc2707518edb6b`でreceiptと一致し、3 execution、4 model
+  request、3 evidence、168 context relation、1 diagnostic、1 projectionとreachable contentを含んだ。
+- 同じworkspace/stateの第二processで別Session `3de4cab9-2830-490e-90d4-731bf7d73c6d`を通常起動し、20秒の
+  bash turnを実行中に第一processでviewerとfull exportを操作した。第二Sessionはcompleted/canonicalになり、第一Sessionの
+  再exportも同じ1826 record／byte length／SHA-256で完了した。JSONLに第二Session IDはなく、双方にbusy timeout、
+  partial write、provider/tool replayはなかった。
+- DBはschema v3、第一Sessionはstate revision 3／canonical turn 2／canonical message 6／execution 3／model
+  request 4、第二Sessionはrevision 2／canonical turn 1／message 4／execution 1だった。履歴操作による第一Sessionの
+  revision、adoption、execution、request追加はなく、二つのJSONLとMarkdownはすべてmode 0600だった。credential値は
+  読み出さず、TTYへAuthorization/cookie/headerは表示されなかった。installed binaryのSHA-256は既存の
+  `5b32dce0c17f53ae321587de1aabcc0e3e7303cf87239e7d170948b74051bd11`のままで置換していない。
+
+## 第三者review
+
+2026-09-13、stable candidateのhuman document、paging、search、exact detail、export、TUI integrationを対象にbounded
+read-only reviewを行った。Blockerはなく、次のfindingを採用した。
+
+1. storage batch切替で既読documentを置換し、PageUpをvisual rowではなくstorage pageとして扱っていたため、P1として
+   adjacent batchをstable entry順へmergeし、entry ID＋scalar offsetをanchorにしたvisual page移動へ修正した。
+2. summary外detailの検索結果が開かれず、同一entry内の複数occurrenceを区別できなかったため、P1としてoccurrenceの
+   scalar offsetをsearch identityへ加え、該当detail/chunkを開いて`n`/`N`で移動するよう修正した。
+3. evidence/diagnostic/artifact detailが既存codec validationを迂回していたため、P2として各codecのexact read pathを通し、
+   invalid rowを`history_invalid`にした。
+
+focused regressionを追加後、一回のbounded re-reviewで3 findingの解消を確認した。新しいBlocker/P1はなかった。
 
 ## Human Gateと停止条件
 

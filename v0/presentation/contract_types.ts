@@ -248,6 +248,64 @@ export interface PresentationHistoryPage {
   readonly omitted: boolean;
 }
 
+export interface PresentationHumanHistoryEntry {
+  readonly id: string;
+  readonly executionId: string;
+  readonly turn: number;
+  readonly attempt: number;
+  readonly kind:
+    | 'execution'
+    | 'task'
+    | 'user'
+    | 'steer'
+    | 'assistant'
+    | 'tool'
+    | 'projection'
+    | 'context'
+    | 'request'
+    | 'evidence'
+    | 'diagnostic'
+    | 'artifact';
+  readonly label: string;
+  readonly text: string;
+  readonly detailId: string;
+}
+
+export interface PresentationHumanHistoryPage {
+  readonly schemaVersion: 1;
+  readonly sessionId: string;
+  readonly entries: readonly PresentationHumanHistoryEntry[];
+  readonly executionCount: number;
+  readonly olderCursor?: string;
+  readonly newerCursor?: string;
+  readonly atOldest: boolean;
+  readonly atNewest: boolean;
+}
+
+export interface PresentationHumanHistoryDetail {
+  readonly schemaVersion: 1;
+  readonly sessionId: string;
+  readonly detailId: string;
+  readonly title: string;
+  readonly text: string;
+  readonly scalarOffset: number;
+  readonly scalarLength: number;
+  readonly totalScalars: number;
+  readonly previousOffset?: number;
+  readonly nextOffset?: number;
+}
+
+export interface PresentationHumanHistorySearchHit {
+  readonly query: string;
+  readonly entryId: string;
+  readonly detailId: string;
+  readonly sourceScalarOffset: number;
+  readonly detail?: PresentationHumanHistoryDetail;
+  readonly detailMatchScalarOffset?: number;
+  readonly wrapped: boolean;
+  readonly page: PresentationHumanHistoryPage;
+}
+
 export interface PresentationContextPreview {
   readonly useful: boolean;
   readonly currentTurn: number;
@@ -300,6 +358,25 @@ export type PresentationIntent =
     }
   >
   | Readonly<{ readonly kind: 'history_export' }>
+  | Readonly<{ readonly kind: 'human_history_open' }>
+  | Readonly<{
+    readonly kind: 'human_history_page';
+    readonly direction: 'oldest' | 'older' | 'newer' | 'latest';
+    readonly cursor?: string;
+  }>
+  | Readonly<{
+    readonly kind: 'human_history_detail';
+    readonly detailId: string;
+    readonly scalarOffset?: number;
+  }>
+  | Readonly<{
+    readonly kind: 'human_history_search';
+    readonly query: string;
+    readonly direction: 'next' | 'previous';
+    readonly fromEntryId?: string;
+    readonly fromSourceScalarOffset?: number;
+  }>
+  | Readonly<{ readonly kind: 'history_export_all' }>
   | Readonly<
     {
       readonly kind: 'compaction';
@@ -363,6 +440,18 @@ export type PresentationIntentResult =
   | Readonly<
     { readonly kind: 'history'; readonly page?: PresentationHistoryPage }
   >
+  | Readonly<{
+    readonly kind: 'human_history_page';
+    readonly page: PresentationHumanHistoryPage;
+  }>
+  | Readonly<{
+    readonly kind: 'human_history_detail';
+    readonly detail: PresentationHumanHistoryDetail;
+  }>
+  | Readonly<{
+    readonly kind: 'human_history_search';
+    readonly hit?: PresentationHumanHistorySearchHit;
+  }>
   | Readonly<
     {
       readonly kind: 'history_export';
@@ -370,6 +459,16 @@ export type PresentationIntentResult =
       readonly throughTurn: number;
     }
   >
+  | Readonly<{
+    readonly kind: 'history_export_all';
+    readonly path: string;
+    readonly sessionId: string;
+    readonly stateRevision: number;
+    readonly tailExecutionId?: string;
+    readonly executionCount: number;
+    readonly byteLength: number;
+    readonly sha256: string;
+  }>
   | Readonly<
     {
       readonly kind: 'context_preview';

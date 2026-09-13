@@ -42,9 +42,31 @@ export const presentationIntent = (
     ) {
       throw new PresentationDeliveryError();
     }
+  } else if (kind === 'human_history_page') {
+    if (!['oldest', 'older', 'newer', 'latest'].includes(copy.direction)) {
+      throw new PresentationDeliveryError();
+    }
+    if (copy.cursor !== undefined) boundedPresentationText(copy.cursor);
+  } else if (kind === 'human_history_detail') {
+    boundedPresentationText(copy.detailId);
+    if (
+      copy.scalarOffset !== undefined &&
+      (!Number.isSafeInteger(copy.scalarOffset) || copy.scalarOffset < 0)
+    ) throw new PresentationDeliveryError();
+  } else if (kind === 'human_history_search') {
+    boundedPresentationText(copy.query);
+    if (copy.direction !== 'next' && copy.direction !== 'previous') {
+      throw new PresentationDeliveryError();
+    }
+    if (copy.fromEntryId !== undefined) boundedPresentationText(copy.fromEntryId);
+    if (
+      copy.fromSourceScalarOffset !== undefined &&
+      (!Number.isSafeInteger(copy.fromSourceScalarOffset) || copy.fromSourceScalarOffset < 0)
+    ) throw new PresentationDeliveryError();
   } else if (
     kind !== 'cancel_active' && kind !== 'list_sessions' && kind !== 'new_session' &&
-    kind !== 'history_export' && kind !== 'clear_recall' &&
+    kind !== 'history_export' && kind !== 'history_export_all' &&
+    kind !== 'human_history_open' && kind !== 'clear_recall' &&
     kind !== 'dismiss_overlay' &&
     kind !== 'compaction'
   ) {

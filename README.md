@@ -23,6 +23,16 @@ planner defaultを使う。footerは1段目へbusy開始からの経過時間を
 一方`/recover`は、送信に失敗した入力文をeditorへ戻して人間が編集・再送する操作であり、execution情報をAIへ渡す
 `/recall`とは別の機能である。
 
+idle時の`/history`はcurrent persistent Sessionのcanonical turnとcancelled、failed、interruptedを含む
+non-canonical executionを同じread-only timelineで開く。`j`/`k`または矢印でrow、PageUp/PageDownで前後batch、
+`g`/`G`で先頭/末尾へ移動し、Enterで保存済みexecution、event、tool effect、context relation、model request、
+provider evidence、diagnostic、artifactのexact detailを開く。`/`はcase-sensitive literal検索、`n`/`N`は次/前の
+match、Backspace/Escはdetailから戻り、top levelの`q`/Escはviewerを閉じる。viewerはproviderやtoolを呼ばず、
+Session revision、canonical adoption、model context、pending recallを変更しない。`--no-session`では利用できない。
+既存の`/history export`はcanonical conversationのMarkdownを保存する。`/history export all`はcurrent Sessionから
+到達できるcanonical/non-canonical execution、journal、effect、projection、context/request、evidence、diagnostic、
+artifact、content blobをschema-versioned JSONLへstreamし、path、byte length、SHA-256をTUIへ返す。
+
 root providerは既定のOpenRouterに加え、起動時に`henji --root-provider openai`でOpenAI direct
 Responses APIを選べる。OpenAI Platform API keyは
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/openai-api-key`からrequest時に読み、OpenRouterを使うdelegated
@@ -111,7 +121,7 @@ runtime配置は`diagnostics runtime`からcredential値を含めず確認でき
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataは
 `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Session、execution、provider evidence、診断stateは
 `${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1/<workspace-digest>/history.sqlite3`がauthorityである。
-旧JSON stateは移行・変換・互換読込せず、削除もしない。新binaryのSession、`/recall`、`/history export`、
+旧JSON stateは移行・変換・互換読込せず、削除もしない。新binaryのSession、`/recall`、`/history`、二種類のhistory export、
 `sessions`、`diagnostics`はSQLiteだけを使い、SQLite unavailable、未知schema、破損時も旧JSONへfallbackしない。
 同じSessionのwriter exclusionを維持し、異なるSession間の短いSQLite write競合は250 msまで待つ。workspace
 `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換

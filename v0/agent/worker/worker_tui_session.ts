@@ -45,6 +45,7 @@ import {
   type WorkerExecutionArtifactStore,
 } from './worker_execution_artifact_store.ts';
 import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
+import type { HumanHistoryReadPort } from '../history/human_history.ts';
 
 class MemoryWorkerHandle implements WorkerSessionHandle {
   private current: StoredSessionRecord | undefined;
@@ -113,6 +114,7 @@ export interface WorkerSessionResult {
   };
   readonly displayState: RuntimeDisplayState;
   readonly navigation?: SessionNavigationHost;
+  readonly humanHistoryReader?: HumanHistoryReadPort;
 }
 
 const recordRefMatches = (
@@ -454,6 +456,9 @@ export const createWorkerSession = async (
       displayState,
       ...(currentRecord === undefined ? {} : { restored: restoreRecordMessages(currentRecord) }),
       ...(navigation === undefined ? {} : { navigation }),
+      ...(sqliteHistory === undefined || options.persistence === 'none'
+        ? {}
+        : { humanHistoryReader: sqliteHistory }),
     };
   } catch (error) {
     await handle.close();

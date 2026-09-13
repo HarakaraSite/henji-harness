@@ -87,11 +87,17 @@
   参照実装比較をresearch文書へ保存した。architectureとroadmapは変更していない。Increment 41・42の変更は
   `f6ef75c5`へcommit済みである。Increment 43は現行source/schema v3、Increment 30の検索取り下げ、Codex App Server、
   OpenCode、Prime Agent、導入済みSQLite/FTS5を調査し、Session-scoped `HumanHistoryProjector`、同一documentのTUI閲覧と
-  literal検索、exact detail navigation、canonical-only exportと分離したdurable JSONL exportを初期計画化した。
-  schema v3は変更せず、planner固有表示・操作・受入を外し、保存済みlane/purposeだけをgenericに扱う。通常利用メモS3は
-  採用済みIncrement 43へ移した。利用者はplanner除外と`/history export all` JSONL contractを含む初期計画を
-  2026-09-13に承認した。計画差分は未commitで、architectureとroadmapは変更していない。
-- 次: Increment 43の承認済みSlice Aからhuman history read modelを実装する。
+  literal検索、exact detail navigation、canonical-only exportと分離したdurable JSONL exportを計画した。schema v3は
+  変更せず、planner固有表示・操作・受入を外し、保存済みlane/purposeだけをgenericに扱う。通常利用メモS3は採用済み
+  Increment 43へ移した。利用者は計画を承認し、計画差分は`671670c5`へcommit済みである。承認済みSlice A〜Dの実装、
+  focused/関連検証、一回のauthoritative `v0:gate`、bounded第三者reviewとre-review、isolated standalone/
+  real-provider/real-TTY Human Gateを完了した。通常TUIからcanonical/non-canonical executionを一つの連続documentで
+  閲覧・検索し、context/request/evidence/diagnostic/artifactのexact detailへ辿れる。canonical-only Markdownを維持し、
+  Session全体のdeterministic streaming JSONL exportを追加した。同じworkspace DBの別Session writerとviewer/exportの
+  同時実行も成功した。reviewのP1 2件・P2 1件は修正済みで、最終reviewに新しいBlocker/P1はない。結果はIncrement 43
+  正本へ保存済みで、architecture、roadmap、構想、installed binaryは変更していない。完了差分は同じcode commitへ
+  収録済みである。
+- 次: VM再起動後、このhandoffを読み、利用者が指定する次のincrementから再開する。
 - 正本:
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`のIncrement 32〜34、
   `docs/increments/increment-21.md`、`docs/increments/increment-32.md`、`docs/increments/increment-33.md`、
@@ -118,8 +124,9 @@
   Increment 33 production受入の一時証拠は`/tmp/henji-increment-33-acceptance-XbeQE3`、Increment 34は
   `/tmp/henji-increment-34-acceptance-MGN78b`、Increment 35は`/tmp/henji-increment-35-acceptance-a6qHOF`に保持している。
   Increment 37 Slice Bの一時証拠は`/tmp/henji-increment-37-acceptance-b3kQMl`に保持している。
-  standalone shadowing修正のproduction artifactは`/tmp/henji-standalone-fix-HSqJ6U/henji`、TUI順序修正を含む現行の
-  clean artifactは`/tmp/henji-post-commit-build-eNk6hK/henji`に保持している。
+  standalone shadowing修正のproduction artifactは`/tmp/henji-standalone-fix-HSqJ6U/henji`に保持している。
+  TUI順序修正時の再生成可能な旧artifact `/tmp/henji-post-commit-build-eNk6hK/henji`は、Increment 43検証時の
+  `/tmp`空き容量確保のため削除した。
   Increment 38 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-38-acceptance-nL6Ufc`に保持している。
   Increment 39 Human Gateの一時binaryとisolated stateは`/tmp/henji-increment-39-acceptance-xA5Jxs`に保持している。
   Increment 40最終working treeの一時binaryは`/tmp/henji-i40-candidate`（build
@@ -127,5 +134,7 @@
   `/tmp/henji-i40-human-gate`に保持している。
   durable historyの全体programと破壊的cutover方針、Increment 40〜42の個別計画は承認済みである。過去Sessionの
   migration、conversion、compatibility readは実装しない。Increment 40〜42のrepository内実装はcommit済みである。
-  Increment 43の初期計画は承認済み・未commitである。architecture・roadmap・構想の変更、installed binary置換、
-  実装後の追加commit、push、tag、publishは承認されていない。
+  Increment 43の計画は`671670c5`へcommit済みで、実装・検証・review・production受入も完了した。Human Gateの一時
+  candidateは`/var/tmp/henji-increment43-candidate/henji`、isolated state/workspaceは
+  `/var/tmp/henji-increment43-human-gate`に保持している。architecture・roadmap・構想の変更、installed binary置換、
+  tag、publishは承認されていない。Increment 43完了差分のcommitと`main`のpushは利用者承認済みである。

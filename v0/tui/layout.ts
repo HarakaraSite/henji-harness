@@ -450,6 +450,85 @@ const overlayRows = (
 ): LayoutRow[] => {
   const overlay = state.overlay;
   if (overlay.kind === 'none') return [];
+  if (overlay.kind === 'humanHistory') {
+    const result: LayoutRow[] = [];
+    const push = (text: string, entryId?: string): void => {
+      result.push(...wrap(text, columns, 'log', entryId));
+    };
+    push(
+      overlay.searchInput === undefined
+        ? 'history · read-only · j/k move · PgUp/PgDn page · Enter detail · / search · q/Esc return'
+        : `history search> ${overlay.searchInput}`,
+    );
+    if (overlay.loading) push('loading history');
+    if (overlay.detail !== undefined) {
+      const detail = overlay.detail;
+      push(
+        `${detail.title} · ${detail.scalarOffset + 1}-${
+          detail.scalarOffset + detail.scalarLength
+        }/${detail.totalScalars} · Backspace/Esc return`,
+      );
+      const detailRows = wrap(detail.text, columns, 'log', detail.detailId);
+      if (overlay.detailMatchScalarOffset !== undefined && overlay.query !== undefined) {
+        const matchOffset = overlay.detailMatchScalarOffset - detail.scalarOffset;
+        for (let rowIndex = 0; rowIndex < detailRows.length; rowIndex += 1) {
+          const row = detailRows[rowIndex];
+          const start = row.sourceScalarOffset ?? 0;
+          const length = [...row.text].length;
+          if (matchOffset >= start && matchOffset < start + length) {
+            detailRows[rowIndex] = {
+              ...row,
+              blinkScalarStart: matchOffset - start,
+              blinkScalarLength: [...overlay.query].length,
+            };
+            break;
+          }
+        }
+      }
+      result.push(...detailRows);
+      if (detail.previousOffset !== undefined || detail.nextOffset !== undefined) {
+        push('PageUp/PageDown moves through exact detail chunks');
+      }
+      return result;
+    }
+    const page = overlay.page;
+    if (page === undefined) return result;
+    push(
+      `${page.atOldest ? 'oldest' : 'older available'} · ${
+        page.atNewest ? 'latest' : 'newer available'
+      } · ${page.executionCount} executions loaded${
+        overlay.query === undefined
+          ? ''
+          : ` · /${overlay.query}/${overlay.wrapped ? ' · wrapped' : ''}`
+      }`,
+    );
+    for (let index = 0; index < page.entries.length; index += 1) {
+      const entry = page.entries[index];
+      const selected = index === overlay.selected;
+      const prefix = `${selected ? '>' : ' '} [t${entry.turn}.${entry.attempt}] ${entry.label} `;
+      const rows = wrap(`${prefix}${entry.text}`, columns, 'log', entry.id);
+      const query = overlay.query;
+      if (query !== undefined && entry.id === overlay.matchEntryId) {
+        const sourceOffset = [...prefix].length + (overlay.matchScalarOffset ?? 0);
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+          const row = rows[rowIndex];
+          const start = row.sourceScalarOffset ?? 0;
+          const length = [...row.text].length;
+          if (sourceOffset >= start && sourceOffset < start + length) {
+            rows[rowIndex] = {
+              ...row,
+              blinkScalarStart: sourceOffset - start,
+              blinkScalarLength: [...query].length,
+            };
+            break;
+          }
+        }
+      }
+      result.push(...rows);
+    }
+    if (page.entries.length === 0) push('no executions');
+    return result;
+  }
   const lines: string[] = [];
   if (overlay.kind === 'startupHelp') {
     lines.push(
@@ -585,9 +664,10 @@ export const layoutUi = (
   const heightLimit = clamp(rows, 1, MAX_ROWS);
   const degraded = widthLimit < MIN_COLUMNS || heightLimit < MIN_ROWS;
   const identityFooter = footerIdentityText(state, Math.max(1, widthLimit));
+  const fullScreenHistory = state.overlay.kind === 'humanHistory';
   const standardHeight = heightLimit >= MIN_ROWS;
-  const beforeInputCount = standardHeight ? 1 : 0;
-  const afterInputCount = standardHeight ? 1 : 0;
+  const beforeInputCount = fullScreenHistory ? 0 : standardHeight ? 1 : 0;
+  const afterInputCount = fullScreenHistory ? 0 : standardHeight ? 1 : 0;
   const footerCount = standardHeight
     ? (identityFooter === undefined ? 1 : 2)
     : heightLimit >= 3
@@ -595,7 +675,7 @@ export const layoutUi = (
     : heightLimit === 2
     ? 1
     : 0;
-  const maxInput = standardHeight
+  const maxInput = fullScreenHistory ? 0 : standardHeight
     ? Math.min(
       MAX_EDITOR_ROWS,
       Math.max(
@@ -606,7 +686,9 @@ export const layoutUi = (
     : 1;
   // Reserve one cell after the prompt for the cursor. Without this cell, a full-width final
   // character leaves the hardware cursor on that character rather than at the insertion point.
-  const editor = inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
+  const editor = fullScreenHistory
+    ? { rows: [] as LayoutRow[], cursorRow: 0, cursorCell: 0 }
+    : inputRows(state.editor, Math.max(1, widthLimit - 3), maxInput);
   const logHeight = Math.max(
     0,
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -
@@ -626,9 +708,29 @@ export const layoutUi = (
     );
     if (anchored >= 0) logStart = anchored;
   }
-  const overlayStart = state.overlay.kind === 'startupHelp'
+  let overlayStart = state.overlay.kind === 'startupHelp'
     ? 0
     : Math.max(0, overlay.length - logHeight);
+  if (state.overlay.kind === 'humanHistory' && state.overlay.detail === undefined) {
+    const selected = state.overlay.anchorEntryId ??
+      state.overlay.page?.entries[state.overlay.selected]?.id;
+    const sourceOffset = state.overlay.anchorScalarOffset ?? 0;
+    const matchingRows = overlay.map((row, index) => ({ row, index })).filter(({ row }) =>
+      row.entryId === selected
+    );
+    const selectedRow = matchingRows.find(({ row }) =>
+      (row.sourceScalarOffset ?? 0) >= sourceOffset
+    )?.index ?? matchingRows.at(-1)?.index ?? -1;
+    if (selectedRow >= 0) {
+      overlayStart = Math.max(
+        0,
+        Math.min(
+          selectedRow - Math.floor(logHeight / 2),
+          Math.max(0, overlay.length - logHeight),
+        ),
+      );
+    }
+  }
   const visibleLog = (overlay.length > 0 ? overlay : log.rows).slice(
     overlay.length > 0 ? overlayStart : logStart,
     (overlay.length > 0 ? overlayStart : logStart) + logHeight,

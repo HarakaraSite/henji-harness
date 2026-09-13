@@ -6,6 +6,8 @@ import {
   type PresentationEvent,
   type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
+  type PresentationHumanHistoryDetail,
+  type PresentationHumanHistoryPage,
   type PresentationMessage,
   type PresentationNavigationListing,
   type PresentationOutcome,
@@ -146,10 +148,7 @@ export class TuiRenderer implements TerminalRendererGate {
       0,
       MAX_FRAME_BYTES - encoder.encode(cursor).byteLength,
     );
-    // Startup help is ordered as a safety guide: keep its first rows visible on a narrow screen,
-    // while other overlays retain their newest-page/tail behavior.
-    const overlayLog = this.ui.overlay.kind === 'startupHelp' ? layout.log : layout.overlay;
-    const log = (overlayLog.length > 0 ? overlayLog : layout.log).map(renderLayoutRow);
+    const log = layout.log.map(renderLayoutRow);
     const fixed = [
       ...layout.beforeInput.map((line) => line.text),
       ...layout.input.map((line) => `> ${line.text}`),
@@ -563,6 +562,28 @@ export class TuiRenderer implements TerminalRendererGate {
         page,
         pageNumber: page.page,
       },
+    });
+    this.redraw();
+  }
+
+  renderHumanHistory(value: {
+    readonly page?: PresentationHumanHistoryPage;
+    readonly selected: number;
+    readonly anchorEntryId?: string;
+    readonly anchorScalarOffset?: number;
+    readonly detail?: PresentationHumanHistoryDetail;
+    readonly detailMatchScalarOffset?: number;
+    readonly query?: string;
+    readonly searchInput?: string;
+    readonly matchEntryId?: string;
+    readonly matchScalarOffset?: number;
+    readonly wrapped?: boolean;
+    readonly loading?: boolean;
+  }): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: { kind: 'humanHistory', ...value },
     });
     this.redraw();
   }

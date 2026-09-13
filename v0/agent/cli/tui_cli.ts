@@ -50,6 +50,11 @@ import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.t
 import { DenoFailureDiagnosticStore } from '../session/failure_diagnostic_store.ts';
 import { createWorkerSession } from '../worker/worker_host.ts';
 import { DenoHistoryExporter, type HistoryExporter } from '../session/history_export.ts';
+import type { HumanHistoryReadPort } from '../history/human_history.ts';
+import {
+  DenoHumanHistoryExporter,
+  type HumanHistoryExporter,
+} from '../history/human_history_export.ts';
 import type { ProviderId } from '../provider/model_selection.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 
@@ -128,6 +133,7 @@ export interface TuiSessionFactoryResult {
   readonly displayState: RuntimeDisplayState;
   /** Persistent session host used by the idle-only Ctrl-G/Ctrl-T flows. */
   readonly navigation?: SessionNavigationHost;
+  readonly humanHistoryReader?: HumanHistoryReadPort;
 }
 
 export interface TuiCliDependencies {
@@ -154,6 +160,7 @@ export interface TuiCliDependencies {
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   /** Direct-test seam; production writes exports below the existing workspace state root. */
   readonly historyExporter?: HistoryExporter;
+  readonly humanHistoryExporter?: HumanHistoryExporter;
 }
 
 const fatalMessages: Record<string, string> = {
@@ -702,12 +709,22 @@ export const main = async (
           workspaceRoot,
         )
         : undefined);
+    const humanHistoryExporter = dependencies.humanHistoryExporter ??
+      (created.humanHistoryReader === undefined ? undefined : new DenoHumanHistoryExporter(
+        dependencies.stateRoot ?? launcherStateRoot(),
+        workspaceRoot,
+        created.humanHistoryReader,
+      ));
     const presentationAdapter = createTuiPresentationAdapter(
       created.session,
       (event) => renderer.eventSink(event),
       created.navigation,
-      historyExporter === undefined ? {} : {
-        historyExporter,
+      {
+        ...(historyExporter === undefined ? {} : { historyExporter }),
+        ...(created.humanHistoryReader === undefined
+          ? {}
+          : { humanHistoryReader: created.humanHistoryReader }),
+        ...(humanHistoryExporter === undefined ? {} : { humanHistoryExporter }),
         historySessionMode: created.displayState.sessionMode.kind === 'none' ? 'none' : 'durable',
         startupState: created.displayState,
       },

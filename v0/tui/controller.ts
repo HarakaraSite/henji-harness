@@ -1,6 +1,8 @@
 import {
   isPresentationError,
   PresentationDeliveryError,
+  type PresentationHumanHistoryDetail,
+  type PresentationHumanHistoryPage,
   type PresentationIntent,
   type PresentationIntentDispatcher,
   type PresentationIntentResult,
@@ -74,6 +76,36 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
 
+const mergeHumanHistoryPages = (
+  current: PresentationHumanHistoryPage,
+  adjacent: PresentationHumanHistoryPage,
+  direction: 'older' | 'newer',
+): PresentationHumanHistoryPage => {
+  const ordered = direction === 'older'
+    ? [...adjacent.entries, ...current.entries]
+    : [...current.entries, ...adjacent.entries];
+  const seen = new Set<string>();
+  const entries = ordered.filter((entry) => {
+    if (seen.has(entry.id)) return false;
+    seen.add(entry.id);
+    return true;
+  });
+  return Object.freeze({
+    schemaVersion: 1,
+    sessionId: current.sessionId,
+    entries: Object.freeze(entries),
+    executionCount: new Set(entries.map((entry) => entry.executionId)).size,
+    ...(direction === 'older'
+      ? (adjacent.olderCursor === undefined ? {} : { olderCursor: adjacent.olderCursor })
+      : (current.olderCursor === undefined ? {} : { olderCursor: current.olderCursor })),
+    ...(direction === 'newer'
+      ? (adjacent.newerCursor === undefined ? {} : { newerCursor: adjacent.newerCursor })
+      : (current.newerCursor === undefined ? {} : { newerCursor: current.newerCursor })),
+    atOldest: direction === 'older' ? adjacent.atOldest : current.atOldest,
+    atNewest: direction === 'newer' ? adjacent.atNewest : current.atNewest,
+  });
+};
+
 /** Controller for the first TUI's intentionally small idle/busy state machine. */
 export class TuiController {
   readonly editor: TuiEditor;
@@ -98,6 +130,21 @@ export class TuiController {
     }>
     | null = null;
   private historyExportGeneration = 0;
+  private humanHistory: {
+    page?: PresentationHumanHistoryPage;
+    selected: number;
+    anchorEntryId?: string;
+    anchorScalarOffset?: number;
+    detail?: PresentationHumanHistoryDetail;
+    detailMatchScalarOffset?: number;
+    query?: string;
+    searchInput?: string;
+    matchEntryId?: string;
+    matchScalarOffset?: number;
+    wrapped?: boolean;
+    loading?: boolean;
+  } | null = null;
+  private humanHistoryOperation: Promise<void> | null = null;
   private sessionSwitchOperation: Promise<void> | null = null;
   private recallOperation: Promise<void> | null = null;
   private pendingRecallShortId: string | null = null;
@@ -219,6 +266,11 @@ export class TuiController {
           page,
         ) => ({ kind: 'history', page }));
       case 'history_export':
+      case 'history_export_all':
+      case 'human_history_open':
+      case 'human_history_page':
+      case 'human_history_detail':
+      case 'human_history_search':
         return { kind: 'rejected', reason: 'unavailable' };
       case 'recall_execution':
         return { kind: 'rejected', reason: 'unavailable' };
@@ -575,6 +627,10 @@ export class TuiController {
         this.processRecallSelecting([event]);
         continue;
       }
+      if (!busy && this.humanHistory !== null) {
+        this.processHumanHistoryEvent(event);
+        continue;
+      }
       if (!busy && this.overlay.isOpen) {
         this.processModalEvent(event);
         continue;
@@ -606,7 +662,8 @@ export class TuiController {
         const slashCommand = slashCommandOf(this.editor.text);
         if (
           busy &&
-          (slashCommand === 'history_export' || slashCommand === 'recover' ||
+          (slashCommand === 'history' || slashCommand === 'history_export' ||
+            slashCommand === 'history_export_all' || slashCommand === 'recover' ||
             slashCommand === 'recall' ||
             slashCommand === 'provider' ||
             slashCommand === 'model' || slashCommand === 'effort' ||
@@ -704,7 +761,369 @@ export class TuiController {
       : `${position.sessionId ?? 'no-session'}:${position.agent}`;
   }
 
-  private startHistoryExport(): void {
+  private renderHumanHistory(): void {
+    if (this.humanHistory === null) return;
+    this.renderer.renderHumanHistory(this.humanHistory);
+  }
+
+  private trackHumanHistoryOperation(operation: Promise<void>): void {
+    this.humanHistoryOperation = operation;
+    void operation.then(
+      () => {
+        if (this.humanHistoryOperation === operation) this.humanHistoryOperation = null;
+      },
+      (error) => {
+        if (this.humanHistoryOperation === operation) this.humanHistoryOperation = null;
+        void this.fail(error).catch(() => {});
+      },
+    );
+  }
+
+  private startHumanHistory(): void {
+    if (this.state !== 'idle' || this.humanHistory !== null) {
+      this.renderer.setStatus('history unavailable while busy');
+      return;
+    }
+    this.humanHistory = { selected: 0, loading: true };
+    this.renderHumanHistory();
+    let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
+    try {
+      dispatched = this.dispatchIntent({ kind: 'human_history_open' });
+    } catch (error) {
+      this.humanHistory = null;
+      this.renderer.clearModal();
+      if (isPresentationDeliveryError(error)) throw error;
+      this.renderer.setStatus('history unavailable');
+      return;
+    }
+    const operation = Promise.resolve(dispatched).then((result) => {
+      if (this.humanHistory === null) return;
+      if (result.kind === 'rejected') {
+        this.humanHistory = null;
+        this.renderer.clearModal();
+        this.renderer.setStatus('history unavailable with --no-session');
+        return;
+      }
+      if (result.kind !== 'human_history_page') throw new PresentationDeliveryError();
+      const selected = Math.max(0, result.page.entries.length - 1);
+      this.humanHistory = {
+        page: result.page,
+        selected,
+        anchorEntryId: result.page.entries[selected]?.id,
+        anchorScalarOffset: Number.MAX_SAFE_INTEGER,
+      };
+      this.renderHumanHistory();
+    }).catch((error: unknown) => {
+      if (isPresentationDeliveryError(error)) throw error;
+      if (this.humanHistory !== null) {
+        this.humanHistory = null;
+        this.renderer.clearModal();
+        this.renderer.setStatus('history read failed');
+      }
+    });
+    this.trackHumanHistoryOperation(operation);
+  }
+
+  private loadHumanHistoryPage(
+    direction: 'oldest' | 'older' | 'newer' | 'latest',
+    cursor?: string,
+    moveAfterLoad?: 'previous' | 'next' | 'page_up' | 'page_down',
+  ): void {
+    if (this.humanHistory === null || this.humanHistoryOperation !== null) return;
+    this.humanHistory = { ...this.humanHistory, loading: true };
+    this.renderHumanHistory();
+    const operation = Promise.resolve(this.dispatchIntent({
+      kind: 'human_history_page',
+      direction,
+      ...(cursor === undefined ? {} : { cursor }),
+    })).then((result) => {
+      if (this.humanHistory === null) return;
+      if (result.kind !== 'human_history_page') throw new PresentationDeliveryError();
+      const previous = this.humanHistory;
+      const selectedId = previous.page?.entries[previous.selected]?.id;
+      const page = previous.page !== undefined && (direction === 'older' || direction === 'newer')
+        ? mergeHumanHistoryPages(previous.page, result.page, direction)
+        : result.page;
+      let selected = direction === 'latest'
+        ? Math.max(0, page.entries.length - 1)
+        : direction === 'oldest'
+        ? 0
+        : Math.max(0, page.entries.findIndex((entry) => entry.id === selectedId));
+      if (moveAfterLoad === 'previous') selected = Math.max(0, selected - 1);
+      if (moveAfterLoad === 'next') {
+        selected = Math.min(Math.max(0, page.entries.length - 1), selected + 1);
+      }
+      this.humanHistory = {
+        ...previous,
+        page,
+        selected,
+        anchorEntryId: direction === 'oldest' || direction === 'latest' ||
+            moveAfterLoad === 'previous' || moveAfterLoad === 'next'
+          ? page.entries[selected]?.id
+          : previous.anchorEntryId,
+        anchorScalarOffset: direction === 'latest'
+          ? Number.MAX_SAFE_INTEGER
+          : direction === 'oldest' || moveAfterLoad === 'previous' || moveAfterLoad === 'next'
+          ? 0
+          : previous.anchorScalarOffset,
+        detail: undefined,
+        detailMatchScalarOffset: undefined,
+        loading: false,
+      };
+      this.renderHumanHistory();
+      if (moveAfterLoad === 'page_up' || moveAfterLoad === 'page_down') {
+        this.moveHumanHistoryVisualPage(moveAfterLoad, false);
+      }
+    }).catch((error: unknown) => {
+      if (isPresentationDeliveryError(error)) throw error;
+      if (this.humanHistory !== null) {
+        this.humanHistory = { ...this.humanHistory, loading: false };
+        this.renderHumanHistory();
+        this.renderer.setStatus('history read failed');
+      }
+    });
+    this.trackHumanHistoryOperation(operation);
+  }
+
+  private moveHumanHistoryVisualPage(
+    direction: 'page_up' | 'page_down',
+    loadAtEdge = true,
+  ): void {
+    const view = this.humanHistory;
+    if (view?.page === undefined || view.detail !== undefined) return;
+    const layout = this.renderer.layoutSnapshot();
+    const rows = layout.overlay;
+    const entryId = view.anchorEntryId ?? view.page.entries[view.selected]?.id;
+    if (entryId === undefined) return;
+    const sourceOffset = view.anchorScalarOffset ?? 0;
+    const matching = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
+      row.entryId === entryId
+    );
+    const currentRow =
+      matching.find(({ row }) => (row.sourceScalarOffset ?? 0) >= sourceOffset)?.index ??
+        matching.at(-1)?.index;
+    if (currentRow === undefined) return;
+    const entryRows = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
+      row.entryId !== undefined
+    );
+    const firstRow = entryRows.at(0)?.index;
+    const lastRow = entryRows.at(-1)?.index;
+    if (firstRow === undefined || lastRow === undefined) return;
+    const distance = Math.max(1, layout.log.length);
+    const rawTarget = currentRow + (direction === 'page_up' ? -distance : distance);
+    if (rawTarget < firstRow && view.page.olderCursor !== undefined && loadAtEdge) {
+      this.loadHumanHistoryPage('older', view.page.olderCursor, 'page_up');
+      return;
+    }
+    if (rawTarget > lastRow && view.page.newerCursor !== undefined && loadAtEdge) {
+      this.loadHumanHistoryPage('newer', view.page.newerCursor, 'page_down');
+      return;
+    }
+    const targetIndex = Math.max(firstRow, Math.min(lastRow, rawTarget));
+    let target = rows[targetIndex];
+    if (target.entryId === undefined) {
+      const step = direction === 'page_up' ? -1 : 1;
+      for (let index = targetIndex; index >= firstRow && index <= lastRow; index += step) {
+        if (rows[index].entryId !== undefined) {
+          target = rows[index];
+          break;
+        }
+      }
+    }
+    if (target.entryId === undefined) return;
+    const selected = view.page.entries.findIndex((entry) => entry.id === target.entryId);
+    if (selected < 0) return;
+    this.humanHistory = {
+      ...view,
+      selected,
+      anchorEntryId: target.entryId,
+      anchorScalarOffset: target.sourceScalarOffset ?? 0,
+    };
+    this.renderHumanHistory();
+  }
+
+  private openHumanHistoryDetail(detailId: string, scalarOffset = 0): void {
+    if (this.humanHistory === null || this.humanHistoryOperation !== null) return;
+    const operation = Promise.resolve(this.dispatchIntent({
+      kind: 'human_history_detail',
+      detailId,
+      scalarOffset,
+    })).then((result) => {
+      if (this.humanHistory === null) return;
+      if (result.kind !== 'human_history_detail') throw new PresentationDeliveryError();
+      this.humanHistory = {
+        ...this.humanHistory,
+        detail: result.detail,
+        detailMatchScalarOffset: this.humanHistory.detail?.detailId === result.detail.detailId
+          ? this.humanHistory.detailMatchScalarOffset
+          : undefined,
+        loading: false,
+      };
+      this.renderHumanHistory();
+    }).catch((error: unknown) => {
+      if (isPresentationDeliveryError(error)) throw error;
+      this.renderer.setStatus('history detail failed');
+    });
+    this.trackHumanHistoryOperation(operation);
+  }
+
+  private searchHumanHistory(direction: 'next' | 'previous'): void {
+    const view = this.humanHistory;
+    const query = view?.searchInput ?? view?.query;
+    if (view === null || query === undefined || query.length === 0 || this.humanHistoryOperation) {
+      return;
+    }
+    const current = view.page?.entries[view.selected]?.id;
+    const currentMatchOffset = view.query === query && view.matchEntryId === current
+      ? view.matchScalarOffset
+      : undefined;
+    const operation = Promise.resolve(this.dispatchIntent({
+      kind: 'human_history_search',
+      query,
+      direction,
+      ...(current === undefined ? {} : { fromEntryId: current }),
+      ...(currentMatchOffset === undefined ? {} : { fromSourceScalarOffset: currentMatchOffset }),
+    })).then((result) => {
+      if (this.humanHistory === null) return;
+      if (result.kind !== 'human_history_search') throw new PresentationDeliveryError();
+      if (result.hit === undefined) {
+        this.humanHistory = { ...this.humanHistory, query, searchInput: undefined };
+        this.renderHumanHistory();
+        this.renderer.setStatus(`no history match for ${query}`);
+        return;
+      }
+      const selected = result.hit.page.entries.findIndex((entry) =>
+        entry.id === result.hit!.entryId
+      );
+      this.humanHistory = {
+        page: result.hit.page,
+        selected: Math.max(0, selected),
+        anchorEntryId: result.hit.entryId,
+        anchorScalarOffset: result.hit.sourceScalarOffset,
+        ...(result.hit.detail === undefined ? {} : { detail: result.hit.detail }),
+        ...(result.hit.detailMatchScalarOffset === undefined
+          ? {}
+          : { detailMatchScalarOffset: result.hit.detailMatchScalarOffset }),
+        query,
+        matchEntryId: result.hit.entryId,
+        matchScalarOffset: result.hit.sourceScalarOffset,
+        wrapped: result.hit.wrapped,
+      };
+      this.renderHumanHistory();
+    }).catch((error: unknown) => {
+      if (isPresentationDeliveryError(error)) throw error;
+      this.renderer.setStatus('history search failed');
+    });
+    this.trackHumanHistoryOperation(operation);
+  }
+
+  private closeHumanHistory(): void {
+    this.humanHistory = null;
+    this.renderer.clearModal();
+    this.renderer.setStatus(this.readyStatus());
+  }
+
+  private processHumanHistoryEvent(event: InputEvent): void {
+    const view = this.humanHistory;
+    if (view === null) return;
+    if (view.searchInput !== undefined) {
+      if (event.kind === 'escape') {
+        this.humanHistory = { ...view, searchInput: undefined };
+        this.renderHumanHistory();
+      } else if (event.kind === 'enter') {
+        if (view.searchInput.length === 0) {
+          this.humanHistory = {
+            ...view,
+            query: undefined,
+            searchInput: undefined,
+            matchEntryId: undefined,
+            matchScalarOffset: undefined,
+            detailMatchScalarOffset: undefined,
+          };
+          this.renderHumanHistory();
+        } else this.searchHumanHistory('next');
+      } else if (event.kind === 'backspace') {
+        this.humanHistory = { ...view, searchInput: [...view.searchInput].slice(0, -1).join('') };
+        this.renderHumanHistory();
+      } else if (event.kind === 'printable') {
+        this.humanHistory = { ...view, searchInput: view.searchInput + event.text };
+        this.renderHumanHistory();
+      } else if (event.kind === 'paste' && !event.text.includes('\0')) {
+        this.humanHistory = { ...view, searchInput: view.searchInput + event.text };
+        this.renderHumanHistory();
+      }
+      return;
+    }
+    if (view.detail !== undefined) {
+      if (event.kind === 'escape' || event.kind === 'backspace') {
+        this.humanHistory = { ...view, detail: undefined, detailMatchScalarOffset: undefined };
+        this.renderHumanHistory();
+      } else if (event.kind === 'page_up' && view.detail.previousOffset !== undefined) {
+        this.openHumanHistoryDetail(view.detail.detailId, view.detail.previousOffset);
+      } else if (event.kind === 'page_down' && view.detail.nextOffset !== undefined) {
+        this.openHumanHistoryDetail(view.detail.detailId, view.detail.nextOffset);
+      } else if (event.kind === 'printable' && event.text === 'n') {
+        this.searchHumanHistory('next');
+      } else if (event.kind === 'printable' && event.text === 'N') {
+        this.searchHumanHistory('previous');
+      }
+      return;
+    }
+    const page = view.page;
+    if (event.kind === 'escape' || (event.kind === 'printable' && event.text === 'q')) {
+      this.closeHumanHistory();
+    } else if (event.kind === 'printable' && event.text === '/') {
+      this.humanHistory = { ...view, searchInput: view.query ?? '' };
+      this.renderHumanHistory();
+    } else if (event.kind === 'printable' && event.text === 'n') {
+      this.searchHumanHistory('next');
+    } else if (event.kind === 'printable' && event.text === 'N') {
+      this.searchHumanHistory('previous');
+    } else if (
+      event.kind === 'up' || (event.kind === 'printable' && event.text === 'k')
+    ) {
+      if (view.selected > 0) {
+        const selected = view.selected - 1;
+        this.humanHistory = {
+          ...view,
+          selected,
+          anchorEntryId: page?.entries[selected]?.id,
+          anchorScalarOffset: 0,
+        };
+        this.renderHumanHistory();
+      } else if (page?.olderCursor !== undefined) {
+        this.loadHumanHistoryPage('older', page.olderCursor, 'previous');
+      }
+    } else if (
+      event.kind === 'down' || (event.kind === 'printable' && event.text === 'j')
+    ) {
+      if (page !== undefined && view.selected + 1 < page.entries.length) {
+        const selected = view.selected + 1;
+        this.humanHistory = {
+          ...view,
+          selected,
+          anchorEntryId: page.entries[selected]?.id,
+          anchorScalarOffset: 0,
+        };
+        this.renderHumanHistory();
+      } else if (page?.newerCursor !== undefined) {
+        this.loadHumanHistoryPage('newer', page.newerCursor, 'next');
+      }
+    } else if (event.kind === 'page_up') {
+      this.moveHumanHistoryVisualPage('page_up');
+    } else if (event.kind === 'page_down') {
+      this.moveHumanHistoryVisualPage('page_down');
+    } else if (event.kind === 'home' || (event.kind === 'printable' && event.text === 'g')) {
+      this.loadHumanHistoryPage('oldest');
+    } else if (event.kind === 'end' || (event.kind === 'printable' && event.text === 'G')) {
+      this.loadHumanHistoryPage('latest');
+    } else if (event.kind === 'enter') {
+      const selected = page?.entries[view.selected];
+      if (selected !== undefined) this.openHumanHistoryDetail(selected.detailId);
+    }
+  }
+
+  private startHistoryExport(all = false): void {
     if (this.state !== 'idle' || this.historyExportOperation !== null) {
       this.renderer.setStatus('history export already in progress');
       return;
@@ -712,7 +1131,7 @@ export class TuiController {
     const binding = this.currentBindingIdentity();
     let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
     try {
-      dispatched = this.dispatchIntent({ kind: 'history_export' });
+      dispatched = this.dispatchIntent({ kind: all ? 'history_export_all' : 'history_export' });
     } catch (error) {
       if (isPresentationDeliveryError(error)) throw error;
       this.renderer.setStatus('history export failed');
@@ -730,20 +1149,32 @@ export class TuiController {
         }
         return;
       }
-      if (result.kind !== 'history_export') throw new PresentationDeliveryError();
+      if (all) {
+        if (result.kind !== 'history_export_all') throw new PresentationDeliveryError();
+      } else if (result.kind !== 'history_export') throw new PresentationDeliveryError();
+      if (result.kind !== 'history_export' && result.kind !== 'history_export_all') {
+        throw new PresentationDeliveryError();
+      }
       if (this.state !== 'history-exporting') return;
       if (this.currentBindingIdentity() !== binding) {
         this.state = 'idle';
         this.renderer.setStatus('history export completed for previous session');
         return;
       }
+      const notice = result.kind === 'history_export'
+        ? `history exported through turn ${result.throughTurn}: ${result.path}`
+        : `full history exported (${result.executionCount} executions, sha256 ${result.sha256}): ${result.path}`;
       this.renderer.eventSink({
         kind: 'notice',
         generation: ++this.noticeGeneration,
-        text: `history exported through turn ${result.throughTurn}: ${result.path}`,
+        text: notice,
       });
       this.state = 'idle';
-      this.renderer.setStatus(`history exported through turn ${result.throughTurn}`);
+      this.renderer.setStatus(
+        result.kind === 'history_export'
+          ? `history exported through turn ${result.throughTurn}`
+          : `full history exported · ${result.executionCount} executions · ${result.byteLength} bytes`,
+      );
     }).catch((error: unknown) => {
       if (isPresentationDeliveryError(error)) throw error;
       const owned = this.historyExportOperation;
@@ -924,7 +1355,9 @@ export class TuiController {
           break;
         case 'enter':
           if (
+            slashCommandOf(this.editor.text) === 'history' ||
             slashCommandOf(this.editor.text) === 'history_export' ||
+            slashCommandOf(this.editor.text) === 'history_export_all' ||
             slashCommandOf(this.editor.text) === 'recover' ||
             slashCommandOf(this.editor.text) === 'recall' ||
             slashCommandOf(this.editor.text) === 'provider' ||
@@ -956,8 +1389,9 @@ export class TuiController {
     } else if (event.kind === 'enter') {
       const slashCommand = slashCommandOf(this.editor.text);
       this.renderer.setStatus(
-        slashCommand === 'history_export'
-          ? 'busy; /history export waits for ready'
+        slashCommand === 'history' || slashCommand === 'history_export' ||
+          slashCommand === 'history_export_all'
+          ? `busy; ${this.editor.text.trim()} waits for ready`
           : slashCommand === 'recover'
           ? 'busy; /recover waits for ready'
           : slashCommand === 'recall'
@@ -1011,7 +1445,9 @@ export class TuiController {
     else if (command === 'provider') this.openProviderPicker();
     else if (command === 'model') this.openModelPicker();
     else if (command === 'effort') this.openEffortPicker();
+    else if (command === 'history') this.startHumanHistory();
     else if (command === 'history_export') this.startHistoryExport();
+    else if (command === 'history_export_all') this.startHistoryExport(true);
     else if (command === 'recover') this.popRecovery();
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
@@ -1639,6 +2075,7 @@ export class TuiController {
     await this.settleNavigation();
     await this.settleSessionSwitch();
     await this.settleRecall();
+    await this.settleHumanHistory();
     await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
@@ -1711,6 +2148,13 @@ export class TuiController {
     if (owned === null) return;
     await Promise.allSettled([owned.operation]);
     if (this.historyExportOperation === owned) this.historyExportOperation = null;
+  }
+
+  private async settleHumanHistory(): Promise<void> {
+    const operation = this.humanHistoryOperation;
+    if (operation === null) return;
+    await Promise.allSettled([operation]);
+    if (this.humanHistoryOperation === operation) this.humanHistoryOperation = null;
   }
 
   private clearLiveActivity(): void {

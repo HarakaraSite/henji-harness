@@ -263,7 +263,9 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('/provider'), 'provider');
   assertEquals(slashCommandOf('/model'), 'model');
   assertEquals(slashCommandOf('/effort'), 'effort');
+  assertEquals(slashCommandOf('/history'), 'history');
   assertEquals(slashCommandOf('/history export'), 'history_export');
+  assertEquals(slashCommandOf('/history export all'), 'history_export_all');
   assertEquals(slashCommandOf('/recover'), 'recover');
   assertEquals(slashCommandOf('/recall'), 'recall');
   assertEquals(slashCommandOf('/recall aaaaaaaa'), 'recall');
@@ -271,7 +273,6 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('  /sessions  '), 'sessions');
   assertEquals(slashCommandOf('read foo.ts'), null);
   assertEquals(slashCommandOf('/unknown'), 'unknown');
-  assertEquals(slashCommandOf('/history'), 'unknown');
   assertEquals(slashCommandOf('/history export now'), 'unknown');
   assertEquals(slashCommandOf('/context'), 'unknown');
   assertEquals(slashCommandOf('/sessions foo'), 'unknown');
@@ -300,16 +301,30 @@ Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () 
     '/provider',
     '/model',
     '/effort',
+    '/history',
     '/history export',
+    '/history export all',
     '/recover',
     '/recall',
     '/exit',
   ]);
-  assertEquals(slashCommandCandidates('/h'), ['/help', '/history export']);
+  assertEquals(slashCommandCandidates('/h'), [
+    '/help',
+    '/history',
+    '/history export',
+    '/history export all',
+  ]);
   assertEquals(slashCommandCandidates('/n'), ['/new']);
   assertEquals(slashCommandCandidates('/r'), ['/rename', '/recover', '/recall']);
-  assertEquals(slashCommandCandidates('/history'), ['/history export']);
-  assertEquals(slashCommandCandidates('/history export'), ['/history export']);
+  assertEquals(slashCommandCandidates('/history'), [
+    '/history',
+    '/history export',
+    '/history export all',
+  ]);
+  assertEquals(slashCommandCandidates('/history export'), [
+    '/history export',
+    '/history export all',
+  ]);
   assertEquals(slashCommandCandidates('/unknown'), []);
   assertEquals(slashCommandCandidates('/H'), []);
   assertEquals(slashCommandCandidates(' /help'), []);
