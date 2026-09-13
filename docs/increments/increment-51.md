@@ -399,5 +399,13 @@ turnは計画どおり実行直前に別途許可を確認する。
   request count 1とcanonical commitを 記録した。
 - 実provider確認後は一時bindingを除去し、isolated active
   selectionがbuilt-inへ戻ったことをreadbackした。実credential値は
-  表示・copy・logせず、temporary config
-  linkも除去した。commit、push、release、導入済みbinaryの置換は行っていない。
+  表示・copy・logせず、temporary config linkも除去した。
+- 利用者の明示指示により、実装と正本更新をcommit `e709b100`へ確定し、そのclean
+  commitからbuild
+  `efef139eef5e791d361d5d61afffc5743f7df74446378aa8abc09803aba9eaa2`を生成した。
+  `dist/henji`と`~/.local/bin/henji`を同一artifactへatomicに置換し、両方のSHA-256が
+  `38eb3169771d383f62b83b1a430ee09e146cb7a1dae34e8e2f1eacb123db6345`であること、導入版が
+  source
+  `e709b10083f7623cd1c12213578dfa51aba69c48`、`sourceDirty=false`を返すこと、
+  `instruction active`がbuilt-in
+  selectionを返すことを確認した。tag、release、publishは行っていない。
