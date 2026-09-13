@@ -1,14 +1,22 @@
 /**
  * Compose executable Agent Definitions for Henji Harness.
  *
- * Henji is a Deno agent harness intended to evolve from experience gathered
- * during ordinary use. An AI may produce a revision candidate when a human
- * asks it to, but a candidate is adopted only through an explicit human
- * action or approval.
+ * The name Henji comes from the Japanese word 返事, meaning "reply" or
+ * "response."
  *
- * The Henji Host owns surfaces, lifecycle, storage, and revision bindings. A
- * headless Agent Worker evaluates a trusted executable TypeScript Definition
- * and composes its model, instructions, tools, delegation, context, and loop.
+ * Henji is a Deno agent harness being developed toward experience-driven
+ * self-revision. That workflow is not yet implemented. In the intended
+ * workflow, an AI may produce a revision candidate when a human asks it to,
+ * and only an explicit human action or approval can adopt it.
+ *
+ * In the current Henji runtime, the Host owns the TUI and headless surfaces,
+ * Worker lifecycle, SQLite-backed history, and exact Agent Definition
+ * selection for Sessions. A headless Agent Worker evaluates built-in or
+ * installed trusted executable TypeScript Definitions and assembles the
+ * current model, instructions, tools, and synchronous planner delegation.
+ * General Surface replacement, durable AgentInstance revision transitions,
+ * and Definition-configurable context and loop components are not yet
+ * implemented.
  *
  * This 0.x package is under active development. Its APIs and contracts may
  * change incompatibly between releases, so consumers should pin an exact
@@ -24,7 +32,7 @@
  * import {
  *   createDefaultAgentComposition,
  *   type ExecutableAgentDefinition,
- * } from "jsr:@henji/harness@0.1.1";
+ * } from "jsr:@henji/harness@0.1.2";
  *
  * const definition: ExecutableAgentDefinition = (input) =>
  *   createDefaultAgentComposition(input);
