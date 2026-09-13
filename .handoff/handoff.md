@@ -12,9 +12,10 @@
   由来する説明を`README.md`とJSR Overview用`mod.ts`へ追記し、現在のHost / Worker実装と未実装の自己改訂・
   revision transition・構成可能なcontext / loopを区別する説明へ修正した。追加release testは利用者判断で
   実施せず、authoritative `v0:gate`全272 testを通したcommit `c6ad7330`を`origin/main`へpushした。
-  `@henji/harness@0.1.2`はJSRへpublish済みで、metadataのlatest versionとexact importを確認した。
-- 次: v0.1.1を通常利用し、`docs/experience/normal-use-inbox.md`から次Increment候補を選定する。
+  `@henji/harness@0.1.2`はJSRへpublish済みで、metadataのlatest versionとexact importを確認した。VMの
+  `~/.local/bin/henji`もrelease commit `c6ad7330`からbuildしたv0.1.2へ置換し、versionを確認した。
+- 次: v0.1.2を通常利用し、`docs/experience/normal-use-inbox.md`から次Increment候補を選定する。
 - 正本: `docs/increments/increment-44.md`、`README.md`、`mod.ts`、`jsr.json`、
   `docs/operations/jsr-publish.md`、`docs/experience/normal-use-inbox.md`。
 - 注意: 既存SQLite・旧JSON dataは変更・削除していない。architecture・roadmap・構想の変更、Git tag、Forgejo
-  Release、VMのstandalone `henji`のv0.1.2への置換は実施していない。
+  Releaseは実施していない。
