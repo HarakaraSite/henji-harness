@@ -67,6 +67,7 @@ export interface WorkerGenerationPort {
   readonly providerObservation?: (
     correlation: WorkerCorrelation,
     observation: ProviderEvidenceObservation,
+    turn: number,
   ) => void;
   readonly contextObservation?: (
     correlation: WorkerCorrelation,
@@ -248,7 +249,7 @@ export class WorkerGeneration {
       turn,
       new Date().toISOString(),
       undefined,
-      (observation) => this.port.providerObservation?.(correlation, observation),
+      (observation) => this.port.providerObservation?.(correlation, observation, turn),
     );
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
@@ -842,6 +843,15 @@ export class WorkerGeneration {
       const eventSink: AgentEventSink = (event) => {
         if (event.kind === 'turn_end') {
           terminal = event;
+        } else if (
+          this.port.providerObservation !== undefined &&
+          (event.kind === 'assistant_progress' ||
+            event.kind === 'assistant_message' || isEffect(event))
+        ) {
+          // The evidence recorder emits the same completed occurrence with provider
+          // attribution. In the production port that observation is the single durable
+          // Worker fact and the Host projects the provider-neutral AgentEvent from it.
+          return;
         } else if (isEffect(event)) {
           this.port.effectObservation(correlation, event);
         } else {

@@ -124,6 +124,68 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
         },
       },
     });
+    const providerCorrelation = {
+      session: sessionId,
+      instanceCorrelation: 'instance-43',
+      workerGeneration: 'generation-43',
+      baseStateRevision: 1,
+      command: 'turn-43',
+    };
+    for (
+      const [sequence, event] of [
+        [
+          2,
+          {
+            kind: 'model_result',
+            result: { kind: 'final', text: 'unified provider answer' },
+            modelStep: 1,
+            lane: 'parent',
+            requestOrdinal: 1,
+          },
+        ],
+        [
+          3,
+          {
+            kind: 'tool_call',
+            call: { callId: 'call-43', name: 'read_file', arguments: { path: 'README.md' } },
+            modelStep: 1,
+            lane: 'parent',
+            requestOrdinal: 1,
+          },
+        ],
+        [
+          4,
+          {
+            kind: 'tool_result',
+            result: {
+              kind: 'tool_result',
+              callId: 'call-43',
+              name: 'read_file',
+              text: 'unified tool output',
+              outcome: 'success',
+            },
+            modelStep: 1,
+            lane: 'parent',
+            requestOrdinal: 1,
+          },
+        ],
+      ] as const
+    ) {
+      store.appendExecutionEvent({
+        executionId: failed.executionId,
+        direction: 'worker_to_host',
+        source: 'worker',
+        kind: 'runtime_event',
+        workerSequence: sequence,
+        payload: {
+          kind: 'provider_observation',
+          correlation: providerCorrelation,
+          sequence,
+          turn: 1,
+          observation: { kind: 'runtime_event', requestOrdinal: 1, event },
+        },
+      });
+    }
     store.settleNonCanonicalExecution({
       ...failed,
       outcome: cancelledOutcome(failed.task),
@@ -170,10 +232,19 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     assert(!one.atNewest);
     assert(one.newerCursor !== undefined);
     assertEquals(one.entries[0].attempt, 1);
+    const unifiedAssistant = one.entries.find((entry) =>
+      entry.label === 'assistant>' && entry.text === 'unified provider answer'
+    );
+    assert(unifiedAssistant !== undefined);
+    assert(one.entries.some((entry) => entry.text.includes('unified tool output')));
+    const unifiedDetail = store.readHumanHistoryDetail(sessionId, unifiedAssistant.detailId);
+    assert(unifiedDetail.text.includes('unified provider answer'));
     assert(
-      one.entries.some((entry) =>
-        entry.label === 'assistant~ partial' && entry.text.includes('partial nonce')
-      ),
+      store.searchHumanHistory({
+        sessionId,
+        query: 'unified provider answer',
+        direction: 'next',
+      })?.entryId === unifiedAssistant.id,
     );
 
     const two = store.readHumanHistoryPage({
@@ -219,7 +290,13 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     await store.beginExecution(longInput);
     store.settleNonCanonicalExecution({
       ...longInput,
-      outcome: cancelledOutcome(longInput.task),
+      outcome: {
+        ...cancelledOutcome(longInput.task),
+        transcript: [
+          ...transcript,
+          { role: 'user', content: { kind: 'text', text: longInput.task } },
+        ],
+      },
     });
     const longDetail = store.readHumanHistoryDetail(
       sessionId,
@@ -254,17 +331,65 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     );
 
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history.sqlite3`);
+    const checkpointDb = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+    try {
+      checkpointDb.prepare(`INSERT INTO semantic_checkpoints(
+        session_id, created_at, covered_turn, retained_turn, source_profile_id, summary
+      ) VALUES (?, ?, ?, ?, ?, ?)`).run(
+        sessionId,
+        canonical.createdAt,
+        1,
+        1,
+        'increment-43-profile',
+        'increment 43 checkpoint',
+      );
+    } finally {
+      checkpointDb.close();
+    }
+    const exportRecords = [...store.streamHumanHistoryExport(sessionId)];
+    assert(exportRecords.some((item) => item.kind === 'store_metadata'));
+    assert(exportRecords.some((item) => item.kind === 'session_model_change'));
+    assert(exportRecords.some((item) => item.kind === 'semantic_checkpoint'));
+    const fallbackMessage = exportRecords.find((item) =>
+      item.kind === 'execution_message' &&
+      (item.value as { readonly content_digest?: unknown }).content_digest !== null
+    );
+    assert(fallbackMessage !== undefined);
+    const fallbackDigest = String(
+      (fallbackMessage.value as { readonly content_digest: unknown }).content_digest,
+    );
+    assert(
+      exportRecords.some((item) =>
+        item.kind === 'context_blob' && item.identity === `content:${fallbackDigest}`
+      ),
+    );
+
+    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
     try {
       db.prepare(`
         INSERT INTO execution_artifacts(
-          artifact_id, execution_id, settled_at, artifact_json, link_status
-        ) VALUES (?, ?, ?, ?, ?)
+          artifact_id, execution_id, settled_at, command_session,
+          command_instance_correlation, command_worker_generation,
+          command_base_revision, command_id, store_result, acknowledgement,
+          settlement, lifecycle, normalized_outcome, adoption, context_capture,
+          link_status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         '43000000-0000-4000-8004-000000000001',
         longInput.executionId,
         longInput.createdAt,
-        '{"schemaVersion":0}',
+        sessionId,
+        'instance-43',
+        'generation-43',
+        longInput.baseStateRevision,
+        'turn-43-invalid-artifact',
+        'not_attempted',
+        'not_sent',
+        'unknown',
+        'settled',
+        'unknown',
+        'non_canonical',
+        'partial',
         'linked',
       );
     } finally {

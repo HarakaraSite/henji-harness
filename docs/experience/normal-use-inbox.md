@@ -18,7 +18,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
-| A4 | Agent実行 | durable historyの物理保持方式 | 長期SessionのRAM・CPU・disk I/Oまたは履歴参照への影響を実測する |
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
@@ -104,22 +103,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 長期Sessionの実token usage、provider/model context契約、turn中/間checkpointを比較できる
   利用証拠が得られること。
 - 正本: [`increment-29.md`](../increments/increment-29.md)は既に停止した挙動と維持するcheckpoint境界を定める。
-
-### A4 — durable historyの物理保持方式（F02、F04、F05、F06、F08、F15）
-
-- 観測: 人間が見る履歴全体はcanonical conversationだけでなく、settled non-canonical execution、tool
-  activity、context attribution、`/recall` projection、将来の`/rebuild` transitionを含む。storageへの物理commitと
-  conversationへのcanonical採用は別operationである。現実装はcanonical transcriptをRAMへ展開してturnごとに
-  `session.json`をatomic rewriteし、execution artifact/provider evidenceを別に保存する。長期Sessionの性能と、
-  全履歴を一つのviewから辿る物理構成は未確認である。
-- 候補: canonical transcriptのatomic adoptionを維持しながら、execution identity、outcome、観測済みevent、
-  context attribution、projection/transitionを相関できるstoreを比較する。append-only store、SQLite、現Session
-  JSONとartifact storeの拡張、RAM上のindex/checkpoint suffix、paged history readは候補であり未決定である。
-  providerの一時的な`callId`だけを永続identityと仮定しない。完全再現性、過去Worker、OS/filesystem、外部状態の
-  snapshotは目的にしない。
-- 再検討条件: RAM、CPU、GC、disk I/O、history表示、execution/context相関の具体的な問題を長期Sessionまたは
-  通常利用で観測すること。
-- 調査: [`agent-loop-and-durable-state-comparison.md`](../research/agent-loop-and-durable-state-comparison.md)。
 
 ### A5 — ambient repository contextの配送（F02、F06）
 

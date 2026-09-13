@@ -380,7 +380,7 @@ Deno.test('Increment 40 commits and reopens canonical history through SQLite', a
     assertEquals(reopened.stateRevision, 5);
     assertEquals(reopened.nextTurn, 3);
 
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v4.sqlite3`;
     const db = new DatabaseSync(path, { readOnly: true });
     try {
       assertEquals(
@@ -644,7 +644,7 @@ Deno.test('Increment 40 enforces Session writer ownership and preserves executio
     assertEquals((await store.listWorker()).sessions.length, 0);
     assertEquals((await store.executionArtifacts.list()).length, 1);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history.sqlite3`, {
+    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`, {
       readOnly: true,
     });
     try {
@@ -682,7 +682,7 @@ Deno.test('Increment 40 rejects an unknown SQLite schema without reading old JSO
       `${paths.sessions}/${oldId}/session.json`,
       '{"old":true}\n',
     );
-    const db = new DatabaseSync(`${paths.root}/history.sqlite3`);
+    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
     db.exec('PRAGMA user_version = 99');
     db.close();
 
@@ -846,10 +846,10 @@ Deno.test('Increment 40 rolls back a failed canonical SQL statement without part
     await store.initialize();
     opened = await openHistoryHost(store, workspaceRoot);
     assertEquals(opened.host.renameTitle('rollback baseline'), 'renamed');
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v4.sqlite3`;
     const db = new DatabaseSync(path);
     db.exec(`
-      CREATE TRIGGER fail_canonical_message BEFORE INSERT ON canonical_messages
+      CREATE TRIGGER fail_canonical_turn BEFORE INSERT ON canonical_turns
       BEGIN SELECT RAISE(ABORT, 'forced canonical statement failure'); END;
     `);
     db.close();
@@ -869,7 +869,7 @@ Deno.test('Increment 40 rolls back a failed canonical SQL statement without part
             (SELECT count(*) FROM tasks) AS tasks,
             (SELECT count(*) FROM executions) AS executions,
             (SELECT count(*) FROM canonical_turns) AS turns,
-            (SELECT count(*) FROM canonical_messages) AS messages,
+            (SELECT count(*) FROM execution_messages) AS messages,
             (SELECT count(*) FROM provider_evidence) AS evidence,
             (SELECT count(*) FROM execution_artifacts) AS artifacts,
             (SELECT adoption FROM executions LIMIT 1) AS adoption
@@ -878,7 +878,7 @@ Deno.test('Increment 40 rolls back a failed canonical SQL statement without part
           tasks: 1,
           executions: 1,
           turns: 0,
-          messages: 0,
+          messages: 2,
           evidence: 1,
           artifacts: 1,
           adoption: 'non_canonical',
@@ -925,7 +925,7 @@ Deno.test('Increment 40 settles non-canonical execution and artifact in one tran
       capsuleFactory: () => new ScriptedCapsule(true),
     });
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const path = `${paths.root}/history.sqlite3`;
+    const path = `${paths.root}/history-v4.sqlite3`;
     const fault = new DatabaseSync(path);
     fault.exec(`
       CREATE TRIGGER fail_noncanonical_artifact BEFORE INSERT ON execution_artifacts
@@ -950,8 +950,8 @@ Deno.test('Increment 40 settles non-canonical execution and artifact in one tran
         { tasks: 1, executions: 1, evidence: 0, diagnostics: 0, artifacts: 0 },
       );
       assertEquals(
-        verify.prepare('SELECT lifecycle, outcome, outcome_json FROM executions').get(),
-        { lifecycle: 'active', outcome: 'unknown', outcome_json: null },
+        verify.prepare('SELECT lifecycle, outcome FROM executions').get(),
+        { lifecycle: 'active', outcome: 'unknown' },
       );
     } finally {
       verify.close();
@@ -996,7 +996,7 @@ Deno.test('Increment 40 keeps diagnostic capacity local to diagnostic capture', 
     }
     assertEquals((await store.diagnostics.list()).length, 16);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history.sqlite3`, {
+    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`, {
       readOnly: true,
     });
     try {
@@ -1025,7 +1025,7 @@ Deno.test('Increment 40 waits briefly and returns typed busy after 250 ms', asyn
   const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
     await store.initialize();
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v4.sqlite3`;
     const run = async (holdMs: number, ordinal: number) => {
       const worker = new Worker(
         new URL('./fixtures/increment_40_busy_worker.ts', import.meta.url).href,

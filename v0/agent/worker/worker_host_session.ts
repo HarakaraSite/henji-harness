@@ -160,6 +160,18 @@ type ActiveWorkerExecution = {
   artifactWritten: boolean;
   contextCapture?: 'complete' | 'failed' | 'none';
 };
+type ActiveSessionProjection = {
+  readonly sessionId: string;
+  transcript: Message[];
+  nextTurn: number;
+  stateRevision: number;
+  checkpoint?: SemanticContextCheckpointV1;
+  modelSelection: ModelSelection;
+  modelChanges: SessionModelChange[];
+  turnModels: SessionTurnModelAttribution[];
+  turnExecutions: SessionTurnExecutionAttribution[];
+  title: string | null;
+};
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
   private readonly capsule: WorkerHostCapsule;
@@ -172,10 +184,7 @@ export class WorkerHostSession {
   private currentCorrelation: WorkerCorrelation | undefined;
   private currentManifest: WorkerReadyMessage['manifest'];
   private currentStartupSnapshot: WorkerReadyMessage['startupSnapshot'];
-  private transcript: Message[];
-  private nextTurn: number;
-  private stateRevision: number;
-  private checkpoint: SemanticContextCheckpointV1 | undefined;
+  private readonly projection: ActiveSessionProjection;
   private autoCompactionNotice: {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
@@ -185,13 +194,8 @@ export class WorkerHostSession {
   private unavailable = false;
   private closed = false;
   private activeExecution: ActiveWorkerExecution | undefined;
-  private modelSelection: ModelSelection;
-  private modelChanges: SessionModelChange[];
-  private turnModels: SessionTurnModelAttribution[];
-  private turnExecutions: SessionTurnExecutionAttribution[];
   private readonly build = buildManifest();
   private readonly createdAt: string;
-  private title: string | null;
   private credentialAvailability: CredentialAvailability | undefined;
   private pendingRecall: RecalledExecutionContext | undefined;
 
@@ -209,34 +213,39 @@ export class WorkerHostSession {
         'session Definition revision does not match the selected binding',
       );
     }
-    this.transcript = record === undefined ? [] : structuredClone(record.transcript) as Message[];
-    this.nextTurn = record?.nextTurn ?? 1;
-    this.stateRevision = record?.stateRevision ?? 1;
+    const nextTurn = record?.nextTurn ?? 1;
     const defaultSelection = options.initialModelSelection ??
       (options.agent === 'planner'
         ? PLANNER_DEFAULT_MODEL_SELECTION
         : ROOT_DEFAULT_MODEL_SELECTION);
-    this.modelSelection = record === undefined
+    const modelSelection = record === undefined
       ? structuredClone(defaultSelection)
       : structuredClone(record.activeModel);
-    this.modelChanges = record === undefined
-      ? [{
-        effectiveFromTurn: this.nextTurn,
-        changedAt: new Date().toISOString(),
-        selection: structuredClone(this.modelSelection),
-      }]
-      : structuredClone(record.modelChanges) as SessionModelChange[];
-    this.turnModels = record === undefined
-      ? []
-      : structuredClone(record.turnModels) as SessionTurnModelAttribution[];
-    this.turnExecutions = record === undefined ? [] : structuredClone(
-      record.turnExecutions,
-    ) as SessionTurnExecutionAttribution[];
+    this.projection = {
+      sessionId: options.handle.id,
+      transcript: record === undefined ? [] : structuredClone(record.transcript) as Message[],
+      nextTurn,
+      stateRevision: record?.stateRevision ?? 1,
+      modelSelection,
+      modelChanges: record === undefined
+        ? [{
+          effectiveFromTurn: nextTurn,
+          changedAt: new Date().toISOString(),
+          selection: structuredClone(modelSelection),
+        }]
+        : structuredClone(record.modelChanges) as SessionModelChange[],
+      turnModels: record === undefined
+        ? []
+        : structuredClone(record.turnModels) as SessionTurnModelAttribution[],
+      turnExecutions: record === undefined ? [] : structuredClone(
+        record.turnExecutions,
+      ) as SessionTurnExecutionAttribution[],
+      title: record?.title ?? null,
+      ...(options.handle.checkpoint === undefined
+        ? {}
+        : { checkpoint: structuredClone(options.handle.checkpoint) }),
+    };
     this.createdAt = record?.createdAt ?? new Date().toISOString();
-    this.title = record?.title ?? null;
-    this.checkpoint = options.handle.checkpoint === undefined
-      ? undefined
-      : structuredClone(options.handle.checkpoint);
     this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
   }
 
@@ -262,7 +271,7 @@ export class WorkerHostSession {
   }
 
   modelSelectionSnapshot(): ModelSelection {
-    return structuredClone(this.modelSelection);
+    return structuredClone(this.projection.modelSelection);
   }
 
   startupSnapshot(): NonNullable<WorkerReadyMessage['startupSnapshot']> {
@@ -408,6 +417,54 @@ export class WorkerHostSession {
     }
     if (message.kind === 'effect_observation') {
       this.deliver(message.effect);
+      return;
+    }
+    if (
+      message.kind === 'provider_observation' &&
+      message.observation.kind === 'runtime_event'
+    ) {
+      const event = message.observation.event;
+      const turn = message.turn;
+      if (event.kind === 'assistant_progress') {
+        this.deliver({ kind: 'assistant_progress', turn, text: event.text });
+      } else if (event.kind === 'model_result') {
+        const result = event.result;
+        this.deliver({
+          kind: 'assistant_message',
+          turn,
+          message: result.kind === 'final'
+            ? {
+              role: 'assistant',
+              content: { kind: 'text', text: result.text },
+              ...(result.providerState === undefined ? {} : {
+                providerState: structuredClone(result.providerState),
+              }),
+            }
+            : {
+              role: 'assistant',
+              content: result.calls.map((call) => ({
+                kind: 'tool_call' as const,
+                ...structuredClone(call),
+              })),
+              ...(result.text === undefined ? {} : { text: result.text }),
+              ...(result.providerState === undefined ? {} : {
+                providerState: structuredClone(result.providerState),
+              }),
+            },
+        });
+      } else if (event.kind === 'tool_call') {
+        this.deliver({ kind: 'tool_call', turn, call: structuredClone(event.call) });
+      } else if (event.kind === 'tool_progress') {
+        this.deliver({
+          kind: 'tool_progress',
+          turn,
+          callId: event.callId,
+          name: event.name,
+          text: event.text,
+        });
+      } else if (event.kind === 'tool_result') {
+        this.deliver({ kind: 'tool_result', turn, result: structuredClone(event.result) });
+      }
       return;
     }
     if (message.kind === 'context_observation') return;
@@ -687,7 +744,7 @@ export class WorkerHostSession {
   private historyExecutionAttribution() {
     return {
       agent: this.options.agent,
-      model: structuredClone(this.modelSelection),
+      model: structuredClone(this.projection.modelSelection),
       build: structuredClone(this.build),
       definition: structuredClone(this.options.definition),
       ...(this.currentManifest === undefined ? {} : {
@@ -1009,7 +1066,7 @@ export class WorkerHostSession {
             execution,
             failedOutcome(
               outcome.task,
-              this.transcript,
+              this.projection.transcript,
               'durable execution settlement failed',
             ),
             diagnostic ?? this.contextContractDiagnostic(execution, providerEvidence, outcome),
@@ -1053,12 +1110,12 @@ export class WorkerHostSession {
       createdAt: this.createdAt,
       updatedAt: this.createdAt,
       title: null,
-      stateRevision: this.stateRevision,
-      nextTurn: this.nextTurn,
+      stateRevision: this.projection.stateRevision,
+      nextTurn: this.projection.nextTurn,
       transcript: [],
       definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.modelSelection),
-      modelChanges: structuredClone(this.modelChanges),
+      activeModel: structuredClone(this.projection.modelSelection),
+      modelChanges: structuredClone(this.projection.modelChanges),
       turnModels: [],
       turnExecutions: [],
     };
@@ -1073,7 +1130,7 @@ export class WorkerHostSession {
       session: this.sessionId,
       instanceCorrelation: this.instanceCorrelation,
       workerGeneration: this.workerGeneration,
-      baseStateRevision: this.stateRevision,
+      baseStateRevision: this.projection.stateRevision,
       command,
     };
   }
@@ -1115,10 +1172,12 @@ export class WorkerHostSession {
         ...(this.options.providerTimeoutMs === undefined
           ? {}
           : { providerTimeoutMs: this.options.providerTimeoutMs }),
-        initialTranscript: this.transcript,
-        nextTurn: this.nextTurn,
-        ...(this.checkpoint === undefined ? {} : { checkpoint: this.checkpoint }),
-        modelSelection: this.modelSelection,
+        initialTranscript: this.projection.transcript,
+        nextTurn: this.projection.nextTurn,
+        ...(this.projection.checkpoint === undefined
+          ? {}
+          : { checkpoint: this.projection.checkpoint }),
+        modelSelection: this.projection.modelSelection,
       });
     } catch {
       this.markUnavailable();
@@ -1145,18 +1204,18 @@ export class WorkerHostSession {
       }
       if (
         ready.manifest === undefined ||
-        !sameModelSelection(ready.manifest.rootModel, this.modelSelection) ||
+        !sameModelSelection(ready.manifest.rootModel, this.projection.modelSelection) ||
         !sameModelSelection(
           ready.manifest.plannerModel,
           PLANNER_DEFAULT_MODEL_SELECTION,
         ) ||
-        ready.manifest.profileId !== modelRouteProfileId(this.modelSelection) ||
+        ready.manifest.profileId !== modelRouteProfileId(this.projection.modelSelection) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
         !validStartupSnapshot(ready.startupSnapshot) ||
         !validCredentialAvailability(
           ready.credentialAvailability,
-          this.modelSelection,
+          this.projection.modelSelection,
         )
       ) {
         throw new WorkerHostStartupError(
@@ -1187,7 +1246,7 @@ export class WorkerHostSession {
         message.checkpoint.sessionId !== this.sessionId ||
         message.checkpoint.sourceProfileId !== this.currentManifest.profileId
       ) throw new Error('checkpoint correlation invalid');
-      const completedTurns = indexSessionHistory(this.transcript)?.turns.length ?? 0;
+      const completedTurns = indexSessionHistory(this.projection.transcript)?.turns.length ?? 0;
       if (
         message.checkpoint.coveredThroughTurn < 1 ||
         message.checkpoint.coveredThroughTurn >= completedTurns ||
@@ -1195,7 +1254,7 @@ export class WorkerHostSession {
           message.checkpoint.coveredThroughTurn + 1
       ) throw new Error('checkpoint boundary invalid');
       this.options.handle.installCheckpoint(message.checkpoint);
-      this.checkpoint = structuredClone(message.checkpoint);
+      this.projection.checkpoint = structuredClone(message.checkpoint);
       const notice = {
         coveredThroughTurn: message.checkpoint.coveredThroughTurn,
         retainedFromTurn: message.checkpoint.retainedFromTurn,
@@ -1241,22 +1300,22 @@ export class WorkerHostSession {
       agent: this.options.agent,
       createdAt: this.createdAt,
       updatedAt: new Date().toISOString(),
-      title: this.title,
-      stateRevision: this.stateRevision + 1,
+      title: this.projection.title,
+      stateRevision: this.projection.stateRevision + 1,
       nextTurn: proposal.nextTurn,
       transcript: structuredClone(proposal.transcript),
       definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.modelSelection),
-      modelChanges: structuredClone(this.modelChanges),
+      activeModel: structuredClone(this.projection.modelSelection),
+      modelChanges: structuredClone(this.projection.modelChanges),
       turnModels: [
-        ...structuredClone(this.turnModels),
+        ...structuredClone(this.projection.turnModels),
         {
           turn: proposal.nextTurn - 1,
-          selection: structuredClone(this.modelSelection),
+          selection: structuredClone(this.projection.modelSelection),
         },
       ],
       turnExecutions: [
-        ...structuredClone(this.turnExecutions),
+        ...structuredClone(this.projection.turnExecutions),
         {
           turn: committedTurn,
           build: structuredClone(this.build),
@@ -1275,17 +1334,17 @@ export class WorkerHostSession {
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
     }
-    if (sameModelSelection(this.modelSelection, selection)) return 'unchanged';
+    if (sameModelSelection(this.projection.modelSelection, selection)) return 'unchanged';
     const changedAt = new Date().toISOString();
     const nextChanges: SessionModelChange[] = [
-      ...structuredClone(this.modelChanges),
+      ...structuredClone(this.projection.modelChanges),
       {
-        effectiveFromTurn: this.nextTurn,
+        effectiveFromTurn: this.projection.nextTurn,
         changedAt,
         selection: structuredClone(selection),
       },
     ];
-    const nextRevision = this.stateRevision + 1;
+    const nextRevision = this.projection.stateRevision + 1;
     const persisted: SessionRecordV6 = {
       schemaVersion: 6,
       sessionId: this.sessionId,
@@ -1293,15 +1352,15 @@ export class WorkerHostSession {
       agent: this.options.agent,
       createdAt: this.createdAt,
       updatedAt: changedAt,
-      title: this.title,
+      title: this.projection.title,
       stateRevision: nextRevision,
-      nextTurn: this.nextTurn,
-      transcript: structuredClone(this.transcript),
+      nextTurn: this.projection.nextTurn,
+      transcript: structuredClone(this.projection.transcript),
       definition: structuredClone(this.options.definition),
       activeModel: structuredClone(selection),
       modelChanges: nextChanges,
-      turnModels: structuredClone(this.turnModels),
-      turnExecutions: structuredClone(this.turnExecutions),
+      turnModels: structuredClone(this.projection.turnModels),
+      turnExecutions: structuredClone(this.projection.turnExecutions),
     };
     if (!validateSessionRecordV6(persisted)) {
       throw new Error('model selection record invalid');
@@ -1337,9 +1396,9 @@ export class WorkerHostSession {
       this.credentialAvailability = structuredClone(
         message.credentialAvailability,
       );
-      this.modelSelection = structuredClone(selection);
-      this.modelChanges = nextChanges;
-      this.stateRevision = nextRevision;
+      this.projection.modelSelection = structuredClone(selection);
+      this.projection.modelChanges = nextChanges;
+      this.projection.stateRevision = nextRevision;
       return 'selected';
     } catch (error) {
       this.options.handle.rollback();
@@ -1356,9 +1415,9 @@ export class WorkerHostSession {
     if (this.closed || this.unavailable) return 'unavailable';
     if (this.active || this.currentCorrelation !== undefined) return 'busy';
     const title = normalizeSessionTitle(value);
-    if (title.length === 0 || title === this.title) return 'unchanged';
+    if (title.length === 0 || title === this.projection.title) return 'unchanged';
     const changedAt = new Date().toISOString();
-    const nextRevision = this.stateRevision + 1;
+    const nextRevision = this.projection.stateRevision + 1;
     const persisted: SessionRecordV6 = {
       schemaVersion: 6,
       sessionId: this.sessionId,
@@ -1368,20 +1427,20 @@ export class WorkerHostSession {
       updatedAt: changedAt,
       title,
       stateRevision: nextRevision,
-      nextTurn: this.nextTurn,
-      transcript: structuredClone(this.transcript),
+      nextTurn: this.projection.nextTurn,
+      transcript: structuredClone(this.projection.transcript),
       definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.modelSelection),
-      modelChanges: structuredClone(this.modelChanges),
-      turnModels: structuredClone(this.turnModels),
-      turnExecutions: structuredClone(this.turnExecutions),
+      activeModel: structuredClone(this.projection.modelSelection),
+      modelChanges: structuredClone(this.projection.modelChanges),
+      turnModels: structuredClone(this.projection.turnModels),
+      turnExecutions: structuredClone(this.projection.turnExecutions),
     };
     if (!validateSessionRecordV6(persisted)) {
       throw new Error('session title record invalid');
     }
     this.options.handle.commit(persisted);
-    this.title = title;
-    this.stateRevision = nextRevision;
+    this.projection.title = title;
+    this.projection.stateRevision = nextRevision;
     return 'renamed';
   }
 
@@ -1527,14 +1586,14 @@ export class WorkerHostSession {
     if (recalledContext === undefined) this.pendingRecall = undefined;
     this.active = true;
     const correlation = this.correlation(
-      `turn-${this.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
+      `turn-${this.projection.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
     );
     this.currentCorrelation = correlation;
     const execution: ActiveWorkerExecution = {
       taskId: crypto.randomUUID().toLowerCase(),
       executionId: crypto.randomUUID().toLowerCase(),
       createdAt: new Date().toISOString(),
-      turn: this.nextTurn,
+      turn: this.projection.nextTurn,
       command: {
         kind: 'turn',
         correlation: structuredClone(correlation),
@@ -1543,7 +1602,7 @@ export class WorkerHostSession {
       ...(admittedRecall === undefined ? {} : {
         recalledContext: structuredClone(admittedRecall),
       }),
-      baseStateRevision: this.stateRevision,
+      baseStateRevision: this.projection.stateRevision,
       protocolTrace: [...this.bootstrapTrace],
       storeResult: 'not_attempted',
       acknowledgement: 'not_sent',
@@ -1599,13 +1658,13 @@ export class WorkerHostSession {
           const failed: LoopOutcome = {
             ...failedOutcome(
               task,
-              this.transcript,
+              this.projection.transcript,
               `durable execution admission failed: ${historyFailure}`,
             ),
             executionAdmissionDurability: 'failed',
             executionAdmissionPersistenceError: historyFailure,
           };
-          this.deliver(turnEndFromOutcome(this.nextTurn, failed, false));
+          this.deliver(turnEndFromOutcome(this.projection.nextTurn, failed, false));
           return failed;
         }
       }
@@ -1636,7 +1695,7 @@ export class WorkerHostSession {
         this.markUnavailable();
         const outcome = failedOutcome(
           task,
-          this.transcript,
+          this.projection.transcript,
           'Worker transport unavailable',
         );
         const settled = await this.settleExecution(
@@ -1645,7 +1704,7 @@ export class WorkerHostSession {
           undefined,
           undefined,
         );
-        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
         return settled;
       }
       const message = await this.messages.wait((
@@ -1672,19 +1731,19 @@ export class WorkerHostSession {
           diagnostic?.stage === 'cancellation_cleanup' &&
           diagnostic.code === 'cleanup_error'
         ) this.markUnavailable();
-        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
         return settled;
       }
       if (message.kind === 'worker_error') {
         this.markUnavailable();
-        const outcome = failedOutcome(task, this.transcript, message.message);
+        const outcome = failedOutcome(task, this.projection.transcript, message.message);
         const settled = await this.settleExecution(
           execution,
           outcome,
           undefined,
           undefined,
         );
-        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
         return settled;
       }
       if (!sameCorrelation(message.correlation, correlation)) {
@@ -1697,14 +1756,14 @@ export class WorkerHostSession {
           execution,
           failedOutcome(
             task,
-            this.transcript,
+            this.projection.transcript,
             'durable execution journal failed',
           ),
           message.providerEvidence,
           message.diagnostic,
           message.contextManifest,
         );
-        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
         return settled;
       }
       const record = this.proposalRecord(message);
@@ -1714,7 +1773,7 @@ export class WorkerHostSession {
         }
         const outcome = failedOutcome(
           task,
-          this.transcript,
+          this.projection.transcript,
           'commit proposal invalid',
         );
         const settled = await this.settleExecution(
@@ -1724,7 +1783,7 @@ export class WorkerHostSession {
           message.diagnostic,
           message.contextManifest,
         );
-        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
         return settled;
       }
       const proposedOutcome = message.outcome === undefined
@@ -1874,7 +1933,7 @@ export class WorkerHostSession {
           : 'session_io_failure';
         const outcome = failedOutcome(
           task,
-          this.transcript,
+          this.projection.transcript,
           'durable session commit failed',
         );
         if (
@@ -1893,7 +1952,7 @@ export class WorkerHostSession {
             proposedOutcome,
           );
           if (failedSettlement !== undefined) {
-            this.deliver(turnEndFromOutcome(this.nextTurn, failedSettlement, false));
+            this.deliver(turnEndFromOutcome(this.projection.nextTurn, failedSettlement, false));
             return failedSettlement;
           }
         }
@@ -1903,16 +1962,16 @@ export class WorkerHostSession {
           message.providerEvidence,
           diagnostic,
         );
-        this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
         return settled;
       }
-      this.transcript = structuredClone(record.transcript) as Message[];
-      this.nextTurn = record.nextTurn;
-      this.stateRevision = record.stateRevision;
-      this.turnModels = structuredClone(
+      this.projection.transcript = structuredClone(record.transcript) as Message[];
+      this.projection.nextTurn = record.nextTurn;
+      this.projection.stateRevision = record.stateRevision;
+      this.projection.turnModels = structuredClone(
         record.turnModels,
       ) as SessionTurnModelAttribution[];
-      this.turnExecutions = structuredClone(
+      this.projection.turnExecutions = structuredClone(
         record.turnExecutions,
       ) as SessionTurnExecutionAttribution[];
       if (
@@ -1933,7 +1992,7 @@ export class WorkerHostSession {
           execution,
           committed,
         );
-        this.deliver(turnEndFromOutcome(this.nextTurn - 1, settled, true));
+        this.deliver(turnEndFromOutcome(this.projection.nextTurn - 1, settled, true));
         return settled;
       }
       let workerError: WorkerErrorMessage | undefined;
@@ -1958,12 +2017,12 @@ export class WorkerHostSession {
         ? 'committed'
         : 'committed_generation_unavailable';
       const settled = await this.persistExecutionArtifact(execution, committed);
-      this.deliver(turnEndFromOutcome(this.nextTurn - 1, settled, true));
+      this.deliver(turnEndFromOutcome(this.projection.nextTurn - 1, settled, true));
       return settled;
     } catch (error) {
       const outcome = failedOutcome(
         task,
-        this.transcript,
+        this.projection.transcript,
         error instanceof Error ? error.message : String(error),
       );
       execution.settlement = 'uncommitted';
@@ -1973,7 +2032,7 @@ export class WorkerHostSession {
         undefined,
         undefined,
       );
-      this.deliver(turnEndFromOutcome(this.nextTurn, settled, false));
+      this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
       return settled;
     } finally {
       this.activeExecution = undefined;
@@ -2074,7 +2133,7 @@ export class WorkerHostSession {
   }
 
   transcriptSnapshot(): readonly Message[] {
-    return structuredClone(this.transcript);
+    return structuredClone(this.projection.transcript);
   }
 
   currentPosition(): {
@@ -2092,14 +2151,14 @@ export class WorkerHostSession {
     return {
       sessionId: this.sessionId,
       createdAt: this.createdAt,
-      ...(this.title === null ? {} : { title: this.title }),
+      ...(this.projection.title === null ? {} : { title: this.projection.title }),
       agent: this.options.agent,
-      committedTurn: this.nextTurn - 1,
-      messageCount: this.transcript.length,
-      ...(this.checkpoint === undefined ? {} : {
+      committedTurn: this.projection.nextTurn - 1,
+      messageCount: this.projection.transcript.length,
+      ...(this.projection.checkpoint === undefined ? {} : {
         checkpoint: {
-          coveredThroughTurn: this.checkpoint.coveredThroughTurn,
-          retainedFromTurn: this.checkpoint.retainedFromTurn,
+          coveredThroughTurn: this.projection.checkpoint.coveredThroughTurn,
+          retainedFromTurn: this.projection.checkpoint.retainedFromTurn,
         },
       }),
     };
@@ -2107,10 +2166,10 @@ export class WorkerHostSession {
 
   historyPage(
     page: number,
-    turn = this.nextTurn - 1,
+    turn = this.projection.nextTurn - 1,
     rows = 16,
   ): SessionHistoryPage | undefined {
-    return historyPageWindow(this.transcript, turn, page, {
+    return historyPageWindow(this.projection.transcript, turn, page, {
       sessionId: this.sessionId,
       agent: this.options.agent,
       rows,
@@ -2118,7 +2177,9 @@ export class WorkerHostSession {
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
-    return this.checkpoint === undefined ? undefined : structuredClone(this.checkpoint);
+    return this.projection.checkpoint === undefined
+      ? undefined
+      : structuredClone(this.projection.checkpoint);
   }
 
   async close(): Promise<void> {

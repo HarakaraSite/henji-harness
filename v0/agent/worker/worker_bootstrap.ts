@@ -224,9 +224,10 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
   providerObservation: (
     correlation: WorkerCorrelation,
     observation: ProviderEvidenceObservation,
+    turn: number,
   ) => {
     eventSequence += 1;
-    post({ kind: 'provider_observation', correlation, sequence: eventSequence, observation });
+    post({ kind: 'provider_observation', correlation, sequence: eventSequence, turn, observation });
   },
   contextObservation: (correlation, observation) => {
     eventSequence += 1;

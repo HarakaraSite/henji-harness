@@ -82,7 +82,7 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
   await validateOwnedDirectory(stateBase);
   const stateRoot = `${stateBase}/henji-harness/v1`;
   const history = await sessionPaths(stateRoot, workspaceRoot);
-  const database = `${history.root}/history.sqlite3`;
+  const database = `${history.root}/history-v4.sqlite3`;
   return {
     runRoot,
     workspaceRoot,

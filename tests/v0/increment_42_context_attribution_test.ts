@@ -24,10 +24,14 @@ import {
   PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { resolveRecalledExecutionContext } from '../../v0/agent/worker/recalled_execution_context.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
-import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import {
+  createWebSearchTool,
+  OpenRouterSonarWebSearchBackend,
+} from '../../v0/agent/tools/web_search.ts';
 import { main as failureDiagnosticMain } from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 import {
   type ProviderEvidenceObservation,
@@ -218,11 +222,13 @@ class SkillCanonicalCapsule implements WorkerHostCapsule {
       providerObservation: (
         correlation,
         observation: ProviderEvidenceObservation,
+        turn,
       ) =>
         correlationPort({
           kind: 'provider_observation',
           correlation,
           sequence: ++this.sequence,
+          turn,
           observation,
         }),
       contextObservation: (correlation, observation) =>
@@ -1053,7 +1059,10 @@ Deno.test('Increment 42 preserves the exact external tool contract on every requ
     const payload = JSON.parse(requestOutput) as {
       readonly request: ContextModelRequestRecord;
     };
-    assertEquals(payload.request.request?.tools, [presentedTool]);
+    assertEquals(
+      canonicalJson(payload.request.request?.tools as never),
+      canonicalJson([presentedTool] as never),
+    );
     const relations = store.listExecutionContext(execution.executionId).relations;
     assertEquals(
       relations.filter((relation) =>
@@ -1375,11 +1384,45 @@ Deno.test('Increment 42 captures maximum model context and exposes diagnostic re
     const requestPayload = JSON.parse(requestOutput) as {
       readonly request: ContextModelRequestRecord;
     };
-    assertEquals(requestPayload.request.request?.tools, [presentedTool]);
-    assertEquals(requestPayload.request.request?.transcript.at(-1), {
-      role: 'user',
-      content: { kind: 'text', text: task },
-    });
+    assertEquals(
+      canonicalJson(requestPayload.request.request?.tools as never),
+      canonicalJson([presentedTool] as never),
+    );
+    assertEquals(
+      canonicalJson(requestPayload.request.request?.transcript.at(-1) as never),
+      canonicalJson({
+        role: 'user',
+        content: { kind: 'text', text: task },
+      }),
+    );
+    const paths = await sessionPaths(stateRoot, workspaceRoot);
+    const databasePath = `${paths.root}/history-v4.sqlite3`;
+    const db = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      const payloads = db.prepare(`SELECT
+        coalesce(sum(length(request_json)), 0) AS request_json_bytes,
+        coalesce(sum(length(provider_body)), 0) AS provider_body_bytes
+        FROM model_requests WHERE execution_id = ?`).get(execution.executionId) as {
+        readonly request_json_bytes: number;
+        readonly provider_body_bytes: number;
+      };
+      const blobBytes = Number(
+        (db.prepare(`SELECT coalesce(sum(byte_length), 0) AS bytes FROM context_blobs`).get() as {
+          readonly bytes: number;
+        }).bytes,
+      );
+      assertEquals(Number(payloads.request_json_bytes), 0);
+      assertEquals(Number(payloads.provider_body_bytes), 0);
+      console.info(JSON.stringify({
+        increment: 50,
+        maximumContextDatabaseBytes: (await Deno.stat(databasePath)).size,
+        uniqueContextBlobBytes: blobBytes,
+        requestJsonBytes: Number(payloads.request_json_bytes),
+        providerBodyBytes: Number(payloads.provider_body_bytes),
+      }));
+    } finally {
+      db.close();
+    }
   } finally {
     const capturedElapsedMs = performance.now() - startedAt;
     const capturedRssAfter = Deno.memoryUsage().rss;
@@ -1431,7 +1474,7 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
     appendContextRequest(store, executionId, request);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const countsBefore = (() => {
-      const db = new DatabaseSync(`${paths.root}/history.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
       try {
         return {
           modelRequests: Number(
@@ -1439,6 +1482,14 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
               'SELECT count(*) AS count FROM model_requests WHERE execution_id = ?',
             ).get(executionId) as { readonly count: number }).count,
           ),
+          compactObservation: (() => {
+            const row = db.prepare(`SELECT payload_json FROM execution_observations
+              WHERE execution_id = ? AND kind = 'context_observation'`).get(executionId) as {
+              readonly payload_json: string;
+            };
+            const marker = JSON.parse(row.payload_json) as Record<string, unknown>;
+            return !('observation' in marker) && !row.payload_json.includes('bytesBase64');
+          })(),
           contextRelations: Number(
             (db.prepare(
               'SELECT count(*) AS count FROM execution_context_relations WHERE execution_id = ?',
@@ -1449,6 +1500,7 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
         db.close();
       }
     })();
+    assert(countsBefore.compactObservation);
     let output = '';
     assertEquals(
       await failureDiagnosticMain(
@@ -1478,7 +1530,7 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
     assertEquals(store.readExecution(executionId).lifecycle, 'active');
     assertEquals(store.readExecution(executionId).contextCapture, 'none');
     const countsAfter = (() => {
-      const db = new DatabaseSync(`${paths.root}/history.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
       try {
         return {
           modelRequests: Number(
@@ -1496,7 +1548,10 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
         db.close();
       }
     })();
-    assertEquals(countsAfter, countsBefore);
+    assertEquals(countsAfter, {
+      modelRequests: countsBefore.modelRequests,
+      contextRelations: countsBefore.contextRelations,
+    });
     store.reconcileExecution({ executionId, settlement: 'unknown' });
   } finally {
     await Deno.remove(root, { recursive: true });
@@ -1575,7 +1630,7 @@ Deno.test('Increment 42 permits a concurrent active journal append during diagno
     appendContextRequest(store, executionId, await largeActiveContextRequest());
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const contextCounts = () => {
-      const db = new DatabaseSync(`${paths.root}/history.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
       try {
         return {
           modelRequests: Number(
@@ -1715,7 +1770,7 @@ Deno.test('Increment 42 settles a Worker missing-manifest proposal as failed wit
   }
 });
 
-Deno.test('Increment 42 stores immutable basis, ordered request items, and projected relations in schema v3', async () => {
+Deno.test('Increment 42 stores immutable basis, ordered request items, and projected relations in schema v4', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i42-context-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -1786,7 +1841,7 @@ Deno.test('Increment 42 rejects a tampered context blob without mutable-source f
       contextManifest: await createExecutionContextManifest([request]),
       outcome: settled,
     });
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v4.sqlite3`;
     const db = new DatabaseSync(path);
     try {
       const row = db.prepare(
@@ -2051,6 +2106,7 @@ Deno.test('Increment 42 materializes planner provider tool and loaded-skill rela
         kind: 'provider_observation',
         correlation: eventCorrelation,
         sequence: 2,
+        turn: input.turn,
         observation: {
           kind: 'runtime_event',
           event: {
@@ -2077,6 +2133,7 @@ Deno.test('Increment 42 materializes planner provider tool and loaded-skill rela
         kind: 'provider_observation',
         correlation: eventCorrelation,
         sequence: 3,
+        turn: input.turn,
         observation: {
           kind: 'runtime_event',
           event: {
@@ -2231,6 +2288,7 @@ Deno.test('Increment 42 keys provider tool attribution by lane and call identity
           kind: 'provider_observation',
           correlation: eventCorrelation,
           sequence: workerSequence,
+          turn: input.turn,
           observation: { kind: 'runtime_event', event },
         },
       });
@@ -2503,6 +2561,7 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
             kind: 'provider_observation',
             correlation: eventCorrelation,
             sequence,
+            turn: input.turn,
             observation: { kind: 'runtime_event', event },
           },
         });
@@ -2871,6 +2930,128 @@ Deno.test('Increment 42 attributes the exact web-search call before credential a
     evidence.snapshot().requests[0].request.contextRequestOrdinal,
     4,
   );
+});
+
+Deno.test('Increment 42 commits a batch of web searches with parent tool-effect attribution', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i42-web-search-batch-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  let host: WorkerHostSession | undefined;
+  let rootRequest = 0;
+  const model = new OpenRouterAgentModel({
+    credential: 'test-credential',
+    fetcher: () => {
+      rootRequest += 1;
+      const message = rootRequest === 1
+        ? {
+          role: 'assistant',
+          content: null,
+          tool_calls: ['one', 'two', 'three'].map((suffix) => ({
+            id: `web-search-${suffix}`,
+            type: 'function',
+            function: {
+              name: 'web_search',
+              arguments: JSON.stringify({ query: `query ${suffix}` }),
+            },
+          })),
+        }
+        : { role: 'assistant', content: 'web search batch complete' };
+      return Promise.resolve(
+        new Response(JSON.stringify({ choices: [{ message }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    },
+  });
+  const backend = new OpenRouterSonarWebSearchBackend({
+    credential: 'test-credential',
+    fetcher: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                content: 'verified answer',
+                annotations: [{
+                  type: 'url_citation',
+                  url_citation: {
+                    title: 'source',
+                    url: 'https://example.test/source',
+                  },
+                }],
+              },
+            }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+      ),
+  });
+  const tool = createWebSearchTool(backend);
+  const context: WorkerContextSnapshot = {
+    schemaVersion: 1,
+    workspaceRoot,
+    skillCatalog: { skills: [] },
+    instructionComponents: [],
+    toolDefinitions: [{
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }],
+    runtimeFacts: { cwd: workspaceRoot },
+  };
+  try {
+    await store.initialize();
+    const handle = await store.allocateWorker('default', definition);
+    host = await WorkerHostSession.open({
+      handle,
+      workspaceRoot,
+      agent: 'default',
+      definition,
+      modulePath: workerBuiltinModulePath('default'),
+      physicalIoMode: 'provider-free',
+      historyPersistence: store,
+      durableCanonicalHistory: true,
+      capsuleFactory: () =>
+        new SkillCanonicalCapsule(
+          context,
+          model,
+          new Registry([tool]),
+          5,
+          ['tool:web_search'],
+        ),
+    });
+    const outcome = await host.submit('research three independent sources');
+    assert(outcome.ok, outcome.error);
+    const execution = store.listExecutions()[0];
+    assert(execution !== undefined);
+    assertEquals(execution.adoption, 'canonical');
+    assertEquals(execution.contextCapture, 'complete');
+    const requests = store.listExecutionContext(execution.executionId).requests;
+    assertEquals(
+      requests.map((request) => ({
+        ordinal: request.requestOrdinal,
+        purpose: request.purpose,
+        sourceCallId: request.sourceCallId,
+      })),
+      [
+        { ordinal: 1, purpose: 'user_turn', sourceCallId: undefined },
+        { ordinal: 2, purpose: 'web_search', sourceCallId: 'web-search-one' },
+        { ordinal: 3, purpose: 'web_search', sourceCallId: 'web-search-two' },
+        { ordinal: 4, purpose: 'web_search', sourceCallId: 'web-search-three' },
+        { ordinal: 5, purpose: 'user_turn', sourceCallId: undefined },
+      ],
+    );
+    const observed = store.listExecutionContext(execution.executionId).relations.filter((
+      relation,
+    ) => relation.stage === 'observed' && relation.resourceKind === 'tool_result');
+    assertEquals(observed.map((relation) => relation.requestOrdinal), [1, 1, 1]);
+  } finally {
+    await host?.close();
+    await Deno.remove(root, { recursive: true });
+  }
 });
 
 Deno.test('Increment 42 keeps the web-search logical request when credential resolution fails', async () => {

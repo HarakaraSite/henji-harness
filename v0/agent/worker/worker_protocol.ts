@@ -241,6 +241,7 @@ export interface WorkerProviderObservationMessage {
   readonly kind: 'provider_observation';
   readonly correlation: WorkerCorrelation;
   readonly sequence: number;
+  readonly turn: number;
   readonly observation: ProviderEvidenceObservation;
 }
 

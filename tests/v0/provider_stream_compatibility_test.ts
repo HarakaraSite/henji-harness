@@ -1124,6 +1124,7 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
           kind: 'provider_observation',
           correlation: journalCorrelation,
           sequence: journalSequence,
+          turn: 1,
           observation: { kind: 'request_start', request: record.request },
         } as never,
       });
@@ -1139,6 +1140,7 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
             kind: 'provider_observation',
             correlation: journalCorrelation,
             sequence: journalSequence,
+            turn: 1,
             observation: {
               kind: 'response_start',
               requestOrdinal: record.request.ordinal,
@@ -1158,6 +1160,7 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
               kind: 'provider_observation',
               correlation: journalCorrelation,
               sequence: journalSequence,
+              turn: 1,
               observation: {
                 kind: 'response_bytes',
                 requestOrdinal: record.request.ordinal,
@@ -1181,6 +1184,7 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
           kind: 'provider_observation',
           correlation: journalCorrelation,
           sequence: journalSequence,
+          turn: 1,
           observation: {
             kind: 'runtime_event',
             ...('requestOrdinal' in event && event.requestOrdinal === undefined

@@ -55,9 +55,9 @@ discoveryはmanaged installへ置き換えず、Henji独自Instructionや任意�
 executionに関与したAgent側の状態を人間が振り返れるdurable historyを必要機能へ加える。改訂されたresourceを
 後続executionへ適用する`/rebuild`相当の操作も必要機能の候補として管理する。durable historyにはSQLiteを採用し、
 Increment 40のcanonical history cutover、41のlive execution journal、42のexact context attribution、43のhuman
-history viewの順で進める全体programを採用した。各Incrementは個別計画を作り、その計画に対する承認を
-実装許可とする。
-`/rebuild`はこのprogramへ含めず、Increment 44以降の別計画として対象resourceから判断する。調査、第三者review、
+history viewを順に実装した。Increment 44では旧filesystem storeをproduction module graphから除き、SQLiteを
+唯一のdurable history経路に統一した。
+`/rebuild`はこのprogramへ含めず、採用時に対象resourceから別途計画する。調査、第三者review、
 各Incrementの成果境界と残る判断は
 [`roadmap-inputs/durable-history-and-context-rebuild.md`](roadmap-inputs/durable-history-and-context-rebuild.md)に
 分離する。
@@ -79,8 +79,8 @@ history viewの順で進める全体programを採用した。各Incrementは個�
 | F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる。配布後はrepositoryや導入済みDenoへの固定参照なしに、任意のworkspaceから同じproduction経路を利用できる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。非対話commandはHost側のheadless SurfaceとしてTUIと同じWorker経路を一turn使い、final-only stdoutまたはfailure JSONを返す。TUIはturnとuser/output境界、入力前後を空行で分け、busy/cancelling開始から毎秒進む経過時間を含む一時statusとcwd・Session短縮ID・root provider・model・effortを二行footerへ表示し、`user>`、settledした`assistant>`、`tool>`、`system>`のlabelをblue/yellow/green/magentaで識別する。選択中root providerのcredential fileが存在しなければrequest前からfooter第一行へ表示し、editor先頭の`/`に一致するbuilt-in slash command候補を`ready`または`busy`の直後へ逐次表示する。候補が1件ならTabで完全なcommand名へ補完し、複数候補では入力を変えない。recoverable taskは空editorへ戻り、別draftがあれば`/recover`で取り出せる。idle Ctrl-Cは入力をclearしてreadyを保つ。F1 keyと`/help`のhelp overlayは残るが、compact startupに固定help hintは表示しない。現在のinstalled launcherはrepository内のTypeScriptと導入済みDenoに依存し、standalone executableではない |
 | F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUIはOpenRouterを既定に保ちつつ、起動時の`--root-provider openai`またはidle時の`/provider`でOpenAI direct Responses rootへ切り替えられる。`/model`と`/effort`はactive providerのcurated catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定し、delegated plannerはrootから継承せずOpenRouter planner defaultを使う。TUI起動時の`--provider-timeout-ms`は、未指定時120,000 msのrequest単位deadlineを同じWorker invocationのroot、planner、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、未加工のraw response、SSE/parser transition、provider/API/model/auth-profile identityをevidenceへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み |
 | F03 | workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`をnative規約でzero-install discoveryし、実行中に共有するsnapshot/catalogを作る | 他harnessと共有するfile format、配置、discovery、activationをHenji独自managed resourceで置換しない。将来のmanaged SkillとHenji Instructionは追加authorityとして分離する | **部分実装**。Worker generationの起動時にworkspace rootのinstructionとworkspace配下の`.zot/skills`、`.claude/skills`、`.agents/skills`を一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。user-scope Skill discoveryは未実装である。tool call時には再読せず、snapshot/catalog自体はSessionへ永続化しない。`skill` toolを呼んだ場合の結果はF02のtranscriptへ入る。managed Skill revision、Henji Instruction revision、改訂候補の生成・採用も未実装である |
-| F04 | canonical conversation、non-canonical execution evidence、context attributionを再起動後も区別して利用する | Hostがdurable storageとcanonical採用を所有し、Workerがconversation/contextの意味を所有する。物理的なstorage commitとcanonical adoptionを分ける | **部分実装**。workspace-partitioned Session schema、canonical turnのatomic commit/reopen、semantic checkpoint、provider evidence、Worker execution artifactがある。Increment 38ではsettled non-canonical executionの保存内容とsource/target projectionをdurableに相関できる。Definition/build/model/tool等のattributionは一部あるが、当時のinstruction内容、実際に読み込んだskill、environment input、すべてのobserved progressを統一したdurable historyとして保持するschemaはない。SQLiteとIncrement 40〜42の実装順は採用済みだが、実装は未着手である |
-| F05 | 人間が保存済みSessionのcanonical/non-canonical historyとcontext attributionを通常利用中に参照する | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける | **部分実装**。`/sessions`は保存済みSessionを選択でき、現在Sessionのretained viewportとcanonical transcriptの`/history export`がある。Increment 38の`/recall` selectorはcurrent Sessionのsettled non-canonical executionを識別して選べる。一方、Session単位でcanonical/non-canonical双方を連続して閲覧し、execution、tool詳細、context attribution、projection、transitionを辿るread-only history viewとkeyword検索は未実装である |
+| F04 | canonical conversation、non-canonical execution evidence、context attributionを再起動後も区別して利用する | Hostがdurable storageとcanonical採用を所有し、Workerがconversation/contextの意味を所有する。物理的なstorage commitとcanonical adoptionを分ける | **実装済み**。Increment 40〜44でworkspace-local SQLite schema v3を唯一のproduction history正本とし、canonical turnのatomic adoption、settled non-canonical execution、active executionのlive journalとrestart reconciliation、tool effect、`/recall` projection、instruction・skill・tool contract・runtime fact・model requestのexact context attribution、provider evidence、diagnostic、artifactをdurableに相関した。旧filesystem storeはproduction経路から除外済みである |
+| F05 | 人間が保存済みSessionのcanonical/non-canonical historyとcontext attributionを通常利用中に参照する | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける | **実装済み**。Increment 43の`/history`はcurrent Sessionのcanonical/non-canonical executionを一つのread-only timelineとしてkeyset paginationし、tool activity、projection、context attribution、model request、provider evidence、diagnostic、artifactのexact detailを辿れる。case-sensitive literal検索、canonical-only Markdown export、durable history全体のstreaming JSONL exportがあり、閲覧・検索・exportはmodel context projectionと分離されている。将来`/rebuild`等が新しいtransition kindを導入する場合は、その個別Incrementでhistory projectionを拡張する |
 
 ### AgentCompositionと現在のHost / Worker runtime
 
@@ -207,7 +207,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 
 | 分類 | 対応する機能 | 詳細 |
 | --- | --- | --- |
-| 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、F27は44以降の別計画で判断する |
+| 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
@@ -228,9 +228,9 @@ Surface境界を変える場合はarchitectureへ先に戻る。
 
 #### Durable history program（F04、F05、F08、F11、F15、F26）
 
-workspace-local SQLiteを正本とする次の順序を採用する。詳細な調査、破壊的cutover条件、第三者reviewの結果は
+workspace-local SQLiteを正本とする次の順序で実装した。詳細な調査、破壊的cutover条件、第三者reviewの結果は
 [`roadmap-inputs/durable-history-and-context-rebuild.md`](roadmap-inputs/durable-history-and-context-rebuild.md)を
-正本とし、各Incrementの具体的schema/APIと検証方法は個別計画で承認する。
+正本とし、各Incrementの具体的schema/APIと検証結果は個別Increment文書に記録する。
 
 1. Increment 40: destructive SQLite canonical history cutover。task、execution、canonical turn、model requestを
    関係付ける。旧JSONはscan、import、変換、互換読込せず、空のSQLite authorityから開始する。旧filesは自動削除
@@ -246,8 +246,8 @@ workspace-local SQLiteを正本とする次の順序を採用する。詳細な�
 明示的にadmitした`/recall` projection、現在のtask/runtime inputも含む。`/recall`本文はcanonical turnへ複製しない。
 完全再現性、過去Workerの保存、外部状態の再現は完了条件にしない。
 
-`/rebuild`（F27）はIncrement 40〜43から分離する。historyとcontext attributionの通常利用を確認した後、
-Increment 44以降で対象resource、`AgentContextGeneration`、activation/transition semanticsを別に計画する。
+`/rebuild`（F27）はIncrement 40〜43から分離した。historyとcontext attributionの通常利用は確認済みであり、
+対象resource、`AgentContextGeneration`、activation/transition semanticsは採用時に別途計画する。
 
 #### AgentCompositionを拡張する場合（F06）
 

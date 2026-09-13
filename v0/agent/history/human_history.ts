@@ -169,15 +169,24 @@ const eventValue = (event: StoredExecutionEvent): Record<string, unknown> | unde
     return undefined;
   }
   const payload = event.payload as Record<string, unknown>;
-  const envelope = payload.kind === 'runtime_event' &&
-      typeof payload.event === 'object' && payload.event !== null
+  const providerObservation = payload.kind === 'provider_observation' &&
+      typeof payload.observation === 'object' && payload.observation !== null &&
+      !Array.isArray(payload.observation)
+    ? payload.observation as Record<string, unknown>
+    : undefined;
+  const envelope = providerObservation?.kind === 'runtime_event' &&
+      typeof providerObservation.event === 'object' && providerObservation.event !== null &&
+      !Array.isArray(providerObservation.event)
+    ? providerObservation.event as Record<string, unknown>
+    : payload.kind === 'runtime_event' &&
+        typeof payload.event === 'object' && payload.event !== null && !Array.isArray(payload.event)
     ? payload.event as Record<string, unknown>
     : payload;
   if (
     envelope.kind === 'agent_event' && typeof envelope.event === 'object' &&
     envelope.event !== null && !Array.isArray(envelope.event)
   ) return envelope.event as Record<string, unknown>;
-  return undefined;
+  return typeof envelope.kind === 'string' ? envelope : undefined;
 };
 
 const messageEntry = (
@@ -257,10 +266,17 @@ const semanticEventEntries = (
         ));
       }
     } else if (
-      (value.kind === 'assistant_message' || value.kind === 'assistant_progress')
+      value.kind === 'assistant_message' || value.kind === 'assistant_progress' ||
+      value.kind === 'model_result'
     ) {
+      const result = value.kind === 'model_result' &&
+          typeof value.result === 'object' && value.result !== null && !Array.isArray(value.result)
+        ? value.result as Record<string, unknown>
+        : undefined;
       const messageText = value.kind === 'assistant_progress'
         ? value.text
+        : value.kind === 'model_result'
+        ? result?.text
         : typeof value.message === 'object' && value.message !== null
         ? ((value.message as { readonly text?: unknown; readonly content?: unknown }).text ??
           ((value.message as { readonly content?: { readonly text?: unknown } }).content?.text))
@@ -274,7 +290,11 @@ const semanticEventEntries = (
           value.kind === 'assistant_progress' ? 'assistant~ partial' : 'assistant>',
           messageText,
         );
-        latestProgress.set('assistant', projected);
+        if (value.kind === 'assistant_progress') latestProgress.set('assistant', projected);
+        else {
+          latestProgress.delete('assistant');
+          output.push(projected);
+        }
       }
     } else if (
       value.kind === 'tool_call' && typeof value.call === 'object' && value.call !== null

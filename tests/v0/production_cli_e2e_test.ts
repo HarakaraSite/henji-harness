@@ -100,7 +100,7 @@ const executionFixture = (overrides: Partial<WorkerExecutionArtifactV2> = {}) =>
       traceEntry('worker_to_host', 'runtime_event', 'module_imported', 4),
       traceEntry('worker_to_host', 'ready', 'ready', 5),
       traceEntry('host_to_worker', 'turn', 'turn', 6),
-      traceEntry('worker_to_host', 'effect_observation', 'tool_call', 7),
+      traceEntry('worker_to_host', 'provider_observation', 'runtime_event', 7),
       traceEntry('worker_to_host', 'commit_proposal', 'commit_proposal', 8),
       traceEntry(
         'host_to_worker',
@@ -141,6 +141,7 @@ const evidenceFixture = (overrides: Partial<ProviderEvidenceV2> = {}) => {
   const request = (ordinal: number) => ({
     request: {
       ordinal,
+      contextRequestOrdinal: ordinal,
       lane: 'parent' as const,
       phase: 'user_turn' as const,
       modelStep: ordinal,
@@ -157,6 +158,7 @@ const evidenceFixture = (overrides: Partial<ProviderEvidenceV2> = {}) => {
         api: ROOT_DEFAULT_MODEL_SELECTION.api,
         modelId: ROOT_DEFAULT_MODEL_SELECTION.modelId,
         authProfile: ROOT_DEFAULT_MODEL_SELECTION.authProfile,
+        effort: ROOT_DEFAULT_MODEL_SELECTION.effort,
         protocol: 'sse' as const,
       },
     },

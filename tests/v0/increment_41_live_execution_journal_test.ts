@@ -327,6 +327,7 @@ const appendProviderObservation = (
         command: 'turn-1',
       },
       sequence,
+      turn: input.turn,
       observation,
     } as never,
   } as never);
@@ -527,6 +528,7 @@ Deno.test('Increment 41 admits before dispatch and appends live observations', a
           command: 'turn-1',
         },
         sequence: 2,
+        turn: input.turn,
         observation: {
           kind: 'request_start',
           request: {
@@ -565,6 +567,7 @@ Deno.test('Increment 41 admits before dispatch and appends live observations', a
           command: 'turn-1',
         },
         sequence: 3,
+        turn: input.turn,
         observation: {
           kind: 'response_start',
           requestOrdinal: 1,
@@ -591,6 +594,7 @@ Deno.test('Increment 41 admits before dispatch and appends live observations', a
           command: 'turn-1',
         },
         sequence: 4,
+        turn: input.turn,
         observation: {
           kind: 'response_bytes',
           requestOrdinal: 1,
@@ -1090,6 +1094,7 @@ Deno.test('Increment 41 rejects malformed host, worker, tool, and provider journ
           kind: 'provider_observation',
           correlation,
           sequence: 1,
+          turn: input.turn,
           observation: {
             kind: 'request_start',
             request: {
@@ -1175,7 +1180,7 @@ Deno.test('Increment 41 refuses schema-v1 SQLite without compatibility reads', a
   const paths = await sessionPaths(stateRoot, workspaceRoot);
   try {
     await Deno.mkdir(paths.root, { recursive: true, mode: 0o700 });
-    const db = new DatabaseSync(`${paths.root}/history.sqlite3`);
+    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
     db.exec('PRAGMA user_version = 1');
     db.close();
     let rejected = false;
@@ -1210,7 +1215,7 @@ Deno.test('Increment 41 keeps a live no-session lock out of Session allocation a
     await store.beginExecution(input);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const lockNames: string[] = [];
-    for await (const entry of Deno.readDir(paths.locks)) {
+    for await (const entry of Deno.readDir(`${paths.root}/locks-v4`)) {
       lockNames.push(entry.name);
     }
     assert(lockNames.includes(`.execution-${input.executionId}.lock`));
@@ -1254,6 +1259,8 @@ Deno.test('Increment 41 admits distinct no-session executions concurrently', asy
   const secondWithDistinctSession = {
     ...second,
     sessionCorrelation: '30000000-0000-4000-8000-000000000049',
+    instanceCorrelation: 'i41-instance-2',
+    workerGeneration: 'i41-generation-2',
   };
   try {
     await store.initialize();

@@ -2,8 +2,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import type { JsonValue, LoopOutcome, Message } from '../core/contracts.ts';
 import {
-  decodeProviderEvidence,
-  encodeProviderEvidence,
   type ProviderEvidenceParserTransition,
   type ProviderEvidenceRequestRecord,
   type ProviderEvidenceRuntimeEvent,
@@ -21,6 +19,7 @@ import { isJsonValue } from '../provider/openrouter_value.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import {
+  canonicalJson,
   canonicalJsonBytes,
   type ContextBlobInput,
   type ContextModelRequestRecord,
@@ -63,10 +62,6 @@ import {
 } from '../session/session_store_contract.ts';
 import {
   causalTranscriptIndex,
-  decodeSemanticContextCheckpoint,
-  decodeStoredSessionRecord,
-  encodeSemanticContextCheckpoint,
-  encodeSessionRecordV6,
   metadataFromStoredRecord,
   validateSemanticContextCheckpoint,
   validateSessionRecordV6,
@@ -76,8 +71,6 @@ import { acquireLock, ensureDirectory, type Lock } from '../session/deno_session
 import { sessionPaths, workspaceDigest } from '../session/session_store_paths.ts';
 import { isBuildManifest } from '../runtime/build_manifest.ts';
 import {
-  decodeWorkerExecutionArtifact,
-  encodeWorkerExecutionArtifact,
   type StoredWorkerExecutionArtifact,
   validateWorkerExecutionArtifact,
   type WorkerExecutionArtifactV5,
@@ -123,7 +116,7 @@ import {
   projectHumanHistoryExecution,
 } from './human_history.ts';
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const BUSY_TIMEOUT_MS = 250;
 const encoder = new TextEncoder();
 const contextDigestSync = (bytes: Uint8Array): string =>
@@ -250,7 +243,44 @@ const parseCanonicalMessage = (value: unknown): Message => {
     throw new HistoryStoreError('history_invalid');
   }
   if (!isHumanMessage(parsed)) throw new HistoryStoreError('history_invalid');
-  return parsed;
+  if (parsed.role === 'user') {
+    return {
+      role: 'user',
+      content: { kind: 'text', text: parsed.content.text },
+    };
+  }
+  if (parsed.role === 'assistant') {
+    const content = Array.isArray(parsed.content)
+      ? parsed.content.map((call) => ({
+        kind: 'tool_call' as const,
+        callId: call.callId,
+        name: call.name,
+        arguments: call.arguments,
+      }))
+      : {
+        kind: 'text' as const,
+        text: (parsed.content as import('../core/contracts.ts').TextContent).text,
+      };
+    return {
+      role: 'assistant',
+      content,
+      ...(parsed.text === undefined ? {} : { text: parsed.text }),
+      ...(parsed.providerState === undefined
+        ? {}
+        : { providerState: structuredClone(parsed.providerState) }),
+    };
+  }
+  return {
+    role: 'tool',
+    content: parsed.content.map((result) => ({
+      kind: 'tool_result' as const,
+      callId: result.callId,
+      name: result.name,
+      text: result.text,
+      outcome: result.outcome,
+      ...('terminal' in result ? { terminal: result.terminal } : {}),
+    })),
+  };
 };
 const EXECUTION_EVENT_KINDS: ReadonlySet<ExecutionEventKind> = new Set([
   'execution_admitted',
@@ -322,12 +352,6 @@ const sessionError = (error: unknown): SessionStoreError => {
 
 const historyError = (error: unknown): HistoryStoreError =>
   error instanceof HistoryStoreError ? error : new HistoryStoreError(historyCode(error));
-
-const recordText = (record: StoredSessionRecord): string =>
-  decoder.decode(encodeSessionRecordV6(record));
-
-const checkpointText = (checkpoint: SemanticContextCheckpointV1): string =>
-  decoder.decode(encodeSemanticContextCheckpoint(checkpoint));
 
 const normalizedOutcome = (outcome: LoopOutcome): ExecutionOutcome =>
   outcome.outcome === 'final' || outcome.outcome === 'tool_terminal'
@@ -711,9 +735,11 @@ const validRuntimePayload = (value: unknown): boolean => {
       'kind',
       'correlation',
       'sequence',
+      'turn',
       'observation',
     ]) && validCorrelation(value.correlation) &&
       validPositiveInteger(value.sequence) &&
+      validPositiveInteger(value.turn) &&
       validateProviderEvidenceObservation(value.observation);
   }
   if (value.kind === 'context_observation') {
@@ -803,8 +829,7 @@ CREATE TABLE sessions (
   state_revision INTEGER NOT NULL,
   next_turn INTEGER NOT NULL,
   definition_json TEXT NOT NULL,
-  active_model_json TEXT NOT NULL,
-  record_json TEXT NOT NULL
+  active_model_json TEXT NOT NULL
 );
 CREATE TABLE session_model_changes (
   session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
@@ -820,7 +845,7 @@ CREATE TABLE semantic_checkpoints (
   covered_turn INTEGER NOT NULL,
   retained_turn INTEGER NOT NULL,
   source_profile_id TEXT NOT NULL,
-  checkpoint_json TEXT NOT NULL
+  summary TEXT NOT NULL
 );
 CREATE TABLE tasks (
   task_id TEXT PRIMARY KEY,
@@ -850,14 +875,39 @@ CREATE TABLE executions (
   manifest_json TEXT,
   instance_correlation TEXT,
   worker_generation TEXT,
-  outcome_json TEXT,
   acknowledgement TEXT NOT NULL DEFAULT 'not_sent',
   generation_availability TEXT NOT NULL DEFAULT 'unknown',
   evidence_capture TEXT NOT NULL DEFAULT 'unknown',
   diagnostic_capture TEXT NOT NULL DEFAULT 'unknown',
   artifact_capture TEXT NOT NULL DEFAULT 'unknown',
-  context_capture TEXT NOT NULL DEFAULT 'none',
-  context_basis_json TEXT
+  context_capture TEXT NOT NULL DEFAULT 'none'
+);
+CREATE TABLE execution_outcomes (
+  execution_id TEXT PRIMARY KEY REFERENCES executions(execution_id) ON DELETE CASCADE,
+  ok INTEGER NOT NULL,
+  outcome TEXT NOT NULL,
+  stop_reason TEXT NOT NULL,
+  final_text TEXT,
+  terminal_kind TEXT,
+  error TEXT,
+  diagnostic_id TEXT,
+  diagnostic_durability TEXT,
+  diagnostic_persistence_error TEXT,
+  provider_evidence_id TEXT,
+  provider_evidence_durability TEXT,
+  provider_evidence_persistence_error TEXT,
+  turn_provider_request_count INTEGER,
+  runtime_provider_request_count INTEGER,
+  execution_artifact_id TEXT,
+  execution_artifact_durability TEXT,
+  execution_artifact_persistence_error TEXT,
+  execution_admission_durability TEXT,
+  execution_admission_persistence_error TEXT,
+  execution_observation_durability TEXT,
+  execution_observation_persistence_error TEXT,
+  steps INTEGER NOT NULL,
+  tool_call_count INTEGER NOT NULL,
+  tool_result_count INTEGER NOT NULL
 );
 CREATE TABLE canonical_turns (
   session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
@@ -870,16 +920,14 @@ CREATE TABLE canonical_turns (
   definition_json TEXT NOT NULL,
   PRIMARY KEY (session_id, turn)
 );
-CREATE TABLE canonical_messages (
-  session_id TEXT NOT NULL,
-  turn INTEGER NOT NULL,
+CREATE TABLE execution_messages (
+  execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
   ordinal INTEGER NOT NULL,
-  execution_id TEXT NOT NULL REFERENCES executions(execution_id),
   session_ordinal INTEGER NOT NULL,
-  message_json TEXT NOT NULL,
-  PRIMARY KEY (session_id, turn, ordinal),
-  UNIQUE (session_id, session_ordinal),
-  FOREIGN KEY (session_id, turn) REFERENCES canonical_turns(session_id, turn) ON DELETE CASCADE
+  source_kind TEXT NOT NULL,
+  source_observation_ordinals_json TEXT,
+  content_digest TEXT REFERENCES context_blobs(digest),
+  PRIMARY KEY (execution_id, ordinal)
 );
 CREATE TABLE execution_projections (
   execution_id TEXT PRIMARY KEY REFERENCES executions(execution_id) ON DELETE CASCADE,
@@ -893,12 +941,19 @@ CREATE TABLE provider_evidence (
   execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
   schema_version INTEGER NOT NULL,
   created_at TEXT NOT NULL,
-  evidence_json TEXT NOT NULL,
+  capture TEXT NOT NULL,
+  normalized_outcome TEXT NOT NULL,
+  outcome TEXT,
+  settlement TEXT,
+  turn_provider_request_count INTEGER,
+  runtime_provider_request_count INTEGER,
+  diagnostic_id TEXT,
   link_status TEXT NOT NULL
 );
 CREATE TABLE model_requests (
   execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
   request_ordinal INTEGER NOT NULL,
+  observation_ordinal INTEGER,
   evidence_id TEXT REFERENCES provider_evidence(evidence_id) ON DELETE CASCADE,
   lane TEXT NOT NULL,
   phase TEXT,
@@ -909,6 +964,7 @@ CREATE TABLE model_requests (
   request_digest TEXT,
   provider_body TEXT,
   source_call_id TEXT,
+  UNIQUE (execution_id, observation_ordinal),
   PRIMARY KEY (execution_id, request_ordinal)
 );
 CREATE TABLE context_blobs (
@@ -960,13 +1016,57 @@ CREATE TABLE execution_artifacts (
   artifact_id TEXT PRIMARY KEY,
   execution_id TEXT NOT NULL UNIQUE REFERENCES executions(execution_id) ON DELETE CASCADE,
   settled_at TEXT NOT NULL,
-  artifact_json TEXT NOT NULL,
+  command_session TEXT NOT NULL,
+  command_instance_correlation TEXT NOT NULL,
+  command_worker_generation TEXT NOT NULL,
+  command_base_revision INTEGER NOT NULL,
+  command_id TEXT NOT NULL,
+  proposed_revision INTEGER,
+  committed_revision INTEGER,
+  provider_evidence_id TEXT,
+  provider_evidence_durability TEXT,
+  provider_evidence_error TEXT,
+  store_result TEXT NOT NULL,
+  store_error TEXT,
+  acknowledgement TEXT NOT NULL,
+  settlement TEXT NOT NULL,
+  lifecycle TEXT NOT NULL,
+  normalized_outcome TEXT NOT NULL,
+  adoption TEXT NOT NULL,
+  context_capture TEXT NOT NULL,
+  artifact_persistence_error TEXT,
   link_status TEXT NOT NULL
+);
+CREATE TABLE worker_generations (
+  worker_generation TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  instance_correlation TEXT NOT NULL
+);
+CREATE TABLE worker_protocol_observations (
+  observation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  worker_generation TEXT NOT NULL REFERENCES worker_generations(worker_generation),
+  occurrence_key TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  semantic_subtype TEXT NOT NULL,
+  correlation_session TEXT NOT NULL,
+  instance_correlation TEXT NOT NULL,
+  base_revision INTEGER NOT NULL,
+  correlation_command TEXT NOT NULL,
+  ack_accepted INTEGER,
+  UNIQUE (worker_generation, occurrence_key)
+);
+CREATE TABLE execution_artifact_trace (
+  artifact_id TEXT NOT NULL REFERENCES execution_artifacts(artifact_id) ON DELETE CASCADE,
+  ordinal INTEGER NOT NULL,
+  observation_id INTEGER NOT NULL REFERENCES worker_protocol_observations(observation_id),
+  PRIMARY KEY (artifact_id, ordinal),
+  UNIQUE (artifact_id, observation_id)
 );
 CREATE INDEX executions_session_turn ON executions(session_correlation, turn);
 CREATE INDEX evidence_created ON provider_evidence(created_at, evidence_id);
 CREATE INDEX diagnostics_occurred ON failure_diagnostics(occurred_at, diagnostic_id);
-CREATE TABLE execution_events (
+CREATE TABLE execution_observations (
   execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
   ordinal INTEGER NOT NULL,
   observed_at TEXT NOT NULL,
@@ -976,6 +1076,38 @@ CREATE TABLE execution_events (
   worker_sequence INTEGER,
   payload_json TEXT NOT NULL,
   PRIMARY KEY (execution_id, ordinal)
+);
+CREATE TABLE runtime_occurrences (
+  execution_id TEXT NOT NULL,
+  observation_ordinal INTEGER NOT NULL,
+  envelope_kind TEXT NOT NULL,
+  request_ordinal INTEGER,
+  event_json TEXT NOT NULL,
+  PRIMARY KEY (execution_id, observation_ordinal),
+  FOREIGN KEY (execution_id, observation_ordinal)
+    REFERENCES execution_observations(execution_id, ordinal) ON DELETE CASCADE
+);
+CREATE TABLE provider_observation_facts (
+  execution_id TEXT NOT NULL,
+  observation_ordinal INTEGER NOT NULL,
+  observation_kind TEXT NOT NULL,
+  request_ordinal INTEGER,
+  byte_offset INTEGER,
+  observation_json TEXT,
+  raw_bytes BLOB,
+  PRIMARY KEY (execution_id, observation_ordinal),
+  FOREIGN KEY (execution_id, observation_ordinal)
+    REFERENCES execution_observations(execution_id, ordinal) ON DELETE CASCADE
+);
+CREATE TABLE execution_progress_deltas (
+  execution_id TEXT NOT NULL,
+  event_ordinal INTEGER NOT NULL,
+  stream_key TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  text_fragment TEXT NOT NULL,
+  PRIMARY KEY (execution_id, event_ordinal),
+  FOREIGN KEY (execution_id, event_ordinal)
+    REFERENCES execution_observations(execution_id, ordinal) ON DELETE CASCADE
 );
 CREATE TABLE execution_effects (
   execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
@@ -990,7 +1122,7 @@ CREATE TABLE execution_effects (
 );
 CREATE UNIQUE INDEX executions_active_session
   ON executions(session_correlation) WHERE lifecycle = 'active';
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 `;
 
 export interface SqliteHistoryStoreOptions {
@@ -1203,15 +1335,17 @@ export class SqliteHistoryStore
     { root: string; locks: string; database: string; digest: string }
   > {
     const paths = await this.pathsPromise;
+    const locks = `${paths.root}/locks-v4`;
+    const database = `${paths.root}/history-v4.sqlite3`;
     try {
       await ensureDirectory(this.stateRoot, 0o700);
       await ensureDirectory(paths.root, 0o700);
-      await ensureDirectory(paths.locks, 0o700);
-      this.databaseFile = `${paths.root}/history.sqlite3`;
+      await ensureDirectory(locks, 0o700);
+      this.databaseFile = database;
       return {
         root: paths.root,
-        locks: paths.locks,
-        database: `${paths.root}/history.sqlite3`,
+        locks,
+        database,
         digest: await workspaceDigest(this.workspaceRoot),
       };
     } catch (error) {
@@ -1350,31 +1484,226 @@ export class SqliteHistoryStore
     }
   }
 
+  private messageFromRow(db: DatabaseSync, row: SqlRow): Message {
+    if (row.source_kind === 'task') {
+      if (
+        typeof row.task_text !== 'string' || row.content_digest !== null ||
+        row.source_observation_ordinals_json !== null
+      ) {
+        throw new HistoryStoreError('history_invalid');
+      }
+      return { role: 'user', content: { kind: 'text', text: row.task_text } };
+    }
+    if (row.source_kind === 'runtime') {
+      if (row.content_digest !== null || typeof row.source_observation_ordinals_json !== 'string') {
+        throw new HistoryStoreError('history_invalid');
+      }
+      let ordinals: unknown;
+      try {
+        ordinals = JSON.parse(row.source_observation_ordinals_json);
+      } catch {
+        throw new HistoryStoreError('history_invalid');
+      }
+      if (
+        !Array.isArray(ordinals) || ordinals.length === 0 ||
+        !ordinals.every((ordinal) => Number.isSafeInteger(ordinal) && ordinal >= 1)
+      ) throw new HistoryStoreError('history_invalid');
+      const messages = ordinals.map((ordinal) => {
+        const occurrence = db.prepare(`SELECT event_json FROM runtime_occurrences
+          WHERE execution_id = ? AND observation_ordinal = ?`).get(
+          String(row.execution_id),
+          ordinal,
+        ) as SqlRow | undefined;
+        if (occurrence === undefined) throw new HistoryStoreError('history_invalid');
+        return this.messageFromRuntimeOccurrence(occurrence.event_json);
+      });
+      if (messages.length === 1 && messages[0]?.role !== 'tool') return messages[0]!;
+      if (!messages.every((message) => message.role === 'tool')) {
+        throw new HistoryStoreError('history_invalid');
+      }
+      return {
+        role: 'tool',
+        content: messages.flatMap((message) => message.role === 'tool' ? message.content : []),
+      };
+    }
+    if (row.source_kind !== 'message' || row.content_digest === null) {
+      throw new HistoryStoreError('history_invalid');
+    }
+    if (row.source_observation_ordinals_json !== null) {
+      throw new HistoryStoreError('history_invalid');
+    }
+    return parseCanonicalMessage(
+      decoder.decode(this.readContextBlobTx(db, String(row.content_digest))),
+    );
+  }
+
+  private messageFromRuntimeOccurrence(value: unknown): Message {
+    let event: unknown;
+    try {
+      event = JSON.parse(String(value));
+    } catch {
+      throw new HistoryStoreError('history_invalid');
+    }
+    if (!validJsonObject(event)) throw new HistoryStoreError('history_invalid');
+    if (event.kind === 'model_result' && validJsonObject(event.result)) {
+      const result = event.result;
+      if (result.kind === 'final' && typeof result.text === 'string') {
+        return parseCanonicalMessage(JSON.stringify({
+          role: 'assistant',
+          content: { kind: 'text', text: result.text },
+          ...(result.providerState === undefined ? {} : { providerState: result.providerState }),
+        }));
+      }
+      if (result.kind === 'tool_calls' && Array.isArray(result.calls)) {
+        return parseCanonicalMessage(JSON.stringify({
+          role: 'assistant',
+          content: result.calls.map((call) => ({ kind: 'tool_call', ...call })),
+          ...(result.text === undefined ? {} : { text: result.text }),
+          ...(result.providerState === undefined ? {} : { providerState: result.providerState }),
+        }));
+      }
+    }
+    if (event.kind === 'tool_result' && validJsonObject(event.result)) {
+      return parseCanonicalMessage(JSON.stringify({
+        role: 'tool',
+        content: [event.result],
+      }));
+    }
+    if (event.kind === 'agent_event' && validJsonObject(event.event)) {
+      const agentEvent = event.event;
+      if (
+        (agentEvent.kind === 'user_message' || agentEvent.kind === 'steering_message' ||
+          agentEvent.kind === 'assistant_message') && validJsonObject(agentEvent.message)
+      ) return parseCanonicalMessage(JSON.stringify(agentEvent.message));
+      if (agentEvent.kind === 'tool_result' && validJsonObject(agentEvent.result)) {
+        return parseCanonicalMessage(JSON.stringify({
+          role: 'tool',
+          content: [agentEvent.result],
+        }));
+      }
+    }
+    throw new HistoryStoreError('history_invalid');
+  }
+
+  private runtimeSourceOrdinalsTx(
+    db: DatabaseSync,
+    executionId: string,
+    message: Message,
+    used: Set<number>,
+  ): number[] | undefined {
+    const rows = db.prepare(`SELECT observation_ordinal, event_json FROM runtime_occurrences
+      WHERE execution_id = ? ORDER BY observation_ordinal`).all(executionId) as SqlRow[];
+    const same = (left: Message, right: Message): boolean =>
+      canonicalJson(left as unknown as import('../core/contracts.ts').JsonValue) ===
+        canonicalJson(right as unknown as import('../core/contracts.ts').JsonValue);
+    if (message.role !== 'tool') {
+      for (const row of rows) {
+        const ordinal = Number(row.observation_ordinal);
+        if (used.has(ordinal)) continue;
+        try {
+          if (same(this.messageFromRuntimeOccurrence(row.event_json), message)) {
+            used.add(ordinal);
+            return [ordinal];
+          }
+        } catch {
+          // Non-message runtime occurrences are not candidates.
+        }
+      }
+      return undefined;
+    }
+    const ordinals: number[] = [];
+    const selected = new Set<number>();
+    for (const expected of message.content) {
+      let matched: number | undefined;
+      for (const row of rows) {
+        const ordinal = Number(row.observation_ordinal);
+        if (used.has(ordinal) || selected.has(ordinal)) continue;
+        try {
+          const candidate = this.messageFromRuntimeOccurrence(row.event_json);
+          if (
+            candidate.role === 'tool' && candidate.content.length === 1 &&
+            same({ role: 'tool', content: [expected] }, candidate)
+          ) {
+            matched = ordinal;
+            break;
+          }
+        } catch {
+          // Non-message runtime occurrences are not candidates.
+        }
+      }
+      if (matched === undefined) return undefined;
+      selected.add(matched);
+      ordinals.push(matched);
+    }
+    for (const ordinal of ordinals) used.add(ordinal);
+    return ordinals;
+  }
+
   private readRecord(db: DatabaseSync, id: string): StoredSessionRecord {
     const row = db.prepare(`
       SELECT agent, created_at, updated_at, title, state_revision, next_turn,
-        definition_json, active_model_json, record_json
+        definition_json, active_model_json
       FROM sessions WHERE session_id = ?
     `).get(id) as
       | SqlRow
       | undefined;
     if (row === undefined) throw new SessionStoreError('session_not_found');
     try {
-      const record = decodeStoredSessionRecord(
-        encoder.encode(String(row.record_json)),
-      );
-      if (
-        record.sessionId !== id ||
-        record.workspaceRoot !== this.workspaceRoot ||
-        row.agent !== record.agent || row.created_at !== record.createdAt ||
-        row.updated_at !== record.updatedAt ||
-        (row.title ?? null) !== record.title ||
-        Number(row.state_revision) !== record.stateRevision ||
-        Number(row.next_turn) !== record.nextTurn ||
-        row.definition_json !== JSON.stringify(record.definition) ||
-        row.active_model_json !== JSON.stringify(record.activeModel) ||
-        row.record_json !== recordText(record)
-      ) {
+      const definition = JSON.parse(String(row.definition_json));
+      const activeModel = JSON.parse(String(row.active_model_json));
+      const modelChanges = (db.prepare(`
+        SELECT effective_turn, changed_at, selection_json FROM session_model_changes
+        WHERE session_id = ? ORDER BY ordinal
+      `).all(id) as SqlRow[]).map((change) => ({
+        effectiveFromTurn: Number(change.effective_turn),
+        changedAt: String(change.changed_at),
+        selection: JSON.parse(String(change.selection_json)),
+      }));
+      const turns = db.prepare(`
+        SELECT turn, execution_id, model_json, build_json, definition_json
+        FROM canonical_turns WHERE session_id = ? ORDER BY turn
+      `).all(id) as SqlRow[];
+      const messages = db.prepare(`
+        SELECT m.execution_id, m.session_ordinal, m.source_kind,
+          m.source_observation_ordinals_json,
+          m.content_digest, k.task_text
+        FROM canonical_turns t JOIN execution_messages m
+          ON m.execution_id = t.execution_id
+        JOIN executions e ON e.execution_id = m.execution_id
+        JOIN tasks k ON k.task_id = e.task_id
+        WHERE t.session_id = ? ORDER BY t.turn, m.ordinal
+      `).all(id) as SqlRow[];
+      const transcript = messages.map((message, index) => {
+        if (Number(message.session_ordinal) !== index) {
+          throw new SessionStoreError('session_invalid');
+        }
+        return this.messageFromRow(db, message);
+      });
+      const record: StoredSessionRecord = {
+        schemaVersion: 6,
+        sessionId: id,
+        workspaceRoot: this.workspaceRoot,
+        agent: row.agent as SessionRecord['agent'],
+        createdAt: String(row.created_at),
+        updatedAt: String(row.updated_at),
+        title: row.title === null ? null : String(row.title),
+        stateRevision: Number(row.state_revision),
+        nextTurn: Number(row.next_turn),
+        transcript,
+        definition,
+        activeModel,
+        modelChanges,
+        turnModels: turns.map((turn) => ({
+          turn: Number(turn.turn),
+          selection: JSON.parse(String(turn.model_json)),
+        })),
+        turnExecutions: turns.map((turn) => ({
+          turn: Number(turn.turn),
+          build: JSON.parse(String(turn.build_json)),
+          definition: JSON.parse(String(turn.definition_json)),
+        })),
+      };
+      if (!validateSessionRecordV6(record)) {
         throw new SessionStoreError('session_invalid');
       }
       return record;
@@ -1388,21 +1717,22 @@ export class SqliteHistoryStore
     id: string,
   ): SemanticContextCheckpointV1 | undefined {
     const row = db.prepare(`
-      SELECT created_at, covered_turn, retained_turn, source_profile_id, checkpoint_json
+      SELECT created_at, covered_turn, retained_turn, source_profile_id, summary
       FROM semantic_checkpoints WHERE session_id = ?
     `).get(id) as SqlRow | undefined;
     if (row === undefined) return undefined;
     try {
-      const checkpoint = decodeSemanticContextCheckpoint(
-        encoder.encode(String(row.checkpoint_json)),
-      );
+      const checkpoint: SemanticContextCheckpointV1 = {
+        contextSchemaVersion: 1,
+        sessionId: id,
+        createdAt: String(row.created_at),
+        sourceProfileId: String(row.source_profile_id),
+        coveredThroughTurn: Number(row.covered_turn),
+        retainedFromTurn: Number(row.retained_turn),
+        summary: String(row.summary),
+      };
       if (
-        checkpoint.sessionId !== id ||
-        row.created_at !== checkpoint.createdAt ||
-        Number(row.covered_turn) !== checkpoint.coveredThroughTurn ||
-        Number(row.retained_turn) !== checkpoint.retainedFromTurn ||
-        row.source_profile_id !== checkpoint.sourceProfileId ||
-        row.checkpoint_json !== checkpointText(checkpoint)
+        !validateSemanticContextCheckpoint(checkpoint)
       ) throw new Error('checkpoint relation mismatch');
       return checkpoint;
     } catch {
@@ -1420,13 +1750,12 @@ export class SqliteHistoryStore
     db.prepare(`
       INSERT INTO sessions(
         session_id, agent, created_at, updated_at, title, state_revision, next_turn,
-        definition_json, active_model_json, record_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        definition_json, active_model_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         agent=excluded.agent, created_at=excluded.created_at, updated_at=excluded.updated_at,
         title=excluded.title, state_revision=excluded.state_revision, next_turn=excluded.next_turn,
-        definition_json=excluded.definition_json, active_model_json=excluded.active_model_json,
-        record_json=excluded.record_json
+        definition_json=excluded.definition_json, active_model_json=excluded.active_model_json
     `).run(
       record.sessionId,
       record.agent,
@@ -1437,7 +1766,6 @@ export class SqliteHistoryStore
       record.nextTurn,
       JSON.stringify(record.definition),
       JSON.stringify(record.activeModel),
-      recordText(record),
     );
     db.prepare('DELETE FROM session_model_changes WHERE session_id = ?').run(
       record.sessionId,
@@ -1485,13 +1813,13 @@ export class SqliteHistoryStore
       return source.sourceEventOrdinal;
     }
     const events = db.prepare(`
-      SELECT ordinal, kind, payload_json FROM execution_events
+      SELECT execution_id, ordinal, kind, payload_json FROM execution_observations
       WHERE execution_id = ? ORDER BY ordinal
     `).all(executionId) as SqlRow[];
     for (const row of events) {
       let payload: unknown;
       try {
-        payload = JSON.parse(String(row.payload_json));
+        payload = this.eventPayloadTx(db, row);
       } catch {
         continue;
       }
@@ -1619,16 +1947,27 @@ export class SqliteHistoryStore
   private writeContextObservationsTx(
     db: DatabaseSync,
     executionId: string,
+    current?: { readonly ordinal: number; readonly payload: JsonValue },
   ): number {
     const rows = db.prepare(`
-      SELECT ordinal, payload_json FROM execution_events
+      SELECT execution_id, ordinal, payload_json FROM execution_observations
       WHERE execution_id = ? AND kind = 'context_observation' ORDER BY ordinal
     `).all(executionId) as SqlRow[];
     let count = 0;
     for (const row of rows) {
+      const materialized = db.prepare(`
+        SELECT 1 FROM model_requests
+        WHERE execution_id = ? AND observation_ordinal = ?
+      `).get(executionId, Number(row.ordinal));
+      if (materialized !== undefined) {
+        count += 1;
+        continue;
+      }
       let payload: unknown;
       try {
-        payload = JSON.parse(String(row.payload_json));
+        payload = current?.ordinal === Number(row.ordinal)
+          ? current.payload
+          : this.eventPayloadTx(db, row);
       } catch {
         throw new HistoryStoreError('history_invalid');
       }
@@ -1668,7 +2007,6 @@ export class SqliteHistoryStore
       if (duplicate !== undefined) {
         throw new HistoryStoreError('history_invalid');
       }
-      const requestJson = record.request === undefined ? null : JSON.stringify(record.request);
       const requestDigest = record.request === undefined ? null : contextDigestSync(
         canonicalJsonBytes(
           record
@@ -1677,19 +2015,21 @@ export class SqliteHistoryStore
       );
       db.prepare(`
         INSERT INTO model_requests(
-          execution_id, request_ordinal, evidence_id, lane, phase, model_step, purpose,
+          execution_id, request_ordinal, observation_ordinal, evidence_id,
+          lane, phase, model_step, purpose,
           model_selection_json, request_json, request_digest, provider_body, source_call_id
-        ) VALUES (?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         executionId,
         requestOrdinal,
+        Number(row.ordinal),
         record.lane,
         Number(record.modelStep),
         record.purpose,
         record.modelSelection === undefined ? null : JSON.stringify(record.modelSelection),
-        requestJson,
+        null,
         requestDigest,
-        record.providerBody === undefined ? null : record.providerBody,
+        null,
         record.sourceCallId === undefined ? null : record.sourceCallId,
       );
       let expectedItemOrdinal = 1;
@@ -1850,14 +2190,8 @@ export class SqliteHistoryStore
     db: DatabaseSync,
     executionId: string,
   ): void {
-    const basis = db.prepare(
-      'SELECT context_basis_json FROM executions WHERE execution_id = ?',
-    )
-      .get(executionId) as SqlRow | undefined;
-    if (
-      basis?.context_basis_json === null ||
-      basis?.context_basis_json === undefined
-    ) return;
+    const snapshot = this.contextSnapshotFromFactsTx(db, executionId);
+    if (snapshot === undefined) return;
     const execution = db.prepare(
       'SELECT session_correlation, turn FROM executions WHERE execution_id = ?',
     ).get(executionId) as SqlRow | undefined;
@@ -1866,20 +2200,14 @@ export class SqliteHistoryStore
     }
     const sessionCorrelation = String(execution.session_correlation);
     const turn = Number(execution.turn);
-    let snapshot: WorkerContextSnapshot;
-    try {
-      const parsed = JSON.parse(String(basis.context_basis_json));
-      if (!validateWorkerContextSnapshot(parsed)) {
-        throw new Error('invalid basis');
-      }
-      snapshot = parsed;
-    } catch {
-      throw new HistoryStoreError('history_invalid');
-    }
     const events = db.prepare(`
-      SELECT ordinal, payload_json FROM execution_events WHERE execution_id = ?
-      AND kind IN ('runtime_event', 'effect_observation', 'context_observation') ORDER BY ordinal
+      SELECT execution_id, ordinal, payload_json FROM execution_observations WHERE execution_id = ?
+      AND kind IN (
+        'runtime_event', 'effect_observation', 'context_observation',
+        'provider_request_start'
+      ) ORDER BY ordinal
     `).all(executionId) as SqlRow[];
+    const providerRequestContexts = new Map<number, number>();
     const providerAttribution = new Map<string, {
       readonly lane?: 'parent' | 'planner';
       readonly modelStep?: number;
@@ -1894,17 +2222,46 @@ export class SqliteHistoryStore
     const skillCalls = new Map<string, string>();
     for (const row of events) {
       try {
-        const payload = JSON.parse(String(row.payload_json));
+        const payload = this.eventPayloadTx(db, row);
         if (!validJsonObject(payload)) continue;
         const envelope = payload as Record<string, unknown>;
         if (envelope.kind !== 'provider_observation') continue;
         if (!validateProviderEvidenceObservation(envelope.observation)) {
           throw new HistoryStoreError('history_invalid');
         }
+        if (envelope.observation.kind === 'request_start') {
+          const physicalOrdinal = envelope.observation.request.ordinal;
+          const contextOrdinal = envelope.observation.request.contextRequestOrdinal;
+          if (contextOrdinal !== undefined) {
+            providerRequestContexts.set(physicalOrdinal, contextOrdinal);
+          }
+          continue;
+        }
         if (envelope.observation.kind !== 'runtime_event') continue;
         const event = envelope.observation.event;
+        const physicalRequestOrdinal = 'requestOrdinal' in event ? event.requestOrdinal : undefined;
+        const requestOrdinal = physicalRequestOrdinal === undefined
+          ? undefined
+          : providerRequestContexts.get(physicalRequestOrdinal) ?? physicalRequestOrdinal;
+        if (event.kind === 'model_result' && event.result.kind === 'tool_calls') {
+          for (const call of event.result.calls) {
+            providerAttribution.set(causalKey(event.lane, call.callId), {
+              lane: event.lane === 'planner' ? 'planner' : 'parent',
+              modelStep: event.modelStep,
+              ...(requestOrdinal === undefined ? {} : { requestOrdinal }),
+            });
+          }
+        }
         if (event.kind === 'tool_call') {
           const call = event.call;
+          const key = causalKey(event.lane, call.callId);
+          if (!providerAttribution.has(key)) {
+            providerAttribution.set(key, {
+              lane: event.lane === 'planner' ? 'planner' : 'parent',
+              modelStep: event.modelStep,
+              ...(requestOrdinal === undefined ? {} : { requestOrdinal }),
+            });
+          }
           if (
             call.name === 'skill' && validJsonObject(call.arguments) &&
             exactObject(call.arguments, ['name']) &&
@@ -1917,13 +2274,14 @@ export class SqliteHistoryStore
           }
         }
         if (event.kind === 'tool_result') {
-          providerAttribution.set(causalKey(event.lane, event.result.callId), {
-            lane: event.lane === 'planner' ? 'planner' : 'parent',
-            modelStep: event.modelStep,
-            ...(event.requestOrdinal === undefined ? {} : {
-              requestOrdinal: event.requestOrdinal,
-            }),
-          });
+          const key = causalKey(event.lane, event.result.callId);
+          if (!providerAttribution.has(key)) {
+            providerAttribution.set(key, {
+              lane: event.lane === 'planner' ? 'planner' : 'parent',
+              modelStep: event.modelStep,
+              ...(requestOrdinal === undefined ? {} : { requestOrdinal }),
+            });
+          }
         }
       } catch {
         throw new HistoryStoreError('history_invalid');
@@ -1958,7 +2316,7 @@ export class SqliteHistoryStore
     for (const row of events) {
       let payload: unknown;
       try {
-        payload = JSON.parse(String(row.payload_json));
+        payload = this.eventPayloadTx(db, row);
       } catch {
         throw new HistoryStoreError('history_invalid');
       }
@@ -2099,7 +2457,7 @@ export class SqliteHistoryStore
     evidence: ProviderEvidenceV5,
   ): boolean {
     const rows = db.prepare(`
-      SELECT ordinal, kind, payload_json FROM execution_events
+      SELECT execution_id, ordinal, kind, payload_json FROM execution_observations
       WHERE execution_id = ? ORDER BY ordinal
     `).all(executionId) as SqlRow[];
     type Observed = {
@@ -2154,7 +2512,7 @@ export class SqliteHistoryStore
     };
     try {
       for (const row of rows) {
-        const payload = JSON.parse(String(row.payload_json)) as unknown;
+        const payload = this.eventPayloadTx(db, row) as unknown;
         if (
           typeof payload !== 'object' || payload === null ||
           Array.isArray(payload)
@@ -2684,17 +3042,7 @@ export class SqliteHistoryStore
                 ) === undefined;
           })
         ) throw new HistoryStoreError('history_invalid');
-        db.prepare(`
-        INSERT INTO provider_evidence(
-          evidence_id, execution_id, schema_version, created_at, evidence_json, link_status
-        ) VALUES (?, ?, ?, ?, ?, 'linked')
-        `).run(
-          evidence.evidenceId,
-          executionId,
-          evidence.schemaVersion,
-          evidence.createdAt,
-          encodeProviderEvidence(evidence),
-        );
+        this.writeEvidenceHeaderTx(db, executionId, evidence);
         for (const record of evidence.requests) {
           const logicalOrdinal = record.request.contextRequestOrdinal ??
             record.request.ordinal;
@@ -2807,6 +3155,172 @@ export class SqliteHistoryStore
         artifact.instanceCorrelation === input.instanceCorrelation) &&
       (input.workerGeneration === undefined ||
         artifact.workerGeneration === input.workerGeneration);
+  }
+
+  private writeEvidenceHeaderTx(
+    db: DatabaseSync,
+    executionId: string,
+    evidence: ProviderEvidenceV5,
+  ): void {
+    db.prepare(`
+      INSERT INTO provider_evidence(
+        evidence_id, execution_id, schema_version, created_at, capture,
+        normalized_outcome, outcome, settlement, turn_provider_request_count,
+        runtime_provider_request_count, diagnostic_id, link_status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'linked')
+      ON CONFLICT(evidence_id) DO UPDATE SET
+        execution_id=excluded.execution_id, schema_version=excluded.schema_version,
+        created_at=excluded.created_at, capture=excluded.capture,
+        normalized_outcome=excluded.normalized_outcome, outcome=excluded.outcome,
+        settlement=excluded.settlement,
+        turn_provider_request_count=excluded.turn_provider_request_count,
+        runtime_provider_request_count=excluded.runtime_provider_request_count,
+        diagnostic_id=excluded.diagnostic_id, link_status='linked'
+    `).run(
+      evidence.evidenceId,
+      executionId,
+      evidence.schemaVersion,
+      evidence.createdAt,
+      evidence.capture,
+      evidence.normalizedOutcome,
+      evidence.capture === 'complete' ? evidence.outcome : null,
+      evidence.capture === 'partial' ? evidence.settlement : null,
+      evidence.turnProviderRequestCount ?? null,
+      evidence.runtimeProviderRequestCount ?? null,
+      evidence.diagnosticId ?? null,
+    );
+  }
+
+  private writeArtifactTx(
+    db: DatabaseSync,
+    artifact: WorkerExecutionArtifactV5,
+  ): void {
+    db.prepare(`
+      INSERT INTO execution_artifacts(
+        artifact_id, execution_id, settled_at, command_session,
+        command_instance_correlation, command_worker_generation,
+        command_base_revision, command_id, proposed_revision, committed_revision,
+        provider_evidence_id, provider_evidence_durability, provider_evidence_error,
+        store_result, store_error, acknowledgement, settlement, lifecycle,
+        normalized_outcome, adoption, context_capture, artifact_persistence_error,
+        link_status
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'linked'
+      )
+      ON CONFLICT(execution_id) DO UPDATE SET
+        artifact_id=excluded.artifact_id, settled_at=excluded.settled_at,
+        command_session=excluded.command_session,
+        command_instance_correlation=excluded.command_instance_correlation,
+        command_worker_generation=excluded.command_worker_generation,
+        command_base_revision=excluded.command_base_revision,
+        command_id=excluded.command_id, proposed_revision=excluded.proposed_revision,
+        committed_revision=excluded.committed_revision,
+        provider_evidence_id=excluded.provider_evidence_id,
+        provider_evidence_durability=excluded.provider_evidence_durability,
+        provider_evidence_error=excluded.provider_evidence_error,
+        store_result=excluded.store_result, store_error=excluded.store_error,
+        acknowledgement=excluded.acknowledgement, settlement=excluded.settlement,
+        lifecycle=excluded.lifecycle, normalized_outcome=excluded.normalized_outcome,
+        adoption=excluded.adoption, context_capture=excluded.context_capture,
+        artifact_persistence_error=excluded.artifact_persistence_error,
+        link_status='linked'
+    `).run(
+      artifact.executionId,
+      artifact.executionId,
+      artifact.settledAt,
+      artifact.command.correlation.session,
+      artifact.command.correlation.instanceCorrelation,
+      artifact.command.correlation.workerGeneration,
+      artifact.command.correlation.baseStateRevision,
+      artifact.command.correlation.command,
+      artifact.proposedStateRevision ?? null,
+      artifact.committedStateRevision ?? null,
+      artifact.providerEvidenceId ?? null,
+      artifact.providerEvidenceDurability ?? null,
+      artifact.providerEvidencePersistenceError ?? null,
+      artifact.storeResult,
+      artifact.storeError ?? null,
+      artifact.acknowledgement,
+      artifact.settlement,
+      artifact.lifecycle,
+      artifact.normalizedOutcome,
+      artifact.adoption,
+      artifact.contextCapture,
+      artifact.artifactPersistenceError ?? null,
+    );
+    db.prepare('DELETE FROM execution_artifact_trace WHERE artifact_id = ?').run(
+      artifact.executionId,
+    );
+    db.prepare(`
+      INSERT INTO worker_generations(
+        worker_generation, session_id, instance_correlation
+      ) VALUES (?, ?, ?)
+      ON CONFLICT(worker_generation) DO NOTHING
+    `).run(
+      artifact.workerGeneration,
+      artifact.sessionId,
+      artifact.instanceCorrelation,
+    );
+    const generation = db.prepare(`
+      SELECT session_id, instance_correlation FROM worker_generations
+      WHERE worker_generation = ?
+    `).get(artifact.workerGeneration) as SqlRow;
+    if (
+      generation.session_id !== artifact.sessionId ||
+      generation.instance_correlation !== artifact.instanceCorrelation
+    ) throw new HistoryStoreError('history_invalid');
+    const insertFact = db.prepare(`
+      INSERT INTO worker_protocol_observations(
+        worker_generation, occurrence_key, direction, kind, semantic_subtype,
+        correlation_session, instance_correlation, base_revision,
+        correlation_command, ack_accepted
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertRef = db.prepare(`
+      INSERT INTO execution_artifact_trace(
+        artifact_id, ordinal, observation_id
+      ) VALUES (?, ?, ?)
+    `);
+    artifact.protocolTrace.forEach((entry, index) => {
+      const ackAccepted = entry.ackAccepted === undefined ? null : entry.ackAccepted ? 1 : 0;
+      const occurrenceKey = `${entry.correlation.command}:${index + 1}`;
+      let stored = db.prepare(`
+        SELECT * FROM worker_protocol_observations
+        WHERE worker_generation = ? AND occurrence_key = ?
+      `).get(artifact.workerGeneration, occurrenceKey) as SqlRow | undefined;
+      if (
+        stored !== undefined && (
+          stored.direction !== entry.direction || stored.kind !== entry.kind ||
+          stored.semantic_subtype !== entry.semanticSubtype ||
+          stored.correlation_session !== entry.correlation.session ||
+          stored.instance_correlation !== entry.correlation.instanceCorrelation ||
+          Number(stored.base_revision) !== entry.correlation.baseStateRevision ||
+          stored.correlation_command !== entry.correlation.command ||
+          (stored.ack_accepted === null ? undefined : Number(stored.ack_accepted) === 1) !==
+            entry.ackAccepted
+        )
+      ) throw new HistoryStoreError('history_invalid');
+      if (stored === undefined) {
+        const inserted = insertFact.run(
+          artifact.workerGeneration,
+          occurrenceKey,
+          entry.direction,
+          entry.kind,
+          entry.semanticSubtype,
+          entry.correlation.session,
+          entry.correlation.instanceCorrelation,
+          entry.correlation.baseStateRevision,
+          entry.correlation.command,
+          ackAccepted,
+        );
+        stored = { observation_id: inserted.lastInsertRowid };
+      }
+      insertRef.run(
+        artifact.executionId,
+        index + 1,
+        Number(stored.observation_id),
+      );
+    });
   }
 
   async readWorker(id: string): Promise<StoredSessionRecord> {
@@ -3060,19 +3574,19 @@ export class SqliteHistoryStore
           this.transaction(db, () => {
             db!.prepare(`
               INSERT INTO semantic_checkpoints(
-                session_id, created_at, covered_turn, retained_turn, source_profile_id, checkpoint_json
+                session_id, created_at, covered_turn, retained_turn, source_profile_id, summary
               ) VALUES (?, ?, ?, ?, ?, ?)
               ON CONFLICT(session_id) DO UPDATE SET
                 created_at=excluded.created_at, covered_turn=excluded.covered_turn,
                 retained_turn=excluded.retained_turn, source_profile_id=excluded.source_profile_id,
-                checkpoint_json=excluded.checkpoint_json
+                summary=excluded.summary
             `).run(
               id,
               next.createdAt,
               next.coveredThroughTurn,
               next.retainedFromTurn,
               next.sourceProfileId,
-              checkpointText(next),
+              next.summary,
             );
           });
           checkpoint = structuredClone(next);
@@ -3097,19 +3611,19 @@ export class SqliteHistoryStore
               const previous = rollbackCheckpoint;
               db!.prepare(`
                 INSERT INTO semantic_checkpoints(
-                  session_id, created_at, covered_turn, retained_turn, source_profile_id, checkpoint_json
+                  session_id, created_at, covered_turn, retained_turn, source_profile_id, summary
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                   created_at=excluded.created_at, covered_turn=excluded.covered_turn,
                   retained_turn=excluded.retained_turn, source_profile_id=excluded.source_profile_id,
-                  checkpoint_json=excluded.checkpoint_json
+                  summary=excluded.summary
               `).run(
                 id,
                 previous.createdAt,
                 previous.coveredThroughTurn,
                 previous.retainedFromTurn,
                 previous.sourceProfileId,
-                checkpointText(previous),
+                previous.summary,
               );
             }
           });
@@ -3154,6 +3668,350 @@ export class SqliteHistoryStore
     lock.close();
   }
 
+  private progressFact(payload: JsonValue):
+    | { readonly streamKey: string; readonly text: string; readonly stored: JsonValue }
+    | undefined {
+    if (!validJsonObject(payload)) return undefined;
+    const stored = structuredClone(payload) as Record<string, unknown>;
+    if (
+      stored.kind === 'runtime_event' && validJsonObject(stored.event) &&
+      stored.event.kind === 'agent_event' && validJsonObject(stored.event.event) &&
+      (stored.event.event.kind === 'assistant_progress' ||
+        stored.event.event.kind === 'tool_progress') &&
+      typeof stored.event.event.text === 'string'
+    ) {
+      const event = stored.event.event as Record<string, unknown>;
+      const text = String(event.text);
+      const streamKey = event.kind === 'assistant_progress'
+        ? `surface:assistant:${String(event.turn)}`
+        : `surface:tool:${String(event.turn)}:${String(event.callId)}`;
+      event.text = '';
+      return { streamKey, text, stored: stored as JsonValue };
+    }
+    if (
+      stored.kind === 'provider_observation' && validJsonObject(stored.observation) &&
+      stored.observation.kind === 'runtime_event' &&
+      validJsonObject(stored.observation.event) &&
+      (stored.observation.event.kind === 'assistant_progress' ||
+        stored.observation.event.kind === 'tool_progress') &&
+      typeof stored.observation.event.text === 'string'
+    ) {
+      const event = stored.observation.event as Record<string, unknown>;
+      const text = String(event.text);
+      const streamKey = event.kind === 'assistant_progress'
+        ? `provider:assistant:${String(event.lane ?? 'parent')}:` +
+          `${String(event.modelStep)}:${String(event.requestOrdinal ?? 'none')}`
+        : `provider:tool:${String(event.lane ?? 'parent')}:` +
+          `${String(event.modelStep)}:${String(event.requestOrdinal ?? 'none')}:` +
+          `${String(event.callId)}`;
+      event.text = '';
+      return { streamKey, text, stored: stored as JsonValue };
+    }
+    return undefined;
+  }
+
+  private durableEventPayload(
+    input: ExecutionEventInput,
+    payload: JsonValue,
+  ): JsonValue {
+    if (!validJsonObject(payload)) return payload;
+    if (payload.kind === 'commit_proposal') {
+      return {
+        kind: 'commit_proposal',
+        correlation: structuredClone(payload.correlation) as JsonValue,
+        nextTurn: Number(payload.nextTurn),
+      };
+    }
+    if (payload.kind === 'turn_failed') {
+      return {
+        kind: 'turn_failed',
+        correlation: structuredClone(payload.correlation) as JsonValue,
+      };
+    }
+    if (
+      input.kind === 'execution_admitted' ||
+      input.kind === 'turn_dispatch_requested' ||
+      input.kind === 'turn_dispatch_sent'
+    ) {
+      const { task: _task, ...marker } = payload;
+      return marker;
+    }
+    return payload;
+  }
+
+  private normalizedFactMarker(payload: JsonValue): JsonValue | undefined {
+    if (!validJsonObject(payload)) return undefined;
+    if (
+      payload.kind === 'provider_observation' &&
+      validJsonObject(payload.observation)
+    ) {
+      const { observation: _observation, ...marker } = payload;
+      return marker;
+    }
+    if (payload.kind === 'effect_observation' && validJsonObject(payload.effect)) {
+      const { effect: _effect, ...marker } = payload;
+      return marker;
+    }
+    if (
+      payload.kind === 'runtime_event' && validJsonObject(payload.event) &&
+      payload.event.kind === 'agent_event'
+    ) {
+      const { event: _event, ...marker } = payload;
+      return marker;
+    }
+    if (
+      payload.kind === 'context_observation' &&
+      validJsonObject(payload.observation)
+    ) {
+      const { observation: _observation, ...marker } = payload;
+      return marker;
+    }
+    return undefined;
+  }
+
+  private writeNormalizedObservationFactTx(
+    db: DatabaseSync,
+    executionId: string,
+    ordinal: number,
+    payload: JsonValue,
+  ): void {
+    if (!validJsonObject(payload)) return;
+    if (
+      payload.kind === 'provider_observation' &&
+      validJsonObject(payload.observation)
+    ) {
+      const observation = payload.observation;
+      if (
+        observation.kind === 'runtime_event' &&
+        validJsonObject(observation.event)
+      ) {
+        db.prepare(`
+          INSERT INTO runtime_occurrences(
+            execution_id, observation_ordinal, envelope_kind,
+            request_ordinal, event_json
+          ) VALUES (?, ?, 'provider_observation', ?, ?)
+        `).run(
+          executionId,
+          ordinal,
+          typeof observation.requestOrdinal === 'number' ? observation.requestOrdinal : null,
+          JSON.stringify(observation.event),
+        );
+        return;
+      }
+      if (observation.kind === 'response_bytes') {
+        db.prepare(`
+          INSERT INTO provider_observation_facts(
+            execution_id, observation_ordinal, observation_kind,
+            request_ordinal, byte_offset, observation_json, raw_bytes
+          ) VALUES (?, ?, 'response_bytes', ?, ?, NULL, ?)
+        `).run(
+          executionId,
+          ordinal,
+          Number(observation.requestOrdinal),
+          Number(observation.offset),
+          Uint8Array.fromBase64(String(observation.bytesBase64)),
+        );
+        return;
+      }
+      db.prepare(`
+        INSERT INTO provider_observation_facts(
+          execution_id, observation_ordinal, observation_kind,
+          request_ordinal, byte_offset, observation_json, raw_bytes
+        ) VALUES (?, ?, ?, ?, NULL, ?, NULL)
+      `).run(
+        executionId,
+        ordinal,
+        String(observation.kind),
+        observation.kind === 'request_start'
+          ? Number((observation.request as Record<string, unknown>).ordinal)
+          : Number(observation.requestOrdinal),
+        JSON.stringify(observation),
+      );
+      return;
+    }
+    if (payload.kind === 'effect_observation' && validJsonObject(payload.effect)) {
+      db.prepare(`
+        INSERT INTO runtime_occurrences(
+          execution_id, observation_ordinal, envelope_kind,
+          request_ordinal, event_json
+        ) VALUES (?, ?, 'effect_observation', NULL, ?)
+      `).run(executionId, ordinal, JSON.stringify(payload.effect));
+      return;
+    }
+    if (
+      payload.kind === 'runtime_event' && validJsonObject(payload.event) &&
+      payload.event.kind === 'agent_event'
+    ) {
+      db.prepare(`
+        INSERT INTO runtime_occurrences(
+          execution_id, observation_ordinal, envelope_kind,
+          request_ordinal, event_json
+        ) VALUES (?, ?, 'runtime_event', NULL, ?)
+      `).run(executionId, ordinal, JSON.stringify(payload.event));
+    }
+  }
+
+  private progressSnapshotTx(
+    db: DatabaseSync,
+    executionId: string,
+    streamKey: string,
+    throughOrdinal?: number,
+  ): string {
+    const rows = db.prepare(`
+      SELECT mode, text_fragment FROM execution_progress_deltas
+      WHERE execution_id = ? AND stream_key = ?
+        AND (? IS NULL OR event_ordinal <= ?)
+      ORDER BY event_ordinal
+    `).all(
+      executionId,
+      streamKey,
+      throughOrdinal ?? null,
+      throughOrdinal ?? null,
+    ) as SqlRow[];
+    let snapshot = '';
+    for (const row of rows) {
+      if (row.mode === 'replace') snapshot = String(row.text_fragment);
+      else if (row.mode === 'append') snapshot += String(row.text_fragment);
+      else throw new HistoryStoreError('history_invalid');
+    }
+    return snapshot;
+  }
+
+  private eventPayloadTx(db: DatabaseSync, row: SqlRow): JsonValue {
+    let payload: JsonValue;
+    try {
+      payload = JSON.parse(String(row.payload_json)) as JsonValue;
+    } catch {
+      throw new HistoryStoreError('history_invalid');
+    }
+    if (!isJsonValue(payload)) throw new HistoryStoreError('history_invalid');
+    const marker = validJsonObject(payload) ? payload as Record<string, unknown> : undefined;
+    const runtime = db.prepare(`
+      SELECT envelope_kind, request_ordinal, event_json FROM runtime_occurrences
+      WHERE execution_id = ? AND observation_ordinal = ?
+    `).get(String(row.execution_id), Number(row.ordinal)) as SqlRow | undefined;
+    if (runtime !== undefined) {
+      if (marker === undefined) throw new HistoryStoreError('history_invalid');
+      let event: JsonValue;
+      try {
+        event = JSON.parse(String(runtime.event_json)) as JsonValue;
+      } catch {
+        throw new HistoryStoreError('history_invalid');
+      }
+      if (!isJsonValue(event) || !validJsonObject(event)) {
+        throw new HistoryStoreError('history_invalid');
+      }
+      const delta = db.prepare(`
+        SELECT stream_key FROM execution_progress_deltas
+        WHERE execution_id = ? AND event_ordinal = ?
+      `).get(String(row.execution_id), Number(row.ordinal)) as SqlRow | undefined;
+      if (delta !== undefined) {
+        const text = this.progressSnapshotTx(
+          db,
+          String(row.execution_id),
+          String(delta.stream_key),
+          Number(row.ordinal),
+        );
+        if (
+          event.kind === 'agent_event' && validJsonObject(event.event)
+        ) (event.event as Record<string, unknown>).text = text;
+        else (event as Record<string, unknown>).text = text;
+      }
+      if (runtime.envelope_kind === 'effect_observation') {
+        return { ...marker, effect: event } as JsonValue;
+      }
+      if (runtime.envelope_kind === 'runtime_event') {
+        return { ...marker, event } as JsonValue;
+      }
+      if (runtime.envelope_kind === 'provider_observation') {
+        return {
+          ...marker,
+          observation: {
+            kind: 'runtime_event',
+            ...(runtime.request_ordinal === null
+              ? {}
+              : { requestOrdinal: Number(runtime.request_ordinal) }),
+            event,
+          },
+        } as JsonValue;
+      }
+      throw new HistoryStoreError('history_invalid');
+    }
+    const provider = db.prepare(`
+      SELECT observation_kind, request_ordinal, byte_offset,
+        observation_json, raw_bytes
+      FROM provider_observation_facts
+      WHERE execution_id = ? AND observation_ordinal = ?
+    `).get(String(row.execution_id), Number(row.ordinal)) as SqlRow | undefined;
+    if (provider !== undefined) {
+      if (marker === undefined) throw new HistoryStoreError('history_invalid');
+      let observation: JsonValue;
+      if (provider.observation_kind === 'response_bytes') {
+        const bytes = provider.raw_bytes instanceof Uint8Array
+          ? provider.raw_bytes
+          : new Uint8Array(provider.raw_bytes as ArrayBuffer);
+        observation = {
+          kind: 'response_bytes',
+          requestOrdinal: Number(provider.request_ordinal),
+          offset: Number(provider.byte_offset),
+          bytesBase64: uint8ToBase64(bytes),
+        };
+      } else {
+        try {
+          observation = JSON.parse(String(provider.observation_json)) as JsonValue;
+        } catch {
+          throw new HistoryStoreError('history_invalid');
+        }
+      }
+      if (!isJsonValue(observation)) throw new HistoryStoreError('history_invalid');
+      return { ...marker, observation } as JsonValue;
+    }
+    if (
+      marker?.kind === 'context_observation' &&
+      marker.observation === undefined
+    ) {
+      const contextRow = db.prepare(`
+        SELECT request_ordinal FROM model_requests
+        WHERE execution_id = ? AND observation_ordinal = ?
+      `).get(String(row.execution_id), Number(row.ordinal)) as SqlRow | undefined;
+      if (contextRow === undefined) throw new HistoryStoreError('history_invalid');
+      const context = this.readExecutionContextTx(db, String(row.execution_id));
+      const request = context?.requests.find((candidate) =>
+        candidate.requestOrdinal === Number(contextRow.request_ordinal)
+      );
+      if (request === undefined) throw new HistoryStoreError('history_invalid');
+      return {
+        ...marker,
+        observation: { kind: 'model_request', request },
+      } as unknown as JsonValue;
+    }
+    const delta = db.prepare(`
+      SELECT stream_key FROM execution_progress_deltas
+      WHERE execution_id = ? AND event_ordinal = ?
+    `).get(String(row.execution_id), Number(row.ordinal)) as SqlRow | undefined;
+    if (delta === undefined) return payload;
+    const text = this.progressSnapshotTx(
+      db,
+      String(row.execution_id),
+      String(delta.stream_key),
+      Number(row.ordinal),
+    );
+    const hydrated = structuredClone(payload) as Record<string, unknown>;
+    if (
+      hydrated.kind === 'runtime_event' && validJsonObject(hydrated.event) &&
+      hydrated.event.kind === 'agent_event' && validJsonObject(hydrated.event.event)
+    ) {
+      (hydrated.event.event as Record<string, unknown>).text = text;
+    } else if (
+      hydrated.kind === 'provider_observation' && validJsonObject(hydrated.observation) &&
+      hydrated.observation.kind === 'runtime_event' &&
+      validJsonObject(hydrated.observation.event)
+    ) {
+      (hydrated.observation.event as Record<string, unknown>).text = text;
+    } else throw new HistoryStoreError('history_invalid');
+    return hydrated as JsonValue;
+  }
+
   private validateExecutionInput(input: HistoryExecutionInput): void {
     if (
       !UUID_V4.test(input.taskId) || !UUID_V4.test(input.executionId) ||
@@ -3185,12 +4043,12 @@ export class SqliteHistoryStore
       throw new HistoryStoreError('history_invalid');
     }
     const previous = db.prepare(
-      'SELECT coalesce(max(ordinal), 0) AS ordinal FROM execution_events WHERE execution_id = ?',
+      'SELECT coalesce(max(ordinal), 0) AS ordinal FROM execution_observations WHERE execution_id = ?',
     ).get(input.executionId) as SqlRow;
     const ordinal = Number(previous.ordinal) + 1;
     if (input.workerSequence !== undefined) {
       const worker = db.prepare(
-        'SELECT max(worker_sequence) AS sequence FROM execution_events WHERE execution_id = ? AND worker_sequence IS NOT NULL',
+        'SELECT max(worker_sequence) AS sequence FROM execution_observations WHERE execution_id = ? AND worker_sequence IS NOT NULL',
       ).get(input.executionId) as SqlRow;
       if (
         worker.sequence !== null &&
@@ -3208,9 +4066,13 @@ export class SqliteHistoryStore
       throw new HistoryStoreError('history_invalid');
     }
     const payload = jsonPayload(input.payload);
-    const payloadJson = JSON.stringify(payload);
+    const progress = this.progressFact(payload);
+    const factPayload = progress?.stored ?? payload;
+    const durablePayload = this.normalizedFactMarker(factPayload) ??
+      this.durableEventPayload(input, factPayload);
+    const payloadJson = JSON.stringify(durablePayload);
     db.prepare(`
-      INSERT INTO execution_events(
+      INSERT INTO execution_observations(
         execution_id, ordinal, observed_at, direction, source, kind, worker_sequence, payload_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -3223,6 +4085,60 @@ export class SqliteHistoryStore
       input.workerSequence ?? null,
       payloadJson,
     );
+    this.writeNormalizedObservationFactTx(
+      db,
+      input.executionId,
+      ordinal,
+      factPayload,
+    );
+    if (input.kind === 'context_observation') {
+      this.writeContextObservationsTx(db, input.executionId, {
+        ordinal,
+        payload: factPayload,
+      });
+    }
+    const payloadRecord = validJsonObject(payload) ? payload as Record<string, unknown> : undefined;
+    if (
+      payloadRecord?.kind === 'commit_proposal' &&
+      Array.isArray(payloadRecord.transcript)
+    ) {
+      this.writeExecutionMessagesTx(
+        db,
+        input.executionId,
+        payloadRecord.transcript as Message[],
+      );
+    } else if (
+      payloadRecord?.kind === 'turn_failed' &&
+      validLoopOutcome(payloadRecord.outcome)
+    ) {
+      this.writeExecutionMessagesTx(
+        db,
+        input.executionId,
+        (payloadRecord.outcome as LoopOutcome).transcript,
+      );
+    }
+    if (progress !== undefined) {
+      const previousSnapshot = this.progressSnapshotTx(
+        db,
+        input.executionId,
+        progress.streamKey,
+      );
+      const mode = progress.text.startsWith(previousSnapshot) ? 'append' : 'replace';
+      const fragment = mode === 'append'
+        ? progress.text.slice(previousSnapshot.length)
+        : progress.text;
+      db.prepare(`
+        INSERT INTO execution_progress_deltas(
+          execution_id, event_ordinal, stream_key, mode, text_fragment
+        ) VALUES (?, ?, ?, ?, ?)
+      `).run(
+        input.executionId,
+        ordinal,
+        progress.streamKey,
+        mode,
+        fragment,
+      );
+    }
     this.updateEffectProjectionTx(db, {
       ...input,
       observedAt,
@@ -3356,12 +4272,14 @@ export class SqliteHistoryStore
           'kind',
           'correlation',
           'sequence',
+          'turn',
           'observation',
         ]) ||
         record.kind !== 'provider_observation' ||
         record.sequence !== input.workerSequence ||
         !validCorrelation(record.correlation) ||
         !validPositiveInteger(record.sequence) ||
+        !validPositiveInteger(record.turn) ||
         !validateProviderEvidenceObservation(record.observation) ||
         record.observation.kind !== expectedObservationKind
       ) throw new HistoryStoreError('history_invalid');
@@ -3393,7 +4311,11 @@ export class SqliteHistoryStore
     const payload = input.payload as Record<string, unknown>;
     let event = payload;
     if (event && typeof event === 'object' && !Array.isArray(event)) {
-      const nested = event.effect ?? event.event;
+      const observation = validJsonObject(event.observation)
+        ? event.observation as Record<string, unknown>
+        : undefined;
+      const nested = event.effect ?? event.event ??
+        (observation?.kind === 'runtime_event' ? observation.event : undefined);
       if (
         typeof nested === 'object' && nested !== null && !Array.isArray(nested)
       ) {
@@ -3560,8 +4482,8 @@ export class SqliteHistoryStore
           INSERT INTO executions(
             execution_id, task_id, canonical_session_id, session_correlation, turn, created_at,
             lifecycle, outcome, adoption, base_revision, agent, model_json, build_json, definition_json,
-            manifest_json, instance_correlation, worker_generation, outcome_json, context_basis_json
-          ) VALUES (?, ?, ?, ?, ?, ?, 'active', 'unknown', 'non_canonical', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+            manifest_json, instance_correlation, worker_generation
+          ) VALUES (?, ?, ?, ?, ?, ?, 'active', 'unknown', 'non_canonical', ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
           input.executionId,
           input.taskId,
@@ -3577,7 +4499,6 @@ export class SqliteHistoryStore
           input.manifest === undefined ? null : JSON.stringify(input.manifest),
           input.instanceCorrelation ?? null,
           input.workerGeneration ?? null,
-          input.contextSnapshot === undefined ? null : JSON.stringify(input.contextSnapshot),
         );
         for (const entry of contextBasis) {
           this.insertContextBlobTx(syncDb, entry.blob);
@@ -3628,7 +4549,309 @@ export class SqliteHistoryStore
     }
   }
 
-  private executionFromRow(row: SqlRow): StoredExecutionRow {
+  private canonicalTranscriptThroughRevisionTx(
+    db: DatabaseSync,
+    sessionId: string,
+    revision: number,
+  ): Message[] {
+    const rows = db.prepare(`
+      SELECT m.execution_id, m.session_ordinal, m.source_kind,
+        m.source_observation_ordinals_json,
+        m.content_digest, k.task_text
+      FROM canonical_turns t JOIN execution_messages m
+        ON m.execution_id = t.execution_id
+      JOIN executions e ON e.execution_id = m.execution_id
+      JOIN tasks k ON k.task_id = e.task_id
+      WHERE t.session_id = ? AND t.committed_revision <= ?
+      ORDER BY m.session_ordinal
+    `).all(sessionId, revision) as SqlRow[];
+    return rows.map((row, index) => {
+      if (Number(row.session_ordinal) !== index) {
+        throw new HistoryStoreError('history_invalid');
+      }
+      return this.messageFromRow(db, row);
+    });
+  }
+
+  private writeExecutionMessagesTx(
+    db: DatabaseSync,
+    executionId: string,
+    transcript: readonly Message[],
+  ): void {
+    const execution = db.prepare(`
+      SELECT e.session_correlation, e.base_revision, t.task_text
+      FROM executions e JOIN tasks t ON t.task_id = e.task_id
+      WHERE e.execution_id = ?
+    `).get(executionId) as SqlRow | undefined;
+    if (execution === undefined) throw new HistoryStoreError('history_invalid');
+    const prefix = this.canonicalTranscriptThroughRevisionTx(
+      db,
+      String(execution.session_correlation),
+      Number(execution.base_revision),
+    );
+    if (
+      transcript.length < prefix.length ||
+      prefix.some((message, index) =>
+        canonicalJson(
+          message as unknown as import('../core/contracts.ts').JsonValue,
+        ) !== canonicalJson(
+          transcript[index] as unknown as import('../core/contracts.ts').JsonValue,
+        )
+      )
+    ) throw new HistoryStoreError('history_invalid');
+    const suffix = transcript.slice(prefix.length);
+    const existing = db.prepare(`
+      SELECT execution_id, ordinal, session_ordinal, source_kind,
+        source_observation_ordinals_json,
+        content_digest, ? AS task_text
+      FROM execution_messages
+      WHERE execution_id = ? ORDER BY ordinal
+    `).all(String(execution.task_text), executionId) as SqlRow[];
+    if (existing.length > 0) {
+      if (
+        existing.length !== suffix.length ||
+        existing.some((row, index) =>
+          Number(row.ordinal) !== index ||
+          Number(row.session_ordinal) !== prefix.length + index ||
+          canonicalJson(
+              this.messageFromRow(db, row) as unknown as import('../core/contracts.ts').JsonValue,
+            ) !==
+            canonicalJson(
+              suffix[index] as unknown as import('../core/contracts.ts').JsonValue,
+            )
+        )
+      ) throw new HistoryStoreError('history_invalid');
+      return;
+    }
+    const insert = db.prepare(`
+      INSERT INTO execution_messages(
+        execution_id, ordinal, session_ordinal, source_kind,
+        source_observation_ordinals_json, content_digest
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const usedRuntimeOrdinals = new Set<number>();
+    suffix.forEach((message, ordinal) => {
+      const taskReference = ordinal === 0 && message.role === 'user' &&
+        message.content.kind === 'text' &&
+        message.content.text === String(execution.task_text);
+      const runtimeOrdinals = taskReference ? undefined : this.runtimeSourceOrdinalsTx(
+        db,
+        executionId,
+        message,
+        usedRuntimeOrdinals,
+      );
+      let contentDigest: string | null = null;
+      if (!taskReference && runtimeOrdinals === undefined) {
+        const bytes = canonicalJsonBytes(
+          message as unknown as import('../core/contracts.ts').JsonValue,
+        );
+        contentDigest = contextDigestSync(bytes);
+        this.insertContextBlobTx(db, {
+          digest: contentDigest,
+          byteLength: bytes.byteLength,
+          mediaType: 'application/vnd.henji.message+json',
+          bytes,
+        });
+      }
+      insert.run(
+        executionId,
+        ordinal,
+        prefix.length + ordinal,
+        taskReference ? 'task' : runtimeOrdinals === undefined ? 'message' : 'runtime',
+        runtimeOrdinals === undefined ? null : JSON.stringify(runtimeOrdinals),
+        contentDigest,
+      );
+    });
+  }
+
+  private executionTranscriptTx(db: DatabaseSync, row: SqlRow): Message[] {
+    const prefix = this.canonicalTranscriptThroughRevisionTx(
+      db,
+      String(row.session_correlation),
+      Number(row.base_revision),
+    );
+    const suffix = db.prepare(`
+      SELECT m.execution_id, m.ordinal, m.session_ordinal, m.source_kind,
+        m.source_observation_ordinals_json, m.content_digest,
+        t.task_text
+      FROM execution_messages m JOIN executions e
+        ON e.execution_id = m.execution_id
+      JOIN tasks t ON t.task_id = e.task_id
+      WHERE m.execution_id = ? ORDER BY m.ordinal
+    `).all(String(row.execution_id)) as SqlRow[];
+    return [
+      ...prefix,
+      ...suffix.map((message, index) => {
+        if (
+          Number(message.ordinal) !== index ||
+          Number(message.session_ordinal) !== prefix.length + index
+        ) throw new HistoryStoreError('history_invalid');
+        return this.messageFromRow(db, message);
+      }),
+    ];
+  }
+
+  private writeOutcomeTx(
+    db: DatabaseSync,
+    executionId: string,
+    outcome: LoopOutcome,
+  ): void {
+    if (!validLoopOutcome(outcome)) throw new HistoryStoreError('history_invalid');
+    try {
+      this.writeExecutionMessagesTx(db, executionId, outcome.transcript);
+    } catch (error) {
+      const execution = db.prepare(`SELECT session_correlation, base_revision
+        FROM executions WHERE execution_id = ?`).get(executionId) as SqlRow | undefined;
+      const prefix = execution === undefined
+        ? undefined
+        : this.canonicalTranscriptThroughRevisionTx(
+          db,
+          String(execution.session_correlation),
+          Number(execution.base_revision),
+        );
+      const observedSuffix = db.prepare(`SELECT 1 FROM execution_messages
+        WHERE execution_id = ? LIMIT 1`).get(executionId);
+      if (
+        !(error instanceof HistoryStoreError) || prefix === undefined ||
+        observedSuffix === undefined ||
+        JSON.stringify(outcome.transcript) !== JSON.stringify(prefix)
+      ) throw error;
+      // A proposal fact may already contain a valid current-turn suffix when a later
+      // canonical SQL statement fails. Keep that observed suffix as the non-canonical
+      // outcome transcript instead of copying or discarding it.
+    }
+    db.prepare(`
+      INSERT INTO execution_outcomes(
+        execution_id, ok, outcome, stop_reason, final_text, terminal_kind, error,
+        diagnostic_id, diagnostic_durability, diagnostic_persistence_error,
+        provider_evidence_id, provider_evidence_durability,
+        provider_evidence_persistence_error, turn_provider_request_count,
+        runtime_provider_request_count, execution_artifact_id,
+        execution_artifact_durability, execution_artifact_persistence_error,
+        execution_admission_durability, execution_admission_persistence_error,
+        execution_observation_durability, execution_observation_persistence_error,
+        steps, tool_call_count, tool_result_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      executionId,
+      outcome.ok ? 1 : 0,
+      outcome.outcome,
+      outcome.stopReason,
+      outcome.finalText ?? null,
+      outcome.terminalKind ?? null,
+      outcome.error ?? null,
+      outcome.diagnostic?.diagnosticId ?? null,
+      outcome.diagnosticDurability ?? null,
+      outcome.diagnosticPersistenceError ?? null,
+      outcome.providerEvidenceId ?? null,
+      outcome.providerEvidenceDurability ?? null,
+      outcome.providerEvidencePersistenceError ?? null,
+      outcome.turnProviderRequestCount ?? null,
+      outcome.runtimeProviderRequestCount ?? null,
+      outcome.executionArtifactId ?? null,
+      outcome.executionArtifactDurability ?? null,
+      outcome.executionArtifactPersistenceError ?? null,
+      outcome.executionAdmissionDurability ?? null,
+      outcome.executionAdmissionPersistenceError ?? null,
+      outcome.executionObservationDurability ?? null,
+      outcome.executionObservationPersistenceError ?? null,
+      outcome.steps,
+      outcome.toolCallCount,
+      outcome.toolResultCount,
+    );
+  }
+
+  private readOutcomeTx(
+    db: DatabaseSync,
+    execution: SqlRow,
+  ): LoopOutcome | undefined {
+    const row = db.prepare('SELECT * FROM execution_outcomes WHERE execution_id = ?')
+      .get(String(execution.execution_id)) as SqlRow | undefined;
+    if (row === undefined) return undefined;
+    let diagnostic: FailureDiagnosticV1 | undefined;
+    if (row.diagnostic_id !== null) {
+      const stored = db.prepare(
+        'SELECT * FROM failure_diagnostics WHERE diagnostic_id = ?',
+      ).get(String(row.diagnostic_id)) as SqlRow | undefined;
+      if (stored !== undefined) diagnostic = this.diagnosticFromRow(stored);
+    }
+    const value: LoopOutcome = {
+      ok: Number(row.ok) === 1,
+      task: String(execution.task_text),
+      outcome: row.outcome as LoopOutcome['outcome'],
+      stopReason: row.stop_reason as LoopOutcome['stopReason'],
+      ...(row.final_text === null ? {} : { finalText: String(row.final_text) }),
+      ...(row.terminal_kind === null ? {} : { terminalKind: row.terminal_kind as 'json_result' }),
+      ...(row.error === null ? {} : { error: String(row.error) }),
+      ...(diagnostic === undefined ? {} : { diagnostic }),
+      ...(row.diagnostic_durability === null ? {} : {
+        diagnosticDurability: String(
+          row.diagnostic_durability,
+        ) as LoopOutcome['diagnosticDurability'],
+      }),
+      ...(row.diagnostic_persistence_error === null ? {} : {
+        diagnosticPersistenceError: String(
+          row.diagnostic_persistence_error,
+        ) as LoopOutcome['diagnosticPersistenceError'],
+      }),
+      ...(row.provider_evidence_id === null
+        ? {}
+        : { providerEvidenceId: String(row.provider_evidence_id) }),
+      ...(row.provider_evidence_durability === null ? {} : {
+        providerEvidenceDurability: String(
+          row.provider_evidence_durability,
+        ) as LoopOutcome['providerEvidenceDurability'],
+      }),
+      ...(row.provider_evidence_persistence_error === null ? {} : {
+        providerEvidencePersistenceError: String(
+          row.provider_evidence_persistence_error,
+        ) as LoopOutcome['providerEvidencePersistenceError'],
+      }),
+      ...(row.turn_provider_request_count === null
+        ? {}
+        : { turnProviderRequestCount: Number(row.turn_provider_request_count) }),
+      ...(row.runtime_provider_request_count === null
+        ? {}
+        : { runtimeProviderRequestCount: Number(row.runtime_provider_request_count) }),
+      ...(row.execution_artifact_id === null
+        ? {}
+        : { executionArtifactId: String(row.execution_artifact_id) }),
+      ...(row.execution_artifact_durability === null ? {} : {
+        executionArtifactDurability: String(
+          row.execution_artifact_durability,
+        ) as LoopOutcome['executionArtifactDurability'],
+      }),
+      ...(row.execution_artifact_persistence_error === null ? {} : {
+        executionArtifactPersistenceError: String(
+          row.execution_artifact_persistence_error,
+        ) as LoopOutcome['executionArtifactPersistenceError'],
+      }),
+      ...(row.execution_admission_durability === null
+        ? {}
+        : { executionAdmissionDurability: 'failed' as const }),
+      ...(row.execution_admission_persistence_error === null ? {} : {
+        executionAdmissionPersistenceError: String(
+          row.execution_admission_persistence_error,
+        ) as LoopOutcome['executionAdmissionPersistenceError'],
+      }),
+      ...(row.execution_observation_durability === null
+        ? {}
+        : { executionObservationDurability: 'failed' as const }),
+      ...(row.execution_observation_persistence_error === null ? {} : {
+        executionObservationPersistenceError: String(
+          row.execution_observation_persistence_error,
+        ) as LoopOutcome['executionObservationPersistenceError'],
+      }),
+      steps: Number(row.steps),
+      toolCallCount: Number(row.tool_call_count),
+      toolResultCount: Number(row.tool_result_count),
+      transcript: this.executionTranscriptTx(db, execution),
+    };
+    if (!validLoopOutcome(value)) throw new HistoryStoreError('history_invalid');
+    return value;
+  }
+
+  private executionFromRow(db: DatabaseSync, row: SqlRow): StoredExecutionRow {
     const parseOptionalJson = <T>(value: unknown): T | undefined => {
       if (value === null || value === undefined) return undefined;
       try {
@@ -3646,6 +4869,7 @@ export class SqliteHistoryStore
     >(
       row.manifest_json,
     );
+    const outcomeJson = this.readOutcomeTx(db, row);
     return {
       executionId: String(row.execution_id),
       taskId: String(row.task_id),
@@ -3659,9 +4883,7 @@ export class SqliteHistoryStore
         : { settledAt: String(row.settled_at) }),
       lifecycle: row.lifecycle as StoredExecutionRow['lifecycle'],
       outcome: row.outcome as StoredExecutionRow['outcome'],
-      ...(parseOptionalJson<LoopOutcome>(row.outcome_json) === undefined
-        ? {}
-        : { outcomeJson: parseOptionalJson<LoopOutcome>(row.outcome_json)! }),
+      ...(outcomeJson === undefined ? {} : { outcomeJson }),
       adoption: row.adoption as StoredExecutionRow['adoption'],
       baseRevision: Number(row.base_revision),
       ...(row.committed_revision === null ||
@@ -3707,14 +4929,14 @@ export class SqliteHistoryStore
         SELECT e.execution_id, e.task_id, t.task_text, e.canonical_session_id, e.session_correlation, e.turn,
           created_at, settled_at, lifecycle, outcome, adoption, base_revision,
           committed_revision, agent, model_json, build_json, definition_json, manifest_json,
-          instance_correlation, worker_generation, outcome_json, acknowledgement,
+          instance_correlation, worker_generation, acknowledgement,
           (SELECT evidence_id FROM provider_evidence WHERE execution_id = e.execution_id
             ORDER BY created_at, evidence_id LIMIT 1) AS provider_evidence_id,
           generation_availability, evidence_capture, diagnostic_capture, artifact_capture,
           context_capture
         FROM executions e JOIN tasks t ON t.task_id = e.task_id
         ORDER BY e.created_at, e.execution_id
-      `).all() as SqlRow[]).map((row) => this.executionFromRow(row));
+      `).all() as SqlRow[]).map((row) => this.executionFromRow(db, row));
     } finally {
       db.close();
     }
@@ -3728,7 +4950,7 @@ export class SqliteHistoryStore
         SELECT e.execution_id, e.task_id, t.task_text, e.canonical_session_id, e.session_correlation, e.turn,
           created_at, settled_at, lifecycle, outcome, adoption, base_revision,
           committed_revision, agent, model_json, build_json, definition_json, manifest_json,
-          instance_correlation, worker_generation, outcome_json, acknowledgement,
+          instance_correlation, worker_generation, acknowledgement,
           (SELECT evidence_id FROM provider_evidence WHERE execution_id = e.execution_id
             ORDER BY created_at, evidence_id LIMIT 1) AS provider_evidence_id,
           generation_availability, evidence_capture, diagnostic_capture, artifact_capture,
@@ -3737,7 +4959,7 @@ export class SqliteHistoryStore
         WHERE e.execution_id = ?
       `).get(id) as SqlRow | undefined;
       if (row === undefined) throw new HistoryStoreError('history_io_failure');
-      return this.executionFromRow(row);
+      return this.executionFromRow(db, row);
     } finally {
       db.close();
     }
@@ -3754,14 +4976,9 @@ export class SqliteHistoryStore
       }
       return (db.prepare(`
         SELECT execution_id, ordinal, observed_at, direction, source, kind, worker_sequence, payload_json
-        FROM execution_events WHERE execution_id = ? ORDER BY ordinal
+        FROM execution_observations WHERE execution_id = ? ORDER BY ordinal
       `).all(id) as SqlRow[]).map((row) => {
-        let payload: import('../core/contracts.ts').JsonValue;
-        try {
-          payload = JSON.parse(String(row.payload_json));
-        } catch {
-          throw new HistoryStoreError('history_invalid');
-        }
+        const payload = this.eventPayloadTx(db, row);
         return {
           executionId: String(row.execution_id),
           ordinal: Number(row.ordinal),
@@ -3828,6 +5045,102 @@ export class SqliteHistoryStore
     return bytes.slice();
   }
 
+  private contextSnapshotFromFactsTx(
+    db: DatabaseSync,
+    executionId: string,
+  ): WorkerContextSnapshot | undefined {
+    const rows = db.prepare(`
+      SELECT ordinal, stage, resource_kind, logical_identity, source_locator,
+        content_digest FROM execution_context_relations
+      WHERE execution_id = ? AND resource_kind IN (
+        'workspace_instruction', 'skill_catalog', 'skill',
+        'instruction_component', 'definition_output', 'tool_contract',
+        'runtime_fact'
+      ) ORDER BY ordinal
+    `).all(executionId) as SqlRow[];
+    if (rows.length === 0) return undefined;
+    const text = (row: SqlRow): string => {
+      if (row.content_digest === null) throw new HistoryStoreError('history_invalid');
+      try {
+        return decoder.decode(
+          this.readContextBlobTx(db, String(row.content_digest)),
+        );
+      } catch {
+        throw new HistoryStoreError('history_invalid');
+      }
+    };
+    const discoveredInstruction = rows.find((row) =>
+      row.resource_kind === 'workspace_instruction' && row.stage === 'discovered'
+    );
+    const resolvedInstruction = rows.find((row) =>
+      row.resource_kind === 'workspace_instruction' && row.stage === 'resolved'
+    );
+    if ((discoveredInstruction === undefined) !== (resolvedInstruction === undefined)) {
+      throw new HistoryStoreError('history_invalid');
+    }
+    const skills = rows.filter((row) => row.resource_kind === 'skill' && row.stage === 'discovered')
+      .map((row) => {
+        try {
+          return JSON.parse(text(row));
+        } catch {
+          throw new HistoryStoreError('history_invalid');
+        }
+      });
+    const components = rows.filter((row) =>
+      row.resource_kind === 'instruction_component' && row.stage === 'resolved'
+    ).map((row) => ({
+      identity: String(row.logical_identity),
+      text: text(row),
+    }));
+    const tools = rows.filter((row) =>
+      row.resource_kind === 'tool_contract' && row.stage === 'resolved'
+    ).map((row) => {
+      try {
+        return JSON.parse(text(row));
+      } catch {
+        throw new HistoryStoreError('history_invalid');
+      }
+    });
+    const manifest = rows.find((row) =>
+      row.resource_kind === 'skill_catalog' && row.stage === 'resolved'
+    );
+    const definitionOutput = rows.find((row) =>
+      row.resource_kind === 'definition_output' && row.stage === 'resolved'
+    );
+    const cwd = rows.find((row) =>
+      row.resource_kind === 'runtime_fact' && row.stage === 'resolved' &&
+      row.logical_identity === 'cwd'
+    );
+    if (cwd === undefined) throw new HistoryStoreError('history_invalid');
+    const snapshot = {
+      schemaVersion: 1,
+      workspaceRoot: this.workspaceRoot,
+      ...(discoveredInstruction === undefined || resolvedInstruction === undefined ? {} : {
+        workspaceInstruction: {
+          source: String(discoveredInstruction.source_locator),
+          text: text(discoveredInstruction),
+          formatted: text(resolvedInstruction),
+        },
+      }),
+      skillCatalog: {
+        ...(manifest === undefined ? {} : { manifest: text(manifest) }),
+        skills,
+      },
+      instructionComponents: components,
+      ...(components.length > 0
+        ? { systemInstruction: components.map((component) => component.text).join('\n\n') }
+        : definitionOutput === undefined
+        ? {}
+        : { systemInstruction: text(definitionOutput) }),
+      toolDefinitions: tools,
+      runtimeFacts: { cwd: text(cwd) },
+    } as unknown as WorkerContextSnapshot;
+    if (!validateWorkerContextSnapshot(snapshot)) {
+      throw new HistoryStoreError('history_invalid');
+    }
+    return snapshot;
+  }
+
   private readExecutionContextTx(
     db: DatabaseSync,
     executionId: string,
@@ -3837,27 +5150,12 @@ export class SqliteHistoryStore
     readonly requests: readonly ContextModelRequestRecord[];
   } {
     const execution = db.prepare(
-      `SELECT context_basis_json FROM executions WHERE execution_id = ?`,
-    )
-      .get(executionId) as SqlRow | undefined;
+      `SELECT 1 FROM executions WHERE execution_id = ?`,
+    ).get(executionId) as SqlRow | undefined;
     if (execution === undefined) {
       throw new HistoryStoreError('history_io_failure');
     }
-    let snapshot: WorkerContextSnapshot | undefined;
-    if (
-      execution.context_basis_json !== null &&
-      execution.context_basis_json !== undefined
-    ) {
-      try {
-        const parsed = JSON.parse(String(execution.context_basis_json));
-        if (!validateWorkerContextSnapshot(parsed)) {
-          throw new Error('invalid context basis');
-        }
-        snapshot = structuredClone(parsed);
-      } catch {
-        throw new HistoryStoreError('history_invalid');
-      }
-    }
+    const snapshot = this.contextSnapshotFromFactsTx(db, executionId);
     const relations = (db.prepare(`
         SELECT ordinal, stage, resource_kind, logical_identity, source_locator, content_digest,
           lane, model_step, call_id, request_ordinal, source_event_ordinal
@@ -3944,6 +5242,39 @@ export class SqliteHistoryStore
           };
         },
       );
+      let providerBody = row.provider_body === null ? undefined : String(row.provider_body);
+      if (request === undefined && row.purpose === 'user_turn' && items.length > 0) {
+        try {
+          const system = items.find((item) => item.kind === 'system');
+          const messages = items.filter((item) => item.kind === 'message').map((item) =>
+            JSON.parse(decoder.decode(Uint8Array.fromBase64(item.bytesBase64)))
+          );
+          const tools = items.filter((item) => item.kind === 'tool_contract').map((item) =>
+            JSON.parse(decoder.decode(Uint8Array.fromBase64(item.bytesBase64)))
+          );
+          request = {
+            ...(system === undefined ? {} : {
+              systemInstruction: decoder.decode(
+                Uint8Array.fromBase64(system.bytesBase64),
+              ),
+            }),
+            transcript: messages,
+            tools,
+          };
+        } catch {
+          throw new HistoryStoreError('history_invalid');
+        }
+      }
+      if (providerBody === undefined && row.purpose === 'web_search') {
+        const wire = items.find((item) => item.kind === 'provider_wire_body');
+        if (wire !== undefined) {
+          try {
+            providerBody = decoder.decode(Uint8Array.fromBase64(wire.bytesBase64));
+          } catch {
+            throw new HistoryStoreError('history_invalid');
+          }
+        }
+      }
       const result: ContextModelRequestRecord = {
         requestOrdinal: Number(row.request_ordinal),
         lane: row.lane as 'parent' | 'planner',
@@ -3953,7 +5284,7 @@ export class SqliteHistoryStore
           ? {}
           : { modelSelection: modelSelection as ModelSelection }),
         ...(request === undefined ? {} : { request }),
-        ...(row.provider_body === null ? {} : { providerBody: String(row.provider_body) }),
+        ...(providerBody === undefined ? {} : { providerBody }),
         ...(row.source_call_id === null ? {} : { sourceCallId: String(row.source_call_id) }),
         items,
       };
@@ -3967,257 +5298,6 @@ export class SqliteHistoryStore
       relations,
       requests,
     };
-  }
-
-  /**
-   * Copy the rows needed by context projection while the live database is held in a
-   * deferred read transaction.  The projection itself is deliberately performed against
-   * this detached database: active diagnostics must not acquire a write lock on the live
-   * history database, even briefly, while decoding a large request or tool result.
-   */
-  private copyExecutionContextSnapshotTx(
-    sourceDb: DatabaseSync,
-    executionId: string,
-  ): DatabaseSync {
-    const projectionDb = new DatabaseSync(':memory:');
-    projectionDb.exec(`
-      CREATE TABLE executions (
-        execution_id TEXT PRIMARY KEY,
-        session_correlation TEXT NOT NULL,
-        turn INTEGER NOT NULL,
-        lifecycle TEXT NOT NULL,
-        context_basis_json TEXT
-      );
-      CREATE TABLE execution_events (
-        execution_id TEXT NOT NULL,
-        ordinal INTEGER NOT NULL,
-        observed_at TEXT NOT NULL,
-        direction TEXT NOT NULL,
-        source TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        worker_sequence INTEGER,
-        payload_json TEXT NOT NULL,
-        PRIMARY KEY (execution_id, ordinal)
-      );
-      CREATE TABLE context_blobs (
-        digest TEXT PRIMARY KEY,
-        byte_length INTEGER NOT NULL,
-        raw_bytes BLOB NOT NULL
-      );
-      CREATE TABLE execution_context_relations (
-        execution_id TEXT NOT NULL,
-        ordinal INTEGER NOT NULL,
-        stage TEXT NOT NULL,
-        resource_kind TEXT NOT NULL,
-        logical_identity TEXT,
-        source_locator TEXT,
-        content_digest TEXT,
-        lane TEXT,
-        model_step INTEGER,
-        call_id TEXT,
-        request_ordinal INTEGER,
-        source_event_ordinal INTEGER,
-        PRIMARY KEY (execution_id, ordinal)
-      );
-      CREATE TABLE model_requests (
-        execution_id TEXT NOT NULL,
-        request_ordinal INTEGER NOT NULL,
-        evidence_id TEXT,
-        lane TEXT NOT NULL,
-        phase TEXT,
-        model_step INTEGER NOT NULL,
-        purpose TEXT NOT NULL,
-        model_selection_json TEXT,
-        request_json TEXT,
-        request_digest TEXT,
-        provider_body TEXT,
-        source_call_id TEXT,
-        PRIMARY KEY (execution_id, request_ordinal)
-      );
-      CREATE TABLE model_request_items (
-        execution_id TEXT NOT NULL,
-        request_ordinal INTEGER NOT NULL,
-        item_ordinal INTEGER NOT NULL,
-        kind TEXT NOT NULL,
-        content_digest TEXT NOT NULL,
-        relation_ordinals_json TEXT NOT NULL,
-        source_relations_json TEXT NOT NULL,
-        PRIMARY KEY (execution_id, request_ordinal, item_ordinal)
-      );
-    `);
-
-    const execution = sourceDb.prepare(`
-      SELECT execution_id, session_correlation, turn, lifecycle, context_basis_json
-      FROM executions WHERE execution_id = ?
-    `).get(executionId) as SqlRow | undefined;
-    if (execution === undefined) {
-      projectionDb.close();
-      throw new HistoryStoreError('history_io_failure');
-    }
-    projectionDb.prepare(`
-      INSERT INTO executions(
-        execution_id, session_correlation, turn, lifecycle, context_basis_json
-      ) VALUES (?, ?, ?, ?, ?)
-    `).run(
-      String(execution.execution_id),
-      String(execution.session_correlation),
-      Number(execution.turn),
-      String(execution.lifecycle),
-      execution.context_basis_json === null || execution.context_basis_json === undefined
-        ? null
-        : String(execution.context_basis_json),
-    );
-
-    const copyEvents = projectionDb.prepare(`
-      INSERT INTO execution_events(
-        execution_id, ordinal, observed_at, direction, source, kind, worker_sequence,
-        payload_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (
-      const row of sourceDb.prepare(`
-      SELECT ordinal, observed_at, direction, source, kind, worker_sequence, payload_json
-      FROM execution_events WHERE execution_id = ? ORDER BY ordinal
-    `).all(executionId) as SqlRow[]
-    ) {
-      copyEvents.run(
-        executionId,
-        Number(row.ordinal),
-        String(row.observed_at),
-        String(row.direction),
-        String(row.source),
-        String(row.kind),
-        row.worker_sequence === null || row.worker_sequence === undefined
-          ? null
-          : Number(row.worker_sequence),
-        String(row.payload_json),
-      );
-    }
-
-    const copyRelations = projectionDb.prepare(`
-      INSERT INTO execution_context_relations(
-        execution_id, ordinal, stage, resource_kind, logical_identity, source_locator,
-        content_digest, lane, model_step, call_id, request_ordinal, source_event_ordinal
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (
-      const row of sourceDb.prepare(`
-      SELECT ordinal, stage, resource_kind, logical_identity, source_locator, content_digest,
-        lane, model_step, call_id, request_ordinal, source_event_ordinal
-      FROM execution_context_relations WHERE execution_id = ? ORDER BY ordinal
-    `).all(executionId) as SqlRow[]
-    ) {
-      copyRelations.run(
-        executionId,
-        Number(row.ordinal),
-        String(row.stage),
-        String(row.resource_kind),
-        row.logical_identity === null || row.logical_identity === undefined
-          ? null
-          : String(row.logical_identity),
-        row.source_locator === null || row.source_locator === undefined
-          ? null
-          : String(row.source_locator),
-        row.content_digest === null || row.content_digest === undefined
-          ? null
-          : String(row.content_digest),
-        row.lane === null || row.lane === undefined ? null : String(row.lane),
-        row.model_step === null || row.model_step === undefined ? null : Number(row.model_step),
-        row.call_id === null || row.call_id === undefined ? null : String(row.call_id),
-        row.request_ordinal === null || row.request_ordinal === undefined
-          ? null
-          : Number(row.request_ordinal),
-        row.source_event_ordinal === null || row.source_event_ordinal === undefined
-          ? null
-          : Number(row.source_event_ordinal),
-      );
-    }
-
-    const copyRequests = projectionDb.prepare(`
-      INSERT INTO model_requests(
-        execution_id, request_ordinal, evidence_id, lane, phase, model_step, purpose,
-        model_selection_json, request_json, request_digest, provider_body, source_call_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (
-      const row of sourceDb.prepare(`
-      SELECT request_ordinal, evidence_id, lane, phase, model_step, purpose,
-        model_selection_json, request_json, request_digest, provider_body, source_call_id
-      FROM model_requests WHERE execution_id = ? ORDER BY request_ordinal
-    `).all(executionId) as SqlRow[]
-    ) {
-      copyRequests.run(
-        executionId,
-        Number(row.request_ordinal),
-        row.evidence_id === null || row.evidence_id === undefined ? null : String(row.evidence_id),
-        String(row.lane),
-        row.phase === null || row.phase === undefined ? null : String(row.phase),
-        Number(row.model_step),
-        String(row.purpose),
-        row.model_selection_json === null || row.model_selection_json === undefined
-          ? null
-          : String(row.model_selection_json),
-        row.request_json === null || row.request_json === undefined
-          ? null
-          : String(row.request_json),
-        row.request_digest === null || row.request_digest === undefined
-          ? null
-          : String(row.request_digest),
-        row.provider_body === null || row.provider_body === undefined
-          ? null
-          : String(row.provider_body),
-        row.source_call_id === null || row.source_call_id === undefined
-          ? null
-          : String(row.source_call_id),
-      );
-    }
-
-    const copyItems = projectionDb.prepare(`
-      INSERT INTO model_request_items(
-        execution_id, request_ordinal, item_ordinal, kind, content_digest,
-        relation_ordinals_json, source_relations_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    for (
-      const row of sourceDb.prepare(`
-      SELECT request_ordinal, item_ordinal, kind, content_digest,
-        relation_ordinals_json, source_relations_json
-      FROM model_request_items WHERE execution_id = ? ORDER BY request_ordinal, item_ordinal
-    `).all(executionId) as SqlRow[]
-    ) {
-      copyItems.run(
-        executionId,
-        Number(row.request_ordinal),
-        Number(row.item_ordinal),
-        String(row.kind),
-        String(row.content_digest),
-        String(row.relation_ordinals_json),
-        String(row.source_relations_json),
-      );
-    }
-
-    const copyBlobs = projectionDb.prepare(`
-      INSERT INTO context_blobs(digest, byte_length, raw_bytes) VALUES (?, ?, ?)
-    `);
-    for (
-      const row of sourceDb.prepare(`
-      SELECT DISTINCT b.digest, b.byte_length, b.raw_bytes
-      FROM context_blobs b
-      WHERE b.digest IN (
-        SELECT content_digest FROM execution_context_relations
-        WHERE execution_id = ? AND content_digest IS NOT NULL
-        UNION
-        SELECT content_digest FROM model_request_items
-        WHERE execution_id = ?
-      )
-    `).all(executionId, executionId) as SqlRow[]
-    ) {
-      const rawBytes = row.raw_bytes instanceof Uint8Array
-        ? row.raw_bytes
-        : new Uint8Array(row.raw_bytes as ArrayBuffer);
-      copyBlobs.run(String(row.digest), Number(row.byte_length), rawBytes);
-    }
-    return projectionDb;
   }
 
   listExecutionContext(executionId: string): {
@@ -4236,33 +5316,7 @@ export class SqliteHistoryStore
       if (execution === undefined) {
         throw new HistoryStoreError('history_io_failure');
       }
-      if (execution.lifecycle !== 'active') {
-        return this.readExecutionContextTx(db, executionId);
-      }
-      // Active diagnostics must expose journaled context without changing durable state. Copy a
-      // consistent SQLite snapshot first, then build the same relational projection only in the
-      // in-memory database. This keeps the live WAL available to a Worker append during a large
-      // context read.
-      db.exec('BEGIN');
-      let projectionDb: DatabaseSync | undefined;
-      try {
-        projectionDb = this.copyExecutionContextSnapshotTx(db, executionId);
-        db.exec('COMMIT');
-      } catch (error) {
-        try {
-          db.exec('ROLLBACK');
-        } catch {
-          // Preserve the original history error when rollback itself cannot run.
-        }
-        throw error;
-      }
-      try {
-        this.writeContextObservationsTx(projectionDb, executionId);
-        this.writeToolContextRelationsTx(projectionDb, executionId);
-        return this.readExecutionContextTx(projectionDb, executionId);
-      } finally {
-        projectionDb.close();
-      }
+      return this.readExecutionContextTx(db, executionId);
     } finally {
       db.close();
     }
@@ -4365,7 +5419,7 @@ export class SqliteHistoryStore
         ) throw new HistoryStoreError('history_invalid');
         db.prepare(`
           UPDATE executions SET lifecycle='settled', settled_at=?, outcome=?, adoption='non_canonical',
-            outcome_json=NULL, artifact_capture=?, evidence_capture=?, context_capture='partial'
+            artifact_capture=?, evidence_capture=?, context_capture='partial'
           WHERE execution_id=?
         `).run(
           settledAt,
@@ -4385,15 +5439,7 @@ export class SqliteHistoryStore
           ) {
             throw new HistoryStoreError('history_invalid');
           }
-          db.prepare(`
-            INSERT INTO provider_evidence(evidence_id, execution_id, schema_version, created_at, evidence_json, link_status)
-            VALUES (?, ?, 5, ?, ?, 'linked')
-          `).run(
-            evidence.evidenceId,
-            input.executionId,
-            evidence.createdAt,
-            encodeProviderEvidence(evidence),
-          );
+          this.writeEvidenceHeaderTx(db, input.executionId, evidence);
           for (const request of evidence.requests) {
             const logicalOrdinal = request.request.contextRequestOrdinal ??
               request.request.ordinal;
@@ -4418,18 +5464,7 @@ export class SqliteHistoryStore
           ) {
             throw new HistoryStoreError('history_invalid');
           }
-          db.prepare(`
-            INSERT INTO execution_artifacts(artifact_id, execution_id, settled_at, artifact_json, link_status)
-            VALUES (?, ?, ?, ?, 'linked')
-            ON CONFLICT(execution_id) DO UPDATE SET
-              artifact_id=excluded.artifact_id, settled_at=excluded.settled_at,
-              artifact_json=excluded.artifact_json, link_status=excluded.link_status
-          `).run(
-            artifact.executionId,
-            input.executionId,
-            artifact.settledAt,
-            `${encodeWorkerExecutionArtifact(artifact)}\n`,
-          );
+          this.writeArtifactTx(db, artifact);
         }
         this.appendExecutionEventTx(db, {
           executionId: input.executionId,
@@ -4520,7 +5555,7 @@ export class SqliteHistoryStore
     settlement: 'interrupted' | 'unknown',
   ): ProviderEvidenceV5 | undefined {
     const rawEvents = db.prepare(`
-      SELECT kind, payload_json FROM execution_events
+      SELECT execution_id, ordinal, kind, payload_json FROM execution_observations
       WHERE execution_id = ? AND kind IN (
         'provider_request_start', 'provider_response_start', 'provider_response_bytes',
         'provider_sse_event', 'provider_parser_transition', 'runtime_event'
@@ -4536,10 +5571,25 @@ export class SqliteHistoryStore
     };
     const records = new Map<number, PartialRecord>();
     const runtimeEvents: ProviderEvidenceRuntimeEvent[] = [];
+    const recordRuntimeEvent = (event: ProviderEvidenceRuntimeEvent): void => {
+      const index = runtimeEvents.findIndex((existing) =>
+        event.kind === 'assistant_progress'
+          ? existing.kind === 'assistant_progress' &&
+            existing.modelStep === event.modelStep && existing.lane === event.lane &&
+            existing.requestOrdinal === event.requestOrdinal
+          : event.kind === 'tool_progress'
+          ? existing.kind === 'tool_progress' && existing.callId === event.callId &&
+            existing.name === event.name && existing.modelStep === event.modelStep &&
+            existing.lane === event.lane && existing.requestOrdinal === event.requestOrdinal
+          : false
+      );
+      if (index < 0) runtimeEvents.push(structuredClone(event));
+      else runtimeEvents[index] = structuredClone(event);
+    };
     for (const raw of rawEvents) {
       let payload: unknown;
       try {
-        payload = JSON.parse(String(raw.payload_json));
+        payload = this.eventPayloadTx(db, raw);
       } catch {
         throw new HistoryStoreError('history_invalid');
       }
@@ -4555,9 +5605,7 @@ export class SqliteHistoryStore
           ) {
             throw new HistoryStoreError('history_invalid');
           }
-          runtimeEvents.push(structuredClone(payloadRecord.observation.event));
-        } else if (payloadRecord.kind !== 'runtime_event') {
-          throw new HistoryStoreError('history_invalid');
+          recordRuntimeEvent(payloadRecord.observation.event);
         }
         continue;
       }
@@ -4693,7 +5741,9 @@ export class SqliteHistoryStore
           request: {
             ...record
               .request as unknown as ProviderEvidenceRequestRecord['request'],
-            contextRequestOrdinal: Number(record.request.ordinal),
+            contextRequestOrdinal: Number(
+              record.request.contextRequestOrdinal ?? record.request.ordinal,
+            ),
           },
           ...(response === undefined ? {} : {
             response: response as unknown as ProviderEvidenceRequestRecord['response'],
@@ -4737,7 +5787,7 @@ export class SqliteHistoryStore
     const row = rows[0];
     if (row === undefined) return undefined;
     const sent = db.prepare(`
-      SELECT 1 FROM execution_events
+      SELECT 1 FROM execution_observations
       WHERE execution_id = ? AND kind = 'turn_dispatch_sent' LIMIT 1
     `).get(String(row.execution_id));
     return { row, settlement: sent === undefined ? 'unknown' : 'interrupted' };
@@ -4785,7 +5835,7 @@ export class SqliteHistoryStore
         let sent: SqlRow | undefined;
         try {
           sent = sentDb.prepare(
-            `SELECT 1 FROM execution_events WHERE execution_id=? AND kind='turn_dispatch_sent' LIMIT 1`,
+            `SELECT 1 FROM execution_observations WHERE execution_id=? AND kind='turn_dispatch_sent' LIMIT 1`,
           ).get(id) as SqlRow | undefined;
         } finally {
           sentDb.close();
@@ -4848,16 +5898,16 @@ export class SqliteHistoryStore
           active.instance_correlation !== (input.instanceCorrelation ?? null) ||
           active.worker_generation !== (input.workerGeneration ?? null)
         ) throw new HistoryStoreError('history_invalid');
+        this.writeOutcomeTx(db, input.executionId, input.outcome);
         this.writeRecord(db, input.record);
         db.prepare(`
           UPDATE executions SET canonical_session_id = ?, settled_at = ?, lifecycle = 'settled',
-            outcome = 'completed', adoption = 'canonical', committed_revision = ?, outcome_json = ?
+            outcome = 'completed', adoption = 'canonical', committed_revision = ?
           WHERE execution_id = ?
         `).run(
           input.record.sessionId,
           input.record.updatedAt,
           input.record.stateRevision,
-          JSON.stringify(input.outcome),
           input.executionId,
         );
         const index = causalTranscriptIndex(input.record.transcript);
@@ -4887,23 +5937,10 @@ export class SqliteHistoryStore
           JSON.stringify(turnExecution.build),
           JSON.stringify(turnExecution.definition),
         );
-        const insertMessage = db.prepare(`
-          INSERT INTO canonical_messages(
-            session_id, turn, ordinal, execution_id, session_ordinal, message_json
-          ) VALUES (?, ?, ?, ?, ?, ?)
-        `);
-        input.record.transcript.slice(range.start, range.end).forEach(
-          (message, ordinal) => {
-            insertMessage.run(
-              input.record.sessionId,
-              input.turn,
-              ordinal,
-              input.executionId,
-              range.start + ordinal,
-              JSON.stringify(message),
-            );
-          },
-        );
+        if (
+          JSON.stringify(input.outcome.transcript) !==
+            JSON.stringify(input.record.transcript)
+        ) throw new HistoryStoreError('history_invalid');
         this.writeProjection(db, input.executionId, input.recalledContext);
         if (
           input.agent !== input.record.agent ||
@@ -4933,16 +5970,7 @@ export class SqliteHistoryStore
             artifact.acknowledgement !== 'not_sent' ||
             artifact.settlement !== 'committed_observation_pending'
           ) throw new HistoryStoreError('history_invalid');
-          db.prepare(`
-            INSERT INTO execution_artifacts(
-              artifact_id, execution_id, settled_at, artifact_json, link_status
-            ) VALUES (?, ?, ?, ?, 'linked')
-          `).run(
-            artifact.executionId,
-            artifact.executionId,
-            artifact.settledAt,
-            `${encodeWorkerExecutionArtifact(artifact)}\n`,
-          );
+          this.writeArtifactTx(db, artifact);
           artifactCapture = 'pending_observation';
         }
         db.prepare(`
@@ -4960,10 +5988,10 @@ export class SqliteHistoryStore
         // Settlement is itself an observation. It is intentionally appended after the
         // canonical transaction's domain rows are present and never drives transcript replay.
         db.prepare(`
-          INSERT INTO execution_events(
+          INSERT INTO execution_observations(
             execution_id, ordinal, observed_at, direction, source, kind, worker_sequence, payload_json
           ) SELECT execution_id, coalesce(max(ordinal), 0) + 1, ?, 'host_to_worker', 'host',
-            'execution_settled', NULL, ? FROM execution_events WHERE execution_id = ?
+            'execution_settled', NULL, ? FROM execution_observations WHERE execution_id = ?
         `).run(
           input.record.updatedAt,
           JSON.stringify({ outcome: 'completed', adoption: 'canonical' }),
@@ -5022,13 +6050,13 @@ export class SqliteHistoryStore
           admitted.worker_generation !== (input.workerGeneration ?? null)
         ) throw new HistoryStoreError('history_invalid');
         const settledAt = new Date().toISOString();
+        this.writeOutcomeTx(db, input.executionId, input.outcome);
         db.prepare(`
           UPDATE executions SET settled_at = ?, lifecycle = 'settled', outcome = ?,
-            adoption = 'non_canonical', outcome_json = ? WHERE execution_id = ?
+            adoption = 'non_canonical' WHERE execution_id = ?
         `).run(
           settledAt,
           normalizedOutcome(input.outcome),
-          JSON.stringify(input.outcome),
           input.executionId,
         );
         this.writeProjection(db, input.executionId, input.recalledContext);
@@ -5058,16 +6086,7 @@ export class SqliteHistoryStore
             artifact.schemaVersion !== 5 ||
             !this.artifactMatchesInput(artifact, input)
           ) throw new HistoryStoreError('history_invalid');
-          db.prepare(`
-            INSERT INTO execution_artifacts(
-              artifact_id, execution_id, settled_at, artifact_json, link_status
-            ) VALUES (?, ?, ?, ?, 'linked')
-          `).run(
-            artifact.executionId,
-            artifact.executionId,
-            artifact.settledAt,
-            `${encodeWorkerExecutionArtifact(artifact)}\n`,
-          );
+          this.writeArtifactTx(db, artifact);
           db.prepare(`
             UPDATE executions SET settled_at = ?, acknowledgement = ?,
               generation_availability = ?, artifact_capture = 'yes', context_capture = ?
@@ -5090,10 +6109,10 @@ export class SqliteHistoryStore
           `).run(settledAt, input.executionId);
         }
         db.prepare(`
-          INSERT INTO execution_events(
+          INSERT INTO execution_observations(
             execution_id, ordinal, observed_at, direction, source, kind, worker_sequence, payload_json
           ) SELECT execution_id, coalesce(max(ordinal), 0) + 1, ?, 'host_to_worker', 'host',
-            'execution_settled', NULL, ? FROM execution_events WHERE execution_id = ?
+            'execution_settled', NULL, ? FROM execution_observations WHERE execution_id = ?
         `).run(
           settledAt,
           JSON.stringify({
@@ -5118,7 +6137,7 @@ export class SqliteHistoryStore
         e.session_correlation, e.turn, e.created_at, e.settled_at, e.lifecycle,
         e.outcome, e.adoption, e.base_revision, e.committed_revision, e.agent,
         e.model_json, e.build_json, e.definition_json, e.manifest_json,
-        e.instance_correlation, e.worker_generation, e.outcome_json,
+        e.instance_correlation, e.worker_generation,
         e.acknowledgement,
         (SELECT evidence_id FROM provider_evidence WHERE execution_id = e.execution_id
           ORDER BY created_at, evidence_id LIMIT 1) AS provider_evidence_id,
@@ -5198,7 +6217,7 @@ export class SqliteHistoryStore
         limit,
       ) as SqlRow[];
     }
-    return rows.map((row) => this.executionFromRow(row));
+    return rows.map((row) => this.executionFromRow(db, row));
   }
 
   private humanEventsTx(db: DatabaseSync, executionId: string): StoredExecutionEvent[] {
@@ -5206,11 +6225,11 @@ export class SqliteHistoryStore
     return (db.prepare(`
       SELECT execution_id, ordinal, observed_at, direction, source, kind,
         worker_sequence, payload_json
-      FROM execution_events WHERE execution_id = ? ORDER BY ordinal
+      FROM execution_observations WHERE execution_id = ? ORDER BY ordinal
     `).all(executionId) as SqlRow[]).map((row) => {
       let payload: JsonValue;
       try {
-        payload = JSON.parse(String(row.payload_json));
+        payload = this.eventPayloadTx(db, row);
       } catch {
         throw new HistoryStoreError('history_invalid');
       }
@@ -5228,14 +6247,36 @@ export class SqliteHistoryStore
       if (event.executionId !== executionId || event.ordinal !== ++expectedOrdinal) {
         throw new HistoryStoreError('history_invalid');
       }
-      this.validateExecutionEventInput({
-        executionId: event.executionId,
-        direction: event.direction,
-        source: event.source,
-        kind: event.kind,
-        ...(event.workerSequence === undefined ? {} : { workerSequence: event.workerSequence }),
-        payload: event.payload,
-      } as ExecutionEventInput);
+      const compactMarker = validJsonObject(event.payload) && (
+        event.kind === 'execution_admitted' &&
+          validText(event.payload.taskId) &&
+          event.payload.executionId === executionId &&
+          validText(event.payload.sessionCorrelation) &&
+          validPositiveInteger(event.payload.turn) &&
+          event.payload.task === undefined ||
+        (event.kind === 'turn_dispatch_requested' ||
+            event.kind === 'turn_dispatch_sent') &&
+          event.payload.task === undefined ||
+        event.kind === 'runtime_event' &&
+          event.payload.kind === 'commit_proposal' &&
+          validCorrelation(event.payload.correlation) &&
+          validPositiveInteger(event.payload.nextTurn) &&
+          event.payload.transcript === undefined ||
+        event.kind === 'runtime_event' &&
+          event.payload.kind === 'turn_failed' &&
+          validCorrelation(event.payload.correlation) &&
+          event.payload.outcome === undefined
+      );
+      if (!compactMarker) {
+        this.validateExecutionEventInput({
+          executionId: event.executionId,
+          direction: event.direction,
+          source: event.source,
+          kind: event.kind,
+          ...(event.workerSequence === undefined ? {} : { workerSequence: event.workerSequence }),
+          payload: event.payload,
+        } as ExecutionEventInput);
+      }
       return event;
     });
   }
@@ -5283,11 +6324,18 @@ export class SqliteHistoryStore
         ) as SqlRow).count,
     );
     const canonicalMessages = (db.prepare(`
-      SELECT ordinal, message_json FROM canonical_messages
-      WHERE execution_id = ? ORDER BY ordinal
-    `).all(execution.executionId) as SqlRow[]).map((row) => ({
+      SELECT m.execution_id, m.ordinal, m.source_kind,
+        m.source_observation_ordinals_json,
+        m.content_digest, t.task_text
+      FROM execution_messages m JOIN executions e
+        ON e.execution_id = m.execution_id
+      JOIN tasks t ON t.task_id = e.task_id
+      WHERE m.execution_id = ? AND EXISTS (
+        SELECT 1 FROM canonical_turns WHERE execution_id = ?
+      ) ORDER BY m.ordinal
+    `).all(execution.executionId, execution.executionId) as SqlRow[]).map((row) => ({
       ordinal: Number(row.ordinal),
-      message: parseCanonicalMessage(row.message_json),
+      message: this.messageFromRow(db, row),
     }));
     const projectionRow = db.prepare(`
       SELECT projection_kind, source_execution_id, projected_text, link_status
@@ -5438,24 +6486,45 @@ export class SqliteHistoryStore
       if (!Number.isSafeInteger(ordinal) || ordinal < 0) {
         throw new HistoryStoreError('history_invalid');
       }
-      return exactJson(
-        'canonical message',
-        db.prepare(`
-        SELECT session_id, turn, ordinal, execution_id, session_ordinal, message_json
-        FROM canonical_messages WHERE execution_id = ? AND ordinal = ?
-      `).get(executionId, ordinal) as SqlRow | undefined,
-      );
+      const row = db.prepare(`
+        SELECT m.execution_id, m.ordinal, m.session_ordinal, m.source_kind,
+          m.source_observation_ordinals_json, m.content_digest, t.task_text
+        FROM execution_messages m JOIN executions e ON e.execution_id = m.execution_id
+        JOIN tasks t ON t.task_id = e.task_id
+        WHERE m.execution_id = ? AND m.ordinal = ?
+      `).get(executionId, ordinal) as SqlRow | undefined;
+      if (row === undefined) throw new HistoryStoreError('history_io_failure');
+      return exactJson('canonical message', {
+        execution_id: row.execution_id,
+        ordinal: row.ordinal,
+        session_ordinal: row.session_ordinal,
+        source_kind: row.source_kind,
+        source_observation_ordinals_json: row.source_observation_ordinals_json,
+        content_digest: row.content_digest,
+        message: this.messageFromRow(db, row) as unknown as JsonValue,
+      });
     }
     if (parts[0] === 'event') {
       const ordinal = Number(parts[2]);
-      return exactJson(
-        'execution event',
-        db.prepare(`
+      if (!Number.isSafeInteger(ordinal) || ordinal < 1) {
+        throw new HistoryStoreError('history_invalid');
+      }
+      const row = db.prepare(`
         SELECT execution_id, ordinal, observed_at, direction, source, kind,
-          worker_sequence, payload_json FROM execution_events
+          worker_sequence, payload_json FROM execution_observations
         WHERE execution_id = ? AND ordinal = ?
-      `).get(executionId, ordinal) as SqlRow | undefined,
-      );
+      `).get(executionId, ordinal) as SqlRow | undefined;
+      if (row === undefined) throw new HistoryStoreError('history_io_failure');
+      return exactJson('execution event', {
+        execution_id: row.execution_id,
+        ordinal: row.ordinal,
+        observed_at: row.observed_at,
+        direction: row.direction,
+        source: row.source,
+        kind: row.kind,
+        worker_sequence: row.worker_sequence,
+        payload: this.eventPayloadTx(db, row),
+      });
     }
     if (parts[0] === 'effect') {
       return exactJson(
@@ -5496,16 +6565,17 @@ export class SqliteHistoryStore
     const id = parts.slice(2).join(':');
     if (parts[0] === 'evidence') {
       const row = db.prepare(`
-        SELECT evidence_id, execution_id, schema_version, created_at, evidence_json, link_status
-        FROM provider_evidence WHERE execution_id = ? AND evidence_id = ?
+        SELECT * FROM provider_evidence WHERE execution_id = ? AND evidence_id = ?
       `).get(executionId, id) as SqlRow | undefined;
       if (row === undefined) throw new HistoryStoreError('history_io_failure');
       try {
-        this.evidenceFromRow(row);
+        return {
+          title: 'provider evidence',
+          text: JSON.stringify(this.evidenceFromRow(db, row), null, 2),
+        };
       } catch {
         throw new HistoryStoreError('history_invalid');
       }
-      return exactJson('provider evidence', row);
     }
     if (parts[0] === 'diagnostic') {
       const row = db.prepare(`
@@ -5522,16 +6592,17 @@ export class SqliteHistoryStore
     }
     if (parts[0] === 'artifact') {
       const row = db.prepare(`
-        SELECT artifact_id, execution_id, settled_at, artifact_json, link_status
-        FROM execution_artifacts WHERE execution_id = ? AND artifact_id = ?
+        SELECT * FROM execution_artifacts WHERE execution_id = ? AND artifact_id = ?
       `).get(executionId, id) as SqlRow | undefined;
       if (row === undefined) throw new HistoryStoreError('history_io_failure');
       try {
-        this.artifactFromRow(row);
+        return {
+          title: 'execution artifact',
+          text: JSON.stringify(this.artifactFromRow(db, row), null, 2),
+        };
       } catch {
         throw new HistoryStoreError('history_invalid');
       }
-      return exactJson('execution artifact', row);
     }
     throw new HistoryStoreError('history_invalid');
   }
@@ -5745,40 +6816,87 @@ export class SqliteHistoryStore
         for (const row of rows) yield record(kind, identity(row), jsonRow(row));
       };
       yield* simple(
+        'store_metadata',
+        () => 'store-metadata',
+        db.prepare('SELECT * FROM store_metadata WHERE singleton = 1').iterate() as Iterable<
+          SqlRow
+        >,
+      );
+      yield* simple(
+        'session_model_change',
+        (row) => `model-change:${sessionId}:${row.ordinal}`,
+        db.prepare(`SELECT * FROM session_model_changes
+          WHERE session_id = ? ORDER BY ordinal`).iterate(sessionId) as Iterable<SqlRow>,
+      );
+      yield* simple(
+        'semantic_checkpoint',
+        () => `checkpoint:${sessionId}`,
+        db.prepare('SELECT * FROM semantic_checkpoints WHERE session_id = ?')
+          .iterate(sessionId) as Iterable<SqlRow>,
+      );
+      yield* simple(
         'canonical_turn',
         (row) => `turn:${row.turn}`,
         db.prepare(`
         SELECT * FROM canonical_turns WHERE session_id = ? ORDER BY turn
       `).iterate(sessionId) as Iterable<SqlRow>,
       );
-      for (
-        const row of db.prepare(`
-        SELECT * FROM canonical_messages WHERE session_id = ? ORDER BY turn, ordinal
-      `).iterate(sessionId) as Iterable<SqlRow>
-      ) {
-        parseCanonicalMessage(row.message_json);
-        yield record(
-          'canonical_message',
-          `message:${row.turn}:${row.ordinal}`,
-          jsonRow(row),
-        );
-      }
       const executions = db.prepare(`
-        SELECT e.*, t.task_text, t.admitted_at FROM executions e
-        JOIN tasks t ON t.task_id = e.task_id WHERE e.session_correlation = ?
+        SELECT e.* FROM executions e WHERE e.session_correlation = ?
         ORDER BY e.turn, e.created_at, e.execution_id
       `).iterate(sessionId) as Iterable<SqlRow>;
       const digests = new Set<string>();
+      const workerGenerations = new Set<string>();
       for (const execution of executions) {
         const executionId = String(execution.execution_id);
-        this.humanProjectionInputTx(db, this.executionFromRow(execution));
+        const task = db.prepare('SELECT * FROM tasks WHERE task_id = ?')
+          .get(String(execution.task_id)) as SqlRow | undefined;
+        if (task === undefined) throw new HistoryStoreError('history_invalid');
+        this.humanProjectionInputTx(
+          db,
+          this.executionFromRow(db, { ...execution, task_text: task.task_text }),
+        );
+        yield record('task', `task:${task.task_id}`, jsonRow(task));
         yield record('execution', `execution:${executionId}`, jsonRow(execution));
+        if (execution.worker_generation !== null) {
+          workerGenerations.add(String(execution.worker_generation));
+        }
         const sources: readonly [string, string, string, (row: SqlRow) => string][] = [
           [
+            'execution_outcome',
+            'SELECT * FROM execution_outcomes WHERE execution_id = ?',
+            'execution_id',
+            () => `outcome:${executionId}`,
+          ],
+          [
+            'execution_message',
+            'SELECT * FROM execution_messages WHERE execution_id = ? ORDER BY ordinal',
+            'ordinal',
+            (row) => `message:${executionId}:${row.ordinal}`,
+          ],
+          [
             'event',
-            'SELECT * FROM execution_events WHERE execution_id = ? ORDER BY ordinal',
+            'SELECT * FROM execution_observations WHERE execution_id = ? ORDER BY ordinal',
             'ordinal',
             (row) => `event:${executionId}:${row.ordinal}`,
+          ],
+          [
+            'runtime_occurrence',
+            'SELECT * FROM runtime_occurrences WHERE execution_id = ? ORDER BY observation_ordinal',
+            'observation_ordinal',
+            (row) => `runtime:${executionId}:${row.observation_ordinal}`,
+          ],
+          [
+            'provider_observation_fact',
+            'SELECT * FROM provider_observation_facts WHERE execution_id = ? ORDER BY observation_ordinal',
+            'observation_ordinal',
+            (row) => `provider:${executionId}:${row.observation_ordinal}`,
+          ],
+          [
+            'progress_delta',
+            'SELECT * FROM execution_progress_deltas WHERE execution_id = ? ORDER BY event_ordinal',
+            'event_ordinal',
+            (row) => `progress:${executionId}:${row.event_ordinal}`,
           ],
           [
             'effect',
@@ -5828,17 +6946,28 @@ export class SqliteHistoryStore
             'artifact_id',
             (row) => `artifact:${row.artifact_id}`,
           ],
+          [
+            'execution_artifact_trace_ref',
+            `SELECT r.* FROM execution_artifact_trace r
+             JOIN execution_artifacts a ON a.artifact_id = r.artifact_id
+             WHERE a.execution_id = ? ORDER BY r.artifact_id, r.ordinal`,
+            'ordinal',
+            (row) => `artifact-trace:${row.artifact_id}:${row.ordinal}`,
+          ],
         ];
         for (const [kind, sql, _key, identity] of sources) {
           for (const row of db.prepare(sql).iterate(executionId) as Iterable<SqlRow>) {
             if (kind === 'context_relation' && row.content_digest !== null) {
               digests.add(String(row.content_digest));
             }
+            if (kind === 'execution_message' && row.content_digest !== null) {
+              digests.add(String(row.content_digest));
+            }
             if (kind === 'model_request_item') digests.add(String(row.content_digest));
             try {
-              if (kind === 'provider_evidence') this.evidenceFromRow(row);
+              if (kind === 'provider_evidence') this.evidenceFromRow(db, row);
               else if (kind === 'failure_diagnostic') this.diagnosticFromRow(row);
-              else if (kind === 'execution_artifact') this.artifactFromRow(row);
+              else if (kind === 'execution_artifact') this.artifactFromRow(db, row);
             } catch {
               throw new HistoryStoreError('history_invalid');
             }
@@ -5853,6 +6982,22 @@ export class SqliteHistoryStore
             JOIN failure_diagnostics d ON d.diagnostic_id = l.diagnostic_id
             WHERE d.execution_id = ? ORDER BY l.diagnostic_id, l.evidence_id
           `).iterate(executionId) as Iterable<SqlRow>,
+        );
+      }
+      for (const generationId of [...workerGenerations].sort()) {
+        yield* simple(
+          'worker_generation',
+          (row) => `worker-generation:${row.worker_generation}`,
+          db.prepare('SELECT * FROM worker_generations WHERE worker_generation = ?')
+            .iterate(generationId) as Iterable<SqlRow>,
+        );
+        yield* simple(
+          'worker_protocol_observation',
+          (row) => `worker-observation:${generationId}:${row.observation_id}`,
+          db.prepare(`SELECT * FROM worker_protocol_observations
+            WHERE worker_generation = ? ORDER BY observation_id`).iterate(
+            generationId,
+          ) as Iterable<SqlRow>,
         );
       }
       for (const digest of [...digests].sort()) {
@@ -5911,28 +7056,7 @@ export class SqliteHistoryStore
           execution.instance_correlation !== artifact.instanceCorrelation ||
           execution.worker_generation !== artifact.workerGeneration
         ) throw new HistoryStoreError('history_invalid');
-        const encoded = `${encodeWorkerExecutionArtifact(artifact)}\n`;
-        const updated = db.prepare(`
-          UPDATE execution_artifacts
-          SET settled_at = ?, artifact_json = ?, link_status = 'linked'
-          WHERE execution_id = ?
-        `).run(
-          artifact.settledAt,
-          encoded,
-          artifact.executionId,
-        );
-        if (Number(updated.changes) === 0) {
-          db.prepare(`
-          INSERT INTO execution_artifacts(
-            artifact_id, execution_id, settled_at, artifact_json, link_status
-          ) VALUES (?, ?, ?, ?, 'linked')
-        `).run(
-              artifact.executionId,
-              artifact.executionId,
-              artifact.settledAt,
-              encoded,
-            );
-        }
+        this.writeArtifactTx(db, artifact);
         db.prepare(`
           UPDATE executions SET settled_at = ?, acknowledgement = ?,
             generation_availability = ?, artifact_capture = 'yes', context_capture = ?
@@ -5972,14 +7096,68 @@ export class SqliteHistoryStore
     }
   }
 
-  private evidenceFromRow(row: SqlRow): StoredProviderEvidence {
+  private evidenceFromRow(db: DatabaseSync, row: SqlRow): StoredProviderEvidence {
     try {
-      const evidence = decodeProviderEvidence(String(row.evidence_json));
+      const execution = db.prepare(`
+        SELECT e.*, t.task_text FROM executions e JOIN tasks t ON t.task_id = e.task_id
+        WHERE e.execution_id = ?
+      `).get(String(row.execution_id)) as SqlRow | undefined;
+      if (execution === undefined) {
+        throw new ProviderEvidenceStoreError('provider_evidence_invalid');
+      }
+      const settlement = row.capture === 'partial' && row.settlement === 'interrupted'
+        ? 'interrupted'
+        : 'unknown';
+      const observed = this.partialProviderEvidence(
+        db,
+        String(row.execution_id),
+        execution,
+        settlement,
+      );
+      if (observed === undefined && row.capture !== 'complete') {
+        throw new ProviderEvidenceStoreError('provider_evidence_invalid');
+      }
+      const common = {
+        schemaVersion: 5 as const,
+        evidenceId: String(row.evidence_id),
+        sessionId: String(execution.session_correlation),
+        build: JSON.parse(String(execution.build_json)),
+        definition: JSON.parse(String(execution.definition_json)),
+        turnNumber: Number(execution.turn),
+        createdAt: String(row.created_at),
+        requests: observed?.requests ?? [],
+        runtimeEvents: observed?.runtimeEvents ?? [],
+        ...(row.turn_provider_request_count === null ? {} : {
+          turnProviderRequestCount: Number(row.turn_provider_request_count),
+        }),
+        ...(row.runtime_provider_request_count === null ? {} : {
+          runtimeProviderRequestCount: Number(row.runtime_provider_request_count),
+        }),
+        ...(row.diagnostic_id === null ? {} : {
+          diagnosticId: String(row.diagnostic_id),
+        }),
+      };
+      const evidence: ProviderEvidenceV5 = row.capture === 'complete'
+        ? {
+          ...common,
+          capture: 'complete',
+          normalizedOutcome: row.normalized_outcome as 'completed' | 'cancelled' | 'failed',
+          outcome: row.outcome as
+            | 'final'
+            | 'tool_terminal'
+            | 'cancelled'
+            | 'max_steps'
+            | 'contract_failure',
+        }
+        : {
+          ...common,
+          capture: 'partial',
+          normalizedOutcome: row.normalized_outcome as 'interrupted' | 'unknown',
+          settlement: row.settlement as 'interrupted' | 'unknown',
+        };
       if (
-        evidence.schemaVersion !== 5 ||
-        row.evidence_id !== evidence.evidenceId ||
-        Number(row.schema_version) !== evidence.schemaVersion ||
-        row.created_at !== evidence.createdAt
+        Number(row.schema_version) !== 5 || row.link_status !== 'linked' ||
+        !validateProviderEvidence(evidence)
       ) throw new ProviderEvidenceStoreError('provider_evidence_invalid');
       return evidence;
     } catch {
@@ -5987,19 +7165,162 @@ export class SqliteHistoryStore
     }
   }
 
-  private artifactFromRow(row: SqlRow): StoredWorkerExecutionArtifact {
+  private artifactFromRow(
+    db: DatabaseSync,
+    row: SqlRow,
+  ): StoredWorkerExecutionArtifact {
     try {
-      const artifact = decodeWorkerExecutionArtifact(String(row.artifact_json));
-      if (
-        artifact.schemaVersion !== 5 ||
-        row.artifact_id !== artifact.executionId ||
-        row.execution_id !== artifact.executionId ||
-        row.settled_at !== artifact.settledAt
-      ) {
-        throw new WorkerExecutionArtifactStoreError(
-          'worker_execution_artifact_invalid',
-        );
+      const execution = db.prepare(`
+        SELECT e.*, t.task_text FROM executions e JOIN tasks t ON t.task_id = e.task_id
+        WHERE e.execution_id = ?
+      `).get(String(row.execution_id)) as SqlRow | undefined;
+      if (execution === undefined || execution.manifest_json === null) {
+        throw new Error('artifact execution missing');
       }
+      const protocolTrace = (db.prepare(`
+        SELECT r.ordinal, o.* FROM execution_artifact_trace r
+        JOIN worker_protocol_observations o
+          ON o.observation_id = r.observation_id
+        WHERE r.artifact_id = ? ORDER BY r.ordinal
+      `).all(String(row.artifact_id)) as SqlRow[]).map((trace, index) => {
+        if (Number(trace.ordinal) !== index + 1) throw new Error('artifact trace gap');
+        return {
+          direction: trace.direction as 'host_to_worker' | 'worker_to_host',
+          kind: String(
+            trace.kind,
+          ) as import('../worker/worker_protocol.ts').WorkerHostCommand['kind'],
+          semanticSubtype: String(trace.semantic_subtype),
+          sequence: index + 1,
+          correlation: {
+            session: String(trace.correlation_session),
+            instanceCorrelation: String(trace.instance_correlation),
+            workerGeneration: String(trace.worker_generation),
+            baseStateRevision: Number(trace.base_revision),
+            command: String(trace.correlation_command),
+          },
+          ...(trace.ack_accepted === null ? {} : {
+            ackAccepted: Number(trace.ack_accepted) === 1,
+          }),
+        };
+      });
+      const projection = db.prepare(`
+        SELECT source_execution_id, projected_text FROM execution_projections
+        WHERE execution_id = ?
+      `).get(String(row.execution_id)) as SqlRow | undefined;
+      const command = {
+        kind: 'turn' as const,
+        correlation: {
+          session: String(row.command_session),
+          instanceCorrelation: String(row.command_instance_correlation),
+          workerGeneration: String(row.command_worker_generation),
+          baseStateRevision: Number(row.command_base_revision),
+          command: String(row.command_id),
+        },
+        task: String(execution.task_text),
+      };
+      const common = {
+        schemaVersion: 5 as const,
+        contextCapture: row.context_capture as WorkerExecutionArtifactV5['contextCapture'],
+        executionId: String(row.execution_id),
+        createdAt: String(execution.created_at),
+        settledAt: String(row.settled_at),
+        sessionId: String(execution.session_correlation),
+        turn: Number(execution.turn),
+        agent: execution.agent as 'default' | 'planner',
+        instanceCorrelation: String(execution.instance_correlation),
+        workerGeneration: String(execution.worker_generation),
+        build: JSON.parse(String(execution.build_json)),
+        definition: JSON.parse(String(execution.definition_json)),
+        manifest: JSON.parse(String(execution.manifest_json)),
+        command,
+        ...(projection === undefined ? {} : {
+          recall: {
+            schemaVersion: 1 as const,
+            sourceExecutionId: String(projection.source_execution_id),
+            projectedContext: String(projection.projected_text),
+          },
+        }),
+        baseStateRevision: Number(execution.base_revision),
+        ...(row.proposed_revision === null ? {} : {
+          proposedStateRevision: Number(row.proposed_revision),
+        }),
+        ...(row.committed_revision === null ? {} : {
+          committedStateRevision: Number(row.committed_revision),
+        }),
+        protocolTrace,
+        ...(row.provider_evidence_id === null ? {} : {
+          providerEvidenceId: String(row.provider_evidence_id),
+        }),
+        ...(row.provider_evidence_durability === null ? {} : {
+          providerEvidenceDurability: String(row.provider_evidence_durability) as
+            | 'yes'
+            | 'failed'
+            | 'unknown',
+        }),
+        ...(row.provider_evidence_error === null ? {} : {
+          providerEvidencePersistenceError: String(row.provider_evidence_error),
+        }),
+        storeResult: row.store_result as WorkerExecutionArtifactV5['storeResult'],
+        ...(row.store_error === null ? {} : {
+          storeError: String(row.store_error) as
+            | 'session_io_failure'
+            | 'session_invalid'
+            | 'history_busy',
+        }),
+        acknowledgement: row.acknowledgement as WorkerExecutionArtifactV5['acknowledgement'],
+        settlement: row.settlement as WorkerExecutionArtifactV5['settlement'],
+        lifecycle: 'settled' as const,
+        normalizedOutcome: row.normalized_outcome as WorkerExecutionArtifactV5['normalizedOutcome'],
+        adoption: row.adoption as WorkerExecutionArtifactV5['adoption'],
+      };
+      const executionOutcome = this.readOutcomeTx(db, execution);
+      const artifactOutcome = executionOutcome === undefined ? undefined : {
+        ok: executionOutcome.ok,
+        outcome: executionOutcome.outcome,
+        stopReason: executionOutcome.stopReason,
+        ...(executionOutcome.finalText === undefined
+          ? {}
+          : { finalText: executionOutcome.finalText }),
+        ...(executionOutcome.terminalKind === undefined
+          ? {}
+          : { terminalKind: executionOutcome.terminalKind }),
+        ...(executionOutcome.error === undefined ? {} : { error: executionOutcome.error }),
+        steps: executionOutcome.steps,
+        toolCallCount: executionOutcome.toolCallCount,
+        toolResultCount: executionOutcome.toolResultCount,
+        ...(executionOutcome.turnProviderRequestCount === undefined
+          ? {}
+          : { turnProviderRequestCount: executionOutcome.turnProviderRequestCount }),
+        ...(executionOutcome.runtimeProviderRequestCount === undefined
+          ? {}
+          : { runtimeProviderRequestCount: executionOutcome.runtimeProviderRequestCount }),
+      };
+      const artifact: WorkerExecutionArtifactV5 = artifactOutcome === undefined
+        ? {
+          ...common,
+          effectCommitRelation: 'not_transactional',
+          automaticReplay: false,
+          ...(row.artifact_persistence_error === null ? {} : {
+            artifactPersistenceError: String(row.artifact_persistence_error) as
+              | 'worker_execution_artifact_io_failure'
+              | 'worker_execution_artifact_invalid',
+          }),
+        } as WorkerExecutionArtifactV5
+        : {
+          ...common,
+          outcome: artifactOutcome,
+          effectCommitRelation: 'not_transactional',
+          automaticReplay: false,
+          ...(row.artifact_persistence_error === null ? {} : {
+            artifactPersistenceError: String(row.artifact_persistence_error) as
+              | 'worker_execution_artifact_io_failure'
+              | 'worker_execution_artifact_invalid',
+          }),
+        } as WorkerExecutionArtifactV5;
+      if (
+        row.artifact_id !== artifact.executionId || row.link_status !== 'linked' ||
+        !validateWorkerExecutionArtifact(artifact)
+      ) throw new Error('artifact invalid');
       return artifact;
     } catch {
       throw new WorkerExecutionArtifactStoreError(
@@ -6027,9 +7348,8 @@ export class SqliteHistoryStore
     const db = this.openSynchronousDatabase();
     try {
       return (db.prepare(
-        `SELECT evidence_id, schema_version, created_at, evidence_json
-         FROM provider_evidence ORDER BY created_at, evidence_id`,
-      ).all() as SqlRow[]).map((row) => this.evidenceFromRow(row));
+        `SELECT * FROM provider_evidence ORDER BY created_at, evidence_id`,
+      ).all() as SqlRow[]).map((row) => this.evidenceFromRow(db, row));
     } finally {
       db.close();
     }
@@ -6038,14 +7358,12 @@ export class SqliteHistoryStore
   _readEvidence(id: string): StoredProviderEvidence {
     const db = this.openSynchronousDatabase();
     try {
-      const row = db.prepare(`
-        SELECT evidence_id, schema_version, created_at, evidence_json
-        FROM provider_evidence WHERE evidence_id = ?
-      `).get(id) as SqlRow | undefined;
+      const row = db.prepare(`SELECT * FROM provider_evidence WHERE evidence_id = ?`)
+        .get(id) as SqlRow | undefined;
       if (row === undefined) {
         throw new ProviderEvidenceStoreError('provider_evidence_not_found');
       }
-      return this.evidenceFromRow(row);
+      return this.evidenceFromRow(db, row);
     } finally {
       db.close();
     }
@@ -6070,9 +7388,8 @@ export class SqliteHistoryStore
     const db = this.openSynchronousDatabase();
     try {
       return (db.prepare(
-        `SELECT artifact_id, execution_id, settled_at, artifact_json
-         FROM execution_artifacts ORDER BY settled_at, artifact_id`,
-      ).all() as SqlRow[]).map((row) => this.artifactFromRow(row));
+        `SELECT * FROM execution_artifacts ORDER BY settled_at, artifact_id`,
+      ).all() as SqlRow[]).map((row) => this.artifactFromRow(db, row));
     } finally {
       db.close();
     }
@@ -6081,16 +7398,14 @@ export class SqliteHistoryStore
   _readArtifact(id: string): StoredWorkerExecutionArtifact {
     const db = this.openSynchronousDatabase();
     try {
-      const row = db.prepare(
-        `SELECT artifact_id, execution_id, settled_at, artifact_json
-         FROM execution_artifacts WHERE artifact_id = ?`,
-      ).get(id) as SqlRow | undefined;
+      const row = db.prepare('SELECT * FROM execution_artifacts WHERE artifact_id = ?')
+        .get(id) as SqlRow | undefined;
       if (row === undefined) {
         throw new WorkerExecutionArtifactStoreError(
           'worker_execution_artifact_not_found',
         );
       }
-      return this.artifactFromRow(row);
+      return this.artifactFromRow(db, row);
     } finally {
       db.close();
     }

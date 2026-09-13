@@ -663,13 +663,20 @@ Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the 
     });
     const effect = await capsule.waitForMessage((message): message is Extract<
       WorkerToHostMessage,
-      { kind: 'effect_observation' }
-    > => message.kind === 'effect_observation');
-    assertEquals(effect.effect.kind, 'tool_call');
-    if (effect.effect.kind !== 'tool_call') {
+      { kind: 'provider_observation' }
+    > =>
+      message.kind === 'provider_observation' &&
+      message.observation.kind === 'runtime_event' &&
+      message.observation.event.kind === 'tool_call'
+    );
+    assertEquals(effect.observation.kind, 'runtime_event');
+    if (
+      effect.observation.kind !== 'runtime_event' ||
+      effect.observation.event.kind !== 'tool_call'
+    ) {
       throw new Error('expected tool call');
     }
-    assertEquals(effect.effect.call.name, 'delegate_to_planner');
+    assertEquals(effect.observation.event.call.name, 'delegate_to_planner');
     const proposal = await capsule.waitForMessage(isCommitProposal);
     capsule.send({
       kind: 'commit_acknowledgement',

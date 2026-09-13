@@ -181,7 +181,9 @@ const orderedTrace = (artifact: StoredWorkerExecutionArtifact): boolean => {
     find((entry) => entry.semanticSubtype === 'module_imported') &&
     find((entry) => entry.semanticSubtype === 'ready') &&
     find((entry) => entry.semanticSubtype === 'turn') &&
-    find((entry) => entry.kind === 'effect_observation') &&
+    find((entry) =>
+      entry.kind === 'provider_observation' && entry.semanticSubtype === 'runtime_event'
+    ) &&
     find((entry) => entry.semanticSubtype === 'commit_proposal') &&
     find((entry) =>
       entry.semanticSubtype === 'commit_acknowledgement' && entry.ackAccepted === true
@@ -203,10 +205,13 @@ const requestMatchesProduction = (record: StoredProviderEvidence['requests'][num
     record.request.requestMetadata.api !== ROOT_DEFAULT_MODEL_SELECTION.api ||
     record.request.requestMetadata.modelId !== ROOT_DEFAULT_MODEL_SELECTION.modelId ||
     record.request.requestMetadata.authProfile !== ROOT_DEFAULT_MODEL_SELECTION.authProfile ||
+    record.request.requestMetadata.effort !== ROOT_DEFAULT_MODEL_SELECTION.effort ||
+    record.request.contextRequestOrdinal !== record.request.ordinal ||
     record.request.requestMetadata.protocol !== 'sse'
   ) return false;
   const requestKeys = Object.keys(record.request).sort();
   const expectedRequestKeys = [
+    'contextRequestOrdinal',
     'endpoint',
     'lane',
     'method',
@@ -226,6 +231,7 @@ const requestMatchesProduction = (record: StoredProviderEvidence['requests'][num
     'api',
     'authProfile',
     'contentType',
+    'effort',
     'modelId',
     'origin',
     'protocol',
