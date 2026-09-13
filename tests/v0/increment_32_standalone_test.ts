@@ -2,7 +2,7 @@ import {
   builtinDefinitionRef,
   isDefinitionRevisionRef,
 } from '../../v0/agent/definitions/managed_resource_ref.ts';
-import { discoverSkills } from '../../v0/agent/definitions/skills.ts';
+import { discoverSkills, MAX_SKILL_DESCRIPTION_BYTES } from '../../v0/agent/definitions/skills.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
@@ -127,6 +127,22 @@ Deno.test('Increment 32 discovers workspace and user Skills in Zot-compatible pr
         { name: 'shared', description: 'workspace zot' },
       ],
     );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 45 accepts a one KiB native Skill description', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-45-skill-description-' });
+  const workspace = `${root}/workspace`;
+  const description = 'a'.repeat(MAX_SKILL_DESCRIPTION_BYTES);
+  await Deno.mkdir(workspace);
+  try {
+    await installSkill(`${workspace}/.agents/skills`, 'long-description', description);
+    const catalog = await discoverSkills(workspace, undefined, {});
+    assertEquals(catalog.skills.map((skill) => skill.name), ['long-description']);
+    assertEquals(catalog.skills[0].description, description);
+    assert(catalog.manifest?.includes(description));
   } finally {
     await Deno.remove(root, { recursive: true });
   }

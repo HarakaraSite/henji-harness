@@ -13,9 +13,11 @@
   revision transition・構成可能なcontext / loopを区別する説明へ修正した。追加release testは利用者判断で
   実施せず、authoritative `v0:gate`全272 testを通したcommit `c6ad7330`を`origin/main`へpushした。
   `@henji/harness@0.1.2`はJSRへpublish済みで、metadataのlatest versionとexact importを確認した。VMの
-  `~/.local/bin/henji`もrelease commit `c6ad7330`からbuildしたv0.1.2へ置換し、versionを確認した。
-- 次: v0.1.2を通常利用し、`docs/experience/normal-use-inbox.md`から次Increment候補を選定する。
-- 正本: `docs/increments/increment-44.md`、`README.md`、`mod.ts`、`jsr.json`、
+  `~/.local/bin/henji`もrelease commit `c6ad7330`からbuildしたv0.1.2へ置換し、versionを確認した。Increment 45で
+  native Skill description上限を160 bytesから1 KiBへ広げ、観測済みの長いdescriptionを持つ実Skillがすべて
+  discoveryされることを確認した。Increment 45の差分は未commit・未releaseである。
+- 次: Increment 45の差分を確認し、指示があればcommitと次releaseを行う。
+- 正本: `docs/increments/increment-44.md`、`docs/increments/increment-45.md`、`README.md`、`mod.ts`、`jsr.json`、
   `docs/operations/jsr-publish.md`、`docs/experience/normal-use-inbox.md`。
 - 注意: 既存SQLite・旧JSON dataは変更・削除していない。architecture・roadmap・構想の変更、Git tag、Forgejo
-  Releaseは実施していない。
+  Releaseは実施していない。導入済みv0.1.2には未commitのIncrement 45を含まない。

@@ -25,7 +25,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
-| A8 | Agent実行 | native Skill descriptionの受理上限 | 実際に使うSkillがdescription長だけでdiscoveryから消える |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -201,19 +200,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   durable child lifecycle、LangGraphのfuture/checkpointを補助参照にできる。調査結果だけではarchitecture・
   roadmapへの採用を意味しない。詳細は
   [`async-parallel-subagent-reference-comparison.md`](../research/async-parallel-subagent-reference-comparison.md)。
-
-### A8 — native Skill descriptionの受理上限（F02、F03、F06）
-
-- 観測: Henjiはnative `SKILL.md`のdescriptionをUTF-8で160 bytesに制限し、超過したskillをdiagnosticなしで
-  discovery結果から除外する。実環境では`handoff-read`の158 bytesだけが受理され、`handoff-write`の176 bytes、
-  `playwright-e2e`の370 bytes、`apply-forgejo-go-release-profile`の575 bytesが除外された。配置やTUIの最大5件表示が
-  原因ではない。
-- 利用者判断（2026-09-13）: 160 bytesは短すぎる。description単体は1 KiBまたはそれ以上を許容する方向で検討する。
-- 候補: architecture上の固定値ではないdescription単体上限を、観測済みnative Skillを受理できる値へ改める。
-  現行のfrontmatter全体4 KiB、skill manifest全体8 KiB、callable 24件との関係を保ち、単体上限のexact値は
-  個別incrementで決める。実際に有効な外部Skillを短縮してfixture側へ合わせない。
-- 再検討条件: native Skill discoveryのproduct bugとして修正するincrementを採用するとき、または`/rebuild`で
-  Skill catalogのselection/activationを扱うとき。
 
 ## F24・自己改訂
 

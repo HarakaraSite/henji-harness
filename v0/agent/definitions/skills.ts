@@ -13,7 +13,7 @@ export const MAX_CALLABLE_SKILLS = 24;
 export const MAX_SKILL_RESULTS_BYTES = 512 * 1024;
 export const MAX_SKILL_MANIFEST_BYTES = 8 * 1024;
 export const MAX_SKILL_FRONTMATTER_BYTES = 4 * 1024;
-export const MAX_SKILL_DESCRIPTION_BYTES = 160;
+export const MAX_SKILL_DESCRIPTION_BYTES = 1024;
 
 const IDENTIFIER = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const MANIFEST_HEADER =
