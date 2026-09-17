@@ -67,4 +67,11 @@
 - isolated XDG rootsの実CLI processで、`install`receiptに`Full:`が無いこと、`inspect`が完全digestを返すこと、
   `uninstall`receiptが短縮revisionを表示することを確認した。実provider requestは行っていない。
 - `README.md`のHenji Instruction節を短縮digest統一に合わせて更新した。
-- 未実施: commit、push、installed binaryの置換、tag、release、publish。これらは利用者の指示がある場合だけ行う。
+- 利用者の明示指示により、実装をcommit `25325498`へ確定した。そのclean commitからbuild
+  `7998365e879c8dcd741d3a2ff3ce107315b19dee74587accccfa9d6a8466cb1b`を生成し、`dist/henji`と
+  `~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `b0823302afb1f025212e031bd4e411273b2a12eeebc881e176351a0a34f94b18`で、導入版はsource
+  `25325498b7189ed72974cc307fce32d4c884370e`、`sourceDirty=false`を返した。
+- 導入版をisolated XDG rootsで実行し、install/uninstall receiptが短縮revisionのみを表示し`Full:`行を含まない
+  こと、`active`/`deactivate`が短縮行を返すことを確認した。実provider requestは行っていない。tag、release、
+  publishは行っていない。
