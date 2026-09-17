@@ -8,6 +8,7 @@ import {
 } from './model_selection.ts';
 import { MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS } from '../../resource_limits.ts';
 import { declarationFor } from './provider_runtime.ts';
+import { bundledDefaultDeclarationFor } from './provider_defaults.ts';
 
 export type OpenRouterReasoningEffort = ReasoningEffort;
 
@@ -21,68 +22,16 @@ export interface OpenRouterModelCatalogEntry {
   readonly efforts: readonly OpenRouterReasoningEffort[];
 }
 
-const entry = (
-  modelId: string,
-  defaultEffort: OpenRouterReasoningEffort,
-  efforts: readonly OpenRouterReasoningEffort[],
-): OpenRouterModelCatalogEntry =>
-  Object.freeze({
-    modelId,
-    defaultEffort,
-    efforts: Object.freeze([...efforts]),
-  });
+const bundledOpenRouter = bundledDefaultDeclarationFor('openrouter')!;
 
-/** Repository-owned Increment 12 catalog; no provider request is needed to open the picker. */
-export const OPENROUTER_MODEL_CATALOG: readonly OpenRouterModelCatalogEntry[] = Object.freeze([
-  entry('qwen/qwen3.8-max-0902', 'xhigh', [
-    'auto',
-    'xhigh',
-    'high',
-    'medium',
-    'low',
-    'minimal',
-  ]),
-  entry('qwen/qwen3.8-flash', 'auto', ['auto']),
-  entry('deepseek/deepseek-v4.1-flash', 'high', ['auto', 'max', 'high', 'low']),
-  entry('deepseek/deepseek-v4-pro-0813', 'high', ['auto', 'max', 'high', 'low']),
-  entry('deepseek/deepseek-v4-flash-0731', 'high', ['auto', 'max', 'high', 'low']),
-  entry('openai/gpt-5.6-sol', 'medium', [
-    'auto',
-    'max',
-    'xhigh',
-    'high',
-    'medium',
-    'low',
-    'none',
-  ]),
-  entry('openai/gpt-5.6-luna', 'medium', [
-    'auto',
-    'max',
-    'xhigh',
-    'high',
-    'medium',
-    'low',
-    'none',
-  ]),
-  entry('z-ai/glm-5.3', 'max', ['auto', 'max', 'high', 'low']),
-  entry('z-ai/glm-5.3-flash', 'max', ['auto', 'max', 'high', 'low']),
-  entry('google/gemini-3.8-flash', 'medium', ['auto', 'high', 'medium', 'low']),
-  entry('meta/muse-spark-1.3', 'medium', [
-    'auto',
-    'max',
-    'xhigh',
-    'high',
-    'medium',
-    'low',
-    'minimal',
-  ]),
-  entry('x-ai/grok-4.6', 'high', ['auto', 'xhigh', 'high', 'medium', 'low']),
-]);
+/** Bundled default catalog; no provider request is needed to open the picker. */
+export const OPENROUTER_MODEL_CATALOG: readonly OpenRouterModelCatalogEntry[] =
+  bundledOpenRouter.modelCatalog.entries;
 
-export const ROOT_DEFAULT_MODEL_ID = 'deepseek/deepseek-v4.1-flash';
-export const ROOT_DEFAULT_EFFORT: OpenRouterReasoningEffort = 'high';
-export const PLANNER_DEFAULT_MODEL_ID = 'deepseek/deepseek-v4.1-flash';
-export const PLANNER_DEFAULT_EFFORT: OpenRouterReasoningEffort = 'high';
+export const ROOT_DEFAULT_MODEL_ID = bundledOpenRouter.defaults.modelId;
+export const ROOT_DEFAULT_EFFORT: OpenRouterReasoningEffort = bundledOpenRouter.defaults.effort;
+export const PLANNER_DEFAULT_MODEL_ID = ROOT_DEFAULT_MODEL_ID;
+export const PLANNER_DEFAULT_EFFORT: OpenRouterReasoningEffort = ROOT_DEFAULT_EFFORT;
 
 export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
   provider: 'openrouter',
@@ -189,6 +138,27 @@ export const searchOpenRouterModels = (
 
 const profileComponent = (value: string): string =>
   value.replaceAll('/', '-').replaceAll(/[^a-zA-Z0-9._-]/g, '-');
+
+/** Profile for a declared OpenAI-compatible Chat Completions provider. */
+export const openRouterProfileForDeclaredChat = (
+  providerId: string,
+  modelId: string,
+  effort: ReasoningEffort,
+  endpoint: string,
+  maxCompletionTokens = MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS,
+): OpenRouterAgentProfile =>
+  Object.freeze({
+    id: `${profileComponent(providerId)}-${profileComponent(modelId)}-${effort}-v1`,
+    model: modelId,
+    origin: endpoint.replace(/\/+$/u, ''),
+    path: '/chat/completions',
+    method: 'POST',
+    secretEnv: 'HENJI_OPENROUTER_API_KEY',
+    maxCompletionTokens,
+    stream: false,
+    reasoningEffortField: 'reasoning_effort',
+    ...(effort === 'auto' ? {} : { reasoningEffort: effort }),
+  });
 
 export const openRouterProfileFor = (
   selection: OpenRouterModelSelection,

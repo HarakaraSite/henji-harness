@@ -25,6 +25,8 @@ export interface OpenRouterAgentProfile {
   readonly maxCompletionTokens: number;
   readonly stream: false;
   readonly reasoningEffort?: OpenRouterExplicitReasoningEffort;
+  /** Wire field for reasoning effort; OpenAI-compatible Chat Completions uses `reasoning_effort`. */
+  readonly reasoningEffortField?: 'reasoning' | 'reasoning_effort';
 }
 
 export type OpenRouterResponseMode = 'json' | 'sse';
@@ -121,6 +123,12 @@ export interface OpenRouterAgentModelOptions {
   readonly endpoint?: string;
   /** Internal composition input; omitted callers retain the canonical production profile. */
   readonly profile?: OpenRouterAgentProfile;
+  /** Evidence identity for a declared Chat Completions provider; defaults to built-in OpenRouter. */
+  readonly evidenceIdentity?: {
+    readonly provider: string;
+    readonly api: 'openrouter-chat-completions' | 'openai-chat-completions';
+    readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+  };
   readonly timeoutMs?: number;
   readonly parentSignal?: AbortSignal;
   /** Internal runtime composition; omitted callers retain the canonical JSON response mode. */

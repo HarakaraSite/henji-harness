@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "providers": [
+    {
+      "schemaVersion": 1,
+      "providerId": "openrouter",
+      "protocol": "openai-chat-completions",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "authProfile": "openrouter-api-key",
+      "modelCatalog": {
+        "kind": "fixed",
+        "entries": [
+          {
+            "modelId": "qwen/qwen3.8-max-0902",
+            "defaultEffort": "xhigh",
+            "efforts": ["auto", "xhigh", "high", "medium", "low", "minimal"]
+          },
+          { "modelId": "qwen/qwen3.8-flash", "defaultEffort": "auto", "efforts": ["auto"] },
+          {
+            "modelId": "deepseek/deepseek-v4.1-flash",
+            "defaultEffort": "high",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "deepseek/deepseek-v4-pro-0813",
+            "defaultEffort": "high",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "deepseek/deepseek-v4-flash-0731",
+            "defaultEffort": "high",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "openai/gpt-5.6-sol",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "max", "xhigh", "high", "medium", "low", "none"]
+          },
+          {
+            "modelId": "openai/gpt-5.6-luna",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "max", "xhigh", "high", "medium", "low", "none"]
+          },
+          {
+            "modelId": "z-ai/glm-5.3",
+            "defaultEffort": "max",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "z-ai/glm-5.3-flash",
+            "defaultEffort": "max",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "google/gemini-3.8-flash",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "high", "medium", "low"]
+          },
+          {
+            "modelId": "meta/muse-spark-1.3",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "max", "xhigh", "high", "medium", "low", "minimal"]
+          },
+          {
+            "modelId": "x-ai/grok-4.6",
+            "defaultEffort": "high",
+            "efforts": ["auto", "xhigh", "high", "medium", "low"]
+          }
+        ]
+      },
+      "defaults": { "modelId": "deepseek/deepseek-v4.1-flash", "effort": "high" }
+    },
+    {
+      "schemaVersion": 1,
+      "providerId": "openrouter-responses",
+      "protocol": "openai-responses",
+      "endpoint": "https://openrouter.ai/api/v1",
+      "authProfile": "openrouter-api-key",
+      "modelCatalog": {
+        "kind": "fixed",
+        "entries": [
+          {
+            "modelId": "qwen/qwen3.8-max-0902",
+            "defaultEffort": "xhigh",
+            "efforts": ["auto", "xhigh", "high", "medium", "low", "minimal"]
+          },
+          { "modelId": "qwen/qwen3.8-flash", "defaultEffort": "auto", "efforts": ["auto"] },
+          {
+            "modelId": "deepseek/deepseek-v4.1-flash",
+            "defaultEffort": "high",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "deepseek/deepseek-v4-pro-0813",
+            "defaultEffort": "high",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "deepseek/deepseek-v4-flash-0731",
+            "defaultEffort": "high",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "openai/gpt-5.6-sol",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "max", "xhigh", "high", "medium", "low", "none"]
+          },
+          {
+            "modelId": "openai/gpt-5.6-luna",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "max", "xhigh", "high", "medium", "low", "none"]
+          },
+          {
+            "modelId": "z-ai/glm-5.3",
+            "defaultEffort": "max",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "z-ai/glm-5.3-flash",
+            "defaultEffort": "max",
+            "efforts": ["auto", "max", "high", "low"]
+          },
+          {
+            "modelId": "google/gemini-3.8-flash",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "high", "medium", "low"]
+          },
+          {
+            "modelId": "meta/muse-spark-1.3",
+            "defaultEffort": "medium",
+            "efforts": ["auto", "max", "xhigh", "high", "medium", "low", "minimal"]
+          },
+          {
+            "modelId": "x-ai/grok-4.6",
+            "defaultEffort": "high",
+            "efforts": ["auto", "xhigh", "high", "medium", "low"]
+          }
+        ]
+      },
+      "defaults": { "modelId": "deepseek/deepseek-v4.1-flash", "effort": "high" }
+    },
+    {
+      "schemaVersion": 1,
+      "providerId": "openai",
+      "protocol": "openai-responses",
+      "endpoint": "https://api.openai.com/v1",
+      "authProfile": "openai-api-key",
+      "modelCatalog": {
+        "kind": "fixed",
+        "entries": [
+          {
+            "modelId": "gpt-5.6-sol",
+            "defaultEffort": "medium",
+            "efforts": ["none", "low", "medium", "high", "xhigh"]
+          },
+          {
+            "modelId": "gpt-5.6-luna",
+            "defaultEffort": "medium",
+            "efforts": ["none", "low", "medium", "high", "xhigh"]
+          },
+          {
+            "modelId": "gpt-5.6-terra",
+            "defaultEffort": "medium",
+            "efforts": ["none", "low", "medium", "high", "xhigh", "max"]
+          },
+          {
+            "modelId": "gpt-6-astra",
+            "defaultEffort": "low",
+            "efforts": ["low", "medium", "high", "xhigh", "max"]
+          }
+        ]
+      },
+      "defaults": { "modelId": "gpt-5.6-sol", "effort": "medium" }
+    }
+  ]
+}

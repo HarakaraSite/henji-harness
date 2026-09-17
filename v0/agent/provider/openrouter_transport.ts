@@ -107,6 +107,8 @@ export class OpenRouterAgentModel implements Model {
       max_completion_tokens: this.profile.maxCompletionTokens,
       ...(this.profile.reasoningEffort === undefined
         ? {}
+        : this.profile.reasoningEffortField === 'reasoning_effort'
+        ? { reasoning_effort: this.profile.reasoningEffort }
         : { reasoning: { effort: this.profile.reasoningEffort } }),
     });
     if (body === undefined) {
@@ -175,11 +177,11 @@ export class OpenRouterAgentModel implements Model {
               : generateOptions.providerEvidenceLane === 'planner'
               ? 'planner_model'
               : 'root_model',
-            provider: 'openrouter',
-            api: 'openrouter-chat-completions',
+            provider: this.options.evidenceIdentity?.provider ?? 'openrouter',
+            api: this.options.evidenceIdentity?.api ?? 'openrouter-chat-completions',
             modelId: this.profile.model,
             effort: this.profile.reasoningEffort ?? 'auto',
-            authProfile: 'openrouter-api-key',
+            authProfile: this.options.evidenceIdentity?.authProfile ?? 'openrouter-api-key',
             protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
           },
         });

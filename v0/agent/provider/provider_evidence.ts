@@ -52,7 +52,11 @@ export interface ProviderEvidenceRequestMetadata {
     | 'context_compaction'
     | 'web_search';
   readonly provider?: string;
-  readonly api?: 'openrouter-chat-completions' | 'openrouter-responses' | 'openai-responses';
+  readonly api?:
+    | 'openrouter-chat-completions'
+    | 'openrouter-responses'
+    | 'openai-chat-completions'
+    | 'openai-responses';
   readonly modelId?: string;
   readonly effort?: ReasoningEffort;
   readonly authProfile?: 'openrouter-api-key' | 'openai-api-key';
@@ -389,7 +393,8 @@ const validProviderMetadata = (
       record.origin === 'web_search') &&
     (record.provider === undefined || validText(record.provider)) &&
     (record.api === undefined || record.api === 'openrouter-chat-completions' ||
-      record.api === 'openrouter-responses' || record.api === 'openai-responses') &&
+      record.api === 'openrouter-responses' || record.api === 'openai-chat-completions' ||
+      record.api === 'openai-responses') &&
     (record.modelId === undefined || validText(record.modelId)) &&
     (record.effort === undefined || record.effort === 'auto' ||
       record.effort === 'none' ||

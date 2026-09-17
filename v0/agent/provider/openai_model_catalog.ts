@@ -1,5 +1,6 @@
 import type { ModelSelection, OpenAIModelSelection, ReasoningEffort } from './model_selection.ts';
 import { declarationFor } from './provider_runtime.ts';
+import { bundledDefaultDeclarationFor } from './provider_defaults.ts';
 
 export interface OpenAIModelCatalogEntry {
   readonly modelId: string;
@@ -7,26 +8,17 @@ export interface OpenAIModelCatalogEntry {
   readonly efforts: readonly ReasoningEffort[];
 }
 
-const entry = (
-  modelId: string,
-  defaultEffort: ReasoningEffort,
-  efforts: readonly ReasoningEffort[],
-): OpenAIModelCatalogEntry =>
-  Object.freeze({ modelId, defaultEffort, efforts: Object.freeze([...efforts]) });
+const bundledOpenAI = bundledDefaultDeclarationFor('openai')!;
 
-export const OPENAI_MODEL_CATALOG: readonly OpenAIModelCatalogEntry[] = Object.freeze([
-  entry('gpt-5.6-sol', 'medium', ['none', 'low', 'medium', 'high', 'xhigh']),
-  entry('gpt-5.6-luna', 'medium', ['none', 'low', 'medium', 'high', 'xhigh']),
-  entry('gpt-5.6-terra', 'medium', ['none', 'low', 'medium', 'high', 'xhigh', 'max']),
-  entry('gpt-6-astra', 'low', ['low', 'medium', 'high', 'xhigh', 'max']),
-]);
+export const OPENAI_MODEL_CATALOG: readonly OpenAIModelCatalogEntry[] =
+  bundledOpenAI.modelCatalog.entries;
 
 export const OPENAI_DEFAULT_MODEL_SELECTION: OpenAIModelSelection = Object.freeze({
   provider: 'openai',
   api: 'openai-responses',
   authProfile: 'openai-api-key',
-  modelId: OPENAI_MODEL_CATALOG[0].modelId,
-  effort: OPENAI_MODEL_CATALOG[0].defaultEffort,
+  modelId: bundledOpenAI.defaults.modelId,
+  effort: bundledOpenAI.defaults.effort,
 });
 
 const openAIEntries = (): readonly OpenAIModelCatalogEntry[] =>

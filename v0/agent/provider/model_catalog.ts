@@ -20,6 +20,7 @@ import {
 } from './openai_model_catalog.ts';
 import {
   BUILTIN_PROVIDER_IDS,
+  type DeclaredChatModelSelection,
   type DeclaredProviderModelSelection,
   isStoredModelSelection,
   type ModelSelection,
@@ -36,12 +37,13 @@ export type ProviderModelCatalogEntry = OpenRouterModelCatalogEntry | OpenAIMode
 /** Built-in provider ids; declared providers are added by `providerIdsForSelection`. */
 export const PROVIDERS: readonly ProviderId[] = BUILTIN_PROVIDER_IDS;
 
-const declaredResponsesProviderIds = (): readonly string[] => {
+const declaredProviderIds = (): readonly string[] => {
   const seen = new Set<string>();
   return Object.freeze(
     activeProviderDeclarations()
       .filter((declaration) =>
-        declaration.protocol === 'openai-responses' &&
+        (declaration.protocol === 'openai-responses' ||
+          declaration.protocol === 'openai-chat-completions') &&
         !BUILTIN_PROVIDER_IDS.includes(declaration.providerId)
       )
       .map((declaration) => declaration.providerId)
@@ -49,22 +51,30 @@ const declaredResponsesProviderIds = (): readonly string[] => {
   );
 };
 
-/** Built-in ids followed by declared Responses provider ids. */
+/** Built-in ids followed by declared provider ids. */
 export const providerIdsForSelection = (): readonly string[] =>
-  Object.freeze([...BUILTIN_PROVIDER_IDS, ...declaredResponsesProviderIds()]);
+  Object.freeze([...BUILTIN_PROVIDER_IDS, ...declaredProviderIds()]);
 
 const declaredSelection = (
   declaration: ProviderDeclarationV1,
   modelId: string,
   effort: ReasoningEffort,
-): DeclaredProviderModelSelection =>
-  Object.freeze({
-    provider: declaration.providerId,
-    api: 'openai-responses' as const,
-    authProfile: declaration.authProfile,
-    modelId,
-    effort,
-  });
+): DeclaredProviderModelSelection | DeclaredChatModelSelection =>
+  declaration.protocol === 'openai-chat-completions'
+    ? Object.freeze({
+      provider: declaration.providerId,
+      api: 'openai-chat-completions' as const,
+      authProfile: declaration.authProfile,
+      modelId,
+      effort,
+    })
+    : Object.freeze({
+      provider: declaration.providerId,
+      api: 'openai-responses' as const,
+      authProfile: declaration.authProfile,
+      modelId,
+      effort,
+    });
 
 const declaredEntriesFor = (
   provider: ProviderId,
@@ -116,7 +126,7 @@ export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection =
     return selectOpenRouterResponsesModel(ROOT_DEFAULT_MODEL_ID, ROOT_DEFAULT_EFFORT);
   }
   const declaration = declarationFor(provider);
-  if (declaration !== undefined && declaration.protocol === 'openai-responses') {
+  if (declaration !== undefined) {
     return declaredSelection(
       declaration,
       declaration.defaults.modelId,
@@ -164,7 +174,7 @@ export const selectModelFor = (
     return selectOpenRouterResponsesModel(modelId, effort);
   }
   const declaration = declarationFor(provider);
-  if (declaration !== undefined && declaration.protocol === 'openai-responses') {
+  if (declaration !== undefined) {
     const entry = declaration.modelCatalog.entries.find((candidate) =>
       candidate.modelId === modelId
     );

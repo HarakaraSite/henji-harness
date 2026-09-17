@@ -61,11 +61,21 @@ export interface DeclaredProviderModelSelection {
   readonly effort: ReasoningEffort;
 }
 
+/** Declared provider selection over the shared OpenAI-compatible Chat Completions protocol. */
+export interface DeclaredChatModelSelection {
+  readonly provider: string;
+  readonly api: 'openai-chat-completions';
+  readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+  readonly modelId: string;
+  readonly effort: ReasoningEffort;
+}
+
 export type ModelSelection =
   | OpenRouterModelSelection
   | OpenRouterResponsesModelSelection
   | OpenAIModelSelection
-  | DeclaredProviderModelSelection;
+  | DeclaredProviderModelSelection
+  | DeclaredChatModelSelection;
 
 const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'auto',
@@ -101,7 +111,7 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
       selection.authProfile === 'openai-api-key';
   }
   return typeof selection.provider === 'string' && PROVIDER_ID.test(selection.provider) &&
-    selection.api === 'openai-responses' &&
+    (selection.api === 'openai-responses' || selection.api === 'openai-chat-completions') &&
     (selection.authProfile === 'openrouter-api-key' ||
       selection.authProfile === 'openai-api-key');
 };

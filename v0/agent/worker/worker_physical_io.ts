@@ -23,6 +23,7 @@ import type {
 import {
   type ModelSelection,
   openRouterProfileFor,
+  openRouterProfileForDeclaredChat,
   PLANNER_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
@@ -216,6 +217,29 @@ export const createProductionPhysicalIo = (
           fetcher,
           timeoutMs: options.providerTimeoutMs,
           baseURL: declaration.endpoint,
+        });
+      }
+      if (resolved.api === 'openai-chat-completions') {
+        const declaration = declaredProviders.get(resolved.provider);
+        if (declaration === undefined || declaration.protocol !== 'openai-chat-completions') {
+          throw new Error('declared provider is unavailable');
+        }
+        return new OpenRouterAgentModel({
+          profile: openRouterProfileForDeclaredChat(
+            resolved.provider,
+            resolved.modelId,
+            resolved.effort,
+            declaration.endpoint,
+          ),
+          evidenceIdentity: {
+            provider: resolved.provider,
+            api: 'openai-chat-completions',
+            authProfile: declaration.authProfile,
+          },
+          credentialSource: () => resolver.resolve(declaration.authProfile),
+          fetcher,
+          responseMode: 'sse',
+          timeoutMs: options.providerTimeoutMs,
         });
       }
       return new OpenRouterAgentModel({

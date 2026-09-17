@@ -1,10 +1,5 @@
 import { type AuthProfileId, type ReasoningEffort } from './model_selection.ts';
-import {
-  OPENROUTER_MODEL_CATALOG,
-  ROOT_DEFAULT_EFFORT,
-  ROOT_DEFAULT_MODEL_ID,
-} from './openrouter_model_catalog.ts';
-import { OPENAI_DEFAULT_MODEL_SELECTION, OPENAI_MODEL_CATALOG } from './openai_model_catalog.ts';
+import { bundledDefaultDeclarations } from './provider_defaults.ts';
 
 export const PROVIDER_DECLARATION_SCHEMA_VERSION = 1 as const;
 export const PROVIDER_DECLARATION_DIRECTORY = 'providers' as const;
@@ -360,56 +355,8 @@ export const loadProviderDeclarations = async (
   return Object.freeze(declarations);
 };
 
-const builtinDeclaration = (
-  providerId: string,
-  protocol: ProviderProtocol,
-  endpoint: string,
-  authProfile: AuthProfileId,
-  entries: readonly ProviderCatalogEntryV1[],
-  defaultModelId: string,
-  defaultEffort: ReasoningEffort,
-): ProviderDeclarationV1 =>
-  Object.freeze({
-    schemaVersion: 1 as const,
-    providerId,
-    protocol,
-    endpoint,
-    authProfile,
-    modelCatalog: Object.freeze({
-      kind: 'fixed' as const,
-      entries: Object.freeze(entries.map((entry) => Object.freeze({ ...entry }))),
-    }),
-    defaults: Object.freeze({ modelId: defaultModelId, effort: defaultEffort }),
-  });
-
-/** Built-in defaults that declarations may override (only overridable ids) or complement. */
+/** Bundled default declarations, validated on first use. */
 export const builtinProviderDeclarations = (): readonly ProviderDeclarationV1[] =>
-  Object.freeze([
-    builtinDeclaration(
-      'openrouter',
-      'openai-chat-completions',
-      'https://openrouter.ai/api/v1',
-      'openrouter-api-key',
-      OPENROUTER_MODEL_CATALOG,
-      ROOT_DEFAULT_MODEL_ID,
-      ROOT_DEFAULT_EFFORT,
-    ),
-    builtinDeclaration(
-      'openrouter-responses',
-      'openai-responses',
-      'https://openrouter.ai/api/v1',
-      'openrouter-api-key',
-      OPENROUTER_MODEL_CATALOG,
-      ROOT_DEFAULT_MODEL_ID,
-      ROOT_DEFAULT_EFFORT,
-    ),
-    builtinDeclaration(
-      'openai',
-      'openai-responses',
-      'https://api.openai.com/v1',
-      'openai-api-key',
-      OPENAI_MODEL_CATALOG,
-      OPENAI_DEFAULT_MODEL_SELECTION.modelId,
-      OPENAI_DEFAULT_MODEL_SELECTION.effort,
-    ),
-  ]);
+  Object.freeze(
+    bundledDefaultDeclarations().map((declaration) => validateProviderDeclaration(declaration)),
+  );

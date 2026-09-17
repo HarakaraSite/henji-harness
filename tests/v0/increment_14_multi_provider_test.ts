@@ -16,8 +16,14 @@ import {
   readDefaultSelection,
   writeDefaultSelection,
 } from '../../v0/agent/provider/default_selection.ts';
-import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
-import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import {
+  OPENAI_DEFAULT_MODEL_SELECTION,
+  OPENAI_MODEL_CATALOG,
+} from '../../v0/agent/provider/openai_model_catalog.ts';
+import {
+  OPENROUTER_MODEL_CATALOG,
+  ROOT_DEFAULT_MODEL_SELECTION,
+} from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
@@ -422,6 +428,75 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
     defaultModelSelectionFor('openrouter-responses').modelId,
     'deepseek/deepseek-v4.1-flash',
   );
+});
+
+Deno.test('Increment 64 bundled defaults replace the former code catalogs', () => {
+  assertEquals(OPENROUTER_MODEL_CATALOG.length, 12);
+  assertEquals(OPENAI_MODEL_CATALOG.length, 4);
+  assertEquals(ROOT_DEFAULT_MODEL_SELECTION.modelId, 'deepseek/deepseek-v4.1-flash');
+  assertEquals(ROOT_DEFAULT_MODEL_SELECTION.effort, 'high');
+  assertEquals(OPENAI_DEFAULT_MODEL_SELECTION.modelId, 'gpt-5.6-sol');
+  assertEquals(OPENAI_DEFAULT_MODEL_SELECTION.effort, 'medium');
+});
+
+Deno.test('Increment 64 declaration adds a chat completions provider with a declared endpoint', async () => {
+  const declaration = validateProviderDeclaration({
+    schemaVersion: 1,
+    providerId: 'local-chat',
+    protocol: 'openai-chat-completions',
+    endpoint: 'https://gateway.example/v1',
+    authProfile: 'openai-api-key',
+    modelCatalog: {
+      kind: 'fixed',
+      entries: [{ modelId: 'llama-3-70b', defaultEffort: 'medium', efforts: ['low', 'medium'] }],
+    },
+    defaults: { modelId: 'llama-3-70b', effort: 'medium' },
+  });
+  setActiveProviderDeclarations([declaration]);
+  try {
+    assert(providerIdsForSelection().includes('local-chat'));
+    const selection = defaultModelSelectionFor('local-chat');
+    assertEquals(selection.api, 'openai-chat-completions');
+    assertEquals(selection.modelId, 'llama-3-70b');
+    assert(isModelSelection(selection));
+    assertEquals(selectModelFor('local-chat', 'llama-3-70b').effort, 'medium');
+
+    const seen: { url?: string; authorization?: string; body?: string } = {};
+    const fetcher: typeof fetch = async (input, init) => {
+      const requested = input instanceof Request ? input : new Request(input, init);
+      seen.url = requested.url;
+      seen.authorization = requested.headers.get('authorization') ?? undefined;
+      seen.body = await requested.clone().text();
+      return new Response(openRouterCompletedStream('hello'), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      });
+    };
+    const physical = createProductionPhysicalIo(undefined, {
+      openAICredentialSource: () => Promise.resolve('chat-secret'),
+      fetcher,
+      providerDeclarations: [declaration],
+    });
+    const evidence = new ProviderEvidenceRecorder();
+    const result = await physical.createModel('parent', selection).generate(request, {
+      providerEvidence: evidence,
+      providerEvidenceLane: 'parent',
+      modelStep: 1,
+    });
+    assertEquals(result.kind, 'final');
+    assertEquals(seen.url, 'https://gateway.example/v1/chat/completions');
+    assertEquals(seen.authorization, 'Bearer chat-secret');
+    const chatBody = JSON.parse(seen.body ?? '{}');
+    assertEquals(chatBody.reasoning_effort, 'medium');
+    assertEquals(chatBody.reasoning, undefined);
+    assertEquals(
+      evidence.snapshot().requests[0].request.requestMetadata.api,
+      'openai-chat-completions',
+    );
+    assert(!JSON.stringify(evidence.snapshot()).includes('chat-secret'));
+  } finally {
+    setActiveProviderDeclarations([]);
+  }
 });
 
 Deno.test('Increment 63 stores and reads the Host default selection', async () => {

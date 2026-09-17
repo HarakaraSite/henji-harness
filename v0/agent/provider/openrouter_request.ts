@@ -254,6 +254,8 @@ export const measureModelRequestWire = (
     max_completion_tokens: profile.maxCompletionTokens,
     ...(profile.reasoningEffort === undefined
       ? {}
+      : profile.reasoningEffortField === 'reasoning_effort'
+      ? { reasoning_effort: profile.reasoningEffort }
       : { reasoning: { effort: profile.reasoningEffort } }),
   });
   if (body === undefined) throw invalidRequestError('provider request is not JSON serializable');
