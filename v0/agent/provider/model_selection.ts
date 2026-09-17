@@ -8,8 +8,11 @@ export type ReasoningEffort =
   | 'xhigh'
   | 'max';
 
-export type ProviderId = 'openrouter' | 'openai';
-export type ProviderApi = 'openrouter-chat-completions' | 'openai-responses';
+export type ProviderId = 'openrouter' | 'openrouter-responses' | 'openai';
+export type ProviderApi =
+  | 'openrouter-chat-completions'
+  | 'openrouter-responses'
+  | 'openai-responses';
 export type AuthProfileId = 'openrouter-api-key' | 'openai-api-key';
 export type CredentialAvailabilityStatus = 'present' | 'missing' | 'unknown';
 
@@ -26,6 +29,14 @@ export interface OpenRouterModelSelection {
   readonly effort: ReasoningEffort;
 }
 
+export interface OpenRouterResponsesModelSelection {
+  readonly provider: 'openrouter-responses';
+  readonly api: 'openrouter-responses';
+  readonly authProfile: 'openrouter-api-key';
+  readonly modelId: string;
+  readonly effort: ReasoningEffort;
+}
+
 export interface OpenAIModelSelection {
   readonly provider: 'openai';
   readonly api: 'openai-responses';
@@ -34,7 +45,10 @@ export interface OpenAIModelSelection {
   readonly effort: ReasoningEffort;
 }
 
-export type ModelSelection = OpenRouterModelSelection | OpenAIModelSelection;
+export type ModelSelection =
+  | OpenRouterModelSelection
+  | OpenRouterResponsesModelSelection
+  | OpenAIModelSelection;
 
 const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'auto',
@@ -61,6 +75,10 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
     return selection.api === 'openrouter-chat-completions' &&
       selection.authProfile === 'openrouter-api-key';
   }
+  if (selection.provider === 'openrouter-responses') {
+    return selection.api === 'openrouter-responses' &&
+      selection.authProfile === 'openrouter-api-key';
+  }
   return selection.provider === 'openai' && selection.api === 'openai-responses' &&
     selection.authProfile === 'openai-api-key';
 };
@@ -85,6 +103,18 @@ export const openRouterStoredSelection = (
   Object.freeze({
     provider: 'openrouter',
     api: 'openrouter-chat-completions',
+    authProfile: 'openrouter-api-key',
+    modelId,
+    effort,
+  });
+
+export const openRouterResponsesStoredSelection = (
+  modelId: string,
+  effort: ReasoningEffort,
+): OpenRouterResponsesModelSelection =>
+  Object.freeze({
+    provider: 'openrouter-responses',
+    api: 'openrouter-responses',
     authProfile: 'openrouter-api-key',
     modelId,
     effort,

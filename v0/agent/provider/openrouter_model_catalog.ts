@@ -1,6 +1,8 @@
 import type { OpenRouterAgentProfile } from './openrouter_contract.ts';
 import {
   type OpenRouterModelSelection,
+  type OpenRouterResponsesModelSelection,
+  openRouterResponsesStoredSelection,
   openRouterStoredSelection,
   type ReasoningEffort,
 } from './model_selection.ts';
@@ -129,6 +131,35 @@ export const selectOpenRouterModel = (
     throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
   }
   return openRouterStoredSelection(modelId, selectedEffort);
+};
+
+export const isOpenRouterResponsesModelSelection = (
+  value: unknown,
+): value is OpenRouterResponsesModelSelection => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const selection = value as Record<string, unknown>;
+  if (
+    Object.keys(selection).length !== 5 || selection.provider !== 'openrouter-responses' ||
+    selection.api !== 'openrouter-responses' ||
+    selection.authProfile !== 'openrouter-api-key' ||
+    typeof selection.modelId !== 'string' || typeof selection.effort !== 'string'
+  ) return false;
+  const catalog = openRouterCatalogEntry(selection.modelId);
+  return catalog !== undefined &&
+    catalog.efforts.includes(selection.effort as OpenRouterReasoningEffort);
+};
+
+export const selectOpenRouterResponsesModel = (
+  modelId: string,
+  effort?: OpenRouterReasoningEffort,
+): OpenRouterResponsesModelSelection => {
+  const catalog = openRouterCatalogEntry(modelId);
+  if (catalog === undefined) throw new RangeError(`unknown OpenRouter model: ${modelId}`);
+  const selectedEffort = effort ?? catalog.defaultEffort;
+  if (!catalog.efforts.includes(selectedEffort)) {
+    throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
+  }
+  return openRouterResponsesStoredSelection(modelId, selectedEffort);
 };
 
 export const searchOpenRouterModels = (

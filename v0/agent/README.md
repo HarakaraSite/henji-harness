@@ -32,13 +32,15 @@ commit path:
   provider evidence, and execution artifacts still use the workspace state root.
 
 The interactive Session owns its active provider/model route and reasoning effort independently of
-the Definition revision. The launcher defaults to OpenRouter; `--root-provider openai` starts a new
-OpenAI Responses root using the fixed direct catalog and Platform API-key file. Delegated planner
-calls and Sonar `web_search` keep independent OpenRouter routes and credentials. The current
-standalone-era Session record schema v6 persists provider, API, auth-profile identity, active
-selection, change history, per-committed-turn attribution, and each committed turn's logical
-built-in Definition ref and build manifest. Previous development schemas remain in the old state
-namespace and are not interpreted by the compiled command.
+the Definition revision. The launcher defaults to OpenRouter Chat Completions;
+`--root-provider openai` starts a new OpenAI Responses root using the fixed direct catalog and
+Platform API-key file, and `--root-provider openrouter-responses` starts an OpenRouter Responses
+root on the same OpenRouter API key. Delegated planner calls and Sonar `web_search` keep independent
+OpenRouter routes and credentials. The current standalone-era Session record schema v6 persists
+provider, API, auth-profile identity, active selection, change history, per-committed-turn
+attribution, and each committed turn's logical built-in Definition ref and build manifest. Previous
+development schemas remain in the old state namespace and are not interpreted by the compiled
+command.
 
 `henji instruction` manages the installation-wide `instruction:henji-base` slot. The Host resolves
 the active exact revision before creating each Worker generation and passes its ref and exact bytes

@@ -14,7 +14,11 @@ import {
   DEFAULT_PROVIDER_TIMEOUT_MS,
   OpenRouterAgentError,
 } from './openrouter_contract.ts';
-import type { OpenAIModelSelection } from './model_selection.ts';
+import type {
+  ModelSelection,
+  OpenAIModelSelection,
+  OpenRouterResponsesModelSelection,
+} from './model_selection.ts';
 import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
 
 export interface OpenAIResponsesModelOptions {
@@ -153,7 +157,7 @@ const evidenceOrigin = (
 
 const evidenceFetch = (
   fetcher: typeof fetch,
-  selection: OpenAIModelSelection,
+  selection: ModelSelection,
   options: ModelGenerateOptions,
 ): typeof fetch =>
 async (input, init) => {
@@ -177,11 +181,11 @@ async (input, init) => {
       redirect: 'error',
       responseMode: 'sse',
       origin: evidenceOrigin(options),
-      provider: 'openai',
-      api: 'openai-responses',
+      provider: selection.provider,
+      api: selection.api,
       modelId: selection.modelId,
       effort: selection.effort,
-      authProfile: 'openai-api-key',
+      authProfile: selection.authProfile,
       protocol: 'sse',
     },
   });
@@ -261,9 +265,26 @@ const toolCalls = (output: readonly unknown[]): readonly ToolCall[] | undefined 
   return Object.freeze(calls);
 };
 
-/** Official-SDK Responses adapter. Henji retains the tool loop and durable transcript. */
-export class OpenAIResponsesModel implements Model {
-  constructor(private readonly options: OpenAIResponsesModelOptions) {}
+export interface ResponsesApiModelOptions {
+  readonly selection: ModelSelection;
+  readonly credentialSource: CredentialSource;
+  readonly fetcher?: typeof fetch;
+  readonly timeoutMs?: number;
+}
+
+interface ResponsesApiModelConfig {
+  readonly baseURL: string;
+  readonly providerLabel: string;
+  readonly stateProvider: 'openai' | null;
+  readonly includeStore: boolean;
+}
+
+/** Shared Responses-API adapter; Henji retains the tool loop and durable transcript. */
+class ResponsesApiModel implements Model {
+  constructor(
+    private readonly options: ResponsesApiModelOptions,
+    private readonly config: ResponsesApiModelConfig,
+  ) {}
 
   readonly measureRequestWire = (request: ModelRequest): {
     readonly messagesBytes: number;
@@ -276,7 +297,7 @@ export class OpenAIResponsesModel implements Model {
       input,
       tools: request.tools,
       stream: true,
-      store: false,
+      ...(this.config.includeStore ? { store: false } : {}),
     });
     const encoder = new TextEncoder();
     return {
@@ -290,6 +311,7 @@ export class OpenAIResponsesModel implements Model {
     generateOptions: ModelGenerateOptions = {},
   ): Promise<ModelResult> {
     const signal = generateOptions.signal;
+    const label = this.config.providerLabel;
     throwIfCancelled(signal);
     let credential: string | undefined;
     try {
@@ -322,7 +344,7 @@ export class OpenAIResponsesModel implements Model {
     );
     const client = new OpenAI({
       apiKey: credential,
-      baseURL: 'https://api.openai.com/v1',
+      baseURL: this.config.baseURL,
       adminAPIKey: null,
       organization: null,
       project: null,
@@ -350,7 +372,7 @@ export class OpenAIResponsesModel implements Model {
         include: ['reasoning.encrypted_content'],
         reasoning: { effort: this.options.selection.effort as never },
         stream: true,
-        store: false,
+        ...(this.config.includeStore ? { store: false } : {}),
       }, {
         signal: controller.signal,
         maxRetries: 0,
@@ -371,52 +393,90 @@ export class OpenAIResponsesModel implements Model {
         } else if (event.type === 'response.completed') {
           completed = event.response as unknown as Record<string, unknown>;
         } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
-          throw providerError('response_error', 'OpenAI response did not complete', 1);
+          throw providerError('response_error', `${label} response did not complete`, 1);
         }
       }
       if (completed === undefined || !Array.isArray(completed.output)) {
-        throw providerError('response_error', 'OpenAI response shape was unsupported', 1);
+        throw providerError('response_error', `${label} response shape was unsupported`, 1);
       }
       const replayItems = completed.output.map(jsonValue);
       if (replayItems.some((item) => item === undefined)) {
-        throw providerError('response_error', 'OpenAI response items were not JSON values', 1);
+        throw providerError('response_error', `${label} response items were not JSON values`, 1);
       }
-      const state = Object.freeze({
-        provider: 'openai' as const,
+      const state = this.config.stateProvider === null ? undefined : Object.freeze({
+        provider: this.config.stateProvider,
         replayItems: Object.freeze(replayItems as JsonValue[]),
       });
       const calls = toolCalls(completed.output);
       if (calls === undefined) {
-        throw providerError('response_error', 'OpenAI function call shape was unsupported', 1);
+        throw providerError('response_error', `${label} function call shape was unsupported`, 1);
       }
       if (calls.length > 0) {
         generateOptions.providerEvidence?.recordParserTransition({
           kind: 'result',
           reason: 'tool_calls',
         });
-        return { kind: 'tool_calls', calls, providerState: state };
+        return {
+          kind: 'tool_calls',
+          calls,
+          ...(state === undefined ? {} : { providerState: state }),
+        };
       }
       const text = typeof completed.output_text === 'string' ? completed.output_text : progress;
       if (text.length === 0) {
-        throw providerError('response_error', 'OpenAI response had no assistant text', 1);
+        throw providerError('response_error', `${label} response had no assistant text`, 1);
       }
       generateOptions.providerEvidence?.recordParserTransition({
         kind: 'terminal',
         reason: 'response.completed',
       });
       generateOptions.providerEvidence?.recordParserTransition({ kind: 'result', reason: 'final' });
-      return { kind: 'final', text, providerState: state };
+      return { kind: 'final', text, ...(state === undefined ? {} : { providerState: state }) };
     } catch (error) {
       if (cancelled) throw new TurnCancelledError();
       if (timedOut) throw providerError('provider_timeout', 'provider deadline exceeded', 1);
       if (error instanceof OpenRouterAgentError) throw error;
       const status = isRecord(error) && typeof error.status === 'number' ? error.status : undefined;
       throw status === undefined
-        ? providerError('transport_error', 'OpenAI provider transport failed', 1)
-        : providerError('http_error', 'OpenAI provider request failed', 1, status);
+        ? providerError('transport_error', `${label} provider transport failed`, 1)
+        : providerError('http_error', `${label} provider request failed`, 1, status);
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abortFromTurn);
     }
+  }
+}
+
+/** Official-SDK OpenAI Responses adapter (stateful replay items retained). */
+export class OpenAIResponsesModel extends ResponsesApiModel {
+  constructor(options: OpenAIResponsesModelOptions) {
+    super(options, {
+      baseURL: 'https://api.openai.com/v1',
+      providerLabel: 'OpenAI',
+      stateProvider: 'openai',
+      includeStore: true,
+    });
+  }
+}
+
+export interface OpenRouterResponsesModelOptions {
+  readonly selection: OpenRouterResponsesModelSelection;
+  readonly credentialSource: CredentialSource;
+  readonly fetcher?: typeof fetch;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * OpenRouter Responses adapter. OpenRouter's endpoint is stateless, so Henji replays its own
+ * transcript instead of provider-private state.
+ */
+export class OpenRouterResponsesModel extends ResponsesApiModel {
+  constructor(options: OpenRouterResponsesModelOptions) {
+    super(options, {
+      baseURL: 'https://openrouter.ai/api/v1',
+      providerLabel: 'OpenRouter',
+      stateProvider: null,
+      includeStore: false,
+    });
   }
 }

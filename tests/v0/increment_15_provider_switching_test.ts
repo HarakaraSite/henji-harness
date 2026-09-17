@@ -188,6 +188,13 @@ Deno.test('Increment 15 provider picker drives provider-scoped model and effort 
   assert(rendered.at(-1)?.some((line) => line === '> openrouter'));
   overlay.process({ kind: 'down' });
   overlay.process({ kind: 'enter' });
+  await waitFor(() => selection.provider === 'openrouter-responses');
+  assertEquals(selection, defaultModelSelectionFor('openrouter-responses'));
+  await overlay.settle();
+
+  overlay.openProviderPicker();
+  overlay.process({ kind: 'down' });
+  overlay.process({ kind: 'enter' });
   await waitFor(() => selection.provider === 'openai');
   assertEquals(selection, OPENAI_DEFAULT_MODEL_SELECTION);
   await overlay.settle();

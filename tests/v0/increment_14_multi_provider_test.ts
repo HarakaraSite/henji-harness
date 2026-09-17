@@ -121,12 +121,19 @@ const openRouterCompletedStream = (text: string): string =>
 Deno.test('Increment 14 selects a fixed provider catalog at startup', () => {
   assertEquals(defaultModelSelectionFor('openrouter'), ROOT_DEFAULT_MODEL_SELECTION);
   assertEquals(defaultModelSelectionFor('openai'), OPENAI_DEFAULT_MODEL_SELECTION);
+  assertEquals(defaultModelSelectionFor('openrouter-responses').provider, 'openrouter-responses');
+  assert(isModelSelection(defaultModelSelectionFor('openrouter-responses')));
   assert(isModelSelection(OPENAI_DEFAULT_MODEL_SELECTION));
   assertEquals(parseTuiInvocation(['--root-provider', 'openai', '--no-session']), {
     rawAgentName: undefined,
     rootProvider: 'openai',
     persistence: 'none',
   });
+  assertEquals(
+    parseTuiInvocation(['--root-provider', 'openrouter-responses', '--no-session'])
+      .rootProvider,
+    'openrouter-responses',
+  );
   for (
     const args of [
       ['--root-provider'],
@@ -203,6 +210,47 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK and retains 
   const outcome = await session.submit('Say hello.');
   assert(outcome.ok, 'OpenAI final must pass through the Henji core loop');
   assertEquals(outcome.finalText, 'hello');
+});
+
+Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adapter statelessly', async () => {
+  const seen: { url?: string; authorization?: string; body?: string } = {};
+  const fetcher: typeof fetch = async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    seen.url = request.url;
+    seen.authorization = request.headers.get('authorization') ?? undefined;
+    seen.body = await request.clone().text();
+    return new Response(openAICompletedStream('hello'), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_increment_58' },
+    });
+  };
+  const physical = createProductionPhysicalIo(undefined, {
+    credentialSource: () => Promise.resolve('router-secret'),
+    fetcher,
+  });
+  const selection = defaultModelSelectionFor('openrouter-responses');
+  const evidence = new ProviderEvidenceRecorder();
+  const result = await physical.createModel('parent', selection).generate(request, {
+    providerEvidence: evidence,
+    providerEvidenceLane: 'parent',
+    modelStep: 1,
+  });
+  assertEquals(result.kind, 'final');
+  if (result.kind !== 'final') throw new Error('expected final');
+  assertEquals(result.text, 'hello');
+  assertEquals(result.providerState, undefined);
+  assertEquals(seen.url, 'https://openrouter.ai/api/v1/responses');
+  assertEquals(seen.authorization, 'Bearer router-secret');
+  const body = JSON.parse(seen.body ?? '{}');
+  assertEquals(body.model, 'deepseek/deepseek-v4.1-flash');
+  assertEquals(body.store, undefined);
+  assertEquals(body.stream, true);
+
+  const retained = evidence.snapshot().requests[0];
+  assertEquals(retained.request.requestMetadata.provider, 'openrouter-responses');
+  assertEquals(retained.request.requestMetadata.api, 'openrouter-responses');
+  assertEquals(retained.request.requestMetadata.authProfile, 'openrouter-api-key');
+  assert(!JSON.stringify(retained).includes('router-secret'));
 });
 
 Deno.test('Increment 14 keeps resolved OpenAI auth authoritative over ambient SDK headers', async () => {

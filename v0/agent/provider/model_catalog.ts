@@ -1,10 +1,14 @@
 import {
   isOpenRouterModelSelection,
+  isOpenRouterResponsesModelSelection,
   openRouterCatalogEntry,
   type OpenRouterModelCatalogEntry,
+  ROOT_DEFAULT_EFFORT,
+  ROOT_DEFAULT_MODEL_ID,
   ROOT_DEFAULT_MODEL_SELECTION,
   searchOpenRouterModels,
   selectOpenRouterModel,
+  selectOpenRouterResponsesModel,
 } from './openrouter_model_catalog.ts';
 import {
   isOpenAIModelSelection,
@@ -20,13 +24,25 @@ export type { ModelSelection, ProviderId, ReasoningEffort } from './model_select
 
 export type ProviderModelCatalogEntry = OpenRouterModelCatalogEntry | OpenAIModelCatalogEntry;
 
-export const PROVIDERS: readonly ProviderId[] = Object.freeze(['openrouter', 'openai'] as const);
+export const PROVIDERS: readonly ProviderId[] = Object.freeze(
+  [
+    'openrouter',
+    'openrouter-responses',
+    'openai',
+  ] as const,
+);
 
 export const isModelSelection = (value: unknown): value is ModelSelection =>
-  isOpenRouterModelSelection(value) || isOpenAIModelSelection(value);
+  isOpenRouterModelSelection(value) || isOpenRouterResponsesModelSelection(value) ||
+  isOpenAIModelSelection(value);
 
-export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection =>
-  provider === 'openai' ? OPENAI_DEFAULT_MODEL_SELECTION : ROOT_DEFAULT_MODEL_SELECTION;
+export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection => {
+  if (provider === 'openai') return OPENAI_DEFAULT_MODEL_SELECTION;
+  if (provider === 'openrouter-responses') {
+    return selectOpenRouterResponsesModel(ROOT_DEFAULT_MODEL_ID, ROOT_DEFAULT_EFFORT);
+  }
+  return ROOT_DEFAULT_MODEL_SELECTION;
+};
 
 export const modelCatalogEntryFor = (
   provider: ProviderId,
@@ -44,7 +60,10 @@ export const selectModelFor = (
   provider: ProviderId,
   modelId: string,
   effort?: ReasoningEffort,
-): ModelSelection =>
-  provider === 'openai'
-    ? selectOpenAIModel(modelId, effort)
-    : selectOpenRouterModel(modelId, effort);
+): ModelSelection => {
+  if (provider === 'openai') return selectOpenAIModel(modelId, effort);
+  if (provider === 'openrouter-responses') {
+    return selectOpenRouterResponsesModel(modelId, effort);
+  }
+  return selectOpenRouterModel(modelId, effort);
+};

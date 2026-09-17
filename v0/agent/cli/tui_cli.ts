@@ -197,7 +197,7 @@ export const parseTuiInvocation = (
       const value = args[index + 1];
       if (
         rootProviderSeen ||
-        (value !== 'openrouter' && value !== 'openai')
+        (value !== 'openrouter' && value !== 'openrouter-responses' && value !== 'openai')
       ) throw new Error('invalid invocation');
       rootProvider = value;
       rootProviderSeen = true;

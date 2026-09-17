@@ -22,7 +22,7 @@ export interface RuntimeDisplayState {
   readonly workspace: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly model: {
-    readonly provider: 'openrouter' | 'openai';
+    readonly provider: 'openrouter' | 'openrouter-responses' | 'openai';
     readonly profileId: string;
     readonly modelId: string;
     readonly effort: string;
@@ -58,7 +58,7 @@ export interface RuntimeDisplayProjectionInput {
   readonly workspaceRoot: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly profileId: string;
-  readonly provider?: 'openrouter' | 'openai';
+  readonly provider?: 'openrouter' | 'openrouter-responses' | 'openai';
   readonly modelId?: string;
   readonly effort?: string;
   readonly sessionMode: RuntimeDisplaySessionMode;

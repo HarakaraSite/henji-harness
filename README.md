@@ -55,12 +55,13 @@ printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
 ```
 
 OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、
-`henji --root-provider openai`で起動する。
+`henji --root-provider openai`で起動する。OpenRouter Responses API経路を使う場合は
+`henji --root-provider openrouter-responses`で起動する（同じ`openrouter-api-key`を使う）。
 
 ## 現在使える主な機能
 
 - TUIとheadlessな`run`
-- OpenRouterとOpenAI directのprovider・model・reasoning effort切替
+- OpenRouter（Chat Completions/Responses）とOpenAI directのprovider・model・reasoning effort切替
 - SQLiteへ保存するSession、会話履歴、失敗・中断を含む実行記録
 - `/new`、`/sessions`、`/history`、`/recall`などのTUI command
 - TypeScript Agent Definitionのinstall、versioned revision、export/import、実行

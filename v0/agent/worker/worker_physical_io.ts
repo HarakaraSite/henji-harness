@@ -8,7 +8,10 @@ import {
   readCredentialFile,
 } from '../provider/credential_file.ts';
 import { createCredentialResolver } from '../provider/credential_resolver.ts';
-import { OpenAIResponsesModel } from '../provider/openai_responses_model.ts';
+import {
+  OpenAIResponsesModel,
+  OpenRouterResponsesModel,
+} from '../provider/openai_responses_model.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import {
   type ModelSelection,
@@ -170,6 +173,14 @@ export const createProductionPhysicalIo = (
         (role === 'planner' ? PLANNER_DEFAULT_MODEL_SELECTION : ROOT_DEFAULT_MODEL_SELECTION);
       if (resolved.provider === 'openai') {
         return new OpenAIResponsesModel({
+          selection: resolved,
+          credentialSource: () => resolver.resolve(resolved.authProfile),
+          fetcher,
+          timeoutMs: options.providerTimeoutMs,
+        });
+      }
+      if (resolved.provider === 'openrouter-responses') {
+        return new OpenRouterResponsesModel({
           selection: resolved,
           credentialSource: () => resolver.resolve(resolved.authProfile),
           fetcher,
