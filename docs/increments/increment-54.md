@@ -101,4 +101,10 @@ storeのremoveとbinding guard、CLI command、error code、testの追加に限�
   `deactivate`→`uninstall`（成功receipt）→`list`空→`inspect`（`instruction_not_found`）を確認した。実provider
   requestは行っていない。
 - `README.md`のHenji Instruction節へ`uninstall`とactive revisionの扱いを追記した。
-- 未実施: commit、push、installed binaryの置換、tag、release、publish。これらは利用者の指示がある場合だけ行う。
+- 利用者の明示指示により、実装をcommit `40ce44a9`へ、S6/S8のinbox整理をcommit `7eed3624`へ確定した。その
+  clean commitからbuild `67649b5158e76219f7a6ada75d2b40e97abde93aff6beb0409656900ee116236`を生成し、
+  `dist/henji`と`~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `fb1c2121f06fb8ecfb40f05ced6126f6e3066a5ef15abd351f0fcd6d7c0ef6fd`で、導入版はsource
+  `7eed36240028bf7614d981141148adb370875f70`、`sourceDirty=false`を返した。
+- 導入版の`instruction active`はexternal `local/henji-base@sha256:82d67dd2…`を維持し、同revisionへの
+  `uninstall`は`instruction_active`で拒否された。tag、release、publishは行っていない。
