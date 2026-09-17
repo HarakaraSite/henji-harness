@@ -123,9 +123,10 @@ selection source・active状態を示す短い人間向け行を返す。machine
 revisionへ解決し、複数に一致した場合は`instruction_ambiguous`として完全digestを示す。`uninstall`は
 resource IDだけで対象が一意な場合`--revision`を省略できる。
 
-`instruction install`は、installしたresource IDと短縮revision、完全digestに加え、そのまま実行できる短縮
-revision指定の`inspect`・`activate`・`uninstall` commandを短いreceiptとして表示する。metadata、origin/custody、
-physical store、instruction本文の詳細は、receiptの`inspect` commandで確認する。
+`instruction install`と`instruction uninstall`は、resource IDと短縮revision（先頭8桁）を示す短いreceiptを
+表示する。`install`のreceiptはそのまま実行できる短縮revision指定の`inspect`・`activate`・`uninstall`
+commandも示す。完全digest、metadata、origin/custody、physical store、instruction本文の詳細は、receiptの
+`inspect` commandまたは`--json`で確認する。
 
 installはactive selectionを変更しない。activate/deactivateは次に作るWorker generationから反映され、
 既に動作中のgenerationや過去のSession履歴を書き換えない。external revisionが選択されているのにmanaged

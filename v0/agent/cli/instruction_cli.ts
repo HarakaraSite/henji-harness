@@ -164,7 +164,6 @@ const installReceipt = (
   return [
     `Installed: ${JSON.stringify(resourceId)}`,
     `Revision:  sha256:${short}`,
-    `Full:      sha256:${digest}`,
     '',
     'Inspect:',
     `henji instruction inspect ${selector}`,
@@ -182,10 +181,10 @@ const uninstallReceipt = (
   manifest: Awaited<ReturnType<ManagedHenjiInstructionStore['remove']>>,
 ): string => {
   const resourceId = manifest.logicalRef.resourceId;
-  const exactRevision = `sha256:${manifest.logicalRef.revision.digest}`;
+  const short = manifest.logicalRef.revision.digest.slice(0, 8);
   return [
     `Uninstalled: ${JSON.stringify(resourceId)}`,
-    `Revision:    ${exactRevision}`,
+    `Revision:    sha256:${short}`,
     '',
   ].join('\n');
 };

@@ -155,8 +155,7 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
     assertEquals(
       installed.stdout,
       `Installed: ${JSON.stringify(resourceId)}\n` +
-        `Revision:  sha256:${shortRevision}\n` +
-        `Full:      sha256:${ref.revision.digest}\n\n` +
+        `Revision:  sha256:${shortRevision}\n\n` +
         `Inspect:\n` +
         `henji instruction inspect ${expectedSelector}\n\n` +
         `Activate:\n` +
@@ -248,7 +247,7 @@ Deno.test('Increment 54 instruction uninstall removes inactive revisions and ref
     assertEquals(removed.code, 0);
     assertEquals(
       removed.stdout,
-      `Uninstalled: "example/a"\nRevision:    sha256:${refA.revision.digest}\n`,
+      `Uninstalled: "example/a"\nRevision:    sha256:${refA.revision.digest.slice(0, 8)}\n`,
     );
     assertEquals(
       (await invoke(['inspect', ...selectorA])).stderr.error.code,
