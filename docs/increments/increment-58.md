@@ -129,4 +129,10 @@ route identity追加、選択surface、共有Responses transport化、adapter配
   `provider:'openrouter-responses'`、`api:'openrouter-responses'`、`authProfile:'openrouter-api-key'`だった。
   provider evidenceのrequest observationはendpoint `https://openrouter.ai/api/v1/responses`を保持し、
   credential値とAuthorizationを含まなかった。
-- 未実施: compiled standaloneのisolated XDG起動確認、authoritative `v0:gate`、commit、build、binary置換。
+- authoritative `v0:gate`は2026-09-17に実行し、初回は`v0/agent/README.md`の整形のみで停止した。整形修正後の
+  再実行で全check/fmt/lint/testが成功した（再実行の理由は整形修正）。
+- 利用者の明示指示により、実装をcommit `4d21a9ea`へ確定した。そのclean commitからbuild
+  `a540a567e3d42d6f9756654a80b32f2275ae92ea3305106428756a221499c637`を生成し、`dist/henji`と
+  `~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `2f80559e6ea7b17311852ccd634c99a4039e0e09ba7be86eb99648d314110c70`で、導入版はsource
+  `4d21a9ea0e08acbe066f72ed0b80fc5d363ac3b8`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
