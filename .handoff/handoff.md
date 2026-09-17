@@ -2,35 +2,39 @@
 
 ## Records
 
-### Increment 51〜64 — provider外部化（宣言・一般化・replay・既定・同梱default・chat provider）
+### Increment 65 — activation-level subagent slot binding（計画承認済み・実装は明日）
 
-- 状態: Increment 64は完了・配置済み。curated catalog/既定をコード定数から同梱default declarations
-  （`v0/agent/provider/defaults/provider-defaults.json`、`provider_defaults.ts`）へ移し、`builtinProviderDeclarations()`
-  が検証して返す。宣言で`openai-chat-completions` protocolの新provider（OpenAI互換Chat Completions）を追加でき、
-  宣言endpoint/profileで`OpenRouterAgentModel`へ配線する。`OpenRouterAgentProfile.reasoningEffortField`で宣言chatは
-  `reasoning_effort`を出力する。実装commit `e8c8ae98`。clean commitからbuild
-  `8d164d9f66eedefdb1809d01dd43cd323e162889aa0c8aaa325d8c70d0adb53d`を生成し、`dist/henji`と
-  `~/.local/bin/henji`をatomic置換（両方SHA-256
-  `e0642d4ccb57c71e2f6e1d55c3e1beaf74a0f45790f53898d578c165af7d1ff2`、source
-  `e8c8ae98bd6f1feb93882d7f3b091b6f732c362f`、`sourceDirty=false`）。authoritative `v0:gate`通過（初回は
-  `provider-defaults.json`整形のみで停止、修正後再実行で成功）。実probeで宣言`openai-chat`（endpoint
-  `https://api.openai.com/v1`、`gpt-5.6-terra`）のtool turnが完走し、canonical commit・evidence api
-  `openai-chat-completions`・endpoint `https://api.openai.com/v1/chat/completions`を確認した。
-  前段: Increment 63（既定selection外部化とbuilt-in catalog override、`26743c62`／`b001b74e`）、Increment 62
-  （replay scope、`5218618a`／`5d17d754`）、Increment 61（宣言provider一般化、`6a34bf07`／`4ef3d59b`）、
-  Increment 59/60（provider宣言、`871cfb6c`／`e1814528`）、Increment 58（OpenRouter Responses、
-  `4d21a9ea`／`d231addc`）、Increment 57（`25325498`／`5fc5b962`）、Increment 56（`d71c026f`／`7cb653d7`）、
-  Increment 55（`2e8ce3da`／`48eb4cd6`）、Increment 54（`40ce44a9`／`bbb82615`）、Increment 53
-  （`a8ac6a85`／`ee3dbdf3`）、Increment 52（`1ee500ab`／`56276f49`）、Increment 51（`e709b100`／`0afad72c`）。
+- 状態: 計画`docs/increments/increment-65.md`を利用者が承認済み。**実装は未着手**（明日）。実装対象は、
+  delegated subagent（まずplanner）のDefinitionをactivation-level slotでbindする基盤と、planner既定のdata化。
+  確定した設計:
+  - slotはroot `agent:default`（role `parent`）＋delegated `subagent:<name>`。plannerは`subagent:planner`。
+    `--agent planner`（plannerをrootで走らせる既存経路）は誤りとして**後続で削除**（65対象外）。
+  - roleは`'parent' | 'subagent'`＋`subagentName`へ**破壊的変更**（既存managed planner Definitionは再install、
+    built-in planner refは再build前提）。canonical digestも新schemaへ。
+  - binding configは`$XDG_CONFIG_HOME/henji-harness/agents.json`（installation/user scope、workspaceは対象外）。
+    selectorは`moduleId@sha256:<digest>`。Hostがrole/name検証、解決失敗はtyped failure（fallbackなし）。subagent解決は
+    専用経路（rootの`HostDefinitionSelection.id`写像を流用しない）。
+  - composition: Hostはref解決のみ。Workerはroot Definitionを評価し、root Definitionの合成（Henji helper）が
+    Host提供subagentを組み込む（peer評価しない）。保証はHenji helperを使うDefinitionに限る。
+  - attribution: root/subagent exact refはDefinition resource graph／execution artifactへ。context attributionへは
+    入れない。subagent refはSession schemaに保存しない（将来AgentInstance領域へ）。
+  - contract: start command／ready message／execution artifactのversionを上げ、旧版は解釈しない。
+  - planner既定は同梱defaultのslot別`roleDefaults`（key `subagent:planner`）へ移し、コード定数を削除。planner
+    instructionは当面built-in role instructionのまま。
+  - base instruction finalizerはexternal plannerにも通し、Increment 51のbase適用保証を維持。
+  - architecture（`henji-host-agent-worker.md`）へactivation-level slot authority・composition seam・保証範囲を追記、
+    roadmapのProvider外部化節（65〜68の内容・順序）を更新（正本更新、別項目）。
+  - 未決メモ: Definition-manifest dependency bindingとmanifest/activation bindingの優先・競合規則は後続。
+- 次: Increment 65を実装（計画`docs/increments/increment-65.md`のHuman Gate 1〜9に従う）。実装後の検証はfocused test、
+  type check/format/lint/`git diff --check`、安定候補でauthoritative `v0:gate`1回、実provider probeは実行直前に
+  別途許可。その後Increment 66（web-search subagent化）、67（tool same-identity override）、68（built-in id削除/
+  Session影響/入力ブロック）。
+- 正本: `docs/increments/increment-65.md`（計画）、`docs/increments/increment-51.md`〜`increment-64.md`、
+  `docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
+- 注意: 直前の配置はIncrement 64（実装`e8c8ae98`／配置`2fe5506a`、binary SHA-256
+  `e0642d4ccb57c71e2f6e1d55c3e1beaf74a0f45790f53898d578c165af7d1ff2`、source`e8c8ae98…`、`sourceDirty=false`）。
+  active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
+  `default-selection.json`。`openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは
+  `openai-responses`と`openai-chat-completions`。adapterはbinary-owned、protocolは固定enum。OpenAI Chat Completionsは
+  `gpt-5.6-terra`でfunction toolsと`reasoning_effort`の併用不可（`/v1/responses`か`reasoning_effort:'none'`）。
   未実施: tag、Forgejo Release、JSR publish（JSR latestは0.1.3）。
-- 次: 完全外部化(c)の続き。Increment 65（planner default・`web_search`(Sonar)のrole別既定を宣言/設定化）、
-  Increment 66（built-in id削除とSession影響、既定解決不能時の入力ブロック）。他候補はS2、S4、S5、A1、A2、A3、
-  A5、A6、A7、R1〜R4。
-- 正本: `docs/increments/increment-51.md`〜`increment-64.md`、`docs/experience/normal-use-inbox.md`、
-  `docs/roadmap.md`のProvider外部化節。
-- 注意: active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは
-  `$XDG_CONFIG_HOME/henji-harness/providers/*.json`、既定selectionは同`default-selection.json`。
-  `openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは`openai-responses`と
-  `openai-chat-completions`の両protocolを選択可能。adapterはbinary-owned、protocolは固定enum。OpenAI Chat
-  Completionsは`gpt-5.6-terra`でfunction toolsと`reasoning_effort`の併用を受け付けない（`/v1/responses`か
-  `reasoning_effort:'none'`）。
