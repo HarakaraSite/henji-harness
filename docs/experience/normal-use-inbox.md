@@ -17,6 +17,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
 | S6 | Surface | Session pickerのlocal timezone・1行表示 | Session一覧の時刻と情報密度を改善する小Incrementを選ぶ |
 | S7 | Surface | managed Henji Instructionのuninstall/remove | 不要revisionや誤ってinstallしたrevisionをmanaged dataから削除する必要が出る |
+| S8 | Surface | TUI startupのactive Henji base表示 | `context: none`をbase instruction不在と誤解せず、使用revisionを起動時に確認したい |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -90,6 +91,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   対象にした場合の操作順、削除receipt、過去execution attributionとの関係は、採用時の実利用要件に基づいて決める。
 - 再検討条件: 不要revisionの蓄積を整理したい、または誤ってinstallしたrevisionをmanaged dataから削除したい事例が
   得られること。
+
+### S8 — TUI startupのactive Henji base表示（F08、F10）
+
+- 観測（2026-09-14）: external Henji baseをactivateした`/tmp/henji-harness`で、新しいWorker generationの応答には
+  選択した語尾が反映された一方、TUI startupは`context: none`とだけ表示した。この`context`はworkspace
+  `AGENTS.md`の有無を示し、Henji base instruction不在を意味しないが、画面だけでは区別しにくい。
+- 利用者希望: startup orientationへactive baseのresource ID、built-in/external selection source、識別可能な短縮revisionを
+  独立した行で表示し、workspace instructionの`context`表示は別の意味として残す。表示例は
+  `base: local/henji-base · external · 82d67dd2`と`context: none`。
+- 再検討条件: 次のstartup orientationまたは小さなSurface改善Incrementを選ぶとき。
 
 ## Agent実行
 
