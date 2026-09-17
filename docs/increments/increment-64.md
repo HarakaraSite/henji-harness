@@ -103,4 +103,10 @@
 - OpenAI側の制約を確認した: `gpt-5.6-terra`のChat Completionsは**function toolsと`reasoning_effort`の併用を
   受け付けない**（`/v1/responses`を使うか`reasoning_effort:'none'`を要求）。これはprovider/model固有の契約差で
   あり、宣言chat providerの汎用対応は対象外。tools併用時は`none`、またはResponses protocolを使う。
-- 未実施: authoritative `v0:gate`、commit、build、binary置換。
+- authoritative `v0:gate`は2026-09-17に実行し、初回は`provider-defaults.json`の整形のみで停止した。整形後の
+  再実行で全check/fmt/lint/testが成功した（再実行の理由は整形修正）。
+- 利用者の明示指示により、実装をcommit `e8c8ae98`へ確定した。そのclean commitからbuild
+  `8d164d9f66eedefdb1809d01dd43cd323e162889aa0c8aaa325d8c70d0adb53d`を生成し、`dist/henji`と
+  `~/.local/bin/henji`をatomic置換した。両方のSHA-256は
+  `e0642d4ccb57c71e2f6e1d55c3e1beaf74a0f45790f53898d578c165af7d1ff2`で、導入版はsource
+  `e8c8ae98bd6f1feb93882d7f3b091b6f732c362f`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
