@@ -71,4 +71,10 @@
   `~/.local/bin/henji`をatomic置換した。両方のSHA-256は
   `e8773c10bccf103397cd858c4aa25691f848441eee1597457e9a6f7c1bc062af`で、導入版はsource
   `6a34bf075d5f8a562d94d018779321058aeb9f71`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
-- 未実施: openai-altでの実provider probe（`openai-api-key`使用の外部request）。
+- 利用者の許可を得て、宣言provider `openai-alt`で実provider probeを実行した。isolated XDG configに
+  `providers/openai-alt.json`（OpenAI Responses、`gpt-5.6-terra`、authProfile `openai-api-key`、endpoint
+  `https://api.openai.com/v1`）を置き、`--root-provider openai-alt`で`note.txt`を読むtaskを一turn実行した。
+  `tool> read note.txt ✓`の後`assistant> HENJI-OPENAI-ALT-PROBE`が完成した。SQLite readbackで
+  `execution_outcomes.final_text`、`model_requests.model_selection`（provider `openai-alt`、api
+  `openai-responses`、authProfile `openai-api-key`、model `gpt-5.6-terra`）、provider observation endpoint
+  `https://api.openai.com/v1/responses`を確認し、credential値とAuthorizationを含まなかった。

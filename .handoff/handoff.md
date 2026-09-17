@@ -15,8 +15,10 @@
   `~/.local/bin/henji`をatomic置換（両方SHA-256
   `e8773c10bccf103397cd858c4aa25691f848441eee1597457e9a6f7c1bc062af`、source
   `6a34bf075d5f8a562d94d018779321058aeb9f71`、`sourceDirty=false`）。authoritative `v0:gate`通過。実機で
-  `--root-provider openai-alt`のfooterが`provider:openai-alt model:gpt-5.6-terra medium`を示すことを確認した
-  （provider requestは行っていない）。
+  `--root-provider openai-alt`のfooterが`provider:openai-alt model:gpt-5.6-terra medium`を示すことを確認した。
+  さらに利用者の許可を得て`openai-alt`で実provider probeを実行し、`tool> read note.txt ✓`→
+  `assistant> HENJI-OPENAI-ALT-PROBE`、canonical commit、evidence endpoint
+  `https://api.openai.com/v1/responses`、credential非記録を確認した。
   前段: Increment 59/60（provider宣言、endpoint/catalog override、`871cfb6c`／`e1814528`）、Increment 58
   （OpenRouter Responses経路、`4d21a9ea`／`d231addc`、実provider probe）、Increment 57（`25325498`／`5fc5b962`）、
   Increment 56（`d71c026f`／`7cb653d7`）、Increment 55（`2e8ce3da`／`48eb4cd6`）、Increment 54
