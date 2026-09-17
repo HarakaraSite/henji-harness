@@ -102,4 +102,10 @@ testで**2〜3開発日相当**。
 - 実機: isolated XDGで保存済み既定（`openai`/`gpt-5.6-terra`）が起動footerに反映され、`--root-provider
   openrouter`が保存済み既定を上書きし、`openrouter`のcatalog override宣言でfooterが`model:acme/chat low`に
   なること、endpoint不一致の宣言が起動前に失敗することを確認した（provider requestは行っていない）。
-- 未実施: authoritative `v0:gate`、commit、build、binary置換、roadmapへの段階追記。
+- roadmapのProvider外部化節へIncrement 58〜63の実装状況と64〜66の予定段階を追記した。
+- authoritative `v0:gate`は2026-09-17に実行し全check/fmt/lint/testが成功した。
+- 利用者の明示指示により、実装をcommit `26743c62`へ確定した。そのclean commitからbuild
+  `45298791438c8ad7d1a60229c742825404f9ee7a16fe8f1da84c80cadb780992`を生成し、`dist/henji`と
+  `~/.local/bin/henji`をatomic置換した。両方のSHA-256は
+  `f1b428dbeb9f036fc5f4cf4d277d7fc9e9abc715ecb91e1b35289f36787450f8`で、導入版はsource
+  `26743c620cbb5bd5fe9bd06831cc173dda4c5fac`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
