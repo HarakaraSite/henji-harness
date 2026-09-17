@@ -47,7 +47,14 @@
 
 runtime registry、catalog/selectionのoverride反映、起動配線、表示修正、testで**1〜2開発日相当**。
 
-## 未実施
+## 実装・検証結果（確定）
 
-- authoritative `v0:gate`、commit、build、`dist/henji`/`~/.local/bin/henji`置換。
-- 新しいprovider idの追加（将来increment）。
+- authoritative `v0:gate`は2026-09-17に実行し、初回はIncrement 33のTUI起動順testで回帰を検出した。
+  `tuiMain`が注入session factoryでも宣言読込を行っていたためで、注入時かつconfigRoot未指定では読み込まないよう
+  修正した。修正後の再実行で全check/fmt/lint/testが成功した（再実行の理由は回帰修正）。
+- 利用者の明示指示により、Increment 59/60の実装をcommit `871cfb6c`へ確定した。そのclean commitからbuild
+  `7e2ee3d5a6cd30ebd1f4b91159b77ca02a71dca5637c60b2e287948cfbd91102`を生成し、`dist/henji`と
+  `~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `c259eb397ca07e105eeb68fa6370a6090e2465169c7e8be8b94e0bd949865b43`で、導入版はsource
+  `871cfb6ce4a50855113b93a4521e1929ee139de2`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
+- 新しいprovider idの追加は将来increment。
