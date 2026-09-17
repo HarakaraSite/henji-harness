@@ -65,4 +65,10 @@
 - 実機: isolated XDG configに`providers/openai-alt.json`（OpenAI Responses、catalog `gpt-5.6-terra`、defaults
   medium）を置き、compiled standaloneを`--root-provider openai-alt`で起動。footerが
   `provider:openai-alt model:gpt-5.6-terra medium`を示すことを確認した（provider requestは行っていない）。
-- 未実施: authoritative `v0:gate`、commit、build、binary置換、実provider probe。
+- authoritative `v0:gate`は2026-09-17に実行し全check/fmt/lint/testが成功した。
+- 利用者の明示指示により、実装をcommit `6a34bf07`へ確定した。そのclean commitからbuild
+  `ee42b5f85bb4f09077b936b437581030d5329402d4ee0087ef1904dfc9508aea`を生成し、`dist/henji`と
+  `~/.local/bin/henji`をatomic置換した。両方のSHA-256は
+  `e8773c10bccf103397cd858c4aa25691f848441eee1597457e9a6f7c1bc062af`で、導入版はsource
+  `6a34bf075d5f8a562d94d018779321058aeb9f71`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
+- 未実施: openai-altでの実provider probe（`openai-api-key`使用の外部request）。
