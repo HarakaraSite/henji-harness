@@ -261,9 +261,10 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 ### E1 — Agent Definition後のresource外部化
 
 - 現行境界: standalone executable、Agent Definition専用のmanaged revision store/resolver、portable transportは
-  Increment 32〜34で採用・実装済みである。Agent Definitionで得たloader、dependency、promotion、activationのsemanticsを
-  instruction、tool、Provider、MCP、Surfaceへ自動的に一般化しない。
-- 未実装境界: catalog外のtool identity、revision付きinstruction、external Provider registry、互換providerの
+  Increment 32〜34で採用・実装済みである。managed `instruction:henji-base` revisionはIncrement 51で採用・
+  実装済みである。Agent Definitionで得たloader、dependency、promotion、activationのsemanticsをinstruction、
+  tool、Provider、MCP、Surfaceへ自動的に一般化しない。
+- 未実装境界: catalog外のtool identity、複数slotのinstruction revision化、external Provider registry、互換providerの
   data-only Definition、独自protocolのexecutable Definition、resourceごとのmutable instance state、context rebuild、共通package/plugin
   discoveryは未採用である。Providerは現在`openrouter`/`openai`、API種別、auth profileのclosed unionである。
 - 候補: resource kindごとにscope/activation owner、execution placement、lifecycle、durability、dependency identity、

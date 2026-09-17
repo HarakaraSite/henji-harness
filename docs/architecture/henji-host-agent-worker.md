@@ -190,8 +190,8 @@ ruleである。
 
 logical refを実行可能contentへ解決した後、Hostはbuilt-in module descriptorやmanaged store内path等のkind固有な
 physical load descriptorを現在process内で構築できる。このdescriptorは`DefinitionRevisionRef`の一部ではなく、
-Session、artifact、evidenceへportable identityとして永続化しない。現行のphysical `canonicalSpecifier`を含む
-`DefinitionRevisionRef` schemaは、Increment 32でこのlogical/physical分離へ置き換える。
+Session、artifact、evidenceへportable identityとして永続化しない。physical `canonicalSpecifier`を含む旧
+`DefinitionRevisionRef` schemaは、Increment 32でこのlogical/physical分離へ置き換え済みである。
 
 immutable revision、active binding、resource instanceのmutable state、Session/tool call/resultは別authorityである。
 managed resource kindごとにscope/activation owner、execution placement、install・select・activate・reload・rollback・
@@ -356,7 +356,7 @@ active response、draft、TUI-local noticeはsourceにしない。export中は�
 
 同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
 revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は
-選択を固定し、delegated plannerはrootの選択を継承せずplanner defaultを使う。Session schema v3はactive選択、
+選択を固定し、delegated plannerはrootの選択を継承せずplanner defaultを使う。Session schema v6はactive選択、
 変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
 
@@ -614,10 +614,9 @@ compatibility境界だけを採用する。
 
 | 未決の判断 | 今決めない理由 | 判断する契機 |
 | --- | --- | --- |
-| canonical turnに含めるmessage/tool interaction/projectionの範囲と、execution evidenceのdurable write粒度 | 会話への採用単位と観測途中の保存頻度は別であり、現在のSession JSONから物理storageを変更するかも未採用である | durable historyまたはstorage backendのincrementを採用するとき |
 | `AgentContextGeneration`のidentity、所有する基底設定、`AgentWorkerGeneration`との対応 | `/rebuild`対象resourceとcomposition再構築のlifetimeが未決であり、execution単位の動的inputまでgenerationへ固定しない | `/rebuild`または同等のcontext再構築をroadmapで採用するとき |
 | `/rebuild`対象resource、selection/activation authority、transitionのcommit/failure semantics | native instruction、skill、Agent Definition、toolでは更新方法とauthorityが異なる | 最初の`/rebuild` incrementで対象resourceを選ぶとき |
-| `/recall` projection本文をcanonical turnへ含める範囲 | source/target identityと一回限りのmodel projectionは成立したが、将来のhistory viewとstorage schemaで必要なcanonical表現は未決である | durable historyまたはhistory viewのschemaを採用するとき |
+| `/recall` projection本文をcanonical turnへ含める範囲 | source/target identityと一回限りのmodel projectionは成立したが、canonical turnのprojection表現は未決である | canonical turnのprojection表現を変更するschemaまたは機能を採用するとき |
 | provider/toolの物理I/OをWorker、Host RPC/capability、subprocessのどこに置くか | effect、latency、streaming、credential、利用するtoolの契約によって適切な境界が変わる | roadmapが具体的なprovider/tool利用経路を選んだとき |
 | Worker protocolのmessage、handshake、error、versioning | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる | 新しいHost / Worker間機能を実装するとき |
 | Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |

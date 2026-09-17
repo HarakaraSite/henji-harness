@@ -34,11 +34,11 @@ commit path:
 The interactive Session owns its active provider/model route and reasoning effort independently of
 the Definition revision. The launcher defaults to OpenRouter; `--root-provider openai` starts a new
 OpenAI Responses root using the fixed direct catalog and Platform API-key file. Delegated planner
-calls and Sonar `web_search` keep independent OpenRouter routes and credentials. Session schema v4
-persists provider, API, auth-profile identity, active selection, change history, and
-per-committed-turn attribution. Standalone-era Session schema v6 also records the logical built-in
-Definition ref and build manifest for every committed turn. Previous development schemas remain in
-the old state namespace and are not interpreted by the compiled command.
+calls and Sonar `web_search` keep independent OpenRouter routes and credentials. The current
+standalone-era Session record schema v6 persists provider, API, auth-profile identity, active
+selection, change history, per-committed-turn attribution, and each committed turn's logical
+built-in Definition ref and build manifest. Previous development schemas remain in the old state
+namespace and are not interpreted by the compiled command.
 
 `henji instruction` manages the installation-wide `instruction:henji-base` slot. The Host resolves
 the active exact revision before creating each Worker generation and passes its ref and exact bytes

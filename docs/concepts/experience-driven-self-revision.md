@@ -119,9 +119,10 @@ variantを増やすこと自体は目的ではなく、Definitionを読み込め
 
 現在のHenjiは、この構想を実装・実証するための機能が十分ではない。自己改訂はactiveな次工程ではなく、
 着手時期、前提機能、実装順序、経験の具体的な残し方と読み方、人間のアクション、指示、承認を受け取る
-具体的なinterfaceとHuman Gateは未決定である。人間がcanonical/non-canonical双方を辿るhistory view、executionと
-Agent状態のattribution、改訂されたresourceから実効状態を再構築する`/rebuild`相当の操作も、具体的な保存方式、
-対象resource、実装順序をまだ決めていない。
+具体的なinterfaceとHuman Gateは未決定である。人間がcanonical/non-canonical双方を辿るhistory viewと、
+executionとAgent状態のattributionはIncrement 40〜43で実装済みである。改訂されたresourceから実効状態を
+再構築する`/rebuild`相当の操作は、対象resource、selection/activation authority、保存方式、実装順序を
+まだ決めていない。
 
 現在のroadmapは、現行のproduct機能と利用者に不足している通常機能から組み立てる。この構想は、将来の
 自己改訂を不必要に妨げる固定化を避けるための方向を示すが、直近の機能優先順位を決定しない。
