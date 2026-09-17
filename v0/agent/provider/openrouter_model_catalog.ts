@@ -100,10 +100,13 @@ export const PLANNER_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.
   effort: PLANNER_DEFAULT_EFFORT,
 });
 
+const openRouterEntries = (): readonly OpenRouterModelCatalogEntry[] =>
+  declarationFor('openrouter')?.modelCatalog.entries ?? OPENROUTER_MODEL_CATALOG;
+
 export const openRouterCatalogEntry = (
   modelId: string,
 ): OpenRouterModelCatalogEntry | undefined =>
-  OPENROUTER_MODEL_CATALOG.find((candidate) => candidate.modelId === modelId);
+  openRouterEntries().find((candidate) => candidate.modelId === modelId);
 
 export const isOpenRouterModelSelection = (
   value: unknown,
@@ -176,12 +179,11 @@ export const selectOpenRouterResponsesModel = (
 export const searchOpenRouterModels = (
   query: string,
 ): readonly OpenRouterModelCatalogEntry[] => {
+  const entries = openRouterEntries();
   const normalized = query.trim().toLocaleLowerCase();
-  if (normalized.length === 0) return OPENROUTER_MODEL_CATALOG;
+  if (normalized.length === 0) return entries;
   return Object.freeze(
-    OPENROUTER_MODEL_CATALOG.filter((candidate) =>
-      candidate.modelId.toLocaleLowerCase().includes(normalized)
-    ),
+    entries.filter((candidate) => candidate.modelId.toLocaleLowerCase().includes(normalized)),
   );
 };
 

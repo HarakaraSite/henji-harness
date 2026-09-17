@@ -20,13 +20,12 @@ import type {
   OpenRouterModelSelection,
   OpenRouterResponsesModelSelection,
 } from '../provider/model_selection.ts';
-import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import {
   type ModelSelection,
   openRouterProfileFor,
   PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
+import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 import {
   createProviderFreeWebSearchBackend,
   OpenRouterSonarWebSearchBackend,
@@ -185,7 +184,9 @@ export const createProductionPhysicalIo = (
   return {
     createModel: (role, selection?: ModelSelection) => {
       const resolved = selection ??
-        (role === 'planner' ? PLANNER_DEFAULT_MODEL_SELECTION : ROOT_DEFAULT_MODEL_SELECTION);
+        (role === 'planner'
+          ? PLANNER_DEFAULT_MODEL_SELECTION
+          : defaultModelSelectionFor('openrouter'));
       if (resolved.provider === 'openai') {
         return new OpenAIResponsesModel({
           selection: resolved as OpenAIModelSelection,
@@ -221,7 +222,7 @@ export const createProductionPhysicalIo = (
         profile: role === 'planner' && selection === undefined
           ? openRouterProfileFor(PLANNER_DEFAULT_MODEL_SELECTION)
           : selection === undefined
-          ? PRODUCTION_PROFILE
+          ? openRouterProfileFor(defaultModelSelectionFor('openrouter') as OpenRouterModelSelection)
           : openRouterProfileFor(resolved as OpenRouterModelSelection),
         credentialSource: () => resolver.resolve(resolved.authProfile),
         fetcher,

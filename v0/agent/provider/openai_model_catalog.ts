@@ -1,4 +1,5 @@
 import type { ModelSelection, OpenAIModelSelection, ReasoningEffort } from './model_selection.ts';
+import { declarationFor } from './provider_runtime.ts';
 
 export interface OpenAIModelCatalogEntry {
   readonly modelId: string;
@@ -28,10 +29,13 @@ export const OPENAI_DEFAULT_MODEL_SELECTION: OpenAIModelSelection = Object.freez
   effort: OPENAI_MODEL_CATALOG[0].defaultEffort,
 });
 
+const openAIEntries = (): readonly OpenAIModelCatalogEntry[] =>
+  declarationFor('openai')?.modelCatalog.entries ?? OPENAI_MODEL_CATALOG;
+
 export const openAIModelCatalogEntry = (
   modelId: string,
 ): OpenAIModelCatalogEntry | undefined =>
-  OPENAI_MODEL_CATALOG.find((candidate) => candidate.modelId === modelId);
+  openAIEntries().find((candidate) => candidate.modelId === modelId);
 
 export const isOpenAIModelSelection = (
   value: unknown,
@@ -69,11 +73,10 @@ export const selectOpenAIModel = (
 export const searchOpenAIModels = (
   query: string,
 ): readonly OpenAIModelCatalogEntry[] => {
+  const entries = openAIEntries();
   const normalized = query.trim().toLocaleLowerCase();
-  if (normalized.length === 0) return OPENAI_MODEL_CATALOG;
+  if (normalized.length === 0) return entries;
   return Object.freeze(
-    OPENAI_MODEL_CATALOG.filter((candidate) =>
-      candidate.modelId.toLocaleLowerCase().includes(normalized)
-    ),
+    entries.filter((candidate) => candidate.modelId.toLocaleLowerCase().includes(normalized)),
   );
 };

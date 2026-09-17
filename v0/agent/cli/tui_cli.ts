@@ -29,9 +29,22 @@ import {
   DenoHumanHistoryExporter,
   type HumanHistoryExporter,
 } from '../history/human_history_export.ts';
-import { BUILTIN_PROVIDER_IDS, type ProviderId } from '../provider/model_selection.ts';
-import { defaultModelSelectionFor, providerIdsForSelection } from '../provider/model_catalog.ts';
-import { loadProviderDeclarations } from '../provider/provider_declaration.ts';
+import {
+  BUILTIN_PROVIDER_IDS,
+  type ModelSelection,
+  type ProviderId,
+} from '../provider/model_selection.ts';
+import {
+  defaultModelSelectionFor,
+  isModelSelection,
+  providerIdsForSelection,
+} from '../provider/model_catalog.ts';
+import { readDefaultSelection, writeDefaultSelection } from '../provider/default_selection.ts';
+import {
+  builtinProviderDeclarations,
+  loadProviderDeclarations,
+  resolveProviderRegistry,
+} from '../provider/provider_declaration.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import {
@@ -278,9 +291,10 @@ export const main = async (
     (dependencies.createSession === undefined ? resolveRuntimePaths().configRoot : undefined);
   try {
     setActiveProviderDeclarations(
-      hostConfigRoot === undefined
-        ? []
-        : await loadProviderDeclarations({ configRoot: hostConfigRoot }),
+      hostConfigRoot === undefined ? [] : resolveProviderRegistry(
+        builtinProviderDeclarations(),
+        await loadProviderDeclarations({ configRoot: hostConfigRoot }),
+      ).declarations,
     );
   } catch {
     await stderr(failureLine('invalid_invocation'));
@@ -322,6 +336,14 @@ export const main = async (
   let createdResult: TuiSessionFactoryResult | undefined;
   let resultCode = 1;
   try {
+    const storedDefault = hostConfigRoot === undefined
+      ? undefined
+      : await readDefaultSelection(hostConfigRoot);
+    const rootSelection = invocation.rootProvider !== undefined
+      ? defaultModelSelectionFor(invocation.rootProvider)
+      : storedDefault !== undefined && isModelSelection(storedDefault)
+      ? storedDefault
+      : defaultModelSelectionFor('openrouter');
     const sessionFactory = dependencies.createSession ??
       ((eventSink: AgentEventSink, selected: HostDefinitionSelection | undefined) =>
         createWorkerSession({
@@ -335,9 +357,7 @@ export const main = async (
           physicalIoMode: 'production',
           rootMaxSteps: invocation.rootMaxSteps,
           providerTimeoutMs: invocation.providerTimeoutMs,
-          initialModelSelection: defaultModelSelectionFor(
-            invocation.rootProvider ?? 'openrouter',
-          ),
+          initialModelSelection: rootSelection,
           eventSink,
         }));
     // Composition occurs before raw acquisition, so startup failures never touch terminal mode.
@@ -379,6 +399,11 @@ export const main = async (
           ? {}
           : { humanHistoryReader: created.humanHistoryReader }),
         ...(humanHistoryExporter === undefined ? {} : { humanHistoryExporter }),
+        ...(hostConfigRoot === undefined ? {} : {
+          persistDefaultSelection: (selection: ModelSelection) => {
+            writeDefaultSelection(hostConfigRoot, selection).catch(() => {});
+          },
+        }),
         historySessionMode: created.displayState.sessionMode.kind === 'none' ? 'none' : 'durable',
         startupState: created.displayState,
       },

@@ -70,10 +70,12 @@ const declaredEntriesFor = (
   provider: ProviderId,
 ): readonly ProviderModelCatalogEntry[] | undefined => {
   const declaration = declarationFor(provider);
-  if (
-    declaration === undefined ||
-    (declaration.protocol !== 'openai-responses' && BUILTIN_PROVIDER_IDS.includes(provider))
-  ) return undefined;
+  if (declaration === undefined) return undefined;
+  // openrouter/openai overrides are resolved by their override-aware catalog helpers; other built-ins
+  // and declared ids use the declaration entries directly.
+  if (BUILTIN_PROVIDER_IDS.includes(provider) && provider !== 'openrouter-responses') {
+    return undefined;
+  }
   return declaration.modelCatalog.entries;
 };
 
@@ -91,8 +93,18 @@ export const isModelSelection = (value: unknown): value is ModelSelection => {
 };
 
 export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection => {
-  if (provider === 'openai') return OPENAI_DEFAULT_MODEL_SELECTION;
-  if (provider === 'openrouter') return ROOT_DEFAULT_MODEL_SELECTION;
+  if (provider === 'openai') {
+    const declaration = declarationFor('openai');
+    return declaration === undefined
+      ? OPENAI_DEFAULT_MODEL_SELECTION
+      : selectOpenAIModel(declaration.defaults.modelId, declaration.defaults.effort);
+  }
+  if (provider === 'openrouter') {
+    const declaration = declarationFor('openrouter');
+    return declaration === undefined
+      ? ROOT_DEFAULT_MODEL_SELECTION
+      : selectOpenRouterModel(declaration.defaults.modelId, declaration.defaults.effort);
+  }
   if (provider === 'openrouter-responses') {
     const declaration = declarationFor('openrouter-responses');
     if (declaration !== undefined) {

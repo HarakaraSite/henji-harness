@@ -368,6 +368,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         modelId: selection.modelId,
         effort: selection.effort,
       };
+      Promise.resolve(this.options.persistDefaultSelection?.(selection)).catch(() => {});
       this.emit({ kind: 'model_selection_changed', selection: projected });
       return {
         kind: 'model_selection' as const,

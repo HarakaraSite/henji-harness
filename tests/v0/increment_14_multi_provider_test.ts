@@ -11,6 +11,11 @@ import {
   selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
+import {
+  defaultSelectionPath,
+  readDefaultSelection,
+  writeDefaultSelection,
+} from '../../v0/agent/provider/default_selection.ts';
 import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
@@ -313,12 +318,14 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
   ]);
   assert(added.get('internal-vllm') !== undefined);
 
-  for (const reserved of ['openrouter', 'openai']) {
-    assertEquals(
-      declarationCodeOf(() => validateProviderDeclaration(declarationBody(reserved))),
-      'provider_declaration_reserved',
-    );
-  }
+  assertEquals(
+    declarationCodeOf(() =>
+      resolveProviderRegistry(builtins, [
+        validateProviderDeclaration(declarationBody('openai')),
+      ])
+    ),
+    'provider_declaration_invalid',
+  );
   assertEquals(
     declarationCodeOf(() =>
       validateProviderDeclaration({ ...declarationBody('bad'), protocol: 'anthropic-messages' })
@@ -413,6 +420,48 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
   }
   assertEquals(
     defaultModelSelectionFor('openrouter-responses').modelId,
+    'deepseek/deepseek-v4.1-flash',
+  );
+});
+
+Deno.test('Increment 63 stores and reads the Host default selection', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-default-selection-' });
+  try {
+    assertEquals(await readDefaultSelection(root), undefined);
+    await writeDefaultSelection(root, OPENAI_DEFAULT_MODEL_SELECTION);
+    assertEquals(await readDefaultSelection(root), OPENAI_DEFAULT_MODEL_SELECTION);
+    assert((await Deno.readTextFile(defaultSelectionPath(root))).endsWith('\n'));
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 63 declaration overrides a built-in catalog and defaults', () => {
+  const override = validateProviderDeclaration({
+    ...declarationBody('openrouter'),
+    protocol: 'openai-chat-completions',
+    endpoint: 'https://openrouter.ai/api/v1',
+    authProfile: 'openrouter-api-key',
+    modelCatalog: {
+      kind: 'fixed',
+      entries: [{ modelId: 'acme/chat', defaultEffort: 'low', efforts: ['low', 'high'] }],
+    },
+    defaults: { modelId: 'acme/chat', effort: 'high' },
+  });
+  setActiveProviderDeclarations([override]);
+  try {
+    const selection = defaultModelSelectionFor('openrouter');
+    assertEquals(selection.modelId, 'acme/chat');
+    assertEquals(selection.effort, 'high');
+    assert(isModelSelection(selection));
+    assertEquals(searchModelsFor('openrouter', '').length, 1);
+    assertEquals(selectModelFor('openrouter', 'acme/chat').effort, 'low');
+    assertEquals(searchModelsFor('openrouter', 'deepseek').length, 0);
+  } finally {
+    setActiveProviderDeclarations([]);
+  }
+  assertEquals(
+    defaultModelSelectionFor('openrouter').modelId,
     'deepseek/deepseek-v4.1-flash',
   );
 });

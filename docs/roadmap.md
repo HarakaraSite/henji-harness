@@ -215,7 +215,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | managed Henji base instruction | F03、F06、F08 | Increment 51でDefinition以外の最初のmanaged kindを成立させ、built-in/external exact baseを次generationへ適用する |
-| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱う。OpenRouter Responses経路はIncrement 58、data-only宣言とendpoint/catalog overrideはIncrement 59/60で成立し、新しいprovider idの一般化（providerId+protocol+authProfile、Responses先行）をIncrement 61で扱う |
+| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱う。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override。64〜66でcatalog移行・role別既定・built-in削除を予定 |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
@@ -362,18 +362,27 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
 対象機能: F02、F06、F24（inbox E1）
 
 利用者希望（2026-09-17）として、現行OpenRouter Chat Completions経路をResponses APIへ変更し、あわせてProvider設定を
-外部化する方向を採用した。実装はまだ行っていない。
+完全に外部化する方向を採用した。adapterはbinary-owned（`openai-responses`/`openai-chat-completions`）、provider
+宣言はdata-onlyとし、providerの追加・catalog・既定をbinary更新なしで扱えるようにする。
 
-- OpenRouter Responses API経路: 同じOpenRouter credentialでResponses API surfaceを使うrouteとadapterを扱う。現行
-  Chat Completions routeの置換か併設か、request/response item、function tool continuation、reasoning state、
-  stream event、parser transition、raw evidence、model/effort対応範囲、既存OpenAI Responses adapterとの共通化は、
-  実装incrementでOpenRouter公式contractと実provider応答を確認して決める。
+- OpenRouter Responses API経路: 同じOpenRouter credentialでResponses API surfaceを使うrouteとadapterを扱う。
+  実装済み（Increment 58）。tool call→streaming→canonical commit→evidenceを実providerで受入済み。
 - Provider設定の外部化: Provider declarationをdata-only resourceとして外部化し、Hostがnon-secret auth profile
   catalogとcredential registry、request時のroute/credential解決を所有する。credential値、Authorization、tokenを
   portable artifact、Session、evidence、transcript、Definitionへ含めない。S2（Henji内credential登録）はこの
   registryへ接続する。
-- 実装順序: Cycle 1前段でもSelf-revision Cycle 1でもなく、通常利用の改善として独立incrementで扱う。次のincrement
-  候補として順序と分割を相談する。architectureは
+- 段階（実装順序）:
+  1. Increment 58: OpenRouter Responses経路（built-in、実provider受入済み）。
+  2. Increment 59/60: data-only provider宣言、Host解決、endpoint/catalog override、人間向けCLI。
+  3. Increment 61: provider identity一般化（`providerId`+`protocol`+`authProfile`、Responses先行）。宣言で
+     built-inとは別の新provider idを追加可能。実provider probe済み。
+  4. Increment 62: Responses replay stateを生成元provider/modelへscope。
+  5. Increment 63: 既定selectionのHost config外部化と、`openrouter`/`openai`のcatalog/defaults override。
+  6. Increment 64（予定）: curated catalogをコードから外し、同梱default declarationsへ移行。chat completions
+     adapterのendpoint宣言対応。
+  7. Increment 65（予定）: planner default・`web_search`(Sonar)のrole別既定を宣言/設定化。
+  8. Increment 66（予定）: built-in id削除とSession影響の処理、既定解決不能時の入力ブロック。
+- architectureは
   [`architecture/multi-provider-routing-and-auth.md`](architecture/multi-provider-routing-and-auth.md)と
   [`architecture/henji-host-agent-worker.md`](architecture/henji-host-agent-worker.md)へ反映済みである。
 

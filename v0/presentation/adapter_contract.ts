@@ -117,6 +117,8 @@ export type CoreSession = {
 };
 
 export interface TuiPresentationAdapterOptions {
+  /** Persist the accepted selection as the Host default for new sessions. */
+  readonly persistDefaultSelection?: (selection: ModelSelection) => void | PromiseLike<void>;
   readonly historyExporter?: HistoryExporter;
   readonly humanHistoryReader?: HumanHistoryReadPort;
   readonly humanHistoryExporter?: HumanHistoryExporter;

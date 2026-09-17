@@ -12,10 +12,15 @@ export const PROVIDER_DECLARATION_DIRECTORY = 'providers' as const;
 export type ProviderProtocol = 'openai-chat-completions' | 'openai-responses';
 
 /** Built-in route identities that a declaration may not redefine. */
-export const RESERVED_PROVIDER_IDS: readonly string[] = Object.freeze(['openrouter', 'openai']);
+export const RESERVED_PROVIDER_IDS: readonly string[] = Object.freeze([]);
 
-/** Built-in defaults that a declaration with the same providerId may override. */
+/**
+ * Built-in provider ids whose declaration may override the model catalog and defaults. The protocol,
+ * endpoint, and auth profile must stay identical so a declaration cannot silently change the vendor.
+ */
 export const OVERRIDABLE_PROVIDER_IDS: readonly string[] = Object.freeze([
+  'openrouter',
+  'openai',
   'openrouter-responses',
 ]);
 
@@ -165,13 +170,6 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
       isRecord(value) && typeof value.providerId === 'string' ? value.providerId : undefined,
     );
   }
-  if (RESERVED_PROVIDER_IDS.includes(value.providerId)) {
-    throw new ProviderDeclarationError(
-      'provider_declaration_reserved',
-      'provider declaration redefines a reserved built-in provider',
-      value.providerId,
-    );
-  }
   const endpoint = parseEndpoint(value.endpoint);
   if (
     !isRecord(value.modelCatalog) || value.modelCatalog.kind !== 'fixed' ||
@@ -268,12 +266,25 @@ export const resolveProviderRegistry = (
   const byId = new Map(builtins.map((declaration) => [declaration.providerId, declaration]));
   for (const declaration of declarations) {
     const existing = byId.get(declaration.providerId);
-    if (existing !== undefined && !OVERRIDABLE_PROVIDER_IDS.includes(declaration.providerId)) {
-      throw new ProviderDeclarationError(
-        'provider_declaration_duplicate',
-        'provider declaration conflicts with an existing provider',
-        declaration.providerId,
-      );
+    if (existing !== undefined) {
+      if (!OVERRIDABLE_PROVIDER_IDS.includes(declaration.providerId)) {
+        throw new ProviderDeclarationError(
+          'provider_declaration_duplicate',
+          'provider declaration conflicts with an existing provider',
+          declaration.providerId,
+        );
+      }
+      if (
+        existing.protocol !== declaration.protocol ||
+        existing.endpoint !== declaration.endpoint ||
+        existing.authProfile !== declaration.authProfile
+      ) {
+        throw new ProviderDeclarationError(
+          'provider_declaration_invalid',
+          'provider override must keep protocol, endpoint, and authProfile',
+          declaration.providerId,
+        );
+      }
     }
     byId.set(declaration.providerId, declaration);
   }
