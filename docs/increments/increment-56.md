@@ -97,4 +97,11 @@ receipt整形とdeactivateの表示分岐、test・README更新に限定され�
   revisionでの`activate`、`active`、`deactivate`人間向け行、`deactivate --json`、短縮revisionでの`uninstall`を
   確認した。実provider requestは行っていない。
 - `README.md`のHenji Instruction節を短縮receiptと`deactivate --json`に合わせて更新した。
-- 未実施: commit、push、installed binaryの置換、tag、release、publish。これらは利用者の指示がある場合だけ行う。
+- 利用者の明示指示により、実装をcommit `d71c026f`へ確定した。そのclean commitからbuild
+  `657b11bd5145b8dd0f1f60f9865da58471595d4bfbd6c429266d5b85a66fb71f`を生成し、`dist/henji`と
+  `~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `982b43be9f03b2a1d7eb12c3fd10d8ce9e6253f44f02bc715ce58fce73ab5bab`で、導入版はsource
+  `d71c026f3a7c7dc7e72c74490930b4808c7ce3c6`、`sourceDirty=false`を返した。
+- 導入版をisolated XDG rootsで実行し、install receiptの短縮revision・`Full:`・`Uninstall`block、receiptから
+  取り出した短縮revisionでの`activate`、`deactivate`人間向け行、`list`人間向け行、短縮revisionでの`uninstall`を
+  確認した。実provider requestは行っていない。tag、release、publishは行っていない。
