@@ -104,5 +104,8 @@ providerState一般化、スコープ判定、encrypted_content補完、検証�
   provider item id（`rs_`/`fc_`/`msg_`）が含まれ**、replayされたことを確認した（1番目は含まない）。canonical
   commitと`model_selection`（`openai`/`gpt-5.6-sol`、`openai-alt`/`gpt-5.6-terra`）も確認した。
 - authoritative `v0:gate`は2026-09-17に実行し全check/fmt/lint/testが成功した。
-- 利用者の明示指示により実装をcommitし、clean commitからbuildして`dist/henji`と`~/.local/bin/henji`を置換する
-  （配置記録は下記）。tag、release、publishは行わない。
+- 利用者の明示指示により、実装をcommit `5218618a`へ確定した。そのclean commitからbuild
+  `a126aecc0586ae1966b56d3a78cc5e72b6258104777743d3675950b20359f1d9`を生成し、`dist/henji`と
+  `~/.local/bin/henji`をatomic置換した。両方のSHA-256は
+  `3558c8a17c8dc714c10ce2784593c5bb42b00dddb8aa96d53df6af9b592d3eca`で、導入版はsource
+  `5218618a02daec03444a3480350a487f720ac728`、`sourceDirty=false`を返した。tag、release、publishは行っていない。
