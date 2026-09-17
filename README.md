@@ -115,16 +115,17 @@ exact revisionを明示的にactivateする。
 ./dist/henji instruction uninstall --id example/henji-base
 ```
 
-`instruction list`と`instruction active`は、既定でresource ID・短縮revision・selection source・active状態を
-示す短い人間向け行を返す。machine向けのJSONは`--json`で取得する。`inspect`は詳細JSONを返す。
+`instruction list`・`instruction active`・`instruction deactivate`は、既定でresource ID・短縮revision・
+selection source・active状態を示す短い人間向け行を返す。machine向けのJSONは`--json`で取得する。
+`inspect`は詳細JSONを返す。
 
 `--revision`は`sha256:<full-digest>`のほか8〜64桁のhex prefixを受け付ける。prefixは`--id`のinstall済み
 revisionへ解決し、複数に一致した場合は`instruction_ambiguous`として完全digestを示す。`uninstall`は
 resource IDだけで対象が一意な場合`--revision`を省略できる。
 
-`instruction install`は、installしたresource IDとexact revisionに加え、そのまま実行できる`inspect`・
-`activate` commandだけを短いreceiptとして表示する。metadata、origin/custody、physical store、instruction本文の
-詳細は、receiptの`inspect` commandで確認する。
+`instruction install`は、installしたresource IDと短縮revision、完全digestに加え、そのまま実行できる短縮
+revision指定の`inspect`・`activate`・`uninstall` commandを短いreceiptとして表示する。metadata、origin/custody、
+physical store、instruction本文の詳細は、receiptの`inspect` commandで確認する。
 
 installはactive selectionを変更しない。activate/deactivateは次に作るWorker generationから反映され、
 既に動作中のgenerationや過去のSession履歴を書き換えない。external revisionが選択されているのにmanaged

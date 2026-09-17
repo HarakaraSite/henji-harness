@@ -36,7 +36,7 @@ export type InstructionCliCommand =
     readonly resourceId: string;
     readonly revision?: string;
   }
-  | { readonly kind: 'deactivate' };
+  | { readonly kind: 'deactivate'; readonly json: boolean };
 
 export class InstructionCliInvocationError extends Error {
   constructor() {
@@ -86,7 +86,10 @@ export const parseInstructionArgs = (
     return { kind: 'active', json: true };
   }
   if (args.length === 1 && args[0] === 'deactivate') {
-    return { kind: 'deactivate' };
+    return { kind: 'deactivate', json: false };
+  }
+  if (args.length === 2 && args[0] === 'deactivate' && args[1] === '--json') {
+    return { kind: 'deactivate', json: true };
   }
   if (args.length === 2 && args[0] === 'install' && args[1].length > 0) {
     return { kind: 'install', directoryPath: args[1] };
@@ -155,17 +158,22 @@ const installReceipt = (
   revision: Awaited<ReturnType<ManagedHenjiInstructionStore['install']>>,
 ): string => {
   const resourceId = revision.manifest.logicalRef.resourceId;
-  const exactRevision = `sha256:${revision.manifest.logicalRef.revision.digest}`;
-  const selector = `--id ${shellWord(resourceId)} --revision ${shellWord(exactRevision)}`;
+  const digest = revision.manifest.logicalRef.revision.digest;
+  const short = digest.slice(0, 8);
+  const selector = `--id ${shellWord(resourceId)} --revision ${shellWord(short)}`;
   return [
     `Installed: ${JSON.stringify(resourceId)}`,
-    `Revision:  ${exactRevision}`,
+    `Revision:  sha256:${short}`,
+    `Full:      sha256:${digest}`,
     '',
     'Inspect:',
     `henji instruction inspect ${selector}`,
     '',
     'Activate:',
     `henji instruction activate ${selector}`,
+    '',
+    'Uninstall:',
+    `henji instruction uninstall ${selector}`,
     '',
   ].join('\n');
 };
@@ -369,10 +377,21 @@ export const main = async (
       );
     } else {
       await deactivateHenjiBaseInstruction(configRoot);
-      await write(dependencies.writeStdout, Deno.stdout, {
-        ok: true,
-        ...selected(builtinHenjiBaseInstruction()),
-      });
+      const builtin = builtinHenjiBaseInstruction();
+      if (command.json) {
+        await write(dependencies.writeStdout, Deno.stdout, {
+          ok: true,
+          ...selected(builtin),
+        });
+      } else {
+        await writeText(
+          dependencies.writeStdout,
+          Deno.stdout,
+          `deactivated · ${builtin.ref.resourceId} · ${builtin.selectionSource} · sha256:${
+            builtin.ref.revision.digest.slice(0, 8)
+          }\n`,
+        );
+      }
     }
     return 0;
   } catch (error) {

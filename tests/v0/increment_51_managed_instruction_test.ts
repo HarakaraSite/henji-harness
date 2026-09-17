@@ -150,16 +150,19 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
     const listed = await invoke(['list', '--json']);
     assertEquals(listed.stdout.instructions.length, 1);
     const ref = listed.stdout.instructions[0].logicalRef;
-    const exactRevision = `sha256:${ref.revision.digest}`;
-    const expectedSelector = `--id 'example/o'"'"'henji' --revision '${exactRevision}'`;
+    const shortRevision = ref.revision.digest.slice(0, 8);
+    const expectedSelector = `--id 'example/o'"'"'henji' --revision '${shortRevision}'`;
     assertEquals(
       installed.stdout,
       `Installed: ${JSON.stringify(resourceId)}\n` +
-        `Revision:  ${exactRevision}\n\n` +
+        `Revision:  sha256:${shortRevision}\n` +
+        `Full:      sha256:${ref.revision.digest}\n\n` +
         `Inspect:\n` +
         `henji instruction inspect ${expectedSelector}\n\n` +
         `Activate:\n` +
-        `henji instruction activate ${expectedSelector}\n`,
+        `henji instruction activate ${expectedSelector}\n\n` +
+        `Uninstall:\n` +
+        `henji instruction uninstall ${expectedSelector}\n`,
     );
     assert(!installed.stdout.includes('CLI EXTERNAL BASE'));
     assert(!installed.stdout.includes(dataRoot));
@@ -167,7 +170,7 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
       '--id',
       ref.resourceId,
       '--revision',
-      `sha256:${ref.revision.digest}`,
+      shortRevision,
     ];
     assertEquals(
       (await invoke(['inspect', ...selector])).stdout.content,
@@ -178,7 +181,14 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
     assertEquals(activated.stdout.selectionSource, 'external');
     assertEquals((await invoke(['active', '--json'])).stdout.ref, ref);
 
-    const deactivated = await invoke(['deactivate']);
+    const deactivatedHuman = await invokeRaw(['deactivate']);
+    assertEquals(
+      deactivatedHuman.stdout,
+      `deactivated · builtin/henji-base · built-in · sha256:${
+        builtinHenjiBaseInstruction().ref.revision.digest.slice(0, 8)
+      }\n`,
+    );
+    const deactivated = await invoke(['deactivate', '--json']);
     assertEquals(deactivated.stdout.selectionSource, 'built-in');
     assertEquals((await invoke(['list', '--json'])).stdout.instructions.length, 1);
   } finally {
@@ -258,7 +268,7 @@ Deno.test('Increment 54 instruction uninstall removes inactive revisions and ref
     assertEquals((await invoke(['active', '--json'])).stdout.ref, refB);
     assertEquals((await invoke(['inspect', ...selectorB])).stdout.content, 'BASE B');
 
-    assertEquals((await invoke(['deactivate'])).stdout.selectionSource, 'built-in');
+    assertEquals((await invoke(['deactivate', '--json'])).stdout.selectionSource, 'built-in');
     assertEquals((await invokeRaw(['uninstall', ...selectorB])).code, 0);
     assertEquals((await invoke(['list', '--json'])).stdout.instructions.length, 0);
     assertEquals(
@@ -424,7 +434,7 @@ Deno.test('Increment 55 resolves short revisions and prints human list/active li
       (await invoke(['uninstall', '--id', 'example/b'])).stderr.error.code,
       'instruction_active',
     );
-    assertEquals((await invoke(['deactivate'])).stdout.selectionSource, 'built-in');
+    assertEquals((await invoke(['deactivate', '--json'])).stdout.selectionSource, 'built-in');
     const removedB = await invokeRaw(['uninstall', '--id', 'example/b']);
     assertEquals(removedB.code, 0);
     assert(removedB.stdout.includes('Uninstalled: "example/b"'));
