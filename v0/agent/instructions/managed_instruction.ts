@@ -83,7 +83,8 @@ export type HenjiInstructionErrorCode =
   | 'instruction_api_unsupported'
   | 'instruction_io_failure'
   | 'instruction_binding_invalid'
-  | 'instruction_active';
+  | 'instruction_active'
+  | 'instruction_ambiguous';
 
 export class HenjiInstructionError extends Error {
   constructor(
@@ -812,6 +813,48 @@ export const readHenjiBaseInstructionBindingRef = async (
 ): Promise<HenjiInstructionRevisionRef | undefined> => {
   const binding = await readBinding(configRoot);
   return binding === undefined ? undefined : structuredClone(binding.ref);
+};
+
+/**
+ * Resolve one exact revision digest from an installed revision list and an optional hex prefix.
+ * A prefix that matches multiple revisions is reported instead of being silently narrowed.
+ */
+export const resolveInstructionRevisionDigest = (
+  installed: readonly { readonly resourceId: string; readonly digest: string }[],
+  resourceId: string,
+  revisionPrefix?: string,
+): string => {
+  if (!isExternalHenjiInstructionResourceId(resourceId)) {
+    throw new HenjiInstructionError(
+      'instruction_invalid',
+      'Henji Instruction selector is invalid',
+    );
+  }
+  if (revisionPrefix !== undefined && !/^[0-9a-f]{8,64}$/u.test(revisionPrefix)) {
+    throw new HenjiInstructionError(
+      'instruction_invalid',
+      'Henji Instruction revision selector is invalid',
+    );
+  }
+  const forResource = installed.filter((item) => item.resourceId === resourceId);
+  const candidates = revisionPrefix === undefined
+    ? forResource
+    : forResource.filter((item) => item.digest.startsWith(revisionPrefix));
+  if (candidates.length === 0) {
+    throw new HenjiInstructionError(
+      'instruction_not_found',
+      'Henji Instruction revision not found',
+    );
+  }
+  if (candidates.length > 1) {
+    throw new HenjiInstructionError(
+      'instruction_ambiguous',
+      `Henji Instruction revision is ambiguous; pass a longer revision: ${
+        candidates.map((item) => `sha256:${item.digest}`).join(', ')
+      }`,
+    );
+  }
+  return candidates[0].digest;
 };
 
 const selectedExternal = (

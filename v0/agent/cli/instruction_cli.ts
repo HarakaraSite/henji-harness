@@ -7,33 +7,34 @@ import {
   ManagedHenjiInstructionStore,
   readHenjiBaseInstructionBindingRef,
   resolveActiveHenjiBaseInstruction,
+  resolveInstructionRevisionDigest,
 } from '../instructions/managed_instruction.ts';
 import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 const encoder = new TextEncoder();
-const FULL_REVISION = /^sha256:([0-9a-f]{64})$/u;
+const REVISION_VALUE = /^(?:sha256:)?([0-9a-f]{1,64})$/u;
 
 const shellWord = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
 
 export type InstructionCliCommand =
   | { readonly kind: 'install'; readonly directoryPath: string }
-  | { readonly kind: 'list' }
+  | { readonly kind: 'list'; readonly json: boolean }
   | {
     readonly kind: 'inspect';
     readonly resourceId: string;
-    readonly digest: string;
+    readonly revision: string;
   }
-  | { readonly kind: 'active' }
+  | { readonly kind: 'active'; readonly json: boolean }
   | {
     readonly kind: 'activate';
     readonly resourceId: string;
-    readonly digest: string;
+    readonly revision: string;
   }
   | {
     readonly kind: 'uninstall';
     readonly resourceId: string;
-    readonly digest: string;
+    readonly revision?: string;
   }
   | { readonly kind: 'deactivate' };
 
@@ -44,24 +45,46 @@ export class InstructionCliInvocationError extends Error {
   }
 }
 
+const parseRevisionPrefix = (value: string): string => {
+  const match = REVISION_VALUE.exec(value);
+  if (match === null) throw new InstructionCliInvocationError();
+  return match[1];
+};
+
 const parseSelector = (
   args: readonly string[],
-): { readonly resourceId: string; readonly digest: string } => {
+): { readonly resourceId: string; readonly revision: string } => {
   if (args.length !== 4 || args[0] !== '--id' || args[2] !== '--revision') {
     throw new InstructionCliInvocationError();
   }
-  const match = FULL_REVISION.exec(args[3]);
-  if (args[1].length === 0 || match === null) {
-    throw new InstructionCliInvocationError();
+  if (args[1].length === 0) throw new InstructionCliInvocationError();
+  return { resourceId: args[1], revision: parseRevisionPrefix(args[3]) };
+};
+
+const parseUninstallSelector = (
+  args: readonly string[],
+): { readonly resourceId: string; readonly revision?: string } => {
+  if (args.length === 2 && args[0] === '--id' && args[1].length > 0) {
+    return { resourceId: args[1] };
   }
-  return { resourceId: args[1], digest: match[1] };
+  return parseSelector(args);
 };
 
 export const parseInstructionArgs = (
   args: readonly string[],
 ): InstructionCliCommand => {
-  if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
-  if (args.length === 1 && args[0] === 'active') return { kind: 'active' };
+  if (args.length === 1 && args[0] === 'list') {
+    return { kind: 'list', json: false };
+  }
+  if (args.length === 2 && args[0] === 'list' && args[1] === '--json') {
+    return { kind: 'list', json: true };
+  }
+  if (args.length === 1 && args[0] === 'active') {
+    return { kind: 'active', json: false };
+  }
+  if (args.length === 2 && args[0] === 'active' && args[1] === '--json') {
+    return { kind: 'active', json: true };
+  }
   if (args.length === 1 && args[0] === 'deactivate') {
     return { kind: 'deactivate' };
   }
@@ -75,7 +98,7 @@ export const parseInstructionArgs = (
     return { kind: 'activate', ...parseSelector(args.slice(1)) };
   }
   if (args[0] === 'uninstall') {
-    return { kind: 'uninstall', ...parseSelector(args.slice(1)) };
+    return { kind: 'uninstall', ...parseUninstallSelector(args.slice(1)) };
   }
   throw new InstructionCliInvocationError();
 };
@@ -167,6 +190,56 @@ const selected = (value: ReturnType<typeof builtinHenjiBaseInstruction>) => ({
   contentDigest: value.contentDigest,
 });
 
+const displayText = (value: string, fallback: string): string => {
+  let cleaned = '';
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    cleaned += code < 0x20 || code === 0x7f ? ' ' : character;
+  }
+  cleaned = cleaned.trim();
+  return cleaned.length === 0 ? fallback : [...cleaned].slice(0, 120).join('');
+};
+
+const installedPairs = async (
+  store: ManagedHenjiInstructionStore,
+): Promise<readonly { readonly resourceId: string; readonly digest: string }[]> =>
+  (await store.list()).map((manifest) => ({
+    resourceId: manifest.logicalRef.resourceId,
+    digest: manifest.logicalRef.revision.digest,
+  }));
+
+const listHumanText = async (
+  store: ManagedHenjiInstructionStore,
+  configRoot: string,
+): Promise<string> => {
+  const manifests = await store.list();
+  if (manifests.length === 0) return 'no instructions\n';
+  const binding = await readHenjiBaseInstructionBindingRef(configRoot);
+  const lines = [`instructions: ${manifests.length}`];
+  for (const manifest of manifests) {
+    const logicalRef = manifest.logicalRef;
+    const active = binding !== undefined &&
+      binding.resourceId === logicalRef.resourceId &&
+      binding.revision.digest === logicalRef.revision.digest;
+    lines.push(
+      `${displayText(logicalRef.resourceId, 'instruction')} · sha256:${
+        logicalRef.revision.digest.slice(0, 8)
+      } · ${active ? 'active' : 'inactive'} · ${displayText(manifest.metadata.title, 'untitled')}`,
+    );
+  }
+  return `${lines.join('\n')}\n`;
+};
+
+const activeHumanText = async (
+  dataRoot: string,
+  configRoot: string,
+): Promise<string> => {
+  const value = await resolveActiveHenjiBaseInstruction(dataRoot, configRoot);
+  return `${value.ref.resourceId} · ${value.selectionSource} · sha256:${
+    value.ref.revision.digest.slice(0, 8)
+  }\n`;
+};
+
 const errorPayload = (
   code: HenjiInstructionErrorCode | 'invalid_invocation',
   message: string,
@@ -213,23 +286,49 @@ export const main = async (
         installReceipt(revision),
       );
     } else if (command.kind === 'list') {
-      await write(dependencies.writeStdout, Deno.stdout, {
-        schemaVersion: 1,
-        instructions: await store.list(),
-      });
+      if (command.json) {
+        await write(dependencies.writeStdout, Deno.stdout, {
+          schemaVersion: 1,
+          instructions: await store.list(),
+        });
+      } else {
+        await writeText(
+          dependencies.writeStdout,
+          Deno.stdout,
+          await listHumanText(store, configRoot),
+        );
+      }
     } else if (command.kind === 'inspect') {
+      const digest = resolveInstructionRevisionDigest(
+        await installedPairs(store),
+        command.resourceId,
+        command.revision,
+      );
       await write(
         dependencies.writeStdout,
         Deno.stdout,
-        detail(await store.inspect(command.resourceId, command.digest)),
+        detail(await store.inspect(command.resourceId, digest)),
       );
     } else if (command.kind === 'active') {
-      await write(
-        dependencies.writeStdout,
-        Deno.stdout,
-        selected(await resolveActiveHenjiBaseInstruction(dataRoot, configRoot)),
-      );
+      if (command.json) {
+        await write(
+          dependencies.writeStdout,
+          Deno.stdout,
+          selected(await resolveActiveHenjiBaseInstruction(dataRoot, configRoot)),
+        );
+      } else {
+        await writeText(
+          dependencies.writeStdout,
+          Deno.stdout,
+          await activeHumanText(dataRoot, configRoot),
+        );
+      }
     } else if (command.kind === 'activate') {
+      const digest = resolveInstructionRevisionDigest(
+        await installedPairs(store),
+        command.resourceId,
+        command.revision,
+      );
       await write(
         dependencies.writeStdout,
         Deno.stdout,
@@ -239,13 +338,18 @@ export const main = async (
             await activateHenjiBaseInstruction(
               dataRoot,
               configRoot,
-              ref(command.resourceId, command.digest),
+              ref(command.resourceId, digest),
             ),
           ),
         },
       );
     } else if (command.kind === 'uninstall') {
-      const target = ref(command.resourceId, command.digest);
+      const digest = resolveInstructionRevisionDigest(
+        await installedPairs(store),
+        command.resourceId,
+        command.revision,
+      );
+      const target = ref(command.resourceId, digest);
       const active = await readHenjiBaseInstructionBindingRef(configRoot);
       if (
         active !== undefined && active.resourceId === target.resourceId &&
@@ -257,7 +361,7 @@ export const main = async (
           target,
         );
       }
-      const removed = await store.remove(command.resourceId, command.digest);
+      const removed = await store.remove(command.resourceId, digest);
       await writeText(
         dependencies.writeStdout,
         Deno.stdout,

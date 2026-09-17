@@ -12,6 +12,7 @@ import {
   HenjiInstructionError,
   ManagedHenjiInstructionStore,
   resolveActiveHenjiBaseInstruction,
+  resolveInstructionRevisionDigest,
   verifyBuiltinHenjiBaseInstructionIdentity,
 } from '../../v0/agent/instructions/managed_instruction.ts';
 import {
@@ -139,14 +140,14 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
       };
     };
 
-    const before = await invoke(['active']);
+    const before = await invoke(['active', '--json']);
     assertEquals(before.code, 0);
     assertEquals(before.stdout.selectionSource, 'built-in');
 
     const installed = await invokeRaw(['install', source]);
     assertEquals(installed.code, 0);
-    assertEquals((await invoke(['active'])).stdout.selectionSource, 'built-in');
-    const listed = await invoke(['list']);
+    assertEquals((await invoke(['active', '--json'])).stdout.selectionSource, 'built-in');
+    const listed = await invoke(['list', '--json']);
     assertEquals(listed.stdout.instructions.length, 1);
     const ref = listed.stdout.instructions[0].logicalRef;
     const exactRevision = `sha256:${ref.revision.digest}`;
@@ -175,11 +176,11 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
 
     const activated = await invoke(['activate', ...selector]);
     assertEquals(activated.stdout.selectionSource, 'external');
-    assertEquals((await invoke(['active'])).stdout.ref, ref);
+    assertEquals((await invoke(['active', '--json'])).stdout.ref, ref);
 
     const deactivated = await invoke(['deactivate']);
     assertEquals(deactivated.stdout.selectionSource, 'built-in');
-    assertEquals((await invoke(['list'])).stdout.instructions.length, 1);
+    assertEquals((await invoke(['list', '--json'])).stdout.instructions.length, 1);
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -220,7 +221,7 @@ Deno.test('Increment 54 instruction uninstall removes inactive revisions and ref
     };
     assertEquals((await invokeRaw(['install', sourceA])).code, 0);
     assertEquals((await invokeRaw(['install', sourceB])).code, 0);
-    const listed = await invoke(['list']);
+    const listed = await invoke(['list', '--json']);
     assertEquals(listed.stdout.instructions.length, 2);
     const refA = listed.stdout.instructions.find(
       (item: { logicalRef: { resourceId: string } }) => item.logicalRef.resourceId === 'example/a',
@@ -244,7 +245,7 @@ Deno.test('Increment 54 instruction uninstall removes inactive revisions and ref
       'instruction_not_found',
     );
     assertEquals(
-      (await invoke(['list'])).stdout.instructions.map(
+      (await invoke(['list', '--json'])).stdout.instructions.map(
         (item: { logicalRef: { resourceId: string } }) => item.logicalRef.resourceId,
       ),
       ['example/b'],
@@ -254,12 +255,12 @@ Deno.test('Increment 54 instruction uninstall removes inactive revisions and ref
     assertEquals(refused.code, 1);
     assertEquals(refused.stderr.error.code, 'instruction_active');
     assertEquals(refused.stderr.error.instruction.revision.digest, refB.revision.digest);
-    assertEquals((await invoke(['active'])).stdout.ref, refB);
+    assertEquals((await invoke(['active', '--json'])).stdout.ref, refB);
     assertEquals((await invoke(['inspect', ...selectorB])).stdout.content, 'BASE B');
 
     assertEquals((await invoke(['deactivate'])).stdout.selectionSource, 'built-in');
     assertEquals((await invokeRaw(['uninstall', ...selectorB])).code, 0);
-    assertEquals((await invoke(['list'])).stdout.instructions.length, 0);
+    assertEquals((await invoke(['list', '--json'])).stdout.instructions.length, 0);
     assertEquals(
       (await invoke(['uninstall', ...selectorA])).stderr.error.code,
       'instruction_not_found',
@@ -274,6 +275,175 @@ Deno.test('Increment 54 instruction uninstall removes inactive revisions and ref
       ])).stderr.error.code,
       'instruction_invalid',
     );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 55 revision resolution reports ambiguous prefixes', () => {
+  const d1 = '11'.repeat(32);
+  const d2 = '11'.repeat(4) + '22'.repeat(28);
+  const d3 = '33'.repeat(32);
+  const installed = [
+    { resourceId: 'example/a', digest: d1 },
+    { resourceId: 'example/a', digest: d2 },
+    { resourceId: 'example/b', digest: d3 },
+  ];
+  assertEquals(resolveInstructionRevisionDigest(installed, 'example/a', '1111111111'), d1);
+  assertEquals(resolveInstructionRevisionDigest(installed, 'example/b'), d3);
+  const codeOf = (run: () => unknown): string => {
+    try {
+      run();
+    } catch (error) {
+      if (error instanceof HenjiInstructionError) return error.code;
+      throw error;
+    }
+    throw new Error('expected a HenjiInstructionError');
+  };
+  assertEquals(
+    codeOf(() => resolveInstructionRevisionDigest(installed, 'example/a', '11111111')),
+    'instruction_ambiguous',
+  );
+  assertEquals(
+    codeOf(() => resolveInstructionRevisionDigest(installed, 'example/a', '1111')),
+    'instruction_invalid',
+  );
+  assertEquals(
+    codeOf(() => resolveInstructionRevisionDigest(installed, 'builtin/henji-base')),
+    'instruction_invalid',
+  );
+  assertEquals(
+    codeOf(() => resolveInstructionRevisionDigest(installed, 'example/c')),
+    'instruction_not_found',
+  );
+});
+
+Deno.test('Increment 55 resolves short revisions and prints human list/active lines', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-55-cli-' });
+  try {
+    const dataRoot = `${root}/data`;
+    const configRoot = `${root}/config`;
+    const sourceA = `${root}/a`;
+    const sourceA2 = `${root}/a2`;
+    const sourceB = `${root}/b`;
+    await writePackage(sourceA, 'BASE A', 'example/a');
+    await writePackage(sourceA2, 'BASE A2', 'example/a');
+    await writePackage(sourceB, 'BASE B', 'example/b');
+    const invokeRaw = async (args: string[]) => {
+      let stdout = '';
+      let stderr = '';
+      const code = await instructionMain(args, {
+        dataRoot,
+        configRoot,
+        now: () => new Date('2026-09-17T00:00:00.000Z'),
+        writeStdout: (text) => {
+          stdout += text;
+        },
+        writeStderr: (text) => {
+          stderr += text;
+        },
+      });
+      return { code, stdout, stderr };
+    };
+    const invoke = async (args: string[]) => {
+      const result = await invokeRaw(args);
+      return {
+        code: result.code,
+        stdout: result.stdout === '' ? undefined : JSON.parse(result.stdout),
+        stderr: result.stderr === '' ? undefined : JSON.parse(result.stderr),
+      };
+    };
+    assertEquals((await invokeRaw(['install', sourceA])).code, 0);
+    assertEquals((await invokeRaw(['install', sourceA2])).code, 0);
+    assertEquals((await invokeRaw(['install', sourceB])).code, 0);
+
+    const listed = await invoke(['list', '--json']);
+    assertEquals(listed.stdout.instructions.length, 3);
+    const refs = listed.stdout.instructions.map(
+      (item: { logicalRef: { resourceId: string } }) => item.logicalRef,
+    );
+    const refB = refs.find(
+      (ref: { resourceId: string }) => ref.resourceId === 'example/b',
+    );
+    let refA: { resourceId: string; revision: { digest: string } } | undefined;
+    let refA2: { resourceId: string; revision: { digest: string } } | undefined;
+    for (
+      const ref of refs.filter(
+        (item: { resourceId: string }) => item.resourceId === 'example/a',
+      )
+    ) {
+      const content = (await invoke([
+        'inspect',
+        '--id',
+        ref.resourceId,
+        '--revision',
+        `sha256:${ref.revision.digest}`,
+      ])).stdout.content;
+      if (content === 'BASE A') refA = ref;
+      else refA2 = ref;
+    }
+    assert(refA !== undefined && refA2 !== undefined);
+    const shortA = refA.revision.digest.slice(0, 8);
+    const shortB = refB.revision.digest.slice(0, 8);
+
+    assertEquals(
+      (await invoke(['inspect', '--id', 'example/a', '--revision', shortA])).stdout.content,
+      'BASE A',
+    );
+    assertEquals(
+      (await invoke(['inspect', '--id', 'example/a', '--revision', `sha256:${shortA}`])).stdout
+        .content,
+      'BASE A',
+    );
+    assertEquals(
+      (await invoke(['inspect', '--id', 'example/a', '--revision', shortA.slice(0, 4)])).stderr
+        .error.code,
+      'instruction_invalid',
+    );
+
+    const human = await invokeRaw(['list']);
+    assertEquals(human.code, 0);
+    assert(human.stdout.startsWith('instructions: 3\n'));
+    assert(human.stdout.includes(`example/b · sha256:${shortB} · inactive`));
+    assert(human.stdout.includes(`example/a · sha256:${shortA} · inactive`));
+
+    assertEquals(
+      (await invokeRaw(['activate', '--id', 'example/b', '--revision', shortB])).code,
+      0,
+    );
+    const activeHuman = await invokeRaw(['active']);
+    assertEquals(activeHuman.stdout, `example/b · external · sha256:${shortB}\n`);
+    assertEquals(
+      (await invoke(['active', '--json'])).stdout.ref.revision.digest,
+      refB.revision.digest,
+    );
+    const listWithActive = await invokeRaw(['list']);
+    assert(listWithActive.stdout.includes(`example/b · sha256:${shortB} · active`));
+
+    assertEquals(
+      (await invoke(['uninstall', '--id', 'example/b'])).stderr.error.code,
+      'instruction_active',
+    );
+    assertEquals((await invoke(['deactivate'])).stdout.selectionSource, 'built-in');
+    const removedB = await invokeRaw(['uninstall', '--id', 'example/b']);
+    assertEquals(removedB.code, 0);
+    assert(removedB.stdout.includes('Uninstalled: "example/b"'));
+    assertEquals(
+      (await invoke(['inspect', '--id', 'example/b', '--revision', shortB])).stderr.error.code,
+      'instruction_not_found',
+    );
+
+    assertEquals(
+      (await invoke(['uninstall', '--id', 'example/a'])).stderr.error.code,
+      'instruction_ambiguous',
+    );
+    assertEquals(
+      (await invokeRaw(['uninstall', '--id', 'example/a', '--revision', shortA])).code,
+      0,
+    );
+    assertEquals((await invoke(['list', '--json'])).stdout.instructions.length, 1);
+    assertEquals((await invokeRaw(['uninstall', '--id', 'example/a'])).code, 0);
+    assertEquals((await invokeRaw(['list'])).stdout, 'no instructions\n');
   } finally {
     await Deno.remove(root, { recursive: true });
   }
