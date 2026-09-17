@@ -31,6 +31,9 @@ import {
 } from '../history/human_history_export.ts';
 import type { ProviderId } from '../provider/model_selection.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
+import { loadProviderDeclarations } from '../provider/provider_declaration.ts';
+import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
+import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import {
   HenjiInstructionError,
   henjiInstructionErrorValue,
@@ -307,6 +310,13 @@ export const main = async (
   let createdResult: TuiSessionFactoryResult | undefined;
   let resultCode = 1;
   try {
+    const hostConfigRoot = dependencies.configRoot ??
+      (dependencies.createSession === undefined ? resolveRuntimePaths().configRoot : undefined);
+    setActiveProviderDeclarations(
+      hostConfigRoot === undefined
+        ? []
+        : await loadProviderDeclarations({ configRoot: hostConfigRoot }),
+    );
     const sessionFactory = dependencies.createSession ??
       ((eventSink: AgentEventSink, selected: HostDefinitionSelection | undefined) =>
         createWorkerSession({

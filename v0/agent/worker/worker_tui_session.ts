@@ -3,6 +3,7 @@ import type { Message } from '../core/contracts.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
+import { loadProviderDeclarations } from '../provider/provider_declaration.ts';
 import {
   DefinitionStartupError,
   type HostDefinitionSelection,
@@ -161,6 +162,9 @@ export const createWorkerSession = async (
     !resolveManagedInstruction
       ? Promise.resolve(builtinHenjiBaseInstruction())
       : resolveActiveHenjiBaseInstruction(dataRoot!, configRoot!);
+  const providerDeclarations = resolveManagedInstruction
+    ? await loadProviderDeclarations({ configRoot: configRoot! })
+    : Object.freeze([] as const);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
     ? new SqliteHistoryStore(
@@ -292,6 +296,7 @@ export const createWorkerSession = async (
           providerTimeoutMs: options.providerTimeoutMs,
           initialModelSelection,
           baseInstruction,
+          providerDeclarations,
           eventSink: options.eventSink,
           diagnosticPersistence: options.diagnosticPersistence ??
             defaultDiagnosticStore?.persist,

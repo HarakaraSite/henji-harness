@@ -12,6 +12,7 @@ import {
   OpenAIResponsesModel,
   OpenRouterResponsesModel,
 } from '../provider/openai_responses_model.ts';
+import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import {
   type ModelSelection,
@@ -155,8 +156,15 @@ export const createProductionPhysicalIo = (
     readonly openAICredentialSource?: CredentialSource;
     readonly fetcher?: typeof fetch;
     readonly providerTimeoutMs?: number;
+    readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   } = {},
 ): PhysicalIoBindings => {
+  const declaredEndpoints = new Map(
+    (options.providerDeclarations ?? []).map((declaration) => [
+      declaration.providerId,
+      declaration.endpoint,
+    ]),
+  );
   const fetcher: typeof fetch = (input, init) => {
     requestCounter?.increment();
     return (options.fetcher ?? fetch)(input, init);
@@ -180,11 +188,13 @@ export const createProductionPhysicalIo = (
         });
       }
       if (resolved.provider === 'openrouter-responses') {
+        const endpoint = declaredEndpoints.get('openrouter-responses');
         return new OpenRouterResponsesModel({
           selection: resolved,
           credentialSource: () => resolver.resolve(resolved.authProfile),
           fetcher,
           timeoutMs: options.providerTimeoutMs,
+          ...(endpoint === undefined ? {} : { baseURL: endpoint }),
         });
       }
       return new OpenRouterAgentModel({

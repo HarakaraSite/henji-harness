@@ -15,6 +15,7 @@ import type {
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
+import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 
 export interface WorkerHostSessionOptions {
   readonly handle: WorkerSessionHandle;
@@ -35,6 +36,8 @@ export interface WorkerHostSessionOptions {
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
   readonly initialModelSelection?: ModelSelection;
   readonly baseInstruction?: SelectedHenjiBaseInstruction;
+  /** Host-validated data-only provider declarations; never contains credential values. */
+  readonly providerDeclarations?: readonly ProviderDeclarationV1[];
 }
 
 export interface WorkerHostCapsule {

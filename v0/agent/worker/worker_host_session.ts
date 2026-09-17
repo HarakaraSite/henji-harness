@@ -1197,6 +1197,9 @@ export class WorkerHostSession {
         ...(this.options.baseInstruction === undefined
           ? {}
           : { baseInstruction: this.options.baseInstruction }),
+        ...(this.options.providerDeclarations === undefined
+          ? {}
+          : { providerDeclarations: this.options.providerDeclarations }),
       });
     } catch {
       this.markUnavailable();

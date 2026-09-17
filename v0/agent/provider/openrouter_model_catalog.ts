@@ -7,6 +7,7 @@ import {
   type ReasoningEffort,
 } from './model_selection.ts';
 import { MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS } from '../../resource_limits.ts';
+import { declarationFor } from './provider_runtime.ts';
 
 export type OpenRouterReasoningEffort = ReasoningEffort;
 
@@ -133,6 +134,16 @@ export const selectOpenRouterModel = (
   return openRouterStoredSelection(modelId, selectedEffort);
 };
 
+const responsesCatalogEntry = (
+  modelId: string,
+): OpenRouterModelCatalogEntry | undefined => {
+  const declaration = declarationFor('openrouter-responses');
+  if (declaration !== undefined) {
+    return declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
+  }
+  return openRouterCatalogEntry(modelId);
+};
+
 export const isOpenRouterResponsesModelSelection = (
   value: unknown,
 ): value is OpenRouterResponsesModelSelection => {
@@ -144,7 +155,7 @@ export const isOpenRouterResponsesModelSelection = (
     selection.authProfile !== 'openrouter-api-key' ||
     typeof selection.modelId !== 'string' || typeof selection.effort !== 'string'
   ) return false;
-  const catalog = openRouterCatalogEntry(selection.modelId);
+  const catalog = responsesCatalogEntry(selection.modelId);
   return catalog !== undefined &&
     catalog.efforts.includes(selection.effort as OpenRouterReasoningEffort);
 };
@@ -153,7 +164,7 @@ export const selectOpenRouterResponsesModel = (
   modelId: string,
   effort?: OpenRouterReasoningEffort,
 ): OpenRouterResponsesModelSelection => {
-  const catalog = openRouterCatalogEntry(modelId);
+  const catalog = responsesCatalogEntry(modelId);
   if (catalog === undefined) throw new RangeError(`unknown OpenRouter model: ${modelId}`);
   const selectedEffort = effort ?? catalog.defaultEffort;
   if (!catalog.efforts.includes(selectedEffort)) {

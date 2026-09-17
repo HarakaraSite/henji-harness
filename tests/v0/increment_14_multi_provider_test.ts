@@ -5,13 +5,25 @@ import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   defaultModelSelectionFor,
   isModelSelection,
+  modelCatalogEntryFor,
+  searchModelsFor,
+  selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
+import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
 import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import {
+  builtinProviderDeclarations,
+  loadProviderDeclarations,
+  parseProviderDeclaration,
+  ProviderDeclarationError,
+  resolveProviderRegistry,
+  validateProviderDeclaration,
+} from '../../v0/agent/provider/provider_declaration.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -251,6 +263,186 @@ Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adap
   assertEquals(retained.request.requestMetadata.api, 'openrouter-responses');
   assertEquals(retained.request.requestMetadata.authProfile, 'openrouter-api-key');
   assert(!JSON.stringify(retained).includes('router-secret'));
+});
+
+const declarationBody = (providerId: string): Record<string, unknown> => ({
+  schemaVersion: 1,
+  providerId,
+  protocol: 'openai-responses',
+  endpoint: 'https://openrouter.ai/api/v1/',
+  authProfile: 'openrouter-api-key',
+  modelCatalog: {
+    kind: 'fixed',
+    entries: [{
+      modelId: 'deepseek/deepseek-v4.1-flash',
+      defaultEffort: 'high',
+      efforts: ['auto', 'high'],
+    }],
+  },
+  defaults: { modelId: 'deepseek/deepseek-v4.1-flash', effort: 'high' },
+});
+
+const declarationCodeOf = (run: () => unknown): string => {
+  try {
+    run();
+  } catch (error) {
+    if (error instanceof ProviderDeclarationError) return error.code;
+    throw error;
+  }
+  return 'no_error';
+};
+
+Deno.test('Increment 59 provider declarations validate, load, and merge over built-ins', async () => {
+  const builtins = builtinProviderDeclarations();
+  assertEquals(builtins.map((declaration) => declaration.providerId).sort(), [
+    'openai',
+    'openrouter',
+    'openrouter-responses',
+  ]);
+
+  const parsed = validateProviderDeclaration(declarationBody('openrouter-responses'));
+  assertEquals(parsed.endpoint, 'https://openrouter.ai/api/v1');
+  const merged = resolveProviderRegistry(builtins, [parsed]);
+  assertEquals(merged.get('openrouter-responses')?.endpoint, 'https://openrouter.ai/api/v1');
+  assert(merged.get('openrouter') !== undefined);
+  assert(merged.get('openai') !== undefined);
+
+  const added = resolveProviderRegistry(builtins, [
+    validateProviderDeclaration(declarationBody('internal-vllm')),
+  ]);
+  assert(added.get('internal-vllm') !== undefined);
+
+  for (const reserved of ['openrouter', 'openai']) {
+    assertEquals(
+      declarationCodeOf(() => validateProviderDeclaration(declarationBody(reserved))),
+      'provider_declaration_reserved',
+    );
+  }
+  assertEquals(
+    declarationCodeOf(() =>
+      validateProviderDeclaration({ ...declarationBody('bad'), protocol: 'anthropic-messages' })
+    ),
+    'provider_declaration_invalid',
+  );
+  assertEquals(
+    declarationCodeOf(() =>
+      validateProviderDeclaration({ ...declarationBody('bad'), authProfile: 'unknown-profile' })
+    ),
+    'provider_declaration_invalid',
+  );
+  assertEquals(
+    declarationCodeOf(() =>
+      validateProviderDeclaration({
+        ...declarationBody('bad'),
+        defaults: { modelId: 'missing/model', effort: 'high' },
+      })
+    ),
+    'provider_declaration_invalid',
+  );
+  assertEquals(
+    declarationCodeOf(() => parseProviderDeclaration('{ not json')),
+    'provider_declaration_invalid',
+  );
+
+  const conflictBuiltin = validateProviderDeclaration(declarationBody('team-provider'));
+  assertEquals(
+    declarationCodeOf(() =>
+      resolveProviderRegistry(
+        [conflictBuiltin],
+        [validateProviderDeclaration(declarationBody('team-provider'))],
+      )
+    ),
+    'provider_declaration_duplicate',
+  );
+
+  const root = '/cfg/providers';
+  const files = new Map<string, string>([
+    [`${root}/a.json`, JSON.stringify(declarationBody('dup'))],
+    [`${root}/b.json`, JSON.stringify(declarationBody('dup'))],
+  ]);
+  const duplicateFileSystem = {
+    readDirectory: () => Promise.resolve(['a.json', 'b.json']),
+    readTextFile: (path: string) => Promise.resolve(files.get(path) ?? ''),
+  };
+  let duplicateCode = 'no_error';
+  try {
+    await loadProviderDeclarations({ configRoot: '/cfg', fileSystem: duplicateFileSystem });
+  } catch (error) {
+    duplicateCode = error instanceof ProviderDeclarationError ? error.code : 'other';
+  }
+  assertEquals(duplicateCode, 'provider_declaration_duplicate');
+
+  const missingFileSystem = {
+    readDirectory: () => Promise.reject(new Deno.errors.NotFound()),
+    readTextFile: () => Promise.resolve(''),
+  };
+  assertEquals(
+    (await loadProviderDeclarations({ configRoot: '/cfg', fileSystem: missingFileSystem })).length,
+    0,
+  );
+});
+
+Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog and defaults', () => {
+  const override = validateProviderDeclaration({
+    ...declarationBody('openrouter-responses'),
+    modelCatalog: {
+      kind: 'fixed',
+      entries: [{ modelId: 'acme/override-model', defaultEffort: 'low', efforts: ['low', 'high'] }],
+    },
+    defaults: { modelId: 'acme/override-model', effort: 'high' },
+  });
+  setActiveProviderDeclarations([override]);
+  try {
+    const selection = defaultModelSelectionFor('openrouter-responses');
+    assertEquals(selection.modelId, 'acme/override-model');
+    assertEquals(selection.effort, 'high');
+    assert(isModelSelection(selection));
+    assertEquals(searchModelsFor('openrouter-responses', '').length, 1);
+    assertEquals(
+      modelCatalogEntryFor('openrouter-responses', 'acme/override-model')?.defaultEffort,
+      'low',
+    );
+    assertEquals(selectModelFor('openrouter-responses', 'acme/override-model').effort, 'low');
+    assert(
+      searchModelsFor('openrouter-responses', 'deepseek').length === 0,
+      'the static catalog must not leak past a declaration override',
+    );
+  } finally {
+    setActiveProviderDeclarations([]);
+  }
+  assertEquals(
+    defaultModelSelectionFor('openrouter-responses').modelId,
+    'deepseek/deepseek-v4.1-flash',
+  );
+});
+
+Deno.test('Increment 59 provider declaration overrides the OpenRouter Responses endpoint', async () => {
+  const seen: { url?: string } = {};
+  const fetcher: typeof fetch = (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    seen.url = request.url;
+    return Promise.resolve(
+      new Response(openAICompletedStream('hello'), {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }),
+    );
+  };
+  const declaration = validateProviderDeclaration({
+    ...declarationBody('openrouter-responses'),
+    endpoint: 'https://gateway.example/v1',
+  });
+  const physical = createProductionPhysicalIo(undefined, {
+    credentialSource: () => Promise.resolve('router-secret'),
+    fetcher,
+    providerDeclarations: [declaration],
+  });
+  const result = await physical.createModel(
+    'parent',
+    defaultModelSelectionFor('openrouter-responses'),
+  ).generate(request);
+  assertEquals(result.kind, 'final');
+  assertEquals(seen.url, 'https://gateway.example/v1/responses');
 });
 
 Deno.test('Increment 14 keeps resolved OpenAI auth authoritative over ambient SDK headers', async () => {

@@ -10,6 +10,8 @@ import {
   type WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
+import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
+import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
   type ExecutableAgentDefinition,
   finalizeRootAgentComposition,
@@ -279,6 +281,7 @@ const createGeneration = async (
   initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
   rootRole: 'parent' | 'planner' = 'parent',
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
+  providerDeclarations: readonly ProviderDeclarationV1[] = [],
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
     throw new Error('Worker Definition is unavailable');
@@ -290,7 +293,7 @@ const createGeneration = async (
   const skillCatalog = await discoverSkills(workspace.root);
   const requestCounter = createWorkerRequestCounter();
   const physicalIo = physicalIoMode === 'production'
-    ? createProductionPhysicalIo(requestCounter, { providerTimeoutMs })
+    ? createProductionPhysicalIo(requestCounter, { providerTimeoutMs, providerDeclarations })
     : createProviderFreePhysicalIo();
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
   const rootRouter: Model = {
@@ -429,6 +432,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         module !== undefined
       ) {
         try {
+          setActiveProviderDeclarations(command.providerDeclarations ?? []);
           workerGeneration = await createGeneration(
             command.correlation,
             module,
@@ -442,6 +446,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.modelSelection,
             command.rootRole,
             command.baseInstruction,
+            command.providerDeclarations ?? [],
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

@@ -464,6 +464,8 @@ export interface OpenRouterResponsesModelOptions {
   readonly credentialSource: CredentialSource;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
+  /** Declared endpoint override; defaults to the built-in OpenRouter API base. */
+  readonly baseURL?: string;
 }
 
 /**
@@ -473,7 +475,7 @@ export interface OpenRouterResponsesModelOptions {
 export class OpenRouterResponsesModel extends ResponsesApiModel {
   constructor(options: OpenRouterResponsesModelOptions) {
     super(options, {
-      baseURL: 'https://openrouter.ai/api/v1',
+      baseURL: options.baseURL ?? 'https://openrouter.ai/api/v1',
       providerLabel: 'OpenRouter',
       stateProvider: null,
       includeStore: false,

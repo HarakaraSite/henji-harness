@@ -16,6 +16,7 @@ import type {
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
+import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
 
 /**
@@ -81,6 +82,7 @@ export type WorkerHostCommand =
     readonly checkpoint?: SemanticContextCheckpointV1;
     readonly modelSelection?: ModelSelection;
     readonly baseInstruction?: SelectedHenjiBaseInstruction;
+    readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   }
   | {
     readonly kind: 'select_model';

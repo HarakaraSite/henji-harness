@@ -19,6 +19,10 @@ import {
   selectOpenAIModel,
 } from './openai_model_catalog.ts';
 import type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
+import type { ProviderCatalogEntryV1 } from './provider_declaration.ts';
+import { declarationFor } from './provider_runtime.ts';
+
+type ImportedProviderCatalogEntry = ProviderCatalogEntryV1;
 
 export type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
 
@@ -39,22 +43,54 @@ export const isModelSelection = (value: unknown): value is ModelSelection =>
 export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection => {
   if (provider === 'openai') return OPENAI_DEFAULT_MODEL_SELECTION;
   if (provider === 'openrouter-responses') {
+    const declaration = declarationFor('openrouter-responses');
+    if (declaration !== undefined) {
+      return selectOpenRouterResponsesModel(
+        declaration.defaults.modelId,
+        declaration.defaults.effort,
+      );
+    }
     return selectOpenRouterResponsesModel(ROOT_DEFAULT_MODEL_ID, ROOT_DEFAULT_EFFORT);
   }
   return ROOT_DEFAULT_MODEL_SELECTION;
 };
 
+const declaredResponsesEntries = ():
+  | readonly ImportedProviderCatalogEntry[]
+  | undefined => declarationFor('openrouter-responses')?.modelCatalog.entries;
+
 export const modelCatalogEntryFor = (
   provider: ProviderId,
   modelId: string,
-): ProviderModelCatalogEntry | undefined =>
-  provider === 'openai' ? openAIModelCatalogEntry(modelId) : openRouterCatalogEntry(modelId);
+): ProviderModelCatalogEntry | undefined => {
+  if (provider === 'openai') return openAIModelCatalogEntry(modelId);
+  if (provider === 'openrouter-responses') {
+    const declared = declaredResponsesEntries();
+    if (declared !== undefined) {
+      return declared.find((entry) => entry.modelId === modelId);
+    }
+  }
+  return openRouterCatalogEntry(modelId);
+};
 
 export const searchModelsFor = (
   provider: ProviderId,
   query: string,
-): readonly ProviderModelCatalogEntry[] =>
-  provider === 'openai' ? searchOpenAIModels(query) : searchOpenRouterModels(query);
+): readonly ProviderModelCatalogEntry[] => {
+  if (provider === 'openai') return searchOpenAIModels(query);
+  if (provider === 'openrouter-responses') {
+    const declared = declaredResponsesEntries();
+    if (declared !== undefined) {
+      const normalized = query.trim().toLocaleLowerCase();
+      return Object.freeze(
+        normalized.length === 0
+          ? [...declared]
+          : declared.filter((entry) => entry.modelId.toLocaleLowerCase().includes(normalized)),
+      );
+    }
+  }
+  return searchOpenRouterModels(query);
+};
 
 export const selectModelFor = (
   provider: ProviderId,
