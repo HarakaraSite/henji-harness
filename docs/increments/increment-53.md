@@ -102,5 +102,13 @@
 - 検証: 対象7 test file（`current_code`、`tui_conversation_presentation`、`tui_retained_terminal`、
   `tui_controller_overlay`、`tui_tool_preview`、`keymap_readline`、`auto_compaction`）は86 passed / 0 failed。
   変更対象のtype check、format、lint、`git diff --check`は成功した。実provider requestは行っていない。
-- 未実施: commit、push、installed binaryの置換、compiled standaloneでの実機TUI起動確認。実機確認は利用者の
-  指示がある場合だけ行う。
+- 未実施: push、compiled standaloneでの実機TUI起動確認。実機確認は利用者の指示がある場合だけ行う。
+- 利用者の明示指示により、実装をcommit `a8ac6a85`へ確定した。そのclean commitからbuild
+  `beddeb779debf2d93ef11d4adff5ac64ae8343549e7a5cb45aec2f312a90d6a3`を生成し、`dist/henji`と
+  `~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `196b8ae8378d8a54239bd647fdba4e173d3fd57a39cc77a0e4051251ef767dbb`であり、導入版はsource
+  `a8ac6a85828131a36e49b0cb20a76afcc733b680`、`sourceDirty=false`を返した。
+- 導入版の`instruction active`はexternal selectionと
+  `local/henji-base@sha256:82d67dd29734d72e19b04977e5e7b4c57b0a05ea57ae90746116d78303535d98`を返し、
+  置換後もactive bindingが維持されていることを確認した。実credential値は表示・copy・logせず、実provider
+  requestは行っていない。tag、release、publishは行っていない。
