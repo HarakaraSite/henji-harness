@@ -117,4 +117,12 @@ CLI selectorのprefix解決、`uninstall`の一意解決、`list`/`active`の表
   ambiguous→prefix`uninstall`→`list`空→`inspect` not_found→4桁prefix`instruction_invalid`を確認した。実provider
   requestは行っていない。
 - `README.md`のHenji Instruction節へ短縮revision、`uninstall --revision`省略、`list`/`active`の`--json`を追記した。
-- 未実施: commit、push、installed binaryの置換、tag、release、publish。これらは利用者の指示がある場合だけ行う。
+- 利用者の明示指示により、実装をcommit `2e8ce3da`へ確定した。そのclean commitからbuild
+  `89880f2d173beea78550e9d2bcfb226b91608f71b48971716ccb3458196909fa`を生成し、`dist/henji`と
+  `~/.local/bin/henji`を同一artifactへatomic置換した。両方のSHA-256は
+  `1c478d8b02a394be4406e373267ec1230cdd85a18996d03a60e1db4bd7cb7386`で、導入版はsource
+  `2e8ce3da0a1dfb711aef3ca75dccad9f94754061`、`sourceDirty=false`を返した。
+- 導入版で`instruction list`が`local/henji-base`の2 revisionを`inactive`/`active`とtitle付きで表示し、
+  `active`が`local/henji-base · external · sha256:82d67dd2`を返すこと、`inspect --revision 82d67dd2`が
+  短縮prefixで解決することを確認した。`uninstall --id local/henji-base`は2 revisionがあるため
+  `instruction_ambiguous`となり、完全digestを示した。tag、release、publishは行っていない。
