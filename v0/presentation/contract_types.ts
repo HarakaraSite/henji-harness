@@ -615,6 +615,11 @@ export interface PresentationStartupState {
     readonly loaded: boolean;
     readonly source: 'AGENTS.md' | 'AGENTS.MD' | 'none';
   };
+  readonly baseInstruction?: {
+    readonly resourceId: string;
+    readonly selectionSource: 'built-in' | 'external';
+    readonly revisionDigest: string;
+  };
   readonly skills: {
     readonly count: number;
     readonly names: readonly string[];

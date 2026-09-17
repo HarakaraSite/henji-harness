@@ -332,6 +332,11 @@ export const createWorkerSession = async (
       effort: initialSelection.effort,
       sessionMode: options.persistence,
       instructionSource: startupSnapshot.instructionSource,
+      baseInstruction: {
+        resourceId: baseInstruction.ref.resourceId,
+        selectionSource: baseInstruction.selectionSource,
+        revisionDigest: baseInstruction.ref.revision.digest,
+      },
       skillNames: startupSnapshot.skillNames,
     });
     let currentHost = host;

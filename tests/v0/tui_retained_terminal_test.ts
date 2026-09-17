@@ -25,6 +25,7 @@ import {
 } from '../../v0/tui/terminal.ts';
 import { PendingInputCore, type PendingMetadataSnapshot } from '../../v0/tui/pending_input.ts';
 import { startupHeaderLines } from '../../v0/tui/startup_render.ts';
+import { projectRuntimeDisplayState } from '../../v0/agent/runtime/startup_orientation.ts';
 import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -371,10 +372,26 @@ Deno.test('retained session picker identifies sessions by updated time and human
     skippedInvalid: 0,
   });
   const rows = renderer.layoutSnapshot(80, 24).overlay.map((row) => row.text);
-  assert(rows.includes('> 2026-09-10 08:39Z  Release notes'));
-  assert(rows.includes('  fc419637 · 3 turns · current'));
-  assert(rows.includes('  2026-09-09 04:05Z  untitled'));
-  assert(rows.includes('  10761646 · 1 turns · resumable'));
+  const expectedMinute = (iso: string): string => {
+    const date = new Date(iso);
+    const pad = (part: number): string => String(part).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${
+      pad(date.getHours())
+    }:${pad(date.getMinutes())}`;
+  };
+  assert(
+    rows.includes(
+      `> ${
+        expectedMinute('2026-09-10T08:39:06.612Z')
+      }  Release notes · fc419637 · 3 turns · current`,
+    ),
+  );
+  assert(
+    rows.includes(
+      `  ${expectedMinute('2026-09-09T04:05:00.000Z')}  untitled · 10761646 · 1 turns · resumable`,
+    ),
+  );
+  assert(!rows.some((row) => row.includes('Z')));
   assert(!rows.some((row) => row.includes('openrouter') || row.includes('deepseek')));
 });
 
@@ -733,6 +750,69 @@ Deno.test('startup header distinguishes continue, exact, and no-session modes', 
   const none = startupHeaderLines({ ...base, sessionMode: { kind: 'none' } }, position);
   assert(none.some((line) => line.includes('no session')));
   assert(!none.some((line) => line.includes('aaaaaaaa')));
+});
+
+Deno.test('startup header shows the selected Henji base instruction', () => {
+  const base: PresentationStartupState = {
+    productVersion: '0.1.3',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: {
+      provider: 'openrouter',
+      profileId: 'test',
+      modelId: 'deepseek/deepseek-v4.1-flash',
+      effort: 'high',
+    },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: false, source: 'none' },
+    baseInstruction: {
+      resourceId: 'local/henji-base',
+      selectionSource: 'external',
+      revisionDigest: '2e00f40b9d3160f6047eda0a3c7e3f325b3fcfc85766ad16d57549e27b70355f',
+    },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  const position = {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    createdAt: '2026-09-11T01:02:03.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  const full = startupHeaderLines(base, position, 100, 24);
+  assert(full.some((line) => line.includes('local/henji-base · external · 2e00f40b')));
+  assert(full.some((line) => /context:\s+none/.test(line)));
+  const compact = startupHeaderLines(base, position, 40, 12);
+  assert(!compact.some((line) => line.includes('base:')));
+});
+
+Deno.test('runtime display state carries a bounded base instruction only when resolved', () => {
+  const selected = projectRuntimeDisplayState({
+    productVersion: '0.1.3',
+    workspaceRoot: '/tmp/henji-ui',
+    agentId: 'default',
+    profileId: 'test',
+    sessionMode: 'new',
+    baseInstruction: {
+      resourceId: 'local/henji-base',
+      selectionSource: 'external',
+      revisionDigest: '2e00f40b9d3160f6047eda0a3c7e3f325b3fcfc85766ad16d57549e27b70355f',
+    },
+    skillNames: [],
+  });
+  assert(selected.baseInstruction?.resourceId === 'local/henji-base');
+  assert(selected.baseInstruction?.selectionSource === 'external');
+  const absent = projectRuntimeDisplayState({
+    productVersion: '0.1.3',
+    workspaceRoot: '/tmp/henji-ui',
+    agentId: 'default',
+    profileId: 'test',
+    sessionMode: 'none',
+    skillNames: [],
+  });
+  assert(absent.baseInstruction === undefined);
 });
 
 Deno.test('retained PageUp keeps latest when the conversation fits one page', () => {

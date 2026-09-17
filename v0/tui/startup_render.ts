@@ -103,12 +103,23 @@ export const startupHeaderLines = (
     : `${state.skills.names.map((name) => escapeTerminalText(name)).join(', ')}${
       state.skills.omitted > 0 ? ` (+${state.skills.omitted} more)` : ''
     }`;
+  const baseInstruction = state.baseInstruction === undefined ? [] : [
+    content(
+      'base:',
+      `${
+        escapeTerminalText(state.baseInstruction.resourceId)
+      } · ${state.baseInstruction.selectionSource} · ${
+        state.baseInstruction.revisionDigest.slice(0, 8)
+      }`,
+    ),
+  ];
   return Object.freeze([
     top,
     content('session:', `${created} · ${title}`),
     content('', identity),
     content('workspace:', workspace),
     content('agent:', escapeTerminalText(state.agentId)),
+    ...baseInstruction,
     content('context:', state.instructions.loaded ? state.instructions.source : 'none'),
     content('skills:', skills),
     content('runtime:', `trusted-local · ${state.trust.hardSandbox ? '' : 'no '}hard sandbox`),

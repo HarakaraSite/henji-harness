@@ -36,6 +36,11 @@ export interface RuntimeDisplayState {
     readonly loaded: boolean;
     readonly source: RuntimeDisplayInstructionSource;
   };
+  readonly baseInstruction?: {
+    readonly resourceId: string;
+    readonly selectionSource: 'built-in' | 'external';
+    readonly revisionDigest: string;
+  };
   readonly skills: {
     readonly count: number;
     readonly names: readonly string[];
@@ -58,6 +63,11 @@ export interface RuntimeDisplayProjectionInput {
   readonly effort?: string;
   readonly sessionMode: RuntimeDisplaySessionMode;
   readonly instructionSource?: RuntimeDisplayInstructionSource;
+  readonly baseInstruction?: {
+    readonly resourceId: string;
+    readonly selectionSource: 'built-in' | 'external';
+    readonly revisionDigest: string;
+  };
   readonly skillNames: readonly string[];
 }
 
@@ -120,6 +130,19 @@ const boundedProfileId = (profileId: string): string => {
   // Resource identities already enforce a 128-byte component bound. Keep a defensive bound for
   // direct callers so the display state remains bounded even when fed malformed test input.
   return suffixWithinBytes(profileId, 128);
+};
+
+const boundedBaseInstruction = (
+  value: RuntimeDisplayProjectionInput['baseInstruction'],
+): RuntimeDisplayState['baseInstruction'] => {
+  if (value === undefined) return undefined;
+  return Object.freeze({
+    resourceId: boundedProfileId(value.resourceId),
+    selectionSource: value.selectionSource === 'external'
+      ? 'external' as const
+      : 'built-in' as const,
+    revisionDigest: boundedProfileId(value.revisionDigest),
+  });
 };
 
 const sessionMode = (
@@ -185,6 +208,7 @@ export const projectRuntimeDisplayState = (
     }),
     sessionMode: sessionMode(input.sessionMode),
     instructions,
+    baseInstruction: boundedBaseInstruction(input.baseInstruction),
     skills: frozenSkills(input.skillNames),
     trust: Object.freeze({ hardSandbox: false as const, osUserTools: trustTools }),
     credentialVerification: CREDENTIAL_VERIFICATION_POLICY,
