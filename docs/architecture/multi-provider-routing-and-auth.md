@@ -1,6 +1,7 @@
 # Henji 複数provider routing・認証アーキテクチャ
 
-ステータス: **Increment 14〜16の採用済み設計。ChatGPT subscription routeはfeasibility確認後に将来へ延期**
+ステータス: **Increment 14〜16の採用済み設計。ChatGPT subscription routeはfeasibility確認後に将来へ延期。
+OpenRouter Responses API経路とProvider設定の外部化は採用済みの次期方針であり、実装は別increment**
 
 作成日: 2026-09-09
 
@@ -85,6 +86,13 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 
 Anthropic direct、Google direct等を将来追加するときも、確認済みのAPI surfaceとauth profileを新しいroute branchと
 adapterとして加える。Increment 14〜17では未確認のendpoint、認証、provider stateを先回りして共通仕様化しない。
+
+同じvendorと同じcredentialでも`api` surfaceは別routeである。OpenRouterのResponses API経路を採用する場合は
+`{ provider: 'openrouter', api: 'openrouter-responses', authProfile: 'openrouter-api-key' }`のような別routeと
+adapterにする。現行Chat Completions routeを置換するか併設するか、input/output item、function tool
+continuation、reasoning state、stream event、raw evidence、model/effort対応範囲、既存OpenAI Responses adapterとの
+共通化は、OpenRouter公式contractと実provider応答を確認するincrementで決める。未確認のtransportやstate shapeを
+先に共通contractへ固定しない。
 
 初期のdata-only selectionは次の意味を持つ。名前は実装時に調整できるが、情報を一つのOpenRouter専用型へ
 押し込まない。
@@ -348,6 +356,23 @@ planner/subagent routeの対話的変更、自動provider fallback、複数auth 
 再採用する場合も、ChatGPT OAuth tokenをOpenAI public API-key adapterへ渡さず、OpenAI API keyをCodex subscription
 routeへ渡さない。
 
+## OpenRouter Responses API経路とProvider設定の外部化（採用済み・未実装）
+
+- **OpenRouter Responses API経路**: 現行OpenRouter routeはChat Completions互換APIを使う。同じOpenRouter
+  credentialのままResponses API surfaceへ切り替える方向を採用する。現行routeの置換か併設か、request/response
+  item、function tool continuation、reasoning state、stream event、parser transition、raw evidence、model/effort
+  対応範囲、既存OpenAI Responses adapterとの共通化は、OpenRouter公式contractと実provider応答を確認する
+  incrementで決める。dual transportやfallbackを推測で先行実装しない。
+- **Provider設定の外部化**: 現在provider/api/auth profileは`openrouter`/`openai`のclosed unionである。Provider
+  declarationをdata-only resourceとして外部化し、Hostがnon-secret auth profile catalogとcredential registryを
+  所有し、request時にrouteとcredentialを解決する方向を採用する。credential値、Authorization、tokenをportable
+  artifact、Session、evidence、transcript、Definitionへ含めない。provider固有adapterのexecution placement、
+  declarationをmanaged revisionとexternal input/stateのどちらにするか、activation scope、dynamic model取得の扱いは、
+  そのkindを実装するincrementでarchitectureへ反映する。S2（Henji内credential登録）はこのcredential registryへ
+  接続する。
+- どちらも本書の不変条件（requestごとのroute所有、credential非継承、secret非永続化、turn内固定、semantic
+  transcript共有、独立した失敗、request単位の証拠）を維持する。
+
 ## 各incrementの確認原則
 
 各testは次のproduct動作へ対応させる。providerや認証方式の仮想的な組合せmatrixを件数目的で作らない。
@@ -372,6 +397,11 @@ credentialを使う場合も、値、Authorization、credential pathを出力・
   Henjiのmodel provider contractと一致しない経路を同一provider pickerへ追加しない。
 - OpenAI built-in Web searchは、上記route/auth基盤とは独立した後続判断とし、provider実装やfeasibility確認を
   止める依存にしない。
+- OpenRouter Responses API経路は、OpenRouter公式Responses contractと実provider応答でfunction tool
+  continuation、reasoning state、stream event、evidenceが確認できない限り、現行Chat Completions routeを
+  置換しない。
+- Provider declarationのexternal化で、credential解決、auth profile選択、provider evidence attributionを
+  Henji-owned boundaryの外へ出さない。
 
 ## Review記録
 

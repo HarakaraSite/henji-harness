@@ -273,6 +273,19 @@ managed pathを追加する。credentialはportable artifactへ含めず、capab
 相関する。client、transport、dispatchをHost、Worker、subprocessまたは別processのどこへ置くかはここでは固定せず、
 後続Integration Incrementで実利用経路とauthorityに合わせて決める。
 
+#### Provider設定の外部化
+
+Providerのroute（vendor、API surface、auth profile）とmodel catalogは、現在`openrouter`/`openai`のclosed unionと
+binary内adapterである。採用済みの方向として、外部Provider declarationをdata-only resourceとして扱い、Hostが
+non-secret auth profile catalogとcredential registry、request時のroute/credential解決を所有する。OpenRouter
+Responses API経路は同じOpenRouter credentialの別`api` surfaceとしてroute identityへ反映し、現行Chat Completions
+経路を置換するか併設するかは公式contractと実provider応答を確認するincrementで決める。credential値、
+Authorization、tokenはmanaged revision、Session、evidence、transcript、Definitionへ含めない。provider固有
+adapterのphysical placement、declarationをmanaged revisionとexternal input/stateのどちらにするか、activation
+scope、dynamic model取得は、Provider kindを実装するincrementでこのarchitectureへ追加する。nativeなclosed unionと
+既存OpenRouter Chat Completions経路は、そのincrementが成立するまで変更しない。詳細は
+[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
+
 #### managed revision transport
 
 local custodyとinstallation間transportは別contractである。export packageはstore directory layoutを公開形式にせず、

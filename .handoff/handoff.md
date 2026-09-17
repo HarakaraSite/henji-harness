@@ -20,8 +20,10 @@
   Increment 51（`henji-instruction-v1`、`e709b100`／`0afad72c`）。構想・architecture・roadmap・inboxと
   `v0/agent/README.md`の実装追随は`56375021`。S9/S10はIncrement 55採用でinboxから除去した。
   未実施: tag、Forgejo Release、JSR publish（JSR latestは0.1.3）。
-- 次: `docs/experience/normal-use-inbox.md`から次Increment候補（S2、S4、S5、A1、A2、A3、A5、A6、A7、A8、E1、
-  R1〜R4）を選ぶ。
+- 次: 利用者希望（2026-09-17）としてA8（OpenRouter Responses API経路）とE1（Provider設定の外部化）を合わせた
+  採用方向がある。architecture（`multi-provider-routing-and-auth.md`、`henji-host-agent-worker.md`）とroadmapへ
+  反映済み（採用済み・未実装）。次のincrement候補として順序・分割を相談する。他の候補はS2、S4、S5、A1、A2、
+  A3、A5、A6、A7、R1〜R4。
 - 正本: `docs/increments/increment-51.md`〜`increment-57.md`、`docs/experience/normal-use-inbox.md`。
 - 注意: active external revisionは`local/henji-base@sha256:82d67dd2…`。同じresource IDには旧
   `2e00f40b…`もinactiveで残っている（`instruction list`で確認できる）。このhandoffのIncrement 51/52部分は

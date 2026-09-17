@@ -79,7 +79,7 @@ history viewを順に実装した。Increment 44では旧filesystem storeをprod
 | ID | 必要な機能 | 構想・architectureとの関係 | 現コードの状態 |
 | --- | --- | --- | --- |
 | F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる。配布後はrepositoryや導入済みDenoへの固定参照なしに、任意のworkspaceから同じproduction経路を利用できる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。非対話commandはHost側のheadless SurfaceとしてTUIと同じWorker経路を一turn使い、final-only stdoutまたはfailure JSONを返す。TUIはturnとuser/output境界、入力前後を空行で分け、busy/cancelling開始から毎秒進む経過時間を含む一時statusとcwd・Session短縮ID・root provider・model・effortを二行footerへ表示し、`user>`、settledした`assistant>`、`tool>`、`system>`のlabelをblue/yellow/green/magentaで識別する。選択中root providerのcredential fileが存在しなければrequest前からfooter第一行へ表示し、editor先頭の`/`に一致するbuilt-in slash command候補を`ready`または`busy`の直後へ逐次表示する。候補が1件ならTabで完全なcommand名へ補完し、複数候補では入力を変えない。recoverable taskは空editorへ戻り、別draftがあれば`/recover`で取り出せる。idle Ctrl-Cは入力をclearしてreadyを保つ。F1 keyと`/help`のhelp overlayは残るが、compact startupに固定help hintは表示しない。Increment 32でstandalone executableが成立し、現在のinstalled launcherはrepository checkoutやPATH上のDenoを参照せず任意のworkspaceから起動できる |
-| F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUIはOpenRouterを既定に保ちつつ、起動時の`--root-provider openai`またはidle時の`/provider`でOpenAI direct Responses rootへ切り替えられる。`/model`と`/effort`はactive providerのcurated catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定し、delegated plannerはrootから継承せずOpenRouter planner defaultを使う。TUI起動時の`--provider-timeout-ms`は、未指定時120,000 msのrequest単位deadlineを同じWorker invocationのroot、planner、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、未加工のraw response、SSE/parser transition、provider/API/model/auth-profile identityをevidenceへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み |
+| F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUIはOpenRouterを既定に保ちつつ、起動時の`--root-provider openai`またはidle時の`/provider`でOpenAI direct Responses rootへ切り替えられる。`/model`と`/effort`はactive providerのcurated catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定し、delegated plannerはrootから継承せずOpenRouter planner defaultを使う。TUI起動時の`--provider-timeout-ms`は、未指定時120,000 msのrequest単位deadlineを同じWorker invocationのroot、planner、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、未加工のraw response、SSE/parser transition、provider/API/model/auth-profile identityをevidenceへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み。OpenRouterでResponses API経路へ変更する方向とProvider設定の外部化は採用済み・未実装である |
 | F03 | workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`をnative規約でzero-install discoveryし、実行中に共有するsnapshot/catalogを作る | 他harnessと共有するfile format、配置、discovery、activationをHenji独自managed resourceで置換しない。将来のmanaged SkillとHenji Instructionは追加authorityとして分離する | **部分実装**。Worker generationの起動時にworkspace rootのinstructionと、workspace配下およびuser scope（`$ZOT_HOME`または`$XDG_STATE_HOME/zot`、`~/.claude`、`~/.agents`）の`.zot/skills`、`.claude/skills`、`.agents/skills`を一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。tool call時には再読せず、`skill` toolの結果はF02のtranscriptへ入る。Increment 51でnative入力とは別authorityのmanaged Henji base instructionを追加し、XDG dataへinstallしたexact revisionをinstallation/user scopeのXDG config bindingから次のWorker generation前に解決する。managed Skill revisionと改訂候補の生成・採用は未実装である |
 | F04 | canonical conversation、non-canonical execution evidence、context attributionを再起動後も区別して利用する | Hostがdurable storageとcanonical採用を所有し、Workerがconversation/contextの意味を所有する。物理的なstorage commitとcanonical adoptionを分ける | **実装済み**。Increment 40〜44でworkspace-local SQLiteを唯一のproduction history正本とし、Increment 50でschema v4へ正規化した。canonical turnのatomic adoption、settled non-canonical execution、active executionのlive journalとrestart reconciliation、tool effect、`/recall` projection、instruction・skill・tool contract・runtime fact・model requestのexact context attribution、provider evidence、diagnostic、artifactをdurableに相関した。旧filesystem storeはproduction経路から除外済みである |
 | F05 | 人間が保存済みSessionのcanonical/non-canonical historyとcontext attributionを通常利用中に参照する | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける | **実装済み**。Increment 43の`/history`はcurrent Sessionのcanonical/non-canonical executionを一つのread-only timelineとしてkeyset paginationし、tool activity、projection、context attribution、model request、provider evidence、diagnostic、artifactのexact detailを辿れる。case-sensitive literal検索、canonical-only Markdown export、durable history全体のstreaming JSONL exportがあり、閲覧・検索・exportはmodel context projectionと分離されている。将来`/rebuild`等が新しいtransition kindを導入する場合は、その個別Incrementでhistory projectionを拡張する |
@@ -164,7 +164,7 @@ F16〜F18は現在の通常利用に必要な機能ではない。人間が将�
 | F21 | 生成候補をactive revisionと分離して保存し、人間が内容と由来をreadbackできる | Workerがsource/diff/data候補を返し、Hostがnon-active candidateとして保存する | **未実装** |
 | F22 | 人間の採用アクションまたは明示的承認でだけ候補を採用する | Hostがimmutable revisionを確定し、AgentInstance bindingをdurableに切り替える | **未実装**。production経路ではなかった旧extension操作実装は削除済み |
 | F23 | 改訂後のHenjiで通常利用へ戻り、そこで得た変化を次の経験にする | loopを閉じるproduct動作。統制実験や定量測定は必須ではない | **未実装（end-to-end）**。通常利用自体はあるが、候補生成・採用との一続きのloopがない |
-| F24 | 経験に応じてDefinition以外のresourceも改訂対象にできる | managed revision候補、native external input/state、binary platform authority、追加architecture判断が必要な対象を区別する。対象kindごとにcontent、contract、dependency、activation、scope、execution placement、lifecycle、durability、evidenceをarchitectureへ反映してから実装する | **未実装**。Increment 51でHenji Instructionの人間による直接install/activate基盤は成立したが、経験からのcandidate生成・比較・採用cycleではない。今後の候補には任意のmanaged Skill、tool、model profile、subagent、Surface data/code、integration declaration、context/compaction、provider adapter、loop、storage等がある。native `AGENTS.md`/Skill discoveryやMCP connectionをmanaged installへ置換しない |
+| F24 | 経験に応じてDefinition以外のresourceも改訂対象にできる | managed revision候補、native external input/state、binary platform authority、追加architecture判断が必要な対象を区別する。対象kindごとにcontent、contract、dependency、activation、scope、execution placement、lifecycle、durability、evidenceをarchitectureへ反映してから実装する | **未実装**。Increment 51でHenji Instructionの人間による直接install/activate基盤は成立したが、経験からのcandidate生成・比較・採用cycleではない。今後の候補には任意のmanaged Skill、tool、model profile、subagent、Surface data/code、integration declaration、context/compaction、provider adapter、loop、storage等がある。native `AGENTS.md`/Skill discoveryやMCP connectionをmanaged installへ置換しない。Provider設定の外部化（OpenRouter Responses API経路を含む）は採用済みの次期対象候補である |
 | F25 | exact managed resource revisionをinstallation間でtransportする | export packageはstore layoutと分離し、manifestとcontent closureを運ぶ。credential、Session、workspace、binary、active bindingを混入させず、import先がidentity、contract、digestを検証してlocal custodyへpublishする | **未実装**。Increment 34ではAgent Definitionだけをexport/importする。他resourceのlocal managed化はtransportを必須前提にしない |
 
 ### Durable historyとcontext適用
@@ -215,6 +215,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | managed Henji base instruction | F03、F06、F08 | Increment 51でDefinition以外の最初のmanaged kindを成立させ、built-in/external exact baseを次generationへ適用する |
+| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱い、順序と分割は次の相談で決める |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
@@ -355,6 +356,26 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
 
 このIncrementの直接install/activateは人間操作であり、AIによるcandidate生成・比較・採用を含むF24のSelf-revision Cycle
 完了とは扱わない。native `AGENTS.md`/Skillも置換しない。
+
+### Provider外部化とOpenRouter Responses API
+
+対象機能: F02、F06、F24（inbox E1）
+
+利用者希望（2026-09-17）として、現行OpenRouter Chat Completions経路をResponses APIへ変更し、あわせてProvider設定を
+外部化する方向を採用した。実装はまだ行っていない。
+
+- OpenRouter Responses API経路: 同じOpenRouter credentialでResponses API surfaceを使うrouteとadapterを扱う。現行
+  Chat Completions routeの置換か併設か、request/response item、function tool continuation、reasoning state、
+  stream event、parser transition、raw evidence、model/effort対応範囲、既存OpenAI Responses adapterとの共通化は、
+  実装incrementでOpenRouter公式contractと実provider応答を確認して決める。
+- Provider設定の外部化: Provider declarationをdata-only resourceとして外部化し、Hostがnon-secret auth profile
+  catalogとcredential registry、request時のroute/credential解決を所有する。credential値、Authorization、tokenを
+  portable artifact、Session、evidence、transcript、Definitionへ含めない。S2（Henji内credential登録）はこの
+  registryへ接続する。
+- 実装順序: Cycle 1前段でもSelf-revision Cycle 1でもなく、通常利用の改善として独立incrementで扱う。次のincrement
+  候補として順序と分割を相談する。architectureは
+  [`architecture/multi-provider-routing-and-auth.md`](architecture/multi-provider-routing-and-auth.md)と
+  [`architecture/henji-host-agent-worker.md`](architecture/henji-host-agent-worker.md)へ反映済みである。
 
 ### Self-revision Cycle 1（F16〜F23を中心とするPhase 1〜5）
 

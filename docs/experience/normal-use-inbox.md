@@ -21,12 +21,12 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
-| A8 | Agent実行 | OpenRouter Responses API経路 | OpenRouterでもResponses固有機能または共通transportが必要になる |
+| A8 | Agent実行 | OpenRouter Responses API経路 | 利用者希望（2026-09-17）。E1のProvider外部化と合わせて検討 |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
 | R4 | F24 | instruction componentのrevision化 | instructionを自己改訂candidateとして採用する |
-| E1 | 配布・外部化 | Agent Definition後のresource外部化 | instruction、tool、Providerのいずれかを実利用が要求する |
+| E1 | 配布・外部化 | Agent Definition後のresource外部化 | 利用者希望（2026-09-17）のProvider外部化。A8と合わせて検討 |
 
 ## Surface
 
@@ -153,11 +153,14 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 - 観測（2026-09-13）: 現行HenjiはOpenAI directだけをResponses API adapterへ接続し、OpenRouterは
   Chat Completions互換APIの独立adapterを使う。
+- 利用者希望（2026-09-17）: 現状のOpenRouter経路をResponses APIへ変えたい。あわせてProvider設定を外部化したい
+  （E1）。
 - 候補: OpenRouterでもResponses API経路を選べるようにする。現行OpenRouter経路の置換か併設か、Responses固有の
   input/output item、tool continuation、reasoning state、stream event、evidence、model対応範囲をどう扱うかは、
   採用時に最新のOpenRouter公式contractと実provider応答を確認して決める。
 - 再検討条件: OpenRouter経由でResponses固有機能を使う必要が出る、またはOpenAI directとOpenRouterで
-  Responses transportを共通化する具体的なproduct上の利点が得られること。
+  Responses transportを共通化する具体的なproduct上の利点が得られること。利用者希望によりE1のProvider外部化と
+  合わせて採用を検討する。
 
 ## F24・自己改訂
 
@@ -236,6 +239,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 未実装境界: catalog外のtool identity、複数slotのinstruction revision化、external Provider registry、互換providerの
   data-only Definition、独自protocolのexecutable Definition、resourceごとのmutable instance state、context rebuild、共通package/plugin
   discoveryは未採用である。Providerは現在`openrouter`/`openai`、API種別、auth profileのclosed unionである。
+- 利用者希望（2026-09-17）: Provider設定を外部化したい。A8のOpenRouter Responses API経路への変更と合わせて
+  採用を検討する。
 - 候補: resource kindごとにscope/activation owner、execution placement、lifecycle、durability、dependency identity、
   Manifest attribution、mutable stateを決める。Agent、instruction、tool、Providerを同じloaderへ載せる必要が実利用から
   出るまで、共通化を目的にしない。
