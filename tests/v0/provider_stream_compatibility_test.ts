@@ -825,7 +825,7 @@ Deno.test('documented tool accounting dispatches normally through the same trans
   assertEquals(outcome.finalText, '{"ok":true}');
   const assistant = outcome.transcript.find((message) => message.role === 'assistant');
   assertEquals(
-    assistant?.providerState?.provider === 'openrouter'
+    assistant?.providerState !== undefined && 'reasoningDetails' in assistant.providerState
       ? assistant.providerState.reasoningDetails
       : undefined,
     [

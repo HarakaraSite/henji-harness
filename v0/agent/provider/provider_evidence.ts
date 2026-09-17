@@ -427,9 +427,11 @@ const validProviderState = (value: unknown): boolean =>
     Array.isArray(value.reasoningDetails) &&
     value.reasoningDetails.every(isJsonValue)
   ) || (
-    isRecord(value) && value.provider === 'openai' &&
-    hasExactKeys(value, ['provider', 'replayItems']) &&
-    Array.isArray(value.replayItems) && value.replayItems.every(isJsonValue)
+    isRecord(value) && typeof value.provider === 'string' && value.provider.length > 0 &&
+    hasExactKeys(value, ['provider', 'replayItems'], ['model']) &&
+    Array.isArray(value.replayItems) && value.replayItems.every(isJsonValue) &&
+    (value.model === undefined ||
+      (typeof value.model === 'string' && value.model.length > 0))
   );
 const validModelResult = (value: unknown): value is ModelResult => {
   if (!isRecord(value) || typeof value.kind !== 'string') return false;

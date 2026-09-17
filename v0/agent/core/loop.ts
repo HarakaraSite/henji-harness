@@ -126,8 +126,11 @@ const isProviderState = (value: unknown): value is NonNullable<ModelResult['prov
     return Array.isArray(state.reasoningDetails) && state.reasoningDetails.length > 0 &&
       state.reasoningDetails.every(isJsonValue);
   }
-  return state.provider === 'openai' && Array.isArray(state.replayItems) &&
-    state.replayItems.length > 0 && state.replayItems.every(isJsonValue);
+  return typeof state.provider === 'string' && state.provider.length > 0 &&
+    Array.isArray(state.replayItems) && state.replayItems.length > 0 &&
+    state.replayItems.every(isJsonValue) &&
+    (state.model === undefined ||
+      (typeof state.model === 'string' && state.model.length > 0));
 };
 
 const isModelResult = (value: unknown): value is ModelResult => {

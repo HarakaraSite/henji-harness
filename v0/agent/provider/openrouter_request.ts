@@ -120,13 +120,14 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
       : undefined;
   }
   if (message.role === 'assistant') {
-    const reasoningDetails = message.providerState?.provider === 'openrouter' &&
-        Array.isArray(message.providerState.reasoningDetails) &&
-        message.providerState.reasoningDetails.length > 0 &&
-        message.providerState.reasoningDetails.every(isJsonValue)
-      ? message.providerState.reasoningDetails
+    const state = message.providerState;
+    const reasoningDetails = state !== undefined && 'reasoningDetails' in state &&
+        Array.isArray(state.reasoningDetails) &&
+        state.reasoningDetails.length > 0 &&
+        state.reasoningDetails.every(isJsonValue)
+      ? state.reasoningDetails
       : undefined;
-    if (message.providerState?.provider === 'openrouter' && reasoningDetails === undefined) {
+    if (state !== undefined && 'reasoningDetails' in state && reasoningDetails === undefined) {
       return undefined;
     }
     const content = message.content;

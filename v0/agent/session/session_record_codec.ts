@@ -111,19 +111,27 @@ const validateMessage = (value: unknown): value is Message => {
       : undefined;
     const reasoningDetails = stateRecord?.reasoningDetails;
     const replayItems = stateRecord?.replayItems;
-    if (
-      hasProviderState &&
-      (stateRecord === undefined ||
-        (stateRecord.provider === 'openrouter'
-          ? !ownKeys(stateRecord, ['provider', 'reasoningDetails']) ||
-            !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
-            !reasoningDetails.every(isFiniteJson)
-          : stateRecord.provider === 'openai'
-          ? !ownKeys(stateRecord, ['provider', 'replayItems']) ||
-            !Array.isArray(replayItems) || replayItems.length === 0 ||
-            !replayItems.every(isFiniteJson)
-          : true))
-    ) return false;
+    if (hasProviderState) {
+      if (stateRecord === undefined) return false;
+      if (stateRecord.provider === 'openrouter') {
+        if (
+          !ownKeys(stateRecord, ['provider', 'reasoningDetails']) ||
+          !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+          !reasoningDetails.every(isFiniteJson)
+        ) return false;
+      } else {
+        const keys = Object.keys(stateRecord);
+        const allowed = ['provider', 'replayItems', 'model'];
+        if (
+          typeof stateRecord.provider !== 'string' || stateRecord.provider.length === 0 ||
+          !keys.includes('replayItems') || !keys.every((key) => allowed.includes(key)) ||
+          !Array.isArray(replayItems) || replayItems.length === 0 ||
+          !replayItems.every(isFiniteJson) ||
+          (stateRecord.model !== undefined &&
+            (typeof stateRecord.model !== 'string' || stateRecord.model.length === 0))
+        ) return false;
+      }
+    }
     const messageKeys = [
       'role',
       'content',

@@ -417,6 +417,110 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
   );
 });
 
+Deno.test('Increment 62 replay is scoped to the producing provider and model', async () => {
+  const bodies: string[] = [];
+  const fetcher: typeof fetch = async (input, init) => {
+    const requested = input instanceof Request ? input : new Request(input, init);
+    bodies.push(await requested.clone().text());
+    return new Response(openAICompletedStream('hello'), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  };
+  const physical = createProductionPhysicalIo(undefined, {
+    openAICredentialSource: () => Promise.resolve('probe-secret'),
+    fetcher,
+  });
+  const transcriptWith = (
+    provider: string,
+    model: string,
+  ): ModelRequest['transcript'] => [
+    { role: 'user', content: { kind: 'text', text: 'a' } },
+    {
+      role: 'assistant',
+      content: { kind: 'text', text: 'b' },
+      providerState: { provider, replayItems: [{ type: 'reasoning', id: 'REPLAY_MARK' }], model },
+    },
+    { role: 'user', content: { kind: 'text', text: 'c' } },
+  ];
+  const requestFor = (provider: string, model: string): ModelRequest => ({
+    systemInstruction: 'x',
+    transcript: transcriptWith(provider, model),
+    tools: [],
+  });
+
+  await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+    requestFor('openai', 'gpt-5.6-sol'),
+  );
+  assert(bodies[0].includes('REPLAY_MARK'), 'matching provider and model must replay');
+  await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+    requestFor('openai-alt', 'gpt-5.6-sol'),
+  );
+  assert(!bodies[1].includes('REPLAY_MARK'), 'another provider must not replay');
+  await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+    requestFor('openai', 'another-model'),
+  );
+  assert(!bodies[2].includes('REPLAY_MARK'), 'another model must not replay');
+});
+
+Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done', async () => {
+  const stream = [
+    `data: ${
+      JSON.stringify({
+        type: 'response.output_item.done',
+        output_index: 0,
+        sequence_number: 0,
+        item: { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'enc-done' },
+      })
+    }\n\n`,
+    `data: ${
+      JSON.stringify({
+        type: 'response.completed',
+        sequence_number: 1,
+        response: {
+          id: 'resp_enc',
+          status: 'completed',
+          model: 'gpt-5.6-sol',
+          output: [
+            { type: 'reasoning', id: 'rs_1', summary: [] },
+            {
+              type: 'message',
+              id: 'msg_1',
+              status: 'completed',
+              role: 'assistant',
+              content: [{ type: 'output_text', text: 'hello', annotations: [] }],
+            },
+          ],
+          output_text: 'hello',
+        },
+      })
+    }\n\n`,
+  ].join('');
+  const fetcher: typeof fetch = () =>
+    Promise.resolve(
+      new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }),
+    );
+  const physical = createProductionPhysicalIo(undefined, {
+    openAICredentialSource: () => Promise.resolve('probe-secret'),
+    fetcher,
+  });
+  const evidence = new ProviderEvidenceRecorder();
+  const result = await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+    request,
+    { providerEvidence: evidence, providerEvidenceLane: 'parent', modelStep: 1 },
+  );
+  assertEquals(result.kind, 'final');
+  const state = result.providerState as {
+    readonly replayItems: readonly Record<string, unknown>[];
+  };
+  const reasoning = state.replayItems.find((item) => item.type === 'reasoning');
+  assertEquals(reasoning?.encrypted_content, 'enc-done');
+  assert(!JSON.stringify(evidence.snapshot()).includes('probe-secret'));
+});
+
 Deno.test('Increment 61 declaration adds an external OpenAI provider beside the built-in', async () => {
   const declaration = validateProviderDeclaration({
     schemaVersion: 1,

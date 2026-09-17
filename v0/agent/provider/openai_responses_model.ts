@@ -6,6 +6,7 @@ import type {
   ModelGenerateOptions,
   ModelRequest,
   ModelResult,
+  ProviderState,
   ToolCall,
 } from '../core/contracts.ts';
 import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
@@ -48,7 +49,26 @@ const jsonValue = (value: unknown): JsonValue | undefined => {
   }
 };
 
-const requestInput = (transcript: readonly Message[]): unknown[] => {
+const replayItemsFor = (
+  state: ProviderState | undefined,
+  providerId: string,
+  modelId: string,
+): readonly JsonValue[] | undefined => {
+  if (state === undefined || state.provider !== providerId) return undefined;
+  const responses = state as {
+    readonly replayItems?: readonly JsonValue[];
+    readonly model?: string;
+  };
+  if (!Array.isArray(responses.replayItems)) return undefined;
+  if (responses.model !== undefined && responses.model !== modelId) return undefined;
+  return responses.replayItems;
+};
+
+const requestInput = (
+  transcript: readonly Message[],
+  providerId: string,
+  modelId: string,
+): unknown[] => {
   const input: unknown[] = [];
   for (const message of transcript) {
     if (message.role === 'user') {
@@ -56,8 +76,9 @@ const requestInput = (transcript: readonly Message[]): unknown[] => {
       continue;
     }
     if (message.role === 'assistant') {
-      if (message.providerState?.provider === 'openai') {
-        input.push(...message.providerState.replayItems);
+      const replayItems = replayItemsFor(message.providerState, providerId, modelId);
+      if (replayItems !== undefined) {
+        input.push(...replayItems);
         continue;
       }
       if (!Array.isArray(message.content)) {
@@ -276,7 +297,8 @@ export interface ResponsesApiModelOptions {
 interface ResponsesApiModelConfig {
   readonly baseURL: string;
   readonly providerLabel: string;
-  readonly stateProvider: 'openai' | null;
+  /** Producer identity recorded on replay state, or null for a stateless provider. */
+  readonly stateProvider: string | null;
   readonly includeStore: boolean;
 }
 
@@ -291,7 +313,11 @@ class ResponsesApiModel implements Model {
     readonly messagesBytes: number;
     readonly bodyBytes: number;
   } => {
-    const input = requestInput(request.transcript);
+    const input = requestInput(
+      request.transcript,
+      this.options.selection.provider,
+      this.options.selection.modelId,
+    );
     const body = JSON.stringify({
       model: this.options.selection.modelId,
       instructions: request.systemInstruction,
@@ -362,7 +388,11 @@ class ResponsesApiModel implements Model {
       const stream = await client.responses.create({
         model: this.options.selection.modelId,
         instructions: request.systemInstruction,
-        input: requestInput(request.transcript) as never,
+        input: requestInput(
+          request.transcript,
+          this.options.selection.provider,
+          this.options.selection.modelId,
+        ) as never,
         tools: request.tools.map((tool) => ({
           type: 'function' as const,
           name: tool.name,
@@ -381,6 +411,7 @@ class ResponsesApiModel implements Model {
       });
       let completed: Record<string, unknown> | undefined;
       let progress = '';
+      const reasoningEncrypted = new Map<string, string>();
       for await (const event of stream) {
         const detail = jsonValue(event);
         generateOptions.providerEvidence?.recordParserTransition({
@@ -391,6 +422,14 @@ class ResponsesApiModel implements Model {
         if (event.type === 'response.output_text.delta') {
           progress += event.delta;
           generateOptions.reportAssistantProgress?.(progress);
+        } else if (event.type === 'response.output_item.done') {
+          const item = (event as { readonly item?: unknown }).item;
+          if (
+            isRecord(item) && item.type === 'reasoning' && typeof item.id === 'string' &&
+            typeof item.encrypted_content === 'string'
+          ) {
+            reasoningEncrypted.set(item.id, item.encrypted_content);
+          }
         } else if (event.type === 'response.completed') {
           completed = event.response as unknown as Record<string, unknown>;
         } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
@@ -400,13 +439,24 @@ class ResponsesApiModel implements Model {
       if (completed === undefined || !Array.isArray(completed.output)) {
         throw providerError('response_error', `${label} response shape was unsupported`, 1);
       }
-      const replayItems = completed.output.map(jsonValue);
+      const withDoneReasoning = (item: unknown): unknown => {
+        if (
+          isRecord(item) && item.type === 'reasoning' && typeof item.id === 'string' &&
+          typeof item.encrypted_content !== 'string'
+        ) {
+          const fallback = reasoningEncrypted.get(item.id);
+          if (fallback !== undefined) return { ...item, encrypted_content: fallback };
+        }
+        return item;
+      };
+      const replayItems = completed.output.map((item) => jsonValue(withDoneReasoning(item)));
       if (replayItems.some((item) => item === undefined)) {
         throw providerError('response_error', `${label} response items were not JSON values`, 1);
       }
       const state = this.config.stateProvider === null ? undefined : Object.freeze({
         provider: this.config.stateProvider,
         replayItems: Object.freeze(replayItems as JsonValue[]),
+        model: this.options.selection.modelId,
       });
       const calls = toolCalls(completed.output);
       if (calls === undefined) {
@@ -493,13 +543,13 @@ export interface DeclaredResponsesModelOptions {
   readonly timeoutMs?: number;
 }
 
-/** Responses adapter for a Host-resolved declared provider (stateless, no provider-private state). */
+/** Responses adapter for a Host-resolved declared provider (stateless request, replay-scoped state). */
 export class DeclaredResponsesModel extends ResponsesApiModel {
   constructor(options: DeclaredResponsesModelOptions) {
     super(options, {
       baseURL: options.baseURL,
       providerLabel: options.selection.provider,
-      stateProvider: null,
+      stateProvider: options.selection.provider,
       includeStore: false,
     });
   }

@@ -453,9 +453,11 @@ const validProviderState = (value: unknown): boolean =>
   (exactObject(value, ['provider', 'reasoningDetails']) &&
     value.provider === 'openrouter' && Array.isArray(value.reasoningDetails) &&
     value.reasoningDetails.every(isJsonValue)) ||
-  (exactObject(value, ['provider', 'replayItems']) &&
-    value.provider === 'openai' &&
-    Array.isArray(value.replayItems) && value.replayItems.every(isJsonValue));
+  (exactObject(value, ['provider', 'replayItems'], ['model']) &&
+    typeof value.provider === 'string' && value.provider.length > 0 &&
+    Array.isArray(value.replayItems) && value.replayItems.every(isJsonValue) &&
+    (value.model === undefined ||
+      (typeof value.model === 'string' && value.model.length > 0)));
 const validMessage = (value: unknown): boolean => {
   if (!validJsonObject(value) || typeof value.role !== 'string') return false;
   if (value.role === 'user') return validUserMessage(value);

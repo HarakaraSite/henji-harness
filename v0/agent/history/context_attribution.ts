@@ -410,8 +410,10 @@ const validMessage = (value: unknown): boolean => {
       providerState.provider === 'openrouter' &&
       Array.isArray(providerState.reasoningDetails) &&
       providerState.reasoningDetails.every(isJson) ||
-    exactKeys(providerState, ['provider', 'replayItems']) && providerState.provider === 'openai' &&
-      Array.isArray(providerState.replayItems) && providerState.replayItems.every(isJson);
+    exactKeys(providerState, ['provider', 'replayItems'], ['model']) &&
+      typeof providerState.provider === 'string' && providerState.provider.length > 0 &&
+      Array.isArray(providerState.replayItems) && providerState.replayItems.every(isJson) &&
+      (providerState.model === undefined || validText(providerState.model));
   return contentValid && (value.text === undefined || validText(value.text)) && stateValid;
 };
 

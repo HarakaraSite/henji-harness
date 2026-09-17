@@ -25,13 +25,16 @@ export interface OpenRouterProviderState {
   readonly reasoningDetails: readonly JsonValue[];
 }
 
-/** Ordered Responses output items needed when continuing an OpenAI tool/model exchange. */
-export interface OpenAIProviderState {
-  readonly provider: 'openai';
+/** Ordered Responses output items needed when continuing a Responses tool/model exchange. */
+export interface ResponsesProviderState {
+  /** Provider id that produced these private items; replay is scoped to it. */
+  readonly provider: string;
   readonly replayItems: readonly JsonValue[];
+  /** Model id that produced these private items; when present, replay is scoped to it too. */
+  readonly model?: string;
 }
 
-export type ProviderState = OpenRouterProviderState | OpenAIProviderState;
+export type ProviderState = OpenRouterProviderState | ResponsesProviderState;
 
 export interface ToolCall {
   readonly callId: string;
