@@ -112,3 +112,9 @@
   `local/henji-base@sha256:82d67dd29734d72e19b04977e5e7b4c57b0a05ea57ae90746116d78303535d98`を返し、
   置換後もactive bindingが維持されていることを確認した。実credential値は表示・copy・logせず、実provider
   requestは行っていない。tag、release、publishは行っていない。
+- 利用者の明示指示により実機確認した。導入済み`~/.local/bin/henji`をPTY（140×40）で`/tmp/henji-harness`にて
+  起動し、full startup layoutに`base:      local/henji-base · external · 82d67dd2`行と`context:   none`行が
+  表示されることを確認した。`/sessions`のpickerは1 Session 1行で
+  `> 2026-09-17 13:24  untitled · 90d7fe6e · 1 turns · resumable`を表示し、保存UTC
+  `2026-09-17T04:24:39.046Z`がlocal timezone（UTC+9）の`13:24`へ変換されることを確認した。起動とpicker操作で
+  実provider requestは発生していない。

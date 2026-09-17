@@ -2,25 +2,25 @@
 
 ## Records
 
-### Increment 51/52 — managed Henji base instructionとinstall receipt
+### Increment 51〜53 — managed Henji base、install receipt、startup base表示とsession picker
 
-- 状態: Increment 52は完了。`instruction install`をresource ID・完全SHA-256 revision・copy可能な
-  `inspect`/`activate` commandだけの人間向けreceiptに変更し、metadata/本文詳細は`inspect`へ分離した。
-  実装commit `1ee500ab`、配置記録commit `56276f49`（現在のHEAD、`main` == `origin/main`）。
-  そのclean commitからbuild `0a6fcd9ae0a450d5ba16ccad2e3bbf271fc2f1001f2f76c6cce2819322d0ab99`を生成し、
-  `dist/henji`と`~/.local/bin/henji`を同一artifactへatomic置換（両方SHA-256
-  `95ba883b691e67637166ed63f1335956ffa770cf0597a5cd587c3116bb829ee1`、source
-  `1ee500ab150aaf2e14f8e9aa59b2ed60e6398fe5`、`sourceDirty=false`）。active external revision
-  `local/henji-base@sha256:2e00f40b9d3160f6047eda0a3c7e3f325b3fcfc85766ad16d57549e27b70355f`は置換後も維持。
-  前段のIncrement 51（`henji-instruction-v1`、built-in/external base、install/activate分離、Worker-core
-  finalizer、context attribution）も完了・配置済み（commit `e709b100`、配置記録`0afad72c`）。
-  未解決: なし（作業ツリーはclean）。`normal-use-inbox.md`のS8はcommit `6b0b3566`、構想・architecture・
-  roadmap・inboxと`v0/agent/README.md`の実装追随はcommit `56375021`へ確定した。
-  Increment 51/52ともtag・Forgejo Release・JSR publishは未実施（JSR latestは0.1.3）。
-- 次: 現在のHEAD `56375021`（`main`は`origin/main`より`56375021`、`039df82c`、`6b0b3566`の3commit先行・未push）を
-  pushするか、`docs/experience/normal-use-inbox.md`から次Increment候補を選ぶかを利用者が判断する。
-- 正本: `docs/increments/increment-51.md`、`docs/increments/increment-52.md`、`docs/experience/normal-use-inbox.md`。
-- 注意: このhandoffはIncrement 51のcommit `e709b100`で空化され、51/52の再開情報が未記録だったため、
-  increment文書・git logから復元した。配置binaryの現物readback（`--version`、SHA-256一致）で復元内容を確認済み。
-  `docs/architecture/multi-provider-routing-and-auth.md`のSession schema記述はIncrement 14〜16採用設計時の計画で
-  あり現在状態の主張ではないため、実装追随の対象に含めていない。
+- 状態: Increment 53は完了・配置済み。TUI startupのfull layoutへ`base: local/henji-base · external ·
+  82d67dd2`行を追加し、session pickerを1 Session 1行・local timezone表示へ変更した。実装commit `a8ac6a85`、
+  配置記録commit `ee3dbdf3`。PTYで導入済みbinaryを`/tmp/henji-harness`にて起動し、`base:`行と`context: none`、
+  pickerの`> 2026-09-17 13:24  untitled · 90d7fe6e · 1 turns · resumable`（保存UTC `04:24Z`のJST変換）を
+  実機確認した。build `beddeb779debf2d93ef11d4adff5ac64ae8343549e7a5cb45aec2f312a90d6a3`、source
+  `a8ac6a85828131a36e49b0cb20a76afcc733b680`、`sourceDirty=false`、`dist/henji`と`~/.local/bin/henji`の
+  SHA-256は`196b8ae8378d8a54239bd647fdba4e173d3fd57a39cc77a0e4051251ef767dbb`で一致。
+  前段のIncrement 52（install receipt、commit `1ee500ab`／配置記録`56276f49`）とIncrement 51
+  （`henji-instruction-v1`、built-in/external base、Worker-core finalizer、context attribution、commit
+  `e709b100`／配置記録`0afad72c`）も完了・配置済み。構想・architecture・roadmap・inboxと`v0/agent/README.md`の
+  実装追随はcommit `56375021`、S8候補記録は`6b0b3566`。
+  未実施: tag、Forgejo Release、JSR publish（JSR latestは0.1.3）。
+- 次: `docs/experience/normal-use-inbox.md`から次Increment候補を選ぶ。候補はS6（採用済み）、S5、S7、
+  A2、A5、A6、A8、A3、A7、E1、R1〜R4。
+- 正本: `docs/increments/increment-51.md`、`docs/increments/increment-52.md`、`docs/increments/increment-53.md`、
+  `docs/experience/normal-use-inbox.md`。
+- 注意: このhandoffのIncrement 51/52部分はcommit `e709b100`での空化後にincrement文書・git logから復元した。
+  現在のactive external revisionは`local/henji-base@sha256:82d67dd2…`であり、Increment 52配置時の記録
+  `2e00f40b…`とは異なる（配置後にbindingが更新された）。`docs/architecture/multi-provider-routing-and-auth.md`の
+  Session schema記述はIncrement 14〜16採用設計時の計画であり現在状態の主張ではないため、実装追随の対象に含めていない。
