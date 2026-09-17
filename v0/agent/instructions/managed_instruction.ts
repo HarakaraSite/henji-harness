@@ -82,7 +82,8 @@ export type HenjiInstructionErrorCode =
   | 'instruction_invalid'
   | 'instruction_api_unsupported'
   | 'instruction_io_failure'
-  | 'instruction_binding_invalid';
+  | 'instruction_binding_invalid'
+  | 'instruction_active';
 
 export class HenjiInstructionError extends Error {
   constructor(
@@ -736,6 +737,35 @@ export class ManagedHenjiInstructionStore {
       return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
     });
   }
+
+  /** Remove one installed external revision while leaving other custody untouched. */
+  async remove(
+    resourceId: string,
+    digest: string,
+  ): Promise<ManagedHenjiInstructionManifestV1> {
+    if (
+      !isExternalHenjiInstructionResourceId(resourceId) || !SHA256.test(digest)
+    ) {
+      throw new HenjiInstructionError(
+        'instruction_invalid',
+        'Henji Instruction selector is invalid',
+      );
+    }
+    const path = await revisionPath(this.root, resourceId, digest);
+    const revision = await readRevisionAt(path, resourceId, digest);
+    try {
+      await Deno.remove(path, { recursive: true });
+    } catch (error) {
+      if (isNotFound(error)) {
+        throw new HenjiInstructionError(
+          'instruction_not_found',
+          'Henji Instruction revision not found',
+        );
+      }
+      throw ioError('Henji Instruction revision could not be removed', error);
+    }
+    return revision.manifest;
+  }
 }
 
 export interface HenjiInstructionBindingV1 {
@@ -774,6 +804,14 @@ const readBinding = async (
     );
   }
   return structuredClone(value) as unknown as HenjiInstructionBindingV1;
+};
+
+/** Read the active binding ref without resolving its stored content. */
+export const readHenjiBaseInstructionBindingRef = async (
+  configRoot: string,
+): Promise<HenjiInstructionRevisionRef | undefined> => {
+  const binding = await readBinding(configRoot);
+  return binding === undefined ? undefined : structuredClone(binding.ref);
 };
 
 const selectedExternal = (

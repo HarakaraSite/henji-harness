@@ -112,6 +112,7 @@ exact revisionを明示的にactivateする。
 ./dist/henji instruction activate --id example/henji-base --revision sha256:<full-digest>
 ./dist/henji instruction active
 ./dist/henji instruction deactivate
+./dist/henji instruction uninstall --id example/henji-base --revision sha256:<full-digest>
 ```
 
 `instruction install`は、installしたresource IDとexact revisionに加え、そのまま実行できる`inspect`・
@@ -120,7 +121,8 @@ exact revisionを明示的にactivateする。
 
 installはactive selectionを変更しない。activate/deactivateは次に作るWorker generationから反映され、
 既に動作中のgenerationや過去のSession履歴を書き換えない。external revisionが選択されているのにmanaged
-contentがmissingまたはinvalidなら、built-inへ暗黙fallbackせず起動前に失敗する。
+contentがmissingまたはinvalidなら、built-inへ暗黙fallbackせず起動前に失敗する。`uninstall`は指定した
+exact revisionのlocal custodyだけを削除し、現在activeなrevisionは削除せず先に`deactivate`を要求する。
 
 詳細な設計と実装状況は[構想](docs/concepts/experience-driven-self-revision.md)、
 [architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を参照する。

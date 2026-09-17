@@ -185,6 +185,100 @@ Deno.test('Increment 52 instruction install returns a short human receipt before
   }
 });
 
+Deno.test('Increment 54 instruction uninstall removes inactive revisions and refuses the active one', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-54-cli-' });
+  try {
+    const dataRoot = `${root}/data`;
+    const configRoot = `${root}/config`;
+    const sourceA = `${root}/a`;
+    const sourceB = `${root}/b`;
+    await writePackage(sourceA, 'BASE A', 'example/a');
+    await writePackage(sourceB, 'BASE B', 'example/b');
+    const invokeRaw = async (args: string[]) => {
+      let stdout = '';
+      let stderr = '';
+      const code = await instructionMain(args, {
+        dataRoot,
+        configRoot,
+        now: () => new Date('2026-09-17T00:00:00.000Z'),
+        writeStdout: (text) => {
+          stdout += text;
+        },
+        writeStderr: (text) => {
+          stderr += text;
+        },
+      });
+      return { code, stdout, stderr };
+    };
+    const invoke = async (args: string[]) => {
+      const result = await invokeRaw(args);
+      return {
+        code: result.code,
+        stdout: result.stdout === '' ? undefined : JSON.parse(result.stdout),
+        stderr: result.stderr === '' ? undefined : JSON.parse(result.stderr),
+      };
+    };
+    assertEquals((await invokeRaw(['install', sourceA])).code, 0);
+    assertEquals((await invokeRaw(['install', sourceB])).code, 0);
+    const listed = await invoke(['list']);
+    assertEquals(listed.stdout.instructions.length, 2);
+    const refA = listed.stdout.instructions.find(
+      (item: { logicalRef: { resourceId: string } }) => item.logicalRef.resourceId === 'example/a',
+    ).logicalRef;
+    const refB = listed.stdout.instructions.find(
+      (item: { logicalRef: { resourceId: string } }) => item.logicalRef.resourceId === 'example/b',
+    ).logicalRef;
+    const selectorA = ['--id', refA.resourceId, '--revision', `sha256:${refA.revision.digest}`];
+    const selectorB = ['--id', refB.resourceId, '--revision', `sha256:${refB.revision.digest}`];
+
+    assertEquals((await invoke(['activate', ...selectorB])).code, 0);
+
+    const removed = await invokeRaw(['uninstall', ...selectorA]);
+    assertEquals(removed.code, 0);
+    assertEquals(
+      removed.stdout,
+      `Uninstalled: "example/a"\nRevision:    sha256:${refA.revision.digest}\n`,
+    );
+    assertEquals(
+      (await invoke(['inspect', ...selectorA])).stderr.error.code,
+      'instruction_not_found',
+    );
+    assertEquals(
+      (await invoke(['list'])).stdout.instructions.map(
+        (item: { logicalRef: { resourceId: string } }) => item.logicalRef.resourceId,
+      ),
+      ['example/b'],
+    );
+
+    const refused = await invoke(['uninstall', ...selectorB]);
+    assertEquals(refused.code, 1);
+    assertEquals(refused.stderr.error.code, 'instruction_active');
+    assertEquals(refused.stderr.error.instruction.revision.digest, refB.revision.digest);
+    assertEquals((await invoke(['active'])).stdout.ref, refB);
+    assertEquals((await invoke(['inspect', ...selectorB])).stdout.content, 'BASE B');
+
+    assertEquals((await invoke(['deactivate'])).stdout.selectionSource, 'built-in');
+    assertEquals((await invokeRaw(['uninstall', ...selectorB])).code, 0);
+    assertEquals((await invoke(['list'])).stdout.instructions.length, 0);
+    assertEquals(
+      (await invoke(['uninstall', ...selectorA])).stderr.error.code,
+      'instruction_not_found',
+    );
+    assertEquals(
+      (await invoke([
+        'uninstall',
+        '--id',
+        'builtin/henji-base',
+        '--revision',
+        `sha256:${'0'.repeat(64)}`,
+      ])).stderr.error.code,
+      'instruction_invalid',
+    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test('Increment 51 finalizer replaces only the base slot for root, opaque Definition, and delegated planner', async () => {
   const root = await Deno.makeTempDir({
     prefix: 'henji-increment-51-finalizer-',

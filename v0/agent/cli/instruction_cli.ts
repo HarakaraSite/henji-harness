@@ -5,6 +5,7 @@ import {
   HenjiInstructionError,
   type HenjiInstructionErrorCode,
   ManagedHenjiInstructionStore,
+  readHenjiBaseInstructionBindingRef,
   resolveActiveHenjiBaseInstruction,
 } from '../instructions/managed_instruction.ts';
 import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
@@ -26,6 +27,11 @@ export type InstructionCliCommand =
   | { readonly kind: 'active' }
   | {
     readonly kind: 'activate';
+    readonly resourceId: string;
+    readonly digest: string;
+  }
+  | {
+    readonly kind: 'uninstall';
     readonly resourceId: string;
     readonly digest: string;
   }
@@ -67,6 +73,9 @@ export const parseInstructionArgs = (
   }
   if (args[0] === 'activate') {
     return { kind: 'activate', ...parseSelector(args.slice(1)) };
+  }
+  if (args[0] === 'uninstall') {
+    return { kind: 'uninstall', ...parseSelector(args.slice(1)) };
   }
   throw new InstructionCliInvocationError();
 };
@@ -134,6 +143,18 @@ const installReceipt = (
     '',
     'Activate:',
     `henji instruction activate ${selector}`,
+    '',
+  ].join('\n');
+};
+
+const uninstallReceipt = (
+  manifest: Awaited<ReturnType<ManagedHenjiInstructionStore['remove']>>,
+): string => {
+  const resourceId = manifest.logicalRef.resourceId;
+  const exactRevision = `sha256:${manifest.logicalRef.revision.digest}`;
+  return [
+    `Uninstalled: ${JSON.stringify(resourceId)}`,
+    `Revision:    ${exactRevision}`,
     '',
   ].join('\n');
 };
@@ -222,6 +243,25 @@ export const main = async (
             ),
           ),
         },
+      );
+    } else if (command.kind === 'uninstall') {
+      const target = ref(command.resourceId, command.digest);
+      const active = await readHenjiBaseInstructionBindingRef(configRoot);
+      if (
+        active !== undefined && active.resourceId === target.resourceId &&
+        active.revision.digest === target.revision.digest
+      ) {
+        throw new HenjiInstructionError(
+          'instruction_active',
+          'Henji Instruction revision is active; deactivate it before uninstall',
+          target,
+        );
+      }
+      const removed = await store.remove(command.resourceId, command.digest);
+      await writeText(
+        dependencies.writeStdout,
+        Deno.stdout,
+        uninstallReceipt(removed),
       );
     } else {
       await deactivateHenjiBaseInstruction(configRoot);
