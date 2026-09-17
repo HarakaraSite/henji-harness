@@ -14,11 +14,13 @@
   `local/henji-base@sha256:2e00f40b9d3160f6047eda0a3c7e3f325b3fcfc85766ad16d57549e27b70355f`は置換後も維持。
   前段のIncrement 51（`henji-instruction-v1`、built-in/external base、install/activate分離、Worker-core
   finalizer、context attribution）も完了・配置済み（commit `e709b100`、配置記録`0afad72c`）。
-  未解決: `docs/experience/normal-use-inbox.md`のS8追加が作業ツリーに**未commit**のまま残っている。
+  未解決: なし（作業ツリーはclean）。`normal-use-inbox.md`のS8はcommit `6b0b3566`、構想・architecture・
+  roadmap・inboxと`v0/agent/README.md`の実装追随はcommit `56375021`へ確定した。
   Increment 51/52ともtag・Forgejo Release・JSR publishは未実施（JSR latestは0.1.3）。
-- 次: 未commitのS8（TUI startupのactive Henji base表示）をcommitするか、`docs/experience/normal-use-inbox.md`
-  から次Increment候補を選ぶかを利用者が判断する。
+- 次: 現在のHEAD `56375021`（`main`は`origin/main`より`56375021`、`039df82c`、`6b0b3566`の3commit先行・未push）を
+  pushするか、`docs/experience/normal-use-inbox.md`から次Increment候補を選ぶかを利用者が判断する。
 - 正本: `docs/increments/increment-51.md`、`docs/increments/increment-52.md`、`docs/experience/normal-use-inbox.md`。
 - 注意: このhandoffはIncrement 51のcommit `e709b100`で空化され、51/52の再開情報が未記録だったため、
-  increment文書・git log・作業ツリー差分から復元した。`e709b100`以降handoffを更新したcommitはなく、
-  次actionは未commit差分からの推測を含む。配置binaryの現物readback（`--version`、SHA-256一致）で復元内容を確認済み。
+  increment文書・git logから復元した。配置binaryの現物readback（`--version`、SHA-256一致）で復元内容を確認済み。
+  `docs/architecture/multi-provider-routing-and-auth.md`のSession schema記述はIncrement 14〜16採用設計時の計画で
+  あり現在状態の主張ではないため、実装追随の対象に含めていない。
