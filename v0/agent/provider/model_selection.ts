@@ -8,7 +8,14 @@ export type ReasoningEffort =
   | 'xhigh'
   | 'max';
 
-export type ProviderId = 'openrouter' | 'openrouter-responses' | 'openai';
+/** Built-in provider ids; declared providers add further ids at runtime. */
+export type ProviderId = string;
+export const BUILTIN_PROVIDER_IDS: readonly string[] = Object.freeze([
+  'openrouter',
+  'openrouter-responses',
+  'openai',
+]);
+const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 export type ProviderApi =
   | 'openrouter-chat-completions'
   | 'openrouter-responses'
@@ -45,10 +52,20 @@ export interface OpenAIModelSelection {
   readonly effort: ReasoningEffort;
 }
 
+/** Declared provider selection. Currently limited to the shared Responses protocol. */
+export interface DeclaredProviderModelSelection {
+  readonly provider: string;
+  readonly api: 'openai-responses';
+  readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+  readonly modelId: string;
+  readonly effort: ReasoningEffort;
+}
+
 export type ModelSelection =
   | OpenRouterModelSelection
   | OpenRouterResponsesModelSelection
-  | OpenAIModelSelection;
+  | OpenAIModelSelection
+  | DeclaredProviderModelSelection;
 
 const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'auto',
@@ -79,8 +96,14 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
     return selection.api === 'openrouter-responses' &&
       selection.authProfile === 'openrouter-api-key';
   }
-  return selection.provider === 'openai' && selection.api === 'openai-responses' &&
-    selection.authProfile === 'openai-api-key';
+  if (selection.provider === 'openai') {
+    return selection.api === 'openai-responses' &&
+      selection.authProfile === 'openai-api-key';
+  }
+  return typeof selection.provider === 'string' && PROVIDER_ID.test(selection.provider) &&
+    selection.api === 'openai-responses' &&
+    (selection.authProfile === 'openrouter-api-key' ||
+      selection.authProfile === 'openai-api-key');
 };
 
 export const sameModelSelection = (

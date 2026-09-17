@@ -22,7 +22,7 @@ export interface RuntimeDisplayState {
   readonly workspace: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly model: {
-    readonly provider: 'openrouter' | 'openrouter-responses' | 'openai';
+    readonly provider: string;
     readonly profileId: string;
     readonly modelId: string;
     readonly effort: string;
@@ -58,7 +58,7 @@ export interface RuntimeDisplayProjectionInput {
   readonly workspaceRoot: string;
   readonly agentId: RuntimeDisplayAgentId;
   readonly profileId: string;
-  readonly provider?: 'openrouter' | 'openrouter-responses' | 'openai';
+  readonly provider?: string;
   readonly modelId?: string;
   readonly effort?: string;
   readonly sessionMode: RuntimeDisplaySessionMode;
@@ -201,11 +201,7 @@ export const projectRuntimeDisplayState = (
     workspace: displayWorkspaceLabel(input.workspaceRoot),
     agentId,
     model: Object.freeze({
-      provider: input.provider === 'openai'
-        ? 'openai' as const
-        : input.provider === 'openrouter-responses'
-        ? 'openrouter-responses' as const
-        : 'openrouter' as const,
+      provider: boundedProfileId(input.provider ?? 'openrouter'),
       profileId: boundedProfileId(input.profileId),
       modelId: boundedProfileId(input.modelId ?? input.profileId),
       effort: boundedProfileId(input.effort ?? 'auto'),
@@ -223,11 +219,7 @@ export const projectRuntimeDisplayState = (
     const fallback = Object.freeze({
       ...state,
       model: Object.freeze({
-        provider: input.provider === 'openai'
-          ? 'openai' as const
-          : input.provider === 'openrouter-responses'
-          ? 'openrouter-responses' as const
-          : 'openrouter' as const,
+        provider: boundedProfileId(input.provider ?? 'openrouter'),
         profileId: 'profile',
         modelId: 'model',
         effort: 'auto',

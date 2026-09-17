@@ -6,6 +6,7 @@ import {
   defaultModelSelectionFor,
   isModelSelection,
   modelCatalogEntryFor,
+  providerIdsForSelection,
   searchModelsFor,
   selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
@@ -414,6 +415,70 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
     defaultModelSelectionFor('openrouter-responses').modelId,
     'deepseek/deepseek-v4.1-flash',
   );
+});
+
+Deno.test('Increment 61 declaration adds an external OpenAI provider beside the built-in', async () => {
+  const declaration = validateProviderDeclaration({
+    schemaVersion: 1,
+    providerId: 'openai-alt',
+    protocol: 'openai-responses',
+    endpoint: 'https://api.openai.com/v1',
+    authProfile: 'openai-api-key',
+    modelCatalog: {
+      kind: 'fixed',
+      entries: [{
+        modelId: 'gpt-5.6-terra',
+        defaultEffort: 'medium',
+        efforts: ['low', 'medium'],
+      }],
+    },
+    defaults: { modelId: 'gpt-5.6-terra', effort: 'medium' },
+  });
+  setActiveProviderDeclarations([declaration]);
+  try {
+    assert(providerIdsForSelection().includes('openai-alt'));
+    const selection = defaultModelSelectionFor('openai-alt');
+    assertEquals(selection.provider, 'openai-alt');
+    assertEquals(selection.api, 'openai-responses');
+    assertEquals(selection.modelId, 'gpt-5.6-terra');
+    assert(isModelSelection(selection));
+    assertEquals(searchModelsFor('openai-alt', '').length, 1);
+    assertEquals(selectModelFor('openai-alt', 'gpt-5.6-terra').effort, 'medium');
+
+    const seen: { url?: string; authorization?: string } = {};
+    const fetcher: typeof fetch = (input, init) => {
+      const requested = input instanceof Request ? input : new Request(input, init);
+      seen.url = requested.url;
+      seen.authorization = requested.headers.get('authorization') ?? undefined;
+      return Promise.resolve(
+        new Response(openAICompletedStream('hello'), {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        }),
+      );
+    };
+    const physical = createProductionPhysicalIo(undefined, {
+      openAICredentialSource: () => Promise.resolve('alt-secret'),
+      fetcher,
+      providerDeclarations: [declaration],
+    });
+    const evidence = new ProviderEvidenceRecorder();
+    const result = await physical.createModel('parent', selection).generate(request, {
+      providerEvidence: evidence,
+      providerEvidenceLane: 'parent',
+      modelStep: 1,
+    });
+    assertEquals(result.kind, 'final');
+    assertEquals(seen.url, 'https://api.openai.com/v1/responses');
+    assertEquals(seen.authorization, 'Bearer alt-secret');
+    assertEquals(
+      evidence.snapshot().requests[0].request.requestMetadata.provider,
+      'openai-alt',
+    );
+    assert(!JSON.stringify(evidence.snapshot()).includes('alt-secret'));
+  } finally {
+    setActiveProviderDeclarations([]);
+  }
 });
 
 Deno.test('Increment 59 provider declaration overrides the OpenRouter Responses endpoint', async () => {

@@ -29,8 +29,8 @@ import {
   DenoHumanHistoryExporter,
   type HumanHistoryExporter,
 } from '../history/human_history_export.ts';
-import type { ProviderId } from '../provider/model_selection.ts';
-import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
+import { BUILTIN_PROVIDER_IDS, type ProviderId } from '../provider/model_selection.ts';
+import { defaultModelSelectionFor, providerIdsForSelection } from '../provider/model_catalog.ts';
 import { loadProviderDeclarations } from '../provider/provider_declaration.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
@@ -116,6 +116,7 @@ export interface ParsedTuiInvocation {
 /** Parse both flag orders before terminal, workspace, state, provider, or credential setup. */
 export const parseTuiInvocation = (
   args: readonly string[],
+  allowedProviders: readonly string[] = BUILTIN_PROVIDER_IDS,
 ): ParsedTuiInvocation => {
   if (args.length > 10) throw new Error('invalid invocation');
   let rawAgentName: string | undefined;
@@ -198,10 +199,9 @@ export const parseTuiInvocation = (
       index += 2;
     } else if (flag === '--root-provider') {
       const value = args[index + 1];
-      if (
-        rootProviderSeen ||
-        (value !== 'openrouter' && value !== 'openrouter-responses' && value !== 'openai')
-      ) throw new Error('invalid invocation');
+      if (rootProviderSeen || value === undefined || !allowedProviders.includes(value)) {
+        throw new Error('invalid invocation');
+      }
       rootProvider = value;
       rootProviderSeen = true;
       index += 2;
@@ -274,10 +274,22 @@ export const main = async (
   const stderr = dependencies.writeStderr ?? (async (text: string) => {
     await Deno.stderr.write(encoder.encode(text));
   });
+  const hostConfigRoot = dependencies.configRoot ??
+    (dependencies.createSession === undefined ? resolveRuntimePaths().configRoot : undefined);
+  try {
+    setActiveProviderDeclarations(
+      hostConfigRoot === undefined
+        ? []
+        : await loadProviderDeclarations({ configRoot: hostConfigRoot }),
+    );
+  } catch {
+    await stderr(failureLine('invalid_invocation'));
+    return 1;
+  }
   let selection: HostDefinitionSelection | undefined;
   let invocation: ParsedTuiInvocation;
   try {
-    invocation = parseTuiInvocation(args);
+    invocation = parseTuiInvocation(args, providerIdsForSelection());
     if (
       invocation.persistence !== 'session' ||
       invocation.rawAgentName !== undefined ||
@@ -310,13 +322,6 @@ export const main = async (
   let createdResult: TuiSessionFactoryResult | undefined;
   let resultCode = 1;
   try {
-    const hostConfigRoot = dependencies.configRoot ??
-      (dependencies.createSession === undefined ? resolveRuntimePaths().configRoot : undefined);
-    setActiveProviderDeclarations(
-      hostConfigRoot === undefined
-        ? []
-        : await loadProviderDeclarations({ configRoot: hostConfigRoot }),
-    );
     const sessionFactory = dependencies.createSession ??
       ((eventSink: AgentEventSink, selected: HostDefinitionSelection | undefined) =>
         createWorkerSession({

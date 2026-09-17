@@ -51,7 +51,7 @@ export interface ProviderEvidenceRequestMetadata {
     | 'planner_model'
     | 'context_compaction'
     | 'web_search';
-  readonly provider?: 'openrouter' | 'openrouter-responses' | 'openai';
+  readonly provider?: string;
   readonly api?: 'openrouter-chat-completions' | 'openrouter-responses' | 'openai-responses';
   readonly modelId?: string;
   readonly effort?: ReasoningEffort;
@@ -387,8 +387,7 @@ const validProviderMetadata = (
       record.origin === 'planner_model' ||
       record.origin === 'context_compaction' ||
       record.origin === 'web_search') &&
-    (record.provider === undefined || record.provider === 'openrouter' ||
-      record.provider === 'openrouter-responses' || record.provider === 'openai') &&
+    (record.provider === undefined || validText(record.provider)) &&
     (record.api === undefined || record.api === 'openrouter-chat-completions' ||
       record.api === 'openrouter-responses' || record.api === 'openai-responses') &&
     (record.modelId === undefined || validText(record.modelId)) &&

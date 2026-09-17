@@ -19,7 +19,7 @@ export type PresentationLifecycle =
 
 export type PresentationAgentId = 'default' | 'planner';
 export interface PresentationModelSelection {
-  readonly provider: 'openrouter' | 'openrouter-responses' | 'openai';
+  readonly provider: string;
   readonly modelId: string;
   readonly effort: string;
 }
@@ -342,11 +342,11 @@ export type PresentationIntent =
   | Readonly<{ readonly kind: 'clear_recall' }>
   | Readonly<{
     readonly kind: 'select_provider';
-    readonly provider: 'openrouter' | 'openrouter-responses' | 'openai';
+    readonly provider: string;
   }>
   | Readonly<{
     readonly kind: 'select_model';
-    readonly provider: 'openrouter' | 'openrouter-responses' | 'openai';
+    readonly provider: string;
     readonly modelId: string;
     readonly effort: string;
   }>
@@ -603,7 +603,7 @@ export interface PresentationStartupState {
   readonly workspace: string;
   readonly agentId: PresentationAgentId;
   readonly model: {
-    readonly provider: 'openrouter' | 'openrouter-responses' | 'openai';
+    readonly provider: string;
     readonly profileId: string;
     readonly modelId: string;
     readonly effort: string;

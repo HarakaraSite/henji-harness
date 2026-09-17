@@ -215,7 +215,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | managed Henji base instruction | F03、F06、F08 | Increment 51でDefinition以外の最初のmanaged kindを成立させ、built-in/external exact baseを次generationへ適用する |
-| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱い、順序と分割は次の相談で決める |
+| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱う。OpenRouter Responses経路はIncrement 58、data-only宣言とendpoint/catalog overrideはIncrement 59/60で成立し、新しいprovider idの一般化（providerId+protocol+authProfile、Responses先行）をIncrement 61で扱う |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |

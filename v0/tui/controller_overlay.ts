@@ -15,8 +15,8 @@ import {
   modelCatalogEntryFor,
   type ModelSelection,
   type ProviderId,
+  providerIdsForSelection,
   type ProviderModelCatalogEntry,
-  PROVIDERS,
   type ReasoningEffort,
   searchModelsFor,
   selectModelFor,
@@ -159,8 +159,8 @@ export class ControllerOverlay {
     }
     this.modal = {
       kind: 'provider-picker',
-      providers: PROVIDERS,
-      selected: Math.max(0, PROVIDERS.indexOf(selection.provider)),
+      providers: providerIdsForSelection(),
+      selected: Math.max(0, providerIdsForSelection().indexOf(selection.provider)),
     };
     this.renderProviderPicker();
   }

@@ -286,6 +286,11 @@ scope、dynamic model取得は、Provider kindを実装するincrementでこのa
 既存OpenRouter Chat Completions経路は、そのincrementが成立するまで変更しない。詳細は
 [`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
 
+一般化したprovider identityは`providerId` + `protocol` + `authProfile`であり、protocol adapterはbinaryが所有する。
+external宣言はdata-onlyで新しい`providerId`を追加でき、built-inはbinary内の既定宣言として残る。宣言providerの
+model selectionは`providerId`/`protocol`/`authProfile`/`modelId`/`effort`の構造でSession/evidenceへ保存し、
+endpointやcatalog sourceはidentityへ含めない。最初の新provider kindは`openai-responses` protocolに限定する。
+
 #### managed revision transport
 
 local custodyとinstallation間transportは別contractである。export packageはstore directory layoutを公開形式にせず、

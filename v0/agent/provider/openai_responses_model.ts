@@ -15,6 +15,7 @@ import {
   OpenRouterAgentError,
 } from './openrouter_contract.ts';
 import type {
+  DeclaredProviderModelSelection,
   ModelSelection,
   OpenAIModelSelection,
   OpenRouterResponsesModelSelection,
@@ -477,6 +478,27 @@ export class OpenRouterResponsesModel extends ResponsesApiModel {
     super(options, {
       baseURL: options.baseURL ?? 'https://openrouter.ai/api/v1',
       providerLabel: 'OpenRouter',
+      stateProvider: null,
+      includeStore: false,
+    });
+  }
+}
+
+export interface DeclaredResponsesModelOptions {
+  readonly selection: DeclaredProviderModelSelection;
+  readonly credentialSource: CredentialSource;
+  /** Declared endpoint base URL from the provider declaration. */
+  readonly baseURL: string;
+  readonly fetcher?: typeof fetch;
+  readonly timeoutMs?: number;
+}
+
+/** Responses adapter for a Host-resolved declared provider (stateless, no provider-private state). */
+export class DeclaredResponsesModel extends ResponsesApiModel {
+  constructor(options: DeclaredResponsesModelOptions) {
+    super(options, {
+      baseURL: options.baseURL,
+      providerLabel: options.selection.provider,
       stateProvider: null,
       includeStore: false,
     });

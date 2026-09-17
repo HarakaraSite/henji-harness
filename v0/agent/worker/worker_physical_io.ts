@@ -9,10 +9,17 @@ import {
 } from '../provider/credential_file.ts';
 import { createCredentialResolver } from '../provider/credential_resolver.ts';
 import {
+  DeclaredResponsesModel,
   OpenAIResponsesModel,
   OpenRouterResponsesModel,
 } from '../provider/openai_responses_model.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
+import type {
+  DeclaredProviderModelSelection,
+  OpenAIModelSelection,
+  OpenRouterModelSelection,
+  OpenRouterResponsesModelSelection,
+} from '../provider/model_selection.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import {
   type ModelSelection,
@@ -159,10 +166,10 @@ export const createProductionPhysicalIo = (
     readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   } = {},
 ): PhysicalIoBindings => {
-  const declaredEndpoints = new Map(
+  const declaredProviders = new Map(
     (options.providerDeclarations ?? []).map((declaration) => [
       declaration.providerId,
-      declaration.endpoint,
+      declaration,
     ]),
   );
   const fetcher: typeof fetch = (input, init) => {
@@ -181,20 +188,33 @@ export const createProductionPhysicalIo = (
         (role === 'planner' ? PLANNER_DEFAULT_MODEL_SELECTION : ROOT_DEFAULT_MODEL_SELECTION);
       if (resolved.provider === 'openai') {
         return new OpenAIResponsesModel({
-          selection: resolved,
+          selection: resolved as OpenAIModelSelection,
           credentialSource: () => resolver.resolve(resolved.authProfile),
           fetcher,
           timeoutMs: options.providerTimeoutMs,
         });
       }
       if (resolved.provider === 'openrouter-responses') {
-        const endpoint = declaredEndpoints.get('openrouter-responses');
+        const endpoint = declaredProviders.get('openrouter-responses')?.endpoint;
         return new OpenRouterResponsesModel({
-          selection: resolved,
+          selection: resolved as OpenRouterResponsesModelSelection,
           credentialSource: () => resolver.resolve(resolved.authProfile),
           fetcher,
           timeoutMs: options.providerTimeoutMs,
           ...(endpoint === undefined ? {} : { baseURL: endpoint }),
+        });
+      }
+      if (resolved.api === 'openai-responses') {
+        const declaration = declaredProviders.get(resolved.provider);
+        if (declaration === undefined || declaration.protocol !== 'openai-responses') {
+          throw new Error('declared provider is unavailable');
+        }
+        return new DeclaredResponsesModel({
+          selection: resolved as DeclaredProviderModelSelection,
+          credentialSource: () => resolver.resolve(declaration.authProfile),
+          fetcher,
+          timeoutMs: options.providerTimeoutMs,
+          baseURL: declaration.endpoint,
         });
       }
       return new OpenRouterAgentModel({
@@ -202,7 +222,7 @@ export const createProductionPhysicalIo = (
           ? openRouterProfileFor(PLANNER_DEFAULT_MODEL_SELECTION)
           : selection === undefined
           ? PRODUCTION_PROFILE
-          : openRouterProfileFor(resolved),
+          : openRouterProfileFor(resolved as OpenRouterModelSelection),
         credentialSource: () => resolver.resolve(resolved.authProfile),
         fetcher,
         responseMode: 'sse',

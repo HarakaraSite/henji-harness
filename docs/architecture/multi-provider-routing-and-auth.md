@@ -370,6 +370,13 @@ routeへ渡さない。
   declarationをmanaged revisionとexternal input/stateのどちらにするか、activation scope、dynamic model取得の扱いは、
   そのkindを実装するincrementでarchitectureへ反映する。S2（Henji内credential登録）はこのcredential registryへ
   接続する。
+- **provider identityの一般化**: providerは`providerId` + `protocol` + `authProfile`からなるroute identityとする。
+  protocol adapter（`openai-responses`、`openai-chat-completions`）はbinaryが所有し、external provider宣言は
+  data-onlyで`providerId`、`protocol`、`endpoint`、`authProfile`、model catalog、既定を選ぶ。宣言は新しい
+  `providerId`を追加でき、built-inはbinary内の既定宣言として残る。Session/evidenceのmodel identityは
+  `providerId`/`protocol`/`authProfile`/`modelId`/`effort`の構造検証とし、宣言providerも同じidentityで
+  attributionする。最初の新provider idは`openai-responses` protocolに限定し、`openai-chat-completions`の
+  provider-agnostic化は後続incrementで扱う。
 - どちらも本書の不変条件（requestごとのroute所有、credential非継承、secret非永続化、turn内固定、semantic
   transcript共有、独立した失敗、request単位の証拠）を維持する。
 

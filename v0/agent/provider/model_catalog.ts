@@ -18,30 +18,81 @@ import {
   searchOpenAIModels,
   selectOpenAIModel,
 } from './openai_model_catalog.ts';
-import type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
-import type { ProviderCatalogEntryV1 } from './provider_declaration.ts';
-import { declarationFor } from './provider_runtime.ts';
-
-type ImportedProviderCatalogEntry = ProviderCatalogEntryV1;
+import {
+  BUILTIN_PROVIDER_IDS,
+  type DeclaredProviderModelSelection,
+  isStoredModelSelection,
+  type ModelSelection,
+  type ProviderId,
+  type ReasoningEffort,
+} from './model_selection.ts';
+import type { ProviderDeclarationV1 } from './provider_declaration.ts';
+import { activeProviderDeclarations, declarationFor } from './provider_runtime.ts';
 
 export type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
 
 export type ProviderModelCatalogEntry = OpenRouterModelCatalogEntry | OpenAIModelCatalogEntry;
 
-export const PROVIDERS: readonly ProviderId[] = Object.freeze(
-  [
-    'openrouter',
-    'openrouter-responses',
-    'openai',
-  ] as const,
-);
+/** Built-in provider ids; declared providers are added by `providerIdsForSelection`. */
+export const PROVIDERS: readonly ProviderId[] = BUILTIN_PROVIDER_IDS;
 
-export const isModelSelection = (value: unknown): value is ModelSelection =>
-  isOpenRouterModelSelection(value) || isOpenRouterResponsesModelSelection(value) ||
-  isOpenAIModelSelection(value);
+const declaredResponsesProviderIds = (): readonly string[] => {
+  const seen = new Set<string>();
+  return Object.freeze(
+    activeProviderDeclarations()
+      .filter((declaration) =>
+        declaration.protocol === 'openai-responses' &&
+        !BUILTIN_PROVIDER_IDS.includes(declaration.providerId)
+      )
+      .map((declaration) => declaration.providerId)
+      .filter((id) => seen.has(id) ? false : (seen.add(id), true)),
+  );
+};
+
+/** Built-in ids followed by declared Responses provider ids. */
+export const providerIdsForSelection = (): readonly string[] =>
+  Object.freeze([...BUILTIN_PROVIDER_IDS, ...declaredResponsesProviderIds()]);
+
+const declaredSelection = (
+  declaration: ProviderDeclarationV1,
+  modelId: string,
+  effort: ReasoningEffort,
+): DeclaredProviderModelSelection =>
+  Object.freeze({
+    provider: declaration.providerId,
+    api: 'openai-responses' as const,
+    authProfile: declaration.authProfile,
+    modelId,
+    effort,
+  });
+
+const declaredEntriesFor = (
+  provider: ProviderId,
+): readonly ProviderModelCatalogEntry[] | undefined => {
+  const declaration = declarationFor(provider);
+  if (
+    declaration === undefined ||
+    (declaration.protocol !== 'openai-responses' && BUILTIN_PROVIDER_IDS.includes(provider))
+  ) return undefined;
+  return declaration.modelCatalog.entries;
+};
+
+/** Catalog membership validation that includes Host-resolved declarations. */
+export const isModelSelection = (value: unknown): value is ModelSelection => {
+  if (!isStoredModelSelection(value)) return false;
+  const declared = declaredEntriesFor(value.provider);
+  if (declared !== undefined) {
+    return declared.some((entry) =>
+      entry.modelId === value.modelId && entry.efforts.includes(value.effort)
+    );
+  }
+  return isOpenRouterModelSelection(value) || isOpenRouterResponsesModelSelection(value) ||
+    isOpenAIModelSelection(value);
+};
 
 export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection => {
   if (provider === 'openai') return OPENAI_DEFAULT_MODEL_SELECTION;
+  if (provider === 'openrouter') return ROOT_DEFAULT_MODEL_SELECTION;
   if (provider === 'openrouter-responses') {
     const declaration = declarationFor('openrouter-responses');
     if (declaration !== undefined) {
@@ -52,24 +103,24 @@ export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection =
     }
     return selectOpenRouterResponsesModel(ROOT_DEFAULT_MODEL_ID, ROOT_DEFAULT_EFFORT);
   }
-  return ROOT_DEFAULT_MODEL_SELECTION;
+  const declaration = declarationFor(provider);
+  if (declaration !== undefined && declaration.protocol === 'openai-responses') {
+    return declaredSelection(
+      declaration,
+      declaration.defaults.modelId,
+      declaration.defaults.effort,
+    );
+  }
+  throw new RangeError(`unknown provider: ${provider}`);
 };
-
-const declaredResponsesEntries = ():
-  | readonly ImportedProviderCatalogEntry[]
-  | undefined => declarationFor('openrouter-responses')?.modelCatalog.entries;
 
 export const modelCatalogEntryFor = (
   provider: ProviderId,
   modelId: string,
 ): ProviderModelCatalogEntry | undefined => {
   if (provider === 'openai') return openAIModelCatalogEntry(modelId);
-  if (provider === 'openrouter-responses') {
-    const declared = declaredResponsesEntries();
-    if (declared !== undefined) {
-      return declared.find((entry) => entry.modelId === modelId);
-    }
-  }
+  const declared = declaredEntriesFor(provider);
+  if (declared !== undefined) return declared.find((entry) => entry.modelId === modelId);
   return openRouterCatalogEntry(modelId);
 };
 
@@ -78,16 +129,14 @@ export const searchModelsFor = (
   query: string,
 ): readonly ProviderModelCatalogEntry[] => {
   if (provider === 'openai') return searchOpenAIModels(query);
-  if (provider === 'openrouter-responses') {
-    const declared = declaredResponsesEntries();
-    if (declared !== undefined) {
-      const normalized = query.trim().toLocaleLowerCase();
-      return Object.freeze(
-        normalized.length === 0
-          ? [...declared]
-          : declared.filter((entry) => entry.modelId.toLocaleLowerCase().includes(normalized)),
-      );
-    }
+  const declared = declaredEntriesFor(provider);
+  if (declared !== undefined) {
+    const normalized = query.trim().toLocaleLowerCase();
+    return Object.freeze(
+      normalized.length === 0
+        ? [...declared]
+        : declared.filter((entry) => entry.modelId.toLocaleLowerCase().includes(normalized)),
+    );
   }
   return searchOpenRouterModels(query);
 };
@@ -98,8 +147,21 @@ export const selectModelFor = (
   effort?: ReasoningEffort,
 ): ModelSelection => {
   if (provider === 'openai') return selectOpenAIModel(modelId, effort);
+  if (provider === 'openrouter') return selectOpenRouterModel(modelId, effort);
   if (provider === 'openrouter-responses') {
     return selectOpenRouterResponsesModel(modelId, effort);
   }
-  return selectOpenRouterModel(modelId, effort);
+  const declaration = declarationFor(provider);
+  if (declaration !== undefined && declaration.protocol === 'openai-responses') {
+    const entry = declaration.modelCatalog.entries.find((candidate) =>
+      candidate.modelId === modelId
+    );
+    if (entry === undefined) throw new RangeError(`unknown model for ${provider}: ${modelId}`);
+    const selected = effort ?? entry.defaultEffort;
+    if (!entry.efforts.includes(selected)) {
+      throw new RangeError(`unsupported effort for ${modelId}: ${selected}`);
+    }
+    return declaredSelection(declaration, modelId, selected);
+  }
+  throw new RangeError(`unknown provider: ${provider}`);
 };
