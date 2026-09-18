@@ -113,3 +113,19 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
 - 次の計測: `WorkerHostSession.receive`／`deliver`／`messages.publish`、および`submit`がprovider応答を
   awaitする経路に計測を入れ、provider_observation処理の直後にmainがどの同期処理／parkへ入るかを確定する。
   Worker内fetchの分離も再試行する。
+
+### 追加計測3（2026-09-18）
+
+- `receive`／`appendWorkerObservation`／`appendJournal`（SQLite書込み前後`JB`/`JA`）／`deliver`／`submit`と
+  renderer 300ms heartbeatで計測。turn開始後は
+  `SUBMIT-ENTER`→`RCV runtime_event`×2→`DELIVER turn_start`→`DELIVER user_message`→
+  `RCV context_observation`→`RCV provider_observation`→`APPEND provider_observation`→`JB`→`JA`→`HB`1回→停止。
+- SQLite journal append（`JB`→`JA`）は完了している。最後のprovider_observation処理後にHostは何もログせず、
+  以後timerが止まる。**journal書込みは原因ではない**。
+- 分離実験（正しく再実行）: mainがmodule Workerを起動し、Workerが`fetch`で6秒かかるlocal responseを取得する間、
+  mainの500ms intervalは継続して発火（HB 17、RECV後も継続）。**Worker内fetch自体もmain timerを止めない**。
+- 結論: 原因は「Worker fetch一般」「SQLite append」「stopBusyElapsed」「同期stdout write」のいずれでもない。
+  残るのはHenji Host main isolate固有の、turn中にtimerだけが止まる経路。
+- 次の計測: busy中にmain loopが入力に応答するか（keystroke処理）を確認し、main thread block か
+  timer-specific starvation かを切り分ける。その後`controller.run`の`Promise.race([input, active])`、
+  `readEvents`／`readChunk`、`TerminalLifecycle`、presentation `deliver`経路を計測する。
