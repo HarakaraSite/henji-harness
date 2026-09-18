@@ -58,7 +58,7 @@
   Session影響/入力ブロック）。
 - 正本: `docs/increments/increment-65.md`（計画）、`docs/increments/increment-51.md`〜`increment-64.md`、
   `docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 65（実装`d63ee395`／配置`d63ee395`、binary SHA-256
+- 注意: 直前の配置はIncrement 65（実装`d63ee395`／配置`2faa6a1a`、binary SHA-256
   `0208165889aea4d7e5db4aa89fd36b84de5c556246a91a86fd8a2a7d437a83bd`、build=`bf60013c3bd3984c27b9dc57b150afb3b2eefb7808c5ce925426321f578b3d40`、
   embedded runtime=`2ac0dcdb522b47aabb01080b27e269708b2f902b4e7ad16241e744a4f3fc2f09`、source`d63ee395…`、`sourceDirty=false`）。
   直前の配置はIncrement 64（binary SHA-256 `e0642d4c…`）。
