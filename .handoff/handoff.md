@@ -2,6 +2,27 @@
 
 ## Records
 
+### Increment 68 — provider id整列とbuilt-in id移行（完了）
+
+- 状態: 2026-09-18に修正・検証・binary配置まで完了。
+- 内容: built-in provider idを`openrouter-chat`／`openrouter-responses`／`openai-chat`／`openai-responses`へ
+  **破壊的変更**（`openrouter`／`openai`は互換aliasなしで削除）。`openai-chat`（protocol
+  `openai-chat-completions`、endpoint api.openai.com）を同梱declarationとして追加。protocol enumと
+  authProfile idは据え置き。
+- Session/evidence: 旧idは未知providerとして明示失敗（自動migration・fallbackなし）。`default-selection.json`の
+  解決不能は無効preferenceとして既定へfallback。providerState/evidence providerも`openrouter`→`openrouter-chat`。
+- `openai-chat`制約: function tools併用時は`reasoning_effort`が`none`以外でHTTP 400のため、gpt-5.6-sol/luna/
+  terraの`defaultEffort`を`none`に設定。gpt-6-astraは`none`を持たず`openai-chat`ではtool turn不可（未解決の
+  フォローアップ候補）。Reasoningは`openai-responses`を使う。
+- 検証: `increment_14`のfocused test追加、`v0:gate` exit 0。実provider probe（source）で`openrouter-chat`と
+  `openai-chat`（none）のturn成功、installed binaryでも両selectionの`henji run`成功。
+- 配置: installed launcher `~/.local/bin/henji`（renameで差替え）。binary SHA-256
+  `e5a97e963d2f9ebdf4bfb6f1778d01bace0acda3ab88aaa87804c6c9ceba31a7`、build
+  `cb0ced4cde802f05ae2e6a7776c2ce93e2d3577f95ace3db8a7a3a2d18a9a454`、embedded runtime
+  `c665e31aaeb352670278af8ebe359e35c415ba14a47ded2d58ac1e9b5c7f052`、source`fb066aa4…`、`sourceDirty=false`。
+- 正本: `docs/increments/increment-68.md`。roadmap Provider外部化予定をweb-search=69、tool=70へ繰下げ（旧
+  「built-in id削除/Session影響/入力ブロック」は68へ統合）。
+
 ### Increment 67 — Responses APIの`auto` effort修正（完了）
 
 - 状態: 2026-09-18に修正・検証・binary配置まで完了。
@@ -85,18 +106,20 @@
     instructionは当面built-in role instructionのまま。
   - base instruction finalizerはexternal plannerにも通し、Increment 51のbase適用保証を維持。
   - architecture（`henji-host-agent-worker.md`）へactivation-level slot authority・composition seam・保証範囲を追記、
-    roadmapのProvider外部化節（65、68〜70の内容・順序）を更新（正本更新、別項目）。
+    roadmapのProvider外部化節（65、69、70の内容・順序）を更新（正本更新、別項目）。
   - 未決メモ: Definition-manifest dependency bindingとmanifest/activation bindingの優先・競合規則は後続。
-- 次: Increment 65・66・67はコード・正本・検証・binary配置まで完了。次はroadmapの予定どおりIncrement 68
-  （web-search subagent化）、69（tool same-identity override）、70（built-in id削除/Session影響/入力ブロック）。
+- 次: Increment 65〜68はコード・正本・検証・binary配置まで完了。次はroadmapの予定どおりIncrement 69
+  （web-search subagent化）、70（tool same-identity override）。
 - 正本: `docs/increments/increment-67.md`、`increment-66.md`、`increment-65.md`、`increment-51.md`〜
   `increment-64.md`、`docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 67（実装`fd616c79`／配置は本commit、binary SHA-256
-  `4e0bc0acf6874b898f4b46a195c07d22c3303757bb28c2094e5e963d21e77fa6`、build=`4759ce1e842b9d6ea1abe065ec103fce67990daebfe1dc6aed8e4afaaf39041c`、
-  embedded runtime=`3df03fb074c7699f06c2e9d7f428fdd8aa04c81f2d5730b3a792fcd74ff55170`、source`fd616c79…`、`sourceDirty=false`）。
-  直前はIncrement 66（binary SHA-256 `fc584309…`）、Increment 65（`02081658…`）、Increment 64（`e0642d4c…`）。
+- 注意: 直前の配置はIncrement 68（実装`fb066aa4`／配置は本commit、binary SHA-256
+  `e5a97e963d2f9ebdf4bfb6f1778d01bace0acda3ab88aaa87804c6c9ceba31a7`、build=`cb0ced4cde802f05ae2e6a7776c2ce93e2d3577f95ace3db8a7a3a2d18a9a454`、
+  embedded runtime=`c665e31aaeb352670278af8ebe359e35c415ba14a47ded2d58ac1e9b5c7f052`、source`fb066aa4…`、`sourceDirty=false`）。
+  直前はIncrement 67（binary SHA-256 `4e0bc0ac…`）、66（`fc584309…`）、65（`02081658…`）、64（`e0642d4c…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
-  `default-selection.json`。`openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは
-  `openai-responses`と`openai-chat-completions`。adapterはbinary-owned、protocolは固定enum。OpenAI Chat Completionsは
-  `gpt-5.6-terra`でfunction toolsと`reasoning_effort`の併用不可（`/v1/responses`か`reasoning_effort:'none'`）。
+  `default-selection.json`。built-in provider idは`openrouter-chat`/`openrouter-responses`/`openai-chat`/
+  `openai-responses`（旧`openrouter`/`openai`は削除、互換aliasなし）。宣言providerのprotocolは
+  `openai-chat-completions`または`openai-responses`（binary-owned fixed enum）。OpenAI Chat Completionsはfunction
+  tools併用時に`reasoning_effort`が`none`以外で400（`openai-chat`のsol/luna/terraは既定`none`、gpt-6-astraは
+  `none`を持たずtool turn不可）。
   未実施: tag、Forgejo Release、JSR publish（JSR latestは0.1.3）。

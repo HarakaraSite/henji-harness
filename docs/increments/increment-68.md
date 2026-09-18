@@ -93,4 +93,9 @@ Session影響の処理、既定解決不能時の入力ブロック」をこのi
   reasoning_effort to 'none'"）。agentは常にtoolsを渡すため、`openai-chat`のgpt-5.6-sol/luna/terraは
   `defaultEffort`を`none`にした。gpt-6-astraは`none`を持たず`openai-chat`ではtool turnに使えない（未解決の
   フォローアップ候補）。
-- binary配置: 実装commitから`henji:compile`しinstalled launcherへ配置（deployment record commit参照）。
+- binary配置: 実装commit`fb066aa4`から`henji:compile`。binary SHA-256
+  `e5a97e963d2f9ebdf4bfb6f1778d01bace0acda3ab88aaa87804c6c9ceba31a7`、build
+  `cb0ced4cde802f05ae2e6a7776c2ce93e2d3577f95ace3db8a7a3a2d18a9a454`、embedded runtime
+  `c665e31aaeb352670278af8ebe359e35c415ba14a47ded2d58ac1e9b5c7f052`、`sourceDirty=false`。installed launcher
+  `~/.local/bin/henji`で、isolated `default-selection.json`に`openrouter-chat`および`openai-chat`を置いた
+  `henji run`が`INC68_BIN_OK`を出力。
