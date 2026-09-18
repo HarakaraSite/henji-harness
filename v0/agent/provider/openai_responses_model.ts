@@ -401,7 +401,11 @@ class ResponsesApiModel implements Model {
           strict: false,
         })),
         include: ['reasoning.encrypted_content'],
-        reasoning: { effort: this.options.selection.effort as never },
+        // `auto` is a Henji catalog value, not a Responses reasoning effort; omit it so the
+        // provider applies its own default. Explicit efforts are sent verbatim.
+        ...(this.options.selection.effort === 'auto'
+          ? {}
+          : { reasoning: { effort: this.options.selection.effort as never } }),
         stream: true,
         ...(this.config.includeStore ? { store: false } : {}),
       }, {

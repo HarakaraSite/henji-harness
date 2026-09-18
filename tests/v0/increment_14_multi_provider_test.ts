@@ -277,6 +277,35 @@ Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adap
   assert(!JSON.stringify(retained).includes('router-secret'));
 });
 
+Deno.test('Increment 67 Responses API omits reasoning effort for auto', async () => {
+  const seen: { body?: string } = {};
+  const fetcher: typeof fetch = async (input, init) => {
+    const requestValue = input instanceof Request ? input : new Request(input, init);
+    seen.body = await requestValue.clone().text();
+    return new Response(openAICompletedStream('hello'), {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_increment_67' },
+    });
+  };
+  const physical = createProductionPhysicalIo(undefined, {
+    credentialSource: () => Promise.resolve('router-secret'),
+    fetcher,
+  });
+
+  const auto = selectModelFor('openrouter-responses', 'qwen/qwen3.8-flash', 'auto');
+  const autoResult = await physical.createModel('parent', auto).generate(request);
+  assertEquals(autoResult.kind, 'final');
+  const autoBody = JSON.parse(seen.body ?? '{}');
+  assertEquals(autoBody.model, 'qwen/qwen3.8-flash');
+  assertEquals(autoBody.reasoning, undefined);
+
+  const high = selectModelFor('openrouter-responses', 'qwen/qwen3.8-max-0902', 'high');
+  const highResult = await physical.createModel('parent', high).generate(request);
+  assertEquals(highResult.kind, 'final');
+  const highBody = JSON.parse(seen.body ?? '{}');
+  assertEquals(highBody.reasoning, { effort: 'high' });
+});
+
 const declarationBody = (providerId: string): Record<string, unknown> => ({
   schemaVersion: 1,
   providerId,

@@ -215,7 +215,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | managed Henji base instruction | F03、F06、F08 | Increment 51でDefinition以外の最初のmanaged kindを成立させ、built-in/external exact baseを次generationへ適用する |
-| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱う。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override、64でcurated catalog移行。65でactivation-level subagent slot binding（planner Definitionのslot binding）とplanner既定のdata化、67でweb-search subagent化、68でtool same-identity override、69でbuilt-in id削除/Session影響/入力ブロックを予定 |
+| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱う。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override、64でcurated catalog移行。65でactivation-level subagent slot binding（planner Definitionのslot binding）とplanner既定のdata化、68でweb-search subagent化、69でtool same-identity override、70でbuilt-in id削除/Session影響/入力ブロックを予定 |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
@@ -381,9 +381,9 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
   6. Increment 64: curated catalogをコードから外し、同梱default declarationsへ移行（実装済み）。
   7. Increment 65（予定）: activation-level subagent slot bindingを追加し、delegated planner Definitionを
      slotで差し替え可能にする。planner defaultは同梱defaultのslot別`roleDefaults`へdata化する。
-  8. Increment 67（予定）: `web_search`(Sonar)をsubagent化する。
-  9. Increment 68（予定）: `tool:read|write|edit|bash`のsame-identity overrideを扱う。
-  10. Increment 69（予定）: built-in id削除とSession影響の処理、既定解決不能時の入力ブロック。
+  8. Increment 68（予定）: `web_search`(Sonar)をsubagent化する。
+  9. Increment 69（予定）: `tool:read|write|edit|bash`のsame-identity overrideを扱う。
+  10. Increment 70（予定）: built-in id削除とSession影響の処理、既定解決不能時の入力ブロック。
 - architectureは
   [`architecture/multi-provider-routing-and-auth.md`](architecture/multi-provider-routing-and-auth.md)と
   [`architecture/henji-host-agent-worker.md`](architecture/henji-host-agent-worker.md)へ反映済みである。
