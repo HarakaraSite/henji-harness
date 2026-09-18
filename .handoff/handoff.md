@@ -157,18 +157,30 @@
   明示的に必要とする場合は利用者判断。
 - 正本: `docs/increments/increment-76.md`（設計・正本変更・実装状況）。roadmap F18/architecture適用済み。
   inbox B4更新済み。
-- 次: 利用者判断待ち = (1) active-lazyを追加で必要とするか、(2) 過去build Session 5件の扱い、
-  (3) 変更のcommit可否。digest範囲変更は別increment。
+- 次: 利用者判断待ち = (1) active-lazyを追加で必要とするか。過去build Session 5件は利用者承認のうえ削除済み
+  （workspace `967fa641…`、listWorkerは0件）。変更は`f8f458b7`でcommit済み。digest範囲変更はIncrement 77提案
+  （下記）でHuman Gate待ち。
+
+### Increment 77 — builtin resource revisionをclosure内容で識別（正本変更案・Human Gate未承認）
+
+- 状態: **計画中（正本・実装とも未変更）**。builtin Definition/toolのrevision digestが`embeddedRuntimeSha256`
+  （binary同梱ランタイム全体）から作られ、無関係な修正でも変わる。externalはclosure内容digest
+  （`canonicalDefinitionRevisionBytes`）で、builtinだけ不整合。
+- 提案: build時にbuiltin resourceごとのclosure digestを算出し`BuildManifestV1.builtinResources`へ埋め込み、
+  `builtinDefinitionRef`/`builtinToolDefinitionRef`はそれを使う。`embeddedRuntimeSha256`はbuild identityとして
+  `turnExecutions.build`へ残す。既存SessionはIncrement 76のtransitionで現行へ進む。
+- 次: 利用者承認（設計、manifest schema追加、roadmap/architecture変更）。承認後に正本適用→実装。
+- 正本: `docs/increments/increment-77.md`。
 
 
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`（build `b313a5469b3115db98d135f28dfc83497edb5b6983e21a5563e06f474ff1a810`、binary SHA-256
-  `67838a32fe50b09f5f690939b3b9677b6e6fe1b17d49ad44b9a0b52b932566d9`、source`093a14be`・`sourceDirty=true`＝
-  increment-74/75/76変更が未commit）。increment-76実装後に再build・再配置済み。installed launcher
+  `67838a32fe50b09f5f690939b3b9677b6e6fe1b17d49ad44b9a0b52b932566d9`）。increment-76実装後、commit
+  `f8f458b7`の直前にbuildしたため`sourceDirty=true`（内容はcommit済みと同一）。installed launcher
   `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
-  - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=trueは
-    未commitのため。commit後に再buildすれば`sourceDirty=false`になる。
+  - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=falseの
+    artifactが必要なら現在のcleanなruntimeで再buildする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
