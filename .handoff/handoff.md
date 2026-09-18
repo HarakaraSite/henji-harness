@@ -108,6 +108,17 @@
   として削除（increment-73へ移管）。
 - 正本: `docs/increments/increment-73.md`。
 
+### Increment 74 — Host timer飢餓の修正（計画作成済み、Human Gate未承認）
+
+- 状態: 計画のみ（`docs/increments/increment-74.md`）。通常利用で報告された不具合を記録した:
+  - B1: turn中にHost timerが飢餓し、busy表示（`working`＋spinner＋経過時間）が更新停止（ptyでheartbeat 21→4、
+    busy timer 3回で停止、`stopBusyElapsed`未呼出を確認）。Increment 73で顕在化、以前から存在。
+  - B2: `/sessions`が`session list unavailable`（実Session `a75bd052`が存在）。
+  - B3: PageUpで履歴先頭まで到達できない（`a75bd05`で2ページ目程度）。
+  - 記録先: `docs/experience/normal-use-inbox.md`「観測した不具合（未修正）」。
+- 次: increment-74のHuman Gate承認後、B1の原因特定と修正、B2/B3を共有/別原因で切り分け。
+- 正本: `docs/increments/increment-74.md`、`docs/experience/normal-use-inbox.md`。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`（build `1cafc161a751c7854c4e63426e5b650b13b64d7cad95fabec1138baa07ee0c0f`、binary SHA-256

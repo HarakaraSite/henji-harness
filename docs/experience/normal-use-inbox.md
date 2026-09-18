@@ -294,3 +294,32 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   現時点で採用しない（architectureの「必要になるまで共通化しない」方針）。
 - 再検討条件: 上記候補のいずれかを通常利用で更新・pin・transport・activationする具体的必要が出ること。
 - 正本: [`roadmap.md`](../roadmap.md) F24、[`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)。
+
+## 観測した不具合（未修正）
+
+- 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
+
+### B1 — turn中のbusy表示更新停止（Host timer飢餓）
+
+- 観測（2026-09-18、pty）: turn実行中はbusy表示（`working`＋spinner、経過時間）が更新されない。busy timerは
+  turn開始後約0.36秒で3回発火後に停止し、経過時間は`00:00`のまま、spinnerも数frameで止まる。
+  `stopBusyElapsed`／`cancelInterval`は呼ばれていない。独立の1000ms heartbeatもidleでは21回発火するが、
+  turn中は4回で停止する。
+- 影響: 長いmodel応答やtool待ちの間、進捗の視認と経過時間が止まる。Increment 73のspinner化で顕在化したが、
+  以前からbusy経過時間（毎秒）にも同じ問題があった。
+- 原因候補: turn中にHostのmacrotaskが飢餓する経路（provider SSE処理、Worker待ち、render処理のいずれか）。
+- 対応: increment-74で原因特定と修正を行う。
+
+### B2 — `/sessions`が`session list unavailable`
+
+- 観測（2026-09-18）: `/sessions`でセッション一覧が参照できず`[session list unavailable]`が表示される。実際には
+  Session `a75bd052`が存在する。
+- 原因候補: `listWorker`／session pickerの読み込み失敗、state root差異、あるいはB1のtimer飢餓と別の失敗。
+- 対応: increment-74でB1と合わせて原因を確認する（共有原因なら同時修正、別原因なら切り分けて個別計画）。
+
+### B3 — PageUpで履歴先頭まで到達できない
+
+- 観測（2026-09-18）: PageUpによる履歴遡りが先頭まで届かず、Session `a75bd05`では2ページ目程度で止まる。
+- 原因候補: history paginationの読み込み欠落、boundaryでの`history empty`／`history boundary`処理、B1の
+  timer飢餓による読み込み停止。
+- 対応: increment-74でB1/B2と合わせて原因を確認する。
