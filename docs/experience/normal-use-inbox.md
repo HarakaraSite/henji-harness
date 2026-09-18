@@ -16,6 +16,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
 | S6 | Surface | busy表示のspinner化 | busy中の視認性をblink以外の表現で保ちたい |
+| S7 | Surface | web_fetch実行時の取得URL表示 | 通常利用でtool activityから取得先URLを確認したい |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -28,6 +29,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
 | R4 | F24 | instruction componentのrevision化 | instructionを自己改訂candidateとして採用する |
 | E1 | 配布・外部化 | Agent Definition後のresource外部化 | 利用者希望（2026-09-17）のProvider外部化。A8と合わせて検討 |
+| E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 
 ## Surface
 
@@ -81,6 +83,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   最終frameだけに加え、Presentation eventやcanonical transcriptへ混入させない。
 - 再検討条件: busyの視認性が通常利用で問題になる、またはblink非対応/抑制terminalでの表示を改善したいとき。
 - 関連: roadmap F01の一時status行と二行footer。
+
+### S7 — web_fetch実行時の取得URL表示（F01、F02、F10）
+
+- 観測（2026-09-18）: `web_fetch`はtool resultへfinal URL・status・content-type・本文を含むが、TUIのtool activity
+  表示では取得先URLが前面に出ず、どのURLを取得したかを通常利用で確認しにくい。
+- 候補: tool activity／presentationで`web_fetch`の引数`url`を表示する。redirect後のfinal URLはtool result側に
+  あるため、必要ならactivity／result表示へ反映する。表示はHost-local Surfaceの責務とし、Worker protocolや
+  canonical transcriptへ新しいfieldを要求しない（tool argumentとtool resultから導出できる）。
+- 再検討条件: 通常利用で取得先URLの確認が必要になったとき、または誤URL取得の診断が困難なとき。
+- 関連: `v0/agent/tools/tool_activity.ts`、`v0/agent/tools/web_fetch.ts`。
 
 ## Agent実行
 
