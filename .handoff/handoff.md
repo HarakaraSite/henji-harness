@@ -108,16 +108,25 @@
   として削除（increment-73へ移管）。
 - 正本: `docs/increments/increment-73.md`。
 
-### Increment 74 — Host timer飢餓の修正（計画作成済み、Human Gate未承認）
+### Increment 74 — TUI表示凍結（原因特定済み、修正未実装）
 
-- 状態: 計画のみ（`docs/increments/increment-74.md`）。通常利用で報告された不具合を記録した:
-  - B1: turn中にHost timerが飢餓し、busy表示（`working`＋spinner＋経過時間）が更新停止（ptyでheartbeat 21→4、
-    busy timer 3回で停止、`stopBusyElapsed`未呼出を確認）。Increment 73で顕在化、以前から存在。
+- 状態: **原因特定済み、修正未実装**。利用者報告の不具合:
+  - B1: busy表示（`working`＋spinner＋経過時間）がturn中に更新停止（利用者再現: Session `375ca4e7`、prompt
+    「denoとnodeを比較したい webで情報を収集して」）。
   - B2: `/sessions`が`session list unavailable`（実Session `a75bd052`が存在）。
   - B3: PageUpで履歴先頭まで到達できない（`a75bd05`で2ページ目程度）。
-  - 記録先: `docs/experience/normal-use-inbox.md`「観測した不具合（未修正）」。
-- 次: increment-74のHuman Gate承認後、B1の原因特定と修正、B2/B3を共有/別原因で切り分け。
-- 正本: `docs/increments/increment-74.md`、`docs/experience/normal-use-inbox.md`。
+  - 記録先: `docs/experience/normal-use-inbox.md`「観測した不具合（未修正）」B1〜B3。
+- 原因（特定済み）: `v0/tui/terminal.ts`の`Deno.stdout.writeSync`によるredrawごとの**full-frame同期write**が、
+  terminal consumerが遅い場合（tmux 3.5a内のdetached pane等）にbackpressureでblockし、main threadを塞いで
+  redraw/timer/入力が止まる。Pythonの直接pty（継続drain）では再現せず、tmux内で`working`更新に10.0/5.1/3.6秒の
+  gapとして再現。timer飢餓・SQLite・同期terminal以外のwriteではない（`__TICK`/`__HB`は進行、`writeSync`例外なし、
+  frame本文は更新）。
+- 次（修正）: redrawを**非同期write＋coalescing**にし、write中は最新frameのみ保持して古いframeを破棄、有界レートで
+  描画する。sync writeでevent loopを塞がない。frame順序と最終frame整合を保つ。B2/B3は同じ原因か別かを切り分ける。
+- 正本: `docs/increments/increment-74.md`（調査ログ・原因・修正方針）。Human Gateは承認済み（実装開始）だが、
+  計画の「timer飢餓」表現は「同期full-frame writeのblock」へ読み替えて実装する。
+- 注意: 検証は**tmux内**で行う（直接ptyでは再現しない）。`inbox`のB1は「再現未確定」と古い記述が混在しているため、
+  実装時に「tmuxで再現・原因=同期write」へ整理する。デバッグコードは全て除去済みで作業ツリーclean。
 
 ### 環境・配置（再開時の注意）
 
