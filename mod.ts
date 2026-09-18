@@ -32,7 +32,7 @@
  * import {
  *   createDefaultAgentComposition,
  *   type ExecutableAgentDefinition,
- * } from "jsr:@henji/harness@0.2.0";
+ * } from "jsr:@henji/harness@0.2.1";
  *
  * const definition: ExecutableAgentDefinition = (input) =>
  *   createDefaultAgentComposition(input);
