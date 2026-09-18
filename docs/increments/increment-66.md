@@ -62,3 +62,7 @@ TUIが致命的`output_failure`で終了する問題を修正する。Increment 
 - 検証: 新規`tests/v0/increment_66_provider_picker_test.ts`（3件、`v0:test`へ追加）がpass。pty手動確認で
   `/provider`→`openrouter-responses`がfooter `provider:openrouter-responses`へ反映されexit 0。authoritative
   `v0:gate`（check/fmt/lint/test）exit 0。
+- binary配置: 実装commit`29c900d8`から`henji:compile`。binary SHA-256
+  `cf3abe3e0e9c4e267659329278d85e31cfa6409bf73450ddfcd5595e9e749c12`、build
+  `9bcc9f2bd9992f6fba02c8e9449d1c0645c5ef8dec9edadfce66462abc687c28`、`sourceDirty=false`。installed
+  launcher `~/.local/bin/henji`で`/provider`→`openrouter-responses`のfooter反映とexit 0を確認。

@@ -2,6 +2,19 @@
 
 ## Records
 
+### Increment 66 — provider picker crash修正（完了）
+
+- 状態: 2026-09-18に`/provider`/`/model`のprovider検証を修正。実装commit`29c900d8`、binary配置済み。
+- 原因: `v0/presentation/contract_intent.ts`がproviderを`openrouter`/`openai`の2値に限定し、pickerが提示する
+  `openrouter-responses`（および宣言provider）を`PresentationDeliveryError`として致命`output_failure`にしていた。
+- 修正: provider検証を構造的検証へ変更し、`select_provider`の未知providerを`{kind:'rejected',reason:'invalid'}`へ
+  変換。新規`tests/v0/increment_66_provider_picker_test.ts`（3件、`v0:test`追加）。ptyでsource/binaryとも
+  `/provider`→`openrouter-responses`のfooter反映とexit 0を確認。authoritative `v0:gate` exit 0。
+- 配置: installed launcher `~/.local/bin/henji`（=`dist/henji`）。binary SHA-256
+  `cf3abe3e0e9c4e267659329278d85e31cfa6409bf73450ddfcd5595e9e749c12`、build
+  `9bcc9f2bd9992f6fba02c8e9449d1c0645c5ef8dec9edadfce66462abc687c28`、source`29c900d8…`、`sourceDirty=false`。
+- 正本: `docs/increments/increment-66.md`。roadmap Provider外部化節の予定番号を67/68/69へ繰下げ（利用者承認済み）。
+
 ### Increment 65 — activation-level subagent slot binding（実装完了・probe受入済み）
 
 - 状態: 計画`docs/increments/increment-65.md`は利用者が承認済み。2026-09-18に次を実装しauthoritative `v0:gate`
@@ -50,18 +63,16 @@
     instructionは当面built-in role instructionのまま。
   - base instruction finalizerはexternal plannerにも通し、Increment 51のbase適用保証を維持。
   - architecture（`henji-host-agent-worker.md`）へactivation-level slot authority・composition seam・保証範囲を追記、
-    roadmapのProvider外部化節（65〜68の内容・順序）を更新（正本更新、別項目）。
+    roadmapのProvider外部化節（65、67〜69の内容・順序）を更新（正本更新、別項目）。
   - 未決メモ: Definition-manifest dependency bindingとmanifest/activation bindingの優先・競合規則は後続。
-- 次: Increment 65はコード・正本・実provider probe・binary配置まで完了。実装commitは`d63ee395`、配置binaryは
-  installed launcher `~/.local/bin/henji`（`dist/henji`と同一）。installed binaryでのproduction smoke testも
-  pass。次はIncrement 66（web-search subagent化）、67（tool same-identity override）、68（built-in id削除/
-  Session影響/入力ブロック）。
-- 正本: `docs/increments/increment-65.md`（計画）、`docs/increments/increment-51.md`〜`increment-64.md`、
+- 次: Increment 65・66はコード・正本・検証・binary配置まで完了。次はroadmapの予定どおりIncrement 67
+  （web-search subagent化）、68（tool same-identity override）、69（built-in id削除/Session影響/入力ブロック）。
+- 正本: `docs/increments/increment-66.md`、`increment-65.md`、`increment-51.md`〜`increment-64.md`、
   `docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 65（実装`d63ee395`／配置`2faa6a1a`、binary SHA-256
-  `0208165889aea4d7e5db4aa89fd36b84de5c556246a91a86fd8a2a7d437a83bd`、build=`bf60013c3bd3984c27b9dc57b150afb3b2eefb7808c5ce925426321f578b3d40`、
-  embedded runtime=`2ac0dcdb522b47aabb01080b27e269708b2f902b4e7ad16241e744a4f3fc2f09`、source`d63ee395…`、`sourceDirty=false`）。
-  直前の配置はIncrement 64（binary SHA-256 `e0642d4c…`）。
+- 注意: 直前の配置はIncrement 66（実装`29c900d8`／配置は本commit、binary SHA-256
+  `cf3abe3e0e9c4e267659329278d85e31cfa6409bf73450ddfcd5595e9e749c12`、build=`9bcc9f2bd9992f6fba02c8e9449d1c0645c5ef8dec9edadfce66462abc687c28`、
+  embedded runtime=`f9d5823f97ccc76e51880b66febe2eb95af79ab705b5902b52b2fb1ff0f0f77b`、source`29c900d8…`、`sourceDirty=false`）。
+  直前はIncrement 65（binary SHA-256 `02081658…`）、Increment 64（binary SHA-256 `e0642d4c…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
   `default-selection.json`。`openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは
   `openai-responses`と`openai-chat-completions`。adapterはbinary-owned、protocolは固定enum。OpenAI Chat Completionsは
