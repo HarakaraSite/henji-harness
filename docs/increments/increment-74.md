@@ -156,3 +156,17 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
   `Deno.stdout.writeSync`の戻り／例外、`Deno.stderr`出力、TUIのframe書き込みがturn中にどうなるかを直接確認する。
 - 前段の「heartbeatが3〜4回で停止」はconsole.error出力の停止を観測していたもので、timer停止の証拠ではなかった。
   計画の「timer飢餓」という表現はこの結果に合わせて修正が必要（表示/write経路の調査へ変更）。
+
+### 追加計測6（2026-09-18、tmuxで再現）
+
+- 直接pty（Python `pty.openpty`＋継続drain）では再現せず。**tmux 3.5a内**でinstalled binaryを起動し
+  `tmux capture-pane`で`working MM:SS`を採取すると、同じ日本語promptのturnで更新gapが発生:
+  **10.0秒（02:09→02:19）、5.1秒、3.6秒**等（150秒turn、135 updates）。
+- 直接ptyではconsumerが継続drainするため`Deno.stdout.writeSync`がblockしないが、tmux（特にdetached paneで
+  consumerが遅い）ではbaseline full-frame writeがbackpressureでblockし、event loop（redraw/timer/入力）が
+  止まる、という説明と整合する。
+- 結論（修正対象）: `v0/tui/terminal.ts`の`Deno.stdout.writeSync`によるfull-frame同期writeが、遅いterminal
+  consumerでmain threadをblockしbusy表示が凍結する。**表示write経路（同期write/毎frame全書き）が原因**。
+- 修正方針候補: redrawを非同期write＋coalescing（write中は次の最新frameだけ保持して古いframeを捨てる、
+  または有界レート）にし、sync writeでevent loopをblockしない。順序と最終frame整合を保つ。
+- 検証: tmux内で長時間turnのgapが消えること、直接ptyでも退行しないこと、frame順序が壊れないこと。
