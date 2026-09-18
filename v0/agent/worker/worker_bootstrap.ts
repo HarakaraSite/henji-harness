@@ -14,8 +14,12 @@ import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts'
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
   type AgentSubagentModule,
+  type AgentToolDefinitionModule,
   type ExecutableAgentDefinition,
+  type ExecutableToolDefinition,
   finalizeRootAgentComposition,
+  finalizeWorkerToolAttribution,
+  type ToolComponent,
 } from '../worker_agent_api.ts';
 import { WorkerGeneration, type WorkerGenerationPort } from './worker_runtime.ts';
 import {
@@ -108,14 +112,14 @@ const digestHex = async (bytes: Uint8Array): Promise<string> => {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 };
 
-const loadVerifiedModule = async (
+const loadVerifiedModuleFunction = async (
   correlation: WorkerCorrelation,
   request: WorkerDefinitionLoadRequest,
 ): Promise<{
   readonly entrySha256: string;
   readonly sourceBytes: number;
   readonly probe?: string;
-  readonly definition?: ExecutableAgentDefinition;
+  readonly defaultExport: (...args: never[]) => unknown;
 }> => {
   const entry = 'kind' in request ? request.entry : request;
   const readAndVerify = async (
@@ -193,7 +197,25 @@ const loadVerifiedModule = async (
     entrySha256: digest,
     sourceBytes: source.byteLength,
     probe: moduleProbe(moduleNamespace),
-    definition: moduleNamespace.default as ExecutableAgentDefinition,
+    defaultExport: moduleNamespace.default as (...args: never[]) => unknown,
+  };
+};
+
+const loadVerifiedModule = async (
+  correlation: WorkerCorrelation,
+  request: WorkerDefinitionLoadRequest,
+): Promise<{
+  readonly entrySha256: string;
+  readonly sourceBytes: number;
+  readonly probe?: string;
+  readonly definition?: ExecutableAgentDefinition;
+}> => {
+  const loaded = await loadVerifiedModuleFunction(correlation, request);
+  return {
+    entrySha256: loaded.entrySha256,
+    sourceBytes: loaded.sourceBytes,
+    ...(loaded.probe === undefined ? {} : { probe: loaded.probe }),
+    definition: loaded.defaultExport as ExecutableAgentDefinition,
   };
 };
 
@@ -284,6 +306,7 @@ const createGeneration = async (
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
   subagents: readonly AgentSubagentModule[] = [],
+  toolDefinitions: readonly AgentToolDefinitionModule[] = [],
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
     throw new Error('Worker Definition is unavailable');
@@ -315,22 +338,40 @@ const createGeneration = async (
     throw new Error('Worker Henji base instruction is invalid');
   }
   selectWorkerHenjiBaseInstruction(baseInstruction);
+  const toolComponents = toolDefinitions.map((tool) => ({
+    toolIdentity: tool.toolIdentity,
+    ref: tool.ref,
+    component: (tool.definition as ExecutableToolDefinition)({
+      workspace,
+      skillCatalog,
+      physicalIo: routedPhysicalIo,
+    }) as ToolComponent,
+  }));
   const returnedComposition = module.definition({
     workspace,
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,
     ...(subagents.length === 0 ? {} : { subagents }),
+    ...(toolComponents.length === 0
+      ? {}
+      : { toolDefinitions: toolComponents.map((tool) => tool.component) }),
   });
   if (returnedComposition === undefined || typeof returnedComposition !== 'object') {
     throw new Error('Worker Definition did not return a composition');
   }
-  const composition = finalizeWorkerInstructionComposition(
+  let composition = finalizeWorkerInstructionComposition(
     finalizeRootAgentComposition(
       returnedComposition,
       rootMaxSteps,
     ),
   );
+  if (toolComponents.length > 0) {
+    composition = finalizeWorkerToolAttribution(
+      composition,
+      toolComponents.map((tool) => ({ toolIdentity: tool.toolIdentity, ref: tool.ref })),
+    );
+  }
   const contextSnapshot: WorkerContextSnapshot = Object.freeze({
     schemaVersion: 1,
     workspaceRoot: workspace.root,
@@ -408,6 +449,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
     case 'start': {
       let module: Awaited<ReturnType<typeof loadVerifiedModule>> | undefined;
       const loadedSubagents: AgentSubagentModule[] = [];
+      const loadedTools: AgentToolDefinitionModule[] = [];
       if (command.module !== undefined) {
         try {
           module = await loadVerifiedModule(
@@ -426,6 +468,17 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
               subagentName: subagent.subagentName,
               ref: subagent.ref,
               definition: loaded.definition,
+            });
+          }
+          for (const tool of command.toolDefinitions ?? []) {
+            const loaded = await loadVerifiedModuleFunction(
+              command.correlation,
+              tool.module,
+            );
+            loadedTools.push({
+              toolIdentity: tool.toolIdentity,
+              ref: tool.ref,
+              definition: loaded.defaultExport as ExecutableToolDefinition,
             });
           }
         } catch (error) {
@@ -466,6 +519,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.baseInstruction,
             command.providerDeclarations ?? [],
             loadedSubagents,
+            loadedTools,
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

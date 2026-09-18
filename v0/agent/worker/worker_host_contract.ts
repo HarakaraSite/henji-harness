@@ -12,6 +12,7 @@ import type {
   WorkerHostCommand,
   WorkerSubagentLoadRequest,
   WorkerToHostMessage,
+  WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
@@ -27,6 +28,8 @@ export interface WorkerHostSessionOptions {
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
   /** Host-resolved delegated subagent slots; the Worker composes them via the root Definition. */
   readonly subagentDefinitions?: readonly WorkerSubagentLoadRequest[];
+  /** Host-resolved tool Definition slots for declared tool identities. */
+  readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;

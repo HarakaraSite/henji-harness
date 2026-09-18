@@ -408,7 +408,7 @@ Deno.test('Increment 65 composes a bound external planner into the root composit
       subagentName: 'planner',
       ref: planner.manifest.logicalRef,
     }]);
-    assert(artifact.schemaVersion === 6);
+    assert(artifact.schemaVersion === 7);
     assertEquals(artifact.subagents, [{
       subagentName: 'planner',
       ref: planner.manifest.logicalRef,

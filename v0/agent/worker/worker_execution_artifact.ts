@@ -10,11 +10,13 @@ import { isStoredModelSelection } from '../provider/model_selection.ts';
 import {
   isDefinitionRevisionRef,
   isHenjiInstructionRevisionRef,
+  isToolDefinitionRevisionRef,
+  type ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
-export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 6 as const;
+export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 7 as const;
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -121,12 +123,19 @@ export interface WorkerExecutionSubagentAttributionV1 {
   readonly ref: DefinitionRevisionRef;
 }
 
+/** One exact tool Definition revision composed into this execution's root composition. */
+export interface WorkerExecutionToolAttributionV1 {
+  readonly toolIdentity: string;
+  readonly ref: ToolDefinitionRevisionRef;
+}
+
 export type StoredWorkerExecutionArtifact =
   | WorkerExecutionArtifactV2
   | WorkerExecutionArtifactV3
   | WorkerExecutionArtifactV4
   | WorkerExecutionArtifactV5
-  | WorkerExecutionArtifactV6;
+  | WorkerExecutionArtifactV6
+  | WorkerExecutionArtifactV7;
 
 /** Schema-v2 history artifact used for reconciled executions. */
 type WorkerExecutionArtifactV4Base =
@@ -179,6 +188,21 @@ export type WorkerExecutionArtifactV6 =
     readonly schemaVersion: 6;
     readonly contextCapture: 'partial';
     readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
+  });
+
+/** Schema-v7 adds the exact tool Definition revisions actually composed into the root. */
+export type WorkerExecutionArtifactV7 =
+  | (Omit<WorkerExecutionArtifactV4Complete, 'schemaVersion'> & {
+    readonly schemaVersion: 7;
+    readonly contextCapture: 'complete' | 'failed' | 'none';
+    readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
+    readonly tools?: readonly WorkerExecutionToolAttributionV1[];
+  })
+  | (Omit<WorkerExecutionArtifactV4Reconciled, 'schemaVersion'> & {
+    readonly schemaVersion: 7;
+    readonly contextCapture: 'partial';
+    readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
+    readonly tools?: readonly WorkerExecutionToolAttributionV1[];
   });
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -241,6 +265,7 @@ const validManifest = (
     'plannerModel',
     ...(Object.hasOwn(manifest, 'subagents') ? ['subagents'] : []),
     ...(Object.hasOwn(manifest, 'baseInstruction') ? ['baseInstruction'] : []),
+    ...(Object.hasOwn(manifest, 'tools') ? ['tools'] : []),
   ];
   const baseInstruction = manifest.baseInstruction;
   const baseInstructionValid = baseInstruction === undefined ||
@@ -266,7 +291,8 @@ const validManifest = (
     manifest.resources.every((resource) => validText(resource, true)) &&
     isStoredModelSelection(manifest.rootModel) &&
     isStoredModelSelection(manifest.plannerModel) &&
-    (!Object.hasOwn(manifest, 'subagents') || validSubagents(manifest.subagents));
+    (!Object.hasOwn(manifest, 'subagents') || validSubagents(manifest.subagents)) &&
+    (!Object.hasOwn(manifest, 'tools') || validTools(manifest.tools));
 };
 
 const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {
@@ -372,7 +398,9 @@ export const validateWorkerExecutionArtifact = (
     return false;
   }
   const artifact = value as Record<string, unknown>;
-  if (artifact.schemaVersion === 5 || artifact.schemaVersion === 6) {
+  if (
+    artifact.schemaVersion === 5 || artifact.schemaVersion === 6 || artifact.schemaVersion === 7
+  ) {
     if (
       artifact.contextCapture !== 'none' && artifact.contextCapture !== 'partial' &&
       artifact.contextCapture !== 'complete' && artifact.contextCapture !== 'failed'
@@ -381,14 +409,20 @@ export const validateWorkerExecutionArtifact = (
       (artifact.normalizedOutcome === 'interrupted' || artifact.normalizedOutcome === 'unknown') &&
       artifact.contextCapture !== 'partial'
     ) return false;
-    if (artifact.schemaVersion === 6) {
+    if (artifact.schemaVersion === 6 || artifact.schemaVersion === 7) {
       if (Object.hasOwn(artifact, 'subagents') && !validSubagents(artifact.subagents)) return false;
     } else if (Object.hasOwn(artifact, 'subagents')) {
+      return false;
+    }
+    if (artifact.schemaVersion === 7) {
+      if (Object.hasOwn(artifact, 'tools') && !validTools(artifact.tools)) return false;
+    } else if (Object.hasOwn(artifact, 'tools')) {
       return false;
     }
     const legacy = { ...artifact };
     delete legacy.contextCapture;
     delete legacy.subagents;
+    delete legacy.tools;
     return validateWorkerExecutionArtifact({ ...legacy, schemaVersion: 4 });
   }
   const stateOptional = [
@@ -547,6 +581,21 @@ const validSubagents = (
   value: unknown,
 ): value is readonly WorkerExecutionSubagentAttributionV1[] =>
   Array.isArray(value) && value.every(validSubagentAttribution);
+
+const validToolAttribution = (
+  value: unknown,
+): value is WorkerExecutionToolAttributionV1 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return ownKeys(record, ['toolIdentity', 'ref']) &&
+    validText(record.toolIdentity, true) &&
+    isToolDefinitionRevisionRef(record.ref);
+};
+
+const validTools = (
+  value: unknown,
+): value is readonly WorkerExecutionToolAttributionV1[] =>
+  Array.isArray(value) && value.every(validToolAttribution);
 
 class WorkerExecutionArtifactCodecError extends Error {
   constructor() {

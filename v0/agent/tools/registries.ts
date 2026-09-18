@@ -19,14 +19,17 @@ import {
   type PlannerDelegationHandler,
 } from './planner_delegation.ts';
 import type { AgentCapabilityDeclaration } from '../definitions/agent_definition.ts';
-import type { AgentResourceIdentity } from '../definitions/resource_identity.ts';
+import {
+  type AgentResourceIdentity,
+  createAgentResourceIdentity,
+} from '../definitions/resource_identity.ts';
 import { type BashOutputStore, createBashOutputStore } from './bash_output.ts';
 import {
   isWorkToolComponentIdentity,
   type ToolComponent,
   ToolComponentCatalog,
 } from './tool_components.ts';
-import type { WebSearchBackend } from './web_search.ts';
+import { createWebSearchTool, type WebSearchBackend } from './web_search.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -40,8 +43,12 @@ export interface RegistryMaterializationContext {
   readonly plannerDelegation?: PlannerDelegationHandler;
   /** Explicit replacements for selected root work-tool components. */
   readonly toolComponents?: readonly ToolComponent[];
+  /** Tool Definition components for identities resolved by the Host/Worker. */
+  readonly toolDefinitions?: readonly ToolComponent[];
   /** Internal per-Registry catalog so every selected component shares one materialization set. */
   readonly toolComponentCatalog?: ToolComponentCatalog;
+  /** Internal lookup for Definition-provided tool components. */
+  readonly toolDefinitionComponents?: ReadonlyMap<string, ToolComponent>;
 }
 
 const materializationFailure = (identity: AgentResourceIdentity): never => {
@@ -56,6 +63,23 @@ export const createDeclaredTool = (
   identity: AgentResourceIdentity,
   context: RegistryMaterializationContext,
 ): Tool => {
+  const defined = context.toolDefinitionComponents?.get(`${identity}`);
+  if (defined !== undefined) {
+    const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
+      createBashOutputStore();
+    const tool = defined.materialize({
+      workspace: context.workspace,
+      workTools: context.workTools ?? {},
+      bashOutputStore: outputStore,
+      webSearchBackend: context.webSearchBackend,
+    });
+    const value = `${identity}`;
+    const name = value.startsWith('tool:') ? value.slice('tool:'.length) : value;
+    if (tool.name !== name) {
+      throw new Error(`tool Definition component ${identity} materialized ${tool.name}`);
+    }
+    return tool;
+  }
   if (isWorkToolComponentIdentity(identity)) {
     const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
       createBashOutputStore();
@@ -128,10 +152,27 @@ export const createDeclaredRegistry = (
   }
   const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
     createBashOutputStore();
+  const toolDefinitionComponents = new Map<string, ToolComponent>(
+    (context.toolDefinitions ?? []).map((component) =>
+      [`${component.identity}`, component] as const
+    ),
+  );
+  if (
+    hasIdentity(declaration.tools, 'tool:web_search') &&
+    !toolDefinitionComponents.has('tool:web_search') &&
+    context.webSearchBackend !== undefined
+  ) {
+    const backend = context.webSearchBackend;
+    toolDefinitionComponents.set('tool:web_search', {
+      identity: createAgentResourceIdentity('tool:web_search'),
+      materialize: () => createWebSearchTool(backend),
+    });
+  }
   const materializationContext = {
     ...context,
     bashOutputStore: outputStore,
     toolComponentCatalog: new ToolComponentCatalog(context.toolComponents),
+    toolDefinitionComponents,
   };
   const tools = declaration.tools.map((identity) =>
     createDeclaredTool(identity, materializationContext)

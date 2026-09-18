@@ -1,4 +1,7 @@
-import { AGENT_DEFINITION_API_CONTRACT } from '../v0/agent/runtime/build_manifest.ts';
+import {
+  AGENT_DEFINITION_API_CONTRACT,
+  HENJI_TOOL_DEFINITION_API_CONTRACT,
+} from '../v0/agent/runtime/build_manifest.ts';
 import type { BuildManifestV1 } from '../v0/agent/runtime/build_manifest.ts';
 
 const EXPECTED_DENO = '2.9.6';
@@ -7,6 +10,7 @@ const ROOTS = [
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/worker/worker_builtin_definition.ts',
   'v0/agent/worker/worker_builtin_planner_definition.ts',
+  'v0/agent/worker/worker_builtin_web_search_tool.ts',
 ] as const;
 const IDENTITY_FILES = ['deno.v0.json', 'deno.lock', 'jsr.json'] as const;
 const encoder = new TextEncoder();
@@ -152,6 +156,7 @@ const main = async (): Promise<void> => {
     target: Deno.build.target,
     embeddedRuntimeSha256,
     supportedAgentDefinitionApiContracts: [AGENT_DEFINITION_API_CONTRACT],
+    supportedToolDefinitionApiContracts: [HENJI_TOOL_DEFINITION_API_CONTRACT],
   } as const;
   const buildId = await sha256(encoder.encode(`henji-build-v1\0${JSON.stringify(identity)}`));
   const manifest: BuildManifestV1 = { ...identity, buildId };

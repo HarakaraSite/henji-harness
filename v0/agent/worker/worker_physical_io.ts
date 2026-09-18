@@ -26,10 +26,7 @@ import {
   openRouterProfileForDeclaredChat,
 } from '../provider/openrouter_model_catalog.ts';
 import { defaultModelSelectionFor, roleDefaultModelSelection } from '../provider/model_catalog.ts';
-import {
-  createProviderFreeWebSearchBackend,
-  OpenRouterSonarWebSearchBackend,
-} from '../tools/web_search.ts';
+import { createProviderFreeWebSearchBackend } from '../tools/web_search.ts';
 
 const lastUserText = (request: ModelRequest): string => {
   for (let index = request.transcript.length - 1; index >= 0; index -= 1) {
@@ -249,10 +246,31 @@ export const createProductionPhysicalIo = (
         timeoutMs: options.providerTimeoutMs,
       });
     },
-    webSearchBackend: new OpenRouterSonarWebSearchBackend({
-      credentialSource: () => resolver.resolve('openrouter-api-key'),
-      fetcher,
-    }),
+    requestProvider: async (request) => {
+      const credential = await resolver.resolve(request.authProfile);
+      if (!credential) throw new Error('host provider credential is not configured');
+      const response = await fetcher(request.endpoint, {
+        method: request.method,
+        signal: request.signal,
+        redirect: 'error',
+        headers: {
+          ...(request.headers ?? {}),
+          authorization: `Bearer ${credential}`,
+        },
+        ...(request.body === undefined ? {} : { body: request.body }),
+      });
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, name) => {
+        headers[name] = value;
+      });
+      let bytes: Uint8Array;
+      try {
+        bytes = new Uint8Array(await response.arrayBuffer());
+      } catch {
+        throw new Error('provider response read failed');
+      }
+      return { status: response.status, headers, bytes };
+    },
     credentialAvailability: (authProfile) => {
       if (authProfile === 'openrouter-api-key') {
         return options.credentialSource === undefined

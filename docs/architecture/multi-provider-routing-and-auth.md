@@ -168,7 +168,8 @@ Agent Definition / Session override
 - provider adapter factory: 対応する`AuthResolver` closure、counted fetch、deadline、evidence tapを受け取る。
 - `AuthResolver.resolve(authProfile)`: request時にcredentialを取得するWorker-local境界。初期実装では
   `openrouter-api-key`と`openai-api-key`を別の固定file sourceへ対応させる。
-- `WebSearchBackend`: model routeと独立したbindingを維持する。現行Sonar backendは常に
+- `WebSearchBackend`: model routeと独立したbindingを維持する。Increment 69以降、bundled web_search tool
+  Definitionがcredential解決済みprovider request seam（auth profile指定、credential値非公開）を通じて
   `openrouter-api-key`を解決し、OpenAI parentのcredentialを参照しない。
 
 default parentのSession overrideはroot selectionだけを差し替える。delegated plannerはplanner Definitionの

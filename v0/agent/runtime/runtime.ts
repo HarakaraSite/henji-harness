@@ -31,6 +31,7 @@ import {
 } from '../definitions/agent_catalog.ts';
 import {
   type AgentResourceSelection,
+  createAgentResourceIdentity,
   validateResolvedAgentResources,
 } from '../definitions/resource_identity.ts';
 import {
@@ -68,7 +69,11 @@ import {
   type RuntimeDisplaySessionMode,
   type RuntimeDisplayState,
 } from './startup_orientation.ts';
-import { OpenRouterSonarWebSearchBackend, type WebSearchBackend } from '../tools/web_search.ts';
+import {
+  createWebSearchTool,
+  OpenRouterSonarWebSearchBackend,
+  type WebSearchBackend,
+} from '../tools/web_search.ts';
 import { resolveBuiltinDefinitionInstruction } from '../instructions/compose.ts';
 import { finalSystemInstructionForContribution } from '../instructions/worker_core_finalizer.ts';
 
@@ -201,12 +206,23 @@ const materializeRegistry = (
   webSearchBackend?: WebSearchBackend,
 ): Registry => {
   seam.onRegistryMaterialized?.(definition);
+  const declaredWebSearch = definition.capabilities.tools.some((tool) =>
+    `${tool}` === 'tool:web_search'
+  );
+  const toolDefinitions = declaredWebSearch && webSearchBackend !== undefined
+    ? [{
+      identity: createAgentResourceIdentity('tool:web_search'),
+      materialize: (bindings: { readonly webSearchBackend?: WebSearchBackend }) =>
+        createWebSearchTool(bindings.webSearchBackend ?? webSearchBackend),
+    }]
+    : undefined;
   return createDeclaredRegistry(definition.capabilities, {
     workspace,
     skillCatalog,
     workTools: seam.workTools,
     plannerDelegation,
     webSearchBackend,
+    ...(toolDefinitions === undefined ? {} : { toolDefinitions }),
   });
 };
 

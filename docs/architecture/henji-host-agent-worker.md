@@ -106,7 +106,7 @@ Definition が合成できるものを制限する仕組みになることなく
 
 | 分類 | 対象 | architecture上の扱い |
 | --- | --- | --- |
-| managed revision候補 | Agent Definition、Henji Instruction、任意のmanaged Skill、tool component、model profile、subagent Definition、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
+| managed revision候補 | Agent Definition、Henji Instruction、tool Definition、任意のmanaged Skill、model profile、subagent Definition、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
 | external input/state | credential/config、Sessionとcanonical transcript、provider evidence、workspace file、native `AGENTS.md`/Skill、active binding、runtime projection、resource instance state、tool call/result | 実行定義artifactへ混ぜず、それぞれの所有者と保存先を維持する。native discovery resourceへmanaged installを要求しない |
 | binary platform authority | Host coordinator、Worker lifecycle/protocol、canonical Session ownership、atomic turn commit、managed loader/verifier、credential resolver、build manifest、最低限のCLI/diagnostics/recovery Definition | managed hot-loadまたはself-replacementの対象にせず、変更時は新しいHenji binaryとして配布する |
 | 追加architecture判断が必要 | tool/providerのphysical I/O、context/compaction、agent loop strategy、Human Gate、Surface code、storage backend、MCP/integration runtime、remote distribution | 技術的に外部化不能とは決めないが、実行placementとauthorityを個別機能の採用時に決める |
@@ -260,6 +260,28 @@ resolvedなroot/subagent exact refはDefinition resource graphとexecution artif
 入れず、二重authorityを作らない。subagent refはSession schemaへ保存しない（将来`AgentInstance`領域へ移す）。
 start command、ready message、execution artifactのcontractはversionを持ち、旧版は解釈しない。
 
+#### tool Definition
+
+toolは、Agent Definitionが宣言する`tool:<name>` identityに対して、managed resource kind `tool-definition`の
+exact revisionから供給できる。authoring packageは`henji-resource.json`とentry TypeScript module＋local closureからなり、
+manifestは`apiContract: henji-tool-definition-v1`、`toolIdentity`、entry、closure digestを持つ。Agent Definitionは
+tool identityだけを宣言し、toolのcontract・executor・backendの実装はtool Definitionが所有する。installはXDG dataの
+`managed/tool-definition/v1`へexact revisionをpublishするだけでactive selectionを変えない。activation-level bindingは
+`$XDG_CONFIG_HOME/henji-harness/tools.json`（`schemaVersion:1`＋`bindings: { "<toolIdentity>": "<selector>" }`）で表し、
+Hostがroot Definitionの宣言するidentityごとにexplicit selector > activation binding > bundled defaultの順で解決する。
+binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。binding変更は次のWorker generationから効く。
+
+Hostは解決したtool Definitionのexact refとprocess-local physical load descriptorをWorker start commandへ渡す。Workerは
+definition moduleのclosureを検証・importし、default export（`ExecutableToolDefinition`）をworkspace・skill catalog・
+Worker-local physical I/Oで評価して`ToolComponent`を得て、registryへmaterializeする。実行に必要なprovider requestは、
+credential値やAuthorizationを渡さず、auth profileを指定してrequest時にcredentialを解決するWorker-local seam
+（`ProviderHttpRequest`／`ProviderHttpResponse`）を通す。tool Definitionは自分が使うmodel・backend・annotation解析を
+所有し、Henji-owned contract（例: `WebSearchBackend`）の実装を提供する。
+
+合成したtool Definitionのexact refはmanifestとexecution artifactへ記録し、context attributionへは入れない。他tool
+kindの一般化、tool Definition transport、bundled work tool（`bash`／`read`／`write`／`edit`等）のDefinition化は
+後続incrementで扱う。
+
 #### native discoveryとHenji Instruction
 
 workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`は、source-nativeなfile/directory layoutを保ったまま
@@ -347,8 +369,9 @@ plannerへ暗黙に伝播せず、manifestには従来どおりdata-only resourc
 Definitionがcatalog外の新しいtool identityを追加する一般seam、plugin探索、hot reload、componentの独立revision・
 import dependency lineageはまだない。
 
-default parentの`web_search`は、provider-neutralなHenji-owned tool contractと交換可能な`WebSearchBackend`を
-分ける。初期production backendは既存OpenRouter credentialで`perplexity/sonar`を一回呼び、回答本文と
+default parentの`web_search`は、前節のmanaged resource kind `tool-definition`として供給されるbundled tool
+Definitionが、provider-neutralなHenji-owned tool contract（`WebSearchBackend`）を実装する。bundled実装は既存
+OpenRouter credentialをcredential解決済みprovider request seam経由で使い`perplexity/sonar`を一回呼び、回答本文と
 順序付きURL citationを受け取る。model-visibleなtool resultではSonar answer内の有効な`[n]`を同じresponseの
 annotationに対応する直接Markdown linkへ変換し、source一覧も番号なしのlinkとして返す。Sonarには具体的な
 user questionと、検索結果に限定して不足・near miss・推論を明示するsystem messageを渡し、通常検索のcontext
@@ -356,7 +379,9 @@ sizeは`medium`とする。
 Sonar requestは親turnのmodel request budgetを一件消費し、main modelと同じcounted fetch、AbortSignal、
 provider evidenceを共有する。tool call元のmodel stepを
 request recordへ関連付け、raw responseとparser transitionをreadback可能にする。plannerには`web_search`を
-追加しない。OpenRouter `openrouter:web_search` server toolは現在使わず、同じbackend境界への将来候補とする。
+追加しない。`tools.json`のactivation bindingでexternal tool Definitionをbindした場合は、そのDefinitionが
+model・backend・annotation解析を所有する。OpenRouter `openrouter:web_search` server toolは現在使わず、
+同じbackend境界への将来候補とする。
 
 default parentの`bash`と`bash_output`は、一つのRegistry lifetimeで一つのtemporary output storeを共有する。
 4 KiBを超えたstdout/stderrはprocess-localなopaque identityへ保存し、UTF-8 byte offsetのbounded windowで

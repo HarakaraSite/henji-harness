@@ -24,6 +24,7 @@ import { Registry } from '../../v0/agent/tools/tools.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store.ts';
 import { FakeProviderEvidenceStore } from '../../v0/agent/provider/provider_evidence.ts';
 import {
+  builtinWebSearchToolDefinitionLoadRequest,
   createWorkerSession,
   readDefinitionRevision,
   workerBuiltinModulePath,
@@ -507,6 +508,7 @@ const runCompositionTurn = async (
       correlation: correlation(`composition-${definitionFile}`),
       module: revision,
       workspaceRoot: Deno.cwd(),
+      toolDefinitions: [await builtinWebSearchToolDefinitionLoadRequest()],
       ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     });
     const ready = await readyPromise;
@@ -653,6 +655,7 @@ Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the 
       correlation: correlation('planner-start'),
       module: revision,
       workspaceRoot: Deno.cwd(),
+      toolDefinitions: [await builtinWebSearchToolDefinitionLoadRequest()],
     });
     await readyPromise;
 
@@ -725,6 +728,7 @@ Deno.test('Slice 3 sends long user turns directly to commit without checkpoint p
       correlation: sessionCorrelation,
       module: revision,
       workspaceRoot: Deno.cwd(),
+      toolDefinitions: [await builtinWebSearchToolDefinitionLoadRequest()],
     });
     await readyPromise;
 
@@ -1049,6 +1053,7 @@ Deno.test('Worker execution artifact distinguishes Host store failure from commi
     modulePath: workerBuiltinModulePath('default'),
     physicalIoMode: 'provider-free',
     executionArtifactStore: artifacts,
+    toolDefinitions: [await builtinWebSearchToolDefinitionLoadRequest()],
   });
   try {
     const outcome = await host.submit('Host store failure task');

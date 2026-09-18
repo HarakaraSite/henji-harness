@@ -20,6 +20,7 @@ import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts'
 import type {
   DefinitionRevisionRef,
   HenjiInstructionRevisionRef,
+  ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
 
 /**
@@ -36,6 +37,13 @@ export const WORKER_PROTOCOL_VERSION = 'slice1-data-only-v2';
 export interface WorkerSubagentLoadRequest {
   readonly subagentName: string;
   readonly ref: DefinitionRevisionRef;
+  readonly module: WorkerDefinitionLoadRequest;
+}
+
+/** One Host/Worker-resolved tool Definition: exact ref plus its process-local load descriptor. */
+export interface WorkerToolDefinitionLoadRequest {
+  readonly toolIdentity: string;
+  readonly ref: ToolDefinitionRevisionRef;
   readonly module: WorkerDefinitionLoadRequest;
 }
 
@@ -83,6 +91,7 @@ export type WorkerHostCommand =
     readonly correlation: WorkerCorrelation;
     readonly module?: WorkerDefinitionLoadRequest;
     readonly subagents?: readonly WorkerSubagentLoadRequest[];
+    readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
     readonly rootRole?: 'parent' | 'planner';
@@ -209,6 +218,11 @@ export interface WorkerReadyMessage {
     readonly subagents?: readonly {
       readonly subagentName: string;
       readonly ref: DefinitionRevisionRef;
+    }[];
+    /** Exact tool Definition revisions composed into the root composition. */
+    readonly tools?: readonly {
+      readonly toolIdentity: string;
+      readonly ref: ToolDefinitionRevisionRef;
     }[];
     readonly baseInstruction?: {
       readonly slot: 'instruction:henji-base';

@@ -14,17 +14,25 @@ export class DefinitionSelectorError extends Error {
   }
 }
 
-export const parseDefinitionRevisionSelector = (value: string): DefinitionRevisionRef => {
+export const parseRevisionSelectorParts = (
+  value: string,
+): { readonly resourceId: string; readonly digest: string } | undefined => {
   const marker = value.lastIndexOf(REVISION_MARKER);
   const resourceId = marker < 0 ? '' : value.slice(0, marker);
   const digest = marker < 0 ? '' : value.slice(marker + REVISION_MARKER.length);
-  if (!isExternalDefinitionResourceId(resourceId) || !SHA256.test(digest)) {
+  if (resourceId.length === 0 || !SHA256.test(digest)) return undefined;
+  return { resourceId, digest };
+};
+
+export const parseDefinitionRevisionSelector = (value: string): DefinitionRevisionRef => {
+  const parts = parseRevisionSelectorParts(value);
+  if (parts === undefined || !isExternalDefinitionResourceId(parts.resourceId)) {
     throw new DefinitionSelectorError();
   }
   return {
     schemaVersion: 1,
     resourceKind: 'agent-definition',
-    resourceId,
-    revision: { algorithm: 'sha256', digest },
+    resourceId: parts.resourceId,
+    revision: { algorithm: 'sha256', digest: parts.digest },
   };
 };

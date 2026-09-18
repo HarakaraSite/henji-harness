@@ -2,6 +2,7 @@ import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
 import type { JsonValue } from '../core/contracts.ts';
 import type { ToolExecutionContext } from '../core/execution_context.ts';
 import type { CredentialSource } from '../provider/openrouter_model.ts';
+import type { ProviderRequestFn } from '../provider/auxiliary_request.ts';
 import type { OpenRouterModelSelection } from '../provider/model_selection.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { type Tool, ToolInputError } from './tools.ts';
@@ -45,6 +46,8 @@ export interface OpenRouterSonarWebSearchBackendOptions {
   readonly credentialSource?: CredentialSource;
   /** Direct-test-only endpoint override. */
   readonly endpoint?: string;
+  /** Worker-local credential-resolving request seam used by tool Definitions. */
+  readonly requestProvider?: ProviderRequestFn;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -146,9 +149,6 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
     const evidence = context.modelExecution?.providerEvidence;
     evidence?.setContextRequestOrdinal(contextRequestOrdinal);
     try {
-      const credential = await resolveCredential(this.options);
-      if (!credential) throw new Error('host provider credential is not configured');
-      throwIfCancelled(context.signal);
       evidence?.startRequest({
         lane: context.modelExecution?.lane === 'child' ? 'planner' : 'parent',
         phase: 'user_turn',
@@ -170,44 +170,61 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
         },
       });
 
-      let response: Response;
-      try {
-        response = await this.fetcher(endpoint, {
-          method: 'POST',
-          signal: context.signal,
-          redirect: 'error',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${credential}`,
-          },
-          body,
-        });
-      } catch {
-        if (context.signal?.aborted) throw new TurnCancelledError();
-        throw new Error('web search provider transport failed');
-      }
-      evidence?.recordResponse({
-        status: response.status,
-        headers: responseHeaders(response.headers),
-      });
-
+      let responseStatus: number;
+      let responseHeaderMap: Readonly<Record<string, string>>;
       let rawBytes: Uint8Array;
-      try {
-        rawBytes = new Uint8Array(await response.arrayBuffer());
-      } catch {
-        if (context.signal?.aborted) throw new TurnCancelledError();
-        throw new Error('web search provider response read failed');
+      if (this.options.requestProvider !== undefined) {
+        const response = await this.options.requestProvider({
+          authProfile: 'openrouter-api-key',
+          endpoint,
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body,
+          ...(context.signal === undefined ? {} : { signal: context.signal }),
+        });
+        responseStatus = response.status;
+        responseHeaderMap = response.headers;
+        rawBytes = response.bytes;
+      } else {
+        const credential = await resolveCredential(this.options);
+        if (!credential) throw new Error('host provider credential is not configured');
+        throwIfCancelled(context.signal);
+        let response: Response;
+        try {
+          response = await this.fetcher(endpoint, {
+            method: 'POST',
+            signal: context.signal,
+            redirect: 'error',
+            headers: {
+              'content-type': 'application/json',
+              authorization: `Bearer ${credential}`,
+            },
+            body,
+          });
+        } catch {
+          if (context.signal?.aborted) throw new TurnCancelledError();
+          throw new Error('web search provider transport failed');
+        }
+        responseStatus = response.status;
+        responseHeaderMap = responseHeaders(response.headers);
+        try {
+          rawBytes = new Uint8Array(await response.arrayBuffer());
+        } catch {
+          if (context.signal?.aborted) throw new TurnCancelledError();
+          throw new Error('web search provider response read failed');
+        }
       }
+      evidence?.recordResponse({ status: responseStatus, headers: responseHeaderMap });
       evidence?.appendResponseBytes(rawBytes);
       throwIfCancelled(context.signal);
 
-      if (!response.ok) {
+      if (responseStatus < 200 || responseStatus >= 300) {
         evidence?.recordParserTransition({
           kind: 'failure',
           reason: 'http_error',
           field: 'status',
         });
-        throw new Error(`web search provider request failed (${response.status})`);
+        throw new Error(`web search provider request failed (${responseStatus})`);
       }
 
       let rawText: string;

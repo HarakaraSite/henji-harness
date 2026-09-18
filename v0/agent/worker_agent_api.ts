@@ -16,6 +16,7 @@ import type { ChildTurnExecutionContext } from './core/execution_context.ts';
 import { runAgent } from './core/loop.ts';
 import { WORKER_PROTOCOL_VERSION } from './worker/worker_protocol.ts';
 import {
+  createAgentResourceIdentity,
   createAgentResourceSelection,
   validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
@@ -24,12 +25,17 @@ import {
   resolveBuiltinDefinitionInstruction,
 } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
-import type { WebSearchBackend } from './tools/web_search.ts';
+import {
+  createWebSearchTool,
+  OpenRouterSonarWebSearchBackend,
+  type WebSearchBackend,
+} from './tools/web_search.ts';
 import type { InstructionComponent } from './instructions/component.ts';
 import { finalSystemInstructionForContribution } from './instructions/worker_core_finalizer.ts';
 import type {
   DefinitionRevisionRef,
   HenjiInstructionRevisionRef,
+  ToolDefinitionRevisionRef,
 } from './definitions/managed_resource_ref.ts';
 import {
   type ModelSelection,
@@ -37,9 +43,15 @@ import {
 } from './provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from './provider/model_catalog.ts';
 import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
+import type { ProviderRequestFn } from './provider/auxiliary_request.ts';
 
 export { type ToolComponent, ToolComponentCatalog } from './tools/tool_components.ts';
 export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
+export {
+  type ProviderHttpRequest,
+  type ProviderHttpResponse,
+  type ProviderRequestFn,
+} from './provider/auxiliary_request.ts';
 export {
   createProviderFreeWebSearchBackend,
   OpenRouterSonarWebSearchBackend,
@@ -60,17 +72,38 @@ export interface PhysicalIoBindings {
   ) => Model;
   readonly workTools?: WorkToolSeams;
   readonly webSearchBackend?: WebSearchBackend;
+  /** Credential-resolving provider request seam for tool Definitions; returns raw bytes. */
+  readonly requestProvider?: ProviderRequestFn;
   /** Worker-local metadata probe. It never returns credential material. */
   readonly credentialAvailability?: (
     authProfile: AuthProfileId,
   ) => Promise<CredentialAvailabilityStatus>;
 }
 
+/** Worker-resolved input for one executable tool Definition module. */
+export interface WorkerToolDefinitionInput {
+  readonly workspace: Workspace;
+  readonly skillCatalog: SkillCatalog;
+  readonly physicalIo: PhysicalIoBindings;
+}
+
+/** A tool Definition module evaluates to one tool component for its declared identity. */
+export type ExecutableToolDefinition = (
+  input: WorkerToolDefinitionInput,
+) => ToolComponent;
+
 /** One Host-resolved delegated subagent module made available to the root Definition helper. */
 export interface AgentSubagentModule {
   readonly subagentName: string;
   readonly ref: DefinitionRevisionRef;
   readonly definition: ExecutableAgentDefinition;
+}
+
+/** One Host/Worker-resolved tool Definition module for a declared tool identity. */
+export interface AgentToolDefinitionModule {
+  readonly toolIdentity: string;
+  readonly ref: ToolDefinitionRevisionRef;
+  readonly definition: ExecutableToolDefinition;
 }
 
 /** Data and Worker-local factories supplied to an executable Definition. */
@@ -81,6 +114,8 @@ export interface ExecutableAgentDefinitionInput {
   readonly physicalIo: PhysicalIoBindings;
   /** Host-provided delegated subagent modules; only the Henji helper composes these. */
   readonly subagents?: readonly AgentSubagentModule[];
+  /** Host/Worker-resolved tool Definition components for declared tool identities. */
+  readonly toolDefinitions?: readonly ToolComponent[];
 }
 
 export interface AgentCompositionOptions {
@@ -101,6 +136,11 @@ export interface WorkerAgentManifest {
   readonly subagents?: readonly {
     readonly subagentName: string;
     readonly ref: DefinitionRevisionRef;
+  }[];
+  /** Exact tool Definition revisions composed into the root composition. */
+  readonly tools?: readonly {
+    readonly toolIdentity: string;
+    readonly ref: ToolDefinitionRevisionRef;
   }[];
   readonly baseInstruction?: {
     readonly slot: 'instruction:henji-base';
@@ -174,6 +214,34 @@ export const finalizeRootAgentComposition = (
   });
   assertCoherentRootComposition(finalized);
   return finalized;
+};
+
+/**
+ * Record the exact tool Definition revisions actually composed into a root composition. Only
+ * identities declared by the Definition are attributed; no separate authority is created.
+ */
+export const finalizeWorkerToolAttribution = (
+  composition: WorkerAgentComposition,
+  tools: readonly {
+    readonly toolIdentity: string;
+    readonly ref: ToolDefinitionRevisionRef;
+  }[],
+): WorkerAgentComposition => {
+  const declared = new Set(composition.resolved.capabilities.tools.map(String));
+  const attributed = tools.filter((tool) => declared.has(tool.toolIdentity));
+  if (attributed.length === 0) return composition;
+  return Object.freeze({
+    ...composition,
+    manifest: Object.freeze({
+      ...composition.manifest,
+      tools: Object.freeze(attributed.map((tool) =>
+        Object.freeze({
+          toolIdentity: tool.toolIdentity,
+          ref: structuredClone(tool.ref),
+        })
+      )),
+    }),
+  });
 };
 
 const manifestFor = (
@@ -317,6 +385,23 @@ export const createDefaultAgentComposition = (
   const planner = resolvePlannerComposition(input, options);
   const maxSteps = maxStepsFor(resolved.limits, options);
   const plannerHandler = createPlannerHandler(planner.composition);
+  const providedToolDefinitions: ToolComponent[] = [...(input.toolDefinitions ?? [])];
+  if (!providedToolDefinitions.some((component) => `${component.identity}` === 'tool:web_search')) {
+    const backend: WebSearchBackend | undefined = input.physicalIo.webSearchBackend;
+    const requestProvider = input.physicalIo.requestProvider;
+    if (backend !== undefined) {
+      providedToolDefinitions.push({
+        identity: createAgentResourceIdentity('tool:web_search'),
+        materialize: (bindings) => createWebSearchTool(bindings.webSearchBackend ?? backend),
+      });
+    } else if (requestProvider !== undefined) {
+      providedToolDefinitions.push({
+        identity: createAgentResourceIdentity('tool:web_search'),
+        materialize: () =>
+          createWebSearchTool(new OpenRouterSonarWebSearchBackend({ requestProvider })),
+      });
+    }
+  }
   const registry = createDeclaredRegistry(resolved.capabilities, {
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
@@ -324,6 +409,7 @@ export const createDefaultAgentComposition = (
     plannerDelegation: plannerHandler,
     toolComponents: options.toolComponents,
     webSearchBackend: input.physicalIo.webSearchBackend,
+    ...(providedToolDefinitions.length === 0 ? {} : { toolDefinitions: providedToolDefinitions }),
   });
   const systemInstruction = compositionInstruction(
     'default',

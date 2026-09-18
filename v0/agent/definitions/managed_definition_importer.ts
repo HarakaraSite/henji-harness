@@ -182,21 +182,27 @@ const realFile = async (path: string, label: string): Promise<string> => {
   return canonical;
 };
 
-export const importManagedDefinition = async (
-  options: ManagedDefinitionImportOptions,
-): Promise<ImportedManagedDefinition> => {
-  if (!isExternalDefinitionResourceId(options.resourceId)) {
-    throw new ManagedDefinitionError('module_invalid', 'Definition module ID is invalid');
-  }
-  if (
-    (options.declaredRole === 'parent' && options.subagentName !== undefined) ||
-    (options.declaredRole === 'subagent' && !isSubagentName(options.subagentName))
-  ) {
-    throw new ManagedDefinitionError(
-      'module_invalid',
-      'Definition role declaration is invalid',
-    );
-  }
+export interface ImportedManagedModule {
+  readonly entry: string;
+  readonly entryPath: string;
+  readonly moduleRoot: string;
+  readonly files: readonly {
+    readonly path: string;
+    readonly bytes: Uint8Array;
+    readonly dependencies: readonly DefinitionLocalDependencyV1[];
+  }[];
+}
+
+export interface ManagedModuleImportOptions {
+  readonly entryPath: string;
+  readonly moduleRoot?: string;
+  readonly apiContract: string;
+}
+
+/** Kind-agnostic managed TypeScript module closure importer. */
+export const importManagedModule = async (
+  options: ManagedModuleImportOptions,
+): Promise<ImportedManagedModule> => {
   const entryPath = await realFile(options.entryPath, 'Definition entry');
   if (!entryPath.endsWith('.ts')) {
     throw new ManagedDefinitionError('module_import_unsupported', 'Definition entry must be .ts');
@@ -279,7 +285,7 @@ export const importManagedDefinition = async (
               source,
               url,
               rootUrl,
-              AGENT_DEFINITION_API_CONTRACT,
+              options.apiContract,
             ),
           });
           return { kind: 'module', specifier, content: bytes };
@@ -314,21 +320,49 @@ export const importManagedDefinition = async (
   if (!files.some((file) => file.path === entry)) {
     throw new ManagedDefinitionError('module_invalid', 'Definition entry was not loaded');
   }
+  return {
+    entry,
+    entryPath,
+    moduleRoot,
+    files,
+  };
+};
+
+export const importManagedDefinition = async (
+  options: ManagedDefinitionImportOptions,
+): Promise<ImportedManagedDefinition> => {
+  if (!isExternalDefinitionResourceId(options.resourceId)) {
+    throw new ManagedDefinitionError('module_invalid', 'Definition module ID is invalid');
+  }
+  if (
+    (options.declaredRole === 'parent' && options.subagentName !== undefined) ||
+    (options.declaredRole === 'subagent' && !isSubagentName(options.subagentName))
+  ) {
+    throw new ManagedDefinitionError(
+      'module_invalid',
+      'Definition role declaration is invalid',
+    );
+  }
+  const imported = await importManagedModule({
+    entryPath: options.entryPath,
+    ...(options.moduleRoot === undefined ? {} : { moduleRoot: options.moduleRoot }),
+    apiContract: AGENT_DEFINITION_API_CONTRACT,
+  });
   const content: DefinitionRevisionContent = {
     resourceId: options.resourceId,
     declaredRole: options.declaredRole,
     ...(options.subagentName === undefined ? {} : { subagentName: options.subagentName }),
     apiContract: AGENT_DEFINITION_API_CONTRACT,
-    entry,
-    files,
+    entry: imported.entry,
+    files: imported.files,
   };
   const manifest = await createManagedDefinitionManifest(content);
   const custody: ManagedDefinitionCustodyV1 = Object.freeze({
     schemaVersion: 1,
     originLineage: Object.freeze({
       kind: 'source',
-      entryPath,
-      moduleRoot,
+      entryPath: imported.entryPath,
+      moduleRoot: imported.moduleRoot,
     }),
     localCustody: Object.freeze({
       kind: 'installed',
@@ -338,6 +372,6 @@ export const importManagedDefinition = async (
   return {
     manifest,
     custody,
-    files: new Map(files.map((file) => [file.path, file.bytes] as const)),
+    files: new Map(imported.files.map((file) => [file.path, file.bytes] as const)),
   };
 };

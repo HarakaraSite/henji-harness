@@ -833,7 +833,7 @@ Deno.test('Increment 40 recalls a post-cutover non-canonical execution only', as
     const artifacts = await store.executionArtifacts.list();
     assertEquals(artifacts.length, 2);
     const target = artifacts[1];
-    assert(target?.schemaVersion === 6);
+    assert(target?.schemaVersion === 7);
     assertEquals(target.recall?.sourceExecutionId, source.executionId);
     const record = await store.readWorker(handle.id);
     assert(

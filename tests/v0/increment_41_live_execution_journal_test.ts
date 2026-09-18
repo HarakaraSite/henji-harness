@@ -387,7 +387,7 @@ Deno.test('Increment 41 distinguishes post-commit journal loss from canonical co
       contextCapture: 'failed',
     });
     const artifact = (await store.executionArtifacts.list())[0];
-    if (artifact?.schemaVersion !== 6) throw new Error('expected v6 artifact');
+    if (artifact?.schemaVersion !== 7) throw new Error('expected v7 artifact');
     assertEquals(artifact?.contextCapture, 'failed');
     assertEquals(
       store.listExecutionEvents(row.executionId).filter((event) =>
@@ -638,7 +638,7 @@ Deno.test('Increment 41 admits before dispatch and appends live observations', a
     assertEquals(evidence.settlement, 'interrupted');
     assertEquals(evidence.requests[0]?.response?.rawBodyBase64, 'eA==');
     const artifact = (await store.executionArtifacts.list())[0];
-    assert(artifact?.schemaVersion === 6);
+    assert(artifact?.schemaVersion === 7);
     assertEquals(artifact.settlement, 'interrupted');
     assertEquals(artifact.normalizedOutcome, 'interrupted');
     assertEquals(artifact.providerEvidenceId, evidence.evidenceId);

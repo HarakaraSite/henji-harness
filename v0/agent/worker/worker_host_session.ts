@@ -32,6 +32,7 @@ import type {
   WorkerModelSelectedMessage,
   WorkerReadyMessage,
   WorkerToHostMessage,
+  WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection, roleDefaultModelSelection } from '../provider/model_catalog.ts';
@@ -43,7 +44,7 @@ import {
 } from '../provider/model_selection.ts';
 import {
   type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV6,
+  type WorkerExecutionArtifactV7,
   workerExecutionOutcome,
   type WorkerExecutionSettlement,
   type WorkerExecutionStoreResult,
@@ -79,7 +80,11 @@ import {
   type ExecutionContextManifestV1,
   validateWorkerContextSnapshot,
 } from '../history/context_attribution.ts';
-import { isHenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import {
+  isHenjiInstructionRevisionRef,
+  isToolDefinitionRevisionRef,
+  type ToolDefinitionRevisionRef,
+} from '../definitions/managed_resource_ref.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
@@ -117,6 +122,26 @@ const validBaseInstructionManifest = (
   return value.slot === selected.slot && value.selectionSource === selected.selectionSource &&
     value.contentDigest === selected.contentDigest && isHenjiInstructionRevisionRef(value.ref) &&
     JSON.stringify(value.ref) === JSON.stringify(selected.ref);
+};
+
+const toolAttributionKey = (toolIdentity: string, ref: ToolDefinitionRevisionRef): string =>
+  `${toolIdentity}:${ref.resourceId}@sha256:${ref.revision.digest}`;
+
+const validToolManifest = (
+  value: NonNullable<WorkerReadyMessage['manifest']>['tools'],
+  requested: readonly WorkerToolDefinitionLoadRequest[] | undefined,
+): boolean => {
+  const expectedKeys = new Set(
+    (requested ?? []).map((tool) => toolAttributionKey(tool.toolIdentity, tool.ref)),
+  );
+  const actual = value ?? [];
+  const actualKeys = actual.map((tool) =>
+    isToolDefinitionRevisionRef(tool.ref)
+      ? toolAttributionKey(tool.toolIdentity, tool.ref)
+      : undefined
+  );
+  return actualKeys.every((key) => key !== undefined && expectedKeys.has(key)) &&
+    new Set(actualKeys).size === actualKeys.length;
 };
 
 export type WorkerHostStartupErrorCode =
@@ -851,7 +876,7 @@ export class WorkerHostSession {
   private executionArtifact(
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
-  ): WorkerExecutionArtifactV6 {
+  ): WorkerExecutionArtifactV7 {
     if (this.currentManifest === undefined) {
       throw new Error('Worker manifest unavailable for execution artifact');
     }
@@ -859,9 +884,12 @@ export class WorkerHostSession {
       this.options.durableCanonicalHistory === true) &&
       execution.committedStateRevision !== undefined;
     return {
-      schemaVersion: 6,
+      schemaVersion: 7,
       ...(this.currentManifest.subagents === undefined ? {} : {
         subagents: structuredClone(this.currentManifest.subagents),
+      }),
+      ...(this.currentManifest.tools === undefined ? {} : {
+        tools: structuredClone(this.currentManifest.tools),
       }),
       contextCapture: execution.journalFailure === true ||
           execution.postCommitObservationFailure === true
@@ -1182,6 +1210,9 @@ export class WorkerHostSession {
         ...(this.options.subagentDefinitions === undefined
           ? {}
           : { subagents: this.options.subagentDefinitions }),
+        ...(this.options.toolDefinitions === undefined
+          ? {}
+          : { toolDefinitions: this.options.toolDefinitions }),
         workspaceRoot: this.options.workspaceRoot,
         physicalIoMode: this.options.physicalIoMode ?? 'production',
         rootRole: this.options.agent === 'planner' ? 'planner' : 'parent',
@@ -1239,6 +1270,7 @@ export class WorkerHostSession {
           ready.manifest.baseInstruction,
           this.options.baseInstruction,
         ) ||
+        !validToolManifest(ready.manifest.tools, this.options.toolDefinitions) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
         !validStartupSnapshot(ready.startupSnapshot) ||

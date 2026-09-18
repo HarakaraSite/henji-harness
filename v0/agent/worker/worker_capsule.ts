@@ -4,7 +4,6 @@ import type {
   WorkerHostCommand,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
-import type { ManagedDefinitionRevision } from '../definitions/managed_definition_store.ts';
 
 const encoder = new TextEncoder();
 
@@ -41,9 +40,22 @@ export const readWorkerModuleRevision = async (
   };
 };
 
+/** Structural view shared by managed Definition and managed tool Definition revisions. */
+export interface ManagedClosureRevisionView {
+  readonly manifest: {
+    readonly entry: string;
+    readonly files: readonly {
+      readonly path: string;
+      readonly sha256: string;
+      readonly byteLength: number;
+    }[];
+  };
+  readonly physicalRoot: string;
+}
+
 /** Build a process-local managed closure descriptor from an already verified exact revision. */
-export const managedWorkerDefinitionLoadRequest = (
-  revision: ManagedDefinitionRevision,
+export const managedClosureLoadRequest = (
+  revision: ManagedClosureRevisionView,
 ): WorkerDefinitionLoadRequest => {
   const files = revision.manifest.files.map((file) => ({
     relativePath: file.path,
@@ -63,6 +75,9 @@ export const managedWorkerDefinitionLoadRequest = (
     files: Object.freeze(files.map((file) => Object.freeze(file))),
   });
 };
+
+export const managedWorkerDefinitionLoadRequest = managedClosureLoadRequest;
+export const managedToolDefinitionLoadRequest = managedClosureLoadRequest;
 
 export type WorkerCapsuleStatus =
   | 'starting'

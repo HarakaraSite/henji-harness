@@ -38,14 +38,26 @@ import {
   type WorkerSessionHandle,
 } from '../session/session_store.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
-import { managedWorkerDefinitionLoadRequest, readWorkerModuleRevision } from './worker_capsule.ts';
-import { workerBuiltinModulePath } from './worker_definition_revision.ts';
+import {
+  managedToolDefinitionLoadRequest,
+  managedWorkerDefinitionLoadRequest,
+  readWorkerModuleRevision,
+} from './worker_capsule.ts';
+import {
+  builtinWebSearchToolDefinitionLoadRequest,
+  WEB_SEARCH_TOOL_IDENTITY,
+  workerBuiltinModulePath,
+} from './worker_definition_revision.ts';
 import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
 import {
   AgentBindingError,
   resolveSubagentAgentSlotBinding,
 } from '../definitions/agent_slot_binding.ts';
-import type { WorkerSubagentLoadRequest } from './worker_protocol.ts';
+import { resolveToolDefinitionBinding, ToolBindingError } from '../definitions/tool_binding.ts';
+import type {
+  WorkerSubagentLoadRequest,
+  WorkerToolDefinitionLoadRequest,
+} from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
@@ -338,6 +350,40 @@ export const createWorkerSession = async (
         module: await readWorkerModuleRevision(workerBuiltinModulePath('planner')),
       }];
     };
+    /*
+     * Resolve the tool Definition for the bundled web_search identity. An activation-level
+     * `tools.json` binding wins; otherwise the bundled Sonar tool Definition is used. A binding
+     * failure is a typed startup failure and never falls back to the bundled module.
+     */
+    const resolveToolDefinitions = async (): Promise<
+      readonly WorkerToolDefinitionLoadRequest[] | undefined
+    > => {
+      let bound;
+      try {
+        bound = configRoot === undefined || dataRoot === undefined
+          ? undefined
+          : await resolveToolDefinitionBinding(configRoot, dataRoot, WEB_SEARCH_TOOL_IDENTITY);
+      } catch (error) {
+        if (error instanceof ToolBindingError) {
+          throw new DefinitionStartupError(
+            error.code === 'binding_definition_not_found'
+              ? 'definition_not_found'
+              : 'definition_invalid',
+            'resolution',
+            error.message,
+          );
+        }
+        throw error;
+      }
+      if (bound !== undefined) {
+        return [{
+          toolIdentity: WEB_SEARCH_TOOL_IDENTITY,
+          ref: structuredClone(bound.ref),
+          module: managedToolDefinitionLoadRequest(bound.revision),
+        }];
+      }
+      return [await builtinWebSearchToolDefinitionLoadRequest()];
+    };
     const openHost = async (
       workerHandle: WorkerSessionHandle,
       initialModelSelection = options.initialModelSelection,
@@ -352,6 +398,7 @@ export const createWorkerSession = async (
           modulePath,
           loadDescriptor,
           subagentDefinitions: await resolveSubagentDefinitions(),
+          toolDefinitions: await resolveToolDefinitions(),
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,
           providerTimeoutMs: options.providerTimeoutMs,

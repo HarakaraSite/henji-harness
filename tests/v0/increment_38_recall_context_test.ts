@@ -563,7 +563,7 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
     const outcome = await created.session.submit('read worker protocol', context);
     assert(outcome.ok);
     const artifact = (await artifacts.list())[0];
-    assert(artifact?.schemaVersion === 6);
+    assert(artifact?.schemaVersion === 7);
     assertEquals(artifact.recall, {
       schemaVersion: 1,
       sourceExecutionId: SOURCE_ID,
@@ -633,7 +633,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const firstTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use latest source'
     );
-    assert(firstTarget?.schemaVersion === 6);
+    assert(firstTarget?.schemaVersion === 7);
     assertEquals(firstTarget.recall?.sourceExecutionId, latestId);
 
     assertEquals(await adapter.dispatch({ kind: 'recall_execution', id: 'aaaaaaaa-aaaa' }), {
@@ -646,7 +646,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const secondTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use explicit source'
     );
-    assert(secondTarget?.schemaVersion === 6);
+    assert(secondTarget?.schemaVersion === 7);
     assertEquals(secondTarget.recall?.sourceExecutionId, olderId);
 
     const third = await adapter.dispatch({ kind: 'ordinary_submit', text: 'ordinary next task' });
@@ -654,7 +654,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const thirdTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'ordinary next task'
     );
-    assert(thirdTarget?.schemaVersion === 6);
+    assert(thirdTarget?.schemaVersion === 7);
     assertEquals(thirdTarget.recall, undefined);
 
     assert((await adapter.dispatch({ kind: 'recall_execution' })).kind === 'recall');
@@ -667,7 +667,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const clearedTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'task after recall clear'
     );
-    assert(clearedTarget?.schemaVersion === 6);
+    assert(clearedTarget?.schemaVersion === 7);
     assertEquals(clearedTarget.recall, undefined);
 
     const noSession = createTuiPresentationAdapter(created.session);

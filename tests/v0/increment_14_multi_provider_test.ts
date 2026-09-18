@@ -26,6 +26,7 @@ import {
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
+import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import {
@@ -954,8 +955,11 @@ Deno.test('Increment 14 keeps OpenRouter web search usable beside an OpenAI root
     openAICredentialSource: () => Promise.resolve('openai-secret'),
     fetcher,
   });
-  assert(physical.webSearchBackend !== undefined);
-  const result = await physical.webSearchBackend.search('What is Deno?');
+  assert(physical.requestProvider !== undefined);
+  const backend = new OpenRouterSonarWebSearchBackend({
+    requestProvider: physical.requestProvider,
+  });
+  const result = await backend.search('What is Deno?');
   assertEquals(result.answer, 'Deno is a runtime.');
   assertEquals(seen.model, 'perplexity/sonar');
   assertEquals(seen.authorization, 'Bearer router-secret');

@@ -2,6 +2,7 @@ import packageConfig from '../../../jsr.json' with { type: 'json' };
 
 export const BUILD_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const AGENT_DEFINITION_API_CONTRACT = 'henji-agent-definition-v1' as const;
+export const HENJI_TOOL_DEFINITION_API_CONTRACT = 'henji-tool-definition-v1' as const;
 
 export interface BuildManifestV1 {
   readonly schemaVersion: 1;
@@ -13,6 +14,7 @@ export interface BuildManifestV1 {
   readonly target: string;
   readonly embeddedRuntimeSha256: string;
   readonly supportedAgentDefinitionApiContracts: readonly string[];
+  readonly supportedToolDefinitionApiContracts: readonly string[];
 }
 
 const DEVELOPMENT_DIGEST = 'c738494fbbf99c577b5c91b957df9f3f0efcfc755442293665f71c8e3bd30179';
@@ -27,6 +29,7 @@ const DEVELOPMENT_MANIFEST: BuildManifestV1 = Object.freeze({
   target: Deno.build.target,
   embeddedRuntimeSha256: DEVELOPMENT_DIGEST,
   supportedAgentDefinitionApiContracts: Object.freeze([AGENT_DEFINITION_API_CONTRACT]),
+  supportedToolDefinitionApiContracts: Object.freeze([HENJI_TOOL_DEFINITION_API_CONTRACT]),
 });
 
 let installed: BuildManifestV1 | undefined;
@@ -54,6 +57,11 @@ export const isBuildManifest = (value: unknown): value is BuildManifestV1 => {
     Array.isArray(item.supportedAgentDefinitionApiContracts) &&
     item.supportedAgentDefinitionApiContracts.length > 0 &&
     item.supportedAgentDefinitionApiContracts.every((contract) =>
+      typeof contract === 'string' && contract.length > 0
+    ) &&
+    Array.isArray(item.supportedToolDefinitionApiContracts) &&
+    item.supportedToolDefinitionApiContracts.length > 0 &&
+    item.supportedToolDefinitionApiContracts.every((contract) =>
       typeof contract === 'string' && contract.length > 0
     );
 };
