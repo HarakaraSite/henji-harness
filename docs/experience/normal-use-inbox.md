@@ -299,7 +299,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
 
-### B1 — busy表示が更新されない（再現未確定）
+### B1 — busy表示が更新されない（原因=同期terminal write、increment-74で修正）
 
 - 観測（2026-09-18）: 利用者報告ではtool call結果待ちの間、busy表示（`working`＋spinner、経過時間）が
   更新されない。
@@ -321,23 +321,66 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   可能性。利用者の「web_fetchで起きた」は別の待ち区間を指している可能性がある。
 - pty長時間再現（2026-09-18、同じ日本語prompt）: 133秒のturnを通して`working 00:00`〜`02:13`が継続更新し、
   連続frame間の最大gapは0.4秒。**実シナリオでも再現しなかった**。
-- 状況: `bash sleep`／`web_search`／`web_fetch`／同じ日本語promptの長時間turnのいずれのpty観測でも
-  busy表示は更新し続けた。再現には利用者側の具体的な条件（terminal、build、フリーズ時の見え方、復帰の有無）
-  の情報が必要。
-- 原因候補（未確認）: web_fetchの長時間HTTP取得（hanging/遅延URL、大きなbody、AbortSignal併用）中のHost表示。
-- 対応: 利用者から再現条件（どのtool/model/Session、どの表示が止まるか）を確認してからincrement-74で調査する。
-  現時点でtimer飢餓・writeSync・journal書込みは否定済み。
+- tmux再現（2026-09-18、increment-74）: tmux 3.5a内のinstalled binaryで同じ日本語promptの150秒turnを
+  `capture-pane`採取すると`working`更新に**10.0s／5.1s／3.6s**のgapを観測。原因は
+  `v0/tui/terminal.ts`の`Deno.stdout.writeSync`によるfull-frame同期writeが、遅いterminal consumerで
+  main threadを塞ぐこと。**修正済み**（非同期write＋full-frame coalescing、restore時flush）。
+- 検証（increment-74）: masterをdrainしないptyでsync実装はevent loopがblock（hung）、非同期実装はtimer継続。
+  tmux内source TUIの長時間turn（busy 95秒、および大出力turn 150秒）でbusy表示が継続更新し、最大wall gap
+  1.6秒。focused testは`tests/v0/increment_74_terminal_write_test.ts`。
+- 正本: [`increment-74.md`](../increments/increment-74.md)。
 
-### B2 — `/sessions`が`session list unavailable`
+### B2 — `/sessions`が`session list unavailable`（increment-75で修正）
 
 - 観測（2026-09-18）: `/sessions`でセッション一覧が参照できず`[session list unavailable]`が表示される。実際には
   Session `a75bd052`が存在する。
-- 原因候補: `listWorker`／session pickerの読み込み失敗、state root差異、あるいはB1のtimer飢餓と別の失敗。
-- 対応: increment-74でB1と合わせて原因を確認する（共有原因なら同時修正、別原因なら切り分けて個別計画）。
+- 原因（2026-09-18、increment-74で特定）: `sqlite_history_store.ts`の`listWorker()`が、`sessions`表の1件の
+  不正record `6e8de261-31a7-4dae-81bf-a7024723aac0`（workspace `967fa641…`、productVersion `0.1.3`の過去
+  build、embedded build manifestが現行でvalidation不合格）で`readRecord`が投げる`SessionStoreError
+  session_invalid`を全体へ伝播させ、listing全体が失敗する。`skippedInvalid`は`0`固定で不正recordをskipして
+  いなかった。実Session `a75bd052`（24 message、2 turn）は同DBに存在し正常に読める。
+- 影響: 1件の不正recordで、そのworkspaceの有効なSessionが全件`/sessions`に出ない。
+- 修正（2026-09-18、increment-75）: `listWorker()`をrecord単位try/catchし、`session_invalid`のみskipして
+  `skippedInvalid`へ加算。他エラーは再throw。原因recordは利用者許可のうえ削除。実DBで`ok 5 skipped 1`→
+  削除後`ok 5 skipped 0`。production TUIの`/sessions`で実Session 5件が一覧され`session list unavailable`が
+  出ないことを確認。focused testは`tests/v0/increment_75_session_list_skip_test.ts`。
+- 残観測（別問題）: 一覧される5件はいずれも保存Definition digestが現行`builtin/default`（`e28fe12a…`）と
+  異なり、pickerで`unavailable`表示。exact revision契約による既知の挙動で、resume可否は別途扱う。
+- 正本: [`increment-75.md`](../increments/increment-75.md)。
 
 ### B3 — PageUpで履歴先頭まで到達できない
 
 - 観測（2026-09-18）: PageUpによる履歴遡りが先頭まで届かず、Session `a75bd05`では2ページ目程度で止まる。
-- 原因候補: history paginationの読み込み欠落、boundaryでの`history empty`／`history boundary`処理、B1の
-  timer飢餓による読み込み停止。
-- 対応: increment-74でB1/B2と合わせて原因を確認する。
+- 利用者情報（2026-09-18）: 「再現したりしなかったりする」＝間欠的。常に止まるわけではない。
+- 確認（2026-09-18、increment-74）: Session `a75bd052`は2 turn・24 messageのみで、restored表示上限
+  （100 message／2 MiB）に未到達。表示上数画面で先頭に着くのは履歴量と整合し、欠落の決定的な証拠は
+  得られなかった。
+- 原因候補: history paginationの読み込み欠落、boundaryでの`history empty`／`history boundary`処理。
+- 対応: 再現には利用者側の具体的条件（どの画面・key・Session/履歴量・止まったときの見え方・間欠の条件）
+  が必要。B1/B2とは別として個別に扱う。
+
+### B4 — 保存SessionのDefinition revision不一致でresumeできない
+
+- 観測（2026-09-18）: increment-75後、`/sessions`は開くが既存Sessionを選ぶと
+  `[session resume failed; current session unchanged]`。workspace `967fa641…`の5件はいずれも
+  保存Definitionが`builtin/default`の過去digest（`cc214791…`／`e0f2114d…`／`48b09811…`／`c3a72500…`）で、
+  現行digest（`e28fe12a…`）と一致しない。
+- 原因: `worker_tui_session.ts`の`switchTo`が`recordRefMatches`（保存refと現行Definition refのexact一致）を
+  要求し、不一致で`session Definition revision mismatch`を投げる。pickerは`row.mismatch`で`unavailable`表示。
+  これはroadmap F18「同じInstanceのDefinition revision bindingを人間の判断でdurableに切り替える」が
+  **未実装**（「現行はstartup selectorと保存済みrefが一致する場合だけreopenし、revision transitionを拒否する」）
+  ため。exact revision契約による意図的な現状で、B1/B2とは別。
+- 影響: bundled defaultのdigestはbuildごとに変わり得るため、Definition変更後のbuildでは過去Sessionを
+  resumeできず、canonical履歴を通常利用で引き継げない。構想の「保存されたSessionを選んで利用を続けられる」
+  「canonical/non-canonical双方を履歴として参照できる」と緊張する。
+- 対応候補（要利用者判断・roadmap/architecture変更を含む）:
+  - A. F18（revision transition）を実装し、保存Sessionを現行Definition revisionへ切り替えて履歴ごとresumeする。
+  - B. 不一致Sessionはread-onlyで履歴閲覧だけ可能にする（resumeはしない）。
+  - C. 現状維持。過去build Sessionは削除する（履歴は失われる）。
+- 検討（2026-09-18）: 「閲覧（Workerを起動せず、Definition ref照合なし）」と「継続（現行DefinitionでWorkerを
+  起動し、切替を記録。保存refとの一致は要求しない）」を分離する。admission invariantはlive generationの条件で
+  あり閲覧には無関係。正本変更は[`increment-76.md`](../increments/increment-76.md)として承認・適用済み。
+- 実装（2026-09-18、increment-76完了）: 継続経路を実装。過去build Sessionを`resume failed`なく開き、turn生成で
+  `session.definition`が現行digestへ更新され、過去turnのattributionが不変であることを実経路で確認。閲覧は
+  pickerの`v`で選択Sessionのhuman historyをread-only overlay表示（active binding不変、Worker非起動）。
+- 正本候補: `docs/roadmap.md` F18、`docs/architecture/henji-host-agent-worker.md`のDefinition binding節。

@@ -1,15 +1,19 @@
-# Increment 74 — Host timer飢餓の原因特定と修正（TUI進捗・履歴・sessions）
+# Increment 74 — terminal出力の同期writeによる表示凍結の修正（TUI進捗）
 
-ステータス: **計画中（Human Gate未承認。実装未着手）**
+ステータス: **実装完了（B1）。B2は別原因を特定、B3は該当Sessionの履歴が少なく再現せず**
 
 基準commit: `3316fc07`
 
 計画日: 2026-09-18
 
-対象: turn実行中にHostのtimer（macrotask）が発火しなくなる事象を原因特定し、busy表示（`working`＋spinner＋
-経過時間）がturn中も更新されるようにする。あわせて、通常利用で報告された`/sessions`の`session list
-unavailable`（B2）とPageUpで履歴先頭へ到達できない（B3）を、共有原因か別原因かを切り分け、共有原因なら同じ
-incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1〜B3。
+対象: TUIのbusy表示（`working`＋spinner＋経過時間）がturn中に凍結する事象（B1）を原因特定し、修正する。
+原因は`v0/tui/terminal.ts`の`Deno.stdout.writeSync`によるfull-frame同期writeが、遅いterminal consumerで
+main threadを塞ぐこと（調査メモ 追加計測6）。表示を非同期write＋coalescingへ変更する。あわせて`/sessions`
+の`session list unavailable`（B2）とPageUpで履歴先頭へ到達できない（B3）を切り分けた。結果は末尾の
+「B2/B3の切り分け結果」。観測は`docs/experience/normal-use-inbox.md`のB1〜B3。
+
+用語注記: 本incrementの初版は「Host timer飢餓」と表現したが、計測5・6でtimerは稼働しており表示writeが
+原因と判明したため、以降は「同期writeによる表示凍結」と読み替える。
 
 ## 利用者が必要とする動作
 
@@ -170,3 +174,41 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
 - 修正方針候補: redrawを非同期write＋coalescing（write中は次の最新frameだけ保持して古いframeを捨てる、
   または有界レート）にし、sync writeでevent loopをblockしない。順序と最終frame整合を保つ。
 - 検証: tmux内で長時間turnのgapが消えること、直接ptyでも退行しないこと、frame順序が壊れないこと。
+
+## 実装（2026-09-18）
+
+- `v0/tui/terminal.ts`:
+  - `CoalescingWriter`を追加。chunkをFIFOで1件ずつ非同期に書き、連続する未書込みのfull-frame
+    （`\x1b[2J\x1b[H`始まり）は最新のみ残して置換する。flushは受付済みの全chunkを書き終えるまで解決する。
+  - `DenoTerminal.write`を`Deno.stdout.writeSync`から`CoalescingWriter`（`Deno.stdout.write`）へ変更。
+  - `TerminalPort.flush?(): Promise<void>`を追加し、`TerminalLifecycle.restoreOnce`が全write（exit sequence含む）
+    後に`flush`をawaitする。`Deno.exit`はpending writeを待たないため、終了前に必ず配送する。
+- 変更は`v0/tui/terminal.ts`のみ。renderer/controller/Worker protocolは変更しない。
+
+## 検証（2026-09-18）
+
+- focused test: `tests/v0/increment_74_terminal_write_test.ts`（5件、`v0:test`へ追加）。chunk順序、連続frameの
+  coalescing、frame間control chunkの非coalescing、flush中の追加chunk drain、restoreのflush待ちを確認。
+- 機構検証（backpressure）: masterをdrainしないptyへ2000 frameを書き、sync実装はevent loopがblockして
+  4秒後の結果保存に到達せず（hung、結果なし）。非同期coalescing実装はtimerが継続し`ticks=39`で正常終了。
+  同期writeがblock要因であることと、非同期化の効果を分離確認した。
+- tmux検証（source TUI、隔離XDG、tmux 3.5a detached）: 長時間turn（busy 95秒）でbusy表示が継続更新、
+  連続更新の最大wall gapは1.5秒（0.5秒間隔採取の粒度）。大出力turn（bash `seq 100000`＋`sleep 120`、
+  frame上限近くまで成長）でも150秒間継続し最大gap 1.6秒。凍結なし。
+- `v0:check`／`v0:fmt`／`v0:lint`／`git diff --check`、authoritative `v0:gate` exit 0。
+
+## B2/B3の切り分け結果（2026-09-18、B1とは別原因）
+
+- B2（`/sessions`の`session list unavailable`）: **原因を特定**。workspace `967fa641…`のstate DBで
+  `listWorker()`が`SessionStoreError session_invalid`を返すため、`controller_overlay`の失敗handlerが
+  `session list unavailable`を表示する。`listWorker`は`SELECT session_id FROM sessions`の各行を
+  `readRecord`するが、1件の不正record（`6e8de261-31a7-4dae-81bf-a7024723aac0`）で例外が全体へ伝播する。
+  `skippedInvalid`は`0`固定で、不正recordをskipする実装になっていない。実Session `a75bd052`は同DBに存在し
+  正常に読める（24 message、2 turn）。B2はB1（write凍結）とは別原因。
+  - 修正案（別increment）: `listWorker`をrecord単位でtry/catchし、読めないrecordをskipして
+    `skippedInvalid`へ加算する。`/sessions`は残りの有効Sessionを一覧する。
+- B3（PageUpで履歴先頭へ到達できない）: 対象Session `a75bd052`は2 turn・24 messageのみで、
+  restored表示の上限（100 message／2 MiB）に達していない。表示上数画面で先頭に着くのは履歴量と整合し、
+  B1/B2のような欠落の証拠は得られなかった。利用者情報（2026-09-18）では「再現したりしなかったりする」
+  ＝間欠的で、再現には具体的条件（どの画面・key・履歴量・間欠の条件）が必要。B1とは別として個別に扱う。
+  - ただし本incrementのHuman Gate項目3の記載どおり、B2/B3の修正は本incrementへ含めない。

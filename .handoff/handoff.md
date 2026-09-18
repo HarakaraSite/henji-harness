@@ -108,32 +108,67 @@
   として削除（increment-73へ移管）。
 - 正本: `docs/increments/increment-73.md`。
 
-### Increment 74 — TUI表示凍結（原因特定済み、修正未実装）
+### Increment 74 — TUI表示凍結の修正（実装完了、tmux検証済み）
 
-- 状態: **原因特定済み、修正未実装**。利用者報告の不具合:
-  - B1: busy表示（`working`＋spinner＋経過時間）がturn中に更新停止（利用者再現: Session `375ca4e7`、prompt
-    「denoとnodeを比較したい webで情報を収集して」）。
-  - B2: `/sessions`が`session list unavailable`（実Session `a75bd052`が存在）。
-  - B3: PageUpで履歴先頭まで到達できない（`a75bd05`で2ページ目程度）。
-  - 記録先: `docs/experience/normal-use-inbox.md`「観測した不具合（未修正）」B1〜B3。
-- 原因（特定済み）: `v0/tui/terminal.ts`の`Deno.stdout.writeSync`によるredrawごとの**full-frame同期write**が、
-  terminal consumerが遅い場合（tmux 3.5a内のdetached pane等）にbackpressureでblockし、main threadを塞いで
-  redraw/timer/入力が止まる。Pythonの直接pty（継続drain）では再現せず、tmux内で`working`更新に10.0/5.1/3.6秒の
-  gapとして再現。timer飢餓・SQLite・同期terminal以外のwriteではない（`__TICK`/`__HB`は進行、`writeSync`例外なし、
-  frame本文は更新）。
-- 次（修正）: redrawを**非同期write＋coalescing**にし、write中は最新frameのみ保持して古いframeを破棄、有界レートで
-  描画する。sync writeでevent loopを塞がない。frame順序と最終frame整合を保つ。B2/B3は同じ原因か別かを切り分ける。
-- 正本: `docs/increments/increment-74.md`（調査ログ・原因・修正方針）。Human Gateは承認済み（実装開始）だが、
-  計画の「timer飢餓」表現は「同期full-frame writeのblock」へ読み替えて実装する。
-- 注意: 検証は**tmux内**で行う（直接ptyでは再現しない）。`inbox`のB1は「再現未確定」と古い記述が混在しているため、
-  実装時に「tmuxで再現・原因=同期write」へ整理する。デバッグコードは全て除去済みで作業ツリーclean。
+- 状態: **実装完了**。`v0:gate` exit 0。原因は`v0/tui/terminal.ts`の`Deno.stdout.writeSync`による
+  full-frame同期writeが、遅いterminal consumer（tmux detached等）でmain threadを塞ぐこと。`CoalescingWriter`
+  （非同期write＋連続full-frameの最新のみ保持）へ変更し、`DenoTerminal.flush`＋
+  `TerminalLifecycle.restoreOnce`のflushで終了前に全writeを配送する。`TerminalPort.flush?()`を追加。
+- 検証: focused test `tests/v0/increment_74_terminal_write_test.ts`（5件、`v0:test`へ追加）。
+  masterをdrainしないptyでsyncはevent loopがblock（hung）、非同期は継続。tmux内source TUIで長時間turn
+  （busy 95秒）と大出力turn（150秒）が最大wall gap 1.6秒で継続し凍結なし。`v0:check`/`fmt`/`lint`/gate exit 0。
+- B2（`/sessions`）: 別原因を特定し、**increment-75で修正済み**（下記）。
+- B3（PageUp履歴）: `a75bd052`は2 turn/24 messageのみで表示上限未到達。加えて利用者情報（2026-09-18）では
+  「再現したりしなかったりする」＝間欠的。欠落の決定的証拠は未取得で、再現条件が必要。
+- 正本: `docs/increments/increment-74.md`（実装・検証・B2/B3結果まで反映済み）。inbox B1〜B3更新済み。
+
+### Increment 75 — `/sessions`一覧の耐性（実装完了）
+
+- 状態: **実装完了**。`v0:gate` exit 0。`sqlite_history_store.ts`の`listWorker()`が1件の読めないrecordの
+  `session_invalid`で全件失敗していた。record単位try/catchへ変更し、`session_invalid`のみskipして
+  `skippedInvalid`へ加算、他エラーは再throwする。
+- 原因record: `6e8de261-31a7-4dae-81bf-a7024723aac0`（workspace `967fa641…`、過去build `0.1.3`、embedded
+  build manifestが現行validation不合格）。利用者許可を得て`store.delete`で削除。
+- 検証: focused test `tests/v0/increment_75_session_list_skip_test.ts`（1件、`v0:test`へ追加）。実DBで
+  `ok 5 skipped 1`→削除後`ok 5 skipped 0`。production TUI（installed binary、tmux）の`/sessions`で実Session
+  5件が一覧され`session list unavailable`が出ないことを確認。
+- 残観測（対象外）: 一覧5件は保存Definition digestが現行`builtin/default`（`e28fe12a…`）と異なりpickerで
+  `unavailable`表示（exact revision契約による既知挙動）。過去build Sessionを削除するかは別途利用者判断。
+- 正本: `docs/increments/increment-75.md`。inbox B2更新済み。
+- B4（新規、利用者判断待ち）: `/sessions`は開くが既存Sessionのresumeが`session resume failed`。保存Definition
+  digestが現行`builtin/default`と不一致で、roadmap F18（revision transition）未実装のため。原因は「履歴閲覧」と
+  「Worker起動による継続」が同じ入口に混在し、`WorkerHostSession`先頭でref一致を要求していること
+  （`worker_host_session.ts:244-253`）。admission invariantはlive generationの条件で閲覧には無関係。
+
+### Increment 76 — 保存Sessionの閲覧と現行Definitionでの継続（実装完了）
+
+- 状態: **実装完了**。`v0:gate` exit 0。継続: open時ref一致要求を削除し（`worker_host_session.ts`、
+  workspace/agent検証は残置）、`worker_tui_session.ts`の`bindRecord`/`--continue`/`--session`/`switchTo`は
+  現行解決済みDefinitionで継続。切替追跡は新規schemaを追加せず既存`turnExecutions`/`canonical_turns`を
+  単一authorityとして導出（`session.definition`=現行binding）。閲覧: `human_history_open/page/detail/search`
+  intentにoptional `sessionId`を追加し、pickerの`v`で選択Sessionの履歴をread-only overlay表示（active
+  binding不変、Worker非起動）。`layout.ts`のpickerに`v view history`。
+- 検証: focused test `tests/v0/increment_76_definition_transition_test.ts`（2件）と
+  `tui_controller_overlay_test.ts`の`v` test。source/installed binaryのtmuxで、過去build Session
+  `375ca4e7`の閲覧とresume（`resume failed`なし）、turn生成で`session.definition`が`e28fe12a…`へ更新、
+  turn1-2は`cc214791…`のまま残ることを確認。increment_33の旧exact-ref reopen testは新契約へ更新。
+- 設計注記（承認済み設計からの変更点）: 当初の「active sessionをgeneration 0個で開きsubmitでWorker起動」では
+  なく、「閲覧はactive bindingを変えないread-only overlay」として実装。理由はincrement-76.md参照。active-lazyを
+  明示的に必要とする場合は利用者判断。
+- 正本: `docs/increments/increment-76.md`（設計・正本変更・実装状況）。roadmap F18/architecture適用済み。
+  inbox B4更新済み。
+- 次: 利用者判断待ち = (1) active-lazyを追加で必要とするか、(2) 過去build Session 5件の扱い、
+  (3) 変更のcommit可否。digest範囲変更は別increment。
+
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `1cafc161a751c7854c4e63426e5b650b13b64d7cad95fabec1138baa07ee0c0f`、binary SHA-256
-  `60f6904de9b5ea23a08af15498ca82716f6622f68fe50a10d57238c2acee955a`、embedded runtime
-  `705c7126de2ccb716b544050eb398aa504c815d9db895f9ba376bdc296a73457`、source`010cd959`・`sourceDirty=false`）。
-  installed launcher `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
+- binary: `0.2.1`（build `b313a5469b3115db98d135f28dfc83497edb5b6983e21a5563e06f474ff1a810`、binary SHA-256
+  `67838a32fe50b09f5f690939b3b9677b6e6fe1b17d49ad44b9a0b52b932566d9`、source`093a14be`・`sourceDirty=true`＝
+  increment-74/75/76変更が未commit）。increment-76実装後に再build・再配置済み。installed launcher
+  `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
+  - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=trueは
+    未commitのため。commit後に再buildすれば`sourceDirty=false`になる。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。

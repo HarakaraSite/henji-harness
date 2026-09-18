@@ -3379,12 +3379,24 @@ export class SqliteHistoryStore
       const rows = db.prepare(
         'SELECT session_id FROM sessions ORDER BY updated_at DESC, session_id ASC',
       ).all() as SqlRow[];
-      return {
-        sessions: rows.map((row) =>
-          metadataFromStoredRecord(this.readRecord(db!, String(row.session_id)))
-        ),
-        skippedInvalid: 0,
-      };
+      const sessions: WorkerSessionListResult['sessions'][number][] = [];
+      let skippedInvalid = 0;
+      for (const row of rows) {
+        try {
+          sessions.push(
+            metadataFromStoredRecord(this.readRecord(db!, String(row.session_id))),
+          );
+        } catch (error) {
+          // A single unreadable record (for example one written by an older build whose
+          // embedded manifest no longer validates) must not hide every valid session.
+          if (error instanceof SessionStoreError && error.code === 'session_invalid') {
+            skippedInvalid += 1;
+            continue;
+          }
+          throw error;
+        }
+      }
+      return { sessions, skippedInvalid };
     } catch (error) {
       throw sessionError(error);
     } finally {

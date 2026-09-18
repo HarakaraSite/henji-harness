@@ -60,6 +60,11 @@
 - Host の durable な `AgentInstance` metadata は、その Instance が現在使用する
   `DefinitionRevisionRef` を bind する。Definition revision の変更は、同じ revision の Worker
   restart とは区別され、明示的で durable な transition でなければならない。
+- 保存された Session の履歴を**閲覧のみ**で開くことは Worker generation を起動せず、
+  `DefinitionRevisionRef` の照合を要しない。閲覧は generation/admission の対象外である。
+- 現行の解決済み Definition で Session を**継続**する場合、保存 ref との一致を要求しない。Host は
+  切替を durable に記録し、過去 turn の attribution を変更しない。保存 ref が現行 binary に存在しない
+  場合（例: builtin の過去 revision）も同様とし、一致を理由に失敗させない。
 - 常駐 Host とは、durable な lifecycle owner/service を指す。durable な各 `AgentInstance` に
   永久常駐の thread や Worker を 1 つずつ置くことを意味しない。Instance には active な Worker
   generation が 0 個または 1 個存在でき、lazy activation や idle teardown を後続設計で採用できる。
@@ -260,7 +265,9 @@ child laneのrequest budgetは全subagentで共有し、合成した各subagent�
 `subagents`（subagentName＋ref）へ記録する。
 
 root Definitionの選択は、明示selector、再開・継続Sessionの保存済みexact ref、`agent:default` binding、bundled
-defaultの順に優先する。binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。
+defaultの順に優先する。binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。保存済みexact refが
+現行のbinary/storeに存在しない場合、継続は現行の解決済みbindingへ切り替えるtransitionとして扱い、閲覧は
+refを解決しない。
 
 resolvedなroot/subagent exact refはDefinition resource graphとexecution artifactへ記録し、context attributionへは
 入れず、二重authorityを作らない。subagent refはSession schemaへ保存しない（将来`AgentInstance`領域へ移す）。
@@ -584,9 +591,11 @@ field や schema を定めるものではない。
   generation/lease identity、base session state revision と相関する。Instance-wide state が存在する
   場合は、その state の revision も相関させる。
 - Host は、現在 admit されている generation から、かつ一致する Definition revision と base
-  session state revision から来た proposal だけを受理する。
+  session state revision から来た proposal だけを受理する。この不変条件は live generation に適用し、
+  保存履歴の閲覧には適用しない。
 - 同じ revision の Worker restart と新しい revision への切り替えは別の事象である。revision の
-  変更は明示的で durable な transition とする。
+  変更は明示的で durable な transition とし、記録する。継続時の保存 ref との不一致は transition の
+  契機であって失敗条件ではない。
 
 ## セッションの永続性とコミット
 

@@ -11,7 +11,6 @@ import {
 import {
   DefinitionStartupError,
   type HostDefinitionSelection,
-  resolveDefinitionRef,
   resolveRequestedDefinition,
 } from '../definitions/definition_selection.ts';
 import {
@@ -28,7 +27,6 @@ import type {
 } from '../session/session_navigation.ts';
 import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
 import {
-  type DefinitionRevisionRef,
   launcherStateRoot,
   restoredMessages,
   type SemanticContextCheckpointV1,
@@ -147,13 +145,6 @@ export interface WorkerSessionResult {
   readonly humanHistoryReader?: HumanHistoryReadPort;
 }
 
-const recordRefMatches = (
-  record: StoredSessionRecord | undefined,
-  definition: DefinitionRevisionRef,
-): boolean => {
-  return record === undefined || sameRef(record.definition, definition);
-};
-
 const navigationPosition = (
   value: ReturnType<WorkerHostSession['currentPosition']>,
 ): NavigationPosition => ({
@@ -228,24 +219,18 @@ export const createWorkerSession = async (
     if (candidate.workspaceRoot !== workspace.root) {
       throw new SessionStoreError('session_invalid');
     }
-    const resolved = await resolveDefinitionRef(candidate.definition, options.dataRoot);
-    if (candidate.agent !== resolved.id) {
+    // A stored Session keeps its per-turn Definition attribution, but continuing it uses the
+    // currently resolved Definition. A differing stored revision is a transition, not a failure.
+    const current = requested ?? await requestedSelection();
+    if (candidate.agent !== current.id) {
       throw new DefinitionStartupError(
         'definition_role_mismatch',
         'session_binding',
-        'Session Agent role does not match its exact Definition revision',
+        'Session Agent role does not match the selected Definition',
         candidate.definition,
       );
     }
-    if (requested !== undefined && !sameRef(requested.ref, candidate.definition)) {
-      throw new DefinitionStartupError(
-        'definition_invalid',
-        'session_binding',
-        'Session exact Definition revision does not match the explicit selector',
-        candidate.definition,
-      );
-    }
-    return resolved;
+    return current;
   };
   if (options.persistence === 'none') {
     selection = await requestedSelection();
@@ -253,10 +238,7 @@ export const createWorkerSession = async (
   } else if (options.persistence === 'continue') {
     const requested = await requestedSelection();
     const listed = await store!.listWorker();
-    const candidate = listed.sessions.find((item) =>
-      item.agent === requested.id && item.definition !== undefined &&
-      sameRef(item.definition, requested.ref)
-    );
+    const candidate = listed.sessions.find((item) => item.agent === requested.id);
     if (candidate === undefined) throw new Error('session not found');
     handle = await store!.openExistingWorker(candidate.id);
     record = handle.record;
@@ -306,12 +288,9 @@ export const createWorkerSession = async (
     if (
       record !== undefined &&
       (record.workspaceRoot !== workspace.root ||
-        record.agent !== activeSelection.id ||
-        !recordRefMatches(record, definition))
+        record.agent !== activeSelection.id)
     ) {
-      throw new Error(
-        'session Definition revision does not match the selected binding',
-      );
+      throw new Error('session binding does not match the selected Definition');
     }
     /*
      * Resolve the activation-level `subagent:planner` slot for each root parent generation. A bound
@@ -551,9 +530,8 @@ export const createWorkerSession = async (
           if (
             targetRecord === undefined ||
             targetRecord.workspaceRoot !== workspace.root ||
-            targetRecord.agent !== activeSelection.id ||
-            !recordRefMatches(targetRecord, definition)
-          ) throw new Error('session Definition revision mismatch');
+            targetRecord.agent !== activeSelection.id
+          ) throw new Error('session binding does not match the selected Definition');
           const targetHost = await openHost(targetHandle);
           await currentHost.close();
           currentHost = targetHost;

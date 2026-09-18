@@ -145,15 +145,16 @@ modified ReturnのdecoderはShift / Alt / Ctrl sequenceを改行として処理�
 
 ### durable AgentInstanceとrevision transition
 
-F16〜F18は現在の通常利用に必要な機能ではない。人間が将来self-revision loopを開始すると決めた場合に、
-同じagent identityをSessionやWorker generationをまたいで維持し、採用したDefinition revisionへ切り替える
-ための基盤である。
+F16/F17（durable AgentInstance、Instance単位writer ownership）は後続とする。一方、人間が保存Sessionを閲覧し、
+現行Definitionで継続する（切替を記録する）ことは通常利用（F01、F05）に必要であり、Increment 76で最小実装
+する。これはF18の公開部分（human起点のrevision transition）を切り出したもので、durable AgentInstance
+identityやcandidate採用との統合はF18に残る。
 
 | ID | 必要な機能 | architecture上の責務・境界 | 現コードの状態 |
 | --- | --- | --- | --- |
 | F16 | Worker generationより長く存続するdurable AgentInstanceを持つ | resident Hostがdurable lifecycle ownerとなり、stable identity、metadata、active Definition bindingを所有する | **未実装**。現`instanceCorrelation`は`WorkerHostSession`ごとに生成され、永続化されない |
 | F17 | SessionをAgentInstanceへ所属させ、Instance単位でwriterとinputをserializeする | 一Sessionは一Instanceに属し、同一Instanceのwriter generationは同時に一つ | **未実装**。Sessionはworkspace、agent、Definitionには結び付くがInstance IDを持たず、別Sessionをまたぐwriter ownershipはない |
-| F18 | 同じInstanceのDefinition revision bindingを人間の判断でdurableに切り替える | restartとrevision transitionを区別し、Hostがbindingをcommitする | **未実装**。現行はstartup selectorと保存済みrefが一致する場合だけreopenし、revision transitionを拒否する |
+| F18 | 同じInstanceのDefinition revision bindingを人間の判断でdurableに切り替える | restartとrevision transitionを区別し、Hostがbindingをcommitする | **部分実装**。保存Sessionを現行Definitionで継続する切替（記録付き、human起点、Increment 76）を実装する。durable `AgentInstance` identityとInstance単位bindingの切替、candidate採用との統合は未実装 |
 
 ### 経験駆動の改訂ループ
 

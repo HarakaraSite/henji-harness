@@ -43,12 +43,14 @@ export const presentationIntent = (
       throw new PresentationDeliveryError();
     }
     if (copy.cursor !== undefined) boundedPresentationText(copy.cursor);
+    if (copy.sessionId !== undefined) boundedPresentationText(copy.sessionId);
   } else if (kind === 'human_history_detail') {
     boundedPresentationText(copy.detailId);
     if (
       copy.scalarOffset !== undefined &&
       (!Number.isSafeInteger(copy.scalarOffset) || copy.scalarOffset < 0)
     ) throw new PresentationDeliveryError();
+    if (copy.sessionId !== undefined) boundedPresentationText(copy.sessionId);
   } else if (kind === 'human_history_search') {
     boundedPresentationText(copy.query);
     if (copy.direction !== 'next' && copy.direction !== 'previous') {
@@ -59,10 +61,13 @@ export const presentationIntent = (
       copy.fromSourceScalarOffset !== undefined &&
       (!Number.isSafeInteger(copy.fromSourceScalarOffset) || copy.fromSourceScalarOffset < 0)
     ) throw new PresentationDeliveryError();
+    if (copy.sessionId !== undefined) boundedPresentationText(copy.sessionId);
+  } else if (kind === 'human_history_open') {
+    if (copy.sessionId !== undefined) boundedPresentationText(copy.sessionId);
   } else if (
     kind !== 'cancel_active' && kind !== 'list_sessions' && kind !== 'new_session' &&
     kind !== 'history_export' && kind !== 'history_export_all' &&
-    kind !== 'human_history_open' && kind !== 'clear_recall' &&
+    kind !== 'clear_recall' &&
     kind !== 'dismiss_overlay' &&
     kind !== 'compaction'
   ) {

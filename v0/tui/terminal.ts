@@ -10,6 +10,8 @@ export interface TerminalPort {
   read(): Promise<Uint8Array | null>;
   drainAndCloseInput(maxMs: number, idleMs: number): Promise<void>;
   write(bytes: Uint8Array): void;
+  /** Optional: resolve after all accepted output has been handed to the host. */
+  flush?(): Promise<void>;
   addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
   removeSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
   /** Optional UI-local resize signal hooks. They never enter the agent/session event stream. */
@@ -37,12 +39,80 @@ export const RESET_SCROLL_REGION = '\x1b[r';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);
 
+export type ChunkWriter = (bytes: Uint8Array) => Promise<void>;
+
+/** Full retained-screen frames begin with erase-all plus cursor-home. */
+const FULL_FRAME_PREFIX = new Uint8Array([0x1b, 0x5b, 0x32, 0x4a, 0x1b, 0x5b, 0x48]);
+
+const isFullFrame = (bytes: Uint8Array): boolean => {
+  if (bytes.byteLength < FULL_FRAME_PREFIX.byteLength) return false;
+  for (let index = 0; index < FULL_FRAME_PREFIX.byteLength; index += 1) {
+    if (bytes[index] !== FULL_FRAME_PREFIX[index]) return false;
+  }
+  return true;
+};
+
+/**
+ * Ordered, non-blocking sink for terminal output. Writes are delivered one at a time so a slow
+ * terminal consumer cannot block the caller; a full-frame redraw that is still queued is replaced
+ * by the next one, keeping the display near the latest frame without unbounded growth.
+ */
+export class CoalescingWriter {
+  private readonly queue: Uint8Array[] = [];
+  private pump: Promise<void> | null = null;
+  private failed = false;
+
+  constructor(private readonly writeChunk: ChunkWriter) {}
+
+  enqueue(bytes: Uint8Array): void {
+    if (bytes.byteLength === 0 || this.failed) return;
+    const last = this.queue[this.queue.length - 1];
+    if (last !== undefined && isFullFrame(last) && isFullFrame(bytes)) {
+      this.queue[this.queue.length - 1] = bytes;
+    } else {
+      this.queue.push(bytes);
+    }
+    if (this.pump === null) this.pump = this.pumpOnce();
+  }
+
+  /** Resolve once every chunk accepted before settlement (and during it) has been written. */
+  async flush(): Promise<void> {
+    while (this.pump !== null || this.queue.length > 0) {
+      if (this.pump === null) this.pump = this.pumpOnce();
+      const pump = this.pump;
+      if (pump === null) break;
+      await pump;
+    }
+  }
+
+  private async pumpOnce(): Promise<void> {
+    try {
+      while (this.queue.length > 0) {
+        const chunk = this.queue.shift();
+        if (chunk === undefined) break;
+        try {
+          await this.writeChunk(chunk);
+        } catch {
+          this.failed = true;
+          this.queue.length = 0;
+          return;
+        }
+      }
+    } finally {
+      this.pump = null;
+    }
+  }
+}
+
 /** Production Deno adapter. It never creates a second stdin reader. */
 export class DenoTerminal implements TerminalPort {
   private reader?: ReadableStreamDefaultReader<Uint8Array>;
   private pendingRead: Promise<Uint8Array | null> | null = null;
   private inputClosed = false;
   private draining = false;
+  private readonly output = new CoalescingWriter((bytes) =>
+    Deno.stdout.write(bytes).then(() => {})
+  );
 
   stdinIsTerminal(): boolean {
     return Deno.stdin.isTerminal();
@@ -146,7 +216,11 @@ export class DenoTerminal implements TerminalPort {
   }
 
   write(bytes: Uint8Array): void {
-    Deno.stdout.writeSync(bytes);
+    this.output.enqueue(bytes);
+  }
+
+  flush(): Promise<void> {
+    return this.output.flush();
   }
 
   addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void {
@@ -353,6 +427,13 @@ export class TerminalLifecycle {
       } catch {
         this.restoreFailed = true;
       }
+    }
+    // Deliver every queued output (including the control sequences above) before the host exits,
+    // since process exit does not wait for pending asynchronous terminal writes.
+    try {
+      await this.terminal.flush?.();
+    } catch {
+      this.restoreFailed = true;
     }
     this.removeSignals();
     this.acquired = false;

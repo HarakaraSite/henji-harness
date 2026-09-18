@@ -535,14 +535,15 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       case 'human_history_page': {
         const positionValue = this.core.currentPosition?.();
         const reader = this.options.humanHistoryReader;
+        const targetSessionId = admitted.sessionId ?? positionValue?.sessionId;
         if (
-          positionValue?.sessionId === undefined || reader === undefined ||
+          targetSessionId === undefined || reader === undefined ||
           this.options.historySessionMode !== 'durable'
         ) {
           return { kind: 'rejected', reason: 'unavailable' };
         }
         const pageValue = reader.readHumanHistoryPage({
-          sessionId: positionValue.sessionId,
+          sessionId: targetSessionId,
           direction: admitted.kind === 'human_history_open' ? 'latest' : admitted.direction,
           ...(admitted.kind === 'human_history_page' && admitted.cursor !== undefined
             ? { cursor: admitted.cursor }
@@ -553,14 +554,15 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       case 'human_history_detail': {
         const positionValue = this.core.currentPosition?.();
         const reader = this.options.humanHistoryReader;
+        const targetSessionId = admitted.sessionId ?? positionValue?.sessionId;
         if (
-          positionValue?.sessionId === undefined || reader === undefined ||
+          targetSessionId === undefined || reader === undefined ||
           this.options.historySessionMode !== 'durable'
         ) {
           return { kind: 'rejected', reason: 'unavailable' };
         }
         const value = reader.readHumanHistoryDetail(
-          positionValue.sessionId,
+          targetSessionId,
           admitted.detailId,
           admitted.scalarOffset,
         );
@@ -569,14 +571,15 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
       case 'human_history_search': {
         const positionValue = this.core.currentPosition?.();
         const reader = this.options.humanHistoryReader;
+        const targetSessionId = admitted.sessionId ?? positionValue?.sessionId;
         if (
-          positionValue?.sessionId === undefined || reader === undefined ||
+          targetSessionId === undefined || reader === undefined ||
           this.options.historySessionMode !== 'durable'
         ) {
           return { kind: 'rejected', reason: 'unavailable' };
         }
         const value = reader.searchHumanHistory({
-          sessionId: positionValue.sessionId,
+          sessionId: targetSessionId,
           query: admitted.query,
           direction: admitted.direction,
           ...(admitted.fromEntryId === undefined ? {} : { fromEntryId: admitted.fromEntryId }),

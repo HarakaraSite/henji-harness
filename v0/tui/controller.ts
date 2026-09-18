@@ -143,6 +143,8 @@ export class TuiController {
     matchScalarOffset?: number;
     wrapped?: boolean;
     loading?: boolean;
+    /** Set when viewing a stored Session read-only; absent means the active Session. */
+    sessionId?: string;
   } | null = null;
   private humanHistoryOperation: Promise<void> | null = null;
   private sessionSwitchOperation: Promise<void> | null = null;
@@ -197,6 +199,7 @@ export class TuiController {
       isIdle: () => this.state === 'idle',
       readyStatus: () => this.readyStatus(),
       modelSelection: () => this.session.modelSelectionSnapshot?.(),
+      viewSession: (id) => this.startHumanHistory(id),
       selectionStatusApplied: () => {
         this.modelSelectionNotice = true;
       },
@@ -793,16 +796,23 @@ export class TuiController {
     );
   }
 
-  private startHumanHistory(): void {
+  private startHumanHistory(viewSessionId?: string): void {
     if (this.state !== 'idle' || this.humanHistory !== null) {
       this.renderer.setStatus('history unavailable while busy');
       return;
     }
-    this.humanHistory = { selected: 0, loading: true };
+    this.humanHistory = {
+      selected: 0,
+      loading: true,
+      ...(viewSessionId === undefined ? {} : { sessionId: viewSessionId }),
+    };
     this.renderHumanHistory();
     let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
     try {
-      dispatched = this.dispatchIntent({ kind: 'human_history_open' });
+      dispatched = this.dispatchIntent({
+        kind: 'human_history_open',
+        ...(viewSessionId === undefined ? {} : { sessionId: viewSessionId }),
+      });
     } catch (error) {
       this.humanHistory = null;
       this.renderer.clearModal();
@@ -825,6 +835,9 @@ export class TuiController {
         selected,
         anchorEntryId: result.page.entries[selected]?.id,
         anchorScalarOffset: Number.MAX_SAFE_INTEGER,
+        ...(this.humanHistory.sessionId === undefined
+          ? {}
+          : { sessionId: this.humanHistory.sessionId }),
       };
       this.renderHumanHistory();
     }).catch((error: unknown) => {
@@ -850,6 +863,9 @@ export class TuiController {
       kind: 'human_history_page',
       direction,
       ...(cursor === undefined ? {} : { cursor }),
+      ...(this.humanHistory.sessionId === undefined
+        ? {}
+        : { sessionId: this.humanHistory.sessionId }),
     })).then((result) => {
       if (this.humanHistory === null) return;
       if (result.kind !== 'human_history_page') throw new PresentationDeliveryError();
@@ -962,6 +978,9 @@ export class TuiController {
       kind: 'human_history_detail',
       detailId,
       scalarOffset,
+      ...(this.humanHistory.sessionId === undefined
+        ? {}
+        : { sessionId: this.humanHistory.sessionId }),
     })).then((result) => {
       if (this.humanHistory === null) return;
       if (result.kind !== 'human_history_detail') throw new PresentationDeliveryError();
@@ -997,6 +1016,7 @@ export class TuiController {
       direction,
       ...(current === undefined ? {} : { fromEntryId: current }),
       ...(currentMatchOffset === undefined ? {} : { fromSourceScalarOffset: currentMatchOffset }),
+      ...(view.sessionId === undefined ? {} : { sessionId: view.sessionId }),
     })).then((result) => {
       if (this.humanHistory === null) return;
       if (result.kind !== 'human_history_search') throw new PresentationDeliveryError();
@@ -1022,6 +1042,7 @@ export class TuiController {
         matchEntryId: result.hit.entryId,
         matchScalarOffset: result.hit.sourceScalarOffset,
         wrapped: result.hit.wrapped,
+        ...(view.sessionId === undefined ? {} : { sessionId: view.sessionId }),
       };
       this.renderHumanHistory();
     }).catch((error: unknown) => {

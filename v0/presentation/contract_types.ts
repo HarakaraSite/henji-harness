@@ -358,16 +358,18 @@ export type PresentationIntent =
     }
   >
   | Readonly<{ readonly kind: 'history_export' }>
-  | Readonly<{ readonly kind: 'human_history_open' }>
+  | Readonly<{ readonly kind: 'human_history_open'; readonly sessionId?: string }>
   | Readonly<{
     readonly kind: 'human_history_page';
     readonly direction: 'oldest' | 'older' | 'newer' | 'latest';
     readonly cursor?: string;
+    readonly sessionId?: string;
   }>
   | Readonly<{
     readonly kind: 'human_history_detail';
     readonly detailId: string;
     readonly scalarOffset?: number;
+    readonly sessionId?: string;
   }>
   | Readonly<{
     readonly kind: 'human_history_search';
@@ -375,6 +377,7 @@ export type PresentationIntent =
     readonly direction: 'next' | 'previous';
     readonly fromEntryId?: string;
     readonly fromSourceScalarOffset?: number;
+    readonly sessionId?: string;
   }>
   | Readonly<{ readonly kind: 'history_export_all' }>
   | Readonly<

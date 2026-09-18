@@ -76,6 +76,8 @@ export interface ControllerOverlayOptions {
   readonly isIdle: () => boolean;
   readonly readyStatus: () => string;
   readonly modelSelection: () => ModelSelection | undefined;
+  /** Open the read-only history view for a stored Session without resuming it. */
+  readonly viewSession?: (id: string) => void;
   /** Notify the controller that a provider/model selection notice is now the status line. */
   readonly selectionStatusApplied?: () => void;
   readonly fail: (error: unknown) => Promise<void>;
@@ -259,6 +261,16 @@ export class ControllerOverlay {
           abort,
           generation,
         );
+        return;
+      }
+      if (event.kind === 'printable' && event.text.toLowerCase() === 'v') {
+        const row = modal.listing.sessions[modal.selected];
+        if (row !== undefined && this.options.viewSession !== undefined) {
+          this.modal = null;
+          renderer.clearModal?.();
+          this.options.viewSession(row.id);
+        }
+        return;
       }
       return;
     }

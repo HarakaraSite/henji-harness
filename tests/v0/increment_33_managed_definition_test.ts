@@ -543,7 +543,7 @@ Deno.test('Increment 33 resolves before stdin and reports evaluation before term
   }
 });
 
-Deno.test('Increment 33 re-resolves the saved exact Definition for Session reopen', async () => {
+Deno.test('Increment 33 reopens a stored Session under the selected Definition revision', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-binding-' });
   try {
     const dataRoot = `${root}/data`;
@@ -569,6 +569,7 @@ Deno.test('Increment 33 re-resolves the saved exact Definition for Session reope
       revision.manifest.logicalRef,
     );
 
+    // Reopening with an explicit revision evaluates that revision.
     await assertStartupError(
       () =>
         createWorkerSession({
@@ -577,12 +578,14 @@ Deno.test('Increment 33 re-resolves the saved exact Definition for Session reope
           dataRoot,
           persistence: 'session',
           sessionId,
+          selection: selected,
           physicalIoMode: 'provider-free',
         }),
       'definition_evaluation_failed',
       'worker_start',
       revision.manifest.logicalRef,
     );
+    // Continuing with the stored revision evaluates it.
     await assertStartupError(
       () =>
         createWorkerSession({
@@ -609,6 +612,8 @@ Deno.test('Increment 33 re-resolves the saved exact Definition for Session reope
       `example/session@sha256:${next.manifest.logicalRef.revision.digest}`,
       dataRoot,
     );
+    // A differing stored revision is a transition: the currently selected revision is evaluated, not
+    // rejected before evaluation.
     await assertStartupError(
       () =>
         createWorkerSession({
@@ -620,9 +625,9 @@ Deno.test('Increment 33 re-resolves the saved exact Definition for Session reope
           selection: nextSelection,
           physicalIoMode: 'provider-free',
         }),
-      'definition_invalid',
-      'session_binding',
-      revision.manifest.logicalRef,
+      'definition_evaluation_failed',
+      'worker_start',
+      next.manifest.logicalRef,
     );
 
     const roleMismatchId = await persistEmptyExternalSession(
@@ -942,6 +947,7 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
       dataRoot,
       persistence: 'session',
       sessionId: firstSessionId,
+      selection: firstSelection,
       physicalIoMode: 'provider-free',
     });
     try {

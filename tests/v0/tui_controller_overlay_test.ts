@@ -198,3 +198,88 @@ Deno.test('controller overlay searches models and changes effort separately', as
   assert(statuses.some((status) => status.includes('effort medium')));
   await overlay.settle();
 });
+
+Deno.test('controller overlay views a stored session read-only without resuming it', async () => {
+  const viewed: string[] = [];
+  let switched = false;
+  const listing: PresentationNavigationListing = {
+    sessions: [
+      {
+        id: 'current-session',
+        agent: 'default',
+        createdAt: '2026-09-08T00:00:00Z',
+        updatedAt: '2026-09-08T00:00:00Z',
+        turnCount: 2,
+        messageCount: 4,
+        current: true,
+        resumed: true,
+        mismatch: false,
+      },
+      {
+        id: 'stored-session',
+        agent: 'default',
+        createdAt: '2026-09-07T00:00:00Z',
+        updatedAt: '2026-09-07T00:00:00Z',
+        turnCount: 3,
+        messageCount: 6,
+        current: false,
+        resumed: false,
+        mismatch: true,
+      },
+    ],
+    skippedInvalid: 0,
+  };
+  const navigation: TuiNavigationLike = {
+    persistent: true,
+    list: () => Promise.resolve(listing),
+    switchTo: () => {
+      switched = true;
+      return Promise.reject(new Error('must not resume for a read-only view'));
+    },
+    historyPage: () => Promise.resolve(undefined),
+    currentPosition: () => ({
+      sessionId: 'current-session',
+      createdAt: '2026-09-08T00:00:00.000Z',
+      agent: 'default',
+      committedTurn: 2,
+      messageCount: 4,
+    }),
+  };
+  let pickerRendered = false;
+  const renderer = {
+    setStatus: () => {},
+    clearModal: () => {},
+    renderSessionPicker: (
+      _listing: PresentationNavigationListing,
+      _selected: number,
+      _page: number,
+      loading = false,
+    ) => {
+      if (!loading) pickerRendered = true;
+    },
+  } as unknown as TuiRenderer;
+  const overlay = new ControllerOverlay({
+    renderer,
+    navigation,
+    dispatch: (_intent: PresentationIntent): PresentationIntentResult => ({
+      kind: 'rejected',
+      reason: 'unavailable',
+    }),
+    setSession: () => {},
+    idleAllowed: () => true,
+    isIdle: () => true,
+    readyStatus: () => 'ready',
+    modelSelection: () => undefined,
+    viewSession: (id) => viewed.push(id),
+    fail: (error) => Promise.reject(error),
+  });
+
+  overlay.openPicker();
+  await waitFor(() => pickerRendered);
+  overlay.process({ kind: 'down' });
+  overlay.process({ kind: 'printable', text: 'v', codePoint: 'v'.codePointAt(0)! });
+  assertEquals(viewed, ['stored-session']);
+  assert(!switched, 'read-only view must not resume the session');
+  assert(!overlay.isOpen);
+  await overlay.settle();
+});

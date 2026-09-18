@@ -66,7 +66,6 @@ import {
   persistenceCode,
   proposalOutcome,
   sameCorrelation,
-  sameRef,
   turnEndFromOutcome,
 } from './worker_host_outcome.ts';
 import { HostMessageQueue } from './worker_host_queue.ts';
@@ -244,12 +243,9 @@ export class WorkerHostSession {
     if (
       record !== undefined &&
       (record.workspaceRoot !== options.workspaceRoot ||
-        record.agent !== options.agent ||
-        !sameRef(record.definition, options.definition))
+        record.agent !== options.agent)
     ) {
-      throw new Error(
-        'session Definition revision does not match the selected binding',
-      );
+      throw new Error('session binding does not match the opened session');
     }
     const nextTurn = record?.nextTurn ?? 1;
     const defaultSelection = options.initialModelSelection ??

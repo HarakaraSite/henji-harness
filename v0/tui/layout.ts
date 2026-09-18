@@ -561,7 +561,7 @@ const overlayRows = (
     lines.push(...(overlay.lines ?? []).slice(0, 12));
   } else if (overlay.kind === 'sessionPicker') {
     lines.push(
-      `session picker · Up/Down select · Left/Right page · Enter resume · Esc cancel`,
+      `session picker · Up/Down select · Left/Right page · Enter resume · v view history · Esc cancel`,
       `page ${overlay.page + 1}${overlay.loading ? ' · loading' : ''}`,
     );
     const rows = overlay.listing?.sessions ?? [];
@@ -576,7 +576,7 @@ const overlayRows = (
       const selected = start + index === overlay.selected;
       const timestamp = localSessionTimestamp(row.updatedAt);
       const title = row.title ?? 'untitled';
-      const availability = row.current ? 'current' : row.mismatch ? 'unavailable' : 'resumable';
+      const availability = row.current ? 'current' : row.mismatch ? 'revision change' : 'resumable';
       lines.push(
         truncateCells(
           `${selected ? '>' : ' '} ${timestamp}  ${safeDisplay(title, false)} · ${
