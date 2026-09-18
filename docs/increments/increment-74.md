@@ -142,3 +142,17 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
   - main isolateのtimer queueに問題を起こすHenji固有の何か（例: turn中だけ多数のI/O eventが連続する）。
 - 次の計測: turn中に`setTimeout`の単発（例: 9秒後）を仕込み、turn終了前後で発火するかを確認する。また、busy中の
   input処理とtimerの比率を計測し、I/O eventがtimerを完全にstarveする条件を特定する。
+
+### 追加計測5（2026-09-18、決定的）
+
+- busy timer callbackの実行回数`__TICK`と独立intervalの実行回数`__HB`をグローバルカウンタで数え、9秒後の単発
+  `setTimeout`でファイルへ保存した（console出力に依存しない）。
+- 12秒の`bash sleep` turn中、9秒時点で`__TICK=40`、`__HB=29`。つまり**busy timer callbackも独立intervalも
+  実行されている**。9秒の単発timerも発火した。
+- 一方、`console.error`による`HB`／`TICK`出力はturn中に止まっていた。したがって「timerが止まる」のではなく、
+  **turn中はconsole.error（stderr）出力が止まる／表示へ反映されない**。display更新の問題である。
+- 再解釈: B1の症状（busy表示・経過時間・spinnerが更新されない）の原因はtimer飢餓ではなく、turn中に
+  **terminalへのwrite（stdout/stderr）が表示へ反映されない経路**にある可能性が高い。次の計測は、
+  `Deno.stdout.writeSync`の戻り／例外、`Deno.stderr`出力、TUIのframe書き込みがturn中にどうなるかを直接確認する。
+- 前段の「heartbeatが3〜4回で停止」はconsole.error出力の停止を観測していたもので、timer停止の証拠ではなかった。
+  計画の「timer飢餓」という表現はこの結果に合わせて修正が必要（表示/write経路の調査へ変更）。
