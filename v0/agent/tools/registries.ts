@@ -15,7 +15,7 @@ import {
 } from './work_tools.ts';
 import { createSkillTool, type SkillCatalog } from '../definitions/skills.ts';
 import {
-  createPlannerDelegationTool,
+  createSubagentDelegationTool,
   type PlannerDelegationHandler,
 } from './planner_delegation.ts';
 import type { AgentCapabilityDeclaration } from '../definitions/agent_definition.ts';
@@ -34,6 +34,8 @@ export interface RegistryMaterializationContext {
   readonly bashOutputStore?: BashOutputStore;
   readonly webSearchBackend?: WebSearchBackend;
   readonly plannerDelegation?: PlannerDelegationHandler;
+  /** Delegation handlers keyed by named subagent. */
+  readonly subagentDelegations?: ReadonlyMap<string, PlannerDelegationHandler>;
   /** Tool Definition components for identities resolved by the Host/Worker. */
   readonly toolDefinitions?: readonly ToolComponent[];
   /** Internal lookup for Definition-provided tool components. */
@@ -69,13 +71,17 @@ export const createDeclaredTool = (
     }
     return tool;
   }
-  switch (`${identity}`) {
+  const value = `${identity}`;
+  if (value.startsWith('tool:delegate_to_')) {
+    const name = value.slice('tool:delegate_to_'.length);
+    const handler = context.subagentDelegations?.get(name);
+    if (handler === undefined) return materializationFailure(identity);
+    return createSubagentDelegationTool(name, handler);
+  }
+  switch (value) {
     case 'tool:skill':
       if (context.skillCatalog.skills.length === 0) return materializationFailure(identity);
       return createSkillTool(context.skillCatalog);
-    case 'tool:delegate_to_planner':
-      if (context.plannerDelegation === undefined) return materializationFailure(identity);
-      return createPlannerDelegationTool(context.plannerDelegation);
     case 'tool:submit_json_result':
       return createJsonResultSubmissionTool();
     default:
@@ -102,15 +108,22 @@ export const createDeclaredRegistry = (
   context: RegistryMaterializationContext,
 ): Registry => {
   for (const subagent of declaration.subagents) {
-    if (`${subagent}` !== 'subagent:planner') return materializationFailure(subagent);
+    const name = `${subagent}`.slice('subagent:'.length);
+    if (!hasIdentity(declaration.tools, `tool:delegate_to_${name}`)) {
+      throw new Error(`subagent delegation declaration is incoherent: ${subagent}`);
+    }
+    if (context.subagentDelegations?.get(name) === undefined) {
+      throw new Error(`declared subagent ${name} requires a delegation handler`);
+    }
   }
-  const requiresPlanner = hasIdentity(declaration.subagents, 'subagent:planner');
-  const declaresDelegation = hasIdentity(declaration.tools, 'tool:delegate_to_planner');
-  if (requiresPlanner !== declaresDelegation) {
-    throw new Error('planner delegation declaration is incoherent');
-  }
-  if (requiresPlanner && context.plannerDelegation === undefined) {
-    throw new Error('declared planner subagent requires planner delegation handler');
+  for (const tool of declaration.tools) {
+    const value = `${tool}`;
+    if (value.startsWith('tool:delegate_to_')) {
+      const name = value.slice('tool:delegate_to_'.length);
+      if (!hasIdentity(declaration.subagents, `subagent:${name}`)) {
+        throw new Error(`delegation tool has no declared subagent: ${value}`);
+      }
+    }
   }
   if (hasIdentity(declaration.tools, 'tool:skill')) {
     const declared = [...declaredSkillNames(declaration)].sort();
@@ -163,7 +176,7 @@ export const createProductionRegistry = (
     [
       ...createWorkTools(workspace, seams),
       ...(skillCatalog.skills.length > 0 ? [createSkillTool(skillCatalog)] : []),
-      createPlannerDelegationTool(plannerDelegation),
+      createSubagentDelegationTool('planner', plannerDelegation),
       createJsonResultSubmissionTool(),
     ] as readonly Tool[],
   );

@@ -76,6 +76,22 @@
 - 次: tool Definition transportと任意kindの一般化（後続increment）。
 - 正本: `docs/increments/increment-71.md`。architecture（`henji-host-agent-worker.md`）とroadmapへ反映済み。
 
+### Increment 72 — named subagentの一般化（実装完了、実provider probe未実施）
+
+- 状態: 実装完了。`v0:gate` exit 0。delegation toolを`createSubagentDelegationTool(name, handler)`へ、
+  child admissionを`admitSubagentExecution(name, callId)`（per-name、child budget共有）へ一般化。
+  `registries.ts`は`subagentDelegations`（name→handler）で`tool:delegate_to_<name>`をmaterializeし宣言整合を
+  一般検査。`worker_agent_api.ts`は`resolveSubagentComposition(name)`＋`createSubagentHandler`と
+  `additionalSubagents`を追加。Hostはbundled subagent（planner）＋`agents.json`の`subagent:*` bindingを解決
+  （bundled moduleが無いnameはbinding必須）。manifest `subagents`（name＋ref）は不変。
+  新規`tests/v0/increment_72_named_subagent_test.ts`（1件、`v0:test`へ追加）。
+- 次: 実provider probe（external named subagentをbindした1 turn）、binary build・配置、architecture／roadmap
+  正本更新（別承認）。commitは明示指示待ち。
+- 正本: `docs/increments/increment-72.md`。
+- 注意: 子lane provider evidenceのmodel selectionはplanner既定のまま（named subagent固有selectionのevidence
+  属性はfollow-up。Definitionは`createModel('planner', selection)`で自モデルを選べる）。他候補は
+  `docs/experience/normal-use-inbox.md`のE2に記録。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`（build `579362a82b210935f64f1c235ebc8eae66aec2a0e42f00d80e6ea7611a246461`、binary SHA-256

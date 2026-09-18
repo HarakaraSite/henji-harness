@@ -199,7 +199,7 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
  */
 export class ParentTurnExecutionContext implements ModelExecutionContext {
   readonly lane = 'parent' as const;
-  private plannerAdmitted = false;
+  private readonly admittedSubagents = new Set<string>();
   private readonly child: ChildTurnExecutionContext;
 
   constructor(
@@ -256,16 +256,20 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     return this.diagnosticOwner?.persist() ?? Promise.resolve();
   }
 
-  /** Admit at most one child and return its restricted child-lane view. */
-  admitPlannerExecution(callId?: string): ChildTurnExecutionContext | undefined {
-    if (this.plannerAdmitted) return undefined;
-    this.plannerAdmitted = true;
+  /** Admit at most one execution per named subagent and return its restricted child-lane view. */
+  admitSubagentExecution(name: string, callId?: string): ChildTurnExecutionContext | undefined {
+    if (this.admittedSubagents.has(name)) return undefined;
+    this.admittedSubagents.add(name);
     this.child.setDelegatedCallId(callId);
     return this.child;
   }
 
+  admitPlannerExecution(callId?: string): ChildTurnExecutionContext | undefined {
+    return this.admitSubagentExecution('planner', callId);
+  }
+
   get hasAdmittedPlannerExecution(): boolean {
-    return this.plannerAdmitted;
+    return this.admittedSubagents.has('planner');
   }
 }
 

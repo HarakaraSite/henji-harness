@@ -242,7 +242,9 @@ const materializeRegistry = (
     workspace,
     skillCatalog,
     workTools: seam.workTools,
-    plannerDelegation,
+    ...(plannerDelegation === undefined
+      ? {}
+      : { subagentDelegations: new Map([['planner', plannerDelegation]]) }),
     webSearchBackend,
     ...(toolDefinitions.length === 0 ? {} : { toolDefinitions }),
   });

@@ -134,6 +134,7 @@ const failureMessage = (code: FailureCode): string => {
 };
 
 const successEnvelope = (
+  agentName: string,
   outcome: LoopOutcome,
   usage: PlannerDelegationUsage,
 ): string | undefined => {
@@ -145,7 +146,7 @@ const successEnvelope = (
     if (outcome.terminalKind !== undefined) return undefined;
     return JSON.stringify({
       ok: true,
-      agent: 'planner',
+      agent: agentName,
       output: { kind: 'text', text: outcome.finalText },
       usage,
     });
@@ -153,7 +154,7 @@ const successEnvelope = (
   if (outcome.stopReason === 'tool_terminal' && outcome.terminalKind === 'json_result') {
     return JSON.stringify({
       ok: true,
-      agent: 'planner',
+      agent: agentName,
       output: { kind: 'json', json: outcome.finalText },
       usage,
     });
@@ -176,12 +177,21 @@ const isParentContext = (
     typeof (candidate as Partial<ParentTurnExecutionContext>).admitPlannerExecution === 'function';
 };
 
-/** Create the sole normal-runtime nonterminal planner delegation tool. */
-export const createPlannerDelegationTool = (
+/** Model-visible tool name for one named delegated subagent. */
+export const subagentDelegationToolName = (name: string): string => `delegate_to_${name}`;
+
+export const subagentDelegationDescription = (name: string): string =>
+  name === 'planner'
+    ? DELEGATE_TO_PLANNER_DESCRIPTION
+    : `Delegate one explicit task to the ${name} subagent for this parent turn. The subagent receives only the task and returns one bounded synchronous result. Call at most once per turn.`;
+
+/** Create the nonterminal delegation tool for one named subagent. */
+export const createSubagentDelegationTool = (
+  name: string,
   handler: PlannerDelegationHandler,
 ): Tool => ({
-  name: 'delegate_to_planner',
-  description: DELEGATE_TO_PLANNER_DESCRIPTION,
+  name: subagentDelegationToolName(name),
+  description: subagentDelegationDescription(name),
   inputSchema: DELEGATE_TO_PLANNER_SCHEMA,
   async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
     if (!isObject(argumentsValue) || Object.keys(argumentsValue).length !== 1) {
@@ -200,7 +210,8 @@ export const createPlannerDelegationTool = (
         : context) as ParentTurnExecutionContext;
     const signal = 'modelExecution' in context ? context.signal : context.signal;
     throwIfCancelled(signal);
-    const childContext = parentContext.admitPlannerExecution(
+    const childContext = parentContext.admitSubagentExecution(
+      name,
       'callId' in context && typeof context.callId === 'string' ? context.callId : undefined,
     );
     if (childContext === undefined) {
@@ -237,7 +248,7 @@ export const createPlannerDelegationTool = (
       throw new PlannerDelegationFailureError('planner_output_limit', execution.outcome.diagnostic);
     }
 
-    const output = successEnvelope(execution.outcome, usage);
+    const output = successEnvelope(name, execution.outcome, usage);
     if (output === undefined) {
       const code = execution.outcome.ok ? 'planner_output_invalid' : 'planner_failed';
       throw new PlannerDelegationFailureError(code, execution.outcome.diagnostic);
@@ -248,3 +259,8 @@ export const createPlannerDelegationTool = (
     return output;
   },
 });
+
+/** Create the bundled planner delegation tool (unchanged model-visible contract). */
+export const createPlannerDelegationTool = (
+  handler: PlannerDelegationHandler,
+): Tool => createSubagentDelegationTool('planner', handler);

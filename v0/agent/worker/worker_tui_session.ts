@@ -41,17 +41,18 @@ import { resolveWorkspace } from '../tools/work_tools.ts';
 import {
   managedToolDefinitionLoadRequest,
   managedWorkerDefinitionLoadRequest,
-  readWorkerModuleRevision,
 } from './worker_capsule.ts';
 import {
+  BUNDLED_SUBAGENT_NAMES,
   BUNDLED_TOOL_DEFINITION_IDENTITIES,
+  bundledSubagentLoadRequest,
   bundledToolDefinitionLoadRequest,
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';
-import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
 import {
   AgentBindingError,
-  resolveSubagentAgentSlotBinding,
+  resolveAgentSlotBindings,
+  type ResolvedAgentSlotBinding,
 } from '../definitions/agent_slot_binding.ts';
 import {
   type ResolvedToolDefinitionBinding,
@@ -320,12 +321,11 @@ export const createWorkerSession = async (
     const resolveSubagentDefinitions = async (): Promise<
       readonly WorkerSubagentLoadRequest[] | undefined
     > => {
-      if (activeSelection.id !== 'default') return undefined;
-      let bound;
+      let bindings: ReadonlyMap<string, ResolvedAgentSlotBinding>;
       try {
-        bound = configRoot === undefined || dataRoot === undefined
-          ? undefined
-          : await resolveSubagentAgentSlotBinding(configRoot, dataRoot, 'planner');
+        bindings = configRoot === undefined || dataRoot === undefined
+          ? new Map<string, ResolvedAgentSlotBinding>()
+          : await resolveAgentSlotBindings(configRoot, dataRoot);
       } catch (error) {
         if (error instanceof AgentBindingError) {
           throw new DefinitionStartupError(
@@ -341,18 +341,22 @@ export const createWorkerSession = async (
         }
         throw error;
       }
-      if (bound !== undefined) {
-        return [{
-          subagentName: 'planner',
-          ref: structuredClone(bound.ref),
-          module: managedWorkerDefinitionLoadRequest(bound.revision),
-        }];
+      const requests: WorkerSubagentLoadRequest[] = [];
+      const resolvedNames = new Set<string>();
+      for (const resolvedBinding of bindings.values()) {
+        if (resolvedBinding.slot.kind !== 'subagent') continue;
+        requests.push({
+          subagentName: resolvedBinding.slot.name,
+          ref: structuredClone(resolvedBinding.ref),
+          module: managedWorkerDefinitionLoadRequest(resolvedBinding.revision),
+        });
+        resolvedNames.add(resolvedBinding.slot.name);
       }
-      return [{
-        subagentName: 'planner',
-        ref: await builtinDefinitionRef('planner', buildManifest()),
-        module: await readWorkerModuleRevision(workerBuiltinModulePath('planner')),
-      }];
+      for (const name of BUNDLED_SUBAGENT_NAMES) {
+        if (resolvedNames.has(name)) continue;
+        requests.push(await bundledSubagentLoadRequest(name));
+      }
+      return requests.length === 0 ? undefined : requests;
     };
     /*
      * Resolve the tool Definition for the bundled web_search identity. An activation-level

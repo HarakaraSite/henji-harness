@@ -376,7 +376,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   assertEquals(
     createDeclaredRegistry(defaultDefinition.capabilities, {
       ...input,
-      plannerDelegation,
+      subagentDelegations: new Map([['planner', plannerDelegation]]),
       webSearchBackend: providerFreeWebSearchBackend,
       toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
     }).definitions().map((tool) => tool.name),

@@ -26,6 +26,7 @@ import {
   resolveBuiltinDefinitionInstruction,
 } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
+import type { PlannerDelegationHandler } from './tools/planner_delegation.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
 import type { InstructionComponent } from './instructions/component.ts';
 import { finalSystemInstructionForContribution } from './instructions/worker_core_finalizer.ts';
@@ -123,6 +124,12 @@ export interface AgentCompositionOptions {
    * default declaration. The Host resolves and supplies matching tool Definition components.
    */
   readonly additionalTools?: readonly AgentResourceIdentity[];
+  /**
+   * Additional `subagent:<name>` identities declared by this Definition, on top of the bundled
+   * default declaration. Each requires a matching `tool:delegate_to_<name>` and a Host-resolved
+   * subagent Definition component/module.
+   */
+  readonly additionalSubagents?: readonly AgentResourceIdentity[];
 }
 
 export interface WorkerAgentManifest {
@@ -321,8 +328,8 @@ const compositionComponents = (
     registry.promptGuidelines(),
   ).components;
 
-const createPlannerHandler = (
-  planner: WorkerAgentComposition,
+const createSubagentHandler = (
+  subagent: WorkerAgentComposition,
 ) =>
 async (task: string, childContext: ChildTurnExecutionContext): Promise<{
   readonly outcome: LoopOutcome;
@@ -330,14 +337,14 @@ async (task: string, childContext: ChildTurnExecutionContext): Promise<{
 }> => {
   const requestCountBefore = childContext.providerRequestCount?.() ?? 0;
   const systemInstruction = finalSystemInstructionForContribution(
-    planner.systemInstruction,
+    subagent.systemInstruction,
   );
   const outcome = await runAgent(
     task,
-    planner.model,
-    planner.registry,
+    subagent.model,
+    subagent.registry,
     {
-      maxSteps: planner.maxSteps,
+      maxSteps: subagent.maxSteps,
       systemInstruction,
       executionContext: childContext,
       signal: childContext.signal,
@@ -353,22 +360,26 @@ async (task: string, childContext: ChildTurnExecutionContext): Promise<{
 };
 
 /**
- * Resolve the delegated planner composition. A Host-provided `subagent:planner` module is used
- * when present; otherwise the bundled planner Definition is composed. An opaque Definition that
- * does not use this helper controls its own subagent wiring.
+ * Resolve one delegated subagent composition. A Host-provided `subagent:<name>` module is used
+ * when present; otherwise only the bundled planner Definition is composed. An opaque Definition
+ * that does not use this helper controls its own subagent wiring.
  */
-const resolvePlannerComposition = (
+const resolveSubagentComposition = (
   input: ExecutableAgentDefinitionInput,
   options: AgentCompositionOptions,
+  name: string,
 ): { readonly composition: WorkerAgentComposition; readonly ref?: DefinitionRevisionRef } => {
-  const provided = input.subagents?.find((subagent) => subagent.subagentName === 'planner');
+  const provided = input.subagents?.find((subagent) => subagent.subagentName === name);
   if (provided === undefined) {
+    if (name !== 'planner') {
+      throw new Error(`delegated subagent Definition is unavailable: ${name}`);
+    }
     return { composition: createPlannerAgentComposition(input, options) };
   }
   const { subagents: _rootSubagents, ...subagentInput } = input;
   const composition = provided.definition(subagentInput);
   if (composition.role !== 'planner') {
-    throw new Error('delegated planner Definition composed a non-planner role');
+    throw new Error(`delegated ${name} Definition composed a non-child role`);
   }
   return { composition, ref: provided.ref };
 };
@@ -383,30 +394,45 @@ export const createDefaultAgentComposition = (
 ): WorkerAgentComposition => {
   const resolved = defaultAgentDefinition(definitionInput(input));
   const additionalTools = options.additionalTools ?? [];
-  const capabilities = additionalTools.length === 0 ? resolved.capabilities : Object.freeze({
-    ...resolved.capabilities,
-    tools: Object.freeze([...resolved.capabilities.tools, ...additionalTools]),
-  });
-  const resourceIdentities = additionalTools.length === 0
-    ? resolved.resourceSelection.resources.map(String)
-    : (() => {
-      const identities = [...resolved.resourceSelection.resources, ...additionalTools];
-      identities.sort(compareAgentResourceIdentities);
-      return identities
-        .filter((identity, index) =>
-          index === 0 || compareAgentResourceIdentities(identities[index - 1], identity) !== 0
-        )
-        .map(String);
-    })();
-  const planner = resolvePlannerComposition(input, options);
+  const additionalSubagents = options.additionalSubagents ?? [];
+  const hasExtra = additionalTools.length > 0 || additionalSubagents.length > 0;
+  const capabilities = hasExtra
+    ? Object.freeze({
+      ...resolved.capabilities,
+      tools: Object.freeze([...resolved.capabilities.tools, ...additionalTools]),
+      subagents: Object.freeze([...resolved.capabilities.subagents, ...additionalSubagents]),
+    })
+    : resolved.capabilities;
+  const resourceIdentities = !hasExtra ? resolved.resourceSelection.resources.map(String) : (() => {
+    const identities = [
+      ...resolved.resourceSelection.resources,
+      ...additionalTools,
+      ...additionalSubagents,
+    ];
+    identities.sort(compareAgentResourceIdentities);
+    return identities
+      .filter((identity, index) =>
+        index === 0 || compareAgentResourceIdentities(identities[index - 1], identity) !== 0
+      )
+      .map(String);
+  })();
   const maxSteps = maxStepsFor(resolved.limits, options);
-  const plannerHandler = createPlannerHandler(planner.composition);
+  const subagentRefs: { subagentName: string; ref: DefinitionRevisionRef }[] = [];
+  const subagentDelegations = new Map<string, PlannerDelegationHandler>();
+  for (const identity of capabilities.subagents) {
+    const name = `${identity}`.slice('subagent:'.length);
+    const subagent = resolveSubagentComposition(input, options, name);
+    subagentDelegations.set(name, createSubagentHandler(subagent.composition));
+    if (subagent.ref !== undefined) {
+      subagentRefs.push({ subagentName: name, ref: subagent.ref });
+    }
+  }
   const providedToolDefinitions: ToolComponent[] = [...(input.toolDefinitions ?? [])];
   const registry = createDeclaredRegistry(capabilities, {
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
-    plannerDelegation: plannerHandler,
+    subagentDelegations,
     webSearchBackend: input.physicalIo.webSearchBackend,
     ...(providedToolDefinitions.length === 0 ? {} : { toolDefinitions: providedToolDefinitions }),
   });
@@ -442,10 +468,7 @@ export const createDefaultAgentComposition = (
       resolved.model.profile.id,
       undefined,
       undefined,
-      planner.ref === undefined ? undefined : [{
-        subagentName: 'planner',
-        ref: planner.ref,
-      }],
+      subagentRefs.length === 0 ? undefined : subagentRefs,
     ),
     resolved: effectiveResolved,
   });

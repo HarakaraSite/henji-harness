@@ -269,3 +269,27 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 正本: 採用済みの境界は[`roadmap.md`](../roadmap.md)、
   [`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)、Increment 32〜34。
 - 調査: [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
+
+### E2 — 追加managed resource kind候補（未採用）
+
+- 観測（2026-09-18）: Agent Definition、Henji Instruction、tool Definitionの3 kindがmanaged revisionとして
+  存在し、kindごとにref/framing/store/CLI/binding/loadが別実装になっている。「任意kindの一般化」を検討したが、
+  Skillは他harness互換のnative `SKILL.md`形式に価値があり、Henji固有revisionとして管理する実利が薄いため
+  最初の適用例から外した。
+- 候補（Henjiが単独でownerになれるcontractに限る）。優先順は未定で、通常利用で必要になった時点で個別incrementへ
+  採用する。
+  - named subagentの一般化: `agent-definition`（role=subagent）×`subagent:<name>` slotをplanner以外へ広げる。
+    独立kindではない。→ 2026-09-18に次のincrementとして採用（increment-72）。
+  - provider declaration revision: data-only宣言をexact revision化（pin/transport/activation）。Provider外部化の
+    続き。ファイルベースで足りる可能性あり。
+  - model profile revision: model/effort/catalog preset。selection presetという別contract。
+  - context/compaction strategy revision: generationごとのcontext投影/compaction policy（A3）。設計大きめ。
+  - instruction component／policy／workflow revision: base 1つではない複数componentの順序付き合成（R4）。
+  - integration declaration（MCP connection）revision: connection/transport/capability（E1）。
+  - Surface data/code revision: Host側Surface差し替え（F10/F24）。規模大。
+  - Agent loop／runtime policy revision: loop semantics置換。core変更で高リスク。
+- framework自体の扱い: 共通kind基盤（ref/framing/store/CLI/binding/loadをkind descriptor化）は、実利用から
+  必要になった具体的なkindが決まってから、そのために必要なseamだけ切り出す。仮想的な汎用plugin discovery/loaderは
+  現時点で採用しない（architectureの「必要になるまで共通化しない」方針）。
+- 再検討条件: 上記候補のいずれかを通常利用で更新・pin・transport・activationする具体的必要が出ること。
+- 正本: [`roadmap.md`](../roadmap.md) F24、[`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)。
