@@ -8,13 +8,13 @@ export interface OpenAIModelCatalogEntry {
   readonly efforts: readonly ReasoningEffort[];
 }
 
-const bundledOpenAI = bundledDefaultDeclarationFor('openai')!;
+const bundledOpenAI = bundledDefaultDeclarationFor('openai-responses')!;
 
 export const OPENAI_MODEL_CATALOG: readonly OpenAIModelCatalogEntry[] =
   bundledOpenAI.modelCatalog.entries;
 
 export const OPENAI_DEFAULT_MODEL_SELECTION: OpenAIModelSelection = Object.freeze({
-  provider: 'openai',
+  provider: 'openai-responses',
   api: 'openai-responses',
   authProfile: 'openai-api-key',
   modelId: bundledOpenAI.defaults.modelId,
@@ -22,7 +22,7 @@ export const OPENAI_DEFAULT_MODEL_SELECTION: OpenAIModelSelection = Object.freez
 });
 
 const openAIEntries = (): readonly OpenAIModelCatalogEntry[] =>
-  declarationFor('openai')?.modelCatalog.entries ?? OPENAI_MODEL_CATALOG;
+  declarationFor('openai-responses')?.modelCatalog.entries ?? OPENAI_MODEL_CATALOG;
 
 export const openAIModelCatalogEntry = (
   modelId: string,
@@ -35,7 +35,7 @@ export const isOpenAIModelSelection = (
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const selection = value as Partial<ModelSelection>;
   if (
-    selection.provider !== 'openai' || selection.api !== 'openai-responses' ||
+    selection.provider !== 'openai-responses' || selection.api !== 'openai-responses' ||
     selection.authProfile !== 'openai-api-key' || typeof selection.modelId !== 'string' ||
     typeof selection.effort !== 'string'
   ) return false;
@@ -54,7 +54,7 @@ export const selectOpenAIModel = (
     throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
   }
   return Object.freeze({
-    provider: 'openai',
+    provider: 'openai-responses',
     api: 'openai-responses',
     authProfile: 'openai-api-key',
     modelId,

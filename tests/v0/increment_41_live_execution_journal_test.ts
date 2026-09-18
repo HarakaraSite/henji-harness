@@ -237,7 +237,7 @@ const makeCompleteEvidence = (
     method: 'POST',
     requestBody: '{}',
     requestMetadata: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       api: 'openrouter-chat-completions',
       modelId: input.model.modelId,
       effort: input.model.effort,
@@ -539,7 +539,7 @@ Deno.test('Increment 41 admits before dispatch and appends live observations', a
             requestBody: '{}',
             requestBodyBytes: 2,
             requestMetadata: {
-              provider: 'openrouter',
+              provider: 'openrouter-chat',
               api: 'openrouter-chat-completions',
               modelId: input.model.modelId,
               effort: input.model.effort,

@@ -452,7 +452,7 @@ const validAssistantMessage = (value: unknown): boolean => {
 const validProviderState = (value: unknown): boolean =>
   value === undefined ||
   (exactObject(value, ['provider', 'reasoningDetails']) &&
-    value.provider === 'openrouter' && Array.isArray(value.reasoningDetails) &&
+    value.provider === 'openrouter-chat' && Array.isArray(value.reasoningDetails) &&
     value.reasoningDetails.every(isJsonValue)) ||
   (exactObject(value, ['provider', 'replayItems'], ['model']) &&
     typeof value.provider === 'string' && value.provider.length > 0 &&

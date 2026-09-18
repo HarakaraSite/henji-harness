@@ -177,7 +177,7 @@ const persistEmptyExternalSession = async (
   const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   const handle = await store.allocateWorker(agent, definition);
   const timestamp = '2026-09-12T01:02:03.000Z';
-  const model = defaultModelSelectionFor('openrouter');
+  const model = defaultModelSelectionFor('openrouter-chat');
   const record: StoredSessionRecord = {
     schemaVersion: 6,
     sessionId: handle.id,

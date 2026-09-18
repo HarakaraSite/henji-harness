@@ -78,22 +78,22 @@ Deno.test('Increment 15 exposes the approved provider-scoped curated catalogs', 
     ['gpt-6-astra', 'low'],
   ]);
   assertEquals(
-    searchModelsFor('openai', '5.6').map((entry) => entry.modelId),
+    searchModelsFor('openai-responses', '5.6').map((entry) => entry.modelId),
     ['gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.6-terra'],
   );
-  assertEquals(searchModelsFor('openrouter', 'glm').map((entry) => entry.modelId), [
+  assertEquals(searchModelsFor('openrouter-chat', 'glm').map((entry) => entry.modelId), [
     'z-ai/glm-5.3',
     'z-ai/glm-5.3-flash',
   ]);
-  assertEquals(selectModelFor('openai', 'gpt-5.6-terra', 'max').effort, 'max');
-  assertEquals(modelCatalogEntryFor('openai', 'gpt-6-astra')?.efforts, [
+  assertEquals(selectModelFor('openai-responses', 'gpt-5.6-terra', 'max').effort, 'max');
+  assertEquals(modelCatalogEntryFor('openai-responses', 'gpt-6-astra')?.efforts, [
     'low',
     'medium',
     'high',
     'xhigh',
     'max',
   ]);
-  assertEquals(defaultModelSelectionFor('openai'), OPENAI_DEFAULT_MODEL_SELECTION);
+  assertEquals(defaultModelSelectionFor('openai-responses'), OPENAI_DEFAULT_MODEL_SELECTION);
 });
 
 Deno.test('Increment 15 presentation applies provider defaults atomically and scopes model changes', async () => {
@@ -112,30 +112,30 @@ Deno.test('Increment 15 presentation applies provider defaults atomically and sc
   );
   const providerResult = await adapter.dispatch({
     kind: 'select_provider',
-    provider: 'openai',
+    provider: 'openai-responses',
   });
   assertEquals(selection, OPENAI_DEFAULT_MODEL_SELECTION);
   assertEquals(providerResult, {
     kind: 'model_selection',
     status: 'selected',
-    selection: { provider: 'openai', modelId: 'gpt-5.6-sol', effort: 'medium' },
+    selection: { provider: 'openai-responses', modelId: 'gpt-5.6-sol', effort: 'medium' },
   });
 
   const modelResult = await adapter.dispatch({
     kind: 'select_model',
-    provider: 'openai',
+    provider: 'openai-responses',
     modelId: 'gpt-6-astra',
     effort: 'low',
   });
   assertEquals(modelResult, {
     kind: 'model_selection',
     status: 'selected',
-    selection: { provider: 'openai', modelId: 'gpt-6-astra', effort: 'low' },
+    selection: { provider: 'openai-responses', modelId: 'gpt-6-astra', effort: 'low' },
   });
   assertEquals(
     await adapter.dispatch({
       kind: 'select_model',
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       modelId: ROOT_DEFAULT_MODEL_SELECTION.modelId,
       effort: ROOT_DEFAULT_MODEL_SELECTION.effort,
     }),
@@ -185,7 +185,7 @@ Deno.test('Increment 15 provider picker drives provider-scoped model and effort 
   });
 
   overlay.openProviderPicker();
-  assert(rendered.at(-1)?.some((line) => line === '> openrouter'));
+  assert(rendered.at(-1)?.some((line) => line === '> openrouter-chat'));
   overlay.process({ kind: 'down' });
   overlay.process({ kind: 'enter' });
   await waitFor(() => selection.provider === 'openrouter-responses');
@@ -194,8 +194,9 @@ Deno.test('Increment 15 provider picker drives provider-scoped model and effort 
 
   overlay.openProviderPicker();
   overlay.process({ kind: 'down' });
+  overlay.process({ kind: 'down' });
   overlay.process({ kind: 'enter' });
-  await waitFor(() => selection.provider === 'openai');
+  await waitFor(() => selection.provider === 'openai-responses');
   assertEquals(selection, OPENAI_DEFAULT_MODEL_SELECTION);
   await overlay.settle();
 
@@ -214,7 +215,7 @@ Deno.test('Increment 15 provider picker drives provider-scoped model and effort 
   overlay.process({ kind: 'down' });
   overlay.process({ kind: 'enter' });
   await waitFor(() => selection.effort === 'max');
-  assert(statuses.some((status) => status.includes('provider openai')));
+  assert(statuses.some((status) => status.includes('provider openai-responses')));
   await overlay.settle();
 });
 
@@ -234,17 +235,17 @@ Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', (
   });
   assertEquals(
     layoutUi(state, 160, 24).footer[1].text,
-    '[/home/masat.guest/src/forgejo-agent session:abcdef12 provider:openai model:gpt-5.6-sol medium]',
+    '[/home/masat.guest/src/forgejo-agent session:abcdef12 provider:openai-responses model:gpt-5.6-sol medium]',
   );
   const narrow = layoutUi(state, 80, 24).footer[1].text;
   assert(narrow.includes('session:abcdef12'));
-  assert(narrow.includes('provider:openai'));
+  assert(narrow.includes('provider:openai-responses'));
   assert(narrow.includes('model:gpt-5.6-sol'));
   assert(narrow.endsWith(' medium]'));
   const degraded = layoutUi(state, 40, 10).footer[1].text;
   assert(degraded.includes('abcdef12'));
-  assert(degraded.includes('openai'));
-  assert(degraded.includes('gpt-5.6-sol'));
+  assert(degraded.includes('openai-responses'));
+  assert(degraded.includes('-sol'));
   assert(degraded.endsWith(' medium]'));
 });
 
@@ -405,7 +406,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     );
     assert(
       savedArtifacts[1]?.manifest.resources.some((resource) =>
-        resource.startsWith('model:openai:')
+        resource.startsWith('model:openai-responses:')
       ),
     );
 

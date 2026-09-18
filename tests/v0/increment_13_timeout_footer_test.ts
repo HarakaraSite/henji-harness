@@ -222,7 +222,7 @@ Deno.test('Increment 13 projects successful model and effort selection immediate
   );
   const result = await adapter.dispatch({
     kind: 'select_model',
-    provider: 'openrouter',
+    provider: 'openrouter-chat',
     modelId: qwen.modelId,
     effort: qwen.effort,
   });
@@ -230,7 +230,7 @@ Deno.test('Increment 13 projects successful model and effort selection immediate
     kind: 'model_selection',
     status: 'selected',
     selection: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       modelId: qwen.modelId,
       effort: qwen.effort,
     },
@@ -238,7 +238,7 @@ Deno.test('Increment 13 projects successful model and effort selection immediate
   assertEquals(events, [{
     kind: 'model_selection_changed',
     selection: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       modelId: qwen.modelId,
       effort: qwen.effort,
     },
@@ -264,7 +264,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
   const first = layoutUi(state, 80, 24).footer;
   assertEquals(first[0].text, '[ready]');
   assert(first[1].text.includes('session:abcdef12'));
-  assert(first[1].text.includes('provider:openrouter'));
+  assert(first[1].text.includes('provider:openrouter-chat'));
   assert(first[1].text.includes('model:'));
   assert(first[1].text.endsWith('0902 xhigh]'));
   assert(!first[1].text.includes('cwd:'));
@@ -272,7 +272,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
   assert(first[1].text.length <= 80);
   assertEquals(
     layoutUi(state, 160, 24).footer[1].text,
-    '[/home/masat.guest/src/forgejo-agent session:abcdef12 provider:openrouter model:qwen/qwen3.8-max-0902 xhigh]',
+    '[/home/masat.guest/src/forgejo-agent session:abcdef12 provider:openrouter-chat model:qwen/qwen3.8-max-0902 xhigh]',
   );
 
   state = reduceUiAction(state, { kind: 'status', text: 'contract_failure' });
@@ -284,7 +284,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
     selection: deepseek,
   });
   let second = layoutUi(state, 80, 24).footer[1].text;
-  assert(second.includes('provider:openrouter'));
+  assert(second.includes('provider:openrouter-chat'));
   assert(second.endsWith('0813 high]'));
 
   state = reduceUiEvent(state, {
@@ -300,7 +300,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
   });
   second = layoutUi(state, 80, 24).footer[1].text;
   assert(second.includes('session:87654321'));
-  assert(second.includes('provider:openrouter'));
+  assert(second.includes('provider:openrouter-chat'));
   assert(second.endsWith('0902 xhigh]'));
 
   for (const entry of OPENROUTER_MODEL_CATALOG) {
@@ -310,7 +310,7 @@ Deno.test('Increment 13 keeps Session model and effort in the second footer row'
       selection,
     });
     const identity = layoutUi(state, 80, 24).footer[1].text;
-    assert(identity.includes('provider:openrouter'));
+    assert(identity.includes('provider:openrouter-chat'));
     assert(identity.includes('model:'));
     assert(identity.includes(entry.modelId.slice(-8)));
     assert(identity.endsWith(` ${entry.defaultEffort}]`));

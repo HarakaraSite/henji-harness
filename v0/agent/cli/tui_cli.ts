@@ -136,7 +136,7 @@ export const parseTuiInvocation = (
   let rawDefinitionRevision: string | undefined;
   let rootMaxSteps: number | undefined;
   let providerTimeoutMs: number | undefined;
-  let rootProvider: ProviderId = 'openrouter';
+  let rootProvider: ProviderId = 'openrouter-chat';
   let rootProviderSeen = false;
   let persistence: ParsedTuiInvocation['persistence'] = 'new';
   let sessionId: string | undefined;
@@ -343,7 +343,7 @@ export const main = async (
       ? defaultModelSelectionFor(invocation.rootProvider)
       : storedDefault !== undefined && isModelSelection(storedDefault)
       ? storedDefault
-      : defaultModelSelectionFor('openrouter');
+      : defaultModelSelectionFor('openrouter-chat');
     const sessionFactory = dependencies.createSession ??
       ((eventSink: AgentEventSink, selected: HostDefinitionSelection | undefined) =>
         createWorkerSession({

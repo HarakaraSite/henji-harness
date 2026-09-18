@@ -508,7 +508,7 @@ export class OpenAIResponsesModel extends ResponsesApiModel {
     super(options, {
       baseURL: 'https://api.openai.com/v1',
       providerLabel: 'OpenAI',
-      stateProvider: 'openai',
+      stateProvider: options.selection.provider,
       includeStore: true,
     });
   }

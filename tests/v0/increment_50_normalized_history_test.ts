@@ -162,7 +162,7 @@ Deno.test('Increment 50 schema normalizes facts and partial evidence progress', 
             requestBody: '{}',
             requestBodyBytes: 2,
             requestMetadata: {
-              provider: 'openrouter',
+              provider: 'openrouter-chat',
               api: 'openrouter-chat-completions',
               modelId: interrupted.model.modelId,
               effort: interrupted.model.effort,

@@ -472,7 +472,7 @@ const processSsePayload = (
       text: assembly.textParts.join(''),
       ...(assembly.reasoningDetails.length === 0 ? {} : {
         providerState: {
-          provider: 'openrouter' as const,
+          provider: 'openrouter-chat' as const,
           reasoningDetails: structuredClone(assembly.reasoningDetails),
         },
       }),
@@ -490,7 +490,7 @@ const processSsePayload = (
     assembly.result = assembly.reasoningDetails.length === 0 ? mixed : {
       ...mixed,
       providerState: {
-        provider: 'openrouter' as const,
+        provider: 'openrouter-chat' as const,
         reasoningDetails: structuredClone(assembly.reasoningDetails),
       },
     };

@@ -313,7 +313,7 @@ Deno.test('presentation adapter captures transcript and ignores no-session inter
         workspace: '/tmp/workspace',
         agentId: 'default',
         model: {
-          provider: 'openrouter',
+          provider: 'openrouter-chat',
           profileId: 'test',
           modelId: 'deepseek/deepseek-v4.1-flash',
           effort: 'high',

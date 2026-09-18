@@ -427,7 +427,7 @@ const validToolResult = (value: unknown): value is ToolResultContent => {
 };
 const validProviderState = (value: unknown): boolean =>
   value === undefined || (
-    isRecord(value) && value.provider === 'openrouter' &&
+    isRecord(value) && value.provider === 'openrouter-chat' &&
     hasExactKeys(value, ['provider', 'reasoningDetails']) &&
     Array.isArray(value.reasoningDetails) &&
     value.reasoningDetails.every(isJsonValue)

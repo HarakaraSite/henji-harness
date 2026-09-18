@@ -122,7 +122,7 @@ const isToolCall = (value: unknown): value is ToolCall => {
 const isProviderState = (value: unknown): value is NonNullable<ModelResult['providerState']> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const state = value as Record<string, unknown>;
-  if (state.provider === 'openrouter') {
+  if (state.provider === 'openrouter-chat') {
     return Array.isArray(state.reasoningDetails) && state.reasoningDetails.length > 0 &&
       state.reasoningDetails.every(isJsonValue);
   }

@@ -151,7 +151,7 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
 const providerState = (message: Record<string, unknown>): OpenRouterProviderState | undefined => {
   const details = message.reasoning_details;
   return Array.isArray(details) && details.length > 0 && details.every(isJsonValue)
-    ? { provider: 'openrouter', reasoningDetails: structuredClone(details) }
+    ? { provider: 'openrouter-chat', reasoningDetails: structuredClone(details) }
     : undefined;
 };
 

@@ -186,8 +186,8 @@ export const createProductionPhysicalIo = (
       const resolved = selection ??
         (role === 'planner'
           ? roleDefaultModelSelection('subagent:planner')
-          : defaultModelSelectionFor('openrouter'));
-      if (resolved.provider === 'openai') {
+          : defaultModelSelectionFor('openrouter-chat'));
+      if (resolved.provider === 'openai-responses') {
         return new OpenAIResponsesModel({
           selection: resolved as OpenAIModelSelection,
           credentialSource: () => resolver.resolve(resolved.authProfile),

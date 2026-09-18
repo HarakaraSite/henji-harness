@@ -65,7 +65,7 @@ Deno.test('Increment 47 keeps a new binding temporary until its first durable ch
     assert((await created.session.submit('preserve the old Session')).ok);
     const oldId = navigation.currentPosition().sessionId;
     assert(oldId !== undefined);
-    const inherited = selectModelFor('openai', 'gpt-5.6-terra', 'high');
+    const inherited = selectModelFor('openai-responses', 'gpt-5.6-terra', 'high');
     assertEquals(await created.session.selectModel(inherited), 'selected');
     const adapter = createTuiPresentationAdapter(
       created.session,
@@ -159,16 +159,16 @@ Deno.test('Increment 47 materializes temporary bindings on existing durable admi
         providerChanged.position.sessionId !== undefined,
     );
     assertEquals(
-      await adapter.dispatch({ kind: 'select_provider', provider: 'openai' }),
+      await adapter.dispatch({ kind: 'select_provider', provider: 'openai-responses' }),
       {
         kind: 'model_selection',
         status: 'selected',
-        selection: presentationSelection(defaultModelSelectionFor('openai')),
+        selection: presentationSelection(defaultModelSelectionFor('openai-responses')),
       },
     );
     assertEquals(
       (await store.readWorker(providerChanged.position.sessionId)).activeModel,
-      defaultModelSelectionFor('openai'),
+      defaultModelSelectionFor('openai-responses'),
     );
 
     const modelChanged = await adapter.dispatch({ kind: 'new_session' });
@@ -176,7 +176,7 @@ Deno.test('Increment 47 materializes temporary bindings on existing durable admi
       modelChanged.kind === 'binding' &&
         modelChanged.position.sessionId !== undefined,
     );
-    const nextModel = selectModelFor('openai', 'gpt-6-astra', 'medium');
+    const nextModel = selectModelFor('openai-responses', 'gpt-6-astra', 'medium');
     assertEquals(
       await adapter.dispatch({
         kind: 'select_model',
@@ -200,7 +200,7 @@ Deno.test('Increment 47 materializes temporary bindings on existing durable admi
       effortChanged.kind === 'binding' &&
         effortChanged.position.sessionId !== undefined,
     );
-    const nextEffort = selectModelFor('openai', 'gpt-6-astra', 'high');
+    const nextEffort = selectModelFor('openai-responses', 'gpt-6-astra', 'high');
     assertEquals(
       await adapter.dispatch({
         kind: 'select_model',
@@ -240,7 +240,7 @@ Deno.test('Increment 47 materializes temporary bindings on existing durable admi
 
 Deno.test('Increment 35 keeps the current presentation binding when new Session setup fails', async () => {
   const oldSelection = selectModelFor(
-    'openrouter',
+    'openrouter-chat',
     'z-ai/glm-5.3-flash',
     'low',
   );

@@ -319,7 +319,7 @@ const declaredResources = (
     ]) ||
     !isPlainObject(definition.model) || !Object.isFrozen(definition.model) ||
     !exactDataProperties(definition.model, ['provider', 'profile']) ||
-    definition.model.provider !== 'openrouter' ||
+    definition.model.provider !== 'openrouter-chat' ||
     !isPlainObject(definition.model.profile) ||
     !Object.isFrozen(definition.model.profile) ||
     typeof definition.model.profile.id !== 'string' ||

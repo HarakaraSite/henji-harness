@@ -14,8 +14,9 @@ export const RESERVED_PROVIDER_IDS: readonly string[] = Object.freeze([]);
  * endpoint, and auth profile must stay identical so a declaration cannot silently change the vendor.
  */
 export const OVERRIDABLE_PROVIDER_IDS: readonly string[] = Object.freeze([
-  'openrouter',
-  'openai',
+  'openrouter-chat',
+  'openai-responses',
+  'openai-chat',
   'openrouter-responses',
 ]);
 

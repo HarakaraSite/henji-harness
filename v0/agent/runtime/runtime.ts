@@ -179,7 +179,7 @@ const materializeModel = (
 ): Model => {
   seam.onModelMaterialized?.(definition);
   switch (definition.model.provider) {
-    case 'openrouter':
+    case 'openrouter-chat':
       return new OpenRouterAgentModel({
         profile: definition.model.profile,
         fetcher,

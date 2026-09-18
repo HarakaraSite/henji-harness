@@ -343,7 +343,7 @@ Deno.test('Increment 40 commits and reopens canonical history through SQLite', a
     first = await openHistoryHost(store, workspaceRoot);
     assertEquals(
       await first.host.selectModel(
-        selectModelFor('openai', 'gpt-5.6-terra', 'high'),
+        selectModelFor('openai-responses', 'gpt-5.6-terra', 'high'),
       ),
       'selected',
     );
@@ -365,7 +365,7 @@ Deno.test('Increment 40 commits and reopens canonical history through SQLite', a
       sessionId,
       createdAt: '2026-09-12T00:00:00.000Z',
       sourceProfileId: modelRouteProfileId(
-        selectModelFor('openai', 'gpt-5.6-terra', 'high'),
+        selectModelFor('openai-responses', 'gpt-5.6-terra', 'high'),
       ),
       coveredThroughTurn: 1,
       retainedFromTurn: 2,
@@ -484,7 +484,7 @@ Deno.test('Increment 40 rolls back a rejected model selection in SQLite', async 
     assertEquals(host.renameTitle('before rejected model'), 'renamed');
     let rejected = false;
     try {
-      await host.selectModel(selectModelFor('openai', 'gpt-5.6-terra', 'high'));
+      await host.selectModel(selectModelFor('openai-responses', 'gpt-5.6-terra', 'high'));
     } catch {
       rejected = true;
     }

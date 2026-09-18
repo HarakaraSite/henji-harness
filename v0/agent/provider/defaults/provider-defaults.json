@@ -3,7 +3,7 @@
   "providers": [
     {
       "schemaVersion": 1,
-      "providerId": "openrouter",
+      "providerId": "openrouter-chat",
       "protocol": "openai-chat-completions",
       "endpoint": "https://openrouter.ai/api/v1",
       "authProfile": "openrouter-api-key",
@@ -141,7 +141,7 @@
     },
     {
       "schemaVersion": 1,
-      "providerId": "openai",
+      "providerId": "openai-responses",
       "protocol": "openai-responses",
       "endpoint": "https://api.openai.com/v1",
       "authProfile": "openai-api-key",
@@ -171,11 +171,44 @@
         ]
       },
       "defaults": { "modelId": "gpt-5.6-sol", "effort": "medium" }
+    },
+    {
+      "schemaVersion": 1,
+      "providerId": "openai-chat",
+      "protocol": "openai-chat-completions",
+      "endpoint": "https://api.openai.com/v1",
+      "authProfile": "openai-api-key",
+      "modelCatalog": {
+        "kind": "fixed",
+        "entries": [
+          {
+            "modelId": "gpt-5.6-sol",
+            "defaultEffort": "none",
+            "efforts": ["none", "low", "medium", "high", "xhigh"]
+          },
+          {
+            "modelId": "gpt-5.6-luna",
+            "defaultEffort": "none",
+            "efforts": ["none", "low", "medium", "high", "xhigh"]
+          },
+          {
+            "modelId": "gpt-5.6-terra",
+            "defaultEffort": "none",
+            "efforts": ["none", "low", "medium", "high", "xhigh", "max"]
+          },
+          {
+            "modelId": "gpt-6-astra",
+            "defaultEffort": "low",
+            "efforts": ["low", "medium", "high", "xhigh", "max"]
+          }
+        ]
+      },
+      "defaults": { "modelId": "gpt-5.6-sol", "effort": "none" }
     }
   ],
   "roleDefaults": {
     "subagent:planner": {
-      "providerId": "openrouter",
+      "providerId": "openrouter-chat",
       "modelId": "deepseek/deepseek-v4.1-flash",
       "effort": "high"
     }

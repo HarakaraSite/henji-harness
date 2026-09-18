@@ -3099,7 +3099,7 @@ Deno.test('Increment 42 keeps provider retries linked to one logical context req
       endpoint: 'https://openrouter.ai/api/v1/chat/completions',
       method: 'POST',
       requestBody: '{}',
-      requestMetadata: { provider: 'openrouter', responseMode: 'sse' },
+      requestMetadata: { provider: 'openrouter-chat', responseMode: 'sse' },
     });
     recorder.recordResponse({ status, headers: {} });
   }

@@ -100,7 +100,15 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
   ) {
     assert(finalizedInstruction.includes(sourceGroundedBehavior));
   }
-  for (const staleFact of ['provider:openai', 'model:gpt', 'effort:high', 'session:', '2026-']) {
+  for (
+    const staleFact of [
+      'provider:openai-responses',
+      'model:gpt',
+      'effort:high',
+      'session:',
+      '2026-',
+    ]
+  ) {
     assert(!composition.systemInstruction.includes(staleFact));
   }
 });

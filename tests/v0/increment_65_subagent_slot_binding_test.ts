@@ -267,7 +267,7 @@ Deno.test('Increment 65 supplies the planner default from bundled roleDefaults d
   );
   const entry = defaults.roleDefaults?.['subagent:planner'];
   assert(entry !== undefined, 'bundled subagent:planner roleDefault is missing');
-  assertEquals(entry.providerId, 'openrouter');
+  assertEquals(entry.providerId, 'openrouter-chat');
   assertEquals(roleDefaultModelSelection('subagent:planner'), {
     provider: entry.providerId,
     api: 'openrouter-chat-completions',

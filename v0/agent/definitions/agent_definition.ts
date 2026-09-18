@@ -17,7 +17,7 @@ import {
 
 /** Provider-neutral model declaration consumed by the runtime adapter boundary. */
 export interface AgentModelDefinition {
-  readonly provider: 'openrouter';
+  readonly provider: 'openrouter-chat';
   readonly profile: OpenRouterAgentProfile;
 }
 
@@ -138,7 +138,7 @@ const resolveDefinition = (
   kind: 'production' | 'planner',
 ): ResolvedAgentDefinition => {
   const model: AgentModelDefinition = Object.freeze({
-    provider: 'openrouter',
+    provider: 'openrouter-chat',
     profile: PRODUCTION_PROFILE,
   });
   const capabilities = declarationsFor(input, kind);

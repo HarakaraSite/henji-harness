@@ -469,7 +469,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     committedTurn: 0,
     workspace: '/tmp/workspace',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       modelId: 'qwen/qwen3.8-max-0902',
       effort: 'xhigh',
     },
@@ -489,7 +489,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   assertEquals(footer.length, 2);
   assertEquals(footer[0].text, '[ready]');
   assert(footer[1].text.includes('session:abcdef12'));
-  assert(footer[1].text.includes('provider:openrouter'));
+  assert(footer[1].text.includes('provider:openrouter-chat'));
   assert(footer[1].text.includes('model:'));
   assert(footer[1].text.endsWith('0902 xhigh]'));
   assert(!footer[1].text.includes('cwd:'));
@@ -515,7 +515,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     committedTurn: 0,
     workspace: '/home/masat.guest/src/a/very/deep/path/forgejo-agent',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       modelId: 'qwen/qwen3.8-max-0902',
       effort: 'xhigh',
     },
@@ -527,7 +527,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   });
   const narrowFooter = layoutUi(narrow, 40, 24).footer;
   assert(narrowFooter[1].text.includes('abcdef12'));
-  assert(narrowFooter[1].text.includes('openrouter'));
+  assert(narrowFooter[1].text.includes('openrouter-chat'));
   assert(narrowFooter[1].text.includes('…'));
   assert(narrowFooter[1].text.endsWith(' xhigh]'));
   assert(!narrowFooter.some((row) => row.text.includes('F1 help')));
@@ -540,7 +540,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     const cancellingFooter = layoutUi(cancelling, columns, 24).footer;
     assert(cancellingFooter[0].text.includes('cancelling'));
     assert(cancellingFooter[1].text.includes('abcdef12'));
-    assert(cancellingFooter[1].text.includes('openrouter'));
+    assert(cancellingFooter[1].text.includes('openrouter-chat'));
     assert(cancellingFooter[1].text.endsWith(' xhigh]'));
     assert(cancellingFooter.every((row) => row.text.length <= columns));
   }
@@ -554,7 +554,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
     committedTurn: 2,
     workspace: '/tmp/workspace',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       modelId: 'qwen/qwen3.8-max-0902',
       effort: 'xhigh',
     },

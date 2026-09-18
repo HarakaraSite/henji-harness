@@ -17,7 +17,7 @@ export const FRESH_RUNTIME_SCRIPT_ID = 'five-step-uppercase-v1' as const;
 export const FRESH_RUNTIME_TOOL_FIXTURE_ID = 'uppercase-text-v1' as const;
 export const FRESH_RUNTIME_TASK = 'Complete four uppercase checks, then finish.' as const;
 export const FRESH_RUNTIME_MODEL_IDENTITY =
-  'model:openrouter:openrouter-deepseek-deepseek-v4.1-flash-high-v1' as const;
+  'model:openrouter-chat:openrouter-deepseek-deepseek-v4.1-flash-high-v1' as const;
 export const FRESH_RUNTIME_MAX_WALL_TIME_MICROS = 1_000_000 as const;
 
 export interface FreshRuntimeComparisonCaseV1 {

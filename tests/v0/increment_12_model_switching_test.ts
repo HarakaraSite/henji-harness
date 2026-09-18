@@ -40,7 +40,7 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
     'x-ai/grok-4.6',
   ]);
   assertEquals(ROOT_DEFAULT_MODEL_SELECTION, {
-    provider: 'openrouter',
+    provider: 'openrouter-chat',
     api: 'openrouter-chat-completions',
     authProfile: 'openrouter-api-key',
     modelId: 'deepseek/deepseek-v4.1-flash',

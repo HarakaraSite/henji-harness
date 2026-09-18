@@ -177,7 +177,7 @@ export class OpenRouterAgentModel implements Model {
               : generateOptions.providerEvidenceLane === 'planner'
               ? 'planner_model'
               : 'root_model',
-            provider: this.options.evidenceIdentity?.provider ?? 'openrouter',
+            provider: this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
             api: this.options.evidenceIdentity?.api ?? 'openrouter-chat-completions',
             modelId: this.profile.model,
             effort: this.profile.reasoningEffort ?? 'auto',

@@ -356,7 +356,7 @@ Deno.test('retained session picker identifies sessions by updated time and human
       resumed: true,
       mismatch: false,
       modelSelection: {
-        provider: 'openrouter',
+        provider: 'openrouter-chat',
         modelId: 'deepseek/deepseek-v4-pro-0813',
         effort: 'high',
       },
@@ -394,7 +394,7 @@ Deno.test('retained session picker identifies sessions by updated time and human
     ),
   );
   assert(!rows.some((row) => row.includes('Z')));
-  assert(!rows.some((row) => row.includes('openrouter') || row.includes('deepseek')));
+  assert(!rows.some((row) => row.includes('openrouter-chat') || row.includes('deepseek')));
 });
 
 Deno.test('retained controller completes a sole slash candidate and preserves path completion', async () => {
@@ -406,7 +406,7 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   const session: TuiSessionLike = {
     submit: () => Promise.reject(new Error('not used')),
     modelSelectionSnapshot: () => ({
-      provider: 'openai',
+      provider: 'openai-responses',
       api: 'openai-responses',
       authProfile: 'openai-api-key',
       modelId: 'gpt-5.6',
@@ -422,35 +422,37 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
     pathIndex: WorkspacePathIndex.fromCandidates(['docs/readme.md']),
   });
   const run = controller.run();
-  await waitFor(() => renderer.stateSnapshot().status.includes('credential missing: openai'));
+  await waitFor(() =>
+    renderer.stateSnapshot().status.includes('credential missing: openai-responses')
+  );
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[ready │ credential missing: openai]',
+    '[ready │ credential missing: openai-responses]',
   );
 
   terminal.push('/');
   await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 13);
   const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
   assert(allCommandsFooter.includes('cmds:'));
-  assert(allCommandsFooter.includes('/rename'));
+  assert(allCommandsFooter.includes('/help'));
   terminal.push('h');
   await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 4);
   assertEquals(controller.editor.text, '/h');
   assertEquals(controller.editor.cursorScalar, 2);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[ready │ cmds: /help, /history, /history export, … │ credential missing: openai]',
+    '[ready │ cmds: /help, /history, /histor… │ credential missing: openai-responses]',
   );
   assertEquals(
     renderer.layoutSnapshot(36, 24).footer[0].text,
-    '[ready │ credential missing: openai]',
+    '[ready]',
   );
   renderer.setStatus(
-    'session 12345678 · agent default · turn 9 · ready · context through 8 · retain 9+ · semantic ≤65536B · credential missing: openai',
+    'session 12345678 · agent default · turn 9 · ready · context through 8 · retain 9+ · semantic ≤65536B · credential missing: openai-responses',
   );
   assertEquals(
     renderer.layoutSnapshot(36, 24).footer[0].text,
-    '[ready │ credential missing: openai]',
+    '[ready]',
   );
 
   const writesBeforeAmbiguousTab = terminal.writes.length;
@@ -585,7 +587,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
     workspace: '/tmp/henji-ui',
     agentId: 'default',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       profileId: 'test',
       modelId: 'deepseek/deepseek-v4-pro-0813',
       effort: 'high',
@@ -672,7 +674,7 @@ Deno.test('startup header follows rename, session replacement, and terminal size
     workspace: '/tmp/henji-ui',
     agentId: 'default',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       profileId: 'test',
       modelId: 'deepseek/deepseek-v4.1-flash',
       effort: 'high',
@@ -725,7 +727,7 @@ Deno.test('startup header distinguishes continue, exact, and no-session modes', 
     workspace: '/tmp/henji-ui',
     agentId: 'planner',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       profileId: 'test',
       modelId: 'deepseek/deepseek-v4.1-flash',
       effort: 'high',
@@ -760,7 +762,7 @@ Deno.test('startup header shows the selected Henji base instruction', () => {
     workspace: '/tmp/henji-ui',
     agentId: 'default',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       profileId: 'test',
       modelId: 'deepseek/deepseek-v4.1-flash',
       effort: 'high',
@@ -912,13 +914,13 @@ Deno.test('provider selection confirmation clears on the next editor input', asy
   terminal.push('/provider\r');
   await waitFor(() => renderer.stateSnapshot().overlay.kind === 'choicePicker');
   terminal.push('\x1b[B\x1b[B\r');
-  await waitFor(() => selection.provider === 'openai');
-  await waitFor(() => renderer.stateSnapshot().status.includes('provider openai'));
+  await waitFor(() => selection.provider === 'openai-chat');
+  await waitFor(() => renderer.stateSnapshot().status.includes('provider openai-chat'));
   assert(renderer.stateSnapshot().status.includes('model gpt-5.6-sol'));
 
   terminal.push('x');
   await waitFor(() => controller.editor.text === 'x');
-  assert(!renderer.stateSnapshot().status.includes('provider openai'));
+  assert(!renderer.stateSnapshot().status.includes('provider openai-chat'));
   assertEquals(renderer.stateSnapshot().status, 'ready');
 
   terminal.push('\x15\x04');
@@ -1449,7 +1451,7 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
   let settle: (() => void) | undefined;
   const submitted: string[] = [];
   const steering: string[] = [];
-  const inherited = defaultModelSelectionFor('openai');
+  const inherited = defaultModelSelectionFor('openai-responses');
   const oldSession: TuiSessionLike = {
     submit: (task) => {
       submitted.push(task);
@@ -1514,7 +1516,7 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
     workspace: '/tmp/henji-new-session',
     agentId: 'default',
     model: {
-      provider: 'openrouter',
+      provider: 'openrouter-chat',
       profileId: 'test',
       modelId: 'z-ai/glm-5.3-flash',
       effort: 'low',

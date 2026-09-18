@@ -22,7 +22,7 @@ export interface OpenRouterModelCatalogEntry {
   readonly efforts: readonly OpenRouterReasoningEffort[];
 }
 
-const bundledOpenRouter = bundledDefaultDeclarationFor('openrouter')!;
+const bundledOpenRouter = bundledDefaultDeclarationFor('openrouter-chat')!;
 
 /** Bundled default catalog; no provider request is needed to open the picker. */
 export const OPENROUTER_MODEL_CATALOG: readonly OpenRouterModelCatalogEntry[] =
@@ -32,7 +32,7 @@ export const ROOT_DEFAULT_MODEL_ID = bundledOpenRouter.defaults.modelId;
 export const ROOT_DEFAULT_EFFORT: OpenRouterReasoningEffort = bundledOpenRouter.defaults.effort;
 
 export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
-  provider: 'openrouter',
+  provider: 'openrouter-chat',
   api: 'openrouter-chat-completions',
   authProfile: 'openrouter-api-key',
   modelId: ROOT_DEFAULT_MODEL_ID,
@@ -40,7 +40,7 @@ export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.fre
 });
 
 const openRouterEntries = (): readonly OpenRouterModelCatalogEntry[] =>
-  declarationFor('openrouter')?.modelCatalog.entries ?? OPENROUTER_MODEL_CATALOG;
+  declarationFor('openrouter-chat')?.modelCatalog.entries ?? OPENROUTER_MODEL_CATALOG;
 
 export const openRouterCatalogEntry = (
   modelId: string,
@@ -53,7 +53,7 @@ export const isOpenRouterModelSelection = (
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const selection = value as Record<string, unknown>;
   if (
-    Object.keys(selection).length !== 5 || selection.provider !== 'openrouter' ||
+    Object.keys(selection).length !== 5 || selection.provider !== 'openrouter-chat' ||
     selection.api !== 'openrouter-chat-completions' ||
     selection.authProfile !== 'openrouter-api-key' ||
     typeof selection.modelId !== 'string' || typeof selection.effort !== 'string'

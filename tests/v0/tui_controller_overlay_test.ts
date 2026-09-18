@@ -187,7 +187,7 @@ Deno.test('controller overlay searches models and changes effort separately', as
   assertEquals(selection.effort, 'high');
   assert(
     statuses.some((status) =>
-      status.includes('ready · credential missing: openrouter · provider openrouter')
+      status.includes('ready · credential missing: openrouter · provider openrouter-chat')
     ),
   );
 

@@ -201,7 +201,7 @@ export const projectRuntimeDisplayState = (
     workspace: displayWorkspaceLabel(input.workspaceRoot),
     agentId,
     model: Object.freeze({
-      provider: boundedProfileId(input.provider ?? 'openrouter'),
+      provider: boundedProfileId(input.provider ?? 'openrouter-chat'),
       profileId: boundedProfileId(input.profileId),
       modelId: boundedProfileId(input.modelId ?? input.profileId),
       effort: boundedProfileId(input.effort ?? 'auto'),
@@ -219,7 +219,7 @@ export const projectRuntimeDisplayState = (
     const fallback = Object.freeze({
       ...state,
       model: Object.freeze({
-        provider: boundedProfileId(input.provider ?? 'openrouter'),
+        provider: boundedProfileId(input.provider ?? 'openrouter-chat'),
         profileId: 'profile',
         modelId: 'model',
         effort: 'auto',

@@ -29,7 +29,7 @@ import {
 } from './model_selection.ts';
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
 import { activeProviderDeclarations, declarationFor } from './provider_runtime.ts';
-import { bundledRoleDefaultFor } from './provider_defaults.ts';
+import { bundledDefaultDeclarationFor, bundledRoleDefaultFor } from './provider_defaults.ts';
 
 export type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
 
@@ -80,11 +80,14 @@ const declaredSelection = (
 const declaredEntriesFor = (
   provider: ProviderId,
 ): readonly ProviderModelCatalogEntry[] | undefined => {
-  const declaration = declarationFor(provider);
+  const declaration = declarationFor(provider) ?? bundledDefaultDeclarationFor(provider);
   if (declaration === undefined) return undefined;
   // openrouter/openai overrides are resolved by their override-aware catalog helpers; other built-ins
   // and declared ids use the declaration entries directly.
-  if (BUILTIN_PROVIDER_IDS.includes(provider) && provider !== 'openrouter-responses') {
+  if (
+    BUILTIN_PROVIDER_IDS.includes(provider) &&
+    provider !== 'openrouter-responses' && provider !== 'openai-chat'
+  ) {
     return undefined;
   }
   return declaration.modelCatalog.entries;
@@ -104,14 +107,14 @@ export const isModelSelection = (value: unknown): value is ModelSelection => {
 };
 
 export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection => {
-  if (provider === 'openai') {
-    const declaration = declarationFor('openai');
+  if (provider === 'openai-responses') {
+    const declaration = declarationFor('openai-responses');
     return declaration === undefined
       ? OPENAI_DEFAULT_MODEL_SELECTION
       : selectOpenAIModel(declaration.defaults.modelId, declaration.defaults.effort);
   }
-  if (provider === 'openrouter') {
-    const declaration = declarationFor('openrouter');
+  if (provider === 'openrouter-chat') {
+    const declaration = declarationFor('openrouter-chat');
     return declaration === undefined
       ? ROOT_DEFAULT_MODEL_SELECTION
       : selectOpenRouterModel(declaration.defaults.modelId, declaration.defaults.effort);
@@ -126,7 +129,7 @@ export const defaultModelSelectionFor = (provider: ProviderId): ModelSelection =
     }
     return selectOpenRouterResponsesModel(ROOT_DEFAULT_MODEL_ID, ROOT_DEFAULT_EFFORT);
   }
-  const declaration = declarationFor(provider);
+  const declaration = declarationFor(provider) ?? bundledDefaultDeclarationFor(provider);
   if (declaration !== undefined) {
     return declaredSelection(
       declaration,
@@ -141,7 +144,7 @@ export const modelCatalogEntryFor = (
   provider: ProviderId,
   modelId: string,
 ): ProviderModelCatalogEntry | undefined => {
-  if (provider === 'openai') return openAIModelCatalogEntry(modelId);
+  if (provider === 'openai-responses') return openAIModelCatalogEntry(modelId);
   const declared = declaredEntriesFor(provider);
   if (declared !== undefined) return declared.find((entry) => entry.modelId === modelId);
   return openRouterCatalogEntry(modelId);
@@ -151,7 +154,7 @@ export const searchModelsFor = (
   provider: ProviderId,
   query: string,
 ): readonly ProviderModelCatalogEntry[] => {
-  if (provider === 'openai') return searchOpenAIModels(query);
+  if (provider === 'openai-responses') return searchOpenAIModels(query);
   const declared = declaredEntriesFor(provider);
   if (declared !== undefined) {
     const normalized = query.trim().toLocaleLowerCase();
@@ -181,12 +184,12 @@ export const selectModelFor = (
   modelId: string,
   effort?: ReasoningEffort,
 ): ModelSelection => {
-  if (provider === 'openai') return selectOpenAIModel(modelId, effort);
-  if (provider === 'openrouter') return selectOpenRouterModel(modelId, effort);
+  if (provider === 'openai-responses') return selectOpenAIModel(modelId, effort);
+  if (provider === 'openrouter-chat') return selectOpenRouterModel(modelId, effort);
   if (provider === 'openrouter-responses') {
     return selectOpenRouterResponsesModel(modelId, effort);
   }
-  const declaration = declarationFor(provider);
+  const declaration = declarationFor(provider) ?? bundledDefaultDeclarationFor(provider);
   if (declaration !== undefined) {
     const entry = declaration.modelCatalog.entries.find((candidate) =>
       candidate.modelId === modelId

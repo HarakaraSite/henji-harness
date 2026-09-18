@@ -179,7 +179,7 @@ const freezeParentDefinition = (
     ]) ||
     !isPlainObject(definition.model) ||
     !exactDataProperties(definition.model, ['provider', 'profile']) ||
-    definition.model.provider !== 'openrouter' ||
+    definition.model.provider !== 'openrouter-chat' ||
     !isPlainObject(definition.capabilities) ||
     !Object.isFrozen(definition.capabilities) ||
     !isPlainObject(definition.limits) ||
@@ -258,7 +258,7 @@ export const validateComparisonVariantRelationship = (
       !isPlainObject(variant.model) || !Object.isFrozen(variant.model) ||
       !exactDataProperties(parent.model, ['provider', 'profile']) ||
       !exactDataProperties(variant.model, ['provider', 'profile']) ||
-      parent.model !== variant.model || parent.model.provider !== 'openrouter' ||
+      parent.model !== variant.model || parent.model.provider !== 'openrouter-chat' ||
       parent.model.profile !== variant.model.profile
     ) return invalid();
     if (

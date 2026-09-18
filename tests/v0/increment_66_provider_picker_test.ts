@@ -13,9 +13,9 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 Deno.test('Increment 66 accepts any provider id in the presentation intent contract', () => {
   for (
     const provider of [
-      'openrouter',
+      'openrouter-chat',
       'openrouter-responses',
-      'openai',
+      'openai-responses',
       'declared-example',
     ]
   ) {

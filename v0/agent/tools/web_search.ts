@@ -10,7 +10,7 @@ export const OPENROUTER_SONAR_SEARCH_MODEL = 'perplexity/sonar';
 
 /** Sonar is a fixed auxiliary route, independent of the parent or planner selection. */
 const SONAR_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
-  provider: 'openrouter',
+  provider: 'openrouter-chat',
   api: 'openrouter-chat-completions',
   authProfile: 'openrouter-api-key',
   modelId: OPENROUTER_SONAR_SEARCH_MODEL,
@@ -161,7 +161,7 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
           redirect: 'error',
           responseMode: 'json',
           origin: 'web_search',
-          provider: 'openrouter',
+          provider: 'openrouter-chat',
           api: 'openrouter-chat-completions',
           modelId: OPENROUTER_SONAR_SEARCH_MODEL,
           effort: 'auto',
