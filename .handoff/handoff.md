@@ -89,7 +89,8 @@
   `example/researcher`をinstallし`agents.json`の`subagent:researcher`へbind、additionalSubagents＋
   additionalToolsを持つexternal root `example/root`を`--definition-revision`で選択。modelが
   `delegate_to_researcher`を呼び、subagentの返答を`I72_PROBE_OK`付きで出力、exit 0。
-- 次: architecture／roadmap正本更新（別承認）。tool Definition transportと他kind候補は後続。
+- 次: tool Definition transportは**tool Definitionを通常利用で安定させた後に別incrementで実装**する（決定:
+  2026-09-18。roadmapに反映済み）。他kind候補は`docs/experience/normal-use-inbox.md` E2で管理する。
 - 正本: `docs/increments/increment-72.md`。
 - 注意: 子lane provider evidenceのmodel selectionはplanner既定のまま（named subagent固有selectionのevidence
   属性はfollow-up。Definitionは`createModel('planner', selection)`で自モデルを選べる）。他候補は

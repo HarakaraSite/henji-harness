@@ -391,7 +391,8 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
   10. Increment 71（実装済み）: `bash`／`bash_output`／`edit`／`read`／`write`をbundled tool Definitionへ移し、
      固定`ToolComponentCatalog`／`workToolNames`と同一identity置換seamを削除した。差し替えは`tools.json`のexternal
      tool Definition bindingへ一本化し、core-owned tool（`skill`／`delegate_to_planner`／`submit_json_result`）は
-     Definition化しない。tool Definition transportと任意kindの一般化は後続。
+     Definition化しない。tool Definition transportは、tool Definitionを通常利用で安定させた後に別incrementで扱う（決定:
+     2026-09-18）。任意kindの共通frameworkと他kind候補は`docs/experience/normal-use-inbox.md` E2で管理する。
   11. Increment 72（実装済み）: `subagent:<name>`をplanner以外へ一般化し、`tool:delegate_to_<name>`でchild laneへ
      1 turn 1回委譲する。Hostはbundled subagent（planner）＋`agents.json`の`subagent:*` bindingを解決し、bundled
      moduleが無いnameはbindingを要求する。Definitionは`additionalSubagents`で追加subagentを宣言できる。他kind候補と
