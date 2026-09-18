@@ -312,9 +312,13 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   `~/.local/state/henji-harness/v1/967fa641…`）のprompt「denoとnodeを比較したい webで情報を収集して」で
   `web_fetch`中に発生。
 - DB観測: execution `8182968c`（turn 2）は217秒。`context_observation`→次`provider_request_start`間に
-  **12.2s／18.8s／25.7s**の無観測gapがあり、tool実行（web_fetch）区間と見られる。`bash sleep`12sや
-  `web_search`では再現しなかったため、web_fetch固有の経路（`AbortSignal.any`＋`AbortSignal.timeout(30000)`、
-  redirect follow、body reader）または特定URL（遅延/巨大response）が条件の可能性。
+  **12.2s／18.8s／25.7s**の無観測gapがある。
+- ただしDBからweb_fetchの実引数URLと所要時間を算出すると、web_fetchは
+  `docs.deno.com/runtime/fundamentals/node/`、`nodejs.org/en/about/previous-releases`、
+  `docs.deno.com/runtime/fundamentals/stability_and_releases/`、`docs.deno.com/runtime/migrate/`、
+  `deno.com/blog/v2.0`、`betterstack.com/...`等で、いずれも**0〜1.2秒**。gapはweb_fetchではない。
+- gap区間は`context_observation`直後から次request開始までで、web_search等のaux requestやprovider待ちの
+  可能性。利用者の「web_fetchで起きた」は別の待ち区間を指している可能性がある。
 - 原因候補（未確認）: web_fetchの長時間HTTP取得（hanging/遅延URL、大きなbody、AbortSignal併用）中のHost表示。
 - 対応: 利用者から再現条件（どのtool/model/Session、どの表示が止まるか）を確認してからincrement-74で調査する。
   現時点でtimer飢餓・writeSync・journal書込みは否定済み。
