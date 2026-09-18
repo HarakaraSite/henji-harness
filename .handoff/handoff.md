@@ -2,6 +2,23 @@
 
 ## Records
 
+### Increment 67 — Responses APIの`auto` effort修正（完了）
+
+- 状態: 2026-09-18に修正・検証・binary配置まで完了。
+- 原因: `v0/agent/provider/openai_responses_model.ts`がResponses APIへ常に`reasoning:{effort}`を送り、
+  `auto`をproviderが拒否（HTTP 400）。`openrouter-responses`の`qwen/qwen3.8-flash`（既定effort `auto`）等で
+  全turn失敗。Chat Completionsは`auto`時に`reasoning_effort`を省略しており非対称。
+- 修正: effort `auto`のとき`reasoning`を省略（`include:['reasoning.encrypted_content']`は維持）。focused testは
+  `increment_14_multi_provider_test.ts`に追加。authoritative `v0:gate` exit 0。
+- 実provider probe（利用者許可）: isolated XDGで`openrouter-responses`/`qwen/qwen3.8-flash`/`auto`の1 turn成功
+  （`RESPONSES_AUTO_PROBE_OK`）。
+- 配置: installed launcher `~/.local/bin/henji`（renameで差替え）。binary SHA-256
+  `4e0bc0acf6874b898f4b46a195c07d22c3303757bb28c2094e5e963d21e77fa6`、build
+  `4759ce1e842b9d6ea1abe065ec103fce67990daebfe1dc6aed8e4afaaf39041c`、embedded runtime
+  `3df03fb074c7699f06c2e9d7f428fdd8aa04c81f2d5730b3a792fcd74ff55170`、source`fd616c79…`、`sourceDirty=false`。
+- 正本: `docs/increments/increment-67.md`。roadmap Provider外部化予定をweb-search=68、tool=69、built-in=70へ
+  繰下げ（利用者承認済み）。
+
 ### Increment 66 — provider切替UIの修正（完了）
 
 - 状態: 2026-09-18に`/provider`/`/model`のprovider検証クラッシュと選択確認statusの残留を修正。実装commit
@@ -68,16 +85,16 @@
     instructionは当面built-in role instructionのまま。
   - base instruction finalizerはexternal plannerにも通し、Increment 51のbase適用保証を維持。
   - architecture（`henji-host-agent-worker.md`）へactivation-level slot authority・composition seam・保証範囲を追記、
-    roadmapのProvider外部化節（65、67〜69の内容・順序）を更新（正本更新、別項目）。
+    roadmapのProvider外部化節（65、68〜70の内容・順序）を更新（正本更新、別項目）。
   - 未決メモ: Definition-manifest dependency bindingとmanifest/activation bindingの優先・競合規則は後続。
-- 次: Increment 65・66はコード・正本・検証・binary配置まで完了。次はroadmapの予定どおりIncrement 67
-  （web-search subagent化）、68（tool same-identity override）、69（built-in id削除/Session影響/入力ブロック）。
-- 正本: `docs/increments/increment-66.md`、`increment-65.md`、`increment-51.md`〜`increment-64.md`、
-  `docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 66（実装`5536a893`／配置は本commit、binary SHA-256
-  `fc584309e620d91ecede7d2f48de0cf444d9a8f648fb04b2844f921ccb48d24b`、build=`d5a5083cd84d5d3d7545fa07ec141800653e5bbf205d3b11285c258d92d363c2`、
-  embedded runtime=`8bbba492daa19e95ad852d9839b8f585fc900333ff1ee90061d93d7df2a9b520`、source`5536a893…`、`sourceDirty=false`）。
-  直前はIncrement 65（binary SHA-256 `02081658…`）、Increment 64（binary SHA-256 `e0642d4c…`）。
+- 次: Increment 65・66・67はコード・正本・検証・binary配置まで完了。次はroadmapの予定どおりIncrement 68
+  （web-search subagent化）、69（tool same-identity override）、70（built-in id削除/Session影響/入力ブロック）。
+- 正本: `docs/increments/increment-67.md`、`increment-66.md`、`increment-65.md`、`increment-51.md`〜
+  `increment-64.md`、`docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
+- 注意: 直前の配置はIncrement 67（実装`fd616c79`／配置は本commit、binary SHA-256
+  `4e0bc0acf6874b898f4b46a195c07d22c3303757bb28c2094e5e963d21e77fa6`、build=`4759ce1e842b9d6ea1abe065ec103fce67990daebfe1dc6aed8e4afaaf39041c`、
+  embedded runtime=`3df03fb074c7699f06c2e9d7f428fdd8aa04c81f2d5730b3a792fcd74ff55170`、source`fd616c79…`、`sourceDirty=false`）。
+  直前はIncrement 66（binary SHA-256 `fc584309…`）、Increment 65（`02081658…`）、Increment 64（`e0642d4c…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
   `default-selection.json`。`openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは
   `openai-responses`と`openai-chat-completions`。adapterはbinary-owned、protocolは固定enum。OpenAI Chat Completionsは

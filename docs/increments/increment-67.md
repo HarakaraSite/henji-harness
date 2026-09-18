@@ -56,3 +56,9 @@
 - 実provider probe（利用者許可）: isolated XDGで`openrouter-responses`/`qwen/qwen3.8-flash`/`auto`を
   `initialModelSelection`に指定し、production physicalI/Oで1 turn実行。`ok:true`、`finalText`は指定どおり
   `RESPONSES_AUTO_PROBE_OK`。HTTP 400は再発しなかった。
+- binary配置: 実装commit`fd616c79`から`henji:compile`。binary SHA-256
+  `4e0bc0acf6874b898f4b46a195c07d22c3303757bb28c2094e5e963d21e77fa6`、build
+  `4759ce1e842b9d6ea1abe065ec103fce67990daebfe1dc6aed8e4afaaf39041c`、embedded runtime
+  `3df03fb074c7699f06c2e9d7f428fdd8aa04c81f2d5730b3a792fcd74ff55170`、`sourceDirty=false`。installed launcher
+  `~/.local/bin/henji`で、isolated `default-selection.json`に同selectionを置いた`henji run`が
+  `RESPONSES_AUTO_PROBE_OK`を出力しexit 0。
