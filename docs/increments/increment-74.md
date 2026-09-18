@@ -98,3 +98,18 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
 - 原因候補は、turn dispatch後のHost側処理（`submitIntent`／presentation dispatch／`readEvents`の`Promise.race`
   周辺、またはその後のpark状態）に絞られる。次はこれらへ計測を入れ、どのawait/処理でmacrotaskが止まるかを
   特定する。
+
+### 追加計測2（2026-09-18）
+
+- `WorkerCapsule.onmessage`とcontroller `submitIntent`、renderer 300ms heartbeatを計測。順序は
+  `SUBMIT-DISPATCH` → `WM runtime_event`×2 → `WM context_observation` → `WM provider_observation` → HB 1回 →
+  停止。つまり**model request開始直後**（provider_observation到着後）にHostのtimerが止まり、以後Worker応答まで
+  更新されない。
+- `terminal.write`を`Deno.stdout.writeSync`から非同期`Deno.stdout.write`へ一時変更しても停止は再現（HBは
+  provider_observation後に停止）。**同期stdout writeは原因ではない**。
+- `stopBusyElapsed`／`cancelInterval`は呼ばれていない。CPUはほぼ0（parked）。
+- 素のDeno Worker（sleep→postMessage）ではmain timerは止まらない。Worker+fetchの分離は環境設定ミスで
+  未確定。
+- 次の計測: `WorkerHostSession.receive`／`deliver`／`messages.publish`、および`submit`がprovider応答を
+  awaitする経路に計測を入れ、provider_observation処理の直後にmainがどの同期処理／parkへ入るかを確定する。
+  Worker内fetchの分離も再試行する。
