@@ -303,8 +303,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 - 観測（2026-09-18）: 利用者報告ではtool call結果待ちの間、busy表示（`working`＋spinner、経過時間）が
   更新されない。
-- 検証（2026-09-18、installed binary、pty）: 12秒の`bash sleep` tool待ちで生terminal出力を採取したところ、
-  `working 00:00`〜`00:11`が102 frame出力され、spinnerも継続更新、`BLINK_SGR`なし。**この条件では再現しない**。
+- 検証（2026-09-18、installed binary、pty）: 12秒の`bash sleep`待ちで`working 00:00`〜`00:11`（102 frame）、
+  `web_search`（ネストSonar request）待ちで`00:00`〜`00:19`と、いずれも継続更新。spinnerも更新、`BLINK_SGR`なし。
+  **これらの条件では再現しない**。
   初期の「停止」観測はpty採取側の早期打ち切りによる誤りで、timer callback自体はturn中も実行されていた
   （`__TICK=40`／`__HB=29`、9秒単発timerも発火）。
 - 原因候補（未確認）: 特定のtool（web_search/web_fetch等のネストmodel、delegation）、model応答のstreaming中、
