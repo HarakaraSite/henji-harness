@@ -1,10 +1,12 @@
 # Increment 70 — tool宣言のDefinition統一とweb_fetch
 
-ステータス: **計画中（要件確定、実装未承認）**
+ステータス: **実装中（宣言・解決の一般化は完了。web_fetchは要件のみで実装未着手）**
 
 基準commit: `1ca21bcb`
 
 計画日: 2026-09-18
+
+実装日: 2026-09-18
 
 対象: Increment 69で導入したmanaged tool Definitionを、宣言・解決の両面で一般化する。tool identityの宣言は
 **各Agent Definitionがowner**とし、Henji helperがDefinition由来の追加tool宣言とHost解決済みcomponentを扱える
@@ -102,3 +104,20 @@
 3. Hostは宣言された`tool:*`をbinding > bundled moduleの順で解決し、未解決はtyped failureとする。
 4. `web_fetch`のcontract（url→本文＋メタ）を採用し、物理挙動は実装時に別途計画する。
 5. roadmapのIncrement 70記載を本計画へ合わせて更新する。
+
+## 結果（2026-09-18: 一般化まで）
+
+- tool宣言のownerを各Agent Definitionへ統一した。`defaultAgentDefinition`の固定一覧はbundled default parentの
+  宣言として維持し、Henji helper（`createDefaultAgentComposition`）が`AgentCompositionOptions.additionalTools`で
+  Definition由来の追加`tool:<name>`を宣言できるようにした。helperは宣言identityをcapabilityと
+  resourceSelection（sort・dedupe）とmanifest resourcesへ反映し、Host解決済みの`input.toolDefinitions`
+  componentをregistryへ合成する。
+- Host解決を一般化した。`resolveToolDefinitions`はbundled tool Definition一覧（現在`tool:web_search`）と
+  `tools.json` binding一覧を解決し、bundled identityはbinding > bundled module、非bundled identityはbindingの
+  exact revisionを`WorkerToolDefinitionLoadRequest`として渡す。registryはDefinitionが宣言したidentityだけを
+  materializeし、`tools.json`はbindingのみを持つ。
+- `worker_definition_revision.ts`のbundled tool Definitionを一覧化し、`bundledToolDefinitionLoadRequest(identity)`
+  を追加した。
+- 検証: 新規`tests/v0/increment_70_tool_declaration_test.ts`（2件）を`v0:test`へ追加。additionalTools宣言の
+  合成とmanifest／capability反映、非bundled identityのbinding解決を確認。authoritative `v0:gate` exit 0。
+- 未着手: `web_fetch` tool Definition本体（物理挙動は別途計画）。他work toolのDefinition化とtransport。

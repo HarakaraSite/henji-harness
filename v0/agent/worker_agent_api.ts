@@ -16,10 +16,12 @@ import type { ChildTurnExecutionContext } from './core/execution_context.ts';
 import { runAgent } from './core/loop.ts';
 import { WORKER_PROTOCOL_VERSION } from './worker/worker_protocol.ts';
 import {
+  compareAgentResourceIdentities,
   createAgentResourceIdentity,
   createAgentResourceSelection,
   validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
+import type { AgentResourceIdentity } from './definitions/resource_identity.ts';
 import {
   type BuiltinInstructionRole,
   resolveBuiltinDefinitionInstruction,
@@ -123,6 +125,11 @@ export interface AgentCompositionOptions {
   readonly eventSink?: AgentEventSink;
   /** Same-identity work-tool replacements applied only to the returned root composition. */
   readonly toolComponents?: readonly ToolComponent[];
+  /**
+   * Additional `tool:<name>` identities declared by this Definition, on top of the bundled
+   * default declaration. The Host resolves and supplies matching tool Definition components.
+   */
+  readonly additionalTools?: readonly AgentResourceIdentity[];
 }
 
 export interface WorkerAgentManifest {
@@ -382,6 +389,22 @@ export const createDefaultAgentComposition = (
   options: AgentCompositionOptions = {},
 ): WorkerAgentComposition => {
   const resolved = defaultAgentDefinition(definitionInput(input));
+  const additionalTools = options.additionalTools ?? [];
+  const capabilities = additionalTools.length === 0 ? resolved.capabilities : Object.freeze({
+    ...resolved.capabilities,
+    tools: Object.freeze([...resolved.capabilities.tools, ...additionalTools]),
+  });
+  const resourceIdentities = additionalTools.length === 0
+    ? resolved.resourceSelection.resources.map(String)
+    : (() => {
+      const identities = [...resolved.resourceSelection.resources, ...additionalTools];
+      identities.sort(compareAgentResourceIdentities);
+      return identities
+        .filter((identity, index) =>
+          index === 0 || compareAgentResourceIdentities(identities[index - 1], identity) !== 0
+        )
+        .map(String);
+    })();
   const planner = resolvePlannerComposition(input, options);
   const maxSteps = maxStepsFor(resolved.limits, options);
   const plannerHandler = createPlannerHandler(planner.composition);
@@ -402,7 +425,7 @@ export const createDefaultAgentComposition = (
       });
     }
   }
-  const registry = createDeclaredRegistry(resolved.capabilities, {
+  const registry = createDeclaredRegistry(capabilities, {
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
@@ -420,10 +443,11 @@ export const createDefaultAgentComposition = (
   const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
+    capabilities,
     systemInstruction,
     limits: Object.freeze({ maxSteps }),
     resourceSelection: createAgentResourceSelection(
-      resolved.resourceSelection.resources.map(String),
+      resourceIdentities,
       maxSteps,
     ),
   });
@@ -436,7 +460,7 @@ export const createDefaultAgentComposition = (
     instructionComponents,
     manifest: manifestFor(
       'parent',
-      resolved.capabilities,
+      capabilities,
       maxSteps,
       modelResource,
       resolved.model.profile.id,

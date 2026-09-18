@@ -36,29 +36,65 @@ export const workerBuiltinModulePath = (
 
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
 
+interface BundledToolDefinitionEntry {
+  readonly identity: string;
+  readonly resourceId: string;
+  readonly modulePath: string;
+}
+
+const BUNDLED_TOOL_DEFINITIONS: readonly BundledToolDefinitionEntry[] = Object.freeze([
+  {
+    identity: WEB_SEARCH_TOOL_IDENTITY,
+    resourceId: 'builtin/web-search',
+    modulePath: new URL('./worker_builtin_web_search_tool.ts', import.meta.url).pathname,
+  },
+]);
+
+/** Bundled tool Definition identities the Host can resolve without an external binding. */
+export const BUNDLED_TOOL_DEFINITION_IDENTITIES: readonly string[] = Object.freeze(
+  BUNDLED_TOOL_DEFINITIONS.map((entry) => entry.identity),
+);
+
+const bundledToolDefinitionFor = (identity: string): BundledToolDefinitionEntry | undefined =>
+  BUNDLED_TOOL_DEFINITIONS.find((entry) => entry.identity === identity);
+
 /** Bundled tool Definition module path for one tool identity. */
 export const workerBuiltinToolDefinitionModulePath = (toolIdentity: string): string => {
-  if (toolIdentity === WEB_SEARCH_TOOL_IDENTITY) {
-    return new URL('./worker_builtin_web_search_tool.ts', import.meta.url).pathname;
+  const bundled = bundledToolDefinitionFor(toolIdentity);
+  if (bundled === undefined) {
+    throw new Error(`no bundled tool Definition for identity: ${toolIdentity}`);
   }
-  throw new Error(`no bundled tool Definition for identity: ${toolIdentity}`);
+  return bundled.modulePath;
 };
 
-export const builtinWebSearchToolDefinitionRef = async (): Promise<ToolDefinitionRevisionRef> =>
-  await builtinToolDefinitionRef(
-    'builtin/web-search',
-    WEB_SEARCH_TOOL_IDENTITY,
+export const builtinToolDefinitionRefFor = async (
+  identity: string,
+): Promise<ToolDefinitionRevisionRef> => {
+  const bundled = bundledToolDefinitionFor(identity);
+  if (bundled === undefined) {
+    throw new Error(`no bundled tool Definition for identity: ${identity}`);
+  }
+  return await builtinToolDefinitionRef(
+    bundled.resourceId,
+    identity,
     HENJI_TOOL_DEFINITION_API_CONTRACT,
     buildManifest(),
   );
+};
+
+export const builtinWebSearchToolDefinitionRef = async (): Promise<ToolDefinitionRevisionRef> =>
+  await builtinToolDefinitionRefFor(WEB_SEARCH_TOOL_IDENTITY);
+
+/** Bundled tool Definition load request for one identity. */
+export const bundledToolDefinitionLoadRequest = async (
+  identity: string,
+): Promise<import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest> => ({
+  toolIdentity: identity,
+  ref: await builtinToolDefinitionRefFor(identity),
+  module: await readWorkerModuleRevision(workerBuiltinToolDefinitionModulePath(identity)),
+});
 
 /** Bundled web_search tool Definition load request for a default parent generation. */
 export const builtinWebSearchToolDefinitionLoadRequest = async (): Promise<
   import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest
-> => ({
-  toolIdentity: WEB_SEARCH_TOOL_IDENTITY,
-  ref: await builtinWebSearchToolDefinitionRef(),
-  module: await readWorkerModuleRevision(
-    workerBuiltinToolDefinitionModulePath(WEB_SEARCH_TOOL_IDENTITY),
-  ),
-});
+> => await bundledToolDefinitionLoadRequest(WEB_SEARCH_TOOL_IDENTITY);

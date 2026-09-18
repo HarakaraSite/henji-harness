@@ -44,8 +44,8 @@ import {
   readWorkerModuleRevision,
 } from './worker_capsule.ts';
 import {
-  builtinWebSearchToolDefinitionLoadRequest,
-  WEB_SEARCH_TOOL_IDENTITY,
+  BUNDLED_TOOL_DEFINITION_IDENTITIES,
+  bundledToolDefinitionLoadRequest,
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';
 import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
@@ -53,7 +53,11 @@ import {
   AgentBindingError,
   resolveSubagentAgentSlotBinding,
 } from '../definitions/agent_slot_binding.ts';
-import { resolveToolDefinitionBinding, ToolBindingError } from '../definitions/tool_binding.ts';
+import {
+  type ResolvedToolDefinitionBinding,
+  resolveToolDefinitionBindings,
+  ToolBindingError,
+} from '../definitions/tool_binding.ts';
 import type {
   WorkerSubagentLoadRequest,
   WorkerToolDefinitionLoadRequest,
@@ -358,11 +362,11 @@ export const createWorkerSession = async (
     const resolveToolDefinitions = async (): Promise<
       readonly WorkerToolDefinitionLoadRequest[] | undefined
     > => {
-      let bound;
+      let bindings: ReadonlyMap<string, ResolvedToolDefinitionBinding>;
       try {
-        bound = configRoot === undefined || dataRoot === undefined
-          ? undefined
-          : await resolveToolDefinitionBinding(configRoot, dataRoot, WEB_SEARCH_TOOL_IDENTITY);
+        bindings = configRoot === undefined || dataRoot === undefined
+          ? new Map<string, ResolvedToolDefinitionBinding>()
+          : await resolveToolDefinitionBindings(configRoot, dataRoot);
       } catch (error) {
         if (error instanceof ToolBindingError) {
           throw new DefinitionStartupError(
@@ -375,14 +379,30 @@ export const createWorkerSession = async (
         }
         throw error;
       }
-      if (bound !== undefined) {
-        return [{
-          toolIdentity: WEB_SEARCH_TOOL_IDENTITY,
+      const requests: WorkerToolDefinitionLoadRequest[] = [];
+      const resolvedIdentities = new Set<string>();
+      for (const identity of BUNDLED_TOOL_DEFINITION_IDENTITIES) {
+        const bound = bindings.get(identity);
+        if (bound !== undefined) {
+          requests.push({
+            toolIdentity: identity,
+            ref: structuredClone(bound.ref),
+            module: managedToolDefinitionLoadRequest(bound.revision),
+          });
+        } else {
+          requests.push(await bundledToolDefinitionLoadRequest(identity));
+        }
+        resolvedIdentities.add(identity);
+      }
+      for (const [identity, bound] of bindings) {
+        if (resolvedIdentities.has(identity)) continue;
+        requests.push({
+          toolIdentity: identity,
           ref: structuredClone(bound.ref),
           module: managedToolDefinitionLoadRequest(bound.revision),
-        }];
+        });
       }
-      return [await builtinWebSearchToolDefinitionLoadRequest()];
+      return requests.length === 0 ? undefined : requests;
     };
     const openHost = async (
       workerHandle: WorkerSessionHandle,

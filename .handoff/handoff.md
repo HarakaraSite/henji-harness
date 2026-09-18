@@ -44,6 +44,20 @@
   - generic model層のprovider annotations/citation（調査済み・作らない方針。OpenRouterで`tools`非対応の
     pure-textは59件、`web_search_options`保持はSonar系5件のみ）
 
+### Increment 70 — tool宣言のDefinition統一（一般化完了、web_fetch未着手）
+
+- 状態: 宣言・解決の一般化を実装済み。`v0:gate` exit 0。toolの可視性のownerを各Agent Definitionに統一し、
+  `AgentCompositionOptions.additionalTools`でDefinitionが追加`tool:<name>`を宣言、Hostがbundled tool Definition
+  一覧＋`tools.json` binding一覧を解決してWorkerへ渡す。registryは宣言identityのみmaterialize。`tools.json`は
+  bindingのみ。新規`tests/v0/increment_70_tool_declaration_test.ts`（2件）。
+- 次: `web_fetch` tool Definition本体の実装（物理挙動: 裸HTTP GET seam、redirect、body上限、content-type別抽出、
+  error表現。要件は`url→本文＋メタ`で確定済み）。実行前に物理挙動を計画し、実装にはHuman Gate承認が必要。
+  他work toolのDefinition化とtransportは後続。
+- 正本: `docs/increments/increment-70.md`。architectureは`henji-host-agent-worker.md`の「tool Definition」節を
+  一般化へ更新済み。
+- 注意: 追加toolを使うには、それを宣言したAgent Definitionのinstall/選択と、tool Definitionのinstall/bindが必要。
+  bundled moduleが無いidentityはexternal binding必須（無ければtyped failure）。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`（build `32b126bbd5d9999f58fffd1943a4f1ba16251310f731b6b98d155232e2b06b65`、binary SHA-256

@@ -267,8 +267,12 @@ exact revisionから供給できる。authoring packageは`henji-resource.json`�
 manifestは`apiContract: henji-tool-definition-v1`、`toolIdentity`、entry、closure digestを持つ。Agent Definitionは
 tool identityだけを宣言し、toolのcontract・executor・backendの実装はtool Definitionが所有する。installはXDG dataの
 `managed/tool-definition/v1`へexact revisionをpublishするだけでactive selectionを変えない。activation-level bindingは
-`$XDG_CONFIG_HOME/henji-harness/tools.json`（`schemaVersion:1`＋`bindings: { "<toolIdentity>": "<selector>" }`）で表し、
-Hostがroot Definitionの宣言するidentityごとにexplicit selector > activation binding > bundled defaultの順で解決する。
+`$XDG_CONFIG_HOME/henji-harness/tools.json`（`schemaVersion:1`＋`bindings: { "<toolIdentity>": "<selector>" }`）で表す。
+bindingは「どのexact tool Definition revisionを使うか」だけを表し、tool identityの宣言は持たない。toolの可視性は
+**各Agent Definitionのcapability宣言**がownerで、root parentとsubagent（`subagent:planner`を含む）を区別しない。
+bundled default parentの宣言一覧は固定で、Definitionは`additionalTools`として自分の追加`tool:<name>`を宣言できる。
+Hostはbundled tool Definition一覧と`tools.json` binding一覧を解決してWorker start commandへ渡し、Workerのregistryは
+Definitionが宣言したidentityだけをmaterializeする。bundled moduleが無いidentityはexternal bindingを要求する。
 binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。binding変更は次のWorker generationから効く。
 
 Hostは解決したtool Definitionのexact refとprocess-local physical load descriptorをWorker start commandへ渡す。Workerは
