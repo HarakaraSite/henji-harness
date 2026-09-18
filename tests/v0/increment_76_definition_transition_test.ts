@@ -1,6 +1,7 @@
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
+import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import type { DefinitionRevisionRef } from '../../v0/agent/session/session_store.ts';
 import {
   type StoredSessionRecord,
@@ -11,6 +12,10 @@ import {
   type WorkerHostCapsule,
   WorkerHostSession,
 } from '../../v0/agent/worker/worker_host.ts';
+import {
+  createWorkerSession,
+  type TuiActiveSession,
+} from '../../v0/agent/worker/worker_tui_session.ts';
 import type {
   WorkerHostCommand,
   WorkerToHostMessage,
@@ -170,5 +175,138 @@ Deno.test('Increment 76 still rejects a workspace or agent binding mismatch', as
     assert(agentRejected, 'an agent mismatch must still fail');
   } finally {
     await Deno.remove(workspaceRoot, { recursive: true });
+  }
+});
+
+class TurnCapsule implements WorkerHostCapsule {
+  private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
+  private nextTurn = 1;
+  private transcript: StoredSessionRecord['transcript'] = [];
+
+  private emit(message: WorkerToHostMessage): void {
+    for (const listener of this.listeners) listener(message);
+  }
+
+  send(command: WorkerHostCommand): void {
+    if (command.kind === 'start') {
+      this.nextTurn = command.nextTurn ?? 1;
+      this.transcript = [...(command.initialTranscript ?? [])];
+      this.emit({
+        kind: 'ready',
+        correlation: command.correlation,
+        manifest: {
+          role: 'parent',
+          maxSteps: 8,
+          profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
+          resources: [],
+          rootModel: ROOT_DEFAULT_MODEL_SELECTION,
+          plannerModel: roleDefaultModelSelection('subagent:planner'),
+          ...(command.baseInstruction === undefined ? {} : {
+            baseInstruction: {
+              slot: command.baseInstruction.slot,
+              selectionSource: command.baseInstruction.selectionSource,
+              ref: command.baseInstruction.ref,
+              contentDigest: command.baseInstruction.contentDigest,
+            },
+          }),
+        },
+        startupSnapshot: { skillNames: [] },
+        credentialAvailability: {
+          authProfile: ROOT_DEFAULT_MODEL_SELECTION.authProfile,
+          status: 'unknown',
+        },
+      });
+    } else if (command.kind === 'turn') {
+      const nextTurn = this.nextTurn + 1;
+      const transcript = [
+        ...this.transcript,
+        { role: 'user' as const, content: { kind: 'text' as const, text: command.task } },
+        { role: 'assistant' as const, content: { kind: 'text' as const, text: 'ok' } },
+      ];
+      this.nextTurn = nextTurn;
+      this.transcript = transcript;
+      queueMicrotask(() =>
+        this.emit({
+          kind: 'commit_proposal',
+          correlation: command.correlation,
+          nextTurn,
+          transcript,
+        })
+      );
+    } else if (command.kind === 'commit_acknowledgement' && command.accepted) {
+      queueMicrotask(() =>
+        this.emit({
+          kind: 'runtime_event',
+          correlation: command.correlation,
+          sequence: 1,
+          event: {
+            kind: 'agent_event',
+            event: { kind: 'turn_end', turn: 1, outcome: 'final', committed: true },
+          },
+        })
+      );
+    } else if (command.kind === 'close') {
+      this.emit({ kind: 'closed', correlation: command.correlation });
+    }
+  }
+
+  subscribe(listener: (message: WorkerToHostMessage) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  terminate(): void {}
+}
+
+Deno.test('Increment 76 opens a stored session lazily and starts the Worker on first submit', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i76-lazy-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  let storedId = '';
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  try {
+    const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    await store.initialize();
+    const handle = await store.allocateWorker('default', definition('a'.repeat(64)));
+    storedId = handle.id;
+    handle.commit(recordFor(workspaceRoot, storedId, definition('a'.repeat(64))));
+    await handle.close();
+
+    let capsules = 0;
+    const capsuleCount = () => capsules;
+    created = await createWorkerSession({
+      workspaceRoot,
+      stateRoot,
+      persistence: 'new',
+      physicalIoMode: 'provider-free',
+      capsuleFactory: () => {
+        capsules += 1;
+        return new TurnCapsule();
+      },
+    });
+    const navigation = created.navigation;
+    assert(navigation !== undefined, 'navigation is required for a durable session');
+    assert(capsuleCount() === 1, 'the initial new session starts its own Worker');
+
+    const binding = await navigation.switchTo(storedId);
+    assert(capsuleCount() === 1, 'opening a stored session must not start a Worker');
+    const lazy = binding.session as unknown as TuiActiveSession;
+    assert(lazy.currentPosition().committedTurn === 0);
+    assert(lazy.currentPosition().messageCount === 0);
+
+    const outcome = await binding.session.submit('lazy turn');
+    assert(capsuleCount() === 2, 'the first submit starts the Worker');
+    assert(outcome.ok, outcome.error);
+
+    const reopened = await store.readWorker(storedId);
+    assert(reopened.nextTurn === 2, 'the lazy turn was committed to the stored session');
+    assert(
+      reopened.definition.revision.digest !== 'a'.repeat(64),
+      'the stored binding advanced to the current Definition revision',
+    );
+  } finally {
+    await created?.close();
+    await Deno.remove(root, { recursive: true });
   }
 });

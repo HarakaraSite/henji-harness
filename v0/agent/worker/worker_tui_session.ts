@@ -1,7 +1,7 @@
 import type { AgentEventSink } from '../core/events.ts';
-import type { Message } from '../core/contracts.ts';
+import type { LoopOutcome, Message } from '../core/contracts.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
-import type { ModelSelection } from '../provider/model_selection.ts';
+import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import {
   builtinProviderDeclarations,
@@ -23,10 +23,13 @@ import type {
   NavigationBinding,
   NavigationListing,
   NavigationPosition,
+  NavigationSessionLike,
   SessionNavigationHost,
 } from '../session/session_navigation.ts';
 import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
+import { historyPageWindow, type SessionHistoryPage } from '../session/session_history.ts';
 import {
+  type DefinitionRevisionRef,
   launcherStateRoot,
   restoredMessages,
   type SemanticContextCheckpointV1,
@@ -162,6 +165,178 @@ const restoreRecordMessages = (
 ):
   | { readonly messages: readonly Message[]; readonly omitted: number }
   | undefined => record === undefined ? undefined : restoredMessages(record.transcript);
+
+/** Methods the TUI navigation and presentation use on the active session. */
+export interface TuiActiveSession extends NavigationSessionLike {
+  readonly definition: DefinitionRevisionRef;
+  readonly sessionId: string;
+  currentPosition(): ReturnType<WorkerHostSession['currentPosition']>;
+  modelSelectionSnapshot(): ModelSelection;
+  credentialAvailabilitySnapshot(): CredentialAvailability | undefined;
+  checkpointSnapshot(): SemanticContextCheckpointV1 | undefined;
+  consumeAutoCompactionNotice(): {
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | null;
+  prepareRecall(id?: string): Promise<{
+    readonly sourceExecutionId: string;
+    readonly evidence: 'available' | 'unavailable';
+  }>;
+  clearPendingRecall(): boolean;
+  renameTitle(value: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable';
+  historyPage(page: number, turn?: number, rows?: number): SessionHistoryPage | undefined;
+  requestCount(): number;
+  close(): Promise<void>;
+}
+
+/**
+ * A stored Session opened as the active session without starting a Worker generation.
+ *
+ * Opening and closing it (or reading its stored transcript and history) never starts the Worker.
+ * The first operation that needs live agent behavior (submit, model selection, rename, recall,
+ * compaction) starts the generation under the Definition resolved at open time.
+ */
+class LazyWorkerSession implements TuiActiveSession {
+  private host: WorkerHostSession | undefined;
+  private starting: Promise<WorkerHostSession> | undefined;
+  private closed = false;
+
+  constructor(
+    private readonly handle: WorkerSessionHandle,
+    private readonly record: StoredSessionRecord,
+    private readonly selected: DefinitionRevisionRef,
+    private readonly startHost: () => Promise<WorkerHostSession>,
+  ) {}
+
+  get definition(): DefinitionRevisionRef {
+    return structuredClone(this.selected);
+  }
+
+  get sessionId(): string {
+    return this.handle.id;
+  }
+
+  private async ensureStarted(): Promise<WorkerHostSession> {
+    if (this.closed) throw new Error('session is closed');
+    if (this.host !== undefined) return this.host;
+    if (this.starting === undefined) {
+      this.starting = this.startHost().then((host) => {
+        this.host = host;
+        return host;
+      });
+    }
+    return await this.starting;
+  }
+
+  async submit(text: string): Promise<LoopOutcome> {
+    return await (await this.ensureStarted()).submit(text);
+  }
+
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
+    return this.host?.cancelActiveTurn() ?? 'idle';
+  }
+
+  steerActiveTurn(text: string): 'accepted' | 'idle' | 'already_accepted' {
+    return this.host?.steerActiveTurn(text) ?? 'idle';
+  }
+
+  isAvailable(): boolean {
+    return !this.closed;
+  }
+
+  transcriptSnapshot(): readonly Message[] {
+    return this.host?.transcriptSnapshot() ?? structuredClone(this.record.transcript);
+  }
+
+  currentPosition(): ReturnType<WorkerHostSession['currentPosition']> {
+    if (this.host !== undefined) return this.host.currentPosition();
+    const checkpoint = this.handle.checkpoint;
+    return {
+      sessionId: this.handle.id,
+      createdAt: this.record.createdAt,
+      ...(this.record.title === null ? {} : { title: this.record.title }),
+      agent: this.record.agent,
+      committedTurn: this.record.nextTurn - 1,
+      messageCount: this.record.transcript.length,
+      ...(checkpoint === undefined ? {} : {
+        checkpoint: {
+          coveredThroughTurn: checkpoint.coveredThroughTurn,
+          retainedFromTurn: checkpoint.retainedFromTurn,
+        },
+      }),
+    };
+  }
+
+  modelSelectionSnapshot(): ModelSelection {
+    return this.host?.modelSelectionSnapshot() ?? structuredClone(this.record.activeModel);
+  }
+
+  credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
+    return this.host?.credentialAvailabilitySnapshot();
+  }
+
+  checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
+    return this.host?.checkpointSnapshot() ??
+      (this.handle.checkpoint === undefined ? undefined : structuredClone(this.handle.checkpoint));
+  }
+
+  consumeAutoCompactionNotice(): {
+    readonly coveredThroughTurn: number;
+    readonly retainedFromTurn: number;
+  } | null {
+    return this.host?.consumeAutoCompactionNotice() ?? null;
+  }
+
+  clearPendingRecall(): boolean {
+    return this.host?.clearPendingRecall() ?? false;
+  }
+
+  async selectModel(
+    selection: ModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
+    return await (await this.ensureStarted()).selectModel(selection);
+  }
+
+  async prepareRecall(id?: string): Promise<{
+    readonly sourceExecutionId: string;
+    readonly evidence: 'available' | 'unavailable';
+  }> {
+    return await (await this.ensureStarted()).prepareRecall(id);
+  }
+
+  renameTitle(value: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
+    return this.host?.renameTitle(value) ?? 'unavailable';
+  }
+
+  historyPage(page: number, turn?: number, rows = 16): SessionHistoryPage | undefined {
+    if (this.host !== undefined) return this.host.historyPage(page, turn, rows);
+    return historyPageWindow(
+      this.record.transcript,
+      turn ?? this.record.nextTurn - 1,
+      page,
+      { sessionId: this.handle.id, agent: this.record.agent, rows },
+    );
+  }
+
+  requestCount(): number {
+    return this.host?.requestCount() ?? 0;
+  }
+
+  async close(): Promise<void> {
+    if (this.closed) return;
+    this.closed = true;
+    if (this.host !== undefined) {
+      await this.host.close();
+      return;
+    }
+    if (this.starting !== undefined) {
+      const started = await this.starting.catch(() => undefined);
+      if (started !== undefined) await started.close();
+      return;
+    }
+    await this.handle.close();
+  }
+}
 
 /** Build one Host-owned session through the common headless Worker route. */
 export const createWorkerSession = async (
@@ -455,7 +630,7 @@ export const createWorkerSession = async (
       },
       skillNames: startupSnapshot.skillNames,
     });
-    let currentHost = host;
+    let currentHost: TuiActiveSession = host;
     let currentHandle = handle;
     let currentRecord = record;
     const position = (): NavigationPosition => navigationPosition(currentHost.currentPosition());
@@ -532,9 +707,16 @@ export const createWorkerSession = async (
             targetRecord.workspaceRoot !== workspace.root ||
             targetRecord.agent !== activeSelection.id
           ) throw new Error('session binding does not match the selected Definition');
-          const targetHost = await openHost(targetHandle);
+          // Open the stored Session as the active session without starting a Worker. The generation
+          // starts lazily under the currently resolved Definition on the first live operation.
+          const lazy = new LazyWorkerSession(
+            targetHandle,
+            targetRecord,
+            definition,
+            () => openHost(targetHandle),
+          );
           await currentHost.close();
-          currentHost = targetHost;
+          currentHost = lazy;
           currentHandle = targetHandle;
           currentRecord = targetRecord;
           const restored = restoreRecordMessages(targetRecord);

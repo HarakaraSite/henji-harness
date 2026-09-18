@@ -177,11 +177,15 @@ digest範囲変更は別途。
   閲覧と、過去Sessionのresume（`resume failed`なし、active sessionが選択Sessionへ切替）を確認。
 - 既存testの契約更新: `increment_33_managed_definition_test.ts`の「保存exact refでのreopen」を新契約
   （現行選択Definitionでreopenし、明示selectionはそのrevisionを評価する）へ更新。
-- 設計注記（承認済み設計からの変更点）: 当初案の「active sessionをgeneration 0個のまま開き、最初のsubmitで
-  Worker起動」ではなく、「閲覧はactive bindingを変えないread-only overlay」として実装した。理由: (1) 正本に
-  追記したとおり閲覧はgeneration/admissionの対象外であり、overlayがこの分離をそのまま表す。(2) `WorkerSessionResult.session`
-  が`WorkerHostSession`型でheadless runnerと13 testが直接依存するため、0/1 generationを型で表す変更は広範囲に
-  及ぶ。閲覧・継続という製品動作はoverlay＋continueで満たされる。active-lazyを明示的に必要とする場合は別途
-  指示を得て実施する。
+- lazy activation: pickerで保存Sessionを選ぶと、`worker_tui_session.ts`の`LazyWorkerSession`（`TuiActiveSession`
+  実装）としてactive sessionになる。recordとhandleを持ち、Worker generationは0個。transcript/position/model/
+  historyはrecordから返す。submit・model選択・recall・rename等のlive操作で初めて`openHost`を呼び、現行Definitionで
+  generationを起動する。`navigation.switchTo`が`LazyWorkerSession`を返し、`currentHost`は`TuiActiveSession`型に
+  なる（`WorkerHostSession`は同interfaceを満たす）。startupの`--session`/`--continue`と`createNew`はeagerのまま。
+- 検証（lazy）: focused test `tests/v0/increment_76_definition_transition_test.ts`の
+  「opens a stored session lazily and starts the Worker on first submit」で、`capsuleFactory`呼出回数が
+  switch時は増えず（Worker 0個）、最初のsubmitで増えることを確認。実経路（source TUI/tmux）で、picker選択で
+  active sessionが保存Sessionへ切り替わりtranscriptが復元され、submitでturnがcommitされることを確認。
+- 閲覧overlay（`v`）はlazyとは別に、active bindingを変えないread-only閲覧として残す。
 
 注記: digest範囲変更（builtin Definition digestをランタイム全体からDefinition closure内容へ）は別increment。

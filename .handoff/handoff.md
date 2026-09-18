@@ -148,18 +148,17 @@
   単一authorityとして導出（`session.definition`=現行binding）。閲覧: `human_history_open/page/detail/search`
   intentにoptional `sessionId`を追加し、pickerの`v`で選択Sessionの履歴をread-only overlay表示（active
   binding不変、Worker非起動）。`layout.ts`のpickerに`v view history`。
-- 検証: focused test `tests/v0/increment_76_definition_transition_test.ts`（2件）と
-  `tui_controller_overlay_test.ts`の`v` test。source/installed binaryのtmuxで、過去build Session
-  `375ca4e7`の閲覧とresume（`resume failed`なし）、turn生成で`session.definition`が`e28fe12a…`へ更新、
-  turn1-2は`cc214791…`のまま残ることを確認。increment_33の旧exact-ref reopen testは新契約へ更新。
-- 設計注記（承認済み設計からの変更点）: 当初の「active sessionをgeneration 0個で開きsubmitでWorker起動」では
-  なく、「閲覧はactive bindingを変えないread-only overlay」として実装。理由はincrement-76.md参照。active-lazyを
-  明示的に必要とする場合は利用者判断。
+- 検証: focused test `tests/v0/increment_76_definition_transition_test.ts`（3件）と
+  `tui_controller_overlay_test.ts`の`v` test。source/installed binaryのtmuxで、過去build Sessionの閲覧・
+  lazy選択・resume、turn生成で`session.definition`が現行digestへ更新、過去turn attributionが不変であることを
+  確認。increment_33の旧exact-ref reopen testは新契約へ更新。
+- lazy activation: pickerで保存Sessionを選ぶと`LazyWorkerSession`（`TuiActiveSession`）としてactive sessionに
+  なる（Worker generation 0個）。transcript/position/model/historyはrecordから返し、submit等のlive操作で初めて
+  現行Definitionのgenerationを起動する。startup `--session`/`--continue`と`createNew`はeager。read-only閲覧
+  overlay（`v`）はlazyとは別に残す。
 - 正本: `docs/increments/increment-76.md`（設計・正本変更・実装状況）。roadmap F18/architecture適用済み。
   inbox B4更新済み。
-- 次: 利用者判断待ち = (1) active-lazyを追加で必要とするか。過去build Session 5件は利用者承認のうえ削除済み
-  （workspace `967fa641…`、listWorkerは0件）。変更は`f8f458b7`でcommit済み。digest範囲変更はIncrement 77提案
-  （下記）でHuman Gate待ち。
+- 次: 利用者判断待ちなし。digest範囲変更はIncrement 77提案（下記）でHuman Gate待ち。
 
 ### Increment 77 — builtin resource revisionをclosure内容で識別（正本変更案・Human Gate未承認）
 
@@ -175,9 +174,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `b313a5469b3115db98d135f28dfc83497edb5b6983e21a5563e06f474ff1a810`、binary SHA-256
-  `67838a32fe50b09f5f690939b3b9677b6e6fe1b17d49ad44b9a0b52b932566d9`）。increment-76実装後、commit
-  `f8f458b7`の直前にbuildしたため`sourceDirty=true`（内容はcommit済みと同一）。installed launcher
+- binary: `0.2.1`（build `90852dc56d8b23e6999a362e20f1c73fe88142bc6e0640c6be068e5c61a5d776`、binary SHA-256
+  `60bd01e117607357ba3fe84b1800d23d5d3640fcebd94a8409d490e59b1b2e86`）。increment-76のlazy activation実装後、
+  commit前にbuildしたため`sourceDirty=true`（内容はcommit予定と同一）。installed launcher
   `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
   - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=falseの
     artifactが必要なら現在のcleanなruntimeで再buildする。
