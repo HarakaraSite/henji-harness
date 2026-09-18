@@ -320,6 +320,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     'tool:bash_output',
     'tool:edit',
     'tool:read',
+    'tool:web_fetch',
     'tool:web_search',
     'tool:write',
     'tool:delegate_to_planner',
@@ -341,6 +342,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
       'edit',
       'read',
       'submit_json_result',
+      'web_fetch',
       'web_search',
       'write',
     ],
@@ -439,6 +441,8 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     'When bash reports truncated saved output, call bash_output with the exact outputId and stream from that result. Continue with each returned nextOffset instead of rerunning or reshaping the command.';
   const webSearchGuideline =
     'Choose the task source before exploring. If the user explicitly identifies the current repository, a local file, or a canonical URL or API, use that source first and do not add web search unless it leaves a current or external question unresolved. If current or external information is requested and the target identity or canonical source is not already established, use web_search as the first source-discovery tool; do not inspect the workspace, sibling repositories, handoff files, or try guessed endpoints with bash or curl merely because a software workspace exists. When external sources alone can answer the task, stay on that route. After discovery, obtain fast-changing lists or precise current values from the direct canonical source and disclose retrieval time or conflicts with search results. Put independent read-only retrievals in distinct tool calls in the same model step when their targets are already known; perform result-dependent retrievals and fallbacks sequentially. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: use its inline source links near supported claims in the final answer, never copy provider-local citation markers such as [1], and do not add factual details that the returned material does not support. Say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.';
+  const webFetchGuideline =
+    'Use web_fetch only for a specific URL or public API endpoint that is already known. Do not guess or enumerate endpoints. When the canonical source is not known, use web_search first. Treat the returned body as sourced material, cite the final URL for claims taken from it, and label inference instead of presenting it as verified fact.';
   assert(parent.systemInstruction?.includes(guideline));
   assert(parent.systemInstruction?.includes(bashGuideline));
   assert(parent.systemInstruction?.includes(bashOutputGuideline));
@@ -448,6 +452,8 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assert(!directPlanner.systemInstruction?.includes(bashOutputGuideline));
   assert(parent.systemInstruction?.includes(webSearchGuideline));
   assert(!directPlanner.systemInstruction?.includes(webSearchGuideline));
+  assert(parent.systemInstruction?.includes(webFetchGuideline));
+  assert(!directPlanner.systemInstruction?.includes(webFetchGuideline));
   for (
     const sourceSelectionBehavior of [
       'use that source first and do not add web search unless it leaves',
@@ -467,6 +473,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     { tool: 'bash', text: bashGuideline },
     { tool: 'bash_output', text: bashOutputGuideline },
     { tool: 'read', text: guideline },
+    { tool: 'web_fetch', text: webFetchGuideline },
     { tool: 'web_search', text: webSearchGuideline },
   ]);
   assertEquals(new Registry([]).promptGuidelines(), []);

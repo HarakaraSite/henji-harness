@@ -1017,9 +1017,10 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
   }
 });
 
-Deno.test('Increment 32 compile entry grants both provider hosts and XDG credential discovery', async () => {
+Deno.test('Increment 32 compile entry grants unrestricted net and XDG credential discovery', async () => {
   const build = await Deno.readTextFile('scripts/build_henji.ts');
-  assert(build.includes('--allow-net=openrouter.ai,api.openai.com'));
+  assert(build.includes("'--allow-net',"));
+  assert(!build.includes('--allow-net=openrouter.ai'));
   assert(build.includes('XDG_CONFIG_HOME'));
   assert(build.includes('HOME'));
   assert(build.includes('--cached-only'));

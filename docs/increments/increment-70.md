@@ -1,6 +1,6 @@
 # Increment 70 — tool宣言のDefinition統一とweb_fetch
 
-ステータス: **実装中（宣言・解決の一般化は完了。web_fetchは要件のみで実装未着手）**
+ステータス: **実装完了（宣言・解決の一般化＋web_fetch。実provider probe未実施）**
 
 基準commit: `1ca21bcb`
 
@@ -60,12 +60,30 @@
   Definition評価順とstart command構築の順序に合わせて決める。
 - 新identityのbundled moduleが無い場合はexternal bindingを要求し、無ければtyped failureにする。
 
-### web_fetch（最初の追加identity、要件のみ）
+### web_fetch 物理挙動（計画）
+
+- **取得**: 素のHTTP GET（credentialなし）。`redirect: 'follow'`。任意のpublic URLが対象。
+- **request**: `GET <url>`、`Accept: text/*, application/json, application/xml;q=0.9, */*;q=0.1`、
+  User-Agent `henji/<version>`。timeoutは既存provider deadline（`providerTimeoutMs`）または専用の固定値を用いる。
+- **response**: HTTP status、final URL（redirect後）、content-type、本文bytesを得る。本文は1 MiB上限で読み、
+  超過時は打ち切って**切り詰め有無**を返す（tool errorにしない）。
+- **content-type**: `text/*`、`application/json`、`application/xml`、`+json`／`+xml`はUTF-8としてdecodeする。
+  それ以外（binary）は本文を返さず、status・content-type・final URLのみをメタとして返す。
+- **model向けoutput**: 先頭に`URL`／`Status`／`Content-Type`／`truncated`のメタ、続けて本文（text-ishの場合）。
+- **error**: 非2xxはstatusを含むtool error、network失敗・timeout・invalid URLはtool error。本文を返さない。
+- **net権限**: 任意hostへのfetchにはDenoのnet許可が必要。compiled binaryとdev taskの`--allow-net`を拡張する
+  （無制限、または許可host宣言）。この権限はweb_fetchの目的そのものであり、hard sandbox（R3）とは別。
+- **対象外（初期）**: HTML→Markdown等の本文抽出、JavaScript実行、robots遵守、caching、認証付き取得、
+  private/localhost/内部IPの拒否（SSRF hardening。明示要求があるまで追加しない）。
+- **配置**: bundled tool Definition `worker_builtin_web_fetch_tool.ts`（identity `tool:web_fetch`）として実装し、
+  bundled default parentが宣言するか、external root Definitionが宣言するかはHuman Gateで決める。
+
+
+### web_fetch contract（確定）
 
 - input `{ url: string }`。outputは本文＋final URL＋status＋content-type＋切り詰め有無。
 - 振る舞い（HTTP取得、抽出、エラー表現）は**tool DefinitionのTS module**に置く。`henji-resource.json`は
   identity／contract／entry／digestのみを持ち、振る舞いや新しいstate・kind semanticsをJSONで表現しない。
-- 物理挙動（redirect、body上限、content-type別抽出、error表現、許可host等）は実装時に別途計画する。
 - 実装は本incrementの後半または後続incrementに分けてよい。
 
 ### 責務の切り分け（TS Definitionの境界）
@@ -121,3 +139,18 @@
 - 検証: 新規`tests/v0/increment_70_tool_declaration_test.ts`（2件）を`v0:test`へ追加。additionalTools宣言の
   合成とmanifest／capability反映、非bundled identityのbinding解決を確認。authoritative `v0:gate` exit 0。
 - 未着手: `web_fetch` tool Definition本体（物理挙動は別途計画）。他work toolのDefinition化とtransport。
+
+## 結果（2026-09-18: web_fetchまで）
+
+- bundled tool Definition `worker_builtin_web_fetch_tool.ts`（identity `tool:web_fetch`、resourceId
+  `builtin/web-fetch`）を追加し、bundled default parentの宣言一覧へ`tool:web_fetch`を加えた。HostはIncrement 69の
+  一般化済み解決でbundled moduleを渡す。
+- 実装: `v0/agent/tools/web_fetch.ts`の`createWebFetchTool(fetcher?)`。素のHTTP GET（`redirect: follow`、
+  timeout 30s）、1 MiB上限で本文を読み切り詰めを表示、`text/*`・`application/json`・`application/xml`・
+  `+json`／`+xml`はUTF-8 decode、HTMLはscript/style/comment除去＋tag除去＋空白正規化の最小text抽出、非
+  textualはメタのみ。非2xx・network失敗・invalid URLはtool error。
+- net権限: compiled binaryと`agent:run`／`agent:tui`／`agent:sessions`の`--allow-net`を無制限へ変更。
+- 検証: 新規`tests/v0/increment_70_web_fetch_test.ts`（4件）。default tool一覧・active guideline・
+  fresh-runtime comparison identity・compile権限の既存test期待を更新。authoritative `v0:gate` exit 0。
+- 未着手: 実provider probe（任意URL取得）。他work toolのDefinition化とtransport。
+

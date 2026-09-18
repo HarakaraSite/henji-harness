@@ -35,6 +35,7 @@ export const workerBuiltinModulePath = (
   ).pathname;
 
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
+export const WEB_FETCH_TOOL_IDENTITY = 'tool:web_fetch' as const;
 
 interface BundledToolDefinitionEntry {
   readonly identity: string;
@@ -47,6 +48,11 @@ const BUNDLED_TOOL_DEFINITIONS: readonly BundledToolDefinitionEntry[] = Object.f
     identity: WEB_SEARCH_TOOL_IDENTITY,
     resourceId: 'builtin/web-search',
     modulePath: new URL('./worker_builtin_web_search_tool.ts', import.meta.url).pathname,
+  },
+  {
+    identity: WEB_FETCH_TOOL_IDENTITY,
+    resourceId: 'builtin/web-fetch',
+    modulePath: new URL('./worker_builtin_web_fetch_tool.ts', import.meta.url).pathname,
   },
 ]);
 

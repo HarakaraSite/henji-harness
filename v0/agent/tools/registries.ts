@@ -30,6 +30,7 @@ import {
   ToolComponentCatalog,
 } from './tool_components.ts';
 import { createWebSearchTool, type WebSearchBackend } from './web_search.ts';
+import { createWebFetchTool } from './web_fetch.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -166,6 +167,15 @@ export const createDeclaredRegistry = (
     toolDefinitionComponents.set('tool:web_search', {
       identity: createAgentResourceIdentity('tool:web_search'),
       materialize: () => createWebSearchTool(backend),
+    });
+  }
+  if (
+    hasIdentity(declaration.tools, 'tool:web_fetch') &&
+    !toolDefinitionComponents.has('tool:web_fetch')
+  ) {
+    toolDefinitionComponents.set('tool:web_fetch', {
+      identity: createAgentResourceIdentity('tool:web_fetch'),
+      materialize: () => createWebFetchTool(),
     });
   }
   const materializationContext = {

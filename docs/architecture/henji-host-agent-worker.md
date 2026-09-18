@@ -387,6 +387,12 @@ request recordへ関連付け、raw responseとparser transitionをreadback可�
 model・backend・annotation解析を所有する。OpenRouter `openrouter:web_search` server toolは現在使わず、
 同じbackend境界への将来候補とする。
 
+default parentの`web_fetch`も同じmanaged tool Definition経路で供給される。bundled実装は素のHTTP GETで
+http/https URLを取得し、HTTP status、final URL、content-type、本文（1 MiB上限・切り詰め表示）を返す。
+`text/*`・JSON・XMLはUTF-8としてdecodeし、HTMLは最小のtext抽出を行う。非textualはメタのみを返し、非2xx・
+network失敗・invalid URLはtool errorとする。この取得は任意hostへのnet権限を必要とし、compiled binaryとdev taskの
+`--allow-net`を無制限にしている。hard sandbox（R3）とは別のplatform権限である。
+
 default parentの`bash`と`bash_output`は、一つのRegistry lifetimeで一つのtemporary output storeを共有する。
 4 KiBを超えたstdout/stderrはprocess-localなopaque identityへ保存し、UTF-8 byte offsetのbounded windowで
 後続callから取得できる。storeは`/tmp`で一つのfile handleを開いて直ちにunlinkし、1 command 32 MiB、

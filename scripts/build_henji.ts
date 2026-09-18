@@ -11,6 +11,7 @@ const ROOTS = [
   'v0/agent/worker/worker_builtin_definition.ts',
   'v0/agent/worker/worker_builtin_planner_definition.ts',
   'v0/agent/worker/worker_builtin_web_search_tool.ts',
+  'v0/agent/worker/worker_builtin_web_fetch_tool.ts',
 ] as const;
 const IDENTITY_FILES = ['deno.v0.json', 'deno.lock', 'jsr.json'] as const;
 const encoder = new TextEncoder();
@@ -182,7 +183,7 @@ const main = async (): Promise<void> => {
       '--allow-read',
       '--allow-write',
       '--allow-run=/bin/bash',
-      '--allow-net=openrouter.ai,api.openai.com',
+      '--allow-net',
       '--allow-sys=uid',
       '--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME,OPENAI_LOG,OPENAI_CUSTOM_HEADERS',
       `--config=${inputs.config}`,
