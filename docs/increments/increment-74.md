@@ -72,3 +72,29 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
 2. B2（`/sessions`）とB3（PageUp履歴）を同じ原因特定の中で切り分け、共有原因なら同時に修正する。
 3. 別原因だった場合は、B1の修正を本incrementで行い、B2/B3は証拠を記録して個別に計画する。
 4. architecture／roadmapの正本更新が必要になった場合は別承認。
+
+## 調査メモ（2026-09-18時点、未完了）
+
+- 再現（pty, source TUI, `deno task agent:tui`）: turn中は独立1000ms heartbeatが4回で停止、idleでは21回継続。
+  busy timer（120ms）はturn開始後約0.36秒で3回発火後に停止。`stopBusyElapsed`／`cancelInterval`は呼ばれていない。
+- CPU: tool待ち（`sleep`）を含むturn中もプロセスCPUはほぼ0（14秒で約0.3秒）で、spin loopではない（parked）。
+- 分離実験: 素のDenoでmodule Worker（6秒sleep後にpostMessage）を動かすと、main threadのintervalはworker活動中も
+  継続して発火した。**Worker待ち自体はmainのtimerを飢餓させない**（この経路は原因から除外）。
+- まだ特定できていない: Henji Host側でturn中にmacrotaskを塞ぐ経路。候補は限られる。
+  - terminal write/backpressure（同期write）: tool待ちで書込みが無い間も止まるため否定的だが未確認。
+  - controller/`readEvents`の`Promise.race`と`sleep`は`setTimeout`ベースで飢餓要因ではなさそう。
+  - presentation event処理がmicrotask連鎖を生み、macrotaskを継続的にstarveしている可能性（未確認）。
+- 次アクション: `WorkerCapsule.enqueue`／presentation dispatch／`finishTurn`に計測を入れ、heartbeat停止区間で
+  「Worker messageが流れているか」「Hostがどの処理に入っているか」を対応付ける。これでmicrotask starveか
+  sync parkかを確定し、修正対象を決める。
+
+### 追加の切り分け（2026-09-18）
+
+- `eventSink`へ全presentation event、rendererへ独立500ms heartbeatを一時計測として入れて再現した。起動時は
+  heartbeatが継続し、`EV turn_start`→`EV user_message`の直後に**1回だけ**heartbeatが出て以後停止した。
+  Workerからの応答eventはまだ来ていない段階で既に停止している（＝model応答待ちの間にHostのtimerが止まる）。
+- したがって飢餓はtool実行固有ではなく、turn dispatch直後から始まる。CPUはほぼ0でspinではない。
+- 素のDeno module Worker（sleep後にpostMessage）ではmainのintervalは止まらなかったため、Worker待ち一般ではない。
+- 原因候補は、turn dispatch後のHost側処理（`submitIntent`／presentation dispatch／`readEvents`の`Promise.race`
+  周辺、またはその後のpark状態）に絞られる。次はこれらへ計測を入れ、どのawait/処理でmacrotaskが止まるかを
+  特定する。
