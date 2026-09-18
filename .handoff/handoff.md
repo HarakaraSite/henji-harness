@@ -2,6 +2,18 @@
 
 ## Records
 
+### JSR publish 0.2.1（完了）
+
+- 第三者review後のsnapshotをJSRへpublish。`@henji/harness@0.2.0`を先にpublishしたが、packaged READMEのversion例が
+  stale（0.1.3）だったため、README/mod.ts/jsr.jsonを`0.2.1`へ更新し、正本手順
+  `docs/operations/jsr-publish.md`に沿ってclean release worktreeから`0.2.1`をpublish（`0.2.0`はyankせず残置）。
+- 実施: `v0:gate` exit 0（release candidate `b4a232be`）→ `git push origin main`（origin/main=`b4a232be`同期）→
+  clean worktreeで`deno publish --dry-run --config jsr.json`成功 → device-flow承認（Authenticated as
+  HarakaraSite）→ `Successfully published @henji/harness@0.2.1` → registry meta latest=`0.2.1`・exact import成功 →
+  worktree cleanup。
+- 注意点: 0.2.0はstale READMEのままimmutableに残る。今後のreleaseはこの手順（README例のversion更新をpublish前に
+  実施）に従う。
+
 ### Review follow-up — root slot binding適用と第三者review指摘対応（完了）
 
 - 第三者review（独立reviewer×2、read-only）をIncrement 65〜68に対して実施。実利用経路を壊すregressionは無し。
@@ -126,14 +138,14 @@
   Increment 69（web-search subagent化）、70（tool same-identity override）。
 - 正本: `docs/increments/increment-68.md`、`increment-67.md`、`increment-66.md`、`increment-65.md`、
   `increment-51.md`〜`increment-64.md`、`docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置は`0.2.0`（実装`ebf879a2`／配置は本commit、binary SHA-256
-  `a797a83db7ea5b7a7940e45c28dbca56ef6cabfe59bea2ce7ff0e415a3be9b07`、build=`425a21be50fd52d7b3fcead60c3dccc8ce59c55319deffc0229caf69452dd32d`、
-  embedded runtime=`65a331ca9cc8501450bd2c24a9d2135df4795af5ec34e2b4d08482a4fecf5143`、source`ebf879a2…`、`sourceDirty=false`）。
-  直前はIncrement 68（binary `e5a97e96…`）、67（`4e0bc0ac…`）、66（`fc584309…`）、65（`02081658…`）。
+- 注意: 直前の配置は`0.2.1`（実装`b4a232be`／配置は本commit、binary SHA-256
+  `3d5da412f5eb2b83e3511cb6304650eedd4098b080e741c16579e846461044b9`、build=`1dbc0aa6a7e89a5efef4def9a899a54101a179d6b3917f87cd0b96eb6c5d9aeb`、
+  embedded runtime=`b66539101a57fedcb9ff2f4a0387e19e88bc030ad414d8ea352ae8b20ca32ac4`、source`b4a232be…`、`sourceDirty=false`）。
+  直前は`0.2.0`（binary `a797a83d…`）、Increment 68（`e5a97e96…`）、67（`4e0bc0ac…`）、66（`fc584309…`）、65（`02081658…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
   `default-selection.json`。built-in provider idは`openrouter-chat`/`openrouter-responses`/`openai-chat`/
   `openai-responses`（旧`openrouter`/`openai`は削除、互換aliasなし）。宣言providerのprotocolは
   `openai-chat-completions`または`openai-responses`（binary-owned fixed enum）。OpenAI Chat Completionsはfunction
   tools併用時に`reasoning_effort`が`none`以外で400（`openai-chat`のsol/luna/terraは既定`none`、gpt-6-astraは
   `none`を持たずtool turn不可）。
-  未実施: tag、Forgejo Release、JSR publish（`0.2.0`をprep済み・`deno publish --dry-run`成功。publishはJSR auth待ち。JSR latestは`0.1.3`）。
+  実施済み: JSR publish `@henji/harness@0.2.1`（latest=`0.2.1`）。未実施: Git tag、Forgejo Release。
