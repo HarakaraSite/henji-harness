@@ -700,7 +700,7 @@ Deno.test('Increment 33 rejects corrupted managed revision content and identity'
   }
 });
 
-Deno.test('Increment 33 runs managed parent and planner through one commit path with exact attribution', async () => {
+Deno.test('Increment 33 runs a managed parent through one commit path and rejects a subagent ref as root', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-worker-' });
   const dataRoot = `${root}/data`;
   const stateRoot = `${root}/state`;

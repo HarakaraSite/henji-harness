@@ -1,7 +1,4 @@
-import {
-  DefinitionSelectorError,
-  parseDefinitionRevisionSelector,
-} from './definition_selection.ts';
+import { DefinitionSelectorError, parseDefinitionRevisionSelector } from './definition_selector.ts';
 import { ManagedDefinitionError } from './managed_definition_importer.ts';
 import { isSubagentName } from './managed_definition_manifest.ts';
 import {
@@ -152,6 +149,63 @@ const mapStoreError = (
     ref,
   );
 
+const resolveSlot = async (
+  store: ManagedDefinitionStore,
+  slot: AgentSlot,
+  selector: string,
+): Promise<ResolvedAgentSlotBinding> => {
+  let ref: DefinitionRevisionRef;
+  try {
+    ref = parseDefinitionRevisionSelector(selector);
+  } catch (error) {
+    if (error instanceof DefinitionSelectorError) {
+      throw invalid(`slot ${slot.slot} selector is not a managed Definition selector`);
+    }
+    throw error;
+  }
+  let revision: ManagedDefinitionRevision;
+  try {
+    revision = await store.resolve(ref);
+  } catch (error) {
+    if (error instanceof ManagedDefinitionError) throw mapStoreError(slot, ref, error);
+    throw error;
+  }
+  validateRole(slot, revision);
+  return Object.freeze({ slot, ref: structuredClone(ref), revision });
+};
+
+/**
+ * Resolve only the root `agent:default` activation slot when it is configured. Root selection uses
+ * this as the default Definition for a new generation when no explicit selector is given.
+ */
+export const resolveRootAgentSlotBinding = async (
+  configRoot: string,
+  dataRoot: string,
+): Promise<ResolvedAgentSlotBinding | undefined> => {
+  const file = await readAgentSlotBindings(configRoot);
+  const selector = file.bindings[ROOT_AGENT_SLOT];
+  if (selector === undefined) return undefined;
+  const slot = parseAgentSlot(ROOT_AGENT_SLOT)!;
+  return await resolveSlot(new ManagedDefinitionStore({ dataRoot }), slot, selector);
+};
+
+/** Resolve only the delegated `subagent:<name>` activation slot when it is configured. */
+export const resolveSubagentAgentSlotBinding = async (
+  configRoot: string,
+  dataRoot: string,
+  name: string,
+): Promise<ResolvedAgentSlotBinding | undefined> => {
+  const slotValue = subagentSlot(name);
+  const file = await readAgentSlotBindings(configRoot);
+  const selector = file.bindings[slotValue];
+  if (selector === undefined) return undefined;
+  const slot = parseAgentSlot(slotValue);
+  if (slot === undefined || slot.kind !== 'subagent') {
+    throw new AgentBindingError('binding_slot_unknown', 'agent slot is not known', slotValue);
+  }
+  return await resolveSlot(new ManagedDefinitionStore({ dataRoot }), slot, selector);
+};
+
 /**
  * Resolve every configured activation-level slot to one exact managed revision.
  *
@@ -170,31 +224,7 @@ export const resolveAgentSlotBindings = async (
     if (slot === undefined) {
       throw new AgentBindingError('binding_slot_unknown', 'agent slot is not known', slotValue);
     }
-    let ref: DefinitionRevisionRef;
-    try {
-      ref = parseDefinitionRevisionSelector(selector);
-    } catch (error) {
-      if (error instanceof DefinitionSelectorError) {
-        throw invalid(`slot ${slotValue} selector is not a managed Definition selector`);
-      }
-      throw error;
-    }
-    let revision: ManagedDefinitionRevision;
-    try {
-      revision = await store.resolve(ref);
-    } catch (error) {
-      if (error instanceof ManagedDefinitionError) throw mapStoreError(slot, ref, error);
-      throw error;
-    }
-    validateRole(slot, revision);
-    resolved.set(
-      slotValue,
-      Object.freeze({
-        slot,
-        ref: structuredClone(ref),
-        revision,
-      }),
-    );
+    resolved.set(slotValue, await resolveSlot(store, slot, selector));
   }
   return resolved;
 };

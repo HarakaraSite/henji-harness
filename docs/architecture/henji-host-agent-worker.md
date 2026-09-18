@@ -253,6 +253,9 @@ Worker start commandで渡す。Workerは**選択されたroot Definition**を�
 される保証範囲は、このHenji helperを使うDefinitionに限る。opaqueな自作root Definitionは、helperを使うか自前で
 subagentを合成する。plannerをrootとして実行する扱いは誤りであり、root slotはparent roleだけを受ける。
 
+root Definitionの選択は、明示selector、再開・継続Sessionの保存済みexact ref、`agent:default` binding、bundled
+defaultの順に優先する。binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。
+
 resolvedなroot/subagent exact refはDefinition resource graphとexecution artifactへ記録し、context attributionへは
 入れず、二重authorityを作らない。subagent refはSession schemaへ保存しない（将来`AgentInstance`領域へ移す）。
 start command、ready message、execution artifactのcontractはversionを持ち、旧版は解釈しない。

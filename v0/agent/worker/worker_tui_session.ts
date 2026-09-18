@@ -41,7 +41,10 @@ import { resolveWorkspace } from '../tools/work_tools.ts';
 import { managedWorkerDefinitionLoadRequest, readWorkerModuleRevision } from './worker_capsule.ts';
 import { workerBuiltinModulePath } from './worker_definition_revision.ts';
 import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
-import { resolveAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
+import {
+  AgentBindingError,
+  resolveSubagentAgentSlotBinding,
+} from '../definitions/agent_slot_binding.ts';
 import type { WorkerSubagentLoadRequest } from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
@@ -195,7 +198,12 @@ export const createWorkerSession = async (
     );
   }
   const requestedSelection = async (): Promise<HostDefinitionSelection> =>
-    selection ??= await resolveRequestedDefinition(options.agent, undefined, options.dataRoot);
+    selection ??= await resolveRequestedDefinition(
+      options.agent,
+      undefined,
+      options.dataRoot,
+      configRoot,
+    );
   const bindRecord = async (
     candidate: StoredSessionRecord,
     requested?: HostDefinitionSelection,
@@ -297,9 +305,26 @@ export const createWorkerSession = async (
       readonly WorkerSubagentLoadRequest[] | undefined
     > => {
       if (activeSelection.id !== 'default') return undefined;
-      const bound = configRoot === undefined || dataRoot === undefined
-        ? undefined
-        : (await resolveAgentSlotBindings(configRoot, dataRoot)).get('subagent:planner');
+      let bound;
+      try {
+        bound = configRoot === undefined || dataRoot === undefined
+          ? undefined
+          : await resolveSubagentAgentSlotBinding(configRoot, dataRoot, 'planner');
+      } catch (error) {
+        if (error instanceof AgentBindingError) {
+          throw new DefinitionStartupError(
+            error.code === 'binding_definition_not_found'
+              ? 'definition_not_found'
+              : error.code === 'binding_role_mismatch'
+              ? 'definition_role_mismatch'
+              : 'definition_invalid',
+            'resolution',
+            error.message,
+            error.definition,
+          );
+        }
+        throw error;
+      }
       if (bound !== undefined) {
         return [{
           subagentName: 'planner',

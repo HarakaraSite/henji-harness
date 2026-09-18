@@ -21,6 +21,10 @@
   `$XDG_CONFIG_HOME/henji-harness/agents.json`（`schemaVersion:1`＋`bindings`）のload/validateと、
   slot（`agent:default`／`subagent:<name>`）からexact managed revisionへの解決。role/name不一致・
   未知slot・malformed・missing revisionはtyped `AgentBindingError`で、built-inへ暗黙fallbackしない。
+- root slot適用（追補）: `resolveRequestedDefinition`が明示selector無しのとき`agent:default` bindingを
+  managed parent rootとして解決する。優先順位は「明示selector > 再開/継続Sessionの保存ref > `agent:default`
+  binding > bundled default」。binding解決失敗はtyped `DefinitionStartupError`で、bundledへの暗黙fallbackは
+  しない。selector解析は循環import回避のため`definition_selector.ts`へ分離。
 - composition seam: Host（`worker_tui_session.ts`）がroot parent生成ごとに`subagent:planner`を解決し、
   bound managed revisionまたはbundled plannerの`WorkerSubagentLoadRequest`（exact ref＋物理descriptor）を
   start commandへ渡す。Worker（`worker_bootstrap.ts`）はroot moduleとsubagent moduleを検証読込し、
@@ -29,10 +33,11 @@
   fallbackする。保証範囲はHenji helperを使うDefinitionに限る。
 - contract version: `WORKER_PROTOCOL_VERSION`を`slice1-data-only-v2`へ、execution artifactをschema-v6へ更新。
   ready manifestとv6 artifactへ、実際に合成した`subagents`（subagentName＋exact ref）を記録する。
-- 検証: focused test `tests/v0/increment_65_subagent_slot_binding_test.ts`（6件、`v0:test`へ追加。bindingの
-  load/validateに加え、bound external plannerが実Workerのdelegated turnで合成され、artifactからexact refを
-  readbackできることを確認）。artifact schema版更新に伴い`increment_38`/`40`/`41`の版assertを更新。
-  `v0:test`全体、`v0:check`、fmt、lint、`git diff --check` pass。
+- 検証: focused test `tests/v0/increment_65_subagent_slot_binding_test.ts`（10件、`v0:test`へ追加。bindingの
+  load/validate、bound external plannerのdelegated turn合成とartifact readback、`agent:default` root bindingの
+  解決・明示selector上書き・invalid bindingのtyped failure・bound rootでの新規Session起動を確認）。artifact
+  schema版更新に伴い`increment_38`/`40`/`41`の版assertを更新。`v0:test`全体、`v0:check`、fmt、lint、
+  `git diff --check` pass。
 
 - 正本更新（利用者承認済み、2026-09-18）: architecture `henji-host-agent-worker.md`へ`AgentSlotBinding`用語、
   roleモデル、activation-level slot節、composition seam、attribution/contractを追記。roadmap Provider外部化節の
@@ -87,7 +92,10 @@ planner`の削除、web-search subagentは66、tool overrideは67、built-in削�
 ## 利用者が必要とする動作
 
 - 人間が`subagent:planner`へ、subagent role（name=planner）のexternal managed Agent Definition revisionをbindでき、
-  delegated plannerの振る舞い（model/effort/tools/instruction）をDefinitionで差し替えられる。
+  delegated plannerのinstruction/toolsをDefinitionで差し替えられる。model/effortの差し替えは本incrementでは
+  未対応で、標準helper使用時はbundled planner defaultが使われ、`manifest.plannerModel`も既定値のまま
+  （follow-up候補）。`agent:default`へbindしたmanaged parent Definitionは、明示selectorが無い新generationの
+  rootとして使われる。
 - bindが無ければ同梱built-in plannerで従来どおり動く（ゼロ-config維持）。解決失敗は暗黙fallbackしない。
 - 使用したroot Definitionとsubagentのexact refをexecution artifactからreadbackできる。
 - root/plannerのlane、evidence、budgetの分離と、Henji base instructionのplannerへの適用を退行させない。

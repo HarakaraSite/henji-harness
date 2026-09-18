@@ -313,6 +313,7 @@ export const main = async (
         invocation.rawAgentName,
         invocation.rawDefinitionRevision,
         dependencies.dataRoot,
+        hostConfigRoot,
       );
     }
   } catch (error) {

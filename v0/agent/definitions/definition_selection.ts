@@ -2,7 +2,6 @@ import { type BuiltinAgentSelection, resolveBuiltinAgent } from './agent_catalog
 import {
   builtinDefinitionRef,
   type DefinitionRevisionRef,
-  isExternalDefinitionResourceId,
   sameDefinitionRevisionRef,
 } from './managed_resource_ref.ts';
 import {
@@ -12,9 +11,10 @@ import {
 import { ManagedDefinitionError } from './managed_definition_importer.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
+import { AgentBindingError, resolveRootAgentSlotBinding } from './agent_slot_binding.ts';
+import { DefinitionSelectorError, parseDefinitionRevisionSelector } from './definition_selector.ts';
 
-const REVISION_MARKER = '@sha256:';
-const SHA256 = /^[0-9a-f]{64}$/u;
+export { DefinitionSelectorError, parseDefinitionRevisionSelector } from './definition_selector.ts';
 
 export type DefinitionStartupErrorCode =
   | 'definition_not_found'
@@ -28,13 +28,6 @@ export type DefinitionStartupStage =
   | 'resolution'
   | 'session_binding'
   | 'worker_start';
-
-export class DefinitionSelectorError extends Error {
-  constructor() {
-    super('invalid Definition selector');
-    this.name = 'DefinitionSelectorError';
-  }
-}
 
 export class DefinitionStartupError extends Error {
   constructor(
@@ -63,21 +56,6 @@ export interface ManagedHostDefinitionSelection {
 export type HostDefinitionSelection =
   | BuiltinHostDefinitionSelection
   | ManagedHostDefinitionSelection;
-
-export const parseDefinitionRevisionSelector = (value: string): DefinitionRevisionRef => {
-  const marker = value.lastIndexOf(REVISION_MARKER);
-  const resourceId = marker < 0 ? '' : value.slice(0, marker);
-  const digest = marker < 0 ? '' : value.slice(marker + REVISION_MARKER.length);
-  if (!isExternalDefinitionResourceId(resourceId) || !SHA256.test(digest)) {
-    throw new DefinitionSelectorError();
-  }
-  return {
-    schemaVersion: 1,
-    resourceKind: 'agent-definition',
-    resourceId,
-    revision: { algorithm: 'sha256', digest },
-  };
-};
 
 const builtinSelection = async (
   rawAgentName?: string,
@@ -145,19 +123,81 @@ export const resolveDefinitionRef = async (
   }
 };
 
+const bindingStartupCode = (
+  code: AgentBindingError['code'],
+): DefinitionStartupErrorCode => {
+  switch (code) {
+    case 'binding_definition_not_found':
+      return 'definition_not_found';
+    case 'binding_role_mismatch':
+      return 'definition_role_mismatch';
+    default:
+      return 'definition_invalid';
+  }
+};
+
+/**
+ * Resolve the root `agent:default` activation binding as the default root Definition for a new
+ * generation. A bound root must be a managed parent-role revision; failures stay typed and never
+ * fall back to the bundled default.
+ */
+const rootBindingSelection = async (
+  configRoot: string,
+  dataRoot?: string,
+): Promise<ManagedHostDefinitionSelection | undefined> => {
+  let bound;
+  try {
+    bound = await resolveRootAgentSlotBinding(
+      configRoot,
+      dataRoot ?? resolveRuntimePaths().dataRoot,
+    );
+  } catch (error) {
+    if (error instanceof AgentBindingError) {
+      throw new DefinitionStartupError(
+        bindingStartupCode(error.code),
+        'resolution',
+        error.message,
+        error.definition,
+      );
+    }
+    throw error;
+  }
+  if (bound === undefined) return undefined;
+  return Object.freeze({
+    kind: 'managed' as const,
+    id: 'default' as const,
+    ref: bound.ref,
+    revision: bound.revision,
+  });
+};
+
+/**
+ * Resolve the root Definition for a new generation.
+ *
+ * An explicit selector wins. With no explicit selector, the `agent:default` activation binding is
+ * used when configured, then the bundled default.
+ */
 export const resolveRequestedDefinition = async (
   rawAgentName: string | undefined,
   rawDefinitionRevision: string | undefined,
   dataRoot?: string,
+  configRoot?: string,
 ): Promise<HostDefinitionSelection> => {
   if (rawAgentName !== undefined && rawDefinitionRevision !== undefined) {
     throw new DefinitionSelectorError();
   }
-  if (rawDefinitionRevision === undefined) return await builtinSelection(rawAgentName);
-  return await resolveDefinitionRef(
-    parseDefinitionRevisionSelector(rawDefinitionRevision),
-    dataRoot,
-  );
+  if (rawDefinitionRevision !== undefined) {
+    return await resolveDefinitionRef(
+      parseDefinitionRevisionSelector(rawDefinitionRevision),
+      dataRoot,
+    );
+  }
+  if (rawAgentName !== undefined) return await builtinSelection(rawAgentName);
+  if (configRoot !== undefined) {
+    const bound = await rootBindingSelection(configRoot, dataRoot);
+    if (bound !== undefined) return bound;
+  }
+  return await builtinSelection(undefined);
 };
 
 export const definitionStartupErrorValue = (error: DefinitionStartupError) => ({

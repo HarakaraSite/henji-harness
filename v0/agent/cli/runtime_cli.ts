@@ -246,6 +246,7 @@ export const main = async (
         parsed.rawAgentName,
         parsed.rawDefinitionRevision,
         dependencies.dataRoot,
+        dependencies.configRoot,
       );
     } catch (error) {
       if (error instanceof DefinitionStartupError) throw error;
