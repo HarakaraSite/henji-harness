@@ -299,16 +299,18 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
 
-### B1 — turn中のbusy表示更新停止（Host timer飢餓）
+### B1 — busy表示が更新されない（再現未確定）
 
-- 観測（2026-09-18、pty）: turn実行中はbusy表示（`working`＋spinner、経過時間）が更新されない。busy timerは
-  turn開始後約0.36秒で3回発火後に停止し、経過時間は`00:00`のまま、spinnerも数frameで止まる。
-  `stopBusyElapsed`／`cancelInterval`は呼ばれていない。独立の1000ms heartbeatもidleでは21回発火するが、
-  turn中は4回で停止する。
-- 影響: 長いmodel応答やtool待ちの間、進捗の視認と経過時間が止まる。Increment 73のspinner化で顕在化したが、
-  以前からbusy経過時間（毎秒）にも同じ問題があった。
-- 原因候補: turn中にHostのmacrotaskが飢餓する経路（provider SSE処理、Worker待ち、render処理のいずれか）。
-- 対応: increment-74で原因特定と修正を行う。
+- 観測（2026-09-18）: 利用者報告ではtool call結果待ちの間、busy表示（`working`＋spinner、経過時間）が
+  更新されない。
+- 検証（2026-09-18、installed binary、pty）: 12秒の`bash sleep` tool待ちで生terminal出力を採取したところ、
+  `working 00:00`〜`00:11`が102 frame出力され、spinnerも継続更新、`BLINK_SGR`なし。**この条件では再現しない**。
+  初期の「停止」観測はpty採取側の早期打ち切りによる誤りで、timer callback自体はturn中も実行されていた
+  （`__TICK=40`／`__HB=29`、9秒単発timerも発火）。
+- 原因候補（未確認）: 特定のtool（web_search/web_fetch等のネストmodel、delegation）、model応答のstreaming中、
+  特定Session/terminal環境など、`bash sleep`以外の条件。
+- 対応: 利用者から再現条件（どのtool/model/Session、どの表示が止まるか）を確認してからincrement-74で調査する。
+  現時点でtimer飢餓・writeSync・journal書込みは否定済み。
 
 ### B2 — `/sessions`が`session list unavailable`
 
