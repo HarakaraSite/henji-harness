@@ -168,18 +168,18 @@
   typedに失敗（development manifestのみ固定identityへfallback）。`embeddedRuntimeSha256`はbuild identityとして
   `turnExecutions.build`へ残す。roadmap F07とarchitecture適用済み。
 - 検証: focused test `tests/v0/increment_77_builtin_revision_test.ts`（5件、`v0:test`追加）。closure digestは
-  TUI追記で不変（`6d07aa24…`）、instruction closure追記で変化することを直接確認。
-- 正本: `docs/increments/increment-77.md`。
-- 注意: type-only re-export除去で`session_cli.ts`はclosureから外れた。builtin closureは`@henji/agent`経由で
-  agent runtime（tools/instructions/storage/provider）を含む。closure境界をcontractでpruneするかは、
-  behaviorではなくartifact identityの観点で別途判断（increment-77.md #1）。
-- 次: closure境界（#1）の扱いを利用者が判断。他は待ちなし。
+  TUI追記で不変、tool実装追記でtoolのみ変化、contract境界（`worker_agent_api.ts`）追記で不変であることを直接確認。
+- closure境界（#1）: externalと同様に`@henji/agent`（`worker_agent_api.ts`）をcontract境界として辿らず、
+  type-only edgeを除外。builtin defaultのclosureはwrapperのみ、toolは自身の実装helperのみ。revisionは
+  artifact identityでありbehavior変更の根拠にはしない（behaviorは観測）。
+- 正本: `docs/increments/increment-77.md`。roadmap F07とarchitecture適用済み。
+- 次: 利用者判断待ちなし。
 
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `fc6be34f10c147c9d274946e80e546b5554d11fa170ba7dac4be47eda91246f0`、binary SHA-256
-  `2f52eb292ca923a1fd74afa5dcb6ffb48701ed292bbf0dcc10103e8e1f976234`）。increment-77のtype-only re-export除去後、
+- binary: `0.2.1`（build `4e0ef8e3955cb8400ca4e67ce105e8ccd69d1a56dafea7b48963a575b675c3f8`、binary SHA-256
+  `68470c5150734d34f4a4fc3f0761bb64865bd53180727d0bd919163c563ea9e1`）。increment-77のclosure境界適用後、
   commit前にbuildしたため`sourceDirty=true`（内容はcommit予定と同一）。installed launcher `~/.local/bin/henji`。
   buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
   - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=falseの

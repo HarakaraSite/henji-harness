@@ -101,7 +101,10 @@ build scriptのclosure digest算出、manifest schema、ref算出、test更新�
   - `v0:gate` exit 0。binary再build・配置済み。
 - type-only re-exportの除去（#2修正）: `session_store.ts`の未使用な`export type { SessionCliCommand } from
   '../cli/session_cli.ts'`を削除し、builtin closureから`session_cli.ts`が外れたことを確認。
-- 設計上の残課題（#1、behaviorを根拠にしない）: revisionはresource artifactのidentityであり、behavior変更の
-  根拠ではない（behaviorは観測による）。現closureは`@henji/agent`（`worker_agent_api.ts`）経由でagent runtime
-  （tools/instructions/storage/provider）を含むため、これらの変更でbuiltin revisionが変わる。closureの境界を
-  externalと同様に`@henji/agent` contractでpruneするかは、behaviorではなくartifact identityの観点で別途決める。
+- closure境界（#1、artifact identity）: revisionはresource artifactのidentityであり、behavior変更の根拠では
+  ない（behaviorは観測による）。externalと同様に`@henji/agent`（`worker_agent_api.ts`）をcontract境界として
+  辿らず、type-only edgeもclosureから除外する。build scriptは`deno info`のruntime edge（`code`）だけを辿り、
+  境界で停止する。結果: builtin defaultのclosureはwrapper moduleのみ、toolは自身の実装helper（例:
+  `tools/web_search.ts`）とそのruntime depsのみ。
+- 検証（closure境界）: TUI追記でdefault/tool digestは不変、tool実装（`tools/web_search.ts`）追記でtool digest
+  のみ変化、contract境界（`worker_agent_api.ts`）追記ではどちらも不変であることを直接確認。

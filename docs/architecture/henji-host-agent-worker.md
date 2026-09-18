@@ -224,9 +224,11 @@ Hostは外部Agent Definitionを次の境界で扱う。
 4. Workerはbuilt-inとexternalのどちらも同じcapsule、protocol、commit境界で評価する。
 
 built-in Definition/tool resourceも同じ`DefinitionRevisionRef`/`ToolDefinitionRevisionRef`で表し、そのrevisionは
-resourceのentryとlocal module closure、declared role/name、api contractから算出する。binary同梱ランタイム全体の
-hashはbuild identity（`BuildManifestV1.embeddedRuntimeSha256`、`turnExecutions.build`）として残し、built-in
-resource revisionには使わない。compiled binaryは各built-in resourceのclosure digestをbuild manifest
+resourceのentryとlocal module closure、declared role/name、api contractから算出する。external Definitionと同様に
+`@henji/agent`（`worker_agent_api.ts`）をcontract境界として扱い、その先へは辿らない。type-only importは実行時
+edgeではないためclosureに含めない。binary同梱ランタイム全体のhashはbuild identity
+（`BuildManifestV1.embeddedRuntimeSha256`、`turnExecutions.build`）として残し、built-in resource revisionには
+使わない。compiled binaryは各built-in resourceのclosure digestをbuild manifest
 （`BuildManifestV1.builtinResources`）へ埋め込み、無関係なruntime修正がbuilt-in revisionを変えないようにする。
 
 現行`--definition <path>`はstandalone/externalization schema cutoverで廃止する。外部source pathはmanaged installの

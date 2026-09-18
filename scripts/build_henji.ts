@@ -22,6 +22,10 @@ const ROOTS = [
   'v0/agent/worker/worker_builtin_web_fetch_tool.ts',
 ] as const;
 const IDENTITY_FILES = ['deno.v0.json', 'deno.lock', 'jsr.json'] as const;
+/** The `@henji/agent` contract module: a built-in resource's closure does not traverse into it. */
+const CONTRACT_BOUNDARY_FILES: ReadonlySet<string> = new Set([
+  'v0/agent/worker_agent_api.ts',
+]);
 const encoder = new TextEncoder();
 
 interface BuiltinDefinitionEntry {
@@ -161,15 +165,41 @@ const moduleClosureFiles = async (
       `${root}/deno.v0.json`,
       `${root}/${entry}`,
     ]),
-  )) as { readonly modules: readonly { readonly local?: string }[] };
-  const paths = new Set<string>();
+  )) as {
+    readonly modules: readonly {
+      readonly local?: string;
+      readonly dependencies?: readonly {
+        readonly code?: { readonly specifier?: string };
+      }[];
+    }[];
+  };
+  const prefix = `file://${root}/`;
+  const edges = new Map<string, string[]>();
   for (const module of info.modules) {
     if (!module.local?.startsWith(`${root}/`)) continue;
     const relative = module.local.slice(root.length + 1);
-    if ((IDENTITY_FILES as readonly string[]).includes(relative)) continue;
-    paths.add(relative);
+    const dependencies: string[] = [];
+    for (const dependency of module.dependencies ?? []) {
+      const specifier = dependency.code?.specifier;
+      if (specifier === undefined || !specifier.startsWith(prefix)) continue;
+      dependencies.push(decodeURIComponent(specifier.slice(prefix.length)));
+    }
+    edges.set(relative, dependencies);
   }
-  return [...paths].sort();
+  // The built-in resource artifact is its own runtime module closure. The `@henji/agent`
+  // contract module is a boundary: external Definitions treat it as the contract, so built-in
+  // resources do not traverse into it (nor into type-only edges, which never run).
+  const reachable = new Set<string>();
+  const pending = [entry];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    if (reachable.has(current)) continue;
+    if ((IDENTITY_FILES as readonly string[]).includes(current)) continue;
+    if (CONTRACT_BOUNDARY_FILES.has(current)) continue;
+    reachable.add(current);
+    for (const dependency of edges.get(current) ?? []) pending.push(dependency);
+  }
+  return [...reachable].sort();
 };
 
 const closureFiles = async (
