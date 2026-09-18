@@ -74,6 +74,7 @@ import {
   type StoredWorkerExecutionArtifact,
   validateWorkerExecutionArtifact,
   type WorkerExecutionArtifactV5,
+  type WorkerExecutionArtifactV6,
 } from '../worker/worker_execution_artifact.ts';
 import { recalledExecutionProjectionText } from '../worker/recalled_execution_context.ts';
 import type { WorkerReadyMessage } from '../worker/worker_protocol.ts';
@@ -3213,7 +3214,7 @@ export class SqliteHistoryStore
 
   private writeArtifactTx(
     db: DatabaseSync,
-    artifact: WorkerExecutionArtifactV5,
+    artifact: WorkerExecutionArtifactV6,
   ): void {
     db.prepare(`
       INSERT INTO execution_artifacts(
@@ -5405,7 +5406,7 @@ export class SqliteHistoryStore
         if (
           artifact !== undefined && (
             !validateWorkerExecutionArtifact(artifact) ||
-            artifact.schemaVersion !== 5 ||
+            artifact.schemaVersion !== 6 ||
             artifact.lifecycle !== 'settled' ||
             artifact.executionId !== String(existing.execution_id) ||
             artifact.createdAt !== String(existing.created_at) ||
@@ -5475,7 +5476,7 @@ export class SqliteHistoryStore
         if (artifact !== undefined) {
           if (
             !validateWorkerExecutionArtifact(artifact) ||
-            artifact.schemaVersion !== 5 ||
+            artifact.schemaVersion !== 6 ||
             artifact.lifecycle !== 'settled' ||
             artifact.normalizedOutcome !== input.settlement ||
             artifact.settlement !== input.settlement ||
@@ -5510,7 +5511,7 @@ export class SqliteHistoryStore
     settlement: 'interrupted' | 'unknown',
     settledAt: string,
     providerEvidenceId?: string,
-  ): WorkerExecutionArtifactV5 | undefined {
+  ): WorkerExecutionArtifactV6 | undefined {
     if (row.manifest_json === null || row.manifest_json === undefined) {
       return undefined;
     }
@@ -5534,7 +5535,7 @@ export class SqliteHistoryStore
         task: String(row.task_text),
       };
       return {
-        schemaVersion: 5,
+        schemaVersion: 6,
         contextCapture: 'partial',
         executionId: String(row.execution_id),
         createdAt: String(row.created_at),
@@ -5547,6 +5548,7 @@ export class SqliteHistoryStore
         build,
         definition,
         manifest,
+        ...(manifest?.subagents === undefined ? {} : { subagents: manifest.subagents }),
         command,
         baseStateRevision: Number(row.base_revision),
         protocolTrace: [],
@@ -5984,7 +5986,7 @@ export class SqliteHistoryStore
           const artifact = input.artifactForCapture(capture);
           if (
             !validateWorkerExecutionArtifact(artifact) ||
-            artifact.schemaVersion !== 5 ||
+            artifact.schemaVersion !== 6 ||
             !this.artifactMatchesInput(artifact, input) ||
             artifact.storeResult !== 'committed' ||
             artifact.committedStateRevision !== input.record.stateRevision ||
@@ -6104,7 +6106,7 @@ export class SqliteHistoryStore
           const artifact = input.artifactForCapture(capture);
           if (
             !validateWorkerExecutionArtifact(artifact) ||
-            artifact.schemaVersion !== 5 ||
+            artifact.schemaVersion !== 6 ||
             !this.artifactMatchesInput(artifact, input)
           ) throw new HistoryStoreError('history_invalid');
           this.writeArtifactTx(db, artifact);
@@ -7045,7 +7047,7 @@ export class SqliteHistoryStore
 
   recordPostCommitObservation(artifact: StoredWorkerExecutionArtifact): void {
     if (
-      !validateWorkerExecutionArtifact(artifact) || artifact.schemaVersion !== 5
+      !validateWorkerExecutionArtifact(artifact) || artifact.schemaVersion !== 6
     ) {
       throw new HistoryStoreError('history_invalid');
     }
@@ -7239,8 +7241,9 @@ export class SqliteHistoryStore
         },
         task: String(execution.task_text),
       };
+      const artifactManifest = JSON.parse(String(execution.manifest_json));
       const common = {
-        schemaVersion: 5 as const,
+        schemaVersion: 6 as const,
         contextCapture: row.context_capture as WorkerExecutionArtifactV5['contextCapture'],
         executionId: String(row.execution_id),
         createdAt: String(execution.created_at),
@@ -7252,7 +7255,10 @@ export class SqliteHistoryStore
         workerGeneration: String(execution.worker_generation),
         build: JSON.parse(String(execution.build_json)),
         definition: JSON.parse(String(execution.definition_json)),
-        manifest: JSON.parse(String(execution.manifest_json)),
+        manifest: artifactManifest,
+        ...(artifactManifest?.subagents === undefined
+          ? {}
+          : { subagents: artifactManifest.subagents }),
         command,
         ...(projection === undefined ? {} : {
           recall: {
@@ -7316,7 +7322,7 @@ export class SqliteHistoryStore
           ? {}
           : { runtimeProviderRequestCount: executionOutcome.runtimeProviderRequestCount }),
       };
-      const artifact: WorkerExecutionArtifactV5 = artifactOutcome === undefined
+      const artifact: WorkerExecutionArtifactV6 = artifactOutcome === undefined
         ? {
           ...common,
           effectCommitRelation: 'not_transactional',
@@ -7326,7 +7332,7 @@ export class SqliteHistoryStore
               | 'worker_execution_artifact_io_failure'
               | 'worker_execution_artifact_invalid',
           }),
-        } as WorkerExecutionArtifactV5
+        } as WorkerExecutionArtifactV6
         : {
           ...common,
           outcome: artifactOutcome,
@@ -7337,7 +7343,7 @@ export class SqliteHistoryStore
               | 'worker_execution_artifact_io_failure'
               | 'worker_execution_artifact_invalid',
           }),
-        } as WorkerExecutionArtifactV5;
+        } as WorkerExecutionArtifactV6;
       if (
         row.artifact_id !== artifact.executionId || row.link_status !== 'linked' ||
         !validateWorkerExecutionArtifact(artifact)

@@ -218,7 +218,7 @@ Deno.test('Increment 34 module CLI exports and imports one provider-free artifac
   }
 });
 
-Deno.test('Increment 34 transported parent and planner execute from the same exact refs without source', async () => {
+Deno.test('Increment 34 transported parent executes from the same exact refs without source', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-34-product-' });
   const sourceDataRoot = `${root}/source-data`;
   const targetDataRoot = `${root}/target-data`;
@@ -226,7 +226,7 @@ Deno.test('Increment 34 transported parent and planner execute from the same exa
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
   try {
-    for (const role of ['parent', 'planner'] as const) {
+    for (const role of ['parent'] as const) {
       const sourceRoot = `${root}/source-${role}`;
       const output: string[] = [];
       assertEquals(
@@ -284,10 +284,7 @@ Deno.test('Increment 34 transported parent and planner execute from the same exa
       try {
         const outcome = await created.session.submit(`transported ${role} turn`);
         assert(outcome.ok);
-        assertEquals(
-          outcome.finalText,
-          role === 'planner' ? 'worker planner result' : `worker answer: transported ${role} turn`,
-        );
+        assertEquals(outcome.finalText, `worker answer: transported ${role} turn`);
       } finally {
         await created.close();
       }
@@ -428,7 +425,8 @@ Deno.test('Increment 34 keeps incompatible revisions inspectable and rejects onl
     const installed = await sourceStore.install({
       entryPath: await writeModule(sourceRoot),
       resourceId: 'example/future-api',
-      declaredRole: 'planner',
+      declaredRole: 'subagent',
+      subagentName: 'planner',
       moduleRoot: sourceRoot,
     });
     const value = transportValue(await sourceStore.exportTransport(installed.manifest.logicalRef));
@@ -445,6 +443,9 @@ Deno.test('Increment 34 keeps incompatible revisions inspectable and rejects onl
     value.manifest = await createManagedDefinitionManifest({
       resourceId: installed.manifest.logicalRef.resourceId,
       declaredRole: installed.manifest.declaredRole,
+      ...(installed.manifest.subagentName === undefined
+        ? {}
+        : { subagentName: installed.manifest.subagentName }),
       apiContract,
       entry: installed.manifest.entry,
       files,

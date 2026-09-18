@@ -3,11 +3,11 @@ import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.t
 import {
   OPENROUTER_MODEL_CATALOG,
   openRouterProfileFor,
-  PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
   searchOpenRouterModels,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 
@@ -46,7 +46,7 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
     modelId: 'deepseek/deepseek-v4.1-flash',
     effort: 'high',
   });
-  assertEquals(PLANNER_DEFAULT_MODEL_SELECTION, ROOT_DEFAULT_MODEL_SELECTION);
+  assertEquals(roleDefaultModelSelection('subagent:planner'), ROOT_DEFAULT_MODEL_SELECTION);
   assertEquals(
     searchOpenRouterModels('FLASH').map((entry) => entry.modelId),
     [
@@ -199,7 +199,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     const execution = (await store.executionArtifacts.list()).at(-1);
     assert(execution !== undefined);
     assertEquals(execution.manifest.rootModel, gpt);
-    assertEquals(execution.manifest.plannerModel, PLANNER_DEFAULT_MODEL_SELECTION);
+    assertEquals(execution.manifest.plannerModel, roleDefaultModelSelection('subagent:planner'));
 
     await first.close();
     first = undefined;

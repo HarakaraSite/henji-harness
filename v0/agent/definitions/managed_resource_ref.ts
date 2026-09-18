@@ -53,7 +53,8 @@ export const builtinDefinitionRef = async (
   const resourceId = `builtin/${agent}` as const;
   const identity = JSON.stringify({
     resourceId,
-    role: agent === 'planner' ? 'planner' : 'parent',
+    role: agent === 'planner' ? 'subagent' : 'parent',
+    ...(agent === 'planner' ? { subagentName: 'planner' } : {}),
     apiContract: AGENT_DEFINITION_API_CONTRACT,
     embeddedRuntimeSha256: manifest.embeddedRuntimeSha256,
   });

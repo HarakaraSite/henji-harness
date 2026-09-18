@@ -10,6 +10,7 @@ import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_s
 import type {
   WorkerDefinitionLoadRequest,
   WorkerHostCommand,
+  WorkerSubagentLoadRequest,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
@@ -24,6 +25,8 @@ export interface WorkerHostSessionOptions {
   readonly definition: DefinitionRevisionRef;
   readonly modulePath?: string;
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
+  /** Host-resolved delegated subagent slots; the Worker composes them via the root Definition. */
+  readonly subagentDefinitions?: readonly WorkerSubagentLoadRequest[];
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;

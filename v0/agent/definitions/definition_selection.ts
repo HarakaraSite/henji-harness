@@ -124,13 +124,22 @@ export const resolveDefinitionRef = async (
     const revision = await new ManagedDefinitionStore({
       dataRoot: dataRoot ?? resolveRuntimePaths().dataRoot,
     }).resolve(ref);
+    if (revision.manifest.declaredRole !== 'parent') {
+      throw new DefinitionStartupError(
+        'definition_role_mismatch',
+        'resolution',
+        'The root Definition slot accepts only a parent-role Definition',
+        ref,
+      );
+    }
     return Object.freeze({
       kind: 'managed' as const,
-      id: revision.manifest.declaredRole === 'planner' ? 'planner' : 'default',
+      id: 'default' as const,
       ref: structuredClone(ref),
       revision,
     });
   } catch (error) {
+    if (error instanceof DefinitionStartupError) throw error;
     if (error instanceof ManagedDefinitionError) throw startupFromStore(error, ref);
     throw error;
   }

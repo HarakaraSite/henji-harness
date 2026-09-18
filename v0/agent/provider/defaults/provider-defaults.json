@@ -172,5 +172,12 @@
       },
       "defaults": { "modelId": "gpt-5.6-sol", "effort": "medium" }
     }
-  ]
+  ],
+  "roleDefaults": {
+    "subagent:planner": {
+      "providerId": "openrouter",
+      "modelId": "deepseek/deepseek-v4.1-flash",
+      "effort": "high"
+    }
+  }
 }

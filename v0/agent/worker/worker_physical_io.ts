@@ -24,9 +24,8 @@ import {
   type ModelSelection,
   openRouterProfileFor,
   openRouterProfileForDeclaredChat,
-  PLANNER_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
-import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
+import { defaultModelSelectionFor, roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
   createProviderFreeWebSearchBackend,
   OpenRouterSonarWebSearchBackend,
@@ -186,7 +185,7 @@ export const createProductionPhysicalIo = (
     createModel: (role, selection?: ModelSelection) => {
       const resolved = selection ??
         (role === 'planner'
-          ? PLANNER_DEFAULT_MODEL_SELECTION
+          ? roleDefaultModelSelection('subagent:planner')
           : defaultModelSelectionFor('openrouter'));
       if (resolved.provider === 'openai') {
         return new OpenAIResponsesModel({
@@ -243,11 +242,7 @@ export const createProductionPhysicalIo = (
         });
       }
       return new OpenRouterAgentModel({
-        profile: role === 'planner' && selection === undefined
-          ? openRouterProfileFor(PLANNER_DEFAULT_MODEL_SELECTION)
-          : selection === undefined
-          ? openRouterProfileFor(defaultModelSelectionFor('openrouter') as OpenRouterModelSelection)
-          : openRouterProfileFor(resolved as OpenRouterModelSelection),
+        profile: openRouterProfileFor(resolved as OpenRouterModelSelection),
         credentialSource: () => resolver.resolve(resolved.authProfile),
         fetcher,
         responseMode: 'sse',

@@ -1,8 +1,6 @@
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import {
-  PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
-} from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import {
   type ProviderEvidenceObservation,
@@ -56,7 +54,7 @@ const manifest = {
   profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
   resources: [],
   rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-  plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+  plannerModel: roleDefaultModelSelection('subagent:planner'),
 };
 
 const makeInput = (taskId: string, executionId: string) => ({
@@ -389,7 +387,7 @@ Deno.test('Increment 41 distinguishes post-commit journal loss from canonical co
       contextCapture: 'failed',
     });
     const artifact = (await store.executionArtifacts.list())[0];
-    if (artifact?.schemaVersion !== 5) throw new Error('expected v5 artifact');
+    if (artifact?.schemaVersion !== 6) throw new Error('expected v6 artifact');
     assertEquals(artifact?.contextCapture, 'failed');
     assertEquals(
       store.listExecutionEvents(row.executionId).filter((event) =>
@@ -640,7 +638,7 @@ Deno.test('Increment 41 admits before dispatch and appends live observations', a
     assertEquals(evidence.settlement, 'interrupted');
     assertEquals(evidence.requests[0]?.response?.rawBodyBase64, 'eA==');
     const artifact = (await store.executionArtifacts.list())[0];
-    assert(artifact?.schemaVersion === 5);
+    assert(artifact?.schemaVersion === 6);
     assertEquals(artifact.settlement, 'interrupted');
     assertEquals(artifact.normalizedOutcome, 'interrupted');
     assertEquals(artifact.providerEvidenceId, evidence.evidenceId);

@@ -40,6 +40,7 @@ export interface ManagedDefinitionRevision {
 export interface ManagedDefinitionSummary {
   readonly logicalRef: ManagedDefinitionManifestV1['logicalRef'];
   readonly declaredRole: ManagedDefinitionManifestV1['declaredRole'];
+  readonly subagentName?: string;
   readonly entry: string;
   readonly apiContract: string;
   readonly fileCount: number;
@@ -139,6 +140,9 @@ const readJson = async (path: string): Promise<unknown> => {
 const summary = (revision: ManagedDefinitionRevision): ManagedDefinitionSummary => ({
   logicalRef: structuredClone(revision.manifest.logicalRef),
   declaredRole: revision.manifest.declaredRole,
+  ...(revision.manifest.subagentName === undefined
+    ? {}
+    : { subagentName: revision.manifest.subagentName }),
   entry: revision.manifest.entry,
   apiContract: revision.manifest.apiContract,
   fileCount: revision.manifest.files.length,

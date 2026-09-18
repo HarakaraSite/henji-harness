@@ -30,8 +30,6 @@ export const OPENROUTER_MODEL_CATALOG: readonly OpenRouterModelCatalogEntry[] =
 
 export const ROOT_DEFAULT_MODEL_ID = bundledOpenRouter.defaults.modelId;
 export const ROOT_DEFAULT_EFFORT: OpenRouterReasoningEffort = bundledOpenRouter.defaults.effort;
-export const PLANNER_DEFAULT_MODEL_ID = ROOT_DEFAULT_MODEL_ID;
-export const PLANNER_DEFAULT_EFFORT: OpenRouterReasoningEffort = ROOT_DEFAULT_EFFORT;
 
 export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
   provider: 'openrouter',
@@ -39,14 +37,6 @@ export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.fre
   authProfile: 'openrouter-api-key',
   modelId: ROOT_DEFAULT_MODEL_ID,
   effort: ROOT_DEFAULT_EFFORT,
-});
-
-export const PLANNER_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.freeze({
-  provider: 'openrouter',
-  api: 'openrouter-chat-completions',
-  authProfile: 'openrouter-api-key',
-  modelId: PLANNER_DEFAULT_MODEL_ID,
-  effort: PLANNER_DEFAULT_EFFORT,
 });
 
 const openRouterEntries = (): readonly OpenRouterModelCatalogEntry[] =>

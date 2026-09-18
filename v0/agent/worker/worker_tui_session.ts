@@ -38,8 +38,11 @@ import {
   type WorkerSessionHandle,
 } from '../session/session_store.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
-import { managedWorkerDefinitionLoadRequest } from './worker_capsule.ts';
+import { managedWorkerDefinitionLoadRequest, readWorkerModuleRevision } from './worker_capsule.ts';
 import { workerBuiltinModulePath } from './worker_definition_revision.ts';
+import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
+import { resolveAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
+import type { WorkerSubagentLoadRequest } from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
@@ -285,6 +288,31 @@ export const createWorkerSession = async (
         'session Definition revision does not match the selected binding',
       );
     }
+    /*
+     * Resolve the activation-level `subagent:planner` slot for each root parent generation. A bound
+     * managed revision wins; otherwise the bundled planner module is used. Binding changes apply
+     * only to generations opened after the change, never to a running generation.
+     */
+    const resolveSubagentDefinitions = async (): Promise<
+      readonly WorkerSubagentLoadRequest[] | undefined
+    > => {
+      if (activeSelection.id !== 'default') return undefined;
+      const bound = configRoot === undefined || dataRoot === undefined
+        ? undefined
+        : (await resolveAgentSlotBindings(configRoot, dataRoot)).get('subagent:planner');
+      if (bound !== undefined) {
+        return [{
+          subagentName: 'planner',
+          ref: structuredClone(bound.ref),
+          module: managedWorkerDefinitionLoadRequest(bound.revision),
+        }];
+      }
+      return [{
+        subagentName: 'planner',
+        ref: await builtinDefinitionRef('planner', buildManifest()),
+        module: await readWorkerModuleRevision(workerBuiltinModulePath('planner')),
+      }];
+    };
     const openHost = async (
       workerHandle: WorkerSessionHandle,
       initialModelSelection = options.initialModelSelection,
@@ -298,6 +326,7 @@ export const createWorkerSession = async (
           definition,
           modulePath,
           loadDescriptor,
+          subagentDefinitions: await resolveSubagentDefinitions(),
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,
           providerTimeoutMs: options.providerTimeoutMs,

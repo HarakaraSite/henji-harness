@@ -14,7 +14,7 @@ import {
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
 /** Additive, Host-owned record of one admitted Worker turn. */
-export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 5 as const;
+export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 6 as const;
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -115,11 +115,18 @@ export interface WorkerExecutionArtifactV3
   readonly recall?: WorkerExecutionRecallAttributionV1;
 }
 
+/** One exact delegated subagent Definition composed into this execution's root composition. */
+export interface WorkerExecutionSubagentAttributionV1 {
+  readonly subagentName: string;
+  readonly ref: DefinitionRevisionRef;
+}
+
 export type StoredWorkerExecutionArtifact =
   | WorkerExecutionArtifactV2
   | WorkerExecutionArtifactV3
   | WorkerExecutionArtifactV4
-  | WorkerExecutionArtifactV5;
+  | WorkerExecutionArtifactV5
+  | WorkerExecutionArtifactV6;
 
 /** Schema-v2 history artifact used for reconciled executions. */
 type WorkerExecutionArtifactV4Base =
@@ -159,6 +166,19 @@ export type WorkerExecutionArtifactV5 =
   | (Omit<WorkerExecutionArtifactV4Reconciled, 'schemaVersion'> & {
     readonly schemaVersion: 5;
     readonly contextCapture: 'partial';
+  });
+
+/** Schema-v6 adds the exact delegated subagent Definitions actually composed into the root. */
+export type WorkerExecutionArtifactV6 =
+  | (Omit<WorkerExecutionArtifactV4Complete, 'schemaVersion'> & {
+    readonly schemaVersion: 6;
+    readonly contextCapture: 'complete' | 'failed' | 'none';
+    readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
+  })
+  | (Omit<WorkerExecutionArtifactV4Reconciled, 'schemaVersion'> & {
+    readonly schemaVersion: 6;
+    readonly contextCapture: 'partial';
+    readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
   });
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -219,6 +239,7 @@ const validManifest = (
     'resources',
     'rootModel',
     'plannerModel',
+    ...(Object.hasOwn(manifest, 'subagents') ? ['subagents'] : []),
     ...(Object.hasOwn(manifest, 'baseInstruction') ? ['baseInstruction'] : []),
   ];
   const baseInstruction = manifest.baseInstruction;
@@ -244,7 +265,8 @@ const validManifest = (
     validText(manifest.profileId, true) && Array.isArray(manifest.resources) &&
     manifest.resources.every((resource) => validText(resource, true)) &&
     isStoredModelSelection(manifest.rootModel) &&
-    isStoredModelSelection(manifest.plannerModel);
+    isStoredModelSelection(manifest.plannerModel) &&
+    (!Object.hasOwn(manifest, 'subagents') || validSubagents(manifest.subagents));
 };
 
 const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {
@@ -350,7 +372,7 @@ export const validateWorkerExecutionArtifact = (
     return false;
   }
   const artifact = value as Record<string, unknown>;
-  if (artifact.schemaVersion === 5) {
+  if (artifact.schemaVersion === 5 || artifact.schemaVersion === 6) {
     if (
       artifact.contextCapture !== 'none' && artifact.contextCapture !== 'partial' &&
       artifact.contextCapture !== 'complete' && artifact.contextCapture !== 'failed'
@@ -359,8 +381,14 @@ export const validateWorkerExecutionArtifact = (
       (artifact.normalizedOutcome === 'interrupted' || artifact.normalizedOutcome === 'unknown') &&
       artifact.contextCapture !== 'partial'
     ) return false;
+    if (artifact.schemaVersion === 6) {
+      if (Object.hasOwn(artifact, 'subagents') && !validSubagents(artifact.subagents)) return false;
+    } else if (Object.hasOwn(artifact, 'subagents')) {
+      return false;
+    }
     const legacy = { ...artifact };
     delete legacy.contextCapture;
+    delete legacy.subagents;
     return validateWorkerExecutionArtifact({ ...legacy, schemaVersion: 4 });
   }
   const stateOptional = [
@@ -505,7 +533,22 @@ export const encodeWorkerExecutionArtifact = (
   return JSON.stringify(value);
 };
 
-export class WorkerExecutionArtifactCodecError extends Error {
+export const validSubagentAttribution = (
+  value: unknown,
+): value is WorkerExecutionSubagentAttributionV1 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return ownKeys(record, ['subagentName', 'ref']) &&
+    validText(record.subagentName, true) &&
+    isDefinitionRevisionRef(record.ref);
+};
+
+const validSubagents = (
+  value: unknown,
+): value is readonly WorkerExecutionSubagentAttributionV1[] =>
+  Array.isArray(value) && value.every(validSubagentAttribution);
+
+class WorkerExecutionArtifactCodecError extends Error {
   constructor() {
     super('invalid Worker execution artifact');
     this.name = 'WorkerExecutionArtifactCodecError';

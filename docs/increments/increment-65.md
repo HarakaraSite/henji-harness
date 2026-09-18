@@ -1,10 +1,67 @@
 # Increment 65 — activation-level subagent slot binding
 
-ステータス: **計画中（承認待ち）**
+ステータス: **実装完了（実provider probe受入済み）**
 
 基準commit: `2fe5506a`
 
 計画日: 2026-09-17
+
+## 実装状況（2026-09-18 時点）
+
+完了した区間:
+
+- role一般化（破壊的）: `declaredRole`を`'parent' | 'subagent'`＋`subagentName`へ変更した。
+  `managed_definition_manifest.ts`（canonical digestへrole/nameを追加、旧schemaは互換読込しない）、
+  `managed_definition_importer.ts`、`managed_definition_revision_validator.ts`、
+  `managed_definition_store.ts`、`managed_definition_transport.ts`、`module_cli.ts`（`--role subagent
+  --subagent-name <name>`）、`managed_resource_ref.ts`（built-in planner refをsubagent＋nameへ再build）、
+  `definition_selection.ts`（rootは`parent`のみ受理、managed subagent refは
+  `definition_role_mismatch`@resolutionで拒否）。
+- activation-level binding config: `v0/agent/definitions/agent_slot_binding.ts`を追加。
+  `$XDG_CONFIG_HOME/henji-harness/agents.json`（`schemaVersion:1`＋`bindings`）のload/validateと、
+  slot（`agent:default`／`subagent:<name>`）からexact managed revisionへの解決。role/name不一致・
+  未知slot・malformed・missing revisionはtyped `AgentBindingError`で、built-inへ暗黙fallbackしない。
+- composition seam: Host（`worker_tui_session.ts`）がroot parent生成ごとに`subagent:planner`を解決し、
+  bound managed revisionまたはbundled plannerの`WorkerSubagentLoadRequest`（exact ref＋物理descriptor）を
+  start commandへ渡す。Worker（`worker_bootstrap.ts`）はroot moduleとsubagent moduleを検証読込し、
+  `ExecutableAgentDefinitionInput.subagents`としてroot Definitionへ渡す。Henji helper
+  （`worker_agent_api.ts`の`createDefaultAgentComposition`）がHost提供plannerを合成し、無ければbundled plannerへ
+  fallbackする。保証範囲はHenji helperを使うDefinitionに限る。
+- contract version: `WORKER_PROTOCOL_VERSION`を`slice1-data-only-v2`へ、execution artifactをschema-v6へ更新。
+  ready manifestとv6 artifactへ、実際に合成した`subagents`（subagentName＋exact ref）を記録する。
+- 検証: focused test `tests/v0/increment_65_subagent_slot_binding_test.ts`（6件、`v0:test`へ追加。bindingの
+  load/validateに加え、bound external plannerが実Workerのdelegated turnで合成され、artifactからexact refを
+  readbackできることを確認）。artifact schema版更新に伴い`increment_38`/`40`/`41`の版assertを更新。
+  `v0:test`全体、`v0:check`、fmt、lint、`git diff --check` pass。
+
+- 正本更新（利用者承認済み、2026-09-18）: architecture `henji-host-agent-worker.md`へ`AgentSlotBinding`用語、
+  roleモデル、activation-level slot節、composition seam、attribution/contractを追記。roadmap Provider外部化節の
+  段階リスト・サマリ表をIncrement 64〜68の実内容へ更新し、F06/F24行をslot binding基盤へ更新。
+
+- planner既定のdata化: 同梱`provider-defaults.json`へtop-level `roleDefaults`（key `subagent:planner`、
+  `providerId`/`modelId`/`effort`）を追加。`provider_defaults.ts`がtypedに読み、`model_catalog.ts`の
+  `roleDefaultModelSelection(slot)`がactive provider catalogに対して解決する。hardcodeされていた
+  `PLANNER_DEFAULT_MODEL_SELECTION`/`PLANNER_DEFAULT_MODEL_ID`/`PLANNER_DEFAULT_EFFORT`を削除し、Host/Workerの
+  全既定解決をこのresolverへ統一。root provider既定は従来どおりdeclarationの`defaults`。
+- 検証追加: `increment_65`に「planner既定が同梱`roleDefaults` data由来である」testを追加（計7件）。
+
+- 実provider probe（利用者許可、2026-09-18）: isolated XDG rootにexternal planner（`subagent:planner`、system
+  instructionへprobe markerを追加）をinstallし、`agents.json`でbindしてproduction physicalI/Oのreal turnを1回
+  実行。turn成功、execution artifact v6の`subagents[0].ref`がexternal revisionと一致、planner laneのprovider
+  request bodyにprobe markerを確認（root laneは2 request）。binding解決→composition→delegated plannerの実
+  provider実行をreadbackした。
+
+未着手:
+
+- フォローアップ候補（未承認）: architecture 406行付近の「delegated plannerはrootの選択を継承せずplanner
+  defaultを使う」をslot binding（bindが無ければplanner default）へ更新するか。
+- フォローアップ候補（実装スコープ外の可能性）: external plannerが標準helper以外で独自model selectionを
+  使う場合、`manifest.plannerModel`とHost validationが既定値固定のままである。model/effort差し替えの完全な
+  readback/validationは必要なら別途計画する。
+
+注: 本区間で`increment_33`／`increment_34`にあった「external plannerをrootとして実行する」product testは、
+計画どおりsubagentはroot slotで拒否する検証へ置き換えた。external plannerのdelegated child turnへの反映は
+`increment_65`のcomposition testで確認する。
 
 対象: 完全外部化(c)の続き。delegated subagent（まずplanner）のDefinitionを**activation-level slot**でbindできる
 基盤を作り、planner既定をdata化する。Definition-manifest dependency binding（Agent自身の改訂経路）、`--agent

@@ -18,6 +18,7 @@ import type {
   StoredWorkerExecutionArtifact,
   WorkerExecutionArtifactV4,
   WorkerExecutionArtifactV5,
+  WorkerExecutionArtifactV6,
 } from '../worker/worker_execution_artifact.ts';
 import type {
   WorkerCommitProposalMessage,
@@ -274,7 +275,10 @@ export interface ReconcileExecutionInput {
   readonly executionId: string;
   readonly settledAt?: string;
   readonly settlement: 'interrupted' | 'unknown';
-  readonly artifact?: WorkerExecutionArtifactV4 | WorkerExecutionArtifactV5;
+  readonly artifact?:
+    | WorkerExecutionArtifactV4
+    | WorkerExecutionArtifactV5
+    | WorkerExecutionArtifactV6;
   readonly evidence?: ProviderEvidenceV4 | ProviderEvidenceV5;
 }
 

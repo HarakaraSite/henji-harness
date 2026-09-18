@@ -13,6 +13,7 @@ import type { ProviderEvidenceObservation } from '../provider/provider_evidence.
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
+  type AgentSubagentModule,
   type ExecutableAgentDefinition,
   finalizeRootAgentComposition,
 } from '../worker_agent_api.ts';
@@ -282,6 +283,7 @@ const createGeneration = async (
   rootRole: 'parent' | 'planner' = 'parent',
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
+  subagents: readonly AgentSubagentModule[] = [],
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
     throw new Error('Worker Definition is unavailable');
@@ -318,6 +320,7 @@ const createGeneration = async (
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,
+    ...(subagents.length === 0 ? {} : { subagents }),
   });
   if (returnedComposition === undefined || typeof returnedComposition !== 'object') {
     throw new Error('Worker Definition did not return a composition');
@@ -404,12 +407,27 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
   switch (command.kind) {
     case 'start': {
       let module: Awaited<ReturnType<typeof loadVerifiedModule>> | undefined;
+      const loadedSubagents: AgentSubagentModule[] = [];
       if (command.module !== undefined) {
         try {
           module = await loadVerifiedModule(
             command.correlation,
             command.module,
           );
+          for (const subagent of command.subagents ?? []) {
+            const loaded = await loadVerifiedModule(
+              command.correlation,
+              subagent.module,
+            );
+            if (loaded.definition === undefined) {
+              throw new Error('Worker subagent Definition is unavailable');
+            }
+            loadedSubagents.push({
+              subagentName: subagent.subagentName,
+              ref: subagent.ref,
+              definition: loaded.definition,
+            });
+          }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const stage = message.startsWith('module pre-read')
@@ -447,6 +465,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.rootRole,
             command.baseInstruction,
             command.providerDeclarations ?? [],
+            loadedSubagents,
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

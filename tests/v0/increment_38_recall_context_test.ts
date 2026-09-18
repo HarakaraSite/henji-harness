@@ -6,10 +6,8 @@ import {
   type ProviderEvidenceV3,
 } from '../../v0/agent/provider/provider_evidence.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import {
-  PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
-} from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
@@ -87,7 +85,7 @@ const sourceArtifact = async (
       profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
       resources: [],
       rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-      plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+      plannerModel: roleDefaultModelSelection('subagent:planner'),
     },
     command: { kind: 'turn', correlation: correlation('source-turn'), task: 'inspect source' },
     baseStateRevision: 1,
@@ -565,7 +563,7 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
     const outcome = await created.session.submit('read worker protocol', context);
     assert(outcome.ok);
     const artifact = (await artifacts.list())[0];
-    assert(artifact?.schemaVersion === 5);
+    assert(artifact?.schemaVersion === 6);
     assertEquals(artifact.recall, {
       schemaVersion: 1,
       sourceExecutionId: SOURCE_ID,
@@ -635,7 +633,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const firstTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use latest source'
     );
-    assert(firstTarget?.schemaVersion === 5);
+    assert(firstTarget?.schemaVersion === 6);
     assertEquals(firstTarget.recall?.sourceExecutionId, latestId);
 
     assertEquals(await adapter.dispatch({ kind: 'recall_execution', id: 'aaaaaaaa-aaaa' }), {
@@ -648,7 +646,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const secondTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use explicit source'
     );
-    assert(secondTarget?.schemaVersion === 5);
+    assert(secondTarget?.schemaVersion === 6);
     assertEquals(secondTarget.recall?.sourceExecutionId, olderId);
 
     const third = await adapter.dispatch({ kind: 'ordinary_submit', text: 'ordinary next task' });
@@ -656,7 +654,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const thirdTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'ordinary next task'
     );
-    assert(thirdTarget?.schemaVersion === 5);
+    assert(thirdTarget?.schemaVersion === 6);
     assertEquals(thirdTarget.recall, undefined);
 
     assert((await adapter.dispatch({ kind: 'recall_execution' })).kind === 'recall');
@@ -669,7 +667,7 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
     const clearedTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'task after recall clear'
     );
-    assert(clearedTarget?.schemaVersion === 5);
+    assert(clearedTarget?.schemaVersion === 6);
     assertEquals(clearedTarget.recall, undefined);
 
     const noSession = createTuiPresentationAdapter(created.session);

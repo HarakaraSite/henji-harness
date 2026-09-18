@@ -17,7 +17,10 @@ import type {
 } from '../history/context_attribution.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
-import type { HenjiInstructionRevisionRef } from '../definitions/managed_resource_ref.ts';
+import type {
+  DefinitionRevisionRef,
+  HenjiInstructionRevisionRef,
+} from '../definitions/managed_resource_ref.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -27,7 +30,14 @@ import type { HenjiInstructionRevisionRef } from '../definitions/managed_resourc
  * generation semantics; it does not imply a resident Worker or a broader routing protocol.
  */
 
-export const WORKER_PROTOCOL_VERSION = 'slice1-data-only-v1';
+export const WORKER_PROTOCOL_VERSION = 'slice1-data-only-v2';
+
+/** One Host-resolved delegated subagent: exact ref plus its process-local load descriptor. */
+export interface WorkerSubagentLoadRequest {
+  readonly subagentName: string;
+  readonly ref: DefinitionRevisionRef;
+  readonly module: WorkerDefinitionLoadRequest;
+}
 
 export type DataValue =
   | string
@@ -72,6 +82,7 @@ export type WorkerHostCommand =
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
     readonly module?: WorkerDefinitionLoadRequest;
+    readonly subagents?: readonly WorkerSubagentLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
     readonly rootRole?: 'parent' | 'planner';
@@ -194,6 +205,11 @@ export interface WorkerReadyMessage {
     readonly resources: readonly string[];
     readonly rootModel: ModelSelection;
     readonly plannerModel: ModelSelection;
+    /** Exact delegated subagent Definitions composed into the root composition. */
+    readonly subagents?: readonly {
+      readonly subagentName: string;
+      readonly ref: DefinitionRevisionRef;
+    }[];
     readonly baseInstruction?: {
       readonly slot: 'instruction:henji-base';
       readonly selectionSource: 'built-in' | 'external';

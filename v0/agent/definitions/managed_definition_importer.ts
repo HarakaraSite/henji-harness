@@ -4,6 +4,7 @@ import {
   createManagedDefinitionManifest,
   type DefinitionLocalDependencyV1,
   type DefinitionRevisionContent,
+  isSubagentName,
   type ManagedDefinitionCustodyV1,
   type ManagedDefinitionManifestV1,
 } from './managed_definition_manifest.ts';
@@ -37,7 +38,8 @@ export class ManagedDefinitionError extends Error {
 export interface ManagedDefinitionImportOptions {
   readonly entryPath: string;
   readonly resourceId: string;
-  readonly declaredRole: 'parent' | 'planner';
+  readonly declaredRole: 'parent' | 'subagent';
+  readonly subagentName?: string;
   readonly moduleRoot?: string;
   readonly now?: () => Date;
 }
@@ -186,6 +188,15 @@ export const importManagedDefinition = async (
   if (!isExternalDefinitionResourceId(options.resourceId)) {
     throw new ManagedDefinitionError('module_invalid', 'Definition module ID is invalid');
   }
+  if (
+    (options.declaredRole === 'parent' && options.subagentName !== undefined) ||
+    (options.declaredRole === 'subagent' && !isSubagentName(options.subagentName))
+  ) {
+    throw new ManagedDefinitionError(
+      'module_invalid',
+      'Definition role declaration is invalid',
+    );
+  }
   const entryPath = await realFile(options.entryPath, 'Definition entry');
   if (!entryPath.endsWith('.ts')) {
     throw new ManagedDefinitionError('module_import_unsupported', 'Definition entry must be .ts');
@@ -306,6 +317,7 @@ export const importManagedDefinition = async (
   const content: DefinitionRevisionContent = {
     resourceId: options.resourceId,
     declaredRole: options.declaredRole,
+    ...(options.subagentName === undefined ? {} : { subagentName: options.subagentName }),
     apiContract: AGENT_DEFINITION_API_CONTRACT,
     entry,
     files,

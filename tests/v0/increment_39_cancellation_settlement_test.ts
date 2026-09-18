@@ -9,10 +9,8 @@ import {
 } from '../../v0/agent/provider/openrouter_model.ts';
 import { readResponseBody } from '../../v0/agent/provider/openrouter_response.ts';
 import { readSseResponse } from '../../v0/agent/provider/openrouter_sse.ts';
-import {
-  PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
-} from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import type {
@@ -162,7 +160,7 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
           profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
           resources: [],
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-          plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          plannerModel: roleDefaultModelSelection('subagent:planner'),
           ...(command.baseInstruction === undefined ? {} : {
             baseInstruction: {
               slot: command.baseInstruction.slot,

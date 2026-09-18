@@ -81,6 +81,7 @@ export const validateManagedDefinitionRevision = async (
   const rebuilt = await createManagedDefinitionManifest({
     resourceId: manifest.logicalRef.resourceId,
     declaredRole: manifest.declaredRole,
+    ...(manifest.subagentName === undefined ? {} : { subagentName: manifest.subagentName }),
     apiContract: manifest.apiContract,
     entry: manifest.entry,
     files: revisionFiles,

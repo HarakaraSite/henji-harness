@@ -12,6 +12,7 @@ import {
   importManagedDefinition,
   ManagedDefinitionError,
 } from '../../v0/agent/definitions/managed_definition_importer.ts';
+import type { ManagedDefinitionManifestV1 } from '../../v0/agent/definitions/managed_definition_manifest.ts';
 import { ManagedDefinitionStore } from '../../v0/agent/definitions/managed_definition_store.ts';
 import {
   isDefinitionRevisionRef,
@@ -260,8 +261,11 @@ Deno.test('Increment 33 installs and retains exact managed Definition revisions'
     const planner = await store.install({
       entryPath: secondEntry,
       resourceId: 'example/planner',
-      declaredRole: 'planner',
+      declaredRole: 'subagent',
+      subagentName: 'planner',
     });
+    assertEquals(planner.manifest.declaredRole, 'subagent');
+    assertEquals(planner.manifest.subagentName, 'planner');
     assert(
       planner.manifest.logicalRef.revision.digest !== first.manifest.logicalRef.revision.digest,
     );
@@ -704,7 +708,7 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
   await Deno.mkdir(workspaceRoot);
   const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
-    for (const role of ['parent', 'planner'] as const) {
+    for (const role of ['parent'] as const) {
       const sourceRoot = `${root}/source-${role}`;
       const entry = await writeExecutableModule(sourceRoot, role);
       const revision = await new ManagedDefinitionStore({ dataRoot }).install({
@@ -730,10 +734,7 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
       try {
         const outcome = await created.session.submit(`managed ${role} turn`);
         assert(outcome.ok);
-        assertEquals(
-          outcome.finalText,
-          role === 'planner' ? 'worker planner result' : `worker answer: managed ${role} turn`,
-        );
+        assertEquals(outcome.finalText, `worker answer: managed ${role} turn`);
       } finally {
         await created.close();
       }
@@ -747,7 +748,7 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
       );
       assert(artifact !== undefined);
       assert(evidence !== undefined);
-      assertEquals(session.agent, role === 'planner' ? 'planner' : 'default');
+      assertEquals(session.agent, 'default');
       assertEquals(session.definition, revision.manifest.logicalRef);
       assertEquals(session.turnExecutions[0]?.definition, revision.manifest.logicalRef);
       assertEquals(artifact.definition, revision.manifest.logicalRef);
@@ -760,6 +761,25 @@ Deno.test('Increment 33 runs managed parent and planner through one commit path 
         artifact.protocolTrace.some((entry) => entry.semanticSubtype === 'module_closure_verified'),
       );
     }
+
+    const plannerEntry = await writeExecutableModule(`${root}/source-planner`, 'planner');
+    const plannerRevision = await new ManagedDefinitionStore({ dataRoot }).install({
+      entryPath: plannerEntry,
+      resourceId: 'example/runtime-planner',
+      declaredRole: 'subagent',
+      subagentName: 'planner',
+    });
+    await assertStartupError(
+      () =>
+        resolveRequestedDefinition(
+          undefined,
+          `example/runtime-planner@sha256:${plannerRevision.manifest.logicalRef.revision.digest}`,
+          dataRoot,
+        ),
+      'definition_role_mismatch',
+      'resolution',
+      plannerRevision.manifest.logicalRef,
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -850,10 +870,13 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
     entry: string,
     id: string,
     role: 'parent' | 'planner',
-  ): Promise<{ readonly manifest: { readonly logicalRef: DefinitionRevisionRef } }> => {
+  ): Promise<{ readonly manifest: ManagedDefinitionManifestV1 }> => {
     let stdout = '';
+    const roleArgs = role === 'planner'
+      ? ['--role', 'subagent', '--subagent-name', 'planner']
+      : ['--role', role];
     const exitCode = await moduleMain(
-      ['install', entry, '--id', id, '--role', role],
+      ['install', entry, '--id', id, ...roleArgs],
       {
         dataRoot,
         writeStdout: (text) => {
@@ -957,20 +980,14 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
       'planner',
     );
     await Deno.remove(plannerSource, { recursive: true });
-    const plannerRun = await createWorkerSession({
-      workspaceRoot,
-      dataRoot,
-      persistence: 'none',
-      selection: await resolveDefinitionRef(planner.manifest.logicalRef, dataRoot),
-      physicalIoMode: 'provider-free',
-    });
-    try {
-      const outcome = await plannerRun.session.submit('managed planner root');
-      assert(outcome.ok);
-      assertEquals(outcome.finalText, 'worker planner result');
-    } finally {
-      await plannerRun.close();
-    }
+    assertEquals(planner.manifest.declaredRole, 'subagent');
+    assertEquals(planner.manifest.subagentName, 'planner');
+    await assertStartupError(
+      () => resolveDefinitionRef(planner.manifest.logicalRef, dataRoot),
+      'definition_role_mismatch',
+      'resolution',
+      planner.manifest.logicalRef,
+    );
 
     const replacementSource = `${root}/replacement-source`;
     const replacement = await install(

@@ -16,10 +16,8 @@ import type {
   WorkerHostCommand,
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
-import {
-  PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
-} from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import { main as sessionCliMain } from '../../v0/agent/cli/session_cli.ts';
@@ -131,7 +129,7 @@ class ScriptedCapsule implements WorkerHostCapsule {
           profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
           resources: [],
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-          plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          plannerModel: roleDefaultModelSelection('subagent:planner'),
           ...(command.baseInstruction === undefined ? {} : {
             baseInstruction: {
               slot: command.baseInstruction.slot,
@@ -212,7 +210,7 @@ class ScriptedCapsule implements WorkerHostCapsule {
               profileId: modelRouteProfileId(command.selection),
               resources: [],
               rootModel: command.selection,
-              plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+              plannerModel: roleDefaultModelSelection('subagent:planner'),
             },
             credentialAvailability: {
               authProfile: command.selection.authProfile,
@@ -835,7 +833,7 @@ Deno.test('Increment 40 recalls a post-cutover non-canonical execution only', as
     const artifacts = await store.executionArtifacts.list();
     assertEquals(artifacts.length, 2);
     const target = artifacts[1];
-    assert(target?.schemaVersion === 5);
+    assert(target?.schemaVersion === 6);
     assertEquals(target.recall?.sourceExecutionId, source.executionId);
     const record = await store.readWorker(handle.id);
     assert(

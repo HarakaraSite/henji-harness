@@ -20,10 +20,8 @@ import {
   type StoredExecutionEvent,
   type StoredExecutionRow,
 } from '../../v0/agent/history/history_store_contract.ts';
-import {
-  PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
-} from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { resolveRecalledExecutionContext } from '../../v0/agent/worker/recalled_execution_context.ts';
@@ -198,7 +196,7 @@ class SkillCanonicalCapsule implements WorkerHostCapsule {
         profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
         resources: manifestResources,
         rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-        plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+        plannerModel: roleDefaultModelSelection('subagent:planner'),
       },
     } as unknown as WorkerAgentComposition;
     const correlationPort = (event: WorkerToHostMessage): void => {
@@ -294,7 +292,7 @@ class SkillCanonicalCapsule implements WorkerHostCapsule {
           profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
           resources: this.manifestResources,
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-          plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+          plannerModel: roleDefaultModelSelection('subagent:planner'),
         },
         startupSnapshot: {
           skillNames: this.context.skillCatalog.skills.map((skill) => skill.name),
@@ -355,7 +353,7 @@ const manifest = {
   profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
   resources: [],
   rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-  plannerModel: PLANNER_DEFAULT_MODEL_SELECTION,
+  plannerModel: roleDefaultModelSelection('subagent:planner'),
 };
 
 const snapshot = (workspaceRoot: string): WorkerContextSnapshot => ({

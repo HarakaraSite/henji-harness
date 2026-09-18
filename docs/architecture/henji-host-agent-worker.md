@@ -38,6 +38,10 @@
   import contractに従う実行可能なlocal module closureまたは同等の自己完結bundleを一つのrevisionとして
   固定する。評価後の data-only な `AgentManifest` はこの参照とは別の authority であり、
   選択内容を説明するが、admission/permission authority にはならない。
+- Definitionの`declaredRole`は`parent`または`subagent`＋`subagentName`である。activation-levelのroot slot
+  `agent:default`はparent roleだけを受け、delegated slot `subagent:<name>`は同名のsubagent Definitionだけを
+  受ける。bundled plannerは`subagent:planner`の同梱既定であり、delegated subagentはroot Definitionの合成の
+  内側で使われ、root agentとして実行しない。
 - 配布されるHenji executableはimmutableなcore/runtime artifactとして扱い、Hostが書き換えるstate、config、
   Definition module revision storeとは配置とlifecycleを分離する。executableの配置先やbinary隣接pathを
   writable storageの正本にしない。
@@ -78,6 +82,7 @@
 | `HenjiInstructionRevision` | `resourceKind = henji-instruction`、`slot = instruction:henji-base`であるdata-only instruction contentとmanifest。built-in/externalのexact ref、content digest、byte-equivalent textを持つ。 | built-inはbinary、externalはHost-owned managed storeにある。選択結果はWorker generationとexecution attributionへ固定する。 |
 | `ManagedResourceManifest` | resource contract、content identity、`ResourceSlotIdentity`からexact `ManagedResourceRef`へのdependency bindingを記録するportable authority。評価後の`AgentManifest`とは異なる。 | managed revision artifactの一部。local store pathやactive bindingを含めない。 |
 | `ResourceSlotIdentity` | dependency元resourceのcontract内でresourceが果たすsemanticな役割を表すkind非依存のlocal key。dependencyの競合keyはconsumerのexact refとこのkeyの組である。`AgentResourceIdentity`はAgent composition内で使うkind固有表現である。 | exact refそのものではなく、一つのconsumer manifest内で一つのbindingへ対応する。activation全体の共有slotとは別namespaceである。 |
+| `AgentSlotBinding` | Hostのinstallation/user scope configで、activation-level slotをexact managed `DefinitionRevisionRef`へ結ぶauthority。root slot `agent:default`とdelegated slot `subagent:<name>`を持ち、解決時にslotの期待role/nameとrevisionのrole/nameが一致することを検証する。 | `ResourceSlotIdentity`（manifest内dependency bindingのlocal key）とは別namespace・別authority。変更は次のWorker generationから効く。 |
 | `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
 | `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/subagent/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
@@ -157,6 +162,9 @@ Host は、Definition code が外部にあるというだけで、別の Definit
   managed store内の確定closureを使い、元source pathを再解決せず、そのclosureの外側を実行時の正本にしない。
 - provider/model、effort、loop、tools、subagents、context component を含む、その
   `AgentComposition` の構築と実行。
+- Hostが解決したroot Definition refとdelegated subagentのexact refを使い、Host提供subagent moduleをroot
+  DefinitionのHenji helperが合成する。Workerはrootとsubagentをpeer評価せず、選択されたroot Definitionを評価する。
+  保証範囲はHenji helperを使うDefinitionに限る。
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - Hostが確定した基底設定、canonical conversation、明示projection、現在execution内のtool result等から、
   各model requestへ渡す実効contextを構成する意味。
@@ -184,9 +192,10 @@ manifestが他resourceへ依存する場合は、`ResourceSlotIdentity`とexact 
 digestへ含める。各bindingの競合keyはconsumerのexact `ManagedResourceRef`と`ResourceSlotIdentity`の組であり、
 異なるconsumer contractが同じlocal slot名を使うことは競合ではない。activation authorityが選んだroot resource
 setから到達するtransitive graphを実行前に解決し、同じ競合keyへ複数revisionが残る場合は暗黙の優先順位を付けない。
-将来root間で共有するactivation-level slotが必要になった場合は、このlocal keyを流用せず別namespaceとauthorityを
-定義する。global/workspace等のsource discovery precedenceは、resolved graph conflictとは別のkind固有selection
-ruleである。
+root間で共有するactivation-level slotは、Increment 65で`AgentSlotBinding`として採用した。このslot authorityは
+上記のlocal keyを流用せず、`ResourceSlotIdentity`とは別namespace・別authorityとする。Definition-manifest
+dependency bindingとactivation-level slot bindingの優先・競合規則は後続incrementで決め、現時点では未確定である。
+global/workspace等のsource discovery precedenceは、resolved graph conflictとは別のkind固有selection ruleである。
 
 logical refを実行可能contentへ解決した後、Hostはbuilt-in module descriptorやmanaged store内path等のkind固有な
 physical load descriptorを現在process内で構築できる。このdescriptorは`DefinitionRevisionRef`の一部ではなく、
@@ -227,6 +236,26 @@ standalone cutoverではversioned envelope、logical/physical ref分離、XDG da
 attributionを共通境界として導入するが、汎用plugin loaderを先行実装しない。最初に実装するkind固有loaderとstoreは
 Agent Definition用である。instruction、tool、provider等が同じloader、dependency、promotion、activation semanticsを
 使うとは決めず、それぞれを改訂対象に選んだloopでarchitectureへ戻る。
+
+#### activation-level subagent slot
+
+managed Definition revisionを実行構成へ結ぶslotには、manifest内のdependency bindingとは別に、Hostのinstallation/user
+scope config `$XDG_CONFIG_HOME/henji-harness/agents.json`で表すactivation-level slotがある。slotはroot `agent:default`
+（parent role）とdelegated `subagent:<name>`の二種で、値はmanaged selector `moduleId@sha256:<digest>`である。Hostは
+Worker generation開始前に各slotをexact `DefinitionRevisionRef`へ解決し、slotの期待role/nameとrevisionの
+`declaredRole`/`subagentName`が一致することを検証する。未知slot、malformed、missing revision、role/name不一致は
+typed failureとし、built-inへ暗黙fallbackしない。現在のbinding scopeはinstallation/userに限り、workspace scopeは
+対象外である。binding変更は実行中generationへhot適用せず、次のgenerationから効く。
+
+Hostは解決したroot Definition refと、bind済みdelegated subagentのexact ref・process-local physical load descriptorだけを
+Worker start commandで渡す。Workerは**選択されたroot Definition**を評価し、そのHenji helperがHost提供subagent moduleを
+`AgentComposition`へ合成する。parent/plannerをpeerとして別々に評価する経路は作らない。Host-provided subagentが反映
+される保証範囲は、このHenji helperを使うDefinitionに限る。opaqueな自作root Definitionは、helperを使うか自前で
+subagentを合成する。plannerをrootとして実行する扱いは誤りであり、root slotはparent roleだけを受ける。
+
+resolvedなroot/subagent exact refはDefinition resource graphとexecution artifactへ記録し、context attributionへは
+入れず、二重authorityを作らない。subagent refはSession schemaへ保存しない（将来`AgentInstance`領域へ移す）。
+start command、ready message、execution artifactのcontractはversionを持ち、旧版は解釈しない。
 
 #### native discoveryとHenji Instruction
 

@@ -6,6 +6,20 @@ import {
 export const DEFINITION_REVISION_DOMAIN = 'henji-definition-revision-v1';
 export const DEFINITION_CLOSURE_SCHEMA_VERSION = 1 as const;
 
+const SUBAGENT_NAME = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
+
+export const isSubagentName = (value: unknown): value is string =>
+  typeof value === 'string' && SUBAGENT_NAME.test(value);
+
+/** Validate the declaredRole/subagentName pair as one coherent role declaration. */
+export const isManagedDefinitionRole = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  if (value.declaredRole === 'parent') {
+    return !Object.hasOwn(value, 'subagentName');
+  }
+  return value.declaredRole === 'subagent' && isSubagentName(value.subagentName);
+};
+
 export interface DefinitionLocalDependencyV1 {
   readonly specifier: string;
   readonly target: {
@@ -29,7 +43,9 @@ export interface ManagedDefinitionManifestV1 {
   readonly schemaVersion: 1;
   readonly closureSchemaVersion: typeof DEFINITION_CLOSURE_SCHEMA_VERSION;
   readonly logicalRef: DefinitionRevisionRef;
-  readonly declaredRole: 'parent' | 'planner';
+  readonly declaredRole: 'parent' | 'subagent';
+  /** Present exactly when declaredRole is `subagent`; identifies the delegated slot. */
+  readonly subagentName?: string;
   readonly apiContract: string;
   readonly entry: string;
   readonly exactResourceBindings: readonly [];
@@ -59,7 +75,8 @@ export interface ManagedDefinitionCustodyV1 {
 
 export interface DefinitionRevisionContent {
   readonly resourceId: string;
-  readonly declaredRole: 'parent' | 'planner';
+  readonly declaredRole: 'parent' | 'subagent';
+  readonly subagentName?: string;
   readonly apiContract: string;
   readonly entry: string;
   readonly files: readonly {
@@ -111,13 +128,17 @@ const append = (chunks: Uint8Array[], value: string | Uint8Array): void => {
 };
 
 export const canonicalDefinitionRevisionBytes = (
-  content: Pick<DefinitionRevisionContent, 'declaredRole' | 'apiContract' | 'entry' | 'files'>,
+  content: Pick<
+    DefinitionRevisionContent,
+    'declaredRole' | 'subagentName' | 'apiContract' | 'entry' | 'files'
+  >,
 ): Uint8Array => {
   const files = [...content.files].sort((left, right) => compareUtf8(left.path, right.path));
   const chunks: Uint8Array[] = [];
   append(chunks, DEFINITION_REVISION_DOMAIN);
   append(chunks, 'agent-definition');
   append(chunks, content.declaredRole);
+  append(chunks, content.subagentName ?? '');
   append(chunks, content.apiContract);
   append(chunks, content.entry);
   append(chunks, 'exact-resource-bindings');
@@ -156,6 +177,7 @@ export const createManagedDefinitionManifest = async (
       revision: Object.freeze({ algorithm: 'sha256', digest }),
     }),
     declaredRole: content.declaredRole,
+    ...(content.subagentName === undefined ? {} : { subagentName: content.subagentName }),
     apiContract: content.apiContract,
     entry: content.entry,
     exactResourceBindings,
@@ -199,7 +221,7 @@ export const isManagedDefinitionManifest = (
     value.closureSchemaVersion !== DEFINITION_CLOSURE_SCHEMA_VERSION ||
     !isDefinitionRevisionRef(value.logicalRef) ||
     !isExternalDefinitionResourceId(value.logicalRef.resourceId) ||
-    (value.declaredRole !== 'parent' && value.declaredRole !== 'planner') ||
+    !isManagedDefinitionRole(value) ||
     typeof value.apiContract !== 'string' || value.apiContract.length === 0 ||
     !isCanonicalRelativeDefinitionPath(value.entry) ||
     !Array.isArray(value.exactResourceBindings) || value.exactResourceBindings.length !== 0 ||

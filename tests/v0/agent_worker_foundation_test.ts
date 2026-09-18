@@ -203,7 +203,7 @@ Deno.test('Slice 1 proves pre-read/hash, digest-query relative import, import-ma
       entrySha256: revision.entrySha256,
       sourceBytes: revision.sourceBytes,
       defaultExport: 'function',
-      probe: 'slice1-data-only-v1:relative-import-ok',
+      probe: 'slice1-data-only-v2:relative-import-ok',
     });
   } finally {
     capsule.terminate();

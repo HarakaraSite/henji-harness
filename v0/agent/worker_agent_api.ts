@@ -27,12 +27,15 @@ import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
 import type { InstructionComponent } from './instructions/component.ts';
 import { finalSystemInstructionForContribution } from './instructions/worker_core_finalizer.ts';
-import type { HenjiInstructionRevisionRef } from './definitions/managed_resource_ref.ts';
+import type {
+  DefinitionRevisionRef,
+  HenjiInstructionRevisionRef,
+} from './definitions/managed_resource_ref.ts';
 import {
   type ModelSelection,
-  PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from './provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from './provider/model_catalog.ts';
 import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
 
 export { type ToolComponent, ToolComponentCatalog } from './tools/tool_components.ts';
@@ -63,12 +66,21 @@ export interface PhysicalIoBindings {
   ) => Promise<CredentialAvailabilityStatus>;
 }
 
+/** One Host-resolved delegated subagent module made available to the root Definition helper. */
+export interface AgentSubagentModule {
+  readonly subagentName: string;
+  readonly ref: DefinitionRevisionRef;
+  readonly definition: ExecutableAgentDefinition;
+}
+
 /** Data and Worker-local factories supplied to an executable Definition. */
 export interface ExecutableAgentDefinitionInput {
   readonly workspace: Workspace;
   readonly agentInstructions?: string;
   readonly skillCatalog: SkillCatalog;
   readonly physicalIo: PhysicalIoBindings;
+  /** Host-provided delegated subagent modules; only the Henji helper composes these. */
+  readonly subagents?: readonly AgentSubagentModule[];
 }
 
 export interface AgentCompositionOptions {
@@ -85,6 +97,11 @@ export interface WorkerAgentManifest {
   readonly resources: readonly string[];
   readonly rootModel: ModelSelection;
   readonly plannerModel: ModelSelection;
+  /** Exact delegated subagent Definitions composed into the root composition. */
+  readonly subagents?: readonly {
+    readonly subagentName: string;
+    readonly ref: DefinitionRevisionRef;
+  }[];
   readonly baseInstruction?: {
     readonly slot: 'instruction:henji-base';
     readonly selectionSource: 'built-in' | 'external';
@@ -166,7 +183,8 @@ const manifestFor = (
   modelResource: string,
   profileId: string,
   rootModel: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
-  plannerModel: ModelSelection = PLANNER_DEFAULT_MODEL_SELECTION,
+  plannerModel: ModelSelection = roleDefaultModelSelection('subagent:planner'),
+  subagents?: readonly { readonly subagentName: string; readonly ref: DefinitionRevisionRef }[],
 ): WorkerAgentManifest => ({
   role,
   maxSteps,
@@ -180,6 +198,14 @@ const manifestFor = (
   ].sort()),
   rootModel: Object.freeze(structuredClone(rootModel)),
   plannerModel: Object.freeze(structuredClone(plannerModel)),
+  ...(subagents === undefined ? {} : {
+    subagents: Object.freeze(subagents.map((subagent) =>
+      Object.freeze({
+        subagentName: subagent.subagentName,
+        ref: structuredClone(subagent.ref),
+      })
+    )),
+  }),
 });
 
 const maxStepsFor = (
@@ -228,28 +254,22 @@ const compositionComponents = (
   ).components;
 
 const createPlannerHandler = (
-  input: ExecutableAgentDefinitionInput,
-  planner: ResolvedAgentDefinition,
+  planner: WorkerAgentComposition,
 ) =>
 async (task: string, childContext: ChildTurnExecutionContext): Promise<{
   readonly outcome: LoopOutcome;
   readonly externalRequests: number;
 }> => {
   const requestCountBefore = childContext.providerRequestCount?.() ?? 0;
-  const plannerRegistry = createDeclaredRegistry(planner.capabilities, {
-    workspace: input.workspace,
-    skillCatalog: input.skillCatalog,
-    workTools: input.physicalIo.workTools,
-  });
   const systemInstruction = finalSystemInstructionForContribution(
-    compositionInstruction('planner', input, plannerRegistry),
+    planner.systemInstruction,
   );
   const outcome = await runAgent(
     task,
-    input.physicalIo.createModel('planner'),
-    plannerRegistry,
+    planner.model,
+    planner.registry,
     {
-      maxSteps: planner.limits.maxSteps,
+      maxSteps: planner.maxSteps,
       systemInstruction,
       executionContext: childContext,
       signal: childContext.signal,
@@ -265,6 +285,27 @@ async (task: string, childContext: ChildTurnExecutionContext): Promise<{
 };
 
 /**
+ * Resolve the delegated planner composition. A Host-provided `subagent:planner` module is used
+ * when present; otherwise the bundled planner Definition is composed. An opaque Definition that
+ * does not use this helper controls its own subagent wiring.
+ */
+const resolvePlannerComposition = (
+  input: ExecutableAgentDefinitionInput,
+  options: AgentCompositionOptions,
+): { readonly composition: WorkerAgentComposition; readonly ref?: DefinitionRevisionRef } => {
+  const provided = input.subagents?.find((subagent) => subagent.subagentName === 'planner');
+  if (provided === undefined) {
+    return { composition: createPlannerAgentComposition(input, options) };
+  }
+  const { subagents: _rootSubagents, ...subagentInput } = input;
+  const composition = provided.definition(subagentInput);
+  if (composition.role !== 'planner') {
+    throw new Error('delegated planner Definition composed a non-planner role');
+  }
+  return { composition, ref: provided.ref };
+};
+
+/**
  * Standard composition used by built-in and external Definitions. The caller chooses to use this
  * factory inside the Worker; Host-side capability IDs are not an external Definition allowlist.
  */
@@ -273,9 +314,9 @@ export const createDefaultAgentComposition = (
   options: AgentCompositionOptions = {},
 ): WorkerAgentComposition => {
   const resolved = defaultAgentDefinition(definitionInput(input));
-  const planner = plannerAgentDefinition(definitionInput(input));
+  const planner = resolvePlannerComposition(input, options);
   const maxSteps = maxStepsFor(resolved.limits, options);
-  const plannerHandler = createPlannerHandler(input, planner);
+  const plannerHandler = createPlannerHandler(planner.composition);
   const registry = createDeclaredRegistry(resolved.capabilities, {
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
@@ -313,6 +354,12 @@ export const createDefaultAgentComposition = (
       maxSteps,
       modelResource,
       resolved.model.profile.id,
+      undefined,
+      undefined,
+      planner.ref === undefined ? undefined : [{
+        subagentName: 'planner',
+        ref: planner.ref,
+      }],
     ),
     resolved: effectiveResolved,
   });

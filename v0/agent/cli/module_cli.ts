@@ -7,6 +7,7 @@ import {
   ManagedDefinitionStore,
 } from '../definitions/managed_definition_store.ts';
 import { parseDefinitionRevisionSelector } from '../definitions/definition_selection.ts';
+import { isSubagentName } from '../definitions/managed_definition_manifest.ts';
 import type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
@@ -31,7 +32,8 @@ export type ModuleCliCommand =
     readonly kind: 'install';
     readonly entryPath: string;
     readonly resourceId: string;
-    readonly declaredRole: 'parent' | 'planner';
+    readonly declaredRole: 'parent' | 'subagent';
+    readonly subagentName?: string;
     readonly moduleRoot?: string;
   }
   | { readonly kind: 'list' }
@@ -87,10 +89,20 @@ export const parseModuleArgs = (args: readonly string[]): ModuleCliCommand => {
   if (args[0] === 'install' && args.length >= 4) {
     const entryPath = args[1];
     if (entryPath.length === 0) throw new ModuleCliInvocationError();
-    const values = parsePairs(args.slice(2), new Set(['--id', '--role', '--root']));
+    const values = parsePairs(
+      args.slice(2),
+      new Set(['--id', '--role', '--subagent-name', '--root']),
+    );
     const resourceId = values.get('--id');
     const rawRole = values.get('--role') ?? 'parent';
-    if (resourceId === undefined || (rawRole !== 'parent' && rawRole !== 'planner')) {
+    const rawSubagentName = values.get('--subagent-name');
+    if (resourceId === undefined || (rawRole !== 'parent' && rawRole !== 'subagent')) {
+      throw new ModuleCliInvocationError();
+    }
+    if (
+      (rawRole === 'parent' && rawSubagentName !== undefined) ||
+      (rawRole === 'subagent' && !isSubagentName(rawSubagentName))
+    ) {
       throw new ModuleCliInvocationError();
     }
     return {
@@ -98,6 +110,7 @@ export const parseModuleArgs = (args: readonly string[]): ModuleCliCommand => {
       entryPath,
       resourceId,
       declaredRole: rawRole,
+      ...(rawSubagentName === undefined ? {} : { subagentName: rawSubagentName }),
       ...(values.get('--root') === undefined ? {} : { moduleRoot: values.get('--root') }),
     };
   }
@@ -320,6 +333,7 @@ export const main = async (
         entryPath: command.entryPath,
         resourceId: command.resourceId,
         declaredRole: command.declaredRole,
+        ...(command.subagentName === undefined ? {} : { subagentName: command.subagentName }),
         ...(command.moduleRoot === undefined ? {} : { moduleRoot: command.moduleRoot }),
       });
       await write(dependencies.writeStdout, Deno.stdout, { ok: true, ...detail(revision) });

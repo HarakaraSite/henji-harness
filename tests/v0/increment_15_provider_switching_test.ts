@@ -14,9 +14,9 @@ import {
 } from '../../v0/agent/provider/openai_model_catalog.ts';
 import {
   openRouterProfileFor,
-  PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
@@ -400,7 +400,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     assert(
       savedArtifacts.every((artifact) =>
         JSON.stringify(artifact.manifest.plannerModel) ===
-          JSON.stringify(PLANNER_DEFAULT_MODEL_SELECTION)
+          JSON.stringify(roleDefaultModelSelection('subagent:planner'))
       ),
     );
     assert(

@@ -36,9 +36,9 @@ import type {
 import type { WorkerRequestCounter } from './worker_physical_io.ts';
 import {
   type ModelSelection,
-  PLANNER_DEFAULT_MODEL_SELECTION,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
+import { roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
   type CredentialAvailability,
   type CredentialAvailabilityStatus,
@@ -185,7 +185,7 @@ export class WorkerGeneration {
       resources: Object.freeze(resources),
       rootModel: Object.freeze(rootModel),
       plannerModel: Object.freeze(
-        structuredClone(PLANNER_DEFAULT_MODEL_SELECTION),
+        structuredClone(roleDefaultModelSelection('subagent:planner')),
       ),
     });
   }
@@ -800,7 +800,7 @@ export class WorkerGeneration {
       evidence,
       observeModelRequest,
       this.rootModelSelection,
-      PLANNER_DEFAULT_MODEL_SELECTION,
+      roleDefaultModelSelection('subagent:planner'),
       observeAuxiliaryRequest,
       sourceForMessage,
       projectParentRequestWithSources,

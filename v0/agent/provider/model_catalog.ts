@@ -29,6 +29,7 @@ import {
 } from './model_selection.ts';
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
 import { activeProviderDeclarations, declarationFor } from './provider_runtime.ts';
+import { bundledRoleDefaultFor } from './provider_defaults.ts';
 
 export type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
 
@@ -161,6 +162,18 @@ export const searchModelsFor = (
     );
   }
   return searchOpenRouterModels(query);
+};
+
+/**
+ * Resolve one bundled slot default to a model selection against the active provider catalog.
+ * The planner default is supplied by bundled `roleDefaults` data, not a code constant.
+ */
+export const roleDefaultModelSelection = (slot: string): ModelSelection => {
+  const bundled = bundledRoleDefaultFor(slot);
+  if (bundled === undefined) {
+    throw new RangeError(`no bundled role default for slot: ${slot}`);
+  }
+  return selectModelFor(bundled.providerId, bundled.modelId, bundled.effort);
 };
 
 export const selectModelFor = (

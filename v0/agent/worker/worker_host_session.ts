@@ -33,11 +33,8 @@ import type {
   WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
-import {
-  PLANNER_DEFAULT_MODEL_SELECTION,
-  ROOT_DEFAULT_MODEL_SELECTION,
-} from '../provider/openrouter_model_catalog.ts';
-import { isModelSelection } from '../provider/model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
+import { isModelSelection, roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
   type CredentialAvailability,
   modelRouteProfileId,
@@ -46,7 +43,7 @@ import {
 } from '../provider/model_selection.ts';
 import {
   type WorkerExecutionAcknowledgement,
-  type WorkerExecutionArtifactV5,
+  type WorkerExecutionArtifactV6,
   workerExecutionOutcome,
   type WorkerExecutionSettlement,
   type WorkerExecutionStoreResult,
@@ -232,7 +229,7 @@ export class WorkerHostSession {
     const nextTurn = record?.nextTurn ?? 1;
     const defaultSelection = options.initialModelSelection ??
       (options.agent === 'planner'
-        ? PLANNER_DEFAULT_MODEL_SELECTION
+        ? roleDefaultModelSelection('subagent:planner')
         : ROOT_DEFAULT_MODEL_SELECTION);
     const modelSelection = record === undefined
       ? structuredClone(defaultSelection)
@@ -854,7 +851,7 @@ export class WorkerHostSession {
   private executionArtifact(
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
-  ): WorkerExecutionArtifactV5 {
+  ): WorkerExecutionArtifactV6 {
     if (this.currentManifest === undefined) {
       throw new Error('Worker manifest unavailable for execution artifact');
     }
@@ -862,7 +859,10 @@ export class WorkerHostSession {
       this.options.durableCanonicalHistory === true) &&
       execution.committedStateRevision !== undefined;
     return {
-      schemaVersion: 5,
+      schemaVersion: 6,
+      ...(this.currentManifest.subagents === undefined ? {} : {
+        subagents: structuredClone(this.currentManifest.subagents),
+      }),
       contextCapture: execution.journalFailure === true ||
           execution.postCommitObservationFailure === true
         ? 'failed'
@@ -1179,6 +1179,9 @@ export class WorkerHostSession {
         kind: 'start',
         correlation,
         module: revision,
+        ...(this.options.subagentDefinitions === undefined
+          ? {}
+          : { subagents: this.options.subagentDefinitions }),
         workspaceRoot: this.options.workspaceRoot,
         physicalIoMode: this.options.physicalIoMode ?? 'production',
         rootRole: this.options.agent === 'planner' ? 'planner' : 'parent',
@@ -1229,7 +1232,7 @@ export class WorkerHostSession {
         !sameModelSelection(ready.manifest.rootModel, this.projection.modelSelection) ||
         !sameModelSelection(
           ready.manifest.plannerModel,
-          PLANNER_DEFAULT_MODEL_SELECTION,
+          roleDefaultModelSelection('subagent:planner'),
         ) ||
         ready.manifest.profileId !== modelRouteProfileId(this.projection.modelSelection) ||
         !validBaseInstructionManifest(
@@ -1413,7 +1416,7 @@ export class WorkerHostSession {
         !sameModelSelection(message.manifest.rootModel, selection) ||
         !sameModelSelection(
           message.manifest.plannerModel,
-          PLANNER_DEFAULT_MODEL_SELECTION,
+          roleDefaultModelSelection('subagent:planner'),
         ) ||
         message.manifest.profileId !== modelRouteProfileId(selection) ||
         !validCredentialAvailability(message.credentialAvailability, selection)
