@@ -39,7 +39,13 @@ import {
   setUiProjection,
   type UiState,
 } from './state.ts';
-import { type LayoutRow, layoutUi, MAX_FRAME_BYTES, type UiLayout } from './layout.ts';
+import {
+  BUSY_SPINNER_FRAMES,
+  type LayoutRow,
+  layoutUi,
+  MAX_FRAME_BYTES,
+  type UiLayout,
+} from './layout.ts';
 import {
   type AssistantContentRenderer,
   plainTextAssistantRenderer,
@@ -97,6 +103,7 @@ export class TuiRenderer implements TerminalRendererGate {
   private readonly scheduleInterval: (callback: () => void, milliseconds: number) => unknown;
   private readonly cancelInterval: (id: unknown) => void;
   private busyStartedAt: number | undefined;
+  private busySpinnerFrame = 0;
   private busyInterval: unknown;
 
   constructor(
@@ -199,22 +206,34 @@ export class TuiRenderer implements TerminalRendererGate {
   private startBusyElapsed(): void {
     this.stopBusyElapsed();
     this.busyStartedAt = this.now();
+    this.busySpinnerFrame = 0;
     this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed', seconds: 0 });
+    this.ui = reduceUiAction(this.ui, { kind: 'busy_spinner', frame: 0 });
     this.busyInterval = this.scheduleInterval(() => {
       if (this.closing || this.busyStartedAt === undefined) return;
+      this.busySpinnerFrame = (this.busySpinnerFrame + 1) % BUSY_SPINNER_FRAMES.length;
+      this.ui = reduceUiAction(this.ui, {
+        kind: 'busy_spinner',
+        frame: this.busySpinnerFrame,
+      });
       const seconds = Math.max(0, Math.floor((this.now() - this.busyStartedAt) / 1000));
-      if (seconds === this.ui.busyElapsedSeconds) return;
-      this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed', seconds });
+      if (seconds !== this.ui.busyElapsedSeconds) {
+        this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed', seconds });
+      }
       this.redraw();
-    }, 1000);
+    }, 120);
   }
 
   private stopBusyElapsed(): void {
     if (this.busyInterval !== undefined) this.cancelInterval(this.busyInterval);
     this.busyInterval = undefined;
     this.busyStartedAt = undefined;
+    this.busySpinnerFrame = 0;
     if (this.ui.busyElapsedSeconds !== undefined) {
       this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed' });
+    }
+    if (this.ui.busySpinnerFrame !== undefined) {
+      this.ui = reduceUiAction(this.ui, { kind: 'busy_spinner' });
     }
   }
 

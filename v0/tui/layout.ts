@@ -146,6 +146,20 @@ const footerStatus = (state: UiState): string => {
   return state.status;
 };
 
+/** Fixed frames for the busy `working` indicator; applied only to the final terminal frame. */
+export const BUSY_SPINNER_FRAMES: readonly string[] = Object.freeze([
+  '⠋',
+  '⠙',
+  '⠹',
+  '⠸',
+  '⠼',
+  '⠴',
+  '⠦',
+  '⠧',
+  '⠇',
+  '⠏',
+]);
+
 const footerStatusParts = (
   status: string,
 ): { readonly primary: string; readonly credential?: string; readonly details?: string } => {
@@ -220,8 +234,16 @@ const footerStatusText = (
         : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     })()
     : undefined;
-  const elapsedPrimary = elapsed === undefined ? primary : `${primary} ${elapsed}`;
-  const displayedPrimary = width(`[${elapsedPrimary}]`) <= columns ? elapsedPrimary : primary;
+  const spinner = state.lifecycle === 'busy' &&
+      (primary === 'busy' || primary === 'cancelling')
+    ? BUSY_SPINNER_FRAMES[(state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length]
+    : undefined;
+  const primaryLabel = primary === 'busy' ? 'working' : primary;
+  const elapsedPrimary = elapsed === undefined ? primaryLabel : `${primaryLabel} ${elapsed}`;
+  const spinnerPrimary = spinner === undefined ? elapsedPrimary : `${spinner} ${elapsedPrimary}`;
+  const displayedPrimary = width(`[${spinnerPrimary}]`) <= columns
+    ? spinnerPrimary
+    : (width(`[${elapsedPrimary}]`) <= columns ? elapsedPrimary : primaryLabel);
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
@@ -286,16 +308,7 @@ const footerStatusText = (
     segments = [...fixed, ...optional.map((segment) => segment.text)];
   }
   const text = truncateCells(renderSegments(segments), Math.max(1, columns));
-  const blinkToken = state.lifecycle === 'busy' &&
-      (primary === 'busy' || primary === 'cancelling')
-    ? primary
-    : undefined;
-  const blinkOffset = blinkToken === undefined ? -1 : text.indexOf(blinkToken);
-  return blinkOffset < 0 || blinkToken === undefined ? { text } : {
-    text,
-    blinkScalarStart: [...text.slice(0, blinkOffset)].length,
-    blinkScalarLength: [...blinkToken].length,
-  };
+  return { text };
 };
 
 const footerIdentityText = (

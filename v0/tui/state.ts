@@ -123,6 +123,7 @@ export interface UiState {
   readonly overlay: UiOverlay;
   readonly status: string;
   readonly busyElapsedSeconds?: number;
+  readonly busySpinnerFrame?: number;
   readonly slashCommandCandidates: readonly string[];
   readonly terminalSize: Readonly<
     { readonly columns: number; readonly rows: number }
@@ -148,6 +149,7 @@ export type UiAction =
   >
   | Readonly<{ readonly kind: 'status'; readonly text: string }>
   | Readonly<{ readonly kind: 'busy_elapsed'; readonly seconds?: number }>
+  | Readonly<{ readonly kind: 'busy_spinner'; readonly frame?: number }>
   | Readonly<{
     readonly kind: 'slash_command_candidates';
     readonly candidates: readonly string[];
@@ -839,6 +841,13 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
         busyElapsedSeconds: action.seconds === undefined
           ? undefined
           : clamp(action.seconds, 0, Number.MAX_SAFE_INTEGER),
+      });
+    case 'busy_spinner':
+      return Object.freeze({
+        ...state,
+        busySpinnerFrame: action.frame === undefined
+          ? undefined
+          : clamp(action.frame, 0, Number.MAX_SAFE_INTEGER),
       });
     case 'slash_command_candidates':
       return Object.freeze({

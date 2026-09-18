@@ -21,7 +21,6 @@ import {
   BLINK_SGR,
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
-  RESET_SGR,
   TerminalLifecycle,
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
@@ -232,7 +231,7 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
   );
 });
 
-Deno.test('retained busy footer blinks only its primary status and shows cancel help', () => {
+Deno.test('retained working footer spins its primary status and shows cancel help', () => {
   const terminal = new RecordingTerminal();
   let now = 0;
   let tick = () => {};
@@ -240,7 +239,7 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   const renderer = new TuiRenderer(terminal, {
     now: () => now,
     setInterval: (callback, milliseconds) => {
-      assertEquals(milliseconds, 1000);
+      assertEquals(milliseconds, 120);
       tick = callback;
       return 'busy-timer';
     },
@@ -249,34 +248,31 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
 
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   let layout = renderer.layoutSnapshot(80, 24);
-  assertEquals(layout.footer[0].text, '[busy 00:00 │ Esc cancel]');
+  assertEquals(layout.footer[0].text, '[⠋ working 00:00 │ Esc cancel]');
   assert(!layout.footer[0].text.includes('\x1b'));
-  assertEquals(layout.footer[0].blinkScalarStart, 1);
-  assertEquals(layout.footer[0].blinkScalarLength, 4);
+  assertEquals(layout.footer[0].blinkScalarStart, undefined);
+  assertEquals(layout.footer[0].blinkScalarLength, undefined);
   assert(
-    renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} 00:00 │ Esc cancel]`,
-    ),
+    renderer.renderFrame(80, 24).includes('[⠋ working 00:00 │ Esc cancel]'),
   );
+  assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
 
   now = 62_000;
   tick();
-  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[busy 01:02 │ Esc cancel]');
+  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[⠙ working 01:02 │ Esc cancel]');
 
   renderer.setStatus('busy · steer applied');
   assert(
-    renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} 01:02 │ steer applied │ Esc cancel]`,
-    ),
+    renderer.renderFrame(80, 24).includes('[⠙ working 01:02 │ steer applied │ Esc cancel]'),
   );
   renderer.setSlashCommandCandidates(['/help', '/history export']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[busy 01:02 │ steer applied │ Esc cancel │ cmds: /help, /history export]',
+    '[⠙ working 01:02 │ steer applied │ Esc cancel │ cmds: /help, /history export]',
   );
   assertEquals(
     renderer.layoutSnapshot(40, 24).footer[0].text,
-    '[busy 01:02 │ Esc cancel]',
+    '[⠙ working 01:02 │ Esc cancel]',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setStatus('busy');
@@ -292,14 +288,14 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   renderer.setSlashCommandCandidates(['/provider']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[busy 01:02 │ pending active_task:44B │ Esc cancel │ cmds: /provider]',
+    '[⠙ working 01:02 │ pending active_task:44B │ Esc cancel │ cmds: /provider]',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setPendingMetadata(undefined);
   renderer.setStatus('busy; /provider waits for ready');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}busy${RESET_SGR} 01:02 │ /provider waits for ready │ Esc cancel]`,
+      '[⠙ working 01:02 │ /provider waits for ready │ Esc cancel]',
     ),
   );
 
@@ -308,13 +304,13 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
   renderer.setStatus('cancelling context compaction');
   assert(
     renderer.renderFrame(80, 24).includes(
-      `[${BLINK_SGR}cancelling${RESET_SGR} 1:01:01 │ context compaction │ Esc cancel]`,
+      '[⠹ cancelling 1:01:01 │ context compaction │ Esc cancel]',
     ),
   );
   layout = renderer.layoutSnapshot(12, 24);
   assertEquals(layout.footer[0].text, '[cancelling]');
-  assertEquals(layout.footer[0].blinkScalarStart, 1);
-  assertEquals(layout.footer[0].blinkScalarLength, 10);
+  assertEquals(layout.footer[0].blinkScalarStart, undefined);
+  assertEquals(layout.footer[0].blinkScalarLength, undefined);
 
   renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
   assertEquals(cleared, ['busy-timer']);
@@ -336,8 +332,10 @@ Deno.test('retained busy footer blinks only its primary status and shows cancel 
 
   renderer.eventSink({ kind: 'turn_start', turn: 3 });
   assertEquals(renderer.stateSnapshot().busyElapsedSeconds, 0);
+  assertEquals(renderer.stateSnapshot().busySpinnerFrame, 0);
   renderer.close();
   assertEquals(renderer.stateSnapshot().busyElapsedSeconds, undefined);
+  assertEquals(renderer.stateSnapshot().busySpinnerFrame, undefined);
   assertEquals(cleared, ['busy-timer', 'busy-timer', 'busy-timer']);
 });
 

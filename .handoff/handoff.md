@@ -96,6 +96,17 @@
   属性はfollow-up。Definitionは`createModel('planner', selection)`で自モデルを選べる）。他候補は
   `docs/experience/normal-use-inbox.md`のE2に記録。
 
+### Increment 73 — busy表示を`working`＋spinnerへ（実装完了、手動確認・binary配置は未実施）
+
+- 状態: 実装完了。`v0:gate` exit 0。footer busy表示を`busy`＋blinkから`working`＋braille spinner
+  （`BUSY_SPINNER_FRAMES`、120ms周期）へ変更。`cancelling`・経過時間・`Esc cancel`は維持。`state.ts`に
+  `busySpinnerFrame`／`busy_spinner`、`tui_renderer.ts`のbusy timerを120msへ、`layout.ts`からbusy blinkを削除。
+  terminal styleは最終frameのみ（busyでは`BLINK_SGR`不使用）。
+  `tests/v0/tui_retained_terminal_test.ts`のbusy footer testを更新。
+- 次: 手動表示確認（pty等）、commit、binary build・配置。roadmap F01と`docs/experience/normal-use-inbox.md` S6の
+  正本更新は別承認。
+- 正本: `docs/increments/increment-73.md`。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`（build `de6a6327e5550d739e0512a488d8da05bf7a5aa7bc60c2fa30aef9e3317b17e9`、binary SHA-256
