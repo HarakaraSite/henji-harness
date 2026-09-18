@@ -76,6 +76,8 @@ export interface ControllerOverlayOptions {
   readonly isIdle: () => boolean;
   readonly readyStatus: () => string;
   readonly modelSelection: () => ModelSelection | undefined;
+  /** Notify the controller that a provider/model selection notice is now the status line. */
+  readonly selectionStatusApplied?: () => void;
   readonly fail: (error: unknown) => Promise<void>;
 }
 
@@ -416,6 +418,7 @@ export class ControllerOverlay {
         this.options.renderer.setStatus(
           ready.includes('credential missing:') ? `${ready} · ${selected}` : selected,
         );
+        this.options.selectionStatusApplied?.();
         return;
       }
       this.modal = null;

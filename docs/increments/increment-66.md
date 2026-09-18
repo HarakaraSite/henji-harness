@@ -1,4 +1,4 @@
-# Increment 66 — provider pickerのprovider検証修正
+# Increment 66 — provider切替UIの修正
 
 ステータス: **完了**
 
@@ -6,15 +6,15 @@
 
 計画日: 2026-09-18
 
-対象: 通常利用で発見した不具合修正。`/provider`（および`/model`）でpickerが提示するproviderを選ぶと
-TUIが致命的`output_failure`で終了する問題を修正する。Increment 65の回帰ではなく、provider identity一般化
-（Increment 58/61/63）で`openrouter-responses`と宣言providerが選択肢へ入った時点から到達可能だった既存バグ。
+対象: 通常利用で発見した不具合修正（2件）。`/provider`（および`/model`）でpickerが提示するproviderを選ぶと
+TUIが致命的`output_failure`で終了する問題と、provider/model選択の確認がfooter 1行目に残り続ける問題を修正する。
+いずれもIncrement 65の回帰ではなく既存バグ。
 
 ## 原因
 
-`v0/presentation/contract_intent.ts`の`presentationIntent`が、`select_provider`／`select_model`のproviderを
-`'openrouter'`または`'openai'`の2値にハードコードして検証していた（2026-09-09導入）。一方
-`providerIdsForSelection()`は`openrouter-responses`（および宣言provider）も返すため、pickerに出た
+不具合1（致命的終了）: `v0/presentation/contract_intent.ts`の`presentationIntent`が、`select_provider`／
+`select_model`のproviderを`'openrouter'`または`'openai'`の2値にハードコードして検証していた（2026-09-09導入）。
+一方`providerIdsForSelection()`は`openrouter-responses`（および宣言provider）も返すため、pickerに出た
 `openrouter-responses`を選ぶと`presentationIntent`が`PresentationDeliveryError`を投げ、controllerが
 `output_failure`としてプロセスを終了していた。
 
@@ -26,11 +26,19 @@ TUIが致命的`output_failure`で終了する問題を修正する。Increment 
 - instrument時のstack: `PresentationDeliveryError: agent event delivery failed` at `presentationIntent` →
   `TuiPresentationAdapter.dispatch` → `ControllerOverlay.applySelection` → `Controller.fail`。
 
+不具合2（確認statusの残留）: 選択成功時に`ControllerOverlay.applySelection`が
+`renderer.setStatus("provider X · model Y · effort Z")`を設定し、その後`ready`へ戻す処理が無い
+（`v0/tui/controller_overlay.ts:413-418`、2026-09-10導入）。入力時の`refreshSlashCommandCandidates`は候補のみ
+更新するため、footer 1行目は選択確認が主表示のまま残り、editorが`/`で始まると
+`provider ... │ cmds: ... │ model ... │ effort ...`となり、roadmap F01の「cmdsを`ready`または`busy`の直後へ
+表示」から外れる。
+
 ## 利用者が必要とする動作
 
 - pickerが提示したprovider（`openrouter-responses`および宣言providerを含む）を選ぶと、セッションが切替わり
   footerへ反映される。
 - catalogに存在しないproviderをSurfaceが要求した場合は、致命的終了ではなく`rejected`として扱う。
+- provider/model切替の確認は次回のeditor入力で`ready`へ戻り、`/`入力時は`ready │ cmds: ...`となる。
 
 ## 計画
 
@@ -40,6 +48,8 @@ TUIが致命的`output_failure`で終了する問題を修正する。Increment 
 - `select_provider`のprovider解決（`defaultModelSelectionFor`）が投げる未知providerを、既存の`select_model`と
   同様に`{ kind: 'rejected', reason: 'invalid' }`へ変換する（`tui_presentation_adapter.ts`と`tui/controller.ts`の
   両経路）。
+- provider/model選択の確認statusを一時表示とし、次回のeditor入力時に`readyStatus()`へ戻す。turn開始時はnoticeを
+  破棄し、busy中のsteering入力では変更しない。
 
 ## 対象外
 
@@ -50,19 +60,22 @@ TUIが致命的`output_failure`で終了する問題を修正する。Increment 
 
 - focused test: `presentationIntent`が`openrouter-responses`と宣言相当のprovider idを受け付けること、
   adapter経由で`openrouter-responses`への切替が`model_selection`を返すこと、未知providerが`rejected`に
-  なること。
+  なること。provider選択確認が次回editor入力で`ready`へ戻ること。
 - 既存回帰: provider switching/model switchingの既存test、TUI overlay test。
-- ptyによる手動確認: `/provider`→`openrouter-responses`でfooterが更新され終了コード0。
+- ptyによる手動確認: `/provider`→`openrouter-responses`でfooterが更新され終了コード0。切替後`/`入力で
+  footer 1行目が`ready │ cmds: ...`になること。
 - type check、format、lint、`git diff --check`、authoritative `v0:gate`は安定候補で1回。
 
 ## 結果
 
-- 修正: `presentationIntent`のprovider検証を構造的検証へ変更。`select_provider`のprovider解決失敗を
+- 不具合1の修正: `presentationIntent`のprovider検証を構造的検証へ変更。`select_provider`のprovider解決失敗を
   `{ kind: 'rejected', reason: 'invalid' }`へ変換（`tui_presentation_adapter.ts`、`tui/controller.ts`）。
-- 検証: 新規`tests/v0/increment_66_provider_picker_test.ts`（3件、`v0:test`へ追加）がpass。pty手動確認で
-  `/provider`→`openrouter-responses`がfooter `provider:openrouter-responses`へ反映されexit 0。authoritative
-  `v0:gate`（check/fmt/lint/test）exit 0。
-- binary配置: 実装commit`29c900d8`から`henji:compile`。binary SHA-256
-  `cf3abe3e0e9c4e267659329278d85e31cfa6409bf73450ddfcd5595e9e749c12`、build
-  `9bcc9f2bd9992f6fba02c8e9449d1c0645c5ef8dec9edadfce66462abc687c28`、`sourceDirty=false`。installed
-  launcher `~/.local/bin/henji`で`/provider`→`openrouter-responses`のfooter反映とexit 0を確認。
+- 不具合2の修正（利用者選択A）: `ControllerOverlay`が選択確認を適用したことをcontrollerへ通知し、controllerは
+  次回のeditor入力時に（idle時のみ）`readyStatus()`へ戻す。turn開始時にnoticeを破棄。
+- 検証: 新規`tests/v0/increment_66_provider_picker_test.ts`（3件、`v0:test`へ追加）と
+  `tui_retained_terminal_test.ts`のprovider選択確認クリアtestがpass。pty手動確認で`/provider`→
+  `openrouter-responses`がfooter `provider:openrouter-responses`へ反映されexit 0。authoritative `v0:gate`
+  （check/fmt/lint/test）exit 0。
+- binary配置: 最終実装commitから`henji:compile`し、installed launcher `~/.local/bin/henji`へ配置（deployment
+  record commit参照）。`sourceDirty=false`、ptyで`/provider`→`openrouter-responses`→`/`入力のfooter 1行目が
+  `ready │ cmds: ...`になることを確認。

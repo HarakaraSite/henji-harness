@@ -155,6 +155,8 @@ export class TuiController {
   private signalsInstalled = false;
   private readonly pending?: PendingInputCore;
   private readonly overlay: ControllerOverlay;
+  /** True while the provider/model selection confirmation is the transient status line. */
+  private modelSelectionNotice = false;
   private readonly modern: boolean;
   private discardIntent: DiscardIntent | null = null;
   private steeringConsumedBridge = false;
@@ -195,6 +197,9 @@ export class TuiController {
       isIdle: () => this.state === 'idle',
       readyStatus: () => this.readyStatus(),
       modelSelection: () => this.session.modelSelectionSnapshot?.(),
+      selectionStatusApplied: () => {
+        this.modelSelectionNotice = true;
+      },
       fail: (error) => this.fail(error),
     });
   }
@@ -341,6 +346,7 @@ export class TuiController {
   }
 
   private submitIntent(text: string): Promise<PresentationOutcome> {
+    this.modelSelectionNotice = false;
     const result = this.dispatchIntent({ kind: 'ordinary_submit', text });
     return Promise.resolve(result).then((value) => {
       if (value.kind !== 'outcome') {
@@ -603,6 +609,10 @@ export class TuiController {
 
   private editEvent(event: InputEvent): void {
     this.editorController.apply(event);
+    if (this.modelSelectionNotice && this.state === 'idle') {
+      this.modelSelectionNotice = false;
+      this.renderer.setStatus(this.readyStatus());
+    }
     this.refreshSlashCommandCandidates();
   }
 

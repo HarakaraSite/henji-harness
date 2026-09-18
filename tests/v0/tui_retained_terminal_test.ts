@@ -15,6 +15,8 @@ import {
 } from '../../v0/presentation/contract.ts';
 import { presentationProjectionFromStartup } from '../../v0/presentation/adapter.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import type { ModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import {
   BLINK_SGR,
   ENTER_ALTERNATE_SCREEN,
@@ -881,6 +883,44 @@ Deno.test('anchored slash remains ordinary editor input without history search',
   await waitFor(() => controller.editor.text === '/ordinary');
   assertEquals(renderer.stateSnapshot().overlay.kind, 'none');
   assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
+  terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('provider selection confirmation clears on the next editor input', async () => {
+  const terminal = new InteractiveTerminal();
+  terminal.size = { columns: 100, rows: 12 };
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  renderer.resize(100, 12);
+
+  let selection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION;
+  const session: TuiSessionLike = {
+    ...successfulSession([]),
+    modelSelectionSnapshot: () => selection,
+    selectModel: (next) => {
+      selection = next;
+      return Promise.resolve('selected' as const);
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+
+  terminal.push('/provider\r');
+  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'choicePicker');
+  terminal.push('\x1b[B\x1b[B\r');
+  await waitFor(() => selection.provider === 'openai');
+  await waitFor(() => renderer.stateSnapshot().status.includes('provider openai'));
+  assert(renderer.stateSnapshot().status.includes('model gpt-5.6-sol'));
+
+  terminal.push('x');
+  await waitFor(() => controller.editor.text === 'x');
+  assert(!renderer.stateSnapshot().status.includes('provider openai'));
+  assertEquals(renderer.stateSnapshot().status, 'ready');
+
   terminal.push('\x15\x04');
   assertEquals(await run, 0);
 });
