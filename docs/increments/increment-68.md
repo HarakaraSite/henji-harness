@@ -93,6 +93,12 @@ Session影響の処理、既定解決不能時の入力ブロック」をこのi
   reasoning_effort to 'none'"）。agentは常にtoolsを渡すため、`openai-chat`のgpt-5.6-sol/luna/terraは
   `defaultEffort`を`none`にした。gpt-6-astraは`none`を持たず`openai-chat`ではtool turnに使えない（未解決の
   フォローアップ候補）。
+- 既知の帰結（利用者判断C）: Increment 68のproviderState/evidence provider改名により、旧`providerState.provider:
+  'openrouter'`を持つ既存provider evidence行はvalidatorで不正となり、`providerEvidence.list()`が
+  `provider_evidence_invalid`を投げる。互換read（案A）やskip（案B）は採用せず、**旧state DBを切捨てる**方針を
+  利用者が選択。repository workspace（`/home/masat.guest/src/henji-harness`）のstate root
+  `~/.local/state/henji-harness/v1/967fa641…`を削除し、次回起動から新規historyを開始する。他workspaceのstate DBは
+  残しており、旧chat evidenceを含む場合は同様にlist readbackが失敗するため、必要時に同様の切捨てを行う。
 - binary配置: 実装commit`fb066aa4`から`henji:compile`。binary SHA-256
   `e5a97e963d2f9ebdf4bfb6f1778d01bace0acda3ab88aaa87804c6c9ceba31a7`、build
   `cb0ced4cde802f05ae2e6a7776c2ce93e2d3577f95ace3db8a7a3a2d18a9a454`、embedded runtime
