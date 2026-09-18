@@ -76,17 +76,20 @@
 - 次: tool Definition transportと任意kindの一般化（後続increment）。
 - 正本: `docs/increments/increment-71.md`。architecture（`henji-host-agent-worker.md`）とroadmapへ反映済み。
 
-### Increment 72 — named subagentの一般化（実装完了、実provider probe未実施）
+### Increment 72 — named subagentの一般化（実装完了、実provider probe受入済み）
 
 - 状態: 実装完了。`v0:gate` exit 0。delegation toolを`createSubagentDelegationTool(name, handler)`へ、
   child admissionを`admitSubagentExecution(name, callId)`（per-name、child budget共有）へ一般化。
   `registries.ts`は`subagentDelegations`（name→handler）で`tool:delegate_to_<name>`をmaterializeし宣言整合を
   一般検査。`worker_agent_api.ts`は`resolveSubagentComposition(name)`＋`createSubagentHandler`と
   `additionalSubagents`を追加。Hostはbundled subagent（planner）＋`agents.json`の`subagent:*` bindingを解決
-  （bundled moduleが無いnameはbinding必須）。manifest `subagents`（name＋ref）は不変。
-  新規`tests/v0/increment_72_named_subagent_test.ts`（1件、`v0:test`へ追加）。
-- 次: 実provider probe（external named subagentをbindした1 turn）、binary build・配置、architecture／roadmap
-  正本更新（別承認）。commitは明示指示待ち。
+  （root Definitionの種別を問わない。bundled moduleが無いnameはbinding必須）。manifest `subagents`（name＋ref）は
+  不変。新規`tests/v0/increment_72_named_subagent_test.ts`（1件、`v0:test`へ追加）。
+- 実provider probe（利用者許可、2026-09-18）: isolated XDGでexternal subagent Definition
+  `example/researcher`をinstallし`agents.json`の`subagent:researcher`へbind、additionalSubagents＋
+  additionalToolsを持つexternal root `example/root`を`--definition-revision`で選択。modelが
+  `delegate_to_researcher`を呼び、subagentの返答を`I72_PROBE_OK`付きで出力、exit 0。
+- 次: architecture／roadmap正本更新（別承認）。tool Definition transportと他kind候補は後続。
 - 正本: `docs/increments/increment-72.md`。
 - 注意: 子lane provider evidenceのmodel selectionはplanner既定のまま（named subagent固有selectionのevidence
   属性はfollow-up。Definitionは`createModel('planner', selection)`で自モデルを選べる）。他候補は
@@ -94,9 +97,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `579362a82b210935f64f1c235ebc8eae66aec2a0e42f00d80e6ea7611a246461`、binary SHA-256
-  `eb2b6abf6a2fcbc198cc565c1a1b14ef0ee7f2b2885b47f9b398f7ee459db909`、embedded runtime
-  `f758fe8f5201671fff821428a8a8d5bcbbd9e968f52c7e59efd6b9ae23b84a45`、source`3a4e4f45`・`sourceDirty=false`）。
+- binary: `0.2.1`（build `de6a6327e5550d739e0512a488d8da05bf7a5aa7bc60c2fa30aef9e3317b17e9`、binary SHA-256
+  `7c4335ae3b510f2ab73e163f2c0d701f751f5904a5f22b88c0ecdfa9a2a4cb16`、embedded runtime
+  `c422ff9590f2e25a3b972d38ae3c01bfe6c1367ec4f9a4d128a98211dfadfe82`、source`47760705`・`sourceDirty=false`）。
   installed launcher `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
