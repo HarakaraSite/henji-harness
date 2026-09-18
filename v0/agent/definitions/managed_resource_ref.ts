@@ -54,11 +54,35 @@ const sha256Hex = async (bytes: Uint8Array): Promise<string> =>
   [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer))]
     .map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
+const builtinResourceDigest = (
+  manifest: BuildManifestV1,
+  kind: 'agent-definition' | 'tool-definition',
+  resourceId: string,
+  identity?: string,
+): string | undefined =>
+  manifest.builtinResources?.find((entry) =>
+    entry.kind === kind && entry.resourceId === resourceId &&
+    entry.identity === identity
+  )?.digest;
+
 export const builtinDefinitionRef = async (
   agent: 'default' | 'planner',
   manifest: BuildManifestV1,
 ): Promise<DefinitionRevisionRef> => {
   const resourceId = `builtin/${agent}` as const;
+  const embedded = builtinResourceDigest(manifest, 'agent-definition', resourceId);
+  if (embedded !== undefined) {
+    return {
+      schemaVersion: 1,
+      resourceKind: 'agent-definition',
+      resourceId,
+      revision: { algorithm: 'sha256', digest: embedded },
+    };
+  }
+  if (manifest.sourceRevision !== 'development') {
+    throw new Error('built-in Definition revision is missing from the build manifest');
+  }
+  // Development/source runs have no compiled closure digest; keep the fixed development identity.
   const identity = JSON.stringify({
     resourceId,
     role: agent === 'planner' ? 'subagent' : 'parent',
@@ -80,6 +104,18 @@ export const builtinToolDefinitionRef = async (
   apiContract: string,
   manifest: BuildManifestV1,
 ): Promise<ToolDefinitionRevisionRef> => {
+  const embedded = builtinResourceDigest(manifest, 'tool-definition', resourceId, toolIdentity);
+  if (embedded !== undefined) {
+    return {
+      schemaVersion: 1,
+      resourceKind: 'tool-definition',
+      resourceId,
+      revision: { algorithm: 'sha256', digest: embedded },
+    };
+  }
+  if (manifest.sourceRevision !== 'development') {
+    throw new Error('built-in tool Definition revision is missing from the build manifest');
+  }
   const identity = JSON.stringify({
     resourceId,
     toolIdentity,

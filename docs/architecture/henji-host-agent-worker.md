@@ -223,6 +223,12 @@ Hostは外部Agent Definitionを次の境界で扱う。
    `DefinitionRevisionRef`へ解決してからWorker generationを起動する。
 4. Workerはbuilt-inとexternalのどちらも同じcapsule、protocol、commit境界で評価する。
 
+built-in Definition/tool resourceも同じ`DefinitionRevisionRef`/`ToolDefinitionRevisionRef`で表し、そのrevisionは
+resourceのentryとlocal module closure、declared role/name、api contractから算出する。binary同梱ランタイム全体の
+hashはbuild identity（`BuildManifestV1.embeddedRuntimeSha256`、`turnExecutions.build`）として残し、built-in
+resource revisionには使わない。compiled binaryは各built-in resourceのclosure digestをbuild manifest
+（`BuildManifestV1.builtinResources`）へ埋め込み、無関係なruntime修正がbuilt-in revisionを変えないようにする。
+
 現行`--definition <path>`はstandalone/externalization schema cutoverで廃止する。外部source pathはmanaged installの
 inputに限り、実行時authority、durable Session ref、暗黙のdevelopment fallbackにはしない。編集後のsourceを
 再installすると新しいexact revisionになり、同じcontentの再installは同じrevisionを返す。開発版の既存

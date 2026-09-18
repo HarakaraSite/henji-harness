@@ -1,6 +1,6 @@
 # Increment 77 — builtin resource revisionをclosure内容で識別する（正本変更案・未承認）
 
-ステータス: **計画中（Human Gate未承認。正本・実装とも未変更）**
+ステータス: **実装完了（Human Gate承認済み。roadmap／architecture変更適用済み）**
 
 基準commit: `f8f458b7`
 
@@ -81,3 +81,24 @@ build scriptのclosure digest算出、manifest schema、ref算出、test更新�
 1. builtin resource revisionをclosure内容＋contractで算出する設計。
 2. `BuildManifestV1`への`builtinResources`追加（schema据え置きかbumpかを含む）。
 3. 上記のroadmap／architecture変更案を反映してよいか。
+
+## 結果（2026-09-18）
+
+- `BuildManifestV1`へoptional `builtinResources`（`kind`、`resourceId`、`identity?`、`digest`）を追加。
+  `isBuildManifest`は存在する場合だけ検証する（旧recordのbuild manifestは引き続き有効）。
+- `build_henji.ts`がbuiltin default／planner／bundled tool各resourceのentryとlocal module closureを`deno info`で
+  集め、`canonicalDefinitionRevisionBytes`／`canonicalToolDefinitionRevisionBytes`でclosure digestを算出し、
+  manifestへ埋め込む。build identityの`embeddedRuntimeSha256`は従来どおり残す。
+- `builtinDefinitionRef`／`builtinToolDefinitionRef`は`builtinResources`のdigestを使う。compiled manifestで
+  entryが無い場合はtypedに失敗（`embeddedRuntimeSha256`へfallbackしない）。development/source manifestだけは
+  固定のdevelopment identityを使う（closure digestを持たないため）。
+- 正本: roadmap F07とarchitecture「Agent Definition revision」へ適用済み。
+- 検証:
+  - focused test `tests/v0/increment_77_builtin_revision_test.ts`（5件、`v0:test`追加）。
+  - closure digestの安定性: 同じclosure算出を直接実行し、TUI（`v0/tui/terminal.ts`）への追記ではdefault digest
+    が不変（`6d07aa24…`）、definition closure内のinstruction（`v0/agent/instructions/roles/default.ts`）への
+    追記では変わることを確認。
+  - `v0:gate` exit 0。binary再build・配置済み。
+- 注記: builtin closureは`@henji/agent`経由でagent runtime（tools、instructions、storage、provider）を含む。
+  そのためこれらの変更はbuiltin revisionを変える。TUI/CLI等closure外の変更は変えない。type-only re-exportにより
+  `session_cli.ts`がclosureに含まれる点は残課題。

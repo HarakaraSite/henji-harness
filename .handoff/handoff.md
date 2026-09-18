@@ -160,24 +160,27 @@
   inbox B4更新済み。
 - 次: 利用者判断待ちなし。digest範囲変更はIncrement 77提案（下記）でHuman Gate待ち。
 
-### Increment 77 — builtin resource revisionをclosure内容で識別（正本変更案・Human Gate未承認）
+### Increment 77 — builtin resource revisionをclosure内容で識別（実装完了）
 
-- 状態: **計画中（正本・実装とも未変更）**。builtin Definition/toolのrevision digestが`embeddedRuntimeSha256`
-  （binary同梱ランタイム全体）から作られ、無関係な修正でも変わる。externalはclosure内容digest
-  （`canonicalDefinitionRevisionBytes`）で、builtinだけ不整合。
-- 提案: build時にbuiltin resourceごとのclosure digestを算出し`BuildManifestV1.builtinResources`へ埋め込み、
-  `builtinDefinitionRef`/`builtinToolDefinitionRef`はそれを使う。`embeddedRuntimeSha256`はbuild identityとして
-  `turnExecutions.build`へ残す。既存SessionはIncrement 76のtransitionで現行へ進む。
-- 次: 利用者承認（設計、manifest schema追加、roadmap/architecture変更）。承認後に正本適用→実装。
+- 状態: **実装完了**。`v0:gate` exit 0。`BuildManifestV1`へoptional `builtinResources`を追加し、build scriptが
+  builtin default／planner／bundled toolのentry＋local closureからclosure digestを算出してmanifestへ埋め込む。
+  `builtinDefinitionRef`／`builtinToolDefinitionRef`はそのdigestを使い、compiled manifestでentryが無ければ
+  typedに失敗（development manifestのみ固定identityへfallback）。`embeddedRuntimeSha256`はbuild identityとして
+  `turnExecutions.build`へ残す。roadmap F07とarchitecture適用済み。
+- 検証: focused test `tests/v0/increment_77_builtin_revision_test.ts`（5件、`v0:test`追加）。closure digestは
+  TUI追記で不変（`6d07aa24…`）、instruction closure追記で変化することを直接確認。
 - 正本: `docs/increments/increment-77.md`。
+- 注意: builtin closureは`@henji/agent`経由でagent runtime（tools/instructions/storage/provider）を含む。
+  type-only re-exportで`session_cli.ts`がclosureに入る点は残課題。
+- 次: 利用者判断待ちなし。
 
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `90852dc56d8b23e6999a362e20f1c73fe88142bc6e0640c6be068e5c61a5d776`、binary SHA-256
-  `60bd01e117607357ba3fe84b1800d23d5d3640fcebd94a8409d490e59b1b2e86`）。increment-76のlazy activation実装後、
-  commit前にbuildしたため`sourceDirty=true`（内容はcommit予定と同一）。installed launcher
-  `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
+- binary: `0.2.1`（build `bdfecc4d6a62ce77325529b2187113def0cf0986fcfddccfd65a25748e455500`、binary SHA-256
+  `2e80291c8a1767f2088990f6574c7ccae61e855a5425fdca6d80edb7b7b7e64e`）。increment-77実装後、commit前にbuild
+  したため`sourceDirty=true`（内容はcommit予定と同一）。installed launcher `~/.local/bin/henji`。buildは
+  `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
   - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=falseの
     artifactが必要なら現在のcleanなruntimeで再buildする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは

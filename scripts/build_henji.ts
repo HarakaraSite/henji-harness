@@ -1,8 +1,11 @@
 import {
   AGENT_DEFINITION_API_CONTRACT,
+  type BuiltinResourceRevisionV1,
   HENJI_TOOL_DEFINITION_API_CONTRACT,
 } from '../v0/agent/runtime/build_manifest.ts';
 import type { BuildManifestV1 } from '../v0/agent/runtime/build_manifest.ts';
+import { canonicalDefinitionRevisionBytes } from '../v0/agent/definitions/managed_definition_manifest.ts';
+import { canonicalToolDefinitionRevisionBytes } from '../v0/agent/definitions/managed_tool_definition_manifest.ts';
 
 const EXPECTED_DENO = '2.9.6';
 const ROOTS = [
@@ -20,6 +23,71 @@ const ROOTS = [
 ] as const;
 const IDENTITY_FILES = ['deno.v0.json', 'deno.lock', 'jsr.json'] as const;
 const encoder = new TextEncoder();
+
+interface BuiltinDefinitionEntry {
+  readonly resourceId: string;
+  readonly declaredRole: 'parent' | 'subagent';
+  readonly subagentName?: string;
+  readonly entry: string;
+}
+
+interface BuiltinToolEntry {
+  readonly resourceId: string;
+  readonly identity: string;
+  readonly entry: string;
+}
+
+const BUILTIN_DEFINITIONS: readonly BuiltinDefinitionEntry[] = [
+  {
+    resourceId: 'builtin/default',
+    declaredRole: 'parent',
+    entry: 'v0/agent/worker/worker_builtin_definition.ts',
+  },
+  {
+    resourceId: 'builtin/planner',
+    declaredRole: 'subagent',
+    subagentName: 'planner',
+    entry: 'v0/agent/worker/worker_builtin_planner_definition.ts',
+  },
+];
+
+const BUILTIN_TOOLS: readonly BuiltinToolEntry[] = [
+  {
+    resourceId: 'builtin/bash',
+    identity: 'tool:bash',
+    entry: 'v0/agent/worker/worker_builtin_bash_tool.ts',
+  },
+  {
+    resourceId: 'builtin/bash-output',
+    identity: 'tool:bash_output',
+    entry: 'v0/agent/worker/worker_builtin_bash_output_tool.ts',
+  },
+  {
+    resourceId: 'builtin/edit',
+    identity: 'tool:edit',
+    entry: 'v0/agent/worker/worker_builtin_edit_tool.ts',
+  },
+  {
+    resourceId: 'builtin/read',
+    identity: 'tool:read',
+    entry: 'v0/agent/worker/worker_builtin_read_tool.ts',
+  },
+  {
+    resourceId: 'builtin/write',
+    identity: 'tool:write',
+    entry: 'v0/agent/worker/worker_builtin_write_tool.ts',
+  },
+  {
+    resourceId: 'builtin/web-fetch',
+    identity: 'tool:web_fetch',
+    entry: 'v0/agent/worker/worker_builtin_web_fetch_tool.ts',
+  },
+  {
+    resourceId: 'builtin/web-search',
+    identity: 'tool:web_search',
+    entry: 'v0/agent/worker/worker_builtin_web_search_tool.ts',
+  },
+];
 
 const run = async (command: string, args: readonly string[]): Promise<Uint8Array> => {
   const output = await new Deno.Command(command, {
@@ -78,6 +146,77 @@ const runtimeDigest = async (root: string, paths: readonly string[]): Promise<st
     offset += bytes.byteLength;
   }
   return await sha256(joined);
+};
+
+/** Local module closure of one built-in resource entry, excluding build identity files. */
+const moduleClosureFiles = async (
+  root: string,
+  entry: string,
+): Promise<readonly string[]> => {
+  const info = JSON.parse(new TextDecoder().decode(
+    await run(Deno.execPath(), [
+      'info',
+      '--json',
+      '--config',
+      `${root}/deno.v0.json`,
+      `${root}/${entry}`,
+    ]),
+  )) as { readonly modules: readonly { readonly local?: string }[] };
+  const paths = new Set<string>();
+  for (const module of info.modules) {
+    if (!module.local?.startsWith(`${root}/`)) continue;
+    const relative = module.local.slice(root.length + 1);
+    if ((IDENTITY_FILES as readonly string[]).includes(relative)) continue;
+    paths.add(relative);
+  }
+  return [...paths].sort();
+};
+
+const closureFiles = async (
+  root: string,
+  entry: string,
+): Promise<readonly { path: string; bytes: Uint8Array; dependencies: readonly [] }[]> => {
+  const paths = await moduleClosureFiles(root, entry);
+  const files: { path: string; bytes: Uint8Array; dependencies: readonly [] }[] = [];
+  for (const path of paths) {
+    files.push({ path, bytes: await Deno.readFile(`${root}/${path}`), dependencies: [] });
+  }
+  return files;
+};
+
+const builtinResourceRevisions = async (
+  root: string,
+): Promise<readonly BuiltinResourceRevisionV1[]> => {
+  const revisions: BuiltinResourceRevisionV1[] = [];
+  for (const definition of BUILTIN_DEFINITIONS) {
+    const bytes = canonicalDefinitionRevisionBytes({
+      declaredRole: definition.declaredRole,
+      ...(definition.subagentName === undefined ? {} : { subagentName: definition.subagentName }),
+      apiContract: AGENT_DEFINITION_API_CONTRACT,
+      entry: definition.entry,
+      files: await closureFiles(root, definition.entry),
+    });
+    revisions.push({
+      kind: 'agent-definition',
+      resourceId: definition.resourceId,
+      digest: await sha256(bytes),
+    });
+  }
+  for (const tool of BUILTIN_TOOLS) {
+    const bytes = canonicalToolDefinitionRevisionBytes({
+      toolIdentity: tool.identity,
+      apiContract: HENJI_TOOL_DEFINITION_API_CONTRACT,
+      entry: tool.entry,
+      files: await closureFiles(root, tool.entry),
+    });
+    revisions.push({
+      kind: 'tool-definition',
+      resourceId: tool.resourceId,
+      identity: tool.identity,
+      digest: await sha256(bytes),
+    });
+  }
+  return revisions;
 };
 
 const dirtyRuntime = async (root: string, paths: readonly string[]): Promise<boolean> =>
@@ -153,6 +292,7 @@ const main = async (): Promise<void> => {
   const sourceRevision = new TextDecoder().decode(
     await run('git', ['-C', root, 'rev-parse', 'HEAD']),
   ).trim();
+  const builtinResources = await builtinResourceRevisions(root);
   const identity = {
     schemaVersion: 1,
     productVersion: jsr.version,
@@ -163,6 +303,7 @@ const main = async (): Promise<void> => {
     embeddedRuntimeSha256,
     supportedAgentDefinitionApiContracts: [AGENT_DEFINITION_API_CONTRACT],
     supportedToolDefinitionApiContracts: [HENJI_TOOL_DEFINITION_API_CONTRACT],
+    builtinResources,
   } as const;
   const buildId = await sha256(encoder.encode(`henji-build-v1\0${JSON.stringify(identity)}`));
   const manifest: BuildManifestV1 = { ...identity, buildId };
