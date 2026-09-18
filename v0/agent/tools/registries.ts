@@ -100,8 +100,8 @@ const declaredSkillNames = (
 
 /**
  * Materialize a Registry from the effective Definition declaration in declared order.
- * Subagent identities do not create arbitrary runtime plugins; the built-in planner delegation
- * handler is supplied by the host only when the declaration asks for that subagent.
+ * Subagent identities do not create arbitrary runtime plugins; the matching delegation handler is
+ * supplied by the host only when the declaration asks for that named subagent.
  */
 export const createDeclaredRegistry = (
   declaration: AgentCapabilityDeclaration,

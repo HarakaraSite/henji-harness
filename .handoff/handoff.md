@@ -175,6 +175,17 @@
 - 正本: `docs/increments/increment-77.md`。roadmap F07とarchitecture適用済み。
 - 次: 利用者判断待ちなし。
 
+### Increment 79 — product正本とdelegation契約の整合（実装・検証完了）
+
+- 状態: Session継続時のDefinition選択、Provider外部化とbuilt-in ID、F19 attribution、historical tool replacementを
+  architecture／roadmap／READMEで現行sourceへ整合した。`delegate_to_planner`のmodel-visible説明をexternal
+  `subagent:planner`にも成立する契約へ変更し、回帰testを追加した。focused 63件、`v0:check`、`v0:fmt`、
+  `v0:lint`、`git diff --check`はpass。変更はcommit済み。
+- 次: 利用者から明示依頼があればpushする。runtime protocolとprovider requestは不変で、installed binaryの
+  rebuild・配置は未実施。
+- 正本: `docs/increments/increment-79.md`。
+- 注意: conceptの意味、通常利用メモ、live provider、実TTYは今回変更・検証していない。
+
 
 ### 環境・配置（再開時の注意）
 

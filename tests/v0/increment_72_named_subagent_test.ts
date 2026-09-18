@@ -10,6 +10,7 @@ import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import { ParentTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
 import type { DefinitionRevisionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { subagentDelegationDescription } from '../../v0/agent/tools/planner_delegation.ts';
 import { bundledToolComponents } from './bundled_tool_components.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -31,6 +32,16 @@ const researcherRef: DefinitionRevisionRef = {
   resourceId: 'example/researcher',
   revision: { algorithm: 'sha256', digest: 'a'.repeat(64) },
 };
+
+Deno.test('Increment 79 keeps planner delegation description valid for external bindings', () => {
+  const description = subagentDelegationDescription('planner');
+  assertEquals(
+    description,
+    'Delegate one explicit planning task to the planner subagent for this parent turn. The subagent receives only the task and returns one bounded synchronous result. Call at most once per turn.',
+  );
+  assert(!description.includes('built-in'));
+  assert(!description.includes('cannot mutate'));
+});
 
 Deno.test('Increment 72 delegates to a named subagent with per-name admission', async () => {
   const requests: ModelRequest[] = [];

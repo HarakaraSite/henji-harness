@@ -272,10 +272,11 @@ delegated subagentは`subagent:<name>`で一般化する（Increment 72）。bun
 child laneのrequest budgetは全subagentで共有し、合成した各subagentのexact refはmanifest／execution artifactの
 `subagents`（subagentName＋ref）へ記録する。
 
-root Definitionの選択は、明示selector、再開・継続Sessionの保存済みexact ref、`agent:default` binding、bundled
-defaultの順に優先する。binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。保存済みexact refが
-現行のbinary/storeに存在しない場合、継続は現行の解決済みbindingへ切り替えるtransitionとして扱い、閲覧は
-refを解決しない。
+root Definitionの選択は、明示selector、`agent:default` binding、bundled defaultの順に優先する。再開・継続する
+Sessionの保存済みexact refは選択候補にせず、過去turnのattributionとして保持する。binding解決失敗はtyped
+failureとし、bundledへ暗黙fallbackしない。継続時に保存済みrefと現行の解決済みrefが異なる場合は、現行refへの
+transitionとして次のturnへ記録し、過去turnのattributionを変更しない。閲覧だけの場合は保存済みrefも現行refも
+解決せず、Worker generationを起動しない。
 
 resolvedなroot/subagent exact refはDefinition resource graphとexecution artifactへ記録し、context attributionへは
 入れず、二重authorityを作らない。subagent refはSession schemaへ保存しない（将来`AgentInstance`領域へ移す）。
@@ -356,21 +357,23 @@ managed pathを追加する。credentialはportable artifactへ含めず、capab
 
 #### Provider設定の外部化
 
-Providerのroute（vendor、API surface、auth profile）とmodel catalogは、現在`openrouter`/`openai`のclosed unionと
-binary内adapterである。採用済みの方向として、外部Provider declarationをdata-only resourceとして扱い、Hostが
-non-secret auth profile catalogとcredential registry、request時のroute/credential解決を所有する。OpenRouter
-Responses API経路は同じOpenRouter credentialの別`api` surfaceとしてroute identityへ反映し、現行Chat Completions
-経路を置換するか併設するかは公式contractと実provider応答を確認するincrementで決める。credential値、
-Authorization、tokenはmanaged revision、Session、evidence、transcript、Definitionへ含めない。provider固有
-adapterのphysical placement、declarationをmanaged revisionとexternal input/stateのどちらにするか、activation
-scope、dynamic model取得は、Provider kindを実装するincrementでこのarchitectureへ追加する。nativeなclosed unionと
-既存OpenRouter Chat Completions経路は、そのincrementが成立するまで変更しない。詳細は
-[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
+Providerのroute（provider ID、API protocol、auth profile）とmodel catalogはdata-only declarationで表す。
+`openrouter-chat`、`openrouter-responses`、`openai-chat`、`openai-responses`はbinaryに同梱する既定宣言であり、
+`$XDG_CONFIG_HOME/henji-harness/providers/*.json`のexternal宣言はbinary更新なしで新しいprovider IDを追加できる。
+同じIDのbuilt-in overrideはprotocol、endpoint、auth profileを変えず、catalogとdefaultsだけを置き換える。
+OpenRouter Chat CompletionsとResponsesは別routeとして併設し、既定は`openrouter-chat`である。
 
-一般化したprovider identityは`providerId` + `protocol` + `authProfile`であり、protocol adapterはbinaryが所有する。
-external宣言はdata-onlyで新しい`providerId`を追加でき、built-inはbinary内の既定宣言として残る。宣言providerの
-model selectionは`providerId`/`protocol`/`authProfile`/`modelId`/`effort`の構造でSession/evidenceへ保存し、
-endpointやcatalog sourceはidentityへ含めない。最初の新provider kindは`openai-responses` protocolに限定する。
+一般化したprovider identityは`providerId` + `protocol` + `authProfile`であり、`openai-chat-completions`と
+`openai-responses`のprotocol adapterはbinaryが所有する。declarationはdata-onlyで、endpoint、固定model catalog、
+defaultsを持つ。effective model selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surface）／
+`authProfile`／`modelId`／`effort`としてSessionとevidenceへ保存し、endpointやcatalog sourceはidentityへ含めない。
+Responses replay stateは生成元provider IDとmodel IDが一致する場合だけ再利用する。
+
+Host configの`default-selection.json`がrootの既定selectionを選び、未設定時は同梱`openrouter-chat`既定を使う。
+delegated subagentは自身のDefinitionまたは`roleDefaults`からselectionを得て、root selectionを継承しない。
+credential値、Authorization、tokenはdeclaration、managed revision、Session、evidence、transcript、Definitionへ
+含めない。provider固有adapterのphysical placement、dynamic model取得、追加protocolは未決であり、採用時に
+architectureへ戻る。詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
 
 #### managed revision transport
 

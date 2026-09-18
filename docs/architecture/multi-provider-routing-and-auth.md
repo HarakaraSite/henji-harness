@@ -1,11 +1,11 @@
 # Henji 複数provider routing・認証アーキテクチャ
 
-ステータス: **Increment 14〜16の採用済み設計。ChatGPT subscription routeはfeasibility確認後に将来へ延期。
-OpenRouter Responses API経路とProvider設定の外部化は採用済みの次期方針であり、実装は別increment**
+ステータス: **Increment 14〜16の複数provider基盤とIncrement 58〜68のOpenRouter Responses・data-only
+Provider declaration・provider ID整列を実装済み。ChatGPT subscription routeはfeasibility確認後に将来へ延期**
 
 作成日: 2026-09-09
 
-現行source照合commit: `52ada72d0668b2d7830268b8adf45472d1e76250`
+現行source照合commit: `9de2255dde970f9cca7cb167c971bdb031e451ee`
 
 ## 目的
 
@@ -59,7 +59,7 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 - pinned Zotは公開OpenAI Responses APIをAPI-key route、ChatGPT Codex backendをOAuth routeとして別provider
   identityで扱う。これはendpointとheaderの混同を避ける比較例であり、非公開backendの外部契約を保証しない。
 
-### 実装前に残る未確認事項
+### Increment 14着手前に残っていた未確認事項（履歴）
 
 - official OpenAI TypeScript SDKを現行Deno runtimeで使い、SDKへ返すstreamを壊さず、実際に送信されたJSON bodyと
   raw response bytesをcredentialなしでtransport境界から取得できるか。Increment 14の最初に最小probeで確認する。
@@ -75,53 +75,47 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 
 `provider`を企業名だけとして扱わず、model requestのAPI surfaceと認証契約を一意に決めるroute identityとする。
 
-| provider identity | API surface | 初期auth profile | 導入increment |
+| provider identity | API surface | auth profile | 導入increment |
 | --- | --- | --- | --- |
-| `openrouter` | OpenRouter Chat Completions互換API | `openrouter-api-key` | 実装済み |
-| `openai` | 公開OpenAI Responses API | `openai-api-key` | 14 |
+| `openrouter-chat` | OpenRouter Chat Completions互換API | `openrouter-api-key` | 14、ID整列は68 |
+| `openrouter-responses` | OpenRouter Responses API | `openrouter-api-key` | 58 |
+| `openai-chat` | 公開OpenAI Chat Completions API | `openai-api-key` | 64、ID整列は68 |
+| `openai-responses` | 公開OpenAI Responses API | `openai-api-key` | 14、ID整列は68 |
 | `openai-codex` | 将来再確認するChatGPT Codex subscription経路 | 未決定 | 将来incrementで再採用した場合 |
 
-`openai`と`openai-codex`は同じvendorのmodelを使えても別providerである。model IDが同じでも、API surface、
+`openai-chat`／`openai-responses`と`openai-codex`は同じvendorのmodelを使えても別providerである。model IDが
+同じでも、API surface、
 認証、課金、provider state、evidenceの意味が異なるためである。
 
 Anthropic direct、Google direct等を将来追加するときも、確認済みのAPI surfaceとauth profileを新しいroute branchと
 adapterとして加える。Increment 14〜17では未確認のendpoint、認証、provider stateを先回りして共通仕様化しない。
 
-同じvendorと同じcredentialでも`api` surfaceは別routeである。OpenRouterのResponses API経路を採用する場合は
-`{ provider: 'openrouter', api: 'openrouter-responses', authProfile: 'openrouter-api-key' }`のような別routeと
-adapterにする。現行Chat Completions routeを置換するか併設するか、input/output item、function tool
-continuation、reasoning state、stream event、raw evidence、model/effort対応範囲、既存OpenAI Responses adapterとの
-共通化は、OpenRouter公式contractと実provider応答を確認するincrementで決める。未確認のtransportやstate shapeを
-先に共通contractへ固定しない。
+同じvendorと同じcredentialでもAPI surfaceは別routeである。OpenRouterのChat CompletionsとResponsesは
+`openrouter-chat`／`openrouter-responses`として併設し、OpenAI directも`openai-chat`／`openai-responses`を
+区別する。旧ID `openrouter`／`openai`はIncrement 68でaliasやmigrationなしに廃止した。
 
-初期のdata-only selectionは次の意味を持つ。名前は実装時に調整できるが、情報を一つのOpenRouter専用型へ
-押し込まない。
+current selectionは次の構造を持つ。`provider`はprovider ID、`api`はeffective protocol/surfaceであり、
+credential値やendpointは含めない。
 
 ```ts
-type ProviderRoute =
-  | {
-    provider: 'openrouter';
-    api: 'openrouter-chat-completions';
-    authProfile: 'openrouter-api-key';
-  }
-  | {
-    provider: 'openai';
-    api: 'openai-responses';
-    authProfile: 'openai-api-key';
-  };
-
 interface ModelSelection {
-  readonly route: ProviderRoute;
+  readonly provider: string;
+  readonly api:
+    | 'openrouter-chat-completions'
+    | 'openrouter-responses'
+    | 'openai-chat-completions'
+    | 'openai-responses';
+  readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
   readonly modelId: string;
   readonly effort: string;
 }
 ```
 
-初期auth profileは固定identityでよい。将来複数accountを選ぶ必要が生じた場合にopaqueなprofile IDへ拡張する。
-email、account ID、API key、access/refresh tokenはselectionへ含めない。
-`openai-codex` branchは現時点ではこのunionへ追加しない。将来の個別incrementで再採用した場合に、OpenAIの
-最新方針、公式contract、現行の比較実装と実行証拠を確認してから追加し、未確認の`api`やstate shapeを先にruntime
-contractへ固定しない。
+Provider declaration v1は`providerId`、binary-owned `protocol`、endpoint、auth profile、固定model catalog、
+defaultsをdata-onlyで保持する。protocolは`openai-chat-completions`または`openai-responses`である。external宣言は
+新しいprovider IDを追加でき、built-inと同じIDの宣言はprotocol・endpoint・auth profileを維持したままcatalogと
+defaultsだけをoverrideできる。email、account ID、API key、access/refresh tokenはselectionとdeclarationへ含めない。
+`openai-codex` branchは現時点では追加しない。将来再採用する場合は、その時点の公式contractと実行証拠を確認する。
 
 ## 不変条件
 
@@ -142,15 +136,15 @@ contractへ固定しない。
 
 ## Worker内のruntime構成
 
-現行`PhysicalIoBindings.createModel(role, selection?)`はroleとprovider routeを混ぜている。共通境界は、roleを
-credential選択に使わず、resolved `ModelSelection`からadapterを作る形へ変更する。
+Hostは同梱宣言とexternal宣言をregistryへ解決し、Workerはresolved `ModelSelection`からbinary-owned adapterを
+materializeする。roleはcredential選択に使わず、selectionのauth profileがrequest時のresolverを決める。
 
 ```text
 Agent Definition / Session override
             │ ModelSelection（非秘密）
             ▼
    Worker-local ProviderRegistry
-            │ provider + apiでadapter factoryを選択
+            │ provider declaration + apiでadapter factoryを選択
             ▼
    Provider adapter / tool backend
             │ authProfileでrequest時にresolve
@@ -161,7 +155,7 @@ Agent Definition / Session override
         outbound request
 ```
 
-想定interfaceは次の責務に分ける。
+runtime境界は次の責務に分かれる。
 
 - `ProviderRegistry.createModel(selection)`: selectionを検証し、対応adapterを返す。credential値は引数にも戻り値にも
   出さない。
@@ -178,20 +172,20 @@ selectionを得る。delegation taskとchild execution contextへcredentialは�
 
 ## provider stateとprovider切替
 
-現行の`OpenRouterProviderState`はgeneric coreに直接埋め込まれている。複数providerではtagged unionへ変更する。
+provider-private replay stateは生成元を持つtagged unionであり、conversation textとは別にassistant messageへ付く。
 
 ```ts
 type ProviderState =
-  | { api: 'openrouter-chat-completions'; reasoningDetails: readonly JsonValue[] }
-  | { api: 'openai-responses'; replayItems: readonly JsonValue[] };
+  | { provider: 'openrouter-chat'; reasoningDetails: readonly JsonValue[] }
+  | { provider: string; replayItems: readonly JsonValue[]; model?: string };
 ```
 
 - OpenAI Responses adapterは、function call後のcontinuationと後続contextに必要なreasoning/output itemを完全な順序で
   保持する。`previous_response_id`だけをHenji Sessionの正本にせず、Henjiのdurable transcriptとprovider stateから
   requestを再構成する。
 - adapterは、自分と互換なtagのprovider stateだけをwireへ戻す。別APIのstateを変換または送信しない。
-- context admissionとcompactionのrequest-size計測は、現行OpenRouter encoderの固定利用をやめ、active adapterの
-  encoderまたはmeasure policyで行う。providerを切り替えた後のOpenAI requestをOpenRouter wire形式で評価しない。
+- context admissionとcompactionのrequest-size計測はactive modelの`measureRequestWire`を使う。providerを
+  切り替えた後のrequestを別providerのwire形式で評価しない。
 - provider/model切替時のstate互換性はadapter固有とする。OpenRouter内の互換model切替は現行どおり
   `reasoning_details`を維持する。providerをまたぐ切替ではsemantic transcriptだけを使う。元providerへ戻った場合に
   古いprivate stateを再利用するかは、公式契約または実行証拠がない限り行わない。
@@ -200,15 +194,9 @@ type ProviderState =
 
 ## Session、Manifest、Surface
 
-Increment 14でSession schema v4または同等の新versionを導入し、`activeModel`、`modelChanges`、`turnModels`を
-generic `ModelSelection`へ変更する。v3は次のrouteへ決定的に移行する。
-
-```text
-provider: openrouter
-api: openrouter-chat-completions
-authProfile: openrouter-api-key
-modelId / effort: v3の値を維持
-```
+現行Session schema v6は`activeModel`、`modelChanges`、`turnModels`へgeneric `ModelSelection`を保存し、turnごとの
+buildとDefinition attributionを`turnExecutions`へ持つ。Increment 68より前のprovider IDをaliasまたはmigrationで
+読み替えず、旧IDを含むrecordは現行schemaとして解釈しない。
 
 - Sessionはroot selectionだけを永続化する。planner/subagentのresolved selectionは各turnのmanifestとevidenceへ
   attributionし、rootのmodel change historyへ混ぜない。
@@ -217,10 +205,9 @@ modelId / effort: v3の値を維持
   Sessionやartifactを破損扱いにしない。
 - Worker start/select command、ready/selected manifest、execution artifact、Session metadata、presentation projectionを
   同じgeneric selectionへ移行する。
-- `select_model`を当面generic selectionの選択commandとして使うか、Increment 15で`select_provider_route`へ改称するかは
-  protocol migration時に決める。意味としてはidle-onlyなroot routeのatomic変更である。
-- footer固定2段目と`/sessions`はproviderを独立表示し、同じmodel IDをOpenRouter経由とOpenAI directで区別できる。
-  80 columnsでの具体的省略順はIncrement 15のSurface計画で決める。
+- Worker protocolは`select_model`をgeneric selectionの変更commandとして使う。Surfaceの`/provider`、`/model`、
+  `/effort`はidle-onlyなroot selectionのatomic変更へ収束する。
+- footer固定2段目と`/sessions`はproviderを独立表示し、同じmodel IDをOpenRouter経由とOpenAI directで区別する。
 - semantic context checkpointはprovider-neutralなsummaryとして再利用する。`sourceProfileId`は生成元provenanceのまま
   保持し、active routeとの一致を再利用条件にしない。新schemaでは生成元selection identityを非秘密情報として
   表現する。
@@ -230,7 +217,7 @@ modelId / effort: v3の値を維持
 
 ## Provider evidence
 
-現行schema v1のraw request/response/SSE/parser/runtime evidenceを減らさず、request recordへ次を加える。
+request evidenceはraw request/response/SSE/parser/runtime evidenceを維持し、各requestに次を記録する。
 
 - `origin`: root model、named subagent model、context compaction、`web_search`等のtool backendを区別するidentity。
 - `provider`、`api`、`modelId`、`authProfile`。auth profileは非秘密のidentityだけを記録する。
@@ -254,9 +241,12 @@ retryされた各HTTP requestを別requestとしてevidenceへ記録する設計
 このprobeが成立しない場合は、raw evidenceを省略してSDK採用を続けず、利用するSDK seamまたはadapter方式を
 Increment 14の計画へ戻して決める。
 
-## 現行実装との衝突
+## Increment 14着手時の実装衝突（履歴）
 
-| 現行箇所 | 現在の前提 | 必要な変更と影響 |
+次表はgeneric route導入前に確認した移行入力であり、現在の実装状態を表さない。完了後のcurrent contractは
+本書前半と各increment文書を正本とする。
+
+| 当時の箇所 | Increment 14着手時の前提 | 必要だった変更と影響 |
 | --- | --- | --- |
 | `provider/openrouter_model_catalog.ts` | selection、catalog、defaultがOpenRouter専用 | generic selectionとprovider別catalogへ分離。既存curated entryとdefault値は保持 |
 | `definitions/agent_definition.ts` | provider型がliteral `openrouter`、profileもOpenRouter shape | Definitionのmodel declarationをgeneric selectionへ移行。resource identityへrouteを反映 |
@@ -357,28 +347,20 @@ planner/subagent routeの対話的変更、自動provider fallback、複数auth 
 再採用する場合も、ChatGPT OAuth tokenをOpenAI public API-key adapterへ渡さず、OpenAI API keyをCodex subscription
 routeへ渡さない。
 
-## OpenRouter Responses API経路とProvider設定の外部化（採用済み・未実装）
+## OpenRouter Responses API経路とProvider設定の外部化（実装済み）
 
-- **OpenRouter Responses API経路**: 現行OpenRouter routeはChat Completions互換APIを使う。同じOpenRouter
-  credentialのままResponses API surfaceへ切り替える方向を採用する。現行routeの置換か併設か、request/response
-  item、function tool continuation、reasoning state、stream event、parser transition、raw evidence、model/effort
-  対応範囲、既存OpenAI Responses adapterとの共通化は、OpenRouter公式contractと実provider応答を確認する
-  incrementで決める。dual transportやfallbackを推測で先行実装しない。
-- **Provider設定の外部化**: 現在provider/api/auth profileは`openrouter`/`openai`のclosed unionである。Provider
-  declarationをdata-only resourceとして外部化し、Hostがnon-secret auth profile catalogとcredential registryを
-  所有し、request時にrouteとcredentialを解決する方向を採用する。credential値、Authorization、tokenをportable
-  artifact、Session、evidence、transcript、Definitionへ含めない。provider固有adapterのexecution placement、
-  declarationをmanaged revisionとexternal input/stateのどちらにするか、activation scope、dynamic model取得の扱いは、
-  そのkindを実装するincrementでarchitectureへ反映する。S2（Henji内credential登録）はこのcredential registryへ
-  接続する。
-- **provider identityの一般化**: providerは`providerId` + `protocol` + `authProfile`からなるroute identityとする。
-  protocol adapter（`openai-responses`、`openai-chat-completions`）はbinaryが所有し、external provider宣言は
-  data-onlyで`providerId`、`protocol`、`endpoint`、`authProfile`、model catalog、既定を選ぶ。宣言は新しい
-  `providerId`を追加でき、built-inはbinary内の既定宣言として残る。Session/evidenceのmodel identityは
-  `providerId`/`protocol`/`authProfile`/`modelId`/`effort`の構造検証とし、宣言providerも同じidentityで
-  attributionする。最初の新provider idは`openai-responses` protocolに限定し、`openai-chat-completions`の
-  provider-agnostic化は後続incrementで扱う。
-- どちらも本書の不変条件（requestごとのroute所有、credential非継承、secret非永続化、turn内固定、semantic
+- **OpenRouter Responses API経路**: Increment 58で`openrouter-responses`をChat Completions routeと併設した。
+  shared Responses adapterをstatelessに使い、Henji transcriptからitemを再構成する。既定routeは
+  `openrouter-chat`のままで、自動fallbackしない。
+- **Provider設定の外部化**: Increment 59〜64でProvider declaration v1、Host configからのload、catalog/defaults
+  override、新provider ID、ResponsesとChat Completionsのbinary-owned adapter選択を実装した。同梱built-in宣言も
+  同じdata contractを使う。declarationはexternal input/configであり、managed revision kindではない。
+- **provider identityの一般化**: Increment 61〜64で`providerId` + `protocol` + `authProfile`を一般化し、Responses
+  replayを生成元provider/modelへscopeした。Increment 68でbuilt-in IDを`openrouter-chat`、
+  `openrouter-responses`、`openai-chat`、`openai-responses`へ整列し、旧IDは破壊的に廃止した。
+- **subagent既定**: Increment 65で`subagent:planner`をactivation-level Definition bindingへ接続し、未binding時の
+  planner selectionを同梱declarationの`roleDefaults`へ移した。root selectionは継承しない。
+- これらは本書の不変条件（requestごとのroute所有、credential非継承、secret非永続化、turn内固定、semantic
   transcript共有、独立した失敗、request単位の証拠）を維持する。
 
 ## 各incrementの確認原則
@@ -397,19 +379,16 @@ Increment 14では外部contractが実装可否を左右するため、簡単な
 ChatGPT subscription routeを再採用する場合も、その時点の個別increment計画で同様に外部contractを確認する。
 credentialを使う場合も、値、Authorization、credential pathを出力・evidence・repositoryへ保存しない。
 
-## 実装順序を変える条件
+## 後続変更をarchitectureへ戻す条件
 
-- Increment 14のSDK evidence probeが成立しない場合、raw evidenceを落とさずSDK統合方式を再設計する。
-- generic routeをSession/protocol/evidenceまで通せない場合、OpenAI adapterだけをOpenRouter型へ押し込んで先へ進まない。
 - ChatGPT subscription routeを将来再採用する場合、official Codex境界とdirect backendの現行contractを再確認し、
   Henjiのmodel provider contractと一致しない経路を同一provider pickerへ追加しない。
 - OpenAI built-in Web searchは、上記route/auth基盤とは独立した後続判断とし、provider実装やfeasibility確認を
   止める依存にしない。
-- OpenRouter Responses API経路は、OpenRouter公式Responses contractと実provider応答でfunction tool
-  continuation、reasoning state、stream event、evidenceが確認できない限り、現行Chat Completions routeを
-  置換しない。
-- Provider declarationのexternal化で、credential解決、auth profile選択、provider evidence attributionを
-  Henji-owned boundaryの外へ出さない。
+- dynamic/remote model catalog、第三のprotocol adapter、複数account auth profileを採用する場合は、declaration、
+  selection、credential authority、evidenceへの影響を先に決める。
+- Provider declarationをmanaged revisionへ移す場合も、credential解決、auth profile選択、provider evidence
+  attributionをHenji-owned boundaryの外へ出さない。
 
 ## Review記録
 

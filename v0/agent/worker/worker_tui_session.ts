@@ -468,9 +468,9 @@ export const createWorkerSession = async (
       throw new Error('session binding does not match the selected Definition');
     }
     /*
-     * Resolve the activation-level `subagent:planner` slot for each root parent generation. A bound
-     * managed revision wins; otherwise the bundled planner module is used. Binding changes apply
-     * only to generations opened after the change, never to a running generation.
+     * Resolve every activation-level `subagent:<name>` slot for each root parent generation. A
+     * bound managed revision wins; otherwise a bundled module is used when one exists. Binding
+     * changes apply only to generations opened after the change, never to a running generation.
      */
     const resolveSubagentDefinitions = async (): Promise<
       readonly WorkerSubagentLoadRequest[] | undefined
@@ -513,9 +513,9 @@ export const createWorkerSession = async (
       return requests.length === 0 ? undefined : requests;
     };
     /*
-     * Resolve the tool Definition for the bundled web_search identity. An activation-level
-     * `tools.json` binding wins; otherwise the bundled Sonar tool Definition is used. A binding
-     * failure is a typed startup failure and never falls back to the bundled module.
+     * Resolve every declared tool Definition. An activation-level `tools.json` binding wins;
+     * otherwise a bundled Definition is used when one exists. A binding failure is a typed startup
+     * failure and never falls back to the bundled module.
      */
     const resolveToolDefinitions = async (): Promise<
       readonly WorkerToolDefinitionLoadRequest[] | undefined

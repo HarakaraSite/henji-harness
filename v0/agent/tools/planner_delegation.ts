@@ -23,7 +23,7 @@ export const MAX_PLANNER_ANSWER_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const MAX_PLANNER_RESULT_BYTES = MAX_PLANNER_RESULT_ENVELOPE_BYTES;
 
 export const DELEGATE_TO_PLANNER_DESCRIPTION =
-  'Delegate one explicit planning task to the built-in planner for this parent turn. The planner receives only task, can read the same workspace and saved skills, cannot mutate it, and returns one bounded synchronous result. Call at most once per turn.';
+  'Delegate one explicit planning task to the planner subagent for this parent turn. The subagent receives only the task and returns one bounded synchronous result. Call at most once per turn.';
 
 export const DELEGATE_TO_PLANNER_SCHEMA = {
   type: 'object',

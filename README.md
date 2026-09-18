@@ -54,9 +54,10 @@ printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
 /path/to/henji-harness/dist/henji sessions list
 ```
 
-OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、
-`henji --root-provider openai`で起動する。OpenRouter Responses API経路を使う場合は
-`henji --root-provider openrouter-responses`で起動する（同じ`openrouter-api-key`を使う）。
+OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
+`henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で起動する。
+OpenRouterは既定の`openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
+`providers/*.json`のdata-only declarationで、対応protocolを使う別provider IDも追加できる。
 
 ## 現在使える主な機能
 

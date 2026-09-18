@@ -32,15 +32,16 @@ commit path:
   provider evidence, and execution artifacts still use the workspace state root.
 
 The interactive Session owns its active provider/model route and reasoning effort independently of
-the Definition revision. The launcher defaults to OpenRouter Chat Completions;
-`--root-provider openai` starts a new OpenAI Responses root using the fixed direct catalog and
-Platform API-key file, and `--root-provider openrouter-responses` starts an OpenRouter Responses
-root on the same OpenRouter API key. Delegated planner calls and Sonar `web_search` keep independent
-OpenRouter routes and credentials. The current standalone-era Session record schema v6 persists
-provider, API, auth-profile identity, active selection, change history, per-committed-turn
-attribution, and each committed turn's logical built-in Definition ref and build manifest. Previous
-development schemas remain in the old state namespace and are not interpreted by the compiled
-command.
+the Definition revision. The launcher defaults to `openrouter-chat`; the other bundled ids are
+`openrouter-responses`, `openai-chat`, and `openai-responses`. `--root-provider <provider-id>` uses
+that provider's effective declaration and catalog. Data-only declarations under `providers/*.json`
+can add ids using a binary-owned protocol adapter. Delegated subagents use their own Definition
+selection; the unbound bundled planner uses its `openrouter-chat` role default. Sonar `web_search`
+keeps an independent OpenRouter route and credential. The current standalone-era Session record
+schema v6 persists provider, API, auth-profile identity, active selection, change history,
+per-committed-turn attribution, and each committed turn's logical built-in Definition ref and build
+manifest. Previous development schemas remain in the old state namespace and are not interpreted
+by the compiled command.
 
 `henji instruction` manages the installation-wide `instruction:henji-base` slot. The Host resolves
 the active exact revision before creating each Worker generation and passes its ref and exact bytes
@@ -49,11 +50,11 @@ delegated-planner Definition contributions. Install and activation are separate 
 deactivation selects the built-in revision for the next generation. Context history retains the
 selected ref, component content digest, exact text, and byte projection into provider requests.
 
-`/provider` switches the root between OpenRouter and OpenAI in the current idle Session and applies
-the selected provider's complete default model/effort selection. `/model` opens the active
-provider's searchable repository-curated model list; choosing a model also selects that model's
-curated default effort. `/effort` changes only the active provider/model's effort. These commands
-are idle-only and take effect on the next root turn. OpenAI's initial direct catalog contains
+`/provider` switches the root among bundled and externally declared provider ids in the current idle
+Session and applies the selected provider's complete default model/effort selection. `/model` opens
+the active provider's searchable effective catalog; choosing a model also selects that model's
+default effort. `/effort` changes only the active provider/model's effort. These commands are
+idle-only and take effect on the next root turn. The bundled OpenAI catalog contains
 `gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
 The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request

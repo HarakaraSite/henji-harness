@@ -79,7 +79,7 @@ history viewを順に実装した。Increment 44では旧filesystem storeをprod
 | ID | 必要な機能 | 構想・architectureとの関係 | 現コードの状態 |
 | --- | --- | --- | --- |
 | F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる。配布後はrepositoryや導入済みDenoへの固定参照なしに、任意のworkspaceから同じproduction経路を利用できる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。非対話commandはHost側のheadless SurfaceとしてTUIと同じWorker経路を一turn使い、final-only stdoutまたはfailure JSONを返す。TUIはturnとuser/output境界、入力前後を空行で分け、busy（表示は`working`）lifecycle開始から毎秒進む経過時間とspinnerを含む一時statusとcwd・Session短縮ID・root provider・model・effortを二行footerへ表示し、`user>`、settledした`assistant>`、`tool>`、`system>`のlabelをblue/yellow/green/magentaで識別する。選択中root providerのcredential fileが存在しなければrequest前からfooter第一行へ表示し、editor先頭の`/`に一致するbuilt-in slash command候補を`ready`または`working`の直後へ逐次表示する。候補が1件ならTabで完全なcommand名へ補完し、複数候補では入力を変えない。recoverable taskは空editorへ戻り、別draftがあれば`/recover`で取り出せる。idle Ctrl-Cは入力をclearしてreadyを保つ。F1 keyと`/help`のhelp overlayは残るが、compact startupに固定help hintは表示しない。Increment 32でstandalone executableが成立し、現在のinstalled launcherはrepository checkoutやPATH上のDenoを参照せず任意のworkspaceから起動できる |
-| F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUIはOpenRouterを既定に保ちつつ、起動時の`--root-provider openai`またはidle時の`/provider`でOpenAI direct Responses rootへ切り替えられる。`/model`と`/effort`はactive providerのcurated catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定し、delegated plannerはrootから継承せずOpenRouter planner defaultを使う。TUI起動時の`--provider-timeout-ms`は、未指定時120,000 msのrequest単位deadlineを同じWorker invocationのroot、planner、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、未加工のraw response、SSE/parser transition、provider/API/model/auth-profile identityをevidenceへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み。OpenRouterでResponses API経路へ変更する方向とProvider設定の外部化は採用済み・未実装である |
+| F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/result、planner delegationを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/result、planner delegationがある。標準root turnは最大64 model stepsで、TUIは`openrouter-chat`を既定に保ちつつ、起動時の`--root-provider <provider-id>`またはidle時の`/provider`で同梱4 routeとexternal宣言providerへ切り替えられる。`/model`と`/effort`はactive providerのeffective catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定し、delegated subagentはroot selectionを継承せず自身のDefinition selectionを使う。未bindingのbundled plannerは同梱`roleDefaults`の`openrouter-chat`既定を使う。TUI起動時の`--provider-timeout-ms`は、未指定時120,000 msのrequest単位deadlineを同じWorker invocationのroot、subagent、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、未加工のraw response、SSE/parser transition、provider/API/model/auth-profile identityをevidenceへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み。OpenRouter Responses route、data-only Provider declaration、built-in ID整列はIncrement 58〜68で実装済みである |
 | F03 | workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`をnative規約でzero-install discoveryし、実行中に共有するsnapshot/catalogを作る | 他harnessと共有するfile format、配置、discovery、activationをHenji独自managed resourceで置換しない。将来のmanaged SkillとHenji Instructionは追加authorityとして分離する | **部分実装**。Worker generationの起動時にworkspace rootのinstructionと、workspace配下およびuser scope（`$ZOT_HOME`または`$XDG_STATE_HOME/zot`、`~/.claude`、`~/.agents`）の`.zot/skills`、`.claude/skills`、`.agents/skills`を一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。tool call時には再読せず、`skill` toolの結果はF02のtranscriptへ入る。Increment 51でnative入力とは別authorityのmanaged Henji base instructionを追加し、XDG dataへinstallしたexact revisionをinstallation/user scopeのXDG config bindingから次のWorker generation前に解決する。managed Skill revisionと改訂候補の生成・採用は未実装である |
 | F04 | canonical conversation、non-canonical execution evidence、context attributionを再起動後も区別して利用する | Hostがdurable storageとcanonical採用を所有し、Workerがconversation/contextの意味を所有する。物理的なstorage commitとcanonical adoptionを分ける | **実装済み**。Increment 40〜44でworkspace-local SQLiteを唯一のproduction history正本とし、Increment 50でschema v4へ正規化した。canonical turnのatomic adoption、settled non-canonical execution、active executionのlive journalとrestart reconciliation、tool effect、`/recall` projection、instruction・skill・tool contract・runtime fact・model requestのexact context attribution、provider evidence、diagnostic、artifactをdurableに相関した。旧filesystem storeはproduction経路から除外済みである |
 | F05 | 人間が保存済みSessionのcanonical/non-canonical historyとcontext attributionを通常利用中に参照する | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける | **実装済み**。Increment 43の`/history`はcurrent Sessionのcanonical/non-canonical executionを一つのread-only timelineとしてkeyset paginationし、tool activity、projection、context attribution、model request、provider evidence、diagnostic、artifactのexact detailを辿れる。case-sensitive literal検索、canonical-only Markdown export、durable history全体のstreaming JSONL exportがあり、閲覧・検索・exportはmodel context projectionと分離されている。将来`/rebuild`等が新しいtransition kindを導入する場合は、その個別Incrementでhistory projectionを拡張する |
@@ -160,12 +160,12 @@ identityやcandidate採用との統合はF18に残る。
 
 | ID | 必要な機能 | 構想・architecture上の責務 | 現コードの状態 |
 | --- | --- | --- | --- |
-| F19 | 通常利用の困難、成功、違和感、利用者判断を、後のWorkerがSessionをまたいで読める経験として残す | Hostがdurable historyとstorage mechanism、Workerが経験の意味と選択を所有する。canonical/non-canonicalとcontext attributionを区別する | **部分実装**。canonical transcript、checkpoint、non-canonical execution artifact、`/recall`はあるが、Instance/cross-sessionの経験正本、利用者判断、目的・理由、Agent側基底設定との統一attributionを扱う機能はない |
+| F19 | 通常利用の困難、成功、違和感、利用者判断を、後のWorkerがSessionをまたいで読める経験として残す | Hostがdurable historyとstorage mechanism、Workerが経験の意味と選択を所有する。canonical/non-canonicalとcontext attributionを区別する | **部分実装**。canonical transcript、checkpoint、non-canonical execution artifact、`/recall`、executionとAgent側基底設定のexact context attributionはある。未実装なのは、Instance/cross-sessionで経験を一つの正本として残して後のWorkerが選択的に読む機能と、利用者判断・目的・理由をその経験へ結び付ける機能である |
 | F20 | 人間の明示的なアクションまたは指示を契機に、Worker内AIが経験を解釈して改訂候補を作る | 候補生成の意味はWorker。人間の契機なしに自発生成しない | **未実装**。通常agentがfileを編集できることは、この候補生成product flowの実装とはみなさない |
 | F21 | 生成候補をactive revisionと分離して保存し、人間が内容と由来をreadbackできる | Workerがsource/diff/data候補を返し、Hostがnon-active candidateとして保存する | **未実装** |
 | F22 | 人間の採用アクションまたは明示的承認でだけ候補を採用する | Hostがimmutable revisionを確定し、AgentInstance bindingをdurableに切り替える | **未実装**。production経路ではなかった旧extension操作実装は削除済み |
 | F23 | 改訂後のHenjiで通常利用へ戻り、そこで得た変化を次の経験にする | loopを閉じるproduct動作。統制実験や定量測定は必須ではない | **未実装（end-to-end）**。通常利用自体はあるが、候補生成・採用との一続きのloopがない |
-| F24 | 経験に応じてDefinition以外のresourceも改訂対象にできる | managed revision候補、native external input/state、binary platform authority、追加architecture判断が必要な対象を区別する。対象kindごとにcontent、contract、dependency、activation、scope、execution placement、lifecycle、durability、evidenceをarchitectureへ反映してから実装する | **未実装**。Increment 51でHenji Instructionの人間による直接install/activate基盤は成立したが、経験からのcandidate生成・比較・採用cycleではない。今後の候補には任意のmanaged Skill、tool、model profile、subagent、Surface data/code、integration declaration、context/compaction、provider adapter、loop、storage等がある。subagent DefinitionはIncrement 65でactivation-level slot binding基盤が成立し、Increment 72で`subagent:<name>`のnamed subagent一般へ拡張した。tool DefinitionはIncrement 69でmanaged resource kind `tool-definition`（install／`tools.json` activation binding／exact ref attribution）として成立し、`web_search`を最初の適用例とした。native `AGENTS.md`/Skill discoveryやMCP connectionをmanaged installへ置換しない。Provider設定の外部化（OpenRouter Responses API経路を含む）は採用済みの次期対象候補である |
+| F24 | 経験に応じてDefinition以外のresourceも改訂対象にできる | managed revision候補、native external input/state、binary platform authority、追加architecture判断が必要な対象を区別する。対象kindごとにcontent、contract、dependency、activation、scope、execution placement、lifecycle、durability、evidenceをarchitectureへ反映してから実装する | **未実装**。Increment 51でHenji Instructionの人間による直接install/activate基盤は成立したが、経験からのcandidate生成・比較・採用cycleではない。今後の候補には任意のmanaged Skill、tool、model profile、subagent、Surface data/code、integration declaration、context/compaction、provider adapter、loop、storage等がある。subagent DefinitionはIncrement 65でactivation-level slot binding基盤が成立し、Increment 72で`subagent:<name>`のnamed subagent一般へ拡張した。tool DefinitionはIncrement 69でmanaged resource kind `tool-definition`（install／`tools.json` activation binding／exact ref attribution）として成立し、`web_search`を最初の適用例とした。Provider設定の外部化とOpenRouter Responses routeはIncrement 58〜68で通常利用機能として成立したが、経験からのcandidate生成・比較・採用cycleではない。native `AGENTS.md`/Skill discoveryやMCP connectionをmanaged installへ置換しない |
 | F25 | exact managed resource revisionをinstallation間でtransportする | export packageはstore layoutと分離し、manifestとcontent closureを運ぶ。credential、Session、workspace、binary、active bindingを混入させず、import先がidentity、contract、digestを検証してlocal custodyへpublishする | **未実装**。Increment 34ではAgent Definitionだけをexport/importする。他resourceのlocal managed化はtransportを必須前提にしない |
 
 ### Durable historyとcontext適用
@@ -216,7 +216,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させる |
 | managed Henji base instruction | F03、F06、F08 | Increment 51でDefinition以外の最初のmanaged kindを成立させ、built-in/external exact baseを次generationへ適用する |
-| Provider外部化とOpenRouter Responses API | F02、F06、F24（inbox E1） | 利用者希望（2026-09-17）。通常利用の改善として独立incrementで扱う。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override、64でcurated catalog移行。65でactivation-level subagent slot binding（planner Definitionのslot binding）とplanner既定のdata化、69でmanaged resource kind `tool-definition`を導入し`web_search`(Sonar)をbundled tool Definitionへ移設・固定catalogを削除（実装済み）、70でtool宣言のDefinition統一と追加identityの一般化（`web_fetch`実装済み）、71で`bash`／`read`／`write`／`edit`／`bash_output`をbundled tool Definitionへ移し固定catalogと置換seamを削除 |
+| Provider外部化とOpenRouter Responses API | F02、F06、F24 | **実装済み**。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override、64でcurated catalog移行、65でactivation-level subagent slot bindingとplanner既定のdata化、66/67で通常利用上のprovider pickerとResponses effortを修正、68でbuilt-in provider IDを整列した。69でmanaged resource kind `tool-definition`を導入し`web_search`(Sonar)をbundled tool Definitionへ移設・固定catalogを削除、70でtool宣言のDefinition統一と追加identityの一般化（`web_fetch`）、71で`bash`／`read`／`write`／`edit`／`bash_output`をbundled tool Definitionへ移し固定catalogと置換seamを削除した |
 | Self-revision Cycle 1 | F16〜F23を中心とし、F01、F05、F11、F14も拡張・再利用する | Phase 1〜5 |
 | Cycle 1後の改訂対象拡張 | F24 | 後続のself-revision loop |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
@@ -311,8 +311,9 @@ exact managed revisionから新しいSessionを開始できるようにする。
   digestへ含める。初期binding listは空でよい。
 - installとactivationを分離し、登録だけで既存SessionやWorkerを変更しない。元sourceを変更・削除しても保存済み
   revisionを起動でき、sourceを編集して再installした場合は新revision、同じcontentなら同じrevisionにする。
-- external parent Definitionに同梱したbuilt-in toolのsame-identity replacementは許すが、新tool identity、planner
-  replacement、独立tool revision、AIから呼べるinstall、hot reload、remove/GCは対象外とする。
+- このIncrement時点ではexternal parent Definitionに同梱したbuilt-in toolのsame-identity replacementを許した。
+  この経路はIncrement 69〜71で廃止され、現行はtool Definitionのinstallとactivation bindingで差し替える。
+  新tool identity、AIから呼べるinstall、hot reload、remove/GCはこのIncrementの対象外だった。
 - built-in/externalの両方を同じWorker capsule、protocol、atomic commit経路で実provider turnまで確認し、Session、
   execution artifact、provider evidenceからHenji buildとexact Definition refを相関できるようにする。
 
@@ -360,11 +361,11 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
 
 ### Provider外部化とOpenRouter Responses API
 
-対象機能: F02、F06、F24（inbox E1）
+対象機能: F02、F06、F24
 
-利用者希望（2026-09-17）として、現行OpenRouter Chat Completions経路をResponses APIへ変更し、あわせてProvider設定を
-完全に外部化する方向を採用した。adapterはbinary-owned（`openai-responses`/`openai-chat-completions`）、provider
-宣言はdata-onlyとし、providerの追加・catalog・既定をbinary更新なしで扱えるようにする。
+利用者希望（2026-09-17）をIncrement 58〜68で実装した。OpenRouter Chat CompletionsとResponses APIを併設し、
+Provider設定をdata-only declarationへ外部化した。adapterはbinary-owned
+（`openai-responses`/`openai-chat-completions`）で、providerの追加・catalog・既定をbinary更新なしで扱える。
 
 - OpenRouter Responses API経路: 同じOpenRouter credentialでResponses API surfaceを使うrouteとadapterを扱う。
   実装済み（Increment 58）。tool call→streaming→canonical commit→evidenceを実providerで受入済み。
@@ -380,21 +381,23 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
   4. Increment 62: Responses replay stateを生成元provider/modelへscope。
   5. Increment 63: 既定selectionのHost config外部化と、`openrouter`/`openai`のcatalog/defaults override。
   6. Increment 64: curated catalogをコードから外し、同梱default declarationsへ移行（実装済み）。
-  7. Increment 65（予定）: activation-level subagent slot bindingを追加し、delegated planner Definitionを
-     slotで差し替え可能にする。planner defaultは同梱defaultのslot別`roleDefaults`へdata化する。
-  8. Increment 69（実装済み）: managed resource kind `tool-definition`を新設し、binary内の固定
+  7. Increment 65（実装済み）: activation-level subagent slot bindingを追加し、delegated planner Definitionを
+     slotで差し替え可能にした。planner defaultは同梱defaultのslot別`roleDefaults`へdata化した。
+  8. Increment 66〜68（実装済み）: provider pickerとResponses `auto` effortの通常利用不具合を修正し、built-in
+     provider IDを`openrouter-chat`／`openrouter-responses`／`openai-chat`／`openai-responses`へ整列した。
+  9. Increment 69（実装済み）: managed resource kind `tool-definition`を新設し、binary内の固定
      `tool:web_search`(Sonar)をbundled tool Definitionへ移設する。`$XDG_CONFIG_HOME/henji-harness/tools.json`
      のactivation bindingでexternal tool Definitionへ差し替え可能にし、固定catalog特別扱いを削除する。
-  9. Increment 70（実装済み）: tool宣言のownerを各Agent Definitionへ統一し、Henji helperがDefinition由来の追加tool
+  10. Increment 70（実装済み）: tool宣言のownerを各Agent Definitionへ統一し、Henji helperがDefinition由来の追加tool
      宣言＋Host解決済みcomponentを合成できるよう一般化した。`tools.json`はbindingのみを持ち、宣言は持たない。
      最初の追加identity`web_fetch`（url→本文＋メタ、素のHTTP GET、最小HTML→text抽出）をbundled defaultが宣言する。
      旧「tool same-identity override」の内容はIncrement 69へ包含した。
-  10. Increment 71（実装済み）: `bash`／`bash_output`／`edit`／`read`／`write`をbundled tool Definitionへ移し、
+  11. Increment 71（実装済み）: `bash`／`bash_output`／`edit`／`read`／`write`をbundled tool Definitionへ移し、
      固定`ToolComponentCatalog`／`workToolNames`と同一identity置換seamを削除した。差し替えは`tools.json`のexternal
      tool Definition bindingへ一本化し、core-owned tool（`skill`／`delegate_to_planner`／`submit_json_result`）は
      Definition化しない。tool Definition transportは、tool Definitionを通常利用で安定させた後に別incrementで扱う（決定:
      2026-09-18）。任意kindの共通frameworkと他kind候補は`docs/experience/normal-use-inbox.md` E2で管理する。
-  11. Increment 72（実装済み）: `subagent:<name>`をplanner以外へ一般化し、`tool:delegate_to_<name>`でchild laneへ
+  12. Increment 72（実装済み）: `subagent:<name>`をplanner以外へ一般化し、`tool:delegate_to_<name>`でchild laneへ
      1 turn 1回委譲する。Hostはbundled subagent（planner）＋`agents.json`の`subagent:*` bindingを解決し、bundled
      moduleが無いnameはbindingを要求する。Definitionは`additionalSubagents`で追加subagentを宣言できる。他kind候補と
      共通frameworkは`docs/experience/normal-use-inbox.md` E2で管理する。
