@@ -319,6 +319,11 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   `deno.com/blog/v2.0`、`betterstack.com/...`等で、いずれも**0〜1.2秒**。gapはweb_fetchではない。
 - gap区間は`context_observation`直後から次request開始までで、web_search等のaux requestやprovider待ちの
   可能性。利用者の「web_fetchで起きた」は別の待ち区間を指している可能性がある。
+- pty長時間再現（2026-09-18、同じ日本語prompt）: 133秒のturnを通して`working 00:00`〜`02:13`が継続更新し、
+  連続frame間の最大gapは0.4秒。**実シナリオでも再現しなかった**。
+- 状況: `bash sleep`／`web_search`／`web_fetch`／同じ日本語promptの長時間turnのいずれのpty観測でも
+  busy表示は更新し続けた。再現には利用者側の具体的な条件（terminal、build、フリーズ時の見え方、復帰の有無）
+  の情報が必要。
 - 原因候補（未確認）: web_fetchの長時間HTTP取得（hanging/遅延URL、大きなbody、AbortSignal併用）中のHost表示。
 - 対応: 利用者から再現条件（どのtool/model/Session、どの表示が止まるか）を確認してからincrement-74で調査する。
   現時点でtimer飢餓・writeSync・journal書込みは否定済み。
