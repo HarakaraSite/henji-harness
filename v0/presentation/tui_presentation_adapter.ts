@@ -462,9 +462,14 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         return { kind: 'accepted' };
       case 'select_provider': {
         const current = this.core.modelSelectionSnapshot?.();
-        const selection = current?.provider === admitted.provider
-          ? current
-          : defaultModelSelectionFor(admitted.provider as ProviderId);
+        let selection: ModelSelection;
+        try {
+          selection = current?.provider === admitted.provider
+            ? current
+            : defaultModelSelectionFor(admitted.provider as ProviderId);
+        } catch {
+          return { kind: 'rejected', reason: 'invalid' };
+        }
         return this.dispatchModelSelection(selection);
       }
       case 'select_model': {

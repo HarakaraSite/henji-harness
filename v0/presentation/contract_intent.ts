@@ -26,13 +26,9 @@ export const presentationIntent = (
   } else if (kind === 'rename_session') {
     boundedPresentationText(copy.title);
   } else if (kind === 'select_provider') {
-    if (copy.provider !== 'openrouter' && copy.provider !== 'openai') {
-      throw new PresentationDeliveryError();
-    }
+    boundedPresentationText(copy.provider);
   } else if (kind === 'select_model') {
-    if (copy.provider !== 'openrouter' && copy.provider !== 'openai') {
-      throw new PresentationDeliveryError();
-    }
+    boundedPresentationText(copy.provider);
     boundedPresentationText(copy.modelId);
     boundedPresentationText(copy.effort);
   } else if (kind === 'history_page') {

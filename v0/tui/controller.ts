@@ -305,11 +305,15 @@ export class TuiController {
       }
       case 'select_provider': {
         const current = this.session.modelSelectionSnapshot?.();
-        return this.selectModelFallback(
-          current?.provider === intent.provider
+        let selection: ModelSelection;
+        try {
+          selection = current?.provider === intent.provider
             ? current
-            : defaultModelSelectionFor(intent.provider),
-        );
+            : defaultModelSelectionFor(intent.provider);
+        } catch {
+          return { kind: 'rejected', reason: 'invalid' };
+        }
+        return this.selectModelFallback(selection);
       }
       case 'select_model': {
         const current = this.session.modelSelectionSnapshot?.();
