@@ -2,17 +2,22 @@
 
 ## Records
 
-### Increment 66 — provider picker crash修正（完了）
+### Increment 66 — provider切替UIの修正（完了）
 
-- 状態: 2026-09-18に`/provider`/`/model`のprovider検証を修正。実装commit`29c900d8`、binary配置済み。
-- 原因: `v0/presentation/contract_intent.ts`がproviderを`openrouter`/`openai`の2値に限定し、pickerが提示する
-  `openrouter-responses`（および宣言provider）を`PresentationDeliveryError`として致命`output_failure`にしていた。
-- 修正: provider検証を構造的検証へ変更し、`select_provider`の未知providerを`{kind:'rejected',reason:'invalid'}`へ
-  変換。新規`tests/v0/increment_66_provider_picker_test.ts`（3件、`v0:test`追加）。ptyでsource/binaryとも
-  `/provider`→`openrouter-responses`のfooter反映とexit 0を確認。authoritative `v0:gate` exit 0。
-- 配置: installed launcher `~/.local/bin/henji`（=`dist/henji`）。binary SHA-256
-  `cf3abe3e0e9c4e267659329278d85e31cfa6409bf73450ddfcd5595e9e749c12`、build
-  `9bcc9f2bd9992f6fba02c8e9449d1c0645c5ef8dec9edadfce66462abc687c28`、source`29c900d8…`、`sourceDirty=false`。
+- 状態: 2026-09-18に`/provider`/`/model`のprovider検証クラッシュと選択確認statusの残留を修正。実装commit
+  `29c900d8`（クラッシュ）と`5536a893`（status）、binary配置済み。
+- 原因: 不具合1は`v0/presentation/contract_intent.ts`がproviderを`openrouter`/`openai`の2値に限定し、pickerが
+  提示する`openrouter-responses`（および宣言provider）を`PresentationDeliveryError`として致命`output_failure`に
+  していた。不具合2はprovider/model選択確認のstatusを`ready`へ戻す処理が無く、footer 1行目に残り続けていた。
+- 修正: 1) provider検証を構造的検証へ変更し、`select_provider`の未知providerを
+  `{kind:'rejected',reason:'invalid'}`へ変換。2) 選択確認を次回editor入力時に（idle時のみ）`readyStatus()`へ戻す
+  （利用者選択A）。新規`tests/v0/increment_66_provider_picker_test.ts`（3件）と
+  `tui_retained_terminal_test.ts`のconfirmed-clear test。authoritative `v0:gate` exit 0。
+- 配置: installed launcher `~/.local/bin/henji`（=`dist/henji`、実行中プロセスのためrenameで差替え）。binary
+  SHA-256 `fc584309e620d91ecede7d2f48de0cf444d9a8f648fb04b2844f921ccb48d24b`、build
+  `d5a5083cd84d5d3d7545fa07ec141800653e5bbf205d3b11285c258d92d363c2`、embedded runtime
+  `8bbba492daa19e95ad852d9839b8f585fc900333ff1ee90061d93d7df2a9b520`、source`5536a893…`、`sourceDirty=false`。
+  ptyで`/provider`→`openrouter-responses`のfooter反映、切替後`/`入力で`ready │ cmds: ...`を確認。
 - 正本: `docs/increments/increment-66.md`。roadmap Provider外部化節の予定番号を67/68/69へ繰下げ（利用者承認済み）。
 
 ### Increment 65 — activation-level subagent slot binding（実装完了・probe受入済み）
@@ -69,9 +74,9 @@
   （web-search subagent化）、68（tool same-identity override）、69（built-in id削除/Session影響/入力ブロック）。
 - 正本: `docs/increments/increment-66.md`、`increment-65.md`、`increment-51.md`〜`increment-64.md`、
   `docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 66（実装`29c900d8`／配置は本commit、binary SHA-256
-  `cf3abe3e0e9c4e267659329278d85e31cfa6409bf73450ddfcd5595e9e749c12`、build=`9bcc9f2bd9992f6fba02c8e9449d1c0645c5ef8dec9edadfce66462abc687c28`、
-  embedded runtime=`f9d5823f97ccc76e51880b66febe2eb95af79ab705b5902b52b2fb1ff0f0f77b`、source`29c900d8…`、`sourceDirty=false`）。
+- 注意: 直前の配置はIncrement 66（実装`5536a893`／配置は本commit、binary SHA-256
+  `fc584309e620d91ecede7d2f48de0cf444d9a8f648fb04b2844f921ccb48d24b`、build=`d5a5083cd84d5d3d7545fa07ec141800653e5bbf205d3b11285c258d92d363c2`、
+  embedded runtime=`8bbba492daa19e95ad852d9839b8f585fc900333ff1ee90061d93d7df2a9b520`、source`5536a893…`、`sourceDirty=false`）。
   直前はIncrement 65（binary SHA-256 `02081658…`）、Increment 64（binary SHA-256 `e0642d4c…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
   `default-selection.json`。`openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは

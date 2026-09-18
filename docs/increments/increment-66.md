@@ -76,6 +76,9 @@ TUIが致命的`output_failure`で終了する問題と、provider/model選択�
   `tui_retained_terminal_test.ts`のprovider選択確認クリアtestがpass。pty手動確認で`/provider`→
   `openrouter-responses`がfooter `provider:openrouter-responses`へ反映されexit 0。authoritative `v0:gate`
   （check/fmt/lint/test）exit 0。
-- binary配置: 最終実装commitから`henji:compile`し、installed launcher `~/.local/bin/henji`へ配置（deployment
-  record commit参照）。`sourceDirty=false`、ptyで`/provider`→`openrouter-responses`→`/`入力のfooter 1行目が
-  `ready │ cmds: ...`になることを確認。
+- binary配置: 最終実装commit`5536a893`から`henji:compile`。binary SHA-256
+  `fc584309e620d91ecede7d2f48de0cf444d9a8f648fb04b2844f921ccb48d24b`、build
+  `d5a5083cd84d5d3d7545fa07ec141800653e5bbf205d3b11285c258d92d363c2`、embedded runtime
+  `8bbba492daa19e95ad852d9839b8f585fc900333ff1ee90061d93d7df2a9b520`、`sourceDirty=false`。installed
+  launcher `~/.local/bin/henji`（実行中プロセスのためrenameで差替え）で`/provider`→`openrouter-responses`の
+  footer反映、切替後`/`入力でfooter 1行目が`ready │ cmds: ...`になることを確認。
