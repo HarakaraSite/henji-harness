@@ -129,3 +129,16 @@ incrementで修正する。観測は`docs/experience/normal-use-inbox.md`のB1�
 - 次の計測: busy中にmain loopが入力に応答するか（keystroke処理）を確認し、main thread block か
   timer-specific starvation かを切り分ける。その後`controller.run`の`Promise.race([input, active])`、
   `readEvents`／`readChunk`、`TerminalLifecycle`、presentation `deliver`経路を計測する。
+
+### 追加計測4（2026-09-18、入力応答性）
+
+- 12秒の`bash sleep` turn中、フリーズ区間（dispatch後4秒）でCtrl-Cを送ると、**`cancelling`へ遷移する出力**
+  （約22KB）が得られた。つまりフリーズ中もmain loopは入力eventを処理しており、**main threadはblockされていない**。
+- したがって本件はthread全体のblockではなく、**timer（macrotask）だけがturn中に発火しない**現象である。
+  入力（I/O event）は処理されるのにtimerが動かない。
+- 残る焦点: Deno event loopでtimerがI/O処理に飢餓する理由。考えられる方向:
+  - turn中にstream read/event処理がmacrotask queueを継続的に占有し、timer callbackが後回しになり続ける。
+  - rendererの`setInterval` callbackが例外を投げて以降schedulerから外れる（ただしTICK計測では例外なし、HBも独立に停止）。
+  - main isolateのtimer queueに問題を起こすHenji固有の何か（例: turn中だけ多数のI/O eventが連続する）。
+- 次の計測: turn中に`setTimeout`の単発（例: 9秒後）を仕込み、turn終了前後で発火するかを確認する。また、busy中の
+  input処理とtimerの比率を計測し、I/O eventがtimerを完全にstarveする条件を特定する。
