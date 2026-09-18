@@ -308,8 +308,14 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   **これらの条件では再現しない**。
   初期の「停止」観測はpty採取側の早期打ち切りによる誤りで、timer callback自体はturn中も実行されていた
   （`__TICK=40`／`__HB=29`、9秒単発timerも発火）。
-- 原因候補（未確認）: 特定のtool（web_search/web_fetch等のネストmodel、delegation）、model応答のstreaming中、
-  特定Session/terminal環境など、`bash sleep`以外の条件。
+- 利用者再現（2026-09-18）: Session `375ca4e7`（workspace `/home/masat.guest/src/henji-harness`、state root
+  `~/.local/state/henji-harness/v1/967fa641…`）のprompt「denoとnodeを比較したい webで情報を収集して」で
+  `web_fetch`中に発生。
+- DB観測: execution `8182968c`（turn 2）は217秒。`context_observation`→次`provider_request_start`間に
+  **12.2s／18.8s／25.7s**の無観測gapがあり、tool実行（web_fetch）区間と見られる。`bash sleep`12sや
+  `web_search`では再現しなかったため、web_fetch固有の経路（`AbortSignal.any`＋`AbortSignal.timeout(30000)`、
+  redirect follow、body reader）または特定URL（遅延/巨大response）が条件の可能性。
+- 原因候補（未確認）: web_fetchの長時間HTTP取得（hanging/遅延URL、大きなbody、AbortSignal併用）中のHost表示。
 - 対応: 利用者から再現条件（どのtool/model/Session、どの表示が止まるか）を確認してからincrement-74で調査する。
   現時点でtimer飢餓・writeSync・journal書込みは否定済み。
 
