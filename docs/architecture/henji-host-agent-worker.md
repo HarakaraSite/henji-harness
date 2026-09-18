@@ -249,9 +249,15 @@ typed failureとし、built-inへ暗黙fallbackしない。現在のbinding scop
 
 Hostは解決したroot Definition refと、bind済みdelegated subagentのexact ref・process-local physical load descriptorだけを
 Worker start commandで渡す。Workerは**選択されたroot Definition**を評価し、そのHenji helperがHost提供subagent moduleを
-`AgentComposition`へ合成する。parent/plannerをpeerとして別々に評価する経路は作らない。Host-provided subagentが反映
+`AgentComposition`へ合成する。parent/subagentをpeerとして別々に評価する経路は作らない。Host-provided subagentが反映
 される保証範囲は、このHenji helperを使うDefinitionに限る。opaqueな自作root Definitionは、helperを使うか自前で
-subagentを合成する。plannerをrootとして実行する扱いは誤りであり、root slotはparent roleだけを受ける。
+subagentを合成する。subagentをrootとして実行する扱いは誤りであり、root slotはparent roleだけを受ける。
+
+delegated subagentは`subagent:<name>`で一般化する（Increment 72）。bundled plannerは`subagent:planner`の同梱既定で
+あり、他のnameは同名subagent roleのexternal managed Definitionのbindingを要求する。Agent Definitionは宣言した
+`subagent:<name>`ごとに`tool:delegate_to_<name>`を持ち、そのtoolがchild laneでsubagent実行を1 turn 1回までadmitする。
+child laneのrequest budgetは全subagentで共有し、合成した各subagentのexact refはmanifest／execution artifactの
+`subagents`（subagentName＋ref）へ記録する。
 
 root Definitionの選択は、明示selector、再開・継続Sessionの保存済みexact ref、`agent:default` binding、bundled
 defaultの順に優先する。binding解決失敗はtyped failureとし、bundledへ暗黙fallbackしない。
@@ -285,8 +291,8 @@ credential値やAuthorizationを渡さず、auth profileを指定してrequest�
 合成したtool Definitionのexact refはmanifestとexecution artifactへ記録し、context attributionへは入れない。
 `bash`／`bash_output`／`edit`／`read`／`write`も`web_search`／`web_fetch`と同じbundled tool Definitionとして供給し、
 固定`ToolComponentCatalog`／`workToolNames`と`AgentCompositionOptions.toolComponents`の同一identity置換seamは
-削除した。core-owned tool（`skill`／`delegate_to_planner`／`submit_json_result`）はDefinition化しない。tool
-Definition transportと任意kindの一般化は後続incrementで扱う。
+削除した。core-owned tool（`skill`／`delegate_to_<name>`／`submit_json_result`）はDefinition化しない。tool
+Definition transportと任意kindの共通frameworkは後続incrementで扱う。
 
 #### native discoveryとHenji Instruction
 
@@ -367,13 +373,13 @@ registryをmaterializeした後にAgentCompositionのsystem instructionへ合成
 具体的なquestionを渡し、返されたsource URLを対応する主張の近くへ引用し、不足と推論を明示する指針を、
 それぞれのtoolを持つdefault parentだけへ合成する。
 
-現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`をWorker-local
-`ToolComponentCatalog`からmaterializeする。built-in componentは既存tool factoryをruntime bindingへ結び付ける
-薄いfactoryである。Executable Definitionはroot compositionで選択済みの同一`tool:*` identity・tool nameの
-componentを明示置換し、model向けcontract、guideline、executorを差し替えられる。置換はdelegated
-plannerへ暗黙に伝播せず、manifestには従来どおりdata-only resource identityだけを記録する。external
-Definitionがcatalog外の新しいtool identityを追加する一般seam、plugin探索、hot reload、componentの独立revision・
-import dependency lineageはまだない。
+現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`、`web_fetch`を
+managed tool Definitionからmaterializeする。bundled tool Definitionは既存tool factoryをruntime bindingへ結び付ける
+薄いmoduleである。tool identityの宣言は各Agent Definitionがownerで、`additionalTools`で追加identityを宣言でき、
+`tools.json`のexternal tool Definition bindingが同名identityを差し替える。Host提供の`toolDefinitions`はrootと
+delegated subagentの両方へ渡り、各自が宣言したidentityだけをmaterializeする。catalog外の新しいidentityはbindingが
+無ければ起動時にtyped failureとなり、plugin探索、hot reload、componentの独立revision・import dependency lineageは
+まだない。
 
 default parentの`web_search`は、前節のmanaged resource kind `tool-definition`として供給されるbundled tool
 Definitionが、provider-neutralなHenji-owned tool contract（`WebSearchBackend`）を実装する。bundled実装は既存
@@ -443,7 +449,7 @@ active response、draft、TUI-local noticeはsourceにしない。export中は�
 
 同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
 revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は
-選択を固定し、delegated plannerはrootの選択を継承せずplanner defaultを使う。Session schema v6はactive選択、
+選択を固定し、delegated subagentはrootの選択を継承せず、自分のDefinitionまたはbundled既定を使う。Session schema v6はactive選択、
 変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
 
