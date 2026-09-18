@@ -47,6 +47,7 @@ import {
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import type { RecalledExecutionContextV1 } from '../../v0/agent/worker/recalled_execution_context.ts';
 import {
+  bundledToolDefinitionLoadRequests,
   workerBuiltinModulePath,
   type WorkerHostCapsule,
   WorkerHostSession,
@@ -829,6 +830,7 @@ Deno.test('Increment 42 attributes delegated planner requests and internal skill
       definition,
       modulePath: workerBuiltinModulePath('default'),
       physicalIoMode: 'provider-free',
+      toolDefinitions: await bundledToolDefinitionLoadRequests(),
       historyPersistence: store,
       durableCanonicalHistory: true,
     });

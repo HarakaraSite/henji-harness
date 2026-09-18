@@ -74,6 +74,15 @@ import {
   OpenRouterSonarWebSearchBackend,
   type WebSearchBackend,
 } from '../tools/web_search.ts';
+import { createWebFetchTool } from '../tools/web_fetch.ts';
+import {
+  createBashTool,
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+} from '../tools/work_tools.ts';
+import { createBashOutputTool } from '../tools/bash_output.ts';
+import type { ToolComponent } from '../tools/tool_components.ts';
 import { resolveBuiltinDefinitionInstruction } from '../instructions/compose.ts';
 import { finalSystemInstructionForContribution } from '../instructions/worker_core_finalizer.ts';
 
@@ -206,23 +215,36 @@ const materializeRegistry = (
   webSearchBackend?: WebSearchBackend,
 ): Registry => {
   seam.onRegistryMaterialized?.(definition);
-  const declaredWebSearch = definition.capabilities.tools.some((tool) =>
-    `${tool}` === 'tool:web_search'
+  const declared = new Set(definition.capabilities.tools.map(String));
+  const toolDefinitions: ToolComponent[] = [];
+  const add = (identity: string, materialize: ToolComponent['materialize']): void => {
+    if (declared.has(identity)) {
+      toolDefinitions.push({ identity: createAgentResourceIdentity(identity), materialize });
+    }
+  };
+  add(
+    'tool:bash',
+    (bindings) =>
+      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
   );
-  const toolDefinitions = declaredWebSearch && webSearchBackend !== undefined
-    ? [{
-      identity: createAgentResourceIdentity('tool:web_search'),
-      materialize: (bindings: { readonly webSearchBackend?: WebSearchBackend }) =>
-        createWebSearchTool(bindings.webSearchBackend ?? webSearchBackend),
-    }]
-    : undefined;
+  add('tool:bash_output', (bindings) => createBashOutputTool(bindings.bashOutputStore));
+  add('tool:edit', (bindings) => createEditTool(bindings.workspace, bindings.workTools));
+  add('tool:read', (bindings) => createReadTool(bindings.workspace));
+  add('tool:write', (bindings) => createWriteTool(bindings.workspace, bindings.workTools));
+  if (webSearchBackend !== undefined) {
+    add(
+      'tool:web_search',
+      (bindings) => createWebSearchTool(bindings.webSearchBackend ?? webSearchBackend),
+    );
+  }
+  add('tool:web_fetch', () => createWebFetchTool());
   return createDeclaredRegistry(definition.capabilities, {
     workspace,
     skillCatalog,
     workTools: seam.workTools,
     plannerDelegation,
     webSearchBackend,
-    ...(toolDefinitions === undefined ? {} : { toolDefinitions }),
+    ...(toolDefinitions.length === 0 ? {} : { toolDefinitions }),
   });
 };
 

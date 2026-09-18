@@ -17,7 +17,6 @@ import { runAgent } from './core/loop.ts';
 import { WORKER_PROTOCOL_VERSION } from './worker/worker_protocol.ts';
 import {
   compareAgentResourceIdentities,
-  createAgentResourceIdentity,
   createAgentResourceSelection,
   validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
@@ -27,11 +26,7 @@ import {
   resolveBuiltinDefinitionInstruction,
 } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
-import {
-  createWebSearchTool,
-  OpenRouterSonarWebSearchBackend,
-  type WebSearchBackend,
-} from './tools/web_search.ts';
+import type { WebSearchBackend } from './tools/web_search.ts';
 import type { InstructionComponent } from './instructions/component.ts';
 import { finalSystemInstructionForContribution } from './instructions/worker_core_finalizer.ts';
 import type {
@@ -47,7 +42,7 @@ import { roleDefaultModelSelection } from './provider/model_catalog.ts';
 import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
 import type { ProviderRequestFn } from './provider/auxiliary_request.ts';
 
-export { type ToolComponent, ToolComponentCatalog } from './tools/tool_components.ts';
+export { type ToolComponent } from './tools/tool_components.ts';
 export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
 export {
   type ProviderHttpRequest,
@@ -123,8 +118,6 @@ export interface ExecutableAgentDefinitionInput {
 export interface AgentCompositionOptions {
   readonly limits?: Partial<AgentDefinitionLimits>;
   readonly eventSink?: AgentEventSink;
-  /** Same-identity work-tool replacements applied only to the returned root composition. */
-  readonly toolComponents?: readonly ToolComponent[];
   /**
    * Additional `tool:<name>` identities declared by this Definition, on top of the bundled
    * default declaration. The Host resolves and supplies matching tool Definition components.
@@ -409,28 +402,11 @@ export const createDefaultAgentComposition = (
   const maxSteps = maxStepsFor(resolved.limits, options);
   const plannerHandler = createPlannerHandler(planner.composition);
   const providedToolDefinitions: ToolComponent[] = [...(input.toolDefinitions ?? [])];
-  if (!providedToolDefinitions.some((component) => `${component.identity}` === 'tool:web_search')) {
-    const backend: WebSearchBackend | undefined = input.physicalIo.webSearchBackend;
-    const requestProvider = input.physicalIo.requestProvider;
-    if (backend !== undefined) {
-      providedToolDefinitions.push({
-        identity: createAgentResourceIdentity('tool:web_search'),
-        materialize: (bindings) => createWebSearchTool(bindings.webSearchBackend ?? backend),
-      });
-    } else if (requestProvider !== undefined) {
-      providedToolDefinitions.push({
-        identity: createAgentResourceIdentity('tool:web_search'),
-        materialize: () =>
-          createWebSearchTool(new OpenRouterSonarWebSearchBackend({ requestProvider })),
-      });
-    }
-  }
   const registry = createDeclaredRegistry(capabilities, {
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
     plannerDelegation: plannerHandler,
-    toolComponents: options.toolComponents,
     webSearchBackend: input.physicalIo.webSearchBackend,
     ...(providedToolDefinitions.length === 0 ? {} : { toolDefinitions: providedToolDefinitions }),
   });
@@ -486,6 +462,7 @@ export const createPlannerAgentComposition = (
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
+    ...(input.toolDefinitions === undefined ? {} : { toolDefinitions: input.toolDefinitions }),
   });
   const systemInstruction = compositionInstruction(
     'planner',

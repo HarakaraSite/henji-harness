@@ -14,6 +14,7 @@ import {
 } from '../../v0/agent/definitions/managed_definition_importer.ts';
 import type { ManagedDefinitionManifestV1 } from '../../v0/agent/definitions/managed_definition_manifest.ts';
 import { ManagedDefinitionStore } from '../../v0/agent/definitions/managed_definition_store.ts';
+import { ManagedToolDefinitionStore } from '../../v0/agent/definitions/managed_tool_definition_store.ts';
 import {
   isDefinitionRevisionRef,
   isExternalDefinitionResourceId,
@@ -989,19 +990,48 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
       planner.manifest.logicalRef,
     );
 
-    const replacementSource = `${root}/replacement-source`;
-    const replacement = await install(
-      await copyFixture('replacement', replacementSource),
-      'fixture/replacement',
-      'parent',
+    const toolSource = `${root}/replacement_read_tool.ts`;
+    await Deno.writeTextFile(
+      toolSource,
+      [
+        "import { createAgentResourceIdentity, type ExecutableToolDefinition } from '@henji/agent';",
+        'const definition: ExecutableToolDefinition = () => ({',
+        "  identity: createAgentResourceIdentity('tool:read'),",
+        '  materialize: () => ({',
+        "    name: 'read',",
+        "    description: 'managed read replacement',",
+        "    inputSchema: { type: 'object' },",
+        "    execute: () => 'managed Definition replacement result',",
+        '  }),',
+        '});',
+        'export default definition;',
+        '',
+      ].join('\n'),
     );
-    await Deno.remove(replacementSource, { recursive: true });
+    const toolRevision = await new ManagedToolDefinitionStore({ dataRoot }).install({
+      entryPath: toolSource,
+      resourceId: 'fixture/read-tool',
+      toolIdentity: 'tool:read',
+    });
+    const configRoot = `${root}/config`;
+    await Deno.mkdir(configRoot, { recursive: true });
+    await Deno.writeTextFile(
+      `${configRoot}/tools.json`,
+      JSON.stringify({
+        schemaVersion: 1,
+        bindings: {
+          'tool:read':
+            `fixture/read-tool@sha256:${toolRevision.manifest.logicalRef.revision.digest}`,
+        },
+      }),
+    );
     const events: AgentEvent[] = [];
     const replacementRun = await createWorkerSession({
       workspaceRoot,
       dataRoot,
+      configRoot,
       persistence: 'none',
-      selection: await resolveDefinitionRef(replacement.manifest.logicalRef, dataRoot),
+      agent: 'default',
       physicalIoMode: 'provider-free',
       eventSink: (event) => events.push(event),
     });
@@ -1013,10 +1043,6 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
     const replacementResult = events.find((event) => event.kind === 'tool_result');
     assert(replacementResult?.kind === 'tool_result');
     assertEquals(replacementResult.result.text, 'managed Definition replacement result');
-    assert(
-      (await new ManagedDefinitionStore({ dataRoot }).resolve(replacement.manifest.logicalRef))
-        .manifest.files.some((file) => file.path === 'read_component.ts'),
-    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }

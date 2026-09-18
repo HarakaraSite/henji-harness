@@ -8,6 +8,7 @@ import {
 import {
   createEditTool,
   createReadTool,
+  createWriteTool,
   resolveWorkspace,
 } from '../../v0/agent/tools/work_tools.ts';
 import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
@@ -97,6 +98,20 @@ Deno.test('declared work components preserve write, edit, and read behavior', as
     }, {
       workspace,
       skillCatalog: emptySkillCatalog(),
+      toolDefinitions: [
+        {
+          identity: createAgentResourceIdentity('tool:write'),
+          materialize: (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
+        },
+        {
+          identity: createAgentResourceIdentity('tool:edit'),
+          materialize: (bindings) => createEditTool(bindings.workspace, bindings.workTools),
+        },
+        {
+          identity: createAgentResourceIdentity('tool:read'),
+          materialize: (bindings) => createReadTool(bindings.workspace),
+        },
+      ],
     });
     const written = await registry.dispatch({
       callId: 'write-component',

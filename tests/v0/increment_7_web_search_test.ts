@@ -22,7 +22,20 @@ import {
   OPENROUTER_SONAR_SEARCH_MODEL,
   OpenRouterSonarWebSearchBackend,
 } from '../../v0/agent/tools/web_search.ts';
-import { createDefaultAgentComposition } from '../../v0/agent/worker_agent_api.ts';
+import {
+  createAgentResourceIdentity,
+  createDefaultAgentComposition,
+  type PhysicalIoBindings,
+  type ToolComponent,
+} from '../../v0/agent/worker_agent_api.ts';
+import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import {
+  createBashTool,
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+} from '../../v0/agent/tools/work_tools.ts';
+import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
@@ -40,6 +53,43 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
+
+const bundledToolComponents = (physicalIo: PhysicalIoBindings): readonly ToolComponent[] => [
+  {
+    identity: createAgentResourceIdentity('tool:bash'),
+    materialize: (bindings) =>
+      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:bash_output'),
+    materialize: (bindings) => createBashOutputTool(bindings.bashOutputStore),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:edit'),
+    materialize: (bindings) => createEditTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:read'),
+    materialize: (bindings) => createReadTool(bindings.workspace),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:write'),
+    materialize: (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_search'),
+    materialize: () =>
+      createWebSearchTool(
+        new OpenRouterSonarWebSearchBackend({
+          requestProvider: physicalIo.requestProvider!,
+        }),
+      ),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_fetch'),
+    materialize: () => createWebFetchTool(),
+  },
+];
 
 const usage = (id: string, finishReason: 'stop' | 'tool_calls'): string =>
   `data: ${
@@ -208,6 +258,7 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
     workspace: { root: '/provider-free-web-search' },
     skillCatalog: emptySkillCatalog(),
     physicalIo,
+    toolDefinitions: bundledToolComponents(physicalIo),
   });
   const evidence = new ProviderEvidenceRecorder(
     '77777777-7777-4777-8777-777777777777',

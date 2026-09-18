@@ -11,11 +11,57 @@ import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_m
 import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
 import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
 import {
+  createAgentResourceIdentity,
   createDefaultAgentComposition,
   createPlannerAgentComposition,
+  type PhysicalIoBindings,
+  type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
 import { createRuntimeComposition } from '../../v0/agent/runtime/runtime.ts';
-import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createWebSearchTool, type WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import {
+  createBashTool,
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+} from '../../v0/agent/tools/work_tools.ts';
+import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
+
+const bundledToolComponents = (physicalIo: PhysicalIoBindings): readonly ToolComponent[] => [
+  {
+    identity: createAgentResourceIdentity('tool:bash'),
+    materialize: (bindings) =>
+      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:bash_output'),
+    materialize: (bindings) => createBashOutputTool(bindings.bashOutputStore),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:edit'),
+    materialize: (bindings) => createEditTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:read'),
+    materialize: (bindings) => createReadTool(bindings.workspace),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:write'),
+    materialize: (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_search'),
+    materialize: (bindings) =>
+      createWebSearchTool(
+        bindings.webSearchBackend ?? physicalIo.webSearchBackend!,
+      ),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_fetch'),
+    materialize: () => createWebFetchTool(),
+  },
+];
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -124,14 +170,16 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
       toolResult: 'Fixture body.',
     })]),
   });
+  const physicalIo = {
+    createModel: finalModel,
+    webSearchBackend: providerFreeWebSearchBackend,
+  };
   const input = {
     workspace: { root: '/work/increment-16' },
     agentInstructions: 'WORKSPACE INSTRUCTION',
     skillCatalog,
-    physicalIo: {
-      createModel: finalModel,
-      webSearchBackend: providerFreeWebSearchBackend,
-    },
+    physicalIo,
+    toolDefinitions: bundledToolComponents(physicalIo),
   };
   const root = finalizeWorkerInstructionComposition(createDefaultAgentComposition(input));
   const planner = finalizeWorkerInstructionComposition(createPlannerAgentComposition(input));
@@ -180,14 +228,16 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
 
 Deno.test('Increment 16 gives Worker and direct built-in runtimes the same resolved instruction', async () => {
   const workspace = { root: '/work/increment-16-parity' };
+  const workerPhysicalIo = {
+    createModel: finalModel,
+    webSearchBackend: providerFreeWebSearchBackend,
+  };
   const worker = finalizeWorkerInstructionComposition(
     createDefaultAgentComposition({
       workspace,
       skillCatalog: emptySkillCatalog(),
-      physicalIo: {
-        createModel: finalModel,
-        webSearchBackend: providerFreeWebSearchBackend,
-      },
+      physicalIo: workerPhysicalIo,
+      toolDefinitions: bundledToolComponents(workerPhysicalIo),
     }),
   );
   const direct = await createRuntimeComposition({

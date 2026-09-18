@@ -59,6 +59,23 @@
 - 注意: 追加toolを使うには、それを宣言したAgent Definition（bundled defaultまたはexternal）と、tool Definition
   のinstall/bindが必要。bundled moduleが無いidentityはexternal binding必須（無ければtyped failure）。
 
+### Increment 71 — 組み込みwork toolのtool Definition統一（実装完了、実provider probe未実施）
+
+- 状態: 実装完了。`v0:gate` exit 0。`bash`／`bash_output`／`edit`／`read`／`write`をbundled tool Definition
+  （`worker_builtin_*_tool.ts`）へ移し、`BUNDLED_TOOL_DEFINITIONS`（7 identity）とcompile ROOTSへ登録。固定
+  `ToolComponentCatalog`／`workToolNames`／`isWorkToolComponentIdentity`と`AgentCompositionOptions.toolComponents`
+  を削除し、`createDeclaredTool`は`toolDefinitionComponents`のみから`tool:*`をmaterialize。`createPlannerAgentComposition`
+  もHost供給`toolDefinitions`を使う。非Host呼出側（legacy `runtime.ts`・直接registry呼出／test）はcomponentを自分で
+  構築する（test用`tests/v0/bundled_tool_components.ts`を追加）。core-owned tool（`skill`／`delegate_to_planner`／
+  `submit_json_result`）はDefinition化しない。
+- 検証: 既存置換test／fixtureをtool Definition経路へ作り替え（`fixtures/increment_33/replacement/`削除、
+  `increment_33`はmanaged tool Definitionを`tools.json`で`tool:read`へbind、`current_code_test`は
+  `input.toolDefinitions`差し替え）。`v0:check`／`fmt`／`lint`／`v0:gate` exit 0。
+- 次: 実provider probe（bash/readを含む1 turn。実行直前に別途許可）、binary build・配置。
+- 正本: `docs/increments/increment-71.md`。architecture（`henji-host-agent-worker.md`）とroadmapへ反映済み。
+- 注意: bundled tool Definition以外のidentityは`tools.json` bindingが必須。tool Definition transportと任意kindの
+  一般化は後続。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`（build `6f800498f2affac6b62e78827ab8a2add20d4e67455fea636c61bf056332cfcf`、binary SHA-256

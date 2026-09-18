@@ -19,18 +19,10 @@ import {
   type PlannerDelegationHandler,
 } from './planner_delegation.ts';
 import type { AgentCapabilityDeclaration } from '../definitions/agent_definition.ts';
-import {
-  type AgentResourceIdentity,
-  createAgentResourceIdentity,
-} from '../definitions/resource_identity.ts';
+import type { AgentResourceIdentity } from '../definitions/resource_identity.ts';
 import { type BashOutputStore, createBashOutputStore } from './bash_output.ts';
-import {
-  isWorkToolComponentIdentity,
-  type ToolComponent,
-  ToolComponentCatalog,
-} from './tool_components.ts';
-import { createWebSearchTool, type WebSearchBackend } from './web_search.ts';
-import { createWebFetchTool } from './web_fetch.ts';
+import type { ToolComponent } from './tool_components.ts';
+import type { WebSearchBackend } from './web_search.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -42,12 +34,8 @@ export interface RegistryMaterializationContext {
   readonly bashOutputStore?: BashOutputStore;
   readonly webSearchBackend?: WebSearchBackend;
   readonly plannerDelegation?: PlannerDelegationHandler;
-  /** Explicit replacements for selected root work-tool components. */
-  readonly toolComponents?: readonly ToolComponent[];
   /** Tool Definition components for identities resolved by the Host/Worker. */
   readonly toolDefinitions?: readonly ToolComponent[];
-  /** Internal per-Registry catalog so every selected component shares one materialization set. */
-  readonly toolComponentCatalog?: ToolComponentCatalog;
   /** Internal lookup for Definition-provided tool components. */
   readonly toolDefinitionComponents?: ReadonlyMap<string, ToolComponent>;
 }
@@ -80,18 +68,6 @@ export const createDeclaredTool = (
       throw new Error(`tool Definition component ${identity} materialized ${tool.name}`);
     }
     return tool;
-  }
-  if (isWorkToolComponentIdentity(identity)) {
-    const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
-      createBashOutputStore();
-    const catalog = context.toolComponentCatalog ??
-      new ToolComponentCatalog(context.toolComponents);
-    return catalog.materialize(identity, {
-      workspace: context.workspace,
-      workTools: context.workTools ?? {},
-      bashOutputStore: outputStore,
-      webSearchBackend: context.webSearchBackend,
-    });
   }
   switch (`${identity}`) {
     case 'tool:skill':
@@ -146,11 +122,6 @@ export const createDeclaredRegistry = (
       throw new Error('declared skills do not match host skill catalog');
     }
   }
-  for (const replacement of context.toolComponents ?? []) {
-    if (!hasIdentity(declaration.tools, `${replacement.identity}`)) {
-      throw new Error(`work tool component is not selected: ${replacement.identity}`);
-    }
-  }
   const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
     createBashOutputStore();
   const toolDefinitionComponents = new Map<string, ToolComponent>(
@@ -158,30 +129,9 @@ export const createDeclaredRegistry = (
       [`${component.identity}`, component] as const
     ),
   );
-  if (
-    hasIdentity(declaration.tools, 'tool:web_search') &&
-    !toolDefinitionComponents.has('tool:web_search') &&
-    context.webSearchBackend !== undefined
-  ) {
-    const backend = context.webSearchBackend;
-    toolDefinitionComponents.set('tool:web_search', {
-      identity: createAgentResourceIdentity('tool:web_search'),
-      materialize: () => createWebSearchTool(backend),
-    });
-  }
-  if (
-    hasIdentity(declaration.tools, 'tool:web_fetch') &&
-    !toolDefinitionComponents.has('tool:web_fetch')
-  ) {
-    toolDefinitionComponents.set('tool:web_fetch', {
-      identity: createAgentResourceIdentity('tool:web_fetch'),
-      materialize: () => createWebFetchTool(),
-    });
-  }
   const materializationContext = {
     ...context,
     bashOutputStore: outputStore,
-    toolComponentCatalog: new ToolComponentCatalog(context.toolComponents),
     toolDefinitionComponents,
   };
   const tools = declaration.tools.map((identity) =>

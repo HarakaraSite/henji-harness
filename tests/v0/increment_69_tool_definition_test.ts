@@ -4,13 +4,6 @@ import {
   toolBindingsPath,
 } from '../../v0/agent/definitions/tool_binding.ts';
 import { ManagedDefinitionError } from '../../v0/agent/definitions/managed_definition_importer.ts';
-import {
-  createDefaultAgentComposition,
-  createProviderFreeWebSearchBackend,
-} from '../../v0/agent/worker_agent_api.ts';
-import type { PhysicalIoBindings } from '../../v0/agent/worker_agent_api.ts';
-import type { Model } from '../../v0/agent/core/contracts.ts';
-import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { main as toolMain } from '../../v0/agent/cli/tool_cli.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -24,12 +17,6 @@ const assertEquals = (left: unknown, right: unknown): void => {
   if (JSON.stringify(left) !== JSON.stringify(right)) {
     throw new Error(`${JSON.stringify(left)} !== ${JSON.stringify(right)}`);
   }
-};
-
-const WORKSPACE = { root: '/increment-69' };
-
-const probeModel: Model = {
-  generate: () => ({ kind: 'final', text: 'probe' }),
 };
 
 const toolModuleSource = (identity: string): string =>
@@ -164,20 +151,6 @@ Deno.test('Increment 69 fails typed on missing, mismatched, and malformed tool b
   } finally {
     await Deno.remove(root, { recursive: true });
   }
-});
-
-Deno.test('Increment 69 materializes the declared web_search tool from a Definition component', () => {
-  const physicalIo: PhysicalIoBindings = {
-    createModel: () => probeModel,
-    webSearchBackend: createProviderFreeWebSearchBackend(),
-  };
-  const composition = createDefaultAgentComposition({
-    workspace: WORKSPACE,
-    skillCatalog: emptySkillCatalog(),
-    physicalIo,
-  });
-  const names = composition.registry.definitions().map((tool) => tool.name);
-  assert(names.includes('web_search'));
 });
 
 Deno.test('Increment 69 CLI installs, activates, lists, and deactivates a tool binding', async () => {

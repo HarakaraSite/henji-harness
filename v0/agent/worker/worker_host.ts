@@ -1,6 +1,7 @@
 export type { WorkerHostCapsule, WorkerHostSessionOptions } from './worker_host_contract.ts';
 export {
   builtinWebSearchToolDefinitionLoadRequest,
+  bundledToolDefinitionLoadRequests,
   readDefinitionRevision,
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';

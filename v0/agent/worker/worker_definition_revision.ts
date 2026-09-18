@@ -37,24 +37,32 @@ export const workerBuiltinModulePath = (
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
 export const WEB_FETCH_TOOL_IDENTITY = 'tool:web_fetch' as const;
 
+const bundledToolModule = (name: string): string =>
+  new URL(`./worker_builtin_${name}_tool.ts`, import.meta.url).pathname;
+
 interface BundledToolDefinitionEntry {
   readonly identity: string;
   readonly resourceId: string;
   readonly modulePath: string;
 }
 
-const BUNDLED_TOOL_DEFINITIONS: readonly BundledToolDefinitionEntry[] = Object.freeze([
-  {
-    identity: WEB_SEARCH_TOOL_IDENTITY,
-    resourceId: 'builtin/web-search',
-    modulePath: new URL('./worker_builtin_web_search_tool.ts', import.meta.url).pathname,
-  },
-  {
-    identity: WEB_FETCH_TOOL_IDENTITY,
-    resourceId: 'builtin/web-fetch',
-    modulePath: new URL('./worker_builtin_web_fetch_tool.ts', import.meta.url).pathname,
-  },
-]);
+const BUNDLED_TOOL_DEFINITIONS: readonly BundledToolDefinitionEntry[] = Object.freeze(
+  [
+    ['bash', 'bash'],
+    ['bash_output', 'bash-output'],
+    ['edit', 'edit'],
+    ['read', 'read'],
+    ['write', 'write'],
+    ['web_fetch', 'web-fetch'],
+    ['web_search', 'web-search'],
+  ].map(([name, slug]) =>
+    Object.freeze({
+      identity: `tool:${name}`,
+      resourceId: `builtin/${slug}`,
+      modulePath: bundledToolModule(name),
+    })
+  ),
+);
 
 /** Bundled tool Definition identities the Host can resolve without an external binding. */
 export const BUNDLED_TOOL_DEFINITION_IDENTITIES: readonly string[] = Object.freeze(
@@ -104,3 +112,14 @@ export const bundledToolDefinitionLoadRequest = async (
 export const builtinWebSearchToolDefinitionLoadRequest = async (): Promise<
   import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest
 > => await bundledToolDefinitionLoadRequest(WEB_SEARCH_TOOL_IDENTITY);
+
+/** Every bundled tool Definition load request, for direct Worker start commands. */
+export const bundledToolDefinitionLoadRequests = async (): Promise<
+  readonly import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest[]
+> => {
+  const requests: import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest[] = [];
+  for (const identity of BUNDLED_TOOL_DEFINITION_IDENTITIES) {
+    requests.push(await bundledToolDefinitionLoadRequest(identity));
+  }
+  return requests;
+};

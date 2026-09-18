@@ -7,6 +7,7 @@ import {
 } from '../../v0/agent/worker_agent_api.ts';
 import type { Model } from '../../v0/agent/core/contracts.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import { bundledToolComponents } from './bundled_tool_components.ts';
 import { ManagedToolDefinitionStore } from '../../v0/agent/definitions/managed_tool_definition_store.ts';
 import {
   resolveToolDefinitionBindings,
@@ -60,7 +61,7 @@ Deno.test('Increment 70 composes an additional Definition-declared tool identity
     workspace: { root: '/increment-70' },
     skillCatalog: emptySkillCatalog(),
     physicalIo,
-    toolDefinitions: [component],
+    toolDefinitions: [...bundledToolComponents(physicalIo), component],
   }, {
     additionalTools: [identity],
   });

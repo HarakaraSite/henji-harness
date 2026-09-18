@@ -282,9 +282,11 @@ credential値やAuthorizationを渡さず、auth profileを指定してrequest�
 （`ProviderHttpRequest`／`ProviderHttpResponse`）を通す。tool Definitionは自分が使うmodel・backend・annotation解析を
 所有し、Henji-owned contract（例: `WebSearchBackend`）の実装を提供する。
 
-合成したtool Definitionのexact refはmanifestとexecution artifactへ記録し、context attributionへは入れない。他tool
-kindの一般化、tool Definition transport、bundled work tool（`bash`／`read`／`write`／`edit`等）のDefinition化は
-後続incrementで扱う。
+合成したtool Definitionのexact refはmanifestとexecution artifactへ記録し、context attributionへは入れない。
+`bash`／`bash_output`／`edit`／`read`／`write`も`web_search`／`web_fetch`と同じbundled tool Definitionとして供給し、
+固定`ToolComponentCatalog`／`workToolNames`と`AgentCompositionOptions.toolComponents`の同一identity置換seamは
+削除した。core-owned tool（`skill`／`delegate_to_planner`／`submit_json_result`）はDefinition化しない。tool
+Definition transportと任意kindの一般化は後続incrementで扱う。
 
 #### native discoveryとHenji Instruction
 

@@ -302,6 +302,21 @@ Deno.test('declared bash components share one output store for readback', async 
       workspace: { root: workspace },
       skillCatalog: emptySkillCatalog(),
       bashOutputStore: store,
+      toolDefinitions: [
+        {
+          identity: createAgentResourceIdentity('tool:bash'),
+          materialize: (bindings) =>
+            createBashTool(
+              bindings.workspace,
+              bindings.bashOutputStore,
+              bindings.workTools.bash ?? {},
+            ),
+        },
+        {
+          identity: createAgentResourceIdentity('tool:bash_output'),
+          materialize: (bindings) => createBashOutputTool(bindings.bashOutputStore),
+        },
+      ],
     });
     const execution = await registry.dispatch({
       callId: 'bash-component',

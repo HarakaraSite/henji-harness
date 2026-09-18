@@ -48,6 +48,15 @@ import {
   runFreshRuntimeComparison,
 } from '../../v0/agent/validation/fresh_runtime_comparison.ts';
 import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createWebSearchTool } from '../../v0/agent/tools/web_search.ts';
+import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
+import {
+  createBashTool,
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+} from '../../v0/agent/tools/work_tools.ts';
+import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
 import {
   MAX_COMPLETE_MODEL_REQUEST_BYTES,
   MAX_CONVERSATION_TEXT_BYTES,
@@ -75,6 +84,41 @@ const providerFreeWebSearchBackend: WebSearchBackend = {
     sources: [{ title: 'test source', url: 'provider-free://web-search' }],
   }),
 };
+
+/** Component set matching the bundled default parent declaration for direct composition tests. */
+const bundledWorkToolComponents = (
+  webSearchBackend: WebSearchBackend,
+): readonly ToolComponent[] => [
+  {
+    identity: createAgentResourceIdentity('tool:bash'),
+    materialize: (bindings) =>
+      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:bash_output'),
+    materialize: (bindings) => createBashOutputTool(bindings.bashOutputStore),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:edit'),
+    materialize: (bindings) => createEditTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:read'),
+    materialize: (bindings) => createReadTool(bindings.workspace),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:write'),
+    materialize: (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_search'),
+    materialize: (bindings) => createWebSearchTool(bindings.webSearchBackend ?? webSearchBackend),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_fetch'),
+    materialize: () => createWebFetchTool(),
+  },
+];
 
 const delegationCall = (): ToolCall => ({
   callId: 'delegate-1',
@@ -334,6 +378,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
       ...input,
       plannerDelegation,
       webSearchBackend: providerFreeWebSearchBackend,
+      toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
     }).definitions().map((tool) => tool.name),
     [
       'bash',
@@ -348,9 +393,10 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     ],
   );
   assertEquals(
-    createDeclaredRegistry(plannerDefinition.capabilities, input).definitions().map((tool) =>
-      tool.name
-    ),
+    createDeclaredRegistry(plannerDefinition.capabilities, {
+      ...input,
+      toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
+    }).definitions().map((tool) => tool.name),
     ['read', 'submit_json_result'],
   );
   validateResolvedAgentResources(defaultDefinition, 'default');
@@ -430,6 +476,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
       }),
       webSearchBackend: providerFreeWebSearchBackend,
     },
+    toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
   };
   const parent = createDefaultAgentComposition(input);
   const directPlanner = createPlannerAgentComposition(input);
@@ -502,7 +549,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assertEquals(plannerRequest.request.systemInstruction?.split(guideline).length, 2);
 });
 
-Deno.test('Executable Definition replaces one selected root tool component only', async () => {
+Deno.test('Definition-provided tool component replaces a declared tool identity', async () => {
   const plannerRequests: ModelRequest[] = [];
   let readMaterializations = 0;
   const replacement: ToolComponent = {
@@ -537,9 +584,15 @@ Deno.test('Executable Definition replaces one selected root tool component only'
     },
   };
   const definition: ExecutableAgentDefinition = (definitionInput) =>
-    createDefaultAgentComposition(definitionInput, { toolComponents: [replacement] });
+    createDefaultAgentComposition({
+      ...definitionInput,
+      toolDefinitions: [
+        ...bundledWorkToolComponents(providerFreeWebSearchBackend),
+        replacement,
+      ],
+    });
   const root = definition(input);
-  assertEquals(readMaterializations, 1);
+  assertEquals(readMaterializations, 2);
   assertEquals(
     root.registry.definitions().find((tool) => tool.name === 'read'),
     {
@@ -571,16 +624,16 @@ Deno.test('Executable Definition replaces one selected root tool component only'
   assertEquals(plannerRequests.length, 1);
   const plannerRead = plannerRequests[0].tools.find((tool) => tool.name === 'read');
   assert(plannerRead !== undefined);
-  assertEquals(
-    plannerRead.description,
-    'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
-  );
-  assert(!plannerRequests[0].systemInstruction?.includes('Definition-local'));
+  assertEquals(plannerRead.description, 'Definition-local read replacement');
+  assert(plannerRequests[0].systemInstruction?.includes('Definition-local'));
 
-  const builtin = createDefaultAgentComposition(input);
+  const builtin = createDefaultAgentComposition({
+    ...input,
+    toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
+  });
   assertEquals(
     builtin.registry.definitions().find((tool) => tool.name === 'read')?.description,
-    plannerRead.description,
+    'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
   );
 });
 
@@ -594,6 +647,7 @@ Deno.test('root maxSteps finalization keeps Definition evidence coherent', () =>
       }),
       webSearchBackend: providerFreeWebSearchBackend,
     },
+    toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
   });
   const finalized = finalizeRootAgentComposition(composition, 12);
   assertEquals(composition.maxSteps, 64);

@@ -10,6 +10,11 @@ const ROOTS = [
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/worker/worker_builtin_definition.ts',
   'v0/agent/worker/worker_builtin_planner_definition.ts',
+  'v0/agent/worker/worker_builtin_bash_tool.ts',
+  'v0/agent/worker/worker_builtin_bash_output_tool.ts',
+  'v0/agent/worker/worker_builtin_edit_tool.ts',
+  'v0/agent/worker/worker_builtin_read_tool.ts',
+  'v0/agent/worker/worker_builtin_write_tool.ts',
   'v0/agent/worker/worker_builtin_web_search_tool.ts',
   'v0/agent/worker/worker_builtin_web_fetch_tool.ts',
 ] as const;

@@ -19,9 +19,20 @@ import {
   finalizeWorkerInstructionComposition,
   selectWorkerHenjiBaseInstruction,
 } from '../../v0/agent/instructions/worker_core_finalizer.ts';
-import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createWebSearchTool, type WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
+import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
 import {
+  createBashTool,
+  createEditTool,
+  createReadTool,
+  createWriteTool,
+} from '../../v0/agent/tools/work_tools.ts';
+import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
+import {
+  createAgentResourceIdentity,
   createDefaultAgentComposition,
+  type PhysicalIoBindings,
+  type ToolComponent,
   type WorkerAgentComposition,
 } from '../../v0/agent/worker_agent_api.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
@@ -39,6 +50,38 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
+
+const bundledToolComponents = (physicalIo: PhysicalIoBindings): readonly ToolComponent[] => [
+  {
+    identity: createAgentResourceIdentity('tool:bash'),
+    materialize: (bindings) =>
+      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:bash_output'),
+    materialize: (bindings) => createBashOutputTool(bindings.bashOutputStore),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:edit'),
+    materialize: (bindings) => createEditTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:read'),
+    materialize: (bindings) => createReadTool(bindings.workspace),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:write'),
+    materialize: (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_search'),
+    materialize: () => createWebSearchTool(physicalIo.webSearchBackend!),
+  },
+  {
+    identity: createAgentResourceIdentity('tool:web_fetch'),
+    materialize: () => createWebFetchTool(),
+  },
+];
 
 const packageManifest = (resourceId = 'example/henji-base') => ({
   schemaVersion: 1,
@@ -478,18 +521,20 @@ Deno.test('Increment 51 finalizer replaces only the base slot for root, opaque D
     selectWorkerHenjiBaseInstruction(selected);
 
     const plannerRequests: ModelRequest[] = [];
+    const physicalIo = {
+      createModel: (role: 'parent' | 'planner') => ({
+        generate: (request: ModelRequest) => {
+          if (role === 'planner') plannerRequests.push(request);
+          return { kind: 'final' as const, text: 'done' };
+        },
+      }),
+      webSearchBackend: noSearch,
+    };
     const input = {
       workspace: { root: '/increment-51' },
       skillCatalog: emptySkillCatalog(),
-      physicalIo: {
-        createModel: (role: 'parent' | 'planner') => ({
-          generate: (request: ModelRequest) => {
-            if (role === 'planner') plannerRequests.push(request);
-            return { kind: 'final' as const, text: 'done' };
-          },
-        }),
-        webSearchBackend: noSearch,
-      },
+      physicalIo,
+      toolDefinitions: bundledToolComponents(physicalIo),
     };
     const finalized = finalizeWorkerInstructionComposition(
       createDefaultAgentComposition(input),

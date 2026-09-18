@@ -6,6 +6,7 @@ import {
 } from '../../v0/agent/history/history_store_contract.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store.ts';
 import {
+  bundledToolDefinitionLoadRequests,
   createWorkerSession,
   readDefinitionRevision,
   workerBuiltinModulePath,
@@ -58,6 +59,7 @@ const openHistoryHost = async (
     definition,
     modulePath,
     physicalIoMode: 'provider-free',
+    toolDefinitions: await bundledToolDefinitionLoadRequests(),
     providerEvidenceStore: store.providerEvidence,
     executionArtifactStore: store.executionArtifacts,
     historyPersistence: store,
