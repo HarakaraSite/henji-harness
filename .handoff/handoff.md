@@ -60,9 +60,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `32b126bbd5d9999f58fffd1943a4f1ba16251310f731b6b98d155232e2b06b65`、binary SHA-256
-  `e4c2a7dd21c21158711ccc8c12d725c0dc981b736403a605859953f2fed3f30f`、embedded runtime
-  `11ed86a9066af9e74332bb62e2a453c7572b6f30c45363ea976929be6a0fbdf8`、source`eea20898`・`sourceDirty=false`）。
+- binary: `0.2.1`（build `ceaddb1bd81dcb2ebe54b3fa76dcfbf37f6729e79c191e8f4c1fc5422256c3bf`、binary SHA-256
+  `7a8479cf879d70de9ea1e5d98b52b90e328507dcdadefeb762a2d3412f020b33`、embedded runtime
+  `c07fe0122d1cb08f5e455fdbb443e07ffff2827386744a79cbd13112393c4cc1`、source`d17a52a1`・`sourceDirty=false`）。
   installed launcher `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
