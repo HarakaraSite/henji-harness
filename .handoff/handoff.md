@@ -170,17 +170,18 @@
 - 検証: focused test `tests/v0/increment_77_builtin_revision_test.ts`（5件、`v0:test`追加）。closure digestは
   TUI追記で不変（`6d07aa24…`）、instruction closure追記で変化することを直接確認。
 - 正本: `docs/increments/increment-77.md`。
-- 注意: builtin closureは`@henji/agent`経由でagent runtime（tools/instructions/storage/provider）を含む。
-  type-only re-exportで`session_cli.ts`がclosureに入る点は残課題。
-- 次: 利用者判断待ちなし。
+- 注意: type-only re-export除去で`session_cli.ts`はclosureから外れた。builtin closureは`@henji/agent`経由で
+  agent runtime（tools/instructions/storage/provider）を含む。closure境界をcontractでpruneするかは、
+  behaviorではなくartifact identityの観点で別途判断（increment-77.md #1）。
+- 次: closure境界（#1）の扱いを利用者が判断。他は待ちなし。
 
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `bdfecc4d6a62ce77325529b2187113def0cf0986fcfddccfd65a25748e455500`、binary SHA-256
-  `2e80291c8a1767f2088990f6574c7ccae61e855a5425fdca6d80edb7b7b7e64e`）。increment-77実装後、commit前にbuild
-  したため`sourceDirty=true`（内容はcommit予定と同一）。installed launcher `~/.local/bin/henji`。buildは
-  `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
+- binary: `0.2.1`（build `fc6be34f10c147c9d274946e80e546b5554d11fa170ba7dac4be47eda91246f0`、binary SHA-256
+  `2f52eb292ca923a1fd74afa5dcb6ffb48701ed292bbf0dcc10103e8e1f976234`）。increment-77のtype-only re-export除去後、
+  commit前にbuildしたため`sourceDirty=true`（内容はcommit予定と同一）。installed launcher `~/.local/bin/henji`。
+  buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
   - 注: 実行中の`~/.local/bin/henji`があったため`cp`→`.new`→`mv`で原子的に置換した。sourceDirty=falseの
     artifactが必要なら現在のcleanなruntimeで再buildする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは

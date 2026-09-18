@@ -99,6 +99,9 @@ build scriptのclosure digest算出、manifest schema、ref算出、test更新�
     が不変（`6d07aa24…`）、definition closure内のinstruction（`v0/agent/instructions/roles/default.ts`）への
     追記では変わることを確認。
   - `v0:gate` exit 0。binary再build・配置済み。
-- 注記: builtin closureは`@henji/agent`経由でagent runtime（tools、instructions、storage、provider）を含む。
-  そのためこれらの変更はbuiltin revisionを変える。TUI/CLI等closure外の変更は変えない。type-only re-exportにより
-  `session_cli.ts`がclosureに含まれる点は残課題。
+- type-only re-exportの除去（#2修正）: `session_store.ts`の未使用な`export type { SessionCliCommand } from
+  '../cli/session_cli.ts'`を削除し、builtin closureから`session_cli.ts`が外れたことを確認。
+- 設計上の残課題（#1、behaviorを根拠にしない）: revisionはresource artifactのidentityであり、behavior変更の
+  根拠ではない（behaviorは観測による）。現closureは`@henji/agent`（`worker_agent_api.ts`）経由でagent runtime
+  （tools/instructions/storage/provider）を含むため、これらの変更でbuiltin revisionが変わる。closureの境界を
+  externalと同様に`@henji/agent` contractでpruneするかは、behaviorではなくartifact identityの観点で別途決める。

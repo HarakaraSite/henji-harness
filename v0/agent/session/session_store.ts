@@ -52,6 +52,3 @@ export {
   sessionPaths,
   workspaceDigest,
 } from './session_store_paths.ts';
-// Keep the management command part of the checked v0 module graph without introducing a
-// runtime dependency cycle; the CLI itself still remains a provider-free entry point.
-export type { SessionCliCommand } from '../cli/session_cli.ts';
