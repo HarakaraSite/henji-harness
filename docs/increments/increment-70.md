@@ -152,5 +152,8 @@
 - net権限: compiled binaryと`agent:run`／`agent:tui`／`agent:sessions`の`--allow-net`を無制限へ変更。
 - 検証: 新規`tests/v0/increment_70_web_fetch_test.ts`（4件）。default tool一覧・active guideline・
   fresh-runtime comparison identity・compile権限の既存test期待を更新。authoritative `v0:gate` exit 0。
-- 未着手: 実provider probe（任意URL取得）。他work toolのDefinition化とtransport。
+- 実provider probe（利用者許可、2026-09-18): isolated XDGの`henji run`で、modelが`web_fetch`を呼び
+  `https://example.com/`を取得。status 200、`text/html`、本文「Example Domain …」抽出、`truncated:false`を返し、
+  `I70_PROBE_OK`を出力してexit 0。web_searchは不要のため未使用。
+- 未着手: 他work toolのDefinition化とtool Definition transport。
 

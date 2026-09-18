@@ -2,13 +2,10 @@
 
 ## Records
 
-### 通常利用の改善 — Increment 69（実装完了: offline gate・binary配置。実provider probe未実施）
+### 通常利用の改善 — Increment 69（実装完了: offline gate・binary配置・実provider probe受入済み）
 
 - 状態: `tool-definition`資源kindとweb_search外部化を実装完了。`v0:gate`（check/fmt/lint/test）exit 0。
-  `henji:compile`でbinary `0.2.1`をbuildし`~/.local/bin/henji`へ配置（build
-  `c2bfabd5e562d294fd0e4e9e57708b27806a091f793f8f1d5daec43d97dccf49`、binary SHA-256
-  `ad1e1d15b271b2a1d56d318a732b905163cfab0a8efde3215dc3c8687b836795`、`--version`と`tool list --json`を
-  isolated XDGでsmoke確認）。
+  binary `0.2.1`をbuildし`~/.local/bin/henji`へ配置済み（最新のbuild/hashは「環境・配置」節）。
   完了した区間:
   - `managed_resource_ref.ts`（`ToolDefinitionRevisionRef`等）、`build_manifest.ts`
     （`HENJI_TOOL_DEFINITION_API_CONTRACT`／`supportedToolDefinitionApiContracts`、compile script更新）。
@@ -28,10 +25,10 @@
   - tool CLI（`v0/agent/cli/tool_cli.ts`、`henji tool install|list|inspect|active|activate|deactivate|uninstall`）。
   - binary build・配置（上記）。
 - 次: 利用者判断待ち／残作業:
-  (1) 実provider probe（Sonar経由の1 turn。実行直前に別途許可）。
-  (2) architecture/roadmap正本の更新提案（別承認。`increment-69.md`末尾）。
-  (3) 変更のcommit（利用者の明示指示があるまでcommitしない）。
-- 正本: `docs/increments/increment-69.md`（結果まで反映済み）。roadmap/architectureの正本更新は別承認。
+- 実provider probe（利用者許可、2026-09-18）: isolated XDGの`henji run`（stdin task）でbundled Sonar
+  web_searchが回答＋直接source URLを返し`I69_PROBE_OK`、exit 0。
+- 次: architecture/roadmap正本とcommitは完了（別項目）。残作業なし。
+- 正本: `docs/increments/increment-69.md`（結果まで反映済み。architecture/roadmapも更新・commit済み）。
 - 注意: 既存testの期待を新契約へ更新済み（artifact schema v6→v7、web_searchのDefinition提供）。
   非Host経路（legacy `runtime.ts`・直接`createDeclaredRegistry`）には、backend/requestProviderからの
   web_search互換bridgeを残した（productionはHost提供bundled tool Definitionが優先）。
@@ -44,7 +41,7 @@
   - generic model層のprovider annotations/citation（調査済み・作らない方針。OpenRouterで`tools`非対応の
     pure-textは59件、`web_search_options`保持はSonar系5件のみ）
 
-### Increment 70 — tool宣言のDefinition統一とweb_fetch（実装完了、実provider probe未実施）
+### Increment 70 — tool宣言のDefinition統一とweb_fetch（実装完了、実provider probe受入済み）
 
 - 状態: 実装完了。`v0:gate` exit 0。toolの可視性のownerを各Agent Definitionに統一し、
   `AgentCompositionOptions.additionalTools`でDefinitionが追加`tool:<name>`を宣言、Hostがbundled tool Definition
@@ -54,8 +51,9 @@
   UTF-8 decode、HTMLは最小text抽出、非textualはメタのみ、非2xx/network/invalid URLはtool error）。compiled
   binaryと`agent:run|tui|sessions`の`--allow-net`を無制限化。
   新規`tests/v0/increment_70_tool_declaration_test.ts`（2件）と`increment_70_web_fetch_test.ts`（4件）。
-- 次: 実provider probe（web_searchとweb_fetchの1 turn。実行直前に別途許可）。他work toolのDefinition化とtool
-  Definition transportは後続。
+- 実provider probe（利用者許可、2026-09-18）: isolated XDGの`henji run`でmodelが`web_fetch`を呼び
+  `https://example.com/`を取得。status 200・`text/html`・本文抽出・`truncated:false`、`I70_PROBE_OK`でexit 0。
+- 次: 他work toolのDefinition化とtool Definition transport（後続increment）。
 - 正本: `docs/increments/increment-70.md`。architecture（`henji-host-agent-worker.md`）とroadmapを本incrementへ
   更新済み。
 - 注意: 追加toolを使うには、それを宣言したAgent Definition（bundled defaultまたはexternal）と、tool Definition
