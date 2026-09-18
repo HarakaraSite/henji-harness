@@ -52,13 +52,16 @@
   - architecture（`henji-host-agent-worker.md`）へactivation-level slot authority・composition seam・保証範囲を追記、
     roadmapのProvider外部化節（65〜68の内容・順序）を更新（正本更新、別項目）。
   - 未決メモ: Definition-manifest dependency bindingとmanifest/activation bindingの優先・競合規則は後続。
-- 次: Increment 65はコード・正本・実provider probeまで完了（authoritative `v0:gate` exit 0）。利用者の指示で
-  Increment 65の作業ツリーをcommit後、binary配置（`henji:compile`）を検討し、その後Increment 66（web-search
-  subagent化）、67（tool same-identity override）、68（built-in id削除/Session影響/入力ブロック）。作業ツリーは未commit。
+- 次: Increment 65はコード・正本・実provider probe・binary配置まで完了。実装commitは`d63ee395`、配置binaryは
+  installed launcher `~/.local/bin/henji`（`dist/henji`と同一）。installed binaryでのproduction smoke testも
+  pass。次はIncrement 66（web-search subagent化）、67（tool same-identity override）、68（built-in id削除/
+  Session影響/入力ブロック）。
 - 正本: `docs/increments/increment-65.md`（計画）、`docs/increments/increment-51.md`〜`increment-64.md`、
   `docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 64（実装`e8c8ae98`／配置`2fe5506a`、binary SHA-256
-  `e0642d4ccb57c71e2f6e1d55c3e1beaf74a0f45790f53898d578c165af7d1ff2`、source`e8c8ae98…`、`sourceDirty=false`）。
+- 注意: 直前の配置はIncrement 65（実装`d63ee395`／配置`d63ee395`、binary SHA-256
+  `0208165889aea4d7e5db4aa89fd36b84de5c556246a91a86fd8a2a7d437a83bd`、build=`bf60013c3bd3984c27b9dc57b150afb3b2eefb7808c5ce925426321f578b3d40`、
+  embedded runtime=`2ac0dcdb522b47aabb01080b27e269708b2f902b4e7ad16241e744a4f3fc2f09`、source`d63ee395…`、`sourceDirty=false`）。
+  直前の配置はIncrement 64（binary SHA-256 `e0642d4c…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
   `default-selection.json`。`openrouter`/`openai`/`openrouter-responses`はcatalog/defaultsのみoverride可能。新規idは
   `openai-responses`と`openai-chat-completions`。adapterはbinary-owned、protocolは固定enum。OpenAI Chat Completionsは

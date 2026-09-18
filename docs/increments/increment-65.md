@@ -50,6 +50,11 @@
   実行。turn成功、execution artifact v6の`subagents[0].ref`がexternal revisionと一致、planner laneのprovider
   request bodyにprobe markerを確認（root laneは2 request）。binding解決→composition→delegated plannerの実
   provider実行をreadbackした。
+- binary配置（2026-09-18）: 実装commit`d63ee395`から`henji:compile`。binary SHA-256
+  `0208165889aea4d7e5db4aa89fd36b84de5c556246a91a86fd8a2a7d437a83bd`、build
+  `bf60013c3bd3984c27b9dc57b150afb3b2eefb7808c5ce925426321f578b3d40`、`sourceDirty=false`。`dist/henji`を
+  `~/.local/bin/henji`へ配置し、同binaryでexternal planner bind済みのproduction smoke test（`henji run`）が
+  marker付き最終応答でexit 0。stateのartifact v6 `subagents`とplanner lane markerも確認。
 
 未着手:
 
