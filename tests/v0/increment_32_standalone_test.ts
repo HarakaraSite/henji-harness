@@ -77,7 +77,7 @@ Deno.test('Increment 32 resolves binary, workspace, and XDG authorities independ
   );
 });
 
-Deno.test('Increment 32 built-in Definition ref is logical and build-bound', async () => {
+Deno.test('Increment 32/77 built-in Definition ref is logical and resource-bound', async () => {
   const manifest = buildManifest();
   assertEquals(manifest.productVersion, packageConfig.version);
   const first = await builtinDefinitionRef('default', manifest);

@@ -87,8 +87,6 @@ const makeSessionHistoryIndex = (
   });
 };
 
-export const sessionHistoryIndex = indexSessionHistory;
-
 const contentRows = (rows: number | undefined): number => {
   const terminalRows = rows ?? HISTORY_PAGE_ROWS + 5;
   return Math.max(1, Math.min(HISTORY_PAGE_ROWS, terminalRows - 5));

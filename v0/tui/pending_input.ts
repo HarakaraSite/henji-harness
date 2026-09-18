@@ -256,5 +256,3 @@ const lane = (
     present,
     byteCount: Math.max(0, Math.min(MAX_BYTES, byteCount)),
   });
-
-export const PENDING_MAX_BYTES = MAX_BYTES;

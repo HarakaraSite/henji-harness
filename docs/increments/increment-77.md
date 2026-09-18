@@ -1,4 +1,4 @@
-# Increment 77 — builtin resource revisionをclosure内容で識別する（正本変更案・未承認）
+# Increment 77 — builtin resource revisionをclosure内容で識別する
 
 ステータス: **実装完了（Human Gate承認済み。roadmap／architecture変更適用済み）**
 
@@ -28,7 +28,7 @@
 - externalは`canonicalDefinitionRevisionBytes`（declaredRole、subagentName、apiContract、entry、closure files）を
   hashする。同じ`ManagedResourceRef`内でbuiltin/externalの意味が揃っていない。
 
-## 採用する設計（提案）
+## 採用した設計
 
 1. build時にbuiltin resourceごとのclosure digestを算出し、build manifestへ埋め込む。
    - 対象: `builtin/default`、`builtin/planner`、bundled tool Definition各identity。
@@ -48,7 +48,7 @@
   既定のみ影響する。
 - `supportedAgentDefinitionApiContracts`等のcontract fieldは変わらない。
 
-## 正本変更案（未適用）
+## 正本変更（適用済み）
 
 - `docs/architecture/henji-host-agent-worker.md` F07相当のDefinition module revision記述へ、builtin resourceの
   revisionはclosure内容とcontractから算出し、binary全体のhashを使わないことを追記。
@@ -62,7 +62,7 @@
 - 過去Sessionのmigration（Increment 76のtransitionで扱う）。
 - tool binding/activationの変更。
 
-## Verification（承認後）
+## Verification
 
 - focused test: builtin Definition/tool refが、Definition closureを変更しないruntime修正で不変であること。
 - focused test: Definition closureを変更するとrefが変わり、Increment 76のtransitionで記録されること。

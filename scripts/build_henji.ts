@@ -116,23 +116,43 @@ const append = (chunks: Uint8Array[], value: string | Uint8Array): void => {
 const repositoryRoot = async (): Promise<string> =>
   new TextDecoder().decode(await run('git', ['rev-parse', '--show-toplevel'])).trim();
 
+const localModuleFiles = async (
+  root: string,
+  entry: string,
+  config = 'deno.v0.json',
+): Promise<readonly string[]> => {
+  const info = JSON.parse(new TextDecoder().decode(
+    await run(Deno.execPath(), [
+      'info',
+      '--json',
+      '--config',
+      `${root}/${config}`,
+      `${root}/${entry}`,
+    ]),
+  )) as { readonly modules: readonly { readonly local?: string }[] };
+  const paths = new Set<string>();
+  for (const module of info.modules) {
+    if (module.local?.startsWith(`${root}/`)) paths.add(module.local.slice(root.length + 1));
+  }
+  return [...paths].sort();
+};
+
 const runtimeFiles = async (root: string): Promise<readonly string[]> => {
   const paths = new Set<string>();
   for (const entry of ROOTS) {
-    const info = JSON.parse(new TextDecoder().decode(
-      await run(Deno.execPath(), [
-        'info',
-        '--json',
-        '--config',
-        `${root}/deno.v0.json`,
-        `${root}/${entry}`,
-      ]),
-    )) as { readonly modules: readonly { readonly local?: string }[] };
-    for (const module of info.modules) {
-      if (module.local?.startsWith(`${root}/`)) paths.add(module.local.slice(root.length + 1));
-    }
+    for (const path of await localModuleFiles(root, entry)) paths.add(path);
   }
   for (const path of IDENTITY_FILES) paths.add(path);
+  return [...paths].sort();
+};
+
+/** Inputs whose tracked content can change the compiled artifact or its embedded manifest. */
+export const buildInputFiles = async (
+  root: string,
+  runtimePaths?: readonly string[],
+): Promise<readonly string[]> => {
+  const paths = new Set(runtimePaths ?? await runtimeFiles(root));
+  for (const path of await localModuleFiles(root, 'scripts/build_henji.ts')) paths.add(path);
   return [...paths].sort();
 };
 
@@ -152,17 +172,24 @@ const runtimeDigest = async (root: string, paths: readonly string[]): Promise<st
   return await sha256(joined);
 };
 
-/** Local module closure of one built-in resource entry, excluding build identity files. */
-const moduleClosureFiles = async (
+export interface ModuleClosureOptions {
+  readonly config?: string;
+  readonly contractBoundaryFiles?: readonly string[];
+  readonly identityFiles?: readonly string[];
+}
+
+/** Runtime module closure of one built-in resource entry, excluding contract and identity files. */
+export const moduleClosureFiles = async (
   root: string,
   entry: string,
+  options: ModuleClosureOptions = {},
 ): Promise<readonly string[]> => {
   const info = JSON.parse(new TextDecoder().decode(
     await run(Deno.execPath(), [
       'info',
       '--json',
       '--config',
-      `${root}/deno.v0.json`,
+      `${root}/${options.config ?? 'deno.v0.json'}`,
       `${root}/${entry}`,
     ]),
   )) as {
@@ -174,6 +201,10 @@ const moduleClosureFiles = async (
     }[];
   };
   const prefix = `file://${root}/`;
+  const identityFiles = new Set(options.identityFiles ?? IDENTITY_FILES);
+  const contractBoundaryFiles = new Set(
+    options.contractBoundaryFiles ?? CONTRACT_BOUNDARY_FILES,
+  );
   const edges = new Map<string, string[]>();
   for (const module of info.modules) {
     if (!module.local?.startsWith(`${root}/`)) continue;
@@ -194,8 +225,8 @@ const moduleClosureFiles = async (
   while (pending.length > 0) {
     const current = pending.pop()!;
     if (reachable.has(current)) continue;
-    if ((IDENTITY_FILES as readonly string[]).includes(current)) continue;
-    if (CONTRACT_BOUNDARY_FILES.has(current)) continue;
+    if (identityFiles.has(current)) continue;
+    if (contractBoundaryFiles.has(current)) continue;
     reachable.add(current);
     for (const dependency of edges.get(current) ?? []) pending.push(dependency);
   }
@@ -249,7 +280,10 @@ const builtinResourceRevisions = async (
   return revisions;
 };
 
-const dirtyRuntime = async (root: string, paths: readonly string[]): Promise<boolean> =>
+export const hasDirtyBuildInputs = async (
+  root: string,
+  paths: readonly string[],
+): Promise<boolean> =>
   new TextDecoder().decode(
     await run('git', [
       '-C',
@@ -317,6 +351,7 @@ const main = async (): Promise<void> => {
   const root = await repositoryRoot();
   const output = parseOutput(Deno.args, root);
   const files = await runtimeFiles(root);
+  const buildInputs = await buildInputFiles(root, files);
   const embeddedRuntimeSha256 = await runtimeDigest(root, files);
   const jsr = JSON.parse(await Deno.readTextFile(`${root}/jsr.json`)) as { version: string };
   const sourceRevision = new TextDecoder().decode(
@@ -327,7 +362,7 @@ const main = async (): Promise<void> => {
     schemaVersion: 1,
     productVersion: jsr.version,
     sourceRevision,
-    sourceDirty: await dirtyRuntime(root, files),
+    sourceDirty: await hasDirtyBuildInputs(root, buildInputs),
     denoVersion: Deno.version.deno,
     target: Deno.build.target,
     embeddedRuntimeSha256,

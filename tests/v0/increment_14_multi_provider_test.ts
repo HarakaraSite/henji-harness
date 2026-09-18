@@ -143,7 +143,7 @@ const openRouterCompletedStream = (text: string): string =>
     })
   }\n\ndata: [DONE]\n\n`;
 
-Deno.test('Increment 14 selects a fixed provider catalog at startup', () => {
+Deno.test('Increment 14 resolves bundled provider defaults at startup', () => {
   assertEquals(defaultModelSelectionFor('openrouter-chat'), ROOT_DEFAULT_MODEL_SELECTION);
   assertEquals(defaultModelSelectionFor('openai-responses'), OPENAI_DEFAULT_MODEL_SELECTION);
   assertEquals(defaultModelSelectionFor('openrouter-responses').provider, 'openrouter-responses');

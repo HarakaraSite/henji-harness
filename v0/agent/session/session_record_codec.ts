@@ -681,12 +681,6 @@ export const metadataFromStoredRecord = (
   modelSelection: structuredClone(record.activeModel),
 });
 
-export const compareSessionMetadata = (
-  a: SessionMetadata,
-  b: SessionMetadata,
-): number =>
-  a.updatedAt === b.updatedAt ? a.id.localeCompare(b.id) : b.updatedAt.localeCompare(a.updatedAt);
-
 export const restoredMessages = (
   transcript: readonly Message[],
 ): { readonly messages: readonly Message[]; readonly omitted: number } => {

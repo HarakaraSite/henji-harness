@@ -196,28 +196,3 @@ export const discoverAgentInstructionSnapshot = async (
   }
   return undefined;
 };
-
-/**
- * Discover one optional workspace-root standing-instruction file.
- *
- * The first present candidate wins, including when that candidate is invalid. All filesystem
- * failures are intentionally silent and produce no instruction.
- */
-export const discoverAgentInstructions = async (
-  workspaceRoot: string,
-  fileSystem: InstructionFileSystem = productionFileSystem,
-): Promise<string | undefined> =>
-  (await discoverAgentInstructionSnapshot(workspaceRoot, fileSystem))?.formatted;
-
-export const formatAgentInstructions = (name: string, content: string): string =>
-  formatAgentInstruction(name, content.trim());
-
-export const composeSystemInstruction = (
-  agentInstructions?: string,
-  skillManifest?: string,
-): string | undefined => {
-  if (agentInstructions !== undefined && skillManifest !== undefined) {
-    return `${agentInstructions}\n\n${skillManifest}`;
-  }
-  return agentInstructions ?? skillManifest;
-};

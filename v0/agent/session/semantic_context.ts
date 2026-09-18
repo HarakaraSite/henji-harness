@@ -25,7 +25,6 @@ export const SEMANTIC_CONTEXT_SYSTEM_PROMPT =
 
 export const MAX_NEXT_DRAFT_BYTES = 4_096;
 export const MAX_CHECKPOINT_MESSAGE_WIRE_BYTES = 16_384;
-export const SUMMARY_TIMEOUT_MS = 30_000;
 
 const safeString = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0 && !value.includes('\0') &&

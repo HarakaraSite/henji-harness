@@ -67,9 +67,5 @@ const roleDefaults = parseRoleDefaults(
   (rawDefaults as unknown as { readonly roleDefaults?: unknown }).roleDefaults,
 );
 
-/** Bundled slot-keyed role defaults shipped as data with the binary. */
-export const bundledRoleDefaults = (): Readonly<Record<string, BundledRoleDefaultV1>> =>
-  roleDefaults;
-
 export const bundledRoleDefaultFor = (slot: string): BundledRoleDefaultV1 | undefined =>
   roleDefaults[slot];

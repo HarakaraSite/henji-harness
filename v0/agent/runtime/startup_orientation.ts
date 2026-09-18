@@ -233,6 +233,3 @@ export const projectRuntimeDisplayState = (
   }
   return state;
 };
-
-/** Descriptive alias for callers that prefer the construction verb. */
-export const buildRuntimeDisplayState = projectRuntimeDisplayState;

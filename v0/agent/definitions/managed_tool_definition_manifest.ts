@@ -26,8 +26,6 @@ export const isToolIdentity = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith('tool:') &&
   isToolComponentName(value.slice('tool:'.length));
 
-export const toolComponentName = (identity: string): string => identity.slice('tool:'.length);
-
 export interface ManagedToolDefinitionManifestV1 {
   readonly schemaVersion: 1;
   readonly closureSchemaVersion: typeof TOOL_DEFINITION_CLOSURE_SCHEMA_VERSION;

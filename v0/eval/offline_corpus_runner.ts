@@ -3,15 +3,8 @@ import type {
   OfflineCorpusEvalReportV1,
   OfflineCorpusEvalReportV2,
 } from './offline_corpus_contract.ts';
-import {
-  serializeOfflineCorpusEvalReportV1,
-  validateOfflineCorpusEvalReportV1,
-} from './offline_corpus_report_v1.ts';
-import {
-  serializeOfflineCorpusEvalReportV2,
-  validateOfflineCorpusEvalReportV2,
-} from './offline_corpus_report_v2.ts';
-import { isRecord } from './offline_corpus_value.ts';
+import { serializeOfflineCorpusEvalReportV1 } from './offline_corpus_report_v1.ts';
+import { serializeOfflineCorpusEvalReportV2 } from './offline_corpus_report_v2.ts';
 
 export {
   MAX_STEPS,
@@ -49,16 +42,6 @@ export { observationFromLoopOutcome } from './offline_corpus_transcript.ts';
 export type OfflineCorpusEvalReport =
   | OfflineCorpusEvalReportV1
   | OfflineCorpusEvalReportV2;
-
-export const validateOfflineCorpusEvalReport = (
-  value: unknown,
-  corpus: ValidatedTaskCorpus,
-): OfflineCorpusEvalReport => {
-  if (isRecord(value) && value.schemaVersion === 1) {
-    return validateOfflineCorpusEvalReportV1(value, corpus);
-  }
-  return validateOfflineCorpusEvalReportV2(value, corpus);
-};
 
 export const serializeOfflineCorpusEvalReport = (
   report: OfflineCorpusEvalReport,

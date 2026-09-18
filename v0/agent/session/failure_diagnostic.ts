@@ -5,7 +5,6 @@
  * there is no field here which can contain a message, path, header, payload, model text, or stack.
  */
 
-export const FAILURE_DIAGNOSTIC_SCHEMA_VERSION = 1 as const;
 export const MAX_DIAGNOSTIC_REQUESTS = Number.MAX_SAFE_INTEGER;
 export const MAX_DIAGNOSTIC_MODEL_STEP = Number.MAX_SAFE_INTEGER;
 export const MAX_DIAGNOSTIC_BYTES = 1_024;
@@ -465,38 +464,4 @@ export const decodeFailureDiagnostic = (
   }
 };
 
-/** Single-line human projection; it contains no arbitrary runtime text. */
-export const formatFailureDiagnostic = (
-  value: FailureDiagnosticV1,
-  durable: FailureDiagnosticDurability = 'yes',
-): string => {
-  if (!validateFailureDiagnostic(value)) {
-    throw new TypeError('invalid failure diagnostic');
-  }
-  const fields = [
-    `id=${value.diagnosticId}`,
-    `stage=${value.stage}`,
-    `code=${value.code}`,
-    `lane=${value.lane}`,
-    `requests=${value.providerRequestCount}`,
-  ];
-  if (value.httpStatus !== undefined) fields.push(`http=${value.httpStatus}`);
-  if (value.parseReason !== undefined) {
-    fields.push(`reason=${value.parseReason}`);
-  }
-  if (value.stage === 'unknown_stage' || value.code === 'unknown_code') {
-    fields.push('reason=not_instrumented');
-  }
-  fields.push(
-    `turn=${value.turnNumber}`,
-    `step=${value.modelStep}`,
-    `occurredAt=${value.occurredAt}`,
-    'retry=0',
-    `durable=${durable}`,
-  );
-  return `failure> ${fields.join(' · ')}`;
-};
-
-export const parseFailureDiagnostic = decodeFailureDiagnostic;
-export const stringifyFailureDiagnostic = encodeFailureDiagnostic;
 export const isFailureDiagnostic = validateFailureDiagnostic;

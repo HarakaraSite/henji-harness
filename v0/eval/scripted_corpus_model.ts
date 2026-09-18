@@ -445,5 +445,3 @@ export const createScriptedCorpusModel = (task: CorpusTask): Model => {
   }
   return new ScriptedCorpusModel(script);
 };
-
-export const scriptedCorpusModelFor = createScriptedCorpusModel;

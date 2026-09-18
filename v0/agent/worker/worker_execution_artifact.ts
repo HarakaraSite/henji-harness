@@ -15,9 +15,6 @@ import {
 } from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 
-/** Additive, Host-owned record of one admitted Worker turn. */
-export const WORKER_EXECUTION_ARTIFACT_SCHEMA_VERSION = 7 as const;
-
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
   | 'failed'
@@ -558,15 +555,6 @@ export const validateWorkerExecutionArtifact = (
   return valid;
 };
 
-export const encodeWorkerExecutionArtifact = (
-  value: StoredWorkerExecutionArtifact,
-): string => {
-  if (!validateWorkerExecutionArtifact(value)) {
-    throw new TypeError('invalid Worker execution artifact');
-  }
-  return JSON.stringify(value);
-};
-
 export const validSubagentAttribution = (
   value: unknown,
 ): value is WorkerExecutionSubagentAttributionV1 => {
@@ -596,35 +584,6 @@ const validTools = (
   value: unknown,
 ): value is readonly WorkerExecutionToolAttributionV1[] =>
   Array.isArray(value) && value.every(validToolAttribution);
-
-class WorkerExecutionArtifactCodecError extends Error {
-  constructor() {
-    super('invalid Worker execution artifact');
-    this.name = 'WorkerExecutionArtifactCodecError';
-  }
-}
-
-export const decodeWorkerExecutionArtifact = (
-  bytes: Uint8Array | string,
-): StoredWorkerExecutionArtifact => {
-  try {
-    const text = typeof bytes === 'string'
-      ? bytes
-      : new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    if (!text.endsWith('\n')) throw new WorkerExecutionArtifactCodecError();
-    const body = text.slice(0, -1);
-    const value: unknown = JSON.parse(body);
-    if (
-      !validateWorkerExecutionArtifact(value) ||
-      encodeWorkerExecutionArtifact(value) !== body
-    ) {
-      throw new WorkerExecutionArtifactCodecError();
-    }
-    return structuredClone(value);
-  } catch {
-    throw new WorkerExecutionArtifactCodecError();
-  }
-};
 
 export const workerExecutionOutcome = (
   outcome: LoopOutcome,

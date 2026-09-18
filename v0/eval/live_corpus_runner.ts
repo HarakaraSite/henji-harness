@@ -1,14 +1,7 @@
 import type { ValidatedTaskCorpus } from '../corpus/task_corpus.ts';
 import type { LiveCorpusEvalReportV1, LiveCorpusEvalReportV2 } from './live_corpus_contract.ts';
-import { isRecord } from './live_corpus_value.ts';
-import {
-  serializeLiveCorpusEvalReportV1,
-  validateLiveCorpusEvalReportV1,
-} from './live_corpus_report_v1.ts';
-import {
-  serializeLiveCorpusEvalReportV2,
-  validateLiveCorpusEvalReportV2,
-} from './live_corpus_report_v2.ts';
+import { serializeLiveCorpusEvalReportV1 } from './live_corpus_report_v1.ts';
+import { serializeLiveCorpusEvalReportV2 } from './live_corpus_report_v2.ts';
 
 export {
   CANONICAL_SUITE,
@@ -47,16 +40,6 @@ export {
 export { runLiveCorpusEval, runLiveCorpusEvalV1 } from './live_corpus_execution.ts';
 
 export type LiveCorpusEvalReport = LiveCorpusEvalReportV1 | LiveCorpusEvalReportV2;
-
-export const validateLiveCorpusEvalReport = (
-  value: unknown,
-  corpus: ValidatedTaskCorpus,
-): LiveCorpusEvalReport => {
-  if (isRecord(value) && value.schemaVersion === 1) {
-    return validateLiveCorpusEvalReportV1(value, corpus);
-  }
-  return validateLiveCorpusEvalReportV2(value, corpus);
-};
 
 export const serializeLiveCorpusEvalReport = (
   report: LiveCorpusEvalReport,

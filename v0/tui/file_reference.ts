@@ -336,10 +336,3 @@ export async function buildWorkspacePathIndex(
     }),
   );
 }
-
-export const createWorkspacePathIndex = buildWorkspacePathIndex;
-export const FILE_REFERENCE_MAX_VISITED = MAX_VISITED_ENTRIES;
-export const FILE_REFERENCE_MAX_FILES = MAX_FILES;
-export const FILE_REFERENCE_MAX_PATH_BYTES = MAX_PATH_BYTES;
-export const FILE_REFERENCE_MAX_TOTAL_BYTES = MAX_TOTAL_BYTES;
-export const FILE_REFERENCE_MAX_DEPTH = MAX_DEPTH;

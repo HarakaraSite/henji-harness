@@ -5,9 +5,6 @@ import {
   type InstructionFileSystem,
 } from '../definitions/agent_instructions.ts';
 import { runAgent, runAgentTurn } from '../core/loop.ts';
-import { AgentSession, type SessionPersistence } from '../session/session.ts';
-import { type SessionRecord } from '../session/session_store.ts';
-import { type AgentEventSink } from '../core/events.ts';
 import { type Model } from '../core/contracts.ts';
 import { Registry } from '../tools/tools.ts';
 import {
@@ -174,12 +171,6 @@ export interface RuntimeComposition {
     runtimeProviderRequestCount?: () => number,
     providerEvidence?: ProviderEvidenceRecorder,
   ) => ParentTurnExecutionContext;
-}
-
-export interface RuntimeSessionComposition {
-  readonly session: AgentSession;
-  readonly requestCount: () => number;
-  readonly displayState: RuntimeDisplayState;
 }
 
 const materializationFailure = (value: never): never => {
@@ -527,54 +518,6 @@ export const createRuntimeComposition = async (
 ): Promise<RuntimeComposition> =>
   materializePreparedRuntimeComposition(
     await prepareRuntimeComposition(seam, selection),
-  );
-
-/** Create a session from a previously prepared composition after persistent record checks. */
-export const createRuntimeSessionFromPrepared = (
-  eventSink: AgentEventSink,
-  prepared: PreparedRuntimeComposition,
-  sessionOptions: {
-    readonly persistence?: SessionPersistence;
-    readonly initialRecord?: SessionRecord;
-  } = {},
-): RuntimeSessionComposition => {
-  const composition = materializePreparedRuntimeComposition(prepared);
-  return {
-    session: new AgentSession(composition.model, composition.registry, {
-      agent: prepared.selectionId,
-      maxSteps: composition.resourceSelection.parameters.maxSteps,
-      systemInstruction: composition.systemInstruction,
-      eventSink,
-      createTurnExecutionContext: composition.createTurnExecutionContext,
-      diagnosticPersistence: prepared.seam.diagnosticPersistence,
-      providerEvidenceStore: prepared.seam.providerEvidenceStore,
-      providerRequestCount: composition.requestCount,
-      persistence: sessionOptions.persistence,
-      initialRecord: sessionOptions.initialRecord,
-      summarizeContext: (request, signal) => composition.model.generate(request, { signal }),
-      sourceProfileId: prepared.definition.model.profile.id,
-    }),
-    requestCount: composition.requestCount,
-    displayState: composition.displayState,
-  };
-};
-
-/** Create one in-memory sequential session from one fixed composition. */
-export const createRuntimeSession = async (
-  eventSink: AgentEventSink,
-  seam: RuntimeTestSeam = {},
-  selection: AgentDefinitionAdmission = DEFAULT_AGENT_SELECTION,
-  sessionOptions: {
-    readonly persistence?: SessionPersistence;
-    readonly initialRecord?: SessionRecord;
-  } = {},
-): Promise<
-  RuntimeSessionComposition
-> =>
-  createRuntimeSessionFromPrepared(
-    eventSink,
-    await prepareRuntimeComposition(seam, selection),
-    sessionOptions,
   );
 
 /**

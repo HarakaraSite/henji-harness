@@ -1,4 +1,3 @@
-import { staticBytes } from './terminal.ts';
 import { toolActivityPreview } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
@@ -66,12 +65,6 @@ export const truncateText = (
   return { text: prefix, truncated: true };
 };
 
-export const boundedEscaped = (text: string, options: EscapeOptions = {}): string => {
-  const bounded = truncateText(text);
-  const escaped = escapeTerminalText(bounded.text, options);
-  return bounded.truncated ? `${escaped}… [display truncated]` : escaped;
-};
-
 const shortToolName = (name: string): string => {
   const bounded = truncateText(name, 64);
   return bounded.truncated ? `${bounded.text}…` : bounded.text;
@@ -80,10 +73,3 @@ export const toolCallText = (name: string, args: unknown): string => {
   const preview = toolActivityPreview(name, args);
   return preview.length === 0 ? shortToolName(name) : `${shortToolName(name)} ${preview}`;
 };
-export const toolResultText = (
-  name: string,
-  outcome: 'success' | 'error',
-): string => `${shortToolName(name)} ${outcome === 'success' ? '✓' : '✗'}`;
-
-export const dynamicLine = (prefix: string, value: string): Uint8Array =>
-  staticBytes(`${prefix}${boundedEscaped(value)}\n`);

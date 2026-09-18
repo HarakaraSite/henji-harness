@@ -16,5 +16,3 @@ export const canonicalDomainSeparatedDigest = async (
   );
   return `${prefix}${hex}`;
 };
-
-export const canonicalUtf8Bytes = (value: string): Uint8Array => encoder.encode(value);

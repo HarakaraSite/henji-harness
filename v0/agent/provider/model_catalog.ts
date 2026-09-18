@@ -35,9 +35,6 @@ export type { ModelSelection, ProviderId, ReasoningEffort } from './model_select
 
 export type ProviderModelCatalogEntry = OpenRouterModelCatalogEntry | OpenAIModelCatalogEntry;
 
-/** Built-in provider ids; declared providers are added by `providerIdsForSelection`. */
-export const PROVIDERS: readonly ProviderId[] = BUILTIN_PROVIDER_IDS;
-
 const declaredProviderIds = (): readonly string[] => {
   const seen = new Set<string>();
   return Object.freeze(

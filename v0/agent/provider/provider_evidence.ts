@@ -13,9 +13,6 @@ import {
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
 import { isJsonValue } from './openrouter_value.ts';
 
-/** One retained exchange is owned by one accepted parent turn. */
-export const PROVIDER_EVIDENCE_SCHEMA_VERSION = 5 as const;
-
 export type ProviderEvidenceLane = 'parent' | 'planner';
 /** Identifies whether a retained request belongs to compaction or the user turn. */
 export type ProviderEvidencePhase = 'user_turn' | 'compaction';
@@ -1251,35 +1248,6 @@ export const validateProviderEvidenceV1 = (
     (value.diagnosticId !== undefined && !UUID_V4.test(String(value.diagnosticId)))
   ) return false;
   return true;
-};
-
-export const encodeProviderEvidence = (
-  value: StoredProviderEvidence,
-): string => {
-  if (!validateProviderEvidence(value)) {
-    throw new TypeError('invalid provider evidence');
-  }
-  return JSON.stringify(value);
-};
-
-export const decodeProviderEvidence = (
-  value: string | Uint8Array,
-): StoredProviderEvidence => {
-  let text: string;
-  try {
-    text = typeof value === 'string'
-      ? value
-      : new TextDecoder('utf-8', { fatal: true }).decode(value);
-    const parsed: unknown = JSON.parse(
-      text.endsWith('\n') ? text.slice(0, -1) : text,
-    );
-    if (!validateProviderEvidence(parsed)) {
-      throw new Error('invalid provider evidence');
-    }
-    return structuredClone(parsed);
-  } catch {
-    throw new TypeError('invalid provider evidence');
-  }
 };
 
 export class FakeProviderEvidenceStore implements ProviderEvidenceStore {

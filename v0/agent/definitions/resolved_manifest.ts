@@ -44,7 +44,6 @@ const MANIFEST_DEFINITION_CONTRACTS: Readonly<
     {
       default: Object.freeze({ topologyId: 'default' }),
       planner: Object.freeze({ topologyId: 'planner' }),
-      'default-max-steps-4': Object.freeze({ topologyId: 'default', fixedMaxSteps: 4 }),
     },
   ),
 );
@@ -316,19 +315,4 @@ export const validateAgentResolvedManifestCorrelation = (
     if (error instanceof AgentResolvedManifestError) throw error;
     return invalid();
   }
-};
-
-/** Return the exact identity-bearing payload bytes used by the digest (test-only evidence helper). */
-export const resolvedManifestPayload = (
-  manifest: AgentResolvedManifestV1,
-): Uint8Array => {
-  const validated = validateAgentResourceSelection(Object.freeze({
-    resources: Object.freeze([...manifest.resources]),
-    parameters: Object.freeze({ maxSteps: manifest.parameters.maxSteps }),
-  }));
-  return payloadBytes(
-    manifest.definitionId,
-    validated.resources,
-    validated.parameters.maxSteps,
-  );
 };

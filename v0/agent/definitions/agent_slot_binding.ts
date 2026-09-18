@@ -17,8 +17,6 @@ export type AgentSlot =
   | { readonly kind: 'root'; readonly slot: typeof ROOT_AGENT_SLOT }
   | { readonly kind: 'subagent'; readonly slot: string; readonly name: string };
 
-export const subagentSlot = (name: string): string => `${SUBAGENT_SLOT_PREFIX}${name}`;
-
 /** Parse one slot name; unknown or malformed slots return undefined. */
 export const parseAgentSlot = (value: unknown): AgentSlot | undefined => {
   if (value === ROOT_AGENT_SLOT) return { kind: 'root', slot: ROOT_AGENT_SLOT };
@@ -186,23 +184,6 @@ export const resolveRootAgentSlotBinding = async (
   const selector = file.bindings[ROOT_AGENT_SLOT];
   if (selector === undefined) return undefined;
   const slot = parseAgentSlot(ROOT_AGENT_SLOT)!;
-  return await resolveSlot(new ManagedDefinitionStore({ dataRoot }), slot, selector);
-};
-
-/** Resolve only the delegated `subagent:<name>` activation slot when it is configured. */
-export const resolveSubagentAgentSlotBinding = async (
-  configRoot: string,
-  dataRoot: string,
-  name: string,
-): Promise<ResolvedAgentSlotBinding | undefined> => {
-  const slotValue = subagentSlot(name);
-  const file = await readAgentSlotBindings(configRoot);
-  const selector = file.bindings[slotValue];
-  if (selector === undefined) return undefined;
-  const slot = parseAgentSlot(slotValue);
-  if (slot === undefined || slot.kind !== 'subagent') {
-    throw new AgentBindingError('binding_slot_unknown', 'agent slot is not known', slotValue);
-  }
   return await resolveSlot(new ManagedDefinitionStore({ dataRoot }), slot, selector);
 };
 

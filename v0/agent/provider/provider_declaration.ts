@@ -6,9 +6,6 @@ export const PROVIDER_DECLARATION_DIRECTORY = 'providers' as const;
 
 export type ProviderProtocol = 'openai-chat-completions' | 'openai-responses';
 
-/** Built-in route identities that a declaration may not redefine. */
-export const RESERVED_PROVIDER_IDS: readonly string[] = Object.freeze([]);
-
 /**
  * Built-in provider ids whose declaration may override the model catalog and defaults. The protocol,
  * endpoint, and auth profile must stay identical so a declaration cannot silently change the vendor.

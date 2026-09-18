@@ -2,7 +2,6 @@ import {
   type StoredWorkerExecutionArtifact,
   validateWorkerExecutionArtifact,
   type WorkerExecutionArtifactPersistenceErrorCode,
-  type WorkerExecutionStoreResult,
 } from './worker_execution_artifact.ts';
 
 export type WorkerExecutionArtifactStoreErrorCode =
@@ -66,9 +65,3 @@ export class FakeWorkerExecutionArtifactStore implements WorkerExecutionArtifact
     this.artifacts.set(artifact.executionId, structuredClone(artifact));
   }
 }
-
-export const isWorkerExecutionArtifactStoreError = (
-  error: unknown,
-): error is WorkerExecutionArtifactStoreError => error instanceof WorkerExecutionArtifactStoreError;
-
-export type WorkerExecutionArtifactStoreResult = WorkerExecutionStoreResult;

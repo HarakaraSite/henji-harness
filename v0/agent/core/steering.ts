@@ -99,5 +99,3 @@ export interface SteeringConsumer {
   consume(): string | undefined;
   close(): void;
 }
-
-export const createSteeringOwner = (): SteeringOwner => new SteeringOwner();

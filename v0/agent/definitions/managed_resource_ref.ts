@@ -177,11 +177,3 @@ export const sameDefinitionRevisionRef = (
   left.resourceKind === right.resourceKind && left.resourceId === right.resourceId &&
   left.revision.algorithm === right.revision.algorithm &&
   left.revision.digest === right.revision.digest;
-
-export const sameToolDefinitionRevisionRef = (
-  left: ToolDefinitionRevisionRef,
-  right: ToolDefinitionRevisionRef,
-): boolean =>
-  left.resourceKind === right.resourceKind && left.resourceId === right.resourceId &&
-  left.revision.algorithm === right.revision.algorithm &&
-  left.revision.digest === right.revision.digest;

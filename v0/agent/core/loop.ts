@@ -9,7 +9,6 @@ import {
   type ToolCall,
   type ToolCallContent,
   type ToolMessage,
-  type ToolResultContent,
 } from './contracts.ts';
 import {
   type AgentEventSink,
@@ -86,16 +85,6 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution };
   /** Worker-provided causal source factory used as messages are appended to the transcript. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
-}
-
-/**
- * Step-80-only observation boundary.  This is deliberately not part of the normal loop
- * options or event contract; the comparison runner is the only caller of the observed wrapper.
- */
-export interface AgentComparisonExecutionObserver {
-  readonly modelSettled: (kind: 'final' | 'tool_calls' | 'error' | 'cancelled') => void;
-  readonly toolCallAccepted: (call: ToolCall) => void;
-  readonly toolResultAccepted: (result: ToolResultContent) => void;
 }
 
 const errorText = (error: unknown): string =>
@@ -269,7 +258,6 @@ const runAgentTurnInternal = async (
   committedTranscript: readonly Message[],
   model: Model,
   registry: Registry,
-  observer: AgentComparisonExecutionObserver | undefined,
   options: AgentTurnOptions = {},
 ): Promise<LoopOutcome> => {
   const limit = options.maxSteps ?? 8;
@@ -665,7 +653,6 @@ const runAgentTurnInternal = async (
         throw progressFailure;
       }
       if (isCancellationCleanupError(error)) {
-        observer?.modelSettled('error');
         return finishContractFailure('cancellation cleanup failed', {
           stage: 'cancellation_cleanup',
           code: 'cleanup_error',
@@ -673,10 +660,8 @@ const runAgentTurnInternal = async (
         });
       }
       if (cancellationFrom(error)) {
-        observer?.modelSettled('cancelled');
         return finishCancelled();
       }
-      observer?.modelSettled('error');
       return finishContractFailure(
         `model contract failure: ${errorText(error)}`,
         undefined,
@@ -686,11 +671,9 @@ const runAgentTurnInternal = async (
     progressSettled = true;
     if (progressFailure !== undefined) throw progressFailure;
     if (signal?.aborted) {
-      observer?.modelSettled('cancelled');
       return finishCancelled();
     }
     if (!isModelResult(result)) {
-      observer?.modelSettled('error');
       return finishContractFailure('model contract failure: invalid result', {
         stage: 'model_result_validation',
         code: 'invalid_model_result',
@@ -699,7 +682,6 @@ const runAgentTurnInternal = async (
     evidence?.recordModelResult(result, steps, evidenceLane);
     if (result.kind === 'final') {
       evidence?.setContextRequestOrdinal(undefined);
-      observer?.modelSettled('final');
       const assistant: AssistantMessage = {
         role: 'assistant',
         content: { kind: 'text', text: result.text },
@@ -739,7 +721,6 @@ const runAgentTurnInternal = async (
     }
 
     const calls = snapshot(result.calls);
-    observer?.modelSettled('tool_calls');
     const assistant = assistantToolMessage(calls, result.text, result.providerState);
     const assistantIndex = transcript.length;
     transcript.push(assistant);
@@ -771,7 +752,6 @@ const runAgentTurnInternal = async (
       deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
       toolCallCount += 1;
       evidence?.recordToolCall(call, steps, evidenceLane);
-      observer?.toolCallAccepted(snapshot(call));
       if (signal?.aborted) return finishCancelled();
       if (invalidTerminalBatch) {
         const resultContent = terminalBatchError(call);
@@ -782,7 +762,6 @@ const runAgentTurnInternal = async (
           result: snapshot(resultContent),
         });
         toolResultCount += 1;
-        observer?.toolResultAccepted(snapshot(resultContent));
         evidence?.recordToolResult(resultContent, steps, evidenceLane);
         continue;
       }
@@ -871,7 +850,6 @@ const runAgentTurnInternal = async (
             result: snapshot(plannerResult),
           });
           toolResultCount += 1;
-          observer?.toolResultAccepted(snapshot(plannerResult));
           evidence?.recordToolResult(plannerResult, steps, evidenceLane);
           return finishContractFailure(
             'planner delegation failed',
@@ -905,7 +883,6 @@ const runAgentTurnInternal = async (
         result: snapshot(results.at(-1)!),
       });
       toolResultCount += 1;
-      observer?.toolResultAccepted(snapshot(results.at(-1)!));
       evidence?.recordToolResult(results.at(-1)!, steps, evidenceLane);
     }
     const toolMessage: ToolMessage = { role: 'tool', content: results };
@@ -979,31 +956,6 @@ export const runAgentTurn = async (
       committedTranscript,
       model,
       registry,
-      undefined,
-      options,
-    );
-  } finally {
-    steering?.close();
-  }
-};
-
-/** Execute one turn with the private Step-80 comparison observation boundary enabled. */
-export const runAgentTurnObservedForComparison = async (
-  task: string,
-  committedTranscript: readonly Message[],
-  model: Model,
-  registry: Registry,
-  observer: AgentComparisonExecutionObserver,
-  options: AgentTurnOptions = {},
-): Promise<LoopOutcome> => {
-  const steering = options.steering ?? options.steeringConsumer;
-  try {
-    return await runAgentTurnInternal(
-      task,
-      committedTranscript,
-      model,
-      registry,
-      observer,
       options,
     );
   } finally {

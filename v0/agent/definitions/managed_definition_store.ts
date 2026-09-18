@@ -395,5 +395,3 @@ export class ManagedDefinitionStore {
     );
   }
 }
-
-export const managedDefinitionSummary = summary;

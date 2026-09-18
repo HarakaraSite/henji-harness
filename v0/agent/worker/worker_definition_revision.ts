@@ -35,7 +35,6 @@ export const workerBuiltinModulePath = (
   ).pathname;
 
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
-export const WEB_FETCH_TOOL_IDENTITY = 'tool:web_fetch' as const;
 export const PLANNER_SUBAGENT_NAME = 'planner' as const;
 
 /** Bundled delegated subagent names the Host can resolve without an external binding. */
@@ -116,9 +115,6 @@ export const builtinToolDefinitionRefFor = async (
     buildManifest(),
   );
 };
-
-export const builtinWebSearchToolDefinitionRef = async (): Promise<ToolDefinitionRevisionRef> =>
-  await builtinToolDefinitionRefFor(WEB_SEARCH_TOOL_IDENTITY);
 
 /** Bundled tool Definition load request for one identity. */
 export const bundledToolDefinitionLoadRequest = async (

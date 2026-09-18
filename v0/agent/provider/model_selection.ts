@@ -17,10 +17,6 @@ export const BUILTIN_PROVIDER_IDS: readonly string[] = Object.freeze([
   'openai-responses',
 ]);
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
-export type ProviderApi =
-  | 'openrouter-chat-completions'
-  | 'openrouter-responses'
-  | 'openai-responses';
 export type AuthProfileId = 'openrouter-api-key' | 'openai-api-key';
 export type CredentialAvailabilityStatus = 'present' | 'missing' | 'unknown';
 

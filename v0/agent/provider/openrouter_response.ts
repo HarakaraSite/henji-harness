@@ -285,15 +285,6 @@ export const withResponseStatus = (
   );
 };
 
-export const sseTransportError = (): OpenRouterAgentError =>
-  new OpenRouterAgentError(
-    'transport_error',
-    'provider response stream failed',
-    1,
-    undefined,
-    { stage: 'transport', code: 'transport_error' },
-  );
-
 export const providerTimeoutError = (): OpenRouterAgentError =>
   new OpenRouterAgentError(
     'provider_timeout',

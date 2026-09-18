@@ -4,40 +4,6 @@ import { type SessionMetadata, type SessionRecord } from './session_store.ts';
 import { type ContextMetrics } from '../core/context.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 
-export const SESSION_PICKER_PAGE_SIZE = 8;
-
-export interface PickerSelection {
-  readonly selected: number;
-  readonly page: number;
-}
-
-/** Keep picker selection inside the page that is currently rendered. */
-export const movePickerSelection = (
-  count: number,
-  selected: number,
-  page: number,
-  direction: 'up' | 'down' | 'left' | 'right',
-): PickerSelection => {
-  const total = Math.max(0, Number.isSafeInteger(count) ? count : 0);
-  const pageCount = Math.max(1, Math.ceil(total / SESSION_PICKER_PAGE_SIZE));
-  const boundedPage = Math.max(0, Math.min(pageCount - 1, page));
-  if (total === 0) return { selected: 0, page: boundedPage };
-  const first = boundedPage * SESSION_PICKER_PAGE_SIZE;
-  const last = Math.min(total - 1, first + SESSION_PICKER_PAGE_SIZE - 1);
-  let nextPage = boundedPage;
-  let nextSelected = selected >= first && selected <= last ? selected : first;
-  if (direction === 'left') nextPage = Math.max(0, boundedPage - 1);
-  if (direction === 'right') nextPage = Math.min(pageCount - 1, boundedPage + 1);
-  if (direction === 'left' || direction === 'right') {
-    nextSelected = Math.min(total - 1, nextPage * SESSION_PICKER_PAGE_SIZE);
-  } else if (direction === 'up') {
-    nextSelected = nextSelected === first ? last : nextSelected - 1;
-  } else if (direction === 'down') {
-    nextSelected = nextSelected === last ? first : nextSelected + 1;
-  }
-  return { selected: nextSelected, page: nextPage };
-};
-
 export interface NavigationSessionLike {
   submit(text: string): Promise<LoopOutcome>;
   cancelActiveTurn?(): 'requested' | 'already_requested' | 'idle';

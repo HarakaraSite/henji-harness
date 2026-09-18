@@ -43,10 +43,6 @@ import {
   finalizeRootAgentComposition,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
-import {
-  freshRuntimeComparisonCase,
-  runFreshRuntimeComparison,
-} from '../../v0/agent/validation/fresh_runtime_comparison.ts';
 import type { WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import { createWebSearchTool } from '../../v0/agent/tools/web_search.ts';
 import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
@@ -669,21 +665,6 @@ Deno.test('workspace display keeps a short physical path and bounds a long path 
   assert(displayed.startsWith('…'));
   assert(displayed.endsWith('/henji-harness'));
   assert(new TextEncoder().encode(displayed).byteLength <= 96);
-});
-
-Deno.test('fresh runtime comparison keeps the current 64 versus variant 4 axis', async () => {
-  const result = await runFreshRuntimeComparison(freshRuntimeComparisonCase);
-  assertEquals({
-    currentMaxSteps: result.current.maxSteps,
-    variantMaxSteps: result.variant.maxSteps,
-    currentState: result.current.state,
-    variantState: result.variant.state,
-  }, {
-    currentMaxSteps: 64,
-    variantMaxSteps: 4,
-    currentState: 'completed',
-    variantState: 'stopped',
-  });
 });
 
 Deno.test('production definitions and saved messages use the expanded text ceilings', () => {

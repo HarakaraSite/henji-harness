@@ -23,9 +23,6 @@ export const selectWorkerHenjiBaseInstruction = (
   selectedBase = structuredClone(selection);
 };
 
-export const selectedWorkerHenjiBaseInstruction = (): SelectedHenjiBaseInstruction =>
-  structuredClone(selectedBase);
-
 const exactSelector = (selection: SelectedHenjiBaseInstruction): string =>
   `${selection.selectionSource}:${selection.ref.resourceKind}:${selection.ref.resourceId}@${selection.ref.revision.algorithm}:${selection.ref.revision.digest}`;
 

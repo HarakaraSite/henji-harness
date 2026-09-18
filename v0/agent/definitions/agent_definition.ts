@@ -21,9 +21,6 @@ export interface AgentModelDefinition {
   readonly profile: OpenRouterAgentProfile;
 }
 
-/** Compatibility name for callers that only need the current adapter's profile shape. */
-export type OpenRouterModelDefinition = AgentModelDefinition;
-
 /**
  * The effective capability declaration of one Definition.
  *
