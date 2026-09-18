@@ -2,6 +2,20 @@
 
 ## Records
 
+### Review follow-up — root slot binding適用と第三者review指摘対応（完了）
+
+- 第三者review（独立reviewer×2、read-only）をIncrement 65〜68に対して実施。実利用経路を壊すregressionは無し。
+- F1（Should）: `agent:default` root slot bindingが解決・検証されるだけで未適用だったため、**適用を実装**。
+  `resolveRequestedDefinition`が明示selector無しのときroot bindingをmanaged parent rootとして解決。優先順位は
+  「明示selector > 再開/継続Sessionの保存ref > `agent:default` binding > bundled default」。selector解析を
+  `v0/agent/definitions/definition_selector.ts`へ分離し循環importを回避。実装commit`e0ab97ee`。
+- F2（Should, doc）: plannerのmodel/effort差し替えは未対応のためincrement-65の要求文を是正（instruction/toolsは
+  対応）。F3（Nit）: `AgentBindingError`を`DefinitionStartupError`へ写像しtyped表示。F4（Nit）: 未使用
+  `PLANNER_PROFILE`を削除。test名/ハードコードも修正。`increment_65`にroot binding testを追加（計10件）。
+  authoritative `v0:gate` exit 0。
+- JSR release prep: `jsr.json`を`0.2.0`へbumpし、`publish.include`をmod.tsのmodule graphに合わせて更新（
+  `deno publish --dry-run`成功）。commit`ebf879a2`。binary`0.2.0`を再配置。JSR publishはauth待ち。
+
 ### Increment 68 — provider id整列とbuilt-in id移行（完了）
 
 - 状態: 2026-09-18に修正・検証・binary配置まで完了。
@@ -108,18 +122,18 @@
   - architecture（`henji-host-agent-worker.md`）へactivation-level slot authority・composition seam・保証範囲を追記、
     roadmapのProvider外部化節（65、69、70の内容・順序）を更新（正本更新、別項目）。
   - 未決メモ: Definition-manifest dependency bindingとmanifest/activation bindingの優先・競合規則は後続。
-- 次: Increment 65〜68はコード・正本・検証・binary配置まで完了。次はroadmapの予定どおりIncrement 69
-  （web-search subagent化）、70（tool same-identity override）。
-- 正本: `docs/increments/increment-67.md`、`increment-66.md`、`increment-65.md`、`increment-51.md`〜
-  `increment-64.md`、`docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
-- 注意: 直前の配置はIncrement 68（実装`fb066aa4`／配置は本commit、binary SHA-256
-  `e5a97e963d2f9ebdf4bfb6f1778d01bace0acda3ab88aaa87804c6c9ceba31a7`、build=`cb0ced4cde802f05ae2e6a7776c2ce93e2d3577f95ace3db8a7a3a2d18a9a454`、
-  embedded runtime=`c665e31aaeb352670278af8ebe359e35c415ba14a47ded2d58ac1e9b5c7f052`、source`fb066aa4…`、`sourceDirty=false`）。
-  直前はIncrement 67（binary SHA-256 `4e0bc0ac…`）、66（`fc584309…`）、65（`02081658…`）、64（`e0642d4c…`）。
+- 次: Increment 65〜68とreview follow-upはコード・正本・検証・binary配置まで完了。次はroadmapの予定どおり
+  Increment 69（web-search subagent化）、70（tool same-identity override）。
+- 正本: `docs/increments/increment-68.md`、`increment-67.md`、`increment-66.md`、`increment-65.md`、
+  `increment-51.md`〜`increment-64.md`、`docs/experience/normal-use-inbox.md`、`docs/roadmap.md`のProvider外部化節。
+- 注意: 直前の配置は`0.2.0`（実装`ebf879a2`／配置は本commit、binary SHA-256
+  `a797a83db7ea5b7a7940e45c28dbca56ef6cabfe59bea2ce7ff0e415a3be9b07`、build=`425a21be50fd52d7b3fcead60c3dccc8ce59c55319deffc0229caf69452dd32d`、
+  embedded runtime=`65a331ca9cc8501450bd2c24a9d2135df4795af5ec34e2b4d08482a4fecf5143`、source`ebf879a2…`、`sourceDirty=false`）。
+  直前はIncrement 68（binary `e5a97e96…`）、67（`4e0bc0ac…`）、66（`fc584309…`）、65（`02081658…`）。
   active external revisionは`local/henji-base@sha256:82d67dd2…`。宣言providerは`providers/*.json`、既定selectionは
   `default-selection.json`。built-in provider idは`openrouter-chat`/`openrouter-responses`/`openai-chat`/
   `openai-responses`（旧`openrouter`/`openai`は削除、互換aliasなし）。宣言providerのprotocolは
   `openai-chat-completions`または`openai-responses`（binary-owned fixed enum）。OpenAI Chat Completionsはfunction
   tools併用時に`reasoning_effort`が`none`以外で400（`openai-chat`のsol/luna/terraは既定`none`、gpt-6-astraは
   `none`を持たずtool turn不可）。
-  未実施: tag、Forgejo Release、JSR publish（JSR latestは0.1.3）。
+  未実施: tag、Forgejo Release、JSR publish（`0.2.0`をprep済み・`deno publish --dry-run`成功。publishはJSR auth待ち。JSR latestは`0.1.3`）。
