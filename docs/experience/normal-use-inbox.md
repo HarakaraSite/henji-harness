@@ -15,7 +15,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
-| S6 | Surface | busy表示のspinner化 | busy中の視認性をblink以外の表現で保ちたい |
 | S7 | Surface | web_fetch実行時の取得URL表示 | 通常利用でtool activityから取得先URLを確認したい |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
@@ -73,16 +72,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   比較候補にする。
 - 再検討条件: plain textでは意味・可読性を安定して保てない回答が観測されること。string出力contractを
   変える場合はF10/F24として構想・architectureへ戻る。
-
-### S6 — busy表示のspinner化（F01、F10）
-
-- 観測（2026-09-18）: busy中はfooter 1行目の`busy`/`cancelling`をblink（`BLINK_SGR`）と経過時間で表示する。
-  利用者はblinkではなくspinner表示を希望した。
-- 候補: busyの視認を、terminal styleのblinkではなく周期更新されるspinner文字へ変える。spinnerのframe集合、
-  更新間隔、経過時間併記、cancel中の見え方、blink tokenを前提にしたlayout／テストの扱いを決める。terminal styleは
-  最終frameだけに加え、Presentation eventやcanonical transcriptへ混入させない。
-- 再検討条件: busyの視認性が通常利用で問題になる、またはblink非対応/抑制terminalでの表示を改善したいとき。
-- 関連: roadmap F01の一時status行と二行footer。
 
 ### S7 — web_fetch実行時の取得URL表示（F01、F02、F10）
 

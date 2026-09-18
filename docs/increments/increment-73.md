@@ -1,6 +1,6 @@
 # Increment 73 — busy表示を`working`＋spinnerへ変更
 
-ステータス: **実装完了（offline gate pass。手動表示確認・binary配置は未実施）**
+ステータス: **実装完了（offline gate pass、pty表示確認・binary配置済み）**
 
 基準commit: `a598a616`
 

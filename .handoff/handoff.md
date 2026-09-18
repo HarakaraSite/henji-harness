@@ -96,22 +96,23 @@
   属性はfollow-up。Definitionは`createModel('planner', selection)`で自モデルを選べる）。他候補は
   `docs/experience/normal-use-inbox.md`のE2に記録。
 
-### Increment 73 — busy表示を`working`＋spinnerへ（実装完了、手動確認・binary配置は未実施）
+### Increment 73 — busy表示を`working`＋spinnerへ（完了）
 
 - 状態: 実装完了。`v0:gate` exit 0。footer busy表示を`busy`＋blinkから`working`＋braille spinner
   （`BUSY_SPINNER_FRAMES`、120ms周期）へ変更。`cancelling`・経過時間・`Esc cancel`は維持。`state.ts`に
   `busySpinnerFrame`／`busy_spinner`、`tui_renderer.ts`のbusy timerを120msへ、`layout.ts`からbusy blinkを削除。
   terminal styleは最終frameのみ（busyでは`BLINK_SGR`不使用）。
-  `tests/v0/tui_retained_terminal_test.ts`のbusy footer testを更新。
-- 次: 手動表示確認（pty等）、commit、binary build・配置。roadmap F01と`docs/experience/normal-use-inbox.md` S6の
-  正本更新は別承認。
+- pty確認（2026-09-18）: isolated XDGでinstalled binaryのTUIをpty起動し、task投入中に`working`表示とspinner
+  frame（3種）を観測、`BLINK_SGR`は出力に現れなかった。
+- 正本更新: `docs/roadmap.md` F01関連を`working`＋spinnerへ、`docs/experience/normal-use-inbox.md`のS6を採用済み
+  として削除（increment-73へ移管）。
 - 正本: `docs/increments/increment-73.md`。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `de6a6327e5550d739e0512a488d8da05bf7a5aa7bc60c2fa30aef9e3317b17e9`、binary SHA-256
-  `7c4335ae3b510f2ab73e163f2c0d701f751f5904a5f22b88c0ecdfa9a2a4cb16`、embedded runtime
-  `c422ff9590f2e25a3b972d38ae3c01bfe6c1367ec4f9a4d128a98211dfadfe82`、source`47760705`・`sourceDirty=false`）。
+- binary: `0.2.1`（build `1cafc161a751c7854c4e63426e5b650b13b64d7cad95fabec1138baa07ee0c0f`、binary SHA-256
+  `60f6904de9b5ea23a08af15498ca82716f6622f68fe50a10d57238c2acee955a`、embedded runtime
+  `705c7126de2ccb716b544050eb398aa504c815d9db895f9ba376bdc296a73457`、source`010cd959`・`sourceDirty=false`）。
   installed launcher `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
