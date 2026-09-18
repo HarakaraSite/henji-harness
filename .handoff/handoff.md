@@ -59,7 +59,7 @@
 - 注意: 追加toolを使うには、それを宣言したAgent Definition（bundled defaultまたはexternal）と、tool Definition
   のinstall/bindが必要。bundled moduleが無いidentityはexternal binding必須（無ければtyped failure）。
 
-### Increment 71 — 組み込みwork toolのtool Definition統一（実装完了、実provider probe未実施）
+### Increment 71 — 組み込みwork toolのtool Definition統一（実装完了、実provider probe受入済み）
 
 - 状態: 実装完了。`v0:gate` exit 0。`bash`／`bash_output`／`edit`／`read`／`write`をbundled tool Definition
   （`worker_builtin_*_tool.ts`）へ移し、`BUNDLED_TOOL_DEFINITIONS`（7 identity）とcompile ROOTSへ登録。固定
@@ -68,19 +68,19 @@
   もHost供給`toolDefinitions`を使う。非Host呼出側（legacy `runtime.ts`・直接registry呼出／test）はcomponentを自分で
   構築する（test用`tests/v0/bundled_tool_components.ts`を追加）。core-owned tool（`skill`／`delegate_to_planner`／
   `submit_json_result`）はDefinition化しない。
+- 実provider probe（利用者許可、2026-09-18）: isolated XDGの`henji run`でmodelが`bash`（`echo HELLO_I71`）と
+  `read`（AGENTS.md 1-3行）を呼び、stdoutと本文・continuation noticeを得て`I71_PROBE_OK`、exit 0。
 - 検証: 既存置換test／fixtureをtool Definition経路へ作り替え（`fixtures/increment_33/replacement/`削除、
   `increment_33`はmanaged tool Definitionを`tools.json`で`tool:read`へbind、`current_code_test`は
   `input.toolDefinitions`差し替え）。`v0:check`／`fmt`／`lint`／`v0:gate` exit 0。
-- 次: 実provider probe（bash/readを含む1 turn。実行直前に別途許可）、binary build・配置。
+- 次: tool Definition transportと任意kindの一般化（後続increment）。
 - 正本: `docs/increments/increment-71.md`。architecture（`henji-host-agent-worker.md`）とroadmapへ反映済み。
-- 注意: bundled tool Definition以外のidentityは`tools.json` bindingが必須。tool Definition transportと任意kindの
-  一般化は後続。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`（build `6f800498f2affac6b62e78827ab8a2add20d4e67455fea636c61bf056332cfcf`、binary SHA-256
-  `32d69ecd15de406a64cc26c18ffd570d3bff3d91fcb83ddee205cfbcb0b4a009`、embedded runtime
-  `6ecffc914646e15c95e058eed62cea723f2ee29693f23c13a09c554fff0691d7`、source`a149a148`・`sourceDirty=false`）。
+- binary: `0.2.1`（build `579362a82b210935f64f1c235ebc8eae66aec2a0e42f00d80e6ea7611a246461`、binary SHA-256
+  `eb2b6abf6a2fcbc198cc565c1a1b14ef0ee7f2b2885b47f9b398f7ee459db909`、embedded runtime
+  `f758fe8f5201671fff821428a8a8d5bcbbd9e968f52c7e59efd6b9ae23b84a45`、source`3a4e4f45`・`sourceDirty=false`）。
   installed launcher `~/.local/bin/henji`。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
