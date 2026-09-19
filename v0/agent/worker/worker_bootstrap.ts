@@ -72,9 +72,10 @@ const post = (message: WorkerToHostMessage): void => scope.postMessage(message);
 const runtimeEvent = (
   correlation: WorkerCorrelation,
   event: WorkerRuntimeEvent,
-): void => {
+): number => {
   eventSequence += 1;
   post({ kind: 'runtime_event', correlation, sequence: eventSequence, event });
+  return eventSequence;
 };
 
 const withDigestQuery = (specifier: string, digest: string): string =>
@@ -136,7 +137,9 @@ const loadVerifiedModuleFunction = async (
     }
     const digest = await digestHex(source);
     if (source.byteLength !== file.sourceBytes || digest !== expectedDigest) {
-      throw new Error('module pre-read identity did not match the Host revision');
+      throw new Error(
+        'module pre-read identity did not match the Host revision',
+      );
     }
     return source;
   };
@@ -254,6 +257,7 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       sequence: eventSequence,
       effect,
     });
+    return eventSequence;
   },
   providerObservation: (
     correlation: WorkerCorrelation,
@@ -261,7 +265,14 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     turn: number,
   ) => {
     eventSequence += 1;
-    post({ kind: 'provider_observation', correlation, sequence: eventSequence, turn, observation });
+    post({
+      kind: 'provider_observation',
+      correlation,
+      sequence: eventSequence,
+      turn,
+      observation,
+    });
+    return eventSequence;
   },
   contextObservation: (correlation, observation) => {
     eventSequence += 1;
@@ -269,8 +280,9 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       kind: 'context_observation',
       correlation,
       sequence: eventSequence,
-      observation: { kind: 'model_request', request: observation },
+      observation: { kind: 'model_request_delta', delta: observation },
     });
+    return eventSequence;
   },
   checkpointProposal: async (correlation, proposal, signal) => {
     post(proposal);
@@ -318,7 +330,10 @@ const createGeneration = async (
   const skillCatalog = await discoverSkills(workspace.root);
   const requestCounter = createWorkerRequestCounter();
   const physicalIo = physicalIoMode === 'production'
-    ? createProductionPhysicalIo(requestCounter, { providerTimeoutMs, providerDeclarations })
+    ? createProductionPhysicalIo(requestCounter, {
+      providerTimeoutMs,
+      providerDeclarations,
+    })
     : createProviderFreePhysicalIo();
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
   const rootRouter: Model = {
@@ -357,7 +372,9 @@ const createGeneration = async (
       ? {}
       : { toolDefinitions: toolComponents.map((tool) => tool.component) }),
   });
-  if (returnedComposition === undefined || typeof returnedComposition !== 'object') {
+  if (
+    returnedComposition === undefined || typeof returnedComposition !== 'object'
+  ) {
     throw new Error('Worker Definition did not return a composition');
   }
   let composition = finalizeWorkerInstructionComposition(
@@ -369,7 +386,10 @@ const createGeneration = async (
   if (toolComponents.length > 0) {
     composition = finalizeWorkerToolAttribution(
       composition,
-      toolComponents.map((tool) => ({ toolIdentity: tool.toolIdentity, ref: tool.ref })),
+      toolComponents.map((tool) => ({
+        toolIdentity: tool.toolIdentity,
+        ref: tool.ref,
+      })),
     );
   }
   const contextSnapshot: WorkerContextSnapshot = Object.freeze({
@@ -380,7 +400,9 @@ const createGeneration = async (
     }),
     skillCatalog: Object.freeze({
       ...(skillCatalog.manifest === undefined ? {} : { manifest: skillCatalog.manifest }),
-      skills: Object.freeze(skillCatalog.skills.map((skill) => structuredClone(skill))),
+      skills: Object.freeze(
+        skillCatalog.skills.map((skill) => structuredClone(skill)),
+      ),
     }),
     instructionComponents: Object.freeze(
       (composition.instructionComponents ?? []).map((component) => structuredClone(component)),
@@ -533,7 +555,8 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         }
       }
       generation = workerGeneration;
-      const credentialAvailability = await workerGeneration?.rootCredentialAvailability();
+      const credentialAvailability = await workerGeneration
+        ?.rootCredentialAvailability();
       post({
         kind: 'ready',
         correlation: command.correlation,
@@ -582,7 +605,11 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         });
         return;
       }
-      await generation.runTurn(command.correlation, command.task, command.recalledContext);
+      await generation.runTurn(
+        command.correlation,
+        command.task,
+        command.recalledContext,
+      );
       return;
     case 'steer':
       generation?.steerActiveTurn(command.text);

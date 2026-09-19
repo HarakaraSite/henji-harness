@@ -7,8 +7,11 @@ import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import {
   canonicalJson,
   contextManifestDigest,
+  type ContextModelRequestDelta,
   type ContextModelRequestRecord,
-  createExecutionContextManifest,
+  contextOccurrenceDigest,
+  contextRevisionDigest,
+  createExecutionContextManifest as createV2ExecutionContextManifest,
   jsonBlob,
   textBlob,
   validateContextModelRequestRecord,
@@ -204,39 +207,47 @@ class SkillCanonicalCapsule implements WorkerHostCapsule {
       for (const listener of this.listeners) listener(event);
     };
     const port: WorkerGenerationPort = {
-      runtimeEvent: (correlation, event) =>
+      runtimeEvent: (correlation, event) => {
         correlationPort({
           kind: 'runtime_event',
           correlation,
           sequence: ++this.sequence,
           event: { kind: 'agent_event', event },
-        }),
-      effectObservation: (correlation, effect) =>
+        });
+        return this.sequence;
+      },
+      effectObservation: (correlation, effect) => {
         correlationPort({
           kind: 'effect_observation',
           correlation,
           sequence: ++this.sequence,
           effect,
-        }),
+        });
+        return this.sequence;
+      },
       providerObservation: (
         correlation,
         observation: ProviderEvidenceObservation,
         turn,
-      ) =>
+      ) => {
         correlationPort({
           kind: 'provider_observation',
           correlation,
           sequence: ++this.sequence,
           turn,
           observation,
-        }),
-      contextObservation: (correlation, observation) =>
+        });
+        return this.sequence;
+      },
+      contextObservation: (correlation, observation) => {
         correlationPort({
           kind: 'context_observation',
           correlation,
           sequence: ++this.sequence,
-          observation: { kind: 'model_request', request: observation },
-        }),
+          observation: { kind: 'model_request_delta', delta: observation },
+        });
+        return this.sequence;
+      },
       checkpointProposal: (
         _correlation: WorkerCorrelation,
         _proposal: WorkerCheckpointProposalMessage,
@@ -487,7 +498,74 @@ const contextRequest = async (): Promise<ContextModelRequestRecord> => {
   };
 };
 
-const largeActiveContextRequest = async (): Promise<ContextModelRequestRecord> => {
+const contextDelta = async (
+  request: ContextModelRequestRecord,
+): Promise<ContextModelRequestDelta> => {
+  const occurrences = await Promise.all(request.items.map(async (item) => {
+    const sourceRelations = (item.sourceRelations ?? []).map((source) => {
+      const {
+        requestOrdinal: _requestOrdinal,
+        sourceEventOrdinal,
+        ...relation
+      } = source;
+      return {
+        ...relation,
+        ...(sourceEventOrdinal === undefined ? {} : { sourceWorkerSequence: sourceEventOrdinal }),
+      };
+    });
+    const occurrence = {
+      occurrenceId: `test:${request.lane}:${request.requestOrdinal}:${item.ordinal}`,
+      kind: item.kind,
+      content: item.content,
+      sourceRelations,
+    } as const;
+    return {
+      ...occurrence,
+      occurrenceDigest: await contextOccurrenceDigest(occurrence),
+      ...(item.bytesBase64 === undefined ? {} : { bytesBase64: item.bytesBase64 }),
+    };
+  }));
+  const splices = [{
+    start: 0,
+    deleteCount: 0,
+    insertions: occurrences.map((occurrence) => ({
+      occurrenceId: occurrence.occurrenceId,
+      occurrenceDigest: occurrence.occurrenceDigest,
+    })),
+  }];
+  const revisionInput = {
+    lane: request.lane,
+    purpose: request.purpose,
+    resultItemCount: occurrences.length,
+    splices,
+  } as const;
+  return {
+    schemaVersion: 2,
+    requestOrdinal: request.requestOrdinal,
+    lane: request.lane,
+    purpose: request.purpose,
+    modelStep: request.modelStep,
+    ...(request.modelSelection === undefined ? {} : { modelSelection: request.modelSelection }),
+    ...(request.sourceCallId === undefined ? {} : { sourceCallId: request.sourceCallId }),
+    revisionDigest: await contextRevisionDigest(revisionInput),
+    resultItemCount: occurrences.length,
+    splices,
+    occurrences,
+  };
+};
+
+const createExecutionContextManifest = async (
+  requests: readonly ContextModelRequestRecord[],
+  externalRelations: Parameters<typeof createV2ExecutionContextManifest>[1] = [],
+) =>
+  await createV2ExecutionContextManifest(
+    await Promise.all(requests.map(contextDelta)),
+    externalRelations,
+  );
+
+const largeActiveContextRequest = async (): Promise<
+  ContextModelRequestRecord
+> => {
   const base = await contextRequest();
   const message = await jsonBlob({
     role: 'user',
@@ -518,12 +596,13 @@ const largeActiveContextRequest = async (): Promise<ContextModelRequestRecord> =
   };
 };
 
-const appendContextRequest = (
+const appendContextRequest = async (
   store: SqliteHistoryStore,
   executionId: string,
   request: ContextModelRequestRecord,
   sequence = 1,
-): void => {
+): Promise<ContextModelRequestDelta> => {
+  const delta = await contextDelta(request);
   store.appendExecutionEvent({
     executionId,
     direction: 'worker_to_host',
@@ -534,9 +613,10 @@ const appendContextRequest = (
       kind: 'context_observation',
       correlation: eventCorrelation,
       sequence,
-      observation: { kind: 'model_request', request },
+      observation: { kind: 'model_request_delta', delta },
     },
   });
+  return delta;
 };
 
 const settled = {
@@ -641,31 +721,45 @@ Deno.test('Increment 42 preserves duplicate message occurrences with explicit so
             lane: 'parent',
             modelStep: 1,
             requestOrdinal: 1,
+            sourceEventOrdinal: 1,
           }],
         },
         duplicate,
         { ...original.items[2], ordinal: 4 },
       ],
     };
-    appendContextRequest(store, executionId, request);
+    store.appendExecutionEvent({
+      executionId,
+      direction: 'worker_to_host',
+      source: 'worker',
+      kind: 'runtime_event',
+      workerSequence: 1,
+      payload: {
+        kind: 'runtime_event',
+        correlation: eventCorrelation,
+        sequence: 1,
+        event: {
+          kind: 'agent_event',
+          event: {
+            kind: 'user_message',
+            turn: 1,
+            message: {
+              role: 'user',
+              content: { kind: 'text', text: 'capture exact context' },
+            },
+          },
+        },
+      },
+    });
+    await appendContextRequest(store, executionId, request, 2);
     const validManifest = await createExecutionContextManifest([request]);
-    const movedItems = validManifest.requests[0].items.map((item, index) =>
-      index === 1
-        ? validManifest.requests[0].items[2]
-        : index === 2
-        ? validManifest.requests[0].items[1]
-        : item
-    );
-    const movedSourceRelations = movedItems.flatMap((item) => item.relations);
     const movedBody = {
       schemaVersion: validManifest.schemaVersion,
       requestCount: validManifest.requestCount,
       requests: [{
         ...validManifest.requests[0],
-        items: movedItems,
-        sourceRelations: movedSourceRelations,
+        revisionDigest: `sha256:${'b'.repeat(64)}`,
       }],
-      relations: movedSourceRelations,
       externalRelations: validManifest.externalRelations,
     } as const;
     const movedManifest = {
@@ -699,7 +793,7 @@ Deno.test('Increment 42 preserves duplicate message occurrences with explicit so
       messages[0].content.digest,
       messages[0].content.digest,
     ]);
-    const identities = context.relations
+    const identities = messages.flatMap((item) => item.sourceRelations ?? [])
       .filter((relation) => relation.resourceKind === 'message' && relation.logicalIdentity)
       .map((relation) => relation.logicalIdentity);
     assert(identities.includes('current-task:session:turn:1'));
@@ -732,6 +826,7 @@ Deno.test('Increment 42 carries checkpoint and recall provenance with projected 
   let proposal:
     | import('../../v0/agent/worker/worker_protocol.ts').WorkerCommitProposalMessage
     | undefined;
+  const observedDeltas: ContextModelRequestDelta[] = [];
   const model: Model = {
     generate(): ModelResult {
       return { kind: 'final', text: 'answer' };
@@ -740,6 +835,10 @@ Deno.test('Increment 42 carries checkpoint and recall provenance with projected 
   const port: WorkerGenerationPort = {
     runtimeEvent: () => {},
     effectObservation: () => {},
+    contextObservation: (_correlation, delta) => {
+      observedDeltas.push(structuredClone(delta));
+      return undefined;
+    },
     checkpointProposal: () => Promise.resolve(false),
     commitProposal: (_correlation, value) => {
       proposal = structuredClone(value);
@@ -792,9 +891,10 @@ Deno.test('Increment 42 carries checkpoint and recall provenance with projected 
     recalled,
   );
   assert(proposal?.contextManifest !== undefined);
-  const sourceIdentities = proposal.contextManifest.relations.map((relation) =>
-    relation.logicalIdentity
+  const sourceRelations = observedDeltas.flatMap((delta) =>
+    delta.occurrences.flatMap((occurrence) => occurrence.sourceRelations)
   );
+  const sourceIdentities = sourceRelations.map((relation) => relation.logicalIdentity);
   assert(
     sourceIdentities.some((identity) => identity?.startsWith('checkpoint:')),
   );
@@ -805,11 +905,12 @@ Deno.test('Increment 42 carries checkpoint and recall provenance with projected 
   assert(
     sourceIdentities.some((identity) => identity?.startsWith('current-task:')),
   );
-  const request = proposal.contextManifest.requests[0];
+  const request = observedDeltas[0];
   assert(request !== undefined);
   assertEquals(
-    request.sourceRelations.map((relation) => relation.logicalIdentity),
-    proposal.contextManifest.relations.map((relation) => relation.logicalIdentity),
+    request.occurrences.flatMap((occurrence) => occurrence.sourceRelations)
+      .map((relation) => relation.logicalIdentity),
+    sourceIdentities,
   );
 });
 
@@ -840,16 +941,16 @@ Deno.test('Increment 42 attributes delegated planner requests and internal skill
     assert(execution !== undefined);
     const context = store.listExecutionContext(execution.executionId);
     assert(context.requests.some((request) => request.lane === 'planner'));
+    const plannerSources = context.requests
+      .filter((request) => request.lane === 'planner')
+      .flatMap((request) => request.items)
+      .flatMap((item) => item.sourceRelations ?? []);
     assert(
-      context.relations.some((relation) =>
-        relation.lane === 'planner' &&
-        (relation.stage === 'projected' || relation.stage === 'loaded' ||
-          relation.stage === 'observed')
-      ),
+      plannerSources.some((relation) => relation.lane === 'planner'),
       'planner context relations were not attributed to the child lane',
     );
     assert(
-      context.relations.some((relation) =>
+      plannerSources.some((relation) =>
         relation.lane === 'planner' &&
         relation.logicalIdentity?.includes(':lane:planner:call:') &&
         relation.callId !== undefined
@@ -917,24 +1018,29 @@ Deno.test('Increment 42 completes canonical skill provenance across two model re
     assertEquals(execution.lifecycle, 'settled');
     assertEquals(execution.adoption, 'canonical');
     assertEquals(execution.contextCapture, 'complete');
-    const relations = store.listExecutionContext(execution.executionId).relations;
+    const storedContext = store.listExecutionContext(execution.executionId);
+    const relations = storedContext.relations;
+    const projected = storedContext.requests.flatMap((request) => request.items)
+      .flatMap((item) => item.sourceRelations ?? [])
+      .filter((relation) => relation.stage === 'projected');
     const observed = relations.filter((relation) =>
       relation.stage === 'observed' && relation.resourceKind === 'tool_result'
     );
     const loaded = relations.filter((relation) =>
       relation.stage === 'loaded' && relation.resourceKind === 'skill'
     );
-    const projected = relations.filter((relation) =>
-      relation.stage === 'projected' && relation.resourceKind === 'skill'
-    );
     assertEquals(observed.length, 1);
     assertEquals(loaded.length, 1);
-    assertEquals(projected.length, 1);
+    assertEquals(
+      projected.filter((relation) => relation.resourceKind === 'skill').length,
+      1,
+    );
     assertEquals(loaded[0]?.logicalIdentity, 'skill:second');
-    assertEquals(projected[0]?.logicalIdentity, 'skill:second');
+    const projectedSkill = projected.find((relation) => relation.resourceKind === 'skill');
+    assertEquals(projectedSkill?.logicalIdentity, 'skill:second');
     assertEquals(loaded[0]?.callId, 'skill-canonical-call');
-    assertEquals(projected[0]?.callId, 'skill-canonical-call');
-    assertEquals(loaded[0]?.contentDigest, projected[0]?.contentDigest);
+    assertEquals(projectedSkill?.callId, 'skill-canonical-call');
+    assertEquals(loaded[0]?.contentDigest, projectedSkill?.contentDigest);
     assertEquals(observed[0]?.contentDigest, loaded[0]?.contentDigest);
     assertEquals(
       relations.filter((relation) =>
@@ -1063,7 +1169,10 @@ Deno.test('Increment 42 preserves the exact external tool contract on every requ
       canonicalJson(payload.request.request?.tools as never),
       canonicalJson([presentedTool] as never),
     );
-    const relations = store.listExecutionContext(execution.executionId).relations;
+    const storedContext = store.listExecutionContext(execution.executionId);
+    const relations = storedContext.relations;
+    const projectedRelations = storedContext.requests.flatMap((request) => request.items)
+      .flatMap((item) => item.sourceRelations ?? []);
     assertEquals(
       relations.filter((relation) =>
         relation.callId === 'replacement-call' &&
@@ -1073,7 +1182,7 @@ Deno.test('Increment 42 preserves the exact external tool contract on every requ
       1,
     );
     assertEquals(
-      relations.filter((relation) =>
+      projectedRelations.filter((relation) =>
         relation.callId === 'replacement-call' &&
         relation.stage === 'projected' &&
         relation.resourceKind === 'tool_result'
@@ -1197,7 +1306,16 @@ Deno.test('Increment 42 keeps one observed skill occurrence across repeated proj
     assertEquals(execution.lifecycle, 'settled');
     assertEquals(execution.adoption, 'canonical');
     assertEquals(execution.contextCapture, 'complete');
-    const relations = store.listExecutionContext(execution.executionId).relations;
+    const storedContext = store.listExecutionContext(execution.executionId);
+    const relations = storedContext.relations;
+    const projectedByRequest = storedContext.requests.flatMap((request) =>
+      request.items.flatMap((item) =>
+        (item.sourceRelations ?? []).map((relation) => ({
+          relation,
+          requestOrdinal: request.requestOrdinal,
+        }))
+      )
+    );
     const skillObserved = relations.filter((relation) =>
       relation.callId === 'repeated-skill-call' &&
       relation.stage === 'observed' &&
@@ -1208,7 +1326,7 @@ Deno.test('Increment 42 keeps one observed skill occurrence across repeated proj
       relation.stage === 'loaded' &&
       relation.resourceKind === 'skill'
     );
-    const skillProjected = relations.filter((relation) =>
+    const skillProjected = projectedByRequest.filter(({ relation }) =>
       relation.callId === 'repeated-skill-call' &&
       relation.stage === 'projected' &&
       relation.resourceKind === 'skill'
@@ -1218,7 +1336,7 @@ Deno.test('Increment 42 keeps one observed skill occurrence across repeated proj
       relation.stage === 'observed' &&
       relation.resourceKind === 'tool_result'
     );
-    const genericProjected = relations.filter((relation) =>
+    const genericProjected = projectedByRequest.filter(({ relation }) =>
       relation.callId === 'repeated-generic-call' &&
       relation.stage === 'projected' &&
       relation.resourceKind === 'tool_result'
@@ -1228,7 +1346,7 @@ Deno.test('Increment 42 keeps one observed skill occurrence across repeated proj
     assertEquals(skillObserved[0]?.requestOrdinal, 1);
     assertEquals(skillLoaded[0]?.requestOrdinal, 1);
     assertEquals(skillProjected.length, 2);
-    assertEquals(skillProjected.map((relation) => relation.requestOrdinal), [
+    assertEquals(skillProjected.map(({ requestOrdinal }) => requestOrdinal), [
       2,
       3,
     ]);
@@ -1396,29 +1514,33 @@ Deno.test('Increment 42 captures maximum model context and exposes diagnostic re
       }),
     );
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const databasePath = `${paths.root}/history-v4.sqlite3`;
+    const databasePath = `${paths.root}/history-v5.sqlite3`;
     const db = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      const payloads = db.prepare(`SELECT
-        coalesce(sum(length(request_json)), 0) AS request_json_bytes,
-        coalesce(sum(length(provider_body)), 0) AS provider_body_bytes
-        FROM model_requests WHERE execution_id = ?`).get(execution.executionId) as {
-        readonly request_json_bytes: number;
-        readonly provider_body_bytes: number;
+      const requestRows = db.prepare(`SELECT count(*) AS count
+        FROM model_requests WHERE execution_id = ?`).get(
+        execution.executionId,
+      ) as {
+        readonly count: number;
       };
       const blobBytes = Number(
-        (db.prepare(`SELECT coalesce(sum(byte_length), 0) AS bytes FROM context_blobs`).get() as {
+        (db.prepare(
+          `SELECT coalesce(sum(byte_length), 0) AS bytes FROM context_blobs`,
+        ).get() as {
           readonly bytes: number;
         }).bytes,
       );
-      assertEquals(Number(payloads.request_json_bytes), 0);
-      assertEquals(Number(payloads.provider_body_bytes), 0);
+      assertEquals(Number(requestRows.count), 1);
+      const requestColumns = (db.prepare('PRAGMA table_info(model_requests)').all() as {
+        readonly name: string;
+      }[]).map((column) => column.name);
+      assert(!requestColumns.includes('request_json'));
+      assert(!requestColumns.includes('provider_body'));
       console.info(JSON.stringify({
         increment: 50,
         maximumContextDatabaseBytes: (await Deno.stat(databasePath)).size,
         uniqueContextBlobBytes: blobBytes,
-        requestJsonBytes: Number(payloads.request_json_bytes),
-        providerBodyBytes: Number(payloads.provider_body_bytes),
+        normalizedRequestRows: Number(requestRows.count),
       }));
     } finally {
       db.close();
@@ -1471,10 +1593,10 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
     const input = makeInput(workspaceRoot, executionId, taskId);
     await store.beginExecution(input);
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const countsBefore = (() => {
-      const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
       try {
         return {
           modelRequests: Number(
@@ -1483,12 +1605,18 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
             ).get(executionId) as { readonly count: number }).count,
           ),
           compactObservation: (() => {
-            const row = db.prepare(`SELECT payload_json FROM execution_observations
-              WHERE execution_id = ? AND kind = 'context_observation'`).get(executionId) as {
+            const row = db.prepare(
+              `SELECT payload_json FROM execution_observations
+              WHERE execution_id = ? AND kind = 'context_observation'`,
+            ).get(executionId) as {
               readonly payload_json: string;
             };
-            const marker = JSON.parse(row.payload_json) as Record<string, unknown>;
-            return !('observation' in marker) && !row.payload_json.includes('bytesBase64');
+            const marker = JSON.parse(row.payload_json) as Record<
+              string,
+              unknown
+            >;
+            return !('observation' in marker) &&
+              !row.payload_json.includes('bytesBase64');
           })(),
           contextRelations: Number(
             (db.prepare(
@@ -1526,11 +1654,11 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
     assertEquals(payload.capture, 'partial');
     assertEquals(payload.requests.length, 1);
     assert(payload.requests[0]?.request !== undefined);
-    assert(payload.relations.some((relation) => relation.stage === 'projected'));
+    assertEquals(payload.requests[0]?.items.length, 3);
     assertEquals(store.readExecution(executionId).lifecycle, 'active');
     assertEquals(store.readExecution(executionId).contextCapture, 'none');
     const countsAfter = (() => {
-      const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
       try {
         return {
           modelRequests: Number(
@@ -1559,7 +1687,9 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
 });
 
 Deno.test('Increment 42 permits a concurrent active journal append during diagnostics', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i42-active-concurrent-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i42-active-concurrent-',
+  });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
@@ -1617,7 +1747,9 @@ Deno.test('Increment 42 permits a concurrent active journal append during diagno
     const waiters = workerWaiters.get(message.kind as 'ready' | 'result');
     waiters?.shift()?.(message);
   };
-  const waitForWorker = (kind: 'ready' | 'result'): Promise<Record<string, unknown>> =>
+  const waitForWorker = (
+    kind: 'ready' | 'result',
+  ): Promise<Record<string, unknown>> =>
     new Promise((resolve) => {
       const waiters = workerWaiters.get(kind) ?? [];
       waiters.push(resolve);
@@ -1627,10 +1759,14 @@ Deno.test('Increment 42 permits a concurrent active journal append during diagno
   try {
     await store.initialize();
     await store.beginExecution(makeInput(workspaceRoot, executionId, taskId));
-    appendContextRequest(store, executionId, await largeActiveContextRequest());
+    await appendContextRequest(
+      store,
+      executionId,
+      await largeActiveContextRequest(),
+    );
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const contextCounts = () => {
-      const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
       try {
         return {
           modelRequests: Number(
@@ -1695,7 +1831,7 @@ Deno.test('Increment 42 missing final manifest leaves the live row unsettled', a
     const input = makeInput(workspaceRoot, executionId, taskId);
     await store.beginExecution(input);
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     let rejected = false;
     try {
       store.settleNonCanonicalExecution({ ...input, outcome: settled });
@@ -1770,7 +1906,7 @@ Deno.test('Increment 42 settles a Worker missing-manifest proposal as failed wit
   }
 });
 
-Deno.test('Increment 42 stores immutable basis, ordered request items, and projected relations in schema v4', async () => {
+Deno.test('Increment 42 stores immutable basis and ordered revision items in schema v5', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i42-context-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -1783,7 +1919,7 @@ Deno.test('Increment 42 stores immutable basis, ordered request items, and proje
     const input = makeInput(workspaceRoot, executionId, taskId);
     await store.beginExecution(input);
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     store.settleNonCanonicalExecution({
       ...input,
       contextManifest: await createExecutionContextManifest([request]),
@@ -1813,10 +1949,6 @@ Deno.test('Increment 42 stores immutable basis, ordered request items, and proje
         relation.resourceKind === 'tool_contract'
       ),
     );
-    assert(
-      context.relations.filter((relation) => relation.stage === 'projected')
-        .length >= 3,
-    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -1835,13 +1967,13 @@ Deno.test('Increment 42 rejects a tampered context blob without mutable-source f
     const input = makeInput(workspaceRoot, executionId, taskId);
     await store.beginExecution(input);
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     store.settleNonCanonicalExecution({
       ...input,
       contextManifest: await createExecutionContextManifest([request]),
       outcome: settled,
     });
-    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v4.sqlite3`;
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v5.sqlite3`;
     const db = new DatabaseSync(path);
     try {
       const row = db.prepare(
@@ -1875,6 +2007,64 @@ Deno.test('Increment 42 rejects a tampered context blob without mutable-source f
   }
 });
 
+Deno.test('Increment 89 settlement validates normalized occurrence sources', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i89-source-tamper-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const executionId = '20000000-0000-4000-8000-000000000089';
+  const taskId = '10000000-0000-4000-8000-000000000089';
+  try {
+    await store.initialize();
+    const input = makeInput(workspaceRoot, executionId, taskId);
+    await store.beginExecution(input);
+    const baseRequest = await contextRequest();
+    const request: ContextModelRequestRecord = {
+      ...baseRequest,
+      items: baseRequest.items.map((item) =>
+        item.kind === 'message'
+          ? {
+            ...item,
+            sourceRelations: [{
+              stage: 'projected',
+              resourceKind: 'message',
+              logicalIdentity: 'canonical:source-before-tamper',
+            }],
+          }
+          : item
+      ),
+    };
+    await appendContextRequest(store, executionId, request);
+    const path = `${(await sessionPaths(stateRoot, workspaceRoot)).root}/history-v5.sqlite3`;
+    const db = new DatabaseSync(path);
+    try {
+      const changed = db.prepare(`
+        UPDATE context_occurrence_sources SET logical_identity = 'tampered-source'
+        WHERE execution_id = ? AND source_ordinal = 1
+      `).run(executionId);
+      assert(Number(changed.changes) > 0);
+    } finally {
+      db.close();
+    }
+    let invalid = false;
+    try {
+      store.settleNonCanonicalExecution({
+        ...input,
+        contextManifest: await createExecutionContextManifest([request]),
+        outcome: settled,
+      });
+    } catch (error) {
+      invalid = error instanceof HistoryStoreError &&
+        error.code === 'history_invalid';
+    }
+    assert(invalid, 'tampered normalized occurrence source was accepted');
+    assertEquals(store.readExecution(executionId).lifecycle, 'active');
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
 Deno.test('Increment 42 refuses malformed context events and schema-v2 evidence without partial settlement', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i42-invalid-' });
   const workspaceRoot = `${root}/workspace`;
@@ -1888,16 +2078,25 @@ Deno.test('Increment 42 refuses malformed context events and schema-v2 evidence 
     const input = makeInput(workspaceRoot, executionId, taskId);
     await store.beginExecution(input);
     const request = await contextRequest();
+    const malformedDelta = await contextDelta(request);
     let rejected = false;
     try {
-      appendContextRequest(
-        store,
+      store.appendExecutionEvent({
         executionId,
-        {
-          ...request,
-          items: [{ ...request.items[0], unknown: true }],
-        } as never,
-      );
+        direction: 'worker_to_host',
+        source: 'worker',
+        kind: 'context_observation',
+        workerSequence: 1,
+        payload: {
+          kind: 'context_observation',
+          correlation: eventCorrelation,
+          sequence: 1,
+          observation: {
+            kind: 'model_request_delta',
+            delta: { ...malformedDelta, unknown: true } as never,
+          },
+        },
+      });
     } catch (error) {
       rejected = error instanceof HistoryStoreError &&
         error.code === 'history_invalid';
@@ -1959,7 +2158,7 @@ Deno.test('Increment 42 rejects complete evidence with logical requests but no p
     const input = makeInput(workspaceRoot, executionId, taskId);
     await store.beginExecution(input);
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     const evidence = {
       schemaVersion: 5 as const,
       evidenceId: '40000000-0000-4000-8000-000000000046',
@@ -2012,7 +2211,7 @@ Deno.test('Increment 42 only marks a skill loaded for its accepted skill call', 
       skill.name === 'inspect'
     )!;
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     store.appendExecutionEvent({
       executionId,
       direction: 'worker_to_host',
@@ -2062,6 +2261,7 @@ Deno.test('Increment 42 only marks a skill loaded for its accepted skill call', 
       contextManifest: await createExecutionContextManifest([request], [{
         stage: 'observed',
         resourceKind: 'tool_result',
+        logicalIdentity: `tool-result:${sessionId}:turn:1:call:skill-call`,
         contentDigest: (await textBlob(inspect.toolResult)).digest,
         callId: 'skill-call',
         lane: 'parent',
@@ -2095,7 +2295,7 @@ Deno.test('Increment 42 materializes planner provider tool and loaded-skill rela
       skill.name === 'inspect'
     )!;
     const request = await contextRequest();
-    appendContextRequest(store, executionId, request);
+    await appendContextRequest(store, executionId, request);
     store.appendExecutionEvent({
       executionId,
       direction: 'worker_to_host',
@@ -2157,6 +2357,7 @@ Deno.test('Increment 42 materializes planner provider tool and loaded-skill rela
       contextManifest: await createExecutionContextManifest([request], [{
         stage: 'observed',
         resourceKind: 'tool_result',
+        logicalIdentity: `tool-result:${sessionId}:turn:1:call:planner-skill-call`,
         contentDigest: (await textBlob(inspect.toolResult)).digest,
         callId: 'planner-skill-call',
         lane: 'planner',
@@ -2224,8 +2425,8 @@ Deno.test('Increment 42 keys provider tool attribution by lane and call identity
       lane: 'planner',
       modelStep: 2,
     };
-    appendContextRequest(store, executionId, parentRequest, 1);
-    appendContextRequest(store, executionId, plannerRequest, 2);
+    await appendContextRequest(store, executionId, parentRequest, 1);
+    await appendContextRequest(store, executionId, plannerRequest, 2);
     const providerEvents = [
       {
         kind: 'tool_call' as const,
@@ -2339,6 +2540,7 @@ Deno.test('Increment 42 keys provider tool attribution by lane and call identity
       {
         stage: 'observed',
         resourceKind: 'tool_result',
+        logicalIdentity: `tool-result:${sessionId}:turn:1:call:shared-lane-call`,
         contentDigest: inspectDigest,
         callId: 'shared-lane-call',
         lane: 'parent',
@@ -2359,6 +2561,7 @@ Deno.test('Increment 42 keys provider tool attribution by lane and call identity
       {
         stage: 'observed',
         resourceKind: 'tool_result',
+        logicalIdentity: `tool-result:${sessionId}:turn:1:call:shared-lane-call`,
         contentDigest: unusedDigest,
         callId: 'shared-lane-call',
         lane: 'planner',
@@ -2443,10 +2646,6 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
           schemaVersion: manifest.schemaVersion,
           requestCount: manifest.requestCount,
           requests: manifest.requests,
-          relations: [
-            ...manifest.relations,
-            manifest.externalRelations[1],
-          ],
           externalRelations,
         } as const;
         return { ...body, digest: await contextManifestDigest(body) };
@@ -2463,7 +2662,6 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
           schemaVersion: manifest.schemaVersion,
           requestCount: manifest.requestCount,
           requests: manifest.requests,
-          relations: externalRelations,
           externalRelations,
         } as const;
         return { ...body, digest: await contextManifestDigest(body) };
@@ -2480,7 +2678,6 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
           schemaVersion: manifest.schemaVersion,
           requestCount: manifest.requestCount,
           requests: manifest.requests,
-          relations: externalRelations,
           externalRelations,
         } as const;
         return { ...body, digest: await contextManifestDigest(body) };
@@ -2497,10 +2694,6 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
           schemaVersion: manifest.schemaVersion,
           requestCount: manifest.requestCount,
           requests: manifest.requests,
-          relations: [
-            ...manifest.relations.slice(0, -manifest.externalRelations.length),
-            ...externalRelations,
-          ],
           externalRelations,
         } as const;
         return { ...body, digest: await contextManifestDigest(body) };
@@ -2522,7 +2715,7 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
       const input = makeInput(workspaceRoot, executionId, taskId);
       await store.beginExecution(input);
       const request = await contextRequest();
-      appendContextRequest(store, executionId, request);
+      await appendContextRequest(store, executionId, request);
       const inspect = input.contextSnapshot!.skillCatalog.skills.find((skill) =>
         skill.name === 'inspect'
       )!;
@@ -2569,6 +2762,7 @@ Deno.test('Increment 42 rejects incomplete or conflicting final tool relations',
       const observed = {
         stage: 'observed' as const,
         resourceKind: 'tool_result' as const,
+        logicalIdentity: `tool-result:${sessionId}:turn:1:call:${call.call.callId}`,
         contentDigest: (await textBlob(inspect.toolResult)).digest,
         callId: call.call.callId,
         lane: 'parent' as const,
@@ -2711,7 +2905,9 @@ Deno.test('Increment 42 selects a duplicate-content skill by call argument and e
     command: 'turn-1',
   }, 'load second');
   assert(proposal?.contextManifest !== undefined);
-  const loaded = proposal.contextManifest.relations.find((relation) => relation.stage === 'loaded');
+  const loaded = proposal.contextManifest.externalRelations.find((relation) =>
+    relation.stage === 'loaded'
+  );
   assertEquals(loaded?.logicalIdentity, 'skill:second');
   assertEquals(
     loaded?.contentDigest,
@@ -2933,7 +3129,9 @@ Deno.test('Increment 42 attributes the exact web-search call before credential a
 });
 
 Deno.test('Increment 42 commits a batch of web searches with parent tool-effect attribution', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i42-web-search-batch-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i42-web-search-batch-',
+  });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
@@ -3044,10 +3242,15 @@ Deno.test('Increment 42 commits a batch of web searches with parent tool-effect 
         { ordinal: 5, purpose: 'user_turn', sourceCallId: undefined },
       ],
     );
-    const observed = store.listExecutionContext(execution.executionId).relations.filter((
-      relation,
-    ) => relation.stage === 'observed' && relation.resourceKind === 'tool_result');
-    assertEquals(observed.map((relation) => relation.requestOrdinal), [1, 1, 1]);
+    const observed = store.listExecutionContext(execution.executionId).relations
+      .filter((
+        relation,
+      ) => relation.stage === 'observed' && relation.resourceKind === 'tool_result');
+    assertEquals(observed.map((relation) => relation.requestOrdinal), [
+      1,
+      1,
+      1,
+    ]);
   } finally {
     await host?.close();
     await Deno.remove(root, { recursive: true });

@@ -206,13 +206,17 @@ export type ProviderEvidenceV5 =
   | (Omit<ProviderEvidenceV4Complete, 'schemaVersion' | 'requests'> & {
     readonly schemaVersion: 5;
     readonly requests: readonly (ProviderEvidenceRequestRecord & {
-      readonly request: ProviderEvidenceRequest & { readonly contextRequestOrdinal: number };
+      readonly request: ProviderEvidenceRequest & {
+        readonly contextRequestOrdinal: number;
+      };
     })[];
   })
   | (Omit<ProviderEvidenceV4Partial, 'schemaVersion' | 'requests'> & {
     readonly schemaVersion: 5;
     readonly requests: readonly (ProviderEvidenceRequestRecord & {
-      readonly request: ProviderEvidenceRequest & { readonly contextRequestOrdinal: number };
+      readonly request: ProviderEvidenceRequest & {
+        readonly contextRequestOrdinal: number;
+      };
     })[];
   });
 
@@ -390,7 +394,8 @@ const validProviderMetadata = (
       record.origin === 'web_search') &&
     (record.provider === undefined || validText(record.provider)) &&
     (record.api === undefined || record.api === 'openrouter-chat-completions' ||
-      record.api === 'openrouter-responses' || record.api === 'openai-chat-completions' ||
+      record.api === 'openrouter-responses' ||
+      record.api === 'openai-chat-completions' ||
       record.api === 'openai-responses') &&
     (record.modelId === undefined || validText(record.modelId)) &&
     (record.effort === undefined || record.effort === 'auto' ||
@@ -429,7 +434,8 @@ const validProviderState = (value: unknown): boolean =>
     Array.isArray(value.reasoningDetails) &&
     value.reasoningDetails.every(isJsonValue)
   ) || (
-    isRecord(value) && typeof value.provider === 'string' && value.provider.length > 0 &&
+    isRecord(value) && typeof value.provider === 'string' &&
+    value.provider.length > 0 &&
     hasExactKeys(value, ['provider', 'replayItems'], ['model']) &&
     Array.isArray(value.replayItems) && value.replayItems.every(isJsonValue) &&
     (value.model === undefined ||
@@ -761,7 +767,7 @@ export class ProviderEvidenceRecorder {
     private readonly store?: ProviderEvidenceDraftStore,
     private readonly observationSink?: (
       observation: ProviderEvidenceObservation,
-    ) => void,
+    ) => number | undefined,
   ) {}
 
   setContextRequestOrdinal(ordinal: number | undefined): void {
@@ -780,10 +786,12 @@ export class ProviderEvidenceRecorder {
       requestBody: input.requestBody,
       requestBodyBytes: encoder.encode(input.requestBody).byteLength,
       requestMetadata: { ...(input.requestMetadata ?? {}) },
-      ...(input.contextRequestOrdinal === undefined && this.contextRequestOrdinal === undefined
+      ...(input.contextRequestOrdinal === undefined &&
+          this.contextRequestOrdinal === undefined
         ? {}
         : {
-          contextRequestOrdinal: input.contextRequestOrdinal ?? this.contextRequestOrdinal,
+          contextRequestOrdinal: input.contextRequestOrdinal ??
+            this.contextRequestOrdinal,
         }),
     };
     this.records.push({
@@ -1177,12 +1185,17 @@ const validV5Evidence = (record: Record<string, unknown>): boolean => {
   ) {
     return false;
   }
-  const legacy = { ...record, schemaVersion: 4 } as unknown as Record<string, unknown>;
+  const legacy = { ...record, schemaVersion: 4 } as unknown as Record<
+    string,
+    unknown
+  >;
   if (!validV4Evidence(legacy)) return false;
   if (!Array.isArray(record.requests)) return false;
   for (const item of record.requests) {
     const request = (item as Record<string, unknown>).request;
-    if (!isRecord(request) || !validPositiveInteger(request.contextRequestOrdinal)) return false;
+    if (
+      !isRecord(request) || !validPositiveInteger(request.contextRequestOrdinal)
+    ) return false;
   }
   return true;
 };
@@ -1235,17 +1248,23 @@ export const validateProviderEvidenceV1 = (
   if (
     !hasExactKeys(value, required, optional) || value.schemaVersion !== 1 ||
     !UUID_V4.test(String(value.evidenceId)) ||
-    !validPositiveInteger(value.turnNumber) || !validTimestamp(value.createdAt) ||
-    !Array.isArray(value.requests) || !value.requests.every(validRequestRecord) ||
-    !Array.isArray(value.runtimeEvents) || !value.runtimeEvents.every(validRuntimeEvent) ||
+    !validPositiveInteger(value.turnNumber) ||
+    !validTimestamp(value.createdAt) ||
+    !Array.isArray(value.requests) ||
+    !value.requests.every(validRequestRecord) ||
+    !Array.isArray(value.runtimeEvents) ||
+    !value.runtimeEvents.every(validRuntimeEvent) ||
     value.requests.some((request, index) => request.request.ordinal !== index + 1) ||
     (value.turnProviderRequestCount !== undefined &&
       !validNonNegativeInteger(value.turnProviderRequestCount)) ||
     (value.runtimeProviderRequestCount !== undefined &&
       !validNonNegativeInteger(value.runtimeProviderRequestCount)) ||
     (value.outcome !== undefined &&
-      !PROVIDER_STOP_REASONS.includes(value.outcome as LoopOutcome['stopReason'])) ||
-    (value.diagnosticId !== undefined && !UUID_V4.test(String(value.diagnosticId)))
+      !PROVIDER_STOP_REASONS.includes(
+        value.outcome as LoopOutcome['stopReason'],
+      )) ||
+    (value.diagnosticId !== undefined &&
+      !UUID_V4.test(String(value.diagnosticId)))
   ) return false;
   return true;
 };

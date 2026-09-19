@@ -76,7 +76,7 @@ import type {
   ExecutionEventPayloadByKind,
 } from '../history/history_store_contract.ts';
 import {
-  type ExecutionContextManifestV1,
+  type ExecutionContextManifestV2,
   validateWorkerContextSnapshot,
 } from '../history/context_attribution.ts';
 import {
@@ -108,25 +108,34 @@ const validStartupSnapshot = (
   ) return false;
   return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
     new Set(value.skillNames).size === value.skillNames.length &&
-    (value.context === undefined || validateWorkerContextSnapshot(value.context));
+    (value.context === undefined ||
+      validateWorkerContextSnapshot(value.context));
 };
 const validBaseInstructionManifest = (
   value:
-    | NonNullable<NonNullable<WorkerReadyMessage['manifest']>['baseInstruction']>
+    | NonNullable<
+      NonNullable<WorkerReadyMessage['manifest']>['baseInstruction']
+    >
     | undefined,
   selected: SelectedHenjiBaseInstruction | undefined,
 ): boolean => {
   if (selected === undefined) {
     return value === undefined || value.selectionSource === 'built-in';
   }
-  if (value === undefined || typeof value !== 'object' || value === null) return false;
-  return value.slot === selected.slot && value.selectionSource === selected.selectionSource &&
-    value.contentDigest === selected.contentDigest && isHenjiInstructionRevisionRef(value.ref) &&
+  if (value === undefined || typeof value !== 'object' || value === null) {
+    return false;
+  }
+  return value.slot === selected.slot &&
+    value.selectionSource === selected.selectionSource &&
+    value.contentDigest === selected.contentDigest &&
+    isHenjiInstructionRevisionRef(value.ref) &&
     JSON.stringify(value.ref) === JSON.stringify(selected.ref);
 };
 
-const toolAttributionKey = (toolIdentity: string, ref: ToolDefinitionRevisionRef): string =>
-  `${toolIdentity}:${ref.resourceId}@sha256:${ref.revision.digest}`;
+const toolAttributionKey = (
+  toolIdentity: string,
+  ref: ToolDefinitionRevisionRef,
+): string => `${toolIdentity}:${ref.resourceId}@sha256:${ref.revision.digest}`;
 
 const validToolManifest = (
   value: NonNullable<WorkerReadyMessage['manifest']>['tools'],
@@ -494,7 +503,11 @@ export class WorkerHostSession {
             },
         });
       } else if (event.kind === 'tool_call') {
-        this.deliver({ kind: 'tool_call', turn, call: structuredClone(event.call) });
+        this.deliver({
+          kind: 'tool_call',
+          turn,
+          call: structuredClone(event.call),
+        });
       } else if (event.kind === 'tool_progress') {
         this.deliver({
           kind: 'tool_progress',
@@ -504,7 +517,11 @@ export class WorkerHostSession {
           text: event.text,
         });
       } else if (event.kind === 'tool_result') {
-        this.deliver({ kind: 'tool_result', turn, result: structuredClone(event.result) });
+        this.deliver({
+          kind: 'tool_result',
+          turn,
+          result: structuredClone(event.result),
+        });
       }
       return;
     }
@@ -580,7 +597,9 @@ export class WorkerHostSession {
    */
   private bufferWorkerObservation(input: ExecutionEventInput): boolean {
     const history = this.options.historyPersistence;
-    if (history === undefined || this.activeExecution === undefined) return true;
+    if (history === undefined || this.activeExecution === undefined) {
+      return true;
+    }
     if (!history.validateExecutionEvent(input)) return false;
     this.observationBuffer.push(
       input.observedAt === undefined ? { ...input, observedAt: new Date().toISOString() } : input,
@@ -613,7 +632,10 @@ export class WorkerHostSession {
     if (this.observationBuffer.length === 0 || this.flushingObservations) {
       return true;
     }
-    const batch = this.observationBuffer.splice(0, this.observationBuffer.length);
+    const batch = this.observationBuffer.splice(
+      0,
+      this.observationBuffer.length,
+    );
     this.flushingObservations = true;
     try {
       history.appendExecutionEvents(batch);
@@ -1111,7 +1133,7 @@ export class WorkerHostSession {
     outcome: LoopOutcome,
     providerEvidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
-    contextManifest?: ExecutionContextManifestV1,
+    contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
     if (this.options.historyPersistence !== undefined) {
       try {
@@ -1181,7 +1203,12 @@ export class WorkerHostSession {
               this.projection.transcript,
               'durable execution settlement failed',
             ),
-            diagnostic ?? this.contextContractDiagnostic(execution, providerEvidence, outcome),
+            diagnostic ??
+              this.contextContractDiagnostic(
+                execution,
+                providerEvidence,
+                outcome,
+              ),
             providerEvidence,
             outcome,
           );
@@ -1328,17 +1355,24 @@ export class WorkerHostSession {
       }
       if (
         ready.manifest === undefined ||
-        !sameModelSelection(ready.manifest.rootModel, this.projection.modelSelection) ||
+        !sameModelSelection(
+          ready.manifest.rootModel,
+          this.projection.modelSelection,
+        ) ||
         !sameModelSelection(
           ready.manifest.plannerModel,
           roleDefaultModelSelection('subagent:planner'),
         ) ||
-        ready.manifest.profileId !== modelRouteProfileId(this.projection.modelSelection) ||
+        ready.manifest.profileId !==
+          modelRouteProfileId(this.projection.modelSelection) ||
         !validBaseInstructionManifest(
           ready.manifest.baseInstruction,
           this.options.baseInstruction,
         ) ||
-        !validToolManifest(ready.manifest.tools, this.options.toolDefinitions) ||
+        !validToolManifest(
+          ready.manifest.tools,
+          this.options.toolDefinitions,
+        ) ||
         (this.options.rootMaxSteps !== undefined &&
           ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
         !validStartupSnapshot(ready.startupSnapshot) ||
@@ -1463,7 +1497,9 @@ export class WorkerHostSession {
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
     }
-    if (sameModelSelection(this.projection.modelSelection, selection)) return 'unchanged';
+    if (sameModelSelection(this.projection.modelSelection, selection)) {
+      return 'unchanged';
+    }
     const changedAt = new Date().toISOString();
     const nextChanges: SessionModelChange[] = [
       ...structuredClone(this.projection.modelChanges),
@@ -1544,7 +1580,9 @@ export class WorkerHostSession {
     if (this.closed || this.unavailable) return 'unavailable';
     if (this.active || this.currentCorrelation !== undefined) return 'busy';
     const title = normalizeSessionTitle(value);
-    if (title.length === 0 || title === this.projection.title) return 'unchanged';
+    if (title.length === 0 || title === this.projection.title) {
+      return 'unchanged';
+    }
     const changedAt = new Date().toISOString();
     const nextRevision = this.projection.stateRevision + 1;
     const persisted: SessionRecordV6 = {
@@ -1793,7 +1831,9 @@ export class WorkerHostSession {
             executionAdmissionDurability: 'failed',
             executionAdmissionPersistenceError: historyFailure,
           };
-          this.deliver(turnEndFromOutcome(this.projection.nextTurn, failed, false));
+          this.deliver(
+            turnEndFromOutcome(this.projection.nextTurn, failed, false),
+          );
           return failed;
         }
       }
@@ -1833,7 +1873,9 @@ export class WorkerHostSession {
           undefined,
           undefined,
         );
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        );
         return settled;
       }
       const message = await this.messages.wait((
@@ -1860,19 +1902,27 @@ export class WorkerHostSession {
           diagnostic?.stage === 'cancellation_cleanup' &&
           diagnostic.code === 'cleanup_error'
         ) this.markUnavailable();
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        );
         return settled;
       }
       if (message.kind === 'worker_error') {
         this.markUnavailable();
-        const outcome = failedOutcome(task, this.projection.transcript, message.message);
+        const outcome = failedOutcome(
+          task,
+          this.projection.transcript,
+          message.message,
+        );
         const settled = await this.settleExecution(
           execution,
           outcome,
           undefined,
           undefined,
         );
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        );
         return settled;
       }
       if (!sameCorrelation(message.correlation, correlation)) {
@@ -1892,7 +1942,9 @@ export class WorkerHostSession {
           message.diagnostic,
           message.contextManifest,
         );
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        );
         return settled;
       }
       const record = this.proposalRecord(message);
@@ -1912,7 +1964,9 @@ export class WorkerHostSession {
           message.diagnostic,
           message.contextManifest,
         );
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        );
         return settled;
       }
       const proposedOutcome = message.outcome === undefined
@@ -2081,7 +2135,13 @@ export class WorkerHostSession {
             proposedOutcome,
           );
           if (failedSettlement !== undefined) {
-            this.deliver(turnEndFromOutcome(this.projection.nextTurn, failedSettlement, false));
+            this.deliver(
+              turnEndFromOutcome(
+                this.projection.nextTurn,
+                failedSettlement,
+                false,
+              ),
+            );
             return failedSettlement;
           }
         }
@@ -2091,10 +2151,14 @@ export class WorkerHostSession {
           message.providerEvidence,
           diagnostic,
         );
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        );
         return settled;
       }
-      this.projection.transcript = structuredClone(record.transcript) as Message[];
+      this.projection.transcript = structuredClone(
+        record.transcript,
+      ) as Message[];
       this.projection.nextTurn = record.nextTurn;
       this.projection.stateRevision = record.stateRevision;
       this.projection.turnModels = structuredClone(
@@ -2121,7 +2185,9 @@ export class WorkerHostSession {
           execution,
           committed,
         );
-        this.deliver(turnEndFromOutcome(this.projection.nextTurn - 1, settled, true));
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn - 1, settled, true),
+        );
         return settled;
       }
       let workerError: WorkerErrorMessage | undefined;
@@ -2146,7 +2212,9 @@ export class WorkerHostSession {
         ? 'committed'
         : 'committed_generation_unavailable';
       const settled = await this.persistExecutionArtifact(execution, committed);
-      this.deliver(turnEndFromOutcome(this.projection.nextTurn - 1, settled, true));
+      this.deliver(
+        turnEndFromOutcome(this.projection.nextTurn - 1, settled, true),
+      );
       return settled;
     } catch (error) {
       const outcome = failedOutcome(
@@ -2161,7 +2229,9 @@ export class WorkerHostSession {
         undefined,
         undefined,
       );
-      this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+      this.deliver(
+        turnEndFromOutcome(this.projection.nextTurn, settled, false),
+      );
       return settled;
     } finally {
       this.activeExecution = undefined;

@@ -14,7 +14,9 @@ const INDEX = 'execution_observations_execution_worker_sequence';
 const indexColumns = (databasePath: string): string[] => {
   const db = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    return (db.prepare(`PRAGMA index_info('${INDEX}')`).all() as { name: string }[])
+    return (db.prepare(`PRAGMA index_info('${INDEX}')`).all() as {
+      name: string;
+    }[])
       .map((row) => row.name);
   } finally {
     db.close();
@@ -33,7 +35,7 @@ const setup = async (prefix: string) => {
     store,
     stateRoot,
     workspaceRoot,
-    databasePath: `${paths.root}/history-v4.sqlite3`,
+    databasePath: `${paths.root}/history-v5.sqlite3`,
   };
 };
 
@@ -47,7 +49,9 @@ Deno.test('Increment 87 covers worker_sequence with an execution-scoped index', 
 });
 
 Deno.test('Increment 87 restores the index on an existing database', async () => {
-  const { stateRoot, workspaceRoot, databasePath } = await setup('henji-i87-migrate-');
+  const { stateRoot, workspaceRoot, databasePath } = await setup(
+    'henji-i87-migrate-',
+  );
   const db = new DatabaseSync(databasePath);
   try {
     db.exec(`DROP INDEX IF EXISTS ${INDEX}`);

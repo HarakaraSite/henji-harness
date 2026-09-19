@@ -3,7 +3,7 @@ import { type FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
 import { type ProviderEvidenceRecorder } from '../provider/provider_evidence.ts';
 import type { ModelRequest } from './contracts.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
-import type { ContextSourceRelation } from '../history/context_attribution.ts';
+import type { ContextOccurrenceSource } from '../history/context_attribution.ts';
 
 /** The two independently bounded request lanes in one accepted turn. */
 export type RequestLane = 'parent' | 'child';
@@ -18,7 +18,7 @@ export type RequestMessageSourceKind =
 
 /** Parallel provenance sidecars for a request transcript. */
 export interface ModelRequestSourceAttribution {
-  readonly transcript: readonly (readonly ContextSourceRelation[])[];
+  readonly transcript: readonly (readonly ContextOccurrenceSource[])[];
 }
 
 export type RequestMessageSourceFactory = (
@@ -28,15 +28,18 @@ export type RequestMessageSourceFactory = (
   modelStep?: number,
   lane?: RequestLane,
   sourceCallId?: string,
-) => readonly ContextSourceRelation[];
+) => readonly ContextOccurrenceSource[];
 
 export interface ModelRequestObservation {
+  /** The exact provider request. History observers must not clone or retain the full value. */
   readonly request: ModelRequest;
   readonly lane: RequestLane;
   readonly modelStep: number;
   readonly modelSelection?: ModelSelection;
   /** Explicit sidecars built alongside the request projection, never inferred from bytes. */
   readonly sourceAttribution?: ModelRequestSourceAttribution;
+  /** Append-only transcript boundary for this lane's previous request. */
+  readonly previousTranscriptLength: number;
 }
 
 export interface AuxiliaryRequestObservation {
@@ -94,7 +97,9 @@ export class TurnRequestBudget {
 
   claim(lane: RequestLane): boolean {
     const used = lane === 'parent' ? this.parent : this.child;
-    if (used >= this.limits[lane] || this.aggregate >= this.limits.aggregate) return false;
+    if (used >= this.limits[lane] || this.aggregate >= this.limits.aggregate) {
+      return false;
+    }
     if (lane === 'parent') this.parent += 1;
     else this.child += 1;
     return true;
@@ -134,7 +139,10 @@ export interface ModelExecutionContext {
   readonly projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,
-  ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution };
+  ) => {
+    readonly request: ModelRequest;
+    readonly sources: ModelRequestSourceAttribution;
+  };
   /** Parent tool call that admitted this planner execution, if any. */
   readonly sourceCallId?: string;
   /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
@@ -169,7 +177,10 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
     readonly projectParentRequestWithSources?: (
       request: ModelRequest,
       sources: ModelRequestSourceAttribution,
-    ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution },
+    ) => {
+      readonly request: ModelRequest;
+      readonly sources: ModelRequestSourceAttribution;
+    },
   ) {}
 
   get sourceCallId(): string | undefined {
@@ -223,7 +234,10 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     readonly projectParentRequestWithSources?: (
       request: ModelRequest,
       sources: ModelRequestSourceAttribution,
-    ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution },
+    ) => {
+      readonly request: ModelRequest;
+      readonly sources: ModelRequestSourceAttribution;
+    },
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
@@ -257,14 +271,19 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
   }
 
   /** Admit at most one execution per named subagent and return its restricted child-lane view. */
-  admitSubagentExecution(name: string, callId?: string): ChildTurnExecutionContext | undefined {
+  admitSubagentExecution(
+    name: string,
+    callId?: string,
+  ): ChildTurnExecutionContext | undefined {
     if (this.admittedSubagents.has(name)) return undefined;
     this.admittedSubagents.add(name);
     this.child.setDelegatedCallId(callId);
     return this.child;
   }
 
-  admitPlannerExecution(callId?: string): ChildTurnExecutionContext | undefined {
+  admitPlannerExecution(
+    callId?: string,
+  ): ChildTurnExecutionContext | undefined {
     return this.admitSubagentExecution('planner', callId);
   }
 
@@ -282,7 +301,9 @@ export const createTurnExecutionContext = (
   runtimeProviderRequestCount?: () => number,
   providerEvidence?: ProviderEvidenceRecorder,
   limits?: TurnRequestLimits,
-  observeModelRequest?: (observation: ModelRequestObservation) => number | PromiseLike<number>,
+  observeModelRequest?: (
+    observation: ModelRequestObservation,
+  ) => number | PromiseLike<number>,
   modelSelection?: ModelSelection,
   plannerModelSelection?: ModelSelection,
   observeAuxiliaryRequest?: (
@@ -292,7 +313,10 @@ export const createTurnExecutionContext = (
   projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,
-  ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution },
+  ) => {
+    readonly request: ModelRequest;
+    readonly sources: ModelRequestSourceAttribution;
+  },
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,

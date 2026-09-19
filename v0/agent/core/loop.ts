@@ -82,7 +82,10 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,
-  ) => { readonly request: ModelRequest; readonly sources: ModelRequestSourceAttribution };
+  ) => {
+    readonly request: ModelRequest;
+    readonly sources: ModelRequestSourceAttribution;
+  };
   /** Worker-provided causal source factory used as messages are appended to the transcript. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
 }
@@ -108,11 +111,16 @@ const isToolCall = (value: unknown): value is ToolCall => {
     isJsonValue(call.arguments);
 };
 
-const isProviderState = (value: unknown): value is NonNullable<ModelResult['providerState']> => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+const isProviderState = (
+  value: unknown,
+): value is NonNullable<ModelResult['providerState']> => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const state = value as Record<string, unknown>;
   if (state.provider === 'openrouter-chat') {
-    return Array.isArray(state.reasoningDetails) && state.reasoningDetails.length > 0 &&
+    return Array.isArray(state.reasoningDetails) &&
+      state.reasoningDetails.length > 0 &&
       state.reasoningDetails.every(isJsonValue);
   }
   return typeof state.provider === 'string' && state.provider.length > 0 &&
@@ -125,17 +133,21 @@ const isProviderState = (value: unknown): value is NonNullable<ModelResult['prov
 const isModelResult = (value: unknown): value is ModelResult => {
   if (typeof value !== 'object' || value === null) return false;
   const result = value as Record<string, unknown>;
-  if (result.providerState !== undefined && !isProviderState(result.providerState)) return false;
+  if (
+    result.providerState !== undefined && !isProviderState(result.providerState)
+  ) return false;
   if (result.kind === 'final') {
     return typeof result.text === 'string' &&
-      new TextEncoder().encode(result.text).byteLength <= MAX_ASSISTANT_TEXT_BYTES;
+      new TextEncoder().encode(result.text).byteLength <=
+        MAX_ASSISTANT_TEXT_BYTES;
   }
   return result.kind === 'tool_calls' && Array.isArray(result.calls) &&
     result.calls.length > 0 &&
     result.calls.every(isToolCall) &&
     (result.text === undefined ||
       typeof result.text === 'string' && result.text.length > 0 &&
-        new TextEncoder().encode(result.text).byteLength <= MAX_ASSISTANT_TEXT_BYTES);
+        new TextEncoder().encode(result.text).byteLength <=
+          MAX_ASSISTANT_TEXT_BYTES);
 };
 
 const hasWellFormedUnicode = (value: string): boolean => {
@@ -281,7 +293,7 @@ const runAgentTurnInternal = async (
     options.executionContext?.projectParentRequestWithSources;
   const transcript: Message[] = snapshotMessages(committedTranscript);
   const transcriptSources: Array<
-    readonly import('../history/context_attribution.ts').ContextSourceRelation[]
+    readonly import('../history/context_attribution.ts').ContextOccurrenceSource[]
   > = committedTranscript.map((message, messageIndex) =>
     requestMessageSource?.(
       message,
@@ -297,6 +309,14 @@ const runAgentTurnInternal = async (
     content: { kind: 'text', text: task },
   };
   transcript.push(userMessage);
+  deliverEvent(sink, { kind: 'turn_start', turn });
+  if (options.executionContext?.lane !== 'child') {
+    deliverEvent(sink, {
+      kind: 'user_message',
+      turn,
+      message: snapshot(userMessage),
+    });
+  }
   transcriptSources.push(
     requestMessageSource?.(
       userMessage,
@@ -307,20 +327,16 @@ const runAgentTurnInternal = async (
       options.executionContext?.sourceCallId,
     ) ?? [],
   );
-  deliverEvent(sink, { kind: 'turn_start', turn });
-  deliverEvent(sink, {
-    kind: 'user_message',
-    turn,
-    message: snapshot(userMessage),
-  });
 
   let steps = 0;
   let toolCallCount = 0;
   let toolResultCount = 0;
+  let observedTranscriptLength = 0;
 
   const terminalRequestCounts = (): RequestCounts => {
     const turn = boundedCount(
-      options.turnProviderRequestCount?.() ?? options.executionContext?.providerRequestCount?.(),
+      options.turnProviderRequestCount?.() ??
+        options.executionContext?.providerRequestCount?.(),
       16,
     );
     const runtime = boundedCount(
@@ -345,7 +361,8 @@ const runAgentTurnInternal = async (
       code: 'unknown_code',
     },
   ): FailureDiagnosticV1 | undefined => {
-    const owner = options.diagnosticOwner ?? options.executionContext?.diagnosticOwner;
+    const owner = options.diagnosticOwner ??
+      options.executionContext?.diagnosticOwner;
     if (owner === undefined) return undefined;
     // A child or an earlier terminal path may already own the immutable record. Reuse it without
     // calling record again: collision is evidence of two independently-created records, not the
@@ -359,10 +376,12 @@ const runAgentTurnInternal = async (
       options.executionContext?.providerRequestCount?.() ??
       (stage === 'request_build' || stage === 'credential_resolution'
         ? observed?.providerRequestCount ?? fallback.providerRequestCount ?? 0
-        : observed?.providerRequestCount ?? options.executionContext?.snapshot().aggregate ??
+        : observed?.providerRequestCount ??
+          options.executionContext?.snapshot().aggregate ??
           fallback.providerRequestCount ?? 0);
     const step = fallback.modelStep ??
-      (stage === 'request_build' || stage === 'request_admission' || stage === 'session_commit' ||
+      (stage === 'request_build' || stage === 'request_admission' ||
+          stage === 'session_commit' ||
           stage === 'cancellation_cleanup' || stage === 'turn_control'
         ? 0
         : steps);
@@ -437,7 +456,12 @@ const runAgentTurnInternal = async (
     );
     const settledOutcome = diagnostic === undefined
       ? { ...outcome, ...terminalRequestCounts(), ...evidenceIdentity() }
-      : { ...outcome, ...terminalRequestCounts(), diagnostic, ...evidenceIdentity() };
+      : {
+        ...outcome,
+        ...terminalRequestCounts(),
+        diagnostic,
+        ...evidenceIdentity(),
+      };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
@@ -561,11 +585,14 @@ const runAgentTurnInternal = async (
       }
       preparedRequest = prepareModelContext(projected).request;
     } catch (error) {
-      return finishContractFailure(`context preparation failure: ${errorText(error)}`, {
-        stage: 'request_build',
-        code: 'invalid_input',
-        modelStep: 0,
-      });
+      return finishContractFailure(
+        `context preparation failure: ${errorText(error)}`,
+        {
+          stage: 'request_build',
+          code: 'invalid_input',
+          modelStep: 0,
+        },
+      );
     }
     try {
       throwIfCancelled(signal);
@@ -587,22 +614,27 @@ const runAgentTurnInternal = async (
     steps += 1;
     let contextRequestOrdinal: number | undefined;
     try {
-      contextRequestOrdinal = await options.executionContext?.observeModelRequest?.({
-        request: snapshot(preparedRequest),
-        lane: options.executionContext?.lane ?? 'parent',
-        modelStep: steps,
-        modelSelection: options.executionContext?.modelSelection,
-        sourceAttribution: {
-          transcript: structuredClone(preparedSources.transcript),
-        },
-      });
+      contextRequestOrdinal = await options.executionContext
+        ?.observeModelRequest?.({
+          request: preparedRequest,
+          lane: options.executionContext?.lane ?? 'parent',
+          modelStep: steps,
+          modelSelection: options.executionContext?.modelSelection,
+          sourceAttribution: preparedSources,
+          previousTranscriptLength: observedTranscriptLength,
+        });
+      observedTranscriptLength = preparedRequest.transcript.length;
       evidence?.setContextRequestOrdinal(contextRequestOrdinal);
     } catch (error) {
-      return finishContractFailure(`context request observation failure: ${errorText(error)}`, {
-        stage: 'request_build',
-        code: 'invalid_input',
-        modelStep: steps,
-      }, error);
+      return finishContractFailure(
+        `context request observation failure: ${errorText(error)}`,
+        {
+          stage: 'request_build',
+          code: 'invalid_input',
+          modelStep: steps,
+        },
+        error,
+      );
     }
     let result: unknown;
     let progressFailure: EventDeliveryError | undefined;
@@ -632,14 +664,17 @@ const runAgentTurnInternal = async (
       }
     };
     try {
-      const generateOptions: import('./contracts.ts').ModelGenerateOptions | undefined =
-        signal === undefined && sink === undefined && evidence === undefined ? undefined : {
-          signal,
-          reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
-          providerEvidence: evidence,
-          providerEvidenceLane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
-          modelStep: steps,
-        };
+      const generateOptions:
+        | import('./contracts.ts').ModelGenerateOptions
+        | undefined = signal === undefined && sink === undefined && evidence === undefined
+          ? undefined
+          : {
+            signal,
+            reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
+            providerEvidence: evidence,
+            providerEvidenceLane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
+            modelStep: steps,
+          };
       result = generateOptions === undefined
         ? await model.generate(preparedRequest)
         : await model.generate(preparedRequest, generateOptions);
@@ -691,6 +726,11 @@ const runAgentTurnInternal = async (
       };
       const assistantIndex = transcript.length;
       transcript.push(assistant);
+      deliverEvent(sink, {
+        kind: 'assistant_message',
+        turn,
+        message: snapshot(assistant),
+      });
       transcriptSources.push(
         requestMessageSource?.(
           assistant,
@@ -701,11 +741,6 @@ const runAgentTurnInternal = async (
           options.executionContext?.sourceCallId,
         ) ?? [],
       );
-      deliverEvent(sink, {
-        kind: 'assistant_message',
-        turn,
-        message: snapshot(assistant),
-      });
       if (signal?.aborted) return finishCancelled();
       return finishNormal({
         ok: true,
@@ -721,9 +756,18 @@ const runAgentTurnInternal = async (
     }
 
     const calls = snapshot(result.calls);
-    const assistant = assistantToolMessage(calls, result.text, result.providerState);
+    const assistant = assistantToolMessage(
+      calls,
+      result.text,
+      result.providerState,
+    );
     const assistantIndex = transcript.length;
     transcript.push(assistant);
+    deliverEvent(sink, {
+      kind: 'assistant_message',
+      turn,
+      message: snapshot(assistant),
+    });
     transcriptSources.push(
       requestMessageSource?.(
         assistant,
@@ -734,11 +778,6 @@ const runAgentTurnInternal = async (
         options.executionContext?.sourceCallId,
       ) ?? [],
     );
-    deliverEvent(sink, {
-      kind: 'assistant_message',
-      turn,
-      message: snapshot(assistant),
-    });
     const results: ToolMessage['content'][number][] = [];
     const terminalCalls = calls.filter((call) => registry.resolve(call.name)?.terminal === true);
     const invalidTerminalBatch = terminalCalls.length > 0 &&
@@ -922,6 +961,11 @@ const runAgentTurnInternal = async (
         content: { kind: 'text', text: steeringText },
       };
       transcript.push(steeringMessage);
+      deliverEvent(sink, {
+        kind: 'steering_message',
+        turn,
+        message: snapshot(steeringMessage),
+      });
       transcriptSources.push(
         requestMessageSource?.(
           steeringMessage,
@@ -932,11 +976,6 @@ const runAgentTurnInternal = async (
           options.executionContext?.sourceCallId,
         ) ?? [],
       );
-      deliverEvent(sink, {
-        kind: 'steering_message',
-        turn,
-        message: snapshot(steeringMessage),
-      });
     }
   }
 };

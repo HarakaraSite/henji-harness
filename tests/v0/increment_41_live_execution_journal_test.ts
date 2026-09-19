@@ -1178,7 +1178,7 @@ Deno.test('Increment 41 refuses schema-v1 SQLite without compatibility reads', a
   const paths = await sessionPaths(stateRoot, workspaceRoot);
   try {
     await Deno.mkdir(paths.root, { recursive: true, mode: 0o700 });
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
     db.exec('PRAGMA user_version = 1');
     db.close();
     let rejected = false;
@@ -1213,7 +1213,7 @@ Deno.test('Increment 41 keeps a live no-session lock out of Session allocation a
     await store.beginExecution(input);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const lockNames: string[] = [];
-    for await (const entry of Deno.readDir(`${paths.root}/locks-v4`)) {
+    for await (const entry of Deno.readDir(`${paths.root}/locks-v5`)) {
       lockNames.push(entry.name);
     }
     assert(lockNames.includes(`.execution-${input.executionId}.lock`));
@@ -1317,7 +1317,11 @@ Deno.test('Increment 41 reopens a crashed persistent first turn without replayin
       );
       assertEquals(
         reopenedStore.listExecutionEvents(input.executionId).map((event) => event.kind),
-        ['execution_admitted', 'turn_dispatch_requested', 'execution_reconciled'],
+        [
+          'execution_admitted',
+          'turn_dispatch_requested',
+          'execution_reconciled',
+        ],
       );
       assertEquals(
         reopenedStore.listExecutionEvents(input.executionId).some((event) =>

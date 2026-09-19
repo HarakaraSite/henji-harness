@@ -268,24 +268,14 @@ export const main = async (
         );
       } else {
         const execution = history.readExecution(command.id);
-        const context = history.listExecutionContext(command.id);
-        // `listExecutionContext` already performs the active read projection. Select from that
-        // single read model so a large active capture is not projected a second time.
-        const request = context.requests.find((item) => item.requestOrdinal === command.ordinal);
-        if (request === undefined) {
-          throw new HistoryStoreError('history_io_failure');
-        }
+        const request = history.readExecutionRequest(command.id, command.ordinal);
         const contextCapture = contextCaptureForReadback(
           execution,
-          context.snapshot !== undefined || context.requests.length > 0 ||
-            context.relations.length > 0,
+          true,
         );
-        const evidence = (await history.providerEvidence.list()).flatMap((item) =>
-          item.schemaVersion === 5
-            ? item.requests.filter((record) =>
-              record.request.contextRequestOrdinal === command.ordinal
-            ).map((record) => ({ evidenceId: item.evidenceId, record }))
-            : []
+        const evidence = history.readExecutionRequestProviderEvidence(
+          command.id,
+          command.ordinal,
         );
         await writeOutput(
           dependencies.writeStdout,

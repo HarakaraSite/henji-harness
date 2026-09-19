@@ -25,7 +25,10 @@ const definition = {
   revision: { algorithm: 'sha256' as const, digest: '5'.repeat(64) },
 };
 
-const input = (ordinal: number, sessionCorrelation = `increment-50-${ordinal}`) => ({
+const input = (
+  ordinal: number,
+  sessionCorrelation = `increment-50-${ordinal}`,
+) => ({
   taskId: `50000000-0000-4000-8001-${String(ordinal).padStart(12, '0')}`,
   executionId: `50000000-0000-4000-8002-${String(ordinal).padStart(12, '0')}`,
   createdAt: `2026-09-13T01:00:${String(ordinal).padStart(2, '0')}.000Z`,
@@ -50,7 +53,7 @@ const correlation = (ordinal: number) => ({
   command: `turn-${ordinal}`,
 });
 
-Deno.test('Increment 50 opens only the empty v4 authority and leaves v3 sentinels unchanged', async () => {
+Deno.test('Increment 50 opens only the empty v5 authority and leaves v3 sentinels unchanged', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i50-cutover-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -69,24 +72,33 @@ Deno.test('Increment 50 opens only the empty v4 authority and leaves v3 sentinel
     const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
     await store.initialize();
     assertEquals(await Deno.readFile(`${paths.root}/history.sqlite3`), v3Bytes);
-    assertEquals(await Deno.readFile(`${paths.root}/history.sqlite3-wal`), walBytes);
-    assertEquals(await Deno.readTextFile(`${paths.root}/locks/v3.lock`), 'held\n');
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`, { readOnly: true });
+    assertEquals(
+      await Deno.readFile(`${paths.root}/history.sqlite3-wal`),
+      walBytes,
+    );
+    assertEquals(
+      await Deno.readTextFile(`${paths.root}/locks/v3.lock`),
+      'held\n',
+    );
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`, {
+      readOnly: true,
+    });
     try {
       assertEquals(
-        (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        4,
+        (db.prepare('PRAGMA user_version').get() as { user_version: number })
+          .user_version,
+        5,
       );
       assertEquals(
         (db.prepare('SELECT schema_version FROM store_metadata').get() as {
           schema_version: number;
         }).schema_version,
-        4,
+        5,
       );
     } finally {
       db.close();
     }
-    assert((await Deno.stat(`${paths.root}/locks-v4`)).isDirectory);
+    assert((await Deno.stat(`${paths.root}/locks-v5`)).isDirectory);
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -101,7 +113,9 @@ Deno.test('Increment 50 schema normalizes facts and partial evidence progress', 
   try {
     await store.initialize();
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`, { readOnly: true });
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`, {
+      readOnly: true,
+    });
     try {
       const columns = (table: string): string[] =>
         (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[])
@@ -124,7 +138,9 @@ Deno.test('Increment 50 schema normalizes facts and partial evidence progress', 
         ]
       ) {
         assert(
-          db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+          db.prepare(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+          )
             .get(table) !== undefined,
           `${table} missing`,
         );
@@ -198,7 +214,10 @@ Deno.test('Increment 50 schema normalizes facts and partial evidence progress', 
         },
       });
     }
-    for (const [index, text] of ['first tool partial', 'latest tool partial'].entries()) {
+    for (
+      const [index, text] of ['first tool partial', 'latest tool partial']
+        .entries()
+    ) {
       store.appendExecutionEvent({
         executionId: interrupted.executionId,
         direction: 'worker_to_host',
@@ -254,22 +273,33 @@ Deno.test('Increment 50 schema normalizes facts and partial evidence progress', 
     ]);
     const journalSnapshots = store.listExecutionEvents(interrupted.executionId)
       .filter((event) => {
-        const payload = event.payload as { observation?: { event?: { kind?: string } } };
+        const payload = event.payload as {
+          observation?: { event?: { kind?: string } };
+        };
         return payload.observation?.event?.kind === 'assistant_progress';
       })
       .map((event) =>
-        (event.payload as { observation: { event: { text: string } } }).observation.event.text
+        (event.payload as { observation: { event: { text: string } } })
+          .observation.event.text
       );
     assertEquals(journalSnapshots, ['first partial', 'latest partial']);
-    const toolJournalSnapshots = store.listExecutionEvents(interrupted.executionId)
+    const toolJournalSnapshots = store.listExecutionEvents(
+      interrupted.executionId,
+    )
       .filter((event) => {
-        const payload = event.payload as { observation?: { event?: { kind?: string } } };
+        const payload = event.payload as {
+          observation?: { event?: { kind?: string } };
+        };
         return payload.observation?.event?.kind === 'tool_progress';
       })
       .map((event) =>
-        (event.payload as { observation: { event: { text: string } } }).observation.event.text
+        (event.payload as { observation: { event: { text: string } } })
+          .observation.event.text
       );
-    assertEquals(toolJournalSnapshots, ['first tool partial', 'latest tool partial']);
+    assertEquals(toolJournalSnapshots, [
+      'first tool partial',
+      'latest tool partial',
+    ]);
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -337,8 +367,14 @@ Deno.test('Increment 50 stores proposal suffix once and progress as exact append
       },
     });
     const transcript = [
-      { role: 'user' as const, content: { kind: 'text' as const, text: admitted.task } },
-      { role: 'assistant' as const, content: { kind: 'text' as const, text: 'answer' } },
+      {
+        role: 'user' as const,
+        content: { kind: 'text' as const, text: admitted.task },
+      },
+      {
+        role: 'assistant' as const,
+        content: { kind: 'text' as const, text: 'answer' },
+      },
     ];
     store.appendExecutionEvent({
       executionId: admitted.executionId,
@@ -362,11 +398,15 @@ Deno.test('Increment 50 stores proposal suffix once and progress as exact append
       snapshots,
     );
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`, { readOnly: true });
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`, {
+      readOnly: true,
+    });
     try {
       assertEquals(
         db.prepare(`SELECT mode, text_fragment FROM execution_progress_deltas
-          WHERE execution_id = ? ORDER BY event_ordinal`).all(admitted.executionId),
+          WHERE execution_id = ? ORDER BY event_ordinal`).all(
+          admitted.executionId,
+        ),
         [
           { mode: 'append', text_fragment: 'a' },
           { mode: 'append', text_fragment: 'b' },
@@ -380,19 +420,29 @@ Deno.test('Increment 50 stores proposal suffix once and progress as exact append
       ) as { payload_json: string };
       assert(!marker.payload_json.includes('transcript'));
       assert(!marker.payload_json.includes(admitted.task));
-      const messages = db.prepare(`SELECT source_kind, source_observation_ordinals_json,
+      const messages = db.prepare(
+        `SELECT source_kind, source_observation_ordinals_json,
           content_digest FROM execution_messages
-        WHERE execution_id = ? ORDER BY ordinal`).all(admitted.executionId) as {
+        WHERE execution_id = ? ORDER BY ordinal`,
+      ).all(admitted.executionId) as {
         source_kind: string;
         source_observation_ordinals_json: string | null;
         content_digest: string | null;
       }[];
-      assertEquals(messages.map((message) => message.source_kind), ['task', 'runtime']);
+      assertEquals(messages.map((message) => message.source_kind), [
+        'task',
+        'runtime',
+      ]);
       assertEquals(messages[0]?.content_digest, null);
       assertEquals(messages[1]?.content_digest, null);
-      assertEquals(JSON.parse(messages[1]?.source_observation_ordinals_json ?? 'null'), [7]);
       assertEquals(
-        (db.prepare('SELECT count(*) AS count FROM context_blobs').get() as { count: number })
+        JSON.parse(messages[1]?.source_observation_ordinals_json ?? 'null'),
+        [7],
+      );
+      assertEquals(
+        (db.prepare('SELECT count(*) AS count FROM context_blobs').get() as {
+          count: number;
+        })
           .count,
         0,
       );
@@ -400,7 +450,10 @@ Deno.test('Increment 50 stores proposal suffix once and progress as exact append
         FROM runtime_occurrences WHERE execution_id = ?`).get(
         admitted.executionId,
       ) as { bytes: number }).bytes;
-      assert(runtimeTextBytes < snapshots.reduce((sum, text) => sum + text.length, 0) + 800);
+      assert(
+        runtimeTextBytes <
+          snapshots.reduce((sum, text) => sum + text.length, 0) + 800,
+      );
     } finally {
       db.close();
     }
@@ -445,8 +498,14 @@ Deno.test('Increment 50 reopens runtime-referenced canonical messages from their
   };
   const runtimeCorrelation = { ...correlation(4), session: sessionId };
   const transcript = [
-    { role: 'user' as const, content: { kind: 'text' as const, text: admitted.task } },
-    { role: 'assistant' as const, content: { kind: 'text' as const, text: 'runtime answer' } },
+    {
+      role: 'user' as const,
+      content: { kind: 'text' as const, text: admitted.task },
+    },
+    {
+      role: 'assistant' as const,
+      content: { kind: 'text' as const, text: 'runtime answer' },
+    },
   ];
   try {
     await store.initialize();
@@ -504,11 +563,15 @@ Deno.test('Increment 50 reopens runtime-referenced canonical messages from their
         .some((entry) => entry.text === 'runtime answer'),
     );
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`, { readOnly: true });
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`, {
+      readOnly: true,
+    });
     try {
       assertEquals(
-        db.prepare(`SELECT source_kind, source_observation_ordinals_json, content_digest
-          FROM execution_messages WHERE execution_id = ? ORDER BY ordinal`).all(
+        db.prepare(
+          `SELECT source_kind, source_observation_ordinals_json, content_digest
+          FROM execution_messages WHERE execution_id = ? ORDER BY ordinal`,
+        ).all(
           admitted.executionId,
         ),
         [
@@ -590,30 +653,45 @@ Deno.test('Increment 50 cumulative progress storage grows with the final text', 
     const events = store.listExecutionEvents(admitted.executionId);
     const lastProgress = events.findLast((event) => {
       if (event.kind !== 'runtime_event') return false;
-      const payload = event.payload as { observation?: { event?: { kind?: string } } };
+      const payload = event.payload as {
+        observation?: { event?: { kind?: string } };
+      };
       return payload.observation?.event?.kind === 'assistant_progress';
     });
     assert(lastProgress !== undefined);
     assertEquals(
-      (lastProgress.payload as { observation: { event: { text: string } } }).observation.event
+      (lastProgress.payload as { observation: { event: { text: string } } })
+        .observation.event
         .text,
       snapshot,
     );
 
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const databasePath = `${paths.root}/history-v4.sqlite3`;
+    const databasePath = `${paths.root}/history-v5.sqlite3`;
     const db = new DatabaseSync(databasePath, { readOnly: true });
     try {
       const scalar = (query: string): number =>
-        Number((db.prepare(query).get(admitted.executionId) as { value: number }).value);
-      const deltaTextBytes = scalar(`SELECT coalesce(sum(length(text_fragment)), 0) AS value
-        FROM execution_progress_deltas WHERE execution_id = ?`);
-      const observationMarkerBytes = scalar(`SELECT coalesce(sum(length(payload_json)), 0) AS value
-        FROM execution_observations WHERE execution_id = ?`);
-      const runtimeFactBytes = scalar(`SELECT coalesce(sum(length(event_json)), 0) AS value
-        FROM runtime_occurrences WHERE execution_id = ?`);
+        Number(
+          (db.prepare(query).get(admitted.executionId) as { value: number })
+            .value,
+        );
+      const deltaTextBytes = scalar(
+        `SELECT coalesce(sum(length(text_fragment)), 0) AS value
+        FROM execution_progress_deltas WHERE execution_id = ?`,
+      );
+      const observationMarkerBytes = scalar(
+        `SELECT coalesce(sum(length(payload_json)), 0) AS value
+        FROM execution_observations WHERE execution_id = ?`,
+      );
+      const runtimeFactBytes = scalar(
+        `SELECT coalesce(sum(length(event_json)), 0) AS value
+        FROM runtime_occurrences WHERE execution_id = ?`,
+      );
       assertEquals(deltaTextBytes, snapshot.length);
-      assert(observationMarkerBytes + runtimeFactBytes + deltaTextBytes < legacySnapshotTextBytes);
+      assert(
+        observationMarkerBytes + runtimeFactBytes + deltaTextBytes <
+          legacySnapshotTextBytes,
+      );
       console.log(JSON.stringify({
         increment: 50,
         snapshotCount,

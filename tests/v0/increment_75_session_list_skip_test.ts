@@ -29,7 +29,7 @@ Deno.test('Increment 75 listWorker skips an unreadable session record', async ()
     const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
     await store.initialize();
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
     const insertSession = db.prepare(`
       INSERT INTO sessions (session_id, agent, created_at, updated_at, title,
         state_revision, next_turn, definition_json, active_model_json)
@@ -43,7 +43,13 @@ Deno.test('Increment 75 listWorker skips an unreadable session record', async ()
     insertChange.run(validId, CREATED, MODEL);
     // A record whose stored model selection no longer parses stands in for a session written by
     // an older build; it must not make the whole listing unavailable.
-    insertSession.run(invalidId, CREATED, CREATED, DEFINITION, '{"broken":true}');
+    insertSession.run(
+      invalidId,
+      CREATED,
+      CREATED,
+      DEFINITION,
+      '{"broken":true}',
+    );
     insertChange.run(invalidId, CREATED, '{"broken":true}');
     db.close();
 

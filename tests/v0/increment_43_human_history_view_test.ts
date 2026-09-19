@@ -100,7 +100,12 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
   const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
     await store.initialize();
-    const failed = executionInput(1, 'failed attempt nonce-[literal]', workspaceRoot, true);
+    const failed = executionInput(
+      1,
+      'failed attempt nonce-[literal]',
+      workspaceRoot,
+      true,
+    );
     await store.beginExecution(failed);
     store.appendExecutionEvent({
       executionId: failed.executionId,
@@ -120,7 +125,11 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
         sequence: 1,
         event: {
           kind: 'agent_event',
-          event: { kind: 'assistant_progress', turn: 1, text: 'partial nonce-[literal]' },
+          event: {
+            kind: 'assistant_progress',
+            turn: 1,
+            text: 'partial nonce-[literal]',
+          },
         },
       },
     });
@@ -147,7 +156,11 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
           3,
           {
             kind: 'tool_call',
-            call: { callId: 'call-43', name: 'read_file', arguments: { path: 'README.md' } },
+            call: {
+              callId: 'call-43',
+              name: 'read_file',
+              arguments: { path: 'README.md' },
+            },
             modelStep: 1,
             lane: 'parent',
             requestOrdinal: 1,
@@ -195,8 +208,14 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     await store.beginExecution(canonical);
     if (!('sessionRecord' in failed)) throw new Error('missing initial record');
     const transcript = [
-      { role: 'user' as const, content: { kind: 'text' as const, text: canonical.task } },
-      { role: 'assistant' as const, content: { kind: 'text' as const, text: 'canonical answer' } },
+      {
+        role: 'user' as const,
+        content: { kind: 'text' as const, text: canonical.task },
+      },
+      {
+        role: 'assistant' as const,
+        content: { kind: 'text' as const, text: 'canonical answer' },
+      },
     ];
     const record: StoredSessionRecord = {
       ...failed.sessionRecord,
@@ -236,8 +255,13 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
       entry.label === 'assistant>' && entry.text === 'unified provider answer'
     );
     assert(unifiedAssistant !== undefined);
-    assert(one.entries.some((entry) => entry.text.includes('unified tool output')));
-    const unifiedDetail = store.readHumanHistoryDetail(sessionId, unifiedAssistant.detailId);
+    assert(
+      one.entries.some((entry) => entry.text.includes('unified tool output')),
+    );
+    const unifiedDetail = store.readHumanHistoryDetail(
+      sessionId,
+      unifiedAssistant.detailId,
+    );
     assert(unifiedDetail.text.includes('unified provider answer'));
     assert(
       store.searchHumanHistory({
@@ -314,7 +338,10 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
       query: 'deep-detail-nonce',
       direction: 'next',
     });
-    assert(firstLongHit?.detail !== undefined, 'summary-external match did not open detail');
+    assert(
+      firstLongHit?.detail !== undefined,
+      'summary-external match did not open detail',
+    );
     assert(firstLongHit.detail.text.includes('deep-detail-nonce'));
     assert(firstLongHit.detailMatchScalarOffset !== undefined);
     const secondLongHit = store.searchHumanHistory({
@@ -326,12 +353,13 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     });
     assertEquals(secondLongHit?.entryId, firstLongHit.entryId);
     assert(
-      (secondLongHit?.sourceScalarOffset ?? 0) > firstLongHit.sourceScalarOffset,
+      (secondLongHit?.sourceScalarOffset ?? 0) >
+        firstLongHit.sourceScalarOffset,
       'next did not advance to the second occurrence in one entry',
     );
 
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const checkpointDb = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+    const checkpointDb = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
     try {
       checkpointDb.prepare(`INSERT INTO semantic_checkpoints(
         session_id, created_at, covered_turn, retained_turn, source_profile_id, summary
@@ -352,19 +380,22 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     assert(exportRecords.some((item) => item.kind === 'semantic_checkpoint'));
     const fallbackMessage = exportRecords.find((item) =>
       item.kind === 'execution_message' &&
-      (item.value as { readonly content_digest?: unknown }).content_digest !== null
+      (item.value as { readonly content_digest?: unknown }).content_digest !==
+        null
     );
     assert(fallbackMessage !== undefined);
     const fallbackDigest = String(
-      (fallbackMessage.value as { readonly content_digest: unknown }).content_digest,
+      (fallbackMessage.value as { readonly content_digest: unknown })
+        .content_digest,
     );
     assert(
       exportRecords.some((item) =>
-        item.kind === 'context_blob' && item.identity === `content:${fallbackDigest}`
+        item.kind === 'context_blob' &&
+        item.identity === `content:${fallbackDigest}`
       ),
     );
 
-    const db = new DatabaseSync(`${paths.root}/history-v4.sqlite3`);
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
     try {
       db.prepare(`
         INSERT INTO execution_artifacts(
@@ -404,9 +435,13 @@ Deno.test('Increment 43 projects attempts, pages, exact detail, and literal sear
     try {
       store.readHumanHistoryDetail(sessionId, artifactEntry.detailId);
     } catch (error) {
-      invalidDetail = error instanceof Error && error.message === 'history_invalid';
+      invalidDetail = error instanceof Error &&
+        error.message === 'history_invalid';
     }
-    assert(invalidDetail, 'tampered artifact detail did not fail through the existing codec');
+    assert(
+      invalidDetail,
+      'tampered artifact detail did not fail through the existing codec',
+    );
     assertEquals(await store.readWorker(sessionId), record);
   } finally {
     await Deno.remove(root, { recursive: true });
@@ -421,9 +456,17 @@ Deno.test('Increment 43 streams deterministic Session-scoped JSONL with matching
   const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
   try {
     await store.initialize();
-    const input = executionInput(3, 'export cancelled execution', workspaceRoot, true);
+    const input = executionInput(
+      3,
+      'export cancelled execution',
+      workspaceRoot,
+      true,
+    );
     await store.beginExecution(input);
-    store.settleNonCanonicalExecution({ ...input, outcome: cancelledOutcome(input.task) });
+    store.settleNonCanonicalExecution({
+      ...input,
+      outcome: cancelledOutcome(input.task),
+    });
     const secondSessionId = '43000000-0000-4000-8000-000000000002';
     let writer: Promise<number> | undefined;
     const concurrentReader: HumanHistoryReadPort = {
@@ -488,11 +531,18 @@ Deno.test('Increment 43 streams deterministic Session-scoped JSONL with matching
     const opened = await adapter.dispatch({ kind: 'human_history_open' });
     assertEquals(opened.kind, 'human_history_page');
     const exported = await adapter.dispatch({ kind: 'history_export_all' });
-    if (exported.kind !== 'history_export_all') throw new Error('full export rejected');
+    if (exported.kind !== 'history_export_all') {
+      throw new Error('full export rejected');
+    }
     const receipt = exported;
     const bytes = await Deno.readFile(receipt.path);
-    const lines = new TextDecoder().decode(bytes).trimEnd().split('\n').map((line) =>
-      JSON.parse(line) as { readonly kind: string; readonly value: Record<string, unknown> }
+    const lines = new TextDecoder().decode(bytes).trimEnd().split('\n').map((
+      line,
+    ) =>
+      JSON.parse(line) as {
+        readonly kind: string;
+        readonly value: Record<string, unknown>;
+      }
     );
     assertEquals(lines[0].kind, 'header');
     assertEquals(lines[1].kind, 'session');
@@ -500,9 +550,15 @@ Deno.test('Increment 43 streams deterministic Session-scoped JSONL with matching
     assert(lines.some((line) => line.kind === 'event'));
     assertEquals(receipt.executionCount, 1);
     assertEquals(receipt.byteLength, bytes.byteLength);
-    assertEquals(receipt.sha256, createHash('sha256').update(bytes).digest('hex'));
+    assertEquals(
+      receipt.sha256,
+      createHash('sha256').update(bytes).digest('hex'),
+    );
     assert(writer !== undefined);
-    assert(await writer < 250, 'separate Session writer exceeded the 250 ms contract');
+    assert(
+      await writer < 250,
+      'separate Session writer exceeded the 250 ms contract',
+    );
     assertEquals(
       store.readHumanHistoryPage({
         sessionId: secondSessionId,
@@ -511,6 +567,95 @@ Deno.test('Increment 43 streams deterministic Session-scoped JSONL with matching
       1,
     );
     assertEquals(await store.readWorker(sessionId), before);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 89 list and normalized export do not hydrate unrelated request blobs', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i89-metadata-read-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  try {
+    await store.initialize();
+    const input = executionInput(
+      5,
+      'metadata-only request',
+      workspaceRoot,
+      true,
+    );
+    await store.beginExecution(input);
+    store.settleNonCanonicalExecution({
+      ...input,
+      outcome: cancelledOutcome(input.task),
+    });
+    const paths = await sessionPaths(stateRoot, workspaceRoot);
+    const db = new DatabaseSync(`${paths.root}/history-v5.sqlite3`);
+    const contentDigest = `sha256:${'a'.repeat(64)}`;
+    const occurrenceDigest = `sha256:${'b'.repeat(64)}`;
+    const revisionDigest = `sha256:${'c'.repeat(64)}`;
+    try {
+      db.prepare(
+        `INSERT INTO context_blobs(digest, byte_length, media_type, raw_bytes)
+        VALUES (?, 3, 'application/vnd.henji.message+json', ?)`,
+      )
+        .run(contentDigest, new TextEncoder().encode('bad'));
+      db.prepare(`INSERT INTO context_occurrences(
+        execution_id, occurrence_id, kind, content_digest, occurrence_digest
+      ) VALUES (?, 'corrupt-occurrence', 'message', ?, ?)`)
+        .run(input.executionId, contentDigest, occurrenceDigest);
+      db.prepare(`INSERT INTO context_sequence_revisions(
+        execution_id, revision_digest, lane, sequence_kind,
+        base_revision_digest, result_item_count
+      ) VALUES (?, ?, 'parent', 'user_turn', NULL, 1)`)
+        .run(input.executionId, revisionDigest);
+      db.prepare(`INSERT INTO context_sequence_splices(
+        execution_id, revision_digest, splice_ordinal, start_index, delete_count
+      ) VALUES (?, ?, 1, 0, 0)`).run(input.executionId, revisionDigest);
+      db.prepare(`INSERT INTO context_sequence_insertions(
+        execution_id, revision_digest, splice_ordinal, insertion_ordinal,
+        occurrence_id, occurrence_digest
+      ) VALUES (?, ?, 1, 1, 'corrupt-occurrence', ?)`)
+        .run(input.executionId, revisionDigest, occurrenceDigest);
+      db.prepare(`INSERT INTO model_requests(
+        execution_id, request_ordinal, observation_ordinal, lane,
+        model_step, purpose, revision_digest
+      ) VALUES (?, 1, NULL, 'parent', 1, 'user_turn', ?)`)
+        .run(input.executionId, revisionDigest);
+    } finally {
+      db.close();
+    }
+
+    const page = store.readHumanHistoryPage({ sessionId, direction: 'latest' });
+    const requestEntry = page.entries.find((entry) => entry.kind === 'request');
+    assert(requestEntry !== undefined);
+    assertEquals(requestEntry.text, 'parent · user_turn · step 1 · ""');
+    const exported = [...store.streamHumanHistoryExport(sessionId)];
+    assertEquals(
+      exported.filter((record) =>
+        record.kind === 'context_blob' &&
+        record.identity === `content:${contentDigest}`
+      ).length,
+      1,
+    );
+    assertEquals(
+      exported.filter((record) => record.kind === 'context_occurrence').length,
+      1,
+    );
+
+    let detailRejected = false;
+    try {
+      store.readHumanHistoryDetail(sessionId, requestEntry.detailId);
+    } catch (error) {
+      detailRejected = error instanceof Error &&
+        error.message === 'history_invalid';
+    }
+    assert(
+      detailRejected,
+      'single-request detail did not validate its referenced blob',
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }

@@ -65,13 +65,17 @@ const validateOwnedDirectory = async (path: string): Promise<void> => {
   const info = await Deno.lstat(path);
   const uid = Deno.uid();
   if (
-    !info.isDirectory || info.isSymlink || info.uid !== uid || info.mode === null ||
+    !info.isDirectory || info.isSymlink || info.uid !== uid ||
+    info.mode === null ||
     (info.mode & 0o7777) !== 0o700
   ) throw new Error(`invalid retained directory: ${path}`);
 };
 
 const createLayout = async (): Promise<ProductionCliE2ePaths> => {
-  const runRoot = await Deno.makeTempDir({ dir: RUN_PARENT, prefix: RUN_PREFIX });
+  const runRoot = await Deno.makeTempDir({
+    dir: RUN_PARENT,
+    prefix: RUN_PREFIX,
+  });
   await Deno.chmod(runRoot, 0o700);
   const workspaceRoot = `${runRoot}/workspace`;
   const stateBase = `${runRoot}/state`;
@@ -82,7 +86,7 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
   await validateOwnedDirectory(stateBase);
   const stateRoot = `${stateBase}/henji-harness/v1`;
   const history = await sessionPaths(stateRoot, workspaceRoot);
-  const database = `${history.root}/history-v4.sqlite3`;
+  const database = `${history.root}/history-v5.sqlite3`;
   return {
     runRoot,
     workspaceRoot,
@@ -270,8 +274,12 @@ export const runProductionCliE2e = async (
     };
   }
   try {
-    await Deno.writeTextFile(paths.childStdoutPath, child.stdout, { mode: 0o600 });
-    await Deno.writeTextFile(paths.childStderrPath, child.stderr, { mode: 0o600 });
+    await Deno.writeTextFile(paths.childStdoutPath, child.stdout, {
+      mode: 0o600,
+    });
+    await Deno.writeTextFile(paths.childStderrPath, child.stderr, {
+      mode: 0o600,
+    });
   } catch (error) {
     return preflightFailureReport('run_layout_failed', errorText(error), paths);
   }

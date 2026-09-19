@@ -1,5 +1,6 @@
 import type { JsonValue, Message } from '../core/contracts.ts';
-import type { ContextModelRequestRecord, ExecutionContextRelation } from './context_attribution.ts';
+import type { ContextRequestPurpose, ExecutionContextRelation } from './context_attribution.ts';
+import type { ModelSelection } from '../provider/model_selection.ts';
 import type {
   StoredExecutionEffect,
   StoredExecutionEvent,
@@ -109,8 +110,12 @@ export interface HumanHistoryReadPort {
     detailId: string,
     scalarOffset?: number,
   ): HumanHistoryDetailChunkV1;
-  searchHumanHistory(request: HumanHistorySearchRequest): HumanHistorySearchHitV1 | undefined;
-  streamHumanHistoryExport(sessionId: string): Iterable<HumanHistoryExportRecordV1>;
+  searchHumanHistory(
+    request: HumanHistorySearchRequest,
+  ): HumanHistorySearchHitV1 | undefined;
+  streamHumanHistoryExport(
+    sessionId: string,
+  ): Iterable<HumanHistoryExportRecordV1>;
 }
 
 export interface HumanHistoryProjectionInput {
@@ -129,7 +134,13 @@ export interface HumanHistoryProjectionInput {
     readonly status: string;
   }>;
   readonly context: readonly ExecutionContextRelation[];
-  readonly requests: readonly ContextModelRequestRecord[];
+  readonly requests: readonly {
+    readonly requestOrdinal: number;
+    readonly lane: 'parent' | 'planner';
+    readonly purpose: ContextRequestPurpose;
+    readonly modelStep: number;
+    readonly modelSelection?: ModelSelection;
+  }[];
   readonly evidenceIds: readonly string[];
   readonly diagnosticIds: readonly string[];
   readonly artifactIds: readonly string[];
@@ -164,8 +175,13 @@ const entry = (
     searchText: text,
   });
 
-const eventValue = (event: StoredExecutionEvent): Record<string, unknown> | undefined => {
-  if (typeof event.payload !== 'object' || event.payload === null || Array.isArray(event.payload)) {
+const eventValue = (
+  event: StoredExecutionEvent,
+): Record<string, unknown> | undefined => {
+  if (
+    typeof event.payload !== 'object' || event.payload === null ||
+    Array.isArray(event.payload)
+  ) {
     return undefined;
   }
   const payload = event.payload as Record<string, unknown>;
@@ -175,11 +191,13 @@ const eventValue = (event: StoredExecutionEvent): Record<string, unknown> | unde
     ? payload.observation as Record<string, unknown>
     : undefined;
   const envelope = providerObservation?.kind === 'runtime_event' &&
-      typeof providerObservation.event === 'object' && providerObservation.event !== null &&
+      typeof providerObservation.event === 'object' &&
+      providerObservation.event !== null &&
       !Array.isArray(providerObservation.event)
     ? providerObservation.event as Record<string, unknown>
     : payload.kind === 'runtime_event' &&
-        typeof payload.event === 'object' && payload.event !== null && !Array.isArray(payload.event)
+        typeof payload.event === 'object' && payload.event !== null &&
+        !Array.isArray(payload.event)
     ? payload.event as Record<string, unknown>
     : payload;
   if (
@@ -208,11 +226,29 @@ const messageEntry = (
   }
   if (message.role === 'assistant') {
     if ('text' in message.content) {
-      return [entry(execution, attempt, 'assistant', id, 'assistant>', message.content.text)];
+      return [
+        entry(
+          execution,
+          attempt,
+          'assistant',
+          id,
+          'assistant>',
+          message.content.text,
+        ),
+      ];
     }
     const output: HumanHistoryEntryV1[] = [];
     if (message.text !== undefined) {
-      output.push(entry(execution, attempt, 'assistant', `${id}:text`, 'assistant~', message.text));
+      output.push(
+        entry(
+          execution,
+          attempt,
+          'assistant',
+          `${id}:text`,
+          'assistant~',
+          message.text,
+        ),
+      );
     }
     for (let index = 0; index < message.content.length; index += 1) {
       const call = message.content[index];
@@ -254,7 +290,9 @@ const semanticEventEntries = (
       (value.kind === 'user_message' || value.kind === 'steering_message') &&
       typeof value.message === 'object' && value.message !== null
     ) {
-      const message = value.message as { readonly content?: { readonly text?: unknown } };
+      const message = value.message as {
+        readonly content?: { readonly text?: unknown };
+      };
       if (typeof message.content?.text === 'string') {
         output.push(entry(
           execution,
@@ -266,11 +304,13 @@ const semanticEventEntries = (
         ));
       }
     } else if (
-      value.kind === 'assistant_message' || value.kind === 'assistant_progress' ||
+      value.kind === 'assistant_message' ||
+      value.kind === 'assistant_progress' ||
       value.kind === 'model_result'
     ) {
       const result = value.kind === 'model_result' &&
-          typeof value.result === 'object' && value.result !== null && !Array.isArray(value.result)
+          typeof value.result === 'object' && value.result !== null &&
+          !Array.isArray(value.result)
         ? value.result as Record<string, unknown>
         : undefined;
       const messageText = value.kind === 'assistant_progress'
@@ -278,8 +318,12 @@ const semanticEventEntries = (
         : value.kind === 'model_result'
         ? result?.text
         : typeof value.message === 'object' && value.message !== null
-        ? ((value.message as { readonly text?: unknown; readonly content?: unknown }).text ??
-          ((value.message as { readonly content?: { readonly text?: unknown } }).content?.text))
+        ? ((value.message as {
+          readonly text?: unknown;
+          readonly content?: unknown;
+        }).text ??
+          ((value.message as { readonly content?: { readonly text?: unknown } })
+            .content?.text))
         : undefined;
       if (typeof messageText === 'string') {
         const projected = entry(
@@ -290,14 +334,16 @@ const semanticEventEntries = (
           value.kind === 'assistant_progress' ? 'assistant~ partial' : 'assistant>',
           messageText,
         );
-        if (value.kind === 'assistant_progress') latestProgress.set('assistant', projected);
-        else {
+        if (value.kind === 'assistant_progress') {
+          latestProgress.set('assistant', projected);
+        } else {
           latestProgress.delete('assistant');
           output.push(projected);
         }
       }
     } else if (
-      value.kind === 'tool_call' && typeof value.call === 'object' && value.call !== null
+      value.kind === 'tool_call' && typeof value.call === 'object' &&
+      value.call !== null
     ) {
       const call = value.call as {
         readonly callId?: unknown;
@@ -329,7 +375,8 @@ const semanticEventEntries = (
         ),
       );
     } else if (
-      value.kind === 'tool_result' && typeof value.result === 'object' && value.result !== null
+      value.kind === 'tool_result' && typeof value.result === 'object' &&
+      value.result !== null
     ) {
       const result = value.result as {
         readonly callId?: unknown;
@@ -371,7 +418,9 @@ export const projectHumanHistoryExecution = (
   )];
   if (execution.adoption === 'canonical') {
     for (const message of input.canonicalMessages) {
-      output.push(...messageEntry(execution, attempt, message.ordinal, message.message));
+      output.push(
+        ...messageEntry(execution, attempt, message.ordinal, message.message),
+      );
     }
   } else {
     output.push(entry(
@@ -480,7 +529,8 @@ export const chunkHumanHistoryDetail = (
 ): HumanHistoryDetailChunkV1 => {
   const scalars = [...text];
   const offset = Math.max(0, Math.min(scalars.length, scalarOffset));
-  const chunk = scalars.slice(offset, offset + HUMAN_HISTORY_DETAIL_SCALARS).join('');
+  const chunk = scalars.slice(offset, offset + HUMAN_HISTORY_DETAIL_SCALARS)
+    .join('');
   return Object.freeze({
     schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
     sessionId,

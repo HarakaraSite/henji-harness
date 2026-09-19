@@ -21,8 +21,11 @@ import {
 import type { WorkerAgentComposition } from '../worker_agent_api.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
 import {
-  type ContextModelRequestItem,
-  type ContextModelRequestRecord,
+  type ContextModelRequestDelta,
+  contextOccurrenceDigest,
+  type ContextOccurrenceInput,
+  type ContextOccurrenceSource,
+  contextRevisionDigest,
   type ContextSourceRelation,
   createExecutionContextManifest,
   jsonBlob,
@@ -59,20 +62,20 @@ export interface WorkerGenerationPort {
   readonly runtimeEvent: (
     correlation: WorkerCorrelation,
     event: AgentEvent,
-  ) => void;
+  ) => number | undefined;
   readonly effectObservation: (
     correlation: WorkerCorrelation,
     effect: WorkerEffectObservation,
-  ) => void;
+  ) => number | undefined;
   readonly providerObservation?: (
     correlation: WorkerCorrelation,
     observation: ProviderEvidenceObservation,
     turn: number,
-  ) => void;
+  ) => number | undefined;
   readonly contextObservation?: (
     correlation: WorkerCorrelation,
-    observation: ContextModelRequestRecord,
-  ) => void | PromiseLike<void>;
+    observation: ContextModelRequestDelta,
+  ) => number | undefined | PromiseLike<number | undefined>;
   readonly checkpointProposal: (
     correlation: WorkerCorrelation,
     proposal: WorkerCheckpointProposalMessage,
@@ -87,7 +90,7 @@ export interface WorkerGenerationPort {
     correlation: WorkerCorrelation,
     outcome: LoopOutcome,
     providerEvidence?: ProviderEvidenceV1,
-    contextManifest?: import('../history/context_attribution.ts').ExecutionContextManifestV1,
+    contextManifest?: import('../history/context_attribution.ts').ExecutionContextManifestV2,
   ) => void | PromiseLike<void>;
 }
 
@@ -244,18 +247,62 @@ export class WorkerGeneration {
     const turnProviderRequestCount = () =>
       userTurnAdmitted ? Math.max(0, this.requestCounter.count() - requestCountAtAdmission) : 0;
     const diagnosticOwner = new FailureDiagnosticOwner(turn);
+    const runtimeSequences = new Map<string, number>();
+    const effectSequences = new Map<string, number>();
+    const providerSequences = new Map<string, number>();
+    let runtimeAssistantOrdinal = 0;
+    let runtimeSteeringOrdinal = 0;
+    const providerSequenceKey = (
+      event: import('../provider/provider_evidence.ts').ProviderEvidenceRuntimeEvent,
+    ): string | undefined => {
+      if (event.kind === 'turn_outcome') return undefined;
+      const lane = event.lane === 'planner' ? 'planner' : 'parent';
+      if (event.kind === 'model_result') {
+        return `model-result:${lane}:${event.modelStep}`;
+      }
+      if (event.kind === 'tool_call') {
+        return `tool-call:${lane}:${event.call.callId}`;
+      }
+      if (event.kind === 'tool_result') {
+        return `tool-result:${lane}:${event.result.callId}`;
+      }
+      return undefined;
+    };
     const evidence = new ProviderEvidenceRecorder(
       crypto.randomUUID().toLowerCase(),
       turn,
       new Date().toISOString(),
       undefined,
-      (observation) => this.port.providerObservation?.(correlation, observation, turn),
+      (observation) => {
+        const sequence = this.port.providerObservation?.(
+          correlation,
+          observation,
+          turn,
+        );
+        if (
+          sequence !== undefined && observation.kind === 'runtime_event'
+        ) {
+          const key = providerSequenceKey(observation.event);
+          if (key !== undefined) providerSequences.set(key, sequence);
+        }
+        return sequence;
+      },
     );
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
     const childMaxSteps = DEFAULT_AGENT_MAX_STEPS;
     const contextObservations: Promise<void>[] = [];
-    const contextRequests: ContextModelRequestRecord[] = [];
+    const contextRequests: ContextModelRequestDelta[] = [];
+    const sentContextBlobs = new Set<string>();
+    const occurrenceCounters = new Map<'parent' | 'planner', number>();
+    const revisionStates = new Map<'parent' | 'planner', {
+      readonly revisionDigest: string;
+      readonly itemCount: number;
+      readonly systemCount: number;
+      readonly transcriptCount: number;
+      readonly toolCount: number;
+    }>();
+    const committedHistoryIndex = indexSessionHistory(this.committedTranscript);
     let contextObservationFailed = false;
     let contextRequestOrdinal = 0;
     // Skill selection is a causal fact of the call occurrence.  The tool name is always
@@ -276,6 +323,11 @@ export class WorkerGeneration {
       }`;
     let assistantSourceOrdinal = 0;
     let steeringSourceOrdinal = 0;
+    const withWorkerSequence = (
+      source: ContextOccurrenceSource,
+      sequence: number | undefined,
+    ): ContextOccurrenceSource =>
+      sequence === undefined ? source : { ...source, sourceWorkerSequence: sequence };
     const sourceForMessage = (
       message: Message,
       kind: RequestMessageSourceKind,
@@ -283,14 +335,13 @@ export class WorkerGeneration {
       modelStep?: number,
       requestLane?: 'parent' | 'child',
       sourceCallId?: string,
-    ): readonly ContextSourceRelation[] => {
+    ): readonly ContextOccurrenceSource[] => {
       const lane: 'parent' | 'planner' = requestLane === 'child' ||
           this.composition.role === 'planner'
         ? 'planner'
         : 'parent';
       if (kind === 'committed') {
-        const indexed = indexSessionHistory(this.committedTranscript);
-        const canonicalTurn = indexed?.turns.find((candidate) =>
+        const canonicalTurn = committedHistoryIndex?.turns.find((candidate) =>
           messageIndex >= candidate.start && messageIndex < candidate.end
         );
         const messagePosition = canonicalTurn === undefined
@@ -307,7 +358,11 @@ export class WorkerGeneration {
         }];
       }
       if (kind === 'task') {
-        return [{
+        const sequence = lane === 'planner' && sourceCallId !== undefined
+          ? providerSequences.get(`tool-call:parent:${sourceCallId}`) ??
+            effectSequences.get(`tool-call:${sourceCallId}`)
+          : runtimeSequences.get('user-message');
+        return [withWorkerSequence({
           stage: 'projected',
           resourceKind: 'message',
           logicalIdentity: `current-task:${correlation.session}:turn:${turn}${
@@ -317,38 +372,50 @@ export class WorkerGeneration {
           }`,
           lane,
           ...(sourceCallId === undefined ? {} : { callId: sourceCallId }),
-        }];
+        }, sequence)];
       }
       if (kind === 'steering') {
         steeringSourceOrdinal += 1;
-        return [{
+        return [withWorkerSequence({
           stage: 'projected',
           resourceKind: 'message',
           logicalIdentity:
             `steering:${correlation.session}:turn:${turn}:message:${steeringSourceOrdinal}`,
           lane,
-        }];
+        }, runtimeSequences.get(`steering:${steeringSourceOrdinal}`))];
       }
       if (kind === 'assistant') {
         assistantSourceOrdinal += 1;
         if (!Array.isArray(message.content) || message.content.length === 0) {
-          return [{
+          return [withWorkerSequence(
+            {
+              stage: 'projected',
+              resourceKind: 'message',
+              logicalIdentity:
+                `current-execution:${correlation.session}:turn:${turn}:assistant:event:${assistantSourceOrdinal}`,
+              lane,
+              ...(modelStep === undefined ? {} : { modelStep }),
+            },
+            modelStep === undefined
+              ? runtimeSequences.get(`assistant:${assistantSourceOrdinal}`)
+              : providerSequences.get(`model-result:${lane}:${modelStep}`) ??
+                runtimeSequences.get(`assistant:${assistantSourceOrdinal}`),
+          )];
+        }
+        const assistantEvent: ContextOccurrenceSource = withWorkerSequence(
+          {
             stage: 'projected',
             resourceKind: 'message',
             logicalIdentity:
               `current-execution:${correlation.session}:turn:${turn}:assistant:event:${assistantSourceOrdinal}`,
             lane,
             ...(modelStep === undefined ? {} : { modelStep }),
-          }];
-        }
-        const assistantEvent: ContextSourceRelation = {
-          stage: 'projected',
-          resourceKind: 'message',
-          logicalIdentity:
-            `current-execution:${correlation.session}:turn:${turn}:assistant:event:${assistantSourceOrdinal}`,
-          lane,
-          ...(modelStep === undefined ? {} : { modelStep }),
-        };
+          },
+          modelStep === undefined
+            ? runtimeSequences.get(`assistant:${assistantSourceOrdinal}`)
+            : providerSequences.get(`model-result:${lane}:${modelStep}`) ??
+              runtimeSequences.get(`assistant:${assistantSourceOrdinal}`),
+        );
         return [
           assistantEvent,
           ...message.content.map((call) => {
@@ -369,15 +436,21 @@ export class WorkerGeneration {
             ) {
               skillCalls.set(callKey(lane, call.callId), call.arguments.name);
             }
-            return {
-              stage: 'projected' as const,
-              resourceKind: 'message' as const,
-              logicalIdentity:
-                `current-execution:${correlation.session}:turn:${turn}:call:${call.callId}`,
-              callId: call.callId,
-              lane,
-              ...(modelStep === undefined ? {} : { modelStep }),
-            };
+            return withWorkerSequence(
+              {
+                stage: 'projected' as const,
+                resourceKind: 'message' as const,
+                logicalIdentity:
+                  `current-execution:${correlation.session}:turn:${turn}:call:${call.callId}`,
+                callId: call.callId,
+                lane,
+                ...(modelStep === undefined ? {} : { modelStep }),
+              },
+              modelStep === undefined
+                ? runtimeSequences.get(`assistant:${assistantSourceOrdinal}`)
+                : providerSequences.get(`model-result:${lane}:${modelStep}`) ??
+                  runtimeSequences.get(`assistant:${assistantSourceOrdinal}`),
+            );
           }),
         ];
       }
@@ -399,7 +472,9 @@ export class WorkerGeneration {
           )
           : [];
         const skill = skillCandidates.length === 1 ? skillCandidates[0] : undefined;
-        const base: ContextSourceRelation = {
+        const sourceSequence = providerSequences.get(`tool-result:${lane}:${result.callId}`) ??
+          effectSequences.get(`tool-result:${result.callId}`);
+        const base: ContextOccurrenceSource = withWorkerSequence({
           stage: 'projected',
           resourceKind: 'message',
           logicalIdentity:
@@ -407,8 +482,7 @@ export class WorkerGeneration {
           callId: result.callId,
           lane,
           ...(sourceModelStep === undefined ? {} : { modelStep: sourceModelStep }),
-          ...(sourceRequestOrdinal === undefined ? {} : { requestOrdinal: sourceRequestOrdinal }),
-        };
+        }, sourceSequence);
         const observed: ContextSourceRelation = {
           stage: 'observed',
           resourceKind: 'tool_result',
@@ -418,7 +492,7 @@ export class WorkerGeneration {
           ...(sourceModelStep === undefined ? {} : { modelStep: sourceModelStep }),
           ...(sourceRequestOrdinal === undefined ? {} : { requestOrdinal: sourceRequestOrdinal }),
         };
-        const projected: ContextSourceRelation = {
+        const projected: ContextOccurrenceSource = withWorkerSequence({
           stage: 'projected',
           resourceKind: skill === undefined ? 'tool_result' : 'skill',
           logicalIdentity: skill === undefined
@@ -428,7 +502,7 @@ export class WorkerGeneration {
           callId: result.callId,
           lane,
           ...(sourceModelStep === undefined ? {} : { modelStep: sourceModelStep }),
-        };
+        }, sourceSequence);
         const loaded: ContextSourceRelation | undefined = skill === undefined ? undefined : {
           stage: 'loaded',
           resourceKind: 'skill',
@@ -439,7 +513,7 @@ export class WorkerGeneration {
           ...(sourceModelStep === undefined ? {} : { modelStep: sourceModelStep }),
           ...(sourceRequestOrdinal === undefined ? {} : { requestOrdinal: sourceRequestOrdinal }),
         };
-        const relations: ContextSourceRelation[] = [base, projected];
+        const relations: ContextOccurrenceSource[] = [base, projected];
         toolResultTexts.set(callKey(lane, result.callId), result.text);
         if (!externalToolRelations.has(relationKey(observed))) {
           externalToolRelations.set(relationKey(observed), observed);
@@ -453,17 +527,36 @@ export class WorkerGeneration {
         return relations;
       });
     };
-    const contextualizeSource = (
-      source: ContextSourceRelation,
-      requestOrdinal: number,
+    const nextOccurrenceId = (
       lane: 'parent' | 'planner',
-      modelStep: number,
-    ): ContextSourceRelation => ({
-      ...source,
-      lane,
-      modelStep,
-      requestOrdinal,
-    });
+      kind: ContextOccurrenceInput['kind'],
+    ): string => {
+      const next = (occurrenceCounters.get(lane) ?? 0) + 1;
+      occurrenceCounters.set(lane, next);
+      return `${lane}:${kind}:${next}`;
+    };
+    const occurrenceFor = async (
+      lane: 'parent' | 'planner',
+      kind: ContextOccurrenceInput['kind'],
+      blob: Awaited<ReturnType<typeof textBlob>>,
+      sourceRelations: readonly ContextOccurrenceSource[],
+    ): Promise<ContextOccurrenceInput> => {
+      const occurrenceId = nextOccurrenceId(lane, kind);
+      const content = {
+        digest: blob.digest,
+        byteLength: blob.byteLength,
+        mediaType: blob.mediaType,
+      };
+      const body = { occurrenceId, kind, content, sourceRelations };
+      const occurrenceDigest = await contextOccurrenceDigest(body);
+      const includeBytes = !sentContextBlobs.has(blob.digest);
+      sentContextBlobs.add(blob.digest);
+      return {
+        ...body,
+        occurrenceDigest,
+        ...(includeBytes ? { bytesBase64: blob.bytes.toBase64() } : {}),
+      };
+    };
     const observeModelRequest = async (
       observation: ModelRequestObservation,
     ): Promise<number> => {
@@ -479,11 +572,21 @@ export class WorkerGeneration {
       }
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
+        const lane = observation.lane === 'child' ? 'planner' : 'parent';
+        const previous = revisionStates.get(lane);
+        if (
+          observation.previousTranscriptLength !==
+            (previous?.transcriptCount ?? 0) ||
+          observation.request.transcript.length <
+            observation.previousTranscriptLength
+        ) {
+          throw new Error('model request transcript delta is not append-only');
+        }
         const hydrateSource = async (
-          source: ContextSourceRelation,
+          source: ContextOccurrenceSource,
           itemDigest: string,
           message?: Message,
-        ): Promise<ContextSourceRelation> => {
+        ): Promise<ContextOccurrenceSource> => {
           if (source.contentDigest !== undefined) return source;
           if (
             source.resourceKind === 'skill' &&
@@ -516,9 +619,13 @@ export class WorkerGeneration {
           // source by identical bytes.
           return { ...source, contentDigest: itemDigest };
         };
-        const items: ContextModelRequestItem[] = [];
-        let itemOrdinal = 1;
-        if (observation.request.systemInstruction !== undefined) {
+        const occurrences: ContextOccurrenceInput[] = [];
+        let systemCount = previous?.systemCount ?? 0;
+        let toolCount = previous?.toolCount ?? 0;
+        if (
+          previous === undefined &&
+          observation.request.systemInstruction !== undefined
+        ) {
           const blob = await textBlob(observation.request.systemInstruction);
           const rootInstructionComponents = this.startupSnapshot.context?.instructionComponents ??
             [];
@@ -529,13 +636,21 @@ export class WorkerGeneration {
                 String(component.identity) === 'instruction:henji-base'
               );
               if (base === undefined) {
-                throw new Error('Worker planner Henji base attribution is unavailable');
+                throw new Error(
+                  'Worker planner Henji base attribution is unavailable',
+                );
               }
               const boundary = `${base.text}\n\n`;
-              if (!observation.request.systemInstruction!.startsWith(boundary)) {
-                throw new Error('Worker planner Henji base projection is incoherent');
+              if (
+                !observation.request.systemInstruction!.startsWith(boundary)
+              ) {
+                throw new Error(
+                  'Worker planner Henji base projection is incoherent',
+                );
               }
-              const contribution = observation.request.systemInstruction!.slice(boundary.length);
+              const contribution = observation.request.systemInstruction!.slice(
+                boundary.length,
+              );
               return [
                 base,
                 {
@@ -547,8 +662,10 @@ export class WorkerGeneration {
             })();
           const hasNamedInstructionComponents = namedInstructionComponents.length > 0;
           let componentByteOffset = 0;
-          const componentRelations: ContextSourceRelation[] = [];
-          for (const [index, component] of namedInstructionComponents.entries()) {
+          const componentRelations: ContextOccurrenceSource[] = [];
+          for (
+            const [index, component] of namedInstructionComponents.entries()
+          ) {
             const componentBlob = await textBlob(component.text);
             const byteStart = componentByteOffset;
             const byteEnd = byteStart + componentBlob.byteLength;
@@ -559,38 +676,35 @@ export class WorkerGeneration {
               sourceLocator: `${
                 component.sourceLocator ?? 'worker-composition'
               }#bytes=${byteStart}-${byteEnd}`,
-              lane: observation.lane === 'child' ? 'planner' : 'parent',
+              lane,
               modelStep: observation.modelStep,
-              requestOrdinal,
               contentDigest: componentBlob.digest,
             });
-            componentByteOffset = byteEnd + (index + 1 < namedInstructionComponents.length ? 2 : 0);
+            componentByteOffset = byteEnd +
+              (index + 1 < namedInstructionComponents.length ? 2 : 0);
           }
-          items.push({
-            ordinal: itemOrdinal++,
-            kind: 'system',
-            content: {
-              digest: blob.digest,
-              byteLength: blob.byteLength,
-              mediaType: blob.mediaType,
-            },
-            bytesBase64: blob.bytes.toBase64(),
-            relationOrdinals: [],
-            sourceRelations: hasNamedInstructionComponents ? componentRelations : [{
-              stage: 'projected',
-              resourceKind: 'definition_output',
-              logicalIdentity: `definition-output:${correlation.session}`,
-              lane: observation.lane === 'child' ? 'planner' : 'parent',
-              modelStep: observation.modelStep,
-              requestOrdinal,
-              contentDigest: blob.digest,
-            }],
-          });
+          occurrences.push(
+            await occurrenceFor(
+              lane,
+              'system',
+              blob,
+              hasNamedInstructionComponents ? componentRelations : [{
+                stage: 'projected',
+                resourceKind: 'definition_output',
+                logicalIdentity: `definition-output:${correlation.session}`,
+                lane,
+                modelStep: observation.modelStep,
+                contentDigest: blob.digest,
+              }],
+            ),
+          );
+          systemCount = 1;
         }
-        for (
-          const [messageIndex, message] of observation.request.transcript
-            .entries()
-        ) {
+        const newMessages = observation.request.transcript.slice(
+          observation.previousTranscriptLength,
+        );
+        for (const [offset, message] of newMessages.entries()) {
+          const messageIndex = observation.previousTranscriptLength + offset;
           const blob = await jsonBlob(
             message as unknown as import('../core/contracts.ts').JsonValue,
             'application/vnd.henji.message+json',
@@ -599,73 +713,101 @@ export class WorkerGeneration {
             (observation.sourceAttribution?.transcript[messageIndex] ?? []).map(
               (source) =>
                 hydrateSource(
-                  contextualizeSource(
-                    source,
-                    requestOrdinal,
-                    observation.lane === 'child' ? 'planner' : 'parent',
-                    observation.modelStep,
-                  ),
+                  source,
                   blob.digest,
                   message,
                 ),
             ),
           );
-          items.push({
-            ordinal: itemOrdinal++,
-            kind: 'message',
-            content: {
-              digest: blob.digest,
-              byteLength: blob.byteLength,
-              mediaType: blob.mediaType,
-            },
-            bytesBase64: blob.bytes.toBase64(),
-            relationOrdinals: [],
-            sourceRelations,
-          });
-        }
-        for (const tool of observation.request.tools) {
-          const blob = await jsonBlob(
-            tool as unknown as import('../core/contracts.ts').JsonValue,
-            'application/vnd.henji.tool+json',
+          occurrences.push(
+            await occurrenceFor(lane, 'message', blob, sourceRelations),
           );
-          const manifestToolIdentity = this.composition.manifest.resources
-            .filter((resource) => resource === `tool:${tool.name}`);
-          items.push({
-            ordinal: itemOrdinal++,
-            kind: 'tool_contract',
-            content: {
-              digest: blob.digest,
-              byteLength: blob.byteLength,
-              mediaType: blob.mediaType,
-            },
-            bytesBase64: blob.bytes.toBase64(),
-            relationOrdinals: [],
-            sourceRelations: manifestToolIdentity.length === 1
-              ? [{
-                stage: 'projected',
-                resourceKind: 'tool_contract',
-                logicalIdentity: `tool-contract:${manifestToolIdentity[0]}`,
-                lane: observation.lane === 'child' ? 'planner' : 'parent',
-                modelStep: observation.modelStep,
-                requestOrdinal,
-                contentDigest: blob.digest,
-              }]
-              : [],
-          });
         }
-        const requestRecord: ContextModelRequestRecord = {
+        if (previous === undefined) {
+          for (const tool of observation.request.tools) {
+            const blob = await jsonBlob(
+              tool as unknown as import('../core/contracts.ts').JsonValue,
+              'application/vnd.henji.tool+json',
+            );
+            const manifestToolIdentity = this.composition.manifest.resources
+              .filter((resource) => resource === `tool:${tool.name}`);
+            occurrences.push(
+              await occurrenceFor(
+                lane,
+                'tool_contract',
+                blob,
+                manifestToolIdentity.length === 1
+                  ? [{
+                    stage: 'projected',
+                    resourceKind: 'tool_contract',
+                    logicalIdentity: `tool-contract:${manifestToolIdentity[0]}`,
+                    lane,
+                    modelStep: observation.modelStep,
+                    contentDigest: blob.digest,
+                  }]
+                  : [],
+              ),
+            );
+          }
+        }
+        if (previous === undefined) {
+          toolCount = observation.request.tools.length;
+        }
+        if (
+          previous !== undefined &&
+          (systemCount !==
+              (observation.request.systemInstruction === undefined ? 0 : 1) ||
+            toolCount !== observation.request.tools.length)
+        ) {
+          throw new Error(
+            'model request fixed context changed inside one execution lane',
+          );
+        }
+        const insertions = occurrences.map((occurrence) => ({
+          occurrenceId: occurrence.occurrenceId,
+          occurrenceDigest: occurrence.occurrenceDigest,
+        }));
+        const splice = previous === undefined ? { start: 0, deleteCount: 0, insertions } : {
+          start: previous.systemCount + previous.transcriptCount,
+          deleteCount: 0,
+          insertions,
+        };
+        const resultItemCount = (previous?.itemCount ?? 0) + insertions.length;
+        const digestInput: Pick<
+          ContextModelRequestDelta,
+          | 'lane'
+          | 'purpose'
+          | 'baseRevisionDigest'
+          | 'resultItemCount'
+          | 'splices'
+        > = {
+          lane,
+          purpose: 'user_turn' as const,
+          ...(previous === undefined ? {} : { baseRevisionDigest: previous.revisionDigest }),
+          resultItemCount,
+          splices: [splice],
+        };
+        const revisionDigest = await contextRevisionDigest(digestInput);
+        const requestDelta: ContextModelRequestDelta = {
+          schemaVersion: 2,
           requestOrdinal,
-          lane: observation.lane === 'child' ? 'planner' : 'parent',
-          purpose: 'user_turn',
           modelStep: observation.modelStep,
           ...(observation.modelSelection === undefined ? {} : {
             modelSelection: structuredClone(observation.modelSelection),
           }),
-          request: structuredClone(observation.request),
-          items,
+          ...digestInput,
+          revisionDigest,
+          occurrences,
         };
-        contextRequests.push(requestRecord);
-        await this.port.contextObservation?.(correlation, requestRecord);
+        revisionStates.set(lane, {
+          revisionDigest,
+          itemCount: resultItemCount,
+          systemCount,
+          transcriptCount: observation.request.transcript.length,
+          toolCount,
+        });
+        contextRequests.push(requestDelta);
+        await this.port.contextObservation?.(correlation, requestDelta);
       })();
       contextObservations.push(task);
       try {
@@ -681,41 +823,56 @@ export class WorkerGeneration {
     ): Promise<number> => {
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
+        const lane = observation.lane === 'child' ? 'planner' : 'parent';
         const blob = await textBlob(observation.body, 'application/json');
-        const requestRecord: ContextModelRequestRecord = {
+        const sourceSequence = providerSequences.get(
+          `tool-call:${lane}:${observation.callId}`,
+        ) ?? effectSequences.get(`tool-call:${observation.callId}`);
+        const occurrence = await occurrenceFor(
+          lane,
+          'provider_wire_body',
+          blob,
+          [withWorkerSequence({
+            stage: 'projected',
+            resourceKind: 'provider_wire_body',
+            logicalIdentity: `tool-call:${observation.callId}`,
+            callId: observation.callId,
+            lane,
+            modelStep: observation.modelStep,
+            contentDigest: blob.digest,
+          }, sourceSequence)],
+        );
+        const splices = [{
+          start: 0,
+          deleteCount: 0,
+          insertions: [{
+            occurrenceId: occurrence.occurrenceId,
+            occurrenceDigest: occurrence.occurrenceDigest,
+          }],
+        }];
+        const revisionDigest = await contextRevisionDigest({
+          lane,
+          purpose: observation.purpose,
+          resultItemCount: 1,
+          splices,
+        });
+        const requestDelta: ContextModelRequestDelta = {
+          schemaVersion: 2,
           requestOrdinal,
-          lane: observation.lane === 'child' ? 'planner' : 'parent',
+          lane,
           purpose: observation.purpose,
           modelStep: observation.modelStep,
           ...(observation.modelSelection === undefined ? {} : {
             modelSelection: structuredClone(observation.modelSelection),
           }),
-          providerBody: observation.body,
           sourceCallId: observation.callId,
-          items: [{
-            ordinal: 1,
-            kind: 'provider_wire_body',
-            content: {
-              digest: blob.digest,
-              byteLength: blob.byteLength,
-              mediaType: blob.mediaType,
-            },
-            bytesBase64: blob.bytes.toBase64(),
-            relationOrdinals: [],
-            sourceRelations: [{
-              stage: 'projected',
-              resourceKind: 'provider_wire_body',
-              logicalIdentity: `tool-call:${observation.callId}`,
-              callId: observation.callId,
-              lane: observation.lane === 'child' ? 'planner' : 'parent',
-              modelStep: observation.modelStep,
-              requestOrdinal,
-              contentDigest: blob.digest,
-            }],
-          }],
+          revisionDigest,
+          resultItemCount: 1,
+          splices,
+          occurrences: [occurrence],
         };
-        contextRequests.push(requestRecord);
-        await this.port.contextObservation?.(correlation, requestRecord);
+        contextRequests.push(requestDelta);
+        await this.port.contextObservation?.(correlation, requestDelta);
       })();
       contextObservations.push(task);
       try {
@@ -737,8 +894,7 @@ export class WorkerGeneration {
       let projectedTranscriptSources = sources.transcript;
       let currentUserMessageIndex = this.committedTranscript.length;
       if (this.checkpoint !== undefined) {
-        const indexed = indexSessionHistory(this.committedTranscript);
-        const coveredEnd = indexed
+        const coveredEnd = committedHistoryIndex
           ?.turns[this.checkpoint.coveredThroughTurn - 1]?.end;
         if (coveredEnd === undefined) {
           throw new Error('checkpoint boundary is invalid');
@@ -837,7 +993,7 @@ export class WorkerGeneration {
       return { outcome: settled, providerEvidence: evidence.snapshot() };
     };
     const makeContextManifest = async (): Promise<
-      | import('../history/context_attribution.ts').ExecutionContextManifestV1
+      | import('../history/context_attribution.ts').ExecutionContextManifestV2
       | undefined
     > => {
       await Promise.allSettled(contextObservations);
@@ -845,7 +1001,11 @@ export class WorkerGeneration {
       try {
         const projected = new Set(
           contextRequests.flatMap((request) =>
-            request.items.flatMap((item) => (item.sourceRelations ?? []).map(relationKey))
+            request.occurrences.flatMap((occurrence) =>
+              occurrence.sourceRelations.map((relation) =>
+                relationKey(relation as ContextSourceRelation)
+              )
+            )
           ),
         );
         const external: ContextSourceRelation[] = [];
@@ -892,9 +1052,33 @@ export class WorkerGeneration {
           // Worker fact and the Host projects the provider-neutral AgentEvent from it.
           return;
         } else if (isEffect(event)) {
-          this.port.effectObservation(correlation, event);
+          const sequence = this.port.effectObservation(correlation, event);
+          if (sequence !== undefined && event.kind === 'tool_call') {
+            effectSequences.set(`tool-call:${event.call.callId}`, sequence);
+          } else if (sequence !== undefined && event.kind === 'tool_result') {
+            effectSequences.set(`tool-result:${event.result.callId}`, sequence);
+          }
         } else {
-          this.port.runtimeEvent(correlation, event);
+          const sequence = this.port.runtimeEvent(correlation, event);
+          if (sequence !== undefined && event.kind === 'user_message') {
+            runtimeSequences.set('user-message', sequence);
+          } else if (
+            sequence !== undefined && event.kind === 'steering_message'
+          ) {
+            runtimeSteeringOrdinal += 1;
+            runtimeSequences.set(
+              `steering:${runtimeSteeringOrdinal}`,
+              sequence,
+            );
+          } else if (
+            sequence !== undefined && event.kind === 'assistant_message'
+          ) {
+            runtimeAssistantOrdinal += 1;
+            runtimeSequences.set(
+              `assistant:${runtimeAssistantOrdinal}`,
+              sequence,
+            );
+          }
         }
       };
       const outcome = await runAgentTurn(

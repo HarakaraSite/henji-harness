@@ -10,9 +10,8 @@ import type { CredentialAvailability, ModelSelection } from '../provider/model_s
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
 import type { RecalledExecutionContext } from './recalled_execution_context.ts';
 import type {
-  ContextModelRequestRecord,
-  ExecutionContextManifestV1,
-  ExecutionContextRelation,
+  ContextModelRequestDelta,
+  ExecutionContextManifestV2,
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
@@ -240,9 +239,10 @@ export interface WorkerReadyMessage {
   readonly credentialAvailability?: CredentialAvailability;
 }
 
-export type WorkerContextObservation =
-  | { readonly kind: 'model_request'; readonly request: ContextModelRequestRecord }
-  | { readonly kind: 'relation'; readonly relation: ExecutionContextRelation };
+export interface WorkerContextObservation {
+  readonly kind: 'model_request_delta';
+  readonly delta: ContextModelRequestDelta;
+}
 
 export interface WorkerContextObservationMessage {
   readonly kind: 'context_observation';
@@ -296,7 +296,7 @@ export interface WorkerCommitProposalMessage {
   /** Credential-free evidence captured inside Worker; Host owns persistence. */
   readonly providerEvidence?: ProviderEvidenceV1;
   /** Final ordered context descriptor manifest for normal settlement validation. */
-  readonly contextManifest?: ExecutionContextManifestV1;
+  readonly contextManifest?: ExecutionContextManifestV2;
   readonly diagnostic?: FailureDiagnosticV1;
 }
 
@@ -314,7 +314,7 @@ export interface WorkerTurnFailedMessage {
   /** Credential-free evidence captured inside Worker; Host owns persistence. */
   readonly providerEvidence?: ProviderEvidenceV1;
   /** Final ordered context descriptor manifest for normal settlement validation. */
-  readonly contextManifest?: ExecutionContextManifestV1;
+  readonly contextManifest?: ExecutionContextManifestV2;
   readonly diagnostic?: FailureDiagnosticV1;
 }
 

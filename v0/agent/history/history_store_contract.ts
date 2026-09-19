@@ -31,7 +31,7 @@ import type {
 } from '../worker/worker_protocol.ts';
 import type {
   ContextModelRequestRecord,
-  ExecutionContextManifestV1,
+  ExecutionContextManifestV2,
   ExecutionContextRelation,
   WorkerContextSnapshot,
 } from './context_attribution.ts';
@@ -107,9 +107,11 @@ type ProviderObservationPayload<
   >;
 };
 
-type RuntimeCommitProposalPayload = Omit<WorkerCommitProposalMessage, 'kind'> & {
-  readonly kind: 'commit_proposal';
-};
+type RuntimeCommitProposalPayload =
+  & Omit<WorkerCommitProposalMessage, 'kind'>
+  & {
+    readonly kind: 'commit_proposal';
+  };
 type RuntimeTurnFailedPayload = Omit<WorkerTurnFailedMessage, 'kind'> & {
   readonly kind: 'turn_failed';
 };
@@ -308,14 +310,15 @@ export interface HistoryExecutionInput {
   readonly recalledContext?: RecalledExecutionContext;
   /** Worker generation basis copied atomically at execution admission. */
   readonly contextSnapshot?: WorkerContextSnapshot;
-  /** Durable context observations received before settlement. */
-  readonly contextObservations?: readonly ContextModelRequestRecord[];
   /** Final Worker context descriptor manifest checked against live rows on settlement. */
-  readonly contextManifest?: ExecutionContextManifestV1;
+  readonly contextManifest?: ExecutionContextManifestV2;
 }
 
 export interface HistoryCaptureInput {
-  readonly evidence?: ProviderEvidenceV3 | ProviderEvidenceV4 | ProviderEvidenceV5;
+  readonly evidence?:
+    | ProviderEvidenceV3
+    | ProviderEvidenceV4
+    | ProviderEvidenceV5;
   readonly diagnostic?: FailureDiagnosticV1;
 }
 
@@ -349,7 +352,9 @@ export interface HistoryPersistencePort {
   beginExecution(input: BeginExecutionInput): void | Promise<void>;
   appendExecutionEvent(input: ExecutionEventInput): StoredExecutionEvent;
   /** Append several worker observations in one connection and one transaction, preserving order. */
-  appendExecutionEvents(inputs: readonly ExecutionEventInput[]): readonly StoredExecutionEvent[];
+  appendExecutionEvents(
+    inputs: readonly ExecutionEventInput[],
+  ): readonly StoredExecutionEvent[];
   /** Pure shape/contract check used to reject an invalid fact before it is projected to the Surface. */
   validateExecutionEvent(input: ExecutionEventInput): boolean;
   reconcileExecution(input: ReconcileExecutionInput): void;
@@ -367,5 +372,8 @@ export interface HistoryPersistencePort {
     readonly relations: readonly ExecutionContextRelation[];
     readonly requests: readonly ContextModelRequestRecord[];
   };
-  readExecutionRequest(executionId: string, requestOrdinal: number): ContextModelRequestRecord;
+  readExecutionRequest(
+    executionId: string,
+    requestOrdinal: number,
+  ): ContextModelRequestRecord;
 }
