@@ -445,7 +445,8 @@ final-only stdout、failure JSON、exit codeだけをSurface contractとして�
 - draftを保持し、複数行を編集できる入力欄。
 - ready / busy / failure、過去表示中の位置と復帰操作、pending input、操作結果など、その時点の判断に必要な
   一時status行。
-- 対象physical workspace、現在のSession短縮ID、root model、effortを常時示すidentity行。
+- 対象physical workspace、現在のSession短縮ID、Session titleを常時示すsession行。
+- 選択中root provider、model、effortを常時示すmodel行。
 
 conversation logのturn境界、user入力と最初のtoolまたはassistant出力の境界、logと入力欄およびfooterの
 境界は、Host側layoutが表示専用の空行として導く。canonical transcriptやWorker eventへ空messageを

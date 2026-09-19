@@ -233,20 +233,26 @@ Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', (
     capabilities: { canNavigate: true, canHistory: true, canCompact: true },
     generation: 0,
   });
+  const wide = layoutUi(state, 160, 24).footer;
+  assertEquals(wide.length, 3);
   assertEquals(
-    layoutUi(state, 160, 24).footer[1].text,
-    '[/home/masat.guest/src/forgejo-agent session:abcdef12 provider:openai-responses model:gpt-5.6-sol medium]',
+    wide[1].text,
+    '[/home/masat.guest/src/forgejo-agent session:abcdef12 untitled]',
   );
-  const narrow = layoutUi(state, 80, 24).footer[1].text;
-  assert(narrow.includes('session:abcdef12'));
+  assertEquals(
+    wide[2].text,
+    '[provider:openai-responses model:gpt-5.6-sol medium]',
+  );
+  const narrow = layoutUi(state, 80, 24).footer[2].text;
   assert(narrow.includes('provider:openai-responses'));
   assert(narrow.includes('model:gpt-5.6-sol'));
   assert(narrow.endsWith(' medium]'));
-  const degraded = layoutUi(state, 40, 10).footer[1].text;
-  assert(degraded.includes('abcdef12'));
-  assert(degraded.includes('openai-responses'));
-  assert(degraded.includes('-sol'));
-  assert(degraded.endsWith(' medium]'));
+  const degradedSession = layoutUi(state, 40, 10).footer[1].text;
+  assert(degradedSession.includes('session:abcdef12'));
+  const degradedModel = layoutUi(state, 40, 10).footer[2].text;
+  assert(degradedModel.includes('openai-responses'));
+  assert(degradedModel.includes('-sol'));
+  assert(degradedModel.endsWith(' medium]'));
 });
 
 Deno.test('Increment 15 rebuilds foreign provider history from semantic messages', async () => {

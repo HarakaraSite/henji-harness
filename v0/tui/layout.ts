@@ -311,42 +311,50 @@ const footerStatusText = (
   return { text };
 };
 
-const footerIdentityText = (
+const footerSessionText = (
   state: UiState,
   columns: number,
 ): string | undefined => {
   if (state.projection === undefined) return undefined;
   const workspace = safeDisplay(state.projection.workspace, false);
   const session = state.projection.sessionId?.slice(0, 8) ?? 'none';
-  const model = state.projection.model;
-  if (model === undefined) {
-    const available = Math.max(1, columns - width('[]'));
-    return truncateCells(`[${suffixCells(workspace, available)}]`, columns);
+  const title = safeDisplay(state.startup?.position.title ?? 'untitled', false);
+  const fixed = ` session:${session} ${title}]`;
+  const available = columns - width(`[${fixed}`);
+  if (available >= 1) {
+    return `[${suffixCells(workspace, available)}${fixed}`;
   }
+
+  const withoutPath = `[session:${session} ${title}]`;
+  if (width(withoutPath) <= columns) return withoutPath;
+
+  const withoutTitle = `[session:${session}]`;
+  if (width(withoutTitle) <= columns) return withoutTitle;
+  return truncateCells(withoutTitle, columns);
+};
+
+const footerModelText = (
+  state: UiState,
+  columns: number,
+): string | undefined => {
+  const model = state.projection?.model;
+  if (model === undefined) return undefined;
   const effort = safeDisplay(model.effort, false);
   const provider = safeDisplay(model.provider, false);
   const fullModel = safeDisplay(model.modelId, false);
-  const fixed = ` session:${session} provider:${provider} model:${fullModel} ${effort}]`;
-  const cwdAvailable = columns - width(`[${fixed}`);
-  if (cwdAvailable >= 1) {
-    return `[${suffixCells(workspace, cwdAvailable)}${fixed}`;
-  }
+  const full = `[provider:${provider} model:${fullModel} ${effort}]`;
+  if (width(full) <= columns) return full;
 
-  const withoutCwd = `[session:${session} provider:${provider} model:${fullModel} ${effort}]`;
-  if (width(withoutCwd) <= columns) return withoutCwd;
-
-  const compactFixed = `[session:${session} provider:${provider} model: ${effort}]`;
+  const compactFixed = `[provider:${provider} model: ${effort}]`;
   if (width(compactFixed) < columns) {
     const modelAvailable = columns - width(compactFixed);
-    return `[session:${session} provider:${provider} model:${
-      suffixCells(fullModel, modelAvailable)
-    } ${effort}]`;
+    return `[provider:${provider} model:${suffixCells(fullModel, modelAvailable)} ${effort}]`;
   }
 
-  const narrowFixed = `[${session} ${provider}  ${effort}]`;
+  const narrowFixed = `[${provider}  ${effort}]`;
   const modelAvailable = Math.max(1, columns - width(narrowFixed));
   return truncateCells(
-    `[${session} ${provider} ${suffixCells(fullModel, modelAvailable)} ${effort}]`,
+    `[${provider} ${suffixCells(fullModel, modelAvailable)} ${effort}]`,
     columns,
   );
 };
@@ -685,15 +693,20 @@ export const layoutUi = (
   const widthLimit = clamp(columns, 1, MAX_COLUMNS);
   const heightLimit = clamp(rows, 1, MAX_ROWS);
   const degraded = widthLimit < MIN_COLUMNS || heightLimit < MIN_ROWS;
-  const identityFooter = footerIdentityText(state, Math.max(1, widthLimit));
+  const sessionFooter = footerSessionText(state, Math.max(1, widthLimit));
+  const modelFooter = footerModelText(state, Math.max(1, widthLimit));
+  const identityRows = (sessionFooter === undefined ? 0 : 1) +
+    (modelFooter === undefined ? 0 : 1);
   const fullScreenHistory = state.overlay.kind === 'humanHistory';
   const standardHeight = heightLimit >= MIN_ROWS;
   const beforeInputCount = fullScreenHistory ? 0 : standardHeight ? 1 : 0;
   const afterInputCount = fullScreenHistory ? 0 : standardHeight ? 1 : 0;
   const footerCount = standardHeight
-    ? (identityFooter === undefined ? 1 : 2)
+    ? 1 + identityRows
+    : heightLimit >= 5
+    ? 1 + identityRows
     : heightLimit >= 3
-    ? (identityFooter === undefined ? 1 : 2)
+    ? 1 + Math.min(identityRows, 1)
     : heightLimit === 2
     ? 1
     : 0;
@@ -774,7 +787,8 @@ export const layoutUi = (
       ...statusFooter,
       kind: 'footer' as const,
     },
-    ...(identityFooter === undefined ? [] : [{ text: identityFooter, kind: 'footer' as const }]),
+    ...(sessionFooter === undefined ? [] : [{ text: sessionFooter, kind: 'footer' as const }]),
+    ...(modelFooter === undefined ? [] : [{ text: modelFooter, kind: 'footer' as const }]),
   ].slice(0, footerCount);
   const beforeInput = Array.from(
     { length: beforeInputCount },

@@ -201,6 +201,16 @@
 - 注意: runtime protocol、provider request、Session/Definition schemaは不変（binaryはTUI表示変更を含むためrebuild）。
   roadmap F01への取得URL表示追記は未実施（roadmap変更は別承認）。
 
+### Increment 81 — フッター3行化（実装・検証完了、未commit）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。footerを1行目status、2行目cwd・Session短縮ID・Session title、
+  3行目root provider・model・effortへ変更（`v0/tui/layout.ts`）。title未設定は`untitled`、幅・高さ不足時は
+  既存方針で省略。focused test（`increment_13`／`increment_15`／`tui_conversation_presentation`）とTUI suite
+  91件pass。roadmap F01／F10／TUI節、architecture Surface記述、`v0/agent/README.md`も3行へ更新。
+- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。
+- 正本: `docs/increments/increment-81.md`。
+- 注意: Worker protocol、Presentation contract、Session schemaは不変。installed binaryは`2ef01b27`時点のまま。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`。Increment 80完了commit `f3f22934`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み

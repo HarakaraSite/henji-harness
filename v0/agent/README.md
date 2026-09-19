@@ -62,8 +62,9 @@ deadline. It defaults to 120,000 ms and applies to each root, delegated-planner,
 compaction model request in that Worker invocation. The value is not Session state, so a Session
 switch keeps the invocation value and a later invocation returns to the default unless the flag is
 supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not
-automatically retry or select another model. The TUI footer keeps transient status on row one and
-cwd, the short Session ID, root provider, model, and effort on row two.
+automatically retry or select another model. The TUI footer keeps transient status on row one, the
+cwd, short Session ID, and Session title on row two, and the root provider, model, and effort on row
+three.
 
 `validation/production_cli_e2e.ts` starts the compiled production command only when invoked with the
 exact `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
