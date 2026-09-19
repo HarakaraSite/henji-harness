@@ -49,7 +49,6 @@
 - tool result本文、status、content-typeのactivity表示。
 - Worker protocol、Presentation contract、canonical transcript、`web_fetch` tool実装・結果形式の変更。
 - roadmap F01等の正本更新（roadmap変更は別承認）。
-- compiled binaryの再build・配置（runtime不変、既存配置`0.2.1`を維持）。
 
 ## Verification
 
@@ -80,3 +79,5 @@ switch case追加、focused test、docsで**0.5開発日相当**。
 - 検証で`v0:fmt`が基準commit `6cdfc407`の`v0/agent/README.md`で不合格になることを確認した（43-44行・57-58行の
   prose reflowずれのみで、increment-79の「fmt pass」記載と不一致）。利用者承認を得てdeno fmtで整形し、意味変更は
   ない。
+- compiled binaryをclean treeからbuildし（`henji:compile`）、`~/.local/bin/henji`へ原子的に配置した。build identityは
+  `source=f3f229345bebdb48226c851020cebc7450f00dfd`、`build=a2300b1d…`、`runtime=6e24643b…`、version `0.2.1`。

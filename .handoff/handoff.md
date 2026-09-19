@@ -195,16 +195,17 @@
   本文は表示対象外。focused test 3件追加（`tests/v0/tui_tool_preview_test.ts`、15件pass）。
 - 検証中に基準commit `6cdfc407`の`v0/agent/README.md`がdeno 2.9.6の`v0:fmt`に不合格（prose reflowのみ、
   increment-79の「fmt pass」記載と不一致）と判明。利用者承認を得てdeno fmtで整形（意味変更なし）。
-- 次: 変更は未commit。commit／pushは利用者の明示指示待ち。
+- 次: なし。変更はcommit・push済み（`f3f22934`）。compiled binaryをclean treeからrebuildし`~/.local/bin/henji`へ
+  原子的に配置済み（build `a2300b1d…`、source `f3f22934…`、version `0.2.1`）。
 - 正本: `docs/increments/increment-80.md`。inbox S7は削除済み。
-- 注意: runtime protocol、provider request、binaryは不変。installed binary `0.2.1`のrebuild不要。roadmap F01への
-  取得URL表示追記は未実施（roadmap変更は別承認）。
+- 注意: runtime protocol、provider request、Session/Definition schemaは不変（binaryはTUI表示変更を含むためrebuild）。
+  roadmap F01への取得URL表示追記は未実施（roadmap変更は別承認）。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 78完了commitのclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み。
-  buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source identityは
-  `~/.local/bin/henji --version`を正本とする。
+- binary: `0.2.1`。Increment 80完了commit `f3f22934`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `a2300b1d…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
+  identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
