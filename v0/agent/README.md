@@ -40,8 +40,8 @@ selection; the unbound bundled planner uses its `openrouter-chat` role default. 
 keeps an independent OpenRouter route and credential. The current standalone-era Session record
 schema v6 persists provider, API, auth-profile identity, active selection, change history,
 per-committed-turn attribution, and each committed turn's logical built-in Definition ref and build
-manifest. Previous development schemas remain in the old state namespace and are not interpreted
-by the compiled command.
+manifest. Previous development schemas remain in the old state namespace and are not interpreted by
+the compiled command.
 
 `henji instruction` manages the installation-wide `instruction:henji-base` slot. The Host resolves
 the active exact revision before creating each Worker generation and passes its ref and exact bytes
@@ -54,8 +54,8 @@ selected ref, component content digest, exact text, and byte projection into pro
 Session and applies the selected provider's complete default model/effort selection. `/model` opens
 the active provider's searchable effective catalog; choosing a model also selects that model's
 default effort. `/effort` changes only the active provider/model's effort. These commands are
-idle-only and take effect on the next root turn. The bundled OpenAI catalog contains
-`gpt-5.6-sol`, `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
+idle-only and take effect on the next root turn. The bundled OpenAI catalog contains `gpt-5.6-sol`,
+`gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
 The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request
 deadline. It defaults to 120,000 ms and applies to each root, delegated-planner, and context-
