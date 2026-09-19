@@ -37,6 +37,7 @@
       "v0/agent/provider/openrouter_sse.ts",
       "v0/agent/provider/openrouter_transport.ts",
       "v0/agent/provider/openrouter_value.ts",
+      "v0/agent/provider/auxiliary_request.ts",
       "v0/agent/provider/model_selection.ts",
       "v0/agent/provider/model_catalog.ts",
       "v0/agent/provider/openai_model_catalog.ts",
