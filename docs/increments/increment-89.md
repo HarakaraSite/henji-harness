@@ -302,6 +302,18 @@ revision参照を直接読み、context observation payloadをhydrateしない�
 - `v0:check`、project format／lint、`git diff --check`、authoritative `v0:gate`はexit 0。concept、architecture、roadmapは
   変更していない。
 
+## Release・配置結果
+
+- 2026-09-20、破壊的schema／protocol切替を含むためversionを`0.3.0`へ更新し、実装commit `452549cf`と
+  publish closure修正commit `c46342f3`を`origin/main`へpushした。
+- clean detached worktreeからJSR dry-runとpublishを行い、`@henji/harness@0.3.0`を公開した。registry metadataの
+  `latest: 0.3.0`と、JSRからのexact-version importで公開artifactを確認した。
+- 同じclean commit `c46342f3`からstandalone binaryをbuildし、`dist/henji`と`~/.local/bin/henji`へ同一artifactを
+  原子的に配置した。file SHA-256は`dfd0973e691621ff11de1ea7d0413ceec322eb51f41098b19205123f248ef572`、
+  embedded build identityは`d4611af8386c2a3f5c568dc6ab26798cf5388d27849adbc7493b0839297d0f29`。
+- repositoryに別のtag／Forgejo Release policyはなく、JSR手順もtag不要と定めるため、Git tagとForgejo Releaseは
+  作成していない。
+
 ## 対象外
 
 - schema v4履歴のmigration、converter、compatibility read、dual-read/write、旧DB削除。

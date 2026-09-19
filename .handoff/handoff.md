@@ -282,29 +282,13 @@
 - 正本: `docs/increments/increment-86.md`（第三者レビュー結果と実product確認を記載）。
 - 注意: 観測行のcoalesce（B）とTUI render別thread化（C）は対象外。B6は残存stallのため未クローズ（部分クローズ）。
 
-### Increment 87 — journalingのper-insert走査除去（実装・offline検証完了、B6は継続）
-
-- 状態: `execution_observations(execution_id, worker_sequence)`のpartial indexを追加（新規・既存DBとも
-  `database()`で作成）。`appendExecutionEventTx`の`max(worker_sequence)`がO(n)走査→O(log n)。offlineで
-  batch256件が10,240行時223ms→約11ms一定、5件flushが4.6ms→0.4ms。focused test 2件（index列・既存DB再作成）。
-  既存test（40/41/42/50/86）pass、`v0:check`/`fmt`/`lint`/`git diff --check`/`v0:gate` exit 0。
-- ただしtmux実機ではstallが残存。段階計測で`writeContextObservationsTx`が単一`context_observation`で最大
-  17秒（request全itemの再decode/re-digest/byte比較、O(n²)）と確定。参照化の試行（materialize済みitemの
-  `bytesBase64`省略）は`increment_42`の6件が`durable execution settlement failed`で失敗したためrevert。
-- 次: B6の残因（`writeContextObservationsTx`の増分化・`validateContextModelRequestRecord`のknown-digest
-  スキップ、またはcontext_observation契約のdigest参照化）は別incrementで計画・実装・検証する。利用者判断待ち。
-- 正本: `docs/increments/increment-87.md`（実装・offline検証）、`docs/increments/increment-88.md`（B6調査記録:
-  現象・原因・除外要因・revertした試行）。
-- 注意: roadmap・architecture正本の変更は承認待ちのまま。compiled binaryは`a2e7300d`（Increment 86）のまま
-  配置済みで、Increment 87はlocal commitのみ（push・build・配置は未実施）。tmux検証環境はcleanup済み。
-  利用者のhenji processには触れていない。
-
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 86完了commit `a2e7300d`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
-  （build `858fc5d9…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
-  identityは`~/.local/bin/henji --version`を正本とする。
-- JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
+- binary: `0.3.0`。Increment 89 release commit `c46342f3`のclean treeからbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `d4611af8…`、file SHA-256 `dfd0973e…`）。buildは
+  `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source identityは
+  `~/.local/bin/henji --version`を正本とする。
+- JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
 - provider: built-in idは`openrouter-chat`/`openrouter-responses`/`openai-chat`/`openai-responses`。旧
@@ -312,8 +296,8 @@
   `openai-chat-completions`または`openai-responses`のみ。credentialは`~/.config/henji-harness/{openrouter,openai}-api-key`
   （0600・単一トークン）。
 - 検証の注意: TUI/pty検証は**隔離XDG**で行い、実configへ`default-selection.json`等を書かない。
-- 未実施: Git tag、Forgejo Release、release automation（CIでのbinary build等）。releaseは安定後に別途計画する
-  （利用者判断: ずっと先）。
+- Git tagとForgejo Releaseは未作成。現行JSR release手順はtag不要で、別のrepository release policyもない。
+  release automation（CIでのbinary build等）は未実装。
 - 履歴DB: このrepo workspaceの旧state DBはlegacy providerState非互換のため削除済み。他workspaceのstate DBは
   旧chat evidenceを含むとreadbackが失敗するため、必要時に同様に切捨てる。
 - active external revision: `local/henji-base@sha256:82d67dd2…`。
