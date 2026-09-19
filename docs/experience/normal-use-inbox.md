@@ -15,7 +15,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
-| S8 | Surface | startup headerの項目表示（base instruction表記・skills複数行・MCP予約欄） | 項目名が分かりにくい、または項目が増えて1行に収まらないとき |
+| S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -73,21 +73,15 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: plain textでは意味・可読性を安定して保てない回答が観測されること。string出力contractを
   変える場合はF10/F24として構想・architectureへ戻る。
 
-### S8 — startup headerの項目表示（F01、F10）
+### S8 — startup headerのMCP欄（F01、F10）
 
-- 観測（2026-09-19、通常利用メモ）: startup orientation（`startupHeaderLines`）の`base:`ラベルは初見で意味が
-  分かりにくい。`skills:`は現在1行にcomma区切りで並べ、`omitted`分を`(+N more)`で補うため、skill数が増えると
-  横幅に収まらない。MCP接続は将来のmanaged resource候補だが、headerに表示欄がない。
-- 候補:
-  - `base:`ラベルを`base instruction:`へ変更する。現行のラベル列は`content`の`padEnd(11)`で固定のため、
-    17 cellのラベルへ広げる際の列幅決定と、compact layout（width<64／rows<16で2行へ落とす分岐）への影響を
-    確認する。
-  - `skills:`を複数行表示へ対応し、`omitted`の`(+N more)`に頼らずskill数増加へ耐える。継続行のラベル列・
-    インデント、compact／overlay layoutとの整合を決める。
-  - 将来のMCP接続managed resource用に、複数行対応の`mcp:`欄を予約する。表示対象のresourceが採用されるまでは
-    欄自体を実装しない。
-- 再検討条件: headerの項目名が通常利用で誤解を生むとき、またはskills/MCP等の項目が増えて現行の1行表示・
-  11-cellラベルに収まらなくなるとき。
+- 観測（2026-09-19、通常利用メモ）: MCP接続は将来のmanaged resource候補だが、startup orientation
+  （`startupHeaderLines`）に表示欄がない。
+- 採用済み（Increment 82）: `base:`→`base instruction:`表記と`skills:`複数行折り返しを実装し、ラベル付き値の
+  複数行描画を`headerContentLines`へ分離した。
+- 候補: 将来のMCP接続managed resource用に、複数行対応の`mcp:`欄を`headerContentLines`で追加する。
+  表示対象のresourceが採用されるまでは欄自体を実装しない。
+- 再検討条件: MCP接続managed resourceが採用され、headerで接続状態や数を示す必要が出るとき。
 - 関連: `v0/tui/startup_render.ts`、`v0/presentation/contract_types.ts`。
 
 ## Agent実行

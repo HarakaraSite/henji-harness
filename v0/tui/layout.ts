@@ -7,6 +7,7 @@ import {
   projectConversationEntry,
 } from './conversation_renderer.ts';
 import { startupHeaderLines } from './startup_render.ts';
+import { localTimestampText } from './terminal_text.ts';
 
 export const MIN_COLUMNS = 80;
 export const MIN_ROWS = 24;
@@ -118,17 +119,6 @@ const suffixCells = (text: string, columns: number): string => {
     used += next;
   }
   return `${marker}${result}`;
-};
-
-/** Format a stored UTC ISO timestamp at display time in the host's local timezone. */
-const localSessionTimestamp = (value: string): string => {
-  const time = Date.parse(value);
-  if (Number.isNaN(time)) return 'unknown';
-  const date = new Date(time);
-  const pad = (part: number): string => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${
-    pad(date.getHours())
-  }:${pad(date.getMinutes())}`;
 };
 
 /** Controller ready-status strings contain position facts that are rendered separately below. */
@@ -582,7 +572,7 @@ const overlayRows = (
     ) {
       const row = rows[start + index];
       const selected = start + index === overlay.selected;
-      const timestamp = localSessionTimestamp(row.updatedAt);
+      const timestamp = localTimestampText(row.updatedAt);
       const title = row.title ?? 'untitled';
       const availability = row.current ? 'current' : row.mismatch ? 'revision change' : 'resumable';
       lines.push(

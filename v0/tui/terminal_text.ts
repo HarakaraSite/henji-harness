@@ -73,3 +73,17 @@ export const toolCallText = (name: string, args: unknown): string => {
   const preview = toolActivityPreview(name, args);
   return preview.length === 0 ? shortToolName(name) : `${shortToolName(name)} ${preview}`;
 };
+
+const zoneNameFormatter = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' });
+const pad2 = (value: number): string => String(value).padStart(2, '0');
+
+/** Local wall-clock minute with the environment locale's short zone label. */
+export const localTimestampText = (value: string): string => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'unknown';
+  const stamp = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())} ` +
+    `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  const zone = zoneNameFormatter.formatToParts(date).find((part) => part.type === 'timeZoneName')
+    ?.value;
+  return zone === undefined || zone.length === 0 ? stamp : `${stamp} ${zone}`;
+};

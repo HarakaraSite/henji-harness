@@ -1,6 +1,6 @@
 import type { PresentationPosition, PresentationStartupState } from '../presentation/contract.ts';
 import { cellWidth } from './editor_render.ts';
-import { escapeTerminalText } from './terminal_text.ts';
+import { escapeTerminalText, localTimestampText } from './terminal_text.ts';
 
 export const orientationSession = (state: PresentationStartupState): string => {
   switch (state.sessionMode.kind) {
@@ -54,9 +54,41 @@ const fitSuffixCells = (value: string, columns: number): string => {
   return marker + suffix.reverse().join('');
 };
 
-const createdMinute = (value: string): string => {
-  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/u.exec(value);
-  return match === null ? 'unknown' : `${match[1]} ${match[2]}Z`;
+const HEADER_LABEL_COLUMNS = 'base instruction:'.length + 1;
+
+/** Wrap one header value, preferring `, ` boundaries so skill lists stay readable. */
+const wrapHeaderValue = (value: string, width: number): string[] => {
+  if (textCells(value) <= width) return [value];
+  const chunks = value.split(', ');
+  const lines: string[] = [];
+  let line = '';
+  for (const chunk of chunks) {
+    const candidate = line.length === 0 ? chunk : `${line}, ${chunk}`;
+    if (textCells(candidate) <= width) {
+      line = candidate;
+    } else if (line.length === 0) {
+      lines.push(fitCells(chunk, width));
+    } else {
+      lines.push(line);
+      line = chunk;
+    }
+  }
+  if (line.length > 0) lines.push(line);
+  return lines.length === 0 ? [''] : lines;
+};
+
+const headerContentLines = (
+  label: string,
+  value: string,
+  inside: number,
+): string[] => {
+  const valueWidth = Math.max(1, inside - HEADER_LABEL_COLUMNS - 1);
+  return wrapHeaderValue(value, valueWidth).map((line, index) => {
+    const prefix = index === 0
+      ? ` ${label.padEnd(HEADER_LABEL_COLUMNS)}`
+      : ' '.repeat(HEADER_LABEL_COLUMNS + 1);
+    return `│${fitCells(`${prefix}${line}`, inside)}│`;
+  });
 };
 
 const sessionIdentity = (
@@ -78,7 +110,7 @@ export const startupHeaderLines = (
   const width = Math.max(8, Math.min(160, columns));
   const title = escapeTerminalText(position.title ?? 'untitled');
   const productVersion = escapeTerminalText(state.productVersion);
-  const created = createdMinute(position.createdAt);
+  const created = localTimestampText(position.createdAt);
   const identity = escapeTerminalText(sessionIdentity(state, position));
   const workspace = escapeTerminalText(state.workspace);
   if (width < 64 || rows < 16) {
@@ -95,7 +127,7 @@ export const startupHeaderLines = (
 
   const inside = width - 2;
   const content = (label: string, value: string): string =>
-    `│${fitCells(` ${label.padEnd(11)}${value}`, inside)}│`;
+    headerContentLines(label, value, inside)[0];
   const heading = `─ Henji Harness v${productVersion} `;
   const top = `╭${heading}${'─'.repeat(Math.max(0, inside - textCells(heading)))}╮`;
   const skills = state.skills.names.length === 0
@@ -103,16 +135,15 @@ export const startupHeaderLines = (
     : `${state.skills.names.map((name) => escapeTerminalText(name)).join(', ')}${
       state.skills.omitted > 0 ? ` (+${state.skills.omitted} more)` : ''
     }`;
-  const baseInstruction = state.baseInstruction === undefined ? [] : [
-    content(
-      'base:',
-      `${
-        escapeTerminalText(state.baseInstruction.resourceId)
-      } · ${state.baseInstruction.selectionSource} · ${
-        state.baseInstruction.revisionDigest.slice(0, 8)
-      }`,
-    ),
-  ];
+  const baseInstruction = state.baseInstruction === undefined ? [] : headerContentLines(
+    'base instruction:',
+    `${
+      escapeTerminalText(state.baseInstruction.resourceId)
+    } · ${state.baseInstruction.selectionSource} · ${
+      state.baseInstruction.revisionDigest.slice(0, 8)
+    }`,
+    inside,
+  );
   return Object.freeze([
     top,
     content('session:', `${created} · ${title}`),
@@ -121,7 +152,7 @@ export const startupHeaderLines = (
     content('agent:', escapeTerminalText(state.agentId)),
     ...baseInstruction,
     content('context:', state.instructions.loaded ? state.instructions.source : 'none'),
-    content('skills:', skills),
+    ...headerContentLines('skills:', skills, inside),
     content('runtime:', `trusted-local · ${state.trust.hardSandbox ? '' : 'no '}hard sandbox`),
     `╰${'─'.repeat(inside)}╯`,
   ]);

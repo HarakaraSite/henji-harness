@@ -375,9 +375,12 @@ Deno.test('retained session picker identifies sessions by updated time and human
   const expectedMinute = (iso: string): string => {
     const date = new Date(iso);
     const pad = (part: number): string => String(part).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${
+    const stamp = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${
       pad(date.getHours())
     }:${pad(date.getMinutes())}`;
+    const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' })
+      .formatToParts(date).find((part) => part.type === 'timeZoneName')?.value;
+    return zone === undefined || zone.length === 0 ? stamp : `${stamp} ${zone}`;
   };
   assert(
     rows.includes(
@@ -607,8 +610,16 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   assertEquals(renderer.stateSnapshot().startup?.position, startupPosition);
   const wideHeader = renderer.layoutSnapshot(80, 24).allLog.map((row) => row.text);
   assertEquals(wideHeader.length, 9);
+  const expectedCreated = (() => {
+    const date = new Date('2026-09-11T12:34:56.000Z');
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+      `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  })();
   assert(wideHeader[0].includes('Henji Harness v0.1.2'));
-  assert(wideHeader.some((line) => line.includes('2026-09-11 12:34Z · untitled')));
+  assert(wideHeader.some((line) => line.includes(expectedCreated)));
+  assert(wideHeader.some((line) => line.includes('· untitled')));
+  assert(!wideHeader.some((line) => line.includes('12:34Z')));
   assert(wideHeader.some((line) => line.includes('new (autosave) · fc419637')));
   assert(wideHeader.some((line) => line.includes('runtime:')));
   terminal.size = { columns: 80, rows: 10 };
@@ -784,10 +795,58 @@ Deno.test('startup header shows the selected Henji base instruction', () => {
     messageCount: 0,
   };
   const full = startupHeaderLines(base, position, 100, 24);
+  assert(full.some((line) => line.includes('base instruction:')));
   assert(full.some((line) => line.includes('local/henji-base · external · 2e00f40b')));
   assert(full.some((line) => /context:\s+none/.test(line)));
   const compact = startupHeaderLines(base, position, 40, 12);
-  assert(!compact.some((line) => line.includes('base:')));
+  assert(!compact.some((line) => line.includes('base instruction:')));
+});
+
+Deno.test('startup header wraps a growing skills list across rows', () => {
+  const base: PresentationStartupState = {
+    productVersion: '0.1.3',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: {
+      provider: 'openrouter-chat',
+      profileId: 'test',
+      modelId: 'deepseek/deepseek-v4.1-flash',
+      effort: 'high',
+    },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: false, source: 'none' },
+    skills: {
+      count: 12,
+      names: [
+        'alpha',
+        'bravo',
+        'charlie',
+        'delta',
+        'echo',
+        'foxtrot',
+        'golf',
+        'hotel',
+        'india',
+        'juliet',
+      ],
+      omitted: 2,
+    },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  const position = {
+    sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    createdAt: '2026-09-11T01:02:03.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  const lines = startupHeaderLines(base, position, 80, 24);
+  assert(lines.filter((line) => line.includes('skills:')).length === 1);
+  const skillRows = lines.filter((line) => /(?:alpha|bravo|charlie|juliet)/.test(line));
+  assert(skillRows.length >= 2);
+  assert(lines.some((line) => line.includes('(+2 more)')));
+  for (const line of lines) assert(line.length <= 80);
 });
 
 Deno.test('runtime display state carries a bounded base instruction only when resolved', () => {
