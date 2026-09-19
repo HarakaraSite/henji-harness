@@ -1125,6 +1125,9 @@ CREATE TABLE execution_effects (
 );
 CREATE UNIQUE INDEX executions_active_session
   ON executions(session_correlation) WHERE lifecycle = 'active';
+CREATE INDEX IF NOT EXISTS execution_observations_execution_worker_sequence
+  ON execution_observations(execution_id, worker_sequence)
+  WHERE worker_sequence IS NOT NULL;
 PRAGMA user_version = 4;
 `;
 
@@ -1288,17 +1291,11 @@ export class SqliteHistoryStore
 
   private insertContextBlobTx(db: DatabaseSync, blob: ContextBlobInput): void {
     const existing = db.prepare(
-      'SELECT byte_length, raw_bytes FROM context_blobs WHERE digest = ?',
+      'SELECT byte_length FROM context_blobs WHERE digest = ?',
     ).get(blob.digest) as SqlRow | undefined;
     if (existing !== undefined) {
-      const bytes = existing.raw_bytes instanceof Uint8Array
-        ? existing.raw_bytes
-        : new Uint8Array(existing.raw_bytes as ArrayBuffer);
-      if (
-        Number(existing.byte_length) !== blob.byteLength ||
-        bytes.byteLength !== blob.bytes.byteLength ||
-        bytes.some((value, index) => value !== blob.bytes[index])
-      ) {
+      // The digest is content-addressed; a length mismatch means store corruption.
+      if (Number(existing.byte_length) !== blob.byteLength) {
         throw new HistoryStoreError('history_invalid');
       }
       return;
@@ -1414,6 +1411,16 @@ export class SqliteHistoryStore
         throw new HistoryStoreError('history_invalid');
       }
       db.exec('PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
+      const hasWorkerSequenceIndex = db.prepare(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'index' AND name = 'execution_observations_execution_worker_sequence'",
+      ).get() as SqlRow | undefined;
+      if (hasWorkerSequenceIndex === undefined) {
+        this.transaction(db, () => {
+          db!.exec(
+            'CREATE INDEX IF NOT EXISTS execution_observations_execution_worker_sequence ON execution_observations(execution_id, worker_sequence) WHERE worker_sequence IS NOT NULL',
+          );
+        });
+      }
       const foreignKeys = Number(
         (db.prepare('PRAGMA foreign_keys').get() as SqlRow).foreign_keys,
       );
@@ -2055,22 +2062,31 @@ export class SqliteHistoryStore
         ) {
           throw new HistoryStoreError('history_invalid');
         }
-        let bytes: Uint8Array;
-        try {
-          bytes = Uint8Array.fromBase64(itemRecord.bytesBase64);
-        } catch {
-          throw new HistoryStoreError('history_invalid');
-        }
         const descriptor = itemRecord.content;
-        if (
-          bytes.byteLength !== descriptor.byteLength ||
-          contextDigestSync(bytes) !== descriptor.digest
-        ) {
-          throw new HistoryStoreError('history_invalid');
-        }
-        this.insertContextBlobTx(db, { ...descriptor, bytes });
-        const sourceRelationOrdinals: number[] = [];
         const sourceRelations = (itemRecord.sourceRelations ?? []) as ContextSourceRelation[];
+        const stored = db.prepare(
+          'SELECT byte_length FROM context_blobs WHERE digest = ?',
+        ).get(descriptor.digest) as SqlRow | undefined;
+        const alreadyStored = stored !== undefined &&
+          Number(stored.byte_length) === descriptor.byteLength;
+        let bytes: Uint8Array | undefined;
+        if (!alreadyStored || sourceRelations.length > 0) {
+          try {
+            bytes = Uint8Array.fromBase64(itemRecord.bytesBase64);
+          } catch {
+            throw new HistoryStoreError('history_invalid');
+          }
+          if (
+            !alreadyStored &&
+            (bytes.byteLength !== descriptor.byteLength ||
+              contextDigestSync(bytes) !== descriptor.digest)
+          ) {
+            throw new HistoryStoreError('history_invalid');
+          }
+          if (!alreadyStored) this.insertContextBlobTx(db, { ...descriptor, bytes });
+        }
+        const itemBytes = bytes ?? new Uint8Array();
+        const sourceRelationOrdinals: number[] = [];
         for (const source of sourceRelations) {
           let sourceContentDigest = source.contentDigest ?? descriptor.digest;
           if (
@@ -2090,13 +2106,13 @@ export class SqliteHistoryStore
               const end = Number(range[2]);
               if (
                 !Number.isSafeInteger(start) || !Number.isSafeInteger(end) ||
-                start < 0 || end <= start || end > bytes.byteLength
+                start < 0 || end <= start || end > itemBytes.byteLength
               ) throw new HistoryStoreError('history_invalid');
-              resultBytes = bytes.slice(start, end);
+              resultBytes = itemBytes.slice(start, end);
             } else {
               let sourceValue: unknown;
               try {
-                sourceValue = JSON.parse(decoder.decode(bytes));
+                sourceValue = JSON.parse(decoder.decode(itemBytes));
               } catch {
                 throw new HistoryStoreError('history_invalid');
               }
