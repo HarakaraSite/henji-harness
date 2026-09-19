@@ -225,20 +225,21 @@
 - 注意: MCP欄は表示対象resourceが未採用のため実装しない。`/history export`・JSONL exportはISO UTCのまま
   （data artifact）。Worker protocol、Presentation contract、Session schemaは不変。実TTY確認は未実施。
 
-### Increment 83 — streaming中のassistantラベル色（実装・検証完了、未commit）
+### Increment 83 — streaming中のassistantラベル色（実装・検証・配置完了）
 
-- 状態: 実装・検証完了。`v0:gate` exit 0。`conversation_renderer.ts`のtone判定を`assistant>`または
+- 状態: 実装・検証・配置完了。`v0:gate` exit 0。`conversation_renderer.ts`のtone判定を`assistant>`または
   `assistant~`で`assistant`へ揃え、streaming開始の最初のframeから`assistant~`が黄色になる。focused test追加
   （`tui_conversation_presentation_test.ts` 14件pass）。
-- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。その後Phase B
-  （assistant本文レイアウト＋Markdownタグ着色、`**bold**`はSGR1）をIncrement 84で進める（利用者承認済み）。
+- 次: なし（Phase A完了）。commit・push済み（`9fce3c89`）。compiled binaryをclean treeからrebuildし
+  `~/.local/bin/henji`へ原子的に配置済み（build `66d29bec…`、source `9fce3c89…`、version `0.2.1`）。次は
+  Phase B（assistant本文レイアウト＋Markdownタグ着色、`**bold**`はSGR1）をIncrement 84で進める（利用者承認済み）。
 - 正本: `docs/increments/increment-83.md`。
-- 注意: 最終frameでstyleを注入する境界、canonical transcript、Presentation contractは不変。
+- 注意: 最終frameでstyleを注入する境界、canonical transcript、Presentation contractは不変。実TTY確認は未実施。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 82完了commit `c7ab8503`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
-  （build `53bc1270…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
+- binary: `0.2.1`。Increment 83完了commit `9fce3c89`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `66d29bec…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
   identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
