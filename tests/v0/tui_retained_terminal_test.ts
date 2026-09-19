@@ -1046,7 +1046,7 @@ Deno.test('retained controller keeps the anchor when ordinary task admission fai
   assertEquals(await run, 0);
 });
 
-Deno.test('cancelled active task returns to the empty editor and can be resubmitted', async () => {
+Deno.test('cancelled active task keeps recovery for an explicit /recover', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -1097,7 +1097,16 @@ Deno.test('cancelled active task returns to the empty editor and can be resubmit
   terminal.push(`${task}\r`);
   await waitFor(() => controller.currentState === 'busy');
   terminal.push('\x1b');
-  await waitFor(() => controller.currentState === 'idle' && controller.editor.text === task);
+  await waitFor(() => controller.currentState === 'idle');
+  assertEquals(controller.editor.text, '');
+  assert(
+    renderer.stateSnapshot().status.includes(
+      'cancelled; recoverable input available; use /recover',
+    ),
+  );
+
+  terminal.push('/recover\r');
+  await waitFor(() => controller.editor.text === task);
   assertEquals(renderer.stateSnapshot().status, 'recovered input; edit or resubmit');
 
   terminal.push('\r');

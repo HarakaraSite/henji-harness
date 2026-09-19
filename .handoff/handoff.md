@@ -253,6 +253,17 @@
 - 注意: 会話logのみ対象で、canonical transcript・`/history`・export・Presentation contractはplainのまま。
   長履歴での毎frame再parse性能は未確認。
 
+### Increment 85 — recoverable stopの可視化とprovider deadline延長（実装・検証完了、未commit）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。`controller.ts`のsettlementから自動`popRecovery()`を削除し、
+  recoverableではeditorを変更せず`<reason>; recoverable input available; use /recover`を表示、`/recover`で
+  明示復元。`DEFAULT_PROVIDER_TIMEOUT_MS`を120,000→180,000へ変更。roadmap F01/F02/TUI節・architecture・
+  `v0/agent/README.md`・`increment_13` testを更新。inbox B5に由来追記、E3（runtime config）追加。
+- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。実機でrecoverable
+  表示（自動復元しない）と180秒deadlineを確認する。
+- 正本: `docs/increments/increment-85.md`。
+- 注意: `commit proposal invalid`の恒久diagnosticは未実装（B5）。Host runtime tunablesのconfig化はE3で別increment。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`。Increment 84完了commit `1a472e19`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み

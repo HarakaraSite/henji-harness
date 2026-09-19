@@ -1796,12 +1796,16 @@ export class TuiController {
         this.renderer.setStatus('agent failure');
         throw new TuiControllerError('agent_failure');
       }
+      const reason = outcome.stopReason === 'max_steps'
+        ? 'request limit reached'
+        : outcome.stopReason === 'cancelled'
+        ? 'cancelled'
+        : 'agent failure';
+      const sideEffect = this.pending?.hasSideEffectWarning
+        ? ' · tools may have changed the workspace'
+        : '';
       this.renderer.setStatus(
-        outcome.stopReason === 'max_steps'
-          ? 'request limit reached; recoverable input available'
-          : outcome.stopReason === 'cancelled'
-          ? 'cancelled; recoverable input available'
-          : 'agent failure; recoverable input available',
+        `${reason}; recoverable input available; use /recover${sideEffect}`,
       );
     } else if (!outcome.ok) {
       this.renderer.setStatus(renderFailureStatus(outcome));
@@ -1830,22 +1834,12 @@ export class TuiController {
       return;
     }
     this.state = 'idle';
-    if (recoverable && this.editor.text.length === 0 && this.pending?.hasRecovery === true) {
-      this.popRecovery();
-      return;
-    }
     (this.renderer as TuiRenderer & {
       setPendingMetadata?: (
         value: ReturnType<PendingInputCore['snapshot']> | undefined,
       ) => void;
     }).setPendingMetadata?.(this.pending?.snapshot(this.editor.snapshot()));
-    if (recoverable) {
-      this.renderer.setStatus(
-        this.pending?.hasSideEffectWarning
-          ? 'ready · tools may have changed the workspace; inspect before resubmitting'
-          : 'ready',
-      );
-    } else this.renderer.setStatus(this.readyStatus());
+    if (!recoverable) this.renderer.setStatus(this.readyStatus());
   }
 
   /** Read committed context only after the settled turn is returning to idle. */

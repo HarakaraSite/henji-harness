@@ -48,7 +48,7 @@ const request: ModelRequest = {
 };
 
 Deno.test('Increment 13 admits a per-invocation provider deadline and rejects invalid values', () => {
-  assertEquals(DEFAULT_PROVIDER_TIMEOUT_MS, 120_000);
+  assertEquals(DEFAULT_PROVIDER_TIMEOUT_MS, 180_000);
   assertEquals(
     parseTuiInvocation([
       '--continue',

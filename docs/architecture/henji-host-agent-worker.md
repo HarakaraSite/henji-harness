@@ -475,7 +475,7 @@ checkpointを再利用し、そのsource profileは生成時のprovenanceとし�
 production TUI invocationは、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
 渡す。Workerは同じ値をroot、delegated planner、context compactionが生成する各OpenRouter model adapterへ
 適用する。このrequest単位deadlineはSession stateではなくinvocation stateであり、Session切替では変わらない。
-未指定時は120,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
+未指定時は180,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
 shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。
 
 通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
@@ -488,9 +488,9 @@ terminal scrollbackへ途中frameを蓄積しない。正常終了、cancel、si
 mode、起動前画面、cursorをHostが復元する。未送信draft、viewport、入力履歴などのUI-local stateと、
 Host storageに保存するcanonical transcriptやSession identityは区別する。
 
-recoverable settlementで未commitのactive taskが残る場合、Hostは空のeditorへそのtextを一回戻し、
-人間の明示的な編集・再送を待つ。別draftがある場合はrecovery laneに保持し、Host-local `/recover`で
-一件ずつ取り出す。これらのeditor操作はcanonical Sessionへcommitしない。idle Ctrl-Cはeditorと
+recoverable settlementで未commitのactive taskが残る場合、Hostはeditorを変更せず停止理由とrecovery laneの
+存在をstatusへ示し、人間の明示的な`/recover`と再送を待つ。recovery laneはHost-localに保持し、`/recover`で
+一件ずつeditorへ取り出す。これらのeditor操作はcanonical Sessionへcommitしない。idle Ctrl-Cはeditorと
 input-history navigationだけをclearし、exitは空editorのCtrl-Dまたは`/exit`で明示する。busy cancelと
 外部signalの遷移は別に保つ。
 

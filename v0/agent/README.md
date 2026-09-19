@@ -58,7 +58,7 @@ idle-only and take effect on the next root turn. The bundled OpenAI catalog cont
 `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
 The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request
-deadline. It defaults to 120,000 ms and applies to each root, delegated-planner, and context-
+deadline. It defaults to 180,000 ms and applies to each root, delegated-planner, and context-
 compaction model request in that Worker invocation. The value is not Session state, so a Session
 switch keeps the invocation value and a later invocation returns to the default unless the flag is
 supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not
