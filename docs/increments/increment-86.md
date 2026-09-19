@@ -121,7 +121,12 @@ Cは行わない方針を承認した。
     永続化されたordinalが1..n連番であること。
 - 既存`increment_40`（14件）・`increment_41`（12件）pass。
 - `v0:check`／`fmt`／`lint`／`git diff --check`／authoritative `v0:gate` exit 0。
-- 実product確認（長いturnでのbusy表示継続）は未実施（安定候補で別途）。
+- 実product確認（2026-09-19、isolated XDG・実provider `openrouter-responses`/`deepseek-v4.1-flash`/`high`、
+  tmux内installed binary）: 8 steps・13 tools・10 requestsのturnが`ok=1 stop=final`で正常完了。busy経過時間は
+  `00:03`→`02:44`まで概ね連続更新し、従来の「最後まで止まる」凍結は再現しなかった。journalは観測6310件で
+  `ordinal`が1..6310の欠番なし（1行=1イベント維持）。batchflushは256件で15〜42ms。
+- 残存: 経過時間`01:11`付近で約16秒のstallが1回。同時刻はprovider観測のバースト（最大358件/秒）だが、
+  batchflushコスト（16ms前後）では説明できず原因未特定（B6は部分クローズ）。
 
 ## 第三者レビュー結果（2026-09-19）
 

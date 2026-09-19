@@ -267,21 +267,25 @@
   lane削除はS9、入力履歴のセッション横断保存/snippetはS10で別increment。隔離再現環境`/tmp/opencode/henji-repro`
   （credentialコピー0600を含む）が残っている。
 
-### Increment 86 — observation journalingの非ブロッキング化（実装・検証完了、実product確認待ち）
+### Increment 86 — observation journalingの非ブロッキング化（実装・検証・配置完了、B6は部分クローズ）
 
-- 状態: 実装・検証完了。`v0:gate` exit 0。`HistoryPersistencePort`に`appendExecutionEvents`（1接続1トランザクションの
-  バッチ）と`validateExecutionEvent`を追加。`WorkerHostSession`はworker観測をbufferへenqueueし、256件/25msで
-  flush、`appendJournal`をchoke pointとしてhostイベント前にflush、commit proposal/turn_end/closeはpublish前に
-  flush。1観測=1行・schema不変。focused test 3件＋increment_40/41 pass。
-- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。**実product確認**
-  （isolated XDG＋実providerで長いweb調査turnを実行し、busy経過時間がバースト中も更新されること）は未実施。
-- 正本: `docs/increments/increment-86.md`（第三者レビュー結果と反映を記載）。
-- 注意: 観測行のcoalesce（B）とTUI render別thread化（C）は対象外。B6は未クローズ（実product確認待ち）。
+- 状態: 実装・検証・配置完了。`v0:gate` exit 0。`HistoryPersistencePort`に`appendExecutionEvents`（1接続1
+  トランザクションのバッチ）と`validateExecutionEvent`を追加。`WorkerHostSession`はworker観測をbufferへenqueueし、
+  256件/25msでflush、`appendJournal`をchoke pointとしてhostイベント前にflush、commit proposal/turn_end/closeは
+  publish前にflush。1観測=1行・schema不変。focused test 3件＋increment_40/41 pass。
+- 実product確認（2026-09-19、isolated XDG・実provider・tmux内installed binary）: 8 steps/13 toolsのturnが
+  `ok=1 stop=final`で正常完了、busy経過時間は`00:03`→`02:44`まで概ね連続更新し**従来の完全凍結は再現せず**、
+  journalは6310件がordinal 1..6310の欠番なし。batchflush実測256件15〜42ms。
+- 次: commit・push済み（`04efd19b`＝B6記録、`a2e7300d`＝Increment 86）。binaryは`a2e7300d`から配置済み。
+  **残存課題**: 約`01:11`で16秒のstallが1回（同時刻は最大358件/秒のprovider観測バースト）。batchflushでは説明
+  できず原因未特定。CPU profile等での追跡は未実施。tmux session `henjiv`（isolated XDG）は起動したまま。
+- 正本: `docs/increments/increment-86.md`（第三者レビュー結果と実product確認を記載）。
+- 注意: 観測行のcoalesce（B）とTUI render別thread化（C）は対象外。B6は残存stallのため未クローズ（部分クローズ）。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 85完了commit `6a1b51e5`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
-  （build `d29f7b8e…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
+- binary: `0.2.1`。Increment 86完了commit `a2e7300d`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `858fc5d9…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
   identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
