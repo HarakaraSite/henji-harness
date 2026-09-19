@@ -60,6 +60,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   得られること。個別incrementでは対象resource、selection/activation authority、transitionのcommit/failure
   semanticsを決める。
 - 関連: A2、R4、E1、
+  [`terminal-markdown-rendering-comparison.md`](../research/terminal-markdown-rendering-comparison.md)、
   [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
   [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
 
