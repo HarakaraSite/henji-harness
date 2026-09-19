@@ -212,22 +212,23 @@
 - 正本: `docs/increments/increment-81.md`。inbox S8（startup header表示候補）記録済み。
 - 注意: Worker protocol、Presentation contract、Session schemaは不変。実TTYでの表示確認は未実施。
 
-### Increment 82 — startup headerのbase instruction表記・skills複数行・時刻TZ追従（実装・検証完了、未commit）
+### Increment 82 — startup headerのbase instruction表記・skills複数行・時刻TZ追従（実装・検証・配置完了）
 
-- 状態: 実装・検証完了。`v0:gate` exit 0。`startup_render.ts`で`base:`→`base instruction:`、`skills:`を値幅で
+- 状態: 実装・検証・配置完了。`v0:gate` exit 0。`startup_render.ts`で`base:`→`base instruction:`、`skills:`を値幅で
   `, `境界優先に折り返す複数行表示へ変更。ラベル列を18 cellsへ広げ、複数行描画を`headerContentLines`へ分離
   （将来のMCP欄が再利用可能）。時刻表示を`terminal_text.ts`の`localTimestampText`（ローカル日時＋
   `Intl.timeZoneName:'short'`、Asia/Tokyo・en-USでは`GMT+9`）へ集約し、startup headerとsession pickerの
   更新日時を統一。focused test pass（JSTと`TZ=UTC`）。
-- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。
+- 次: なし。commit・push済み（`c7ab8503`）。compiled binaryをclean treeからrebuildし`~/.local/bin/henji`へ原子的に
+  配置済み（build `53bc1270…`、source `c7ab8503…`、version `0.2.1`）。
 - 正本: `docs/increments/increment-82.md`。inbox S8は未採用のMCP欄予約のみへ縮小。
 - 注意: MCP欄は表示対象resourceが未採用のため実装しない。`/history export`・JSONL exportはISO UTCのまま
   （data artifact）。Worker protocol、Presentation contract、Session schemaは不変。実TTY確認は未実施。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 81完了commit `69abbd2d`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
-  （build `f89e4500…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
+- binary: `0.2.1`。Increment 82完了commit `c7ab8503`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `53bc1270…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
   identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
