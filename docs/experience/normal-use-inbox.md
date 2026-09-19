@@ -16,6 +16,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
+| S9 | Surface | recovery laneの削除 | laneのブロッキング（submit・navigation不可）が通常利用で問題になるとき |
+| S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -29,6 +31,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | R4 | F24 | instruction componentのrevision化 | instructionを自己改訂candidateとして採用する |
 | E1 | 配布・外部化 | Agent Definition後のresource外部化 | 利用者希望（2026-09-17）のProvider外部化。A8と合わせて検討 |
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
+| E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
 
 ## Surface
 
@@ -84,6 +87,28 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   表示対象のresourceが採用されるまでは欄自体を実装しない。
 - 再検討条件: MCP接続managed resourceが採用され、headerで接続状態や数を示す必要が出るとき。
 - 関連: `v0/tui/startup_render.ts`、`v0/presentation/contract_types.ts`。
+
+### S9 — recovery laneの削除（F01、F10）
+
+- 観測（2026-09-19、B5調査）: production TUIはsubmit時にtaskを入力履歴へ記録する（`controller.ts`の
+  `editorController.record`）ため、recoverable stop後のtask復元はlaneと履歴で重複する。lane固有の価値は
+  未消費steering・follow-upと`sideEffectWarning`のみ。一方でlaneが`hasRecovery`により新taskのsubmit
+  （`active task recovery pending`）とnavigationをブロックする摩擦が実害。
+- 候補: recovery laneを作らず、recoverable stopでは停止理由をstatusへ示し、再送は入力履歴（Up）に任せる。
+  未消費steering/follow-upの救済が通常利用で必要になった場合だけ、その分を別途設計する。
+- 再検討条件: laneのブロッキング（submit・navigation不可）が通常利用で問題になるとき、またはsteering/follow-upの
+  取り戻しが実際に必要になるとき。
+- 関連: `increment-85`、inbox B5、`v0/tui/controller.ts`、`v0/tui/pending_input.ts`。
+
+### S10 — 入力履歴のセッション横断保存とsnippet（F01、F10）
+
+- 観測（2026-09-19）: 入力履歴（`v0/tui/input_history.ts`）はTUIプロセス内のみで、再起動や別Sessionで消える。
+  繰り返し使う常用prompt（調査手順・レビュー依頼等）を毎回入力している。
+- 候補: 入力履歴をworkspaceまたはuser scopeへdurable保存する、または名前付きprompt（snippet）を明示保存して
+  `/snippet <name>`等で呼び出す。保存先・scope、Session横断の範囲、credential等secretを履歴へ入れない境界、
+  呼び出しUIを採用時に決める。
+- 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
+- 関連: `v0/tui/input_history.ts`、roadmap F01、S9。
 
 ## Agent実行
 
@@ -297,6 +322,23 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 上記候補のいずれかを通常利用で更新・pin・transport・activationする具体的必要が出ること。
 - 正本: [`roadmap.md`](../roadmap.md) F24、[`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)。
 
+### E3 — Host runtime tunablesの設定ファイル化（未採用）
+
+- 観測（2026-09-19）: 固定値が分散している。provider request deadlineは`DEFAULT_PROVIDER_TIMEOUT_MS`
+  （`openrouter_contract.ts`、利用者指示で120,000→180,000へ変更）、assistant maxStepsは
+  `DEFAULT_AGENT_MAX_STEPS=64`（`agent_definition.ts`、Definition入力）、toolは`WEB_FETCH_TIMEOUT_MS=30_000`・
+  `MAX_WEB_FETCH_BYTES=1MiB`・`BASH_OUTPUT_*_WINDOW_BYTES=49,152`、resource limitsは`resource_limits.ts`。
+- 既存のHost configは`$XDG_CONFIG_HOME/henji-harness/`の`default-selection.json`・`providers/*.json`・
+  `tools.json`・`agents.json`。
+- 候補: `runtime.json`を追加し、厳格schema＋検証でHost runtime tunablesを読む。precedenceはCLI flag > config >
+  built-in default。第一候補は`providerTimeoutMs`（`run`にも効く）。tool timeout/limitも同様に扱える。
+- authority境界: `maxSteps`は現在**Agent Definition所有者**であり、Host configに置くと二重authorityになる。
+  既定値のHost config化はroadmap F06（loop/context externalization）の判断が必要。provider timeoutは
+  Host/provider側なので衝突しない。
+- 再検討条件: provider timeout・tool限界・maxSteps既定を通常利用で調整したくなったとき、または別incrementで
+  採用するとき。
+- 正本候補: `docs/roadmap.md` F06、`docs/architecture/henji-host-agent-worker.md`。
+
 ## 観測した不具合（未修正）
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
@@ -386,3 +428,33 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   `session.definition`が現行digestへ更新され、過去turnのattributionが不変であることを実経路で確認。閲覧は
   pickerの`v`で選択Sessionのhuman historyをread-only overlay表示（active binding不変、Worker非起動）。
 - 正本候補: `docs/roadmap.md` F18、`docs/architecture/henji-host-agent-worker.md`のDefinition binding節。
+
+### B5 — `commit proposal invalid`で入力が理由不明のまま自動復元される
+
+- 観測（2026-09-19、利用者報告）: 特に操作していないのに`[recovered input; edit or resubmit]`が表示される。
+- 確認（2026-09-19、DB read-only）: Session `54d65ea7`（workspace `967fa641…`、turn 1、task「denoとnodeを比較したい
+  情報をwebで集めて比較表と総評をして」）はexecution `e0e9cf4f`で`outcome=contract_failure`／
+  `stop_reason=contract_failure`／`error=commit proposal invalid`。provider request 9回（web_search aux 2回を含む
+  7 model steps）、14 messages、約5分41秒。
+- 原因: `worker_host_session.ts:1826`の`proposalRecord(message)`が`undefined`（`validateSessionRecordV6`不合格）と
+  なり`commit proposal invalid`としてfailed settlement。`controller.ts:1772`のrecoverable判定（`contract_failure`）で
+  自動`popRecovery()`が走り、入力がeditorへ戻って当該メッセージが出る。元の理由status
+  （`agent failure; recoverable input available`）は直後の復元メッセージで上書きされる。
+- 制約: `sqlite_history_store.ts:3745`の`durableEventPayload`が`commit_proposal`を`{kind,correlation,nextTurn}`へ
+  縮約保存するため**却下されたtranscriptをDBから直接読めない**。`execution_messages.content_digest`は全行nullで
+  transcript本文もjoinできない。exactなvalidator不合格理由は未取得。
+- 影響: recoverable stopの理由が見えず、原因不明の自動復元に見える。数分走ったturnの成果がcanonical採用されず、
+  入力を再投入する必要がある。
+- 対応候補（要判断・未修正）: (a) 同じtaskをisolated XDG＋実providerで再現し却下理由を捕捉する、(b) reject時に
+  validator不合格理由をdurable diagnosticへ残す、(c) recoverable statusに元のstop理由を残し上書きしない。
+- 再現（2026-09-19、isolated XDG・実provider・`openrouter-responses`／`deepseek/deepseek-v4.1-flash`／`high`、
+  `agent:run`）: 同じtaskを実行すると`contract_failure`になったが**別原因**で、`model contract failure: provider
+  deadline exceeded`（transport/provider_timeout、modelStep 5、steps=5、tools=8、requests=7、diag
+  `2f5b0ee4…`）。`proposalRecord`の不合格dumpは発火せず、**`commit proposal invalid`は再現せず**（model出力依存・
+  非決定）。同じrecoverable contract_failureのため入力自動復元は同様に起きる。120秒のrequest deadlineが高effort
+  のweb調査turnで到達する点は別の観測。
+- 正本候補: `v0/agent/worker/worker_host_session.ts`（commit validation）、`v0/tui/controller.ts`（auto-recovery status）。
+- 関連候補: S9（recovery laneの削除）。increment-85で自動復元は停止理由表示＋明示`/recover`へ変更済み。
+- 由来（2026-09-19、git履歴）: 自動復元は後付け。`d00b5129`（2026-08-31）はeditorを空のまま`ready`にし
+  Ctrl-Rの明示操作で復元、`b19b5dd2`（2026-09-07）が`controller.ts`の自動`popRecovery()`を追加、`58d908d1`で
+  Ctrl系機能キーを削除し以降は`/recover`が明示操作。理由statusを復元メッセージが上書きするのはこの追加による。
