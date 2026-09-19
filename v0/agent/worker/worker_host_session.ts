@@ -87,6 +87,8 @@ import {
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
+const OBSERVATION_FLUSH_BATCH = 256;
+const OBSERVATION_FLUSH_INTERVAL_MS = 25;
 const profileIdPattern = /^[^\0]+$/u;
 const validCredentialAvailability = (
   value: CredentialAvailability | undefined,
@@ -235,6 +237,9 @@ export class WorkerHostSession {
   private readonly createdAt: string;
   private credentialAvailability: CredentialAvailability | undefined;
   private pendingRecall: RecalledExecutionContext | undefined;
+  private readonly observationBuffer: ExecutionEventInput[] = [];
+  private observationFlushTimer: ReturnType<typeof setTimeout> | undefined;
+  private flushingObservations = false;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
     this.capsule = options.capsuleFactory?.(workerUrl) ??
@@ -432,6 +437,7 @@ export class WorkerHostSession {
         this.activeExecution?.settlement === 'uncommitted' &&
         (message.kind === 'commit_proposal' || message.kind === 'turn_failed')
       ) {
+        this.flushObservationBuffer();
         this.messages.publish(message);
         return;
       }
@@ -443,6 +449,7 @@ export class WorkerHostSession {
         message.event.kind === 'agent_event' &&
         message.event.event.kind === 'turn_end'
       ) {
+        this.flushObservationBuffer();
         this.messages.publish(message);
       } else if (message.event.kind === 'agent_event') {
         this.deliver(message.event.event);
@@ -506,6 +513,7 @@ export class WorkerHostSession {
       void this.installCheckpoint(message);
       return;
     }
+    this.flushObservationBuffer();
     this.messages.publish(message);
   }
 
@@ -514,22 +522,29 @@ export class WorkerHostSession {
     if (history === undefined || this.activeExecution === undefined) {
       return true;
     }
+    if (!this.flushObservationBuffer()) return false;
     try {
       history.appendExecutionEvent(input);
       return true;
     } catch (error) {
-      const code = typeof error === 'object' && error !== null &&
-          ((error as { readonly code?: unknown }).code === 'history_busy' ||
-            (error as { readonly code?: unknown }).code === 'history_invalid' ||
-            (error as { readonly code?: unknown }).code ===
-              'history_io_failure')
-        ? (error as {
-          readonly code:
-            | 'history_busy'
-            | 'history_invalid'
-            | 'history_io_failure';
-        }).code
-        : 'history_io_failure' as const;
+      return this.handleJournalFailure(error);
+    }
+  }
+
+  private handleJournalFailure(error: unknown): false {
+    const code = typeof error === 'object' && error !== null &&
+        ((error as { readonly code?: unknown }).code === 'history_busy' ||
+          (error as { readonly code?: unknown }).code === 'history_invalid' ||
+          (error as { readonly code?: unknown }).code ===
+            'history_io_failure')
+      ? (error as {
+        readonly code:
+          | 'history_busy'
+          | 'history_invalid'
+          | 'history_io_failure';
+      }).code
+      : 'history_io_failure' as const;
+    if (this.activeExecution !== undefined) {
       if (
         this.activeExecution.settlement === 'uncommitted'
       ) {
@@ -555,7 +570,59 @@ export class WorkerHostSession {
         this.activeExecution.postCommitObservationFailure = true;
         this.activeExecution.postCommitObservationError = code;
       }
-      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Buffer one worker observation. The pure contract check runs here so a fact the journal
+   * boundary would reject is never projected to the Surface; the durable write is deferred.
+   */
+  private bufferWorkerObservation(input: ExecutionEventInput): boolean {
+    const history = this.options.historyPersistence;
+    if (history === undefined || this.activeExecution === undefined) return true;
+    if (!history.validateExecutionEvent(input)) return false;
+    this.observationBuffer.push(
+      input.observedAt === undefined ? { ...input, observedAt: new Date().toISOString() } : input,
+    );
+    if (this.observationBuffer.length >= OBSERVATION_FLUSH_BATCH) {
+      return this.flushObservationBuffer();
+    }
+    this.scheduleObservationFlush();
+    return true;
+  }
+
+  private scheduleObservationFlush(): void {
+    if (this.observationFlushTimer !== undefined) return;
+    this.observationFlushTimer = setTimeout(() => {
+      this.observationFlushTimer = undefined;
+      this.flushObservationBuffer();
+    }, OBSERVATION_FLUSH_INTERVAL_MS);
+  }
+
+  private flushObservationBuffer(): boolean {
+    if (this.observationFlushTimer !== undefined) {
+      clearTimeout(this.observationFlushTimer);
+      this.observationFlushTimer = undefined;
+    }
+    const history = this.options.historyPersistence;
+    if (history === undefined || this.activeExecution === undefined) {
+      this.observationBuffer.length = 0;
+      return true;
+    }
+    if (this.observationBuffer.length === 0 || this.flushingObservations) {
+      return true;
+    }
+    const batch = this.observationBuffer.splice(0, this.observationBuffer.length);
+    this.flushingObservations = true;
+    try {
+      history.appendExecutionEvents(batch);
+      return true;
+    } catch (error) {
+      this.observationBuffer.length = 0;
+      return this.handleJournalFailure(error);
+    } finally {
+      this.flushingObservations = false;
     }
   }
 
@@ -590,7 +657,7 @@ export class WorkerHostSession {
       : message.kind === 'context_observation'
       ? 'context_observation' as const
       : 'runtime_event' as const;
-    return this.appendJournal({
+    return this.bufferWorkerObservation({
       executionId: this.activeExecution.executionId,
       direction: 'worker_to_host',
       source: 'worker',
@@ -614,6 +681,11 @@ export class WorkerHostSession {
   }
 
   private markUnavailable(): void {
+    if (this.observationFlushTimer !== undefined) {
+      clearTimeout(this.observationFlushTimer);
+      this.observationFlushTimer = undefined;
+    }
+    this.observationBuffer.length = 0;
     if (!this.unavailable) {
       this.unavailable = true;
       this.capsule.terminate();
@@ -2243,6 +2315,7 @@ export class WorkerHostSession {
     if (this.closed) return;
     this.closed = true;
     this.pendingRecall = undefined;
+    this.flushObservationBuffer();
     if (this.currentManifest === undefined) {
       this.unsubscribe();
       this.messages.fail(new Error('Worker host session closed'));

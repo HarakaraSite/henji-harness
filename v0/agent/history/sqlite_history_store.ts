@@ -4574,9 +4574,30 @@ export class SqliteHistoryStore
   }
 
   appendExecutionEvent(input: ExecutionEventInput): StoredExecutionEvent {
+    const [stored] = this.appendExecutionEvents([input]);
+    if (stored === undefined) throw new HistoryStoreError('history_invalid');
+    return stored;
+  }
+
+  validateExecutionEvent(input: ExecutionEventInput): boolean {
+    try {
+      this.validateExecutionEventInput(input);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  appendExecutionEvents(
+    inputs: readonly ExecutionEventInput[],
+  ): readonly StoredExecutionEvent[] {
+    if (inputs.length === 0) return [];
     const db = this.openSynchronousDatabase();
     try {
-      return this.transaction(db, () => this.appendExecutionEventTx(db, input));
+      return this.transaction(
+        db,
+        () => inputs.map((input) => this.appendExecutionEventTx(db, input)),
+      );
     } finally {
       db.close();
     }

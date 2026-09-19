@@ -572,6 +572,8 @@ Deno.test('Increment 40 exposes a canonical execution while post-commit observat
     const observationFails: HistoryPersistencePort = {
       beginExecution: (input) => store.beginExecution(input),
       appendExecutionEvent: (input) => store.appendExecutionEvent(input),
+      appendExecutionEvents: (inputs) => store.appendExecutionEvents(inputs),
+      validateExecutionEvent: (input) => store.validateExecutionEvent(input),
       reconcileExecution: (input) => store.reconcileExecution(input),
       listExecutions: () => store.listExecutions(),
       readExecution: (id) => store.readExecution(id),

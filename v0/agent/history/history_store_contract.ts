@@ -348,6 +348,10 @@ export interface HistoryCaptureResult {
 export interface HistoryPersistencePort {
   beginExecution(input: BeginExecutionInput): void | Promise<void>;
   appendExecutionEvent(input: ExecutionEventInput): StoredExecutionEvent;
+  /** Append several worker observations in one connection and one transaction, preserving order. */
+  appendExecutionEvents(inputs: readonly ExecutionEventInput[]): readonly StoredExecutionEvent[];
+  /** Pure shape/contract check used to reject an invalid fact before it is projected to the Surface. */
+  validateExecutionEvent(input: ExecutionEventInput): boolean;
   reconcileExecution(input: ReconcileExecutionInput): void;
   listExecutions(): readonly StoredExecutionRow[];
   readExecution(id: string): StoredExecutionRow;

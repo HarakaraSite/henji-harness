@@ -267,6 +267,17 @@
   lane削除はS9、入力履歴のセッション横断保存/snippetはS10で別increment。隔離再現環境`/tmp/opencode/henji-repro`
   （credentialコピー0600を含む）が残っている。
 
+### Increment 86 — observation journalingの非ブロッキング化（実装・検証完了、実product確認待ち）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。`HistoryPersistencePort`に`appendExecutionEvents`（1接続1トランザクションの
+  バッチ）と`validateExecutionEvent`を追加。`WorkerHostSession`はworker観測をbufferへenqueueし、256件/25msで
+  flush、`appendJournal`をchoke pointとしてhostイベント前にflush、commit proposal/turn_end/closeはpublish前に
+  flush。1観測=1行・schema不変。focused test 3件＋increment_40/41 pass。
+- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。**実product確認**
+  （isolated XDG＋実providerで長いweb調査turnを実行し、busy経過時間がバースト中も更新されること）は未実施。
+- 正本: `docs/increments/increment-86.md`（第三者レビュー結果と反映を記載）。
+- 注意: 観測行のcoalesce（B）とTUI render別thread化（C）は対象外。B6は未クローズ（実product確認待ち）。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`。Increment 85完了commit `6a1b51e5`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
