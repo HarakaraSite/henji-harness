@@ -458,3 +458,21 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 由来（2026-09-19、git履歴）: 自動復元は後付け。`d00b5129`（2026-08-31）はeditorを空のまま`ready`にし
   Ctrl-Rの明示操作で復元、`b19b5dd2`（2026-09-07）が`controller.ts`の自動`popRecovery()`を追加、`58d908d1`で
   Ctrl系機能キーを削除し以降は`/recover`が明示操作。理由statusを復元メッセージが上書きするのはこの追加による。
+
+### B6 — 長いturn中にTUI表示が凍結する（busy経過時間が止まる、CPU高止まり）
+
+- 観測（2026-09-19、利用者報告）: 13 model steps・24 tool callsのweb調査turnで、`working 00:xx`の経過時間が
+  増えず画面が凍結。`Esc`等の表示更新も止まる。一方で実行は進行し、turnは`ok=1 stop=final`で正常完了。
+- DB確認（read-only）: execution `1eb2a662`（workspace `967fa641…`、turn 1）は02:33:47〜02:41:20に
+  `execution_observations` **9848件**。1秒あたり最大**2968件**（02:41:1x）、他に1250／743／663／604件/秒の
+  バースト。henji processは実行中`Rl+`でCPU **68〜76%**、settle後は低下。
+- 原因候補（仮説、CPU profile未取得）: Host main threadが`appendJournal`→`node:sqlite`（`DatabaseSync`、同期）で
+  観測を1件ずつ書くため、数千件/秒のバースト中はmain threadが塞がり、120ms周期のbusy timer
+  （経過時間・spinner・redraw）が回らない。実行は別threadのWorkerが進むためDBは伸び続ける。
+  increment 84のrendererは本文が小さく主因ではなさそう。
+- 影響: 実行中は入力・表示が応答しないように見える。成果は失われないが、進行とcancelの可否が分からない。
+- 対応候補（要判断・未修正）: (a) 観測journalingをバッチ化しrender経路から外す、(b)
+  `provider_response_bytes`/`sse_event`の行をcoalesceしつつ診断は保持する、(c) busy timerを別経路（worker側）
+  にしてmain threadの停止と切り離す。
+- 正本候補: `v0/agent/worker/worker_host_session.ts`（appendJournal）、
+  `v0/agent/history/sqlite_history_store.ts`、`v0/tui/tui_renderer.ts`（busy timer）。
