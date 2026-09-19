@@ -201,20 +201,21 @@
 - 注意: runtime protocol、provider request、Session/Definition schemaは不変（binaryはTUI表示変更を含むためrebuild）。
   roadmap F01への取得URL表示追記は未実施（roadmap変更は別承認）。
 
-### Increment 81 — フッター3行化（実装・検証完了、未commit）
+### Increment 81 — フッター3行化（実装・検証・配置完了）
 
-- 状態: 実装・検証完了。`v0:gate` exit 0。footerを1行目status、2行目cwd・Session短縮ID・Session title、
+- 状態: 実装・検証・配置完了。`v0:gate` exit 0。footerを1行目status、2行目cwd・Session短縮ID・Session title、
   3行目root provider・model・effortへ変更（`v0/tui/layout.ts`）。title未設定は`untitled`、幅・高さ不足時は
   既存方針で省略。focused test（`increment_13`／`increment_15`／`tui_conversation_presentation`）とTUI suite
   91件pass。roadmap F01／F10／TUI節、architecture Surface記述、`v0/agent/README.md`も3行へ更新。
-- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。
-- 正本: `docs/increments/increment-81.md`。
-- 注意: Worker protocol、Presentation contract、Session schemaは不変。installed binaryは`2ef01b27`時点のまま。
+- 次: なし。commit・push済み（`830fcc51`＝S8メモ、`69abbd2d`＝footer3行化）。compiled binaryをclean treeから
+  rebuildし`~/.local/bin/henji`へ原子的に配置済み（build `f89e4500…`、source `69abbd2d…`、version `0.2.1`）。
+- 正本: `docs/increments/increment-81.md`。inbox S8（startup header表示候補）記録済み。
+- 注意: Worker protocol、Presentation contract、Session schemaは不変。実TTYでの表示確認は未実施。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 80完了commit `f3f22934`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
-  （build `a2300b1d…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
+- binary: `0.2.1`。Increment 81完了commit `69abbd2d`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `f89e4500…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
   identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
