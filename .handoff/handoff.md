@@ -236,6 +236,22 @@
 - 正本: `docs/increments/increment-83.md`。
 - 注意: 最終frameでstyleを注入する境界、canonical transcript、Presentation contractは不変。実TTY確認は未実施。
 
+### Increment 84 — assistant本文の読みやすいレイアウトとMarkdownタグ着色（実装・検証完了、未commit）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。renderer seamを`render(text, phase, width)`＋inline spanへ拡張し、
+  自前line-based renderer（`v0/tui/assistant_layout.ts`）でword wrap（CJK対応）・list/heading/quote hanging
+  indent・`|`pipe表（alignment marker・セル折り返し・列最小3・recordsフォールバック）・fence保護・
+  `**bold**`/backtick code spanを実装。既定`assistantRenderer`を`markdownAssistantRenderer`へ差し替え、
+  `LayoutRow.spans`＋最終frameの複数span描画でheading=blue/list/code=green/table=dim/quote=magenta/bold=SGR1を
+  注入。focused test 8件＋TUI suite追加test pass。
+- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。**roadmap F01/F10/
+  TUI節、architecture Surface記述、`v0/agent/README.md`の正本更新は実装確認後の別承認**（increment-84計画に
+  明記）。
+- 正本: `docs/increments/increment-84.md`。参照実装調査は`docs/research/terminal-markdown-rendering-comparison.md`
+  （parser外部ライブラリ化は未決メモ）。
+- 注意: 会話logのみ対象で、canonical transcript・`/history`・export・Presentation contractはplainのまま。
+  実TTY・compiled binaryの目視とframe性能（長履歴で毎frame再parse）は未確認。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.2.1`。Increment 83完了commit `9fce3c89`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み

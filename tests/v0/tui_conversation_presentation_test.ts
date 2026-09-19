@@ -94,7 +94,7 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
   const assistantRenderer: AssistantContentRenderer = {
     render: (text, phase) => {
       phases.push(phase);
-      return text;
+      return text.split('\n').map((line) => ({ text: line, spans: [] }));
     },
   };
   const renderer = new TuiRenderer(terminal, { assistantRenderer });
@@ -552,6 +552,27 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     assert(cancellingFooter[2].text.endsWith(' xhigh]'));
     assert(cancellingFooter.every((row) => row.text.length <= columns));
   }
+});
+
+Deno.test('conversation markdown spans stay in the final frame only', () => {
+  const renderer = new TuiRenderer(new FakeTerminal());
+  renderer.eventSink({
+    kind: 'assistant_message',
+    turn: 1,
+    message: {
+      role: 'assistant',
+      content: { kind: 'text', text: '## Title\n\n**bold** text' },
+    },
+  });
+  const layout = renderer.layoutSnapshot(80, 24);
+  assert(layout.allLog.every((row) => !row.text.includes('\x1b')));
+  assert(
+    layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'heading')),
+  );
+  assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'bold')));
+  const frame = renderer.renderFrame(80, 24);
+  assert(frame.includes('\x1b[34m##\x1b[0m Title'));
+  assert(frame.includes('\x1b[1mbold\x1b[0m'));
 });
 
 Deno.test('conversation footer shows the Session title on the session row', () => {

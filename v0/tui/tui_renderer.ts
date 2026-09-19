@@ -18,7 +18,9 @@ import {
 import {
   BLINK_SGR,
   BLUE_SGR,
+  BOLD_SGR,
   DEFAULT_CURSOR_STYLE,
+  DIM_SGR,
   ERASE_LINE,
   GREEN_SGR,
   MAGENTA_SGR,
@@ -48,46 +50,69 @@ import {
 } from './layout.ts';
 import {
   type AssistantContentRenderer,
-  plainTextAssistantRenderer,
+  type AssistantSpanTone,
+  type ConversationLabelTone,
 } from './conversation_renderer.ts';
+import { markdownAssistantRenderer } from './assistant_layout.ts';
 import { startupHelpLines } from './startup_render.ts';
 import { encoder, truncateText } from './terminal_text.ts';
 
 export interface TuiRendererOptions {
-  /** Host-local assistant body renderer; the default preserves exact plain text. */
+  /** Host-local assistant body renderer; the default lays out markdown readability spans. */
   readonly assistantRenderer?: AssistantContentRenderer;
   readonly now?: () => number;
   readonly setInterval?: (callback: () => void, milliseconds: number) => unknown;
   readonly clearInterval?: (id: unknown) => void;
 }
 
+const LABEL_SGR: Record<ConversationLabelTone, string> = {
+  user: BLUE_SGR,
+  assistant: YELLOW_SGR,
+  tool: GREEN_SGR,
+  system: MAGENTA_SGR,
+};
+
+const SPAN_SGR: Record<AssistantSpanTone, string> = {
+  heading: BLUE_SGR,
+  list: GREEN_SGR,
+  code: GREEN_SGR,
+  table: DIM_SGR,
+  quote: MAGENTA_SGR,
+  bold: BOLD_SGR,
+};
+
 const renderLayoutRow = (row: LayoutRow): string => {
+  const ranges: { start: number; length: number; sgr: string }[] = [];
+  if (
+    row.labelTone !== undefined && row.labelScalarLength !== undefined &&
+    row.labelScalarLength > 0
+  ) {
+    ranges.push({ start: 0, length: row.labelScalarLength, sgr: LABEL_SGR[row.labelTone] });
+  }
+  for (const span of row.spans ?? []) {
+    ranges.push({ start: span.start, length: span.length, sgr: SPAN_SGR[span.tone] });
+  }
   if (
     row.blinkScalarStart !== undefined && row.blinkScalarLength !== undefined &&
     row.blinkScalarLength > 0
   ) {
-    const points = [...row.text];
-    const start = Math.max(0, Math.min(points.length, row.blinkScalarStart));
-    const end = Math.max(start, Math.min(points.length, start + row.blinkScalarLength));
-    return `${points.slice(0, start).join('')}${BLINK_SGR}${
-      points.slice(start, end).join('')
-    }${RESET_SGR}${points.slice(end).join('')}`;
+    ranges.push({ start: row.blinkScalarStart, length: row.blinkScalarLength, sgr: BLINK_SGR });
   }
-  if (
-    row.labelTone === undefined || row.labelScalarLength === undefined ||
-    row.labelScalarLength <= 0
-  ) return row.text;
+  if (ranges.length === 0) return row.text;
   const points = [...row.text];
-  const label = points.slice(0, row.labelScalarLength).join('');
-  const body = points.slice(row.labelScalarLength).join('');
-  const sgr = row.labelTone === 'user'
-    ? BLUE_SGR
-    : row.labelTone === 'assistant'
-    ? YELLOW_SGR
-    : row.labelTone === 'tool'
-    ? GREEN_SGR
-    : MAGENTA_SGR;
-  return `${sgr}${label}${RESET_SGR}${body}`;
+  ranges.sort((left, right) => left.start - right.start || left.length - right.length);
+  let output = '';
+  let cursor = 0;
+  for (const range of ranges) {
+    const start = Math.max(cursor, Math.max(0, Math.min(points.length, range.start)));
+    const end = Math.max(start, Math.min(points.length, range.start + range.length));
+    if (end <= start) continue;
+    output += points.slice(cursor, start).join('');
+    output += `${range.sgr}${points.slice(start, end).join('')}${RESET_SGR}`;
+    cursor = end;
+  }
+  output += points.slice(cursor).join('');
+  return output;
 };
 /** Retained renderer for the production TUI and its injected test seams. */
 export class TuiRenderer implements TerminalRendererGate {
@@ -110,7 +135,7 @@ export class TuiRenderer implements TerminalRendererGate {
     private readonly terminal: TerminalPort,
     options: TuiRendererOptions = {},
   ) {
-    this.assistantRenderer = options.assistantRenderer ?? plainTextAssistantRenderer;
+    this.assistantRenderer = options.assistantRenderer ?? markdownAssistantRenderer;
     this.now = options.now ?? Date.now;
     this.scheduleInterval = options.setInterval ??
       ((callback, milliseconds) => globalThis.setInterval(callback, milliseconds));

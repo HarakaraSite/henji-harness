@@ -2,6 +2,7 @@ import { type EditorSnapshot } from './input.ts';
 import { type UiLogEntry, type UiState } from './state.ts';
 import {
   type AssistantContentRenderer,
+  type AssistantSpan,
   type ConversationLabelTone,
   plainTextAssistantRenderer,
   projectConversationEntry,
@@ -23,6 +24,7 @@ export interface LayoutRow {
   readonly sourceScalarOffset?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
+  readonly spans?: readonly AssistantSpan[];
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
   readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
@@ -439,21 +441,48 @@ const logRows = (
     const userOutputBoundary = entry.turn !== undefined &&
       awaitingUserOutput.has(entry.turn) &&
       (entry.kind === 'tool' || entry.kind === 'assistant');
-    const projection = projectConversationEntry(entry, assistantRenderer);
-    const content = projection.text;
-    sourceBytes += encoder.encode(content).byteLength;
+    sourceBytes += encoder.encode(entry.text).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
     if ((turnStart && seenTurnStart) || userOutputBoundary) appendSeparator();
-    result.push(...wrap(
-      content,
-      columns,
-      'log',
-      entry.id,
-      projection.labelTone === undefined ? undefined : {
-        scalarLength: projection.labelScalarLength,
-        tone: projection.labelTone,
-      },
-    ));
+    if (entry.kind === 'assistant') {
+      const labelWidth = [...entry.label].length;
+      const bodyWidth = Math.max(1, columns - labelWidth - 1);
+      const lines = assistantRenderer.render(
+        entry.text,
+        entry.live ? 'streaming' : 'settled',
+        bodyWidth,
+      );
+      lines.forEach((assistantLine, lineIndex) => {
+        const prefix = lineIndex === 0 ? `${entry.label} ` : '';
+        const shift = [...prefix].length;
+        const text = safeDisplay(`${prefix}${assistantLine.text}`, false);
+        const spans = assistantLine.spans
+          .filter((span) => span.length > 0)
+          .map((span) => ({ start: span.start + shift, length: span.length, tone: span.tone }));
+        result.push({
+          text,
+          kind: 'log',
+          entryId: entry.id,
+          sourceScalarOffset: 0,
+          ...(lineIndex === 0
+            ? { labelScalarLength: labelWidth, labelTone: 'assistant' as const }
+            : {}),
+          ...(spans.length === 0 ? {} : { spans }),
+        });
+      });
+    } else {
+      const projection = projectConversationEntry(entry);
+      result.push(...wrap(
+        projection.text,
+        columns,
+        'log',
+        entry.id,
+        projection.labelTone === undefined ? undefined : {
+          scalarLength: projection.labelScalarLength,
+          tone: projection.labelTone,
+        },
+      ));
+    }
     if (turnStart && entry.turn !== undefined) {
       seenTurnStart = true;
       awaitingUserOutput.add(entry.turn);
