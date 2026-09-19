@@ -112,6 +112,9 @@ export const toolActivityPreview = (name: string, args: unknown): string => {
     case 'web_search':
       preview = firstLine(args.query);
       break;
+    case 'web_fetch':
+      preview = firstLine(args.url);
+      break;
     case 'skill':
       preview = firstLine(args.name);
       break;

@@ -196,6 +196,74 @@ Deno.test('web_search and skill previews show their semantic target', () => {
   ]);
 });
 
+Deno.test('web_fetch preview shows the requested URL and persists through result', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'fetch-1',
+      name: 'web_fetch',
+      arguments: { url: 'https://example.com/page?q=1' },
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'web_fetch https://example.com/page?q=1 …');
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'fetch-1',
+      name: 'web_fetch',
+      text: 'URL: https://example.com/final\nStatus: 200',
+      outcome: 'success',
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'web_fetch https://example.com/page?q=1 ✓');
+  assert(!state.log.entries[0].text.includes('example.com/final'));
+});
+
+Deno.test('web_fetch preview keeps the requested URL when the fetch fails', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'fetch-2',
+      name: 'web_fetch',
+      arguments: { url: 'https://example.com/missing' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'fetch-2',
+      name: 'web_fetch',
+      text: 'web_fetch request failed (404) for https://example.com/missing',
+      outcome: 'error',
+    },
+  });
+  assertEquals(state.log.entries[0].text, 'web_fetch https://example.com/missing ✗');
+  assert(!state.log.entries[0].text.includes('404'));
+});
+
+Deno.test('web_fetch preview truncates a long URL with ellipsis', () => {
+  const longUrl = `https://example.com/${'a'.repeat(200)}`;
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'fetch-9', name: 'web_fetch', arguments: { url: longUrl } },
+  });
+  const text = state.log.entries[0].text;
+  assert(text.startsWith('web_fetch https://example.com/'));
+  assert(text.endsWith('…'));
+  assert(!text.includes(longUrl));
+  assert(new TextEncoder().encode(text).byteLength <= 64 + 1 + 96 + 1 + 3);
+});
+
 Deno.test('direct renderer seam uses the same semantic preview', () => {
   assertEquals(
     toolCallText('skill', { name: 'handoff-read' }),
