@@ -27,7 +27,7 @@ export const projectConversationEntry = (
     : entry.text;
   const labelTone = entry.label === 'user>'
     ? 'user' as const
-    : entry.label === 'assistant>'
+    : entry.label === 'assistant>' || entry.label === 'assistant~'
     ? 'assistant' as const
     : entry.label === 'tool>'
     ? 'tool' as const

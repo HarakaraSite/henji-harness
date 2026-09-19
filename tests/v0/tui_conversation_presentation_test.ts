@@ -107,6 +107,12 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
   const streaming = renderer.layoutSnapshot(4, 24);
   assert(streaming.allLog.map((row) => row.text).join('').includes('assistant~'));
   assert(streaming.allLog.every((row) => !row.text.includes('\x1b')));
+  assert(
+    renderer.layoutSnapshot(80, 24).allLog.some((row) =>
+      row.text.includes('assistant~') && row.labelTone === 'assistant'
+    ),
+  );
+  assert(renderer.renderFrame(80, 24).includes('\x1b[33massistant~\x1b[0m'));
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
