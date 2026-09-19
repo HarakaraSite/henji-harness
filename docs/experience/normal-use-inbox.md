@@ -470,6 +470,37 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   観測を1件ずつ書くため、数千件/秒のバースト中はmain threadが塞がり、120ms周期のbusy timer
   （経過時間・spinner・redraw）が回らない。実行は別threadのWorkerが進むためDBは伸び続ける。
   increment 84のrendererは本文が小さく主因ではなさそう。
+- 原因（2026-09-19、phase計測で確定）: stall時のmain threadは`appendExecutionEvents`の**トランザクションbody**
+  でblockしていた（`BEGIN IMMEDIATE`=0.0ms、`COMMIT`=0.1ms、body=最大5秒）。bodyの実体は
+  `appendExecutionEventTx`が**1イベントごとに**実行する
+  `SELECT max(worker_sequence) ... WHERE execution_id=?`で、`execution_observations`に`worker_sequence`の
+  indexが無いためPKの`execution_id`前方一致で当該executionの全行を走査する。実測で10,257行時に
+  `max(ordinal)`=0.01msに対し`max(worker_sequence)`=**0.8〜1.5ms/回**。バッチ256件で16ms(256行)→
+  **223ms(10,240行)** とO(n)で増大し、turn中にmain threadを秒単位で塞いでbusy timerを止める。
+  `busy.tick-gap`最大52.5秒、`terminal.write`最大33.6秒も観測。
+- 対応候補（要判断・未修正）: (a) `execution_observations(execution_id, worker_sequence)`へindexを追加して
+  `max(worker_sequence)`をO(log n)化、(b) `appendExecutionEvents`でordinalとlast worker_sequenceを
+  **バッチ先頭で1回だけ**求めて以降は局所インクリメント（per-insertのmax走査を除去）、(c) 観測journalingを
+  render経路から外す（別thread/lane）、(d) 高頻度`provider_response_bytes`/`sse_event`行のcoalesce。
+  最短で効くのは(a)＋(b)。
+- 部分対応（Increment 87、2026-09-19）: (a)のindexを実装。offlineのO(n)は解消（バッチ256件が行数に依らず
+  約11ms、5件flush 0.4ms）したが、**実turnのstallは残存**。
+- 残因（2026-09-19、per-event段階計測で特定）: stall中の遅い処理は`writeContextObservationsTx`で、単一の
+  `context_observation`あたり**最大17秒**（`ctx:17343`等）。これは`appendevent`ごとにrequestの全itemを
+  `Uint8Array.fromBase64`でdecodeし`contextDigestSync`(sha256)と既存blobのbyte比較を行い、
+  `model_requests`/`context_blobs`/`context_relations`へ書く。turn進行でrequestのitem/byteが増えるため
+  O(n²)で増大し、16 request分がHost main threadを塞ぐ。`BEGIN`/`COMMIT`や`max(ordinal)`は0ms台で無関係。
+- 対応候補（残、要判断・未修正）: (e) 各`context_observation`で**新規itemだけを処理**し、既にmaterialize済みの
+  itemの再decode/re-digestを避ける、(f) context materializationをturn commit/settle時へまとめる、
+  (g) `writeContextObservationsTx`内の段階計測でどのsub-step（decode/digest/blob比較/insert）が支配的か確定。
+- (e)実装（Increment 87に同梱、2026-09-19）: 既存blobがあるitemは`fromBase64`/`contextDigestSync`/insertを
+  省略し、`insertContextBlobTx`の既存blobのbyte-by-byte比較をcontent-addressedなbyteLength照合へ置換した。
+  既存test（increment_40/41/42/50/86/87）と`v0:gate`はpass。**しかしtmux実機では依然stall**（経過時間が
+  `01:23`で約96秒停止）。残る主因は`validateContextModelRequestRecord`が**requestの全itemを毎回base64 decode**
+  してbyteLength照合する点（turn進行でO(n²)）と、sourceRelations付きitemの再処理。validationはpure関数で、
+  storeが「既知digest（materialize済み）はdecodeせず信頼する」入力を受け取れるよう拡張する必要がある。
+- 設計候補（要判断）: context_observationが毎model stepで全itemのbase64を再送する契約自体がO(n²)の根源。
+  materialize済みitemはdigest参照だけを送る、またはcontext materializationをturn末へまとめる。
 - 影響: 実行中は入力・表示が応答しないように見える。成果は失われないが、進行とcancelの可否が分からない。
 - 対応候補（要判断・未修正）: (a) 観測journalingをバッチ化しrender経路から外す、(b)
   `provider_response_bytes`/`sse_event`の行をcoalesceしつつ診断は保持する、(c) busy timerを別経路（worker側）
