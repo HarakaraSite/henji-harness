@@ -253,21 +253,24 @@
 - 注意: 会話logのみ対象で、canonical transcript・`/history`・export・Presentation contractはplainのまま。
   長履歴での毎frame再parse性能は未確認。
 
-### Increment 85 — recoverable stopの可視化とprovider deadline延長（実装・検証完了、未commit）
+### Increment 85 — recoverable stopの可視化とprovider deadline延長（実装・検証・配置完了）
 
-- 状態: 実装・検証完了。`v0:gate` exit 0。`controller.ts`のsettlementから自動`popRecovery()`を削除し、
+- 状態: 実装・検証・配置完了。`v0:gate` exit 0。`controller.ts`のsettlementから自動`popRecovery()`を削除し、
   recoverableではeditorを変更せず`<reason>; recoverable input available; use /recover`を表示、`/recover`で
   明示復元。`DEFAULT_PROVIDER_TIMEOUT_MS`を120,000→180,000へ変更。roadmap F01/F02/TUI節・architecture・
   `v0/agent/README.md`・`increment_13` testを更新。inbox B5に由来追記、E3（runtime config）追加。
-- 次: 変更は未commit。commit／push、compiled binaryの再build・配置は利用者の明示指示待ち。実機でrecoverable
-  表示（自動復元しない）と180秒deadlineを確認する。
+- 次: なし。commit・push済み（`d86c716e`＝inbox候補、`6a1b51e5`＝Increment 85）。compiled binaryをclean treeから
+  rebuildし`~/.local/bin/henji`へ原子的に配置済み（build `d29f7b8e…`、source `6a1b51e5…`、version `0.2.1`）。
+  実機でrecoverable表示（自動復元しない）と180秒deadlineを確認する。
 - 正本: `docs/increments/increment-85.md`。
-- 注意: `commit proposal invalid`の恒久diagnosticは未実装（B5）。Host runtime tunablesのconfig化はE3で別increment。
+- 注意: `commit proposal invalid`の恒久diagnosticは未実装（B5）。Host runtime tunablesのconfig化はE3、recovery
+  lane削除はS9、入力履歴のセッション横断保存/snippetはS10で別increment。隔離再現環境`/tmp/opencode/henji-repro`
+  （credentialコピー0600を含む）が残っている。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.2.1`。Increment 84完了commit `1a472e19`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
-  （build `72b073f0…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
+- binary: `0.2.1`。Increment 85完了commit `6a1b51e5`のclean treeからbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `d29f7b8e…`）。buildは`deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source
   identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.2.1`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
