@@ -37,7 +37,7 @@ import {
 import { decodeResponse } from '../../v0/agent/provider/openrouter_response.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../v0/resource_limits.ts';
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -1086,7 +1086,7 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
         request: { ...record.request, contextRequestOrdinal: index + 1 },
       })),
     };
-    const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     await history.initialize();
     assertEquals(await history.providerEvidence.list(), []);
     const historyInput = {
@@ -1113,6 +1113,23 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
     };
     let journalSequence = 0;
     for (const record of attributed.requests) {
+      const requestBytes = new TextEncoder().encode(record.request.requestBody);
+      history.appendExactRequestObservation({
+        executionId: historyInput.executionId,
+        workerSequence: journalSequence + 1,
+        observation: {
+          bytes: requestBytes,
+          captureBoundary: 'openrouter-chat:http-body-v1',
+          serializerVersion: 'json-stringify-v1',
+          endpoint: record.request.endpoint,
+          method: 'POST',
+          lane: record.request.lane,
+          phase: record.request.phase ?? 'user_turn',
+          modelStep: record.request.modelStep,
+          requestMetadata: record.request.requestMetadata,
+          monolithicFallback: true,
+        },
+      });
       journalSequence += 1;
       history.appendExecutionEvent({
         executionId: historyInput.executionId,

@@ -18,7 +18,7 @@ import type {
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -225,7 +225,7 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
 
 Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after persistence', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-39-worker-' });
-  const history = new SqliteHistoryStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let capsule: CleanupFailureCapsule | undefined;
   try {

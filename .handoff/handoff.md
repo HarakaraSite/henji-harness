@@ -282,12 +282,41 @@
 - 正本: `docs/increments/increment-86.md`（第三者レビュー結果と実product確認を記載）。
 - 注意: 観測行のcoalesce（B）とTUI render別thread化（C）は対象外。B6は残存stallのため未クローズ（部分クローズ）。
 
+### Increment 92 — auxiliary exact capture欠落とjournal failure停止の根本修正
+
+- 状態: 原因確定後の承認済みSlice 1–5を実装し、通常code／test reviewはfindingなしでGo。production auxiliary
+  dispatchはcredential／cancel確認後にexact capture→metadata request start→同一bytes fetchを一元発行する。
+  pre-commit journal failureはfirst-code-wins latchからtyped non-canonical outcomeを即時返し、canonical adoptionを
+  禁止して次turnでgenerationを交換する。non-canonical indexingの過去Session transcript decode経路も除去した。
+  focused回帰と唯一のauthoritative `v0:gate`はexit 0。実provider compiled-CLI E2Eもexit 0で、root→web_search→root
+  の3 request startと3 exact streams（auxiliary 491 bytes）がv6で対応し、executionはcompletedまでsettleした。
+- 次: 利用者によるIncrement完了判断。必要なら別途、binary build／配置を指示する。
+- 正本: `docs/increments/increment-92.md`（原因、review済み計画、実装結果、検証結果）。
+- 注意: E2E用一時binaryだけを`/tmp/henji-i92-e2e-build-qKNSjg`へbuildし、配置済みbinaryは変更していない。
+  E2E証拠は`/tmp/henji-i92-e2e-run-vuszI7`。no-session settlement後のack journalがsettled v6 executionに拒否され、
+  保存済みcontext manifestがあるのにartifactが`contextCapture: failed`へ上書きされる別問題を観測した。今回の停止は
+  再発せず、provider evidence／exact bytesはcomplete。commit、push、releaseは未実施。concept、architecture、roadmap
+  は変更していない。`reproductions/deno-worker-sqlite-wake/`は撤回したDeno仮説の調査遺物。
+
+### Increment 93 — terminal ledger後のprotocol観測分離
+
+- 状態: 実装・検証完了。v6の`execution_settled`後に正常ACKとWorker `turn_end`をexecution journalへ
+  追記せず、最終artifactのprotocol trace／acknowledgementへ保存するよう分離した。provider／tool／context等の
+  遅延factは引き続きjournal failureになる。`contextCapture`とpost-commit observation failureも分離した。
+  canonical／no-sessionのv6経路、真の遅延fact失敗を回帰確認し、authoritative `v0:gate`はexit 0。
+- 次: 利用者によるIncrement完了判断。必要なら別途、binary build／配置を指示する。
+- 正本: `docs/increments/increment-93.md`。
+- 注意: schema、concept、architecture、roadmap、既存dataは変更していない。binary build／配置、commit、push、
+  releaseは未実施。
+
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 89 release commit `c46342f3`のclean treeからbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `d4611af8…`、file SHA-256 `dfd0973e…`）。buildは
-  `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。現在のbuild/source identityは
-  `~/.local/bin/henji --version`を正本とする。
+- binary: `0.3.0`。Increment 92の`fetch_call_returned` stageを含むworking tree（source
+  `01b3e773…+dirty`）からbuildし、`dist/henji`と`~/.local/bin/henji`へ原子的に配置済み（build
+  `2faca28f…`、file SHA-256 `162a2852…`、embedded runtime `d048a566…`）。buildは
+  `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。VMのsource実行用Denoは2.9.7へ更新済みだが、
+  配置済みbinaryのembedded runtimeは2.9.6のまま。2.9.7でも同じ停止を再現したため比較目的のrebuildはしていない。
+  現在のbuild/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。

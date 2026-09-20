@@ -259,11 +259,16 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
 
   now = 62_000;
   tick();
-  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[⠙ working 01:02 │ Esc cancel]');
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[⠙ working 01:02 │ Esc cancel]',
+  );
 
   renderer.setStatus('busy · steer applied');
   assert(
-    renderer.renderFrame(80, 24).includes('[⠙ working 01:02 │ steer applied │ Esc cancel]'),
+    renderer.renderFrame(80, 24).includes(
+      '[⠙ working 01:02 │ steer applied │ Esc cancel]',
+    ),
   );
   renderer.setSlashCommandCandidates(['/help', '/history export']);
   assertEquals(
@@ -312,7 +317,12 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   assertEquals(layout.footer[0].blinkScalarStart, undefined);
   assertEquals(layout.footer[0].blinkScalarLength, undefined);
 
-  renderer.eventSink({ kind: 'turn_end', turn: 1, outcome: 'final', committed: true });
+  renderer.eventSink({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'final',
+    committed: true,
+  });
   assertEquals(cleared, ['busy-timer']);
   layout = renderer.layoutSnapshot(80, 24);
   assertEquals(layout.footer[0].text, '[ready]');
@@ -327,7 +337,10 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
     outcome: 'contract_failure',
     committed: false,
   });
-  assertEquals(renderer.layoutSnapshot(80, 24).footer[0].text, '[contract_failure]');
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[contract_failure]',
+  );
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
 
   renderer.eventSink({ kind: 'turn_start', turn: 3 });
@@ -395,7 +408,9 @@ Deno.test('retained session picker identifies sessions by updated time and human
     ),
   );
   assert(!rows.some((row) => row.includes('Z')));
-  assert(!rows.some((row) => row.includes('openrouter-chat') || row.includes('deepseek')));
+  assert(
+    !rows.some((row) => row.includes('openrouter-chat') || row.includes('deepseek')),
+  );
 });
 
 Deno.test('retained controller completes a sole slash candidate and preserves path completion', async () => {
@@ -424,7 +439,9 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   });
   const run = controller.run();
   await waitFor(() =>
-    renderer.stateSnapshot().status.includes('credential missing: openai-responses')
+    renderer.stateSnapshot().status.includes(
+      'credential missing: openai-responses',
+    )
   );
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
@@ -690,7 +707,11 @@ Deno.test('startup header follows rename, session replacement, and terminal size
     },
     sessionMode: { kind: 'new' },
     instructions: { loaded: true, source: 'AGENTS.md' },
-    skills: { count: 7, names: ['one', 'two', 'three', 'four', 'five'], omitted: 2 },
+    skills: {
+      count: 7,
+      names: ['one', 'two', 'three', 'four', 'five'],
+      omitted: 2,
+    },
     trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
     credentialVerification: 'before_each_provider_request',
   };
@@ -754,13 +775,17 @@ Deno.test('startup header distinguishes continue, exact, and no-session modes', 
     committedTurn: 4,
     messageCount: 8,
   };
-  assert(startupHeaderLines(base, position).some((line) => line.includes('continue newest')));
   assert(
-    startupHeaderLines({ ...base, sessionMode: { kind: 'exact' } }, position).some((line) =>
-      line.includes('exact session')
-    ),
+    startupHeaderLines(base, position).some((line) => line.includes('continue newest')),
   );
-  const none = startupHeaderLines({ ...base, sessionMode: { kind: 'none' } }, position);
+  assert(
+    startupHeaderLines({ ...base, sessionMode: { kind: 'exact' } }, position)
+      .some((line) => line.includes('exact session')),
+  );
+  const none = startupHeaderLines(
+    { ...base, sessionMode: { kind: 'none' } },
+    position,
+  );
   assert(none.some((line) => line.includes('no session')));
   assert(!none.some((line) => line.includes('aaaaaaaa')));
 });
@@ -796,7 +821,9 @@ Deno.test('startup header shows the selected Henji base instruction', () => {
   };
   const full = startupHeaderLines(base, position, 100, 24);
   assert(full.some((line) => line.includes('base instruction:')));
-  assert(full.some((line) => line.includes('local/henji-base · external · 2e00f40b')));
+  assert(
+    full.some((line) => line.includes('local/henji-base · external · 2e00f40b')),
+  );
   assert(full.some((line) => /context:\s+none/.test(line)));
   const compact = startupHeaderLines(base, position, 40, 12);
   assert(!compact.some((line) => line.includes('base instruction:')));
@@ -1107,14 +1134,128 @@ Deno.test('cancelled active task keeps recovery for an explicit /recover', async
 
   terminal.push('/recover\r');
   await waitFor(() => controller.editor.text === task);
-  assertEquals(renderer.stateSnapshot().status, 'recovered input; edit or resubmit');
+  assertEquals(
+    renderer.stateSnapshot().status,
+    'recovered input; edit or resubmit',
+  );
 
   terminal.push('\r');
   await waitFor(() => submitted.length === 2 && controller.currentState === 'idle');
   assertEquals(submitted, [task, task]);
-  assert(!renderer.stateSnapshot().status.includes('active task recovery pending'));
+  assert(
+    !renderer.stateSnapshot().status.includes('active task recovery pending'),
+  );
   terminal.push('\x04');
   assertEquals(await run, 0);
+});
+
+Deno.test('interrupted active task keeps recovery for an explicit /recover', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  let settleInterrupted: (() => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: (task) => {
+      submitted.push(task);
+      if (submitted.length > 1) {
+        return Promise.resolve({
+          ok: true,
+          task,
+          outcome: 'final',
+          stopReason: 'final',
+          finalText: 'done',
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+        });
+      }
+      return new Promise((resolve) => {
+        settleInterrupted = () =>
+          resolve({
+            ok: false,
+            task,
+            outcome: 'interrupted',
+            stopReason: 'interrupted',
+            error: 'worker settlement deadline exceeded',
+            steps: 0,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      });
+    },
+    cancelActiveTurn: () => {
+      settleInterrupted?.();
+      return 'requested';
+    },
+    isAvailable: () => true,
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  const task = '中断された依頼を回復する';
+  terminal.push(`${task}\r`);
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('\x1b');
+  await waitFor(() => controller.currentState === 'idle');
+  assert(
+    renderer.stateSnapshot().status.includes(
+      'worker interrupted; recoverable input available; use /recover',
+    ),
+  );
+
+  terminal.push('/recover\r');
+  await waitFor(() => controller.editor.text === task);
+  terminal.push('\r');
+  await waitFor(() => submitted.length === 2 && controller.currentState === 'idle');
+  assertEquals(submitted, [task, task]);
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('interrupted active task honors a repeated Ctrl-C exit intent', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  let settleInterrupted: (() => void) | undefined;
+  let cancellationRequests = 0;
+  const session: TuiSessionLike = {
+    submit: (task) =>
+      new Promise((resolve) => {
+        settleInterrupted = () =>
+          resolve({
+            ok: false,
+            task,
+            outcome: 'interrupted',
+            stopReason: 'interrupted',
+            error: 'worker settlement deadline exceeded',
+            steps: 0,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      }),
+    cancelActiveTurn: () => {
+      cancellationRequests += 1;
+      setTimeout(() => settleInterrupted?.(), 20);
+      return 'requested';
+    },
+    isAvailable: () => true,
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  terminal.push('interrupt then exit\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('\x03\x03');
+  assertEquals(await run, 0);
+  assertEquals(cancellationRequests, 1);
 });
 
 Deno.test('occupied editor keeps recoverable task until idle /recover', async () => {
@@ -1141,7 +1282,9 @@ Deno.test('occupied editor keeps recoverable task until idle /recover', async ()
       }),
   };
   const pending = new PendingInputCore();
-  const controller = new TuiController(lifecycle, renderer, session, { pending });
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending,
+  });
   const run = controller.run();
   terminal.push('original task\r');
   await waitFor(() => controller.currentState === 'busy');
@@ -1151,7 +1294,11 @@ Deno.test('occupied editor keeps recoverable task until idle /recover', async ()
   await waitFor(() => controller.currentState === 'idle');
   assertEquals(controller.editor.text, 'draft in progress');
   assert(pending.hasRecovery);
-  assert(renderer.stateSnapshot().status.includes('tools may have changed the workspace'));
+  assert(
+    renderer.stateSnapshot().status.includes(
+      'tools may have changed the workspace',
+    ),
+  );
 
   terminal.push('\x15/recover\r');
   await waitFor(() => controller.editor.text === 'original task');
@@ -1227,7 +1374,10 @@ Deno.test('/recall selects next-task-only context while /recover remains input r
 
   terminal.push('/recover\r');
   await waitFor(() => renderer.stateSnapshot().status === 'no recoverable input');
-  assertEquals(intentsSeen.filter((kind) => kind === 'recall_execution').length, 1);
+  assertEquals(
+    intentsSeen.filter((kind) => kind === 'recall_execution').length,
+    1,
+  );
 
   terminal.push('/recall aaaaaaaa\r');
   await waitFor(() => renderer.stateSnapshot().status.startsWith('recall aaaaaaaa ready'));
@@ -1317,7 +1467,8 @@ Deno.test('genuine cancellation cleanup failure does not return to reusable read
   );
   terminal.push('trigger cleanup failure\r');
   await waitFor(() =>
-    submitted && (controller.currentState === 'idle' || controller.currentState === 'failed')
+    submitted &&
+    (controller.currentState === 'idle' || controller.currentState === 'failed')
   );
   const returnedReady = controller.currentState === 'idle';
   if (returnedReady) terminal.push('\x03\x04');
@@ -1604,7 +1755,10 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
   renderer.eventSink({
     kind: 'user_message',
     turn: 1,
-    message: { role: 'user', content: { kind: 'text', text: 'old conversation' } },
+    message: {
+      role: 'user',
+      content: { kind: 'text', text: 'old conversation' },
+    },
   });
   const controller = new TuiController(lifecycle, renderer, oldSession, {
     pending: new PendingInputCore(),
@@ -1629,7 +1783,10 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
   assertEquals(controller.editor.text, '');
   assertEquals(renderer.stateSnapshot().log.entries, []);
   assertEquals(renderer.stateSnapshot().startup?.position, newPosition);
-  assertEquals(renderer.stateSnapshot().projection?.sessionId, newPosition.sessionId);
+  assertEquals(
+    renderer.stateSnapshot().projection?.sessionId,
+    newPosition.sessionId,
+  );
   assertEquals(renderer.stateSnapshot().projection?.committedTurn, 0);
   assertEquals(renderer.stateSnapshot().projection?.model, {
     provider: inherited.provider,
@@ -1692,7 +1849,8 @@ Deno.test('/new setup failure keeps the current retained Session', async () => {
   const run = controller.run();
   terminal.push('/new\r');
   await waitFor(() =>
-    renderer.stateSnapshot().status === 'new session failed; current session unchanged'
+    renderer.stateSnapshot().status ===
+      'new session failed; current session unchanged'
   );
   assertEquals(navigation.currentPosition(), position);
   assertEquals(submitted, []);
@@ -1707,10 +1865,15 @@ Deno.test('idle Ctrl-C clears input without arming or triggering exit', async ()
   await lifecycle.acquire();
   const submitted: string[] = [];
   const history = new TuiEditorHistory();
-  const controller = new TuiController(lifecycle, renderer, successfulSession(submitted), {
-    pending: new PendingInputCore(),
-    history,
-  });
+  const controller = new TuiController(
+    lifecycle,
+    renderer,
+    successfulSession(submitted),
+    {
+      pending: new PendingInputCore(),
+      history,
+    },
+  );
   let exited = false;
   const run = controller.run().then((code) => {
     exited = true;
@@ -1774,7 +1937,10 @@ Deno.test('history export serializes task, session listing, and duplicate export
   terminal.push('\x15/sessions\r');
   terminal.push('\x15/history export\r');
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assertEquals(intentsSeen.filter((kind) => kind === 'history_export').length, 1);
+  assertEquals(
+    intentsSeen.filter((kind) => kind === 'history_export').length,
+    1,
+  );
   assert(!intentsSeen.includes('ordinary_submit'));
   assert(!intentsSeen.includes('list_sessions'));
   assert(!intentsSeen.includes('resume_session'));
@@ -1829,7 +1995,10 @@ Deno.test('human history viewer owns navigation, detail, search, and restores co
   };
   const intents: PresentationIntentDispatcher = {
     dispatch(intent): PresentationIntentResult {
-      if (intent.kind === 'human_history_open' || intent.kind === 'human_history_page') {
+      if (
+        intent.kind === 'human_history_open' ||
+        intent.kind === 'human_history_page'
+      ) {
         return { kind: 'human_history_page', page };
       }
       if (intent.kind === 'human_history_detail') {
@@ -1970,7 +2139,9 @@ Deno.test('human history keeps one wrapped document while loading adjacent stora
       if (intent.kind === 'human_history_open') {
         return { kind: 'human_history_page', page: newest };
       }
-      if (intent.kind === 'human_history_page' && intent.direction === 'older') {
+      if (
+        intent.kind === 'human_history_page' && intent.direction === 'older'
+      ) {
         olderReads += 1;
         return { kind: 'human_history_page', page: oldest };
       }
@@ -1991,14 +2162,16 @@ Deno.test('human history keeps one wrapped document while loading adjacent stora
     const overlay = renderer.stateSnapshot().overlay;
     return overlay.kind === 'humanHistory' &&
       overlay.anchorEntryId === newest.entries[0].id &&
-      (overlay.anchorScalarOffset ?? Number.MAX_SAFE_INTEGER) < Number.MAX_SAFE_INTEGER;
+      (overlay.anchorScalarOffset ?? Number.MAX_SAFE_INTEGER) <
+        Number.MAX_SAFE_INTEGER;
   });
   assertEquals(olderReads, 0);
   terminal.push('k');
   await waitFor(() => olderReads === 1);
   await waitFor(() => {
     const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' && overlay.page?.entries.length === 2;
+    return overlay.kind === 'humanHistory' &&
+      overlay.page?.entries.length === 2;
   });
   const overlay = renderer.stateSnapshot().overlay;
   if (overlay.kind !== 'humanHistory' || overlay.page === undefined) {

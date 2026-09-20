@@ -18,7 +18,7 @@ import {
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import type {
   PresentationIntent,
@@ -352,7 +352,7 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
 Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Session', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-15-' });
   const workspaceRoot = Deno.cwd();
-  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {

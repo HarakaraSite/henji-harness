@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import {
   type HistoryPersistencePort,
   HistoryStoreError,
@@ -24,6 +25,7 @@ import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import { main as sessionCliMain } from '../../v0/agent/cli/session_cli.ts';
 import { main as diagnosticCliMain } from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
+import { createExecutionContextManifest } from '../../v0/agent/history/context_attribution.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -114,6 +116,9 @@ class ScriptedCapsule implements WorkerHostCapsule {
     private readonly failFirst = false,
     private readonly failAcceptedAcknowledgement = false,
     private readonly rejectModelSelection = false,
+    private readonly contextManifest?: Awaited<
+      ReturnType<typeof createExecutionContextManifest>
+    >,
   ) {}
 
   private emit(message: WorkerToHostMessage): void {
@@ -195,6 +200,9 @@ class ScriptedCapsule implements WorkerHostCapsule {
               content: { kind: 'text', text: 'SQLite answer' },
             },
           ],
+          ...(this.contextManifest === undefined ? {} : {
+            contextManifest: this.contextManifest,
+          }),
         });
       });
       return;
@@ -684,7 +692,7 @@ Deno.test('Increment 40 enforces Session writer ownership and preserves executio
   }
 });
 
-Deno.test('Increment 40 rejects an unknown SQLite schema without reading old JSON', async () => {
+Deno.test('Increment 90 production ignores an unknown retained v5 schema', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i40-schema-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -714,18 +722,29 @@ Deno.test('Increment 40 rejects an unknown SQLite schema without reading old JSO
         error.code === 'history_invalid';
     }
     assert(invalid);
-    let stderr = '';
+    let stdout = '';
     assertEquals(
       await sessionCliMain(['list'], {
         workspaceRoot,
         stateRoot,
-        writeStderr: (text) => {
-          stderr += text;
+        writeStdout: (text) => {
+          stdout += text;
         },
       }),
-      1,
+      0,
     );
-    assertEquals(JSON.parse(stderr).error.code, 'session_invalid');
+    assertEquals(JSON.parse(stdout).sessions, []);
+    const retained = new DatabaseSync(`${paths.root}/history-v5.sqlite3`, { readOnly: true });
+    try {
+      assertEquals(
+        Number(
+          (retained.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
+        ),
+        99,
+      );
+    } finally {
+      retained.close();
+    }
     assertEquals(
       await Deno.readTextFile(`${paths.sessions}/${oldId}/session.json`),
       '{"old":true}\n',
@@ -742,6 +761,7 @@ Deno.test('Increment 40 persists no-session execution without a canonical Sessio
   await Deno.mkdir(workspaceRoot);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
+    const contextManifest = await createExecutionContextManifest([]);
     created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
@@ -750,18 +770,46 @@ Deno.test('Increment 40 persists no-session execution without a canonical Sessio
       persistence: 'none',
       agent: 'default',
       physicalIoMode: 'production',
-      capsuleFactory: () => new ScriptedCapsule(),
+      capsuleFactory: () => new ScriptedCapsule(false, false, false, contextManifest),
     });
     const outcome = await created.session.submit('headless SQLite turn');
     assert(outcome.ok);
     assertEquals(outcome.executionArtifactDurability, 'yes');
+    assertEquals(outcome.executionObservationDurability, undefined);
+    assertEquals(outcome.executionObservationPersistenceError, undefined);
     await created.close();
     created = undefined;
 
-    const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     await store.initialize();
     assertEquals((await store.listWorker()).sessions.length, 0);
-    assertEquals((await store.executionArtifacts.list()).length, 1);
+    const artifacts = await store.executionArtifacts.list();
+    assertEquals(artifacts.length, 1);
+    const artifact = artifacts[0];
+    assert(artifact?.schemaVersion === 7);
+    assertEquals(artifact.contextCapture, 'complete');
+    assertEquals(artifact.acknowledgement, 'accepted_sent');
+    assert(
+      artifact.protocolTrace.some((entry) =>
+        entry.direction === 'host_to_worker' &&
+        entry.kind === 'commit_acknowledgement' && entry.ackAccepted === true
+      ),
+    );
+    assert(
+      artifact.protocolTrace.some((entry) =>
+        entry.direction === 'worker_to_host' &&
+        entry.kind === 'runtime_event' && entry.semanticSubtype === 'turn_end'
+      ),
+    );
+    const execution = store.listExecutions()[0];
+    assert(execution !== undefined);
+    assertEquals(execution.contextCapture, 'complete');
+    const events = store.listExecutionEvents(execution.executionId);
+    assertEquals(events.at(-1)?.kind, 'execution_settled');
+    assertEquals(
+      events.some((event) => event.kind.startsWith('acknowledgement_')),
+      false,
+    );
 
     let sessionStdout = '';
     assertEquals(

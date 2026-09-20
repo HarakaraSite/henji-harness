@@ -8,7 +8,7 @@ import {
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -155,7 +155,7 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
 Deno.test('Increment 12 switches and restores the root model while planner stays fixed', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-model-switch-' });
   const workspaceRoot = Deno.cwd();
-  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let planner: Awaited<ReturnType<typeof createWorkerSession>> | undefined;

@@ -14,7 +14,7 @@ import {
   resolveRequestedDefinition,
 } from '../../v0/agent/definitions/definition_selection.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import {
   roleDefaultModelSelection,
   selectModelFor,
@@ -334,7 +334,7 @@ Deno.test('Increment 65 starts a new session with the bound root Definition', as
     } finally {
       await created.close();
     }
-    const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     await history.initialize();
     const artifact = (await history.executionArtifacts.list()).find((item) =>
       item.sessionId === created.session.sessionId
@@ -398,7 +398,7 @@ Deno.test('Increment 65 composes a bound external planner into the root composit
       }),
     );
 
-    const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     await history.initialize();
     const artifact = (await history.executionArtifacts.list()).find((item) =>
       item.sessionId === created.session.sessionId

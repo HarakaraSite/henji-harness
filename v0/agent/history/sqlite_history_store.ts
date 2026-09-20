@@ -81,6 +81,7 @@ import {
 } from '../worker/worker_execution_artifact.ts';
 import { recalledExecutionProjectionText } from '../worker/recalled_execution_context.ts';
 import type { WorkerReadyMessage } from '../worker/worker_protocol.ts';
+import { WORKER_STAGE_CODES } from '../worker/worker_stage_probe.ts';
 import {
   type WorkerExecutionArtifactStore,
   WorkerExecutionArtifactStoreError,
@@ -337,6 +338,9 @@ const EXECUTION_EVENT_KINDS: ReadonlySet<ExecutionEventKind> = new Set([
   'cancel_requested',
   'cancel_sent',
   'cancel_failed',
+  'cancel_received',
+  'cancel_escalated',
+  'worker_stage_snapshot',
   'steer_requested',
   'steer_sent',
   'steer_failed',
@@ -362,6 +366,8 @@ const HOST_EXECUTION_EVENT_KINDS: ReadonlySet<ExecutionEventKind> = new Set([
   'cancel_requested',
   'cancel_sent',
   'cancel_failed',
+  'cancel_escalated',
+  'worker_stage_snapshot',
   'steer_requested',
   'steer_sent',
   'steer_failed',
@@ -542,6 +548,8 @@ const validLoopOutcome = (value: unknown): boolean => {
       'executionArtifactPersistenceError',
       'executionAdmissionDurability',
       'executionAdmissionPersistenceError',
+      'executionJournalDurability',
+      'executionJournalPersistenceError',
       'executionObservationDurability',
       'executionObservationPersistenceError',
     ]) || typeof value.ok !== 'boolean' || !validText(value.task) ||
@@ -610,6 +618,12 @@ const validLoopOutcome = (value: unknown): boolean => {
       value.executionAdmissionPersistenceError === 'history_busy' ||
       value.executionAdmissionPersistenceError === 'history_invalid' ||
       value.executionAdmissionPersistenceError === 'history_io_failure') &&
+    (value.executionJournalDurability === undefined ||
+      value.executionJournalDurability === 'failed') &&
+    (value.executionJournalPersistenceError === undefined ||
+      value.executionJournalPersistenceError === 'history_busy' ||
+      value.executionJournalPersistenceError === 'history_invalid' ||
+      value.executionJournalPersistenceError === 'history_io_failure') &&
     (value.executionObservationDurability === undefined ||
       value.executionObservationDurability === 'failed') &&
     (value.executionObservationPersistenceError === undefined ||
@@ -641,6 +655,8 @@ const validAgentEvent = (value: unknown): boolean => {
       'diagnosticPersistenceError',
       'executionAdmissionDurability',
       'executionAdmissionPersistenceError',
+      'executionJournalDurability',
+      'executionJournalPersistenceError',
       'executionObservationDurability',
       'executionObservationPersistenceError',
     ]) || !validPositiveInteger(value.turn) || typeof value.kind !== 'string'
@@ -683,6 +699,8 @@ const validAgentEvent = (value: unknown): boolean => {
         'diagnosticPersistenceError',
         'executionAdmissionDurability',
         'executionAdmissionPersistenceError',
+        'executionJournalDurability',
+        'executionJournalPersistenceError',
         'executionObservationDurability',
         'executionObservationPersistenceError',
       ]) &&
@@ -725,6 +743,12 @@ const validAgentEvent = (value: unknown): boolean => {
           value.executionAdmissionPersistenceError === 'history_busy' ||
           value.executionAdmissionPersistenceError === 'history_invalid' ||
           value.executionAdmissionPersistenceError === 'history_io_failure') &&
+        (value.executionJournalDurability === undefined ||
+          value.executionJournalDurability === 'failed') &&
+        (value.executionJournalPersistenceError === undefined ||
+          value.executionJournalPersistenceError === 'history_busy' ||
+          value.executionJournalPersistenceError === 'history_invalid' ||
+          value.executionJournalPersistenceError === 'history_io_failure') &&
         (value.executionObservationDurability === undefined ||
           value.executionObservationDurability === 'failed') &&
         (value.executionObservationPersistenceError === undefined ||
@@ -953,6 +977,8 @@ CREATE TABLE execution_outcomes (
   execution_artifact_persistence_error TEXT,
   execution_admission_durability TEXT,
   execution_admission_persistence_error TEXT,
+  execution_journal_durability TEXT,
+  execution_journal_persistence_error TEXT,
   execution_observation_durability TEXT,
   execution_observation_persistence_error TEXT,
   steps INTEGER NOT NULL,
@@ -2731,7 +2757,8 @@ export class SqliteHistoryStore
           WHERE execution_id = ? AND occurrence_id = ? ORDER BY source_ordinal
         `).all(executionId, occurrenceId) as SqlRow[]).map((source) => ({
           stage: source.stage as ContextRelationStage,
-          resourceKind: source.resource_kind as ContextSourceRelation['resourceKind'],
+          resourceKind: source
+            .resource_kind as ContextSourceRelation['resourceKind'],
           ...(source.logical_identity === null
             ? {}
             : { logicalIdentity: String(source.logical_identity) }),
@@ -4302,6 +4329,41 @@ export class SqliteHistoryStore
         : input.kind === 'cancel_requested' || input.kind === 'cancel_sent' ||
             input.kind === 'cancel_failed'
         ? exactObject(record, ['command']) && record.command === 'cancel'
+        : input.kind === 'cancel_escalated'
+        ? exactObject(record, ['command', 'reason']) &&
+          record.command === 'terminate' &&
+          record.reason === 'settlement_deadline_exceeded'
+        : input.kind === 'worker_stage_snapshot'
+        ? exactObject(record, [
+          'schemaVersion',
+          'trigger',
+          'workerGeneration',
+          'epoch',
+          'stageOrdinal',
+          'stage',
+          'expectedWorkerSequence',
+          'lastWorkerSequenceReceived',
+          'lastWorkerSequenceBuffered',
+          'lastWorkerSequenceDurable',
+        ], ['contextRequestOrdinal']) && record.schemaVersion === 1 &&
+          ['auxiliary_gap', 'cancel_requested', 'cancel_escalated', 'terminal']
+            .includes(String(record.trigger)) &&
+          UUID_V4.test(String(record.workerGeneration)) &&
+          validPositiveInteger(record.epoch) &&
+          Number.isSafeInteger(record.stageOrdinal) &&
+          Number(record.stageOrdinal) >= 0 &&
+          typeof record.stage === 'string' &&
+          record.stage in WORKER_STAGE_CODES &&
+          Number.isSafeInteger(record.expectedWorkerSequence) &&
+          Number(record.expectedWorkerSequence) >= 0 &&
+          Number.isSafeInteger(record.lastWorkerSequenceReceived) &&
+          Number(record.lastWorkerSequenceReceived) >= 0 &&
+          Number.isSafeInteger(record.lastWorkerSequenceBuffered) &&
+          Number(record.lastWorkerSequenceBuffered) >= 0 &&
+          Number.isSafeInteger(record.lastWorkerSequenceDurable) &&
+          Number(record.lastWorkerSequenceDurable) >= 0 &&
+          (record.contextRequestOrdinal === undefined ||
+            validPositiveInteger(record.contextRequestOrdinal))
         : input.kind === 'steer_requested' || input.kind === 'steer_sent' ||
             input.kind === 'steer_failed'
         ? exactObject(record, ['text']) && typeof record.text === 'string'
@@ -4337,6 +4399,17 @@ export class SqliteHistoryStore
       : input.kind === 'provider_parser_transition'
       ? 'parser_transition'
       : undefined;
+    if (input.kind === 'cancel_received') {
+      if (
+        !exactObject(record, ['kind', 'correlation', 'sequence', 'result']) ||
+        record.kind !== 'cancel_received' ||
+        !validPositiveInteger(record.sequence) ||
+        !['requested', 'already_requested', 'idle'].includes(
+          String(record.result),
+        )
+      ) throw new HistoryStoreError('history_invalid');
+      return;
+    }
     if (input.kind === 'effect_observation') {
       if (input.workerSequence === undefined || !validEffectPayload(record)) {
         throw new HistoryStoreError('history_invalid');
@@ -4866,9 +4939,10 @@ export class SqliteHistoryStore
         runtime_provider_request_count, execution_artifact_id,
         execution_artifact_durability, execution_artifact_persistence_error,
         execution_admission_durability, execution_admission_persistence_error,
+        execution_journal_durability, execution_journal_persistence_error,
         execution_observation_durability, execution_observation_persistence_error,
         steps, tool_call_count, tool_result_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       executionId,
       outcome.ok ? 1 : 0,
@@ -4890,6 +4964,8 @@ export class SqliteHistoryStore
       outcome.executionArtifactPersistenceError ?? null,
       outcome.executionAdmissionDurability ?? null,
       outcome.executionAdmissionPersistenceError ?? null,
+      outcome.executionJournalDurability ?? null,
+      outcome.executionJournalPersistenceError ?? null,
       outcome.executionObservationDurability ?? null,
       outcome.executionObservationPersistenceError ?? null,
       outcome.steps,
@@ -4974,6 +5050,14 @@ export class SqliteHistoryStore
         executionAdmissionPersistenceError: String(
           row.execution_admission_persistence_error,
         ) as LoopOutcome['executionAdmissionPersistenceError'],
+      }),
+      ...(row.execution_journal_durability === null
+        ? {}
+        : { executionJournalDurability: 'failed' as const }),
+      ...(row.execution_journal_persistence_error === null ? {} : {
+        executionJournalPersistenceError: String(
+          row.execution_journal_persistence_error,
+        ) as LoopOutcome['executionJournalPersistenceError'],
       }),
       ...(row.execution_observation_durability === null
         ? {}
@@ -5597,7 +5681,9 @@ export class SqliteHistoryStore
         SELECT evidence_id FROM model_requests
         WHERE execution_id = ? AND request_ordinal = ?
       `).get(executionId, requestOrdinal) as SqlRow | undefined;
-      if (request === undefined) throw new HistoryStoreError('history_io_failure');
+      if (request === undefined) {
+        throw new HistoryStoreError('history_io_failure');
+      }
       if (request.evidence_id === null) return [];
       const evidenceId = String(request.evidence_id);
       const header = db.prepare(`
@@ -5605,7 +5691,9 @@ export class SqliteHistoryStore
       `).get(evidenceId, executionId) as SqlRow | undefined;
       if (header === undefined) throw new HistoryStoreError('history_invalid');
       const evidence = this.evidenceFromRow(db, header);
-      if (evidence.schemaVersion !== 5) throw new HistoryStoreError('history_invalid');
+      if (evidence.schemaVersion !== 5) {
+        throw new HistoryStoreError('history_invalid');
+      }
       return evidence.requests.filter((record) =>
         record.request.contextRequestOrdinal === requestOrdinal
       ).map((record) => ({ evidenceId, record }));

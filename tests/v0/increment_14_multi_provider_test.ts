@@ -27,7 +27,7 @@ import {
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import {
   builtinProviderDeclarations,
@@ -971,7 +971,7 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     first = await createWorkerSession({
       stateRoot,
       workspaceRoot,

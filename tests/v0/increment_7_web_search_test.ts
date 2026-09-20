@@ -54,11 +54,17 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
-const bundledToolComponents = (physicalIo: PhysicalIoBindings): readonly ToolComponent[] => [
+const bundledToolComponents = (
+  physicalIo: PhysicalIoBindings,
+): readonly ToolComponent[] => [
   {
     identity: createAgentResourceIdentity('tool:bash'),
     materialize: (bindings) =>
-      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+      createBashTool(
+        bindings.workspace,
+        bindings.bashOutputStore,
+        bindings.workTools.bash ?? {},
+      ),
   },
   {
     identity: createAgentResourceIdentity('tool:bash_output'),
@@ -176,7 +182,12 @@ const sonarResponse = {
       ],
     },
   }],
-  usage: { prompt_tokens: 5, completion_tokens: 8, total_tokens: 13, cost: 0.005013 },
+  usage: {
+    prompt_tokens: 5,
+    completion_tokens: 8,
+    total_tokens: 13,
+    cost: 0.005013,
+  },
 };
 
 const contextFor = (
@@ -210,12 +221,19 @@ Deno.test('non-Worker runtime materializes the injected web_search backend', asy
     webSearchBackend: {
       search: (query) => ({
         answer: `runtime result for ${query}`,
-        sources: [{ title: 'Runtime source', url: 'provider-free://runtime-search' }],
+        sources: [{
+          title: 'Runtime source',
+          url: 'provider-free://runtime-search',
+        }],
       }),
     },
   });
   const composition = materializePreparedRuntimeComposition(prepared);
-  assert(composition.resourceSelection.resources.map(String).includes('tool:web_search'));
+  assert(
+    composition.resourceSelection.resources.map(String).includes(
+      'tool:web_search',
+    ),
+  );
   assert(composition.registry.resolve('web_search') !== undefined);
   const result = await composition.registry.dispatch({
     callId: 'runtime-search',
@@ -232,7 +250,10 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   const requestBodies: Array<Record<string, unknown>> = [];
   let mainRequests = 0;
   const fetcher: typeof fetch = (_input, init) => {
-    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    const bodyText = init?.body instanceof Uint8Array
+      ? new TextDecoder().decode(init.body)
+      : String(init?.body);
+    const body = JSON.parse(bodyText) as Record<string, unknown>;
     requestBodies.push(body);
     if (body.model === OPENROUTER_SONAR_SEARCH_MODEL) {
       return Promise.resolve(
@@ -313,26 +334,45 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   );
   assert(!resultText.includes('[2][1]'));
   assert(!/\n\[\d+\] /u.test(resultText));
-  assert(resultText.includes('- [Secondary source](<https://example.com/secondary>)'));
+  assert(
+    resultText.includes(
+      '- [Secondary source](<https://example.com/secondary>)',
+    ),
+  );
   assert(resultText.includes('- [Deno 2.9](<https://deno.com/blog/v2.9>)'));
   const sourceList = resultText.split('\n\nSources:\n')[1];
-  assert(sourceList.indexOf('Secondary source') < sourceList.indexOf('Deno 2.9'));
+  assert(
+    sourceList.indexOf('Secondary source') < sourceList.indexOf('Deno 2.9'),
+  );
   assert(resultText.includes('https://example.com/secondary'));
   assert(resultText.includes('https://deno.com/blog/v2.9'));
 
   const snapshot = evidence.snapshot();
-  assertEquals(snapshot.requests.map((record) => JSON.parse(record.request.requestBody).model), [
-    PRODUCTION_PROFILE.model,
-    OPENROUTER_SONAR_SEARCH_MODEL,
-    PRODUCTION_PROFILE.model,
+  assertEquals(
+    snapshot.requests.map((record) => JSON.parse(record.request.requestBody).model),
+    [
+      PRODUCTION_PROFILE.model,
+      OPENROUTER_SONAR_SEARCH_MODEL,
+      PRODUCTION_PROFILE.model,
+    ],
+  );
+  assertEquals(snapshot.requests.map((record) => record.request.modelStep), [
+    1,
+    1,
+    2,
   ]);
-  assertEquals(snapshot.requests.map((record) => record.request.modelStep), [1, 1, 2]);
-  assertEquals(snapshot.requests.map((record) => record.request.requestMetadata.responseMode), [
-    'sse',
-    'json',
-    'sse',
-  ]);
-  assertEquals(snapshot.requests[1].response?.rawBody, JSON.stringify(sonarResponse));
+  assertEquals(
+    snapshot.requests.map((record) => record.request.requestMetadata.responseMode),
+    [
+      'sse',
+      'json',
+      'sse',
+    ],
+  );
+  assertEquals(
+    snapshot.requests[1].response?.rawBody,
+    JSON.stringify(sonarResponse),
+  );
   assertEquals(
     snapshot.requests[1].parserTransitions.map((transition) => transition.reason),
     ['json_response', 'answer_with_url_citations', 'web_search_result'],
@@ -361,7 +401,9 @@ Deno.test('web_search exposes provider response errors while retaining raw evide
       transitions: ['invalid_json'],
     },
     {
-      raw: JSON.stringify({ choices: [{ message: { content: 'answer', annotations: [] } }] }),
+      raw: JSON.stringify({
+        choices: [{ message: { content: 'answer', annotations: [] } }],
+      }),
       status: 200,
       message: 'no answer with URL citations',
       transitions: ['json_response', 'missing_answer_or_url_citations'],

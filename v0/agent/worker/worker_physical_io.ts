@@ -27,6 +27,9 @@ import {
 } from '../provider/openrouter_model_catalog.ts';
 import { defaultModelSelectionFor, roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import { createProviderFreeWebSearchBackend } from '../tools/web_search.ts';
+import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
+import type { WorkerStageName } from './worker_stage_probe.ts';
+import { createProviderRequestDispatcher } from '../provider/auxiliary_request.ts';
 
 const lastUserText = (request: ModelRequest): string => {
   for (let index = request.transcript.length - 1; index >= 0; index -= 1) {
@@ -78,7 +81,9 @@ class WorkerProbeModel implements Model {
     options: ModelGenerateOptions = {},
   ): Promise<ModelResult> {
     throwIfCancelled(options.signal);
-    options.reportAssistantProgress?.(`worker progress: ${lastUserText(request)}`);
+    options.reportAssistantProgress?.(
+      `worker progress: ${lastUserText(request)}`,
+    );
     if (request.systemInstruction?.includes('semantic context checkpoint')) {
       return {
         kind: 'final',
@@ -124,7 +129,8 @@ class WorkerProbeModel implements Model {
       };
     }
     if (
-      !hasCurrentTurnToolResult(request) && this.role === 'parent' && task.includes('read')
+      !hasCurrentTurnToolResult(request) && this.role === 'parent' &&
+      task.includes('read')
     ) {
       return {
         kind: 'tool_calls',
@@ -160,6 +166,7 @@ export const createProductionPhysicalIo = (
     readonly fetcher?: typeof fetch;
     readonly providerTimeoutMs?: number;
     readonly providerDeclarations?: readonly ProviderDeclarationV1[];
+    readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void;
   } = {},
 ): PhysicalIoBindings => {
   const declaredProviders = new Map(
@@ -193,7 +200,8 @@ export const createProductionPhysicalIo = (
         });
       }
       if (resolved.provider === 'openrouter-responses') {
-        const endpoint = declaredProviders.get('openrouter-responses')?.endpoint;
+        const endpoint = declaredProviders.get('openrouter-responses')
+          ?.endpoint;
         return new OpenRouterResponsesModel({
           selection: resolved as OpenRouterResponsesModelSelection,
           credentialSource: () => resolver.resolve(resolved.authProfile),
@@ -204,7 +212,10 @@ export const createProductionPhysicalIo = (
       }
       if (resolved.api === 'openai-responses') {
         const declaration = declaredProviders.get(resolved.provider);
-        if (declaration === undefined || declaration.protocol !== 'openai-responses') {
+        if (
+          declaration === undefined ||
+          declaration.protocol !== 'openai-responses'
+        ) {
           throw new Error('declared provider is unavailable');
         }
         return new DeclaredResponsesModel({
@@ -217,7 +228,10 @@ export const createProductionPhysicalIo = (
       }
       if (resolved.api === 'openai-chat-completions') {
         const declaration = declaredProviders.get(resolved.provider);
-        if (declaration === undefined || declaration.protocol !== 'openai-chat-completions') {
+        if (
+          declaration === undefined ||
+          declaration.protocol !== 'openai-chat-completions'
+        ) {
           throw new Error('declared provider is unavailable');
         }
         return new OpenRouterAgentModel({
@@ -246,31 +260,12 @@ export const createProductionPhysicalIo = (
         timeoutMs: options.providerTimeoutMs,
       });
     },
-    requestProvider: async (request) => {
-      const credential = await resolver.resolve(request.authProfile);
-      if (!credential) throw new Error('host provider credential is not configured');
-      const response = await fetcher(request.endpoint, {
-        method: request.method,
-        signal: request.signal,
-        redirect: 'error',
-        headers: {
-          ...(request.headers ?? {}),
-          authorization: `Bearer ${credential}`,
-        },
-        ...(request.body === undefined ? {} : { body: request.body }),
-      });
-      const headers: Record<string, string> = {};
-      response.headers.forEach((value, name) => {
-        headers[name] = value;
-      });
-      let bytes: Uint8Array;
-      try {
-        bytes = new Uint8Array(await response.arrayBuffer());
-      } catch {
-        throw new Error('provider response read failed');
-      }
-      return { status: response.status, headers, bytes };
-    },
+    requestProvider: createProviderRequestDispatcher({
+      resolveCredential: (authProfile) => resolver.resolve(authProfile),
+      fetcher,
+      timeoutMs: options.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      reportStage: options.reportAuxiliaryStage,
+    }),
     credentialAvailability: (authProfile) => {
       if (authProfile === 'openrouter-api-key') {
         return options.credentialSource === undefined

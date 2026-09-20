@@ -30,6 +30,8 @@ import {
 import { readSseResponse } from './openrouter_sse.ts';
 import { bytes, isJsonValue, safeJson } from './openrouter_value.ts';
 
+const encoder = new TextEncoder();
+
 const resolveCredential = async (
   options: OpenRouterAgentModelOptions,
   profile: OpenRouterAgentProfile,
@@ -114,7 +116,10 @@ export class OpenRouterAgentModel implements Model {
     if (body === undefined) {
       throw invalidRequestError('provider request is not JSON serializable');
     }
-    if (bytes(body) > MAX_REQUEST_BYTES) {
+    const exactBodyBytes = generateOptions.providerExactRequestObserver === undefined
+      ? undefined
+      : encoder.encode(body);
+    if ((exactBodyBytes?.byteLength ?? bytes(body)) > MAX_REQUEST_BYTES) {
       throw new OpenRouterAgentError(
         'limit_exceeded',
         'provider request exceeds 6 MiB',
@@ -155,36 +160,58 @@ export class OpenRouterAgentModel implements Model {
     const endpoint = this.options.endpoint ??
       `${this.profile.origin}${this.profile.path}`;
     const evidence = generateOptions.providerEvidence;
+    const lane = generateOptions.providerEvidenceLane ?? 'parent';
+    const phase = generateOptions.providerEvidencePhase ?? 'user_turn';
+    const modelStep = generateOptions.modelStep ?? 1;
+    const requestMetadata = {
+      contentType: 'application/json',
+      redirect: 'error',
+      responseMode: this.options.responseMode ?? 'json',
+      origin: generateOptions.providerEvidencePhase === 'compaction'
+        ? 'context_compaction'
+        : generateOptions.providerEvidenceLane === 'planner'
+        ? 'planner_model'
+        : 'root_model',
+      provider: this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+      api: this.options.evidenceIdentity?.api ?? 'openrouter-chat-completions',
+      modelId: this.profile.model,
+      effort: this.profile.reasoningEffort ?? 'auto',
+      authProfile: this.options.evidenceIdentity?.authProfile ?? 'openrouter-api-key',
+      protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
+    } as const;
     let requestCount = 0;
     try {
       let response: Response;
       while (true) {
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut) throw providerTimeoutError();
-        evidence?.startRequest({
-          lane: generateOptions.providerEvidenceLane ?? 'parent',
-          phase: generateOptions.providerEvidencePhase ?? 'user_turn',
-          modelStep: generateOptions.modelStep ?? 1,
+        if (exactBodyBytes !== undefined) {
+          generateOptions.providerExactRequestObserver?.({
+            bytes: exactBodyBytes,
+            captureBoundary: 'openrouter-chat:http-body-v1',
+            serializerVersion: 'openrouter-safe-json-v1',
+            endpoint,
+            method: this.profile.method,
+            lane,
+            phase,
+            modelStep,
+            requestMetadata,
+            monolithicFallback: true,
+          });
+        }
+        const evidenceRequest = {
+          lane,
+          phase,
+          modelStep,
           endpoint,
           method: this.profile.method,
-          requestBody: body,
-          requestMetadata: {
-            contentType: 'application/json',
-            redirect: 'error',
-            responseMode: this.options.responseMode ?? 'json',
-            origin: generateOptions.providerEvidencePhase === 'compaction'
-              ? 'context_compaction'
-              : generateOptions.providerEvidenceLane === 'planner'
-              ? 'planner_model'
-              : 'root_model',
-            provider: this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
-            api: this.options.evidenceIdentity?.api ?? 'openrouter-chat-completions',
-            modelId: this.profile.model,
-            effort: this.profile.reasoningEffort ?? 'auto',
-            authProfile: this.options.evidenceIdentity?.authProfile ?? 'openrouter-api-key',
-            protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
-          },
-        });
+          requestMetadata,
+        } as const;
+        if (exactBodyBytes === undefined) {
+          evidence?.startRequest({ ...evidenceRequest, requestBody: body });
+        } else {
+          evidence?.startRequestMetadata(evidenceRequest);
+        }
         requestCount += 1;
         try {
           response = await this.fetcher(endpoint, {
@@ -195,7 +222,7 @@ export class OpenRouterAgentModel implements Model {
               'content-type': 'application/json',
               authorization: `Bearer ${credential}`,
             },
-            body,
+            body: exactBodyBytes ?? body,
           });
         } catch {
           if (turnCancelled) throw new TurnCancelledError();

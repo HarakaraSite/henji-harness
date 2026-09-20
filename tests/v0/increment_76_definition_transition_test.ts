@@ -1,7 +1,7 @@
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import type { DefinitionRevisionRef } from '../../v0/agent/session/session_store.ts';
 import {
   type StoredSessionRecord,
@@ -266,7 +266,7 @@ Deno.test('Increment 76 opens a stored session lazily and starts the Worker on f
   let storedId = '';
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
-    const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     await store.initialize();
     const handle = await store.allocateWorker('default', definition('a'.repeat(64)));
     storedId = handle.id;

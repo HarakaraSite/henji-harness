@@ -14,6 +14,7 @@ import type {
   ExecutionContextManifestV2,
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
+import type { ProviderExactRequestObservation } from '../core/contracts.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
@@ -96,6 +97,8 @@ export type WorkerHostCommand =
     readonly rootRole?: 'parent' | 'planner';
     readonly rootMaxSteps?: number;
     readonly providerTimeoutMs?: number;
+    /** Process-local fixed-size diagnostic latch; contains no request or credential data. */
+    readonly diagnosticStageBuffer?: SharedArrayBuffer;
     readonly initialTranscript?: readonly Message[];
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
@@ -271,6 +274,13 @@ export interface WorkerClosedMessage {
   readonly correlation: WorkerCorrelation;
 }
 
+export interface WorkerCancelReceivedMessage {
+  readonly kind: 'cancel_received';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly result: 'requested' | 'already_requested' | 'idle';
+}
+
 export interface WorkerEffectObservationMessage {
   readonly kind: 'effect_observation';
   readonly correlation: WorkerCorrelation;
@@ -284,6 +294,14 @@ export interface WorkerProviderObservationMessage {
   readonly sequence: number;
   readonly turn: number;
   readonly observation: ProviderEvidenceObservation;
+}
+
+/** Exact provider body transferred from the Worker capture boundary to the Host authority. */
+export interface WorkerProviderExactRequestMessage {
+  readonly kind: 'provider_exact_request';
+  readonly correlation: WorkerCorrelation;
+  readonly sequence: number;
+  readonly observation: ProviderExactRequestObservation;
 }
 
 export interface WorkerCommitProposalMessage {
@@ -340,10 +358,12 @@ export type WorkerToHostMessage =
   | WorkerRuntimeEventMessage
   | WorkerEffectObservationMessage
   | WorkerProviderObservationMessage
+  | WorkerProviderExactRequestMessage
   | WorkerContextObservationMessage
   | WorkerCommitProposalMessage
   | WorkerCheckpointProposalMessage
   | WorkerTurnFailedMessage
+  | WorkerCancelReceivedMessage
   | WorkerClosedMessage
   | WorkerErrorMessage;
 

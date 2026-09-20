@@ -185,33 +185,72 @@ const evidenceFetch = (
 async (input, init) => {
   const request = input instanceof Request ? input : undefined;
   const endpoint = request?.url ?? String(input);
-  const requestBody = typeof init?.body === 'string'
-    ? init.body
-    : request === undefined
-    ? ''
-    : await request.clone().text();
+  const exactObserver = options.providerExactRequestObserver;
+  let exactBodyBytes: Uint8Array | undefined;
+  let fetchInput: RequestInfo | URL = input;
+  let fetchInit = init;
+  if (exactObserver !== undefined) {
+    if (typeof init?.body === 'string') {
+      exactBodyBytes = new TextEncoder().encode(init.body);
+      fetchInit = { ...init, body: exactBodyBytes as Uint8Array<ArrayBuffer> };
+    } else if (init?.body instanceof Uint8Array) {
+      exactBodyBytes = init.body;
+    } else if (request !== undefined) {
+      exactBodyBytes = new Uint8Array(await request.clone().arrayBuffer());
+      fetchInput = new Request(request, {
+        body: exactBodyBytes as Uint8Array<ArrayBuffer>,
+      });
+      fetchInit = undefined;
+    }
+  }
+  const requestBody = exactBodyBytes === undefined
+    ? typeof init?.body === 'string'
+      ? init.body
+      : request === undefined
+      ? ''
+      : await request.clone().text()
+    : undefined;
   const evidence = options.providerEvidence;
-  evidence?.startRequest({
-    lane: options.providerEvidenceLane ?? 'parent',
-    phase: options.providerEvidencePhase ?? 'user_turn',
-    modelStep: options.modelStep ?? 1,
+  const lane = options.providerEvidenceLane ?? 'parent';
+  const phase = options.providerEvidencePhase ?? 'user_turn';
+  const modelStep = options.modelStep ?? 1;
+  const requestMetadata = {
+    contentType: 'application/json',
+    redirect: 'error',
+    responseMode: 'sse',
+    origin: evidenceOrigin(options),
+    provider: selection.provider,
+    api: selection.api,
+    modelId: selection.modelId,
+    effort: selection.effort,
+    authProfile: selection.authProfile,
+    protocol: 'sse',
+  } as const;
+  if (exactBodyBytes !== undefined) {
+    exactObserver?.({
+      bytes: exactBodyBytes,
+      captureBoundary: `${selection.api}:http-body-v1`,
+      serializerVersion: 'openai-sdk-json-v1',
+      endpoint,
+      method: 'POST',
+      lane,
+      phase,
+      modelStep,
+      requestMetadata,
+      monolithicFallback: true,
+    });
+  }
+  const evidenceRequest = {
+    lane,
+    phase,
+    modelStep,
     endpoint,
     method: 'POST',
-    requestBody,
-    requestMetadata: {
-      contentType: 'application/json',
-      redirect: 'error',
-      responseMode: 'sse',
-      origin: evidenceOrigin(options),
-      provider: selection.provider,
-      api: selection.api,
-      modelId: selection.modelId,
-      effort: selection.effort,
-      authProfile: selection.authProfile,
-      protocol: 'sse',
-    },
-  });
-  const response = await fetcher(input, init);
+    requestMetadata,
+  } as const;
+  if (requestBody === undefined) evidence?.startRequestMetadata(evidenceRequest);
+  else evidence?.startRequest({ ...evidenceRequest, requestBody });
+  const response = await fetcher(fetchInput, fetchInit);
   evidence?.recordResponse({
     status: response.status,
     headers: responseHeaders(response.headers),

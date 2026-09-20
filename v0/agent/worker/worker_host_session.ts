@@ -34,6 +34,12 @@ import type {
   WorkerToHostMessage,
   WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
+import {
+  beginWorkerStageProbeEpoch,
+  createWorkerStageProbeBuffer,
+  readWorkerStageSnapshot,
+  type WorkerStageSnapshotTrigger,
+} from './worker_stage_probe.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection, roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
@@ -63,6 +69,7 @@ import {
   diagnosticPersistenceCodes,
   evidencePersistenceCodes,
   failedOutcome,
+  interruptedOutcome,
   persistenceCode,
   proposalOutcome,
   sameCorrelation,
@@ -89,7 +96,25 @@ import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instr
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const OBSERVATION_FLUSH_BATCH = 256;
 const OBSERVATION_FLUSH_INTERVAL_MS = 25;
+const WORKER_SETTLEMENT_GRACE_MS = 5_000;
+const WORKER_RESPONSE_TIMEOUT_MS = 5_000;
+const AUXILIARY_STAGE_GAP_MS = 1_000;
 const profileIdPattern = /^[^\0]+$/u;
+type HistoryJournalErrorCode =
+  | 'history_busy'
+  | 'history_invalid'
+  | 'history_io_failure';
+type JournalFailureSignal = {
+  readonly promise: Promise<HistoryJournalErrorCode>;
+  readonly resolve: (code: HistoryJournalErrorCode) => void;
+};
+const createJournalFailureSignal = (): JournalFailureSignal => {
+  let resolve!: (code: HistoryJournalErrorCode) => void;
+  const promise = new Promise<HistoryJournalErrorCode>((accepted) => {
+    resolve = accepted;
+  });
+  return { promise, resolve };
+};
 const validCredentialAvailability = (
   value: CredentialAvailability | undefined,
   selection: ModelSelection,
@@ -192,8 +217,11 @@ type ActiveWorkerExecution = {
   readonly command: WorkerExecutionTurnCommand;
   readonly recalledContext?: RecalledExecutionContext;
   readonly baseStateRevision: number;
+  readonly stageProbeEpoch: number;
   readonly protocolTrace: WorkerExecutionTraceEntry[];
   journalFailure?: boolean;
+  journalFailureCode?: HistoryJournalErrorCode;
+  readonly journalFailureSignal: JournalFailureSignal;
   postCommitObservationFailure?: boolean;
   postCommitObservationError?:
     | 'history_busy'
@@ -207,6 +235,7 @@ type ActiveWorkerExecution = {
   settlement: WorkerExecutionSettlement;
   artifactWritten: boolean;
   contextCapture?: 'complete' | 'failed' | 'none';
+  readonly stageSnapshotKeys: Set<string>;
 };
 type ActiveSessionProjection = {
   readonly sessionId: string;
@@ -222,11 +251,11 @@ type ActiveSessionProjection = {
 };
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
-  private readonly capsule: WorkerHostCapsule;
-  private readonly messages = new HostMessageQueue();
-  private readonly unsubscribe: () => void;
+  private capsule: WorkerHostCapsule;
+  private messages = new HostMessageQueue();
+  private unsubscribe: () => void;
   private readonly instanceCorrelation = crypto.randomUUID().toLowerCase();
-  private readonly workerGeneration = crypto.randomUUID().toLowerCase();
+  private workerGeneration = crypto.randomUUID().toLowerCase();
   private readonly bootstrapTrace: WorkerExecutionTraceEntry[] = [];
   private traceSequence = 0;
   private currentCorrelation: WorkerCorrelation | undefined;
@@ -238,6 +267,7 @@ export class WorkerHostSession {
     readonly retainedFromTurn: number;
   } | undefined;
   private runtimeRequestCount = 0;
+  private generationRequestBase = 0;
   private active = false;
   private unavailable = false;
   private closed = false;
@@ -249,6 +279,25 @@ export class WorkerHostSession {
   private readonly observationBuffer: ExecutionEventInput[] = [];
   private observationFlushTimer: ReturnType<typeof setTimeout> | undefined;
   private flushingObservations = false;
+  private stageProbeBuffer = createWorkerStageProbeBuffer();
+  private stageProbeEpoch = 0;
+  private lastWorkerSequenceReceived = 0;
+  private lastWorkerSequenceBuffered = 0;
+  private lastWorkerSequenceDurable = 0;
+  private lastAuxiliaryContextRequestOrdinal: number | undefined;
+  private auxiliaryStageWatchdog: {
+    readonly executionId: string;
+    readonly contextRequestOrdinal: number;
+    readonly timer: ReturnType<typeof setTimeout>;
+  } | undefined;
+  private cancellationWatchdog: {
+    readonly executionId: string;
+    readonly timer: ReturnType<typeof setTimeout>;
+  } | undefined;
+  private cancellationRequestedExecutionId: string | undefined;
+  private forcedInterruptionExecutionId: string | undefined;
+  private generationNeedsReplacement = false;
+  private replacement: Promise<void> | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
     this.capsule = options.capsuleFactory?.(workerUrl) ??
@@ -295,6 +344,187 @@ export class WorkerHostSession {
     };
     this.createdAt = record?.createdAt ?? new Date().toISOString();
     this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
+  }
+
+  private workerResponseTimeoutMs(): number {
+    return this.options.workerResponseTimeoutMs ?? WORKER_RESPONSE_TIMEOUT_MS;
+  }
+
+  private clearAuxiliaryStageWatchdog(
+    executionId?: string,
+    contextRequestOrdinal?: number,
+  ): void {
+    const watchdog = this.auxiliaryStageWatchdog;
+    if (
+      watchdog === undefined ||
+      (executionId !== undefined && watchdog.executionId !== executionId) ||
+      (contextRequestOrdinal !== undefined &&
+        watchdog.contextRequestOrdinal !== contextRequestOrdinal)
+    ) return;
+    clearTimeout(watchdog.timer);
+    this.auxiliaryStageWatchdog = undefined;
+  }
+
+  private recordWorkerStageSnapshot(
+    trigger: WorkerStageSnapshotTrigger,
+    contextRequestOrdinal = this.lastAuxiliaryContextRequestOrdinal,
+  ): boolean {
+    const execution = this.activeExecution;
+    if (execution === undefined) return true;
+    const key = `${trigger}:${contextRequestOrdinal ?? 0}`;
+    if (execution.stageSnapshotKeys.has(key)) return true;
+    if (!this.flushObservationBuffer()) return false;
+    let snapshot: ReturnType<typeof readWorkerStageSnapshot>;
+    try {
+      snapshot = readWorkerStageSnapshot(this.stageProbeBuffer);
+    } catch {
+      return true;
+    }
+    if (snapshot.epoch !== execution.stageProbeEpoch) return true;
+    execution.stageSnapshotKeys.add(key);
+    return this.appendJournal({
+      executionId: execution.executionId,
+      direction: 'host_to_worker',
+      source: 'host',
+      kind: 'worker_stage_snapshot',
+      payload: {
+        ...snapshot,
+        trigger,
+        workerGeneration: this.workerGeneration,
+        ...(contextRequestOrdinal === undefined ? {} : { contextRequestOrdinal }),
+        lastWorkerSequenceReceived: this.lastWorkerSequenceReceived,
+        lastWorkerSequenceBuffered: this.lastWorkerSequenceBuffered,
+        lastWorkerSequenceDurable: this.lastWorkerSequenceDurable,
+      },
+    });
+  }
+
+  private scheduleAuxiliaryStageWatchdog(contextRequestOrdinal: number): void {
+    const execution = this.activeExecution;
+    if (execution === undefined) return;
+    this.clearAuxiliaryStageWatchdog();
+    this.lastAuxiliaryContextRequestOrdinal = contextRequestOrdinal;
+    const executionId = execution.executionId;
+    const timer = setTimeout(() => {
+      const current = this.auxiliaryStageWatchdog;
+      if (
+        current === undefined || current.executionId !== executionId ||
+        current.contextRequestOrdinal !== contextRequestOrdinal
+      ) return;
+      this.auxiliaryStageWatchdog = undefined;
+      this.recordWorkerStageSnapshot('auxiliary_gap', contextRequestOrdinal);
+    }, this.options.auxiliaryStageGapMs ?? AUXILIARY_STAGE_GAP_MS);
+    this.auxiliaryStageWatchdog = {
+      executionId,
+      contextRequestOrdinal,
+      timer,
+    };
+  }
+
+  private noteWorkerSequenceReceived(message: WorkerToHostMessage): void {
+    if (
+      'sequence' in message && Number.isSafeInteger(message.sequence) &&
+      Number(message.sequence) > this.lastWorkerSequenceReceived
+    ) this.lastWorkerSequenceReceived = Number(message.sequence);
+  }
+
+  private clearCancellationWatchdog(executionId?: string): void {
+    const watchdog = this.cancellationWatchdog;
+    if (
+      watchdog === undefined ||
+      (executionId !== undefined && watchdog.executionId !== executionId)
+    ) return;
+    clearTimeout(watchdog.timer);
+    this.cancellationWatchdog = undefined;
+  }
+
+  private markUnavailableForReplacement(): void {
+    this.generationNeedsReplacement = true;
+    this.markUnavailable();
+  }
+
+  private async replaceGeneration(): Promise<void> {
+    if (!this.generationNeedsReplacement) return;
+    if (this.closed) throw new Error('session is closed');
+    if (this.replacement !== undefined) return await this.replacement;
+    this.replacement = (async () => {
+      this.clearAuxiliaryStageWatchdog();
+      this.unsubscribe();
+      this.messages.fail(new Error('Worker generation replaced'));
+      try {
+        this.capsule.terminate();
+      } catch {
+        // The old generation is already unavailable.
+      }
+      this.messages = new HostMessageQueue();
+      this.generationRequestBase = this.runtimeRequestCount;
+      this.workerGeneration = crypto.randomUUID().toLowerCase();
+      this.stageProbeBuffer = createWorkerStageProbeBuffer();
+      this.stageProbeEpoch = 0;
+      this.lastWorkerSequenceReceived = 0;
+      this.lastWorkerSequenceBuffered = 0;
+      this.lastWorkerSequenceDurable = 0;
+      this.lastAuxiliaryContextRequestOrdinal = undefined;
+      this.bootstrapTrace.length = 0;
+      this.traceSequence = 0;
+      this.currentManifest = undefined;
+      this.currentStartupSnapshot = undefined;
+      this.credentialAvailability = undefined;
+      this.unavailable = false;
+      this.capsule = this.options.capsuleFactory?.(workerUrl) ??
+        new WorkerCapsule(workerUrl);
+      this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
+      try {
+        await this.start();
+        this.generationNeedsReplacement = false;
+      } catch (error) {
+        this.markUnavailable();
+        throw error;
+      }
+    })();
+    try {
+      await this.replacement;
+    } finally {
+      this.replacement = undefined;
+    }
+  }
+
+  private async ensureGeneration(): Promise<void> {
+    if (this.generationNeedsReplacement) await this.replaceGeneration();
+    if (this.unavailable) throw new Error('agent session unavailable');
+  }
+
+  private escalateCancellation(executionId: string): void {
+    const execution = this.activeExecution;
+    if (
+      execution === undefined || execution.executionId !== executionId ||
+      !this.active
+    ) return;
+    this.clearCancellationWatchdog(executionId);
+    this.recordWorkerStageSnapshot('cancel_escalated');
+    this.appendJournal({
+      executionId,
+      direction: 'host_to_worker',
+      source: 'host',
+      kind: 'cancel_escalated',
+      payload: {
+        command: 'terminate',
+        reason: 'settlement_deadline_exceeded',
+      },
+    });
+    this.flushObservationBuffer();
+    if (execution.committedStateRevision === undefined) {
+      this.forcedInterruptionExecutionId = executionId;
+      try {
+        this.options.historyPersistence?.reconcileExecution({
+          executionId,
+          settlement: 'interrupted',
+        });
+      } catch {
+        // Keep the active durable prefix for normal restart reconciliation.
+      }
+    }
+    this.markUnavailableForReplacement();
   }
 
   static async open(
@@ -373,33 +603,44 @@ export class WorkerHostSession {
     correlation: WorkerCorrelation,
     accepted: boolean,
   ): boolean {
-    this.appendJournal({
-      executionId: execution.executionId,
-      direction: 'host_to_worker',
-      source: 'host',
-      kind: 'acknowledgement_requested',
-      payload: { accepted },
-    });
+    // A successful commit has already installed `execution_settled`, the final fact in the
+    // execution ledger. Its acknowledgement attempt/result remains durable in the protocol
+    // trace and final execution artifact; it must not be appended behind the terminal fact.
+    // Rejections happen before settlement and remain ordinary journal facts.
+    const journalAcknowledgement = execution.settlement === 'uncommitted';
+    if (journalAcknowledgement) {
+      this.appendJournal({
+        executionId: execution.executionId,
+        direction: 'host_to_worker',
+        source: 'host',
+        kind: 'acknowledgement_requested',
+        payload: { accepted },
+      });
+    }
     try {
       this.send({ kind: 'commit_acknowledgement', correlation, accepted });
       execution.acknowledgement = accepted ? 'accepted_sent' : 'rejected_sent';
-      this.appendJournal({
-        executionId: execution.executionId,
-        direction: 'host_to_worker',
-        source: 'host',
-        kind: 'acknowledgement_sent',
-        payload: { accepted },
-      });
+      if (journalAcknowledgement) {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'acknowledgement_sent',
+          payload: { accepted },
+        });
+      }
       return true;
     } catch {
       execution.acknowledgement = 'delivery_failed';
-      this.appendJournal({
-        executionId: execution.executionId,
-        direction: 'host_to_worker',
-        source: 'host',
-        kind: 'acknowledgement_failed',
-        payload: { accepted },
-      });
+      if (journalAcknowledgement) {
+        this.appendJournal({
+          executionId: execution.executionId,
+          direction: 'host_to_worker',
+          source: 'host',
+          kind: 'acknowledgement_failed',
+          payload: { accepted },
+        });
+      }
       return false;
     }
   }
@@ -418,6 +659,7 @@ export class WorkerHostSession {
   }
 
   private receive(message: WorkerToHostMessage): void {
+    this.noteWorkerSequenceReceived(message);
     try {
       this.receiveTrace(message);
     } catch {
@@ -426,19 +668,31 @@ export class WorkerHostSession {
       // distinction used by journal validation before making the generation unavailable.
       if (this.activeExecution !== undefined) {
         if (this.activeExecution.settlement === 'uncommitted') {
-          this.activeExecution.journalFailure = true;
+          this.handleJournalFailure({ code: 'history_invalid' });
         } else {
           this.activeExecution.postCommitObservationFailure = true;
           this.activeExecution.postCommitObservationError = 'history_invalid';
         }
       }
-      this.markUnavailable();
+      if (this.activeExecution?.settlement !== 'uncommitted') {
+        this.markUnavailable();
+      }
       return;
     }
+    // The acknowledgement response is observed after `execution_settled`, so its terminal
+    // runtime event belongs to the post-commit protocol trace/artifact rather than the fenced
+    // execution ledger. All provider/tool/context facts still have to cross the journal before
+    // settlement and are rejected here if they arrive late.
+    const postCommitTerminal = this.activeExecution !== undefined &&
+      this.activeExecution.settlement !== 'uncommitted' &&
+      (message.kind === 'worker_error' ||
+        message.kind === 'runtime_event' &&
+          message.event.kind === 'agent_event' &&
+          message.event.event.kind === 'turn_end');
     // A malformed Worker fact must never be projected to the Surface after the journal
     // boundary rejected it. `appendJournal` also records whether this was a pre- or
     // post-commit observation failure so the committed outcome remains distinguishable.
-    if (!this.appendWorkerObservation(message)) {
+    if (!postCommitTerminal && !this.appendWorkerObservation(message)) {
       // A final proposal with a malformed/missing context manifest still needs the dedicated
       // normal contract-failure settlement. The proposal is not projected to the Surface; it is
       // handed to the turn waiter after the failed journal append has poisoned pre-commit state.
@@ -453,6 +707,25 @@ export class WorkerHostSession {
       this.markUnavailable();
       return;
     }
+    if (
+      message.kind === 'provider_observation' &&
+      message.observation.kind === 'request_start' &&
+      message.observation.request.contextRequestOrdinal !== undefined
+    ) {
+      this.clearAuxiliaryStageWatchdog(
+        this.activeExecution?.executionId,
+        message.observation.request.contextRequestOrdinal,
+      );
+    }
+    if (message.kind === 'provider_exact_request') return;
+    if (message.kind === 'cancel_received') return;
+    if (
+      message.kind === 'commit_proposal' || message.kind === 'turn_failed' ||
+      message.kind === 'worker_error' ||
+      message.kind === 'runtime_event' &&
+        message.event.kind === 'agent_event' &&
+        message.event.event.kind === 'turn_end'
+    ) this.clearCancellationWatchdog();
     if (message.kind === 'runtime_event') {
       if (
         message.event.kind === 'agent_event' &&
@@ -525,7 +798,13 @@ export class WorkerHostSession {
       }
       return;
     }
-    if (message.kind === 'context_observation') return;
+    if (message.kind === 'context_observation') {
+      const delta = message.observation.delta;
+      if (delta.purpose === 'web_search') {
+        this.scheduleAuxiliaryStageWatchdog(delta.requestOrdinal);
+      }
+      return;
+    }
     if (message.kind === 'checkpoint_proposal') {
       void this.installCheckpoint(message);
       return;
@@ -549,7 +828,7 @@ export class WorkerHostSession {
   }
 
   private handleJournalFailure(error: unknown): false {
-    const code = typeof error === 'object' && error !== null &&
+    const code: HistoryJournalErrorCode = typeof error === 'object' && error !== null &&
         ((error as { readonly code?: unknown }).code === 'history_busy' ||
           (error as { readonly code?: unknown }).code === 'history_invalid' ||
           (error as { readonly code?: unknown }).code ===
@@ -565,22 +844,15 @@ export class WorkerHostSession {
       if (
         this.activeExecution.settlement === 'uncommitted'
       ) {
-        const alreadyFailed = this.activeExecution.journalFailure === true;
-        this.activeExecution.journalFailure = true;
-        if (!alreadyFailed && this.currentCorrelation !== undefined) {
-          try {
-            this.send({ kind: 'cancel', correlation: this.currentCorrelation });
-          } catch {
-            // The execution remains active for restart reconciliation when cancellation is unavailable.
-          }
+        if (this.activeExecution.journalFailureCode === undefined) {
+          this.activeExecution.journalFailure = true;
+          this.activeExecution.journalFailureCode = code;
+          // Resolve the per-execution signal before terminating the generation. This remains
+          // observable even when the append failed before submit() registered its waiter.
+          this.activeExecution.journalFailureSignal.resolve(code);
         }
-        if (this.activeExecution.settlement === 'uncommitted') {
-          try {
-            this.capsule.terminate();
-          } catch {
-            // The execution remains active and is reconciled on the next open.
-          }
-        }
+        this.generationNeedsReplacement = true;
+        this.markUnavailable();
       } else {
         // The canonical transaction is already durable. Keep its result and make the
         // acknowledgement loss visible to the Surface without attempting a second settle.
@@ -600,10 +872,16 @@ export class WorkerHostSession {
     if (history === undefined || this.activeExecution === undefined) {
       return true;
     }
-    if (!history.validateExecutionEvent(input)) return false;
+    if (!history.validateExecutionEvent(input)) {
+      return this.handleJournalFailure({ code: 'history_invalid' });
+    }
     this.observationBuffer.push(
       input.observedAt === undefined ? { ...input, observedAt: new Date().toISOString() } : input,
     );
+    if (
+      input.workerSequence !== undefined &&
+      input.workerSequence > this.lastWorkerSequenceBuffered
+    ) this.lastWorkerSequenceBuffered = input.workerSequence;
     if (this.observationBuffer.length >= OBSERVATION_FLUSH_BATCH) {
       return this.flushObservationBuffer();
     }
@@ -639,6 +917,12 @@ export class WorkerHostSession {
     this.flushingObservations = true;
     try {
       history.appendExecutionEvents(batch);
+      for (const input of batch) {
+        if (
+          input.workerSequence !== undefined &&
+          input.workerSequence > this.lastWorkerSequenceDurable
+        ) this.lastWorkerSequenceDurable = input.workerSequence;
+      }
       return true;
     } catch (error) {
       this.observationBuffer.length = 0;
@@ -654,10 +938,34 @@ export class WorkerHostSession {
       message.kind === 'ready' || message.kind === 'model_selected' ||
       message.kind === 'closed' || message.kind === 'checkpoint_proposal'
     ) return true;
+    if (message.kind === 'provider_exact_request') {
+      const history = this.options.historyPersistence;
+      if (history?.appendExactRequestObservation === undefined) return true;
+      if (!this.flushObservationBuffer()) return false;
+      try {
+        history.appendExactRequestObservation({
+          executionId: this.activeExecution.executionId,
+          workerSequence: message.sequence,
+          observation: message.observation,
+        });
+        this.lastWorkerSequenceBuffered = Math.max(
+          this.lastWorkerSequenceBuffered,
+          message.sequence,
+        );
+        this.lastWorkerSequenceDurable = Math.max(
+          this.lastWorkerSequenceDurable,
+          message.sequence,
+        );
+        return true;
+      } catch (error) {
+        return this.handleJournalFailure(error);
+      }
+    }
     const workerSequence = message.kind === 'runtime_event' ||
         message.kind === 'effect_observation' ||
         message.kind === 'provider_observation' ||
-        message.kind === 'context_observation'
+        message.kind === 'context_observation' ||
+        message.kind === 'cancel_received'
       ? message.sequence
       : undefined;
     const kind = message.kind === 'runtime_event'
@@ -678,7 +986,11 @@ export class WorkerHostSession {
         : 'runtime_event' as const
       : message.kind === 'context_observation'
       ? 'context_observation' as const
+      : message.kind === 'cancel_received'
+      ? 'cancel_received' as const
       : 'runtime_event' as const;
+    const historyMessage = this.options.historyPersistence
+      ?.prepareWorkerObservationForHistory?.(message) ?? message;
     return this.bufferWorkerObservation({
       executionId: this.activeExecution.executionId,
       direction: 'worker_to_host',
@@ -686,7 +998,7 @@ export class WorkerHostSession {
       kind,
       ...(workerSequence === undefined ? {} : { workerSequence }),
       payload: structuredClone(
-        message,
+        historyMessage,
       ) as unknown as ExecutionEventPayloadByKind[typeof kind],
     } as ExecutionEventInput);
   }
@@ -715,14 +1027,16 @@ export class WorkerHostSession {
     this.messages.fail(new Error('Worker transport unavailable'));
   }
 
-  private observeRequestCount(outcome: LoopOutcome): void {
+  private observeRequestCount(outcome: LoopOutcome): LoopOutcome {
     const count = outcome.runtimeProviderRequestCount;
     if (
-      count !== undefined && Number.isSafeInteger(count) &&
-      count >= this.runtimeRequestCount
+      count !== undefined && Number.isSafeInteger(count) && count >= 0
     ) {
-      this.runtimeRequestCount = count;
+      const total = this.generationRequestBase + count;
+      if (total >= this.runtimeRequestCount) this.runtimeRequestCount = total;
+      return { ...outcome, runtimeProviderRequestCount: total };
     }
+    return outcome;
   }
 
   requestCount(): number {
@@ -812,8 +1126,7 @@ export class WorkerHostSession {
         diagnosticPersistenceError: diagnosticError,
       }),
     };
-    this.observeRequestCount(settled);
-    return settled;
+    return this.observeRequestCount(settled);
   }
 
   private attributedEvidence(
@@ -906,8 +1219,7 @@ export class WorkerHostSession {
         diagnosticPersistenceError: capture.diagnosticPersistenceError,
       }),
     };
-    this.observeRequestCount(settled);
-    return settled;
+    return this.observeRequestCount(settled);
   }
 
   private async persistExecutionArtifact(
@@ -981,8 +1293,7 @@ export class WorkerHostSession {
       ...(this.currentManifest.tools === undefined ? {} : {
         tools: structuredClone(this.currentManifest.tools),
       }),
-      contextCapture: execution.journalFailure === true ||
-          execution.postCommitObservationFailure === true
+      contextCapture: execution.journalFailure === true
         ? 'failed'
         : execution.contextCapture ?? 'none',
       executionId: execution.executionId,
@@ -1135,6 +1446,11 @@ export class WorkerHostSession {
     diagnostic: FailureDiagnosticV1 | undefined,
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
+    const terminalSnapshotDurable = this.recordWorkerStageSnapshot('terminal');
+    const effectiveOutcome = !terminalSnapshotDurable &&
+        execution.settlement === 'uncommitted'
+      ? this.journalFailureOutcome(execution, outcome.task)
+      : outcome;
     if (this.options.historyPersistence !== undefined) {
       try {
         let capturedOutcome: LoopOutcome | undefined;
@@ -1158,14 +1474,17 @@ export class WorkerHostSession {
             ...(this.currentStartupSnapshot?.context === undefined ? {} : {
               contextSnapshot: this.currentStartupSnapshot.context,
             }),
-            outcome,
+            outcome: effectiveOutcome,
             ...(providerEvidence === undefined ? {} : {
-              evidence: this.attributedEvidence(providerEvidence, outcome),
+              evidence: this.attributedEvidence(
+                providerEvidence,
+                effectiveOutcome,
+              ),
             }),
             ...(diagnostic === undefined ? {} : { diagnostic }),
             artifactForCapture: (captured) => {
               capturedOutcome = this.applyHistoryCapture(
-                outcome,
+                effectiveOutcome,
                 providerEvidence,
                 diagnostic,
                 captured,
@@ -1177,7 +1496,7 @@ export class WorkerHostSession {
             },
           });
         const settled = capturedOutcome ?? this.applyHistoryCapture(
-          outcome,
+          effectiveOutcome,
           providerEvidence,
           diagnostic,
           capture,
@@ -1199,7 +1518,7 @@ export class WorkerHostSession {
           const failedSettlement = this.settleHistoryFailure(
             execution,
             failedOutcome(
-              outcome.task,
+              effectiveOutcome.task,
               this.projection.transcript,
               'durable execution settlement failed',
             ),
@@ -1207,15 +1526,15 @@ export class WorkerHostSession {
               this.contextContractDiagnostic(
                 execution,
                 providerEvidence,
-                outcome,
+                effectiveOutcome,
               ),
             providerEvidence,
-            outcome,
+            effectiveOutcome,
           );
           if (failedSettlement !== undefined) return failedSettlement;
         }
         const failed: LoopOutcome = {
-          ...outcome,
+          ...effectiveOutcome,
           ...(providerEvidence === undefined ? {} : {
             providerEvidenceId: providerEvidence.evidenceId,
             providerEvidenceDurability: 'failed',
@@ -1231,11 +1550,45 @@ export class WorkerHostSession {
       }
     }
     const settled = await this.persistArtifacts(
-      outcome,
+      effectiveOutcome,
       providerEvidence,
       diagnostic,
     );
     return await this.persistExecutionArtifact(execution, settled);
+  }
+
+  private journalFailureOutcome(
+    execution: ActiveWorkerExecution,
+    task: string,
+  ): LoopOutcome {
+    const code = execution.journalFailureCode ?? 'history_io_failure';
+    return {
+      ...failedOutcome(
+        task,
+        this.projection.transcript,
+        `durable execution journal failed: ${code}`,
+      ),
+      executionJournalDurability: 'failed',
+      executionJournalPersistenceError: code,
+    };
+  }
+
+  private async finishJournalFailure(
+    execution: ActiveWorkerExecution,
+    task: string,
+    providerEvidence?: ProviderEvidenceV1,
+    diagnostic?: FailureDiagnosticV1,
+    contextManifest?: ExecutionContextManifestV2,
+  ): Promise<LoopOutcome> {
+    const settled = await this.settleExecution(
+      execution,
+      this.journalFailureOutcome(execution, task),
+      providerEvidence,
+      diagnostic,
+      contextManifest,
+    );
+    this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+    return settled;
   }
 
   private admissionSessionRecord(): SessionRecordV6 | undefined {
@@ -1317,6 +1670,7 @@ export class WorkerHostSession {
         ...(this.options.providerTimeoutMs === undefined
           ? {}
           : { providerTimeoutMs: this.options.providerTimeoutMs }),
+        diagnosticStageBuffer: this.stageProbeBuffer,
         initialTranscript: this.projection.transcript,
         nextTurn: this.projection.nextTurn,
         ...(this.projection.checkpoint === undefined
@@ -1492,7 +1846,12 @@ export class WorkerHostSession {
   async selectModel(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'> {
-    if (this.closed || this.unavailable) return 'unavailable';
+    if (this.closed) return 'unavailable';
+    try {
+      await this.ensureGeneration();
+    } catch {
+      return 'unavailable';
+    }
     if (this.active || this.currentCorrelation !== undefined) return 'busy';
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
@@ -1537,12 +1896,14 @@ export class WorkerHostSession {
     };
     this.currentCorrelation = correlation;
     try {
-      const response = this.messages.wait((
-        value,
-      ): value is WorkerModelSelectedMessage | WorkerErrorMessage =>
-        (value.kind === 'model_selected' || value.kind === 'worker_error') &&
-        (value.kind === 'worker_error' ||
-          sameCorrelation(value.correlation, correlation))
+      const response = this.messages.wait(
+        (
+          value,
+        ): value is WorkerModelSelectedMessage | WorkerErrorMessage =>
+          (value.kind === 'model_selected' || value.kind === 'worker_error') &&
+          (value.kind === 'worker_error' ||
+            sameCorrelation(value.correlation, correlation)),
+        this.workerResponseTimeoutMs(),
       );
       this.send({ kind: 'select_model', correlation, selection });
       const message = await response;
@@ -1567,7 +1928,7 @@ export class WorkerHostSession {
       return 'selected';
     } catch (error) {
       this.options.handle.rollback();
-      this.markUnavailable();
+      this.markUnavailableForReplacement();
       throw error;
     } finally {
       this.currentCorrelation = undefined;
@@ -1628,7 +1989,10 @@ export class WorkerHostSession {
     let selectedExecutionId: string | undefined;
     try {
       if (this.options.historyPersistence !== undefined) {
-        const rows = this.options.historyPersistence.listExecutions().filter((
+        const sourceRows = this.options.historyPersistence.listExecutionsForSession?.(
+          this.sessionId,
+        ) ?? this.options.historyPersistence.listExecutions();
+        const rows = sourceRows.filter((
           row,
         ) =>
           row.lifecycle === 'settled' && row.adoption === 'non_canonical' &&
@@ -1731,9 +2095,10 @@ export class WorkerHostSession {
     task: string,
     recalledContext?: RecalledExecutionContext,
   ): Promise<LoopOutcome> {
-    if (this.closed || this.unavailable) {
+    if (this.closed) {
       throw new Error('agent session unavailable');
     }
+    await this.ensureGeneration();
     if (this.active) throw new Error('agent session is busy');
     if (typeof task !== 'string' || task.trim().length === 0) {
       throw new RangeError('user text must not be blank');
@@ -1751,11 +2116,19 @@ export class WorkerHostSession {
       );
     }
     if (recalledContext === undefined) this.pendingRecall = undefined;
+    this.clearAuxiliaryStageWatchdog();
+    this.lastAuxiliaryContextRequestOrdinal = undefined;
     this.active = true;
     const correlation = this.correlation(
       `turn-${this.projection.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
     );
     this.currentCorrelation = correlation;
+    this.stageProbeEpoch = this.stageProbeEpoch >= 0x7fff_ffff ? 1 : this.stageProbeEpoch + 1;
+    try {
+      beginWorkerStageProbeEpoch(this.stageProbeBuffer, this.stageProbeEpoch);
+    } catch {
+      // Diagnostics never narrow or fail turn admission.
+    }
     const execution: ActiveWorkerExecution = {
       taskId: crypto.randomUUID().toLowerCase(),
       executionId: crypto.randomUUID().toLowerCase(),
@@ -1770,11 +2143,14 @@ export class WorkerHostSession {
         recalledContext: structuredClone(admittedRecall),
       }),
       baseStateRevision: this.projection.stateRevision,
+      stageProbeEpoch: this.stageProbeEpoch,
       protocolTrace: [...this.bootstrapTrace],
       storeResult: 'not_attempted',
       acknowledgement: 'not_sent',
       settlement: 'uncommitted',
       artifactWritten: false,
+      journalFailureSignal: createJournalFailureSignal(),
+      stageSnapshotKeys: new Set(),
     };
     this.activeExecution = execution;
     try {
@@ -1846,13 +2222,16 @@ export class WorkerHostSession {
             recalledContext: structuredClone(admittedRecall),
           }),
         });
-        this.appendJournal({
+        const dispatchJournaled = this.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
           kind: 'turn_dispatch_sent',
           payload: { task },
         });
+        if (!dispatchJournaled) {
+          return await this.finishJournalFailure(execution, task);
+        }
       } catch {
         this.appendJournal({
           executionId: execution.executionId,
@@ -1878,17 +2257,27 @@ export class WorkerHostSession {
         );
         return settled;
       }
-      const message = await this.messages.wait((
-        value,
-      ): value is
-        | WorkerCommitProposalMessage
-        | Extract<WorkerToHostMessage, { kind: 'turn_failed' }>
-        | WorkerErrorMessage =>
-        (value.kind === 'commit_proposal' || value.kind === 'turn_failed' ||
-          value.kind === 'worker_error') &&
-        (value.kind === 'worker_error' ||
-          sameCorrelation(value.correlation, correlation))
-      );
+      const terminal = await Promise.race([
+        this.messages.wait((
+          value,
+        ): value is
+          | WorkerCommitProposalMessage
+          | Extract<WorkerToHostMessage, { kind: 'turn_failed' }>
+          | WorkerErrorMessage =>
+          (value.kind === 'commit_proposal' || value.kind === 'turn_failed' ||
+            value.kind === 'worker_error') &&
+          (value.kind === 'worker_error' ||
+            sameCorrelation(value.correlation, correlation))
+        ).then((message) => ({ kind: 'worker' as const, message })),
+        execution.journalFailureSignal.promise.then((code) => ({
+          kind: 'journal_failure' as const,
+          code,
+        })),
+      ]);
+      if (terminal.kind === 'journal_failure') {
+        return await this.finishJournalFailure(execution, task);
+      }
+      const message = terminal.message;
       if (message.kind === 'turn_failed') {
         const diagnostic = message.diagnostic ?? message.outcome.diagnostic;
         const settled = await this.settleExecution(
@@ -1928,24 +2317,16 @@ export class WorkerHostSession {
       if (!sameCorrelation(message.correlation, correlation)) {
         throw new Error('commit proposal correlation invalid');
       }
-      if (execution.journalFailure) {
+      if (execution.journalFailureCode !== undefined) {
         // A pre-commit observation gap must not be promoted to canonical history.
         this.sendCommitAcknowledgement(execution, correlation, false);
-        const settled = await this.settleExecution(
+        return await this.finishJournalFailure(
           execution,
-          failedOutcome(
-            task,
-            this.projection.transcript,
-            'durable execution journal failed',
-          ),
+          task,
           message.providerEvidence,
           message.diagnostic,
           message.contextManifest,
         );
-        this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, settled, false),
-        );
-        return settled;
       }
       const record = this.proposalRecord(message);
       if (record === undefined) {
@@ -1984,6 +2365,15 @@ export class WorkerHostSession {
           this.options.historyPersistence !== undefined &&
           this.options.durableCanonicalHistory === true
         ) {
+          if (!this.recordWorkerStageSnapshot('terminal')) {
+            return await this.finishJournalFailure(
+              execution,
+              task,
+              message.providerEvidence,
+              diagnostic,
+              message.contextManifest,
+            );
+          }
           const capture = this.options.historyPersistence.commitCanonicalTurn({
             taskId: execution.taskId,
             executionId: execution.executionId,
@@ -2180,7 +2570,7 @@ export class WorkerHostSession {
       );
       if (!ackSent) {
         execution.settlement = 'committed_generation_unavailable';
-        this.markUnavailable();
+        this.markUnavailableForReplacement();
         const settled = await this.persistExecutionArtifact(
           execution,
           committed,
@@ -2192,21 +2582,23 @@ export class WorkerHostSession {
       }
       let workerError: WorkerErrorMessage | undefined;
       try {
-        const settled = await this.messages.wait((
-          value,
-        ): value is
-          | Extract<WorkerToHostMessage, { kind: 'runtime_event' }>
-          | WorkerErrorMessage =>
-          (value.kind === 'runtime_event' || value.kind === 'worker_error') &&
-          (value.kind === 'worker_error' ||
-            sameCorrelation(value.correlation, correlation))
+        const settled = await this.messages.wait(
+          (
+            value,
+          ): value is
+            | Extract<WorkerToHostMessage, { kind: 'runtime_event' }>
+            | WorkerErrorMessage =>
+            (value.kind === 'runtime_event' || value.kind === 'worker_error') &&
+            (value.kind === 'worker_error' ||
+              sameCorrelation(value.correlation, correlation)),
+          this.workerResponseTimeoutMs(),
         );
         if (settled.kind === 'worker_error') workerError = settled;
       } catch {
-        this.markUnavailable();
+        this.markUnavailableForReplacement();
       }
       if (workerError !== undefined) {
-        this.markUnavailable();
+        this.markUnavailableForReplacement();
       }
       execution.settlement = workerError === undefined && !this.unavailable
         ? 'committed'
@@ -2217,6 +2609,20 @@ export class WorkerHostSession {
       );
       return settled;
     } catch (error) {
+      if (execution.journalFailureCode !== undefined) {
+        return await this.finishJournalFailure(execution, task);
+      }
+      if (this.forcedInterruptionExecutionId === execution.executionId) {
+        const outcome = interruptedOutcome(
+          task,
+          this.projection.transcript,
+          'Worker generation was terminated after cancellation did not settle',
+        );
+        this.deliver(
+          turnEndFromOutcome(this.projection.nextTurn, outcome, false),
+        );
+        return outcome;
+      }
       const outcome = failedOutcome(
         task,
         this.projection.transcript,
@@ -2234,16 +2640,31 @@ export class WorkerHostSession {
       );
       return settled;
     } finally {
+      this.clearAuxiliaryStageWatchdog(execution.executionId);
+      this.clearCancellationWatchdog(execution.executionId);
+      if (this.cancellationRequestedExecutionId === execution.executionId) {
+        this.cancellationRequestedExecutionId = undefined;
+      }
+      if (this.forcedInterruptionExecutionId === execution.executionId) {
+        this.forcedInterruptionExecutionId = undefined;
+      }
       this.activeExecution = undefined;
       this.active = false;
       this.currentCorrelation = undefined;
+      this.lastAuxiliaryContextRequestOrdinal = undefined;
     }
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
     if (!this.active || this.currentCorrelation === undefined) return 'idle';
     const execution = this.activeExecution;
+    if (
+      execution !== undefined &&
+      this.cancellationRequestedExecutionId === execution.executionId
+    ) return 'already_requested';
     if (execution !== undefined) {
+      this.cancellationRequestedExecutionId = execution.executionId;
+      this.recordWorkerStageSnapshot('cancel_requested');
       const journaled = this.appendJournal({
         executionId: execution.executionId,
         direction: 'host_to_worker',
@@ -2267,6 +2688,14 @@ export class WorkerHostSession {
           payload: { command: 'cancel' },
         });
       }
+      if (execution !== undefined) {
+        const executionId = execution.executionId;
+        const timer = setTimeout(
+          () => this.escalateCancellation(executionId),
+          this.options.cancelSettlementGraceMs ?? WORKER_SETTLEMENT_GRACE_MS,
+        );
+        this.cancellationWatchdog = { executionId, timer };
+      }
       return 'requested';
     } catch {
       if (execution !== undefined) {
@@ -2278,7 +2707,7 @@ export class WorkerHostSession {
           payload: { command: 'cancel' },
         });
       }
-      this.markUnavailable();
+      this.markUnavailableForReplacement();
       return 'requested';
     }
   }
@@ -2328,7 +2757,8 @@ export class WorkerHostSession {
   }
 
   isAvailable(): boolean {
-    return !this.closed && !this.unavailable && !this.active;
+    return !this.closed &&
+      (!this.unavailable || this.generationNeedsReplacement) && !this.active;
   }
 
   transcriptSnapshot(): readonly Message[] {
@@ -2385,8 +2815,12 @@ export class WorkerHostSession {
     if (this.closed) return;
     this.closed = true;
     this.pendingRecall = undefined;
+    this.clearAuxiliaryStageWatchdog();
     this.flushObservationBuffer();
-    if (this.currentManifest === undefined) {
+    if (
+      this.currentManifest === undefined || this.unavailable ||
+      this.generationNeedsReplacement
+    ) {
       this.unsubscribe();
       this.messages.fail(new Error('Worker host session closed'));
       this.capsule.terminate();

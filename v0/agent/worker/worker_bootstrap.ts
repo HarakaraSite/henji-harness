@@ -46,6 +46,7 @@ import {
   selectWorkerHenjiBaseInstruction,
 } from '../instructions/worker_core_finalizer.ts';
 import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
+import { recordWorkerStage, type WorkerStageName } from './worker_stage_probe.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -59,6 +60,23 @@ const scope = globalThis as unknown as WorkerScope;
 let eventSequence = 0;
 let activeCorrelation: WorkerCorrelation | undefined;
 let generation: WorkerGeneration | undefined;
+let diagnosticStageBuffer: SharedArrayBuffer | undefined;
+
+const reportAuxiliaryStage = (
+  stage: WorkerStageName,
+  expectedWorkerSequence = 0,
+): void => {
+  if (diagnosticStageBuffer === undefined) return;
+  try {
+    recordWorkerStage(
+      diagnosticStageBuffer,
+      stage,
+      expectedWorkerSequence,
+    );
+  } catch {
+    // Diagnostics never narrow or fail the product path.
+  }
+};
 
 type PendingAcknowledgement = {
   readonly correlation: WorkerCorrelation;
@@ -264,7 +282,11 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     observation: ProviderEvidenceObservation,
     turn: number,
   ) => {
-    eventSequence += 1;
+    const nextSequence = eventSequence + 1;
+    if (observation.kind === 'request_start') {
+      reportAuxiliaryStage('provider_start_post_entered', nextSequence);
+    }
+    eventSequence = nextSequence;
     post({
       kind: 'provider_observation',
       correlation,
@@ -272,16 +294,36 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
       turn,
       observation,
     });
+    if (observation.kind === 'request_start') {
+      reportAuxiliaryStage('provider_start_post_returned', eventSequence);
+    }
+    return eventSequence;
+  },
+  providerExactRequest: (correlation, observation) => {
+    eventSequence += 1;
+    post({
+      kind: 'provider_exact_request',
+      correlation,
+      sequence: eventSequence,
+      observation,
+    });
     return eventSequence;
   },
   contextObservation: (correlation, observation) => {
-    eventSequence += 1;
+    const nextSequence = eventSequence + 1;
+    if (observation.purpose === 'web_search') {
+      reportAuxiliaryStage('aux_context_post_entered', nextSequence);
+    }
+    eventSequence = nextSequence;
     post({
       kind: 'context_observation',
       correlation,
       sequence: eventSequence,
       observation: { kind: 'model_request_delta', delta: observation },
     });
+    if (observation.purpose === 'web_search') {
+      reportAuxiliaryStage('aux_context_post_returned', eventSequence);
+    }
     return eventSequence;
   },
   checkpointProposal: async (correlation, proposal, signal) => {
@@ -333,6 +375,7 @@ const createGeneration = async (
     ? createProductionPhysicalIo(requestCounter, {
       providerTimeoutMs,
       providerDeclarations,
+      reportAuxiliaryStage,
     })
     : createProviderFreePhysicalIo();
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
@@ -435,6 +478,7 @@ const createGeneration = async (
       skillNames: Object.freeze(skillCatalog.skills.map((skill) => skill.name)),
       context: contextSnapshot,
     }),
+    reportAuxiliaryStage,
   );
 };
 
@@ -469,6 +513,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
   activeCorrelation = command.correlation;
   switch (command.kind) {
     case 'start': {
+      diagnosticStageBuffer = command.diagnosticStageBuffer instanceof SharedArrayBuffer
+        ? command.diagnosticStageBuffer
+        : undefined;
       let module: Awaited<ReturnType<typeof loadVerifiedModule>> | undefined;
       const loadedSubagents: AgentSubagentModule[] = [];
       const loadedTools: AgentToolDefinitionModule[] = [];
@@ -614,9 +661,17 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
     case 'steer':
       generation?.steerActiveTurn(command.text);
       return;
-    case 'cancel':
-      generation?.cancelActiveTurn();
+    case 'cancel': {
+      const result = generation?.cancelActiveTurn() ?? 'idle';
+      eventSequence += 1;
+      post({
+        kind: 'cancel_received',
+        correlation: command.correlation,
+        sequence: eventSequence,
+        result,
+      });
       return;
+    }
     case 'ordered':
       runtimeEvent(command.correlation, {
         kind: 'ordered',

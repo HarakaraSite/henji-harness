@@ -1,9 +1,10 @@
 import { type TurnCancellation } from './cancellation.ts';
 import { type FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
 import { type ProviderEvidenceRecorder } from '../provider/provider_evidence.ts';
-import type { ModelRequest } from './contracts.ts';
+import type { ModelRequest, ProviderExactRequestObserver } from './contracts.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { ContextOccurrenceSource } from '../history/context_attribution.ts';
+import type { WorkerStageName } from '../worker/worker_stage_probe.ts';
 
 /** The two independently bounded request lanes in one accepted turn. */
 export type RequestLane = 'parent' | 'child';
@@ -125,6 +126,7 @@ export interface ModelExecutionContext {
   readonly cancellation?: TurnCancellation;
   readonly diagnosticOwner?: FailureDiagnosticOwner;
   readonly providerEvidence?: ProviderEvidenceRecorder;
+  readonly providerExactRequestObserver?: ProviderExactRequestObserver;
   /** Exact logical request observation at the model.generate boundary. */
   readonly observeModelRequest?: (
     observation: ModelRequestObservation,
@@ -132,6 +134,7 @@ export interface ModelExecutionContext {
   readonly observeAuxiliaryRequest?: (
     observation: AuxiliaryRequestObservation,
   ) => number | PromiseLike<number>;
+  readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void;
   readonly modelSelection?: ModelSelection;
   /** Worker-owned source projection inherited by delegated planner loops. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
@@ -173,6 +176,7 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
     readonly observeAuxiliaryRequest?: (
       observation: AuxiliaryRequestObservation,
     ) => number | PromiseLike<number>,
+    readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
     readonly requestMessageSource?: RequestMessageSourceFactory,
     readonly projectParentRequestWithSources?: (
       request: ModelRequest,
@@ -181,6 +185,7 @@ export class ChildTurnExecutionContext implements ModelExecutionContext {
       readonly request: ModelRequest;
       readonly sources: ModelRequestSourceAttribution;
     },
+    readonly providerExactRequestObserver?: ProviderExactRequestObserver,
   ) {}
 
   get sourceCallId(): string | undefined {
@@ -230,6 +235,7 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     readonly observeAuxiliaryRequest?: (
       observation: AuxiliaryRequestObservation,
     ) => number | PromiseLike<number>,
+    readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
     readonly requestMessageSource?: RequestMessageSourceFactory,
     readonly projectParentRequestWithSources?: (
       request: ModelRequest,
@@ -238,6 +244,7 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
       readonly request: ModelRequest;
       readonly sources: ModelRequestSourceAttribution;
     },
+    readonly providerExactRequestObserver?: ProviderExactRequestObserver,
   ) {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
@@ -253,8 +260,10 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
       observeModelRequest,
       plannerModelSelection,
       observeAuxiliaryRequest,
+      reportAuxiliaryStage,
       requestMessageSource,
       projectParentRequestWithSources,
+      providerExactRequestObserver,
     );
   }
 
@@ -309,6 +318,7 @@ export const createTurnExecutionContext = (
   observeAuxiliaryRequest?: (
     observation: AuxiliaryRequestObservation,
   ) => number | PromiseLike<number>,
+  reportAuxiliaryStage?: (stage: WorkerStageName) => void,
   requestMessageSource?: RequestMessageSourceFactory,
   projectParentRequestWithSources?: (
     request: ModelRequest,
@@ -317,6 +327,7 @@ export const createTurnExecutionContext = (
     readonly request: ModelRequest;
     readonly sources: ModelRequestSourceAttribution;
   },
+  providerExactRequestObserver?: ProviderExactRequestObserver,
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     turn,
@@ -331,8 +342,10 @@ export const createTurnExecutionContext = (
     modelSelection,
     plannerModelSelection,
     observeAuxiliaryRequest,
+    reportAuxiliaryStage,
     requestMessageSource,
     projectParentRequestWithSources,
+    providerExactRequestObserver,
   );
 
 /** The execution-only wrapper passed to tools; request admission remains nested separately. */

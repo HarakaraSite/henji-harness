@@ -82,6 +82,8 @@ class MinimalCommitCapsule implements WorkerHostCapsule {
   turnDispatches = 0;
   beforeTurn?: () => void;
 
+  constructor(private readonly lateProviderObservation = false) {}
+
   private emit(message: WorkerToHostMessage): void {
     for (const listener of this.listeners) listener(message);
   }
@@ -117,11 +119,36 @@ class MinimalCommitCapsule implements WorkerHostCapsule {
       return;
     }
     if (command.kind === 'commit_acknowledgement' && command.accepted) {
-      queueMicrotask(() =>
+      queueMicrotask(() => {
+        if (this.lateProviderObservation) {
+          this.emit({
+            kind: 'provider_observation',
+            correlation: command.correlation,
+            sequence: 1,
+            turn: 1,
+            observation: {
+              kind: 'request_start',
+              request: {
+                ordinal: 1,
+                endpoint: 'https://provider.invalid/v1/chat',
+                method: 'POST',
+                requestBody: '{}',
+                requestBodyBytes: 2,
+                lane: 'parent',
+                phase: 'user_turn',
+                modelStep: 1,
+                requestMetadata: {
+                  provider: 'openrouter-chat',
+                  modelId: ROOT_DEFAULT_MODEL_SELECTION.modelId,
+                },
+              },
+            },
+          });
+        }
         this.emit({
           kind: 'runtime_event',
           correlation: command.correlation,
-          sequence: 1,
+          sequence: this.lateProviderObservation ? 2 : 1,
           event: {
             kind: 'agent_event',
             event: {
@@ -131,8 +158,8 @@ class MinimalCommitCapsule implements WorkerHostCapsule {
               committed: true,
             },
           },
-        })
-      );
+        });
+      });
       return;
     }
     if (command.kind === 'close') {
@@ -186,6 +213,8 @@ const makePersistentFirstTurnInput = (
 };
 
 class AppendFailureHistory extends SqliteHistoryStore {
+  failureAttempts = 0;
+
   constructor(
     stateRoot: string,
     workspaceRoot: string,
@@ -198,9 +227,20 @@ class AppendFailureHistory extends SqliteHistoryStore {
     input: Parameters<SqliteHistoryStore['appendExecutionEvent']>[0],
   ) {
     if (input.kind === this.failureKind) {
+      this.failureAttempts += 1;
       throw new HistoryStoreError('history_io_failure');
     }
     return super.appendExecutionEvent(input);
+  }
+
+  override appendExecutionEvents(
+    inputs: Parameters<SqliteHistoryStore['appendExecutionEvents']>[0],
+  ) {
+    if (inputs.some((input) => input.kind === this.failureKind)) {
+      this.failureAttempts += 1;
+      throw new HistoryStoreError('history_io_failure');
+    }
+    return super.appendExecutionEvents(inputs);
   }
 }
 
@@ -331,7 +371,7 @@ const appendProviderObservation = (
   } as never);
 };
 
-Deno.test('Increment 41 distinguishes post-commit journal loss from canonical commit', async () => {
+Deno.test('Increment 93 keeps post-commit protocol facts out of the terminal journal', async () => {
   const root = await Deno.makeTempDir({
     prefix: 'henji-i41-post-commit-observation-',
   });
@@ -366,13 +406,11 @@ Deno.test('Increment 41 distinguishes post-commit journal loss from canonical co
       durableCanonicalHistory: true,
       capsuleFactory: () => capsule,
     });
-    const outcome = await host.submit('post-commit observation failure');
+    const outcome = await host.submit('post-commit protocol artifact');
     assert(outcome.ok);
-    assertEquals(outcome.executionObservationDurability, 'failed');
-    assertEquals(
-      outcome.executionObservationPersistenceError,
-      'history_io_failure',
-    );
+    assertEquals(outcome.executionObservationDurability, undefined);
+    assertEquals(outcome.executionObservationPersistenceError, undefined);
+    assertEquals(store.failureAttempts, 0);
     const row = store.listExecutions()[0];
     assert(row !== undefined);
     assertEquals({
@@ -384,16 +422,91 @@ Deno.test('Increment 41 distinguishes post-commit journal loss from canonical co
       lifecycle: 'settled',
       outcome: 'completed',
       adoption: 'canonical',
-      contextCapture: 'failed',
+      contextCapture: 'none',
     });
     const artifact = (await store.executionArtifacts.list())[0];
     if (artifact?.schemaVersion !== 7) throw new Error('expected v7 artifact');
-    assertEquals(artifact?.contextCapture, 'failed');
+    assertEquals(artifact.contextCapture, 'none');
+    assertEquals(artifact.acknowledgement, 'accepted_sent');
+    assert(
+      artifact.protocolTrace.some((entry) =>
+        entry.direction === 'host_to_worker' &&
+        entry.kind === 'commit_acknowledgement' && entry.ackAccepted === true
+      ),
+    );
+    assert(
+      artifact.protocolTrace.some((entry) =>
+        entry.direction === 'worker_to_host' &&
+        entry.kind === 'runtime_event' && entry.semanticSubtype === 'turn_end'
+      ),
+    );
+    const events = store.listExecutionEvents(row.executionId);
     assertEquals(
-      store.listExecutionEvents(row.executionId).filter((event) =>
-        event.kind === 'execution_settled'
-      ).length,
+      events.filter((event) => event.kind === 'execution_settled').length,
       1,
+    );
+    assertEquals(events.at(-1)?.kind, 'execution_settled');
+    assertEquals(
+      events.some((event) =>
+        event.kind === 'acknowledgement_requested' ||
+        event.kind === 'acknowledgement_sent' ||
+        event.kind === 'acknowledgement_failed'
+      ),
+      false,
+    );
+  } finally {
+    await host?.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 93 keeps genuine post-commit observation loss separate from context capture', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-i93-post-commit-observation-',
+  });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new AppendFailureHistory(
+    stateRoot,
+    workspaceRoot,
+    'provider_request_start',
+  );
+  let host: WorkerHostSession | undefined;
+  try {
+    await store.initialize();
+    const handle = await store.allocateWorker('default', definition);
+    host = await WorkerHostSession.open({
+      handle,
+      workspaceRoot,
+      agent: 'default',
+      definition,
+      modulePath: workerBuiltinModulePath('default'),
+      physicalIoMode: 'provider-free',
+      historyPersistence: store,
+      providerEvidenceStore: store.providerEvidence,
+      executionArtifactStore: store.executionArtifacts,
+      durableCanonicalHistory: true,
+      capsuleFactory: () => new MinimalCommitCapsule(true),
+    });
+    const outcome = await host.submit('late post-commit provider observation');
+    assert(outcome.ok);
+    assertEquals(outcome.executionObservationDurability, 'failed');
+    assertEquals(
+      outcome.executionObservationPersistenceError,
+      'history_io_failure',
+    );
+    assertEquals(store.failureAttempts, 1);
+    const row = store.listExecutions()[0];
+    assert(row !== undefined);
+    assertEquals(row.contextCapture, 'none');
+    const artifact = (await store.executionArtifacts.list())[0];
+    assert(artifact?.schemaVersion === 7);
+    assertEquals(artifact.contextCapture, 'none');
+    assertEquals(artifact.acknowledgement, 'accepted_sent');
+    assertEquals(
+      store.listExecutionEvents(row.executionId).at(-1)?.kind,
+      'execution_settled',
     );
   } finally {
     await host?.close();

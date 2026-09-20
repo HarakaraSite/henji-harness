@@ -1,8 +1,11 @@
-import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
+import { throwIfCancelled } from '../core/cancellation.ts';
 import type { JsonValue } from '../core/contracts.ts';
 import type { ToolExecutionContext } from '../core/execution_context.ts';
 import type { CredentialSource } from '../provider/openrouter_model.ts';
-import type { ProviderRequestFn } from '../provider/auxiliary_request.ts';
+import {
+  createProviderRequestDispatcher,
+  type ProviderRequestFn,
+} from '../provider/auxiliary_request.ts';
 import type { OpenRouterModelSelection } from '../provider/model_selection.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { type Tool, ToolInputError } from './tools.ts';
@@ -54,7 +57,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isJsonValue = (value: unknown): value is JsonValue => {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean'
+  ) return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   return isRecord(value) && Object.values(value).every(isJsonValue);
@@ -62,14 +67,6 @@ const isJsonValue = (value: unknown): value is JsonValue => {
 
 const nonBlank = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
-
-const responseHeaders = (headers: Headers): Readonly<Record<string, string>> => {
-  const values: Record<string, string> = {};
-  headers.forEach((value, name) => {
-    values[name] = value;
-  });
-  return values;
-};
 
 const parseSearchResult = (
   value: unknown,
@@ -84,7 +81,10 @@ const parseSearchResult = (
   for (const annotation of annotations) {
     if (!isRecord(annotation) || annotation.type !== 'url_citation') continue;
     const citation = annotation.url_citation;
-    if (!isRecord(citation) || !nonBlank(citation.title) || !nonBlank(citation.url)) continue;
+    if (
+      !isRecord(citation) || !nonBlank(citation.title) ||
+      !nonBlank(citation.url)
+    ) continue;
     sources.push(Object.freeze({ title: citation.title, url: citation.url }));
   }
   if (sources.length === 0) return undefined;
@@ -98,7 +98,9 @@ const resolveCredential = async (
   options: OpenRouterSonarWebSearchBackendOptions,
 ): Promise<string | undefined> => {
   try {
-    if (options.credentialSource !== undefined) return await options.credentialSource();
+    if (options.credentialSource !== undefined) {
+      return await options.credentialSource();
+    }
     if (options.credential !== undefined) return options.credential;
     return Deno.env.get(PRODUCTION_PROFILE.secretEnv);
   } catch {
@@ -108,10 +110,16 @@ const resolveCredential = async (
 
 /** One non-streaming OpenRouter Sonar request for one Henji web_search call. */
 export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
-  private readonly fetcher: typeof fetch;
+  private readonly requestProvider: ProviderRequestFn;
 
-  constructor(private readonly options: OpenRouterSonarWebSearchBackendOptions = {}) {
-    this.fetcher = options.fetcher ?? fetch;
+  constructor(
+    private readonly options: OpenRouterSonarWebSearchBackendOptions = {},
+  ) {
+    this.requestProvider = options.requestProvider ??
+      createProviderRequestDispatcher({
+        resolveCredential: () => resolveCredential(options),
+        fetcher: options.fetcher,
+      });
   }
 
   async search(
@@ -135,86 +143,59 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
       stream: false,
       web_search_options: { search_context_size: 'medium' },
     });
-    const contextRequestOrdinal = await context.modelExecution?.observeAuxiliaryRequest?.({
-      purpose: 'web_search',
-      body,
-      callId: context.callId ??
-        (context.modelStep === undefined ? 'web-search' : `web-search-${context.modelStep}`),
-      lane: context.modelExecution?.lane ?? 'parent',
-      modelStep: context.modelStep ?? 1,
-      modelSelection: SONAR_MODEL_SELECTION,
-    });
+    const contextRequestOrdinal = await context.modelExecution
+      ?.observeAuxiliaryRequest?.({
+        purpose: 'web_search',
+        body,
+        callId: context.callId ??
+          (context.modelStep === undefined ? 'web-search' : `web-search-${context.modelStep}`),
+        lane: context.modelExecution?.lane ?? 'parent',
+        modelStep: context.modelStep ?? 1,
+        modelSelection: SONAR_MODEL_SELECTION,
+      });
     const endpoint = this.options.endpoint ??
       `${PRODUCTION_PROFILE.origin}${PRODUCTION_PROFILE.path}`;
     const evidence = context.modelExecution?.providerEvidence;
     evidence?.setContextRequestOrdinal(contextRequestOrdinal);
     try {
-      evidence?.startRequest({
-        lane: context.modelExecution?.lane === 'child' ? 'planner' : 'parent',
-        phase: 'user_turn',
-        modelStep: context.modelStep ?? 1,
+      const bodyBytes = new TextEncoder().encode(body);
+      const requestMetadata = {
+        contentType: 'application/json',
+        redirect: 'error',
+        responseMode: 'json',
+        origin: 'web_search',
+        provider: 'openrouter-chat',
+        api: 'openrouter-chat-completions',
+        modelId: OPENROUTER_SONAR_SEARCH_MODEL,
+        effort: 'auto',
+        authProfile: 'openrouter-api-key',
+        protocol: 'json',
+      } as const;
+      const response = await this.requestProvider({
+        authProfile: 'openrouter-api-key',
         endpoint,
         method: 'POST',
-        requestBody: body,
-        requestMetadata: {
-          contentType: 'application/json',
-          redirect: 'error',
-          responseMode: 'json',
-          origin: 'web_search',
-          provider: 'openrouter-chat',
-          api: 'openrouter-chat-completions',
-          modelId: OPENROUTER_SONAR_SEARCH_MODEL,
-          effort: 'auto',
-          authProfile: 'openrouter-api-key',
-          protocol: 'json',
-        },
+        headers: { 'content-type': 'application/json' },
+        body: bodyBytes,
+        ...(context.modelExecution === undefined ? {} : {
+          evidence: {
+            execution: context.modelExecution,
+            phase: 'user_turn',
+            modelStep: context.modelStep ?? 1,
+            requestMetadata,
+            captureBoundary: 'openrouter-chat:auxiliary-http-body-v1',
+            serializerVersion: 'json-stringify-utf8-v1',
+          },
+        }),
+        ...(context.signal === undefined ? {} : { signal: context.signal }),
       });
-
-      let responseStatus: number;
-      let responseHeaderMap: Readonly<Record<string, string>>;
-      let rawBytes: Uint8Array;
-      if (this.options.requestProvider !== undefined) {
-        const response = await this.options.requestProvider({
-          authProfile: 'openrouter-api-key',
-          endpoint,
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body,
-          ...(context.signal === undefined ? {} : { signal: context.signal }),
-        });
-        responseStatus = response.status;
-        responseHeaderMap = response.headers;
-        rawBytes = response.bytes;
-      } else {
-        const credential = await resolveCredential(this.options);
-        if (!credential) throw new Error('host provider credential is not configured');
-        throwIfCancelled(context.signal);
-        let response: Response;
-        try {
-          response = await this.fetcher(endpoint, {
-            method: 'POST',
-            signal: context.signal,
-            redirect: 'error',
-            headers: {
-              'content-type': 'application/json',
-              authorization: `Bearer ${credential}`,
-            },
-            body,
-          });
-        } catch {
-          if (context.signal?.aborted) throw new TurnCancelledError();
-          throw new Error('web search provider transport failed');
-        }
-        responseStatus = response.status;
-        responseHeaderMap = responseHeaders(response.headers);
-        try {
-          rawBytes = new Uint8Array(await response.arrayBuffer());
-        } catch {
-          if (context.signal?.aborted) throw new TurnCancelledError();
-          throw new Error('web search provider response read failed');
-        }
-      }
-      evidence?.recordResponse({ status: responseStatus, headers: responseHeaderMap });
+      const responseStatus = response.status;
+      const responseHeaderMap = response.headers;
+      const rawBytes = response.bytes;
+      evidence?.recordResponse({
+        status: responseStatus,
+        headers: responseHeaderMap,
+      });
       evidence?.appendResponseBytes(rawBytes);
       throwIfCancelled(context.signal);
 
@@ -224,7 +205,9 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
           reason: 'http_error',
           field: 'status',
         });
-        throw new Error(`web search provider request failed (${responseStatus})`);
+        throw new Error(
+          `web search provider request failed (${responseStatus})`,
+        );
       }
 
       let rawText: string;
@@ -262,7 +245,9 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
           field: 'choices[0].message',
           ...(isJsonValue(parsed) ? { detail: parsed } : {}),
         });
-        throw new Error('web search provider response had no answer with URL citations');
+        throw new Error(
+          'web search provider response had no answer with URL citations',
+        );
       }
       evidence?.recordParserTransition({
         kind: 'terminal',
@@ -290,7 +275,10 @@ const parseArguments = (value: JsonValue): string => {
 
 const markdownSourceLink = (source: WebSearchSource): string =>
   `[${
-    source.title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(']', '\\]')
+    source.title.replaceAll('\\', '\\\\').replaceAll('[', '\\[').replaceAll(
+      ']',
+      '\\]',
+    )
   }](<${source.url}>)`;
 
 const inlineSourceLinks = (
@@ -329,7 +317,9 @@ export const createWebSearchTool = (backend: WebSearchBackend): Tool => ({
     'Choose the task source before exploring. If the user explicitly identifies the current repository, a local file, or a canonical URL or API, use that source first and do not add web search unless it leaves a current or external question unresolved. If current or external information is requested and the target identity or canonical source is not already established, use web_search as the first source-discovery tool; do not inspect the workspace, sibling repositories, handoff files, or try guessed endpoints with bash or curl merely because a software workspace exists. When external sources alone can answer the task, stay on that route. After discovery, obtain fast-changing lists or precise current values from the direct canonical source and disclose retrieval time or conflicts with search results. Put independent read-only retrievals in distinct tool calls in the same model step when their targets are already known; perform result-dependent retrievals and fallbacks sequentially. Pass a complete, specific research question that states the information needed; prefer this over a bare keyword or Boolean query. Treat the returned answer as sourced material: use its inline source links near supported claims in the final answer, never copy provider-local citation markers such as [1], and do not add factual details that the returned material does not support. Say explicitly when the sources do not answer the question, and label inference instead of presenting it as verified fact.',
   ],
   async execute(argumentsValue, context) {
-    return formatResult(await backend.search(parseArguments(argumentsValue), context));
+    return formatResult(
+      await backend.search(parseArguments(argumentsValue), context),
+    );
   },
 });
 

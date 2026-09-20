@@ -65,6 +65,11 @@ export interface WorkerExecutionOutcome {
   readonly toolResultCount: number;
   readonly turnProviderRequestCount?: number;
   readonly runtimeProviderRequestCount?: number;
+  readonly executionJournalDurability?: 'failed';
+  readonly executionJournalPersistenceError?:
+    | 'history_busy'
+    | 'history_invalid'
+    | 'history_io_failure';
 }
 
 export interface WorkerExecutionArtifactV2 {
@@ -267,16 +272,24 @@ const validManifest = (
   const baseInstruction = manifest.baseInstruction;
   const baseInstructionValid = baseInstruction === undefined ||
     typeof baseInstruction === 'object' && baseInstruction !== null &&
-      !Array.isArray(baseInstruction) && ownKeys(baseInstruction as Record<string, unknown>, [
+      !Array.isArray(baseInstruction) &&
+      ownKeys(baseInstruction as Record<string, unknown>, [
         'slot',
         'selectionSource',
         'ref',
         'contentDigest',
-      ]) && (baseInstruction as Record<string, unknown>).slot === 'instruction:henji-base' &&
-      ((baseInstruction as Record<string, unknown>).selectionSource === 'built-in' ||
-        (baseInstruction as Record<string, unknown>).selectionSource === 'external') &&
-      isHenjiInstructionRevisionRef((baseInstruction as Record<string, unknown>).ref) &&
-      typeof (baseInstruction as Record<string, unknown>).contentDigest === 'string' &&
+      ]) &&
+      (baseInstruction as Record<string, unknown>).slot ===
+        'instruction:henji-base' &&
+      ((baseInstruction as Record<string, unknown>).selectionSource ===
+          'built-in' ||
+        (baseInstruction as Record<string, unknown>).selectionSource ===
+          'external') &&
+      isHenjiInstructionRevisionRef(
+        (baseInstruction as Record<string, unknown>).ref,
+      ) &&
+      typeof (baseInstruction as Record<string, unknown>).contentDigest ===
+        'string' &&
       /^sha256:[0-9a-f]{64}$/u.test(
         (baseInstruction as Record<string, string>).contentDigest,
       );
@@ -288,7 +301,8 @@ const validManifest = (
     manifest.resources.every((resource) => validText(resource, true)) &&
     isStoredModelSelection(manifest.rootModel) &&
     isStoredModelSelection(manifest.plannerModel) &&
-    (!Object.hasOwn(manifest, 'subagents') || validSubagents(manifest.subagents)) &&
+    (!Object.hasOwn(manifest, 'subagents') ||
+      validSubagents(manifest.subagents)) &&
     (!Object.hasOwn(manifest, 'tools') || validTools(manifest.tools));
 };
 
@@ -314,6 +328,12 @@ const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {
       ...(Object.hasOwn(outcome, 'turnProviderRequestCount') ? ['turnProviderRequestCount'] : []),
       ...(Object.hasOwn(outcome, 'runtimeProviderRequestCount')
         ? ['runtimeProviderRequestCount']
+        : []),
+      ...(Object.hasOwn(outcome, 'executionJournalDurability')
+        ? ['executionJournalDurability']
+        : []),
+      ...(Object.hasOwn(outcome, 'executionJournalPersistenceError')
+        ? ['executionJournalPersistenceError']
         : []),
     ])
   ) return false;
@@ -342,7 +362,13 @@ const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {
         (outcome.turnProviderRequestCount as number) >= 0) &&
     (!Object.hasOwn(outcome, 'runtimeProviderRequestCount') ||
       Number.isSafeInteger(outcome.runtimeProviderRequestCount) &&
-        (outcome.runtimeProviderRequestCount as number) >= 0);
+        (outcome.runtimeProviderRequestCount as number) >= 0) &&
+    (!Object.hasOwn(outcome, 'executionJournalDurability') ||
+      outcome.executionJournalDurability === 'failed') &&
+    (!Object.hasOwn(outcome, 'executionJournalPersistenceError') ||
+      outcome.executionJournalPersistenceError === 'history_busy' ||
+      outcome.executionJournalPersistenceError === 'history_invalid' ||
+      outcome.executionJournalPersistenceError === 'history_io_failure');
 };
 
 const validTrace = (value: unknown): value is WorkerExecutionTraceEntry => {
@@ -396,23 +422,32 @@ export const validateWorkerExecutionArtifact = (
   }
   const artifact = value as Record<string, unknown>;
   if (
-    artifact.schemaVersion === 5 || artifact.schemaVersion === 6 || artifact.schemaVersion === 7
+    artifact.schemaVersion === 5 || artifact.schemaVersion === 6 ||
+    artifact.schemaVersion === 7
   ) {
     if (
-      artifact.contextCapture !== 'none' && artifact.contextCapture !== 'partial' &&
-      artifact.contextCapture !== 'complete' && artifact.contextCapture !== 'failed'
+      artifact.contextCapture !== 'none' &&
+      artifact.contextCapture !== 'partial' &&
+      artifact.contextCapture !== 'complete' &&
+      artifact.contextCapture !== 'failed'
     ) return false;
     if (
-      (artifact.normalizedOutcome === 'interrupted' || artifact.normalizedOutcome === 'unknown') &&
+      (artifact.normalizedOutcome === 'interrupted' ||
+        artifact.normalizedOutcome === 'unknown') &&
       artifact.contextCapture !== 'partial'
     ) return false;
     if (artifact.schemaVersion === 6 || artifact.schemaVersion === 7) {
-      if (Object.hasOwn(artifact, 'subagents') && !validSubagents(artifact.subagents)) return false;
+      if (
+        Object.hasOwn(artifact, 'subagents') &&
+        !validSubagents(artifact.subagents)
+      ) return false;
     } else if (Object.hasOwn(artifact, 'subagents')) {
       return false;
     }
     if (artifact.schemaVersion === 7) {
-      if (Object.hasOwn(artifact, 'tools') && !validTools(artifact.tools)) return false;
+      if (Object.hasOwn(artifact, 'tools') && !validTools(artifact.tools)) {
+        return false;
+      }
     } else if (Object.hasOwn(artifact, 'tools')) {
       return false;
     }
@@ -505,7 +540,8 @@ export const validateWorkerExecutionArtifact = (
     (!Object.hasOwn(artifact, 'committedStateRevision') ||
       Number.isSafeInteger(artifact.committedStateRevision) &&
         (artifact.committedStateRevision as number) >= 1) &&
-    Array.isArray(trace) && (artifact.schemaVersion === 4 || trace.length > 0) &&
+    Array.isArray(trace) &&
+    (artifact.schemaVersion === 4 || trace.length > 0) &&
     trace.every(validTrace) &&
     trace.every((entry, index) => entry.sequence === index + 1) &&
     (!Object.hasOwn(artifact, 'providerEvidenceId') ||
@@ -531,19 +567,24 @@ export const validateWorkerExecutionArtifact = (
       artifact.settlement === 'committed_observation_pending' ||
       artifact.settlement === 'committed' ||
       artifact.settlement === 'committed_generation_unavailable' ||
-      artifact.settlement === 'interrupted' || artifact.settlement === 'unknown') &&
+      artifact.settlement === 'interrupted' ||
+      artifact.settlement === 'unknown') &&
     (artifact.schemaVersion === 4
       ? artifact.lifecycle === 'settled' &&
         ['unknown', 'completed', 'cancelled', 'failed', 'interrupted'].includes(
           String(artifact.normalizedOutcome),
         ) &&
-        (artifact.adoption === 'canonical' || artifact.adoption === 'non_canonical') &&
-        (artifact.normalizedOutcome === 'unknown' || artifact.normalizedOutcome === 'interrupted'
+        (artifact.adoption === 'canonical' ||
+          artifact.adoption === 'non_canonical') &&
+        (artifact.normalizedOutcome === 'unknown' ||
+            artifact.normalizedOutcome === 'interrupted'
           ? artifact.adoption === 'non_canonical' &&
             artifact.normalizedOutcome === artifact.settlement &&
             !Object.hasOwn(artifact, 'outcome')
-          : artifact.settlement !== 'interrupted' && artifact.settlement !== 'unknown' &&
-            Object.hasOwn(artifact, 'outcome') && validOutcome(artifact.outcome))
+          : artifact.settlement !== 'interrupted' &&
+            artifact.settlement !== 'unknown' &&
+            Object.hasOwn(artifact, 'outcome') &&
+            validOutcome(artifact.outcome))
       : validOutcome(artifact.outcome)) &&
     artifact.effectCommitRelation === 'not_transactional' &&
     artifact.automaticReplay === false &&
@@ -558,7 +599,9 @@ export const validateWorkerExecutionArtifact = (
 export const validSubagentAttribution = (
   value: unknown,
 ): value is WorkerExecutionSubagentAttributionV1 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const record = value as Record<string, unknown>;
   return ownKeys(record, ['subagentName', 'ref']) &&
     validText(record.subagentName, true) &&
@@ -573,7 +616,9 @@ const validSubagents = (
 const validToolAttribution = (
   value: unknown,
 ): value is WorkerExecutionToolAttributionV1 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const record = value as Record<string, unknown>;
   return ownKeys(record, ['toolIdentity', 'ref']) &&
     validText(record.toolIdentity, true) &&
@@ -603,6 +648,12 @@ export const workerExecutionOutcome = (
     }),
     ...(outcome.runtimeProviderRequestCount === undefined ? {} : {
       runtimeProviderRequestCount: outcome.runtimeProviderRequestCount,
+    }),
+    ...(outcome.executionJournalDurability === undefined ? {} : {
+      executionJournalDurability: outcome.executionJournalDurability,
+    }),
+    ...(outcome.executionJournalPersistenceError === undefined ? {} : {
+      executionJournalPersistenceError: outcome.executionJournalPersistenceError,
     }),
   };
   return result;

@@ -145,7 +145,7 @@ export const fixedCount = <T extends number>(value: unknown, expected: T): T => 
 export const outcomeReason = (value: unknown): PresentationOutcomeReason => {
   if (
     value !== 'final' && value !== 'tool_terminal' && value !== 'max_steps' &&
-    value !== 'contract_failure' && value !== 'cancelled'
+    value !== 'contract_failure' && value !== 'cancelled' && value !== 'interrupted'
   ) throw new PresentationDeliveryError();
   return value;
 };

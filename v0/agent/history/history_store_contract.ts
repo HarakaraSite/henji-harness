@@ -1,4 +1,4 @@
-import type { LoopOutcome } from '../core/contracts.ts';
+import type { LoopOutcome, ProviderExactRequestObservation } from '../core/contracts.ts';
 import type {
   ProviderEvidenceObservation,
   ProviderEvidenceV3,
@@ -59,6 +59,9 @@ export type ExecutionEventKind =
   | 'cancel_requested'
   | 'cancel_sent'
   | 'cancel_failed'
+  | 'cancel_received'
+  | 'cancel_escalated'
+  | 'worker_stage_snapshot'
   | 'steer_requested'
   | 'steer_sent'
   | 'steer_failed'
@@ -84,6 +87,8 @@ type HostExecutionEventKind =
   | 'cancel_requested'
   | 'cancel_sent'
   | 'cancel_failed'
+  | 'cancel_escalated'
+  | 'worker_stage_snapshot'
   | 'steer_requested'
   | 'steer_sent'
   | 'steer_failed'
@@ -137,6 +142,12 @@ export type ExecutionEventPayloadByKind = {
   cancel_requested: { readonly command: 'cancel' };
   cancel_sent: { readonly command: 'cancel' };
   cancel_failed: { readonly command: 'cancel' };
+  cancel_received: import('../worker/worker_protocol.ts').WorkerCancelReceivedMessage;
+  cancel_escalated: {
+    readonly command: 'terminate';
+    readonly reason: 'settlement_deadline_exceeded';
+  };
+  worker_stage_snapshot: import('../worker/worker_stage_probe.ts').WorkerStageHistorySnapshot;
   steer_requested: { readonly text: string };
   steer_sent: { readonly text: string };
   steer_failed: { readonly text: string };
@@ -197,7 +208,8 @@ type WorkerExecutionEventInput = {
       | 'provider_response_bytes'
       | 'provider_sse_event'
       | 'provider_parser_transition'
-      | 'context_observation' ? { readonly workerSequence: number }
+      | 'context_observation'
+      | 'cancel_received' ? { readonly workerSequence: number }
       : { readonly workerSequence?: never });
 }[WorkerExecutionEventKind];
 
@@ -357,8 +369,22 @@ export interface HistoryPersistencePort {
   ): readonly StoredExecutionEvent[];
   /** Pure shape/contract check used to reject an invalid fact before it is projected to the Surface. */
   validateExecutionEvent(input: ExecutionEventInput): boolean;
+  /** v6 bounds terminal protocol evidence before the Host clones it into the history queue. */
+  prepareWorkerObservationForHistory?(
+    message: import('../worker/worker_protocol.ts').WorkerToHostMessage,
+  ): import('../worker/worker_protocol.ts').WorkerToHostMessage;
+  /** v6 exact outbound capture; the bytes are observed at the provider adapter boundary. */
+  appendExactRequestObservation?(
+    input: Readonly<{
+      executionId: string;
+      workerSequence: number;
+      observation: ProviderExactRequestObservation;
+    }>,
+  ): void;
   reconcileExecution(input: ReconcileExecutionInput): void;
   listExecutions(): readonly StoredExecutionRow[];
+  /** Indexed v6 path used by normal Session recall selection. */
+  listExecutionsForSession?(sessionId: string): readonly StoredExecutionRow[];
   readExecution(id: string): StoredExecutionRow;
   listExecutionEvents(id: string): readonly StoredExecutionEvent[];
   listExecutionEffects(id: string): readonly StoredExecutionEffect[];

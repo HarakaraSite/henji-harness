@@ -81,6 +81,11 @@ export type AgentEvent =
       | 'history_busy'
       | 'history_invalid'
       | 'history_io_failure';
+    readonly executionJournalDurability?: 'failed';
+    readonly executionJournalPersistenceError?:
+      | 'history_busy'
+      | 'history_invalid'
+      | 'history_io_failure';
     readonly executionObservationDurability?: 'failed';
     readonly executionObservationPersistenceError?:
       | 'history_busy'

@@ -68,7 +68,7 @@ import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
-import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../history/sqlite_history_v6_production_store.ts';
 import type { HumanHistoryReadPort } from '../history/human_history.ts';
 import {
   builtinHenjiBaseInstruction,
@@ -126,6 +126,12 @@ export interface WorkerSessionOptions {
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
+  /** Focused-test seam; production uses the Host default. */
+  readonly cancelSettlementGraceMs?: number;
+  /** Focused-test seam; production uses the Host default. */
+  readonly workerResponseTimeoutMs?: number;
+  /** Focused-test seam; production records an auxiliary start gap after one second. */
+  readonly auxiliaryStageGapMs?: number;
   readonly initialModelSelection?: ModelSelection;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
@@ -363,7 +369,7 @@ export const createWorkerSession = async (
     : Object.freeze([] as const);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
-    ? new SqliteHistoryStore(
+    ? new SqliteHistoryV6ProductionStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
     )
@@ -580,6 +586,9 @@ export const createWorkerSession = async (
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,
           providerTimeoutMs: options.providerTimeoutMs,
+          cancelSettlementGraceMs: options.cancelSettlementGraceMs,
+          workerResponseTimeoutMs: options.workerResponseTimeoutMs,
+          auxiliaryStageGapMs: options.auxiliaryStageGapMs,
           initialModelSelection,
           baseInstruction,
           providerDeclarations,

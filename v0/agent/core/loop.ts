@@ -666,12 +666,14 @@ const runAgentTurnInternal = async (
     try {
       const generateOptions:
         | import('./contracts.ts').ModelGenerateOptions
-        | undefined = signal === undefined && sink === undefined && evidence === undefined
+        | undefined = signal === undefined && sink === undefined && evidence === undefined &&
+            options.executionContext?.providerExactRequestObserver === undefined
           ? undefined
           : {
             signal,
             reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
             providerEvidence: evidence,
+            providerExactRequestObserver: options.executionContext?.providerExactRequestObserver,
             providerEvidenceLane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
             modelStep: steps,
           };

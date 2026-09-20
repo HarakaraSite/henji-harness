@@ -8,6 +8,7 @@ import type {
   ProviderEvidencePersistenceErrorCode,
   ProviderEvidencePhase,
   ProviderEvidenceRecorder,
+  ProviderEvidenceRequestMetadata,
 } from '../provider/provider_evidence.ts';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -113,6 +114,25 @@ export interface ModelRequest {
 /** Execution-only callback carrying the complete visible assistant prefix. */
 export type AssistantProgressReporter = (snapshot: string) => void;
 
+/** Exact bytes passed from a provider adapter to its HTTP client; never includes headers. */
+export interface ProviderExactRequestObservation {
+  readonly bytes: Uint8Array;
+  readonly captureBoundary: string;
+  readonly serializerVersion: string;
+  readonly endpoint: string;
+  readonly method: 'POST';
+  readonly lane: 'parent' | 'planner';
+  readonly phase: ProviderEvidencePhase;
+  readonly modelStep: number;
+  readonly requestMetadata: ProviderEvidenceRequestMetadata;
+  /** Existing adapters serialize a contiguous JSON body before this observation. */
+  readonly monolithicFallback: true;
+}
+
+export type ProviderExactRequestObserver = (
+  observation: ProviderExactRequestObservation,
+) => void;
+
 export interface ModelGenerateOptions {
   readonly signal?: AbortSignal;
   readonly reportAssistantProgress?: AssistantProgressReporter;
@@ -121,6 +141,8 @@ export interface ModelGenerateOptions {
   readonly providerEvidenceLane?: 'parent' | 'planner';
   readonly providerEvidencePhase?: ProviderEvidencePhase;
   readonly modelStep?: number;
+  /** Additive v6 seam. When present, the observed bytes are the same object passed to fetch. */
+  readonly providerExactRequestObserver?: ProviderExactRequestObserver;
 }
 
 export type ModelResult =
@@ -153,7 +175,8 @@ export type LoopStopReason =
   | 'tool_terminal'
   | 'max_steps'
   | 'contract_failure'
-  | 'cancelled';
+  | 'cancelled'
+  | 'interrupted';
 
 export interface LoopOutcome {
   readonly ok: boolean;
@@ -185,6 +208,12 @@ export interface LoopOutcome {
   /** Admission failed before a Worker turn was dispatched. */
   readonly executionAdmissionDurability?: 'failed';
   readonly executionAdmissionPersistenceError?:
+    | 'history_busy'
+    | 'history_invalid'
+    | 'history_io_failure';
+  /** A pre-commit execution journal append failed after admission. */
+  readonly executionJournalDurability?: 'failed';
+  readonly executionJournalPersistenceError?:
     | 'history_busy'
     | 'history_invalid'
     | 'history_io_failure';

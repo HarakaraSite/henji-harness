@@ -1,5 +1,5 @@
 import { defaultModelSelectionFor, selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import type {
   NavigationBinding,
   SessionNavigationHost,
@@ -30,7 +30,7 @@ const presentationSelection = (
 });
 
 const assertSessionNotFound = async (
-  store: SqliteHistoryStore,
+  store: SqliteHistoryV6ProductionStore,
   id: string,
 ): Promise<void> => {
   let notFound = false;
@@ -50,7 +50,7 @@ Deno.test('Increment 47 keeps a new binding temporary until its first durable ch
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({
@@ -115,7 +115,7 @@ Deno.test('Increment 47 materializes temporary bindings on existing durable admi
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({

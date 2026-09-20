@@ -33,6 +33,12 @@ export interface WorkerHostSessionOptions {
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
+  /** Focused-test seam; production uses the fixed five-second cancellation settlement grace. */
+  readonly cancelSettlementGraceMs?: number;
+  /** Focused-test seam for short Host/Worker command settlement waits. */
+  readonly workerResponseTimeoutMs?: number;
+  /** Focused-test seam; production records an auxiliary start gap after one second. */
+  readonly auxiliaryStageGapMs?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;

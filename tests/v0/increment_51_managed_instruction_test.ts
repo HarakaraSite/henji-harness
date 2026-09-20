@@ -2,7 +2,7 @@ import { main as instructionMain } from '../../v0/agent/cli/instruction_cli.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import { ParentTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import { HENJI_COMMON_INSTRUCTION } from '../../v0/agent/instructions/henji_common.ts';
 import {
   activateHenjiBaseInstruction,
@@ -668,7 +668,7 @@ Deno.test('Increment 51 applies external base on the real Worker path and retain
       await created.close();
     }
     assert(executionId !== undefined);
-    const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+    const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
     await history.initialize();
     const context = history.listExecutionContext(executionId);
     const base = context.snapshot?.instructionComponents[0];

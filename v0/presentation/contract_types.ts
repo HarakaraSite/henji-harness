@@ -28,7 +28,8 @@ export type PresentationOutcomeReason =
   | 'tool_terminal'
   | 'max_steps'
   | 'contract_failure'
-  | 'cancelled';
+  | 'cancelled'
+  | 'interrupted';
 
 export type PresentationFailureStage =
   | 'credential_resolution'

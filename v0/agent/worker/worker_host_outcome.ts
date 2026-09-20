@@ -88,6 +88,22 @@ export const failedOutcome = (
   transcript: structuredClone(transcript),
 });
 
+export const interruptedOutcome = (
+  task: string,
+  transcript: readonly Message[],
+  reason: string,
+): LoopOutcome => ({
+  ok: false,
+  task,
+  outcome: 'interrupted',
+  stopReason: 'interrupted',
+  error: reason,
+  steps: 0,
+  toolCallCount: 0,
+  toolResultCount: 0,
+  transcript: structuredClone(transcript),
+});
+
 export const persistenceCode = <T extends string>(
   error: unknown,
   allowed: readonly T[],
@@ -151,6 +167,12 @@ export const turnEndFromOutcome = (
   }),
   ...(outcome.executionAdmissionPersistenceError === undefined ? {} : {
     executionAdmissionPersistenceError: outcome.executionAdmissionPersistenceError,
+  }),
+  ...(outcome.executionJournalDurability === undefined ? {} : {
+    executionJournalDurability: outcome.executionJournalDurability,
+  }),
+  ...(outcome.executionJournalPersistenceError === undefined ? {} : {
+    executionJournalPersistenceError: outcome.executionJournalPersistenceError,
   }),
   ...(outcome.executionObservationDurability === undefined ? {} : {
     executionObservationDurability: outcome.executionObservationDurability,

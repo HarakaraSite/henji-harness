@@ -1762,7 +1762,10 @@ export class TuiController {
         outcome.diagnosticPersistenceError,
       );
     }
-    if (this.exitIntent !== 'return' && outcome.stopReason === 'cancelled') {
+    if (
+      this.exitIntent !== 'return' &&
+      (outcome.stopReason === 'cancelled' || outcome.stopReason === 'interrupted')
+    ) {
       this.pending?.clearAll();
       this.editor.clear();
       this.renderEditorState();
@@ -1771,6 +1774,7 @@ export class TuiController {
     }
     const recoverable = !outcome.ok && (
       outcome.stopReason === 'cancelled' ||
+      outcome.stopReason === 'interrupted' ||
       outcome.stopReason === 'max_steps' ||
       outcome.stopReason === 'contract_failure'
     ) &&
@@ -1798,6 +1802,8 @@ export class TuiController {
       }
       const reason = outcome.stopReason === 'max_steps'
         ? 'request limit reached'
+        : outcome.stopReason === 'interrupted'
+        ? 'worker interrupted'
         : outcome.stopReason === 'cancelled'
         ? 'cancelled'
         : 'agent failure';

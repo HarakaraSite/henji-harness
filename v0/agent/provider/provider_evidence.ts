@@ -255,6 +255,8 @@ export interface EvidenceRequestStart {
   readonly contextRequestOrdinal?: number;
 }
 
+export type EvidenceRequestMetadataStart = Omit<EvidenceRequestStart, 'requestBody'>;
+
 export interface EvidenceResponseStart {
   readonly status: number;
   readonly headers: Readonly<Record<string, string>>;
@@ -805,6 +807,14 @@ export class ProviderEvidenceRecorder {
       request: cloneRequest(request),
     });
     return ordinal;
+  }
+
+  /**
+   * v6 exact-byte capture owns the body. Keep this recorder as the live response/parser event
+   * source without decoding or re-encoding the same full request for the legacy envelope.
+   */
+  startRequestMetadata(input: EvidenceRequestMetadataStart): number {
+    return this.startRequest({ ...input, requestBody: '' });
   }
 
   recordResponse(response: EvidenceResponseStart): void {

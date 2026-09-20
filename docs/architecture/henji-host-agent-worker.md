@@ -71,6 +71,17 @@
 - Hostが観測できたexecution evidenceのdurableな保存と、turnのcanonical conversationへの採用は別の
   operationである。cancel、failure、途中のtool result等を保存することは、そのexecutionをcanonicalへ
   採用することを意味しない。
+- durable historyのauthorityを、transport observation、当時のparser／runtime／tool interpretation、Host decision／
+  canonical state、Agent／build／resource attributionへ分ける。人間向け表示、検索文書、model context、summary、後日の
+  reinterpretationはderived projectionであり、元authorityを上書きしない。
+- outbound transport authorityはprovider adapterがHTTP clientへ渡したexact body bytes、inboundはruntimeがresponse body
+  として受け取ったexact bytesを境界とする。TCP／TLS／HTTP framing全体の観測とは呼ばず、credential値とAuthorizationを
+  保存しない。
+- historyのlogical record identityをphysical segment／offsetから独立させる。immutable exact-byte objectとobservation
+  segmentのcodec／配置を変更しても、occurrence、causal relation、canonical decisionのidentityを変えない。
+- evidence appendとcanonical adoptionは別operationである。append acknowledgementはobject、segment、directory、anchor、
+  execution ledgerのatomic commit後だけ返し、adoptionはsettled execution root／terminalとSession base revisionを
+  一transactionで照合・更新する。
 - 人間向けhistory viewはcanonical/non-canonical双方へ到達できる方向を保つ。modelが過去executionから
   既定で引き継ぐconversationはcanonicalに限定し、現在execution内の文脈と人間が明示したprojectionは
   別の入力として扱う。Surface上のrendererとmodel context projectionは別責務である。
@@ -97,6 +108,9 @@
 | `Execution` | 一つのtaskを、あるbase Session revisionとAgent側の基底設定から実行する独立したattempt。進捗、model request、tool activity、outcome、canonical採用状態を相関する。 | activeからsettledまで。canonical/non-canonicalにかかわらずevidenceをdurableに保持できる。 |
 | `Turn` | executionが正常完了し、Hostがconversationへ一括採用するuser/assistant interactionのsemanticな単位。 | canonical Session state内で順序を持つ。回答の正しさや利用者の満足を意味しない。 |
 | `ModelRequest` | 一つのexecution内でprovider/modelへ行う一回のrequest。tool loopやdelegationにより一execution内に複数存在できる。 | request/response evidenceとexecutionを相関する。 |
+| `HistoryLogicalRecord` | transport、original interpretation、Host decision、attributionの一つのimmutable fact。stable ID、execution内順序、causal ref、raw byte rangeまたはexact object refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたexecution evidenceとして永続化する。 |
+| `HistorySegment` | 一つ以上のlogical recordをnatural append batchでまとめたbounded immutable encoding。directoryとanchorから到達し、logical digestとencoded representation digestを区別する。 | storage mechanismが所有し、repack／codec変更でlogical identityを変えない。 |
+| `HistoryProjection` | authorityから導出するhuman view、search document、flattened request、model working context、summary、later reinterpretation。 | rebuild可能であり、watermark遅延をauthority欠落とみなさない。 |
 | `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続executionが参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
 | `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Worker とは独立して所有・置換される。 |
 | `HenjiHost` | Worker lifecycle、物理 terminal / Surface I/O、Surface の load、UI から command への変換、storage mechanism を所有する coordinator。 | Worker generation の lifecycle owner。常時稼働serviceにするかは未決である。 |
@@ -516,14 +530,20 @@ Deno Worker permissionだけでは、`--allow-run`で起動したsubprocessと�
 
 Henjiの履歴全体と、以後の通常会話へ既定で引き継ぐconversationを同じ状態として扱わない。
 
-durable historyは、Hostが取得・記録できた各executionの入力、progress、assistant output、Hostが受け取れる
-thinking/reasoning出力、model request、tool call/result、provider evidence、outcome、context attributionを保持する。
-crashや外部effectによりHostが観測できなかった事象まで記録したことにはしない。
+durable historyは、Hostが取得・記録できた各executionについて、transport observation、当時実際にemitされた
+parser／runtime／tool interpretation、Host decision／canonical state、Agent／build／resource attributionを、別の
+authorityとして相関可能に保持する。outboundはprovider adapterがHTTP clientへ渡したexact body bytes、inboundは
+runtimeがresponse bodyとして受け取ったexact bytesをcapture boundaryとする。credential値、Authorization、Hostが
+観測できなかった事象、TCP／TLS／HTTP framing全体を記録したことにはしない。
+
+original interpretationはraw bytesから後日再parseできることを理由に省略しない。human history、検索、model working
+context、summary／compaction、later reinterpretationはderived projectionであり、元のtransport、interpretation、decision、
+attribution authorityを上書きしない。projectionの同期遅延または再構築可能性をauthority欠落と混同しない。
 
 canonical conversationは、Hostが正常完了と会話への採用を確定したturnを順序付きで保持するSessionの正本で
 ある。正常完了は回答内容の正しさや人間の満足を意味しない。canonical採用はturn全体を単位とし、途中の
-assistant outputやtool interactionだけを部分的に採用しない。turnへ含める具体的なmessageとprojectionの範囲は、
-storage schemaを採用するincrementで定める。
+assistant outputやtool interactionだけを部分的に採用しない。turnへ含める具体的なmessageとprojectionは個別schemaで
+定める。
 
 executionの状態は少なくとも次の独立した軸で扱う。
 
@@ -535,6 +555,19 @@ executionの状態は少なくとも次の独立した軸で扱う。
 non-canonical executionも、観測済みevidenceをstorageへ物理的にcommitしてreadbackできる。storageへのdurable
 writeとcanonical conversationへの意味上の採用は別operationであり、`uncommitted`という語は後者だけを指す
 場面でも誤解を招くため、通常は`non-canonical`を使う。
+
+#### History storage不変条件
+
+- logical record／occurrence／decisionのidentityはsegment、offset、page、codec等のphysical locatorから独立する。
+- exact bytesはalgorithm／version付きlogical digestを持ち、encoded representationとそのdigestを分離する。同じbytesでも
+  別execution／source／occurrenceなら発生factを統合しない。
+- append時にcurrent deltaのschema、ordinal、causal ref、新規bytes／frame digestを検証し、execution ledgerのroot、count、
+  latest durable ordinal、terminal、unresolved referenceを増分更新する。normal settlement／adoptionは過去payloadを
+  application levelで全scan／decode／rehashしない。
+- `settled`はlogical completenessとappend時検証済みdurable rootへの一致を意味し、全過去payloadをsettlement時に再scrub
+  したことを意味しない。materializeするpayloadはread時に検証し、全体検証はexplicit auditとして別に記録する。
+- crash後に見えるexecution evidenceは最後にatomic commit済みの連続ordinal prefixに限る。未commit segment／locator／rootを
+  completeとして返さない。
 
 人間向けhistory viewは、canonical turnとnon-canonical executionの双方を識別して辿れるようにする。
 Markdown、tool summary/detail、status等のrendererはHost/Surfaceの表示責務であり、保存内容、採用状態、
@@ -641,9 +674,11 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 1. Host が canonical session state を load し、Worker generation への command を受け入れる。
 2. Worker が snapshot を解釈して composition を実行し、turn 中の output と commit proposal を
    生成する。
-3. Host が適用対象の session revision を検証し、受け入れた proposal を atomic に保存する。
-4. durable storage が成功した後にのみ、Host が Surface または採用済みの output consumer に turn
-   を committed と報告する。
+3. Hostは観測済みevidenceをbounded appendとしてatomicに保存し、commit後だけdurable acknowledgementを返す。executionの
+   settlementはincremental ledgerのroot、count、terminal、unresolved referenceを照合し、過去payload全体を再検証しない。
+4. canonical採用時、Hostはsettled execution root／terminalと適用対象Session revisionを照合し、canonical turnとSession
+   revisionを一transactionで保存する。
+5. durable canonical adoptionが成功した後にのみ、HostはSurfaceまたは採用済みoutput consumerへturnをcommittedと報告する。
 
 ### Effect と commit proposal
 

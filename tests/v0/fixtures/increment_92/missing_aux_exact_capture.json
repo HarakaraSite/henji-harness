@@ -1,0 +1,12 @@
+{
+  "root": {
+    "body": "{\"model\":\"root-model\",\"messages\":[]}",
+    "endpoint": "https://example.invalid/root",
+    "modelStep": 1
+  },
+  "auxiliary": {
+    "endpoint": "https://example.invalid/search",
+    "modelStep": 2,
+    "contextRequestOrdinal": 1
+  }
+}

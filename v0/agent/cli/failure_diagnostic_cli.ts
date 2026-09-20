@@ -3,7 +3,7 @@ import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import { ProviderEvidenceStoreError } from '../provider/provider_evidence_store.ts';
 import type { StoredExecutionRow } from '../history/history_store_contract.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
-import { SqliteHistoryStore } from '../history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../history/sqlite_history_v6_production_store.ts';
 import { HistoryStoreError } from '../history/history_store_contract.ts';
 
 const encoder = new TextEncoder();
@@ -197,7 +197,7 @@ export const main = async (
       dependencies.workspaceRoot,
     );
     const stateRoot = dependencies.stateRoot ?? resolveStateRoot();
-    const history = new SqliteHistoryStore(stateRoot, workspace);
+    const history = new SqliteHistoryV6ProductionStore(stateRoot, workspace);
     await history.initialize();
     if (
       command.kind === 'execution_list' || command.kind === 'execution_show' ||

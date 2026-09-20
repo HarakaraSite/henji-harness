@@ -20,7 +20,7 @@ import {
   isExternalDefinitionResourceId,
 } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
-import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
+import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import {
   type DefinitionRevisionRef,
   type StoredSessionRecord,
@@ -175,7 +175,7 @@ const persistEmptyExternalSession = async (
   agent: StoredSessionRecord['agent'],
   definition: DefinitionRevisionRef,
 ): Promise<string> => {
-  const store = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
   const handle = await store.allocateWorker(agent, definition);
   const timestamp = '2026-09-12T01:02:03.000Z';
   const model = defaultModelSelectionFor('openrouter-chat');
@@ -712,7 +712,7 @@ Deno.test('Increment 33 runs a managed parent through one commit path and reject
   const stateRoot = `${root}/state`;
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const history = new SqliteHistoryStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
   try {
     for (const role of ['parent'] as const) {
       const sourceRoot = `${root}/source-${role}`;

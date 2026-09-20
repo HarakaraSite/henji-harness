@@ -53,10 +53,12 @@ import type {
   WorkerCorrelation,
   WorkerEffectObservation,
 } from './worker_protocol.ts';
+import type { ProviderExactRequestObservation } from '../core/contracts.ts';
 import {
   projectRecalledExecutionContext,
   type RecalledExecutionContext,
 } from './recalled_execution_context.ts';
+import type { WorkerStageName } from './worker_stage_probe.ts';
 
 export interface WorkerGenerationPort {
   readonly runtimeEvent: (
@@ -71,6 +73,10 @@ export interface WorkerGenerationPort {
     correlation: WorkerCorrelation,
     observation: ProviderEvidenceObservation,
     turn: number,
+  ) => number | undefined;
+  readonly providerExactRequest?: (
+    correlation: WorkerCorrelation,
+    observation: ProviderExactRequestObservation,
   ) => number | undefined;
   readonly contextObservation?: (
     correlation: WorkerCorrelation,
@@ -167,6 +173,7 @@ export class WorkerGeneration {
       readonly skillNames: readonly string[];
       readonly context?: WorkerContextSnapshot;
     } = { skillNames: [] },
+    private readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
@@ -808,6 +815,7 @@ export class WorkerGeneration {
         });
         contextRequests.push(requestDelta);
         await this.port.contextObservation?.(correlation, requestDelta);
+        this.reportAuxiliaryStage?.('aux_context_await_resumed');
       })();
       contextObservations.push(task);
       try {
@@ -958,8 +966,12 @@ export class WorkerGeneration {
       this.rootModelSelection,
       roleDefaultModelSelection('subagent:planner'),
       observeAuxiliaryRequest,
+      this.reportAuxiliaryStage,
       sourceForMessage,
       projectParentRequestWithSources,
+      this.port.providerExactRequest === undefined ? undefined : (observation) => {
+        this.port.providerExactRequest!(correlation, observation);
+      },
     );
     let evidenceFinalized = false;
     const settledOutcome = (outcome: LoopOutcome): LoopOutcome => ({
