@@ -92,6 +92,15 @@ pointer、承認境界だけを保持し、product構想、改善候補、計画
 - 承認済み計画が要求する場合、安定候補に対するauthoritative `v0:gate`はcoordinating ownerが一回だけ
   実行する。失敗時はfocused確認で原因を特定し、再実行には具体的理由を必要とする。
 
+## Surface change verification
+
+- TUI Surfaceの変更（通常利用メモのS項目等）は、focused test、type check、format、lintに加えて、tmux上の
+  production TUIで実経路を確認してから完了とする。offline testだけでは表示・操作の実経路を保証できず、
+  過去にS関連の変更で複数の表示・操作bugを出している。
+- tmux確認は隔離XDGで行い、実configへ`default-selection.json`等を書かない。確認した操作と観測は
+  該当increment文書へ記録する。
+- 実provider callを伴う確認は、対象・回数・保存先を提示して利用者の明示承認を得てから行う。
+
 ## Continuation
 
 - Current resumption state is maintained only in [`.handoff/handoff.md`](.handoff/handoff.md). Do not
