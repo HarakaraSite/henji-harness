@@ -139,6 +139,19 @@ test件数は完了条件にしない。各testは上表のproduct動作へ対�
 - **`--latest`の前提**／**CLIエラー契約**／**removal網羅（`human_history_*`、README）**／**F10陳腐化**: 計画へ
   反映。F10の正本更新は別承認とする。
 
+## 参考: pi／zotのSession参照（`_refs/`）
+
+- **pi**（TypeScript、`_refs/pi`）: Sessionは`~/.pi/agent/sessions/<encoded-cwd>/`配下のappend-only JSONL tree。
+  CLIに`pi --export <file>`（HTML）、TUI slashに`/export`（HTML既定、`.jsonl`可）、`/import`、`/share`（secret
+  gist）、`/session`、`/tree`、`/fork`、`/clone`、`/resume`。専用viewerは持たず、JSONLを`jq`/`less`、HTMLを
+  browserで読む。
+- **zot**（Go、`_refs/zot`）: Sessionは`$ZOT_HOME/sessions/agents/<agent>/<timestamp>-<id>.jsonl`のJSONL。
+  CLIに`-c/--continue`、`-r/--resume`、`--session PATH`、`zot sessions prune`、`-p/--print`。専用viewerはなく、
+  TUIの`/sessions` picker＋ファイル直接読む。
+- **示唆**: pi/zotは保存形式がplain JSONLのため外部参照が自然に成立する。Henjiのv7はSQLiteで人間可読でないため、
+  別プロセス参照には`henji history` CLIが必要。piのCLI/TUI二系統export、zotの`-p/--print`は、本incrementの
+  `canonical`/`detail`の参考になる。一方、`session`（メインlog再現）に相当するものは両者に見当たらない。
+
 ## 未確認事項
 
 - `session` viewを`glow`で見たときの見やすさ（tool activity行とassistant Markdownの混在）。
