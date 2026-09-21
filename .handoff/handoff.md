@@ -399,6 +399,19 @@
 - 正本: `docs/increments/increment-98.md`。
 - 注意: list marker・table・見出し・強調の着色は維持。履歴ビュー（`/history`）は対象外。
 
+### Increment 99 — `/history`廃止と`henji history` CLI統一（S11/S12統合、計画・実装前）
+
+- 状態: **計画のみ**（利用者承認済み・実装前）。利用者判断で`/history`・`/history export`・
+  `/history export all`・pickerの`v`を廃止し、`henji history` CLIへ統一する。3種類の内容:
+  `session`（resume時のメインlog相当＝committed canonical turn、メインlog風label＋`toolActivityPreview`＋
+  生assistant Markdown）／`canonical`（既存Markdown export）／`detail`（既存JSONL export）。既定は
+  `--view session`・`--session --latest`・`--out`なしstdout、`--follow`なし。正本変更（roadmap F01／F05、
+  architectureの`/history export`段落）は利用者承認済み。
+- 次: 利用者判断後に実装開始。実装→focused test→tmux確認（メインlogとCLI出力）→`v0:gate`→commit／build／配置。
+- 正本: `docs/increments/increment-99.md`（計画）。inbox S11／S12は本計画へ採用し削除済み。
+- 注意: 実装はまだ開始していない。`/history` overlay削除に伴い`presentation` contractの`human_history_*`の
+  扱いを実装時に決める。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.3.0`。Increment 98変更を含むclean commit `fc81813d…`からDeno 2.9.7でbuildし、`dist/henji`と
