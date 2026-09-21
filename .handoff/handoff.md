@@ -394,15 +394,15 @@
 - 次: 利用者によるIncrement完了判断。
 - 運用: `AGENTS.md`へSurface変更検証ルールを追加（`af43fbe1`）。TUI Surface変更はtmux実経路確認を必須、
   実provider確認は承認必須。
-- 配置: commit `3a6d94bb`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
-  （build `8786ab42…`、source `3a6d94bb…`、SHA-256 `291b6bfa…`、embedded runtime `b5b908dd…`）。commit・push済み。
+- 配置: commit `fc81813d`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `e0472268…`、source `fc81813d…`、SHA-256 `6e2b0a8a…`、embedded runtime `b5b908dd…`）。commit・push済み。
 - 正本: `docs/increments/increment-98.md`。
 - 注意: list marker・table・見出し・強調の着色は維持。履歴ビュー（`/history`）は対象外。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 98変更を含むclean commit `3a6d94bb…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `8786ab42…`、file SHA-256 `291b6bfa…`、embedded runtime
+- binary: `0.3.0`。Increment 98変更を含むclean commit `fc81813d…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `e0472268…`、file SHA-256 `6e2b0a8a…`、embedded runtime
   `b5b908dd…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
