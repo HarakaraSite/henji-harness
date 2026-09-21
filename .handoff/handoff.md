@@ -429,14 +429,16 @@
 - 検証: focused test `tests/v0/increment_100_provider_deadline_test.ts`（2件、連続stream／stall）、
   `agent:provider-stream-compatibility:test` 20件、`deno check`／`fmt`／`lint`／`git diff --check`成功。
 - 次: 利用者によるIncrement完了判断。実provider確認は未実施（承認必要）。
+- 配置: commit `bc502317`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `beb10b8d…`、source `bc502317…`、SHA-256 `9d71c114…`、embedded runtime `254c7d67…`）。commit・push済み。
 - 正本: `docs/increments/increment-100.md`（原因・決定・修正・検証）。
 - 注意: 実provider callは利用者承認が必要。Increment 99とは別。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 99変更を含むclean commit `3679b16b…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `73e5a7ae…`、file SHA-256 `547415dd…`、embedded runtime
-  `9dab6947…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.3.0`。Increment 100変更を含むclean commit `bc502317…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `beb10b8d…`、file SHA-256 `9d71c114…`、embedded runtime
+  `254c7d67…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
