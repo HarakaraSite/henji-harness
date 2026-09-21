@@ -345,23 +345,24 @@
 ### Increment 96 — assistant Markdownの見出し全行着色と`***強調***`の緑化（実装・検証完了）
 
 - 状態: 実装・検証完了。会話ログのassistant本文で、Markdown見出し（`#`／`##`／`###`等）を`#`記号だけでなく
-  内容込みの行全体（折り返し継続行も）青へ、`***強調***`をボールドではなく緑（`emphasis` tone）へ変更した。
-  `**bold**`はボールドのまま。`v0/tui/assistant_layout.ts`（見出しspanの全行化、`***...***`検出、bold正規表現を
-  `(?<!\*)\*\*(?!\*)([^*]+)\*\*`へ変更）、`v0/tui/conversation_renderer.ts`（`emphasis` tone追加）、
-  `v0/tui/tui_renderer.ts`（`emphasis`→`GREEN_SGR`）。increment-84 layout testと
-  `tui_conversation_presentation_test.ts`の期待を新契約へ更新。authoritative `v0:gate`はexit 0。
+  内容込みの行全体（折り返し継続行も）青へ、強調`*`／`**`／`***`をいずれも緑（`emphasis` tone）へ変更した
+  （proseの強調にボールドは使わない）。`v0/tui/assistant_layout.ts`（見出しspanの全行化、triple/double/single
+  強調の検出、隣接star分離）、`v0/tui/conversation_renderer.ts`（`emphasis` tone追加）、`v0/tui/tui_renderer.ts`
+  （`emphasis`→`GREEN_SGR`）。初版は`***`のみ緑化したが、実際の出力の強調は`**`（2個）で、利用者の訂正により
+  3種すべてを緑とする最終契約へ更新した。increment-84 layout testと`tui_conversation_presentation_test.ts`の
+  期待を新契約へ更新。authoritative `v0:gate`はexit 0。
 - 次: 利用者によるIncrement完了判断。実TTY目視は未実施。
-- 配置: commit `ca7d46e7`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
-  （build `58e6f05b…`、source `ca7d46e7…`、SHA-256 `da474d68…`、embedded runtime `558e4f06…`）。commit・push済み。
+- 配置: commit `304ec0dc`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `729affd3…`、source `304ec0dc…`、SHA-256 `9c53f3e2…`、embedded runtime `1ba0e6f5…`）。commit・push済み。
 - 正本: `docs/increments/increment-96.md`。
-- 注意: 履歴ビュー（`/history`）とPresentation contractは不変。`*italic*`（single-star）は対象外。inbox S11／
+- 注意: 履歴ビュー（`/history`）とPresentation contractは不変。table header cellの`bold` toneは維持。inbox S11／
   S12（`/history`の可読性・別プロセス参照viewer）は未採用候補として記録済み。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 96変更を含むclean commit `ca7d46e7…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `58e6f05b…`、file SHA-256 `da474d68…`、embedded runtime
-  `558e4f06…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.3.0`。Increment 96変更を含むclean commit `304ec0dc…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `729affd3…`、file SHA-256 `9c53f3e2…`、embedded runtime
+  `1ba0e6f5…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
