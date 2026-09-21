@@ -23,6 +23,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
 | A8 | Agent実行 | OpenRouter Responses API経路 | 利用者希望（2026-09-17）。E1のProvider外部化と合わせて検討 |
+| A9 | Agent実行 | 外部integration依頼の調査順序（設定十分性→実装内部） | 同種の依頼で実装内部の先行調査・過剰委譲が再発する、またはinstruction改訂を採用するとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -30,6 +31,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E1 | 配布・外部化 | Agent Definition後のresource外部化 | 利用者希望（2026-09-17）のProvider外部化。A8と合わせて検討 |
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 | E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
+| E4 | 配布・外部化 | base instructionの簡易ロードとDefinitionとの扱い分離 | instruction文言を通常利用で頻繁に改訂したくなるとき、またはR4の対象を選ぶとき |
 
 ## Surface
 
@@ -177,6 +179,26 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   Responses transportを共通化する具体的なproduct上の利点が得られること。利用者希望によりE1のProvider外部化と
   合わせて採用を検討する。
 
+### A9 — 外部integration依頼の調査順序（instruction候補、未採用）
+
+- 観測（2026-09-21、通常利用）: Session `c7c7a106`のturn 13「プロバイダにopencode goを追加したい」と
+  同種のturn 15で、modelは`web_search`／公式docsの`web_fetch`と並行して実装内部（credential resolver、
+  transport/request/contract、`worker_physical_io.ts`、`loop.ts`、`worker_protocol.ts`等）を深く読み、
+  さらに`delegate_to_planner`で実装計画まで進めた。利用者は5〜7分でキャンセルし「何を調査している？」と
+  聞き返した。両turnは`turn_cancelled`／`non_canonical`で記録され、canonical turnは消費していない。
+- 利用者の期待（2026-09-21）: 先に(1) OpenCode Go APIを外部docsで確認し、(2) `providers/*.json`宣言だけで
+  足りるかを判定して報告する。実装内部は既存設定で不足する場合だけ調べる。
+- 現行境界: `v0/agent/instructions/henji_common.ts`の共通instructionは成果物の忠実性、tool結果の再利用、
+  credentialを規定するが、既存configuration/declarationの十分性を先に確認し最小十分な変更を選ぶ方針がない。
+  `v0/agent/instructions/roles/planner.ts`は"context needed for the task"のみで調査範囲が実質無制限。
+- 候補: 共通instructionへ、外部integration依頼ではofficial contractを先に取得し、既存configuration/
+  declaration/dataで満たせるかを先に判定し、実装内部はそれが不足する場合か利用者が明示した場合だけ調べる、
+  という段落を追加する。planner roleをsmallest-sufficientに限定する案も併せて比較する。
+- 再検討条件: 同種のintegration依頼で実装内部の先行調査・過剰委譲が再発すること、またはinstruction改訂
+  （R4）の対象を選ぶとき。
+- 正本候補: `v0/agent/instructions/henji_common.ts`、`v0/agent/instructions/roles/planner.ts`。
+- 関連: R4、E1、A6。
+
 ## F24・自己改訂
 
 ### R1 — 自己改訂対象の重心とagent loop境界
@@ -314,6 +336,24 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: provider timeout・tool限界・maxSteps既定を通常利用で調整したくなったとき、または別incrementで
   採用するとき。
 - 正本候補: `docs/roadmap.md` F06、`docs/architecture/henji-host-agent-worker.md`。
+
+### E4 — base instructionの簡易ロードとDefinitionとの扱い分離（未採用）
+
+- 観測（2026-09-21、通常利用）: `instruction:henji-base`のexternal revisionは`henji instruction install`と
+  `activate`でmanaged store（XDG data root）へpublishし、exact revision digestを固定して使う。一方`AGENTS.md`は
+  workspace rootから直接読み込まれ、installもdigest固定も不要である。利用者は、base instructionも`AGENTS.md`と
+  同様に簡単に読み込み・編集できるほうがよいかもしれないと考えている。
+- 利用者判断（2026-09-21）: Agent Definitionとinstructionは扱いを変える。Definitionは現行のinstall/exact
+  revision管理を維持し、instruction側の読み込み・改訂はより軽い経路を検討する。
+- 候補: base instructionの解決に、managed exact revisionだけでなくworkspace/user scopeの直接source
+  （`AGENTS.md`相当のinstruction file）から読む経路を加えるか、instruction固有の簡易な編集・有効化を設ける。
+  selection/activation authority、Definition-owned contributionとの合成順（baseは先頭）、execution attribution
+  （exact ref/content digest）、複数source競合時の扱いは採用時に決める。Definitionのrevision契約は変えない。
+- 再検討条件: instruction文言の改善（A9等）を通常利用で頻繁に行いたくなったとき、またはinstruction改訂（R4）
+  の対象と読み込み経路を選ぶとき。
+- 正本候補: `v0/agent/instructions/managed_instruction.ts`、`v0/agent/instructions/compose.ts`、
+  `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`。
+- 関連: E1、R4、A9、S4。
 
 ## 観測した不具合（未修正）
 

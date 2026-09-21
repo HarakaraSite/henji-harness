@@ -2,12 +2,35 @@
 
 ## Records
 
+### instruction改善候補 — 外部integration依頼の調査順序（未採用メモ）
+
+- 状態: Session `c7c7a106`のturn 13（「プロバイダにopencode goを追加したい」）とturn 15（同種）で、modelは
+  外部API調査と並行して実装内部（credential resolver、transport/request/contract、`worker_physical_io.ts`、
+  `loop.ts`、`worker_protocol.ts`等）を深く読み、`delegate_to_planner`で実装計画まで進めた。利用者は5〜7分で
+  キャンセル。共通instructionに「既存configuration/declarationで足りるかを先に判定し、実装内部は不足時だけ見る」
+  方針がない。利用者は2026-09-21に「帰宅するのでメモ」と判断（実装は未着手）。
+- 次: 採用するなら、共通instruction（`v0/agent/instructions/henji_common.ts`）への段落追加と、planner role
+  （`v0/agent/instructions/roles/planner.ts`）のsmallest-sufficient化を比較し、文言確定後に実装・rebuild・配置。
+- 正本: `docs/experience/normal-use-inbox.md` A9。
+- 関連メモ: base instructionのexternal revisionはinstall/activateが必要で`AGENTS.md`より重い。利用者は
+  「Definitionとinstructionは扱いを変え、instructionは`AGENTS.md`同様に簡単に読み込めるほうがよい」と
+  2026-09-21に判断（未採用）。`docs/experience/normal-use-inbox.md` E4。
+- 注意: 現在activeなbase instructionはbuilt-in（`~/.config/henji-harness/instruction/active-v1.json`なし）。
+  本handoff内の「active external revision `local/henji-base@sha256:82d67dd2…`」は現状と一致しない（別途確認）。
+
+### OpenCode Go API probe
+
+- 状態: Deno TypeScriptの一時probe（`/tmp/henji_opencode_go_probe.ts`）で、OpenCode Goの`GET /models`、Chat Completions、Responsesを各1回、利用者許可のもと実行。`/models`は200・37 model IDs、chatは`glm-5.3-flash`で200 SSE、Responsesは`grok-4.6`で200 SSEと`response.completed`を確認。key・Authorizationは出力／reportへ保存していない。
+- 次: Henjiへ追加する場合は、ChatとResponsesを別provider declarationに分け、`opencode-go-api-key` auth profile、`x-opencode-session`／User-Agent送信、current model catalogの更新を実装計画にする。現時点ではsource・provider JSONを変更しない。
+- 正本: `docs/research/opencode-go-api-probe.md`、OpenCode Go公式docs（`https://opencode.ai/docs/go/`）、probe report `/tmp/henji-opencode-go-probe-1789997131.json`
+- 注意: 公式docsの固定model route表と実`/models`の37件には差があり、未掲載modelのprotocolは未確認。chat probeは`max_tokens:32`で`finish_reason:length`となり、tool callは未検証。
+
 ### JSR 0.4.0 release preparation and Deno PATH
 
-- 状態: `jsr.json`を`@henji/harness` version `0.4.0`へ更新し、READMEと`mod.ts`のexact-version例も更新。JSR dry-runで判明した公開対象の欠落 `v0/agent/worker/worker_stage_probe.ts` を`publish.include`へ追加した。clean temporary worktreeで`deno publish --dry-run --config jsr.json`は`@henji/harness@0.4.0`として成功し、`deno task --config deno.v0.json v0:gate`もexit 0。変更は未commit・未publish。
-- 次: 変更内容を確認後、必要ならcommit/pushし、`docs/operations/jsr-publish.md`のclean worktree・認証手順で実publishする。
+- 状態: `@henji/harness@0.4.0`をclean release worktreeからpublish完了。Authorization successful、Successfully publishedを確認し、JSR metadataのlatestが`0.4.0`、exact-version importとexport列挙も成功。commit `da4b282d`はForgejo `origin/main`と一致。
+- 次: なし。
 - 正本: `jsr.json`、`README.md`、`mod.ts`、`docs/operations/jsr-publish.md`
-- 注意: Deno 2.9.7は既存の`/home/masat.guest/.local/bin/deno`から`/usr/local/bin/deno`へ配置し、`/usr/local/bin`（既存PATH）で`command -v deno`が成功する。実際のJSR publishとブラウザ認証は未実施。
+- 注意: Deno 2.9.7は既存の`/home/masat.guest/.local/bin/deno`から`/usr/local/bin/deno`へ配置し、`/usr/local/bin`（既存PATH）で`command -v deno`が成功する。publish transcriptは`/tmp/henji-jsr-publish-0.4.0.tty.log`に残る。
 
 ### 通常利用の改善 — Increment 69（実装完了: offline gate・binary配置・実provider probe受入済み）
 
