@@ -18,6 +18,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S9 | Surface | recovery laneの削除 | laneのブロッキング（submit・navigation不可）が通常利用で問題になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
+| S11 | Surface | `/history`の人間可読性とAI利用 | 通常利用で`/history`が読解しにくい、AIが過去historyを参照する必要が出るとき |
+| S12 | Surface | 別プロセスからのSession参照viewer | Henjiを終了せず別画面から履歴を参照・検索したい実例が得られるとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -109,6 +111,31 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   呼び出しUIを採用時に決める。
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01、S9。
+
+### S11 — `/history`の人間可読性とAI利用（F01、F05、F10）
+
+- 観測（2026-09-21、通常利用）: `/history`は人間にとって読解しにくい。表示がcontext／request／evidence／
+  artifact等の内部entry中心で、会話として読みにくい。加えてslash commandは人間入力専用のため、AI（Agent）は
+  `/history`を利用できない。詳細に分析する用途では`/history export`（JSONL）の方が適している。
+- 候補: `/history`の位置づけを再検討する。人間向けには会話・tool結果を中心とした読みやすいviewと検索、
+  AI向けにはmodel／toolから参照できるhistory read経路（A2のHost操作tool化と関連）を検討する。`/history export`は
+  詳細分析の正規経路として維持する。採用時にはread-only overlayの表示内容、検索、AIからの利用境界を決める。
+- 再検討条件: 通常利用で`/history`を開いても目的情報に辿り着けない、またはAIが過去historyを参照して作業する
+  必要が出るとき。
+- 関連: A2、S12、Increment 76（履歴ビュー）、`v0/tui/controller.ts`、`v0/agent/history/human_history.ts`。
+
+### S12 — 別プロセスからのSession参照viewer（F01、F05、F10）
+
+- 観測・メモ（2026-09-21、通常利用）: TUI内の参照モード（`/history`）を充実させるより、Henjiを動かしている
+  横の別ペイン（別プロセス／別Session）からSessionの内容を参照できる方がよいかもしれない。`/history export`
+  という明示的exportの発展系として、現在Sessionの中身を別プロセスから見る。検索は欲しい。
+- 候補: 稼働中Sessionのdurable historyを別プロセスから読むread-only viewを用意する。既存の`/history export`
+  を起点に、live追記tailまたはsnapshot、検索、read-only表示を検討する。読み取り元（v7 storeの直接read／
+  明示export file／read API）、同時writeとの整合、認可・credential境界、別Sessionと同一Sessionの扱い、
+  TUI内参照モード（S11）との責務分担を採用時に決める。
+- 再検討条件: 通常利用で、Henjiを終了せずに別画面から履歴を参照・検索したい実例が得られるとき。
+- 関連: S11、`/history export`（`v0/agent/history/human_history_export.ts`）、v7 history store、
+  [`increment-94.md`](../increments/increment-94.md)。
 
 ## Agent実行
 
