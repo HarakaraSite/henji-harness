@@ -392,17 +392,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   異なり、pickerで`unavailable`表示。exact revision契約による既知の挙動で、resume可否は別途扱う。
 - 正本: [`increment-75.md`](../increments/increment-75.md)。
 
-### B3 — PageUpで履歴先頭まで到達できない
-
-- 観測（2026-09-18）: PageUpによる履歴遡りが先頭まで届かず、Session `a75bd05`では2ページ目程度で止まる。
-- 利用者情報（2026-09-18）: 「再現したりしなかったりする」＝間欠的。常に止まるわけではない。
-- 確認（2026-09-18、increment-74）: Session `a75bd052`は2 turn・24 messageのみで、restored表示上限
-  （100 message／2 MiB）に未到達。表示上数画面で先頭に着くのは履歴量と整合し、欠落の決定的な証拠は
-  得られなかった。
-- 原因候補: history paginationの読み込み欠落、boundaryでの`history empty`／`history boundary`処理。
-- 対応: 再現には利用者側の具体的条件（どの画面・key・Session/履歴量・止まったときの見え方・間欠の条件）
-  が必要。B1/B2とは別として個別に扱う。
-
 ### B4 — 保存SessionのDefinition revision不一致でresumeできない
 
 - 観測（2026-09-18）: increment-75後、`/sessions`は開くが既存Sessionを選ぶと

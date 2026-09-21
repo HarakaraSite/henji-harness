@@ -452,6 +452,7 @@ const logRows = (
         entry.live ? 'streaming' : 'settled',
         bodyWidth,
       );
+      let sourceOffset = 0;
       lines.forEach((assistantLine, lineIndex) => {
         const prefix = lineIndex === 0 ? `${entry.label} ` : '';
         const shift = [...prefix].length;
@@ -463,12 +464,13 @@ const logRows = (
           text,
           kind: 'log',
           entryId: entry.id,
-          sourceScalarOffset: 0,
+          sourceScalarOffset: sourceOffset,
           ...(lineIndex === 0
             ? { labelScalarLength: labelWidth, labelTone: 'assistant' as const }
             : {}),
           ...(spans.length === 0 ? {} : { spans }),
         });
+        sourceOffset += [...text].length + 1;
       });
     } else {
       const projection = projectConversationEntry(entry);

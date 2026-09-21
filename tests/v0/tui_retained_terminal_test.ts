@@ -692,6 +692,45 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
 });
 
+Deno.test('retained PageDown advances through a large assistant entry after oldest', () => {
+  const terminal = new RecordingTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.resize(80, 10);
+  const body = Array.from({ length: 200 }, (_, index) => `- item ${index}`).join('\n');
+  renderer.eventSink({
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text: body } },
+  });
+  const assistantRows = renderer.layoutSnapshot(80, 10).allLog.filter((row) =>
+    row.entryId !== undefined
+  );
+  assert(assistantRows.length > 2, 'assistant entry did not span multiple rows');
+  for (let index = 1; index < assistantRows.length; index += 1) {
+    assert(
+      (assistantRows[index].sourceScalarOffset ?? 0) >
+        (assistantRows[index - 1].sourceScalarOffset ?? 0),
+      'assistant rows reuse the same source scalar offset',
+    );
+  }
+  for (let page = 0; page < 100; page += 1) {
+    if (renderer.stateSnapshot().scroll.kind === 'oldest') break;
+    renderer.scrollPage('up');
+  }
+  assertEquals(renderer.stateSnapshot().scroll, { kind: 'oldest' });
+  const starts: number[] = [];
+  for (let page = 0; page < 100; page += 1) {
+    renderer.scrollPage('down');
+    if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
+    starts.push(renderer.layoutSnapshot(80, 10).logStart);
+  }
+  assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
+  assert(starts.length > 1, 'PageDown stopped inside the assistant entry');
+  for (let index = 1; index < starts.length; index += 1) {
+    assert(starts[index] > starts[index - 1], 'PageDown did not advance monotonically');
+  }
+});
+
 Deno.test('startup header follows rename, session replacement, and terminal size', () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);

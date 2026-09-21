@@ -324,6 +324,21 @@
   fixtureの必須field不足だけでtype check停止し、fixture補正後の全体再実行はexit 0。実装commitは`7383daef`。
   配置済みbinaryはbuild `0c0f1f71…`、source `7383daef…`、SHA-256 `47335a0b…`で隔離XDG smoke成功。
 
+### Increment 95 — 会話ログのPageDownがassistant本文で停止する修正（実装・検証完了）
+
+- 状態: 実装・検証完了。保存Session再開後の会話ログで、PageUpで先頭へ到達後にPageDownしてもassistant本文で
+  停止し先へ進めない事象（利用者観測2026-09-21、inbox B3）を修正した。原因は`v0/tui/layout.ts`の`logRows`が
+  assistant entryの全行へ`sourceScalarOffset: 0`を固定し、`TuiRenderer.scrollPage`のアンカー探索
+  （`entryId`＋`sourceScalarOffset`）が常にentry先頭行へ解決されること。行ごとに単調増加するoffsetを付与した。
+  回帰test「retained PageDown advances through a large assistant entry after oldest」を
+  `tests/v0/tui_retained_terminal_test.ts`へ追加（修正を戻すと失敗、修正後pass）。実Session `e284da25`の
+  canonical transcript復元でも停止解消を確認。focused test 39件、`deno check`、`fmt`、`lint`、
+  `git diff --check`は成功。
+- 次: 利用者によるIncrement完了判断。binary rebuild／配置、実TTY目視、commit／pushは未実施。
+- 正本: `docs/increments/increment-95.md`。inbox B3は本incrementへ採用し削除済み。
+- 注意: 履歴ビュー（`/history`、pickerの`v`）は`wrap`経由で元から正常で変更していない。roadmap／architectureは
+  未変更。検証中に実stateへ作成した一時Sessionは削除済み（残存は`e284da25`／`db175b53`のみ）。
+
 ### 環境・配置（再開時の注意）
 
 - binary: `0.3.0`。Increment 94の通常review修正を含むclean commit `7383daef…`からDeno 2.9.6でbuildし、`dist/henji`と
