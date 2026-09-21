@@ -39,6 +39,17 @@ Increment 96（見出し全行着色と強調の緑化）、通常利用メモB3
 - increment-84 layout test 12件、`tui_retained_terminal_test.ts` 40件、`tui_conversation_presentation_test.ts`、
   `deno check`、`deno fmt --check`、`deno lint`、`git diff --check`は成功。
 
+### tmux確認（production TUI、2026-09-21）
+
+`AGENTS.md`のSurface変更検証ルールに従い、tmux（100x45）上のproduction TUIで確認した。
+
+- Session `e8e99332`を`/sessions`からresumeし、PageUpを繰り返すと`history rows 1-39/293`の先頭
+  （startup header表示）へ到達し、最下行へ戻らないことを確認。
+- assistant本文のinline code（`` `$1` ``／`` `$20` ``／`` `09` ``）とfenced code（``` ```awk ``` ```）が
+  無着色であること、見出しの青と強調の緑が維持されていることを最終frameで確認。
+- 注意: 隔離XDGコピー（`v1`のDB＋WALをコピー）ではresumeが`session resume failed`になったため、実stateを
+  read-onlyで使用した。隔離コピーはSQLiteのWAL整合が崩れる可能性があり、検証harnessの課題として残る。
+
 ## 対象外
 
 - list marker・table・見出し・強調の着色（維持）。

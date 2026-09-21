@@ -388,7 +388,12 @@
   `oldest`へ到達することを確認。回帰test「retained PageUp reaches oldest across the startup header」を
   `tui_retained_terminal_test.ts`へ、code無着色のtestを`increment_84_assistant_layout_test.ts`へ追加。
   authoritative `v0:gate`はexit 0。
-- 次: 利用者によるIncrement完了判断。実TTY目視は未実施。
+- tmux確認: 完了（production TUI 100x45、session `e8e99332`をresume）。PageUpで`history rows 1-39/293`の
+  先頭（startup header）へ到達、inline／fenced codeが無着色、見出し青・強調緑は維持。隔離XDGコピーは
+  resume不可（WAL整合）のため実stateをread-onlyで使用。
+- 次: 利用者によるIncrement完了判断。
+- 運用: `AGENTS.md`へSurface変更検証ルールを追加（`af43fbe1`）。TUI Surface変更はtmux実経路確認を必須、
+  実provider確認は承認必須。
 - 配置: commit `3a6d94bb`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
   （build `8786ab42…`、source `3a6d94bb…`、SHA-256 `291b6bfa…`、embedded runtime `b5b908dd…`）。commit・push済み。
 - 正本: `docs/increments/increment-98.md`。
