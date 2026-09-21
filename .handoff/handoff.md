@@ -361,11 +361,28 @@
 - 注意: 履歴ビュー（`/history`）とPresentation contractは不変。table header cellの`bold` toneは維持。inbox S11／
   S12（`/history`の可読性・別プロセス参照viewer）は未採用候補として記録済み。
 
+### Increment 97 — recovery laneの削除（S9採用、実装・検証完了）
+
+- 状態: 実装・検証完了。利用者がinbox S9（recovery laneの削除）を採用。recoverable settlementではeditorを
+  変更せず停止理由をstatusへ示し、recovery slotへ退避しない。再送は入力履歴（Up）。recovery待ちでも新taskの
+  submitとnavigationをブロックしない。`/recover` slash commandとhelp行、footerのrecovery lane表示を削除。
+  `pending_input.ts`（recovery slot／`recover*`／`hasRecovery`／side-effect warningを削除、`clearActiveTask`／
+  `clearSteering`追加、`snapshot`は4 laneのみ）、`controller.ts`（recoverable分岐、`popRecovery`、`/recover`、
+  `hasRecovery`ブロック除去、status文言）、`controller_editor.ts`（`recover()`削除）、`slash_command.ts`、
+  `startup_render.ts`、`editor_render.ts`、`layout.ts`。正本: architecture（recoverable settlement節）、
+  roadmap F01（`/recover`除去）。focused testと`deno check`／`fmt`／`lint`／`git diff --check`は成功。
+- 次: 利用者によるIncrement完了判断。実TTY目視は未実施。
+- 配置: commit `053b60b0`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `c28c32f3…`、source `053b60b0…`、SHA-256 `4d85043c…`、embedded runtime `fb680c75…`）。commit・push済み。
+- 正本: `docs/increments/increment-97.md`。inbox S9は採用し削除済み。
+- 注意: 未消費steering／follow-upの救済は対象外（必要時に別途設計）。decoderの`unknownAfterBareEscape`で
+  bare Esc直後の1回目のarrowがunknownになる挙動は既知で対象外。
+
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 96変更を含むclean commit `c3bfb157…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `3ff6f3c0…`、file SHA-256 `bf44b2c3…`、embedded runtime
-  `eeccc928…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.3.0`。Increment 97変更を含むclean commit `053b60b0…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `c28c32f3…`、file SHA-256 `4d85043c…`、embedded runtime
+  `fb680c75…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
