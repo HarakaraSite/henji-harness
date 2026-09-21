@@ -59,12 +59,28 @@ product動作は **B: total deadline（既定180秒）を維持し、確実に�
   `provider_timeout`をthrowする。timer starvationに依存しない。
 - `v0/agent/provider/openrouter_transport.ts`（chat経路）: 同じ脆弱性があるため、`deadlineExceeded`
   （`timedOut || Date.now() - startedAt >= timeoutMs`）を`readSseResponse`のtimeout predicateへ渡す。
+- `v0/agent/provider/openrouter_sse.ts`（`readSseResponse`）: 成功chunkごとに`isTimedOut()`を判定する
+  checkをloop先頭へ追加（従来はエラー/完了時にしか判定していなかった）。
 - timerはno-data（streamが止まる）場合のために維持する。
+
+## 同種箇所の監査
+
+「JSのloopが連続streamをmicrotaskで処理し、macrotask timerをstarveする」パターンをprovider/tool/Hostで確認した。
+
+- 修正済み: Responses（`openai_responses_model.ts`）、chat（`readSseResponse`／`openrouter_transport.ts`）。
+- 影響なし:
+  - `auxiliary_request.ts`: `response.arrayBuffer()`（JS stream loopなし。native readでevent loopは空く）。
+  - `web_fetch`（`readBoundedBody`）: `MAX_WEB_FETCH_BYTES`で有界。drip時は`await reader.read()`でyieldする。
+  - `bash`／`bash_output`: subprocess待ち。
+  - Host側timer（`worker_host_session`のobservation flush／settlement deadline、`worker_capsule`の起動timeout、
+    `worker_host_queue`のwaiter）: postMessageイベント（macrotask）駆動で、provider streamのmicrotask loopとは別。
+- 監査範囲はprovider/tool/Hostのproduction path。`v0/agent/validation/`のlauncherは対象外。
 
 ## 検証
 
-- focused test `tests/v0/increment_100_provider_deadline_test.ts`（2件、`v0:test`追加）:
-  - 連続stream（gapなし）で`timeoutMs: 500`が約500msで`provider_timeout`になること。
+- focused test `tests/v0/increment_100_provider_deadline_test.ts`（3件、`v0:test`追加）:
+  - Responsesの連続stream（gapなし）で`timeoutMs: 500`が約500msで`provider_timeout`になること。
+  - chat（`readSseResponse`）の連続streamでも同様に`provider_timeout`になること。
   - streamが停止（dataなし）でもtimerで`provider_timeout`になること。
 - `agent:provider-stream-compatibility:test` 20件、`deno check`、`deno fmt --check`、`deno lint`、
   `git diff --check`は成功。

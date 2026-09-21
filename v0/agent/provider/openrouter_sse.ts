@@ -620,6 +620,12 @@ export const readSseResponse = async (
   let result: ModelResult | undefined;
   try {
     for (;;) {
+      // A continuous stream keeps this loop in microtasks, which starves the macrotask deadline
+      // timer. Check the deadline on every chunk so the request cannot outlive it.
+      if (isTimedOut()) {
+        failure = providerTimeoutError();
+        break;
+      }
       let item: ReadableStreamReadResult<Uint8Array>;
       try {
         item = await reader.read();
