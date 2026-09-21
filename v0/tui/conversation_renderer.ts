@@ -3,7 +3,14 @@ import { type UiLogEntry } from './state.ts';
 export type ConversationLabelTone = 'user' | 'assistant' | 'tool' | 'system';
 
 /** Host-local inline style for a rendered assistant body line. */
-export type AssistantSpanTone = 'heading' | 'list' | 'code' | 'table' | 'quote' | 'bold';
+export type AssistantSpanTone =
+  | 'heading'
+  | 'list'
+  | 'code'
+  | 'table'
+  | 'quote'
+  | 'bold'
+  | 'emphasis';
 
 export interface AssistantSpan {
   readonly start: number;

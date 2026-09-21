@@ -106,8 +106,38 @@ Deno.test('Increment 84 marks bold and inline code spans', () => {
 Deno.test('Increment 84 marks heading and list markers', () => {
   const heading = markdownAssistantRenderer.render('## Title', 'settled', 40)[0];
   assert(
-    heading.spans.some((span) => span.tone === 'heading' && span.start === 0 && span.length === 2),
+    heading.spans.some((span) =>
+      span.tone === 'heading' && span.start === 0 && span.length === [...heading.text].length
+    ),
+    'heading span does not cover the whole line',
   );
   const list = markdownAssistantRenderer.render('- item', 'settled', 40)[0];
   assert(list.spans.some((span) => span.tone === 'list' && span.start === 0 && span.length === 1));
+});
+
+Deno.test('Increment 96 marks ***emphasis*** green and keeps **bold** bold', () => {
+  const [line] = markdownAssistantRenderer.render('a ***em*** and **bold**', 'settled', 40);
+  const chars = [...line.text];
+  const emphasis = line.spans.find((span) => span.tone === 'emphasis');
+  const bold = line.spans.find((span) => span.tone === 'bold');
+  assert(emphasis !== undefined, 'triple-star emphasis did not produce an emphasis span');
+  assert(bold !== undefined, 'double-star bold did not produce a bold span');
+  assert(chars.slice(emphasis.start, emphasis.start + emphasis.length).join('') === 'em');
+  assert(chars.slice(bold.start, bold.start + bold.length).join('') === 'bold');
+});
+
+Deno.test('Increment 96 colors the whole wrapped heading line', () => {
+  const lines = markdownAssistantRenderer.render(
+    '## alpha bravo charlie delta echo',
+    'settled',
+    14,
+  );
+  for (const line of lines) {
+    assert(
+      line.spans.some((span) =>
+        span.tone === 'heading' && span.start === 0 && span.length === [...line.text].length
+      ),
+      `heading line not fully colored: ${line.text}`,
+    );
+  }
 });

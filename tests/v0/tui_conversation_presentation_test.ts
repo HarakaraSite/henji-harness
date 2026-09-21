@@ -561,7 +561,7 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
     turn: 1,
     message: {
       role: 'assistant',
-      content: { kind: 'text', text: '## Title\n\n**bold** text' },
+      content: { kind: 'text', text: '## Title\n\n**bold** text ***em***' },
     },
   });
   const layout = renderer.layoutSnapshot(80, 24);
@@ -571,8 +571,9 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
   );
   assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'bold')));
   const frame = renderer.renderFrame(80, 24);
-  assert(frame.includes('\x1b[34m##\x1b[0m Title'));
+  assert(frame.includes('\x1b[34m## Title\x1b[0m'));
   assert(frame.includes('\x1b[1mbold\x1b[0m'));
+  assert(frame.includes('\x1b[32mem\x1b[0m'));
 });
 
 Deno.test('conversation footer shows the Session title on the session row', () => {

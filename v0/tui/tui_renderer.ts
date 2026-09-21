@@ -79,6 +79,7 @@ const SPAN_SGR: Record<AssistantSpanTone, string> = {
   table: DIM_SGR,
   quote: MAGENTA_SGR,
   bold: BOLD_SGR,
+  emphasis: GREEN_SGR,
 };
 
 const renderLayoutRow = (row: LayoutRow): string => {

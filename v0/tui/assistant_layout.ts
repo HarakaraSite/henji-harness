@@ -105,11 +105,19 @@ const wrapHanging = (body: string, firstWidth: number, indent: string): string[]
 const scalarOffset = (text: string, codeUnitIndex: number): number =>
   scalarLength(text.slice(0, codeUnitIndex));
 
-/** Inline `**bold**` and `` `code` `` spans over the inner text. */
+/** Inline `***emphasis***`, `**bold**`, and `` `code` `` spans over the inner text. */
 const inlineSpans = (text: string): AssistantSpan[] => {
   const spans: AssistantSpan[] = [];
-  const bold = /\*\*([^*]+)\*\*/g;
   let match: RegExpExecArray | null;
+  const emphasis = /\*\*\*([^*]+)\*\*\*/g;
+  while ((match = emphasis.exec(text)) !== null) {
+    spans.push({
+      start: scalarOffset(text, match.index) + 3,
+      length: scalarLength(match[1]),
+      tone: 'emphasis',
+    });
+  }
+  const bold = /(?<!\*)\*\*(?!\*)([^*]+)\*\*/g;
   while ((match = bold.exec(text)) !== null) {
     spans.push({
       start: scalarOffset(text, match.index) + 2,
@@ -343,15 +351,8 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       const prefixCells = cells(prefix);
       const parts = wrapCells(heading[2].trimEnd(), Math.max(1, limit - prefixCells));
       parts.forEach((part, partIndex) => {
-        if (partIndex === 0) {
-          out.push(line(`${prefix}${part}`, [
-            { start: 0, length: heading[1].length, tone: 'heading' },
-            ...shiftSpans(inlineSpans(part), scalarLength(prefix)),
-          ]));
-        } else {
-          const indent = spaces(prefixCells);
-          out.push(line(`${indent}${part}`, shiftSpans(inlineSpans(part), scalarLength(indent))));
-        }
+        const text = partIndex === 0 ? `${prefix}${part}` : `${spaces(prefixCells)}${part}`;
+        out.push(line(text, [{ start: 0, length: scalarLength(text), tone: 'heading' }]));
       });
       index += 1;
       continue;
