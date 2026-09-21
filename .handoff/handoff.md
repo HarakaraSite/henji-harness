@@ -399,7 +399,7 @@
 - 正本: `docs/increments/increment-98.md`。
 - 注意: list marker・table・見出し・強調の着色は維持。履歴ビュー（`/history`）は対象外。
 
-### Increment 99 — `/history`廃止と`henji history` CLI統一（S11/S12統合、計画・実装前）
+### Increment 99 — `/history`廃止と`henji history` CLI統一（S11/S12統合、実装・検証完了）
 
 - 状態: **実装・検証完了**。利用者判断で`/history`・`/history export`・`/history export all`・pickerの`v`を廃止し、
   `henji history` CLIへ統一した。3種類: `session`（resume時のメインlog相当＝committed canonical turn、
@@ -417,6 +417,19 @@
 - 正本: `docs/increments/increment-99.md`（実装結果・検証を記載）。inbox S11／S12は本計画へ採用し削除済み。
 - 注意: `DenoHistoryExporter`／`DenoHumanHistoryExporter`クラスは残置（production未使用）。non-canonicalの
   人間可読viewは将来項目。F10の陳腐化更新は別承認。
+
+### Increment 100 — provider request deadlineが実streamで発火しない問題（計画・利用者判断待ち）
+
+- 状態: **計画のみ**。session `e8e99332` turn 6でroot provider requestが約690秒in flight、180秒のprovider
+  deadlineが発火せず、利用者のEsc cancel→5秒後escalation→`interrupted`/non_canonical。curl実測では同prompt/
+  transcriptで`deepseek/deepseek-v4.1-flash`は43s〜>900s（timeout、stream中）、`openai/gpt-5.6-luna`は約50sで
+  安定。providerの遅さ/ばらつきは事実だが、Henjiのdeadlineが実streamで発火しないのは別問題。ローカルの
+  無限SSEでは`timeoutMs`通り`provider_timeout`へabortすることを確認済み。原因仮説はWorkerのtimer starvation、
+  abort伝播不全、別stall（Increment 92同型）。
+- 次: 利用者がproduct動作（長いreasoningを許容するか、total deadlineを維持するか）を決定した後、計装＋
+  実provider再現（承認必要）で原因確定し修正。
+- 正本: `docs/increments/increment-100.md`（計画）。
+- 注意: 実provider callは利用者承認が必要。Increment 99とは別。
 
 ### 環境・配置（再開時の注意）
 
