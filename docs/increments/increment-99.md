@@ -146,8 +146,10 @@ test件数は完了条件にしない。各testは上表のproduct動作へ対�
   行わない。`#db()`もread-only接続を返す。既存の`listWorker`／`readWorker`／`streamHumanHistoryExport`を
   read-onlyで再利用する（単一接続・read-only snapshot）。
 - **CLI**: `v0/agent/cli/history_cli.ts`（`henji history [--session <id>|--latest] [--view session|canonical|detail]`、
-  既定`session`／`--latest`、stdoutのみ、`# session <id>`はstderrへ）。`henji_cli.ts`へ`history` subcommandを追加。
-  DB無しは`# no history`でexit 0。エラーは他subcommandと同じ`{ok:false,error:{code}}`。
+  既定`session`／`--latest`、stdoutのみ、`# session <id>`はstderrへ）。`--session`は完全UUIDまたはTUI表示の
+  8文字hex短縮IDのprefixを受け付け、`listWorker()`で一意に解決する（不一致／曖昧はエラー）。`henji_cli.ts`へ
+  `history` subcommandを追加。DB無しは`# no history`でexit 0。エラーは他subcommandと同じ
+  `{ok:false,error:{code}}`。
 - **出力**: `v0/agent/history/history_view.ts`の`renderSessionView`（メインlog形式、`tool>`へ結果を畳み込み
   `tool<`なし、turn間に空行）と`renderCanonicalView`（`history_export.ts`へ追加した`renderHistoryMarkdown`を再利用）。
   `detail`は`streamHumanHistoryExport`をJSONLとしてstdoutへ。`canonical`はlive startup stateを持たないため
@@ -165,8 +167,8 @@ test件数は完了条件にしない。各testは上表のproduct動作へ対�
 
 - focused test `tests/v0/increment_99_history_cli_test.ts`（4件、`v0:test`追加）: session viewの形（`tool<`なし）、
   canonical Markdown、args parse、read-onlyが空workspaceでDBを作らないこと。
-- 実stateをread-onlyで実行: `henji history --latest --view session|canonical|detail`、`--session <id>`、
-  空XDGで`# no history` exit 0 を確認。
+- 実stateをread-onlyで実行: `henji history --latest --view session|canonical|detail`、`--session <完全UUID>`、
+  `--session e8e99332`（短縮ID prefix）、空XDGで`# no history` exit 0 を確認。
 - tmux確認（source TUI、隔離XDG）: `/history`・`/history export`が`unknown command`、session pickerに`v`表示がなく
   `v`で履歴が開かないこと。メインlogのPageUpは本incrementで未変更（Increment 98で確認済み）。
 - authoritative `v0:gate` exit 0。

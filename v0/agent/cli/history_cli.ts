@@ -4,11 +4,14 @@ import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_pro
 import { renderCanonicalView, renderSessionView } from '../history/history_view.ts';
 
 const encoder = new TextEncoder();
+/** Full UUID or a hex short-id prefix as shown by the TUI footer / session picker. */
+const SESSION_REF = /^[0-9a-f][0-9a-f-]{7,}$/iu;
+const isFullSessionId = (value: string): boolean => isSessionId(value);
 
 type HistoryView = 'session' | 'canonical' | 'detail';
 
 interface HistoryCliCommand {
-  readonly sessionId?: string;
+  readonly sessionRef?: string;
   readonly latest: boolean;
   readonly view: HistoryView;
 }
@@ -16,7 +19,7 @@ interface HistoryCliCommand {
 class HistoryCliInvocationError extends Error {}
 
 export const parseHistoryArgs = (args: readonly string[]): HistoryCliCommand => {
-  let sessionId: string | undefined;
+  let sessionRef: string | undefined;
   let latest = false;
   let view: HistoryView = 'session';
   for (let index = 0; index < args.length; index += 1) {
@@ -27,8 +30,8 @@ export const parseHistoryArgs = (args: readonly string[]): HistoryCliCommand => 
     }
     if (flag === '--session') {
       const value = args[index + 1];
-      if (value === undefined || !isSessionId(value)) throw new HistoryCliInvocationError();
-      sessionId = value;
+      if (value === undefined || !SESSION_REF.test(value)) throw new HistoryCliInvocationError();
+      sessionRef = value;
       index += 1;
       continue;
     }
@@ -43,8 +46,8 @@ export const parseHistoryArgs = (args: readonly string[]): HistoryCliCommand => 
     }
     throw new HistoryCliInvocationError();
   }
-  if (sessionId !== undefined && latest) throw new HistoryCliInvocationError();
-  return { ...(sessionId === undefined ? {} : { sessionId }), latest, view };
+  if (sessionRef !== undefined && latest) throw new HistoryCliInvocationError();
+  return { ...(sessionRef === undefined ? {} : { sessionRef }), latest, view };
 };
 
 const writeStdout = async (text: string): Promise<void> => {
@@ -108,13 +111,27 @@ export const main = async (args: readonly string[]): Promise<number> => {
     await writeStderr('history read failed\n');
     return 1;
   }
-  let sessionId = command.sessionId;
+  let sessionId = command.sessionRef;
   if (sessionId === undefined) {
     try {
-      const listing = await store.listWorker();
-      sessionId = listing.sessions[0]?.id;
+      sessionId = (await store.listWorker()).sessions[0]?.id;
     } catch {
       await writeStderr('history read failed\n');
+      return 1;
+    }
+  } else if (!isFullSessionId(sessionId)) {
+    try {
+      const prefix = sessionId.toLowerCase();
+      const matches = (await store.listWorker()).sessions.filter((entry) =>
+        entry.id.startsWith(prefix)
+      );
+      sessionId = matches.length === 1 ? matches[0].id : undefined;
+    } catch {
+      await writeStderr('history read failed\n');
+      return 1;
+    }
+    if (sessionId === undefined) {
+      await writeStderr('history session not found or ambiguous\n');
       return 1;
     }
   }

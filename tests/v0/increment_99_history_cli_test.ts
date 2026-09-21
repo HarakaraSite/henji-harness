@@ -90,7 +90,12 @@ Deno.test('Increment 99 history args default to session/latest-free and reject b
     view: 'detail',
   });
   assertEquals(parseHistoryArgs(['--session', sessionId]), {
-    sessionId,
+    sessionRef: sessionId,
+    latest: false,
+    view: 'session',
+  });
+  assertEquals(parseHistoryArgs(['--session', 'e8e99332']), {
+    sessionRef: 'e8e99332',
     latest: false,
     view: 'session',
   });
