@@ -1022,3 +1022,21 @@ standalone binaryをbuildした。`dist/henji`と`~/.local/bin/henji`を同一ar
 `2a20a3cfe4c26f97729508f28af7c6e492159998042829c083b8d19aeb0d36d5`である。installed binaryは隔離XDG／空workspaceで
 `sessions list`を完了した。VMの既定Deno 2.9.7は変更していない。実provider callと既存の実利用Sessionによる再確認は
 行っていない。Human Gate 4のIncrement完了判断は引き続き利用者に残す。
+
+## Human Gate 4前の実provider実利用確認（2026-09-21）
+
+配置済みbinaryで作成された実provider Session `e284da25-a834-4c38-bb6e-c3dbb8803b9f`をread-onlyで確認した。
+1 turnのexecutionは`settled/completed/canonical`で、未解決mandatory relation、projection backlog、foreign key違反は
+いずれも0、SQLite `quick_check`は`ok`だった。8 canonical messageにはuser 1件、assistant 4件、tool 3件があり、
+tool call／result各7件と最終応答を保持していた。
+
+Workerの3,000 runtime eventに対してsemantic occurrenceは37件で、6 model requestはcontext／provider observation各6件、
+contextは20 occurrence／20 immutable content（138,873 bytes）へ正規化されていた。model request payloadへの
+`bytesBase64` inline格納はなく、最大payloadは3,134 bytesだった。commit transcriptはtop-levelに一度だけ保存され、
+`outcome.transcript`は空、normal artifactのprotocol trace、diagnostic attachment、`history_projection_entries`は
+いずれも0だった。human history 76件と対象outboxはすべてprojection済みである。
+
+このSessionではproductionの実provider／tool経路でv7の正規化、single-copy transcript、normal capture分離、atomic
+settlement、human projectionが成立した。1 turnの観測だけでは長期Sessionの処理量契約を追加実証しないため、利用者は
+常用を続け、具体的な利用上の観測が生じた時点で次の改善要否を判断する。Human Gate 4のIncrement完了判断は引き続き
+利用者に残す。

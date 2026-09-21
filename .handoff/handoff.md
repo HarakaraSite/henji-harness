@@ -298,7 +298,7 @@
   再発せず、provider evidence／exact bytesはcomplete。commit、push、releaseは未実施。concept、architecture、roadmap
   は変更していない。`reproductions/deno-worker-sqlite-wake/`は撤回したDeno仮説の調査遺物。
 
-### Increment 94 — 目的別history authorityの再設計（history v7、Human Gate 4待ち）
+### Increment 94 — 目的別history authorityの再設計（history v7、常用観測中・Human Gate 4待ち）
 
 - 状態: Human Gate 3で利用者承認を得てSlice Gのproduction破壊的cutoverを実施した。production selector、Session／
   diagnostic CLI、production E2E layoutは`history-v7.sqlite3`／`locks-v7`だけを使い、production module graphから
@@ -310,12 +310,16 @@
   relation／manifest欠落を確認し修正した。terminalとsettlementは単一transaction、projectionはmetadata-onlyかつ
   execution単位cache、relation counterはdelta更新、human pageはcontext／request／diagnostic locatorとstale件数を
   表示し、exportはsemantic relation／context manifest／recall relationを含む。focused regression 21件と関連test、
-  authoritative `v0:gate`は通過済み。旧v6 DB／lockは変更していない。
-- 次: 配置済みbinaryで実provider Sessionの容量・backlog・readbackを必要に応じて再確認する。Human Gate 4のIncrement
-  完了判断は利用者が行う。
+  authoritative `v0:gate`は通過済み。配置済みbinaryの実provider Session `e284da25`もread-onlyで確認し、1 turn／
+  3,000 runtime eventを37 semantic occurrenceへ保存、context 20件をimmutable contentへ正規化、inline blobなし、
+  transcript single-copy、normal trace／diagnostic attachment／未使用projectionなし、backlog 0、settlement・canonical
+  adoption・SQLite integrity正常を確認した。旧v6 DB／lockは変更していない。
+- 次: 利用者がv7を常用し、具体的な利用上の観測が生じたら通常利用メモまたは新incrementへの採否を判断する。
+  Human Gate 4のIncrement完了判断は利用者が行う。
 - 正本: `docs/increments/increment-94.md`（Slice A〜Gの実装結果、計測、Go判断、未確認範囲）。
 - 注意: v7は`history-v7.sqlite3`／`locks-v7`を使い、v6 migration、dual-read/write、fallbackを作らない。
-  Human Gate 2は未発動で実provider diagnostic E2Eは未確認。通常review修正後のauthoritative `v0:gate`初回は追加test
+  Human Gate 2は未発動で実provider diagnostic E2Eは未確認。今回確認した`e284da25`は`normal-v1`の1 turnであり、
+  長期Sessionの処理量契約を単独で追加実証するものではない。通常review修正後のauthoritative `v0:gate`初回は追加test
   fixtureの必須field不足だけでtype check停止し、fixture補正後の全体再実行はexit 0。実装commitは`7383daef`。
   配置済みbinaryはbuild `0c0f1f71…`、source `7383daef…`、SHA-256 `47335a0b…`で隔離XDG smoke成功。旧v6 DBの削除と
   releaseは未許可。
@@ -325,7 +329,8 @@
 - binary: `0.3.0`。Increment 94の通常review修正を含むclean commit `7383daef…`からDeno 2.9.6でbuildし、`dist/henji`と
   `~/.local/bin/henji`へ原子的に配置済み（build `0c0f1f71…`、file SHA-256 `47335a0b…`、embedded runtime
   `2a20a3cf…`）。build用Deno 2.9.6は公式release artifactのchecksumを検証して一時利用し、VMの既定Deno 2.9.7は
-  変更していない。現在のbuild/source identityは`~/.local/bin/henji --version`を正本とする。
+  変更していない。利用者判断により、次回以降のbuildはDeno 2.9.7を前提とし、2.9.6固定を維持しない。現在の
+  build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
