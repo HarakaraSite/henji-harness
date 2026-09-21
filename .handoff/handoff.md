@@ -313,9 +313,9 @@
   authoritative `v0:gate`は通過済み。配置済みbinaryの実provider Session `e284da25`もread-onlyで確認し、1 turn／
   3,000 runtime eventを37 semantic occurrenceへ保存、context 20件をimmutable contentへ正規化、inline blobなし、
   transcript single-copy、normal trace／diagnostic attachment／未使用projectionなし、backlog 0、settlement・canonical
-  adoption・SQLite integrity正常を確認した。その後利用者がHuman Gate 4でIncrement完了を承認し、旧v6 DBの削除を
-  明示許可した。workspace `967fa641…`の`history-v6.sqlite3`（-wal／-shm）と`locks-v6`を削除した（v4／v5は指示外
-  のため残置、releaseは未実施）。
+  adoption・SQLite integrity正常を確認した。その後利用者がHuman Gate 4でIncrement完了を承認し、旧v6／v4／v5 DBの
+  削除を明示許可した。state treeから`history-v4.sqlite3`／`history-v5.sqlite3`／`history-v6.sqlite3`（各-wal／-shm）
+  と`locks-v4`／`locks-v5`／`locks-v6`を削除した（releaseは未実施）。
 - 次: なし。v7常用で具体的な利用上の観測が生じたら通常利用メモまたは新incrementへの採否を判断する。
 - 正本: `docs/increments/increment-94.md`（Slice A〜Gの実装結果、計測、Go判断、未確認範囲、完了・旧DB削除）。
 - 注意: v7は`history-v7.sqlite3`／`locks-v7`を使い、v6 migration、dual-read/write、fallbackを作らない。
@@ -341,8 +341,8 @@
 - 検証の注意: TUI/pty検証は**隔離XDG**で行い、実configへ`default-selection.json`等を書かない。
 - Git tagとForgejo Releaseは未作成。現行JSR release手順はtag不要で、別のrepository release policyもない。
   release automation（CIでのbinary build等）は未実装。
-- 履歴DB: productionは`history-v7.sqlite3`／`locks-v7`のみ。このrepo workspace（state root
-  `v1/967fa641…`）の`history-v6.sqlite3`（-wal／-shm）と`locks-v6`はIncrement 94完了時に利用者許可を得て削除済み。
-  `history-v4.sqlite3`／`history-v5.sqlite3`と`locks-v4`／`locks-v5`は指示外のため残置。他workspaceの旧state DBは
-  旧chat evidenceを含むとreadbackが失敗するため、必要時に同様に切捨てる。
+- 履歴DB: productionは`history-v7.sqlite3`／`locks-v7`のみ。Increment 94完了時に利用者許可を得て、state treeの
+  `history-v4.sqlite3`／`history-v5.sqlite3`／`history-v6.sqlite3`（各-wal／-shm）と`locks-v4`／`locks-v5`／
+  `locks-v6`を削除済み。`v1/2f08a24c…`のversioned以前の`history.sqlite3`（-wal／-shm）は残置。他workspaceの旧
+  state DBは旧chat evidenceを含むとreadbackが失敗するため、必要時に同様に切捨てる。
 - active external revision: `local/henji-base@sha256:82d67dd2…`。
