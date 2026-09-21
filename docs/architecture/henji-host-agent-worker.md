@@ -82,9 +82,10 @@
 - evidence appendとcanonical adoptionは別operationである。append acknowledgementはobject、segment、directory、anchor、
   execution ledgerのatomic commit後だけ返し、adoptionはsettled execution root／terminalとSession base revisionを
   一transactionで照合・更新する。
-- 人間向けhistory viewはcanonical/non-canonical双方へ到達できる方向を保つ。modelが過去executionから
-  既定で引き継ぐconversationはcanonicalに限定し、現在execution内の文脈と人間が明示したprojectionは
-  別の入力として扱う。Surface上のrendererとmodel context projectionは別責務である。
+- 人間向けhistory viewは、canonicalはメインlogのPageUpと別プロセスの`henji history` CLI（`session`／
+  `canonical`）、non-canonicalは`detail` JSONLで参照できる。modelが過去executionから既定で引き継ぐ
+  conversationはcanonicalに限定し、現在execution内の文脈と人間が明示したprojectionは別の入力として扱う。
+  Surface上のrendererとmodel context projectionは別責務である。
 - executionは、その判断に関与したAgent側の基底設定と相関できなければならない。このattributionは
   過去Worker、外部状態、tool effect、model内部状態の再現またはreplayを保証しない。
 
@@ -474,11 +475,10 @@ conversationの`user>`、settledした`assistant>`、`tool>`、`system>`のlabel
 TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは入力textをそのまま返すため、
 streamingとsettled outputの内容を変更しない。
 
-`/history export`は現在bindingのcommit済みcanonical transcriptをHost側で同期的にsnapshotし、既存の
-workspace別state root配下へMarkdownを新規保存するHost-local operationである。表示中のbounded viewport、
-active response、draft、TUI-local noticeはsourceにしない。export中は通常task、Session切替、重複exportを
-直列化し、shutdownはwrite settlementを待つ。typed Presentation intent/resultはcommandとbounded receiptだけを
-運び、transcriptやstorage handleをWorker protocolへ追加しない。
+`henji history`は別プロセスのread-only viewerである。v7 storeをread-onlyで開き（schema作成・reconcile・lockを
+行わない）、単一read transactionで対象Sessionのcanonical transcriptまたはdurable historyを読み、`session`／
+`canonical`／`detail`の3種類をstdoutへ出力する。TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
+redirectに任せる。TUI内のhistory overlayと`/history export`は持たない。
 
 同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
 revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は

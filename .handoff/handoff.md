@@ -401,18 +401,18 @@
 
 ### Increment 99 — `/history`廃止と`henji history` CLI統一（S11/S12統合、計画・実装前）
 
-- 状態: **計画のみ**（利用者承認済み・実装前、独立サブエージェントの通常／批判review反映済み・双方
-  Conditional Go）。利用者判断で`/history`・`/history export`・`/history export all`・pickerの`v`を廃止し、
-  `henji history` CLIへ統一する。3種類: `session`（resume時のメインlog相当＝committed canonical turn、
+- 状態: **実装・検証完了**。利用者判断で`/history`・`/history export`・`/history export all`・pickerの`v`を廃止し、
+  `henji history` CLIへ統一した。3種類: `session`（resume時のメインlog相当＝committed canonical turn、
   `user>`／`assistant>`／`tool>`label、tool結果は`tool>`へ畳み込み`tool<`なし、生assistant Markdown）／
-  `canonical`（Markdown）／`detail`（JSONL、non-canonical含む）。既定は`--view session`・`--session --latest`。
-  **`--out`は持たずstdoutのみ**（ファイルは`> file`）。`--follow`なし、組み込み検索なし（viewer検索で代替）。
-  review反映で、出力sink分離（exporterはstdout非対応）、read-only seam、単一snapshot read、空DBは「履歴なし」
-  exit 0、F05を部分実装へ、architecture更新、を計画に追加。正本変更（roadmap F01／F05、architecture）は
-  利用者承認済み。F10の陳腐化は別承認。
-- 次: 利用者判断後に実装開始。実装→focused test→tmux確認（メインlogとCLI出力）→`v0:gate`→commit／build／配置。
-- 正本: `docs/increments/increment-99.md`（計画、review結果と対応を記載）。inbox S11／S12は本計画へ採用し削除済み。
-- 注意: 実装はまだ開始していない。単一snapshot readが複雑なら`detail`を後続へ外す簡素化案を計画に併記。
+  `canonical`（Markdown）／`detail`（JSONL、non-canonical含む）。既定は`--view session`・`--session --latest`、
+  **stdoutのみ**（ファイルは`> file`）、`--follow`なし、組み込み検索なし（viewer検索で代替）。read-only seam
+  （`readOnly` option、schema作成・reconcile・lockなし）、単一snapshot read、空DBは`# no history` exit 0。
+  TUIはhumanHistory overlay／export／picker `v`／presentation contractの`human_history_*`を削除。正本
+  （roadmap F01／F05、architecture）更新済み。`v0:gate` exit 0。
+- 次: 利用者によるIncrement完了判断。binary build／配置は未実施。
+- 正本: `docs/increments/increment-99.md`（実装結果・検証を記載）。inbox S11／S12は本計画へ採用し削除済み。
+- 注意: `DenoHistoryExporter`／`DenoHumanHistoryExporter`クラスは残置（production未使用）。non-canonicalの
+  人間可読viewは将来項目。F10の陳腐化更新は別承認。
 
 ### 環境・配置（再開時の注意）
 
