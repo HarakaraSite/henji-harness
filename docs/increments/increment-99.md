@@ -93,8 +93,8 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
 
 - slash command一覧から`/history`・`/history export`・`/history export all`を削除する。
 - 「`/history export`はcurrent bindingのcommit済みcanonical transcriptを…保存する」の文を削除する。
-- 参照はメインlogのPageUpと、別ペインの`henji history` CLI（`session`／`canonical`／`detail`、stdout／
-  `--out`）で行う旨を追記する。
+- 参照はメインlogのPageUpと、別ペインの`henji history` CLI（`session`／`canonical`／`detail`、stdout）で
+  行う旨を追記する。
 
 ### roadmap F05
 
@@ -130,7 +130,7 @@ test件数は完了条件にしない。各testは上表のproduct動作へ対�
 通常reviewと批判的reviewを実施し、双方 `Conditional Go`。主な指摘と対応:
 
 - **検索の喪失**: 利用者判断で組み込み検索は持たず、viewer側検索に代替。F05/F01文言を修正。
-- **exporterがstdout／`--out`非対応**: 出力sinkを分離する計画へ変更。
+- **exporterがstdout非対応**: 出力sinkを分離する計画へ変更。
 - **非canonical人間可読経路の喪失**: F05を部分実装へ下げ、architectureを更新。必要時に別途。
 - **atomic snapshot**: 単一read-only接続で読む計画へ変更。簡素化案を併記。
 - **read-only seamと空DB**: seam追加と「履歴なし」exit 0を計画へ追加。
