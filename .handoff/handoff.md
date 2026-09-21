@@ -343,6 +343,6 @@
   release automation（CIでのbinary build等）は未実装。
 - 履歴DB: productionは`history-v7.sqlite3`／`locks-v7`のみ。Increment 94完了時に利用者許可を得て、state treeの
   `history-v4.sqlite3`／`history-v5.sqlite3`／`history-v6.sqlite3`（各-wal／-shm）と`locks-v4`／`locks-v5`／
-  `locks-v6`を削除済み。`v1/2f08a24c…`のversioned以前の`history.sqlite3`（-wal／-shm）は残置。他workspaceの旧
-  state DBは旧chat evidenceを含むとreadbackが失敗するため、必要時に同様に切捨てる。
+  `locks-v6`を削除済み。さらにversioned以前の`history.sqlite3`（-wal／-shm）も利用者許可を得て削除し、現在のstate
+  DBはv7のみ。他workspaceの旧state DBは旧chat evidenceを含むとreadbackが失敗するため、必要時に同様に切捨てる。
 - active external revision: `local/henji-base@sha256:82d67dd2…`。

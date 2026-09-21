@@ -1044,9 +1044,9 @@ settlement、human projectionが成立した。1 turnの観測だけでは長期
 ## Increment完了と旧v6 DB削除（2026-09-21）
 
 利用者がHuman Gate 4でIncrement完了を承認した。本計画の「対象外」「旧DBの削除」「旧DBは保持される」は計画時点の
-方針であり、今回の完了判断と合わせて、利用者が別途旧v6／v4／v5 DBの削除を明示許可した。
+方針であり、今回の完了判断と合わせて、利用者が別途旧DBの削除を明示許可した。
 
 henji state tree（`~/.local/state/henji-harness`）から、`history-v4.sqlite3`、`history-v5.sqlite3`、
-`history-v6.sqlite3`と各`-wal`／`-shm`、および`locks-v4`／`locks-v5`／`locks-v6`を削除した。v7の
-`history-v7.sqlite3`／`locks-v7`は変更していない。versioned以前の`v1/2f08a24c…/history.sqlite3`（-wal／-shm）は
-削除指示の対象外のため残置した。削除時点でhenji processは稼働していなかった。
+`history-v6.sqlite3`と各`-wal`／`-shm`、`locks-v4`／`locks-v5`／`locks-v6`、およびversioned以前の
+`history.sqlite3`（-wal／-shm）を削除した。v7の`history-v7.sqlite3`／`locks-v7`は変更していない。削除時点で
+henji processは稼働していなかった。
