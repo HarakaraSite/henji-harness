@@ -4,7 +4,7 @@ import type { PendingInputCore } from './pending_input.ts';
 import type { WorkspacePathIndex } from './file_reference.ts';
 import type { TuiRenderer } from './render.ts';
 
-/** Owns editable text, input history, completion, and recovery presentation. */
+/** Owns editable text, input history, and completion presentation. */
 export class ControllerEditor {
   readonly editor = new TuiEditor();
 
@@ -211,35 +211,6 @@ export class ControllerEditor {
     this.history.resetNavigation();
     this.render();
     return true;
-  }
-
-  recover(): void {
-    if (this.editor.text.length > 0 || this.pending === undefined) {
-      this.renderer.setStatus('recovery requires empty editor');
-      return;
-    }
-    const item = this.pending.popRecovery();
-    if (item === null) {
-      this.renderer.setStatus('no recoverable input');
-      return;
-    }
-    if (
-      !this.editor.setSnapshot({
-        text: item.text,
-        cursorScalar: [...item.text].length,
-        byteLength: new TextEncoder().encode(item.text).byteLength,
-      })
-    ) {
-      this.renderer.setStatus('recovery unavailable');
-      return;
-    }
-    this.history.resetNavigation();
-    this.render();
-    if (this.pending.hasSideEffectWarning) {
-      this.renderer.setStatus(
-        'tools may have changed the workspace; inspect before resubmitting',
-      );
-    } else this.renderer.setStatus('recovered input; edit or resubmit');
   }
 
   resetHistory(): void {

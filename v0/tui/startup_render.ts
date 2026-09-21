@@ -179,7 +179,6 @@ export const startupHelpLines = (
     '/history · inspect canonical and non-canonical execution history',
     '/history export · save committed history as Markdown',
     '/history export all · save exact durable Session history as JSONL',
-    '/recover · restore recoverable input',
     '/recall [execution-id] · use a stopped execution for the next task',
     '/exit · exit Henji',
   ]);

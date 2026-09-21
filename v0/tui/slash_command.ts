@@ -9,7 +9,6 @@ export type SlashCommand =
   | 'history'
   | 'history_export'
   | 'history_export_all'
-  | 'recover'
   | 'recall'
   | 'exit';
 
@@ -29,7 +28,6 @@ export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
   Object.freeze({ text: '/history', command: 'history' }),
   Object.freeze({ text: '/history export', command: 'history_export' }),
   Object.freeze({ text: '/history export all', command: 'history_export_all' }),
-  Object.freeze({ text: '/recover', command: 'recover' }),
   Object.freeze({ text: '/recall', command: 'recall' }),
   Object.freeze({ text: '/exit', command: 'exit' }),
 ]);

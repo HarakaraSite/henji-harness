@@ -334,7 +334,6 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('/history'), 'history');
   assertEquals(slashCommandOf('/history export'), 'history_export');
   assertEquals(slashCommandOf('/history export all'), 'history_export_all');
-  assertEquals(slashCommandOf('/recover'), 'recover');
   assertEquals(slashCommandOf('/recall'), 'recall');
   assertEquals(slashCommandOf('/recall aaaaaaaa'), 'recall');
   assertEquals(slashCommandOf('/exit'), 'exit');
@@ -372,7 +371,6 @@ Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () 
     '/history',
     '/history export',
     '/history export all',
-    '/recover',
     '/recall',
     '/exit',
   ]);
@@ -383,7 +381,7 @@ Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () 
     '/history export all',
   ]);
   assertEquals(slashCommandCandidates('/n'), ['/new']);
-  assertEquals(slashCommandCandidates('/r'), ['/rename', '/recover', '/recall']);
+  assertEquals(slashCommandCandidates('/r'), ['/rename', '/recall']);
   assertEquals(slashCommandCandidates('/history'), [
     '/history',
     '/history export',

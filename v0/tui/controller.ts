@@ -701,7 +701,7 @@ export class TuiController {
         if (
           busy &&
           (slashCommand === 'history' || slashCommand === 'history_export' ||
-            slashCommand === 'history_export_all' || slashCommand === 'recover' ||
+            slashCommand === 'history_export_all' ||
             slashCommand === 'recall' ||
             slashCommand === 'provider' ||
             slashCommand === 'model' || slashCommand === 'effort' ||
@@ -781,8 +781,7 @@ export class TuiController {
       this.editor.text.length === 0 &&
       this.discardIntent === null && this.pending?.hasActiveTask !== true &&
       this.pending?.hasSteering !== true &&
-      this.pending?.hasFollowUp !== true &&
-      this.pending?.hasRecovery !== true;
+      this.pending?.hasFollowUp !== true;
   }
 
   private currentBindingIdentity(): string {
@@ -1343,7 +1342,7 @@ export class TuiController {
     this.idleCtrlC();
   }
   private hasProcessPending(): boolean {
-    return this.editor.text.length > 0 || this.pending?.hasRecovery === true ||
+    return this.editor.text.length > 0 ||
       this.pending?.hasActiveTask === true ||
       this.pending?.hasSteering === true ||
       this.pending?.hasFollowUp === true;
@@ -1379,10 +1378,6 @@ export class TuiController {
       return;
     }
     this.editorController.completePath();
-    this.refreshSlashCommandCandidates();
-  }
-  private popRecovery(): void {
-    this.editorController.recover();
     this.refreshSlashCommandCandidates();
   }
 
@@ -1422,7 +1417,6 @@ export class TuiController {
             slashCommandOf(this.editor.text) === 'history' ||
             slashCommandOf(this.editor.text) === 'history_export' ||
             slashCommandOf(this.editor.text) === 'history_export_all' ||
-            slashCommandOf(this.editor.text) === 'recover' ||
             slashCommandOf(this.editor.text) === 'recall' ||
             slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
@@ -1456,8 +1450,6 @@ export class TuiController {
         slashCommand === 'history' || slashCommand === 'history_export' ||
           slashCommand === 'history_export_all'
           ? `busy; ${this.editor.text.trim()} waits for ready`
-          : slashCommand === 'recover'
-          ? 'busy; /recover waits for ready'
           : slashCommand === 'recall'
           ? 'busy; /recall waits for ready'
           : slashCommand === 'provider'
@@ -1512,7 +1504,6 @@ export class TuiController {
     else if (command === 'history') this.startHumanHistory();
     else if (command === 'history_export') this.startHistoryExport();
     else if (command === 'history_export_all') this.startHistoryExport(true);
-    else if (command === 'recover') this.popRecovery();
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
@@ -1695,14 +1686,13 @@ export class TuiController {
       return;
     }
     if (this.pending !== undefined && !this.pending.admitTask(text)) {
-      this.renderer.setStatus('active task recovery pending');
+      this.renderer.setStatus('active task pending');
       return;
     }
     this.pendingRecallShortId = null;
     if (this.renderer.stateSnapshot().scroll.kind !== 'followLatest') {
       this.renderer.latest(false);
     }
-    this.pending?.clearSideEffectWarning();
     if (this.modern) this.editorController.record(text);
     this.editor.clear();
     this.renderEditorState();
@@ -1806,7 +1796,7 @@ export class TuiController {
       (outcome.stopReason === 'final' || outcome.stopReason === 'tool_terminal')
     ) {
       this.pending?.commitTask();
-      if (this.pending?.hasSteering) this.pending.recoverSteering();
+      if (this.pending?.hasSteering) this.pending.clearSteering();
       if (
         outcome.stopReason === 'tool_terminal' &&
         typeof outcome.finalText === 'string'
@@ -1814,13 +1804,9 @@ export class TuiController {
         this.renderer.renderAssistantFinal(outcome.finalText);
       }
     } else if (recoverable) {
-      if (
-        this.pending !== undefined &&
-        !this.pending.recoverAfterSettlement(outcome.toolCallCount)
-      ) {
-        this.renderer.setStatus('agent failure');
-        throw new TuiControllerError('agent_failure');
-      }
+      this.pending?.clearActiveTask();
+      this.pending?.clearSteering();
+      this.pending?.clearFollowUp();
       const reason = outcome.stopReason === 'max_steps'
         ? 'request limit reached'
         : outcome.stopReason === 'interrupted'
@@ -1828,11 +1814,9 @@ export class TuiController {
         : outcome.stopReason === 'cancelled'
         ? 'cancelled'
         : 'agent failure';
-      const sideEffect = this.pending?.hasSideEffectWarning
-        ? ' · tools may have changed the workspace'
-        : '';
+      const sideEffect = outcome.toolCallCount > 0 ? ' · tools may have changed the workspace' : '';
       this.renderer.setStatus(
-        `${reason}; recoverable input available; use /recover${sideEffect}`,
+        `${reason}; recoverable input available; press Up to resend${sideEffect}`,
       );
     } else if (!outcome.ok) {
       this.renderer.setStatus(renderFailureStatus(outcome));
@@ -1942,11 +1926,7 @@ export class TuiController {
     this.editor.clear();
     this.editorController.resetHistory();
     this.renderEditorState();
-    this.renderer.setStatus(
-      this.pending?.hasRecovery === true
-        ? 'ready · recoverable input available; use /recover'
-        : this.readyStatus(),
-    );
+    this.renderer.setStatus(this.readyStatus());
   }
 
   /** Preserve the pre-increment-6 external SIGINT transition independently of keyboard Ctrl-C. */

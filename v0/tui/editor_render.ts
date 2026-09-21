@@ -99,8 +99,7 @@ export const pendingMetadataRows = (
   columns = 80,
 ): readonly string[] => {
   if (snapshot === undefined) return [];
-  const live = snapshot.lanes.slice(0, 4).filter((lane) => lane.present);
-  const recovery = snapshot.lanes.slice(4).filter((lane) => lane.present);
+  const live = snapshot.lanes.filter((lane) => lane.present);
   const code = (lifecycle: string): string =>
     lifecycle === 'draft'
       ? 'd'
@@ -108,9 +107,7 @@ export const pendingMetadataRows = (
       ? 'a'
       : lifecycle === 'admitted_unconsumed'
       ? 'u'
-      : lifecycle === 'queued_unsubmitted'
-      ? 'q'
-      : 'r';
+      : 'q';
   const kind = (value: string): string =>
     value === 'editor' ? 'E' : value === 'active_task' ? 'A' : value === 'steering' ? 'S' : 'F';
   const trim = (value: string): string => [...value].slice(0, Math.max(1, columns)).join('');
@@ -120,17 +117,6 @@ export const pendingMetadataRows = (
       trim(
         `p ${
           live.map((lane) => `${kind(lane.kind)}:${code(lane.lifecycle)}:${lane.byteCount}`).join(
-            ' ',
-          )
-        }`,
-      ),
-    );
-  }
-  if (recovery.length > 0) {
-    rows.push(
-      trim(
-        `r ${
-          recovery.map((lane) => `${kind(lane.kind)}:${lane.byteCount}`).join(
             ' ',
           )
         }`,

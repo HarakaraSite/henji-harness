@@ -203,8 +203,8 @@ const footerStatusText = (
 }> => {
   const renderSegments = (segments: readonly string[]): string =>
     `[${segments.map((segment) => segment.replaceAll(' · ', ' │ ')).join(' │ ')}]`;
-  // The editor draft is already visible in the input band. Keep active/recovery lanes available
-  // in the footer, but do not repeat its byte count as internal status in the normal footer.
+  // The editor draft is already visible in the input band. Keep the uncommitted input lanes
+  // available in the footer, but do not repeat its byte count as internal status.
   const pending = state.pending?.lanes.filter((lane) => lane.present && lane.kind !== 'editor') ??
     [];
   const pendingSegment = pending.length === 0

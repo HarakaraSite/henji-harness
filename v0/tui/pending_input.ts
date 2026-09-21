@@ -8,8 +8,7 @@ export type PendingLifecycle =
   | 'draft'
   | 'active_uncommitted'
   | 'admitted_unconsumed'
-  | 'queued_unsubmitted'
-  | 'recoverable';
+  | 'queued_unsubmitted';
 
 export interface PendingLaneMetadata {
   readonly kind: PendingKind;
@@ -20,10 +19,7 @@ export interface PendingLaneMetadata {
 
 export interface PendingMetadataSnapshot {
   readonly lanes: readonly PendingLaneMetadata[];
-  readonly recoveryCount: number;
 }
-
-export type RecoveryKind = Exclude<PendingKind, 'editor'>;
 
 export type SteeringReservationResult = 'reserved' | 'refused';
 
@@ -38,14 +34,10 @@ export class PendingInputCore {
   private steeringReservation: string | null = null;
   private steeringConsumed = false;
   private followUp: string | null = null;
-  private recoveryActiveTask: string | null = null;
-  private recoverySteering: string | null = null;
-  private recoveryFollowUp: string | null = null;
-  private sideEffectWarning = false;
 
   /** Admit the ordinary task before clearing the editor. */
   admitTask(text: string): boolean {
-    if (!validText(text) || this.activeTask !== null || this.recoveryActiveTask !== null) {
+    if (!validText(text) || this.activeTask !== null) {
       return false;
     }
     this.activeTask = text;
@@ -59,20 +51,15 @@ export class PendingInputCore {
     return true;
   }
 
-  /** Move an uncommitted active task to its one recovery slot. */
-  recoverTask(toolCallCount = 0): boolean {
-    if (this.activeTask === null || this.recoveryActiveTask !== null) return false;
-    this.recoveryActiveTask = this.activeTask;
+  /** Clear the uncommitted active task after settlement without a recovery lane. */
+  clearActiveTask(): void {
     this.activeTask = null;
-    if (toolCallCount > 0) this.sideEffectWarning = true;
-    return true;
   }
 
   /** Reserve steering text while the controller performs the synchronous session admission. */
   reserveSteering(text: string): SteeringReservationResult {
     if (
-      !validText(text) || this.steering !== null || this.steeringReservation !== null ||
-      this.recoverySteering !== null
+      !validText(text) || this.steering !== null || this.steeringReservation !== null
     ) return 'refused';
     this.steeringReservation = text;
     return 'reserved';
@@ -100,20 +87,16 @@ export class PendingInputCore {
     return true;
   }
 
-  /** Move admitted but unconsumed steering to recovery after a recoverable settlement. */
-  recoverSteering(): boolean {
-    if (
-      this.steeringReservation !== null || this.steering === null || this.steeringConsumed ||
-      this.recoverySteering !== null
-    ) return false;
-    this.recoverySteering = this.steering;
+  /** Clear admitted but unconsumed steering without a recovery lane. */
+  clearSteering(): void {
     this.steering = null;
-    return true;
+    this.steeringReservation = null;
+    this.steeringConsumed = false;
   }
 
   /** Queue the single ordinary follow-up while the parent is busy. */
   queueFollowUp(text: string): boolean {
-    if (!validText(text) || this.followUp !== null || this.recoveryFollowUp !== null) return false;
+    if (!validText(text) || this.followUp !== null) return false;
     this.followUp = text;
     return true;
   }
@@ -133,47 +116,12 @@ export class PendingInputCore {
     return text;
   }
 
-  /** Return all unconsumed lanes to fixed recovery slots after a recoverable outcome. */
-  recoverAfterSettlement(toolCallCount = 0): boolean {
-    if (this.activeTask !== null && !this.recoverTask(toolCallCount)) return false;
-    if (this.steering !== null && !this.recoverSteering()) return false;
-    if (this.followUp !== null) {
-      if (this.recoveryFollowUp !== null) return false;
-      this.recoveryFollowUp = this.followUp;
-      this.followUp = null;
-    }
-    return true;
-  }
-
-  /** Recover one item at a time in deterministic active → steering → follow-up order. */
-  popRecovery(): { readonly kind: RecoveryKind; readonly text: string } | null {
-    if (this.recoveryActiveTask !== null) {
-      const text = this.recoveryActiveTask;
-      this.recoveryActiveTask = null;
-      return { kind: 'active_task', text };
-    }
-    if (this.recoverySteering !== null) {
-      const text = this.recoverySteering;
-      this.recoverySteering = null;
-      return { kind: 'steering', text };
-    }
-    if (this.recoveryFollowUp !== null) {
-      const text = this.recoveryFollowUp;
-      this.recoveryFollowUp = null;
-      return { kind: 'follow_up', text };
-    }
-    return null;
-  }
-
   clearAll(): void {
     this.activeTask = null;
     this.steering = null;
     this.steeringReservation = null;
     this.steeringConsumed = false;
     this.followUp = null;
-    this.recoveryActiveTask = null;
-    this.recoverySteering = null;
-    this.recoveryFollowUp = null;
   }
 
   get hasActiveTask(): boolean {
@@ -184,16 +132,6 @@ export class PendingInputCore {
   }
   get hasFollowUp(): boolean {
     return this.followUp !== null;
-  }
-  get hasRecovery(): boolean {
-    return this.recoveryActiveTask !== null || this.recoverySteering !== null ||
-      this.recoveryFollowUp !== null;
-  }
-  get hasSideEffectWarning(): boolean {
-    return this.sideEffectWarning;
-  }
-  clearSideEffectWarning(): void {
-    this.sideEffectWarning = false;
   }
 
   /** Return only immutable, secret-free lane metadata. */
@@ -206,24 +144,8 @@ export class PendingInputCore {
       lane('steering', 'admitted_unconsumed', this.steering !== null, bytes(this.steering)),
       lane('follow_up', 'queued_unsubmitted', this.followUp !== null, bytes(this.followUp)),
     ];
-    const recovery: PendingLaneMetadata[] = [
-      lane(
-        'active_task',
-        'recoverable',
-        this.recoveryActiveTask !== null,
-        bytes(this.recoveryActiveTask),
-      ),
-      lane('steering', 'recoverable', this.recoverySteering !== null, bytes(this.recoverySteering)),
-      lane(
-        'follow_up',
-        'recoverable',
-        this.recoveryFollowUp !== null,
-        bytes(this.recoveryFollowUp),
-      ),
-    ];
     return Object.freeze({
-      lanes: Object.freeze([...lanes, ...recovery]),
-      recoveryCount: recovery.filter((item) => item.present).length,
+      lanes: Object.freeze(lanes),
     });
   }
 }

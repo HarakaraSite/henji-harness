@@ -288,7 +288,6 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
       present: true,
       byteCount: 44,
     }],
-    recoveryCount: 0,
   });
   renderer.setSlashCommandCandidates(['/provider']);
   assertEquals(
@@ -449,7 +448,7 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   );
 
   terminal.push('/');
-  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 13);
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 12);
   const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
   assert(allCommandsFooter.includes('cmds:'));
   assert(allCommandsFooter.includes('/help'));
@@ -500,7 +499,7 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   assertEquals(await run, 0);
 });
 
-Deno.test('retained footer omits editor bytes while keeping pending and recovery lanes', () => {
+Deno.test('retained footer omits editor bytes while keeping pending lanes', () => {
   const pending: PendingMetadataSnapshot = {
     lanes: [
       { kind: 'editor', lifecycle: 'draft', present: true, byteCount: 30 },
@@ -522,26 +521,7 @@ Deno.test('retained footer omits editor bytes while keeping pending and recovery
         present: false,
         byteCount: 0,
       },
-      {
-        kind: 'active_task',
-        lifecycle: 'recoverable',
-        present: true,
-        byteCount: 6,
-      },
-      {
-        kind: 'steering',
-        lifecycle: 'recoverable',
-        present: false,
-        byteCount: 0,
-      },
-      {
-        kind: 'follow_up',
-        lifecycle: 'recoverable',
-        present: false,
-        byteCount: 0,
-      },
     ],
-    recoveryCount: 1,
   };
   const withPending = reduceUiAction(createUiState(), {
     kind: 'pending',
@@ -550,8 +530,7 @@ Deno.test('retained footer omits editor bytes while keeping pending and recovery
   const footer = layoutUi(withPending, 160, 24).footer[0].text;
   assert(!footer.includes('editor:30B'));
   assert(footer.includes('active_task:4B'));
-  assert(footer.includes('active_task:6B'));
-  assertEquals(pendingMetadataRows(pending), ['p E:d:30 A:a:4', 'r A:6']);
+  assertEquals(pendingMetadataRows(pending), ['p E:d:30 A:a:4']);
 
   const editorOnly = reduceUiAction(createUiState(), {
     kind: 'pending',
@@ -562,7 +541,6 @@ Deno.test('retained footer omits editor bytes while keeping pending and recovery
         present: true,
         byteCount: 30,
       }],
-      recoveryCount: 0,
     },
   });
   assert(!layoutUi(editorOnly, 160, 24).footer[0].text.includes('pending'));
@@ -1106,13 +1084,13 @@ Deno.test('retained controller keeps the anchor when ordinary task admission fai
   await waitFor(() => renderer.stateSnapshot().status === 'enter a task');
   assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
   terminal.push('blocked task\r');
-  await waitFor(() => renderer.stateSnapshot().status === 'active task recovery pending');
+  await waitFor(() => renderer.stateSnapshot().status === 'active task pending');
   assertEquals(renderer.stateSnapshot().scroll.kind, 'anchored');
   terminal.push('\x04\x04');
   assertEquals(await run, 0);
 });
 
-Deno.test('cancelled active task keeps recovery for an explicit /recover', async () => {
+Deno.test('cancelled active task does not block a new task without a recovery lane', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -1167,28 +1145,18 @@ Deno.test('cancelled active task keeps recovery for an explicit /recover', async
   assertEquals(controller.editor.text, '');
   assert(
     renderer.stateSnapshot().status.includes(
-      'cancelled; recoverable input available; use /recover',
+      'cancelled; recoverable input available; press Up to resend',
     ),
   );
 
-  terminal.push('/recover\r');
-  await waitFor(() => controller.editor.text === task);
-  assertEquals(
-    renderer.stateSnapshot().status,
-    'recovered input; edit or resubmit',
-  );
-
-  terminal.push('\r');
+  terminal.push('next task\r');
   await waitFor(() => submitted.length === 2 && controller.currentState === 'idle');
-  assertEquals(submitted, [task, task]);
-  assert(
-    !renderer.stateSnapshot().status.includes('active task recovery pending'),
-  );
+  assertEquals(submitted, [task, 'next task']);
   terminal.push('\x04');
   assertEquals(await run, 0);
 });
 
-Deno.test('interrupted active task keeps recovery for an explicit /recover', async () => {
+Deno.test('interrupted active task does not block a new task without a recovery lane', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -1243,15 +1211,13 @@ Deno.test('interrupted active task keeps recovery for an explicit /recover', asy
   await waitFor(() => controller.currentState === 'idle');
   assert(
     renderer.stateSnapshot().status.includes(
-      'worker interrupted; recoverable input available; use /recover',
+      'worker interrupted; recoverable input available; press Up to resend',
     ),
   );
 
-  terminal.push('/recover\r');
-  await waitFor(() => controller.editor.text === task);
-  terminal.push('\r');
+  terminal.push('next task\r');
   await waitFor(() => submitted.length === 2 && controller.currentState === 'idle');
-  assertEquals(submitted, [task, task]);
+  assertEquals(submitted, [task, 'next task']);
   terminal.push('\x04');
   assertEquals(await run, 0);
 });
@@ -1297,7 +1263,7 @@ Deno.test('interrupted active task honors a repeated Ctrl-C exit intent', async 
   assertEquals(cancellationRequests, 1);
 });
 
-Deno.test('occupied editor keeps recoverable task until idle /recover', async () => {
+Deno.test('occupied editor is preserved after a recoverable stop without a recovery lane', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -1332,25 +1298,17 @@ Deno.test('occupied editor keeps recoverable task until idle /recover', async ()
   settleFailure?.();
   await waitFor(() => controller.currentState === 'idle');
   assertEquals(controller.editor.text, 'draft in progress');
-  assert(pending.hasRecovery);
+  assert(!pending.hasActiveTask);
   assert(
     renderer.stateSnapshot().status.includes(
       'tools may have changed the workspace',
     ),
   );
-
-  terminal.push('\x15/recover\r');
-  await waitFor(() => controller.editor.text === 'original task');
-  assert(!pending.hasRecovery);
-  assertEquals(
-    renderer.stateSnapshot().status,
-    'tools may have changed the workspace; inspect before resubmitting',
-  );
   terminal.push('\x15\x04');
   assertEquals(await run, 0);
 });
 
-Deno.test('/recall selects next-task-only context while /recover remains input recovery', async () => {
+Deno.test('/recall selects next-task-only context', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -1410,9 +1368,6 @@ Deno.test('/recall selects next-task-only context while /recover remains input r
   await waitFor(() => submitted.length === 1 && controller.currentState === 'idle');
   assertEquals(submitted, ['what was completed?']);
   assert(!renderer.stateSnapshot().status.startsWith('recall '));
-
-  terminal.push('/recover\r');
-  await waitFor(() => renderer.stateSnapshot().status === 'no recoverable input');
   assertEquals(
     intentsSeen.filter((kind) => kind === 'recall_execution').length,
     1,
