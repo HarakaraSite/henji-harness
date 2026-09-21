@@ -37,65 +37,86 @@ const hardSplit = (text: string, width: number): string[] => {
   return result;
 };
 
-/** Word-aware wrap: break at spaces, hard-split oversized tokens, CJK breaks by cell. */
-const wrapCells = (text: string, width: number): string[] => {
+interface WrappedLine {
+  readonly text: string;
+  /** Source scalar index of each emitted character in `text`. */
+  readonly sourceIndices: readonly number[];
+}
+
+/**
+ * Word-aware wrap: break at spaces, hard-split oversized tokens, CJK breaks by cell.
+ * Also reports the source scalar index of each emitted character so inline spans can be
+ * clipped to wrapped lines instead of being recomputed (and lost) per line.
+ */
+const wrapCellsWithSource = (text: string, width: number): WrappedLine[] => {
   const limit = Math.max(1, width);
-  if (cells(text) <= limit) return [text];
-  const result: string[] = [];
+  const scalars = [...text];
+  if (cells(text) <= limit) {
+    return [{ text, sourceIndices: scalars.map((_, index) => index) }];
+  }
+  const result: WrappedLine[] = [];
   let line = '';
+  let indices: number[] = [];
   let used = 0;
-  const tokens: string[] = [];
+  const flush = (): void => {
+    result.push({ text: line, sourceIndices: indices });
+    line = '';
+    indices = [];
+    used = 0;
+  };
+  const tokens: { readonly text: string; readonly indices: readonly number[] }[] = [];
   let token = '';
-  for (const character of text) {
+  let tokenIndices: number[] = [];
+  for (let index = 0; index < scalars.length; index += 1) {
+    const character = scalars[index];
     if (character === ' ' || character === '\t') {
       if (token.length > 0) {
-        tokens.push(token);
+        tokens.push({ text: token, indices: tokenIndices });
         token = '';
+        tokenIndices = [];
       }
-      tokens.push(' ');
+      tokens.push({ text: ' ', indices: [index] });
     } else {
       token += character;
+      tokenIndices.push(index);
     }
   }
-  if (token.length > 0) tokens.push(token);
+  if (token.length > 0) tokens.push({ text: token, indices: tokenIndices });
   for (const part of tokens) {
-    if (part === ' ') {
+    if (part.text === ' ') {
       if (used === 0) continue;
       if (used + 1 > limit) {
-        result.push(line);
-        line = '';
-        used = 0;
+        flush();
       } else {
         line += ' ';
+        indices.push(part.indices[0]);
         used += 1;
       }
       continue;
     }
-    const size = cells(part);
+    const size = cells(part.text);
     if (used + size <= limit) {
-      line += part;
+      line += part.text;
+      indices.push(...part.indices);
       used += size;
       continue;
     }
-    if (used > 0) {
-      result.push(line);
-      line = '';
-      used = 0;
-    }
-    for (const character of part) {
-      const widthOf = cellWidth(character);
-      if (used + widthOf > limit) {
-        result.push(line);
-        line = '';
-        used = 0;
-      }
-      line += character;
+    if (used > 0) flush();
+    const partScalars = [...part.text];
+    for (let index = 0; index < partScalars.length; index += 1) {
+      const widthOf = cellWidth(partScalars[index]);
+      if (used + widthOf > limit) flush();
+      line += partScalars[index];
+      indices.push(part.indices[index]);
       used += widthOf;
     }
   }
-  if (line.length > 0 || result.length === 0) result.push(line);
+  if (line.length > 0 || result.length === 0) flush();
   return result;
 };
+
+const wrapCells = (text: string, width: number): string[] =>
+  wrapCellsWithSource(text, width).map((wrapped) => wrapped.text);
 
 const wrapHanging = (body: string, firstWidth: number, indent: string): string[] =>
   wrapCells(body, Math.max(1, firstWidth)).map((part, index) =>
@@ -112,24 +133,24 @@ const inlineSpans = (text: string): AssistantSpan[] => {
   const emphasis3 = /\*\*\*([^*]+)\*\*\*/g;
   while ((match = emphasis3.exec(text)) !== null) {
     spans.push({
-      start: scalarOffset(text, match.index) + 3,
-      length: scalarLength(match[1]),
+      start: scalarOffset(text, match.index),
+      length: scalarLength(match[0]),
       tone: 'emphasis',
     });
   }
   const emphasis2 = /(?<!\*)\*\*(?!\*)([^*]+)\*\*/g;
   while ((match = emphasis2.exec(text)) !== null) {
     spans.push({
-      start: scalarOffset(text, match.index) + 2,
-      length: scalarLength(match[1]),
+      start: scalarOffset(text, match.index),
+      length: scalarLength(match[0]),
       tone: 'emphasis',
     });
   }
   const emphasis1 = /(?<!\*)\*(?!\*)([^*]+)\*/g;
   while ((match = emphasis1.exec(text)) !== null) {
     spans.push({
-      start: scalarOffset(text, match.index) + 1,
-      length: scalarLength(match[1]),
+      start: scalarOffset(text, match.index),
+      length: scalarLength(match[0]),
       tone: 'emphasis',
     });
   }
@@ -140,6 +161,27 @@ const inlineSpans = (text: string): AssistantSpan[] => {
       length: scalarLength(match[1]),
       tone: 'code',
     });
+  }
+  return spans;
+};
+
+/** Clip source-text spans to the characters actually emitted on one wrapped line. */
+const clipSpans = (
+  sourceSpans: readonly AssistantSpan[],
+  wrapped: WrappedLine,
+): AssistantSpan[] => {
+  const spans: AssistantSpan[] = [];
+  for (const span of sourceSpans) {
+    let start = -1;
+    let end = -1;
+    for (let index = 0; index < wrapped.sourceIndices.length; index += 1) {
+      const sourceIndex = wrapped.sourceIndices[index];
+      if (sourceIndex >= span.start && sourceIndex < span.start + span.length) {
+        if (start < 0) start = index;
+        end = index + 1;
+      }
+    }
+    if (start >= 0) spans.push({ start, length: end - start, tone: span.tone });
   }
   return spans;
 };
@@ -377,16 +419,19 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
     if (quote !== null) {
       const indent = quote[1];
       const prefixCells = cells(`${indent}> `);
-      const parts = wrapCells(quote[2].trimEnd(), Math.max(1, limit - prefixCells));
+      const body = quote[2].trimEnd();
+      const bodySpans = inlineSpans(body);
+      const parts = wrapCellsWithSource(body, Math.max(1, limit - prefixCells));
       parts.forEach((part, partIndex) => {
+        const clipped = clipSpans(bodySpans, part);
         if (partIndex === 0) {
-          out.push(line(`${indent}> ${part}`, [
+          out.push(line(`${indent}> ${part.text}`, [
             { start: scalarLength(indent), length: 1, tone: 'quote' },
-            ...shiftSpans(inlineSpans(part), scalarLength(`${indent}> `)),
+            ...shiftSpans(clipped, scalarLength(`${indent}> `)),
           ]));
         } else {
           const cont = `${indent}${spaces(2)}`;
-          out.push(line(`${cont}${part}`, shiftSpans(inlineSpans(part), scalarLength(cont))));
+          out.push(line(`${cont}${part.text}`, shiftSpans(clipped, scalarLength(cont))));
         }
       });
       index += 1;
@@ -399,16 +444,19 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       const marker = list[2];
       const prefix = `${indent}${marker} `;
       const prefixCells = cells(prefix);
-      const parts = wrapCells(list[3].trimEnd(), Math.max(1, limit - prefixCells));
+      const body = list[3].trimEnd();
+      const bodySpans = inlineSpans(body);
+      const parts = wrapCellsWithSource(body, Math.max(1, limit - prefixCells));
       parts.forEach((part, partIndex) => {
+        const clipped = clipSpans(bodySpans, part);
         if (partIndex === 0) {
-          out.push(line(`${prefix}${part}`, [
+          out.push(line(`${prefix}${part.text}`, [
             { start: scalarLength(indent), length: scalarLength(marker), tone: 'list' },
-            ...shiftSpans(inlineSpans(part), scalarLength(prefix)),
+            ...shiftSpans(clipped, scalarLength(prefix)),
           ]));
         } else {
           const cont = spaces(prefixCells);
-          out.push(line(`${cont}${part}`, shiftSpans(inlineSpans(part), scalarLength(cont))));
+          out.push(line(`${cont}${part.text}`, shiftSpans(clipped, scalarLength(cont))));
         }
       });
       index += 1;
@@ -421,8 +469,9 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       continue;
     }
 
-    for (const wrapped of wrapCells(raw, limit)) {
-      out.push(line(wrapped, inlineSpans(wrapped)));
+    const rawSpans = inlineSpans(raw);
+    for (const wrapped of wrapCellsWithSource(raw, limit)) {
+      out.push(line(wrapped.text, clipSpans(rawSpans, wrapped)));
     }
     index += 1;
   }

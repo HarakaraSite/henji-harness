@@ -1,5 +1,6 @@
 import { markdownAssistantRenderer } from '../../v0/tui/assistant_layout.ts';
 import { cellWidth } from '../../v0/tui/editor_render.ts';
+import type { AssistantLine, AssistantSpanTone } from '../../v0/tui/conversation_renderer.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -104,14 +105,11 @@ Deno.test('Increment 84 marks inline emphasis and code spans', () => {
     chars.slice(span.start, span.start + span.length).join('');
   const code = line.spans.find((span) => span.tone === 'code');
   assert(code !== undefined && textOf(code) === 'code');
-  const emphasis = line.spans
-    .filter((span) => span.tone === 'emphasis')
-    .map(textOf)
-    .sort();
-  assert(
-    JSON.stringify(emphasis) === JSON.stringify(['bold', 'italic', 'triple']),
-    `unexpected emphasis spans: ${JSON.stringify(emphasis)}`,
-  );
+  const emphasis = line.spans.filter((span) => span.tone === 'emphasis').map(textOf);
+  for (const expected of ['*italic*', '**bold**', '***triple***']) {
+    assert(emphasis.includes(expected), `missing emphasis span ${expected}`);
+  }
+  assert(emphasis.length === 3, `unexpected emphasis spans: ${JSON.stringify(emphasis)}`);
 });
 
 Deno.test('Increment 84 marks heading and list markers', () => {
@@ -126,17 +124,16 @@ Deno.test('Increment 84 marks heading and list markers', () => {
   assert(list.spans.some((span) => span.tone === 'list' && span.start === 0 && span.length === 1));
 });
 
-Deno.test('Increment 96 renders *, **, and *** emphasis green without bold', () => {
+Deno.test('Increment 96 renders * ** and *** emphasis green including markers', () => {
   const [line] = markdownAssistantRenderer.render('a *i* **b** ***c***', 'settled', 40);
   const chars = [...line.text];
   const emphasis = line.spans
     .filter((span) => span.tone === 'emphasis')
-    .map((span) => chars.slice(span.start, span.start + span.length).join(''))
-    .sort();
-  assert(
-    JSON.stringify(emphasis) === JSON.stringify(['b', 'c', 'i']),
-    `unexpected emphasis spans: ${JSON.stringify(emphasis)}`,
-  );
+    .map((span) => chars.slice(span.start, span.start + span.length).join(''));
+  for (const expected of ['*i*', '**b**', '***c***']) {
+    assert(emphasis.includes(expected), `missing emphasis span ${expected}`);
+  }
+  assert(emphasis.length === 3, `unexpected emphasis spans: ${JSON.stringify(emphasis)}`);
   assert(line.spans.every((span) => span.tone !== 'bold'), 'emphasis produced a bold span');
 });
 
@@ -154,4 +151,41 @@ Deno.test('Increment 96 colors the whole wrapped heading line', () => {
       `heading line not fully colored: ${line.text}`,
     );
   }
+});
+
+Deno.test('Increment 96 keeps inline emphasis and code spans across wrapped lines', () => {
+  const covered = (lines: readonly AssistantLine[], tone: AssistantSpanTone): string =>
+    lines.map((line) => {
+      const chars = [...line.text];
+      return line.spans
+        .filter((span) => span.tone === tone)
+        .map((span) => chars.slice(span.start, span.start + span.length).join(''))
+        .join('');
+    }).join('');
+
+  const emphasisBody = `**${'あ'.repeat(40)}**`;
+  const emphasisLines = markdownAssistantRenderer.render(
+    `pre ${emphasisBody} post`,
+    'settled',
+    16,
+  );
+  assert(
+    emphasisLines.filter((line) => line.spans.some((span) => span.tone === 'emphasis')).length > 1,
+    'emphasis did not span the wrap',
+  );
+  assert(
+    covered(emphasisLines, 'emphasis') === emphasisBody,
+    `emphasis coverage mismatch: ${covered(emphasisLines, 'emphasis')}`,
+  );
+
+  const codeBody = '`deno --version`';
+  const codeLines = markdownAssistantRenderer.render(`pre ${codeBody} post`, 'settled', 16);
+  assert(
+    codeLines.filter((line) => line.spans.some((span) => span.tone === 'code')).length > 1,
+    'code span did not span the wrap',
+  );
+  assert(
+    covered(codeLines, 'code') === 'deno --version',
+    `code coverage mismatch: ${covered(codeLines, 'code')}`,
+  );
 });
