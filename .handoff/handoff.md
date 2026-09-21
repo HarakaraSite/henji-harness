@@ -424,21 +424,23 @@
   原因は**macrotask timerのstarvation**で確定（ローカルの連続SSE burst（gapなし）に対し`timeoutMs: 1000`でも
   15秒abortしないことを再現。既存ローカルテストは200ms間隔でloopがyieldしていたため非再現）。
   `ResponsesApiModel.generate`の`for await`loopに`Date.now() - startedAt >= timeoutMs`判定を追加し、
-  `controller.abort()`＋`provider_timeout`をthrow。chat経路（`openrouter_transport.ts`）も
-  `deadlineExceeded`を`readSseResponse`へ渡すよう修正。timerはno-data用に維持。
-- 検証: focused test `tests/v0/increment_100_provider_deadline_test.ts`（2件、連続stream／stall）、
-  `agent:provider-stream-compatibility:test` 20件、`deno check`／`fmt`／`lint`／`git diff --check`成功。
+  `controller.abort()`＋`provider_timeout`をthrow。chat経路（`openrouter_transport.ts`＋
+  `openrouter_sse.ts`の`readSseResponse`）も成功chunkごとに`isTimedOut()`（elapsed版）を判定するよう修正。
+  timerはno-data用に維持。同種箇所をprovider/tool/Hostで監査し、`auxiliary_request`（arrayBuffer）・
+  `web_fetch`（有界）・bash（subprocess）・Host側timer（macrotask駆動）は影響なしと確認。
+- 検証: focused test `tests/v0/increment_100_provider_deadline_test.ts`（3件、Responses連続／chat連続／stall）、
+  `agent:provider-stream-compatibility:test` 20件、`deno check`／`fmt`／`lint`／`git diff --check`、`v0:gate` exit 0。
 - 次: 利用者によるIncrement完了判断。実provider確認は未実施（承認必要）。
-- 配置: commit `bc502317`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
-  （build `beb10b8d…`、source `bc502317…`、SHA-256 `9d71c114…`、embedded runtime `254c7d67…`）。commit・push済み。
+- 配置: commit `2beb6351`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `2cf73932…`、source `2beb6351…`、SHA-256 `976d2e2c…`、embedded runtime `5d028555…`）。commit・push済み。
 - 正本: `docs/increments/increment-100.md`（原因・決定・修正・検証）。
 - 注意: 実provider callは利用者承認が必要。Increment 99とは別。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 100変更を含むclean commit `bc502317…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `beb10b8d…`、file SHA-256 `9d71c114…`、embedded runtime
-  `254c7d67…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.3.0`。Increment 100変更を含むclean commit `2beb6351…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `2cf73932…`、file SHA-256 `976d2e2c…`、embedded runtime
+  `5d028555…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
