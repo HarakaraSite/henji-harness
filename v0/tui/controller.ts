@@ -1,8 +1,6 @@
 import {
   isPresentationError,
   PresentationDeliveryError,
-  type PresentationHumanHistoryDetail,
-  type PresentationHumanHistoryPage,
   type PresentationIntent,
   type PresentationIntentDispatcher,
   type PresentationIntentResult,
@@ -66,7 +64,6 @@ type ControllerState =
   | 'busy'
   | 'session-switching'
   | 'recall-selecting'
-  | 'history-exporting'
   | 'exiting'
   | 'failed';
 type FollowUpSlot = 'closed' | 'open-empty' | 'pending';
@@ -75,57 +72,6 @@ type DiscardIntent = Readonly<{ key: DiscardKey; deadline: number }>;
 
 const sleep = (duration: number): Promise<'timeout'> =>
   new Promise((resolve) => setTimeout(() => resolve('timeout'), duration));
-
-const mergeHumanHistoryPages = (
-  current: PresentationHumanHistoryPage,
-  adjacent: PresentationHumanHistoryPage,
-  direction: 'older' | 'newer',
-): PresentationHumanHistoryPage => {
-  const ordered = direction === 'older'
-    ? [...adjacent.entries, ...current.entries]
-    : [...current.entries, ...adjacent.entries];
-  const seen = new Set<string>();
-  const entries = ordered.filter((entry) => {
-    if (seen.has(entry.id)) return false;
-    seen.add(entry.id);
-    return true;
-  });
-  return Object.freeze({
-    schemaVersion: 1,
-    sessionId: current.sessionId,
-    entries: Object.freeze(entries),
-    executionCount: new Set(entries.map((entry) => entry.executionId)).size,
-    ...(direction === 'older'
-      ? (adjacent.olderCursor === undefined ? {} : { olderCursor: adjacent.olderCursor })
-      : (current.olderCursor === undefined ? {} : { olderCursor: current.olderCursor })),
-    ...(direction === 'newer'
-      ? (adjacent.newerCursor === undefined ? {} : { newerCursor: adjacent.newerCursor })
-      : (current.newerCursor === undefined ? {} : { newerCursor: current.newerCursor })),
-    atOldest: direction === 'older' ? adjacent.atOldest : current.atOldest,
-    atNewest: direction === 'newer' ? adjacent.atNewest : current.atNewest,
-    ...((current.projection?.state === 'stale' || adjacent.projection?.state === 'stale')
-      ? {
-        projection: {
-          version: 1 as const,
-          state: 'stale' as const,
-          pendingSources: Math.max(
-            current.projection?.pendingSources ?? 0,
-            adjacent.projection?.pendingSources ?? 0,
-          ),
-          staleReason: 'pending' as const,
-        },
-      }
-      : current.projection === undefined && adjacent.projection === undefined
-      ? {}
-      : {
-        projection: {
-          version: 1 as const,
-          state: 'current' as const,
-          pendingSources: 0,
-        },
-      }),
-  });
-};
 
 /** Controller for the first TUI's intentionally small idle/busy state machine. */
 export class TuiController {
@@ -143,35 +89,9 @@ export class TuiController {
   private followUpText: string | null = null;
   private firstIdleSigintAt: number | null = null;
   private shutdownPromise: Promise<void> | null = null;
-  private historyExportOperation:
-    | Readonly<{
-      readonly operation: Promise<void>;
-      readonly binding: string;
-      readonly generation: number;
-    }>
-    | null = null;
-  private historyExportGeneration = 0;
-  private humanHistory: {
-    page?: PresentationHumanHistoryPage;
-    selected: number;
-    anchorEntryId?: string;
-    anchorScalarOffset?: number;
-    detail?: PresentationHumanHistoryDetail;
-    detailMatchScalarOffset?: number;
-    query?: string;
-    searchInput?: string;
-    matchEntryId?: string;
-    matchScalarOffset?: number;
-    wrapped?: boolean;
-    loading?: boolean;
-    /** Set when viewing a stored Session read-only; absent means the active Session. */
-    sessionId?: string;
-  } | null = null;
-  private humanHistoryOperation: Promise<void> | null = null;
   private sessionSwitchOperation: Promise<void> | null = null;
   private recallOperation: Promise<void> | null = null;
   private pendingRecallShortId: string | null = null;
-  private noticeGeneration = 1_000_000;
   private crashSettlement: Promise<void> | null = null;
   private exitCode = 0;
   private signalCode: number | null = null;
@@ -220,7 +140,6 @@ export class TuiController {
       isIdle: () => this.state === 'idle',
       readyStatus: () => this.readyStatus(),
       modelSelection: () => this.session.modelSelectionSnapshot?.(),
-      viewSession: (id) => this.startHumanHistory(id),
       selectionStatusApplied: () => {
         this.modelSelectionNotice = true;
       },
@@ -294,13 +213,6 @@ export class TuiController {
         ).then((
           page,
         ) => ({ kind: 'history', page }));
-      case 'history_export':
-      case 'history_export_all':
-      case 'human_history_open':
-      case 'human_history_page':
-      case 'human_history_detail':
-      case 'human_history_search':
-        return { kind: 'rejected', reason: 'unavailable' };
       case 'recall_execution':
         return { kind: 'rejected', reason: 'unavailable' };
       case 'clear_recall':
@@ -444,15 +356,13 @@ export class TuiController {
       this.input = this.readEvents();
       while (
         this.state === 'idle' || this.state === 'busy' ||
-        this.state === 'history-exporting' || this.state === 'session-switching' ||
+        this.state === 'session-switching' ||
         this.state === 'recall-selecting'
       ) {
         if (this.active === null) {
           const events = await this.input;
           this.input = this.readEvents();
-          if ((this.state as ControllerState) === 'history-exporting') {
-            this.processHistoryExporting(events);
-          } else if ((this.state as ControllerState) === 'session-switching') {
+          if ((this.state as ControllerState) === 'session-switching') {
             this.processSessionSwitching(events);
           } else if ((this.state as ControllerState) === 'recall-selecting') {
             this.processRecallSelecting(events);
@@ -551,10 +461,6 @@ export class TuiController {
       return;
     }
     for (const event of events) {
-      if (this.state === 'history-exporting') {
-        this.processHistoryExporting([event]);
-        continue;
-      }
       if (this.state === 'session-switching') {
         this.processSessionSwitching([event]);
         continue;
@@ -653,20 +559,12 @@ export class TuiController {
     busy: boolean,
   ): void {
     for (const event of events) {
-      if (this.state === 'history-exporting') {
-        this.processHistoryExporting([event]);
-        continue;
-      }
       if (this.state === 'session-switching') {
         this.processSessionSwitching([event]);
         continue;
       }
       if (this.state === 'recall-selecting') {
         this.processRecallSelecting([event]);
-        continue;
-      }
-      if (!busy && this.humanHistory !== null) {
-        this.processHumanHistoryEvent(event);
         continue;
       }
       if (!busy && this.overlay.isOpen) {
@@ -700,9 +598,7 @@ export class TuiController {
         const slashCommand = slashCommandOf(this.editor.text);
         if (
           busy &&
-          (slashCommand === 'history' || slashCommand === 'history_export' ||
-            slashCommand === 'history_export_all' ||
-            slashCommand === 'recall' ||
+          (slashCommand === 'recall' ||
             slashCommand === 'provider' ||
             slashCommand === 'model' || slashCommand === 'effort' ||
             slashCommand === 'rename' || slashCommand === 'new')
@@ -782,533 +678,6 @@ export class TuiController {
       this.discardIntent === null && this.pending?.hasActiveTask !== true &&
       this.pending?.hasSteering !== true &&
       this.pending?.hasFollowUp !== true;
-  }
-
-  private currentBindingIdentity(): string {
-    if (this.intents !== undefined) {
-      const projection = this.renderer.stateSnapshot().projection;
-      return projection === undefined
-        ? 'unbound'
-        : `${projection.sessionId ?? 'no-session'}:${projection.agentId}`;
-    }
-    const position = this.navigation?.currentPosition() ??
-      this.session.currentPosition?.();
-    return position === undefined
-      ? 'unbound'
-      : `${position.sessionId ?? 'no-session'}:${position.agent}`;
-  }
-
-  private renderHumanHistory(): void {
-    if (this.humanHistory === null) return;
-    this.renderer.renderHumanHistory(this.humanHistory);
-  }
-
-  private trackHumanHistoryOperation(operation: Promise<void>): void {
-    this.humanHistoryOperation = operation;
-    void operation.then(
-      () => {
-        if (this.humanHistoryOperation === operation) this.humanHistoryOperation = null;
-      },
-      (error) => {
-        if (this.humanHistoryOperation === operation) this.humanHistoryOperation = null;
-        void this.fail(error).catch(() => {});
-      },
-    );
-  }
-
-  private startHumanHistory(viewSessionId?: string): void {
-    if (this.state !== 'idle' || this.humanHistory !== null) {
-      this.renderer.setStatus('history unavailable while busy');
-      return;
-    }
-    this.humanHistory = {
-      selected: 0,
-      loading: true,
-      ...(viewSessionId === undefined ? {} : { sessionId: viewSessionId }),
-    };
-    this.renderHumanHistory();
-    let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
-    try {
-      dispatched = this.dispatchIntent({
-        kind: 'human_history_open',
-        ...(viewSessionId === undefined ? {} : { sessionId: viewSessionId }),
-      });
-    } catch (error) {
-      this.humanHistory = null;
-      this.renderer.clearModal();
-      if (isPresentationDeliveryError(error)) throw error;
-      this.renderer.setStatus('history unavailable');
-      return;
-    }
-    const operation = Promise.resolve(dispatched).then((result) => {
-      if (this.humanHistory === null) return;
-      if (result.kind === 'rejected') {
-        this.humanHistory = null;
-        this.renderer.clearModal();
-        this.renderer.setStatus('history unavailable with --no-session');
-        return;
-      }
-      if (result.kind !== 'human_history_page') throw new PresentationDeliveryError();
-      const selected = Math.max(0, result.page.entries.length - 1);
-      this.humanHistory = {
-        page: result.page,
-        selected,
-        anchorEntryId: result.page.entries[selected]?.id,
-        anchorScalarOffset: Number.MAX_SAFE_INTEGER,
-        ...(this.humanHistory.sessionId === undefined
-          ? {}
-          : { sessionId: this.humanHistory.sessionId }),
-      };
-      this.renderHumanHistory();
-    }).catch((error: unknown) => {
-      if (isPresentationDeliveryError(error)) throw error;
-      if (this.humanHistory !== null) {
-        this.humanHistory = null;
-        this.renderer.clearModal();
-        this.renderer.setStatus('history read failed');
-      }
-    });
-    this.trackHumanHistoryOperation(operation);
-  }
-
-  private loadHumanHistoryPage(
-    direction: 'oldest' | 'older' | 'newer' | 'latest',
-    cursor?: string,
-    moveAfterLoad?: 'previous' | 'next' | 'page_up' | 'page_down',
-  ): void {
-    if (this.humanHistory === null || this.humanHistoryOperation !== null) return;
-    this.humanHistory = { ...this.humanHistory, loading: true };
-    this.renderHumanHistory();
-    const operation = Promise.resolve(this.dispatchIntent({
-      kind: 'human_history_page',
-      direction,
-      ...(cursor === undefined ? {} : { cursor }),
-      ...(this.humanHistory.sessionId === undefined
-        ? {}
-        : { sessionId: this.humanHistory.sessionId }),
-    })).then((result) => {
-      if (this.humanHistory === null) return;
-      if (result.kind !== 'human_history_page') throw new PresentationDeliveryError();
-      const previous = this.humanHistory;
-      const selectedId = previous.page?.entries[previous.selected]?.id;
-      const page = previous.page !== undefined && (direction === 'older' || direction === 'newer')
-        ? mergeHumanHistoryPages(previous.page, result.page, direction)
-        : result.page;
-      let selected = direction === 'latest'
-        ? Math.max(0, page.entries.length - 1)
-        : direction === 'oldest'
-        ? 0
-        : Math.max(0, page.entries.findIndex((entry) => entry.id === selectedId));
-      if (moveAfterLoad === 'previous') selected = Math.max(0, selected - 1);
-      if (moveAfterLoad === 'next') {
-        selected = Math.min(Math.max(0, page.entries.length - 1), selected + 1);
-      }
-      this.humanHistory = {
-        ...previous,
-        page,
-        selected,
-        anchorEntryId: direction === 'oldest' || direction === 'latest' ||
-            moveAfterLoad === 'previous' || moveAfterLoad === 'next'
-          ? page.entries[selected]?.id
-          : previous.anchorEntryId,
-        anchorScalarOffset: direction === 'latest'
-          ? Number.MAX_SAFE_INTEGER
-          : direction === 'oldest' || moveAfterLoad === 'previous' || moveAfterLoad === 'next'
-          ? 0
-          : previous.anchorScalarOffset,
-        detail: undefined,
-        detailMatchScalarOffset: undefined,
-        loading: false,
-      };
-      this.renderHumanHistory();
-      if (moveAfterLoad === 'page_up' || moveAfterLoad === 'page_down') {
-        this.moveHumanHistoryVisualPage(moveAfterLoad, false);
-      }
-    }).catch((error: unknown) => {
-      if (isPresentationDeliveryError(error)) throw error;
-      if (this.humanHistory !== null) {
-        this.humanHistory = { ...this.humanHistory, loading: false };
-        this.renderHumanHistory();
-        this.renderer.setStatus('history read failed');
-      }
-    });
-    this.trackHumanHistoryOperation(operation);
-  }
-
-  private moveHumanHistoryVisualPage(
-    direction: 'page_up' | 'page_down',
-    loadAtEdge = true,
-  ): void {
-    const view = this.humanHistory;
-    if (view?.page === undefined || view.detail !== undefined) return;
-    const layout = this.renderer.layoutSnapshot();
-    const rows = layout.overlay;
-    const entryId = view.anchorEntryId ?? view.page.entries[view.selected]?.id;
-    if (entryId === undefined) return;
-    const sourceOffset = view.anchorScalarOffset ?? 0;
-    const matching = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
-      row.entryId === entryId
-    );
-    const currentRow =
-      matching.find(({ row }) => (row.sourceScalarOffset ?? 0) >= sourceOffset)?.index ??
-        matching.at(-1)?.index;
-    if (currentRow === undefined) return;
-    const entryRows = rows.map((row, index) => ({ row, index })).filter(({ row }) =>
-      row.entryId !== undefined
-    );
-    const firstRow = entryRows.at(0)?.index;
-    const lastRow = entryRows.at(-1)?.index;
-    if (firstRow === undefined || lastRow === undefined) return;
-    const distance = Math.max(1, layout.log.length);
-    const rawTarget = currentRow + (direction === 'page_up' ? -distance : distance);
-    if (rawTarget < firstRow && view.page.olderCursor !== undefined && loadAtEdge) {
-      this.loadHumanHistoryPage('older', view.page.olderCursor, 'page_up');
-      return;
-    }
-    if (rawTarget > lastRow && view.page.newerCursor !== undefined && loadAtEdge) {
-      this.loadHumanHistoryPage('newer', view.page.newerCursor, 'page_down');
-      return;
-    }
-    const targetIndex = Math.max(firstRow, Math.min(lastRow, rawTarget));
-    let target = rows[targetIndex];
-    if (target.entryId === undefined) {
-      const step = direction === 'page_up' ? -1 : 1;
-      for (let index = targetIndex; index >= firstRow && index <= lastRow; index += step) {
-        if (rows[index].entryId !== undefined) {
-          target = rows[index];
-          break;
-        }
-      }
-    }
-    if (target.entryId === undefined) return;
-    const selected = view.page.entries.findIndex((entry) => entry.id === target.entryId);
-    if (selected < 0) return;
-    this.humanHistory = {
-      ...view,
-      selected,
-      anchorEntryId: target.entryId,
-      anchorScalarOffset: target.sourceScalarOffset ?? 0,
-    };
-    this.renderHumanHistory();
-  }
-
-  private openHumanHistoryDetail(detailId: string, scalarOffset = 0): void {
-    if (this.humanHistory === null || this.humanHistoryOperation !== null) return;
-    const operation = Promise.resolve(this.dispatchIntent({
-      kind: 'human_history_detail',
-      detailId,
-      scalarOffset,
-      ...(this.humanHistory.sessionId === undefined
-        ? {}
-        : { sessionId: this.humanHistory.sessionId }),
-    })).then((result) => {
-      if (this.humanHistory === null) return;
-      if (result.kind !== 'human_history_detail') throw new PresentationDeliveryError();
-      this.humanHistory = {
-        ...this.humanHistory,
-        detail: result.detail,
-        detailMatchScalarOffset: this.humanHistory.detail?.detailId === result.detail.detailId
-          ? this.humanHistory.detailMatchScalarOffset
-          : undefined,
-        loading: false,
-      };
-      this.renderHumanHistory();
-    }).catch((error: unknown) => {
-      if (isPresentationDeliveryError(error)) throw error;
-      this.renderer.setStatus('history detail failed');
-    });
-    this.trackHumanHistoryOperation(operation);
-  }
-
-  private searchHumanHistory(direction: 'next' | 'previous'): void {
-    const view = this.humanHistory;
-    const query = view?.searchInput ?? view?.query;
-    if (view === null || query === undefined || query.length === 0 || this.humanHistoryOperation) {
-      return;
-    }
-    const current = view.page?.entries[view.selected]?.id;
-    const currentMatchOffset = view.query === query && view.matchEntryId === current
-      ? view.matchScalarOffset
-      : undefined;
-    const operation = Promise.resolve(this.dispatchIntent({
-      kind: 'human_history_search',
-      query,
-      direction,
-      ...(current === undefined ? {} : { fromEntryId: current }),
-      ...(currentMatchOffset === undefined ? {} : { fromSourceScalarOffset: currentMatchOffset }),
-      ...(view.sessionId === undefined ? {} : { sessionId: view.sessionId }),
-    })).then((result) => {
-      if (this.humanHistory === null) return;
-      if (result.kind !== 'human_history_search') throw new PresentationDeliveryError();
-      if (result.hit === undefined) {
-        this.humanHistory = { ...this.humanHistory, query, searchInput: undefined };
-        this.renderHumanHistory();
-        this.renderer.setStatus(`no history match for ${query}`);
-        return;
-      }
-      const selected = result.hit.page.entries.findIndex((entry) =>
-        entry.id === result.hit!.entryId
-      );
-      this.humanHistory = {
-        page: result.hit.page,
-        selected: Math.max(0, selected),
-        anchorEntryId: result.hit.entryId,
-        anchorScalarOffset: result.hit.sourceScalarOffset,
-        ...(result.hit.detail === undefined ? {} : { detail: result.hit.detail }),
-        ...(result.hit.detailMatchScalarOffset === undefined
-          ? {}
-          : { detailMatchScalarOffset: result.hit.detailMatchScalarOffset }),
-        query,
-        matchEntryId: result.hit.entryId,
-        matchScalarOffset: result.hit.sourceScalarOffset,
-        wrapped: result.hit.wrapped,
-        ...(view.sessionId === undefined ? {} : { sessionId: view.sessionId }),
-      };
-      this.renderHumanHistory();
-    }).catch((error: unknown) => {
-      if (isPresentationDeliveryError(error)) throw error;
-      this.renderer.setStatus('history search failed');
-    });
-    this.trackHumanHistoryOperation(operation);
-  }
-
-  private closeHumanHistory(): void {
-    this.humanHistory = null;
-    this.renderer.clearModal();
-    this.renderer.setStatus(this.readyStatus());
-  }
-
-  private processHumanHistoryEvent(event: InputEvent): void {
-    const view = this.humanHistory;
-    if (view === null) return;
-    if (view.searchInput !== undefined) {
-      if (event.kind === 'escape') {
-        this.humanHistory = { ...view, searchInput: undefined };
-        this.renderHumanHistory();
-      } else if (event.kind === 'enter') {
-        if (view.searchInput.length === 0) {
-          this.humanHistory = {
-            ...view,
-            query: undefined,
-            searchInput: undefined,
-            matchEntryId: undefined,
-            matchScalarOffset: undefined,
-            detailMatchScalarOffset: undefined,
-          };
-          this.renderHumanHistory();
-        } else this.searchHumanHistory('next');
-      } else if (event.kind === 'backspace') {
-        this.humanHistory = { ...view, searchInput: [...view.searchInput].slice(0, -1).join('') };
-        this.renderHumanHistory();
-      } else if (event.kind === 'printable') {
-        this.humanHistory = { ...view, searchInput: view.searchInput + event.text };
-        this.renderHumanHistory();
-      } else if (event.kind === 'paste' && !event.text.includes('\0')) {
-        this.humanHistory = { ...view, searchInput: view.searchInput + event.text };
-        this.renderHumanHistory();
-      }
-      return;
-    }
-    if (view.detail !== undefined) {
-      if (event.kind === 'escape' || event.kind === 'backspace') {
-        this.humanHistory = { ...view, detail: undefined, detailMatchScalarOffset: undefined };
-        this.renderHumanHistory();
-      } else if (event.kind === 'page_up' && view.detail.previousOffset !== undefined) {
-        this.openHumanHistoryDetail(view.detail.detailId, view.detail.previousOffset);
-      } else if (event.kind === 'page_down' && view.detail.nextOffset !== undefined) {
-        this.openHumanHistoryDetail(view.detail.detailId, view.detail.nextOffset);
-      } else if (event.kind === 'printable' && event.text === 'n') {
-        this.searchHumanHistory('next');
-      } else if (event.kind === 'printable' && event.text === 'N') {
-        this.searchHumanHistory('previous');
-      }
-      return;
-    }
-    const page = view.page;
-    if (event.kind === 'escape' || (event.kind === 'printable' && event.text === 'q')) {
-      this.closeHumanHistory();
-    } else if (event.kind === 'printable' && event.text === '/') {
-      this.humanHistory = { ...view, searchInput: view.query ?? '' };
-      this.renderHumanHistory();
-    } else if (event.kind === 'printable' && event.text === 'n') {
-      this.searchHumanHistory('next');
-    } else if (event.kind === 'printable' && event.text === 'N') {
-      this.searchHumanHistory('previous');
-    } else if (
-      event.kind === 'up' || (event.kind === 'printable' && event.text === 'k')
-    ) {
-      if (view.selected > 0) {
-        const selected = view.selected - 1;
-        this.humanHistory = {
-          ...view,
-          selected,
-          anchorEntryId: page?.entries[selected]?.id,
-          anchorScalarOffset: 0,
-        };
-        this.renderHumanHistory();
-      } else if (page?.olderCursor !== undefined) {
-        this.loadHumanHistoryPage('older', page.olderCursor, 'previous');
-      }
-    } else if (
-      event.kind === 'down' || (event.kind === 'printable' && event.text === 'j')
-    ) {
-      if (page !== undefined && view.selected + 1 < page.entries.length) {
-        const selected = view.selected + 1;
-        this.humanHistory = {
-          ...view,
-          selected,
-          anchorEntryId: page.entries[selected]?.id,
-          anchorScalarOffset: 0,
-        };
-        this.renderHumanHistory();
-      } else if (page?.newerCursor !== undefined) {
-        this.loadHumanHistoryPage('newer', page.newerCursor, 'next');
-      }
-    } else if (event.kind === 'page_up') {
-      this.moveHumanHistoryVisualPage('page_up');
-    } else if (event.kind === 'page_down') {
-      this.moveHumanHistoryVisualPage('page_down');
-    } else if (event.kind === 'home' || (event.kind === 'printable' && event.text === 'g')) {
-      this.loadHumanHistoryPage('oldest');
-    } else if (event.kind === 'end' || (event.kind === 'printable' && event.text === 'G')) {
-      this.loadHumanHistoryPage('latest');
-    } else if (event.kind === 'enter') {
-      const selected = page?.entries[view.selected];
-      if (selected !== undefined) this.openHumanHistoryDetail(selected.detailId);
-    }
-  }
-
-  private startHistoryExport(all = false): void {
-    if (this.state !== 'idle' || this.historyExportOperation !== null) {
-      this.renderer.setStatus('history export already in progress');
-      return;
-    }
-    const binding = this.currentBindingIdentity();
-    let dispatched: PresentationIntentResult | Promise<PresentationIntentResult>;
-    try {
-      dispatched = this.dispatchIntent({ kind: all ? 'history_export_all' : 'history_export' });
-    } catch (error) {
-      if (isPresentationDeliveryError(error)) throw error;
-      this.renderer.setStatus('history export failed');
-      return;
-    }
-    const generation = ++this.historyExportGeneration;
-    this.state = 'history-exporting';
-    const operation = Promise.resolve(dispatched).then((result) => {
-      const owned = this.historyExportOperation;
-      if (owned === null || owned.generation !== generation) return;
-      if (result.kind === 'rejected') {
-        if (this.state === 'history-exporting') {
-          this.state = 'idle';
-          this.renderer.setStatus('history export unavailable');
-        }
-        return;
-      }
-      if (all) {
-        if (result.kind !== 'history_export_all') throw new PresentationDeliveryError();
-      } else if (result.kind !== 'history_export') throw new PresentationDeliveryError();
-      if (result.kind !== 'history_export' && result.kind !== 'history_export_all') {
-        throw new PresentationDeliveryError();
-      }
-      if (this.state !== 'history-exporting') return;
-      if (this.currentBindingIdentity() !== binding) {
-        this.state = 'idle';
-        this.renderer.setStatus('history export completed for previous session');
-        return;
-      }
-      const notice = result.kind === 'history_export'
-        ? `history exported through turn ${result.throughTurn}: ${result.path}`
-        : `full history exported (${result.executionCount} executions, sha256 ${result.sha256}): ${result.path}`;
-      this.renderer.eventSink({
-        kind: 'notice',
-        generation: ++this.noticeGeneration,
-        text: notice,
-      });
-      this.state = 'idle';
-      this.renderer.setStatus(
-        result.kind === 'history_export'
-          ? `history exported through turn ${result.throughTurn}`
-          : `full history exported · ${result.executionCount} executions · ${result.byteLength} bytes`,
-      );
-    }).catch((error: unknown) => {
-      if (isPresentationDeliveryError(error)) throw error;
-      const owned = this.historyExportOperation;
-      if (
-        owned !== null && owned.generation === generation &&
-        this.state === 'history-exporting'
-      ) {
-        this.state = 'idle';
-        this.renderer.setStatus('history export failed');
-      }
-    });
-    const owned = Object.freeze({ operation, binding, generation });
-    this.historyExportOperation = owned;
-    void operation.then(
-      () => {
-        if (this.historyExportOperation === owned) this.historyExportOperation = null;
-      },
-      (error) => {
-        if (this.historyExportOperation === owned) this.historyExportOperation = null;
-        void this.fail(error).catch(() => {
-          // The controller has already entered its fatal shutdown path.
-        });
-      },
-    );
-    // Once dispatch starts Host-local I/O, ownership must precede any fallible terminal redraw.
-    this.renderer.setStatus('exporting history');
-  }
-
-  private processHistoryExporting(events: readonly InputEvent[]): void {
-    for (const event of events) {
-      if (this.state !== 'history-exporting') return;
-      if (event.kind === 'enter') {
-        if (slashCommandOf(this.editor.text) === 'exit') {
-          this.trySlashCommand();
-        } else {
-          this.renderer.setStatus('history export in progress; retry when ready');
-        }
-        continue;
-      }
-      if (event.kind === 'ctrl_d') {
-        this.modern ? this.modernCtrlD() : void this.shutdown(0);
-        continue;
-      }
-      if (event.kind === 'ctrl_c') {
-        this.modern ? this.modernCtrlC() : this.idleCtrlC();
-        continue;
-      }
-      if (event.kind === 'page_up') {
-        this.renderer.scrollPage?.('up');
-        continue;
-      }
-      if (event.kind === 'page_down') {
-        this.renderer.scrollPage?.('down');
-        continue;
-      }
-      if (event.kind === 'escape') {
-        if (this.renderer.stateSnapshot().scroll.kind !== 'followLatest') {
-          this.renderer.latest();
-        } else this.renderer.setStatus('history export in progress');
-        continue;
-      }
-      if (event.kind === 'tab') {
-        this.completePathAtCursor();
-        continue;
-      }
-      if (event.kind === 'f1' || event.kind === 'unknown') {
-        this.renderer.setStatus('history export in progress');
-        continue;
-      }
-      if (event.kind === 'invalid_utf8') {
-        this.renderer.setStatus('invalid UTF-8');
-        continue;
-      }
-      if (event.kind === 'paste_rejected') {
-        this.renderer.setStatus('paste exceeds 64 KiB');
-        continue;
-      }
-      this.editEvent(event);
-    }
   }
 
   private processSessionSwitching(events: readonly InputEvent[]): void {
@@ -1414,9 +783,6 @@ export class TuiController {
           break;
         case 'enter':
           if (
-            slashCommandOf(this.editor.text) === 'history' ||
-            slashCommandOf(this.editor.text) === 'history_export' ||
-            slashCommandOf(this.editor.text) === 'history_export_all' ||
             slashCommandOf(this.editor.text) === 'recall' ||
             slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
@@ -1447,10 +813,7 @@ export class TuiController {
     } else if (event.kind === 'enter') {
       const slashCommand = slashCommandOf(this.editor.text);
       this.renderer.setStatus(
-        slashCommand === 'history' || slashCommand === 'history_export' ||
-          slashCommand === 'history_export_all'
-          ? `busy; ${this.editor.text.trim()} waits for ready`
-          : slashCommand === 'recall'
+        slashCommand === 'recall'
           ? 'busy; /recall waits for ready'
           : slashCommand === 'provider'
           ? 'busy; /provider waits for ready'
@@ -1501,9 +864,6 @@ export class TuiController {
     else if (command === 'provider') this.openProviderPicker();
     else if (command === 'model') this.openModelPicker();
     else if (command === 'effort') this.openEffortPicker();
-    else if (command === 'history') this.startHumanHistory();
-    else if (command === 'history_export') this.startHistoryExport();
-    else if (command === 'history_export_all') this.startHistoryExport(true);
     else if (this.modern) this.modernCtrlD();
     else if (this.editor.text.length === 0) void this.shutdown(0);
     else this.renderer.setStatus('Ctrl-D exits only on empty input');
@@ -2102,7 +1462,6 @@ export class TuiController {
       await this.settleNavigation();
       await this.settleSessionSwitch();
       await this.settleRecall();
-      await this.settleHistoryExport();
       await this.lifecycle.restore();
     })();
     await this.shutdownPromise;
@@ -2119,8 +1478,6 @@ export class TuiController {
     await this.settleNavigation();
     await this.settleSessionSwitch();
     await this.settleRecall();
-    await this.settleHumanHistory();
-    await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       // Fatal controller/agent failures override any previously requested signal exit intent.
       this.exitCode = 1;
@@ -2162,7 +1519,6 @@ export class TuiController {
     await this.settleNavigation();
     await this.settleSessionSwitch();
     await this.settleRecall();
-    await this.settleHistoryExport();
     if (this.shutdownPromise === null) {
       this.shutdownPromise = this.lifecycle.restore();
     }
@@ -2185,20 +1541,6 @@ export class TuiController {
     if (operation === null) return;
     await Promise.allSettled([operation]);
     if (this.recallOperation === operation) this.recallOperation = null;
-  }
-
-  private async settleHistoryExport(): Promise<void> {
-    const owned = this.historyExportOperation;
-    if (owned === null) return;
-    await Promise.allSettled([owned.operation]);
-    if (this.historyExportOperation === owned) this.historyExportOperation = null;
-  }
-
-  private async settleHumanHistory(): Promise<void> {
-    const operation = this.humanHistoryOperation;
-    if (operation === null) return;
-    await Promise.allSettled([operation]);
-    if (this.humanHistoryOperation === operation) this.humanHistoryOperation = null;
   }
 
   private clearLiveActivity(): void {

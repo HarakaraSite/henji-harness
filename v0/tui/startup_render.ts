@@ -176,9 +176,6 @@ export const startupHelpLines = (
     '/new · start a new saved session',
     '/sessions · resume a saved session',
     '/rename <title> · name the current saved session',
-    '/history · inspect canonical and non-canonical execution history',
-    '/history export · save committed history as Markdown',
-    '/history export all · save exact durable Session history as JSONL',
     '/recall [execution-id] · use a stopped execution for the next task',
     '/exit · exit Henji',
   ]);

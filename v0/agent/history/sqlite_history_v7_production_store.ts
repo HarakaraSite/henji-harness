@@ -310,6 +310,7 @@ export class SqliteHistoryV7ProductionStore
   readonly #makeUuid: () => string;
   readonly #captureProfile: HistoryV7CaptureProfile;
   readonly #fault?: (phase: HistoryV7ProductionFaultPhase) => void;
+  readonly #readOnly: boolean;
   readonly #executionLocks = new Map<string, Lock>();
   readonly #eventCounts = new Map<string, number>();
   readonly #baseMessageCountsBySession = new Map<string, number>();
@@ -324,6 +325,8 @@ export class SqliteHistoryV7ProductionStore
       uuid?: () => string;
       captureProfile?: HistoryV7CaptureProfile;
       fault?: (phase: HistoryV7ProductionFaultPhase) => void;
+      /** Open for read-only viewing: no directory/schema creation and no reconciliation. */
+      readOnly?: boolean;
     }> = {},
   ) {
     if (!stateRoot.startsWith('/') || stateRoot.includes('\0')) {
@@ -332,12 +335,19 @@ export class SqliteHistoryV7ProductionStore
     this.#makeUuid = options.uuid ?? (() => crypto.randomUUID().toLowerCase());
     this.#captureProfile = options.captureProfile ?? 'normal-v1';
     this.#fault = options.fault;
+    this.#readOnly = options.readOnly === true;
   }
 
   async initialize(): Promise<void> {
     if (this.#core !== undefined) return;
     const digest = await workspaceDigest(this.workspaceRoot);
     const root = `${this.stateRoot}/${digest}`;
+    if (this.#readOnly) {
+      this.#databasePath = `${root}/history-v7.sqlite3`;
+      this.#locksPath = `${root}/locks-v7`;
+      this.#core = new SqliteHistoryV7Store(this.#databasePath, { readOnly: true });
+      return;
+    }
     await ensureDirectory(root, 0o700);
     await ensureDirectory(`${root}/locks-v7`, 0o700);
     this.#databasePath = `${root}/history-v7.sqlite3`;
@@ -389,6 +399,11 @@ export class SqliteHistoryV7ProductionStore
 
   #db(): DatabaseSync {
     if (this.#databasePath === undefined) throw new HistoryStoreError('history_io_failure');
+    if (this.#readOnly) {
+      const db = new DatabaseSync(this.#databasePath, { readOnly: true });
+      db.exec('PRAGMA foreign_keys=ON;');
+      return db;
+    }
     const db = new DatabaseSync(this.#databasePath);
     db.exec(
       'PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=250;',

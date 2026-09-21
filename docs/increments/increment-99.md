@@ -1,6 +1,6 @@
 # Increment 99 — `/history`廃止と`henji history` CLIへの統一（S11/S12統合）
 
-ステータス: **計画（利用者承認済み・実装前、review反映済み）**
+ステータス: **実装・検証完了**
 
 計画日: 2026-09-21
 
@@ -138,6 +138,38 @@ test件数は完了条件にしない。各testは上表のproduct動作へ対�
   仕様へ修正。
 - **`--latest`の前提**／**CLIエラー契約**／**removal網羅（`human_history_*`、README）**／**F10陳腐化**: 計画へ
   反映。F10の正本更新は別承認とする。
+
+## 実装結果（2026-09-21）
+
+- **read-only read port**: `SqliteHistoryV7Prototype`と`SqliteHistoryV7ProductionStore`へ`readOnly` optionを追加。
+  read-onlyでは`DatabaseSync(path, { readOnly: true })`で開き、schema作成・reconcile・lock取得・projection drainを
+  行わない。`#db()`もread-only接続を返す。既存の`listWorker`／`readWorker`／`streamHumanHistoryExport`を
+  read-onlyで再利用する（単一接続・read-only snapshot）。
+- **CLI**: `v0/agent/cli/history_cli.ts`（`henji history [--session <id>|--latest] [--view session|canonical|detail]`、
+  既定`session`／`--latest`、stdoutのみ、`# session <id>`はstderrへ）。`henji_cli.ts`へ`history` subcommandを追加。
+  DB無しは`# no history`でexit 0。エラーは他subcommandと同じ`{ok:false,error:{code}}`。
+- **出力**: `v0/agent/history/history_view.ts`の`renderSessionView`（メインlog形式、`tool>`へ結果を畳み込み
+  `tool<`なし、turn間に空行）と`renderCanonicalView`（`history_export.ts`へ追加した`renderHistoryMarkdown`を再利用）。
+  `detail`は`streamHumanHistoryExport`をJSONLとしてstdoutへ。`canonical`はlive startup stateを持たないため
+  `Runtime at export`節を省略する。
+- **TUI削除**: `/history`・`/history export`・`/history export all`、pickerの`v`、humanHistory overlay一式、
+  `history-exporting`状態、adapterの`humanHistoryReader`／`humanHistoryExporter`／`historyExporter`配線、
+  presentation contractの`human_history_*`／`history_export*` intent/resultを削除。`worker_tui_session.ts`の
+  `humanHistoryReader`も削除。`startup_render.ts`のhelpから`/history`3行を削除。
+- **正本**: roadmap F05を部分実装へ、F01のTUI節から`/history`系を削除し`henji history` CLIを追記。architectureの
+  `/history export`段落をCLI viewerへ、history view記述を更新。
+- **未実施（意図的）**: `DenoHistoryExporter`／`DenoHumanHistoryExporter`クラスは残置（production未使用、testが直接
+  使用）。non-canonicalの人間可読viewは将来項目。
+
+### 検証
+
+- focused test `tests/v0/increment_99_history_cli_test.ts`（4件、`v0:test`追加）: session viewの形（`tool<`なし）、
+  canonical Markdown、args parse、read-onlyが空workspaceでDBを作らないこと。
+- 実stateをread-onlyで実行: `henji history --latest --view session|canonical|detail`、`--session <id>`、
+  空XDGで`# no history` exit 0 を確認。
+- tmux確認（source TUI、隔離XDG）: `/history`・`/history export`が`unknown command`、session pickerに`v`表示がなく
+  `v`で履歴が開かないこと。メインlogのPageUpは本incrementで未変更（Increment 98で確認済み）。
+- authoritative `v0:gate` exit 0。
 
 ## 参考: pi／zotのSession参照（`_refs/`）
 

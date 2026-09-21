@@ -1,7 +1,6 @@
 import type { AgentEvent } from '../agent/core/events.ts';
 import type { NavigationBinding } from '../agent/session/session_navigation.ts';
 import type { SessionNavigationHost } from '../agent/session/session_navigation.ts';
-import type { HistoryExportSessionIdentity } from '../agent/session/history_export.ts';
 import {
   type PresentationContextMetrics,
   type PresentationContextPreview,
@@ -55,9 +54,6 @@ import {
   failureDiagnostic,
   fixedCount,
   history,
-  humanHistoryDetail,
-  humanHistoryPage,
-  humanHistorySearchHit,
   listing,
   optionalBoundedCount,
   outcome,
@@ -488,131 +484,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           return { kind: 'rejected', reason: 'invalid' };
         }
         return this.dispatchModelSelection(selection);
-      }
-      case 'history_export': {
-        const core = this.core;
-        const positionValue = core.currentPosition?.();
-        const transcript = core.transcriptSnapshot?.();
-        const exporter = this.options.historyExporter;
-        const mode = this.options.historySessionMode;
-        if (
-          positionValue === undefined || transcript === undefined || exporter === undefined ||
-          mode === undefined
-        ) return { kind: 'rejected', reason: 'unavailable' };
-        const session: HistoryExportSessionIdentity = mode === 'none'
-          ? Object.freeze({ kind: 'none' as const })
-          : positionValue.sessionId === undefined
-          ? (() => {
-            throw new PresentationDeliveryError();
-          })()
-          : Object.freeze({ kind: 'durable' as const, sessionId: positionValue.sessionId });
-        // Capture every mutable binding value before the writer's first asynchronous boundary.
-        const operation = exporter.write({
-          transcript,
-          position: {
-            agent: positionValue.agent,
-            committedTurn: positionValue.committedTurn,
-            createdAt: positionValue.createdAt,
-            ...(positionValue.title === undefined ? {} : { title: positionValue.title }),
-          },
-          session,
-          ...(this.options.startupState === undefined ? {} : {
-            runtime: {
-              instructionSource: this.options.startupState.instructions.source,
-              skillNames: [...this.options.startupState.skills.names],
-              omittedSkills: this.options.startupState.skills.omitted,
-              hardSandbox: this.options.startupState.trust.hardSandbox,
-            },
-          }),
-        });
-        return operation.then((receipt) => ({
-          kind: 'history_export' as const,
-          path: bounded(receipt.path),
-          throughTurn: receipt.throughTurn,
-        }));
-      }
-      case 'human_history_open':
-      case 'human_history_page': {
-        const positionValue = this.core.currentPosition?.();
-        const reader = this.options.humanHistoryReader;
-        const targetSessionId = admitted.sessionId ?? positionValue?.sessionId;
-        if (
-          targetSessionId === undefined || reader === undefined ||
-          this.options.historySessionMode !== 'durable'
-        ) {
-          return { kind: 'rejected', reason: 'unavailable' };
-        }
-        const pageValue = reader.readHumanHistoryPage({
-          sessionId: targetSessionId,
-          direction: admitted.kind === 'human_history_open' ? 'latest' : admitted.direction,
-          ...(admitted.kind === 'human_history_page' && admitted.cursor !== undefined
-            ? { cursor: admitted.cursor }
-            : {}),
-        });
-        return { kind: 'human_history_page', page: humanHistoryPage(pageValue) };
-      }
-      case 'human_history_detail': {
-        const positionValue = this.core.currentPosition?.();
-        const reader = this.options.humanHistoryReader;
-        const targetSessionId = admitted.sessionId ?? positionValue?.sessionId;
-        if (
-          targetSessionId === undefined || reader === undefined ||
-          this.options.historySessionMode !== 'durable'
-        ) {
-          return { kind: 'rejected', reason: 'unavailable' };
-        }
-        const value = reader.readHumanHistoryDetail(
-          targetSessionId,
-          admitted.detailId,
-          admitted.scalarOffset,
-        );
-        return { kind: 'human_history_detail', detail: humanHistoryDetail(value) };
-      }
-      case 'human_history_search': {
-        const positionValue = this.core.currentPosition?.();
-        const reader = this.options.humanHistoryReader;
-        const targetSessionId = admitted.sessionId ?? positionValue?.sessionId;
-        if (
-          targetSessionId === undefined || reader === undefined ||
-          this.options.historySessionMode !== 'durable'
-        ) {
-          return { kind: 'rejected', reason: 'unavailable' };
-        }
-        const value = reader.searchHumanHistory({
-          sessionId: targetSessionId,
-          query: admitted.query,
-          direction: admitted.direction,
-          ...(admitted.fromEntryId === undefined ? {} : { fromEntryId: admitted.fromEntryId }),
-          ...(admitted.fromSourceScalarOffset === undefined
-            ? {}
-            : { fromSourceScalarOffset: admitted.fromSourceScalarOffset }),
-        });
-        return {
-          kind: 'human_history_search',
-          ...(value === undefined ? {} : { hit: humanHistorySearchHit(value) }),
-        };
-      }
-      case 'history_export_all': {
-        const positionValue = this.core.currentPosition?.();
-        const exporter = this.options.humanHistoryExporter;
-        if (
-          positionValue?.sessionId === undefined || exporter === undefined ||
-          this.options.historySessionMode !== 'durable'
-        ) {
-          return { kind: 'rejected', reason: 'unavailable' };
-        }
-        return exporter.write(positionValue.sessionId).then((receipt) => ({
-          kind: 'history_export_all' as const,
-          path: bounded(receipt.path),
-          sessionId: bounded(receipt.sessionId),
-          stateRevision: receipt.stateRevision,
-          ...(receipt.tailExecutionId === undefined
-            ? {}
-            : { tailExecutionId: bounded(receipt.tailExecutionId) }),
-          executionCount: receipt.executionCount,
-          byteLength: receipt.byteLength,
-          sha256: bounded(receipt.sha256),
-        }));
       }
       case 'history_page':
         return this.dispatchHistory(admitted.page, admitted.turn);

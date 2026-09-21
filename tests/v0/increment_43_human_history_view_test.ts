@@ -7,7 +7,6 @@ import { DenoHumanHistoryExporter } from '../../v0/agent/history/human_history_e
 import type { HumanHistoryReadPort } from '../../v0/agent/history/human_history.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store.ts';
-import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -509,32 +508,7 @@ Deno.test('Increment 43 streams deterministic Session-scoped JSONL with matching
       },
     );
     const before = await store.readWorker(sessionId);
-    const adapter = createTuiPresentationAdapter(
-      {
-        submit: () => Promise.resolve(cancelledOutcome('unused')),
-        currentPosition: () => ({
-          sessionId,
-          createdAt,
-          agent: 'default',
-          committedTurn: 0,
-          messageCount: 0,
-        }),
-      },
-      undefined,
-      undefined,
-      {
-        humanHistoryReader: concurrentReader,
-        humanHistoryExporter: exporter,
-        historySessionMode: 'durable',
-      },
-    );
-    const opened = await adapter.dispatch({ kind: 'human_history_open' });
-    assertEquals(opened.kind, 'human_history_page');
-    const exported = await adapter.dispatch({ kind: 'history_export_all' });
-    if (exported.kind !== 'history_export_all') {
-      throw new Error('full export rejected');
-    }
-    const receipt = exported;
+    const receipt = await exporter.write(sessionId);
     const bytes = await Deno.readFile(receipt.path);
     const lines = new TextDecoder().decode(bytes).trimEnd().split('\n').map((
       line,

@@ -1,17 +1,11 @@
 import { type Message } from '../../v0/agent/core/contracts.ts';
-import {
-  DenoHistoryExporter,
-  type HistoryExporter,
-  type HistoryExportReceipt,
-  type HistoryExportRequest,
-} from '../../v0/agent/session/history_export.ts';
+import { DenoHistoryExporter } from '../../v0/agent/session/history_export.ts';
 import {
   createEditTool,
   createReadTool,
   createWriteTool,
   resolveWorkspace,
 } from '../../v0/agent/tools/work_tools.ts';
-import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
 import { createAgentResourceIdentity } from '../../v0/agent/definitions/resource_identity.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
@@ -290,74 +284,5 @@ Deno.test('history export writes distinct complete snapshots and explicit no-ses
     const noneText = await Deno.readTextFile(none.path);
     assert(noneText.includes('- Session: `no-session`'));
     assert(!noneText.includes(sessionId));
-  });
-});
-
-Deno.test('presentation adapter captures transcript and ignores no-session internal UUID', async () => {
-  let captured: HistoryExportRequest | undefined;
-  let resolveWrite!: (receipt: HistoryExportReceipt) => void;
-  const exporter: HistoryExporter = {
-    write: (request) => {
-      captured = request;
-      return new Promise((resolve) => {
-        resolveWrite = resolve;
-      });
-    },
-  };
-  let transcript = turnOne();
-  const internalId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-  const adapter = new TuiPresentationAdapter(
-    {
-      submit: () => Promise.reject(new Error('not used')),
-      transcriptSnapshot: () => structuredClone(transcript),
-      currentPosition: () => ({
-        sessionId: internalId,
-        createdAt: '2026-09-11T00:00:00.000Z',
-        agent: 'default',
-        committedTurn: 1,
-        messageCount: 2,
-      }),
-    },
-    undefined,
-    undefined,
-    {
-      historyExporter: exporter,
-      historySessionMode: 'none',
-      startupState: {
-        productVersion: '0.1.2',
-        workspace: '/tmp/workspace',
-        agentId: 'default',
-        model: {
-          provider: 'openrouter-chat',
-          profileId: 'test',
-          modelId: 'deepseek/deepseek-v4.1-flash',
-          effort: 'high',
-        },
-        sessionMode: { kind: 'none' },
-        instructions: { loaded: true, source: 'AGENTS.md' },
-        skills: { count: 1, names: ['handoff-read'], omitted: 0 },
-        trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
-        credentialVerification: 'before_each_provider_request',
-      },
-    },
-  );
-  const operation = adapter.dispatch({ kind: 'history_export' });
-  assert(operation instanceof Promise);
-  assert(captured !== undefined);
-  assertEquals(captured.session, { kind: 'none' });
-  assertEquals(captured.position.createdAt, '2026-09-11T00:00:00.000Z');
-  assertEquals(captured.runtime, {
-    instructionSource: 'AGENTS.md',
-    skillNames: ['handoff-read'],
-    omittedSkills: 0,
-    hardSandbox: false,
-  });
-  assertEquals(captured.transcript, turnOne());
-  transcript = [...turnOne(), ...turnTwo()];
-  resolveWrite({ path: '/tmp/export.md', throughTurn: 1 });
-  assertEquals(await operation, {
-    kind: 'history_export',
-    path: '/tmp/export.md',
-    throughTurn: 1,
   });
 });

@@ -229,6 +229,8 @@ export type HistoryV7PrototypeFaultPhase = 'after_occurrences' | 'before_commit'
 
 export interface HistoryV7PrototypeOptions {
   readonly fault?: (phase: HistoryV7PrototypeFaultPhase) => void;
+  /** Open the database read-only and never create or migrate schema (read-only viewer). */
+  readonly readOnly?: boolean;
 }
 
 export interface HistoryV7ExecutionAdmission {
@@ -286,18 +288,31 @@ export interface HistoryV7ProjectionEntry {
 export class SqliteHistoryV7Prototype {
   readonly #db: DatabaseSync;
   readonly #fault?: (phase: HistoryV7PrototypeFaultPhase) => void;
+  readonly #readOnly: boolean;
 
   constructor(readonly databasePath: string, options: HistoryV7PrototypeOptions = {}) {
     if (!databasePath.startsWith('/') || databasePath.includes('\0')) {
       throw new TypeError('history v7 prototype path must be absolute');
     }
     this.#fault = options.fault;
-    this.#db = new DatabaseSync(databasePath);
-    this.#db.exec('PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;');
+    this.#readOnly = options.readOnly === true;
+    this.#db = this.#readOnly
+      ? new DatabaseSync(databasePath, { readOnly: true })
+      : new DatabaseSync(databasePath);
+    this.#db.exec(
+      this.#readOnly
+        ? 'PRAGMA foreign_keys=ON;'
+        : 'PRAGMA foreign_keys=ON; PRAGMA synchronous=FULL;',
+    );
     const version = Number(
       (this.#db.prepare('PRAGMA user_version').get() as Row).user_version,
     );
-    if (version === 0) {
+    if (this.#readOnly) {
+      if (version !== HISTORY_V7_SCHEMA_VERSION) {
+        this.#db.close();
+        throw new Error(`unsupported history v7 prototype schema: ${version}`);
+      }
+    } else if (version === 0) {
       this.#db.exec(`PRAGMA journal_mode=WAL; BEGIN IMMEDIATE; ${SCHEMA} COMMIT;`);
     } else if (version !== HISTORY_V7_SCHEMA_VERSION) {
       this.#db.close();

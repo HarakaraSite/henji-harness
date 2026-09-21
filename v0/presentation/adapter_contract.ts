@@ -6,9 +6,6 @@ import type {
   NavigationPosition,
 } from '../agent/session/session_navigation.ts';
 import type { SessionHistoryPage } from '../agent/session/session_history.ts';
-import type { HistoryExporter } from '../agent/session/history_export.ts';
-import type { HumanHistoryReadPort } from '../agent/history/human_history.ts';
-import type { HumanHistoryExporter } from '../agent/history/human_history_export.ts';
 import type {
   PresentationContextMetrics,
   PresentationContextPreview,
@@ -119,9 +116,5 @@ export type CoreSession = {
 export interface TuiPresentationAdapterOptions {
   /** Persist the accepted selection as the Host default for new sessions. */
   readonly persistDefaultSelection?: (selection: ModelSelection) => void | PromiseLike<void>;
-  readonly historyExporter?: HistoryExporter;
-  readonly humanHistoryReader?: HumanHistoryReadPort;
-  readonly humanHistoryExporter?: HumanHistoryExporter;
-  readonly historySessionMode?: 'durable' | 'none';
   readonly startupState?: PresentationStartupState;
 }

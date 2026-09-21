@@ -6,8 +6,6 @@ import {
   type PresentationEvent,
   type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
-  type PresentationHumanHistoryDetail,
-  type PresentationHumanHistoryPage,
   type PresentationMessage,
   type PresentationNavigationListing,
   type PresentationOutcome,
@@ -614,28 +612,6 @@ export class TuiRenderer implements TerminalRendererGate {
         page,
         pageNumber: page.page,
       },
-    });
-    this.redraw();
-  }
-
-  renderHumanHistory(value: {
-    readonly page?: PresentationHumanHistoryPage;
-    readonly selected: number;
-    readonly anchorEntryId?: string;
-    readonly anchorScalarOffset?: number;
-    readonly detail?: PresentationHumanHistoryDetail;
-    readonly detailMatchScalarOffset?: number;
-    readonly query?: string;
-    readonly searchInput?: string;
-    readonly matchEntryId?: string;
-    readonly matchScalarOffset?: number;
-    readonly wrapped?: boolean;
-    readonly loading?: boolean;
-  }): void {
-    if (this.closing) throw new PresentationDeliveryError();
-    this.ui = reduceUiAction(this.ui, {
-      kind: 'overlay',
-      overlay: { kind: 'humanHistory', ...value },
     });
     this.redraw();
   }

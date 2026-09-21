@@ -70,7 +70,6 @@ import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
 import type { HistoryV7CaptureProfile } from '../history/history_v7_model.ts';
-import type { HumanHistoryReadPort } from '../history/human_history.ts';
 import {
   builtinHenjiBaseInstruction,
   resolveActiveHenjiBaseInstruction,
@@ -154,7 +153,6 @@ export interface WorkerSessionResult {
   };
   readonly displayState: RuntimeDisplayState;
   readonly navigation?: SessionNavigationHost;
-  readonly humanHistoryReader?: HumanHistoryReadPort;
 }
 
 const navigationPosition = (
@@ -752,9 +750,6 @@ export const createWorkerSession = async (
       displayState,
       ...(currentRecord === undefined ? {} : { restored: restoreRecordMessages(currentRecord) }),
       ...(navigation === undefined ? {} : { navigation }),
-      ...(sqliteHistory === undefined || options.persistence === 'none'
-        ? {}
-        : { humanHistoryReader: sqliteHistory }),
     };
   } catch (error) {
     await handle.close();

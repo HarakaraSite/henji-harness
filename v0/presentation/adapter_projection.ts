@@ -10,11 +10,6 @@ import type {
   NavigationPosition,
 } from '../agent/session/session_navigation.ts';
 import type { SessionHistoryPage } from '../agent/session/session_history.ts';
-import type {
-  HumanHistoryDetailChunkV1,
-  HumanHistoryPageV1,
-  HumanHistorySearchHitV1,
-} from '../agent/history/human_history.ts';
 import {
   boundedPresentationText,
   type PresentationAssistantMessage,
@@ -386,67 +381,6 @@ export const preview = (value: ContextRecoveryPreview): PresentationContextPrevi
     ...(value.projectedMessagesBytes === undefined
       ? {}
       : { projectedMessagesBytes: count(value.projectedMessagesBytes) }),
-  });
-
-export const humanHistoryPage = (value: HumanHistoryPageV1) =>
-  Object.freeze({
-    schemaVersion: 1 as const,
-    sessionId: bounded(value.sessionId),
-    entries: Object.freeze(value.entries.map((entry) =>
-      Object.freeze({
-        id: bounded(entry.id),
-        executionId: bounded(entry.executionId),
-        turn: count(entry.turn),
-        attempt: count(entry.attempt),
-        kind: entry.kind,
-        label: bounded(entry.label),
-        text: bounded(entry.text),
-        detailId: bounded(entry.detailId),
-      })
-    )),
-    executionCount: count(value.executionCount),
-    ...(value.olderCursor === undefined ? {} : { olderCursor: bounded(value.olderCursor) }),
-    ...(value.newerCursor === undefined ? {} : { newerCursor: bounded(value.newerCursor) }),
-    atOldest: value.atOldest,
-    atNewest: value.atNewest,
-    ...(value.projection === undefined ? {} : {
-      projection: Object.freeze({
-        version: 1 as const,
-        state: value.projection.state,
-        pendingSources: count(value.projection.pendingSources),
-        ...(value.projection.staleReason === undefined
-          ? {}
-          : { staleReason: value.projection.staleReason }),
-      }),
-    }),
-  });
-
-export const humanHistoryDetail = (value: HumanHistoryDetailChunkV1) =>
-  Object.freeze({
-    schemaVersion: 1 as const,
-    sessionId: bounded(value.sessionId),
-    detailId: bounded(value.detailId),
-    title: bounded(value.title),
-    text: bounded(value.text),
-    scalarOffset: count(value.scalarOffset),
-    scalarLength: count(value.scalarLength),
-    totalScalars: count(value.totalScalars),
-    ...(value.previousOffset === undefined ? {} : { previousOffset: count(value.previousOffset) }),
-    ...(value.nextOffset === undefined ? {} : { nextOffset: count(value.nextOffset) }),
-  });
-
-export const humanHistorySearchHit = (value: HumanHistorySearchHitV1) =>
-  Object.freeze({
-    query: bounded(value.query),
-    entryId: bounded(value.entryId),
-    detailId: bounded(value.detailId),
-    sourceScalarOffset: count(value.sourceScalarOffset),
-    ...(value.detail === undefined ? {} : { detail: humanHistoryDetail(value.detail) }),
-    ...(value.detailMatchScalarOffset === undefined
-      ? {}
-      : { detailMatchScalarOffset: count(value.detailMatchScalarOffset) }),
-    wrapped: value.wrapped,
-    page: humanHistoryPage(value.page),
   });
 
 export const contextResult = (

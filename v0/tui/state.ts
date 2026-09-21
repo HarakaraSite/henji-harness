@@ -3,8 +3,6 @@ import {
   type PresentationEvent,
   type PresentationFailureDiagnostic,
   type PresentationHistoryPage,
-  type PresentationHumanHistoryDetail,
-  type PresentationHumanHistoryPage,
   type PresentationLifecycle,
   type PresentationNavigationListing,
   type PresentationPosition,
@@ -70,21 +68,6 @@ export type UiOverlay =
       readonly pageNumber?: number;
     }
   >
-  | Readonly<{
-    readonly kind: 'humanHistory';
-    readonly page?: PresentationHumanHistoryPage;
-    readonly selected: number;
-    readonly anchorEntryId?: string;
-    readonly anchorScalarOffset?: number;
-    readonly detail?: PresentationHumanHistoryDetail;
-    readonly detailMatchScalarOffset?: number;
-    readonly query?: string;
-    readonly searchInput?: string;
-    readonly matchEntryId?: string;
-    readonly matchScalarOffset?: number;
-    readonly wrapped?: boolean;
-    readonly loading?: boolean;
-  }>
   | Readonly<
     {
       readonly kind: 'compaction';

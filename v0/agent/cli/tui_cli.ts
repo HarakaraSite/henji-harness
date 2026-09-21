@@ -10,7 +10,7 @@ import { type AgentEventSink } from '../core/events.ts';
 import { TuiController, TuiControllerError } from '../../tui/controller.ts';
 import { TuiRenderer } from '../../tui/render.ts';
 import { DenoTerminal, TerminalLifecycle, type TerminalPort } from '../../tui/terminal.ts';
-import { isSessionId, launcherStateRoot } from '../session/session_store.ts';
+import { isSessionId } from '../session/session_store.ts';
 import { type Message } from '../core/contracts.ts';
 import { type RuntimeDisplayState } from '../runtime/startup_orientation.ts';
 import { PendingInputCore } from '../../tui/pending_input.ts';
@@ -23,12 +23,6 @@ import {
   TuiPresentationAdapter,
 } from '../../presentation/adapter.ts';
 import { createWorkerSession } from '../worker/worker_host.ts';
-import { DenoHistoryExporter, type HistoryExporter } from '../session/history_export.ts';
-import type { HumanHistoryReadPort } from '../history/human_history.ts';
-import {
-  DenoHumanHistoryExporter,
-  type HumanHistoryExporter,
-} from '../history/human_history_export.ts';
 import {
   BUILTIN_PROVIDER_IDS,
   type ModelSelection,
@@ -78,7 +72,6 @@ export interface TuiSessionFactoryResult {
   readonly displayState: RuntimeDisplayState;
   /** Persistent session host used by the idle-only Ctrl-G/Ctrl-T flows. */
   readonly navigation?: SessionNavigationHost;
-  readonly humanHistoryReader?: HumanHistoryReadPort;
 }
 
 export interface TuiCliDependencies {
@@ -102,9 +95,6 @@ export interface TuiCliDependencies {
   readonly dailyEditor?: boolean;
   /** Direct/process-test path-index seam; production always builds from the canonical workspace. */
   readonly pathIndex?: WorkspacePathIndex;
-  /** Direct-test seam; production writes exports below the existing workspace state root. */
-  readonly historyExporter?: HistoryExporter;
-  readonly humanHistoryExporter?: HumanHistoryExporter;
 }
 
 const fatalMessages: Record<string, string> = {
@@ -377,35 +367,16 @@ export const main = async (
     createdResult = created;
     const workspaceRoot = created.workspaceRoot ??
       created.displayState.workspace;
-    const historyExporter = dependencies.historyExporter ??
-      (dependencies.createSession === undefined
-        ? new DenoHistoryExporter(
-          dependencies.stateRoot ?? launcherStateRoot(),
-          workspaceRoot,
-        )
-        : undefined);
-    const humanHistoryExporter = dependencies.humanHistoryExporter ??
-      (created.humanHistoryReader === undefined ? undefined : new DenoHumanHistoryExporter(
-        dependencies.stateRoot ?? launcherStateRoot(),
-        workspaceRoot,
-        created.humanHistoryReader,
-      ));
     const presentationAdapter = createTuiPresentationAdapter(
       created.session,
       (event) => renderer.eventSink(event),
       created.navigation,
       {
-        ...(historyExporter === undefined ? {} : { historyExporter }),
-        ...(created.humanHistoryReader === undefined
-          ? {}
-          : { humanHistoryReader: created.humanHistoryReader }),
-        ...(humanHistoryExporter === undefined ? {} : { humanHistoryExporter }),
         ...(hostConfigRoot === undefined ? {} : {
           persistDefaultSelection: (selection: ModelSelection) => {
             writeDefaultSelection(hostConfigRoot, selection).catch(() => {});
           },
         }),
-        historySessionMode: created.displayState.sessionMode.kind === 'none' ? 'none' : 'durable',
         startupState: created.displayState,
       },
     );

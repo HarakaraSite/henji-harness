@@ -174,6 +174,23 @@ const prepareExport = (request: HistoryExportRequest): PreparedExport => {
   });
 };
 
+/** Render the committed canonical transcript as a Markdown snapshot without file I/O. */
+export const renderHistoryMarkdown = (
+  request: HistoryExportRequest,
+  workspaceRoot: string,
+): string => {
+  const prepared = prepareExport(request);
+  return [...markdownChunks(
+    prepared.index,
+    workspaceRoot,
+    prepared.agent,
+    prepared.session,
+    prepared.createdAt,
+    prepared.title,
+    prepared.runtime,
+  )].join('');
+};
+
 export interface DenoHistoryExporterOptions {
   readonly uuid?: () => string;
 }

@@ -1,6 +1,7 @@
 import { main as tuiMain } from './tui_cli.ts';
 import { main as runMain } from './runtime_cli.ts';
 import { main as sessionsMain } from './session_cli.ts';
+import { main as historyMain } from './history_cli.ts';
 import { main as diagnosticsMain } from './failure_diagnostic_cli.ts';
 import { main as moduleMain } from './module_cli.ts';
 import { main as instructionMain } from './instruction_cli.ts';
@@ -70,6 +71,7 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
   }
   if (args[0] === 'run') return await runMain(args.slice(1));
   if (args[0] === 'sessions') return await sessionsMain(args.slice(1));
+  if (args[0] === 'history') return await historyMain(args.slice(1));
   if (args[0] === 'module') return await moduleMain(args.slice(1));
   if (args[0] === 'instruction') return await instructionMain(args.slice(1));
   if (args[0] === 'tool') return await toolMain(args.slice(1));

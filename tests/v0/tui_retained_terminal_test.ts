@@ -10,7 +10,6 @@ import {
 } from '../../v0/tui/controller.ts';
 import {
   type PresentationIntentDispatcher,
-  type PresentationIntentResult,
   type PresentationStartupState,
 } from '../../v0/presentation/contract.ts';
 import { presentationProjectionFromStartup } from '../../v0/presentation/adapter.ts';
@@ -103,18 +102,6 @@ class InteractiveTerminal extends RecordingTerminal {
     for (const reader of this.readers.splice(0)) reader(null);
     this.queued.splice(0);
     return Promise.resolve();
-  }
-}
-
-class FallibleInteractiveTerminal extends InteractiveTerminal {
-  failNextWrite = false;
-
-  override write(bytes: Uint8Array): void {
-    if (this.failNextWrite) {
-      this.failNextWrite = false;
-      throw new Error('injected terminal write failure');
-    }
-    super.write(bytes);
   }
 }
 
@@ -270,10 +257,10 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
       '[⠙ working 01:02 │ steer applied │ Esc cancel]',
     ),
   );
-  renderer.setSlashCommandCandidates(['/help', '/history export']);
+  renderer.setSlashCommandCandidates(['/help', '/recall']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[⠙ working 01:02 │ steer applied │ Esc cancel │ cmds: /help, /history export]',
+    '[⠙ working 01:02 │ steer applied │ Esc cancel │ cmds: /help, /recall]',
   );
   assertEquals(
     renderer.layoutSnapshot(40, 24).footer[0].text,
@@ -448,17 +435,17 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   );
 
   terminal.push('/');
-  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 12);
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 9);
   const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
   assert(allCommandsFooter.includes('cmds:'));
   assert(allCommandsFooter.includes('/help'));
-  terminal.push('h');
-  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 4);
-  assertEquals(controller.editor.text, '/h');
+  terminal.push('r');
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 2);
+  assertEquals(controller.editor.text, '/r');
   assertEquals(controller.editor.cursorScalar, 2);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[ready │ cmds: /help, /history, /histor… │ credential missing: openai-responses]',
+    '[ready │ cmds: /rename, /recall │ credential missing: openai-responses]',
   );
   assertEquals(
     renderer.layoutSnapshot(36, 24).footer[0].text,
@@ -475,8 +462,8 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   const writesBeforeAmbiguousTab = terminal.writes.length;
   terminal.push('\t');
   await waitFor(() => terminal.writes.length > writesBeforeAmbiguousTab);
-  assertEquals(controller.editor.text, '/h');
-  assertEquals(renderer.stateSnapshot().slashCommandCandidates.length, 4);
+  assertEquals(controller.editor.text, '/r');
+  assertEquals(renderer.stateSnapshot().slashCommandCandidates.length, 2);
 
   terminal.push('\x15/n');
   await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 1);
@@ -1935,388 +1922,4 @@ Deno.test('idle Ctrl-C clears input without arming or triggering exit', async ()
   assert(!exited);
   terminal.push('\x04');
   assertEquals(await run, 0);
-});
-
-Deno.test('history export serializes task, session listing, and duplicate export', async () => {
-  const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-  await lifecycle.acquire();
-  const intentsSeen: string[] = [];
-  let resolveExport!: (result: PresentationIntentResult) => void;
-  const intents: PresentationIntentDispatcher = {
-    dispatch: (intent) => {
-      intentsSeen.push(intent.kind);
-      if (intent.kind === 'history_export') {
-        return new Promise((resolve) => {
-          resolveExport = resolve;
-        });
-      }
-      if (intent.kind === 'ordinary_submit') {
-        throw new Error('task admitted during history export');
-      }
-      if (intent.kind === 'list_sessions' || intent.kind === 'resume_session') {
-        throw new Error('navigation admitted during history export');
-      }
-      return { kind: 'accepted' };
-    },
-  };
-  const controller = new TuiController(
-    lifecycle,
-    renderer,
-    successfulSession([]),
-    { pending: new PendingInputCore(), intents },
-  );
-  const run = controller.run();
-  terminal.push('/history export\r');
-  await waitFor(() => controller.currentState === 'history-exporting');
-  terminal.push('blocked task\r');
-  await waitFor(() => renderer.stateSnapshot().status.includes('retry when ready'));
-  terminal.push('\x15/sessions\r');
-  terminal.push('\x15/history export\r');
-  await new Promise((resolve) => setTimeout(resolve, 10));
-  assertEquals(
-    intentsSeen.filter((kind) => kind === 'history_export').length,
-    1,
-  );
-  assert(!intentsSeen.includes('ordinary_submit'));
-  assert(!intentsSeen.includes('list_sessions'));
-  assert(!intentsSeen.includes('resume_session'));
-  resolveExport({
-    kind: 'history_export',
-    path: '/tmp/history-export.md',
-    throughTurn: 2,
-  });
-  await waitFor(() => controller.currentState === 'idle');
-  assert(
-    renderer.stateSnapshot().log.entries.some((entry) =>
-      entry.text === 'history exported through turn 2: /tmp/history-export.md'
-    ),
-  );
-  terminal.push('\x15\x04');
-  assertEquals(await run, 0);
-});
-
-Deno.test('human history viewer owns navigation, detail, search, and restores conversation scroll', async () => {
-  const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-  const submitted: string[] = [];
-  const page = {
-    schemaVersion: 1 as const,
-    sessionId: '43000000-0000-4000-8000-000000000001',
-    entries: [
-      {
-        id: 'execution:43000000-0000-4000-8002-000000000001',
-        executionId: '43000000-0000-4000-8002-000000000001',
-        turn: 1,
-        attempt: 1,
-        kind: 'execution' as const,
-        label: 'turn 1 · attempt 1',
-        text: 'cancelled non_canonical',
-        detailId: 'execution:43000000-0000-4000-8002-000000000001',
-      },
-      {
-        id: 'task:43000000-0000-4000-8002-000000000001',
-        executionId: '43000000-0000-4000-8002-000000000001',
-        turn: 1,
-        attempt: 1,
-        kind: 'task' as const,
-        label: 'task>',
-        text: 'literal nonce',
-        detailId: 'task:43000000-0000-4000-8002-000000000001',
-      },
-    ],
-    executionCount: 1,
-    atOldest: true,
-    atNewest: true,
-  };
-  const intents: PresentationIntentDispatcher = {
-    dispatch(intent): PresentationIntentResult {
-      if (
-        intent.kind === 'human_history_open' ||
-        intent.kind === 'human_history_page'
-      ) {
-        return { kind: 'human_history_page', page };
-      }
-      if (intent.kind === 'human_history_detail') {
-        return {
-          kind: 'human_history_detail',
-          detail: {
-            schemaVersion: 1,
-            sessionId: page.sessionId,
-            detailId: intent.detailId,
-            title: 'task',
-            text: 'literal nonce exact detail',
-            scalarOffset: 0,
-            scalarLength: 26,
-            totalScalars: 26,
-          },
-        };
-      }
-      if (intent.kind === 'human_history_search') {
-        return {
-          kind: 'human_history_search',
-          hit: {
-            query: intent.query,
-            entryId: page.entries[1].id,
-            detailId: page.entries[1].detailId,
-            sourceScalarOffset: 8,
-            detail: {
-              schemaVersion: 1,
-              sessionId: page.sessionId,
-              detailId: page.entries[1].detailId,
-              title: 'task',
-              text: 'literal nonce exact detail',
-              scalarOffset: 0,
-              scalarLength: 26,
-              totalScalars: 26,
-            },
-            detailMatchScalarOffset: 8,
-            wrapped: true,
-            page,
-          },
-        };
-      }
-      return { kind: 'rejected', reason: 'unavailable' };
-    },
-  };
-  renderer.eventSink({
-    kind: 'user_message',
-    turn: 1,
-    message: { role: 'user', content: { kind: 'text', text: 'retained row' } },
-  });
-  renderer.scrollPage('up');
-  const scroll = renderer.stateSnapshot().scroll;
-  const controller = new TuiController(
-    lifecycle,
-    renderer,
-    successfulSession(submitted),
-    { pending: new PendingInputCore(), intents },
-  );
-  const run = controller.run();
-  terminal.push('/history\r');
-  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'humanHistory');
-  assert(!renderer.renderFrame(80, 24).includes('> /history'));
-  terminal.push('k\r');
-  await waitFor(() => {
-    const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' && overlay.detail !== undefined;
-  });
-  assert(renderer.renderFrame(80, 24).includes('literal nonce exact detail'));
-  terminal.push('\x1b');
-  await waitFor(() => {
-    const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' && overlay.detail === undefined;
-  });
-  terminal.push('/nonce\r');
-  await waitFor(() => {
-    const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' && overlay.query === 'nonce' &&
-      overlay.detail !== undefined;
-  });
-  assert(renderer.renderFrame(80, 24).includes(BLINK_SGR));
-  terminal.push('\x1b');
-  await waitFor(() => {
-    const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' && overlay.detail === undefined;
-  });
-  terminal.push('q');
-  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'none');
-  assertEquals(renderer.stateSnapshot().scroll, scroll);
-  assertEquals(submitted, []);
-  terminal.push('\x04');
-  assertEquals(await run, 0);
-});
-
-Deno.test('human history keeps one wrapped document while loading adjacent storage batches', async () => {
-  const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-  await lifecycle.acquire();
-  const sessionId = '43000000-0000-4000-8000-000000000009';
-  const newest = {
-    schemaVersion: 1 as const,
-    sessionId,
-    entries: [{
-      id: 'task:43000000-0000-4000-8002-000000000009',
-      executionId: '43000000-0000-4000-8002-000000000009',
-      turn: 2,
-      attempt: 1,
-      kind: 'task' as const,
-      label: 'task>',
-      text: 'newest '.repeat(700),
-      detailId: 'task:43000000-0000-4000-8002-000000000009',
-    }],
-    executionCount: 1,
-    olderCursor: 'older-cursor',
-    atOldest: false,
-    atNewest: true,
-  };
-  const oldest = {
-    schemaVersion: 1 as const,
-    sessionId,
-    entries: [{
-      id: 'task:43000000-0000-4000-8002-000000000008',
-      executionId: '43000000-0000-4000-8002-000000000008',
-      turn: 1,
-      attempt: 1,
-      kind: 'task' as const,
-      label: 'task>',
-      text: 'oldest row',
-      detailId: 'task:43000000-0000-4000-8002-000000000008',
-    }],
-    executionCount: 1,
-    newerCursor: 'newer-cursor',
-    atOldest: true,
-    atNewest: false,
-  };
-  let olderReads = 0;
-  const intents: PresentationIntentDispatcher = {
-    dispatch(intent): PresentationIntentResult {
-      if (intent.kind === 'human_history_open') {
-        return { kind: 'human_history_page', page: newest };
-      }
-      if (
-        intent.kind === 'human_history_page' && intent.direction === 'older'
-      ) {
-        olderReads += 1;
-        return { kind: 'human_history_page', page: oldest };
-      }
-      return { kind: 'rejected', reason: 'unavailable' };
-    },
-  };
-  const controller = new TuiController(
-    lifecycle,
-    renderer,
-    successfulSession([]),
-    { pending: new PendingInputCore(), intents },
-  );
-  const run = controller.run();
-  terminal.push('/history\r');
-  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'humanHistory');
-  terminal.push('\x1b[5~');
-  await waitFor(() => {
-    const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' &&
-      overlay.anchorEntryId === newest.entries[0].id &&
-      (overlay.anchorScalarOffset ?? Number.MAX_SAFE_INTEGER) <
-        Number.MAX_SAFE_INTEGER;
-  });
-  assertEquals(olderReads, 0);
-  terminal.push('k');
-  await waitFor(() => olderReads === 1);
-  await waitFor(() => {
-    const overlay = renderer.stateSnapshot().overlay;
-    return overlay.kind === 'humanHistory' &&
-      overlay.page?.entries.length === 2;
-  });
-  const overlay = renderer.stateSnapshot().overlay;
-  if (overlay.kind !== 'humanHistory' || overlay.page === undefined) {
-    throw new Error('history viewer missing');
-  }
-  assertEquals(overlay.page.entries.map((entry) => entry.id), [
-    oldest.entries[0].id,
-    newest.entries[0].id,
-  ]);
-  assertEquals(overlay.page.entries[overlay.selected].id, oldest.entries[0].id);
-  terminal.push('q');
-  await waitFor(() => renderer.stateSnapshot().overlay.kind === 'none');
-  terminal.push('\x04');
-  assertEquals(await run, 0);
-});
-
-Deno.test('history export shutdown waits for settlement and emits no late receipt', async () => {
-  const terminal = new InteractiveTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-  await lifecycle.acquire();
-  let resolveExport!: (result: PresentationIntentResult) => void;
-  const intents: PresentationIntentDispatcher = {
-    dispatch: (intent) => {
-      if (intent.kind === 'history_export') {
-        return new Promise((resolve) => {
-          resolveExport = resolve;
-        });
-      }
-      return { kind: 'accepted' };
-    },
-  };
-  const controller = new TuiController(
-    lifecycle,
-    renderer,
-    successfulSession([]),
-    { pending: new PendingInputCore(), intents },
-  );
-  let settled = false;
-  const run = controller.run().then((code) => {
-    settled = true;
-    return code;
-  });
-  terminal.push('/history export\r');
-  await waitFor(() => controller.currentState === 'history-exporting');
-  terminal.push('\x04');
-  await waitFor(() => controller.currentState === 'exiting');
-  assert(!settled);
-  assertEquals(terminal.rawModes.at(-1), true);
-  resolveExport({
-    kind: 'history_export',
-    path: '/tmp/late-history-export.md',
-    throughTurn: 1,
-  });
-  assertEquals(await run, 0);
-  assertEquals(terminal.rawModes.at(-1), false);
-  assert(
-    !renderer.stateSnapshot().log.entries.some((entry) =>
-      entry.text.includes('late-history-export.md')
-    ),
-  );
-});
-
-Deno.test('history export output failure waits for the already-started writer', async () => {
-  const terminal = new FallibleInteractiveTerminal();
-  const renderer = new TuiRenderer(terminal);
-  const lifecycle = new TerminalLifecycle(terminal, renderer);
-  await lifecycle.acquire();
-  let resolveExport!: (result: PresentationIntentResult) => void;
-  const intents: PresentationIntentDispatcher = {
-    dispatch: (intent) => {
-      if (intent.kind !== 'history_export') return { kind: 'accepted' };
-      terminal.failNextWrite = true;
-      return new Promise((resolve) => {
-        resolveExport = resolve;
-      });
-    },
-  };
-  const controller = new TuiController(
-    lifecycle,
-    renderer,
-    successfulSession([]),
-    { pending: new PendingInputCore(), intents },
-  );
-  let settled = false;
-  const run = controller.run().then(
-    (code) => {
-      settled = true;
-      return { kind: 'code' as const, code };
-    },
-    (error: unknown) => {
-      settled = true;
-      return { kind: 'error' as const, error };
-    },
-  );
-  terminal.push('/history export\r');
-  await waitFor(() => controller.currentState === 'failed');
-  assert(!settled);
-  assertEquals(terminal.rawModes.at(-1), true);
-  resolveExport({
-    kind: 'history_export',
-    path: '/tmp/output-failure-history-export.md',
-    throughTurn: 1,
-  });
-  const result = await run;
-  assertEquals(result.kind, 'error');
-  assert(result.kind === 'error' && result.error instanceof TuiControllerError);
-  assertEquals(result.error.code, 'output_failure');
-  assertEquals(terminal.rawModes.at(-1), false);
 });
