@@ -572,8 +572,8 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
   assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
   const frame = renderer.renderFrame(80, 24);
   assert(frame.includes('\x1b[34m## Title\x1b[0m'));
-  assert(frame.includes('\x1b[32mbold\x1b[0m'));
-  assert(frame.includes('\x1b[32mem\x1b[0m'));
+  assert(frame.includes('\x1b[32m**bold**\x1b[0m'));
+  assert(frame.includes('\x1b[32m***em***\x1b[0m'));
 });
 
 Deno.test('conversation footer shows the Session title on the session row', () => {
