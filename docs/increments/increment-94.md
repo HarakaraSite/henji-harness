@@ -1,6 +1,6 @@
 # Increment 94 — 目的別history authorityの再設計（history v7）
 
-ステータス: **計画承認済み・Slice A〜F Go・Human Gate 3承認待ち**
+ステータス: **完了（Human Gate 4承認済み、2026-09-21）**
 
 計画日: 2026-09-21
 
@@ -562,9 +562,10 @@ test件数は完了条件にしない。各testは上表のproduct動作また�
   必要と判断しなかった。実providerでのv7 diagnostic captureは未確認である。
 - **Human Gate 3: production cutover（完了）** — Slice A〜Fのscale、診断、実product証拠を確認し、
   利用者がv7へのproduction切替を承認した。
-- **Human Gate 4: Increment完了（現在地）** — 実装・検証・配置後、利用者が完了を判断する。
+- **Human Gate 4: Increment完了（完了）** — 実装・検証・配置・実provider実利用確認後、利用者がIncrement完了を
+  承認した。
 
-Slice A〜GをGoとし、production selectorをv7へ切り替えた。Increment完了判断はHuman Gate 4に残す。
+Slice A〜GをGoとし、production selectorをv7へ切り替えた。Incrementは完了した。
 
 ## Slice A実施結果（2026-09-21）
 
@@ -1038,5 +1039,14 @@ contextは20 occurrence／20 immutable content（138,873 bytes）へ正規化さ
 
 このSessionではproductionの実provider／tool経路でv7の正規化、single-copy transcript、normal capture分離、atomic
 settlement、human projectionが成立した。1 turnの観測だけでは長期Sessionの処理量契約を追加実証しないため、利用者は
-常用を続け、具体的な利用上の観測が生じた時点で次の改善要否を判断する。Human Gate 4のIncrement完了判断は引き続き
-利用者に残す。
+常用を続け、具体的な利用上の観測が生じた時点で次の改善要否を判断する。
+
+## Increment完了と旧v6 DB削除（2026-09-21）
+
+利用者がHuman Gate 4でIncrement完了を承認した。本計画の「対象外」「旧DBの削除」「旧DBは保持される」は計画時点の
+方針であり、今回の完了判断と合わせて、利用者が別途旧v6 DBの削除を明示許可した。
+
+workspace `967fa64158b8aa74bcbd990f36a01645c8e0474eeda0f05b581958cf545f8633`のstate rootから
+`history-v6.sqlite3`、`history-v6.sqlite3-wal`、`history-v6.sqlite3-shm`、`locks-v6`を削除した。v7の
+`history-v7.sqlite3`／`locks-v7`、および許可対象外の`history-v4.sqlite3`／`history-v5.sqlite3`／`locks-v4`／
+`locks-v5`は変更していない。削除時点でhenji processは稼働していなかった。
