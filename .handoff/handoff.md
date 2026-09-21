@@ -2,6 +2,13 @@
 
 ## Records
 
+### JSR 0.4.0 release preparation and Deno PATH
+
+- 状態: `jsr.json`を`@henji/harness` version `0.4.0`へ更新し、READMEと`mod.ts`のexact-version例も更新。JSR dry-runで判明した公開対象の欠落 `v0/agent/worker/worker_stage_probe.ts` を`publish.include`へ追加した。clean temporary worktreeで`deno publish --dry-run --config jsr.json`は`@henji/harness@0.4.0`として成功し、`deno task --config deno.v0.json v0:gate`もexit 0。変更は未commit・未publish。
+- 次: 変更内容を確認後、必要ならcommit/pushし、`docs/operations/jsr-publish.md`のclean worktree・認証手順で実publishする。
+- 正本: `jsr.json`、`README.md`、`mod.ts`、`docs/operations/jsr-publish.md`
+- 注意: Deno 2.9.7は既存の`/home/masat.guest/.local/bin/deno`から`/usr/local/bin/deno`へ配置し、`/usr/local/bin`（既存PATH）で`command -v deno`が成功する。実際のJSR publishとブラウザ認証は未実施。
+
 ### 通常利用の改善 — Increment 69（実装完了: offline gate・binary配置・実provider probe受入済み）
 
 - 状態: `tool-definition`資源kindとweb_search外部化を実装完了。`v0:gate`（check/fmt/lint/test）exit 0。

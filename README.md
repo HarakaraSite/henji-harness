@@ -147,14 +147,14 @@ buildする。
 0.xではAPIやcontractが互換性なく変わることがあるため、exact versionを指定する。
 
 ```sh
-deno add --save-exact jsr:@henji/harness@0.3.0
+deno add --save-exact jsr:@henji/harness@0.4.0
 ```
 
 ```ts
 import {
   createDefaultAgentComposition,
   type ExecutableAgentDefinition,
-} from 'jsr:@henji/harness@0.3.0';
+} from 'jsr:@henji/harness@0.4.0';
 
 const definition: ExecutableAgentDefinition = (input) =>
   createDefaultAgentComposition(input);
