@@ -378,11 +378,27 @@
 - 注意: 未消費steering／follow-upの救済は対象外（必要時に別途設計）。decoderの`unknownAfterBareEscape`で
   bare Esc直後の1回目のarrowがunknownになる挙動は既知で対象外。
 
+### Increment 98 — コードの無着色化とPageUpのoldest到達修正（実装・検証完了）
+
+- 状態: 実装・検証完了。assistant本文のinline code（`` `text` ``）とfenced code blockを無着色にした
+  （`AssistantSpanTone`から`code`を削除、SGRマップの`code: GREEN_SGR`も削除。list／強調の緑は維持）。
+  また、会話ログのPageUpで`nextStart`がentryIdなし行（startup header）に入ると上方探索が失敗し
+  `latest()`で最下行へ戻っていた問題を、`direction==='up'`では`oldest`へ遷移するよう修正した。
+  実Session `e8e99332`（startup header込み）で`logStart=46`からPageUpが最下行へ飛ぶことを再現し、修正後に
+  `oldest`へ到達することを確認。回帰test「retained PageUp reaches oldest across the startup header」を
+  `tui_retained_terminal_test.ts`へ、code無着色のtestを`increment_84_assistant_layout_test.ts`へ追加。
+  authoritative `v0:gate`はexit 0。
+- 次: 利用者によるIncrement完了判断。実TTY目視は未実施。
+- 配置: commit `3a6d94bb`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `8786ab42…`、source `3a6d94bb…`、SHA-256 `291b6bfa…`、embedded runtime `b5b908dd…`）。commit・push済み。
+- 正本: `docs/increments/increment-98.md`。
+- 注意: list marker・table・見出し・強調の着色は維持。履歴ビュー（`/history`）は対象外。
+
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 97変更を含むclean commit `053b60b0…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `c28c32f3…`、file SHA-256 `4d85043c…`、embedded runtime
-  `fb680c75…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.3.0`。Increment 98変更を含むclean commit `3a6d94bb…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `8786ab42…`、file SHA-256 `291b6bfa…`、embedded runtime
+  `b5b908dd…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
