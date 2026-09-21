@@ -153,6 +153,11 @@ export class OpenRouterAgentModel implements Model {
     };
     turnSignal?.addEventListener('abort', abortFromTurn, { once: true });
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    const startedAt = Date.now();
+    // A continuous stream keeps the reader in microtasks, which starves this macrotask timer.
+    // `deadlineExceeded` is also checked inside the stream reader so the request cannot outlive
+    // `timeoutMs`.
+    const deadlineExceeded = (): boolean => timedOut || Date.now() - startedAt >= timeoutMs;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort('provider deadline exceeded');
@@ -344,7 +349,7 @@ export class OpenRouterAgentModel implements Model {
           response,
           reportAssistantProgress,
           () => turnCancelled,
-          () => timedOut,
+          deadlineExceeded,
           this.options.testTextAccountingObserver,
           evidence,
         );

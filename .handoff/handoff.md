@@ -418,17 +418,18 @@
 - 注意: `DenoHistoryExporter`／`DenoHumanHistoryExporter`クラスは残置（production未使用）。non-canonicalの
   人間可読viewは将来項目。F10の陳腐化更新は別承認。
 
-### Increment 100 — provider request deadlineが実streamで発火しない問題（計画・利用者判断待ち）
+### Increment 100 — provider request deadlineが実streamで発火しない問題（実装・検証完了）
 
-- 状態: **計画のみ**。session `e8e99332` turn 6でroot provider requestが約690秒in flight、180秒のprovider
-  deadlineが発火せず、利用者のEsc cancel→5秒後escalation→`interrupted`/non_canonical。curl実測では同prompt/
-  transcriptで`deepseek/deepseek-v4.1-flash`は43s〜>900s（timeout、stream中）、`openai/gpt-5.6-luna`は約50sで
-  安定。providerの遅さ/ばらつきは事実だが、Henjiのdeadlineが実streamで発火しないのは別問題。ローカルの
-  無限SSEでは`timeoutMs`通り`provider_timeout`へabortすることを確認済み。原因仮説はWorkerのtimer starvation、
-  abort伝播不全、別stall（Increment 92同型）。
-- 次: 利用者がproduct動作（長いreasoningを許容するか、total deadlineを維持するか）を決定した後、計装＋
-  実provider再現（承認必要）で原因確定し修正。
-- 正本: `docs/increments/increment-100.md`（計画）。
+- 状態: **実装・検証完了**。利用者はproduct動作 **B（total deadline既定180秒を維持し、確実に発火）** を選択。
+  原因は**macrotask timerのstarvation**で確定（ローカルの連続SSE burst（gapなし）に対し`timeoutMs: 1000`でも
+  15秒abortしないことを再現。既存ローカルテストは200ms間隔でloopがyieldしていたため非再現）。
+  `ResponsesApiModel.generate`の`for await`loopに`Date.now() - startedAt >= timeoutMs`判定を追加し、
+  `controller.abort()`＋`provider_timeout`をthrow。chat経路（`openrouter_transport.ts`）も
+  `deadlineExceeded`を`readSseResponse`へ渡すよう修正。timerはno-data用に維持。
+- 検証: focused test `tests/v0/increment_100_provider_deadline_test.ts`（2件、連続stream／stall）、
+  `agent:provider-stream-compatibility:test` 20件、`deno check`／`fmt`／`lint`／`git diff --check`成功。
+- 次: 利用者によるIncrement完了判断。実provider確認は未実施（承認必要）。
+- 正本: `docs/increments/increment-100.md`（原因・決定・修正・検証）。
 - 注意: 実provider callは利用者承認が必要。Increment 99とは別。
 
 ### 環境・配置（再開時の注意）

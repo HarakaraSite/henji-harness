@@ -1,6 +1,6 @@
 # Increment 100 — provider request deadlineが実streamで発火しない問題の調査と修正
 
-ステータス: **計画（利用者承認待ち）**
+ステータス: **実装・検証完了**
 
 計画日: 2026-09-21
 
@@ -40,38 +40,35 @@ Increment 92（stall原因＝exact capture契約違反）、Increment 99（`henj
   `2005ms`）。`evidenceFetch`もsignalを実fetchへ渡している。
 - したがって「実provider streamで180秒deadlineが発火しない」はproviderの遅さとは別のHenji側事象。
 
-## 原因仮説（未確定）
+## 原因（ローカル再現で確定）
 
-1. **Workerのdeadline timer starvation**: provider観測の処理/送信でWorkerのイベントループが塞がり、
-   `setTimeout`が発火しない。
-2. **abortの伝播不全**: 実fetch/undiciのstreaming body abortが本番pathで効かない（ローカルHTTPでは再現せず）。
-3. **別のstall**: Increment 92と同型の停止（契約違反等）が再発している。
+**macrotask timerのstarvation**。`ResponsesApiModel.generate`は`setTimeout`でdeadlineを実装しているが、
+providerが**途切れなくstream**すると`for await (const event of stream)`のloopがmicrotaskで回り続け、
+macrotaskである`setTimeout`が発火しない。ローカルの連続SSE burst（gapなし）に対し`timeoutMs: 1000`でも
+15秒abortしないことを再現した。既存のローカルSSEテストが200ms間隔だったため、loopがpending promiseを
+awaitしてmacrotaskへyieldし、timerが発火していた（再現しなかった）。
 
-原因は推測で確定せず、計装と実provider再現で特定する。
+## 決定（利用者判断）
 
-## 調査計画
+product動作は **B: total deadline（既定180秒）を維持し、確実に発火させる**。
 
-1. **計装**: `ResponsesApiModel.generate`周辺に、deadline timer設定時刻、timer発火時刻、`controller.abort()`
-   呼出、streamの初回/最終chunk受信時刻、chunk間隔、`for await`終了理由を記録する。`diagnostic-v1`の
-   attachment（または明示diagnostic）として保存し、readback可能にする。credential値は記録しない。
-2. **再現**: 遅いmodel（例: `deepseek/deepseek-v4.1-flash`、`effort:high`）で長いstreamを発生させ、
-   `diagnostic-v1`で上記計装を取得する。実provider callは対象・回数・保存先を提示して利用者承認を得る。
-3. **Host側の時系列**: `cancel_requested`／escalation／settlementの時刻と、`appendExecutionEvents`の
-   処理時間も併せて記録し、Hostの同期SQLiteがWorkerへ与える影響を確認する。
-4. **原因確定後**: 下記Fix候補から選択し、product動作を確定する。
+## 修正
 
-## Fix候補（原因確定後）
+- `v0/agent/provider/openai_responses_model.ts`（`ResponsesApiModel.generate`）: `startedAt`を記録し、
+  `for await`loopの各eventで`Date.now() - startedAt >= timeoutMs`を判定して`controller.abort()`＋
+  `provider_timeout`をthrowする。timer starvationに依存しない。
+- `v0/agent/provider/openrouter_transport.ts`（chat経路）: 同じ脆弱性があるため、`deadlineExceeded`
+  （`timedOut || Date.now() - startedAt >= timeoutMs`）を`readSseResponse`のtimeout predicateへ渡す。
+- timerはno-data（streamが止まる）場合のために維持する。
 
-- A. **stream loop内でelapsed/no-progressを判定**し、timer starvationに依存しない。
-- B. **no-progress（idle）timeout**: 最終chunkからの経過でabort。長いreasoningを許容しつつ停止を検出。
-- C. **total deadlineの維持**（180sで必ずabort）を確実にする。
-- D. deadlineを延ばす/無効化し、Esc cancelを主手段にする。
+## 検証
 
-## 決定待ち（利用者判断）
-
-- product動作: 長いreasoningを許容するか。許容するならno-progress timeout（B）を主にし、total deadlineを
-  どうするか。許容しないならtotal deadline（C）を確実に発火させる。
-- 既定値: no-progressの閾値、total deadlineの値。
+- focused test `tests/v0/increment_100_provider_deadline_test.ts`（2件、`v0:test`追加）:
+  - 連続stream（gapなし）で`timeoutMs: 500`が約500msで`provider_timeout`になること。
+  - streamが停止（dataなし）でもtimerで`provider_timeout`になること。
+- `agent:provider-stream-compatibility:test` 20件、`deno check`、`deno fmt --check`、`deno lint`、
+  `git diff --check`は成功。
+- 実provider確認は未実施（本修正はoffline再現で確認。実providerでの確認は承認が必要）。
 
 ## 対象外
 

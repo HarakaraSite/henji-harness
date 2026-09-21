@@ -391,6 +391,7 @@ class ResponsesApiModel implements Model {
     throwIfCancelled(signal);
 
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
+    const startedAt = Date.now();
     const controller = new AbortController();
     let timedOut = false;
     let cancelled = false;
@@ -456,6 +457,13 @@ class ResponsesApiModel implements Model {
       let progress = '';
       const reasoningEncrypted = new Map<string, string>();
       for await (const event of stream) {
+        // A continuous stream keeps this loop in microtasks, which starves the macrotask timer
+        // above. Check the deadline here too so the request cannot outlive `timeoutMs`.
+        if (Date.now() - startedAt >= timeoutMs) {
+          timedOut = true;
+          controller.abort('provider deadline exceeded');
+          throw providerError('provider_timeout', 'provider deadline exceeded', 1);
+        }
         const detail = jsonValue(event);
         generateOptions.providerEvidence?.recordParserTransition({
           kind: 'event',
