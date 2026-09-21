@@ -93,14 +93,25 @@ Deno.test('Increment 84 keeps fenced code out of table and list parsing', () => 
   assert(lines[lines.length - 1].startsWith('```'));
 });
 
-Deno.test('Increment 84 marks bold and inline code spans', () => {
-  const [line] = markdownAssistantRenderer.render('a **bold** and `code`', 'settled', 40);
+Deno.test('Increment 84 marks inline emphasis and code spans', () => {
+  const [line] = markdownAssistantRenderer.render(
+    'a *italic* **bold** ***triple*** `code`',
+    'settled',
+    60,
+  );
   const chars = [...line.text];
-  const bold = line.spans.find((span) => span.tone === 'bold');
+  const textOf = (span: { readonly start: number; readonly length: number }): string =>
+    chars.slice(span.start, span.start + span.length).join('');
   const code = line.spans.find((span) => span.tone === 'code');
-  assert(bold !== undefined && code !== undefined);
-  assert(chars.slice(bold.start, bold.start + bold.length).join('') === 'bold');
-  assert(chars.slice(code.start, code.start + code.length).join('') === 'code');
+  assert(code !== undefined && textOf(code) === 'code');
+  const emphasis = line.spans
+    .filter((span) => span.tone === 'emphasis')
+    .map(textOf)
+    .sort();
+  assert(
+    JSON.stringify(emphasis) === JSON.stringify(['bold', 'italic', 'triple']),
+    `unexpected emphasis spans: ${JSON.stringify(emphasis)}`,
+  );
 });
 
 Deno.test('Increment 84 marks heading and list markers', () => {
@@ -115,15 +126,18 @@ Deno.test('Increment 84 marks heading and list markers', () => {
   assert(list.spans.some((span) => span.tone === 'list' && span.start === 0 && span.length === 1));
 });
 
-Deno.test('Increment 96 marks ***emphasis*** green and keeps **bold** bold', () => {
-  const [line] = markdownAssistantRenderer.render('a ***em*** and **bold**', 'settled', 40);
+Deno.test('Increment 96 renders *, **, and *** emphasis green without bold', () => {
+  const [line] = markdownAssistantRenderer.render('a *i* **b** ***c***', 'settled', 40);
   const chars = [...line.text];
-  const emphasis = line.spans.find((span) => span.tone === 'emphasis');
-  const bold = line.spans.find((span) => span.tone === 'bold');
-  assert(emphasis !== undefined, 'triple-star emphasis did not produce an emphasis span');
-  assert(bold !== undefined, 'double-star bold did not produce a bold span');
-  assert(chars.slice(emphasis.start, emphasis.start + emphasis.length).join('') === 'em');
-  assert(chars.slice(bold.start, bold.start + bold.length).join('') === 'bold');
+  const emphasis = line.spans
+    .filter((span) => span.tone === 'emphasis')
+    .map((span) => chars.slice(span.start, span.start + span.length).join(''))
+    .sort();
+  assert(
+    JSON.stringify(emphasis) === JSON.stringify(['b', 'c', 'i']),
+    `unexpected emphasis spans: ${JSON.stringify(emphasis)}`,
+  );
+  assert(line.spans.every((span) => span.tone !== 'bold'), 'emphasis produced a bold span');
 });
 
 Deno.test('Increment 96 colors the whole wrapped heading line', () => {

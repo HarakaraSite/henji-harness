@@ -105,24 +105,32 @@ const wrapHanging = (body: string, firstWidth: number, indent: string): string[]
 const scalarOffset = (text: string, codeUnitIndex: number): number =>
   scalarLength(text.slice(0, codeUnitIndex));
 
-/** Inline `***emphasis***`, `**bold**`, and `` `code` `` spans over the inner text. */
+/** Inline `*italic*`, `**bold**`, `***emphasis***`, and `` `code` `` spans. */
 const inlineSpans = (text: string): AssistantSpan[] => {
   const spans: AssistantSpan[] = [];
   let match: RegExpExecArray | null;
-  const emphasis = /\*\*\*([^*]+)\*\*\*/g;
-  while ((match = emphasis.exec(text)) !== null) {
+  const emphasis3 = /\*\*\*([^*]+)\*\*\*/g;
+  while ((match = emphasis3.exec(text)) !== null) {
     spans.push({
       start: scalarOffset(text, match.index) + 3,
       length: scalarLength(match[1]),
       tone: 'emphasis',
     });
   }
-  const bold = /(?<!\*)\*\*(?!\*)([^*]+)\*\*/g;
-  while ((match = bold.exec(text)) !== null) {
+  const emphasis2 = /(?<!\*)\*\*(?!\*)([^*]+)\*\*/g;
+  while ((match = emphasis2.exec(text)) !== null) {
     spans.push({
       start: scalarOffset(text, match.index) + 2,
       length: scalarLength(match[1]),
-      tone: 'bold',
+      tone: 'emphasis',
+    });
+  }
+  const emphasis1 = /(?<!\*)\*(?!\*)([^*]+)\*/g;
+  while ((match = emphasis1.exec(text)) !== null) {
+    spans.push({
+      start: scalarOffset(text, match.index) + 1,
+      length: scalarLength(match[1]),
+      tone: 'emphasis',
     });
   }
   const code = /`([^`]+)`/g;
