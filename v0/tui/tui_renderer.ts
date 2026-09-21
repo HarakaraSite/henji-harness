@@ -75,7 +75,6 @@ const LABEL_SGR: Record<ConversationLabelTone, string> = {
 const SPAN_SGR: Record<AssistantSpanTone, string> = {
   heading: BLUE_SGR,
   list: GREEN_SGR,
-  code: GREEN_SGR,
   table: DIM_SGR,
   quote: MAGENTA_SGR,
   bold: BOLD_SGR,
@@ -544,6 +543,14 @@ export class TuiRenderer implements TerminalRendererGate {
       }
     }
     if (target?.entryId === undefined) {
+      if (direction === 'up') {
+        this.ui = reduceUiAction(this.ui, {
+          kind: 'scroll',
+          mode: { kind: 'oldest' },
+        });
+        this.redraw();
+        return;
+      }
       this.latest();
       return;
     }

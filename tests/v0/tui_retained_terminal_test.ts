@@ -709,6 +709,50 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   }
 });
 
+Deno.test('retained PageUp reaches oldest across the startup header', () => {
+  const terminal = new RecordingTerminal();
+  terminal.size = { columns: 100, rows: 45 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.resize(100, 45);
+  renderer.renderCompactStartup({
+    productVersion: '0.3.0',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: { provider: 'openrouter-chat', profileId: 'test', modelId: 'm', effort: 'high' },
+    sessionMode: { kind: 'continue' },
+    instructions: { loaded: true, source: 'AGENTS.md' },
+    skills: { count: 1, names: ['s'], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  }, {
+    sessionId: 'e8e99332-1999-4443-8e7f-8d18d57104f2',
+    createdAt: '2026-09-21T06:00:00.000Z',
+    agent: 'default',
+    committedTurn: 5,
+    messageCount: 10,
+  });
+  for (let turn = 1; turn <= 40; turn += 1) {
+    renderer.eventSink({
+      kind: 'user_message',
+      turn,
+      message: { role: 'user', content: { kind: 'text', text: `question ${turn}` } },
+    });
+    renderer.eventSink({
+      kind: 'assistant_message',
+      turn,
+      message: { role: 'assistant', content: { kind: 'text', text: `answer ${turn}` } },
+    });
+  }
+  for (let page = 0; page < 200; page += 1) {
+    renderer.scrollPage('up');
+    const scroll = renderer.stateSnapshot().scroll;
+    assert(scroll.kind !== 'followLatest', 'PageUp jumped to latest before reaching oldest');
+    if (scroll.kind === 'oldest') break;
+  }
+  assertEquals(renderer.stateSnapshot().scroll, { kind: 'oldest' });
+  assertEquals(renderer.layoutSnapshot(100, 45).logStart, 0);
+});
+
 Deno.test('startup header follows rename, session replacement, and terminal size', () => {
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);

@@ -94,7 +94,18 @@ Deno.test('Increment 84 keeps fenced code out of table and list parsing', () => 
   assert(lines[lines.length - 1].startsWith('```'));
 });
 
-Deno.test('Increment 84 marks inline emphasis and code spans', () => {
+Deno.test('Increment 98 leaves fenced code blocks uncolored', () => {
+  const markdown = [
+    '```ts',
+    'const x = 1;',
+    '```',
+  ].join('\n');
+  const lines = markdownAssistantRenderer.render(markdown, 'settled', 40);
+  assert(lines.length >= 3);
+  assert(lines.every((line) => line.spans.length === 0), 'fenced code must not be colored');
+});
+
+Deno.test('Increment 84 marks inline emphasis and leaves code uncolored', () => {
   const [line] = markdownAssistantRenderer.render(
     'a *italic* **bold** ***triple*** `code`',
     'settled',
@@ -103,8 +114,10 @@ Deno.test('Increment 84 marks inline emphasis and code spans', () => {
   const chars = [...line.text];
   const textOf = (span: { readonly start: number; readonly length: number }): string =>
     chars.slice(span.start, span.start + span.length).join('');
-  const code = line.spans.find((span) => span.tone === 'code');
-  assert(code !== undefined && textOf(code) === 'code');
+  assert(
+    line.spans.every((span) => textOf(span) !== 'code'),
+    'inline code must not be colored',
+  );
   const emphasis = line.spans.filter((span) => span.tone === 'emphasis').map(textOf);
   for (const expected of ['*italic*', '**bold**', '***triple***']) {
     assert(emphasis.includes(expected), `missing emphasis span ${expected}`);
@@ -153,7 +166,7 @@ Deno.test('Increment 96 colors the whole wrapped heading line', () => {
   }
 });
 
-Deno.test('Increment 96 keeps inline emphasis and code spans across wrapped lines', () => {
+Deno.test('Increment 96 keeps inline emphasis spans across wrapped lines', () => {
   const covered = (lines: readonly AssistantLine[], tone: AssistantSpanTone): string =>
     lines.map((line) => {
       const chars = [...line.text];
@@ -176,16 +189,5 @@ Deno.test('Increment 96 keeps inline emphasis and code spans across wrapped line
   assert(
     covered(emphasisLines, 'emphasis') === emphasisBody,
     `emphasis coverage mismatch: ${covered(emphasisLines, 'emphasis')}`,
-  );
-
-  const codeBody = '`deno --version`';
-  const codeLines = markdownAssistantRenderer.render(`pre ${codeBody} post`, 'settled', 16);
-  assert(
-    codeLines.filter((line) => line.spans.some((span) => span.tone === 'code')).length > 1,
-    'code span did not span the wrap',
-  );
-  assert(
-    covered(codeLines, 'code') === 'deno --version',
-    `code coverage mismatch: ${covered(codeLines, 'code')}`,
   );
 });

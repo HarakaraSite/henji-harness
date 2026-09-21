@@ -6,7 +6,6 @@ export type ConversationLabelTone = 'user' | 'assistant' | 'tool' | 'system';
 export type AssistantSpanTone =
   | 'heading'
   | 'list'
-  | 'code'
   | 'table'
   | 'quote'
   | 'bold'

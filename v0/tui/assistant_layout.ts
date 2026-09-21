@@ -154,14 +154,6 @@ const inlineSpans = (text: string): AssistantSpan[] => {
       tone: 'emphasis',
     });
   }
-  const code = /`([^`]+)`/g;
-  while ((match = code.exec(text)) !== null) {
-    spans.push({
-      start: scalarOffset(text, match.index) + 1,
-      length: scalarLength(match[1]),
-      tone: 'code',
-    });
-  }
   return spans;
 };
 
@@ -346,9 +338,7 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       const indent = fence[1];
       const marker = fence[2];
       const opener = `${indent}${marker}${fence[3].trimEnd()}`;
-      out.push(
-        line(opener, [{ start: scalarLength(indent), length: scalarLength(marker), tone: 'code' }]),
-      );
+      out.push(line(opener));
       index += 1;
       const body: string[] = [];
       let closed = false;
@@ -363,18 +353,11 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       }
       for (const bodyLine of body) {
         for (const piece of hardSplit(bodyLine, limit)) {
-          out.push(
-            line(
-              piece,
-              piece.length === 0 ? [] : [{ start: 0, length: scalarLength(piece), tone: 'code' }],
-            ),
-          );
+          out.push(line(piece));
         }
       }
       if (closed) {
-        out.push(line(`${indent}${marker}`, [
-          { start: scalarLength(indent), length: scalarLength(marker), tone: 'code' },
-        ]));
+        out.push(line(`${indent}${marker}`));
         index += 1;
       }
       continue;
