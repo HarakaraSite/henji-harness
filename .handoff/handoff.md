@@ -346,8 +346,8 @@
 
 - binary: `0.3.0`。Increment 95修正とbuild Deno 2.9.7化を含むclean commit `70972d37…`からDeno 2.9.7でbuildし、
   `dist/henji`と`~/.local/bin/henji`へ原子的に配置済み（build `3b202074…`、file SHA-256 `aa80dbf7…`、embedded
-  runtime `44c6c625…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`は2.9.7。現在のbuild/source identityは
-  `~/.local/bin/henji --version`を正本とする。`README.md`の「Deno 2.9.6」記述は未更新（別途承認）。
+  runtime `44c6c625…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+  build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。

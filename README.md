@@ -21,7 +21,7 @@ Surfaceの置換、durable AgentInstanceのrevision transition、Definitionか�
 
 ## Quick Start
 
-現在のcheckoutはDeno 2.9.6を使用する。Denoの導入方法は
+現在のcheckoutはDeno 2.9.7を使用する。Denoの導入方法は
 [公式installation guide](https://docs.deno.com/runtime/getting_started/installation/)を参照する。
 
 ```sh
