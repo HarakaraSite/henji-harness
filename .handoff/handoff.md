@@ -410,18 +410,19 @@
   TUIはhumanHistory overlay／export／picker `v`／presentation contractの`human_history_*`を削除。正本
   （roadmap F01／F05、architecture）更新済み。`v0:gate` exit 0。
 - 次: 利用者によるIncrement完了判断。
-- 配置: commit `3d0677e9`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
-  （build `7f30aec4…`、source `3d0677e9…`、SHA-256 `4f5da931…`、embedded runtime `9fba38f1…`）。installed binaryで
-  `henji history --latest --view session|canonical|detail`、空XDGで`# no history` exit 0を確認。commit・push済み。
+- 配置: commit `3679b16b`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `73e5a7ae…`、source `3679b16b…`、SHA-256 `547415dd…`、embedded runtime `9dab6947…`）。installed binaryで
+  `henji history --latest --view session|canonical|detail`、`--session e8e99332`（短縮ID prefix）、空XDGで
+  `# no history` exit 0を確認。commit・push済み。`--session`は完全UUIDまたは8文字hex短縮IDのprefixを受け付ける。
 - 正本: `docs/increments/increment-99.md`（実装結果・検証を記載）。inbox S11／S12は本計画へ採用し削除済み。
 - 注意: `DenoHistoryExporter`／`DenoHumanHistoryExporter`クラスは残置（production未使用）。non-canonicalの
   人間可読viewは将来項目。F10の陳腐化更新は別承認。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 99変更を含むclean commit `3d0677e9…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `7f30aec4…`、file SHA-256 `4f5da931…`、embedded runtime
-  `9fba38f1…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.3.0`。Increment 99変更を含むclean commit `3679b16b…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `73e5a7ae…`、file SHA-256 `547415dd…`、embedded runtime
+  `9dab6947…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
