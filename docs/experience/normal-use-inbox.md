@@ -15,7 +15,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
-| S9 | Surface | recovery laneの削除 | laneのブロッキング（submit・navigation不可）が通常利用で問題になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
 | S11 | Surface | `/history`の人間可読性とAI利用 | 通常利用で`/history`が読解しにくい、AIが過去historyを参照する必要が出るとき |
 | S12 | Surface | 別プロセスからのSession参照viewer | Henjiを終了せず別画面から履歴を参照・検索したい実例が得られるとき |
@@ -79,18 +78,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: MCP接続managed resourceが採用され、headerで接続状態や数を示す必要が出るとき。
 - 関連: `v0/tui/startup_render.ts`、`v0/presentation/contract_types.ts`。
 
-### S9 — recovery laneの削除（F01、F10）
-
-- 観測（2026-09-19、B5調査）: production TUIはsubmit時にtaskを入力履歴へ記録する（`controller.ts`の
-  `editorController.record`）ため、recoverable stop後のtask復元はlaneと履歴で重複する。lane固有の価値は
-  未消費steering・follow-upと`sideEffectWarning`のみ。一方でlaneが`hasRecovery`により新taskのsubmit
-  （`active task recovery pending`）とnavigationをブロックする摩擦が実害。
-- 候補: recovery laneを作らず、recoverable stopでは停止理由をstatusへ示し、再送は入力履歴（Up）に任せる。
-  未消費steering/follow-upの救済が通常利用で必要になった場合だけ、その分を別途設計する。
-- 再検討条件: laneのブロッキング（submit・navigation不可）が通常利用で問題になるとき、またはsteering/follow-upの
-  取り戻しが実際に必要になるとき。
-- 関連: `increment-85`、inbox B5、`v0/tui/controller.ts`、`v0/tui/pending_input.ts`。
-
 ### S10 — 入力履歴のセッション横断保存とsnippet（F01、F10）
 
 - 観測（2026-09-19）: 入力履歴（`v0/tui/input_history.ts`）はTUIプロセス内のみで、再起動や別Sessionで消える。
@@ -99,7 +86,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   `/snippet <name>`等で呼び出す。保存先・scope、Session横断の範囲、credential等secretを履歴へ入れない境界、
   呼び出しUIを採用時に決める。
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
-- 関連: `v0/tui/input_history.ts`、roadmap F01、S9。
+- 関連: `v0/tui/input_history.ts`、roadmap F01。
 
 ### S11 — `/history`の人間可読性とAI利用（F01、F05、F10）
 
@@ -459,7 +446,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   非決定）。同じrecoverable contract_failureのため入力自動復元は同様に起きる。120秒のrequest deadlineが高effort
   のweb調査turnで到達する点は別の観測。
 - 正本候補: `v0/agent/worker/worker_host_session.ts`（commit validation）、`v0/tui/controller.ts`（auto-recovery status）。
-- 関連候補: S9（recovery laneの削除）。increment-85で自動復元は停止理由表示＋明示`/recover`へ変更済み。
+- 関連: increment-85（自動復元を停止理由表示へ変更）、increment-97（recovery lane削除で`/recover`を廃止）。
 - 由来（2026-09-19、git履歴）: 自動復元は後付け。`d00b5129`（2026-08-31）はeditorを空のまま`ready`にし
   Ctrl-Rの明示操作で復元、`b19b5dd2`（2026-09-07）が`controller.ts`の自動`popRecovery()`を追加、`58d908d1`で
   Ctrl系機能キーを削除し以降は`/recover`が明示操作。理由statusを復元メッセージが上書きするのはこの追加による。

@@ -502,11 +502,10 @@ terminal scrollbackへ途中frameを蓄積しない。正常終了、cancel、si
 mode、起動前画面、cursorをHostが復元する。未送信draft、viewport、入力履歴などのUI-local stateと、
 Host storageに保存するcanonical transcriptやSession identityは区別する。
 
-recoverable settlementで未commitのactive taskが残る場合、Hostはeditorを変更せず停止理由とrecovery laneの
-存在をstatusへ示し、人間の明示的な`/recover`と再送を待つ。recovery laneはHost-localに保持し、`/recover`で
-一件ずつeditorへ取り出す。これらのeditor操作はcanonical Sessionへcommitしない。idle Ctrl-Cはeditorと
-input-history navigationだけをclearし、exitは空editorのCtrl-Dまたは`/exit`で明示する。busy cancelと
-外部signalの遷移は別に保つ。
+recoverable settlementで未commitのactive taskが残る場合、Hostはeditorを変更せず停止理由をstatusへ示し、
+人間の再送を待つ。未commitのtaskはrecovery専用laneへ退避せず、再送は入力履歴（Up）に任せる。これらのeditor
+操作はcanonical Sessionへcommitしない。idle Ctrl-Cはeditorとinput-history navigationだけをclearし、exitは
+空editorのCtrl-Dまたは`/exit`で明示する。busy cancelと外部signalの遷移は別に保つ。
 
 具体的なkey binding、slash command、表示量、editor機能はarchitectureの固定事項にしない。人間の通常利用で
 観測した必要に応じ、roadmap上のTUI incrementとして変更できる。第二Surfaceまたは一般的なSurface load /
