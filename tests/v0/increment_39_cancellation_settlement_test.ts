@@ -18,7 +18,7 @@ import type {
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -225,7 +225,7 @@ class CleanupFailureCapsule implements WorkerHostCapsule {
 
 Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after persistence', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-39-worker-' });
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let capsule: CleanupFailureCapsule | undefined;
   try {
@@ -245,10 +245,10 @@ Deno.test('Increment 39 makes a genuine Worker cleanup failure unavailable after
     assert(!created.session.isAvailable());
     assert(capsule?.terminated);
     await history.initialize();
-    const retained = (await history.executionArtifacts.list())[0];
-    assertEquals(retained?.settlement, 'uncommitted');
-    assert(retained?.outcome !== undefined);
-    assertEquals(retained.outcome.error, 'cancellation cleanup failed');
+    const retained = history.listExecutions()[0];
+    assertEquals(retained?.adoption, 'non_canonical');
+    assertEquals(retained?.outcome, 'failed');
+    assertEquals(retained?.outcomeJson?.error, 'cancellation cleanup failed');
     let retryRejected = false;
     try {
       await created.session.submit('must not reuse failed generation');

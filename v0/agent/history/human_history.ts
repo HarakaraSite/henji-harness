@@ -52,6 +52,12 @@ export interface HumanHistoryPageV1 {
   readonly newerCursor?: string;
   readonly atOldest: boolean;
   readonly atNewest: boolean;
+  readonly projection?: Readonly<{
+    readonly version: 1;
+    readonly state: 'current' | 'stale';
+    readonly pendingSources: number;
+    readonly staleReason?: 'pending';
+  }>;
 }
 
 export interface HumanHistoryDetailChunkV1 {

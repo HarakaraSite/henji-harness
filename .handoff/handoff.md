@@ -298,22 +298,32 @@
   再発せず、provider evidence／exact bytesはcomplete。commit、push、releaseは未実施。concept、architecture、roadmap
   は変更していない。`reproductions/deno-worker-sqlite-wake/`は撤回したDeno仮説の調査遺物。
 
-### Increment 93 — terminal ledger後のprotocol観測分離
+### Increment 94 — 目的別history authorityの再設計（history v7、Human Gate 4待ち）
 
-- 状態: 実装・検証完了。v6の`execution_settled`後に正常ACKとWorker `turn_end`をexecution journalへ
-  追記せず、最終artifactのprotocol trace／acknowledgementへ保存するよう分離した。provider／tool／context等の
-  遅延factは引き続きjournal failureになる。`contextCapture`とpost-commit observation failureも分離した。
-  canonical／no-sessionのv6経路、真の遅延fact失敗を回帰確認し、authoritative `v0:gate`はexit 0。
-- 次: 利用者によるIncrement完了判断。必要なら別途、binary build／配置を指示する。
-- 正本: `docs/increments/increment-93.md`。
-- 注意: schema、concept、architecture、roadmap、既存dataは変更していない。binary build／配置、commit、push、
-  releaseは未実施。
+- 状態: Human Gate 3で利用者承認を得てSlice Gのproduction破壊的cutoverを実施した。production selector、Session／
+  diagnostic CLI、production E2E layoutは`history-v7.sqlite3`／`locks-v7`だけを使い、production module graphから
+  v6 store／pipelineを外した。実利用Session `db175b53`の追試で、normal artifactの全protocol trace、context bytesの
+  inline再保存、commit transcript二重格納、未使用semantic projection複写を検出し、sourceを修正した。contextは
+  immutable content＋mandatory item relation、normal artifactは空trace、transcriptはsingle-copyとなり、durable
+  exportもimmutable contentを含む。その後の通常code／test reviewで、settlement transaction間crashによる再open
+  不能、human projectionの背景欠落／stale非表示、projectionとrelation counterのSession／execution長依存、exportの
+  relation／manifest欠落を確認し修正した。terminalとsettlementは単一transaction、projectionはmetadata-onlyかつ
+  execution単位cache、relation counterはdelta更新、human pageはcontext／request／diagnostic locatorとstale件数を
+  表示し、exportはsemantic relation／context manifest／recall relationを含む。focused regression 21件と関連test、
+  authoritative `v0:gate`は通過済み。旧v6 DB／lockは変更していない。
+- 次: 利用者から指示があればbinaryをbuild／配置し、実provider Sessionで容量・backlog・readbackを再確認する。
+  Human Gate 4のIncrement完了判断は利用者が行う。
+- 正本: `docs/increments/increment-94.md`（Slice A〜Gの実装結果、計測、Go判断、未確認範囲）。
+- 注意: v7は`history-v7.sqlite3`／`locks-v7`を使い、v6 migration、dual-read/write、fallbackを作らない。
+  Human Gate 2は未発動で実provider diagnostic E2Eは未確認。通常review修正後のauthoritative `v0:gate`初回は追加test
+  fixtureの必須field不足だけでtype check停止し、fixture補正後の全体再実行はexit 0。binary再配置は未実施。旧v6 DBの
+  削除、commit、push、releaseは未許可。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 92の`fetch_call_returned` stageを含むworking tree（source
-  `01b3e773…+dirty`）からbuildし、`dist/henji`と`~/.local/bin/henji`へ原子的に配置済み（build
-  `2faca28f…`、file SHA-256 `162a2852…`、embedded runtime `d048a566…`）。buildは
+- binary: `0.3.0`。Increment 94のhistory v7 production cutoverを含むworking tree（source
+  `914d7f65…+dirty`）からbuildし、`dist/henji`と`~/.local/bin/henji`へ原子的に配置済み（build
+  `80d10b8e…`、file SHA-256 `69d8b706…`、embedded runtime `6dc2288f…`）。buildは
   `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。VMのsource実行用Denoは2.9.7へ更新済みだが、
   配置済みbinaryのembedded runtimeは2.9.6のまま。2.9.7でも同じ停止を再現したため比較目的のrebuildはしていない。
   現在のbuild/source identityは`~/.local/bin/henji --version`を正本とする。

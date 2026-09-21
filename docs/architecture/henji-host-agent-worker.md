@@ -530,15 +530,32 @@ Deno Worker permissionだけでは、`--allow-run`で起動したsubprocessと�
 
 Henjiの履歴全体と、以後の通常会話へ既定で引き継ぐconversationを同じ状態として扱わない。
 
-durable historyは、Hostが取得・記録できた各executionについて、transport observation、当時実際にemitされた
-parser／runtime／tool interpretation、Host decision／canonical state、Agent／build／resource attributionを、別の
-authorityとして相関可能に保持する。outboundはprovider adapterがHTTP clientへ渡したexact body bytes、inboundは
-runtimeがresponse bodyとして受け取ったexact bytesをcapture boundaryとする。credential値、Authorization、Hostが
-観測できなかった事象、TCP／TLS／HTTP framing全体を記録したことにはしない。
+durable historyは、一つのclaimへ一つのownerを置き、次の四層を区別する。
 
-original interpretationはraw bytesから後日再parseできることを理由に省略しない。human history、検索、model working
-context、summary／compaction、later reinterpretationはderived projectionであり、元のtransport、interpretation、decision、
-attribution authorityを上書きしない。projectionの同期遅延または再構築可能性をauthority欠落と混同しない。
+- semantic authority: canonical／non-canonical message、tool call／result／effect、model-visible
+  context order、Hostのadmission／outcome／canonical decision、使用したAgent／build／resource
+  revision、`/recall`のsource／target relation。
+- diagnostic attachment: exact request／response、chunk、SSE、parser transition、Worker／Host
+  protocol stage、storage stage。
+- derived projection: human history、検索、provider evidence document、context manifest、artifact表示、
+  summary／compaction、export、later reinterpretation。
+- storage mechanism: codec、physical locator、representation digest、index、audit metadata。
+
+通常履歴はsemanticな出来事から、人間入力、Agentへ実際に渡したcontent／revision、tool／providerのsemantic
+result、Host判断、明示的な未観測境界へ至る最小説明閉包を持つ。診断attachmentの欠落、不一致、保存失敗だけを
+理由にsemantic executionまたはcanonical adoptionを失敗させない。semantic authority自体のdurable write失敗
+だけはcanonical adoptionを禁止する。
+
+execution admission時にcapture profile revisionを固定し、診断coverageを`not_requested`、`captured`、
+`partial`、`invalid`で保持する。normal profileはsemantic authorityを保存し、diagnostic profileは
+原因特定に必要なrequest、raw response、SSE、parser transition、Worker／storage stageをsemantic occurrenceへ
+相関して保存・readback可能にする。credential値とAuthorizationは記録しない。Hostが観測できなかった事象や
+TCP／TLS／HTTP framing全体を記録したことにはしない。
+
+derived projectionはsemantic authorityまたはdiagnostic attachmentにだけsourceを持ち、sole-owner fieldを
+持たない。projection更新失敗はsemantic commitを取り消さず、durable outbox／dirty marker、watermark、
+version、stale reasonによりboundedに回復する。通常readはstale状態を明示し、authority全scanへ暗黙に
+fallbackしない。
 
 canonical conversationは、Hostが正常完了と会話への採用を確定したturnを順序付きで保持するSessionの正本で
 ある。正常完了は回答内容の正しさや人間の満足を意味しない。canonical採用はturn全体を単位とし、途中の
@@ -559,15 +576,24 @@ writeとcanonical conversationへの意味上の採用は別operationであり�
 #### History storage不変条件
 
 - logical record／occurrence／decisionのidentityはsegment、offset、page、codec等のphysical locatorから独立する。
-- exact bytesはalgorithm／version付きlogical digestを持ち、encoded representationとそのdigestを分離する。同じbytesでも
-  別execution／source／occurrenceなら発生factを統合しない。
-- append時にcurrent deltaのschema、ordinal、causal ref、新規bytes／frame digestを検証し、execution ledgerのroot、count、
-  latest durable ordinal、terminal、unresolved referenceを増分更新する。normal settlement／adoptionは過去payloadを
-  application levelで全scan／decode／rehashしない。
-- `settled`はlogical completenessとappend時検証済みdurable rootへの一致を意味し、全過去payloadをsettlement時に再scrub
-  したことを意味しない。materializeするpayloadはread時に検証し、全体検証はexplicit auditとして別に記録する。
-- crash後に見えるexecution evidenceは最後にatomic commit済みの連続ordinal prefixに限る。未commit segment／locator／rootを
-  completeとして返さない。
+- immutable contentはalgorithm／version付きcontent digestを持つ。compressed representationを保存する場合だけ
+  content identityとrepresentation digestを分離する。diagnostic exact streamはwhole stream digestを持てる。
+  同じbytesでも別execution／source／occurrenceなら発生factを統合しない。
+- append時にcurrent semantic deltaのschema、execution内ordinal、mandatory referenceを検証し、count、
+  latest durable ordinal、terminal、unresolved referenceを増分更新する。ordered hash rootはsettlementの
+  必須条件にしない。
+- normal append／settlement／adoptionは過去payloadをapplication levelで全scan／decode／rehash／rewriteしない。
+  同量の新規factを追加する処理量は既存Session payloadや当該executionの過去event数を乗数に持たない。
+- `settled`はlogical completeness、terminal、mandatory referenceの解決を意味し、全過去payloadをsettlement時に
+  再scrubしたことを意味しない。materializeするimmutable contentはread時に検証し、全体検証はexplicit auditとして
+  通常pathから分離する。
+- crash後に見えるexecution evidenceは最後にatomic commit済みの連続ordinal prefixに限る。未commit
+  segment／locator／rootをcompleteとして返さない。
+
+将来の自己改訂experienceはstableなsemantic occurrence、history entry、execution、query／rangeを参照する。
+capture profile変更、projection再構築、diagnostic attachmentの有無によって参照先のsemantic identityを
+書き換えない。experience selection、assessment、candidate、human judgmentのdomainとappend ownerは
+F19〜F24で定め、history storageが先に固定しない。
 
 人間向けhistory viewは、canonical turnとnon-canonical executionの双方を識別して辿れるようにする。
 Markdown、tool summary/detail、status等のrendererはHost/Surfaceの表示責務であり、保存内容、採用状態、

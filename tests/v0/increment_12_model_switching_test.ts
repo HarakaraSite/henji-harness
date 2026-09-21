@@ -8,7 +8,7 @@ import {
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -155,7 +155,7 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
 Deno.test('Increment 12 switches and restores the root model while planner stays fixed', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-model-switch-' });
   const workspaceRoot = Deno.cwd();
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let planner: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -186,7 +186,8 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
 
     const gpt = selectOpenRouterModel('openai/gpt-5.6-sol', 'none');
     assertEquals(await first.session.selectModel(gpt), 'selected');
-    assert((await first.session.submit('delegate this small task')).ok);
+    const delegated = await first.session.submit('delegate this small task');
+    assert(delegated.ok, JSON.stringify(delegated));
     const record = await store.readWorker(sessionId);
     assert(record.schemaVersion === 6);
     assertEquals(record.activeModel, gpt);
@@ -196,8 +197,9 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     ]);
     const listed = await store.listWorker();
     assertEquals(listed.sessions.find((item) => item.id === sessionId)?.modelSelection, gpt);
-    const execution = (await store.executionArtifacts.list()).at(-1);
+    const execution = store.listExecutionsForSession(sessionId).at(-1);
     assert(execution !== undefined);
+    assert(execution.manifest !== undefined);
     assertEquals(execution.manifest.rootModel, gpt);
     assertEquals(execution.manifest.plannerModel, roleDefaultModelSelection('subagent:planner'));
 

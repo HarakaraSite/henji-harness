@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
@@ -12,7 +13,7 @@ const assert: (condition: unknown, message?: string) => asserts condition = (
   if (!condition) throw new Error(message);
 };
 
-Deno.test('Increment 90 production creates settles reopens and reads only v6 history', async () => {
+Deno.test('Increment 94 production creates settles reopens and reads only v7 history', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i90-production-v6-' });
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
@@ -26,7 +27,7 @@ Deno.test('Increment 90 production creates settles reopens and reads only v6 his
   });
   try {
     const outcome = await created.session.submit(
-      'verify v6 production authority',
+      'verify v7 production authority',
     );
     assert(
       outcome.ok,
@@ -39,9 +40,18 @@ Deno.test('Increment 90 production creates settles reopens and reads only v6 his
   }
 
   const paths = await sessionPaths(stateRoot, workspaceRoot);
+  const v7Path = `${paths.root}/history-v7.sqlite3`;
   const v6Path = `${paths.root}/history-v6.sqlite3`;
   const v5Path = `${paths.root}/history-v5.sqlite3`;
-  assert((await Deno.stat(v6Path)).isFile);
+  assert((await Deno.stat(v7Path)).isFile);
+  let v6Exists = true;
+  try {
+    await Deno.stat(v6Path);
+  } catch (error) {
+    if (error instanceof Deno.errors.NotFound) v6Exists = false;
+    else throw error;
+  }
+  assert(!v6Exists, 'production wrote a v6 database');
   let v5Exists = true;
   try {
     await Deno.stat(v5Path);
@@ -51,21 +61,21 @@ Deno.test('Increment 90 production creates settles reopens and reads only v6 his
   }
   assert(!v5Exists, 'production wrote a v5 database');
 
-  const db = new DatabaseSync(v6Path, { readOnly: true });
+  const db = new DatabaseSync(v7Path, { readOnly: true });
   try {
     assert(
       Number(
         (db.prepare('PRAGMA user_version').get() as { user_version: number })
           .user_version,
       ) ===
-        6,
+        7,
     );
     const settled = db.prepare(`
       SELECT count(*) AS count FROM executions
       WHERE lifecycle='settled' AND outcome='completed' AND adoption='canonical'
     `).get() as { count: number };
     assert(Number(settled.count) === 1);
-    const exact = db.prepare('SELECT count(*) AS count FROM history_segments')
+    const exact = db.prepare('SELECT count(*) AS count FROM semantic_occurrences')
       .get() as {
         count: number;
       };
@@ -74,7 +84,7 @@ Deno.test('Increment 90 production creates settles reopens and reads only v6 his
     db.close();
   }
 
-  const reopened = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const reopened = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   await reopened.initialize();
   const listed = await reopened.listWorker();
   assert(listed.sessions.length === 1);
@@ -91,18 +101,7 @@ Deno.test('Increment 90 production creates settles reopens and reads only v6 his
   assert(artifact?.schemaVersion === 7);
   assert(artifact.contextCapture === 'complete');
   assert(artifact.acknowledgement === 'accepted_sent');
-  assert(
-    artifact.protocolTrace.some((entry) =>
-      entry.direction === 'host_to_worker' &&
-      entry.kind === 'commit_acknowledgement' && entry.ackAccepted === true
-    ),
-  );
-  assert(
-    artifact.protocolTrace.some((entry) =>
-      entry.direction === 'worker_to_host' &&
-      entry.kind === 'runtime_event' && entry.semanticSubtype === 'turn_end'
-    ),
-  );
+  assert(artifact.protocolTrace.length === 0);
   assert(
     reopened.readHumanHistoryPage({
       sessionId: record.sessionId,
@@ -465,7 +464,7 @@ Deno.test('Increment 90 production stores only turn deltas on the normal path', 
     await created.close();
   }
 
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   await store.initialize();
   const listed = await store.listWorker();
   assert(listed.sessions.length === 1);
@@ -486,10 +485,10 @@ Deno.test('Increment 90 production stores only turn deltas on the normal path', 
     const payload = terminal.payload as Record<string, unknown>;
     assert(payload.providerEvidence === undefined);
     assert(
-      Array.isArray(payload.transcript) && payload.transcript.length === 0,
+      Array.isArray(payload.transcript) && payload.transcript.length === 2,
     );
     const outcome = payload.outcome as { transcript?: unknown[] } | undefined;
-    assert(outcome === undefined || outcome.transcript?.length === 0);
+    assert(outcome === undefined || outcome.transcript?.length === 2);
     assert(
       store.readExecution(execution.executionId).outcomeJson?.transcript
         .length === execution.turn * 2,
@@ -544,23 +543,21 @@ Deno.test('Increment 90 production stores only turn deltas on the normal path', 
   );
 
   const paths = await sessionPaths(stateRoot, workspaceRoot);
-  const db = new DatabaseSync(`${paths.root}/history-v6.sqlite3`, {
+  const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, {
     readOnly: true,
   });
   try {
     const session = db.prepare(`
-      SELECT record_bytes,
-        (SELECT count(*) FROM session_messages WHERE session_id=sessions.session_id) AS messages
+      SELECT (SELECT count(*) FROM session_messages
+        WHERE session_id=sessions.session_id) AS messages
       FROM sessions WHERE session_id=?
     `).get(record.sessionId) as {
-      record_bytes: Uint8Array | null;
       messages: number;
     };
-    assert(session.record_bytes === null);
     assert(Number(session.messages) === record.transcript.length);
     const outcomes = db.prepare(`
       SELECT json_array_length(outcome_json, '$.transcript') AS transcript_length
-      FROM executions ORDER BY created_at
+      FROM execution_admissions ORDER BY created_at
     `).all() as { transcript_length: number }[];
     assert(outcomes.every((row) => Number(row.transcript_length) === 0));
     assert(

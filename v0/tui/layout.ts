@@ -548,6 +548,10 @@ const overlayRows = (
       `${page.atOldest ? 'oldest' : 'older available'} · ${
         page.atNewest ? 'latest' : 'newer available'
       } · ${page.executionCount} executions loaded${
+        page.projection?.state === 'stale'
+          ? ` · history updating (${page.projection.pendingSources} pending)`
+          : ''
+      }${
         overlay.query === undefined
           ? ''
           : ` · /${overlay.query}/${overlay.wrapped ? ' · wrapped' : ''}`

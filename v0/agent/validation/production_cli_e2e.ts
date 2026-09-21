@@ -1,7 +1,7 @@
 import type { StoredProviderEvidence } from '../provider/provider_evidence.ts';
 import { sessionPaths } from '../session/session_store.ts';
 import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
-import { SqliteHistoryV6ProductionStore } from '../history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
 import {
   evaluateProductionCliE2e,
   preflightFailureReport,
@@ -86,7 +86,7 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
   await validateOwnedDirectory(stateBase);
   const stateRoot = `${stateBase}/henji-harness/v1`;
   const history = await sessionPaths(stateRoot, workspaceRoot);
-  const database = `${history.root}/history-v6.sqlite3`;
+  const database = `${history.root}/history-v7.sqlite3`;
   return {
     runRoot,
     workspaceRoot,
@@ -185,7 +185,7 @@ const defaultListExecutions = async (
   stateRoot: string,
   workspaceRoot: string,
 ): Promise<readonly StoredWorkerExecutionArtifact[]> => {
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   await history.initialize();
   return await history.executionArtifacts.list();
 };
@@ -194,7 +194,7 @@ const defaultListEvidence = async (
   stateRoot: string,
   workspaceRoot: string,
 ): Promise<readonly StoredProviderEvidence[]> => {
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   await history.initialize();
   return await history.providerEvidence.list();
 };
@@ -203,7 +203,7 @@ const defaultSessionTranscriptExists = async (
   stateRoot: string,
   workspaceRoot: string,
 ): Promise<boolean> => {
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   await history.initialize();
   return (await history.listWorker()).sessions.length !== 0;
 };

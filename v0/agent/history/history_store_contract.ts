@@ -361,6 +361,8 @@ export interface HistoryCaptureResult {
 }
 
 export interface HistoryPersistencePort {
+  /** Internal protocol sequence is diagnostic detail and may be disabled by the selected store. */
+  capturesProtocolTrace?(): boolean;
   beginExecution(input: BeginExecutionInput): void | Promise<void>;
   appendExecutionEvent(input: ExecutionEventInput): StoredExecutionEvent;
   /** Append several worker observations in one connection and one transaction, preserving order. */

@@ -572,6 +572,7 @@ export class WorkerHostSession {
     correlation: WorkerCorrelation,
     ackAccepted?: boolean,
   ): void {
+    if (this.options.historyPersistence?.capturesProtocolTrace?.() === false) return;
     const entry: WorkerExecutionTraceEntry = {
       direction,
       kind,

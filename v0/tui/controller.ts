@@ -103,6 +103,27 @@ const mergeHumanHistoryPages = (
       : (current.newerCursor === undefined ? {} : { newerCursor: current.newerCursor })),
     atOldest: direction === 'older' ? adjacent.atOldest : current.atOldest,
     atNewest: direction === 'newer' ? adjacent.atNewest : current.atNewest,
+    ...((current.projection?.state === 'stale' || adjacent.projection?.state === 'stale')
+      ? {
+        projection: {
+          version: 1 as const,
+          state: 'stale' as const,
+          pendingSources: Math.max(
+            current.projection?.pendingSources ?? 0,
+            adjacent.projection?.pendingSources ?? 0,
+          ),
+          staleReason: 'pending' as const,
+        },
+      }
+      : current.projection === undefined && adjacent.projection === undefined
+      ? {}
+      : {
+        projection: {
+          version: 1 as const,
+          state: 'current' as const,
+          pendingSources: 0,
+        },
+      }),
   });
 };
 

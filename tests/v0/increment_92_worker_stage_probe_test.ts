@@ -16,6 +16,7 @@ import {
 } from '../../v0/agent/history/history_store_contract.ts';
 import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
 import { SqliteHistoryV6Store } from '../../v0/agent/history/sqlite_history_v6_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -781,7 +782,7 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
 
 Deno.test('Increment 92 persists an auxiliary gap with receive buffer and durable cursors', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-92-' });
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     const delta = await auxiliaryDelta();
@@ -790,6 +791,7 @@ Deno.test('Increment 92 persists an auxiliary gap with receive buffer and durabl
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
+      historyCaptureProfile: 'diagnostic-v1',
       auxiliaryStageGapMs: 10,
       capsuleFactory: () => new AuxiliaryGapCapsule(delta),
     });
@@ -827,7 +829,7 @@ Deno.test('Increment 92 cancels the gap watchdog when provider start reaches Hos
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-92-normal-',
   });
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     const delta = await auxiliaryDelta();
@@ -836,6 +838,7 @@ Deno.test('Increment 92 cancels the gap watchdog when provider start reaches Hos
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
+      historyCaptureProfile: 'diagnostic-v1',
       auxiliaryStageGapMs: 10,
       capsuleFactory: () => new AuxiliaryGapCapsule(delta, true),
     });

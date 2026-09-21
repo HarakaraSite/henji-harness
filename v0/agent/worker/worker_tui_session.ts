@@ -68,7 +68,8 @@ import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
-import { SqliteHistoryV6ProductionStore } from '../history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
+import type { HistoryV7CaptureProfile } from '../history/history_v7_model.ts';
 import type { HumanHistoryReadPort } from '../history/human_history.ts';
 import {
   builtinHenjiBaseInstruction,
@@ -138,6 +139,8 @@ export interface WorkerSessionOptions {
   readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
+  /** Selects the v7 admission-time capture profile. */
+  readonly historyCaptureProfile?: HistoryV7CaptureProfile;
 }
 
 export interface WorkerSessionResult {
@@ -369,9 +372,10 @@ export const createWorkerSession = async (
     : Object.freeze([] as const);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
-    ? new SqliteHistoryV6ProductionStore(
+    ? new SqliteHistoryV7ProductionStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
+      { captureProfile: options.historyCaptureProfile },
     )
     : undefined;
   const store = options.persistence === 'none' ? undefined : sqliteHistory;
@@ -462,10 +466,7 @@ export const createWorkerSession = async (
       ? managedWorkerDefinitionLoadRequest(activeSelection.revision)
       : undefined;
     const definition = activeSelection.ref;
-    const defaultDiagnosticStore = sqliteHistory?.diagnostics;
-    const defaultEvidenceStore = sqliteHistory?.providerEvidence;
-    const defaultExecutionArtifactStore = options.executionArtifactStore ??
-      sqliteHistory?.executionArtifacts;
+    const defaultExecutionArtifactStore = options.executionArtifactStore;
     if (
       record !== undefined &&
       (record.workspaceRoot !== workspace.root ||
@@ -593,9 +594,8 @@ export const createWorkerSession = async (
           baseInstruction,
           providerDeclarations,
           eventSink: options.eventSink,
-          diagnosticPersistence: options.diagnosticPersistence ??
-            defaultDiagnosticStore?.persist,
-          providerEvidenceStore: options.providerEvidenceStore ?? defaultEvidenceStore,
+          diagnosticPersistence: options.diagnosticPersistence,
+          providerEvidenceStore: options.providerEvidenceStore,
           executionArtifactStore: defaultExecutionArtifactStore,
           ...(sqliteHistory === undefined ? {} : {
             historyPersistence: sqliteHistory,

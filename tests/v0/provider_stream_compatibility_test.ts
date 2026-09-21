@@ -37,7 +37,7 @@ import {
 import { decodeResponse } from '../../v0/agent/provider/openrouter_response.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../v0/resource_limits.ts';
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -1086,7 +1086,9 @@ Deno.test('SQLite evidence and diagnostics readback retain one parent/planner ar
         request: { ...record.request, contextRequestOrdinal: index + 1 },
       })),
     };
-    const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+      captureProfile: 'diagnostic-v1',
+    });
     await history.initialize();
     assertEquals(await history.providerEvidence.list(), []);
     const historyInput = {

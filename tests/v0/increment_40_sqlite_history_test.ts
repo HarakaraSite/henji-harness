@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import {
   type HistoryPersistencePort,
   HistoryStoreError,
@@ -780,27 +780,9 @@ Deno.test('Increment 40 persists no-session execution without a canonical Sessio
     await created.close();
     created = undefined;
 
-    const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
     await store.initialize();
     assertEquals((await store.listWorker()).sessions.length, 0);
-    const artifacts = await store.executionArtifacts.list();
-    assertEquals(artifacts.length, 1);
-    const artifact = artifacts[0];
-    assert(artifact?.schemaVersion === 7);
-    assertEquals(artifact.contextCapture, 'complete');
-    assertEquals(artifact.acknowledgement, 'accepted_sent');
-    assert(
-      artifact.protocolTrace.some((entry) =>
-        entry.direction === 'host_to_worker' &&
-        entry.kind === 'commit_acknowledgement' && entry.ackAccepted === true
-      ),
-    );
-    assert(
-      artifact.protocolTrace.some((entry) =>
-        entry.direction === 'worker_to_host' &&
-        entry.kind === 'runtime_event' && entry.semanticSubtype === 'turn_end'
-      ),
-    );
     const execution = store.listExecutions()[0];
     assert(execution !== undefined);
     assertEquals(execution.contextCapture, 'complete');

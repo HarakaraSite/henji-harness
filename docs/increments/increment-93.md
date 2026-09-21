@@ -56,4 +56,8 @@ bytesは正常に保存された一方、最終artifactだけが`contextCapture:
 - `v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`はpass。
 - 安定候補に対するauthoritative `v0:gate`は一度だけ実行し、exit 0。
 
-実装と検証は完了した。binary build／配置、commit、push、releaseは行っていない。Increment完了判断は利用者が行う。
+実装と検証は完了した。binary build／配置、releaseは行っていない。
+
+## 完了判断
+
+2026-09-21、利用者は上記の実装・回帰確認・authoritative `v0:gate`の結果を受け、本incrementを完了と判断した。

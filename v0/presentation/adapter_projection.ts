@@ -409,6 +409,16 @@ export const humanHistoryPage = (value: HumanHistoryPageV1) =>
     ...(value.newerCursor === undefined ? {} : { newerCursor: bounded(value.newerCursor) }),
     atOldest: value.atOldest,
     atNewest: value.atNewest,
+    ...(value.projection === undefined ? {} : {
+      projection: Object.freeze({
+        version: 1 as const,
+        state: value.projection.state,
+        pendingSources: count(value.projection.pendingSources),
+        ...(value.projection.staleReason === undefined
+          ? {}
+          : { staleReason: value.projection.staleReason }),
+      }),
+    }),
   });
 
 export const humanHistoryDetail = (value: HumanHistoryDetailChunkV1) =>

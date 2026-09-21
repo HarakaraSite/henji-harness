@@ -1,5 +1,5 @@
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
@@ -351,7 +351,7 @@ Deno.test('Increment 91 preserves graceful cancellation within the settlement gr
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-increment-91-graceful-',
   });
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
   let progress!: () => void;
   const sawProgress = new Promise<void>((resolve) => progress = resolve);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -383,7 +383,8 @@ Deno.test('Increment 91 preserves graceful cancellation within the settlement gr
     const kinds = history.listExecutionEvents(rows[0].executionId).map((
       event,
     ) => event.kind);
-    assert(kinds.includes('cancel_received'));
+    assert(kinds.includes('cancel_requested'));
+    assert(!kinds.includes('cancel_received'));
     assert(!kinds.includes('cancel_escalated'));
   } finally {
     await created?.close();
@@ -393,7 +394,7 @@ Deno.test('Increment 91 preserves graceful cancellation within the settlement gr
 
 Deno.test('Increment 91 force-interrupts an uncooperative turn and replaces its generation', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-91-' });
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
   let progress!: () => void;
   const sawProgress = new Promise<void>((resolve) => progress = resolve);
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
@@ -431,8 +432,8 @@ Deno.test('Increment 91 force-interrupts an uncooperative turn and replaces its 
     const events = history.listExecutionEvents(rows[0].executionId);
     const kinds = events.map((event) => event.kind);
     assert(kinds.includes('cancel_requested'));
-    assert(kinds.includes('cancel_sent'));
-    assert(kinds.includes('cancel_received'));
+    assert(!kinds.includes('cancel_sent'));
+    assert(!kinds.includes('cancel_received'));
     assert(kinds.includes('cancel_escalated'));
     assertEquals(kinds.at(-1), 'execution_reconciled');
   } finally {
@@ -477,7 +478,7 @@ Deno.test('Increment 91 escalates when the Worker cannot acknowledge cancel', as
     );
     assert(next.ok);
 
-    const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+    const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
     await history.initialize();
     const firstRow = history.listExecutionsForSession(created.session.sessionId)[0];
     const kinds = history.listExecutionEvents(firstRow.executionId).map((
@@ -522,6 +523,7 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
+      historyCaptureProfile: 'diagnostic-v1',
       cancelSettlementGraceMs: 20,
       capsuleFactory: (url) => {
         generation += 1;
@@ -545,7 +547,7 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
     await Promise.resolve();
     assertEquals(created.session.transcriptSnapshot(), canonical);
 
-    const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+    const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
     await history.initialize();
     const interrupted = history.listExecutionsForSession(created.session.sessionId)[0];
     assertEquals(interrupted.contextCapture, 'partial');
@@ -553,22 +555,19 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
       executionId: interrupted.executionId,
       callId: 'stalled-web-search',
       name: 'web_search',
-      requestedEventOrdinal: 3,
+      requestedEventOrdinal: 2,
       status: 'outcome_unknown',
     }]);
-    const evidence = (await history.providerEvidence.list()).find((item) =>
-      item.evidenceId === interrupted.providerEvidenceId
+    assert(interrupted.providerEvidenceId === undefined);
+    const diagnosticAttachments = [...history.streamHumanHistoryExport(
+      created.session.sessionId,
+    )].filter((record) => record.kind === 'diagnostic_attachment');
+    assert(diagnosticAttachments.length > 0);
+    assert(
+      !(await history.executionArtifacts.list()).some((artifact) =>
+        artifact.executionId === interrupted.executionId
+      ),
     );
-    assert(evidence?.schemaVersion === 5);
-    assertEquals(evidence.capture, 'partial');
-    assertEquals(evidence.settlement, 'interrupted');
-    assertEquals(evidence.requests[0]?.request.endpoint, 'https://example.invalid/search');
-    const artifact = (await history.executionArtifacts.list()).find((item) =>
-      item.executionId === interrupted.executionId
-    );
-    assert(artifact?.schemaVersion === 7);
-    assertEquals(artifact.settlement, 'interrupted');
-    assertEquals(artifact.contextCapture, 'partial');
   } finally {
     await created?.close();
     await Deno.remove(stateRoot, { recursive: true });
@@ -657,7 +656,7 @@ Deno.test('Increment 91 rolls back an unacknowledged model selection and replace
       created.session.modelSelectionSnapshot(),
       ROOT_DEFAULT_MODEL_SELECTION,
     );
-    const history = new SqliteHistoryV6ProductionStore(stateRoot, Deno.cwd());
+    const history = new SqliteHistoryV7ProductionStore(stateRoot, Deno.cwd());
     await history.initialize();
     assertEquals(
       (await history.readWorker(created.session.sessionId)).activeModel,

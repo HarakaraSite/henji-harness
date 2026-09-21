@@ -20,7 +20,7 @@ import {
   isExternalDefinitionResourceId,
 } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import {
   type DefinitionRevisionRef,
   type StoredSessionRecord,
@@ -175,7 +175,7 @@ const persistEmptyExternalSession = async (
   agent: StoredSessionRecord['agent'],
   definition: DefinitionRevisionRef,
 ): Promise<string> => {
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   const handle = await store.allocateWorker(agent, definition);
   const timestamp = '2026-09-12T01:02:03.000Z';
   const model = defaultModelSelectionFor('openrouter-chat');
@@ -712,7 +712,7 @@ Deno.test('Increment 33 runs a managed parent through one commit path and reject
   const stateRoot = `${root}/state`;
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const history = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   try {
     for (const role of ['parent'] as const) {
       const sourceRoot = `${root}/source-${role}`;
@@ -746,26 +746,15 @@ Deno.test('Increment 33 runs a managed parent through one commit path and reject
       }
 
       const session = await history.readWorker(created.session.sessionId);
-      const artifact = (await history.executionArtifacts.list()).find((item) =>
-        item.sessionId === created.session.sessionId
-      );
-      const evidence = (await history.providerEvidence.list()).find((item) =>
-        item.sessionId === created.session.sessionId
-      );
-      assert(artifact !== undefined);
-      assert(evidence !== undefined);
+      const execution = history.listExecutionsForSession(created.session.sessionId).at(-1);
+      assert(execution !== undefined);
       assertEquals(session.agent, 'default');
       assertEquals(session.definition, revision.manifest.logicalRef);
       assertEquals(session.turnExecutions[0]?.definition, revision.manifest.logicalRef);
-      assertEquals(artifact.definition, revision.manifest.logicalRef);
-      assertEquals(evidence.definition, revision.manifest.logicalRef);
-      assertEquals(artifact.build, session.turnExecutions[0]?.build);
-      assertEquals(evidence.build, artifact.build);
-      assertEquals(artifact.sessionId, evidence.sessionId);
-      assertEquals(artifact.turn, evidence.turnNumber);
-      assert(
-        artifact.protocolTrace.some((entry) => entry.semanticSubtype === 'module_closure_verified'),
-      );
+      assertEquals(execution.definition, revision.manifest.logicalRef);
+      assertEquals(execution.build, session.turnExecutions[0]?.build);
+      assertEquals(execution.sessionCorrelation, created.session.sessionId);
+      assertEquals(execution.turn, 1);
     }
 
     const plannerEntry = await writeExecutableModule(`${root}/source-planner`, 'planner');

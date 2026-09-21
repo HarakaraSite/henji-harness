@@ -40,6 +40,29 @@ instruction、skill、Agent Definition、tool contract、供給・観測した�
 材料である。過去Worker、model内部状態、OS、filesystem、外部service、toolの副作用を再現することはこの構想の
 目的に含めない。
 
+## 履歴の三目的
+
+Henjiの履歴は、相互に関係するが同一ではない三つの目的を持つ。
+
+1. 通常利用の履歴は、人間が見た会話、tool利用、結果と、その意味を後から理解するための背景を保持する。
+2. 障害診断は、transport、parser、Worker、storage等の実装障害を特定するための詳細を保持する。
+3. 自己改訂の経験は、何が良かったか、悪かったか、何を変えたいかを考えるために過去の観測を利用する。
+
+通常履歴の背景は、表示された出来事から、人間の入力・判断、Agentへ実際に渡したcontentまたはimmutable
+revision、tool／providerから得たsemantic result、Hostのadmission／outcome／canonical decision、
+明示的な未観測境界へ至るまでの最小説明閉包とする。exact transport、chunk、parser内部遷移、Worker stage、
+physical storage位置は、それが無くてもsemanticな出来事と直接原因を説明できる限り、通常履歴ではなく
+診断detailである。
+
+診断detailの欠落や不一致だけを理由に、semanticなexecutionまたはcanonical adoptionを失敗させない。
+一方、通常履歴のsemantic authority自体をdurableにできない場合は、成立していない会話をcanonicalとして
+採用しない。障害診断に必要なrequest、raw response、SSE、parser transition、tool event、runtime outcome等は、
+選択した診断captureで保存・readback可能にする。
+
+詳細情報を多く持つこと自体を、追跡可能性または自己改訂可能性と同一視しない。自己改訂に適切な情報は先に
+固定せず、実際の候補生成や人間の判断で使った情報、足りなかった情報、使わなかった情報を後のloopで観測し、
+通常履歴、診断、experience projectionの境界も改訂対象にできる。
+
 ## 自由度の意味
 
 この構想でいう自由度は、目的別に多数のagent variantやAgent Definitionを保有し、その都度別のagentを

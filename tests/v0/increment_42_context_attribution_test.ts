@@ -18,7 +18,7 @@ import {
   type WorkerContextSnapshot,
 } from '../../v0/agent/history/context_attribution.ts';
 import { SqliteHistoryStore } from '../../v0/agent/history/sqlite_history_store.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import {
   HistoryStoreError,
   type StoredExecutionEvent,
@@ -1070,7 +1070,7 @@ Deno.test('Increment 42 preserves the exact external tool contract on every requ
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   let host: WorkerHostSession | undefined;
   const presentedTool = {
     name: 'replaceable',
@@ -1367,7 +1367,7 @@ Deno.test('Increment 42 captures maximum model context and exposes diagnostic re
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   let host: WorkerHostSession | undefined;
   const task = 'capture the maximum context';
   const initialMessageText = 'm'.repeat(
@@ -1515,24 +1515,25 @@ Deno.test('Increment 42 captures maximum model context and exposes diagnostic re
       }),
     );
     const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const databasePath = `${paths.root}/history-v6.sqlite3`;
+    const databasePath = `${paths.root}/history-v7.sqlite3`;
     const db = new DatabaseSync(databasePath, { readOnly: true });
     try {
       const requestRows = db.prepare(`SELECT count(*) AS count
-        FROM sequence_revisions WHERE execution_id = ?`).get(
+        FROM semantic_occurrences WHERE execution_id = ? AND kind = 'model_request'`).get(
         execution.executionId,
       ) as {
         readonly count: number;
       };
-      const blobBytes = Number(
+      const requestBytes = Number(
         (db.prepare(
-          `SELECT coalesce(sum(byte_length), 0) AS bytes FROM exact_objects`,
-        ).get() as {
+          `SELECT coalesce(sum(length(payload_json)), 0) AS bytes
+           FROM semantic_occurrences WHERE execution_id = ? AND kind = 'model_request'`,
+        ).get(execution.executionId) as {
           readonly bytes: number;
         }).bytes,
       );
       assertEquals(Number(requestRows.count), 1);
-      const requestColumns = (db.prepare('PRAGMA table_info(sequence_revisions)').all() as {
+      const requestColumns = (db.prepare('PRAGMA table_info(semantic_occurrences)').all() as {
         readonly name: string;
       }[]).map((column) => column.name);
       assert(!requestColumns.includes('request_json'));
@@ -1540,8 +1541,8 @@ Deno.test('Increment 42 captures maximum model context and exposes diagnostic re
       console.info(JSON.stringify({
         increment: 50,
         maximumContextDatabaseBytes: (await Deno.stat(databasePath)).size,
-        uniqueContextBlobBytes: blobBytes,
-        normalizedRequestRows: Number(requestRows.count),
+        semanticRequestBytes: requestBytes,
+        semanticRequestRows: Number(requestRows.count),
       }));
     } finally {
       db.close();
@@ -1586,7 +1587,7 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   const executionId = '20000000-0000-4000-8000-000000000057';
   const taskId = '10000000-0000-4000-8000-000000000057';
   try {
@@ -1597,23 +1598,25 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
     await appendContextRequest(store, executionId, request);
     const paths = await sessionPaths(stateRoot, workspaceRoot);
     const countsBefore = (() => {
-      const db = new DatabaseSync(`${paths.root}/history-v6.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`);
       try {
         return {
           modelRequests: Number(
             (db.prepare(
-              'SELECT count(*) AS count FROM sequence_revisions WHERE execution_id = ?',
+              `SELECT count(*) AS count FROM semantic_occurrences
+               WHERE execution_id = ? AND kind = 'model_request'`,
             ).get(executionId) as { readonly count: number }).count,
           ),
           compactObservation: Number(
-            (db.prepare('SELECT count(*) AS count FROM exact_objects').get() as {
-              readonly count: number;
-            }).count,
+            (db.prepare(
+              `SELECT count(*) AS count FROM semantic_occurrences
+               WHERE execution_id = ? AND kind = 'model_request'`,
+            ).get(executionId) as { readonly count: number }).count,
           ) > 0,
           contextRelations: Number(
             (db.prepare(
-              `SELECT count(*) AS count FROM record_anchors
-               WHERE execution_id = ? AND authority = 'attribution'`,
+              `SELECT count(*) AS count FROM semantic_occurrences
+               WHERE execution_id = ? AND kind = 'model_request'`,
             ).get(executionId) as { readonly count: number }).count,
           ),
         };
@@ -1652,18 +1655,19 @@ Deno.test('Increment 42 reads active journal context as read-only partial diagno
     assertEquals(store.readExecution(executionId).lifecycle, 'active');
     assertEquals(store.readExecution(executionId).contextCapture, 'none');
     const countsAfter = (() => {
-      const db = new DatabaseSync(`${paths.root}/history-v6.sqlite3`);
+      const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`);
       try {
         return {
           modelRequests: Number(
             (db.prepare(
-              'SELECT count(*) AS count FROM sequence_revisions WHERE execution_id = ?',
+              `SELECT count(*) AS count FROM semantic_occurrences
+               WHERE execution_id = ? AND kind = 'model_request'`,
             ).get(executionId) as { readonly count: number }).count,
           ),
           contextRelations: Number(
             (db.prepare(
-              `SELECT count(*) AS count FROM record_anchors
-               WHERE execution_id = ? AND authority = 'attribution'`,
+              `SELECT count(*) AS count FROM semantic_occurrences
+               WHERE execution_id = ? AND kind = 'model_request'`,
             ).get(executionId) as { readonly count: number }).count,
           ),
         };

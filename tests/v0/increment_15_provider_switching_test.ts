@@ -18,7 +18,7 @@ import {
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import type {
   PresentationIntent,
@@ -352,7 +352,7 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
 Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Session', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-increment-15-' });
   const workspaceRoot = Deno.cwd();
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
@@ -398,20 +398,21 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       ['turn on OpenRouter', 'turn on OpenAI', 'back on OpenRouter'],
     );
 
-    const savedArtifacts = await store.executionArtifacts.list();
-    assertEquals(savedArtifacts.map((artifact) => artifact.manifest.rootModel), [
+    const savedArtifacts = store.listExecutionsForSession(sessionId);
+    assert(savedArtifacts.every((artifact) => artifact.manifest !== undefined));
+    assertEquals(savedArtifacts.map((artifact) => artifact.manifest!.rootModel), [
       ROOT_DEFAULT_MODEL_SELECTION,
       OPENAI_DEFAULT_MODEL_SELECTION,
       ROOT_DEFAULT_MODEL_SELECTION,
     ]);
     assert(
       savedArtifacts.every((artifact) =>
-        JSON.stringify(artifact.manifest.plannerModel) ===
+        JSON.stringify(artifact.manifest!.plannerModel) ===
           JSON.stringify(roleDefaultModelSelection('subagent:planner'))
       ),
     );
     assert(
-      savedArtifacts[1]?.manifest.resources.some((resource) =>
+      savedArtifacts[1]?.manifest?.resources.some((resource) =>
         resource.startsWith('model:openai-responses:')
       ),
     );

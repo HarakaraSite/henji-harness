@@ -1,6 +1,6 @@
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { isSessionId, launcherStateRoot, SessionStoreError } from '../session/session_store.ts';
-import { SqliteHistoryV6ProductionStore } from '../history/sqlite_history_v6_production_store.ts';
+import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
 import { HistoryStoreError } from '../history/history_store_contract.ts';
 
 const encoder = new TextEncoder();
@@ -71,7 +71,7 @@ export const main = async (
   try {
     const workspace = await resolveWorkspace(dependencies.workspaceRoot);
     const stateRoot = dependencies.stateRoot ?? launcherStateRoot();
-    const store = new SqliteHistoryV6ProductionStore(stateRoot, workspace.root);
+    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspace.root);
     await store.initialize();
     if (command.kind === 'list') {
       const result = await store.listWorker();
