@@ -353,7 +353,8 @@
   折り返し境界をまたぐ強調／inline codeが無着色だった問題を、`wrapCellsWithSource`でsource offsetを追跡し
   `clipSpans`で各行へクリップする方式で修正した。increment-84 layout testと
   `tui_conversation_presentation_test.ts`の期待を新契約へ更新。authoritative `v0:gate`はexit 0。
-- 次: 利用者によるIncrement完了判断。実TTY目視は未実施。
+- 次: なし（利用者が常用中。不満が出たら通常利用メモへ起票）。実TTY目視は未実施。inbox S5（assistant本文
+  rendering）は利用者判断で完了としinboxから削除。次increment候補はinboxの未採用一覧を参照。
 - 配置: commit `c3bfb157`からDeno 2.9.7で`dist/henji`をbuildし`~/.local/bin/henji`へ原子的に配置済み
   （build `3ff6f3c0…`、source `c3bfb157…`、SHA-256 `bf44b2c3…`、embedded runtime `eeccc928…`）。commit・push済み。
 - 正本: `docs/increments/increment-96.md`。

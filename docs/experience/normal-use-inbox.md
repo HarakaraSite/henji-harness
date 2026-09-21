@@ -14,7 +14,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | --- | --- | --- | --- |
 | S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
-| S5 | Surface | assistant本文のMarkdown等のrendering | plain textで意味・可読性を保てない表現を扱う |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S9 | Surface | recovery laneの削除 | laneのブロッキング（submit・navigation不可）が通常利用で問題になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
@@ -68,16 +67,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   [`terminal-markdown-rendering-comparison.md`](../research/terminal-markdown-rendering-comparison.md)、
   [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
   [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
-
-### S5 — assistant本文のrendering（F01、F10、将来のF24候補）
-
-- 観測: plain text renderer componentはIncrement 4で実装済みだが、terminal上の回答にはさらに読みやすく
-  できる余地がある。
-- 候補: 限定したMarkdown対応から始め、必要が出た場合だけMermaid等のblock rendererを拡張する。
-  agentは具体rendererではなくmeaningful content kindまたはpresentation intentを返し、Host Surfaceが解決する境界も
-  比較候補にする。
-- 再検討条件: plain textでは意味・可読性を安定して保てない回答が観測されること。string出力contractを
-  変える場合はF10/F24として構想・architectureへ戻る。
 
 ### S8 — startup headerのMCP欄（F01、F10）
 

@@ -59,3 +59,11 @@
 - Markdown記号自体の除去。従来どおり`#`や`*`は本文に表示する。
 - 履歴ビュー（`/history`）の見た目。対象は会話ログのassistant本文。
 - 数式中の`*`等、Markdown強調以外の用途のasterisk判定の厳密化。
+
+## 関連候補の完了（2026-09-21）
+
+利用者は通常利用メモS5（assistant本文のrendering）を完了と判断した。Increment 84のMarkdown readability
+（word wrap、list／heading／quote／table、code span）と本incrementの見出し全行着色・強調（`*`／`**`／`***`）緑化・
+折り返し跨ぎ対応で、通常利用の可読性は満たすと判断された。Mermaid等のblock renderer拡張、agentが意味的content
+kind／presentation intentを返してHost Surfaceが解決する境界は、必要が生じた時点で新たに起票する。S5はinboxから
+除いた。
