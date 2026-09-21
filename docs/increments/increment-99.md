@@ -12,8 +12,8 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
 
 - TUI内の参照は**メイン会話ログのPageUp**に一本化する（現在Sessionのcommitted turn）。
 - 任意Session・詳細内容の参照は、**別ペインで`henji history` CLI**を実行して行う。
-- `henji history`は3種類の内容をstdoutへ出力でき、`--out`でファイルにも書ける。`glow -p`／`vi`／`less`／
-  file redirectと自由に組み合わせられる。
+- `henji history`は3種類の内容を**stdoutへ出力**する。ファイル化はshellのredirect（`> file`）で行い、
+  `glow -p`／`vi`／`less`と自由に組み合わせられる。
 - 検索はviewer側（`vi`／`glow`／`less`／tmux copy-mode）で行う。CLIに組み込み検索は持たせない。
 - 保存SessionをTUI内でresumeせず眺める手段は失うが、`/sessions`で開き直せばメインlogで参照できる。
 
@@ -26,7 +26,8 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
      `[tN]`は出さない）、assistant本文は生Markdown。non-canonicalは含めない。
   2. `canonical`: 現行`/history export`相当の構造化Markdown（`## Turn N`／`### user>`／fenced）。
   3. `detail`: 現行`/history export all`相当のdurable JSONL（non-canonicalも含む）。
-- 既定値: `--view session`、`--session --latest`、`--out`なしはstdout。`--follow`は入れない（snapshot）。
+- 既定値: `--view session`、`--session --latest`。**`--out`は持たずstdoutのみ**（ファイルは`> file`）。
+  `--follow`は入れない（snapshot）。
 - 非canonical（rejected/cancelled）の**人間可読な参照経路は本incrementでは提供しない**。必要になった時点で
   別途検討する。roadmap F05はこの範囲で「部分実装」へ下げる。
 
@@ -35,9 +36,9 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
 - 新CLI subcommand `henji history`。
 - **read-only read port**: v7 DBを`DatabaseSync(path, { readOnly: true })`で開き、`initialize()`／reconcile／
   schema作成／lock取得を行わない。read-only seamをstore側に追加する。
-- **出力sinkの分離**: Markdown／JSONLの「組み立て」と「出力先（stdout／`--out` path）」を分離する。既存
-  `DenoHistoryExporter`／`DenoHumanHistoryExporter`は常にstate rootへ一意fileを作る専用のため、生成部分を
-  公開し、CLIがstdout／指定pathへ書く。TUI専用のreceipt付きfile出力は不要になるので削除する。
+- **出力sinkの分離**: Markdown／JSONLの「組み立て」と「出力先」を分離する。既存`DenoHistoryExporter`／
+  `DenoHumanHistoryExporter`は常にstate rootへ一意fileを作る専用のため、生成部分を公開し、CLIが**stdout**へ
+  書く。ファイル化はshell redirectに任せる。TUI専用のreceipt付きfile出力は不要になるので削除する。
 - **単一snapshot read**: exportは1回のread-only接続（単一read transaction）でexecution一覧・occurrence・
   content・manifest・diagnosticを読む。live writerと並行してもある時点の一貫したsnapshotを返す。
 - **空DB挙動**: 履歴DBが無いworkspaceでは「履歴なし」を表示して正常終了（0）する。
@@ -59,13 +60,11 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
    （`session`／`canonical`用）、(c) `streamHumanHistoryExport`相当（`detail`用）。単一接続で読む。
 2. **session view出力**: 対象Sessionのcanonical transcriptを`restored_log`と同じ投影
    （`restoredPresentationMessages`＋`pendingToolActivityText`／`settledToolActivityText`／
-   `toolActivityPreview`）でメインlog形式に整形し、stdout／`--out`へ書く。
-3. **canonical view出力**: 既存のMarkdown生成（`markdownChunks`相当）を公開関数へ切り出し、CLIが
-   stdout／`--out`へ書く。
-4. **detail view出力**: 既存JSONL生成（`streamHumanHistoryExport`）を単一read-only接続で回し、CLIが
-   stdout／`--out`へ書く。
+   `toolActivityPreview`）でメインlog形式に整形し、stdoutへ書く。
+3. **canonical view出力**: 既存のMarkdown生成（`markdownChunks`相当）を公開関数へ切り出し、CLIがstdoutへ書く。
+4. **detail view出力**: 既存JSONL生成（`streamHumanHistoryExport`）を単一read-only接続で回し、CLIがstdoutへ書く。
 5. **CLI配線**: `henji_cli.ts`へ`history` subcommandを追加。`--session <id>`／`--latest`／
-   `--view session|canonical|detail`／`--out <path>`をparse。`--session`は完全UUID（現行`isSessionId`と同じ）。
+   `--view session|canonical|detail`をparse。`--session`は完全UUID（現行`isSessionId`と同じ）。
    `--latest`は**同一cwd/workspace前提**で最後に更新されたSession。出力先頭に`# session <id>`を出す。
    エラーは他subcommandと同じ`{ok:false,error:{code}}`をstderrへ。
 6. **TUI削除**: `slash_command.ts`から`history`／`history_export`／`history_export_all`を削除。
@@ -79,12 +78,12 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
 
 ### 複雑化した場合の簡素化案
 
-単一snapshot readが複雑になりすぎる場合の優先順位:
+`--out`は採用しない（stdoutのみ。ファイル化は`> file`）。単一snapshot readが複雑になりすぎる場合の
+優先順位:
 
 1. **`detail`（JSONL）を本incrementから外す**。`session`／`canonical`はcanonical transcript（単一table）だけを
    読むため、単一接続で容易に一貫性を保てる。`detail`は後続incrementで単一snapshot版として追加する。
 2. それでも複雑なら、`canonical`も`session`に統合し、`session`＋`detail`の2種類に減らす。
-3. 最後の手段として`--out`を外し、stdoutのみにする（`> file`で代替可能）。
 
 いずれも利用者に戻して判断する。
 
@@ -117,7 +116,7 @@ Increment 43（human history view）、Increment 94（history v7 authority）、
 | --- | --- |
 | 別ペインから現在Sessionの会話を参照できる | `henji history --latest --view session`をstdoutで実行し、committed turnがメインlog形式（`user>`／`assistant>`／`tool>`、`tool<`なし）で出る |
 | 詳細と構造化exportをCLIで得られる | `--view canonical`（Markdown）と`--view detail`（JSONL）を出力し、廃止前の`/history export`／`/history export all`と同一Sessionで内容一致する |
-| fileへ書ける | `--out <path>`で保存し、stdoutとbyte一致する |
+| fileへ書ける | shell redirect（`> file`）で保存し、stdoutとbyte一致する |
 | 並行writeでsnapshotが壊れない | henji書き込み中に`--view detail`を複数回実行し、execution一覧・occurrence・manifestが同一時点で整合する |
 | 空workspaceで正常終了する | 履歴DBなしで`henji history --latest`が「履歴なし」を出してexit 0 |
 | TUIから`/history`系が消え、参照がメインlogに一本化される | tmuxで`/history`がunknownになり、PageUpで現在Sessionを遡れる |
@@ -144,5 +143,4 @@ test件数は完了条件にしない。各testは上表のproduct動作へ対�
 
 - `session` viewを`glow`で見たときの見やすさ（tool activity行とassistant Markdownの混在）。
 - 単一read-only接続での`detail`生成が現行store構造（`#coreStore()`依存）でどこまで流用できるか。
-- `--out`の既定path（値を省略した場合）を持つか。今回は必須引数とし、省略時はstdoutのみ。
 - TUI削除に伴う`presentation` contractの`human_history_*` intent／resultの完全削除範囲。

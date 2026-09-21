@@ -405,11 +405,11 @@
   Conditional Go）。利用者判断で`/history`・`/history export`・`/history export all`・pickerの`v`を廃止し、
   `henji history` CLIへ統一する。3種類: `session`（resume時のメインlog相当＝committed canonical turn、
   `user>`／`assistant>`／`tool>`label、tool結果は`tool>`へ畳み込み`tool<`なし、生assistant Markdown）／
-  `canonical`（Markdown）／`detail`（JSONL、non-canonical含む）。既定は`--view session`・`--session --latest`・
-  stdout、`--follow`なし、組み込み検索なし（viewer検索で代替）。review反映で、出力sink分離（exporterは
-  stdout／`--out`非対応）、read-only seam、単一snapshot read、空DBは「履歴なし」exit 0、F05を部分実装へ、
-  architecture更新、を計画に追加。正本変更（roadmap F01／F05、architecture）は利用者承認済み。F10の陳腐化は
-  別承認。
+  `canonical`（Markdown）／`detail`（JSONL、non-canonical含む）。既定は`--view session`・`--session --latest`。
+  **`--out`は持たずstdoutのみ**（ファイルは`> file`）。`--follow`なし、組み込み検索なし（viewer検索で代替）。
+  review反映で、出力sink分離（exporterはstdout非対応）、read-only seam、単一snapshot read、空DBは「履歴なし」
+  exit 0、F05を部分実装へ、architecture更新、を計画に追加。正本変更（roadmap F01／F05、architecture）は
+  利用者承認済み。F10の陳腐化は別承認。
 - 次: 利用者判断後に実装開始。実装→focused test→tmux確認（メインlogとCLI出力）→`v0:gate`→commit／build／配置。
 - 正本: `docs/increments/increment-99.md`（計画、review結果と対応を記載）。inbox S11／S12は本計画へ採用し削除済み。
 - 注意: 実装はまだ開始していない。単一snapshot readが複雑なら`detail`を後続へ外す簡素化案を計画に併記。
