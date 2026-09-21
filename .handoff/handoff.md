@@ -311,22 +311,21 @@
   execution単位cache、relation counterはdelta更新、human pageはcontext／request／diagnostic locatorとstale件数を
   表示し、exportはsemantic relation／context manifest／recall relationを含む。focused regression 21件と関連test、
   authoritative `v0:gate`は通過済み。旧v6 DB／lockは変更していない。
-- 次: 利用者から指示があればbinaryをbuild／配置し、実provider Sessionで容量・backlog・readbackを再確認する。
-  Human Gate 4のIncrement完了判断は利用者が行う。
+- 次: 配置済みbinaryで実provider Sessionの容量・backlog・readbackを必要に応じて再確認する。Human Gate 4のIncrement
+  完了判断は利用者が行う。
 - 正本: `docs/increments/increment-94.md`（Slice A〜Gの実装結果、計測、Go判断、未確認範囲）。
 - 注意: v7は`history-v7.sqlite3`／`locks-v7`を使い、v6 migration、dual-read/write、fallbackを作らない。
   Human Gate 2は未発動で実provider diagnostic E2Eは未確認。通常review修正後のauthoritative `v0:gate`初回は追加test
-  fixtureの必須field不足だけでtype check停止し、fixture補正後の全体再実行はexit 0。binary再配置は未実施。旧v6 DBの
-  削除、commit、push、releaseは未許可。
+  fixtureの必須field不足だけでtype check停止し、fixture補正後の全体再実行はexit 0。実装commitは`7383daef`。
+  配置済みbinaryはbuild `0c0f1f71…`、source `7383daef…`、SHA-256 `47335a0b…`で隔離XDG smoke成功。旧v6 DBの削除と
+  releaseは未許可。
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 94のhistory v7 production cutoverを含むworking tree（source
-  `914d7f65…+dirty`）からbuildし、`dist/henji`と`~/.local/bin/henji`へ原子的に配置済み（build
-  `80d10b8e…`、file SHA-256 `69d8b706…`、embedded runtime `6dc2288f…`）。buildは
-  `deno task --config deno.v0.json henji:compile`（Deno 2.9.6厳密）。VMのsource実行用Denoは2.9.7へ更新済みだが、
-  配置済みbinaryのembedded runtimeは2.9.6のまま。2.9.7でも同じ停止を再現したため比較目的のrebuildはしていない。
-  現在のbuild/source identityは`~/.local/bin/henji --version`を正本とする。
+- binary: `0.3.0`。Increment 94の通常review修正を含むclean commit `7383daef…`からDeno 2.9.6でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `0c0f1f71…`、file SHA-256 `47335a0b…`、embedded runtime
+  `2a20a3cf…`）。build用Deno 2.9.6は公式release artifactのchecksumを検証して一時利用し、VMの既定Deno 2.9.7は
+  変更していない。現在のbuild/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。

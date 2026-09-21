@@ -1013,6 +1013,12 @@ manifest／recall exportを確認した。関連するcontext attribution 28件�
 stage 11件、provider compatibility 20件、history authority／production 23件、human history 3件、TUI 41件も成功した。
 
 authoritative `v0:gate`初回は追加test fixtureのWorker runtime eventに必須の`correlation`／`sequence`が無くtype checkで
-停止した。fixtureを実contractどおり補正してtype checkを確認後、gate全体を再実行しexit 0となった。実provider call、
-binary build／配置、既存の実利用Sessionによる再確認は行っていない。Human Gate 4のIncrement完了判断は引き続き
-利用者に残す。
+停止した。fixtureを実contractどおり補正してtype checkを確認後、gate全体を再実行しexit 0となった。
+
+利用者の指示により実装を`7383daef`としてcommitし、Deno 2.9.6の公式release artifactをchecksum検証してclean commitから
+standalone binaryをbuildした。`dist/henji`と`~/.local/bin/henji`を同一artifactへ原子的に配置し、両方のSHA-256は
+`47335a0b71ed70730c996d79e02a3ac0c3840f65cf31150fff6234899d7da120`で一致した。build IDは
+`0c0f1f717b3c9ef21263960a857872b74336d159c894f3748aa21b377e596be5`、embedded sourceは`7383daef`、runtimeは
+`2a20a3cfe4c26f97729508f28af7c6e492159998042829c083b8d19aeb0d36d5`である。installed binaryは隔離XDG／空workspaceで
+`sessions list`を完了した。VMの既定Deno 2.9.7は変更していない。実provider callと既存の実利用Sessionによる再確認は
+行っていない。Human Gate 4のIncrement完了判断は引き続き利用者に残す。
