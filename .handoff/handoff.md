@@ -2,6 +2,24 @@
 
 ## Records
 
+### Increment 104 — `henji run`の構造化出力（P1、実装・検証・配置完了）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。`henji run`に`--json`（curated NDJSON）と`--stream`（live assistant
+  text）を追加。既定はfinal-onlyのまま不変。外部wireは内部`AgentEvent`をそのまま出さず、`providerState`と
+  Host内部durability/evidence IDを除外したHost-owned projection（`v0/agent/cli/run_events.ts`）。
+  `assistant_progress` snapshotから`assistant_delta`を算出（step境界はprefix不一致で`reset:true`）。terminalは
+  成功・失敗共通の`result` record（`ok`/`stopReason`/`committed`/counts/`finalText`/`error`/`diagnostic`）。
+  sinkは同期・enqueueのみ、`OrderedTextWriter`が順序付き非同期writeをdrainし`main`が完了後にawait。
+  出力modeは引数検証前に先読みし、`--json`×`--stream`はinvalid。pre-turn failureは選択modeで`error`行。
+- 正本: `docs/increments/increment-104.md`。architecture（headless Surface contract）とroadmap F01/F10、
+  README、`v0/agent/README.md`更新済み。inbox P1は採用して削除。
+- 配置: clean commit `bd919672`からDeno 2.9.7でbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `48a59fd3…`、source `bd919672…`、SHA-256 `ace5e0b7…`、embedded runtime `2be598af…`）。
+  `run --json --bogus`がNDJSON error行＋exit 1を返すことをsmoke確認。実providerでの`--json`/`--stream`確認は
+  未実施（provider call承認が必要）。commit済み、pushは未実施。
+- 次: 必要なら実providerで`henji run --json`/`--stream`を承認のうえ確認する。
+- 注意: 双方向server/RPCとACPは将来課題（inbox P10）。`--stream`のtool activity要約形式は最小実装。
+
 ### OpenCode Go chat SSEのterminal usage frame修正（Increment 101の欠陥、実装・検証・配置完了）
 
 - 状態: 実装・検証完了。`v0:gate` exit 0。Session `b1ae02bf`の`provider response invalid`（deepseek-v4.1-flash
@@ -547,10 +565,10 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.4.0`。OpenCode Go chat SSE修正と調査記録を含むclean commit `80f477cf…`からDeno 2.9.7でbuildし、
-  `dist/henji`と`~/.local/bin/henji`へ原子的に配置済み（build `2fa03b6e…`、file SHA-256 `75054799…`、
-  embedded runtime `805b6958…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。
-  現在のbuild/source identityは`~/.local/bin/henji --version`を正本とする。
+- binary: `0.4.0`。Increment 104変更を含むclean commit `bd919672…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `48a59fd3…`、file SHA-256 `ace5e0b7…`、embedded runtime
+  `2be598af…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+  build/source identityは`~/.local/bin/henji --version`を正本とする。
 - base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
   （source identity `user/instruction.md`）。雛形は`docs/operations/base-instruction-template.md`。managed
   `henji instruction` CLIは削除済み。
