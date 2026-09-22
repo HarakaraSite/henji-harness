@@ -53,9 +53,9 @@ const currentTurnToolResultCount = (request: ModelRequest): number => {
 const lastToolResultText = (request: ModelRequest): string => {
   const lastUser = request.transcript.findLastIndex((message) => message.role === 'user');
   if (lastUser < 0) return '';
-  const tool = request.transcript.slice(lastUser + 1).reverse().find((message) =>
-    message.role === 'tool'
-  );
+  const tool = request.transcript.slice(lastUser + 1).reverse().find((
+    message,
+  ) => message.role === 'tool');
   if (tool === undefined || !Array.isArray(tool.content)) return '';
   return tool.content.map((content) => content.text).join('\n');
 };
@@ -66,14 +66,18 @@ const delayed = async (options: ModelGenerateOptions): Promise<void> => {
 };
 
 const CHILD_BARRIER_TASK_PREFIX = 'barrier-child:';
+const STUBBORN_CHILD_BARRIER_TASK_PREFIX = 'stubborn-barrier-child:';
 
 const waitForChildBarrier = async (
   task: string,
   options: ModelGenerateOptions,
 ): Promise<boolean> => {
   if (!task.startsWith(CHILD_BARRIER_TASK_PREFIX)) return false;
-  const [channelName, label] = task.slice(CHILD_BARRIER_TASK_PREFIX.length).split(':', 2);
-  if (channelName === undefined || channelName.length === 0 || label === undefined) {
+  const [channelName, label] = task.slice(CHILD_BARRIER_TASK_PREFIX.length)
+    .split(':', 2);
+  if (
+    channelName === undefined || channelName.length === 0 || label === undefined
+  ) {
     throw new Error('invalid provider-free child barrier task');
   }
   const channel = new BroadcastChannel(channelName);
@@ -88,6 +92,7 @@ const waitForChildBarrier = async (
         if (message?.kind === 'release') finish();
       };
       options.signal?.addEventListener('abort', finish, { once: true });
+      if (options.signal?.aborted) finish();
       channel.postMessage({ kind: 'started', label });
     });
   } finally {
@@ -95,6 +100,78 @@ const waitForChildBarrier = async (
   }
   throwIfCancelled(options.signal);
   return true;
+};
+
+const waitForStubbornChildBarrier = async (
+  task: string,
+  options: ModelGenerateOptions,
+): Promise<boolean> => {
+  if (!task.startsWith(STUBBORN_CHILD_BARRIER_TASK_PREFIX)) return false;
+  const [channelName, label] = task.slice(
+    STUBBORN_CHILD_BARRIER_TASK_PREFIX.length,
+  ).split(
+    ':',
+    2,
+  );
+  if (
+    channelName === undefined || channelName.length === 0 || label === undefined
+  ) {
+    throw new Error('invalid provider-free stubborn child barrier task');
+  }
+  const channel = new BroadcastChannel(channelName);
+  let cancellationObserved = false;
+  const onAbort = (): void => {
+    if (cancellationObserved) return;
+    cancellationObserved = true;
+    channel.postMessage({ kind: 'cancel_observed', label });
+  };
+  try {
+    await new Promise<void>((resolve) => {
+      channel.onmessage = (event: MessageEvent<unknown>) => {
+        const message = event.data as { readonly kind?: unknown };
+        if (message?.kind === 'release') resolve();
+        if (message?.kind === 'probe') {
+          channel.postMessage({ kind: 'started', label });
+        }
+      };
+      options.signal?.addEventListener('abort', onAbort, { once: true });
+      if (options.signal?.aborted) onAbort();
+      channel.postMessage({ kind: 'started', label });
+    });
+  } finally {
+    options.signal?.removeEventListener('abort', onAbort);
+    channel.close();
+  }
+  throwIfCancelled(options.signal);
+  return true;
+};
+
+const waitForStubbornChildStart = async (
+  channelName: string,
+  options: ModelGenerateOptions,
+): Promise<void> => {
+  const channel = new BroadcastChannel(channelName);
+  try {
+    await new Promise<void>((resolve) => {
+      const finish = (): void => {
+        options.signal?.removeEventListener('abort', finish);
+        resolve();
+      };
+      channel.onmessage = (event: MessageEvent<unknown>) => {
+        const message = event.data as { readonly kind?: unknown };
+        if (message?.kind === 'started') finish();
+      };
+      options.signal?.addEventListener('abort', finish, { once: true });
+      if (options.signal?.aborted) {
+        finish();
+        return;
+      }
+      channel.postMessage({ kind: 'probe' });
+    });
+  } finally {
+    channel.close();
+  }
+  throwIfCancelled(options.signal);
 };
 
 export interface WorkerRequestCounter {
@@ -139,6 +216,8 @@ class WorkerProbeModel implements Model {
     }
     if (await waitForChildBarrier(task, options)) {
       // The focused concurrency test releases both child Workers together.
+    } else if (await waitForStubbornChildBarrier(task, options)) {
+      // The focused pre-commit test controls when a cancelled child may settle.
     } else if (task.includes('cancel-child')) {
       await new Promise<void>((resolve) => setTimeout(resolve, 400));
       throwIfCancelled(options.signal);
@@ -174,7 +253,10 @@ class WorkerProbeModel implements Model {
         readonly state?: string;
         readonly error?: string;
       };
-      return { kind: 'final', text: `child failed: ${parsed.error ?? parsed.state ?? 'unknown'}` };
+      return {
+        kind: 'final',
+        text: `child failed: ${parsed.error ?? parsed.state ?? 'unknown'}`,
+      };
     }
     if (this.role === 'parent' && task.includes('async-spawn-two')) {
       const count = currentTurnToolResultCount(request);
@@ -196,7 +278,9 @@ class WorkerProbeModel implements Model {
         };
       }
       const toolText = lastToolResultText(request);
-      const runIds = [...toolText.matchAll(/"runId":"([^"]+)"/gu)].map((match) => match[1]);
+      const runIds = [...toolText.matchAll(/"runId":"([^"]+)"/gu)].map((
+        match,
+      ) => match[1]);
       if (count === 1) {
         return {
           kind: 'tool_calls',
@@ -209,11 +293,35 @@ class WorkerProbeModel implements Model {
       }
       return { kind: 'final', text: 'two children completed' };
     }
+    if (this.role === 'parent' && task.startsWith('async-spawn-uncollected:')) {
+      if (!hasCurrentTurnToolResult(request)) {
+        const channelName = task.slice('async-spawn-uncollected:'.length);
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            callId: 'async-spawn-uncollected',
+            name: 'spawn_subagent',
+            arguments: {
+              agent: 'planner',
+              task: `${STUBBORN_CHILD_BARRIER_TASK_PREFIX}${channelName}:U`,
+            },
+          }],
+        };
+      }
+      await waitForStubbornChildStart(
+        task.slice('async-spawn-uncollected:'.length),
+        options,
+      );
+      return { kind: 'final', text: 'parent proposal with uncollected child' };
+    }
     if (this.role === 'parent' && task.includes('async-spawn')) {
       const toolText = lastToolResultText(request);
       if (toolText.includes('"finalText"')) {
         const parsed = JSON.parse(toolText) as { readonly finalText?: string };
-        return { kind: 'final', text: `async child: ${parsed.finalText ?? ''}` };
+        return {
+          kind: 'final',
+          text: `async child: ${parsed.finalText ?? ''}`,
+        };
       }
       if (toolText.includes('"runId"')) {
         const parsed = JSON.parse(toolText) as { readonly runId?: string };
@@ -233,7 +341,12 @@ class WorkerProbeModel implements Model {
         calls: [{
           callId: 'async-spawn-1',
           name: 'spawn_subagent',
-          arguments: { agent: 'planner', task: 'async child planning task' },
+          arguments: {
+            agent: 'planner',
+            task: task.startsWith('async-spawn-barrier:')
+              ? `${CHILD_BARRIER_TASK_PREFIX}${task.slice('async-spawn-barrier:'.length)}:C`
+              : 'async child planning task',
+          },
         }],
       };
     }
@@ -306,7 +419,9 @@ export const createProductionPhysicalIo = (
     requestCounter?.increment();
     return (options.fetcher ?? fetch)(input, init);
   };
-  const sources: Record<string, CredentialSource> = { ...(options.credentialSources ?? {}) };
+  const sources: Record<string, CredentialSource> = {
+    ...(options.credentialSources ?? {}),
+  };
   if (options.credentialSource !== undefined) {
     sources['openrouter-api-key'] = options.credentialSource;
   }
@@ -400,7 +515,9 @@ export const createProductionPhysicalIo = (
       reportStage: options.reportAuxiliaryStage,
     }),
     credentialAvailability: (authProfile) => {
-      if (options.credentialPresence !== undefined) return options.credentialPresence(authProfile);
+      if (options.credentialPresence !== undefined) {
+        return options.credentialPresence(authProfile);
+      }
       if (sources[authProfile] !== undefined) return Promise.resolve('unknown');
       return credentialFilePresenceFor(authProfile);
     },

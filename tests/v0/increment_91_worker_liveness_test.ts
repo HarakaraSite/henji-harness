@@ -431,9 +431,16 @@ Deno.test('Increment 91 force-interrupts an uncooperative turn and replaces its 
     assert(!kinds.includes('cancel_sent'));
     assert(!kinds.includes('cancel_received'));
     assert(kinds.includes('cancel_escalated'));
-    assertEquals(kinds.at(-1), 'execution_reconciled');
+    assertEquals(kinds.at(-1), 'execution_settled');
+    const artifact = (await history.executionArtifacts.list()).find((value) =>
+      value.executionId === rows[0].executionId
+    );
+    assert(artifact !== undefined && artifact.schemaVersion === 7);
+    assertEquals(artifact.normalizedOutcome, 'interrupted');
+    assertEquals(artifact.outcome?.stopReason, 'interrupted');
   } finally {
     await created?.close();
+    history.close();
     await Deno.remove(stateRoot, { recursive: true });
   }
 });
@@ -559,11 +566,13 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
       created.session.sessionId,
     )].filter((record) => record.kind === 'diagnostic_attachment');
     assert(diagnosticAttachments.length > 0);
-    assert(
-      !(await history.executionArtifacts.list()).some((artifact) =>
-        artifact.executionId === interrupted.executionId
-      ),
+    const artifact = (await history.executionArtifacts.list()).find((value) =>
+      value.executionId === interrupted.executionId
     );
+    assert(artifact !== undefined && artifact.schemaVersion === 7);
+    assertEquals(artifact.normalizedOutcome, 'interrupted');
+    assertEquals(artifact.outcome?.stopReason, 'interrupted');
+    history.close();
   } finally {
     await created?.close();
     await Deno.remove(stateRoot, { recursive: true });

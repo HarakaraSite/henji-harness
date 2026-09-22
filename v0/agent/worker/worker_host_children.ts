@@ -12,14 +12,39 @@ import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
-import type { WorkerAsyncAgentCatalogEntry, WorkerToHostMessage } from './worker_protocol.ts';
+import type {
+  WorkerAsyncAgentCatalogEntry,
+  WorkerDefinitionLoadRequest,
+  WorkerToHostMessage,
+} from './worker_protocol.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { WorkerSupervisor } from './worker_host_supervisor.ts';
-import {
-  bundledToolDefinitionLoadRequests,
-  workerBuiltinModulePath,
-} from './worker_definition_revision.ts';
-import type { WorkerDefinitionLoadRequest } from './worker_protocol.ts';
+import { builtinAsyncAgentRefFor, workerBuiltinModulePath } from './worker_definition_revision.ts';
+
+const CHILD_SETTLEMENT_GRACE_MS = 5_000;
+
+type Deferred = {
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+};
+
+const deferred = (): Deferred => {
+  let resolve!: () => void;
+  const promise = new Promise<void>((accepted) => resolve = accepted);
+  return { promise, resolve };
+};
+
+export interface ChildCleanupRunObservationV1 {
+  readonly runId: string;
+  readonly state: AsyncAgentRunState;
+  readonly durability: 'yes' | 'failed';
+  readonly error?: string;
+}
+
+export interface ChildCleanupObservationV1 {
+  readonly schemaVersion: 1;
+  readonly runs: readonly ChildCleanupRunObservationV1[];
+}
 
 type ChildRun = {
   readonly runId: string;
@@ -27,14 +52,26 @@ type ChildRun = {
   readonly spawnCallId?: string;
   readonly agent: string;
   readonly agentLabel: 'default' | 'planner';
+  readonly bundledPlanner: boolean;
   readonly task: string;
   readonly model: ModelSelection;
   readonly build: BuildManifestV1;
   readonly definitionRef: DefinitionRevisionRef;
+  readonly createdAt: string;
+  readonly settled: Deferred;
   state: AsyncAgentRunState;
+  addressable: boolean;
+  cancelRequested: boolean;
+  cancelSent: boolean;
+  admitted: boolean;
+  admissionError?: string;
+  admission?: Promise<void>;
   supervisor?: WorkerSupervisor;
   terminal?: AsyncAgentTerminalResult;
-  readonly waiters: (() => void)[];
+  settlementAttempted: boolean;
+  settlementDurable: boolean;
+  settlementError?: string;
+  cleanup?: Promise<ChildCleanupRunObservationV1>;
 };
 
 export interface ChildRunDeps {
@@ -49,10 +86,11 @@ export interface ChildRunDeps {
   readonly history?: HistoryPersistencePort;
 }
 
-const childDefaultSelection = (agent: string): ModelSelection =>
-  agent === 'planner'
-    ? roleDefaultModelSelection('subagent:planner')
-    : ROOT_DEFAULT_MODEL_SELECTION;
+const sameRef = (left: DefinitionRevisionRef, right: DefinitionRevisionRef): boolean =>
+  left.schemaVersion === right.schemaVersion && left.resourceKind === right.resourceKind &&
+  left.resourceId === right.resourceId &&
+  left.revision.algorithm === right.revision.algorithm &&
+  left.revision.digest === right.revision.digest;
 
 const syntheticHandle = (id: string): WorkerSessionHandle => ({
   id,
@@ -63,6 +101,9 @@ const syntheticHandle = (id: string): WorkerSessionHandle => ({
   rollbackCheckpoint: () => {},
   close: () => Promise.resolve(),
 });
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 const lastAssistantText = (transcript: readonly unknown[]): string | undefined => {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
@@ -81,12 +122,17 @@ const lastAssistantText = (transcript: readonly unknown[]): string | undefined =
 };
 
 /**
- * Host-owned registry of async child runs. Each child owns a separate Worker generation and a
- * separate execution; terminal results are returned only through collect and never committed to a
- * canonical Session.
+ * Host-owned registry of parent-execution-scoped async child runs. Each child owns a separate
+ * Worker generation and execution. A terminal result becomes model-visible only after its
+ * noncanonical settlement is durable.
  */
 export class ChildRunRegistry {
   private readonly runs = new Map<string, ChildRun>();
+  private readonly closedParents = new Set<string>();
+  private readonly parentCleanups = new Map<
+    string,
+    Promise<ChildCleanupObservationV1 | undefined>
+  >();
 
   constructor(private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 }) {}
 
@@ -95,72 +141,149 @@ export class ChildRunRegistry {
     callId?: string,
     parentExecutionId?: string,
   ): Promise<AsyncAgentResponse> {
+    if (parentExecutionId === undefined) {
+      return { ok: false, error: 'async child operation requires an active parent execution' };
+    }
+    if (request.kind === 'spawn') {
+      return await this.spawn(request.agent, request.task, callId, parentExecutionId);
+    }
+    const run = this.addressableRun(request.runId, parentExecutionId);
+    if (run === undefined) {
+      return { ok: false, error: `unknown runId for active parent: ${request.runId}` };
+    }
     switch (request.kind) {
-      case 'spawn':
-        return await this.spawn(request.agent, request.task, callId, parentExecutionId);
-      case 'status': {
-        const run = this.runs.get(request.runId);
-        return run === undefined
-          ? { ok: false, error: `unknown runId: ${request.runId}` }
-          : { ok: true, kind: 'status', runId: run.runId, state: run.state };
-      }
-      case 'collect': {
-        const run = this.runs.get(request.runId);
-        if (run === undefined) return { ok: false, error: `unknown runId: ${request.runId}` };
-        if (run.terminal === undefined) {
-          await new Promise<void>((resolve) => run.waiters.push(resolve));
+      case 'status':
+        if (run.terminal !== undefined && !run.settlementDurable) {
+          return {
+            ok: false,
+            error: run.settlementError ?? 'child terminal settlement is pending',
+          };
         }
-        return { ok: true, kind: 'collect', result: run.terminal! };
-      }
+        return { ok: true, kind: 'status', runId: run.runId, state: run.state };
+      case 'collect':
+        if (!run.settlementAttempted) await run.settled.promise;
+        if (!run.settlementDurable || run.terminal === undefined) {
+          return {
+            ok: false,
+            error: run.settlementError ?? 'child terminal settlement failed',
+          };
+        }
+        return { ok: true, kind: 'collect', result: run.terminal };
       case 'cancel': {
-        const run = this.runs.get(request.runId);
-        if (run === undefined) return { ok: false, error: `unknown runId: ${request.runId}` };
-        this.cancelRun(run);
-        return { ok: true, kind: 'cancel', runId: run.runId, state: run.state };
+        const observation = await this.cleanupRun(run);
+        if (observation.durability === 'failed') {
+          return {
+            ok: false,
+            error: observation.error ?? 'child cancellation settlement failed',
+          };
+        }
+        return {
+          ok: true,
+          kind: 'cancel',
+          runId: run.runId,
+          state: observation.state,
+        };
       }
     }
   }
 
-  cancelAll(): void {
-    for (const run of this.runs.values()) {
-      if (run.terminal === undefined) this.cancelRun(run);
+  cleanupParent(parentExecutionId: string): Promise<ChildCleanupObservationV1 | undefined> {
+    const existing = this.parentCleanups.get(parentExecutionId);
+    if (existing !== undefined) return existing;
+    this.closedParents.add(parentExecutionId);
+    const runs = [...this.runs.values()].filter((run) =>
+      run.parentExecutionId === parentExecutionId
+    );
+    for (const run of runs) run.addressable = false;
+    const cleanup = runs.length === 0
+      ? Promise.resolve(undefined)
+      : Promise.all(runs.map((run) => this.cleanupRun(run))).then((observations) => ({
+        schemaVersion: 1 as const,
+        runs: observations,
+      }));
+    this.parentCleanups.set(parentExecutionId, cleanup);
+    return cleanup;
+  }
+
+  async cleanupAll(): Promise<ChildCleanupObservationV1 | undefined> {
+    const parents = new Set([...this.runs.values()].map((run) => run.parentExecutionId));
+    const observations = (await Promise.all(
+      [...parents].map((parentExecutionId) => this.cleanupParent(parentExecutionId)),
+    )).flatMap((observation) => observation?.runs ?? []);
+    return observations.length === 0 ? undefined : { schemaVersion: 1, runs: observations };
+  }
+
+  releaseParent(parentExecutionId: string): void {
+    for (const [runId, run] of this.runs) {
+      if (run.parentExecutionId === parentExecutionId) this.runs.delete(runId);
     }
+    this.parentCleanups.delete(parentExecutionId);
+  }
+
+  private addressableRun(runId: string, parentExecutionId: string): ChildRun | undefined {
+    const run = this.runs.get(runId);
+    return run?.addressable === true && run.parentExecutionId === parentExecutionId
+      ? run
+      : undefined;
   }
 
   private async spawn(
     agent: string,
     task: string,
-    callId?: string,
-    parentExecutionId?: string,
+    callId: string | undefined,
+    parentExecutionId: string,
   ): Promise<AsyncAgentResponse> {
     const entry = this.deps.catalog.find((candidate) => candidate.name === agent);
     if (entry === undefined) {
       return { ok: false, error: `agent is not available: ${agent}` };
     }
-    const parentId = parentExecutionId ?? this.deps.options.handle.id;
+    const bundledPlannerRef = await builtinAsyncAgentRefFor('planner');
+    if (this.closedParents.has(parentExecutionId)) {
+      return { ok: false, error: 'parent execution no longer accepts child runs' };
+    }
+    const bundledPlanner = sameRef(entry.ref, bundledPlannerRef);
     const runId = crypto.randomUUID().toLowerCase();
-    const childCorrelation = `parent:${parentId}:child:${runId}`;
+    const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
     const run: ChildRun = {
       runId,
-      parentExecutionId: parentId,
+      parentExecutionId,
       spawnCallId: callId,
       agent,
-      agentLabel: agent === 'planner' ? 'planner' : 'default',
+      agentLabel: bundledPlanner ? 'planner' : 'default',
+      bundledPlanner,
       task,
-      model: childDefaultSelection(agent),
+      model: bundledPlanner
+        ? roleDefaultModelSelection('subagent:planner')
+        : ROOT_DEFAULT_MODEL_SELECTION,
       build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
+      createdAt: new Date().toISOString(),
       state: 'starting',
-      waiters: [],
+      addressable: true,
+      cancelRequested: false,
+      cancelSent: false,
+      admitted: false,
+      settlementAttempted: false,
+      settlementDurable: false,
+      settled: deferred(),
     };
     this.runs.set(runId, run);
-    try {
-      this.deps.history?.beginExecution(this.historyInput(run));
-    } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    run.admission = this.admit(run);
+    await run.admission;
+    if (run.admissionError !== undefined) {
+      run.addressable = false;
+      return { ok: false, error: run.admissionError };
+    }
+    if (run.cancelRequested || this.closedParents.has(parentExecutionId)) {
+      this.finish(run, this.terminal(run, 'cancelled'));
+      return { ok: false, error: 'parent execution settled before child start' };
     }
     try {
-      const childOptions = await this.childOptions(entry, childCorrelation);
+      const childOptions = await this.childOptions(run, entry, childCorrelation);
+      if (run.terminal !== undefined || run.cancelRequested) {
+        if (run.terminal === undefined) this.finish(run, this.terminal(run, 'cancelled'));
+        return { ok: false, error: 'parent execution settled before child start' };
+      }
       const supervisor = new WorkerSupervisor({
         options: childOptions,
         handleWorkerMessage: (message) => this.routeChildMessage(run, message),
@@ -174,6 +297,10 @@ export class ChildRunRegistry {
       });
       run.supervisor = supervisor;
       await supervisor.start(() => {});
+      if (run.cancelRequested || this.closedParents.has(parentExecutionId)) {
+        this.finish(run, this.terminal(run, 'cancelled'));
+        return { ok: false, error: 'parent execution settled before child start' };
+      }
       run.state = 'running';
       supervisor.send({
         kind: 'turn',
@@ -182,27 +309,34 @@ export class ChildRunRegistry {
       });
       return { ok: true, kind: 'spawn', runId };
     } catch (error) {
-      run.state = 'failed';
-      run.terminal = {
-        runId,
-        state: 'failed',
-        definitionRef: this.refKey(entry.ref),
-        parentExecutionId,
-        ...(callId === undefined ? {} : { spawnCallId: callId }),
-        error: error instanceof Error ? error.message : String(error),
+      const message = errorText(error);
+      this.finish(run, this.terminal(run, 'interrupted', message));
+      return {
+        ok: false,
+        error: run.settlementError === undefined
+          ? message
+          : `${message}; child settlement failed: ${run.settlementError}`,
       };
-      this.resolveWaiters(run);
-      return { ok: false, error: run.terminal.error! };
+    }
+  }
+
+  private async admit(run: ChildRun): Promise<void> {
+    try {
+      await this.deps.history?.beginExecution(this.historyInput(run));
+      run.admitted = true;
+    } catch (error) {
+      run.admissionError = errorText(error);
     }
   }
 
   private async childOptions(
+    run: ChildRun,
     entry: WorkerAsyncAgentCatalogEntry,
     childCorrelation: string,
   ): Promise<WorkerHostSessionOptions> {
     let modulePath: string | undefined;
     let loadDescriptor: WorkerDefinitionLoadRequest | undefined;
-    if (entry.name === 'planner') {
+    if (run.bundledPlanner) {
       modulePath = workerBuiltinModulePath('planner');
     } else if (this.deps.resolveManagedModule !== undefined) {
       loadDescriptor = await this.deps.resolveManagedModule(entry.ref);
@@ -212,12 +346,12 @@ export class ChildRunRegistry {
     return {
       handle: syntheticHandle(childCorrelation),
       workspaceRoot: this.deps.options.workspaceRoot,
-      agent: entry.name === 'planner' ? 'planner' : 'default',
+      agent: run.agentLabel,
       definition: entry.ref,
       ...(modulePath === undefined ? {} : { modulePath }),
       ...(loadDescriptor === undefined ? {} : { loadDescriptor }),
       physicalIoMode: this.deps.options.physicalIoMode ?? 'production',
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
+      toolDefinitions: structuredClone(this.deps.options.toolDefinitions ?? []),
       ...(this.deps.options.rootMaxSteps === undefined
         ? {}
         : { rootMaxSteps: this.deps.options.rootMaxSteps }),
@@ -244,25 +378,13 @@ export class ChildRunRegistry {
     if (
       message.kind === 'commit_proposal' || message.kind === 'turn_failed' ||
       message.kind === 'worker_error'
-    ) {
-      this.handleChildMessage(run, message);
-    }
+    ) this.handleChildMessage(run, message);
   }
 
   private handleChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
     if (run.terminal !== undefined) return;
     if (message.kind === 'commit_proposal') {
-      const finalText = message.outcome?.finalText ??
-        lastAssistantText(message.transcript);
-      run.state = 'completed';
-      run.terminal = {
-        runId: run.runId,
-        state: 'completed',
-        definitionRef: this.refKey(run.definitionRef),
-        parentExecutionId: run.parentExecutionId,
-        ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-        ...(finalText === undefined ? {} : { finalText }),
-      };
+      const finalText = message.outcome?.finalText ?? lastAssistantText(message.transcript);
       try {
         run.supervisor?.send({
           kind: 'commit_acknowledgement',
@@ -270,42 +392,175 @@ export class ChildRunRegistry {
           accepted: true,
         });
       } catch {
-        // The child generation is unavailable; the terminal result is already retained.
+        // The terminal proposal remains the semantic child result.
       }
-      this.settle(run);
-      this.resolveWaiters(run);
-      run.supervisor?.terminate();
+      this.finish(run, this.terminal(run, 'completed', undefined, finalText));
       return;
     }
     if (message.kind === 'turn_failed') {
-      const cancelled = message.outcome.stopReason === 'cancelled';
-      run.state = cancelled ? 'cancelled' : 'failed';
-      run.terminal = {
-        runId: run.runId,
-        state: run.state,
-        definitionRef: this.refKey(run.definitionRef),
-        parentExecutionId: run.parentExecutionId,
-        ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-        ...(message.outcome.ok ? {} : { error: message.outcome.error ?? 'child run failed' }),
-      };
-      this.settle(run);
-      run.supervisor?.terminate();
-      this.resolveWaiters(run);
+      const state = message.outcome.stopReason === 'cancelled'
+        ? 'cancelled'
+        : message.outcome.stopReason === 'interrupted'
+        ? 'interrupted'
+        : 'failed';
+      this.finish(
+        run,
+        this.terminal(
+          run,
+          state,
+          message.outcome.ok ? undefined : message.outcome.error ?? `child run ${state}`,
+        ),
+      );
       return;
     }
     if (message.kind === 'worker_error') {
-      run.state = 'interrupted';
-      run.terminal = {
+      this.finish(run, this.terminal(run, 'interrupted', message.message));
+    }
+  }
+
+  private terminal(
+    run: ChildRun,
+    state: AsyncAgentTerminalResult['state'],
+    error?: string,
+    finalText?: string,
+  ): AsyncAgentTerminalResult {
+    return {
+      runId: run.runId,
+      state,
+      definitionRef: this.refKey(run.definitionRef),
+      parentExecutionId: run.parentExecutionId,
+      ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
+      ...(finalText === undefined ? {} : { finalText }),
+      ...(error === undefined ? {} : { error }),
+    };
+  }
+
+  private finish(run: ChildRun, terminal: AsyncAgentTerminalResult): void {
+    if (run.terminal !== undefined) return;
+    run.terminal = terminal;
+    run.state = terminal.state;
+    this.settle(run);
+    this.terminate(run);
+    run.settled.resolve();
+  }
+
+  private settle(run: ChildRun): void {
+    if (run.settlementAttempted) return;
+    run.settlementAttempted = true;
+    if (!run.admitted) {
+      run.settlementError = run.admissionError ?? 'child execution admission is not durable';
+      return;
+    }
+    const history = this.deps.history;
+    if (history === undefined) {
+      run.settlementDurable = true;
+      return;
+    }
+    const state = run.terminal?.state;
+    if (state === undefined) {
+      run.settlementError = 'child terminal result is unavailable';
+      return;
+    }
+    const stopReason: LoopOutcome['stopReason'] = state === 'completed'
+      ? 'final'
+      : state === 'cancelled'
+      ? 'cancelled'
+      : state === 'interrupted'
+      ? 'interrupted'
+      : 'contract_failure';
+    const outcome: LoopOutcome = {
+      ok: state === 'completed',
+      task: run.task,
+      outcome: stopReason,
+      stopReason,
+      ...(state === 'completed'
+        ? { finalText: run.terminal?.finalText }
+        : { error: run.terminal?.error ?? `child run ${state}` }),
+      steps: 0,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+    };
+    try {
+      history.settleNonCanonicalExecution({
+        ...this.historyInput(run),
+        outcome,
+      });
+      run.settlementDurable = true;
+    } catch (error) {
+      run.settlementError = errorText(error);
+    }
+  }
+
+  private cleanupRun(run: ChildRun): Promise<ChildCleanupRunObservationV1> {
+    if (run.cleanup !== undefined) return run.cleanup;
+    run.cleanup = this.performCleanup(run);
+    return run.cleanup;
+  }
+
+  private async performCleanup(run: ChildRun): Promise<ChildCleanupRunObservationV1> {
+    run.cancelRequested = true;
+    await run.admission;
+    if (run.admissionError !== undefined) {
+      return {
         runId: run.runId,
-        state: 'interrupted',
-        definitionRef: this.refKey(run.definitionRef),
-        parentExecutionId: run.parentExecutionId,
-        ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-        error: message.message,
+        state: 'cancelled',
+        durability: 'failed',
+        error: run.admissionError,
       };
-      this.settle(run);
+    }
+    if (run.terminal === undefined) this.requestCancellation(run);
+    if (!run.settlementAttempted) {
+      const graceMs = this.deps.options.cancelSettlementGraceMs ??
+        CHILD_SETTLEMENT_GRACE_MS;
+      const settled = await this.waitForSettlement(run, graceMs);
+      if (!settled) {
+        this.finish(
+          run,
+          this.terminal(run, 'interrupted', 'child cancellation settlement deadline exceeded'),
+        );
+      }
+    }
+    this.terminate(run);
+    return {
+      runId: run.runId,
+      state: run.terminal?.state ?? 'interrupted',
+      durability: run.settlementDurable ? 'yes' : 'failed',
+      ...(run.settlementError === undefined ? {} : { error: run.settlementError }),
+    };
+  }
+
+  private requestCancellation(run: ChildRun): void {
+    if (run.terminal !== undefined || run.cancelSent) return;
+    if (run.state === 'starting') return;
+    try {
+      const correlation = run.supervisor?.correlation('async-child-cancel');
+      if (correlation === undefined) {
+        this.finish(run, this.terminal(run, 'cancelled'));
+        return;
+      }
+      run.cancelSent = true;
+      run.supervisor!.send({ kind: 'cancel', correlation });
+    } catch (error) {
+      this.finish(run, this.terminal(run, 'interrupted', errorText(error)));
+    }
+  }
+
+  private waitForSettlement(run: ChildRun, graceMs: number): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), graceMs);
+      run.settled.promise.then(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+  }
+
+  private terminate(run: ChildRun): void {
+    try {
       run.supervisor?.terminate();
-      this.resolveWaiters(run);
+    } catch {
+      // The generation is already unavailable.
     }
   }
 
@@ -313,7 +568,7 @@ export class ChildRunRegistry {
     return {
       taskId: run.runId,
       executionId: run.runId,
-      createdAt: new Date().toISOString(),
+      createdAt: run.createdAt,
       sessionCorrelation: `parent:${run.parentExecutionId}:child:${run.runId}`,
       sessionMode: 'no_session' as const,
       turn: 1,
@@ -326,76 +581,6 @@ export class ChildRunRegistry {
       parentExecutionId: run.parentExecutionId,
       ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
     };
-  }
-
-  private settle(run: ChildRun): void {
-    const history = this.deps.history;
-    if (history === undefined || run.terminal === undefined) return;
-    const state = run.terminal.state;
-    const outcome: LoopOutcome = {
-      ok: state === 'completed',
-      task: run.task,
-      outcome: state === 'completed'
-        ? 'final'
-        : state === 'cancelled'
-        ? 'cancelled'
-        : 'contract_failure',
-      stopReason: state === 'completed'
-        ? 'final'
-        : state === 'cancelled'
-        ? 'cancelled'
-        : 'contract_failure',
-      ...(state === 'completed'
-        ? { finalText: run.terminal.finalText }
-        : { error: run.terminal.error ?? `child run ${state}` }),
-      steps: 0,
-      toolCallCount: 0,
-      toolResultCount: 0,
-      transcript: [],
-    };
-    try {
-      history.settleNonCanonicalExecution({
-        ...this.historyInput(run),
-        outcome,
-      });
-    } catch {
-      // Durable child evidence is best-effort; the in-memory terminal result is retained.
-    }
-  }
-
-  private cancelRun(run: ChildRun): void {
-    if (run.terminal !== undefined) return;
-    try {
-      const correlation = run.supervisor?.correlation('async-child-cancel');
-      if (correlation !== undefined) {
-        run.supervisor!.send({ kind: 'cancel', correlation });
-      } else {
-        run.state = 'cancelled';
-        run.terminal = {
-          runId: run.runId,
-          state: 'cancelled',
-          definitionRef: this.refKey(run.definitionRef),
-          parentExecutionId: run.parentExecutionId,
-          ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-        };
-        this.resolveWaiters(run);
-      }
-    } catch {
-      run.state = 'interrupted';
-      run.terminal = {
-        runId: run.runId,
-        state: 'interrupted',
-        definitionRef: this.refKey(run.definitionRef),
-        parentExecutionId: run.parentExecutionId,
-        ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
-      };
-      this.resolveWaiters(run);
-    }
-  }
-
-  private resolveWaiters(run: ChildRun): void {
-    const waiters = run.waiters.splice(0, run.waiters.length);
-    for (const waiter of waiters) waiter();
   }
 
   private refKey(ref: DefinitionRevisionRef): string {

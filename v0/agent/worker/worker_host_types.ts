@@ -7,6 +7,7 @@ import type {
 } from '../session/session_store.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { RecalledExecutionContext } from './recalled_execution_context.ts';
+import type { ChildCleanupObservationV1 } from './worker_host_children.ts';
 import type {
   WorkerExecutionAcknowledgement,
   WorkerExecutionSettlement,
@@ -56,6 +57,7 @@ export type ActiveWorkerExecution = {
   settlement: WorkerExecutionSettlement;
   artifactWritten: boolean;
   contextCapture?: 'complete' | 'failed' | 'none';
+  childCleanup?: ChildCleanupObservationV1;
   readonly stageSnapshotKeys: Set<string>;
 };
 

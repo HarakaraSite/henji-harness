@@ -15,6 +15,7 @@ import {
   type ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
+import type { ChildCleanupObservationV1 } from './worker_host_children.ts';
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'
@@ -181,7 +182,7 @@ type WorkerExecutionArtifactV4Base =
 
 /** Normal settlement keeps the real Worker outcome and an ordinary settlement state. */
 type WorkerExecutionArtifactV4Complete = WorkerExecutionArtifactV4Base & {
-  readonly normalizedOutcome: 'completed' | 'cancelled' | 'failed';
+  readonly normalizedOutcome: 'completed' | 'cancelled' | 'failed' | 'interrupted';
   readonly settlement: WorkerExecutionSettlement;
   readonly outcome: WorkerExecutionOutcome;
 };
@@ -227,12 +228,14 @@ export type WorkerExecutionArtifactV7 =
     readonly contextCapture: 'complete' | 'failed' | 'none';
     readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
     readonly tools?: readonly WorkerExecutionToolAttributionV1[];
+    readonly childCleanup?: ChildCleanupObservationV1;
   })
   | (Omit<WorkerExecutionArtifactV4Reconciled, 'schemaVersion'> & {
     readonly schemaVersion: 7;
     readonly contextCapture: 'partial';
     readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
     readonly tools?: readonly WorkerExecutionToolAttributionV1[];
+    readonly childCleanup?: ChildCleanupObservationV1;
   });
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -372,6 +375,7 @@ const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {
     'max_steps',
     'contract_failure',
     'cancelled',
+    'interrupted',
   ];
   return typeof outcome.ok === 'boolean' &&
     stops.includes(String(outcome.outcome)) &&
@@ -442,6 +446,36 @@ const validRecallAttribution = (
     validText(recall.projectedContext, true);
 };
 
+const validChildCleanup = (value: unknown): value is ChildCleanupObservationV1 => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const observation = value as Record<string, unknown>;
+  if (
+    !ownKeys(observation, ['schemaVersion', 'runs']) ||
+    observation.schemaVersion !== 1 || !Array.isArray(observation.runs)
+  ) return false;
+  const runIds = new Set<string>();
+  for (const value of observation.runs) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+    const run = value as Record<string, unknown>;
+    const keys = [
+      'runId',
+      'state',
+      'durability',
+      ...(Object.hasOwn(run, 'error') ? ['error'] : []),
+    ];
+    if (
+      !ownKeys(run, keys) || !validExecutionId(run.runId) || runIds.has(run.runId as string) ||
+      !['completed', 'failed', 'cancelled', 'interrupted'].includes(
+        String(run.state),
+      ) ||
+      (run.durability !== 'yes' && run.durability !== 'failed') ||
+      (Object.hasOwn(run, 'error') && !validText(run.error, true))
+    ) return false;
+    runIds.add(run.runId as string);
+  }
+  return true;
+};
+
 /** Validate the additive artifact without reading any provider/session payload. */
 export const validateWorkerExecutionArtifact = (
   value: unknown,
@@ -461,8 +495,9 @@ export const validateWorkerExecutionArtifact = (
       artifact.contextCapture !== 'failed'
     ) return false;
     if (
-      (artifact.normalizedOutcome === 'interrupted' ||
-        artifact.normalizedOutcome === 'unknown') &&
+      (artifact.normalizedOutcome === 'unknown' ||
+        artifact.normalizedOutcome === 'interrupted' &&
+          !Object.hasOwn(artifact, 'outcome')) &&
       artifact.contextCapture !== 'partial'
     ) return false;
     if (artifact.schemaVersion === 6 || artifact.schemaVersion === 7) {
@@ -477,6 +512,10 @@ export const validateWorkerExecutionArtifact = (
       if (Object.hasOwn(artifact, 'tools') && !validTools(artifact.tools)) {
         return false;
       }
+      if (
+        Object.hasOwn(artifact, 'childCleanup') &&
+        !validChildCleanup(artifact.childCleanup)
+      ) return false;
     } else if (Object.hasOwn(artifact, 'tools')) {
       return false;
     }
@@ -484,6 +523,7 @@ export const validateWorkerExecutionArtifact = (
     delete legacy.contextCapture;
     delete legacy.subagents;
     delete legacy.tools;
+    delete legacy.childCleanup;
     return validateWorkerExecutionArtifact({ ...legacy, schemaVersion: 4 });
   }
   const stateOptional = [
@@ -606,7 +646,8 @@ export const validateWorkerExecutionArtifact = (
         (artifact.adoption === 'canonical' ||
           artifact.adoption === 'non_canonical') &&
         (artifact.normalizedOutcome === 'unknown' ||
-            artifact.normalizedOutcome === 'interrupted'
+            artifact.normalizedOutcome === 'interrupted' &&
+              !Object.hasOwn(artifact, 'outcome')
           ? artifact.adoption === 'non_canonical' &&
             artifact.normalizedOutcome === artifact.settlement &&
             !Object.hasOwn(artifact, 'outcome')

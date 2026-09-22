@@ -288,6 +288,18 @@ Sessionへ採用されずにnoncanonical execution evidenceとして残る。par
 cancelする。V1はparent-execution-scoped one-shot fork/joinとし、mailbox、restart reattach、follow-up、recursive
 spawn、swarm UIは対象外とする。
 
+childのspawn成功はchild executionのdurable admission後、collect成功はdurable terminal settlement後にだけ返す。
+status／collect／cancelのaddressabilityはspawn元parent executionに限定し、後続turnから過去runをmailboxとして
+参照させない。child Definitionのmodule、role/model、execution evidenceはcatalogで選択したexact refのprovenanceから
+一貫して決め、同じagent名を理由にbundled Definitionへ差し替えない。childのtool compositionにはHostが解決済みの
+exact tool Definition load descriptorを渡し、child側でbundled bindingへ暗黙fallbackしない。
+
+parentの正常settle、failure、cancel、forced interruption、close、Worker generation replacementでは、対象parentの
+childをmodel-visible操作から閉じ、terminal確定、durable settlement、Worker terminationまで同じawait可能なcleanupへ
+joinする。parent canonical proposalがある場合はcleanup後にparent execution／correlation／generation fenceを再検証する。
+child cleanup failureはparent execution artifactからreadback可能にするが、それだけを理由に有効なparent canonical
+commitをrollbackまたはnoncanonical化しない。
+
 root Definitionの選択は、明示selector、`agent:default` binding、bundled defaultの順に優先する。再開・継続する
 Sessionの保存済みexact refは選択候補にせず、過去turnのattributionとして保持する。binding解決失敗はtyped
 failureとし、bundledへ暗黙fallbackしない。継続時に保存済みrefと現行の解決済みrefが異なる場合は、現行refへの
@@ -573,6 +585,10 @@ executionの状態は少なくとも次の独立した軸で扱う。
 non-canonical executionも、観測済みevidenceをstorageへ物理的にcommitしてreadbackできる。storageへのdurable
 writeとcanonical conversationへの意味上の採用は別operationであり、`uncommitted`という語は後者だけを指す
 場面でも誤解を招くため、通常は`non-canonical`を使う。
+
+実行中のHostがforced interruptionを観測してterminalへ収束させたexecutionは、実際の`interrupted` outcomeを持つ
+通常のsettlementとして保存する。restart時にactive prefixを発見し、実際のterminal outcomeを観測できない場合の
+reconciliationとは区別し、後者のartifactへ実outcomeを捏造しない。
 
 #### History storage不変条件
 

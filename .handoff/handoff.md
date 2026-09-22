@@ -2,6 +2,18 @@
 
 ## Records
 
+### Increment 110 — async child run contractの収束（実装・検証・commit完了、push未実施）
+
+- 状態: 利用者承認済み計画を実装。managed childとexact tool authority、durable admission/terminal、parent fence、
+  await可能なcancel/close/replacement cleanup、cleanup observation、cancellation-aware Worker RPC、live
+  `interrupted` settlementをproduction Host/Worker経路へ接続した。Increment 91は10件、109は9件、110は11件成功。
+  `v0:check`、format、lint、`git diff --check`成功。authoritative `v0:gate`は安定候補へ一回実行しexit 0。
+- commitはこのRecordを含むcurrent HEAD。次: pushする場合は利用者の明示指示を受けてcurrent HEADをpushする。
+- 正本: `docs/increments/increment-110.md`、契約は`docs/increments/increment-107.md`／`increment-109.md`、
+  architectureは`docs/architecture/henji-host-agent-worker.md`。
+- 注意: 利用者承認によりarchitectureへ既存contractを明文化し、roadmap F06／F11を現実装状態へ更新した。構想、
+  通常利用メモ、SQLite schemaは変更していない。実provider call、binary配置、pushは未実施。
+
 ### JSR publish allowlist・async child並行test安定化（修正・検証・commit完了、push未実施）
 
 - 状態: JSR公開module graphから漏れていた`provider_request_headers.ts`／`async_agents.ts`をpublish includeへ追加し、

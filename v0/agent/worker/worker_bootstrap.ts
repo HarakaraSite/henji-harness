@@ -47,6 +47,7 @@ import {
 } from '../instructions/worker_core_finalizer.ts';
 import type { WorkerContextSnapshot } from '../history/context_attribution.ts';
 import { recordWorkerStage, type WorkerStageName } from './worker_stage_probe.ts';
+import { TurnCancelledError } from '../core/cancellation.ts';
 
 type WorkerScope = {
   onmessage: ((event: MessageEvent<unknown>) => void) | null;
@@ -378,8 +379,11 @@ const createGeneration = async (
       sessionId: correlation.session,
     })
     : createProviderFreePhysicalIo();
-  const asyncAgentRpc = (request: AsyncAgentRequest, callId?: string) =>
-    requestAsyncAgent(correlation, request, callId);
+  const asyncAgentRpc = (
+    request: AsyncAgentRequest,
+    callId?: string,
+    signal?: AbortSignal,
+  ) => requestAsyncAgent(correlation, request, callId, signal);
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
   const rootRouter: Model = {
     get measureRequestWire() {
@@ -513,17 +517,41 @@ const mutateClone = (payload: DataValue): DataValue => {
 
 const pendingAsyncAgentRequests = new Map<
   string,
-  (response: AsyncAgentResponse) => void
+  {
+    readonly resolve: (response: AsyncAgentResponse) => void;
+    readonly signal?: AbortSignal;
+    readonly onAbort?: () => void;
+  }
 >();
 
 const requestAsyncAgent = (
   correlation: WorkerCorrelation,
   request: AsyncAgentRequest,
   callId?: string,
+  signal?: AbortSignal,
 ): Promise<AsyncAgentResponse> =>
-  new Promise<AsyncAgentResponse>((resolve) => {
+  new Promise<AsyncAgentResponse>((resolve, reject) => {
     const requestId = crypto.randomUUID().toLowerCase();
-    pendingAsyncAgentRequests.set(requestId, resolve);
+    if (signal?.aborted) {
+      reject(new TurnCancelledError());
+      return;
+    }
+    const onAbort = signal === undefined ? undefined : () => {
+      pendingAsyncAgentRequests.delete(requestId);
+      reject(new TurnCancelledError());
+    };
+    pendingAsyncAgentRequests.set(requestId, {
+      resolve,
+      ...(signal === undefined ? {} : { signal }),
+      ...(onAbort === undefined ? {} : { onAbort }),
+    });
+    if (signal !== undefined && onAbort !== undefined) {
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+    }
     post({
       kind: 'async_agent_request',
       correlation,
@@ -540,7 +568,10 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       const pending = pendingAsyncAgentRequests.get(command.requestId);
       if (pending !== undefined) {
         pendingAsyncAgentRequests.delete(command.requestId);
-        pending(command.response);
+        if (pending.signal !== undefined && pending.onAbort !== undefined) {
+          pending.signal.removeEventListener('abort', pending.onAbort);
+        }
+        pending.resolve(command.response);
       }
       return;
     }

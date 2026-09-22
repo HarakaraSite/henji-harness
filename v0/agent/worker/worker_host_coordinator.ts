@@ -132,6 +132,9 @@ export class ExecutionCoordinator {
     this.children = new ChildRunRegistry({
       options,
       catalog: options.asyncAgents ?? [],
+      ...(options.resolveAsyncAgentModule === undefined
+        ? {}
+        : { resolveManagedModule: options.resolveAsyncAgentModule }),
       ...(options.historyPersistence === undefined ? {} : { history: options.historyPersistence }),
     });
   }
@@ -219,7 +222,18 @@ export class ExecutionCoordinator {
   }
 
   private async ensureGeneration(): Promise<void> {
+    if (this.supervisor.generationNeedsReplacement) {
+      const cleanup = await this.children.cleanupAll();
+      if (cleanup?.runs.some((run) => run.durability === 'failed')) {
+        throw new Error('async child cleanup failed before Worker replacement');
+      }
+    }
     await this.supervisor.ensureGeneration(() => this.journal.clearBuffer());
+  }
+
+  private async settleChildren(execution: ActiveWorkerExecution): Promise<void> {
+    const cleanup = await this.children.cleanupParent(execution.executionId);
+    if (cleanup !== undefined) execution.childCleanup = cleanup;
   }
 
   private escalateCancellation(executionId: string): void {
@@ -243,14 +257,6 @@ export class ExecutionCoordinator {
     this.journal.flushObservationBuffer();
     if (execution.committedStateRevision === undefined) {
       this.forcedInterruptionExecutionId = executionId;
-      try {
-        this.options.historyPersistence?.reconcileExecution({
-          executionId,
-          settlement: 'interrupted',
-        });
-      } catch {
-        // Keep the active durable prefix for normal restart reconciliation.
-      }
     }
     this.markUnavailableForReplacement();
   }
@@ -838,6 +844,9 @@ export class ExecutionCoordinator {
       ...(outcome.providerEvidencePersistenceError === undefined ? {} : {
         providerEvidencePersistenceError: outcome.providerEvidencePersistenceError,
       }),
+      ...(execution.childCleanup === undefined ? {} : {
+        childCleanup: structuredClone(execution.childCleanup),
+      }),
       storeResult: execution.storeResult,
       ...(execution.storeError === undefined ? {} : { storeError: execution.storeError }),
       acknowledgement: execution.acknowledgement,
@@ -847,6 +856,8 @@ export class ExecutionCoordinator {
         ? 'completed'
         : outcome.stopReason === 'cancelled'
         ? 'cancelled'
+        : outcome.stopReason === 'interrupted'
+        ? 'interrupted'
         : 'failed',
       adoption: canonicalAdoption ? 'canonical' : 'non_canonical',
       outcome: workerExecutionOutcome(outcome),
@@ -944,6 +955,7 @@ export class ExecutionCoordinator {
     diagnostic: FailureDiagnosticV1 | undefined,
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
+    await this.settleChildren(execution);
     const terminalSnapshotDurable = this.journal.recordWorkerStageSnapshot('terminal');
     const effectiveOutcome = !terminalSnapshotDurable &&
         execution.settlement === 'uncommitted'
@@ -1656,6 +1668,49 @@ export class ExecutionCoordinator {
         };
       const diagnostic = message.diagnostic ?? proposedOutcome.diagnostic;
       execution.proposedStateRevision = record.stateRevision;
+      await this.settleChildren(execution);
+      if (execution.journalFailureCode !== undefined) {
+        this.sendCommitAcknowledgement(execution, correlation, false);
+        return await this.finishJournalFailure(
+          execution,
+          task,
+          message.providerEvidence,
+          diagnostic,
+          message.contextManifest,
+        );
+      }
+      const cancellationRequested = this.cancellationRequestedExecutionId === execution.executionId;
+      const forcedInterruption = this.forcedInterruptionExecutionId === execution.executionId;
+      const proposalStillCurrent = this.activeExecution === execution && this.active &&
+        this.supervisor.workerGeneration === message.correlation.workerGeneration &&
+        this.supervisor.currentCorrelation !== undefined &&
+        sameCorrelation(this.supervisor.currentCorrelation, correlation);
+      if (cancellationRequested || forcedInterruption || !proposalStillCurrent) {
+        this.sendCommitAcknowledgement(execution, correlation, false);
+        const outcome = forcedInterruption || !proposalStillCurrent
+          ? interruptedOutcome(
+            task,
+            this.authority.projection.transcript,
+            'Parent execution changed while async children were settling',
+          )
+          : failedOutcome(
+            task,
+            this.authority.projection.transcript,
+            'Parent execution was cancelled while async children were settling',
+            true,
+          );
+        const settled = await this.settleExecution(
+          execution,
+          outcome,
+          message.providerEvidence,
+          diagnostic,
+          message.contextManifest,
+        );
+        this.deliver(
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+        );
+        return settled;
+      }
       let committed: LoopOutcome;
       try {
         if (
@@ -1915,10 +1970,16 @@ export class ExecutionCoordinator {
           this.authority.projection.transcript,
           'Worker generation was terminated after cancellation did not settle',
         );
-        this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, outcome, false),
+        const settled = await this.settleExecution(
+          execution,
+          outcome,
+          undefined,
+          undefined,
         );
-        return outcome;
+        this.deliver(
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+        );
+        return settled;
       }
       const outcome = failedOutcome(
         task,
@@ -1945,7 +2006,8 @@ export class ExecutionCoordinator {
       if (this.forcedInterruptionExecutionId === execution.executionId) {
         this.forcedInterruptionExecutionId = undefined;
       }
-      this.children.cancelAll();
+      await this.settleChildren(execution);
+      this.children.releaseParent(execution.executionId);
       this.activeExecution = undefined;
       this.active = false;
       this.supervisor.setCurrentCorrelation(undefined);
@@ -2113,65 +2175,87 @@ export class ExecutionCoordinator {
   private async handleAsyncAgentRequest(
     message: Extract<WorkerToHostMessage, { kind: 'async_agent_request' }>,
   ): Promise<void> {
+    const parentExecutionId = this.activeExecution?.executionId;
+    let response: import('../tools/async_agents.ts').AsyncAgentResponse;
     try {
-      const response = await this.children.handle(
+      response = await this.children.handle(
         message.request,
         message.callId,
-        this.activeExecution?.executionId,
+        parentExecutionId,
       );
+    } catch (error) {
+      response = {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (
+      parentExecutionId === undefined ||
+      this.activeExecution?.executionId !== parentExecutionId
+    ) return;
+    try {
       this.send({
         kind: 'async_agent_response',
         correlation: message.correlation,
         requestId: message.requestId,
         response,
       });
-    } catch (error) {
-      this.send({
-        kind: 'async_agent_response',
-        correlation: message.correlation,
-        requestId: message.requestId,
-        response: {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        },
-      });
+    } catch {
+      // Parent cleanup owns any child run after its Worker generation becomes unavailable.
     }
   }
 
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    this.children.cancelAll();
-    this.children.cancelAll();
+    let cleanupError: Error | undefined;
+    try {
+      const activeCleanup = this.activeExecution === undefined
+        ? undefined
+        : await this.children.cleanupParent(this.activeExecution.executionId);
+      const remainingCleanup = await this.children.cleanupAll();
+      const failed = [
+        ...(activeCleanup?.runs ?? []),
+        ...(remainingCleanup?.runs ?? []),
+      ].filter((run, index, runs) =>
+        run.durability === 'failed' &&
+        runs.findIndex((candidate) => candidate.runId === run.runId) === index
+      );
+      if (failed.length > 0) {
+        cleanupError = new Error(
+          `async child cleanup failed: ${failed.map((run) => run.runId).join(', ')}`,
+        );
+      }
+    } catch (error) {
+      cleanupError = error instanceof Error ? error : new Error(String(error));
+    }
     this.pendingRecall = undefined;
     this.clearAuxiliaryStageWatchdog();
     this.journal.flushObservationBuffer();
-    if (
-      this.supervisor.currentManifest === undefined || this.supervisor.isUnavailable ||
-      this.supervisor.generationNeedsReplacement
-    ) {
-      this.supervisor.terminate();
-      await this.options.handle.close();
-      return;
-    }
-    const correlation = this.correlation('close');
     try {
-      const closed = this.supervisor.messages.wait((
-        value,
-      ): value is
-        | Extract<WorkerToHostMessage, { kind: 'closed' }>
-        | WorkerErrorMessage =>
-        (value.kind === 'closed' || value.kind === 'worker_error') &&
-        (value.kind === 'worker_error' ||
-          sameCorrelation(value.correlation, correlation)), 5_000);
-      this.send({ kind: 'close', correlation });
-      const settled = await closed;
-      if (settled.kind === 'worker_error') throw new Error(settled.message);
+      if (
+        this.supervisor.currentManifest !== undefined && !this.supervisor.isUnavailable &&
+        !this.supervisor.generationNeedsReplacement
+      ) {
+        const correlation = this.correlation('close');
+        const closed = this.supervisor.messages.wait((
+          value,
+        ): value is
+          | Extract<WorkerToHostMessage, { kind: 'closed' }>
+          | WorkerErrorMessage =>
+          (value.kind === 'closed' || value.kind === 'worker_error') &&
+          (value.kind === 'worker_error' ||
+            sameCorrelation(value.correlation, correlation)), 5_000);
+        this.send({ kind: 'close', correlation });
+        const settled = await closed;
+        if (settled.kind === 'worker_error') throw new Error(settled.message);
+      }
     } catch {
       // The generation is already unavailable.
     } finally {
       this.supervisor.terminate();
       await this.options.handle.close();
     }
+    if (cleanupError !== undefined) throw cleanupError;
   }
 }

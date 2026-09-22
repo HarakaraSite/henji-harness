@@ -1819,6 +1819,8 @@ export class SqliteHistoryV7ProductionStore
       ? 'completed'
       : input.outcome.stopReason === 'cancelled'
       ? 'cancelled'
+      : input.outcome.stopReason === 'interrupted'
+      ? 'interrupted'
       : 'failed';
     const settledAt = now();
     const db = this.#db();

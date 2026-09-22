@@ -1,4 +1,5 @@
 import { type JsonValue } from '../core/contracts.ts';
+import { isTurnCancelledError } from '../core/cancellation.ts';
 import { type Tool, type ToolContext, ToolInputError } from './tools.ts';
 
 /** Lifecycle state of one async child run (see Increment 107 run contract). */
@@ -47,6 +48,7 @@ export type AsyncAgentResponse =
 export type AsyncAgentRpc = (
   request: AsyncAgentRequest,
   callId?: string,
+  signal?: AbortSignal,
 ) => Promise<AsyncAgentResponse>;
 
 const MAX_TASK_BYTES = 65_536;
@@ -115,7 +117,11 @@ export const createAsyncAgentTools = (
         throw new ToolInputError('task exceeds the 64 KiB limit');
       }
       try {
-        const response = await rpc({ kind: 'spawn', agent, task }, callIdOf(context));
+        const response = await rpc(
+          { kind: 'spawn', agent, task },
+          callIdOf(context),
+          context?.signal,
+        );
         if (response.ok && response.kind === 'spawn') {
           return JSON.stringify({ ok: true, runId: response.runId });
         }
@@ -124,6 +130,7 @@ export const createAsyncAgentTools = (
           error: response.ok ? 'unexpected response' : response.error,
         });
       } catch (error) {
+        if (isTurnCancelledError(error)) throw error;
         return JSON.stringify({ ok: false, error: errorText(error) });
       }
     },
@@ -140,7 +147,11 @@ export const createAsyncAgentTools = (
     async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
       const runId = requireRunId(argumentsValue);
       try {
-        const response = await rpc({ kind: 'status', runId }, callIdOf(context));
+        const response = await rpc(
+          { kind: 'status', runId },
+          callIdOf(context),
+          context?.signal,
+        );
         if (response.ok && response.kind === 'status') {
           return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
         }
@@ -149,6 +160,7 @@ export const createAsyncAgentTools = (
           error: response.ok ? 'unexpected response' : response.error,
         });
       } catch (error) {
+        if (isTurnCancelledError(error)) throw error;
         return JSON.stringify({ ok: false, error: errorText(error) });
       }
     },
@@ -166,7 +178,11 @@ export const createAsyncAgentTools = (
     async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
       const runId = requireRunId(argumentsValue);
       try {
-        const response = await rpc({ kind: 'collect', runId }, callIdOf(context));
+        const response = await rpc(
+          { kind: 'collect', runId },
+          callIdOf(context),
+          context?.signal,
+        );
         if (response.ok && response.kind === 'collect') {
           return JSON.stringify({ ok: true, ...response.result });
         }
@@ -175,6 +191,7 @@ export const createAsyncAgentTools = (
           error: response.ok ? 'unexpected response' : response.error,
         });
       } catch (error) {
+        if (isTurnCancelledError(error)) throw error;
         return JSON.stringify({ ok: false, error: errorText(error) });
       }
     },
@@ -191,7 +208,11 @@ export const createAsyncAgentTools = (
     async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
       const runId = requireRunId(argumentsValue);
       try {
-        const response = await rpc({ kind: 'cancel', runId }, callIdOf(context));
+        const response = await rpc(
+          { kind: 'cancel', runId },
+          callIdOf(context),
+          context?.signal,
+        );
         if (response.ok && response.kind === 'cancel') {
           return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
         }
@@ -200,6 +221,7 @@ export const createAsyncAgentTools = (
           error: response.ok ? 'unexpected response' : response.error,
         });
       } catch (error) {
+        if (isTurnCancelledError(error)) throw error;
         return JSON.stringify({ ok: false, error: errorText(error) });
       }
     },
