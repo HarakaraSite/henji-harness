@@ -31,6 +31,15 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 | E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
 | E5 | 配布・外部化 | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする |
+| P1 | 参照実装parity | `henji run`の構造化出力（`--json` event stream／`--stream`） | 非対話実行の自動化・埋め込みが必要になるとき |
+| P3 | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動） | context圧縮を人間が明示的に行いたくなったとき |
+| P4 | 参照実装parity | Session export/import | Sessionを別installationへ移す・再開する必要が出るとき |
+| P5 | 参照実装parity | `@file` reference（内容注入） | 人間がfile内容をmodel turnなしでcontextへ入れたいとき |
+| P6 | 参照実装parity | model cycling shortcut | provider横断のmodel切替を頻繁に行うとき |
+| P7 | 参照実装parity | `henji sessions prune` | 古いSessionの整理が必要になるとき |
+| P8 | 参照実装parity | configurable keybindings | keybindingを利用者ごとに変えたくなったとき |
+| P9 | 参照実装parity | 画像入力（`@image`／clipboard paste） | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要 |
+| P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP） | editor/IDE統合や別agentからの対話的駆動が必要になるとき。P1はその一段目 |
 
 ## Surface
 
@@ -43,7 +52,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   Session、evidenceへ含めない。
 - 候補: secretを通常のinput buffer、会話履歴、process argumentへ残さない入力、auth profile選択、fixed
   credential fileの更新と結果表示を設計する。
-- 再検討条件: E1でProvider外部化を採用すること。
+- 利用者判断（2026-09-22）: 欲しくなってきた。優先度を上げる（Provider外部化はIncrement 58〜68／101で
+  成立済みなので、E1の前提は満たしている）。
+- 再検討条件: E1でProvider外部化を採用すること（充足済み）。
 
 ### S4 — `/rebuild`によるAgent context再構築（F01、F03、F08、F10、F11、F27）
 
@@ -337,6 +348,56 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 該当providerを通常利用で使う必要が出るとき。
 - 正本候補: `docs/architecture/multi-provider-routing-and-auth.md`、`docs/roadmap.md` F02／F24。
 - 関連: E1、Increment 101。
+
+## 参照実装parity（Pi／Zot調査、未採用）
+
+- 観測（2026-09-22、snapshot調査）: Pi（`_refs/pi` commit `08dc60bc…`、0.85.1）とZot（`_refs/zot`
+  commit `f60e492e…`）のslash commandとCLI optionを抽出し、Henji現行surface（`v0/tui/slash_command.ts`、
+  `v0/agent/cli/henji_cli.ts`、`v0/agent/cli/tui_cli.ts`）と比較した。詳細と全表は
+  [`research/pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)。
+- 有力候補（P1、P3〜P9）: `run`の構造化出力（Pi `--mode json`／Zot `--json`/`--stream`）、手動`/compact`、
+  Session export/import、`@file`、model cycling、`sessions prune`、configurable keybindings、画像入力。
+- 利用者判断（2026-09-22）:
+  - P7 `sessions prune`: 将来採用見込み。削除authority（`--dry-run`・明示confirm）を設計する。
+  - P2 `/jump`: 3アクション程度必要でPageUpの方が手軽なため、候補から除外（調査記録には残す）。
+  - P5: `@file`（内容注入）のみ候補として残す。`!command`はHost実行経路を増やす割にtool loopと重複するため
+    候補から除外（調査記録には残す）。
+  - Session tree/fork: 有用性が未確認。採用判断は保留。
+  - `/btw` side-chat: Henjiにそぐわないため対象外。
+  - `/swarm`: 時期尚早。非同期subagentはA7で管理する。
+  - extension/package管理: 将来課題（E2／F24）。
+  - credential UI: 利用者が欲しくなってきた。S2の優先度を上げる。
+  - messaging bridge: 将来Surfaceの拡張で検討する可能性がある（未採用）。
+  - sandbox/permission系: 対象外（R3領域）。
+- 対象外: self-update、llama.cpp router、project trust。
+- 再検討条件: 各候補の再検討契機は候補一覧の列に従う。通常利用で具体的な不便が観測されたとき個別incrementへ
+  採用する。
+
+### P9 — 画像入力（`@image`／clipboard paste、未採用）
+
+- 観測（2026-09-22、参照実装調査）: Piは`ctrl+v`でimage paste、Zotは`ctrl+v` paste（image含む）と
+  `inline_images_enabled`を持つ。Henjiのtranscriptはtext-only（`UserMessage.content`は`TextContent`）で、
+  画像をtaskへ入れる経路がない。
+- 候補: 人間が`@image`／pasteで画像をtaskへ入れる経路。実現にはtranscriptのcontent part、provider別encoding
+  （OpenAI `image_url`、Anthropic image block、Gemini `inlineData`）、tool result、TUI表示、model catalogの
+  capability（vision）が必要。
+- 依存: E5（Anthropic Messages／Google adapter）と、Increment 103で先送りしたcatalog capabilities。
+- 再検討条件: 画像を扱うtaskを通常利用で行うとき。
+- 関連: E5、A3、S2。
+
+### P10 — 外部agent interface（双方向server/RPC／ACP、未採用）
+
+- 観測（2026-09-22、公式docs調査）: Codex app-serverはJSON-RPC 2.0双方向（stdio/WebSocket/unix、
+  thread/turn/item）でrich clientを駆動し、OpenCodeは`opencode serve`のHTTP OpenAPI 3.1 server＋`/event` SSE＋
+  `@opencode-ai/sdk`で外部からprogrammaticに制御できる。ACPはeditor/IDE↔agentの標準（JSON-RPC 2.0、
+  `session/new|prompt|update|cancel`、`fs/*`・`terminal/*`・permission要求）でZed/JetBrains等が対応。
+  詳細は[`research/external-agent-interface-comparison.md`](../research/external-agent-interface-comparison.md)。
+- 段階: (1) 一方向structured output（P1）、(2) 双方向server/RPC、(3) ACP（editor統合）。HenjiはHost/Worker間に
+  既にdata-only双方向protocol（F12）を持つため、外部interfaceはHost-owned Surface追加（F10）として整理できる。
+- 注意: ACPはagentがclientのfs/terminal/permissionを使う前提で、Henjiの自前tool・trusted-local方針との写像が
+  非自明。R3（sandbox/permission）とF10の判断に接続する。
+- 再検討条件: editor/IDE統合、または別agentからの対話的駆動を通常利用で必要とするとき。
+- 関連: P1、F10、F12、R3、A7。
 
 ## 観測した不具合（未修正）
 
