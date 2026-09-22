@@ -450,8 +450,10 @@ Surfaceは、人間のactionをHost commandまたはWorker向けprotocol message
 key binding、layout、draft、cursor、viewportはWorker protocolやcanonical Session stateへ混入させない。
 
 現在の非対話CLIもHost側のheadless Surfaceであり、TUIと同じWorker session factory、Definition評価、
-composition、proposal / commit / acknowledgement、close経路を一turnだけ使う。Session transcriptは永続化せず、
-final-only stdout、failure JSON、exit codeだけをSurface contractとして持つ。
+composition、proposal / commit / acknowledgement、close経路を一turnだけ使う。Session transcriptは永続化しない。
+Surface contractは、既定のfinal-only stdout（成功）／failure JSON（失敗）／exit codeに加え、`--json`のcurated
+NDJSON event streamと`--stream`のlive assistant textを持つ。外部へ出すのはHost-owned projectionであり、
+Worker内部`AgentEvent`やprovider-private replay state、Host内部durability/evidence IDは露出しない。
 
 現在の対話SurfaceであるTUIは、通常利用の画面を次の領域として構成する。
 

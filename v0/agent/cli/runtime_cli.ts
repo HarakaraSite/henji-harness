@@ -6,13 +6,39 @@ import {
   resolveRequestedDefinition,
 } from '../definitions/definition_selection.ts';
 import { type HeadlessWorkerRun, runHeadlessWorker } from '../worker/worker_headless_runner.ts';
+import type { AgentEventSink } from '../core/events.ts';
 import {
   HenjiInstructionError,
   henjiInstructionErrorValue,
 } from '../instructions/base_instruction.ts';
+import {
+  CliRunEventProjector,
+  OrderedTextWriter,
+  renderStreamEvent,
+  serializeCliRunRecord,
+} from './run_events.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
+
+/** Headless output mode: default final-only text, machine NDJSON, or human live text. */
+export type OutputMode = 'text' | 'json' | 'stream';
+const OUTPUT_FLAGS: ReadonlySet<string> = new Set(['--json', '--stream']);
+
+/** Determine the requested output mode before any other argument validation. */
+export const parseOutputMode = (args: readonly string[]): OutputMode => {
+  let mode: OutputMode = 'text';
+  for (const argument of args) {
+    if (argument === '--json') {
+      if (mode === 'stream') throw new AgentInputError();
+      mode = 'json';
+    } else if (argument === '--stream') {
+      if (mode === 'json') throw new AgentInputError();
+      mode = 'stream';
+    }
+  }
+  return mode;
+};
 
 export class AgentInputError extends Error {
   constructor() {
@@ -28,7 +54,11 @@ export interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
-  readonly run?: (task: string, selection: HostDefinitionSelection) => Promise<HeadlessWorkerRun>;
+  readonly run?: (
+    task: string,
+    selection: HostDefinitionSelection,
+    eventSink?: AgentEventSink,
+  ) => Promise<HeadlessWorkerRun>;
   readonly dataRoot?: string;
   readonly configRoot?: string;
   readonly writeStdout?: OutputWriter;
@@ -152,7 +182,7 @@ const defaultStderr: OutputWriter = async (text) => {
 const safeCounter = (value: unknown): number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 
-const failureLine = (
+const failureValue = (
   outcome: 'contract_failure' | 'max_steps',
   code: 'invalid_input' | 'agent_failure' | 'max_steps',
   message: string,
@@ -162,19 +192,18 @@ const failureLine = (
     toolResultCount: number;
     requestCount: number;
   },
-): string =>
-  JSON.stringify({
-    ok: false,
-    outcome,
-    stopReason: outcome,
-    steps: counters.steps,
-    toolCallCount: counters.toolCallCount,
-    toolResultCount: counters.toolResultCount,
-    requestCount: counters.requestCount,
-    error: { code, message },
-  }) + '\n';
+): Record<string, unknown> => ({
+  ok: false,
+  outcome,
+  stopReason: outcome,
+  steps: counters.steps,
+  toolCallCount: counters.toolCallCount,
+  toolResultCount: counters.toolResultCount,
+  requestCount: counters.requestCount,
+  error: { code, message },
+});
 
-const runtimeFailureLine = (run: HeadlessWorkerRun): string => {
+const runtimeFailureValue = (run: HeadlessWorkerRun): Record<string, unknown> => {
   const outcome = run.outcome;
   const counters = {
     steps: safeCounter(outcome.steps),
@@ -183,62 +212,90 @@ const runtimeFailureLine = (run: HeadlessWorkerRun): string => {
     requestCount: safeCounter(run.requestCount),
   };
   if (outcome.stopReason === 'max_steps') {
-    return failureLine(
-      'max_steps',
-      'max_steps',
-      'agent request limit reached',
-      counters,
-    );
+    return failureValue('max_steps', 'max_steps', 'agent request limit reached', counters);
   }
-  return failureLine(
-    'contract_failure',
-    'agent_failure',
-    'agent run failed',
-    counters,
-  );
+  return failureValue('contract_failure', 'agent_failure', 'agent run failed', counters);
 };
 
-const preflightFailureLine = (): string =>
-  failureLine(
+const preflightFailureValue = (): Record<string, unknown> =>
+  failureValue(
     'contract_failure',
     'invalid_input',
     'invalid agent invocation',
     { steps: 0, toolCallCount: 0, toolResultCount: 0, requestCount: 0 },
   );
 
-const definitionFailureLine = (error: DefinitionStartupError): string =>
-  JSON.stringify({
-    ok: false,
-    outcome: 'contract_failure',
-    stopReason: 'contract_failure',
-    steps: 0,
-    toolCallCount: 0,
-    toolResultCount: 0,
-    requestCount: 0,
-    error: definitionStartupErrorValue(error),
-  }) + '\n';
+const definitionFailureValue = (error: DefinitionStartupError): Record<string, unknown> => ({
+  ok: false,
+  outcome: 'contract_failure',
+  stopReason: 'contract_failure',
+  steps: 0,
+  toolCallCount: 0,
+  toolResultCount: 0,
+  requestCount: 0,
+  error: definitionStartupErrorValue(error),
+});
 
-const instructionFailureLine = (error: HenjiInstructionError): string =>
-  JSON.stringify({
-    ok: false,
-    outcome: 'contract_failure',
-    stopReason: 'contract_failure',
-    steps: 0,
-    toolCallCount: 0,
-    toolResultCount: 0,
-    requestCount: 0,
-    error: henjiInstructionErrorValue(error),
-  }) + '\n';
+const instructionFailureValue = (error: HenjiInstructionError): Record<string, unknown> => ({
+  ok: false,
+  outcome: 'contract_failure',
+  stopReason: 'contract_failure',
+  steps: 0,
+  toolCallCount: 0,
+  toolResultCount: 0,
+  requestCount: 0,
+  error: henjiInstructionErrorValue(error),
+});
+
+const line = (value: Record<string, unknown>): string => JSON.stringify(value) + '\n';
+
+/** Curated terminal result for `--json`, covering both success and failure. */
+const resultRecord = (
+  run: HeadlessWorkerRun,
+  committed: boolean,
+): Parameters<typeof serializeCliRunRecord>[0] => {
+  const outcome = run.outcome;
+  return {
+    kind: 'result',
+    ok: outcome.ok === true,
+    stopReason: outcome.stopReason,
+    committed,
+    steps: safeCounter(outcome.steps),
+    toolCallCount: safeCounter(outcome.toolCallCount),
+    toolResultCount: safeCounter(outcome.toolResultCount),
+    requestCount: safeCounter(run.requestCount),
+    ...(typeof outcome.finalText === 'string' ? { finalText: outcome.finalText } : {}),
+    ...(outcome.terminalKind === undefined ? {} : { terminalKind: outcome.terminalKind }),
+    ...(typeof outcome.error === 'string' ? { error: outcome.error } : {}),
+    ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
+  };
+};
 
 /** Run the normal print-only command and return its process exit code. */
 export const main = async (
   args: readonly string[] = Deno.args,
   dependencies: RuntimeCliDependencies = {},
 ): Promise<number> => {
-  const stdout = dependencies.writeStdout ?? defaultStdout;
-  const stderr = dependencies.writeStderr ?? defaultStderr;
+  const stdout = new OrderedTextWriter(dependencies.writeStdout ?? defaultStdout);
+  const stderr = new OrderedTextWriter(dependencies.writeStderr ?? defaultStderr);
+  let mode: OutputMode = 'text';
+  let modeInvalid = false;
   try {
-    const parsed = parseTaskArg(args);
+    mode = parseOutputMode(args);
+  } catch {
+    // `--json` and `--stream` together are invalid; report through the default text channel.
+    modeInvalid = true;
+  }
+  const emitError = (value: Record<string, unknown>): void => {
+    if (mode === 'json') {
+      stdout.enqueue(serializeCliRunRecord({ kind: 'error', error: value }));
+    } else {
+      stderr.enqueue(line(value));
+    }
+  };
+  try {
+    if (modeInvalid) throw invalidInput();
+    const parsed = parseTaskArg(args.filter((argument) => !OUTPUT_FLAGS.has(argument)));
     // Resolve before probing or reading stdin and before any runtime/workspace construction.
     let selection: HostDefinitionSelection;
     try {
@@ -275,43 +332,75 @@ export const main = async (
       task = decodeTask(bytes);
     }
 
-    const runner = dependencies.run ?? ((input, selected) =>
-      runHeadlessWorker(input, selected, {
-        dataRoot: dependencies.dataRoot,
-        configRoot: dependencies.configRoot,
-      }));
-    const run = await runner(task, selection);
-    if (
-      run.outcome.ok &&
+    const projector = new CliRunEventProjector();
+    let streamedText = false;
+    const sink: AgentEventSink | undefined = mode === 'text' ? undefined : (event) => {
+      for (const projected of projector.project(event)) {
+        if (mode === 'json') {
+          stdout.enqueue(serializeCliRunRecord(projected));
+          continue;
+        }
+        const rendered = renderStreamEvent(projected);
+        if (rendered.stdout !== undefined) {
+          if (projected.kind === 'assistant_delta') streamedText = true;
+          stdout.enqueue(rendered.stdout);
+        }
+        if (rendered.stderr !== undefined) stderr.enqueue(rendered.stderr);
+      }
+    };
+    const runner = dependencies.run ??
+      ((input, selected, eventSink) =>
+        runHeadlessWorker(input, selected, {
+          dataRoot: dependencies.dataRoot,
+          configRoot: dependencies.configRoot,
+          eventSink,
+        }));
+    const run = await runner(task, selection, sink);
+    const succeeded = run.outcome.ok &&
       (run.outcome.stopReason === 'final' || run.outcome.stopReason === 'tool_terminal') &&
-      typeof run.outcome.finalText === 'string'
-    ) {
-      const finalText = run.outcome.finalText;
-      await stdout(finalText.endsWith('\n') ? finalText : `${finalText}\n`);
+      typeof run.outcome.finalText === 'string';
+    if (succeeded) {
+      const finalText = run.outcome.finalText as string;
+      if (mode === 'json') {
+        stdout.enqueue(serializeCliRunRecord(resultRecord(run, projector.wasCommitted)));
+      } else if (mode === 'stream') {
+        if (!streamedText) {
+          stdout.enqueue(finalText.endsWith('\n') ? finalText : `${finalText}\n`);
+        }
+      } else {
+        stdout.enqueue(finalText.endsWith('\n') ? finalText : `${finalText}\n`);
+      }
       return 0;
     }
-    await stderr(runtimeFailureLine(run));
+    if (mode === 'json') {
+      stdout.enqueue(serializeCliRunRecord(resultRecord(run, projector.wasCommitted)));
+    } else {
+      stderr.enqueue(line(runtimeFailureValue(run)));
+    }
     return 1;
   } catch (error) {
     if (error instanceof DefinitionStartupError) {
-      await stderr(definitionFailureLine(error));
+      emitError(definitionFailureValue(error));
       return 1;
     }
     if (error instanceof HenjiInstructionError) {
-      await stderr(instructionFailureLine(error));
+      emitError(instructionFailureValue(error));
       return 1;
     }
     if (error instanceof AgentInputError) {
-      await stderr(preflightFailureLine());
+      emitError(preflightFailureValue());
       return 1;
     }
-    await stderr(failureLine(
+    emitError(failureValue(
       'contract_failure',
       'agent_failure',
       'agent run failed',
       { steps: 0, toolCallCount: 0, toolResultCount: 0, requestCount: 0 },
     ));
     return 1;
+  } finally {
+    await stdout.drain();
+    await stderr.drain();
   }
 };
 

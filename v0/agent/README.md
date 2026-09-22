@@ -29,7 +29,11 @@ commit path:
 
 - `henji [TUI flags]` starts the interactive terminal Surface and optionally persists a Session.
 - `henji run` starts one noninteractive turn without persisting a Session transcript; diagnostics,
-  provider evidence, and execution artifacts still use the workspace state root.
+  provider evidence, and execution artifacts still use the workspace state root. It prints
+  final-only stdout by default, `--json` for a curated NDJSON event stream (`{"v":1,"kind":...}`,
+  ending in a `result` record), or `--stream` for live assistant text on stdout and tool activity on
+  stderr. `--json` and `--stream` are mutually exclusive; the CLI projection never exposes provider
+  replay state or Host-internal durability/evidence ids.
 
 The interactive Session owns its active provider/model route and reasoning effort independently of
 the Definition revision. The launcher defaults to `openrouter-chat`; the other bundled ids are

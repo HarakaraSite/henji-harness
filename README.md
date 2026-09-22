@@ -51,8 +51,15 @@ cd /path/to/your/workspace
 ```sh
 printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
 /path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して'
+/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --json
+/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --stream
 /path/to/henji-harness/dist/henji sessions list
 ```
+
+`run`は既定でfinal textのみをstdoutへ出す。`--json`はturn中のeventを1行1 JSON（NDJSON、`{"v":1,"kind":...}`）
+でstdoutへ出し、最後に`result` recordを出す。`--stream`はassistant textをstdoutへ逐次、tool activityの要約を
+stderrへ出す。`--json`と`--stream`は排他。未知の`kind`は無視してよい。`--json`は単一objectを返す
+`tool --json`とは異なる。
 
 OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
 `henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で起動する。

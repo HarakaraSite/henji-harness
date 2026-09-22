@@ -1,4 +1,5 @@
 import type { LoopOutcome } from '../core/contracts.ts';
+import type { AgentEventSink } from '../core/events.ts';
 import type { HostDefinitionSelection } from '../definitions/definition_selection.ts';
 import type { BuiltinAgentSelection } from '../definitions/agent_catalog.ts';
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
@@ -19,6 +20,7 @@ export interface HeadlessWorkerRunOptions {
   readonly configRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
+  readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
@@ -40,6 +42,7 @@ export const runHeadlessWorker = async (
     ...('kind' in selection ? { selection } : { agent: selection.id }),
     physicalIoMode: options.physicalIoMode ?? 'production',
     rootMaxSteps: options.rootMaxSteps,
+    eventSink: options.eventSink,
     diagnosticPersistence: options.diagnosticPersistence,
     providerEvidenceStore: options.providerEvidenceStore,
     executionArtifactStore: options.executionArtifactStore,
