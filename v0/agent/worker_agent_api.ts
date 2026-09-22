@@ -36,6 +36,7 @@ import {
 } from './provider/openrouter_model_catalog.ts';
 import type { AuthProfileId, CredentialAvailabilityStatus } from './provider/model_selection.ts';
 import type { ProviderRequestFn } from './provider/auxiliary_request.ts';
+import type { AsyncAgentRpc } from './tools/async_agents.ts';
 
 export { type ToolComponent } from './tools/tool_components.ts';
 export { createAgentResourceIdentity } from './definitions/resource_identity.ts';
@@ -70,6 +71,8 @@ export interface PhysicalIoBindings {
   readonly credentialAvailability?: (
     authProfile: AuthProfileId,
   ) => Promise<CredentialAvailabilityStatus>;
+  /** Worker-local async child agent request seam. */
+  readonly asyncAgentRpc?: AsyncAgentRpc;
 }
 
 /** Worker-resolved input for one executable tool Definition module. */
@@ -324,6 +327,9 @@ export const createDefaultAgentComposition = (
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
     webSearchBackend: input.physicalIo.webSearchBackend,
+    ...(input.physicalIo.asyncAgentRpc === undefined
+      ? {}
+      : { asyncAgentRpc: input.physicalIo.asyncAgentRpc }),
     ...(providedToolDefinitions.length === 0 ? {} : { toolDefinitions: providedToolDefinitions }),
   });
   const systemInstruction = compositionInstruction(

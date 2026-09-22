@@ -14,6 +14,7 @@ import type { AgentResourceIdentity } from '../definitions/resource_identity.ts'
 import { type BashOutputStore, createBashOutputStore } from './bash_output.ts';
 import type { ToolComponent } from './tool_components.ts';
 import type { WebSearchBackend } from './web_search.ts';
+import { type AsyncAgentRpc, createAsyncAgentTools } from './async_agents.ts';
 
 export const FIXED_JSON_PATH = 'deno.v0.json';
 
@@ -28,6 +29,8 @@ export interface RegistryMaterializationContext {
   readonly toolDefinitions?: readonly ToolComponent[];
   /** Internal lookup for Definition-provided tool components. */
   readonly toolDefinitionComponents?: ReadonlyMap<string, ToolComponent>;
+  /** Worker-local async child agent request seam; enables the async agent tools. */
+  readonly asyncAgentRpc?: AsyncAgentRpc;
 }
 
 const materializationFailure = (identity: AgentResourceIdentity): never => {
@@ -112,7 +115,13 @@ export const createDeclaredRegistry = (
   const tools = declaration.tools.map((identity) =>
     createDeclaredTool(identity, materializationContext)
   );
-  return new Registry(tools);
+  const asyncAgentNames = declaration.asyncAgents.map((identity) =>
+    `${identity}`.slice('agent:'.length)
+  );
+  const asyncAgentTools = asyncAgentNames.length === 0 || context.asyncAgentRpc === undefined
+    ? []
+    : createAsyncAgentTools(asyncAgentNames, context.asyncAgentRpc);
+  return new Registry([...tools, ...asyncAgentTools]);
 };
 
 /** The exact five definitions used by the versioned corpus and eval runners. */

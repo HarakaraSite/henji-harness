@@ -11,6 +11,7 @@ import {
 } from './worker_protocol.ts';
 import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
+import type { AsyncAgentRequest, AsyncAgentResponse } from '../tools/async_agents.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
   type AgentToolDefinitionModule,
@@ -377,6 +378,8 @@ const createGeneration = async (
       sessionId: correlation.session,
     })
     : createProviderFreePhysicalIo();
+  const asyncAgentRpc = (request: AsyncAgentRequest, callId?: string) =>
+    requestAsyncAgent(correlation, request, callId);
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
   const rootRouter: Model = {
     get measureRequestWire() {
@@ -386,6 +389,7 @@ const createGeneration = async (
   };
   const routedPhysicalIo = {
     ...physicalIo,
+    asyncAgentRpc,
     createModel: (
       role: 'parent' | 'planner',
       selection?: ModelSelection,
@@ -507,9 +511,39 @@ const mutateClone = (payload: DataValue): DataValue => {
   return payload;
 };
 
+const pendingAsyncAgentRequests = new Map<
+  string,
+  (response: AsyncAgentResponse) => void
+>();
+
+const requestAsyncAgent = (
+  correlation: WorkerCorrelation,
+  request: AsyncAgentRequest,
+  callId?: string,
+): Promise<AsyncAgentResponse> =>
+  new Promise<AsyncAgentResponse>((resolve) => {
+    const requestId = crypto.randomUUID().toLowerCase();
+    pendingAsyncAgentRequests.set(requestId, resolve);
+    post({
+      kind: 'async_agent_request',
+      correlation,
+      requestId,
+      request,
+      ...(callId === undefined ? {} : { callId }),
+    });
+  });
+
 const handle = async (command: WorkerHostCommand): Promise<void> => {
   activeCorrelation = command.correlation;
   switch (command.kind) {
+    case 'async_agent_response': {
+      const pending = pendingAsyncAgentRequests.get(command.requestId);
+      if (pending !== undefined) {
+        pendingAsyncAgentRequests.delete(command.requestId);
+        pending(command.response);
+      }
+      return;
+    }
     case 'start': {
       diagnosticStageBuffer = command.diagnosticStageBuffer instanceof SharedArrayBuffer
         ? command.diagnosticStageBuffer

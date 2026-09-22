@@ -1,6 +1,6 @@
 # Increment 109 — 非同期subagentの実装（計画上のIncrement C）
 
-ステータス: **実装中（Slice A完了。Slice B〜E未実装）**
+ステータス: **実装中（Slice A・B完了。Slice C〜E未実装）**
 
 計画日: 2026-09-22
 
@@ -103,8 +103,21 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
   - protocol型: `WorkerAsyncAgentCatalogEntry`、start commandの`asyncAgents`。
   - 検証: `v0:check`／`v0:lint`／`v0:fmt` exit 0、`v0:test` exit 0。`increment_65`に
     `agent:<name>` catalog解決testを追加（10件pass）。
-- 未実装: Slice B（Worker toolとRPC）、Slice C（child generation registry、admission/settlement）、
-  Slice D（collect/status/cancelとparent lifecycle）、Slice E（正本更新、受入観測）。
+- **Slice B（完了）**:
+  - `v0/agent/tools/async_agents.ts`: fixed four-operation surface（`spawn_subagent`／`subagent_status`／
+    `collect_subagent`／`cancel_subagent`）と`AsyncAgentRpc` seam。spawnは宣言catalog外のagent名を拒否、
+    child failureはcollectでstructured outcomeとして返し親をabortしない。
+  - `registries.ts`／`worker_agent_api.ts`: `PhysicalIoBindings.asyncAgentRpc`と
+    `RegistryMaterializationContext.asyncAgentRpc`を追加し、`declaration.asyncAgents`が非空のとき
+    async agent toolをmaterialize。
+  - Worker→Host RPC: `WorkerAsyncAgentRequestMessage`（`async_agent_request`、`requestId`、`callId?`）、
+    Host→Worker `async_agent_response`。`worker_bootstrap.ts`がpending mapでrequest/responseをcorrelateし、
+    physicalIoへ`asyncAgentRpc`を注入。
+  - 検証: `v0:check`／`v0:lint`／`v0:fmt` exit 0、`v0:test` exit 0（39 suite）。
+    `tests/v0/increment_109_async_subagent_test.ts`（3件）を追加し、四操作surface・catalog外拒否・
+    child failure非abortを確認。
+- 未実装: Slice C（child generation registry、admission/settlement）、Slice D（collect/status/cancelと
+  Host lifecycle連携、cancel伝播）、Slice E（正本更新、受入観測）。
 
 ## 実装順序（slice）
 

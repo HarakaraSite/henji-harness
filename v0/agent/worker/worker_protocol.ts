@@ -22,6 +22,7 @@ import type {
   HenjiInstructionRevisionRef,
   ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
+import type { AsyncAgentRequest, AsyncAgentResponse } from '../tools/async_agents.ts';
 
 /**
  * Slice 1–3's data-only Worker seam.
@@ -167,6 +168,12 @@ export type WorkerHostCommand =
   | {
     readonly kind: 'close';
     readonly correlation: WorkerCorrelation;
+  }
+  | {
+    readonly kind: 'async_agent_response';
+    readonly correlation: WorkerCorrelation;
+    readonly requestId: string;
+    readonly response: AsyncAgentResponse;
   };
 
 export type WorkerRuntimeEvent =
@@ -345,6 +352,16 @@ export interface WorkerErrorMessage {
   readonly message: string;
 }
 
+/** One data-only async child agent request from the Worker to the Host. */
+export interface WorkerAsyncAgentRequestMessage {
+  readonly kind: 'async_agent_request';
+  readonly correlation: WorkerCorrelation;
+  readonly requestId: string;
+  readonly request: AsyncAgentRequest;
+  /** The model tool call that issued this request, when it is a spawn. */
+  readonly callId?: string;
+}
+
 export type WorkerToHostMessage =
   | WorkerReadyMessage
   | WorkerModelSelectedMessage
@@ -358,6 +375,7 @@ export type WorkerToHostMessage =
   | WorkerTurnFailedMessage
   | WorkerCancelReceivedMessage
   | WorkerClosedMessage
+  | WorkerAsyncAgentRequestMessage
   | WorkerErrorMessage;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -383,6 +401,7 @@ export const parseWorkerHostCommand = (
     case 'commit_acknowledgement':
     case 'checkpoint_acknowledgement':
     case 'close':
+    case 'async_agent_response':
       return value as WorkerHostCommand;
     default:
       return undefined;
