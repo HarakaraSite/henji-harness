@@ -65,7 +65,6 @@
       "v0/agent/history/context_attribution.ts",
       "v0/agent/history/history_store_contract.ts",
       "v0/agent/history/human_history.ts",
-      "v0/agent/history/sqlite_history_store.ts",
       "v0/agent/definitions/skills.ts",
       "v0/agent/core/steering.ts",
       "v0/agent/tools/bash_tool.ts",

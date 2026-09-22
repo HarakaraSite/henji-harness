@@ -14,9 +14,8 @@ import {
   type ExecutionEventInput,
   HistoryStoreError,
 } from '../../v0/agent/history/history_store_contract.ts';
-import { SqliteHistoryV6ProductionStore } from '../../v0/agent/history/sqlite_history_v6_production_store.ts';
-import { SqliteHistoryV6Store } from '../../v0/agent/history/sqlite_history_v6_store.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { exactByteDigest } from '../../v0/agent/history/exact_byte_plan.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
@@ -360,7 +359,7 @@ class JournalFailureCapsule implements WorkerHostCapsule {
   }
 }
 
-class InjectedJournalFailureStore extends SqliteHistoryV6ProductionStore {
+class InjectedJournalFailureStore extends SqliteHistoryV7ProductionStore {
   private failed = false;
 
   constructor(
@@ -398,14 +397,14 @@ class InjectedJournalFailureStore extends SqliteHistoryV6ProductionStore {
   }
 }
 
-class InvalidObservationStore extends SqliteHistoryV6ProductionStore {
+class InvalidObservationStore extends SqliteHistoryV7ProductionStore {
   override validateExecutionEvent(input: ExecutionEventInput): boolean {
     return input.kind === 'effect_observation' ? false : super.validateExecutionEvent(input);
   }
 }
 
 const openJournalFailureHost = async (
-  store: SqliteHistoryV6ProductionStore,
+  store: SqliteHistoryV7ProductionStore,
   workspaceRoot: string,
   capsules: JournalFailureCapsule[],
   events: AgentEvent[],
@@ -560,7 +559,9 @@ Deno.test('Increment 92 captures the exact auxiliary body before fetching the sa
   const workspaceRoot = `${root}/workspace`;
   const stateRoot = `${root}/state`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV6ProductionStore(stateRoot, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+    captureProfile: 'diagnostic-v1',
+  });
   await store.initialize();
   const executionId = '92000000-0000-4000-8000-000000000092';
   const taskId = '92000000-0000-4000-8000-000000000093';
@@ -695,21 +696,19 @@ Deno.test('Increment 92 captures the exact auxiliary body before fetching the sa
     new TextDecoder().decode(observed.bytes).includes('exact auxiliary bytes'),
   );
   assertEquals(evidence.snapshot().requests[0].request.requestBody, '');
-  const paths = await sessionPaths(stateRoot, workspaceRoot);
-  const db = new DatabaseSync(`${paths.root}/history-v6.sqlite3`, { readOnly: true });
-  const stream = db.prepare(
-    'SELECT stream_id FROM byte_streams WHERE execution_id = ?',
-  ).get(executionId) as { stream_id: string } | undefined;
-  db.close();
-  assert(stream !== undefined, 'v6 did not retain the auxiliary byte stream');
   const durableEvents = JSON.stringify(store.listExecutionEvents(executionId));
   assert(!durableEvents.includes('test-credential'));
   assert(!durableEvents.toLowerCase().includes('authorization'));
-  const exactStore = new SqliteHistoryV6Store(`${paths.root}/history-v6.sqlite3`);
   try {
-    assertEquals(await exactStore.readByteStream(stream.stream_id), observed.bytes);
+    const paths = await sessionPaths(stateRoot, workspaceRoot);
+    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
+    const stored = db.prepare(
+      'SELECT content_bytes FROM immutable_contents WHERE content_digest = ?',
+    ).get(exactByteDigest(observed.bytes)) as { content_bytes: Uint8Array } | undefined;
+    db.close();
+    assert(stored !== undefined, 'v7 did not retain the exact auxiliary bytes');
+    assertEquals([...stored.content_bytes], [...observed.bytes]);
   } finally {
-    exactStore.close();
     await Deno.remove(root, { recursive: true });
   }
 });

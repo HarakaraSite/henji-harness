@@ -9,9 +9,6 @@
 import { credentialPath } from '../runtime/runtime_paths.ts';
 import { type AuthProfileId, isAuthProfileId } from './model_selection.ts';
 
-export const openRouterCredentialPath = (): string => credentialPath('openrouter-api-key');
-export const openAICredentialPath = (): string => credentialPath('openai-api-key');
-
 /**
  * Resolve the fixed credential file for a validated auth profile. The profile ID is a non-secret
  * identity; the path is derived from the XDG config root and never caller-selected.
@@ -124,15 +121,6 @@ export const credentialFilePresenceFor = (
 ): Promise<CredentialFilePresence> =>
   credentialFilePresenceAt(credentialFileFor(profile), filesystem);
 
-export const openRouterCredentialFilePresence = (
-  filesystem: CredentialFileSystem = defaultFileSystem,
-): Promise<CredentialFilePresence> =>
-  credentialFilePresenceAt(openRouterCredentialPath(), filesystem);
-
-export const openAICredentialFilePresence = (
-  filesystem: CredentialFileSystem = defaultFileSystem,
-): Promise<CredentialFilePresence> => credentialFilePresenceAt(openAICredentialPath(), filesystem);
-
 const fail = (code: CredentialFileFailureCode): never => {
   throw new CredentialFileError(code);
 };
@@ -207,13 +195,8 @@ export const parseCredentialBytes = (bytes: Uint8Array): string => {
   return text;
 };
 
-/** Read and validate the fixed credential file for exactly one provider request. */
-export const readCredentialFile = (
-  filesystem: CredentialFileSystem = defaultFileSystem,
-): Promise<string> => readCredentialFileAt(openRouterCredentialPath(), filesystem);
-
 /** Read one fixed, caller-owned provider profile path with the same stable-file contract. */
-export const readCredentialFileAt = async (
+const readCredentialFileAt = async (
   path: string,
   filesystem: CredentialFileSystem = defaultFileSystem,
 ): Promise<string> => {
@@ -290,12 +273,6 @@ export const readCredentialFileAt = async (
   if (failure !== undefined) throw failure;
   return parseCredentialBytes(bytes!);
 };
-
-/** The model adapter accepts this source before each request and does not cache it. */
-export const credentialSource = readCredentialFile;
-
-export const readOpenAICredentialFile = (): Promise<string> =>
-  readCredentialFileAt(openAICredentialPath());
 
 /** Read and validate the fixed credential file for any validated auth profile. */
 export const readCredentialFileFor = (
