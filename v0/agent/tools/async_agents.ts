@@ -11,9 +11,14 @@ export type AsyncAgentRunState =
   | 'cancelled'
   | 'interrupted';
 
+export type AsyncAgentTerminalState = Exclude<
+  AsyncAgentRunState,
+  'starting' | 'running'
+>;
+
 export interface AsyncAgentTerminalResult {
   readonly runId: string;
-  readonly state: AsyncAgentRunState;
+  readonly state: AsyncAgentTerminalState;
   readonly definitionRef?: string;
   readonly parentExecutionId?: string;
   readonly spawnCallId?: string;
@@ -59,7 +64,7 @@ export type AsyncAgentResponse =
     readonly ok: true;
     readonly kind: 'cancel';
     readonly runId: string;
-    readonly state: AsyncAgentRunState;
+    readonly state: AsyncAgentTerminalState;
   }
   | { readonly ok: false; readonly error: string };
 
@@ -98,6 +103,25 @@ const requireRunId = (value: JsonValue): string => {
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const invokeAsyncAgentRpc = async (
+  rpc: AsyncAgentRpc,
+  request: AsyncAgentRequest,
+  context?: ToolContext,
+): Promise<AsyncAgentResponse> => {
+  try {
+    return await rpc(request, callIdOf(context), context?.signal);
+  } catch (error) {
+    if (isTurnCancelledError(error)) throw error;
+    return { ok: false, error: errorText(error) };
+  }
+};
+
+const failedResponse = (response: AsyncAgentResponse): string =>
+  JSON.stringify({
+    ok: false,
+    error: response.ok ? 'unexpected response' : response.error,
+  });
+
 /**
  * Materialize the core-owned async child agent tools for one declared catalog. The model sees a
  * fixed four-operation surface; the catalog bounds which `agent` names are spawnable.
@@ -135,23 +159,11 @@ export const createAsyncAgentTools = (
       if (encoder.encode(task).byteLength > MAX_TASK_BYTES) {
         throw new ToolInputError('task exceeds the 64 KiB limit');
       }
-      try {
-        const response = await rpc(
-          { kind: 'spawn', agent, task },
-          callIdOf(context),
-          context?.signal,
-        );
-        if (response.ok && response.kind === 'spawn') {
-          return JSON.stringify({ ok: true, runId: response.runId });
-        }
-        return JSON.stringify({
-          ok: false,
-          error: response.ok ? 'unexpected response' : response.error,
-        });
-      } catch (error) {
-        if (isTurnCancelledError(error)) throw error;
-        return JSON.stringify({ ok: false, error: errorText(error) });
+      const response = await invokeAsyncAgentRpc(rpc, { kind: 'spawn', agent, task }, context);
+      if (response.ok && response.kind === 'spawn') {
+        return JSON.stringify({ ok: true, runId: response.runId });
       }
+      return failedResponse(response);
     },
   };
   const status: Tool = {
@@ -165,23 +177,11 @@ export const createAsyncAgentTools = (
     },
     async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
       const runId = requireRunId(argumentsValue);
-      try {
-        const response = await rpc(
-          { kind: 'status', runId },
-          callIdOf(context),
-          context?.signal,
-        );
-        if (response.ok && response.kind === 'status') {
-          return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
-        }
-        return JSON.stringify({
-          ok: false,
-          error: response.ok ? 'unexpected response' : response.error,
-        });
-      } catch (error) {
-        if (isTurnCancelledError(error)) throw error;
-        return JSON.stringify({ ok: false, error: errorText(error) });
+      const response = await invokeAsyncAgentRpc(rpc, { kind: 'status', runId }, context);
+      if (response.ok && response.kind === 'status') {
+        return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
       }
+      return failedResponse(response);
     },
   };
   const collect: Tool = {
@@ -196,23 +196,11 @@ export const createAsyncAgentTools = (
     },
     async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
       const runId = requireRunId(argumentsValue);
-      try {
-        const response = await rpc(
-          { kind: 'collect', runId },
-          callIdOf(context),
-          context?.signal,
-        );
-        if (response.ok && response.kind === 'collect') {
-          return JSON.stringify({ ok: true, ...response.result });
-        }
-        return JSON.stringify({
-          ok: false,
-          error: response.ok ? 'unexpected response' : response.error,
-        });
-      } catch (error) {
-        if (isTurnCancelledError(error)) throw error;
-        return JSON.stringify({ ok: false, error: errorText(error) });
+      const response = await invokeAsyncAgentRpc(rpc, { kind: 'collect', runId }, context);
+      if (response.ok && response.kind === 'collect') {
+        return JSON.stringify({ ok: true, ...response.result });
       }
+      return failedResponse(response);
     },
   };
   const cancel: Tool = {
@@ -226,23 +214,11 @@ export const createAsyncAgentTools = (
     },
     async execute(argumentsValue: JsonValue, context?: ToolContext): Promise<string> {
       const runId = requireRunId(argumentsValue);
-      try {
-        const response = await rpc(
-          { kind: 'cancel', runId },
-          callIdOf(context),
-          context?.signal,
-        );
-        if (response.ok && response.kind === 'cancel') {
-          return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
-        }
-        return JSON.stringify({
-          ok: false,
-          error: response.ok ? 'unexpected response' : response.error,
-        });
-      } catch (error) {
-        if (isTurnCancelledError(error)) throw error;
-        return JSON.stringify({ ok: false, error: errorText(error) });
+      const response = await invokeAsyncAgentRpc(rpc, { kind: 'cancel', runId }, context);
+      if (response.ok && response.kind === 'cancel') {
+        return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
       }
+      return failedResponse(response);
     },
   };
   return [spawn, status, collect, cancel];

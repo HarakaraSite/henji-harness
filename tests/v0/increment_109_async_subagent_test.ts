@@ -198,6 +198,7 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
     history,
     build: buildManifest(),
   });
+  registry.openParent('parent-execution-42');
 
   const spawned = await registry.handle(
     { kind: 'spawn', agent: 'planner', task: 'child planning task' },
@@ -332,6 +333,7 @@ Deno.test('Increment 109 parent continues after one child fails', async () => {
 Deno.test('Increment 109 two child runs progress concurrently', async () => {
   const { registry } = await makePlannerRegistry();
   const parentExecutionId = 'parent-concurrent';
+  registry.openParent(parentExecutionId);
   const channelName = `henji-i109-${crypto.randomUUID()}`;
   const barrier = new BroadcastChannel(channelName);
   const startedLabels = new Set<string>();
@@ -410,6 +412,7 @@ Deno.test('Increment 109 two child runs progress concurrently', async () => {
 Deno.test('Increment 109 cancel targets only the requested child run', async () => {
   const { registry } = await makePlannerRegistry();
   const parentExecutionId = 'parent-cancel-one';
+  registry.openParent(parentExecutionId);
   const kept = await registry.handle(
     { kind: 'spawn', agent: 'planner', task: 'slow child A' },
     undefined,
@@ -457,6 +460,7 @@ Deno.test('Increment 109 parent cleanup settles unfinished children durably', as
   try {
     const { registry } = await makePlannerRegistry(history);
     const parentExecutionId = 'parent-cleanup';
+    registry.openParent(parentExecutionId);
     const spawned = await registry.handle(
       {
         kind: 'spawn',
@@ -468,11 +472,7 @@ Deno.test('Increment 109 parent cleanup settles unfinished children durably', as
     );
     assert(spawned.ok && spawned.kind === 'spawn');
     await registry.cleanupParent(parentExecutionId);
-    let row = history.listExecutions().find((item) => item.executionId === spawned.runId);
-    for (let attempt = 0; attempt < 200 && row?.lifecycle !== 'settled'; attempt += 1) {
-      await new Promise<void>((resolve) => setTimeout(resolve, 10));
-      row = history.listExecutions().find((item) => item.executionId === spawned.runId);
-    }
+    const row = history.listExecutions().find((item) => item.executionId === spawned.runId);
     assert(row !== undefined, 'child execution should be durable');
     assertEquals(row.lifecycle, 'settled');
     assertEquals(row.outcome, 'cancelled');

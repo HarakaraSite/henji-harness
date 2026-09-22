@@ -22,11 +22,8 @@ import {
   type ToolComponent,
 } from '../worker_agent_api.ts';
 import { WorkerGeneration, type WorkerGenerationPort } from './worker_runtime.ts';
-import {
-  createProductionPhysicalIo,
-  createProviderFreePhysicalIo,
-  createWorkerRequestCounter,
-} from './worker_physical_io.ts';
+import { createProductionPhysicalIo, createWorkerRequestCounter } from './worker_physical_io.ts';
+import { createProviderFreePhysicalIo } from './worker_probe_physical_io.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { discoverAgentInstructionSnapshot } from '../definitions/agent_instructions.ts';
 import { discoverSkills } from '../definitions/skills.ts';

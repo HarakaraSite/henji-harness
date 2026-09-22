@@ -3,6 +3,7 @@ import type {
   AsyncAgentResponse,
   AsyncAgentRunState,
   AsyncAgentTerminalResult,
+  AsyncAgentTerminalState,
 } from '../tools/async_agents.ts';
 import type { WorkerSessionHandle } from '../session/session_store_contract.ts';
 import type {
@@ -11,7 +12,7 @@ import type {
 } from '../history/history_store_contract.ts';
 import type { LoopOutcome } from '../core/contracts.ts';
 import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
-import type { ProviderEvidenceV1, ProviderEvidenceV5 } from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
@@ -27,6 +28,14 @@ import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { WorkerSupervisor } from './worker_host_supervisor.ts';
 import { builtinAsyncAgentRefFor, workerBuiltinModulePath } from './worker_definition_revision.ts';
 import { proposalOutcome } from './worker_host_outcome.ts';
+import type {
+  ChildCleanupObservationV1,
+  ChildCleanupRunObservationV1,
+} from './worker_child_contract.ts';
+import {
+  attributeProviderEvidenceV5,
+  historyCaptureDurability,
+} from './worker_history_projection.ts';
 
 const CHILD_SETTLEMENT_GRACE_MS = 5_000;
 
@@ -40,18 +49,6 @@ const deferred = (): Deferred => {
   const promise = new Promise<void>((accepted) => resolve = accepted);
   return { promise, resolve };
 };
-
-export interface ChildCleanupRunObservationV1 {
-  readonly runId: string;
-  readonly state: AsyncAgentRunState;
-  readonly durability: 'yes' | 'failed';
-  readonly error?: string;
-}
-
-export interface ChildCleanupObservationV1 {
-  readonly schemaVersion: 1;
-  readonly runs: readonly ChildCleanupRunObservationV1[];
-}
 
 type ChildRun = {
   readonly runId: string;
@@ -140,13 +137,24 @@ const lastAssistantText = (transcript: readonly unknown[]): string | undefined =
  */
 export class ChildRunRegistry {
   private readonly runs = new Map<string, ChildRun>();
-  private readonly closedParents = new Set<string>();
+  private readonly activeParents = new Set<string>();
   private readonly parentCleanups = new Map<
     string,
     Promise<ChildCleanupObservationV1 | undefined>
   >();
 
   constructor(private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 }) {}
+
+  openParent(parentExecutionId: string): void {
+    if (
+      this.activeParents.has(parentExecutionId) ||
+      this.parentCleanups.has(parentExecutionId) ||
+      [...this.runs.values()].some((run) => run.parentExecutionId === parentExecutionId)
+    ) {
+      throw new Error(`async child parent scope already exists: ${parentExecutionId}`);
+    }
+    this.activeParents.add(parentExecutionId);
+  }
 
   async handle(
     request: AsyncAgentRequest,
@@ -202,7 +210,7 @@ export class ChildRunRegistry {
   cleanupParent(parentExecutionId: string): Promise<ChildCleanupObservationV1 | undefined> {
     const existing = this.parentCleanups.get(parentExecutionId);
     if (existing !== undefined) return existing;
-    this.closedParents.add(parentExecutionId);
+    this.activeParents.delete(parentExecutionId);
     const runs = [...this.runs.values()].filter((run) =>
       run.parentExecutionId === parentExecutionId
     );
@@ -229,6 +237,7 @@ export class ChildRunRegistry {
     for (const [runId, run] of this.runs) {
       if (run.parentExecutionId === parentExecutionId) this.runs.delete(runId);
     }
+    this.activeParents.delete(parentExecutionId);
     this.parentCleanups.delete(parentExecutionId);
   }
 
@@ -245,14 +254,14 @@ export class ChildRunRegistry {
     callId: string | undefined,
     parentExecutionId: string,
   ): Promise<AsyncAgentResponse> {
+    if (!this.activeParents.has(parentExecutionId)) {
+      return { ok: false, error: 'parent execution no longer accepts child runs' };
+    }
     const entry = this.deps.catalog.find((candidate) => candidate.name === agent);
     if (entry === undefined) {
       return { ok: false, error: `agent is not available: ${agent}` };
     }
     const bundledPlannerRef = await builtinAsyncAgentRefFor('planner');
-    if (this.closedParents.has(parentExecutionId)) {
-      return { ok: false, error: 'parent execution no longer accepts child runs' };
-    }
     const bundledPlanner = sameRef(entry.ref, bundledPlannerRef);
     const runId = crypto.randomUUID().toLowerCase();
     const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
@@ -286,7 +295,7 @@ export class ChildRunRegistry {
       run.addressable = false;
       return { ok: false, error: run.admissionError };
     }
-    if (run.cancelRequested || this.closedParents.has(parentExecutionId)) {
+    if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
       this.finish(run, this.terminal(run, 'cancelled'));
       return { ok: false, error: 'parent execution settled before child start' };
     }
@@ -309,7 +318,7 @@ export class ChildRunRegistry {
       });
       run.supervisor = supervisor;
       await supervisor.start(() => {});
-      if (run.cancelRequested || this.closedParents.has(parentExecutionId)) {
+      if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
         this.finish(run, this.terminal(run, 'cancelled'));
         return { ok: false, error: 'parent execution settled before child start' };
       }
@@ -450,7 +459,7 @@ export class ChildRunRegistry {
 
   private terminal(
     run: ChildRun,
-    state: AsyncAgentTerminalResult['state'],
+    state: AsyncAgentTerminalState,
     error?: string,
     finalText?: string,
   ): AsyncAgentTerminalResult {
@@ -508,7 +517,14 @@ export class ChildRunRegistry {
         ...this.historyInput(run),
         outcome,
         ...(run.providerEvidence === undefined ? {} : {
-          evidence: this.attributedEvidence(run, run.providerEvidence, outcome),
+          evidence: attributeProviderEvidenceV5({
+            evidence: run.providerEvidence,
+            outcome,
+            sessionId: run.runId,
+            build: run.build,
+            definition: run.definitionRef,
+            hasContextBasis: run.contextManifest !== undefined,
+          }),
         }),
         ...(run.diagnostic === undefined ? {} : { diagnostic: run.diagnostic }),
         ...(run.contextManifest === undefined ? {} : { contextManifest: run.contextManifest }),
@@ -518,77 +534,6 @@ export class ChildRunRegistry {
       run.settlementDurable = true;
     } catch (error) {
       run.settlementError = errorText(error);
-    }
-  }
-
-  private attributedEvidence(
-    run: ChildRun,
-    evidence: ProviderEvidenceV1,
-    outcome: LoopOutcome,
-  ): ProviderEvidenceV5 | undefined {
-    const base = {
-      schemaVersion: 5 as const,
-      evidenceId: evidence.evidenceId,
-      // ProviderEvidenceV5 uses the same UUID-shaped session identity contract as root runs.
-      // A detached child has no canonical Session, so its durable run UUID is the identity.
-      sessionId: run.runId,
-      build: structuredClone(run.build),
-      definition: structuredClone(run.definitionRef),
-      turnNumber: evidence.turnNumber,
-      createdAt: evidence.createdAt,
-      requests: evidence.requests.map((record, index) => ({
-        ...structuredClone(record),
-        request: {
-          ...structuredClone(record.request),
-          ...(record.request.contextRequestOrdinal === undefined &&
-              run.contextManifest === undefined
-            ? { contextRequestOrdinal: index + 1 }
-            : {}),
-        },
-      })),
-      runtimeEvents: structuredClone(evidence.runtimeEvents),
-      ...(evidence.turnProviderRequestCount === undefined ? {} : {
-        turnProviderRequestCount: evidence.turnProviderRequestCount,
-      }),
-      ...(evidence.runtimeProviderRequestCount === undefined ? {} : {
-        runtimeProviderRequestCount: evidence.runtimeProviderRequestCount,
-      }),
-      ...(evidence.diagnosticId === undefined ? {} : {
-        diagnosticId: evidence.diagnosticId,
-      }),
-    };
-    const asEvidence = (value: unknown): ProviderEvidenceV5 => value as ProviderEvidenceV5;
-    switch (outcome.stopReason) {
-      case 'final':
-      case 'tool_terminal':
-        return asEvidence({
-          ...base,
-          capture: 'complete',
-          normalizedOutcome: 'completed',
-          outcome: outcome.stopReason,
-        });
-      case 'cancelled':
-        return asEvidence({
-          ...base,
-          capture: 'complete',
-          normalizedOutcome: 'cancelled',
-          outcome: 'cancelled',
-        });
-      case 'max_steps':
-      case 'contract_failure':
-        return asEvidence({
-          ...base,
-          capture: 'complete',
-          normalizedOutcome: 'failed',
-          outcome: outcome.stopReason,
-        });
-      case 'interrupted':
-        return asEvidence({
-          ...base,
-          capture: 'partial',
-          normalizedOutcome: 'interrupted',
-          settlement: 'interrupted',
-        });
     }
   }
 
@@ -646,23 +591,19 @@ export class ChildRunRegistry {
     terminal: AsyncAgentTerminalResult,
     capture: HistoryCaptureResult,
   ): AsyncAgentTerminalResult {
-    const evidenceDurability = capture.evidenceDurability ??
+    const durability = historyCaptureDurability(capture);
+    const evidenceDurability = durability.providerEvidenceDurability ??
       (terminal.providerEvidenceId === undefined ? undefined : 'unknown');
-    const diagnosticDurability = capture.diagnosticDurability ??
+    const diagnosticDurability = durability.diagnosticDurability ??
       (terminal.diagnosticId === undefined ? undefined : 'unknown');
     return {
       ...terminal,
+      ...durability,
       ...(evidenceDurability === undefined ? {} : {
         providerEvidenceDurability: evidenceDurability,
       }),
-      ...(capture.evidencePersistenceError === undefined ? {} : {
-        providerEvidencePersistenceError: capture.evidencePersistenceError,
-      }),
       ...(diagnosticDurability === undefined ? {} : {
         diagnosticDurability,
-      }),
-      ...(capture.diagnosticPersistenceError === undefined ? {} : {
-        diagnosticPersistenceError: capture.diagnosticPersistenceError,
       }),
       ...(capture.contextDurability === undefined ? {} : {
         contextDurability: capture.contextDurability,

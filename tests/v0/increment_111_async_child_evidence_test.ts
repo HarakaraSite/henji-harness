@@ -81,6 +81,7 @@ Deno.test('Increment 111 persists completed child outcome and provider evidence'
   await withStore('completed', async (store) => {
     const children = await registry(store);
     const parentExecutionId = 'parent-i111-completed';
+    children.openParent(parentExecutionId);
     const spawned = await children.handle(
       { kind: 'spawn', agent: 'planner', task: 'summarize the child task' },
       'spawn-i111-completed',
@@ -117,6 +118,7 @@ Deno.test('Increment 111 preserves max-steps counts and structured diagnostic', 
   await withStore('max-steps', async (store) => {
     const children = await registry(store, 2);
     const parentExecutionId = 'parent-i111-max-steps';
+    children.openParent(parentExecutionId);
     const spawned = await children.handle(
       { kind: 'spawn', agent: 'planner', task: 'ten-step child task' },
       undefined,
@@ -157,6 +159,7 @@ Deno.test('Increment 111 preserves the Worker failure instead of a generic child
   await withStore('worker-failure', async (store) => {
     const children = await registry(store);
     const parentExecutionId = 'parent-i111-worker-failure';
+    children.openParent(parentExecutionId);
     const spawned = await children.handle(
       { kind: 'spawn', agent: 'planner', task: 'child-fail task' },
       undefined,
@@ -208,6 +211,7 @@ Deno.test('Increment 111 reports capture failure without changing semantic compl
     }) as HistoryPersistencePort;
     const children = await registry(history);
     const parentExecutionId = 'parent-i111-capture-failure';
+    children.openParent(parentExecutionId);
     const spawned = await children.handle(
       { kind: 'spawn', agent: 'planner', task: 'complete despite capture failure' },
       undefined,
@@ -250,6 +254,7 @@ Deno.test('Increment 111 does not fabricate evidence for pre-start cancellation'
   } as unknown as HistoryPersistencePort;
   const children = await registry(history);
   const parentExecutionId = 'parent-i111-pre-start-cancel';
+  children.openParent(parentExecutionId);
   const spawning = children.handle(
     { kind: 'spawn', agent: 'planner', task: 'never dispatched' },
     undefined,

@@ -2,43 +2,55 @@
 
 ## Records
 
-### Increment 111 — async child evidence／diagnostic parity（実装・検証・commit完了、push未実施）
+### Increment 112 — async child構造の単純化（実装・検証・commit完了、push未実施）
+
+- 状態: gpt-6-astra xhighの否定的reviewで採用した6件を、Increment 109〜111のproduct契約を変えず整理した。
+  parent scopeの永久tombstoneを明示open／cleanup／release lifecycleへ置換し、root／child evidence attributionと
+  capture durabilityを共通化した。provider-free probeをproduction physical I/Oから分離し、terminal型、cleanup
+  observation型、async tool RPC境界、cleanup testを単純化した。
+- 検証: Increment 109は9件、110は12件、111は6件、Worker foundationは25件、Increment 89は1件、91は10件、
+  94は21件成功。`v0:check`、format、lint、`git diff --check`成功。authoritative `v0:gate`は一回実行しexit 0。
+- 次: Increment 113としてcodebase構造review Slice 1（Execution kernel）のread-only reviewから開始する。
+- 正本: `docs/increments/increment-112.md`。構想、architecture、roadmap、SQLite schemaは変更していない。
+- 注意: commitはこのRecordを含むcurrent HEAD。実provider call、binary build／配置、pushは未実施。
+
+### Increment 111 — async child evidence／diagnostic parity（実装・検証・配置・push完了）
 
 - 状態: Worker terminalのexact outcome／provider evidence／diagnostic／context manifestをchild noncanonical
   settlementへ接続し、collectへstop reason・request count・参照id・diagnostic code・capture durabilityを返す。
   production既定を利用者承認のもと`diagnostic-v1`へ変更し、明示`normal-v1` overrideは維持した。前回の実provider
   DBは全12 executionが`normal-v1`でattachment idなしだったことをread-only確認済み。Increment 109は9件、
   110は11件、111は6件成功。authoritative `v0:gate`は既定変更前後に各一回、いずれもexit 0。
-- 次: pushする場合は利用者の明示指示を受けてcurrent HEADをpushする。実provider再確認は対象・回数・保存先を
-  提示して別承認を得る。
+- 次: 実provider再確認は対象・回数・保存先を提示して別承認を得る。
 - 正本: `docs/increments/increment-111.md`、`docs/architecture/henji-host-agent-worker.md`。
-- 注意: DBサイズはIncrement文書へ記録済み。実provider call、binary配置、pushは未実施。commitはこのRecordを
-  含むcurrent HEAD。
+- 注意: DBサイズはIncrement文書へ記録済み。commit `8f57788e`は`origin/main`へpush済み。同じclean commitを
+  Deno 2.9.7でbuildし`~/.local/bin/henji`へ配置済み（build `b323b376…`、SHA-256 `6ef6bb66…`）。配置時の
+  実provider callはない。
 
-### Increment 110 — async child run contractの収束（実装・検証・commit完了、push未実施）
+### Increment 110 — async child run contractの収束（実装・検証・commit・push完了）
 
 - 状態: 利用者承認済み計画を実装。managed childとexact tool authority、durable admission/terminal、parent fence、
   await可能なcancel/close/replacement cleanup、cleanup observation、cancellation-aware Worker RPC、live
   `interrupted` settlementをproduction Host/Worker経路へ接続した。Increment 91は10件、109は9件、110は11件成功。
   `v0:check`、format、lint、`git diff --check`成功。authoritative `v0:gate`は安定候補へ一回実行しexit 0。
-- commitはこのRecordを含むcurrent HEAD。次: pushする場合は利用者の明示指示を受けてcurrent HEADをpushする。
+- commit `25f41765`は`origin/main`へpush済み。Increment 111までを含む後続binaryへ配置済み。
 - 正本: `docs/increments/increment-110.md`、契約は`docs/increments/increment-107.md`／`increment-109.md`、
   architectureは`docs/architecture/henji-host-agent-worker.md`。
 - 注意: 利用者承認によりarchitectureへ既存contractを明文化し、roadmap F06／F11を現実装状態へ更新した。構想、
-  通常利用メモ、SQLite schemaは変更していない。実provider call、binary配置、pushは未実施。
+  通常利用メモ、SQLite schemaは変更していない。このIncrement単独の実provider callは未実施。
 
-### JSR publish allowlist・async child並行test安定化（修正・検証・commit完了、push未実施）
+### JSR publish allowlist・async child並行test安定化（修正・検証・commit・push完了）
 
 - 状態: JSR公開module graphから漏れていた`provider_request_headers.ts`／`async_agents.ts`をpublish includeへ追加し、
   削除済み`planner_delegation.ts`を除去。公開module説明とIncrement 106/108/109のstatusを現状へ整合した。
   Increment 109の2 child並行testは、両childの開始通知を`BroadcastChannel` barrierで待ち、両方が`running`の間に
   releaseする決定的な構造へ変更。JSR dry-run、`v0:check`、format、lint、Increment 109全9件、
-  `git diff --check`は成功。commitはこのRecordを含むcurrent HEAD。
-- 次: pushする場合は、利用者の明示指示を受けてcurrent HEADをpushする。
+  `git diff --check`は成功。commit `8ab22841`は`origin/main`へpush済み。
+- 次: なし。
 - 正本: `jsr.json`、`mod.ts`、`docs/increments/increment-106.md`、`docs/increments/increment-108.md`、
   `docs/increments/increment-109.md`、`tests/v0/increment_109_async_subagent_test.ts`、
   `v0/agent/worker/worker_physical_io.ts`。
-- 注意: authoritative `v0:gate`と実provider callは今回未実施。既存の配置binaryは変更していない。
+- 注意: authoritative `v0:gate`と実provider callはこの修正時点では未実施。後続Increment 111のbinaryに含めて配置済み。
 
 ### 同期subagent廃止・Host責務分割・非同期subagent実装（Increments 106–109、実装・検証・配置・push完了）
 

@@ -1,6 +1,6 @@
 # Increment 111 — async child evidence／diagnostic parity
 
-ステータス: **実装・検証・commit完了（push未実施）**
+ステータス: **実装・検証・commit・push・binary配置完了**
 
 計画承認日: 2026-09-23
 
@@ -98,6 +98,11 @@ collectへraw attachmentを注入しない境界を反映した。DB schema migr
 authoritative `v0:gate`は、当初の安定候補で一回exit 0。その後、実DB照合で判明したproduction capture既定変更を
 利用者が承認したため、変更後に具体的理由をもって二回目を実行し、こちらもexit 0だった。実provider call、binary
 配置、pushは実施していない。
+
+その後の利用者指示により、commit `8f57788e`を`origin/main`へpushした。同じclean commitからDeno 2.9.7で
+standalone binaryをbuildし、`dist/henji`と`~/.local/bin/henji`を同一artifactへ原子的に配置した。build IDは
+`b323b3769adb7f584942b88df33302ec361889efaf0e65206818d999addf0223`、file SHA-256は
+`6ef6bb66ad68781b9dd2b8fa479f2e719a49202ee2750dbc964d18be6c2282eb`である。配置時の実provider callはない。
 
 ## DBサイズ観測
 

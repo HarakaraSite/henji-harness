@@ -178,6 +178,7 @@ Deno.test('Increment 110 uses managed planner provenance and exact tool binding'
       build: buildManifest(),
     });
     const parentExecutionId = 'parent-managed-planner';
+    registry.openParent(parentExecutionId);
     const spawned = await registry.handle(
       { kind: 'spawn', agent: 'planner', task: 'read bound tool' },
       'managed-planner-call',
@@ -236,6 +237,7 @@ Deno.test('Increment 110 cleanup joins in-flight durable admission', async () =>
     build: buildManifest(),
   });
   const parentExecutionId = 'parent-admission-barrier';
+  registry.openParent(parentExecutionId);
   const spawn = registry.handle(
     { kind: 'spawn', agent: 'researcher', task: 'never start' },
     'admission-call',
@@ -267,6 +269,7 @@ Deno.test('Increment 110 hides a terminal result when durable settlement fails',
   } as unknown as HistoryPersistencePort;
   const registry = await builtinRegistry(history);
   const parentExecutionId = 'parent-settlement-failure';
+  registry.openParent(parentExecutionId);
   const spawned = await registry.handle(
     { kind: 'spawn', agent: 'planner', task: 'child terminal durability' },
     undefined,
@@ -292,6 +295,7 @@ Deno.test('Increment 110 hides a terminal result when durable settlement fails',
 Deno.test('Increment 110 fences child addressability to its parent execution', async () => {
   const registry = await builtinRegistry();
   const parentExecutionId = 'parent-fence-a';
+  registry.openParent(parentExecutionId);
   const spawned = await registry.handle(
     { kind: 'spawn', agent: 'planner', task: 'parent fenced child' },
     undefined,
@@ -322,6 +326,22 @@ Deno.test('Increment 110 fences child addressability to its parent execution', a
   );
 });
 
+Deno.test('Increment 110 releases completed parent scopes without retaining tombstones', async () => {
+  const registry = await builtinRegistry();
+  const parentExecutionId = 'parent-reusable-scope';
+  for (let index = 0; index < 3; index += 1) {
+    registry.openParent(parentExecutionId);
+    await registry.cleanupParent(parentExecutionId);
+    const closed = await registry.handle(
+      { kind: 'spawn', agent: 'planner', task: 'must remain closed' },
+      undefined,
+      parentExecutionId,
+    );
+    assert(!closed.ok);
+    registry.releaseParent(parentExecutionId);
+  }
+});
+
 Deno.test('Increment 110 records startup failure as interrupted', async () => {
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-i110-startup-failure-',
@@ -346,6 +366,7 @@ Deno.test('Increment 110 records startup failure as interrupted', async () => {
       build: buildManifest(),
     });
     const parentExecutionId = 'parent-startup-failure';
+    registry.openParent(parentExecutionId);
     const spawned = await registry.handle(
       { kind: 'spawn', agent: 'researcher', task: 'cannot start' },
       'startup-call',
@@ -380,6 +401,7 @@ Deno.test('Increment 110 terminates and durably interrupts a child after cleanup
     const started = waitForChannelKind(barrier, 'started');
     const registry = await builtinRegistry(history, 25);
     const parentExecutionId = 'parent-child-timeout';
+    registry.openParent(parentExecutionId);
     const spawned = await registry.handle(
       {
         kind: 'spawn',

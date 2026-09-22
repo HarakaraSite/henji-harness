@@ -15,7 +15,7 @@ import {
   type ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
 import { type BuildManifestV1, isBuildManifest } from '../runtime/build_manifest.ts';
-import type { ChildCleanupObservationV1 } from './worker_host_children.ts';
+import type { ChildCleanupObservationV1 } from './worker_child_contract.ts';
 
 export type WorkerExecutionStoreResult =
   | 'not_attempted'

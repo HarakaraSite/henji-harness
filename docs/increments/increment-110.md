@@ -1,6 +1,6 @@
 # Increment 110 — async child run contractの収束
 
-ステータス: **実装・検証・commit完了（push未実施）**
+ステータス: **実装・検証・commit・push完了**
 
 計画日: 2026-09-22
 完了日: 2026-09-23
@@ -337,7 +337,8 @@ parent cancel、正常uncollected cleanup、cleanup failure下の有効なparent
 - Increment 110 focused test: 11件成功。
 - `v0:check`、`v0:fmt`、`v0:lint`、`git diff --check`: 成功。
 - 安定候補に対するauthoritative `v0:gate`: 一回実行しexit 0。
-- 実provider call、binary配置、commit、pushは実施していない。
+- このIncrementの実装時点では実provider call、binary配置、commit、pushを実施していなかった。その後commit
+  `25f41765`を`origin/main`へpushし、Increment 111までを含むcommit `8f57788e`のbinaryを配置した。
 
 ## 計画reviewと承認境界
 

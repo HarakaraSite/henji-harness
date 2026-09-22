@@ -65,6 +65,10 @@ import {
 } from './worker_host_outcome.ts';
 import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
 import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
+import {
+  attributeProviderEvidenceV5,
+  historyCaptureDurability,
+} from './worker_history_projection.ts';
 
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
@@ -641,52 +645,17 @@ export class ExecutionCoordinator {
     outcome: LoopOutcome,
   ): ProviderEvidenceV5 | undefined {
     if (evidence === undefined) return undefined;
-    const base = {
-      ...structuredClone(evidence),
-      schemaVersion: 5 as const,
-      sessionId: this.sessionId,
-      build: structuredClone(this.authority.build),
-      definition: structuredClone(this.options.definition),
-      capture: 'complete' as const,
-      requests: evidence.requests.map((record, index) => ({
-        ...structuredClone(record),
-        request: {
-          ...structuredClone(record.request),
-          ...(record.request.contextRequestOrdinal === undefined &&
-              this.supervisor.currentStartupSnapshot?.context === undefined
-            ? { contextRequestOrdinal: index + 1 }
-            : record.request.contextRequestOrdinal === undefined
-            ? {}
-            : { contextRequestOrdinal: record.request.contextRequestOrdinal }),
-        },
-      })),
-    };
     // The Worker recorder normally supplies this field. When a legacy/custom Worker omits it
     // while the startup basis is present, keep the malformed V5 shape visible so the history
     // store's strict validator rejects the settlement instead of fabricating a logical link.
-    const asEvidence = (value: unknown): ProviderEvidenceV5 => value as ProviderEvidenceV5;
-    switch (outcome.stopReason) {
-      case 'final':
-      case 'tool_terminal':
-        return asEvidence({
-          ...base,
-          normalizedOutcome: 'completed',
-          outcome: outcome.stopReason,
-        });
-      case 'cancelled':
-        return asEvidence({
-          ...base,
-          normalizedOutcome: 'cancelled',
-          outcome: 'cancelled',
-        });
-      case 'max_steps':
-      case 'contract_failure':
-        return asEvidence({
-          ...base,
-          normalizedOutcome: 'failed',
-          outcome: outcome.stopReason,
-        });
-    }
+    return attributeProviderEvidenceV5({
+      evidence,
+      outcome,
+      sessionId: this.sessionId,
+      build: this.authority.build,
+      definition: this.options.definition,
+      hasContextBasis: this.supervisor.currentStartupSnapshot?.context !== undefined,
+    });
   }
 
   private historyExecutionAttribution() {
@@ -711,20 +680,9 @@ export class ExecutionCoordinator {
   ): LoopOutcome {
     const settled: LoopOutcome = {
       ...outcome,
+      ...historyCaptureDurability(capture),
       ...(evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId }),
-      ...(capture.evidenceDurability === undefined ? {} : {
-        providerEvidenceDurability: capture.evidenceDurability,
-      }),
-      ...(capture.evidencePersistenceError === undefined ? {} : {
-        providerEvidencePersistenceError: capture.evidencePersistenceError,
-      }),
       ...(diagnostic === undefined ? {} : { diagnostic }),
-      ...(capture.diagnosticDurability === undefined ? {} : {
-        diagnosticDurability: capture.diagnosticDurability,
-      }),
-      ...(capture.diagnosticPersistenceError === undefined ? {} : {
-        diagnosticPersistenceError: capture.diagnosticPersistenceError,
-      }),
     };
     return this.observeRequestCount(settled);
   }
@@ -1461,6 +1419,7 @@ export class ExecutionCoordinator {
       journalFailureSignal: createJournalFailureSignal(),
       stageSnapshotKeys: new Set(),
     };
+    this.children.openParent(execution.executionId);
     this.activeExecution = execution;
     try {
       if (this.options.historyPersistence !== undefined) {
