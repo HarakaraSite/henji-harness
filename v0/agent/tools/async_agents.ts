@@ -17,6 +17,25 @@ export interface AsyncAgentTerminalResult {
   readonly definitionRef?: string;
   readonly parentExecutionId?: string;
   readonly spawnCallId?: string;
+  /** Exact Worker stop reason. Provider failures remain contract_failure and are refined below. */
+  readonly stopReason?:
+    | 'final'
+    | 'tool_terminal'
+    | 'max_steps'
+    | 'contract_failure'
+    | 'cancelled'
+    | 'interrupted';
+  /** Actual provider fetch starts attributed to this child turn. */
+  readonly providerRequestCount?: number;
+  readonly providerEvidenceId?: string;
+  readonly providerEvidenceDurability?: 'yes' | 'failed' | 'unknown';
+  readonly providerEvidencePersistenceError?: string;
+  readonly diagnosticId?: string;
+  readonly diagnosticCode?: string;
+  readonly diagnosticDurability?: 'yes' | 'failed' | 'unknown';
+  readonly diagnosticPersistenceError?: string;
+  readonly contextDurability?: 'complete' | 'failed' | 'none' | 'partial';
+  readonly contextPersistenceError?: string;
   readonly finalText?: string;
   readonly error?: string;
 }

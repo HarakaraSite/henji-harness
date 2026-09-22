@@ -2017,6 +2017,7 @@ export class SqliteHistoryV7ProductionStore
           evidenceCapture: row.evidence_id === null ? 'none' : 'yes',
           ...(row.evidence_id === null ? {} : { providerEvidenceId: String(row.evidence_id) }),
           diagnosticCapture: row.diagnostic_id === null ? 'none' : 'yes',
+          ...(row.diagnostic_id === null ? {} : { diagnosticId: String(row.diagnostic_id) }),
           artifactCapture: row.artifact_id === null ? 'none' : 'yes',
           contextCapture: row.lifecycle === 'active'
             ? 'none'

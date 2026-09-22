@@ -2,6 +2,19 @@
 
 ## Records
 
+### Increment 111 — async child evidence／diagnostic parity（実装・検証・commit完了、push未実施）
+
+- 状態: Worker terminalのexact outcome／provider evidence／diagnostic／context manifestをchild noncanonical
+  settlementへ接続し、collectへstop reason・request count・参照id・diagnostic code・capture durabilityを返す。
+  production既定を利用者承認のもと`diagnostic-v1`へ変更し、明示`normal-v1` overrideは維持した。前回の実provider
+  DBは全12 executionが`normal-v1`でattachment idなしだったことをread-only確認済み。Increment 109は9件、
+  110は11件、111は6件成功。authoritative `v0:gate`は既定変更前後に各一回、いずれもexit 0。
+- 次: pushする場合は利用者の明示指示を受けてcurrent HEADをpushする。実provider再確認は対象・回数・保存先を
+  提示して別承認を得る。
+- 正本: `docs/increments/increment-111.md`、`docs/architecture/henji-host-agent-worker.md`。
+- 注意: DBサイズはIncrement文書へ記録済み。実provider call、binary配置、pushは未実施。commitはこのRecordを
+  含むcurrent HEAD。
+
 ### Increment 110 — async child run contractの収束（実装・検証・commit完了、push未実施）
 
 - 状態: 利用者承認済み計画を実装。managed childとexact tool authority、durable admission/terminal、parent fence、

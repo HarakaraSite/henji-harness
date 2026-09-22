@@ -565,6 +565,13 @@ execution admission時にcapture profile revisionを固定し、診断coverage�
 相関して保存・readback可能にする。credential値とAuthorizationは記録しない。Hostが観測できなかった事象や
 TCP／TLS／HTTP framing全体を記録したことにはしない。
 
+production実行の既定は`diagnostic-v1`とし、rootとasync childの双方で、Workerが観測したprovider evidenceと
+failure diagnosticを各executionへ相関して保存する。明示的に`normal-v1`を選んだ実行はsemantic authorityだけを
+保存する。capture failureはcoverage／durabilityとして観測可能にするが、exact Worker outcomeのnon-canonical
+settlementまたは有効なcanonical adoptionを失敗へ変えない。async childのcollect結果はraw attachment自体を
+conversationへ注入せず、stop reason、実request count、evidence／diagnostic id、diagnostic code、capture
+durabilityだけを返す。
+
 derived projectionはsemantic authorityまたはdiagnostic attachmentにだけsourceを持ち、sole-owner fieldを
 持たない。projection更新失敗はsemantic commitを取り消さず、durable outbox／dirty marker、watermark、
 version、stale reasonによりboundedに回復する。通常readはstale状態を明示し、authority全scanへ暗黙に

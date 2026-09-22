@@ -152,6 +152,13 @@ export interface WorkerSessionResult {
   readonly navigation?: SessionNavigationHost;
 }
 
+/** Resolve the admission-time history profile without consulting credentials or runtime state. */
+export const historyCaptureProfileFor = (
+  physicalIoMode: WorkerSessionOptions['physicalIoMode'],
+  selected?: HistoryV7CaptureProfile,
+): HistoryV7CaptureProfile | undefined =>
+  selected ?? (physicalIoMode === 'production' ? 'diagnostic-v1' : undefined);
+
 const navigationPosition = (
   value: ReturnType<WorkerHostSession['currentPosition']>,
 ): NavigationPosition => ({
@@ -366,11 +373,15 @@ export const createWorkerSession = async (
     ).declarations
     : Object.freeze([] as const);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
+  const historyCaptureProfile = historyCaptureProfileFor(
+    options.physicalIoMode,
+    options.historyCaptureProfile,
+  );
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
     ? new SqliteHistoryV7ProductionStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
-      { captureProfile: options.historyCaptureProfile },
+      { captureProfile: historyCaptureProfile },
     )
     : undefined;
   const store = options.persistence === 'none' ? undefined : sqliteHistory;

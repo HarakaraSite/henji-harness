@@ -278,6 +278,8 @@ export interface StoredExecutionRow {
   /** At most one completed evidence capture is linked by the v2 history row. */
   readonly providerEvidenceId?: string;
   readonly diagnosticCapture: string;
+  /** At most one structured failure diagnostic linked by the v2 history row. */
+  readonly diagnosticId?: string;
   readonly artifactCapture: string;
   readonly contextCapture: 'none' | 'partial' | 'complete' | 'failed';
 }

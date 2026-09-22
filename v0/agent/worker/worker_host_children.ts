@@ -5,8 +5,14 @@ import type {
   AsyncAgentTerminalResult,
 } from '../tools/async_agents.ts';
 import type { WorkerSessionHandle } from '../session/session_store_contract.ts';
-import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
+import type {
+  HistoryCaptureResult,
+  HistoryPersistencePort,
+} from '../history/history_store_contract.ts';
 import type { LoopOutcome } from '../core/contracts.ts';
+import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
+import type { ProviderEvidenceV1, ProviderEvidenceV5 } from '../provider/provider_evidence.ts';
+import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
@@ -20,6 +26,7 @@ import type {
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { WorkerSupervisor } from './worker_host_supervisor.ts';
 import { builtinAsyncAgentRefFor, workerBuiltinModulePath } from './worker_definition_revision.ts';
+import { proposalOutcome } from './worker_host_outcome.ts';
 
 const CHILD_SETTLEMENT_GRACE_MS = 5_000;
 
@@ -68,6 +75,11 @@ type ChildRun = {
   admission?: Promise<void>;
   supervisor?: WorkerSupervisor;
   terminal?: AsyncAgentTerminalResult;
+  outcome?: LoopOutcome;
+  providerEvidence?: ProviderEvidenceV1;
+  diagnostic?: FailureDiagnosticV1;
+  contextManifest?: ExecutionContextManifestV2;
+  capture?: HistoryCaptureResult;
   settlementAttempted: boolean;
   settlementDurable: boolean;
   settlementError?: string;
@@ -384,7 +396,8 @@ export class ChildRunRegistry {
   private handleChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
     if (run.terminal !== undefined) return;
     if (message.kind === 'commit_proposal') {
-      const finalText = message.outcome?.finalText ?? lastAssistantText(message.transcript);
+      const outcome = message.outcome ?? proposalOutcome(run.task, message.transcript, undefined);
+      const finalText = outcome.finalText ?? lastAssistantText(message.transcript);
       try {
         run.supervisor?.send({
           kind: 'commit_acknowledgement',
@@ -394,7 +407,19 @@ export class ChildRunRegistry {
       } catch {
         // The terminal proposal remains the semantic child result.
       }
-      this.finish(run, this.terminal(run, 'completed', undefined, finalText));
+      this.finish(
+        run,
+        this.terminal(
+          run,
+          'completed',
+          undefined,
+          finalText,
+        ),
+        outcome,
+        message.providerEvidence,
+        message.diagnostic,
+        message.contextManifest,
+      );
       return;
     }
     if (message.kind === 'turn_failed') {
@@ -409,7 +434,12 @@ export class ChildRunRegistry {
           run,
           state,
           message.outcome.ok ? undefined : message.outcome.error ?? `child run ${state}`,
+          message.outcome.finalText,
         ),
+        message.outcome,
+        message.providerEvidence,
+        message.diagnostic,
+        message.contextManifest,
       );
       return;
     }
@@ -435,9 +465,21 @@ export class ChildRunRegistry {
     };
   }
 
-  private finish(run: ChildRun, terminal: AsyncAgentTerminalResult): void {
+  private finish(
+    run: ChildRun,
+    terminal: AsyncAgentTerminalResult,
+    outcome?: LoopOutcome,
+    providerEvidence?: ProviderEvidenceV1,
+    diagnostic?: FailureDiagnosticV1,
+    contextManifest?: ExecutionContextManifestV2,
+  ): void {
     if (run.terminal !== undefined) return;
-    run.terminal = terminal;
+    const settledOutcome = outcome ?? this.syntheticOutcome(run, terminal);
+    run.terminal = this.withOutcome(terminal, settledOutcome, providerEvidence, diagnostic);
+    run.outcome = settledOutcome;
+    run.providerEvidence = providerEvidence;
+    run.diagnostic = diagnostic ?? outcome?.diagnostic;
+    run.contextManifest = contextManifest;
     run.state = terminal.state;
     this.settle(run);
     this.terminate(run);
@@ -456,40 +498,179 @@ export class ChildRunRegistry {
       run.settlementDurable = true;
       return;
     }
-    const state = run.terminal?.state;
-    if (state === undefined) {
+    if (run.terminal === undefined || run.outcome === undefined) {
       run.settlementError = 'child terminal result is unavailable';
       return;
     }
-    const stopReason: LoopOutcome['stopReason'] = state === 'completed'
+    const outcome = run.outcome;
+    try {
+      const capture = history.settleNonCanonicalExecution({
+        ...this.historyInput(run),
+        outcome,
+        ...(run.providerEvidence === undefined ? {} : {
+          evidence: this.attributedEvidence(run, run.providerEvidence, outcome),
+        }),
+        ...(run.diagnostic === undefined ? {} : { diagnostic: run.diagnostic }),
+        ...(run.contextManifest === undefined ? {} : { contextManifest: run.contextManifest }),
+      });
+      run.capture = capture;
+      run.terminal = this.withCapture(run.terminal, capture);
+      run.settlementDurable = true;
+    } catch (error) {
+      run.settlementError = errorText(error);
+    }
+  }
+
+  private attributedEvidence(
+    run: ChildRun,
+    evidence: ProviderEvidenceV1,
+    outcome: LoopOutcome,
+  ): ProviderEvidenceV5 | undefined {
+    const base = {
+      schemaVersion: 5 as const,
+      evidenceId: evidence.evidenceId,
+      // ProviderEvidenceV5 uses the same UUID-shaped session identity contract as root runs.
+      // A detached child has no canonical Session, so its durable run UUID is the identity.
+      sessionId: run.runId,
+      build: structuredClone(run.build),
+      definition: structuredClone(run.definitionRef),
+      turnNumber: evidence.turnNumber,
+      createdAt: evidence.createdAt,
+      requests: evidence.requests.map((record, index) => ({
+        ...structuredClone(record),
+        request: {
+          ...structuredClone(record.request),
+          ...(record.request.contextRequestOrdinal === undefined &&
+              run.contextManifest === undefined
+            ? { contextRequestOrdinal: index + 1 }
+            : {}),
+        },
+      })),
+      runtimeEvents: structuredClone(evidence.runtimeEvents),
+      ...(evidence.turnProviderRequestCount === undefined ? {} : {
+        turnProviderRequestCount: evidence.turnProviderRequestCount,
+      }),
+      ...(evidence.runtimeProviderRequestCount === undefined ? {} : {
+        runtimeProviderRequestCount: evidence.runtimeProviderRequestCount,
+      }),
+      ...(evidence.diagnosticId === undefined ? {} : {
+        diagnosticId: evidence.diagnosticId,
+      }),
+    };
+    const asEvidence = (value: unknown): ProviderEvidenceV5 => value as ProviderEvidenceV5;
+    switch (outcome.stopReason) {
+      case 'final':
+      case 'tool_terminal':
+        return asEvidence({
+          ...base,
+          capture: 'complete',
+          normalizedOutcome: 'completed',
+          outcome: outcome.stopReason,
+        });
+      case 'cancelled':
+        return asEvidence({
+          ...base,
+          capture: 'complete',
+          normalizedOutcome: 'cancelled',
+          outcome: 'cancelled',
+        });
+      case 'max_steps':
+      case 'contract_failure':
+        return asEvidence({
+          ...base,
+          capture: 'complete',
+          normalizedOutcome: 'failed',
+          outcome: outcome.stopReason,
+        });
+      case 'interrupted':
+        return asEvidence({
+          ...base,
+          capture: 'partial',
+          normalizedOutcome: 'interrupted',
+          settlement: 'interrupted',
+        });
+    }
+  }
+
+  private syntheticOutcome(
+    run: ChildRun,
+    terminal: AsyncAgentTerminalResult,
+  ): LoopOutcome {
+    const stopReason: LoopOutcome['stopReason'] = terminal.state === 'completed'
       ? 'final'
-      : state === 'cancelled'
+      : terminal.state === 'cancelled'
       ? 'cancelled'
-      : state === 'interrupted'
+      : terminal.state === 'interrupted'
       ? 'interrupted'
       : 'contract_failure';
-    const outcome: LoopOutcome = {
-      ok: state === 'completed',
+    return {
+      ok: terminal.state === 'completed',
       task: run.task,
       outcome: stopReason,
       stopReason,
-      ...(state === 'completed'
-        ? { finalText: run.terminal?.finalText }
-        : { error: run.terminal?.error ?? `child run ${state}` }),
+      ...(terminal.state === 'completed'
+        ? { finalText: terminal.finalText }
+        : terminal.error === undefined
+        ? {}
+        : { error: terminal.error }),
       steps: 0,
       toolCallCount: 0,
       toolResultCount: 0,
       transcript: [],
     };
-    try {
-      history.settleNonCanonicalExecution({
-        ...this.historyInput(run),
-        outcome,
-      });
-      run.settlementDurable = true;
-    } catch (error) {
-      run.settlementError = errorText(error);
-    }
+  }
+
+  private withOutcome(
+    terminal: AsyncAgentTerminalResult,
+    outcome: LoopOutcome,
+    evidence?: ProviderEvidenceV1,
+    diagnostic?: FailureDiagnosticV1,
+  ): AsyncAgentTerminalResult {
+    const providerRequestCount = outcome.turnProviderRequestCount ??
+      evidence?.turnProviderRequestCount ?? evidence?.requests.length;
+    const evidenceId = evidence?.evidenceId ?? outcome.providerEvidenceId;
+    const failureDiagnostic = diagnostic ?? outcome.diagnostic;
+    return {
+      ...terminal,
+      stopReason: outcome.stopReason,
+      ...(providerRequestCount === undefined ? {} : { providerRequestCount }),
+      ...(evidenceId === undefined ? {} : { providerEvidenceId: evidenceId }),
+      ...(failureDiagnostic === undefined ? {} : {
+        diagnosticId: failureDiagnostic.diagnosticId,
+        diagnosticCode: failureDiagnostic.code,
+      }),
+    };
+  }
+
+  private withCapture(
+    terminal: AsyncAgentTerminalResult,
+    capture: HistoryCaptureResult,
+  ): AsyncAgentTerminalResult {
+    const evidenceDurability = capture.evidenceDurability ??
+      (terminal.providerEvidenceId === undefined ? undefined : 'unknown');
+    const diagnosticDurability = capture.diagnosticDurability ??
+      (terminal.diagnosticId === undefined ? undefined : 'unknown');
+    return {
+      ...terminal,
+      ...(evidenceDurability === undefined ? {} : {
+        providerEvidenceDurability: evidenceDurability,
+      }),
+      ...(capture.evidencePersistenceError === undefined ? {} : {
+        providerEvidencePersistenceError: capture.evidencePersistenceError,
+      }),
+      ...(diagnosticDurability === undefined ? {} : {
+        diagnosticDurability,
+      }),
+      ...(capture.diagnosticPersistenceError === undefined ? {} : {
+        diagnosticPersistenceError: capture.diagnosticPersistenceError,
+      }),
+      ...(capture.contextDurability === undefined ? {} : {
+        contextDurability: capture.contextDurability,
+      }),
+      ...(capture.contextPersistenceError === undefined ? {} : {
+        contextPersistenceError: capture.contextPersistenceError,
+      }),
+    };
   }
 
   private cleanupRun(run: ChildRun): Promise<ChildCleanupRunObservationV1> {
