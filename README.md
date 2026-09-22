@@ -87,53 +87,20 @@ local TypeScript Agent Definitionは、実行前にmanaged dataへinstallする�
 
 ## Henji Instruction
 
-Henji共通のbase instructionは、built-inの`instruction:henji-base`を既定で使う。外部packageは
-`henji-resource.json`と`instruction.md`を置いたdirectoryとして作成し、managed dataへinstallした
-exact revisionを明示的にactivateする。
+Henji共通のbase instructionは、最小のbuilt-in core（役割identityとcredential/Authorization境界）を既定で
+使う。詳細な作業方針は、次のuser-scopedファイルへ置くだけで読み込まれる（installやactivateは不要）。
 
-```json
-{
-  "schemaVersion": 1,
-  "resourceKind": "henji-instruction",
-  "resourceId": "example/henji-base",
-  "slot": "instruction:henji-base",
-  "apiContract": "henji-instruction-v1",
-  "format": "text/markdown",
-  "entry": "instruction.md",
-  "metadata": {
-    "title": "Example Henji base instruction",
-    "description": "Base working policy for this Henji installation"
-  }
-}
+```text
+${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/instruction.md
 ```
 
-```sh
-./dist/henji instruction install ./henji-base
-./dist/henji instruction list
-./dist/henji instruction inspect --id example/henji-base --revision 82d67dd2
-./dist/henji instruction activate --id example/henji-base --revision 82d67dd2
-./dist/henji instruction active
-./dist/henji instruction deactivate
-./dist/henji instruction uninstall --id example/henji-base
-```
+ファイルが存在すればbuilt-in coreを置き換え、存在しなければ最小coreを使う。内容はtrim・改行変換・Unicode
+normalizationをせずbyte-equivalentに扱い、source identity（`user/instruction.md`）とcontent digestとして
+execution attributionへ記録する。ファイルが読めない場合や内容が不正な場合は、built-inへ暗黙fallbackせず
+turn開始前に失敗する。
 
-`instruction list`・`instruction active`・`instruction deactivate`は、既定でresource ID・短縮revision・
-selection source・active状態を示す短い人間向け行を返す。machine向けのJSONは`--json`で取得する。
-`inspect`は詳細JSONを返す。
-
-`--revision`は`sha256:<full-digest>`のほか8〜64桁のhex prefixを受け付ける。prefixは`--id`のinstall済み
-revisionへ解決し、複数に一致した場合は`instruction_ambiguous`として完全digestを示す。`uninstall`は
-resource IDだけで対象が一意な場合`--revision`を省略できる。
-
-`instruction install`と`instruction uninstall`は、resource IDと短縮revision（先頭8桁）を示す短いreceiptを
-表示する。`install`のreceiptはそのまま実行できる短縮revision指定の`inspect`・`activate`・`uninstall`
-commandも示す。完全digest、metadata、origin/custody、physical store、instruction本文の詳細は、receiptの
-`inspect` commandまたは`--json`で確認する。
-
-installはactive selectionを変更しない。activate/deactivateは次に作るWorker generationから反映され、
-既に動作中のgenerationや過去のSession履歴を書き換えない。external revisionが選択されているのにmanaged
-contentがmissingまたはinvalidなら、built-inへ暗黙fallbackせず起動前に失敗する。`uninstall`は指定した
-exact revisionのlocal custodyだけを削除し、現在activeなrevisionは削除せず先に`deactivate`を要求する。
+推奨する詳細方針の雛形は
+[`docs/operations/base-instruction-template.md`](docs/operations/base-instruction-template.md)にある。
 
 詳細な設計と実装状況は[構想](docs/concepts/experience-driven-self-revision.md)、
 [architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を参照する。

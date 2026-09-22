@@ -15,7 +15,7 @@ import type {
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
 import type { ProviderExactRequestObservation } from '../core/contracts.ts';
-import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
+import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
   DefinitionRevisionRef,

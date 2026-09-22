@@ -10,7 +10,7 @@ import {
   HENJI_BASE_INSTRUCTION_SLOT,
   type SelectedHenjiBaseInstruction,
   validateSelectedHenjiBaseInstruction,
-} from './managed_instruction.ts';
+} from './base_instruction.ts';
 
 let selectedBase: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction();
 

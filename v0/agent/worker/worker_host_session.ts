@@ -91,7 +91,7 @@ import {
   isToolDefinitionRevisionRef,
   type ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
-import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
+import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 
 const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const OBSERVATION_FLUSH_BATCH = 256;

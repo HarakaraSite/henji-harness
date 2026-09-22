@@ -43,12 +43,14 @@ per-committed-turn attribution, and each committed turn's logical built-in Defin
 manifest. Previous development schemas remain in the old state namespace and are not interpreted by
 the compiled command.
 
-`henji instruction` manages the installation-wide `instruction:henji-base` slot. The Host resolves
-the active exact revision before creating each Worker generation and passes its ref and exact bytes
-as a data-only core input. The Worker-core finalizer prepends that base once to both root and
-delegated-planner Definition contributions. Install and activation are separate operations;
-deactivation selects the built-in revision for the next generation. Context history retains the
-selected ref, component content digest, exact text, and byte projection into provider requests.
+The installation-wide `instruction:henji-base` slot starts from a minimal built-in core (agent role
+and the credential/Authorization boundary). A user-scoped
+`$XDG_CONFIG_HOME/henji-harness/instruction.md` file, when present, is read directly before each
+Worker generation and replaces that core; there is no install or activation step. The Host passes
+the selected source identity and exact bytes as a data-only core input, and the Worker-core
+finalizer prepends that base once to both root and delegated-planner Definition contributions.
+Context history retains the source identity, content digest, exact text, and byte projection into
+provider requests.
 
 `/provider` switches the root among bundled and externally declared provider ids in the current idle
 Session and applies the selected provider's complete default model/effort selection. `/model` opens

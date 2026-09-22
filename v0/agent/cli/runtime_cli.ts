@@ -9,7 +9,7 @@ import { type HeadlessWorkerRun, runHeadlessWorker } from '../worker/worker_head
 import {
   HenjiInstructionError,
   henjiInstructionErrorValue,
-} from '../instructions/managed_instruction.ts';
+} from '../instructions/base_instruction.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();

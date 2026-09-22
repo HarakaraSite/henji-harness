@@ -72,9 +72,9 @@ import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_pro
 import type { HistoryV7CaptureProfile } from '../history/history_v7_model.ts';
 import {
   builtinHenjiBaseInstruction,
-  resolveActiveHenjiBaseInstruction,
+  resolveHenjiBaseInstruction,
   type SelectedHenjiBaseInstruction,
-} from '../instructions/managed_instruction.ts';
+} from '../instructions/base_instruction.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 class MemoryWorkerHandle implements WorkerSessionHandle {
@@ -361,7 +361,7 @@ export const createWorkerSession = async (
   const resolveBaseInstruction = (): Promise<SelectedHenjiBaseInstruction> =>
     !resolveManagedInstruction
       ? Promise.resolve(builtinHenjiBaseInstruction())
-      : resolveActiveHenjiBaseInstruction(dataRoot!, configRoot!);
+      : resolveHenjiBaseInstruction(configRoot!);
   const providerDeclarations = resolveManagedInstruction
     ? resolveProviderRegistry(
       builtinProviderDeclarations(),

@@ -19,7 +19,7 @@
       "v0/agent/instructions/roles/default.ts",
       "v0/agent/instructions/roles/planner.ts",
       "v0/agent/instructions/runtime_facts.ts",
-      "v0/agent/instructions/managed_instruction.ts",
+      "v0/agent/instructions/base_instruction.ts",
       "v0/agent/instructions/worker_core_finalizer.ts",
       "v0/agent/tools/bash_output.ts",
       "v0/agent/core/cancellation.ts",

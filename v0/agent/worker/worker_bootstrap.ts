@@ -40,7 +40,7 @@ import {
   builtinHenjiBaseInstruction,
   type SelectedHenjiBaseInstruction,
   verifySelectedHenjiBaseInstruction,
-} from '../instructions/managed_instruction.ts';
+} from '../instructions/base_instruction.ts';
 import {
   finalizeWorkerInstructionComposition,
   selectWorkerHenjiBaseInstruction,

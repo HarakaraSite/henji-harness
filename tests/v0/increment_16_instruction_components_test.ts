@@ -125,26 +125,24 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
   assert(positions.every((position, index) => index === 0 || positions[index - 1] < position));
   const finalizedInstruction = finalSystemInstructionForContribution(composition.systemInstruction);
   for (
-    const sourceGroundedBehavior of [
-      'read the designated current sources directly',
-      'When summarizing',
-      'compare the result with the sources',
-      'Do not modify unrelated tracked files',
-      'distinguish assumptions and unverified sources',
-      'reuse successful tool results already present in the conversation',
-      'the previous result was truncated or indicated a continuation',
-      'request only the missing non-overlapping range',
-      'make each query address that specific information need',
-      'stop investigating and answer',
-      'Identify source conflicts and unverified matters',
+    const builtinCore of [
+      'You are Henji',
       'Do not use tools to read or source credential configuration',
       'explicitly asks to use that real instance or authenticated client',
-      'inspect, research, explain, or summarize a repository, source code, documentation, API, product, or service',
-      'does not by itself authorize reading or sourcing credential configuration',
       'do not display credential values',
     ]
   ) {
-    assert(finalizedInstruction.includes(sourceGroundedBehavior));
+    assert(finalizedInstruction.includes(builtinCore));
+  }
+  for (
+    const externalDetail of [
+      'read the designated current sources directly',
+      'reuse successful tool results already present in the conversation',
+      'Before changing implementation',
+      'Prefer the smallest change that satisfies the request.',
+    ]
+  ) {
+    assert(!finalizedInstruction.includes(externalDetail));
   }
   for (
     const staleFact of [
@@ -202,13 +200,12 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
   for (const composition of [root, planner]) {
     assert(
       composition.systemInstruction?.includes(
-        'reuse successful tool results already present in the conversation',
+        'Do not use tools to read or source credential configuration',
       ),
     );
-    assert(composition.systemInstruction?.includes('stop investigating and answer'));
     assert(
-      composition.systemInstruction?.includes(
-        'Do not use tools to read or source credential configuration',
+      !composition.systemInstruction?.includes(
+        'reuse successful tool results already present in the conversation',
       ),
     );
   }

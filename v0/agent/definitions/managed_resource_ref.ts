@@ -44,9 +44,6 @@ export const isWellFormedResourceId = (value: unknown): value is string => {
 export const isExternalDefinitionResourceId = (value: unknown): value is string =>
   isWellFormedResourceId(value) && value !== 'builtin/default' && value !== 'builtin/planner';
 
-export const isExternalHenjiInstructionResourceId = (value: unknown): value is string =>
-  isWellFormedResourceId(value) && value !== 'builtin/henji-base';
-
 export const isExternalToolDefinitionResourceId = (value: unknown): value is string =>
   isWellFormedResourceId(value) && value !== 'builtin/web-search';
 

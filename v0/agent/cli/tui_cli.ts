@@ -44,7 +44,7 @@ import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import {
   HenjiInstructionError,
   henjiInstructionErrorValue,
-} from '../instructions/managed_instruction.ts';
+} from '../instructions/base_instruction.ts';
 
 const encoder = new TextEncoder();
 

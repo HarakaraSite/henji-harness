@@ -30,7 +30,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E1 | 配布・外部化 | Agent Definition後のresource外部化 | 利用者希望（2026-09-17）のProvider外部化。A8と合わせて検討 |
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 | E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
-| E4 | 配布・外部化 | base instructionの簡易ロードとDefinitionとの扱い分離 | instruction文言を通常利用で頻繁に改訂したくなるとき、またはR4の対象を選ぶとき |
 | E5 | 配布・外部化 | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする |
 
 ## Surface
@@ -316,24 +315,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: provider timeout・tool限界・maxSteps既定を通常利用で調整したくなったとき、または別incrementで
   採用するとき。
 - 正本候補: `docs/roadmap.md` F06、`docs/architecture/henji-host-agent-worker.md`。
-
-### E4 — base instructionの簡易ロードとDefinitionとの扱い分離（未採用）
-
-- 観測（2026-09-21、通常利用）: `instruction:henji-base`のexternal revisionは`henji instruction install`と
-  `activate`でmanaged store（XDG data root）へpublishし、exact revision digestを固定して使う。一方`AGENTS.md`は
-  workspace rootから直接読み込まれ、installもdigest固定も不要である。利用者は、base instructionも`AGENTS.md`と
-  同様に簡単に読み込み・編集できるほうがよいかもしれないと考えている。
-- 利用者判断（2026-09-21）: Agent Definitionとinstructionは扱いを変える。Definitionは現行のinstall/exact
-  revision管理を維持し、instruction側の読み込み・改訂はより軽い経路を検討する。
-- 候補: base instructionの解決に、managed exact revisionだけでなくworkspace/user scopeの直接source
-  （`AGENTS.md`相当のinstruction file）から読む経路を加えるか、instruction固有の簡易な編集・有効化を設ける。
-  selection/activation authority、Definition-owned contributionとの合成順（baseは先頭）、execution attribution
-  （exact ref/content digest）、複数source競合時の扱いは採用時に決める。Definitionのrevision契約は変えない。
-- 再検討条件: instruction文言の改善（A9等）を通常利用で頻繁に行いたくなったとき、またはinstruction改訂（R4）
-  の対象と読み込み経路を選ぶとき。
-- 正本候補: `v0/agent/instructions/managed_instruction.ts`、`v0/agent/instructions/compose.ts`、
-  `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`。
-- 関連: E1、R4、A9、S4。
 
 ### E5 — 追加protocol adapter候補（未採用）
 

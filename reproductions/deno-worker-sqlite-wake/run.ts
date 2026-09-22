@@ -6,7 +6,7 @@ import type {
   StoredExecutionEvent,
 } from "../../v0/agent/history/history_store_contract.ts";
 import { SqliteHistoryV6ProductionStore } from "../../v0/agent/history/sqlite_history_v6_production_store.ts";
-import { builtinHenjiBaseInstruction } from "../../v0/agent/instructions/managed_instruction.ts";
+import { builtinHenjiBaseInstruction } from "../../v0/agent/instructions/base_instruction.ts";
 import { builtinProviderDeclarations } from "../../v0/agent/provider/provider_declaration.ts";
 import type {
   SemanticContextCheckpointV1,

@@ -16,7 +16,7 @@ import type {
 } from './worker_protocol.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
-import type { SelectedHenjiBaseInstruction } from '../instructions/managed_instruction.ts';
+import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 
 export interface WorkerHostSessionOptions {

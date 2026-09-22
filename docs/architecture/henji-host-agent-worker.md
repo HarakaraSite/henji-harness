@@ -29,10 +29,10 @@
   modelにはしない。共通層はresource kindに依存しないlogical identity、exact dependency binding、local custody、
   activation前のgraph resolution、execution evidenceへのattributionだけを定める。kind固有のcontent contract、
   discovery、execution placement、lifecycle、mutable instance stateは、そのkindを採用するincrementで決める。
-- Henji InstructionはDefinition以外で最初に実装するmanaged resource kindである。初期kind
-  `henji-instruction`は一つのsemantic slot `instruction:henji-base`だけを持ち、現binaryが所有するbuilt-in
-  revisionか、人間がinstallation/user scopeでactivateしたexternal exact revisionのどちらか一つを、次の
-  Worker generationの共通base instructionとして選ぶ。native `AGENTS.md`とSkillを置換しない。
+- Henji Instructionは、binaryに埋め込む最小core（役割identityとcredential/Authorization境界）と、user scopeの
+  `$XDG_CONFIG_HOME/henji-harness/instruction.md`を直接読み込む外部contentからなる。外部ファイルはinstallや
+  activation bindingを必要とせず、存在すればbuilt-in coreを置き換え、無ければ最小coreを使う。semantic slotは
+  `instruction:henji-base`の一つ。native `AGENTS.md`とSkillを置換しない。
 - 各 Worker generation の起動前に、選択された Definition code/source revision を参照する
   immutable な `DefinitionRevisionRef` を確定する。外部Definitionではentry fileだけでなく、許可された
   import contractに従う実行可能なlocal module closureまたは同等の自己完結bundleを一つのrevisionとして
@@ -96,7 +96,7 @@
 | `AgentDefinition` | 信頼された実行可能な TypeScript 合成関数。Host が所有する UI や session object ではなく、agent をどのように組み立てるかを記述する。 | 1 つの Definition revision。Worker generation 内で評価される。 |
 | `ManagedResourceRef` | resource kind、logical resource ID、contentで固定したrevision digestからなるmachine/path非依存のexact ref。 | immutable revisionを識別し、Sessionやevidenceからreadbackできる。 |
 | `DefinitionRevisionRef` | `resourceKind = agent-definition`である`ManagedResourceRef`のkind固有specialization。別のidentity authorityではなく、built-in/external Definitionを同じlogical IDとexact revisionで表す。 | Session、Instance binding、evidenceへ永続化する。physical module specifierやstore pathを含めない。 |
-| `HenjiInstructionRevision` | `resourceKind = henji-instruction`、`slot = instruction:henji-base`であるdata-only instruction contentとmanifest。built-in/externalのexact ref、content digest、byte-equivalent textを持つ。 | built-inはbinary、externalはHost-owned managed storeにある。選択結果はWorker generationとexecution attributionへ固定する。 |
+| `HenjiInstructionRevision` | `resourceKind = henji-instruction`、`slot = instruction:henji-base`であるbase instruction content。built-in coreはbinary、externalは`$XDG_CONFIG_HOME/henji-harness/instruction.md`の直接読み込み。source identity、content digest、byte-equivalent textを持つ。 | 選択結果はWorker generationとexecution attributionへ固定する。 |
 | `ManagedResourceManifest` | resource contract、content identity、`ResourceSlotIdentity`からexact `ManagedResourceRef`へのdependency bindingを記録するportable authority。評価後の`AgentManifest`とは異なる。 | managed revision artifactの一部。local store pathやactive bindingを含めない。 |
 | `ResourceSlotIdentity` | dependency元resourceのcontract内でresourceが果たすsemanticな役割を表すkind非依存のlocal key。dependencyの競合keyはconsumerのexact refとこのkeyの組である。`AgentResourceIdentity`はAgent composition内で使うkind固有表現である。 | exact refそのものではなく、一つのconsumer manifest内で一つのbindingへ対応する。activation全体の共有slotとは別namespaceである。 |
 | `AgentSlotBinding` | Hostのinstallation/user scope configで、activation-level slotをexact managed `DefinitionRevisionRef`へ結ぶauthority。root slot `agent:default`とdelegated slot `subagent:<name>`を持ち、解決時にslotの期待role/nameとrevisionのrole/nameが一致することを検証する。 | `ResourceSlotIdentity`（manifest内dependency bindingのlocal key）とは別namespace・別authority。変更は次のWorker generationから効く。 |
@@ -337,16 +337,13 @@ managed Skill revisionはnative Skillの代替ではなく、exact pin、transpo
 別resource kindにする。最終的に同じprovider instructionへ合成されても、identity、selection authority、合成順、
 provenanceを失わない。
 
-最初のHenji Instruction kindは、Henji共通baseだけを表す`henji-instruction-v1`である。authoring packageは
-`henji-resource.json`と一つのUTF-8 `instruction.md`からなり、manifest metadataとinstruction exact bytesをcanonical
-revision digestへ含める。instruction contentはvalidation後もtrim、改行変換、Unicode normalizationを行わず、managed
-revisionとmodel向けcomponentへbyte-equivalentに投影する。source pathとinstall日時、XDG rootはportable revisionでは
-なくorigin lineageとlocal custodyが所有する。
-
-installはexternal revisionをXDG data rootへatomicにpublishするだけでactive selectionを変えない。activateはstoreに
-存在し検証できる一つのexact refをXDG configのinstallation/user scope bindingへatomicに保存し、deactivateはbindingを
-外してbuilt-in selectionへ戻す。どちらもactive Worker generationをhot replacementせず、次のgenerationから適用する。
-managed revisionはdeactivate後もcustodyに残る。workspace scope、transport、remove、`/rebuild`はこの初期kindに含めない。
+Henji共通baseは、binaryに埋め込む最小core（役割identityとcredential/Authorization境界）と、user scopeの
+`$XDG_CONFIG_HOME/henji-harness/instruction.md`を直接読み込む外部contentからなる。外部ファイルは
+`henji-resource.json`、install、activation binding、XDG data storeを必要としない。Hostはgeneration開始前に
+ファイルを一度読み、存在すればbuilt-in coreを置き換え、存在しなければ最小coreを使う。contentはvalidation後も
+trim、改行変換、Unicode normalizationを行わずbyte-equivalentに投影し、source identity `user/instruction.md`と
+content digestをattributionへ固定する。read failureやinvalid contentはbuilt-inへ暗黙fallbackせず、turn開始前に
+失敗する。workspace scope、transport、`/rebuild`はこのkindに含めない。
 
 Hostはgeneration開始前にselected built-in/external baseのexact ref、content digest、exact bytesとbyte-equivalent textを
 解決し、Definition評価結果とは独立したdata-only Worker-core入力へ固定する。Definitionはrole、active tool guideline、
