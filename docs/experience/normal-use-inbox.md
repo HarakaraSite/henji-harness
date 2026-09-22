@@ -142,6 +142,12 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   扱う。credentialやremote URL内の認証情報は含めない。
 - 再検討条件: 外部product名だけのtaskでambient remoteをtargetにする誤認、またはrepository identityを得る
   ための不要なtool探索が再発すること。
+- 再観察（2026-09-22、`henji run --json`、`opencode-go-chat`/`deepseek-v4.1-flash`、workspace=henji repo、
+  task「Giteaの直近10件のPRを教えて」、1 turn）: tool sequenceは`web_fetch`（GitHub API）→`web_search`で、
+  ambient workspace探索（`bash git remote -v`、handoff読み）は0回、ambient Forgejo remoteをtargetにする
+  誤認もなし。credential探索もなし。**この条件では再現せず**。留意: 1 model/provider・知名度の高いproductで
+  の観測。Increment 37のmodel/provider（openrouter経由）や知名度の低いproductでは未確認。
+- 状態（2026-09-22）: 利用者判断で継続して要観察。trigger未発火のため実装しない。
 - 正本: [`increment-37.md`](../increments/increment-37.md)が観測した実行証拠と完了判断を保持する。
 
 ### A6 — Web searchのsearch/fetch/backend境界（F02、F06、将来のF24候補）
@@ -232,6 +238,11 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   表し、Agent Definition/tool componentはHost-owned permission ceilingの範囲内だけを選ぶ。
 - hard sandboxの条件: `deno run --allow-run`やcommand名の禁止ではなく、subprocess自体をbubblewrap、Landlock、
   container、専用VM等へ置き、workspace mount、他path/credentialの可視性、network、process範囲をHostが強制する。
+- 外書き込みの拒否/承認（Codexの`workspace-write`＋outside承認、OpenCodeのpermission model相当）は
+  command解析ではなく**sandbox policy**として実装する。command解析型の承認や、bashの破壊pattern
+  （`rm -rf /`等）のdeny-netは**sandboxまでの安全帯**であり境界ではない（変数展開・script・interpreter・
+  redirect・`curl|sh`等で回避可能）。frictionの大きいapproval gateを常用の前提にしない。安価な大事故低減が
+  必要になった場合の選択肢としてのみ残す。
 - Deno program tool候補: modelはTypeScript programとdataを渡し、Host/executorが固定permissionで実行する。modelに
   Deno CLI option、permission flag、executor、任意の`deno run`や`--allow-all`、shell起動を制御させない。
 - 分類: sandboxed program toolの通常導入はF06の改善として先行できる。経験からexecutor/contractの
