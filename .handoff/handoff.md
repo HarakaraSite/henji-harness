@@ -2,6 +2,25 @@
 
 ## Records
 
+### Increment 103 — built-in base instructionの最小化と外部instruction直接読み込み（E4、実装・検証完了）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。built-in `HENJI_COMMON_INSTRUCTION`を最小core（役割identityと
+  credential/Authorization境界）へ縮小し、詳細方針（成果物忠実性、tool再利用、順序方針）を外部へ移した。
+  外部baseは`$XDG_CONFIG_HOME/henji-harness/instruction.md`をinstall/activateなしで直接読み込み、あれば
+  built-in coreを置換、無ければ最小core。contentはbyte-equivalent、source identity `user/instruction.md`＋
+  content digestをattributionへ固定。managed `henji-instruction`（install/activate/XDG data store/
+  `henji instruction` CLI）はproductionから削除（破壊的変更）。新モジュール
+  `v0/agent/instructions/base_instruction.ts`。`henji_common.ts`最小化に伴いbuilt-in digestを再計算。
+- 正本: `docs/increments/increment-103.md`。architecture（`henji-host-agent-worker.md`）・roadmap（F03/F06、
+  Increment 51節は履歴注記）・README・`v0/agent/README.md`・`jsr.json`・inbox（E4削除）更新済み。
+- 配置: clean commit `f179753f`からDeno 2.9.7でbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `d1bc25f7…`、source `f179753f…`、SHA-256 `bf8ba9a0…`、embedded runtime `838e8353…`）。隔離XDG smoke
+  exit 0。利用者の`~/.config/henji-harness/instruction.md`へ雛形を配置済み（source identity `user/instruction.md`、
+  content digest `sha256:10b04232…`、順序方針を含む）。
+- 次: 通常利用で外部instructionの編集・反映を確認する。文言効果はmodel挙動依存でoffline検証不可。
+- 注意: commit済み（`f179753f`）、pushは未実施。instructionのmanaged revision方式は廃止。`instruction/`ディレクトリ
+  （旧activation binding置き場）は未使用のまま残置。R4（instruction自己改訂）とF27（`/rebuild`）は対象外。
+
 ### Increment 102 — 外部integration依頼の調査順序方針（A9、実装・検証完了）
 
 - 状態: 実装・検証完了。`v0:gate` exit 0。共通instruction（`HENJI_COMMON_INSTRUCTION`）に「実装変更の前に
@@ -509,10 +528,13 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.4.0`。Increment 102変更を含むclean commit `11059d56…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `f5584c87…`、file SHA-256 `4b1ccb62…`、embedded runtime
-  `fc6524d8…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.4.0`。Increment 103変更を含むclean commit `f179753f…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `d1bc25f7…`、file SHA-256 `bf8ba9a0…`、embedded runtime
+  `838e8353…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
+- base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
+  （source identity `user/instruction.md`）。雛形は`docs/operations/base-instruction-template.md`。managed
+  `henji instruction` CLIは削除済み。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
