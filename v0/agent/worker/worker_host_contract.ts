@@ -10,7 +10,6 @@ import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_s
 import type {
   WorkerDefinitionLoadRequest,
   WorkerHostCommand,
-  WorkerSubagentLoadRequest,
   WorkerToHostMessage,
   WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
@@ -26,8 +25,6 @@ export interface WorkerHostSessionOptions {
   readonly definition: DefinitionRevisionRef;
   readonly modulePath?: string;
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
-  /** Host-resolved delegated subagent slots; the Worker composes them via the root Definition. */
-  readonly subagentDefinitions?: readonly WorkerSubagentLoadRequest[];
   /** Host-resolved tool Definition slots for declared tool identities. */
   readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
   readonly physicalIoMode?: 'provider-free' | 'production';

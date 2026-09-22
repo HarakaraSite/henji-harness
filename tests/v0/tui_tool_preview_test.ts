@@ -278,11 +278,11 @@ Deno.test('tool preview leaves other tools without arguments', () => {
     turn: 1,
     call: {
       callId: 'plan-1',
-      name: 'delegate_to_planner',
-      arguments: { task: 'summarize' },
+      name: 'submit_json_result',
+      arguments: { json: '{"ok":true}' },
     },
   });
-  assertEquals(state.log.entries[0].text, 'delegate_to_planner …');
+  assertEquals(state.log.entries[0].text, 'submit_json_result …');
 });
 
 Deno.test('tool preview shows write path and persists on error', () => {

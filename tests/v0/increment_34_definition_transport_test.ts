@@ -425,8 +425,7 @@ Deno.test('Increment 34 keeps incompatible revisions inspectable and rejects onl
     const installed = await sourceStore.install({
       entryPath: await writeModule(sourceRoot),
       resourceId: 'example/future-api',
-      declaredRole: 'subagent',
-      subagentName: 'planner',
+      declaredRole: 'parent',
       moduleRoot: sourceRoot,
     });
     const value = transportValue(await sourceStore.exportTransport(installed.manifest.logicalRef));
@@ -443,9 +442,6 @@ Deno.test('Increment 34 keeps incompatible revisions inspectable and rejects onl
     value.manifest = await createManagedDefinitionManifest({
       resourceId: installed.manifest.logicalRef.resourceId,
       declaredRole: installed.manifest.declaredRole,
-      ...(installed.manifest.subagentName === undefined
-        ? {}
-        : { subagentName: installed.manifest.subagentName }),
       apiContract,
       entry: installed.manifest.entry,
       files,

@@ -6,7 +6,7 @@ executableから利用できる。Henjiという名前は、日本語の「返�
 
 現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker lifecycle、SQLiteへ保存する履歴、Sessionで
 使用するexact Agent Definitionの選択を担う。headlessなAgent Workerは、built-inまたはinstall済みの信頼された
-TypeScript Definitionを評価し、現在のmodel、instructions、tools、同期planner delegationを構成する。一般的な
+TypeScript Definitionを評価し、現在のmodel、instructions、toolsを構成する。一般的な
 Surfaceの置換、durable AgentInstanceのrevision transition、Definitionから構成可能なcontextとloopはまだ実装して
 いない。
 
@@ -136,7 +136,7 @@ const definition: ExecutableAgentDefinition = (input) =>
 export default definition;
 ```
 
-`createPlannerAgentComposition`も同じ入力境界でplanner Definitionを構成できる。
+`createPlannerAgentComposition`も同じ入力境界でplanner Definitionをroot-runnableに構成できる。
 
 ## Links
 

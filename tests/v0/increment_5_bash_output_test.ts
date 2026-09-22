@@ -297,7 +297,6 @@ Deno.test('declared bash components share one output store for readback', async 
       instructions: [],
       skills: [],
       tools: ['tool:bash', 'tool:bash_output'].map(createAgentResourceIdentity),
-      subagents: [],
     }, {
       workspace: { root: workspace },
       skillCatalog: emptySkillCatalog(),

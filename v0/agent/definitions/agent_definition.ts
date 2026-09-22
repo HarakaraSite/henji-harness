@@ -31,7 +31,6 @@ export interface AgentCapabilityDeclaration {
   readonly instructions: readonly AgentResourceIdentity[];
   readonly skills: readonly AgentResourceIdentity[];
   readonly tools: readonly AgentResourceIdentity[];
-  readonly subagents: readonly AgentResourceIdentity[];
 }
 
 /** Data-only execution limits declared by an Agent Definition. */
@@ -84,7 +83,6 @@ const declarationsFor = (
     createAgentResourceIdentity(`skill:${skill.name}`)
   );
   const tools: AgentResourceIdentity[] = [];
-  const subagents: AgentResourceIdentity[] = [];
   if (registryKind === 'production') {
     tools.push(
       ...[
@@ -101,10 +99,8 @@ const declarationsFor = (
       tools.push(createAgentResourceIdentity('tool:skill'));
     }
     tools.push(
-      createAgentResourceIdentity('tool:delegate_to_planner'),
       createAgentResourceIdentity('tool:submit_json_result'),
     );
-    subagents.push(createAgentResourceIdentity('subagent:planner'));
   } else {
     tools.push(createAgentResourceIdentity('tool:read'));
     if (input.skillCatalog.skills.length > 0) {
@@ -116,7 +112,6 @@ const declarationsFor = (
     instructions: Object.freeze(instructions),
     skills: Object.freeze(skills),
     tools: Object.freeze(tools),
-    subagents: Object.freeze(subagents),
   });
 };
 
@@ -128,7 +123,6 @@ const flattenResources = (
   ...capabilities.instructions,
   ...capabilities.skills,
   ...capabilities.tools,
-  ...capabilities.subagents,
 ];
 
 const resolveDefinition = (

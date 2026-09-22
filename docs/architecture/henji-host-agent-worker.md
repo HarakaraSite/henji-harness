@@ -38,10 +38,10 @@
   import contractに従う実行可能なlocal module closureまたは同等の自己完結bundleを一つのrevisionとして
   固定する。評価後の data-only な `AgentManifest` はこの参照とは別の authority であり、
   選択内容を説明するが、admission/permission authority にはならない。
-- Definitionの`declaredRole`は`parent`または`subagent`＋`subagentName`である。activation-levelのroot slot
-  `agent:default`はparent roleだけを受け、delegated slot `subagent:<name>`は同名のsubagent Definitionだけを
-  受ける。bundled plannerは`subagent:planner`の同梱既定であり、delegated subagentはroot Definitionの合成の
-  内側で使われ、root agentとして実行しない。
+- Definitionは固定roleを持たず、すべてroot-runnableである。activation-level slotはroot `agent:default`だけを持ち、
+  これはroot Definition revisionをbindする。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係
+  として扱う。同期delegated subagent（親Worker内でのchild `runAgent()`）と`subagent:<name>` slotは廃止した。
+  bundled plannerは`agent:planner`として通常のroot-runnable Definitionであり、単独でroot実行できる。
 - 配布されるHenji executableはimmutableなcore/runtime artifactとして扱い、Hostが書き換えるstate、config、
   Definition module revision storeとは配置とlifecycleを分離する。executableの配置先やbinary隣接pathを
   writable storageの正本にしない。
@@ -50,7 +50,7 @@
   置換せず、exact pin、transport、Definition bindingが必要な場合だけ追加する。
 - Deno Web Worker は、組み込み Definition と外部 Definition の双方に共通する単一の実行カプセル
   とする。Worker はライフサイクル境界であり、別の trust tier ではない。
-- Definitionは、provider、model、effort、loop、tools、subagents、contextをWorker内の一つの
+- Definitionは、provider、model、effort、loop、tools、contextをWorker内の一つの
   `AgentComposition`へ合成する。Definitionを目的別variantの固定集合や閉じたcapability schemaには
   しない。
 - UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、Host / Worker
@@ -99,16 +99,16 @@
 | `HenjiInstructionRevision` | `resourceKind = henji-instruction`、`slot = instruction:henji-base`であるbase instruction content。built-in coreはbinary、externalは`$XDG_CONFIG_HOME/henji-harness/instruction.md`の直接読み込み。source identity、content digest、byte-equivalent textを持つ。 | 選択結果はWorker generationとexecution attributionへ固定する。 |
 | `ManagedResourceManifest` | resource contract、content identity、`ResourceSlotIdentity`からexact `ManagedResourceRef`へのdependency bindingを記録するportable authority。評価後の`AgentManifest`とは異なる。 | managed revision artifactの一部。local store pathやactive bindingを含めない。 |
 | `ResourceSlotIdentity` | dependency元resourceのcontract内でresourceが果たすsemanticな役割を表すkind非依存のlocal key。dependencyの競合keyはconsumerのexact refとこのkeyの組である。`AgentResourceIdentity`はAgent composition内で使うkind固有表現である。 | exact refそのものではなく、一つのconsumer manifest内で一つのbindingへ対応する。activation全体の共有slotとは別namespaceである。 |
-| `AgentSlotBinding` | Hostのinstallation/user scope configで、activation-level slotをexact managed `DefinitionRevisionRef`へ結ぶauthority。root slot `agent:default`とdelegated slot `subagent:<name>`を持ち、解決時にslotの期待role/nameとrevisionのrole/nameが一致することを検証する。 | `ResourceSlotIdentity`（manifest内dependency bindingのlocal key）とは別namespace・別authority。変更は次のWorker generationから効く。 |
+| `AgentSlotBinding` | Hostのinstallation/user scope configで、activation-level root slot `agent:default`をexact managed `DefinitionRevisionRef`へ結ぶauthority。解決時にrevisionがroot-runnableであることを検証する。`subagent:<name>` slotは廃止済み。 | `ResourceSlotIdentity`（manifest内dependency bindingのlocal key）とは別namespace・別authority。変更は次のWorker generationから効く。 |
 | `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
-| `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/subagent/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
+| `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
 | `AgentInstance` | 安定した agent identity、その durable metadata、および active な `DefinitionRevisionRef` の binding。 | Worker generation より長く存続し、置き換えられた Worker で再開できる。 |
 | `AgentWorkerGeneration` | 1 つの Definition revision を実行する 1 回の ephemeral な実行。Instance identity を変えずに停止、再起動、置換できる。 | process/thread/isolate の存続期間。 |
 | `Task` | 人間またはHostが一回の依頼としてadmitする入力。`/recall`等の次回限定projectionはこの境界で消費する。 | 一つのexecutionを開始する入力単位。再送やretryは新しいexecutionとして識別する。 |
 | `Execution` | 一つのtaskを、あるbase Session revisionとAgent側の基底設定から実行する独立したattempt。進捗、model request、tool activity、outcome、canonical採用状態を相関する。 | activeからsettledまで。canonical/non-canonicalにかかわらずevidenceをdurableに保持できる。 |
 | `Turn` | executionが正常完了し、Hostがconversationへ一括採用するuser/assistant interactionのsemanticな単位。 | canonical Session state内で順序を持つ。回答の正しさや利用者の満足を意味しない。 |
-| `ModelRequest` | 一つのexecution内でprovider/modelへ行う一回のrequest。tool loopやdelegationにより一execution内に複数存在できる。 | request/response evidenceとexecutionを相関する。 |
+| `ModelRequest` | 一つのexecution内でprovider/modelへ行う一回のrequest。tool loopにより一execution内に複数存在できる。 | request/response evidenceとexecutionを相関する。 |
 | `HistoryLogicalRecord` | transport、original interpretation、Host decision、attributionの一つのimmutable fact。stable ID、execution内順序、causal ref、raw byte rangeまたはexact object refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたexecution evidenceとして永続化する。 |
 | `HistorySegment` | 一つ以上のlogical recordをnatural append batchでまとめたbounded immutable encoding。directoryとanchorから到達し、logical digestとencoded representation digestを区別する。 | storage mechanismが所有し、repack／codec変更でlogical identityを変えない。 |
 | `HistoryProjection` | authorityから導出するhuman view、search document、flattened request、model working context、summary、later reinterpretation。 | rebuild可能であり、watermark遅延をauthority欠落とみなさない。 |
@@ -126,7 +126,7 @@ Definition が合成できるものを制限する仕組みになることなく
 
 | 分類 | 対象 | architecture上の扱い |
 | --- | --- | --- |
-| managed revision候補 | Agent Definition、tool Definition、任意のmanaged Skill、model profile、subagent Definition、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
+| managed revision候補 | Agent Definition、tool Definition、任意のmanaged Skill、model profile、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
 | external input/state | credential/config、Sessionとcanonical transcript、provider evidence、workspace file、native `AGENTS.md`/Skill、user base instruction（`instruction.md`）、active binding、runtime projection、resource instance state、tool call/result | 実行定義artifactへ混ぜず、それぞれの所有者と保存先を維持する。native discovery resourceやuser base instructionへmanaged installを要求しない |
 | binary platform authority | Host coordinator、Worker lifecycle/protocol、canonical Session ownership、atomic turn commit、managed loader/verifier、credential resolver、build manifest、最低限のCLI/diagnostics Definition | managed hot-loadまたはself-replacementの対象にせず、変更時は新しいHenji binaryとして配布する |
 | 追加architecture判断が必要 | tool/providerのphysical I/O、context/compaction、agent loop strategy、Human Gate、Surface code、storage backend、MCP/integration runtime、remote distribution | 技術的に外部化不能とは決めないが、実行placementとauthorityを個別機能の採用時に決める |
@@ -145,7 +145,7 @@ Surface (Host 側)
 HenjiHost ───── interface / protocol ───── AgentWorkerGeneration
    │                                           │
    │ ライフサイクル、terminal / Surface I/O、ストレージ │ Definition → AgentComposition → turn
-   │                                           │ provider、tools、subagents、context
+   │                                           │ provider、tools、context
    └────────────── 永続化状態 ────────────────┘
 ```
 
@@ -180,16 +180,15 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 
 - Hostが確定した`DefinitionRevisionRef`に対応するexact `AgentDefinition` revisionの評価。外部Definitionでは
   managed store内の確定closureを使い、元source pathを再解決せず、そのclosureの外側を実行時の正本にしない。
-- provider/model、effort、loop、tools、subagents、context component を含む、その
+- provider/model、effort、loop、tools、context component を含む、その
   `AgentComposition` の構築と実行。
-- Hostが解決したroot Definition refとdelegated subagentのexact refを使い、Host提供subagent moduleをroot
-  DefinitionのHenji helperが合成する。Workerはrootとsubagentをpeer評価せず、選択されたroot Definitionを評価する。
-  保証範囲はHenji helperを使うDefinitionに限る。
+- Hostが解決したroot Definition refに対応するDefinitionだけを評価する。Worker内でchild agentを同期実行する経路は
+  持たず、childは（採用時には）別Worker・別ExecutionとしてHostが扱う。
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - Hostが確定した基底設定、canonical conversation、明示projection、現在execution内のtool result等から、
   各model requestへ渡す実効contextを構成する意味。
 - HostがDefinition評価結果とは独立して渡したselected `instruction:henji-base`を、mandatory finalizerで
-  Definition-owned instruction contributionの先頭へ一度だけ合成する。rootとdelegated plannerは同じselected
+  Definition-owned instruction contributionの先頭へ一度だけ合成する。root（planner rootを含む）は同じselected
   exact revisionとfinalizerを使い、Definitionがcore-owned base slotをnamed componentとして返した場合は実行前に
   composition failureとする。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
@@ -265,27 +264,21 @@ attributionを共通境界として導入するが、汎用plugin loaderを先�
 Agent Definition用である。instruction、tool、provider等が同じloader、dependency、promotion、activation semanticsを
 使うとは決めず、それぞれを改訂対象に選んだloopでarchitectureへ戻る。
 
-#### activation-level subagent slot
+#### activation-level root slot
 
 managed Definition revisionを実行構成へ結ぶslotには、manifest内のdependency bindingとは別に、Hostのinstallation/user
 scope config `$XDG_CONFIG_HOME/henji-harness/agents.json`で表すactivation-level slotがある。slotはroot `agent:default`
-（parent role）とdelegated `subagent:<name>`の二種で、値はmanaged selector `moduleId@sha256:<digest>`である。Hostは
-Worker generation開始前に各slotをexact `DefinitionRevisionRef`へ解決し、slotの期待role/nameとrevisionの
-`declaredRole`/`subagentName`が一致することを検証する。未知slot、malformed、missing revision、role/name不一致は
-typed failureとし、built-inへ暗黙fallbackしない。現在のbinding scopeはinstallation/userに限り、workspace scopeは
-対象外である。binding変更は実行中generationへhot適用せず、次のgenerationから効く。
+の一種だけで、値はmanaged selector `moduleId@sha256:<digest>`である。HostはWorker generation開始前にroot slotをexact
+`DefinitionRevisionRef`へ解決し、revisionがroot-runnableであることを検証する。未知slot、malformed、missing revision、
+role不一致はtyped failureとし、built-inへ暗黙fallbackしない。`subagent:<name>` slotは廃止済みであり、`agents.json`に
+残っている場合は「このslotは廃止された」と分かるtyped diagnosticで失敗させる。現在のbinding scopeはinstallation/userに
+限り、workspace scopeは対象外である。binding変更は実行中generationへhot適用せず、次のgenerationから効く。
 
-Hostは解決したroot Definition refと、bind済みdelegated subagentのexact ref・process-local physical load descriptorだけを
-Worker start commandで渡す。Workerは**選択されたroot Definition**を評価し、そのHenji helperがHost提供subagent moduleを
-`AgentComposition`へ合成する。parent/subagentをpeerとして別々に評価する経路は作らない。Host-provided subagentが反映
-される保証範囲は、このHenji helperを使うDefinitionに限る。opaqueな自作root Definitionは、helperを使うか自前で
-subagentを合成する。subagentをrootとして実行する扱いは誤りであり、root slotはparent roleだけを受ける。
-
-delegated subagentは`subagent:<name>`で一般化する（Increment 72）。bundled plannerは`subagent:planner`の同梱既定で
-あり、他のnameは同名subagent roleのexternal managed Definitionのbindingを要求する。Agent Definitionは宣言した
-`subagent:<name>`ごとに`tool:delegate_to_<name>`を持ち、そのtoolがchild laneでsubagent実行を1 turn 1回までadmitする。
-child laneのrequest budgetは全subagentで共有し、合成した各subagentのexact refはmanifest／execution artifactの
-`subagents`（subagentName＋ref）へ記録する。
+Hostは解決したroot Definition refとprocess-local physical load descriptorをWorker start commandで渡す。Workerは
+**選択されたroot Definition**を評価する。parent/subagentをpeerとして別々に評価する経路や、Host提供subagent moduleを
+合成する経路は作らない。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係として扱う（非同期childは
+別incrementで採用する。V1はparent-execution-scoped one-shot fork/joinを予定し、mailbox、restart reattach、recursive
+spawn、swarm UIは対象外とする）。
 
 root Definitionの選択は、明示selector、`agent:default` binding、bundled defaultの順に優先する。再開・継続する
 Sessionの保存済みexact refは選択候補にせず、過去turnのattributionとして保持する。binding解決失敗はtyped
@@ -293,9 +286,9 @@ failureとし、bundledへ暗黙fallbackしない。継続時に保存済みref�
 transitionとして次のturnへ記録し、過去turnのattributionを変更しない。閲覧だけの場合は保存済みrefも現行refも
 解決せず、Worker generationを起動しない。
 
-resolvedなroot/subagent exact refはDefinition resource graphとexecution artifactへ記録し、context attributionへは
-入れず、二重authorityを作らない。subagent refはSession schemaへ保存しない（将来`AgentInstance`領域へ移す）。
-start command、ready message、execution artifactのcontractはversionを持ち、旧版は解釈しない。
+resolvedなroot exact refはDefinition resource graphとexecution artifactへ記録し、context attributionへは
+入れず、二重authorityを作らない。start command、ready message、execution artifactのcontractはversionを持ち、
+旧版は解釈しない。
 
 #### tool Definition
 
@@ -306,7 +299,7 @@ tool identityだけを宣言し、toolのcontract・executor・backendの実装�
 `managed/tool-definition/v1`へexact revisionをpublishするだけでactive selectionを変えない。activation-level bindingは
 `$XDG_CONFIG_HOME/henji-harness/tools.json`（`schemaVersion:1`＋`bindings: { "<toolIdentity>": "<selector>" }`）で表す。
 bindingは「どのexact tool Definition revisionを使うか」だけを表し、tool identityの宣言は持たない。toolの可視性は
-**各Agent Definitionのcapability宣言**がownerで、root parentとsubagent（`subagent:planner`を含む）を区別しない。
+**各Agent Definitionのcapability宣言**がownerである。
 bundled default parentの宣言一覧は固定で、Definitionは`additionalTools`として自分の追加`tool:<name>`を宣言できる。
 Hostはbundled tool Definition一覧と`tools.json` binding一覧を解決してWorker start commandへ渡し、Workerのregistryは
 Definitionが宣言したidentityだけをmaterializeする。bundled moduleが無いidentityはexternal bindingを要求する。
@@ -349,7 +342,7 @@ Hostはgeneration開始前にselected built-in/external baseのexact ref、conte
 解決し、Definition評価結果とは独立したdata-only Worker-core入力へ固定する。Definitionはrole、active tool guideline、
 workspace instruction、Skill manifest、runtime facts等のbaseを除くinstruction contributionを返す。Workerのmandatory
 finalizerはselected baseを先頭に置き、Henji-ownedな二つのLFだけをcomponent境界として後続contributionへ連結する。
-delegated plannerも同じselected baseを再解決せず使う。resolved exact ref/content、final system instruction内のprojection、
+planner rootも同じselected baseを再解決せず使う。resolved exact ref/content、final system instruction内のprojection、
 provider requestとの関係はexecution context attributionへ保存し、完成payloadの別authorityを追加しない。
 
 #### MCP integration
@@ -384,7 +377,7 @@ selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surfa
 provider IDとmodel IDが一致する場合だけ再利用する。
 
 Host configの`default-selection.json`がrootの既定selectionを選び、未設定時は同梱`openrouter-chat`既定を使う。
-delegated subagentは自身のDefinitionまたは`roleDefaults`からselectionを得て、root selectionを継承しない。
+planner rootは自身のDefinitionまたは`roleDefaults`からselectionを得る。
 credential値、Authorization、tokenはdeclaration、managed revision、Session、evidence、transcript、Definitionへ
 含めない。provider固有adapterのphysical placement、dynamic model取得、追加protocolは未決であり、採用時に
 architectureへ戻る。詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
@@ -408,8 +401,8 @@ registryをmaterializeした後にAgentCompositionのsystem instructionへ合成
 現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`、`web_fetch`を
 managed tool Definitionからmaterializeする。bundled tool Definitionは既存tool factoryをruntime bindingへ結び付ける
 薄いmoduleである。tool identityの宣言は各Agent Definitionがownerで、`additionalTools`で追加identityを宣言でき、
-`tools.json`のexternal tool Definition bindingが同名identityを差し替える。Host提供の`toolDefinitions`はrootと
-delegated subagentの両方へ渡り、各自が宣言したidentityだけをmaterializeする。catalog外の新しいidentityはbindingが
+`tools.json`のexternal tool Definition bindingが同名identityを差し替える。Host提供の`toolDefinitions`はroot
+Definitionへ渡り、宣言したidentityだけをmaterializeする。catalog外の新しいidentityはbindingが
 無ければ起動時にtyped failureとなり、plugin探索、hot reload、componentの独立revision・import dependency lineageは
 まだない。
 
@@ -483,12 +476,12 @@ redirectに任せる。TUI内のhistory overlayと`/history export`は持たな�
 
 同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
 revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は
-選択を固定し、delegated subagentはrootの選択を継承せず、自分のDefinitionまたはbundled既定を使う。Session schema v6はactive選択、
+選択を固定する。Session schema v6はactive選択、
 変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
 
 production TUI invocationは、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
-渡す。Workerは同じ値をroot、delegated planner、context compactionが生成する各OpenRouter model adapterへ
+渡す。Workerは同じ値をroot（planner rootを含む）、context compactionが生成する各OpenRouter model adapterへ
 適用する。このrequest単位deadlineはSession stateではなくinvocation stateであり、Session切替では変わらない。
 未指定時は180,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
 shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。

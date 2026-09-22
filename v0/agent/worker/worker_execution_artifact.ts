@@ -3,11 +3,12 @@ import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import type {
   WorkerCorrelation,
   WorkerHostCommand,
-  WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
+import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import { isStoredModelSelection } from '../provider/model_selection.ts';
 import {
+  type HenjiInstructionRevisionRef,
   isDefinitionRevisionRef,
   isHenjiInstructionRevisionRef,
   isToolDefinitionRevisionRef,
@@ -72,6 +73,33 @@ export interface WorkerExecutionOutcome {
     | 'history_io_failure';
 }
 
+/**
+ * The stored Worker manifest shape embedded in an execution artifact. This is a historical
+ * persistence schema, deliberately independent of the live Worker ready-message protocol so that
+ * removed live fields (`plannerModel`, `subagents`) remain readable from old artifacts.
+ */
+export interface WorkerExecutionStoredManifestV1 {
+  readonly role: 'parent' | 'planner';
+  readonly maxSteps: number;
+  readonly profileId: string;
+  readonly resources: readonly string[];
+  readonly rootModel: ModelSelection;
+  /** Legacy sync-subagent model route; retained for readback of stored artifacts only. */
+  readonly plannerModel?: ModelSelection;
+  /** Legacy delegated subagent attributions; retained for readback of stored artifacts only. */
+  readonly subagents?: readonly WorkerExecutionSubagentAttributionV1[];
+  readonly tools?: readonly {
+    readonly toolIdentity: string;
+    readonly ref: ToolDefinitionRevisionRef;
+  }[];
+  readonly baseInstruction?: {
+    readonly slot: 'instruction:henji-base';
+    readonly selectionSource: 'built-in' | 'external';
+    readonly ref: HenjiInstructionRevisionRef;
+    readonly contentDigest: string;
+  };
+}
+
 export interface WorkerExecutionArtifactV2 {
   readonly schemaVersion: 2;
   readonly executionId: string;
@@ -84,7 +112,7 @@ export interface WorkerExecutionArtifactV2 {
   readonly workerGeneration: string;
   readonly build: BuildManifestV1;
   readonly definition: DefinitionRevisionRef;
-  readonly manifest: NonNullable<WorkerReadyMessage['manifest']>;
+  readonly manifest: WorkerExecutionStoredManifestV1;
   readonly command: WorkerExecutionTurnCommand;
   readonly baseStateRevision: number;
   readonly proposedStateRevision?: number;
@@ -253,7 +281,7 @@ const validDefinition = (value: unknown): value is DefinitionRevisionRef => {
 
 const validManifest = (
   value: unknown,
-): value is NonNullable<WorkerReadyMessage['manifest']> => {
+): value is WorkerExecutionStoredManifestV1 => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
@@ -264,7 +292,7 @@ const validManifest = (
     'profileId',
     'resources',
     'rootModel',
-    'plannerModel',
+    ...(Object.hasOwn(manifest, 'plannerModel') ? ['plannerModel'] : []),
     ...(Object.hasOwn(manifest, 'subagents') ? ['subagents'] : []),
     ...(Object.hasOwn(manifest, 'baseInstruction') ? ['baseInstruction'] : []),
     ...(Object.hasOwn(manifest, 'tools') ? ['tools'] : []),
@@ -300,7 +328,8 @@ const validManifest = (
     validText(manifest.profileId, true) && Array.isArray(manifest.resources) &&
     manifest.resources.every((resource) => validText(resource, true)) &&
     isStoredModelSelection(manifest.rootModel) &&
-    isStoredModelSelection(manifest.plannerModel) &&
+    (!Object.hasOwn(manifest, 'plannerModel') ||
+      isStoredModelSelection(manifest.plannerModel)) &&
     (!Object.hasOwn(manifest, 'subagents') ||
       validSubagents(manifest.subagents)) &&
     (!Object.hasOwn(manifest, 'tools') || validTools(manifest.tools));

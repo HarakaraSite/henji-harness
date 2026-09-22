@@ -35,28 +35,6 @@ export const workerBuiltinModulePath = (
   ).pathname;
 
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
-export const PLANNER_SUBAGENT_NAME = 'planner' as const;
-
-/** Bundled delegated subagent names the Host can resolve without an external binding. */
-export const BUNDLED_SUBAGENT_NAMES: readonly string[] = Object.freeze([PLANNER_SUBAGENT_NAME]);
-
-export const builtinSubagentDefinitionRefFor = async (
-  name: string,
-): Promise<DefinitionRevisionRef> => {
-  if (name !== PLANNER_SUBAGENT_NAME) {
-    throw new Error(`no bundled subagent Definition for name: ${name}`);
-  }
-  return await builtinDefinitionRef(PLANNER_SUBAGENT_NAME, buildManifest());
-};
-
-export const bundledSubagentLoadRequest = async (
-  name: string,
-): Promise<import('./worker_protocol.ts').WorkerSubagentLoadRequest> => ({
-  subagentName: name,
-  ref: await builtinSubagentDefinitionRefFor(name),
-  module: await readWorkerModuleRevision(workerBuiltinModulePath('planner')),
-});
-
 const bundledToolModule = (name: string): string =>
   new URL(`./worker_builtin_${name}_tool.ts`, import.meta.url).pathname;
 

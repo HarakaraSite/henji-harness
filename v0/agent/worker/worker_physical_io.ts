@@ -97,23 +97,6 @@ class WorkerProbeModel implements Model {
       throwIfCancelled(options.signal);
     } else if (task.includes('slow')) await delayed(options);
     if (
-      !hasCurrentTurnToolResult(request) && this.role === 'parent' &&
-      task.includes('delegate')
-    ) {
-      return {
-        kind: 'tool_calls',
-        calls: [{
-          callId: 'worker-planner-1',
-          name: 'delegate_to_planner',
-          arguments: {
-            task: task.includes('delegate-long')
-              ? 'ten-step worker planner child task'
-              : 'worker planner child task',
-          },
-        }],
-      };
-    }
-    if (
       task.includes('ten-step') && currentTurnToolResultCount(request) < 9
     ) {
       const ordinal = currentTurnToolResultCount(request) + 1;

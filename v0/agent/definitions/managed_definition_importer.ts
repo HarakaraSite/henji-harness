@@ -4,7 +4,6 @@ import {
   createManagedDefinitionManifest,
   type DefinitionLocalDependencyV1,
   type DefinitionRevisionContent,
-  isSubagentName,
   type ManagedDefinitionCustodyV1,
   type ManagedDefinitionManifestV1,
 } from './managed_definition_manifest.ts';
@@ -334,13 +333,11 @@ export const importManagedDefinition = async (
   if (!isExternalDefinitionResourceId(options.resourceId)) {
     throw new ManagedDefinitionError('module_invalid', 'Definition module ID is invalid');
   }
-  if (
-    (options.declaredRole === 'parent' && options.subagentName !== undefined) ||
-    (options.declaredRole === 'subagent' && !isSubagentName(options.subagentName))
-  ) {
+  // The subagent Definition role is abolished: new installs may only declare a root Definition.
+  if (options.declaredRole !== 'parent' || options.subagentName !== undefined) {
     throw new ManagedDefinitionError(
       'module_invalid',
-      'Definition role declaration is invalid',
+      'Definition role declaration is invalid: the subagent role is abolished',
     );
   }
   const imported = await importManagedModule({

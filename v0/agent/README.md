@@ -39,13 +39,12 @@ The interactive Session owns its active provider/model route and reasoning effor
 the Definition revision. The launcher defaults to `openrouter-chat`; the other bundled ids are
 `openrouter-responses`, `openai-chat`, and `openai-responses`. `--root-provider <provider-id>` uses
 that provider's effective declaration and catalog. Data-only declarations under `providers/*.json`
-can add ids using a binary-owned protocol adapter. Delegated subagents use their own Definition
-selection; the unbound bundled planner uses its `openrouter-chat` role default. Sonar `web_search`
-keeps an independent OpenRouter route and credential. The current standalone-era Session record
-schema v6 persists provider, API, auth-profile identity, active selection, change history,
-per-committed-turn attribution, and each committed turn's logical built-in Definition ref and build
-manifest. Previous development schemas remain in the old state namespace and are not interpreted by
-the compiled command.
+can add ids using a binary-owned protocol adapter. The bundled planner is a root-runnable Definition
+with its own `openrouter-chat` role default. Sonar `web_search` keeps an independent OpenRouter
+route and credential. The current standalone-era Session record schema v6 persists provider, API,
+auth-profile identity, active selection, change history, per-committed-turn attribution, and each
+committed turn's logical built-in Definition ref and build manifest. Previous development schemas
+remain in the old state namespace and are not interpreted by the compiled command.
 
 The installation-wide `instruction:henji-base` slot starts from a minimal built-in core (agent role
 and the credential/Authorization boundary). A user-scoped

@@ -44,26 +44,17 @@ import {
   managedWorkerDefinitionLoadRequest,
 } from './worker_capsule.ts';
 import {
-  BUNDLED_SUBAGENT_NAMES,
   BUNDLED_TOOL_DEFINITION_IDENTITIES,
-  bundledSubagentLoadRequest,
   bundledToolDefinitionLoadRequest,
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';
-import {
-  AgentBindingError,
-  resolveAgentSlotBindings,
-  type ResolvedAgentSlotBinding,
-} from '../definitions/agent_slot_binding.ts';
+import { readAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
 import {
   type ResolvedToolDefinitionBinding,
   resolveToolDefinitionBindings,
   ToolBindingError,
 } from '../definitions/tool_binding.ts';
-import type {
-  WorkerSubagentLoadRequest,
-  WorkerToolDefinitionLoadRequest,
-} from './worker_protocol.ts';
+import type { WorkerToolDefinitionLoadRequest } from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
@@ -473,49 +464,12 @@ export const createWorkerSession = async (
       throw new Error('session binding does not match the selected Definition');
     }
     /*
-     * Resolve every activation-level `subagent:<name>` slot for each root parent generation. A
-     * bound managed revision wins; otherwise a bundled module is used when one exists. Binding
-     * changes apply only to generations opened after the change, never to a running generation.
+     * The activation-level `agents.json` file is validated on every generation open so an
+     * abolished `subagent:<name>` slot surfaces a typed failure instead of being ignored.
      */
-    const resolveSubagentDefinitions = async (): Promise<
-      readonly WorkerSubagentLoadRequest[] | undefined
-    > => {
-      let bindings: ReadonlyMap<string, ResolvedAgentSlotBinding>;
-      try {
-        bindings = configRoot === undefined || dataRoot === undefined
-          ? new Map<string, ResolvedAgentSlotBinding>()
-          : await resolveAgentSlotBindings(configRoot, dataRoot);
-      } catch (error) {
-        if (error instanceof AgentBindingError) {
-          throw new DefinitionStartupError(
-            error.code === 'binding_definition_not_found'
-              ? 'definition_not_found'
-              : error.code === 'binding_role_mismatch'
-              ? 'definition_role_mismatch'
-              : 'definition_invalid',
-            'resolution',
-            error.message,
-            error.definition,
-          );
-        }
-        throw error;
-      }
-      const requests: WorkerSubagentLoadRequest[] = [];
-      const resolvedNames = new Set<string>();
-      for (const resolvedBinding of bindings.values()) {
-        if (resolvedBinding.slot.kind !== 'subagent') continue;
-        requests.push({
-          subagentName: resolvedBinding.slot.name,
-          ref: structuredClone(resolvedBinding.ref),
-          module: managedWorkerDefinitionLoadRequest(resolvedBinding.revision),
-        });
-        resolvedNames.add(resolvedBinding.slot.name);
-      }
-      for (const name of BUNDLED_SUBAGENT_NAMES) {
-        if (resolvedNames.has(name)) continue;
-        requests.push(await bundledSubagentLoadRequest(name));
-      }
-      return requests.length === 0 ? undefined : requests;
+    const assertAgentSlotBindingsSupported = async (): Promise<void> => {
+      if (configRoot === undefined) return;
+      await readAgentSlotBindings(configRoot);
     };
     /*
      * Resolve every declared tool Definition. An activation-level `tools.json` binding wins;
@@ -573,6 +527,7 @@ export const createWorkerSession = async (
     ): Promise<WorkerHostSession> => {
       try {
         baseInstruction = await resolveBaseInstruction();
+        await assertAgentSlotBindingsSupported();
         return await WorkerHostSession.open({
           handle: workerHandle,
           workspaceRoot: workspace.root,
@@ -580,7 +535,6 @@ export const createWorkerSession = async (
           definition,
           modulePath,
           loadDescriptor,
-          subagentDefinitions: await resolveSubagentDefinitions(),
           toolDefinitions: await resolveToolDefinitions(),
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,

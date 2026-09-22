@@ -624,26 +624,7 @@ Deno.test('Worker root request admission follows maxSteps beyond the former eigh
   }
 });
 
-Deno.test('root maxSteps override does not reduce the delegated planner 64-step budget', async () => {
-  const created = await createWorkerSession({
-    persistence: 'none',
-    agent: 'default',
-    rootMaxSteps: 2,
-    physicalIoMode: 'provider-free',
-  });
-  try {
-    const outcome = await created.session.submit('delegate-long planner turn');
-    assert(outcome.ok);
-    assertEquals({ stopReason: outcome.stopReason, steps: outcome.steps }, {
-      stopReason: 'final',
-      steps: 2,
-    });
-  } finally {
-    await created.close();
-  }
-});
-
-Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the Worker generation', async () => {
+Deno.test('Slice 3 keeps effect and cancellation semantics inside the Worker generation', async () => {
   const capsule = new WorkerCapsule(workerUrl);
   try {
     const revision = await readWorkerModuleRevision(
@@ -663,24 +644,8 @@ Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the 
     capsule.send({
       kind: 'turn',
       correlation: correlation('planner-turn'),
-      task: 'delegate planner',
+      task: 'ordinary worker turn',
     });
-    const effect = await capsule.waitForMessage((message): message is Extract<
-      WorkerToHostMessage,
-      { kind: 'provider_observation' }
-    > =>
-      message.kind === 'provider_observation' &&
-      message.observation.kind === 'runtime_event' &&
-      message.observation.event.kind === 'tool_call'
-    );
-    assertEquals(effect.observation.kind, 'runtime_event');
-    if (
-      effect.observation.kind !== 'runtime_event' ||
-      effect.observation.event.kind !== 'tool_call'
-    ) {
-      throw new Error('expected tool call');
-    }
-    assertEquals(effect.observation.event.call.name, 'delegate_to_planner');
     const proposal = await capsule.waitForMessage(isCommitProposal);
     capsule.send({
       kind: 'commit_acknowledgement',
@@ -690,8 +655,8 @@ Deno.test('Slice 3 keeps planner, effect, and cancellation semantics inside the 
     await capsule.waitForMessage(isTerminalAgentRuntime);
     assert(
       proposal.transcript.some((message) =>
-        message.role === 'tool' &&
-        message.content.some((item) => item.text.includes('worker planner result'))
+        isTextAssistant(message) &&
+        message.content.text.includes('worker answer: ordinary worker turn')
       ),
     );
 
@@ -1162,7 +1127,7 @@ Deno.test('Worker TUI composition routes core events through the presentation ad
   }
 });
 
-Deno.test('Worker shares request accounting and credential-free evidence across parent and planner', async () => {
+Deno.test('Worker shares request accounting and credential-free evidence across turns', async () => {
   const evidenceStore = new FakeProviderEvidenceStore();
   const created = await createWorkerSession({
     persistence: 'none',
@@ -1173,8 +1138,8 @@ Deno.test('Worker shares request accounting and credential-free evidence across 
   try {
     const host = created.session;
     const readOutcome = await host.submit('read worker protocol');
-    const plannerOutcome = await host.submit('delegate planner');
-    assert(readOutcome.ok && plannerOutcome.ok);
+    const secondOutcome = await host.submit('read worker protocol');
+    assert(readOutcome.ok && secondOutcome.ok);
     assertEquals(
       {
         read: [
@@ -1182,19 +1147,19 @@ Deno.test('Worker shares request accounting and credential-free evidence across 
           readOutcome.toolCallCount,
           readOutcome.toolResultCount,
         ],
-        planner: [
-          plannerOutcome.steps,
-          plannerOutcome.toolCallCount,
-          plannerOutcome.toolResultCount,
+        second: [
+          secondOutcome.steps,
+          secondOutcome.toolCallCount,
+          secondOutcome.toolResultCount,
         ],
         requests: [
           readOutcome.turnProviderRequestCount,
           readOutcome.runtimeProviderRequestCount,
-          plannerOutcome.turnProviderRequestCount,
-          plannerOutcome.runtimeProviderRequestCount,
+          secondOutcome.turnProviderRequestCount,
+          secondOutcome.runtimeProviderRequestCount,
         ],
       },
-      { read: [2, 1, 1], planner: [2, 1, 1], requests: [0, 0, 0, 0] },
+      { read: [2, 1, 1], second: [2, 1, 1], requests: [0, 0, 0, 0] },
     );
     const evidence = await evidenceStore.list();
     assertEquals(evidence.length, 2);

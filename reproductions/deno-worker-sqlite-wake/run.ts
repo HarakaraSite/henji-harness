@@ -14,7 +14,6 @@ import type {
   WorkerSessionHandle,
 } from "../../v0/agent/session/session_store.ts";
 import {
-  bundledSubagentLoadRequest,
   bundledToolDefinitionLoadRequests,
   readDefinitionRevision,
 } from "../../v0/agent/worker/worker_definition_revision.ts";
@@ -220,7 +219,6 @@ const host = await WorkerHostSession.open({
   modulePath,
   physicalIoMode: "production",
   toolDefinitions: await bundledToolDefinitionLoadRequests(),
-  subagentDefinitions: [await bundledSubagentLoadRequest("planner")],
   providerDeclarations: builtinProviderDeclarations(),
   baseInstruction: builtinHenjiBaseInstruction(),
   historyPersistence: history,

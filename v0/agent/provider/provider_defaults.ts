@@ -15,7 +15,7 @@ export const bundledDefaultDeclarationFor = (
   providers.find((declaration) => declaration.providerId === providerId);
 
 /**
- * One bundled slot default (model route) for a delegated subagent slot. This is the data source for
+ * One bundled slot default (model route) for a named agent lane. This is the data source for
  * role defaults; it is independent of the root provider `defaults` and limited to known providers.
  */
 export interface BundledRoleDefaultV1 {

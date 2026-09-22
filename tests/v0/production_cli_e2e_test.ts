@@ -2,7 +2,6 @@ import type { ProviderEvidenceV2 } from '../../v0/agent/provider/provider_eviden
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import type {
   WorkerExecutionArtifactV2,
@@ -85,7 +84,6 @@ const executionFixture = (overrides: Partial<WorkerExecutionArtifactV2> = {}) =>
       profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
       resources: [],
       rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-      plannerModel: roleDefaultModelSelection('subagent:planner'),
     },
     command: { kind: 'turn', correlation, task: PRODUCTION_CLI_E2E_TASK },
     baseStateRevision: 1,

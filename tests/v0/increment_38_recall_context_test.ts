@@ -7,7 +7,6 @@ import {
 } from '../../v0/agent/provider/provider_evidence.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
@@ -85,7 +84,6 @@ const sourceArtifact = async (
       profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
       resources: [],
       rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-      plannerModel: roleDefaultModelSelection('subagent:planner'),
     },
     command: { kind: 'turn', correlation: correlation('source-turn'), task: 'inspect source' },
     baseStateRevision: 1,

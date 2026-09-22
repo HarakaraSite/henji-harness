@@ -13,7 +13,6 @@ import type { ProviderEvidenceObservation } from '../provider/provider_evidence.
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
-  type AgentSubagentModule,
   type AgentToolDefinitionModule,
   type ExecutableAgentDefinition,
   type ExecutableToolDefinition,
@@ -359,7 +358,6 @@ const createGeneration = async (
   rootRole: 'parent' | 'planner' = 'parent',
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
-  subagents: readonly AgentSubagentModule[] = [],
   toolDefinitions: readonly AgentToolDefinitionModule[] = [],
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
@@ -411,7 +409,6 @@ const createGeneration = async (
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,
-    ...(subagents.length === 0 ? {} : { subagents }),
     ...(toolComponents.length === 0
       ? {}
       : { toolDefinitions: toolComponents.map((tool) => tool.component) }),
@@ -518,7 +515,6 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         ? command.diagnosticStageBuffer
         : undefined;
       let module: Awaited<ReturnType<typeof loadVerifiedModule>> | undefined;
-      const loadedSubagents: AgentSubagentModule[] = [];
       const loadedTools: AgentToolDefinitionModule[] = [];
       if (command.module !== undefined) {
         try {
@@ -526,20 +522,6 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.correlation,
             command.module,
           );
-          for (const subagent of command.subagents ?? []) {
-            const loaded = await loadVerifiedModule(
-              command.correlation,
-              subagent.module,
-            );
-            if (loaded.definition === undefined) {
-              throw new Error('Worker subagent Definition is unavailable');
-            }
-            loadedSubagents.push({
-              subagentName: subagent.subagentName,
-              ref: subagent.ref,
-              definition: loaded.definition,
-            });
-          }
           for (const tool of command.toolDefinitions ?? []) {
             const loaded = await loadVerifiedModuleFunction(
               command.correlation,
@@ -588,7 +570,6 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.rootRole,
             command.baseInstruction,
             command.providerDeclarations ?? [],
-            loadedSubagents,
             loadedTools,
           );
         } catch (error) {

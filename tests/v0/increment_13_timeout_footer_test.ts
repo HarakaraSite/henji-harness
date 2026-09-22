@@ -10,7 +10,6 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
@@ -161,7 +160,6 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
             profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-            plannerModel: roleDefaultModelSelection('subagent:planner'),
             ...(command.baseInstruction === undefined ? {} : {
               baseInstruction: {
                 slot: command.baseInstruction.slot,

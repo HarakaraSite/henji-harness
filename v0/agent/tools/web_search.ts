@@ -149,7 +149,6 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
         body,
         callId: context.callId ??
           (context.modelStep === undefined ? 'web-search' : `web-search-${context.modelStep}`),
-        lane: context.modelExecution?.lane ?? 'parent',
         modelStep: context.modelStep ?? 1,
         modelSelection: SONAR_MODEL_SELECTION,
       });

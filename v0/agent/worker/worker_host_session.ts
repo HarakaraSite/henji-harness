@@ -1288,9 +1288,6 @@ export class WorkerHostSession {
       execution.committedStateRevision !== undefined;
     return {
       schemaVersion: 7,
-      ...(this.currentManifest.subagents === undefined ? {} : {
-        subagents: structuredClone(this.currentManifest.subagents),
-      }),
       ...(this.currentManifest.tools === undefined ? {} : {
         tools: structuredClone(this.currentManifest.tools),
       }),
@@ -1656,9 +1653,6 @@ export class WorkerHostSession {
         kind: 'start',
         correlation,
         module: revision,
-        ...(this.options.subagentDefinitions === undefined
-          ? {}
-          : { subagents: this.options.subagentDefinitions }),
         ...(this.options.toolDefinitions === undefined
           ? {}
           : { toolDefinitions: this.options.toolDefinitions }),
@@ -1713,10 +1707,6 @@ export class WorkerHostSession {
         !sameModelSelection(
           ready.manifest.rootModel,
           this.projection.modelSelection,
-        ) ||
-        !sameModelSelection(
-          ready.manifest.plannerModel,
-          roleDefaultModelSelection('subagent:planner'),
         ) ||
         ready.manifest.profileId !==
           modelRouteProfileId(this.projection.modelSelection) ||
@@ -1912,10 +1902,6 @@ export class WorkerHostSession {
         message.kind === 'worker_error' || !message.accepted ||
         message.manifest === undefined ||
         !sameModelSelection(message.manifest.rootModel, selection) ||
-        !sameModelSelection(
-          message.manifest.plannerModel,
-          roleDefaultModelSelection('subagent:planner'),
-        ) ||
         message.manifest.profileId !== modelRouteProfileId(selection) ||
         !validCredentialAvailability(message.credentialAvailability, selection)
       ) throw new Error('Worker rejected model selection');

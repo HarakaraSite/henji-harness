@@ -6,9 +6,6 @@ import type { ModelSelection } from '../provider/model_selection.ts';
 import type { ContextOccurrenceSource } from '../history/context_attribution.ts';
 import type { WorkerStageName } from '../worker/worker_stage_probe.ts';
 
-/** The two independently bounded request lanes in one accepted turn. */
-export type RequestLane = 'parent' | 'child';
-
 /** The append operation that gave one transcript message its causal source. */
 export type RequestMessageSourceKind =
   | 'committed'
@@ -27,19 +24,16 @@ export type RequestMessageSourceFactory = (
   kind: RequestMessageSourceKind,
   messageIndex: number,
   modelStep?: number,
-  lane?: RequestLane,
-  sourceCallId?: string,
 ) => readonly ContextOccurrenceSource[];
 
 export interface ModelRequestObservation {
   /** The exact provider request. History observers must not clone or retain the full value. */
   readonly request: ModelRequest;
-  readonly lane: RequestLane;
   readonly modelStep: number;
   readonly modelSelection?: ModelSelection;
   /** Explicit sidecars built alongside the request projection, never inferred from bytes. */
   readonly sourceAttribution?: ModelRequestSourceAttribution;
-  /** Append-only transcript boundary for this lane's previous request. */
+  /** Append-only transcript boundary for the previous request. */
   readonly previousTranscriptLength: number;
 }
 
@@ -47,26 +41,22 @@ export interface AuxiliaryRequestObservation {
   readonly purpose: 'web_search';
   readonly body: string;
   readonly callId: string;
-  readonly lane: RequestLane;
   readonly modelStep: number;
   readonly modelSelection?: ModelSelection;
 }
 
 export interface TurnRequestBudgetSnapshot {
   readonly parent: number;
-  readonly child: number;
   readonly aggregate: number;
 }
 
 export const REQUEST_LIMITS = Object.freeze({
   parent: 8,
-  child: 8,
-  aggregate: 16,
+  aggregate: 8,
 });
 
 export interface TurnRequestLimits {
   readonly parent: number;
-  readonly child: number;
   readonly aggregate: number;
 }
 
@@ -85,43 +75,37 @@ export type ToolProgressReporter = (snapshot: string) => void;
  */
 export class TurnRequestBudget {
   private parent = 0;
-  private child = 0;
 
   constructor(private readonly limits: TurnRequestLimits = REQUEST_LIMITS) {
     if (
       !Number.isSafeInteger(limits.parent) || limits.parent <= 0 ||
-      !Number.isSafeInteger(limits.child) || limits.child <= 0 ||
       !Number.isSafeInteger(limits.aggregate) ||
-      limits.aggregate < Math.max(limits.parent, limits.child)
+      limits.aggregate < limits.parent
     ) throw new RangeError('request limits must be positive safe integers');
   }
 
-  claim(lane: RequestLane): boolean {
-    const used = lane === 'parent' ? this.parent : this.child;
-    if (used >= this.limits[lane] || this.aggregate >= this.limits.aggregate) {
+  claim(): boolean {
+    if (this.parent >= this.limits.parent || this.parent >= this.limits.aggregate) {
       return false;
     }
-    if (lane === 'parent') this.parent += 1;
-    else this.child += 1;
+    this.parent += 1;
     return true;
   }
 
   get aggregate(): number {
-    return this.parent + this.child;
+    return this.parent;
   }
 
   snapshot(): TurnRequestBudgetSnapshot {
     return Object.freeze({
       parent: this.parent,
-      child: this.child,
-      aggregate: this.aggregate,
+      aggregate: this.parent,
     });
   }
 }
 
-/** Internal loop seam shared by parent and child lanes. */
+/** Internal loop seam for the accepted parent turn. */
 export interface ModelExecutionContext {
-  readonly lane: RequestLane;
   readonly signal?: AbortSignal;
   readonly cancellation?: TurnCancellation;
   readonly diagnosticOwner?: FailureDiagnosticOwner;
@@ -136,9 +120,9 @@ export interface ModelExecutionContext {
   ) => number | PromiseLike<number>;
   readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void;
   readonly modelSelection?: ModelSelection;
-  /** Worker-owned source projection inherited by delegated planner loops. */
+  /** Worker-owned source projection for the accepted turn. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
-  /** Worker-owned parent projection inherited by delegated planner loops. */
+  /** Worker-owned parent projection for the accepted turn. */
   readonly projectParentRequestWithSources?: (
     request: ModelRequest,
     sources: ModelRequestSourceAttribution,
@@ -146,8 +130,6 @@ export interface ModelExecutionContext {
     readonly request: ModelRequest;
     readonly sources: ModelRequestSourceAttribution;
   };
-  /** Parent tool call that admitted this planner execution, if any. */
-  readonly sourceCallId?: string;
   /** Aggregate fetch count at the current failure occurrence, supplied by the host adapter. */
   readonly providerRequestCount?: () => number;
   /** Runtime-process cumulative fetch count, supplied by the host adapter. */
@@ -157,67 +139,8 @@ export interface ModelExecutionContext {
   snapshot(): TurnRequestBudgetSnapshot;
 }
 
-/** The restricted context visible to one synchronously delegated planner child. */
-export class ChildTurnExecutionContext implements ModelExecutionContext {
-  readonly lane = 'child' as const;
-  private delegatedCallId: string | undefined;
-  constructor(
-    private readonly budget: TurnRequestBudget,
-    readonly signal?: AbortSignal,
-    readonly cancellation?: TurnCancellation,
-    readonly diagnosticOwner?: FailureDiagnosticOwner,
-    readonly providerRequestCount?: () => number,
-    readonly runtimeProviderRequestCount?: () => number,
-    readonly providerEvidence?: ProviderEvidenceRecorder,
-    readonly observeModelRequest?: (
-      observation: ModelRequestObservation,
-    ) => number | PromiseLike<number>,
-    readonly modelSelection?: ModelSelection,
-    readonly observeAuxiliaryRequest?: (
-      observation: AuxiliaryRequestObservation,
-    ) => number | PromiseLike<number>,
-    readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
-    readonly requestMessageSource?: RequestMessageSourceFactory,
-    readonly projectParentRequestWithSources?: (
-      request: ModelRequest,
-      sources: ModelRequestSourceAttribution,
-    ) => {
-      readonly request: ModelRequest;
-      readonly sources: ModelRequestSourceAttribution;
-    },
-    readonly providerExactRequestObserver?: ProviderExactRequestObserver,
-  ) {}
-
-  get sourceCallId(): string | undefined {
-    return this.delegatedCallId;
-  }
-
-  setDelegatedCallId(callId: string | undefined): void {
-    this.delegatedCallId = callId;
-  }
-
-  claimModelRequest(): boolean {
-    return this.budget.claim('child');
-  }
-
-  snapshot(): TurnRequestBudgetSnapshot {
-    return this.budget.snapshot();
-  }
-
-  persistDiagnostic(): Promise<void> {
-    return this.diagnosticOwner?.persist() ?? Promise.resolve();
-  }
-}
-
-/**
- * Per-accepted-parent-turn state. The admission flag is set before returning a child view, so
- * direct concurrent dispatches cannot start two children while the first one is awaiting.
- */
+/** Per-accepted-turn state shared by the root model loop. */
 export class ParentTurnExecutionContext implements ModelExecutionContext {
-  readonly lane = 'parent' as const;
-  private readonly admittedSubagents = new Set<string>();
-  private readonly child: ChildTurnExecutionContext;
-
   constructor(
     readonly turn: number,
     private readonly budget = new TurnRequestBudget(),
@@ -231,7 +154,6 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
       observation: ModelRequestObservation,
     ) => number | PromiseLike<number>,
     readonly modelSelection?: ModelSelection,
-    private readonly plannerModelSelection?: ModelSelection,
     readonly observeAuxiliaryRequest?: (
       observation: AuxiliaryRequestObservation,
     ) => number | PromiseLike<number>,
@@ -249,26 +171,10 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
     if (!Number.isSafeInteger(turn) || turn <= 0) {
       throw new RangeError('turn must be a positive integer');
     }
-    this.child = new ChildTurnExecutionContext(
-      budget,
-      signal,
-      cancellation,
-      diagnosticOwner,
-      providerRequestCount,
-      runtimeProviderRequestCount,
-      providerEvidence,
-      observeModelRequest,
-      plannerModelSelection,
-      observeAuxiliaryRequest,
-      reportAuxiliaryStage,
-      requestMessageSource,
-      projectParentRequestWithSources,
-      providerExactRequestObserver,
-    );
   }
 
   claimModelRequest(): boolean {
-    return this.budget.claim('parent');
+    return this.budget.claim();
   }
 
   snapshot(): TurnRequestBudgetSnapshot {
@@ -277,27 +183,6 @@ export class ParentTurnExecutionContext implements ModelExecutionContext {
 
   persistDiagnostic(): Promise<void> {
     return this.diagnosticOwner?.persist() ?? Promise.resolve();
-  }
-
-  /** Admit at most one execution per named subagent and return its restricted child-lane view. */
-  admitSubagentExecution(
-    name: string,
-    callId?: string,
-  ): ChildTurnExecutionContext | undefined {
-    if (this.admittedSubagents.has(name)) return undefined;
-    this.admittedSubagents.add(name);
-    this.child.setDelegatedCallId(callId);
-    return this.child;
-  }
-
-  admitPlannerExecution(
-    callId?: string,
-  ): ChildTurnExecutionContext | undefined {
-    return this.admitSubagentExecution('planner', callId);
-  }
-
-  get hasAdmittedPlannerExecution(): boolean {
-    return this.admittedSubagents.has('planner');
   }
 }
 
@@ -314,7 +199,6 @@ export const createTurnExecutionContext = (
     observation: ModelRequestObservation,
   ) => number | PromiseLike<number>,
   modelSelection?: ModelSelection,
-  plannerModelSelection?: ModelSelection,
   observeAuxiliaryRequest?: (
     observation: AuxiliaryRequestObservation,
   ) => number | PromiseLike<number>,
@@ -340,7 +224,6 @@ export const createTurnExecutionContext = (
     providerEvidence,
     observeModelRequest,
     modelSelection,
-    plannerModelSelection,
     observeAuxiliaryRequest,
     reportAuxiliaryStage,
     requestMessageSource,

@@ -96,7 +96,7 @@ export const createProviderRequestDispatcher = (
       const execution = evidenceInput.execution;
       execution.reportAuxiliaryStage?.('evidence_start_entered');
       const requestStart = {
-        lane: execution.lane === 'child' ? 'planner' as const : 'parent' as const,
+        lane: 'parent' as const,
         phase: evidenceInput.phase,
         modelStep: evidenceInput.modelStep,
         endpoint: request.endpoint,

@@ -201,7 +201,6 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     assert(execution !== undefined);
     assert(execution.manifest !== undefined);
     assertEquals(execution.manifest.rootModel, gpt);
-    assertEquals(execution.manifest.plannerModel, roleDefaultModelSelection('subagent:planner'));
 
     await first.close();
     first = undefined;

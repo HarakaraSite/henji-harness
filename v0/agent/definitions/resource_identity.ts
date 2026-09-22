@@ -252,7 +252,6 @@ export const validateAgentResourceTopology = (
       ...[
         'tool:bash',
         'tool:bash_output',
-        'tool:delegate_to_planner',
         'tool:edit',
         'tool:read',
         'tool:submit_json_result',
@@ -262,7 +261,6 @@ export const validateAgentResourceTopology = (
       ].map((name) => createAgentResourceIdentity(name)),
     );
     if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
-    expected.push(createAgentResourceIdentity('subagent:planner'));
   } else {
     expected.push(createAgentResourceIdentity('tool:read'));
     if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
@@ -333,7 +331,6 @@ const declaredResources = (
       'instructions',
       'skills',
       'tools',
-      'subagents',
     ]) ||
     !isPlainObject(definition.limits) || !Object.isFrozen(definition.limits) ||
     !exactDataProperties(definition.limits, ['maxSteps']) ||
@@ -346,8 +343,7 @@ const declaredResources = (
   const instructions = snapshotIdentityArray(capabilities.instructions);
   const skills = snapshotIdentityArray(capabilities.skills);
   const tools = snapshotIdentityArray(capabilities.tools);
-  const subagents = snapshotIdentityArray(capabilities.subagents);
-  const all = [...instructions, ...skills, ...tools, ...subagents];
+  const all = [...instructions, ...skills, ...tools];
   const names = new Set<string>();
   for (const resource of all) {
     if (names.has(`${resource}`)) return invalid();

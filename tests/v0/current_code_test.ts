@@ -1,9 +1,7 @@
 import * as agentCli from '../../v0/agent/cli/fixture_cli.ts';
-import type { LoopOutcome, ModelRequest, ToolCall } from '../../v0/agent/core/contracts.ts';
+import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import { ParentTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
 import { runAgent } from '../../v0/agent/core/loop.ts';
-import { createPlannerDelegationTool } from '../../v0/agent/tools/planner_delegation.ts';
 import { AgentSession } from '../../v0/agent/session/session.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
@@ -116,12 +114,6 @@ const bundledWorkToolComponents = (
   },
 ];
 
-const delegationCall = (): ToolCall => ({
-  callId: 'delegate-1',
-  name: 'delegate_to_planner',
-  arguments: { task: 'make a plan' },
-});
-
 Deno.test('public CLI API exposes only the intended runtime entry points', () => {
   assertEquals(Object.keys(agentCli).sort(), ['main']);
 });
@@ -232,92 +224,8 @@ Deno.test('max-step failure is diagnosed and not committed', async () => {
   assertEquals(end.committed, false);
 });
 
-Deno.test('planner delegation succeeds once and child failure stops the parent immediately', async () => {
-  const successContext = new ParentTurnExecutionContext(1);
-  const successTool = createPlannerDelegationTool((_task, child) => {
-    assert(child.claimModelRequest());
-    return {
-      externalRequests: 1,
-      outcome: {
-        ok: true,
-        task: 'make a plan',
-        outcome: 'final',
-        stopReason: 'final',
-        finalText: 'child plan',
-        steps: 1,
-        toolCallCount: 0,
-        toolResultCount: 0,
-        transcript: [],
-      },
-    };
-  });
-  const success = await new Registry([successTool]).dispatch(delegationCall(), successContext);
-  assertEquals(success.content.outcome, 'success');
-  assert(success.content.text.includes('child plan'));
-
-  let parentRequests = 0;
-  const failure: LoopOutcome = {
-    ok: false,
-    task: 'make a plan',
-    outcome: 'contract_failure',
-    stopReason: 'contract_failure',
-    error: 'child failed',
-    steps: 1,
-    toolCallCount: 0,
-    toolResultCount: 0,
-    transcript: [],
-  };
-  const failedParent = await runAgent(
-    'parent',
-    {
-      generate: () => {
-        parentRequests += 1;
-        if (parentRequests > 1) throw new Error('parent continued after child failure');
-        return { kind: 'tool_calls', calls: [delegationCall()] };
-      },
-    },
-    new Registry([createPlannerDelegationTool(() => ({
-      externalRequests: 1,
-      outcome: failure,
-    }))]),
-    { executionContext: new ParentTurnExecutionContext(1) },
-  );
-  assert(!failedParent.ok);
-  assertEquals(
-    { requests: parentRequests, stop: failedParent.stopReason },
-    { requests: 1, stop: 'contract_failure' },
-  );
-});
-
-Deno.test('planner and terminal JSON results retain output above 64 KiB', async () => {
+Deno.test('terminal JSON results retain output above 64 KiB', async () => {
   const text = 'p'.repeat(300_000);
-  const context = new ParentTurnExecutionContext(1);
-  const planner = createPlannerDelegationTool((_task, child) => {
-    assert(child.claimModelRequest());
-    return {
-      externalRequests: 1,
-      outcome: {
-        ok: true,
-        task: 'large plan',
-        outcome: 'final',
-        stopReason: 'final',
-        finalText: text,
-        steps: 1,
-        toolCallCount: 0,
-        toolResultCount: 0,
-        transcript: [],
-      },
-    };
-  });
-  const plannerResult = await new Registry([planner]).dispatch({
-    callId: 'delegate-large',
-    name: 'delegate_to_planner',
-    arguments: { task: 'large plan' },
-  }, context);
-  assertEquals(plannerResult.content.outcome, 'success');
-  assert(plannerResult.content.text.includes(text));
-  assert(new TextEncoder().encode(plannerResult.content.text).byteLength > 65_536);
-
   const json = JSON.stringify({ text });
   const terminal = await new Registry([createJsonResultSubmissionTool()]).dispatch({
     callId: 'submit-large',
@@ -363,23 +271,17 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     'tool:web_fetch',
     'tool:web_search',
     'tool:write',
-    'tool:delegate_to_planner',
     'tool:submit_json_result',
   ]);
-  const plannerDelegation = () => {
-    throw new Error('test planner delegation');
-  };
   assertEquals(
     createDeclaredRegistry(defaultDefinition.capabilities, {
       ...input,
-      subagentDelegations: new Map([['planner', plannerDelegation]]),
       webSearchBackend: providerFreeWebSearchBackend,
       toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
     }).definitions().map((tool) => tool.name),
     [
       'bash',
       'bash_output',
-      'delegate_to_planner',
       'edit',
       'read',
       'submit_json_result',
@@ -411,13 +313,12 @@ Deno.test('Definitions declare capabilities while the host materializes matching
       capabilities: Object.freeze({
         ...base.capabilities,
         tools: customTools,
-        subagents: Object.freeze([]),
       }),
       limits: Object.freeze({ maxSteps: 5 }),
       resourceSelection: createAgentResourceSelection(
         base.resourceSelection.resources.filter((resource) =>
           !resource.startsWith('tool:') || customTools.includes(resource)
-        ).filter((resource) => resource !== 'subagent:planner'),
+        ),
         5,
       ),
     });
@@ -457,7 +358,7 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   assert(!requestBudget.claimModelRequest());
 });
 
-Deno.test('active tool guidelines compose only where their tools are materialized', async () => {
+Deno.test('active tool guidelines compose only where their tools are materialized', () => {
   const requests: Array<{ role: 'parent' | 'planner'; request: ModelRequest }> = [];
   const input = {
     workspace: { root: '/definition-test' },
@@ -533,20 +434,9 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assertEquals(parent.systemInstruction?.split(bashGuideline).length, 2);
   assertEquals(parent.systemInstruction?.split(bashOutputGuideline).length, 2);
   assertEquals(parent.systemInstruction?.split(webSearchGuideline).length, 2);
-
-  const delegated = await parent.registry.dispatch(
-    delegationCall(),
-    new ParentTurnExecutionContext(1),
-  );
-  assertEquals(delegated.content.outcome, 'success');
-  const plannerRequest = requests.find((entry) => entry.role === 'planner');
-  assert(plannerRequest !== undefined);
-  assert(plannerRequest.request.systemInstruction?.includes(guideline));
-  assertEquals(plannerRequest.request.systemInstruction?.split(guideline).length, 2);
 });
 
 Deno.test('Definition-provided tool component replaces a declared tool identity', async () => {
-  const plannerRequests: ModelRequest[] = [];
   let readMaterializations = 0;
   const replacement: ToolComponent = {
     identity: createAgentResourceIdentity('tool:read'),
@@ -571,8 +461,8 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
     skillCatalog: emptySkillCatalog(),
     physicalIo: {
       createModel: (role: 'parent' | 'planner') => ({
-        generate: (request: ModelRequest) => {
-          if (role === 'planner') plannerRequests.push(request);
+        generate: (_request: ModelRequest) => {
+          void role;
           return { kind: 'final' as const, text: 'done' };
         },
       }),
@@ -588,7 +478,7 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
       ],
     });
   const root = definition(input);
-  assertEquals(readMaterializations, 2);
+  assertEquals(readMaterializations, 1);
   assertEquals(
     root.registry.definitions().find((tool) => tool.name === 'read'),
     {
@@ -611,17 +501,6 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
   assert(root.systemInstruction?.includes('Use the Definition-local read replacement.'));
   assert(root.manifest.resources.includes('tool:read'));
   assert(!JSON.stringify(root.manifest).includes('replacement result'));
-
-  const delegated = await root.registry.dispatch(
-    delegationCall(),
-    new ParentTurnExecutionContext(1),
-  );
-  assertEquals(delegated.content.outcome, 'success');
-  assertEquals(plannerRequests.length, 1);
-  const plannerRead = plannerRequests[0].tools.find((tool) => tool.name === 'read');
-  assert(plannerRead !== undefined);
-  assertEquals(plannerRead.description, 'Definition-local read replacement');
-  assert(plannerRequests[0].systemInstruction?.includes('Definition-local'));
 
   const builtin = createDefaultAgentComposition({
     ...input,

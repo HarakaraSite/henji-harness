@@ -88,7 +88,6 @@ Deno.test('declared work components preserve write, edit, and read behavior', as
       instructions: [],
       skills: [],
       tools: ['tool:write', 'tool:edit', 'tool:read'].map(createAgentResourceIdentity),
-      subagents: [],
     }, {
       workspace,
       skillCatalog: emptySkillCatalog(),

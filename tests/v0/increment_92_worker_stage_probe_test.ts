@@ -17,7 +17,6 @@ import {
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { exactByteDigest } from '../../v0/agent/history/exact_byte_plan.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
-import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
@@ -137,7 +136,6 @@ class AuxiliaryGapCapsule implements WorkerHostCapsule {
           profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
           resources: [],
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-          plannerModel: roleDefaultModelSelection('subagent:planner'),
           ...(command.baseInstruction === undefined ? {} : {
             baseInstruction: {
               slot: command.baseInstruction.slot,
@@ -282,7 +280,6 @@ class JournalFailureCapsule implements WorkerHostCapsule {
           profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
           resources: [],
           rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-          plannerModel: roleDefaultModelSelection('subagent:planner'),
         },
         startupSnapshot: { skillNames: [] },
         credentialAvailability: {
@@ -626,7 +623,6 @@ Deno.test('Increment 92 captures the exact auxiliary body before fetching the sa
     evidence,
     undefined,
     undefined,
-    undefined,
     () => 1,
     undefined,
     undefined,
@@ -735,7 +731,6 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
       undefined,
       undefined,
       evidence,
-      undefined,
       undefined,
       undefined,
       undefined,

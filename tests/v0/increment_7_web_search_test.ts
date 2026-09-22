@@ -197,7 +197,7 @@ const contextFor = (
 ): ParentTurnExecutionContext =>
   new ParentTurnExecutionContext(
     1,
-    new TurnRequestBudget({ parent: 8, child: 8, aggregate: 16 }),
+    new TurnRequestBudget({ parent: 8, aggregate: 8 }),
     signal,
     undefined,
     undefined,
@@ -304,7 +304,7 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   assertEquals(outcome.turnProviderRequestCount, 3);
   assertEquals(outcome.runtimeProviderRequestCount, 3);
   assertEquals(counter.count(), 3);
-  assertEquals(execution.snapshot(), { parent: 3, child: 0, aggregate: 3 });
+  assertEquals(execution.snapshot(), { parent: 3, aggregate: 3 });
   assertEquals(requestBodies.map((body) => body.model), [
     PRODUCTION_PROFILE.model,
     OPENROUTER_SONAR_SEARCH_MODEL,
@@ -461,7 +461,7 @@ Deno.test('web_search request admission stops before credential resolution and f
   });
   const execution = new ParentTurnExecutionContext(
     1,
-    new TurnRequestBudget({ parent: 1, child: 1, aggregate: 1 }),
+    new TurnRequestBudget({ parent: 1, aggregate: 1 }),
   );
   assert(execution.claimModelRequest());
   const result = await new Registry([createWebSearchTool(backend)]).dispatch({
@@ -542,6 +542,6 @@ Deno.test('web_search cancellation aborts the nested fetch and settles the turn 
   assertEquals(fetches, 1);
   assertEquals(outcome.toolCallCount, 1);
   assertEquals(outcome.toolResultCount, 0);
-  assertEquals(execution.snapshot(), { parent: 2, child: 0, aggregate: 2 });
+  assertEquals(execution.snapshot(), { parent: 2, aggregate: 2 });
   assertEquals(evidence.snapshot().requests[0].request.modelStep, 1);
 });

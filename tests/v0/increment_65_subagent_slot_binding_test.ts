@@ -3,17 +3,16 @@ import {
   agentSlotBindingsPath,
   parseAgentSlot,
   readAgentSlotBindings,
-  resolveAgentSlotBindings,
 } from '../../v0/agent/definitions/agent_slot_binding.ts';
 import {
   type ManagedDefinitionRevision,
   ManagedDefinitionStore,
 } from '../../v0/agent/definitions/managed_definition_store.ts';
+import { ManagedDefinitionError } from '../../v0/agent/definitions/managed_definition_importer.ts';
 import {
   DefinitionStartupError,
   resolveRequestedDefinition,
 } from '../../v0/agent/definitions/definition_selection.ts';
-import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import {
   roleDefaultModelSelection,
@@ -38,8 +37,6 @@ const installDefinition = async (
   store: ManagedDefinitionStore,
   root: string,
   resourceId: string,
-  role: 'parent' | 'subagent',
-  subagentName?: string,
 ): Promise<ManagedDefinitionRevision> => {
   await Deno.mkdir(root, { recursive: true });
   await Deno.writeTextFile(
@@ -50,22 +47,12 @@ const installDefinition = async (
   return await store.install({
     entryPath: `${root}/entry.ts`,
     resourceId,
-    declaredRole: role,
-    ...(subagentName === undefined ? {} : { subagentName }),
+    declaredRole: 'parent',
   });
 };
 
 const definitionSelector = (revision: ManagedDefinitionRevision): string =>
   `${revision.manifest.logicalRef.resourceId}@sha256:${revision.manifest.logicalRef.revision.digest}`;
-
-const writeDefinition = async (
-  store: ManagedDefinitionStore,
-  root: string,
-  resourceId: string,
-  role: 'parent' | 'subagent',
-  subagentName?: string,
-): Promise<string> =>
-  definitionSelector(await installDefinition(store, root, resourceId, role, subagentName));
 
 const assertBindingError = async (
   action: () => Promise<unknown>,
@@ -89,14 +76,18 @@ const writeBindings = async (
   await Deno.writeTextFile(agentSlotBindingsPath(configRoot), `${JSON.stringify(bindings)}\n`);
 };
 
-Deno.test('Increment 65 parses only the root and named subagent slots', () => {
+Deno.test('Increment 65 parses only the root activation slot', () => {
   assertEquals(parseAgentSlot('agent:default'), { kind: 'root', slot: 'agent:default' });
-  assertEquals(parseAgentSlot('subagent:planner'), {
-    kind: 'subagent',
-    slot: 'subagent:planner',
-    name: 'planner',
-  });
-  for (const value of ['agent:planner', 'subagent:', 'subagent:Bad Name', 42, undefined]) {
+  for (
+    const value of [
+      'subagent:planner',
+      'agent:planner',
+      'subagent:',
+      'subagent:Bad Name',
+      42,
+      undefined,
+    ]
+  ) {
     assertEquals(parseAgentSlot(value), undefined);
   }
 });
@@ -108,102 +99,56 @@ Deno.test('Increment 65 treats a missing agents.json as no bindings', async () =
       schemaVersion: 1,
       bindings: {},
     });
-    assertEquals(await resolveAgentSlotBindings(`${root}/config`, `${root}/data`), new Map());
   } finally {
     await Deno.remove(root, { recursive: true });
   }
 });
 
-Deno.test('Increment 65 resolves a bound subagent Definition and a parent root slot', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-resolve-' });
+Deno.test('Increment 65 rejects the abolished subagent slot with a typed diagnostic', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-abolished-' });
+  try {
+    await writeBindings(`${root}/config`, {
+      schemaVersion: 1,
+      bindings: { 'subagent:planner': 'example/planner@sha256:' + 'a'.repeat(64) },
+    });
+    await assertBindingError(
+      () => readAgentSlotBindings(`${root}/config`),
+      'binding_slot_abolished',
+    );
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 65 rejects a new subagent Definition install', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-install-' });
   try {
     const store = new ManagedDefinitionStore({ dataRoot: `${root}/data` });
-    const planner = await writeDefinition(
-      store,
-      `${root}/planner`,
-      'example/planner',
-      'subagent',
-      'planner',
+    await Deno.mkdir(`${root}/planner`, { recursive: true });
+    await Deno.writeTextFile(
+      `${root}/planner/entry.ts`,
+      "import type {} from '@henji/agent';\n" +
+        'export default function (input: unknown): unknown { return input; }\n',
     );
-    const parent = await writeDefinition(store, `${root}/parent`, 'example/parent', 'parent');
-    await writeBindings(`${root}/config`, {
-      schemaVersion: 1,
-      bindings: {
-        'subagent:planner': planner,
-        'agent:default': parent,
-      },
-    });
-
-    const resolved = await resolveAgentSlotBindings(`${root}/config`, `${root}/data`);
-    assertEquals([...resolved.keys()].sort(), ['agent:default', 'subagent:planner']);
-    assertEquals(resolved.get('subagent:planner')?.revision.manifest.subagentName, 'planner');
-    assertEquals(resolved.get('agent:default')?.revision.manifest.declaredRole, 'parent');
+    try {
+      await store.install({
+        entryPath: `${root}/planner/entry.ts`,
+        resourceId: 'example/planner',
+        declaredRole: 'subagent',
+        subagentName: 'planner',
+      });
+      throw new Error('expected module_invalid');
+    } catch (error) {
+      assert(
+        error instanceof ManagedDefinitionError,
+        `expected ManagedDefinitionError, got ${error}`,
+      );
+      assertEquals(error.code, 'module_invalid');
+    }
   } finally {
     await Deno.remove(root, { recursive: true });
   }
 });
-
-Deno.test('Increment 65 fails typed on role and name mismatch', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-role-' });
-  try {
-    const store = new ManagedDefinitionStore({ dataRoot: `${root}/data` });
-    const parent = await writeDefinition(store, `${root}/parent`, 'example/parent', 'parent');
-    const researcher = await writeDefinition(
-      store,
-      `${root}/researcher`,
-      'example/researcher',
-      'subagent',
-      'researcher',
-    );
-
-    await writeBindings(`${root}/config`, {
-      schemaVersion: 1,
-      bindings: { 'subagent:planner': parent },
-    });
-    await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
-      'binding_role_mismatch',
-    );
-
-    await writeBindings(`${root}/config`, {
-      schemaVersion: 1,
-      bindings: { 'subagent:planner': researcher },
-    });
-    await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
-      'binding_role_mismatch',
-    );
-
-    await writeBindings(`${root}/config`, {
-      schemaVersion: 1,
-      bindings: { 'agent:default': researcher },
-    });
-    await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
-      'binding_role_mismatch',
-    );
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
-const writePlannerModule = async (root: string): Promise<string> => {
-  await Deno.mkdir(root, { recursive: true });
-  await Deno.writeTextFile(
-    `${root}/composition.ts`,
-    "import { createPlannerAgentComposition, type ExecutableAgentDefinitionInput } from '@henji/agent';\n" +
-      'export const compose = (input: ExecutableAgentDefinitionInput) =>\n' +
-      '  createPlannerAgentComposition(input);\n',
-  );
-  await Deno.writeTextFile(
-    `${root}/entry.ts`,
-    "import type { ExecutableAgentDefinition } from '@henji/agent';\n" +
-      "import { compose } from './composition.ts';\n" +
-      'const definition: ExecutableAgentDefinition = (input) => compose(input);\n' +
-      'export default definition;\n',
-  );
-  return `${root}/entry.ts`;
-};
 
 const writeParentModule = async (root: string): Promise<string> => {
   await Deno.mkdir(root, { recursive: true });
@@ -229,7 +174,7 @@ Deno.test('Increment 65 resolves the agent:default binding as the root Definitio
   const configRoot = `${root}/config`;
   try {
     const store = new ManagedDefinitionStore({ dataRoot });
-    const bound = await installDefinition(store, `${root}/bound`, 'example/root-bound', 'parent');
+    const bound = await installDefinition(store, `${root}/bound`, 'example/root-bound');
     await writeBindings(configRoot, {
       schemaVersion: 1,
       bindings: { 'agent:default': definitionSelector(bound) },
@@ -240,12 +185,7 @@ Deno.test('Increment 65 resolves the agent:default binding as the root Definitio
     assertEquals(resolved.id, 'default');
     assertEquals(resolved.ref, bound.manifest.logicalRef);
 
-    const explicit = await installDefinition(
-      store,
-      `${root}/explicit`,
-      'example/root-explicit',
-      'parent',
-    );
+    const explicit = await installDefinition(store, `${root}/explicit`, 'example/root-explicit');
     const overridden = await resolveRequestedDefinition(
       undefined,
       definitionSelector(explicit),
@@ -263,27 +203,6 @@ Deno.test('Increment 65 fails typed on an invalid agent:default binding', async 
   const dataRoot = `${root}/data`;
   const configRoot = `${root}/config`;
   try {
-    const store = new ManagedDefinitionStore({ dataRoot });
-    const subagent = await installDefinition(
-      store,
-      `${root}/planner`,
-      'example/root-wrong-role',
-      'subagent',
-      'planner',
-    );
-    await writeBindings(configRoot, {
-      schemaVersion: 1,
-      bindings: { 'agent:default': definitionSelector(subagent) },
-    });
-    try {
-      await resolveRequestedDefinition(undefined, undefined, dataRoot, configRoot);
-      throw new Error('expected definition_role_mismatch');
-    } catch (error) {
-      assert(error instanceof DefinitionStartupError);
-      assertEquals(error.code, 'definition_role_mismatch');
-      assertEquals(error.stage, 'resolution');
-    }
-
     await writeBindings(configRoot, {
       schemaVersion: 1,
       bindings: { 'agent:default': `example/absent@sha256:${'a'.repeat(64)}` },
@@ -346,78 +265,6 @@ Deno.test('Increment 65 starts a new session with the bound root Definition', as
   }
 });
 
-Deno.test('Increment 65 composes a bound external planner into the root composition', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-compose-' });
-  const dataRoot = `${root}/data`;
-  const configRoot = `${root}/config`;
-  const stateRoot = `${root}/state`;
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  try {
-    const store = new ManagedDefinitionStore({ dataRoot });
-    const planner = await store.install({
-      entryPath: await writePlannerModule(`${root}/planner`),
-      resourceId: 'example/runtime-planner',
-      declaredRole: 'subagent',
-      subagentName: 'planner',
-    });
-    const selector =
-      `${planner.manifest.logicalRef.resourceId}@sha256:${planner.manifest.logicalRef.revision.digest}`;
-    await writeBindings(configRoot, {
-      schemaVersion: 1,
-      bindings: { 'subagent:planner': selector },
-    });
-    await Deno.remove(`${root}/planner`, { recursive: true });
-
-    const events: AgentEvent[] = [];
-    const created = await createWorkerSession({
-      workspaceRoot,
-      stateRoot,
-      dataRoot,
-      configRoot,
-      persistence: 'new',
-      physicalIoMode: 'provider-free',
-      eventSink: (event) => events.push(event),
-    });
-    try {
-      const outcome = await created.session.submit('delegate to planner');
-      assert(outcome.ok, JSON.stringify(outcome));
-      assertEquals(outcome.finalText, 'worker answer: delegate to planner');
-    } finally {
-      await created.close();
-    }
-    const delegation = events.find((event) => event.kind === 'tool_result');
-    assert(delegation?.kind === 'tool_result');
-    assertEquals(
-      delegation.result.text,
-      JSON.stringify({
-        ok: true,
-        agent: 'planner',
-        output: { kind: 'text', text: 'worker planner result' },
-        usage: { modelRequests: 1, externalRequests: 0 },
-      }),
-    );
-
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-    await history.initialize();
-    const artifact = (await history.executionArtifacts.list()).find((item) =>
-      item.sessionId === created.session.sessionId
-    );
-    assert(artifact !== undefined);
-    assertEquals(artifact.manifest.subagents, [{
-      subagentName: 'planner',
-      ref: planner.manifest.logicalRef,
-    }]);
-    assert(artifact.schemaVersion === 7);
-    assertEquals(artifact.subagents, [{
-      subagentName: 'planner',
-      ref: planner.manifest.logicalRef,
-    }]);
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
 Deno.test('Increment 65 supplies the planner default from bundled roleDefaults data', async () => {
   const defaults = JSON.parse(
     await Deno.readTextFile(
@@ -435,54 +282,39 @@ Deno.test('Increment 65 supplies the planner default from bundled roleDefaults d
   );
 });
 
-Deno.test('Increment 65 fails typed on unknown slots, malformed files, and missing revisions', async () => {
+Deno.test('Increment 65 fails typed on unknown slots and malformed files', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-invalid-' });
   try {
-    const store = new ManagedDefinitionStore({ dataRoot: `${root}/data` });
-    const planner = await writeDefinition(
-      store,
-      `${root}/planner`,
-      'example/planner',
-      'subagent',
-      'planner',
-    );
-    const missing = `example/absent@sha256:${'a'.repeat(64)}`;
-
     await writeBindings(`${root}/config`, {
       schemaVersion: 1,
-      bindings: { 'agent:other': planner },
+      bindings: { 'agent:other': 'example/parent@sha256:' + 'a'.repeat(64) },
     });
     await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
+      () => readAgentSlotBindings(`${root}/config`),
       'binding_slot_unknown',
     );
 
     await writeBindings(`${root}/config`, {
       schemaVersion: 2,
-      bindings: { 'subagent:planner': planner },
+      bindings: { 'agent:default': 'example/parent@sha256:' + 'a'.repeat(64) },
     });
     await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
+      () => readAgentSlotBindings(`${root}/config`),
       'binding_invalid',
     );
 
     await writeBindings(`${root}/config`, {
       schemaVersion: 1,
-      bindings: { 'subagent:planner': 'not-a-selector' },
+      bindings: { 'agent:default': 'not-a-selector' },
     });
-    await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
-      'binding_invalid',
-    );
-
-    await writeBindings(`${root}/config`, {
-      schemaVersion: 1,
-      bindings: { 'subagent:planner': missing },
-    });
-    await assertBindingError(
-      () => resolveAgentSlotBindings(`${root}/config`, `${root}/data`),
-      'binding_definition_not_found',
-    );
+    const dataRoot = `${root}/data`;
+    try {
+      await resolveRequestedDefinition(undefined, undefined, dataRoot, `${root}/config`);
+      throw new Error('expected definition_invalid');
+    } catch (error) {
+      assert(error instanceof DefinitionStartupError);
+      assertEquals(error.code, 'definition_invalid');
+    }
   } finally {
     await Deno.remove(root, { recursive: true });
   }

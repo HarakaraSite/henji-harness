@@ -18,7 +18,6 @@ import type { ProviderExactRequestObservation } from '../core/contracts.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
-  DefinitionRevisionRef,
   HenjiInstructionRevisionRef,
   ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
@@ -32,13 +31,6 @@ import type {
  */
 
 export const WORKER_PROTOCOL_VERSION = 'slice1-data-only-v2';
-
-/** One Host-resolved delegated subagent: exact ref plus its process-local load descriptor. */
-export interface WorkerSubagentLoadRequest {
-  readonly subagentName: string;
-  readonly ref: DefinitionRevisionRef;
-  readonly module: WorkerDefinitionLoadRequest;
-}
 
 /** One Host/Worker-resolved tool Definition: exact ref plus its process-local load descriptor. */
 export interface WorkerToolDefinitionLoadRequest {
@@ -90,7 +82,6 @@ export type WorkerHostCommand =
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
     readonly module?: WorkerDefinitionLoadRequest;
-    readonly subagents?: readonly WorkerSubagentLoadRequest[];
     readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
@@ -215,12 +206,6 @@ export interface WorkerReadyMessage {
     readonly profileId: string;
     readonly resources: readonly string[];
     readonly rootModel: ModelSelection;
-    readonly plannerModel: ModelSelection;
-    /** Exact delegated subagent Definitions composed into the root composition. */
-    readonly subagents?: readonly {
-      readonly subagentName: string;
-      readonly ref: DefinitionRevisionRef;
-    }[];
     /** Exact tool Definition revisions composed into the root composition. */
     readonly tools?: readonly {
       readonly toolIdentity: string;

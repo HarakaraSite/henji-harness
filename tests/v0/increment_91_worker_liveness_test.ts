@@ -9,10 +9,7 @@ import type {
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import {
-  roleDefaultModelSelection,
-  selectModelFor,
-} from '../../v0/agent/provider/model_catalog.ts';
+import { selectModelFor } from '../../v0/agent/provider/model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -50,7 +47,6 @@ abstract class ProbeCapsule implements WorkerHostCapsule {
         profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
         resources: [],
         rootModel: ROOT_DEFAULT_MODEL_SELECTION,
-        plannerModel: roleDefaultModelSelection('subagent:planner'),
         ...(command.baseInstruction === undefined ? {} : {
           baseInstruction: {
             slot: command.baseInstruction.slot,

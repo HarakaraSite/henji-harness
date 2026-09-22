@@ -39,10 +39,6 @@ import {
   type FailureDiagnosticV1,
   projectFailureDiagnosticFact,
 } from '../session/failure_diagnostic.ts';
-import {
-  isPlannerDelegationFailureError,
-  type PlannerDelegationFailureError,
-} from '../tools/planner_delegation.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../resource_limits.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
@@ -58,7 +54,7 @@ export interface AgentLoopOptions {
   readonly executionContext?: ModelExecutionContext;
   readonly cancellation?: TurnCancellation;
   readonly signal?: AbortSignal;
-  /** Child loops share the owner for failure poisoning but do not settle the parent turn. */
+  /** Whether this loop settles the accepted turn's cancellation owner. */
   readonly ownsCancellation?: boolean;
   /** Optional turn-local owner. Direct compatibility callers may omit diagnostics. */
   readonly diagnosticOwner?: FailureDiagnosticOwner;
@@ -72,7 +68,7 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly eventSink?: AgentEventSink;
   readonly turn?: number;
   readonly commit?: (transcript: readonly Message[]) => void;
-  /** Internal single-use parent-turn steering lane. Planner child loops do not receive it. */
+  /** Internal single-use steering lane for the accepted turn. */
   readonly steering?: SteeringConsumer;
   /** Backwards-compatible internal port spelling for direct loop callers. */
   readonly steeringConsumer?: SteeringConsumer;
@@ -300,8 +296,6 @@ const runAgentTurnInternal = async (
       'committed',
       messageIndex,
       undefined,
-      options.executionContext?.lane,
-      options.executionContext?.sourceCallId,
     ) ?? []
   );
   const userMessage: Message = {
@@ -310,21 +304,17 @@ const runAgentTurnInternal = async (
   };
   transcript.push(userMessage);
   deliverEvent(sink, { kind: 'turn_start', turn });
-  if (options.executionContext?.lane !== 'child') {
-    deliverEvent(sink, {
-      kind: 'user_message',
-      turn,
-      message: snapshot(userMessage),
-    });
-  }
+  deliverEvent(sink, {
+    kind: 'user_message',
+    turn,
+    message: snapshot(userMessage),
+  });
   transcriptSources.push(
     requestMessageSource?.(
       userMessage,
       'task',
       committedTranscript.length,
       undefined,
-      options.executionContext?.lane,
-      options.executionContext?.sourceCallId,
     ) ?? [],
   );
 
@@ -350,7 +340,7 @@ const runAgentTurnInternal = async (
   };
 
   const evidence = options.executionContext?.providerEvidence;
-  const evidenceLane = options.executionContext?.lane === 'child' ? 'planner' : 'parent';
+  const evidenceLane = 'parent' as const;
   const evidenceIdentity = (): Pick<LoopOutcome, 'providerEvidenceId'> =>
     evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId };
 
@@ -389,7 +379,7 @@ const runAgentTurnInternal = async (
       return owner.record({
         stage,
         code,
-        lane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
+        lane: 'parent',
         providerRequestCount: count,
         retryCount: observed?.retryCount ?? 0,
         modelStep: step,
@@ -617,7 +607,6 @@ const runAgentTurnInternal = async (
       contextRequestOrdinal = await options.executionContext
         ?.observeModelRequest?.({
           request: preparedRequest,
-          lane: options.executionContext?.lane ?? 'parent',
           modelStep: steps,
           modelSelection: options.executionContext?.modelSelection,
           sourceAttribution: preparedSources,
@@ -674,7 +663,7 @@ const runAgentTurnInternal = async (
             reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
             providerEvidence: evidence,
             providerExactRequestObserver: options.executionContext?.providerExactRequestObserver,
-            providerEvidenceLane: options.executionContext?.lane === 'child' ? 'planner' : 'parent',
+            providerEvidenceLane: 'parent',
             modelStep: steps,
           };
       result = generateOptions === undefined
@@ -739,8 +728,6 @@ const runAgentTurnInternal = async (
           'assistant',
           assistantIndex,
           steps,
-          options.executionContext?.lane,
-          options.executionContext?.sourceCallId,
         ) ?? [],
       );
       if (signal?.aborted) return finishCancelled();
@@ -776,8 +763,6 @@ const runAgentTurnInternal = async (
         'assistant',
         assistantIndex,
         steps,
-        options.executionContext?.lane,
-        options.executionContext?.sourceCallId,
       ) ?? [],
     );
     const results: ToolMessage['content'][number][] = [];
@@ -875,33 +860,6 @@ const runAgentTurnInternal = async (
           return finishContractFailure('cancellation cleanup failed');
         }
         if (cancellationFrom(error)) return finishCancelled();
-        if (isPlannerDelegationFailureError(error)) {
-          const plannerFailure = error as PlannerDelegationFailureError;
-          const plannerResult: ToolMessage['content'][number] = {
-            kind: 'tool_result',
-            callId: call.callId,
-            name: call.name,
-            text: plannerFailure.message,
-            outcome: 'error',
-          };
-          results.push(plannerResult);
-          deliverEvent(sink, {
-            kind: 'tool_result',
-            turn,
-            result: snapshot(plannerResult),
-          });
-          toolResultCount += 1;
-          evidence?.recordToolResult(plannerResult, steps, evidenceLane);
-          return finishContractFailure(
-            'planner delegation failed',
-            {
-              stage: plannerFailure.failureStage,
-              code: plannerFailure.failureCode,
-              modelStep: 0,
-            },
-            error,
-          );
-        }
         results.push({
           kind: 'tool_result',
           callId: call.callId,
@@ -934,8 +892,6 @@ const runAgentTurnInternal = async (
         'tool',
         transcript.length - 1,
         steps,
-        options.executionContext?.lane,
-        options.executionContext?.sourceCallId,
       ) ?? [],
     );
     evidence?.setContextRequestOrdinal(undefined);
@@ -974,8 +930,6 @@ const runAgentTurnInternal = async (
           'steering',
           transcript.length - 1,
           steps,
-          options.executionContext?.lane,
-          options.executionContext?.sourceCallId,
         ) ?? [],
       );
     }

@@ -21,7 +21,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
-| A7 | Agent実行 | 非同期・並行subagentと結果の合流 | 親が委譲待ちの間にも独立作業を進めたい実taskが得られる |
 | A8 | Agent実行 | OpenRouter Responses API経路 | 利用者希望（2026-09-17）。E1のProvider外部化と合わせて検討 |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
@@ -164,23 +163,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: searchとfetchの混在、または現backendの品質/費用/取得範囲が具体的に問題になること。
   Web search自体をAgent Definitionにするかは、conversation、prompt、model、tool利用を独立所有する必要が
   出たときだけ比較する。
-
-### A7 — 非同期・並行subagentと結果の合流（F02、F06、将来候補）
-
-- 観測: 現行のdelegated plannerは親Execution内の同期的なtool callであり、親agentはplannerの完了まで次の
-  model requestやtool実行を進めない。複数subagentの同時起動、独立したchild Execution、後からの結果合流は
-  architecture・roadmapで採用されていない。
-- 候補: 実taskで必要性が確認された場合、親が委譲後も作業を継続し、複数subagentを並行実行して観測済み結果を
-  明示的に合流できるagent loopを検討する。task identity、親子関係、実行・cancel・budgetの単位、結果配送、
-  failure時の親継続、canonical/non-canonical採用、history viewとmodel projectionを分けて定義する。既存の
-  AgentInstance mailboxや複数Surface routingを、そのままsubagentのfork/join仕様とは扱わない。
-- 再検討条件: planner待機中に親が進められる独立作業があり、逐次委譲による時間または作業品質への具体的な
-  影響を通常利用で観測すること。単に並列化可能であることだけでは採用しない。
-- 参照実装調査: 親の継続、複数child、join、cancel、durable attributionを比較した。OpenAI Agents APIが
-  agent固有の操作・履歴・帰属を最も近い一つの契約として持ち、Codex Subagentsの操作体験、Temporalの
-  durable child lifecycle、LangGraphのfuture/checkpointを補助参照にできる。調査結果だけではarchitecture・
-  roadmapへの採用を意味しない。詳細は
-  [`async-parallel-subagent-reference-comparison.md`](../research/async-parallel-subagent-reference-comparison.md)。
 
 ### A8 — OpenRouter Responses API経路（F02、F06、将来候補）
 
@@ -380,7 +362,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
     候補から除外（調査記録には残す）。
   - Session tree/fork: 有用性が未確認。採用判断は保留。
   - `/btw` side-chat: Henjiにそぐわないため対象外。
-  - `/swarm`: 時期尚早。非同期subagentはA7で管理する。
+  - `/swarm`: 時期尚早。非同期subagentは同期subagent廃止後の別incrementで採用する（採用済み）。
   - extension/package管理: 将来課題（E2／F24）。
   - credential UI: 利用者が欲しくなってきた。S2の優先度を上げる。
   - messaging bridge: 将来Surfaceの拡張で検討する可能性がある（未採用）。
@@ -413,7 +395,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 注意: ACPはagentがclientのfs/terminal/permissionを使う前提で、Henjiの自前tool・trusted-local方針との写像が
   非自明。R3（sandbox/permission）とF10の判断に接続する。
 - 再検討条件: editor/IDE統合、または別agentからの対話的駆動を通常利用で必要とするとき。
-- 関連: P1、F10、F12、R3、A7。
+- 関連: P1、F10、F12、R3。
 
 ## 観測した不具合（未修正）
 

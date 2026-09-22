@@ -4,7 +4,7 @@ import {
   discoverAgentInstructionSnapshot,
   type InstructionFileSystem,
 } from '../definitions/agent_instructions.ts';
-import { runAgent, runAgentTurn } from '../core/loop.ts';
+import { runAgent } from '../core/loop.ts';
 import { type Model } from '../core/contracts.ts';
 import { Registry } from '../tools/tools.ts';
 import {
@@ -18,7 +18,6 @@ import { discoverSkills, type SkillCatalog, type SkillFileSystem } from '../defi
 import {
   type AgentDefinition,
   DEFAULT_AGENT_MAX_STEPS,
-  plannerAgentDefinition,
   type ResolvedAgentDefinition,
 } from '../definitions/agent_definition.ts';
 import {
@@ -42,17 +41,6 @@ import {
   type ProviderEvidenceDraftStore,
   ProviderEvidenceRecorder,
 } from '../provider/provider_evidence.ts';
-import {
-  isPlannerDelegationFailureError,
-  PlannerDelegationFailureError,
-  type PlannerDelegationHandler,
-} from '../tools/planner_delegation.ts';
-import {
-  CancellationCleanupError,
-  isCancellationCleanupError,
-  isTurnCancelledError,
-  TurnCancelledError,
-} from '../core/cancellation.ts';
 import { type TurnCancellation } from '../core/cancellation.ts';
 import {
   type AgentResolvedManifestV1,
@@ -200,7 +188,6 @@ const materializeModel = (
 const materializeRegistry = (
   definition: ResolvedAgentDefinition,
   seam: RuntimeTestSeam,
-  plannerDelegation: PlannerDelegationHandler | undefined,
   workspace: Workspace,
   skillCatalog: SkillCatalog,
   webSearchBackend?: WebSearchBackend,
@@ -233,25 +220,10 @@ const materializeRegistry = (
     workspace,
     skillCatalog,
     workTools: seam.workTools,
-    ...(plannerDelegation === undefined
-      ? {}
-      : { subagentDelegations: new Map([['planner', plannerDelegation]]) }),
     webSearchBackend,
     ...(toolDefinitions.length === 0 ? {} : { toolDefinitions }),
   });
 };
-
-const childFailure = (task: string): LoopOutcome => ({
-  ok: false,
-  task,
-  outcome: 'contract_failure',
-  stopReason: 'contract_failure',
-  error: 'planner delegation failed',
-  steps: 0,
-  toolCallCount: 0,
-  toolResultCount: 0,
-  transcript: [],
-});
 
 /** Internal prepare-phase state; no manifest is retained after the test observer runs. */
 export interface PreparedRuntimeComposition {
@@ -369,96 +341,10 @@ export const materializePreparedRuntimeComposition = (
     credential: seam.credential,
     credentialSource: seam.credentialSource,
   });
-  const hasPlannerSubagent = definition.capabilities.subagents.some((resource) =>
-    `${resource}` === 'subagent:planner'
-  );
-  const plannerDelegation: PlannerDelegationHandler | undefined = hasPlannerSubagent
-    ? async (task, childContext) => {
-      const beforeRequests = requestCount();
-      try {
-        const childDefinition = (seam.plannerDefinition ?? plannerAgentDefinition)({
-          workspace: prepared.workspace,
-          agentInstructions: prepared.agentInstructions,
-          skillCatalog: prepared.skillCatalog,
-        });
-        const childResourceSelection = validateResolvedAgentResources(
-          childDefinition,
-          'planner',
-        );
-        seam.onResourceSelectionValidated?.(
-          'planner',
-          childResourceSelection,
-        );
-        const childManifest = await prepareResolvedManifest(
-          'planner',
-          'planner',
-          childResourceSelection,
-          seam,
-          childDefinition,
-          'builtin',
-        );
-        seam.onResolvedManifestValidated?.('planner', childManifest);
-        const childModel = materializeModel(childDefinition, fetcher, seam);
-        const childRegistry = materializeRegistry(
-          childDefinition,
-          seam,
-          undefined,
-          prepared.workspace,
-          prepared.skillCatalog,
-          undefined,
-        );
-        const childSystemInstruction = finalSystemInstructionForContribution(
-          resolveBuiltinDefinitionInstruction(
-            'planner',
-            prepared.workspace.root,
-            prepared.agentInstructions,
-            prepared.skillCatalog,
-            childRegistry.promptGuidelines(),
-          ).systemInstruction,
-        );
-        const outcome = await runAgentTurn(
-          task,
-          [],
-          childModel,
-          childRegistry,
-          {
-            maxSteps: childResourceSelection.parameters.maxSteps,
-            systemInstruction: childSystemInstruction,
-            executionContext: childContext,
-            signal: childContext.signal,
-            cancellation: childContext.cancellation,
-            ownsCancellation: false,
-            diagnosticOwner: childContext.diagnosticOwner,
-          },
-        );
-        await childContext.persistDiagnostic();
-        if (outcome.stopReason === 'cancelled') {
-          throw new TurnCancelledError();
-        }
-        if (childContext.cancellation?.state === 'cleanup_failed') {
-          throw new CancellationCleanupError();
-        }
-        if (!outcome.ok) {
-          throw new PlannerDelegationFailureError('planner_failed', outcome.diagnostic);
-        }
-        return { outcome, externalRequests: requestCount() - beforeRequests };
-      } catch (error) {
-        if (
-          isTurnCancelledError(error) || isCancellationCleanupError(error) ||
-          isPlannerDelegationFailureError(error)
-        ) throw error;
-        return {
-          outcome: childFailure(task),
-          externalRequests: requestCount() - beforeRequests,
-        };
-      }
-    }
-    : undefined;
   const model = materializeModel(definition, fetcher, seam);
   const registry = materializeRegistry(
     definition,
     seam,
-    plannerDelegation,
     prepared.workspace,
     prepared.skillCatalog,
     webSearchBackend,
@@ -501,11 +387,7 @@ export const materializePreparedRuntimeComposition = (
         providerEvidence,
         {
           parent: prepared.resourceSelection.parameters.maxSteps,
-          child: DEFAULT_AGENT_MAX_STEPS,
-          aggregate: Math.min(
-            Number.MAX_SAFE_INTEGER,
-            prepared.resourceSelection.parameters.maxSteps + DEFAULT_AGENT_MAX_STEPS,
-          ),
+          aggregate: prepared.resourceSelection.parameters.maxSteps,
         },
       ),
   };

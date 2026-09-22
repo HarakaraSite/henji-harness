@@ -9,7 +9,6 @@ import {
   type RequestMessageSourceKind,
   TurnRequestBudget,
 } from '../core/execution_context.ts';
-import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import { TurnCancellationOwner } from '../core/cancellation.ts';
 import { SteeringOwner, validateSteeringText } from '../core/steering.ts';
 import { FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
@@ -41,7 +40,6 @@ import {
   type ModelSelection,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
   type CredentialAvailability,
   type CredentialAvailabilityStatus,
@@ -194,9 +192,6 @@ export class WorkerGeneration {
       profileId,
       resources: Object.freeze(resources),
       rootModel: Object.freeze(rootModel),
-      plannerModel: Object.freeze(
-        structuredClone(roleDefaultModelSelection('subagent:planner')),
-      ),
     });
   }
 
@@ -297,7 +292,6 @@ export class WorkerGeneration {
     );
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
-    const childMaxSteps = DEFAULT_AGENT_MAX_STEPS;
     const contextObservations: Promise<void>[] = [];
     const contextRequests: ContextModelRequestDelta[] = [];
     const sentContextBlobs = new Set<string>();
@@ -340,13 +334,8 @@ export class WorkerGeneration {
       kind: RequestMessageSourceKind,
       messageIndex: number,
       modelStep?: number,
-      requestLane?: 'parent' | 'child',
-      sourceCallId?: string,
     ): readonly ContextOccurrenceSource[] => {
-      const lane: 'parent' | 'planner' = requestLane === 'child' ||
-          this.composition.role === 'planner'
-        ? 'planner'
-        : 'parent';
+      const lane: 'parent' | 'planner' = this.composition.role === 'planner' ? 'planner' : 'parent';
       if (kind === 'committed') {
         const canonicalTurn = committedHistoryIndex?.turns.find((candidate) =>
           messageIndex >= candidate.start && messageIndex < candidate.end
@@ -365,20 +354,12 @@ export class WorkerGeneration {
         }];
       }
       if (kind === 'task') {
-        const sequence = lane === 'planner' && sourceCallId !== undefined
-          ? providerSequences.get(`tool-call:parent:${sourceCallId}`) ??
-            effectSequences.get(`tool-call:${sourceCallId}`)
-          : runtimeSequences.get('user-message');
+        const sequence = runtimeSequences.get('user-message');
         return [withWorkerSequence({
           stage: 'projected',
           resourceKind: 'message',
-          logicalIdentity: `current-task:${correlation.session}:turn:${turn}${
-            lane === 'planner'
-              ? `:lane:planner${sourceCallId === undefined ? '' : `:call:${sourceCallId}`}`
-              : ''
-          }`,
+          logicalIdentity: `current-task:${correlation.session}:turn:${turn}`,
           lane,
-          ...(sourceCallId === undefined ? {} : { callId: sourceCallId }),
         }, sequence)];
       }
       if (kind === 'steering') {
@@ -579,7 +560,7 @@ export class WorkerGeneration {
       }
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
-        const lane = observation.lane === 'child' ? 'planner' : 'parent';
+        const lane = 'parent' as const;
         const previous = revisionStates.get(lane);
         if (
           observation.previousTranscriptLength !==
@@ -636,37 +617,7 @@ export class WorkerGeneration {
           const blob = await textBlob(observation.request.systemInstruction);
           const rootInstructionComponents = this.startupSnapshot.context?.instructionComponents ??
             [];
-          const namedInstructionComponents = observation.lane !== 'child'
-            ? rootInstructionComponents
-            : (() => {
-              const base = rootInstructionComponents.find((component) =>
-                String(component.identity) === 'instruction:henji-base'
-              );
-              if (base === undefined) {
-                throw new Error(
-                  'Worker planner Henji base attribution is unavailable',
-                );
-              }
-              const boundary = `${base.text}\n\n`;
-              if (
-                !observation.request.systemInstruction!.startsWith(boundary)
-              ) {
-                throw new Error(
-                  'Worker planner Henji base projection is incoherent',
-                );
-              }
-              const contribution = observation.request.systemInstruction!.slice(
-                boundary.length,
-              );
-              return [
-                base,
-                {
-                  identity: 'instruction:definition-contribution',
-                  text: contribution,
-                  sourceLocator: 'worker-planner-composition',
-                },
-              ];
-            })();
+          const namedInstructionComponents = rootInstructionComponents;
           const hasNamedInstructionComponents = namedInstructionComponents.length > 0;
           let componentByteOffset = 0;
           const componentRelations: ContextOccurrenceSource[] = [];
@@ -831,7 +782,7 @@ export class WorkerGeneration {
     ): Promise<number> => {
       const requestOrdinal = ++contextRequestOrdinal;
       const task = (async (): Promise<void> => {
-        const lane = observation.lane === 'child' ? 'planner' : 'parent';
+        const lane = 'parent' as const;
         const blob = await textBlob(observation.body, 'application/json');
         const sourceSequence = providerSequences.get(
           `tool-call:${lane}:${observation.callId}`,
@@ -950,11 +901,7 @@ export class WorkerGeneration {
       turn,
       new TurnRequestBudget({
         parent: this.composition.maxSteps,
-        child: childMaxSteps,
-        aggregate: Math.min(
-          Number.MAX_SAFE_INTEGER,
-          this.composition.maxSteps + childMaxSteps,
-        ),
+        aggregate: this.composition.maxSteps,
       }),
       cancellation.signal,
       cancellation,
@@ -964,7 +911,6 @@ export class WorkerGeneration {
       evidence,
       observeModelRequest,
       this.rootModelSelection,
-      roleDefaultModelSelection('subagent:planner'),
       observeAuxiliaryRequest,
       this.reportAuxiliaryStage,
       sourceForMessage,
