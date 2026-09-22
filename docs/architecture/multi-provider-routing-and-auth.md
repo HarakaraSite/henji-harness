@@ -375,6 +375,10 @@ routeへ渡さない。
   `openrouter-responses`、`openai-chat`、`openai-responses`へ整列し、旧IDは破壊的に廃止した。
 - **subagent既定**: Increment 65で`subagent:planner`をactivation-level Definition bindingへ接続し、未binding時の
   planner selectionを同梱declarationの`roleDefaults`へ移した。root selectionは継承しない。
+- **auth profileと宣言header**: Increment 101で`authProfile`をpattern検証する非secret identityへ一般化し、
+  credentialを`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`から解決する。新しいprovider IDの宣言はoptional
+  `headers`を持ち、`{credential}`（Chat経路のみ1 header）と`{sessionId}`をrequest時に置換する。`openai-responses`
+  は標準Bearerに固定する。OpenCode Go（`opencode-go-chat`／`opencode-go-responses`）が最初の適用例である。
 - これらは本書の不変条件（requestごとのroute所有、credential非継承、secret非永続化、turn内固定、semantic
   transcript共有、独立した失敗、request単位の証拠）を維持する。
 

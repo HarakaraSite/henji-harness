@@ -260,12 +260,15 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 ### E1 — Agent Definition後のresource外部化
 
 - 現行境界: standalone executable、Agent Definition専用のmanaged revision store/resolver、portable transportは
-  Increment 32〜34で採用・実装済みである。managed `instruction:henji-base` revisionはIncrement 51で採用・
-  実装済みである。Agent Definitionで得たloader、dependency、promotion、activationのsemanticsをinstruction、
-  tool、Provider、MCP、Surfaceへ自動的に一般化しない。
+  Increment 32〜34で採用・実装済みである。`instruction:henji-base`はIncrement 51でmanaged revisionとして
+  導入され、Increment 103でbuilt-in最小core＋user `instruction.md`直接読み込みへ置換された。Agent Definitionで
+  得たloader、dependency、promotion、activationのsemanticsをinstruction、tool、Provider、MCP、Surfaceへ
+  自動的に一般化しない。
 - 未実装境界: catalog外のtool identity、複数slotのinstruction revision化、external Provider registry、互換providerの
   data-only Definition、独自protocolのexecutable Definition、resourceごとのmutable instance state、context rebuild、共通package/plugin
-  discoveryは未採用である。Providerは現在`openrouter`/`openai`、API種別、auth profileのclosed unionである。
+  discoveryは未採用である。Providerは`openrouter-chat`／`openrouter-responses`／`openai-chat`／`openai-responses`と
+  external宣言で、auth profileはpattern一般化済み（Increment 101）だが、external Provider registryと宣言の
+  exact revision化は未採用である。
 - 利用者希望（2026-09-17）: Provider設定を外部化したい。A8のOpenRouter Responses API経路への変更と合わせて
   採用を検討する。
 - 候補: resource kindごとにscope/activation owner、execution placement、lifecycle、durability、dependency identity、
@@ -291,7 +294,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 観測（2026-09-18）: Agent Definition、Henji Instruction、tool Definitionの3 kindがmanaged revisionとして
   存在し、kindごとにref/framing/store/CLI/binding/loadが別実装になっている。「任意kindの一般化」を検討したが、
   Skillは他harness互換のnative `SKILL.md`形式に価値があり、Henji固有revisionとして管理する実利が薄いため
-  最初の適用例から外した。
+  最初の適用例から外した。その後Increment 103でHenji Instructionはmanaged revisionをやめ、user
+  `instruction.md`の直接読み込みへ移行した（現行managed revision kindはAgent Definitionとtool Definition）。
+  base instructionのcontent revisionはR4の対象として残る。
 - 候補（Henjiが単独でownerになれるcontractに限る）。優先順は未定で、通常利用で必要になった時点で個別incrementへ
   採用する。
   - named subagentの一般化: `agent-definition`（role=subagent）×`subagent:<name>` slotをplanner以外へ広げる。

@@ -143,7 +143,8 @@ variantを増やすこと自体は目的ではなく、Definitionを読み込め
 現在のHenjiは、この構想を実装・実証するための機能が十分ではない。自己改訂はactiveな次工程ではなく、
 着手時期、前提機能、実装順序、経験の具体的な残し方と読み方、人間のアクション、指示、承認を受け取る
 具体的なinterfaceとHuman Gateは未決定である。人間がcanonical/non-canonical双方を辿るhistory viewと、
-executionとAgent状態のattributionはIncrement 40〜43で実装済みである。改訂されたresourceから実効状態を
+executionとAgent状態のattributionはIncrement 40〜43で実装済みである（参照経路はIncrement 99で`henji history`
+CLIとメインlogのPageUpへ統一）。改訂されたresourceから実効状態を
 再構築する`/rebuild`相当の操作は、対象resource、selection/activation authority、保存方式、実装順序を
 まだ決めていない。
 

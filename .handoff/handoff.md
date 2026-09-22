@@ -99,22 +99,6 @@
   templating、catalog capabilities（vision）、Anthropic／Google／Azure／Bedrockは対象外。
   `{productVersion}` placeholderは将来候補。
 
-### instruction改善候補 — 外部integration依頼の調査順序（未採用メモ）
-
-- 状態: Session `c7c7a106`のturn 13（「プロバイダにopencode goを追加したい」）とturn 15（同種）で、modelは
-  外部API調査と並行して実装内部（credential resolver、transport/request/contract、`worker_physical_io.ts`、
-  `loop.ts`、`worker_protocol.ts`等）を深く読み、`delegate_to_planner`で実装計画まで進めた。利用者は5〜7分で
-  キャンセル。共通instructionに「既存configuration/declarationで足りるかを先に判定し、実装内部は不足時だけ見る」
-  方針がない。利用者は2026-09-21に「帰宅するのでメモ」と判断（実装は未着手）。
-- 次: 採用するなら、共通instruction（`v0/agent/instructions/henji_common.ts`）への段落追加と、planner role
-  （`v0/agent/instructions/roles/planner.ts`）のsmallest-sufficient化を比較し、文言確定後に実装・rebuild・配置。
-- 正本: `docs/experience/normal-use-inbox.md` A9。
-- 関連メモ: base instructionのexternal revisionはinstall/activateが必要で`AGENTS.md`より重い。利用者は
-  「Definitionとinstructionは扱いを変え、instructionは`AGENTS.md`同様に簡単に読み込めるほうがよい」と
-  2026-09-21に判断（未採用）。`docs/experience/normal-use-inbox.md` E4。
-- 注意: 現在activeなbase instructionはbuilt-in（`~/.config/henji-harness/instruction/active-v1.json`なし）。
-  本handoff内の「active external revision `local/henji-base@sha256:82d67dd2…`」は現状と一致しない（別途確認）。
-
 ### OpenCode Go API probe
 
 - 状態: Deno TypeScriptの一時probe（`/tmp/henji_opencode_go_probe.ts`）で、OpenCode Goの`GET /models`、Chat Completions、Responsesを各1回、利用者許可のもと実行。`/models`は200・37 model IDs、chatは`glm-5.3-flash`で200 SSE、Responsesは`grok-4.6`で200 SSEと`response.completed`を確認。key・Authorizationは出力／reportへ保存していない。

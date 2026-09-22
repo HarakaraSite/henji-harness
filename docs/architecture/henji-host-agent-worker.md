@@ -126,8 +126,8 @@ Definition が合成できるものを制限する仕組みになることなく
 
 | 分類 | 対象 | architecture上の扱い |
 | --- | --- | --- |
-| managed revision候補 | Agent Definition、Henji Instruction、tool Definition、任意のmanaged Skill、model profile、subagent Definition、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
-| external input/state | credential/config、Sessionとcanonical transcript、provider evidence、workspace file、native `AGENTS.md`/Skill、active binding、runtime projection、resource instance state、tool call/result | 実行定義artifactへ混ぜず、それぞれの所有者と保存先を維持する。native discovery resourceへmanaged installを要求しない |
+| managed revision候補 | Agent Definition、tool Definition、任意のmanaged Skill、model profile、subagent Definition、Surface data、integration declaration等 | content、contract、dependency、activation、scope、placement、lifecycle、durability、evidenceをkindごとに決め、immutable revisionとして扱う。Agent Definitionを最初に実装する |
+| external input/state | credential/config、Sessionとcanonical transcript、provider evidence、workspace file、native `AGENTS.md`/Skill、user base instruction（`instruction.md`）、active binding、runtime projection、resource instance state、tool call/result | 実行定義artifactへ混ぜず、それぞれの所有者と保存先を維持する。native discovery resourceやuser base instructionへmanaged installを要求しない |
 | binary platform authority | Host coordinator、Worker lifecycle/protocol、canonical Session ownership、atomic turn commit、managed loader/verifier、credential resolver、build manifest、最低限のCLI/diagnostics/recovery Definition | managed hot-loadまたはself-replacementの対象にせず、変更時は新しいHenji binaryとして配布する |
 | 追加architecture判断が必要 | tool/providerのphysical I/O、context/compaction、agent loop strategy、Human Gate、Surface code、storage backend、MCP/integration runtime、remote distribution | 技術的に外部化不能とは決めないが、実行placementとauthorityを個別機能の採用時に決める |
 
@@ -165,9 +165,9 @@ version migrationは未設計である。
   context attribution、明示projectionとcontext transitionを相関して保存・readbackするmechanism。
 - Agent Definition sourceの取込、実行可能なmodule closureの固定、immutable revisionの保存、selectorから
   `DefinitionRevisionRef`への解決、revision metadataとsource lineageのreadback。
-- Henji Instruction packageのinstall、immutable revisionとcustodyの保存、installation/user scopeのactive
-  binding、Worker generation開始前のbuilt-in/external exact revision解決。active external refがmissing、corrupt、
-  incompatibleならbuilt-inへ暗黙fallbackせず、Worker開始前に失敗させる。
+- Henji base instructionの解決。Worker generation開始前に`$XDG_CONFIG_HOME/henji-harness/instruction.md`を
+  一度読み、存在すればbuilt-in coreを置き換え、無ければ最小coreを使う。content digestとexact bytesを固定し、
+  read failureやinvalid contentではbuilt-inへ暗黙fallbackせずWorker開始前に失敗させる。
 - managed resourceのlogical ref、identity manifest、origin lineage、installation固有のlocal custody metadataの
   分離。activation authorityが選んだroot resource setからexact dependency graphを解決し、そのgraphを使う
   Worker、Host、subprocess、client等のgenerationがactiveになる前に固定する。
@@ -333,9 +333,9 @@ source、scope、content digestをSession/evidenceへ記録しても、それは
 managed revisionのinstallまたはactivationではない。
 
 managed Skill revisionはnative Skillの代替ではなく、exact pin、transport、Definitionからのbindingが必要な場合の
-追加authorityである。Henji独自のInstruction revisionも、workspace `AGENTS.md`、native Skill、managed Skillとは
-別resource kindにする。最終的に同じprovider instructionへ合成されても、identity、selection authority、合成順、
-provenanceを失わない。
+追加authorityである。Henji独自のbase instructionはmanaged revisionではなく、user scopeの`instruction.md`を
+直接読み込む別authorityであり、workspace `AGENTS.md`、native Skill、managed Skillと合成順・provenanceを区別する。
+最終的に同じprovider instructionへ合成されても、identity、selection authority、合成順、provenanceを失わない。
 
 Henji共通baseは、binaryに埋め込む最小core（役割identityとcredential/Authorization境界）と、user scopeの
 `$XDG_CONFIG_HOME/henji-harness/instruction.md`を直接読み込む外部contentからなる。外部ファイルは
