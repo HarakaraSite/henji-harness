@@ -31,8 +31,7 @@ import type {
   WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
-import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
-import { isModelSelection, roleDefaultModelSelection } from '../provider/model_catalog.ts';
+import { isModelSelection } from '../provider/model_catalog.ts';
 import {
   type CredentialAvailability,
   modelRouteProfileId,
@@ -50,11 +49,8 @@ import {
 } from './recalled_execution_context.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { ExecutionJournal } from './worker_host_journal.ts';
-import {
-  type ActiveSessionProjection,
-  type ActiveWorkerExecution,
-  createJournalFailureSignal,
-} from './worker_host_types.ts';
+import { SessionAuthority } from './worker_host_authority.ts';
+import { type ActiveWorkerExecution, createJournalFailureSignal } from './worker_host_types.ts';
 import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
 export {
   WorkerHostStartupError,
@@ -70,7 +66,6 @@ import {
   sameCorrelation,
   turnEndFromOutcome,
 } from './worker_host_outcome.ts';
-import { buildManifest } from '../runtime/build_manifest.ts';
 import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
 import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
 
@@ -92,20 +87,14 @@ export class WorkerRecallSelectionError extends Error {
 }
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
+  private readonly authority: SessionAuthority;
   private readonly supervisor: WorkerSupervisor;
   private readonly journal: ExecutionJournal;
-  private readonly projection: ActiveSessionProjection;
-  private autoCompactionNotice: {
-    readonly coveredThroughTurn: number;
-    readonly retainedFromTurn: number;
-  } | undefined;
   private runtimeRequestCount = 0;
   private generationRequestBase = 0;
   private active = false;
   private closed = false;
   private activeExecution: ActiveWorkerExecution | undefined;
-  private readonly build = buildManifest();
-  private readonly createdAt: string;
   private pendingRecall: RecalledExecutionContext | undefined;
   private lastAuxiliaryContextRequestOrdinal: number | undefined;
   private auxiliaryStageWatchdog: {
@@ -129,39 +118,7 @@ export class WorkerHostSession {
     ) {
       throw new Error('session binding does not match the opened session');
     }
-    const nextTurn = record?.nextTurn ?? 1;
-    const defaultSelection = options.initialModelSelection ??
-      (options.agent === 'planner'
-        ? roleDefaultModelSelection('subagent:planner')
-        : ROOT_DEFAULT_MODEL_SELECTION);
-    const modelSelection = record === undefined
-      ? structuredClone(defaultSelection)
-      : structuredClone(record.activeModel);
-    this.projection = {
-      sessionId: options.handle.id,
-      transcript: record === undefined ? [] : structuredClone(record.transcript) as Message[],
-      nextTurn,
-      stateRevision: record?.stateRevision ?? 1,
-      modelSelection,
-      modelChanges: record === undefined
-        ? [{
-          effectiveFromTurn: nextTurn,
-          changedAt: new Date().toISOString(),
-          selection: structuredClone(modelSelection),
-        }]
-        : structuredClone(record.modelChanges) as SessionModelChange[],
-      turnModels: record === undefined
-        ? []
-        : structuredClone(record.turnModels) as SessionTurnModelAttribution[],
-      turnExecutions: record === undefined ? [] : structuredClone(
-        record.turnExecutions,
-      ) as SessionTurnExecutionAttribution[],
-      title: record?.title ?? null,
-      ...(options.handle.checkpoint === undefined
-        ? {}
-        : { checkpoint: structuredClone(options.handle.checkpoint) }),
-    };
-    this.createdAt = record?.createdAt ?? new Date().toISOString();
+    this.authority = new SessionAuthority(options, record);
     this.supervisor = new WorkerSupervisor({
       options,
       handleWorkerMessage: (message) => this.receive(message),
@@ -185,13 +142,13 @@ export class WorkerHostSession {
     readonly modelSelection: ModelSelection;
   } {
     return {
-      transcript: this.projection.transcript,
-      nextTurn: this.projection.nextTurn,
-      stateRevision: this.projection.stateRevision,
-      ...(this.projection.checkpoint === undefined
+      transcript: this.authority.projection.transcript,
+      nextTurn: this.authority.projection.nextTurn,
+      stateRevision: this.authority.projection.stateRevision,
+      ...(this.authority.projection.checkpoint === undefined
         ? {}
-        : { checkpoint: this.projection.checkpoint }),
-      modelSelection: this.projection.modelSelection,
+        : { checkpoint: this.authority.projection.checkpoint }),
+      modelSelection: this.authority.projection.modelSelection,
     };
   }
 
@@ -314,11 +271,11 @@ export class WorkerHostSession {
   }
 
   get sessionId(): string {
-    return this.options.handle.id;
+    return this.authority.sessionId;
   }
 
   modelSelectionSnapshot(): ModelSelection {
-    return structuredClone(this.projection.modelSelection);
+    return this.authority.modelSelectionSnapshot();
   }
 
   startupSnapshot(): NonNullable<WorkerReadyMessage['startupSnapshot']> {
@@ -587,9 +544,7 @@ export class WorkerHostSession {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
   } | null {
-    const notice = this.autoCompactionNotice;
-    this.autoCompactionNotice = undefined;
-    return notice === undefined ? null : structuredClone(notice);
+    return this.authority.consumeAutoCompactionNotice();
   }
 
   private async persistArtifacts(
@@ -678,7 +633,7 @@ export class WorkerHostSession {
       ...structuredClone(evidence),
       schemaVersion: 5 as const,
       sessionId: this.sessionId,
-      build: structuredClone(this.build),
+      build: structuredClone(this.authority.build),
       definition: structuredClone(this.options.definition),
       capture: 'complete' as const,
       requests: evidence.requests.map((record, index) => ({
@@ -725,8 +680,8 @@ export class WorkerHostSession {
   private historyExecutionAttribution() {
     return {
       agent: this.options.agent,
-      model: structuredClone(this.projection.modelSelection),
-      build: structuredClone(this.build),
+      model: structuredClone(this.authority.projection.modelSelection),
+      build: structuredClone(this.authority.build),
       definition: structuredClone(this.options.definition),
       ...(this.supervisor.currentManifest === undefined ? {} : {
         manifest: structuredClone(this.supervisor.currentManifest),
@@ -841,7 +796,7 @@ export class WorkerHostSession {
       agent: this.options.agent,
       instanceCorrelation: this.supervisor.instanceCorrelation,
       workerGeneration: this.supervisor.workerGeneration,
-      build: structuredClone(this.build),
+      build: structuredClone(this.authority.build),
       definition: structuredClone(this.options.definition),
       manifest: structuredClone(this.supervisor.currentManifest),
       command: structuredClone(execution.command),
@@ -1056,7 +1011,7 @@ export class WorkerHostSession {
             execution,
             failedOutcome(
               effectiveOutcome.task,
-              this.projection.transcript,
+              this.authority.projection.transcript,
               'durable execution settlement failed',
             ),
             diagnostic ??
@@ -1102,7 +1057,7 @@ export class WorkerHostSession {
     return {
       ...failedOutcome(
         task,
-        this.projection.transcript,
+        this.authority.projection.transcript,
         `durable execution journal failed: ${code}`,
       ),
       executionJournalDurability: 'failed',
@@ -1124,34 +1079,8 @@ export class WorkerHostSession {
       diagnostic,
       contextManifest,
     );
-    this.deliver(turnEndFromOutcome(this.projection.nextTurn, settled, false));
+    this.deliver(turnEndFromOutcome(this.authority.projection.nextTurn, settled, false));
     return settled;
-  }
-
-  private admissionSessionRecord(): SessionRecordV6 | undefined {
-    if (this.options.handle.record !== undefined) return undefined;
-    if (this.options.durableCanonicalHistory !== true) return undefined;
-    const record: SessionRecordV6 = {
-      schemaVersion: 6,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
-      createdAt: this.createdAt,
-      updatedAt: this.createdAt,
-      title: null,
-      stateRevision: this.projection.stateRevision,
-      nextTurn: this.projection.nextTurn,
-      transcript: [],
-      definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.projection.modelSelection),
-      modelChanges: structuredClone(this.projection.modelChanges),
-      turnModels: [],
-      turnExecutions: [],
-    };
-    if (!validateSessionRecordV6(record)) {
-      throw new Error('empty session record invalid');
-    }
-    return record;
   }
 
   private correlation(command: string): WorkerCorrelation {
@@ -1170,7 +1099,8 @@ export class WorkerHostSession {
         message.checkpoint.sessionId !== this.sessionId ||
         message.checkpoint.sourceProfileId !== this.supervisor.currentManifest.profileId
       ) throw new Error('checkpoint correlation invalid');
-      const completedTurns = indexSessionHistory(this.projection.transcript)?.turns.length ?? 0;
+      const completedTurns =
+        indexSessionHistory(this.authority.projection.transcript)?.turns.length ?? 0;
       if (
         message.checkpoint.coveredThroughTurn < 1 ||
         message.checkpoint.coveredThroughTurn >= completedTurns ||
@@ -1178,7 +1108,7 @@ export class WorkerHostSession {
           message.checkpoint.coveredThroughTurn + 1
       ) throw new Error('checkpoint boundary invalid');
       this.options.handle.installCheckpoint(message.checkpoint);
-      this.projection.checkpoint = structuredClone(message.checkpoint);
+      this.authority.projection.checkpoint = structuredClone(message.checkpoint);
       const notice = {
         coveredThroughTurn: message.checkpoint.coveredThroughTurn,
         retainedFromTurn: message.checkpoint.retainedFromTurn,
@@ -1192,9 +1122,9 @@ export class WorkerHostSession {
         });
         // Only an acknowledgement that was delivered to the generation may publish the
         // notice. The held turn has not started when this method returns.
-        this.autoCompactionNotice = notice;
+        this.authority.recordCheckpointNotice(notice);
       } catch {
-        this.autoCompactionNotice = undefined;
+        this.authority.clearCheckpointNotice();
         this.markUnavailable();
       }
       return;
@@ -1208,46 +1138,9 @@ export class WorkerHostSession {
         accepted,
       });
     } catch {
-      this.autoCompactionNotice = undefined;
+      this.authority.clearCheckpointNotice();
       this.markUnavailable();
     }
-  }
-
-  private proposalRecord(
-    proposal: WorkerCommitProposalMessage,
-  ): SessionRecordV6 | undefined {
-    const committedTurn = proposal.nextTurn - 1;
-    const record: SessionRecordV6 = {
-      schemaVersion: 6,
-      sessionId: this.sessionId,
-      workspaceRoot: this.options.workspaceRoot,
-      agent: this.options.agent,
-      createdAt: this.createdAt,
-      updatedAt: new Date().toISOString(),
-      title: this.projection.title,
-      stateRevision: this.projection.stateRevision + 1,
-      nextTurn: proposal.nextTurn,
-      transcript: structuredClone(proposal.transcript),
-      definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.projection.modelSelection),
-      modelChanges: structuredClone(this.projection.modelChanges),
-      turnModels: [
-        ...structuredClone(this.projection.turnModels),
-        {
-          turn: proposal.nextTurn - 1,
-          selection: structuredClone(this.projection.modelSelection),
-        },
-      ],
-      turnExecutions: [
-        ...structuredClone(this.projection.turnExecutions),
-        {
-          turn: committedTurn,
-          build: structuredClone(this.build),
-          definition: structuredClone(this.options.definition),
-        },
-      ],
-    };
-    return validateSessionRecordV6(record) ? record : undefined;
   }
 
   async selectModel(
@@ -1263,35 +1156,35 @@ export class WorkerHostSession {
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
     }
-    if (sameModelSelection(this.projection.modelSelection, selection)) {
+    if (sameModelSelection(this.authority.projection.modelSelection, selection)) {
       return 'unchanged';
     }
     const changedAt = new Date().toISOString();
     const nextChanges: SessionModelChange[] = [
-      ...structuredClone(this.projection.modelChanges),
+      ...structuredClone(this.authority.projection.modelChanges),
       {
-        effectiveFromTurn: this.projection.nextTurn,
+        effectiveFromTurn: this.authority.projection.nextTurn,
         changedAt,
         selection: structuredClone(selection),
       },
     ];
-    const nextRevision = this.projection.stateRevision + 1;
+    const nextRevision = this.authority.projection.stateRevision + 1;
     const persisted: SessionRecordV6 = {
       schemaVersion: 6,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
-      createdAt: this.createdAt,
+      createdAt: this.authority.createdAt,
       updatedAt: changedAt,
-      title: this.projection.title,
+      title: this.authority.projection.title,
       stateRevision: nextRevision,
-      nextTurn: this.projection.nextTurn,
-      transcript: structuredClone(this.projection.transcript),
+      nextTurn: this.authority.projection.nextTurn,
+      transcript: structuredClone(this.authority.projection.transcript),
       definition: structuredClone(this.options.definition),
       activeModel: structuredClone(selection),
       modelChanges: nextChanges,
-      turnModels: structuredClone(this.projection.turnModels),
-      turnExecutions: structuredClone(this.projection.turnExecutions),
+      turnModels: structuredClone(this.authority.projection.turnModels),
+      turnExecutions: structuredClone(this.authority.projection.turnExecutions),
     };
     if (!validateSessionRecordV6(persisted)) {
       throw new Error('model selection record invalid');
@@ -1325,9 +1218,9 @@ export class WorkerHostSession {
       this.supervisor.setCredentialAvailability(structuredClone(
         message.credentialAvailability,
       ));
-      this.projection.modelSelection = structuredClone(selection);
-      this.projection.modelChanges = nextChanges;
-      this.projection.stateRevision = nextRevision;
+      this.authority.projection.modelSelection = structuredClone(selection);
+      this.authority.projection.modelChanges = nextChanges;
+      this.authority.projection.stateRevision = nextRevision;
       return 'selected';
     } catch (error) {
       this.options.handle.rollback();
@@ -1344,34 +1237,34 @@ export class WorkerHostSession {
     if (this.closed || this.supervisor.isUnavailable) return 'unavailable';
     if (this.active || this.supervisor.currentCorrelation !== undefined) return 'busy';
     const title = normalizeSessionTitle(value);
-    if (title.length === 0 || title === this.projection.title) {
+    if (title.length === 0 || title === this.authority.projection.title) {
       return 'unchanged';
     }
     const changedAt = new Date().toISOString();
-    const nextRevision = this.projection.stateRevision + 1;
+    const nextRevision = this.authority.projection.stateRevision + 1;
     const persisted: SessionRecordV6 = {
       schemaVersion: 6,
       sessionId: this.sessionId,
       workspaceRoot: this.options.workspaceRoot,
       agent: this.options.agent,
-      createdAt: this.createdAt,
+      createdAt: this.authority.createdAt,
       updatedAt: changedAt,
       title,
       stateRevision: nextRevision,
-      nextTurn: this.projection.nextTurn,
-      transcript: structuredClone(this.projection.transcript),
+      nextTurn: this.authority.projection.nextTurn,
+      transcript: structuredClone(this.authority.projection.transcript),
       definition: structuredClone(this.options.definition),
-      activeModel: structuredClone(this.projection.modelSelection),
-      modelChanges: structuredClone(this.projection.modelChanges),
-      turnModels: structuredClone(this.projection.turnModels),
-      turnExecutions: structuredClone(this.projection.turnExecutions),
+      activeModel: structuredClone(this.authority.projection.modelSelection),
+      modelChanges: structuredClone(this.authority.projection.modelChanges),
+      turnModels: structuredClone(this.authority.projection.turnModels),
+      turnExecutions: structuredClone(this.authority.projection.turnExecutions),
     };
     if (!validateSessionRecordV6(persisted)) {
       throw new Error('session title record invalid');
     }
     this.options.handle.commit(persisted);
-    this.projection.title = title;
-    this.projection.stateRevision = nextRevision;
+    this.authority.projection.title = title;
+    this.authority.projection.stateRevision = nextRevision;
     return 'renamed';
   }
 
@@ -1523,7 +1416,7 @@ export class WorkerHostSession {
     this.lastAuxiliaryContextRequestOrdinal = undefined;
     this.active = true;
     const correlation = this.correlation(
-      `turn-${this.projection.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
+      `turn-${this.authority.projection.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
     );
     this.supervisor.setCurrentCorrelation(correlation);
     this.supervisor.beginTurnStageProbeEpoch();
@@ -1531,7 +1424,7 @@ export class WorkerHostSession {
       taskId: crypto.randomUUID().toLowerCase(),
       executionId: crypto.randomUUID().toLowerCase(),
       createdAt: new Date().toISOString(),
-      turn: this.projection.nextTurn,
+      turn: this.authority.projection.nextTurn,
       command: {
         kind: 'turn',
         correlation: structuredClone(correlation),
@@ -1540,7 +1433,7 @@ export class WorkerHostSession {
       ...(admittedRecall === undefined ? {} : {
         recalledContext: structuredClone(admittedRecall),
       }),
-      baseStateRevision: this.projection.stateRevision,
+      baseStateRevision: this.authority.projection.stateRevision,
       stageProbeEpoch: this.supervisor.stageProbeEpoch,
       protocolTrace: [...this.supervisor.bootstrapTrace],
       storeResult: 'not_attempted',
@@ -1569,9 +1462,9 @@ export class WorkerHostSession {
             task,
             baseStateRevision: execution.baseStateRevision,
             ...this.historyExecutionAttribution(),
-            ...(this.admissionSessionRecord() === undefined
+            ...(this.authority.admissionSessionRecord() === undefined
               ? {}
-              : { sessionRecord: this.admissionSessionRecord() }),
+              : { sessionRecord: this.authority.admissionSessionRecord() }),
             ...(this.supervisor.currentStartupSnapshot?.context === undefined
               ? {}
               : { contextSnapshot: this.supervisor.currentStartupSnapshot.context }),
@@ -1599,14 +1492,14 @@ export class WorkerHostSession {
           const failed: LoopOutcome = {
             ...failedOutcome(
               task,
-              this.projection.transcript,
+              this.authority.projection.transcript,
               `durable execution admission failed: ${historyFailure}`,
             ),
             executionAdmissionDurability: 'failed',
             executionAdmissionPersistenceError: historyFailure,
           };
           this.deliver(
-            turnEndFromOutcome(this.projection.nextTurn, failed, false),
+            turnEndFromOutcome(this.authority.projection.nextTurn, failed, false),
           );
           return failed;
         }
@@ -1641,7 +1534,7 @@ export class WorkerHostSession {
         this.markUnavailable();
         const outcome = failedOutcome(
           task,
-          this.projection.transcript,
+          this.authority.projection.transcript,
           'Worker transport unavailable',
         );
         const settled = await this.settleExecution(
@@ -1651,7 +1544,7 @@ export class WorkerHostSession {
           undefined,
         );
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
         );
         return settled;
       }
@@ -1690,7 +1583,7 @@ export class WorkerHostSession {
           diagnostic.code === 'cleanup_error'
         ) this.markUnavailable();
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
         );
         return settled;
       }
@@ -1698,7 +1591,7 @@ export class WorkerHostSession {
         this.markUnavailable();
         const outcome = failedOutcome(
           task,
-          this.projection.transcript,
+          this.authority.projection.transcript,
           message.message,
         );
         const settled = await this.settleExecution(
@@ -1708,7 +1601,7 @@ export class WorkerHostSession {
           undefined,
         );
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
         );
         return settled;
       }
@@ -1726,14 +1619,14 @@ export class WorkerHostSession {
           message.contextManifest,
         );
       }
-      const record = this.proposalRecord(message);
+      const record = this.authority.proposalRecord(message);
       if (record === undefined) {
         if (!this.sendCommitAcknowledgement(execution, correlation, false)) {
           this.markUnavailable();
         }
         const outcome = failedOutcome(
           task,
-          this.projection.transcript,
+          this.authority.projection.transcript,
           'commit proposal invalid',
         );
         const settled = await this.settleExecution(
@@ -1744,7 +1637,7 @@ export class WorkerHostSession {
           message.contextManifest,
         );
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
         );
         return settled;
       }
@@ -1904,7 +1797,7 @@ export class WorkerHostSession {
           : 'session_io_failure';
         const outcome = failedOutcome(
           task,
-          this.projection.transcript,
+          this.authority.projection.transcript,
           'durable session commit failed',
         );
         if (
@@ -1925,7 +1818,7 @@ export class WorkerHostSession {
           if (failedSettlement !== undefined) {
             this.deliver(
               turnEndFromOutcome(
-                this.projection.nextTurn,
+                this.authority.projection.nextTurn,
                 failedSettlement,
                 false,
               ),
@@ -1940,19 +1833,19 @@ export class WorkerHostSession {
           diagnostic,
         );
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, settled, false),
+          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
         );
         return settled;
       }
-      this.projection.transcript = structuredClone(
+      this.authority.projection.transcript = structuredClone(
         record.transcript,
       ) as Message[];
-      this.projection.nextTurn = record.nextTurn;
-      this.projection.stateRevision = record.stateRevision;
-      this.projection.turnModels = structuredClone(
+      this.authority.projection.nextTurn = record.nextTurn;
+      this.authority.projection.stateRevision = record.stateRevision;
+      this.authority.projection.turnModels = structuredClone(
         record.turnModels,
       ) as SessionTurnModelAttribution[];
-      this.projection.turnExecutions = structuredClone(
+      this.authority.projection.turnExecutions = structuredClone(
         record.turnExecutions,
       ) as SessionTurnExecutionAttribution[];
       if (
@@ -1974,7 +1867,7 @@ export class WorkerHostSession {
           committed,
         );
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn - 1, settled, true),
+          turnEndFromOutcome(this.authority.projection.nextTurn - 1, settled, true),
         );
         return settled;
       }
@@ -2003,7 +1896,7 @@ export class WorkerHostSession {
         : 'committed_generation_unavailable';
       const settled = await this.persistExecutionArtifact(execution, committed);
       this.deliver(
-        turnEndFromOutcome(this.projection.nextTurn - 1, settled, true),
+        turnEndFromOutcome(this.authority.projection.nextTurn - 1, settled, true),
       );
       return settled;
     } catch (error) {
@@ -2013,17 +1906,17 @@ export class WorkerHostSession {
       if (this.forcedInterruptionExecutionId === execution.executionId) {
         const outcome = interruptedOutcome(
           task,
-          this.projection.transcript,
+          this.authority.projection.transcript,
           'Worker generation was terminated after cancellation did not settle',
         );
         this.deliver(
-          turnEndFromOutcome(this.projection.nextTurn, outcome, false),
+          turnEndFromOutcome(this.authority.projection.nextTurn, outcome, false),
         );
         return outcome;
       }
       const outcome = failedOutcome(
         task,
-        this.projection.transcript,
+        this.authority.projection.transcript,
         error instanceof Error ? error.message : String(error),
       );
       execution.settlement = 'uncommitted';
@@ -2034,7 +1927,7 @@ export class WorkerHostSession {
         undefined,
       );
       this.deliver(
-        turnEndFromOutcome(this.projection.nextTurn, settled, false),
+        turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
       );
       return settled;
     } finally {
@@ -2161,7 +2054,7 @@ export class WorkerHostSession {
   }
 
   transcriptSnapshot(): readonly Message[] {
-    return structuredClone(this.projection.transcript);
+    return this.authority.transcriptSnapshot();
   }
 
   currentPosition(): {
@@ -2178,15 +2071,17 @@ export class WorkerHostSession {
   } {
     return {
       sessionId: this.sessionId,
-      createdAt: this.createdAt,
-      ...(this.projection.title === null ? {} : { title: this.projection.title }),
+      createdAt: this.authority.createdAt,
+      ...(this.authority.projection.title === null
+        ? {}
+        : { title: this.authority.projection.title }),
       agent: this.options.agent,
-      committedTurn: this.projection.nextTurn - 1,
-      messageCount: this.projection.transcript.length,
-      ...(this.projection.checkpoint === undefined ? {} : {
+      committedTurn: this.authority.projection.nextTurn - 1,
+      messageCount: this.authority.projection.transcript.length,
+      ...(this.authority.projection.checkpoint === undefined ? {} : {
         checkpoint: {
-          coveredThroughTurn: this.projection.checkpoint.coveredThroughTurn,
-          retainedFromTurn: this.projection.checkpoint.retainedFromTurn,
+          coveredThroughTurn: this.authority.projection.checkpoint.coveredThroughTurn,
+          retainedFromTurn: this.authority.projection.checkpoint.retainedFromTurn,
         },
       }),
     };
@@ -2194,10 +2089,10 @@ export class WorkerHostSession {
 
   historyPage(
     page: number,
-    turn = this.projection.nextTurn - 1,
+    turn = this.authority.projection.nextTurn - 1,
     rows = 16,
   ): SessionHistoryPage | undefined {
-    return historyPageWindow(this.projection.transcript, turn, page, {
+    return historyPageWindow(this.authority.projection.transcript, turn, page, {
       sessionId: this.sessionId,
       agent: this.options.agent,
       rows,
@@ -2205,9 +2100,7 @@ export class WorkerHostSession {
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {
-    return this.projection.checkpoint === undefined
-      ? undefined
-      : structuredClone(this.projection.checkpoint);
+    return this.authority.checkpointSnapshot();
   }
 
   async close(): Promise<void> {

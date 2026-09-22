@@ -1,6 +1,6 @@
 # Increment 108 — Host責務の分割（計画上のIncrement B）
 
-ステータス: **実装中（WorkerSupervisor・ExecutionJournal抽出済み。SessionAuthority／ExecutionCoordinator未抽出）**
+ステータス: **実装中（WorkerSupervisor・ExecutionJournal・SessionAuthority抽出済み。ExecutionCoordinator未抽出）**
 
 計画日: 2026-09-22
 
@@ -168,9 +168,12 @@ Host RPCへ移さない。
   共有型（`ActiveWorkerExecution`／`ActiveSessionProjection`／`HistoryJournalErrorCode`／
   `createJournalFailureSignal`）は`v0/agent/worker/worker_host_types.ts`へ分離した。pre-commit failureは
   host callback（`onPreCommitJournalFailure`）でgeneration replacementへ伝える。
-- 未抽出: `SessionAuthority`（projection、canonical commit、session record）、`ExecutionCoordinator`
-  （active execution state machine、submit／settle／cancel、evidence/artifact persistence）。これらは引き続き
-  `WorkerHostSession`が所有する。
+- **SessionAuthority抽出（完了）**: `v0/agent/worker/worker_host_authority.ts`を新設し、canonical projection
+  （transcript、state revision、checkpoint、model selection履歴、title）、record構築・検証
+  （`admissionSessionRecord`／`proposalRecord`／`modelSelectionRecord`／`titleRecord`）、projection更新
+  （`applyCommitted`／`applyModelSelection`／`applyTitle`／`applyCheckpoint`）、history/position readbackを移管した。
+- 未抽出: `ExecutionCoordinator`（active execution state machine、submit／settle／cancel、evidence/artifact
+  persistence、watchdog）。これらは引き続き`WorkerHostSession`が所有する。
 
 ## 未確認事項
 
