@@ -2,6 +2,24 @@
 
 ## Records
 
+### Increment 105 — 置換済みv5/v6 history実装の除去（実装・検証・配置・push完了）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。production entryから到達しないv5/v6 history実装12モジュール
+  （計 約14,600行）と、これを専用に検証していたtest 10件・scripts 2件・taskを削除した。`increment_92`はv7
+  production storeへ移植（exact-byte readbackをv7 `immutable_contents`＋`exactByteDigest`参照へ、
+  exact-capture testは`captureProfile: 'diagnostic-v1'`。11件pass）。旧increment_75の「不正recordでSession
+  一覧が全件失敗しない」動作は`tests/v0/increment_105_history_v7_list_test.ts`としてv7 regressionを追加し
+  `v0:test`へ登録。Increment 101残骸の`credential_file.ts`旧export 7件も除去。product動作は不変。
+- 次: なし。commit `6b3776e1`、push済み。配置binaryはcommit後のclean treeから再build済み（build `e725f3e0…`、
+  source `6b3776e1…`、SHA-256 `7a57be03…`）。隔離XDG smoke（`henji sessions list`／`henji history`）exit 0。
+  実provider確認は不要（provider経路不変）。
+- 正本: `docs/increments/increment-105.md`（結果・検証・coverage根拠）。
+- 注意: 削除したtestのproduct動作は`increment_94_history_v7_prototype_test`（21件）・
+  `increment_99_history_cli_test`・統合test（`increment_12/14/15/33/35/39/65/76/91`）・
+  `provider_stream_compatibility`で担保。`history-v7.sqlite3`等の実データ削除はしていない。
+  `history_store_contract.ts`・`history_view.ts`・`human_history.ts`・`session/history_export.ts`は参照が残るため
+  残置（本incrementの対象外）。
+
 ### Increment 104 — `henji run`の構造化出力（P1、実装・検証・配置完了）
 
 - 状態: 実装・検証完了。`v0:gate` exit 0。`henji run`に`--json`（curated NDJSON）と`--stream`（live assistant

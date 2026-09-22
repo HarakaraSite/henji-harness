@@ -112,8 +112,10 @@ coordinating ownerが一回。最後にbinary rebuild・`~/.local/bin/henji`配�
 
 - `v0:check`（265ファイル）、`v0:fmt`、`v0:lint`、`git diff --check`すべてexit 0。
 - `agent:increment-92-worker-stage-probe:test` 11件、`agent:increment-105-history-v7-list:test` 1件pass。
-- authoritative `v0:gate`は本節に追記する（coordinating ownerが安定候補で一回）。
-- binary rebuild・`~/.local/bin/henji`配置・隔離XDG smoke（`henji history`、`henji sessions list`）は未実施。
+- authoritative `v0:gate` exit 0。
+- commit `6b3776e1`のclean treeからDeno 2.9.7でrebuildし、binary（build `e725f3e0…`、source `6b3776e1…`、
+  SHA-256 `7a57be03…`）を`~/.local/bin/henji`へ原子的に配置済み。隔離XDG smokeで`henji sessions list`
+  （`{"schemaVersion":2,"sessions":[]}`）と`henji history`（`# no history`）がexit 0。
 
 ## 未確認事項
 
