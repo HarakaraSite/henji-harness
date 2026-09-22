@@ -2,6 +2,23 @@
 
 ## Records
 
+### Increment 102 — 外部integration依頼の調査順序方針（A9、実装・検証完了）
+
+- 状態: 実装・検証完了。`v0:gate` exit 0。共通instruction（`HENJI_COMMON_INSTRUCTION`）に「実装変更の前に
+  既存configuration/declaration/dataで満たせるかを確認し、外部service/provider/API/dependencyの追加では
+  official contractを先に取得、実装内部は不足時か利用者が明示した時だけ調べ、最小十分な変更を選ぶ」段落を追加。
+  planner roleを「smallest sufficient changeを決めるのに必要な範囲だけ調べる」へ変更。
+  `managed_instruction.ts`の`BUILTIN_REVISION_DIGEST`／`BUILTIN_CONTENT_DIGEST`を再計算
+  （revision `1edd3953…`、content `b1b8e58b…`、`verifyBuiltinHenjiBaseInstructionIdentity()` true）。
+- 正本: `docs/increments/increment-102.md`。inbox A9は採用して削除済み。architecture・roadmapは不変。
+- 配置: clean commit `11059d56`からDeno 2.9.7でbuildし`~/.local/bin/henji`へ原子的に配置済み
+  （build `f5584c87…`、source `11059d56…`、SHA-256 `4b1ccb62…`、embedded runtime `fc6524d8…`）。
+  隔離XDG smoke exit 0。commit済み、pushは未実施。
+- 次: 通常利用で、外部integration依頼時にmodelが先にofficial contractと宣言十分性を確認する順序をとるかを観察し、
+  不十分なら文言を調整する。実provider callを伴う確認は承認が必要。
+- 注意: 文言の効果はmodel挙動依存でoffline検証不可。active base instructionはbuilt-in（外部instructionが
+  activateされていれば本変更は効かない）。
+
 ### Increment 101 — auth profile一般化と宣言request header（実装・検証完了）
 
 - 状態: 実装・検証完了。`v0:gate`（check/fmt/lint/test）exit 0。auth profileをpattern検証
@@ -492,9 +509,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.4.0`。Increment 101変更を含むclean commit `bacdde5f…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `bde72a4a…`、file SHA-256 `ebf8ad78…`、embedded runtime
-  `4a428546…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.4.0`。Increment 102変更を含むclean commit `11059d56…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `f5584c87…`、file SHA-256 `4b1ccb62…`、embedded runtime
+  `fc6524d8…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
