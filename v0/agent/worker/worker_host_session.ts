@@ -22,24 +22,16 @@ import {
   type FailureDiagnosticV1,
 } from '../session/failure_diagnostic.ts';
 import type { ProviderEvidenceV1, ProviderEvidenceV5 } from '../provider/provider_evidence.ts';
-import { readWorkerModuleRevision, WorkerCapsule } from './worker_capsule.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
   WorkerCorrelation,
-  WorkerDefinitionLoadRequest,
   WorkerErrorMessage,
   WorkerModelSelectedMessage,
   WorkerReadyMessage,
   WorkerToHostMessage,
-  WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
-import {
-  beginWorkerStageProbeEpoch,
-  createWorkerStageProbeBuffer,
-  readWorkerStageSnapshot,
-  type WorkerStageSnapshotTrigger,
-} from './worker_stage_probe.ts';
+import { readWorkerStageSnapshot, type WorkerStageSnapshotTrigger } from './worker_stage_probe.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection, roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
@@ -56,15 +48,21 @@ import {
   type WorkerExecutionStoreResult,
   type WorkerExecutionTraceEntry,
   type WorkerExecutionTurnCommand,
-  workerHostCommandSubtype,
-  workerMessageSubtype,
 } from './worker_execution_artifact.ts';
 import {
   type RecalledExecutionContext,
   recalledExecutionProjectionText,
   resolveRecalledExecutionContext,
 } from './recalled_execution_context.ts';
-import type { WorkerHostCapsule, WorkerHostSessionOptions } from './worker_host_contract.ts';
+import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
+import {
+  validCredentialAvailability,
+  WorkerSupervisor,
+} from './worker_host_supervisor.ts';
+export {
+  WorkerHostStartupError,
+  type WorkerHostStartupErrorCode,
+} from './worker_host_supervisor.ts';
 import {
   diagnosticPersistenceCodes,
   evidencePersistenceCodes,
@@ -75,29 +73,17 @@ import {
   sameCorrelation,
   turnEndFromOutcome,
 } from './worker_host_outcome.ts';
-import { HostMessageQueue } from './worker_host_queue.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
 import type {
   ExecutionEventInput,
   ExecutionEventPayloadByKind,
 } from '../history/history_store_contract.ts';
-import {
-  type ExecutionContextManifestV2,
-  validateWorkerContextSnapshot,
-} from '../history/context_attribution.ts';
-import {
-  isHenjiInstructionRevisionRef,
-  isToolDefinitionRevisionRef,
-  type ToolDefinitionRevisionRef,
-} from '../definitions/managed_resource_ref.ts';
-import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
+import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
 
-const workerUrl = new URL('./worker_bootstrap.ts', import.meta.url);
 const OBSERVATION_FLUSH_BATCH = 256;
 const OBSERVATION_FLUSH_INTERVAL_MS = 25;
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
-const WORKER_RESPONSE_TIMEOUT_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
 const profileIdPattern = /^[^\0]+$/u;
 type HistoryJournalErrorCode =
@@ -115,87 +101,6 @@ const createJournalFailureSignal = (): JournalFailureSignal => {
   });
   return { promise, resolve };
 };
-const validCredentialAvailability = (
-  value: CredentialAvailability | undefined,
-  selection: ModelSelection,
-): value is CredentialAvailability =>
-  value !== undefined && value.authProfile === selection.authProfile &&
-  (value.status === 'present' || value.status === 'missing' ||
-    value.status === 'unknown');
-const validStartupSnapshot = (
-  value: WorkerReadyMessage['startupSnapshot'],
-): value is NonNullable<WorkerReadyMessage['startupSnapshot']> => {
-  if (value === undefined || !Array.isArray(value.skillNames)) return false;
-  if (
-    value.instructionSource !== undefined &&
-    value.instructionSource !== 'AGENTS.md' &&
-    value.instructionSource !== 'AGENTS.MD'
-  ) return false;
-  return value.skillNames.every((name) => typeof name === 'string' && name.length > 0) &&
-    new Set(value.skillNames).size === value.skillNames.length &&
-    (value.context === undefined ||
-      validateWorkerContextSnapshot(value.context));
-};
-const validBaseInstructionManifest = (
-  value:
-    | NonNullable<
-      NonNullable<WorkerReadyMessage['manifest']>['baseInstruction']
-    >
-    | undefined,
-  selected: SelectedHenjiBaseInstruction | undefined,
-): boolean => {
-  if (selected === undefined) {
-    return value === undefined || value.selectionSource === 'built-in';
-  }
-  if (value === undefined || typeof value !== 'object' || value === null) {
-    return false;
-  }
-  return value.slot === selected.slot &&
-    value.selectionSource === selected.selectionSource &&
-    value.contentDigest === selected.contentDigest &&
-    isHenjiInstructionRevisionRef(value.ref) &&
-    JSON.stringify(value.ref) === JSON.stringify(selected.ref);
-};
-
-const toolAttributionKey = (
-  toolIdentity: string,
-  ref: ToolDefinitionRevisionRef,
-): string => `${toolIdentity}:${ref.resourceId}@sha256:${ref.revision.digest}`;
-
-const validToolManifest = (
-  value: NonNullable<WorkerReadyMessage['manifest']>['tools'],
-  requested: readonly WorkerToolDefinitionLoadRequest[] | undefined,
-): boolean => {
-  const expectedKeys = new Set(
-    (requested ?? []).map((tool) => toolAttributionKey(tool.toolIdentity, tool.ref)),
-  );
-  const actual = value ?? [];
-  const actualKeys = actual.map((tool) =>
-    isToolDefinitionRevisionRef(tool.ref)
-      ? toolAttributionKey(tool.toolIdentity, tool.ref)
-      : undefined
-  );
-  return actualKeys.every((key) => key !== undefined && expectedKeys.has(key)) &&
-    new Set(actualKeys).size === actualKeys.length;
-};
-
-export type WorkerHostStartupErrorCode =
-  | 'module_invalid'
-  | 'definition_evaluation_failed'
-  | 'role_mismatch'
-  | 'manifest_invalid';
-
-export class WorkerHostStartupError extends Error {
-  constructor(
-    readonly code: WorkerHostStartupErrorCode,
-    readonly workerStage: WorkerErrorMessage['stage'],
-    message: string,
-  ) {
-    super(message);
-    this.name = 'WorkerHostStartupError';
-  }
-}
-
 export type WorkerRecallSelectionErrorCode =
   | 'unavailable'
   | 'busy'
@@ -251,16 +156,7 @@ type ActiveSessionProjection = {
 };
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
-  private capsule: WorkerHostCapsule;
-  private messages = new HostMessageQueue();
-  private unsubscribe: () => void;
-  private readonly instanceCorrelation = crypto.randomUUID().toLowerCase();
-  private workerGeneration = crypto.randomUUID().toLowerCase();
-  private readonly bootstrapTrace: WorkerExecutionTraceEntry[] = [];
-  private traceSequence = 0;
-  private currentCorrelation: WorkerCorrelation | undefined;
-  private currentManifest: WorkerReadyMessage['manifest'];
-  private currentStartupSnapshot: WorkerReadyMessage['startupSnapshot'];
+  private readonly supervisor: WorkerSupervisor;
   private readonly projection: ActiveSessionProjection;
   private autoCompactionNotice: {
     readonly coveredThroughTurn: number;
@@ -269,21 +165,14 @@ export class WorkerHostSession {
   private runtimeRequestCount = 0;
   private generationRequestBase = 0;
   private active = false;
-  private unavailable = false;
   private closed = false;
   private activeExecution: ActiveWorkerExecution | undefined;
   private readonly build = buildManifest();
   private readonly createdAt: string;
-  private credentialAvailability: CredentialAvailability | undefined;
   private pendingRecall: RecalledExecutionContext | undefined;
   private readonly observationBuffer: ExecutionEventInput[] = [];
   private observationFlushTimer: ReturnType<typeof setTimeout> | undefined;
   private flushingObservations = false;
-  private stageProbeBuffer = createWorkerStageProbeBuffer();
-  private stageProbeEpoch = 0;
-  private lastWorkerSequenceReceived = 0;
-  private lastWorkerSequenceBuffered = 0;
-  private lastWorkerSequenceDurable = 0;
   private lastAuxiliaryContextRequestOrdinal: number | undefined;
   private auxiliaryStageWatchdog: {
     readonly executionId: string;
@@ -296,12 +185,8 @@ export class WorkerHostSession {
   } | undefined;
   private cancellationRequestedExecutionId: string | undefined;
   private forcedInterruptionExecutionId: string | undefined;
-  private generationNeedsReplacement = false;
-  private replacement: Promise<void> | undefined;
 
   private constructor(private readonly options: WorkerHostSessionOptions) {
-    this.capsule = options.capsuleFactory?.(workerUrl) ??
-      new WorkerCapsule(workerUrl);
     const record = options.handle.record;
     if (
       record !== undefined &&
@@ -343,11 +228,47 @@ export class WorkerHostSession {
         : { checkpoint: structuredClone(options.handle.checkpoint) }),
     };
     this.createdAt = record?.createdAt ?? new Date().toISOString();
-    this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
+    this.supervisor = new WorkerSupervisor({
+      options,
+      handleWorkerMessage: (message) => this.receive(message),
+      projection: () => this.supervisorProjection(),
+      onGenerationReplaced: () => this.onGenerationReplaced(),
+    });
+  }
+
+  private supervisorProjection(): {
+    readonly transcript: readonly Message[];
+    readonly nextTurn: number;
+    readonly stateRevision: number;
+    readonly checkpoint?: SemanticContextCheckpointV1;
+    readonly modelSelection: ModelSelection;
+  } {
+    return {
+      transcript: this.projection.transcript,
+      nextTurn: this.projection.nextTurn,
+      stateRevision: this.projection.stateRevision,
+      ...(this.projection.checkpoint === undefined
+        ? {}
+        : { checkpoint: this.projection.checkpoint }),
+      modelSelection: this.projection.modelSelection,
+    };
+  }
+
+  private onGenerationReplaced(): void {
+    this.generationRequestBase = this.runtimeRequestCount;
+    this.lastAuxiliaryContextRequestOrdinal = undefined;
+  }
+
+  private clearObservationBuffer(): void {
+    if (this.observationFlushTimer !== undefined) {
+      clearTimeout(this.observationFlushTimer);
+      this.observationFlushTimer = undefined;
+    }
+    this.observationBuffer.length = 0;
   }
 
   private workerResponseTimeoutMs(): number {
-    return this.options.workerResponseTimeoutMs ?? WORKER_RESPONSE_TIMEOUT_MS;
+    return this.supervisor.workerResponseTimeoutMs();
   }
 
   private clearAuxiliaryStageWatchdog(
@@ -376,7 +297,7 @@ export class WorkerHostSession {
     if (!this.flushObservationBuffer()) return false;
     let snapshot: ReturnType<typeof readWorkerStageSnapshot>;
     try {
-      snapshot = readWorkerStageSnapshot(this.stageProbeBuffer);
+      snapshot = readWorkerStageSnapshot(this.supervisor.stageProbeBuffer);
     } catch {
       return true;
     }
@@ -390,11 +311,11 @@ export class WorkerHostSession {
       payload: {
         ...snapshot,
         trigger,
-        workerGeneration: this.workerGeneration,
+        workerGeneration: this.supervisor.workerGeneration,
         ...(contextRequestOrdinal === undefined ? {} : { contextRequestOrdinal }),
-        lastWorkerSequenceReceived: this.lastWorkerSequenceReceived,
-        lastWorkerSequenceBuffered: this.lastWorkerSequenceBuffered,
-        lastWorkerSequenceDurable: this.lastWorkerSequenceDurable,
+        lastWorkerSequenceReceived: this.supervisor.lastWorkerSequenceReceived,
+        lastWorkerSequenceBuffered: this.supervisor.lastWorkerSequenceBuffered,
+        lastWorkerSequenceDurable: this.supervisor.lastWorkerSequenceDurable,
       },
     });
   }
@@ -422,10 +343,7 @@ export class WorkerHostSession {
   }
 
   private noteWorkerSequenceReceived(message: WorkerToHostMessage): void {
-    if (
-      'sequence' in message && Number.isSafeInteger(message.sequence) &&
-      Number(message.sequence) > this.lastWorkerSequenceReceived
-    ) this.lastWorkerSequenceReceived = Number(message.sequence);
+    this.supervisor.noteWorkerSequenceReceived(message);
   }
 
   private clearCancellationWatchdog(executionId?: string): void {
@@ -439,59 +357,11 @@ export class WorkerHostSession {
   }
 
   private markUnavailableForReplacement(): void {
-    this.generationNeedsReplacement = true;
-    this.markUnavailable();
-  }
-
-  private async replaceGeneration(): Promise<void> {
-    if (!this.generationNeedsReplacement) return;
-    if (this.closed) throw new Error('session is closed');
-    if (this.replacement !== undefined) return await this.replacement;
-    this.replacement = (async () => {
-      this.clearAuxiliaryStageWatchdog();
-      this.unsubscribe();
-      this.messages.fail(new Error('Worker generation replaced'));
-      try {
-        this.capsule.terminate();
-      } catch {
-        // The old generation is already unavailable.
-      }
-      this.messages = new HostMessageQueue();
-      this.generationRequestBase = this.runtimeRequestCount;
-      this.workerGeneration = crypto.randomUUID().toLowerCase();
-      this.stageProbeBuffer = createWorkerStageProbeBuffer();
-      this.stageProbeEpoch = 0;
-      this.lastWorkerSequenceReceived = 0;
-      this.lastWorkerSequenceBuffered = 0;
-      this.lastWorkerSequenceDurable = 0;
-      this.lastAuxiliaryContextRequestOrdinal = undefined;
-      this.bootstrapTrace.length = 0;
-      this.traceSequence = 0;
-      this.currentManifest = undefined;
-      this.currentStartupSnapshot = undefined;
-      this.credentialAvailability = undefined;
-      this.unavailable = false;
-      this.capsule = this.options.capsuleFactory?.(workerUrl) ??
-        new WorkerCapsule(workerUrl);
-      this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
-      try {
-        await this.start();
-        this.generationNeedsReplacement = false;
-      } catch (error) {
-        this.markUnavailable();
-        throw error;
-      }
-    })();
-    try {
-      await this.replacement;
-    } finally {
-      this.replacement = undefined;
-    }
+    this.supervisor.markUnavailableForReplacement(() => this.clearObservationBuffer());
   }
 
   private async ensureGeneration(): Promise<void> {
-    if (this.generationNeedsReplacement) await this.replaceGeneration();
-    if (this.unavailable) throw new Error('agent session unavailable');
+    await this.supervisor.ensureGeneration(() => this.clearObservationBuffer());
   }
 
   private escalateCancellation(executionId: string): void {
@@ -532,7 +402,7 @@ export class WorkerHostSession {
   ): Promise<WorkerHostSession> {
     const session = new WorkerHostSession(options);
     try {
-      await session.start();
+      await session.supervisor.start(() => session.clearObservationBuffer());
       return session;
     } catch (error) {
       await session.close();
@@ -553,50 +423,25 @@ export class WorkerHostSession {
   }
 
   startupSnapshot(): NonNullable<WorkerReadyMessage['startupSnapshot']> {
-    if (this.currentStartupSnapshot === undefined) {
+    if (this.supervisor.currentStartupSnapshot === undefined) {
       throw new Error('Worker startup snapshot is unavailable');
     }
-    return structuredClone(this.currentStartupSnapshot);
+    return structuredClone(this.supervisor.currentStartupSnapshot);
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
-    return this.credentialAvailability === undefined
+    return this.supervisor.credentialAvailability === undefined
       ? undefined
-      : structuredClone(this.credentialAvailability);
-  }
-
-  private trace(
-    direction: WorkerExecutionTraceEntry['direction'],
-    kind: WorkerExecutionTraceEntry['kind'],
-    semanticSubtype: string,
-    correlation: WorkerCorrelation,
-    ackAccepted?: boolean,
-  ): void {
-    if (this.options.historyPersistence?.capturesProtocolTrace?.() === false) return;
-    const entry: WorkerExecutionTraceEntry = {
-      direction,
-      kind,
-      semanticSubtype,
-      sequence: ++this.traceSequence,
-      correlation: structuredClone(correlation),
-      ...(ackAccepted === undefined ? {} : { ackAccepted }),
-    };
-    if (this.activeExecution === undefined) this.bootstrapTrace.push(entry);
-    else this.activeExecution.protocolTrace.push(entry);
+      : structuredClone(this.supervisor.credentialAvailability);
   }
 
   private send(
     command: import('./worker_protocol.ts').WorkerHostCommand,
   ): void {
-    const subtype = workerHostCommandSubtype(command);
-    this.trace(
-      'host_to_worker',
-      subtype.kind,
-      subtype.semanticSubtype,
-      command.correlation,
-      subtype.ackAccepted,
+    this.supervisor.send(
+      command,
+      this.activeExecution?.protocolTrace ?? this.supervisor.bootstrapTrace,
     );
-    this.capsule.send(command);
   }
 
   private sendCommitAcknowledgement(
@@ -647,15 +492,9 @@ export class WorkerHostSession {
   }
 
   private receiveTrace(message: WorkerToHostMessage): void {
-    const subtype = workerMessageSubtype(message);
-    const correlation = 'correlation' in message && message.correlation !== undefined
-      ? message.correlation
-      : this.currentCorrelation ?? this.correlation('worker_error');
-    this.trace(
-      'worker_to_host',
-      subtype.kind,
-      subtype.semanticSubtype,
-      correlation,
+    this.supervisor.receiveTrace(
+      message,
+      this.activeExecution?.protocolTrace ?? this.supervisor.bootstrapTrace,
     );
   }
 
@@ -702,7 +541,7 @@ export class WorkerHostSession {
         (message.kind === 'commit_proposal' || message.kind === 'turn_failed')
       ) {
         this.flushObservationBuffer();
-        this.messages.publish(message);
+        this.supervisor.messages.publish(message);
         return;
       }
       this.markUnavailable();
@@ -733,7 +572,7 @@ export class WorkerHostSession {
         message.event.event.kind === 'turn_end'
       ) {
         this.flushObservationBuffer();
-        this.messages.publish(message);
+        this.supervisor.messages.publish(message);
       } else if (message.event.kind === 'agent_event') {
         this.deliver(message.event.event);
       }
@@ -811,7 +650,7 @@ export class WorkerHostSession {
       return;
     }
     this.flushObservationBuffer();
-    this.messages.publish(message);
+    this.supervisor.messages.publish(message);
   }
 
   private appendJournal(input: ExecutionEventInput): boolean {
@@ -852,8 +691,7 @@ export class WorkerHostSession {
           // observable even when the append failed before submit() registered its waiter.
           this.activeExecution.journalFailureSignal.resolve(code);
         }
-        this.generationNeedsReplacement = true;
-        this.markUnavailable();
+        this.markUnavailableForReplacement();
       } else {
         // The canonical transaction is already durable. Keep its result and make the
         // acknowledgement loss visible to the Surface without attempting a second settle.
@@ -881,8 +719,8 @@ export class WorkerHostSession {
     );
     if (
       input.workerSequence !== undefined &&
-      input.workerSequence > this.lastWorkerSequenceBuffered
-    ) this.lastWorkerSequenceBuffered = input.workerSequence;
+      input.workerSequence > this.supervisor.lastWorkerSequenceBuffered
+    ) this.supervisor.lastWorkerSequenceBuffered = input.workerSequence;
     if (this.observationBuffer.length >= OBSERVATION_FLUSH_BATCH) {
       return this.flushObservationBuffer();
     }
@@ -921,8 +759,8 @@ export class WorkerHostSession {
       for (const input of batch) {
         if (
           input.workerSequence !== undefined &&
-          input.workerSequence > this.lastWorkerSequenceDurable
-        ) this.lastWorkerSequenceDurable = input.workerSequence;
+          input.workerSequence > this.supervisor.lastWorkerSequenceDurable
+        ) this.supervisor.lastWorkerSequenceDurable = input.workerSequence;
       }
       return true;
     } catch (error) {
@@ -949,12 +787,12 @@ export class WorkerHostSession {
           workerSequence: message.sequence,
           observation: message.observation,
         });
-        this.lastWorkerSequenceBuffered = Math.max(
-          this.lastWorkerSequenceBuffered,
+        this.supervisor.lastWorkerSequenceBuffered = Math.max(
+          this.supervisor.lastWorkerSequenceBuffered,
           message.sequence,
         );
-        this.lastWorkerSequenceDurable = Math.max(
-          this.lastWorkerSequenceDurable,
+        this.supervisor.lastWorkerSequenceDurable = Math.max(
+          this.supervisor.lastWorkerSequenceDurable,
           message.sequence,
         );
         return true;
@@ -1016,16 +854,7 @@ export class WorkerHostSession {
   }
 
   private markUnavailable(): void {
-    if (this.observationFlushTimer !== undefined) {
-      clearTimeout(this.observationFlushTimer);
-      this.observationFlushTimer = undefined;
-    }
-    this.observationBuffer.length = 0;
-    if (!this.unavailable) {
-      this.unavailable = true;
-      this.capsule.terminate();
-    }
-    this.messages.fail(new Error('Worker transport unavailable'));
+    this.supervisor.markUnavailable(() => this.clearObservationBuffer());
   }
 
   private observeRequestCount(outcome: LoopOutcome): LoopOutcome {
@@ -1147,7 +976,7 @@ export class WorkerHostSession {
         request: {
           ...structuredClone(record.request),
           ...(record.request.contextRequestOrdinal === undefined &&
-              this.currentStartupSnapshot?.context === undefined
+              this.supervisor.currentStartupSnapshot?.context === undefined
             ? { contextRequestOrdinal: index + 1 }
             : record.request.contextRequestOrdinal === undefined
             ? {}
@@ -1189,11 +1018,11 @@ export class WorkerHostSession {
       model: structuredClone(this.projection.modelSelection),
       build: structuredClone(this.build),
       definition: structuredClone(this.options.definition),
-      ...(this.currentManifest === undefined ? {} : {
-        manifest: structuredClone(this.currentManifest),
+      ...(this.supervisor.currentManifest === undefined ? {} : {
+        manifest: structuredClone(this.supervisor.currentManifest),
       }),
-      instanceCorrelation: this.instanceCorrelation,
-      workerGeneration: this.workerGeneration,
+      instanceCorrelation: this.supervisor.instanceCorrelation,
+      workerGeneration: this.supervisor.workerGeneration,
     };
   }
 
@@ -1235,7 +1064,7 @@ export class WorkerHostSession {
     const history = this.options.historyPersistence;
     if (
       (store === undefined && history === undefined) ||
-      this.currentManifest === undefined
+      this.supervisor.currentManifest === undefined
     ) {
       return this.withObservationFailure(execution, outcome);
     }
@@ -1280,7 +1109,7 @@ export class WorkerHostSession {
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
   ): WorkerExecutionArtifactV7 {
-    if (this.currentManifest === undefined) {
+    if (this.supervisor.currentManifest === undefined) {
       throw new Error('Worker manifest unavailable for execution artifact');
     }
     const canonicalAdoption = (this.options.historyPersistence === undefined ||
@@ -1288,8 +1117,8 @@ export class WorkerHostSession {
       execution.committedStateRevision !== undefined;
     return {
       schemaVersion: 7,
-      ...(this.currentManifest.tools === undefined ? {} : {
-        tools: structuredClone(this.currentManifest.tools),
+      ...(this.supervisor.currentManifest.tools === undefined ? {} : {
+        tools: structuredClone(this.supervisor.currentManifest.tools),
       }),
       contextCapture: execution.journalFailure === true
         ? 'failed'
@@ -1300,11 +1129,11 @@ export class WorkerHostSession {
       sessionId: this.sessionId,
       turn: execution.turn,
       agent: this.options.agent,
-      instanceCorrelation: this.instanceCorrelation,
-      workerGeneration: this.workerGeneration,
+      instanceCorrelation: this.supervisor.instanceCorrelation,
+      workerGeneration: this.supervisor.workerGeneration,
       build: structuredClone(this.build),
       definition: structuredClone(this.options.definition),
-      manifest: structuredClone(this.currentManifest),
+      manifest: structuredClone(this.supervisor.currentManifest),
       command: structuredClone(execution.command),
       ...(execution.recalledContext === undefined ? {} : {
         recall: {
@@ -1469,8 +1298,8 @@ export class WorkerHostSession {
               recalledContext: execution.recalledContext,
             }),
             ...(contextManifest === undefined ? {} : { contextManifest }),
-            ...(this.currentStartupSnapshot?.context === undefined ? {} : {
-              contextSnapshot: this.currentStartupSnapshot.context,
+            ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
+              contextSnapshot: this.supervisor.currentStartupSnapshot.context,
             }),
             outcome: effectiveOutcome,
             ...(providerEvidence === undefined ? {} : {
@@ -1616,143 +1445,20 @@ export class WorkerHostSession {
   }
 
   private correlation(command: string): WorkerCorrelation {
-    return {
-      session: this.sessionId,
-      instanceCorrelation: this.instanceCorrelation,
-      workerGeneration: this.workerGeneration,
-      baseStateRevision: this.projection.stateRevision,
-      command,
-    };
-  }
-
-  private async start(): Promise<void> {
-    const correlation = this.correlation('start');
-    const readyPromise = this.messages.wait((
-      message,
-    ): message is WorkerReadyMessage | WorkerErrorMessage =>
-      (message.kind === 'ready' &&
-        sameCorrelation(message.correlation, correlation)) ||
-      (message.kind === 'worker_error' &&
-        (message.correlation === undefined ||
-          sameCorrelation(message.correlation, correlation))), 5_000);
-    let revision: WorkerDefinitionLoadRequest;
-    if (this.options.loadDescriptor !== undefined) {
-      revision = this.options.loadDescriptor;
-    } else if (this.options.modulePath !== undefined) {
-      revision = await readWorkerModuleRevision(this.options.modulePath);
-    } else {
-      throw new WorkerHostStartupError(
-        'module_invalid',
-        'module_pre_read',
-        'Worker Definition physical descriptor is unavailable',
-      );
-    }
-    this.currentCorrelation = correlation;
-    try {
-      this.send({
-        kind: 'start',
-        correlation,
-        module: revision,
-        ...(this.options.toolDefinitions === undefined
-          ? {}
-          : { toolDefinitions: this.options.toolDefinitions }),
-        workspaceRoot: this.options.workspaceRoot,
-        physicalIoMode: this.options.physicalIoMode ?? 'production',
-        rootRole: this.options.agent === 'planner' ? 'planner' : 'parent',
-        ...(this.options.rootMaxSteps === undefined
-          ? {}
-          : { rootMaxSteps: this.options.rootMaxSteps }),
-        ...(this.options.providerTimeoutMs === undefined
-          ? {}
-          : { providerTimeoutMs: this.options.providerTimeoutMs }),
-        diagnosticStageBuffer: this.stageProbeBuffer,
-        initialTranscript: this.projection.transcript,
-        nextTurn: this.projection.nextTurn,
-        ...(this.projection.checkpoint === undefined
-          ? {}
-          : { checkpoint: this.projection.checkpoint }),
-        modelSelection: this.projection.modelSelection,
-        ...(this.options.baseInstruction === undefined
-          ? {}
-          : { baseInstruction: this.options.baseInstruction }),
-        ...(this.options.providerDeclarations === undefined
-          ? {}
-          : { providerDeclarations: this.options.providerDeclarations }),
-      });
-    } catch {
-      this.markUnavailable();
-      throw new Error('Worker transport unavailable');
-    }
-    try {
-      const ready = await readyPromise;
-      if (ready.kind === 'worker_error') {
-        throw new WorkerHostStartupError(
-          ready.stage === 'module_pre_read' ? 'module_invalid' : 'definition_evaluation_failed',
-          ready.stage,
-          ready.message,
-        );
-      }
-      const expectedRole = this.options.agent === 'planner' ? 'planner' : 'parent';
-      if (
-        ready.manifest !== undefined && ready.manifest.role !== expectedRole
-      ) {
-        throw new WorkerHostStartupError(
-          'role_mismatch',
-          'module_validation',
-          'Worker Definition effective role did not match its declared role',
-        );
-      }
-      if (
-        ready.manifest === undefined ||
-        !sameModelSelection(
-          ready.manifest.rootModel,
-          this.projection.modelSelection,
-        ) ||
-        ready.manifest.profileId !==
-          modelRouteProfileId(this.projection.modelSelection) ||
-        !validBaseInstructionManifest(
-          ready.manifest.baseInstruction,
-          this.options.baseInstruction,
-        ) ||
-        !validToolManifest(
-          ready.manifest.tools,
-          this.options.toolDefinitions,
-        ) ||
-        (this.options.rootMaxSteps !== undefined &&
-          ready.manifest.maxSteps !== this.options.rootMaxSteps) ||
-        !validStartupSnapshot(ready.startupSnapshot) ||
-        !validCredentialAvailability(
-          ready.credentialAvailability,
-          this.projection.modelSelection,
-        )
-      ) {
-        throw new WorkerHostStartupError(
-          'manifest_invalid',
-          'module_validation',
-          'Worker manifest did not match Host selection',
-        );
-      }
-      this.currentManifest = ready.manifest;
-      this.currentStartupSnapshot = ready.startupSnapshot;
-      this.credentialAvailability = structuredClone(
-        ready.credentialAvailability,
-      );
-    } finally {
-      this.currentCorrelation = undefined;
-    }
+    return this.supervisor.correlation(command);
   }
 
   private installCheckpoint(message: WorkerCheckpointProposalMessage): void {
     let accepted = false;
     try {
       if (
-        this.currentCorrelation === undefined || !this.active ||
-        !sameCorrelation(message.correlation, this.currentCorrelation) ||
+        this.supervisor.currentCorrelation === undefined || !this.active ||
+        !sameCorrelation(message.correlation, this.supervisor.currentCorrelation) ||
         !validateSemanticContextCheckpoint(message.checkpoint) ||
-        this.currentManifest === undefined ||
-        !profileIdPattern.test(this.currentManifest.profileId) ||
+        this.supervisor.currentManifest === undefined ||
+        !profileIdPattern.test(this.supervisor.currentManifest.profileId) ||
         message.checkpoint.sessionId !== this.sessionId ||
-        message.checkpoint.sourceProfileId !== this.currentManifest.profileId
+        message.checkpoint.sourceProfileId !== this.supervisor.currentManifest.profileId
       ) throw new Error('checkpoint correlation invalid');
       const completedTurns = indexSessionHistory(this.projection.transcript)?.turns.length ?? 0;
       if (
@@ -1843,7 +1549,7 @@ export class WorkerHostSession {
     } catch {
       return 'unavailable';
     }
-    if (this.active || this.currentCorrelation !== undefined) return 'busy';
+    if (this.active || this.supervisor.currentCorrelation !== undefined) return 'busy';
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
     }
@@ -1885,9 +1591,9 @@ export class WorkerHostSession {
       ...this.correlation('select-model-' + crypto.randomUUID().toLowerCase()),
       baseStateRevision: nextRevision,
     };
-    this.currentCorrelation = correlation;
+    this.supervisor.setCurrentCorrelation(correlation);
     try {
-      const response = this.messages.wait(
+      const response = this.supervisor.messages.wait(
         (
           value,
         ): value is WorkerModelSelectedMessage | WorkerErrorMessage =>
@@ -1905,10 +1611,10 @@ export class WorkerHostSession {
         message.manifest.profileId !== modelRouteProfileId(selection) ||
         !validCredentialAvailability(message.credentialAvailability, selection)
       ) throw new Error('Worker rejected model selection');
-      this.currentManifest = message.manifest;
-      this.credentialAvailability = structuredClone(
+      this.supervisor.setManifest(message.manifest);
+      this.supervisor.setCredentialAvailability(structuredClone(
         message.credentialAvailability,
-      );
+      ));
       this.projection.modelSelection = structuredClone(selection);
       this.projection.modelChanges = nextChanges;
       this.projection.stateRevision = nextRevision;
@@ -1918,15 +1624,15 @@ export class WorkerHostSession {
       this.markUnavailableForReplacement();
       throw error;
     } finally {
-      this.currentCorrelation = undefined;
+      this.supervisor.setCurrentCorrelation(undefined);
     }
   }
 
   renameTitle(
     value: string,
   ): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
-    if (this.closed || this.unavailable) return 'unavailable';
-    if (this.active || this.currentCorrelation !== undefined) return 'busy';
+    if (this.closed || this.supervisor.isUnavailable) return 'unavailable';
+    if (this.active || this.supervisor.currentCorrelation !== undefined) return 'busy';
     const title = normalizeSessionTitle(value);
     if (title.length === 0 || title === this.projection.title) {
       return 'unchanged';
@@ -1964,13 +1670,13 @@ export class WorkerHostSession {
     readonly evidence: 'available' | 'unavailable';
   }> {
     if (
-      this.closed || this.unavailable ||
+      this.closed || this.supervisor.isUnavailable ||
       this.options.executionArtifactStore === undefined &&
         this.options.historyPersistence === undefined
     ) {
       throw new WorkerRecallSelectionError('unavailable');
     }
-    if (this.active || this.currentCorrelation !== undefined) {
+    if (this.active || this.supervisor.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
     let selectedExecutionId: string | undefined;
@@ -2034,10 +1740,10 @@ export class WorkerHostSession {
       if (error instanceof WorkerRecallSelectionError) throw error;
       throw new WorkerRecallSelectionError('failed');
     }
-    if (this.closed || this.unavailable) {
+    if (this.closed || this.supervisor.isUnavailable) {
       throw new WorkerRecallSelectionError('unavailable');
     }
-    if (this.active || this.currentCorrelation !== undefined) {
+    if (this.active || this.supervisor.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
     if (selectedExecutionId === undefined) {
@@ -2059,10 +1765,10 @@ export class WorkerHostSession {
     } catch {
       throw new WorkerRecallSelectionError('failed');
     }
-    if (this.closed || this.unavailable) {
+    if (this.closed || this.supervisor.isUnavailable) {
       throw new WorkerRecallSelectionError('unavailable');
     }
-    if (this.active || this.currentCorrelation !== undefined) {
+    if (this.active || this.supervisor.currentCorrelation !== undefined) {
       throw new WorkerRecallSelectionError('busy');
     }
     this.pendingRecall = structuredClone(recalled);
@@ -2109,13 +1815,8 @@ export class WorkerHostSession {
     const correlation = this.correlation(
       `turn-${this.projection.nextTurn}-${crypto.randomUUID().toLowerCase()}`,
     );
-    this.currentCorrelation = correlation;
-    this.stageProbeEpoch = this.stageProbeEpoch >= 0x7fff_ffff ? 1 : this.stageProbeEpoch + 1;
-    try {
-      beginWorkerStageProbeEpoch(this.stageProbeBuffer, this.stageProbeEpoch);
-    } catch {
-      // Diagnostics never narrow or fail turn admission.
-    }
+    this.supervisor.setCurrentCorrelation(correlation);
+    this.supervisor.beginTurnStageProbeEpoch();
     const execution: ActiveWorkerExecution = {
       taskId: crypto.randomUUID().toLowerCase(),
       executionId: crypto.randomUUID().toLowerCase(),
@@ -2130,8 +1831,8 @@ export class WorkerHostSession {
         recalledContext: structuredClone(admittedRecall),
       }),
       baseStateRevision: this.projection.stateRevision,
-      stageProbeEpoch: this.stageProbeEpoch,
-      protocolTrace: [...this.bootstrapTrace],
+      stageProbeEpoch: this.supervisor.stageProbeEpoch,
+      protocolTrace: [...this.supervisor.bootstrapTrace],
       storeResult: 'not_attempted',
       acknowledgement: 'not_sent',
       settlement: 'uncommitted',
@@ -2161,9 +1862,9 @@ export class WorkerHostSession {
             ...(this.admissionSessionRecord() === undefined
               ? {}
               : { sessionRecord: this.admissionSessionRecord() }),
-            ...(this.currentStartupSnapshot?.context === undefined
+            ...(this.supervisor.currentStartupSnapshot?.context === undefined
               ? {}
-              : { contextSnapshot: this.currentStartupSnapshot.context }),
+              : { contextSnapshot: this.supervisor.currentStartupSnapshot.context }),
           });
         } catch (error) {
           const historyFailure = typeof error === 'object' && error !== null &&
@@ -2245,7 +1946,7 @@ export class WorkerHostSession {
         return settled;
       }
       const terminal = await Promise.race([
-        this.messages.wait((
+        this.supervisor.messages.wait((
           value,
         ): value is
           | WorkerCommitProposalMessage
@@ -2375,8 +2076,8 @@ export class WorkerHostSession {
               recalledContext: execution.recalledContext,
             }),
             contextManifest: message.contextManifest,
-            ...(this.currentStartupSnapshot?.context === undefined ? {} : {
-              contextSnapshot: this.currentStartupSnapshot.context,
+            ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
+              contextSnapshot: this.supervisor.currentStartupSnapshot.context,
             }),
             record,
             outcome: proposedOutcome,
@@ -2440,8 +2141,8 @@ export class WorkerHostSession {
                   recalledContext: execution.recalledContext,
                 }),
                 contextManifest: message.contextManifest,
-                ...(this.currentStartupSnapshot?.context === undefined ? {} : {
-                  contextSnapshot: this.currentStartupSnapshot.context,
+                ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
+                  contextSnapshot: this.supervisor.currentStartupSnapshot.context,
                 }),
                 outcome: proposedOutcome,
                 ...(message.providerEvidence === undefined ? {} : {
@@ -2569,7 +2270,7 @@ export class WorkerHostSession {
       }
       let workerError: WorkerErrorMessage | undefined;
       try {
-        const settled = await this.messages.wait(
+        const settled = await this.supervisor.messages.wait(
           (
             value,
           ): value is
@@ -2587,7 +2288,7 @@ export class WorkerHostSession {
       if (workerError !== undefined) {
         this.markUnavailableForReplacement();
       }
-      execution.settlement = workerError === undefined && !this.unavailable
+      execution.settlement = workerError === undefined && !this.supervisor.isUnavailable
         ? 'committed'
         : 'committed_generation_unavailable';
       const settled = await this.persistExecutionArtifact(execution, committed);
@@ -2637,13 +2338,13 @@ export class WorkerHostSession {
       }
       this.activeExecution = undefined;
       this.active = false;
-      this.currentCorrelation = undefined;
+      this.supervisor.setCurrentCorrelation(undefined);
       this.lastAuxiliaryContextRequestOrdinal = undefined;
     }
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
-    if (!this.active || this.currentCorrelation === undefined) return 'idle';
+    if (!this.active || this.supervisor.currentCorrelation === undefined) return 'idle';
     const execution = this.activeExecution;
     if (
       execution !== undefined &&
@@ -2664,7 +2365,7 @@ export class WorkerHostSession {
     try {
       this.send({
         kind: 'cancel',
-        correlation: this.currentCorrelation,
+        correlation: this.supervisor.currentCorrelation,
       });
       if (execution !== undefined) {
         this.appendJournal({
@@ -2700,7 +2401,7 @@ export class WorkerHostSession {
   }
 
   steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
-    if (!this.active || this.currentCorrelation === undefined) return 'idle';
+    if (!this.active || this.supervisor.currentCorrelation === undefined) return 'idle';
     const execution = this.activeExecution;
     if (execution !== undefined) {
       const journaled = this.appendJournal({
@@ -2715,7 +2416,7 @@ export class WorkerHostSession {
     try {
       this.send({
         kind: 'steer',
-        correlation: this.currentCorrelation,
+        correlation: this.supervisor.currentCorrelation,
         text,
       });
       if (execution !== undefined) {
@@ -2745,7 +2446,8 @@ export class WorkerHostSession {
 
   isAvailable(): boolean {
     return !this.closed &&
-      (!this.unavailable || this.generationNeedsReplacement) && !this.active;
+      (!this.supervisor.isUnavailable || this.supervisor.generationNeedsReplacement) &&
+      !this.active;
   }
 
   transcriptSnapshot(): readonly Message[] {
@@ -2805,18 +2507,16 @@ export class WorkerHostSession {
     this.clearAuxiliaryStageWatchdog();
     this.flushObservationBuffer();
     if (
-      this.currentManifest === undefined || this.unavailable ||
-      this.generationNeedsReplacement
+      this.supervisor.currentManifest === undefined || this.supervisor.isUnavailable ||
+      this.supervisor.generationNeedsReplacement
     ) {
-      this.unsubscribe();
-      this.messages.fail(new Error('Worker host session closed'));
-      this.capsule.terminate();
+      this.supervisor.terminate();
       await this.options.handle.close();
       return;
     }
     const correlation = this.correlation('close');
     try {
-      const closed = this.messages.wait((
+      const closed = this.supervisor.messages.wait((
         value,
       ): value is
         | Extract<WorkerToHostMessage, { kind: 'closed' }>
@@ -2828,10 +2528,9 @@ export class WorkerHostSession {
       const settled = await closed;
       if (settled.kind === 'worker_error') throw new Error(settled.message);
     } catch {
-      this.capsule.terminate();
+      // The generation is already unavailable.
     } finally {
-      this.unsubscribe();
-      this.messages.fail(new Error('Worker host session closed'));
+      this.supervisor.terminate();
       await this.options.handle.close();
     }
   }

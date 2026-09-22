@@ -1,6 +1,6 @@
 # Increment 108 — Host責務の分割（計画上のIncrement B）
 
-ステータス: **計画（通常・批判的レビュー反映済み。未実装）**
+ステータス: **実装中（WorkerSupervisor抽出済み。ExecutionJournal／SessionAuthority／ExecutionCoordinator未抽出）**
 
 計画日: 2026-09-22
 
@@ -150,7 +150,23 @@ Host RPCへ移さない。
 - provider/tool物理I/Oのplacement変更。
 - 既存test seam（`capsuleFactory`、`workerResponseTimeoutMs`等）の注入互換を壊す移動。
 
+## 実装進捗
+
+- **WorkerSupervisor抽出（完了）**: `v0/agent/worker/worker_host_supervisor.ts`を新設し、capsule、`HostMessageQueue`、
+  generation identity、`currentCorrelation`、`currentManifest`、`currentStartupSnapshot`、`credentialAvailability`、
+  `unavailable`、`generationNeedsReplacement`、`replacement`、protocol trace、stage probe buffer/epoch、
+  worker sequence counters、`instanceCorrelation`を移管した。`WorkerHostSession`は`WorkerSupervisor`へ
+  send／start／ensureGeneration／replaceGeneration／markUnavailable／correlation／traceを委譲する。
+  `WorkerHostStartupError`／`WorkerHostStartupErrorCode`は`worker_host_supervisor.ts`へ移し、
+  `worker_host_session.ts`からre-exportする（既存import互換）。
+- 検証: `v0:check` exit 0、`v0:lint` exit 0、`v0:fmt` exit 0、`v0:test` exit 0（全focused suite、`increment_92`／
+  `increment_91`／`increment_39`／`increment_76`／`increment_12`／`increment_15`／`provider_stream_compatibility`／
+  `agent_worker_foundation`を含む）。`git diff --check` clean。
+- 未抽出: `ExecutionJournal`（observation buffer、journal append/failure、stage snapshot、evidence/artifact
+  persistence）、`SessionAuthority`（projection、canonical commit、session record）、`ExecutionCoordinator`
+  （active execution state machine、submit／settle／cancel）。これらは引き続き`WorkerHostSession`が所有する。
+
 ## 未確認事項
 
 - 分割境界の正確なfile構成と、test seamの配置（注入互換を維持する）。
-- `WorkerSupervisor`のN generation registryの具体的な内部表現。
+- `WorkerSupervisor`のN generation registryの具体的な内部表現（現在はroot 1 generationのみ）。
