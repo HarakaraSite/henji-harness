@@ -2,6 +2,42 @@
 
 ## Records
 
+### 同期subagent廃止・Host責務分割・非同期subagent実装（Increments 106–109、実装・検証・配置・push完了）
+
+- 状態: 完了。`v0:gate`（Increment 108/109の安定候補）は未実行（指示どおりfocused testと`v0:test`で確認し、最後の
+  変更でauthoritative `v0:gate`は未実施）。実施内容:
+  - **106**: 親Worker内の同期subagent（`delegate_to_*`、child lane、`subagent:<name>` slot、`declaredRole:'subagent'`）を
+    削除。standalone `--agent planner`はroot-runnable Definitionとして維持。`agents.json`の`subagent:*`は
+    `binding_slot_abolished`、新規subagent installは`module_invalid`。historical decoder（manifest role、artifact
+    `plannerModel`/`subagents`、`delegate_to_planner` replay bound）は残置。
+  - **107**: async run contract確定（runId=child executionId、parentExecutionId、spawnCallId、6状態、
+    parent=canonical／child=noncanonical、spawn/collectのdurability順序）。
+  - **108**: `WorkerHostSession`を132行のfacadeへ縮小し、`ExecutionCoordinator`（2135行）／`WorkerSupervisor`（488行）／
+    `SessionAuthority`（317行）／`ExecutionJournal`（265行）へ責務分離。capsule操作は`worker_host_supervisor.ts`のみ。
+    atomic canonical commitはcoordinator内で単一transactionを維持。
+  - **109**: `agent:<name>` async catalog、`spawn_subagent`／`subagent_status`／`collect_subagent`／`cancel_subagent`、
+    Worker→Host RPC、`ChildRunRegistry`（別Deno Worker・別ExecutionのV1 fork/join）、parent lifecycle連携
+    （cancel/settle/closeで未完了childをcancel）、managed async agent module解決。child結果はcollectのtool result
+    経由でのみ親contextへ入り、child executionはnoncanonical。
+- 次: なし（機能は完了）。通常利用でasync subagentの実運用観測が必要なら利用者判断。childのprovider evidence／
+  diagnostic永続化は意図的に対象外（architecture上diagnosticはoptional）。
+- 正本: `docs/increments/increment-106.md`〜`increment-109.md`、`docs/architecture/henji-host-agent-worker.md`、
+  `docs/roadmap.md`（F02/F06/F24）、`README.md`、`v0/agent/README.md`。
+- 配置: clean commit `970cea96`からDeno 2.9.7でbuildし、`~/.local/bin/henji`へ原子的に配置済み
+  （build `fe5e53e9…`、source `970cea96…`、SHA-256 `e66503d5…`、embedded runtime `0d6959c0…`）。隔離XDG smoke
+  （`sessions list`／`history`）exit 0、v7 DBが`user_version=8`で作成されることを確認。
+- 注意:
+  - **破壊的schema変更**: `HISTORY_V7_SCHEMA_VERSION` 7→8（`execution_admissions`に`parent_execution_id`／
+    `spawn_call_id`列）。利用者承認（案A・選択1）のもと既存`~/.local/state/henji-harness/v1/*/history-v7.sqlite3`
+    （+`-wal`/`-shm`）を削除済み。migration/dual-read/fallbackは無し。
+  - **実provider probe**（利用者承認、約7 request、隔離XDG、credential非保存）: 通常turn成功、async turnで
+    `spawn_subagent`→`collect_subagent`が動作し、childの`parentExecutionId`が親root execution idと一致、
+    `spawn_call_id`がprovider tool call idとしてv7 DBへ永続化されることを確認。初回probeで`parentExecutionId`が
+    session idになっていた不具合を発見し`970cea96`で修正。
+  - CLIは非TTYで`--task`を拒否し、taskはstdin経由（`heredoc`/pipe）。隔離XDGで実configをコピーする場合は
+    `$XDG_CONFIG_HOME/henji-harness/`配下に置く必要がある。
+  - commit: `360b5574`〜`970cea96`（106〜109一連）。push済み。binary配置以外の環境変更なし。
+
 ### Increment 105 — 置換済みv5/v6 history実装の除去（実装・検証・配置・push完了）
 
 - 状態: 実装・検証完了。`v0:gate` exit 0。production entryから到達しないv5/v6 history実装12モジュール
