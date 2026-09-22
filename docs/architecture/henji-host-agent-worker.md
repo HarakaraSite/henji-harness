@@ -268,17 +268,25 @@ Agent Definition用である。instruction、tool、provider等が同じloader�
 
 managed Definition revisionを実行構成へ結ぶslotには、manifest内のdependency bindingとは別に、Hostのinstallation/user
 scope config `$XDG_CONFIG_HOME/henji-harness/agents.json`で表すactivation-level slotがある。slotはroot `agent:default`
-の一種だけで、値はmanaged selector `moduleId@sha256:<digest>`である。HostはWorker generation開始前にroot slotをexact
-`DefinitionRevisionRef`へ解決し、revisionがroot-runnableであることを検証する。未知slot、malformed、missing revision、
-role不一致はtyped failureとし、built-inへ暗黙fallbackしない。`subagent:<name>` slotは廃止済みであり、`agents.json`に
-残っている場合は「このslotは廃止された」と分かるtyped diagnosticで失敗させる。現在のbinding scopeはinstallation/userに
-限り、workspace scopeは対象外である。binding変更は実行中generationへhot適用せず、次のgenerationから効く。
+とasync agent catalog `agent:<name>`の二種で、値はmanaged selector `moduleId@sha256:<digest>`である。HostはWorker
+generation開始前にroot slotをexact `DefinitionRevisionRef`へ解決し、revisionがroot-runnableであることを検証する。
+`agent:<name>`は親Definitionが宣言する利用可能なasync child agent nameのcatalogであり、Hostは親generation開始前に
+name→exact refへ解決し、data-only catalogとして親Workerへ渡す。modelは任意pathや未解決selectorではなくcatalog名だけを
+渡せる。bundled plannerは`agent:planner`の同梱既定である。未知slot、malformed、missing revision、role不一致はtyped
+failureとし、built-inへ暗黙fallbackしない。`subagent:<name>` slotは廃止済みであり、`agents.json`に残っている場合は
+「このslotは廃止された」と分かるtyped diagnosticで失敗させる。現在のbinding scopeはinstallation/userに限り、workspace
+scopeは対象外である。binding変更は実行中generationへhot適用せず、次のgenerationから効く。
 
 Hostは解決したroot Definition refとprocess-local physical load descriptorをWorker start commandで渡す。Workerは
 **選択されたroot Definition**を評価する。parent/subagentをpeerとして別々に評価する経路や、Host提供subagent moduleを
-合成する経路は作らない。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係として扱う（非同期childは
-別incrementで採用する。V1はparent-execution-scoped one-shot fork/joinを予定し、mailbox、restart reattach、recursive
-spawn、swarm UIは対象外とする）。
+合成する経路は作らない。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係として扱う。V1では、
+親Definitionが宣言した`agent:<name>` catalogからmodelが`spawn_subagent(agent, task)`を呼び、Hostが別Deno Worker・
+別Executionとしてchildを起動する。childは空transcriptと自身のDefinition／selectionから開始し、親のconversation・
+checkpoint・recallを暗黙継承しない。`subagent_status`／`collect_subagent`／`cancel_subagent`で操作し、child結果は
+collectのtool resultとして返された時だけ親contextへ入る。child executionはcanonical proposalを生成せず、canonical
+Sessionへ採用されずにnoncanonical execution evidenceとして残る。parent cancel／failure／settle／closeは未完了childを
+cancelする。V1はparent-execution-scoped one-shot fork/joinとし、mailbox、restart reattach、follow-up、recursive
+spawn、swarm UIは対象外とする。
 
 root Definitionの選択は、明示selector、`agent:default` binding、bundled defaultの順に優先する。再開・継続する
 Sessionの保存済みexact refは選択候補にせず、過去turnのattributionとして保持する。binding解決失敗はtyped

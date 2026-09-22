@@ -1,6 +1,6 @@
 # Increment 109 — 非同期subagentの実装（計画上のIncrement C）
 
-ステータス: **実装中（Slice A〜C・D-integration完了。durable child evidenceとSlice E未実装）**
+ステータス: **実装中（Slice A〜C・D-integration・E正本更新完了。durable child evidence未実装）**
 
 計画日: 2026-09-22
 
@@ -138,7 +138,8 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
     child cancel観測（acceptance 7）、child failure非abortのparent経由観測（acceptance 5）、
     「child resultがSessionAuthorityへ入らない」の明示観測（acceptance 10）。
   - managed async agentのmodule解決（`resolveManagedModule`）、childのprovider evidence/diagnostic保存先。
-  - architecture／roadmap／README更新（Slice E）。
+- **Slice E（正本更新完了）**: architecture（`agent:<name>` catalogとasync child V1の責務）、roadmap F06、
+  README／`v0/agent/README.md`を実装済み挙動へ更新した。durable child evidenceは未実装を明記。
 
 ## 実装順序（slice）
 
