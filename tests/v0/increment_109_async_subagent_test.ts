@@ -7,6 +7,7 @@ import { Registry } from '../../v0/agent/tools/tools.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import { readDefinitionRevision } from '../../v0/agent/worker/worker_definition_revision.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -208,4 +209,29 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
 
   const unknown = await registry.handle({ kind: 'collect', runId: 'missing-run' });
   assert(!unknown.ok, 'collect of an unknown run should fail');
+});
+
+Deno.test('Increment 109 parent spawns and collects an async planner child', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i109-e2e-' });
+  const workspaceRoot = `${root}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  const created = await createWorkerSession({
+    workspaceRoot,
+    stateRoot: `${root}/state`,
+    dataRoot: `${root}/data`,
+    configRoot: `${root}/config`,
+    persistence: 'new',
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    const outcome = await created.session.submit('async-spawn planner turn');
+    assert(outcome.ok, JSON.stringify(outcome));
+    assert(
+      outcome.finalText?.includes('async child: worker planner result') === true,
+      `unexpected finalText: ${outcome.finalText}`,
+    );
+  } finally {
+    await created.close();
+    await Deno.remove(root, { recursive: true });
+  }
 });

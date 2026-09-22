@@ -50,6 +50,16 @@ const currentTurnToolResultCount = (request: ModelRequest): number => {
     : request.transcript.slice(lastUser + 1).filter((message) => message.role === 'tool').length;
 };
 
+const lastToolResultText = (request: ModelRequest): string => {
+  const lastUser = request.transcript.findLastIndex((message) => message.role === 'user');
+  if (lastUser < 0) return '';
+  const tool = request.transcript.slice(lastUser + 1).reverse().find((message) =>
+    message.role === 'tool'
+  );
+  if (tool === undefined || !Array.isArray(tool.content)) return '';
+  return tool.content.map((content) => content.text).join('\n');
+};
+
 const delayed = async (options: ModelGenerateOptions): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 40));
   throwIfCancelled(options.signal);
@@ -96,6 +106,34 @@ class WorkerProbeModel implements Model {
       await new Promise<void>((resolve) => setTimeout(resolve, 5_200));
       throwIfCancelled(options.signal);
     } else if (task.includes('slow')) await delayed(options);
+    if (this.role === 'parent' && task.includes('async-spawn')) {
+      const toolText = lastToolResultText(request);
+      if (toolText.includes('"finalText"')) {
+        const parsed = JSON.parse(toolText) as { readonly finalText?: string };
+        return { kind: 'final', text: `async child: ${parsed.finalText ?? ''}` };
+      }
+      if (toolText.includes('"runId"')) {
+        const parsed = JSON.parse(toolText) as { readonly runId?: string };
+        if (parsed.runId !== undefined) {
+          return {
+            kind: 'tool_calls',
+            calls: [{
+              callId: 'async-collect-1',
+              name: 'collect_subagent',
+              arguments: { runId: parsed.runId },
+            }],
+          };
+        }
+      }
+      return {
+        kind: 'tool_calls',
+        calls: [{
+          callId: 'async-spawn-1',
+          name: 'spawn_subagent',
+          arguments: { agent: 'planner', task: 'async child planning task' },
+        }],
+      };
+    }
     if (
       task.includes('ten-step') && currentTurnToolResultCount(request) < 9
     ) {

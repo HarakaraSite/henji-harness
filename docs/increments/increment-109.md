@@ -1,6 +1,6 @@
 # Increment 109 — 非同期subagentの実装（計画上のIncrement C）
 
-ステータス: **実装中（Slice A〜C完了。Slice D・E未実装）**
+ステータス: **実装中（Slice A〜C・D-integration完了。durable child evidenceとSlice E未実装）**
 
 計画日: 2026-09-22
 
@@ -127,9 +127,16 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
   - `ExecutionJournal.appendWorkerObservation`: `async_agent_request`をobservationとして永続化しない。
   - 検証: `v0:check`／`v0:lint`／`v0:fmt` exit 0、`v0:test` exit 0（39 suite）。
     `increment_109`にchild registryのspawn→runId→collect→status→readback testを追加（4件pass）。
-- 未実装（Slice D・E）:
-  - parent Workerのmodelがspawn/collectを実際に呼ぶintegration観測（acceptance 2/3/5/6/7/11/12）。
-  - child evidenceのv7 durable保存（parentExecutionId/spawnCallId/ref/terminal outcomeのreadback、acceptance 9）。
+- **Slice D（integration完了）**: provider-freeのparent probe modelが`spawn_subagent`→`collect_subagent`を
+  実際に呼ぶ経路を実装し、parent Worker tool→Host `async_agent_request`→`ChildRunRegistry`→別planner
+  Worker→child terminal→collect response→parent tool result→parent canonical commitを通した。`increment_109`
+  のintegration testが`finalText`にchild結果が入ることを確認（acceptance 1/2/4/8/11）。
+- 未実装（Slice D残り・E）:
+  - child evidenceのv7 durable保存（parentExecutionId/spawnCallId/ref/terminal outcomeのreadback、
+    acceptance 9）。現状はHost in-memoryのみ。
+  - 並行childの重なり（acceptance 3）、`cancel_subagent`のparent経由観測（acceptance 6）、parent cancel/closeの
+    child cancel観測（acceptance 7）、child failure非abortのparent経由観測（acceptance 5）、
+    「child resultがSessionAuthorityへ入らない」の明示観測（acceptance 10）。
   - managed async agentのmodule解決（`resolveManagedModule`）、childのprovider evidence/diagnostic保存先。
   - architecture／roadmap／README更新（Slice E）。
 
