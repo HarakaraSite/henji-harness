@@ -132,6 +132,7 @@ export class ExecutionCoordinator {
     this.children = new ChildRunRegistry({
       options,
       catalog: options.asyncAgents ?? [],
+      ...(options.historyPersistence === undefined ? {} : { history: options.historyPersistence }),
     });
   }
 

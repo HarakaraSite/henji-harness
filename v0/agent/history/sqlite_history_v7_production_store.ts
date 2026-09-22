@@ -985,6 +985,10 @@ export class SqliteHistoryV7ProductionStore
           ? {}
           : { canonicalSessionId: input.canonicalSessionId }),
         sessionCorrelation: input.sessionCorrelation,
+        ...(input.parentExecutionId === undefined
+          ? {}
+          : { parentExecutionId: input.parentExecutionId }),
+        ...(input.spawnCallId === undefined ? {} : { spawnCallId: input.spawnCallId }),
         turn: input.turn,
         createdAt: input.createdAt,
         agent: input.agent,
@@ -1974,6 +1978,10 @@ export class SqliteHistoryV7ProductionStore
             ? {}
             : { canonicalSessionId: String(row.canonical_session_id) }),
           sessionCorrelation: String(row.session_correlation),
+          ...(row.parent_execution_id === null
+            ? {}
+            : { parentExecutionId: String(row.parent_execution_id) }),
+          ...(row.spawn_call_id === null ? {} : { spawnCallId: String(row.spawn_call_id) }),
           turn: Number(row.turn_number),
           createdAt: String(row.created_at),
           ...(row.settled_at === null ? {} : { settledAt: String(row.settled_at) }),

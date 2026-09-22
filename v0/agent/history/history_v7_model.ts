@@ -1,7 +1,7 @@
 import type { JsonValue } from '../core/contracts.ts';
 import { canonicalJsonBytes } from './context_attribution.ts';
 
-export const HISTORY_V7_SCHEMA_VERSION = 7 as const;
+export const HISTORY_V7_SCHEMA_VERSION = 8 as const;
 
 export type HistoryV7CaptureProfile = 'normal-v1' | 'diagnostic-v1';
 export type HistoryV7DiagnosticCoverage =

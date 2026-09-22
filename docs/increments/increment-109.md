@@ -1,6 +1,6 @@
 # Increment 109 — 非同期subagentの実装（計画上のIncrement C）
 
-ステータス: **実装中（Slice A〜C・D-integration・E正本更新完了。durable child evidence未実装）**
+ステータス: **実装完了（Slice A〜E。durable child evidence含む。未commit）**
 
 計画日: 2026-09-22
 
@@ -131,15 +131,22 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
   実際に呼ぶ経路を実装し、parent Worker tool→Host `async_agent_request`→`ChildRunRegistry`→別planner
   Worker→child terminal→collect response→parent tool result→parent canonical commitを通した。`increment_109`
   のintegration testが`finalText`にchild結果が入ることを確認（acceptance 1/2/4/8/11）。
-- 未実装（Slice D残り・E）:
-  - child evidenceのv7 durable保存（parentExecutionId/spawnCallId/ref/terminal outcomeのreadback、
-    acceptance 9）。現状はHost in-memoryのみ。
+- **durable child evidence（完了）**: v7 history schemaをversion 8へ上げ、`execution_admissions`に
+  `parent_execution_id`／`spawn_call_id`を追加。`HistoryExecutionInput`／`StoredExecutionRow`へ
+  `parentExecutionId`／`spawnCallId`を追加し、`beginExecution`／`settleNonCanonicalExecution`とrow projectionで
+  運ぶ。`ChildRunRegistry`がchild admissionとterminal settlementを永続化し、`listExecutions()`から
+  runId／parentExecutionId／spawnCallId／exact ref／lifecycle／adoptionをreadbackできる。
+  検証: `increment_109`のchild registry testが`parentExecutionId='parent-session'`／`spawnCallId`／
+  `definition`／`lifecycle='settled'`／`adoption='non_canonical'`を確認（acceptance 9/10）。
+- **破壊的schema変更**: `HISTORY_V7_SCHEMA_VERSION` 7→8。既存`history-v7.sqlite3`は`unsupported schema`で
+  開けないため、利用者承認（案A・選択1）のもと既存`~/.local/state/henji-harness/v1/*/history-v7.sqlite3`
+  （+`-wal`/`-shm`）を削除した。migration/dual-read/fallbackは追加していない。
+- 未実装（V1対象外・残課題）:
   - 並行childの重なり（acceptance 3）、`cancel_subagent`のparent経由観測（acceptance 6）、parent cancel/closeの
-    child cancel観測（acceptance 7）、child failure非abortのparent経由観測（acceptance 5）、
-    「child resultがSessionAuthorityへ入らない」の明示観測（acceptance 10）。
+    child cancel観測（acceptance 7）、child failure非abortのparent経由観測（acceptance 5）の追加test。
   - managed async agentのmodule解決（`resolveManagedModule`）、childのprovider evidence/diagnostic保存先。
 - **Slice E（正本更新完了）**: architecture（`agent:<name>` catalogとasync child V1の責務）、roadmap F06、
-  README／`v0/agent/README.md`を実装済み挙動へ更新した。durable child evidenceは未実装を明記。
+  README／`v0/agent/README.md`を実装済み挙動へ更新した。
 
 ## 実装順序（slice）
 

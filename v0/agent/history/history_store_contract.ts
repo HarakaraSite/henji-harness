@@ -252,6 +252,10 @@ export interface StoredExecutionRow {
   readonly task: string;
   readonly canonicalSessionId?: string;
   readonly sessionCorrelation: string;
+  /** Parent root execution identity for an async child execution. */
+  readonly parentExecutionId?: string;
+  /** Model tool call that spawned an async child execution. */
+  readonly spawnCallId?: string;
   readonly turn: number;
   readonly createdAt: string;
   readonly settledAt?: string;
@@ -320,6 +324,10 @@ export interface HistoryExecutionInput {
   readonly instanceCorrelation?: string;
   readonly workerGeneration?: string;
   readonly recalledContext?: RecalledExecutionContext;
+  /** Parent root execution identity for an async child execution. */
+  readonly parentExecutionId?: string;
+  /** Model tool call that spawned an async child execution. */
+  readonly spawnCallId?: string;
   /** Worker generation basis copied atomically at execution admission. */
   readonly contextSnapshot?: WorkerContextSnapshot;
   /** Final Worker context descriptor manifest checked against live rows on settlement. */

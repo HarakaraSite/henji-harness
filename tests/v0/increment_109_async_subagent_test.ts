@@ -8,6 +8,8 @@ import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts'
 import { readDefinitionRevision } from '../../v0/agent/worker/worker_definition_revision.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -175,6 +177,11 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
     rollbackCheckpoint: () => {},
     close: () => Promise.resolve(),
   };
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i109-durable-' });
+  const workspaceRoot = `${stateRoot}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  await history.initialize();
   const registry = new ChildRunRegistry({
     options: {
       handle,
@@ -184,6 +191,8 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
       physicalIoMode: 'provider-free',
     },
     catalog: [{ name: 'planner', ref: plannerRef }],
+    history,
+    build: buildManifest(),
   });
 
   const spawned = await registry.handle(
@@ -209,6 +218,15 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
 
   const unknown = await registry.handle({ kind: 'collect', runId: 'missing-run' });
   assert(!unknown.ok, 'collect of an unknown run should fail');
+
+  const row = history.listExecutions().find((item) => item.executionId === runId);
+  assert(row !== undefined, 'child execution evidence should be durable');
+  assertEquals(row.parentExecutionId, 'parent-session');
+  assertEquals(row.spawnCallId, 'spawn-call-9');
+  assertEquals(row.definition, plannerRef);
+  assertEquals(row.lifecycle, 'settled');
+  assertEquals(row.adoption, 'non_canonical');
+  await Deno.remove(stateRoot, { recursive: true });
 });
 
 Deno.test('Increment 109 parent spawns and collects an async planner child', async () => {

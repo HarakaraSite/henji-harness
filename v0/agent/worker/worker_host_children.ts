@@ -5,6 +5,9 @@ import type {
   AsyncAgentTerminalResult,
 } from '../tools/async_agents.ts';
 import type { WorkerSessionHandle } from '../session/session_store_contract.ts';
+import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
+import type { LoopOutcome } from '../core/contracts.ts';
+import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { roleDefaultModelSelection } from '../provider/model_catalog.ts';
@@ -23,6 +26,10 @@ type ChildRun = {
   readonly parentExecutionId: string;
   readonly spawnCallId?: string;
   readonly agent: string;
+  readonly agentLabel: 'default' | 'planner';
+  readonly task: string;
+  readonly model: ModelSelection;
+  readonly build: BuildManifestV1;
   readonly definitionRef: DefinitionRevisionRef;
   state: AsyncAgentRunState;
   supervisor?: WorkerSupervisor;
@@ -38,6 +45,8 @@ export interface ChildRunDeps {
   readonly resolveManagedModule?: (
     ref: DefinitionRevisionRef,
   ) => Promise<WorkerDefinitionLoadRequest>;
+  /** Optional durable execution evidence store for child runs. */
+  readonly history?: HistoryPersistencePort;
 }
 
 const childDefaultSelection = (agent: string): ModelSelection =>
@@ -79,7 +88,7 @@ const lastAssistantText = (transcript: readonly unknown[]): string | undefined =
 export class ChildRunRegistry {
   private readonly runs = new Map<string, ChildRun>();
 
-  constructor(private readonly deps: ChildRunDeps) {}
+  constructor(private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 }) {}
 
   async handle(request: AsyncAgentRequest, callId?: string): Promise<AsyncAgentResponse> {
     switch (request.kind) {
@@ -131,11 +140,20 @@ export class ChildRunRegistry {
       parentExecutionId,
       spawnCallId: callId,
       agent,
+      agentLabel: agent === 'planner' ? 'planner' : 'default',
+      task,
+      model: childDefaultSelection(agent),
+      build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
       state: 'starting',
       waiters: [],
     };
     this.runs.set(runId, run);
+    try {
+      this.deps.history?.beginExecution(this.historyInput(run));
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
     try {
       const childOptions = await this.childOptions(entry, childCorrelation);
       const supervisor = new WorkerSupervisor({
@@ -145,7 +163,7 @@ export class ChildRunRegistry {
           transcript: [],
           nextTurn: 1,
           stateRevision: 1,
-          modelSelection: childDefaultSelection(agent),
+          modelSelection: run.model,
         }),
         onGenerationReplaced: () => {},
       });
@@ -249,6 +267,7 @@ export class ChildRunRegistry {
       } catch {
         // The child generation is unavailable; the terminal result is already retained.
       }
+      this.settle(run);
       this.resolveWaiters(run);
       run.supervisor?.terminate();
       return;
@@ -264,6 +283,7 @@ export class ChildRunRegistry {
         ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
         ...(message.outcome.ok ? {} : { error: message.outcome.error ?? 'child run failed' }),
       };
+      this.settle(run);
       this.resolveWaiters(run);
       return;
     }
@@ -277,7 +297,62 @@ export class ChildRunRegistry {
         ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
         error: message.message,
       };
+      this.settle(run);
       this.resolveWaiters(run);
+    }
+  }
+
+  private historyInput(run: ChildRun) {
+    return {
+      taskId: run.runId,
+      executionId: run.runId,
+      createdAt: new Date().toISOString(),
+      sessionCorrelation: `parent:${run.parentExecutionId}:child:${run.runId}`,
+      sessionMode: 'no_session' as const,
+      turn: 1,
+      task: run.task,
+      baseStateRevision: 1,
+      agent: run.agentLabel,
+      model: run.model,
+      build: run.build,
+      definition: run.definitionRef,
+      parentExecutionId: run.parentExecutionId,
+      ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
+    };
+  }
+
+  private settle(run: ChildRun): void {
+    const history = this.deps.history;
+    if (history === undefined || run.terminal === undefined) return;
+    const state = run.terminal.state;
+    const outcome: LoopOutcome = {
+      ok: state === 'completed',
+      task: run.task,
+      outcome: state === 'completed'
+        ? 'final'
+        : state === 'cancelled'
+        ? 'cancelled'
+        : 'contract_failure',
+      stopReason: state === 'completed'
+        ? 'final'
+        : state === 'cancelled'
+        ? 'cancelled'
+        : 'contract_failure',
+      ...(state === 'completed'
+        ? { finalText: run.terminal.finalText }
+        : { error: run.terminal.error ?? `child run ${state}` }),
+      steps: 0,
+      toolCallCount: 0,
+      toolResultCount: 0,
+      transcript: [],
+    };
+    try {
+      history.settleNonCanonicalExecution({
+        ...this.historyInput(run),
+        outcome,
+      });
+    } catch {
+      // Durable child evidence is best-effort; the in-memory terminal result is retained.
     }
   }
 

@@ -47,6 +47,8 @@ CREATE TABLE execution_admissions (
   task TEXT NOT NULL,
   canonical_session_id TEXT,
   session_correlation TEXT NOT NULL,
+  parent_execution_id TEXT,
+  spawn_call_id TEXT,
   turn_number INTEGER NOT NULL,
   created_at TEXT NOT NULL,
   settled_at TEXT,
@@ -221,8 +223,8 @@ CREATE TABLE human_history_entries (
 CREATE INDEX human_history_entries_page
   ON human_history_entries(session_id, turn_number, execution_id, entry_id);
 INSERT INTO store_metadata(singleton, schema_version, created_at)
-VALUES(1, 7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-PRAGMA user_version = 7;
+VALUES(1, 8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+PRAGMA user_version = 8;
 `;
 
 export type HistoryV7PrototypeFaultPhase = 'after_occurrences' | 'before_commit';
@@ -250,6 +252,8 @@ export interface HistoryV7ExecutionAdmission {
   readonly workerGeneration?: string;
   readonly contextSnapshot?: JsonValue;
   readonly recalledContext?: JsonValue;
+  readonly parentExecutionId?: string;
+  readonly spawnCallId?: string;
   readonly baseMessageCount: number;
 }
 
@@ -404,16 +408,19 @@ export class SqliteHistoryV7Prototype {
     this.#db.prepare(`
       INSERT INTO execution_admissions(
         execution_id, task_id, task, canonical_session_id, session_correlation,
+        parent_execution_id, spawn_call_id,
         turn_number, created_at, agent, model_json, build_json, definition_json,
         manifest_json, instance_correlation, worker_generation, context_snapshot_json,
         recalled_context_json, base_message_count
-      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.executionId,
       input.taskId,
       input.task,
       input.canonicalSessionId ?? null,
       input.sessionCorrelation,
+      input.parentExecutionId ?? null,
+      input.spawnCallId ?? null,
       input.turn,
       input.createdAt,
       input.agent,
