@@ -1,5 +1,5 @@
 import type { CredentialSource } from './openrouter_contract.ts';
-import { readCredentialFile, readOpenAICredentialFile } from './credential_file.ts';
+import { readCredentialFileFor } from './credential_file.ts';
 import type { AuthProfileId } from './model_selection.ts';
 
 export interface CredentialResolver {
@@ -7,22 +7,20 @@ export interface CredentialResolver {
 }
 
 export interface CredentialResolverOptions {
-  readonly openRouter?: CredentialSource;
-  readonly openAI?: CredentialSource;
+  /** Explicit Worker-local sources by auth profile; unlisted profiles use the fixed file default. */
+  readonly sources?: Readonly<Record<string, CredentialSource>>;
 }
 
 /** Worker-local resolver. Callers name a non-secret profile; values never leave the adapter. */
 export const createCredentialResolver = (
   options: CredentialResolverOptions = {},
 ): CredentialResolver => {
-  const sources: Readonly<Record<AuthProfileId, CredentialSource>> = Object.freeze({
-    'openrouter-api-key': options.openRouter ?? readCredentialFile,
-    'openai-api-key': options.openAI ?? readOpenAICredentialFile,
-  });
+  const sources = options.sources ?? {};
   return Object.freeze({
     async resolve(profile: AuthProfileId): Promise<string | undefined> {
       try {
-        return await sources[profile]();
+        const source = sources[profile];
+        return source === undefined ? await readCredentialFileFor(profile) : await source();
       } catch {
         return undefined;
       }

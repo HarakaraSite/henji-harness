@@ -2,6 +2,30 @@
 
 ## Records
 
+### Increment 101 — auth profile一般化と宣言request header（実装・検証完了）
+
+- 状態: 実装・検証完了。`v0:gate`（check/fmt/lint/test）exit 0。auth profileをpattern検証
+  （`isAuthProfileId`、reserved `providers`／`instruction`拒否）へ一般化し、credentialを
+  `$XDG_CONFIG_HOME/henji-harness/<profileId>`から解決する。宣言`ProviderDeclarationV1`にoptional
+  `headers`（`{credential}`はChat経路のみ・1 header、`{sessionId}`、部分置換、protocol-aware
+  `authorization`）を追加し、declared chat transportとdeclared Responses `defaultHeaders`へmergeする。
+  `createProductionPhysicalIo`に`sessionId` seamと`credentialSources`／`credentialPresence`を追加。
+  provider evidenceのauthProfile検証もpattern化。chat SSE parserをOpenCode Go形状
+  （`usage:null` chunk、terminal後の`choices:[]` usage frame）へ互換化。
+- 正本: `docs/increments/increment-101.md`（決定・実装範囲・parser互換・OpenCode Go宣言例・受入手順・検証）。
+  architecture `multi-provider-routing-and-auth.md`／`henji-host-agent-worker.md`、roadmap F02／F06、
+  inbox E5更新済み。
+- 実provider probe（2026-09-22、承認済み、計9 request、source dev launcher、`/tmp/henji-i101-probe/`）:
+  auth/header基盤成立（200、`user-agent`／`x-opencode-session`送信）。chatは`glm-5.3-flash`で単段text turn
+  とtool call継続が成立。responsesは`gpt-5.6-luna`で単段text turn成立。`grok-4.6`はprovider側の一時エラーで
+  未確認。`reasoning_content`は無視され、tool call継続にechoは不要だった。
+- 次: 利用者によるIncrement完了判断。binary rebuild・配置は必要時に指示を受けて実施（今回変更はchat provider
+  経路のwire互換を含むため、常用binaryへ反映する場合はrebuildが必要）。responsesのcatalogは確認済みmodel
+  （`gpt-5.6-luna`等）に限定する。
+- 注意: binaryのrebuild・配置は未実施。commit・pushは未実施。Responses経路の非Bearer auth置換、URL/query
+  templating、catalog capabilities（vision）、Anthropic／Google／Azure／Bedrockは対象外。
+  `{productVersion}` placeholderは将来候補。
+
 ### instruction改善候補 — 外部integration依頼の調査順序（未採用メモ）
 
 - 状態: Session `c7c7a106`のturn 13（「プロバイダにopencode goを追加したい」）とturn 15（同種）で、modelは

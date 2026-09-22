@@ -105,17 +105,31 @@ interface ModelSelection {
     | 'openrouter-responses'
     | 'openai-chat-completions'
     | 'openai-responses';
-  readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+  readonly authProfile: string;
   readonly modelId: string;
   readonly effort: string;
 }
 ```
 
+`authProfile`は`/^[a-z0-9][a-z0-9-]{0,63}$/u`に一致する非secretのidentityであり、credential値は持たない。
+built-in providerのselectionは従来どおり`openrouter-api-key`／`openai-api-key`へliteral固定し、未知providerだけ
+pattern検証する。`AuthResolver.resolve(authProfile)`はrequest時に`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の
+固定fileからcredentialを解決する。既存の`openrouter-api-key`／`openai-api-key`のfile名はprofile IDと一致する。
+
 Provider declaration v1は`providerId`、binary-owned `protocol`、endpoint、auth profile、固定model catalog、
-defaultsをdata-onlyで保持する。protocolは`openai-chat-completions`または`openai-responses`である。external宣言は
-新しいprovider IDを追加でき、built-inと同じIDの宣言はprotocol・endpoint・auth profileを維持したままcatalogと
-defaultsだけをoverrideできる。email、account ID、API key、access/refresh tokenはselectionとdeclarationへ含めない。
+defaults、optional `headers`をdata-onlyで保持する。protocolは`openai-chat-completions`または`openai-responses`
+である。external宣言は新しいprovider IDを追加でき、built-inと同じIDの宣言はprotocol・endpoint・auth profileを
+維持したままcatalogとdefaultsだけをoverrideできる。`headers`は新しいprovider IDの宣言だけが持ち、built-in
+override宣言では拒否する。email、account ID、API key、access/refresh tokenはselectionとdeclarationへ含めない。
 `openai-codex` branchは現時点では追加しない。将来再採用する場合は、その時点の公式contractと実行証拠を確認する。
+
+`headers`はrequest header名から値へのmapで、値は静的文字列またはplaceholder `{credential}`／`{sessionId}`を含む。
+`{credential}`は`AuthResolver`が解決したcredential値へ、`{sessionId}`は現在のHenji Session IDへ、adapterの
+request build時に置換する。`authorization`／`content-type`／`host`／`content-length`はadapter所有であり宣言で
+置換できない。`openai-responses` protocolでは`{credential}`を宣言headerに使えず、標準
+`Authorization: Bearer`を`AuthResolver`の解決値で固定する。`openai-chat-completions` protocolでは
+`{credential}`を含むheaderを1つだけ許し、それを使う場合はbaseの既定`Authorization: Bearer`を送らない。
+宣言headerの値はSession、execution artifact、provider evidence、transcriptへ保存しない。
 
 ## 不変条件
 
@@ -160,8 +174,9 @@ runtime境界は次の責務に分かれる。
 - `ProviderRegistry.createModel(selection)`: selectionを検証し、対応adapterを返す。credential値は引数にも戻り値にも
   出さない。
 - provider adapter factory: 対応する`AuthResolver` closure、counted fetch、deadline、evidence tapを受け取る。
-- `AuthResolver.resolve(authProfile)`: request時にcredentialを取得するWorker-local境界。初期実装では
-  `openrouter-api-key`と`openai-api-key`を別の固定file sourceへ対応させる。
+- `AuthResolver.resolve(authProfile)`: request時にcredentialを取得するWorker-local境界。auth profile IDを
+  pattern検証し、`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の固定file sourceへ対応させる。
+  `openrouter-api-key`／`openai-api-key`はこの一般規則の既存例である。
 - `WebSearchBackend`: model routeと独立したbindingを維持する。Increment 69以降、bundled web_search tool
   Definitionがcredential解決済みprovider request seam（auth profile指定、credential値非公開）を通じて
   `openrouter-api-key`を解決し、OpenAI parentのcredentialを参照しない。

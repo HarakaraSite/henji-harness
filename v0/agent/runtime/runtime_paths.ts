@@ -54,6 +54,6 @@ export const resolveRuntimePaths = (options: RuntimePathOptions = {}): RuntimePa
 };
 
 export const credentialPath = (
-  profile: 'openrouter-api-key' | 'openai-api-key',
+  profile: string,
   options: RuntimePathOptions = {},
 ): string => `${resolveRuntimePaths(options).configRoot}/${profile}`;

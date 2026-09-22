@@ -32,6 +32,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 | E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
 | E4 | 配布・外部化 | base instructionの簡易ロードとDefinitionとの扱い分離 | instruction文言を通常利用で頻繁に改訂したくなるとき、またはR4の対象を選ぶとき |
+| E5 | 配布・外部化 | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする |
 
 ## Surface
 
@@ -354,6 +355,28 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 正本候補: `v0/agent/instructions/managed_instruction.ts`、`v0/agent/instructions/compose.ts`、
   `docs/architecture/henji-host-agent-worker.md`、`docs/roadmap.md`。
 - 関連: E1、R4、A9、S4。
+
+### E5 — 追加protocol adapter候補（未採用）
+
+- 観測（2026-09-21、official docs調査のみ）: 現行protocolは`openai-chat-completions`と
+  `openai-responses`の2つで、adapterはbinary所有である。追加候補を調査した。
+  - Anthropic Messages: `POST https://api.anthropic.com/v1/messages`、`GET /v1/models`あり。authは
+    `x-api-key`または`Authorization: Bearer`、`anthropic-version: 2023-06-01`必須。wireが別で、
+    thinking block＋`signature`のecho必須、`max_tokens`必須。新adapterが必要。
+  - Google Gemini (AI Studio): nativeは`/v1beta/models/{model}:generateContent`、
+    `:streamGenerateContent?alt=sse`、authは`x-goog-api-key`。OpenAI互換endpoint
+    `https://generativelanguage.googleapis.com/v1beta/openai/`があり、Chat Completionsとtoolsを
+    既存adapterで再利用できる。nativeは`thoughtSignature`のechoが必要で新adapter。
+  - Azure OpenAI: v1 API `https://{resource}.openai.azure.com/openai/v1/`はOpenAI形式で`api-key`header
+    またはEntra Bearer。classicはdeployment path＋`api-version` queryが必要でURL/query templatingが要る。
+  - AWS Bedrock native: SigV4署名はrequestごとの計算が必要で静的header mapでは表現できない。
+- 利用者判断（2026-09-21）: 参考調査のみで当面対応しない。Increment 101でauth profileと宣言headerを
+  一般化しておく。
+- 候補: 必要になったproviderから、binary-owned protocol adapterを追加する。GoogleはOpenAI互換endpointの
+  宣言だけで足りる可能性がある。AzureはURL/query templatingの要否を採用時に判断する。
+- 再検討条件: 該当providerを通常利用で使う必要が出るとき。
+- 正本候補: `docs/architecture/multi-provider-routing-and-auth.md`、`docs/roadmap.md` F02／F24。
+- 関連: E1、Increment 101。
 
 ## 観測した不具合（未修正）
 

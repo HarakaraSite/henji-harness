@@ -92,13 +92,28 @@ Deno.test('credential presence probe distinguishes absence without opening crede
   );
   assertEquals(
     await credentialFilePresenceAt(
-      '/fixed/present',
+      '/fixed/symlink',
       filesystem(() =>
         Promise.resolve({
           isFile: false,
           isSymlink: true,
           mode: 0o777,
           size: 0,
+          uid: 1000,
+        })
+      ),
+    ),
+    'unknown',
+  );
+  assertEquals(
+    await credentialFilePresenceAt(
+      '/fixed/present',
+      filesystem(() =>
+        Promise.resolve({
+          isFile: true,
+          isSymlink: false,
+          mode: 0o600,
+          size: 64,
           uid: 1000,
         })
       ),

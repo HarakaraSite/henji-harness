@@ -380,9 +380,11 @@ OpenRouter Chat CompletionsとResponsesは別routeとして併設し、既定は
 
 一般化したprovider identityは`providerId` + `protocol` + `authProfile`であり、`openai-chat-completions`と
 `openai-responses`のprotocol adapterはbinaryが所有する。declarationはdata-onlyで、endpoint、固定model catalog、
-defaultsを持つ。effective model selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surface）／
-`authProfile`／`modelId`／`effort`としてSessionとevidenceへ保存し、endpointやcatalog sourceはidentityへ含めない。
-Responses replay stateは生成元provider IDとmodel IDが一致する場合だけ再利用する。
+defaults、新しいprovider IDに限るoptional `headers`を持つ。`authProfile`はpattern検証する非secretのidentityで、
+credentialは`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の固定fileからrequest時に解決する。effective model
+selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surface）／`authProfile`／`modelId`／`effort`
+としてSessionとevidenceへ保存し、endpointやcatalog sourceはidentityへ含めない。Responses replay stateは生成元
+provider IDとmodel IDが一致する場合だけ再利用する。
 
 Host configの`default-selection.json`がrootの既定selectionを選び、未設定時は同梱`openrouter-chat`既定を使う。
 delegated subagentは自身のDefinitionまたは`roleDefaults`からselectionを得て、root selectionを継承しない。

@@ -29,8 +29,21 @@ import {
 } from './openrouter_response.ts';
 import { readSseResponse } from './openrouter_sse.ts';
 import { bytes, isJsonValue, safeJson } from './openrouter_value.ts';
+import { substituteRequestHeaders, usesCredentialHeader } from './provider_request_headers.ts';
 
 const encoder = new TextEncoder();
+
+/** Merge adapter-owned base headers with non-secret declared headers. */
+const buildChatHeaders = (
+  profile: OpenRouterAgentProfile,
+  credential: string,
+  sessionId: string | undefined,
+): Readonly<Record<string, string>> => {
+  const declared = profile.requestHeaders;
+  const base: Record<string, string> = { 'content-type': 'application/json' };
+  if (!usesCredentialHeader(declared)) base.authorization = `Bearer ${credential}`;
+  return { ...base, ...substituteRequestHeaders(declared, { credential, sessionId }) };
+};
 
 const resolveCredential = async (
   options: OpenRouterAgentModelOptions,
@@ -184,6 +197,9 @@ export class OpenRouterAgentModel implements Model {
       authProfile: this.options.evidenceIdentity?.authProfile ?? 'openrouter-api-key',
       protocol: this.options.responseMode === 'sse' ? 'sse' : 'json',
     } as const;
+    // Resolve declared headers before the request loop so a missing session id is a request-build
+    // failure, not a transport failure.
+    const requestHeaders = buildChatHeaders(this.profile, credential, this.options.sessionId);
     let requestCount = 0;
     try {
       let response: Response;
@@ -223,10 +239,7 @@ export class OpenRouterAgentModel implements Model {
             method: this.profile.method,
             signal: controller.signal,
             redirect: 'error',
-            headers: {
-              'content-type': 'application/json',
-              authorization: `Bearer ${credential}`,
-            },
+            headers: requestHeaders,
             body: exactBodyBytes ?? body,
           });
         } catch {

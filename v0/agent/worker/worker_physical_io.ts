@@ -2,11 +2,7 @@ import type { Model, ModelGenerateOptions, ModelRequest, ModelResult } from '../
 import { throwIfCancelled } from '../core/cancellation.ts';
 import type { PhysicalIoBindings } from '../worker_agent_api.ts';
 import { type CredentialSource, OpenRouterAgentModel } from '../provider/openrouter_model.ts';
-import {
-  openAICredentialFilePresence,
-  openRouterCredentialFilePresence,
-  readCredentialFile,
-} from '../provider/credential_file.ts';
+import { credentialFilePresenceFor } from '../provider/credential_file.ts';
 import { createCredentialResolver } from '../provider/credential_resolver.ts';
 import {
   DeclaredResponsesModel,
@@ -15,6 +11,8 @@ import {
 } from '../provider/openai_responses_model.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
+  AuthProfileId,
+  CredentialAvailabilityStatus,
   DeclaredProviderModelSelection,
   OpenAIModelSelection,
   OpenRouterModelSelection,
@@ -163,6 +161,11 @@ export const createProductionPhysicalIo = (
   options: {
     readonly credentialSource?: CredentialSource;
     readonly openAICredentialSource?: CredentialSource;
+    readonly credentialSources?: Readonly<Record<string, CredentialSource>>;
+    readonly credentialPresence?: (
+      profile: AuthProfileId,
+    ) => Promise<CredentialAvailabilityStatus>;
+    readonly sessionId?: string;
     readonly fetcher?: typeof fetch;
     readonly providerTimeoutMs?: number;
     readonly providerDeclarations?: readonly ProviderDeclarationV1[];
@@ -179,12 +182,14 @@ export const createProductionPhysicalIo = (
     requestCounter?.increment();
     return (options.fetcher ?? fetch)(input, init);
   };
-  const resolver = createCredentialResolver({
-    openRouter: options.credentialSource ?? readCredentialFile,
-    ...(options.openAICredentialSource === undefined
-      ? {}
-      : { openAI: options.openAICredentialSource }),
-  });
+  const sources: Record<string, CredentialSource> = { ...(options.credentialSources ?? {}) };
+  if (options.credentialSource !== undefined) {
+    sources['openrouter-api-key'] = options.credentialSource;
+  }
+  if (options.openAICredentialSource !== undefined) {
+    sources['openai-api-key'] = options.openAICredentialSource;
+  }
+  const resolver = createCredentialResolver({ sources });
   return {
     createModel: (role, selection?: ModelSelection) => {
       const resolved = selection ??
@@ -224,6 +229,8 @@ export const createProductionPhysicalIo = (
           fetcher,
           timeoutMs: options.providerTimeoutMs,
           baseURL: declaration.endpoint,
+          ...(declaration.headers === undefined ? {} : { requestHeaders: declaration.headers }),
+          ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
         });
       }
       if (resolved.api === 'openai-chat-completions') {
@@ -240,6 +247,7 @@ export const createProductionPhysicalIo = (
             resolved.modelId,
             resolved.effort,
             declaration.endpoint,
+            declaration.headers,
           ),
           evidenceIdentity: {
             provider: resolved.provider,
@@ -250,6 +258,7 @@ export const createProductionPhysicalIo = (
           fetcher,
           responseMode: 'sse',
           timeoutMs: options.providerTimeoutMs,
+          ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
         });
       }
       return new OpenRouterAgentModel({
@@ -267,14 +276,9 @@ export const createProductionPhysicalIo = (
       reportStage: options.reportAuxiliaryStage,
     }),
     credentialAvailability: (authProfile) => {
-      if (authProfile === 'openrouter-api-key') {
-        return options.credentialSource === undefined
-          ? openRouterCredentialFilePresence()
-          : Promise.resolve('unknown');
-      }
-      return options.openAICredentialSource === undefined
-        ? openAICredentialFilePresence()
-        : Promise.resolve('unknown');
+      if (options.credentialPresence !== undefined) return options.credentialPresence(authProfile);
+      if (sources[authProfile] !== undefined) return Promise.resolve('unknown');
+      return credentialFilePresenceFor(authProfile);
     },
   };
 };

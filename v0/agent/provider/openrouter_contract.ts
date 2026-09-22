@@ -27,6 +27,8 @@ export interface OpenRouterAgentProfile {
   readonly reasoningEffort?: OpenRouterExplicitReasoningEffort;
   /** Wire field for reasoning effort; OpenAI-compatible Chat Completions uses `reasoning_effort`. */
   readonly reasoningEffortField?: 'reasoning' | 'reasoning_effort';
+  /** Non-secret declared request headers; placeholders resolve at request build time. */
+  readonly requestHeaders?: Readonly<Record<string, string>>;
 }
 
 export type OpenRouterResponseMode = 'json' | 'sse';
@@ -127,10 +129,12 @@ export interface OpenRouterAgentModelOptions {
   readonly evidenceIdentity?: {
     readonly provider: string;
     readonly api: 'openrouter-chat-completions' | 'openai-chat-completions';
-    readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+    readonly authProfile: string;
   };
   readonly timeoutMs?: number;
   readonly parentSignal?: AbortSignal;
+  /** Current Henji Session ID; resolves the `{sessionId}` placeholder in declared headers. */
+  readonly sessionId?: string;
   /** Internal runtime composition; omitted callers retain the canonical JSON response mode. */
   readonly responseMode?: OpenRouterResponseMode;
   /** Direct-test-only work observation; production callers omit this field. */

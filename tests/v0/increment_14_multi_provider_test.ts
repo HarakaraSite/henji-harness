@@ -423,7 +423,13 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
   );
   assertEquals(
     declarationCodeOf(() =>
-      validateProviderDeclaration({ ...declarationBody('bad'), authProfile: 'unknown-profile' })
+      validateProviderDeclaration({ ...declarationBody('bad'), authProfile: 'Upper' })
+    ),
+    'provider_declaration_invalid',
+  );
+  assertEquals(
+    declarationCodeOf(() =>
+      validateProviderDeclaration({ ...declarationBody('bad'), authProfile: 'providers' })
     ),
     'provider_declaration_invalid',
   );

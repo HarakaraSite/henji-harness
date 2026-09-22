@@ -22,6 +22,7 @@ import type {
   OpenRouterResponsesModelSelection,
 } from './model_selection.ts';
 import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
+import { substituteRequestHeaders } from './provider_request_headers.ts';
 
 export interface OpenAIResponsesModelOptions {
   readonly selection: OpenAIModelSelection;
@@ -331,6 +332,9 @@ export interface ResponsesApiModelOptions {
   readonly credentialSource: CredentialSource;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
+  /** Non-secret declared request headers; `{sessionId}` resolves at request build time. */
+  readonly requestHeaders?: Readonly<Record<string, string>>;
+  readonly sessionId?: string;
 }
 
 interface ResponsesApiModelConfig {
@@ -409,6 +413,13 @@ class ResponsesApiModel implements Model {
       this.options.selection,
       generateOptions,
     );
+    const defaultHeaders: Record<string, string> = {
+      Authorization: `Bearer ${credential}`,
+      ...substituteRequestHeaders(this.options.requestHeaders, {
+        credential,
+        sessionId: this.options.sessionId,
+      }),
+    };
     const client = new OpenAI({
       apiKey: credential,
       baseURL: this.config.baseURL,
@@ -419,7 +430,7 @@ class ResponsesApiModel implements Model {
       logLevel: 'off',
       // The SDK also reads OPENAI_CUSTOM_HEADERS. Keep the resolved auth profile
       // authoritative when that ambient variable contains an Authorization header.
-      defaultHeaders: { Authorization: `Bearer ${credential}` },
+      defaultHeaders,
       fetch: fetcher,
       maxRetries: 0,
       timeout: timeoutMs,
@@ -592,6 +603,9 @@ export interface DeclaredResponsesModelOptions {
   readonly baseURL: string;
   readonly fetcher?: typeof fetch;
   readonly timeoutMs?: number;
+  /** Non-secret declared request headers; `{sessionId}` resolves at request build time. */
+  readonly requestHeaders?: Readonly<Record<string, string>>;
+  readonly sessionId?: string;
 }
 
 /** Responses adapter for a Host-resolved declared provider (stateless request, replay-scoped state). */

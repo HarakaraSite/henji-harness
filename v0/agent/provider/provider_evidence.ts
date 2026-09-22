@@ -5,7 +5,7 @@ import type {
   ToolCall,
   ToolResultContent,
 } from '../core/contracts.ts';
-import type { ReasoningEffort } from './model_selection.ts';
+import { isAuthProfileId, type ReasoningEffort } from './model_selection.ts';
 import {
   type DefinitionRevisionRef,
   isDefinitionRevisionRef,
@@ -56,7 +56,7 @@ export interface ProviderEvidenceRequestMetadata {
     | 'openai-responses';
   readonly modelId?: string;
   readonly effort?: ReasoningEffort;
-  readonly authProfile?: 'openrouter-api-key' | 'openai-api-key';
+  readonly authProfile?: string;
   readonly protocol?: 'json' | 'sse';
 }
 
@@ -406,9 +406,7 @@ const validProviderMetadata = (
       record.effort === 'low' || record.effort === 'medium' ||
       record.effort === 'high' || record.effort === 'xhigh' ||
       record.effort === 'max') &&
-    (record.authProfile === undefined ||
-      record.authProfile === 'openrouter-api-key' ||
-      record.authProfile === 'openai-api-key') &&
+    (record.authProfile === undefined || isAuthProfileId(record.authProfile)) &&
     (record.protocol === undefined || record.protocol === 'json' ||
       record.protocol === 'sse');
 };

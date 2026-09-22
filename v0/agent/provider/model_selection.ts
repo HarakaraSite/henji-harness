@@ -17,7 +17,18 @@ export const BUILTIN_PROVIDER_IDS: readonly string[] = Object.freeze([
   'openai-responses',
 ]);
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
-export type AuthProfileId = 'openrouter-api-key' | 'openai-api-key';
+/** Non-secret credential identity; the credential value lives in a fixed config file. */
+export type AuthProfileId = string;
+const AUTH_PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
+/** Config-root entries that cannot be used as a credential file name. */
+const RESERVED_AUTH_PROFILE_IDS: readonly string[] = Object.freeze([
+  'providers',
+  'instruction',
+]);
+/** Validate a non-secret auth profile identity without resolving any credential. */
+export const isAuthProfileId = (value: unknown): value is AuthProfileId =>
+  typeof value === 'string' && AUTH_PROFILE_ID.test(value) &&
+  !RESERVED_AUTH_PROFILE_IDS.includes(value);
 export type CredentialAvailabilityStatus = 'present' | 'missing' | 'unknown';
 
 export interface CredentialAvailability {
@@ -53,7 +64,7 @@ export interface OpenAIModelSelection {
 export interface DeclaredProviderModelSelection {
   readonly provider: string;
   readonly api: 'openai-responses';
-  readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+  readonly authProfile: AuthProfileId;
   readonly modelId: string;
   readonly effort: ReasoningEffort;
 }
@@ -62,7 +73,7 @@ export interface DeclaredProviderModelSelection {
 export interface DeclaredChatModelSelection {
   readonly provider: string;
   readonly api: 'openai-chat-completions';
-  readonly authProfile: 'openrouter-api-key' | 'openai-api-key';
+  readonly authProfile: AuthProfileId;
   readonly modelId: string;
   readonly effort: ReasoningEffort;
 }
@@ -113,8 +124,7 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
   }
   return typeof selection.provider === 'string' && PROVIDER_ID.test(selection.provider) &&
     (selection.api === 'openai-responses' || selection.api === 'openai-chat-completions') &&
-    (selection.authProfile === 'openrouter-api-key' ||
-      selection.authProfile === 'openai-api-key');
+    isAuthProfileId(selection.authProfile);
 };
 
 export const sameModelSelection = (

@@ -7,9 +7,20 @@
  */
 
 import { credentialPath } from '../runtime/runtime_paths.ts';
+import { type AuthProfileId, isAuthProfileId } from './model_selection.ts';
 
 export const openRouterCredentialPath = (): string => credentialPath('openrouter-api-key');
 export const openAICredentialPath = (): string => credentialPath('openai-api-key');
+
+/**
+ * Resolve the fixed credential file for a validated auth profile. The profile ID is a non-secret
+ * identity; the path is derived from the XDG config root and never caller-selected.
+ */
+export const credentialFileFor = (profile: AuthProfileId): string => {
+  if (!isAuthProfileId(profile)) fail('credential_metadata_invalid');
+  return credentialPath(profile);
+};
+
 export const MAX_CREDENTIAL_BYTES = 4096 as const;
 
 export type CredentialFileFailureCode =
@@ -90,18 +101,28 @@ const defaultFileSystem: CredentialFileSystem = {
   },
 };
 
-/** Check only fixed-file presence; do not open, decode, or validate credential material. */
+/**
+ * Check only fixed regular-file presence; do not open, decode, or validate credential material.
+ * A directory or symlink is `unknown` so presence agrees with the stricter read contract.
+ */
 export const credentialFilePresenceAt = async (
   path: string,
   filesystem: CredentialFileSystem = defaultFileSystem,
 ): Promise<CredentialFilePresence> => {
+  let metadata: CredentialFileMetadata;
   try {
-    await filesystem.lstat(path);
-    return 'present';
+    metadata = await filesystem.lstat(path);
   } catch (error) {
     return error instanceof Deno.errors.NotFound ? 'missing' : 'unknown';
   }
+  return metadata.isFile === true && metadata.isSymlink === false ? 'present' : 'unknown';
 };
+
+export const credentialFilePresenceFor = (
+  profile: AuthProfileId,
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<CredentialFilePresence> =>
+  credentialFilePresenceAt(credentialFileFor(profile), filesystem);
 
 export const openRouterCredentialFilePresence = (
   filesystem: CredentialFileSystem = defaultFileSystem,
@@ -275,3 +296,9 @@ export const credentialSource = readCredentialFile;
 
 export const readOpenAICredentialFile = (): Promise<string> =>
   readCredentialFileAt(openAICredentialPath());
+
+/** Read and validate the fixed credential file for any validated auth profile. */
+export const readCredentialFileFor = (
+  profile: AuthProfileId,
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<string> => readCredentialFileAt(credentialFileFor(profile), filesystem);

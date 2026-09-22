@@ -1,4 +1,4 @@
-import { type AuthProfileId, type ReasoningEffort } from './model_selection.ts';
+import { type AuthProfileId, isAuthProfileId, type ReasoningEffort } from './model_selection.ts';
 import { bundledDefaultDeclarations } from './provider_defaults.ts';
 
 export const PROVIDER_DECLARATION_SCHEMA_VERSION = 1 as const;
@@ -37,6 +37,11 @@ export interface ProviderDeclarationV1 {
     readonly modelId: string;
     readonly effort: ReasoningEffort;
   };
+  /**
+   * Optional non-secret request headers for a new provider ID. Values may contain the placeholders
+   * `{credential}` (Chat Completions only) and `{sessionId}`.
+   */
+  readonly headers?: Readonly<Record<string, string>>;
 }
 
 export type ProviderDeclarationErrorCode =
@@ -68,13 +73,30 @@ const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'xhigh',
   'max',
 ]);
-const AUTH_PROFILES: readonly AuthProfileId[] = Object.freeze([
-  'openrouter-api-key',
-  'openai-api-key',
-]);
 const PROTOCOLS: readonly ProviderProtocol[] = Object.freeze([
   'openai-chat-completions',
   'openai-responses',
+]);
+const DECLARATION_KEYS: readonly string[] = Object.freeze([
+  'schemaVersion',
+  'providerId',
+  'protocol',
+  'endpoint',
+  'authProfile',
+  'modelCatalog',
+  'defaults',
+]);
+const OPTIONAL_DECLARATION_KEYS: readonly string[] = Object.freeze(['headers']);
+const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9a-z]+$/u;
+const FORBIDDEN_HEADER_NAMES: readonly string[] = Object.freeze([
+  'content-type',
+  'host',
+  'content-length',
+]);
+const PLACEHOLDER = /\{[^{}]*\}/gu;
+const KNOWN_PLACEHOLDERS: readonly string[] = Object.freeze([
+  '{credential}',
+  '{sessionId}',
 ]);
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -82,6 +104,67 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const exactKeys = (value: Record<string, unknown>, keys: readonly string[]): boolean => {
   const own = Object.keys(value);
   return own.length === keys.length && keys.every((key) => own.includes(key));
+};
+
+const declarationKeysValid = (value: Record<string, unknown>): boolean => {
+  const own = Object.keys(value);
+  const allowed = [...DECLARATION_KEYS, ...OPTIONAL_DECLARATION_KEYS];
+  return own.every((key) => allowed.includes(key)) &&
+    DECLARATION_KEYS.every((key) => own.includes(key));
+};
+
+const hasControlCharacters = (value: string): boolean =>
+  [...value].some((character) => {
+    const code = character.codePointAt(0)!;
+    return (code >= 0x00 && code <= 0x1f) || code === 0x7f;
+  });
+
+function invalid(message: string, providerId?: string): never {
+  throw new ProviderDeclarationError('provider_declaration_invalid', message, providerId);
+}
+
+/** Validate optional non-secret request headers for a new provider ID. */
+const parseHeaders = (
+  protocol: ProviderProtocol,
+  providerId: string,
+  value: unknown,
+): Readonly<Record<string, string>> | undefined => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) invalid('provider headers are invalid', providerId);
+  const result: Record<string, string> = {};
+  let credentialHeaders = 0;
+  for (const [rawName, rawValue] of Object.entries(value)) {
+    const name = rawName.toLowerCase();
+    if (!HEADER_NAME.test(name) || FORBIDDEN_HEADER_NAMES.includes(name)) {
+      invalid('provider header name is not allowed', providerId);
+    }
+    if (typeof rawValue !== 'string' || rawValue.length === 0 || hasControlCharacters(rawValue)) {
+      invalid('provider header value is invalid', providerId);
+    }
+    let stripped = rawValue;
+    for (const match of rawValue.matchAll(PLACEHOLDER)) {
+      if (!KNOWN_PLACEHOLDERS.includes(match[0])) {
+        invalid('provider header placeholder is unsupported', providerId);
+      }
+      stripped = stripped.replace(match[0], '');
+    }
+    if (stripped.includes('{') || stripped.includes('}')) {
+      invalid('provider header placeholder is malformed', providerId);
+    }
+    if (rawValue.includes('{credential}')) {
+      credentialHeaders += 1;
+      if (protocol !== 'openai-chat-completions') {
+        invalid('{credential} is not allowed for this protocol', providerId);
+      }
+    }
+    if (name === 'authorization' && rawValue !== 'Bearer {credential}') {
+      invalid('authorization header is not allowed', providerId);
+    }
+    if (Object.hasOwn(result, name)) invalid('provider header name is duplicated', providerId);
+    result[name] = rawValue;
+  }
+  if (credentialHeaders > 1) invalid('multiple credential headers are not allowed', providerId);
+  return Object.freeze(result);
 };
 
 const isEffort = (value: unknown): value is ReasoningEffort =>
@@ -141,21 +224,12 @@ const parseEndpoint = (value: unknown): string => {
 export const validateProviderDeclaration = (value: unknown): ProviderDeclarationV1 => {
   if (
     !isRecord(value) ||
-    !exactKeys(value, [
-      'schemaVersion',
-      'providerId',
-      'protocol',
-      'endpoint',
-      'authProfile',
-      'modelCatalog',
-      'defaults',
-    ]) ||
+    !declarationKeysValid(value) ||
     value.schemaVersion !== PROVIDER_DECLARATION_SCHEMA_VERSION ||
     typeof value.providerId !== 'string' || !PROVIDER_ID.test(value.providerId) ||
     typeof value.protocol !== 'string' ||
     !(PROTOCOLS as readonly string[]).includes(value.protocol) ||
-    typeof value.authProfile !== 'string' ||
-    !(AUTH_PROFILES as readonly string[]).includes(value.authProfile)
+    !isAuthProfileId(value.authProfile)
   ) {
     throw new ProviderDeclarationError(
       'provider_declaration_invalid',
@@ -208,6 +282,10 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
       value.providerId,
     );
   }
+  const headers = parseHeaders(value.protocol as ProviderProtocol, value.providerId, value.headers);
+  if (headers !== undefined && OVERRIDABLE_PROVIDER_IDS.includes(value.providerId)) {
+    invalid('provider headers are not allowed for a built-in override', value.providerId);
+  }
   return Object.freeze({
     schemaVersion: 1 as const,
     providerId: value.providerId,
@@ -219,6 +297,7 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
       modelId: defaultModelId,
       effort: defaultEffort,
     }),
+    ...(headers === undefined ? {} : { headers }),
   });
 };
 

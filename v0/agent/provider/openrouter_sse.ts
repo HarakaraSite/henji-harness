@@ -305,7 +305,10 @@ const processSsePayload = (
   ) {
     throw sseResponseError('provider response reported an error', 'provider_reported_error');
   }
-  const hasUsage = hasOwn(object, 'usage');
+  // Some OpenAI-compatible providers (for example OpenCode Go) put `usage: null` on every content
+  // chunk, so only a present non-null usage counts as a usage frame.
+  const hasUsage = hasOwn(object, 'usage') && object.usage !== null &&
+    object.usage !== undefined;
   if (!nonBlank(object.id)) {
     throw sseResponseError('provider completion id was invalid', 'invalid_completion_identity');
   }
@@ -314,6 +317,21 @@ const processSsePayload = (
     throw sseResponseError('provider completion id changed', 'invalid_completion_identity');
   }
   const choices = object.choices;
+  // A post-terminal usage-only frame (OpenAI `include_usage`, OpenCode Go) carries `choices: []`.
+  const usageOnly = hasUsage && Array.isArray(choices) && choices.length === 0;
+  if (usageOnly) {
+    if (assembly.terminal === undefined) {
+      throw sseResponseError('provider usage frame arrived before terminal', 'invalid_usage_frame');
+    }
+    if (assembly.usageSeen || !isStreamUsage(object.usage)) {
+      throw sseResponseError(
+        'provider response contained data after terminal',
+        'data_after_terminal',
+      );
+    }
+    assembly.usageSeen = true;
+    return;
+  }
   if (!Array.isArray(choices) || choices.length !== 1) {
     throw sseResponseError(
       'provider response choice shape was unsupported',

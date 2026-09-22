@@ -135,6 +135,7 @@ export const openRouterProfileForDeclaredChat = (
   modelId: string,
   effort: ReasoningEffort,
   endpoint: string,
+  headers?: Readonly<Record<string, string>>,
   maxCompletionTokens = MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS,
 ): OpenRouterAgentProfile =>
   Object.freeze({
@@ -148,6 +149,7 @@ export const openRouterProfileForDeclaredChat = (
     stream: false,
     reasoningEffortField: 'reasoning_effort',
     ...(effort === 'auto' ? {} : { reasoningEffort: effort }),
+    ...(headers === undefined ? {} : { requestHeaders: headers }),
   });
 
 export const openRouterProfileFor = (

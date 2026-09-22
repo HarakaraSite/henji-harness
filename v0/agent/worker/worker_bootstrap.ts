@@ -376,6 +376,7 @@ const createGeneration = async (
       providerTimeoutMs,
       providerDeclarations,
       reportAuxiliaryStage,
+      sessionId: correlation.session,
     })
     : createProviderFreePhysicalIo();
   let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
