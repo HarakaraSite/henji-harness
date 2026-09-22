@@ -10,8 +10,8 @@ export const HENJI_BASE_INSTRUCTION_SLOT = 'instruction:henji-base' as const;
 export const HENJI_INSTRUCTION_FORMAT = 'text/markdown' as const;
 export const HENJI_INSTRUCTION_ENTRY = 'instruction.md' as const;
 
-const BUILTIN_REVISION_DIGEST = 'b7604faeb75d9e2189e9dd4f264deb339deec36a2f61ef239440d366fbed67db';
-const BUILTIN_CONTENT_DIGEST = 'afdc5bbcf34dd01f601c130f884b9bec8de0ed0bdcee0130a398cda64a9eee08';
+const BUILTIN_REVISION_DIGEST = '1edd3953e8d3371a7f1760826a498816a04314b962d20a445aa616f488dcc3c7';
+const BUILTIN_CONTENT_DIGEST = 'b1b8e58b65200b5fd8380b0c142fe3409cce8d24ffe0085434103b1c703f524e';
 const SHA256 = /^[0-9a-f]{64}$/u;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
