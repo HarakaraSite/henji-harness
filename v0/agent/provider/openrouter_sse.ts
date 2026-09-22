@@ -425,7 +425,9 @@ const processSsePayload = (
     return;
   }
 
-  if (hasUsage) {
+  // A usage frame may share the terminal frame (finish_reason + usage in one chunk, as OpenCode Go
+  // deepseek does). Only a usage frame without a terminal reason is out of order.
+  if (hasUsage && (finishReason === undefined || finishReason === null)) {
     throw sseResponseError('provider usage frame arrived before terminal', 'invalid_usage_frame');
   }
 
@@ -485,6 +487,7 @@ const processSsePayload = (
       );
     }
     assembly.terminal = 'stop';
+    if (hasUsage) assembly.usageSeen = true;
     assembly.result = {
       kind: 'final',
       text: assembly.textParts.join(''),
@@ -503,6 +506,7 @@ const processSsePayload = (
       );
     }
     assembly.terminal = 'tool_calls';
+    if (hasUsage) assembly.usageSeen = true;
     const result = completeStreamTools(assembly);
     const mixed = assembly.sawText ? { ...result, text: assembly.textParts.join('') } : result;
     assembly.result = assembly.reasoningDetails.length === 0 ? mixed : {

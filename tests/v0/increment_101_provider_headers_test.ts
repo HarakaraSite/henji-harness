@@ -482,6 +482,61 @@ Deno.test('Increment 101 chat accepts OpenCode Go usage-null chunks and an empty
   assertEquals(result, { kind: 'final', text: 'PROBE_CHAT_OK' });
 });
 
+Deno.test('Increment 101 chat accepts a terminal frame that carries usage', async () => {
+  const id = 'chatcmpl_terminal_usage';
+  const usage = {
+    prompt_tokens: 10,
+    completion_tokens: 4,
+    total_tokens: 14,
+    prompt_tokens_details: { cached_tokens: 0 },
+  };
+  const chunk = (choices: unknown[], frameUsage: unknown) =>
+    `data: ${
+      JSON.stringify({
+        id,
+        object: 'chat.completion.chunk',
+        created: 1,
+        model: 'deepseek-v4.1-flash',
+        choices,
+        usage: frameUsage,
+      })
+    }\n\n`;
+  const stopStream = [
+    chunk(
+      [{ index: 0, finish_reason: null, delta: { role: 'assistant', content: 'hello' } }],
+      null,
+    ),
+    chunk([{ index: 0, finish_reason: 'stop', delta: {} }], usage),
+    'data: [DONE]\n\n',
+  ].join('');
+  assertEquals(
+    await chatModel(stopStream).generate(request, {}),
+    { kind: 'final', text: 'hello' },
+  );
+
+  const toolStream = [
+    chunk([{
+      index: 0,
+      finish_reason: null,
+      delta: {
+        tool_calls: [{
+          index: 0,
+          id: 'call_1',
+          type: 'function',
+          function: { name: 'echo', arguments: '{"text":"ping"}' },
+        }],
+      },
+    }], null),
+    chunk([{ index: 0, finish_reason: 'tool_calls', delta: {} }], usage),
+    'data: [DONE]\n\n',
+  ].join('');
+  const toolResult = await chatModel(toolStream).generate(request, {});
+  assertEquals(toolResult.kind, 'tool_calls');
+  if (toolResult.kind === 'tool_calls') {
+    assertEquals(toolResult.calls[0].name, 'echo');
+  }
+});
+
 Deno.test('Increment 101 chat rejects a usage-only frame before the terminal frame', async () => {
   let code: string | undefined;
   try {
