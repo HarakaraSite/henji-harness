@@ -151,6 +151,24 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
   - managed async agentのmodule解決: `WorkerHostSessionOptions.resolveAsyncAgentModule`を追加し、
     `worker_tui_session`が`ManagedDefinitionStore`＋`managedWorkerDefinitionLoadRequest`で解決、coordinatorが
     `ChildRunRegistry`へ渡す。`agent:<name>`の外部managed childも起動できる。
+### 実provider probe（2026-09-22、利用者承認済み）
+
+- 対象: 現在sourceから`scripts/build_henji.ts`でbuildした一時binary（`dist/henji`、配置なし）。providerは実config
+  の`opencode-go-chat`（parent）／`openrouter-chat`（planner child既定）。stateは`/tmp/opencode/henji-async-smoke.*`の
+  隔離XDGへ保存。credential値は表示・保存していない。
+- 回数: 計 約7 provider request（通常turn 1、async turn 各3）。
+- 観測:
+  - 通常turn: `henji run`（stdin task）が`finalText=HENJI_ASYNC_SMOKE_OK`、requestCount 1、committed true。
+  - async turn: modelが`spawn_subagent(agent="planner", task=...)`→`collect_subagent(runId)`を実行し、collect結果
+    （`state=completed`、`finalText="1 2 3"`、`definitionRef`、`parentExecutionId`、`spawnCallId`）を親turnへ取り込み、
+    parent turnがcanonical commit（committed true）。parent toolCall=2、requestCount=3。
+  - durable readback: v7 DB `user_version=8`、`execution_admissions`に`parent_execution_id`／`spawn_call_id`列。
+    child rowは`parent_execution_id`＝親root execution rowの`execution_id`、`spawn_call_id`＝provider tool call id、
+    `adoption='non_canonical'`、`outcome='completed'`。parent rowは`adoption='non_canonical'`（headless no-session）。
+- 発見と修正: 初回probeでchildの`parentExecutionId`がsession handle idになっていた（run contract違反）。
+  `ChildRunRegistry`へ`parentExecutionId`を明示的に渡し（coordinatorが`activeExecution.executionId`を供給）、
+  再probeで親root execution idと一致することを確認した。
+
 - 対象外（診断）: childのprovider evidence／diagnosticの永続化は行わない。architecture上diagnosticはoptionalで
   semantic settlementをgateしないため、V1ではchildのterminal outcome・ref・親子correlationのreadbackで足りる。
 - **Slice E（正本更新完了）**: architecture（`agent:<name>` catalogとasync child V1の責務）、roadmap F06、

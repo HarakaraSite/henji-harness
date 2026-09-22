@@ -90,10 +90,14 @@ export class ChildRunRegistry {
 
   constructor(private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 }) {}
 
-  async handle(request: AsyncAgentRequest, callId?: string): Promise<AsyncAgentResponse> {
+  async handle(
+    request: AsyncAgentRequest,
+    callId?: string,
+    parentExecutionId?: string,
+  ): Promise<AsyncAgentResponse> {
     switch (request.kind) {
       case 'spawn':
-        return await this.spawn(request.agent, request.task, callId);
+        return await this.spawn(request.agent, request.task, callId, parentExecutionId);
       case 'status': {
         const run = this.runs.get(request.runId);
         return run === undefined
@@ -127,17 +131,18 @@ export class ChildRunRegistry {
     agent: string,
     task: string,
     callId?: string,
+    parentExecutionId?: string,
   ): Promise<AsyncAgentResponse> {
     const entry = this.deps.catalog.find((candidate) => candidate.name === agent);
     if (entry === undefined) {
       return { ok: false, error: `agent is not available: ${agent}` };
     }
-    const parentExecutionId = this.deps.options.handle.id;
+    const parentId = parentExecutionId ?? this.deps.options.handle.id;
     const runId = crypto.randomUUID().toLowerCase();
-    const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
+    const childCorrelation = `parent:${parentId}:child:${runId}`;
     const run: ChildRun = {
       runId,
-      parentExecutionId,
+      parentExecutionId: parentId,
       spawnCallId: callId,
       agent,
       agentLabel: agent === 'planner' ? 'planner' : 'default',

@@ -2114,7 +2114,11 @@ export class ExecutionCoordinator {
     message: Extract<WorkerToHostMessage, { kind: 'async_agent_request' }>,
   ): Promise<void> {
     try {
-      const response = await this.children.handle(message.request, message.callId);
+      const response = await this.children.handle(
+        message.request,
+        message.callId,
+        this.activeExecution?.executionId,
+      );
       this.send({
         kind: 'async_agent_response',
         correlation: message.correlation,

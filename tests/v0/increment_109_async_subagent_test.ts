@@ -198,6 +198,7 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
   const spawned = await registry.handle(
     { kind: 'spawn', agent: 'planner', task: 'child planning task' },
     'spawn-call-9',
+    'parent-execution-42',
   );
   assert(spawned.ok && spawned.kind === 'spawn', 'spawn should return a runId');
   const runId = spawned.runId;
@@ -209,7 +210,7 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
     collected.result.finalText === 'worker planner result',
     `unexpected finalText: ${collected.result.finalText}`,
   );
-  assertEquals(collected.result.parentExecutionId, 'parent-session');
+  assertEquals(collected.result.parentExecutionId, 'parent-execution-42');
   assertEquals(collected.result.spawnCallId, 'spawn-call-9');
 
   const status = await registry.handle({ kind: 'status', runId });
@@ -221,7 +222,7 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
 
   const row = history.listExecutions().find((item) => item.executionId === runId);
   assert(row !== undefined, 'child execution evidence should be durable');
-  assertEquals(row.parentExecutionId, 'parent-session');
+  assertEquals(row.parentExecutionId, 'parent-execution-42');
   assertEquals(row.spawnCallId, 'spawn-call-9');
   assertEquals(row.definition, plannerRef);
   assertEquals(row.lifecycle, 'settled');
