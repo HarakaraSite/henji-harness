@@ -19,10 +19,10 @@
   auth/header基盤成立（200、`user-agent`／`x-opencode-session`送信）。chatは`glm-5.3-flash`で単段text turn
   とtool call継続が成立。responsesは`gpt-5.6-luna`で単段text turn成立。`grok-4.6`はprovider側の一時エラーで
   未確認。`reasoning_content`は無視され、tool call継続にechoは不要だった。
-- 次: 利用者によるIncrement完了判断。binary rebuild・配置は必要時に指示を受けて実施（今回変更はchat provider
-  経路のwire互換を含むため、常用binaryへ反映する場合はrebuildが必要）。responsesのcatalogは確認済みmodel
-  （`gpt-5.6-luna`等）に限定する。
-- 注意: binaryのrebuild・配置は未実施。commit・pushは未実施。Responses経路の非Bearer auth置換、URL/query
+- 次: 利用者によるIncrement完了判断。clean commit `bacdde5f…`からDeno 2.9.7で`dist/henji`をbuildし
+  `~/.local/bin/henji`へ原子的に配置済み（build `bde72a4a…`、source `bacdde5f…`、SHA-256 `ebf8ad78…`、
+  embedded runtime `4a428546…`）。responsesのcatalogは確認済みmodel（`gpt-5.6-luna`等）に限定する。
+- 注意: commit済み（`bacdde5f`）。pushは未実施。Responses経路の非Bearer auth置換、URL/query
   templating、catalog capabilities（vision）、Anthropic／Google／Azure／Bedrockは対象外。
   `{productVersion}` placeholderは将来候補。
 
@@ -492,9 +492,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.3.0`。Increment 100変更を含むclean commit `2beb6351…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `2cf73932…`、file SHA-256 `976d2e2c…`、embedded runtime
-  `5d028555…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.4.0`。Increment 101変更を含むclean commit `bacdde5f…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `bde72a4a…`、file SHA-256 `ebf8ad78…`、embedded runtime
+  `4a428546…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - JSR: `@henji/harness@0.3.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
