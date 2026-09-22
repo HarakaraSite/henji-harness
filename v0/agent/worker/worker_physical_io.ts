@@ -99,13 +99,82 @@ class WorkerProbeModel implements Model {
       };
     }
     const task = lastUserText(request);
+    if (this.role === 'planner' && task.includes('child-fail')) {
+      throw new Error('child task failed on purpose');
+    }
     if (task === 'return active tool guidelines') {
       return { kind: 'final', text: request.systemInstruction ?? '' };
     }
-    if (task.includes('very-slow')) {
+    if (task.includes('cancel-child')) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 400));
+      throwIfCancelled(options.signal);
+    } else if (task.includes('very-slow')) {
       await new Promise<void>((resolve) => setTimeout(resolve, 5_200));
       throwIfCancelled(options.signal);
     } else if (task.includes('slow')) await delayed(options);
+    if (this.role === 'parent' && task.includes('async-child-fail')) {
+      const count = currentTurnToolResultCount(request);
+      if (count === 0) {
+        return {
+          kind: 'tool_calls',
+          calls: [{
+            callId: 'async-spawn-fail',
+            name: 'spawn_subagent',
+            arguments: { agent: 'planner', task: 'child-fail task' },
+          }],
+        };
+      }
+      const toolText = lastToolResultText(request);
+      if (count === 1) {
+        const parsed = JSON.parse(toolText) as { readonly runId?: string };
+        return {
+          kind: 'tool_calls',
+          calls: parsed.runId === undefined ? [] : [{
+            callId: 'async-collect-fail',
+            name: 'collect_subagent',
+            arguments: { runId: parsed.runId },
+          }],
+        };
+      }
+      const parsed = JSON.parse(toolText) as {
+        readonly state?: string;
+        readonly error?: string;
+      };
+      return { kind: 'final', text: `child failed: ${parsed.error ?? parsed.state ?? 'unknown'}` };
+    }
+    if (this.role === 'parent' && task.includes('async-spawn-two')) {
+      const count = currentTurnToolResultCount(request);
+      if (count === 0) {
+        return {
+          kind: 'tool_calls',
+          calls: [
+            {
+              callId: 'async-spawn-a',
+              name: 'spawn_subagent',
+              arguments: { agent: 'planner', task: 'slow child A' },
+            },
+            {
+              callId: 'async-spawn-b',
+              name: 'spawn_subagent',
+              arguments: { agent: 'planner', task: 'slow child B' },
+            },
+          ],
+        };
+      }
+      const toolText = lastToolResultText(request);
+      const runIds = [...toolText.matchAll(/"runId":"([^"]+)"/gu)].map((match) => match[1]);
+      if (count === 1) {
+        return {
+          kind: 'tool_calls',
+          calls: runIds.map((runId, index) => ({
+            callId: `async-collect-${index}`,
+            name: 'collect_subagent',
+            arguments: { runId },
+          })),
+        };
+      }
+      return { kind: 'final', text: 'two children completed' };
+    }
     if (this.role === 'parent' && task.includes('async-spawn')) {
       const toolText = lastToolResultText(request);
       if (toolText.includes('"finalText"')) {

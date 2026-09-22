@@ -284,6 +284,7 @@ export class ChildRunRegistry {
         ...(message.outcome.ok ? {} : { error: message.outcome.error ?? 'child run failed' }),
       };
       this.settle(run);
+      run.supervisor?.terminate();
       this.resolveWaiters(run);
       return;
     }
@@ -298,6 +299,7 @@ export class ChildRunRegistry {
         error: message.message,
       };
       this.settle(run);
+      run.supervisor?.terminate();
       this.resolveWaiters(run);
     }
   }

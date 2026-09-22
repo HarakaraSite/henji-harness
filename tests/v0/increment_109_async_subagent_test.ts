@@ -253,3 +253,128 @@ Deno.test('Increment 109 parent spawns and collects an async planner child', asy
     await Deno.remove(root, { recursive: true });
   }
 });
+
+const makeParentHandle = (): WorkerSessionHandle => ({
+  id: 'parent-session',
+  commit: () => {},
+  rollback: () => {},
+  installCheckpoint: () => {},
+  rollbackCheckpoint: () => {},
+  close: () => Promise.resolve(),
+});
+
+const makePlannerRegistry = async (
+  history?: SqliteHistoryV7ProductionStore,
+): Promise<
+  { registry: ChildRunRegistry; plannerRef: Awaited<ReturnType<typeof readDefinitionRevision>> }
+> => {
+  const plannerRef = await readDefinitionRevision('', 'builtin', 'planner');
+  const registry = new ChildRunRegistry({
+    options: {
+      handle: makeParentHandle(),
+      workspaceRoot: Deno.cwd(),
+      agent: 'default',
+      definition: plannerRef,
+      physicalIoMode: 'provider-free',
+    },
+    catalog: [{ name: 'planner', ref: plannerRef }],
+    ...(history === undefined ? {} : { history }),
+    build: buildManifest(),
+  });
+  return { registry, plannerRef };
+};
+
+Deno.test('Increment 109 parent continues after one child fails', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i109-fail-' });
+  const workspaceRoot = `${root}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  const created = await createWorkerSession({
+    workspaceRoot,
+    stateRoot: `${root}/state`,
+    dataRoot: `${root}/data`,
+    configRoot: `${root}/config`,
+    persistence: 'new',
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    const outcome = await created.session.submit('async-child-fail turn');
+    assert(outcome.ok, JSON.stringify(outcome));
+    assert(
+      outcome.finalText?.includes('child failed:') === true &&
+        outcome.finalText.includes('child task failed on purpose'),
+      `unexpected finalText: ${outcome.finalText}`,
+    );
+  } finally {
+    await created.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 109 two child runs progress concurrently', async () => {
+  const { registry } = await makePlannerRegistry();
+  const first = await registry.handle({ kind: 'spawn', agent: 'planner', task: 'slow child A' });
+  const second = await registry.handle({ kind: 'spawn', agent: 'planner', task: 'slow child B' });
+  assert(first.ok && first.kind === 'spawn');
+  assert(second.ok && second.kind === 'spawn');
+  assert(first.runId !== second.runId, 'children must have distinct runIds');
+  const firstStatus = await registry.handle({ kind: 'status', runId: first.runId });
+  const secondStatus = await registry.handle({ kind: 'status', runId: second.runId });
+  assert(firstStatus.ok && firstStatus.kind === 'status');
+  assert(secondStatus.ok && secondStatus.kind === 'status');
+  assertEquals(firstStatus.state, 'running');
+  assertEquals(secondStatus.state, 'running');
+  const firstCollected = await registry.handle({ kind: 'collect', runId: first.runId });
+  const secondCollected = await registry.handle({ kind: 'collect', runId: second.runId });
+  assert(firstCollected.ok && firstCollected.kind === 'collect');
+  assert(secondCollected.ok && secondCollected.kind === 'collect');
+  assertEquals(firstCollected.result.state, 'completed');
+  assertEquals(secondCollected.result.state, 'completed');
+});
+
+Deno.test('Increment 109 cancel targets only the requested child run', async () => {
+  const { registry } = await makePlannerRegistry();
+  const kept = await registry.handle({ kind: 'spawn', agent: 'planner', task: 'slow child A' });
+  const cancelled = await registry.handle({
+    kind: 'spawn',
+    agent: 'planner',
+    task: 'cancel-child B',
+  });
+  assert(kept.ok && kept.kind === 'spawn');
+  assert(cancelled.ok && cancelled.kind === 'spawn');
+  const cancelResponse = await registry.handle({ kind: 'cancel', runId: cancelled.runId });
+  assert(cancelResponse.ok && cancelResponse.kind === 'cancel');
+  const cancelledResult = await registry.handle({ kind: 'collect', runId: cancelled.runId });
+  const keptResult = await registry.handle({ kind: 'collect', runId: kept.runId });
+  assert(cancelledResult.ok && cancelledResult.kind === 'collect');
+  assert(keptResult.ok && keptResult.kind === 'collect');
+  assertEquals(cancelledResult.result.state, 'cancelled');
+  assertEquals(keptResult.result.state, 'completed');
+});
+
+Deno.test('Increment 109 cancelAll settles unfinished children durably', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i109-cancelall-' });
+  const workspaceRoot = `${stateRoot}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+  await history.initialize();
+  try {
+    const { registry } = await makePlannerRegistry(history);
+    const spawned = await registry.handle({
+      kind: 'spawn',
+      agent: 'planner',
+      task: 'cancel-child task',
+    });
+    assert(spawned.ok && spawned.kind === 'spawn');
+    registry.cancelAll();
+    let row = history.listExecutions().find((item) => item.executionId === spawned.runId);
+    for (let attempt = 0; attempt < 200 && row?.lifecycle !== 'settled'; attempt += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      row = history.listExecutions().find((item) => item.executionId === spawned.runId);
+    }
+    assert(row !== undefined, 'child execution should be durable');
+    assertEquals(row.lifecycle, 'settled');
+    assertEquals(row.outcome, 'cancelled');
+  } finally {
+    await Deno.remove(stateRoot, { recursive: true });
+  }
+});

@@ -141,10 +141,18 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
 - **破壊的schema変更**: `HISTORY_V7_SCHEMA_VERSION` 7→8。既存`history-v7.sqlite3`は`unsupported schema`で
   開けないため、利用者承認（案A・選択1）のもと既存`~/.local/state/henji-harness/v1/*/history-v7.sqlite3`
   （+`-wal`/`-shm`）を削除した。migration/dual-read/fallbackは追加していない。
-- 未実装（V1対象外・残課題）:
-  - 並行childの重なり（acceptance 3）、`cancel_subagent`のparent経由観測（acceptance 6）、parent cancel/closeの
-    child cancel観測（acceptance 7）、child failure非abortのparent経由観測（acceptance 5）の追加test。
-  - managed async agentのmodule解決（`resolveManagedModule`）、childのprovider evidence/diagnostic保存先。
+- **追加観測（完了）**: `increment_109`に次を追加した。
+  - parentが1 child failure後も継続しcanonical commitする（acceptance 5）。
+  - 2 childが同時に`running`で進行し、独立にcollectできる（acceptance 3/4）。
+  - `cancel_subagent`が指定childのみをcancelし、他childはcompletedのまま（acceptance 6）。
+  - `cancelAll`（Session close／parent settleで使用）が未完了childをcancelし、durable rowが
+    `lifecycle='settled'`／`outcome='cancelled'`になる（acceptance 7）。
+  - child terminalでchild Worker generationをterminateする（acceptance 12）。
+  - managed async agentのmodule解決: `WorkerHostSessionOptions.resolveAsyncAgentModule`を追加し、
+    `worker_tui_session`が`ManagedDefinitionStore`＋`managedWorkerDefinitionLoadRequest`で解決、coordinatorが
+    `ChildRunRegistry`へ渡す。`agent:<name>`の外部managed childも起動できる。
+- 対象外（診断）: childのprovider evidence／diagnosticの永続化は行わない。architecture上diagnosticはoptionalで
+  semantic settlementをgateしないため、V1ではchildのterminal outcome・ref・親子correlationのreadbackで足りる。
 - **Slice E（正本更新完了）**: architecture（`agent:<name>` catalogとasync child V1の責務）、roadmap F06、
   README／`v0/agent/README.md`を実装済み挙動へ更新した。
 

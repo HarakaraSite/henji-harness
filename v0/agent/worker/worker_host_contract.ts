@@ -28,6 +28,10 @@ export interface WorkerHostSessionOptions {
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
   /** Host-resolved async child agent catalog (`agent:<name>` -> exact ref). */
   readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
+  /** Resolve a managed async agent ref to a process-local load descriptor. */
+  readonly resolveAsyncAgentModule?: (
+    ref: DefinitionRevisionRef,
+  ) => Promise<WorkerDefinitionLoadRequest>;
   /** Host-resolved tool Definition slots for declared tool identities. */
   readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
   readonly physicalIoMode?: 'provider-free' | 'production';

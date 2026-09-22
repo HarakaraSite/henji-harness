@@ -51,6 +51,7 @@ import {
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';
 import { AgentBindingError, resolveAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
+import { ManagedDefinitionStore } from '../definitions/managed_definition_store.ts';
 import {
   type ResolvedToolDefinitionBinding,
   resolveToolDefinitionBindings,
@@ -472,6 +473,13 @@ export const createWorkerSession = async (
      * The activation-level `agents.json` file is validated on every generation open so an
      * abolished `subagent:<name>` slot surfaces a typed failure instead of being ignored.
      */
+    const resolveAsyncAgentModule = dataRoot === undefined ? undefined : async (
+      ref: import('../definitions/managed_resource_ref.ts').DefinitionRevisionRef,
+    ) => {
+      const store = new ManagedDefinitionStore({ dataRoot });
+      const revision = await store.resolve(ref);
+      return managedWorkerDefinitionLoadRequest(revision);
+    };
     /*
      * Resolve the async child agent catalog: an activation-level `agent:<name>` binding wins;
      * otherwise the bundled planner is used. A `subagent:<name>` entry remains a typed failure.
@@ -582,6 +590,7 @@ export const createWorkerSession = async (
           modulePath,
           loadDescriptor,
           asyncAgents: await resolveAsyncAgents(),
+          ...(resolveAsyncAgentModule === undefined ? {} : { resolveAsyncAgentModule }),
           toolDefinitions: await resolveToolDefinitions(),
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,
