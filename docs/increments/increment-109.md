@@ -1,6 +1,6 @@
 # Increment 109 — 非同期subagentの実装（計画上のIncrement C）
 
-ステータス: **実装完了（Slice A〜E。durable child evidence含む。未commit）**
+ステータス: **実装・検証・commit・push完了（Slice A〜E。durable child evidence含む）**
 
 計画日: 2026-09-22
 

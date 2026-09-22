@@ -313,23 +313,55 @@ Deno.test('Increment 109 parent continues after one child fails', async () => {
 
 Deno.test('Increment 109 two child runs progress concurrently', async () => {
   const { registry } = await makePlannerRegistry();
-  const first = await registry.handle({ kind: 'spawn', agent: 'planner', task: 'slow child A' });
-  const second = await registry.handle({ kind: 'spawn', agent: 'planner', task: 'slow child B' });
-  assert(first.ok && first.kind === 'spawn');
-  assert(second.ok && second.kind === 'spawn');
-  assert(first.runId !== second.runId, 'children must have distinct runIds');
-  const firstStatus = await registry.handle({ kind: 'status', runId: first.runId });
-  const secondStatus = await registry.handle({ kind: 'status', runId: second.runId });
-  assert(firstStatus.ok && firstStatus.kind === 'status');
-  assert(secondStatus.ok && secondStatus.kind === 'status');
-  assertEquals(firstStatus.state, 'running');
-  assertEquals(secondStatus.state, 'running');
-  const firstCollected = await registry.handle({ kind: 'collect', runId: first.runId });
-  const secondCollected = await registry.handle({ kind: 'collect', runId: second.runId });
-  assert(firstCollected.ok && firstCollected.kind === 'collect');
-  assert(secondCollected.ok && secondCollected.kind === 'collect');
-  assertEquals(firstCollected.result.state, 'completed');
-  assertEquals(secondCollected.result.state, 'completed');
+  const channelName = `henji-i109-${crypto.randomUUID()}`;
+  const barrier = new BroadcastChannel(channelName);
+  const startedLabels = new Set<string>();
+  let resolveBothStarted!: () => void;
+  const bothStarted = new Promise<void>((resolve) => resolveBothStarted = resolve);
+  barrier.onmessage = (event: MessageEvent<unknown>) => {
+    const message = event.data as { readonly kind?: unknown; readonly label?: unknown };
+    if (message?.kind !== 'started' || typeof message.label !== 'string') return;
+    startedLabels.add(message.label);
+    if (startedLabels.size === 2) resolveBothStarted();
+  };
+  try {
+    const [first, second] = await Promise.all([
+      registry.handle({
+        kind: 'spawn',
+        agent: 'planner',
+        task: `barrier-child:${channelName}:A`,
+      }),
+      registry.handle({
+        kind: 'spawn',
+        agent: 'planner',
+        task: `barrier-child:${channelName}:B`,
+      }),
+    ]);
+    assert(first.ok && first.kind === 'spawn');
+    assert(second.ok && second.kind === 'spawn');
+    assert(first.runId !== second.runId, 'children must have distinct runIds');
+    await bothStarted;
+    assertEquals([...startedLabels].sort(), ['A', 'B']);
+    const firstStatus = await registry.handle({ kind: 'status', runId: first.runId });
+    const secondStatus = await registry.handle({ kind: 'status', runId: second.runId });
+    assert(firstStatus.ok && firstStatus.kind === 'status');
+    assert(secondStatus.ok && secondStatus.kind === 'status');
+    assertEquals(firstStatus.state, 'running');
+    assertEquals(secondStatus.state, 'running');
+    barrier.postMessage({ kind: 'release' });
+    const [firstCollected, secondCollected] = await Promise.all([
+      registry.handle({ kind: 'collect', runId: first.runId }),
+      registry.handle({ kind: 'collect', runId: second.runId }),
+    ]);
+    assert(firstCollected.ok && firstCollected.kind === 'collect');
+    assert(secondCollected.ok && secondCollected.kind === 'collect');
+    assertEquals(firstCollected.result.state, 'completed');
+    assertEquals(secondCollected.result.state, 'completed');
+  } finally {
+    barrier.postMessage({ kind: 'release' });
+    barrier.close();
+    registry.cancelAll();
+  }
 });
 
 Deno.test('Increment 109 cancel targets only the requested child run', async () => {

@@ -2,6 +2,19 @@
 
 ## Records
 
+### JSR publish allowlist・async child並行test安定化（修正・検証・commit完了、push未実施）
+
+- 状態: JSR公開module graphから漏れていた`provider_request_headers.ts`／`async_agents.ts`をpublish includeへ追加し、
+  削除済み`planner_delegation.ts`を除去。公開module説明とIncrement 106/108/109のstatusを現状へ整合した。
+  Increment 109の2 child並行testは、両childの開始通知を`BroadcastChannel` barrierで待ち、両方が`running`の間に
+  releaseする決定的な構造へ変更。JSR dry-run、`v0:check`、format、lint、Increment 109全9件、
+  `git diff --check`は成功。commitはこのRecordを含むcurrent HEAD。
+- 次: pushする場合は、利用者の明示指示を受けてcurrent HEADをpushする。
+- 正本: `jsr.json`、`mod.ts`、`docs/increments/increment-106.md`、`docs/increments/increment-108.md`、
+  `docs/increments/increment-109.md`、`tests/v0/increment_109_async_subagent_test.ts`、
+  `v0/agent/worker/worker_physical_io.ts`。
+- 注意: authoritative `v0:gate`と実provider callは今回未実施。既存の配置binaryは変更していない。
+
 ### 同期subagent廃止・Host責務分割・非同期subagent実装（Increments 106–109、実装・検証・配置・push完了）
 
 - 状態: 完了。`v0:gate`（Increment 108/109の安定候補）は未実行（指示どおりfocused testと`v0:test`で確認し、最後の

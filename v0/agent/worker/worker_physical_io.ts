@@ -65,6 +65,38 @@ const delayed = async (options: ModelGenerateOptions): Promise<void> => {
   throwIfCancelled(options.signal);
 };
 
+const CHILD_BARRIER_TASK_PREFIX = 'barrier-child:';
+
+const waitForChildBarrier = async (
+  task: string,
+  options: ModelGenerateOptions,
+): Promise<boolean> => {
+  if (!task.startsWith(CHILD_BARRIER_TASK_PREFIX)) return false;
+  const [channelName, label] = task.slice(CHILD_BARRIER_TASK_PREFIX.length).split(':', 2);
+  if (channelName === undefined || channelName.length === 0 || label === undefined) {
+    throw new Error('invalid provider-free child barrier task');
+  }
+  const channel = new BroadcastChannel(channelName);
+  try {
+    await new Promise<void>((resolve) => {
+      const finish = (): void => {
+        options.signal?.removeEventListener('abort', finish);
+        resolve();
+      };
+      channel.onmessage = (event: MessageEvent<unknown>) => {
+        const message = event.data as { readonly kind?: unknown };
+        if (message?.kind === 'release') finish();
+      };
+      options.signal?.addEventListener('abort', finish, { once: true });
+      channel.postMessage({ kind: 'started', label });
+    });
+  } finally {
+    channel.close();
+  }
+  throwIfCancelled(options.signal);
+  return true;
+};
+
 export interface WorkerRequestCounter {
   readonly increment: () => void;
   readonly count: () => number;
@@ -105,7 +137,9 @@ class WorkerProbeModel implements Model {
     if (task === 'return active tool guidelines') {
       return { kind: 'final', text: request.systemInstruction ?? '' };
     }
-    if (task.includes('cancel-child')) {
+    if (await waitForChildBarrier(task, options)) {
+      // The focused concurrency test releases both child Workers together.
+    } else if (task.includes('cancel-child')) {
       await new Promise<void>((resolve) => setTimeout(resolve, 400));
       throwIfCancelled(options.signal);
     } else if (task.includes('very-slow')) {

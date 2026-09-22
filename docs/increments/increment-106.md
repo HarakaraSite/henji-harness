@@ -1,6 +1,6 @@
 # Increment 106 — 同期subagentの削除（計画上のIncrement A）
 
-ステータス: **実装・検証完了（未commit）**
+ステータス: **実装・検証・commit・push完了**
 
 計画日: 2026-09-22
 

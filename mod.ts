@@ -13,7 +13,8 @@
  * Worker lifecycle, SQLite-backed history, and exact Agent Definition
  * selection for Sessions. A headless Agent Worker evaluates built-in or
  * installed trusted executable TypeScript Definitions and assembles the
- * current model, instructions, tools, and synchronous planner delegation.
+ * current model, instructions, tools, and declared asynchronous child-agent
+ * tools.
  * General Surface replacement, durable AgentInstance revision transitions,
  * and Definition-configurable context and loop components are not yet
  * implemented.
