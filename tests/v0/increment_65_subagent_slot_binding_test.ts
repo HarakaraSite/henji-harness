@@ -3,6 +3,7 @@ import {
   agentSlotBindingsPath,
   parseAgentSlot,
   readAgentSlotBindings,
+  resolveAgentSlotBindings,
 } from '../../v0/agent/definitions/agent_slot_binding.ts';
 import {
   type ManagedDefinitionRevision,
@@ -76,19 +77,46 @@ const writeBindings = async (
   await Deno.writeTextFile(agentSlotBindingsPath(configRoot), `${JSON.stringify(bindings)}\n`);
 };
 
-Deno.test('Increment 65 parses only the root activation slot', () => {
+Deno.test('Increment 65 parses the root slot and async agent catalog names', () => {
   assertEquals(parseAgentSlot('agent:default'), { kind: 'root', slot: 'agent:default' });
+  assertEquals(parseAgentSlot('agent:planner'), {
+    kind: 'agent',
+    slot: 'agent:planner',
+    name: 'planner',
+  });
   for (
     const value of [
       'subagent:planner',
-      'agent:planner',
       'subagent:',
       'subagent:Bad Name',
+      'agent:',
+      'agent:Bad Name',
       42,
       undefined,
     ]
   ) {
     assertEquals(parseAgentSlot(value), undefined);
+  }
+});
+
+Deno.test('Increment 65 resolves an agent:<name> async catalog entry', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-async-' });
+  try {
+    const store = new ManagedDefinitionStore({ dataRoot: `${root}/data` });
+    const agent = await installDefinition(store, `${root}/agent`, 'example/async-agent');
+    await writeBindings(`${root}/config`, {
+      schemaVersion: 1,
+      bindings: { 'agent:researcher': definitionSelector(agent) },
+    });
+    const resolved = await resolveAgentSlotBindings(`${root}/config`, `${root}/data`);
+    assertEquals(resolved.get('agent:researcher')?.slot, {
+      kind: 'agent',
+      slot: 'agent:researcher',
+      name: 'researcher',
+    });
+    assertEquals(resolved.get('agent:researcher')?.ref, agent.manifest.logicalRef);
+  } finally {
+    await Deno.remove(root, { recursive: true });
   }
 });
 
@@ -287,7 +315,7 @@ Deno.test('Increment 65 fails typed on unknown slots and malformed files', async
   try {
     await writeBindings(`${root}/config`, {
       schemaVersion: 1,
-      bindings: { 'agent:other': 'example/parent@sha256:' + 'a'.repeat(64) },
+      bindings: { 'other:thing': 'example/parent@sha256:' + 'a'.repeat(64) },
     });
     await assertBindingError(
       () => readAgentSlotBindings(`${root}/config`),

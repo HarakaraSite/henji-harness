@@ -35,6 +35,18 @@ export const workerBuiltinModulePath = (
   ).pathname;
 
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
+
+/** Bundled async child agent names the Host can resolve without an external binding. */
+export const BUNDLED_ASYNC_AGENT_NAMES: readonly string[] = Object.freeze(['planner']);
+
+export const builtinAsyncAgentRefFor = async (
+  name: string,
+): Promise<DefinitionRevisionRef> => {
+  if (name !== 'planner') {
+    throw new Error(`no bundled async agent for name: ${name}`);
+  }
+  return await builtinDefinitionRef('planner', buildManifest());
+};
 const bundledToolModule = (name: string): string =>
   new URL(`./worker_builtin_${name}_tool.ts`, import.meta.url).pathname;
 

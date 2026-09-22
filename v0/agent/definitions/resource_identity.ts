@@ -18,7 +18,8 @@ export type AgentResourceKind =
   | 'instruction'
   | 'skill'
   | 'tool'
-  | 'subagent';
+  | 'subagent'
+  | 'agent';
 
 /** Sanitized failure for malformed or incoherent resource declarations. */
 export class AgentResourceIdentityError extends Error {
@@ -36,7 +37,8 @@ const ranks: Readonly<Record<AgentResourceKind, number>> = {
   instruction: 1,
   skill: 2,
   tool: 3,
-  subagent: 4,
+  agent: 4,
+  subagent: 5,
 };
 
 interface ParsedIdentity {
@@ -65,7 +67,7 @@ const parse = (value: unknown): ParsedIdentity | undefined => {
   }
   if (
     parts.length !== 2 ||
-    !['instruction', 'skill', 'tool', 'subagent'].includes(parts[0])
+    !['instruction', 'skill', 'tool', 'subagent', 'agent'].includes(parts[0])
   ) {
     return undefined;
   }
@@ -261,6 +263,7 @@ export const validateAgentResourceTopology = (
       ].map((name) => createAgentResourceIdentity(name)),
     );
     if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
+    expected.push(createAgentResourceIdentity('agent:planner'));
   } else {
     expected.push(createAgentResourceIdentity('tool:read'));
     if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
@@ -331,6 +334,7 @@ const declaredResources = (
       'instructions',
       'skills',
       'tools',
+      'asyncAgents',
     ]) ||
     !isPlainObject(definition.limits) || !Object.isFrozen(definition.limits) ||
     !exactDataProperties(definition.limits, ['maxSteps']) ||
@@ -343,7 +347,8 @@ const declaredResources = (
   const instructions = snapshotIdentityArray(capabilities.instructions);
   const skills = snapshotIdentityArray(capabilities.skills);
   const tools = snapshotIdentityArray(capabilities.tools);
-  const all = [...instructions, ...skills, ...tools];
+  const asyncAgents = snapshotIdentityArray(capabilities.asyncAgents);
+  const all = [...instructions, ...skills, ...tools, ...asyncAgents];
   const names = new Set<string>();
   for (const resource of all) {
     if (names.has(`${resource}`)) return invalid();

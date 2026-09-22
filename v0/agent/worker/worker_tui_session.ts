@@ -44,17 +44,22 @@ import {
   managedWorkerDefinitionLoadRequest,
 } from './worker_capsule.ts';
 import {
+  builtinAsyncAgentRefFor,
+  BUNDLED_ASYNC_AGENT_NAMES,
   BUNDLED_TOOL_DEFINITION_IDENTITIES,
   bundledToolDefinitionLoadRequest,
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';
-import { readAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
+import { AgentBindingError, resolveAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
 import {
   type ResolvedToolDefinitionBinding,
   resolveToolDefinitionBindings,
   ToolBindingError,
 } from '../definitions/tool_binding.ts';
-import type { WorkerToolDefinitionLoadRequest } from './worker_protocol.ts';
+import type {
+  WorkerAsyncAgentCatalogEntry,
+  WorkerToolDefinitionLoadRequest,
+} from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
@@ -467,9 +472,51 @@ export const createWorkerSession = async (
      * The activation-level `agents.json` file is validated on every generation open so an
      * abolished `subagent:<name>` slot surfaces a typed failure instead of being ignored.
      */
-    const assertAgentSlotBindingsSupported = async (): Promise<void> => {
-      if (configRoot === undefined) return;
-      await readAgentSlotBindings(configRoot);
+    /*
+     * Resolve the async child agent catalog: an activation-level `agent:<name>` binding wins;
+     * otherwise the bundled planner is used. A `subagent:<name>` entry remains a typed failure.
+     */
+    const resolveAsyncAgents = async (): Promise<
+      readonly WorkerAsyncAgentCatalogEntry[] | undefined
+    > => {
+      const entries: WorkerAsyncAgentCatalogEntry[] = [];
+      const resolvedNames = new Set<string>();
+      if (configRoot !== undefined && dataRoot !== undefined) {
+        let bindings: ReadonlyMap<
+          string,
+          {
+            slot: { kind: string; name?: string };
+            ref: import('../definitions/managed_resource_ref.ts').DefinitionRevisionRef;
+          }
+        >;
+        try {
+          bindings = await resolveAgentSlotBindings(configRoot, dataRoot);
+        } catch (error) {
+          if (error instanceof AgentBindingError) {
+            throw new DefinitionStartupError(
+              error.code === 'binding_definition_not_found'
+                ? 'definition_not_found'
+                : error.code === 'binding_role_mismatch'
+                ? 'definition_role_mismatch'
+                : 'definition_invalid',
+              'resolution',
+              error.message,
+              error.definition,
+            );
+          }
+          throw error;
+        }
+        for (const binding of bindings.values()) {
+          if (binding.slot.kind !== 'agent' || binding.slot.name === undefined) continue;
+          entries.push({ name: binding.slot.name, ref: structuredClone(binding.ref) });
+          resolvedNames.add(binding.slot.name);
+        }
+      }
+      for (const name of BUNDLED_ASYNC_AGENT_NAMES) {
+        if (resolvedNames.has(name)) continue;
+        entries.push({ name, ref: await builtinAsyncAgentRefFor(name) });
+      }
+      return entries.length === 0 ? undefined : entries;
     };
     /*
      * Resolve every declared tool Definition. An activation-level `tools.json` binding wins;
@@ -527,7 +574,6 @@ export const createWorkerSession = async (
     ): Promise<WorkerHostSession> => {
       try {
         baseInstruction = await resolveBaseInstruction();
-        await assertAgentSlotBindingsSupported();
         return await WorkerHostSession.open({
           handle: workerHandle,
           workspaceRoot: workspace.root,
@@ -535,6 +581,7 @@ export const createWorkerSession = async (
           definition,
           modulePath,
           loadDescriptor,
+          asyncAgents: await resolveAsyncAgents(),
           toolDefinitions: await resolveToolDefinitions(),
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,

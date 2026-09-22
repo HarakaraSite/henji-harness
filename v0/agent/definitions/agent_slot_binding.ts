@@ -5,18 +5,32 @@ import {
   ManagedDefinitionStore,
 } from './managed_definition_store.ts';
 import type { DefinitionRevisionRef } from './managed_resource_ref.ts';
+import { isSubagentName } from './managed_definition_manifest.ts';
 
 export const AGENT_SLOT_BINDING_FILE = 'agents.json';
 
 export const ROOT_AGENT_SLOT = 'agent:default' as const;
 const SUBAGENT_SLOT_PREFIX = 'subagent:';
 
-/** The single activation-level slot: the root `agent:default` Definition binding. */
-export type AgentSlot = { readonly kind: 'root'; readonly slot: typeof ROOT_AGENT_SLOT };
+const AGENT_SLOT_PREFIX = 'agent:';
+
+/**
+ * One activation-level slot: the root `agent:default` Definition binding, or an async agent
+ * catalog entry `agent:<name>`.
+ */
+export type AgentSlot =
+  | { readonly kind: 'root'; readonly slot: typeof ROOT_AGENT_SLOT }
+  | { readonly kind: 'agent'; readonly slot: string; readonly name: string };
 
 /** Parse one slot name; unknown or malformed slots return undefined. */
-export const parseAgentSlot = (value: unknown): AgentSlot | undefined =>
-  value === ROOT_AGENT_SLOT ? { kind: 'root', slot: ROOT_AGENT_SLOT } : undefined;
+export const parseAgentSlot = (value: unknown): AgentSlot | undefined => {
+  if (value === ROOT_AGENT_SLOT) return { kind: 'root', slot: ROOT_AGENT_SLOT };
+  if (typeof value === 'string' && value.startsWith(AGENT_SLOT_PREFIX)) {
+    const name = value.slice(AGENT_SLOT_PREFIX.length);
+    if (isSubagentName(name)) return { kind: 'agent', slot: value, name };
+  }
+  return undefined;
+};
 
 export type AgentBindingErrorCode =
   | 'binding_invalid'
@@ -119,7 +133,7 @@ const validateRole = (
 ): void => {
   const manifest = revision.manifest;
   if (manifest.declaredRole !== 'parent') {
-    throw expectedRoleError(slot, 'root slot requires a parent-role Definition');
+    throw expectedRoleError(slot, 'activation slot requires a parent-role Definition');
   }
 };
 
@@ -175,4 +189,27 @@ export const resolveRootAgentSlotBinding = async (
   if (selector === undefined) return undefined;
   const slot = parseAgentSlot(ROOT_AGENT_SLOT)!;
   return await resolveSlot(new ManagedDefinitionStore({ dataRoot }), slot, selector);
+};
+
+/**
+ * Resolve every configured activation-level slot to one exact managed revision. The root slot is
+ * resolved by `resolveRootAgentSlotBinding`; this returns the `agent:<name>` async agent catalog
+ * together with any root entry. Role mismatch, unknown slots, malformed selectors, and missing
+ * revisions are typed failures. There is no implicit fallback to bundled Definitions.
+ */
+export const resolveAgentSlotBindings = async (
+  configRoot: string,
+  dataRoot: string,
+): Promise<ReadonlyMap<string, ResolvedAgentSlotBinding>> => {
+  const file = await readAgentSlotBindings(configRoot);
+  const store = new ManagedDefinitionStore({ dataRoot });
+  const resolved = new Map<string, ResolvedAgentSlotBinding>();
+  for (const [slotValue, selector] of Object.entries(file.bindings)) {
+    const slot = parseAgentSlot(slotValue);
+    if (slot === undefined) {
+      throw new AgentBindingError('binding_slot_unknown', 'agent slot is not known', slotValue);
+    }
+    resolved.set(slotValue, await resolveSlot(store, slot, selector));
+  }
+  return resolved;
 };

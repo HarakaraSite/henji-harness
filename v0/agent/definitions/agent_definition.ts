@@ -31,6 +31,8 @@ export interface AgentCapabilityDeclaration {
   readonly instructions: readonly AgentResourceIdentity[];
   readonly skills: readonly AgentResourceIdentity[];
   readonly tools: readonly AgentResourceIdentity[];
+  /** Async child agent names declared by this Definition (`agent:<name>` identities). */
+  readonly asyncAgents: readonly AgentResourceIdentity[];
 }
 
 /** Data-only execution limits declared by an Agent Definition. */
@@ -83,6 +85,7 @@ const declarationsFor = (
     createAgentResourceIdentity(`skill:${skill.name}`)
   );
   const tools: AgentResourceIdentity[] = [];
+  const asyncAgents: AgentResourceIdentity[] = [];
   if (registryKind === 'production') {
     tools.push(
       ...[
@@ -101,6 +104,7 @@ const declarationsFor = (
     tools.push(
       createAgentResourceIdentity('tool:submit_json_result'),
     );
+    asyncAgents.push(createAgentResourceIdentity('agent:planner'));
   } else {
     tools.push(createAgentResourceIdentity('tool:read'));
     if (input.skillCatalog.skills.length > 0) {
@@ -112,6 +116,7 @@ const declarationsFor = (
     instructions: Object.freeze(instructions),
     skills: Object.freeze(skills),
     tools: Object.freeze(tools),
+    asyncAgents: Object.freeze(asyncAgents),
   });
 };
 
@@ -123,6 +128,7 @@ const flattenResources = (
   ...capabilities.instructions,
   ...capabilities.skills,
   ...capabilities.tools,
+  ...capabilities.asyncAgents,
 ];
 
 const resolveDefinition = (

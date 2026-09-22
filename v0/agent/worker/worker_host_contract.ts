@@ -8,6 +8,7 @@ import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.t
 import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import type {
+  WorkerAsyncAgentCatalogEntry,
   WorkerDefinitionLoadRequest,
   WorkerHostCommand,
   WorkerToHostMessage,
@@ -25,6 +26,8 @@ export interface WorkerHostSessionOptions {
   readonly definition: DefinitionRevisionRef;
   readonly modulePath?: string;
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
+  /** Host-resolved async child agent catalog (`agent:<name>` -> exact ref). */
+  readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
   /** Host-resolved tool Definition slots for declared tool identities. */
   readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
   readonly physicalIoMode?: 'provider-free' | 'production';

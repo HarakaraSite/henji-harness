@@ -377,6 +377,9 @@ export class WorkerSupervisor {
         kind: 'start',
         correlation,
         module: revision,
+        ...(this.options.asyncAgents === undefined
+          ? {}
+          : { asyncAgents: this.options.asyncAgents }),
         ...(this.options.toolDefinitions === undefined
           ? {}
           : { toolDefinitions: this.options.toolDefinitions }),

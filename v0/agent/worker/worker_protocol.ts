@@ -18,6 +18,7 @@ import type { ProviderExactRequestObservation } from '../core/contracts.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
+  DefinitionRevisionRef,
   HenjiInstructionRevisionRef,
   ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
@@ -31,6 +32,12 @@ import type {
  */
 
 export const WORKER_PROTOCOL_VERSION = 'slice1-data-only-v2';
+
+/** One declared async child agent: catalog name plus its exact Definition revision. */
+export interface WorkerAsyncAgentCatalogEntry {
+  readonly name: string;
+  readonly ref: DefinitionRevisionRef;
+}
 
 /** One Host/Worker-resolved tool Definition: exact ref plus its process-local load descriptor. */
 export interface WorkerToolDefinitionLoadRequest {
@@ -82,6 +89,7 @@ export type WorkerHostCommand =
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
     readonly module?: WorkerDefinitionLoadRequest;
+    readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
     readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
