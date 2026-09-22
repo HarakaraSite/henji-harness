@@ -4,6 +4,9 @@ import {
   createAsyncAgentTools,
 } from '../../v0/agent/tools/async_agents.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
+import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
+import { readDefinitionRevision } from '../../v0/agent/worker/worker_definition_revision.ts';
+import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -159,4 +162,50 @@ Deno.test('Increment 109 child failure is reported without throwing', async () =
     state: 'failed',
     error: 'child task failed',
   });
+});
+
+Deno.test('Increment 109 child run registry spawns, collects, and cancels a planner child', async () => {
+  const plannerRef = await readDefinitionRevision('', 'builtin', 'planner');
+  const handle: WorkerSessionHandle = {
+    id: 'parent-session',
+    commit: () => {},
+    rollback: () => {},
+    installCheckpoint: () => {},
+    rollbackCheckpoint: () => {},
+    close: () => Promise.resolve(),
+  };
+  const registry = new ChildRunRegistry({
+    options: {
+      handle,
+      workspaceRoot: Deno.cwd(),
+      agent: 'default',
+      definition: plannerRef,
+      physicalIoMode: 'provider-free',
+    },
+    catalog: [{ name: 'planner', ref: plannerRef }],
+  });
+
+  const spawned = await registry.handle(
+    { kind: 'spawn', agent: 'planner', task: 'child planning task' },
+    'spawn-call-9',
+  );
+  assert(spawned.ok && spawned.kind === 'spawn', 'spawn should return a runId');
+  const runId = spawned.runId;
+
+  const collected = await registry.handle({ kind: 'collect', runId });
+  assert(collected.ok && collected.kind === 'collect', 'collect should succeed');
+  assertEquals(collected.result.state, 'completed');
+  assert(
+    collected.result.finalText === 'worker planner result',
+    `unexpected finalText: ${collected.result.finalText}`,
+  );
+  assertEquals(collected.result.parentExecutionId, 'parent-session');
+  assertEquals(collected.result.spawnCallId, 'spawn-call-9');
+
+  const status = await registry.handle({ kind: 'status', runId });
+  assert(status.ok && status.kind === 'status', 'status should succeed');
+  assertEquals(status.state, 'completed');
+
+  const unknown = await registry.handle({ kind: 'collect', runId: 'missing-run' });
+  assert(!unknown.ok, 'collect of an unknown run should fail');
 });

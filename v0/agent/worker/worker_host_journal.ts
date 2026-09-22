@@ -160,7 +160,8 @@ export class ExecutionJournal {
     if (execution === undefined) return true;
     if (
       message.kind === 'ready' || message.kind === 'model_selected' ||
-      message.kind === 'closed' || message.kind === 'checkpoint_proposal'
+      message.kind === 'closed' || message.kind === 'checkpoint_proposal' ||
+      message.kind === 'async_agent_request'
     ) return true;
     if (message.kind === 'provider_exact_request') {
       const history = this.host.options.historyPersistence;

@@ -1,6 +1,6 @@
 # Increment 109 — 非同期subagentの実装（計画上のIncrement C）
 
-ステータス: **実装中（Slice A・B完了。Slice C〜E未実装）**
+ステータス: **実装中（Slice A〜C完了。Slice D・E未実装）**
 
 計画日: 2026-09-22
 
@@ -116,8 +116,22 @@ test件数を目的にせず、各testが上記product動作のどれを証明�
   - 検証: `v0:check`／`v0:lint`／`v0:fmt` exit 0、`v0:test` exit 0（39 suite）。
     `tests/v0/increment_109_async_subagent_test.ts`（3件）を追加し、四操作surface・catalog外拒否・
     child failure非abortを確認。
-- 未実装: Slice C（child generation registry、admission/settlement）、Slice D（collect/status/cancelと
-  Host lifecycle連携、cancel伝播）、Slice E（正本更新、受入観測）。
+- **Slice C（完了）**:
+  - `v0/agent/worker/worker_host_children.ts`: `ChildRunRegistry`。childごとに別`WorkerSupervisor`を起動し、
+    `agent:<name>` catalogからexact refを解決、bundled plannerは`workerBuiltinModulePath('planner')`で
+    moduleを解決する。childのcommit_proposalをterminal resultとして受け取り、detached result mode（canonical
+    Sessionへcommitしない）として扱う。`spawn`はchild開始後にrunIdを返し、`collect`はterminalまで待つ。
+    `cancel`／`cancelAll`を提供。
+  - `ExecutionCoordinator`: `async_agent_request`を`ChildRunRegistry`へ委譲し、`async_agent_response`を返す。
+    parent turn settle時と`close`時に`cancelAll`で未完了childをcancelする。
+  - `ExecutionJournal.appendWorkerObservation`: `async_agent_request`をobservationとして永続化しない。
+  - 検証: `v0:check`／`v0:lint`／`v0:fmt` exit 0、`v0:test` exit 0（39 suite）。
+    `increment_109`にchild registryのspawn→runId→collect→status→readback testを追加（4件pass）。
+- 未実装（Slice D・E）:
+  - parent Workerのmodelがspawn/collectを実際に呼ぶintegration観測（acceptance 2/3/5/6/7/11/12）。
+  - child evidenceのv7 durable保存（parentExecutionId/spawnCallId/ref/terminal outcomeのreadback、acceptance 9）。
+  - managed async agentのmodule解決（`resolveManagedModule`）、childのprovider evidence/diagnostic保存先。
+  - architecture／roadmap／README更新（Slice E）。
 
 ## 実装順序（slice）
 

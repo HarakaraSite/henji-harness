@@ -50,6 +50,7 @@ import {
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { ExecutionJournal } from './worker_host_journal.ts';
 import { SessionAuthority } from './worker_host_authority.ts';
+import { ChildRunRegistry } from './worker_host_children.ts';
 import { type ActiveWorkerExecution, createJournalFailureSignal } from './worker_host_types.ts';
 import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
 import {
@@ -85,6 +86,7 @@ export class ExecutionCoordinator {
   private readonly authority: SessionAuthority;
   private readonly supervisor: WorkerSupervisor;
   private readonly journal: ExecutionJournal;
+  private readonly children: ChildRunRegistry;
   private runtimeRequestCount = 0;
   private generationRequestBase = 0;
   private active = false;
@@ -126,6 +128,10 @@ export class ExecutionCoordinator {
       supervisor: () => this.supervisor,
       lastAuxiliaryContextRequestOrdinal: () => this.lastAuxiliaryContextRequestOrdinal,
       onPreCommitJournalFailure: () => this.markUnavailableForReplacement(),
+    });
+    this.children = new ChildRunRegistry({
+      options,
+      catalog: options.asyncAgents ?? [],
     });
   }
 
@@ -350,6 +356,10 @@ export class ExecutionCoordinator {
   }
 
   private receive(message: WorkerToHostMessage): void {
+    if (message.kind === 'async_agent_request') {
+      void this.handleAsyncAgentRequest(message);
+      return;
+    }
     this.noteWorkerSequenceReceived(message);
     try {
       this.receiveTrace(message);
@@ -1934,6 +1944,7 @@ export class ExecutionCoordinator {
       if (this.forcedInterruptionExecutionId === execution.executionId) {
         this.forcedInterruptionExecutionId = undefined;
       }
+      this.children.cancelAll();
       this.activeExecution = undefined;
       this.active = false;
       this.supervisor.setCurrentCorrelation(undefined);
@@ -2098,9 +2109,35 @@ export class ExecutionCoordinator {
     return this.authority.checkpointSnapshot();
   }
 
+  private async handleAsyncAgentRequest(
+    message: Extract<WorkerToHostMessage, { kind: 'async_agent_request' }>,
+  ): Promise<void> {
+    try {
+      const response = await this.children.handle(message.request, message.callId);
+      this.send({
+        kind: 'async_agent_response',
+        correlation: message.correlation,
+        requestId: message.requestId,
+        response,
+      });
+    } catch (error) {
+      this.send({
+        kind: 'async_agent_response',
+        correlation: message.correlation,
+        requestId: message.requestId,
+        response: {
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.children.cancelAll();
+    this.children.cancelAll();
     this.pendingRecall = undefined;
     this.clearAuxiliaryStageWatchdog();
     this.journal.flushObservationBuffer();
