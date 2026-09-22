@@ -1,6 +1,6 @@
 # Increment 108 — Host責務の分割（計画上のIncrement B）
 
-ステータス: **実装中（WorkerSupervisor抽出済み。ExecutionJournal／SessionAuthority／ExecutionCoordinator未抽出）**
+ステータス: **実装中（WorkerSupervisor・ExecutionJournal抽出済み。SessionAuthority／ExecutionCoordinator未抽出）**
 
 計画日: 2026-09-22
 
@@ -162,9 +162,15 @@ Host RPCへ移さない。
 - 検証: `v0:check` exit 0、`v0:lint` exit 0、`v0:fmt` exit 0、`v0:test` exit 0（全focused suite、`increment_92`／
   `increment_91`／`increment_39`／`increment_76`／`increment_12`／`increment_15`／`provider_stream_compatibility`／
   `agent_worker_foundation`を含む）。`git diff --check` clean。
-- 未抽出: `ExecutionJournal`（observation buffer、journal append/failure、stage snapshot、evidence/artifact
-  persistence）、`SessionAuthority`（projection、canonical commit、session record）、`ExecutionCoordinator`
-  （active execution state machine、submit／settle／cancel）。これらは引き続き`WorkerHostSession`が所有する。
+- **ExecutionJournal抽出（完了）**: `v0/agent/worker/worker_host_journal.ts`を新設し、observation buffer、
+  batched append（`appendJournal`／`flushObservationBuffer`）、`handleJournalFailure`（pre-commit latchと
+  post-commit observation failure）、`appendWorkerObservation`、`recordWorkerStageSnapshot`を移管した。
+  共有型（`ActiveWorkerExecution`／`ActiveSessionProjection`／`HistoryJournalErrorCode`／
+  `createJournalFailureSignal`）は`v0/agent/worker/worker_host_types.ts`へ分離した。pre-commit failureは
+  host callback（`onPreCommitJournalFailure`）でgeneration replacementへ伝える。
+- 未抽出: `SessionAuthority`（projection、canonical commit、session record）、`ExecutionCoordinator`
+  （active execution state machine、submit／settle／cancel、evidence/artifact persistence）。これらは引き続き
+  `WorkerHostSession`が所有する。
 
 ## 未確認事項
 

@@ -31,7 +31,6 @@ import type {
   WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
-import { readWorkerStageSnapshot, type WorkerStageSnapshotTrigger } from './worker_stage_probe.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import { isModelSelection, roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import {
@@ -41,13 +40,8 @@ import {
   sameModelSelection,
 } from '../provider/model_selection.ts';
 import {
-  type WorkerExecutionAcknowledgement,
   type WorkerExecutionArtifactV7,
   workerExecutionOutcome,
-  type WorkerExecutionSettlement,
-  type WorkerExecutionStoreResult,
-  type WorkerExecutionTraceEntry,
-  type WorkerExecutionTurnCommand,
 } from './worker_execution_artifact.ts';
 import {
   type RecalledExecutionContext,
@@ -55,6 +49,12 @@ import {
   resolveRecalledExecutionContext,
 } from './recalled_execution_context.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
+import { ExecutionJournal } from './worker_host_journal.ts';
+import {
+  type ActiveSessionProjection,
+  type ActiveWorkerExecution,
+  createJournalFailureSignal,
+} from './worker_host_types.ts';
 import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
 export {
   WorkerHostStartupError,
@@ -72,32 +72,11 @@ import {
 } from './worker_host_outcome.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
-import type {
-  ExecutionEventInput,
-  ExecutionEventPayloadByKind,
-} from '../history/history_store_contract.ts';
 import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
 
-const OBSERVATION_FLUSH_BATCH = 256;
-const OBSERVATION_FLUSH_INTERVAL_MS = 25;
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
 const profileIdPattern = /^[^\0]+$/u;
-type HistoryJournalErrorCode =
-  | 'history_busy'
-  | 'history_invalid'
-  | 'history_io_failure';
-type JournalFailureSignal = {
-  readonly promise: Promise<HistoryJournalErrorCode>;
-  readonly resolve: (code: HistoryJournalErrorCode) => void;
-};
-const createJournalFailureSignal = (): JournalFailureSignal => {
-  let resolve!: (code: HistoryJournalErrorCode) => void;
-  const promise = new Promise<HistoryJournalErrorCode>((accepted) => {
-    resolve = accepted;
-  });
-  return { promise, resolve };
-};
 export type WorkerRecallSelectionErrorCode =
   | 'unavailable'
   | 'busy'
@@ -111,49 +90,10 @@ export class WorkerRecallSelectionError extends Error {
     this.name = 'WorkerRecallSelectionError';
   }
 }
-type ActiveWorkerExecution = {
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly createdAt: string;
-  readonly turn: number;
-  readonly command: WorkerExecutionTurnCommand;
-  readonly recalledContext?: RecalledExecutionContext;
-  readonly baseStateRevision: number;
-  readonly stageProbeEpoch: number;
-  readonly protocolTrace: WorkerExecutionTraceEntry[];
-  journalFailure?: boolean;
-  journalFailureCode?: HistoryJournalErrorCode;
-  readonly journalFailureSignal: JournalFailureSignal;
-  postCommitObservationFailure?: boolean;
-  postCommitObservationError?:
-    | 'history_busy'
-    | 'history_invalid'
-    | 'history_io_failure';
-  storeResult: WorkerExecutionStoreResult;
-  storeError?: 'session_io_failure' | 'session_invalid' | 'history_busy';
-  proposedStateRevision?: number;
-  committedStateRevision?: number;
-  acknowledgement: WorkerExecutionAcknowledgement;
-  settlement: WorkerExecutionSettlement;
-  artifactWritten: boolean;
-  contextCapture?: 'complete' | 'failed' | 'none';
-  readonly stageSnapshotKeys: Set<string>;
-};
-type ActiveSessionProjection = {
-  readonly sessionId: string;
-  transcript: Message[];
-  nextTurn: number;
-  stateRevision: number;
-  checkpoint?: SemanticContextCheckpointV1;
-  modelSelection: ModelSelection;
-  modelChanges: SessionModelChange[];
-  turnModels: SessionTurnModelAttribution[];
-  turnExecutions: SessionTurnExecutionAttribution[];
-  title: string | null;
-};
 /** Host-owned canonical session around one ephemeral Worker generation. */
 export class WorkerHostSession {
   private readonly supervisor: WorkerSupervisor;
+  private readonly journal: ExecutionJournal;
   private readonly projection: ActiveSessionProjection;
   private autoCompactionNotice: {
     readonly coveredThroughTurn: number;
@@ -167,9 +107,6 @@ export class WorkerHostSession {
   private readonly build = buildManifest();
   private readonly createdAt: string;
   private pendingRecall: RecalledExecutionContext | undefined;
-  private readonly observationBuffer: ExecutionEventInput[] = [];
-  private observationFlushTimer: ReturnType<typeof setTimeout> | undefined;
-  private flushingObservations = false;
   private lastAuxiliaryContextRequestOrdinal: number | undefined;
   private auxiliaryStageWatchdog: {
     readonly executionId: string;
@@ -231,6 +168,13 @@ export class WorkerHostSession {
       projection: () => this.supervisorProjection(),
       onGenerationReplaced: () => this.onGenerationReplaced(),
     });
+    this.journal = new ExecutionJournal({
+      options,
+      activeExecution: () => this.activeExecution,
+      supervisor: () => this.supervisor,
+      lastAuxiliaryContextRequestOrdinal: () => this.lastAuxiliaryContextRequestOrdinal,
+      onPreCommitJournalFailure: () => this.markUnavailableForReplacement(),
+    });
   }
 
   private supervisorProjection(): {
@@ -256,14 +200,6 @@ export class WorkerHostSession {
     this.lastAuxiliaryContextRequestOrdinal = undefined;
   }
 
-  private clearObservationBuffer(): void {
-    if (this.observationFlushTimer !== undefined) {
-      clearTimeout(this.observationFlushTimer);
-      this.observationFlushTimer = undefined;
-    }
-    this.observationBuffer.length = 0;
-  }
-
   private workerResponseTimeoutMs(): number {
     return this.supervisor.workerResponseTimeoutMs();
   }
@@ -283,40 +219,6 @@ export class WorkerHostSession {
     this.auxiliaryStageWatchdog = undefined;
   }
 
-  private recordWorkerStageSnapshot(
-    trigger: WorkerStageSnapshotTrigger,
-    contextRequestOrdinal = this.lastAuxiliaryContextRequestOrdinal,
-  ): boolean {
-    const execution = this.activeExecution;
-    if (execution === undefined) return true;
-    const key = `${trigger}:${contextRequestOrdinal ?? 0}`;
-    if (execution.stageSnapshotKeys.has(key)) return true;
-    if (!this.flushObservationBuffer()) return false;
-    let snapshot: ReturnType<typeof readWorkerStageSnapshot>;
-    try {
-      snapshot = readWorkerStageSnapshot(this.supervisor.stageProbeBuffer);
-    } catch {
-      return true;
-    }
-    if (snapshot.epoch !== execution.stageProbeEpoch) return true;
-    execution.stageSnapshotKeys.add(key);
-    return this.appendJournal({
-      executionId: execution.executionId,
-      direction: 'host_to_worker',
-      source: 'host',
-      kind: 'worker_stage_snapshot',
-      payload: {
-        ...snapshot,
-        trigger,
-        workerGeneration: this.supervisor.workerGeneration,
-        ...(contextRequestOrdinal === undefined ? {} : { contextRequestOrdinal }),
-        lastWorkerSequenceReceived: this.supervisor.lastWorkerSequenceReceived,
-        lastWorkerSequenceBuffered: this.supervisor.lastWorkerSequenceBuffered,
-        lastWorkerSequenceDurable: this.supervisor.lastWorkerSequenceDurable,
-      },
-    });
-  }
-
   private scheduleAuxiliaryStageWatchdog(contextRequestOrdinal: number): void {
     const execution = this.activeExecution;
     if (execution === undefined) return;
@@ -330,7 +232,7 @@ export class WorkerHostSession {
         current.contextRequestOrdinal !== contextRequestOrdinal
       ) return;
       this.auxiliaryStageWatchdog = undefined;
-      this.recordWorkerStageSnapshot('auxiliary_gap', contextRequestOrdinal);
+      this.journal.recordWorkerStageSnapshot('auxiliary_gap', contextRequestOrdinal);
     }, this.options.auxiliaryStageGapMs ?? AUXILIARY_STAGE_GAP_MS);
     this.auxiliaryStageWatchdog = {
       executionId,
@@ -354,11 +256,11 @@ export class WorkerHostSession {
   }
 
   private markUnavailableForReplacement(): void {
-    this.supervisor.markUnavailableForReplacement(() => this.clearObservationBuffer());
+    this.supervisor.markUnavailableForReplacement(() => this.journal.clearBuffer());
   }
 
   private async ensureGeneration(): Promise<void> {
-    await this.supervisor.ensureGeneration(() => this.clearObservationBuffer());
+    await this.supervisor.ensureGeneration(() => this.journal.clearBuffer());
   }
 
   private escalateCancellation(executionId: string): void {
@@ -368,8 +270,8 @@ export class WorkerHostSession {
       !this.active
     ) return;
     this.clearCancellationWatchdog(executionId);
-    this.recordWorkerStageSnapshot('cancel_escalated');
-    this.appendJournal({
+    this.journal.recordWorkerStageSnapshot('cancel_escalated');
+    this.journal.appendJournal({
       executionId,
       direction: 'host_to_worker',
       source: 'host',
@@ -379,7 +281,7 @@ export class WorkerHostSession {
         reason: 'settlement_deadline_exceeded',
       },
     });
-    this.flushObservationBuffer();
+    this.journal.flushObservationBuffer();
     if (execution.committedStateRevision === undefined) {
       this.forcedInterruptionExecutionId = executionId;
       try {
@@ -399,7 +301,7 @@ export class WorkerHostSession {
   ): Promise<WorkerHostSession> {
     const session = new WorkerHostSession(options);
     try {
-      await session.supervisor.start(() => session.clearObservationBuffer());
+      await session.supervisor.start(() => session.journal.clearBuffer());
       return session;
     } catch (error) {
       await session.close();
@@ -452,7 +354,7 @@ export class WorkerHostSession {
     // Rejections happen before settlement and remain ordinary journal facts.
     const journalAcknowledgement = execution.settlement === 'uncommitted';
     if (journalAcknowledgement) {
-      this.appendJournal({
+      this.journal.appendJournal({
         executionId: execution.executionId,
         direction: 'host_to_worker',
         source: 'host',
@@ -464,7 +366,7 @@ export class WorkerHostSession {
       this.send({ kind: 'commit_acknowledgement', correlation, accepted });
       execution.acknowledgement = accepted ? 'accepted_sent' : 'rejected_sent';
       if (journalAcknowledgement) {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -476,7 +378,7 @@ export class WorkerHostSession {
     } catch {
       execution.acknowledgement = 'delivery_failed';
       if (journalAcknowledgement) {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -505,7 +407,7 @@ export class WorkerHostSession {
       // distinction used by journal validation before making the generation unavailable.
       if (this.activeExecution !== undefined) {
         if (this.activeExecution.settlement === 'uncommitted') {
-          this.handleJournalFailure({ code: 'history_invalid' });
+          this.journal.handleJournalFailure({ code: 'history_invalid' });
         } else {
           this.activeExecution.postCommitObservationFailure = true;
           this.activeExecution.postCommitObservationError = 'history_invalid';
@@ -529,7 +431,7 @@ export class WorkerHostSession {
     // A malformed Worker fact must never be projected to the Surface after the journal
     // boundary rejected it. `appendJournal` also records whether this was a pre- or
     // post-commit observation failure so the committed outcome remains distinguishable.
-    if (!postCommitTerminal && !this.appendWorkerObservation(message)) {
+    if (!postCommitTerminal && !this.journal.appendWorkerObservation(message)) {
       // A final proposal with a malformed/missing context manifest still needs the dedicated
       // normal contract-failure settlement. The proposal is not projected to the Surface; it is
       // handed to the turn waiter after the failed journal append has poisoned pre-commit state.
@@ -537,7 +439,7 @@ export class WorkerHostSession {
         this.activeExecution?.settlement === 'uncommitted' &&
         (message.kind === 'commit_proposal' || message.kind === 'turn_failed')
       ) {
-        this.flushObservationBuffer();
+        this.journal.flushObservationBuffer();
         this.supervisor.messages.publish(message);
         return;
       }
@@ -568,7 +470,7 @@ export class WorkerHostSession {
         message.event.kind === 'agent_event' &&
         message.event.event.kind === 'turn_end'
       ) {
-        this.flushObservationBuffer();
+        this.journal.flushObservationBuffer();
         this.supervisor.messages.publish(message);
       } else if (message.event.kind === 'agent_event') {
         this.deliver(message.event.event);
@@ -646,197 +548,8 @@ export class WorkerHostSession {
       void this.installCheckpoint(message);
       return;
     }
-    this.flushObservationBuffer();
+    this.journal.flushObservationBuffer();
     this.supervisor.messages.publish(message);
-  }
-
-  private appendJournal(input: ExecutionEventInput): boolean {
-    const history = this.options.historyPersistence;
-    if (history === undefined || this.activeExecution === undefined) {
-      return true;
-    }
-    if (!this.flushObservationBuffer()) return false;
-    try {
-      history.appendExecutionEvent(input);
-      return true;
-    } catch (error) {
-      return this.handleJournalFailure(error);
-    }
-  }
-
-  private handleJournalFailure(error: unknown): false {
-    const code: HistoryJournalErrorCode = typeof error === 'object' && error !== null &&
-        ((error as { readonly code?: unknown }).code === 'history_busy' ||
-          (error as { readonly code?: unknown }).code === 'history_invalid' ||
-          (error as { readonly code?: unknown }).code ===
-            'history_io_failure')
-      ? (error as {
-        readonly code:
-          | 'history_busy'
-          | 'history_invalid'
-          | 'history_io_failure';
-      }).code
-      : 'history_io_failure' as const;
-    if (this.activeExecution !== undefined) {
-      if (
-        this.activeExecution.settlement === 'uncommitted'
-      ) {
-        if (this.activeExecution.journalFailureCode === undefined) {
-          this.activeExecution.journalFailure = true;
-          this.activeExecution.journalFailureCode = code;
-          // Resolve the per-execution signal before terminating the generation. This remains
-          // observable even when the append failed before submit() registered its waiter.
-          this.activeExecution.journalFailureSignal.resolve(code);
-        }
-        this.markUnavailableForReplacement();
-      } else {
-        // The canonical transaction is already durable. Keep its result and make the
-        // acknowledgement loss visible to the Surface without attempting a second settle.
-        this.activeExecution.postCommitObservationFailure = true;
-        this.activeExecution.postCommitObservationError = code;
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Buffer one worker observation. The pure contract check runs here so a fact the journal
-   * boundary would reject is never projected to the Surface; the durable write is deferred.
-   */
-  private bufferWorkerObservation(input: ExecutionEventInput): boolean {
-    const history = this.options.historyPersistence;
-    if (history === undefined || this.activeExecution === undefined) {
-      return true;
-    }
-    if (!history.validateExecutionEvent(input)) {
-      return this.handleJournalFailure({ code: 'history_invalid' });
-    }
-    this.observationBuffer.push(
-      input.observedAt === undefined ? { ...input, observedAt: new Date().toISOString() } : input,
-    );
-    if (
-      input.workerSequence !== undefined &&
-      input.workerSequence > this.supervisor.lastWorkerSequenceBuffered
-    ) this.supervisor.lastWorkerSequenceBuffered = input.workerSequence;
-    if (this.observationBuffer.length >= OBSERVATION_FLUSH_BATCH) {
-      return this.flushObservationBuffer();
-    }
-    this.scheduleObservationFlush();
-    return true;
-  }
-
-  private scheduleObservationFlush(): void {
-    if (this.observationFlushTimer !== undefined) return;
-    this.observationFlushTimer = setTimeout(() => {
-      this.observationFlushTimer = undefined;
-      this.flushObservationBuffer();
-    }, OBSERVATION_FLUSH_INTERVAL_MS);
-  }
-
-  private flushObservationBuffer(): boolean {
-    if (this.observationFlushTimer !== undefined) {
-      clearTimeout(this.observationFlushTimer);
-      this.observationFlushTimer = undefined;
-    }
-    const history = this.options.historyPersistence;
-    if (history === undefined || this.activeExecution === undefined) {
-      this.observationBuffer.length = 0;
-      return true;
-    }
-    if (this.observationBuffer.length === 0 || this.flushingObservations) {
-      return true;
-    }
-    const batch = this.observationBuffer.splice(
-      0,
-      this.observationBuffer.length,
-    );
-    this.flushingObservations = true;
-    try {
-      history.appendExecutionEvents(batch);
-      for (const input of batch) {
-        if (
-          input.workerSequence !== undefined &&
-          input.workerSequence > this.supervisor.lastWorkerSequenceDurable
-        ) this.supervisor.lastWorkerSequenceDurable = input.workerSequence;
-      }
-      return true;
-    } catch (error) {
-      this.observationBuffer.length = 0;
-      return this.handleJournalFailure(error);
-    } finally {
-      this.flushingObservations = false;
-    }
-  }
-
-  private appendWorkerObservation(message: WorkerToHostMessage): boolean {
-    if (this.activeExecution === undefined) return true;
-    if (
-      message.kind === 'ready' || message.kind === 'model_selected' ||
-      message.kind === 'closed' || message.kind === 'checkpoint_proposal'
-    ) return true;
-    if (message.kind === 'provider_exact_request') {
-      const history = this.options.historyPersistence;
-      if (history?.appendExactRequestObservation === undefined) return true;
-      if (!this.flushObservationBuffer()) return false;
-      try {
-        history.appendExactRequestObservation({
-          executionId: this.activeExecution.executionId,
-          workerSequence: message.sequence,
-          observation: message.observation,
-        });
-        this.supervisor.lastWorkerSequenceBuffered = Math.max(
-          this.supervisor.lastWorkerSequenceBuffered,
-          message.sequence,
-        );
-        this.supervisor.lastWorkerSequenceDurable = Math.max(
-          this.supervisor.lastWorkerSequenceDurable,
-          message.sequence,
-        );
-        return true;
-      } catch (error) {
-        return this.handleJournalFailure(error);
-      }
-    }
-    const workerSequence = message.kind === 'runtime_event' ||
-        message.kind === 'effect_observation' ||
-        message.kind === 'provider_observation' ||
-        message.kind === 'context_observation' ||
-        message.kind === 'cancel_received'
-      ? message.sequence
-      : undefined;
-    const kind = message.kind === 'runtime_event'
-      ? 'runtime_event'
-      : message.kind === 'effect_observation'
-      ? 'effect_observation'
-      : message.kind === 'provider_observation'
-      ? message.observation.kind === 'request_start'
-        ? 'provider_request_start' as const
-        : message.observation.kind === 'response_start'
-        ? 'provider_response_start' as const
-        : message.observation.kind === 'response_bytes'
-        ? 'provider_response_bytes' as const
-        : message.observation.kind === 'sse_event'
-        ? 'provider_sse_event' as const
-        : message.observation.kind === 'parser_transition'
-        ? 'provider_parser_transition' as const
-        : 'runtime_event' as const
-      : message.kind === 'context_observation'
-      ? 'context_observation' as const
-      : message.kind === 'cancel_received'
-      ? 'cancel_received' as const
-      : 'runtime_event' as const;
-    const historyMessage = this.options.historyPersistence
-      ?.prepareWorkerObservationForHistory?.(message) ?? message;
-    return this.bufferWorkerObservation({
-      executionId: this.activeExecution.executionId,
-      direction: 'worker_to_host',
-      source: 'worker',
-      kind,
-      ...(workerSequence === undefined ? {} : { workerSequence }),
-      payload: structuredClone(
-        historyMessage,
-      ) as unknown as ExecutionEventPayloadByKind[typeof kind],
-    } as ExecutionEventInput);
   }
 
   private deliver(event: AgentEvent): void {
@@ -851,7 +564,7 @@ export class WorkerHostSession {
   }
 
   private markUnavailable(): void {
-    this.supervisor.markUnavailable(() => this.clearObservationBuffer());
+    this.supervisor.markUnavailable(() => this.journal.clearBuffer());
   }
 
   private observeRequestCount(outcome: LoopOutcome): LoopOutcome {
@@ -1270,7 +983,7 @@ export class WorkerHostSession {
     diagnostic: FailureDiagnosticV1 | undefined,
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
-    const terminalSnapshotDurable = this.recordWorkerStageSnapshot('terminal');
+    const terminalSnapshotDurable = this.journal.recordWorkerStageSnapshot('terminal');
     const effectiveOutcome = !terminalSnapshotDurable &&
         execution.settlement === 'uncommitted'
       ? this.journalFailureOutcome(execution, outcome.task)
@@ -1907,7 +1620,7 @@ export class WorkerHostSession {
             recalledContext: structuredClone(admittedRecall),
           }),
         });
-        const dispatchJournaled = this.appendJournal({
+        const dispatchJournaled = this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -1918,7 +1631,7 @@ export class WorkerHostSession {
           return await this.finishJournalFailure(execution, task);
         }
       } catch {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -2050,7 +1763,7 @@ export class WorkerHostSession {
           this.options.historyPersistence !== undefined &&
           this.options.durableCanonicalHistory === true
         ) {
-          if (!this.recordWorkerStageSnapshot('terminal')) {
+          if (!this.journal.recordWorkerStageSnapshot('terminal')) {
             return await this.finishJournalFailure(
               execution,
               task,
@@ -2349,8 +2062,8 @@ export class WorkerHostSession {
     ) return 'already_requested';
     if (execution !== undefined) {
       this.cancellationRequestedExecutionId = execution.executionId;
-      this.recordWorkerStageSnapshot('cancel_requested');
-      const journaled = this.appendJournal({
+      this.journal.recordWorkerStageSnapshot('cancel_requested');
+      const journaled = this.journal.appendJournal({
         executionId: execution.executionId,
         direction: 'host_to_worker',
         source: 'host',
@@ -2365,7 +2078,7 @@ export class WorkerHostSession {
         correlation: this.supervisor.currentCorrelation,
       });
       if (execution !== undefined) {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -2384,7 +2097,7 @@ export class WorkerHostSession {
       return 'requested';
     } catch {
       if (execution !== undefined) {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -2401,7 +2114,7 @@ export class WorkerHostSession {
     if (!this.active || this.supervisor.currentCorrelation === undefined) return 'idle';
     const execution = this.activeExecution;
     if (execution !== undefined) {
-      const journaled = this.appendJournal({
+      const journaled = this.journal.appendJournal({
         executionId: execution.executionId,
         direction: 'host_to_worker',
         source: 'host',
@@ -2417,7 +2130,7 @@ export class WorkerHostSession {
         text,
       });
       if (execution !== undefined) {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -2428,7 +2141,7 @@ export class WorkerHostSession {
       return 'accepted';
     } catch {
       if (execution !== undefined) {
-        this.appendJournal({
+        this.journal.appendJournal({
           executionId: execution.executionId,
           direction: 'host_to_worker',
           source: 'host',
@@ -2502,7 +2215,7 @@ export class WorkerHostSession {
     this.closed = true;
     this.pendingRecall = undefined;
     this.clearAuxiliaryStageWatchdog();
-    this.flushObservationBuffer();
+    this.journal.flushObservationBuffer();
     if (
       this.supervisor.currentManifest === undefined || this.supervisor.isUnavailable ||
       this.supervisor.generationNeedsReplacement
