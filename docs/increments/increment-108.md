@@ -1,6 +1,6 @@
 # Increment 108 — Host責務の分割（計画上のIncrement B）
 
-ステータス: **実装中（WorkerSupervisor・ExecutionJournal・SessionAuthority抽出済み。ExecutionCoordinator未抽出）**
+ステータス: **実装・検証完了（未commit）**
 
 計画日: 2026-09-22
 
@@ -172,8 +172,44 @@ Host RPCへ移さない。
   （transcript、state revision、checkpoint、model selection履歴、title）、record構築・検証
   （`admissionSessionRecord`／`proposalRecord`／`modelSelectionRecord`／`titleRecord`）、projection更新
   （`applyCommitted`／`applyModelSelection`／`applyTitle`／`applyCheckpoint`）、history/position readbackを移管した。
-- 未抽出: `ExecutionCoordinator`（active execution state machine、submit／settle／cancel、evidence/artifact
-  persistence、watchdog）。これらは引き続き`WorkerHostSession`が所有する。
+- **ExecutionCoordinator抽出とfacade化（完了）**: 残る実行状態機械（`activeExecution`、`active`、
+  `runtimeRequestCount`、watchdog、forced interruption、`pendingRecall`、submit／settle／cancel、
+  evidence/artifact persistence、`receive` pipeline）を`v0/agent/worker/worker_host_coordinator.ts`の
+  `ExecutionCoordinator`へ移し、`WorkerHostSession`を132行のfacade（`open`、公開getter／操作の委譲のみ、
+  mutable stateなし）にした。facadeは`WorkerHostStartupError`／`WorkerRecallSelectionError`をre-exportする。
+
+### 完了した構造
+
+```text
+WorkerHostSession (132行, facade)
+  └─ ExecutionCoordinator (2135行, 実行状態機械)
+       ├─ WorkerSupervisor (488行)
+       ├─ SessionAuthority (317行)
+       └─ ExecutionJournal (265行)
+```
+
+- capsule操作（`WorkerCapsule`生成、`subscribe`／`send`／`terminate`）は`worker_host_supervisor.ts`にのみ現れる。
+- generation replacement／forced interruptionは`WorkerSupervisor`が所有し、coordinatorは
+  `markUnavailableForReplacement`／`ensureGeneration`経由で駆動する。
+- `WorkerHostSession`にmutable stateはない。
+
+### 受入条件の直接観測
+
+- CLI／TUI／Session／historyの意図的なproduct挙動変更なし: `v0:test` exit 0（38 suite、`increment_92`／
+  `increment_91`／`increment_39`／`increment_76`／`increment_12`／`increment_15`／
+  `provider_stream_compatibility`／`agent_worker_foundation`／`increment_99`等）。
+- root Worker replacement／cancel／forced interruptionがSupervisor経由: `rg`でcapsule操作が
+  `worker_host_supervisor.ts`のみに現れることを確認。
+- atomic persistenceとack順序: `commitCanonicalTurn`の単一transaction呼出と、成功ackをterminal factの後ろに
+  journalしない非対称性（`sendCommitAcknowledgement`）はcoordinator内で維持。`increment_92`の
+  journal failure／post-commit observation failure／artifact readback testがpass。
+- `v0:check` exit 0、`v0:fmt` exit 0、`v0:lint` exit 0、`git diff --check` clean。
+- `v0:gate`は指示どおり未実行。
+
+### 残課題（Increment 109）
+
+- `WorkerSupervisor`のN generation registry（child Worker registry）はIncrement 109で追加する。
+- childのspawn/collect/cancel伝播、child evidenceのv7 record種別はIncrement 109。
 
 ## 未確認事項
 
