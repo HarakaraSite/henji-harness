@@ -55,10 +55,7 @@ import {
   resolveRecalledExecutionContext,
 } from './recalled_execution_context.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
-import {
-  validCredentialAvailability,
-  WorkerSupervisor,
-} from './worker_host_supervisor.ts';
+import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
 export {
   WorkerHostStartupError,
   type WorkerHostStartupErrorCode,
