@@ -33,7 +33,7 @@ binary build／配置、commit／pushは本依頼の範囲外。
   bindingなしならbundled defaultとなることを確認した。Worker実行はtest seamで差し替えた。
 - `agent:increment-65-subagent-slot-binding:test`は11件成功。変更2ファイルの`deno check`、
   `deno fmt`、`deno lint`、`git diff --check`はいずれも成功。初回の広域`v0:check`も成功した。
-- 実provider call、production CLI E2E、binary build／配置、commit／pushは行っていない。
+- この時点では実provider call、production CLI E2E、binary build／配置、commit／pushは行っていない。
 
 ## 第三者review
 
@@ -42,3 +42,19 @@ read-only reviewerが修正差分と必要な呼出先を確認し、対応が�
 bundled defaultを選ぶこと、明示`--agent`の優先が維持されることを確認した。
 隔離rootを使う追加testは実XDG設定を読まない。production CLIからWorkerまでの通し実行は
 今回のreviewでも未確認である。
+
+## v0.5.0公開
+
+利用者指示により、この修正とIncrement 114のreview記録を含むsourceを`0.5.0`として公開した。
+`jsr.json`、README、`mod.ts`のversionを更新し、release候補の`v0:gate`を実行した。
+最初のJSR dry-runで`worker_child_contract.ts`がpublish includeにないことを検出したため、
+`jsr.json`へ追加してからgateを再実行し、clean worktreeのdry-run成功を確認した。
+
+- release source commit: `baa56a2408538330bc27a81a9d28c8a42b0a054b`（publish前にpush済み）。
+- binary: 同commitからDeno 2.9.7でbuildし、`~/.local/bin/henji`へ原子的に配置。
+  `--version`のbuild IDは`8d2a8db9…`、sourceは`baa56a24…`、配置先と`dist/henji`の
+  SHA-256は`e293af33a34db0a3d69567d2ad20ed3859f78760d8feb3252755037f52079d49`で一致。
+- JSR: `@henji/harness@0.5.0`のpublish成功。registry metadataのlatest／exact versionと、
+  公開packageからのexact-version import・export列挙を確認した。
+- 追加release testは利用者が「追加なし」を選択。実provider callとproduction CLI E2Eは未実施。
+  Git tagとForgejo Releaseは作成していない。

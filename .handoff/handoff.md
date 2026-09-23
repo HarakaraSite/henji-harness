@@ -2,24 +2,6 @@
 
 ## Records
 
-### Increment 115 — headless既定rootのbinding適用（実装・review完了）
-
-- 状態: `henji run`の既定root選択へXDG config／data rootを渡す修正を完了。bindingあり／なしと明示selector
-  優先をfocused testで確認。11件成功、type check・format・lint・`git diff --check`成功。第三者reviewに
-  対応が必要なfindingなし。
-- 次: v0.5.0のrelease手順でcommit・push・binary配置・JSR公開を進める。実provider call、production CLI E2Eは未実施。
-- 正本: `docs/increments/increment-115.md`。
-- 注意: Increment 114のsecurity reviewで見つかったproduct bugに対する利用者指示の修正。
-
-### Increment 114 — 現行コードベースの重大セキュリティreview（完了）
-
-- 状態: HEAD `ab34c330`を6 sliceで静的reviewし、各結果の第三者reviewと最終横断reviewを完了。
-  現実的なsource-to-impactとしてvalidated critical／high findingは0件。
-- 次: headless root bindingのproduct bugはIncrement 115で修正済み。条件付きのmodel誘導リスクを
-  実providerで確認する場合は、対象・回数・保存先の別承認が必要。
-- 正本: `docs/increments/increment-114.md`。review artifactは同文書のscan IDから辿る。
-- 注意: sourceはread-only reviewで、記録文書のみ変更。実provider call・credential値読取り・testはなし。
-
 ### Increment 113 — codebase構造の単純化review（commit・push・配置完了）
 
 - 状態: Slice 1・terminal artifact bridge・Slice 2〜18を完了。採用修正のfocused検証、必要なproduction TUI
@@ -681,15 +663,15 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.4.0`。Increment 113のclean code commit `6a9e2324…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `fa0f7b9e…`、file SHA-256 `f241920e…`、embedded runtime
-  `b9d5cc74…`）。隔離XDGの`sessions list`／`history`はexit 0。`scripts/build_henji.ts`の
+- binary: `0.5.0`。clean code commit `baa56a24…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `8d2a8db9…`、file SHA-256 `e293af33…`、embedded runtime
+  `850f2c77…`）。`scripts/build_henji.ts`の
   `EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
   （source identity `user/instruction.md`）。雛形は`docs/operations/base-instruction-template.md`。managed
   `henji instruction` CLIは削除済み。
-- JSR: `@henji/harness@0.4.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
+- JSR: `@henji/harness@0.5.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
 - provider: built-in idは`openrouter-chat`/`openrouter-responses`/`openai-chat`/`openai-responses`。旧
