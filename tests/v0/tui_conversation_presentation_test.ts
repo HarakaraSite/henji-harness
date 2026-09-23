@@ -253,6 +253,71 @@ Deno.test('conversation presentation reduces tool activity without source conten
   assertEquals(cancelled.log.entries, []);
 });
 
+Deno.test('cancelled turn retry shows new tool activity after retained old activity', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, { kind: 'turn_start', turn: 1 });
+  state = reduceUiEvent(state, {
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'first task' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'call-1', name: 'bash', arguments: { command: 'old command' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'call-1',
+      name: 'bash',
+      text: 'old result',
+      outcome: 'success',
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'cancelled',
+    committed: false,
+  });
+  state = reduceUiEvent(state, { kind: 'turn_start', turn: 1 });
+  state = reduceUiEvent(state, {
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'compare files' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: { callId: 'call-1', name: 'bash', arguments: { command: 'new command' } },
+  });
+
+  assertEquals(state.log.entries.map((entry) => entry.text), [
+    'first task',
+    'bash old command ✓',
+    'compare files',
+    'bash new command …',
+  ]);
+  assert(state.log.entries[1].id !== state.log.entries[3].id);
+
+  state = reduceUiEvent(state, {
+    kind: 'tool_result',
+    turn: 1,
+    result: {
+      kind: 'tool_result',
+      callId: 'call-1',
+      name: 'bash',
+      text: 'new result',
+      outcome: 'success',
+    },
+  });
+  assertEquals(state.log.entries[1].text, 'bash old command ✓');
+  assertEquals(state.log.entries[3].text, 'bash new command ✓');
+});
+
 Deno.test('conversation presentation settles assistant progress to the same assistant entry', () => {
   let state = reduceUiEvent(createUiState(), {
     kind: 'assistant_progress',

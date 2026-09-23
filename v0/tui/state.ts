@@ -91,6 +91,7 @@ export interface UiState {
   >;
   readonly activeAssistantId?: string;
   readonly activeToolIds: readonly string[];
+  readonly turnAttemptOrdinal: number;
   readonly editor: EditorSnapshot;
   readonly pending?: PendingMetadataSnapshot;
   readonly scroll: UiScroll;
@@ -197,6 +198,9 @@ export const presentationFailureReason = (
 
 const freezeEntry = (entry: UiLogEntry): UiLogEntry =>
   Object.freeze({ ...entry, text: safeText(entry.text) });
+
+const turnEntryId = (state: UiState, turn: number, suffix: string): string =>
+  `turn-${turn}:attempt-${state.turnAttemptOrdinal}:${suffix}`;
 
 const appendEntry = (
   state: UiState,
@@ -356,6 +360,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         ...state,
         lifecycle: 'busy',
         status: 'busy',
+        turnAttemptOrdinal: state.turnAttemptOrdinal + 1,
         activeAssistantId: undefined,
         activeToolIds: Object.freeze([]),
       });
@@ -371,7 +376,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     case 'user_message':
       return Object.freeze({
         ...appendEntry(state, {
-          id: `turn-${event.turn}:user`,
+          id: turnEntryId(state, event.turn, 'user'),
           kind: 'user',
           label: 'user>',
           text: event.message.content.text,
@@ -385,7 +390,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         ? event.message.content.text
         : event.message.text;
       if (assistantText === undefined) return state;
-      const id = `turn-${event.turn}:assistant`;
+      const id = turnEntryId(state, event.turn, 'assistant');
       const existingIndex = state.log.entries.findIndex((entry) => entry.id === id);
       const relocateFinalAfterTools = !Array.isArray(event.message.content) &&
         existingIndex >= 0 &&
@@ -413,7 +418,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       return Object.freeze({ ...next, activeAssistantId: undefined });
     }
     case 'assistant_progress': {
-      const id = `turn-${event.turn}:assistant`;
+      const id = turnEntryId(state, event.turn, 'assistant');
       const existingIndex = state.log.entries.findIndex((entry) => entry.id === id);
       const relocateProgressAfterTools = existingIndex >= 0 && state.activeToolIds.length === 0 &&
         state.log.entries.slice(existingIndex + 1).some((entry) =>
@@ -433,7 +438,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       return Object.freeze({ ...next, activeAssistantId: id });
     }
     case 'tool_call': {
-      const id = `turn-${event.turn}:tool:${event.call.callId}`;
+      const id = turnEntryId(state, event.turn, `tool:${event.call.callId}`);
       const preview = toolActivityPreview(event.call.name, event.call.arguments);
       const next = state.log.entries.some((entry) => entry.id === id) ? state : appendEntry(state, {
         id,
@@ -453,7 +458,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       });
     }
     case 'tool_progress': {
-      const id = `turn-${event.turn}:tool:${event.callId}`;
+      const id = turnEntryId(state, event.turn, `tool:${event.callId}`);
       const existing = state.log.entries.find((entry) => entry.id === id);
       const preview = existing === undefined
         ? ''
@@ -483,7 +488,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       });
     }
     case 'tool_result': {
-      const id = `turn-${event.turn}:tool:${event.result.callId}`;
+      const id = turnEntryId(state, event.turn, `tool:${event.result.callId}`);
       const existing = state.log.entries.find((entry) => entry.id === id);
       const preview = existing === undefined
         ? ''
@@ -522,7 +527,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     }
     case 'steering_message':
       return appendEntry(state, {
-        id: `turn-${event.turn}:steer:${state.log.entries.length}`,
+        id: turnEntryId(state, event.turn, `steer:${state.log.entries.length}`),
         kind: 'user',
         label: 'steer>',
         text: event.message.content.text,
@@ -742,6 +747,7 @@ export const createUiState = (
     lifecycle: projection?.lifecycle ?? 'starting',
     log: Object.freeze({ entries: Object.freeze([]), omittedCount: 0 }),
     activeToolIds: Object.freeze([]),
+    turnAttemptOrdinal: 0,
     editor: Object.freeze({ ...editor }),
     scroll: Object.freeze({ kind: 'followLatest' }),
     newBelowCount: 0,
@@ -787,7 +793,7 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
         }),
       });
     case 'assistant_final': {
-      const id = `turn-${action.turn}:assistant`;
+      const id = turnEntryId(state, action.turn, 'assistant');
       const existing = state.log.entries.some((entry) => entry.id === id);
       const next = existing
         ? replaceEntry(state, id, action.text, false, 'assistant>')

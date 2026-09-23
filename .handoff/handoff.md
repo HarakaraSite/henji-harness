@@ -2,6 +2,12 @@
 
 ## Records
 
+### Increment 118 — キャンセル後のTUI表示ID衝突の修正（実装・検証完了）
+
+- 状態: 同じturn番号を使う後続実行のtool表示が古い行へ重なる不具合を修正。隔離XDG・tmuxのproduction TUIで
+  キャンセル前後のtool行が別々に表示されることを確認した。実provider callは未実施。
+- 次: なし。正本は`docs/increments/increment-118.md`。
+
 ### Increment 117 — 未使用の履歴処理と旧UI経路の除去（実装・検証・配置完了）
 
 - 状態: 未使用の履歴投影・outbox、重複clone、二重canonical採用表、旧history page・Session JSON codecを整理。

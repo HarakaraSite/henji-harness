@@ -740,10 +740,10 @@ Deno.test('production definitions and saved messages use the expanded text ceili
     turn: 1,
     message: { role: 'assistant', content: { kind: 'text', text } },
   });
-  const entry = ui.log.entries.find((item) => item.id === 'turn-1:assistant');
+  const entry = ui.log.entries.find((item) => item.id === 'turn-1:attempt-0:assistant');
   assert(entry !== undefined && entry.text === text);
   const layout = layoutUi(ui, 80, 24);
-  assert(layout.allLog.some((row) => row.entryId === 'turn-1:assistant'));
+  assert(layout.allLog.some((row) => row.entryId === 'turn-1:attempt-0:assistant'));
 });
 
 Deno.test('saved sessions preserve assistant text accompanying tool calls', () => {
