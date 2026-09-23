@@ -189,8 +189,10 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK and retains 
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
-    openAICredentialSource: () => Promise.resolve('openai-secret'),
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+      'openai-api-key': () => Promise.resolve('openai-secret'),
+    },
     fetcher,
   });
   const evidence = new ProviderEvidenceRecorder();
@@ -250,7 +252,7 @@ Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adap
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
     fetcher,
   });
   const selection = defaultModelSelectionFor('openrouter-responses');
@@ -289,7 +291,7 @@ Deno.test('Increment 67 Responses API omits reasoning effort for auto', async ()
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
     fetcher,
   });
 
@@ -344,7 +346,7 @@ Deno.test('Increment 68 aligns provider ids and routes openai-chat', async () =>
     );
   };
   const physical = createProductionPhysicalIo(undefined, {
-    openAICredentialSource: () => Promise.resolve('openai-secret'),
+    credentialSources: { 'openai-api-key': () => Promise.resolve('openai-secret') },
     fetcher,
     providerDeclarations: builtinProviderDeclarations(),
   });
@@ -398,14 +400,17 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
   const parsed = validateProviderDeclaration(declarationBody('openrouter-responses'));
   assertEquals(parsed.endpoint, 'https://openrouter.ai/api/v1');
   const merged = resolveProviderRegistry(builtins, [parsed]);
-  assertEquals(merged.get('openrouter-responses')?.endpoint, 'https://openrouter.ai/api/v1');
-  assert(merged.get('openrouter-chat') !== undefined);
-  assert(merged.get('openai-responses') !== undefined);
+  assertEquals(
+    merged.find((item) => item.providerId === 'openrouter-responses')?.endpoint,
+    'https://openrouter.ai/api/v1',
+  );
+  assert(merged.some((item) => item.providerId === 'openrouter-chat'));
+  assert(merged.some((item) => item.providerId === 'openai-responses'));
 
   const added = resolveProviderRegistry(builtins, [
     validateProviderDeclaration(declarationBody('internal-vllm')),
   ]);
-  assert(added.get('internal-vllm') !== undefined);
+  assert(added.some((item) => item.providerId === 'internal-vllm'));
 
   assertEquals(
     declarationCodeOf(() =>
@@ -548,6 +553,8 @@ Deno.test('Increment 64 declaration adds a chat completions provider with a decl
     assertEquals(selection.api, 'openai-chat-completions');
     assertEquals(selection.modelId, 'llama-3-70b');
     assert(isModelSelection(selection));
+    assert(!isModelSelection({ ...selection, api: 'openai-responses' }));
+    assert(!isModelSelection({ ...selection, authProfile: 'other-api-key' }));
     assertEquals(selectModelFor('local-chat', 'llama-3-70b').effort, 'medium');
 
     const seen: { url?: string; authorization?: string; body?: string } = {};
@@ -562,7 +569,7 @@ Deno.test('Increment 64 declaration adds a chat completions provider with a decl
       });
     };
     const physical = createProductionPhysicalIo(undefined, {
-      openAICredentialSource: () => Promise.resolve('chat-secret'),
+      credentialSources: { 'openai-api-key': () => Promise.resolve('chat-secret') },
       fetcher,
       providerDeclarations: [declaration],
     });
@@ -641,7 +648,7 @@ Deno.test('Increment 62 replay is scoped to the producing provider and model', a
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    openAICredentialSource: () => Promise.resolve('probe-secret'),
+    credentialSources: { 'openai-api-key': () => Promise.resolve('probe-secret') },
     fetcher,
   });
   const transcriptWith = (
@@ -717,7 +724,7 @@ Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done'
       }),
     );
   const physical = createProductionPhysicalIo(undefined, {
-    openAICredentialSource: () => Promise.resolve('probe-secret'),
+    credentialSources: { 'openai-api-key': () => Promise.resolve('probe-secret') },
     fetcher,
   });
   const evidence = new ProviderEvidenceRecorder();
@@ -775,7 +782,7 @@ Deno.test('Increment 61 declaration adds an external OpenAI provider beside the 
       );
     };
     const physical = createProductionPhysicalIo(undefined, {
-      openAICredentialSource: () => Promise.resolve('alt-secret'),
+      credentialSources: { 'openai-api-key': () => Promise.resolve('alt-secret') },
       fetcher,
       providerDeclarations: [declaration],
     });
@@ -815,7 +822,7 @@ Deno.test('Increment 59 provider declaration overrides the OpenRouter Responses 
     endpoint: 'https://gateway.example/v1',
   });
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
     fetcher,
     providerDeclarations: [declaration],
   });
@@ -843,8 +850,10 @@ Deno.test('Increment 14 keeps resolved OpenAI auth authoritative over ambient SD
       );
     };
     const model = createProductionPhysicalIo(undefined, {
-      credentialSource: () => Promise.resolve('router-secret'),
-      openAICredentialSource: () => Promise.resolve('openai-secret'),
+      credentialSources: {
+        'openrouter-api-key': () => Promise.resolve('router-secret'),
+        'openai-api-key': () => Promise.resolve('openai-secret'),
+      },
       fetcher,
     }).createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION);
     const result = await model.generate(request);
@@ -870,8 +879,10 @@ Deno.test('Increment 14 keeps planner OpenRouter auth separate from an OpenAI ro
     );
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
-    openAICredentialSource: () => Promise.resolve('openai-secret'),
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+      'openai-api-key': () => Promise.resolve('openai-secret'),
+    },
     fetcher,
   });
   const result = await physical.createModel('planner').generate(request);
@@ -893,8 +904,10 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
     );
   };
   const model = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
-    openAICredentialSource: () => Promise.resolve('openai-secret'),
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+      'openai-api-key': () => Promise.resolve('openai-secret'),
+    },
     fetcher,
   }).createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION);
   const session = new AgentSession(
@@ -957,8 +970,10 @@ Deno.test('Increment 14 keeps OpenRouter web search usable beside an OpenAI root
     );
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('router-secret'),
-    openAICredentialSource: () => Promise.resolve('openai-secret'),
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+      'openai-api-key': () => Promise.resolve('openai-secret'),
+    },
     fetcher,
   });
   assert(physical.requestProvider !== undefined);

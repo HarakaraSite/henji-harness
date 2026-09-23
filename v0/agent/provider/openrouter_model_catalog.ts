@@ -2,12 +2,15 @@ import type { OpenRouterAgentProfile } from './openrouter_contract.ts';
 import {
   type OpenRouterModelSelection,
   type OpenRouterResponsesModelSelection,
-  openRouterResponsesStoredSelection,
-  openRouterStoredSelection,
   type ReasoningEffort,
 } from './model_selection.ts';
 import { MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS } from '../../resource_limits.ts';
-import { declarationFor } from './provider_runtime.ts';
+import {
+  isModelSelection,
+  modelCatalogEntryFor,
+  searchModelsFor,
+  selectModelFor,
+} from './model_catalog.ts';
 import { bundledDefaultDeclarationFor } from './provider_defaults.ts';
 
 export type OpenRouterReasoningEffort = ReasoningEffort;
@@ -39,91 +42,44 @@ export const ROOT_DEFAULT_MODEL_SELECTION: OpenRouterModelSelection = Object.fre
   effort: ROOT_DEFAULT_EFFORT,
 });
 
-const openRouterEntries = (): readonly OpenRouterModelCatalogEntry[] =>
-  declarationFor('openrouter-chat')?.modelCatalog.entries ?? OPENROUTER_MODEL_CATALOG;
-
 export const openRouterCatalogEntry = (
   modelId: string,
-): OpenRouterModelCatalogEntry | undefined =>
-  openRouterEntries().find((candidate) => candidate.modelId === modelId);
+): OpenRouterModelCatalogEntry | undefined => modelCatalogEntryFor('openrouter-chat', modelId);
 
 export const isOpenRouterModelSelection = (
   value: unknown,
 ): value is OpenRouterModelSelection => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const selection = value as Record<string, unknown>;
-  if (
-    Object.keys(selection).length !== 5 || selection.provider !== 'openrouter-chat' ||
-    selection.api !== 'openrouter-chat-completions' ||
-    selection.authProfile !== 'openrouter-api-key' ||
-    typeof selection.modelId !== 'string' || typeof selection.effort !== 'string'
-  ) return false;
-  const catalog = openRouterCatalogEntry(selection.modelId);
-  return catalog !== undefined &&
-    catalog.efforts.includes(selection.effort as OpenRouterReasoningEffort);
+  return isModelSelection(value) && value.provider === 'openrouter-chat';
 };
 
 export const selectOpenRouterModel = (
   modelId: string,
   effort?: OpenRouterReasoningEffort,
 ): OpenRouterModelSelection => {
-  const catalog = openRouterCatalogEntry(modelId);
-  if (catalog === undefined) throw new RangeError(`unknown OpenRouter model: ${modelId}`);
-  const selectedEffort = effort ?? catalog.defaultEffort;
-  if (!catalog.efforts.includes(selectedEffort)) {
-    throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
-  }
-  return openRouterStoredSelection(modelId, selectedEffort);
-};
-
-const responsesCatalogEntry = (
-  modelId: string,
-): OpenRouterModelCatalogEntry | undefined => {
-  const declaration = declarationFor('openrouter-responses');
-  if (declaration !== undefined) {
-    return declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
-  }
-  return openRouterCatalogEntry(modelId);
+  return selectModelFor('openrouter-chat', modelId, effort) as OpenRouterModelSelection;
 };
 
 export const isOpenRouterResponsesModelSelection = (
   value: unknown,
 ): value is OpenRouterResponsesModelSelection => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const selection = value as Record<string, unknown>;
-  if (
-    Object.keys(selection).length !== 5 || selection.provider !== 'openrouter-responses' ||
-    selection.api !== 'openrouter-responses' ||
-    selection.authProfile !== 'openrouter-api-key' ||
-    typeof selection.modelId !== 'string' || typeof selection.effort !== 'string'
-  ) return false;
-  const catalog = responsesCatalogEntry(selection.modelId);
-  return catalog !== undefined &&
-    catalog.efforts.includes(selection.effort as OpenRouterReasoningEffort);
+  return isModelSelection(value) && value.provider === 'openrouter-responses';
 };
 
 export const selectOpenRouterResponsesModel = (
   modelId: string,
   effort?: OpenRouterReasoningEffort,
 ): OpenRouterResponsesModelSelection => {
-  const catalog = responsesCatalogEntry(modelId);
-  if (catalog === undefined) throw new RangeError(`unknown OpenRouter model: ${modelId}`);
-  const selectedEffort = effort ?? catalog.defaultEffort;
-  if (!catalog.efforts.includes(selectedEffort)) {
-    throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
-  }
-  return openRouterResponsesStoredSelection(modelId, selectedEffort);
+  return selectModelFor(
+    'openrouter-responses',
+    modelId,
+    effort,
+  ) as OpenRouterResponsesModelSelection;
 };
 
 export const searchOpenRouterModels = (
   query: string,
 ): readonly OpenRouterModelCatalogEntry[] => {
-  const entries = openRouterEntries();
-  const normalized = query.trim().toLocaleLowerCase();
-  if (normalized.length === 0) return entries;
-  return Object.freeze(
-    entries.filter((candidate) => candidate.modelId.toLocaleLowerCase().includes(normalized)),
-  );
+  return searchModelsFor('openrouter-chat', query);
 };
 
 const profileComponent = (value: string): string =>

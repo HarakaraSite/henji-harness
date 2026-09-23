@@ -284,7 +284,7 @@ export const main = async (
       hostConfigRoot === undefined ? [] : resolveProviderRegistry(
         builtinProviderDeclarations(),
         await loadProviderDeclarations({ configRoot: hostConfigRoot }),
-      ).declarations,
+      ),
     );
   } catch {
     await stderr(failureLine('invalid_invocation'));

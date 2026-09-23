@@ -562,7 +562,7 @@ Deno.test('Worker production physical I/O selects SSE on the actual model path',
   const counter = createWorkerRequestCounter();
   const bodies: string[] = [];
   const bindings = createProductionPhysicalIo(counter, {
-    credentialSource: () => 'provider-free-test-credential',
+    credentialSources: { 'openrouter-api-key': () => 'provider-free-test-credential' },
     fetcher: (_input, init) => {
       bodies.push(String(init?.body));
       return Promise.resolve(

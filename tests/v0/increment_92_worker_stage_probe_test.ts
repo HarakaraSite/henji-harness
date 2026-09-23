@@ -528,7 +528,7 @@ Deno.test('Increment 92 classifies each observed source-to-durability boundary',
 Deno.test('Increment 92 records production auxiliary I/O stage order without payloads', async () => {
   const stages: WorkerStageName[] = [];
   const io = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('test-credential'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
     reportAuxiliaryStage: (stage) => stages.push(stage),
     fetcher: () => Promise.resolve(new Response('ok')),
   });
@@ -639,7 +639,7 @@ Deno.test('Increment 92 captures the exact auxiliary body before fetching the sa
     },
   );
   const io = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('test-credential'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
     fetcher: (_input, init) => {
       order.push('fetch');
       assert(init?.body instanceof Uint8Array);
@@ -740,7 +740,9 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
       () => exactCaptures += 1,
     );
     const io = createProductionPhysicalIo(undefined, {
-      credentialSource: () => mode === 'missing' ? undefined : 'test-credential',
+      credentialSources: {
+        'openrouter-api-key': () => mode === 'missing' ? undefined : 'test-credential',
+      },
       fetcher: () => {
         fetches += 1;
         return Promise.resolve(new Response('{}'));

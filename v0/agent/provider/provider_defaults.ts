@@ -1,10 +1,9 @@
 import rawDefaults from './defaults/provider-defaults.json' with { type: 'json' };
-import { type ReasoningEffort } from './model_selection.ts';
+import { isProviderId, isReasoningEffort, type ReasoningEffort } from './model_selection.ts';
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
+import { builtinProviderDeclarations } from './provider_declaration.ts';
 
-const providers = Object.freeze(
-  (rawDefaults as unknown as { readonly providers: readonly ProviderDeclarationV1[] }).providers,
-);
+const providers = builtinProviderDeclarations();
 
 /** Bundled default provider declarations shipped as data with the binary. */
 export const bundledDefaultDeclarations = (): readonly ProviderDeclarationV1[] => providers;
@@ -24,24 +23,13 @@ export interface BundledRoleDefaultV1 {
   readonly effort: ReasoningEffort;
 }
 
-const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
-  'auto',
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-]);
-
 const isRoleDefault = (value: unknown): value is BundledRoleDefaultV1 => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const entry = value as Record<string, unknown>;
   return Object.keys(entry).length === 3 &&
-    typeof entry.providerId === 'string' && entry.providerId.length > 0 &&
+    isProviderId(entry.providerId) &&
     typeof entry.modelId === 'string' && entry.modelId.length > 0 &&
-    typeof entry.effort === 'string' && EFFORTS.includes(entry.effort as ReasoningEffort);
+    isReasoningEffort(entry.effort);
 };
 
 const parseRoleDefaults = (value: unknown): Readonly<Record<string, BundledRoleDefaultV1>> => {

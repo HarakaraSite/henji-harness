@@ -17,6 +17,8 @@ export const BUILTIN_PROVIDER_IDS: readonly string[] = Object.freeze([
   'openai-responses',
 ]);
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
+export const isProviderId = (value: unknown): value is ProviderId =>
+  typeof value === 'string' && PROVIDER_ID.test(value);
 /** Non-secret credential identity; the credential value lives in a fixed config file. */
 export type AuthProfileId = string;
 const AUTH_PROFILE_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
@@ -85,7 +87,7 @@ export type ModelSelection =
   | DeclaredProviderModelSelection
   | DeclaredChatModelSelection;
 
-const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
+export const REASONING_EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'auto',
   'none',
   'minimal',
@@ -95,6 +97,8 @@ const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'xhigh',
   'max',
 ]);
+export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
+  typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
 
 /** Structural persisted/protocol validation, deliberately independent of the current catalog. */
 export const isStoredModelSelection = (value: unknown): value is ModelSelection => {
@@ -103,8 +107,7 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
   if (
     Object.keys(selection).length !== 5 || typeof selection.modelId !== 'string' ||
     selection.modelId.trim() !== selection.modelId || selection.modelId.length === 0 ||
-    typeof selection.effort !== 'string' ||
-    !EFFORTS.includes(selection.effort as ReasoningEffort)
+    !isReasoningEffort(selection.effort)
   ) return false;
   if (selection.provider === 'openrouter-chat') {
     return selection.api === 'openrouter-chat-completions' &&
@@ -122,7 +125,7 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
     return selection.api === 'openai-responses' &&
       selection.authProfile === 'openai-api-key';
   }
-  return typeof selection.provider === 'string' && PROVIDER_ID.test(selection.provider) &&
+  return isProviderId(selection.provider) &&
     (selection.api === 'openai-responses' || selection.api === 'openai-chat-completions') &&
     isAuthProfileId(selection.authProfile);
 };

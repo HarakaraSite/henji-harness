@@ -47,14 +47,6 @@ export class SteeringOwner {
   private admitted = false;
   private pendingText: string | undefined;
 
-  get state(): SteeringState {
-    return this.stateValue;
-  }
-
-  get hasBeenAdmitted(): boolean {
-    return this.admitted;
-  }
-
   /** Admit exactly one validated message for this turn. */
   admit(value: unknown): SteerRequestResult {
     const text = validateSteeringText(value);
@@ -66,16 +58,6 @@ export class SteeringOwner {
     this.pendingText = text;
     this.stateValue = 'pending';
     return 'accepted';
-  }
-
-  /** Alias used by narrow session/controller seams. */
-  accept(value: unknown): SteerRequestResult {
-    return this.admit(value);
-  }
-
-  /** Alias matching the public session operation. */
-  steer(value: unknown): SteerRequestResult {
-    return this.admit(value);
   }
 
   /** Atomically consume the pending message at the loop's safe continuation boundary. */

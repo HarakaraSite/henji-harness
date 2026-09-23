@@ -272,7 +272,7 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
     );
   };
   const physicalIo = createProductionPhysicalIo(counter, {
-    credentialSource: () => 'test-credential',
+    credentialSources: { 'openrouter-api-key': () => 'test-credential' },
     fetcher,
   });
   const composition = createDefaultAgentComposition({

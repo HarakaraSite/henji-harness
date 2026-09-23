@@ -178,10 +178,13 @@ export type LoopStopReason =
   | 'cancelled'
   | 'interrupted';
 
+/** Coarse completion class; `stopReason` retains the exact terminal mechanism. */
+export type LoopOutcomeKind = Exclude<LoopStopReason, 'tool_terminal'>;
+
 export interface LoopOutcome {
   readonly ok: boolean;
   readonly task: string;
-  readonly outcome: LoopStopReason;
+  readonly outcome: LoopOutcomeKind;
   readonly stopReason: LoopStopReason;
   readonly finalText?: string;
   readonly terminalKind?: 'json_result';

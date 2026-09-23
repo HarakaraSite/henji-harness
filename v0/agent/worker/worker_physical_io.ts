@@ -45,8 +45,6 @@ export const createWorkerRequestCounter = (): WorkerRequestCounter => {
 export const createProductionPhysicalIo = (
   requestCounter?: WorkerRequestCounter,
   options: {
-    readonly credentialSource?: CredentialSource;
-    readonly openAICredentialSource?: CredentialSource;
     readonly credentialSources?: Readonly<Record<string, CredentialSource>>;
     readonly credentialPresence?: (
       profile: AuthProfileId,
@@ -68,15 +66,7 @@ export const createProductionPhysicalIo = (
     requestCounter?.increment();
     return (options.fetcher ?? fetch)(input, init);
   };
-  const sources: Record<string, CredentialSource> = {
-    ...(options.credentialSources ?? {}),
-  };
-  if (options.credentialSource !== undefined) {
-    sources['openrouter-api-key'] = options.credentialSource;
-  }
-  if (options.openAICredentialSource !== undefined) {
-    sources['openai-api-key'] = options.openAICredentialSource;
-  }
+  const sources = options.credentialSources ?? {};
   const resolver = createCredentialResolver({ sources });
   return {
     createModel: (role, selection?: ModelSelection) => {

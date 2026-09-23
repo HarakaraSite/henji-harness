@@ -1,7 +1,8 @@
 import * as agentCli from '../../v0/agent/cli/fixture_cli.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import { runAgent } from '../../v0/agent/core/loop.ts';
+import { runAgent, runAgentTurn } from '../../v0/agent/core/loop.ts';
+import { SteeringOwner } from '../../v0/agent/core/steering.ts';
 import { AgentSession } from '../../v0/agent/session/session.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
@@ -154,6 +155,150 @@ Deno.test('agent loop completes plain and terminal-tool turns', async () => {
     { requests, stop: terminal.stopReason, text: terminal.finalText },
     { requests: 1, stop: 'tool_terminal', text: '{"ok":true}' },
   );
+});
+
+Deno.test('agent loop retains one terminal request-count snapshot beyond sixteen requests', async () => {
+  let requests = 0;
+  let turnCountReads = 0;
+  let runtimeCountReads = 0;
+  const events: AgentEvent[] = [];
+  const outcome = await runAgentTurn(
+    'seventeen requests',
+    [],
+    {
+      generate: () => {
+        requests += 1;
+        if (requests < 17) {
+          return {
+            kind: 'tool_calls' as const,
+            calls: [{ callId: `continue-${requests}`, name: 'continue', arguments: {} }],
+          };
+        }
+        return { kind: 'final' as const, text: 'done' };
+      },
+    },
+    new Registry([{
+      name: 'continue',
+      description: 'Continue to the next model step',
+      inputSchema: {},
+      execute: () => 'continued',
+    }]),
+    {
+      maxSteps: 17,
+      eventSink: (event) => events.push(event),
+      turnProviderRequestCount: () => {
+        turnCountReads += 1;
+        return requests;
+      },
+      runtimeProviderRequestCount: () => {
+        runtimeCountReads += 1;
+        return requests;
+      },
+    },
+  );
+  assert(outcome.ok);
+  const terminal = events.at(-1);
+  assert(terminal?.kind === 'turn_end');
+  assertEquals(
+    {
+      requests,
+      outcomeTurn: outcome.turnProviderRequestCount,
+      outcomeRuntime: outcome.runtimeProviderRequestCount,
+      eventTurn: terminal.turnProviderRequestCount,
+      eventRuntime: terminal.runtimeProviderRequestCount,
+      turnCountReads,
+      runtimeCountReads,
+    },
+    {
+      requests: 17,
+      outcomeTurn: 17,
+      outcomeRuntime: 17,
+      eventTurn: 17,
+      eventRuntime: 17,
+      turnCountReads: 1,
+      runtimeCountReads: 1,
+    },
+  );
+});
+
+Deno.test('event sink mutation stays isolated from tool input and transcript', async () => {
+  let requests = 0;
+  let toolInput: unknown;
+  let continuedRequest: ModelRequest | undefined;
+  const outcome = await runAgentTurn(
+    'isolate event delivery',
+    [],
+    {
+      generate: (request) => {
+        requests += 1;
+        if (requests === 1) {
+          return {
+            kind: 'tool_calls' as const,
+            calls: [{
+              callId: 'observe-1',
+              name: 'observe',
+              arguments: { value: 'original' },
+            }],
+          };
+        }
+        continuedRequest = structuredClone(request);
+        return { kind: 'final' as const, text: 'done' };
+      },
+    },
+    new Registry([{
+      name: 'observe',
+      description: 'Observe the supplied value',
+      inputSchema: {},
+      execute: (argumentsValue) => {
+        toolInput = structuredClone(argumentsValue);
+        return 'original result';
+      },
+    }]),
+    {
+      eventSink: (event) => {
+        if (event.kind === 'assistant_message') {
+          if (Array.isArray(event.message.content)) {
+            const argumentsValue = event.message.content[0]?.arguments as unknown as Record<
+              string,
+              unknown
+            >;
+            argumentsValue.value = 'mutated by sink';
+          } else {
+            (event.message.content as { text: string }).text = 'mutated by sink';
+          }
+        } else if (event.kind === 'tool_call') {
+          const argumentsValue = event.call.arguments as unknown as Record<string, unknown>;
+          argumentsValue.value = 'mutated by sink';
+        } else if (event.kind === 'tool_result') {
+          (event.result as { text: string }).text = 'mutated by sink';
+        }
+      },
+    },
+  );
+  assert(outcome.ok);
+  assertEquals(toolInput, { value: 'original' });
+  assert(continuedRequest !== undefined);
+  const assistant = continuedRequest.transcript[1];
+  assert(assistant?.role === 'assistant' && Array.isArray(assistant.content));
+  assertEquals(assistant.content[0]?.arguments, { value: 'original' });
+  const tool = continuedRequest.transcript[2];
+  assert(tool?.role === 'tool');
+  assertEquals(tool.content[0]?.text, 'original result');
+  assertEquals(outcome.finalText, 'done');
+});
+
+Deno.test('steering admits and consumes one message with stable close results', () => {
+  const neverAdmitted = new SteeringOwner();
+  neverAdmitted.close();
+  assertEquals(neverAdmitted.admit('late'), 'idle');
+
+  const steering = new SteeringOwner();
+  assertEquals(steering.admit('first'), 'accepted');
+  assertEquals(steering.admit('second'), 'already_accepted');
+  assertEquals(steering.consume(), 'first');
+  assertEquals(steering.consume(), undefined);
+  steering.close();
+  assertEquals(steering.admit('late'), 'already_accepted');
 });
 
 Deno.test('session commits turns and reports occurrence-bound request counts', async () => {

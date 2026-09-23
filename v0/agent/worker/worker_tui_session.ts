@@ -370,7 +370,7 @@ export const createWorkerSession = async (
     ? resolveProviderRegistry(
       builtinProviderDeclarations(),
       await loadProviderDeclarations({ configRoot: configRoot! }),
-    ).declarations
+    )
     : Object.freeze([] as const);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const historyCaptureProfile = historyCaptureProfileFor(

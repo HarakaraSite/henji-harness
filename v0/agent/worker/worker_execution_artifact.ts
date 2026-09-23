@@ -369,18 +369,21 @@ const validOutcome = (value: unknown): value is WorkerExecutionOutcome => {
         : []),
     ])
   ) return false;
-  const stops = [
+  const outcomes = [
     'final',
-    'tool_terminal',
     'max_steps',
     'contract_failure',
     'cancelled',
     'interrupted',
   ];
+  const stops = [...outcomes, 'tool_terminal'];
+  const outcomeMatchesStopReason = outcome.stopReason === 'tool_terminal'
+    ? outcome.outcome === 'final'
+    : outcome.outcome === outcome.stopReason;
   return typeof outcome.ok === 'boolean' &&
-    stops.includes(String(outcome.outcome)) &&
+    outcomes.includes(String(outcome.outcome)) &&
     stops.includes(String(outcome.stopReason)) &&
-    (outcome.outcome === outcome.stopReason) &&
+    outcomeMatchesStopReason &&
     (!Object.hasOwn(outcome, 'finalText') || validText(outcome.finalText)) &&
     (!Object.hasOwn(outcome, 'terminalKind') ||
       outcome.terminalKind === 'json_result') &&

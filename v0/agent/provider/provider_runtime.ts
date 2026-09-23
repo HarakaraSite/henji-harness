@@ -1,4 +1,5 @@
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
+import { bundledDefaultDeclarationFor } from './provider_defaults.ts';
 
 let activeDeclarations: readonly ProviderDeclarationV1[] = Object.freeze([]);
 
@@ -19,3 +20,6 @@ export const declarationFor = (
   providerId: string,
 ): ProviderDeclarationV1 | undefined =>
   activeDeclarations.find((declaration) => declaration.providerId === providerId);
+
+export const effectiveDeclarationFor = (providerId: string): ProviderDeclarationV1 | undefined =>
+  declarationFor(providerId) ?? bundledDefaultDeclarationFor(providerId);

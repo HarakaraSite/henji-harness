@@ -1,5 +1,12 @@
-import { type AuthProfileId, isAuthProfileId, type ReasoningEffort } from './model_selection.ts';
-import { bundledDefaultDeclarations } from './provider_defaults.ts';
+import {
+  type AuthProfileId,
+  BUILTIN_PROVIDER_IDS,
+  isAuthProfileId,
+  isProviderId,
+  isReasoningEffort,
+  type ReasoningEffort,
+} from './model_selection.ts';
+import rawDefaults from './defaults/provider-defaults.json' with { type: 'json' };
 
 export const PROVIDER_DECLARATION_SCHEMA_VERSION = 1 as const;
 export const PROVIDER_DECLARATION_DIRECTORY = 'providers' as const;
@@ -10,12 +17,7 @@ export type ProviderProtocol = 'openai-chat-completions' | 'openai-responses';
  * Built-in provider ids whose declaration may override the model catalog and defaults. The protocol,
  * endpoint, and auth profile must stay identical so a declaration cannot silently change the vendor.
  */
-export const OVERRIDABLE_PROVIDER_IDS: readonly string[] = Object.freeze([
-  'openrouter-chat',
-  'openai-responses',
-  'openai-chat',
-  'openrouter-responses',
-]);
+export const OVERRIDABLE_PROVIDER_IDS: readonly string[] = BUILTIN_PROVIDER_IDS;
 
 export interface ProviderCatalogEntryV1 {
   readonly modelId: string;
@@ -62,17 +64,6 @@ export class ProviderDeclarationError extends Error {
   }
 }
 
-const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
-const EFFORTS: readonly ReasoningEffort[] = Object.freeze([
-  'auto',
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-  'max',
-]);
 const PROTOCOLS: readonly ProviderProtocol[] = Object.freeze([
   'openai-chat-completions',
   'openai-responses',
@@ -167,15 +158,12 @@ const parseHeaders = (
   return Object.freeze(result);
 };
 
-const isEffort = (value: unknown): value is ReasoningEffort =>
-  typeof value === 'string' && (EFFORTS as readonly string[]).includes(value);
-
 const parseCatalogEntry = (value: unknown): ProviderCatalogEntryV1 => {
   if (
     !isRecord(value) || !exactKeys(value, ['modelId', 'defaultEffort', 'efforts']) ||
     typeof value.modelId !== 'string' || value.modelId.length === 0 ||
-    !isEffort(value.defaultEffort) || !Array.isArray(value.efforts) ||
-    value.efforts.length === 0 || !value.efforts.every(isEffort)
+    !isReasoningEffort(value.defaultEffort) || !Array.isArray(value.efforts) ||
+    value.efforts.length === 0 || !value.efforts.every(isReasoningEffort)
   ) {
     throw new ProviderDeclarationError(
       'provider_declaration_invalid',
@@ -226,7 +214,7 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
     !isRecord(value) ||
     !declarationKeysValid(value) ||
     value.schemaVersion !== PROVIDER_DECLARATION_SCHEMA_VERSION ||
-    typeof value.providerId !== 'string' || !PROVIDER_ID.test(value.providerId) ||
+    !isProviderId(value.providerId) ||
     typeof value.protocol !== 'string' ||
     !(PROTOCOLS as readonly string[]).includes(value.protocol) ||
     !isAuthProfileId(value.authProfile)
@@ -264,7 +252,7 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
   if (
     !isRecord(defaults) ||
     typeof defaults.modelId !== 'string' ||
-    !isEffort(defaults.effort)
+    !isReasoningEffort(defaults.effort)
   ) {
     throw new ProviderDeclarationError(
       'provider_declaration_invalid',
@@ -315,26 +303,11 @@ export const parseProviderDeclaration = (text: string): ProviderDeclarationV1 =>
   return validateProviderDeclaration(parsed);
 };
 
-export interface ProviderRegistry {
-  readonly declarations: readonly ProviderDeclarationV1[];
-  readonly get: (providerId: string) => ProviderDeclarationV1 | undefined;
-}
-
-const freezeRegistry = (
-  declarations: readonly ProviderDeclarationV1[],
-): ProviderRegistry => {
-  const map = new Map(declarations.map((declaration) => [declaration.providerId, declaration]));
-  return Object.freeze({
-    declarations: Object.freeze([...declarations]),
-    get: (providerId: string) => map.get(providerId),
-  });
-};
-
 /** Merge declarations over built-in defaults; new ids are added, overridable ids are replaced. */
 export const resolveProviderRegistry = (
   builtins: readonly ProviderDeclarationV1[],
   declarations: readonly ProviderDeclarationV1[],
-): ProviderRegistry => {
+): readonly ProviderDeclarationV1[] => {
   const byId = new Map(builtins.map((declaration) => [declaration.providerId, declaration]));
   for (const declaration of declarations) {
     const existing = byId.get(declaration.providerId);
@@ -360,7 +333,7 @@ export const resolveProviderRegistry = (
     }
     byId.set(declaration.providerId, declaration);
   }
-  return freezeRegistry([...byId.values()]);
+  return Object.freeze([...byId.values()]);
 };
 
 export interface ProviderDeclarationFileSystem {
@@ -432,8 +405,10 @@ export const loadProviderDeclarations = async (
   return Object.freeze(declarations);
 };
 
-/** Bundled default declarations, validated on first use. */
-export const builtinProviderDeclarations = (): readonly ProviderDeclarationV1[] =>
-  Object.freeze(
-    bundledDefaultDeclarations().map((declaration) => validateProviderDeclaration(declaration)),
-  );
+/** Bundled declarations are validated once before any catalog or Worker uses them. */
+const bundledProviders: readonly ProviderDeclarationV1[] = Object.freeze(
+  (rawDefaults as { readonly providers: readonly unknown[] }).providers.map(
+    validateProviderDeclaration,
+  ),
+);
+export const builtinProviderDeclarations = (): readonly ProviderDeclarationV1[] => bundledProviders;

@@ -8,6 +8,7 @@ import type {
   WorkerClosedMessage,
   WorkerCommitProposalMessage,
   WorkerErrorMessage,
+  WorkerHostCommand,
   WorkerReadyMessage,
   WorkerRuntimeEventMessage,
   WorkerToHostMessage,
@@ -30,6 +31,7 @@ import {
   workerBuiltinModulePath,
   WorkerHostSession,
 } from '../../v0/agent/worker/worker_host.ts';
+import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import { main as runtimeCliMain } from '../../v0/agent/cli/runtime_cli.ts';
@@ -44,6 +46,8 @@ import {
   FakeWorkerExecutionArtifactStore,
 } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
 import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_model.ts';
+import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
 
@@ -122,6 +126,121 @@ const textStream = (text: string): ReadableStream<Uint8Array> =>
       controller.close();
     },
   });
+
+class TerminalToolOutcomeCapsule implements WorkerHostCapsule {
+  private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
+
+  private emit(message: WorkerToHostMessage): void {
+    for (const listener of this.listeners) listener(message);
+  }
+
+  send(command: WorkerHostCommand): void {
+    if (command.kind === 'start') {
+      const rootModel = command.modelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
+      this.emit({
+        kind: 'ready',
+        correlation: command.correlation,
+        manifest: {
+          role: 'parent',
+          maxSteps: 8,
+          profileId: modelRouteProfileId(rootModel),
+          resources: [],
+          rootModel,
+          ...(command.baseInstruction === undefined ? {} : {
+            baseInstruction: {
+              slot: command.baseInstruction.slot,
+              selectionSource: command.baseInstruction.selectionSource,
+              ref: command.baseInstruction.ref,
+              contentDigest: command.baseInstruction.contentDigest,
+            },
+          }),
+        },
+        startupSnapshot: { skillNames: [] },
+        credentialAvailability: {
+          authProfile: rootModel.authProfile,
+          status: 'unknown',
+        },
+      });
+      return;
+    }
+    if (command.kind === 'turn') {
+      const finalText = '{"ok":true}';
+      const transcript: Message[] = [
+        { role: 'user', content: { kind: 'text', text: command.task } },
+        {
+          role: 'assistant',
+          content: [{
+            kind: 'tool_call',
+            callId: 'terminal-1',
+            name: 'submit_json_result',
+            arguments: { json: finalText },
+          }],
+        },
+        {
+          role: 'tool',
+          content: [{
+            kind: 'tool_result',
+            callId: 'terminal-1',
+            name: 'submit_json_result',
+            text: finalText,
+            outcome: 'success',
+            terminal: 'json_result',
+          }],
+        },
+      ];
+      queueMicrotask(() =>
+        this.emit({
+          kind: 'commit_proposal',
+          correlation: command.correlation,
+          nextTurn: 2,
+          transcript,
+          outcome: {
+            ok: true,
+            task: command.task,
+            outcome: 'final',
+            stopReason: 'tool_terminal',
+            finalText,
+            terminalKind: 'json_result',
+            steps: 1,
+            toolCallCount: 1,
+            toolResultCount: 1,
+            transcript,
+          },
+        })
+      );
+      return;
+    }
+    if (command.kind === 'commit_acknowledgement' && command.accepted) {
+      queueMicrotask(() =>
+        this.emit({
+          kind: 'runtime_event',
+          correlation: command.correlation,
+          sequence: 1,
+          event: {
+            kind: 'agent_event',
+            event: {
+              kind: 'turn_end',
+              turn: 1,
+              outcome: 'tool_terminal',
+              committed: true,
+            },
+          },
+        })
+      );
+      return;
+    }
+    if (command.kind === 'close') {
+      this.emit({ kind: 'closed', correlation: command.correlation });
+    }
+  }
+
+  subscribe(listener: (message: WorkerToHostMessage) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  terminate(): void {}
+}
 
 const successfulHeadlessRun = (task: string) =>
   Promise.resolve({
@@ -248,6 +367,53 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
   assert(
     written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'commit_proposal'),
   );
+});
+
+Deno.test('terminal tool success persists and reads back its Worker execution artifact', async () => {
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const created = await createWorkerSession({
+    persistence: 'none',
+    agent: 'default',
+    physicalIoMode: 'provider-free',
+    executionArtifactStore: artifacts,
+    capsuleFactory: () => new TerminalToolOutcomeCapsule(),
+  });
+  try {
+    const outcome = await created.session.submit('submit terminal JSON');
+    assert(outcome.ok);
+    assertEquals(
+      {
+        outcome: outcome.outcome,
+        stopReason: outcome.stopReason,
+        finalText: outcome.finalText,
+        durability: outcome.executionArtifactDurability,
+      },
+      {
+        outcome: 'final',
+        stopReason: 'tool_terminal',
+        finalText: '{"ok":true}',
+        durability: 'yes',
+      },
+    );
+    const stored = await artifacts.list();
+    assertEquals(stored.length, 1);
+    assertEquals(
+      {
+        outcome: stored[0]?.outcome?.outcome,
+        stopReason: stored[0]?.outcome?.stopReason,
+        finalText: stored[0]?.outcome?.finalText,
+        terminalKind: stored[0]?.outcome?.terminalKind,
+      },
+      {
+        outcome: 'final',
+        stopReason: 'tool_terminal',
+        finalText: '{"ok":true}',
+        terminalKind: 'json_result',
+      },
+    );
+  } finally {
+    await created.close();
+  }
 });
 
 Deno.test('headless Worker model receives each active tool guideline once', async () => {

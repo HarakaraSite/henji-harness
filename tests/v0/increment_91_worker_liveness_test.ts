@@ -243,7 +243,7 @@ Deno.test('Increment 91 applies the provider deadline to auxiliary fetch and bod
   let started!: () => void;
   const fetchStarted = new Promise<void>((resolve) => started = resolve);
   const io = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('test-credential'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
     providerTimeoutMs: 15,
     fetcher: (_input, init) => {
       started();
@@ -275,7 +275,7 @@ Deno.test('Increment 91 applies the provider deadline to auxiliary fetch and bod
 
 Deno.test('Increment 91 keeps the provider deadline active while reading an auxiliary response body', async () => {
   const io = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('test-credential'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
     providerTimeoutMs: 15,
     fetcher: (_input, init) =>
       Promise.resolve(
@@ -312,7 +312,7 @@ Deno.test('Increment 91 keeps user cancellation authoritative for auxiliary prov
   let started!: () => void;
   const fetchStarted = new Promise<void>((resolve) => started = resolve);
   const io = createProductionPhysicalIo(undefined, {
-    credentialSource: () => Promise.resolve('test-credential'),
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
     providerTimeoutMs: 5_000,
     fetcher: (_input, init) => {
       started();

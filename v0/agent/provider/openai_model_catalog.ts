@@ -1,5 +1,10 @@
-import type { ModelSelection, OpenAIModelSelection, ReasoningEffort } from './model_selection.ts';
-import { declarationFor } from './provider_runtime.ts';
+import type { OpenAIModelSelection, ReasoningEffort } from './model_selection.ts';
+import {
+  isModelSelection,
+  modelCatalogEntryFor,
+  searchModelsFor,
+  selectModelFor,
+} from './model_catalog.ts';
 import { bundledDefaultDeclarationFor } from './provider_defaults.ts';
 
 export interface OpenAIModelCatalogEntry {
@@ -21,54 +26,25 @@ export const OPENAI_DEFAULT_MODEL_SELECTION: OpenAIModelSelection = Object.freez
   effort: bundledOpenAI.defaults.effort,
 });
 
-const openAIEntries = (): readonly OpenAIModelCatalogEntry[] =>
-  declarationFor('openai-responses')?.modelCatalog.entries ?? OPENAI_MODEL_CATALOG;
-
 export const openAIModelCatalogEntry = (
   modelId: string,
-): OpenAIModelCatalogEntry | undefined =>
-  openAIEntries().find((candidate) => candidate.modelId === modelId);
+): OpenAIModelCatalogEntry | undefined => modelCatalogEntryFor('openai-responses', modelId);
 
 export const isOpenAIModelSelection = (
   value: unknown,
 ): value is OpenAIModelSelection => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const selection = value as Partial<ModelSelection>;
-  if (
-    selection.provider !== 'openai-responses' || selection.api !== 'openai-responses' ||
-    selection.authProfile !== 'openai-api-key' || typeof selection.modelId !== 'string' ||
-    typeof selection.effort !== 'string'
-  ) return false;
-  const catalog = openAIModelCatalogEntry(selection.modelId);
-  return catalog !== undefined && catalog.efforts.includes(selection.effort as ReasoningEffort);
+  return isModelSelection(value) && value.provider === 'openai-responses';
 };
 
 export const selectOpenAIModel = (
   modelId: string,
   effort?: ReasoningEffort,
 ): OpenAIModelSelection => {
-  const catalog = openAIModelCatalogEntry(modelId);
-  if (catalog === undefined) throw new RangeError(`unknown OpenAI model: ${modelId}`);
-  const selectedEffort = effort ?? catalog.defaultEffort;
-  if (!catalog.efforts.includes(selectedEffort)) {
-    throw new RangeError(`unsupported effort for ${modelId}: ${selectedEffort}`);
-  }
-  return Object.freeze({
-    provider: 'openai-responses',
-    api: 'openai-responses',
-    authProfile: 'openai-api-key',
-    modelId,
-    effort: selectedEffort,
-  });
+  return selectModelFor('openai-responses', modelId, effort) as OpenAIModelSelection;
 };
 
 export const searchOpenAIModels = (
   query: string,
 ): readonly OpenAIModelCatalogEntry[] => {
-  const entries = openAIEntries();
-  const normalized = query.trim().toLocaleLowerCase();
-  if (normalized.length === 0) return entries;
-  return Object.freeze(
-    entries.filter((candidate) => candidate.modelId.toLocaleLowerCase().includes(normalized)),
-  );
+  return searchModelsFor('openai-responses', query);
 };

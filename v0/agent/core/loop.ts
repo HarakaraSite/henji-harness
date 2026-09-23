@@ -70,8 +70,6 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   readonly commit?: (transcript: readonly Message[]) => void;
   /** Internal single-use steering lane for the accepted turn. */
   readonly steering?: SteeringConsumer;
-  /** Backwards-compatible internal port spelling for direct loop callers. */
-  readonly steeringConsumer?: SteeringConsumer;
   /** Optional pure semantic parent projection, applied before defensive request preparation. */
   readonly projectParentRequest?: (request: ModelRequest) => ModelRequest;
   /** Projection that transforms transcript provenance in the same operation as its messages. */
@@ -244,11 +242,8 @@ interface RequestCounts {
   readonly runtimeProviderRequestCount?: number;
 }
 
-const boundedCount = (value: unknown, max?: number): number | undefined =>
-  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 &&
-    (max === undefined || value <= max)
-    ? value
-    : undefined;
+const boundedCount = (value: unknown): number | undefined =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 
 const terminalBatchError = (
   call: ToolCall,
@@ -281,7 +276,7 @@ const runAgentTurnInternal = async (
   const signal = options.cancellation?.signal ?? options.signal ??
     options.executionContext?.signal;
   const cancellation = options.cancellation;
-  const steering = options.steering ?? options.steeringConsumer;
+  const steering = options.steering;
   const ownsCancellation = options.ownsCancellation !== false;
   const requestMessageSource = options.requestMessageSource ??
     options.executionContext?.requestMessageSource;
@@ -307,7 +302,7 @@ const runAgentTurnInternal = async (
   deliverEvent(sink, {
     kind: 'user_message',
     turn,
-    message: snapshot(userMessage),
+    message: userMessage,
   });
   transcriptSources.push(
     requestMessageSource?.(
@@ -327,7 +322,6 @@ const runAgentTurnInternal = async (
     const turn = boundedCount(
       options.turnProviderRequestCount?.() ??
         options.executionContext?.providerRequestCount?.(),
-      16,
     );
     const runtime = boundedCount(
       options.runtimeProviderRequestCount?.() ??
@@ -405,6 +399,7 @@ const runAgentTurnInternal = async (
       !cancellation.trySettleNormally()
     ) return finishCancelled();
     const diagnostic = diagnosticFor(cause, fallback);
+    const requestCounts = terminalRequestCounts();
     const outcome = contractFailure(
       task,
       transcript,
@@ -413,7 +408,7 @@ const runAgentTurnInternal = async (
       toolResultCount,
       error,
       diagnostic,
-      terminalRequestCounts(),
+      requestCounts,
     );
     const withEvidence = { ...outcome, ...evidenceIdentity() };
     deliverEvent(sink, {
@@ -421,7 +416,7 @@ const runAgentTurnInternal = async (
       turn,
       outcome: 'contract_failure',
       committed: false,
-      ...terminalRequestCounts(),
+      ...requestCounts,
       ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
@@ -444,11 +439,12 @@ const runAgentTurnInternal = async (
       toolCallCount,
       toolResultCount,
     );
+    const requestCounts = terminalRequestCounts();
     const settledOutcome = diagnostic === undefined
-      ? { ...outcome, ...terminalRequestCounts(), ...evidenceIdentity() }
+      ? { ...outcome, ...requestCounts, ...evidenceIdentity() }
       : {
         ...outcome,
-        ...terminalRequestCounts(),
+        ...requestCounts,
         diagnostic,
         ...evidenceIdentity(),
       };
@@ -457,7 +453,7 @@ const runAgentTurnInternal = async (
       turn,
       outcome: 'cancelled',
       committed: false,
-      ...terminalRequestCounts(),
+      ...requestCounts,
       ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
@@ -517,7 +513,7 @@ const runAgentTurnInternal = async (
       turn,
       outcome: settledOutcome.stopReason,
       committed: successful && options.commit !== undefined,
-      ...terminalRequestCounts(),
+      ...requestCounts,
       ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
@@ -720,7 +716,7 @@ const runAgentTurnInternal = async (
       deliverEvent(sink, {
         kind: 'assistant_message',
         turn,
-        message: snapshot(assistant),
+        message: assistant,
       });
       transcriptSources.push(
         requestMessageSource?.(
@@ -755,7 +751,7 @@ const runAgentTurnInternal = async (
     deliverEvent(sink, {
       kind: 'assistant_message',
       turn,
-      message: snapshot(assistant),
+      message: assistant,
     });
     transcriptSources.push(
       requestMessageSource?.(
@@ -775,7 +771,7 @@ const runAgentTurnInternal = async (
     } | null = null;
     for (const call of calls) {
       if (signal?.aborted) return finishCancelled();
-      deliverEvent(sink, { kind: 'tool_call', turn, call: snapshot(call) });
+      deliverEvent(sink, { kind: 'tool_call', turn, call });
       toolCallCount += 1;
       evidence?.recordToolCall(call, steps, evidenceLane);
       if (signal?.aborted) return finishCancelled();
@@ -785,7 +781,7 @@ const runAgentTurnInternal = async (
         deliverEvent(sink, {
           kind: 'tool_result',
           turn,
-          result: snapshot(resultContent),
+          result: resultContent,
         });
         toolResultCount += 1;
         evidence?.recordToolResult(resultContent, steps, evidenceLane);
@@ -876,13 +872,14 @@ const runAgentTurnInternal = async (
         if (dispatched.terminal !== null) terminalResult = dispatched.terminal;
       }
       if (signal?.aborted) return finishCancelled();
+      const resultContent = results.at(-1)!;
       deliverEvent(sink, {
         kind: 'tool_result',
         turn,
-        result: snapshot(results.at(-1)!),
+        result: resultContent,
       });
       toolResultCount += 1;
-      evidence?.recordToolResult(results.at(-1)!, steps, evidenceLane);
+      evidence?.recordToolResult(resultContent, steps, evidenceLane);
     }
     const toolMessage: ToolMessage = { role: 'tool', content: results };
     transcript.push(toolMessage);
@@ -922,7 +919,7 @@ const runAgentTurnInternal = async (
       deliverEvent(sink, {
         kind: 'steering_message',
         turn,
-        message: snapshot(steeringMessage),
+        message: steeringMessage,
       });
       transcriptSources.push(
         requestMessageSource?.(
@@ -944,7 +941,7 @@ export const runAgentTurn = async (
   registry: Registry,
   options: AgentTurnOptions = {},
 ): Promise<LoopOutcome> => {
-  const steering = options.steering ?? options.steeringConsumer;
+  const steering = options.steering;
   try {
     return await runAgentTurnInternal(
       task,

@@ -59,7 +59,7 @@ export const proposalOutcome = (
   return {
     ok: true,
     task,
-    outcome: stopReason,
+    outcome: stopReason === 'tool_terminal' ? 'final' : stopReason,
     stopReason,
     ...(textFromTranscript(transcript) === undefined
       ? {}
