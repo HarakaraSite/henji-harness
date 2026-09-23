@@ -56,6 +56,7 @@ export interface WorkerSupervisorProjection {
   readonly stateRevision: number;
   readonly checkpoint?: unknown;
   readonly modelSelection: ModelSelection;
+  readonly privateStateFromTurn: number;
 }
 
 export interface WorkerSupervisorHost {
@@ -399,6 +400,7 @@ export class WorkerSupervisor {
           ? {}
           : { checkpoint: projection.checkpoint as never }),
         modelSelection: projection.modelSelection,
+        privateStateFromTurn: projection.privateStateFromTurn,
         ...(this.options.baseInstruction === undefined
           ? {}
           : { baseInstruction: this.options.baseInstruction }),

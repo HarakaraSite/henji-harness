@@ -429,7 +429,7 @@ const validToolResult = (value: unknown): value is ToolResultContent => {
 };
 const validProviderState = (value: unknown): boolean =>
   value === undefined || (
-    isRecord(value) && value.provider === 'openrouter-chat' &&
+    isRecord(value) && typeof value.provider === 'string' && value.provider.length > 0 &&
     hasExactKeys(value, ['provider', 'reasoningDetails']) &&
     Array.isArray(value.reasoningDetails) &&
     value.reasoningDetails.every(isJsonValue)

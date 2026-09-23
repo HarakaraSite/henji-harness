@@ -98,7 +98,7 @@ const withRequestCount = (
 
 /** Additive offline-composable adapter for the existing provider-neutral Model contract. */
 export class OpenRouterAgentModel implements Model {
-  readonly measureRequestWire = measureModelRequestWire;
+  readonly measureRequestWire: Model['measureRequestWire'];
   private readonly fetcher: typeof fetch;
   private readonly options: OpenRouterAgentModelOptions;
   private readonly profile: OpenRouterAgentProfile;
@@ -107,13 +107,24 @@ export class OpenRouterAgentModel implements Model {
     this.options = options;
     this.fetcher = options.fetcher ?? fetch;
     this.profile = options.profile ?? PRODUCTION_PROFILE;
+    this.measureRequestWire = (request) =>
+      measureModelRequestWire(
+        request,
+        this.profile,
+        this.options.responseMode ?? 'sse',
+        this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+      );
   }
 
   async generate(
     request: ModelRequest,
     generateOptions: ModelGenerateOptions = {},
   ): Promise<ModelResult> {
-    const encoded = encodeRequest(request);
+    const encoded = encodeRequest(
+      request,
+      true,
+      this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+    );
     const body = safeJson({
       model: this.profile.model,
       messages: encoded.messages,
@@ -369,6 +380,7 @@ export class OpenRouterAgentModel implements Model {
           deadlineExceeded,
           this.options.testTextAccountingObserver,
           evidence,
+          this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
         );
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut || controller.signal.aborted) {
@@ -468,7 +480,10 @@ export class OpenRouterAgentModel implements Model {
         );
       }
       try {
-        const decoded = decodeResponse(payload);
+        const decoded = decodeResponse(
+          payload,
+          this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+        );
         evidence?.recordParserTransition({ kind: 'result', reason: 'json_result' });
         return decoded;
       } catch (error) {

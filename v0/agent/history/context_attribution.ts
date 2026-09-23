@@ -498,7 +498,7 @@ const validMessage = (value: unknown): boolean => {
   const providerState = value.providerState;
   const stateValid = providerState === undefined ||
     exactKeys(providerState, ['provider', 'reasoningDetails']) &&
-      providerState.provider === 'openrouter-chat' &&
+      typeof providerState.provider === 'string' && providerState.provider.length > 0 &&
       Array.isArray(providerState.reasoningDetails) &&
       providerState.reasoningDetails.every(isJson) ||
     exactKeys(providerState, ['provider', 'replayItems'], ['model']) &&

@@ -72,6 +72,16 @@ import {
 
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
+/** Private provider state belongs only to the current uninterrupted provider segment. */
+const privateStateFromTurn = (changes: readonly SessionModelChange[]): number => {
+  let boundary = 1;
+  for (let index = 1; index < changes.length; index++) {
+    if (changes[index - 1].selection.provider !== changes[index].selection.provider) {
+      boundary = changes[index].effectiveFromTurn;
+    }
+  }
+  return boundary;
+};
 const profileIdPattern = /^[^\0]+$/u;
 export type WorkerRecallSelectionErrorCode =
   | 'unavailable'
@@ -149,6 +159,7 @@ export class ExecutionCoordinator {
     readonly stateRevision: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
     readonly modelSelection: ModelSelection;
+    readonly privateStateFromTurn: number;
   } {
     return {
       transcript: this.authority.projection.transcript,
@@ -158,6 +169,7 @@ export class ExecutionCoordinator {
         ? {}
         : { checkpoint: this.authority.projection.checkpoint }),
       modelSelection: this.authority.projection.modelSelection,
+      privateStateFromTurn: privateStateFromTurn(this.authority.projection.modelChanges),
     };
   }
 
@@ -1185,7 +1197,12 @@ export class ExecutionCoordinator {
             sameCorrelation(value.correlation, correlation)),
         this.workerResponseTimeoutMs(),
       );
-      this.send({ kind: 'select_model', correlation, selection });
+      this.send({
+        kind: 'select_model',
+        correlation,
+        selection,
+        privateStateFromTurn: privateStateFromTurn(nextChanges),
+      });
       const message = await response;
       if (
         message.kind === 'worker_error' || !message.accepted ||

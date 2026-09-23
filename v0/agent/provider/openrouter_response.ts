@@ -148,14 +148,17 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
     : undefined;
 };
 
-const providerState = (message: Record<string, unknown>): OpenRouterProviderState | undefined => {
+const providerState = (
+  message: Record<string, unknown>,
+  providerId: string,
+): OpenRouterProviderState | undefined => {
   const details = message.reasoning_details;
   return Array.isArray(details) && details.length > 0 && details.every(isJsonValue)
-    ? { provider: 'openrouter-chat', reasoningDetails: structuredClone(details) }
+    ? { provider: providerId, reasoningDetails: structuredClone(details) }
     : undefined;
 };
 
-export const decodeResponse = (payload: unknown): ModelResult => {
+export const decodeResponse = (payload: unknown, providerId = 'openrouter-chat'): ModelResult => {
   if (typeof payload !== 'object' || payload === null) {
     throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
@@ -177,7 +180,7 @@ export const decodeResponse = (payload: unknown): ModelResult => {
   const messageObject = message as Record<string, unknown>;
   const content = messageObject.content;
   const toolCalls = messageObject.tool_calls;
-  const state = providerState(messageObject);
+  const state = providerState(messageObject, providerId);
   if (
     typeof content === 'string' && content.length > 0 &&
     (toolCalls === undefined || toolCalls === null)

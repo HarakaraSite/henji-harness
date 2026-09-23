@@ -22,7 +22,8 @@ export interface TextContent {
 
 /** Provider replay state attached to an assistant message, never rendered as conversation text. */
 export interface OpenRouterProviderState {
-  readonly provider: 'openrouter-chat';
+  /** Chat provider id that produced these private reasoning items. */
+  readonly provider: string;
   readonly reasoningDetails: readonly JsonValue[];
 }
 

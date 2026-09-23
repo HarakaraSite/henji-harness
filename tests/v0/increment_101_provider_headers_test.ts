@@ -454,7 +454,10 @@ const openCodeGoChatStream = (options: { usageFirst?: boolean } = {}): string =>
   ].join('');
 };
 
-const chatModel = (stream: string) => {
+const chatModel = (
+  stream: string,
+  onBody?: (body: Record<string, unknown>) => void,
+) => {
   const declaration = chatDeclaration();
   const selection: DeclaredChatModelSelection = {
     provider: 'opencode-go-chat',
@@ -465,13 +468,15 @@ const chatModel = (stream: string) => {
   };
   const physical = createProductionPhysicalIo(undefined, {
     credentialSources: { 'opencode-go-api-key': () => Promise.resolve('opencode-secret') },
-    fetcher: () =>
-      Promise.resolve(
+    fetcher: (_input, init) => {
+      if (onBody !== undefined) onBody(JSON.parse(String(init?.body)));
+      return Promise.resolve(
         new Response(stream, {
           status: 200,
           headers: { 'content-type': 'text/event-stream' },
         }),
-      ),
+      );
+    },
     providerDeclarations: [declaration],
   });
   return physical.createModel('parent', selection);
@@ -513,6 +518,19 @@ Deno.test('Increment 101 chat accepts a terminal frame that carries usage', asyn
     await chatModel(stopStream).generate(request, {}),
     { kind: 'final', text: 'hello' },
   );
+  const observedDeepseekStream = [
+    chunk([{
+      index: 0,
+      finish_reason: 'stop',
+      delta: { role: 'assistant', content: 'こんにちは！' },
+    }], usage),
+    chunk([], usage),
+    'data: [DONE]\n\n',
+  ].join('');
+  assertEquals(
+    await chatModel(observedDeepseekStream).generate(request, {}),
+    { kind: 'final', text: 'こんにちは！' },
+  );
 
   const toolStream = [
     chunk([{
@@ -535,6 +553,102 @@ Deno.test('Increment 101 chat accepts a terminal frame that carries usage', asyn
   if (toolResult.kind === 'tool_calls') {
     assertEquals(toolResult.calls[0].name, 'echo');
   }
+});
+
+Deno.test('Increment 116 glm-5.3 accepts null role on continuation deltas', async () => {
+  const chunk = (delta: Record<string, unknown>, finishReason: string | null) =>
+    `data: ${
+      JSON.stringify({
+        id: 'chatcmpl_glm53_null_role',
+        object: 'chat.completion.chunk',
+        model: 'glm-5.3',
+        choices: [{ index: 0, finish_reason: finishReason, delta }],
+        usage: null,
+      })
+    }\n\n`;
+  const stream = [
+    chunk({ role: 'assistant', content: '', reasoning_content: null }, null),
+    chunk({ role: null, content: '', reasoning_content: 'The' }, null),
+    chunk({ role: null, content: 'こんにちは。', reasoning_content: null }, null),
+    chunk({ role: null, content: '' }, 'stop'),
+    'data: [DONE]\n\n',
+  ].join('');
+  assertEquals(
+    await chatModel(stream).generate(request),
+    { kind: 'final', text: 'こんにちは。' },
+  );
+});
+
+Deno.test('Increment 116 declared Chat keeps only its own reasoning state on the wire', async () => {
+  let body: Record<string, unknown> | undefined;
+  const stream = [
+    `data: ${
+      JSON.stringify({
+        id: 'chatcmpl_reasoning_state',
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            content: 'reply',
+            reasoning_details: [{ type: 'reasoning.text', text: 'new private' }],
+          },
+          finish_reason: 'stop',
+        }],
+      })
+    }\n\n`,
+    'data: [DONE]\n\n',
+  ].join('');
+  const model = chatModel(stream, (value) => body = value);
+  const mixedRequest: ModelRequest = {
+    transcript: [
+      { role: 'user', content: { kind: 'text', text: 'first' } },
+      {
+        role: 'assistant',
+        content: { kind: 'text', text: 'router answer' },
+        providerState: {
+          provider: 'openrouter-chat',
+          reasoningDetails: [{ text: 'foreign private' }],
+        },
+      },
+      { role: 'user', content: { kind: 'text', text: 'next' } },
+    ],
+    tools: [],
+  };
+  const measured = model.measureRequestWire?.(mixedRequest);
+  const result = await model.generate(mixedRequest);
+  assertEquals(result, {
+    kind: 'final',
+    text: 'reply',
+    providerState: {
+      provider: 'opencode-go-chat',
+      reasoningDetails: [{ type: 'reasoning.text', text: 'new private' }],
+    },
+  });
+  const wire = JSON.stringify(body);
+  assert(wire.includes('router answer'));
+  assert(!wire.includes('foreign private'));
+  assertEquals(
+    measured?.messagesBytes,
+    new TextEncoder().encode(JSON.stringify(body?.messages)).length,
+  );
+  assertEquals(measured?.bodyBytes, new TextEncoder().encode(JSON.stringify(body)).length);
+  assert(result.kind === 'final');
+  let continuationBody: Record<string, unknown> | undefined;
+  const continuation = chatModel(stream, (value) => continuationBody = value);
+  await continuation.generate({
+    transcript: [
+      ...mixedRequest.transcript,
+      {
+        role: 'assistant',
+        content: { kind: 'text', text: result.text },
+        providerState: result.providerState,
+      },
+      { role: 'user', content: { kind: 'text', text: 'continue' } },
+    ],
+    tools: [],
+  });
+  assert(JSON.stringify(continuationBody).includes('new private'));
+  assert(!JSON.stringify(continuationBody).includes('foreign private'));
 });
 
 Deno.test('Increment 101 chat rejects a usage-only frame before the terminal frame', async () => {

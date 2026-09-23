@@ -316,6 +316,7 @@ export class ChildRunRegistry {
           nextTurn: 1,
           stateRevision: 1,
           modelSelection: run.model,
+          privateStateFromTurn: 1,
         }),
         onGenerationReplaced: () => {},
       });

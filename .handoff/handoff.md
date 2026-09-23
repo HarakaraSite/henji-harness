@@ -2,6 +2,18 @@
 
 ## Records
 
+### Increment 116 — Chat provider応答と切替後private state（実装・検証・commit・配置完了）
+
+- 状態: DeepSeekの終端usage＋後続usage frameを受理し、provider切替後の古いprivate stateをrequestから
+  除外する実装を完了。実provider確認で見つかった`glm-5.3`の継続delta `role: null`も受理した。
+  隔離XDG／tmuxの4 requestで、DeepSeekのfinal、元Session復帰時のforeign state除外、glm-5.3のfinalを
+  確認。元のDeepSeek失敗応答prefixもオフラインで再生してfinalを確認した。
+- 検証: 旧workspaceの絶対パスが原因で停止した`v0:gate`を、`agent:e2e:live`の相対パス修正後に再実行して
+  exit 0。OpenRouterへの復帰はlive未確認、focused regressionで確認した。
+- 次: なし。
+- 正本: `docs/increments/increment-116.md`。clean commitからbuildしたbinaryを`~/.local/bin/henji`へ配置済み。
+  pushとreleaseは未実施。
+
 ### Increment 113 — codebase構造の単純化review（commit・push・配置完了）
 
 - 状態: Slice 1・terminal artifact bridge・Slice 2〜18を完了。採用修正のfocused検証、必要なproduction TUI

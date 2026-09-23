@@ -6,7 +6,7 @@ import {
   searchModelsFor,
   selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
-import type { Message, ModelRequest } from '../../v0/agent/core/contracts.ts';
+import type { Message, Model, ModelRequest, ModelResult } from '../../v0/agent/core/contracts.ts';
 import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
 import {
   OPENAI_DEFAULT_MODEL_SELECTION,
@@ -17,6 +17,12 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
+import { Registry } from '../../v0/agent/tools/tools.ts';
+import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
+import {
+  WorkerGeneration,
+  type WorkerGenerationPort,
+} from '../../v0/agent/worker/worker_runtime.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import type {
@@ -346,6 +352,92 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
   const thirdWire = JSON.stringify(openRouterBodies[1]);
   assert(thirdWire.includes('openai answer'));
   assert(!thirdWire.includes('resp_increment_15_cross_provider'));
+});
+
+Deno.test('Increment 116 Worker projects private state from the latest provider segment', async () => {
+  const oldRouterState = {
+    provider: 'openrouter-chat',
+    reasoningDetails: [{ text: 'old router private' }],
+  };
+  const openAIState = { provider: 'openai-responses', replayItems: [{ id: 'foreign private' }] };
+  const currentRouterState = {
+    provider: 'openrouter-chat',
+    reasoningDetails: [{ text: 'current router private' }],
+  };
+  const initialTranscript: Message[] = [
+    { role: 'user', content: { kind: 'text', text: 'turn one' } },
+    {
+      role: 'assistant',
+      content: { kind: 'text', text: 'router one' },
+      providerState: oldRouterState,
+    },
+    { role: 'user', content: { kind: 'text', text: 'turn two' } },
+    {
+      role: 'assistant',
+      content: { kind: 'text', text: 'openai two' },
+      providerState: openAIState,
+    },
+    { role: 'user', content: { kind: 'text', text: 'turn three' } },
+    {
+      role: 'assistant',
+      content: { kind: 'text', text: 'router three' },
+      providerState: currentRouterState,
+    },
+  ];
+  let seenRequest: ModelRequest | undefined;
+  const model: Model = {
+    generate(request): ModelResult {
+      seenRequest = structuredClone(request);
+      return { kind: 'final', text: 'router four' };
+    },
+  };
+  const composition = {
+    role: 'parent',
+    model,
+    registry: new Registry([]),
+    maxSteps: 1,
+    manifest: { role: 'parent', maxSteps: 1, profileId: 'provider-free', resources: [] },
+  } as unknown as WorkerAgentComposition;
+  let committed: readonly Message[] | undefined;
+  const port: WorkerGenerationPort = {
+    runtimeEvent: () => 1,
+    effectObservation: () => 1,
+    checkpointProposal: () => Promise.resolve(false),
+    commitProposal: (_correlation, proposal) => {
+      committed = structuredClone(proposal.transcript);
+      return Promise.resolve(true);
+    },
+    turnFailed: (_correlation, outcome) => {
+      throw new Error(`unexpected turn failure: ${outcome.error ?? outcome.stopReason}`);
+    },
+  };
+  const generation = new WorkerGeneration(
+    composition,
+    '70000000-0000-4000-8000-000000000116',
+    port,
+    initialTranscript,
+    4,
+  );
+  assert(generation.selectRootModel(ROOT_DEFAULT_MODEL_SELECTION, 3));
+  await generation.runTurn({
+    session: '70000000-0000-4000-8000-000000000116',
+    instanceCorrelation: 'increment-116-instance',
+    workerGeneration: 'increment-116-generation',
+    baseStateRevision: 1,
+    command: 'turn-4',
+  }, 'turn four');
+  assert(seenRequest !== undefined);
+  assertEquals(
+    seenRequest.transcript.slice(0, 6).map((message) =>
+      message.role === 'assistant' ? message.providerState : undefined
+    ),
+    [undefined, undefined, undefined, undefined, undefined, currentRouterState],
+  );
+  assert(JSON.stringify(seenRequest).includes('router one'));
+  assert(JSON.stringify(seenRequest).includes('openai two'));
+  assert(!JSON.stringify(seenRequest).includes('old router private'));
+  assert(!JSON.stringify(seenRequest).includes('foreign private'));
+  assertEquals(committed?.[1], initialTranscript[1]);
 });
 
 Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Session', async () => {

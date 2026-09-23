@@ -358,6 +358,7 @@ const createGeneration = async (
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
   toolDefinitions: readonly AgentToolDefinitionModule[] = [],
+  privateStateFromTurn = 1,
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
     throw new Error('Worker Definition is unavailable');
@@ -482,6 +483,7 @@ const createGeneration = async (
       context: contextSnapshot,
     }),
     reportAuxiliaryStage,
+    privateStateFromTurn,
   );
 };
 
@@ -633,6 +635,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.baseInstruction,
             command.providerDeclarations ?? [],
             loadedTools,
+            command.privateStateFromTurn,
           );
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -673,7 +676,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
     case 'select_model': {
       const accepted = generation !== undefined &&
         isModelSelection(command.selection) &&
-        generation.selectRootModel(command.selection);
+        generation.selectRootModel(command.selection, command.privateStateFromTurn);
       const credentialAvailability = accepted
         ? await generation?.rootCredentialAvailability()
         : undefined;

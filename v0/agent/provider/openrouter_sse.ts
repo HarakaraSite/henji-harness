@@ -157,7 +157,7 @@ interface StreamAssembly {
   progressBytes: number;
   lastReported?: string;
   terminal?: 'stop' | 'tool_calls';
-  usageSeen: boolean;
+  postTerminalUsageSeen: boolean;
   result?: ModelResult;
 }
 
@@ -279,6 +279,7 @@ const processSsePayload = (
   payload: string,
   report: ModelGenerateOptions['reportAssistantProgress'],
   observer?: StreamTextAccountingObserver,
+  providerId = 'openrouter-chat',
 ): void => {
   if (payload === '[DONE]') {
     if (assembly.terminal === undefined || assembly.result === undefined) {
@@ -323,13 +324,13 @@ const processSsePayload = (
     if (assembly.terminal === undefined) {
       throw sseResponseError('provider usage frame arrived before terminal', 'invalid_usage_frame');
     }
-    if (assembly.usageSeen || !isStreamUsage(object.usage)) {
+    if (assembly.postTerminalUsageSeen || !isStreamUsage(object.usage)) {
       throw sseResponseError(
         'provider response contained data after terminal',
         'data_after_terminal',
       );
     }
-    assembly.usageSeen = true;
+    assembly.postTerminalUsageSeen = true;
     return;
   }
   if (!Array.isArray(choices) || choices.length !== 1) {
@@ -392,7 +393,10 @@ const processSsePayload = (
   ) {
     throw sseResponseError('provider response content was unsupported', 'unsupported_delta_shape');
   }
-  if (hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant') {
+  if (
+    hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant' &&
+    deltaObject.role !== null
+  ) {
     throw sseResponseError('provider response role was invalid', 'unsupported_delta_shape');
   }
   const toolCalls = deltaObject.tool_calls;
@@ -411,17 +415,18 @@ const processSsePayload = (
     // Only one content-free post-terminal usage frame is accepted. It has no effect on the
     // authoritative result and cannot consume assistant progress bounds.
     if (
-      assembly.usageSeen || !hasUsage || !isStreamUsage(object.usage) ||
+      assembly.postTerminalUsageSeen || !hasUsage || !isStreamUsage(object.usage) ||
       finishReason !== assembly.terminal || hasContent || hasToolCalls ||
       hasOwn(deltaObject, 'content') && content !== '' ||
-      hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant'
+      hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant' &&
+        deltaObject.role !== null
     ) {
       throw sseResponseError(
         'provider response contained data after terminal',
         'data_after_terminal',
       );
     }
-    assembly.usageSeen = true;
+    assembly.postTerminalUsageSeen = true;
     return;
   }
 
@@ -487,13 +492,12 @@ const processSsePayload = (
       );
     }
     assembly.terminal = 'stop';
-    if (hasUsage) assembly.usageSeen = true;
     assembly.result = {
       kind: 'final',
       text: assembly.textParts.join(''),
       ...(assembly.reasoningDetails.length === 0 ? {} : {
         providerState: {
-          provider: 'openrouter-chat' as const,
+          provider: providerId,
           reasoningDetails: structuredClone(assembly.reasoningDetails),
         },
       }),
@@ -506,13 +510,12 @@ const processSsePayload = (
       );
     }
     assembly.terminal = 'tool_calls';
-    if (hasUsage) assembly.usageSeen = true;
     const result = completeStreamTools(assembly);
     const mixed = assembly.sawText ? { ...result, text: assembly.textParts.join('') } : result;
     assembly.result = assembly.reasoningDetails.length === 0 ? mixed : {
       ...mixed,
       providerState: {
-        provider: 'openrouter-chat' as const,
+        provider: providerId,
         reasoningDetails: structuredClone(assembly.reasoningDetails),
       },
     };
@@ -526,6 +529,7 @@ export const readSseResponse = async (
   isTimedOut: () => boolean,
   observer?: StreamTextAccountingObserver,
   evidence?: ProviderEvidenceRecorder,
+  providerId = 'openrouter-chat',
 ): Promise<ModelResult> => {
   if (!response.body) {
     throw sseResponseError(
@@ -550,7 +554,7 @@ export const readSseResponse = async (
     liveFrozen: false,
     progressText: '',
     progressBytes: 0,
-    usageSeen: false,
+    postTerminalUsageSeen: false,
   };
   const framer = new SseFramer((payload, rawFrame) => {
     let parsed: unknown;
@@ -574,7 +578,7 @@ export const readSseResponse = async (
     });
     try {
       const terminalBefore = assembly.terminal;
-      processSsePayload(assembly, payload, report, observer);
+      processSsePayload(assembly, payload, report, observer, providerId);
       if (terminalBefore === undefined && assembly.terminal !== undefined) {
         evidence?.recordParserTransition({ kind: 'terminal', reason: assembly.terminal });
       }

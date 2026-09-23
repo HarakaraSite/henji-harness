@@ -103,6 +103,7 @@ export type WorkerHostCommand =
     readonly nextTurn?: number;
     readonly checkpoint?: SemanticContextCheckpointV1;
     readonly modelSelection?: ModelSelection;
+    readonly privateStateFromTurn?: number;
     readonly baseInstruction?: SelectedHenjiBaseInstruction;
     readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   }
@@ -110,6 +111,7 @@ export type WorkerHostCommand =
     readonly kind: 'select_model';
     readonly correlation: WorkerCorrelation;
     readonly selection: ModelSelection;
+    readonly privateStateFromTurn: number;
   }
   | {
     readonly kind: 'turn';

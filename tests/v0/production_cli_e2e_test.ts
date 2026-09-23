@@ -403,7 +403,12 @@ Deno.test('offline gate cannot reach the production E2E live task', async () => 
   const offline = config.tasks['agent:e2e:test'];
   assert(typeof live === 'string');
   assert(typeof offline === 'string');
-  assert(live.includes(PRODUCTION_CLI_LAUNCHER));
+  const allowedLauncher = live.match(/(?:^|\s)--allow-run=(\S+)/u)?.[1];
+  assert(allowedLauncher === './dist/henji');
+  assert(
+    new URL(allowedLauncher, new URL('../../', import.meta.url)).pathname ===
+      PRODUCTION_CLI_LAUNCHER,
+  );
   assert(live.includes(PRODUCTION_CLI_E2E_CONFIRMATION) === false);
   assert(!live.includes('--allow-net'));
   assert(!live.includes('openrouter-api-key'));

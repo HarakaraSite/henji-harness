@@ -109,7 +109,7 @@ const toolResultWire = (
   return { role: 'tool', tool_call_id: result.callId, content: result.text };
 };
 
-const encodeMessage = (message: Message): WireMessage[] | undefined => {
+const encodeMessage = (message: Message, providerId: string): WireMessage[] | undefined => {
   if (typeof message !== 'object' || message === null) return undefined;
   if (message.role === 'user') {
     const content = message.content;
@@ -121,13 +121,17 @@ const encodeMessage = (message: Message): WireMessage[] | undefined => {
   }
   if (message.role === 'assistant') {
     const state = message.providerState;
-    const reasoningDetails = state !== undefined && 'reasoningDetails' in state &&
+    const reasoningDetails = state !== undefined && state.provider === providerId &&
+        'reasoningDetails' in state &&
         Array.isArray(state.reasoningDetails) &&
         state.reasoningDetails.length > 0 &&
         state.reasoningDetails.every(isJsonValue)
       ? state.reasoningDetails
       : undefined;
-    if (state !== undefined && 'reasoningDetails' in state && reasoningDetails === undefined) {
+    if (
+      state !== undefined && state.provider === providerId &&
+      'reasoningDetails' in state && reasoningDetails === undefined
+    ) {
       return undefined;
     }
     const content = message.content;
@@ -190,6 +194,7 @@ const encodeTool = (tool: ToolDefinition): WireFunctionTool | undefined => {
 export const encodeRequest = (
   request: ModelRequest,
   enforceMessageLimit = true,
+  providerId = 'openrouter-chat',
 ): { messages: WireMessage[]; tools: WireFunctionTool[] } => {
   if (
     typeof request !== 'object' || request === null ||
@@ -210,7 +215,7 @@ export const encodeRequest = (
     messages.push({ role: 'system', content: request.systemInstruction });
   }
   for (const message of request.transcript) {
-    const encoded = encodeMessage(message);
+    const encoded = encodeMessage(message, providerId);
     if (!encoded) throw invalidRequestError('model transcript message is invalid');
     messages.push(...encoded);
   }
@@ -239,13 +244,14 @@ export const measureModelRequestWire = (
   request: ModelRequest,
   profile: OpenRouterAgentProfile = PRODUCTION_PROFILE,
   responseMode: OpenRouterResponseMode = 'sse',
+  providerId = 'openrouter-chat',
 ): {
   readonly messages: readonly unknown[];
   readonly tools: readonly unknown[];
   readonly messagesBytes: number;
   readonly bodyBytes: number;
 } => {
-  const encoded = encodeRequest(request, false);
+  const encoded = encodeRequest(request, false, providerId);
   const body = safeJson({
     model: profile.model,
     messages: encoded.messages,

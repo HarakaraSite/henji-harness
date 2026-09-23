@@ -110,8 +110,9 @@ const validateMessage = (value: unknown): value is Message => {
     const replayItems = stateRecord?.replayItems;
     if (hasProviderState) {
       if (stateRecord === undefined) return false;
-      if (stateRecord.provider === 'openrouter-chat') {
+      if (Object.hasOwn(stateRecord, 'reasoningDetails')) {
         if (
+          typeof stateRecord.provider !== 'string' || stateRecord.provider.length === 0 ||
           !ownKeys(stateRecord, ['provider', 'reasoningDetails']) ||
           !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
           !reasoningDetails.every(isFiniteJson)

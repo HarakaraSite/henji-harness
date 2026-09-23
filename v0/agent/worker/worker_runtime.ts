@@ -149,6 +149,7 @@ export class WorkerGeneration {
   private activeSteering: SteeringOwner | null = null;
   private active = false;
   private rootModelSelection: ModelSelection;
+  private privateStateFromTurn: number;
 
   constructor(
     private readonly composition: WorkerAgentComposition,
@@ -172,6 +173,7 @@ export class WorkerGeneration {
       readonly context?: WorkerContextSnapshot;
     } = { skillNames: [] },
     private readonly reportAuxiliaryStage?: (stage: WorkerStageName) => void,
+    initialPrivateStateFromTurn = 1,
   ) {
     this.committedTranscript = snapshotMessages(initialTranscript);
     this.nextTurn = initialNextTurn;
@@ -179,6 +181,7 @@ export class WorkerGeneration {
       ? undefined
       : structuredClone(initialCheckpoint);
     this.rootModelSelection = structuredClone(initialModelSelection);
+    this.privateStateFromTurn = initialPrivateStateFromTurn;
   }
 
   get manifest(): WorkerAgentComposition['manifest'] {
@@ -195,10 +198,11 @@ export class WorkerGeneration {
     });
   }
 
-  selectRootModel(selection: ModelSelection): boolean {
+  selectRootModel(selection: ModelSelection, privateStateFromTurn = 1): boolean {
     if (this.active) return false;
     this.replaceRootModel(selection);
     this.rootModelSelection = structuredClone(selection);
+    this.privateStateFromTurn = privateStateFromTurn;
     return true;
   }
 
@@ -852,6 +856,27 @@ export class WorkerGeneration {
       let projected = request;
       let projectedTranscriptSources = sources.transcript;
       let currentUserMessageIndex = this.committedTranscript.length;
+      const privateStateCutoff = this.privateStateFromTurn === 1
+        ? 0
+        : this.privateStateFromTurn === this.nextTurn
+        ? this.committedTranscript.length
+        : committedHistoryIndex?.turns[this.privateStateFromTurn - 2]?.end;
+      if (privateStateCutoff === undefined) {
+        throw new Error('provider switch boundary is invalid');
+      }
+      if (privateStateCutoff > 0) {
+        projected = {
+          ...projected,
+          transcript: projected.transcript.map((message, index) => {
+            if (
+              index >= privateStateCutoff || message.role !== 'assistant' ||
+              message.providerState === undefined
+            ) return message;
+            const { providerState: _privateState, ...semanticMessage } = message;
+            return semanticMessage;
+          }),
+        };
+      }
       if (this.checkpoint !== undefined) {
         const coveredEnd = committedHistoryIndex
           ?.turns[this.checkpoint.coveredThroughTurn - 1]?.end;
