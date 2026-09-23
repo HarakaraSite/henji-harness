@@ -1628,4 +1628,18 @@ metricsは構造として残るが、現callerの同一owner配線、単一実co
 全Slice収束後の安定候補に対してcoordinating ownerがauthoritative `deno task --config deno.v0.json v0:gate`を
 **一回**実行し、exit 0。`v0:check`、`v0:fmt`、`v0:lint`、登録済み`v0:test`が成功した。
 `git diff --check`も成功。Slice 14・15の隔離XDG production TUI実経路確認は各Slice結果に記録済み。
-実provider call、credential読取り、compiled binary build／配置、commit、pushは行っていない。
+実provider callとcredential読取りは行っていない。commit・push・binary配置は下記に記録する。
+
+### Commit・push・binary配置
+
+- 実装・test・計画記録をclean commit `6a9e2324916f390b9c8716b35955c2546f5cf5c8`へまとめ、
+  `origin/main`へpushした。push前のremote先端は`8f57788e`で、途中のIncrement 112／113 commitも含めて
+  `6a9e2324`まで進んだ。
+- Deno 2.9.7でrepository task `henji:compile`をclean commitから実行し、`dist/henji`をbuildした。
+  `--version`はproduct `0.4.0`、build `fa0f7b9ef773fc402deb0bd43fc74a4fb66915e267c0d9cea83cd5537611c72d`、
+  source `6a9e2324916f390b9c8716b35955c2546f5cf5c8`、embedded runtime
+  `b9d5cc74c199dbb30216ae700682a3d6c9cef215ee8f204740fef7a66bc74db6`を返した。
+- 同じdirectoryの一時fileから`~/.local/bin/henji`へ原子的に置換した。build artifactと配置binaryはbyte一致し、
+  配置binaryのSHA-256は`f241920e59a7fc63bb0ceaa595b4824269b3b8feda5a307a76157a0f5fd33049`。
+  配置後の`--version`も上記identityと一致した。隔離XDGの`henji sessions list`／`henji history`は
+  ともにexit 0で、実provider callは行っていない。

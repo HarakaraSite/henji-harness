@@ -2,15 +2,15 @@
 
 ## Records
 
-### Increment 113 — codebase構造の単純化review（commit・push・配置中）
+### Increment 113 — codebase構造の単純化review（commit・push・配置完了）
 
 - 状態: Slice 1・terminal artifact bridge・Slice 2〜18を完了。採用修正のfocused検証、必要なproduction TUI
   確認、同じgpt-6-astra xhigh reviewerの限定再reviewと横断reviewを終え、追加findingなし。安定候補の
   authoritative `v0:gate`は一回でexit 0、`git diff --check`も成功。
-- 次: 利用者の明示指示に従い、本Incrementをcommitし、clean commitからbuild・配置してpushする。
+- 次: なし。
 - 正本: `docs/increments/increment-113.md`。
-- 注意: 本Incrementの修正・記録は未commitのworking tree差分。実provider call、credential読取り、
-  binary build／配置、pushは行っていない。
+- 注意: 実装commit `6a9e2324`を`origin/main`へpush済み。clean code commitからbuildしたbinaryを
+  `~/.local/bin/henji`へ配置済み。実provider callとcredential読取りは行っていない。
 
 ### Increment 112 — async child構造の単純化（実装・検証・commit完了、push未実施）
 
@@ -663,9 +663,10 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.4.0`。Increment 104変更を含むclean commit `bd919672…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `48a59fd3…`、file SHA-256 `ace5e0b7…`、embedded runtime
-  `2be598af…`）。`scripts/build_henji.ts`の`EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
+- binary: `0.4.0`。Increment 113のclean code commit `6a9e2324…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `fa0f7b9e…`、file SHA-256 `f241920e…`、embedded runtime
+  `b9d5cc74…`）。隔離XDGの`sessions list`／`history`はexit 0。`scripts/build_henji.ts`の
+  `EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
   （source identity `user/instruction.md`）。雛形は`docs/operations/base-instruction-template.md`。managed
