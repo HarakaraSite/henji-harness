@@ -17,6 +17,7 @@ import {
   renderStreamEvent,
   serializeCliRunRecord,
 } from './run_events.ts';
+import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 export const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
@@ -61,6 +62,7 @@ export interface RuntimeCliDependencies {
   ) => Promise<HeadlessWorkerRun>;
   readonly dataRoot?: string;
   readonly configRoot?: string;
+  readonly runtimePaths?: () => Readonly<{ dataRoot: string; configRoot: string }>;
   readonly writeStdout?: OutputWriter;
   readonly writeStderr?: OutputWriter;
 }
@@ -297,13 +299,22 @@ export const main = async (
     if (modeInvalid) throw invalidInput();
     const parsed = parseTaskArg(args.filter((argument) => !OUTPUT_FLAGS.has(argument)));
     // Resolve before probing or reading stdin and before any runtime/workspace construction.
+    const defaultRoot = parsed.rawAgentName === undefined &&
+      parsed.rawDefinitionRevision === undefined;
+    const paths = defaultRoot &&
+        (dependencies.dataRoot === undefined || dependencies.configRoot === undefined)
+      ? dependencies.runtimePaths?.() ??
+        (dependencies.run === undefined ? resolveRuntimePaths() : undefined)
+      : undefined;
+    const dataRoot = dependencies.dataRoot ?? paths?.dataRoot;
+    const configRoot = dependencies.configRoot ?? paths?.configRoot;
     let selection: HostDefinitionSelection;
     try {
       selection = await resolveRequestedDefinition(
         parsed.rawAgentName,
         parsed.rawDefinitionRevision,
-        dependencies.dataRoot,
-        dependencies.configRoot,
+        dataRoot,
+        configRoot,
       );
     } catch (error) {
       if (error instanceof DefinitionStartupError) throw error;
@@ -351,8 +362,8 @@ export const main = async (
     const runner = dependencies.run ??
       ((input, selected, eventSink) =>
         runHeadlessWorker(input, selected, {
-          dataRoot: dependencies.dataRoot,
-          configRoot: dependencies.configRoot,
+          dataRoot,
+          configRoot,
           eventSink,
         }));
     const run = await runner(task, selection, sink);

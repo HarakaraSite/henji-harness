@@ -14,6 +14,7 @@ import {
   DefinitionStartupError,
   resolveRequestedDefinition,
 } from '../../v0/agent/definitions/definition_selection.ts';
+import { main as runtimeMain } from '../../v0/agent/cli/runtime_cli.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import {
   roleDefaultModelSelection,
@@ -221,6 +222,58 @@ Deno.test('Increment 65 resolves the agent:default binding as the root Definitio
       configRoot,
     );
     assertEquals(overridden.ref, explicit.manifest.logicalRef);
+  } finally {
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 115 headless default selection uses the runtime XDG roots', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-increment-115-headless-root-' });
+  const dataRoot = `${root}/data`;
+  const configRoot = `${root}/config`;
+  const emptyConfigRoot = `${root}/empty-config`;
+  try {
+    const store = new ManagedDefinitionStore({ dataRoot });
+    const bound = await installDefinition(store, `${root}/bound`, 'example/headless-bound');
+    await writeBindings(configRoot, {
+      schemaVersion: 1,
+      bindings: { 'agent:default': definitionSelector(bound) },
+    });
+    const selected: { kind: string; ref: unknown }[] = [];
+    let selectedConfigRoot = configRoot;
+    const dependencies = {
+      stdinIsTerminal: () => false,
+      readStdin: () => Promise.resolve(new TextEncoder().encode('headless task')),
+      runtimePaths: () => ({ dataRoot, configRoot: selectedConfigRoot }),
+      run: (task: string, selection: { kind: string; ref: unknown }) => {
+        selected.push({ kind: selection.kind, ref: selection.ref });
+        return Promise.resolve({
+          outcome: {
+            ok: true as const,
+            task,
+            outcome: 'final' as const,
+            stopReason: 'final' as const,
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          },
+          requestCount: 0,
+        });
+      },
+      writeStdout: () => {},
+      writeStderr: () => {},
+    };
+    assertEquals(await runtimeMain([], dependencies), 0);
+    assertEquals(selected[0], { kind: 'managed', ref: bound.manifest.logicalRef });
+
+    assertEquals(await runtimeMain(['--agent', 'default'], dependencies), 0);
+    assertEquals(selected[1]?.kind, 'builtin');
+
+    selectedConfigRoot = emptyConfigRoot;
+    assertEquals(await runtimeMain([], dependencies), 0);
+    assertEquals(selected[2]?.kind, 'builtin');
   } finally {
     await Deno.remove(root, { recursive: true });
   }
