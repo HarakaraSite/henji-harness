@@ -30,7 +30,6 @@ import type {
   SessionNavigationHost,
 } from '../session/session_navigation.ts';
 import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
-import { historyPageWindow, type SessionHistoryPage } from '../session/session_history.ts';
 import {
   type DefinitionRevisionRef,
   launcherStateRoot,
@@ -207,7 +206,6 @@ export interface TuiActiveSession extends NavigationSessionLike {
     | 'busy'
     | 'unavailable'
     | Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'>;
-  historyPage(page: number, turn?: number, rows?: number): SessionHistoryPage | undefined;
   requestCount(): number;
   close(): Promise<void>;
 }
@@ -329,16 +327,6 @@ class LazyWorkerSession implements TuiActiveSession {
 
   async renameTitle(value: string): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'> {
     return (await this.ensureStarted()).renameTitle(value);
-  }
-
-  historyPage(page: number, turn?: number, rows = 16): SessionHistoryPage | undefined {
-    if (this.host !== undefined) return this.host.historyPage(page, turn, rows);
-    return historyPageWindow(
-      this.record.transcript,
-      turn ?? this.record.nextTurn - 1,
-      page,
-      { sessionId: this.handle.id, agent: this.record.agent, rows },
-    );
   }
 
   requestCount(): number {
@@ -776,9 +764,6 @@ export const createWorkerSession = async (
           await targetHandle.close();
           throw error;
         }
-      },
-      historyPage(page: number, turn?: number, rows?: number) {
-        return Promise.resolve(currentHost.historyPage(page, turn, rows));
       },
       currentPosition: position,
     } satisfies SessionNavigationHost;

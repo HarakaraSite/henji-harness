@@ -9,7 +9,6 @@ import type {
   NavigationListing,
   NavigationPosition,
 } from '../agent/session/session_navigation.ts';
-import type { SessionHistoryPage } from '../agent/session/session_history.ts';
 import {
   boundedPresentationText,
   type PresentationAssistantMessage,
@@ -19,7 +18,6 @@ import {
   type PresentationDiagnosticDurability,
   type PresentationDiagnosticPersistenceError,
   type PresentationFailureDiagnostic,
-  type PresentationHistoryPage,
   type PresentationJson,
   type PresentationMessage,
   type PresentationNavigationListing,
@@ -146,17 +144,6 @@ export const outcomeReason = (value: unknown): PresentationOutcomeReason => {
 };
 export const agentId = (value: unknown): 'default' | 'planner' => {
   if (value !== 'default' && value !== 'planner') {
-    throw new PresentationDeliveryError();
-  }
-  return value;
-};
-export const historyRole = (
-  value: unknown,
-): PresentationHistoryPage['entries'][number]['role'] => {
-  if (
-    value !== 'user' && value !== 'steer' && value !== 'assistant' &&
-    value !== 'tool>'
-  ) {
     throw new PresentationDeliveryError();
   }
   return value;
@@ -334,30 +321,6 @@ export const listing = (value: NavigationListing): PresentationNavigationListing
     )),
     skippedInvalid: count(value.skippedInvalid),
   });
-
-export const history = (value: SessionHistoryPage): PresentationHistoryPage =>
-  (value.entries.length > 16 || value.sourceBytes > 8 * 1024)
-    ? (() => {
-      throw new PresentationDeliveryError();
-    })()
-    : Object.freeze({
-      ...(value.sessionId === undefined ? {} : { sessionId: text(value.sessionId) }),
-      ...(value.agent === undefined ? {} : { agent: agentId(value.agent) }),
-      turn: count(value.turn),
-      totalTurns: count(value.totalTurns),
-      page: count(value.page),
-      pageCount: count(value.pageCount),
-      sourceBytes: count(value.sourceBytes),
-      omitted: boolean(value.omitted),
-      entries: Object.freeze(value.entries.map((entry) =>
-        Object.freeze({
-          turn: count(entry.turn),
-          role: historyRole(entry.role),
-          messageIndex: count(entry.messageIndex),
-          text: text(entry.text),
-        })
-      )),
-    });
 
 export const preview = (value: ContextRecoveryPreview): PresentationContextPreview =>
   Object.freeze({

@@ -30,8 +30,7 @@ CREATE TABLE store_metadata (
 );
 CREATE TABLE session_heads (
   session_id TEXT PRIMARY KEY,
-  revision INTEGER NOT NULL,
-  canonical_execution_id TEXT
+  revision INTEGER NOT NULL
 );
 CREATE TABLE executions (
   execution_id TEXT PRIMARY KEY,
@@ -113,24 +112,6 @@ CREATE TABLE diagnostic_attachments (
   metadata_json TEXT NOT NULL,
   content_digest TEXT REFERENCES immutable_contents(content_digest)
 );
-CREATE TABLE projection_outbox (
-  occurrence_id TEXT PRIMARY KEY REFERENCES semantic_occurrences(occurrence_id) ON DELETE CASCADE,
-  execution_id TEXT NOT NULL,
-  status TEXT NOT NULL
-);
-CREATE TABLE history_projection_entries (
-  occurrence_id TEXT PRIMARY KEY REFERENCES semantic_occurrences(occurrence_id) ON DELETE CASCADE,
-  execution_id TEXT NOT NULL,
-  projection_version INTEGER NOT NULL,
-  search_text TEXT NOT NULL
-);
-CREATE TABLE canonical_turns (
-  session_id TEXT NOT NULL REFERENCES session_heads(session_id),
-  turn INTEGER NOT NULL,
-  execution_id TEXT NOT NULL UNIQUE REFERENCES executions(execution_id),
-  session_revision INTEGER NOT NULL,
-  PRIMARY KEY(session_id, turn)
-);
 CREATE TABLE sessions (
   session_id TEXT PRIMARY KEY,
   workspace_root TEXT NOT NULL,
@@ -154,15 +135,6 @@ CREATE TABLE session_messages (
   message_json TEXT NOT NULL,
   PRIMARY KEY(session_id, message_ordinal)
 );
-CREATE TABLE session_message_projection_outbox (
-  session_id TEXT NOT NULL,
-  message_ordinal INTEGER NOT NULL,
-  execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
-  status TEXT NOT NULL,
-  PRIMARY KEY(session_id, message_ordinal),
-  FOREIGN KEY(session_id, message_ordinal)
-    REFERENCES session_messages(session_id, message_ordinal) ON DELETE CASCADE
-);
 CREATE TABLE session_model_changes (
   session_id TEXT NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE,
   change_ordinal INTEGER NOT NULL,
@@ -178,7 +150,7 @@ CREATE TABLE session_turns (
   model_json TEXT NOT NULL,
   build_json TEXT NOT NULL,
   definition_json TEXT NOT NULL,
-  execution_id TEXT,
+  execution_id TEXT UNIQUE REFERENCES executions(execution_id),
   PRIMARY KEY(session_id, turn_ordinal),
   UNIQUE(session_id, turn_number)
 );
@@ -187,14 +159,6 @@ CREATE TABLE execution_messages (
   message_ordinal INTEGER NOT NULL,
   message_json TEXT NOT NULL,
   PRIMARY KEY(execution_id, message_ordinal)
-);
-CREATE TABLE execution_message_projection_outbox (
-  execution_id TEXT NOT NULL,
-  message_ordinal INTEGER NOT NULL,
-  status TEXT NOT NULL,
-  PRIMARY KEY(execution_id, message_ordinal),
-  FOREIGN KEY(execution_id, message_ordinal)
-    REFERENCES execution_messages(execution_id, message_ordinal) ON DELETE CASCADE
 );
 CREATE TABLE execution_context_manifests (
   execution_id TEXT PRIMARY KEY REFERENCES executions(execution_id) ON DELETE CASCADE,
@@ -213,24 +177,9 @@ CREATE TABLE recall_relations (
   occurrence_id TEXT NOT NULL UNIQUE REFERENCES semantic_occurrences(occurrence_id),
   PRIMARY KEY(source_execution_id, target_execution_id)
 );
-CREATE TABLE human_history_entries (
-  entry_id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,
-  execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
-  turn_number INTEGER NOT NULL,
-  attempt INTEGER NOT NULL,
-  kind TEXT NOT NULL,
-  label TEXT NOT NULL,
-  preview_text TEXT NOT NULL,
-  detail_id TEXT NOT NULL,
-  search_text TEXT NOT NULL,
-  projection_version INTEGER NOT NULL
-);
-CREATE INDEX human_history_entries_page
-  ON human_history_entries(session_id, turn_number, execution_id, entry_id);
 INSERT INTO store_metadata(singleton, schema_version, created_at)
-VALUES(1, 8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-PRAGMA user_version = 8;
+VALUES(1, 9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+PRAGMA user_version = 9;
 `;
 
 export type HistoryV7PrototypeFaultPhase = 'after_occurrences' | 'before_commit';
@@ -286,13 +235,6 @@ export interface HistoryV7DiagnosticAttachment {
   readonly coverage: Exclude<HistoryV7DiagnosticCoverage, 'not_requested'>;
   readonly metadata: JsonValue;
   readonly content?: Uint8Array;
-}
-
-export interface HistoryV7ProjectionEntry {
-  readonly occurrenceId: string;
-  readonly executionId: string;
-  readonly version: number;
-  readonly text: string;
 }
 
 export class SqliteHistoryV7Prototype {
@@ -376,8 +318,8 @@ export class SqliteHistoryV7Prototype {
     }>,
   ): void {
     this.#db.prepare(`
-      INSERT INTO session_heads(session_id, revision, canonical_execution_id)
-      VALUES(?, ?, NULL) ON CONFLICT(session_id) DO NOTHING
+      INSERT INTO session_heads(session_id, revision)
+      VALUES(?, ?) ON CONFLICT(session_id) DO NOTHING
     `).run(input.sessionId, input.baseRevision);
     const session = this.#row(
       'SELECT revision FROM session_heads WHERE session_id=?',
@@ -554,13 +496,6 @@ export class SqliteHistoryV7Prototype {
             WHERE execution_id=? AND unresolved_mandatory_count>=?
           `).run(row.count, row.execution_id, row.count);
         }
-        const projectsToHumanHistory = occurrence.kind !== 'context_item';
-        if (projectsToHumanHistory) {
-          this.#db.prepare(`
-            INSERT INTO projection_outbox(occurrence_id, execution_id, status)
-            VALUES(?, ?, 'pending')
-          `).run(occurrence.occurrenceId, executionId);
-        }
         cost = {
           ...cost,
           serializedBytes: cost.serializedBytes + payloadBytes.byteLength,
@@ -568,7 +503,6 @@ export class SqliteHistoryV7Prototype {
           contentDigestCalls: cost.contentDigestCalls + (occurrence.content === undefined ? 0 : 1),
           newOccurrences: cost.newOccurrences + 1,
           newRelations: cost.newRelations + (occurrence.relations?.length ?? 0),
-          projectionOutboxRows: cost.projectionOutboxRows + (projectsToHumanHistory ? 1 : 0),
         };
       }
       this.#fault?.('after_occurrences');
@@ -654,7 +588,7 @@ export class SqliteHistoryV7Prototype {
     return emptyHistoryV7OperationCost();
   }
 
-  adoptCanonical(executionId: string, turn: number): void {
+  adoptCanonical(executionId: string): void {
     this.#transaction(() => {
       const state = this.#row('SELECT * FROM executions WHERE execution_id=?', executionId);
       if (state.lifecycle !== 'settled' || state.outcome !== 'completed') {
@@ -669,55 +603,11 @@ export class SqliteHistoryV7Prototype {
       }
       const revision = Number(state.base_revision) + 1;
       this.#db.prepare(`
-        INSERT INTO canonical_turns(session_id, turn, execution_id, session_revision)
-        VALUES(?, ?, ?, ?)
-      `).run(state.session_id, turn, executionId, revision);
-      this.#db.prepare(`
-        UPDATE session_heads SET revision=?, canonical_execution_id=? WHERE session_id=?
-      `).run(revision, executionId, state.session_id);
+        UPDATE session_heads SET revision=? WHERE session_id=?
+      `).run(revision, state.session_id);
       this.#db.prepare(`
         UPDATE executions SET adoption='canonical' WHERE execution_id=?
       `).run(executionId);
-    });
-  }
-
-  drainProjection(
-    limit: number,
-    project: (occurrence: HistoryV7SemanticOccurrence) => string,
-  ): number {
-    if (!Number.isSafeInteger(limit) || limit < 1) throw new TypeError('invalid projection limit');
-    const pending = this.#db.prepare(`
-      SELECT occurrence_id FROM projection_outbox WHERE status='pending'
-      ORDER BY rowid LIMIT ?
-    `).all(limit) as Row[];
-    let completed = 0;
-    for (const item of pending) {
-      const occurrence = this.readOccurrence(String(item.occurrence_id));
-      const text = project(occurrence);
-      this.#transaction(() => {
-        this.#db.prepare(`
-          INSERT INTO history_projection_entries(
-            occurrence_id, execution_id, projection_version, search_text
-          ) VALUES(?, ?, 1, ?)
-        `).run(occurrence.occurrenceId, occurrence.executionId, text);
-        this.#db.prepare(`
-          UPDATE projection_outbox SET status='complete' WHERE occurrence_id=?
-        `).run(occurrence.occurrenceId);
-      });
-      completed += 1;
-    }
-    return completed;
-  }
-
-  markProjectionStale(occurrenceId: string): void {
-    this.#transaction(() => {
-      this.#db.prepare(
-        'DELETE FROM history_projection_entries WHERE occurrence_id=?',
-      ).run(occurrenceId);
-      const result = this.#db.prepare(`
-        UPDATE projection_outbox SET status='pending' WHERE occurrence_id=?
-      `).run(occurrenceId);
-      if (Number(result.changes) !== 1) throw new Error('projection source not found');
     });
   }
 
@@ -825,49 +715,6 @@ export class SqliteHistoryV7Prototype {
         ...(content === undefined ? {} : { content }),
       };
     });
-  }
-
-  listProjectionEntries(executionId: string): readonly string[] {
-    return (this.#db.prepare(`
-      SELECT search_text FROM history_projection_entries
-      WHERE execution_id=? ORDER BY rowid
-    `).all(executionId) as Row[]).map((row) => String(row.search_text));
-  }
-
-  readProjectionEntry(occurrenceId: string): HistoryV7ProjectionEntry {
-    const row = this.#row(
-      `
-      SELECT * FROM history_projection_entries WHERE occurrence_id=?
-    `,
-      occurrenceId,
-    );
-    return {
-      occurrenceId: String(row.occurrence_id),
-      executionId: String(row.execution_id),
-      version: Number(row.projection_version),
-      text: String(row.search_text),
-    };
-  }
-
-  searchProjection(executionId: string, query: string): readonly HistoryV7ProjectionEntry[] {
-    if (!query || query.includes('\0')) throw new TypeError('invalid projection query');
-    return (this.#db.prepare(`
-      SELECT * FROM history_projection_entries
-      WHERE execution_id=? AND instr(search_text, ?) > 0 ORDER BY rowid
-    `).all(executionId, query) as Row[]).map((row) => ({
-      occurrenceId: String(row.occurrence_id),
-      executionId: String(row.execution_id),
-      version: Number(row.projection_version),
-      text: String(row.search_text),
-    }));
-  }
-
-  pendingProjectionCount(): number {
-    return Number(
-      this.#row(
-        "SELECT count(*) AS count FROM projection_outbox WHERE status='pending'",
-      ).count,
-    );
   }
 
   tableNames(): readonly string[] {

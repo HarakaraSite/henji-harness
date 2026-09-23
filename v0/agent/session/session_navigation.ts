@@ -1,5 +1,4 @@
 import { type LoopOutcome, type Message } from '../core/contracts.ts';
-import { type SessionHistoryPage } from './session_history.ts';
 import { type SessionMetadata, type SessionRecord } from './session_store.ts';
 import { type ContextMetrics } from '../core/context.ts';
 import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
@@ -89,6 +88,5 @@ export interface SessionNavigationHost {
   renameCurrent(title: string): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'>;
   createNew?(signal?: AbortSignal): Promise<NavigationBinding>;
   switchTo(id: string, signal?: AbortSignal): Promise<NavigationBinding>;
-  historyPage(page: number, turn?: number, rows?: number): Promise<SessionHistoryPage | undefined>;
   currentPosition(): NavigationPosition;
 }

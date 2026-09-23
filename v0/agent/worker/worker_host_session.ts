@@ -3,7 +3,6 @@ import type {
   DefinitionRevisionRef,
   SemanticContextCheckpointV1,
 } from '../session/session_store.ts';
-import type { SessionHistoryPage } from '../session/session_history.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { WorkerReadyMessage } from './worker_protocol.ts';
 import type { RecalledExecutionContext } from './recalled_execution_context.ts';
@@ -112,14 +111,6 @@ export class WorkerHostSession {
 
   currentPosition(): ReturnType<ExecutionCoordinator['currentPosition']> {
     return this.coordinator.currentPosition();
-  }
-
-  historyPage(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): SessionHistoryPage | undefined {
-    return this.coordinator.historyPage(page, turn, rows);
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {

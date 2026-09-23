@@ -63,17 +63,14 @@ Deno.test('Increment 94 v7 semantic history settles and adopts without diagnosti
       contentDigestCalls: 0,
       newOccurrences: 0,
       newRelations: 0,
-      projectionOutboxRows: 0,
       preexistingPayloadRowsRead: 0,
       preexistingPayloadBytesRead: 0,
       preexistingPayloadBytesRewritten: 0,
     });
-    store.adoptCanonical('execution-1', 1);
+    store.adoptCanonical('execution-1');
     const state = store.readExecution('execution-1');
     assert(state.lifecycle === 'settled' && state.adoption === 'canonical');
     assert(state.diagnosticCoverage === 'not_requested');
-    assert(store.drainProjection(8, (item) => JSON.stringify(item.payload)) === 3);
-    assert(store.listProjectionEntries('execution-1').length === 3);
   } finally {
     store.close();
   }
@@ -179,37 +176,6 @@ Deno.test('Increment 94 v7 diagnostic invalidity does not gate semantic settleme
   }
 });
 
-Deno.test('Increment 94 v7 projection failure leaves semantic authority and retries', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-projection-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
-  try {
-    store.beginExecution({
-      executionId: 'execution-projection',
-      sessionId: 'session-projection',
-      baseRevision: 0,
-      captureProfile: 'normal-v1',
-    });
-    store.appendSemantic('execution-projection', 0, [
-      occurrence('message-projection', 1, 'assistant_message', { text: 'durable' }),
-    ]);
-    let failed = false;
-    try {
-      store.drainProjection(1, () => {
-        throw new Error('projection unavailable');
-      });
-    } catch {
-      failed = true;
-    }
-    assert(failed);
-    assertEquals(store.readOccurrence('message-projection').payload, { text: 'durable' });
-    assert(store.pendingProjectionCount() === 1);
-    assert(store.drainProjection(1, () => 'durable') === 1);
-    assertEquals(store.listProjectionEntries('execution-projection'), ['durable']);
-  } finally {
-    store.close();
-  }
-});
-
 Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-crash-' });
   let inject = true;
@@ -280,7 +246,7 @@ Deno.test('Increment 94 v7 same delta cost is independent of existing Session le
   assertEquals(costs[0].preexistingPayloadBytesRewritten, 0);
 });
 
-Deno.test('Increment 94 v7 schema has no ordered root segment or per-record digest', async () => {
+Deno.test('Increment 94 v7 schema omits obsolete storage and history projections', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-schema-' });
   const path = `${root}/history-v7.sqlite3`;
   const store = new SqliteHistoryV7Store(path);
@@ -294,6 +260,19 @@ Deno.test('Increment 94 v7 schema has no ordered root segment or per-record dige
     assert(!schema.includes('history_segments'));
     assert(!schema.includes('encoded_record_digest'));
     assert(!schema.includes('representation_digest'));
+    const tables =
+      (db.prepare("SELECT name FROM sqlite_schema WHERE type='table'").all() as { name: string }[])
+        .map((row) => row.name);
+    for (
+      const name of [
+        'projection_outbox',
+        'session_message_projection_outbox',
+        'execution_message_projection_outbox',
+        'human_history_entries',
+        'history_projection_entries',
+        'canonical_turns',
+      ]
+    ) assert(!tables.includes(name));
   } finally {
     db.close();
   }
@@ -351,10 +330,10 @@ Deno.test('Increment 94 v7 adoption fences concurrent base revision and reopens 
       ], `${executionId}-terminal`);
       store.settleExecution(executionId, 'completed');
     }
-    store.adoptCanonical('winner', 1);
+    store.adoptCanonical('winner');
     let staleRejected = false;
     try {
-      store.adoptCanonical('stale', 1);
+      store.adoptCanonical('stale');
     } catch {
       staleRejected = true;
     }
@@ -422,38 +401,6 @@ Deno.test('Increment 94 diagnostic profile correlates requested evidence with se
     assertEquals(new TextDecoder().decode(attachments[0].content), '{"request":true}');
     store.settleExecution('execution-diagnostic-read', 'completed');
     assert(store.readExecution('execution-diagnostic-read').diagnosticCoverage === 'captured');
-  } finally {
-    store.close();
-  }
-});
-
-Deno.test('Increment 94 projection entries search and rebuild without changing authority', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-projection-rebuild-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
-  try {
-    store.beginExecution({
-      executionId: 'execution-projection-rebuild',
-      sessionId: 'session-projection-rebuild',
-      baseRevision: 0,
-      captureProfile: 'normal-v1',
-    });
-    store.appendSemantic('execution-projection-rebuild', 0, [
-      occurrence('projection-source', 1, 'assistant_message', { text: 'original authority' }),
-    ]);
-    store.drainProjection(1, () => 'first searchable view');
-    assertEquals(
-      store.searchProjection('execution-projection-rebuild', 'searchable').map((e) => e.text),
-      [
-        'first searchable view',
-      ],
-    );
-    store.markProjectionStale('projection-source');
-    assert(store.pendingProjectionCount() === 1);
-    assertEquals(store.readOccurrence('projection-source').payload, { text: 'original authority' });
-    store.drainProjection(1, () => 'rebuilt searchable view');
-    const rebuilt = store.readProjectionEntry('projection-source');
-    assert(rebuilt.version === 1 && rebuilt.text === 'rebuilt searchable view');
-    assertEquals(store.readOccurrence('projection-source').payload, { text: 'original authority' });
   } finally {
     store.close();
   }
@@ -606,43 +553,6 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
     );
     const effects = store.listExecutionEffects(executionId);
     assert(effects.length === 1 && effects[0].status === 'completed');
-    while (store.projectionBacklog() > 0) {
-      assert(store.drainHumanHistoryProjection(8) > 0);
-    }
-    const hit = store.searchHumanHistory({
-      sessionId: input.sessionCorrelation,
-      query: 'proposal retained',
-      direction: 'next',
-    });
-    assert(hit !== undefined);
-    const detail = store.readHumanHistoryDetail(
-      input.sessionCorrelation,
-      hit!.detailId,
-    );
-    assert(detail.text.includes('proposal retained'));
-    let authorityReadCalls = 0;
-    const originalReadExecution = store.readExecution.bind(store);
-    const originalListExecutionsForSession = store.listExecutionsForSession.bind(store);
-    const readProbe = store as unknown as {
-      readExecution: typeof store.readExecution;
-      listExecutionsForSession: typeof store.listExecutionsForSession;
-    };
-    readProbe.readExecution = (id) => {
-      authorityReadCalls += 1;
-      return originalReadExecution(id);
-    };
-    readProbe.listExecutionsForSession = (id) => {
-      authorityReadCalls += 1;
-      return originalListExecutionsForSession(id);
-    };
-    const page = store.readHumanHistoryPage({
-      sessionId: input.sessionCorrelation,
-      direction: 'latest',
-    });
-    assert(page.entries.length > 0);
-    assertEquals(authorityReadCalls, 0);
-    readProbe.readExecution = originalReadExecution;
-    readProbe.listExecutionsForSession = originalListExecutionsForSession;
     assert(
       !store.listExecutionEvents(executionId).some((event) => event.kind === 'turn_dispatch_sent'),
     );
@@ -806,14 +716,6 @@ Deno.test('Increment 94 v7 diagnostic facade retains wire events without gating 
     } finally {
       db.close();
     }
-    while (store.projectionBacklog() > 0) {
-      assert(store.drainHumanHistoryProjection(8) > 0);
-    }
-    const page = store.readHumanHistoryPage({
-      sessionId: input.sessionCorrelation,
-      direction: 'latest',
-    });
-    assert(page.entries.some((entry) => entry.kind === 'diagnostic'));
   } finally {
     store.close();
   }
@@ -1103,10 +1005,6 @@ Deno.test('Increment 94 v7 reopen closes an active legacy prefix that already ha
       JSON.stringify({ event: { kind: 'execution_settled', payload: { outcome: 'completed' } } }),
     );
     db.prepare(`
-      INSERT INTO projection_outbox(occurrence_id, execution_id, status)
-      VALUES(?, ?, 'pending')
-    `).run(occurrenceId, executionId);
-    db.prepare(`
       UPDATE executions SET latest_ordinal=?, occurrence_count=occurrence_count+1,
         terminal_occurrence_id=? WHERE execution_id=?
     `).run(ordinal, occurrenceId, executionId);
@@ -1128,98 +1026,6 @@ Deno.test('Increment 94 v7 reopen closes an active legacy prefix that already ha
     );
   } finally {
     reopened.close();
-  }
-});
-
-Deno.test('Increment 94 v7 projection is bounded metadata work and reports stale backlog', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-projection-bounded-' });
-  const workspaceRoot = `${root}/workspace`;
-  const stateRoot = `${root}/state`;
-  await Deno.mkdir(workspaceRoot);
-  const executionId = '94000000-0000-4000-8000-000000000045';
-  const input = {
-    taskId: '94000000-0000-4000-8000-000000000046',
-    executionId,
-    createdAt: '2026-09-21T03:00:00.000Z',
-    sessionCorrelation: 'detached-v7-projection-bounded',
-    turn: 1,
-    task: 'project only the new execution',
-    baseStateRevision: 0,
-    agent: 'default' as const,
-    model: ROOT_DEFAULT_MODEL_SELECTION,
-    build: buildManifest(),
-    definition: {
-      schemaVersion: 1 as const,
-      resourceKind: 'agent-definition' as const,
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256' as const, digest: '8'.repeat(64) },
-    },
-  };
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
-  await store.beginExecution({ ...input, sessionMode: 'no_session' });
-  for (let index = 0; index < 96; index += 1) {
-    store.appendExecutionEvent({
-      executionId,
-      direction: 'worker_to_host',
-      source: 'worker',
-      kind: 'runtime_event',
-      workerSequence: index + 1,
-      payload: {
-        kind: 'runtime_event',
-        correlation: {
-          session: input.sessionCorrelation,
-          instanceCorrelation: 'instance-v7-projection',
-          workerGeneration: 'generation-v7-projection',
-          baseStateRevision: 0,
-          command: 'turn-1',
-        },
-        sequence: index + 1,
-        event: {
-          kind: 'agent_event',
-          event: { kind: 'assistant_progress', turn: 1, text: `part ${index}` },
-        },
-      },
-    });
-  }
-  store.settleNonCanonicalExecution({
-    ...input,
-    outcome: {
-      ok: false,
-      task: input.task,
-      outcome: 'cancelled',
-      stopReason: 'cancelled',
-      steps: 0,
-      toolCallCount: 0,
-      toolResultCount: 0,
-      transcript: [],
-    },
-  });
-  try {
-    const stale = store.readHumanHistoryPage({
-      sessionId: input.sessionCorrelation,
-      direction: 'latest',
-    });
-    assert(stale.projection?.state === 'stale');
-    assert((stale.projection?.pendingSources ?? 0) > 0);
-    let hydratedExecutionReads = 0;
-    const original = store.readExecution.bind(store);
-    const probe = store as unknown as { readExecution: typeof store.readExecution };
-    probe.readExecution = (id) => {
-      hydratedExecutionReads += 1;
-      return original(id);
-    };
-    while (store.projectionBacklog() > 0) {
-      assert(store.drainHumanHistoryProjection(16) > 0);
-    }
-    probe.readExecution = original;
-    assertEquals(hydratedExecutionReads, 0);
-    const current = store.readHumanHistoryPage({
-      sessionId: input.sessionCorrelation,
-      direction: 'latest',
-    });
-    assertEquals(current.projection, { version: 1, state: 'current', pendingSources: 0 });
-  } finally {
-    store.close();
   }
 });
 
@@ -1313,11 +1119,6 @@ Deno.test('Increment 94 model selection rollback preserves committed turn attrib
             SELECT execution_id FROM session_turns
             WHERE session_id=? ORDER BY turn_ordinal
           `).all(sessionId) as { execution_id: string | null }[]).map((item) => item.execution_id),
-          outbox: db.prepare(`
-            SELECT message_ordinal, execution_id, status
-            FROM session_message_projection_outbox
-            WHERE session_id=? ORDER BY message_ordinal
-          `).all(sessionId),
         };
       } finally {
         db.close();
@@ -1481,14 +1282,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       assert(storedContextRequests.length > 0);
       assert(storedContextRequests.every((row) => !row.payload_json.includes('bytesBase64')));
       assert(storedContextRequests.every((row) => Number(row.bytes) < 20_000));
-      assertEquals(
-        Number(
-          (db.prepare(`
-          SELECT count(*) AS count FROM history_projection_entries
-        `).get() as { count: number }).count,
-        ),
-        0,
-      );
       const rawProposals = db.prepare(`
         SELECT payload_json FROM semantic_occurrences
         WHERE kind='model_result' AND payload_json LIKE '%commit_proposal%'
@@ -1502,18 +1295,6 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
     } finally {
       db.close();
     }
-    while (store.projectionBacklog() > 0) {
-      assert(store.drainHumanHistoryProjection(8) > 0);
-    }
-    const page = store.readHumanHistoryPage({
-      sessionId: sessionId!,
-      direction: 'latest',
-    });
-    assert(page.entries.some((entry) => entry.searchText.includes('v7 first product turn')));
-    assert(page.entries.some((entry) => entry.searchText.includes('v7 resumed product turn')));
-    assert(page.entries.some((entry) => entry.kind === 'context'));
-    assert(page.entries.some((entry) => entry.kind === 'request'));
-    assert(page.projection?.state === 'current');
     const exported = [...store.streamHumanHistoryExport(sessionId!)];
     assert(exported[0].kind === 'header');
     assert(exported.filter((item) => item.kind === 'execution').length === 2);
@@ -1646,6 +1427,8 @@ Deno.test('Increment 94 isolated product path commits resumes projects and expor
       item.kind === 'recall_relation' &&
       (item.value as { sourceExecutionId?: unknown }).sourceExecutionId === sourceExecutionId
     ));
+    await verified.delete(sessionId!);
+    assert(!(await verified.listWorker()).sessions.some((item) => item.id === sessionId));
   } finally {
     verified.close();
   }

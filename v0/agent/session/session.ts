@@ -17,12 +17,7 @@ import {
   TurnCancellationOwner,
 } from '../core/cancellation.ts';
 import { type SemanticContextCheckpointV1, type SessionRecord } from './session_store.ts';
-import {
-  historyPageWindow,
-  indexSessionHistory,
-  type SessionHistoryIndex,
-  type SessionHistoryPage,
-} from './session_history.ts';
+import { indexSessionHistory, type SessionHistoryIndex } from './session_history.ts';
 import { SteeringOwner, type SteerRequestResult, validateSteeringText } from '../core/steering.ts';
 import {
   checkpointMessage,
@@ -248,14 +243,6 @@ export class AgentSession {
 
   historyIndex(): SessionHistoryIndex | undefined {
     return indexSessionHistory(this.committedTranscript);
-  }
-
-  historyPage(page: number, turn = this.nextTurn - 1, rows = 16): SessionHistoryPage | undefined {
-    return historyPageWindow(this.committedTranscript, turn, page, {
-      sessionId: this.sessionId,
-      agent: this.sessionAgent,
-      rows,
-    });
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {

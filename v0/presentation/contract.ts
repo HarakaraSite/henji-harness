@@ -13,8 +13,6 @@ export type {
   PresentationFailureCode,
   PresentationFailureDiagnostic,
   PresentationFailureStage,
-  PresentationHistoryEntry,
-  PresentationHistoryPage,
   PresentationIntent,
   PresentationIntentDispatcher,
   PresentationIntentResult,

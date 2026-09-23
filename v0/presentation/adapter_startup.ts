@@ -10,7 +10,6 @@ export const presentationProjectionFromStartup = (
   position: PresentationPosition | undefined,
   capabilities: PresentationProjection['capabilities'] = {
     canNavigate: false,
-    canHistory: false,
     canCompact: false,
   },
 ): PresentationProjection =>

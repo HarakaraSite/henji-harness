@@ -8,9 +8,8 @@ import {
 } from '../../v0/agent/worker/worker_runtime.ts';
 import { SessionAuthority } from '../../v0/agent/worker/worker_host_authority.ts';
 import {
-  decodeSessionRecordV6,
-  encodeSessionRecordV6,
   type SessionRecordV6,
+  validateSessionRecordV6,
 } from '../../v0/agent/session/session_store.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
 import { readDefinitionRevision } from '../../v0/agent/worker/worker_definition_revision.ts';
@@ -168,8 +167,8 @@ Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive c
     }, 'fetch source');
     assert(committed !== undefined, 'normal web_fetch turn was not accepted');
     assert(modelCalls === 2);
-    const decoded = decodeSessionRecordV6(encodeSessionRecordV6(committed));
-    const toolMessage = decoded.transcript.find((message) => message.role === 'tool');
+    assert(validateSessionRecordV6(committed));
+    const toolMessage = committed.transcript.find((message) => message.role === 'tool');
     assert(toolMessage?.role === 'tool');
     const result = toolMessage.content[0];
     assert(result?.kind === 'tool_result');

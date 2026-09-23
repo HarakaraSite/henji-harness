@@ -530,21 +530,6 @@ const overlayRows = (
     if (rows.length === 0 && !overlay.loading) lines.push('no sessions');
   } else if (overlay.kind === 'choicePicker') {
     lines.push(...overlay.lines);
-  } else if (overlay.kind === 'history') {
-    const page = overlay.page;
-    lines.push(
-      'history · read-only · Up/Down page · Home oldest · End latest · Esc return',
-    );
-    if (page === undefined) lines.push('history loading');
-    else {
-      lines.push(
-        `turn ${page.turn}/${page.totalTurns} · page ${page.page + 1}/${page.pageCount}`,
-      );
-      for (const entry of page.entries.slice(0, 16)) {
-        lines.push(`${entry.role} [t${entry.turn}] ${entry.text}`);
-      }
-      if (page.omitted) lines.push('history> page content bounded');
-    }
   } else if (overlay.kind === 'compaction') {
     lines.push('context recovery · read-only');
     const preview = overlay.preview;

@@ -428,8 +428,6 @@ export const main = async (
           initialPosition,
           {
             canNavigate: created.navigation?.persistent === true,
-            canHistory: created.navigation !== undefined ||
-              presentationAdapter.historyPage !== undefined,
             canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
           },
         ),
@@ -438,8 +436,6 @@ export const main = async (
       renderer.setProjection(
         presentationProjectionFromStartup(created.displayState, undefined, {
           canNavigate: created.navigation?.persistent === true,
-          canHistory: created.navigation !== undefined ||
-            presentationAdapter.historyPage !== undefined,
           canCompact: presentationAdapter.contextCompactionPreview() !== undefined,
         }),
       );

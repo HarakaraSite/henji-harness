@@ -235,7 +235,7 @@ Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', (
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
-    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    capabilities: { canNavigate: true, canCompact: true },
     generation: 0,
   });
   const wide = layoutUi(state, 160, 24).footer;

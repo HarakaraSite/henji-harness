@@ -65,7 +65,7 @@
       "v0/agent/session/session_store_paths.ts",
       "v0/agent/history/context_attribution.ts",
       "v0/agent/history/history_store_contract.ts",
-      "v0/agent/history/human_history.ts",
+      "v0/agent/history/history_export_record.ts",
       "v0/agent/definitions/skills.ts",
       "v0/agent/core/steering.ts",
       "v0/agent/tools/bash_tool.ts",

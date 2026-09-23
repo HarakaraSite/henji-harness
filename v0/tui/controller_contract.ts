@@ -2,7 +2,6 @@ import type {
   PresentationContextMetrics,
   PresentationContextPreview,
   PresentationContextResult,
-  PresentationHistoryPage,
   PresentationIntentDispatcher,
   PresentationMessage,
   PresentationNavigationListing,
@@ -21,11 +20,6 @@ export interface TuiSessionLike {
   steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
   contextSnapshot?(): PresentationContextMetrics | undefined;
   isAvailable?(): boolean;
-  historyPage?(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): Promise<PresentationHistoryPage | undefined> | PresentationHistoryPage | undefined;
   currentPosition?(): PresentationPosition | undefined;
   contextCompactionPreview?(): PresentationContextPreview | undefined;
   compactContext?(signal?: AbortSignal): Promise<PresentationContextResult>;
@@ -61,11 +55,6 @@ export interface TuiNavigationLike {
       readonly omitted: number;
     };
   }>;
-  historyPage(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): Promise<PresentationHistoryPage | undefined>;
   currentPosition(): PresentationPosition;
 }
 

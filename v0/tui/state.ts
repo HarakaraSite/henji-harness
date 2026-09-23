@@ -2,7 +2,6 @@ import {
   type PresentationContextPreview,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
-  type PresentationHistoryPage,
   type PresentationLifecycle,
   type PresentationNavigationListing,
   type PresentationPosition,
@@ -61,13 +60,6 @@ export type UiOverlay =
     readonly kind: 'choicePicker';
     readonly lines: readonly string[];
   }>
-  | Readonly<
-    {
-      readonly kind: 'history';
-      readonly page?: PresentationHistoryPage;
-      readonly pageNumber?: number;
-    }
-  >
   | Readonly<
     {
       readonly kind: 'compaction';
@@ -691,15 +683,6 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         projection: state.projection === undefined ? undefined : snapshotPresentation({
           ...state.projection,
           model: event.selection,
-        }),
-      });
-    case 'history_page':
-      return Object.freeze({
-        ...state,
-        overlay: snapshot({
-          kind: 'history' as const,
-          page: event.page,
-          pageNumber: event.page.page,
         }),
       });
     case 'context_preview':

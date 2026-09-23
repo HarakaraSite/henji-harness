@@ -501,7 +501,6 @@ Deno.test('compact session picker keeps its selected session visible with the fu
   renderer.renderCompactStartup(startup, position);
   renderer.setProjection(presentationProjectionFromStartup(startup, position, {
     canNavigate: true,
-    canHistory: true,
     canCompact: false,
   }));
   const sessions = Array.from({ length: 8 }, (_, index) => ({
@@ -1888,7 +1887,6 @@ Deno.test('busy /rename waits for idle and then renames without model submission
       return Promise.resolve('renamed');
     },
     switchTo: () => Promise.reject(new Error('not used')),
-    historyPage: () => Promise.resolve(undefined),
     currentPosition: () => ({
       sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
       createdAt: '2026-09-11T00:00:00.000Z',
@@ -2008,7 +2006,6 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
       });
     },
     switchTo: () => Promise.reject(new Error('not used')),
-    historyPage: () => Promise.resolve(undefined),
     currentPosition: () => currentPosition,
   };
   const startup: PresentationStartupState = {
@@ -2031,7 +2028,6 @@ Deno.test('busy /new waits for ready then replaces the retained Session without 
   renderer.setProjection(
     presentationProjectionFromStartup(startup, oldPosition, {
       canNavigate: true,
-      canHistory: true,
       canCompact: false,
     }),
   );
@@ -2120,7 +2116,6 @@ Deno.test('/new setup failure keeps the current retained Session', async () => {
     list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
     createNew: () => Promise.reject(new Error('target setup failed')),
     switchTo: () => Promise.reject(new Error('not used')),
-    historyPage: () => Promise.resolve(undefined),
     currentPosition: () => position,
   };
   const controller = new TuiController(

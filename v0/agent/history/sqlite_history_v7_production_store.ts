@@ -68,19 +68,9 @@ import type {
 } from './context_attribution.ts';
 import { HistoryStoreError } from './history_store_contract.ts';
 import {
-  chunkHumanHistoryDetail,
   HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-  HUMAN_HISTORY_PAGE_EXECUTIONS,
-  type HumanHistoryDetailChunkV1,
-  type HumanHistoryEntryV1,
   type HumanHistoryExportRecordV1,
-  type HumanHistoryPageRequest,
-  type HumanHistoryPageV1,
-  type HumanHistoryReadPort,
-  type HumanHistorySearchHitV1,
-  type HumanHistorySearchRequest,
-  projectHumanHistoryExecution,
-} from './human_history.ts';
+} from './history_export_record.ts';
 import type {
   HistoryV7CaptureProfile,
   HistoryV7SemanticKind,
@@ -101,19 +91,6 @@ type PreparedEventPayload = Readonly<{
   contextItems: readonly PreparedContextItem[];
 }>;
 type HistoryV7ProductionFaultPhase = 'before_settlement_commit';
-type ProjectionBackground = Readonly<{
-  context: readonly ExecutionContextRelation[];
-  requests: readonly {
-    requestOrdinal: number;
-    lane: 'parent' | 'planner';
-    purpose: import('./context_attribution.ts').ContextRequestPurpose;
-    modelStep: number;
-    modelSelection?: import('../provider/model_selection.ts').ModelSelection;
-  }[];
-  evidenceIds: readonly string[];
-  diagnosticIds: readonly string[];
-  artifactIds: readonly string[];
-}>;
 const now = (): string => new Date().toISOString();
 const encoder = new TextEncoder();
 
@@ -182,7 +159,7 @@ const eventValue = (event: StoredExecutionEvent): JsonValue => asJson({ event })
  * optional attachments and document-shaped APIs are derived read projections.
  */
 export class SqliteHistoryV7ProductionStore
-  implements WorkerSessionStorePort, HistoryPersistencePort, HumanHistoryReadPort {
+  implements WorkerSessionStorePort, HistoryPersistencePort {
   readonly providerEvidence: ProviderEvidenceStore = {
     list: async () => {
       await this.initialize();
@@ -378,7 +355,6 @@ export class SqliteHistoryV7ProductionStore
         throw error;
       }
     }
-    this.#drainProjectionBestEffort();
   }
 
   capturesProtocolTrace(): boolean {
@@ -557,13 +533,6 @@ export class SqliteHistoryV7ProductionStore
         INSERT INTO session_messages(session_id, message_ordinal, turn_number, message_json)
         VALUES(?, ?, ?, ?)
       `).run(record.sessionId, ordinal, messageTurn, JSON.stringify(record.transcript[ordinal]));
-      if (executionId !== undefined) {
-        db.prepare(`
-          INSERT INTO session_message_projection_outbox(
-            session_id, message_ordinal, execution_id, status
-          ) VALUES(?, ?, ?, 'pending')
-        `).run(record.sessionId, ordinal, executionId);
-      }
     }
     for (let ordinal = counts.modelChanges; ordinal < record.modelChanges.length; ordinal += 1) {
       const change = record.modelChanges[ordinal];
@@ -618,8 +587,8 @@ export class SqliteHistoryV7ProductionStore
       record.sessionId,
     );
     db.prepare(`
-      INSERT INTO session_heads(session_id, revision, canonical_execution_id)
-      VALUES(?, ?, NULL)
+      INSERT INTO session_heads(session_id, revision)
+      VALUES(?, ?)
       ON CONFLICT(session_id) DO UPDATE SET revision=excluded.revision
     `).run(record.sessionId, record.stateRevision);
   }
@@ -820,11 +789,10 @@ export class SqliteHistoryV7ProductionStore
           WHERE source_execution_id=? OR target_execution_id=?
         `).run(executionId, executionId);
       }
-      db.prepare('DELETE FROM canonical_turns WHERE session_id=?').run(id);
+      db.prepare('DELETE FROM sessions WHERE session_id=?').run(id);
       for (const executionId of executionIds) {
         db.prepare('DELETE FROM executions WHERE execution_id=?').run(executionId);
       }
-      db.prepare('DELETE FROM sessions WHERE session_id=?').run(id);
       db.prepare('DELETE FROM session_heads WHERE session_id=?').run(id);
       db.exec('COMMIT');
     } catch (error) {
@@ -1728,10 +1696,6 @@ export class SqliteHistoryV7ProductionStore
       payloadJson,
     );
     db.prepare(`
-      INSERT INTO projection_outbox(occurrence_id, execution_id, status)
-      VALUES(?, ?, 'pending')
-    `).run(occurrenceId, input.executionId);
-    db.prepare(`
       UPDATE executions SET lifecycle='settled', outcome=?, adoption=?,
         latest_ordinal=?, occurrence_count=occurrence_count+1, terminal_occurrence_id=?
       WHERE execution_id=?
@@ -1775,17 +1739,8 @@ export class SqliteHistoryV7ProductionStore
         adoption: 'canonical',
       });
       db.prepare(`
-        INSERT INTO canonical_turns(session_id, turn, execution_id, session_revision)
-        VALUES(?, ?, ?, ?)
-      `).run(
-        input.canonicalSessionId,
-        input.turn,
-        input.executionId,
-        input.record.stateRevision,
-      );
-      db.prepare(`
-        UPDATE session_heads SET revision=?, canonical_execution_id=? WHERE session_id=?
-      `).run(input.record.stateRevision, input.executionId, input.canonicalSessionId);
+        UPDATE session_heads SET revision=? WHERE session_id=?
+      `).run(input.record.stateRevision, input.canonicalSessionId);
       db.prepare(`
         UPDATE execution_admissions SET settled_at=?, outcome_json=?, evidence_id=?,
           diagnostic_id=?, artifact_id=? WHERE execution_id=?
@@ -1812,7 +1767,6 @@ export class SqliteHistoryV7ProductionStore
       this.#baseMessageCountsBySession.delete(input.sessionCorrelation);
       this.#releaseExecutionLock(input.executionId);
     }
-    this.#drainProjectionBestEffort();
     return captured;
   }
 
@@ -1851,11 +1805,6 @@ export class SqliteHistoryV7ProductionStore
           ordinal - baseMessageCount,
           JSON.stringify(input.outcome.transcript[ordinal]),
         );
-        db.prepare(`
-          INSERT INTO execution_message_projection_outbox(
-            execution_id, message_ordinal, status
-          ) VALUES(?, ?, 'pending')
-        `).run(input.executionId, ordinal - baseMessageCount);
       }
       this.#appendTerminalAndSettleTx(db, {
         executionId: input.executionId,
@@ -1891,7 +1840,6 @@ export class SqliteHistoryV7ProductionStore
       this.#baseMessageCountsBySession.delete(input.sessionCorrelation);
       this.#releaseExecutionLock(input.executionId);
     }
-    this.#drainProjectionBestEffort();
     return captured;
   }
 
@@ -1928,7 +1876,6 @@ export class SqliteHistoryV7ProductionStore
       }
       this.#releaseExecutionLock(input.executionId);
     }
-    this.#drainProjectionBestEffort();
   }
 
   recordPostCommitObservation(
@@ -2394,532 +2341,6 @@ export class SqliteHistoryV7ProductionStore
         targetExecutionId: String(row.target_execution_id),
         occurrenceId: String(row.occurrence_id),
       }));
-    } finally {
-      db.close();
-    }
-  }
-
-  #projectionBackground(db: DatabaseSync, executionId: string): ProjectionBackground {
-    const context: ExecutionContextRelation[] = [];
-    const manifest = db.prepare(`
-      SELECT manifest_json FROM execution_context_manifests WHERE execution_id=?
-    `).get(executionId) as Row | undefined;
-    if (manifest !== undefined) {
-      const decoded = parseJson<{
-        externalRelations: readonly Omit<ExecutionContextRelation, 'ordinal'>[];
-      }>(manifest.manifest_json);
-      for (const relation of decoded.externalRelations) {
-        context.push({ ordinal: context.length + 1, ...relation });
-      }
-    }
-    const requests = new Map<number, {
-      requestOrdinal: number;
-      lane: 'parent' | 'planner';
-      purpose: import('./context_attribution.ts').ContextRequestPurpose;
-      modelStep: number;
-      modelSelection?: import('../provider/model_selection.ts').ModelSelection;
-    }>();
-    const contextUsage = new Map<
-      string,
-      { requestOrdinal: number; lane: 'parent' | 'planner'; modelStep: number }[]
-    >();
-    const rows = db.prepare(`
-      SELECT payload_json FROM semantic_occurrences
-      WHERE execution_id=? AND kind='model_request' ORDER BY ordinal
-    `).all(executionId) as Row[];
-    for (const row of rows) {
-      const value = parseJson<{ event?: StoredExecutionEvent }>(row.payload_json).event;
-      if (value?.kind !== 'context_observation') continue;
-      const payload = value.payload as unknown as {
-        observation?: { kind?: string; delta?: ContextModelRequestDelta };
-      };
-      const delta = payload.observation?.delta;
-      if (payload.observation?.kind !== 'model_request_delta' || delta === undefined) continue;
-      requests.set(delta.requestOrdinal, {
-        requestOrdinal: delta.requestOrdinal,
-        lane: delta.lane,
-        purpose: delta.purpose,
-        modelStep: delta.modelStep,
-        ...(delta.modelSelection === undefined ? {} : { modelSelection: delta.modelSelection }),
-      });
-      for (const occurrence of delta.occurrences) {
-        const uses = contextUsage.get(occurrence.occurrenceId) ?? [];
-        uses.push({
-          requestOrdinal: delta.requestOrdinal,
-          lane: delta.lane,
-          modelStep: delta.modelStep,
-        });
-        contextUsage.set(occurrence.occurrenceId, uses);
-      }
-    }
-    for (
-      const row of db.prepare(`
-        SELECT payload_json, content_digest FROM semantic_occurrences
-        WHERE execution_id=? AND kind='context_item' ORDER BY ordinal
-      `).all(executionId) as Row[]
-    ) {
-      const item = parseJson<Omit<ContextOccurrenceInput, 'bytesBase64'>>(row.payload_json);
-      const resourceKind = item.kind === 'message'
-        ? 'message'
-        : item.kind === 'tool_contract'
-        ? 'tool_contract'
-        : item.kind === 'provider_wire_body'
-        ? 'provider_wire_body'
-        : 'runtime_fact';
-      for (const use of contextUsage.get(item.occurrenceId) ?? [{}]) {
-        if (item.sourceRelations.length === 0) {
-          context.push({
-            ordinal: context.length + 1,
-            stage: 'projected',
-            resourceKind,
-            logicalIdentity: item.occurrenceId,
-            ...(row.content_digest === null ? {} : { contentDigest: String(row.content_digest) }),
-            ...use,
-          });
-          continue;
-        }
-        for (const source of item.sourceRelations) {
-          context.push({
-            ordinal: context.length + 1,
-            ...source,
-            contentDigest: source.contentDigest ??
-              (row.content_digest === null ? undefined : String(row.content_digest)),
-            ...use,
-          });
-        }
-      }
-    }
-    const admission = db.prepare(`
-      SELECT evidence_id, diagnostic_id, artifact_id
-      FROM execution_admissions WHERE execution_id=?
-    `).get(executionId) as Row | undefined;
-    if (admission === undefined) throw new HistoryStoreError('history_invalid');
-    const diagnosticIds = new Set<string>();
-    if (admission.diagnostic_id !== null) diagnosticIds.add(String(admission.diagnostic_id));
-    for (
-      const row of db.prepare(`
-        SELECT attachment_id, attachment_kind FROM diagnostic_attachments
-        WHERE execution_id=? ORDER BY rowid
-      `).all(executionId) as Row[]
-    ) {
-      if (row.attachment_kind !== 'provider_evidence') {
-        diagnosticIds.add(String(row.attachment_id));
-      }
-    }
-    return {
-      context,
-      requests: [...requests.values()],
-      evidenceIds: admission.evidence_id === null ? [] : [String(admission.evidence_id)],
-      diagnosticIds: [...diagnosticIds],
-      artifactIds: admission.artifact_id === null ? [] : [String(admission.artifact_id)],
-    };
-  }
-
-  projectionBacklog(): number {
-    const db = this.#db();
-    try {
-      const semantic = db.prepare(`
-        SELECT count(*) AS count FROM projection_outbox WHERE status='pending'
-      `).get() as Row;
-      const messages = db.prepare(`
-        SELECT count(*) AS count FROM session_message_projection_outbox
-        WHERE status='pending'
-      `).get() as Row;
-      const executionMessages = db.prepare(`
-        SELECT count(*) AS count FROM execution_message_projection_outbox
-        WHERE status='pending'
-      `).get() as Row;
-      return Number(semantic.count) + Number(messages.count) +
-        Number(executionMessages.count);
-    } finally {
-      db.close();
-    }
-  }
-
-  /** Explicit bounded projection work; normal writes only enqueue source locators. */
-  drainHumanHistoryProjection(limit = 64): number {
-    if (!Number.isSafeInteger(limit) || limit < 1) throw new TypeError('invalid projection limit');
-    const db = this.#db();
-    try {
-      const sources = db.prepare(`
-        SELECT 'semantic' AS source_kind, occurrence_id AS source_id,
-          execution_id, NULL AS session_id, NULL AS message_ordinal
-        FROM projection_outbox WHERE status='pending'
-        UNION ALL
-        SELECT 'message' AS source_kind,
-          session_id || ':' || message_ordinal AS source_id,
-          execution_id, session_id, message_ordinal
-        FROM session_message_projection_outbox WHERE status='pending'
-        UNION ALL
-        SELECT 'execution_message' AS source_kind,
-          execution_id || ':' || message_ordinal AS source_id,
-          execution_id, NULL AS session_id, message_ordinal
-        FROM execution_message_projection_outbox WHERE status='pending'
-        ORDER BY source_id LIMIT ?
-      `).all(limit) as Row[];
-      let completed = 0;
-      const executionCache = new Map<
-        string,
-        Readonly<{
-          execution: StoredExecutionRow;
-          attempt: number;
-        }>
-      >();
-      const backgroundCache = new Map<string, ProjectionBackground>();
-      const effectsCache = new Map<string, readonly StoredExecutionEffect[]>();
-      for (const source of sources) {
-        const executionId = String(source.execution_id);
-        let cached = executionCache.get(executionId);
-        if (cached === undefined) {
-          const execution = this.#readExecutionMetadata(executionId);
-          const attempt = Number(
-            (db.prepare(`
-              SELECT count(*) AS count FROM execution_admissions
-              WHERE session_correlation=? AND turn_number=? AND
-                (created_at < ? OR (created_at=? AND execution_id<=?))
-            `).get(
-              execution.sessionCorrelation,
-              execution.turn,
-              execution.createdAt,
-              execution.createdAt,
-              execution.executionId,
-            ) as Row).count,
-          );
-          cached = { execution, attempt };
-          executionCache.set(executionId, cached);
-        }
-        const { execution, attempt } = cached;
-        let entries: readonly HumanHistoryEntryV1[];
-        if (source.source_kind === 'semantic') {
-          const occurrence = this.#coreStore().readOccurrence(String(source.source_id));
-          let events: readonly StoredExecutionEvent[] = [];
-          if (
-            typeof occurrence.payload === 'object' && occurrence.payload !== null &&
-            !Array.isArray(occurrence.payload)
-          ) {
-            const event = (occurrence.payload as Record<string, JsonValue>).event;
-            if (typeof event === 'object' && event !== null && !Array.isArray(event)) {
-              events = [structuredClone(event) as unknown as StoredExecutionEvent];
-            }
-          }
-          const includesBackground = occurrence.kind === 'host_decision';
-          let background = backgroundCache.get(executionId);
-          if (includesBackground && background === undefined) {
-            background = this.#projectionBackground(db, executionId);
-            backgroundCache.set(executionId, background);
-          }
-          let effects = effectsCache.get(executionId);
-          if (includesBackground && effects === undefined) {
-            effects = this.listExecutionEffects(executionId);
-            effectsCache.set(executionId, effects);
-          }
-          const projected = projectHumanHistoryExecution({
-            execution: { ...execution, adoption: 'non_canonical' },
-            attempt,
-            canonicalMessages: [],
-            events,
-            effects: effects ?? [],
-            context: background?.context ?? [],
-            requests: background?.requests ?? [],
-            evidenceIds: background?.evidenceIds ?? [],
-            diagnosticIds: background?.diagnosticIds ?? [],
-            artifactIds: background?.artifactIds ?? [],
-          });
-          entries = occurrence.kind === 'execution_admission'
-            ? projected
-            : occurrence.kind === 'host_decision'
-            ? projected
-            : projected.filter((entry) => entry.kind !== 'execution' && entry.kind !== 'task');
-        } else {
-          const message = source.source_kind === 'message'
-            ? db.prepare(`
-              SELECT message_json FROM session_messages
-              WHERE session_id=? AND message_ordinal=?
-            `).get(source.session_id, source.message_ordinal) as Row | undefined
-            : db.prepare(`
-              SELECT message_json FROM execution_messages
-              WHERE execution_id=? AND message_ordinal=?
-            `).get(executionId, source.message_ordinal) as Row | undefined;
-          if (message === undefined) throw new HistoryStoreError('history_invalid');
-          const decoded = parseJson<Message>(message.message_json);
-          entries = projectHumanHistoryExecution({
-            execution: { ...execution, adoption: 'canonical' },
-            attempt,
-            canonicalMessages: [{
-              ordinal: Number(source.message_ordinal),
-              message: decoded,
-            }],
-            events: [],
-            effects: [],
-            context: [],
-            requests: [],
-            evidenceIds: [],
-            diagnosticIds: [],
-            artifactIds: [],
-          }).filter((entry) => entry.kind !== 'execution');
-        }
-        db.exec('BEGIN IMMEDIATE');
-        try {
-          for (const entry of entries) {
-            db.prepare(`
-              INSERT INTO human_history_entries(
-                entry_id, session_id, execution_id, turn_number, attempt, kind,
-                label, preview_text, detail_id, search_text, projection_version
-              ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-              ON CONFLICT(entry_id) DO UPDATE SET
-                label=excluded.label, preview_text=excluded.preview_text,
-                detail_id=excluded.detail_id, search_text=excluded.search_text,
-                projection_version=excluded.projection_version
-            `).run(
-              entry.id,
-              execution.sessionCorrelation,
-              execution.executionId,
-              execution.turn,
-              attempt,
-              entry.kind,
-              entry.label,
-              entry.text,
-              entry.detailId,
-              entry.searchText,
-            );
-          }
-          if (source.source_kind === 'semantic') {
-            db.prepare(`
-              UPDATE projection_outbox SET status='complete' WHERE occurrence_id=?
-            `).run(source.source_id);
-          } else if (source.source_kind === 'message') {
-            db.prepare(`
-              UPDATE session_message_projection_outbox SET status='complete'
-              WHERE session_id=? AND message_ordinal=?
-            `).run(source.session_id, source.message_ordinal);
-          } else {
-            db.prepare(`
-              UPDATE execution_message_projection_outbox SET status='complete'
-              WHERE execution_id=? AND message_ordinal=?
-            `).run(executionId, source.message_ordinal);
-          }
-          db.exec('COMMIT');
-          completed += 1;
-        } catch (error) {
-          try {
-            db.exec('ROLLBACK');
-          } catch {
-            // Preserve the primary projection error.
-          }
-          throw error;
-        }
-      }
-      return completed;
-    } finally {
-      db.close();
-    }
-  }
-
-  #drainProjectionBestEffort(): void {
-    try {
-      this.drainHumanHistoryProjection(64);
-    } catch {
-      // Derived projection recovery must not gate semantic settlement.
-    }
-  }
-
-  #encodeCursor(executionId: string): string {
-    return `h7:${btoa(executionId)}`;
-  }
-
-  #decodeCursor(cursor: string | undefined): string | undefined {
-    if (cursor === undefined || !cursor.startsWith('h7:')) return undefined;
-    try {
-      return atob(cursor.slice(3));
-    } catch {
-      return undefined;
-    }
-  }
-
-  #historyExecutionIds(sessionId: string): readonly string[] {
-    const db = this.#db();
-    try {
-      return (db.prepare(`
-        SELECT execution_id FROM execution_admissions
-        WHERE session_correlation=? ORDER BY turn_number, created_at, execution_id
-      `).all(sessionId) as Row[]).map((row) => String(row.execution_id));
-    } finally {
-      db.close();
-    }
-  }
-
-  #sessionProjectionBacklog(db: DatabaseSync, sessionId: string): number {
-    const semantic = db.prepare(`
-      SELECT count(*) AS count FROM projection_outbox p
-      JOIN execution_admissions a USING(execution_id)
-      WHERE p.status='pending' AND a.session_correlation=?
-    `).get(sessionId) as Row;
-    const messages = db.prepare(`
-      SELECT count(*) AS count FROM session_message_projection_outbox
-      WHERE status='pending' AND session_id=?
-    `).get(sessionId) as Row;
-    const executionMessages = db.prepare(`
-      SELECT count(*) AS count FROM execution_message_projection_outbox p
-      JOIN execution_admissions a USING(execution_id)
-      WHERE p.status='pending' AND a.session_correlation=?
-    `).get(sessionId) as Row;
-    return Number(semantic.count) + Number(messages.count) + Number(executionMessages.count);
-  }
-
-  readHumanHistoryPage(request: HumanHistoryPageRequest): HumanHistoryPageV1 {
-    const limit = request.executionLimit ?? HUMAN_HISTORY_PAGE_EXECUTIONS;
-    if (!Number.isSafeInteger(limit) || limit < 1) throw new HistoryStoreError('history_invalid');
-    const executions = this.#historyExecutionIds(request.sessionId);
-    const cursorId = this.#decodeCursor(request.cursor);
-    let start = 0;
-    if (request.direction === 'latest') {
-      start = Math.max(0, executions.length - limit);
-    } else if (request.direction === 'older') {
-      const index = executions.findIndex((id) => id === cursorId);
-      if (index < 0) throw new HistoryStoreError('history_invalid');
-      start = Math.max(0, index - limit);
-    } else if (request.direction === 'newer') {
-      const index = executions.findIndex((id) => id === cursorId);
-      if (index < 0) throw new HistoryStoreError('history_invalid');
-      start = Math.min(executions.length, index + 1);
-    }
-    const selected = executions.slice(start, start + limit);
-    const ids = selected;
-    const db = this.#db();
-    try {
-      const entries = ids.length === 0 ? [] : (db.prepare(`
-        SELECT * FROM human_history_entries
-        WHERE execution_id IN (${ids.map(() => '?').join(',')})
-        ORDER BY turn_number, attempt, rowid
-      `).all(...ids) as Row[]).map((row): HumanHistoryEntryV1 => ({
-        id: String(row.entry_id),
-        executionId: String(row.execution_id),
-        turn: Number(row.turn_number),
-        attempt: Number(row.attempt),
-        kind: String(row.kind) as HumanHistoryEntryV1['kind'],
-        label: String(row.label),
-        text: String(row.preview_text),
-        detailId: String(row.detail_id),
-        searchText: String(row.search_text),
-      }));
-      const atOldest = selected.length === 0 || start === 0;
-      const atNewest = selected.length === 0 || start + selected.length >= executions.length;
-      const pendingSources = this.#sessionProjectionBacklog(db, request.sessionId);
-      return {
-        schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-        sessionId: request.sessionId,
-        entries,
-        executionCount: selected.length,
-        ...(atOldest || selected[0] === undefined
-          ? {}
-          : { olderCursor: this.#encodeCursor(selected[0]) }),
-        ...(atNewest || selected.at(-1) === undefined
-          ? {}
-          : { newerCursor: this.#encodeCursor(selected.at(-1)!) }),
-        atOldest,
-        atNewest,
-        projection: pendingSources === 0
-          ? { version: 1, state: 'current', pendingSources: 0 }
-          : { version: 1, state: 'stale', pendingSources, staleReason: 'pending' },
-      };
-    } finally {
-      db.close();
-    }
-  }
-
-  readHumanHistoryDetail(
-    sessionId: string,
-    detailId: string,
-    scalarOffset = 0,
-  ): HumanHistoryDetailChunkV1 {
-    const db = this.#db();
-    try {
-      const row = db.prepare(`
-        SELECT label, search_text FROM human_history_entries
-        WHERE session_id=? AND detail_id=? ORDER BY rowid LIMIT 1
-      `).get(sessionId, detailId) as Row | undefined;
-      if (row === undefined) throw new HistoryStoreError('history_invalid');
-      return chunkHumanHistoryDetail(
-        sessionId,
-        detailId,
-        String(row.label),
-        String(row.search_text),
-        scalarOffset,
-      );
-    } finally {
-      db.close();
-    }
-  }
-
-  searchHumanHistory(
-    request: HumanHistorySearchRequest,
-  ): HumanHistorySearchHitV1 | undefined {
-    if (request.query.length === 0) return undefined;
-    const db = this.#db();
-    try {
-      const rows = db.prepare(`
-        SELECT * FROM human_history_entries
-        WHERE session_id=? AND instr(search_text, ?) > 0
-        ORDER BY turn_number, attempt, rowid
-      `).all(request.sessionId, request.query) as Row[];
-      const needle = [...request.query];
-      const matches = rows.flatMap((row, rowIndex) => {
-        const source = [...String(row.search_text)];
-        const offsets: number[] = [];
-        for (let offset = 0; offset <= source.length - needle.length; offset += 1) {
-          if (needle.every((scalar, index) => scalar === source[offset + index])) {
-            offsets.push(offset);
-          }
-        }
-        return offsets.map((offset) => ({ row, rowIndex, offset }));
-      });
-      if (matches.length === 0) return undefined;
-      let selected = request.direction === 'next' ? matches[0] : matches.at(-1)!;
-      let wrapped = false;
-      if (request.fromEntryId !== undefined) {
-        const fromRowIndex = rows.findIndex((row) => row.entry_id === request.fromEntryId);
-        const fromOffset = request.fromSourceScalarOffset ??
-          (request.direction === 'next' ? -1 : Number.MAX_SAFE_INTEGER);
-        const candidate = request.direction === 'next'
-          ? matches.find((match) =>
-            match.rowIndex > fromRowIndex ||
-            match.rowIndex === fromRowIndex && match.offset > fromOffset
-          )
-          : [...matches].reverse().find((match) =>
-            match.rowIndex < fromRowIndex ||
-            match.rowIndex === fromRowIndex && match.offset < fromOffset
-          );
-        if (candidate === undefined) wrapped = true;
-        else selected = candidate;
-      }
-      const row = selected.row;
-      const searchText = String(row.search_text);
-      const sourceScalarOffset = selected.offset;
-      const executions = this.#historyExecutionIds(request.sessionId);
-      const page = this.readHumanHistoryPage({
-        sessionId: request.sessionId,
-        direction: 'oldest',
-        executionLimit: Math.max(1, executions.length),
-      });
-      const detail = chunkHumanHistoryDetail(
-        request.sessionId,
-        String(row.detail_id),
-        String(row.label),
-        searchText,
-        Math.max(0, sourceScalarOffset),
-      );
-      return {
-        schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-        sessionId: request.sessionId,
-        query: request.query,
-        entryId: String(row.entry_id),
-        detailId: String(row.detail_id),
-        sourceScalarOffset: Math.max(0, sourceScalarOffset),
-        detail,
-        detailMatchScalarOffset: 0,
-        wrapped,
-        page,
-      };
     } finally {
       db.close();
     }

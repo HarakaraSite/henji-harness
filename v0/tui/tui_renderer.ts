@@ -5,7 +5,6 @@ import {
   type PresentationDiagnosticPersistenceError,
   type PresentationEvent,
   type PresentationFailureDiagnostic,
-  type PresentationHistoryPage,
   type PresentationMessage,
   type PresentationNavigationListing,
   type PresentationOutcome,
@@ -379,7 +378,6 @@ export class TuiRenderer implements TerminalRendererGate {
       }
       case 'session_binding_replaced':
       case 'restored_log':
-      case 'history_page':
       case 'context_preview':
       case 'context_result':
         this.redraw();
@@ -633,19 +631,6 @@ export class TuiRenderer implements TerminalRendererGate {
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
       overlay: { kind: 'choicePicker', lines: Object.freeze([...lines]) },
-    });
-    this.redraw();
-  }
-
-  renderHistoryPage(page: PresentationHistoryPage): void {
-    if (this.closing) throw new PresentationDeliveryError();
-    this.ui = reduceUiAction(this.ui, {
-      kind: 'overlay',
-      overlay: {
-        kind: 'history',
-        page,
-        pageNumber: page.page,
-      },
     });
     this.redraw();
   }

@@ -482,7 +482,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
-    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    capabilities: { canNavigate: true, canCompact: true },
     generation: 0,
   });
   state = reduceUiEvent(state, {
@@ -530,7 +530,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
-    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    capabilities: { canNavigate: true, canCompact: true },
     generation: 0,
   });
   const narrowFooter = layoutUi(narrow, 40, 24).footer;
@@ -591,7 +591,7 @@ Deno.test('conversation footer shows the Session title on the session row', () =
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
-    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    capabilities: { canNavigate: true, canCompact: true },
     generation: 0,
   });
   state = reduceUiAction(state, {
@@ -645,7 +645,7 @@ Deno.test('conversation layout derives turn and input boundaries without changin
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
-    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    capabilities: { canNavigate: true, canCompact: true },
     generation: 0,
   });
   state = reduceUiEvent(state, {
@@ -806,7 +806,7 @@ Deno.test('conversation degraded height keeps only rows that physically fit', ()
       trust: 'trusted_local',
       credentialPolicy: 'before_each_provider_request',
       pending: [],
-      capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+      capabilities: { canNavigate: true, canCompact: true },
       generation: 0,
     },
   );

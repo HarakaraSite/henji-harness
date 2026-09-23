@@ -255,7 +255,7 @@ Deno.test('Increment 13 keeps Session model and effort in the third footer row',
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
-    capabilities: { canNavigate: true, canHistory: true, canCompact: true },
+    capabilities: { canNavigate: true, canCompact: true },
     generation: 0,
   });
   state = reduceUiAction(state, { kind: 'status', text: 'ready' });

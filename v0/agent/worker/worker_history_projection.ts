@@ -21,10 +21,10 @@ export const attributeProviderEvidenceV5 = (input: {
     sessionId: input.sessionId,
     build: structuredClone(input.build),
     definition: structuredClone(input.definition),
-    requests: input.evidence.requests.map((record, index) => ({
-      ...structuredClone(record),
+    requests: evidence.requests.map((record, index) => ({
+      ...record,
       request: {
-        ...structuredClone(record.request),
+        ...record.request,
         ...(record.request.contextRequestOrdinal === undefined && !input.hasContextBasis
           ? { contextRequestOrdinal: index + 1 }
           : record.request.contextRequestOrdinal === undefined

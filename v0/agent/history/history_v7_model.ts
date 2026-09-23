@@ -1,7 +1,7 @@
 import type { JsonValue } from '../core/contracts.ts';
 import { canonicalJsonBytes } from './context_attribution.ts';
 
-export const HISTORY_V7_SCHEMA_VERSION = 8 as const;
+export const HISTORY_V7_SCHEMA_VERSION = 9 as const;
 
 export type HistoryV7CaptureProfile = 'normal-v1' | 'diagnostic-v1';
 export type HistoryV7DiagnosticCoverage =
@@ -62,7 +62,6 @@ export interface HistoryV7OperationCost {
   readonly contentDigestCalls: number;
   readonly newOccurrences: number;
   readonly newRelations: number;
-  readonly projectionOutboxRows: number;
   readonly preexistingPayloadRowsRead: number;
   readonly preexistingPayloadBytesRead: number;
   readonly preexistingPayloadBytesRewritten: number;
@@ -74,7 +73,6 @@ export const emptyHistoryV7OperationCost = (): HistoryV7OperationCost => ({
   contentDigestCalls: 0,
   newOccurrences: 0,
   newRelations: 0,
-  projectionOutboxRows: 0,
   preexistingPayloadRowsRead: 0,
   preexistingPayloadBytesRead: 0,
   preexistingPayloadBytesRewritten: 0,

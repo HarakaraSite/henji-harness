@@ -550,7 +550,7 @@ durable historyは、一つのclaimへ一つのownerを置き、次の四層を�
   revision、`/recall`のsource／target relation。
 - diagnostic attachment: exact request／response、chunk、SSE、parser transition、Worker／Host
   protocol stage、storage stage。
-- derived projection: human history、検索、provider evidence document、context manifest、artifact表示、
+- derived projection: 人間向けhistory view、provider evidence document、context manifest、artifact表示、
   summary／compaction、export、later reinterpretation。
 - storage mechanism: codec、physical locator、representation digest、index、audit metadata。
 
@@ -573,9 +573,8 @@ conversationへ注入せず、stop reason、実request count、evidence／diagno
 durabilityだけを返す。
 
 derived projectionはsemantic authorityまたはdiagnostic attachmentにだけsourceを持ち、sole-owner fieldを
-持たない。projection更新失敗はsemantic commitを取り消さず、durable outbox／dirty marker、watermark、
-version、stale reasonによりboundedに回復する。通常readはstale状態を明示し、authority全scanへ暗黙に
-fallbackしない。
+持たない。現行の`henji history`は必要時にsourceから直接view／exportを作り、永続化されたhuman history行や
+更新outboxを使わない。derived documentの生成失敗はsemantic commitを取り消さない。
 
 canonical conversationは、Hostが正常完了と会話への採用を確定したturnを順序付きで保持するSessionの正本で
 ある。正常完了は回答内容の正しさや人間の満足を意味しない。canonical採用はturn全体を単位とし、途中の

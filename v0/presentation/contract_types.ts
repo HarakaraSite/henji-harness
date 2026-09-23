@@ -230,25 +230,6 @@ export interface PresentationNavigationListing {
   readonly skippedInvalid: number;
 }
 
-export interface PresentationHistoryEntry {
-  readonly turn: number;
-  readonly role: 'user' | 'steer' | 'assistant' | 'tool>';
-  readonly messageIndex: number;
-  readonly text: string;
-}
-
-export interface PresentationHistoryPage {
-  readonly sessionId?: string;
-  readonly agent?: PresentationAgentId;
-  readonly turn: number;
-  readonly totalTurns: number;
-  readonly page: number;
-  readonly pageCount: number;
-  readonly entries: readonly PresentationHistoryEntry[];
-  readonly sourceBytes: number;
-  readonly omitted: boolean;
-}
-
 export interface PresentationContextPreview {
   readonly useful: boolean;
   readonly currentTurn: number;
@@ -293,13 +274,6 @@ export type PresentationIntent =
     readonly modelId: string;
     readonly effort: string;
   }>
-  | Readonly<
-    {
-      readonly kind: 'history_page';
-      readonly page: number;
-      readonly turn: number;
-    }
-  >
   | Readonly<
     {
       readonly kind: 'compaction';
@@ -360,9 +334,6 @@ export type PresentationIntentResult =
     readonly sourceExecutionId: string;
     readonly evidence: 'available' | 'unavailable';
   }>
-  | Readonly<
-    { readonly kind: 'history'; readonly page?: PresentationHistoryPage }
-  >
   | Readonly<
     {
       readonly kind: 'context_preview';
@@ -468,9 +439,6 @@ export type PresentationEvent =
     readonly selection: PresentationModelSelection;
   }>
   | Readonly<
-    { readonly kind: 'history_page'; readonly page: PresentationHistoryPage }
-  >
-  | Readonly<
     {
       readonly kind: 'context_preview';
       readonly preview: PresentationContextPreview;
@@ -548,7 +516,6 @@ export interface PresentationProjection {
   }[];
   readonly capabilities: Readonly<{
     readonly canNavigate: boolean;
-    readonly canHistory: boolean;
     readonly canCompact: boolean;
   }>;
   readonly generation: number;

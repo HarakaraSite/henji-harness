@@ -5,12 +5,10 @@ import type {
   ContextRecoveryResult,
   NavigationPosition,
 } from '../agent/session/session_navigation.ts';
-import type { SessionHistoryPage } from '../agent/session/session_history.ts';
 import type {
   PresentationContextMetrics,
   PresentationContextPreview,
   PresentationContextResult,
-  PresentationHistoryPage,
   PresentationMessage,
   PresentationNavigationListing,
   PresentationOutcome,
@@ -26,14 +24,6 @@ export interface AdapterSessionPort {
   steerActiveTurn?(text: string): 'accepted' | 'idle' | 'already_accepted';
   contextSnapshot?(): PresentationContextMetrics | undefined;
   isAvailable?(): boolean;
-  historyPage?(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ):
-    | Promise<PresentationHistoryPage | undefined>
-    | PresentationHistoryPage
-    | undefined;
   currentPosition?(): PresentationPosition | undefined;
   contextCompactionPreview?(): PresentationContextPreview | undefined;
   compactContext?(signal?: AbortSignal): Promise<PresentationContextResult>;
@@ -69,11 +59,6 @@ export interface AdapterNavigationPort {
       readonly omitted: number;
     };
   }>;
-  historyPage(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): Promise<PresentationHistoryPage | undefined>;
   currentPosition(): PresentationPosition;
 }
 
@@ -84,11 +69,6 @@ export type CoreSession = {
   contextSnapshot?(): ContextMetrics | undefined;
   isAvailable?(): boolean;
   transcriptSnapshot?(): readonly Message[];
-  historyPage?(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): Promise<SessionHistoryPage | undefined> | SessionHistoryPage | undefined;
   currentPosition?(): NavigationPosition;
   contextCompactionPreview?(): ContextRecoveryPreview;
   compactContext?(signal?: AbortSignal): Promise<ContextRecoveryResult>;

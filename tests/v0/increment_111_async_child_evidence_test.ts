@@ -11,6 +11,9 @@ import {
   readDefinitionRevision,
 } from '../../v0/agent/worker/worker_definition_revision.ts';
 import { historyCaptureProfileFor } from '../../v0/agent/worker/worker_tui_session.ts';
+import { attributeProviderEvidenceV5 } from '../../v0/agent/worker/worker_history_projection.ts';
+import type { ProviderEvidenceV1 } from '../../v0/agent/provider/provider_evidence.ts';
+import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -24,6 +27,46 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
+
+Deno.test('provider evidence attribution preserves request data and its source', async () => {
+  const evidence: ProviderEvidenceV1 = {
+    schemaVersion: 1,
+    evidenceId: 'evidence-1',
+    turnNumber: 1,
+    createdAt: '2026-09-23T00:00:00.000Z',
+    requests: [{
+      request: {
+        ordinal: 1,
+        lane: 'parent',
+        modelStep: 1,
+        endpoint: 'https://example.com/model',
+        method: 'POST',
+        requestBody: '{}',
+        requestBodyBytes: 2,
+        requestMetadata: { responseMode: 'sse' },
+      },
+      response: { status: 200, headers: {}, rawBody: 'data: done', rawBodyBytes: 10 },
+      sseEvents: [],
+      parserTransitions: [],
+    }],
+    runtimeEvents: [],
+  };
+  const original = structuredClone(evidence);
+  const definition = await readDefinitionRevision('', 'builtin', 'planner');
+  const attributed = attributeProviderEvidenceV5({
+    evidence,
+    outcome: { stopReason: 'final' } as LoopOutcome,
+    sessionId: '00000000-0000-4000-8000-000000000001',
+    build: buildManifest(),
+    definition,
+    hasContextBasis: false,
+  });
+  assertEquals(evidence, original);
+  assertEquals(attributed.requests[0].request.contextRequestOrdinal, 1);
+  assertEquals(attributed.requests[0].response?.rawBody, 'data: done');
+  assert(attributed.requests[0] !== evidence.requests[0]);
+  assert(attributed.requests[0].request !== evidence.requests[0].request);
+});
 
 const handle = (): WorkerSessionHandle => ({
   id: crypto.randomUUID().toLowerCase(),

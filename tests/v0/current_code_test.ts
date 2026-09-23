@@ -16,16 +16,14 @@ import { admitInternalAgentDefinition } from '../../v0/agent/definitions/agent_c
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
 import {
-  decodeSessionRecord,
-  encodeSessionRecord,
   restoredMessages,
   type SessionRecord,
+  validateSessionRecord,
 } from '../../v0/agent/session/session_store.ts';
 import {
   MAX_REPLAY_MESSAGE_TEXT_BYTES,
   MAX_REPLAY_PLANNER_RESULT_BYTES,
 } from '../../v0/agent/session/replay_value.ts';
-import { historyPage } from '../../v0/agent/session/session_history.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import {
@@ -721,14 +719,14 @@ Deno.test('production definitions and saved messages use the expanded text ceili
       { role: 'assistant' as const, content: { kind: 'text' as const, text } },
     ],
   };
-  const decoded = decodeSessionRecord(encodeSessionRecord(record));
-  assertEquals(decoded.transcript[1].role, 'assistant');
-  const decodedAssistant = decoded.transcript[1];
+  assert(validateSessionRecord(record));
+  assertEquals(record.transcript[1].role, 'assistant');
+  const decodedAssistant = record.transcript[1];
   if (decodedAssistant.role !== 'assistant' || Array.isArray(decodedAssistant.content)) {
     throw new Error('assistant text was not retained');
   }
   assertEquals((decodedAssistant.content as { readonly text: string }).text, text);
-  const restored = restoredMessages(decoded.transcript);
+  const restored = restoredMessages(record.transcript);
   assertEquals(restored.omitted, 0);
   const restoredAssistant = restored.messages[1];
   if (restoredAssistant.role !== 'assistant' || Array.isArray(restoredAssistant.content)) {
@@ -782,17 +780,8 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
       { role: 'assistant' as const, content: { kind: 'text' as const, text: 'done' } },
     ],
   };
-  const decoded = decodeSessionRecord(encodeSessionRecord(record));
-  assertEquals(decoded.transcript, record.transcript);
-  assertEquals(restoredMessages(decoded.transcript).messages, record.transcript);
-  assertEquals(
-    historyPage(decoded.transcript, 1)?.entries.map((entry) => [entry.role, entry.text]),
-    [
-      ['user', 'inspect'],
-      ['tool>', 'read README.md ✓'],
-      ['assistant', 'done'],
-    ],
-  );
+  assert(validateSessionRecord(record));
+  assertEquals(restoredMessages(record.transcript).messages, record.transcript);
 });
 
 Deno.test('saved message limits retain the user, assistant, and planner result boundaries', () => {
@@ -805,16 +794,10 @@ Deno.test('saved message limits retain the user, assistant, and planner result b
     updatedAt: '2026-09-23T00:00:00.000Z',
     nextTurn: 2,
   };
-  const encode = (transcript: readonly Message[]): Uint8Array =>
-    encodeSessionRecord({ ...base, transcript });
+  const accepts = (transcript: readonly Message[]): boolean =>
+    validateSessionRecord({ ...base, transcript });
   const rejects = (transcript: readonly Message[]): void => {
-    let rejected = false;
-    try {
-      encode(transcript);
-    } catch {
-      rejected = true;
-    }
-    assert(rejected);
+    assert(!accepts(transcript));
   };
   const user = (text: string): Message => ({
     role: 'user',
@@ -824,12 +807,10 @@ Deno.test('saved message limits retain the user, assistant, and planner result b
     role: 'assistant',
     content: { kind: 'text', text },
   });
-  assert(
-    decodeSessionRecord(encode([
-      user('x'.repeat(MAX_REPLAY_MESSAGE_TEXT_BYTES)),
-      assistant('done'),
-    ])).transcript.length === 2,
-  );
+  assert(accepts([
+    user('x'.repeat(MAX_REPLAY_MESSAGE_TEXT_BYTES)),
+    assistant('done'),
+  ]));
   rejects([
     user('x'.repeat(MAX_REPLAY_MESSAGE_TEXT_BYTES + 1)),
     assistant('done'),
@@ -861,10 +842,9 @@ Deno.test('saved message limits retain the user, assistant, and planner result b
     },
     assistant('done'),
   ];
-  const accepted = decodeSessionRecord(
-    encode(plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES))),
-  );
-  assert(accepted.transcript[2]?.role === 'tool');
-  assert(accepted.transcript[2].content[0]?.text.length === MAX_REPLAY_PLANNER_RESULT_BYTES);
+  const accepted = plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES));
+  assert(accepts(accepted));
+  assert(accepted[2]?.role === 'tool');
+  assert(accepted[2].content[0]?.text.length === MAX_REPLAY_PLANNER_RESULT_BYTES);
   rejects(plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES + 1)));
 });

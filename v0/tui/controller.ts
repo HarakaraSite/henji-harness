@@ -208,12 +208,6 @@ export class TuiController {
         return (this.session.compactContext?.() ??
           Promise.resolve({ kind: 'refused', reason: 'unavailable' }))
           .then((result) => ({ kind: 'context_result', result }));
-      case 'history_page':
-        return Promise.resolve(
-          this.session.historyPage?.(intent.page, intent.turn, 16),
-        ).then((
-          page,
-        ) => ({ kind: 'history', page }));
       case 'recall_execution':
         return { kind: 'rejected', reason: 'unavailable' };
       case 'clear_recall':

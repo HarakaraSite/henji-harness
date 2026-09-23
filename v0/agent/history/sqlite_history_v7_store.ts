@@ -2,7 +2,6 @@
 export {
   type HistoryV7DiagnosticAttachment,
   type HistoryV7ExecutionState,
-  type HistoryV7ProjectionEntry,
   type HistoryV7PrototypeFaultPhase as HistoryV7FaultPhase,
   type HistoryV7PrototypeOptions as HistoryV7StoreOptions,
   SqliteHistoryV7Prototype as SqliteHistoryV7Store,

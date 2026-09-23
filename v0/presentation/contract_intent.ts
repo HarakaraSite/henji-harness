@@ -31,13 +31,6 @@ export const presentationIntent = (
     boundedPresentationText(copy.provider);
     boundedPresentationText(copy.modelId);
     boundedPresentationText(copy.effort);
-  } else if (kind === 'history_page') {
-    if (
-      !Number.isSafeInteger(copy.page) || copy.page < 0 ||
-      !Number.isSafeInteger(copy.turn)
-    ) {
-      throw new PresentationDeliveryError();
-    }
   } else if (
     kind !== 'cancel_active' && kind !== 'list_sessions' && kind !== 'new_session' &&
     kind !== 'clear_recall' &&

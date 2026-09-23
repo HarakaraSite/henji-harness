@@ -45,7 +45,6 @@ const mergeCost = (
   contentDigestCalls: left.contentDigestCalls + right.contentDigestCalls,
   newOccurrences: left.newOccurrences + right.newOccurrences,
   newRelations: left.newRelations + right.newRelations,
-  projectionOutboxRows: left.projectionOutboxRows + right.projectionOutboxRows,
   preexistingPayloadRowsRead: left.preexistingPayloadRowsRead +
     right.preexistingPayloadRowsRead,
   preexistingPayloadBytesRead: left.preexistingPayloadBytesRead +
@@ -60,7 +59,6 @@ const emptyCost = (): HistoryV7OperationCost => ({
   contentDigestCalls: 0,
   newOccurrences: 0,
   newRelations: 0,
-  projectionOutboxRows: 0,
   preexistingPayloadRowsRead: 0,
   preexistingPayloadBytesRead: 0,
   preexistingPayloadBytesRewritten: 0,
@@ -113,20 +111,10 @@ const semanticScale = async (path: string) => {
       appendMs.push(performance.now() - appendStart);
       const settleStart = performance.now();
       cost = mergeCost(cost, store.settleExecution(executionId, 'completed'));
-      store.adoptCanonical(executionId, turn);
+      store.adoptCanonical(executionId);
       settleMs.push(performance.now() - settleStart);
       cumulativeTokens += (FIXED_CONTEXT_BYTES + turn * FACT_BYTES_PER_TURN) / TOKEN_BYTES;
     }
-    const beforeProjection = store.pendingProjectionCount();
-    const projectionStart = performance.now();
-    let projected = 0;
-    while (store.pendingProjectionCount() > 0) {
-      projected += store.drainProjection(64, (occurrence) => {
-        const payload = occurrence.payload as { text?: string; outcome?: string };
-        return payload.text ?? payload.outcome ?? occurrence.kind;
-      });
-    }
-    const projectionMs = performance.now() - projectionStart;
     const first = appendMs.slice(0, 32);
     const last = appendMs.slice(-32);
     return {
@@ -145,7 +133,6 @@ const semanticScale = async (path: string) => {
         p50: percentile(settleMs, 0.5),
         p95: percentile(settleMs, 0.95),
       },
-      projection: { beforeProjection, projected, projectionMs },
       files: await totalSize(path),
     };
   } finally {
@@ -209,7 +196,7 @@ const profileRun = async (
         diagnosticBytes += content.byteLength;
       }
       store.settleExecution(executionId, 'completed');
-      store.adoptCanonical(executionId, turn);
+      store.adoptCanonical(executionId);
     }
     return {
       profile,

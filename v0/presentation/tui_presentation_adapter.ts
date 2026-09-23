@@ -8,7 +8,6 @@ import {
   PresentationDeliveryError,
   type PresentationEvent,
   type PresentationEventSink,
-  type PresentationHistoryPage,
   type PresentationIntent,
   presentationIntent,
   type PresentationIntentDispatcher,
@@ -53,7 +52,6 @@ import {
   diagnosticPersistenceError,
   failureDiagnostic,
   fixedCount,
-  history,
   listing,
   optionalBoundedCount,
   outcome,
@@ -283,15 +281,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
   isAvailable(): boolean {
     return this.core.isAvailable?.() ?? true;
   }
-  historyPage(
-    page: number,
-    turn?: number,
-    rows?: number,
-  ): Promise<PresentationHistoryPage | undefined> {
-    return Promise.resolve(this.core.historyPage?.(page, turn, rows)).then((
-      value,
-    ) => value === undefined ? undefined : history(value));
-  }
   currentPosition(): PresentationPosition | undefined {
     const value = this.core.currentPosition?.();
     return value === undefined ? undefined : position(value);
@@ -487,8 +476,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         }
         return this.dispatchModelSelection(selection);
       }
-      case 'history_page':
-        return this.dispatchHistory(admitted.page, admitted.turn);
       case 'compaction': {
         if (admitted.action === 'cancel') {
           this.compactionAbort?.abort('context compaction cancelled');
@@ -522,17 +509,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
         this.cancelNavigationOperations();
         return { kind: 'accepted' };
     }
-  }
-
-  private async dispatchHistory(
-    page: number,
-    turn: number,
-  ): Promise<PresentationIntentResult> {
-    const value = this.coreNavigation === undefined
-      ? await this.core.historyPage?.(page, turn, 16)
-      : await this.coreNavigation.historyPage(page, turn, 16);
-    const pageValue = value === undefined ? undefined : history(value);
-    return { kind: 'history', page: pageValue };
   }
 
   private dispatchResume(id: string): Promise<PresentationIntentResult> {
@@ -673,10 +649,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
             }),
           }),
         });
-      },
-      historyPage: async (page, turn, rows) => {
-        const value = await navigation.historyPage(page, turn, rows);
-        return value === undefined ? undefined : history(value);
       },
       currentPosition: () => position(navigation.currentPosition()),
     };

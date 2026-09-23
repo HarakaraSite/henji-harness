@@ -1,9 +1,5 @@
 import type { Message } from '../core/contracts.ts';
-import {
-  historyPageWindow,
-  indexSessionHistory,
-  type SessionHistoryPage,
-} from '../session/session_history.ts';
+import { indexSessionHistory } from '../session/session_history.ts';
 import {
   type DefinitionRevisionRef,
   normalizeSessionTitle,
@@ -301,17 +297,5 @@ export class SessionAuthority {
         },
       }),
     };
-  }
-
-  historyPage(
-    page: number,
-    turn = this.projection.nextTurn - 1,
-    rows = 16,
-  ): SessionHistoryPage | undefined {
-    return historyPageWindow(this.projection.transcript, turn, page, {
-      sessionId: this.sessionId,
-      agent: this.options.agent,
-      rows,
-    });
   }
 }

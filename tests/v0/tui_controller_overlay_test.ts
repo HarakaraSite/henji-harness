@@ -93,7 +93,6 @@ Deno.test('controller overlay owns help and session picker resume transitions', 
           messageCount: 2,
         },
       }),
-    historyPage: () => Promise.resolve(undefined),
     currentPosition: () => ({
       sessionId: 'old-session',
       createdAt: '2026-09-10T00:00:00.000Z',

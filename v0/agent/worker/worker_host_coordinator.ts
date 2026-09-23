@@ -1,10 +1,6 @@
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
-import {
-  historyPageWindow,
-  indexSessionHistory,
-  type SessionHistoryPage,
-} from '../session/session_history.ts';
+import { indexSessionHistory } from '../session/session_history.ts';
 import {
   type DefinitionRevisionRef,
   normalizeSessionTitle,
@@ -2134,18 +2130,6 @@ export class ExecutionCoordinator {
         },
       }),
     };
-  }
-
-  historyPage(
-    page: number,
-    turn = this.authority.projection.nextTurn - 1,
-    rows = 16,
-  ): SessionHistoryPage | undefined {
-    return historyPageWindow(this.authority.projection.transcript, turn, page, {
-      sessionId: this.sessionId,
-      agent: this.options.agent,
-      rows,
-    });
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {

@@ -261,7 +261,6 @@ Deno.test('Increment 35 keeps the current presentation binding when new Session 
     renameCurrent: () => Promise.resolve('unchanged'),
     createNew: () => Promise.reject(new Error('target setup failed')),
     switchTo: () => Promise.reject(new Error('not used')) as Promise<NavigationBinding>,
-    historyPage: () => Promise.resolve(undefined),
     currentPosition: () => position,
   };
   const events: PresentationEvent[] = [];
