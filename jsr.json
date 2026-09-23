@@ -80,6 +80,7 @@
       "v0/agent/tools/work_tools.ts",
       "v0/agent/worker_agent_api.ts",
       "v0/agent/worker/recalled_execution_context.ts",
+      "v0/agent/worker/worker_child_contract.ts",
       "v0/agent/worker/worker_execution_artifact.ts",
       "v0/agent/worker/worker_execution_artifact_store.ts",
       "v0/agent/worker/worker_protocol.ts",
