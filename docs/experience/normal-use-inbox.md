@@ -22,6 +22,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A8 | Agent実行 | OpenRouter Responses API経路 | 利用者希望（2026-09-17）。E1のProvider外部化と合わせて検討 |
+| A9 | Agent実行 | 診断記録の粒度と保存期間 | 実利用で保存量・読出し負荷が問題になったとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -176,6 +177,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: OpenRouter経由でResponses固有機能を使う必要が出る、またはOpenAI directとOpenRouterで
   Responses transportを共通化する具体的なproduct上の利点が得られること。利用者希望によりE1のProvider外部化と
   合わせて採用を検討する。
+
+### A9 — 診断記録の粒度と保存期間（実施未定）
+
+- 観測（2026-09-23）: キャンセルした一実行に約4.5万件の診断記録が残った。起動時にそれらを履歴表示用の行へ
+  展開する処理が遅延の主因とみられるが、元の診断記録は現在の調査機能でも使う。この表示用処理の要否と、
+  元の記録をどれほど細かく・いつまで保存するかは別の判断である。
+- 候補: 実利用で必要な原因調査を確認したうえで、記録の粒度と保存期間を検討する。現時点では保存方針を
+  変更せず、実装するかも決めない。
+- 再検討条件: 元の記録自体の保存量や読出し負荷が実利用で問題になる、または調査に必要な記録の範囲を
+  実例から判断できるとき。
 
 ## F24・自己改訂
 
