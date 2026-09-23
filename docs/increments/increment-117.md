@@ -1,6 +1,6 @@
 # Increment 117 — 未使用の履歴処理と旧UI経路の除去
 
-状態: コード実装・検証完了、既存DB切替待ち
+状態: 実装・検証・既存DB切替・配置完了
 
 ## 目的と根拠
 
@@ -52,3 +52,10 @@
   スクロール、`/sessions`から別Sessionへの切替を確認した。隔離DBの実CLIで`session`／`canonical`／
   `detail`（56行のJSONL）と`sessions list`を確認した。
 - authoritative `v0:gate`は初回のtest型誤記を修正後に再実行してexit 0。`git diff --check`も成功。
+- コードと正本変更はcommit `5a4cc32f`、診断記録保存方針の未採用メモは別commit `ca4014cb`。
+  そのclean sourceからHenji 0.5.0（build `1a1beb0d…`、SHA-256 `c1c93566…`）を作り、
+  `~/.local/bin/henji`へ原子的に配置した。pushとreleaseは行っていない。
+- 稼働中のHenjiがいないことを確認し、現在workspaceの既存v8 `history-v7.sqlite3`とWAL／SHMを削除した。
+  配置済みbinaryの`sessions list`で空の新DBを生成し、`PRAGMA user_version=9`、不要な六表がないことを確認。
+  `henji history --latest --view session`は`# no history`を返した。既存Session・診断記録は選択された方針どおり
+  失われた。実provider callは行っていない。

@@ -2,6 +2,13 @@
 
 ## Records
 
+### Increment 117 — 未使用の履歴処理と旧UI経路の除去（実装・検証・配置完了）
+
+- 状態: 未使用の履歴投影・outbox、重複clone、二重canonical採用表、旧history page・Session JSON codecを整理。
+  新schema 9へ切替え、利用者指定の現在workspaceの旧v8 DBを削除済み。`v0:gate`、隔離XDGのproduction TUI、
+  配置後の空DB作成を確認。実provider call、push、releaseは未実施。
+- 次: なし。正本は`docs/increments/increment-117.md`。既存Session・診断記録はDB削除により失われた。
+
 ### Increment 116 — Chat provider応答と切替後private state（実装・検証・commit・配置完了）
 
 - 状態: DeepSeekの終端usage＋後続usage frameを受理し、provider切替後の古いprivate stateをrequestから
