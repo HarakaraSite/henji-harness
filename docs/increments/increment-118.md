@@ -1,6 +1,6 @@
 # Increment 118 — キャンセル後のTUI表示ID衝突の修正
 
-状態: 実装・検証完了
+状態: 実装・検証・配置完了
 
 ## 利用者が必要とする動作と根拠
 
@@ -28,3 +28,6 @@
   `tool> bash printf old ✓`を表示した後、Escでキャンセルし、同じturn番号の次の入力で
   `tool> bash printf new ✓`が古い行の後に表示され、最終回答まで進むことを確認した。
   模擬providerへのrequestは4件。実provider callは行っていない。
+- commit `475179d5`のclean runtime sourceからbuildしたHenji 0.5.0（build `18bae85a…`、
+  SHA-256 `17b6235d…`）を`~/.local/bin/henji`へ原子的に配置し、配置先のhashと`--version`を確認した。
+  先に起動していたHenji processは旧binaryのままであり、新binaryは次回起動から有効になる。
