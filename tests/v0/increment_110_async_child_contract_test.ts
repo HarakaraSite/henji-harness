@@ -342,6 +342,36 @@ Deno.test('Increment 110 releases completed parent scopes without retaining tomb
   }
 });
 
+Deno.test('Increment 110 does not admit a child after parent cleanup during bundled ref resolution', async () => {
+  let admissions = 0;
+  let settlements = 0;
+  const history = {
+    beginExecution: () => admissions += 1,
+    settleNonCanonicalExecution: () => settlements += 1,
+  } as unknown as HistoryPersistencePort;
+  const registry = await builtinRegistry(history);
+  const parentExecutionId = 'parent-ref-resolution';
+  for (let index = 0; index < 3; index += 1) {
+    registry.openParent(parentExecutionId);
+    const spawn = registry.handle(
+      { kind: 'spawn', agent: 'planner', task: 'must not start' },
+      undefined,
+      parentExecutionId,
+    );
+    const cleanup = await registry.cleanupParent(parentExecutionId);
+    registry.releaseParent(parentExecutionId);
+    const response = await spawn;
+    assertEquals(cleanup, undefined);
+    assertEquals(response, {
+      ok: false,
+      error: 'parent execution no longer accepts child runs',
+    });
+    assertEquals(admissions, 0);
+    assertEquals(settlements, 0);
+    assertEquals((Reflect.get(registry, 'runs') as Map<string, unknown>).size, 0);
+  }
+});
+
 Deno.test('Increment 110 records startup failure as interrupted', async () => {
   const stateRoot = await Deno.makeTempDir({
     prefix: 'henji-i110-startup-failure-',

@@ -76,12 +76,9 @@ const validateToolResult = (value: unknown): boolean => {
     !common || result.kind !== 'tool_result' || !validString(result.callId) ||
     result.callId.length === 0 || !validString(result.name) ||
     result.name.length === 0 ||
-    !validMessageText(
-      result.text,
-      result.name === 'delegate_to_planner'
-        ? MAX_REPLAY_PLANNER_RESULT_BYTES
-        : MAX_REPLAY_MESSAGE_TEXT_BYTES,
-    )
+    !(result.name === 'delegate_to_planner'
+      ? validMessageText(result.text, MAX_REPLAY_PLANNER_RESULT_BYTES)
+      : validString(result.text))
   ) return false;
   if (result.outcome !== 'success' && result.outcome !== 'error') return false;
   if (Object.hasOwn(result, 'terminal')) {

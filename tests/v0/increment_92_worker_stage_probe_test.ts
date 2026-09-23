@@ -845,8 +845,15 @@ Deno.test('Increment 92 cancels the gap watchdog when provider start reaches Hos
     await history.initialize();
     const row = history.listExecutionsForSession(created.session.sessionId)[0];
     assert(row !== undefined);
+    const events = history.listExecutionEvents(row.executionId);
+    assert(events.some((event) => event.kind === 'provider_request_start'));
+    const coordinator = Reflect.get(created.session, 'coordinator') as object;
+    const supervisor = Reflect.get(coordinator, 'supervisor') as object;
+    const messages = Reflect.get(supervisor, 'messages') as object;
+    const queued = Reflect.get(messages, 'queue') as WorkerToHostMessage[];
+    assertEquals(queued.length, 0);
     assert(
-      !history.listExecutionEvents(row.executionId).some((event) =>
+      !events.some((event) =>
         event.kind === 'worker_stage_snapshot' &&
         (event.payload as { trigger?: string }).trigger === 'auxiliary_gap'
       ),

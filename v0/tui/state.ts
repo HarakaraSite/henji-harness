@@ -642,8 +642,19 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           }
         }
       }
+      const restored = Object.freeze({
+        ...next,
+        log: Object.freeze({
+          ...next.log,
+          entries: Object.freeze(
+            next.log.entries.map((entry) =>
+              Object.freeze({ ...entry, id: `restored:${entry.id}` })
+            ),
+          ),
+        }),
+      });
       return event.omitted > 0
-        ? appendEntry(next, {
+        ? appendEntry(restored, {
           id: `history:omitted:${event.omitted}`,
           kind: 'warning',
           label: 'history>',
@@ -651,7 +662,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           revision: 0,
           live: false,
         })
-        : next;
+        : restored;
     }
     case 'session_binding_replaced':
       return Object.freeze({

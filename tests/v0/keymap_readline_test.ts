@@ -44,6 +44,15 @@ Deno.test('Keymap decodes modified Return keys as newline', () => {
   assertEquals(feedOne(decoder, [0x1b, 0x0d]), 'alt_enter');
 });
 
+Deno.test('Keymap decodes a new arrow after a timed bare Escape', () => {
+  const decoder = new InputDecoder();
+  assertEquals(decoder.feed(new Uint8Array([0x1b]), 0), []);
+  assertEquals(decoder.poll(80), [{ kind: 'escape' }]);
+  assertEquals(decoder.feed(new Uint8Array([0x63]), 81)[0]?.kind, 'printable');
+  assertEquals(decoder.feed(new Uint8Array([0x1b, 0x5b, 0x44]), 82), [{ kind: 'left' }]);
+  assertEquals(decoder.feed(new Uint8Array([0x1b, 0x5b, 0x41]), 83), [{ kind: 'up' }]);
+});
+
 const edit = (text: string, cursor: number): TuiEditor => {
   const editor = new TuiEditor();
   assert(editor.insert(text));

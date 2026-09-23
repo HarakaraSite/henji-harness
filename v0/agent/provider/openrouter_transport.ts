@@ -168,13 +168,17 @@ export class OpenRouterAgentModel implements Model {
     const timeoutMs = this.options.timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS;
     const startedAt = Date.now();
     // A continuous stream keeps the reader in microtasks, which starves this macrotask timer.
-    // `deadlineExceeded` is also checked inside the stream reader so the request cannot outlive
-    // `timeoutMs`.
-    const deadlineExceeded = (): boolean => timedOut || Date.now() - startedAt >= timeoutMs;
-    const timer = setTimeout(() => {
+    // Both the timer and the stream reader use the same abort path.
+    const abortDeadline = (): void => {
+      if (timedOut) return;
       timedOut = true;
       controller.abort('provider deadline exceeded');
-    }, timeoutMs);
+    };
+    const deadlineExceeded = (): boolean => {
+      if (Date.now() - startedAt >= timeoutMs) abortDeadline();
+      return timedOut;
+    };
+    const timer = setTimeout(abortDeadline, timeoutMs);
     const endpoint = this.options.endpoint ??
       `${this.profile.origin}${this.profile.path}`;
     const evidence = generateOptions.providerEvidence;

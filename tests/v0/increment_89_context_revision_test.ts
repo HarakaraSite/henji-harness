@@ -194,3 +194,77 @@ Deno.test('Increment 89 sends one initial context revision and suffix-only delta
     })),
   );
 });
+
+Deno.test('Increment 89 keeps direct provider fact sequences for default and planner roots', async () => {
+  for (const role of ['parent', 'planner'] as const) {
+    let step = 0;
+    const model: Model = {
+      generate(): ModelResult {
+        step += 1;
+        return step === 1
+          ? {
+            kind: 'tool_calls',
+            calls: [{ callId: 'read-1', name: 'read', arguments: { path: 'note.txt' } }],
+          }
+          : { kind: 'final', text: 'done' };
+      },
+    };
+    const composition = {
+      role,
+      model,
+      registry: new Registry([{
+        name: 'read',
+        description: 'return a note',
+        inputSchema: { type: 'object' },
+        execute: () => 'note',
+      }]),
+      maxSteps: 2,
+      manifest: { role, maxSteps: 2, profileId: 'provider-free', resources: ['tool:read'] },
+    } as unknown as WorkerAgentComposition;
+    let sequence = 0;
+    const deltas: ContextModelRequestDelta[] = [];
+    const port: WorkerGenerationPort = {
+      runtimeEvent: () => ++sequence,
+      effectObservation: () => ++sequence,
+      providerObservation: () => ++sequence,
+      contextObservation: (_correlation, delta) => {
+        deltas.push(structuredClone(delta));
+        return ++sequence;
+      },
+      checkpointProposal: () => Promise.resolve(false),
+      commitProposal: () => Promise.resolve(true),
+      turnFailed: (_correlation, outcome) => {
+        throw new Error(`unexpected ${role} failure: ${outcome.error ?? outcome.stopReason}`);
+      },
+    };
+    const generation = new WorkerGeneration(
+      composition,
+      '70000000-0000-4000-8000-000000000089',
+      port,
+      [],
+      1,
+      undefined,
+      undefined,
+      ROOT_DEFAULT_MODEL_SELECTION,
+    );
+    await generation.runTurn({
+      session: '70000000-0000-4000-8000-000000000089',
+      instanceCorrelation: 'increment-89-instance',
+      workerGeneration: `increment-89-${role}`,
+      baseStateRevision: 1,
+      command: `turn-${role}`,
+    }, 'read then answer');
+    const sources = deltas.flatMap((delta) => delta.occurrences)
+      .flatMap((occurrence) => occurrence.sourceRelations)
+      .filter((source) =>
+        source.logicalIdentity?.startsWith('current-execution:') ||
+        source.logicalIdentity?.startsWith('tool-result:')
+      );
+    assert(sources.length >= 4, `${role} produced no tool source relations`);
+    assert(
+      sources.every((source) => source.sourceWorkerSequence !== undefined),
+      `${role} lost a direct provider fact sequence`,
+    );
+    assert(sources.every((source) => source.lane === 'parent'));
+  }
+});

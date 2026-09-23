@@ -227,7 +227,9 @@ export class WorkerCapsule {
       waiter.resolve(message);
       return;
     }
-    this.messages.push(message);
+    // Subscribers consume production messages as they arrive. Keep unmatched messages only for
+    // the probe/waitForMessage path, where no subscriber owns delivery.
+    if (this.listeners.size === 0) this.messages.push(message);
   }
 }
 

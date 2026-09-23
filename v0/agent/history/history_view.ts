@@ -22,24 +22,47 @@ const isToolCallContent = (
 export const renderSessionView = (record: StoredSessionRecord): string => {
   const lines: string[] = [];
   const toolLines = new Map<string, number>();
+  let assistantLine: number | undefined;
   let seenTurn = false;
   for (const message of record.transcript) {
     if (message.role === 'user') {
       if (seenTurn) lines.push('');
       seenTurn = true;
+      assistantLine = undefined;
+      toolLines.clear();
       lines.push(`user> ${message.content.text}`);
       continue;
     }
     if (message.role === 'assistant') {
+      const assistantText = isToolCallContent(message.content)
+        ? message.text
+        : message.content.text;
+      if (assistantText !== undefined) {
+        const text = `assistant> ${assistantText}`;
+        const currentAssistantLine = assistantLine;
+        if (currentAssistantLine === undefined) {
+          assistantLine = lines.length;
+          lines.push(text);
+        } else if (
+          !isToolCallContent(message.content) &&
+          [...toolLines.values()].some((index) => index > currentAssistantLine)
+        ) {
+          lines.splice(currentAssistantLine, 1);
+          for (const [callId, index] of toolLines) {
+            if (index > currentAssistantLine) toolLines.set(callId, index - 1);
+          }
+          assistantLine = lines.length;
+          lines.push(text);
+        } else {
+          lines[currentAssistantLine] = text;
+        }
+      }
       if (isToolCallContent(message.content)) {
-        if (message.text !== undefined) lines.push(`assistant> ${message.text}`);
         for (const call of message.content) {
           const preview = toolActivityPreview(call.name, call.arguments);
           toolLines.set(call.callId, lines.length);
           lines.push(`${TOOL_PREFIX}${pendingToolActivityText(call.name, preview)}`);
         }
-      } else {
-        lines.push(`assistant> ${message.content.text}`);
       }
       continue;
     }

@@ -189,13 +189,7 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
         ...(context.signal === undefined ? {} : { signal: context.signal }),
       });
       const responseStatus = response.status;
-      const responseHeaderMap = response.headers;
       const rawBytes = response.bytes;
-      evidence?.recordResponse({
-        status: responseStatus,
-        headers: responseHeaderMap,
-      });
-      evidence?.appendResponseBytes(rawBytes);
       throwIfCancelled(context.signal);
 
       if (responseStatus < 200 || responseStatus >= 300) {

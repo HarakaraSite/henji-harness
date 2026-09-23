@@ -104,6 +104,7 @@ export class TuiController {
   private discardIntent: DiscardIntent | null = null;
   private steeringConsumedBridge = false;
   private resizeUnsubscribe: (() => void) | null = null;
+  private outputFailureUnsubscribe: (() => void) | null = null;
 
   constructor(
     private readonly lifecycle: TerminalLifecycle,
@@ -223,13 +224,15 @@ export class TuiController {
           listing: { sessions: [], skippedInvalid: 0 },
         };
       case 'rename_session': {
-        const status = this.navigation?.renameCurrent?.(intent.title) ?? 'unavailable';
-        return status === 'renamed' || status === 'unchanged'
-          ? { kind: 'session_title', status, title: intent.title }
-          : {
-            kind: 'rejected',
-            reason: status === 'busy' ? 'busy' : 'unavailable',
-          };
+        return (this.navigation?.renameCurrent?.(intent.title) ??
+          Promise.resolve('unavailable' as const)).then((status) =>
+            status === 'renamed' || status === 'unchanged'
+              ? { kind: 'session_title' as const, status, title: intent.title }
+              : {
+                kind: 'rejected' as const,
+                reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
+              }
+          );
       }
       case 'new_session': {
         if (this.navigation?.createNew === undefined) {
@@ -337,6 +340,9 @@ export class TuiController {
   async run(): Promise<number> {
     try {
       this.installSignals();
+      this.outputFailureUnsubscribe = this.lifecycle.subscribeOutputFailure(() =>
+        this.handleCrash()
+      );
       if (this.state === 'exiting' || this.state === 'failed') {
         if (this.crashSettlement !== null) await this.crashSettlement;
         if (this.shutdownPromise === null) {
@@ -391,6 +397,9 @@ export class TuiController {
     } catch (error) {
       await this.fail(error);
       throw error instanceof TuiControllerError ? error : new TuiControllerError('agent_failure');
+    } finally {
+      this.outputFailureUnsubscribe?.();
+      this.outputFailureUnsubscribe = null;
     }
   }
 
@@ -457,7 +466,7 @@ export class TuiController {
 
   private processIdle(events: readonly InputEvent[]): void {
     if (this.modern) {
-      this.processModernEvents(events, false);
+      this.processModernEvents(events);
       return;
     }
     for (const event of events) {
@@ -517,10 +526,7 @@ export class TuiController {
 
   private processBusy(events: readonly InputEvent[]): void {
     if (this.modern) {
-      for (const event of events) {
-        if (this.cancellationRequested && event.kind !== 'ctrl_c') continue;
-        this.processModernEvents([event], true);
-      }
+      this.processModernEvents(events);
       return;
     }
     for (const event of events) {
@@ -554,10 +560,7 @@ export class TuiController {
     );
   }
 
-  private processModernEvents(
-    events: readonly InputEvent[],
-    busy: boolean,
-  ): void {
+  private processModernEvents(events: readonly InputEvent[]): void {
     for (const event of events) {
       if (this.state === 'session-switching') {
         this.processSessionSwitching([event]);
@@ -567,6 +570,8 @@ export class TuiController {
         this.processRecallSelecting([event]);
         continue;
       }
+      const busy = this.state === 'busy';
+      if (busy && this.cancellationRequested && event.kind !== 'ctrl_c') continue;
       if (!busy && this.overlay.isOpen) {
         this.processModalEvent(event);
         continue;

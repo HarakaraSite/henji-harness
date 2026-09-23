@@ -23,7 +23,10 @@ import type {
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store.ts';
-import { FakeProviderEvidenceStore } from '../../v0/agent/provider/provider_evidence.ts';
+import {
+  FakeProviderEvidenceStore,
+  ProviderEvidenceRecorder,
+} from '../../v0/agent/provider/provider_evidence.ts';
 import {
   bundledToolDefinitionLoadRequests,
   createWorkerSession,
@@ -359,6 +362,7 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
   assertEquals(closed, true);
   const written = await artifacts.list();
   assertEquals(written.length, 1);
+  assert(written[0]?.manifest.resources.includes('agent:planner'));
   assertEquals(written[0]?.storeResult, 'committed');
   assertEquals(written[0]?.acknowledgement, 'accepted_sent');
   assert(
@@ -367,6 +371,119 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
   assert(
     written[0]?.protocolTrace.some((entry) => entry.semanticSubtype === 'commit_proposal'),
   );
+});
+
+Deno.test('production subscriber does not retain delivered Worker messages across turns', async () => {
+  let capsule: WorkerCapsule | undefined;
+  const created = await createWorkerSession({
+    persistence: 'none',
+    agent: 'default',
+    physicalIoMode: 'provider-free',
+    capsuleFactory: (url) => {
+      capsule = new WorkerCapsule(url);
+      return capsule;
+    },
+  });
+  try {
+    for (let turn = 1; turn <= 3; turn += 1) {
+      const outcome = await created.session.submit(`turn ${turn}: ${'x'.repeat(8_192)}`);
+      assert(outcome.ok);
+      assert(capsule !== undefined);
+      const queued = Reflect.get(capsule, 'messages') as WorkerToHostMessage[];
+      assertEquals(queued.length, 0);
+    }
+  } finally {
+    await created.close();
+  }
+});
+
+Deno.test('Host does not retain processed provider observations in its response queue', async () => {
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const evidenceStore = new FakeProviderEvidenceStore();
+  let turn = 0;
+  let probeSequence = 0;
+  let hostListener: ((message: WorkerToHostMessage) => void) | undefined;
+  const created = await createWorkerSession({
+    persistence: 'none',
+    agent: 'default',
+    physicalIoMode: 'provider-free',
+    executionArtifactStore: artifacts,
+    providerEvidenceStore: evidenceStore,
+    capsuleFactory: (url) => {
+      const capsule = new WorkerCapsule(url);
+      return {
+        send: (command) => {
+          if (command.kind === 'turn') {
+            turn += 1;
+            assert(hostListener !== undefined);
+            const listener = hostListener;
+            const recorder = new ProviderEvidenceRecorder(
+              undefined,
+              turn,
+              undefined,
+              undefined,
+              (observation) => {
+                listener({
+                  kind: 'provider_observation',
+                  correlation: command.correlation,
+                  sequence: ++probeSequence,
+                  turn,
+                  observation,
+                });
+                return probeSequence;
+              },
+            );
+            recorder.startRequestMetadata({
+              lane: 'parent',
+              modelStep: 1,
+              endpoint: 'https://example.invalid/provider',
+              method: 'POST',
+            });
+            recorder.recordResponse({
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            });
+            recorder.appendResponseBytes(new TextEncoder().encode('x'.repeat(8_192)));
+          }
+          capsule.send(command);
+        },
+        subscribe: (listener) => {
+          hostListener = listener;
+          const unsubscribe = capsule.subscribe(listener);
+          return () => {
+            hostListener = undefined;
+            unsubscribe();
+          };
+        },
+        terminate: () => capsule.terminate(),
+      };
+    },
+  });
+  try {
+    for (let index = 1; index <= 3; index += 1) {
+      const outcome = await created.session.submit(`provider observation turn ${index}`);
+      assert(outcome.ok);
+      const coordinator = Reflect.get(created.session, 'coordinator') as object;
+      const supervisor = Reflect.get(coordinator, 'supervisor') as object;
+      const messages = Reflect.get(supervisor, 'messages') as object;
+      const queued = Reflect.get(messages, 'queue') as WorkerToHostMessage[];
+      assertEquals(queued.length, 0);
+    }
+    const stored = await artifacts.list();
+    assertEquals(stored.length, 3);
+    for (const artifact of stored) {
+      assertEquals(
+        artifact.protocolTrace.filter((entry) =>
+          entry.kind === 'provider_observation' && entry.semanticSubtype !== 'runtime_event'
+        )
+          .map((entry) => entry.semanticSubtype),
+        ['request_start', 'response_start', 'response_bytes'],
+      );
+    }
+    assertEquals((await evidenceStore.list()).length, 3);
+  } finally {
+    await created.close();
+  }
 });
 
 Deno.test('terminal tool success persists and reads back its Worker execution artifact', async () => {

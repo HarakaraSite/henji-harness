@@ -262,6 +262,9 @@ export class ChildRunRegistry {
       return { ok: false, error: `agent is not available: ${agent}` };
     }
     const bundledPlannerRef = await builtinAsyncAgentRefFor('planner');
+    if (!this.activeParents.has(parentExecutionId)) {
+      return { ok: false, error: 'parent execution no longer accepts child runs' };
+    }
     const bundledPlanner = sameRef(entry.ref, bundledPlannerRef);
     const runId = crypto.randomUUID().toLowerCase();
     const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;

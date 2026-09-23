@@ -163,6 +163,15 @@ Deno.test('read bounds large output without changing edit whole-file behavior', 
       read.execute({ path: 'one-line.txt' }),
       /line 1 exceeds 64 KiB read result limit/u,
     );
+
+    await Deno.writeTextFile(
+      `${workspaceRoot}/no-progress.txt`,
+      `${'x'.repeat(65_535)}\nlast\n`,
+    );
+    await expectReject(
+      read.execute({ path: 'no-progress.txt' }),
+      /line 1 exceeds 64 KiB read result limit/u,
+    );
   });
 });
 

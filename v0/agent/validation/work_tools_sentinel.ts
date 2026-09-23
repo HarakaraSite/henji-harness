@@ -315,7 +315,7 @@ const failureReport = (
   outcome: 'aborted',
   code,
   modelRequests: Math.min(MAX_SENTINEL_REQUESTS, boundedCount(requestCount)),
-  externalRequests: Math.min(MAX_SENTINEL_REQUESTS, boundedCount(externalRequests)),
+  externalRequests: boundedCount(externalRequests),
   steps: Math.min(MAX_STEPS, boundedCount(outcome?.steps ?? requestCount)),
   toolCalls: Math.min(MAX_SENTINEL_TOOL_CALLS, boundedCount(outcome?.toolCallCount ?? 0)),
   toolResults: Math.min(MAX_SENTINEL_TOOL_CALLS, boundedCount(outcome?.toolResultCount ?? 0)),
@@ -409,6 +409,9 @@ export const runSentinel = async (
     const workspace = await resolveWorkspace(dependencies.workspaceRoot);
     const baseFetcher = dependencies.fetcher ?? fetch;
     const fetcher: typeof fetch = (input, init) => {
+      if (externalRequests >= (guarded?.calls ?? 0)) {
+        throw new SentinelContractError('provider_failure');
+      }
       externalRequests += 1;
       return baseFetcher(input, init);
     };

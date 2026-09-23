@@ -20,6 +20,9 @@ export interface AssistantSpan {
 export interface AssistantLine {
   readonly text: string;
   readonly spans: readonly AssistantSpan[];
+  /** Host-local origin used to keep the viewed content in place after reflow. */
+  readonly sourceLine?: number;
+  readonly sourceColumn?: number;
 }
 
 export interface AssistantContentRenderer {
@@ -32,7 +35,9 @@ export interface AssistantContentRenderer {
 
 const plainLines = (text: string): readonly AssistantLine[] =>
   Object.freeze(
-    text.split('\n').map((line) => Object.freeze({ text: line, spans: Object.freeze([]) })),
+    text.split('\n').map((line, sourceLine) =>
+      Object.freeze({ text: line, spans: Object.freeze([]), sourceLine, sourceColumn: 0 })
+    ),
   );
 
 /** The default keeps the existing assistant body text unchanged and emits no inline spans. */

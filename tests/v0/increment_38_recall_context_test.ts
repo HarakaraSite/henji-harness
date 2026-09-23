@@ -7,6 +7,7 @@ import {
 } from '../../v0/agent/provider/provider_evidence.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
@@ -33,6 +34,10 @@ import {
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import type { SessionNavigationHost } from '../../v0/agent/session/session_navigation.ts';
+import { restoredMessages } from '../../v0/agent/session/session_store.ts';
+import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
+import { TuiRenderer } from '../../v0/tui/render.ts';
+import type { TerminalPort } from '../../v0/tui/terminal.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -57,6 +62,94 @@ const correlation = (command: string) => ({
   workerGeneration: 'recall-test-generation',
   baseStateRevision: 1,
   command,
+});
+
+Deno.test('Increment 113 restored steering answer survives the next live Worker turn', async () => {
+  const terminal: TerminalPort = {
+    stdinIsTerminal: () => true,
+    stdoutIsTerminal: () => true,
+    consoleSize: () => ({ columns: 100, rows: 30 }),
+    setRaw: () => {},
+    read: () => Promise.resolve(null),
+    drainAndCloseInput: () => Promise.resolve(),
+    write: () => {},
+    addSignal: () => {},
+    removeSignal: () => {},
+  };
+  const renderer = new TuiRenderer(terminal, {
+    setInterval: () => 0,
+    clearInterval: () => {},
+  });
+  const adapter = createTuiPresentationAdapter(
+    { submit: () => Promise.reject(new Error('unused')) },
+    renderer.eventSink,
+  );
+  let forwardLiveEvents = false;
+  let savedTranscript: readonly Message[] | undefined;
+  let requests = 0;
+  const model: Model = {
+    generate(): ModelResult {
+      requests += 1;
+      if (requests === 1) {
+        return {
+          kind: 'tool_calls',
+          calls: [{ callId: 'read-1', name: 'read', arguments: { path: 'source.txt' } }],
+        };
+      }
+      return { kind: 'final', text: requests === 2 ? 'saved answer' : 'next answer' };
+    },
+  };
+  const registry = new Registry([{
+    name: 'read',
+    description: 'read source',
+    inputSchema: {},
+    execute: () => {
+      assertEquals(generation.steerActiveTurn('use the new instruction'), 'accepted');
+      return 'source contents';
+    },
+  }]);
+  const port: WorkerGenerationPort = {
+    runtimeEvent: (_eventCorrelation, event) => {
+      if (forwardLiveEvents) adapter.deliverCoreEvent(event);
+      return 1;
+    },
+    effectObservation: () => 1,
+    checkpointProposal: () => Promise.resolve(false),
+    commitProposal: (_eventCorrelation, proposal) => {
+      if (proposal.nextTurn === 2) savedTranscript = structuredClone(proposal.transcript);
+      return Promise.resolve(true);
+    },
+    turnFailed: (_eventCorrelation, outcome) => {
+      throw new Error(`unexpected failed turn: ${outcome.stopReason}`);
+    },
+  };
+  const composition = {
+    role: 'parent',
+    model,
+    registry,
+    maxSteps: 3,
+    systemInstruction: undefined,
+    manifest: { role: 'parent', maxSteps: 3, profileId: 'i113-steering', resources: [] },
+    resolved: { model: { profile: { id: 'i113-steering' } } },
+  } as unknown as WorkerAgentComposition;
+  const generation = new WorkerGeneration(composition, SESSION_ID, port);
+  await generation.runTurn(correlation('steered-turn'), 'original task');
+  assert(savedTranscript !== undefined);
+  assert(
+    savedTranscript.some((message) =>
+      message.role === 'user' && message.content.text === 'use the new instruction'
+    ),
+  );
+  const restored = restoredMessages(savedTranscript);
+  renderer.renderRestored(restoredPresentationMessages(restored.messages), restored.omitted);
+  assert(renderer.stateSnapshot().log.entries.some((entry) => entry.text === 'saved answer'));
+
+  forwardLiveEvents = true;
+  await generation.runTurn(correlation('next-turn'), 'next task');
+  const entries = renderer.stateSnapshot().log.entries;
+  assert(entries.some((entry) => entry.text === 'saved answer'));
+  assert(entries.some((entry) => entry.text === 'next answer'));
+  assertEquals(new Set(entries.map((entry) => entry.id)).size, entries.length);
 });
 
 const sourceArtifact = async (
@@ -427,6 +520,167 @@ Deno.test('Increment 38 projects recall for one Worker turn without transcript a
   assertEquals({ sourceDispatches, newDispatches }, { sourceDispatches: 0, newDispatches: 1 });
   assertEquals(proposals.length, 2);
   assert(!JSON.stringify(proposals).includes(marker));
+});
+
+Deno.test('Increment 38 recalls consumed steering without provider replay state from persisted Worker facts', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i38-recall-journal-' });
+  const workspaceRoot = `${stateRoot}/workspace`;
+  await Deno.mkdir(workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+    captureProfile: 'normal-v1',
+  });
+  try {
+    const artifact = await sourceArtifact();
+    const task = 'inspect source with steering';
+    const input = {
+      taskId: crypto.randomUUID(),
+      executionId: SOURCE_ID,
+      createdAt: '2026-09-23T00:00:00.000Z',
+      sessionCorrelation: SESSION_ID,
+      turn: 1,
+      task,
+      baseStateRevision: 1,
+      agent: 'default' as const,
+      model: ROOT_DEFAULT_MODEL_SELECTION,
+      build: artifact.build,
+      definition: artifact.definition,
+    };
+    await store.beginExecution({ ...input, sessionMode: 'no_session' });
+    let sequence = 0;
+    let failedOutcome: import('../../v0/agent/core/contracts.ts').LoopOutcome | undefined;
+    const sourceRequests: ModelRequest[] = [];
+    const sourceModel: Model = {
+      generate(request): ModelResult {
+        sourceRequests.push(structuredClone(request));
+        if (sourceRequests.length === 1) {
+          return {
+            kind: 'tool_calls',
+            calls: [{ callId: 'source-read', name: 'read', arguments: { path: 'src.ts' } }],
+            text: 'I will read the source.',
+            providerState: {
+              provider: 'openrouter-chat',
+              reasoningDetails: [{ trace: 'provider replay detail' }],
+            },
+          };
+        }
+        return { kind: 'final', text: 'stopped after reading' };
+      },
+    };
+    const registry = new Registry([{
+      name: 'read',
+      description: 'read source',
+      inputSchema: {},
+      execute: () => {
+        assertEquals(sourceGeneration.steerActiveTurn('use the new instruction'), 'accepted');
+        return 'exact source contents';
+      },
+    }]);
+    const sourcePort: WorkerGenerationPort = {
+      runtimeEvent: (eventCorrelation, event) => {
+        sequence += 1;
+        store.appendExecutionEvent({
+          executionId: SOURCE_ID,
+          direction: 'worker_to_host',
+          source: 'worker',
+          kind: 'runtime_event',
+          workerSequence: sequence,
+          payload: {
+            kind: 'runtime_event',
+            correlation: eventCorrelation,
+            sequence,
+            event: { kind: 'agent_event', event },
+          },
+        });
+        return sequence;
+      },
+      effectObservation: (eventCorrelation, effect) => {
+        sequence += 1;
+        store.appendExecutionEvent({
+          executionId: SOURCE_ID,
+          direction: 'worker_to_host',
+          source: 'worker',
+          kind: 'effect_observation',
+          workerSequence: sequence,
+          payload: { kind: 'effect_observation', correlation: eventCorrelation, sequence, effect },
+        });
+        return sequence;
+      },
+      checkpointProposal: () => Promise.resolve(false),
+      commitProposal: () => Promise.resolve(false),
+      turnFailed: (_correlation, outcome) => {
+        failedOutcome = outcome;
+      },
+    };
+    const sourceComposition = {
+      role: 'parent',
+      model: sourceModel,
+      registry,
+      maxSteps: 2,
+      systemInstruction: undefined,
+      manifest: { role: 'parent', maxSteps: 2, profileId: 'i38-source', resources: [] },
+      resolved: { model: { profile: { id: 'i38-source' } } },
+    } as unknown as WorkerAgentComposition;
+    const sourceGeneration = new WorkerGeneration(sourceComposition, SESSION_ID, sourcePort);
+    await sourceGeneration.runTurn(correlation('persisted-source'), task);
+    assert(failedOutcome !== undefined);
+    assert(sourceRequests.length === 2);
+    assert(JSON.stringify(sourceRequests[1]).includes('use the new instruction'));
+    store.settleNonCanonicalExecution({ ...input, outcome: failedOutcome });
+
+    const journal = JSON.stringify(store.listExecutionEvents(SOURCE_ID));
+    assert(journal.includes('provider replay detail'));
+    assert(journal.includes('use the new instruction'));
+    const recalled = await resolveRecalledExecutionContext({
+      sessionId: SESSION_ID,
+      executionId: SOURCE_ID,
+      historyPersistence: store,
+    });
+    assert(recalled.schemaVersion === 2);
+    assertEquals(
+      recalled.journalObservations.filter((item) => item.kind === 'steering_message').length,
+      1,
+    );
+    const projection = recalledExecutionProjectionText(recalled);
+    assert(projection.includes('I will read the source.'));
+    assert(projection.includes('exact source contents'));
+    assert(projection.includes('use the new instruction'));
+    assert(!projection.includes('provider replay detail'));
+    assert(!projection.includes('providerState'));
+
+    let targetRequest: ModelRequest | undefined;
+    const targetComposition = {
+      ...sourceComposition,
+      model: {
+        generate(request: ModelRequest): ModelResult {
+          targetRequest = structuredClone(request);
+          return { kind: 'final', text: 'answered with recalled facts' };
+        },
+      },
+      registry: new Registry([]),
+      maxSteps: 1,
+    } as unknown as WorkerAgentComposition;
+    const targetPort: WorkerGenerationPort = {
+      runtimeEvent: () => {},
+      effectObservation: () => {},
+      checkpointProposal: () => Promise.resolve(false),
+      commitProposal: () => Promise.resolve(true),
+      turnFailed: (_correlation, outcome) => {
+        throw new Error(`unexpected target failure: ${outcome.stopReason}`);
+      },
+    };
+    await new WorkerGeneration(targetComposition, SESSION_ID, targetPort).runTurn(
+      correlation('recalled-target'),
+      'what happened?',
+      recalled,
+    );
+    assert(targetRequest !== undefined);
+    const targetText = JSON.stringify(targetRequest);
+    assertEquals(targetText.split('use the new instruction').length - 1, 1);
+    assert(targetText.includes('exact source contents'));
+    assert(!targetText.includes('provider replay detail'));
+  } finally {
+    await Deno.remove(stateRoot, { recursive: true });
+  }
 });
 
 Deno.test('Increment 38 recall remains immediately before the task after checkpoint projection', async () => {

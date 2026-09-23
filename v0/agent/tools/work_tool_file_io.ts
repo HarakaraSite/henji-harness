@@ -124,7 +124,6 @@ export const readWindow = async (
     ignoreBOM: true,
   });
   const selected: string[] = [];
-  const selectedSizes: number[] = [];
   let selectedBytes = 0;
   let totalLines = 0;
   let line = '';
@@ -143,7 +142,6 @@ export const readWindow = async (
       }
       if (selectedBytes + lineBytes <= MAX_TEXT_BYTES) {
         selected.push(line);
-        selectedSizes.push(lineBytes);
         selectedBytes += lineBytes;
       } else selectionClosed = true;
     }
@@ -192,11 +190,13 @@ export const readWindow = async (
 
   const hasMore = (): boolean => offset + selected.length <= totalLines;
   while (hasMore()) {
+    if (selected.length === 0) {
+      throw new Error(`line ${offset} exceeds 64 KiB read result limit`);
+    }
     const next = offset + selected.length;
     const last = next - 1;
-    const marker = selected.length === 0
-      ? `[More content available. Use offset=${next} to continue.]`
-      : `[Showing lines ${offset}-${last} of ${totalLines}. Use offset=${next} to continue.]`;
+    const marker =
+      `[Showing lines ${offset}-${last} of ${totalLines}. Use offset=${next} to continue.]`;
     const text = selected.join('');
     const separator = text.endsWith('\n') ? '\n' : '\n\n';
     if (
@@ -205,12 +205,7 @@ export const readWindow = async (
     ) {
       return `${text}${separator}${marker}`;
     }
-    const removed = selectedSizes.pop();
     selected.pop();
-    if (removed === undefined) {
-      throw new Error(`line ${offset} exceeds 64 KiB read result limit`);
-    }
-    selectedBytes -= removed;
   }
   return selected.join('');
 };

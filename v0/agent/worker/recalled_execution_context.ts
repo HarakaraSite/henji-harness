@@ -96,9 +96,14 @@ export type RecalledJournalObservationV2 =
     readonly message: UserMessage;
   }
   | {
+    readonly kind: 'steering_message';
+    readonly turn: number;
+    readonly message: UserMessage;
+  }
+  | {
     readonly kind: 'assistant_message';
     readonly turn: number;
-    readonly message: AssistantMessage;
+    readonly message: Omit<AssistantMessage, 'providerState'>;
   }
   | {
     readonly kind: 'assistant_progress';
@@ -374,7 +379,7 @@ const observationsFromJournal = (
     if (!Number.isSafeInteger(eventObject.turn) || (eventObject.turn as number) < 1) continue;
     const turn = eventObject.turn as number;
     if (
-      eventObject.kind === 'user_message' &&
+      (eventObject.kind === 'user_message' || eventObject.kind === 'steering_message') &&
       typeof eventObject.message === 'object' &&
       eventObject.message !== null && !Array.isArray(eventObject.message)
     ) {
@@ -388,10 +393,15 @@ const observationsFromJournal = (
       typeof eventObject.message === 'object' &&
       eventObject.message !== null && !Array.isArray(eventObject.message)
     ) {
+      const message = eventObject.message as AssistantMessage;
       observations.push({
         kind: eventObject.kind,
         turn,
-        message: structuredClone(eventObject.message) as AssistantMessage,
+        message: {
+          role: 'assistant',
+          content: structuredClone(message.content),
+          ...(message.text === undefined ? {} : { text: message.text }),
+        },
       });
     } else if (
       eventObject.kind === 'assistant_progress' &&

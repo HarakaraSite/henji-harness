@@ -886,7 +886,7 @@ export class SqliteHistoryV7ProductionStore
             db.close();
           }
         } else {
-          this.#replaceSession(rollbackRecord);
+          this.#restoreSessionMetadata(rollbackRecord);
         }
         record = rollbackRecord;
       },
@@ -928,20 +928,24 @@ export class SqliteHistoryV7ProductionStore
     };
   }
 
-  #replaceSession(record: StoredSessionRecord): void {
+  #restoreSessionMetadata(record: StoredSessionRecord): void {
     const db = this.#db();
     db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare('DELETE FROM session_message_projection_outbox WHERE session_id=?').run(
-        record.sessionId,
-      );
-      db.prepare('DELETE FROM session_messages WHERE session_id=?').run(record.sessionId);
-      db.prepare('DELETE FROM session_model_changes WHERE session_id=?').run(record.sessionId);
-      db.prepare('DELETE FROM session_turns WHERE session_id=?').run(record.sessionId);
+      const counts = this.#sessionCounts(db, record.sessionId);
+      if (
+        counts.messages !== record.transcript.length ||
+        counts.turns !== record.turnModels.length ||
+        counts.modelChanges < record.modelChanges.length
+      ) throw new SessionStoreError('session_invalid');
       db.prepare(`
-        UPDATE sessions SET message_count=0, model_change_count=0, turn_count=0
+        DELETE FROM session_model_changes
+        WHERE session_id=? AND change_ordinal>=?
+      `).run(record.sessionId, record.modelChanges.length);
+      db.prepare(`
+        UPDATE sessions SET model_change_count=?
         WHERE session_id=?
-      `).run(record.sessionId);
+      `).run(record.modelChanges.length, record.sessionId);
       this.#writeSessionTx(db, record);
       db.exec('COMMIT');
     } catch (error) {
@@ -1940,8 +1944,9 @@ export class SqliteHistoryV7ProductionStore
     where = '',
     values: readonly SqlValue[] = [],
     includeTranscript = false,
+    snapshotDb?: DatabaseSync,
   ): StoredExecutionRow[] {
-    const db = this.#db();
+    const db = snapshotDb ?? this.#db();
     try {
       const rows = db.prepare(`
         SELECT e.*, a.*,
@@ -2029,7 +2034,7 @@ export class SqliteHistoryV7ProductionStore
         };
       });
     } finally {
-      db.close();
+      if (snapshotDb === undefined) db.close();
     }
   }
 
@@ -2921,9 +2926,17 @@ export class SqliteHistoryV7ProductionStore
   }
 
   *streamHumanHistoryExport(sessionId: string): Iterable<HumanHistoryExportRecordV1> {
-    const executions = this.listExecutionsForSession(sessionId);
     const db = this.#db();
+    let transactionOpen = false;
     try {
+      db.exec('BEGIN');
+      transactionOpen = true;
+      const executions = this.#executionRows(
+        'WHERE a.session_correlation=?',
+        [sessionId],
+        false,
+        db,
+      );
       const session = db.prepare('SELECT * FROM sessions WHERE session_id=?').get(sessionId) as
         | Row
         | undefined;
@@ -3014,46 +3027,41 @@ export class SqliteHistoryV7ProductionStore
           }),
         };
       }
-    } finally {
-      db.close();
-    }
-    const exportedContentDigests = new Set<string>();
-    for (const execution of executions) {
-      yield {
-        schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-        kind: 'execution',
-        identity: execution.executionId,
-        value: asJson(execution),
-      };
-      for (const occurrence of this.#coreStore().listOccurrences(execution.executionId)) {
-        if (
-          occurrence.contentDigest !== undefined &&
-          !exportedContentDigests.has(occurrence.contentDigest)
-        ) {
-          const content = this.#coreStore().readContent(occurrence.contentDigest);
-          exportedContentDigests.add(occurrence.contentDigest);
-          yield {
-            schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-            kind: 'immutable_content',
-            identity: occurrence.contentDigest,
-            value: asJson({
-              contentDigest: occurrence.contentDigest,
-              byteLength: content.byteLength,
-              contentBase64: content.toBase64(),
-            }),
-          };
-        }
+      const exportedContentDigests = new Set<string>();
+      for (const execution of executions) {
         yield {
           schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-          kind: 'semantic_occurrence',
-          identity: occurrence.occurrenceId,
-          value: asJson(occurrence),
+          kind: 'execution',
+          identity: execution.executionId,
+          value: asJson(execution),
         };
-      }
-      const authorityDb = this.#db();
-      try {
+        for (const occurrence of this.#coreStore().listOccurrences(execution.executionId, db)) {
+          if (
+            occurrence.contentDigest !== undefined &&
+            !exportedContentDigests.has(occurrence.contentDigest)
+          ) {
+            const content = this.#coreStore().readContent(occurrence.contentDigest, db);
+            exportedContentDigests.add(occurrence.contentDigest);
+            yield {
+              schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
+              kind: 'immutable_content',
+              identity: occurrence.contentDigest,
+              value: asJson({
+                contentDigest: occurrence.contentDigest,
+                byteLength: content.byteLength,
+                contentBase64: content.toBase64(),
+              }),
+            };
+          }
+          yield {
+            schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
+            kind: 'semantic_occurrence',
+            identity: occurrence.occurrenceId,
+            value: asJson(occurrence),
+          };
+        }
         for (
-          const row of authorityDb.prepare(`
+          const row of db.prepare(`
             SELECT r.* FROM semantic_relations r
             JOIN semantic_occurrences o ON o.occurrence_id=r.occurrence_id
             WHERE o.execution_id=? ORDER BY o.ordinal, r.relation_ordinal
@@ -3073,7 +3081,7 @@ export class SqliteHistoryV7ProductionStore
             }),
           };
         }
-        const manifest = authorityDb.prepare(`
+        const manifest = db.prepare(`
           SELECT manifest_json FROM execution_context_manifests WHERE execution_id=?
         `).get(execution.executionId) as Row | undefined;
         if (manifest !== undefined) {
@@ -3085,7 +3093,7 @@ export class SqliteHistoryV7ProductionStore
           };
         }
         for (
-          const row of authorityDb.prepare(`
+          const row of db.prepare(`
             SELECT * FROM recall_relations WHERE target_execution_id=? ORDER BY rowid
           `).iterate(execution.executionId) as Iterable<Row>
         ) {
@@ -3100,25 +3108,30 @@ export class SqliteHistoryV7ProductionStore
             }),
           };
         }
-      } finally {
-        authorityDb.close();
+        for (
+          const attachment of this.#coreStore().listDiagnosticAttachments(
+            execution.executionId,
+            db,
+          )
+        ) {
+          yield {
+            schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
+            kind: 'diagnostic_attachment',
+            identity: attachment.attachmentId,
+            value: asJson({
+              ...attachment,
+              ...(attachment.content === undefined
+                ? {}
+                : { contentBase64: attachment.content.toBase64(), content: undefined }),
+            }),
+          };
+        }
       }
-      for (
-        const attachment of this.#coreStore().listDiagnosticAttachments(
-          execution.executionId,
-        )
-      ) {
-        yield {
-          schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-          kind: 'diagnostic_attachment',
-          identity: attachment.attachmentId,
-          value: asJson({
-            ...attachment,
-            ...(attachment.content === undefined
-              ? {}
-              : { contentBase64: attachment.content.toBase64(), content: undefined }),
-          }),
-        };
+    } finally {
+      try {
+        if (transactionOpen) db.exec('ROLLBACK');
+      } finally {
+        db.close();
       }
     }
   }

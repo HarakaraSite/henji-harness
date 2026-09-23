@@ -1,5 +1,4 @@
 import {
-  type AgentCapabilityDeclaration,
   type AgentDefinitionInput,
   type AgentDefinitionLimits,
   defaultAgentDefinition,
@@ -229,21 +228,15 @@ export const finalizeWorkerToolAttribution = (
 
 const manifestFor = (
   role: 'parent' | 'planner',
-  capabilities: AgentCapabilityDeclaration,
+  resources: readonly AgentResourceIdentity[],
   maxSteps: number,
-  modelResource: string,
   profileId: string,
   rootModel: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
 ): WorkerAgentManifest => ({
   role,
   maxSteps,
   profileId,
-  resources: Object.freeze([
-    modelResource,
-    ...capabilities.instructions.map(String),
-    ...capabilities.skills.map(String),
-    ...capabilities.tools.map(String),
-  ].sort()),
+  resources: Object.freeze(resources.map(String).sort()),
   rootModel: Object.freeze(structuredClone(rootModel)),
 });
 
@@ -338,7 +331,6 @@ export const createDefaultAgentComposition = (
     registry,
   );
   const instructionComponents = compositionComponents('default', input, registry);
-  const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
     capabilities,
@@ -358,9 +350,8 @@ export const createDefaultAgentComposition = (
     instructionComponents,
     manifest: manifestFor(
       'parent',
-      capabilities,
+      effectiveResolved.resourceSelection.resources,
       maxSteps,
-      modelResource,
       resolved.model.profile.id,
     ),
     resolved: effectiveResolved,
@@ -386,7 +377,6 @@ export const createPlannerAgentComposition = (
     registry,
   );
   const instructionComponents = compositionComponents('planner', input, registry);
-  const modelResource = `model:${resolved.model.provider}:${resolved.model.profile.id}`;
   const effectiveResolved = Object.freeze({
     ...resolved,
     systemInstruction,
@@ -405,9 +395,8 @@ export const createPlannerAgentComposition = (
     instructionComponents,
     manifest: manifestFor(
       'planner',
-      resolved.capabilities,
+      effectiveResolved.resourceSelection.resources,
       maxSteps,
-      modelResource,
       resolved.model.profile.id,
     ),
     resolved: effectiveResolved,

@@ -5,6 +5,7 @@ import { SqliteHistoryV7Store } from '../../v0/agent/history/sqlite_history_v7_s
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { exactByteDigest } from '../../v0/agent/history/exact_byte_plan.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
+import { selectOpenRouterModel } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
@@ -1219,6 +1220,138 @@ Deno.test('Increment 94 v7 projection is bounded metadata work and reports stale
     assertEquals(current.projection, { version: 1, state: 'current', pendingSources: 0 });
   } finally {
     store.close();
+  }
+});
+
+Deno.test('Increment 94 detail export holds one snapshot across a later Worker commit', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i94-detail-snapshot-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  let reader: SqliteHistoryV7ProductionStore | undefined;
+  try {
+    created = await createWorkerSession({
+      workspaceRoot,
+      stateRoot,
+      persistence: 'new',
+      agent: 'default',
+      physicalIoMode: 'provider-free',
+    });
+    assert((await created.session.submit('first snapshot turn')).ok);
+    const sessionId = created.session.currentPosition().sessionId;
+    reader = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+      readOnly: true,
+    });
+    await reader.initialize();
+    const exportIterator = reader.streamHumanHistoryExport(sessionId)[Symbol.iterator]();
+    const header = exportIterator.next();
+    const session = exportIterator.next();
+    assert(!header.done && header.value.kind === 'header');
+    assert(!session.done && session.value.kind === 'session');
+    assert((await created.session.submit('second snapshot turn')).ok);
+    const remaining: typeof header.value[] = [];
+    for (let next = exportIterator.next(); !next.done; next = exportIterator.next()) {
+      remaining.push(next.value);
+    }
+    const records = [header.value, session.value, ...remaining];
+    const metadata = session.value.value as Record<string, unknown>;
+    assertEquals(metadata.messageCount, 2);
+    assertEquals(metadata.nextTurn, 2);
+    assertEquals(records.filter((entry) => entry.kind === 'session_message').length, 2);
+    assertEquals(records.filter((entry) => entry.kind === 'session_turn').length, 1);
+    assertEquals(records.filter((entry) => entry.kind === 'execution').length, 1);
+    assertEquals((await reader.readWorker(sessionId)).nextTurn, 3);
+
+    const early = reader.streamHumanHistoryExport(sessionId)[Symbol.iterator]();
+    assert(!early.next().done);
+    early.return?.();
+  } finally {
+    reader?.close();
+    await created?.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 94 model selection rollback preserves committed turn attribution', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i94-model-rollback-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  let store: SqliteHistoryV7ProductionStore | undefined;
+  try {
+    created = await createWorkerSession({
+      workspaceRoot,
+      stateRoot,
+      persistence: 'new',
+      agent: 'default',
+      physicalIoMode: 'provider-free',
+    });
+    assert((await created.session.submit('first committed turn')).ok);
+    assert((await created.session.submit('second committed turn')).ok);
+    const sessionId = created.session.currentPosition().sessionId;
+    await created.close();
+    created = undefined;
+
+    store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    await store.initialize();
+    const original = await store.readWorker(sessionId);
+    const executionIds = store.listExecutionsForSession(sessionId).map((item) => item.executionId);
+    assertEquals(executionIds.length, 2);
+    const firstTranscript = store.readExecution(executionIds[0]).outcomeJson?.transcript;
+    const paths = await sessionPaths(stateRoot, workspaceRoot);
+    const readAttribution = () => {
+      const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
+      try {
+        return {
+          messageTurns: (db.prepare(`
+            SELECT turn_number FROM session_messages
+            WHERE session_id=? ORDER BY message_ordinal
+          `).all(sessionId) as { turn_number: number }[]).map((item) => item.turn_number),
+          turnExecutions: (db.prepare(`
+            SELECT execution_id FROM session_turns
+            WHERE session_id=? ORDER BY turn_ordinal
+          `).all(sessionId) as { execution_id: string | null }[]).map((item) => item.execution_id),
+          outbox: db.prepare(`
+            SELECT message_ordinal, execution_id, status
+            FROM session_message_projection_outbox
+            WHERE session_id=? ORDER BY message_ordinal
+          `).all(sessionId),
+        };
+      } finally {
+        db.close();
+      }
+    };
+    const before = readAttribution();
+    assertEquals(before.messageTurns, [1, 1, 2, 2]);
+    assertEquals(before.turnExecutions, executionIds);
+    const handle = await store.openExistingWorker(sessionId);
+    try {
+      const selection = selectOpenRouterModel('qwen/qwen3.8-max-0902');
+      const changedAt = new Date().toISOString();
+      handle.commit({
+        ...original,
+        activeModel: selection,
+        stateRevision: original.stateRevision + 1,
+        updatedAt: changedAt,
+        modelChanges: [...original.modelChanges, {
+          effectiveFromTurn: original.nextTurn,
+          changedAt,
+          selection,
+        }],
+      });
+      handle.rollback();
+    } finally {
+      await handle.close();
+    }
+    assertEquals(await store.readWorker(sessionId), original);
+    assertEquals(readAttribution(), before);
+    assertEquals(store.readExecution(executionIds[0]).outcomeJson?.transcript, firstTranscript);
+  } finally {
+    store?.close();
+    await created?.close();
+    await Deno.remove(root, { recursive: true });
   }
 });
 

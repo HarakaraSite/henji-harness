@@ -36,9 +36,6 @@ export class InputDecoder {
   private pasteRejected = false;
   private pendingCr = false;
   private escapeStartedAt = 0;
-  // A second Escape sequence immediately after a timed bare Escape belongs to the same
-  // timeout recovery boundary. Preserve the pre-existing consume-as-unknown behavior.
-  private unknownAfterBareEscape = false;
   private expiredCsi: number[] | null = null;
   // SS3 (ESC O …) is intentionally unsupported, but its short sequence must be consumed as one
   // event so a function-key payload can never become prompt text. A timed-out prefix retains the
@@ -66,9 +63,6 @@ export class InputDecoder {
     }
     return events;
   }
-  push(bytes: Uint8Array, now = Date.now()): InputEvent[] {
-    return this.feed(bytes, now);
-  }
   poll(now = Date.now()): InputEvent[] {
     if (this.escape !== null && now - this.escapeStartedAt >= ESC_TIMEOUT_MS) {
       const events: InputEvent[] = [];
@@ -82,9 +76,6 @@ export class InputDecoder {
     }
     return [];
   }
-  hasPendingEscape(): boolean {
-    return this.escape !== null || this.ss3Pending;
-  }
   escapeDeadline(): number | undefined {
     if (this.escape !== null) return this.escapeStartedAt + ESC_TIMEOUT_MS;
     return this.ss3Pending ? this.ss3StartedAt + ESC_TIMEOUT_MS : undefined;
@@ -96,9 +87,6 @@ export class InputDecoder {
       this.expiredSs3 || this.paste ||
       this.pasteTerminator.length > 0
     ) throw new InputDecodeError();
-  }
-  finish(): void {
-    this.end();
   }
 
   private consume(byte: number, events: InputEvent[], now: number): void {
@@ -335,12 +323,10 @@ export class InputDecoder {
         string,
         InputEvent['kind']
       >)[key];
-      if (event !== undefined && !this.unknownAfterBareEscape) {
+      if (event !== undefined) {
         events.push({ kind: event } as InputEvent);
-        this.unknownAfterBareEscape = false;
         return;
       }
-      this.unknownAfterBareEscape = false;
     }
     if (matches(sequence, [0x1b, 0x5b, 0x31, 0x7e])) {
       events.push({ kind: 'home' });
@@ -385,7 +371,6 @@ export class InputDecoder {
       ? escaped
       : null;
     this.expiredCsi = null;
-    this.unknownAfterBareEscape = escaped?.length === 1;
   }
   private expireSs3(events: InputEvent[]): void {
     this.ss3Pending = false;

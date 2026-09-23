@@ -365,13 +365,33 @@ export const runLiveCorpusEval = async (
   const scoreObservation = seam.scoreObservation ?? scoreCorpusObservation;
   for (const [index, task] of tasks.entries()) {
     const caseStart = state.externalRequests;
+    let fetchesThisGenerate = 0;
+    let retryBlocked = false;
+    let lastHttpFailure: number | undefined;
+    const caseFetcher: typeof fetch = (input, init) => {
+      if (fetchesThisGenerate >= 1) {
+        retryBlocked = true;
+        throw new Error('additional fetch within one model request');
+      }
+      fetchesThisGenerate += 1;
+      return boundedFetcher(input, init).then((response) => {
+        if (response.status >= 500 && response.status <= 599) {
+          lastHttpFailure = response.status;
+        }
+        return response;
+      });
+    };
+    const caseProviderFailureCode = (error: OpenRouterAgentError): LiveRunnerFailureCode =>
+      retryBlocked && lastHttpFailure !== undefined
+        ? 'provider_http_error'
+        : providerFailureCode(error, state.ceilingExceeded);
     let registry: RegistryType;
     let baseModel: Model;
     try {
       registry = createRegistry();
       if (!(registry instanceof Registry)) fail('dependency_construction_failed');
       baseModel = createModel({
-        fetcher: boundedFetcher,
+        fetcher: caseFetcher,
         credential: seam.credential,
         credentialSource: seam.credentialSource,
       });
@@ -386,6 +406,9 @@ export const runLiveCorpusEval = async (
     let providerError: OpenRouterAgentError | undefined;
     const trackedModel: Model = {
       generate: async (request) => {
+        fetchesThisGenerate = 0;
+        retryBlocked = false;
+        lastHttpFailure = undefined;
         try {
           return await baseModel.generate(request);
         } catch (error) {
@@ -399,9 +422,7 @@ export const runLiveCorpusEval = async (
       outcome = await runLoop(task.prompt, trackedModel, registry, { maxSteps: task.maxRequests });
     } catch (error) {
       if (error instanceof OpenRouterAgentError) providerError = error;
-      const code = providerError
-        ? providerFailureCode(providerError, state.ceilingExceeded)
-        : 'case_execution_failed';
+      const code = providerError ? caseProviderFailureCode(providerError) : 'case_execution_failed';
       abortCode = code;
       abortTaskId = task.id;
       results.push(caseError(task.id, code, state.externalRequests - caseStart));
@@ -409,7 +430,7 @@ export const runLiveCorpusEval = async (
       break;
     }
     if (providerError) {
-      const code = providerFailureCode(providerError, state.ceilingExceeded);
+      const code = caseProviderFailureCode(providerError);
       abortCode = code;
       abortTaskId = task.id;
       results.push(caseError(task.id, code, state.externalRequests - caseStart));

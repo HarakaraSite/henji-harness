@@ -1,7 +1,5 @@
 export type { EscapeOptions } from './terminal_text.ts';
 export { escapedTerminalTextBytes, escapeTerminalText } from './terminal_text.ts';
-export type { EditorLayout, EditorLayoutRow } from './editor_render.ts';
-export { layoutEditorText, pendingMetadataRows } from './editor_render.ts';
 export { startupHelpLines } from './startup_render.ts';
 export type { TuiRendererOptions } from './tui_renderer.ts';
 export { renderFailureStatus, TuiRenderer } from './tui_renderer.ts';

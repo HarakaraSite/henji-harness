@@ -4,6 +4,8 @@ import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_hi
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
+import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
+import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -71,6 +73,27 @@ Deno.test('Increment 99 session view matches the conversation log shape', () => 
   const text = renderSessionView(record);
   assertEquals(text, 'user> do it\ntool> bash echo hi ✓\nassistant> done\n');
   assert(!text.includes('tool<'), 'session view must not emit tool<');
+});
+
+Deno.test('Increment 99 session view places mixed assistant final as resume does', () => {
+  const mixed: StoredSessionRecord = {
+    ...record,
+    transcript: record.transcript.map((message) =>
+      message.role === 'assistant' && Array.isArray(message.content)
+        ? { ...message, text: 'checking the file' }
+        : message
+    ),
+  };
+  const restored = reduceUiEvent(createUiState(), {
+    kind: 'restored_log',
+    messages: restoredPresentationMessages(mixed.transcript),
+    omitted: 0,
+  });
+  const expected = `${
+    restored.log.entries.map((entry) => `${entry.label} ${entry.text}`).join('\n')
+  }\n`;
+  assertEquals(renderSessionView(mixed), expected);
+  assertEquals(expected, 'user> do it\ntool> bash echo hi ✓\nassistant> done\n');
 });
 
 Deno.test('Increment 99 canonical view keeps the structured Markdown export', () => {

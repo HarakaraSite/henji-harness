@@ -246,9 +246,15 @@ export const observationFromLoopOutcome = (
   while (index < transcript.length) {
     const assistant = transcript[index];
     const assistantObject = isRecord(assistant) ? assistant : malformed();
+    const assistantKeys = ['role', 'content'];
+    if ('text' in assistantObject) {
+      if (typeof assistantObject.text !== 'string') malformed();
+      assistantKeys.push('text');
+    }
+    if ('providerState' in assistantObject) assistantKeys.push('providerState');
     if (
       assistantObject.role !== 'assistant' ||
-      !exactKeys(assistantObject, ['role', 'content'])
+      !exactKeys(assistantObject, assistantKeys)
     ) {
       malformed();
     }

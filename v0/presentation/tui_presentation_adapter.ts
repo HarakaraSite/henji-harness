@@ -426,16 +426,18 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
             }),
           );
       case 'rename_session': {
-        const status = this.coreNavigation?.renameCurrent(admitted.title) ?? 'unavailable';
-        const title = status === 'renamed' || status === 'unchanged'
-          ? this.coreNavigation?.currentPosition().title ?? admitted.title
-          : admitted.title;
-        return status === 'renamed' || status === 'unchanged'
-          ? { kind: 'session_title', status, title }
-          : {
-            kind: 'rejected',
-            reason: status === 'busy' ? 'busy' : 'unavailable',
-          };
+        return (this.coreNavigation?.renameCurrent(admitted.title) ??
+          Promise.resolve('unavailable' as const)).then((status) => {
+            const title = status === 'renamed' || status === 'unchanged'
+              ? this.coreNavigation?.currentPosition().title ?? admitted.title
+              : admitted.title;
+            return status === 'renamed' || status === 'unchanged'
+              ? { kind: 'session_title' as const, status, title }
+              : {
+                kind: 'rejected' as const,
+                reason: status === 'busy' ? 'busy' as const : 'unavailable' as const,
+              };
+          });
       }
       case 'new_session':
         return this.dispatchNewSession();

@@ -1,5 +1,5 @@
 import * as agentCli from '../../v0/agent/cli/fixture_cli.ts';
-import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
+import type { Message, ModelRequest } from '../../v0/agent/core/contracts.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { runAgent, runAgentTurn } from '../../v0/agent/core/loop.ts';
 import { SteeringOwner } from '../../v0/agent/core/steering.ts';
@@ -19,8 +19,12 @@ import {
   decodeSessionRecord,
   encodeSessionRecord,
   restoredMessages,
+  type SessionRecord,
 } from '../../v0/agent/session/session_store.ts';
-import { MAX_REPLAY_MESSAGE_TEXT_BYTES } from '../../v0/agent/session/replay_value.ts';
+import {
+  MAX_REPLAY_MESSAGE_TEXT_BYTES,
+  MAX_REPLAY_PLANNER_RESULT_BYTES,
+} from '../../v0/agent/session/replay_value.ts';
 import { historyPage } from '../../v0/agent/session/session_history.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
@@ -789,4 +793,78 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
       ['assistant', 'done'],
     ],
   );
+});
+
+Deno.test('saved message limits retain the user, assistant, and planner result boundaries', () => {
+  const base: Omit<SessionRecord, 'transcript'> = {
+    schemaVersion: 1,
+    sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    workspaceRoot: '/saved-message-limits',
+    agent: 'default',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+    nextTurn: 2,
+  };
+  const encode = (transcript: readonly Message[]): Uint8Array =>
+    encodeSessionRecord({ ...base, transcript });
+  const rejects = (transcript: readonly Message[]): void => {
+    let rejected = false;
+    try {
+      encode(transcript);
+    } catch {
+      rejected = true;
+    }
+    assert(rejected);
+  };
+  const user = (text: string): Message => ({
+    role: 'user',
+    content: { kind: 'text', text },
+  });
+  const assistant = (text: string): Message => ({
+    role: 'assistant',
+    content: { kind: 'text', text },
+  });
+  assert(
+    decodeSessionRecord(encode([
+      user('x'.repeat(MAX_REPLAY_MESSAGE_TEXT_BYTES)),
+      assistant('done'),
+    ])).transcript.length === 2,
+  );
+  rejects([
+    user('x'.repeat(MAX_REPLAY_MESSAGE_TEXT_BYTES + 1)),
+    assistant('done'),
+  ]);
+  rejects([
+    user('task'),
+    assistant('x'.repeat(MAX_REPLAY_MESSAGE_TEXT_BYTES + 1)),
+  ]);
+  const plannerTranscript = (text: string): Message[] => [
+    user('delegate task'),
+    {
+      role: 'assistant',
+      content: [{
+        kind: 'tool_call',
+        callId: 'planner-1',
+        name: 'delegate_to_planner',
+        arguments: { task: 'plan' },
+      }],
+    },
+    {
+      role: 'tool',
+      content: [{
+        kind: 'tool_result',
+        callId: 'planner-1',
+        name: 'delegate_to_planner',
+        text,
+        outcome: 'success',
+      }],
+    },
+    assistant('done'),
+  ];
+  const accepted = decodeSessionRecord(
+    encode(plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES))),
+  );
+  assert(accepted.transcript[2]?.role === 'tool');
+  assert(accepted.transcript[2].content[0]?.text.length === MAX_REPLAY_PLANNER_RESULT_BYTES);
+  rejects(plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES + 1)));
 });

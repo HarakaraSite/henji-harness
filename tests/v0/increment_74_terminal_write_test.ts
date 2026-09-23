@@ -101,6 +101,33 @@ Deno.test('coalescing writer flush drains chunks enqueued while flushing', async
   assertEquals(written, ['a', 'b']);
 });
 
+Deno.test('coalescing writer reports a failed frame and still sends later restore controls', async () => {
+  const written: string[] = [];
+  let failures = 0;
+  let rejectFrame = true;
+  const writer = new CoalescingWriter((bytes) => {
+    const value = decoder.decode(bytes);
+    if (rejectFrame && value.startsWith('\x1b[2J\x1b[H')) {
+      rejectFrame = false;
+      throw new Error('frame write failed');
+    }
+    written.push(value);
+    return Promise.resolve();
+  }, () => failures += 1);
+  writer.enqueue(frame('failed'));
+  writer.enqueue(encode('\x1b[?2004l'));
+  writer.enqueue(encode('\x1b[?1049l'));
+  let failed = false;
+  try {
+    await writer.flush();
+  } catch {
+    failed = true;
+  }
+  assert(failed);
+  assertEquals(failures, 1);
+  assertEquals(written, ['\x1b[?2004l', '\x1b[?1049l']);
+});
+
 class FlushTerminal implements TerminalPort {
   readonly writes: string[] = [];
   flushStarted = false;

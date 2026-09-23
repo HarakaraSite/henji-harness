@@ -7,6 +7,7 @@ import {
   isModelSelection,
   modelCatalogEntryFor,
   providerIdsForSelection,
+  roleDefaultModelSelection,
   searchModelsFor,
   selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
@@ -29,6 +30,9 @@ import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physica
 import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
+import { FakeWorkerExecutionArtifactStore } from '../../v0/agent/worker/worker_execution_artifact_store.ts';
+import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -1036,6 +1040,116 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     await first?.close();
     await resumed?.close();
     await Deno.remove(stateRoot, { recursive: true });
+  }
+});
+
+Deno.test('Increment 113 headless Worker uses the external provider default for its turn', async () => {
+  const configRoot = await Deno.makeTempDir({ prefix: 'henji-increment-113-provider-' });
+  const artifacts = new FakeWorkerExecutionArtifactStore();
+  const builtin = builtinProviderDeclarations().find((item) =>
+    item.providerId === 'openrouter-chat'
+  );
+  assert(builtin !== undefined);
+  const override = {
+    ...builtin,
+    defaults: { modelId: 'qwen/qwen3.8-flash', effort: 'auto' },
+  };
+  try {
+    await Deno.mkdir(`${configRoot}/providers`);
+    await Deno.writeTextFile(`${configRoot}/providers/router.json`, JSON.stringify(override));
+    const result = await runHeadlessWorker('Use the configured default.', resolveBuiltinAgent(), {
+      configRoot,
+      dataRoot: configRoot,
+      physicalIoMode: 'provider-free',
+      executionArtifactStore: artifacts,
+    });
+    assert(result.outcome.ok);
+    const stored = await artifacts.list();
+    assertEquals(stored.length, 1);
+    assertEquals(stored[0].manifest?.rootModel, {
+      provider: 'openrouter-chat',
+      api: 'openrouter-chat-completions',
+      authProfile: 'openrouter-api-key',
+      modelId: 'qwen/qwen3.8-flash',
+      effort: 'auto',
+    });
+  } finally {
+    setActiveProviderDeclarations([]);
+    await Deno.remove(configRoot, { recursive: true });
+  }
+});
+
+Deno.test('Increment 113 Host and Worker share the TUI-resolved provider snapshot', async () => {
+  const configRoot = await Deno.makeTempDir({ prefix: 'henji-increment-113-provider-' });
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  const builtin = builtinProviderDeclarations().find((item) =>
+    item.providerId === 'openrouter-chat'
+  );
+  assert(builtin !== undefined);
+  const first = {
+    ...builtin,
+    modelCatalog: {
+      kind: 'fixed',
+      entries: builtin.modelCatalog.entries.filter((entry) =>
+        entry.modelId === 'qwen/qwen3.8-flash' || entry.modelId === 'deepseek/deepseek-v4.1-flash'
+      ),
+    },
+  };
+  try {
+    await Deno.mkdir(`${configRoot}/providers`);
+    const path = `${configRoot}/providers/router.json`;
+    await Deno.writeTextFile(path, JSON.stringify(first));
+    const snapshot = resolveProviderRegistry(
+      builtinProviderDeclarations(),
+      await loadProviderDeclarations({ configRoot }),
+    );
+    setActiveProviderDeclarations(snapshot);
+    const chosen = selectModelFor('openrouter-chat', 'qwen/qwen3.8-flash');
+    await Deno.writeTextFile(
+      path,
+      JSON.stringify({
+        ...first,
+        modelCatalog: {
+          kind: 'fixed',
+          entries: first.modelCatalog.entries.filter((entry) =>
+            entry.modelId === 'deepseek/deepseek-v4.1-flash'
+          ),
+        },
+      }),
+    );
+    created = await createWorkerSession({
+      workspaceRoot: Deno.cwd(),
+      configRoot,
+      dataRoot: configRoot,
+      persistence: 'none',
+      agent: 'default',
+      physicalIoMode: 'provider-free',
+      providerDeclarations: snapshot,
+    });
+    assert(isModelSelection(chosen));
+    assertEquals(await created.session.selectModel(chosen), 'selected');
+    assertEquals(created.session.modelSelectionSnapshot(), chosen);
+  } finally {
+    await created?.close();
+    setActiveProviderDeclarations([]);
+    await Deno.remove(configRoot, { recursive: true });
+  }
+});
+
+Deno.test('Increment 113 headless planner keeps the bundled role default', async () => {
+  const created = await createWorkerSession({
+    workspaceRoot: Deno.cwd(),
+    persistence: 'none',
+    agent: 'planner',
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    assertEquals(
+      created.session.modelSelectionSnapshot(),
+      roleDefaultModelSelection('subagent:planner'),
+    );
+  } finally {
+    await created.close();
   }
 });
 

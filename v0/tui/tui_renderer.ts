@@ -449,11 +449,45 @@ export class TuiRenderer implements TerminalRendererGate {
 
   /** Notify the retained layout of a UI-local resize without crossing into the core. */
   resize(columns: number, rows: number): void {
+    const oldAnchor = this.ui.scroll.kind === 'anchored'
+      ? (() => {
+        const oldLayout = this.layoutSnapshot(
+          this.ui.terminalSize.columns,
+          this.ui.terminalSize.rows,
+        );
+        return oldLayout.allLog[oldLayout.logStart];
+      })()
+      : undefined;
     this.lastSize = {
       columns: Number.isSafeInteger(columns) && columns > 0 ? columns : this.lastSize.columns,
       rows: Number.isSafeInteger(rows) && rows > 0 ? rows : this.lastSize.rows,
     };
     this.ui = reduceUiAction(this.ui, { kind: 'resize', columns, rows });
+    if (
+      this.ui.scroll.kind === 'anchored' &&
+      oldAnchor?.entryId === this.ui.scroll.entryId &&
+      oldAnchor.sourceLine !== undefined
+    ) {
+      const newRows = this.layoutSnapshot(
+        this.ui.terminalSize.columns,
+        this.ui.terminalSize.rows,
+      ).allLog.filter((row) =>
+        row.entryId === oldAnchor.entryId && row.sourceLine === oldAnchor.sourceLine
+      );
+      const sourceColumn = oldAnchor.sourceColumn ?? 0;
+      const sameContent = newRows.findLast((row) => (row.sourceColumn ?? 0) <= sourceColumn) ??
+        newRows[0];
+      if (sameContent?.sourceScalarOffset !== undefined) {
+        this.ui = reduceUiAction(this.ui, {
+          kind: 'scroll',
+          mode: {
+            kind: 'anchored',
+            entryId: this.ui.scroll.entryId,
+            sourceScalarOffset: sameContent.sourceScalarOffset,
+          },
+        });
+      }
+    }
     if (
       this.ui.overlay.kind === 'startupHelp' && this.startupState !== undefined
     ) {

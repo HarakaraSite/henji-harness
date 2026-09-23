@@ -510,6 +510,10 @@ export class ExecutionCoordinator {
       }
       return;
     }
+    if (message.kind === 'provider_observation') {
+      this.journal.flushObservationBuffer();
+      return;
+    }
     if (message.kind === 'context_observation') {
       const delta = message.observation.delta;
       if (delta.purpose === 'web_search') {

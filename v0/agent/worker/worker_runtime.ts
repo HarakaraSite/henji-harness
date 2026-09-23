@@ -335,7 +335,7 @@ export class WorkerGeneration {
       messageIndex: number,
       modelStep?: number,
     ): readonly ContextOccurrenceSource[] => {
-      const lane: 'parent' | 'planner' = this.composition.role === 'planner' ? 'planner' : 'parent';
+      const lane = 'parent' as const;
       if (kind === 'committed') {
         const canonicalTurn = committedHistoryIndex?.turns.find((candidate) =>
           messageIndex >= candidate.start && messageIndex < candidate.end

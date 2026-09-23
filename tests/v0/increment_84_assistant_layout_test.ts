@@ -1,5 +1,5 @@
 import { markdownAssistantRenderer } from '../../v0/tui/assistant_layout.ts';
-import { cellWidth } from '../../v0/tui/editor_render.ts';
+import { cellWidth } from '../../v0/tui/terminal_text.ts';
 import type { AssistantLine, AssistantSpanTone } from '../../v0/tui/conversation_renderer.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (

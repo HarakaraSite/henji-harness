@@ -15,6 +15,8 @@ import {
   createWorkerSession,
   type TuiActiveSession,
 } from '../../v0/agent/worker/worker_tui_session.ts';
+import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
+import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import type {
   WorkerHostCommand,
   WorkerToHostMessage,
@@ -25,6 +27,12 @@ const assert: (condition: unknown, message?: string) => asserts condition = (
   message = 'assertion failed',
 ) => {
   if (!condition) throw new Error(message);
+};
+
+const assertEquals = (actual: unknown, expected: unknown): void => {
+  const left = JSON.stringify(actual);
+  const right = JSON.stringify(expected);
+  if (left !== right) throw new Error(`${left} !== ${right}`);
 };
 
 const definition = (digest: string): DefinitionRevisionRef => ({
@@ -302,6 +310,50 @@ Deno.test('Increment 76 opens a stored session lazily and starts the Worker on f
       reopened.definition.revision.digest !== 'a'.repeat(64),
       'the stored binding advanced to the current Definition revision',
     );
+  } finally {
+    await created?.close();
+    await Deno.remove(root, { recursive: true });
+  }
+});
+
+Deno.test('Increment 113 rename starts a lazy resumed Worker and saves the title', async () => {
+  const root = await Deno.makeTempDir({ prefix: 'henji-i113-lazy-rename-' });
+  const workspaceRoot = `${root}/workspace`;
+  const stateRoot = `${root}/state`;
+  await Deno.mkdir(workspaceRoot);
+  let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
+  try {
+    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    let capsuleCount = 0;
+    const countCapsules = () => capsuleCount;
+    created = await createWorkerSession({
+      workspaceRoot,
+      stateRoot,
+      persistence: 'new',
+      physicalIoMode: 'provider-free',
+      capsuleFactory: (url) => {
+        capsuleCount += 1;
+        return new WorkerCapsule(url);
+      },
+    });
+    const navigation = created.navigation;
+    assert(navigation !== undefined);
+    const firstId = created.session.currentPosition().sessionId;
+    assert((await created.session.submit('save the first session')).ok);
+    const adapter = createTuiPresentationAdapter(created.session, undefined, navigation);
+    const second = await adapter.dispatch({ kind: 'new_session' });
+    assert(second.kind === 'binding');
+    assert(countCapsules() === 2, 'new session starts its Worker');
+    const resumed = await adapter.dispatch({ kind: 'resume_session', id: firstId });
+    assert(resumed.kind === 'binding');
+    assert(countCapsules() === 2, 'resume keeps Worker count unchanged');
+    assertEquals(await adapter.dispatch({ kind: 'rename_session', title: 'Resumed notes' }), {
+      kind: 'session_title',
+      status: 'renamed',
+      title: 'Resumed notes',
+    });
+    assert(countCapsules() === 3, 'first live rename starts the resumed Worker');
+    assertEquals((await store.readWorker(firstId)).title, 'Resumed notes');
   } finally {
     await created?.close();
     await Deno.remove(root, { recursive: true });

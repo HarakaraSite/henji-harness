@@ -12,6 +12,8 @@ export interface TerminalPort {
   write(bytes: Uint8Array): void;
   /** Optional: resolve after all accepted output has been handed to the host. */
   flush?(): Promise<void>;
+  /** Optional notification when an asynchronous output write fails. */
+  subscribeOutputFailure?(handler: () => void): () => void;
   addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
   removeSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void;
   /** Optional UI-local resize signal hooks. They never enter the agent/session event stream. */
@@ -64,27 +66,36 @@ export class CoalescingWriter {
   private pump: Promise<void> | null = null;
   private failed = false;
 
-  constructor(private readonly writeChunk: ChunkWriter) {}
+  constructor(
+    private readonly writeChunk: ChunkWriter,
+    private readonly onFailure?: () => void,
+  ) {}
 
   enqueue(bytes: Uint8Array): void {
-    if (bytes.byteLength === 0 || this.failed) return;
+    if (bytes.byteLength === 0) return;
     const last = this.queue[this.queue.length - 1];
     if (last !== undefined && isFullFrame(last) && isFullFrame(bytes)) {
       this.queue[this.queue.length - 1] = bytes;
     } else {
       this.queue.push(bytes);
     }
-    if (this.pump === null) this.pump = this.pumpOnce();
+    if (this.pump === null) this.startPump();
   }
 
   /** Resolve once every chunk accepted before settlement (and during it) has been written. */
   async flush(): Promise<void> {
     while (this.pump !== null || this.queue.length > 0) {
-      if (this.pump === null) this.pump = this.pumpOnce();
+      if (this.pump === null) this.startPump();
       const pump = this.pump;
       if (pump === null) break;
       await pump;
     }
+    if (this.failed) throw new Error('terminal output failed');
+  }
+
+  private startPump(): void {
+    // Assign the promise before a writer that throws synchronously can finish the pump.
+    this.pump = Promise.resolve().then(() => this.pumpOnce());
   }
 
   private async pumpOnce(): Promise<void> {
@@ -95,9 +106,10 @@ export class CoalescingWriter {
         try {
           await this.writeChunk(chunk);
         } catch {
-          this.failed = true;
-          this.queue.length = 0;
-          return;
+          if (!this.failed) {
+            this.failed = true;
+            this.onFailure?.();
+          }
         }
       }
     } finally {
@@ -112,8 +124,14 @@ export class DenoTerminal implements TerminalPort {
   private pendingRead: Promise<Uint8Array | null> | null = null;
   private inputClosed = false;
   private draining = false;
-  private readonly output = new CoalescingWriter((bytes) =>
-    Deno.stdout.write(bytes).then(() => {})
+  private outputFailed = false;
+  private readonly outputFailureHandlers = new Set<() => void>();
+  private readonly output = new CoalescingWriter(
+    (bytes) => Deno.stdout.write(bytes).then(() => {}),
+    () => {
+      this.outputFailed = true;
+      for (const handler of this.outputFailureHandlers) handler();
+    },
   );
 
   stdinIsTerminal(): boolean {
@@ -223,6 +241,12 @@ export class DenoTerminal implements TerminalPort {
 
   flush(): Promise<void> {
     return this.output.flush();
+  }
+
+  subscribeOutputFailure(handler: () => void): () => void {
+    this.outputFailureHandlers.add(handler);
+    if (this.outputFailed) handler();
+    return () => this.outputFailureHandlers.delete(handler);
   }
 
   addSignal(signal: 'SIGINT' | 'SIGTERM' | 'SIGHUP', handler: () => void): void {
@@ -345,6 +369,10 @@ export class TerminalLifecycle {
 
   read(): Promise<Uint8Array | null> {
     return this.terminal.read();
+  }
+
+  subscribeOutputFailure(handler: () => void): () => void {
+    return this.terminal.subscribeOutputFailure?.(handler) ?? (() => {});
   }
 
   /** Cleanup errors are intentionally swallowed after the first operation has been attempted. */

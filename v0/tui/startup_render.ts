@@ -1,6 +1,5 @@
 import type { PresentationPosition, PresentationStartupState } from '../presentation/contract.ts';
-import { cellWidth } from './editor_render.ts';
-import { escapeTerminalText, localTimestampText } from './terminal_text.ts';
+import { cellWidth, escapeTerminalText, localTimestampText } from './terminal_text.ts';
 
 export const orientationSession = (state: PresentationStartupState): string => {
   switch (state.sessionMode.kind) {

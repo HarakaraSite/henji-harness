@@ -16,6 +16,12 @@ import {
 type SqlValue = string | number | bigint | Uint8Array | null;
 type Row = Record<string, SqlValue>;
 
+const requiredRow = (db: DatabaseSync, sql: string, ...params: readonly SqlValue[]): Row => {
+  const row = db.prepare(sql).get(...params) as Row | undefined;
+  if (row === undefined) throw new Error('history v7 row not found');
+  return row;
+};
+
 const SCHEMA = `
 CREATE TABLE store_metadata (
   singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
@@ -735,8 +741,12 @@ export class SqliteHistoryV7Prototype {
     };
   }
 
-  readOccurrence(occurrenceId: string): HistoryV7SemanticOccurrence {
-    const row = this.#row(
+  readOccurrence(
+    occurrenceId: string,
+    db: DatabaseSync = this.#db,
+  ): HistoryV7SemanticOccurrence {
+    const row = requiredRow(
+      db,
       'SELECT * FROM semantic_occurrences WHERE occurrence_id=?',
       occurrenceId,
     );
@@ -751,15 +761,19 @@ export class SqliteHistoryV7Prototype {
     };
   }
 
-  listOccurrences(executionId: string): readonly HistoryV7SemanticOccurrence[] {
-    return (this.#db.prepare(`
+  listOccurrences(
+    executionId: string,
+    db: DatabaseSync = this.#db,
+  ): readonly HistoryV7SemanticOccurrence[] {
+    return (db.prepare(`
       SELECT occurrence_id FROM semantic_occurrences
       WHERE execution_id=? ORDER BY ordinal
-    `).all(executionId) as Row[]).map((row) => this.readOccurrence(String(row.occurrence_id)));
+    `).all(executionId) as Row[]).map((row) => this.readOccurrence(String(row.occurrence_id), db));
   }
 
-  readContent(contentDigest: string): Uint8Array {
-    const row = this.#row(
+  readContent(contentDigest: string, db: DatabaseSync = this.#db): Uint8Array {
+    const row = requiredRow(
+      db,
       'SELECT byte_length, content_bytes FROM immutable_contents WHERE content_digest=?',
       contentDigest,
     );
@@ -778,13 +792,17 @@ export class SqliteHistoryV7Prototype {
     return row !== undefined && Number(row.byte_length) === byteLength;
   }
 
-  listDiagnosticAttachments(executionId: string): readonly HistoryV7DiagnosticAttachment[] {
-    return (this.#db.prepare(`
+  listDiagnosticAttachments(
+    executionId: string,
+    db: DatabaseSync = this.#db,
+  ): readonly HistoryV7DiagnosticAttachment[] {
+    return (db.prepare(`
       SELECT * FROM diagnostic_attachments WHERE execution_id=? ORDER BY rowid
     `).all(executionId) as Row[]).map((row) => {
       let content: Uint8Array | undefined;
       if (row.content_digest !== null) {
-        const object = this.#row(
+        const object = requiredRow(
+          db,
           'SELECT byte_length, content_bytes FROM immutable_contents WHERE content_digest=?',
           row.content_digest,
         );
@@ -860,9 +878,7 @@ export class SqliteHistoryV7Prototype {
   }
 
   #row(sql: string, ...params: readonly SqlValue[]): Row {
-    const row = this.#db.prepare(sql).get(...params) as Row | undefined;
-    if (row === undefined) throw new Error('history v7 row not found');
-    return row;
+    return requiredRow(this.#db, sql, ...params);
   }
 
   #transaction<T>(operation: () => T): T {

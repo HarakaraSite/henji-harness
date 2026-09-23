@@ -54,9 +54,3 @@ export class InputDecodeError extends Error {
     this.name = 'InputDecodeError';
   }
 }
-
-export const INPUT_ESC_TIMEOUT_MS = ESC_TIMEOUT_MS;
-export const INPUT_MAX_BYTES = MAX_EDITOR_BYTES;
-export const INPUT_MAX_PASTE_BYTES = MAX_PASTE_BYTES;
-export const INPUT_MAX_HISTORY_ENTRIES = MAX_HISTORY_ENTRIES;
-export const INPUT_MAX_HISTORY_BYTES = MAX_HISTORY_BYTES;

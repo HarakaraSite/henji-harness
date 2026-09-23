@@ -37,6 +37,7 @@ import { readDefaultSelection, writeDefaultSelection } from '../provider/default
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
+  type ProviderDeclarationV1,
   resolveProviderRegistry,
 } from '../provider/provider_declaration.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
@@ -279,13 +280,13 @@ export const main = async (
   });
   const hostConfigRoot = dependencies.configRoot ??
     (dependencies.createSession === undefined ? resolveRuntimePaths().configRoot : undefined);
+  let providerDeclarations: readonly ProviderDeclarationV1[];
   try {
-    setActiveProviderDeclarations(
-      hostConfigRoot === undefined ? [] : resolveProviderRegistry(
-        builtinProviderDeclarations(),
-        await loadProviderDeclarations({ configRoot: hostConfigRoot }),
-      ),
+    providerDeclarations = hostConfigRoot === undefined ? [] : resolveProviderRegistry(
+      builtinProviderDeclarations(),
+      await loadProviderDeclarations({ configRoot: hostConfigRoot }),
     );
+    setActiveProviderDeclarations(providerDeclarations);
   } catch {
     await stderr(failureLine('invalid_invocation'));
     return 1;
@@ -349,6 +350,7 @@ export const main = async (
           rootMaxSteps: invocation.rootMaxSteps,
           providerTimeoutMs: invocation.providerTimeoutMs,
           initialModelSelection: rootSelection,
+          providerDeclarations,
           eventSink,
         }));
     // Composition occurs before raw acquisition, so startup failures never touch terminal mode.

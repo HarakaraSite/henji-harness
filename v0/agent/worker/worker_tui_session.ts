@@ -6,8 +6,11 @@ import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
+  type ProviderDeclarationV1,
   resolveProviderRegistry,
 } from '../provider/provider_declaration.ts';
+import { defaultModelSelectionFor, roleDefaultModelSelection } from '../provider/model_catalog.ts';
+import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
   DefinitionStartupError,
   type HostDefinitionSelection,
@@ -130,6 +133,8 @@ export interface WorkerSessionOptions {
   /** Focused-test seam; production records an auxiliary start gap after one second. */
   readonly auxiliaryStageGapMs?: number;
   readonly initialModelSelection?: ModelSelection;
+  /** Host-resolved declaration snapshot shared with the Worker for this invocation. */
+  readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly providerEvidenceStore?: ProviderEvidenceStore;
@@ -194,7 +199,14 @@ export interface TuiActiveSession extends NavigationSessionLike {
     readonly evidence: 'available' | 'unavailable';
   }>;
   clearPendingRecall(): boolean;
-  renameTitle(value: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable';
+  renameTitle(
+    value: string,
+  ):
+    | 'renamed'
+    | 'unchanged'
+    | 'busy'
+    | 'unavailable'
+    | Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'>;
   historyPage(page: number, turn?: number, rows?: number): SessionHistoryPage | undefined;
   requestCount(): number;
   close(): Promise<void>;
@@ -315,8 +327,8 @@ class LazyWorkerSession implements TuiActiveSession {
     return await (await this.ensureStarted()).prepareRecall(id);
   }
 
-  renameTitle(value: string): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
-    return this.host?.renameTitle(value) ?? 'unavailable';
+  async renameTitle(value: string): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'> {
+    return (await this.ensureStarted()).renameTitle(value);
   }
 
   historyPage(page: number, turn?: number, rows = 16): SessionHistoryPage | undefined {
@@ -366,12 +378,14 @@ export const createWorkerSession = async (
     !resolveManagedInstruction
       ? Promise.resolve(builtinHenjiBaseInstruction())
       : resolveHenjiBaseInstruction(configRoot!);
-  const providerDeclarations = resolveManagedInstruction
-    ? resolveProviderRegistry(
-      builtinProviderDeclarations(),
-      await loadProviderDeclarations({ configRoot: configRoot! }),
-    )
-    : Object.freeze([] as const);
+  const providerDeclarations = options.providerDeclarations ??
+    (resolveManagedInstruction
+      ? resolveProviderRegistry(
+        builtinProviderDeclarations(),
+        await loadProviderDeclarations({ configRoot: configRoot! }),
+      )
+      : Object.freeze([] as const));
+  setActiveProviderDeclarations(providerDeclarations);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const historyCaptureProfile = historyCaptureProfileFor(
     options.physicalIoMode,
@@ -592,7 +606,12 @@ export const createWorkerSession = async (
       initialModelSelection = options.initialModelSelection,
     ): Promise<WorkerHostSession> => {
       try {
+        setActiveProviderDeclarations(providerDeclarations);
         baseInstruction = await resolveBaseInstruction();
+        const effectiveInitialSelection = initialModelSelection ??
+          (activeSelection.id === 'planner'
+            ? roleDefaultModelSelection('subagent:planner')
+            : defaultModelSelectionFor('openrouter-chat'));
         return await WorkerHostSession.open({
           handle: workerHandle,
           workspaceRoot: workspace.root,
@@ -609,7 +628,7 @@ export const createWorkerSession = async (
           cancelSettlementGraceMs: options.cancelSettlementGraceMs,
           workerResponseTimeoutMs: options.workerResponseTimeoutMs,
           auxiliaryStageGapMs: options.auxiliaryStageGapMs,
-          initialModelSelection,
+          initialModelSelection: effectiveInitialSelection,
           baseInstruction,
           providerDeclarations,
           eventSink: options.eventSink,
@@ -679,8 +698,8 @@ export const createWorkerSession = async (
           skippedInvalid: listed.skippedInvalid,
         };
       },
-      renameCurrent(title: string) {
-        return currentHost.renameTitle(title);
+      async renameCurrent(title: string) {
+        return await currentHost.renameTitle(title);
       },
       async createNew(signal?: AbortSignal): Promise<NavigationBinding> {
         if (signal?.aborted) throw new NavigationCancelledError();

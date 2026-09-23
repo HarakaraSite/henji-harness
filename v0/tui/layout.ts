@@ -8,7 +8,7 @@ import {
   projectConversationEntry,
 } from './conversation_renderer.ts';
 import { startupHeaderLines } from './startup_render.ts';
-import { localTimestampText } from './terminal_text.ts';
+import { cellWidth, localTimestampText } from './terminal_text.ts';
 
 export const MIN_COLUMNS = 80;
 export const MIN_ROWS = 24;
@@ -22,6 +22,8 @@ export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
   readonly sourceScalarOffset?: number;
+  readonly sourceLine?: number;
+  readonly sourceColumn?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
   readonly spans?: readonly AssistantSpan[];
@@ -50,21 +52,6 @@ export interface UiLayout {
 const encoder = new TextEncoder();
 const clamp = (value: number, min: number, max: number): number =>
   Number.isSafeInteger(value) ? Math.max(min, Math.min(max, value)) : min;
-const isFullwidthForm = (code: number): boolean =>
-  (code >= 0xff01 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6);
-const cellWidth = (character: string): number => {
-  const code = character.codePointAt(0)!;
-  if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) {
-    return 0;
-  }
-  if (
-    (code >= 0x1100 && code <= 0x115f) || (code >= 0x2329 && code <= 0x232a) ||
-    (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
-    (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe10 && code <= 0xfe6f) ||
-    (code >= 0x1f300 && code <= 0x1faff) || isFullwidthForm(code)
-  ) return 2;
-  return 1;
-};
 const width = (text: string): number =>
   [...text].reduce((sum, character) => sum + cellWidth(character), 0);
 const escapedCodePoint = (code: number): string => {
@@ -465,6 +452,10 @@ const logRows = (
           kind: 'log',
           entryId: entry.id,
           sourceScalarOffset: sourceOffset,
+          ...(assistantLine.sourceLine === undefined ? {} : {
+            sourceLine: assistantLine.sourceLine,
+            sourceColumn: assistantLine.sourceColumn ?? 0,
+          }),
           ...(lineIndex === 0
             ? { labelScalarLength: labelWidth, labelTone: 'assistant' as const }
             : {}),
@@ -500,9 +491,9 @@ const overlayRows = (
   state: UiState,
   columns: number,
   rows: number,
-): LayoutRow[] => {
+): { rows: LayoutRow[]; headerRows: number; selectedRow: number } => {
   const overlay = state.overlay;
-  if (overlay.kind === 'none') return [];
+  if (overlay.kind === 'none') return { rows: [], headerRows: 0, selectedRow: -1 };
   const lines: string[] = [];
   if (overlay.kind === 'startupHelp') {
     lines.push(
@@ -571,10 +562,18 @@ const overlayRows = (
     }
   }
   const result: LayoutRow[] = [];
-  for (const line of lines.slice(0, 32)) {
+  let headerRows = 0;
+  let selectedRow = -1;
+  const selectedLine = overlay.kind === 'sessionPicker'
+    ? 2 + overlay.selected - overlay.page * 8
+    : -1;
+  for (const [index, line] of lines.slice(0, 32).entries()) {
+    if (overlay.kind === 'sessionPicker' && index === 2) headerRows = result.length;
+    if (index === selectedLine) selectedRow = result.length;
     result.push(...wrap(line, columns, 'log'));
   }
-  return result;
+  if (overlay.kind === 'sessionPicker' && lines.length <= 2) headerRows = result.length;
+  return { rows: result, headerRows, selectedRow };
 };
 
 const inputRows = (
@@ -684,11 +683,28 @@ export const layoutUi = (
   }
   const overlayStart = state.overlay.kind === 'startupHelp'
     ? 0
-    : Math.max(0, overlay.length - logHeight);
-  const visibleLog = (overlay.length > 0 ? overlay : log.rows).slice(
-    overlay.length > 0 ? overlayStart : logStart,
-    (overlay.length > 0 ? overlayStart : logStart) + logHeight,
-  );
+    : Math.max(0, overlay.rows.length - logHeight);
+  const visibleOverlay = state.overlay.kind === 'sessionPicker' &&
+      overlay.selectedRow >= 0 && overlay.rows.length > logHeight && logHeight > 0
+    ? (() => {
+      const headerCount = Math.min(overlay.headerRows, Math.max(0, logHeight - 1));
+      const bodyHeight = logHeight - headerCount;
+      const body = overlay.rows.slice(overlay.headerRows);
+      const selected = overlay.selectedRow - overlay.headerRows;
+      const start = clamp(
+        selected - Math.floor(bodyHeight / 2),
+        0,
+        Math.max(0, body.length - bodyHeight),
+      );
+      return [
+        ...overlay.rows.slice(0, headerCount),
+        ...body.slice(start, start + bodyHeight),
+      ];
+    })()
+    : overlay.rows.slice(overlayStart, overlayStart + logHeight);
+  const visibleLog = overlay.rows.length > 0
+    ? visibleOverlay
+    : log.rows.slice(logStart, logStart + logHeight);
   const paddedLog = [...visibleLog];
   while (paddedLog.length < logHeight) {
     paddedLog.unshift({ text: '', kind: 'log' });
@@ -725,7 +741,7 @@ export const layoutUi = (
     allLog: Object.freeze(log.rows),
     logStart,
     totalLogRows: log.rows.length,
-    overlay: Object.freeze(overlay),
+    overlay: Object.freeze(overlay.rows),
     beforeInput: Object.freeze(beforeInput),
     input: Object.freeze(editor.rows),
     afterInput: Object.freeze(afterInput),

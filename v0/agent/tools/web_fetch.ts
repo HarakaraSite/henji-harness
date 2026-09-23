@@ -67,7 +67,7 @@ const readBoundedBody = async (
       const item = await reader.read();
       if (item.done) break;
       const remaining = MAX_WEB_FETCH_BYTES - total;
-      if (item.value.byteLength >= remaining) {
+      if (item.value.byteLength > remaining) {
         chunks.push(item.value.subarray(0, Math.max(0, remaining)));
         truncated = true;
         break;

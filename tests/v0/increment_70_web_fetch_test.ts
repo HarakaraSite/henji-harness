@@ -1,5 +1,19 @@
 import { createWebFetchTool, MAX_WEB_FETCH_BYTES } from '../../v0/agent/tools/web_fetch.ts';
-import { type Tool, ToolInputError } from '../../v0/agent/tools/tools.ts';
+import { Registry, type Tool, ToolInputError } from '../../v0/agent/tools/tools.ts';
+import type { Model, ModelResult } from '../../v0/agent/core/contracts.ts';
+import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
+import {
+  WorkerGeneration,
+  type WorkerGenerationPort,
+} from '../../v0/agent/worker/worker_runtime.ts';
+import { SessionAuthority } from '../../v0/agent/worker/worker_host_authority.ts';
+import {
+  decodeSessionRecordV6,
+  encodeSessionRecordV6,
+  type SessionRecordV6,
+} from '../../v0/agent/session/session_store.ts';
+import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
+import { readDefinitionRevision } from '../../v0/agent/worker/worker_definition_revision.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -72,6 +86,100 @@ Deno.test('Increment 70 web_fetch truncates an oversized body', async () => {
   const output = await run(tool, 'https://example.com/big');
   assert(output.includes('truncated: true'));
   assert(output.includes('[body truncated]'));
+});
+
+Deno.test('Increment 70 web_fetch marks an exact 1 MiB body as complete', async () => {
+  const body = 'x'.repeat(MAX_WEB_FETCH_BYTES);
+  const output = await run(createWebFetchTool(fetched(body)), 'https://example.com/exact');
+  assert(output.includes('truncated: false'));
+  assert(!output.includes('[body truncated]'));
+  assert(output.endsWith(body));
+});
+
+Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive canonical record readback', async () => {
+  const definition = await readDefinitionRevision('', 'builtin', 'default');
+  for (const extraBytes of [0, 10_000]) {
+    const body = 'x'.repeat(MAX_WEB_FETCH_BYTES + extraBytes);
+    const tool = createWebFetchTool(fetched(body));
+    let modelCalls = 0;
+    const model: Model = {
+      generate(): ModelResult {
+        modelCalls += 1;
+        return modelCalls === 1
+          ? {
+            kind: 'tool_calls',
+            calls: [{
+              callId: 'web-fetch-1',
+              name: 'web_fetch',
+              arguments: { url: 'https://example.com/source' },
+            }],
+          }
+          : { kind: 'final', text: 'fetched source' };
+      },
+    };
+    const composition = {
+      role: 'parent',
+      model,
+      registry: new Registry([tool]),
+      maxSteps: 2,
+      manifest: {
+        role: 'parent',
+        maxSteps: 2,
+        profileId: 'provider-free-web-fetch',
+        resources: ['tool:web_fetch'],
+      },
+    } as unknown as WorkerAgentComposition;
+    const sessionId = crypto.randomUUID().toLowerCase();
+    const handle: WorkerSessionHandle = {
+      id: sessionId,
+      commit: () => {},
+      rollback: () => {},
+      installCheckpoint: () => {},
+      rollbackCheckpoint: () => {},
+      close: () => Promise.resolve(),
+    };
+    const authority = new SessionAuthority({
+      handle,
+      workspaceRoot: Deno.cwd(),
+      agent: 'default',
+      definition,
+      physicalIoMode: 'provider-free',
+    }, undefined);
+    let committed: SessionRecordV6 | undefined;
+    const port: WorkerGenerationPort = {
+      runtimeEvent: () => undefined,
+      effectObservation: () => undefined,
+      checkpointProposal: () => Promise.resolve(false),
+      commitProposal: (_correlation, proposal) => {
+        committed = authority.proposalRecord(proposal);
+        return Promise.resolve(committed !== undefined);
+      },
+      turnFailed: (_correlation, outcome) => {
+        throw new Error(`unexpected turn failure: ${outcome.stopReason}`);
+      },
+    };
+    const generation = new WorkerGeneration(composition, sessionId, port);
+    await generation.runTurn({
+      session: sessionId,
+      instanceCorrelation: 'web-fetch-instance',
+      workerGeneration: 'web-fetch-generation',
+      baseStateRevision: 1,
+      command: 'turn-1',
+    }, 'fetch source');
+    assert(committed !== undefined, 'normal web_fetch turn was not accepted');
+    assert(modelCalls === 2);
+    const decoded = decodeSessionRecordV6(encodeSessionRecordV6(committed));
+    const toolMessage = decoded.transcript.find((message) => message.role === 'tool');
+    assert(toolMessage?.role === 'tool');
+    const result = toolMessage.content[0];
+    assert(result?.kind === 'tool_result');
+    assert(result.text.includes('URL: https://example.com/final'));
+    assert(result.text.includes(`truncated: ${extraBytes > 0}`));
+    assert(result.text.includes('Content-Type: text/plain; charset=utf-8'));
+    assert(result.text.length > MAX_WEB_FETCH_BYTES);
+    assert(result.text.includes('x'.repeat(MAX_WEB_FETCH_BYTES)));
+    assert(result.text.endsWith('[body truncated]') === (extraBytes > 0));
+  }
 });
 
 Deno.test('Increment 70 web_fetch fails on http errors and invalid input', async () => {

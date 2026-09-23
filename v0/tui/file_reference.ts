@@ -1,5 +1,6 @@
+import { isWellFormed } from './input_value.ts';
+
 const MAX_VISITED_ENTRIES = 4_096;
-const MAX_FILES = 1_024;
 const MAX_PATH_BYTES = 4_096;
 const MAX_TOTAL_BYTES = 256 * 1024;
 const MAX_DEPTH = 32;
@@ -57,17 +58,6 @@ const byteCompare = (a: string, b: string): number => {
   return left.length - right.length;
 };
 const pathBytes = (value: string): number => encoder.encode(value).byteLength;
-const isWellFormed = (value: string): boolean => {
-  for (let index = 0; index < value.length; index += 1) {
-    const code = value.charCodeAt(index);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1);
-      if (next < 0xdc00 || next > 0xdfff) return false;
-      index += 1;
-    } else if (code >= 0xdc00 && code <= 0xdfff) return false;
-  }
-  return true;
-};
 
 /** JSON-string escaping is safe for terminal insertion and includes controls and bidi marks. */
 export const escapeFileReference = (path: string): string => {
@@ -102,25 +92,10 @@ class DenoFileReferenceFs implements FileReferenceFs {
 
 /** Immutable bounded workspace-relative path index. It never reads file contents. */
 export class WorkspacePathIndex {
-  constructor(
-    private readonly root: string,
-    private readonly snapshotValue: FileReferenceIndexSnapshot,
-  ) {}
+  constructor(private readonly snapshotValue: FileReferenceIndexSnapshot) {}
 
-  static empty(root = ''): WorkspacePathIndex {
+  static incomplete(): WorkspacePathIndex {
     return new WorkspacePathIndex(
-      root,
-      Object.freeze({
-        complete: true,
-        candidates: Object.freeze([]),
-        visitedEntries: 0,
-        totalBytes: 0,
-      }),
-    );
-  }
-  static incomplete(root = ''): WorkspacePathIndex {
-    return new WorkspacePathIndex(
-      root,
       Object.freeze({
         complete: false,
         candidates: Object.freeze([]),
@@ -129,16 +104,15 @@ export class WorkspacePathIndex {
       }),
     );
   }
-  static fromCandidates(candidates: readonly string[], root = ''): WorkspacePathIndex {
+  static fromCandidates(candidates: readonly string[]): WorkspacePathIndex {
     const accepted = candidates.filter(validCandidate).map((path) => ({ path })).sort((a, b) =>
       byteCompare(a.path, b.path)
     );
     const totalBytes = accepted.reduce((sum, item) => sum + pathBytes(item.path), 0);
-    if (accepted.length > MAX_FILES || totalBytes > MAX_TOTAL_BYTES) {
-      return WorkspacePathIndex.incomplete(root);
+    if (accepted.length > MAX_VISITED_ENTRIES || totalBytes > MAX_TOTAL_BYTES) {
+      return WorkspacePathIndex.incomplete();
     }
     return new WorkspacePathIndex(
-      root,
       Object.freeze({
         complete: true,
         candidates: Object.freeze(accepted.map((item) => Object.freeze(item))),
@@ -146,9 +120,6 @@ export class WorkspacePathIndex {
         totalBytes,
       }),
     );
-  }
-  get rootPath(): string {
-    return this.root;
   }
   get complete(): boolean {
     return this.snapshotValue.complete;
@@ -176,9 +147,6 @@ export class WorkspacePathIndex {
     if (matches.length !== 1) return { kind: 'ambiguous', count: matches.length };
     const value = quoteFileReference(`./${matches[0].path}`);
     return { kind: 'inserted', text: value, replacement: value };
-  }
-  match(fragment: string): PathCompletionResult {
-    return this.completePath(fragment);
   }
 }
 
@@ -224,10 +192,10 @@ export async function buildWorkspacePathIndex(
     canonical = await filesystem.realPath(root);
     initial = await filesystem.lstat(canonical);
   } catch {
-    return WorkspacePathIndex.incomplete(root);
+    return WorkspacePathIndex.incomplete();
   }
   if (initial.isSymlink || initial.isDirectory === false) {
-    return WorkspacePathIndex.incomplete(canonical);
+    return WorkspacePathIndex.incomplete();
   }
 
   const visit = async (
@@ -304,10 +272,6 @@ export async function buildWorkspacePathIndex(
         continue;
       }
       if (!(stat.isFile || entry.isFile)) continue;
-      if (scan.candidates.length >= MAX_FILES) {
-        scan.complete = false;
-        return;
-      }
       scan.candidates.push(childRelative);
       scan.totalBytes += pathBytes(childRelative);
       if (scan.totalBytes > MAX_TOTAL_BYTES) {
@@ -325,9 +289,8 @@ export async function buildWorkspacePathIndex(
   } catch {
     scan.complete = false;
   }
-  if (!scan.complete) return WorkspacePathIndex.incomplete(canonical);
+  if (!scan.complete) return WorkspacePathIndex.incomplete();
   return new WorkspacePathIndex(
-    canonical,
     Object.freeze({
       complete: true,
       candidates: Object.freeze(scan.candidates.map((path) => Object.freeze({ path }))),

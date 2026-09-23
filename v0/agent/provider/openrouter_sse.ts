@@ -643,10 +643,9 @@ export const readSseResponse = async (
   try {
     for (;;) {
       // A continuous stream keeps this loop in microtasks, which starves the macrotask deadline
-      // timer. Check the deadline on every chunk so the request cannot outlive it.
+      // timer. The elapsed check aborts the fetch; settle the active reader as well.
       if (isTimedOut()) {
-        failure = providerTimeoutError();
-        break;
+        await settleActiveReaderFailure(providerTimeoutError());
       }
       let item: ReadableStreamReadResult<Uint8Array>;
       try {

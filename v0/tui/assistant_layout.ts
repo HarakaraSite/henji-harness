@@ -1,4 +1,4 @@
-import { cellWidth } from './editor_render.ts';
+import { cellWidth } from './terminal_text.ts';
 import type {
   AssistantContentRenderer,
   AssistantLine,
@@ -178,8 +178,17 @@ const clipSpans = (
   return spans;
 };
 
-const line = (text: string, spans: readonly AssistantSpan[] = []): AssistantLine =>
-  Object.freeze({ text, spans: Object.freeze([...spans]) });
+const line = (
+  text: string,
+  spans: readonly AssistantSpan[] = [],
+  sourceLine?: number,
+  sourceColumn = 0,
+): AssistantLine =>
+  Object.freeze({
+    text,
+    spans: Object.freeze([...spans]),
+    ...(sourceLine === undefined ? {} : { sourceLine, sourceColumn }),
+  });
 
 const FENCE = /^(\s{0,3})(`{3,}|~{3,})(.*)$/;
 const CLOSE_FENCE = /^(\s{0,3})(`{3,}|~{3,})\s*$/;
@@ -228,10 +237,13 @@ const records = (
   headers: readonly string[],
   rows: readonly (readonly string[])[],
   width: number,
+  sourceLine: number,
 ): AssistantLine[] => {
   const out: AssistantLine[] = [];
   rows.forEach((row, rowIndex) => {
-    if (rowIndex > 0) out.push(line(''));
+    const recordLine = sourceLine + 2 + rowIndex;
+    let recordColumn = 0;
+    if (rowIndex > 0) out.push(line('', [], recordLine, recordColumn++));
     headers.forEach((headerText, index) => {
       const label = `${headerText}: `;
       const labelLength = scalarLength(label);
@@ -240,10 +252,17 @@ const records = (
         Math.max(1, width - labelLength),
         spaces(labelLength),
       );
-      out.push(line(`${label}${wrapped[0]}`, [
-        { start: 0, length: scalarLength(headerText), tone: 'list' },
-      ]));
-      for (const continuation of wrapped.slice(1)) out.push(line(continuation));
+      out.push(line(
+        `${label}${wrapped[0]}`,
+        [
+          { start: 0, length: scalarLength(headerText), tone: 'list' },
+        ],
+        recordLine,
+        recordColumn++,
+      ));
+      for (const continuation of wrapped.slice(1)) {
+        out.push(line(continuation, [], recordLine, recordColumn++));
+      }
     });
   });
   return out;
@@ -254,6 +273,7 @@ const table = (
   aligns: readonly TableAlign[],
   rows: readonly (readonly string[])[],
   width: number,
+  sourceLine: number,
 ): AssistantLine[] => {
   const columns = header.length;
   const columnsOf = (row: readonly string[]): string[] =>
@@ -264,7 +284,7 @@ const table = (
     Math.max(cells(cell), ...rows.map((row) => cells(row[index] ?? '')))
   );
   const available = width - overhead;
-  if (available < columns * minimum) return records(header, rows, width);
+  if (available < columns * minimum) return records(header, rows, width, sourceLine);
 
   const widths = natural.map((value) => Math.max(minimum, value));
   while (widths.reduce((sum, value) => sum + value, 0) > available) {
@@ -280,11 +300,15 @@ const table = (
     widths[widest] -= 1;
   }
   if (widths.reduce((sum, value) => sum + value, 0) > available) {
-    return records(header, rows, width);
+    return records(header, rows, width, sourceLine);
   }
 
   const out: AssistantLine[] = [];
-  const renderRow = (row: readonly string[], headerRow: boolean): void => {
+  const renderRow = (
+    row: readonly string[],
+    headerRow: boolean,
+    rowSourceLine: number,
+  ): void => {
     const wrapped = widths.map((value, index) => wrapCells(row[index] ?? '', value));
     const height = Math.max(...wrapped.map((value) => value.length));
     for (let rowIndex = 0; rowIndex < height; rowIndex++) {
@@ -304,11 +328,11 @@ const table = (
       }
       text += '|';
       spans.push({ start: scalarLength(text) - 1, length: 1, tone: 'table' });
-      out.push(line(text, spans));
+      out.push(line(text, spans, rowSourceLine, rowIndex));
     }
   };
 
-  renderRow(header, true);
+  renderRow(header, true, sourceLine);
   const separator = `|${
     widths.map((value, index) => {
       const align = aligns[index] ?? 'left';
@@ -320,8 +344,12 @@ const table = (
       return ` ${dashes} `;
     }).join('|')
   }|`;
-  out.push(line(separator, [{ start: 0, length: scalarLength(separator), tone: 'table' }]));
-  for (const row of rows) renderRow(columnsOf(row), false);
+  out.push(line(
+    separator,
+    [{ start: 0, length: scalarLength(separator), tone: 'table' }],
+    sourceLine + 1,
+  ));
+  rows.forEach((row, index) => renderRow(columnsOf(row), false, sourceLine + 2 + index));
   return out;
 };
 
@@ -338,8 +366,9 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       const indent = fence[1];
       const marker = fence[2];
       const opener = `${indent}${marker}${fence[3].trimEnd()}`;
-      out.push(line(opener));
+      out.push(line(opener, [], index));
       index += 1;
+      const bodyStart = index;
       const body: string[] = [];
       let closed = false;
       while (index < source.length) {
@@ -351,19 +380,22 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
         body.push(source[index]);
         index += 1;
       }
-      for (const bodyLine of body) {
+      for (const [bodyIndex, bodyLine] of body.entries()) {
+        let sourceColumn = 0;
         for (const piece of hardSplit(bodyLine, limit)) {
-          out.push(line(piece));
+          out.push(line(piece, [], bodyStart + bodyIndex, sourceColumn));
+          sourceColumn += scalarLength(piece);
         }
       }
       if (closed) {
-        out.push(line(`${indent}${marker}`));
+        out.push(line(`${indent}${marker}`, [], index));
         index += 1;
       }
       continue;
     }
 
     if (raw.includes('|') && index + 1 < source.length && isSeparatorRow(source[index + 1])) {
+      const tableStart = index;
       const headers = splitCells(raw);
       const aligns = parseAligns(source[index + 1]);
       const rows: string[][] = [];
@@ -374,7 +406,7 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
         rows.push(splitCells(source[index]));
         index += 1;
       }
-      out.push(...table(headers, aligns, rows, limit));
+      out.push(...table(headers, aligns, rows, limit, tableStart));
       continue;
     }
 
@@ -382,10 +414,17 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
     if (heading !== null) {
       const prefix = `${heading[1]} `;
       const prefixCells = cells(prefix);
-      const parts = wrapCells(heading[2].trimEnd(), Math.max(1, limit - prefixCells));
+      const parts = wrapCellsWithSource(heading[2].trimEnd(), Math.max(1, limit - prefixCells));
       parts.forEach((part, partIndex) => {
-        const text = partIndex === 0 ? `${prefix}${part}` : `${spaces(prefixCells)}${part}`;
-        out.push(line(text, [{ start: 0, length: scalarLength(text), tone: 'heading' }]));
+        const text = partIndex === 0
+          ? `${prefix}${part.text}`
+          : `${spaces(prefixCells)}${part.text}`;
+        out.push(line(
+          text,
+          [{ start: 0, length: scalarLength(text), tone: 'heading' }],
+          index,
+          part.sourceIndices[0] ?? 0,
+        ));
       });
       index += 1;
       continue;
@@ -393,7 +432,7 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
 
     if (RULE.test(raw)) {
       const dash = '─'.repeat(Math.max(1, Math.min(limit, 40)));
-      out.push(line(dash, [{ start: 0, length: scalarLength(dash), tone: 'table' }]));
+      out.push(line(dash, [{ start: 0, length: scalarLength(dash), tone: 'table' }], index));
       index += 1;
       continue;
     }
@@ -408,13 +447,23 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       parts.forEach((part, partIndex) => {
         const clipped = clipSpans(bodySpans, part);
         if (partIndex === 0) {
-          out.push(line(`${indent}> ${part.text}`, [
-            { start: scalarLength(indent), length: 1, tone: 'quote' },
-            ...shiftSpans(clipped, scalarLength(`${indent}> `)),
-          ]));
+          out.push(line(
+            `${indent}> ${part.text}`,
+            [
+              { start: scalarLength(indent), length: 1, tone: 'quote' },
+              ...shiftSpans(clipped, scalarLength(`${indent}> `)),
+            ],
+            index,
+            part.sourceIndices[0] ?? 0,
+          ));
         } else {
           const cont = `${indent}${spaces(2)}`;
-          out.push(line(`${cont}${part.text}`, shiftSpans(clipped, scalarLength(cont))));
+          out.push(line(
+            `${cont}${part.text}`,
+            shiftSpans(clipped, scalarLength(cont)),
+            index,
+            part.sourceIndices[0] ?? 0,
+          ));
         }
       });
       index += 1;
@@ -433,13 +482,23 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
       parts.forEach((part, partIndex) => {
         const clipped = clipSpans(bodySpans, part);
         if (partIndex === 0) {
-          out.push(line(`${prefix}${part.text}`, [
-            { start: scalarLength(indent), length: scalarLength(marker), tone: 'list' },
-            ...shiftSpans(clipped, scalarLength(prefix)),
-          ]));
+          out.push(line(
+            `${prefix}${part.text}`,
+            [
+              { start: scalarLength(indent), length: scalarLength(marker), tone: 'list' },
+              ...shiftSpans(clipped, scalarLength(prefix)),
+            ],
+            index,
+            part.sourceIndices[0] ?? 0,
+          ));
         } else {
           const cont = spaces(prefixCells);
-          out.push(line(`${cont}${part.text}`, shiftSpans(clipped, scalarLength(cont))));
+          out.push(line(
+            `${cont}${part.text}`,
+            shiftSpans(clipped, scalarLength(cont)),
+            index,
+            part.sourceIndices[0] ?? 0,
+          ));
         }
       });
       index += 1;
@@ -447,14 +506,19 @@ const renderAssistant = (text: string, width: number): readonly AssistantLine[] 
     }
 
     if (raw.trim().length === 0) {
-      out.push(line(''));
+      out.push(line('', [], index));
       index += 1;
       continue;
     }
 
     const rawSpans = inlineSpans(raw);
     for (const wrapped of wrapCellsWithSource(raw, limit)) {
-      out.push(line(wrapped.text, clipSpans(rawSpans, wrapped)));
+      out.push(line(
+        wrapped.text,
+        clipSpans(rawSpans, wrapped),
+        index,
+        wrapped.sourceIndices[0] ?? 0,
+      ));
     }
     index += 1;
   }

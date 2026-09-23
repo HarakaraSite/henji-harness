@@ -144,8 +144,30 @@ export const createProviderRequestDispatcher = (
       response.headers.forEach((value, name) => {
         headers[name] = value;
       });
+      evidence?.recordResponse({ status: response.status, headers });
       report?.('response_body_read_entered');
-      const bytes = new Uint8Array(await response.arrayBuffer());
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      if (response.body !== null) {
+        const reader = response.body.getReader();
+        try {
+          for (;;) {
+            const item = await reader.read();
+            if (item.done) break;
+            evidence?.appendResponseBytes(item.value);
+            chunks.push(item.value.slice());
+            length += item.value.byteLength;
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+      const bytes = new Uint8Array(length);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
       report?.('response_body_read_returned');
       if (request.signal?.aborted) throw new TurnCancelledError();
       if (deadline?.aborted) throw new Error('provider deadline exceeded');

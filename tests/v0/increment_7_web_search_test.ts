@@ -446,6 +446,49 @@ Deno.test('web_search exposes provider response errors while retaining raw evide
   }
 });
 
+Deno.test('web_search retains response status and received bytes when the body is interrupted', async () => {
+  let pulls = 0;
+  const backend = new OpenRouterSonarWebSearchBackend({
+    credential: 'test-credential',
+    fetcher: () =>
+      Promise.resolve(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              pulls += 1;
+              if (pulls === 1) {
+                controller.enqueue(new TextEncoder().encode('first-'));
+              } else controller.error(new Error('body interrupted'));
+            },
+          }, { highWaterMark: 0 }),
+          {
+            status: 200,
+            headers: { 'x-provider-response': 'received' },
+          },
+        ),
+      ),
+  });
+  const evidence = new ProviderEvidenceRecorder(
+    '88888888-8888-4888-8888-888888888890',
+    1,
+    '2026-09-07T00:00:00.000Z',
+  );
+  let error: unknown;
+  try {
+    await backend.search('interrupted response', {
+      modelExecution: contextFor(evidence),
+    });
+  } catch (caught) {
+    error = caught;
+  }
+  assert(error instanceof Error && error.message.includes('body interrupted'));
+  const response = evidence.snapshot().requests[0].response;
+  assertEquals(response?.status, 200);
+  assertEquals(response?.headers['x-provider-response'], 'received');
+  assertEquals(response?.rawBody, 'first-');
+  assertEquals(response?.rawBodyBytes, 6);
+});
+
 Deno.test('web_search request admission stops before credential resolution and fetch', async () => {
   let credentials = 0;
   let fetches = 0;

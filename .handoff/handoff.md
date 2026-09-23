@@ -2,17 +2,15 @@
 
 ## Records
 
-### Increment 113 — codebase構造の単純化review（Slice 3修正計画の承認待ち）
+### Increment 113 — codebase構造の単純化review（commit・push・配置中）
 
-- 状態: Increment 112完了commit `9570565a`をbaselineに、Slice 1・terminal artifact bridge・Slice 2の
-  修正、focused検証、限定再reviewを完了した。Slice 3のread-only reviewとowner照合で、連続Chat SSE timeout時に
-  requestがabortされない問題と、auxiliary response途中失敗時に受信済み証拠が消える問題を採用した。
-  具体的なSlice 3修正・cross-slice bridge計画は正本へ記録済み。
-- 次: 新しいCodex sessionで本Recordと正本を読み、利用者がSlice 3修正・cross-slice bridge計画を承認するか
-  判断する。承認後は計画範囲の実装・focused検証・限定再reviewへ進める。
+- 状態: Slice 1・terminal artifact bridge・Slice 2〜18を完了。採用修正のfocused検証、必要なproduction TUI
+  確認、同じgpt-6-astra xhigh reviewerの限定再reviewと横断reviewを終え、追加findingなし。安定候補の
+  authoritative `v0:gate`は一回でexit 0、`git diff --check`も成功。
+- 次: 利用者の明示指示に従い、本Incrementをcommitし、clean commitからbuild・配置してpushする。
 - 正本: `docs/increments/increment-113.md`。
-- 注意: Increment 113のSlice 1・bridge・Slice 2の変更と本Recordはcommitで保存。Slice 3のsource／test修正は
-  未承認・未実施。full gate、実provider call、binary build／配置、pushは行わない。
+- 注意: 本Incrementの修正・記録は未commitのworking tree差分。実provider call、credential読取り、
+  binary build／配置、pushは行っていない。
 
 ### Increment 112 — async child構造の単純化（実装・検証・commit完了、push未実施）
 

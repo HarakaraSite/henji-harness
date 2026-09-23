@@ -168,12 +168,6 @@ export class TuiEditor {
     this.preferredColumn = null;
     return changed;
   }
-  moveHome(): boolean {
-    return this.home();
-  }
-  moveEnd(): boolean {
-    return this.end();
-  }
   moveUp(): boolean {
     return this.moveVertical(-1);
   }

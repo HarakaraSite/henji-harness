@@ -1,7 +1,7 @@
 import { createUiState, reduceUiAction } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor, TuiEditorHistory } from '../../v0/tui/input.ts';
-import { layoutEditorText, pendingMetadataRows, TuiRenderer } from '../../v0/tui/render.ts';
+import { TuiRenderer } from '../../v0/tui/render.ts';
 import {
   TuiController,
   TuiControllerError,
@@ -13,11 +13,15 @@ import {
   type PresentationStartupState,
 } from '../../v0/presentation/contract.ts';
 import { presentationProjectionFromStartup } from '../../v0/presentation/adapter.ts';
+import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
+import type { LoopOutcome } from '../../v0/agent/core/contracts.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { ModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import {
   BLINK_SGR,
+  BRACKETED_PASTE_OFF,
+  CoalescingWriter,
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
   TerminalLifecycle,
@@ -105,6 +109,38 @@ class InteractiveTerminal extends RecordingTerminal {
   }
 }
 
+class RecoveringOutputTerminal extends InteractiveTerminal {
+  private readonly outputHandlers = new Set<() => void>();
+  private outputFailed = false;
+  private rejectFrame = true;
+  private readonly output = new CoalescingWriter((bytes) => {
+    const value = new TextDecoder().decode(bytes);
+    if (this.rejectFrame && value.startsWith('\x1b[2J\x1b[H')) {
+      this.rejectFrame = false;
+      throw new Error('frame write failed');
+    }
+    this.writes.push(value);
+    return Promise.resolve();
+  }, () => {
+    this.outputFailed = true;
+    for (const handler of this.outputHandlers) handler();
+  });
+
+  override write(bytes: Uint8Array): void {
+    this.output.enqueue(bytes);
+  }
+
+  flush(): Promise<void> {
+    return this.output.flush();
+  }
+
+  subscribeOutputFailure(handler: () => void): () => void {
+    this.outputHandlers.add(handler);
+    if (this.outputFailed) handler();
+    return () => this.outputHandlers.delete(handler);
+  }
+}
+
 const waitFor = async (condition: () => boolean): Promise<void> => {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (condition()) return;
@@ -153,6 +189,46 @@ const successfulSession = (submitted: string[]): TuiSessionLike => ({
 
 const indexOfWrite = (writes: readonly string[], value: string): number =>
   writes.findIndex((write) => write.includes(value));
+
+Deno.test('retained controller restores terminal after an asynchronous frame write fails', async () => {
+  const terminal = new RecoveringOutputTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const controller = new TuiController(lifecycle, renderer, successfulSession([]));
+  assertEquals(await controller.run(), 1);
+  assertEquals(lifecycle.restoreStatus(), 'failed');
+  assertEquals(terminal.rawModes.at(-1), false);
+  assert(indexOfWrite(terminal.writes, BRACKETED_PASTE_OFF) >= 0);
+  assert(indexOfWrite(terminal.writes, EXIT_ALTERNATE_SCREEN) >= 0);
+  assertEquals(terminal.writes.at(-1), '\x1b[?25h');
+});
+
+Deno.test('retained editor keeps a new arrow and history Up after bare Escape', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const submitted: string[] = [];
+  const controller = new TuiController(lifecycle, renderer, successfulSession(submitted), {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  terminal.push('ab');
+  await waitFor(() => controller.editor.text === 'ab');
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  terminal.push('c\x1b[DX');
+  await waitFor(() => controller.editor.text === 'abXc');
+  terminal.push('\r');
+  await waitFor(() => submitted.length === 1);
+  terminal.push('\x1b');
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  terminal.push('\x1b[A');
+  await waitFor(() => controller.editor.text === 'abXc');
+  terminal.push('\x15\x04');
+  assertEquals(await run, 0);
+});
 
 Deno.test('retained rendering isolates redraws in the alternate screen', async () => {
   const terminal = new RecordingTerminal();
@@ -399,6 +475,64 @@ Deno.test('retained session picker identifies sessions by updated time and human
   );
 });
 
+Deno.test('compact session picker keeps its selected session visible with the full footer', () => {
+  const terminal = new RecordingTerminal();
+  terminal.size = { columns: 80, rows: 10 };
+  const renderer = new TuiRenderer(terminal);
+  const startup: PresentationStartupState = {
+    productVersion: '0.3.0',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: { provider: 'openrouter-chat', profileId: 'test', modelId: 'm', effort: 'high' },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: [] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  const position = {
+    sessionId: '00000000-0000-0000-0000-000000000000',
+    createdAt: '2026-09-22T00:00:00Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  };
+  renderer.resize(80, 10);
+  renderer.renderCompactStartup(startup, position);
+  renderer.setProjection(presentationProjectionFromStartup(startup, position, {
+    canNavigate: true,
+    canHistory: true,
+    canCompact: false,
+  }));
+  const sessions = Array.from({ length: 8 }, (_, index) => ({
+    id: `0000000${index}-0000-0000-0000-000000000000`,
+    agent: 'default' as const,
+    createdAt: '2026-09-22T00:00:00Z',
+    updatedAt: '2026-09-22T00:00:00Z',
+    title: `Saved session ${index}`,
+    turnCount: 1,
+    messageCount: 2,
+    current: index === 0,
+    resumed: false,
+    mismatch: false,
+  }));
+  for (const selected of [0, 3, 7]) {
+    renderer.renderSessionPicker({ sessions, skippedInvalid: 0 }, selected);
+    const layout = renderer.layoutSnapshot(80, 10);
+    assertEquals(layout.footer.length, 3);
+    assert(layout.log.some((row) => row.text.includes('session picker')));
+    const selectedRows = layout.log.filter((row) => row.text.startsWith('> '));
+    assertEquals(selectedRows.length, 1);
+    assert(selectedRows[0].text.includes(`Saved session ${selected}`));
+    assert(selectedRows[0].text.includes(sessions[selected].id.slice(0, 8)));
+  }
+  renderer.resize(80, 24);
+  renderer.renderSessionPicker({ sessions, skippedInvalid: 0 }, 0);
+  const standard = renderer.layoutSnapshot(80, 24);
+  assert(standard.log.some((row) => row.text.includes('Saved session 0')));
+  assert(standard.log.some((row) => row.text.includes('Saved session 7')));
+});
+
 Deno.test('retained controller completes a sole slash candidate and preserves path completion', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
@@ -486,6 +620,20 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   assertEquals(await run, 0);
 });
 
+Deno.test('workspace path completion remains available beyond 1,024 files', () => {
+  const paths = Array.from(
+    { length: 1_200 },
+    (_, index) => `docs/file-${index.toString().padStart(4, '0')}.md`,
+  );
+  const index = WorkspacePathIndex.fromCandidates(paths);
+  assert(index.complete);
+  assertEquals(index.completePath('docs/file-1199'), {
+    kind: 'inserted',
+    text: '"./docs/file-1199.md"',
+    replacement: '"./docs/file-1199.md"',
+  });
+});
+
 Deno.test('retained footer omits editor bytes while keeping pending lanes', () => {
   const pending: PendingMetadataSnapshot = {
     lanes: [
@@ -517,7 +665,6 @@ Deno.test('retained footer omits editor bytes while keeping pending lanes', () =
   const footer = layoutUi(withPending, 160, 24).footer[0].text;
   assert(!footer.includes('editor:30B'));
   assert(footer.includes('active_task:4B'));
-  assertEquals(pendingMetadataRows(pending), ['p E:d:30 A:a:4']);
 
   const editorOnly = reduceUiAction(createUiState(), {
     kind: 'pending',
@@ -539,22 +686,16 @@ Deno.test('retained layout keeps fullwidth form cells consistent through edit an
   assert(editor.paste(pasted));
   let snapshot = editor.snapshot();
   let layout = layoutUi(createUiState(snapshot), 80, 24);
-  let rendered = layoutEditorText(snapshot, 80, 8);
   assertEquals(layout.input[0]?.text, pasted);
   assertEquals(layout.cursor.cell, 18); // prompt (2) + 16 display cells
-  assertEquals(rendered.cursorCell, 16);
-  assertEquals(layout.cursor.cell, rendered.cursorCell + 2);
 
   assert(editor.backspace());
   assertEquals(editor.text, '直近５コミット');
   assert(editor.insert('x'));
   snapshot = editor.snapshot();
   layout = layoutUi(createUiState(snapshot), 80, 24);
-  rendered = layoutEditorText(snapshot, 80, 8);
   assertEquals(editor.text, '直近５コミットx');
   assertEquals(layout.cursor.cell, 17); // prompt (2) + 15 display cells
-  assertEquals(rendered.cursorCell, 15);
-  assertEquals(layout.cursor.cell, rendered.cursorCell + 2);
 
   const halfwidth = new TuiEditor();
   assert(halfwidth.paste('５ﾊ'));
@@ -693,6 +834,74 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   assert(starts.length > 1, 'PageDown stopped inside the assistant entry');
   for (let index = 1; index < starts.length; index += 1) {
     assert(starts[index] > starts[index - 1], 'PageDown did not advance monotonically');
+  }
+});
+
+Deno.test('retained assistant viewport stays on the same list item after resize', () => {
+  const terminal = new RecordingTerminal();
+  terminal.size = { columns: 80, rows: 24 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.resize(80, 24);
+  const body = Array.from(
+    { length: 300 },
+    (_, index) => `- item-${index} ${'long explanation '.repeat(8)}`,
+  ).join('\n');
+  renderer.eventSink({
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text: body } },
+  });
+  for (let page = 0; page < 20; page += 1) {
+    renderer.scrollPage('up');
+    if (/item-\d+/.test(renderer.layoutSnapshot(80, 24).log[0].text)) break;
+  }
+  const before = renderer.layoutSnapshot(80, 24).log[0];
+  assert(before.sourceLine !== undefined);
+  const item = before.text.match(/item-\d+/)?.[0];
+  assert(item !== undefined);
+  terminal.size = { columns: 160, rows: 24 };
+  renderer.resize(160, 24);
+  const after = renderer.layoutSnapshot(160, 24).log;
+  assertEquals(after[0].sourceLine, before.sourceLine);
+  assert(after[0].text.includes(item));
+});
+
+Deno.test('table and paragraph history still page through after resize', () => {
+  const bodies = [
+    [
+      '| Name | Detail |',
+      '| --- | --- |',
+      ...Array.from({ length: 90 }, (_, index) => `| record-${index} | ${'detail '.repeat(8)} |`),
+    ].join('\n'),
+    Array.from({ length: 90 }, (_, index) => `paragraph-${index} ${'word '.repeat(25)}`).join('\n'),
+  ];
+  for (const body of bodies) {
+    const terminal = new RecordingTerminal();
+    terminal.size = { columns: 80, rows: 10 };
+    const renderer = new TuiRenderer(terminal);
+    renderer.resize(80, 10);
+    renderer.eventSink({
+      kind: 'assistant_message',
+      turn: 1,
+      message: { role: 'assistant', content: { kind: 'text', text: body } },
+    });
+    for (let page = 0; page < 3; page += 1) renderer.scrollPage('up');
+    terminal.size = { columns: 120, rows: 10 };
+    renderer.resize(120, 10);
+    for (let page = 0; page < 200; page += 1) {
+      if (renderer.stateSnapshot().scroll.kind === 'oldest') break;
+      renderer.scrollPage('up');
+    }
+    assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
+    let lastStart = -1;
+    for (let page = 0; page < 200; page += 1) {
+      renderer.scrollPage('down');
+      if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
+      const start = renderer.layoutSnapshot(120, 10).logStart;
+      assert(start > lastStart);
+      lastStart = start;
+    }
+    assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
   }
 });
 
@@ -1294,6 +1503,55 @@ Deno.test('interrupted active task honors a repeated Ctrl-C exit intent', async 
   assertEquals(cancellationRequests, 1);
 });
 
+Deno.test('modern controller cancels after Enter in the same input chunk', async () => {
+  const runCase = async (sameChunk: boolean): Promise<number> => {
+    const terminal = new InteractiveTerminal();
+    const renderer = new TuiRenderer(terminal);
+    const lifecycle = new TerminalLifecycle(terminal, renderer);
+    await lifecycle.acquire();
+    let finish: ((outcome: LoopOutcome) => void) | undefined;
+    let cancellations = 0;
+    const core = {
+      submit: (_task: string) =>
+        new Promise<LoopOutcome>((resolve) => {
+          finish = resolve;
+        }),
+      cancelActiveTurn: () => {
+        cancellations += 1;
+        finish?.({
+          ok: false,
+          task: 'same chunk',
+          outcome: 'cancelled',
+          stopReason: 'cancelled',
+          error: 'cancelled',
+          steps: 0,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+        });
+        return 'requested' as const;
+      },
+    };
+    const adapter = createTuiPresentationAdapter(core);
+    const controller = new TuiController(lifecycle, renderer, adapter, {
+      pending: new PendingInputCore(),
+      intents: adapter,
+    });
+    const run = controller.run();
+    terminal.push(sameChunk ? 'same chunk\r\x03' : 'same chunk\r');
+    if (!sameChunk) {
+      await waitFor(() => controller.currentState === 'busy');
+      terminal.push('\x03');
+    }
+    await waitFor(() => cancellations === 1 && controller.currentState === 'idle');
+    terminal.push('\x04');
+    assertEquals(await run, 0);
+    return cancellations;
+  };
+  assertEquals(await runCase(true), 1);
+  assertEquals(await runCase(false), 1);
+});
+
 Deno.test('occupied editor is preserved after a recoverable stop without a recovery lane', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
@@ -1625,9 +1883,9 @@ Deno.test('busy /rename waits for idle and then renames without model submission
     persistent: true,
     list: () => Promise.resolve({ sessions: [], skippedInvalid: 0 }),
     renameCurrent: (title) => {
-      if (title.length === 0) return 'unchanged';
+      if (title.length === 0) return Promise.resolve('unchanged');
       renamed.push(title);
-      return 'renamed';
+      return Promise.resolve('renamed');
     },
     switchTo: () => Promise.reject(new Error('not used')),
     historyPage: () => Promise.resolve(undefined),

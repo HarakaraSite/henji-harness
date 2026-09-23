@@ -217,6 +217,14 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
     assert(manifest.resources.includes('instruction:project-skill-manifest'));
     assert(manifest.resources.includes('instruction:runtime-facts'));
   }
+  for (const composition of [root, planner]) {
+    assertEquals(
+      composition.manifest.resources,
+      composition.resolved.resourceSelection.resources.map(String).sort(),
+    );
+  }
+  assert(root.manifest.resources.includes('agent:planner'));
+  assert(!planner.manifest.resources.includes('agent:planner'));
   assert(root.manifest.resources.includes('instruction:builtin-default-role'));
   assert(!root.manifest.resources.includes('instruction:builtin-planner-policy'));
   assert(planner.manifest.resources.includes('instruction:builtin-planner-policy'));
