@@ -1,6 +1,6 @@
 # Increment 127 — 外部reviewerと組み込みplannerの廃止
 
-状態: 2026-09-25に利用者が計画、architecture・roadmapの変更を承認。実装・配置済み。実providerでのreviewer出力品質は未確認。
+状態: 2026-09-25に利用者が計画、architecture・roadmapの変更を承認。実装・配置済み。実providerのreviewerは対象を絞ったレビューを完了。
 
 ## 必要なproduct動作と根拠
 
@@ -49,3 +49,5 @@ TUIと`henji run`は明示selector、`agent:default` binding、組み込みdefau
 - clean commit `505b8468`からDeno 2.9.7で単体binaryをbuildした。build IDは`15c3827f…`、file SHA-256は`2bdf1063…`、source dirty markerはfalse、Definition APIはv2。runtime manifestの同梱Agentは`builtin/default`のみで、`builtin/planner`はない。`~/.local/bin/henji`へ原子的に配置し、配置前後のSHA-256一致と起動を確認した。`agents/reviewer.ts`を同binaryで`local/reviewer@sha256:b510daaa…`としてinstallし、実configの`agent:reviewer`へbindした。既存のbindingはなかった。
 - 利用者承認の実provider確認では、通常の保存Session `e86cca79-e50c-439d-8069-4246b16f9ac4`から`opencode-go-chat / mimo-v2.6-pro`を使用し、外部reviewerを1回spawnしてcollectした。親Execution `12ec38fe-d81e-4354-9bc7-4fa295014793`は4 requestでfinal、子Execution `480201d4-5b1b-461e-b7a0-40eee6c0209b`は4 requestで`max_steps`停止。親子合計8 requestで承認上限内だった。子はreview本文を返さず、review findingは得られなかった。`--max-steps 4`は承認上限8 requestを守るため親子に適用した値であり、通常の既定128 stepによる動作はこの実provider確認からは判断できない。Session/Executionは通常のstate rootに保存され、TUI captureは`/tmp/henji-i127-mock/live-review-capture.txt`。この1件を再実行していない。
 - 利用者の別承認で2回目の実provider確認を行い、保存Session `97060778-ec98-4912-b0ee-0342d5117153`から同じreviewerを1回spawn/collectした。親Execution `2a430e60-2e71-4586-84a1-2592e95b6f07`は3 requestでfinal、子Execution `d97876d7-9dea-4da3-b31d-5e9d32d84961`は8 requestで`max_steps`停止し、合計11 requestで承認上限16以内。子の保存messageからincrement文書、reviewer Definition、Worker API等を読み、planner参照を調べていたことは確認できたが、review本文は生成しなかった。TUI captureは`/tmp/henji-i127-mock/live-review2-capture.txt`。両確認とも設定したstep上限で止まっており、通常の既定128 stepでreviewerが結果を返すかは未確認。新たなproduct findingは得られていない。
+- 利用者の指示で対象を「設定済み`agent:reviewer`を組み込みdefaultが公開・起動・収集できるか」に絞り、子の上限を16 stepにした3回目の実provider確認を行った。保存Session `26e11580-8096-422f-9679-0a7bfec88f0a`の親Execution `8f0e9754-38cf-4fcb-a52b-4ce0bd9ed373`は7 request、子Execution `05445552-97b6-42aa-a4b3-10c60a4a5fe2`は4 requestでともにfinal。reviewerは`v0/agent/tools/async_agents.ts`と`v0/agent/definitions/agent_slot_binding.ts`を読んで、この限定経路にfindingなしと回答した。defaultのtool assemblyとHost RPCは子のread範囲外と明記したが、この実行自体が公開・起動・収集のproduction経路を通った。TUI captureは`/tmp/henji-i127-mock/live-review3-capture.txt`。
+- 標準の`henji history --session 26e11580 --view session`では親の依頼、親のthinking・tool行、親の最終回答が表示された。子のtool・途中経過は親のSession表示には現れない。子のmessageは別Executionとして保存された。`--view detail`には親の`collect_subagent` tool resultのJSONは含まれるが、Session correlationで抽出するため、子Execution自体や子の途中のtool履歴は含まない。

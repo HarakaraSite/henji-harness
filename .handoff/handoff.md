@@ -3,8 +3,9 @@
 ## Next session
 
 - Increment 127は実装commit `505b8468`からbuildし、`~/.local/bin/henji`へ配置済み。外部reviewerを
-  `agent:reviewer`へbindした。実providerで2回spawn/collectしたが、承認上限に合わせた4／8 stepで子が停止し、
-  review本文は得られなかった。結果と未確認事項は`docs/increments/increment-127.md`。push・releaseは未実施。
+  `agent:reviewer`へbindした。実providerの最初の2回は4／8 stepで子が停止したが、対象を絞った3回目は
+  親子とも完了し、限定経路でfindingなし。結果と履歴表示範囲は`docs/increments/increment-127.md`。
+  push・releaseは未実施。
   未採用候補は通常利用メモを参照。
 
 ## Records
