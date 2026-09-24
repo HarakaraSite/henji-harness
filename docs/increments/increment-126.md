@@ -1,6 +1,6 @@
 # Increment 126 — provider deadlineとmodel step既定値の拡張
 
-状態: 実装・focused検証済み。roadmap・architectureの現行値は利用者の別承認を得て更新。binary配置・実provider確認は未実施。
+状態: 実装・focused検証・clean commitからのbuild済み。roadmap・architectureの現行値は利用者の別承認を得て更新。binary配置は承認待ち。実provider確認は未実施。
 
 ## 必要なproduct動作と根拠
 
@@ -29,3 +29,8 @@
 - `docs/architecture/henji-host-agent-worker.md`: provider request deadlineをTUIだけでなく`run`も指定できると明記し、未指定時180,000 msを300,000 msへ更新する。
 
 2026-09-24、利用者は上記の変更対象・理由・意味を確認して別途承認した。
+
+## Build
+
+- 実装・正本更新commit `5c684fe3`のclean treeからDeno 2.9.7で`dist/henji`をbuildした。build IDは`bfe16f9f3ff569c05f82cccc11cc311d5f548f074e7f6da712b6fd07ff1545fa`、file SHA-256は`040cb01ff4d3aaf4642dab130079a0b85cc44b77cea939b390ea88f9e84d8ce3`。
+- `dist/henji --version`がsource `5c684fe3`かつdirty markerなしと表示した。実provider callは行っていない。
