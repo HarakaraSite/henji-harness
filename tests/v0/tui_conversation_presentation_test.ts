@@ -1261,6 +1261,7 @@ Deno.test('core events and outcomes carry the execution ID into failure presenta
           outcome: 'cancelled' as const,
           stopReason: 'cancelled' as const,
           executionArtifactId: '2300b666-1111-4111-8111-111111111111',
+          recallableExecutionId: '2300b666-1111-4111-8111-111111111111',
           steps: 1,
           toolCallCount: 0,
           toolResultCount: 0,
@@ -1280,6 +1281,7 @@ Deno.test('core events and outcomes carry the execution ID into failure presenta
     outcome: 'cancelled',
     committed: false,
     executionArtifactId: '2300b666-1111-4111-8111-111111111111',
+    recallableExecutionId: '2300b666-1111-4111-8111-111111111111',
     diagnostic: {
       schemaVersion: 1,
       diagnosticId: '55555555-5555-4555-8555-555555555555',
@@ -1295,4 +1297,63 @@ Deno.test('core events and outcomes carry the execution ID into failure presenta
   });
   assertEquals(failureEvents.length, 1);
   assertEquals(failureEvents[0].executionId, '2300b666-1111-4111-8111-111111111111');
+});
+
+Deno.test('a persisted artifact without a settled recall row does not advertise its ID', async () => {
+  const executionArtifactId = '2300b666-1111-4111-8111-111111111111';
+  const events: Array<{ readonly executionId?: string }> = [];
+  const renderer = new TuiRenderer(new FakeTerminal());
+  renderer.renderCompactStartup(startupStateFor('new'), startupPosition);
+  const adapter = new TuiPresentationAdapter(
+    {
+      submit: () =>
+        Promise.resolve({
+          ok: false,
+          task: 'inspect',
+          outcome: 'cancelled' as const,
+          stopReason: 'cancelled' as const,
+          executionArtifactId,
+          executionArtifactDurability: 'yes' as const,
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+        }),
+    },
+    (event) => {
+      if (event.kind === 'failure_diagnostic') {
+        events.push(event);
+        renderer.eventSink(event);
+      }
+    },
+  );
+  const submitted = await adapter.submit('inspect');
+  assertEquals(submitted.executionId, undefined);
+
+  adapter.deliverCoreEvent({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'cancelled',
+    committed: false,
+    executionArtifactId,
+    executionArtifactDurability: 'yes',
+    diagnostic: {
+      schemaVersion: 1,
+      diagnosticId: '55555555-5555-4555-8555-555555555555',
+      stage: 'turn_control',
+      code: 'turn_cancelled',
+      lane: 'parent',
+      providerRequestCount: 1,
+      occurredAt: '2026-09-02T00:00:00.000Z',
+      turnNumber: 1,
+      modelStep: 0,
+      retryCount: 0,
+    },
+  });
+  assertEquals(events.length, 1);
+  assertEquals(events[0].executionId, undefined);
+  assertEquals(
+    failureRows(renderer).map((row) => row.text).join(''),
+    `failure> cancelled · ${failureRecallGuidance}`,
+  );
 });

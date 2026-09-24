@@ -657,6 +657,8 @@ export class ExecutionCoordinator {
       return this.withObservationFailure(execution, {
         ...outcome,
         executionArtifactId: execution.executionId,
+        // After a failed history settlement, an artifact alone is absent from /recall's row list.
+        ...(history === undefined ? { recallableExecutionId: execution.executionId } : {}),
         executionArtifactDurability: 'yes',
         executionArtifactPersistenceError: undefined,
       });
@@ -811,6 +813,7 @@ export class ExecutionCoordinator {
       return {
         ...settled,
         executionArtifactId: execution.executionId,
+        recallableExecutionId: execution.executionId,
         executionArtifactDurability: 'yes',
         executionArtifactPersistenceError: undefined,
       };
@@ -894,6 +897,7 @@ export class ExecutionCoordinator {
         return {
           ...settled,
           executionArtifactId: execution.executionId,
+          recallableExecutionId: execution.executionId,
           executionArtifactDurability: 'yes',
           executionArtifactPersistenceError: undefined,
         };

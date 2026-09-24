@@ -187,6 +187,8 @@ export interface LoopOutcome {
   readonly runtimeProviderRequestCount?: number;
   /** Host-owned Worker execution artifact settlement metadata. */
   readonly executionArtifactId?: string;
+  /** Execution ID selectable by `/recall` after durable settlement. */
+  readonly recallableExecutionId?: string;
   readonly executionArtifactDurability?: 'yes' | 'failed' | 'unknown';
   readonly executionArtifactPersistenceError?:
     | 'worker_execution_artifact_io_failure'

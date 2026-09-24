@@ -379,8 +379,8 @@ export const outcome = (value: LoopOutcome): PresentationOutcome => {
     stopReason: outcomeReason(value.stopReason),
     finalText: value.finalText === undefined ? undefined : text(value.finalText),
     ...(value.terminalKind === undefined ? {} : { terminalKind: 'json_result' as const }),
-    ...(value.executionArtifactId === undefined ? {} : {
-      executionId: text(value.executionArtifactId),
+    ...(value.recallableExecutionId === undefined ? {} : {
+      executionId: text(value.recallableExecutionId),
     }),
     ...(value.diagnostic === undefined ? {} : { diagnostic: failureDiagnostic(value.diagnostic) }),
     ...(value.diagnostic === undefined || value.diagnosticDurability === undefined

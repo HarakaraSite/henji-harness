@@ -31,6 +31,7 @@ import {
   readDefinitionRevision,
   workerBuiltinModulePath,
   WorkerHostSession,
+  WorkerRecallSelectionError,
 } from '../../v0/agent/worker/worker_host.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
@@ -49,7 +50,10 @@ import {
 import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_model.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
+import {
+  createFailureDiagnostic,
+  validateFailureDiagnostic,
+} from '../../v0/agent/session/failure_diagnostic.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -1409,6 +1413,115 @@ Deno.test('Worker execution artifact distinguishes Host store failure from commi
     assertEquals(host.currentPosition().committedTurn, 0);
   } finally {
     await host.close();
+  }
+});
+
+Deno.test('a failed SQLite settlement cannot advertise a persisted artifact as recallable', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-settlement-' });
+  const workspaceRoot = Deno.cwd();
+  const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
+    fault: (phase) => {
+      if (phase === 'before_settlement_commit') throw new Error('simulated SQLite rollback');
+    },
+  });
+  await history.initialize();
+  const definition = await readDefinitionRevision(
+    workerBuiltinModulePath('default'),
+    'builtin',
+    'default',
+  );
+  const handle = await history.allocateWorker('default', definition);
+  let listener: ((message: WorkerToHostMessage) => void) | undefined;
+  const capsule: WorkerHostCapsule = {
+    send: (command) => {
+      if (command.kind === 'start') {
+        const rootModel = command.modelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
+        listener?.({
+          kind: 'ready',
+          correlation: command.correlation,
+          manifest: {
+            role: 'parent',
+            maxSteps: 8,
+            profileId: modelRouteProfileId(rootModel),
+            resources: [],
+            rootModel,
+          },
+          startupSnapshot: { skillNames: [] },
+          credentialAvailability: { authProfile: rootModel.authProfile, status: 'unknown' },
+        });
+      } else if (command.kind === 'turn') {
+        const diagnostic = createFailureDiagnostic({
+          stage: 'response_parse',
+          code: 'response_error',
+          lane: 'parent',
+          providerRequestCount: 1,
+          turnNumber: 1,
+          modelStep: 1,
+          retryCount: 0,
+        });
+        queueMicrotask(() =>
+          listener?.({
+            kind: 'turn_failed',
+            correlation: command.correlation,
+            outcome: {
+              ok: false,
+              task: command.task,
+              outcome: 'contract_failure',
+              stopReason: 'contract_failure',
+              error: 'mock provider response invalid',
+              steps: 1,
+              toolCallCount: 0,
+              toolResultCount: 0,
+              transcript: [{ role: 'user', content: { kind: 'text', text: command.task } }],
+              diagnostic,
+            },
+            diagnostic,
+          })
+        );
+      } else if (command.kind === 'close') {
+        listener?.({ kind: 'closed', correlation: command.correlation });
+      }
+    },
+    subscribe: (next) => {
+      listener = next;
+      return () => {
+        listener = undefined;
+      };
+    },
+    terminate: () => {},
+  };
+  const host = await WorkerHostSession.open({
+    handle,
+    workspaceRoot,
+    agent: 'default',
+    definition,
+    modulePath: workerBuiltinModulePath('default'),
+    physicalIoMode: 'provider-free',
+    executionArtifactStore: new FakeWorkerExecutionArtifactStore(),
+    historyPersistence: history,
+    durableCanonicalHistory: true,
+    toolDefinitions: await bundledToolDefinitionLoadRequests(),
+    capsuleFactory: () => capsule,
+  });
+  try {
+    const outcome = await host.submit('failed settlement task');
+    assert(!outcome.ok);
+    assert(outcome.executionArtifactId !== undefined);
+    assertEquals(outcome.executionArtifactDurability, 'yes');
+    assertEquals(outcome.recallableExecutionId, undefined);
+    const row = history.readExecution(outcome.executionArtifactId);
+    assertEquals(row.lifecycle, 'active');
+    try {
+      await host.prepareRecall(outcome.executionArtifactId.slice(0, 8));
+      throw new Error('recall unexpectedly selected the unsettled execution');
+    } catch (error) {
+      assert(error instanceof WorkerRecallSelectionError);
+      assertEquals(error.code, 'unavailable');
+    }
+  } finally {
+    await host.close();
+    history.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });
 

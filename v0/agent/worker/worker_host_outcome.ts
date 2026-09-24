@@ -140,6 +140,9 @@ export const turnEndFromOutcome = (
   ...(outcome.executionArtifactId === undefined ? {} : {
     executionArtifactId: outcome.executionArtifactId,
   }),
+  ...(outcome.recallableExecutionId === undefined ? {} : {
+    recallableExecutionId: outcome.recallableExecutionId,
+  }),
   ...(outcome.executionArtifactDurability === undefined ? {} : {
     executionArtifactDurability: outcome.executionArtifactDurability,
   }),

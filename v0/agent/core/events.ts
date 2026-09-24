@@ -73,6 +73,7 @@ export type AgentEvent =
     readonly turnProviderRequestCount?: number;
     readonly runtimeProviderRequestCount?: number;
     readonly executionArtifactId?: string;
+    readonly recallableExecutionId?: string;
     readonly executionArtifactDurability?: 'yes' | 'failed' | 'unknown';
     readonly executionArtifactPersistenceError?:
       | 'worker_execution_artifact_io_failure'
