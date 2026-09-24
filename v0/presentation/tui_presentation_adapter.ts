@@ -213,6 +213,9 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
             turn: event.turn,
             diagnostic: failureDiagnostic(event.diagnostic),
             durable,
+            ...(event.executionArtifactId === undefined ? {} : {
+              executionId: text(event.executionArtifactId),
+            }),
             ...(event.diagnosticPersistenceError === undefined ? {} : {
               persistenceError: diagnosticPersistenceError(event.diagnosticPersistenceError),
             }),

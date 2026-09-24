@@ -31,7 +31,10 @@ import { PendingInputCore, type PendingMetadataSnapshot } from '../../v0/tui/pen
 import { startupHeaderLines } from '../../v0/tui/startup_render.ts';
 import { projectRuntimeDisplayState } from '../../v0/agent/runtime/startup_orientation.ts';
 import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
-import { failureRecallGuidance } from '../../v0/tui/conversation_renderer.ts';
+import {
+  failureRecallGuidance,
+  failureRecallGuidanceFor,
+} from '../../v0/tui/conversation_renderer.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -2411,4 +2414,85 @@ Deno.test('restored model steps place thinking around a tool result and final an
     'assistant',
   ]);
   assertEquals(renderer.stateSnapshot().log.entries[3].label, 'thinking summary>');
+});
+
+Deno.test('failure row shows the execution ID that /recall accepts for a stopped run', async () => {
+  const terminal = new InteractiveTerminal();
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  const startup: PresentationStartupState = {
+    productVersion: '0.5.0',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: {
+      provider: 'mock-chat',
+      profileId: 'mock-chat-key',
+      modelId: 'mock-s11',
+      effort: 'auto',
+    },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  renderer.renderCompactStartup(startup, {
+    sessionId: '1a7b0740-1a7a-449a-81cd-2374448d00d9',
+    createdAt: '2026-09-24T00:00:00.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  });
+  const sourceExecutionId = '2300b666-1111-4111-8111-111111111111';
+  const intentsSeen: string[] = [];
+  const intents: PresentationIntentDispatcher = {
+    dispatch: (intent) => {
+      intentsSeen.push(intent.kind);
+      if (intent.kind === 'recall_execution') {
+        assertEquals(intent.id, '2300b666');
+        return { kind: 'recall', sourceExecutionId, evidence: 'available' };
+      }
+      return { kind: 'accepted' };
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, successfulSession([]), {
+    pending: new PendingInputCore(),
+    intents,
+  });
+  const run = controller.run();
+  renderer.eventSink({
+    kind: 'failure_diagnostic',
+    turn: 1,
+    diagnostic: {
+      schemaVersion: 1,
+      diagnosticId: '77777777-7777-4777-8777-777777777777',
+      stage: 'cancellation_cleanup',
+      code: 'turn_cancelled',
+      lane: 'parent',
+      providerRequestCount: 1,
+      occurredAt: '2026-09-24T00:00:00.000Z',
+      turnNumber: 1,
+      modelStep: 1,
+      retryCount: 0,
+    },
+    durable: 'yes',
+    executionId: sourceExecutionId,
+  });
+  const rows = renderer.layoutSnapshot(80, 24).allLog.filter((row) =>
+    row.entryId?.startsWith('failure:')
+  );
+  assert(rows.length > 0);
+  assertEquals(
+    rows.map((row) => row.text).join(''),
+    `failure> cancelled · execution 2300b666 · ${failureRecallGuidanceFor('2300b666')}`,
+  );
+  assert(rows.every((row) => row.rowTone === 'failure'));
+
+  // The displayed ID is exactly the reference `/recall` accepts and resolves.
+  terminal.push('/recall 2300b666\r');
+  await waitFor(() => renderer.stateSnapshot().status === 'recall 2300b666 ready · next task only');
+  assertEquals(intentsSeen.filter((kind) => kind === 'recall_execution').length, 1);
+  terminal.push('\x03\x04');
+  assertEquals(await run, 0);
 });

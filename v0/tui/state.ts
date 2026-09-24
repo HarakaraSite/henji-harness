@@ -42,6 +42,7 @@ export interface UiLogEntry {
   readonly live: boolean;
   readonly turn?: number;
   readonly callId?: string;
+  readonly executionId?: string;
 }
 
 export type UiOverlay =
@@ -600,7 +601,13 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
             ...settled.log,
             entries: Object.freeze(
               settled.log.entries.map((entry) =>
-                entry.id === id ? freezeEntry({ ...entry, text }) : entry
+                entry.id === id
+                  ? freezeEntry({
+                    ...entry,
+                    text,
+                    ...(event.executionId === undefined ? {} : { executionId: event.executionId }),
+                  })
+                  : entry
               ),
             ),
           }),
@@ -616,6 +623,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           revision: 0,
           live: false,
           turn: event.turn,
+          ...(event.executionId === undefined ? {} : { executionId: event.executionId }),
         },
       );
     }

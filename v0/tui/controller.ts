@@ -1082,6 +1082,7 @@ export class TuiController {
         outcome.diagnostic,
         outcome.diagnosticDurability,
         outcome.diagnosticPersistenceError,
+        outcome.executionId,
       );
     }
     this.steeringAccepted = false;
@@ -1132,6 +1133,7 @@ export class TuiController {
         outcome.diagnostic,
         outcome.diagnosticDurability,
         outcome.diagnosticPersistenceError,
+        outcome.executionId,
       );
     }
     if (

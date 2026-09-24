@@ -10,6 +10,13 @@ export type ConversationLabelTone = 'user' | 'assistant' | 'tool' | 'system' | '
 export const failureRecallGuidance =
   "/recall without an ID references the latest stopped execution's instructions and partial results from the next task; it does not resume the run";
 
+/**
+ * English guidance for a failure row that shows its stopped execution's short ID. `/recall` with
+ * that ID selects this stopped execution's reference for the next task.
+ */
+export const failureRecallGuidanceFor = (shortExecutionId: string): string =>
+  `/recall ${shortExecutionId} references this stopped execution's instructions and partial results from the next task; it does not resume the run`;
+
 /** Host-local inline style for a rendered assistant body line. */
 export type AssistantSpanTone =
   | 'heading'
@@ -89,7 +96,12 @@ export const projectConversationEntry = (
     ? 'system' as const
     : undefined;
   const failure = entry.kind === 'recoverable';
-  const guidance = failure && options.recallAvailable ? ` · ${failureRecallGuidance}` : '';
+  const shortExecutionId = failure && entry.executionId ? entry.executionId.slice(0, 8) : undefined;
+  const guidance = failure && options.recallAvailable
+    ? shortExecutionId === undefined
+      ? ` · ${failureRecallGuidance}`
+      : ` · execution ${shortExecutionId} · ${failureRecallGuidanceFor(shortExecutionId)}`
+    : '';
   return Object.freeze({
     text: `${entry.label} ${entry.text}${guidance}`,
     labelScalarLength: [...entry.label].length,

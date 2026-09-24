@@ -11,7 +11,9 @@ import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import {
   type AssistantContentRenderer,
   failureRecallGuidance,
+  failureRecallGuidanceFor,
 } from '../../v0/tui/conversation_renderer.ts';
+import { recallExecutionIdOf } from '../../v0/tui/slash_command.ts';
 import type {
   PresentationPosition,
   PresentationStartupState,
@@ -1125,6 +1127,7 @@ const renderStoppedTurn = (
   sessionMode: PresentationStartupState['sessionMode']['kind'],
   code: 'turn_cancelled' | 'response_error',
   stage: 'cancellation_cleanup' | 'response_parse',
+  executionId?: string,
 ): TuiRenderer => {
   const renderer = new TuiRenderer(new FakeTerminal());
   renderer.renderCompactStartup(startupStateFor(sessionMode), startupPosition);
@@ -1138,6 +1141,7 @@ const renderStoppedTurn = (
     turn: 1,
     diagnostic: failureDiagnostic('44444444-4444-4444-8444-444444444444', code, stage),
     durable: 'yes',
+    ...(executionId === undefined ? {} : { executionId }),
   });
   return renderer;
 };
@@ -1182,4 +1186,113 @@ Deno.test('--no-session failure rows keep the reason in red without the /recall 
     assert(!frame.includes('\x1b[31minspect'));
     assert(!frame.includes('\x1b[31muser>'));
   }
+});
+
+Deno.test('persisted-session failure rows show the stopped execution ID and its /recall hint', () => {
+  const executionId = '2300b666-1111-4111-8111-111111111111';
+  for (const [code, stage, reason] of failureCases) {
+    const renderer = renderStoppedTurn('new', code, stage, executionId);
+    const rows = failureRows(renderer);
+    assert(rows.length > 0);
+    const text = rows.map((row) => row.text).join('');
+    assert(
+      text.startsWith(`failure> ${reason} · execution 2300b666 · /recall 2300b666 `),
+    );
+    assert(text.endsWith(failureRecallGuidanceFor('2300b666')));
+    assert(!text.includes('without an ID'));
+    assert(rows.every((row) => row.rowTone === 'failure'));
+    // The shown reference is exactly the ID/prefix `/recall` accepts.
+    assertEquals(recallExecutionIdOf('/recall 2300b666'), '2300b666');
+
+    const frame = renderer.renderFrame(80, 24);
+    assert(
+      frame.includes(
+        `\x1b[31mfailure> ${reason} · execution 2300b666 · /recall 2300b666`,
+      ),
+    );
+  }
+});
+
+Deno.test('--no-session failure rows keep the reason without the execution ID or /recall hint', () => {
+  const renderer = renderStoppedTurn(
+    'none',
+    'turn_cancelled',
+    'cancellation_cleanup',
+    '2300b666-1111-4111-8111-111111111111',
+  );
+  const rows = failureRows(renderer);
+  assert(rows.length > 0);
+  assertEquals(rows.map((row) => row.text).join(''), 'failure> cancelled');
+  const frame = renderer.renderFrame(80, 24);
+  assert(frame.includes('no session'));
+  assert(!frame.includes('execution 2300b666'));
+  assert(!frame.includes('/recall'));
+});
+
+Deno.test('a repeated failure diagnostic keeps the execution ID from the first event', () => {
+  const executionId = '2300b666-1111-4111-8111-111111111111';
+  const diagnostic = failureDiagnostic(
+    '55555555-5555-4555-8555-555555555555',
+    'response_error',
+    'response_parse',
+  );
+  const state = reduceUiEvent(
+    reduceUiEvent(createUiState(), {
+      kind: 'failure_diagnostic',
+      turn: 1,
+      diagnostic,
+      durable: 'yes',
+      executionId,
+    }),
+    { kind: 'failure_diagnostic', turn: 1, diagnostic, durable: 'yes' },
+  );
+  assertEquals(state.log.entries.length, 1);
+  assertEquals(state.log.entries[0].executionId, executionId);
+});
+
+Deno.test('core events and outcomes carry the execution ID into failure presentation', async () => {
+  const failureEvents: Array<{ readonly executionId?: string }> = [];
+  const adapter = new TuiPresentationAdapter(
+    {
+      submit: () =>
+        Promise.resolve({
+          ok: false,
+          task: 'inspect',
+          outcome: 'cancelled' as const,
+          stopReason: 'cancelled' as const,
+          executionArtifactId: '2300b666-1111-4111-8111-111111111111',
+          steps: 1,
+          toolCallCount: 0,
+          toolResultCount: 0,
+          transcript: [],
+        }),
+    },
+    (event) => {
+      if (event.kind === 'failure_diagnostic') failureEvents.push(event);
+    },
+  );
+  const submitted = await adapter.submit('inspect');
+  assertEquals(submitted.executionId, '2300b666-1111-4111-8111-111111111111');
+
+  adapter.deliverCoreEvent({
+    kind: 'turn_end',
+    turn: 1,
+    outcome: 'cancelled',
+    committed: false,
+    executionArtifactId: '2300b666-1111-4111-8111-111111111111',
+    diagnostic: {
+      schemaVersion: 1,
+      diagnosticId: '55555555-5555-4555-8555-555555555555',
+      stage: 'turn_control',
+      code: 'turn_cancelled',
+      lane: 'parent',
+      providerRequestCount: 1,
+      occurredAt: '2026-09-02T00:00:00.000Z',
+      turnNumber: 1,
+      modelStep: 0,
+      retryCount: 0,
+    },
+  });
+  assertEquals(failureEvents.length, 1);
+  assertEquals(failureEvents[0].executionId, '2300b666-1111-4111-8111-111111111111');
 });

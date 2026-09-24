@@ -177,6 +177,8 @@ export interface PresentationOutcome {
   readonly finalText?: string;
   readonly terminalKind?: 'json_result';
   readonly error?: string;
+  /** Durable Execution ID of the stopped run; `/recall` accepts it or a prefix. */
+  readonly executionId?: string;
   readonly diagnostic?: PresentationFailureDiagnostic;
   readonly diagnosticDurability?: PresentationDiagnosticDurability;
   readonly diagnosticPersistenceError?: PresentationDiagnosticPersistenceError;
@@ -466,6 +468,8 @@ export type PresentationEvent =
     readonly turn: number;
     readonly diagnostic: PresentationFailureDiagnostic;
     readonly durable: PresentationDiagnosticDurability;
+    /** Durable Execution ID of the stopped run; `/recall` accepts it or a prefix. */
+    readonly executionId?: string;
     readonly persistenceError?: PresentationDiagnosticPersistenceError;
   }>;
 

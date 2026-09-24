@@ -16,7 +16,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
-| S13 | Surface | 失敗行のExecution ID表示 | 過去の停止実行をTUIから指定して`/recall`したいとき |
 | S14 | Surface | ツール呼び出しに添えたassistant本文の履歴表示 | 作業途中の発話を後から時系列で読みたいとき |
 | S16 | Surface | 通常実行中の出力を一行ずつ追える表示 | 生成中の表示がまとまって現れ、進行を追いにくいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
@@ -104,17 +103,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   呼び出しUIを採用時に決める。
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
-
-### S13 — 失敗行のExecution ID表示
-
-- 観測（2026-09-24、session `a2098f7c`）: `/recall`はIDを省略すると直近の停止実行を選び、Execution IDを
-  指定すると同じSessionの過去の停止実行を選べる。しかしTUIの`failure>`行にはそのIDが表示されず、
-  `henji history --view session`等で調べる必要がある。
-- 候補: 失敗行に短縮Execution ID（例: `execution 2300b666`）を表示し、案内に
-  `/recall 2300b666`を含める。表示するのは診断IDではなく、`/recall`が受け付けるExecution IDとする。
-  Increment 122（S11）の実装には加えず、後で採用を判断する。
-- 再検討条件: 直近以外の停止実行をTUIから指定して参照したいとき。
-- 関連: Increment 122、F26。
 
 ### S14 — ツール呼び出しに添えたassistant本文の履歴表示
 

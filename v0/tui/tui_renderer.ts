@@ -703,6 +703,7 @@ export class TuiRenderer implements TerminalRendererGate {
     diagnostic: PresentationFailureDiagnostic,
     durable: PresentationDiagnosticDurability = 'yes',
     persistenceError?: PresentationDiagnosticPersistenceError,
+    executionId?: string,
   ): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.eventSink({
@@ -710,6 +711,7 @@ export class TuiRenderer implements TerminalRendererGate {
       turn: diagnostic.turnNumber,
       diagnostic,
       durable,
+      ...(executionId === undefined ? {} : { executionId }),
       ...(persistenceError === undefined ? {} : { persistenceError }),
     });
   }
