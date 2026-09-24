@@ -2,12 +2,13 @@
 
 ## Records
 
-### Increment 123 — thinking本文の段落と折り返し（commit・binary配置完了）
+### Increment 123 — thinking本文の段落と折り返し（完了）
 
 - 正本: `docs/increments/increment-123.md`。利用者がIncrementとして正式採用した。通常利用メモS12の一覧行と節は同文書へ移した。
 - thinkingの元の改行を保ち、長い行を単語境界で折り返し、隣接するthinking・tool・回答との間に空行を置く。semantic履歴とmodelへの再送内容は変更していない。
 - focused test 66件、`v0:check`、対象fileのformat・lint、`git diff --check`成功。隔離XDG・tmuxのsource production TUIでlocalhost模擬Chat providerのthinkingを確認した。実provider callは未実施。
 - 配置: 実装commit `e0445132`のclean treeからDeno 2.9.7でbuildし、`~/.local/bin/henji`へ原子的に配置。build `535a3f06…`、file SHA-256 `dbf7f2a8…`。配置済みbinaryの隔離XDG・tmuxでも同じthinking表示を確認した。
+- 利用者は配置後の表示を確認し、「読みやすくなった」と報告した（2026-09-24）。
 - 次: なし。pushとreleaseは未実施。構想・architecture・roadmapは変更していない。
 
 ### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（完了）
