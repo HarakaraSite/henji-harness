@@ -2,6 +2,18 @@
 
 ## Records
 
+### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（実装・検証完了）
+
+- 正本: `docs/increments/increment-122.md`。通常利用メモS11を採用し、同メモの一覧行と節をこの文書へ移した。
+  同メモの別件未コミット変更（S12、S13、S14、A10）は保持している。
+- 保存Sessionの`failure>`行は失敗理由の後に英語の`/recall`案内を付け、ラベル・理由・案内を含む行全体を赤で
+  表示する。`--no-session`は`/recall`を拒否するため案内を出さず、失敗理由だけを行全体の赤字で表示する。
+- 検証: focused test（TUI conversation 18件、retained terminalを含む60件、対象7ファイルで106件）、`v0:check`、
+  `deno fmt --check`、`deno lint`、`git diff --check`が成功。隔離XDG・tmuxのproduction TUIで保存Sessionと
+  `--no-session`のキャンセル・解析失敗行と`/recall`の可否を確認した。実provider callは未実施。
+- 次: commit、push、`~/.local/bin/henji`への配置は未実施。失敗行のExecution ID表示（通常利用メモS13）は
+  未採用候補として残す。
+
 ### Increment 119〜121 — reasoning再送・thinking表示・診断記録の縮小（完了）
 
 - 正本: `docs/increments/increment-119.md`、`increment-120.md`、`increment-121.md`。第三者review二件を反映した

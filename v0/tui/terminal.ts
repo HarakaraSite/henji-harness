@@ -39,6 +39,7 @@ export const BLUE_SGR = '\x1b[34m';
 export const YELLOW_SGR = '\x1b[33m';
 export const GREEN_SGR = '\x1b[32m';
 export const MAGENTA_SGR = '\x1b[35m';
+export const RED_SGR = '\x1b[31m';
 export const RESET_SCROLL_REGION = '\x1b[r';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);

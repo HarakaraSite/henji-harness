@@ -31,6 +31,7 @@ import { PendingInputCore, type PendingMetadataSnapshot } from '../../v0/tui/pen
 import { startupHeaderLines } from '../../v0/tui/startup_render.ts';
 import { projectRuntimeDisplayState } from '../../v0/agent/runtime/startup_orientation.ts';
 import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
+import { failureRecallGuidance } from '../../v0/tui/conversation_renderer.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -1601,6 +1602,29 @@ Deno.test('/recall selects next-task-only context', async () => {
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
+  const startup: PresentationStartupState = {
+    productVersion: '0.5.0',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: {
+      provider: 'mock-chat',
+      profileId: 'mock-chat-key',
+      modelId: 'mock-s11',
+      effort: 'auto',
+    },
+    sessionMode: { kind: 'new' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  renderer.renderCompactStartup(startup, {
+    sessionId: '1a7b0740-1a7a-449a-81cd-2374448d00d9',
+    createdAt: '2026-09-24T00:00:00.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  });
   const submitted: string[] = [];
   const intentsSeen: string[] = [];
   let clearCount = 0;
@@ -1672,15 +1696,66 @@ Deno.test('/recall selects next-task-only context', async () => {
   terminal.push('/recall short\r');
   await waitFor(() => renderer.stateSnapshot().status.startsWith('invalid recall id'));
   assertEquals(controller.editor.text, '/recall short');
+  renderer.eventSink({
+    kind: 'failure_diagnostic',
+    turn: 1,
+    diagnostic: {
+      schemaVersion: 1,
+      diagnosticId: '66666666-6666-4666-8666-666666666666',
+      stage: 'cancellation_cleanup',
+      code: 'turn_cancelled',
+      lane: 'parent',
+      providerRequestCount: 1,
+      occurredAt: '2026-09-24T00:00:00.000Z',
+      turnNumber: 1,
+      modelStep: 1,
+      retryCount: 0,
+    },
+    durable: 'yes',
+  });
+  const failureRows = renderer.layoutSnapshot(80, 24).allLog.filter((row) =>
+    row.entryId?.startsWith('failure:')
+  );
+  assert(failureRows.length > 0);
+  assertEquals(
+    failureRows.map((row) => row.text).join(''),
+    `failure> cancelled · ${failureRecallGuidance}`,
+  );
+  assert(failureRows.every((row) => row.rowTone === 'failure'));
+  const failureFrame = renderer.renderFrame(80, 24);
+  assert(failureFrame.includes('\x1b[31mfailure> cancelled · /recall'));
   terminal.push('\x03\x04');
   assertEquals(await run, 0);
 });
 
-Deno.test('/recall is unavailable with --no-session and keeps the command in the editor', async () => {
+Deno.test('/recall is unavailable with --no-session and its failure row keeps the reason only', async () => {
   const terminal = new InteractiveTerminal();
   const renderer = new TuiRenderer(terminal);
   const lifecycle = new TerminalLifecycle(terminal, renderer);
   await lifecycle.acquire();
+  const startup: PresentationStartupState = {
+    productVersion: '0.5.0',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: {
+      provider: 'mock-chat',
+      profileId: 'mock-chat-key',
+      modelId: 'mock-s11',
+      effort: 'auto',
+    },
+    sessionMode: { kind: 'none' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+    credentialVerification: 'before_each_provider_request',
+  };
+  renderer.renderCompactStartup(startup, {
+    sessionId: '1a7b0740-1a7a-449a-81cd-2374448d00d9',
+    createdAt: '2026-09-24T00:00:00.000Z',
+    agent: 'default' as const,
+    committedTurn: 0,
+    messageCount: 0,
+  });
   const controller = new TuiController(
     lifecycle,
     renderer,
@@ -1691,6 +1766,32 @@ Deno.test('/recall is unavailable with --no-session and keeps the command in the
   terminal.push('/recall\r');
   await waitFor(() => renderer.stateSnapshot().status === 'recall unavailable with --no-session');
   assertEquals(controller.editor.text, '/recall');
+  renderer.eventSink({
+    kind: 'failure_diagnostic',
+    turn: 1,
+    diagnostic: {
+      schemaVersion: 1,
+      diagnosticId: '55555555-5555-4555-8555-555555555555',
+      stage: 'cancellation_cleanup',
+      code: 'turn_cancelled',
+      lane: 'parent',
+      providerRequestCount: 1,
+      occurredAt: '2026-09-24T00:00:00.000Z',
+      turnNumber: 1,
+      modelStep: 1,
+      retryCount: 0,
+    },
+    durable: 'yes',
+  });
+  const failureRows = renderer.layoutSnapshot(80, 24).allLog.filter((row) =>
+    row.entryId?.startsWith('failure:')
+  );
+  assert(failureRows.length > 0);
+  assertEquals(failureRows.map((row) => row.text).join(''), 'failure> cancelled');
+  assert(failureRows.every((row) => row.rowTone === 'failure'));
+  const frame = renderer.renderFrame(80, 24);
+  assert(frame.includes('\x1b[31mfailure> cancelled\x1b[0m'));
+  assert(!frame.includes(failureRecallGuidance));
   terminal.push('\x03\x04');
   assertEquals(await run, 0);
 });

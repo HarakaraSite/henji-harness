@@ -16,7 +16,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
-| S11 | Surface | 失敗行の赤字表示と`/recall`案内 | TUIの失敗表示を改善するとき |
+| S12 | Surface | 長いthinkingの読みやすさ | thinking表示を改善するincrementを採用するとき |
+| S13 | Surface | 失敗行のExecution ID表示 | 過去の停止実行をTUIから指定して`/recall`したいとき |
+| S14 | Surface | ツール呼び出しに添えたassistant本文の履歴表示 | 作業途中の発話を後から時系列で読みたいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -102,15 +104,38 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
 
-### S11 — 失敗行の赤字表示と`/recall`案内
+### S12 — 長いthinkingの読みやすさ
 
-- 観測（2026-09-23）: 現行のTUIは失敗時に`failure>`を表示するが、このラベルに専用の文字色を
-  割り当てていない。
-- 利用者希望: キャンセルを含む失敗ターンでは、`failure> cancelled`などの失敗表示に続けて英語で
-  `/recall`を使えば停止した実行の指示や途中結果を次の指示へ参照させられると案内し、ラベル・失敗理由・
-  案内を含む行全体を赤文字で表示する。元の実行が再開・確定されると誤解させない文言にする。
-- 再検討条件: TUIの失敗表示を改善するincrementを採用するとき。
-- 関連: `v0/tui/state.ts`、`v0/tui/conversation_renderer.ts`。
+- 観測（2026-09-24、session `677dbc65`）: `deepseek-v4.1-flash`のREADME二言語版比較は最終回答まで完了した。
+  通常履歴には9件の`thinking>`と13件のtool行が実行順に残り、ツール呼び出しの前後で何を考え、次の確認へ
+  進んだかが分かる。一方、長いthinking本文は読みにくい部分がある。
+- 利用者判断: 思考過程が見える価値は保ちつつ、表示の読みやすさは今後の課題として扱う。具体的な表示方法は
+  採用時に決める。
+- 再検討条件: thinking表示を改善するincrementを採用するとき。
+- 関連: Increment 120、A10。
+
+### S13 — 失敗行のExecution ID表示
+
+- 観測（2026-09-24、session `a2098f7c`）: `/recall`はIDを省略すると直近の停止実行を選び、Execution IDを
+  指定すると同じSessionの過去の停止実行を選べる。しかしTUIの`failure>`行にはそのIDが表示されず、
+  `henji history --view session`等で調べる必要がある。
+- 候補: 失敗行に短縮Execution ID（例: `execution 2300b666`）を表示し、案内に
+  `/recall 2300b666`を含める。表示するのは診断IDではなく、`/recall`が受け付けるExecution IDとする。
+  Increment 122（S11）の実装には加えず、後で採用を判断する。
+- 再検討条件: 直近以外の停止実行をTUIから指定して参照したいとき。
+- 関連: Increment 122、F26。
+
+### S14 — ツール呼び出しに添えたassistant本文の履歴表示
+
+- 観測（2026-09-24、session `a2098f7c`）: モデルがツール呼び出しと一緒に返した
+  `Now the production TUI verification ...`のようなassistant本文は、TUIに一時表示されるが、同じturnの
+  後続発話や最終回答で表示行が置き換わる。元の本文は実行記録に残る一方、通常のTUIログと
+  `henji history --view session`では後から読めない。
+- 候補: この確定した途中発話を、対応するツール呼び出しの前に、人間が時系列で読み返せるようにする。
+  最終回答や`thinking>`とは区別し、表示先とラベルは採用時に決める。stream中のprogress断片を
+  一件ずつ保存・表示する話ではない。
+- 再検討条件: ツール使用の意図と実際の結果を、通常の履歴から後で追いたいとき。
+- 関連: `v0/tui/state.ts`、`v0/agent/history/history_view.ts`、F05。
 
 ## Agent実行
 
@@ -211,6 +236,11 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 追加観測（2026-09-23、session `c15dee05`）: `openrouter-responses`経路の同じDeepSeekモデルでも
   `effort=high`で2ファイルを読んだ後に10件のbash比較を続け、13回目のprovider request中にキャンセルされた。
   TUIでは10件とも先頭行の`cd /home/agent/projects/henji-harness`だけが見えるが、実際のbash本文はそれぞれ異なる。
+- 再観察（2026-09-24、session `677dbc65`）: `deepseek-v4.1-flash`によるREADME二言語版比較は最終回答まで
+  完了した。通常履歴では13件のtool行と9件のthinkingを確認した。9件のassistant messageすべてに
+  `reasoning_content`が保存されており、Increment 119で追加した同一provider・modelへの再送経路が適用される。
+  以前の途中キャンセルから完了に変わった一因として、この再送が有力である。今回の実行だけでは寄与度や
+  ツール使用回数への効果は切り分けられない。
 - 利用者希望: モデル別のinstructionを検討する。候補は、指定された対象の調査を終えて結論を報告する条件を
   モデルごとに補うこと。共通instructionとの役割分担は採用時に決める。
 - 再検討条件: 同じ目的のtaskで、モデルごとの探索範囲や報告までの挙動に差が出ること。

@@ -26,6 +26,8 @@ export interface LayoutRow {
   readonly sourceColumn?: number;
   readonly labelScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
+  /** Whole-row tone; the renderer applies it to the entire row text. */
+  readonly rowTone?: ConversationLabelTone;
   readonly spans?: readonly AssistantSpan[];
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
@@ -347,6 +349,7 @@ const wrap = (
     readonly scalarLength: number;
     readonly tone: ConversationLabelTone;
   }>,
+  rowTone?: ConversationLabelTone,
 ): LayoutRow[] => {
   const result: LayoutRow[] = [];
   const points = [...text];
@@ -360,6 +363,7 @@ const wrap = (
       kind,
       entryId,
       sourceScalarOffset,
+      ...(rowTone === undefined ? {} : { rowTone }),
       ...(labelScalarLength === 0 ? {} : {
         labelScalarLength,
         labelTone: styledPrefix!.tone,
@@ -398,6 +402,9 @@ const logRows = (
 ): { rows: LayoutRow[]; sourceBytes: number } => {
   const result: LayoutRow[] = [];
   let sourceBytes = 0;
+  // `/recall` needs the persisted Session history, so a `--no-session` TUI has no reference to
+  // offer on its failure rows.
+  const recallAvailable = state.startup?.state.sessionMode.kind !== 'none';
   const appendSeparator = (): void => {
     if (result.at(-1)?.kind !== 'separator') {
       result.push({ text: '', kind: 'separator' });
@@ -464,7 +471,7 @@ const logRows = (
         sourceOffset += [...text].length + 1;
       });
     } else {
-      const projection = projectConversationEntry(entry);
+      const projection = projectConversationEntry(entry, { recallAvailable });
       result.push(...wrap(
         projection.text,
         columns,
@@ -474,6 +481,7 @@ const logRows = (
           scalarLength: projection.labelScalarLength,
           tone: projection.labelTone,
         },
+        projection.rowTone,
       ));
     }
     if (turnStart && entry.turn !== undefined) {

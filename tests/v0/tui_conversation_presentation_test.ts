@@ -8,7 +8,14 @@ import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
 import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
-import { type AssistantContentRenderer } from '../../v0/tui/conversation_renderer.ts';
+import {
+  type AssistantContentRenderer,
+  failureRecallGuidance,
+} from '../../v0/tui/conversation_renderer.ts';
+import type {
+  PresentationPosition,
+  PresentationStartupState,
+} from '../../v0/presentation/contract.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -1002,4 +1009,121 @@ Deno.test('conversation failure display is short and keeps diagnostic readback e
     durable: 'yes',
   });
   assertEquals(cancelled.log.entries[0].text, 'cancelled');
+});
+
+const startupStateFor = (
+  sessionMode: PresentationStartupState['sessionMode']['kind'],
+): PresentationStartupState => ({
+  productVersion: '0.5.0',
+  workspace: '/tmp/workspace',
+  agentId: 'default',
+  model: {
+    provider: 'mock-chat',
+    profileId: 'mock-chat-key',
+    modelId: 'mock-s11',
+    effort: 'auto',
+  },
+  sessionMode: { kind: sessionMode },
+  instructions: { loaded: false, source: 'none' },
+  skills: { count: 0, names: [], omitted: 0 },
+  trust: { hardSandbox: false, osUserTools: ['bash', 'edit', 'write'] },
+  credentialVerification: 'before_each_provider_request',
+});
+
+const startupPosition: PresentationPosition = {
+  sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
+  createdAt: '2026-09-24T00:00:00.000Z',
+  title: 'Failure display',
+  agent: 'default',
+  committedTurn: 1,
+  messageCount: 2,
+};
+
+const failureDiagnostic = (
+  diagnosticId: string,
+  code: 'turn_cancelled' | 'response_error',
+  stage: 'cancellation_cleanup' | 'response_parse',
+) => ({
+  schemaVersion: 1 as const,
+  diagnosticId,
+  stage,
+  code,
+  lane: 'parent' as const,
+  providerRequestCount: 1,
+  occurredAt: '2026-09-02T00:00:00.000Z',
+  turnNumber: 1,
+  modelStep: 1,
+  retryCount: 0,
+});
+
+const failureRows = (renderer: TuiRenderer) =>
+  renderer.layoutSnapshot(80, 24).allLog.filter((row) => row.entryId?.startsWith('failure:'));
+
+/** The two stopped-execution display shapes observed in the production TUI. */
+const failureCases = [
+  ['turn_cancelled', 'cancellation_cleanup', 'cancelled'],
+  ['response_error', 'response_parse', 'provider response invalid'],
+] as const;
+
+const renderStoppedTurn = (
+  sessionMode: PresentationStartupState['sessionMode']['kind'],
+  code: 'turn_cancelled' | 'response_error',
+  stage: 'cancellation_cleanup' | 'response_parse',
+): TuiRenderer => {
+  const renderer = new TuiRenderer(new FakeTerminal());
+  renderer.renderCompactStartup(startupStateFor(sessionMode), startupPosition);
+  renderer.eventSink({
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'inspect' } },
+  });
+  renderer.eventSink({
+    kind: 'failure_diagnostic',
+    turn: 1,
+    diagnostic: failureDiagnostic('44444444-4444-4444-8444-444444444444', code, stage),
+    durable: 'yes',
+  });
+  return renderer;
+};
+
+Deno.test('persisted-session failure rows add the /recall guidance in red', () => {
+  for (const [code, stage, reason] of failureCases) {
+    const renderer = renderStoppedTurn('new', code, stage);
+    const rows = failureRows(renderer);
+    assert(rows.length > 0);
+    const text = rows.map((row) => row.text).join('');
+    assert(text.startsWith(`failure> ${reason} · /recall`));
+    assert(text.endsWith(failureRecallGuidance));
+    // The no-ID form selects the latest stopped execution, not the execution shown on this row.
+    assert(text.includes('without an ID references the latest stopped execution'));
+    assert(text.includes('from the next task; it does not resume the run'));
+    assert(rows.every((row) => row.rowTone === 'failure'));
+
+    const frame = renderer.renderFrame(80, 24);
+    assert(frame.includes('new (autosave)'));
+    assert(frame.includes(`\x1b[31mfailure> ${reason} · /recall`));
+    const lastRow = rows.at(-1)!;
+    assert(frame.includes(`\x1b[31m${lastRow.text}\x1b[0m`));
+    assert(!frame.includes('\x1b[31minspect'));
+    assert(!frame.includes('\x1b[31muser>'));
+  }
+});
+
+Deno.test('--no-session failure rows keep the reason in red without the /recall guidance', () => {
+  for (const [code, stage, reason] of failureCases) {
+    const renderer = renderStoppedTurn('none', code, stage);
+    const rows = failureRows(renderer);
+    assert(rows.length > 0);
+    assertEquals(rows.map((row) => row.text).join(''), `failure> ${reason}`);
+    assert(rows.every((row) => row.rowTone === 'failure'));
+
+    const frame = renderer.renderFrame(80, 24);
+    // The header proves the mode under test, and `/recall` is rejected in this mode.
+    assert(frame.includes('no session'));
+    assert(frame.includes(`\x1b[31mfailure> ${reason}\x1b[0m`));
+    assert(!frame.includes(failureRecallGuidance));
+    assert(!frame.includes('/recall'));
+    assert(!frame.includes('\x1b[31minspect'));
+    assert(!frame.includes('\x1b[31muser>'));
+  }
 });

@@ -21,6 +21,7 @@ import {
   ERASE_LINE,
   GREEN_SGR,
   MAGENTA_SGR,
+  RED_SGR,
   RESET_SCROLL_REGION,
   RESET_SGR,
   SHOW_CURSOR,
@@ -67,6 +68,7 @@ const LABEL_SGR: Record<ConversationLabelTone, string> = {
   assistant: YELLOW_SGR,
   tool: GREEN_SGR,
   system: MAGENTA_SGR,
+  failure: RED_SGR,
 };
 
 const SPAN_SGR: Record<AssistantSpanTone, string> = {
@@ -79,6 +81,10 @@ const SPAN_SGR: Record<AssistantSpanTone, string> = {
 };
 
 const renderLayoutRow = (row: LayoutRow): string => {
+  // A whole-row tone covers label, reason and guidance in one color; such rows carry no spans.
+  if (row.rowTone !== undefined && row.text.length > 0) {
+    return `${LABEL_SGR[row.rowTone]}${row.text}${RESET_SGR}`;
+  }
   const ranges: { start: number; length: number; sgr: string }[] = [];
   if (
     row.labelTone !== undefined && row.labelScalarLength !== undefined &&
