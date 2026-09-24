@@ -1,4 +1,6 @@
-import { createPlannerAgentComposition, type ExecutableAgentDefinitionInput } from '@henji/agent';
+import { createAgentComposition, type ExecutableAgentDefinitionInput } from '@henji/agent';
 
 export const composePlanner = (input: ExecutableAgentDefinitionInput) =>
-  createPlannerAgentComposition(input);
+  createAgentComposition(input, {
+    roleInstruction: 'Plan the requested work.',
+  });

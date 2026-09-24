@@ -16,7 +16,6 @@ import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type {
   WorkerAsyncAgentCatalogEntry,
@@ -25,7 +24,6 @@ import type {
 } from './worker_protocol.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import { WorkerSupervisor } from './worker_host_supervisor.ts';
-import { builtinAsyncAgentRefFor, workerBuiltinModulePath } from './worker_definition_revision.ts';
 import { proposalOutcome } from './worker_host_outcome.ts';
 import type {
   ChildCleanupObservationV1,
@@ -51,8 +49,6 @@ type ChildRun = {
   readonly parentExecutionId: string;
   readonly spawnCallId?: string;
   readonly agent: string;
-  readonly agentLabel: 'default' | 'planner';
-  readonly bundledPlanner: boolean;
   readonly task: string;
   readonly model: ModelSelection;
   readonly build: BuildManifestV1;
@@ -90,12 +86,6 @@ export interface ChildRunDeps {
   readonly history?: HistoryPersistencePort;
 }
 
-const sameRef = (left: DefinitionRevisionRef, right: DefinitionRevisionRef): boolean =>
-  left.schemaVersion === right.schemaVersion && left.resourceKind === right.resourceKind &&
-  left.resourceId === right.resourceId &&
-  left.revision.algorithm === right.revision.algorithm &&
-  left.revision.digest === right.revision.digest;
-
 const syntheticHandle = (id: string): WorkerSessionHandle => ({
   id,
   commit: () => {},
@@ -109,7 +99,9 @@ const syntheticHandle = (id: string): WorkerSessionHandle => ({
 const errorText = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const lastAssistantText = (transcript: readonly unknown[]): string | undefined => {
+const lastAssistantText = (
+  transcript: readonly unknown[],
+): string | undefined => {
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const message = transcript[index] as { role?: unknown; content?: unknown };
     if (message.role !== 'assistant') continue;
@@ -138,7 +130,9 @@ export class ChildRunRegistry {
     Promise<ChildCleanupObservationV1 | undefined>
   >();
 
-  constructor(private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 }) {}
+  constructor(
+    private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 },
+  ) {}
 
   openParent(parentExecutionId: string): void {
     if (
@@ -146,7 +140,9 @@ export class ChildRunRegistry {
       this.parentCleanups.has(parentExecutionId) ||
       [...this.runs.values()].some((run) => run.parentExecutionId === parentExecutionId)
     ) {
-      throw new Error(`async child parent scope already exists: ${parentExecutionId}`);
+      throw new Error(
+        `async child parent scope already exists: ${parentExecutionId}`,
+      );
     }
     this.activeParents.add(parentExecutionId);
   }
@@ -157,21 +153,33 @@ export class ChildRunRegistry {
     parentExecutionId?: string,
   ): Promise<AsyncAgentResponse> {
     if (parentExecutionId === undefined) {
-      return { ok: false, error: 'async child operation requires an active parent execution' };
+      return {
+        ok: false,
+        error: 'async child operation requires an active parent execution',
+      };
     }
     if (request.kind === 'spawn') {
-      return await this.spawn(request.agent, request.task, callId, parentExecutionId);
+      return await this.spawn(
+        request.agent,
+        request.task,
+        callId,
+        parentExecutionId,
+      );
     }
     const run = this.addressableRun(request.runId, parentExecutionId);
     if (run === undefined) {
-      return { ok: false, error: `unknown runId for active parent: ${request.runId}` };
+      return {
+        ok: false,
+        error: `unknown runId for active parent: ${request.runId}`,
+      };
     }
     switch (request.kind) {
       case 'status':
         if (run.terminal !== undefined && !run.settlementDurable) {
           return {
             ok: false,
-            error: run.settlementError ?? 'child terminal settlement is pending',
+            error: run.settlementError ??
+              'child terminal settlement is pending',
           };
         }
         return { ok: true, kind: 'status', runId: run.runId, state: run.state };
@@ -202,7 +210,9 @@ export class ChildRunRegistry {
     }
   }
 
-  cleanupParent(parentExecutionId: string): Promise<ChildCleanupObservationV1 | undefined> {
+  cleanupParent(
+    parentExecutionId: string,
+  ): Promise<ChildCleanupObservationV1 | undefined> {
     const existing = this.parentCleanups.get(parentExecutionId);
     if (existing !== undefined) return existing;
     this.activeParents.delete(parentExecutionId);
@@ -212,7 +222,9 @@ export class ChildRunRegistry {
     for (const run of runs) run.addressable = false;
     const cleanup = runs.length === 0
       ? Promise.resolve(undefined)
-      : Promise.all(runs.map((run) => this.cleanupRun(run))).then((observations) => ({
+      : Promise.all(runs.map((run) => this.cleanupRun(run))).then((
+        observations,
+      ) => ({
         schemaVersion: 1 as const,
         runs: observations,
       }));
@@ -221,7 +233,9 @@ export class ChildRunRegistry {
   }
 
   async cleanupAll(): Promise<ChildCleanupObservationV1 | undefined> {
-    const parents = new Set([...this.runs.values()].map((run) => run.parentExecutionId));
+    const parents = new Set(
+      [...this.runs.values()].map((run) => run.parentExecutionId),
+    );
     const observations = (await Promise.all(
       [...parents].map((parentExecutionId) => this.cleanupParent(parentExecutionId)),
     )).flatMap((observation) => observation?.runs ?? []);
@@ -236,9 +250,13 @@ export class ChildRunRegistry {
     this.parentCleanups.delete(parentExecutionId);
   }
 
-  private addressableRun(runId: string, parentExecutionId: string): ChildRun | undefined {
+  private addressableRun(
+    runId: string,
+    parentExecutionId: string,
+  ): ChildRun | undefined {
     const run = this.runs.get(runId);
-    return run?.addressable === true && run.parentExecutionId === parentExecutionId
+    return run?.addressable === true &&
+        run.parentExecutionId === parentExecutionId
       ? run
       : undefined;
   }
@@ -250,17 +268,21 @@ export class ChildRunRegistry {
     parentExecutionId: string,
   ): Promise<AsyncAgentResponse> {
     if (!this.activeParents.has(parentExecutionId)) {
-      return { ok: false, error: 'parent execution no longer accepts child runs' };
+      return {
+        ok: false,
+        error: 'parent execution no longer accepts child runs',
+      };
     }
     const entry = this.deps.catalog.find((candidate) => candidate.name === agent);
     if (entry === undefined) {
       return { ok: false, error: `agent is not available: ${agent}` };
     }
-    const bundledPlannerRef = await builtinAsyncAgentRefFor('planner');
     if (!this.activeParents.has(parentExecutionId)) {
-      return { ok: false, error: 'parent execution no longer accepts child runs' };
+      return {
+        ok: false,
+        error: 'parent execution no longer accepts child runs',
+      };
     }
-    const bundledPlanner = sameRef(entry.ref, bundledPlannerRef);
     const runId = crypto.randomUUID().toLowerCase();
     const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
     const run: ChildRun = {
@@ -268,12 +290,8 @@ export class ChildRunRegistry {
       parentExecutionId,
       spawnCallId: callId,
       agent,
-      agentLabel: bundledPlanner ? 'planner' : 'default',
-      bundledPlanner,
       task,
-      model: bundledPlanner
-        ? roleDefaultModelSelection('subagent:planner')
-        : ROOT_DEFAULT_MODEL_SELECTION,
+      model: this.deps.options.initialModelSelection ?? ROOT_DEFAULT_MODEL_SELECTION,
       build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
       createdAt: new Date().toISOString(),
@@ -295,13 +313,21 @@ export class ChildRunRegistry {
     }
     if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
       this.finish(run, this.terminal(run, 'cancelled'));
-      return { ok: false, error: 'parent execution settled before child start' };
+      return {
+        ok: false,
+        error: 'parent execution settled before child start',
+      };
     }
     try {
       const childOptions = await this.childOptions(run, entry, childCorrelation);
       if (run.terminal !== undefined || run.cancelRequested) {
-        if (run.terminal === undefined) this.finish(run, this.terminal(run, 'cancelled'));
-        return { ok: false, error: 'parent execution settled before child start' };
+        if (run.terminal === undefined) {
+          this.finish(run, this.terminal(run, 'cancelled'));
+        }
+        return {
+          ok: false,
+          error: 'parent execution settled before child start',
+        };
       }
       const supervisor = new WorkerSupervisor({
         options: childOptions,
@@ -319,7 +345,10 @@ export class ChildRunRegistry {
       await supervisor.start(() => {});
       if (run.cancelRequested || !this.activeParents.has(parentExecutionId)) {
         this.finish(run, this.terminal(run, 'cancelled'));
-        return { ok: false, error: 'parent execution settled before child start' };
+        return {
+          ok: false,
+          error: 'parent execution settled before child start',
+        };
       }
       run.state = 'running';
       supervisor.send({
@@ -354,22 +383,17 @@ export class ChildRunRegistry {
     entry: WorkerAsyncAgentCatalogEntry,
     childCorrelation: string,
   ): Promise<WorkerHostSessionOptions> {
-    let modulePath: string | undefined;
-    let loadDescriptor: WorkerDefinitionLoadRequest | undefined;
-    if (run.bundledPlanner) {
-      modulePath = workerBuiltinModulePath('planner');
-    } else if (this.deps.resolveManagedModule !== undefined) {
-      loadDescriptor = await this.deps.resolveManagedModule(entry.ref);
-    } else {
+    if (this.deps.resolveManagedModule === undefined) {
       throw new Error(`async agent module is unavailable: ${entry.name}`);
     }
+    const loadDescriptor = await this.deps.resolveManagedModule(entry.ref);
     return {
       handle: syntheticHandle(childCorrelation),
       workspaceRoot: this.deps.options.workspaceRoot,
-      agent: run.agentLabel,
+      agent: 'default' as const,
       definition: entry.ref,
-      ...(modulePath === undefined ? {} : { modulePath }),
-      ...(loadDescriptor === undefined ? {} : { loadDescriptor }),
+      loadDescriptor,
+      initialModelSelection: run.model,
       physicalIoMode: this.deps.options.physicalIoMode ?? 'production',
       toolDefinitions: structuredClone(this.deps.options.toolDefinitions ?? []),
       ...(this.deps.options.rootMaxSteps === undefined
@@ -401,11 +425,16 @@ export class ChildRunRegistry {
     ) this.handleChildMessage(run, message);
   }
 
-  private handleChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
+  private handleChildMessage(
+    run: ChildRun,
+    message: WorkerToHostMessage,
+  ): void {
     if (run.terminal !== undefined) return;
     if (message.kind === 'commit_proposal') {
-      const outcome = message.outcome ?? proposalOutcome(run.task, message.transcript, undefined);
-      const finalText = outcome.finalText ?? lastAssistantText(message.transcript);
+      const outcome = message.outcome ??
+        proposalOutcome(run.task, message.transcript, undefined);
+      const finalText = outcome.finalText ??
+        lastAssistantText(message.transcript);
       try {
         run.supervisor?.send({
           kind: 'commit_acknowledgement',
@@ -494,7 +523,8 @@ export class ChildRunRegistry {
     if (run.settlementAttempted) return;
     run.settlementAttempted = true;
     if (!run.admitted) {
-      run.settlementError = run.admissionError ?? 'child execution admission is not durable';
+      run.settlementError = run.admissionError ??
+        'child execution admission is not durable';
       return;
     }
     const history = this.deps.history;
@@ -596,7 +626,9 @@ export class ChildRunRegistry {
     return run.cleanup;
   }
 
-  private async performCleanup(run: ChildRun): Promise<ChildCleanupRunObservationV1> {
+  private async performCleanup(
+    run: ChildRun,
+  ): Promise<ChildCleanupRunObservationV1> {
     run.cancelRequested = true;
     await run.admission;
     if (run.admissionError !== undefined) {
@@ -615,7 +647,11 @@ export class ChildRunRegistry {
       if (!settled) {
         this.finish(
           run,
-          this.terminal(run, 'interrupted', 'child cancellation settlement deadline exceeded'),
+          this.terminal(
+            run,
+            'interrupted',
+            'child cancellation settlement deadline exceeded',
+          ),
         );
       }
     }
@@ -672,7 +708,7 @@ export class ChildRunRegistry {
       turn: 1,
       task: run.task,
       baseStateRevision: 1,
-      agent: run.agentLabel,
+      agent: 'default' as const,
       model: run.model,
       build: run.build,
       definition: run.definitionRef,

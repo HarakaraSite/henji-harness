@@ -82,10 +82,8 @@ Deno.test('Increment 32/77 built-in Definition ref is logical and resource-bound
   assertEquals(manifest.productVersion, packageConfig.version);
   const first = await builtinDefinitionRef('default', manifest);
   const second = await builtinDefinitionRef('default', manifest);
-  const planner = await builtinDefinitionRef('planner', manifest);
   assert(isDefinitionRevisionRef(first));
   assertEquals(first, second);
-  assert(first.revision.digest !== planner.revision.digest);
   assertEquals(first.resourceId, 'builtin/default');
   assert(!JSON.stringify(first).includes('file:///'));
   assert(!JSON.stringify(first).includes(Deno.cwd()));
@@ -101,7 +99,10 @@ const installSkill = async (
 ): Promise<void> => {
   const directory = `${root}/${name}`;
   await Deno.mkdir(directory, { recursive: true });
-  await Deno.writeTextFile(`${directory}/SKILL.md`, skillText(name, description));
+  await Deno.writeTextFile(
+    `${directory}/SKILL.md`,
+    skillText(name, description),
+  );
 };
 
 Deno.test('Increment 32 discovers workspace and user Skills in Zot-compatible precedence', async () => {
@@ -114,14 +115,21 @@ Deno.test('Increment 32 discovers workspace and user Skills in Zot-compatible pr
     await installSkill(`${workspace}/.zot/skills`, 'shared', 'workspace zot');
     await installSkill(`${state}/zot/skills`, 'shared', 'user zot');
     await installSkill(`${home}/.claude/skills`, 'claude-user', 'user claude');
-    await installSkill(`${workspace}/.agents/skills`, 'agent-workspace', 'workspace agent');
+    await installSkill(
+      `${workspace}/.agents/skills`,
+      'agent-workspace',
+      'workspace agent',
+    );
     await installSkill(`${home}/.agents/skills`, 'agent-user', 'user agent');
     const catalog = await discoverSkills(workspace, undefined, {
       HOME: home,
       XDG_STATE_HOME: state,
     });
     assertEquals(
-      catalog.skills.map((skill) => ({ name: skill.name, description: skill.description })),
+      catalog.skills.map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+      })),
       [
         { name: 'agent-user', description: 'user agent' },
         { name: 'agent-workspace', description: 'workspace agent' },
@@ -135,14 +143,22 @@ Deno.test('Increment 32 discovers workspace and user Skills in Zot-compatible pr
 });
 
 Deno.test('Increment 45 accepts a one KiB native Skill description', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-45-skill-description-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-45-skill-description-',
+  });
   const workspace = `${root}/workspace`;
   const description = 'a'.repeat(MAX_SKILL_DESCRIPTION_BYTES);
   await Deno.mkdir(workspace);
   try {
-    await installSkill(`${workspace}/.agents/skills`, 'long-description', description);
+    await installSkill(
+      `${workspace}/.agents/skills`,
+      'long-description',
+      description,
+    );
     const catalog = await discoverSkills(workspace, undefined, {});
-    assertEquals(catalog.skills.map((skill) => skill.name), ['long-description']);
+    assertEquals(catalog.skills.map((skill) => skill.name), [
+      'long-description',
+    ]);
     assertEquals(catalog.skills[0].description, description);
     assert(catalog.manifest?.includes(description));
   } finally {
@@ -174,9 +190,15 @@ Deno.test('Increment 32 compiles runtime modules from an ephemeral staging tree'
 });
 
 Deno.test('Increment 32 projects the Worker generation startup snapshot', async () => {
-  const workspace = await Deno.makeTempDir({ prefix: 'henji-increment-32-worker-snapshot-' });
+  const workspace = await Deno.makeTempDir({
+    prefix: 'henji-increment-32-worker-snapshot-',
+  });
   await Deno.writeTextFile(`${workspace}/AGENTS.md`, '# Worker snapshot\n');
-  await installSkill(`${workspace}/.zot/skills`, 'worker-snapshot', 'worker-owned snapshot');
+  await installSkill(
+    `${workspace}/.zot/skills`,
+    'worker-snapshot',
+    'worker-owned snapshot',
+  );
   const created = await createWorkerSession({
     workspaceRoot: workspace,
     persistence: 'none',
@@ -185,7 +207,10 @@ Deno.test('Increment 32 projects the Worker generation startup snapshot', async 
   });
   try {
     assertEquals(created.displayState.productVersion, packageConfig.version);
-    assertEquals(created.displayState.instructions, { loaded: true, source: 'AGENTS.md' });
+    assertEquals(created.displayState.instructions, {
+      loaded: true,
+      source: 'AGENTS.md',
+    });
     assert(created.displayState.skills.names.includes('worker-snapshot'));
   } finally {
     await created.close();

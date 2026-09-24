@@ -1,7 +1,7 @@
 import packageConfig from '../../../jsr.json' with { type: 'json' };
 
 export const BUILD_MANIFEST_SCHEMA_VERSION = 1 as const;
-export const AGENT_DEFINITION_API_CONTRACT = 'henji-agent-definition-v1' as const;
+export const AGENT_DEFINITION_API_CONTRACT = 'henji-agent-definition-v2' as const;
 export const HENJI_TOOL_DEFINITION_API_CONTRACT = 'henji-tool-definition-v1' as const;
 
 export interface BuiltinResourceRevisionV1 {
@@ -41,14 +41,20 @@ const DEVELOPMENT_MANIFEST: BuildManifestV1 = Object.freeze({
   denoVersion: Deno.version.deno,
   target: Deno.build.target,
   embeddedRuntimeSha256: DEVELOPMENT_DIGEST,
-  supportedAgentDefinitionApiContracts: Object.freeze([AGENT_DEFINITION_API_CONTRACT]),
-  supportedToolDefinitionApiContracts: Object.freeze([HENJI_TOOL_DEFINITION_API_CONTRACT]),
+  supportedAgentDefinitionApiContracts: Object.freeze([
+    AGENT_DEFINITION_API_CONTRACT,
+  ]),
+  supportedToolDefinitionApiContracts: Object.freeze([
+    HENJI_TOOL_DEFINITION_API_CONTRACT,
+  ]),
 });
 
 let installed: BuildManifestV1 | undefined;
 
 export const installBuildManifest = (manifest: BuildManifestV1): void => {
-  if (installed !== undefined) throw new Error('build manifest already installed');
+  if (installed !== undefined) {
+    throw new Error('build manifest already installed');
+  }
   installed = structuredClone(manifest);
 };
 
@@ -58,9 +64,12 @@ export const buildManifest = (): BuildManifestV1 =>
 const SHA256 = /^[0-9a-f]{64}$/u;
 
 const validBuiltinResource = (value: unknown): boolean => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const item = value as Record<string, unknown>;
-  return (item.kind === 'agent-definition' || item.kind === 'tool-definition') &&
+  return (item.kind === 'agent-definition' ||
+    item.kind === 'tool-definition') &&
     typeof item.resourceId === 'string' && item.resourceId.length > 0 &&
     typeof item.digest === 'string' && SHA256.test(item.digest) &&
     (item.identity === undefined ||
@@ -68,7 +77,9 @@ const validBuiltinResource = (value: unknown): boolean => {
 };
 
 export const isBuildManifest = (value: unknown): value is BuildManifestV1 => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
   const item = value as Record<string, unknown>;
   return item.schemaVersion === 1 && typeof item.productVersion === 'string' &&
     item.productVersion.length > 0 && typeof item.buildId === 'string' &&

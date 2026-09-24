@@ -6,14 +6,13 @@ import {
   finalSystemInstructionForContribution,
 } from '../../v0/agent/instructions/worker_core_finalizer.ts';
 import { DEFAULT_ROLE_INSTRUCTION } from '../../v0/agent/instructions/roles/default.ts';
-import { PLANNER_AGENT_INSTRUCTION } from '../../v0/agent/instructions/roles/planner.ts';
 import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
 import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
 import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
 import {
+  createAgentComposition,
   createAgentResourceIdentity,
   createDefaultAgentComposition,
-  createPlannerAgentComposition,
   type PhysicalIoBindings,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
@@ -28,11 +27,17 @@ import {
 } from '../../v0/agent/tools/work_tools.ts';
 import { createBashOutputTool } from '../../v0/agent/tools/bash_output.ts';
 
-const bundledToolComponents = (physicalIo: PhysicalIoBindings): readonly ToolComponent[] => [
+const bundledToolComponents = (
+  physicalIo: PhysicalIoBindings,
+): readonly ToolComponent[] => [
   {
     identity: createAgentResourceIdentity('tool:bash'),
     materialize: (bindings) =>
-      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+      createBashTool(
+        bindings.workspace,
+        bindings.bashOutputStore,
+        bindings.workTools.bash ?? {},
+      ),
   },
   {
     identity: createAgentResourceIdentity('tool:bash_output'),
@@ -100,19 +105,24 @@ const noSkillFileSystem = {
 
 Deno.test('Increment 16 composes the Definition contribution in the canonical order', () => {
   const composition = resolveBuiltinInstructionComposition({
-    role: 'default',
     workspaceRoot: '/work/increment-16',
-    toolGuidelines: [{ tool: 'read', text: 'Prefer read for workspace files.' }],
+    toolGuidelines: [{
+      tool: 'read',
+      text: 'Prefer read for workspace files.',
+    }],
     workspaceInstruction: 'WORKSPACE INSTRUCTION',
     skillManifest: 'SKILL MANIFEST',
   });
-  assertEquals(composition.components.map((component) => String(component.identity)), [
-    'instruction:builtin-default-role',
-    'instruction:active-tool-guidelines',
-    'instruction:workspace-agents',
-    'instruction:project-skill-manifest',
-    'instruction:runtime-facts',
-  ]);
+  assertEquals(
+    composition.components.map((component) => String(component.identity)),
+    [
+      'instruction:builtin-default-role',
+      'instruction:active-tool-guidelines',
+      'instruction:workspace-agents',
+      'instruction:project-skill-manifest',
+      'instruction:runtime-facts',
+    ],
+  );
   const positions = [
     DEFAULT_ROLE_INSTRUCTION,
     '## Active tool guidelines',
@@ -122,8 +132,12 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
     'Current working directory: /work/increment-16',
   ].map((text) => composition.systemInstruction.indexOf(text));
   assert(positions.every((position) => position >= 0));
-  assert(positions.every((position, index) => index === 0 || positions[index - 1] < position));
-  const finalizedInstruction = finalSystemInstructionForContribution(composition.systemInstruction);
+  assert(
+    positions.every((position, index) => index === 0 || positions[index - 1] < position),
+  );
+  const finalizedInstruction = finalSystemInstructionForContribution(
+    composition.systemInstruction,
+  );
   for (
     const builtinCore of [
       'You are Henji',
@@ -157,7 +171,7 @@ Deno.test('Increment 16 composes the Definition contribution in the canonical or
   }
 });
 
-Deno.test('Increment 16 isolates default/planner roles, active tools, and manifest identities', () => {
+Deno.test('Increment 16 isolates default and external roles, active tools, and manifest identities', () => {
   const skillCatalog: SkillCatalog = Object.freeze({
     manifest: 'PROJECT SKILL MANIFEST',
     skills: Object.freeze([Object.freeze({
@@ -179,13 +193,20 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
     physicalIo,
     toolDefinitions: bundledToolComponents(physicalIo),
   };
-  const root = finalizeWorkerInstructionComposition(createDefaultAgentComposition(input));
-  const planner = finalizeWorkerInstructionComposition(createPlannerAgentComposition(input));
+  const root = finalizeWorkerInstructionComposition(
+    createDefaultAgentComposition(input),
+  );
+  const reviewer = finalizeWorkerInstructionComposition(
+    createAgentComposition(input, {
+      roleInstruction: 'Review the requested work.',
+      tools: [createAgentResourceIdentity('tool:read')],
+      asyncAgents: [],
+    }),
+  );
 
   assert(root.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
-  assert(!root.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
-  assert(planner.systemInstruction?.includes(PLANNER_AGENT_INSTRUCTION));
-  assert(!planner.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
+  assert(reviewer.systemInstruction?.includes('Review the requested work.'));
+  assert(!reviewer.systemInstruction?.includes(DEFAULT_ROLE_INSTRUCTION));
   assert(root.systemInstruction?.includes('- bash_output:'));
   assert(
     root.systemInstruction?.includes(
@@ -193,11 +214,11 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
     ),
   );
   assert(root.systemInstruction?.includes('- web_search:'));
-  assert(!planner.systemInstruction?.includes('- bash:'));
-  assert(!planner.systemInstruction?.includes('- bash_output:'));
-  assert(!planner.systemInstruction?.includes('- web_search:'));
-  assert(planner.systemInstruction?.includes('- read:'));
-  for (const composition of [root, planner]) {
+  assert(!reviewer.systemInstruction?.includes('- bash:'));
+  assert(!reviewer.systemInstruction?.includes('- bash_output:'));
+  assert(!reviewer.systemInstruction?.includes('- web_search:'));
+  assert(reviewer.systemInstruction?.includes('- read:'));
+  for (const composition of [root, reviewer]) {
     assert(
       composition.systemInstruction?.includes(
         'Do not use tools to read or source credential configuration',
@@ -210,25 +231,28 @@ Deno.test('Increment 16 isolates default/planner roles, active tools, and manife
     );
   }
 
-  for (const manifest of [root.manifest, planner.manifest]) {
+  for (const manifest of [root.manifest, reviewer.manifest]) {
     assert(manifest.resources.includes('instruction:henji-base'));
     assert(manifest.resources.includes('instruction:active-tool-guidelines'));
     assert(manifest.resources.includes('instruction:workspace-agents'));
     assert(manifest.resources.includes('instruction:project-skill-manifest'));
     assert(manifest.resources.includes('instruction:runtime-facts'));
   }
-  for (const composition of [root, planner]) {
+  for (const composition of [root, reviewer]) {
     assertEquals(
       composition.manifest.resources,
       composition.resolved.resourceSelection.resources.map(String).sort(),
     );
   }
-  assert(root.manifest.resources.includes('agent:planner'));
-  assert(!planner.manifest.resources.includes('agent:planner'));
+  assert(!root.manifest.resources.includes('agent:planner'));
+  assert(!reviewer.manifest.resources.includes('agent:planner'));
   assert(root.manifest.resources.includes('instruction:builtin-default-role'));
-  assert(!root.manifest.resources.includes('instruction:builtin-planner-policy'));
-  assert(planner.manifest.resources.includes('instruction:builtin-planner-policy'));
-  assert(!planner.manifest.resources.includes('instruction:builtin-default-role'));
+  assert(
+    reviewer.manifest.resources.includes('instruction:external-agent-role'),
+  );
+  assert(
+    !reviewer.manifest.resources.includes('instruction:builtin-default-role'),
+  );
 });
 
 Deno.test('Increment 16 gives Worker and direct built-in runtimes the same resolved instruction', async () => {
@@ -253,7 +277,9 @@ Deno.test('Increment 16 gives Worker and direct built-in runtimes the same resol
   });
   assertEquals(direct.systemInstruction, worker.systemInstruction);
   assert(
-    direct.systemInstruction?.includes('Current working directory: /work/increment-16-parity'),
+    direct.systemInstruction?.includes(
+      'Current working directory: /work/increment-16-parity',
+    ),
   );
 });
 
@@ -273,13 +299,13 @@ const openAICompletedStream = (text: string): string => {
     }],
     output_text: text,
   };
-  return 'data: ' + JSON.stringify({ type: 'response.completed', response }) + '\n\n';
+  return 'data: ' + JSON.stringify({ type: 'response.completed', response }) +
+    '\n\n';
 };
 
 Deno.test('Increment 16 maps one semantic instruction to both provider wire contracts', async () => {
   const resolved = finalSystemInstructionForContribution(
     resolveBuiltinInstructionComposition({
-      role: 'default',
       workspaceRoot: '/work/provider-wire',
       toolGuidelines: [{ tool: 'read', text: 'Read files.' }],
     }).systemInstruction,

@@ -15,38 +15,26 @@ export interface WorkerDefinitionRevision extends WorkerModuleRevision {
 export const readDefinitionRevision = async (
   path: string,
   kind: 'builtin' | 'external',
-  id?: 'default' | 'planner',
+  id?: 'default',
 ): Promise<DefinitionRevisionRef> => {
   void path;
   if (kind !== 'builtin' || id === undefined) {
-    throw new Error('external Definition install is not available until Increment 33');
+    throw new Error(
+      'external Definition install is not available until Increment 33',
+    );
   }
   return await builtinDefinitionRef(id, buildManifest());
 };
 
 export const workerBuiltinModulePath = (
   agent: SessionRecord['agent'],
-): string =>
-  new URL(
-    agent === 'planner'
-      ? './worker_builtin_planner_definition.ts'
-      : './worker_builtin_definition.ts',
-    import.meta.url,
-  ).pathname;
+): string => {
+  if (agent !== 'default') throw new Error('no bundled Definition for agent');
+  return new URL('./worker_builtin_definition.ts', import.meta.url).pathname;
+};
 
 export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
 
-/** Bundled async child agent names the Host can resolve without an external binding. */
-export const BUNDLED_ASYNC_AGENT_NAMES: readonly string[] = Object.freeze(['planner']);
-
-export const builtinAsyncAgentRefFor = async (
-  name: string,
-): Promise<DefinitionRevisionRef> => {
-  if (name !== 'planner') {
-    throw new Error(`no bundled async agent for name: ${name}`);
-  }
-  return await builtinDefinitionRef('planner', buildManifest());
-};
 const bundledToolModule = (name: string): string =>
   new URL(`./worker_builtin_${name}_tool.ts`, import.meta.url).pathname;
 
@@ -56,34 +44,40 @@ interface BundledToolDefinitionEntry {
   readonly modulePath: string;
 }
 
-const BUNDLED_TOOL_DEFINITIONS: readonly BundledToolDefinitionEntry[] = Object.freeze(
-  [
-    ['bash', 'bash'],
-    ['bash_output', 'bash-output'],
-    ['edit', 'edit'],
-    ['read', 'read'],
-    ['write', 'write'],
-    ['web_fetch', 'web-fetch'],
-    ['web_search', 'web-search'],
-  ].map(([name, slug]) =>
-    Object.freeze({
-      identity: `tool:${name}`,
-      resourceId: `builtin/${slug}`,
-      modulePath: bundledToolModule(name),
-    })
-  ),
-);
+const BUNDLED_TOOL_DEFINITIONS: readonly BundledToolDefinitionEntry[] = Object
+  .freeze(
+    [
+      ['bash', 'bash'],
+      ['bash_output', 'bash-output'],
+      ['edit', 'edit'],
+      ['read', 'read'],
+      ['write', 'write'],
+      ['web_fetch', 'web-fetch'],
+      ['web_search', 'web-search'],
+    ].map(([name, slug]) =>
+      Object.freeze({
+        identity: `tool:${name}`,
+        resourceId: `builtin/${slug}`,
+        modulePath: bundledToolModule(name),
+      })
+    ),
+  );
 
 /** Bundled tool Definition identities the Host can resolve without an external binding. */
-export const BUNDLED_TOOL_DEFINITION_IDENTITIES: readonly string[] = Object.freeze(
-  BUNDLED_TOOL_DEFINITIONS.map((entry) => entry.identity),
-);
+export const BUNDLED_TOOL_DEFINITION_IDENTITIES: readonly string[] = Object
+  .freeze(
+    BUNDLED_TOOL_DEFINITIONS.map((entry) => entry.identity),
+  );
 
-const bundledToolDefinitionFor = (identity: string): BundledToolDefinitionEntry | undefined =>
+const bundledToolDefinitionFor = (
+  identity: string,
+): BundledToolDefinitionEntry | undefined =>
   BUNDLED_TOOL_DEFINITIONS.find((entry) => entry.identity === identity);
 
 /** Bundled tool Definition module path for one tool identity. */
-export const workerBuiltinToolDefinitionModulePath = (toolIdentity: string): string => {
+export const workerBuiltinToolDefinitionModulePath = (
+  toolIdentity: string,
+): string => {
   const bundled = bundledToolDefinitionFor(toolIdentity);
   if (bundled === undefined) {
     throw new Error(`no bundled tool Definition for identity: ${toolIdentity}`);
@@ -112,7 +106,9 @@ export const bundledToolDefinitionLoadRequest = async (
 ): Promise<import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest> => ({
   toolIdentity: identity,
   ref: await builtinToolDefinitionRefFor(identity),
-  module: await readWorkerModuleRevision(workerBuiltinToolDefinitionModulePath(identity)),
+  module: await readWorkerModuleRevision(
+    workerBuiltinToolDefinitionModulePath(identity),
+  ),
 });
 
 /** Bundled web_search tool Definition load request for a default parent generation. */

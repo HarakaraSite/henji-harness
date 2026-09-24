@@ -1,6 +1,7 @@
 import {
   type DataValue,
   parseWorkerHostCommand,
+  type WorkerAsyncAgentCatalogEntry,
   type WorkerCorrelation,
   type WorkerDefinitionLoadRequest,
   type WorkerHostCommand,
@@ -343,10 +344,10 @@ const createGeneration = async (
   nextTurn = 1,
   checkpoint?: import('../session/session_store.ts').SemanticContextCheckpointV1,
   initialModelSelection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION,
-  rootRole: 'parent' | 'planner' = 'parent',
   baseInstruction: SelectedHenjiBaseInstruction = builtinHenjiBaseInstruction(),
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
   toolDefinitions: readonly AgentToolDefinitionModule[] = [],
+  asyncAgents: readonly WorkerAsyncAgentCatalogEntry[] = [],
   privateStateFromTurn = 1,
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
@@ -371,7 +372,7 @@ const createGeneration = async (
     callId?: string,
     signal?: AbortSignal,
   ) => requestAsyncAgent(correlation, request, callId, signal);
-  let rootModel = physicalIo.createModel(rootRole, initialModelSelection);
+  let rootModel = physicalIo.createModel('parent', initialModelSelection);
   const rootRouter: Model = {
     get measureRequestWire() {
       return rootModel.measureRequestWire;
@@ -381,10 +382,7 @@ const createGeneration = async (
   const routedPhysicalIo = {
     ...physicalIo,
     asyncAgentRpc,
-    createModel: (
-      role: 'parent' | 'planner',
-      selection?: ModelSelection,
-    ): Model => role === rootRole ? rootRouter : physicalIo.createModel('planner', selection),
+    createModel: (_role: 'parent', _selection?: ModelSelection): Model => rootRouter,
   };
   if (!await verifySelectedHenjiBaseInstruction(baseInstruction)) {
     throw new Error('Worker Henji base instruction is invalid');
@@ -404,6 +402,7 @@ const createGeneration = async (
     agentInstructions: instructionSnapshot?.formatted,
     skillCatalog,
     physicalIo: routedPhysicalIo,
+    asyncAgentNames: Object.freeze(asyncAgents.map((entry) => entry.name)),
     ...(toolComponents.length === 0
       ? {}
       : { toolDefinitions: toolComponents.map((tool) => tool.component) }),
@@ -461,7 +460,7 @@ const createGeneration = async (
     requestCounter,
     initialModelSelection,
     (selection) => {
-      rootModel = physicalIo.createModel(rootRole, selection);
+      rootModel = physicalIo.createModel('parent', selection);
     },
     physicalIo.credentialAvailability,
     Object.freeze({
@@ -620,10 +619,10 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.nextTurn,
             command.checkpoint,
             command.modelSelection,
-            command.rootRole,
             command.baseInstruction,
             command.providerDeclarations ?? [],
             loadedTools,
+            command.asyncAgents ?? [],
             command.privateStateFromTurn,
           );
         } catch (error) {
@@ -665,7 +664,10 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
     case 'select_model': {
       const accepted = generation !== undefined &&
         isModelSelection(command.selection) &&
-        generation.selectRootModel(command.selection, command.privateStateFromTurn);
+        generation.selectRootModel(
+          command.selection,
+          command.privateStateFromTurn,
+        );
       const credentialAvailability = accepted
         ? await generation?.rootCredentialAvailability()
         : undefined;

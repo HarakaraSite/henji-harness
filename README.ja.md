@@ -138,7 +138,8 @@ const definition: ExecutableAgentDefinition = (input) =>
 export default definition;
 ```
 
-`createPlannerAgentComposition`も同じ入力境界でplanner Definitionをroot-runnableに構成できる。
+`createAgentComposition(input, options)`では外部Definitionの役割instruction、tool、async child宣言を
+指定できる。単体binaryには`default`を同梱し、`reviewer`等の名前付きchildはinstall後に`agents.json`でbindする。
 
 ## Links
 

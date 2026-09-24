@@ -16,10 +16,6 @@ import {
 } from '../../v0/agent/definitions/definition_selection.ts';
 import { main as runtimeMain } from '../../v0/agent/cli/runtime_cli.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import {
-  roleDefaultModelSelection,
-  selectModelFor,
-} from '../../v0/agent/provider/model_catalog.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -346,7 +342,7 @@ Deno.test('Increment 65 starts a new session with the bound root Definition', as
   }
 });
 
-Deno.test('Increment 65 supplies the planner default from bundled roleDefaults data', async () => {
+Deno.test('Increment 127 leaves no bundled planner role default', async () => {
   const defaults = JSON.parse(
     await Deno.readTextFile(
       new URL(
@@ -355,12 +351,7 @@ Deno.test('Increment 65 supplies the planner default from bundled roleDefaults d
       ),
     ),
   );
-  const entry = defaults.roleDefaults?.['subagent:planner'];
-  assert(entry !== undefined, 'bundled subagent:planner roleDefault is missing');
-  assertEquals(
-    roleDefaultModelSelection('subagent:planner'),
-    selectModelFor(entry.providerId, entry.modelId, entry.effort),
-  );
+  assertEquals(defaults.roleDefaults, {});
 });
 
 Deno.test('Increment 65 fails typed on unknown slots and malformed files', async () => {

@@ -90,7 +90,6 @@ export type WorkerHostCommand =
     readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';
-    readonly rootRole?: 'parent' | 'planner';
     readonly rootMaxSteps?: number;
     readonly providerTimeoutMs?: number;
     /** Process-local fixed-size diagnostic latch; contains no request or credential data. */
@@ -214,7 +213,7 @@ export interface WorkerReadyMessage {
     readonly probe?: string;
   };
   readonly manifest?: {
-    readonly role: 'parent' | 'planner';
+    readonly role: 'parent';
     readonly maxSteps: number;
     readonly profileId: string;
     readonly resources: readonly string[];

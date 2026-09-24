@@ -8,7 +8,7 @@ import {
   type ProviderDeclarationV1,
   resolveProviderRegistry,
 } from '../provider/provider_declaration.ts';
-import { defaultModelSelectionFor, roleDefaultModelSelection } from '../provider/model_catalog.ts';
+import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
   DefinitionStartupError,
@@ -46,13 +46,12 @@ import {
   managedWorkerDefinitionLoadRequest,
 } from './worker_capsule.ts';
 import {
-  builtinAsyncAgentRefFor,
-  BUNDLED_ASYNC_AGENT_NAMES,
   BUNDLED_TOOL_DEFINITION_IDENTITIES,
   bundledToolDefinitionLoadRequest,
   workerBuiltinModulePath,
 } from './worker_definition_revision.ts';
 import { AgentBindingError, resolveAgentSlotBindings } from '../definitions/agent_slot_binding.ts';
+import { readDefaultSelection } from '../provider/default_selection.ts';
 import { ManagedDefinitionStore } from '../definitions/managed_definition_store.ts';
 import {
   type ResolvedToolDefinitionBinding,
@@ -172,19 +171,28 @@ const restoreRecordMessages = (
   const canonicalThinking = new Map(
     history.readSessionHistory(record.sessionId)
       .filter(({ execution }) =>
-        execution.adoption === 'canonical' && execution.parentExecutionId === undefined
+        execution.adoption === 'canonical' &&
+        execution.parentExecutionId === undefined
       )
       .map(({ execution, thinking }) => [execution.turn, thinking] as const),
   );
   const observations: RestoredConversation['thinking'][number][] = [];
   const messageTurns: number[] = [];
   for (const range of index.turns) {
-    for (let messageIndex = range.start; messageIndex < range.end; messageIndex += 1) {
+    for (
+      let messageIndex = range.start;
+      messageIndex < range.end;
+      messageIndex += 1
+    ) {
       messageTurns[messageIndex] = range.turn;
     }
     const thinking = canonicalThinking.get(range.turn) ?? [];
     let modelStep = 0;
-    for (let messageIndex = range.start; messageIndex < range.end; messageIndex += 1) {
+    for (
+      let messageIndex = range.start;
+      messageIndex < range.end;
+      messageIndex += 1
+    ) {
       if (record.transcript[messageIndex].role !== 'assistant') continue;
       modelStep += 1;
       for (const item of thinking) {
@@ -304,7 +312,8 @@ class LazyWorkerSession implements TuiActiveSession {
   }
 
   transcriptSnapshot(): readonly Message[] {
-    return this.host?.transcriptSnapshot() ?? structuredClone(this.record.transcript);
+    return this.host?.transcriptSnapshot() ??
+      structuredClone(this.record.transcript);
   }
 
   currentPosition(): ReturnType<WorkerHostSession['currentPosition']> {
@@ -327,7 +336,8 @@ class LazyWorkerSession implements TuiActiveSession {
   }
 
   modelSelectionSnapshot(): ModelSelection {
-    return this.host?.modelSelectionSnapshot() ?? structuredClone(this.record.activeModel);
+    return this.host?.modelSelectionSnapshot() ??
+      structuredClone(this.record.activeModel);
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
@@ -363,7 +373,9 @@ class LazyWorkerSession implements TuiActiveSession {
     return await (await this.ensureStarted()).prepareRecall(id);
   }
 
-  async renameTitle(value: string): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'> {
+  async renameTitle(
+    value: string,
+  ): Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'> {
     return (await this.ensureStarted()).renameTitle(value);
   }
 
@@ -412,6 +424,8 @@ export const createWorkerSession = async (
       )
       : Object.freeze([] as const));
   setActiveProviderDeclarations(providerDeclarations);
+  const configuredDefaultSelection = options.initialModelSelection ??
+    (configRoot === undefined ? undefined : await readDefaultSelection(configRoot));
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
     ? new SqliteHistoryV7ProductionStore(
@@ -424,7 +438,10 @@ export const createWorkerSession = async (
   let handle: WorkerSessionHandle;
   let record: StoredSessionRecord | undefined;
   let selection = options.selection;
-  if (selection !== undefined && options.agent !== undefined && selection.id !== options.agent) {
+  if (
+    selection !== undefined && options.agent !== undefined &&
+    selection.id !== options.agent
+  ) {
     throw new DefinitionStartupError(
       'definition_role_mismatch',
       'session_binding',
@@ -527,15 +544,11 @@ export const createWorkerSession = async (
       const revision = await store.resolve(ref);
       return managedWorkerDefinitionLoadRequest(revision);
     };
-    /*
-     * Resolve the async child agent catalog: an activation-level `agent:<name>` binding wins;
-     * otherwise the bundled planner is used. A `subagent:<name>` entry remains a typed failure.
-     */
+    /** Resolve activation-level managed async Agent bindings for this generation. */
     const resolveAsyncAgents = async (): Promise<
       readonly WorkerAsyncAgentCatalogEntry[] | undefined
     > => {
       const entries: WorkerAsyncAgentCatalogEntry[] = [];
-      const resolvedNames = new Set<string>();
       if (configRoot !== undefined && dataRoot !== undefined) {
         let bindings: ReadonlyMap<
           string,
@@ -562,14 +575,14 @@ export const createWorkerSession = async (
           throw error;
         }
         for (const binding of bindings.values()) {
-          if (binding.slot.kind !== 'agent' || binding.slot.name === undefined) continue;
-          entries.push({ name: binding.slot.name, ref: structuredClone(binding.ref) });
-          resolvedNames.add(binding.slot.name);
+          if (
+            binding.slot.kind !== 'agent' || binding.slot.name === undefined
+          ) continue;
+          entries.push({
+            name: binding.slot.name,
+            ref: structuredClone(binding.ref),
+          });
         }
-      }
-      for (const name of BUNDLED_ASYNC_AGENT_NAMES) {
-        if (resolvedNames.has(name)) continue;
-        entries.push({ name, ref: await builtinAsyncAgentRefFor(name) });
       }
       return entries.length === 0 ? undefined : entries;
     };
@@ -625,15 +638,13 @@ export const createWorkerSession = async (
     };
     const openHost = async (
       workerHandle: WorkerSessionHandle,
-      initialModelSelection = options.initialModelSelection,
+      initialModelSelection = configuredDefaultSelection,
     ): Promise<WorkerHostSession> => {
       try {
         setActiveProviderDeclarations(providerDeclarations);
         baseInstruction = await resolveBaseInstruction();
         const effectiveInitialSelection = initialModelSelection ??
-          (activeSelection.id === 'planner'
-            ? roleDefaultModelSelection('subagent:planner')
-            : defaultModelSelectionFor('openrouter-chat'));
+          defaultModelSelectionFor('openrouter-chat');
         return await WorkerHostSession.open({
           handle: workerHandle,
           workspaceRoot: workspace.root,
@@ -663,7 +674,10 @@ export const createWorkerSession = async (
           capsuleFactory: options.capsuleFactory,
         });
       } catch (error) {
-        if (activeSelection.kind !== 'managed' || !(error instanceof WorkerHostStartupError)) {
+        if (
+          activeSelection.kind !== 'managed' ||
+          !(error instanceof WorkerHostStartupError)
+        ) {
           throw error;
         }
         throw new DefinitionStartupError(
@@ -713,7 +727,8 @@ export const createWorkerSession = async (
             ...item,
             current: item.id === currentHandle.id,
             resumed: item.id === currentHandle.id,
-            mismatch: item.agent !== activeSelection.id || item.definition === undefined ||
+            mismatch: item.agent !== activeSelection.id ||
+              item.definition === undefined ||
               !sameRef(item.definition, definition),
           })),
           skippedInvalid: listed.skippedInvalid,
@@ -725,7 +740,10 @@ export const createWorkerSession = async (
       async createNew(signal?: AbortSignal): Promise<NavigationBinding> {
         if (signal?.aborted) throw new NavigationCancelledError();
         const inheritedSelection = currentHost.modelSelectionSnapshot();
-        const targetHandle = await store!.allocateWorker(activeSelection.id, definition);
+        const targetHandle = await store!.allocateWorker(
+          activeSelection.id,
+          definition,
+        );
         let targetHost: WorkerHostSession | undefined;
         const cleanupTarget = async (): Promise<void> => {
           if (targetHost === undefined) await targetHandle.close();
@@ -774,7 +792,11 @@ export const createWorkerSession = async (
             targetRecord === undefined ||
             targetRecord.workspaceRoot !== workspace.root ||
             targetRecord.agent !== activeSelection.id
-          ) throw new Error('session binding does not match the selected Definition');
+          ) {
+            throw new Error(
+              'session binding does not match the selected Definition',
+            );
+          }
           // Open the stored Session as the active session without starting a Worker. The generation
           // starts lazily under the currently resolved Definition on the first live operation.
           const lazy = new LazyWorkerSession(

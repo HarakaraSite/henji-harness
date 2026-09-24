@@ -2,7 +2,6 @@ import {
   type AgentDefinitionInput,
   type AgentDefinitionLimits,
   defaultAgentDefinition,
-  plannerAgentDefinition,
   type ResolvedAgentDefinition,
 } from './definitions/agent_definition.ts';
 import type { AgentEventSink } from './core/events.ts';
@@ -14,17 +13,15 @@ import type { Workspace, WorkToolSeams } from './tools/work_tools.ts';
 import { WORKER_PROTOCOL_VERSION } from './worker/worker_protocol.ts';
 import {
   compareAgentResourceIdentities,
+  createAgentResourceIdentity,
   createAgentResourceSelection,
   validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
 import type { AgentResourceIdentity } from './definitions/resource_identity.ts';
-import {
-  type BuiltinInstructionRole,
-  resolveBuiltinDefinitionInstruction,
-} from './instructions/compose.ts';
+import { resolveBuiltinDefinitionInstruction } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
-import type { InstructionComponent } from './instructions/component.ts';
+import { defineInstructionComponent, type InstructionComponent } from './instructions/component.ts';
 import type {
   HenjiInstructionRevisionRef,
   ToolDefinitionRevisionRef,
@@ -59,7 +56,7 @@ export type { AgentEventSink };
 /** Worker-local physical construction seam; no value from this interface crosses postMessage. */
 export interface PhysicalIoBindings {
   readonly createModel: (
-    role: 'parent' | 'planner',
+    role: 'parent',
     selection?: ModelSelection,
   ) => Model;
   readonly workTools?: WorkToolSeams;
@@ -101,6 +98,8 @@ export interface ExecutableAgentDefinitionInput {
   readonly physicalIo: PhysicalIoBindings;
   /** Host/Worker-resolved tool Definition components for declared tool identities. */
   readonly toolDefinitions?: readonly ToolComponent[];
+  /** Host-resolved names of managed async Agents available to this generation. */
+  readonly asyncAgentNames?: readonly string[];
 }
 
 export interface AgentCompositionOptions {
@@ -111,10 +110,16 @@ export interface AgentCompositionOptions {
    * default declaration. The Host resolves and supplies matching tool Definition components.
    */
   readonly additionalTools?: readonly AgentResourceIdentity[];
+  /** Replace the built-in role text while retaining tool/workspace/skill/runtime composition. */
+  readonly roleInstruction?: string;
+  /** Exact tool declaration for this Definition; omitted uses the bundled default set. */
+  readonly tools?: readonly AgentResourceIdentity[];
+  /** Exact async Agent declaration; omitted uses the available managed catalog. */
+  readonly asyncAgents?: readonly AgentResourceIdentity[];
 }
 
 export interface WorkerAgentManifest {
-  readonly role: 'parent' | 'planner';
+  readonly role: 'parent';
   readonly maxSteps: number;
   readonly profileId: string;
   readonly resources: readonly string[];
@@ -133,7 +138,7 @@ export interface WorkerAgentManifest {
 }
 
 export interface WorkerAgentComposition {
-  readonly role: 'parent' | 'planner';
+  readonly role: 'parent';
   readonly model: Model;
   readonly registry: Registry;
   readonly maxSteps: number;
@@ -161,7 +166,9 @@ const assertCoherentRootComposition = (
     composition.manifest.maxSteps !== composition.maxSteps ||
     composition.manifest.role !== composition.role
   ) {
-    throw new Error('Worker Definition returned an incoherent root composition');
+    throw new Error(
+      'Worker Definition returned an incoherent root composition',
+    );
   }
 };
 
@@ -227,7 +234,7 @@ export const finalizeWorkerToolAttribution = (
 };
 
 const manifestFor = (
-  role: 'parent' | 'planner',
+  role: 'parent',
   resources: readonly AgentResourceIdentity[],
   maxSteps: number,
   profileId: string,
@@ -257,64 +264,85 @@ const definitionInput = (
   workspace: input.workspace,
   agentInstructions: input.agentInstructions,
   skillCatalog: input.skillCatalog,
+  asyncAgentNames: input.asyncAgentNames,
 });
 
-const compositionInstruction = (
-  role: BuiltinInstructionRole,
+const instructionFor = (
   input: ExecutableAgentDefinitionInput,
   registry: Registry,
-): string =>
-  resolveBuiltinDefinitionInstruction(
-    role,
+  roleInstruction?: string,
+): {
+  readonly components: readonly InstructionComponent[];
+  readonly systemInstruction: string;
+} => {
+  const builtin = resolveBuiltinDefinitionInstruction(
     input.workspace.root,
     input.agentInstructions,
     input.skillCatalog,
     registry.promptGuidelines(),
-  ).systemInstruction;
-
-const compositionComponents = (
-  role: BuiltinInstructionRole,
-  input: ExecutableAgentDefinitionInput,
-  registry: Registry,
-): readonly InstructionComponent[] =>
-  resolveBuiltinDefinitionInstruction(
-    role,
-    input.workspace.root,
-    input.agentInstructions,
-    input.skillCatalog,
-    registry.promptGuidelines(),
-  ).components;
+  );
+  if (roleInstruction === undefined) return builtin;
+  const components = Object.freeze([
+    defineInstructionComponent(
+      'instruction:external-agent-role',
+      roleInstruction,
+    ),
+    ...builtin.components.slice(1),
+  ]);
+  return Object.freeze({
+    components,
+    systemInstruction: components.map((component) => component.text).join(
+      '\n\n',
+    ),
+  });
+};
 
 /**
  * Standard composition used by built-in and external Definitions. The caller chooses to use this
  * factory inside the Worker; Host-side capability IDs are not an external Definition allowlist.
  */
-export const createDefaultAgentComposition = (
+export const createAgentComposition = (
   input: ExecutableAgentDefinitionInput,
   options: AgentCompositionOptions = {},
 ): WorkerAgentComposition => {
   const resolved = defaultAgentDefinition(definitionInput(input));
   const additionalTools = options.additionalTools ?? [];
-  const capabilities = additionalTools.length === 0 ? resolved.capabilities : Object.freeze({
+  const tools = options.tools ?? resolved.capabilities.tools;
+  const asyncAgents = options.asyncAgents ?? resolved.capabilities.asyncAgents;
+  const roleInstructions = options.roleInstruction === undefined
+    ? resolved.capabilities.instructions
+    : Object.freeze([
+      createAgentResourceIdentity('instruction:external-agent-role'),
+      ...resolved.capabilities.instructions.slice(1),
+    ]);
+  const capabilities = Object.freeze({
     ...resolved.capabilities,
-    tools: Object.freeze([...resolved.capabilities.tools, ...additionalTools]),
+    instructions: Object.freeze([...roleInstructions]),
+    tools: Object.freeze([...tools, ...additionalTools]),
+    asyncAgents: Object.freeze([...asyncAgents]),
   });
-  const resourceIdentities = additionalTools.length === 0
-    ? resolved.resourceSelection.resources.map(String)
-    : (() => {
-      const identities = [
-        ...resolved.resourceSelection.resources,
-        ...additionalTools,
-      ];
-      identities.sort(compareAgentResourceIdentities);
-      return identities
-        .filter((identity, index) =>
-          index === 0 || compareAgentResourceIdentities(identities[index - 1], identity) !== 0
-        )
-        .map(String);
-    })();
+  const resourceIdentities = [
+    createAgentResourceIdentity(
+      `model:${resolved.model.provider}:${resolved.model.profile.id}`,
+    ),
+    ...capabilities.instructions,
+    ...capabilities.skills,
+    ...capabilities.tools,
+    ...capabilities.asyncAgents,
+  ];
+  resourceIdentities.sort(compareAgentResourceIdentities);
+  const uniqueResourceIdentities = resourceIdentities.filter((
+    identity,
+    index,
+  ) =>
+    index === 0 ||
+    compareAgentResourceIdentities(resourceIdentities[index - 1], identity) !==
+      0
+  );
   const maxSteps = maxStepsFor(resolved.limits, options);
-  const providedToolDefinitions: ToolComponent[] = [...(input.toolDefinitions ?? [])];
+  const providedToolDefinitions: ToolComponent[] = [
+    ...(input.toolDefinitions ?? []),
+  ];
   const registry = createDeclaredRegistry(capabilities, {
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
@@ -325,19 +353,18 @@ export const createDefaultAgentComposition = (
       : { asyncAgentRpc: input.physicalIo.asyncAgentRpc }),
     ...(providedToolDefinitions.length === 0 ? {} : { toolDefinitions: providedToolDefinitions }),
   });
-  const systemInstruction = compositionInstruction(
-    'default',
+  const { systemInstruction, components: instructionComponents } = instructionFor(
     input,
     registry,
+    options.roleInstruction,
   );
-  const instructionComponents = compositionComponents('default', input, registry);
   const effectiveResolved = Object.freeze({
     ...resolved,
     capabilities,
     systemInstruction,
     limits: Object.freeze({ maxSteps }),
     resourceSelection: createAgentResourceSelection(
-      resourceIdentities,
+      uniqueResourceIdentities.map(String),
       maxSteps,
     ),
   });
@@ -358,47 +385,8 @@ export const createDefaultAgentComposition = (
   });
 };
 
-/** Worker-local built-in planner composition on the same Definition/registry/model seam. */
-export const createPlannerAgentComposition = (
+/** Standard bundled fallback; external Definitions can use createAgentComposition. */
+export const createDefaultAgentComposition = (
   input: ExecutableAgentDefinitionInput,
   options: AgentCompositionOptions = {},
-): WorkerAgentComposition => {
-  const resolved = plannerAgentDefinition(definitionInput(input));
-  const maxSteps = maxStepsFor(resolved.limits, options);
-  const registry = createDeclaredRegistry(resolved.capabilities, {
-    workspace: input.workspace,
-    skillCatalog: input.skillCatalog,
-    workTools: input.physicalIo.workTools,
-    ...(input.toolDefinitions === undefined ? {} : { toolDefinitions: input.toolDefinitions }),
-  });
-  const systemInstruction = compositionInstruction(
-    'planner',
-    input,
-    registry,
-  );
-  const instructionComponents = compositionComponents('planner', input, registry);
-  const effectiveResolved = Object.freeze({
-    ...resolved,
-    systemInstruction,
-    limits: Object.freeze({ maxSteps }),
-    resourceSelection: createAgentResourceSelection(
-      resolved.resourceSelection.resources.map(String),
-      maxSteps,
-    ),
-  });
-  return Object.freeze({
-    role: 'planner' as const,
-    model: input.physicalIo.createModel('planner'),
-    registry,
-    maxSteps,
-    systemInstruction,
-    instructionComponents,
-    manifest: manifestFor(
-      'planner',
-      effectiveResolved.resourceSelection.resources,
-      maxSteps,
-      resolved.model.profile.id,
-    ),
-    resolved: effectiveResolved,
-  });
-};
+): WorkerAgentComposition => createAgentComposition(input, options);

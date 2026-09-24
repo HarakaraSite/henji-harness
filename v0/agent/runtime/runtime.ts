@@ -16,7 +16,6 @@ import { createDeclaredRegistry } from '../tools/registries.ts';
 import { resolveWorkspace, type Workspace, type WorkToolSeams } from '../tools/work_tools.ts';
 import { discoverSkills, type SkillCatalog, type SkillFileSystem } from '../definitions/skills.ts';
 import {
-  type AgentDefinition,
   DEFAULT_AGENT_MAX_STEPS,
   type ResolvedAgentDefinition,
 } from '../definitions/agent_definition.ts';
@@ -101,8 +100,6 @@ export interface RuntimeTestSeam {
   readonly onRegistryMaterialized?: (
     definition: ResolvedAgentDefinition,
   ) => void;
-  /** Direct-test-only planner Definition replacement; production always uses the fixed Definition. */
-  readonly plannerDefinition?: AgentDefinition;
   /** Direct-test-only observer called after selection validation and before materialization. */
   readonly onResourceSelectionValidated?: (
     role: 'parent' | 'planner',
@@ -190,20 +187,39 @@ const materializeRegistry = (
   seam.onRegistryMaterialized?.(definition);
   const declared = new Set(definition.capabilities.tools.map(String));
   const toolDefinitions: ToolComponent[] = [];
-  const add = (identity: string, materialize: ToolComponent['materialize']): void => {
+  const add = (
+    identity: string,
+    materialize: ToolComponent['materialize'],
+  ): void => {
     if (declared.has(identity)) {
-      toolDefinitions.push({ identity: createAgentResourceIdentity(identity), materialize });
+      toolDefinitions.push({
+        identity: createAgentResourceIdentity(identity),
+        materialize,
+      });
     }
   };
   add(
     'tool:bash',
     (bindings) =>
-      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+      createBashTool(
+        bindings.workspace,
+        bindings.bashOutputStore,
+        bindings.workTools.bash ?? {},
+      ),
   );
-  add('tool:bash_output', (bindings) => createBashOutputTool(bindings.bashOutputStore));
-  add('tool:edit', (bindings) => createEditTool(bindings.workspace, bindings.workTools));
+  add(
+    'tool:bash_output',
+    (bindings) => createBashOutputTool(bindings.bashOutputStore),
+  );
+  add(
+    'tool:edit',
+    (bindings) => createEditTool(bindings.workspace, bindings.workTools),
+  );
   add('tool:read', (bindings) => createReadTool(bindings.workspace));
-  add('tool:write', (bindings) => createWriteTool(bindings.workspace, bindings.workTools));
+  add(
+    'tool:write',
+    (bindings) => createWriteTool(bindings.workspace, bindings.workTools),
+  );
   if (webSearchBackend !== undefined) {
     add(
       'tool:web_search',
@@ -246,7 +262,11 @@ const prepareResolvedManifest = async (
 ): Promise<AgentResolvedManifestV1> => {
   const factory = seam.resolvedManifestFactory ?? seam.manifestFactory;
   const candidate = factory === undefined
-    ? await createAgentResolvedManifestFromDefinition(definitionId, definition, topology)
+    ? await createAgentResolvedManifestFromDefinition(
+      definitionId,
+      definition,
+      topology,
+    )
     : await factory(role, definitionId, selection);
   const manifest = await validateAgentResolvedManifest(candidate, topology);
   validateAgentResolvedManifestCorrelation(manifest, definitionId, selection);
@@ -265,7 +285,8 @@ export const prepareRuntimeComposition = async (
     requestCount += 1;
     return delegate(input, init);
   };
-  const workspace = seam.workspace ?? await resolveWorkspace(seam.workspaceRoot);
+  const workspace = seam.workspace ??
+    await resolveWorkspace(seam.workspaceRoot);
   const instructionSnapshot = await discoverAgentInstructionSnapshot(
     workspace.root,
     seam.instructionFileSystem,
@@ -283,7 +304,7 @@ export const prepareRuntimeComposition = async (
   const topology: AgentResolvedManifestValidationTopology = 'topology' in selection
     ? selection.topology
     : 'builtin';
-  const role: 'parent' | 'planner' = selection.id === 'planner' ? 'planner' : 'parent';
+  const role = 'parent' as const;
   const resourceSelection = validateResolvedAgentResources(
     definition,
     topology === 'builtin' ? selection.id : undefined,
@@ -331,11 +352,12 @@ export const materializePreparedRuntimeComposition = (
   prepared: PreparedRuntimeComposition,
 ): RuntimeComposition => {
   const { definition, seam, fetcher, requestCount } = prepared;
-  const webSearchBackend = seam.webSearchBackend ?? new OpenRouterSonarWebSearchBackend({
-    fetcher,
-    credential: seam.credential,
-    credentialSource: seam.credentialSource,
-  });
+  const webSearchBackend = seam.webSearchBackend ??
+    new OpenRouterSonarWebSearchBackend({
+      fetcher,
+      credential: seam.credential,
+      credentialSource: seam.credentialSource,
+    });
   const model = materializeModel(definition, fetcher, seam);
   const registry = materializeRegistry(
     definition,
@@ -346,7 +368,6 @@ export const materializePreparedRuntimeComposition = (
   );
   const systemInstructionContribution = prepared.topology === 'builtin'
     ? resolveBuiltinDefinitionInstruction(
-      prepared.selectionId === 'planner' ? 'planner' : 'default',
       prepared.workspace.root,
       prepared.agentInstructions,
       prepared.skillCatalog,

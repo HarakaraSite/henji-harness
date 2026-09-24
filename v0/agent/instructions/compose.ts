@@ -5,13 +5,9 @@ import {
 import type { SkillCatalog } from '../definitions/skills.ts';
 import { defineInstructionComponent, type InstructionComponent } from './component.ts';
 import { DEFAULT_ROLE_COMPONENT } from './roles/default.ts';
-import { PLANNER_ROLE_COMPONENT } from './roles/planner.ts';
 import { runtimeFactsComponent } from './runtime_facts.ts';
 
-export type BuiltinInstructionRole = 'default' | 'planner';
-
 export interface BuiltinInstructionCompositionInput {
-  readonly role: BuiltinInstructionRole;
   readonly workspaceRoot: string;
   readonly toolGuidelines: readonly {
     readonly tool: string;
@@ -34,7 +30,9 @@ const toolGuidelinesComponent = (
     '## Active tool guidelines\n\n' +
       (guidelines.length === 0
         ? '(none)'
-        : guidelines.map((item) => '- ' + item.tool + ': ' + item.text).join('\n')),
+        : guidelines.map((item) => '- ' + item.tool + ': ' + item.text).join(
+          '\n',
+        )),
   );
 
 const optionalComponent = (
@@ -47,28 +45,34 @@ const optionalComponent = (
 export const resolveBuiltinInstructionComposition = (
   input: BuiltinInstructionCompositionInput,
 ): BuiltinInstructionComposition => {
-  const role = input.role === 'default' ? DEFAULT_ROLE_COMPONENT : PLANNER_ROLE_COMPONENT;
   const components = [
-    role,
+    DEFAULT_ROLE_COMPONENT,
     toolGuidelinesComponent(input.toolGuidelines),
-    optionalComponent('instruction:workspace-agents', input.workspaceInstruction),
-    optionalComponent('instruction:project-skill-manifest', input.skillManifest),
+    optionalComponent(
+      'instruction:workspace-agents',
+      input.workspaceInstruction,
+    ),
+    optionalComponent(
+      'instruction:project-skill-manifest',
+      input.skillManifest,
+    ),
     runtimeFactsComponent(input.workspaceRoot),
   ].filter((component): component is InstructionComponent => component !== undefined);
   return Object.freeze({
     components: Object.freeze(components),
-    systemInstruction: components.map((component) => component.text).join('\n\n'),
+    systemInstruction: components.map((component) => component.text).join(
+      '\n\n',
+    ),
   });
 };
 
 /** Instruction identities declared by a built-in Definition in canonical source order. */
 export const builtinInstructionResourceIdentities = (
-  role: BuiltinInstructionRole,
   hasWorkspaceInstruction: boolean,
   hasSkillManifest: boolean,
 ): readonly AgentResourceIdentity[] => {
   const identities = [
-    role === 'default' ? DEFAULT_ROLE_COMPONENT.identity : PLANNER_ROLE_COMPONENT.identity,
+    DEFAULT_ROLE_COMPONENT.identity,
     createAgentResourceIdentity('instruction:active-tool-guidelines'),
     ...(hasWorkspaceInstruction
       ? [createAgentResourceIdentity('instruction:workspace-agents')]
@@ -83,14 +87,12 @@ export const builtinInstructionResourceIdentities = (
 
 /** Resolve a built-in composition from the snapshots already held by an Agent Definition. */
 export const resolveBuiltinDefinitionInstruction = (
-  role: BuiltinInstructionRole,
   workspaceRoot: string,
   workspaceInstruction: string | undefined,
   skillCatalog: SkillCatalog,
   toolGuidelines: BuiltinInstructionCompositionInput['toolGuidelines'],
 ): BuiltinInstructionComposition =>
   resolveBuiltinInstructionComposition({
-    role,
     workspaceRoot,
     toolGuidelines,
     workspaceInstruction,

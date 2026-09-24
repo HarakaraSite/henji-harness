@@ -41,7 +41,8 @@
 - Definitionは固定roleを持たず、すべてroot-runnableである。activation-level slotはroot `agent:default`だけを持ち、
   これはroot Definition revisionをbindする。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係
   として扱う。同期delegated subagent（親Worker内でのchild `runAgent()`）と`subagent:<name>` slotは廃止した。
-  bundled plannerは`agent:planner`として通常のroot-runnable Definitionであり、単独でroot実行できる。
+  bundled executableは`default` Definitionだけを持つ。`agent:default` bindingでこれを置換できる。
+  reviewerやplannerを含む名前付きchildは`agent:<name>`へ外部Definitionをbindして使う。
 - 配布されるHenji executableはimmutableなcore/runtime artifactとして扱い、Hostが書き換えるstate、config、
   Definition module revision storeとは配置とlifecycleを分離する。executableの配置先やbinary隣接pathを
   writable storageの正本にしない。
@@ -189,7 +190,7 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 - Hostが確定した基底設定、canonical conversation、明示projection、現在execution内のtool result等から、
   各model requestへ渡す実効contextを構成する意味。
 - HostがDefinition評価結果とは独立して渡したselected `instruction:henji-base`を、mandatory finalizerで
-  Definition-owned instruction contributionの先頭へ一度だけ合成する。root（planner rootを含む）は同じselected
+  Definition-owned instruction contributionの先頭へ一度だけ合成する。rootとasync childは同じselected
   exact revisionとfinalizerを使い、Definitionがcore-owned base slotをnamed componentとして返した場合は実行前に
   composition failureとする。
 - interface を通じたヘッドレスの進捗、結果、effect、commit proposal の返却。
@@ -273,7 +274,8 @@ scope config `$XDG_CONFIG_HOME/henji-harness/agents.json`で表すactivation-lev
 generation開始前にroot slotをexact `DefinitionRevisionRef`へ解決し、revisionがroot-runnableであることを検証する。
 `agent:<name>`は親Definitionが宣言する利用可能なasync child agent nameのcatalogであり、Hostは親generation開始前に
 name→exact refへ解決し、data-only catalogとして親Workerへ渡す。modelは任意pathや未解決selectorではなくcatalog名だけを
-渡せる。bundled plannerは`agent:planner`の同梱既定である。未知slot、malformed、missing revision、role不一致はtyped
+渡せる。組み込みdefaultは解決済みcatalogの名前を宣言し、未設定時はasync child toolを持たない。
+`agent:planner`を設定する場合も通常の外部Definitionとして扱う。未知slot、malformed、missing revision、role不一致はtyped
 failureとし、built-inへ暗黙fallbackしない。`subagent:<name>` slotは廃止済みであり、`agents.json`に残っている場合は
 「このslotは廃止された」と分かるtyped diagnosticで失敗させる。現在のbinding scopeはinstallation/userに限り、workspace
 scopeは対象外である。binding変更は実行中generationへhot適用せず、次のgenerationから効く。
@@ -363,7 +365,7 @@ Hostはgeneration開始前にselected built-in/external baseのexact ref、conte
 解決し、Definition評価結果とは独立したdata-only Worker-core入力へ固定する。Definitionはrole、active tool guideline、
 workspace instruction、Skill manifest、runtime facts等のbaseを除くinstruction contributionを返す。Workerのmandatory
 finalizerはselected baseを先頭に置き、Henji-ownedな二つのLFだけをcomponent境界として後続contributionへ連結する。
-planner rootも同じselected baseを再解決せず使う。resolved exact ref/content、final system instruction内のprojection、
+async childも同じselected baseを再解決せず使う。resolved exact ref/content、final system instruction内のprojection、
 provider requestとの関係はexecution context attributionへ保存し、完成payloadの別authorityを追加しない。
 
 #### MCP integration
@@ -398,7 +400,7 @@ selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surfa
 provider IDとmodel IDが一致する場合だけ再利用する。
 
 Host configの`default-selection.json`がrootの既定selectionを選び、未設定時は同梱`openrouter-chat`既定を使う。
-planner rootは自身のDefinitionまたは`roleDefaults`からselectionを得る。
+外部Agentのchild executionは通常のroot selection経路を使う。Agent名別の同梱model既定は持たない。
 credential値、Authorization、tokenはdeclaration、managed revision、Session、evidence、transcript、Definitionへ
 含めない。provider固有adapterのphysical placement、dynamic model取得、追加protocolは未決であり、採用時に
 architectureへ戻る。詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
@@ -414,7 +416,7 @@ resource kindはkindを識別できるpackage envelopeを拡張できる。trans
 
 有効toolが利用指針を持つ場合、tool metadataはprovider向けtool definitionとは分離して保持し、Definitionが
 registryをmaterializeした後にAgentCompositionのsystem instructionへ合成する。現在は`read`の選択と
-`offset`・`limit`による継続読込みの指針をdefault parentとplannerへ、切り捨てられた`bash`出力を
+`offset`・`limit`による継続読込みの指針を`read`を宣言したAgentへ、切り捨てられた`bash`出力を
 `bash_output`の`outputId`と`nextOffset`で継続取得する指針と、currentまたは外部情報に`web_search`を使って
 具体的なquestionを渡し、返されたsource URLを対応する主張の近くへ引用し、不足と推論を明示する指針を、
 それぞれのtoolを持つdefault parentだけへ合成する。
@@ -436,8 +438,8 @@ user questionと、検索結果に限定して不足・near miss・推論を明�
 sizeは`medium`とする。
 Sonar requestは親turnのmodel request budgetを一件消費し、main modelと同じcounted fetch、AbortSignal、
 短いrequest factを共有する。tool call元のmodel stepを
-request recordへ関連付け、HTTP statusと解析失敗の項目・値の形をreadback可能にする。plannerには`web_search`を
-追加しない。`tools.json`のactivation bindingでexternal tool Definitionをbindした場合は、そのDefinitionが
+request recordへ関連付け、HTTP statusと解析失敗の項目・値の形をreadback可能にする。外部Agentが
+`web_search`を使うかどうかは自身のtool宣言で決める。`tools.json`のactivation bindingでexternal tool Definitionをbindした場合は、そのDefinitionが
 model・backend・annotation解析を所有する。OpenRouter `openrouter:web_search` server toolは現在使わず、
 同じbackend境界への将来候補とする。
 
@@ -503,7 +505,7 @@ revisionではない。idle時の選択をHostが先に永続化し、Workerは�
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
 
 production TUIと`henji run`は、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
-渡す。Workerは同じ値をroot（planner rootを含む）、context compaction、補助provider requestへ適用する。
+渡す。Workerは同じ値をroot、async child、context compaction、補助provider requestへ適用する。
 このrequest単位deadlineはSession stateではなくinvocation stateであり、TUIのSession切替では変わらない。
 未指定時は300,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
 shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。

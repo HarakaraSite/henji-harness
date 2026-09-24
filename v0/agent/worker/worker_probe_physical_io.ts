@@ -34,11 +34,23 @@ const currentTurnToolResultCount = (request: ModelRequest): number => {
 const lastToolResultText = (request: ModelRequest): string => {
   const lastUser = request.transcript.findLastIndex((message) => message.role === 'user');
   if (lastUser < 0) return '';
-  const tool = request.transcript.slice(lastUser + 1).reverse().find((message) =>
-    message.role === 'tool'
-  );
+  const tool = request.transcript.slice(lastUser + 1).reverse().find((
+    message,
+  ) => message.role === 'tool');
   if (tool === undefined || !Array.isArray(tool.content)) return '';
   return tool.content.map((content) => content.text).join('\n');
+};
+
+const probeAgent = (request: ModelRequest): string => {
+  const spawn = request.tools.find((tool) => tool.name === 'spawn_subagent');
+  const schema = spawn?.inputSchema as {
+    properties?: { agent?: { enum?: unknown } };
+  } | undefined;
+  const names = schema?.properties?.agent?.enum;
+  if (!Array.isArray(names) || typeof names[0] !== 'string') {
+    throw new Error('provider-free probe needs a configured async child Agent');
+  }
+  return names[0];
 };
 
 const delayed = async (options: ModelGenerateOptions): Promise<void> => {
@@ -52,7 +64,9 @@ const barrierParts = (
 ): { readonly channelName: string; readonly label: string } | undefined => {
   if (!task.startsWith(prefix)) return undefined;
   const [channelName, label] = task.slice(prefix.length).split(':', 2);
-  if (channelName === undefined || channelName.length === 0 || label === undefined) {
+  if (
+    channelName === undefined || channelName.length === 0 || label === undefined
+  ) {
     throw new Error('invalid provider-free child barrier task');
   }
   return { channelName, label };
@@ -150,14 +164,14 @@ const waitForStubbornChildStart = async (
 
 /** Provider-free model used only to drive the real Worker composition graph in focused tests. */
 class WorkerProbeModel implements Model {
-  constructor(private readonly role: 'parent' | 'planner') {}
-
   async generate(
     request: ModelRequest,
     options: ModelGenerateOptions = {},
   ): Promise<ModelResult> {
     throwIfCancelled(options.signal);
-    options.reportAssistantProgress?.(`worker progress: ${lastUserText(request)}`);
+    options.reportAssistantProgress?.(
+      `worker progress: ${lastUserText(request)}`,
+    );
     if (request.systemInstruction?.includes('semantic context checkpoint')) {
       return {
         kind: 'final',
@@ -165,7 +179,7 @@ class WorkerProbeModel implements Model {
       };
     }
     const task = lastUserText(request);
-    if (this.role === 'planner' && task.includes('child-fail')) {
+    if (task.includes('child-fail') && !task.includes('async-')) {
       throw new Error('child task failed on purpose');
     }
     if (task === 'return active tool guidelines') {
@@ -182,7 +196,7 @@ class WorkerProbeModel implements Model {
       await new Promise<void>((resolve) => setTimeout(resolve, 5_200));
       throwIfCancelled(options.signal);
     } else if (task.includes('slow')) await delayed(options);
-    if (this.role === 'parent' && task.includes('async-child-fail')) {
+    if (task.includes('async-child-fail')) {
       const count = currentTurnToolResultCount(request);
       if (count === 0) {
         return {
@@ -190,7 +204,7 @@ class WorkerProbeModel implements Model {
           calls: [{
             callId: 'async-spawn-fail',
             name: 'spawn_subagent',
-            arguments: { agent: 'planner', task: 'child-fail task' },
+            arguments: { agent: probeAgent(request), task: 'child-fail task' },
           }],
         };
       }
@@ -215,7 +229,7 @@ class WorkerProbeModel implements Model {
         text: `child failed: ${parsed.error ?? parsed.state ?? 'unknown'}`,
       };
     }
-    if (this.role === 'parent' && task.includes('async-spawn-two')) {
+    if (task.includes('async-spawn-two')) {
       const count = currentTurnToolResultCount(request);
       if (count === 0) {
         return {
@@ -224,18 +238,20 @@ class WorkerProbeModel implements Model {
             {
               callId: 'async-spawn-a',
               name: 'spawn_subagent',
-              arguments: { agent: 'planner', task: 'slow child A' },
+              arguments: { agent: probeAgent(request), task: 'slow child A' },
             },
             {
               callId: 'async-spawn-b',
               name: 'spawn_subagent',
-              arguments: { agent: 'planner', task: 'slow child B' },
+              arguments: { agent: probeAgent(request), task: 'slow child B' },
             },
           ],
         };
       }
       const toolText = lastToolResultText(request);
-      const runIds = [...toolText.matchAll(/"runId":"([^"]+)"/gu)].map((match) => match[1]);
+      const runIds = [...toolText.matchAll(/"runId":"([^"]+)"/gu)].map((
+        match,
+      ) => match[1]);
       if (count === 1) {
         return {
           kind: 'tool_calls',
@@ -248,7 +264,7 @@ class WorkerProbeModel implements Model {
       }
       return { kind: 'final', text: 'two children completed' };
     }
-    if (this.role === 'parent' && task.startsWith(probeTask.spawnUncollected)) {
+    if (task.startsWith(probeTask.spawnUncollected)) {
       const channelName = task.slice(probeTask.spawnUncollected.length);
       if (!hasCurrentTurnToolResult(request)) {
         return {
@@ -257,7 +273,7 @@ class WorkerProbeModel implements Model {
             callId: 'async-spawn-uncollected',
             name: 'spawn_subagent',
             arguments: {
-              agent: 'planner',
+              agent: probeAgent(request),
               task: `${probeTask.stubbornChildBarrier}${channelName}:U`,
             },
           }],
@@ -266,11 +282,14 @@ class WorkerProbeModel implements Model {
       await waitForStubbornChildStart(channelName, options);
       return { kind: 'final', text: 'parent proposal with uncollected child' };
     }
-    if (this.role === 'parent' && task.includes('async-spawn')) {
+    if (task.includes('async-spawn')) {
       const toolText = lastToolResultText(request);
       if (toolText.includes('"finalText"')) {
         const parsed = JSON.parse(toolText) as { readonly finalText?: string };
-        return { kind: 'final', text: `async child: ${parsed.finalText ?? ''}` };
+        return {
+          kind: 'final',
+          text: `async child: ${parsed.finalText ?? ''}`,
+        };
       }
       if (toolText.includes('"runId"')) {
         const parsed = JSON.parse(toolText) as { readonly runId?: string };
@@ -291,7 +310,7 @@ class WorkerProbeModel implements Model {
           callId: 'async-spawn-1',
           name: 'spawn_subagent',
           arguments: {
-            agent: 'planner',
+            agent: probeAgent(request),
             task: task.startsWith(probeTask.spawnBarrier)
               ? `${probeTask.childBarrier}${task.slice(probeTask.spawnBarrier.length)}:C`
               : 'async child planning task',
@@ -311,7 +330,7 @@ class WorkerProbeModel implements Model {
       };
     }
     if (
-      !hasCurrentTurnToolResult(request) && this.role === 'parent' && task.includes('read')
+      !hasCurrentTurnToolResult(request) && task.includes('read')
     ) {
       return {
         kind: 'tool_calls',
@@ -324,13 +343,13 @@ class WorkerProbeModel implements Model {
     }
     return {
       kind: 'final',
-      text: this.role === 'planner' ? 'worker planner result' : `worker answer: ${task}`,
+      text: task.includes('child') ? 'worker child result' : `worker answer: ${task}`,
     };
   }
 }
 
 /** Construct deterministic physical bindings for focused Worker/Host integration tests. */
 export const createProviderFreePhysicalIo = (): PhysicalIoBindings => ({
-  createModel: (role) => new WorkerProbeModel(role),
+  createModel: () => new WorkerProbeModel(),
   webSearchBackend: createProviderFreeWebSearchBackend(),
 });

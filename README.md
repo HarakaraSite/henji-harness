@@ -159,8 +159,9 @@ const definition: ExecutableAgentDefinition = (input) =>
 export default definition;
 ```
 
-`createPlannerAgentComposition` can likewise compose a planner Definition into a
-root-runnable form with the same input boundary.
+`createAgentComposition(input, options)` lets an external Definition choose its role
+instruction, tools, and async child declarations. The standalone binary bundles `default`;
+named children such as `reviewer` are installed and bound through `agents.json`.
 
 ## Links
 

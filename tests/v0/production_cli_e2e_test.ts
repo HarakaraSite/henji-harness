@@ -53,7 +53,7 @@ const artifact = (): StoredWorkerExecutionArtifact => ({
   },
   manifest: {
     role: 'parent',
-    maxSteps: 64,
+    maxSteps: 128,
     profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
     resources: [],
     rootModel: ROOT_DEFAULT_MODEL_SELECTION,

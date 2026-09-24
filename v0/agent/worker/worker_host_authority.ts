@@ -15,7 +15,6 @@ import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../provider/model_catalog.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import type { ActiveSessionProjection } from './worker_host_types.ts';
 import type { WorkerCommitProposalMessage } from './worker_protocol.ts';
@@ -40,9 +39,7 @@ export class SessionAuthority {
   ) {
     const nextTurn = record?.nextTurn ?? 1;
     const defaultSelection = options.initialModelSelection ??
-      (options.agent === 'planner'
-        ? roleDefaultModelSelection('subagent:planner')
-        : ROOT_DEFAULT_MODEL_SELECTION);
+      ROOT_DEFAULT_MODEL_SELECTION;
     const modelSelection = record === undefined
       ? structuredClone(defaultSelection)
       : structuredClone(record.activeModel);
@@ -136,7 +133,9 @@ export class SessionAuthority {
   }
 
   applyCommitted(record: SessionRecordV6): void {
-    this.projection.transcript = structuredClone(record.transcript) as Message[];
+    this.projection.transcript = structuredClone(
+      record.transcript,
+    ) as Message[];
     this.projection.nextTurn = record.nextTurn;
     this.projection.stateRevision = record.stateRevision;
     this.projection.turnModels = structuredClone(
@@ -239,7 +238,11 @@ export class SessionAuthority {
     return record;
   }
 
-  titleRecord(title: string, stateRevision: number, changedAt: string): SessionRecordV6 {
+  titleRecord(
+    title: string,
+    stateRevision: number,
+    changedAt: string,
+  ): SessionRecordV6 {
     const record: SessionRecordV6 = {
       schemaVersion: 6,
       sessionId: this.sessionId,

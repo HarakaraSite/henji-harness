@@ -220,11 +220,16 @@ export const validateAgentResourceTopology = (
   definitionId: AgentResourceTopologyId,
   resources: readonly AgentResourceIdentity[],
 ): void => {
-  if (definitionId !== 'default' && definitionId !== 'planner') return invalid();
+  if (definitionId !== 'default' && definitionId !== 'planner') {
+    return invalid();
+  }
   const parsed = resources.map(parse);
   if (parsed.some((resource) => resource === undefined)) return invalid();
   const model = parsed.find((resource) => resource?.kind === 'model');
-  if (model === undefined || parsed.filter((resource) => resource?.kind === 'model').length !== 1) {
+  if (
+    model === undefined ||
+    parsed.filter((resource) => resource?.kind === 'model').length !== 1
+  ) {
     return invalid();
   }
   const names = resources.map((resource) => `${resource}`);
@@ -246,8 +251,12 @@ export const validateAgentResourceTopology = (
     expected.push(createAgentResourceIdentity('instruction:workspace-agents'));
   }
   if (skills.length > 0) {
-    expected.push(createAgentResourceIdentity('instruction:project-skill-manifest'));
-    for (const skill of skills) expected.push(createAgentResourceIdentity(skill));
+    expected.push(
+      createAgentResourceIdentity('instruction:project-skill-manifest'),
+    );
+    for (const skill of skills) {
+      expected.push(createAgentResourceIdentity(skill));
+    }
   }
   if (definitionId === 'default') {
     expected.push(
@@ -262,11 +271,17 @@ export const validateAgentResourceTopology = (
         'tool:write',
       ].map((name) => createAgentResourceIdentity(name)),
     );
-    if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
-    expected.push(createAgentResourceIdentity('agent:planner'));
+    if (skills.length > 0) {
+      expected.push(createAgentResourceIdentity('tool:skill'));
+    }
+    expected.push(
+      ...resources.filter((resource) => parse(resource)?.kind === 'agent'),
+    );
   } else {
     expected.push(createAgentResourceIdentity('tool:read'));
-    if (skills.length > 0) expected.push(createAgentResourceIdentity('tool:skill'));
+    if (skills.length > 0) {
+      expected.push(createAgentResourceIdentity('tool:skill'));
+    }
     expected.push(createAgentResourceIdentity('tool:submit_json_result'));
   }
   expected.sort(compareAgentResourceIdentities);
@@ -282,12 +297,16 @@ const exactDataProperties = (
 ): boolean => {
   const ownNames = Object.getOwnPropertyNames(value);
   if (Object.getOwnPropertySymbols(value).length !== 0) return false;
-  if (ownNames.length !== names.length || ownNames.some((name) => !names.includes(name))) {
+  if (
+    ownNames.length !== names.length ||
+    ownNames.some((name) => !names.includes(name))
+  ) {
     return false;
   }
   return names.every((name) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, name);
-    return descriptor !== undefined && 'value' in descriptor && descriptor.enumerable;
+    return descriptor !== undefined && 'value' in descriptor &&
+      descriptor.enumerable;
   });
 };
 
@@ -299,7 +318,8 @@ const snapshotIdentityArray = (
   for (let index = 0; index < value.length; index += 1) {
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
     if (
-      descriptor === undefined || !('value' in descriptor) || !descriptor.enumerable
+      descriptor === undefined || !('value' in descriptor) ||
+      !descriptor.enumerable
     ) return invalid();
     identities.push(createAgentResourceIdentity(descriptor.value as string));
   }
@@ -329,7 +349,8 @@ const declaredResources = (
       typeof definition.agentInstructions !== 'string') ||
     (typeof definition.systemInstruction !== 'undefined' &&
       typeof definition.systemInstruction !== 'string') ||
-    !isPlainObject(definition.capabilities) || !Object.isFrozen(definition.capabilities) ||
+    !isPlainObject(definition.capabilities) ||
+    !Object.isFrozen(definition.capabilities) ||
     !exactDataProperties(definition.capabilities, [
       'instructions',
       'skills',
@@ -378,7 +399,10 @@ export const validateDeclaredAgentResourceTopology = (
       const resource = resources[index];
       if (names.has(`${resource}`)) return invalid();
       names.add(`${resource}`);
-      if (index > 0 && compareAgentResourceIdentities(resources[index - 1], resource) >= 0) {
+      if (
+        index > 0 &&
+        compareAgentResourceIdentities(resources[index - 1], resource) >= 0
+      ) {
         return invalid();
       }
     }
@@ -397,7 +421,9 @@ export const validateResolvedAgentResources = (
   );
   const expected = declaredResources(definition);
   validateDeclaredAgentResourceTopology(expected);
-  if (selection.parameters.maxSteps !== definition.limits.maxSteps) return invalid();
+  if (selection.parameters.maxSteps !== definition.limits.maxSteps) {
+    return invalid();
+  }
   if (selection.resources.length !== expected.length) return invalid();
   for (let index = 0; index < expected.length; index += 1) {
     if (selection.resources[index] !== expected[index]) return invalid();

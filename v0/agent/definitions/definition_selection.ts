@@ -48,7 +48,7 @@ export interface BuiltinHostDefinitionSelection extends BuiltinAgentSelection {
 
 export interface ManagedHostDefinitionSelection {
   readonly kind: 'managed';
-  readonly id: 'default' | 'planner';
+  readonly id: 'default';
   readonly ref: DefinitionRevisionRef;
   readonly revision: ManagedDefinitionRevision;
 }
@@ -84,10 +84,16 @@ export const resolveDefinitionRef = async (
   ref: DefinitionRevisionRef,
   dataRoot?: string,
 ): Promise<HostDefinitionSelection> => {
-  if (ref.resourceId === 'builtin/default' || ref.resourceId === 'builtin/planner') {
-    const selected = await builtinSelection(
-      ref.resourceId === 'builtin/planner' ? 'planner' : 'default',
+  if (ref.resourceId === 'builtin/planner') {
+    throw new DefinitionStartupError(
+      'definition_not_found',
+      'resolution',
+      'The bundled planner Definition is no longer available',
+      ref,
     );
+  }
+  if (ref.resourceId === 'builtin/default') {
+    const selected = await builtinSelection('default');
     if (!sameDefinitionRevisionRef(selected.ref, ref)) {
       throw new DefinitionStartupError(
         'definition_not_found',
@@ -118,7 +124,9 @@ export const resolveDefinitionRef = async (
     });
   } catch (error) {
     if (error instanceof DefinitionStartupError) throw error;
-    if (error instanceof ManagedDefinitionError) throw startupFromStore(error, ref);
+    if (error instanceof ManagedDefinitionError) {
+      throw startupFromStore(error, ref);
+    }
     throw error;
   }
 };

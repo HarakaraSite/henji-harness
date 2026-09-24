@@ -120,7 +120,9 @@ const toolAttributionKey = (
 
 const validToolManifest = (
   value: NonNullable<WorkerReadyMessage['manifest']>['tools'],
-  requested: readonly import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest[] | undefined,
+  requested:
+    | readonly import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest[]
+    | undefined,
 ): boolean => {
   const expectedKeys = new Set(
     (requested ?? []).map((tool) => toolAttributionKey(tool.toolIdentity, tool.ref)),
@@ -229,7 +231,9 @@ export class WorkerSupervisor {
     ackAccepted?: boolean,
     sink?: WorkerExecutionTraceEntry[],
   ): void {
-    if (this.options.historyPersistence?.capturesProtocolTrace?.() === false) return;
+    if (this.options.historyPersistence?.capturesProtocolTrace?.() === false) {
+      return;
+    }
     const entry: WorkerExecutionTraceEntry = {
       direction,
       kind,
@@ -386,7 +390,6 @@ export class WorkerSupervisor {
           : { toolDefinitions: this.options.toolDefinitions }),
         workspaceRoot: this.options.workspaceRoot,
         physicalIoMode: this.options.physicalIoMode ?? 'production',
-        rootRole: this.options.agent === 'planner' ? 'planner' : 'parent',
         ...(this.options.rootMaxSteps === undefined
           ? {}
           : { rootMaxSteps: this.options.rootMaxSteps }),
@@ -421,7 +424,7 @@ export class WorkerSupervisor {
           ready.message,
         );
       }
-      const expectedRole = this.options.agent === 'planner' ? 'planner' : 'parent';
+      const expectedRole = 'parent';
       if (
         ready.manifest !== undefined && ready.manifest.role !== expectedRole
       ) {

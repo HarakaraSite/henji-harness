@@ -12,7 +12,6 @@ const ROOTS = [
   'v0/agent/cli/henji_cli.ts',
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/worker/worker_builtin_definition.ts',
-  'v0/agent/worker/worker_builtin_planner_definition.ts',
   'v0/agent/worker/worker_builtin_bash_tool.ts',
   'v0/agent/worker/worker_builtin_bash_output_tool.ts',
   'v0/agent/worker/worker_builtin_edit_tool.ts',
@@ -30,8 +29,7 @@ const encoder = new TextEncoder();
 
 interface BuiltinDefinitionEntry {
   readonly resourceId: string;
-  readonly declaredRole: 'parent' | 'subagent';
-  readonly subagentName?: string;
+  readonly declaredRole: 'parent';
   readonly entry: string;
 }
 
@@ -46,12 +44,6 @@ const BUILTIN_DEFINITIONS: readonly BuiltinDefinitionEntry[] = [
     resourceId: 'builtin/default',
     declaredRole: 'parent',
     entry: 'v0/agent/worker/worker_builtin_definition.ts',
-  },
-  {
-    resourceId: 'builtin/planner',
-    declaredRole: 'subagent',
-    subagentName: 'planner',
-    entry: 'v0/agent/worker/worker_builtin_planner_definition.ts',
   },
 ];
 
@@ -93,7 +85,10 @@ const BUILTIN_TOOLS: readonly BuiltinToolEntry[] = [
   },
 ];
 
-const run = async (command: string, args: readonly string[]): Promise<Uint8Array> => {
+const run = async (
+  command: string,
+  args: readonly string[],
+): Promise<Uint8Array> => {
   const output = await new Deno.Command(command, {
     args: [...args],
     stdout: 'piped',
@@ -105,7 +100,11 @@ const run = async (command: string, args: readonly string[]): Promise<Uint8Array
 };
 
 const sha256 = async (bytes: Uint8Array): Promise<string> =>
-  [...new Uint8Array(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer))]
+  [
+    ...new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new Uint8Array(bytes).buffer),
+    ),
+  ]
     .map((byte) => byte.toString(16).padStart(2, '0')).join('');
 
 const append = (chunks: Uint8Array[], value: string | Uint8Array): void => {
@@ -114,7 +113,8 @@ const append = (chunks: Uint8Array[], value: string | Uint8Array): void => {
 };
 
 const repositoryRoot = async (): Promise<string> =>
-  new TextDecoder().decode(await run('git', ['rev-parse', '--show-toplevel'])).trim();
+  new TextDecoder().decode(await run('git', ['rev-parse', '--show-toplevel']))
+    .trim();
 
 const localModuleFiles = async (
   root: string,
@@ -132,7 +132,9 @@ const localModuleFiles = async (
   )) as { readonly modules: readonly { readonly local?: string }[] };
   const paths = new Set<string>();
   for (const module of info.modules) {
-    if (module.local?.startsWith(`${root}/`)) paths.add(module.local.slice(root.length + 1));
+    if (module.local?.startsWith(`${root}/`)) {
+      paths.add(module.local.slice(root.length + 1));
+    }
   }
   return [...paths].sort();
 };
@@ -152,11 +154,16 @@ export const buildInputFiles = async (
   runtimePaths?: readonly string[],
 ): Promise<readonly string[]> => {
   const paths = new Set(runtimePaths ?? await runtimeFiles(root));
-  for (const path of await localModuleFiles(root, 'scripts/build_henji.ts')) paths.add(path);
+  for (const path of await localModuleFiles(root, 'scripts/build_henji.ts')) {
+    paths.add(path);
+  }
   return [...paths].sort();
 };
 
-const runtimeDigest = async (root: string, paths: readonly string[]): Promise<string> => {
+const runtimeDigest = async (
+  root: string,
+  paths: readonly string[],
+): Promise<string> => {
   const chunks: Uint8Array[] = [];
   for (const path of paths) {
     append(chunks, path);
@@ -236,11 +243,21 @@ export const moduleClosureFiles = async (
 const closureFiles = async (
   root: string,
   entry: string,
-): Promise<readonly { path: string; bytes: Uint8Array; dependencies: readonly [] }[]> => {
+): Promise<
+  readonly { path: string; bytes: Uint8Array; dependencies: readonly [] }[]
+> => {
   const paths = await moduleClosureFiles(root, entry);
-  const files: { path: string; bytes: Uint8Array; dependencies: readonly [] }[] = [];
+  const files: {
+    path: string;
+    bytes: Uint8Array;
+    dependencies: readonly [];
+  }[] = [];
   for (const path of paths) {
-    files.push({ path, bytes: await Deno.readFile(`${root}/${path}`), dependencies: [] });
+    files.push({
+      path,
+      bytes: await Deno.readFile(`${root}/${path}`),
+      dependencies: [],
+    });
   }
   return files;
 };
@@ -252,7 +269,6 @@ const builtinResourceRevisions = async (
   for (const definition of BUILTIN_DEFINITIONS) {
     const bytes = canonicalDefinitionRevisionBytes({
       declaredRole: definition.declaredRole,
-      ...(definition.subagentName === undefined ? {} : { subagentName: definition.subagentName }),
       apiContract: AGENT_DEFINITION_API_CONTRACT,
       entry: definition.entry,
       files: await closureFiles(root, definition.entry),
@@ -311,7 +327,9 @@ export interface StagedCompileInputs {
   readonly includes: readonly string[];
 }
 
-export const stagedCompileInputs = (stagingRoot: string): StagedCompileInputs => ({
+export const stagedCompileInputs = (
+  stagingRoot: string,
+): StagedCompileInputs => ({
   entry: `${stagingRoot}/henji_entry.ts`,
   manifestModule: './v0/agent/runtime/build_manifest.ts',
   cliModule: './v0/agent/cli/henji_cli.ts',
@@ -326,7 +344,9 @@ const copyDirectory = async (source: string, target: string): Promise<void> => {
     const targetPath = `${target}/${entry.name}`;
     if (entry.isDirectory) await copyDirectory(sourcePath, targetPath);
     else if (entry.isFile) await Deno.copyFile(sourcePath, targetPath);
-    else if (entry.isSymlink) await Deno.symlink(await Deno.readLink(sourcePath), targetPath);
+    else if (entry.isSymlink) {
+      await Deno.symlink(await Deno.readLink(sourcePath), targetPath);
+    }
   }
 };
 
@@ -338,7 +358,9 @@ const copyRuntimeToStaging = async (
   for (const path of paths) {
     const target = `${stagingRoot}/${path}`;
     const slash = target.lastIndexOf('/');
-    if (slash > 0) await Deno.mkdir(target.slice(0, slash), { recursive: true });
+    if (slash > 0) {
+      await Deno.mkdir(target.slice(0, slash), { recursive: true });
+    }
     await Deno.copyFile(`${root}/${path}`, target);
   }
   await copyDirectory(`${root}/vendor`, `${stagingRoot}/vendor`);
@@ -346,14 +368,18 @@ const copyRuntimeToStaging = async (
 
 const main = async (): Promise<void> => {
   if (Deno.version.deno !== EXPECTED_DENO) {
-    throw new Error(`Deno ${EXPECTED_DENO} required; found ${Deno.version.deno}`);
+    throw new Error(
+      `Deno ${EXPECTED_DENO} required; found ${Deno.version.deno}`,
+    );
   }
   const root = await repositoryRoot();
   const output = parseOutput(Deno.args, root);
   const files = await runtimeFiles(root);
   const buildInputs = await buildInputFiles(root, files);
   const embeddedRuntimeSha256 = await runtimeDigest(root, files);
-  const jsr = JSON.parse(await Deno.readTextFile(`${root}/jsr.json`)) as { version: string };
+  const jsr = JSON.parse(await Deno.readTextFile(`${root}/jsr.json`)) as {
+    version: string;
+  };
   const sourceRevision = new TextDecoder().decode(
     await run('git', ['-C', root, 'rev-parse', 'HEAD']),
   ).trim();
@@ -370,7 +396,9 @@ const main = async (): Promise<void> => {
     supportedToolDefinitionApiContracts: [HENJI_TOOL_DEFINITION_API_CONTRACT],
     builtinResources,
   } as const;
-  const buildId = await sha256(encoder.encode(`henji-build-v1\0${JSON.stringify(identity)}`));
+  const buildId = await sha256(
+    encoder.encode(`henji-build-v1\0${JSON.stringify(identity)}`),
+  );
   const manifest: BuildManifestV1 = { ...identity, buildId };
   const temporary = await Deno.makeTempDir({ prefix: 'henji-compile-' });
   try {
@@ -385,7 +413,9 @@ const main = async (): Promise<void> => {
         `Deno.exit(await main(Deno.args));\n`,
     );
     const slash = output.lastIndexOf('/');
-    if (slash > 0) await Deno.mkdir(output.slice(0, slash), { recursive: true });
+    if (slash > 0) {
+      await Deno.mkdir(output.slice(0, slash), { recursive: true });
+    }
     await run(Deno.execPath(), [
       'compile',
       '--no-prompt',

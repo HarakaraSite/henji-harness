@@ -7,7 +7,6 @@ import {
   searchOpenRouterModels,
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
-import { roleDefaultModelSelection } from '../../v0/agent/provider/model_catalog.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 
@@ -46,7 +45,6 @@ Deno.test('Increment 12 curated catalog has the approved defaults and searchable
     modelId: 'deepseek/deepseek-v4.1-flash',
     effort: 'high',
   });
-  assertEquals(roleDefaultModelSelection('subagent:planner'), ROOT_DEFAULT_MODEL_SELECTION);
   assertEquals(
     searchOpenRouterModels('FLASH').map((entry) => entry.modelId),
     [
@@ -72,7 +70,10 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
           message: {
             role: 'assistant',
             content: null,
-            reasoning_details: [{ type: 'reasoning.text', text: 'internal continuity' }],
+            reasoning_details: [{
+              type: 'reasoning.text',
+              text: 'internal continuity',
+            }],
             tool_calls: [{
               id: 'call-1',
               type: 'function',
@@ -96,8 +97,15 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
     profile: openRouterProfileFor(selection),
   });
   const firstRequest: ModelRequest = {
-    transcript: [{ role: 'user', content: { kind: 'text', text: 'use the probe' } }],
-    tools: [{ name: 'probe', description: 'probe', inputSchema: { type: 'object' } }],
+    transcript: [{
+      role: 'user',
+      content: { kind: 'text', text: 'use the probe' },
+    }],
+    tools: [{
+      name: 'probe',
+      description: 'probe',
+      inputSchema: { type: 'object' },
+    }],
   };
   const first = await model.generate(firstRequest);
   assert(first.kind === 'tool_calls');
@@ -106,7 +114,10 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
     ...firstRequest.transcript,
     {
       role: 'assistant',
-      content: first.calls.map((call) => ({ kind: 'tool_call' as const, ...call })),
+      content: first.calls.map((call) => ({
+        kind: 'tool_call' as const,
+        ...call,
+      })),
       providerState: first.providerState,
     },
     {
@@ -134,7 +145,9 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
     credential: 'dummy-test-credential',
     profile: openRouterProfileFor(selectOpenRouterModel('qwen/qwen3.8-flash')),
     fetcher: (_input, init) => {
-      autoBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      autoBodies.push(
+        JSON.parse(String(init?.body)) as Record<string, unknown>,
+      );
       return Promise.resolve(
         new Response(
           JSON.stringify({
@@ -152,13 +165,12 @@ Deno.test('Increment 12 provider wire sends effort and replays reasoning details
   assert(!Object.hasOwn(autoBodies[0]!, 'reasoning'));
 });
 
-Deno.test('Increment 12 switches and restores the root model while planner stays fixed', async () => {
+Deno.test('Increment 12 switches and restores the root model', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-model-switch-' });
   const workspaceRoot = Deno.cwd();
   const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   let first: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
-  let planner: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     first = await createWorkerSession({
       stateRoot,
@@ -167,7 +179,10 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
       agent: 'default',
       physicalIoMode: 'provider-free',
     });
-    assertEquals(first.session.modelSelectionSnapshot(), ROOT_DEFAULT_MODEL_SELECTION);
+    assertEquals(
+      first.session.modelSelectionSnapshot(),
+      ROOT_DEFAULT_MODEL_SELECTION,
+    );
     const qwen = selectOpenRouterModel('qwen/qwen3.8-max-0902');
     assertEquals(await first.session.selectModel(qwen), 'selected');
     const sessionId = first.session.currentPosition().sessionId;
@@ -179,7 +194,8 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     assertEquals(selectedBeforeTurn.turnModels, []);
     const listedBeforeTurn = await store.listWorker();
     assertEquals(
-      listedBeforeTurn.sessions.find((item) => item.id === sessionId)?.modelSelection,
+      listedBeforeTurn.sessions.find((item) => item.id === sessionId)
+        ?.modelSelection,
       qwen,
     );
     assert((await first.session.submit('first model-attributed turn')).ok);
@@ -196,7 +212,10 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
       { turn: 2, selection: gpt },
     ]);
     const listed = await store.listWorker();
-    assertEquals(listed.sessions.find((item) => item.id === sessionId)?.modelSelection, gpt);
+    assertEquals(
+      listed.sessions.find((item) => item.id === sessionId)?.modelSelection,
+      gpt,
+    );
     const execution = store.listExecutionsForSession(sessionId).at(-1);
     assert(execution !== undefined);
     assert(execution.manifest !== undefined);
@@ -217,19 +236,7 @@ Deno.test('Increment 12 switches and restores the root model while planner stays
     assertEquals(resumed.displayState.model.effort, gpt.effort);
     await resumed.close();
     resumed = undefined;
-
-    planner = await createWorkerSession({
-      stateRoot,
-      workspaceRoot,
-      persistence: 'none',
-      agent: 'planner',
-      physicalIoMode: 'provider-free',
-    });
-    assertEquals(await planner.session.selectModel(gpt), 'selected');
-    const plannerOutcome = await planner.session.submit('standalone planner turn');
-    assertEquals(plannerOutcome.finalText, 'worker planner result');
   } finally {
-    await planner?.close();
     await resumed?.close();
     await first?.close();
     await Deno.remove(stateRoot, { recursive: true });

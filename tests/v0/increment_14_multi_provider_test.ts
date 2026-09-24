@@ -7,7 +7,6 @@ import {
   isModelSelection,
   modelCatalogEntryFor,
   providerIdsForSelection,
-  roleDefaultModelSelection,
   searchModelsFor,
   selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
@@ -966,7 +965,7 @@ Deno.test('Increment 14 keeps resolved OpenAI auth authoritative over ambient SD
   }
 });
 
-Deno.test('Increment 14 keeps planner OpenRouter auth separate from an OpenAI root', async () => {
+Deno.test('Increment 14 resolves OpenRouter auth independently of an OpenAI route', async () => {
   const seen: { authorization?: string; host?: string } = {};
   const fetcher: typeof fetch = (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
@@ -986,7 +985,7 @@ Deno.test('Increment 14 keeps planner OpenRouter auth separate from an OpenAI ro
     },
     fetcher,
   });
-  const result = await physical.createModel('planner').generate(request);
+  const result = await physical.createModel('parent').generate(request);
   assertEquals(result, { kind: 'final', text: 'planned' });
   assertEquals(seen.host, 'openrouter.ai');
   assertEquals(seen.authorization, 'Bearer router-secret');
@@ -1230,23 +1229,6 @@ Deno.test('Increment 113 Host and Worker share the TUI-resolved provider snapsho
     await created?.close();
     setActiveProviderDeclarations([]);
     await Deno.remove(configRoot, { recursive: true });
-  }
-});
-
-Deno.test('Increment 113 headless planner keeps the bundled role default', async () => {
-  const created = await createWorkerSession({
-    workspaceRoot: Deno.cwd(),
-    persistence: 'none',
-    agent: 'planner',
-    physicalIoMode: 'provider-free',
-  });
-  try {
-    assertEquals(
-      created.session.modelSelectionSnapshot(),
-      roleDefaultModelSelection('subagent:planner'),
-    );
-  } finally {
-    await created.close();
   }
 });
 

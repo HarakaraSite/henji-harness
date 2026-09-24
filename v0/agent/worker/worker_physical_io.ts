@@ -21,7 +21,7 @@ import {
   openRouterProfileFor,
   openRouterProfileForDeclaredChat,
 } from '../provider/openrouter_model_catalog.ts';
-import { defaultModelSelectionFor, roleDefaultModelSelection } from '../provider/model_catalog.ts';
+import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
 import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
 import type { WorkerStageName } from './worker_stage_probe.ts';
 import { createProviderRequestDispatcher } from '../provider/auxiliary_request.ts';
@@ -69,11 +69,8 @@ export const createProductionPhysicalIo = (
   const sources = options.credentialSources ?? {};
   const resolver = createCredentialResolver({ sources });
   return {
-    createModel: (role, selection?: ModelSelection) => {
-      const resolved = selection ??
-        (role === 'planner'
-          ? roleDefaultModelSelection('subagent:planner')
-          : defaultModelSelectionFor('openrouter-chat'));
+    createModel: (_role, selection?: ModelSelection) => {
+      const resolved = selection ?? defaultModelSelectionFor('openrouter-chat');
       if (resolved.provider === 'openai-responses') {
         return new OpenAIResponsesModel({
           selection: resolved as OpenAIModelSelection,

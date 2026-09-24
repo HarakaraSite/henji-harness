@@ -1,5 +1,4 @@
 import { HENJI_COMMON_INSTRUCTION } from '../../v0/agent/instructions/henji_common.ts';
-import { PLANNER_AGENT_INSTRUCTION } from '../../v0/agent/instructions/roles/planner.ts';
 import {
   type BaseInstructionFileSystem,
   builtinHenjiBaseInstruction,
@@ -27,7 +26,10 @@ const encoder = new TextEncoder();
 const sha256Hex = async (bytes: Uint8Array): Promise<string> =>
   [
     ...new Uint8Array(
-      await crypto.subtle.digest('SHA-256', bytes.slice().buffer as ArrayBuffer),
+      await crypto.subtle.digest(
+        'SHA-256',
+        bytes.slice().buffer as ArrayBuffer,
+      ),
     ),
   ]
     .map((byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -46,14 +48,6 @@ Deno.test('Increment 103 built-in base instruction is the minimal core', () => {
   assertEquals(builtin.selectionSource, 'built-in');
   assertEquals(builtin.ref.resourceId, 'builtin/henji-base');
   assertEquals(builtin.content, HENJI_COMMON_INSTRUCTION);
-});
-
-Deno.test('Increment 103 planner role is limited to the smallest sufficient change', () => {
-  assert(
-    PLANNER_AGENT_INSTRUCTION.includes(
-      'Inspect only the workspace context needed to decide the smallest sufficient change for the task',
-    ),
-  );
 });
 
 Deno.test('Increment 103 resolves a user instruction.md as the external base', async () => {
@@ -82,7 +76,10 @@ Deno.test('Increment 103 falls back to the built-in core without a user file', a
 Deno.test('Increment 103 rejects invalid content and read failures before the turn', async () => {
   let invalid = '';
   try {
-    await resolveHenjiBaseInstruction('/config', fileSystemOf(encoder.encode('   \n')));
+    await resolveHenjiBaseInstruction(
+      '/config',
+      fileSystemOf(encoder.encode('   \n')),
+    );
   } catch (error) {
     invalid = error instanceof HenjiInstructionError ? error.code : 'unexpected';
   }
@@ -108,7 +105,9 @@ Deno.test('Increment 103 template keeps the moved detailed policy', async () => 
     'docs/operations/base-instruction-template.md',
   );
   assert(template.includes('Before changing implementation'));
-  assert(template.includes('Prefer the smallest change that satisfies the request.'));
+  assert(
+    template.includes('Prefer the smallest change that satisfies the request.'),
+  );
   assert(template.includes('faithful artifact'));
   assert(template.includes('reuse successful tool results'));
 });

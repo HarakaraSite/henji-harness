@@ -9,7 +9,6 @@ import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import {
   DEFAULT_AGENT_MAX_STEPS,
   defaultAgentDefinition,
-  plannerAgentDefinition,
 } from '../../v0/agent/definitions/agent_definition.ts';
 import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider/provider_profile.ts';
 import { admitInternalAgentDefinition } from '../../v0/agent/definitions/agent_catalog.ts';
@@ -33,9 +32,9 @@ import {
 } from '../../v0/agent/runtime/runtime.ts';
 import { displayWorkspaceLabel } from '../../v0/agent/runtime/startup_orientation.ts';
 import {
+  createAgentComposition,
   createAgentResourceIdentity,
   createDefaultAgentComposition,
-  createPlannerAgentComposition,
   type ExecutableAgentDefinition,
   finalizeRootAgentComposition,
   type ToolComponent,
@@ -85,7 +84,11 @@ const bundledWorkToolComponents = (
   {
     identity: createAgentResourceIdentity('tool:bash'),
     materialize: (bindings) =>
-      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+      createBashTool(
+        bindings.workspace,
+        bindings.bashOutputStore,
+        bindings.workTools.bash ?? {},
+      ),
   },
   {
     identity: createAgentResourceIdentity('tool:bash_output'),
@@ -124,7 +127,11 @@ Deno.test('agent loop completes plain and terminal-tool turns', async () => {
     new Registry([]),
   );
   assert(plain.ok);
-  assertEquals({ stop: plain.stopReason, text: plain.finalText, steps: plain.steps }, {
+  assertEquals({
+    stop: plain.stopReason,
+    text: plain.finalText,
+    steps: plain.steps,
+  }, {
     stop: 'final',
     text: 'done',
     steps: 1,
@@ -169,7 +176,11 @@ Deno.test('agent loop retains one terminal request-count snapshot beyond sixteen
         if (requests < 17) {
           return {
             kind: 'tool_calls' as const,
-            calls: [{ callId: `continue-${requests}`, name: 'continue', arguments: {} }],
+            calls: [{
+              callId: `continue-${requests}`,
+              name: 'continue',
+              arguments: {},
+            }],
           };
         }
         return { kind: 'final' as const, text: 'done' };
@@ -256,16 +267,20 @@ Deno.test('event sink mutation stays isolated from tool input and transcript', a
       eventSink: (event) => {
         if (event.kind === 'assistant_message') {
           if (Array.isArray(event.message.content)) {
-            const argumentsValue = event.message.content[0]?.arguments as unknown as Record<
-              string,
-              unknown
-            >;
+            const argumentsValue = event.message.content[0]
+              ?.arguments as unknown as Record<
+                string,
+                unknown
+              >;
             argumentsValue.value = 'mutated by sink';
           } else {
             (event.message.content as { text: string }).text = 'mutated by sink';
           }
         } else if (event.kind === 'tool_call') {
-          const argumentsValue = event.call.arguments as unknown as Record<string, unknown>;
+          const argumentsValue = event.call.arguments as unknown as Record<
+            string,
+            unknown
+          >;
           argumentsValue.value = 'mutated by sink';
         } else if (event.kind === 'tool_result') {
           (event.result as { text: string }).text = 'mutated by sink';
@@ -358,7 +373,11 @@ Deno.test('max-step failure is diagnosed and not committed', async () => {
   const result = await session.submit('bounded');
   assert(!result.ok);
   assertEquals(
-    { stop: result.stopReason, stage: result.diagnostic?.stage, code: result.diagnostic?.code },
+    {
+      stop: result.stopReason,
+      stage: result.diagnostic?.stage,
+      code: result.diagnostic?.code,
+    },
     { stop: 'max_steps', stage: 'turn_control', code: 'model_step_limit' },
   );
   assertEquals(session.transcriptSnapshot(), []);
@@ -370,11 +389,12 @@ Deno.test('max-step failure is diagnosed and not committed', async () => {
 Deno.test('terminal JSON results retain output above 64 KiB', async () => {
   const text = 'p'.repeat(300_000);
   const json = JSON.stringify({ text });
-  const terminal = await new Registry([createJsonResultSubmissionTool()]).dispatch({
-    callId: 'submit-large',
-    name: 'submit_json_result',
-    arguments: { json },
-  });
+  const terminal = await new Registry([createJsonResultSubmissionTool()])
+    .dispatch({
+      callId: 'submit-large',
+      name: 'submit_json_result',
+      arguments: { json },
+    });
   assert(terminal.terminal !== null);
   assertEquals(terminal.terminal?.finalText, json);
 });
@@ -400,10 +420,8 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     skillCatalog: emptySkillCatalog(),
   };
   const defaultDefinition = defaultAgentDefinition(input);
-  const plannerDefinition = plannerAgentDefinition(input);
   assertEquals(DEFAULT_AGENT_MAX_STEPS, 128);
   assertEquals(defaultDefinition.limits.maxSteps, 128);
-  assertEquals(plannerDefinition.limits.maxSteps, 128);
   assert(!('registry' in defaultDefinition));
   assert(!('skillCatalog' in defaultDefinition));
   assertEquals(defaultDefinition.capabilities.tools.map(String), [
@@ -433,41 +451,44 @@ Deno.test('Definitions declare capabilities while the host materializes matching
       'write',
     ],
   );
-  assertEquals(
-    createDeclaredRegistry(plannerDefinition.capabilities, {
-      ...input,
-      toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
-    }).definitions().map((tool) => tool.name),
-    ['read', 'submit_json_result'],
-  );
   validateResolvedAgentResources(defaultDefinition, 'default');
-  validateResolvedAgentResources(plannerDefinition, 'planner');
+  const configured = defaultAgentDefinition({
+    ...input,
+    asyncAgentNames: ['reviewer'],
+  });
+  assertEquals(configured.capabilities.asyncAgents.map(String), [
+    'agent:reviewer',
+  ]);
+  validateResolvedAgentResources(configured, 'default');
 
   let observedManifest: AgentResolvedManifestV1 | undefined;
-  const synthetic = admitInternalAgentDefinition('default', (definitionInput) => {
-    const base = defaultAgentDefinition(definitionInput);
-    const customTools = Object.freeze(
-      base.capabilities.tools.filter((resource) =>
-        resource === 'tool:read' || resource === 'tool:submit_json_result'
-      ),
-    );
-    const custom = Object.freeze({
-      ...base,
-      capabilities: Object.freeze({
-        ...base.capabilities,
-        tools: customTools,
-      }),
-      limits: Object.freeze({ maxSteps: 5 }),
-      resourceSelection: createAgentResourceSelection(
-        base.resourceSelection.resources.filter((resource) =>
-          !resource.startsWith('tool:') || customTools.includes(resource)
+  const synthetic = admitInternalAgentDefinition(
+    'default',
+    (definitionInput) => {
+      const base = defaultAgentDefinition(definitionInput);
+      const customTools = Object.freeze(
+        base.capabilities.tools.filter((resource) =>
+          resource === 'tool:read' || resource === 'tool:submit_json_result'
         ),
-        5,
-      ),
-    });
-    validateResolvedAgentResources(custom);
-    return custom;
-  });
+      );
+      const custom = Object.freeze({
+        ...base,
+        capabilities: Object.freeze({
+          ...base.capabilities,
+          tools: customTools,
+        }),
+        limits: Object.freeze({ maxSteps: 5 }),
+        resourceSelection: createAgentResourceSelection(
+          base.resourceSelection.resources.filter((resource) =>
+            !resource.startsWith('tool:') || customTools.includes(resource)
+          ),
+          5,
+        ),
+      });
+      validateResolvedAgentResources(custom);
+      return custom;
+    },
+  );
   const prepared = await prepareRuntimeComposition({
     workspace: input.workspace,
     instructionFileSystem: {
@@ -489,7 +510,10 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     composition.registry.definitions().map((tool) => `tool:${tool.name}`),
     prepared.definition.capabilities.tools,
   );
-  assertEquals(observedManifest.resources, prepared.resourceSelection.resources);
+  assertEquals(
+    observedManifest.resources,
+    prepared.resourceSelection.resources,
+  );
   assertEquals(observedManifest.parameters.maxSteps, 5);
   assertEquals(observedManifest.definitionId, 'default');
   assertEquals(
@@ -497,18 +521,20 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     ['read', 'submit_json_result'],
   );
   const requestBudget = composition.createTurnExecutionContext(1);
-  for (let step = 0; step < 5; step += 1) assert(requestBudget.claimModelRequest());
+  for (let step = 0; step < 5; step += 1) {
+    assert(requestBudget.claimModelRequest());
+  }
   assert(!requestBudget.claimModelRequest());
 });
 
 Deno.test('active tool guidelines compose only where their tools are materialized', () => {
-  const requests: Array<{ role: 'parent' | 'planner'; request: ModelRequest }> = [];
+  const requests: Array<{ role: 'parent'; request: ModelRequest }> = [];
   const input = {
     workspace: { root: '/definition-test' },
     skillCatalog: emptySkillCatalog(),
     agentInstructions: 'workspace instructions',
     physicalIo: {
-      createModel: (role: 'parent' | 'planner') => ({
+      createModel: (role: 'parent') => ({
         generate: (request: ModelRequest) => {
           requests.push({ role, request });
           return { kind: 'final' as const, text: 'done' };
@@ -519,7 +545,14 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
   };
   const parent = createDefaultAgentComposition(input);
-  const directPlanner = createPlannerAgentComposition(input);
+  const reviewer = createAgentComposition(input, {
+    roleInstruction: 'Review the requested change without editing files.',
+    tools: [
+      createAgentResourceIdentity('tool:read'),
+      createAgentResourceIdentity('tool:submit_json_result'),
+    ],
+    asyncAgents: [],
+  });
   const guideline =
     'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
   const bashGuideline =
@@ -534,13 +567,13 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   assert(parent.systemInstruction?.includes(bashGuideline));
   assert(parent.systemInstruction?.includes(bashOutputGuideline));
   assertEquals(parent.systemInstruction, parent.resolved.systemInstruction);
-  assert(directPlanner.systemInstruction?.includes(guideline));
-  assert(!directPlanner.systemInstruction?.includes(bashGuideline));
-  assert(!directPlanner.systemInstruction?.includes(bashOutputGuideline));
+  assert(reviewer.systemInstruction?.includes(guideline));
+  assert(!reviewer.systemInstruction?.includes(bashGuideline));
+  assert(!reviewer.systemInstruction?.includes(bashOutputGuideline));
   assert(parent.systemInstruction?.includes(webSearchGuideline));
-  assert(!directPlanner.systemInstruction?.includes(webSearchGuideline));
+  assert(!reviewer.systemInstruction?.includes(webSearchGuideline));
   assert(parent.systemInstruction?.includes(webFetchGuideline));
-  assert(!directPlanner.systemInstruction?.includes(webFetchGuideline));
+  assert(!reviewer.systemInstruction?.includes(webFetchGuideline));
   for (
     const sourceSelectionBehavior of [
       'use that source first and do not add web search unless it leaves',
@@ -553,9 +586,9 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     ]
   ) {
     assert(parent.systemInstruction?.includes(sourceSelectionBehavior));
-    assert(!directPlanner.systemInstruction?.includes(sourceSelectionBehavior));
+    assert(!reviewer.systemInstruction?.includes(sourceSelectionBehavior));
   }
-  assertEquals(directPlanner.systemInstruction, directPlanner.resolved.systemInstruction);
+  assertEquals(reviewer.systemInstruction, reviewer.resolved.systemInstruction);
   assertEquals(parent.registry.promptGuidelines(), [
     { tool: 'bash', text: bashGuideline },
     { tool: 'bash_output', text: bashOutputGuideline },
@@ -567,9 +600,15 @@ Deno.test('active tool guidelines compose only where their tools are materialize
   const bashDefinition = parent.registry.definitions().find((tool) => tool.name === 'bash');
   assert(bashDefinition?.description.includes('fresh shell'));
   assert(
-    bashDefinition?.description.includes('current workspace directory shown in Runtime facts'),
+    bashDefinition?.description.includes(
+      'current workspace directory shown in Runtime facts',
+    ),
   );
-  assert(bashDefinition?.description.includes('does not persist to later bash calls'));
+  assert(
+    bashDefinition?.description.includes(
+      'does not persist to later bash calls',
+    ),
+  );
   const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
   assert(readDefinition !== undefined);
   assert(!('promptGuidelines' in readDefinition));
@@ -641,7 +680,11 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
     arguments: { query: 'README.md' },
   });
   assertEquals(replacementResult.content.text, 'replacement result');
-  assert(root.systemInstruction?.includes('Use the Definition-local read replacement.'));
+  assert(
+    root.systemInstruction?.includes(
+      'Use the Definition-local read replacement.',
+    ),
+  );
   assert(root.manifest.resources.includes('tool:read'));
   assert(!JSON.stringify(root.manifest).includes('replacement result'));
 
@@ -650,7 +693,8 @@ Deno.test('Definition-provided tool component replaces a declared tool identity'
     toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
   });
   assertEquals(
-    builtin.registry.definitions().find((tool) => tool.name === 'read')?.description,
+    builtin.registry.definitions().find((tool) => tool.name === 'read')
+      ?.description,
     'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
   );
 });
@@ -690,10 +734,18 @@ Deno.test('workspace display keeps a short physical path and bounds a long path 
 });
 
 Deno.test('production definitions and saved messages use the expanded text ceilings', () => {
-  const input = { workspace: { root: '/definition-test' }, skillCatalog: emptySkillCatalog() };
-  assertEquals(defaultAgentDefinition(input).model.profile.maxCompletionTokens, 65_536);
-  assertEquals(plannerAgentDefinition(input).model.profile.maxCompletionTokens, 65_536);
-  assertEquals(PRODUCTION_MAX_COMPLETION_TOKENS, MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS);
+  const input = {
+    workspace: { root: '/definition-test' },
+    skillCatalog: emptySkillCatalog(),
+  };
+  assertEquals(
+    defaultAgentDefinition(input).model.profile.maxCompletionTokens,
+    65_536,
+  );
+  assertEquals(
+    PRODUCTION_MAX_COMPLETION_TOKENS,
+    MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS,
+  );
   assertEquals(MAX_REPLAY_MESSAGE_TEXT_BYTES, MAX_CONVERSATION_TEXT_BYTES);
   assertEquals(MAX_PRODUCTION_OPENROUTER_COMPLETION_TOKENS, 65_536);
   assertEquals(MAX_CONVERSATION_TEXT_BYTES, 1024 * 1024);
@@ -711,22 +763,37 @@ Deno.test('production definitions and saved messages use the expanded text ceili
     updatedAt: '2026-09-02T00:00:00.000Z',
     nextTurn: 2,
     transcript: [
-      { role: 'user' as const, content: { kind: 'text' as const, text: 'task' } },
+      {
+        role: 'user' as const,
+        content: { kind: 'text' as const, text: 'task' },
+      },
       { role: 'assistant' as const, content: { kind: 'text' as const, text } },
     ],
   };
   assert(validateSessionRecord(record));
   assertEquals(record.transcript[1].role, 'assistant');
   const decodedAssistant = record.transcript[1];
-  if (decodedAssistant.role !== 'assistant' || Array.isArray(decodedAssistant.content)) {
+  if (
+    decodedAssistant.role !== 'assistant' ||
+    Array.isArray(decodedAssistant.content)
+  ) {
     throw new Error('assistant text was not retained');
   }
-  assertEquals((decodedAssistant.content as { readonly text: string }).text, text);
+  assertEquals(
+    (decodedAssistant.content as { readonly text: string }).text,
+    text,
+  );
   const restoredAssistant = record.transcript[1];
-  if (restoredAssistant.role !== 'assistant' || Array.isArray(restoredAssistant.content)) {
+  if (
+    restoredAssistant.role !== 'assistant' ||
+    Array.isArray(restoredAssistant.content)
+  ) {
     throw new Error('restored assistant text was not retained');
   }
-  assertEquals((restoredAssistant.content as { readonly text: string }).text, text);
+  assertEquals(
+    (restoredAssistant.content as { readonly text: string }).text,
+    text,
+  );
   assertEquals(boundedPresentationText(text), text);
 
   const ui = reduceUiEvent(createUiState(), {
@@ -737,7 +804,9 @@ Deno.test('production definitions and saved messages use the expanded text ceili
   const entry = ui.log.entries.find((item) => item.id === 'turn-1:attempt-0:assistant');
   assert(entry !== undefined && entry.text === text);
   const layout = layoutUi(ui, 80, 24);
-  assert(layout.allLog.some((row) => row.entryId === 'turn-1:attempt-0:assistant'));
+  assert(
+    layout.allLog.some((row) => row.entryId === 'turn-1:attempt-0:assistant'),
+  );
 });
 
 Deno.test('saved sessions preserve assistant text accompanying tool calls', () => {
@@ -750,7 +819,10 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
     updatedAt: '2026-09-10T00:00:00.000Z',
     nextTurn: 2,
     transcript: [
-      { role: 'user' as const, content: { kind: 'text' as const, text: 'inspect' } },
+      {
+        role: 'user' as const,
+        content: { kind: 'text' as const, text: 'inspect' },
+      },
       {
         role: 'assistant' as const,
         content: [{
@@ -771,7 +843,10 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
           outcome: 'success' as const,
         }],
       },
-      { role: 'assistant' as const, content: { kind: 'text' as const, text: 'done' } },
+      {
+        role: 'assistant' as const,
+        content: { kind: 'text' as const, text: 'done' },
+      },
     ],
   };
   assert(validateSessionRecord(record));
@@ -835,9 +910,13 @@ Deno.test('saved message limits retain the user, assistant, and planner result b
     },
     assistant('done'),
   ];
-  const accepted = plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES));
+  const accepted = plannerTranscript(
+    'x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES),
+  );
   assert(accepts(accepted));
   assert(accepted[2]?.role === 'tool');
-  assert(accepted[2].content[0]?.text.length === MAX_REPLAY_PLANNER_RESULT_BYTES);
+  assert(
+    accepted[2].content[0]?.text.length === MAX_REPLAY_PLANNER_RESULT_BYTES,
+  );
   rejects(plannerTranscript('x'.repeat(MAX_REPLAY_PLANNER_RESULT_BYTES + 1)));
 });

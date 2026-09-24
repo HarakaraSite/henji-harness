@@ -64,11 +64,14 @@ import { historyCaptureDurability } from './worker_history_projection.ts';
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
 /** Private provider state belongs only to the current uninterrupted provider/model segment. */
-export const privateStateFromTurn = (changes: readonly SessionModelChange[]): number => {
+export const privateStateFromTurn = (
+  changes: readonly SessionModelChange[],
+): number => {
   let boundary = 1;
   for (let index = 1; index < changes.length; index++) {
     if (
-      changes[index - 1].selection.provider !== changes[index].selection.provider ||
+      changes[index - 1].selection.provider !==
+        changes[index].selection.provider ||
       changes[index - 1].selection.modelId !== changes[index].selection.modelId
     ) {
       boundary = changes[index].effectiveFromTurn;
@@ -163,7 +166,9 @@ export class ExecutionCoordinator {
         ? {}
         : { checkpoint: this.authority.projection.checkpoint }),
       modelSelection: this.authority.projection.modelSelection,
-      privateStateFromTurn: privateStateFromTurn(this.authority.projection.modelChanges),
+      privateStateFromTurn: privateStateFromTurn(
+        this.authority.projection.modelChanges,
+      ),
     };
   }
 
@@ -204,7 +209,10 @@ export class ExecutionCoordinator {
         current.contextRequestOrdinal !== contextRequestOrdinal
       ) return;
       this.auxiliaryStageWatchdog = undefined;
-      this.journal.recordWorkerStageSnapshot('auxiliary_gap', contextRequestOrdinal);
+      this.journal.recordWorkerStageSnapshot(
+        'auxiliary_gap',
+        contextRequestOrdinal,
+      );
     }, this.options.auxiliaryStageGapMs ?? AUXILIARY_STAGE_GAP_MS);
     this.auxiliaryStageWatchdog = {
       executionId,
@@ -241,7 +249,9 @@ export class ExecutionCoordinator {
     await this.supervisor.ensureGeneration(() => this.journal.clearBuffer());
   }
 
-  private async settleChildren(execution: ActiveWorkerExecution): Promise<void> {
+  private async settleChildren(
+    execution: ActiveWorkerExecution,
+  ): Promise<void> {
     const cleanup = await this.children.cleanupParent(execution.executionId);
     if (cleanup !== undefined) execution.childCleanup = cleanup;
   }
@@ -831,7 +841,7 @@ export class ExecutionCoordinator {
     return createFailureDiagnostic({
       stage: 'session_commit',
       code: 'commit_error',
-      lane: this.options.agent === 'planner' ? 'planner' : 'parent',
+      lane: 'parent',
       providerRequestCount,
       turnNumber: execution.turn,
       modelStep: 0,
@@ -846,7 +856,9 @@ export class ExecutionCoordinator {
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
     await this.settleChildren(execution);
-    const terminalSnapshotDurable = this.journal.recordWorkerStageSnapshot('terminal');
+    const terminalSnapshotDurable = this.journal.recordWorkerStageSnapshot(
+      'terminal',
+    );
     const effectiveOutcome = !terminalSnapshotDurable &&
         execution.settlement === 'uncommitted'
       ? this.journalFailureOutcome(execution, outcome.task)
@@ -969,7 +981,9 @@ export class ExecutionCoordinator {
       diagnostic,
       contextManifest,
     );
-    this.deliver(turnEndFromOutcome(this.authority.projection.nextTurn, settled, false));
+    this.deliver(
+      turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+    );
     return settled;
   }
 
@@ -982,15 +996,19 @@ export class ExecutionCoordinator {
     try {
       if (
         this.supervisor.currentCorrelation === undefined || !this.active ||
-        !sameCorrelation(message.correlation, this.supervisor.currentCorrelation) ||
+        !sameCorrelation(
+          message.correlation,
+          this.supervisor.currentCorrelation,
+        ) ||
         !validateSemanticContextCheckpoint(message.checkpoint) ||
         this.supervisor.currentManifest === undefined ||
         !profileIdPattern.test(this.supervisor.currentManifest.profileId) ||
         message.checkpoint.sessionId !== this.sessionId ||
-        message.checkpoint.sourceProfileId !== this.supervisor.currentManifest.profileId
+        message.checkpoint.sourceProfileId !==
+          this.supervisor.currentManifest.profileId
       ) throw new Error('checkpoint correlation invalid');
-      const completedTurns =
-        indexSessionHistory(this.authority.projection.transcript)?.turns.length ?? 0;
+      const completedTurns = indexSessionHistory(this.authority.projection.transcript)?.turns
+        .length ?? 0;
       if (
         message.checkpoint.coveredThroughTurn < 1 ||
         message.checkpoint.coveredThroughTurn >= completedTurns ||
@@ -998,7 +1016,9 @@ export class ExecutionCoordinator {
           message.checkpoint.coveredThroughTurn + 1
       ) throw new Error('checkpoint boundary invalid');
       this.options.handle.installCheckpoint(message.checkpoint);
-      this.authority.projection.checkpoint = structuredClone(message.checkpoint);
+      this.authority.projection.checkpoint = structuredClone(
+        message.checkpoint,
+      );
       const notice = {
         coveredThroughTurn: message.checkpoint.coveredThroughTurn,
         retainedFromTurn: message.checkpoint.retainedFromTurn,
@@ -1042,11 +1062,15 @@ export class ExecutionCoordinator {
     } catch {
       return 'unavailable';
     }
-    if (this.active || this.supervisor.currentCorrelation !== undefined) return 'busy';
+    if (this.active || this.supervisor.currentCorrelation !== undefined) {
+      return 'busy';
+    }
     if (!isModelSelection(selection)) {
       throw new RangeError('invalid model selection');
     }
-    if (sameModelSelection(this.authority.projection.modelSelection, selection)) {
+    if (
+      sameModelSelection(this.authority.projection.modelSelection, selection)
+    ) {
       return 'unchanged';
     }
     const changedAt = new Date().toISOString();
@@ -1130,7 +1154,9 @@ export class ExecutionCoordinator {
     value: string,
   ): 'renamed' | 'unchanged' | 'busy' | 'unavailable' {
     if (this.closed || this.supervisor.isUnavailable) return 'unavailable';
-    if (this.active || this.supervisor.currentCorrelation !== undefined) return 'busy';
+    if (this.active || this.supervisor.currentCorrelation !== undefined) {
+      return 'busy';
+    }
     const title = normalizeSessionTitle(value);
     if (title.length === 0 || title === this.authority.projection.title) {
       return 'unchanged';
@@ -1360,9 +1386,9 @@ export class ExecutionCoordinator {
             ...(this.authority.admissionSessionRecord() === undefined
               ? {}
               : { sessionRecord: this.authority.admissionSessionRecord() }),
-            ...(this.supervisor.currentStartupSnapshot?.context === undefined
-              ? {}
-              : { contextSnapshot: this.supervisor.currentStartupSnapshot.context }),
+            ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
+              contextSnapshot: this.supervisor.currentStartupSnapshot.context,
+            }),
           });
         } catch (error) {
           const historyFailure = typeof error === 'object' && error !== null &&
@@ -1394,7 +1420,11 @@ export class ExecutionCoordinator {
             executionAdmissionPersistenceError: historyFailure,
           };
           this.deliver(
-            turnEndFromOutcome(this.authority.projection.nextTurn, failed, false),
+            turnEndFromOutcome(
+              this.authority.projection.nextTurn,
+              failed,
+              false,
+            ),
           );
           return failed;
         }
@@ -1438,7 +1468,11 @@ export class ExecutionCoordinator {
           undefined,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1476,7 +1510,11 @@ export class ExecutionCoordinator {
           diagnostic.code === 'cleanup_error'
         ) this.markUnavailable();
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1493,7 +1531,11 @@ export class ExecutionCoordinator {
           undefined,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1527,7 +1569,11 @@ export class ExecutionCoordinator {
           message.contextManifest,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1552,11 +1598,15 @@ export class ExecutionCoordinator {
       }
       const cancellationRequested = this.cancellationRequestedExecutionId === execution.executionId;
       const forcedInterruption = this.forcedInterruptionExecutionId === execution.executionId;
-      const proposalStillCurrent = this.activeExecution === execution && this.active &&
-        this.supervisor.workerGeneration === message.correlation.workerGeneration &&
+      const proposalStillCurrent = this.activeExecution === execution &&
+        this.active &&
+        this.supervisor.workerGeneration ===
+          message.correlation.workerGeneration &&
         this.supervisor.currentCorrelation !== undefined &&
         sameCorrelation(this.supervisor.currentCorrelation, correlation);
-      if (cancellationRequested || forcedInterruption || !proposalStillCurrent) {
+      if (
+        cancellationRequested || forcedInterruption || !proposalStillCurrent
+      ) {
         this.sendCommitAcknowledgement(execution, correlation, false);
         const outcome = forcedInterruption || !proposalStillCurrent
           ? interruptedOutcome(
@@ -1577,7 +1627,11 @@ export class ExecutionCoordinator {
           message.contextManifest,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1666,9 +1720,12 @@ export class ExecutionCoordinator {
                   recalledContext: execution.recalledContext,
                 }),
                 contextManifest: message.contextManifest,
-                ...(this.supervisor.currentStartupSnapshot?.context === undefined ? {} : {
-                  contextSnapshot: this.supervisor.currentStartupSnapshot.context,
-                }),
+                ...(this.supervisor.currentStartupSnapshot?.context ===
+                    undefined
+                  ? {}
+                  : {
+                    contextSnapshot: this.supervisor.currentStartupSnapshot.context,
+                  }),
                 outcome: proposedOutcome,
                 ...(diagnostic === undefined ? {} : { diagnostic }),
                 artifactForCapture: (captured) => {
@@ -1742,7 +1799,11 @@ export class ExecutionCoordinator {
           diagnostic,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1776,7 +1837,11 @@ export class ExecutionCoordinator {
           committed,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn - 1, settled, true),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn - 1,
+            settled,
+            true,
+          ),
         );
         return settled;
       }
@@ -1805,7 +1870,11 @@ export class ExecutionCoordinator {
         : 'committed_generation_unavailable';
       const settled = await this.persistExecutionArtifact(execution, committed);
       this.deliver(
-        turnEndFromOutcome(this.authority.projection.nextTurn - 1, settled, true),
+        turnEndFromOutcome(
+          this.authority.projection.nextTurn - 1,
+          settled,
+          true,
+        ),
       );
       return settled;
     } catch (error) {
@@ -1824,7 +1893,11 @@ export class ExecutionCoordinator {
           undefined,
         );
         this.deliver(
-          turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
+          turnEndFromOutcome(
+            this.authority.projection.nextTurn,
+            settled,
+            false,
+          ),
         );
         return settled;
       }
@@ -1862,7 +1935,9 @@ export class ExecutionCoordinator {
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
-    if (!this.active || this.supervisor.currentCorrelation === undefined) return 'idle';
+    if (!this.active || this.supervisor.currentCorrelation === undefined) {
+      return 'idle';
+    }
     const execution = this.activeExecution;
     if (
       execution !== undefined &&
@@ -1919,7 +1994,9 @@ export class ExecutionCoordinator {
   }
 
   steerActiveTurn(text: string): 'accepted' | 'already_accepted' | 'idle' {
-    if (!this.active || this.supervisor.currentCorrelation === undefined) return 'idle';
+    if (!this.active || this.supervisor.currentCorrelation === undefined) {
+      return 'idle';
+    }
     const execution = this.activeExecution;
     if (execution !== undefined) {
       const journaled = this.journal.appendJournal({
@@ -1964,7 +2041,8 @@ export class ExecutionCoordinator {
 
   isAvailable(): boolean {
     return !this.closed &&
-      (!this.supervisor.isUnavailable || this.supervisor.generationNeedsReplacement) &&
+      (!this.supervisor.isUnavailable ||
+        this.supervisor.generationNeedsReplacement) &&
       !this.active;
   }
 
@@ -2068,7 +2146,8 @@ export class ExecutionCoordinator {
     this.journal.flushObservationBuffer();
     try {
       if (
-        this.supervisor.currentManifest !== undefined && !this.supervisor.isUnavailable &&
+        this.supervisor.currentManifest !== undefined &&
+        !this.supervisor.isUnavailable &&
         !this.supervisor.generationNeedsReplacement
       ) {
         const correlation = this.correlation('close');

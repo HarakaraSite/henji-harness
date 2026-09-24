@@ -1,3 +1,4 @@
+import { managedChildModule, managedChildRef } from './managed_child_fixture.ts';
 import {
   type AsyncAgentRequest,
   type AsyncAgentResponse,
@@ -7,10 +8,8 @@ import { Registry } from '../../v0/agent/tools/tools.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import {
   bundledToolDefinitionLoadRequests,
-  readDefinitionRevision,
 } from '../../v0/agent/worker/worker_definition_revision.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
-import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 
@@ -66,11 +65,16 @@ Deno.test('Increment 109 async agent tools expose a fixed four-operation surface
     }
   };
   const registry = new Registry([
-    ...createAsyncAgentTools(['planner', 'researcher'], rpc),
+    ...createAsyncAgentTools(['probe-child', 'researcher'], rpc),
   ]);
   assertEquals(
     registry.definitions().map((tool) => tool.name),
-    ['cancel_subagent', 'collect_subagent', 'spawn_subagent', 'subagent_status'],
+    [
+      'cancel_subagent',
+      'collect_subagent',
+      'spawn_subagent',
+      'subagent_status',
+    ],
   );
 
   const spawned = await registry.dispatch(
@@ -82,7 +86,11 @@ Deno.test('Increment 109 async agent tools expose a fixed four-operation surface
     { callId: 'spawn-call-1', signal: undefined },
   );
   assertEquals(JSON.parse(spawned.content.text), { ok: true, runId: 'run-1' });
-  assertEquals(requests[0], { kind: 'spawn', agent: 'researcher', task: 'investigate X' });
+  assertEquals(requests[0], {
+    kind: 'spawn',
+    agent: 'researcher',
+    task: 'investigate X',
+  });
   assertEquals(callIds[0], 'spawn-call-1');
 
   const status = await registry.dispatch({
@@ -123,7 +131,7 @@ Deno.test('Increment 109 async agent tools expose a fixed four-operation surface
 Deno.test('Increment 109 spawn rejects an undeclared agent name', async () => {
   const registry = new Registry([
     ...createAsyncAgentTools(
-      ['planner'],
+      ['probe-child'],
       () => Promise.resolve({ ok: true, kind: 'spawn', runId: 'never' }),
     ),
   ]);
@@ -141,7 +149,7 @@ Deno.test('Increment 109 spawn rejects an undeclared agent name', async () => {
 
 Deno.test('Increment 109 child failure is reported without throwing', async () => {
   const registry = new Registry([
-    ...createAsyncAgentTools(['planner'], (request) => {
+    ...createAsyncAgentTools(['probe-child'], (request) => {
       if (request.kind === 'collect') {
         return Promise.resolve({
           ok: true,
@@ -171,7 +179,7 @@ Deno.test('Increment 109 child failure is reported without throwing', async () =
 });
 
 Deno.test('Increment 109 child run registry spawns, collects, and cancels a planner child', async () => {
-  const plannerRef = await readDefinitionRevision('', 'builtin', 'planner');
+  const plannerRef = managedChildRef();
   const handle: WorkerSessionHandle = {
     id: 'parent-session',
     commit: () => {},
@@ -194,14 +202,15 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
       physicalIoMode: 'provider-free',
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
     },
-    catalog: [{ name: 'planner', ref: plannerRef }],
+    catalog: [{ name: 'probe-child', ref: plannerRef }],
+    resolveManagedModule: managedChildModule,
     history,
     build: buildManifest(),
   });
   registry.openParent('parent-execution-42');
 
   const spawned = await registry.handle(
-    { kind: 'spawn', agent: 'planner', task: 'child planning task' },
+    { kind: 'spawn', agent: 'probe-child', task: 'child planning task' },
     'spawn-call-9',
     'parent-execution-42',
   );
@@ -213,10 +222,13 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
     undefined,
     'parent-execution-42',
   );
-  assert(collected.ok && collected.kind === 'collect', 'collect should succeed');
+  assert(
+    collected.ok && collected.kind === 'collect',
+    'collect should succeed',
+  );
   assertEquals(collected.result.state, 'completed');
   assert(
-    collected.result.finalText === 'worker planner result',
+    collected.result.finalText === 'worker child result',
     `unexpected finalText: ${collected.result.finalText}`,
   );
   assertEquals(collected.result.parentExecutionId, 'parent-execution-42');
@@ -248,31 +260,6 @@ Deno.test('Increment 109 child run registry spawns, collects, and cancels a plan
   await Deno.remove(stateRoot, { recursive: true });
 });
 
-Deno.test('Increment 109 parent spawns and collects an async planner child', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i109-e2e-' });
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const created = await createWorkerSession({
-    workspaceRoot,
-    stateRoot: `${root}/state`,
-    dataRoot: `${root}/data`,
-    configRoot: `${root}/config`,
-    persistence: 'new',
-    physicalIoMode: 'provider-free',
-  });
-  try {
-    const outcome = await created.session.submit('async-spawn planner turn');
-    assert(outcome.ok, JSON.stringify(outcome));
-    assert(
-      outcome.finalText?.includes('async child: worker planner result') === true,
-      `unexpected finalText: ${outcome.finalText}`,
-    );
-  } finally {
-    await created.close();
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
 const makeParentHandle = (): WorkerSessionHandle => ({
   id: 'parent-session',
   commit: () => {},
@@ -285,9 +272,9 @@ const makeParentHandle = (): WorkerSessionHandle => ({
 const makePlannerRegistry = async (
   history?: SqliteHistoryV7ProductionStore,
 ): Promise<
-  { registry: ChildRunRegistry; plannerRef: Awaited<ReturnType<typeof readDefinitionRevision>> }
+  { registry: ChildRunRegistry; plannerRef: ReturnType<typeof managedChildRef> }
 > => {
-  const plannerRef = await readDefinitionRevision('', 'builtin', 'planner');
+  const plannerRef = managedChildRef();
   const registry = new ChildRunRegistry({
     options: {
       handle: makeParentHandle(),
@@ -297,38 +284,13 @@ const makePlannerRegistry = async (
       physicalIoMode: 'provider-free',
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
     },
-    catalog: [{ name: 'planner', ref: plannerRef }],
+    catalog: [{ name: 'probe-child', ref: plannerRef }],
+    resolveManagedModule: managedChildModule,
     ...(history === undefined ? {} : { history }),
     build: buildManifest(),
   });
   return { registry, plannerRef };
 };
-
-Deno.test('Increment 109 parent continues after one child fails', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i109-fail-' });
-  const workspaceRoot = `${root}/workspace`;
-  await Deno.mkdir(workspaceRoot);
-  const created = await createWorkerSession({
-    workspaceRoot,
-    stateRoot: `${root}/state`,
-    dataRoot: `${root}/data`,
-    configRoot: `${root}/config`,
-    persistence: 'new',
-    physicalIoMode: 'provider-free',
-  });
-  try {
-    const outcome = await created.session.submit('async-child-fail turn');
-    assert(outcome.ok, JSON.stringify(outcome));
-    assert(
-      outcome.finalText?.includes('child failed:') === true &&
-        outcome.finalText.includes('child task failed on purpose'),
-      `unexpected finalText: ${outcome.finalText}`,
-    );
-  } finally {
-    await created.close();
-    await Deno.remove(root, { recursive: true });
-  }
-});
 
 Deno.test('Increment 109 two child runs progress concurrently', async () => {
   const { registry } = await makePlannerRegistry();
@@ -340,8 +302,13 @@ Deno.test('Increment 109 two child runs progress concurrently', async () => {
   let resolveBothStarted!: () => void;
   const bothStarted = new Promise<void>((resolve) => resolveBothStarted = resolve);
   barrier.onmessage = (event: MessageEvent<unknown>) => {
-    const message = event.data as { readonly kind?: unknown; readonly label?: unknown };
-    if (message?.kind !== 'started' || typeof message.label !== 'string') return;
+    const message = event.data as {
+      readonly kind?: unknown;
+      readonly label?: unknown;
+    };
+    if (message?.kind !== 'started' || typeof message.label !== 'string') {
+      return;
+    }
     startedLabels.add(message.label);
     if (startedLabels.size === 2) resolveBothStarted();
   };
@@ -350,7 +317,7 @@ Deno.test('Increment 109 two child runs progress concurrently', async () => {
       registry.handle(
         {
           kind: 'spawn',
-          agent: 'planner',
+          agent: 'probe-child',
           task: `barrier-child:${channelName}:A`,
         },
         undefined,
@@ -359,7 +326,7 @@ Deno.test('Increment 109 two child runs progress concurrently', async () => {
       registry.handle(
         {
           kind: 'spawn',
-          agent: 'planner',
+          agent: 'probe-child',
           task: `barrier-child:${channelName}:B`,
         },
         undefined,
@@ -414,14 +381,14 @@ Deno.test('Increment 109 cancel targets only the requested child run', async () 
   const parentExecutionId = 'parent-cancel-one';
   registry.openParent(parentExecutionId);
   const kept = await registry.handle(
-    { kind: 'spawn', agent: 'planner', task: 'slow child A' },
+    { kind: 'spawn', agent: 'probe-child', task: 'slow child A' },
     undefined,
     parentExecutionId,
   );
   const cancelled = await registry.handle(
     {
       kind: 'spawn',
-      agent: 'planner',
+      agent: 'probe-child',
       task: 'cancel-child B',
     },
     undefined,
@@ -464,7 +431,7 @@ Deno.test('Increment 109 parent cleanup settles unfinished children durably', as
     const spawned = await registry.handle(
       {
         kind: 'spawn',
-        agent: 'planner',
+        agent: 'probe-child',
         task: 'cancel-child task',
       },
       undefined,

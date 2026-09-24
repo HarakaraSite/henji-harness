@@ -44,7 +44,10 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
 
 const writeModule = async (root: string, suffix = ''): Promise<string> => {
   await Deno.mkdir(root, { recursive: true });
-  await Deno.writeTextFile(`${root}/dependency.ts`, `export const label = 'managed${suffix}';\n`);
+  await Deno.writeTextFile(
+    `${root}/dependency.ts`,
+    `export const label = 'managed${suffix}';\n`,
+  );
   await Deno.writeTextFile(
     `${root}/entry.ts`,
     "import type {} from '@henji/agent';\n" +
@@ -59,13 +62,13 @@ const writeExecutableModule = async (
   effectiveRole: 'parent' | 'planner',
 ): Promise<string> => {
   await Deno.mkdir(root, { recursive: true });
-  const factory = effectiveRole === 'planner'
-    ? 'createPlannerAgentComposition'
-    : 'createDefaultAgentComposition';
+  const composition = effectiveRole === 'planner'
+    ? "({ ...createDefaultAgentComposition(input), role: 'planner' }) as unknown as ReturnType<typeof createDefaultAgentComposition>"
+    : 'createDefaultAgentComposition(input)';
   await Deno.writeTextFile(
     `${root}/composition.ts`,
-    `import { ${factory}, type ExecutableAgentDefinitionInput } from '@henji/agent';\n` +
-      `export const compose = (input: ExecutableAgentDefinitionInput) => ${factory}(input);\n`,
+    "import { createDefaultAgentComposition, type ExecutableAgentDefinitionInput } from '@henji/agent';\n" +
+      `export const compose = (input: ExecutableAgentDefinitionInput) => ${composition};\n`,
   );
   await Deno.writeTextFile(
     `${root}/entry.ts`,
@@ -192,7 +195,11 @@ const persistEmptyExternalSession = async (
     transcript: [],
     definition,
     activeModel: model,
-    modelChanges: [{ effectiveFromTurn: 1, changedAt: timestamp, selection: model }],
+    modelChanges: [{
+      effectiveFromTurn: 1,
+      changedAt: timestamp,
+      selection: model,
+    }],
     turnModels: [],
     turnExecutions: [],
   };
@@ -241,7 +248,10 @@ Deno.test('Increment 33 installs and retains exact managed Definition revisions'
       first.manifest.logicalRef.revision.digest,
       sameContentDifferentIdentity.manifest.logicalRef.revision.digest,
     );
-    assertEquals(first.manifest.files.map((file) => file.path), ['dependency.ts', 'entry.ts']);
+    assertEquals(first.manifest.files.map((file) => file.path), [
+      'dependency.ts',
+      'entry.ts',
+    ]);
     assertEquals(first.manifest.exactResourceBindings, []);
     assert(
       first.manifest.files[1].dependencies.some((dependency) =>
@@ -257,7 +267,10 @@ Deno.test('Increment 33 installs and retains exact managed Definition revisions'
     });
     assertEquals(duplicate.custody.localCustody.kind, 'installed');
     assert(duplicate.custody.localCustody.kind === 'installed');
-    assertEquals(duplicate.custody.localCustody.installedAt, '2026-09-12T01:02:03.000Z');
+    assertEquals(
+      duplicate.custody.localCustody.installedAt,
+      '2026-09-12T01:02:03.000Z',
+    );
 
     await assertRejectCode(
       () =>
@@ -277,13 +290,20 @@ Deno.test('Increment 33 installs and retains exact managed Definition revisions'
       declaredRole: 'parent',
     });
     assert(
-      edited.manifest.logicalRef.revision.digest !== first.manifest.logicalRef.revision.digest,
+      edited.manifest.logicalRef.revision.digest !==
+        first.manifest.logicalRef.revision.digest,
     );
     assertEquals(
-      (await store.inspect('example/parent', first.manifest.logicalRef.revision.digest)).manifest,
+      (await store.inspect(
+        'example/parent',
+        first.manifest.logicalRef.revision.digest,
+      )).manifest,
       first.manifest,
     );
-    assertEquals((await store.resolve(first.manifest.logicalRef)).manifest, first.manifest);
+    assertEquals(
+      (await store.resolve(first.manifest.logicalRef)).manifest,
+      first.manifest,
+    );
     assertEquals((await store.list()).length, 3);
   } finally {
     await Deno.remove(root, { recursive: true });
@@ -291,11 +311,16 @@ Deno.test('Increment 33 installs and retains exact managed Definition revisions'
 });
 
 Deno.test('Increment 33 reports unsupported Definition imports during install', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-imports-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-33-imports-',
+  });
   try {
     const dynamicRoot = `${root}/dynamic`;
     await Deno.mkdir(dynamicRoot);
-    await Deno.writeTextFile(`${dynamicRoot}/entry.ts`, "await import('./dependency.ts');\n");
+    await Deno.writeTextFile(
+      `${dynamicRoot}/entry.ts`,
+      "await import('./dependency.ts');\n",
+    );
     await Deno.writeTextFile(`${dynamicRoot}/dependency.ts`, 'export {};\n');
     await assertRejectCode(
       () =>
@@ -326,7 +351,10 @@ Deno.test('Increment 33 reports unsupported Definition imports during install', 
     const boundedRoot = `${root}/bounded`;
     await Deno.mkdir(boundedRoot);
     await Deno.writeTextFile(`${root}/outside.ts`, 'export {};\n');
-    await Deno.writeTextFile(`${boundedRoot}/entry.ts`, "import '../outside.ts';\n");
+    await Deno.writeTextFile(
+      `${boundedRoot}/entry.ts`,
+      "import '../outside.ts';\n",
+    );
     await assertRejectCode(
       () =>
         importManagedDefinition({
@@ -398,7 +426,12 @@ Deno.test('Increment 33 parses only full exact Definition selectors', () => {
     revision: { algorithm: 'sha256', digest },
   });
   assertEquals(
-    parseRuntimeArgs(['--task', 'run', '--definition-revision', `team@blue@sha256:${digest}`]),
+    parseRuntimeArgs([
+      '--task',
+      'run',
+      '--definition-revision',
+      `team@blue@sha256:${digest}`,
+    ]),
     {
       taskArg: 'run',
       rawAgentName: undefined,
@@ -406,7 +439,11 @@ Deno.test('Increment 33 parses only full exact Definition selectors', () => {
     },
   );
   assertEquals(
-    parseTuiInvocation(['--continue', '--definition-revision', `team@blue@sha256:${digest}`]),
+    parseTuiInvocation([
+      '--continue',
+      '--definition-revision',
+      `team@blue@sha256:${digest}`,
+    ]),
     {
       rawAgentName: undefined,
       rawDefinitionRevision: `team@blue@sha256:${digest}`,
@@ -444,7 +481,9 @@ Deno.test('Increment 33 parses only full exact Definition selectors', () => {
 });
 
 Deno.test('Increment 33 resolves before stdin and reports evaluation before terminal raw mode', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-preflight-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-33-preflight-',
+  });
   try {
     const dataRoot = `${root}/data`;
     const stateRoot = `${root}/state`;
@@ -455,7 +494,11 @@ Deno.test('Increment 33 resolves before stdin and reports evaluation before term
       declaredRole: 'parent',
     });
     const selector = `example/preflight@sha256:${revision.manifest.logicalRef.revision.digest}`;
-    const resolved = await resolveRequestedDefinition(undefined, selector, dataRoot);
+    const resolved = await resolveRequestedDefinition(
+      undefined,
+      selector,
+      dataRoot,
+    );
     assertEquals(resolved.kind, 'managed');
     assertEquals(resolved.id, 'default');
     assertEquals(resolved.ref, revision.manifest.logicalRef);
@@ -489,7 +532,11 @@ Deno.test('Increment 33 resolves before stdin and reports evaluation before term
       }),
       1,
     );
-    assertEquals({ stdinChecks, stdinReads, runs }, { stdinChecks: 0, stdinReads: 0, runs: 0 });
+    assertEquals({ stdinChecks, stdinReads, runs }, {
+      stdinChecks: 0,
+      stdinReads: 0,
+      runs: 0,
+    });
     const failure = JSON.parse(stderr);
     assertEquals(failure.error.code, 'definition_not_found');
     assertEquals(failure.error.stage, 'resolution');
@@ -543,7 +590,9 @@ Deno.test('Increment 33 resolves before stdin and reports evaluation before term
 });
 
 Deno.test('Increment 33 reopens a stored Session under the selected Definition revision', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-binding-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-33-binding-',
+  });
   try {
     const dataRoot = `${root}/data`;
     const stateRoot = `${root}/state`;
@@ -655,7 +704,9 @@ Deno.test('Increment 33 reopens a stored Session under the selected Definition r
 });
 
 Deno.test('Increment 33 rejects corrupted managed revision content and identity', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-resolution-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-33-resolution-',
+  });
   try {
     const dataRoot = `${root}/data`;
     const entry = await writeModule(`${root}/source`);
@@ -664,7 +715,10 @@ Deno.test('Increment 33 rejects corrupted managed revision content and identity'
       resourceId: 'example/failure',
       declaredRole: 'parent',
     });
-    await Deno.writeTextFile(`${revision.physicalRoot}/files/dependency.ts`, 'changed\n');
+    await Deno.writeTextFile(
+      `${revision.physicalRoot}/files/dependency.ts`,
+      'changed\n',
+    );
     await assertStartupError(
       () =>
         resolveRequestedDefinition(
@@ -687,7 +741,12 @@ Deno.test('Increment 33 rejects corrupted managed revision content and identity'
     );
     await Deno.writeTextFile(
       `${apiRevision.physicalRoot}/manifest.json`,
-      `${JSON.stringify({ ...manifest, apiContract: 'henji-agent-definition-v999' })}\n`,
+      `${
+        JSON.stringify({
+          ...manifest,
+          apiContract: 'henji-agent-definition-v999',
+        })
+      }\n`,
     );
     await assertStartupError(
       () =>
@@ -745,18 +804,26 @@ Deno.test('Increment 33 runs a managed parent through one commit path and reject
       }
 
       const session = await history.readWorker(created.session.sessionId);
-      const execution = history.listExecutionsForSession(created.session.sessionId).at(-1);
+      const execution = history.listExecutionsForSession(
+        created.session.sessionId,
+      ).at(-1);
       assert(execution !== undefined);
       assertEquals(session.agent, 'default');
       assertEquals(session.definition, revision.manifest.logicalRef);
-      assertEquals(session.turnExecutions[0]?.definition, revision.manifest.logicalRef);
+      assertEquals(
+        session.turnExecutions[0]?.definition,
+        revision.manifest.logicalRef,
+      );
       assertEquals(execution.definition, revision.manifest.logicalRef);
       assertEquals(execution.build, session.turnExecutions[0]?.build);
       assertEquals(execution.sessionCorrelation, created.session.sessionId);
       assertEquals(execution.turn, 1);
     }
 
-    const plannerEntry = await writeExecutableModule(`${root}/source-planner`, 'planner');
+    const plannerEntry = await writeExecutableModule(
+      `${root}/source-planner`,
+      'planner',
+    );
     await assertRejectCode(
       () =>
         new ManagedDefinitionStore({ dataRoot }).install({
@@ -772,18 +839,24 @@ Deno.test('Increment 33 runs a managed parent through one commit path and reject
   }
 });
 
-Deno.test('Increment 33 reports closure mismatch, role mismatch, and evaluation failure at Worker start', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-worker-failure-' });
+Deno.test('Increment 33 reports closure mismatch and invalid Definition evaluation at Worker start', async () => {
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-33-worker-failure-',
+  });
   const dataRoot = `${root}/data`;
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
   try {
-    const closureEntry = await writeExecutableModule(`${root}/closure`, 'parent');
-    const closureRevision = await new ManagedDefinitionStore({ dataRoot }).install({
-      entryPath: closureEntry,
-      resourceId: 'example/closure-mismatch',
-      declaredRole: 'parent',
-    });
+    const closureEntry = await writeExecutableModule(
+      `${root}/closure`,
+      'parent',
+    );
+    const closureRevision = await new ManagedDefinitionStore({ dataRoot })
+      .install({
+        entryPath: closureEntry,
+        resourceId: 'example/closure-mismatch',
+        declaredRole: 'parent',
+      });
     const closureSelection = await resolveDefinitionRef(
       closureRevision.manifest.logicalRef,
       dataRoot,
@@ -806,36 +879,45 @@ Deno.test('Increment 33 reports closure mismatch, role mismatch, and evaluation 
     );
 
     const roleEntry = await writeExecutableModule(`${root}/role`, 'planner');
-    const roleRevision = await new ManagedDefinitionStore({ dataRoot }).install({
-      entryPath: roleEntry,
-      resourceId: 'example/role-mismatch',
-      declaredRole: 'parent',
-    });
+    const roleRevision = await new ManagedDefinitionStore({ dataRoot }).install(
+      {
+        entryPath: roleEntry,
+        resourceId: 'example/role-mismatch',
+        declaredRole: 'parent',
+      },
+    );
     await assertStartupError(
       async () =>
         await createWorkerSession({
           workspaceRoot,
           persistence: 'none',
-          selection: await resolveDefinitionRef(roleRevision.manifest.logicalRef, dataRoot),
+          selection: await resolveDefinitionRef(
+            roleRevision.manifest.logicalRef,
+            dataRoot,
+          ),
           physicalIoMode: 'provider-free',
         }),
-      'definition_role_mismatch',
+      'definition_evaluation_failed',
       'worker_start',
       roleRevision.manifest.logicalRef,
     );
 
     const invalidEntry = await writeModule(`${root}/evaluation`);
-    const invalidRevision = await new ManagedDefinitionStore({ dataRoot }).install({
-      entryPath: invalidEntry,
-      resourceId: 'example/evaluation-failure',
-      declaredRole: 'parent',
-    });
+    const invalidRevision = await new ManagedDefinitionStore({ dataRoot })
+      .install({
+        entryPath: invalidEntry,
+        resourceId: 'example/evaluation-failure',
+        declaredRole: 'parent',
+      });
     await assertStartupError(
       async () =>
         await createWorkerSession({
           workspaceRoot,
           persistence: 'none',
-          selection: await resolveDefinitionRef(invalidRevision.manifest.logicalRef, dataRoot),
+          selection: await resolveDefinitionRef(
+            invalidRevision.manifest.logicalRef,
+            dataRoot,
+          ),
           physicalIoMode: 'provider-free',
         }),
       'definition_evaluation_failed',
@@ -848,7 +930,9 @@ Deno.test('Increment 33 reports closure mismatch, role mismatch, and evaluation 
 });
 
 Deno.test('Increment 33 product fixtures survive source removal, exact revision selection, and Worker restart', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-increment-33-product-' });
+  const root = await Deno.makeTempDir({
+    prefix: 'henji-increment-33-product-',
+  });
   const dataRoot = `${root}/data`;
   const stateRoot = `${root}/state`;
   const workspaceRoot = `${root}/workspace`;
@@ -890,11 +974,16 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
       }),
       0,
     );
-    assertEquals(JSON.parse(inspected).manifest.logicalRef, parentFirst.manifest.logicalRef);
+    assertEquals(
+      JSON.parse(inspected).manifest.logicalRef,
+      parentFirst.manifest.logicalRef,
+    );
 
     await Deno.writeTextFile(
       `${parentSource}/composition.ts`,
-      `${await Deno.readTextFile(`${parentSource}/composition.ts`)}\n// second exact revision\n`,
+      `${await Deno.readTextFile(
+        `${parentSource}/composition.ts`,
+      )}\n// second exact revision\n`,
     );
     const parentSecond = await install(parentEntry, 'fixture/parent');
     assert(
@@ -903,7 +992,10 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
     );
     await Deno.remove(parentSource, { recursive: true });
 
-    const firstSelection = await resolveDefinitionRef(parentFirst.manifest.logicalRef, dataRoot);
+    const firstSelection = await resolveDefinitionRef(
+      parentFirst.manifest.logicalRef,
+      dataRoot,
+    );
     const first = await createWorkerSession({
       workspaceRoot,
       stateRoot,
@@ -928,8 +1020,13 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
       physicalIoMode: 'provider-free',
     });
     try {
-      assert((await reopened.session.submit('reopened managed parent process')).ok);
-      assertEquals(reopened.session.definition, parentFirst.manifest.logicalRef);
+      assert(
+        (await reopened.session.submit('reopened managed parent process')).ok,
+      );
+      assertEquals(
+        reopened.session.definition,
+        parentFirst.manifest.logicalRef,
+      );
     } finally {
       await reopened.close();
     }
@@ -975,11 +1072,12 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
         '',
       ].join('\n'),
     );
-    const toolRevision = await new ManagedToolDefinitionStore({ dataRoot }).install({
-      entryPath: toolSource,
-      resourceId: 'fixture/read-tool',
-      toolIdentity: 'tool:read',
-    });
+    const toolRevision = await new ManagedToolDefinitionStore({ dataRoot })
+      .install({
+        entryPath: toolSource,
+        resourceId: 'fixture/read-tool',
+        toolIdentity: 'tool:read',
+      });
     const configRoot = `${root}/config`;
     await Deno.mkdir(configRoot, { recursive: true });
     await Deno.writeTextFile(
@@ -1003,13 +1101,19 @@ Deno.test('Increment 33 product fixtures survive source removal, exact revision 
       eventSink: (event) => events.push(event),
     });
     try {
-      assert((await replacementRun.session.submit('read with managed replacement')).ok);
+      assert(
+        (await replacementRun.session.submit('read with managed replacement'))
+          .ok,
+      );
     } finally {
       await replacementRun.close();
     }
     const replacementResult = events.find((event) => event.kind === 'tool_result');
     assert(replacementResult?.kind === 'tool_result');
-    assertEquals(replacementResult.result.text, 'managed Definition replacement result');
+    assertEquals(
+      replacementResult.result.text,
+      'managed Definition replacement result',
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }

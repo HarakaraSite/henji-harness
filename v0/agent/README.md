@@ -39,8 +39,8 @@ The interactive Session owns its active provider/model route and reasoning effor
 the Definition revision. The launcher defaults to `openrouter-chat`; the other bundled ids are
 `openrouter-responses`, `openai-chat`, and `openai-responses`. `--root-provider <provider-id>` uses
 that provider's effective declaration and catalog. Data-only declarations under `providers/*.json`
-can add ids using a binary-owned protocol adapter. The bundled planner is a root-runnable Definition
-with its own `openrouter-chat` role default. Sonar `web_search` keeps an independent OpenRouter
+can add ids using a binary-owned protocol adapter. The binary bundles only the default Agent Definition;
+named children use installed external Definitions. Sonar `web_search` keeps an independent OpenRouter
 route and credential. The current standalone-era Session record schema v6 persists provider, API,
 auth-profile identity, active selection, change history, per-committed-turn attribution, and each
 committed turn's logical built-in Definition ref and build manifest. Previous development schemas
@@ -51,7 +51,7 @@ and the credential/Authorization boundary). A user-scoped
 `$XDG_CONFIG_HOME/henji-harness/instruction.md` file, when present, is read directly before each
 Worker generation and replaces that core; there is no install or activation step. The Host passes
 the selected source identity and exact bytes as a data-only core input, and the Worker-core
-finalizer prepends that base once to both root and delegated-planner Definition contributions.
+finalizer prepends that base once to root and async child Definition contributions.
 Context history retains the source identity, content digest, exact text, and byte projection into
 provider requests.
 
@@ -63,9 +63,9 @@ idle-only and take effect on the next root turn. The bundled OpenAI catalog cont
 `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
 The interactive launcher and `henji run` accept `--provider-timeout-ms N` for a positive
-safe-integer request deadline. It defaults to 300,000 ms and applies to each root, delegated-planner,
+safe-integer request deadline. It defaults to 300,000 ms and applies to each root, async child,
 and context-compaction model request in that Worker invocation. Both also accept `--max-steps N` to
-override the root Agent's model-step limit; the built-in default and planner Definitions now allow
+override the root Agent's model-step limit; the built-in default Definition allows
 128 steps when no override is supplied. Neither option is Session state, so a Session switch keeps
 the TUI invocation values and a later invocation returns to the defaults unless the flags are
 supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not

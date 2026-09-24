@@ -133,7 +133,9 @@ const textStream = (text: string): ReadableStream<Uint8Array> =>
   });
 
 class TerminalToolOutcomeCapsule implements WorkerHostCapsule {
-  private readonly listeners = new Set<(message: WorkerToHostMessage) => void>();
+  private readonly listeners = new Set<
+    (message: WorkerToHostMessage) => void
+  >();
 
   private emit(message: WorkerToHostMessage): void {
     for (const listener of this.listeners) listener(message);
@@ -377,7 +379,7 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
   const written = await artifacts.list();
   assertEquals(written.length, 1);
   assertEquals(written[0]?.manifest.maxSteps, 160);
-  assert(written[0]?.manifest.resources.includes('agent:planner'));
+  assert(!written[0]?.manifest.resources.includes('agent:planner'));
   assertEquals(written[0]?.storeResult, 'committed');
   assertEquals(written[0]?.acknowledgement, 'accepted_sent');
   assert(
@@ -401,7 +403,9 @@ Deno.test('production subscriber does not retain delivered Worker messages acros
   });
   try {
     for (let turn = 1; turn <= 3; turn += 1) {
-      const outcome = await created.session.submit(`turn ${turn}: ${'x'.repeat(8_192)}`);
+      const outcome = await created.session.submit(
+        `turn ${turn}: ${'x'.repeat(8_192)}`,
+      );
       assert(outcome.ok);
       assert(capsule !== undefined);
       const queued = Reflect.get(capsule, 'messages') as WorkerToHostMessage[];
@@ -471,7 +475,9 @@ Deno.test('Host does not retain processed provider observations in its response 
   });
   try {
     for (let index = 1; index <= 3; index += 1) {
-      const outcome = await created.session.submit(`provider observation turn ${index}`);
+      const outcome = await created.session.submit(
+        `provider observation turn ${index}`,
+      );
       assert(outcome.ok);
       const coordinator = Reflect.get(created.session, 'coordinator') as object;
       const supervisor = Reflect.get(coordinator, 'supervisor') as object;
@@ -484,7 +490,8 @@ Deno.test('Host does not retain processed provider observations in its response 
     for (const artifact of stored) {
       assertEquals(
         artifact.protocolTrace.filter((entry) =>
-          entry.kind === 'provider_observation' && entry.semanticSubtype !== 'runtime_event'
+          entry.kind === 'provider_observation' &&
+          entry.semanticSubtype !== 'runtime_event'
         )
           .map((entry) => entry.semanticSubtype),
         ['request_start', 'response_start'],
@@ -658,7 +665,7 @@ Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', 
   let stdout = '';
   let stderr = '';
   const argvExit = await runtimeCliMain(
-    ['--agent', 'planner', '--task', '  plan this  '],
+    ['--agent', 'default', '--task', '  plan this  '],
     {
       stdinIsTerminal: () => true,
       run: (task, selection) => {
@@ -697,7 +704,7 @@ Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', 
   assertEquals(stdinExit, 0);
   assertEquals(stdout, 'headless answer\n');
   assertEquals(observed, [
-    { task: 'plan this', agent: 'planner' },
+    { task: 'plan this', agent: 'default' },
     { task: 'stdin task', agent: 'default' },
   ]);
 });
@@ -789,7 +796,11 @@ Deno.test('headless development task uses the unified TypeScript entry', async (
   const task = config.tasks['agent:run'];
   assert(task.includes('v0/agent/cli/henji_cli.ts run'));
   assert(task.includes('--unstable-worker-options'));
-  assert(task.includes('--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME'));
+  assert(
+    task.includes(
+      '--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME',
+    ),
+  );
   assert(!task.includes('runtime_cli_launcher.sh'));
   assert(!task.includes('HENJI_SESSION_STATE_ROOT'));
 });
@@ -887,7 +898,8 @@ Deno.test('Slice 1 observes Worker permission narrowing without changing the pro
     capsule.send({
       kind: 'permission',
       correlation: correlation('permission'),
-      readSpecifier: new URL('../../v0/agent/worker/worker_protocol.ts', import.meta.url).href,
+      readSpecifier: new URL('../../v0/agent/worker/worker_protocol.ts', import.meta.url)
+        .href,
       envKey: 'HOME',
     });
     const message = await capsule.waitForMessage(isRuntime);
@@ -926,7 +938,10 @@ const runCompositionTurn = async (
   const capsule = new WorkerCapsule(workerUrl);
   try {
     const definitionPath = definitionFile === 'worker_builtin_definition.ts'
-      ? new URL('../../v0/agent/worker/worker_builtin_definition.ts', import.meta.url)
+      ? new URL(
+        '../../v0/agent/worker/worker_builtin_definition.ts',
+        import.meta.url,
+      )
         .pathname
       : fixture(definitionFile);
     const revision = await readWorkerModuleRevision(definitionPath);
@@ -989,29 +1004,14 @@ Deno.test('Slices 2–3 run built-in and external Definitions through the same W
 });
 
 Deno.test('Worker applies a root maxSteps request to built-in and external Definitions', async () => {
-  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 12, 12);
+  const builtin = await runCompositionTurn(
+    'worker_builtin_definition.ts',
+    12,
+    12,
+  );
   const external = await runCompositionTurn('external_definition.ts', 12, 12);
   assertEquals(builtin.manifest?.maxSteps, 12);
   assertEquals(external.manifest?.maxSteps, 12);
-
-  const plannerCapsule = new WorkerCapsule(workerUrl);
-  try {
-    const revision = await readWorkerModuleRevision(workerBuiltinModulePath('planner'));
-    const readyPromise = plannerCapsule.waitForMessage(isReady);
-    plannerCapsule.send({
-      kind: 'start',
-      correlation: correlation('planner-root-override'),
-      module: revision,
-      workspaceRoot: Deno.cwd(),
-      toolDefinitions: await bundledToolDefinitionLoadRequests(),
-      rootMaxSteps: 12,
-    });
-    const planner = await readyPromise;
-    assertEquals(planner.manifest?.role, 'planner');
-    assertEquals(planner.manifest?.maxSteps, 12);
-  } finally {
-    plannerCapsule.terminate();
-  }
 });
 
 Deno.test('Worker uses the requested root maxSteps as the turn budget', async () => {
@@ -1056,7 +1056,10 @@ Deno.test('Slice 3 keeps effect and cancellation semantics inside the Worker gen
   const capsule = new WorkerCapsule(workerUrl);
   try {
     const revision = await readWorkerModuleRevision(
-      new URL('../../v0/agent/worker/worker_builtin_definition.ts', import.meta.url)
+      new URL(
+        '../../v0/agent/worker/worker_builtin_definition.ts',
+        import.meta.url,
+      )
         .pathname,
     );
     const readyPromise = capsule.waitForMessage(isReady);
@@ -1113,7 +1116,10 @@ Deno.test('Slice 3 sends long user turns directly to commit without checkpoint p
   const sessionCorrelation = compactionCorrelation('compaction-start');
   try {
     const revision = await readWorkerModuleRevision(
-      new URL('../../v0/agent/worker/worker_builtin_definition.ts', import.meta.url)
+      new URL(
+        '../../v0/agent/worker/worker_builtin_definition.ts',
+        import.meta.url,
+      )
         .pathname,
     );
     const readyPromise = capsule.waitForMessage(isReady);
@@ -1162,7 +1168,8 @@ Deno.test('Slice 3 sends long user turns directly to commit without checkpoint p
     );
     assert(
       proposal.transcript.some((message) =>
-        message.role === 'user' && message.content.text.includes('x'.repeat(30_000))
+        message.role === 'user' &&
+        message.content.text.includes('x'.repeat(30_000))
       ),
     );
     capsule.send({
@@ -1410,7 +1417,10 @@ Deno.test('Provider timeout on long history is attributed to the admitted user t
   assertEquals(diagnostic.modelStep, 1);
   assertEquals(failed.outcome.turnProviderRequestCount, 1);
   assertEquals(failed.outcome.runtimeProviderRequestCount, 1);
-  assertEquals(presentationFailureReason(diagnostic), 'provider deadline exceeded');
+  assertEquals(
+    presentationFailureReason(diagnostic),
+    'provider deadline exceeded',
+  );
   assertEquals(phases, ['user_turn']);
 });
 
@@ -1469,11 +1479,15 @@ Deno.test('Worker execution artifact distinguishes Host store failure from commi
 });
 
 Deno.test('a failed SQLite settlement cannot advertise a persisted artifact as recallable', async () => {
-  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-settlement-' });
+  const stateRoot = await Deno.makeTempDir({
+    prefix: 'henji-recall-settlement-',
+  });
   const workspaceRoot = Deno.cwd();
   const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
     fault: (phase) => {
-      if (phase === 'before_settlement_commit') throw new Error('simulated SQLite rollback');
+      if (phase === 'before_settlement_commit') {
+        throw new Error('simulated SQLite rollback');
+      }
     },
   });
   await history.initialize();
@@ -1487,7 +1501,8 @@ Deno.test('a failed SQLite settlement cannot advertise a persisted artifact as r
   const capsule: WorkerHostCapsule = {
     send: (command) => {
       if (command.kind === 'start') {
-        const rootModel = command.modelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
+        const rootModel = command.modelSelection ??
+          ROOT_DEFAULT_MODEL_SELECTION;
         listener?.({
           kind: 'ready',
           correlation: command.correlation,
@@ -1499,7 +1514,10 @@ Deno.test('a failed SQLite settlement cannot advertise a persisted artifact as r
             rootModel,
           },
           startupSnapshot: { skillNames: [] },
-          credentialAvailability: { authProfile: rootModel.authProfile, status: 'unknown' },
+          credentialAvailability: {
+            authProfile: rootModel.authProfile,
+            status: 'unknown',
+          },
         });
       } else if (command.kind === 'turn') {
         const diagnostic = createFailureDiagnostic({
@@ -1524,7 +1542,10 @@ Deno.test('a failed SQLite settlement cannot advertise a persisted artifact as r
               steps: 1,
               toolCallCount: 0,
               toolResultCount: 0,
-              transcript: [{ role: 'user', content: { kind: 'text', text: command.task } }],
+              transcript: [{
+                role: 'user',
+                content: { kind: 'text', text: command.task },
+              }],
               diagnostic,
             },
             diagnostic,

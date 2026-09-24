@@ -6,7 +6,6 @@ import {
   builtinInstructionResourceIdentities,
   resolveBuiltinDefinitionInstruction,
 } from '../instructions/compose.ts';
-export { PLANNER_AGENT_INSTRUCTION } from '../instructions/roles/planner.ts';
 import {
   type AgentResourceIdentity,
   type AgentResourceSelection,
@@ -45,6 +44,8 @@ export interface AgentDefinitionInput {
   readonly workspace: Workspace;
   readonly agentInstructions?: string;
   readonly skillCatalog: SkillCatalog;
+  /** Names resolved from activation-level managed Agent bindings for this generation. */
+  readonly asyncAgentNames?: readonly string[];
 }
 
 /** Declarative, synchronous output used to materialize one normal runtime composition. */
@@ -58,7 +59,9 @@ export interface ResolvedAgentDefinition {
   readonly resourceSelection: AgentResourceSelection;
 }
 
-export type AgentDefinition = (input: AgentDefinitionInput) => ResolvedAgentDefinition;
+export type AgentDefinition = (
+  input: AgentDefinitionInput,
+) => ResolvedAgentDefinition;
 
 /** The finite request bound declared by the normal runtime's default Agent Definition. */
 export const DEFAULT_AGENT_MAX_STEPS = 128;
@@ -74,10 +77,8 @@ const canonicalSelection = (
 
 const declarationsFor = (
   input: AgentDefinitionInput,
-  registryKind: 'production' | 'planner',
 ): AgentCapabilityDeclaration => {
   const instructions = [...builtinInstructionResourceIdentities(
-    registryKind === 'production' ? 'default' : 'planner',
     input.agentInstructions !== undefined,
     input.skillCatalog.manifest !== undefined,
   )];
@@ -86,32 +87,26 @@ const declarationsFor = (
   );
   const tools: AgentResourceIdentity[] = [];
   const asyncAgents: AgentResourceIdentity[] = [];
-  if (registryKind === 'production') {
-    tools.push(
-      ...[
-        'tool:bash',
-        'tool:bash_output',
-        'tool:edit',
-        'tool:read',
-        'tool:web_fetch',
-        'tool:web_search',
-        'tool:write',
-      ].map((name) => createAgentResourceIdentity(name)),
-    );
-    if (input.skillCatalog.skills.length > 0) {
-      tools.push(createAgentResourceIdentity('tool:skill'));
-    }
-    tools.push(
-      createAgentResourceIdentity('tool:submit_json_result'),
-    );
-    asyncAgents.push(createAgentResourceIdentity('agent:planner'));
-  } else {
-    tools.push(createAgentResourceIdentity('tool:read'));
-    if (input.skillCatalog.skills.length > 0) {
-      tools.push(createAgentResourceIdentity('tool:skill'));
-    }
-    tools.push(createAgentResourceIdentity('tool:submit_json_result'));
+  tools.push(
+    ...[
+      'tool:bash',
+      'tool:bash_output',
+      'tool:edit',
+      'tool:read',
+      'tool:web_fetch',
+      'tool:web_search',
+      'tool:write',
+    ].map((name) => createAgentResourceIdentity(name)),
+  );
+  if (input.skillCatalog.skills.length > 0) {
+    tools.push(createAgentResourceIdentity('tool:skill'));
   }
+  tools.push(createAgentResourceIdentity('tool:submit_json_result'));
+  asyncAgents.push(
+    ...[...new Set(input.asyncAgentNames ?? [])].sort().map((name) =>
+      createAgentResourceIdentity(`agent:${name}`)
+    ),
+  );
   return Object.freeze({
     instructions: Object.freeze(instructions),
     skills: Object.freeze(skills),
@@ -133,16 +128,14 @@ const flattenResources = (
 
 const resolveDefinition = (
   input: AgentDefinitionInput,
-  kind: 'production' | 'planner',
 ): ResolvedAgentDefinition => {
   const model: AgentModelDefinition = Object.freeze({
     provider: 'openrouter-chat',
     profile: PRODUCTION_PROFILE,
   });
-  const capabilities = declarationsFor(input, kind);
+  const capabilities = declarationsFor(input);
   const limits = Object.freeze({ maxSteps: DEFAULT_AGENT_MAX_STEPS });
   const systemInstruction = resolveBuiltinDefinitionInstruction(
-    kind === 'production' ? 'default' : 'planner',
     input.workspace.root,
     input.agentInstructions,
     input.skillCatalog,
@@ -166,12 +159,4 @@ const resolveDefinition = (
  * The sole normal-runtime Agent Definition. It only projects already-resolved host inputs and
  * performs no filesystem, credential, network, tool, session, event, or UI work.
  */
-export const defaultAgentDefinition: AgentDefinition = (input) =>
-  resolveDefinition(input, 'production');
-
-/**
- * The sole built-in planning Definition. It only projects host-resolved snapshots and changes the
- * model capability declaration; it does not itself perform filesystem or tool work.
- */
-export const plannerAgentDefinition: AgentDefinition = (input) =>
-  resolveDefinition(input, 'planner');
+export const defaultAgentDefinition: AgentDefinition = (input) => resolveDefinition(input);

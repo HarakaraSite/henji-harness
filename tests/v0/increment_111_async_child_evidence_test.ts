@@ -1,3 +1,4 @@
+import { managedChildModule, managedChildRef } from './managed_child_fixture.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
 import type {
   HistoryPersistencePort,
@@ -8,7 +9,6 @@ import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ChildRunRegistry } from '../../v0/agent/worker/worker_host_children.ts';
 import {
   bundledToolDefinitionLoadRequests,
-  readDefinitionRevision,
 } from '../../v0/agent/worker/worker_definition_revision.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -37,7 +37,7 @@ const registry = async (
   history: HistoryPersistencePort,
   rootMaxSteps?: number,
 ): Promise<ChildRunRegistry> => {
-  const plannerRef = await readDefinitionRevision('', 'builtin', 'planner');
+  const plannerRef = managedChildRef();
   return new ChildRunRegistry({
     options: {
       handle: handle(),
@@ -48,7 +48,8 @@ const registry = async (
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
       ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
     },
-    catalog: [{ name: 'planner', ref: plannerRef }],
+    catalog: [{ name: 'probe-child', ref: plannerRef }],
+    resolveManagedModule: managedChildModule,
     history,
     build: buildManifest(),
   });
@@ -61,7 +62,10 @@ const withStore = async (
   const root = await Deno.makeTempDir({ prefix: `henji-i111-${name}-` });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot);
+  const store = new SqliteHistoryV7ProductionStore(
+    `${root}/state`,
+    workspaceRoot,
+  );
   await store.initialize();
   try {
     await run(store);
@@ -77,7 +81,7 @@ Deno.test('Increment 111 persists completed child outcome', async () => {
     const parentExecutionId = 'parent-i111-completed';
     children.openParent(parentExecutionId);
     const spawned = await children.handle(
-      { kind: 'spawn', agent: 'planner', task: 'summarize the child task' },
+      { kind: 'spawn', agent: 'probe-child', task: 'summarize the child task' },
       'spawn-i111-completed',
       parentExecutionId,
     );
@@ -87,7 +91,10 @@ Deno.test('Increment 111 persists completed child outcome', async () => {
       undefined,
       parentExecutionId,
     );
-    assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+    assert(
+      collected.ok && collected.kind === 'collect',
+      JSON.stringify(collected),
+    );
     assertEquals(collected.result.state, 'completed');
     assertEquals(collected.result.stopReason, 'final');
     assertEquals(collected.result.providerRequestCount, 0);
@@ -107,7 +114,7 @@ Deno.test('Increment 111 preserves max-steps counts and structured diagnostic', 
     const parentExecutionId = 'parent-i111-max-steps';
     children.openParent(parentExecutionId);
     const spawned = await children.handle(
-      { kind: 'spawn', agent: 'planner', task: 'ten-step child task' },
+      { kind: 'spawn', agent: 'probe-child', task: 'ten-step child task' },
       undefined,
       parentExecutionId,
     );
@@ -117,7 +124,10 @@ Deno.test('Increment 111 preserves max-steps counts and structured diagnostic', 
       undefined,
       parentExecutionId,
     );
-    assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+    assert(
+      collected.ok && collected.kind === 'collect',
+      JSON.stringify(collected),
+    );
     assertEquals(collected.result.state, 'failed');
     assertEquals(collected.result.stopReason, 'max_steps');
     assertEquals(collected.result.providerRequestCount, 0);
@@ -143,7 +153,7 @@ Deno.test('Increment 111 preserves the Worker failure instead of a generic child
     const parentExecutionId = 'parent-i111-worker-failure';
     children.openParent(parentExecutionId);
     const spawned = await children.handle(
-      { kind: 'spawn', agent: 'planner', task: 'child-fail task' },
+      { kind: 'spawn', agent: 'probe-child', task: 'child-fail task' },
       undefined,
       parentExecutionId,
     );
@@ -153,7 +163,10 @@ Deno.test('Increment 111 preserves the Worker failure instead of a generic child
       undefined,
       parentExecutionId,
     );
-    assert(collected.ok && collected.kind === 'collect', JSON.stringify(collected));
+    assert(
+      collected.ok && collected.kind === 'collect',
+      JSON.stringify(collected),
+    );
     assertEquals(collected.result.state, 'failed');
     assertEquals(collected.result.stopReason, 'contract_failure');
     assertEquals(
@@ -167,7 +180,10 @@ Deno.test('Increment 111 preserves the Worker failure instead of a generic child
     assertEquals(row.outcomeJson?.error, collected.result.error);
     assertEquals(row.outcomeJson?.steps, 1);
     assertEquals(row.outcomeJson?.turnProviderRequestCount, 0);
-    assertEquals((await store.diagnostics.read(row.diagnosticId!)).code, 'unknown_code');
+    assertEquals(
+      (await store.diagnostics.read(row.diagnosticId!)).code,
+      'unknown_code',
+    );
     await children.cleanupParent(parentExecutionId);
   });
 });
@@ -192,7 +208,7 @@ Deno.test('Increment 111 does not fabricate evidence for pre-start cancellation'
   const parentExecutionId = 'parent-i111-pre-start-cancel';
   children.openParent(parentExecutionId);
   const spawning = children.handle(
-    { kind: 'spawn', agent: 'planner', task: 'never dispatched' },
+    { kind: 'spawn', agent: 'probe-child', task: 'never dispatched' },
     undefined,
     parentExecutionId,
   );

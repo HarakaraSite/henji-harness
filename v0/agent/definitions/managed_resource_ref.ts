@@ -63,7 +63,7 @@ const builtinResourceDigest = (
   )?.digest;
 
 export const builtinDefinitionRef = async (
-  agent: 'default' | 'planner',
+  agent: 'default',
   manifest: BuildManifestV1,
 ): Promise<DefinitionRevisionRef> => {
   const resourceId = `builtin/${agent}` as const;
@@ -82,8 +82,7 @@ export const builtinDefinitionRef = async (
   // Development/source runs have no compiled closure digest; keep the fixed development identity.
   const identity = JSON.stringify({
     resourceId,
-    role: agent === 'planner' ? 'subagent' : 'parent',
-    ...(agent === 'planner' ? { subagentName: 'planner' } : {}),
+    role: 'parent',
     apiContract: AGENT_DEFINITION_API_CONTRACT,
     embeddedRuntimeSha256: manifest.embeddedRuntimeSha256,
   });

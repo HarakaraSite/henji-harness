@@ -1,4 +1,9 @@
 import {
+  installManagedProbeChild,
+  managedChildModule,
+  managedChildRef,
+} from './managed_child_fixture.ts';
+import {
   type AsyncAgentRequest,
   type AsyncAgentResponse,
   createAsyncAgentTools,
@@ -61,8 +66,9 @@ const managedRef = (resourceId: string): DefinitionRevisionRef => ({
 const builtinRegistry = async (
   history?: HistoryPersistencePort,
   cancelSettlementGraceMs?: number,
+  resolveModule = managedChildModule,
 ): Promise<ChildRunRegistry> => {
-  const plannerRef = await readDefinitionRevision('', 'builtin', 'planner');
+  const plannerRef = managedChildRef();
   return new ChildRunRegistry({
     options: {
       handle: handle(),
@@ -73,7 +79,8 @@ const builtinRegistry = async (
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
       ...(cancelSettlementGraceMs === undefined ? {} : { cancelSettlementGraceMs }),
     },
-    catalog: [{ name: 'planner', ref: plannerRef }],
+    catalog: [{ name: 'probe-child', ref: plannerRef }],
+    resolveManagedModule: resolveModule,
     ...(history === undefined ? {} : { history }),
     build: buildManifest(),
   });
@@ -168,7 +175,7 @@ Deno.test('Increment 110 uses managed planner provenance and exact tool binding'
         physicalIoMode: 'provider-free',
         toolDefinitions,
       },
-      catalog: [{ name: 'planner', ref }],
+      catalog: [{ name: 'probe-child', ref }],
       resolveManagedModule: (
         requested,
       ): Promise<WorkerDefinitionLoadRequest> => {
@@ -180,7 +187,7 @@ Deno.test('Increment 110 uses managed planner provenance and exact tool binding'
     const parentExecutionId = 'parent-managed-planner';
     registry.openParent(parentExecutionId);
     const spawned = await registry.handle(
-      { kind: 'spawn', agent: 'planner', task: 'read bound tool' },
+      { kind: 'spawn', agent: 'probe-child', task: 'read bound tool' },
       'managed-planner-call',
       parentExecutionId,
     );
@@ -271,7 +278,7 @@ Deno.test('Increment 110 hides a terminal result when durable settlement fails',
   const parentExecutionId = 'parent-settlement-failure';
   registry.openParent(parentExecutionId);
   const spawned = await registry.handle(
-    { kind: 'spawn', agent: 'planner', task: 'child terminal durability' },
+    { kind: 'spawn', agent: 'probe-child', task: 'child terminal durability' },
     undefined,
     parentExecutionId,
   );
@@ -297,7 +304,7 @@ Deno.test('Increment 110 fences child addressability to its parent execution', a
   const parentExecutionId = 'parent-fence-a';
   registry.openParent(parentExecutionId);
   const spawned = await registry.handle(
-    { kind: 'spawn', agent: 'planner', task: 'parent fenced child' },
+    { kind: 'spawn', agent: 'probe-child', task: 'parent fenced child' },
     undefined,
     parentExecutionId,
   );
@@ -333,7 +340,7 @@ Deno.test('Increment 110 releases completed parent scopes without retaining tomb
     registry.openParent(parentExecutionId);
     await registry.cleanupParent(parentExecutionId);
     const closed = await registry.handle(
-      { kind: 'spawn', agent: 'planner', task: 'must remain closed' },
+      { kind: 'spawn', agent: 'probe-child', task: 'must remain closed' },
       undefined,
       parentExecutionId,
     );
@@ -342,33 +349,39 @@ Deno.test('Increment 110 releases completed parent scopes without retaining tomb
   }
 });
 
-Deno.test('Increment 110 does not admit a child after parent cleanup during bundled ref resolution', async () => {
+Deno.test('Increment 110 settles an admitted child after parent cleanup during managed module resolution', async () => {
   let admissions = 0;
   let settlements = 0;
   const history = {
     beginExecution: () => admissions += 1,
     settleNonCanonicalExecution: () => settlements += 1,
   } as unknown as HistoryPersistencePort;
-  const registry = await builtinRegistry(history);
+  const registry = await builtinRegistry(history, undefined, async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return await managedChildModule();
+  });
   const parentExecutionId = 'parent-ref-resolution';
   for (let index = 0; index < 3; index += 1) {
     registry.openParent(parentExecutionId);
     const spawn = registry.handle(
-      { kind: 'spawn', agent: 'planner', task: 'must not start' },
+      { kind: 'spawn', agent: 'probe-child', task: 'must not start' },
       undefined,
       parentExecutionId,
     );
     const cleanup = await registry.cleanupParent(parentExecutionId);
     registry.releaseParent(parentExecutionId);
     const response = await spawn;
-    assertEquals(cleanup, undefined);
+    assertEquals(cleanup?.runs.map((run) => run.state), ['cancelled']);
     assertEquals(response, {
       ok: false,
-      error: 'parent execution no longer accepts child runs',
+      error: 'parent execution settled before child start',
     });
-    assertEquals(admissions, 0);
-    assertEquals(settlements, 0);
-    assertEquals((Reflect.get(registry, 'runs') as Map<string, unknown>).size, 0);
+    assertEquals(admissions, index + 1);
+    assertEquals(settlements, index + 1);
+    assertEquals(
+      (Reflect.get(registry, 'runs') as Map<string, unknown>).size,
+      0,
+    );
   }
 });
 
@@ -435,7 +448,7 @@ Deno.test('Increment 110 terminates and durably interrupts a child after cleanup
     const spawned = await registry.handle(
       {
         kind: 'spawn',
-        agent: 'planner',
+        agent: 'probe-child',
         task: `stubborn-barrier-child:${channelName}:T`,
       },
       undefined,
@@ -477,7 +490,7 @@ Deno.test('Increment 110 propagates async RPC abort as turn cancellation', async
         { once: true },
       );
     });
-  const tools = new Registry(createAsyncAgentTools(['planner'], rpc));
+  const tools = new Registry(createAsyncAgentTools(['probe-child'], rpc));
   const cancellation = new AbortController();
   const dispatched = tools.dispatch(
     {
@@ -504,6 +517,7 @@ Deno.test('Increment 110 parent cancel releases a pending collect RPC', async ()
   const barrier = new BroadcastChannel(channelName);
   try {
     const started = waitForChannelKind(barrier, 'started');
+    await installManagedProbeChild(`${root}/data`, `${root}/config`);
     const created = await createWorkerSession({
       workspaceRoot,
       stateRoot: `${root}/state`,
@@ -549,6 +563,7 @@ const runUncollectedBarrierTurn = async (
   const barrier = new BroadcastChannel(channelName);
   try {
     const cancelObserved = waitForChannelKind(barrier, 'cancel_observed');
+    await installManagedProbeChild(`${root}/data`, `${root}/config`);
     const created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
@@ -643,18 +658,15 @@ Deno.test('Increment 110 retains a valid parent result when child settlement fai
       'builtin',
       'default',
     );
-    const plannerDefinition = await readDefinitionRevision(
-      '',
-      'builtin',
-      'planner',
-    );
+    const plannerDefinition = managedChildRef();
     session = await WorkerHostSession.open({
       handle: handle(),
       workspaceRoot,
       agent: 'default',
       definition: rootDefinition,
       modulePath: workerBuiltinModulePath('default'),
-      asyncAgents: [{ name: 'planner', ref: plannerDefinition }],
+      asyncAgents: [{ name: 'probe-child', ref: plannerDefinition }],
+      resolveAsyncAgentModule: managedChildModule,
       toolDefinitions: await bundledToolDefinitionLoadRequests(),
       physicalIoMode: 'provider-free',
       historyPersistence: historyPort,
