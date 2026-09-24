@@ -1,6 +1,6 @@
 # Increment 124 — 保存Sessionのthinking復元と全履歴の閲覧
 
-状態: 実装・検証・commit・binary配置完了（2026-09-24、利用者確認待ち）。利用者が通常利用メモS15を採用し、計画を承認した。通常実行中の逐次表示はS16として通常利用メモに残す。push・releaseは未実施。
+状態: 完了（2026-09-24、利用者確認済み）。利用者が通常利用メモS15を採用し、計画を承認した。通常実行中の逐次表示はS16として通常利用メモに残す。push・releaseは未実施。
 
 ## 必要なproduct動作と根拠
 
@@ -27,6 +27,7 @@
 - 関連focused test 98件と追加の2 MiB確認1件が成功した。`v0:check`、対象fileのformat・lint、`git diff --check`も成功。full gateは実行していない。
 - 隔離XDG・tmuxのsource production TUIでlocalhost模擬Chat providerを1 request使用した。保存時、`/new`後に`/sessions`で選び直した時、`--session`で再起動した時のいずれも`user>`→`thinking>`→`assistant>`の順序とthinking本文の空行を確認した。画面記録は`/tmp/henji-i124-tui-Hh05Ud/{live,restored-picker,restored-startup}.txt`。模擬providerはREADMEの内容を実際には比較していない。実provider callは行っていない。
 - 同じ隔離XDGの別Sessionでlocalhost模擬Chat providerを2 request使用し、`read` toolを挟む2 model stepを保存した。`/sessions`復元後も`user>`→`thinking>`→`tool>`→`thinking>`→`assistant>`の順序を確認した。画面記録は同directoryの`tool-live.txt`と`tool-restored-picker.txt`。この回答も模擬応答であり、実際のREADME比較結果を示さない。
+- 利用者は配置後のthinking表示を確認した。Session `a2098f7c-3a24-43e7-80a2-60d93832d8b3`では、最初と途中の失敗実行が`/sessions`復元画面に現れず、最初のcanonical実行から表示されることを履歴と照合した。失敗実行は`henji history --view session`から読める。このcanonicalのみの復元範囲を利用者が了承し、Increment 124を完了と判断した。
 
 ## commit・配置
 
