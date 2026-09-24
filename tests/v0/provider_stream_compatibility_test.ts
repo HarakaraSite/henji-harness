@@ -262,6 +262,44 @@ const mixedToolStream = (id = 'gen-mixed-tool'): string => {
   }${event({ content: '' }, 'tool_calls')}${usage(id, 'tool_calls')}data: [DONE]\n\n`;
 };
 
+const nullMetadataContinuationStream = (id = 'gen-mimo-tool'): string => {
+  const event = (delta: unknown, finishReason: 'tool_calls' | null = null): string =>
+    `data: ${
+      JSON.stringify({
+        id,
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+      })
+    }\n\n`;
+  return `${event({ role: 'assistant', content: 'I will inspect the README files.' })}${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: 'call-b2e69840',
+        type: 'function',
+        function: { name: 'bash', arguments: '' },
+      }],
+    })
+  }${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: null,
+        type: 'function',
+        function: { name: null, arguments: '{"command": ' },
+      }],
+    })
+  }${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: null,
+        type: 'function',
+        function: { name: null, arguments: '"pwd"}' },
+      }],
+    })
+  }${event({}, 'tool_calls')}data: [DONE]\n\n`;
+};
+
 const failingPostTerminalStream = (): string =>
   `${textStream('gen-failure').replace('data: [DONE]\n\n', '')}data: ${
     JSON.stringify({
@@ -842,6 +880,17 @@ Deno.test('OpenRouter mixed assistant text and tool calls remain visible and con
     type: 'function',
     function: { name: 'read', arguments: '{"path":"README.md"}' },
   }]);
+});
+
+Deno.test('OpenCode Go Chat accepts null tool metadata in MiMo continuation chunks', async () => {
+  const seen = { requests: 0 };
+  const result = await modelFor(nullMetadataContinuationStream(), seen).generate(request);
+  assertEquals(result, {
+    kind: 'tool_calls',
+    calls: [{ callId: 'call-b2e69840', name: 'bash', arguments: { command: 'pwd' } }],
+    text: 'I will inspect the README files.',
+  });
+  assertEquals(seen.requests, 1);
 });
 
 Deno.test('OpenRouter JSON response preserves text attached to tool calls', () => {

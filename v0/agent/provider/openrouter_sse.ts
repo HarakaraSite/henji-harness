@@ -207,7 +207,9 @@ const updateStreamTool = (
     target = { index, arguments: '' };
     assembly.tools.set(index, target);
   }
-  if (hasOwn(fragment, 'id')) {
+  // Some Chat Completions streams repeat metadata keys with null on continuation chunks.
+  // The first non-null value remains authoritative; completion still requires all metadata.
+  if (hasOwn(fragment, 'id') && fragment.id !== null) {
     if (!nonBlank(fragment.id)) {
       throw sseResponseError('provider tool-call id was invalid', 'incomplete_tool_call');
     }
@@ -230,7 +232,7 @@ const updateStreamTool = (
       throw sseResponseError('provider tool-call function was invalid', 'incomplete_tool_call');
     }
     const fn = fragment.function as { name?: unknown; arguments?: unknown };
-    if (hasOwn(fn, 'name')) {
+    if (hasOwn(fn, 'name') && fn.name !== null) {
       if (!nonBlank(fn.name)) {
         throw sseResponseError('provider tool-call name was invalid', 'incomplete_tool_call');
       }
