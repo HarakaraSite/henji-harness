@@ -1,6 +1,6 @@
 # Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内
 
-状態: 実装・検証完了。通常利用メモS11を採用した。構想・architecture・roadmapの変更は不要と判断し、編集していない。
+状態: 実装・検証・配置完了。通常利用メモS11を採用した。構想・architecture・roadmapの変更は不要と判断し、編集していない。
 
 ## 必要なproduct動作と根拠
 
@@ -32,3 +32,8 @@
 ## 採用しなかった候補
 
 - 通常利用メモS13の失敗行Execution ID表示は今回実装せず、未採用候補として通常利用メモに残した。`/recall`が受け付けるExecution IDを表示する案であり、必要になった時点で採用を判断する。
+
+## 配置
+
+- commit `621b6892`（実装・test・文書）を`origin/main`へpushし、同じclean commitからDeno 2.9.7で`deno task henji:compile`を実行してbuild `178a8646…`（file SHA-256 `9554953c…`、embedded runtime `b8e1dda0…`）を作成し、`dist/henji`と`~/.local/bin/henji`へ原子的に配置した。配置先の`--version`がsource `621b6892…`・build `178a8646…`を示し、build成果物とfile SHA-256が一致することを確認した。
+- 配置済みbinaryを隔離XDG・localhost mock providerのtmuxで起動し、保存Sessionのキャンセル／解析失敗行が新文言の案内付きで全行赤字、`--no-session`が理由のみで全行赤字（案内文はpaneに現れない）、`/recall`が保存Sessionで`recall <短縮ID> ready │ next task only`、`--no-session`で`recall unavailable with --no-session │ cmds: /recall`となることを確認した。releaseは行っていない。

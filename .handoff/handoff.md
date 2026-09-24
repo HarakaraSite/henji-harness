@@ -2,7 +2,7 @@
 
 ## Records
 
-### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（実装・検証完了）
+### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（実装・検証・配置完了）
 
 - 正本: `docs/increments/increment-122.md`。通常利用メモS11を採用し、同メモの一覧行と節をこの文書へ移した。
   同メモの別件未コミット変更（S12、S13、S14、A10）は保持している。
@@ -10,9 +10,10 @@
   表示する。`--no-session`は`/recall`を拒否するため案内を出さず、失敗理由だけを行全体の赤字で表示する。
 - 検証: focused test（TUI conversation 18件、retained terminalを含む60件、対象7ファイルで106件）、`v0:check`、
   `deno fmt --check`、`deno lint`、`git diff --check`が成功。隔離XDG・tmuxのproduction TUIで保存Sessionと
-  `--no-session`のキャンセル・解析失敗行と`/recall`の可否を確認した。実provider callは未実施。
-- 次: commit、push、`~/.local/bin/henji`への配置は未実施。失敗行のExecution ID表示（通常利用メモS13）は
-  未採用候補として残す。
+  `--no-session`のキャンセル・解析失敗行と`/recall`の可否を確認した。配置済みbinary（source `621b6892…`、
+  build `178a8646…`）でも隔離XDG・tmuxで同じ表示と`/recall`の可否を確認した。実provider callは未実施。
+- 次: なし。commit `621b6892`は`origin/main`へpush済み、binaryは`~/.local/bin/henji`へ配置済み
+  （build `178a8646…`）。失敗行のExecution ID表示（通常利用メモS13）は未採用候補として残す。releaseは未実施。
 
 ### Increment 119〜121 — reasoning再送・thinking表示・診断記録の縮小（完了）
 
@@ -719,9 +720,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.5.0`。clean code commit `aff155b5…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `a32d1ad3…`、file SHA-256 `dbac779c…`、embedded runtime
-  `9b2550e6…`）。`scripts/build_henji.ts`の
+- binary: `0.5.0`。clean code commit `621b6892…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `178a8646…`、file SHA-256 `9554953c…`、embedded runtime
+  `b8e1dda0…`）。`scripts/build_henji.ts`の
   `EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
