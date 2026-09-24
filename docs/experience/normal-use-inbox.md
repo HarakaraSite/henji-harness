@@ -146,8 +146,12 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   handlerとtool handlerを接続する。read-onlyな一覧/詳細取得と、Session切替・context rebuildのように
   呼出元のcontextを置き換える操作を分ける。後者はtool result前に呼出元を破棄せず、次turn予約、Host
   control event、turn完了後の切替等の順序を定める。
+- 利用者メモ（2026-09-25）: Agent自身が`/model`相当のHost操作をtoolで要求する案。model変更は現在のturn中には
+  適用せず、次のturnから有効にする。現行の`selectModel`は実行中に`busy`を返すため、単にslash commandを
+  toolで呼ぶだけでは成立しない。実際に必要な利用場面はまだ不明で、採用・実装は決めない。
 - 再検討条件: AIがSession列挙・詳細取得・選択、またはcontext rebuildを実taskで必要とすること。
-  UIだけに意味があるcommandや人間の明示選択が目的のcommandまで一律にtool化しない。
+  またはAgentが後続turnのmodelを自分で変える必要が実taskで現れること。UIだけに意味があるcommandや
+  人間の明示選択が目的のcommandまで一律にtool化しない。
 - 関連: S4。
 
 ### A3 — Context Strategyの外部化（F02、F06、将来のF24候補）
