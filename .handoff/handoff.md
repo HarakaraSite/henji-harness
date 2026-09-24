@@ -2,10 +2,11 @@
 
 ## Records
 
-### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（実装・検証・配置完了）
+### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（完了）
 
 - 正本: `docs/increments/increment-122.md`。通常利用メモS11を採用し、同メモの一覧行と節をこの文書へ移した。
-  同メモの別件未コミット変更（S12、S13、S14、A10）は保持している。
+- 2026-09-24に利用者がIncrement完了と判断した。後続の通常利用で見つかった未採用候補は
+  `docs/experience/normal-use-inbox.md`に記録した。
 - 保存Sessionの`failure>`行は失敗理由の後に英語の`/recall`案内を付け、ラベル・理由・案内を含む行全体を赤で
   表示する。`--no-session`は`/recall`を拒否するため案内を出さず、失敗理由だけを行全体の赤字で表示する。
 - 検証: focused test（TUI conversation 18件、retained terminalを含む60件、対象7ファイルで106件）、`v0:check`、

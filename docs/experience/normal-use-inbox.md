@@ -19,6 +19,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S12 | Surface | 長いthinkingの読みやすさ | thinking表示を改善するincrementを採用するとき |
 | S13 | Surface | 失敗行のExecution ID表示 | 過去の停止実行をTUIから指定して`/recall`したいとき |
 | S14 | Surface | ツール呼び出しに添えたassistant本文の履歴表示 | 作業途中の発話を後から時系列で読みたいとき |
+| S15 | Surface | `/sessions`で復元した会話のthinking表示 | 保存済みSessionをTUIで読み返すとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -28,6 +29,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A9 | Agent実行 | 診断記録の保存期間 | 保存期間を独立に決める必要が出たとき。粒度変更の計画はIncrement 121 |
 | A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
+| A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -136,6 +138,18 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   一件ずつ保存・表示する話ではない。
 - 再検討条件: ツール使用の意図と実際の結果を、通常の履歴から後で追いたいとき。
 - 関連: `v0/tui/state.ts`、`v0/agent/history/history_view.ts`、F05。
+
+### S15 — `/sessions`で復元した会話のthinking表示
+
+- 観測（2026-09-24）: 通常実行中は`thinking>`が表示され、`henji history --view session`でも保存済みの
+  thinkingを読める。一方、`/sessions`でSessionを選んだ後のTUIにはthinkingが復元されない。
+  最終的な画面描画は共通だが、復元経路の`restored_log`は確定会話メッセージだけからログを作り、
+  保存済みの`assistant_thinking`イベントを渡していない。
+- 候補: `/sessions`から復元した会話でも、保存済みのthinkingを対応する発話・toolと同じ順序で表示し、
+  通常実行中の表示と読み返し体験を揃える。
+- 再検討条件: 保存済みSessionをTUIで読み返すとき。
+- 関連: S12、`v0/tui/state.ts`、`v0/presentation/tui_presentation_adapter.ts`、
+  `v0/agent/history/history_view.ts`。
 
 ## Agent実行
 
@@ -252,6 +266,18 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 利用者希望: instructionの内容・粒度・与える場所（共通instruction、モデル別instruction、個々のtask）を
   検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
 - 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
+
+### A12 — semantic履歴の保存粒度と容量
+
+- 観測（2026-09-24、session `a2098f7c`）: 6実行（確定4、停止2）でsemantic履歴は4,693件、
+  `semantic_occurrences.payload_json`の合計は約10.5 MB。確定会話は240メッセージ、約513 KB。
+  workspaceの履歴DB全体（4 Session）は本体24.1 MiBとWAL 4.5 MiBだった。DBの保存量は次のmodel
+  requestへ送るcontext量とは別である。
+- 現行用途: `history`と`/recall`のため、toolの順序・引数・結果、runtime outcome、request単位のfact、
+  停止実行の証拠を保持する価値がある。一方、現在の4,693件すべての保存粒度が必要かは未判断。
+- 候補: 容量の大きいsemantic種別と重複を測り、通常履歴のreadbackと`/recall`が使う情報を保ったまま
+  記録量を減らせるか調べる。保存期間を決めるA9とは分け、現時点では削除・縮小を採用しない。
+- 再検討条件: 長期SessionでDB容量や履歴readbackの負担が実利用上の問題になったとき。
 
 ## F24・自己改訂
 
