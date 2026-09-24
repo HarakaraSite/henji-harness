@@ -17,7 +17,8 @@
 - 121は常設raw収集・保存・readback経路と診断attachmentを廃止し、短いrequest factと通常semantic履歴へ切り替えた。利用者承認により対象workspaceのv9 DBを削除してv10で再作成。focused test、型・format・lint、隔離XDG／tmuxのproduction TUIでtool表示と通常履歴を確認。利用者の追加許可後、OpenCode Go ChatのGLMとMiMoで計5実requestを行い、短いfactのSQLite読戻しを確認。詳細はIncrement 121文書。
 - 第三者reviewのSSE失敗fact P2は、検査箇所からfield・値の形を運ぶ修正とfocused testで解消した。後続の実providerでGLMの`type: null`継続断片による解析失敗を再現し、null継続値の受理後に同じ指示のread→回答を確認。tool callの`type`明示とindex連番は実行必須条件から外し、必要時のraw取得用scriptをrepositoryへ追加した。詳細はIncrement 121文書。
 - 次: なし。保存期間の判断は通常利用メモA9に残す。
-- 119の既存DB削除、build、配置、push、releaseは行っていない。DeepSeekの長い反復改善は未確認。
+- Increment 121を含むcommit `aff155b5`を`origin/main`へpushし、同じclean commitからbuildしたbinaryを
+  `~/.local/bin/henji`へ配置済み。DeepSeekの長い反復改善は未確認。releaseは行っていない。
 
 ### Increment 118 — キャンセル後のTUI表示ID衝突の修正（実装・検証・配置完了）
 
@@ -706,9 +707,9 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.5.0`。clean code commit `baa56a24…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `8d2a8db9…`、file SHA-256 `e293af33…`、embedded runtime
-  `850f2c77…`）。`scripts/build_henji.ts`の
+- binary: `0.5.0`。clean code commit `aff155b5…`からDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置済み（build `a32d1ad3…`、file SHA-256 `dbac779c…`、embedded runtime
+  `9b2550e6…`）。`scripts/build_henji.ts`の
   `EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
   build/source identityは`~/.local/bin/henji --version`を正本とする。
 - base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
