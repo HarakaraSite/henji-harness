@@ -1,5 +1,9 @@
 # Handoff
 
+## Next session
+
+- 利用者指示（2026-09-24）: 次のセッションでは`/sessions`で復元した会話にも、保存済みthinkingを対応する発話・toolと同じ順序で表示する。通常利用メモS15を入口に、復元経路と履歴の参照先を確認して進める。Increment 123の表示改善は完了済み。
+
 ## Records
 
 ### Increment 123 — thinking本文の段落と折り返し（完了）
