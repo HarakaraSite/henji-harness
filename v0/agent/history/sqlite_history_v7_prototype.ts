@@ -5,8 +5,6 @@ import {
   emptyHistoryV7OperationCost,
   encodeHistoryV7Payload,
   HISTORY_V7_SCHEMA_VERSION,
-  type HistoryV7CaptureProfile,
-  type HistoryV7DiagnosticCoverage,
   type HistoryV7OperationCost,
   type HistoryV7SemanticOccurrence,
   type HistoryV7SemanticOccurrenceInput,
@@ -36,8 +34,6 @@ CREATE TABLE executions (
   execution_id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES session_heads(session_id),
   base_revision INTEGER NOT NULL,
-  capture_profile TEXT NOT NULL,
-  diagnostic_coverage TEXT NOT NULL,
   lifecycle TEXT NOT NULL,
   outcome TEXT NOT NULL,
   adoption TEXT NOT NULL,
@@ -67,7 +63,6 @@ CREATE TABLE execution_admissions (
   context_snapshot_json TEXT,
   recalled_context_json TEXT,
   outcome_json TEXT,
-  evidence_id TEXT,
   diagnostic_id TEXT,
   artifact_id TEXT,
   base_message_count INTEGER NOT NULL,
@@ -103,15 +98,6 @@ CREATE TABLE semantic_relations (
 );
 CREATE INDEX semantic_relations_unresolved
   ON semantic_relations(resolved, target_occurrence_id);
-CREATE TABLE diagnostic_attachments (
-  attachment_id TEXT PRIMARY KEY,
-  execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
-  occurrence_id TEXT REFERENCES semantic_occurrences(occurrence_id),
-  attachment_kind TEXT NOT NULL,
-  coverage TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  content_digest TEXT REFERENCES immutable_contents(content_digest)
-);
 CREATE TABLE sessions (
   session_id TEXT PRIMARY KEY,
   workspace_root TEXT NOT NULL,
@@ -178,8 +164,8 @@ CREATE TABLE recall_relations (
   PRIMARY KEY(source_execution_id, target_execution_id)
 );
 INSERT INTO store_metadata(singleton, schema_version, created_at)
-VALUES(1, 9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-PRAGMA user_version = 9;
+VALUES(1, 10, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+PRAGMA user_version = 10;
 `;
 
 export type HistoryV7PrototypeFaultPhase = 'after_occurrences' | 'before_commit';
@@ -216,8 +202,6 @@ export interface HistoryV7ExecutionState {
   readonly executionId: string;
   readonly sessionId: string;
   readonly baseRevision: number;
-  readonly captureProfile: HistoryV7CaptureProfile;
-  readonly diagnosticCoverage: HistoryV7DiagnosticCoverage;
   readonly lifecycle: 'active' | 'settled';
   readonly outcome: 'unknown' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
   readonly adoption: 'non_canonical' | 'canonical';
@@ -225,16 +209,6 @@ export interface HistoryV7ExecutionState {
   readonly occurrenceCount: number;
   readonly terminalOccurrenceId?: string;
   readonly unresolvedMandatoryCount: number;
-}
-
-export interface HistoryV7DiagnosticAttachment {
-  readonly attachmentId: string;
-  readonly executionId: string;
-  readonly occurrenceId?: string;
-  readonly kind: string;
-  readonly coverage: Exclude<HistoryV7DiagnosticCoverage, 'not_requested'>;
-  readonly metadata: JsonValue;
-  readonly content?: Uint8Array;
 }
 
 export class SqliteHistoryV7Prototype {
@@ -281,7 +255,6 @@ export class SqliteHistoryV7Prototype {
       executionId: string;
       sessionId: string;
       baseRevision: number;
-      captureProfile: HistoryV7CaptureProfile;
     }>,
   ): void {
     this.#transaction(() => this.#insertExecution(input));
@@ -296,7 +269,6 @@ export class SqliteHistoryV7Prototype {
       executionId: string;
       sessionId: string;
       baseRevision: number;
-      captureProfile: HistoryV7CaptureProfile;
       admission: HistoryV7ExecutionAdmission;
     }>,
   ): void {
@@ -314,7 +286,6 @@ export class SqliteHistoryV7Prototype {
       executionId: string;
       sessionId: string;
       baseRevision: number;
-      captureProfile: HistoryV7CaptureProfile;
     }>,
   ): void {
     this.#db.prepare(`
@@ -330,16 +301,14 @@ export class SqliteHistoryV7Prototype {
     }
     this.#db.prepare(`
       INSERT INTO executions(
-        execution_id, session_id, base_revision, capture_profile, diagnostic_coverage,
+        execution_id, session_id, base_revision,
         lifecycle, outcome, adoption, latest_ordinal, occurrence_count,
         terminal_occurrence_id, unresolved_mandatory_count
-      ) VALUES(?, ?, ?, ?, ?, 'active', 'unknown', 'non_canonical', 0, 0, NULL, 0)
+      ) VALUES(?, ?, ?, 'active', 'unknown', 'non_canonical', 0, 0, NULL, 0)
     `).run(
       input.executionId,
       input.sessionId,
       input.baseRevision,
-      input.captureProfile,
-      input.captureProfile === 'normal-v1' ? 'not_requested' : 'partial',
     );
   }
 
@@ -525,51 +494,6 @@ export class SqliteHistoryV7Prototype {
     return cost;
   }
 
-  appendDiagnostic(
-    input: Readonly<{
-      attachmentId: string;
-      executionId: string;
-      occurrenceId?: string;
-      kind: string;
-      coverage: Exclude<HistoryV7DiagnosticCoverage, 'not_requested'>;
-      metadata: JsonValue;
-      content?: Uint8Array;
-    }>,
-  ): void {
-    const state = this.readExecution(input.executionId);
-    if (state.captureProfile !== 'diagnostic-v1') {
-      throw new Error('diagnostic attachment was not requested');
-    }
-    const metadata = new TextDecoder().decode(encodeHistoryV7Payload(input.metadata));
-    this.#transaction(() => {
-      let digest: string | null = null;
-      if (input.content !== undefined) {
-        digest = exactByteDigest(input.content);
-        this.#db.prepare(`
-          INSERT INTO immutable_contents(content_digest, byte_length, content_bytes)
-          VALUES(?, ?, ?) ON CONFLICT(content_digest) DO NOTHING
-        `).run(digest, input.content.byteLength, input.content);
-      }
-      this.#db.prepare(`
-        INSERT INTO diagnostic_attachments(
-          attachment_id, execution_id, occurrence_id, attachment_kind,
-          coverage, metadata_json, content_digest
-        ) VALUES(?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        input.attachmentId,
-        input.executionId,
-        input.occurrenceId ?? null,
-        input.kind,
-        input.coverage,
-        metadata,
-        digest,
-      );
-      this.#db.prepare(`
-        UPDATE executions SET diagnostic_coverage=? WHERE execution_id=?
-      `).run(input.coverage, input.executionId);
-    });
-  }
-
   settleExecution(
     executionId: string,
     outcome: Exclude<HistoryV7ExecutionState['outcome'], 'unknown'>,
@@ -617,8 +541,6 @@ export class SqliteHistoryV7Prototype {
       executionId: String(row.execution_id),
       sessionId: String(row.session_id),
       baseRevision: Number(row.base_revision),
-      captureProfile: String(row.capture_profile) as HistoryV7CaptureProfile,
-      diagnosticCoverage: String(row.diagnostic_coverage) as HistoryV7DiagnosticCoverage,
       lifecycle: String(row.lifecycle) as HistoryV7ExecutionState['lifecycle'],
       outcome: String(row.outcome) as HistoryV7ExecutionState['outcome'],
       adoption: String(row.adoption) as HistoryV7ExecutionState['adoption'],
@@ -680,41 +602,6 @@ export class SqliteHistoryV7Prototype {
       'SELECT byte_length FROM immutable_contents WHERE content_digest=?',
     ).get(contentDigest) as Row | undefined;
     return row !== undefined && Number(row.byte_length) === byteLength;
-  }
-
-  listDiagnosticAttachments(
-    executionId: string,
-    db: DatabaseSync = this.#db,
-  ): readonly HistoryV7DiagnosticAttachment[] {
-    return (db.prepare(`
-      SELECT * FROM diagnostic_attachments WHERE execution_id=? ORDER BY rowid
-    `).all(executionId) as Row[]).map((row) => {
-      let content: Uint8Array | undefined;
-      if (row.content_digest !== null) {
-        const object = requiredRow(
-          db,
-          'SELECT byte_length, content_bytes FROM immutable_contents WHERE content_digest=?',
-          row.content_digest,
-        );
-        content = (object.content_bytes as Uint8Array).slice();
-        if (
-          content.byteLength !== Number(object.byte_length) ||
-          exactByteDigest(content) !== row.content_digest
-        ) throw new Error('diagnostic content digest mismatch');
-      }
-      return {
-        attachmentId: String(row.attachment_id),
-        executionId: String(row.execution_id),
-        ...(row.occurrence_id === null ? {} : { occurrenceId: String(row.occurrence_id) }),
-        kind: String(row.attachment_kind),
-        coverage: String(row.coverage) as Exclude<
-          HistoryV7DiagnosticCoverage,
-          'not_requested'
-        >,
-        metadata: JSON.parse(String(row.metadata_json)) as JsonValue,
-        ...(content === undefined ? {} : { content }),
-      };
-    });
   }
 
   tableNames(): readonly string[] {

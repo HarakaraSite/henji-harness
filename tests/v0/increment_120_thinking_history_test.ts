@@ -225,9 +225,7 @@ Deno.test('Increment 120 reads cancelled thinking in the normal Session view fro
   const sessionId = created.session.sessionId;
   assert((await created.session.submit('initial turn')).ok);
   await created.close();
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
-    captureProfile: 'normal-v1',
-  });
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
   const record = await store.readWorker(sessionId);
   const executionId = '12000000-0000-4000-8000-000000000001';
   const input = {

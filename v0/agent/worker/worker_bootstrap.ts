@@ -297,16 +297,6 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     }
     return eventSequence;
   },
-  providerExactRequest: (correlation, observation) => {
-    eventSequence += 1;
-    post({
-      kind: 'provider_exact_request',
-      correlation,
-      sequence: eventSequence,
-      observation,
-    });
-    return eventSequence;
-  },
   contextObservation: (correlation, observation) => {
     const nextSequence = eventSequence + 1;
     if (observation.purpose === 'web_search') {
@@ -332,12 +322,11 @@ const makeGenerationPort = (): WorkerGenerationPort => ({
     post(proposal);
     return await waitForAcknowledgement('commit', correlation, signal);
   },
-  turnFailed: (correlation, outcome, providerEvidence, contextManifest) =>
+  turnFailed: (correlation, outcome, contextManifest) =>
     post({
       kind: 'turn_failed',
       correlation,
       outcome,
-      ...(providerEvidence === undefined ? {} : { providerEvidence }),
       ...(contextManifest === undefined ? {} : { contextManifest }),
       ...(outcome.diagnostic === undefined ? {} : { diagnostic: outcome.diagnostic }),
     }),

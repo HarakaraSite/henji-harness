@@ -22,7 +22,6 @@ import type {
   OpenAIModelSelection,
   OpenRouterResponsesModelSelection,
 } from './model_selection.ts';
-import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
 import { substituteRequestHeaders } from './provider_request_headers.ts';
 
 export interface OpenAIResponsesModelOptions {
@@ -114,62 +113,6 @@ const requestInput = (
   return input;
 };
 
-const responseHeaders = (headers: Headers): Readonly<Record<string, string>> => {
-  const values: Record<string, string> = {};
-  headers.forEach((value, name) => {
-    values[name] = value;
-  });
-  return values;
-};
-
-class EvidenceSseTap {
-  private readonly decoder = new TextDecoder('utf-8', { fatal: false });
-  private pending = '';
-
-  constructor(private readonly evidence?: ProviderEvidenceRecorder) {}
-
-  push(bytes: Uint8Array): void {
-    this.pending += this.decoder.decode(bytes, { stream: true });
-    this.dispatchCompleteFrames();
-  }
-
-  finish(): void {
-    this.pending += this.decoder.decode();
-    this.dispatchCompleteFrames();
-  }
-
-  private dispatchCompleteFrames(): void {
-    while (true) {
-      const match = /\r?\n\r?\n/.exec(this.pending);
-      if (match === null || match.index === undefined) return;
-      const end = match.index + match[0].length;
-      const rawFrame = this.pending.slice(0, end);
-      this.pending = this.pending.slice(end);
-      const data = rawFrame
-        .split(/\r?\n/)
-        .filter((line) => line.startsWith('data:'))
-        .map((line) => line.slice(5).replace(/^ /, ''))
-        .join('\n');
-      if (data.length === 0) continue;
-      let parsed: JsonValue | '[DONE]' | undefined;
-      if (data === '[DONE]') parsed = '[DONE]';
-      else {
-        try {
-          const candidate: unknown = JSON.parse(data);
-          if (isJsonValue(candidate)) parsed = candidate;
-        } catch {
-          // The SDK remains the response parser; raw bytes and frame stay available for diagnosis.
-        }
-      }
-      this.evidence?.recordSseEvent({
-        data,
-        rawFrame,
-        ...(parsed === undefined ? {} : { parsed }),
-      });
-    }
-  }
-}
-
 const evidenceOrigin = (
   options: ModelGenerateOptions,
 ): 'root_model' | 'planner_model' | 'context_compaction' =>
@@ -185,33 +128,7 @@ const evidenceFetch = (
   options: ModelGenerateOptions,
 ): typeof fetch =>
 async (input, init) => {
-  const request = input instanceof Request ? input : undefined;
-  const endpoint = request?.url ?? String(input);
-  const exactObserver = options.providerExactRequestObserver;
-  let exactBodyBytes: Uint8Array | undefined;
-  let fetchInput: RequestInfo | URL = input;
-  let fetchInit = init;
-  if (exactObserver !== undefined) {
-    if (typeof init?.body === 'string') {
-      exactBodyBytes = new TextEncoder().encode(init.body);
-      fetchInit = { ...init, body: exactBodyBytes as Uint8Array<ArrayBuffer> };
-    } else if (init?.body instanceof Uint8Array) {
-      exactBodyBytes = init.body;
-    } else if (request !== undefined) {
-      exactBodyBytes = new Uint8Array(await request.clone().arrayBuffer());
-      fetchInput = new Request(request, {
-        body: exactBodyBytes as Uint8Array<ArrayBuffer>,
-      });
-      fetchInit = undefined;
-    }
-  }
-  const requestBody = exactBodyBytes === undefined
-    ? typeof init?.body === 'string'
-      ? init.body
-      : request === undefined
-      ? ''
-      : await request.clone().text()
-    : undefined;
+  const endpoint = input instanceof Request ? input.url : String(input);
   const evidence = options.providerEvidence;
   const lane = options.providerEvidenceLane ?? 'parent';
   const phase = options.providerEvidencePhase ?? 'user_turn';
@@ -228,20 +145,6 @@ async (input, init) => {
     authProfile: selection.authProfile,
     protocol: 'sse',
   } as const;
-  if (exactBodyBytes !== undefined) {
-    exactObserver?.({
-      bytes: exactBodyBytes,
-      captureBoundary: `${selection.api}:http-body-v1`,
-      serializerVersion: 'openai-sdk-json-v1',
-      endpoint,
-      method: 'POST',
-      lane,
-      phase,
-      modelStep,
-      requestMetadata,
-      monolithicFallback: true,
-    });
-  }
   const evidenceRequest = {
     lane,
     phase,
@@ -250,37 +153,10 @@ async (input, init) => {
     method: 'POST',
     requestMetadata,
   } as const;
-  if (requestBody === undefined) evidence?.startRequestMetadata(evidenceRequest);
-  else evidence?.startRequest({ ...evidenceRequest, requestBody });
-  const response = await fetcher(fetchInput, fetchInit);
-  evidence?.recordResponse({
-    status: response.status,
-    headers: responseHeaders(response.headers),
-  });
-  if (response.body === null) return response;
-  const reader = response.body.getReader();
-  const tap = new EvidenceSseTap(evidence);
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      const next = await reader.read();
-      if (next.done) {
-        tap.finish();
-        controller.close();
-        return;
-      }
-      evidence?.appendResponseBytes(next.value);
-      tap.push(next.value);
-      controller.enqueue(next.value);
-    },
-    async cancel(reason) {
-      await reader.cancel(reason);
-    },
-  });
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
+  evidence?.startRequestMetadata(evidenceRequest);
+  const response = await fetcher(input, init);
+  evidence?.recordResponse({ status: response.status });
+  return response;
 };
 
 const providerError = (
@@ -478,12 +354,6 @@ class ResponsesApiModel implements Model {
           controller.abort('provider deadline exceeded');
           throw providerError('provider_timeout', 'provider deadline exceeded', 1);
         }
-        const detail = jsonValue(event);
-        generateOptions.providerEvidence?.recordParserTransition({
-          kind: 'event',
-          reason: event.type,
-          ...(detail === undefined ? {} : { detail }),
-        });
         if (event.type === 'response.output_text.delta') {
           progress += event.delta;
           generateOptions.reportAssistantProgress?.(progress);
@@ -530,6 +400,15 @@ class ResponsesApiModel implements Model {
         }
       }
       if (completed === undefined || !Array.isArray(completed.output)) {
+        generateOptions.providerEvidence?.recordParserTransition({
+          kind: 'failure',
+          reason: 'unsupported_response_shape',
+          field: 'response.output',
+          expectedShape: 'array',
+          ...(completed === undefined ? { actualShape: 'absent' } : {
+            actualShape: completed.output === null ? 'null' : typeof completed.output,
+          }),
+        });
         throw providerError('response_error', `${label} response shape was unsupported`, 1);
       }
       const withDoneReasoning = (item: unknown): unknown => {
@@ -553,13 +432,16 @@ class ResponsesApiModel implements Model {
       });
       const calls = toolCalls(completed.output);
       if (calls === undefined) {
+        generateOptions.providerEvidence?.recordParserTransition({
+          kind: 'failure',
+          reason: 'unsupported_response_shape',
+          field: 'response.output.function_call',
+          expectedShape: 'function call with call_id, name, arguments',
+          actualShape: 'unsupported item',
+        });
         throw providerError('response_error', `${label} function call shape was unsupported`, 1);
       }
       if (calls.length > 0) {
-        generateOptions.providerEvidence?.recordParserTransition({
-          kind: 'result',
-          reason: 'tool_calls',
-        });
         return {
           kind: 'tool_calls',
           calls,
@@ -570,20 +452,28 @@ class ResponsesApiModel implements Model {
       if (text.length === 0) {
         throw providerError('response_error', `${label} response had no assistant text`, 1);
       }
-      generateOptions.providerEvidence?.recordParserTransition({
-        kind: 'terminal',
-        reason: 'response.completed',
-      });
-      generateOptions.providerEvidence?.recordParserTransition({ kind: 'result', reason: 'final' });
       return { kind: 'final', text, providerState: state };
     } catch (error) {
       if (cancelled) throw new TurnCancelledError();
-      if (timedOut) throw providerError('provider_timeout', 'provider deadline exceeded', 1);
-      if (error instanceof OpenRouterAgentError) throw error;
       const status = isRecord(error) && typeof error.status === 'number' ? error.status : undefined;
-      throw status === undefined
+      const settled = timedOut
+        ? providerError('provider_timeout', 'provider deadline exceeded', 1)
+        : error instanceof OpenRouterAgentError
+        ? error
+        : status === undefined
         ? providerError('transport_error', `${label} provider transport failed`, 1)
         : providerError('http_error', `${label} provider request failed`, 1, status);
+      generateOptions.providerEvidence?.recordRequestFailure({
+        stage: settled.failureFact.stage,
+        code: settled.failureFact.code,
+        ...(settled.failureFact.httpStatus === undefined ? {} : {
+          httpStatus: settled.failureFact.httpStatus,
+        }),
+        ...(settled.failureFact.parseReason === undefined ? {} : {
+          parseReason: settled.failureFact.parseReason,
+        }),
+      }, generateOptions.modelStep ?? 1);
+      throw settled;
     } finally {
       clearTimeout(timer);
       signal?.removeEventListener('abort', abortFromTurn);

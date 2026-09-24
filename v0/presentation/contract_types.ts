@@ -105,12 +105,6 @@ export type PresentationDiagnosticPersistenceError =
   | 'diagnostic_capacity'
   | 'diagnostic_io_failure';
 
-export type PresentationProviderEvidenceDurability = 'yes' | 'failed' | 'unknown';
-export type PresentationProviderEvidencePersistenceError =
-  | 'provider_evidence_not_found'
-  | 'provider_evidence_invalid'
-  | 'provider_evidence_io_failure';
-
 export type PresentationJsonPrimitive = string | number | boolean | null;
 export type PresentationJson =
   | PresentationJsonPrimitive
@@ -170,9 +164,6 @@ export interface PresentationOutcome {
   readonly diagnostic?: PresentationFailureDiagnostic;
   readonly diagnosticDurability?: PresentationDiagnosticDurability;
   readonly diagnosticPersistenceError?: PresentationDiagnosticPersistenceError;
-  readonly providerEvidenceId?: string;
-  readonly providerEvidenceDurability?: PresentationProviderEvidenceDurability;
-  readonly providerEvidencePersistenceError?: PresentationProviderEvidencePersistenceError;
   readonly turnProviderRequestCount?: number;
   readonly runtimeProviderRequestCount?: number;
   readonly steps: number;
@@ -412,9 +403,6 @@ export type PresentationEvent =
     readonly committed: boolean;
     readonly turnProviderRequestCount?: number;
     readonly runtimeProviderRequestCount?: number;
-    readonly providerEvidenceId?: string;
-    readonly providerEvidenceDurability?: PresentationProviderEvidenceDurability;
-    readonly providerEvidencePersistenceError?: PresentationProviderEvidencePersistenceError;
   }>
   | Readonly<{
     readonly kind: 'lifecycle';

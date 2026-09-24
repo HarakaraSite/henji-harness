@@ -349,7 +349,7 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
 
   const snapshot = evidence.snapshot();
   assertEquals(
-    snapshot.requests.map((record) => JSON.parse(record.request.requestBody).model),
+    snapshot.requests.map((record) => record.request.requestMetadata.modelId),
     [
       PRODUCTION_PROFILE.model,
       OPENROUTER_SONAR_SEARCH_MODEL,
@@ -369,13 +369,10 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
       'sse',
     ],
   );
-  assertEquals(
-    snapshot.requests[1].response?.rawBody,
-    JSON.stringify(sonarResponse),
-  );
+  assertEquals(Object.keys(snapshot.requests[1].response ?? {}), ['status']);
   assertEquals(
     snapshot.requests[1].parserTransitions.map((transition) => transition.reason),
-    ['json_response', 'answer_with_url_citations', 'web_search_result'],
+    [],
   );
   assertEquals(
     snapshot.runtimeEvents.map((event) =>
@@ -386,7 +383,7 @@ Deno.test('web_search completes main-Sonar-main with ordered citations and share
   assert(!JSON.stringify(snapshot).includes('test-credential'));
 });
 
-Deno.test('web_search exposes provider response errors while retaining raw evidence', async () => {
+Deno.test('web_search exposes provider response errors with short facts', async () => {
   const cases = [
     {
       raw: JSON.stringify({ error: 'rate limited' }),
@@ -406,7 +403,7 @@ Deno.test('web_search exposes provider response errors while retaining raw evide
       }),
       status: 200,
       message: 'no answer with URL citations',
-      transitions: ['json_response', 'missing_answer_or_url_citations'],
+      transitions: ['missing_answer_or_url_citations'],
     },
   ] as const;
   for (const [index, item] of cases.entries()) {
@@ -438,7 +435,7 @@ Deno.test('web_search exposes provider response errors while retaining raw evide
     assertEquals(fetches, 1);
     const snapshot = evidence.snapshot();
     assertEquals(snapshot.requests[0].request.modelStep, 4);
-    assertEquals(snapshot.requests[0].response?.rawBody, item.raw);
+    assertEquals(Object.keys(snapshot.requests[0].response ?? {}), ['status']);
     assertEquals(
       snapshot.requests[0].parserTransitions.map((transition) => transition.reason),
       item.transitions,
@@ -446,7 +443,7 @@ Deno.test('web_search exposes provider response errors while retaining raw evide
   }
 });
 
-Deno.test('web_search retains response status and received bytes when the body is interrupted', async () => {
+Deno.test('web_search retains response status when the body is interrupted', async () => {
   let pulls = 0;
   const backend = new OpenRouterSonarWebSearchBackend({
     credential: 'test-credential',
@@ -484,9 +481,7 @@ Deno.test('web_search retains response status and received bytes when the body i
   assert(error instanceof Error && error.message.includes('body interrupted'));
   const response = evidence.snapshot().requests[0].response;
   assertEquals(response?.status, 200);
-  assertEquals(response?.headers['x-provider-response'], 'received');
-  assertEquals(response?.rawBody, 'first-');
-  assertEquals(response?.rawBodyBytes, 6);
+  assertEquals(Object.keys(response ?? {}), ['status']);
 });
 
 Deno.test('web_search request admission stops before credential resolution and fetch', async () => {

@@ -15,7 +15,6 @@ import { FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
 import {
   type ProviderEvidenceObservation,
   ProviderEvidenceRecorder,
-  type ProviderEvidenceV1,
 } from '../provider/provider_evidence.ts';
 import type { WorkerAgentComposition } from '../worker_agent_api.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
@@ -51,7 +50,6 @@ import type {
   WorkerCorrelation,
   WorkerEffectObservation,
 } from './worker_protocol.ts';
-import type { ProviderExactRequestObservation } from '../core/contracts.ts';
 import {
   projectRecalledExecutionContext,
   type RecalledExecutionContext,
@@ -72,10 +70,6 @@ export interface WorkerGenerationPort {
     observation: ProviderEvidenceObservation,
     turn: number,
   ) => number | undefined;
-  readonly providerExactRequest?: (
-    correlation: WorkerCorrelation,
-    observation: ProviderExactRequestObservation,
-  ) => number | undefined;
   readonly contextObservation?: (
     correlation: WorkerCorrelation,
     observation: ContextModelRequestDelta,
@@ -93,7 +87,6 @@ export interface WorkerGenerationPort {
   readonly turnFailed: (
     correlation: WorkerCorrelation,
     outcome: LoopOutcome,
-    providerEvidence?: ProviderEvidenceV1,
     contextManifest?: import('../history/context_attribution.ts').ExecutionContextManifestV2,
   ) => void | PromiseLike<void>;
 }
@@ -278,7 +271,6 @@ export class WorkerGeneration {
       crypto.randomUUID().toLowerCase(),
       turn,
       new Date().toISOString(),
-      undefined,
       (observation) => {
         const sequence = this.port.providerObservation?.(
           correlation,
@@ -293,6 +285,7 @@ export class WorkerGeneration {
         }
         return sequence;
       },
+      false,
     );
     this.activeCancellation = cancellation;
     this.activeSteering = steering;
@@ -940,9 +933,6 @@ export class WorkerGeneration {
       this.reportAuxiliaryStage,
       sourceForMessage,
       projectParentRequestWithSources,
-      this.port.providerExactRequest === undefined ? undefined : (observation) => {
-        this.port.providerExactRequest!(correlation, observation);
-      },
     );
     let evidenceFinalized = false;
     const settledOutcome = (outcome: LoopOutcome): LoopOutcome => ({
@@ -953,27 +943,18 @@ export class WorkerGeneration {
       ...(outcome.runtimeProviderRequestCount === undefined
         ? { runtimeProviderRequestCount: this.requestCounter.count() }
         : {}),
-      providerEvidenceId: evidence.evidenceId,
       ...(outcome.diagnostic === undefined &&
           diagnosticOwner.snapshot() === undefined
         ? {}
         : { diagnostic: outcome.diagnostic ?? diagnosticOwner.snapshot()! }),
     });
-    const finalizeEvidence = (outcome: LoopOutcome): {
-      readonly outcome: LoopOutcome;
-      readonly providerEvidence: ProviderEvidenceV1;
-    } => {
+    const finalizeEvidence = (outcome: LoopOutcome): LoopOutcome => {
       const settled = settledOutcome(outcome);
       if (!evidenceFinalized) {
-        evidence.finalize({
-          outcome: settled,
-          ...(settled.diagnostic === undefined ? {} : {
-            diagnosticId: settled.diagnostic.diagnosticId,
-          }),
-        });
+        evidence.recordOutcome(settled.stopReason);
         evidenceFinalized = true;
       }
-      return { outcome: settled, providerEvidence: evidence.snapshot() };
+      return settled;
     };
     const makeContextManifest = async (): Promise<
       | import('../history/context_attribution.ts').ExecutionContextManifestV2
@@ -1011,8 +992,7 @@ export class WorkerGeneration {
       const finalized = finalizeEvidence(outcome);
       await this.port.turnFailed(
         correlation,
-        finalized.outcome,
-        finalized.providerEvidence,
+        finalized,
         await makeContextManifest(),
       );
     };
@@ -1096,16 +1076,15 @@ export class WorkerGeneration {
       await Promise.all(contextObservations);
       const finalized = finalizeEvidence(outcome);
       if (!outcome.ok || proposal === undefined) {
-        await failTurn(finalized.outcome);
+        await failTurn(finalized);
         return;
       }
       proposal = {
         ...proposal,
-        outcome: finalized.outcome,
-        providerEvidence: finalized.providerEvidence,
+        outcome: finalized,
         contextManifest: await makeContextManifest(),
-        ...(finalized.outcome.diagnostic === undefined ? {} : {
-          diagnostic: finalized.outcome.diagnostic,
+        ...(finalized.diagnostic === undefined ? {} : {
+          diagnostic: finalized.diagnostic,
         }),
       };
       const accepted = await this.port.commitProposal(
@@ -1118,7 +1097,7 @@ export class WorkerGeneration {
           rejectedCommitOutcome(
             task,
             this.committedTranscript,
-            finalized.outcome,
+            finalized,
           ),
         );
         return;

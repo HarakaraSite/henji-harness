@@ -23,10 +23,8 @@ import type {
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store.ts';
-import {
-  FakeProviderEvidenceStore,
-  ProviderEvidenceRecorder,
-} from '../../v0/agent/provider/provider_evidence.ts';
+import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
+import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import {
   bundledToolDefinitionLoadRequests,
   createWorkerSession,
@@ -399,7 +397,6 @@ Deno.test('production subscriber does not retain delivered Worker messages acros
 
 Deno.test('Host does not retain processed provider observations in its response queue', async () => {
   const artifacts = new FakeWorkerExecutionArtifactStore();
-  const evidenceStore = new FakeProviderEvidenceStore();
   let turn = 0;
   let probeSequence = 0;
   let hostListener: ((message: WorkerToHostMessage) => void) | undefined;
@@ -408,7 +405,6 @@ Deno.test('Host does not retain processed provider observations in its response 
     agent: 'default',
     physicalIoMode: 'provider-free',
     executionArtifactStore: artifacts,
-    providerEvidenceStore: evidenceStore,
     capsuleFactory: (url) => {
       const capsule = new WorkerCapsule(url);
       return {
@@ -420,7 +416,6 @@ Deno.test('Host does not retain processed provider observations in its response 
             const recorder = new ProviderEvidenceRecorder(
               undefined,
               turn,
-              undefined,
               undefined,
               (observation) => {
                 listener({
@@ -441,9 +436,7 @@ Deno.test('Host does not retain processed provider observations in its response 
             });
             recorder.recordResponse({
               status: 200,
-              headers: { 'content-type': 'text/event-stream' },
             });
-            recorder.appendResponseBytes(new TextEncoder().encode('x'.repeat(8_192)));
           }
           capsule.send(command);
         },
@@ -477,12 +470,108 @@ Deno.test('Host does not retain processed provider observations in its response 
           entry.kind === 'provider_observation' && entry.semanticSubtype !== 'runtime_event'
         )
           .map((entry) => entry.semanticSubtype),
-        ['request_start', 'response_start', 'response_bytes'],
+        ['request_start', 'response_start'],
       );
     }
-    assertEquals((await evidenceStore.list()).length, 3);
   } finally {
     await created.close();
+  }
+});
+
+Deno.test('short provider failure facts survive Worker to Host SQLite persistence', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-short-facts-' });
+  const workspaceRoot = Deno.cwd();
+  let hostListener: ((message: WorkerToHostMessage) => void) | undefined;
+  let sequence = 0;
+  const created = await createWorkerSession({
+    stateRoot,
+    workspaceRoot,
+    persistence: 'new',
+    agent: 'default',
+    physicalIoMode: 'provider-free',
+    capsuleFactory: (url) => {
+      const capsule = new WorkerCapsule(url);
+      return {
+        send: (command) => {
+          if (command.kind === 'turn') {
+            assert(hostListener !== undefined);
+            const recorder = new ProviderEvidenceRecorder(
+              undefined,
+              1,
+              undefined,
+              (observation) => {
+                hostListener!({
+                  kind: 'provider_observation',
+                  correlation: command.correlation,
+                  sequence: ++sequence,
+                  turn: 1,
+                  observation,
+                });
+                return sequence;
+              },
+              false,
+            );
+            recorder.startRequestMetadata({
+              lane: 'parent',
+              modelStep: 1,
+              contextRequestOrdinal: 1,
+              endpoint: 'https://example.invalid/chat/completions',
+              method: 'POST',
+              requestMetadata: {
+                provider: 'opencode-go-chat',
+                api: 'openrouter-chat-completions',
+                modelId: 'mimo-v2.6-pro',
+              },
+            });
+            recorder.recordResponse({ status: 200 });
+            recorder.recordParserTransition({
+              kind: 'failure',
+              field: 'response.choices[0].message.tool_calls[0].function.arguments',
+              expectedShape: 'JSON string',
+              actualShape: 'number',
+            });
+            recorder.recordRequestFailure({
+              stage: 'response_parse',
+              code: 'response_error',
+              httpStatus: 200,
+            });
+          }
+          capsule.send(command);
+        },
+        subscribe: (listener) => {
+          hostListener = listener;
+          const unsubscribe = capsule.subscribe(listener);
+          return () => {
+            hostListener = undefined;
+            unsubscribe();
+          };
+        },
+        terminate: () => capsule.terminate(),
+      };
+    },
+  });
+  try {
+    const outcome = await created.session.submit('record the request fact');
+    assert(outcome.ok);
+    const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
+    await store.initialize();
+    const execution = store.listExecutions().at(-1);
+    assert(execution !== undefined);
+    const facts = store.readExecutionRequestFacts(execution.executionId, 1);
+    assertEquals(facts.map((fact) => fact.kind), [
+      'provider_request_start',
+      'provider_response_start',
+      'provider_parser_transition',
+      'provider_request_failure',
+    ]);
+    const serialized = JSON.stringify(facts);
+    assert(serialized.includes('mimo-v2.6-pro'));
+    assert(serialized.includes('tool_calls[0].function.arguments'));
+    assert(!serialized.includes('requestBody'));
+    assert(!serialized.includes('rawFrame'));
+  } finally {
+    await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
   }
 });
 
@@ -1039,7 +1128,6 @@ Deno.test('Slice 3 sends long user turns directly to commit without checkpoint p
 Deno.test('Long Worker history records only the admitted user-turn request', async () => {
   type FailedTurn = {
     readonly outcome: import('../../v0/agent/core/contracts.ts').LoopOutcome;
-    readonly evidence: import('../../v0/agent/provider/provider_evidence.ts').ProviderEvidenceV1;
   };
   const initialTranscript: Message[] = [];
   for (let turn = 1; turn <= 2; turn += 1) {
@@ -1058,24 +1146,25 @@ Deno.test('Long Worker history records only the admitted user-turn request', asy
     readonly failed?: FailedTurn;
     readonly checkpoint?: WorkerCheckpointProposalMessage;
     readonly requestCount: number;
+    readonly phases: readonly string[];
   }> => {
     let requestCount = 0;
     let proposal: WorkerCommitProposalMessage | undefined;
     let failed: FailedTurn | undefined;
     let checkpoint: WorkerCheckpointProposalMessage | undefined;
+    const phases: string[] = [];
     const model: Model = {
       generate(
         _request: ModelRequest,
         options: ModelGenerateOptions = {},
       ): ModelResult {
         requestCount += 1;
-        options.providerEvidence?.startRequest({
+        options.providerEvidence?.startRequestMetadata({
           lane: options.providerEvidenceLane ?? 'parent',
           phase: options.providerEvidencePhase ?? 'user_turn',
           modelStep: options.modelStep ?? 1,
           endpoint: 'provider-free://counter-boundary',
           method: 'POST',
-          requestBody: '{}',
           requestMetadata: {
             contentType: 'application/json',
             responseMode: 'json',
@@ -1112,6 +1201,11 @@ Deno.test('Long Worker history records only the admitted user-turn request', asy
     const port: WorkerGenerationPort = {
       runtimeEvent: () => {},
       effectObservation: () => {},
+      providerObservation: (_correlation, observation) => {
+        if (observation.kind === 'request_start') {
+          phases.push(observation.request.phase ?? 'user_turn');
+        }
+      },
       checkpointProposal: (_correlation, value) => {
         checkpoint = value;
         return Promise.resolve(checkpointAccepted);
@@ -1120,11 +1214,8 @@ Deno.test('Long Worker history records only the admitted user-turn request', asy
         proposal = value;
         return Promise.resolve(true);
       },
-      turnFailed: (_correlation, outcome, evidence) => {
-        if (evidence === undefined) {
-          throw new Error('missing provider evidence');
-        }
-        failed = { outcome, evidence };
+      turnFailed: (_correlation, outcome) => {
+        failed = { outcome };
       },
     };
     const generation = new WorkerGeneration(
@@ -1140,7 +1231,7 @@ Deno.test('Long Worker history records only the admitted user-turn request', asy
       compactionCorrelation(`counter-boundary-${checkpointAccepted}`),
       'held user turn',
     );
-    return { proposal, failed, checkpoint, requestCount };
+    return { proposal, failed, checkpoint, requestCount, phases };
   };
 
   const accepted = await run(true);
@@ -1150,7 +1241,7 @@ Deno.test('Long Worker history records only the admitted user-turn request', asy
   assertEquals(accepted.proposal.outcome.turnProviderRequestCount, 1);
   assertEquals(accepted.proposal.outcome.runtimeProviderRequestCount, 1);
   assertEquals(
-    accepted.proposal.providerEvidence?.requests.map((record) => record.request.phase),
+    accepted.phases,
     ['user_turn'],
   );
 });
@@ -1178,13 +1269,12 @@ Deno.test('Provider timeout on long history is attributed to the admitted user t
   const model: Model = {
     generate(_request, options = {}) {
       counter.increment();
-      options.providerEvidence?.startRequest({
+      options.providerEvidence?.startRequestMetadata({
         lane: options.providerEvidenceLane ?? 'parent',
         phase: options.providerEvidencePhase ?? 'user_turn',
         modelStep: options.modelStep ?? 1,
         endpoint: 'provider-free://compaction-timeout',
         method: 'POST',
-        requestBody: '{}',
         requestMetadata: {
           contentType: 'application/json',
           responseMode: 'json',
@@ -1216,21 +1306,25 @@ Deno.test('Provider timeout on long history is attributed to the admitted user t
   let failed:
     | {
       readonly outcome: import('../../v0/agent/core/contracts.ts').LoopOutcome;
-      readonly evidence: import('../../v0/agent/provider/provider_evidence.ts').ProviderEvidenceV1;
     }
     | undefined;
+  const phases: string[] = [];
   const port: WorkerGenerationPort = {
     runtimeEvent: () => {},
     effectObservation: () => {},
+    providerObservation: (_correlation, observation) => {
+      if (observation.kind === 'request_start') {
+        phases.push(observation.request.phase ?? 'user_turn');
+      }
+    },
     checkpointProposal: () => {
       throw new Error('timeout compaction must not propose a checkpoint');
     },
     commitProposal: () => {
       throw new Error('timeout compaction must not propose a turn commit');
     },
-    turnFailed: (_correlation, outcome, evidence) => {
-      if (evidence === undefined) throw new Error('missing provider evidence');
-      failed = { outcome, evidence };
+    turnFailed: (_correlation, outcome) => {
+      failed = { outcome };
     },
   };
   const generation = new WorkerGeneration(
@@ -1261,8 +1355,7 @@ Deno.test('Provider timeout on long history is attributed to the admitted user t
   assertEquals(failed.outcome.turnProviderRequestCount, 1);
   assertEquals(failed.outcome.runtimeProviderRequestCount, 1);
   assertEquals(presentationFailureReason(diagnostic), 'provider deadline exceeded');
-  assertEquals(failed.evidence.requests.map((record) => record.request.phase), ['user_turn']);
-  assertEquals(failed.evidence.diagnosticId, diagnostic.diagnosticId);
+  assertEquals(phases, ['user_turn']);
 });
 
 Deno.test('Worker execution artifact distinguishes Host store failure from committed generation loss', async () => {
@@ -1410,13 +1503,11 @@ Deno.test('Worker TUI composition routes core events through the presentation ad
   }
 });
 
-Deno.test('Worker shares request accounting and credential-free evidence across turns', async () => {
-  const evidenceStore = new FakeProviderEvidenceStore();
+Deno.test('Worker shares request accounting across turns without evidence documents', async () => {
   const created = await createWorkerSession({
     persistence: 'none',
     agent: 'default',
     physicalIoMode: 'provider-free',
-    providerEvidenceStore: evidenceStore,
   });
   try {
     const host = created.session;
@@ -1443,15 +1534,6 @@ Deno.test('Worker shares request accounting and credential-free evidence across 
         ],
       },
       { read: [2, 1, 1], second: [2, 1, 1], requests: [0, 0, 0, 0] },
-    );
-    const evidence = await evidenceStore.list();
-    assertEquals(evidence.length, 2);
-    assertEquals(evidence.map((item) => item.turnNumber), [1, 2]);
-    assert(
-      evidence[1].runtimeEvents.some((event) => event.kind === 'model_result'),
-    );
-    assert(
-      evidence[1].runtimeEvents.some((event) => event.kind === 'tool_call'),
     );
     assertEquals(host.requestCount(), 0);
   } finally {

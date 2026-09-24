@@ -2,6 +2,23 @@
 
 ## Records
 
+### Increment 119〜121 — reasoning再送・thinking表示・診断記録の縮小（完了）
+
+- 正本: `docs/increments/increment-119.md`、`increment-120.md`、`increment-121.md`。第三者review二件を反映した
+  119→120→121の計画。119のarchitecture変更は利用者の別承認後に反映済み。通常利用メモA9には未採用の
+  保存期間だけを残した。
+- 119はChatの平文／構造付きreasoning再送、OpenRouter Responsesのreasoning item再送、provider／model切替での
+  private state遮断を実装。focused test、type check、format、lint、`git diff --check`成功。利用者承認の実provider
+  4 request（OpenCode Go ChatとOpenRouter Responses各2回）で双方ともtool call→reasoning再送→finalを確認。
+  詳細は119文書、短い結果は`/tmp/henji-increment119-live/summary.json`。
+- 120は可読なthinkingをmodel stepごとのsemantic記録としてTUIと通常Session履歴に表示。成功・失敗・キャンセルの
+  観測済み部分を扱い、通常履歴は診断attachmentを読まない。focused test、型・format・lint確認後、隔離XDGの
+  production TUIとlocalhost模擬providerで成功・キャンセルと履歴readbackを確認。実provider callは未実施。
+- 121は常設raw収集・保存・readback経路と診断attachmentを廃止し、短いrequest factと通常semantic履歴へ切り替えた。利用者承認により対象workspaceのv9 DBを削除してv10で再作成。focused test、型・format・lint、隔離XDG／tmuxのproduction TUIでtool表示と通常履歴を確認。利用者の追加許可後、OpenCode Go ChatのGLMとMiMoで計5実requestを行い、短いfactのSQLite読戻しを確認。詳細はIncrement 121文書。
+- 第三者reviewのSSE失敗fact P2は、検査箇所からfield・値の形を運ぶ修正とfocused testで解消した。後続の実providerでGLMの`type: null`継続断片による解析失敗を再現し、null継続値の受理後に同じ指示のread→回答を確認。tool callの`type`明示とindex連番は実行必須条件から外し、必要時のraw取得用scriptをrepositoryへ追加した。詳細はIncrement 121文書。
+- 次: なし。保存期間の判断は通常利用メモA9に残す。
+- 119の既存DB削除、build、配置、push、releaseは行っていない。DeepSeekの長い反復改善は未確認。
+
 ### Increment 118 — キャンセル後のTUI表示ID衝突の修正（実装・検証・配置完了）
 
 - 状態: 同じturn番号を使う後続実行のtool表示が古い行へ重なる不具合を修正。隔離XDG・tmuxのproduction TUIで

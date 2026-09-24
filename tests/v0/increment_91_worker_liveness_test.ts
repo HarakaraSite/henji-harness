@@ -164,29 +164,9 @@ class PartialObservationCapsule extends ProbeCapsule {
       },
     });
     this.emit({
-      kind: 'provider_exact_request',
-      correlation: command.correlation,
-      sequence: 2,
-      observation: {
-        bytes: new Uint8Array(),
-        captureBoundary: 'increment-91-test',
-        serializerVersion: 'test-v1',
-        endpoint: 'https://example.invalid/search',
-        method: 'POST',
-        lane: 'parent',
-        phase: 'user_turn',
-        modelStep: 1,
-        requestMetadata: {
-          origin: 'web_search',
-          responseMode: 'json',
-        },
-        monolithicFallback: true,
-      },
-    });
-    this.emit({
       kind: 'provider_observation',
       correlation: command.correlation,
-      sequence: 3,
+      sequence: 2,
       turn: 1,
       observation: {
         kind: 'request_start',
@@ -197,8 +177,6 @@ class PartialObservationCapsule extends ProbeCapsule {
           modelStep: 1,
           endpoint: 'https://example.invalid/search',
           method: 'POST',
-          requestBody: '',
-          requestBodyBytes: 0,
           requestMetadata: {
             origin: 'web_search',
             responseMode: 'json',
@@ -526,7 +504,6 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      historyCaptureProfile: 'diagnostic-v1',
       cancelSettlementGraceMs: 20,
       capsuleFactory: (url) => {
         generation += 1;
@@ -561,11 +538,6 @@ Deno.test('Increment 91 retains partial facts and fences a terminated generation
       requestedEventOrdinal: 2,
       status: 'outcome_unknown',
     }]);
-    assert(interrupted.providerEvidenceId === undefined);
-    const diagnosticAttachments = [...history.streamHumanHistoryExport(
-      created.session.sessionId,
-    )].filter((record) => record.kind === 'diagnostic_attachment');
-    assert(diagnosticAttachments.length > 0);
     const artifact = (await history.executionArtifacts.list()).find((value) =>
       value.executionId === interrupted.executionId
     );

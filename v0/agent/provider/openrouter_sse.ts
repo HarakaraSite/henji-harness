@@ -26,7 +26,7 @@ import { bytes, isJsonValue, nonBlank } from './openrouter_value.ts';
 
 const encoder = new TextEncoder();
 
-type SsePayloadHandler = (payload: string, rawFrame: string) => void;
+type SsePayloadHandler = (payload: string) => void;
 
 /**
  * Dependency-free SSE framer for the documented Chat Completions subset. It deliberately keeps
@@ -37,7 +37,6 @@ class SseFramer {
   private line = '';
   private pendingCr = false;
   private dataLines: string[] = [];
-  private eventLines: string[] = [];
   private bomHandled = false;
   private _done = false;
 
@@ -111,7 +110,6 @@ class SseFramer {
   private finishLine(): void {
     const line = this.line;
     this.line = '';
-    this.eventLines.push(line);
     if (line.length === 0) {
       this.dispatchEvent();
       return;
@@ -127,17 +125,14 @@ class SseFramer {
 
   private dispatchEvent(): void {
     if (this.dataLines.length === 0) {
-      this.eventLines = [];
       return;
     }
     const payload = this.dataLines.join('\n');
-    const rawFrame = `${this.eventLines.join('\n')}\n`;
     this.dataLines = [];
-    this.eventLines = [];
     if (payload.length === 0) {
       throw sseResponseError('provider response contained empty data', 'empty_terminal_result');
     }
-    this.onPayload(payload, rawFrame);
+    this.onPayload(payload);
     if (payload === '[DONE]') this._done = true;
   }
 }
@@ -185,12 +180,28 @@ const isStreamUsage = (value: unknown): boolean => {
 const safeIndex = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
+const valueShape = (value: unknown): string =>
+  value === undefined
+    ? 'absent'
+    : value === null
+    ? 'null'
+    : Array.isArray(value)
+    ? `array(length=${value.length})`
+    : typeof value;
+
 const updateStreamTool = (
   assembly: StreamAssembly,
   raw: unknown,
+  position: number,
 ): void => {
+  const path = `choices[0].delta.tool_calls[${position}]`;
   if (typeof raw !== 'object' || raw === null) {
-    throw sseResponseError('provider tool call shape was unsupported', 'unsupported_delta_shape');
+    throw sseResponseError(
+      'provider tool call shape was unsupported',
+      'unsupported_delta_shape',
+      undefined,
+      { field: path, expectedShape: 'object', actualShape: valueShape(raw) },
+    );
   }
   const fragment = raw as {
     index?: unknown;
@@ -218,7 +229,7 @@ const updateStreamTool = (
     }
     target.id = fragment.id;
   }
-  if (hasOwn(fragment, 'type')) {
+  if (hasOwn(fragment, 'type') && fragment.type !== null) {
     if (fragment.type !== 'function') {
       throw sseResponseError('provider tool-call type was invalid', 'incomplete_tool_call');
     }
@@ -227,8 +238,8 @@ const updateStreamTool = (
     }
     target.type = 'function';
   }
-  if (hasOwn(fragment, 'function')) {
-    if (typeof fragment.function !== 'object' || fragment.function === null) {
+  if (hasOwn(fragment, 'function') && fragment.function !== null) {
+    if (typeof fragment.function !== 'object') {
       throw sseResponseError('provider tool-call function was invalid', 'incomplete_tool_call');
     }
     const fn = fragment.function as { name?: unknown; arguments?: unknown };
@@ -241,11 +252,17 @@ const updateStreamTool = (
       }
       target.name = fn.name;
     }
-    if (hasOwn(fn, 'arguments')) {
+    if (hasOwn(fn, 'arguments') && fn.arguments !== null) {
       if (typeof fn.arguments !== 'string') {
         throw sseResponseError(
           'provider tool-call arguments were invalid',
           'invalid_tool_arguments',
+          undefined,
+          {
+            field: `${path}.function.arguments`,
+            expectedShape: 'string',
+            actualShape: valueShape(fn.arguments),
+          },
         );
       }
       target.arguments += fn.arguments;
@@ -255,30 +272,37 @@ const updateStreamTool = (
 
 const completeStreamTools = (assembly: StreamAssembly): ModelResult => {
   const indices = [...assembly.tools.keys()].sort((left, right) => left - right);
-  if (
-    indices.length === 0 ||
-    indices.some((index, position) => index !== position)
-  ) {
-    throw sseResponseError(
-      'provider tool-call indices were not contiguous',
-      'incomplete_tool_call',
-    );
-  }
   const calls = indices.map((index) => {
     const tool = assembly.tools.get(index)!;
-    if (
-      !nonBlank(tool.id) || tool.type !== 'function' || !nonBlank(tool.name)
-    ) {
+    if (!nonBlank(tool.id) || !nonBlank(tool.name)) {
       throw sseResponseError('provider tool-call metadata was incomplete', 'incomplete_tool_call');
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(tool.arguments);
     } catch {
-      throw sseResponseError('provider tool-call arguments were invalid', 'invalid_tool_arguments');
+      throw sseResponseError(
+        'provider tool-call arguments were invalid',
+        'invalid_tool_arguments',
+        undefined,
+        {
+          field: `choices[0].delta.tool_calls[${index}].function.arguments`,
+          expectedShape: 'valid JSON string',
+          actualShape: `string(length=${tool.arguments.length},invalid_json)`,
+        },
+      );
     }
     if (!isJsonValue(parsed)) {
-      throw sseResponseError('provider tool-call arguments were invalid', 'invalid_tool_arguments');
+      throw sseResponseError(
+        'provider tool-call arguments were invalid',
+        'invalid_tool_arguments',
+        undefined,
+        {
+          field: `choices[0].delta.tool_calls[${index}].function.arguments`,
+          expectedShape: 'JSON value',
+          actualShape: valueShape(parsed),
+        },
+      );
     }
     return { callId: tool.id, name: tool.name, arguments: parsed };
   });
@@ -384,15 +408,32 @@ const processSsePayload = (
     throw sseResponseError(
       'provider response delta shape was unsupported',
       'unsupported_delta_shape',
+      undefined,
+      { field: 'choices[0].delta', expectedShape: 'object', actualShape: valueShape(delta) },
     );
   }
   const deltaObject = (delta ?? {}) as Record<string, unknown>;
   const reasoningDetails = deltaObject.reasoning_details;
   if (reasoningDetails !== undefined && reasoningDetails !== null) {
     if (!Array.isArray(reasoningDetails) || !reasoningDetails.every(isJsonValue)) {
+      const invalidIndex = Array.isArray(reasoningDetails)
+        ? reasoningDetails.findIndex((value) => !isJsonValue(value))
+        : -1;
       throw sseResponseError(
         'provider reasoning details were unsupported',
         'unsupported_delta_shape',
+        undefined,
+        {
+          field: invalidIndex < 0
+            ? 'choices[0].delta.reasoning_details'
+            : `choices[0].delta.reasoning_details[${invalidIndex}]`,
+          expectedShape: invalidIndex < 0 ? 'JSON array' : 'JSON value',
+          actualShape: valueShape(
+            invalidIndex < 0
+              ? reasoningDetails
+              : (reasoningDetails as readonly unknown[])[invalidIndex],
+          ),
+        },
       );
     }
     assembly.reasoningDetails.push(...structuredClone(reasoningDetails));
@@ -419,13 +460,31 @@ const processSsePayload = (
     contentPresent && content !== null && content !== '' &&
     typeof content !== 'string'
   ) {
-    throw sseResponseError('provider response content was unsupported', 'unsupported_delta_shape');
+    throw sseResponseError(
+      'provider response content was unsupported',
+      'unsupported_delta_shape',
+      undefined,
+      {
+        field: 'choices[0].delta.content',
+        expectedShape: 'string or null',
+        actualShape: valueShape(content),
+      },
+    );
   }
   if (
     hasOwn(deltaObject, 'role') && deltaObject.role !== 'assistant' &&
     deltaObject.role !== null
   ) {
-    throw sseResponseError('provider response role was invalid', 'unsupported_delta_shape');
+    throw sseResponseError(
+      'provider response role was invalid',
+      'unsupported_delta_shape',
+      undefined,
+      {
+        field: 'choices[0].delta.role',
+        expectedShape: 'assistant or null',
+        actualShape: valueShape(deltaObject.role),
+      },
+    );
   }
   const toolCalls = deltaObject.tool_calls;
   const hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
@@ -436,6 +495,12 @@ const processSsePayload = (
     throw sseResponseError(
       'provider response tool calls were unsupported',
       'unsupported_delta_shape',
+      undefined,
+      {
+        field: 'choices[0].delta.tool_calls',
+        expectedShape: 'array or null',
+        actualShape: valueShape(toolCalls),
+      },
     );
   }
 
@@ -509,7 +574,9 @@ const processSsePayload = (
   }
   if (hasToolCalls) {
     assembly.sawTools = true;
-    for (const fragment of toolCalls!) updateStreamTool(assembly, fragment);
+    for (const [position, fragment] of toolCalls!.entries()) {
+      updateStreamTool(assembly, fragment, position);
+    }
   }
   if (finishReason === undefined || finishReason === null) return;
   const state: OpenRouterProviderState | undefined = assembly.reasoningDetails.length === 0 &&
@@ -595,7 +662,7 @@ export const readSseResponse = async (
     progressBytes: 0,
     postTerminalUsageSeen: false,
   };
-  const framer = new SseFramer((payload, rawFrame) => {
+  const framer = new SseFramer((payload) => {
     let parsed: unknown;
     if (payload === '[DONE]') parsed = '[DONE]';
     else {
@@ -605,18 +672,7 @@ export const readSseResponse = async (
         parsed = undefined;
       }
     }
-    const eventOrdinal = evidence?.recordSseEvent({
-      data: payload,
-      rawFrame,
-      ...(parsed === '[DONE]' || parsed !== undefined && isJsonValue(parsed) ? { parsed } : {}),
-    });
-    evidence?.recordParserTransition({
-      kind: 'event',
-      ...(eventOrdinal === undefined ? {} : { reason: `sse_event_${eventOrdinal}` }),
-      ...(parsed !== undefined && isJsonValue(parsed) ? { detail: parsed } : {}),
-    });
     try {
-      const terminalBefore = assembly.terminal;
       processSsePayload(
         assembly,
         payload,
@@ -626,16 +682,43 @@ export const readSseResponse = async (
         modelId,
         reportThinkingDelta,
       );
-      if (terminalBefore === undefined && assembly.terminal !== undefined) {
-        evidence?.recordParserTransition({ kind: 'terminal', reason: assembly.terminal });
-      }
-      if (payload === '[DONE]') {
-        evidence?.recordParserTransition({ kind: 'result', reason: 'done' });
-      }
     } catch (error) {
       if (error instanceof OpenRouterAgentError) {
         const parseReason = error.failureFact.parseReason;
-        let field = 'provider response';
+        const object = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed as Record<string, unknown>
+          : undefined;
+        const choices = object?.choices;
+        const choice = Array.isArray(choices) ? choices[0] : undefined;
+        const choiceObject = choice !== null && typeof choice === 'object' && !Array.isArray(choice)
+          ? choice as Record<string, unknown>
+          : undefined;
+        let field = error.failureFact.field ?? 'provider response';
+        let expectedShape: string | undefined = error.failureFact.expectedShape;
+        let actualShape: string | undefined = error.failureFact.actualShape;
+        if (parseReason === 'invalid_sse_json') {
+          field = 'data';
+          expectedShape = 'JSON';
+          actualShape = 'invalid JSON';
+        } else if (parseReason === 'invalid_completion_identity') {
+          field = 'id';
+          expectedShape = 'nonempty string';
+          actualShape = valueShape(object?.id);
+        } else if (parseReason === 'unsupported_choice_shape') {
+          field = choiceObject === undefined ? 'choices[0]' : 'choices[0].index';
+          expectedShape = choiceObject === undefined ? 'object' : 'number(0)';
+          actualShape = valueShape(choiceObject === undefined ? choice : choiceObject.index);
+        } else if (
+          parseReason === 'unsupported_delta_shape' && error.failureFact.field === undefined
+        ) {
+          field = 'choices[0].delta';
+          expectedShape = 'object';
+          actualShape = valueShape(choiceObject?.delta);
+        } else if (parseReason === 'unsupported_finish_reason') {
+          field = 'choices[0].finish_reason';
+          expectedShape = 'stop or tool_calls';
+          actualShape = valueShape(choiceObject?.finish_reason);
+        }
         if (
           parseReason === 'data_after_terminal' && typeof parsed === 'object' && parsed !== null
         ) {
@@ -658,7 +741,8 @@ export const readSseResponse = async (
           kind: 'failure',
           reason: parseReason ?? error.code,
           field,
-          ...(parsed !== undefined && isJsonValue(parsed) ? { detail: parsed } : {}),
+          ...(expectedShape === undefined ? {} : { expectedShape }),
+          ...(actualShape === undefined ? {} : { actualShape }),
         });
       }
       throw error;
@@ -715,7 +799,6 @@ export const readSseResponse = async (
         }
         break;
       }
-      evidence?.appendResponseBytes(item.value);
       try {
         framer.push(item.value);
       } catch (error) {

@@ -52,6 +52,9 @@ export interface OpenRouterFailureFact {
   readonly retryCount: number;
   readonly httpStatus?: number;
   readonly parseReason?: ParseReason;
+  readonly field?: string;
+  readonly expectedShape?: string;
+  readonly actualShape?: string;
 }
 
 type OpenRouterFailureFactInput =
@@ -98,6 +101,11 @@ export class OpenRouterAgentError extends Error {
         ? {}
         : { httpStatus: failureFact?.httpStatus ?? status }),
       ...(failureFact?.parseReason === undefined ? {} : { parseReason: failureFact.parseReason }),
+      ...(failureFact?.field === undefined ? {} : { field: failureFact.field }),
+      ...(failureFact?.expectedShape === undefined ? {} : {
+        expectedShape: failureFact.expectedShape,
+      }),
+      ...(failureFact?.actualShape === undefined ? {} : { actualShape: failureFact.actualShape }),
     });
   }
 }

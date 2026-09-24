@@ -12,9 +12,10 @@ repository document or prior practice conflicts with it, this section wins.
 - 安全機構は機能が実環境で安定した後に別途扱う。機能安定前に考慮する安全性は、ユーザーが明示した
   API credentialとAuthorizationの露出防止だけである。一般的なhardening、fail-closed拒否、permission・
   入力・状態matrixを、依頼なしに設計、実装、test、reviewへ追加しない。
-- 原因特定に必要なrequest、raw response、SSE event、provider metadata、parser transition、tool event、
-  runtime outcome、request countは保存・readback可能にする。credential値とAuthorizationは記録しないが、
-  仮想的なprivate-data懸念で他の診断証拠を省略またはsanitizationしない。
+- 通常実行では、次のprobeを設計できる短いrequest単位のfact（provider、model、API、stepと物理request順、
+  HTTP／error、解析失敗の項目と値の形）を保存・readback可能にする。toolの順番・引数・結果とruntime outcomeは
+  semantic履歴を正本とし、raw request／response、SSE断片、parser transition全文は常設収集しない。
+  詳細なrawが必要な場合は別probeで取得する。credential値とAuthorizationは記録しない。
 - 成功基準は、人間がproduction経路で目的の機能を完了できることである。offline fixture、test件数、
   review結果、sanitized failure、機械的gate成功をその代替にしない。
 - 利用者から明確な指示がない修正は、後方互換を要求しない破壊的変更として扱う。旧形式のmigration、

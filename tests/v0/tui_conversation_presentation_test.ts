@@ -77,7 +77,6 @@ Deno.test('conversation presentation keeps successful operational metadata out o
     committed: true,
     turnProviderRequestCount: 2,
     runtimeProviderRequestCount: 2,
-    providerEvidenceId: '11111111-1111-4111-8111-111111111111',
   });
   assertEquals(state.log.entries.map((entry) => entry.label), [
     'user>',

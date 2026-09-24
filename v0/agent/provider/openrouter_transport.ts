@@ -22,16 +22,139 @@ import {
   decodeResponse,
   providerTimeoutError,
   readResponseBody,
-  responseHeaders,
   responseStreamError,
   sseResponseError,
   withResponseStatus,
 } from './openrouter_response.ts';
 import { readSseResponse } from './openrouter_sse.ts';
-import { bytes, isJsonValue, safeJson } from './openrouter_value.ts';
+import { bytes, safeJson } from './openrouter_value.ts';
 import { substituteRequestHeaders, usesCredentialHeader } from './provider_request_headers.ts';
 
-const encoder = new TextEncoder();
+const valueShape = (value: unknown): string =>
+  value === undefined
+    ? 'absent'
+    : value === null
+    ? 'null'
+    : Array.isArray(value)
+    ? `array(length=${value.length})`
+    : typeof value === 'string'
+    ? `string(length=${value.length})`
+    : typeof value;
+
+const responseShapeFailure = (payload: unknown): {
+  readonly field: string;
+  readonly expectedShape: string;
+  readonly actualShape: string;
+} => {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return { field: 'response', expectedShape: 'object', actualShape: valueShape(payload) };
+  }
+  const choices = (payload as Record<string, unknown>).choices;
+  if (!Array.isArray(choices) || choices.length !== 1) {
+    return {
+      field: 'response.choices',
+      expectedShape: 'array(length=1)',
+      actualShape: valueShape(choices),
+    };
+  }
+  const choice = choices[0];
+  if (typeof choice !== 'object' || choice === null || Array.isArray(choice)) {
+    return {
+      field: 'response.choices[0]',
+      expectedShape: 'object',
+      actualShape: valueShape(choice),
+    };
+  }
+  const message = (choice as Record<string, unknown>).message;
+  if (typeof message !== 'object' || message === null || Array.isArray(message)) {
+    return {
+      field: 'response.choices[0].message',
+      expectedShape: 'object',
+      actualShape: valueShape(message),
+    };
+  }
+  const role = (message as Record<string, unknown>).role;
+  if (role !== 'assistant') {
+    return {
+      field: 'response.choices[0].message.role',
+      expectedShape: 'assistant',
+      actualShape: valueShape(role),
+    };
+  }
+  const content = (message as Record<string, unknown>).content;
+  const toolCalls = (message as Record<string, unknown>).tool_calls;
+  if (toolCalls !== undefined && toolCalls !== null) {
+    const base = 'response.choices[0].message.tool_calls';
+    if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+      return { field: base, expectedShape: 'nonempty array', actualShape: valueShape(toolCalls) };
+    }
+    for (let index = 0; index < toolCalls.length; index++) {
+      const call = toolCalls[index];
+      const path = `${base}[${index}]`;
+      if (typeof call !== 'object' || call === null || Array.isArray(call)) {
+        return { field: path, expectedShape: 'object', actualShape: valueShape(call) };
+      }
+      const item = call as Record<string, unknown>;
+      if (typeof item.id !== 'string' || item.id.trim().length === 0) {
+        return {
+          field: `${path}.id`,
+          expectedShape: 'nonempty string',
+          actualShape: valueShape(item.id),
+        };
+      }
+      if (item.type !== 'function') {
+        return {
+          field: `${path}.type`,
+          expectedShape: 'function',
+          actualShape: valueShape(item.type),
+        };
+      }
+      if (
+        typeof item.function !== 'object' || item.function === null || Array.isArray(item.function)
+      ) {
+        return {
+          field: `${path}.function`,
+          expectedShape: 'object',
+          actualShape: valueShape(item.function),
+        };
+      }
+      const functionItem = item.function as Record<string, unknown>;
+      if (typeof functionItem.name !== 'string' || functionItem.name.trim().length === 0) {
+        return {
+          field: `${path}.function.name`,
+          expectedShape: 'nonempty string',
+          actualShape: valueShape(functionItem.name),
+        };
+      }
+      if (typeof functionItem.arguments !== 'string') {
+        return {
+          field: `${path}.function.arguments`,
+          expectedShape: 'JSON string',
+          actualShape: valueShape(functionItem.arguments),
+        };
+      }
+      try {
+        JSON.parse(functionItem.arguments);
+      } catch {
+        return {
+          field: `${path}.function.arguments`,
+          expectedShape: 'valid JSON string',
+          actualShape: `string(length=${functionItem.arguments.length},invalid_json)`,
+        };
+      }
+    }
+    return {
+      field: base,
+      expectedShape: 'supported tool call array',
+      actualShape: valueShape(toolCalls),
+    };
+  }
+  return {
+    field: 'response.choices[0].message.content',
+    expectedShape: 'nonempty string',
+    actualShape: valueShape(content),
+  };
+};
 
 /** Merge adapter-owned base headers with non-secret declared headers. */
 const buildChatHeaders = (
@@ -92,6 +215,9 @@ const withRequestCount = (
       retryCount: Math.max(0, requestCount - 1),
       ...(fact.httpStatus === undefined ? {} : { httpStatus: fact.httpStatus }),
       ...(fact.parseReason === undefined ? {} : { parseReason: fact.parseReason }),
+      ...(fact.field === undefined ? {} : { field: fact.field }),
+      ...(fact.expectedShape === undefined ? {} : { expectedShape: fact.expectedShape }),
+      ...(fact.actualShape === undefined ? {} : { actualShape: fact.actualShape }),
     },
   );
 };
@@ -141,10 +267,7 @@ export class OpenRouterAgentModel implements Model {
     if (body === undefined) {
       throw invalidRequestError('provider request is not JSON serializable');
     }
-    const exactBodyBytes = generateOptions.providerExactRequestObserver === undefined
-      ? undefined
-      : encoder.encode(body);
-    if ((exactBodyBytes?.byteLength ?? bytes(body)) > MAX_REQUEST_BYTES) {
+    if (bytes(body) > MAX_REQUEST_BYTES) {
       throw new OpenRouterAgentError(
         'limit_exceeded',
         'provider request exceeds 6 MiB',
@@ -222,20 +345,6 @@ export class OpenRouterAgentModel implements Model {
       while (true) {
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut) throw providerTimeoutError();
-        if (exactBodyBytes !== undefined) {
-          generateOptions.providerExactRequestObserver?.({
-            bytes: exactBodyBytes,
-            captureBoundary: 'openrouter-chat:http-body-v1',
-            serializerVersion: 'openrouter-safe-json-v1',
-            endpoint,
-            method: this.profile.method,
-            lane,
-            phase,
-            modelStep,
-            requestMetadata,
-            monolithicFallback: true,
-          });
-        }
         const evidenceRequest = {
           lane,
           phase,
@@ -244,11 +353,7 @@ export class OpenRouterAgentModel implements Model {
           method: this.profile.method,
           requestMetadata,
         } as const;
-        if (exactBodyBytes === undefined) {
-          evidence?.startRequest({ ...evidenceRequest, requestBody: body });
-        } else {
-          evidence?.startRequestMetadata(evidenceRequest);
-        }
+        evidence?.startRequestMetadata(evidenceRequest);
         requestCount += 1;
         try {
           response = await this.fetcher(endpoint, {
@@ -256,7 +361,7 @@ export class OpenRouterAgentModel implements Model {
             signal: controller.signal,
             redirect: 'error',
             headers: requestHeaders,
-            body: exactBodyBytes ?? body,
+            body,
           });
         } catch {
           if (turnCancelled) throw new TurnCancelledError();
@@ -269,10 +374,7 @@ export class OpenRouterAgentModel implements Model {
             { stage: 'transport', code: 'transport_error' },
           );
         }
-        evidence?.recordResponse({
-          status: response.status,
-          headers: responseHeaders(response.headers),
-        });
+        evidence?.recordResponse({ status: response.status });
         // A response owns a body as soon as fetch resolves. Even when cancellation or timeout won
         // during fetch, settle that body before classifying the request outcome.
         if (turnCancelled || timedOut || controller.signal.aborted) {
@@ -292,10 +394,7 @@ export class OpenRouterAgentModel implements Model {
         }
         if (response.ok) break;
 
-        const bounded = await readResponseBody(
-          response,
-          (value) => evidence?.appendResponseBytes(value),
-        );
+        const bounded = await readResponseBody(response);
         if (bounded.cleanupFailed) {
           if (turnCancelled) throw new CancellationCleanupError();
           if (timedOut) throw providerTimeoutError();
@@ -343,10 +442,7 @@ export class OpenRouterAgentModel implements Model {
         )[0].trim()
           .toLowerCase();
         if (!response.body || contentType !== 'text/event-stream') {
-          const bounded = await readResponseBody(
-            response,
-            (value) => evidence?.appendResponseBytes(value),
-          );
+          const bounded = await readResponseBody(response);
           if (bounded.cleanupFailed) {
             if (turnCancelled) throw new CancellationCleanupError();
             if (timedOut) throw providerTimeoutError();
@@ -398,10 +494,7 @@ export class OpenRouterAgentModel implements Model {
         }
         return streamed;
       }
-      const bounded = await readResponseBody(
-        response,
-        (value) => evidence?.appendResponseBytes(value),
-      );
+      const bounded = await readResponseBody(response);
       if (bounded.cleanupFailed) {
         if (turnCancelled) throw new CancellationCleanupError();
         if (timedOut) throw providerTimeoutError();
@@ -488,15 +581,13 @@ export class OpenRouterAgentModel implements Model {
           this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
           this.profile.model,
         );
-        evidence?.recordParserTransition({ kind: 'result', reason: 'json_result' });
         return decoded;
       } catch (error) {
         if (error instanceof OpenRouterAgentError) {
           evidence?.recordParserTransition({
             kind: 'failure',
             reason: error.failureFact.parseReason ?? error.code,
-            field: 'response',
-            ...(isJsonValue(payload) ? { detail: payload } : {}),
+            ...responseShapeFailure(payload),
           });
         }
         if (error instanceof OpenRouterAgentError) {
@@ -505,14 +596,24 @@ export class OpenRouterAgentModel implements Model {
         throw error;
       }
     } catch (error) {
-      if (
-        error instanceof OpenRouterAgentError && requestCount > 0 &&
-        (error.requestCount !== requestCount ||
-          error.failureFact.retryCount !== Math.max(0, requestCount - 1))
-      ) {
-        throw withRequestCount(error, requestCount);
+      const settled = error instanceof OpenRouterAgentError && requestCount > 0 &&
+          (error.requestCount !== requestCount ||
+            error.failureFact.retryCount !== Math.max(0, requestCount - 1))
+        ? withRequestCount(error, requestCount)
+        : error;
+      if (settled instanceof OpenRouterAgentError && requestCount > 0) {
+        evidence?.recordRequestFailure({
+          stage: settled.failureFact.stage,
+          code: settled.failureFact.code,
+          ...(settled.failureFact.httpStatus === undefined ? {} : {
+            httpStatus: settled.failureFact.httpStatus,
+          }),
+          ...(settled.failureFact.parseReason === undefined ? {} : {
+            parseReason: settled.failureFact.parseReason,
+          }),
+        }, modelStep);
       }
-      throw error;
+      throw settled;
     } finally {
       clearTimeout(timer);
       turnSignal?.removeEventListener('abort', abortFromTurn);

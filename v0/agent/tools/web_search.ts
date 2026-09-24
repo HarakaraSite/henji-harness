@@ -56,15 +56,6 @@ export interface OpenRouterSonarWebSearchBackendOptions {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const isJsonValue = (value: unknown): value is JsonValue => {
-  if (
-    value === null || typeof value === 'string' || typeof value === 'boolean'
-  ) return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every(isJsonValue);
-  return isRecord(value) && Object.values(value).every(isJsonValue);
-};
-
 const nonBlank = (value: unknown): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
@@ -182,8 +173,6 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
             phase: 'user_turn',
             modelStep: context.modelStep ?? 1,
             requestMetadata,
-            captureBoundary: 'openrouter-chat:auxiliary-http-body-v1',
-            serializerVersion: 'json-stringify-utf8-v1',
           },
         }),
         ...(context.signal === undefined ? {} : { signal: context.signal }),
@@ -225,31 +214,21 @@ export class OpenRouterSonarWebSearchBackend implements WebSearchBackend {
         });
         throw new Error('web search provider response was not valid JSON');
       }
-      evidence?.recordParserTransition({
-        kind: 'event',
-        reason: 'json_response',
-        ...(isJsonValue(parsed) ? { detail: parsed } : {}),
-      });
       const result = parseSearchResult(parsed);
       if (result === undefined) {
         evidence?.recordParserTransition({
           kind: 'failure',
           reason: 'missing_answer_or_url_citations',
           field: 'choices[0].message',
-          ...(isJsonValue(parsed) ? { detail: parsed } : {}),
+          expectedShape: 'answer with URL citations',
+          actualShape: typeof parsed === 'object' && parsed !== null
+            ? Array.isArray(parsed) ? `array(length=${parsed.length})` : 'object'
+            : typeof parsed,
         });
         throw new Error(
           'web search provider response had no answer with URL citations',
         );
       }
-      evidence?.recordParserTransition({
-        kind: 'terminal',
-        reason: 'answer_with_url_citations',
-      });
-      evidence?.recordParserTransition({
-        kind: 'result',
-        reason: 'web_search_result',
-      });
       return result;
     } finally {
       evidence?.setContextRequestOrdinal(undefined);

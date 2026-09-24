@@ -3,7 +3,6 @@ import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { sameDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type { FailureDiagnosticPersistenceErrorCode } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidencePersistenceErrorCode } from '../provider/provider_evidence.ts';
 import type { WorkerCorrelation, WorkerRuntimeEventMessage } from './worker_protocol.ts';
 
 export const sameRef = (
@@ -123,12 +122,6 @@ export const diagnosticPersistenceCodes: readonly FailureDiagnosticPersistenceEr
   'diagnostic_io_failure',
 ];
 
-export const evidencePersistenceCodes: readonly ProviderEvidencePersistenceErrorCode[] = [
-  'provider_evidence_not_found',
-  'provider_evidence_invalid',
-  'provider_evidence_io_failure',
-];
-
 export const turnEndFromOutcome = (
   turn: number,
   outcome: LoopOutcome,
@@ -143,15 +136,6 @@ export const turnEndFromOutcome = (
   }),
   ...(outcome.runtimeProviderRequestCount === undefined ? {} : {
     runtimeProviderRequestCount: outcome.runtimeProviderRequestCount,
-  }),
-  ...(outcome.providerEvidenceId === undefined ? {} : {
-    providerEvidenceId: outcome.providerEvidenceId,
-  }),
-  ...(outcome.providerEvidenceDurability === undefined ? {} : {
-    providerEvidenceDurability: outcome.providerEvidenceDurability,
-  }),
-  ...(outcome.providerEvidencePersistenceError === undefined ? {} : {
-    providerEvidencePersistenceError: outcome.providerEvidencePersistenceError,
   }),
   ...(outcome.executionArtifactId === undefined ? {} : {
     executionArtifactId: outcome.executionArtifactId,

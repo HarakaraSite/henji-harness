@@ -2,7 +2,6 @@ import type { LoopOutcome } from '../core/contracts.ts';
 import type { AgentEventSink } from '../core/events.ts';
 import type { HostDefinitionSelection } from '../definitions/definition_selection.ts';
 import type { BuiltinAgentSelection } from '../definitions/agent_catalog.ts';
-import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
@@ -22,7 +21,6 @@ export interface HeadlessWorkerRunOptions {
   readonly rootMaxSteps?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
-  readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
 }
@@ -44,7 +42,6 @@ export const runHeadlessWorker = async (
     rootMaxSteps: options.rootMaxSteps,
     eventSink: options.eventSink,
     diagnosticPersistence: options.diagnosticPersistence,
-    providerEvidenceStore: options.providerEvidenceStore,
     executionArtifactStore: options.executionArtifactStore,
     capsuleFactory: options.capsuleFactory,
   });

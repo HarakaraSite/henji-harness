@@ -56,8 +56,9 @@ physical storage位置は、それが無くてもsemanticな出来事と直接�
 
 診断detailの欠落や不一致だけを理由に、semanticなexecutionまたはcanonical adoptionを失敗させない。
 一方、通常履歴のsemantic authority自体をdurableにできない場合は、成立していない会話をcanonicalとして
-採用しない。障害診断に必要なrequest、raw response、SSE、parser transition、tool event、runtime outcome等は、
-選択した診断captureで保存・readback可能にする。
+採用しない。通常履歴にはtool event、runtime outcome、provider／modelと物理requestの順番、HTTP／error、
+解析失敗の項目と値の形を短いfactとして保存し、人間が次の調査を決められるようにする。通常実行でraw
+request／responseやSSE断片を常設収集せず、必要な場合は別probeで取得する。
 
 詳細情報を多く持つこと自体を、追跡可能性または自己改訂可能性と同一視しない。自己改訂に適切な情報は先に
 固定せず、実際の候補生成や人間の判断で使った情報、足りなかった情報、使わなかった情報を後のloopで観測し、

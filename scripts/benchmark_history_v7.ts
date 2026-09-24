@@ -1,10 +1,6 @@
 import { SqliteHistoryV7Store } from '../v0/agent/history/sqlite_history_v7_store.ts';
-import type {
-  HistoryV7CaptureProfile,
-  HistoryV7OperationCost,
-} from '../v0/agent/history/history_v7_model.ts';
+import type { HistoryV7OperationCost } from '../v0/agent/history/history_v7_model.ts';
 
-const encoder = new TextEncoder();
 const TOKEN_BYTES = 4;
 const TARGET_CUMULATIVE_TOKENS = 100_000_000;
 const FACT_BYTES_PER_TURN = 10_000;
@@ -88,7 +84,6 @@ const semanticScale = async (path: string) => {
         executionId,
         sessionId: 'scale-session',
         baseRevision: turn - 1,
-        captureProfile: 'normal-v1',
       });
       const text = `${turn}:` + 'x'.repeat(FACT_BYTES_PER_TURN - `${turn}:`.length);
       const appendStart = performance.now();
@@ -140,77 +135,6 @@ const semanticScale = async (path: string) => {
   }
 };
 
-const profileRun = async (
-  path: string,
-  profile: HistoryV7CaptureProfile,
-): Promise<{
-  profile: HistoryV7CaptureProfile;
-  turns: number;
-  semanticAppendMs: number;
-  diagnosticAppendMs: number;
-  diagnosticBytes: number;
-  files: Awaited<ReturnType<typeof totalSize>>;
-}> => {
-  const turns = 100;
-  const store = new SqliteHistoryV7Store(path);
-  let semanticAppendMs = 0;
-  let diagnosticAppendMs = 0;
-  let diagnosticBytes = 0;
-  try {
-    for (let turn = 1; turn <= turns; turn += 1) {
-      const executionId = `${profile}-${turn}`;
-      store.beginExecution({
-        executionId,
-        sessionId: `${profile}-session`,
-        baseRevision: turn - 1,
-        captureProfile: profile,
-      });
-      const start = performance.now();
-      store.appendSemantic(executionId, 0, [{
-        occurrenceId: `${executionId}:message`,
-        ordinal: 1,
-        kind: 'assistant_message',
-        observedAt: '2026-09-21T00:00:00.000Z',
-        payload: { text: `${turn}:` + 's'.repeat(996) },
-      }, {
-        occurrenceId: `${executionId}:terminal`,
-        ordinal: 2,
-        kind: 'host_decision',
-        observedAt: '2026-09-21T00:00:00.001Z',
-        payload: { outcome: 'completed' },
-      }], `${executionId}:terminal`);
-      semanticAppendMs += performance.now() - start;
-      if (profile === 'diagnostic-v1') {
-        const content = encoder.encode(`${turn}:` + 'd'.repeat(32_765));
-        const diagnosticStart = performance.now();
-        store.appendDiagnostic({
-          attachmentId: `${executionId}:wire`,
-          executionId,
-          occurrenceId: `${executionId}:message`,
-          kind: 'transport',
-          coverage: 'captured',
-          metadata: { boundary: 'benchmark' },
-          content,
-        });
-        diagnosticAppendMs += performance.now() - diagnosticStart;
-        diagnosticBytes += content.byteLength;
-      }
-      store.settleExecution(executionId, 'completed');
-      store.adoptCanonical(executionId);
-    }
-    return {
-      profile,
-      turns,
-      semanticAppendMs,
-      diagnosticAppendMs,
-      diagnosticBytes,
-      files: await totalSize(path),
-    };
-  } finally {
-    store.close();
-  }
-};
-
 const eventScale = async (path: string) => {
   const store = new SqliteHistoryV7Store(path);
   const executionId = 'event-scale';
@@ -222,7 +146,6 @@ const eventScale = async (path: string) => {
       executionId,
       sessionId: 'event-scale-session',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     for (let ordinal = 1; ordinal <= eventCount; ordinal += 1) {
       const start = performance.now();
@@ -280,7 +203,4 @@ const root = Deno.args[0] ?? await Deno.makeTempDir({ prefix: 'henji-i94-v7-benc
 await Deno.mkdir(root, { recursive: true });
 const scale = await semanticScale(`${root}/scale.sqlite3`);
 const events = await eventScale(`${root}/events.sqlite3`);
-const normal = await profileRun(`${root}/normal.sqlite3`, 'normal-v1');
-const diagnostic = await profileRun(`${root}/diagnostic.sqlite3`, 'diagnostic-v1');
-
-console.log(JSON.stringify({ root, scale, events, profiles: { normal, diagnostic } }, null, 2));
+console.log(JSON.stringify({ root, scale, events }, null, 2));

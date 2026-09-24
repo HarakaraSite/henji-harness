@@ -1,4 +1,4 @@
-import type { StoredProviderEvidence } from '../provider/provider_evidence.ts';
+import type { StoredExecutionEvent } from '../history/history_store_contract.ts';
 import { sessionPaths } from '../session/session_store.ts';
 import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
@@ -46,10 +46,10 @@ export interface ProductionCliE2eDependencies {
     stateRoot: string,
     workspaceRoot: string,
   ) => Promise<readonly StoredWorkerExecutionArtifact[]>;
-  readonly listEvidence?: (
+  readonly listHistoryEvents?: (
     stateRoot: string,
     workspaceRoot: string,
-  ) => Promise<readonly StoredProviderEvidence[]>;
+  ) => Promise<readonly StoredExecutionEvent[]>;
   readonly sessionTranscriptExists?: (
     stateRoot: string,
     workspaceRoot: string,
@@ -95,7 +95,7 @@ const createLayout = async (): Promise<ProductionCliE2ePaths> => {
     childStdoutPath: `${runRoot}/child-stdout.txt`,
     childStderrPath: `${runRoot}/child-stderr.txt`,
     executionsPath: database,
-    evidencePath: database,
+    historyPath: database,
   };
 };
 
@@ -190,13 +190,14 @@ const defaultListExecutions = async (
   return await history.executionArtifacts.list();
 };
 
-const defaultListEvidence = async (
+const defaultListHistoryEvents = async (
   stateRoot: string,
   workspaceRoot: string,
-): Promise<readonly StoredProviderEvidence[]> => {
+): Promise<readonly StoredExecutionEvent[]> => {
   const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot);
   await history.initialize();
-  return await history.providerEvidence.list();
+  const executions = await history.executionArtifacts.list();
+  return executions.length === 1 ? history.listExecutionEvents(executions[0].executionId) : [];
 };
 
 const defaultSessionTranscriptExists = async (
@@ -294,15 +295,15 @@ export const runProductionCliE2e = async (
   } catch (error) {
     executionReadError = errorText(error);
   }
-  let evidence: readonly StoredProviderEvidence[] | null = null;
-  let evidenceReadError: string | undefined;
+  let historyEvents: readonly StoredExecutionEvent[] | null = null;
+  let historyReadError: string | undefined;
   try {
-    evidence = await (dependencies.listEvidence ?? defaultListEvidence)(
+    historyEvents = await (dependencies.listHistoryEvents ?? defaultListHistoryEvents)(
       paths.stateRoot,
       paths.workspaceRoot,
     );
   } catch (error) {
-    evidenceReadError = errorText(error);
+    historyReadError = errorText(error);
   }
   let sessionTranscriptExists: boolean | null = null;
   try {
@@ -318,8 +319,8 @@ export const runProductionCliE2e = async (
     child,
     executions,
     ...(executionReadError === undefined ? {} : { executionReadError }),
-    evidence,
-    ...(evidenceReadError === undefined ? {} : { evidenceReadError }),
+    historyEvents,
+    ...(historyReadError === undefined ? {} : { historyReadError }),
     sessionTranscriptExists,
   });
 };

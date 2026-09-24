@@ -119,9 +119,6 @@ export interface WorkerExecutionArtifactV2 {
   readonly proposedStateRevision?: number;
   readonly committedStateRevision?: number;
   readonly protocolTrace: readonly WorkerExecutionTraceEntry[];
-  readonly providerEvidenceId?: string;
-  readonly providerEvidenceDurability?: 'yes' | 'failed' | 'unknown';
-  readonly providerEvidencePersistenceError?: string;
   readonly storeResult: WorkerExecutionStoreResult;
   readonly storeError?:
     | 'session_io_failure'
@@ -533,15 +530,6 @@ export const validateWorkerExecutionArtifact = (
     ...(Object.hasOwn(artifact, 'proposedStateRevision') ? ['proposedStateRevision'] : []),
     ...(Object.hasOwn(artifact, 'committedStateRevision') ? ['committedStateRevision'] : []),
   ];
-  const providerOptional = [
-    ...(Object.hasOwn(artifact, 'providerEvidenceId') ? ['providerEvidenceId'] : []),
-    ...(Object.hasOwn(artifact, 'providerEvidenceDurability')
-      ? ['providerEvidenceDurability']
-      : []),
-    ...(Object.hasOwn(artifact, 'providerEvidencePersistenceError')
-      ? ['providerEvidencePersistenceError']
-      : []),
-  ];
   const storeOptional = Object.hasOwn(artifact, 'storeError') ? ['storeError'] : [];
   const artifactOptional = [
     ...(Object.hasOwn(artifact, 'artifactPersistenceError') ? ['artifactPersistenceError'] : []),
@@ -569,7 +557,6 @@ export const validateWorkerExecutionArtifact = (
       'baseStateRevision',
       ...stateOptional,
       'protocolTrace',
-      ...providerOptional,
       'storeResult',
       ...storeOptional,
       'acknowledgement',
@@ -616,14 +603,6 @@ export const validateWorkerExecutionArtifact = (
     (artifact.schemaVersion === 4 || trace.length > 0) &&
     trace.every(validTrace) &&
     trace.every((entry, index) => entry.sequence === index + 1) &&
-    (!Object.hasOwn(artifact, 'providerEvidenceId') ||
-      validExecutionId(artifact.providerEvidenceId)) &&
-    (!Object.hasOwn(artifact, 'providerEvidenceDurability') ||
-      artifact.providerEvidenceDurability === 'yes' ||
-      artifact.providerEvidenceDurability === 'failed' ||
-      artifact.providerEvidenceDurability === 'unknown') &&
-    (!Object.hasOwn(artifact, 'providerEvidencePersistenceError') ||
-      validText(artifact.providerEvidencePersistenceError, true)) &&
     (artifact.storeResult === 'not_attempted' ||
       artifact.storeResult === 'failed' ||
       artifact.storeResult === 'committed') &&

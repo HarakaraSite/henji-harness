@@ -9,18 +9,14 @@ import {
   TurnRequestBudget,
 } from '../../v0/agent/core/execution_context.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import type { ProviderExactRequestObservation } from '../../v0/agent/core/contracts.ts';
 import {
   type ExecutionEventInput,
   HistoryStoreError,
 } from '../../v0/agent/history/history_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { exactByteDigest } from '../../v0/agent/history/exact_byte_plan.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { sessionPaths } from '../../v0/agent/session/session_store_paths.ts';
 import {
   createWorkerSession,
   workerBuiltinModulePath,
@@ -32,7 +28,6 @@ import type {
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
-import { OpenRouterSonarWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import {
   beginWorkerStageProbeEpoch,
   classifyWorkerStageSnapshot,
@@ -184,8 +179,6 @@ class AuxiliaryGapCapsule implements WorkerHostCapsule {
               modelStep: 1,
               endpoint: 'https://example.invalid/provider',
               method: 'POST',
-              requestBody: '',
-              requestBodyBytes: 0,
               requestMetadata: {
                 origin: 'web_search',
                 responseMode: 'json',
@@ -417,7 +410,6 @@ const openJournalFailureHost = async (
     modulePath: workerBuiltinModulePath('default'),
     physicalIoMode: 'provider-free',
     historyPersistence: store,
-    providerEvidenceStore: store.providerEvidence,
     executionArtifactStore: store.executionArtifacts,
     durableCanonicalHistory: true,
     eventSink: (event) => events.push(event),
@@ -551,168 +543,9 @@ Deno.test('Increment 92 records production auxiliary I/O stage order without pay
   ]);
 });
 
-Deno.test('Increment 92 captures the exact auxiliary body before fetching the same bytes', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i92-exact-auxiliary-' });
-  const workspaceRoot = `${root}/workspace`;
-  const stateRoot = `${root}/state`;
-  await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
-    captureProfile: 'diagnostic-v1',
-  });
-  await store.initialize();
-  const executionId = '92000000-0000-4000-8000-000000000092';
-  const taskId = '92000000-0000-4000-8000-000000000093';
-  const admitted = {
-    taskId,
-    executionId,
-    createdAt: '2026-09-21T00:00:00.000Z',
-    sessionCorrelation: 'increment-92-exact-auxiliary',
-    turn: 1,
-    task: 'capture exact auxiliary body',
-    baseStateRevision: 1,
-    agent: 'default' as const,
-    model: ROOT_DEFAULT_MODEL_SELECTION,
-    build: buildManifest(),
-    definition: journalDefinition,
-  };
-  await store.beginExecution({ ...admitted, sessionMode: 'no_session' });
-  const order: string[] = [];
-  let observed: ProviderExactRequestObservation | undefined;
-  let fetched: Uint8Array | undefined;
-  let workerSequence = 0;
-  const correlation = {
-    session: admitted.sessionCorrelation,
-    instanceCorrelation: 'increment-92-instance',
-    workerGeneration: 'increment-92-generation',
-    baseStateRevision: 1,
-    command: 'turn-1',
-  } as const;
-  const evidence = new ProviderEvidenceRecorder(
-    '92000000-0000-4000-8000-000000000001',
-    1,
-    '2026-09-21T00:00:00.000Z',
-    undefined,
-    (observation) => {
-      if (observation.kind !== 'request_start') return undefined;
-      workerSequence += 1;
-      store.appendExecutionEvent({
-        executionId,
-        direction: 'worker_to_host',
-        source: 'worker',
-        kind: 'provider_request_start',
-        workerSequence,
-        payload: {
-          kind: 'provider_observation',
-          correlation,
-          sequence: workerSequence,
-          turn: 1,
-          observation,
-        },
-      });
-      return workerSequence;
-    },
-  );
-  const execution = new ParentTurnExecutionContext(
-    1,
-    new TurnRequestBudget(),
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    evidence,
-    undefined,
-    undefined,
-    () => 1,
-    undefined,
-    undefined,
-    undefined,
-    (observation) => {
-      order.push('exact');
-      observed = observation;
-      workerSequence += 1;
-      store.appendExactRequestObservation({
-        executionId,
-        workerSequence,
-        observation,
-      });
-    },
-  );
-  const io = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openrouter-api-key': () => Promise.resolve('test-credential') },
-    fetcher: (_input, init) => {
-      order.push('fetch');
-      assert(init?.body instanceof Uint8Array);
-      fetched = init.body;
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            choices: [{
-              message: {
-                content: 'captured answer',
-                annotations: [{
-                  type: 'url_citation',
-                  url_citation: {
-                    title: 'Captured source',
-                    url: 'https://example.invalid/source',
-                  },
-                }],
-              },
-            }],
-          }),
-          { status: 200, headers: { 'content-type': 'application/json' } },
-        ),
-      );
-    },
-  });
-  assert(io.requestProvider !== undefined);
-  const backend = new OpenRouterSonarWebSearchBackend({
-    requestProvider: io.requestProvider,
-    endpoint: 'https://example.invalid/search',
-  });
-  const result = await backend.search('exact auxiliary bytes', {
-    modelExecution: execution,
-    modelStep: 2,
-    callId: 'exact-auxiliary',
-  });
-
-  assertEquals(result.answer, 'captured answer');
-  assertEquals(order, ['exact', 'fetch']);
-  assert(observed !== undefined);
-  assert(
-    fetched === observed.bytes,
-    'fetch did not receive the observed byte instance',
-  );
-  assertEquals(
-    observed.captureBoundary,
-    'openrouter-chat:auxiliary-http-body-v1',
-  );
-  assertEquals(observed.serializerVersion, 'json-stringify-utf8-v1');
-  assert(
-    new TextDecoder().decode(observed.bytes).includes('exact auxiliary bytes'),
-  );
-  assertEquals(evidence.snapshot().requests[0].request.requestBody, '');
-  const durableEvents = JSON.stringify(store.listExecutionEvents(executionId));
-  assert(!durableEvents.includes('test-credential'));
-  assert(!durableEvents.toLowerCase().includes('authorization'));
-  try {
-    const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
-    const stored = db.prepare(
-      'SELECT content_bytes FROM immutable_contents WHERE content_digest = ?',
-    ).get(exactByteDigest(observed.bytes)) as { content_bytes: Uint8Array } | undefined;
-    db.close();
-    assert(stored !== undefined, 'v7 did not retain the exact auxiliary bytes');
-    assertEquals([...stored.content_bytes], [...observed.bytes]);
-  } finally {
-    await Deno.remove(root, { recursive: true });
-  }
-});
-
 Deno.test('Increment 92 emits no auxiliary evidence before credential and cancellation checks pass', async () => {
   for (const mode of ['missing', 'cancelled'] as const) {
     let fetches = 0;
-    let exactCaptures = 0;
     const evidence = new ProviderEvidenceRecorder(
       mode === 'missing'
         ? '92000000-0000-4000-8000-000000000002'
@@ -737,7 +570,6 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
       undefined,
       undefined,
       undefined,
-      () => exactCaptures += 1,
     );
     const io = createProductionPhysicalIo(undefined, {
       credentialSources: {
@@ -762,8 +594,6 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
           phase: 'user_turn',
           modelStep: 1,
           requestMetadata: { origin: 'web_search' },
-          captureBoundary: 'test-boundary',
-          serializerVersion: 'test-v1',
         },
       });
     } catch {
@@ -771,7 +601,6 @@ Deno.test('Increment 92 emits no auxiliary evidence before credential and cancel
     }
     assert(failed);
     assertEquals(fetches, 0);
-    assertEquals(exactCaptures, 0);
     assertEquals(evidence.snapshot().requests.length, 0);
   }
 });
@@ -787,7 +616,6 @@ Deno.test('Increment 92 persists an auxiliary gap with receive buffer and durabl
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      historyCaptureProfile: 'diagnostic-v1',
       auxiliaryStageGapMs: 10,
       capsuleFactory: () => new AuxiliaryGapCapsule(delta),
     });
@@ -834,7 +662,6 @@ Deno.test('Increment 92 cancels the gap watchdog when provider start reaches Hos
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      historyCaptureProfile: 'diagnostic-v1',
       auxiliaryStageGapMs: 10,
       capsuleFactory: () => new AuxiliaryGapCapsule(delta, true),
     });
@@ -1031,4 +858,3 @@ Deno.test('Increment 92 converts validation false into a typed journal failure',
     await Deno.remove(root, { recursive: true });
   }
 });
-import { DatabaseSync } from 'node:sqlite';

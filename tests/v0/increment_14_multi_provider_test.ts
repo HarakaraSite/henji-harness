@@ -180,7 +180,7 @@ Deno.test('Increment 14 resolves bundled provider defaults at startup', () => {
   }
 });
 
-Deno.test('Increment 14 OpenAI root uses the official Responses SDK and retains raw evidence', async () => {
+Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short request facts', async () => {
   const seen: { url?: string; authorization?: string; body?: string } = {};
   const fetcher: typeof fetch = async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
@@ -229,8 +229,9 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK and retains 
     authProfile: 'openai-api-key',
     protocol: 'sse',
   });
-  assert(retained.response?.rawBody?.includes('response.completed'));
-  assert(retained.sseEvents.length === 3);
+  assertEquals(retained.response?.status, 200);
+  assertEquals(Object.keys(retained.response ?? {}), ['status']);
+  assert(!JSON.stringify(retained).includes('sseEvents'));
   assert(!JSON.stringify(retained).includes('openai-secret'));
 
   const session = new AgentSession(

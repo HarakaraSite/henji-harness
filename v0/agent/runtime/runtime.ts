@@ -35,12 +35,9 @@ import {
   type ParentTurnExecutionContext,
 } from '../core/execution_context.ts';
 import { type FailureDiagnosticOwner } from '../session/failure_diagnostic.ts';
+import type { ProviderEvidenceRecorder } from '../provider/provider_evidence.ts';
 import { buildManifest } from './build_manifest.ts';
 import { type FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import {
-  type ProviderEvidenceDraftStore,
-  ProviderEvidenceRecorder,
-} from '../provider/provider_evidence.ts';
 import { type TurnCancellation } from '../core/cancellation.ts';
 import {
   type AgentResolvedManifestV1,
@@ -131,8 +128,6 @@ export interface RuntimeTestSeam {
   readonly onDisplayStateProjected?: (state: RuntimeDisplayState) => void;
   /** Direct-test/host seam for turn-scoped diagnostic persistence. */
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
-  /** Direct-test/host seam for retained provider exchange evidence. */
-  readonly providerEvidenceStore?: ProviderEvidenceDraftStore;
 }
 
 export interface RuntimeRun {
@@ -416,14 +411,6 @@ export const runRuntime = async (
   selection: AgentDefinitionAdmission = DEFAULT_AGENT_SELECTION,
 ): Promise<RuntimeRun> => {
   const composition = await createRuntimeComposition(seam, selection);
-  const evidence = seam.providerEvidenceStore === undefined
-    ? undefined
-    : new ProviderEvidenceRecorder(
-      crypto.randomUUID().toLowerCase(),
-      1,
-      new Date().toISOString(),
-      seam.providerEvidenceStore,
-    );
   const outcome = await runAgent(
     task,
     composition.model,
@@ -438,28 +425,8 @@ export const runRuntime = async (
         undefined,
         undefined,
         undefined,
-        evidence,
       ),
     },
   );
-  if (evidence !== undefined) {
-    evidence.finalize({ outcome });
-    try {
-      await evidence.persist();
-    } catch {
-      // Evidence durability must not replace an otherwise valid provider/parser outcome.
-    }
-    return {
-      outcome: {
-        ...outcome,
-        providerEvidenceId: evidence.evidenceId,
-        providerEvidenceDurability: evidence.durability,
-        ...(evidence.persistenceErrorCode === undefined ? {} : {
-          providerEvidencePersistenceError: evidence.persistenceErrorCode,
-        }),
-      },
-      requestCount: composition.requestCount(),
-    };
-  }
   return { outcome, requestCount: composition.requestCount() };
 };

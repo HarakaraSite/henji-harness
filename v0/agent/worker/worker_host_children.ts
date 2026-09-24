@@ -12,7 +12,6 @@ import type {
 } from '../history/history_store_contract.ts';
 import type { LoopOutcome } from '../core/contracts.ts';
 import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
-import type { ProviderEvidenceV1 } from '../provider/provider_evidence.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
@@ -32,10 +31,7 @@ import type {
   ChildCleanupObservationV1,
   ChildCleanupRunObservationV1,
 } from './worker_child_contract.ts';
-import {
-  attributeProviderEvidenceV5,
-  historyCaptureDurability,
-} from './worker_history_projection.ts';
+import { historyCaptureDurability } from './worker_history_projection.ts';
 
 const CHILD_SETTLEMENT_GRACE_MS = 5_000;
 
@@ -73,7 +69,6 @@ type ChildRun = {
   supervisor?: WorkerSupervisor;
   terminal?: AsyncAgentTerminalResult;
   outcome?: LoopOutcome;
-  providerEvidence?: ProviderEvidenceV1;
   diagnostic?: FailureDiagnosticV1;
   contextManifest?: ExecutionContextManifestV2;
   capture?: HistoryCaptureResult;
@@ -429,7 +424,6 @@ export class ChildRunRegistry {
           finalText,
         ),
         outcome,
-        message.providerEvidence,
         message.diagnostic,
         message.contextManifest,
       );
@@ -450,7 +444,6 @@ export class ChildRunRegistry {
           message.outcome.finalText,
         ),
         message.outcome,
-        message.providerEvidence,
         message.diagnostic,
         message.contextManifest,
       );
@@ -482,15 +475,13 @@ export class ChildRunRegistry {
     run: ChildRun,
     terminal: AsyncAgentTerminalResult,
     outcome?: LoopOutcome,
-    providerEvidence?: ProviderEvidenceV1,
     diagnostic?: FailureDiagnosticV1,
     contextManifest?: ExecutionContextManifestV2,
   ): void {
     if (run.terminal !== undefined) return;
     const settledOutcome = outcome ?? this.syntheticOutcome(run, terminal);
-    run.terminal = this.withOutcome(terminal, settledOutcome, providerEvidence, diagnostic);
+    run.terminal = this.withOutcome(terminal, settledOutcome, diagnostic);
     run.outcome = settledOutcome;
-    run.providerEvidence = providerEvidence;
     run.diagnostic = diagnostic ?? outcome?.diagnostic;
     run.contextManifest = contextManifest;
     run.state = terminal.state;
@@ -520,16 +511,6 @@ export class ChildRunRegistry {
       const capture = history.settleNonCanonicalExecution({
         ...this.historyInput(run),
         outcome,
-        ...(run.providerEvidence === undefined ? {} : {
-          evidence: attributeProviderEvidenceV5({
-            evidence: run.providerEvidence,
-            outcome,
-            sessionId: run.runId,
-            build: run.build,
-            definition: run.definitionRef,
-            hasContextBasis: run.contextManifest !== undefined,
-          }),
-        }),
         ...(run.diagnostic === undefined ? {} : { diagnostic: run.diagnostic }),
         ...(run.contextManifest === undefined ? {} : { contextManifest: run.contextManifest }),
       });
@@ -572,18 +553,14 @@ export class ChildRunRegistry {
   private withOutcome(
     terminal: AsyncAgentTerminalResult,
     outcome: LoopOutcome,
-    evidence?: ProviderEvidenceV1,
     diagnostic?: FailureDiagnosticV1,
   ): AsyncAgentTerminalResult {
-    const providerRequestCount = outcome.turnProviderRequestCount ??
-      evidence?.turnProviderRequestCount ?? evidence?.requests.length;
-    const evidenceId = evidence?.evidenceId ?? outcome.providerEvidenceId;
+    const providerRequestCount = outcome.turnProviderRequestCount;
     const failureDiagnostic = diagnostic ?? outcome.diagnostic;
     return {
       ...terminal,
       stopReason: outcome.stopReason,
       ...(providerRequestCount === undefined ? {} : { providerRequestCount }),
-      ...(evidenceId === undefined ? {} : { providerEvidenceId: evidenceId }),
       ...(failureDiagnostic === undefined ? {} : {
         diagnosticId: failureDiagnostic.diagnosticId,
         diagnosticCode: failureDiagnostic.code,
@@ -596,16 +573,11 @@ export class ChildRunRegistry {
     capture: HistoryCaptureResult,
   ): AsyncAgentTerminalResult {
     const durability = historyCaptureDurability(capture);
-    const evidenceDurability = durability.providerEvidenceDurability ??
-      (terminal.providerEvidenceId === undefined ? undefined : 'unknown');
     const diagnosticDurability = durability.diagnosticDurability ??
       (terminal.diagnosticId === undefined ? undefined : 'unknown');
     return {
       ...terminal,
       ...durability,
-      ...(evidenceDurability === undefined ? {} : {
-        providerEvidenceDurability: evidenceDurability,
-      }),
       ...(diagnosticDurability === undefined ? {} : {
         diagnosticDurability,
       }),

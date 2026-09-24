@@ -1,11 +1,6 @@
-import type { LoopOutcome, Message, ProviderExactRequestObservation } from '../core/contracts.ts';
+import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { AgentEvent } from '../core/events.ts';
-import type {
-  ProviderEvidenceObservation,
-  ProviderEvidenceV3,
-  ProviderEvidenceV4,
-  ProviderEvidenceV5,
-} from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
 import type { BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
@@ -73,9 +68,8 @@ export type ExecutionEventKind =
   | 'effect_observation'
   | 'provider_request_start'
   | 'provider_response_start'
-  | 'provider_response_bytes'
-  | 'provider_sse_event'
   | 'provider_parser_transition'
+  | 'provider_request_failure'
   | 'context_observation'
   | 'execution_settled'
   | 'execution_reconciled';
@@ -165,9 +159,8 @@ export type ExecutionEventPayloadByKind = {
   context_observation: import('../worker/worker_protocol.ts').WorkerContextObservationMessage;
   provider_request_start: ProviderObservationPayload<'request_start'>;
   provider_response_start: ProviderObservationPayload<'response_start'>;
-  provider_response_bytes: ProviderObservationPayload<'response_bytes'>;
-  provider_sse_event: ProviderObservationPayload<'sse_event'>;
   provider_parser_transition: ProviderObservationPayload<'parser_transition'>;
+  provider_request_failure: ProviderObservationPayload<'request_failure'>;
   execution_settled: {
     readonly outcome: ExecutionOutcome;
     readonly adoption: ExecutionAdoption;
@@ -206,9 +199,8 @@ type WorkerExecutionEventInput = {
       | 'effect_observation'
       | 'provider_request_start'
       | 'provider_response_start'
-      | 'provider_response_bytes'
-      | 'provider_sse_event'
       | 'provider_parser_transition'
+      | 'provider_request_failure'
       | 'context_observation'
       | 'cancel_received' ? { readonly workerSequence: number }
       : { readonly workerSequence?: never });
@@ -275,9 +267,6 @@ export interface StoredExecutionRow {
   readonly workerGeneration?: string;
   readonly acknowledgement: string;
   readonly generationAvailability: string;
-  readonly evidenceCapture: string;
-  /** At most one completed evidence capture is linked by the v2 history row. */
-  readonly providerEvidenceId?: string;
   readonly diagnosticCapture: string;
   /** At most one structured failure diagnostic linked by the v2 history row. */
   readonly diagnosticId?: string;
@@ -307,7 +296,6 @@ export interface ReconcileExecutionInput {
     | WorkerExecutionArtifactV4
     | WorkerExecutionArtifactV5
     | WorkerExecutionArtifactV6;
-  readonly evidence?: ProviderEvidenceV4 | ProviderEvidenceV5;
 }
 
 export class HistoryStoreError extends Error {
@@ -345,10 +333,6 @@ export interface HistoryExecutionInput {
 }
 
 export interface HistoryCaptureInput {
-  readonly evidence?:
-    | ProviderEvidenceV3
-    | ProviderEvidenceV4
-    | ProviderEvidenceV5;
   readonly diagnostic?: FailureDiagnosticV1;
 }
 
@@ -368,8 +352,6 @@ export interface NonCanonicalExecutionInput extends HistoryExecutionInput, Histo
 }
 
 export interface HistoryCaptureResult {
-  readonly evidenceDurability?: 'yes' | 'failed' | 'unknown';
-  readonly evidencePersistenceError?: 'provider_evidence_invalid';
   readonly diagnosticDurability?: 'yes' | 'failed' | 'unknown';
   readonly diagnosticPersistenceError?:
     | 'diagnostic_capacity'
@@ -389,18 +371,10 @@ export interface HistoryPersistencePort {
   ): readonly StoredExecutionEvent[];
   /** Pure shape/contract check used to reject an invalid fact before it is projected to the Surface. */
   validateExecutionEvent(input: ExecutionEventInput): boolean;
-  /** v6 bounds terminal protocol evidence before the Host clones it into the history queue. */
+  /** Bound terminal transcript content before Host history projection. */
   prepareWorkerObservationForHistory?(
     message: import('../worker/worker_protocol.ts').WorkerToHostMessage,
   ): import('../worker/worker_protocol.ts').WorkerToHostMessage;
-  /** v6 exact outbound capture; the bytes are observed at the provider adapter boundary. */
-  appendExactRequestObservation?(
-    input: Readonly<{
-      executionId: string;
-      workerSequence: number;
-      observation: ProviderExactRequestObservation;
-    }>,
-  ): void;
   reconcileExecution(input: ReconcileExecutionInput): void;
   listExecutions(): readonly StoredExecutionRow[];
   /** Indexed v6 path used by normal Session recall selection. */

@@ -32,7 +32,6 @@ import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const MAX_GENERATION_TEXT = MAX_CONVERSATION_TEXT_BYTES;
 export const encoder = new TextEncoder();
-export const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 export const bounded = (value: string): string => {
   const text = boundedPresentationText(value);
@@ -176,25 +175,6 @@ export const diagnosticPersistenceError = (
     value !== 'diagnostic_not_found' && value !== 'diagnostic_busy' &&
     value !== 'diagnostic_invalid' && value !== 'diagnostic_capacity' &&
     value !== 'diagnostic_io_failure'
-  ) throw new PresentationDeliveryError();
-  return value;
-};
-export const providerEvidenceId = (value: unknown): string => {
-  if (typeof value !== 'string' || !UUID_V4.test(value)) throw new PresentationDeliveryError();
-  return value;
-};
-export const providerEvidenceDurability = (value: unknown): 'yes' | 'failed' | 'unknown' => {
-  if (value !== 'yes' && value !== 'failed' && value !== 'unknown') {
-    throw new PresentationDeliveryError();
-  }
-  return value;
-};
-export const providerEvidencePersistenceError = (
-  value: unknown,
-): 'provider_evidence_not_found' | 'provider_evidence_invalid' | 'provider_evidence_io_failure' => {
-  if (
-    value !== 'provider_evidence_not_found' && value !== 'provider_evidence_invalid' &&
-    value !== 'provider_evidence_io_failure'
   ) throw new PresentationDeliveryError();
   return value;
 };
@@ -406,22 +386,6 @@ export const outcome = (value: LoopOutcome): PresentationOutcome => {
         value.diagnosticPersistenceError,
       ),
     }),
-    ...(value.providerEvidenceId === undefined ? {} : {
-      providerEvidenceId: providerEvidenceId(value.providerEvidenceId),
-    }),
-    ...(value.providerEvidenceId === undefined || value.providerEvidenceDurability === undefined
-      ? {}
-      : {
-        providerEvidenceDurability: providerEvidenceDurability(value.providerEvidenceDurability),
-      }),
-    ...(value.providerEvidenceId === undefined ||
-        value.providerEvidencePersistenceError === undefined
-      ? {}
-      : {
-        providerEvidencePersistenceError: providerEvidencePersistenceError(
-          value.providerEvidencePersistenceError,
-        ),
-      }),
     ...(value.turnProviderRequestCount === undefined ? {} : {
       turnProviderRequestCount: optionalBoundedCount(value.turnProviderRequestCount),
     }),

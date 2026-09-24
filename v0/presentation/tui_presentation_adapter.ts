@@ -57,9 +57,6 @@ import {
   outcome,
   position,
   preview,
-  providerEvidenceDurability,
-  providerEvidenceId,
-  providerEvidencePersistenceError,
   restoredPresentationMessages,
   result,
   text,
@@ -231,19 +228,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           }),
           ...(event.runtimeProviderRequestCount === undefined ? {} : {
             runtimeProviderRequestCount: optionalBoundedCount(event.runtimeProviderRequestCount),
-          }),
-          ...(event.providerEvidenceId === undefined ? {} : {
-            providerEvidenceId: providerEvidenceId(event.providerEvidenceId),
-          }),
-          ...(event.providerEvidenceDurability === undefined ? {} : {
-            providerEvidenceDurability: providerEvidenceDurability(
-              event.providerEvidenceDurability,
-            ),
-          }),
-          ...(event.providerEvidencePersistenceError === undefined ? {} : {
-            providerEvidencePersistenceError: providerEvidencePersistenceError(
-              event.providerEvidencePersistenceError,
-            ),
           }),
         });
         this.emit({

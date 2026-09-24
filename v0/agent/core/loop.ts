@@ -349,8 +349,6 @@ const runAgentTurnInternal = async (
 
   const evidence = options.executionContext?.providerEvidence;
   const evidenceLane = 'parent' as const;
-  const evidenceIdentity = (): Pick<LoopOutcome, 'providerEvidenceId'> =>
-    evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId };
 
   const diagnosticFor = (
     error: unknown,
@@ -424,17 +422,15 @@ const runAgentTurnInternal = async (
       diagnostic,
       requestCounts,
     );
-    const withEvidence = { ...outcome, ...evidenceIdentity() };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'contract_failure',
       committed: false,
       ...requestCounts,
-      ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
-    return withEvidence;
+    return outcome;
   };
   const finishCancelled = (): LoopOutcome => {
     if (cancellation?.state === 'cleanup_failed') {
@@ -454,21 +450,17 @@ const runAgentTurnInternal = async (
       toolResultCount,
     );
     const requestCounts = terminalRequestCounts();
-    const settledOutcome = diagnostic === undefined
-      ? { ...outcome, ...requestCounts, ...evidenceIdentity() }
-      : {
-        ...outcome,
-        ...requestCounts,
-        diagnostic,
-        ...evidenceIdentity(),
-      };
+    const settledOutcome = diagnostic === undefined ? { ...outcome, ...requestCounts } : {
+      ...outcome,
+      ...requestCounts,
+      diagnostic,
+    };
     deliverEvent(sink, {
       kind: 'turn_end',
       turn,
       outcome: 'cancelled',
       committed: false,
       ...requestCounts,
-      ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return settledOutcome;
@@ -489,8 +481,8 @@ const runAgentTurnInternal = async (
     )?.snapshot();
     const requestCounts = terminalRequestCounts();
     const settledOutcome = diagnostic === undefined
-      ? { ...outcome, ...requestCounts, ...evidenceIdentity() }
-      : { ...outcome, ...requestCounts, diagnostic, ...evidenceIdentity() };
+      ? { ...outcome, ...requestCounts }
+      : { ...outcome, ...requestCounts, diagnostic };
     if (successful) {
       try {
         options.commit?.(outcome.transcript);
@@ -516,10 +508,9 @@ const runAgentTurnInternal = async (
           outcome: 'contract_failure',
           committed: false,
           ...requestCounts,
-          ...evidenceIdentity(),
           ...(diagnostic === undefined ? {} : { diagnostic }),
         });
-        return { ...failure, ...evidenceIdentity() };
+        return failure;
       }
     }
     deliverEvent(sink, {
@@ -528,7 +519,6 @@ const runAgentTurnInternal = async (
       outcome: settledOutcome.stopReason,
       committed: successful && options.commit !== undefined,
       ...requestCounts,
-      ...evidenceIdentity(),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     });
     return settledOutcome;
@@ -685,8 +675,7 @@ const runAgentTurnInternal = async (
     try {
       const generateOptions:
         | import('./contracts.ts').ModelGenerateOptions
-        | undefined = signal === undefined && sink === undefined && evidence === undefined &&
-            options.executionContext?.providerExactRequestObserver === undefined
+        | undefined = signal === undefined && sink === undefined && evidence === undefined
           ? undefined
           : {
             signal,
@@ -695,7 +684,6 @@ const runAgentTurnInternal = async (
               thinkingParts[thinking.kind].push(thinking.text);
             },
             providerEvidence: evidence,
-            providerExactRequestObserver: options.executionContext?.providerExactRequestObserver,
             providerEvidenceLane: 'parent',
             modelStep: steps,
           };

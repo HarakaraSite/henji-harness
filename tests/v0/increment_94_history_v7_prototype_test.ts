@@ -42,7 +42,6 @@ Deno.test('Increment 94 v7 semantic history settles and adopts without diagnosti
       executionId: 'execution-1',
       sessionId: 'session-1',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     const cost = store.appendSemantic('execution-1', 0, [
       occurrence('user-1', 1, 'user_message', { text: 'do the work' }),
@@ -70,7 +69,6 @@ Deno.test('Increment 94 v7 semantic history settles and adopts without diagnosti
     store.adoptCanonical('execution-1');
     const state = store.readExecution('execution-1');
     assert(state.lifecycle === 'settled' && state.adoption === 'canonical');
-    assert(state.diagnosticCoverage === 'not_requested');
   } finally {
     store.close();
   }
@@ -86,7 +84,6 @@ Deno.test('Increment 94 v7 immutable content references reuse bytes without reha
       executionId: 'execution-content-1',
       sessionId: 'session-content-1',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     const first = store.appendSemantic('execution-content-1', 0, [{
       ...occurrence('context-content-1', 1, 'context_item', { item: 1 }),
@@ -100,7 +97,6 @@ Deno.test('Increment 94 v7 immutable content references reuse bytes without reha
       executionId: 'execution-content-2',
       sessionId: 'session-content-2',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     const reused = store.appendSemantic('execution-content-2', 0, [{
       ...occurrence('context-content-2', 1, 'context_item', { item: 2 }),
@@ -122,7 +118,6 @@ Deno.test('Increment 94 v7 preserves rejected transcript and reason as semantic 
       executionId: 'execution-rejected',
       sessionId: 'session-rejected',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     store.appendSemantic('execution-rejected', 0, [
       occurrence('proposal', 1, 'assistant_message', {
@@ -148,34 +143,6 @@ Deno.test('Increment 94 v7 preserves rejected transcript and reason as semantic 
   }
 });
 
-Deno.test('Increment 94 v7 diagnostic invalidity does not gate semantic settlement', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-diagnostic-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
-  try {
-    store.beginExecution({
-      executionId: 'execution-diagnostic',
-      sessionId: 'session-diagnostic',
-      baseRevision: 0,
-      captureProfile: 'diagnostic-v1',
-    });
-    store.appendSemantic('execution-diagnostic', 0, [
-      occurrence('terminal-diagnostic', 1, 'host_decision', { outcome: 'completed' }),
-    ], 'terminal-diagnostic');
-    store.appendDiagnostic({
-      attachmentId: 'attachment-invalid',
-      executionId: 'execution-diagnostic',
-      occurrenceId: 'terminal-diagnostic',
-      kind: 'exact_request',
-      coverage: 'invalid',
-      metadata: { reason: 'digest mismatch' },
-    });
-    store.settleExecution('execution-diagnostic', 'completed');
-    assert(store.readExecution('execution-diagnostic').diagnosticCoverage === 'invalid');
-  } finally {
-    store.close();
-  }
-});
-
 Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-crash-' });
   let inject = true;
@@ -189,7 +156,6 @@ Deno.test('Increment 94 v7 append crash exposes only prior committed prefix', as
       executionId: 'execution-crash',
       sessionId: 'session-crash',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     let failed = false;
     try {
@@ -221,7 +187,6 @@ Deno.test('Increment 94 v7 same delta cost is independent of existing Session le
         executionId: name,
         sessionId: name,
         baseRevision: 0,
-        captureProfile: 'normal-v1',
       });
       const initial = Array.from(
         { length: prefix },
@@ -286,7 +251,6 @@ Deno.test('Increment 94 v7 mandatory relation and terminal fences reject incompl
       executionId: 'execution-fences',
       sessionId: 'session-fences',
       baseRevision: 0,
-      captureProfile: 'normal-v1',
     });
     store.appendSemantic('execution-fences', 0, [{
       ...occurrence('terminal-fences', 1, 'host_decision', { outcome: 'failed' }),
@@ -323,7 +287,6 @@ Deno.test('Increment 94 v7 adoption fences concurrent base revision and reopens 
         executionId,
         sessionId: 'shared-session',
         baseRevision: 0,
-        captureProfile: 'normal-v1',
       });
       store.appendSemantic(executionId, 0, [
         occurrence(`${executionId}-terminal`, 1, 'host_decision', { outcome: 'completed' }),
@@ -353,66 +316,11 @@ Deno.test('Increment 94 v7 adoption fences concurrent base revision and reopens 
   }
 });
 
-Deno.test('Increment 94 diagnostic profile correlates requested evidence with semantic occurrence', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-diagnostic-read-' });
-  const store = new SqliteHistoryV7Store(`${root}/history-v7.sqlite3`);
-  try {
-    store.beginExecution({
-      executionId: 'execution-diagnostic-read',
-      sessionId: 'session-diagnostic-read',
-      baseRevision: 0,
-      captureProfile: 'diagnostic-v1',
-    });
-    store.appendSemantic('execution-diagnostic-read', 0, [
-      occurrence('request-semantic', 1, 'model_request', {
-        model: 'example/model',
-        contextItems: ['message-1'],
-      }),
-      occurrence('terminal-diagnostic-read', 2, 'host_decision', { outcome: 'completed' }),
-    ], 'terminal-diagnostic-read');
-    const evidence = [
-      ['wire', 'transport', { boundary: 'provider-adapter' }],
-      ['frame', 'sse_frame', { responseOffset: 12 }],
-      ['parser', 'parser_transition', { from: 'streaming', to: 'complete' }],
-      ['worker', 'worker_stage', { stage: 'provider_call_returned' }],
-      ['storage', 'persistence_stage', { stage: 'semantic_committed' }],
-    ] as const;
-    for (let index = 0; index < evidence.length; index += 1) {
-      const [id, kind, metadata] = evidence[index];
-      store.appendDiagnostic({
-        attachmentId: id,
-        executionId: 'execution-diagnostic-read',
-        occurrenceId: 'request-semantic',
-        kind,
-        coverage: index === evidence.length - 1 ? 'captured' : 'partial',
-        metadata,
-        ...(id === 'wire' ? { content: new TextEncoder().encode('{"request":true}') } : {}),
-      });
-    }
-    const attachments = store.listDiagnosticAttachments('execution-diagnostic-read');
-    assertEquals(attachments.map((item) => item.kind), [
-      'transport',
-      'sse_frame',
-      'parser_transition',
-      'worker_stage',
-      'persistence_stage',
-    ]);
-    assert(attachments.every((item) => item.occurrenceId === 'request-semantic'));
-    assertEquals(new TextDecoder().decode(attachments[0].content), '{"request":true}');
-    store.settleExecution('execution-diagnostic-read', 'completed');
-    assert(store.readExecution('execution-diagnostic-read').diagnosticCoverage === 'captured');
-  } finally {
-    store.close();
-  }
-});
-
 Deno.test('Increment 94 v7 facade settles non-canonical semantic history without diagnostic cost', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-facade-normal-' });
   const workspaceRoot = `${root}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot, {
-    captureProfile: 'normal-v1',
-  });
+  const store = new SqliteHistoryV7ProductionStore(`${root}/state`, workspaceRoot, {});
   const executionId = '94000000-0000-4000-8000-000000000001';
   const input = {
     taskId: '94000000-0000-4000-8000-000000000002',
@@ -560,159 +468,9 @@ Deno.test('Increment 94 v7 facade settles non-canonical semantic history without
     const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
     try {
       assertEquals(
-        Number(
-          (db.prepare('SELECT count(*) AS count FROM diagnostic_attachments').get() as {
-            count: number;
-          }).count,
-        ),
-        0,
+        db.prepare("SELECT name FROM sqlite_schema WHERE name='diagnostic_attachments'").get(),
+        undefined,
       );
-    } finally {
-      db.close();
-    }
-  } finally {
-    store.close();
-  }
-});
-
-Deno.test('Increment 94 v7 diagnostic facade retains wire events without gating settlement', async () => {
-  const root = await Deno.makeTempDir({ prefix: 'henji-i94-v7-facade-diagnostic-' });
-  const workspaceRoot = `${root}/workspace`;
-  const stateRoot = `${root}/state`;
-  await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
-    captureProfile: 'diagnostic-v1',
-  });
-  const executionId = '94000000-0000-4000-8000-000000000011';
-  const input = {
-    taskId: '94000000-0000-4000-8000-000000000012',
-    executionId,
-    createdAt: '2026-09-21T02:30:00.000Z',
-    sessionCorrelation: 'detached-v7-diagnostic',
-    turn: 1,
-    task: 'capture diagnostic observations',
-    baseStateRevision: 0,
-    agent: 'default' as const,
-    model: ROOT_DEFAULT_MODEL_SELECTION,
-    build: buildManifest(),
-    definition: {
-      schemaVersion: 1 as const,
-      resourceKind: 'agent-definition' as const,
-      resourceId: 'builtin/default',
-      revision: { algorithm: 'sha256' as const, digest: '8'.repeat(64) },
-    },
-  };
-  try {
-    assertEquals(store.capturesProtocolTrace(), true);
-    await store.beginExecution({ ...input, sessionMode: 'no_session' });
-    const correlation = {
-      session: input.sessionCorrelation,
-      instanceCorrelation: 'instance-v7-diagnostic',
-      workerGeneration: 'generation-v7-diagnostic',
-      baseStateRevision: 0,
-      command: 'turn-1',
-    };
-    const body = new TextEncoder().encode('{"model":"example"}');
-    store.appendExactRequestObservation({
-      executionId,
-      workerSequence: 1,
-      observation: {
-        bytes: body,
-        captureBoundary: 'openrouter-chat:http-body-v1',
-        serializerVersion: 'json-stringify-v1',
-        endpoint: 'https://example.invalid/chat',
-        method: 'POST',
-        lane: 'parent',
-        phase: 'user_turn',
-        modelStep: 1,
-        requestMetadata: { provider: 'openrouter-chat', modelId: 'example' },
-        monolithicFallback: true,
-      },
-    });
-    store.appendExecutionEvents([{
-      executionId,
-      direction: 'worker_to_host',
-      source: 'worker',
-      kind: 'provider_request_start',
-      workerSequence: 2,
-      payload: {
-        kind: 'provider_observation',
-        correlation,
-        sequence: 2,
-        turn: 1,
-        observation: {
-          kind: 'request_start',
-          request: {
-            ordinal: 1,
-            endpoint: 'https://example.invalid/chat',
-            method: 'POST',
-            requestBody: '',
-            requestBodyBytes: body.byteLength,
-            lane: 'parent',
-            phase: 'user_turn',
-            modelStep: 1,
-            requestMetadata: { provider: 'openrouter-chat', modelId: 'example' },
-          },
-        },
-      },
-    }, {
-      executionId,
-      direction: 'worker_to_host',
-      source: 'worker',
-      kind: 'provider_response_start',
-      workerSequence: 3,
-      payload: {
-        kind: 'provider_observation',
-        correlation,
-        sequence: 3,
-        turn: 1,
-        observation: {
-          kind: 'response_start',
-          requestOrdinal: 1,
-          response: { status: 200, headers: { 'content-type': 'text/event-stream' } },
-        },
-      },
-    }]);
-    store.settleNonCanonicalExecution({
-      ...input,
-      outcome: {
-        ok: false,
-        task: input.task,
-        outcome: 'cancelled',
-        stopReason: 'cancelled',
-        error: 'cancelled after response start',
-        steps: 0,
-        toolCallCount: 0,
-        toolResultCount: 0,
-        transcript: [],
-      },
-    });
-    assert(store.readExecution(executionId).lifecycle === 'settled');
-    assert(
-      store.listExecutionEvents(executionId).some((event) =>
-        event.kind === 'provider_response_start'
-      ),
-    );
-    const paths = await sessionPaths(stateRoot, workspaceRoot);
-    const db = new DatabaseSync(`${paths.root}/history-v7.sqlite3`, { readOnly: true });
-    try {
-      const count = Number(
-        (db.prepare(`
-        SELECT count(*) AS count FROM diagnostic_attachments WHERE execution_id=?
-      `).get(executionId) as { count: number }).count,
-      );
-      assert(count >= 2);
-      const exact = db.prepare(`
-        SELECT d.occurrence_id, c.content_bytes
-        FROM diagnostic_attachments d
-        JOIN immutable_contents c ON c.content_digest=d.content_digest
-        WHERE d.execution_id=? AND d.attachment_kind='exact_request'
-      `).get(executionId) as {
-        occurrence_id: string | null;
-        content_bytes: Uint8Array;
-      };
-      assert(exact.occurrence_id !== null);
-      assertEquals(new Uint8Array(exact.content_bytes), body);
     } finally {
       db.close();
     }

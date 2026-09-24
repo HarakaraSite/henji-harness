@@ -5,18 +5,12 @@ import type {
   ToolResultContent,
   UserMessage,
 } from '../core/contracts.ts';
-import { sameDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import type {
   ProviderEvidenceLane,
   ProviderEvidencePhase,
   ProviderEvidenceRuntimeEvent,
-  ProviderEvidenceStore,
-  StoredProviderEvidence,
 } from '../provider/provider_evidence.ts';
-import type {
-  StoredWorkerExecutionArtifact,
-  WorkerExecutionSettlement,
-} from './worker_execution_artifact.ts';
+import type { WorkerExecutionSettlement } from './worker_execution_artifact.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import type {
   HistoryPersistencePort,
@@ -79,14 +73,19 @@ export interface RecalledProviderObservationV2 {
     readonly provider?: string;
     readonly modelId?: string;
     readonly effort?: string;
+    readonly api?: string;
+    readonly contextRequestOrdinal?: number;
+    readonly httpStatus?: number;
+    readonly failure?: {
+      readonly stage: string;
+      readonly code: string;
+      readonly parseReason?: string;
+      readonly field?: string;
+      readonly expectedShape?: string;
+      readonly actualShape?: string;
+    };
   }[];
   readonly responseCount: number;
-  readonly receivedResponseBytes: number;
-  readonly sseEventCount: number;
-  readonly lastSseEventOrdinal?: number;
-  readonly parserTransitionCount: number;
-  readonly lastParserState?: string;
-  readonly terminalObserved: boolean;
 }
 
 export type RecalledJournalObservationV2 =
@@ -163,7 +162,6 @@ export interface ResolveRecalledExecutionContextOptions {
   readonly executionId: string;
   /** Legacy V1 recall requires the artifact; schema-v2 rows are authoritative without it. */
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
-  readonly providerEvidenceStore?: ProviderEvidenceStore;
   /** The v2 execution row/journal is the source of lifecycle and outcome truth. */
   readonly historyPersistence?: Pick<
     HistoryPersistencePort,
@@ -241,19 +239,19 @@ const matchingToolProgress = (
     sameLane(event, call)
   );
 
-const observationsFromEvidence = (
-  evidence: StoredProviderEvidence,
+const observationsFromRuntimeEvents = (
+  runtimeEvents: readonly ProviderEvidenceRuntimeEvent[],
 ): readonly RecalledExecutionObservationV1[] => {
   const observations: RecalledExecutionObservationV1[] = [];
   const usedToolResults = new Set<number>();
   for (
     let eventIndex = 0;
-    eventIndex < evidence.runtimeEvents.length;
+    eventIndex < runtimeEvents.length;
     eventIndex += 1
   ) {
-    const event = evidence.runtimeEvents[eventIndex];
+    const event = runtimeEvents[eventIndex];
     if (event.kind === 'assistant_progress') {
-      if (!matchingModelResult(evidence.runtimeEvents, event, eventIndex)) {
+      if (!matchingModelResult(runtimeEvents, event, eventIndex)) {
         observations.push({
           kind: 'assistant_incomplete',
           modelStep: event.modelStep,
@@ -277,7 +275,7 @@ const observationsFromEvidence = (
     }
     if (event.kind !== 'tool_call') continue;
     const matchedResult = matchingToolResult(
-      evidence.runtimeEvents,
+      runtimeEvents,
       event,
       eventIndex,
       usedToolResults,
@@ -295,7 +293,7 @@ const observationsFromEvidence = (
       continue;
     }
     const progress = matchingToolProgress(
-      evidence.runtimeEvents,
+      runtimeEvents,
       event,
       eventIndex,
     );
@@ -308,37 +306,6 @@ const observationsFromEvidence = (
     });
   }
   return structuredClone(observations);
-};
-
-const evidenceNotFound = (error: unknown): boolean =>
-  typeof error === 'object' && error !== null &&
-  (error as { readonly code?: unknown }).code === 'provider_evidence_not_found';
-
-const readCorrelatedEvidence = async (
-  reference: Pick<
-    StoredWorkerExecutionArtifact,
-    'providerEvidenceId' | 'sessionId' | 'turn' | 'build' | 'definition'
-  >,
-  store: ProviderEvidenceStore | undefined,
-): Promise<StoredProviderEvidence | undefined> => {
-  if (reference.providerEvidenceId === undefined || store === undefined) {
-    return undefined;
-  }
-  let evidence: StoredProviderEvidence;
-  try {
-    evidence = await store.read(reference.providerEvidenceId);
-  } catch (error) {
-    if (evidenceNotFound(error)) return undefined;
-    throw error;
-  }
-  if (
-    evidence.evidenceId !== reference.providerEvidenceId ||
-    evidence.sessionId !== reference.sessionId ||
-    evidence.turnNumber !== reference.turn ||
-    evidence.build.buildId !== reference.build.buildId ||
-    !sameDefinitionRevisionRef(evidence.definition, reference.definition)
-  ) throw new RecalledExecutionContextError('recall_evidence_mismatch');
-  return evidence;
 };
 
 const observationsFromJournal = (
@@ -376,8 +343,9 @@ const observationsFromJournal = (
     // Provider runtime observations do not carry the AgentEvent turn field. They are retained
     // when the Worker envelope did include it; the ordinary runtime/effect channels remain the
     // authoritative source for turn-scoped message/tool observations.
-    if (!Number.isSafeInteger(eventObject.turn) || (eventObject.turn as number) < 1) continue;
-    const turn = eventObject.turn as number;
+    const eventTurn = eventObject.turn ?? payloadObject.turn;
+    if (!Number.isSafeInteger(eventTurn) || (eventTurn as number) < 1) continue;
+    const turn = eventTurn as number;
     if (
       (eventObject.kind === 'user_message' || eventObject.kind === 'steering_message') &&
       typeof eventObject.message === 'object' &&
@@ -450,6 +418,97 @@ const observationsFromJournal = (
   return structuredClone(observations);
 };
 
+const runtimeEventsFromJournal = (
+  events: readonly StoredExecutionEvent[],
+): readonly ProviderEvidenceRuntimeEvent[] =>
+  events.flatMap((stored) => {
+    if (stored.kind !== 'runtime_event') return [];
+    const payload = stored.payload as Record<string, unknown>;
+    if (payload.kind !== 'provider_observation') return [];
+    const observation = payload.observation as Record<string, unknown> | undefined;
+    if (observation?.kind !== 'runtime_event') return [];
+    return [observation.event as ProviderEvidenceRuntimeEvent];
+  });
+
+const providerFactsFromJournal = (
+  events: readonly StoredExecutionEvent[],
+): RecalledProviderObservationV2 | undefined => {
+  const requests = new Map<number, RecalledProviderObservationV2['requests'][number]>();
+  for (const stored of events) {
+    if (!stored.kind.startsWith('provider_')) continue;
+    const payload = stored.payload as Record<string, unknown>;
+    const observation = payload.observation as Record<string, unknown> | undefined;
+    if (observation?.kind === 'request_start') {
+      const request = observation.request as Record<string, unknown>;
+      const metadata = request.requestMetadata as Record<string, unknown>;
+      const ordinal = request.ordinal as number;
+      requests.set(ordinal, {
+        ordinal,
+        lane: request.lane as ProviderEvidenceLane,
+        ...(typeof request.phase === 'string'
+          ? { phase: request.phase as ProviderEvidencePhase }
+          : {}),
+        modelStep: request.modelStep as number,
+        endpoint: request.endpoint as string,
+        ...(typeof request.contextRequestOrdinal === 'number'
+          ? {
+            contextRequestOrdinal: request.contextRequestOrdinal,
+          }
+          : {}),
+        ...(typeof metadata.provider === 'string' ? { provider: metadata.provider } : {}),
+        ...(typeof metadata.modelId === 'string' ? { modelId: metadata.modelId } : {}),
+        ...(typeof metadata.api === 'string' ? { api: metadata.api } : {}),
+        ...(typeof metadata.effort === 'string' ? { effort: metadata.effort } : {}),
+      });
+    } else if (typeof observation?.requestOrdinal === 'number') {
+      const ordinal = observation.requestOrdinal;
+      const request = requests.get(ordinal);
+      if (request === undefined) continue;
+      if (observation.kind === 'response_start') {
+        const response = observation.response as Record<string, unknown>;
+        requests.set(ordinal, { ...request, httpStatus: response.status as number });
+      } else if (observation.kind === 'request_failure') {
+        const failure = observation.failure as NonNullable<
+          RecalledProviderObservationV2['requests'][number]['failure']
+        >;
+        requests.set(ordinal, {
+          ...request,
+          failure: { ...request.failure, ...failure },
+        });
+      } else if (observation.kind === 'parser_transition') {
+        const transition = observation.transition as Record<string, unknown>;
+        requests.set(ordinal, {
+          ...request,
+          failure: {
+            stage: 'response_parse',
+            code: 'response_error',
+            ...(request.failure ?? {}),
+            ...(typeof transition.reason === 'string' ? { parseReason: transition.reason } : {}),
+            ...(typeof transition.field === 'string' ? { field: transition.field } : {}),
+            ...(typeof transition.expectedShape === 'string'
+              ? {
+                expectedShape: transition.expectedShape,
+              }
+              : {}),
+            ...(typeof transition.actualShape === 'string'
+              ? {
+                actualShape: transition.actualShape,
+              }
+              : {}),
+          },
+        });
+      }
+    }
+  }
+  if (requests.size === 0) return undefined;
+  const ordered = [...requests.values()].sort((left, right) => left.ordinal - right.ordinal);
+  return {
+    requestCount: ordered.length,
+    requests: ordered,
+    responseCount: ordered.filter((request) => request.httpStatus !== undefined).length,
+  };
+};
+
 export const resolveRecalledExecutionContext = async (
   options: ResolveRecalledExecutionContextOptions,
 ): Promise<RecalledExecutionContext> => {
@@ -501,18 +560,6 @@ export const resolveRecalledExecutionContext = async (
   ) {
     throw new RecalledExecutionContextError('recall_execution_not_uncommitted');
   }
-  const evidenceReference = artifact ?? {
-    providerEvidenceId: executionRow!.providerEvidenceId,
-    sessionId: executionRow!.canonicalSessionId ??
-      executionRow!.sessionCorrelation,
-    turn: executionRow!.turn,
-    build: executionRow!.build,
-    definition: executionRow!.definition,
-  };
-  const evidence = await readCorrelatedEvidence(
-    evidenceReference,
-    options.providerEvidenceStore,
-  );
   if (artifact?.schemaVersion === 4 || executionRow !== undefined) {
     const normalizedOutcome = executionRow?.outcome ?? (
       artifact?.schemaVersion === 4 ? artifact.normalizedOutcome : 'unknown'
@@ -522,49 +569,8 @@ export const resolveRecalledExecutionContext = async (
       : normalizedOutcome === 'interrupted'
       ? 'interrupted'
       : 'unknown';
-    const providerObservation = evidence === undefined ? undefined : {
-      requestCount: evidence.requests.length,
-      requests: evidence.requests.map((record) => ({
-        ordinal: record.request.ordinal,
-        lane: record.request.lane,
-        ...(record.request.phase === undefined ? {} : { phase: record.request.phase }),
-        modelStep: record.request.modelStep,
-        endpoint: record.request.endpoint,
-        ...(record.request.requestMetadata.provider === undefined
-          ? {}
-          : { provider: record.request.requestMetadata.provider }),
-        ...(record.request.requestMetadata.modelId === undefined
-          ? {}
-          : { modelId: record.request.requestMetadata.modelId }),
-        ...(record.request.requestMetadata.effort === undefined
-          ? {}
-          : { effort: record.request.requestMetadata.effort }),
-      })),
-      responseCount: evidence.requests.filter((record) => record.response !== undefined).length,
-      receivedResponseBytes: evidence.requests.reduce(
-        (sum, record) => sum + (record.response?.rawBodyBytes ?? 0),
-        0,
-      ),
-      sseEventCount: evidence.requests.reduce(
-        (sum, record) => sum + record.sseEvents.length,
-        0,
-      ),
-      ...(evidence.requests.at(-1)?.sseEvents.at(-1) === undefined ? {} : {
-        lastSseEventOrdinal: evidence.requests.at(-1)!.sseEvents.at(-1)!.ordinal,
-      }),
-      parserTransitionCount: evidence.requests.reduce(
-        (sum, record) => sum + record.parserTransitions.length,
-        0,
-      ),
-      ...(evidence.requests.at(-1)?.parserTransitions.at(-1) === undefined ? {} : {
-        lastParserState: evidence.requests.at(-1)!.parserTransitions.at(-1)!.kind,
-      }),
-      terminalObserved: evidence.requests.some((record) =>
-        record.parserTransitions.some((transition) =>
-          transition.kind === 'terminal' || transition.kind === 'result'
-        )
-      ),
-    } satisfies RecalledProviderObservationV2;
+    const providerObservation = providerFactsFromJournal(executionEvents);
+    const runtimeEvents = runtimeEventsFromJournal(executionEvents);
     return structuredClone({
       schemaVersion: 2,
       sourceExecutionId: executionRow?.executionId ?? artifact!.executionId,
@@ -573,8 +579,8 @@ export const resolveRecalledExecutionContext = async (
       turn: executionRow?.turn ?? artifact!.turn,
       lifecycle: 'settled',
       outcome,
-      capture: (evidence?.schemaVersion === 4 || evidence?.schemaVersion === 5) &&
-          evidence.capture === 'complete'
+      capture: executionRow !== undefined &&
+          executionRow.outcome !== 'interrupted' && executionRow.outcome !== 'unknown'
         ? 'complete' as const
         : 'partial' as const,
       task: executionRow?.task ?? artifact!.command.task,
@@ -587,8 +593,11 @@ export const resolveRecalledExecutionContext = async (
             artifact.outcome?.error !== undefined
         ? { error: artifact.outcome.error }
         : {}),
-      evidence: evidence === undefined ? 'unavailable' as const : 'available' as const,
-      observations: evidence === undefined ? [] : observationsFromEvidence(evidence),
+      evidence: providerObservation === undefined &&
+          runtimeEvents.length === 0
+        ? 'unavailable' as const
+        : 'available' as const,
+      observations: observationsFromRuntimeEvents(runtimeEvents),
       journalObservations: observationsFromJournal(executionEvents),
       ...(providerObservation === undefined ? {} : { providerObservation }),
       journalEventCount: executionEvents.length,
@@ -616,8 +625,8 @@ export const resolveRecalledExecutionContext = async (
     stopReason: artifact.outcome.stopReason,
     task: artifact.command.task,
     ...(artifact.outcome.error === undefined ? {} : { error: artifact.outcome.error }),
-    evidence: evidence === undefined ? 'unavailable' : 'available',
-    observations: evidence === undefined ? [] : observationsFromEvidence(evidence),
+    evidence: 'unavailable',
+    observations: [],
     effectCommitRelation: 'not_transactional',
     automaticReplay: false,
   };

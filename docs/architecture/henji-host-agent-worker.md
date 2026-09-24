@@ -110,7 +110,7 @@
 | `Execution` | 一つのtaskを、あるbase Session revisionとAgent側の基底設定から実行する独立したattempt。進捗、model request、tool activity、outcome、canonical採用状態を相関する。 | activeからsettledまで。canonical/non-canonicalにかかわらずevidenceをdurableに保持できる。 |
 | `Turn` | executionが正常完了し、Hostがconversationへ一括採用するuser/assistant interactionのsemanticな単位。 | canonical Session state内で順序を持つ。回答の正しさや利用者の満足を意味しない。 |
 | `ModelRequest` | 一つのexecution内でprovider/modelへ行う一回のrequest。tool loopにより一execution内に複数存在できる。 | request/response evidenceとexecutionを相関する。 |
-| `HistoryLogicalRecord` | transport、original interpretation、Host decision、attributionの一つのimmutable fact。stable ID、execution内順序、causal ref、raw byte rangeまたはexact object refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたexecution evidenceとして永続化する。 |
+| `HistoryLogicalRecord` | transport、original interpretation、Host decision、attributionの一つのimmutable fact。stable ID、execution内順序、causal ref、semantic content refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたexecution evidenceとして永続化する。 |
 | `HistorySegment` | 一つ以上のlogical recordをnatural append batchでまとめたbounded immutable encoding。directoryとanchorから到達し、logical digestとencoded representation digestを区別する。 | storage mechanismが所有し、repack／codec変更でlogical identityを変えない。 |
 | `HistoryProjection` | authorityから導出するhuman view、search document、flattened request、model working context、summary、later reinterpretation。 | rebuild可能であり、watermark遅延をauthority欠落とみなさない。 |
 | `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続executionが参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
@@ -435,8 +435,8 @@ annotationに対応する直接Markdown linkへ変換し、source一覧も番号
 user questionと、検索結果に限定して不足・near miss・推論を明示するsystem messageを渡し、通常検索のcontext
 sizeは`medium`とする。
 Sonar requestは親turnのmodel request budgetを一件消費し、main modelと同じcounted fetch、AbortSignal、
-provider evidenceを共有する。tool call元のmodel stepを
-request recordへ関連付け、raw responseとparser transitionをreadback可能にする。plannerには`web_search`を
+短いrequest factを共有する。tool call元のmodel stepを
+request recordへ関連付け、HTTP statusと解析失敗の項目・値の形をreadback可能にする。plannerには`web_search`を
 追加しない。`tools.json`のactivation bindingでexternal tool Definitionをbindした場合は、そのDefinitionが
 model・backend・annotation解析を所有する。OpenRouter `openrouter:web_search` server toolは現在使わず、
 同じbackend境界への将来候補とする。
@@ -490,10 +490,10 @@ conversationの`user>`、settledした`assistant>`、`tool>`、`system>`のlabel
 TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは入力textをそのまま返すため、
 streamingとsettled outputの内容を変更しない。
 
-`henji history`は別プロセスのread-only viewerである。v7 storeをread-onlyで開き（schema作成・reconcile・lockを
+`henji history`は別プロセスのread-only viewerである。現行storeをread-onlyで開き（schema作成・reconcile・lockを
 行わない）、単一read transactionで対象Sessionのcanonical transcriptまたはdurable historyを読み、`session`／
-`canonical`／`detail`の3種類をstdoutへ出力する。`session`の通常表示は意味上の実行記録だけを読み、
-診断attachmentの大量のSSE断片を展開しない。TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
+`canonical`／`detail`の3種類をstdoutへ出力する。`session`の通常表示は意味上の実行記録を読む。
+TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
 redirectに任せる。TUI内のhistory overlayと`/history export`は持たない。
 
 同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
@@ -508,10 +508,9 @@ production TUI invocationは、Host admission済みの`--provider-timeout-ms`を
 未指定時は180,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
 shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。
 
-通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。raw provider response、tool result全文、
-request/evidence metadataを通常logへ常時展開することは要求しない。一方、原因特定に必要なraw response、
-tool event、diagnostic、evidenceは通常表示から失われるのではなく、保存して明示的にreadbackできる経路を
-維持する。
+通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。tool call／resultは意味上の履歴へ残し、
+provider requestごとの短い失敗factも明示的にreadbackできる。raw provider responseやSSE断片は通常実行で
+収集せず、必要な場合は別probeで取得する。
 
 Terminal TUIの起動中は現在のSessionの画面をalternate screenへ隔離し、streamingやprogressの再描画で
 terminal scrollbackへ途中frameを蓄積しない。正常終了、cancel、signal、出力失敗では、input、terminal
@@ -545,37 +544,25 @@ Deno Worker permissionだけでは、`--allow-run`で起動したsubprocessと�
 
 Henjiの履歴全体と、以後の通常会話へ既定で引き継ぐconversationを同じ状態として扱わない。
 
-durable historyは、一つのclaimへ一つのownerを置き、次の四層を区別する。
+durable historyは、一つのclaimへ一つのownerを置き、次の三層を区別する。
 
 - semantic authority: canonical／non-canonical message、tool call／result／effect、model-visible
   context order、providerから読めたthinkingの実行・model step付き観測（完了／未完了を区別）、Hostの
   admission／outcome／canonical decision、使用したAgent／build／resource revision、`/recall`の
-  source／target relation。
-- diagnostic attachment: exact request／response、chunk、SSE、parser transition、Worker／Host
-  protocol stage、storage stage。
-- derived projection: 人間向けhistory view、provider evidence document、context manifest、artifact表示、
+  source／target relation、provider・model・API経路・論理step・物理request順番・HTTP／error・解析失敗の
+  項目と値の形を表す短いrequest fact。
+- derived projection: 人間向けhistory view、context manifest、artifact表示、
   summary／compaction、export、later reinterpretation。
 - storage mechanism: codec、physical locator、representation digest、index、audit metadata。
 
 通常履歴はsemanticな出来事から、人間入力、Agentへ実際に渡したcontent／revision、tool／providerのsemantic
-result、Host判断、明示的な未観測境界へ至る最小説明閉包を持つ。診断attachmentの欠落、不一致、保存失敗だけを
-理由にsemantic executionまたはcanonical adoptionを失敗させない。semantic authority自体のdurable write失敗
-だけはcanonical adoptionを禁止する。
+result、Host判断、明示的な未観測境界へ至る最小説明閉包を持つ。rootとasync childの双方で、観測済みの
+request factとfailure diagnosticを各executionへ相関して保存する。途中のcancelや失敗では確定保存済みの
+prefixを残す。credential値とAuthorizationは記録しない。semantic authority自体のdurable write失敗は
+canonical adoptionを禁止する。async childのcollect結果はstop reason、実request count、diagnostic id／code
+などの短い状態を返す。
 
-execution admission時にcapture profile revisionを固定し、診断coverageを`not_requested`、`captured`、
-`partial`、`invalid`で保持する。normal profileはsemantic authorityを保存し、diagnostic profileは
-原因特定に必要なrequest、raw response、SSE、parser transition、Worker／storage stageをsemantic occurrenceへ
-相関して保存・readback可能にする。credential値とAuthorizationは記録しない。Hostが観測できなかった事象や
-TCP／TLS／HTTP framing全体を記録したことにはしない。
-
-production実行の既定は`diagnostic-v1`とし、rootとasync childの双方で、Workerが観測したprovider evidenceと
-failure diagnosticを各executionへ相関して保存する。明示的に`normal-v1`を選んだ実行はsemantic authorityだけを
-保存する。capture failureはcoverage／durabilityとして観測可能にするが、exact Worker outcomeのnon-canonical
-settlementまたは有効なcanonical adoptionを失敗へ変えない。async childのcollect結果はraw attachment自体を
-conversationへ注入せず、stop reason、実request count、evidence／diagnostic id、diagnostic code、capture
-durabilityだけを返す。
-
-derived projectionはsemantic authorityまたはdiagnostic attachmentにだけsourceを持ち、sole-owner fieldを
+derived projectionはsemantic authorityにsourceを持ち、sole-owner fieldを
 持たない。現行の`henji history`は必要時にsourceから直接view／exportを作り、永続化されたhuman history行や
 更新outboxを使わない。derived documentの生成失敗はsemantic commitを取り消さない。
 
@@ -603,7 +590,7 @@ reconciliationとは区別し、後者のartifactへ実outcomeを捏造しない
 
 - logical record／occurrence／decisionのidentityはsegment、offset、page、codec等のphysical locatorから独立する。
 - immutable contentはalgorithm／version付きcontent digestを持つ。compressed representationを保存する場合だけ
-  content identityとrepresentation digestを分離する。diagnostic exact streamはwhole stream digestを持てる。
+  content identityとrepresentation digestを分離する。
   同じbytesでも別execution／source／occurrenceなら発生factを統合しない。
 - append時にcurrent semantic deltaのschema、execution内ordinal、mandatory referenceを検証し、count、
   latest durable ordinal、terminal、unresolved referenceを増分更新する。ordered hash rootはsettlementの
@@ -617,7 +604,7 @@ reconciliationとは区別し、後者のartifactへ実outcomeを捏造しない
   segment／locator／rootをcompleteとして返さない。
 
 将来の自己改訂experienceはstableなsemantic occurrence、history entry、execution、query／rangeを参照する。
-capture profile変更、projection再構築、diagnostic attachmentの有無によって参照先のsemantic identityを
+projection再構築によって参照先のsemantic identityを
 書き換えない。experience selection、assessment、candidate、human judgmentのdomainとappend ownerは
 F19〜F24で定め、history storageが先に固定しない。
 

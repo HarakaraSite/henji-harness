@@ -163,30 +163,6 @@ export class ExecutionJournal {
       message.kind === 'closed' || message.kind === 'checkpoint_proposal' ||
       message.kind === 'async_agent_request'
     ) return true;
-    if (message.kind === 'provider_exact_request') {
-      const history = this.host.options.historyPersistence;
-      if (history?.appendExactRequestObservation === undefined) return true;
-      if (!this.flushObservationBuffer()) return false;
-      try {
-        history.appendExactRequestObservation({
-          executionId: execution.executionId,
-          workerSequence: message.sequence,
-          observation: message.observation,
-        });
-        const supervisor = this.host.supervisor();
-        supervisor.lastWorkerSequenceBuffered = Math.max(
-          supervisor.lastWorkerSequenceBuffered,
-          message.sequence,
-        );
-        supervisor.lastWorkerSequenceDurable = Math.max(
-          supervisor.lastWorkerSequenceDurable,
-          message.sequence,
-        );
-        return true;
-      } catch (error) {
-        return this.handleJournalFailure(error);
-      }
-    }
     const workerSequence = message.kind === 'runtime_event' ||
         message.kind === 'effect_observation' ||
         message.kind === 'provider_observation' ||
@@ -203,12 +179,10 @@ export class ExecutionJournal {
         ? 'provider_request_start' as const
         : message.observation.kind === 'response_start'
         ? 'provider_response_start' as const
-        : message.observation.kind === 'response_bytes'
-        ? 'provider_response_bytes' as const
-        : message.observation.kind === 'sse_event'
-        ? 'provider_sse_event' as const
         : message.observation.kind === 'parser_transition'
         ? 'provider_parser_transition' as const
+        : message.observation.kind === 'request_failure'
+        ? 'provider_request_failure' as const
         : 'runtime_event' as const
       : message.kind === 'context_observation'
       ? 'context_observation' as const

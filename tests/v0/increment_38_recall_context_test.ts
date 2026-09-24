@@ -1,10 +1,5 @@
 import type { Message, Model, ModelRequest, ModelResult } from '../../v0/agent/core/contracts.ts';
-import {
-  FakeProviderEvidenceStore,
-  ProviderEvidenceRecorder,
-  type ProviderEvidenceV2,
-  type ProviderEvidenceV3,
-} from '../../v0/agent/provider/provider_evidence.ts';
+import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
@@ -187,8 +182,6 @@ const sourceArtifact = async (
       sequence: 1,
       correlation: correlation('source-turn'),
     }],
-    providerEvidenceId: EVIDENCE_ID,
-    providerEvidenceDurability: 'yes',
     storeResult: 'not_attempted',
     acknowledgement: 'not_sent',
     settlement: 'uncommitted',
@@ -217,10 +210,8 @@ const sourceArtifactFor = async (
     session: sessionId,
     command: `source-${executionId.slice(0, 8)}`,
   };
-  const { providerEvidenceId: _evidenceId, providerEvidenceDurability: _durability, ...rest } =
-    source;
   return {
-    ...rest,
+    ...source,
     schemaVersion: 3,
     executionId,
     settledAt,
@@ -237,65 +228,7 @@ const sourceArtifactFor = async (
   };
 };
 
-const sourceEvidence = async (
-  schemaVersion: 2 | 3 = 3,
-): Promise<ProviderEvidenceV2 | ProviderEvidenceV3> => {
-  const artifact = await sourceArtifact(schemaVersion);
-  const calls = [{ callId: 'done-1', name: 'read', arguments: { path: 'done.txt' } }, {
-    callId: 'slow-1',
-    name: 'search',
-    arguments: { query: 'unfinished' },
-  }] as const;
-  const lane = schemaVersion === 2 ? {} : { lane: 'parent' as const };
-  const base: Omit<ProviderEvidenceV2, 'schemaVersion'> = {
-    evidenceId: EVIDENCE_ID,
-    sessionId: SESSION_ID,
-    turnNumber: 1,
-    createdAt: '2026-09-12T00:00:00.000Z',
-    build: artifact.build,
-    definition: artifact.definition,
-    requests: [],
-    runtimeEvents: [
-      {
-        kind: 'model_result',
-        modelStep: 1,
-        ...lane,
-        result: {
-          kind: 'tool_calls',
-          calls,
-          text: 'I started the requested inspection.',
-        },
-      },
-      { kind: 'tool_call', modelStep: 1, ...lane, call: calls[0] },
-      {
-        kind: 'tool_result',
-        modelStep: 1,
-        ...lane,
-        result: {
-          kind: 'tool_result',
-          callId: 'done-1',
-          name: 'read',
-          text: 'exact completed result',
-          outcome: 'success',
-        },
-      },
-      { kind: 'tool_call', modelStep: 1, ...lane, call: calls[1] },
-      ...(schemaVersion === 2 ? [] : [{
-        kind: 'tool_progress' as const,
-        modelStep: 1,
-        lane: 'parent' as const,
-        callId: 'slow-1',
-        name: 'search',
-        text: 'partial search output',
-      }]),
-      { kind: 'turn_outcome', outcome: 'cancelled' },
-    ],
-    outcome: 'cancelled',
-  };
-  return schemaVersion === 2 ? { schemaVersion: 2, ...base } : { schemaVersion: 3, ...base };
-};
-
-Deno.test('Increment 38 retains latest accepted progress and reads evidence v2 and v3', async () => {
+Deno.test('Increment 38 retains latest accepted semantic progress', () => {
   const recorder = new ProviderEvidenceRecorder(EVIDENCE_ID, 1, '2026-09-12T00:00:00.000Z');
   recorder.recordAssistantProgress('first assistant prefix', 1, 'parent');
   recorder.recordAssistantProgress('latest assistant prefix', 1, 'parent');
@@ -316,100 +249,6 @@ Deno.test('Increment 38 retains latest accepted progress and reads evidence v2 a
       modelStep: 1,
     },
   ]);
-
-  const store = new FakeProviderEvidenceStore();
-  await store.write(await sourceEvidence(2));
-  assertEquals((await store.read(EVIDENCE_ID)).schemaVersion, 2);
-  await store.write(await sourceEvidence(3));
-  assertEquals((await store.read(EVIDENCE_ID)).schemaVersion, 3);
-});
-
-Deno.test('Increment 38 resolves exact completed and incomplete source observations', async () => {
-  const artifacts = new FakeWorkerExecutionArtifactStore();
-  const evidence = new FakeProviderEvidenceStore();
-  await artifacts.write(await sourceArtifact());
-  await evidence.write(await sourceEvidence());
-
-  const recalled = await resolveRecalledExecutionContext({
-    sessionId: SESSION_ID,
-    executionId: SOURCE_ID,
-    executionArtifactStore: artifacts,
-    providerEvidenceStore: evidence,
-  });
-  if (recalled.schemaVersion !== 1) throw new Error('expected legacy recall context');
-  assertEquals({
-    task: recalled.task,
-    stopReason: recalled.stopReason,
-    evidence: recalled.evidence,
-    observations: recalled.observations,
-    replay: recalled.automaticReplay,
-  }, {
-    task: 'inspect source',
-    stopReason: 'cancelled',
-    evidence: 'available',
-    observations: [
-      {
-        kind: 'assistant_completed',
-        modelStep: 1,
-        text: 'I started the requested inspection.',
-        lane: 'parent',
-      },
-      {
-        kind: 'tool_completed',
-        modelStep: 1,
-        call: { callId: 'done-1', name: 'read', arguments: { path: 'done.txt' } },
-        result: {
-          kind: 'tool_result',
-          callId: 'done-1',
-          name: 'read',
-          text: 'exact completed result',
-          outcome: 'success',
-        },
-        lane: 'parent',
-      },
-      {
-        kind: 'tool_incomplete',
-        modelStep: 1,
-        call: {
-          callId: 'slow-1',
-          name: 'search',
-          arguments: { query: 'unfinished' },
-        },
-        progress: 'partial search output',
-        lane: 'parent',
-      },
-    ],
-    replay: false,
-  });
-  assert(recalledExecutionProjectionText(recalled).includes('exact completed result'));
-  assert(recalledExecutionProjectionText(recalled).includes('partial search output'));
-
-  const legacyArtifacts = new FakeWorkerExecutionArtifactStore();
-  const legacyEvidence = new FakeProviderEvidenceStore();
-  await legacyArtifacts.write(await sourceArtifact(2));
-  await legacyEvidence.write(await sourceEvidence(2));
-  const legacy = await resolveRecalledExecutionContext({
-    sessionId: SESSION_ID,
-    executionId: SOURCE_ID,
-    executionArtifactStore: legacyArtifacts,
-    providerEvidenceStore: legacyEvidence,
-  });
-  assertEquals(legacy.evidence, 'available');
-  assertEquals(legacy.observations.map((observation) => observation.kind), [
-    'assistant_completed',
-    'tool_completed',
-    'tool_incomplete',
-  ]);
-
-  const artifactOnly = await resolveRecalledExecutionContext({
-    sessionId: SESSION_ID,
-    executionId: SOURCE_ID,
-    executionArtifactStore: legacyArtifacts,
-  });
-  assertEquals({ evidence: artifactOnly.evidence, observations: artifactOnly.observations }, {
-    evidence: 'unavailable',
-    observations: [],
-  });
 });
 
 Deno.test('Increment 38 projects recall for one Worker turn without transcript adoption or replay', async () => {
@@ -526,9 +365,7 @@ Deno.test('Increment 38 recalls consumed steering without provider replay state 
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-i38-recall-journal-' });
   const workspaceRoot = `${stateRoot}/workspace`;
   await Deno.mkdir(workspaceRoot);
-  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
-    captureProfile: 'normal-v1',
-  });
+  const store = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {});
   try {
     const artifact = await sourceArtifact();
     const task = 'inspect source with steering';
@@ -786,7 +623,6 @@ Deno.test('Increment 38 recall remains immediately before the task after checkpo
 Deno.test('Increment 38 target artifact retains exact recall attribution', async () => {
   const stateRoot = await Deno.makeTempDir({ prefix: 'henji-recall-attribution-' });
   const artifacts = new FakeWorkerExecutionArtifactStore();
-  const evidence = new FakeProviderEvidenceStore();
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
     created = await createWorkerSession({
@@ -795,7 +631,6 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
       persistence: 'none',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      providerEvidenceStore: evidence,
       executionArtifactStore: artifacts,
     });
     const sessionId = created.session.currentPosition().sessionId;
@@ -821,9 +656,6 @@ Deno.test('Increment 38 target artifact retains exact recall attribution', async
       sourceExecutionId: SOURCE_ID,
       projectedContext: recalledExecutionProjectionText(context),
     });
-    const retainedEvidence = (await evidence.list())[0];
-    assert(retainedEvidence?.schemaVersion === 5);
-    assert(retainedEvidence.runtimeEvents.some((event) => event.kind === 'assistant_progress'));
     assert(
       !JSON.stringify(created.session.transcriptSnapshot()).includes(
         '[henji-recalled-execution:v1]',

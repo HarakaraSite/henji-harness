@@ -7,21 +7,15 @@ import {
 import { createTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
 import { runAgent } from '../../v0/agent/core/loop.ts';
 import {
-  FakeProviderEvidenceDraftStore,
+  type ProviderEvidenceObservation,
   ProviderEvidenceRecorder,
+  validateProviderEvidenceObservation,
 } from '../../v0/agent/provider/provider_evidence.ts';
-import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
-import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
 import { AgentSession } from '../../v0/agent/session/session.ts';
 import { FailureDiagnosticOwner } from '../../v0/agent/session/failure_diagnostic.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
-import {
-  main as failureDiagnosticMain,
-  parseFailureDiagnosticArgs,
-} from '../../v0/agent/cli/failure_diagnostic_cli.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
-import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import {
   createProductionPhysicalIo,
   createWorkerRequestCounter,
@@ -33,8 +27,6 @@ import {
 import { decodeResponse } from '../../v0/agent/provider/openrouter_response.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../v0/resource_limits.ts';
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
-import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -300,6 +292,45 @@ const nullMetadataContinuationStream = (id = 'gen-mimo-tool'): string => {
   }${event({}, 'tool_calls')}data: [DONE]\n\n`;
 };
 
+const nullableToolContinuationStream = (id = 'gen-nullable-tool'): string => {
+  const event = (delta: unknown, finishReason: 'tool_calls' | null = null): string =>
+    `data: ${
+      JSON.stringify({ id, choices: [{ index: 0, delta, finish_reason: finishReason }] })
+    }\n\n`;
+  return `${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: 'read-nullable-1',
+        type: 'function',
+        function: { name: 'read', arguments: '' },
+      }],
+    })
+  }${
+    event({
+      tool_calls: [{ index: 0, id: null, type: null, function: null }],
+    })
+  }${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: null,
+        type: null,
+        function: { name: null, arguments: null },
+      }],
+    })
+  }${
+    event({
+      tool_calls: [{
+        index: 0,
+        id: null,
+        type: null,
+        function: { name: null, arguments: '{"limit":10,"path":"README.md"}' },
+      }],
+    })
+  }${event({}, 'tool_calls')}data: [DONE]\n\n`;
+};
+
 const failingPostTerminalStream = (): string =>
   `${textStream('gen-failure').replace('data: [DONE]\n\n', '')}data: ${
     JSON.stringify({
@@ -390,8 +421,7 @@ Deno.test('OpenRouter retries a pre-SSE 5xx inside one logical model step', asyn
   const evidence = recorder.snapshot();
   assertEquals(evidence.requests.map((entry) => entry.request.modelStep), [1, 1]);
   assertEquals(evidence.requests.map((entry) => entry.response?.status), [502, 200]);
-  assertEquals(evidence.requests[0].response?.rawBody, '{"error":"temporary upstream failure"}');
-  assertEquals(evidence.requests[0].response?.headers['x-provider'], 'test-upstream');
+  assertEquals(Object.keys(evidence.requests[0].response ?? {}), ['status']);
   assertEquals(
     evidence.runtimeEvents.filter((event) => event.kind === 'tool_call').length,
     1,
@@ -447,10 +477,10 @@ Deno.test('OpenRouter exhausts two 5xx retries and reports physical attempts', a
   assertEquals(outcome.diagnostic?.providerRequestCount, 3);
   assertEquals(outcome.diagnostic?.retryCount, 2);
   assertEquals(outcome.diagnostic?.httpStatus, 502);
-  assertEquals(recorder.snapshot().requests.map((entry) => entry.response?.rawBody), [
-    'attempt-1',
-    'attempt-2',
-    'attempt-3',
+  assertEquals(recorder.snapshot().requests.map((entry) => entry.response?.status), [
+    502,
+    502,
+    502,
   ]);
 });
 
@@ -522,12 +552,10 @@ Deno.test('OpenRouter does not retry 429 or an SSE stream failure', async () => 
 
 Deno.test('documented text accounting reaches ModelResult through HTTP and SSE', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceDraftStore();
   const recorder = new ProviderEvidenceRecorder(
     '11111111-1111-4111-8111-111111111111',
     1,
     '2026-09-02T00:00:00.000Z',
-    store,
   );
   const model = modelFor(textStream(), seen);
   const result = await model.generate(request, {
@@ -551,25 +579,13 @@ Deno.test('documented text accounting reaches ModelResult through HTTP and SSE',
       transcript: [],
     },
   });
-  await recorder.persist();
-  const evidence = await store.read(recorder.evidenceId);
+  const evidence = recorder.snapshot();
   assertEquals(seen.requests, 1);
   assertEquals(evidence.requests.length, 1);
-  assertEquals(
-    evidence.requests[0].request.requestBodyBytes,
-    evidence.requests[0].request.requestBody.length,
-  );
+  assert(!JSON.stringify(evidence.requests[0].request).includes('requestBody'));
   assertEquals(evidence.requests[0].response?.status, 200);
-  assert(evidence.requests[0].response?.rawBody?.includes('late') === false);
-  assertEquals(evidence.requests[0].sseEvents.length, 3);
-  assert(evidence.requests[0].sseEvents[0].data.includes('"content":"hello"'));
-  assert(evidence.requests[0].sseEvents[1].data.includes('"usage"'));
-  assert(evidence.requests[0].sseEvents.some((event) => event.data === '[DONE]'));
-  assertEquals(
-    evidence.requests[0].parserTransitions.filter((transition) => transition.kind === 'terminal')
-      .length,
-    1,
-  );
+  assertEquals(Object.keys(evidence.requests[0].response ?? {}), ['status']);
+  assertEquals(evidence.requests[0].parserTransitions.length, 0);
   assertEquals(evidence.outcome, 'final');
   assertEquals(evidence.turnProviderRequestCount, 1);
   assertEquals(evidence.runtimeProviderRequestCount, 1);
@@ -588,12 +604,9 @@ Deno.test('documented text accounting reaches ModelResult through HTTP and SSE',
       { providerEvidence: unsupportedRecorder, providerEvidenceLane: 'parent', modelStep: 1 },
     );
   } catch {
-    // The existing unsupported-media classification is expected; evidence must retain the body.
+    // The existing unsupported-media classification is expected.
   }
-  assertEquals(
-    unsupportedRecorder.snapshot().requests[0].response?.rawBody,
-    'raw unsupported-media body',
-  );
+  assertEquals(unsupportedRecorder.snapshot().requests[0].response?.status, 200);
 });
 
 Deno.test('Worker production physical I/O selects SSE on the actual model path', async () => {
@@ -643,16 +656,8 @@ Deno.test('Worker production physical I/O selects SSE on the actual model path',
   assertEquals(bodies.length, 1);
   assertEquals((JSON.parse(bodies[0]) as { readonly stream?: unknown }).stream, true);
   assertEquals(evidence.requests[0].request.requestMetadata.responseMode, 'sse');
-  assertEquals(evidence.requests[0].sseEvents.map((event) => event.data), [
-    textStream('worker-production-sse').split('data: ')[1].split('\n\n')[0],
-    textStream('worker-production-sse').split('data: ')[2].split('\n\n')[0],
-    '[DONE]',
-  ]);
-  assertEquals(
-    evidence.requests[0].parserTransitions.filter((transition) => transition.kind === 'terminal')
-      .length,
-    1,
-  );
+  assert(!JSON.stringify(evidence.requests[0]).includes('sseEvents'));
+  assertEquals(evidence.requests[0].parserTransitions.length, 0);
 });
 
 Deno.test('assistant output above 64 KiB remains reachable through the provider adapter', async () => {
@@ -667,14 +672,21 @@ Deno.test('assistant output above 64 KiB remains reachable through the provider 
   assert(progress.at(-1) === text);
 });
 
-Deno.test('SSE above 1 MiB and 4096 events reaches terminal result with exact evidence', async () => {
+Deno.test('SSE above 1 MiB and 4096 events reaches terminal result without raw evidence', async () => {
   const fixture = largeEnvelopeStream();
   const encoded = new TextEncoder().encode(fixture.raw);
   assert(encoded.byteLength > 1024 * 1024);
+  const observations: ProviderEvidenceObservation[] = [];
   const recorder = new ProviderEvidenceRecorder(
     '88888888-8888-4888-8888-888888888888',
     1,
     '2026-09-10T00:00:00.000Z',
+    (observation) => {
+      assert(validateProviderEvidenceObservation(observation));
+      observations.push(observation);
+      return observations.length;
+    },
+    false,
   );
   const model = new OpenRouterAgentModel({
     profile: PROFILE,
@@ -690,50 +702,141 @@ Deno.test('SSE above 1 MiB and 4096 events reaches terminal result with exact ev
   });
   assertEquals(result, { kind: 'final', text: 'x'.repeat(4_100) });
 
-  const retained = recorder.snapshot().requests[0];
-  assertEquals(retained.response?.rawBodyBytes, encoded.byteLength);
-  assertEquals(retained.response?.rawBody, fixture.raw);
-  assertEquals(retained.response?.rawBodyBase64, encoded.toBase64());
-  assertEquals(retained.sseEvents.length, 4_102);
-  assert((retained.sseEvents[0].responseBodyOffset ?? 0) < encoded.byteLength);
-  assertEquals(retained.sseEvents.at(-1)?.responseBodyOffset, encoded.byteLength);
-  assert(
-    retained.sseEvents.every((event, index, events) =>
-      index === 0 || event.responseBodyOffset >= events[index - 1].responseBodyOffset
-    ),
-  );
+  assertEquals(recorder.snapshot().requests, []);
+  const response = observations.find((observation) => observation.kind === 'response_start');
+  assert(response?.kind === 'response_start');
+  assertEquals(response.response, { status: 200 });
+  assertEquals(observations.map((observation) => observation.kind), [
+    'request_start',
+    'response_start',
+  ]);
+  assert(JSON.stringify(observations).length < 2_000);
 });
 
-Deno.test('evidence snapshots materialize exactly the bytes received so far', () => {
+Deno.test('malformed tool call yields a short field-specific request fact', async () => {
+  const observations: ProviderEvidenceObservation[] = [];
   const recorder = new ProviderEvidenceRecorder(
-    '99999999-9999-4999-8999-999999999999',
+    '89898989-8989-4989-8989-898989898989',
     1,
     '2026-09-10T00:00:00.000Z',
+    (observation) => {
+      assert(validateProviderEvidenceObservation(observation));
+      observations.push(observation);
+    },
+    false,
   );
-  recorder.startRequest({
-    lane: 'parent',
-    modelStep: 1,
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    method: 'POST',
-    requestBody: '{}',
+  const model = new OpenRouterAgentModel({
+    profile: PROFILE,
+    responseMode: 'json',
+    credential: 'dummy-credential-value',
+    fetcher: () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [{
+                  id: 'call-1',
+                  type: 'function',
+                  function: { name: 'bash', arguments: 9 },
+                }],
+              },
+            }],
+          }),
+          { status: 200 },
+        ),
+      ),
   });
-  recorder.recordResponse({ status: 200, headers: {} });
-  recorder.appendResponseBytes(new TextEncoder().encode('first-'));
-  assertEquals(recorder.snapshot().requests[0].response, {
-    status: 200,
-    headers: {},
-    rawBodyBytes: 6,
-    rawBody: 'first-',
-    rawBodyBase64: new TextEncoder().encode('first-').toBase64(),
-  });
-  recorder.appendResponseBytes(new TextEncoder().encode('second'));
-  assertEquals(recorder.snapshot().requests[0].response, {
-    status: 200,
-    headers: {},
-    rawBodyBytes: 12,
-    rawBody: 'first-second',
-    rawBodyBase64: new TextEncoder().encode('first-second').toBase64(),
-  });
+  let failed = false;
+  try {
+    await model.generate(request, { providerEvidence: recorder, modelStep: 1 });
+  } catch {
+    failed = true;
+  }
+  assert(failed);
+  const parser = observations.find((observation) => observation.kind === 'parser_transition');
+  assert(parser?.kind === 'parser_transition');
+  assertEquals(
+    parser.transition.field,
+    'response.choices[0].message.tool_calls[0].function.arguments',
+  );
+  assertEquals(parser.transition.expectedShape, 'JSON string');
+  assertEquals(parser.transition.actualShape, 'number');
+  const failure = observations.find((observation) => observation.kind === 'request_failure');
+  assert(failure?.kind === 'request_failure');
+  assertEquals(failure.failure.stage, 'response_parse');
+  assertEquals(failure.failure.httpStatus, 200);
+  assert(!JSON.stringify(observations).includes('dummy-credential-value'));
+});
+
+Deno.test('SSE parser facts identify the rejected content and tool argument fields', async () => {
+  const cases = [
+    {
+      delta: { role: 'assistant', content: 42 },
+      reason: 'unsupported_delta_shape',
+      field: 'choices[0].delta.content',
+      expectedShape: 'string or null',
+      actualShape: 'number',
+    },
+    {
+      delta: {
+        role: 'assistant',
+        tool_calls: [{
+          index: 0,
+          id: 'call-1',
+          type: 'function',
+          function: { name: 'bash', arguments: 9 },
+        }],
+      },
+      reason: 'invalid_tool_arguments',
+      field: 'choices[0].delta.tool_calls[0].function.arguments',
+      expectedShape: 'string',
+      actualShape: 'number',
+    },
+  ] as const;
+  for (const item of cases) {
+    const observations: ProviderEvidenceObservation[] = [];
+    const recorder = new ProviderEvidenceRecorder(
+      undefined,
+      1,
+      undefined,
+      (observation) => {
+        assert(validateProviderEvidenceObservation(observation));
+        observations.push(observation);
+      },
+      false,
+    );
+    const frame = `data: ${
+      JSON.stringify({
+        id: 'gen-invalid',
+        choices: [{ index: 0, delta: item.delta, finish_reason: null }],
+      })
+    }\n\n`;
+    const model = new OpenRouterAgentModel({
+      profile: PROFILE,
+      responseMode: 'sse',
+      credential: 'dummy-credential-value',
+      fetcher: () => Promise.resolve(responseFromChunks([new TextEncoder().encode(frame)])),
+    });
+    const error = await capturedOpenRouterError(() =>
+      model.generate(request, { providerEvidence: recorder, modelStep: 1 })
+    );
+    assertEquals(error.failureFact.parseReason, item.reason);
+    assertEquals(error.failureFact.field, item.field);
+    assertEquals(error.failureFact.expectedShape, item.expectedShape);
+    assertEquals(error.failureFact.actualShape, item.actualShape);
+    const parser = observations.find((observation) => observation.kind === 'parser_transition');
+    assert(parser?.kind === 'parser_transition');
+    assertEquals(parser.transition.field, item.field);
+    assertEquals(parser.transition.expectedShape, item.expectedShape);
+    assertEquals(parser.transition.actualShape, item.actualShape);
+    const failure = observations.find((observation) => observation.kind === 'request_failure');
+    assert(failure?.kind === 'request_failure');
+    assertEquals(failure.failure.httpStatus, 200);
+    assert(!JSON.stringify(observations).includes('dummy-credential-value'));
+  }
 });
 
 Deno.test('buffered response and assistant semantic limits remain unchanged', async () => {
@@ -770,12 +873,10 @@ Deno.test('buffered response and assistant semantic limits remain unchanged', as
 
 Deno.test('documented tool accounting dispatches normally through the same transport', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceDraftStore();
   const model = modelFor(toolStream(), seen);
   const events: unknown[] = [];
   const session = new AgentSession(model, new Registry([createJsonResultSubmissionTool()]), {
     eventSink: (event) => events.push(event),
-    providerEvidenceStore: store,
     providerRequestCount: () => seen.requests,
   });
   const outcome = await session.submit('submit');
@@ -792,19 +893,13 @@ Deno.test('documented tool accounting dispatches normally through the same trans
     ],
   );
   assertEquals(seen.requests, 1);
-  assert(outcome.providerEvidenceId !== undefined);
-  const evidence = await store.read(outcome.providerEvidenceId!);
-  assertEquals(evidence.requests[0].request.lane, 'parent');
-  assertEquals(evidence.outcome, 'tool_terminal');
-  assertEquals(evidence.turnProviderRequestCount, 1);
-  assert(evidence.runtimeEvents.some((event) => event.kind === 'tool_call'));
-  assert(evidence.runtimeEvents.some((event) => event.kind === 'tool_result'));
+  assert(events.some((event) => (event as { readonly kind?: string }).kind === 'tool_call'));
+  assert(events.some((event) => (event as { readonly kind?: string }).kind === 'tool_result'));
   assert(events.some((event) => (event as { readonly kind?: string }).kind === 'turn_end'));
 });
 
 Deno.test('OpenRouter mixed assistant text and tool calls remain visible and continue', async () => {
   const bodies: unknown[] = [];
-  const store = new FakeProviderEvidenceDraftStore();
   let requestNumber = 0;
   const model = new OpenRouterAgentModel({
     profile: PROFILE,
@@ -832,7 +927,6 @@ Deno.test('OpenRouter mixed assistant text and tool calls remain visible and con
     }]),
     {
       eventSink: (event) => events.push(event),
-      providerEvidenceStore: store,
     },
   );
   const outcome = await session.submit('inspect current source');
@@ -856,13 +950,6 @@ Deno.test('OpenRouter mixed assistant text and tool calls remain visible and con
   );
   const toolCallEventIndex = events.findIndex((event) => event.kind === 'tool_call');
   assert(assistantEventIndex >= 0 && toolCallEventIndex > assistantEventIndex);
-  assert(outcome.providerEvidenceId !== undefined);
-  const evidence = await store.read(outcome.providerEvidenceId);
-  const mixedResult = evidence.runtimeEvents.find((event) =>
-    event.kind === 'model_result' && event.result.kind === 'tool_calls'
-  );
-  assert(mixedResult?.kind === 'model_result' && mixedResult.result.kind === 'tool_calls');
-  assertEquals(mixedResult.result.text, 'I will read the current source first.');
 
   const continuation = bodies[1] as {
     readonly messages: readonly {
@@ -889,6 +976,46 @@ Deno.test('OpenCode Go Chat accepts null tool metadata in MiMo continuation chun
     kind: 'tool_calls',
     calls: [{ callId: 'call-b2e69840', name: 'bash', arguments: { command: 'pwd' } }],
     text: 'I will inspect the README files.',
+  });
+  assertEquals(seen.requests, 1);
+});
+
+Deno.test('Chat SSE retains tool call metadata across null continuation fields', async () => {
+  const seen = { requests: 0 };
+  const result = await modelFor(nullableToolContinuationStream(), seen).generate(request);
+  assertEquals(result, {
+    kind: 'tool_calls',
+    calls: [{
+      callId: 'read-nullable-1',
+      name: 'read',
+      arguments: { limit: 10, path: 'README.md' },
+    }],
+  });
+  assertEquals(seen.requests, 1);
+});
+
+Deno.test('Chat SSE dispatches a complete function call without type or contiguous index', async () => {
+  const seen = { requests: 0 };
+  const body = `data: ${
+    JSON.stringify({
+      id: 'gen-minimal-tool',
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 3,
+            id: 'read-minimal-1',
+            function: { name: 'read', arguments: '{"path":"README.md"}' },
+          }],
+        },
+        finish_reason: 'tool_calls',
+      }],
+    })
+  }\n\ndata: [DONE]\n\n`;
+  const result = await modelFor(body, seen).generate(request);
+  assertEquals(result, {
+    kind: 'tool_calls',
+    calls: [{ callId: 'read-minimal-1', name: 'read', arguments: { path: 'README.md' } }],
   });
   assertEquals(seen.requests, 1);
 });
@@ -920,13 +1047,35 @@ Deno.test('OpenRouter JSON response preserves text attached to tool calls', () =
   );
 });
 
-Deno.test('post-terminal content is rejected and diagnostic ID reaches the saved artifact', async () => {
+Deno.test('Chat JSON response accepts a complete function call without type metadata', () => {
+  assertEquals(
+    decodeResponse({
+      choices: [{
+        message: {
+          role: 'assistant',
+          tool_calls: [{
+            id: 'read-json-minimal-1',
+            function: { name: 'read', arguments: '{"path":"README.md"}' },
+          }],
+        },
+      }],
+    }),
+    {
+      kind: 'tool_calls',
+      calls: [{
+        callId: 'read-json-minimal-1',
+        name: 'read',
+        arguments: { path: 'README.md' },
+      }],
+    },
+  );
+});
+
+Deno.test('post-terminal content is rejected with a durable diagnostic', async () => {
   const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceDraftStore();
   const diagnostics: string[] = [];
   const model = modelFor(failingPostTerminalStream(), seen);
   const session = new AgentSession(model, new Registry([]), {
-    providerEvidenceStore: store,
     providerRequestCount: () => seen.requests,
     diagnosticOwnerFactory: (turn) =>
       new FailureDiagnosticOwner(turn, {
@@ -940,394 +1089,7 @@ Deno.test('post-terminal content is rejected and diagnostic ID reaches the saved
   const outcome = await session.submit('fail');
   assert(!outcome.ok);
   assertEquals(outcome.diagnostic?.parseReason, 'data_after_terminal');
-  assert(typeof outcome.providerEvidenceId === 'string');
-  const evidence = await store.read(outcome.providerEvidenceId!);
-  const failure = evidence.requests[0].parserTransitions.find((transition) =>
-    transition.kind === 'failure'
-  );
-  assertEquals(failure?.reason, 'data_after_terminal');
-  assertEquals(failure?.field, 'choices[0].delta.content');
-  assertEquals(evidence.outcome, 'contract_failure');
-  assertEquals(evidence.turnProviderRequestCount, 1);
+  assertEquals(outcome.stopReason, 'contract_failure');
+  assertEquals(outcome.turnProviderRequestCount, 1);
   assertEquals(diagnostics, [outcome.diagnostic?.diagnosticId]);
-  assertEquals(
-    await store.readDiagnosticLink(outcome.diagnostic!.diagnosticId),
-    outcome.providerEvidenceId,
-  );
-});
-
-Deno.test('evidence persistence failure does not replace a valid provider result', async () => {
-  const seen = { requests: 0 };
-  const store = new FakeProviderEvidenceDraftStore();
-  store.failWrites();
-  const events: AgentEvent[] = [];
-  const session = new AgentSession(modelFor(textStream('gen-persist'), seen), new Registry([]), {
-    eventSink: (event) => events.push(event),
-    providerEvidenceStore: store,
-    providerRequestCount: () => seen.requests,
-  });
-  const outcome = await session.submit('persist');
-  assert(outcome.ok);
-  assertEquals(outcome.finalText, 'hello');
-  assertEquals(outcome.providerEvidenceDurability, 'failed');
-  assertEquals(outcome.providerEvidencePersistenceError, 'provider_evidence_io_failure');
-  const turnEnd = events.find((event) => event.kind === 'turn_end');
-  assert(turnEnd?.kind === 'turn_end');
-  assertEquals(turnEnd.providerEvidenceDurability, 'failed');
-  assertEquals(turnEnd.providerEvidencePersistenceError, 'provider_evidence_io_failure');
-
-  const linkSeen = { requests: 0 };
-  const linkStore = new FakeProviderEvidenceDraftStore();
-  linkStore.failLinks();
-  const linkSession = new AgentSession(
-    modelFor(failingPostTerminalStream(), linkSeen),
-    new Registry([]),
-    { providerEvidenceStore: linkStore, providerRequestCount: () => linkSeen.requests },
-  );
-  const linkOutcome = await linkSession.submit('link');
-  assert(!linkOutcome.ok);
-  assert(typeof linkOutcome.providerEvidenceId === 'string');
-  assertEquals(linkOutcome.providerEvidenceDurability, 'yes');
-  assertEquals(linkOutcome.providerEvidencePersistenceError, 'provider_evidence_io_failure');
-  assertEquals(
-    (await linkStore.read(linkOutcome.providerEvidenceId!)).evidenceId,
-    linkOutcome.providerEvidenceId,
-  );
-});
-
-Deno.test('SQLite evidence and diagnostics readback retain one parent/planner artifact', async () => {
-  const tempRoot = await Deno.makeTempDir({ dir: '/tmp', prefix: 'henji-provider-evidence-' });
-  const workspaceRoot = `${tempRoot}/workspace`;
-  const stateRoot = `${tempRoot}/state`;
-  await Deno.mkdir(workspaceRoot);
-  const evidenceId = '55555555-5555-4555-8555-555555555555';
-  const diagnosticId = '33333333-3333-4333-8333-333333333333';
-  try {
-    const recorder = new ProviderEvidenceRecorder(evidenceId, 1, '2026-09-02T00:00:00.000Z');
-    recorder.startRequest({
-      lane: 'parent',
-      modelStep: 1,
-      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-      method: 'POST',
-      requestBody: '{"lane":"parent"}',
-      requestMetadata: { contentType: 'application/json', responseMode: 'sse' },
-    });
-    recorder.recordResponse({
-      status: 200,
-      headers: { 'x-provider-evidence': 'retained', Authorization: 'response-metadata' },
-    });
-    recorder.appendResponseBytes(new TextEncoder().encode('parent-response'));
-    recorder.startRequest({
-      lane: 'planner',
-      modelStep: 1,
-      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-      method: 'POST',
-      requestBody: '{"lane":"planner"}',
-      requestMetadata: { contentType: 'application/json', responseMode: 'sse' },
-    });
-    recorder.recordResponse({ status: 200, headers: { 'x-provider-evidence': 'retained' } });
-    recorder.appendResponseBytes(new TextEncoder().encode('planner-response'));
-    recorder.finalize({
-      diagnosticId,
-      outcome: {
-        ok: true,
-        task: 'readback',
-        outcome: 'final',
-        stopReason: 'final',
-        finalText: 'ok',
-        steps: 1,
-        toolCallCount: 0,
-        toolResultCount: 0,
-        transcript: [],
-      },
-    });
-    const build = buildManifest();
-    const attributed = {
-      ...recorder.snapshot(),
-      schemaVersion: 5 as const,
-      sessionId: '77777777-7777-4777-8777-777777777777',
-      build,
-      definition: await builtinDefinitionRef('default', build),
-      capture: 'complete' as const,
-      normalizedOutcome: 'completed' as const,
-      outcome: 'final' as const,
-      requests: recorder.snapshot().requests.map((record, index) => ({
-        ...record,
-        request: { ...record.request, contextRequestOrdinal: index + 1 },
-      })),
-    };
-    const history = new SqliteHistoryV7ProductionStore(stateRoot, workspaceRoot, {
-      captureProfile: 'diagnostic-v1',
-    });
-    await history.initialize();
-    assertEquals(await history.providerEvidence.list(), []);
-    const historyInput = {
-      taskId: '11111111-1111-4111-8111-111111111111',
-      executionId: '22222222-2222-4222-8222-222222222222',
-      createdAt: attributed.createdAt,
-      sessionCorrelation: attributed.sessionId,
-      sessionMode: 'no_session' as const,
-      turn: attributed.turnNumber,
-      task: 'readback',
-      baseStateRevision: 1,
-      agent: 'default' as const,
-      model: ROOT_DEFAULT_MODEL_SELECTION,
-      build,
-      definition: attributed.definition,
-    };
-    await history.beginExecution(historyInput);
-    const journalCorrelation = {
-      session: attributed.sessionId,
-      instanceCorrelation: 'i41-provider-test',
-      workerGeneration: 'i41-provider-generation',
-      baseStateRevision: 1,
-      command: 'turn-1',
-    };
-    let journalSequence = 0;
-    for (const record of attributed.requests) {
-      const requestBytes = new TextEncoder().encode(record.request.requestBody);
-      history.appendExactRequestObservation({
-        executionId: historyInput.executionId,
-        workerSequence: journalSequence + 1,
-        observation: {
-          bytes: requestBytes,
-          captureBoundary: 'openrouter-chat:http-body-v1',
-          serializerVersion: 'json-stringify-v1',
-          endpoint: record.request.endpoint,
-          method: 'POST',
-          lane: record.request.lane,
-          phase: record.request.phase ?? 'user_turn',
-          modelStep: record.request.modelStep,
-          requestMetadata: record.request.requestMetadata,
-          monolithicFallback: true,
-        },
-      });
-      journalSequence += 1;
-      history.appendExecutionEvent({
-        executionId: historyInput.executionId,
-        direction: 'worker_to_host',
-        source: 'worker',
-        kind: 'provider_request_start',
-        workerSequence: journalSequence,
-        payload: {
-          kind: 'provider_observation',
-          correlation: journalCorrelation,
-          sequence: journalSequence,
-          turn: 1,
-          observation: { kind: 'request_start', request: record.request },
-        } as never,
-      });
-      if (record.response !== undefined) {
-        journalSequence += 1;
-        history.appendExecutionEvent({
-          executionId: historyInput.executionId,
-          direction: 'worker_to_host',
-          source: 'worker',
-          kind: 'provider_response_start',
-          workerSequence: journalSequence,
-          payload: {
-            kind: 'provider_observation',
-            correlation: journalCorrelation,
-            sequence: journalSequence,
-            turn: 1,
-            observation: {
-              kind: 'response_start',
-              requestOrdinal: record.request.ordinal,
-              response: { status: record.response.status, headers: record.response.headers },
-            },
-          } as never,
-        });
-        if (record.response.rawBodyBase64 !== undefined) {
-          journalSequence += 1;
-          history.appendExecutionEvent({
-            executionId: historyInput.executionId,
-            direction: 'worker_to_host',
-            source: 'worker',
-            kind: 'provider_response_bytes',
-            workerSequence: journalSequence,
-            payload: {
-              kind: 'provider_observation',
-              correlation: journalCorrelation,
-              sequence: journalSequence,
-              turn: 1,
-              observation: {
-                kind: 'response_bytes',
-                requestOrdinal: record.request.ordinal,
-                offset: record.response.rawBodyBytes,
-                bytesBase64: record.response.rawBodyBase64,
-              },
-            } as never,
-          });
-        }
-      }
-    }
-    for (const event of attributed.runtimeEvents) {
-      journalSequence += 1;
-      history.appendExecutionEvent({
-        executionId: historyInput.executionId,
-        direction: 'worker_to_host',
-        source: 'worker',
-        kind: 'runtime_event',
-        workerSequence: journalSequence,
-        payload: {
-          kind: 'provider_observation',
-          correlation: journalCorrelation,
-          sequence: journalSequence,
-          turn: 1,
-          observation: {
-            kind: 'runtime_event',
-            ...('requestOrdinal' in event && event.requestOrdinal === undefined
-              ? {}
-              : 'requestOrdinal' in event
-              ? { requestOrdinal: event.requestOrdinal }
-              : {}),
-            event,
-          },
-        } as never,
-      });
-    }
-    history.settleNonCanonicalExecution({
-      ...historyInput,
-      outcome: {
-        ok: true,
-        task: 'readback',
-        outcome: 'final',
-        stopReason: 'final',
-        finalText: 'ok',
-        steps: 1,
-        toolCallCount: 0,
-        toolResultCount: 0,
-        transcript: [],
-      },
-      evidence: attributed,
-      diagnostic: {
-        schemaVersion: 1,
-        diagnosticId,
-        stage: 'unknown_stage',
-        code: 'unknown_code',
-        lane: 'parent',
-        providerRequestCount: 2,
-        occurredAt: '2026-09-02T00:00:01.000Z',
-        turnNumber: 1,
-        modelStep: 1,
-        retryCount: 0,
-      },
-    });
-
-    const listed: string[] = [];
-    const listStatus = await failureDiagnosticMain(['evidence', 'list'], {
-      stateRoot,
-      workspaceRoot,
-      writeStdout: (text) => {
-        listed.push(text);
-      },
-    });
-    assertEquals(listStatus, 0);
-    const listPayload = JSON.parse(listed.join('')) as {
-      readonly evidence: readonly { readonly evidenceId: string }[];
-    };
-    assertEquals(listPayload.evidence.map((entry) => entry.evidenceId), [evidenceId]);
-
-    const shown: string[] = [];
-    const showStatus = await failureDiagnosticMain(['evidence', 'show', '--id', evidenceId], {
-      stateRoot,
-      workspaceRoot,
-      writeStdout: (text) => {
-        shown.push(text);
-      },
-    });
-    assertEquals(showStatus, 0);
-    const artifact = JSON.parse(shown.join('')) as {
-      readonly evidenceId: string;
-      readonly requests: readonly {
-        readonly request: { readonly lane: string };
-        readonly response?: { readonly headers: Readonly<Record<string, string>> };
-      }[];
-    };
-    assertEquals(artifact.evidenceId, evidenceId);
-    assertEquals(artifact.requests.map((entry) => entry.request.lane), ['parent', 'planner']);
-    assertEquals(artifact.requests[0].response?.headers.Authorization, 'response-metadata');
-
-    const shownByDiagnostic: string[] = [];
-    const diagnosticShowStatus = await failureDiagnosticMain(
-      ['evidence', 'show', '--id', diagnosticId],
-      {
-        stateRoot,
-        workspaceRoot,
-        writeStdout: (text) => {
-          shownByDiagnostic.push(text);
-        },
-      },
-    );
-    assertEquals(diagnosticShowStatus, 0);
-    assertEquals(
-      (JSON.parse(shownByDiagnostic.join('')) as { readonly evidenceId: string }).evidenceId,
-      evidenceId,
-    );
-    const missingErrors: string[] = [];
-    await failureDiagnosticMain(
-      ['evidence', 'show', '--id', '77777777-7777-4777-8777-777777777777'],
-      {
-        stateRoot,
-        workspaceRoot,
-        writeStderr: (text) => {
-          missingErrors.push(text);
-        },
-      },
-    );
-    assertEquals(
-      (JSON.parse(missingErrors.join('')) as { readonly error: { readonly code: string } }).error
-        .code,
-      'provider_evidence_not_found',
-    );
-  } finally {
-    await Deno.remove(tempRoot, { recursive: true });
-  }
-});
-
-Deno.test('diagnostics evidence commands have read-only list/show grammar', () => {
-  assertEquals(parseFailureDiagnosticArgs(['evidence', 'list']), { kind: 'evidence_list' });
-  assertEquals(
-    parseFailureDiagnosticArgs([
-      'evidence',
-      'show',
-      '--id',
-      '11111111-1111-4111-8111-111111111111',
-    ]),
-    { kind: 'evidence_show', id: '11111111-1111-4111-8111-111111111111' },
-  );
-});
-
-Deno.test('retained UI keeps provider evidence out of the conversation log', () => {
-  const evidenceId = '44444444-4444-4444-8444-444444444444';
-  const state = reduceUiEvent(createUiState(), {
-    kind: 'turn_end',
-    turn: 1,
-    outcome: 'final',
-    committed: true,
-    providerEvidenceId: evidenceId,
-  });
-  assertEquals(state.log.entries, []);
-
-  const linkedFailureState = reduceUiEvent(createUiState(), {
-    kind: 'turn_end',
-    turn: 1,
-    outcome: 'final',
-    committed: true,
-    providerEvidenceId: evidenceId,
-    providerEvidenceDurability: 'yes',
-    providerEvidencePersistenceError: 'provider_evidence_io_failure',
-  });
-  assertEquals(linkedFailureState.log.entries, []);
-
-  const failedState = reduceUiEvent(createUiState(), {
-    kind: 'turn_end',
-    turn: 1,
-    outcome: 'final',
-    committed: true,
-    providerEvidenceId: evidenceId,
-    providerEvidenceDurability: 'failed',
-    providerEvidencePersistenceError: 'provider_evidence_io_failure',
-  });
-  assertEquals(failedState.log.entries, []);
 });

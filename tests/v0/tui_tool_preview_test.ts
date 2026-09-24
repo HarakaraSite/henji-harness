@@ -47,7 +47,7 @@ Deno.test('tool preview shows the bash head on one line', () => {
   assert(!state.log.entries[0].text.includes('full output must not leak'));
 });
 
-Deno.test('tool preview keeps only the head line for multiline commands', () => {
+Deno.test('tool preview distinguishes multiline commands sharing a first line', () => {
   let state = createUiState();
   state = reduceUiEvent(state, {
     kind: 'tool_call',
@@ -58,8 +58,18 @@ Deno.test('tool preview keeps only the head line for multiline commands', () => 
       arguments: { command: 'echo one\n echo two\n echo three' },
     },
   });
-  assertEquals(state.log.entries[0].text, 'bash echo one …');
-  assert(!state.log.entries[0].text.includes('echo two'));
+  assert(state.log.entries[0].text.includes('echo one echo two echo three'));
+  const first = state.log.entries[0].text;
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      callId: 'bash-3',
+      name: 'bash',
+      arguments: { command: 'echo one\n echo changed\n echo three' },
+    },
+  });
+  assert(state.log.entries[1].text !== first);
 });
 
 Deno.test('read range preview persists across progress and result updates', () => {
@@ -318,7 +328,7 @@ Deno.test('tool preview truncates a long command head with ellipsis', () => {
   });
   const text = state.log.entries[0].text;
   assert(text.startsWith('bash curl '));
-  assert(text.endsWith('…'));
+  assert(/… #[0-9a-f]{8} …$/u.test(text));
   assert(!text.includes(longCommand));
   assert(new TextEncoder().encode(text).byteLength <= 64 + 1 + 96 + 1 + 3);
 });

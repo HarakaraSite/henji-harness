@@ -4,11 +4,8 @@ import type {
   FailureDiagnosticV1,
 } from '../session/failure_diagnostic.ts';
 import type {
-  ProviderEvidenceDurability,
-  ProviderEvidencePersistenceErrorCode,
   ProviderEvidencePhase,
   ProviderEvidenceRecorder,
-  ProviderEvidenceRequestMetadata,
 } from '../provider/provider_evidence.ts';
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -121,25 +118,6 @@ export interface ModelRequest {
 /** Execution-only callback carrying the complete visible assistant prefix. */
 export type AssistantProgressReporter = (snapshot: string) => void;
 
-/** Exact bytes passed from a provider adapter to its HTTP client; never includes headers. */
-export interface ProviderExactRequestObservation {
-  readonly bytes: Uint8Array;
-  readonly captureBoundary: string;
-  readonly serializerVersion: string;
-  readonly endpoint: string;
-  readonly method: 'POST';
-  readonly lane: 'parent' | 'planner';
-  readonly phase: ProviderEvidencePhase;
-  readonly modelStep: number;
-  readonly requestMetadata: ProviderEvidenceRequestMetadata;
-  /** Existing adapters serialize a contiguous JSON body before this observation. */
-  readonly monolithicFallback: true;
-}
-
-export type ProviderExactRequestObserver = (
-  observation: ProviderExactRequestObservation,
-) => void;
-
 export interface ModelGenerateOptions {
   readonly signal?: AbortSignal;
   readonly reportAssistantProgress?: AssistantProgressReporter;
@@ -152,8 +130,6 @@ export interface ModelGenerateOptions {
   readonly providerEvidenceLane?: 'parent' | 'planner';
   readonly providerEvidencePhase?: ProviderEvidencePhase;
   readonly modelStep?: number;
-  /** Additive v6 seam. When present, the observed bytes are the same object passed to fetch. */
-  readonly providerExactRequestObserver?: ProviderExactRequestObserver;
 }
 
 export type ModelResult =
@@ -205,10 +181,6 @@ export interface LoopOutcome {
   /** Diagnostic durability is finalized by the session after persistence settles. */
   readonly diagnosticDurability?: FailureDiagnosticDurability;
   readonly diagnosticPersistenceError?: FailureDiagnosticPersistenceErrorCode;
-  /** Retained provider exchange identity, when the runtime supplied an evidence recorder. */
-  readonly providerEvidenceId?: string;
-  readonly providerEvidenceDurability?: ProviderEvidenceDurability;
-  readonly providerEvidencePersistenceError?: ProviderEvidencePersistenceErrorCode;
   /** Actual provider fetch starts attributed to this accepted turn, when observed by a host. */
   readonly turnProviderRequestCount?: number;
   /** Cumulative actual provider fetch starts since this runtime process began, when observed. */

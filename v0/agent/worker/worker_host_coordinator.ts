@@ -17,7 +17,6 @@ import {
   createFailureDiagnostic,
   type FailureDiagnosticV1,
 } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidenceV1, ProviderEvidenceV5 } from '../provider/provider_evidence.ts';
 import type {
   WorkerCheckpointProposalMessage,
   WorkerCommitProposalMessage,
@@ -51,7 +50,6 @@ import { type ActiveWorkerExecution, createJournalFailureSignal } from './worker
 import { validCredentialAvailability, WorkerSupervisor } from './worker_host_supervisor.ts';
 import {
   diagnosticPersistenceCodes,
-  evidencePersistenceCodes,
   failedOutcome,
   interruptedOutcome,
   persistenceCode,
@@ -61,10 +59,7 @@ import {
 } from './worker_host_outcome.ts';
 import type { HistoryCaptureResult } from '../history/history_store_contract.ts';
 import type { ExecutionContextManifestV2 } from '../history/context_attribution.ts';
-import {
-  attributeProviderEvidenceV5,
-  historyCaptureDurability,
-} from './worker_history_projection.ts';
+import { historyCaptureDurability } from './worker_history_projection.ts';
 
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
@@ -440,7 +435,6 @@ export class ExecutionCoordinator {
         message.observation.request.contextRequestOrdinal,
       );
     }
-    if (message.kind === 'provider_exact_request') return;
     if (message.kind === 'cancel_received') return;
     if (
       message.kind === 'commit_proposal' || message.kind === 'turn_failed' ||
@@ -580,43 +574,8 @@ export class ExecutionCoordinator {
 
   private async persistArtifacts(
     outcome: LoopOutcome,
-    providerEvidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
   ): Promise<LoopOutcome> {
-    const evidenceId = providerEvidence?.evidenceId ??
-      outcome.providerEvidenceId;
-    let evidenceDurability = providerEvidence === undefined
-      ? outcome.providerEvidenceDurability
-      : 'unknown' as const;
-    let evidenceError = outcome.providerEvidencePersistenceError;
-    if (providerEvidence !== undefined) {
-      if (this.options.providerEvidenceStore === undefined) {
-        evidenceDurability = 'unknown';
-      } else {
-        try {
-          const attributed = this.attributedEvidence(providerEvidence, outcome);
-          if (attributed === undefined) {
-            throw new Error('provider evidence unavailable');
-          }
-          await this.options.providerEvidenceStore.write(attributed);
-          if (diagnostic?.diagnosticId !== undefined) {
-            await this.options.providerEvidenceStore.linkDiagnostic(
-              diagnostic.diagnosticId,
-              providerEvidence.evidenceId,
-            );
-          }
-          evidenceDurability = 'yes';
-          evidenceError = undefined;
-        } catch (error) {
-          evidenceDurability = 'failed';
-          evidenceError = persistenceCode(
-            error,
-            evidencePersistenceCodes,
-            'provider_evidence_io_failure',
-          );
-        }
-      }
-    }
     let diagnosticDurability = outcome.diagnosticDurability;
     let diagnosticError = outcome.diagnosticPersistenceError;
     if (diagnostic !== undefined) {
@@ -639,13 +598,6 @@ export class ExecutionCoordinator {
     }
     const settled = {
       ...outcome,
-      ...(evidenceId === undefined ? {} : { providerEvidenceId: evidenceId }),
-      ...(evidenceDurability === undefined ? {} : {
-        providerEvidenceDurability: evidenceDurability,
-      }),
-      ...(evidenceError === undefined ? {} : {
-        providerEvidencePersistenceError: evidenceError,
-      }),
       ...(diagnostic === undefined ? {} : { diagnostic }),
       ...(diagnosticDurability === undefined ? {} : { diagnosticDurability }),
       ...(diagnosticError === undefined ? {} : {
@@ -653,24 +605,6 @@ export class ExecutionCoordinator {
       }),
     };
     return this.observeRequestCount(settled);
-  }
-
-  private attributedEvidence(
-    evidence: ProviderEvidenceV1 | undefined,
-    outcome: LoopOutcome,
-  ): ProviderEvidenceV5 | undefined {
-    if (evidence === undefined) return undefined;
-    // The Worker recorder normally supplies this field. When a legacy/custom Worker omits it
-    // while the startup basis is present, keep the malformed V5 shape visible so the history
-    // store's strict validator rejects the settlement instead of fabricating a logical link.
-    return attributeProviderEvidenceV5({
-      evidence,
-      outcome,
-      sessionId: this.sessionId,
-      build: this.authority.build,
-      definition: this.options.definition,
-      hasContextBasis: this.supervisor.currentStartupSnapshot?.context !== undefined,
-    });
   }
 
   private historyExecutionAttribution() {
@@ -689,14 +623,12 @@ export class ExecutionCoordinator {
 
   private applyHistoryCapture(
     outcome: LoopOutcome,
-    evidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
     capture: HistoryCaptureResult,
   ): LoopOutcome {
     const settled: LoopOutcome = {
       ...outcome,
       ...historyCaptureDurability(capture),
-      ...(evidence === undefined ? {} : { providerEvidenceId: evidence.evidenceId }),
       ...(diagnostic === undefined ? {} : { diagnostic }),
     };
     return this.observeRequestCount(settled);
@@ -808,15 +740,6 @@ export class ExecutionCoordinator {
         ...structuredClone(entry),
         sequence: index + 1,
       })),
-      ...(outcome.providerEvidenceId === undefined ? {} : {
-        providerEvidenceId: outcome.providerEvidenceId,
-      }),
-      ...(outcome.providerEvidenceDurability === undefined ? {} : {
-        providerEvidenceDurability: outcome.providerEvidenceDurability,
-      }),
-      ...(outcome.providerEvidencePersistenceError === undefined ? {} : {
-        providerEvidencePersistenceError: outcome.providerEvidencePersistenceError,
-      }),
       ...(execution.childCleanup === undefined ? {} : {
         childCleanup: structuredClone(execution.childCleanup),
       }),
@@ -849,8 +772,6 @@ export class ExecutionCoordinator {
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
     diagnostic: FailureDiagnosticV1 | undefined,
-    providerEvidence?: ProviderEvidenceV1,
-    evidenceOutcome: LoopOutcome = outcome,
   ): LoopOutcome | undefined {
     const history = this.options.historyPersistence;
     if (history === undefined) return undefined;
@@ -871,14 +792,10 @@ export class ExecutionCoordinator {
         baseStateRevision: execution.baseStateRevision,
         ...this.historyExecutionAttribution(),
         outcome,
-        ...(providerEvidence === undefined ? {} : {
-          evidence: this.attributedEvidence(providerEvidence, evidenceOutcome),
-        }),
         ...(diagnostic === undefined ? {} : { diagnostic }),
         artifactForCapture: (captured) => {
           capturedOutcome = this.applyHistoryCapture(
             outcome,
-            providerEvidence,
             diagnostic,
             captured,
           );
@@ -887,7 +804,6 @@ export class ExecutionCoordinator {
       });
       const settled = capturedOutcome ?? this.applyHistoryCapture(
         outcome,
-        providerEvidence,
         diagnostic,
         capture,
       );
@@ -905,11 +821,10 @@ export class ExecutionCoordinator {
 
   private contextContractDiagnostic(
     execution: ActiveWorkerExecution,
-    providerEvidence?: ProviderEvidenceV1,
     outcome?: LoopOutcome,
   ): FailureDiagnosticV1 {
     const providerRequestCount = outcome?.turnProviderRequestCount ??
-      providerEvidence?.requests.length ?? this.runtimeRequestCount;
+      this.runtimeRequestCount;
     return createFailureDiagnostic({
       stage: 'session_commit',
       code: 'commit_error',
@@ -924,7 +839,6 @@ export class ExecutionCoordinator {
   private async settleExecution(
     execution: ActiveWorkerExecution,
     outcome: LoopOutcome,
-    providerEvidence: ProviderEvidenceV1 | undefined,
     diagnostic: FailureDiagnosticV1 | undefined,
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
@@ -958,17 +872,10 @@ export class ExecutionCoordinator {
               contextSnapshot: this.supervisor.currentStartupSnapshot.context,
             }),
             outcome: effectiveOutcome,
-            ...(providerEvidence === undefined ? {} : {
-              evidence: this.attributedEvidence(
-                providerEvidence,
-                effectiveOutcome,
-              ),
-            }),
             ...(diagnostic === undefined ? {} : { diagnostic }),
             artifactForCapture: (captured) => {
               capturedOutcome = this.applyHistoryCapture(
                 effectiveOutcome,
-                providerEvidence,
                 diagnostic,
                 captured,
               );
@@ -980,7 +887,6 @@ export class ExecutionCoordinator {
           });
         const settled = capturedOutcome ?? this.applyHistoryCapture(
           effectiveOutcome,
-          providerEvidence,
           diagnostic,
           capture,
         );
@@ -1008,21 +914,13 @@ export class ExecutionCoordinator {
             diagnostic ??
               this.contextContractDiagnostic(
                 execution,
-                providerEvidence,
                 effectiveOutcome,
               ),
-            providerEvidence,
-            effectiveOutcome,
           );
           if (failedSettlement !== undefined) return failedSettlement;
         }
         const failed: LoopOutcome = {
           ...effectiveOutcome,
-          ...(providerEvidence === undefined ? {} : {
-            providerEvidenceId: providerEvidence.evidenceId,
-            providerEvidenceDurability: 'failed',
-            providerEvidencePersistenceError: 'provider_evidence_io_failure',
-          }),
           ...(diagnostic === undefined ? {} : {
             diagnostic,
             diagnosticDurability: 'failed',
@@ -1034,7 +932,6 @@ export class ExecutionCoordinator {
     }
     const settled = await this.persistArtifacts(
       effectiveOutcome,
-      providerEvidence,
       diagnostic,
     );
     return await this.persistExecutionArtifact(execution, settled);
@@ -1059,14 +956,12 @@ export class ExecutionCoordinator {
   private async finishJournalFailure(
     execution: ActiveWorkerExecution,
     task: string,
-    providerEvidence?: ProviderEvidenceV1,
     diagnostic?: FailureDiagnosticV1,
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
     const settled = await this.settleExecution(
       execution,
       this.journalFailureOutcome(execution, task),
-      providerEvidence,
       diagnostic,
       contextManifest,
     );
@@ -1356,7 +1251,6 @@ export class ExecutionCoordinator {
         ...(this.options.executionArtifactStore === undefined ? {} : {
           executionArtifactStore: this.options.executionArtifactStore,
         }),
-        providerEvidenceStore: this.options.providerEvidenceStore,
         ...(this.options.historyPersistence === undefined ? {} : {
           historyPersistence: this.options.historyPersistence,
         }),
@@ -1538,7 +1432,6 @@ export class ExecutionCoordinator {
           execution,
           outcome,
           undefined,
-          undefined,
         );
         this.deliver(
           turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
@@ -1571,7 +1464,6 @@ export class ExecutionCoordinator {
         const settled = await this.settleExecution(
           execution,
           message.outcome,
-          message.providerEvidence,
           diagnostic,
           message.contextManifest,
         );
@@ -1595,7 +1487,6 @@ export class ExecutionCoordinator {
           execution,
           outcome,
           undefined,
-          undefined,
         );
         this.deliver(
           turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
@@ -1611,7 +1502,6 @@ export class ExecutionCoordinator {
         return await this.finishJournalFailure(
           execution,
           task,
-          message.providerEvidence,
           message.diagnostic,
           message.contextManifest,
         );
@@ -1629,7 +1519,6 @@ export class ExecutionCoordinator {
         const settled = await this.settleExecution(
           execution,
           outcome,
-          message.providerEvidence,
           message.diagnostic,
           message.contextManifest,
         );
@@ -1653,7 +1542,6 @@ export class ExecutionCoordinator {
         return await this.finishJournalFailure(
           execution,
           task,
-          message.providerEvidence,
           diagnostic,
           message.contextManifest,
         );
@@ -1681,7 +1569,6 @@ export class ExecutionCoordinator {
         const settled = await this.settleExecution(
           execution,
           outcome,
-          message.providerEvidence,
           diagnostic,
           message.contextManifest,
         );
@@ -1700,7 +1587,6 @@ export class ExecutionCoordinator {
             return await this.finishJournalFailure(
               execution,
               task,
-              message.providerEvidence,
               diagnostic,
               message.contextManifest,
             );
@@ -1724,17 +1610,10 @@ export class ExecutionCoordinator {
             }),
             record,
             outcome: proposedOutcome,
-            ...(message.providerEvidence === undefined ? {} : {
-              evidence: this.attributedEvidence(
-                message.providerEvidence,
-                proposedOutcome,
-              ),
-            }),
             ...(diagnostic === undefined ? {} : { diagnostic }),
             artifactForCapture: (captured) => {
               const capturedOutcome = this.applyHistoryCapture(
                 proposedOutcome,
-                message.providerEvidence,
                 diagnostic,
                 captured,
               );
@@ -1762,7 +1641,6 @@ export class ExecutionCoordinator {
           execution.settlement = 'committed_observation_pending';
           committed = this.applyHistoryCapture(
             proposedOutcome,
-            message.providerEvidence,
             diagnostic,
             capture,
           );
@@ -1788,17 +1666,10 @@ export class ExecutionCoordinator {
                   contextSnapshot: this.supervisor.currentStartupSnapshot.context,
                 }),
                 outcome: proposedOutcome,
-                ...(message.providerEvidence === undefined ? {} : {
-                  evidence: this.attributedEvidence(
-                    message.providerEvidence,
-                    proposedOutcome,
-                  ),
-                }),
                 ...(diagnostic === undefined ? {} : { diagnostic }),
                 artifactForCapture: (captured) => {
                   capturedOutcome = this.applyHistoryCapture(
                     proposedOutcome,
-                    message.providerEvidence,
                     diagnostic,
                     captured,
                   );
@@ -1810,14 +1681,12 @@ export class ExecutionCoordinator {
               });
             committed = capturedOutcome ?? this.applyHistoryCapture(
               proposedOutcome,
-              message.providerEvidence,
               diagnostic,
               capture,
             );
           } else {
             committed = await this.persistArtifacts(
               proposedOutcome,
-              message.providerEvidence,
               diagnostic,
             );
           }
@@ -1849,11 +1718,8 @@ export class ExecutionCoordinator {
             outcome,
             diagnostic ?? this.contextContractDiagnostic(
               execution,
-              message.providerEvidence,
               proposedOutcome,
             ),
-            message.providerEvidence,
-            proposedOutcome,
           );
           if (failedSettlement !== undefined) {
             this.deliver(
@@ -1869,7 +1735,6 @@ export class ExecutionCoordinator {
         const settled = await this.settleExecution(
           execution,
           outcome,
-          message.providerEvidence,
           diagnostic,
         );
         this.deliver(
@@ -1953,7 +1818,6 @@ export class ExecutionCoordinator {
           execution,
           outcome,
           undefined,
-          undefined,
         );
         this.deliver(
           turnEndFromOutcome(this.authority.projection.nextTurn, settled, false),
@@ -1969,7 +1833,6 @@ export class ExecutionCoordinator {
       const settled = await this.settleExecution(
         execution,
         outcome,
-        undefined,
         undefined,
       );
       this.deliver(

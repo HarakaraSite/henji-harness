@@ -56,6 +56,23 @@ const firstLine = (value: unknown): string | undefined => {
   return head.length === 0 ? undefined : head;
 };
 
+const bashPreview = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') return undefined;
+  const compact = value.trim().replace(/\s+/gu, ' ');
+  if (compact.length === 0) return undefined;
+  // A later line can change the command even when its first line is identical.
+  if (compact === value.trim() && encoder.encode(compact).byteLength <= TOOL_PREVIEW_HEAD_BYTES) {
+    return compact;
+  }
+  let fingerprint = 2166136261;
+  for (const byte of encoder.encode(value)) {
+    fingerprint = Math.imul(fingerprint ^ byte, 16777619);
+  }
+  return `${boundedHead(compact, TOOL_PREVIEW_HEAD_BYTES - 16)} #${
+    (fingerprint >>> 0).toString(16).padStart(8, '0')
+  }`;
+};
+
 const positiveSafeInteger = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 
@@ -97,7 +114,7 @@ export const toolActivityPreview = (name: string, args: unknown): string => {
   let preview: string | undefined;
   switch (name) {
     case 'bash':
-      preview = firstLine(args.command);
+      preview = bashPreview(args.command);
       break;
     case 'read':
       preview = readPreview(args);

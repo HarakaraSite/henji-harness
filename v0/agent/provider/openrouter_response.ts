@@ -28,7 +28,6 @@ export type ResponseBodyResult =
 /** Read one bounded response while retaining proof that the body reader was settled. */
 export const readResponseBody = async (
   response: Response,
-  onBytes?: (bytes: Uint8Array) => void,
 ): Promise<ResponseBodyResult> => {
   if (!response.body) return { kind: 'missing', cleanupFailed: false };
   let reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -84,7 +83,6 @@ export const readResponseBody = async (
         result = { kind: 'limit_exceeded', cleanupFailed };
         break;
       }
-      onBytes?.(item.value);
       chunks.push(item.value);
     }
   } finally {
@@ -124,7 +122,10 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
   const calls = value.map((raw: unknown) => {
     if (typeof raw !== 'object' || raw === null) return undefined;
     const call = raw as WireResponseToolCall;
-    if (call.type !== 'function' || !nonBlank(call.id)) return undefined;
+    if (
+      !nonBlank(call.id) ||
+      (call.type !== undefined && call.type !== null && call.type !== 'function')
+    ) return undefined;
     if (typeof call.function !== 'object' || call.function === null) {
       return undefined;
     }
@@ -263,6 +264,7 @@ export const sseResponseError = (
   message: string,
   parseReason: ParseReason,
   httpStatus?: number,
+  shape?: { readonly field: string; readonly expectedShape: string; readonly actualShape: string },
 ): OpenRouterAgentError =>
   new OpenRouterAgentError(
     'response_error',
@@ -274,6 +276,7 @@ export const sseResponseError = (
       code: 'response_error',
       parseReason,
       ...(httpStatus === undefined ? {} : { httpStatus }),
+      ...(shape === undefined ? {} : shape),
     },
   );
 
@@ -283,6 +286,11 @@ export const withResponseStatus = (
   httpStatus: number,
 ): OpenRouterAgentError => {
   const fact = error.failureFact;
+  const shape = {
+    ...(fact.field === undefined ? {} : { field: fact.field }),
+    ...(fact.expectedShape === undefined ? {} : { expectedShape: fact.expectedShape }),
+    ...(fact.actualShape === undefined ? {} : { actualShape: fact.actualShape }),
+  };
   if (fact.stage !== 'response_parse' || fact.httpStatus !== undefined) return error;
   if (fact.parseReason === undefined) {
     return new OpenRouterAgentError(
@@ -295,6 +303,7 @@ export const withResponseStatus = (
         code: 'response_error',
         httpStatus,
         parseReason: 'unsupported_response_shape',
+        ...shape,
       },
     );
   }
@@ -308,6 +317,7 @@ export const withResponseStatus = (
       code: fact.code,
       httpStatus,
       parseReason: fact.parseReason,
+      ...shape,
     },
   );
 };

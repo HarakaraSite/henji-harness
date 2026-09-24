@@ -32,9 +32,6 @@ export interface AsyncAgentTerminalResult {
     | 'interrupted';
   /** Actual provider fetch starts attributed to this child turn. */
   readonly providerRequestCount?: number;
-  readonly providerEvidenceId?: string;
-  readonly providerEvidenceDurability?: 'yes' | 'failed' | 'unknown';
-  readonly providerEvidencePersistenceError?: string;
   readonly diagnosticId?: string;
   readonly diagnosticCode?: string;
   readonly diagnosticDurability?: 'yes' | 'failed' | 'unknown';

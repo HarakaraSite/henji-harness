@@ -1,6 +1,5 @@
 import { FailureDiagnosticStoreError } from '../session/failure_diagnostic_store.ts';
 import { isFailureDiagnostic } from '../session/failure_diagnostic.ts';
-import { ProviderEvidenceStoreError } from '../provider/provider_evidence_store.ts';
 import type { StoredExecutionRow } from '../history/history_store_contract.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
@@ -32,8 +31,6 @@ export type FailureDiagnosticCliCommand =
   | { readonly kind: 'latest' }
   | { readonly kind: 'show'; readonly id: string }
   | { readonly kind: 'delete'; readonly id: string }
-  | { readonly kind: 'evidence_list' }
-  | { readonly kind: 'evidence_show'; readonly id: string }
   | { readonly kind: 'execution_list' }
   | { readonly kind: 'execution_show'; readonly id: string }
   | { readonly kind: 'execution_events'; readonly id: string }
@@ -72,13 +69,6 @@ export const parseFailureDiagnosticArgs = (
     args[2] === '--id' && UUID_V4.test(args[3]) && args[4] === '--ordinal' &&
     /^\d+$/u.test(args[5]) && Number(args[5]) >= 1 && Number.isSafeInteger(Number(args[5]))
   ) return { kind: 'execution_request', id: args[3], ordinal: Number(args[5]) };
-  if (args.length === 2 && args[0] === 'evidence' && args[1] === 'list') {
-    return { kind: 'evidence_list' };
-  }
-  if (
-    args.length === 4 && args[0] === 'evidence' && args[1] === 'show' &&
-    args[2] === '--id' && UUID_V4.test(args[3])
-  ) return { kind: 'evidence_show', id: args[3] };
   if (
     args.length === 3 && args[0] === 'show' && args[1] === '--id' &&
     UUID_V4.test(args[2])
@@ -129,10 +119,6 @@ const executionSummary = (execution: StoredExecutionRow) => ({
   workerGeneration: execution.workerGeneration,
   acknowledgement: execution.acknowledgement,
   generationAvailability: execution.generationAvailability,
-  evidenceCapture: execution.evidenceCapture,
-  ...(execution.providerEvidenceId === undefined ? {} : {
-    providerEvidenceId: execution.providerEvidenceId,
-  }),
   diagnosticCapture: execution.diagnosticCapture,
   artifactCapture: execution.artifactCapture,
   contextCapture: execution.contextCapture,
@@ -273,7 +259,7 @@ export const main = async (
           execution,
           true,
         );
-        const evidence = history.readExecutionRequestProviderEvidence(
+        const facts = history.readExecutionRequestFacts(
           command.id,
           command.ordinal,
         );
@@ -288,40 +274,12 @@ export const main = async (
               },
               capture: contextCapture,
               request,
-              providerEvidence: evidence,
+              providerFacts: facts,
             })
           }\n`,
           'stdout',
         );
       }
-    } else if (command.kind === 'evidence_list') {
-      const evidenceStore = history.providerEvidence;
-      const evidence = await evidenceStore.list();
-      await writeOutput(
-        dependencies.writeStdout,
-        `${JSON.stringify({ schemaVersion: 2, evidence })}\n`,
-        'stdout',
-      );
-    } else if (command.kind === 'evidence_show') {
-      const evidenceStore = history.providerEvidence;
-      let evidence;
-      try {
-        evidence = await evidenceStore.read(command.id);
-      } catch (error) {
-        if (
-          !(error instanceof ProviderEvidenceStoreError) ||
-          error.code !== 'provider_evidence_not_found'
-        ) {
-          throw error;
-        }
-        const evidenceId = await evidenceStore.readDiagnosticLink(command.id);
-        evidence = await evidenceStore.read(evidenceId);
-      }
-      await writeOutput(
-        dependencies.writeStdout,
-        `${JSON.stringify(evidence)}\n`,
-        'stdout',
-      );
     } else if (command.kind === 'list') {
       const store = history.diagnostics;
       const diagnostics = await store.list();
@@ -372,18 +330,12 @@ export const main = async (
           : 'history_busy'
         : error.code === 'history_invalid' || error.code === 'history_io_failure'
         ? error.code
-        : command.kind === 'evidence_list' || command.kind === 'evidence_show'
-        ? 'provider_evidence_io_failure'
         : command.kind === 'execution_list' || command.kind === 'execution_show' ||
             command.kind === 'execution_events'
         ? 'history_io_failure'
         : 'diagnostic_io_failure'
       : error instanceof FailureDiagnosticStoreError
       ? error.code
-      : error instanceof ProviderEvidenceStoreError
-      ? error.code
-      : command.kind === 'evidence_list' || command.kind === 'evidence_show'
-      ? 'provider_evidence_io_failure'
       : command.kind === 'execution_list' || command.kind === 'execution_show' ||
           command.kind === 'execution_events'
       ? 'history_io_failure'

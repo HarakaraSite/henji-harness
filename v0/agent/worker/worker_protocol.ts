@@ -1,10 +1,7 @@
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
-import type {
-  ProviderEvidenceObservation,
-  ProviderEvidenceV1,
-} from '../provider/provider_evidence.ts';
+import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type { SemanticContextCheckpointV1 } from '../session/session_store.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
@@ -14,7 +11,6 @@ import type {
   ExecutionContextManifestV2,
   WorkerContextSnapshot,
 } from '../history/context_attribution.ts';
-import type { ProviderExactRequestObservation } from '../core/contracts.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
 import type {
@@ -298,14 +294,6 @@ export interface WorkerProviderObservationMessage {
   readonly observation: ProviderEvidenceObservation;
 }
 
-/** Exact provider body transferred from the Worker capture boundary to the Host authority. */
-export interface WorkerProviderExactRequestMessage {
-  readonly kind: 'provider_exact_request';
-  readonly correlation: WorkerCorrelation;
-  readonly sequence: number;
-  readonly observation: ProviderExactRequestObservation;
-}
-
 export interface WorkerCommitProposalMessage {
   readonly kind: 'commit_proposal';
   readonly correlation: WorkerCorrelation;
@@ -313,8 +301,6 @@ export interface WorkerCommitProposalMessage {
   readonly nextTurn: number;
   /** The exact Worker-local settlement metadata for Host projection. */
   readonly outcome?: LoopOutcome;
-  /** Credential-free evidence captured inside Worker; Host owns persistence. */
-  readonly providerEvidence?: ProviderEvidenceV1;
   /** Final ordered context descriptor manifest for normal settlement validation. */
   readonly contextManifest?: ExecutionContextManifestV2;
   readonly diagnostic?: FailureDiagnosticV1;
@@ -331,8 +317,6 @@ export interface WorkerTurnFailedMessage {
   readonly kind: 'turn_failed';
   readonly correlation: WorkerCorrelation;
   readonly outcome: LoopOutcome;
-  /** Credential-free evidence captured inside Worker; Host owns persistence. */
-  readonly providerEvidence?: ProviderEvidenceV1;
   /** Final ordered context descriptor manifest for normal settlement validation. */
   readonly contextManifest?: ExecutionContextManifestV2;
   readonly diagnostic?: FailureDiagnosticV1;
@@ -370,7 +354,6 @@ export type WorkerToHostMessage =
   | WorkerRuntimeEventMessage
   | WorkerEffectObservationMessage
   | WorkerProviderObservationMessage
-  | WorkerProviderExactRequestMessage
   | WorkerContextObservationMessage
   | WorkerCommitProposalMessage
   | WorkerCheckpointProposalMessage

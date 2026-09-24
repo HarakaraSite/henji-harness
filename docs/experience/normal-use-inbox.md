@@ -16,13 +16,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
+| S11 | Surface | 失敗行の赤字表示と`/recall`案内 | TUIの失敗表示を改善するとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A8 | Agent実行 | OpenRouter Responses API経路 | 利用者希望（2026-09-17）。E1のProvider外部化と合わせて検討 |
-| A9 | Agent実行 | 診断記録の粒度と保存期間 | 実利用で保存量・読出し負荷が問題になったとき |
+| A9 | Agent実行 | 診断記録の保存期間 | 保存期間を独立に決める必要が出たとき。粒度変更の計画はIncrement 121 |
+| A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
+| A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -31,6 +34,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 | E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
 | E5 | 配布・外部化 | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする |
+| E6 | 配布・外部化 | providerからのmodel一覧取得 | model選択でproviderの現行一覧を使いたいとき |
 | P1 | 参照実装parity | `henji run`の構造化出力（`--json` event stream／`--stream`） | 非対話実行の自動化・埋め込みが必要になるとき |
 | P3 | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動） | context圧縮を人間が明示的に行いたくなったとき |
 | P4 | 参照実装parity | Session export/import | Sessionを別installationへ移す・再開する必要が出るとき |
@@ -97,6 +101,16 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   呼び出しUIを採用時に決める。
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
+
+### S11 — 失敗行の赤字表示と`/recall`案内
+
+- 観測（2026-09-23）: 現行のTUIは失敗時に`failure>`を表示するが、このラベルに専用の文字色を
+  割り当てていない。
+- 利用者希望: キャンセルを含む失敗ターンでは、`failure> cancelled`などの失敗表示に続けて英語で
+  `/recall`を使えば停止した実行の指示や途中結果を次の指示へ参照させられると案内し、ラベル・失敗理由・
+  案内を含む行全体を赤文字で表示する。元の実行が再開・確定されると誤解させない文言にする。
+- 再検討条件: TUIの失敗表示を改善するincrementを採用するとき。
+- 関連: `v0/tui/state.ts`、`v0/tui/conversation_renderer.ts`。
 
 ## Agent実行
 
@@ -178,15 +192,36 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   Responses transportを共通化する具体的なproduct上の利点が得られること。利用者希望によりE1のProvider外部化と
   合わせて採用を検討する。
 
-### A9 — 診断記録の粒度と保存期間（実施未定）
+### A9 — 診断記録の保存期間（実施未定）
 
-- 観測（2026-09-23）: キャンセルした一実行に約4.5万件の診断記録が残った。起動時にそれらを履歴表示用の行へ
-  展開する処理が遅延の主因とみられるが、元の診断記録は現在の調査機能でも使う。この表示用処理の要否と、
-  元の記録をどれほど細かく・いつまで保存するかは別の判断である。
-- 候補: 実利用で必要な原因調査を確認したうえで、記録の粒度と保存期間を検討する。現時点では保存方針を
-  変更せず、実装するかも決めない。
-- 再検討条件: 元の記録自体の保存量や読出し負荷が実利用で問題になる、または調査に必要な記録の範囲を
-  実例から判断できるとき。
+- 診断記録の粒度と通常時の収集・保存処理の縮小はIncrement 121の計画へ採用した。約3万件／4.5万件の
+  観測とその判断も同文書を参照する。
+- 元の記録をいつまで保存するかは別の判断として残す。現時点で自動削除期間を決めない。
+- 再検討条件: 保存期間を利用上の必要性から独立に決める実例が得られたとき。
+
+### A10 — モデル別instruction
+
+- 観測（2026-09-23）: 別Sessionで同じsystem instructionを受けたREADME二言語版の比較依頼に対し、
+  `deepseek-v4.1-flash`は`effort=high`を送ってもツール使用を続け、15回目のprovider request中にキャンセル
+  された。`glm-5.3-flash`は3回目で回答した。task文面には軽微な差があり、この一例だけでモデル差を
+  唯一の原因とは断定しない。
+- 追加観測（2026-09-23）: 別Sessionの同種の短い依頼に、`gpt-5.6-luna`は4回、`grok-4.7`は6回の
+  provider requestで回答した。両者は`opencode-go-responses`経路、DeepSeekとGLMは`opencode-go-chat`
+  経路であり、モデルとAPI経路の差は切り分けていない。
+- 追加観測（2026-09-23、session `c15dee05`）: `openrouter-responses`経路の同じDeepSeekモデルでも
+  `effort=high`で2ファイルを読んだ後に10件のbash比較を続け、13回目のprovider request中にキャンセルされた。
+  TUIでは10件とも先頭行の`cd /home/agent/projects/henji-harness`だけが見えるが、実際のbash本文はそれぞれ異なる。
+- 利用者希望: モデル別のinstructionを検討する。候補は、指定された対象の調査を終えて結論を報告する条件を
+  モデルごとに補うこと。共通instructionとの役割分担は採用時に決める。
+- 再検討条件: 同じ目的のtaskで、モデルごとの探索範囲や報告までの挙動に差が出ること。
+
+### A11 — instructionの与え方
+
+- 観測（2026-09-23）: DeepSeekは短いREADME比較依頼ではツール使用を続けたが、対象ファイル、比較項目、
+  追加調査の条件、報告する時点を明示した指示では、2回のprovider request（2件の`read`）で回答した。
+- 利用者希望: instructionの内容・粒度・与える場所（共通instruction、モデル別instruction、個々のtask）を
+  検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
+- 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
 
 ## F24・自己改訂
 
@@ -357,6 +392,17 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 該当providerを通常利用で使う必要が出るとき。
 - 正本候補: `docs/architecture/multi-provider-routing-and-auth.md`、`docs/roadmap.md` F02／F24。
 - 関連: E1、Increment 101。
+
+### E6 — providerからのmodel一覧取得
+
+- 現行境界: model選択の一覧は、bundledまたは外部Provider宣言の固定`modelCatalog.entries`を使う。
+  `searchModelsFor`はその一覧を手元で絞り込む。
+- 利用者希望（2026-09-23）: model一覧をproviderから取得したい。OpenRouterは一覧が非常に大きいため、
+  その扱いを検討する必要がある。
+- 候補: providerから取得した現行一覧をmodel選択へつなぐ。取得の時点・更新方法と、大きな一覧からの
+  検索・絞り込み・表示・選択方法は採用時に決める。
+- 再検討条件: model選択でproviderの現行一覧を使う機能を採用するとき。
+- 関連: E1、`v0/agent/provider/model_catalog.ts`、`v0/agent/provider/provider_declaration.ts`。
 
 ## 参照実装parity（Pi／Zot調査、未採用）
 

@@ -11,8 +11,6 @@ export interface AuxiliaryProviderEvidence {
   readonly phase: ProviderEvidencePhase;
   readonly modelStep: number;
   readonly requestMetadata: ProviderEvidenceRequestMetadata;
-  readonly captureBoundary: string;
-  readonly serializerVersion: string;
 }
 
 /**
@@ -24,7 +22,7 @@ export interface ProviderHttpRequest {
   readonly endpoint: string;
   readonly method: 'POST';
   readonly headers?: Readonly<Record<string, string>>;
-  /** Final bytes passed unchanged to both exact capture and fetch. */
+  /** Request bytes passed to fetch. */
   readonly body?: Uint8Array<ArrayBuffer>;
   readonly evidence?: AuxiliaryProviderEvidence;
   readonly signal?: AbortSignal;
@@ -58,8 +56,6 @@ export interface ProviderRequestDispatcherOptions {
       | 'response_body_read_returned',
   ) => void;
 }
-
-const decoder = new TextDecoder();
 
 /**
  * One ordering owner for every Worker-local auxiliary provider dispatch.
@@ -103,26 +99,7 @@ export const createProviderRequestDispatcher = (
         method: request.method,
         requestMetadata: evidenceInput.requestMetadata,
       };
-      if (execution.providerExactRequestObserver === undefined) {
-        evidence.startRequest({
-          ...requestStart,
-          requestBody: decoder.decode(body),
-        });
-      } else {
-        execution.providerExactRequestObserver({
-          bytes: body,
-          captureBoundary: evidenceInput.captureBoundary,
-          serializerVersion: evidenceInput.serializerVersion,
-          endpoint: request.endpoint,
-          method: request.method,
-          lane: requestStart.lane,
-          phase: evidenceInput.phase,
-          modelStep: evidenceInput.modelStep,
-          requestMetadata: evidenceInput.requestMetadata,
-          monolithicFallback: true,
-        });
-        evidence.startRequestMetadata(requestStart);
-      }
+      evidence.startRequestMetadata(requestStart);
     }
 
     try {
@@ -144,7 +121,7 @@ export const createProviderRequestDispatcher = (
       response.headers.forEach((value, name) => {
         headers[name] = value;
       });
-      evidence?.recordResponse({ status: response.status, headers });
+      evidence?.recordResponse({ status: response.status });
       report?.('response_body_read_entered');
       const chunks: Uint8Array[] = [];
       let length = 0;
@@ -154,7 +131,6 @@ export const createProviderRequestDispatcher = (
           for (;;) {
             const item = await reader.read();
             if (item.done) break;
-            evidence?.appendResponseBytes(item.value);
             chunks.push(item.value.slice());
             length += item.value.byteLength;
           }
@@ -173,6 +149,12 @@ export const createProviderRequestDispatcher = (
       if (deadline?.aborted) throw new Error('provider deadline exceeded');
       return { status: response.status, headers, bytes };
     } catch (error) {
+      const code = request.signal?.aborted
+        ? 'cancelled'
+        : deadline?.aborted
+        ? 'provider_timeout'
+        : 'transport_error';
+      evidence?.recordRequestFailure({ stage: 'transport', code }, evidenceInput?.modelStep);
       if (request.signal?.aborted) throw new TurnCancelledError();
       if (deadline?.aborted) throw new Error('provider deadline exceeded');
       throw error;

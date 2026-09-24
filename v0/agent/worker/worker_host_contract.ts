@@ -5,7 +5,6 @@ import type {
   WorkerSessionHandle,
 } from '../session/session_store.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import type {
   WorkerAsyncAgentCatalogEntry,
@@ -45,7 +44,6 @@ export interface WorkerHostSessionOptions {
   readonly auxiliaryStageGapMs?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
-  readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly historyPersistence?: HistoryPersistencePort;
   readonly durableCanonicalHistory?: boolean;

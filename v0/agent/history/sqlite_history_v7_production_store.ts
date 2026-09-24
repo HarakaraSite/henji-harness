@@ -1,18 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
-import type {
-  JsonValue,
-  LoopOutcome,
-  Message,
-  ProviderExactRequestObservation,
-} from '../core/contracts.ts';
+import type { JsonValue, LoopOutcome, Message } from '../core/contracts.ts';
 import type { DefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
 import { isStoredModelSelection } from '../provider/model_selection.ts';
-import {
-  type ProviderEvidenceStore,
-  type ProviderEvidenceV5,
-  validateProviderEvidence,
-} from '../provider/provider_evidence.ts';
-import { ProviderEvidenceStoreError } from '../provider/provider_evidence_store.ts';
 import {
   encodeSemanticContextCheckpoint,
   validateSemanticContextCheckpoint,
@@ -73,7 +62,6 @@ import {
   type HumanHistoryExportRecordV1,
 } from './history_export_record.ts';
 import type {
-  HistoryV7CaptureProfile,
   HistoryV7SemanticKind,
   HistoryV7SemanticOccurrenceInput,
 } from './history_v7_model.ts';
@@ -93,7 +81,6 @@ type PreparedEventPayload = Readonly<{
 }>;
 type HistoryV7ProductionFaultPhase = 'before_settlement_commit';
 const now = (): string => new Date().toISOString();
-const encoder = new TextEncoder();
 
 const asJson = (value: unknown): JsonValue => structuredClone(value) as JsonValue;
 const parseJson = <T>(value: SqlValue): T => JSON.parse(String(value)) as T;
@@ -113,6 +100,7 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
     case 'cancel_requested':
     case 'cancel_failed':
     case 'cancel_escalated':
+    case 'worker_stage_snapshot':
     case 'steer_failed':
     case 'turn_dispatch_failed':
     case 'acknowledgement_failed':
@@ -120,11 +108,31 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
     case 'effect_observation':
       return 'effect_observation';
     case 'provider_request_start':
+    case 'provider_response_start':
+    case 'provider_parser_transition':
+    case 'provider_request_failure':
     case 'context_observation':
       return 'model_request';
     case 'runtime_event': {
       const payload = input.payload as unknown as Record<string, unknown>;
-      if (payload.kind === 'provider_observation') return undefined;
+      if (payload.kind === 'provider_observation') {
+        const observation = payload.observation as Record<string, unknown> | undefined;
+        if (observation?.kind !== 'runtime_event') return undefined;
+        const providerEvent = observation.event as Record<string, unknown> | undefined;
+        switch (providerEvent?.kind) {
+          case 'tool_call':
+            return 'tool_call';
+          case 'tool_result':
+          case 'tool_progress':
+            return 'tool_result';
+          case 'assistant_progress':
+            return 'assistant_message';
+          case 'model_result':
+            return 'model_result';
+          default:
+            return undefined;
+        }
+      }
       const value = typeof payload.event === 'object' && payload.event !== null
         ? payload.event as Record<string, unknown>
         : payload;
@@ -162,49 +170,6 @@ const eventValue = (event: StoredExecutionEvent): JsonValue => asJson({ event })
  */
 export class SqliteHistoryV7ProductionStore
   implements WorkerSessionStorePort, HistoryPersistencePort {
-  readonly providerEvidence: ProviderEvidenceStore = {
-    list: async () => {
-      await this.initialize();
-      return this.#listDiagnosticDocuments('provider_evidence', validateProviderEvidence);
-    },
-    read: async (id) => {
-      await this.initialize();
-      const evidence = this.#readDiagnosticDocument(
-        'provider_evidence',
-        'evidenceId',
-        id,
-        validateProviderEvidence,
-      );
-      if (evidence === undefined) {
-        throw new ProviderEvidenceStoreError('provider_evidence_not_found');
-      }
-      return evidence;
-    },
-    write: () =>
-      Promise.reject(
-        new ProviderEvidenceStoreError('provider_evidence_invalid'),
-      ),
-    linkDiagnostic: async (diagnosticId, evidenceId) => {
-      await this.initialize();
-      this.#writeDerivedDocument(
-        'diagnostic_evidence_link',
-        diagnosticId,
-        null,
-        evidenceId,
-      );
-    },
-    readDiagnosticLink: async (diagnosticId) => {
-      await this.initialize();
-      const link = this.#readDerivedDocument<string>('diagnostic_evidence_link', diagnosticId);
-      if (typeof link === 'string') return link;
-      const evidence = this.#listDiagnosticDocuments(
-        'provider_evidence',
-        validateProviderEvidence,
-      ).find((item) => item.diagnosticId === diagnosticId);
-      if (evidence !== undefined) return evidence.evidenceId;
-      throw new ProviderEvidenceStoreError('provider_evidence_not_found');
-    },
-  };
   readonly executionArtifacts: WorkerExecutionArtifactStore = {
     list: async () => {
       await this.initialize();
@@ -243,41 +208,42 @@ export class SqliteHistoryV7ProductionStore
   readonly diagnostics: FailureDiagnosticStore = {
     list: async () => {
       await this.initialize();
-      return this.#listDiagnosticDocuments('failure_diagnostic', validateFailureDiagnostic);
+      return this.#listDerivedDocuments('failure_diagnostic', validateFailureDiagnostic);
     },
     read: async (id) => {
       await this.initialize();
-      const diagnostic = this.#readDiagnosticDocument(
-        'failure_diagnostic',
-        'diagnosticId',
-        id,
-        validateFailureDiagnostic,
-      );
+      const diagnostic = this.#readDerivedDocument<unknown>('failure_diagnostic', id);
       if (diagnostic === undefined) {
         throw new FailureDiagnosticStoreError('diagnostic_not_found');
       }
+      if (!validateFailureDiagnostic(diagnostic)) {
+        throw new FailureDiagnosticStoreError('diagnostic_invalid');
+      }
       return diagnostic;
     },
-    write: () =>
-      Promise.reject(
-        new FailureDiagnosticStoreError('diagnostic_invalid'),
-      ),
+    write: async (diagnostic) => {
+      await this.initialize();
+      if (!validateFailureDiagnostic(diagnostic)) {
+        throw new FailureDiagnosticStoreError('diagnostic_invalid');
+      }
+      this.#writeDerivedDocument(
+        'failure_diagnostic',
+        diagnostic.diagnosticId,
+        null,
+        diagnostic,
+      );
+    },
     delete: async (id) => {
       await this.initialize();
       const db = this.#db();
       try {
         const result = db.prepare(`
-          DELETE FROM diagnostic_attachments
-          WHERE attachment_kind='failure_diagnostic'
-            AND json_extract(metadata_json, '$.diagnosticId')=?
+          DELETE FROM derived_documents
+          WHERE document_kind='failure_diagnostic' AND document_id=?
         `).run(id);
         if (result.changes === 0) {
           throw new FailureDiagnosticStoreError('diagnostic_not_found');
         }
-        db.prepare(`
-          DELETE FROM derived_documents
-          WHERE document_kind='diagnostic_evidence_link' AND document_id=?
-        `).run(id);
       } finally {
         db.close();
       }
@@ -287,7 +253,6 @@ export class SqliteHistoryV7ProductionStore
     },
   };
   readonly #makeUuid: () => string;
-  readonly #captureProfile: HistoryV7CaptureProfile;
   readonly #fault?: (phase: HistoryV7ProductionFaultPhase) => void;
   readonly #readOnly: boolean;
   readonly #executionLocks = new Map<string, Lock>();
@@ -302,7 +267,6 @@ export class SqliteHistoryV7ProductionStore
     readonly workspaceRoot: string,
     options: Readonly<{
       uuid?: () => string;
-      captureProfile?: HistoryV7CaptureProfile;
       fault?: (phase: HistoryV7ProductionFaultPhase) => void;
       /** Open for read-only viewing: no directory/schema creation and no reconciliation. */
       readOnly?: boolean;
@@ -312,7 +276,6 @@ export class SqliteHistoryV7ProductionStore
       throw new SessionStoreError('session_io_failure');
     }
     this.#makeUuid = options.uuid ?? (() => crypto.randomUUID().toLowerCase());
-    this.#captureProfile = options.captureProfile ?? 'normal-v1';
     this.#fault = options.fault;
     this.#readOnly = options.readOnly === true;
   }
@@ -360,7 +323,7 @@ export class SqliteHistoryV7ProductionStore
   }
 
   capturesProtocolTrace(): boolean {
-    return this.#captureProfile === 'diagnostic-v1';
+    return false;
   }
 
   close(): void {
@@ -416,56 +379,6 @@ export class SqliteHistoryV7ProductionStore
         WHERE document_kind=? AND document_id=?
       `).get(kind, id) as Row | undefined;
       return row === undefined ? undefined : parseJson<T>(row.value_json);
-    } finally {
-      db.close();
-    }
-  }
-
-  #listDiagnosticDocuments<T>(
-    kind: string,
-    validate: (value: unknown) => value is T,
-  ): readonly T[] {
-    const db = this.#db();
-    try {
-      return (db.prepare(`
-        SELECT c.content_bytes FROM diagnostic_attachments a
-        JOIN immutable_contents c USING(content_digest)
-        WHERE a.attachment_kind=? ORDER BY a.rowid
-      `).all(kind) as Row[]).map((row) => {
-        if (!(row.content_bytes instanceof Uint8Array)) {
-          throw new HistoryStoreError('history_invalid');
-        }
-        const value = JSON.parse(new TextDecoder().decode(row.content_bytes)) as unknown;
-        if (!validate(value)) throw new HistoryStoreError('history_invalid');
-        return value;
-      });
-    } finally {
-      db.close();
-    }
-  }
-
-  #readDiagnosticDocument<T>(
-    kind: string,
-    metadataField: string,
-    id: string,
-    validate: (value: unknown) => value is T,
-  ): T | undefined {
-    const db = this.#db();
-    try {
-      const row = db.prepare(`
-        SELECT c.content_bytes FROM diagnostic_attachments a
-        JOIN immutable_contents c USING(content_digest)
-        WHERE a.attachment_kind=?
-          AND json_extract(a.metadata_json, '$.' || ?) = ?
-        ORDER BY a.rowid LIMIT 1
-      `).get(kind, metadataField, id) as Row | undefined;
-      if (row === undefined) return undefined;
-      if (!(row.content_bytes instanceof Uint8Array)) {
-        throw new HistoryStoreError('history_invalid');
-      }
-      const value = JSON.parse(new TextDecoder().decode(row.content_bytes)) as unknown;
-      if (!validate(value)) throw new HistoryStoreError('history_invalid');
-      return value;
     } finally {
       db.close();
     }
@@ -988,7 +901,6 @@ export class SqliteHistoryV7ProductionStore
         executionId: input.executionId,
         sessionId: authoritySession,
         baseRevision: input.baseStateRevision,
-        captureProfile: this.#captureProfile,
         admission,
       });
       const admissionEvent: StoredExecutionEvent = {
@@ -1059,9 +971,8 @@ export class SqliteHistoryV7ProductionStore
     if (message.kind !== 'commit_proposal' && message.kind !== 'turn_failed') return message;
     const baseMessageCount = this.#baseMessageCountsBySession.get(message.correlation.session) ?? 0;
     if (message.kind === 'commit_proposal') {
-      const { providerEvidence: _providerEvidence, ...bounded } = message;
       return {
-        ...bounded,
+        ...message,
         transcript: message.transcript.slice(baseMessageCount),
         ...(message.outcome === undefined ? {} : {
           outcome: {
@@ -1072,9 +983,8 @@ export class SqliteHistoryV7ProductionStore
         historyTranscriptBaseApplied: true,
       } as WorkerToHostMessage;
     }
-    const { providerEvidence: _providerEvidence, ...bounded } = message;
     return {
-      ...bounded,
+      ...message,
       outcome: {
         ...message.outcome,
         transcript: message.outcome.transcript.slice(baseMessageCount),
@@ -1102,18 +1012,6 @@ export class SqliteHistoryV7ProductionStore
   }
 
   #boundedEventPayload(input: ExecutionEventInput): JsonValue {
-    if (input.kind === 'provider_request_start') {
-      const payload = input.payload as unknown as {
-        observation: {
-          request: Record<string, unknown> & { requestBody?: unknown };
-        };
-      };
-      const { requestBody: _diagnosticBody, ...request } = payload.observation.request;
-      return asJson({
-        ...input.payload,
-        observation: { ...payload.observation, request },
-      });
-    }
     if (input.kind !== 'runtime_event') return asJson(input.payload);
     const payload = input.payload as unknown as Record<string, unknown>;
     const alreadyBounded = payload.historyTranscriptBaseApplied === true;
@@ -1122,7 +1020,6 @@ export class SqliteHistoryV7ProductionStore
       const outcome = payload.outcome as LoopOutcome | undefined;
       const {
         historyTranscriptBaseApplied: _bounded,
-        providerEvidence: _providerEvidence,
         ...stored
       } = payload;
       return asJson({
@@ -1142,7 +1039,6 @@ export class SqliteHistoryV7ProductionStore
       const outcome = payload.outcome as LoopOutcome;
       const {
         historyTranscriptBaseApplied: _bounded,
-        providerEvidence: _providerEvidence,
         ...stored
       } = payload;
       return asJson({
@@ -1313,34 +1209,6 @@ export class SqliteHistoryV7ProductionStore
             occurrences,
             terminalIndex < 0 ? undefined : occurrences[terminalIndex].occurrenceId,
           );
-          for (let index = 0; index < semantic.length; index += 1) {
-            if (
-              semantic[index].isEvent && semantic[index].input.kind === 'provider_request_start'
-            ) {
-              this.#correlateExactRequest(
-                semantic[index].input,
-                occurrences[index].occurrenceId,
-              );
-            }
-          }
-        }
-        if (state.captureProfile === 'diagnostic-v1') {
-          for (const { input, event } of records) {
-            if (eventSemanticKind(input) !== undefined) continue;
-            try {
-              const attachment = this.#diagnosticEventAttachment(event);
-              this.#coreStore().appendDiagnostic({
-                attachmentId: `${executionId}:diagnostic:event:${event.ordinal}`,
-                executionId,
-                kind: `event:${event.kind}`,
-                coverage: 'partial',
-                metadata: attachment.metadata,
-                ...(attachment.content === undefined ? {} : { content: attachment.content }),
-              });
-            } catch {
-              // Optional diagnostics never fail a semantic execution.
-            }
-          }
         }
         const count = events.at(-1)!.ordinal;
         const db = this.#db();
@@ -1375,134 +1243,6 @@ export class SqliteHistoryV7ProductionStore
     }
   }
 
-  #diagnosticEventAttachment(event: StoredExecutionEvent): {
-    metadata: JsonValue;
-    content?: Uint8Array;
-  } {
-    const stored = structuredClone(event) as unknown as {
-      payload: {
-        observation?: {
-          bytesBase64?: string;
-          event?: { rawFrame?: string };
-        };
-      };
-    };
-    const observation = stored.payload.observation;
-    if (event.kind === 'provider_response_bytes' && observation?.bytesBase64 !== undefined) {
-      const content = Uint8Array.fromBase64(observation.bytesBase64);
-      delete observation.bytesBase64;
-      return { metadata: asJson({ event: stored, contentRole: 'response_bytes' }), content };
-    }
-    if (event.kind === 'provider_sse_event' && observation?.event?.rawFrame !== undefined) {
-      const content = encoder.encode(observation.event.rawFrame);
-      delete observation.event.rawFrame;
-      return { metadata: asJson({ event: stored, contentRole: 'sse_raw_frame' }), content };
-    }
-    return { metadata: asJson({ event: stored }) };
-  }
-
-  #diagnosticStoredEvent(
-    metadata: JsonValue,
-    content: Uint8Array | undefined,
-  ): StoredExecutionEvent | undefined {
-    if (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata)) {
-      return undefined;
-    }
-    const value = metadata as Record<string, JsonValue>;
-    const raw = value.event;
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
-    const event = structuredClone(raw) as unknown as StoredExecutionEvent;
-    if (content === undefined || typeof value.contentRole !== 'string') return event;
-    const payload = event.payload as unknown as {
-      observation?: {
-        bytesBase64?: string;
-        event?: { rawFrame?: string };
-      };
-    };
-    if (value.contentRole === 'response_bytes' && payload.observation !== undefined) {
-      payload.observation.bytesBase64 = content.toBase64();
-    } else if (
-      value.contentRole === 'sse_raw_frame' && payload.observation?.event !== undefined
-    ) {
-      payload.observation.event.rawFrame = new TextDecoder().decode(content);
-    }
-    return event;
-  }
-
-  appendExactRequestObservation(
-    input: Readonly<{
-      executionId: string;
-      workerSequence: number;
-      observation: ProviderExactRequestObservation;
-    }>,
-  ): void {
-    const state = this.#coreStore().readExecution(input.executionId);
-    if (state.captureProfile !== 'diagnostic-v1') return;
-    try {
-      const { bytes, ...observation } = input.observation;
-      this.#coreStore().appendDiagnostic({
-        attachmentId: `${input.executionId}:exact:${input.workerSequence}`,
-        executionId: input.executionId,
-        kind: 'exact_request',
-        coverage: 'partial',
-        metadata: asJson({ workerSequence: input.workerSequence, observation }),
-        content: bytes,
-      });
-    } catch {
-      // Optional diagnostics never fail a semantic execution.
-    }
-  }
-
-  #correlateExactRequest(input: ExecutionEventInput, occurrenceId: string): void {
-    if (input.kind !== 'provider_request_start') return;
-    const payload = input.payload as unknown as {
-      observation?: {
-        request?: {
-          lane?: unknown;
-          phase?: unknown;
-          modelStep?: unknown;
-          endpoint?: unknown;
-          method?: unknown;
-          requestBodyBytes?: unknown;
-        };
-      };
-    };
-    const request = payload.observation?.request;
-    if (request === undefined) return;
-    const db = this.#db();
-    try {
-      const rows = db.prepare(`
-        SELECT attachment_id, metadata_json FROM diagnostic_attachments
-        WHERE execution_id=? AND attachment_kind='exact_request' AND occurrence_id IS NULL
-        ORDER BY rowid
-      `).all(input.executionId) as Row[];
-      const match = rows.find((row) => {
-        const metadata = parseJson<{
-          observation?: {
-            lane?: unknown;
-            phase?: unknown;
-            modelStep?: unknown;
-            endpoint?: unknown;
-            method?: unknown;
-            bytes?: unknown;
-          };
-        }>(row.metadata_json);
-        const exact = metadata.observation;
-        return exact !== undefined && exact.lane === request.lane &&
-          exact.phase === request.phase &&
-          exact.modelStep === request.modelStep && exact.endpoint === request.endpoint &&
-          exact.method === request.method;
-      });
-      if (match !== undefined) {
-        db.prepare(`
-          UPDATE diagnostic_attachments SET occurrence_id=? WHERE attachment_id=?
-        `).run(occurrenceId, match.attachment_id);
-      }
-    } finally {
-      db.close();
-    }
-  }
-
   #capture(
     input: CanonicalTurnCommitInput | NonCanonicalExecutionInput,
   ): HistoryCaptureResult {
@@ -1519,51 +1259,17 @@ export class SqliteHistoryV7ProductionStore
     } finally {
       db.close();
     }
-    const state = this.#coreStore().readExecution(input.executionId);
-    if (state.captureProfile === 'diagnostic-v1') {
-      if (input.evidence !== undefined) {
-        const valid = validateProviderEvidence(input.evidence);
-        try {
-          this.#coreStore().appendDiagnostic({
-            attachmentId: `${input.executionId}:provider-evidence`,
-            executionId: input.executionId,
-            kind: 'provider_evidence',
-            coverage: valid ? 'captured' : 'invalid',
-            metadata: asJson({ evidenceId: input.evidence.evidenceId }),
-            content: encoder.encode(JSON.stringify(input.evidence)),
-          });
-          Object.assign(
-            result,
-            valid ? { evidenceDurability: 'yes' as const } : {
-              evidenceDurability: 'failed' as const,
-              evidencePersistenceError: 'provider_evidence_invalid' as const,
-            },
-          );
-        } catch {
-          Object.assign(result, { evidenceDurability: 'failed' as const });
-        }
-      }
-      if (input.diagnostic !== undefined) {
-        const valid = validateFailureDiagnostic(input.diagnostic);
-        try {
-          this.#coreStore().appendDiagnostic({
-            attachmentId: `${input.executionId}:failure-diagnostic`,
-            executionId: input.executionId,
-            kind: 'failure_diagnostic',
-            coverage: valid ? 'captured' : 'invalid',
-            metadata: asJson({ diagnosticId: input.diagnostic.diagnosticId }),
-            content: encoder.encode(JSON.stringify(input.diagnostic)),
-          });
-          Object.assign(
-            result,
-            valid ? { diagnosticDurability: 'yes' as const } : {
-              diagnosticDurability: 'failed' as const,
-              diagnosticPersistenceError: 'diagnostic_invalid' as const,
-            },
-          );
-        } catch {
-          Object.assign(result, { diagnosticDurability: 'failed' as const });
-        }
+    if (input.diagnostic !== undefined && validateFailureDiagnostic(input.diagnostic)) {
+      try {
+        this.#writeDerivedDocument(
+          'failure_diagnostic',
+          input.diagnostic.diagnosticId,
+          null,
+          input.diagnostic,
+        );
+        Object.assign(result, { diagnosticDurability: 'yes' as const });
+      } catch {
+        Object.assign(result, { diagnosticDurability: 'failed' as const });
       }
     }
     if (input.artifactForCapture !== undefined) {
@@ -1744,12 +1450,11 @@ export class SqliteHistoryV7ProductionStore
         UPDATE session_heads SET revision=? WHERE session_id=?
       `).run(input.record.stateRevision, input.canonicalSessionId);
       db.prepare(`
-        UPDATE execution_admissions SET settled_at=?, outcome_json=?, evidence_id=?,
+        UPDATE execution_admissions SET settled_at=?, outcome_json=?,
           diagnostic_id=?, artifact_id=? WHERE execution_id=?
       `).run(
         input.record.updatedAt,
         JSON.stringify(compactOutcome(input.outcome)),
-        captured.evidenceDurability === 'yes' ? input.evidence?.evidenceId ?? null : null,
         captured.diagnosticDurability === 'yes' ? input.diagnostic?.diagnosticId ?? null : null,
         input.artifactForCapture === undefined ? null : input.executionId,
         input.executionId,
@@ -1817,12 +1522,11 @@ export class SqliteHistoryV7ProductionStore
         adoption: 'non_canonical',
       });
       db.prepare(`
-        UPDATE execution_admissions SET settled_at=?, outcome_json=?, evidence_id=?,
+        UPDATE execution_admissions SET settled_at=?, outcome_json=?,
           diagnostic_id=?, artifact_id=? WHERE execution_id=?
       `).run(
         settledAt,
         JSON.stringify(compactOutcome(input.outcome)),
-        captured.evidenceDurability === 'yes' ? input.evidence?.evidenceId ?? null : null,
         captured.diagnosticDurability === 'yes' ? input.diagnostic?.diagnosticId ?? null : null,
         input.artifactForCapture === undefined ? null : input.executionId,
         input.executionId,
@@ -1968,8 +1672,6 @@ export class SqliteHistoryV7ProductionStore
             : { workerGeneration: String(row.worker_generation) }),
           acknowledgement: 'not_sent',
           generationAvailability: 'unknown',
-          evidenceCapture: row.evidence_id === null ? 'none' : 'yes',
-          ...(row.evidence_id === null ? {} : { providerEvidenceId: String(row.evidence_id) }),
           diagnosticCapture: row.diagnostic_id === null ? 'none' : 'yes',
           ...(row.diagnostic_id === null ? {} : { diagnosticId: String(row.diagnostic_id) }),
           artifactCapture: row.artifact_id === null ? 'none' : 'yes',
@@ -2151,22 +1853,27 @@ export class SqliteHistoryV7ProductionStore
       }
       return [hydrated];
     });
-    const diagnostic = this.#coreStore().listDiagnosticAttachments(id).flatMap((attachment) => {
-      const event = this.#diagnosticStoredEvent(attachment.metadata, attachment.content);
-      return event === undefined ? [] : [event];
-    });
-    return [...semantic, ...diagnostic].sort((left, right) => left.ordinal - right.ordinal);
+    return semantic;
   }
 
   listExecutionEffects(id: string): readonly StoredExecutionEffect[] {
     const execution = this.#readExecutionMetadata(id);
     const effects = new Map<string, StoredExecutionEffect>();
     for (const event of this.#listExecutionEvents(id, false)) {
-      if (event.kind !== 'effect_observation') continue;
+      if (event.kind !== 'effect_observation' && event.kind !== 'runtime_event') continue;
       const payload = event.payload as Record<string, unknown>;
-      const effect = typeof payload.effect === 'object' && payload.effect !== null
-        ? payload.effect as Record<string, unknown>
-        : payload;
+      const providerObservation = payload.kind === 'provider_observation' &&
+          typeof payload.observation === 'object' && payload.observation !== null
+        ? payload.observation as Record<string, unknown>
+        : undefined;
+      const providerEvent = providerObservation?.kind === 'runtime_event' &&
+          typeof providerObservation.event === 'object' && providerObservation.event !== null
+        ? providerObservation.event as Record<string, unknown>
+        : undefined;
+      const effect = providerEvent ??
+        (typeof payload.effect === 'object' && payload.effect !== null
+          ? payload.effect as Record<string, unknown>
+          : payload);
       const phase = String(effect.kind ?? '');
       const nested = phase === 'tool_call'
         ? effect.call
@@ -2349,46 +2056,31 @@ export class SqliteHistoryV7ProductionStore
     return request;
   }
 
-  readExecutionRequestProviderEvidence(
+  readExecutionRequestFacts(
     executionId: string,
     requestOrdinal: number,
-  ): readonly {
-    readonly evidenceId: string;
-    readonly record: ProviderEvidenceV5['requests'][number];
-  }[] {
-    const db = this.#db();
-    try {
-      const rows = db.prepare(`
-        SELECT c.content_bytes FROM diagnostic_attachments a
-        JOIN immutable_contents c USING(content_digest)
-        WHERE a.execution_id=? AND a.attachment_kind='provider_evidence'
-        ORDER BY a.rowid
-      `).all(executionId) as Row[];
-      const result: {
-        evidenceId: string;
-        record: ProviderEvidenceV5['requests'][number];
-      }[] = [];
-      for (const row of rows) {
-        if (!(row.content_bytes instanceof Uint8Array)) {
-          throw new HistoryStoreError('history_invalid');
-        }
-        const evidence = JSON.parse(
-          new TextDecoder().decode(row.content_bytes),
-        ) as unknown;
-        if (!validateProviderEvidence(evidence)) {
-          throw new HistoryStoreError('history_invalid');
-        }
-        if (evidence.schemaVersion !== 5) continue;
-        for (const record of evidence.requests) {
-          if (record.request.contextRequestOrdinal === requestOrdinal) {
-            result.push({ evidenceId: evidence.evidenceId, record });
-          }
-        }
-      }
-      return result;
-    } finally {
-      db.close();
-    }
+  ): readonly StoredExecutionEvent[] {
+    const events = this.listExecutionEvents(executionId);
+    const ordinals = new Set(events.flatMap((event) => {
+      if (event.kind !== 'provider_request_start') return [];
+      const payload = event.payload as unknown as {
+        observation?: { request?: { ordinal?: number; contextRequestOrdinal?: number } };
+      };
+      const request = payload.observation?.request;
+      return request?.contextRequestOrdinal === requestOrdinal && request.ordinal !== undefined
+        ? [request.ordinal]
+        : [];
+    }));
+    return events.filter((event) => {
+      if (!event.kind.startsWith('provider_')) return false;
+      const payload = event.payload as unknown as {
+        observation?: { kind?: string; requestOrdinal?: number; request?: { ordinal?: number } };
+      };
+      const ordinal = payload.observation?.kind === 'request_start'
+        ? payload.observation.request?.ordinal
+        : payload.observation?.requestOrdinal;
+      return ordinal !== undefined && ordinals.has(ordinal);
+    });
   }
 
   listRecallRelations(targetExecutionId: string): readonly {
@@ -2590,24 +2282,6 @@ export class SqliteHistoryV7ProductionStore
               sourceExecutionId: String(row.source_execution_id),
               targetExecutionId: String(row.target_execution_id),
               occurrenceId: String(row.occurrence_id),
-            }),
-          };
-        }
-        for (
-          const attachment of this.#coreStore().listDiagnosticAttachments(
-            execution.executionId,
-            db,
-          )
-        ) {
-          yield {
-            schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
-            kind: 'diagnostic_attachment',
-            identity: attachment.attachmentId,
-            value: asJson({
-              ...attachment,
-              ...(attachment.content === undefined
-                ? {}
-                : { contentBase64: attachment.content.toBase64(), content: undefined }),
             }),
           };
         }

@@ -2,7 +2,6 @@ import type { AgentEventSink } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
-import type { ProviderEvidenceStore } from '../provider/provider_evidence.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -68,7 +67,6 @@ import { sameRef } from './worker_host_outcome.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
-import type { HistoryV7CaptureProfile } from '../history/history_v7_model.ts';
 import {
   builtinHenjiBaseInstruction,
   resolveHenjiBaseInstruction,
@@ -136,11 +134,8 @@ export interface WorkerSessionOptions {
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
-  readonly providerEvidenceStore?: ProviderEvidenceStore;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
-  /** Selects the v7 admission-time capture profile. */
-  readonly historyCaptureProfile?: HistoryV7CaptureProfile;
 }
 
 export interface WorkerSessionResult {
@@ -155,13 +150,6 @@ export interface WorkerSessionResult {
   readonly displayState: RuntimeDisplayState;
   readonly navigation?: SessionNavigationHost;
 }
-
-/** Resolve the admission-time history profile without consulting credentials or runtime state. */
-export const historyCaptureProfileFor = (
-  physicalIoMode: WorkerSessionOptions['physicalIoMode'],
-  selected?: HistoryV7CaptureProfile,
-): HistoryV7CaptureProfile | undefined =>
-  selected ?? (physicalIoMode === 'production' ? 'diagnostic-v1' : undefined);
 
 const navigationPosition = (
   value: ReturnType<WorkerHostSession['currentPosition']>,
@@ -375,15 +363,11 @@ export const createWorkerSession = async (
       : Object.freeze([] as const));
   setActiveProviderDeclarations(providerDeclarations);
   let baseInstruction: SelectedHenjiBaseInstruction = await resolveBaseInstruction();
-  const historyCaptureProfile = historyCaptureProfileFor(
-    options.physicalIoMode,
-    options.historyCaptureProfile,
-  );
   const sqliteHistory = options.persistence !== 'none' || options.physicalIoMode === 'production'
     ? new SqliteHistoryV7ProductionStore(
       options.stateRoot ?? launcherStateRoot(),
       workspace.root,
-      { captureProfile: historyCaptureProfile },
+      {},
     )
     : undefined;
   const store = options.persistence === 'none' ? undefined : sqliteHistory;
@@ -621,7 +605,6 @@ export const createWorkerSession = async (
           providerDeclarations,
           eventSink: options.eventSink,
           diagnosticPersistence: options.diagnosticPersistence,
-          providerEvidenceStore: options.providerEvidenceStore,
           executionArtifactStore: defaultExecutionArtifactStore,
           ...(sqliteHistory === undefined ? {} : {
             historyPersistence: sqliteHistory,
