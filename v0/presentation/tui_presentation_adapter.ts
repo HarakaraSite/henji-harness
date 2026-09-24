@@ -12,9 +12,9 @@ import {
   presentationIntent,
   type PresentationIntentDispatcher,
   type PresentationIntentResult,
-  type PresentationMessage,
   type PresentationOutcome,
   type PresentationPosition,
+  type PresentationRestoredConversation,
   snapshotPresentation,
 } from './contract.ts';
 import type {
@@ -57,7 +57,7 @@ import {
   outcome,
   position,
   preview,
-  restoredPresentationMessages,
+  restoredPresentationConversation,
   result,
   text,
   userMessage,
@@ -527,15 +527,9 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           },
         }),
       });
-      let restoredValue: {
-        readonly messages: readonly PresentationMessage[];
-        readonly omitted: number;
-      } | undefined;
+      let restoredValue: PresentationRestoredConversation | undefined;
       if (binding.restored !== undefined) {
-        restoredValue = {
-          messages: restoredPresentationMessages(binding.restored.messages),
-          omitted: binding.restored.omitted,
-        };
+        restoredValue = restoredPresentationConversation(binding.restored);
         this.emit({ kind: 'restored_log', ...restoredValue });
       }
       return {
@@ -566,10 +560,9 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           },
         }),
       });
-      const restoredValue = {
-        messages: restoredPresentationMessages(binding.restored?.messages ?? []),
-        omitted: binding.restored?.omitted ?? 0,
-      };
+      const restoredValue = restoredPresentationConversation(
+        binding.restored ?? { messages: [], omitted: 0, thinking: [] },
+      );
       this.emit({ kind: 'restored_log', ...restoredValue });
       return {
         kind: 'binding' as const,
@@ -604,15 +597,6 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           id,
           signal,
         );
-        const restoredCallIds = new Map<string, string>();
-        let restoredOrdinal = 0;
-        const restoredCallId = (raw: string): string => {
-          const existing = restoredCallIds.get(raw);
-          if (existing !== undefined) return existing;
-          const next = `call-${++restoredOrdinal}`;
-          restoredCallIds.set(raw, next);
-          return next;
-        };
         return Object.freeze({
           session: new TuiPresentationAdapter(
             binding.session as CoreSession,
@@ -620,27 +604,7 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           ),
           position: position(binding.position),
           ...(binding.restored === undefined ? {} : {
-            restored: Object.freeze({
-              messages: Object.freeze(
-                binding.restored.messages.map((message) => {
-                  if (message.role === 'user') return userMessage(message);
-                  if (message.role === 'assistant') {
-                    return assistantMessage(
-                      message,
-                      restoredCallIds,
-                      () => `call-${++restoredOrdinal}`,
-                    );
-                  }
-                  return Object.freeze({
-                    role: 'tool' as const,
-                    content: Object.freeze(
-                      message.content.map((item) => result(item, restoredCallId(item.callId))),
-                    ),
-                  });
-                }),
-              ),
-              omitted: binding.restored.omitted,
-            }),
+            restored: restoredPresentationConversation(binding.restored),
           }),
         });
       },

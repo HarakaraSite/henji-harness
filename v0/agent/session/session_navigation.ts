@@ -43,7 +43,25 @@ export interface NavigationListing {
 export interface NavigationBinding {
   readonly session: NavigationSessionLike;
   readonly position: NavigationPosition;
-  readonly restored?: { readonly messages: readonly Message[]; readonly omitted: number };
+  readonly restored?: RestoredConversation;
+}
+
+export interface RestoredThinking {
+  /** Insert before this zero-based canonical transcript message. */
+  readonly beforeMessageIndex: number;
+  readonly turn: number;
+  readonly modelStep: number;
+  readonly thinkingKind: 'text' | 'summary';
+  readonly text: string;
+  readonly complete: boolean;
+}
+
+export interface RestoredConversation {
+  readonly messages: readonly Message[];
+  /** Canonical turn for each message, including steering messages within a turn. */
+  readonly messageTurns?: readonly number[];
+  readonly omitted: number;
+  readonly thinking: readonly RestoredThinking[];
 }
 
 /** A switch crossed a binding/cleanup boundary and cannot safely return to the old session. */

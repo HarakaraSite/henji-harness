@@ -15,11 +15,7 @@ import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider/provid
 import { admitInternalAgentDefinition } from '../../v0/agent/definitions/agent_catalog.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
-import {
-  restoredMessages,
-  type SessionRecord,
-  validateSessionRecord,
-} from '../../v0/agent/session/session_store.ts';
+import { type SessionRecord, validateSessionRecord } from '../../v0/agent/session/session_store.ts';
 import {
   MAX_REPLAY_MESSAGE_TEXT_BYTES,
   MAX_REPLAY_PLANNER_RESULT_BYTES,
@@ -726,9 +722,7 @@ Deno.test('production definitions and saved messages use the expanded text ceili
     throw new Error('assistant text was not retained');
   }
   assertEquals((decodedAssistant.content as { readonly text: string }).text, text);
-  const restored = restoredMessages(record.transcript);
-  assertEquals(restored.omitted, 0);
-  const restoredAssistant = restored.messages[1];
+  const restoredAssistant = record.transcript[1];
   if (restoredAssistant.role !== 'assistant' || Array.isArray(restoredAssistant.content)) {
     throw new Error('restored assistant text was not retained');
   }
@@ -781,7 +775,6 @@ Deno.test('saved sessions preserve assistant text accompanying tool calls', () =
     ],
   };
   assert(validateSessionRecord(record));
-  assertEquals(restoredMessages(record.transcript).messages, record.transcript);
 });
 
 Deno.test('saved message limits retain the user, assistant, and planner result boundaries', () => {

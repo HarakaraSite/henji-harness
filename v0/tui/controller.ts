@@ -974,6 +974,8 @@ export class TuiController {
         this.renderer.renderRestored(
           result.restored?.messages ?? [],
           result.restored?.omitted ?? 0,
+          result.restored?.thinking ?? [],
+          result.restored?.messageTurns,
         );
       }
       this.renderer.setCurrentPosition(result.position);

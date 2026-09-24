@@ -2,7 +2,7 @@
 
 ## Next session
 
-- 利用者指示（2026-09-24）: 次のセッションでは`/sessions`で復元した会話にも、保存済みthinkingを対応する発話・toolと同じ順序で表示する。通常利用メモS15を入口に、復元経路と履歴の参照先を確認して進める。Increment 123の表示改善は完了済み。
+- Increment 124の実装・検証は完了し、利用者確認待ち。正本は`docs/increments/increment-124.md`。`/sessions`と起動時の保存thinking復元、履歴の固定表示切捨て撤去、長い履歴のPageUp／PageDownを確認した。commit・binary配置・push・releaseは未実施。通常実行中の逐次表示は通常利用メモS16のまま。
 
 ## Records
 

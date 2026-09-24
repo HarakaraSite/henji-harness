@@ -29,7 +29,6 @@ import {
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import type { SessionNavigationHost } from '../../v0/agent/session/session_navigation.ts';
-import { restoredMessages } from '../../v0/agent/session/session_store.ts';
 import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
@@ -135,8 +134,7 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
       message.role === 'user' && message.content.text === 'use the new instruction'
     ),
   );
-  const restored = restoredMessages(savedTranscript);
-  renderer.renderRestored(restoredPresentationMessages(restored.messages), restored.omitted);
+  renderer.renderRestored(restoredPresentationMessages(savedTranscript), 0);
   assert(renderer.stateSnapshot().log.entries.some((entry) => entry.text === 'saved answer'));
 
   forwardLiveEvents = true;

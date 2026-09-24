@@ -1,4 +1,4 @@
-import { createUiState, reduceUiAction } from '../../v0/tui/state.ts';
+import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor, TuiEditorHistory } from '../../v0/tui/input.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
@@ -2276,4 +2276,139 @@ Deno.test('idle Ctrl-C clears input without arming or triggering exit', async ()
   assert(!exited);
   terminal.push('\x04');
   assertEquals(await run, 0);
+});
+
+Deno.test('restored thinking stays ordered and PageUp reaches history beyond the old display limits', () => {
+  const renderer = new TuiRenderer(new RecordingTerminal());
+  const messages = Array.from({ length: 300 }, (_, index) => [
+    { role: 'user' as const, content: { kind: 'text' as const, text: `question ${index}` } },
+    { role: 'assistant' as const, content: { kind: 'text' as const, text: `answer ${index}` } },
+  ]).flat();
+  renderer.renderRestored(messages, 0, [{
+    beforeMessageIndex: 599,
+    turn: 300,
+    modelStep: 1,
+    thinkingKind: 'summary',
+    text: 'Read the final question.',
+    complete: true,
+  }]);
+  const entries = renderer.stateSnapshot().log.entries;
+  assert(entries.length > 512);
+  assertEquals(renderer.stateSnapshot().log.omittedCount, 0);
+  const tail = entries.slice(-3);
+  assertEquals(tail.map((entry) => entry.kind), ['user', 'thinking', 'assistant']);
+  assert(
+    renderer.layoutSnapshot().allLog.some((row) => row.text.includes('Read the final question.')),
+  );
+  for (let page = 0; page < 120; page += 1) {
+    const state = renderer.stateSnapshot();
+    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') break;
+    renderer.scrollPage('up');
+  }
+  assertEquals(renderer.stateSnapshot().historyWindow?.start, 0);
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
+  assert(renderer.layoutSnapshot().allLog.some((row) => row.text.includes('question 0')));
+  for (let page = 0; page < 120; page += 1) {
+    if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
+    renderer.scrollPage('down');
+  }
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
+  assertEquals(renderer.stateSnapshot().historyWindow?.end, entries.length);
+  renderer.latest();
+  assert(renderer.layoutSnapshot().allLog.some((row) => row.text.includes('answer 299')));
+});
+
+Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () => {
+  let state = createUiState();
+  for (let turn = 1; turn <= 260; turn += 1) {
+    state = reduceUiEvent(state, {
+      kind: 'user_message',
+      turn,
+      message: { role: 'user', content: { kind: 'text', text: `question ${turn}` } },
+    });
+    state = reduceUiEvent(state, {
+      kind: 'assistant_message',
+      turn,
+      message: { role: 'assistant', content: { kind: 'text', text: `answer ${turn}` } },
+    });
+  }
+  assertEquals(state.log.entries.length, 520);
+  assertEquals(state.log.entries[0].text, 'question 1');
+  assertEquals(state.log.omittedCount, 0);
+  assert((state.historyWindow?.start ?? 0) > 0);
+});
+
+Deno.test('restored conversation retains more than 2 MiB of entry text', () => {
+  const longAnswer = 'A'.repeat(710 * 1024);
+  const messages = Array.from({ length: 3 }, (_, index) => [
+    { role: 'user' as const, content: { kind: 'text' as const, text: `question ${index}` } },
+    { role: 'assistant' as const, content: { kind: 'text' as const, text: longAnswer } },
+  ]).flat();
+  const state = reduceUiEvent(createUiState(), {
+    kind: 'restored_log',
+    messages,
+    omitted: 0,
+  });
+  assertEquals(state.log.entries.length, 6);
+  assertEquals(state.log.entries[1].text.length, longAnswer.length);
+  assertEquals(state.log.entries[5].text.length, longAnswer.length);
+  assertEquals(state.log.omittedCount, 0);
+  assert((state.historyWindow?.start ?? 0) > 0);
+});
+
+Deno.test('restored model steps place thinking around a tool result and final answer', () => {
+  const renderer = new TuiRenderer(new RecordingTerminal());
+  renderer.renderRestored(
+    [
+      { role: 'user', content: { kind: 'text', text: 'Compare the READMEs' } },
+      {
+        role: 'assistant',
+        content: [{
+          kind: 'tool_call',
+          callId: 'read-1',
+          name: 'read',
+          arguments: { path: 'README.md' },
+        }],
+      },
+      {
+        role: 'tool',
+        content: [{
+          kind: 'tool_result',
+          callId: 'read-1',
+          name: 'read',
+          text: 'README contents',
+          outcome: 'success',
+        }],
+      },
+      { role: 'assistant', content: { kind: 'text', text: 'They match.' } },
+    ],
+    0,
+    [
+      {
+        beforeMessageIndex: 1,
+        turn: 1,
+        modelStep: 1,
+        thinkingKind: 'text',
+        text: 'Read both files.',
+        complete: true,
+      },
+      {
+        beforeMessageIndex: 3,
+        turn: 1,
+        modelStep: 2,
+        thinkingKind: 'summary',
+        text: 'Comparison done.',
+        complete: true,
+      },
+    ],
+    [1, 1, 1, 1],
+  );
+  assertEquals(renderer.stateSnapshot().log.entries.map((entry) => entry.kind), [
+    'user',
+    'thinking',
+    'tool',
+    'thinking',
+    'assistant',
+  ]);
+  assertEquals(renderer.stateSnapshot().log.entries[3].label, 'thinking summary>');
 });

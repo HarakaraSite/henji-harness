@@ -17,6 +17,7 @@ import { PendingInputCore } from '../../tui/pending_input.ts';
 import { TuiEditorHistory } from '../../tui/input.ts';
 import { buildWorkspacePathIndex, type WorkspacePathIndex } from '../../tui/file_reference.ts';
 import type { SessionNavigationHost } from '../session/session_navigation.ts';
+import type { RestoredThinking } from '../session/session_navigation.ts';
 import {
   createTuiPresentationAdapter,
   presentationProjectionFromStartup,
@@ -68,6 +69,8 @@ export interface TuiSessionFactoryResult {
   readonly restored?: {
     readonly messages: readonly Message[];
     readonly omitted: number;
+    readonly thinking?: readonly RestoredThinking[];
+    readonly messageTurns?: readonly number[];
   };
   /** Every factory must provide the one startup projection; the TUI never recomputes it. */
   readonly displayState: RuntimeDisplayState;
@@ -418,6 +421,8 @@ export const main = async (
       renderer.renderRestored(
         created.restored.messages,
         created.restored.omitted,
+        created.restored.thinking ?? [],
+        created.restored.messageTurns,
       );
     }
     if (initialPosition !== undefined) {

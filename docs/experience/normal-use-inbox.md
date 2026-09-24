@@ -18,7 +18,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
 | S13 | Surface | 失敗行のExecution ID表示 | 過去の停止実行をTUIから指定して`/recall`したいとき |
 | S14 | Surface | ツール呼び出しに添えたassistant本文の履歴表示 | 作業途中の発話を後から時系列で読みたいとき |
-| S15 | Surface | `/sessions`で復元した会話のthinking表示 | 保存済みSessionをTUIで読み返すとき |
+| S16 | Surface | 通常実行中の出力を一行ずつ追える表示 | 生成中の表示がまとまって現れ、進行を追いにくいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -128,17 +128,15 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: ツール使用の意図と実際の結果を、通常の履歴から後で追いたいとき。
 - 関連: `v0/tui/state.ts`、`v0/agent/history/history_view.ts`、F05。
 
-### S15 — `/sessions`で復元した会話のthinking表示
+### S16 — 通常実行中の出力を一行ずつ追える表示
 
-- 観測（2026-09-24）: 通常実行中は`thinking>`が表示され、`henji history --view session`でも保存済みの
-  thinkingを読める。一方、`/sessions`でSessionを選んだ後のTUIにはthinkingが復元されない。
-  最終的な画面描画は共通だが、復元経路の`restored_log`は確定会話メッセージだけからログを作り、
-  保存済みの`assistant_thinking`イベントを渡していない。
-- 候補: `/sessions`から復元した会話でも、保存済みのthinkingを対応する発話・toolと同じ順序で表示し、
-  通常実行中の表示と読み返し体験を揃える。
-- 再検討条件: 保存済みSessionをTUIで読み返すとき。
-- 関連: Increment 123、`v0/tui/state.ts`、`v0/presentation/tui_presentation_adapter.ts`、
-  `v0/agent/history/history_view.ts`。
+- 観測（2026-09-24）: 利用者はPi等のように、通常実行中の出力が一行ずつ進む見え方を希望した。Henjiは
+  assistant本文を進行中に更新する一方、thinkingはproviderから断片を受け取ってもmodel step終了時に
+  まとめて表示する。現行TUIは更新のたびに画面を再描画する。
+- 候補: 通常実行中の出力を生成に合わせて追える表示を検討する。thinkingの途中表示と画面全体の描画方式は
+  変更範囲が異なるため、採用時に必要な見え方を決める。保存Session復元時の逐次再生は含めない。
+- 再検討条件: 通常実行中に出力がまとまって現れ、進行を追いにくいと感じたとき。
+- 関連: `v0/agent/core/loop.ts`、`v0/tui/tui_renderer.ts`、`v0/tui/state.ts`。
 
 ## Agent実行
 

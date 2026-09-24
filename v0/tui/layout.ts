@@ -411,12 +411,14 @@ const logRows = (
       result.push({ text: '', kind: 'separator' });
     }
   };
-  const startupLines = state.startup === undefined ? [] : startupHeaderLines(
-    state.startup.state,
-    state.startup.position,
-    columns,
-    state.terminalSize.rows,
-  );
+  const startupLines = state.startup === undefined || (state.historyWindow?.start ?? 0) > 0
+    ? []
+    : startupHeaderLines(
+      state.startup.state,
+      state.startup.position,
+      columns,
+      state.terminalSize.rows,
+    );
   for (const line of startupLines) {
     const content = safeDisplay(line);
     sourceBytes += encoder.encode(content).byteLength;
@@ -432,7 +434,10 @@ const logRows = (
   let seenTurnStart = false;
   const awaitingUserOutput = new Set<number>();
   let previousEntryKind: UiLogEntry['kind'] | undefined;
-  for (const entry of state.log.entries) {
+  const visibleEntries = state.historyWindow === undefined
+    ? state.log.entries
+    : state.log.entries.slice(state.historyWindow.start, state.historyWindow.end);
+  for (const entry of visibleEntries) {
     const turnStart = entry.kind === 'user' && entry.label === 'user>';
     const userOutputBoundary = entry.turn !== undefined &&
       awaitingUserOutput.has(entry.turn) &&

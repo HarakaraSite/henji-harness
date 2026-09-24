@@ -8,6 +8,7 @@ import type {
   ContextRecoveryResult,
   NavigationListing,
   NavigationPosition,
+  RestoredConversation,
 } from '../agent/session/session_navigation.ts';
 import {
   boundedPresentationText,
@@ -24,6 +25,7 @@ import {
   type PresentationOutcome,
   type PresentationOutcomeReason,
   type PresentationPosition,
+  type PresentationRestoredConversation,
   type PresentationToolCall,
   type PresentationToolResult,
   type PresentationUserMessage,
@@ -435,3 +437,27 @@ export const restoredPresentationMessages = (
     });
   }));
 };
+
+export const restoredPresentationConversation = (
+  restored: RestoredConversation,
+): PresentationRestoredConversation =>
+  Object.freeze({
+    messages: restoredPresentationMessages(restored.messages),
+    ...(restored.messageTurns === undefined ? {} : {
+      messageTurns: Object.freeze(restored.messageTurns.map(count)),
+    }),
+    omitted: count(restored.omitted),
+    thinking: Object.freeze(restored.thinking.map((item) => {
+      if (item.thinkingKind !== 'text' && item.thinkingKind !== 'summary') {
+        throw new PresentationDeliveryError();
+      }
+      return Object.freeze({
+        beforeMessageIndex: count(item.beforeMessageIndex),
+        turn: count(item.turn),
+        modelStep: count(item.modelStep),
+        thinkingKind: item.thinkingKind,
+        text: text(item.text),
+        complete: item.complete,
+      });
+    })),
+  });

@@ -6,6 +6,7 @@ import {
   type PresentationNavigationListing,
   type PresentationPosition,
   type PresentationProjection,
+  type PresentationRestoredThinking,
   type PresentationStartupState,
   snapshotPresentation,
 } from '../presentation/contract.ts';
@@ -19,8 +20,6 @@ import {
 } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
-export const UI_MAX_LOG_ENTRIES = 512;
-export const UI_MAX_LOG_BYTES = 2 * 1024 * 1024;
 export const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const UI_MAX_NEW_BELOW = 512;
 
@@ -90,6 +89,8 @@ export interface UiState {
   readonly log: Readonly<
     { readonly entries: readonly UiLogEntry[]; readonly omittedCount: number }
   >;
+  /** A rendering window over the complete conversation log. */
+  readonly historyWindow?: Readonly<{ readonly start: number; readonly end: number }>;
   readonly activeAssistantId?: string;
   readonly activeToolIds: readonly string[];
   readonly turnAttemptOrdinal: number;
@@ -200,6 +201,60 @@ export const presentationFailureReason = (
 const freezeEntry = (entry: UiLogEntry): UiLogEntry =>
   Object.freeze({ ...entry, text: safeText(entry.text) });
 
+const HISTORY_WINDOW_BYTES = 1024 * 1024;
+const HISTORY_WINDOW_ENTRIES = 48;
+
+const historyWindowEndingAt = (
+  entries: readonly UiLogEntry[],
+  end: number,
+): Readonly<{ start: number; end: number }> => {
+  let start = end;
+  let size = 0;
+  while (start > 0 && end - start < HISTORY_WINDOW_ENTRIES) {
+    const nextSize = bytes(entries[start - 1].text);
+    if (start < end && size + nextSize > HISTORY_WINDOW_BYTES) break;
+    start -= 1;
+    size += nextSize;
+  }
+  return Object.freeze({ start, end });
+};
+
+const historyWindowStartingAt = (
+  entries: readonly UiLogEntry[],
+  start: number,
+): Readonly<{ start: number; end: number }> => {
+  let end = start;
+  let size = 0;
+  while (end < entries.length && end - start < HISTORY_WINDOW_ENTRIES) {
+    const nextSize = bytes(entries[end].text);
+    if (end > start && size + nextSize > HISTORY_WINDOW_BYTES) break;
+    end += 1;
+    size += nextSize;
+  }
+  return Object.freeze({ start, end });
+};
+
+export const pageHistoryWindow = (state: UiState, direction: 'up' | 'down'): UiState => {
+  const window = state.historyWindow;
+  if (window === undefined) return state;
+  if (direction === 'up') {
+    if (window.start === 0) return state;
+    const next = historyWindowEndingAt(state.log.entries, window.start);
+    return Object.freeze({
+      ...state,
+      historyWindow: next,
+      scroll: Object.freeze({ kind: 'followLatest' as const }),
+    });
+  }
+  if (window.end >= state.log.entries.length) return state;
+  const next = historyWindowStartingAt(state.log.entries, window.end);
+  return Object.freeze({
+    ...state,
+    historyWindow: next,
+    scroll: Object.freeze({ kind: 'oldest' as const }),
+  });
+};
+
 const turnEntryId = (state: UiState, turn: number, suffix: string): string =>
   `turn-${turn}:attempt-${state.turnAttemptOrdinal}:${suffix}`;
 
@@ -216,56 +271,12 @@ const appendEntry = (
       0,
       incoming,
     );}
-  let omittedCount = state.log.omittedCount;
-  let total = entries.reduce((sum, item) => sum + bytes(item.text), 0);
-  const protectedEntry = (item: UiLogEntry): boolean =>
-    item.id === state.activeAssistantId ||
-    (item.callId !== undefined && state.activeToolIds.includes(item.callId)) ||
-    item.id === incoming.id;
-  while (entries.length > UI_MAX_LOG_ENTRIES || total > UI_MAX_LOG_BYTES) {
-    // Completed records are preferred, but a hostile or unusually long live stream must not
-    // bypass the hard retention bounds simply because every retained row is replaceable state.
-    const completed = entries.findIndex((item) => !item.live && !protectedEntry(item));
-    const replaceableLive = entries.findIndex((item) => !protectedEntry(item));
-    const index = completed >= 0 ? completed : replaceableLive;
-    if (index >= 0) {
-      const removed = entries.splice(index, 1)[0];
-      total -= bytes(removed.text);
-      omittedCount = Math.min(UI_MAX_LOG_ENTRIES, omittedCount + 1);
-      continue;
-    }
-    const candidate = entries.findIndex((item) => item.text.length > 0);
-    if (candidate < 0) break;
-    const excess = total - UI_MAX_LOG_BYTES;
-    const compacted = safeTextToBytes(
-      entries[candidate].text,
-      Math.max(0, bytes(entries[candidate].text) - excess),
-    );
-    total -= bytes(entries[candidate].text) - bytes(compacted);
-    entries[candidate] = freezeEntry({
-      ...entries[candidate],
-      text: compacted,
-    });
-  }
-  let scroll = state.scroll;
-  let status = state.status;
-  if (scroll.kind === 'anchored') {
-    const anchor = scroll.entryId;
-    if (!entries.some((item) => item.id === anchor)) {
-      const successor = entries[0];
-      scroll = successor === undefined ? Object.freeze({ kind: 'followLatest' }) : Object.freeze({
-        kind: 'anchored',
-        entryId: successor.id,
-        sourceScalarOffset: 0,
-      });
-      status = 'older output omitted; showing nearest retained entry';
-    }
-  }
   return Object.freeze({
     ...state,
-    status,
-    scroll,
-    log: Object.freeze({ entries: Object.freeze(entries), omittedCount }),
+    log: Object.freeze({ entries: Object.freeze(entries), omittedCount: state.log.omittedCount }),
+    historyWindow: state.scroll.kind === 'followLatest'
+      ? historyWindowEndingAt(entries, entries.length)
+      : state.historyWindow,
   });
 };
 
@@ -294,34 +305,12 @@ const replaceEntry = (
   } else {
     entries[index] = replacement;
   }
-  let omittedCount = state.log.omittedCount;
-  let total = entries.reduce((sum, item) => sum + bytes(item.text), 0);
-  const protectedEntry = (item: UiLogEntry): boolean =>
-    item.id === state.activeAssistantId ||
-    (item.callId !== undefined && state.activeToolIds.includes(item.callId)) ||
-    item.id === id;
-  while (entries.length > UI_MAX_LOG_ENTRIES || total > UI_MAX_LOG_BYTES) {
-    const removable = entries.findIndex((item) => !protectedEntry(item));
-    if (removable >= 0) {
-      const removed = entries.splice(removable, 1)[0];
-      total -= bytes(removed.text);
-      omittedCount = Math.min(UI_MAX_LOG_ENTRIES, omittedCount + 1);
-      continue;
-    }
-    const candidate = entries.findIndex((item) => item.text.length > 0);
-    if (candidate < 0) break;
-    const excess = total - UI_MAX_LOG_BYTES;
-    const nextBytes = Math.max(0, bytes(entries[candidate].text) - excess);
-    const compacted = safeTextToBytes(entries[candidate].text, nextBytes);
-    total -= bytes(entries[candidate].text) - bytes(compacted);
-    entries[candidate] = freezeEntry({
-      ...entries[candidate],
-      text: compacted,
-    });
-  }
   return Object.freeze({
     ...state,
-    log: Object.freeze({ entries: Object.freeze(entries), omittedCount }),
+    log: Object.freeze({ entries: Object.freeze(entries), omittedCount: state.log.omittedCount }),
+    historyWindow: state.scroll.kind === 'followLatest'
+      ? historyWindowEndingAt(entries, entries.length)
+      : state.historyWindow,
   });
 };
 
@@ -351,6 +340,14 @@ const removeLiveEntries = (
     status,
     scroll,
     log: Object.freeze({ ...state.log, entries: Object.freeze(entries) }),
+    historyWindow: state.historyWindow === undefined
+      ? undefined
+      : state.scroll.kind === 'followLatest'
+      ? historyWindowEndingAt(entries, entries.length)
+      : Object.freeze({
+        start: Math.min(state.historyWindow.start, entries.length),
+        end: Math.min(state.historyWindow.end, entries.length),
+      }),
   });
 };
 
@@ -629,58 +626,132 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         generation: event.generation,
       });
     case 'restored_log': {
-      let next: UiState = Object.freeze({
-        ...state,
-        log: Object.freeze({ entries: Object.freeze([]), omittedCount: 0 }),
-        scroll: Object.freeze({ kind: 'followLatest' as const }),
-        newBelowCount: 0,
-        overlay: Object.freeze({ kind: 'none' }),
-      });
+      const entries: UiLogEntry[] = [];
+      const thinkingByIndex = new Map<number, PresentationRestoredThinking[]>();
+      for (const item of event.thinking ?? []) {
+        const items = thinkingByIndex.get(item.beforeMessageIndex) ?? [];
+        items.push(item);
+        thinkingByIndex.set(item.beforeMessageIndex, items);
+      }
+      const addThinking = (index: number): void => {
+        for (const item of thinkingByIndex.get(index) ?? []) {
+          entries.push(freezeEntry({
+            id: `restored:thinking:${item.turn}:${item.modelStep}:${index}`,
+            kind: 'thinking',
+            label: item.thinkingKind === 'summary'
+              ? item.complete ? 'thinking summary>' : 'thinking summary~'
+              : item.complete
+              ? 'thinking>'
+              : 'thinking~',
+            text: item.text,
+            revision: 0,
+            live: false,
+            turn: item.turn,
+          }));
+        }
+      };
       let turn = 0;
-      for (const message of event.messages) {
+      const seenUserTurns = new Set<number>();
+      const assistantIndexByTurn = new Map<number, number>();
+      const callPreviewById = new Map<string, string>();
+      for (let index = 0; index < event.messages.length; index += 1) {
+        addThinking(index);
+        const message = event.messages[index];
+        turn = event.messageTurns?.[index] ?? (message.role === 'user' ? turn + 1 : turn);
         if (message.role === 'user') {
-          turn += 1;
-          next = eventLog(next, { kind: 'user_message', turn, message });
+          const steering = seenUserTurns.has(turn);
+          seenUserTurns.add(turn);
+          entries.push(freezeEntry({
+            id: `restored:user:${index}`,
+            kind: 'user',
+            label: steering ? 'steer>' : 'user>',
+            text: message.content.text,
+            revision: 0,
+            live: false,
+            turn,
+          }));
         } else if (message.role === 'assistant') {
-          if (Array.isArray(message.content)) {
-            if (message.text !== undefined) {
-              next = eventLog(next, { kind: 'assistant_message', turn, message });
+          const assistantText = 'text' in message.content ? message.content.text : message.text;
+          if (assistantText !== undefined) {
+            const priorIndex = assistantIndexByTurn.get(turn);
+            if (priorIndex !== undefined) {
+              entries.splice(priorIndex, 1);
+              for (const [priorTurn, storedIndex] of assistantIndexByTurn) {
+                if (storedIndex > priorIndex) assistantIndexByTurn.set(priorTurn, storedIndex - 1);
+              }
             }
-            for (const call of message.content) {
-              next = eventLog(next, { kind: 'tool_call', turn, call });
-            }
-          } else {next = eventLog(next, {
-              kind: 'assistant_message',
+            assistantIndexByTurn.set(turn, entries.length);
+            entries.push(freezeEntry({
+              id: `restored:assistant:${turn}`,
+              kind: 'assistant',
+              label: 'assistant>',
+              text: assistantText,
+              revision: 0,
+              live: false,
               turn,
-              message,
-            });}
+            }));
+          }
+          if (Array.isArray(message.content)) {
+            for (const call of message.content) {
+              const preview = toolActivityPreview(call.name, call.arguments);
+              callPreviewById.set(`${turn}:${call.callId}`, preview);
+              entries.push(freezeEntry({
+                id: `restored:tool:${turn}:${call.callId}`,
+                kind: 'tool',
+                label: 'tool>',
+                text: pendingToolActivityText(call.name, preview),
+                revision: 0,
+                live: false,
+                turn,
+                callId: call.callId,
+              }));
+            }
+          }
         } else {
           for (const result of message.content) {
-            next = eventLog(next, { kind: 'tool_result', turn, result });
+            const id = `restored:tool:${turn}:${result.callId}`;
+            const text = settledToolActivityText(
+              result.name,
+              result.outcome,
+              callPreviewById.get(`${turn}:${result.callId}`) ?? '',
+            );
+            const priorIndex = entries.findIndex((entry) => entry.id === id);
+            if (priorIndex >= 0) {
+              entries[priorIndex] = freezeEntry({ ...entries[priorIndex], text, revision: 1 });
+            } else {
+              entries.push(freezeEntry({
+                id,
+                kind: 'tool',
+                label: 'tool>',
+                text,
+                revision: 0,
+                live: false,
+                turn,
+                callId: result.callId,
+              }));
+            }
           }
         }
       }
-      const restored = Object.freeze({
-        ...next,
-        log: Object.freeze({
-          ...next.log,
-          entries: Object.freeze(
-            next.log.entries.map((entry) =>
-              Object.freeze({ ...entry, id: `restored:${entry.id}` })
-            ),
-          ),
-        }),
-      });
-      return event.omitted > 0
-        ? appendEntry(restored, {
+      addThinking(event.messages.length);
+      if (event.omitted > 0) {
+        entries.push(freezeEntry({
           id: `history:omitted:${event.omitted}`,
           kind: 'warning',
           label: 'history>',
           text: `${event.omitted} messages omitted`,
           revision: 0,
           live: false,
-        })
-        : restored;
+        }));
+      }
+      return Object.freeze({
+        ...state,
+        log: Object.freeze({ entries: Object.freeze(entries), omittedCount: 0 }),
+        historyWindow: historyWindowEndingAt(entries, entries.length),
+        scroll: Object.freeze({ kind: 'followLatest' as const }),
+        newBelowCount: 0,
+        overlay: Object.freeze({ kind: 'none' }),
+      });
     }
     case 'session_binding_replaced':
       return Object.freeze({
@@ -767,6 +838,7 @@ export const createUiState = (
     projection: projection === undefined ? undefined : snapshotPresentation(projection),
     lifecycle: projection?.lifecycle ?? 'starting',
     log: Object.freeze({ entries: Object.freeze([]), omittedCount: 0 }),
+    historyWindow: Object.freeze({ start: 0, end: 0 }),
     activeToolIds: Object.freeze([]),
     turnAttemptOrdinal: 0,
     editor: Object.freeze({ ...editor }),
@@ -889,6 +961,9 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       return Object.freeze({
         ...state,
         scroll: Object.freeze({ kind: 'followLatest' }),
+        historyWindow: state.historyWindow === undefined
+          ? undefined
+          : historyWindowEndingAt(state.log.entries, state.log.entries.length),
         newBelowCount: 0,
       });
     case 'overlay':

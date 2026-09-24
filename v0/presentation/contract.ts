@@ -1,4 +1,4 @@
-export { PRESENTATION_MAX_EVENT_BYTES, PRESENTATION_MAX_TEXT_BYTES } from './contract_types.ts';
+export { PRESENTATION_MAX_TEXT_BYTES } from './contract_types.ts';
 export type {
   PresentationAgentId,
   PresentationAssistantMessage,
@@ -28,6 +28,8 @@ export type {
   PresentationParseReason,
   PresentationPosition,
   PresentationProjection,
+  PresentationRestoredConversation,
+  PresentationRestoredThinking,
   PresentationStartupState,
   PresentationText,
   PresentationToolCall,

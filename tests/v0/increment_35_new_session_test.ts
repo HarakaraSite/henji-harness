@@ -79,7 +79,7 @@ Deno.test('Increment 47 keeps a new binding temporary until its first durable ch
     assert(temporaryId !== undefined && temporaryId !== oldId);
     assertEquals(result.position.committedTurn, 0);
     assertEquals(result.position.messageCount, 0);
-    assertEquals(result.restored, { messages: [], omitted: 0 });
+    assertEquals(result.restored, { messages: [], omitted: 0, thinking: [] });
     assertEquals(adapter.modelSelectionSnapshot(), inherited);
     await assertSessionNotFound(store, temporaryId);
 

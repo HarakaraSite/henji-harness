@@ -7,8 +7,6 @@ import {
   isSessionTitle,
   MAX_CONTEXT_CHECKPOINT_FILE_BYTES,
   MAX_CONTEXT_SUMMARY_BYTES,
-  MAX_RESTORED_DISPLAY_BYTES,
-  MAX_RESTORED_DISPLAY_MESSAGES,
   MAX_SESSION_FILE_BYTES,
   type SemanticContextCheckpointV1,
   type SessionMetadata,
@@ -603,24 +601,3 @@ export const metadataFromStoredRecord = (
   definition: structuredClone(record.definition),
   modelSelection: structuredClone(record.activeModel),
 });
-
-export const restoredMessages = (
-  transcript: readonly Message[],
-): { readonly messages: readonly Message[]; readonly omitted: number } => {
-  const selected: Message[] = [];
-  let used = 0;
-  for (let index = transcript.length - 1; index >= 0; index -= 1) {
-    if (selected.length >= MAX_RESTORED_DISPLAY_MESSAGES) break;
-    const size = encoder.encode(JSON.stringify(transcript[index])).byteLength;
-    if (size > MAX_RESTORED_DISPLAY_BYTES) {
-      // The newest oversize message leaves no coherent tail; a later oversize message ends the
-      // suffix because skipping it would make the displayed transcript non-contiguous.
-      break;
-    }
-    if (used + size > MAX_RESTORED_DISPLAY_BYTES) break;
-    selected.push(structuredClone(transcript[index]));
-    used += size;
-  }
-  selected.reverse();
-  return { messages: selected, omitted: transcript.length - selected.length };
-};

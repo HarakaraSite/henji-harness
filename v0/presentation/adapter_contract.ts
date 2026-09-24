@@ -9,10 +9,10 @@ import type {
   PresentationContextMetrics,
   PresentationContextPreview,
   PresentationContextResult,
-  PresentationMessage,
   PresentationNavigationListing,
   PresentationOutcome,
   PresentationPosition,
+  PresentationRestoredConversation,
   PresentationStartupState,
 } from './contract.ts';
 import type { ModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
@@ -46,18 +46,12 @@ export interface AdapterNavigationPort {
   createNew?(signal?: AbortSignal): Promise<{
     readonly session: AdapterSessionPort;
     readonly position: PresentationPosition;
-    readonly restored?: {
-      readonly messages: readonly PresentationMessage[];
-      readonly omitted: number;
-    };
+    readonly restored?: PresentationRestoredConversation;
   }>;
   switchTo(id: string, signal?: AbortSignal): Promise<{
     readonly session: AdapterSessionPort;
     readonly position: PresentationPosition;
-    readonly restored?: {
-      readonly messages: readonly PresentationMessage[];
-      readonly omitted: number;
-    };
+    readonly restored?: PresentationRestoredConversation;
   }>;
   currentPosition(): PresentationPosition;
 }

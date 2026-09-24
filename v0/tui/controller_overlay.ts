@@ -483,10 +483,9 @@ export class ControllerOverlay {
     );
     try {
       let position: PresentationPosition;
-      let restored: {
-        readonly messages: readonly import('../presentation/contract.ts').PresentationMessage[];
-        readonly omitted: number;
-      } | undefined;
+      let restored:
+        | import('../presentation/contract.ts').PresentationRestoredConversation
+        | undefined;
       if (intents !== undefined) {
         const result = await this.options.dispatch({ kind: 'resume_session', id });
         if (result.kind !== 'binding') throw new PresentationDeliveryError();
@@ -508,7 +507,12 @@ export class ControllerOverlay {
       this.modal = null;
       renderer.clearModal?.();
       if (intents === undefined && restored !== undefined) {
-        renderer.renderRestored(restored.messages, restored.omitted);
+        renderer.renderRestored(
+          restored.messages,
+          restored.omitted,
+          restored.thinking,
+          restored.messageTurns,
+        );
       }
       if (!this.options.isIdle()) return;
       renderer.setCurrentPosition?.(position);

@@ -26,19 +26,20 @@ import type {
   NavigationListing,
   NavigationPosition,
   NavigationSessionLike,
+  RestoredConversation,
   SessionNavigationHost,
 } from '../session/session_navigation.ts';
 import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
 import {
   type DefinitionRevisionRef,
   launcherStateRoot,
-  restoredMessages,
   type SemanticContextCheckpointV1,
   type SessionRecord,
   SessionStoreError,
   type StoredSessionRecord,
   type WorkerSessionHandle,
 } from '../session/session_store.ts';
+import { causalTranscriptIndex } from '../session/session_record_codec.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import {
   managedToolDefinitionLoadRequest,
@@ -143,10 +144,7 @@ export interface WorkerSessionResult {
   readonly requestCount: () => number;
   readonly close: () => Promise<void>;
   readonly workspaceRoot: string;
-  readonly restored?: {
-    readonly messages: readonly Message[];
-    readonly omitted: number;
-  };
+  readonly restored?: RestoredConversation;
   readonly displayState: RuntimeDisplayState;
   readonly navigation?: SessionNavigationHost;
 }
@@ -164,10 +162,62 @@ const navigationPosition = (
 });
 
 const restoreRecordMessages = (
-  record: StoredSessionRecord | undefined,
-):
-  | { readonly messages: readonly Message[]; readonly omitted: number }
-  | undefined => record === undefined ? undefined : restoredMessages(record.transcript);
+  record: StoredSessionRecord,
+  history: SqliteHistoryV7ProductionStore,
+): RestoredConversation => {
+  const index = record.transcript.length === 0
+    ? { turns: [] as const }
+    : causalTranscriptIndex(record.transcript);
+  if (index === undefined) throw new SessionStoreError('session_invalid');
+  const canonicalThinking = new Map(
+    history.readSessionHistory(record.sessionId)
+      .filter(({ execution }) =>
+        execution.adoption === 'canonical' && execution.parentExecutionId === undefined
+      )
+      .map(({ execution, thinking }) => [execution.turn, thinking] as const),
+  );
+  const observations: RestoredConversation['thinking'][number][] = [];
+  const messageTurns: number[] = [];
+  for (const range of index.turns) {
+    for (let messageIndex = range.start; messageIndex < range.end; messageIndex += 1) {
+      messageTurns[messageIndex] = range.turn;
+    }
+    const thinking = canonicalThinking.get(range.turn) ?? [];
+    let modelStep = 0;
+    for (let messageIndex = range.start; messageIndex < range.end; messageIndex += 1) {
+      if (record.transcript[messageIndex].role !== 'assistant') continue;
+      modelStep += 1;
+      for (const item of thinking) {
+        if (item.modelStep !== modelStep) continue;
+        observations.push({
+          beforeMessageIndex: messageIndex,
+          turn: range.turn,
+          modelStep: item.modelStep,
+          thinkingKind: item.thinkingKind,
+          text: item.text,
+          complete: item.complete,
+        });
+      }
+    }
+    for (const item of thinking) {
+      if (item.modelStep <= modelStep) continue;
+      observations.push({
+        beforeMessageIndex: range.end,
+        turn: range.turn,
+        modelStep: item.modelStep,
+        thinkingKind: item.thinkingKind,
+        text: item.text,
+        complete: item.complete,
+      });
+    }
+  }
+  return {
+    messages: record.transcript.map((message) => structuredClone(message)),
+    messageTurns,
+    omitted: 0,
+    thinking: observations,
+  };
+};
 
 /** Methods the TUI navigation and presentation use on the active session. */
 export interface TuiActiveSession extends NavigationSessionLike {
@@ -709,7 +759,7 @@ export const createWorkerSession = async (
         return {
           session: currentHost,
           position: position(),
-          restored: { messages: [], omitted: 0 },
+          restored: { messages: [], omitted: 0, thinking: [] },
         };
       },
       async switchTo(
@@ -733,11 +783,11 @@ export const createWorkerSession = async (
             definition,
             () => openHost(targetHandle),
           );
+          const restored = restoreRecordMessages(targetRecord, sqliteHistory!);
           await currentHost.close();
           currentHost = lazy;
           currentHandle = targetHandle;
           currentRecord = targetRecord;
-          const restored = restoreRecordMessages(targetRecord);
           return {
             session: currentHost,
             position: position(),
@@ -756,7 +806,9 @@ export const createWorkerSession = async (
       close: () => currentHost.close(),
       workspaceRoot: workspace.root,
       displayState,
-      ...(currentRecord === undefined ? {} : { restored: restoreRecordMessages(currentRecord) }),
+      ...(currentRecord === undefined ? {} : {
+        restored: restoreRecordMessages(currentRecord, sqliteHistory!),
+      }),
       ...(navigation === undefined ? {} : { navigation }),
     };
   } catch (error) {

@@ -10,6 +10,7 @@ import {
   type PresentationOutcome,
   type PresentationPosition,
   type PresentationProjection,
+  type PresentationRestoredThinking,
   type PresentationStartupState,
 } from '../presentation/contract.ts';
 import {
@@ -34,6 +35,7 @@ import type { EditorSnapshot } from './input.ts';
 import type { PendingMetadataSnapshot } from './pending_input.ts';
 import {
   createUiState,
+  pageHistoryWindow,
   reduceUiAction,
   reduceUiEvent,
   setUiProjection,
@@ -544,6 +546,31 @@ export class TuiRenderer implements TerminalRendererGate {
       if (anchored >= 0) currentStart = anchored;
     }
     const maxStart = Math.max(0, rows.length - viewport);
+    const history = this.ui.historyWindow;
+    if (direction === 'up' && currentStart === 0 && history !== undefined && history.start > 0) {
+      this.ui = pageHistoryWindow(this.ui, 'up');
+      const firstVisible = this.layoutSnapshot().log.find((row) => row.entryId !== undefined);
+      if (firstVisible?.entryId !== undefined) {
+        this.ui = reduceUiAction(this.ui, {
+          kind: 'scroll',
+          mode: {
+            kind: 'anchored',
+            entryId: firstVisible.entryId,
+            sourceScalarOffset: firstVisible.sourceScalarOffset ?? 0,
+          },
+        });
+      }
+      this.redraw();
+      return;
+    }
+    if (
+      direction === 'down' && currentStart >= maxStart && history !== undefined &&
+      history.end < this.ui.log.entries.length
+    ) {
+      this.ui = pageHistoryWindow(this.ui, 'down');
+      this.redraw();
+      return;
+    }
     if (maxStart === 0) {
       if (this.ui.scroll.kind !== 'followLatest') this.latest();
       return;
@@ -556,8 +583,10 @@ export class TuiRenderer implements TerminalRendererGate {
       ),
     );
     if (direction === 'down' && nextStart === maxStart) {
-      this.latest();
-      return;
+      if (history === undefined || history.end >= this.ui.log.entries.length) {
+        this.latest();
+        return;
+      }
     }
     if (direction === 'up' && nextStart === 0) {
       this.ui = reduceUiAction(this.ui, {
@@ -695,10 +724,21 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  /** Render a bounded committed transcript before accepting new input. */
-  renderRestored(messages: readonly PresentationMessage[], omitted = 0): void {
+  /** Render the complete committed transcript, showing its tail first. */
+  renderRestored(
+    messages: readonly PresentationMessage[],
+    omitted = 0,
+    thinking: readonly PresentationRestoredThinking[] = [],
+    messageTurns?: readonly number[],
+  ): void {
     if (this.closing) throw new PresentationDeliveryError();
-    this.ui = reduceUiEvent(this.ui, { kind: 'restored_log', messages, omitted });
+    this.ui = reduceUiEvent(this.ui, {
+      kind: 'restored_log',
+      messages,
+      omitted,
+      thinking,
+      ...(messageTurns === undefined ? {} : { messageTurns }),
+    });
     this.redraw();
   }
 
