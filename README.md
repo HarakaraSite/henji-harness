@@ -1,28 +1,38 @@
 # Henji Harness
 
-Henji Harnessは、Denoで開発しているローカル実行向けのagent harnessである。対話型TUIと非対話実行、
-Session履歴、切り替え可能なproviderとmodel、TypeScriptによるAgent Definitionを一つのstandalone
-executableから利用できる。Henjiという名前は、日本語の「返事」に由来する。
+English | [日本語](README.ja.md)
 
-現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker lifecycle、SQLiteへ保存する履歴、Sessionで
-使用するexact Agent Definitionの選択を担う。headlessなAgent Workerは、built-inまたはinstall済みの信頼された
-TypeScript Definitionを評価し、現在のmodel、instructions、toolsを構成する。親Definitionは`agent:<name>` catalogを宣言でき、modelは`spawn_subagent`で別Deno Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む（V1 fork/join）。一般的な
-Surfaceの置換、durable AgentInstanceのrevision transition、Definitionから構成可能なcontextとloopはまだ実装して
-いない。
+Henji Harness is a locally-run agent harness developed in Deno. From a single standalone
+executable, it provides an interactive TUI and non-interactive runs, Session history,
+switchable providers and models, and TypeScript Agent Definitions. The name Henji comes from
+the Japanese word "henji" (返事), meaning "reply".
 
-長期的には、実際の利用経験から改訂候補を作り、人間が明示的に採用する自己改訂workflowを目指している。
-この自己改訂workflowはまだ実装していない。
+In the current Henji runtime, the Host handles the TUI and headless Surfaces, Worker
+lifecycle, history stored in SQLite, and selection of the exact Agent Definition used by a
+Session. The headless Agent Worker evaluates a built-in or installed trusted TypeScript
+Definition and composes the current model, instructions, and tools. A parent Definition can
+declare an `agent:<name>` catalog; the model can start a child in a separate Deno Worker and
+separate Execution with `spawn_subagent`, and take in the child result with
+`collect_subagent` (V1 fork/join). General Surface replacement, revision transitions of
+durable AgentInstances, and context and loops composable from a Definition are not yet
+implemented.
 
-## 開発状況
+Long term, the goal is a self-revision workflow that creates revision candidates from actual
+usage experience and has a human explicitly adopt them. This self-revision workflow is not
+yet implemented.
 
-現在は0.xの開発版であり、CLI、保存形式、Agent Definition APIを含む破壊的変更がしばしば入る。
-既存SessionやDefinitionのmigration、旧形式の互換読込を提供しないこともある。利用時はversionを固定し、
-更新前に変更内容を確認すること。
+## Development status
+
+This is currently a 0.x development version, and breaking changes are frequent, including to
+the CLI, storage formats, and the Agent Definition API. Migrations for existing Sessions and
+Definitions, and compatibility reads of older formats, are sometimes not provided. When using
+it, pin the version and check the changes before updating.
 
 ## Quick Start
 
-現在のcheckoutはDeno 2.9.7を使用する。Denoの導入方法は
-[公式installation guide](https://docs.deno.com/runtime/getting_started/installation/)を参照する。
+The current checkout uses Deno 2.9.7. See the
+[official installation guide](https://docs.deno.com/runtime/getting_started/installation/) for
+how to install Deno.
 
 ```sh
 git clone https://forge.harakara.site/littleisland/henji-harness.git
@@ -31,7 +41,7 @@ deno task --config deno.v0.json henji:compile
 ./dist/henji --version
 ```
 
-既定providerのOpenRouter API keyを、所有者だけが読めるfileへ保存する。
+Save the OpenRouter API key for the default provider in a file readable only by its owner.
 
 ```sh
 henji_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness"
@@ -39,52 +49,61 @@ install -d -m 700 "$henji_config_dir"
 install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
 ```
 
-作業対象のdirectoryでTUIを起動する。promptを入力してEnterで送信し、`/help`でcommandを確認できる。
+Start the TUI in the directory you want to work in. Type a prompt and press Enter to send it,
+and use `/help` to see the commands.
 
 ```sh
 cd /path/to/your/workspace
 /path/to/henji-harness/dist/henji
 ```
 
-非対話実行と保存済みSessionの一覧も同じbinaryから利用できる。
+Non-interactive runs and listing saved Sessions are also available from the same binary.
 
 ```sh
-printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
-/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して'
-/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --json
-/path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --stream
+printf 'Summarize the README\n' | /path/to/henji-harness/dist/henji run
+/path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace'
+/path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace' --json
+/path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace' --stream
 /path/to/henji-harness/dist/henji sessions list
 ```
 
-`run`は既定でfinal textのみをstdoutへ出す。`--json`はturn中のeventを1行1 JSON（NDJSON、`{"v":1,"kind":...}`）
-でstdoutへ出し、最後に`result` recordを出す。`--stream`はassistant textをstdoutへ逐次、tool activityの要約を
-stderrへ出す。`--json`と`--stream`は排他。未知の`kind`は無視してよい。`--json`は単一objectを返す
-`tool --json`とは異なる。
+By default, `run` writes only the final text to stdout. `--json` writes the events during a
+turn as one JSON per line (NDJSON, `{"v":1,"kind":...}`) to stdout, and emits a `result`
+record at the end. `--stream` writes assistant text to stdout incrementally and a summary of
+tool activity to stderr. `--json` and `--stream` are mutually exclusive. Unknown `kind`
+values may be ignored. `--json` differs from `tool --json`, which returns a single object.
 
-OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
-`henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で起動する。
-OpenRouterは既定の`openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
-`providers/*.json`のdata-only declarationで、対応protocolを使う別provider IDも追加できる。
+To use OpenAI direct, save the key as `openai-api-key` in the same config directory, and start
+with `henji --root-provider openai-responses` for the Responses API or
+`henji --root-provider openai-chat` for Chat Completions. For OpenRouter you can choose the
+default `openrouter-chat` or `openrouter-responses`, which uses the same
+`openrouter-api-key`. Data-only declarations in `providers/*.json` let you add other provider
+IDs that speak a supported protocol.
 
-## 現在使える主な機能
+## Main features available now
 
-- TUIとheadlessな`run`
-- OpenRouter（Chat Completions/Responses）とOpenAI directのprovider・model・reasoning effort切替
-- SQLiteへ保存するSession、会話履歴、失敗・中断を含む実行記録
-- `/new`、`/sessions`、`/history`、`/recall`などのTUI command
-- TypeScript Agent Definitionのinstall、versioned revision、export/import、実行
-- Henji base instructionのinstall、exact revisionのactivate/deactivate、実行時attribution
-- `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換Skillの読込み
+- TUI and headless `run`
+- Switching of provider, model, and reasoning effort for OpenRouter (Chat Completions /
+  Responses) and OpenAI direct
+- Sessions, conversation history, and execution records (including failures and
+  interruptions) stored in SQLite
+- TUI commands such as `/new`, `/sessions`, `/history`, and `/recall`
+- Install, versioned revisions, export/import, and execution of TypeScript Agent Definitions
+- Install of the Henji base instruction, activate/deactivate of an exact revision, and
+  runtime attribution
+- Loading of `AGENTS.md` and of workspace/user-scoped Zot, Claude, and Agents-compatible
+  Skills
 
-runtime配置は、credential値を表示しない`henji diagnostics runtime`で確認できる。既定ではconfigを
-`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataを
-`${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Session stateを
-`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness`へ保存する。
+You can check the runtime layout with `henji diagnostics runtime`, which does not display
+credential values. By default it stores config in
+`${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`, managed data in
+`${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`, and Session state in
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness`.
 
 ## Agent Definition
 
-local TypeScript Agent Definitionは、実行前にmanaged dataへinstallする。installされたrevisionはimmutableで、
-実行時にexact revisionを指定する。
+Local TypeScript Agent Definitions are installed into managed data before execution.
+Installed revisions are immutable, and you specify the exact revision at run time.
 
 ```sh
 ./dist/henji module install ./agent/entry.ts --id team/answer-agent
@@ -94,31 +113,35 @@ local TypeScript Agent Definitionは、実行前にmanaged dataへinstallする�
 
 ## Henji Instruction
 
-Henji共通のbase instructionは、最小のbuilt-in core（役割identityとcredential/Authorization境界）を既定で
-使う。詳細な作業方針は、次のuser-scopedファイルへ置くだけで読み込まれる（installやactivateは不要）。
+The Henji common base instruction uses a minimal built-in core (the role identity and the
+credential/Authorization boundary) by default. Detailed working policy is loaded simply by
+placing it in the following user-scoped file (no install or activate needed).
 
 ```text
 ${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/instruction.md
 ```
 
-ファイルが存在すればbuilt-in coreを置き換え、存在しなければ最小coreを使う。内容はtrim・改行変換・Unicode
-normalizationをせずbyte-equivalentに扱い、source identity（`user/instruction.md`）とcontent digestとして
-execution attributionへ記録する。ファイルが読めない場合や内容が不正な場合は、built-inへ暗黙fallbackせず
-turn開始前に失敗する。
+If the file exists it replaces the built-in core, and if it does not exist the minimal core
+is used. The content is treated byte-equivalently, without trimming, newline conversion, or
+Unicode normalization, and is recorded in execution attribution as the source identity
+(`user/instruction.md`) and a content digest. If the file cannot be read or its content is
+invalid, it fails before the turn starts rather than silently falling back to the built-in.
 
-推奨する詳細方針の雛形は
-[`docs/operations/base-instruction-template.md`](docs/operations/base-instruction-template.md)にある。
+A recommended template for detailed policy is in
+[`docs/operations/base-instruction-template.md`](docs/operations/base-instruction-template.md).
 
-詳細な設計と実装状況は[構想](docs/concepts/experience-driven-self-revision.md)、
-[architecture](docs/architecture/henji-host-agent-worker.md)、[roadmap](docs/roadmap.md)を参照する。
+For detailed design and implementation status, see the
+[concept](docs/concepts/experience-driven-self-revision.md),
+[architecture](docs/architecture/henji-host-agent-worker.md), and
+[roadmap](docs/roadmap.md).
 
 ## JSR package
 
-[`@henji/harness`](https://jsr.io/@henji/harness)は、TypeScriptのAgent Definitionを組み立てるための
-composition APIを公開する。JSRからnative binaryは配布しない。CLIを使う場合はrepository checkoutから
-buildする。
+[`@henji/harness`](https://jsr.io/@henji/harness) exposes a composition API for building
+TypeScript Agent Definitions. Native binaries are not distributed from JSR. To use the CLI,
+build it from a repository checkout.
 
-0.xではAPIやcontractが互換性なく変わることがあるため、exact versionを指定する。
+In 0.x, APIs and contracts may change incompatibly, so specify an exact version.
 
 ```sh
 deno add --save-exact jsr:@henji/harness@0.5.0
@@ -136,7 +159,8 @@ const definition: ExecutableAgentDefinition = (input) =>
 export default definition;
 ```
 
-`createPlannerAgentComposition`も同じ入力境界でplanner Definitionをroot-runnableに構成できる。
+`createPlannerAgentComposition` can likewise compose a planner Definition into a
+root-runnable form with the same input boundary.
 
 ## Links
 
