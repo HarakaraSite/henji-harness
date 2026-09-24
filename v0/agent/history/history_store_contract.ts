@@ -1,4 +1,5 @@
-import type { LoopOutcome, ProviderExactRequestObservation } from '../core/contracts.ts';
+import type { LoopOutcome, Message, ProviderExactRequestObservation } from '../core/contracts.ts';
+import type { AgentEvent } from '../core/events.ts';
 import type {
   ProviderEvidenceObservation,
   ProviderEvidenceV3,
@@ -282,6 +283,13 @@ export interface StoredExecutionRow {
   readonly diagnosticId?: string;
   readonly artifactCapture: string;
   readonly contextCapture: 'none' | 'partial' | 'complete' | 'failed';
+}
+
+/** Human session timeline input from semantic rows, without diagnostic attachments. */
+export interface StoredSessionHistoryExecution {
+  readonly execution: StoredExecutionRow;
+  readonly messages: readonly Message[];
+  readonly thinking: readonly Extract<AgentEvent, { readonly kind: 'assistant_thinking' }>[];
 }
 
 export interface BeginExecutionInput extends HistoryExecutionInput {

@@ -107,15 +107,35 @@ const validateMessage = (value: unknown): value is Message => {
       ? state as Record<string, unknown>
       : undefined;
     const reasoningDetails = stateRecord?.reasoningDetails;
+    const reasoning = stateRecord?.reasoning;
     const replayItems = stateRecord?.replayItems;
     if (hasProviderState) {
       if (stateRecord === undefined) return false;
-      if (Object.hasOwn(stateRecord, 'reasoningDetails')) {
+      if (!Object.hasOwn(stateRecord, 'replayItems')) {
+        const reasoningRecord = typeof reasoning === 'object' && reasoning !== null &&
+            !Array.isArray(reasoning)
+          ? reasoning as Record<string, unknown>
+          : undefined;
         if (
           typeof stateRecord.provider !== 'string' || stateRecord.provider.length === 0 ||
-          !ownKeys(stateRecord, ['provider', 'reasoningDetails']) ||
-          !Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
-          !reasoningDetails.every(isFiniteJson)
+          !ownKeys(stateRecord, [
+            'provider',
+            ...(Object.hasOwn(stateRecord, 'model') ? ['model'] : []),
+            ...(Object.hasOwn(stateRecord, 'reasoning') ? ['reasoning'] : []),
+            ...(Object.hasOwn(stateRecord, 'reasoningDetails') ? ['reasoningDetails'] : []),
+          ]) ||
+          (stateRecord.model !== undefined &&
+            (typeof stateRecord.model !== 'string' || stateRecord.model.length === 0)) ||
+          (reasoning === undefined && reasoningDetails === undefined) ||
+          (reasoning !== undefined &&
+            (reasoningRecord === undefined ||
+              !ownKeys(reasoningRecord, ['field', 'text']) ||
+              (reasoningRecord.field !== 'reasoning' &&
+                reasoningRecord.field !== 'reasoning_content') ||
+              typeof reasoningRecord.text !== 'string' || reasoningRecord.text.length === 0)) ||
+          (reasoningDetails !== undefined &&
+            (!Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+              !reasoningDetails.every(isFiniteJson)))
         ) return false;
       } else {
         const keys = Object.keys(stateRecord);

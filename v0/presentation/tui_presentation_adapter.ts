@@ -154,6 +154,16 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
           text: text(event.text),
         });
         return;
+      case 'assistant_thinking':
+        this.emit({
+          kind: 'assistant_thinking',
+          turn: event.turn,
+          modelStep: event.modelStep,
+          thinkingKind: event.thinkingKind,
+          text: text(event.text),
+          complete: event.complete,
+        });
+        return;
       case 'tool_call': {
         const callId = this.callIds.get(event.call.callId) ??
           `call-${++this.callOrdinal}`;

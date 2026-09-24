@@ -16,6 +16,8 @@ import {
   validateProviderEvidenceObservation,
 } from '../../v0/agent/provider/provider_evidence.ts';
 import { OpenRouterAgentError } from '../../v0/agent/provider/openrouter_contract.ts';
+import { decodeResponse } from '../../v0/agent/provider/openrouter_response.ts';
+import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -483,8 +485,20 @@ const chatModel = (
 };
 
 Deno.test('Increment 101 chat accepts OpenCode Go usage-null chunks and an empty-choices usage frame', async () => {
-  const result = await chatModel(openCodeGoChatStream()).generate(request, {});
-  assertEquals(result, { kind: 'final', text: 'PROBE_CHAT_OK' });
+  const thinking: { kind: 'text' | 'summary'; text: string }[] = [];
+  const result = await chatModel(openCodeGoChatStream()).generate(request, {
+    reportThinkingDelta: (delta) => thinking.push(delta),
+  });
+  assertEquals(thinking, [{ kind: 'text', text: 'thinking' }]);
+  assertEquals(result, {
+    kind: 'final',
+    text: 'PROBE_CHAT_OK',
+    providerState: {
+      provider: 'opencode-go-chat',
+      model: 'glm-5.3-flash',
+      reasoning: { field: 'reasoning_content', text: 'thinking' },
+    },
+  });
 });
 
 Deno.test('Increment 101 chat accepts a terminal frame that carries usage', async () => {
@@ -575,7 +589,15 @@ Deno.test('Increment 116 glm-5.3 accepts null role on continuation deltas', asyn
   ].join('');
   assertEquals(
     await chatModel(stream).generate(request),
-    { kind: 'final', text: 'こんにちは。' },
+    {
+      kind: 'final',
+      text: 'こんにちは。',
+      providerState: {
+        provider: 'opencode-go-chat',
+        model: 'glm-5.3-flash',
+        reasoning: { field: 'reasoning_content', text: 'The' },
+      },
+    },
   );
 });
 
@@ -621,6 +643,7 @@ Deno.test('Increment 116 declared Chat keeps only its own reasoning state on the
     text: 'reply',
     providerState: {
       provider: 'opencode-go-chat',
+      model: 'glm-5.3-flash',
       reasoningDetails: [{ type: 'reasoning.text', text: 'new private' }],
     },
   });
@@ -649,6 +672,140 @@ Deno.test('Increment 116 declared Chat keeps only its own reasoning state on the
   });
   assert(JSON.stringify(continuationBody).includes('new private'));
   assert(!JSON.stringify(continuationBody).includes('foreign private'));
+});
+
+Deno.test('Increment 119 replays OpenCode Go reasoning_content with a tool continuation', async () => {
+  const stream = `data: ${
+    JSON.stringify({
+      id: 'chatcmpl_reasoning_tool',
+      choices: [{
+        index: 0,
+        delta: {
+          role: 'assistant',
+          reasoning_content: 'Read the English ',
+          tool_calls: [{
+            index: 0,
+            id: 'call_readme',
+            type: 'function',
+            function: { name: 'read', arguments: '{"path":"README.md"}' },
+          }],
+        },
+        finish_reason: null,
+      }],
+    })
+  }\n\ndata: ${
+    JSON.stringify({
+      id: 'chatcmpl_reasoning_tool',
+      choices: [{
+        index: 0,
+        delta: { reasoning_content: 'README first.' },
+        finish_reason: 'tool_calls',
+      }],
+    })
+  }\n\ndata: [DONE]\n\n`;
+  const result = await chatModel(stream).generate(request);
+  assertEquals(result, {
+    kind: 'tool_calls',
+    calls: [{ callId: 'call_readme', name: 'read', arguments: { path: 'README.md' } }],
+    providerState: {
+      provider: 'opencode-go-chat',
+      model: 'glm-5.3-flash',
+      reasoning: { field: 'reasoning_content', text: 'Read the English README first.' },
+    },
+  });
+  assert(result.kind === 'tool_calls');
+  let continuationBody: Record<string, unknown> | undefined;
+  await chatModel(openCodeGoChatStream(), (body) => continuationBody = body).generate({
+    ...request,
+    transcript: [
+      ...request.transcript,
+      {
+        role: 'assistant',
+        content: result.calls.map((call) => ({ ...call, kind: 'tool_call' as const })),
+        providerState: result.providerState,
+      },
+      {
+        role: 'tool',
+        content: [{
+          kind: 'tool_result',
+          callId: 'call_readme',
+          name: 'read',
+          text: '# README',
+          outcome: 'success',
+        }],
+      },
+    ],
+  });
+  const messages = continuationBody?.messages as Record<string, unknown>[];
+  assertEquals(messages[2].reasoning_content, 'Read the English README first.');
+  assertEquals(messages[2].tool_calls !== undefined, true);
+});
+
+Deno.test('Increment 119 preserves Chat reasoning alias and scopes replay to one model', () => {
+  const result = decodeResponse(
+    {
+      choices: [{
+        message: { role: 'assistant', content: 'done', reasoning: 'Compared both files.' },
+      }],
+    },
+    'openrouter-chat',
+    'model-A',
+  );
+  assertEquals(result.providerState, {
+    provider: 'openrouter-chat',
+    model: 'model-A',
+    reasoning: { field: 'reasoning', text: 'Compared both files.' },
+  });
+  assert(result.kind === 'final');
+  const transcript: ModelRequest['transcript'] = [
+    { role: 'user', content: { kind: 'text', text: 'compare' } },
+    {
+      role: 'assistant',
+      content: { kind: 'text', text: result.text },
+      providerState: result.providerState,
+    },
+    { role: 'user', content: { kind: 'text', text: 'continue' } },
+  ];
+  const same = encodeRequest({ transcript, tools: [] }, true, 'openrouter-chat', 'model-A');
+  const other = encodeRequest({ transcript, tools: [] }, true, 'openrouter-chat', 'model-B');
+  assertEquals((same.messages[1] as { reasoning?: string }).reasoning, 'Compared both files.');
+  assertEquals((other.messages[1] as { reasoning?: string }).reasoning, undefined);
+
+  const structured = decodeResponse(
+    {
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: 'done',
+          reasoning: 'Readable summary.',
+          reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-item' }],
+        },
+      }],
+    },
+    'openrouter-chat',
+    'model-A',
+  );
+  const both = encodeRequest(
+    {
+      transcript: [
+        transcript[0],
+        {
+          role: 'assistant',
+          content: { kind: 'text', text: 'done' },
+          providerState: structured.providerState,
+        },
+        transcript[2],
+      ],
+      tools: [],
+    },
+    true,
+    'openrouter-chat',
+    'model-A',
+  );
+  assertEquals((both.messages[1] as { reasoning_details?: unknown }).reasoning_details, [
+    { type: 'reasoning.encrypted', data: 'opaque-item' },
+  ]);
+  assertEquals((both.messages[1] as { reasoning?: string }).reasoning, undefined);
 });
 
 Deno.test('Increment 101 chat rejects a usage-only frame before the terminal frame', async () => {

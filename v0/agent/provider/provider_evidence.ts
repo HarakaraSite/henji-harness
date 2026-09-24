@@ -430,9 +430,18 @@ const validToolResult = (value: unknown): value is ToolResultContent => {
 const validProviderState = (value: unknown): boolean =>
   value === undefined || (
     isRecord(value) && typeof value.provider === 'string' && value.provider.length > 0 &&
-    hasExactKeys(value, ['provider', 'reasoningDetails']) &&
-    Array.isArray(value.reasoningDetails) &&
-    value.reasoningDetails.every(isJsonValue)
+    hasExactKeys(value, ['provider'], ['model', 'reasoning', 'reasoningDetails']) &&
+    (value.model === undefined || typeof value.model === 'string' && value.model.length > 0) &&
+    (value.reasoning === undefined ||
+      isRecord(value.reasoning) &&
+        hasExactKeys(value.reasoning, ['field', 'text']) &&
+        (value.reasoning.field === 'reasoning' ||
+          value.reasoning.field === 'reasoning_content') &&
+        typeof value.reasoning.text === 'string' && value.reasoning.text.length > 0) &&
+    (value.reasoningDetails === undefined ||
+      Array.isArray(value.reasoningDetails) && value.reasoningDetails.length > 0 &&
+        value.reasoningDetails.every(isJsonValue)) &&
+    (value.reasoning !== undefined || value.reasoningDetails !== undefined)
   ) || (
     isRecord(value) && typeof value.provider === 'string' &&
     value.provider.length > 0 &&

@@ -1,7 +1,7 @@
 import { launcherStateRoot, sessionPaths } from '../session/session_store_paths.ts';
 import { isSessionId } from '../session/session_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
-import { renderCanonicalView, renderSessionView } from '../history/history_view.ts';
+import { renderCanonicalView, renderSessionTimeline } from '../history/history_view.ts';
 
 const encoder = new TextEncoder();
 /** Full UUID or a hex short-id prefix as shown by the TUI footer / session picker. */
@@ -147,12 +147,12 @@ export const main = async (args: readonly string[]): Promise<number> => {
       }
       return 0;
     }
-    const record = await store.readWorker(sessionId);
-    await writeStdout(
-      command.view === 'canonical'
-        ? renderCanonicalView(record, workspaceRoot)
-        : renderSessionView(record),
-    );
+    if (command.view === 'session') {
+      await writeStdout(renderSessionTimeline(store.readSessionHistory(sessionId)));
+    } else {
+      const record = await store.readWorker(sessionId);
+      await writeStdout(renderCanonicalView(record, workspaceRoot));
+    }
     return 0;
   } catch {
     await writeStderr('history read failed\n');

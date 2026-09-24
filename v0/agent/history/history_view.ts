@@ -6,6 +6,8 @@ import {
 } from '../tools/tool_activity.ts';
 import type { AssistantMessage, ToolCallContent } from '../core/contracts.ts';
 import type { StoredSessionRecord } from '../session/session_store_contract.ts';
+import type { StoredSessionHistoryExecution } from './history_store_contract.ts';
+import type { Message } from '../core/contracts.ts';
 import { renderHistoryMarkdown } from '../session/history_export.ts';
 
 const TOOL_PREFIX = 'tool> ';
@@ -19,12 +21,27 @@ const isToolCallContent = (
  * `user>` / `assistant>` / `tool>` labels, tool results folded into the `tool>` activity line
  * (no `tool<`), raw assistant Markdown, and a blank separator between turns.
  */
-export const renderSessionView = (record: StoredSessionRecord): string => {
+const renderMessages = (
+  messages: readonly Message[],
+  thinking: StoredSessionHistoryExecution['thinking'] = [],
+): string[] => {
   const lines: string[] = [];
   const toolLines = new Map<string, number>();
   let assistantLine: number | undefined;
   let seenTurn = false;
-  for (const message of record.transcript) {
+  let assistantStep = 0;
+  const appendThinking = (step: number): void => {
+    for (const observation of thinking) {
+      if (observation.modelStep !== step) continue;
+      const label = observation.thinkingKind === 'summary'
+        ? observation.complete ? 'thinking summary>' : 'thinking summary~'
+        : observation.complete
+        ? 'thinking>'
+        : 'thinking~';
+      lines.push(`${label} ${observation.text}`);
+    }
+  };
+  for (const message of messages) {
     if (message.role === 'user') {
       if (seenTurn) lines.push('');
       seenTurn = true;
@@ -34,6 +51,8 @@ export const renderSessionView = (record: StoredSessionRecord): string => {
       continue;
     }
     if (message.role === 'assistant') {
+      assistantStep += 1;
+      appendThinking(assistantStep);
       const assistantText = isToolCallContent(message.content)
         ? message.text
         : message.content.text;
@@ -76,7 +95,37 @@ export const renderSessionView = (record: StoredSessionRecord): string => {
       else lines[index] = text;
     }
   }
+  for (const observation of thinking) {
+    if (observation.modelStep <= assistantStep) continue;
+    const label = observation.thinkingKind === 'summary'
+      ? observation.complete ? 'thinking summary>' : 'thinking summary~'
+      : observation.complete
+      ? 'thinking>'
+      : 'thinking~';
+    lines.push(`${label} ${observation.text}`);
+  }
+  return lines;
+};
+
+export const renderSessionView = (record: StoredSessionRecord): string => {
+  const lines = renderMessages(record.transcript);
   return lines.length === 0 ? '' : `${lines.join('\n')}\n`;
+};
+
+/** Render all executions in one Session from semantic history and canonical/noncanonical messages. */
+export const renderSessionTimeline = (
+  executions: readonly StoredSessionHistoryExecution[],
+): string => {
+  const blocks = executions.map(({ execution, messages, thinking }) => {
+    const header =
+      `# execution ${execution.executionId} · ${execution.adoption} · ${execution.outcome}`;
+    const lines = renderMessages(messages, thinking);
+    if (!messages.some((message) => message.role === 'user')) {
+      lines.unshift(`user> ${execution.task}`);
+    }
+    return [header, ...lines].join('\n');
+  });
+  return blocks.length === 0 ? '' : `${blocks.join('\n\n')}\n`;
 };
 
 /** Render the committed canonical transcript as the structured Markdown snapshot. */

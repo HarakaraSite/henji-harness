@@ -27,6 +27,7 @@ export const UI_MAX_NEW_BELOW = 512;
 export type UiLogKind =
   | 'user'
   | 'assistant'
+  | 'thinking'
   | 'tool'
   | 'warning'
   | 'recoverable'
@@ -436,6 +437,26 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           turn: event.turn,
         });
       return Object.freeze({ ...next, activeAssistantId: id });
+    }
+    case 'assistant_thinking': {
+      const id = turnEntryId(state, event.turn, `thinking:${event.modelStep}`);
+      const label = event.thinkingKind === 'summary'
+        ? event.complete ? 'thinking summary>' : 'thinking summary~'
+        : event.complete
+        ? 'thinking>'
+        : 'thinking~';
+      const activeAssistantIndex = state.log.entries.findIndex((entry) =>
+        entry.id === state.activeAssistantId && entry.turn === event.turn && entry.live
+      );
+      return appendEntry(state, {
+        id,
+        kind: 'thinking',
+        label,
+        text: event.text,
+        revision: 0,
+        live: false,
+        turn: event.turn,
+      }, activeAssistantIndex < 0 ? undefined : activeAssistantIndex);
     }
     case 'tool_call': {
       const id = turnEntryId(state, event.turn, `tool:${event.call.callId}`);

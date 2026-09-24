@@ -25,6 +25,7 @@ import {
 } from '../../v0/agent/worker/worker_runtime.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import { privateStateFromTurn } from '../../v0/agent/worker/worker_host_coordinator.ts';
 import type {
   PresentationIntent,
   PresentationIntentResult,
@@ -55,6 +56,19 @@ const waitFor = async (condition: () => boolean): Promise<void> => {
   }
   throw new Error('condition not reached');
 };
+
+Deno.test('Increment 119 model switch back starts a new private-state segment', () => {
+  const modelA = ROOT_DEFAULT_MODEL_SELECTION;
+  const modelB = { ...modelA, modelId: 'another-model' };
+  assertEquals(
+    privateStateFromTurn([
+      { effectiveFromTurn: 1, changedAt: '2026-09-24T00:00:00Z', selection: modelA },
+      { effectiveFromTurn: 2, changedAt: '2026-09-24T00:01:00Z', selection: modelB },
+      { effectiveFromTurn: 3, changedAt: '2026-09-24T00:02:00Z', selection: modelA },
+    ]),
+    3,
+  );
+});
 
 const openAICompletedStream = (text: string): string => {
   const response = {
@@ -471,6 +485,30 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     const sessionId = first.session.sessionId;
     const record = await store.readWorker(sessionId);
     assert(record.schemaVersion === 6);
+    const assistantIndex = record.transcript.findIndex((message) => message.role === 'assistant');
+    assert(assistantIndex >= 0);
+    const copied = await store.allocateWorker('default', record.definition);
+    try {
+      const state = {
+        provider: 'openrouter-chat',
+        model: ROOT_DEFAULT_MODEL_SELECTION.modelId,
+        reasoning: { field: 'reasoning_content' as const, text: 'Read both files.' },
+      };
+      copied.commit({
+        ...record,
+        sessionId: copied.id,
+        transcript: record.transcript.map((message, index) =>
+          index === assistantIndex && message.role === 'assistant'
+            ? { ...message, providerState: state }
+            : message
+        ),
+      });
+      const saved = await store.readWorker(copied.id);
+      const assistant = saved.transcript[assistantIndex];
+      assertEquals(assistant.role === 'assistant' ? assistant.providerState : undefined, state);
+    } finally {
+      await copied.close();
+    }
     assertEquals(record.activeModel, ROOT_DEFAULT_MODEL_SELECTION);
     assertEquals(record.modelChanges.map((change) => change.selection), [
       ROOT_DEFAULT_MODEL_SELECTION,

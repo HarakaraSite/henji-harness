@@ -34,6 +34,8 @@ interface WireSystemMessage {
 interface WireAssistantTextMessage {
   readonly role: 'assistant';
   readonly content: string;
+  readonly reasoning?: string;
+  readonly reasoning_content?: string;
   readonly reasoning_details?: readonly JsonValue[];
 }
 
@@ -41,6 +43,8 @@ interface WireAssistantToolMessage {
   readonly role: 'assistant';
   readonly content: string | null;
   readonly tool_calls: readonly WireToolCall[];
+  readonly reasoning?: string;
+  readonly reasoning_content?: string;
   readonly reasoning_details?: readonly JsonValue[];
 }
 
@@ -109,7 +113,11 @@ const toolResultWire = (
   return { role: 'tool', tool_call_id: result.callId, content: result.text };
 };
 
-const encodeMessage = (message: Message, providerId: string): WireMessage[] | undefined => {
+const encodeMessage = (
+  message: Message,
+  providerId: string,
+  modelId: string,
+): WireMessage[] | undefined => {
   if (typeof message !== 'object' || message === null) return undefined;
   if (message.role === 'user') {
     const content = message.content;
@@ -121,19 +129,29 @@ const encodeMessage = (message: Message, providerId: string): WireMessage[] | un
   }
   if (message.role === 'assistant') {
     const state = message.providerState;
-    const reasoningDetails = state !== undefined && state.provider === providerId &&
-        'reasoningDetails' in state &&
-        Array.isArray(state.reasoningDetails) &&
-        state.reasoningDetails.length > 0 &&
-        state.reasoningDetails.every(isJsonValue)
-      ? state.reasoningDetails
+    const chatState = state !== undefined && state.provider === providerId &&
+        state.model === modelId && !('replayItems' in state)
+      ? state
       : undefined;
+    const reasoningDetails = chatState?.reasoningDetails;
+    const plain = reasoningDetails === undefined ? chatState?.reasoning : undefined;
     if (
-      state !== undefined && state.provider === providerId &&
-      'reasoningDetails' in state && reasoningDetails === undefined
-    ) {
-      return undefined;
-    }
+      chatState !== undefined &&
+      (reasoningDetails !== undefined &&
+          (!Array.isArray(reasoningDetails) || reasoningDetails.length === 0 ||
+            !reasoningDetails.every(isJsonValue)) ||
+        plain !== undefined &&
+          ((plain.field !== 'reasoning' && plain.field !== 'reasoning_content') ||
+            typeof plain.text !== 'string' || plain.text.length === 0) ||
+        reasoningDetails === undefined && plain === undefined)
+    ) return undefined;
+    const replay = reasoningDetails !== undefined
+      ? { reasoning_details: reasoningDetails }
+      : plain === undefined
+      ? {}
+      : plain.field === 'reasoning'
+      ? { reasoning: plain.text }
+      : { reasoning_content: plain.text };
     const content = message.content;
     if (
       !Array.isArray(content) && typeof content === 'object' &&
@@ -144,7 +162,7 @@ const encodeMessage = (message: Message, providerId: string): WireMessage[] | un
       return [{
         role: 'assistant',
         content: content.text,
-        ...(reasoningDetails === undefined ? {} : { reasoning_details: reasoningDetails }),
+        ...replay,
       }];
     }
     if (!Array.isArray(message.content) || message.content.length === 0) {
@@ -160,7 +178,7 @@ const encodeMessage = (message: Message, providerId: string): WireMessage[] | un
         role: 'assistant',
         content: message.text ?? null,
         tool_calls: calls,
-        ...(reasoningDetails === undefined ? {} : { reasoning_details: reasoningDetails }),
+        ...replay,
       }]
       : undefined;
   }
@@ -195,6 +213,7 @@ export const encodeRequest = (
   request: ModelRequest,
   enforceMessageLimit = true,
   providerId = 'openrouter-chat',
+  modelId = PRODUCTION_PROFILE.model,
 ): { messages: WireMessage[]; tools: WireFunctionTool[] } => {
   if (
     typeof request !== 'object' || request === null ||
@@ -215,7 +234,7 @@ export const encodeRequest = (
     messages.push({ role: 'system', content: request.systemInstruction });
   }
   for (const message of request.transcript) {
-    const encoded = encodeMessage(message, providerId);
+    const encoded = encodeMessage(message, providerId, modelId);
     if (!encoded) throw invalidRequestError('model transcript message is invalid');
     messages.push(...encoded);
   }
@@ -251,7 +270,7 @@ export const measureModelRequestWire = (
   readonly messagesBytes: number;
   readonly bodyBytes: number;
 } => {
-  const encoded = encodeRequest(request, false, providerId);
+  const encoded = encodeRequest(request, false, providerId, profile.model);
   const body = safeJson({
     model: profile.model,
     messages: encoded.messages,

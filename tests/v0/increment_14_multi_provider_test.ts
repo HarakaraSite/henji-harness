@@ -243,7 +243,7 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK and retains 
   assertEquals(outcome.finalText, 'hello');
 });
 
-Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adapter statelessly', async () => {
+Deno.test('Increment 119 OpenRouter Responses retains output items without server-side state', async () => {
   const seen: { url?: string; authorization?: string; body?: string } = {};
   const fetcher: typeof fetch = async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
@@ -269,7 +269,17 @@ Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adap
   assertEquals(result.kind, 'final');
   if (result.kind !== 'final') throw new Error('expected final');
   assertEquals(result.text, 'hello');
-  assertEquals(result.providerState, undefined);
+  assertEquals(result.providerState, {
+    provider: 'openrouter-responses',
+    replayItems: [{
+      id: 'msg_increment_14',
+      type: 'message',
+      status: 'completed',
+      role: 'assistant',
+      content: [{ type: 'output_text', text: 'hello', annotations: [], logprobs: [] }],
+    }],
+    model: selection.modelId,
+  });
   assertEquals(seen.url, 'https://openrouter.ai/api/v1/responses');
   assertEquals(seen.authorization, 'Bearer router-secret');
   const body = JSON.parse(seen.body ?? '{}');
@@ -282,6 +292,92 @@ Deno.test('Increment 58 OpenRouter Responses root uses the shared Responses adap
   assertEquals(retained.request.requestMetadata.api, 'openrouter-responses');
   assertEquals(retained.request.requestMetadata.authProfile, 'openrouter-api-key');
   assert(!JSON.stringify(retained).includes('router-secret'));
+});
+
+Deno.test('Increment 119 OpenRouter Responses replays reasoning and function call items', async () => {
+  const bodies: Record<string, unknown>[] = [];
+  const output = [
+    {
+      type: 'reasoning',
+      id: 'rs_openrouter_119',
+      content: [{ type: 'reasoning_text', text: 'Read the two README files.' }],
+    },
+    {
+      type: 'function_call',
+      id: 'fc_openrouter_119',
+      status: 'completed',
+      call_id: 'call_readme_119',
+      name: 'read',
+      arguments: '{"path":"README.md"}',
+    },
+  ];
+  const fetcher: typeof fetch = async (input, init) => {
+    const requested = input instanceof Request ? input : new Request(input, init);
+    bodies.push(JSON.parse(await requested.clone().text()));
+    const stream = bodies.length === 1
+      ? `data: ${
+        JSON.stringify({ type: 'response.output_item.done', item: output[0], output_index: 0 })
+      }\n\ndata: ${
+        JSON.stringify({
+          type: 'response.completed',
+          response: { id: 'resp_openrouter_119', status: 'completed', output },
+        })
+      }\n\n`
+      : openAICompletedStream('done');
+    return new Response(stream, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  };
+  const physical = createProductionPhysicalIo(undefined, {
+    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
+    fetcher,
+  });
+  const selection = defaultModelSelectionFor('openrouter-responses');
+  const model = physical.createModel('parent', selection);
+  const thinking: { kind: 'text' | 'summary'; text: string }[] = [];
+  const first = await model.generate(request, {
+    reportThinkingDelta: (delta) => thinking.push(delta),
+  });
+  assertEquals(thinking, [{ kind: 'text', text: 'Read the two README files.' }]);
+  assertEquals(first.kind, 'tool_calls');
+  assert(first.kind === 'tool_calls');
+  assertEquals(first.providerState, {
+    provider: 'openrouter-responses',
+    replayItems: output,
+    model: selection.modelId,
+  });
+  await model.generate({
+    ...request,
+    transcript: [
+      ...request.transcript,
+      {
+        role: 'assistant',
+        content: first.calls.map((call) => ({ ...call, kind: 'tool_call' as const })),
+        providerState: first.providerState,
+      },
+      {
+        role: 'tool',
+        content: [{
+          kind: 'tool_result',
+          callId: 'call_readme_119',
+          name: 'read',
+          text: '# README',
+          outcome: 'success',
+        }],
+      },
+    ],
+  });
+  const input = bodies[1].input as Record<string, unknown>[];
+  assertEquals(input[1], output[0]);
+  assertEquals(input[2], output[1]);
+  assertEquals(input[3], {
+    type: 'function_call_output',
+    call_id: 'call_readme_119',
+    output: '# README',
+  });
+  assertEquals(bodies[1].previous_response_id, undefined);
+  assertEquals(bodies[1].store, undefined);
 });
 
 Deno.test('Increment 67 Responses API omits reasoning effort for auto', async () => {

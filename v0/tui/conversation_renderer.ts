@@ -60,6 +60,8 @@ export const projectConversationEntry = (entry: UiLogEntry): ConversationEntryPr
     ? 'user' as const
     : entry.label === 'assistant>' || entry.label === 'assistant~'
     ? 'assistant' as const
+    : entry.kind === 'thinking'
+    ? 'assistant' as const
     : entry.label === 'tool>'
     ? 'tool' as const
     : entry.label === 'system>'

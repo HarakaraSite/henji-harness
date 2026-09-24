@@ -24,7 +24,13 @@ export interface TextContent {
 export interface OpenRouterProviderState {
   /** Chat provider id that produced these private reasoning items. */
   readonly provider: string;
-  readonly reasoningDetails: readonly JsonValue[];
+  /** New captures include the producing model; state without it is never replayed. */
+  readonly model?: string;
+  readonly reasoning?: Readonly<{
+    readonly field: 'reasoning' | 'reasoning_content';
+    readonly text: string;
+  }>;
+  readonly reasoningDetails?: readonly JsonValue[];
 }
 
 /** Ordered Responses output items needed when continuing a Responses tool/model exchange. */
@@ -137,6 +143,10 @@ export type ProviderExactRequestObserver = (
 export interface ModelGenerateOptions {
   readonly signal?: AbortSignal;
   readonly reportAssistantProgress?: AssistantProgressReporter;
+  /** Readable provider reasoning fragment for this request; never model-visible text. */
+  readonly reportThinkingDelta?: (
+    thinking: import('./readable_thinking.ts').ReadableThinking,
+  ) => void;
   /** Internal turn-scoped recorder; it never contains credential or Authorization values. */
   readonly providerEvidence?: ProviderEvidenceRecorder;
   readonly providerEvidenceLane?: 'parent' | 'planner';

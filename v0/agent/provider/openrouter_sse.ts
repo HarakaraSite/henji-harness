@@ -1,7 +1,14 @@
-import type { JsonValue, ModelGenerateOptions, ModelResult } from '../core/contracts.ts';
+import type {
+  JsonValue,
+  ModelGenerateOptions,
+  ModelResult,
+  OpenRouterProviderState,
+} from '../core/contracts.ts';
 import { EventDeliveryError } from '../core/events.ts';
 import { CancellationCleanupError, TurnCancelledError } from '../core/cancellation.ts';
 import type { ProviderEvidenceRecorder } from './provider_evidence.ts';
+import { PRODUCTION_PROFILE } from './provider_profile.ts';
+import { readableThinkingFromDetails } from '../core/readable_thinking.ts';
 import {
   MAX_ASSISTANT_PROGRESS_TEXT_BYTES,
   MAX_ASSISTANT_TEXT_BYTES,
@@ -152,6 +159,8 @@ interface StreamAssembly {
   sawTools: boolean;
   tools: Map<number, StreamToolAssembly>;
   reasoningDetails: JsonValue[];
+  reasoningParts: string[];
+  reasoningField?: 'reasoning' | 'reasoning_content';
   liveFrozen: boolean;
   progressText: string;
   progressBytes: number;
@@ -280,6 +289,8 @@ const processSsePayload = (
   report: ModelGenerateOptions['reportAssistantProgress'],
   observer?: StreamTextAccountingObserver,
   providerId = 'openrouter-chat',
+  modelId = PRODUCTION_PROFILE.model,
+  reportThinkingDelta?: ModelGenerateOptions['reportThinkingDelta'],
 ): void => {
   if (payload === '[DONE]') {
     if (assembly.terminal === undefined || assembly.result === undefined) {
@@ -384,6 +395,21 @@ const processSsePayload = (
     }
     assembly.reasoningDetails.push(...structuredClone(reasoningDetails));
   }
+  const plainField = typeof deltaObject.reasoning_content === 'string' &&
+      deltaObject.reasoning_content.length > 0
+    ? 'reasoning_content'
+    : typeof deltaObject.reasoning === 'string' && deltaObject.reasoning.length > 0
+    ? 'reasoning'
+    : undefined;
+  if (plainField !== undefined) {
+    assembly.reasoningField ??= plainField;
+    const part = deltaObject[plainField] as string;
+    assembly.reasoningParts.push(part);
+    reportThinkingDelta?.({ kind: 'text', text: part });
+  } else if (Array.isArray(reasoningDetails)) {
+    const readable = readableThinkingFromDetails(reasoningDetails);
+    if (readable !== undefined) reportThinkingDelta?.(readable);
+  }
   const contentPresent = hasOwn(deltaObject, 'content');
   const content = deltaObject.content;
   const hasContent = typeof content === 'string' && content.length > 0;
@@ -484,6 +510,22 @@ const processSsePayload = (
     for (const fragment of toolCalls!) updateStreamTool(assembly, fragment);
   }
   if (finishReason === undefined || finishReason === null) return;
+  const state: OpenRouterProviderState | undefined = assembly.reasoningDetails.length === 0 &&
+      assembly.reasoningParts.length === 0
+    ? undefined
+    : {
+      provider: providerId,
+      model: modelId,
+      ...(assembly.reasoningParts.length === 0 ? {} : {
+        reasoning: {
+          field: assembly.reasoningField!,
+          text: assembly.reasoningParts.join(''),
+        },
+      }),
+      ...(assembly.reasoningDetails.length === 0 ? {} : {
+        reasoningDetails: structuredClone(assembly.reasoningDetails),
+      }),
+    };
   if (finishReason === 'stop') {
     if (!assembly.sawText || assembly.sawTools || assembly.textBytes === 0) {
       throw sseResponseError(
@@ -495,12 +537,7 @@ const processSsePayload = (
     assembly.result = {
       kind: 'final',
       text: assembly.textParts.join(''),
-      ...(assembly.reasoningDetails.length === 0 ? {} : {
-        providerState: {
-          provider: providerId,
-          reasoningDetails: structuredClone(assembly.reasoningDetails),
-        },
-      }),
+      ...(state === undefined ? {} : { providerState: state }),
     };
   } else {
     if (!assembly.sawTools) {
@@ -512,12 +549,9 @@ const processSsePayload = (
     assembly.terminal = 'tool_calls';
     const result = completeStreamTools(assembly);
     const mixed = assembly.sawText ? { ...result, text: assembly.textParts.join('') } : result;
-    assembly.result = assembly.reasoningDetails.length === 0 ? mixed : {
+    assembly.result = state === undefined ? mixed : {
       ...mixed,
-      providerState: {
-        provider: providerId,
-        reasoningDetails: structuredClone(assembly.reasoningDetails),
-      },
+      providerState: state,
     };
   }
 };
@@ -530,6 +564,8 @@ export const readSseResponse = async (
   observer?: StreamTextAccountingObserver,
   evidence?: ProviderEvidenceRecorder,
   providerId = 'openrouter-chat',
+  modelId = PRODUCTION_PROFILE.model,
+  reportThinkingDelta?: ModelGenerateOptions['reportThinkingDelta'],
 ): Promise<ModelResult> => {
   if (!response.body) {
     throw sseResponseError(
@@ -551,6 +587,7 @@ export const readSseResponse = async (
     sawTools: false,
     tools: new Map(),
     reasoningDetails: [],
+    reasoningParts: [],
     liveFrozen: false,
     progressText: '',
     progressBytes: 0,
@@ -578,7 +615,15 @@ export const readSseResponse = async (
     });
     try {
       const terminalBefore = assembly.terminal;
-      processSsePayload(assembly, payload, report, observer, providerId);
+      processSsePayload(
+        assembly,
+        payload,
+        report,
+        observer,
+        providerId,
+        modelId,
+        reportThinkingDelta,
+      );
       if (terminalBefore === undefined && assembly.terminal !== undefined) {
         evidence?.recordParserTransition({ kind: 'terminal', reason: assembly.terminal });
       }

@@ -124,6 +124,7 @@ export class OpenRouterAgentModel implements Model {
       request,
       true,
       this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+      this.profile.model,
     );
     const body = safeJson({
       model: this.profile.model,
@@ -381,6 +382,8 @@ export class OpenRouterAgentModel implements Model {
           this.options.testTextAccountingObserver,
           evidence,
           this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+          this.profile.model,
+          generateOptions.reportThinkingDelta,
         );
         if (turnCancelled) throw new TurnCancelledError();
         if (timedOut || controller.signal.aborted) {
@@ -483,6 +486,7 @@ export class OpenRouterAgentModel implements Model {
         const decoded = decodeResponse(
           payload,
           this.options.evidenceIdentity?.provider ?? 'openrouter-chat',
+          this.profile.model,
         );
         evidence?.recordParserTransition({ kind: 'result', reason: 'json_result' });
         return decoded;

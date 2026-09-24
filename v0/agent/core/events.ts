@@ -40,6 +40,14 @@ export type AgentEvent =
     readonly text: string;
   }
   | {
+    readonly kind: 'assistant_thinking';
+    readonly turn: number;
+    readonly modelStep: number;
+    readonly thinkingKind: 'text' | 'summary';
+    readonly text: string;
+    readonly complete: boolean;
+  }
+  | {
     readonly kind: 'tool_call';
     readonly turn: number;
     readonly call: ToolCall;

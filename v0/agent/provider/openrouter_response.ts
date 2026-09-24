@@ -1,4 +1,5 @@
 import type { JsonValue, ModelResult, OpenRouterProviderState } from '../core/contracts.ts';
+import { PRODUCTION_PROFILE } from './provider_profile.ts';
 import type { ParseReason } from '../session/failure_diagnostic.ts';
 import {
   MAX_ASSISTANT_TEXT_BYTES,
@@ -151,14 +152,37 @@ const decodeToolCalls = (value: unknown): ModelResult | undefined => {
 const providerState = (
   message: Record<string, unknown>,
   providerId: string,
+  modelId: string,
 ): OpenRouterProviderState | undefined => {
   const details = message.reasoning_details;
-  return Array.isArray(details) && details.length > 0 && details.every(isJsonValue)
-    ? { provider: providerId, reasoningDetails: structuredClone(details) }
+  const reasoningDetails = Array.isArray(details) && details.length > 0 &&
+      details.every(isJsonValue)
+    ? structuredClone(details)
     : undefined;
+  const plainField: 'reasoning' | 'reasoning_content' | undefined =
+    typeof message.reasoning_content === 'string' &&
+      message.reasoning_content.length > 0
+      ? 'reasoning_content'
+      : typeof message.reasoning === 'string' && message.reasoning.length > 0
+      ? 'reasoning'
+      : undefined;
+  const reasoning = plainField === undefined ? undefined : {
+    field: plainField,
+    text: message[plainField] as string,
+  };
+  return reasoning === undefined && reasoningDetails === undefined ? undefined : {
+    provider: providerId,
+    model: modelId,
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(reasoningDetails === undefined ? {} : { reasoningDetails }),
+  };
 };
 
-export const decodeResponse = (payload: unknown, providerId = 'openrouter-chat'): ModelResult => {
+export const decodeResponse = (
+  payload: unknown,
+  providerId = 'openrouter-chat',
+  modelId = PRODUCTION_PROFILE.model,
+): ModelResult => {
   if (typeof payload !== 'object' || payload === null) {
     throw responseError('provider response shape was unsupported', 'unsupported_response_shape');
   }
@@ -180,7 +204,7 @@ export const decodeResponse = (payload: unknown, providerId = 'openrouter-chat')
   const messageObject = message as Record<string, unknown>;
   const content = messageObject.content;
   const toolCalls = messageObject.tool_calls;
-  const state = providerState(messageObject, providerId);
+  const state = providerState(messageObject, providerId, modelId);
   if (
     typeof content === 'string' && content.length > 0 &&
     (toolCalls === undefined || toolCalls === null)

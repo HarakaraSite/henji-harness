@@ -58,6 +58,7 @@ import type {
   StoredExecutionEffect,
   StoredExecutionEvent,
   StoredExecutionRow,
+  StoredSessionHistoryExecution,
 } from './history_store_contract.ts';
 import type {
   ContextModelRequestDelta,
@@ -140,7 +141,8 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
       }
       if (
         agentEvent.kind === 'assistant_message' ||
-        agentEvent.kind === 'assistant_progress'
+        agentEvent.kind === 'assistant_progress' ||
+        agentEvent.kind === 'assistant_thinking'
       ) return 'assistant_message';
       return 'model_result';
     }
@@ -1997,6 +1999,68 @@ export class SqliteHistoryV7ProductionStore
 
   listExecutionsForSession(sessionId: string): readonly StoredExecutionRow[] {
     return this.#executionRows('WHERE a.session_correlation=?', [sessionId]);
+  }
+
+  /** Read the human session timeline without opening or decoding diagnostic attachments. */
+  readSessionHistory(sessionId: string): readonly StoredSessionHistoryExecution[] {
+    const db = this.#db();
+    try {
+      db.exec('BEGIN');
+      const exists = db.prepare('SELECT 1 FROM sessions WHERE session_id=?').get(sessionId);
+      if (exists === undefined) throw new HistoryStoreError('history_invalid');
+      const executions = this.#executionRows(
+        'WHERE a.session_correlation=?',
+        [sessionId],
+        false,
+        db,
+      );
+      const canonicalMessages = db.prepare(`
+        SELECT message_json FROM session_messages
+        WHERE session_id=? AND turn_number=? ORDER BY message_ordinal
+      `);
+      const otherMessages = db.prepare(`
+        SELECT message_json FROM execution_messages
+        WHERE execution_id=? ORDER BY message_ordinal
+      `);
+      const thinkingRows = db.prepare(`
+        SELECT payload_json FROM semantic_occurrences
+        WHERE execution_id=? AND kind='assistant_message' ORDER BY ordinal
+      `);
+      const timeline = executions.map((execution): StoredSessionHistoryExecution => {
+        const rows = execution.adoption === 'canonical'
+          ? canonicalMessages.all(sessionId, execution.turn) as Row[]
+          : otherMessages.all(execution.executionId) as Row[];
+        const messages = rows.map((row) => parseJson<Message>(row.message_json));
+        const thinking: StoredSessionHistoryExecution['thinking'][number][] = [];
+        for (const row of thinkingRows.all(execution.executionId) as Row[]) {
+          const stored = parseJson<{ event?: StoredExecutionEvent }>(row.payload_json).event;
+          if (stored?.kind !== 'runtime_event') continue;
+          const payload = stored.payload as unknown as {
+            kind?: string;
+            event?: { kind?: string; event?: unknown };
+          };
+          const candidate = payload.kind === 'runtime_event' &&
+              payload.event?.kind === 'agent_event'
+            ? payload.event.event
+            : undefined;
+          if (
+            typeof candidate !== 'object' || candidate === null ||
+            (candidate as { kind?: unknown }).kind !== 'assistant_thinking'
+          ) continue;
+          thinking.push(candidate as StoredSessionHistoryExecution['thinking'][number]);
+        }
+        return { execution, messages, thinking };
+      });
+      db.exec('COMMIT');
+      return timeline;
+    } catch (error) {
+      try {
+        db.exec('ROLLBACK');
+      } catch { /* preserve original read error */ }
+      throw error;
+    } finally {
+      db.close();
+    }
   }
 
   readExecution(id: string): StoredExecutionRow {

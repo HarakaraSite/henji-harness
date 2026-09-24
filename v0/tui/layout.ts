@@ -427,7 +427,7 @@ const logRows = (
     const turnStart = entry.kind === 'user' && entry.label === 'user>';
     const userOutputBoundary = entry.turn !== undefined &&
       awaitingUserOutput.has(entry.turn) &&
-      (entry.kind === 'tool' || entry.kind === 'assistant');
+      (entry.kind === 'tool' || entry.kind === 'assistant' || entry.kind === 'thinking');
     sourceBytes += encoder.encode(entry.text).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
     if ((turnStart && seenTurnStart) || userOutputBoundary) appendSeparator();

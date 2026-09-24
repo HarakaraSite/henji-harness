@@ -349,6 +349,9 @@ export class TuiRenderer implements TerminalRendererGate {
       case 'assistant_progress':
         this.redraw();
         return;
+      case 'assistant_thinking':
+        this.redraw();
+        return;
       case 'tool_call':
         this.redraw();
         return;

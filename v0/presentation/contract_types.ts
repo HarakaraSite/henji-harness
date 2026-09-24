@@ -374,6 +374,14 @@ export type PresentationEvent =
     }
   >
   | Readonly<{
+    readonly kind: 'assistant_thinking';
+    readonly turn: number;
+    readonly modelStep: number;
+    readonly thinkingKind: 'text' | 'summary';
+    readonly text: string;
+    readonly complete: boolean;
+  }>
+  | Readonly<{
     readonly kind: 'tool_call';
     readonly turn: number;
     readonly call: Omit<PresentationToolCall, 'kind'> & {

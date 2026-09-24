@@ -10,6 +10,7 @@ import type {
   ToolCall,
 } from '../core/contracts.ts';
 import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
+import { readableThinkingFromState } from '../core/readable_thinking.ts';
 import {
   type CredentialSource,
   DEFAULT_PROVIDER_TIMEOUT_MS,
@@ -340,8 +341,8 @@ export interface ResponsesApiModelOptions {
 interface ResponsesApiModelConfig {
   readonly baseURL: string;
   readonly providerLabel: string;
-  /** Producer identity recorded on replay state, or null for a stateless provider. */
-  readonly stateProvider: string | null;
+  /** Producer identity recorded on client-owned replay state. */
+  readonly stateProvider: string;
   readonly includeStore: boolean;
 }
 
@@ -466,6 +467,8 @@ class ResponsesApiModel implements Model {
       });
       let completed: Record<string, unknown> | undefined;
       let progress = '';
+      let reasoningTextDeltaSeen = false;
+      let reasoningSummaryDeltaSeen = false;
       const reasoningEncrypted = new Map<string, string>();
       for await (const event of stream) {
         // A continuous stream keeps this loop in microtasks, which starves the macrotask timer
@@ -484,8 +487,36 @@ class ResponsesApiModel implements Model {
         if (event.type === 'response.output_text.delta') {
           progress += event.delta;
           generateOptions.reportAssistantProgress?.(progress);
+        } else if (event.type === 'response.reasoning_text.delta') {
+          const delta = (event as { readonly delta?: unknown }).delta;
+          if (typeof delta === 'string' && delta.length > 0) {
+            reasoningTextDeltaSeen = true;
+            generateOptions.reportThinkingDelta?.({ kind: 'text', text: delta });
+          }
+        } else if (event.type === 'response.reasoning_summary_text.delta') {
+          const delta = (event as { readonly delta?: unknown }).delta;
+          if (typeof delta === 'string' && delta.length > 0) {
+            reasoningSummaryDeltaSeen = true;
+            generateOptions.reportThinkingDelta?.({ kind: 'summary', text: delta });
+          }
         } else if (event.type === 'response.output_item.done') {
           const item = (event as { readonly item?: unknown }).item;
+          if (!reasoningTextDeltaSeen || !reasoningSummaryDeltaSeen) {
+            const jsonItem = jsonValue(item);
+            if (jsonItem !== undefined) {
+              const readable = readableThinkingFromState({
+                provider: this.config.stateProvider,
+                replayItems: [jsonItem],
+                model: this.options.selection.modelId,
+              });
+              if (
+                readable !== undefined &&
+                (readable.kind === 'text' ? !reasoningTextDeltaSeen : !reasoningSummaryDeltaSeen)
+              ) {
+                generateOptions.reportThinkingDelta?.(readable);
+              }
+            }
+          }
           if (
             isRecord(item) && item.type === 'reasoning' && typeof item.id === 'string' &&
             typeof item.encrypted_content === 'string'
@@ -515,7 +546,7 @@ class ResponsesApiModel implements Model {
       if (replayItems.some((item) => item === undefined)) {
         throw providerError('response_error', `${label} response items were not JSON values`, 1);
       }
-      const state = this.config.stateProvider === null ? undefined : Object.freeze({
+      const state = Object.freeze({
         provider: this.config.stateProvider,
         replayItems: Object.freeze(replayItems as JsonValue[]),
         model: this.options.selection.modelId,
@@ -532,7 +563,7 @@ class ResponsesApiModel implements Model {
         return {
           kind: 'tool_calls',
           calls,
-          ...(state === undefined ? {} : { providerState: state }),
+          providerState: state,
         };
       }
       const text = typeof completed.output_text === 'string' ? completed.output_text : progress;
@@ -544,7 +575,7 @@ class ResponsesApiModel implements Model {
         reason: 'response.completed',
       });
       generateOptions.providerEvidence?.recordParserTransition({ kind: 'result', reason: 'final' });
-      return { kind: 'final', text, ...(state === undefined ? {} : { providerState: state }) };
+      return { kind: 'final', text, providerState: state };
     } catch (error) {
       if (cancelled) throw new TurnCancelledError();
       if (timedOut) throw providerError('provider_timeout', 'provider deadline exceeded', 1);
@@ -581,16 +612,13 @@ export interface OpenRouterResponsesModelOptions {
   readonly baseURL?: string;
 }
 
-/**
- * OpenRouter Responses adapter. OpenRouter's endpoint is stateless, so Henji replays its own
- * transcript instead of provider-private state.
- */
+/** OpenRouter Responses adapter with client-side replay of returned output items. */
 export class OpenRouterResponsesModel extends ResponsesApiModel {
   constructor(options: OpenRouterResponsesModelOptions) {
     super(options, {
       baseURL: options.baseURL ?? 'https://openrouter.ai/api/v1',
       providerLabel: 'OpenRouter',
-      stateProvider: null,
+      stateProvider: options.selection.provider,
       includeStore: false,
     });
   }

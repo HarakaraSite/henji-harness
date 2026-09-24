@@ -32,6 +32,7 @@ import {
   type RequestMessageSourceFactory,
 } from './execution_context.ts';
 import { prepareModelContext } from './context.ts';
+import { type ReadableThinking, readableThinkingFromState } from './readable_thinking.ts';
 import { type SteeringConsumer } from './steering.ts';
 import {
   type FailureDiagnosticFact,
@@ -113,10 +114,23 @@ const isProviderState = (
   }
   const state = value as Record<string, unknown>;
   if (typeof state.provider !== 'string' || state.provider.length === 0) return false;
-  if ('reasoningDetails' in state) {
-    return Array.isArray(state.reasoningDetails) &&
-      state.reasoningDetails.length > 0 &&
-      state.reasoningDetails.every(isJsonValue);
+  if (!('replayItems' in state)) {
+    const reasoning = state.reasoning;
+    const reasoningRecord = typeof reasoning === 'object' && reasoning !== null &&
+        !Array.isArray(reasoning)
+      ? reasoning as Record<string, unknown>
+      : undefined;
+    const details = state.reasoningDetails;
+    return (state.model === undefined ||
+      typeof state.model === 'string' && state.model.length > 0) &&
+      (reasoning === undefined ||
+        (reasoningRecord !== undefined &&
+          (reasoningRecord.field === 'reasoning' ||
+            reasoningRecord.field === 'reasoning_content') &&
+          typeof reasoningRecord.text === 'string' && reasoningRecord.text.length > 0)) &&
+      (details === undefined ||
+        Array.isArray(details) && details.length > 0 && details.every(isJsonValue)) &&
+      (reasoning !== undefined || details !== undefined);
   }
   return Array.isArray(state.replayItems) && state.replayItems.length > 0 &&
     state.replayItems.every(isJsonValue) &&
@@ -625,6 +639,26 @@ const runAgentTurnInternal = async (
     let progressFailure: EventDeliveryError | undefined;
     let progressSettled = false;
     let acceptedProgress = 0;
+    const thinkingParts: { text: string[]; summary: string[] } = { text: [], summary: [] };
+    const emitThinking = (complete: boolean, state?: ModelResult['providerState']): void => {
+      const observedText = thinkingParts.text.join('');
+      const observedSummary = thinkingParts.summary.join('');
+      const observedThinking: ReadableThinking | undefined = observedText.length > 0
+        ? { kind: 'text', text: observedText }
+        : observedSummary.length > 0
+        ? { kind: 'summary', text: observedSummary }
+        : undefined;
+      const thinking = readableThinkingFromState(state) ?? observedThinking;
+      if (thinking === undefined) return;
+      deliverEvent(sink, {
+        kind: 'assistant_thinking',
+        turn,
+        modelStep: steps,
+        thinkingKind: thinking.kind,
+        text: thinking.text,
+        complete,
+      });
+    };
     const reportAssistantProgress = (progressText: string): void => {
       if (
         progressFailure !== undefined || progressSettled ||
@@ -657,6 +691,9 @@ const runAgentTurnInternal = async (
           : {
             signal,
             reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
+            reportThinkingDelta: sink === undefined ? undefined : (thinking) => {
+              thinkingParts[thinking.kind].push(thinking.text);
+            },
             providerEvidence: evidence,
             providerExactRequestObserver: options.executionContext?.providerExactRequestObserver,
             providerEvidenceLane: 'parent',
@@ -668,6 +705,7 @@ const runAgentTurnInternal = async (
     } catch (error) {
       evidence?.setContextRequestOrdinal(undefined);
       progressSettled = true;
+      emitThinking(false);
       if (progressFailure !== undefined) {
         if (isCancellationCleanupError(error)) {
           cancellation?.markCleanupFailed();
@@ -693,14 +731,17 @@ const runAgentTurnInternal = async (
     progressSettled = true;
     if (progressFailure !== undefined) throw progressFailure;
     if (signal?.aborted) {
+      emitThinking(false);
       return finishCancelled();
     }
     if (!isModelResult(result)) {
+      emitThinking(false);
       return finishContractFailure('model contract failure: invalid result', {
         stage: 'model_result_validation',
         code: 'invalid_model_result',
       });
     }
+    emitThinking(true, result.providerState);
     evidence?.recordModelResult(result, steps, evidenceLane);
     if (result.kind === 'final') {
       evidence?.setContextRequestOrdinal(undefined);

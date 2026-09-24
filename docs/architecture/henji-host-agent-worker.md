@@ -82,9 +82,10 @@
 - evidence appendとcanonical adoptionは別operationである。append acknowledgementはobject、segment、directory、anchor、
   execution ledgerのatomic commit後だけ返し、adoptionはsettled execution root／terminalとSession base revisionを
   一transactionで照合・更新する。
-- 人間向けhistory viewは、canonicalはメインlogのPageUpと別プロセスの`henji history` CLI（`session`／
-  `canonical`）、non-canonicalは`detail` JSONLで参照できる。modelが過去executionから既定で引き継ぐ
-  conversationはcanonicalに限定し、現在execution内の文脈と人間が明示したprojectionは別の入力として扱う。
+- 人間向けhistory viewの`session`は、canonicalとnon-canonicalのexecutionを時系列に並べ、後者の
+  outcomeと未完了境界を明示する。`canonical`は採用済みconversationだけを表示し、`detail`はJSONLで
+  原記録を参照できる。modelが過去executionから既定で引き継ぐconversationはcanonicalに限定し、
+  現在execution内の文脈と人間が明示したprojectionは別の入力として扱う。
   Surface上のrendererとmodel context projectionは別責務である。
 - executionは、その判断に関与したAgent側の基底設定と相関できなければならない。このattributionは
   過去Worker、外部状態、tool effect、model内部状態の再現またはreplayを保証しない。
@@ -491,7 +492,8 @@ streamingとsettled outputの内容を変更しない。
 
 `henji history`は別プロセスのread-only viewerである。v7 storeをread-onlyで開き（schema作成・reconcile・lockを
 行わない）、単一read transactionで対象Sessionのcanonical transcriptまたはdurable historyを読み、`session`／
-`canonical`／`detail`の3種類をstdoutへ出力する。TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
+`canonical`／`detail`の3種類をstdoutへ出力する。`session`の通常表示は意味上の実行記録だけを読み、
+診断attachmentの大量のSSE断片を展開しない。TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
 redirectに任せる。TUI内のhistory overlayと`/history export`は持たない。
 
 同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
@@ -546,8 +548,9 @@ Henjiの履歴全体と、以後の通常会話へ既定で引き継ぐconversat
 durable historyは、一つのclaimへ一つのownerを置き、次の四層を区別する。
 
 - semantic authority: canonical／non-canonical message、tool call／result／effect、model-visible
-  context order、Hostのadmission／outcome／canonical decision、使用したAgent／build／resource
-  revision、`/recall`のsource／target relation。
+  context order、providerから読めたthinkingの実行・model step付き観測（完了／未完了を区別）、Hostの
+  admission／outcome／canonical decision、使用したAgent／build／resource revision、`/recall`の
+  source／target relation。
 - diagnostic attachment: exact request／response、chunk、SSE、parser transition、Worker／Host
   protocol stage、storage stage。
 - derived projection: 人間向けhistory view、provider evidence document、context manifest、artifact表示、
@@ -621,6 +624,9 @@ F19〜F24で定め、history storageが先に固定しない。
 人間向けhistory viewは、canonical turnとnon-canonical executionの双方を識別して辿れるようにする。
 Markdown、tool summary/detail、status等のrendererはHost/Surfaceの表示責務であり、保存内容、採用状態、
 model contextを変更しない。
+読めるthinking本文と要約は作業単位にまとめて表示し、要約はその旨を明示する。暗号化itemから本文を
+作らず、stream断片を一件ずつ通常履歴へ永続化しない。表示するthinkingはprovider-private replay stateや
+modelへ渡すsemantic conversationへ混入させない。
 
 model context projectionはhistory viewとは別責務である。過去executionから既定で引き継ぐconversationは
 canonicalに限定する。一方、現在execution内で得たassistant stepやtool resultはそのexecutionの後続model requestへ

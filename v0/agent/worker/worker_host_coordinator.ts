@@ -68,11 +68,14 @@ import {
 
 const WORKER_SETTLEMENT_GRACE_MS = 5_000;
 const AUXILIARY_STAGE_GAP_MS = 1_000;
-/** Private provider state belongs only to the current uninterrupted provider segment. */
-const privateStateFromTurn = (changes: readonly SessionModelChange[]): number => {
+/** Private provider state belongs only to the current uninterrupted provider/model segment. */
+export const privateStateFromTurn = (changes: readonly SessionModelChange[]): number => {
   let boundary = 1;
   for (let index = 1; index < changes.length; index++) {
-    if (changes[index - 1].selection.provider !== changes[index].selection.provider) {
+    if (
+      changes[index - 1].selection.provider !== changes[index].selection.provider ||
+      changes[index - 1].selection.modelId !== changes[index].selection.modelId
+    ) {
       boundary = changes[index].effectiveFromTurn;
     }
   }

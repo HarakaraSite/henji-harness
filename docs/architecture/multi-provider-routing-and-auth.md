@@ -191,19 +191,27 @@ provider-private replay stateは生成元を持つtagged unionであり、conver
 
 ```ts
 type ProviderState =
-  | { provider: 'openrouter-chat'; reasoningDetails: readonly JsonValue[] }
+  | {
+    provider: string;
+    model?: string;
+    reasoning?: { field: 'reasoning' | 'reasoning_content'; text: string };
+    reasoningDetails?: readonly JsonValue[];
+  }
   | { provider: string; replayItems: readonly JsonValue[]; model?: string };
 ```
 
+- Chat adapterは返された平文`reasoning`／`reasoning_content`または順序付き`reasoning_details`を、同じprovider・
+  modelの継続requestへ対応するwire形式で戻す。構造付きitemと同じ平文を重複送信しない。Responses adapterは
+  reasoning/output itemを同じprovider・modelの継続requestへ戻す。OpenRouter Responsesのstateless endpointでも
+  Henjiが返却されたitemを再送する。読めるthinkingの人間向け表示は、このprivate replayと別に扱う。
 - OpenAI Responses adapterは、function call後のcontinuationと後続contextに必要なreasoning/output itemを完全な順序で
   保持する。`previous_response_id`だけをHenji Sessionの正本にせず、Henjiのdurable transcriptとprovider stateから
   requestを再構成する。
 - adapterは、自分と互換なtagのprovider stateだけをwireへ戻す。別APIのstateを変換または送信しない。
 - context admissionとcompactionのrequest-size計測はactive modelの`measureRequestWire`を使う。providerを
   切り替えた後のrequestを別providerのwire形式で評価しない。
-- provider/model切替時のstate互換性はadapter固有とする。OpenRouter内の互換model切替は現行どおり
-  `reasoning_details`を維持する。providerをまたぐ切替ではsemantic transcriptだけを使う。元providerへ戻った場合に
-  古いprivate stateを再利用するかは、公式契約または実行証拠がない限り行わない。
+- Session内でproviderまたはmodelを切り替えたら、その境界より前のprivate stateを後続requestから除外する。
+  元の選択へ戻っても古いprivate stateは復活させず、semantic transcriptから通常の会話内容を再構成する。
 - routeは一turn中固定なので、tool callを返したproviderとtool result continuationを受けるproviderは同じである。
 - Codex routeのprovider stateはfeasibility gate後に採用した境界が必要とする場合だけbranchを追加する。
 
