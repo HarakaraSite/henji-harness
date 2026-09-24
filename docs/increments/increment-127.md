@@ -1,6 +1,6 @@
 # Increment 127 — 外部reviewerと組み込みplannerの廃止
 
-状態: 2026-09-25に利用者が計画、architecture・roadmapの変更を承認。実装中。
+状態: 2026-09-25に利用者が計画、architecture・roadmapの変更を承認。実装・配置済み。実providerでのreviewer出力品質は未確認。
 
 ## 必要なproduct動作と根拠
 
@@ -46,3 +46,5 @@ TUIと`henji run`は明示selector、`agent:default` binding、組み込みdefau
 - focused testで、未設定default、外部default binding、外部reviewerのspawn/collect、外部plannerの通常のmanaged child経路、reviewerのtool宣言を確認した。旧async子Agentのlifecycle／durability testは組み込みplanner参照から外部refへ切り替えた。関連143件、`v0:check`、対象lint、`git diff --check`成功。`v0:test`の初回はIncrement 126の128-step変更に追従していなかったproduction CLI E2E fixture（64）だけが失敗した。fixtureを128へ直した後の`v0:test`は全task成功。
 - 隔離XDG `/tmp/henji-i127-mock/xdg`に外部reviewerとlocalhost Chat providerをinstall／設定し、source production `henji run --json --max-steps 8`で親の`spawn_subagent(reviewer)`→`collect_subagent`→finalを確認した。collectには`local/reviewer@sha256:b510daaa…`、completed、子の`providerRequestCount:1`が出た。親は3 request、localhostには親3件＋子1件。`henji run`も`default-selection.json`のmodelを使用した。
 - 同じ隔離XDGのproduction TUIをtmuxで起動し、`user>`指示後に`tool> spawn_subagent ✓`、`tool> collect_subagent ✓`、`assistant> Parent collected reviewer result.`、footerの`provider:local-chat model:mock-model none`を確認した。captureは`/tmp/henji-i127-mock/tui-start.txt`と`tui-result.txt`、request種別は`server.log`。実configと実providerは使っていない。このmock結果はreviewerの実際の指摘品質を検証しない。
+- clean commit `505b8468`からDeno 2.9.7で単体binaryをbuildした。build IDは`15c3827f…`、file SHA-256は`2bdf1063…`、source dirty markerはfalse、Definition APIはv2。runtime manifestの同梱Agentは`builtin/default`のみで、`builtin/planner`はない。`~/.local/bin/henji`へ原子的に配置し、配置前後のSHA-256一致と起動を確認した。`agents/reviewer.ts`を同binaryで`local/reviewer@sha256:b510daaa…`としてinstallし、実configの`agent:reviewer`へbindした。既存のbindingはなかった。
+- 利用者承認の実provider確認では、通常の保存Session `e86cca79-e50c-439d-8069-4246b16f9ac4`から`opencode-go-chat / mimo-v2.6-pro`を使用し、外部reviewerを1回spawnしてcollectした。親Execution `12ec38fe-d81e-4354-9bc7-4fa295014793`は4 requestでfinal、子Execution `480201d4-5b1b-461e-b7a0-40eee6c0209b`は4 requestで`max_steps`停止。親子合計8 requestで承認上限内だった。子はreview本文を返さず、review findingは得られなかった。`--max-steps 4`は承認上限8 requestを守るため親子に適用した値であり、通常の既定128 stepによる動作はこの実provider確認からは判断できない。Session/Executionは通常のstate rootに保存され、TUI captureは`/tmp/henji-i127-mock/live-review-capture.txt`。この1件を再実行していない。

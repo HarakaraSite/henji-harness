@@ -2,9 +2,10 @@
 
 ## Next session
 
-- Increment 126（provider deadlineとmaxStepsの拡張）は実装・focused検証・clean commitからのbuild・配置まで完了。
-  正本は`docs/increments/increment-126.md`、実装commitは`5c684fe3`。`~/.local/bin/henji`へ同commitのbinaryを
-  配置済み。実provider call・push・releaseは未実施。未採用候補は通常利用メモを参照。
+- Increment 127は実装commit `505b8468`からbuildし、`~/.local/bin/henji`へ配置済み。外部reviewerを
+  `agent:reviewer`へbindした。実providerで1回spawn/collectしたが、承認上限に合わせた4 stepで子が停止し、
+  review本文は得られなかった。結果と次の判断点は`docs/increments/increment-127.md`。push・releaseは未実施。
+  未採用候補は通常利用メモを参照。
 
 ## Records
 
