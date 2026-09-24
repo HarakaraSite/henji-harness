@@ -2,6 +2,13 @@
 
 ## Records
 
+### Increment 123 — thinking本文の段落と折り返し（local実装・検証完了）
+
+- 正本: `docs/increments/increment-123.md`。利用者がIncrementとして正式採用した。通常利用メモS12の一覧行と節は同文書へ移した。
+- thinkingの元の改行を保ち、長い行を単語境界で折り返し、隣接するthinking・tool・回答との間に空行を置く。semantic履歴とmodelへの再送内容は変更していない。
+- focused test 66件、`v0:check`、対象fileのformat・lint、`git diff --check`成功。隔離XDG・tmuxのsource production TUIでlocalhost模擬Chat providerのthinkingを確認した。実provider callは未実施。
+- 次: local変更の内容を利用者が確認する。commit、push、binary配置、releaseは未実施。構想・architecture・roadmapは変更していない。
+
 ### Increment 122 — 失敗行の赤字表示とSession種別ごとの`/recall`案内（完了）
 
 - 正本: `docs/increments/increment-122.md`。通常利用メモS11を採用し、同メモの一覧行と節をこの文書へ移した。

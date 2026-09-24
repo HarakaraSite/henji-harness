@@ -94,6 +94,62 @@ Deno.test('conversation presentation keeps successful operational metadata out o
   );
 });
 
+Deno.test('thinking keeps paragraph breaks, wraps at words, and leaves room around tools', () => {
+  let state = createUiState();
+  state = reduceUiEvent(state, {
+    kind: 'user_message',
+    turn: 1,
+    message: { role: 'user', content: { kind: 'text', text: 'compare READMEs' } },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_thinking',
+    turn: 1,
+    modelStep: 1,
+    thinkingKind: 'text',
+    text:
+      'Compare the English and Japanese README files section by section before reporting the result.\n\nCheck the examples next.',
+    complete: true,
+  });
+  state = reduceUiEvent(state, {
+    kind: 'tool_call',
+    turn: 1,
+    call: {
+      kind: 'tool_call',
+      callId: 'read-1',
+      name: 'read',
+      arguments: { path: 'README.md' },
+    },
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_thinking',
+    turn: 1,
+    modelStep: 2,
+    thinkingKind: 'text',
+    text: 'The examples match.',
+    complete: true,
+  });
+  state = reduceUiEvent(state, {
+    kind: 'assistant_message',
+    turn: 1,
+    message: { role: 'assistant', content: { kind: 'text', text: 'The READMEs match.' } },
+  });
+
+  assertEquals(layoutUi(state, 80, 24).allLog.map((row) => row.text), [
+    'user> compare READMEs',
+    '',
+    'thinking> Compare the English and Japanese README files section by section',
+    'before reporting the result.',
+    '',
+    'Check the examples next.',
+    '',
+    'tool> read README.md …',
+    '',
+    'thinking> The examples match.',
+    '',
+    'assistant> The READMEs match.',
+  ]);
+});
+
 Deno.test('conversation layout stays plain while retained frame colors exact conversation labels', () => {
   const terminal = new FakeTerminal();
   const phases: string[] = [];

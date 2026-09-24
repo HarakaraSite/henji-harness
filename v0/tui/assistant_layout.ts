@@ -533,3 +533,19 @@ export const markdownAssistantRenderer: AssistantContentRenderer = Object.freeze
     width: number,
   ): readonly AssistantLine[] => renderAssistant(text, width),
 });
+
+/** Thinking keeps its original line breaks while sharing word-aware wrapping with prose. */
+export const thinkingBodyRenderer: AssistantContentRenderer = Object.freeze({
+  render: (
+    text: string,
+    _phase: 'streaming' | 'settled',
+    width: number,
+  ): readonly AssistantLine[] =>
+    Object.freeze(
+      text.split('\n').flatMap((raw, sourceLine) =>
+        wrapCellsWithSource(raw, width).map((wrapped) =>
+          line(wrapped.text, [], sourceLine, wrapped.sourceIndices[0] ?? 0)
+        )
+      ),
+    ),
+});

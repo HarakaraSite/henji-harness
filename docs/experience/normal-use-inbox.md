@@ -16,7 +16,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
-| S12 | Surface | 長いthinkingの読みやすさ | thinking表示を改善するincrementを採用するとき |
 | S13 | Surface | 失敗行のExecution ID表示 | 過去の停止実行をTUIから指定して`/recall`したいとき |
 | S14 | Surface | ツール呼び出しに添えたassistant本文の履歴表示 | 作業途中の発話を後から時系列で読みたいとき |
 | S15 | Surface | `/sessions`で復元した会話のthinking表示 | 保存済みSessionをTUIで読み返すとき |
@@ -106,16 +105,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
 
-### S12 — 長いthinkingの読みやすさ
-
-- 観測（2026-09-24、session `677dbc65`）: `deepseek-v4.1-flash`のREADME二言語版比較は最終回答まで完了した。
-  通常履歴には9件の`thinking>`と13件のtool行が実行順に残り、ツール呼び出しの前後で何を考え、次の確認へ
-  進んだかが分かる。一方、長いthinking本文は読みにくい部分がある。
-- 利用者判断: 思考過程が見える価値は保ちつつ、表示の読みやすさは今後の課題として扱う。具体的な表示方法は
-  採用時に決める。
-- 再検討条件: thinking表示を改善するincrementを採用するとき。
-- 関連: Increment 120、A10。
-
 ### S13 — 失敗行のExecution ID表示
 
 - 観測（2026-09-24、session `a2098f7c`）: `/recall`はIDを省略すると直近の停止実行を選び、Execution IDを
@@ -148,7 +137,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 候補: `/sessions`から復元した会話でも、保存済みのthinkingを対応する発話・toolと同じ順序で表示し、
   通常実行中の表示と読み返し体験を揃える。
 - 再検討条件: 保存済みSessionをTUIで読み返すとき。
-- 関連: S12、`v0/tui/state.ts`、`v0/presentation/tui_presentation_adapter.ts`、
+- 関連: Increment 123、`v0/tui/state.ts`、`v0/presentation/tui_presentation_adapter.ts`、
   `v0/agent/history/history_view.ts`。
 
 ## Agent実行

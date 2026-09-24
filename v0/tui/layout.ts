@@ -7,6 +7,7 @@ import {
   plainTextAssistantRenderer,
   projectConversationEntry,
 } from './conversation_renderer.ts';
+import { thinkingBodyRenderer } from './assistant_layout.ts';
 import { startupHeaderLines } from './startup_render.ts';
 import { cellWidth, localTimestampText } from './terminal_text.ts';
 
@@ -430,6 +431,7 @@ const logRows = (
   }
   let seenTurnStart = false;
   const awaitingUserOutput = new Set<number>();
+  let previousEntryKind: UiLogEntry['kind'] | undefined;
   for (const entry of state.log.entries) {
     const turnStart = entry.kind === 'user' && entry.label === 'user>';
     const userOutputBoundary = entry.turn !== undefined &&
@@ -437,11 +439,16 @@ const logRows = (
       (entry.kind === 'tool' || entry.kind === 'assistant' || entry.kind === 'thinking');
     sourceBytes += encoder.encode(entry.text).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
-    if ((turnStart && seenTurnStart) || userOutputBoundary) appendSeparator();
-    if (entry.kind === 'assistant') {
+    const thinkingBoundary = previousEntryKind !== undefined &&
+      (entry.kind === 'thinking' || previousEntryKind === 'thinking');
+    if ((turnStart && seenTurnStart) || userOutputBoundary || thinkingBoundary) {
+      appendSeparator();
+    }
+    if (entry.kind === 'assistant' || entry.kind === 'thinking') {
       const labelWidth = [...entry.label].length;
       const bodyWidth = Math.max(1, columns - labelWidth - 1);
-      const lines = assistantRenderer.render(
+      const renderer = entry.kind === 'thinking' ? thinkingBodyRenderer : assistantRenderer;
+      const lines = renderer.render(
         entry.text,
         entry.live ? 'streaming' : 'settled',
         bodyWidth,
@@ -450,7 +457,8 @@ const logRows = (
       lines.forEach((assistantLine, lineIndex) => {
         const prefix = lineIndex === 0 ? `${entry.label} ` : '';
         const shift = [...prefix].length;
-        const text = safeDisplay(`${prefix}${assistantLine.text}`, false);
+        const body = entry.kind === 'thinking' ? assistantLine.text.trimEnd() : assistantLine.text;
+        const text = safeDisplay(`${prefix}${body}`, false);
         const spans = assistantLine.spans
           .filter((span) => span.length > 0)
           .map((span) => ({ start: span.start + shift, length: span.length, tone: span.tone }));
@@ -491,6 +499,7 @@ const logRows = (
     if (userOutputBoundary && entry.turn !== undefined) {
       awaitingUserOutput.delete(entry.turn);
     }
+    previousEntryKind = entry.kind;
   }
   return { rows: result, sourceBytes };
 };
