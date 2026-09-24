@@ -1,6 +1,6 @@
 # Increment 123 — thinking本文の段落と折り返し
 
-状態: local実装・検証完了（2026-09-24）。利用者が本変更をIncrement 123として正式に扱うと決め、通常利用メモS12を採用した。構想・architecture・roadmapは変更していない。commit、push、binary配置、releaseは未実施。
+状態: 実装・検証・commit・binary配置完了（2026-09-24）。利用者が本変更をIncrement 123として正式に扱うと決め、通常利用メモS12を採用した。構想・architecture・roadmapは変更していない。push、releaseは未実施。
 
 ## 必要なproduct動作と根拠
 
@@ -26,6 +26,9 @@
 - 最終コードでTUI conversation、Increment 120 thinking履歴、retained terminalのfocused testは66件成功。`v0:check`、対象fileのformat・lint、`git diff --check`も成功。full gateは実行していない。
 - 隔離XDGとtmuxでsourceのproduction TUI（`agent:tui --no-session`）を起動し、localhost模擬Chat providerの可読な`reasoning_content`を表示した。幅100列で長い文が`headings. The`の後の単語境界で折り返され、本文内の空行とthinking・回答間の空行が見えた。画面記録は`/tmp/henji-thinking-tui-LtEYJTsg/display.txt`。実provider callは行っていない。
 
-## 未実施
+## commit・配置
 
-- 配置済みbinaryへの反映と実providerでの再確認は行っていない。今回のproduct経路確認はsource TUIとlocalhost模擬providerで完了した。
+- 実装・test・文書をclean commit `e0445132e96fb888eda6aa634ff34ccd7ee94e81`にまとめ、Deno 2.9.7で`deno task --config deno.v0.json henji:compile`を実行した。build IDは`535a3f063ab78a4cc3860a80d6add189a56c41009e67c370c16f1d586d6f6d5f`、embedded runtime digestは`4767adc8c0b94479dc60c74c9a1c1676b3d6dba3df6368d1341d08eeb7cf8462`。
+- `dist/henji`を`~/.local/bin/henji`へ同一ディレクトリ内のstaging file経由で原子的に配置した。両fileのSHA-256は`dbf7f2a8b8e8aaef1d3d3042202f7c89a893b77d9806e6d66d6c4397f8616efd`で一致し、配置先の`--version`は上記source commit・build ID・runtime digestを表示した。
+- 配置済みbinaryも隔離XDG・tmuxで起動し、localhost模擬Chat providerのthinking本文で単語境界の折り返し、段落内の空行、回答前の空行を確認した。画面記録は`/tmp/henji-thinking-tui-LtEYJTsg/display.installed.txt`。実provider callは追加していない。
+- pushとreleaseは行っていない。
