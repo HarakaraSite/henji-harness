@@ -87,5 +87,7 @@ roadmapの変更は不要と判断し、編集していない。
 
 ## 配置
 
-- 変更をcommitし、clean commitからDeno 2.9.7で`dist/henji`をbuildして`~/.local/bin/henji`へ原子的に配置した
-  （build／SHA-256／source idは`.handoff/handoff.md`の記録を参照）。pushとreleaseは未実施。
+- 変更をcommit（`44448eba`）し、同じclean commitからDeno 2.9.7で`deno task --config deno.v0.json henji:compile`
+  を実行してbuild `51dfe46d…`（file SHA-256 `69ef7618…`、embedded runtime `ac0f63bd…`）を作成し、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置した。配置先の`--version`がsource `44448eba…`・build `51dfe46d…`を示す。
+  pushとreleaseは未実施。

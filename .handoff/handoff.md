@@ -2,9 +2,23 @@
 
 ## Next session
 
-- Increment 124は利用者確認を経て完了。正本は`docs/increments/increment-124.md`。実装commit `763498f9`からbuildしたbinaryを`~/.local/bin/henji`へ配置済み。次の採用済み作業は未指定。通常実行中の逐次表示は通常利用メモS16の未採用候補として残る。
+- Increment 125（失敗行のExecution ID表示、通常利用メモS13）は利用者承認のもと実装・検証・配置まで完了。正本は`docs/increments/increment-125.md`。実装commit `44448eba`からbuildしたbinaryを`~/.local/bin/henji`へ配置済み。pushとreleaseは未実施。次の採用済み作業は未指定。未採用候補は通常利用メモのS14／S16ほか一覧を参照。
 
 ## Records
+
+### Increment 125 — 失敗行のExecution ID表示（完了）
+
+- 正本: `docs/increments/increment-125.md`。通常利用メモS13を採用し、同メモの一覧行と節をこの文書へ移した。
+- 保存Sessionの`failure>`行に短縮Execution ID（`execution 2300b666`）と`/recall 2300b666`案内を表示する。
+  `--no-session`は理由のみ、IDが得られないsettle経路は従来のIDなし案内。
+- 検証: focused test（conversation／retained 70件＋関連41件）、`v0:check`、`deno fmt --check`、`deno lint`、
+  `git diff --check`成功。full `v0:gate`は未実施。隔離XDG・tmuxのsource production TUIをlocalhost mock
+  providerで確認し、キャンセル（`b1da14c3`）と解析失敗（`05ca7055`）の失敗行ID表示、`/recall b1da14c3`
+  で直近でない停止実行の選択成功、ID省略`/recall`が直近（2件目）の表示IDと一致、`--no-session`が理由のみ
+  であることを確認。実provider callなし。証拠は`/tmp/henji-increment125-tui/`。
+- 配置: 実装commit `44448eba`をclean treeからDeno 2.9.7でbuildし`~/.local/bin/henji`へ原子的に配置
+  （build `51dfe46d…`、file SHA-256 `69ef7618…`、embedded runtime `ac0f63bd…`、source `44448eba…`）。
+- 次: なし。pushとreleaseは未実施。構想・architecture・roadmapは変更していない。
 
 ### Increment 123 — thinking本文の段落と折り返し（完了）
 
