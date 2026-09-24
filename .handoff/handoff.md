@@ -2,9 +2,9 @@
 
 ## Next session
 
-- Increment 126（provider deadlineとmaxStepsの拡張）は実装・focused検証・clean commitからのbuildまで完了。
-  正本は`docs/increments/increment-126.md`、実装commitは`5c684fe3`。`~/.local/bin/henji`への配置は
-  承認待ちで、実provider call・push・releaseは未実施。未採用候補は通常利用メモを参照。
+- Increment 126（provider deadlineとmaxStepsの拡張）は実装・focused検証・clean commitからのbuild・配置まで完了。
+  正本は`docs/increments/increment-126.md`、実装commitは`5c684fe3`。`~/.local/bin/henji`へ同commitのbinaryを
+  配置済み。実provider call・push・releaseは未実施。未採用候補は通常利用メモを参照。
 
 ## Records
 
@@ -12,7 +12,7 @@
 
 - 既定を300,000 ms／128 stepへ変更し、TUI・`henji run`の両方で`--provider-timeout-ms`と`--max-steps`を受け付ける。
   roadmap・architectureは利用者の別承認後に更新した。focused確認、型・format・lint、clean buildの結果は
-  `docs/increments/increment-126.md`を参照。実装commit `5c684fe3`。配置は承認待ち。
+  `docs/increments/increment-126.md`を参照。実装commit `5c684fe3`のbinaryを`~/.local/bin/henji`へ配置済み。
 
 ### Increment 125 — 失敗行のExecution ID表示（完了）
 

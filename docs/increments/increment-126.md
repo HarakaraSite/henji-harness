@@ -1,6 +1,6 @@
 # Increment 126 — provider deadlineとmodel step既定値の拡張
 
-状態: 実装・focused検証・clean commitからのbuild済み。roadmap・architectureの現行値は利用者の別承認を得て更新。binary配置は承認待ち。実provider確認は未実施。
+状態: 実装・focused検証・clean commitからのbuild・配置済み。roadmap・architectureの現行値は利用者の別承認を得て更新。実provider確認は未実施。
 
 ## 必要なproduct動作と根拠
 
@@ -34,3 +34,4 @@
 
 - 実装・正本更新commit `5c684fe3`のclean treeからDeno 2.9.7で`dist/henji`をbuildした。build IDは`bfe16f9f3ff569c05f82cccc11cc311d5f548f074e7f6da712b6fd07ff1545fa`、file SHA-256は`040cb01ff4d3aaf4642dab130079a0b85cc44b77cea939b390ea88f9e84d8ce3`。
 - `dist/henji --version`がsource `5c684fe3`かつdirty markerなしと表示した。実provider callは行っていない。
+- 利用者の明示承認後、同じbinaryを`~/.local/bin/henji`へ原子的に配置した。配置先のfile SHA-256は`040cb01ff4d3aaf4642dab130079a0b85cc44b77cea939b390ea88f9e84d8ce3`でbuild元と一致し、`--version`も同じsource/buildを表示した。push・releaseは未実施。
