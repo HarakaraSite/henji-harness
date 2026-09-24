@@ -29,6 +29,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
 | A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
 | A13 | Agent実行 | 無名サブエージェント（仮称）と起動時モデル指定 | 名前付きDefinitionを準備せず、taskごとにモデルを選んで子Agentへ任せたいとき |
+| A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -261,7 +262,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   ごとに名前付きAgent Definitionを用意せず委譲したい。「無名」は事前登録する`agent:<name>`が不要という意味の
   仮称で、実行を参照する`runId`まで無くす意味ではない。
 - 現行境界: `spawn_subagent(agent, task)`は親Definitionが宣言したcatalog名だけを受け付け、起動ごとのmodel
-  引数はない。組み込み`planner`は外部Definitionなしで使えるが、planner専用の役割を持つ。Hostから子Workerへ
+  引数はない。組み込み`planner`の実行用DefinitionはIncrement 127で除去した。Hostから子Workerへ
   `ModelSelection`を渡す経路自体は既にある。
 - 候補: 既存の名前付き子Agentへの起動時モデル指定と、任意task向けの汎用子Agentを事前の名前付き登録なしで
   起動する動作を分けて検討する。後者では一つの組み込み汎用Definitionを基底にでき、モデルごとのDefinitionは
@@ -271,6 +272,17 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   その場で委譲できない不便が現れたとき。
 - 関連: `docs/architecture/henji-host-agent-worker.md`のasync agent catalogとchild execution。採用時には
   `spawn_subagent(agent, task)`および子model選択のarchitecture変更を別途判断する。
+
+### A14 — 名前付き子Agent Definitionの専用model指定
+
+- 利用者希望（2026-09-25）: 外部`reviewer` Definitionにreviewer専用のmodelを定義し、親Sessionのmodelと
+  独立に動かしたい。起動ごとにmodelを任意指定するA13とは別の要望。
+- 現行境界: `agents/reviewer.ts`は役割instructionとtoolを定義するが、`createAgentComposition`にmodel指定
+  optionはない。session `b3aa7c49`では親とreviewerがともに`opencode-go-chat / mimo-v2.6-pro`で実行された。
+  子Workerへ渡すmodelは現在、Hostが親を開いたときの`initialModelSelection`から決まる。
+- 候補: 外部Agent Definitionが子実行の既定model選択を宣言し、Hostが子Worker起動時にその選択を適用する。
+  親Sessionの選択や将来の起動時指定との優先順位は、採用時に決める。
+- 再検討条件: reviewerなど名前付き子Agentを親と異なるmodelで通常利用するとき。
 
 ## F24・自己改訂
 
