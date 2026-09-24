@@ -502,10 +502,10 @@ revisionではない。idle時の選択をHostが先に永続化し、Workerは�
 変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
 
-production TUI invocationは、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
-渡す。Workerは同じ値をroot（planner rootを含む）、context compactionが生成する各OpenRouter model adapterへ
-適用する。このrequest単位deadlineはSession stateではなくinvocation stateであり、Session切替では変わらない。
-未指定時は180,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
+production TUIと`henji run`は、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
+渡す。Workerは同じ値をroot（planner rootを含む）、context compaction、補助provider requestへ適用する。
+このrequest単位deadlineはSession stateではなくinvocation stateであり、TUIのSession切替では変わらない。
+未指定時は300,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
 shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。
 
 通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。tool call／resultは意味上の履歴へ残し、

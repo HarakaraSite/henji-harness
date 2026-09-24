@@ -393,8 +393,10 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   `MAX_WEB_FETCH_BYTES=1MiB`・`BASH_OUTPUT_*_WINDOW_BYTES=49,152`、resource limitsは`resource_limits.ts`。
 - 既存のHost configは`$XDG_CONFIG_HOME/henji-harness/`の`default-selection.json`・`providers/*.json`・
   `tools.json`・`agents.json`。
+- 2026-09-24のIncrement 126では、provider deadlineを300,000 ms、組み込みAgentの`maxSteps`を128へ拡張し、
+  TUIと`henji run`の両方でCLI引数から上書きできるようにした。`runtime.json`は採用していない。
 - 候補: `runtime.json`を追加し、厳格schema＋検証でHost runtime tunablesを読む。precedenceはCLI flag > config >
-  built-in default。第一候補は`providerTimeoutMs`（`run`にも効く）。tool timeout/limitも同様に扱える。
+  built-in default。CLI引数を毎回指定する負担が実利用で残る場合は`providerTimeoutMs`を第一候補として再検討する。
 - authority境界: `maxSteps`は現在**Agent Definition所有者**であり、Host configに置くと二重authorityになる。
   既定値のHost config化はroadmap F06（loop/context externalization）の判断が必要。provider timeoutは
   Host/provider側なので衝突しない。

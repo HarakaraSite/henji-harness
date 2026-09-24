@@ -401,9 +401,9 @@ Deno.test('Definitions declare capabilities while the host materializes matching
   };
   const defaultDefinition = defaultAgentDefinition(input);
   const plannerDefinition = plannerAgentDefinition(input);
-  assertEquals(DEFAULT_AGENT_MAX_STEPS, 64);
-  assertEquals(defaultDefinition.limits.maxSteps, 64);
-  assertEquals(plannerDefinition.limits.maxSteps, 64);
+  assertEquals(DEFAULT_AGENT_MAX_STEPS, 128);
+  assertEquals(defaultDefinition.limits.maxSteps, 128);
+  assertEquals(plannerDefinition.limits.maxSteps, 128);
   assert(!('registry' in defaultDefinition));
   assert(!('skillCatalog' in defaultDefinition));
   assertEquals(defaultDefinition.capabilities.tools.map(String), [
@@ -668,7 +668,7 @@ Deno.test('root maxSteps finalization keeps Definition evidence coherent', () =>
     toolDefinitions: bundledWorkToolComponents(providerFreeWebSearchBackend),
   });
   const finalized = finalizeRootAgentComposition(composition, 12);
-  assertEquals(composition.maxSteps, 64);
+  assertEquals(composition.maxSteps, 128);
   assertEquals({
     maxSteps: finalized.maxSteps,
     resolved: finalized.resolved.limits.maxSteps,

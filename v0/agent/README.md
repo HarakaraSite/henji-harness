@@ -62,10 +62,12 @@ default effort. `/effort` changes only the active provider/model's effort. These
 idle-only and take effect on the next root turn. The bundled OpenAI catalog contains `gpt-5.6-sol`,
 `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
-The interactive launcher accepts `--provider-timeout-ms N` for a positive safe-integer request
-deadline. It defaults to 180,000 ms and applies to each root, delegated-planner, and context-
-compaction model request in that Worker invocation. The value is not Session state, so a Session
-switch keeps the invocation value and a later invocation returns to the default unless the flag is
+The interactive launcher and `henji run` accept `--provider-timeout-ms N` for a positive
+safe-integer request deadline. It defaults to 300,000 ms and applies to each root, delegated-planner,
+and context-compaction model request in that Worker invocation. Both also accept `--max-steps N` to
+override the root Agent's model-step limit; the built-in default and planner Definitions now allow
+128 steps when no override is supplied. Neither option is Session state, so a Session switch keeps
+the TUI invocation values and a later invocation returns to the defaults unless the flags are
 supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not
 automatically retry or select another model. The TUI footer keeps transient status on row one, the
 cwd, short Session ID, and Session title on row two, and the root provider, model, and effort on row

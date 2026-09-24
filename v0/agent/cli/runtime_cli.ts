@@ -5,7 +5,11 @@ import {
   parseDefinitionRevisionSelector,
   resolveRequestedDefinition,
 } from '../definitions/definition_selection.ts';
-import { type HeadlessWorkerRun, runHeadlessWorker } from '../worker/worker_headless_runner.ts';
+import {
+  type HeadlessWorkerRun,
+  type HeadlessWorkerRunOptions,
+  runHeadlessWorker,
+} from '../worker/worker_headless_runner.ts';
 import type { AgentEventSink } from '../core/events.ts';
 import {
   HenjiInstructionError,
@@ -59,6 +63,7 @@ export interface RuntimeCliDependencies {
     task: string,
     selection: HostDefinitionSelection,
     eventSink?: AgentEventSink,
+    options?: Pick<HeadlessWorkerRunOptions, 'rootMaxSteps' | 'providerTimeoutMs'>,
   ) => Promise<HeadlessWorkerRun>;
   readonly dataRoot?: string;
   readonly configRoot?: string;
@@ -81,6 +86,8 @@ export interface ParsedRuntimeArgs {
   readonly taskArg: string | undefined;
   readonly rawAgentName: string | undefined;
   readonly rawDefinitionRevision?: string;
+  readonly rootMaxSteps?: number;
+  readonly providerTimeoutMs?: number;
 }
 
 /** Parse the exact application argv contract, returning undefined task for stdin. */
@@ -88,16 +95,31 @@ export const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
   let task: string | undefined;
   let rawAgentName: string | undefined;
   let rawDefinitionRevision: string | undefined;
+  let rootMaxSteps: number | undefined;
+  let providerTimeoutMs: number | undefined;
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
     if (
       argument !== '--task' && argument !== '--agent' &&
-      argument !== '--definition-revision'
+      argument !== '--definition-revision' && argument !== '--max-steps' &&
+      argument !== '--provider-timeout-ms'
     ) throw invalidInput();
     if (index + 1 >= args.length) throw invalidInput();
     if (argument === '--task') {
       if (task !== undefined) throw invalidInput();
       task = args[index + 1];
+    } else if (argument === '--max-steps' || argument === '--provider-timeout-ms') {
+      const value = args[index + 1];
+      if (!/^[0-9]+$/.test(value)) throw invalidInput();
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) throw invalidInput();
+      if (argument === '--max-steps') {
+        if (rootMaxSteps !== undefined) throw invalidInput();
+        rootMaxSteps = parsed;
+      } else {
+        if (providerTimeoutMs !== undefined) throw invalidInput();
+        providerTimeoutMs = parsed;
+      }
     } else {
       if (argument === '--agent') {
         if (rawAgentName !== undefined) throw invalidInput();
@@ -119,6 +141,8 @@ export const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
     taskArg: task,
     rawAgentName,
     ...(rawDefinitionRevision === undefined ? {} : { rawDefinitionRevision }),
+    ...(rootMaxSteps === undefined ? {} : { rootMaxSteps }),
+    ...(providerTimeoutMs === undefined ? {} : { providerTimeoutMs }),
   };
 };
 
@@ -360,13 +384,19 @@ export const main = async (
       }
     };
     const runner = dependencies.run ??
-      ((input, selected, eventSink) =>
+      ((input, selected, eventSink, options) =>
         runHeadlessWorker(input, selected, {
           dataRoot,
           configRoot,
           eventSink,
+          ...options,
         }));
-    const run = await runner(task, selection, sink);
+    const run = await runner(task, selection, sink, {
+      ...(parsed.rootMaxSteps === undefined ? {} : { rootMaxSteps: parsed.rootMaxSteps }),
+      ...(parsed.providerTimeoutMs === undefined
+        ? {}
+        : { providerTimeoutMs: parsed.providerTimeoutMs }),
+    });
     const succeeded = run.outcome.ok &&
       (run.outcome.stopReason === 'final' || run.outcome.stopReason === 'tool_terminal') &&
       typeof run.outcome.finalText === 'string';

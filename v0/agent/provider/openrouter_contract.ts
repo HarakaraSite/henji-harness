@@ -12,7 +12,7 @@ export const MAX_REQUEST_BYTES = MAX_COMPLETE_MODEL_REQUEST_BYTES;
 export const MAX_BUFFERED_RESPONSE_BYTES = 1024 * 1024;
 export const MAX_ASSISTANT_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
-export const DEFAULT_PROVIDER_TIMEOUT_MS = 180_000;
+export const DEFAULT_PROVIDER_TIMEOUT_MS = 300_000;
 
 /** Structural provider profile consumed by the normal OpenRouter adapter. */
 export interface OpenRouterAgentProfile {

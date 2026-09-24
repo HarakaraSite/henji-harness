@@ -19,6 +19,7 @@ export interface HeadlessWorkerRunOptions {
   readonly configRoot?: string;
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
+  readonly providerTimeoutMs?: number;
   readonly eventSink?: AgentEventSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
@@ -40,6 +41,7 @@ export const runHeadlessWorker = async (
     ...('kind' in selection ? { selection } : { agent: selection.id }),
     physicalIoMode: options.physicalIoMode ?? 'production',
     rootMaxSteps: options.rootMaxSteps,
+    providerTimeoutMs: options.providerTimeoutMs,
     eventSink: options.eventSink,
     diagnosticPersistence: options.diagnosticPersistence,
     executionArtifactStore: options.executionArtifactStore,

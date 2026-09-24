@@ -61,7 +61,7 @@ export interface ResolvedAgentDefinition {
 export type AgentDefinition = (input: AgentDefinitionInput) => ResolvedAgentDefinition;
 
 /** The finite request bound declared by the normal runtime's default Agent Definition. */
-export const DEFAULT_AGENT_MAX_STEPS = 64;
+export const DEFAULT_AGENT_MAX_STEPS = 128;
 
 const canonicalSelection = (
   resources: readonly AgentResourceIdentity[],

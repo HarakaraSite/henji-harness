@@ -47,7 +47,7 @@ const request: ModelRequest = {
 };
 
 Deno.test('Increment 13 admits a per-invocation provider deadline and rejects invalid values', () => {
-  assertEquals(DEFAULT_PROVIDER_TIMEOUT_MS, 180_000);
+  assertEquals(DEFAULT_PROVIDER_TIMEOUT_MS, 300_000);
   assertEquals(
     parseTuiInvocation([
       '--continue',
@@ -156,7 +156,7 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
           correlation: command.correlation,
           manifest: {
             role: 'parent',
-            maxSteps: 64,
+            maxSteps: 128,
             profileId: modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION),
             resources: [],
             rootModel: ROOT_DEFAULT_MODEL_SELECTION,

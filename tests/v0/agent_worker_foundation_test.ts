@@ -36,7 +36,7 @@ import {
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
-import { main as runtimeCliMain } from '../../v0/agent/cli/runtime_cli.ts';
+import { main as runtimeCliMain, parseRuntimeArgs } from '../../v0/agent/cli/runtime_cli.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
 import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import {
@@ -338,16 +338,27 @@ Deno.test('Slice 1 proves pre-read/hash, digest-query relative import, import-ma
 Deno.test('headless runner commits one real Worker turn and closes the generation', async () => {
   const artifacts = new FakeWorkerExecutionArtifactStore();
   let closed = false;
+  let startOptions: unknown;
   const result = await runHeadlessWorker(
     'read worker protocol',
     resolveBuiltinAgent(),
     {
       physicalIoMode: 'provider-free',
+      rootMaxSteps: 160,
+      providerTimeoutMs: 420_000,
       executionArtifactStore: artifacts,
       capsuleFactory: (url) => {
         const capsule = new WorkerCapsule(url);
         return {
-          send: (command) => capsule.send(command),
+          send: (command) => {
+            if (command.kind === 'start') {
+              startOptions = {
+                rootMaxSteps: command.rootMaxSteps,
+                providerTimeoutMs: command.providerTimeoutMs,
+              };
+            }
+            capsule.send(command);
+          },
           subscribe: (listener) =>
             capsule.subscribe((message) => {
               if (message.kind === 'closed') closed = true;
@@ -362,8 +373,10 @@ Deno.test('headless runner commits one real Worker turn and closes the generatio
   assertEquals(result.outcome.stopReason, 'final');
   assertEquals(result.requestCount, 0);
   assertEquals(closed, true);
+  assertEquals(startOptions, { rootMaxSteps: 160, providerTimeoutMs: 420_000 });
   const written = await artifacts.list();
   assertEquals(written.length, 1);
+  assertEquals(written[0]?.manifest.maxSteps, 160);
   assert(written[0]?.manifest.resources.includes('agent:planner'));
   assertEquals(written[0]?.storeResult, 'committed');
   assertEquals(written[0]?.acknowledgement, 'accepted_sent');
@@ -689,6 +702,45 @@ Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', 
   ]);
 });
 
+Deno.test('run accepts per-invocation model steps and provider deadline', () => {
+  assertEquals(
+    parseRuntimeArgs([
+      '--provider-timeout-ms',
+      '420000',
+      '--agent',
+      'planner',
+      '--max-steps',
+      '160',
+      '--task',
+      'hi',
+    ]),
+    {
+      taskArg: 'hi',
+      rawAgentName: 'planner',
+      rootMaxSteps: 160,
+      providerTimeoutMs: 420_000,
+    },
+  );
+});
+
+Deno.test('run passes both limits to the headless Worker invocation', async () => {
+  const observed: unknown[] = [];
+  const exit = await runtimeCliMain(
+    ['--max-steps', '160', '--provider-timeout-ms', '420000', '--task', 'hi'],
+    {
+      stdinIsTerminal: () => true,
+      run: (task, _selection, _sink, options) => {
+        observed.push(options);
+        return successfulHeadlessRun(task);
+      },
+      writeStdout: () => {},
+      writeStderr: () => {},
+    },
+  );
+  assertEquals(exit, 0);
+  assertEquals(observed, [{ rootMaxSteps: 160, providerTimeoutMs: 420_000 }]);
+});
+
 Deno.test('runtime CLI preserves max-step failure JSON and exit code', async () => {
   let stdout = '';
   let stderr = '';
@@ -930,7 +982,7 @@ const runCompositionTurn = async (
 };
 
 Deno.test('Slices 2–3 run built-in and external Definitions through the same Worker composition path', async () => {
-  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 64);
+  const builtin = await runCompositionTurn('worker_builtin_definition.ts', 128);
   const external = await runCompositionTurn('external_definition.ts', 4);
   assert(builtin.manifest !== undefined && external.manifest !== undefined);
   assertEquals(builtin.manifest.resources, external.manifest.resources);
