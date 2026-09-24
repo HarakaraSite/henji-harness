@@ -2,7 +2,7 @@
 
 ## Next session
 
-- Increment 124の実装・検証は完了し、利用者確認待ち。正本は`docs/increments/increment-124.md`。`/sessions`と起動時の保存thinking復元、履歴の固定表示切捨て撤去、長い履歴のPageUp／PageDownを確認した。commit・binary配置・push・releaseは未実施。通常実行中の逐次表示は通常利用メモS16のまま。
+- Increment 124は実装・検証・commit・binary配置完了、利用者確認待ち。正本は`docs/increments/increment-124.md`。`/sessions`と起動時の保存thinking復元、履歴の固定表示切捨て撤去、長い履歴のPageUp／PageDownを確認した。実装commit `763498f9`からbuildしたbinaryを`~/.local/bin/henji`へ配置済み。push・releaseは未実施。通常実行中の逐次表示は通常利用メモS16のまま。
 
 ## Records
 
