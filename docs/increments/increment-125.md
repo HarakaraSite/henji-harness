@@ -116,4 +116,8 @@ roadmapの変更は不要と判断し、編集していない。
 - 変更をcommit（`44448eba`）し、同じclean commitからDeno 2.9.7で`deno task --config deno.v0.json henji:compile`
   を実行してbuild `51dfe46d…`（file SHA-256 `69ef7618…`、embedded runtime `ac0f63bd…`）を作成し、`dist/henji`と
   `~/.local/bin/henji`へ原子的に配置した。配置先の`--version`がsource `44448eba…`・build `51dfe46d…`を示す。
+- P2修正はcommit `b294a92b`のclean treeから同じDeno 2.9.7でbuildし、`dist/henji`と
+  `~/.local/bin/henji`へ原子的に配置した。配置先の`--version`はsource `b294a92b…`、build `d6293c61…`、
+  embedded runtime `1e341a88…`を示し、両binaryのfile SHA-256は
+  `45449537c0b690b7d192e83db2a90fac7b8c44b59a2b07cb5b58b8e8b09e195e`で一致した。
   pushとreleaseは未実施。

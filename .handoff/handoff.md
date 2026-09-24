@@ -2,7 +2,9 @@
 
 ## Next session
 
-- Increment 125（失敗行のExecution ID表示、通常利用メモS13）は利用者承認のもと実装・検証・配置まで完了。正本は`docs/increments/increment-125.md`。実装commit `44448eba`からbuildしたbinaryを`~/.local/bin/henji`へ配置済み。pushとreleaseは未実施。次の採用済み作業は未指定。未採用候補は通常利用メモのS14／S16ほか一覧を参照。
+- Increment 125（失敗行のExecution ID表示、通常利用メモS13）のP2修正まで実装・検証・配置済み。正本は
+  `docs/increments/increment-125.md`。修正commit `b294a92b`からbuildしたbinaryを`~/.local/bin/henji`へ
+  配置済み。pushとreleaseは未実施。次の採用済み作業は未指定。未採用候補は通常利用メモのS14／S16ほか一覧を参照。
 
 ## Records
 
@@ -18,6 +20,13 @@
   であることを確認。実provider callなし。証拠は`/tmp/henji-increment125-tui/`。
 - 配置: 実装commit `44448eba`をclean treeからDeno 2.9.7でbuildし`~/.local/bin/henji`へ原子的に配置
   （build `51dfe46d…`、file SHA-256 `69ef7618…`、embedded runtime `ac0f63bd…`、source `44448eba…`）。
+- P2修正: artifact IDがあってもSQLiteのnon-canonical settleが失敗した場合は`/recall`できないため、
+  Hostがsettle成功時だけ付ける`recallableExecutionId`をTUIへ渡す。Host rollbackのfocused testで
+  artifact保存成功・recall不可・表示IDなしを確認し、conversation／retained 71件、型・format・lint、
+  `git diff --check`が成功。隔離XDG・tmuxのsource production TUIとlocalhost模擬providerで保存Sessionの
+  解析失敗行にIDが出て、同IDで`/recall`できることを確認。実provider callなし。証拠は
+  `/tmp/henji-i125-p2-HBBCQF/`。修正commit `b294a92b`のclean treeからbuildし、`~/.local/bin/henji`へ
+  原子的に配置（build `d6293c61…`、file SHA-256 `45449537…`、embedded runtime `1e341a88…`）。
 - 次: なし。pushとreleaseは未実施。構想・architecture・roadmapは変更していない。
 
 ### Increment 123 — thinking本文の段落と折り返し（完了）
