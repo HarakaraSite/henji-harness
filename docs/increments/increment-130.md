@@ -1,6 +1,6 @@
 # Increment 130 — PageUpで履歴の真の先頭へ到達する
 
-状態: PageUp修正は配置済み。履歴位置の表記改善はsource検証完了、新binaryは未配置（2026-09-26）。
+状態: PageUp修正は配置済み。最終表示はsource検証・build完了、新binaryは未配置（2026-09-26）。
 pushは未実施。
 
 ## 必要なproduct動作と根拠
@@ -55,6 +55,10 @@ pushは未実施。
   paneに復元し、PageUp 1回で
   `[history record 385 of 393 │ Esc latest │ ready │ credential missing: opencode-go-chat]`を観測した。
   Ctrl-Dで終了した。task送信と実provider callは行っていない。
+- 最終表示をcommit `1b071386b7815da1c49f42e98e9c0a90b082b2d8`に記録し、clean treeから
+  `deno task --config deno.v0.json henji:compile`でbuildした。`dist/henji --version`は source
+  revision `1b071386…`、build ID `b6288959…5a1040`を表示した。
+  binaryのSHA-256は`35675d2f0f1a58d91d5df7bc38ed2b2bc33794712f6268d74fef349e1ffa2dd1`。
 - 94×48の短い最古窓を持つ復元履歴で、先頭到達、追加PageUp、PageDownでの復帰、
   全履歴entry番号の単調な移動をfocused testへ追加した。`tui_retained_terminal_test.ts`
   51件、対象の`deno check`、`deno fmt --check`、`deno lint`、`git diff --check`が成功した。
