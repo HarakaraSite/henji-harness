@@ -144,14 +144,14 @@ build it from a repository checkout.
 In 0.x, APIs and contracts may change incompatibly, so specify an exact version.
 
 ```sh
-deno add --save-exact jsr:@henji/harness@0.5.0
+deno add --save-exact jsr:@henji/harness@0.6.0
 ```
 
 ```ts
 import {
   createDefaultAgentComposition,
   type ExecutableAgentDefinition,
-} from 'jsr:@henji/harness@0.5.0';
+} from 'jsr:@henji/harness@0.6.0';
 
 const definition: ExecutableAgentDefinition = (input) =>
   createDefaultAgentComposition(input);

@@ -39,21 +39,21 @@ The interactive Session owns its active provider/model route and reasoning effor
 the Definition revision. The launcher defaults to `openrouter-chat`; the other bundled ids are
 `openrouter-responses`, `openai-chat`, and `openai-responses`. `--root-provider <provider-id>` uses
 that provider's effective declaration and catalog. Data-only declarations under `providers/*.json`
-can add ids using a binary-owned protocol adapter. The binary bundles only the default Agent Definition;
-named children use installed external Definitions. Sonar `web_search` keeps an independent OpenRouter
-route and credential. The current standalone-era Session record schema v6 persists provider, API,
-auth-profile identity, active selection, change history, per-committed-turn attribution, and each
-committed turn's logical built-in Definition ref and build manifest. Previous development schemas
-remain in the old state namespace and are not interpreted by the compiled command.
+can add ids using a binary-owned protocol adapter. The binary bundles only the default Agent
+Definition; named children use installed external Definitions. Sonar `web_search` keeps an
+independent OpenRouter route and credential. The current standalone-era Session record schema v6
+persists provider, API, auth-profile identity, active selection, change history, per-committed-turn
+attribution, and each committed turn's logical built-in Definition ref and build manifest. Previous
+development schemas remain in the old state namespace and are not interpreted by the compiled
+command.
 
 The installation-wide `instruction:henji-base` slot starts from a minimal built-in core (agent role
 and the credential/Authorization boundary). A user-scoped
 `$XDG_CONFIG_HOME/henji-harness/instruction.md` file, when present, is read directly before each
 Worker generation and replaces that core; there is no install or activation step. The Host passes
 the selected source identity and exact bytes as a data-only core input, and the Worker-core
-finalizer prepends that base once to root and async child Definition contributions.
-Context history retains the source identity, content digest, exact text, and byte projection into
-provider requests.
+finalizer prepends that base once to root and async child Definition contributions. Context history
+retains the source identity, content digest, exact text, and byte projection into provider requests.
 
 `/provider` switches the root among bundled and externally declared provider ids in the current idle
 Session and applies the selected provider's complete default model/effort selection. `/model` opens
@@ -63,15 +63,14 @@ idle-only and take effect on the next root turn. The bundled OpenAI catalog cont
 `gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
 
 The interactive launcher and `henji run` accept `--provider-timeout-ms N` for a positive
-safe-integer request deadline. It defaults to 300,000 ms and applies to each root, async child,
-and context-compaction model request in that Worker invocation. Both also accept `--max-steps N` to
-override the root Agent's model-step limit; the built-in default Definition allows
-128 steps when no override is supplied. Neither option is Session state, so a Session switch keeps
-the TUI invocation values and a later invocation returns to the defaults unless the flags are
-supplied again. A reached deadline is reported as `provider deadline exceeded`; Henji does not
-automatically retry or select another model. The TUI footer keeps transient status on row one, the
-cwd, short Session ID, and Session title on row two, and the root provider, model, and effort on row
-three.
+safe-integer request deadline. It defaults to 300,000 ms and applies to each root, async child, and
+context-compaction model request in that Worker invocation. Both also accept `--max-steps N` to
+override the root Agent's model-step limit; the built-in default Definition allows 128 steps when no
+override is supplied. Neither option is Session state, so a Session switch keeps the TUI invocation
+values and a later invocation returns to the defaults unless the flags are supplied again. A reached
+deadline is reported as `provider deadline exceeded`; Henji does not automatically retry or select
+another model. The TUI footer keeps transient status on row one, the cwd, short Session ID, and
+Session title on row two, and the root provider, model, and effort on row three.
 
 `validation/production_cli_e2e.ts` starts the compiled production command only when invoked with the
 exact `--confirm-external-call` argument. It retains an isolated workspace, child channels, provider
