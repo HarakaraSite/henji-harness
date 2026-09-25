@@ -99,13 +99,15 @@
   狭い幅のfallback
   hint・freeze除外の直接testなし、は根拠不足で不採用と判断された。
 
-## 正本変更案（未適用）
+## 正本更新
 
-- roadmap F01のTUI
-  Surface説明へ「実行中もPageUp／PageDownで履歴を参照でき、履歴表示中のfooterは
-  `PgDn latest`／`Esc cancel`を示す」を追記できる。roadmap変更は利用者の別承認が必要なため未適用。
+- 利用者の明示承認（2026-09-25「配置・push・roadmap 更新」）により、roadmap
+  F01のTUI
+  Surface説明へ「実行中もPageUp／PageDownで会話履歴を参照でき、履歴表示中のfooterは
+  `PgDn latest`／`Esc cancel`を示す（Increment
+  128）」を追記した。構想・architectureは変更していない。
 
 ## 次
 
-- clean
-  commitからのbuildと`~/.local/bin/henji`への原子的配置、pushは利用者の明示承認待ち。
+- 承認済みのclean
+  commitからのbuildと`~/.local/bin/henji`への原子的配置、pushを実施し、結果をこの文書へ追記する。
