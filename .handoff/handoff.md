@@ -2,6 +2,13 @@
 
 ## Next session
 
+- 通常利用メモのS14（ツール呼び出しに添えたassistant本文の履歴表示）はIncrement 129として完了
+  （正本`docs/increments/increment-129.md`）。`assistant note>`で添え本文を対応tool行の前に保持し、
+  TUI live・restore・`henji history --view session`で時系列表示。`--view canonical`は今回非対応。
+  focused test・check・fmt・lint・`git diff --check`通過、隔離XDGでrestore表示と`--view session`の
+  実経路確認、実provider callによるlive経路確認（1turn・2 request）まで完了。roadmap F05更新済み。
+  clean commit `6af56362`からbuild（build `f9071a5f…`）し`~/.local/bin/henji`へ配置済み。
+  `main`はpush済み。残作業なし。
 - 通常利用メモのP1（`henji run`の構造化出力）はIncrement 104で完了済み（`bd919672`）だったが、inboxからの
   除去が実際には未実施で残っていた。候補一覧のP1行を削除し、parity調査節とP10の参照をIncrement 104へ
   付け替えた（docsのみ）。`main`へのpushは未実施。

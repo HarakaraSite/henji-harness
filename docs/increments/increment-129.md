@@ -1,12 +1,12 @@
 # Increment 129 — ツール呼び出しに添えたassistant本文の履歴表示（S14）
 
 状態:
-実装・検証完了（2026-09-25）。focused test・type check・format・lint・`git diff --check`通過。tmux上の
-production TUI（session再開restore表示）と`henji history --view session`の実経路確認（隔離XDG、provider
-callなし）、およびlive経路の実provider call確認（隔離XDG、1turn・2 request）まで完了。
-残作業はbuild・`~/.local/bin/henji`配置・`main` pushの利用者承認のみ。表示labelは`assistant note>`に確定
-（利用者確認2026-09-25）。`henji history --view canonical`は今回非対応（利用者判断2026-09-25）。
-roadmap F05のstatus記述更新は承認済みで反映済み。構想・architectureは変更しない。
+実装・検証・build・配置・pushまで完了（2026-09-25）。focused test・type check・format・lint・
+`git diff --check`通過。tmux上のproduction TUI（session再開restore表示）と`henji history --view session`の
+実経路確認（隔離XDG、provider callなし）、およびlive経路の実provider call確認（隔離XDG、1turn・2 request）
+完了。表示labelは`assistant note>`（利用者確認済み）。`henji history --view canonical`は今回非対応
+（利用者判断）。roadmap F05のstatus記述更新は反映済み（承認済み）。構想・architectureは変更していない。
+残作業なし。
 
 ## 必要なproduct動作と根拠
 
@@ -189,6 +189,12 @@ reviewer2人（通常レビュー・批判的レビュー）で計画をレビ�
     の直前に確定して残り、後続stepのthinking・最終回答で置き換わらないことを確認。
   - 最終回答`assistant>`が全tool行の後のturn末尾に来ること、`thinking>`（stepごと）とlabelで区別されることを確認。
   - 同sessionの`henji history --view session`が同じ時系列形・同じlabelで永続化されていることを確認。
+
+## buildと配置
+
+- clean commit `6af56362`から`deno task --config deno.v0.json henji:compile`でbuildした
+  （build `f9071a5f…f0672`、`dist/henji`）。`~/.local/bin/henji`へ配置済み（2026-09-25、利用者承認済み）。
+  配置後のbinaryで`history --latest --view session`の起動確認済み。
 
 ## 正本更新
 
