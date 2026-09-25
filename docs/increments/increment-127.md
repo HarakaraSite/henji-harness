@@ -78,9 +78,10 @@ versionは`0.6.0`とした。`jsr.json`、`README.md`、`README.ja.md`、`mod.ts
 - release固有の追加testは追加していない。実provider callとproduction CLI E2Eは未実施。Git tagと
   Forgejo Releaseは作成していない。構想・architecture・roadmapは変更していない。
 - 運用手順の観測: この実行環境の通常shellはTTYを持たず（`tty`は`not a tty`、`Deno.stdin.isTerminal()`は
-  false）、そこで`deno publish`を起動するとinteractive authに入る前に`No means to authenticate`で
-  停止した。pty（`python3`の`pty.fork()`）上で起動するとauth URLが表示され、publishまで通った。
-  隔離tmux（socket `henji-jsr-check`）ではcommandが`/dev/pts/6`を持ち`Deno.stdin.isTerminal()`が
-  trueになることを確認済み。tmuxのTTYでも同じinteractive authに進むことは未確認で、publishのauth
-  開始そのものをtmuxで再現する確認は追加のauth flowを伴うため未実施。
-  `docs/operations/jsr-publish.md`へTTY前提を追記するかは利用者判断待ち。
+  false）、そこでpublishが必要な状態の`deno publish`を起動するとinteractive authに入る前に
+  `No means to authenticate`で停止した。pty（`python3`の`pty.fork()`）上で起動するとauth URLが表示され、
+  publishまで通った。隔離tmux（socket `henji-jsr-check`）ではcommandが`/dev/pts/6`を持ち
+  `Deno.stdin.isTerminal()`がtrueになることを確認済み。利用者承認のもとで行なったtmuxでのauth開始確認は、
+  0.6.0が既出versionのためDenoが`Warning: Skipping, already published`でauth手前まで進まず、auth flowを
+  1回も開始せずuploadなしで終わった。tmux上でauth URLが出ることは未確認である。
+  `docs/operations/jsr-publish.md`にはTTY前提だけを追記した。

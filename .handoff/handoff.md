@@ -7,7 +7,7 @@
   親子とも完了し、限定経路でfindingなし。結果と履歴表示範囲は`docs/increments/increment-127.md`。
 - `main`はpush済み。release source commit `b274be9d`を`@henji/harness@0.6.0`としてJSRへ公開し、
   registry metadataとexact-version importで確認した。記録は`docs/increments/increment-127.md`の
-  「v0.6.0公開」。`docs/operations/jsr-publish.md`へ`deno publish`のTTY前提を追記するかは未決定。
+  「v0.6.0公開」。`deno publish`のTTY前提は`docs/operations/jsr-publish.md`へ追記済み。
   未採用候補は通常利用メモを参照。
 
 ## Records

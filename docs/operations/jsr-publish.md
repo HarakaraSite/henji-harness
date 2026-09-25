@@ -89,6 +89,10 @@ From the same clean worktree and with the same Deno binary, run:
 "$henji_deno" publish --config jsr.json
 ```
 
+Interactive authentication requires a terminal. In a headless environment, start the command under
+a PTY (tmux or an equivalent); without one Deno stops with `No means to authenticate` before
+authorization begins.
+
 The command prints a short-lived `https://jsr.io/auth?...` URL and waits. Open that URL in the
 user's browser, then stop for the user actions listed in **Operator boundary**. After the user
 presses **Approve**, keep the command running until it reports both successful authorization and
