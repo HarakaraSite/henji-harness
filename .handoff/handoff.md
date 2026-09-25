@@ -14,7 +14,7 @@
   （increment 33／65／77／109／110／111／127）、check・fmt・lint・`git diff --check`通過。
   実装commit `6d7a5d39`のclean treeからbuild（build `55d99dc5…`）し、利用者の指示に基づき
   `~/.local/bin/henji`へ原子的に配置済み（SHA-256 `be084eef…`、source `6d7a5d39…`）。
-  pushは未実施。
+  実装commit `6d7a5d39`と配置記録commit `21f21a69`は`origin/main`へpush済み。
 - Increment 130（PageUpが短い最古履歴窓から最新へ戻る不具合と履歴位置表示）を実装し、
   focused確認と隔離XDG・tmuxのsource production TUIで先頭到達・往復を確認した。
   正本は`docs/increments/increment-130.md`。commit `5c03fb39`からbuildしたbinary
