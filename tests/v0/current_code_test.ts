@@ -609,6 +609,19 @@ Deno.test('active tool guidelines compose only where their tools are materialize
       'does not persist to later bash calls',
     ),
   );
+  assert(
+    bashDefinition?.description.includes(
+      'parent process environment is not inherited at startup',
+    ),
+  );
+  assert(
+    bashDefinition?.description.includes('only PATH, LANG, and LC_ALL are set'),
+  );
+  assert(
+    bashDefinition?.description.includes(
+      "specify them within that bash call's command",
+    ),
+  );
   const readDefinition = parent.registry.definitions().find((tool) => tool.name === 'read');
   assert(readDefinition !== undefined);
   assert(!('promptGuidelines' in readDefinition));
