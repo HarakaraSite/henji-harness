@@ -53,6 +53,10 @@ pushは未実施。
   paneに復元し、PageUp 1回で
   `[history record 385 of 393 │ record line 5 of 13 │ Esc latest │ ready]`を観測した。
   Ctrl-Dで終了した。task送信と実provider callは行っていない。
+- 表記修正をcommit `0528401d0297a55761264f504e06078affb5fa48`に記録し、clean treeから
+  `deno task --config deno.v0.json henji:compile`でbuildした。`dist/henji --version`は source
+  revision `0528401d…`、build ID `7bc818da…32e7e7`を表示した。
+  binaryのSHA-256は`1bfd3a4d86fae972f6c8ac3b294adcfe65131137f98bf11e54cb31de26b20537`。
 - 94×48の短い最古窓を持つ復元履歴で、先頭到達、追加PageUp、PageDownでの復帰、
   全履歴entry番号の単調な移動をfocused testへ追加した。`tui_retained_terminal_test.ts`
   51件、対象の`deno check`、`deno fmt --check`、`deno lint`、`git diff --check`が成功した。

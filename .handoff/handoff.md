@@ -7,7 +7,7 @@
   正本は`docs/increments/increment-130.md`。commit `5c03fb39`からbuildしたbinary
   （build `ec1890ee…`）を利用者の承認に基づき`~/.local/bin/henji`へ配置済み。
   続く履歴位置の表記改善はsource版でfocused testと隔離XDG・tmux実操作確認済み。
-  新binaryのbuild・配置とpushは未実施。
+  commit `0528401d`から新binary（build `7bc818da…`）を作成済み。配置とpushは未実施。
 - 通常利用メモのS14（ツール呼び出しに添えたassistant本文の履歴表示）はIncrement 129として完了
   （正本`docs/increments/increment-129.md`）。`assistant note>`で添え本文を対応tool行の前に保持し、
   TUI live・restore・`henji history --view session`で時系列表示。`--view canonical`は今回非対応。
