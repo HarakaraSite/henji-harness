@@ -9,7 +9,7 @@
   利用者の最終指定は`history record 385 of 393`だけの表示。source版でfocused testと
   隔離XDG・tmux実操作確認済み。中間案のbinary（source `0528401d`、build `7bc818da…`）は
   配置していない。最終案をcommit `1b071386`からbuild済み（build `b6288959…`）。
-  配置とpushは未実施。
+  利用者の承認に基づき`~/.local/bin/henji`へ配置済み。pushは未実施。
 - 通常利用メモのS14（ツール呼び出しに添えたassistant本文の履歴表示）はIncrement 129として完了
   （正本`docs/increments/increment-129.md`）。`assistant note>`で添え本文を対応tool行の前に保持し、
   TUI live・restore・`henji history --view session`で時系列表示。`--view canonical`は今回非対応。

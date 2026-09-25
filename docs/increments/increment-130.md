@@ -1,7 +1,6 @@
 # Increment 130 — PageUpで履歴の真の先頭へ到達する
 
-状態: PageUp修正は配置済み。最終表示はsource検証・build完了、新binaryは未配置（2026-09-26）。
-pushは未実施。
+状態: PageUp修正・最終表示ともに検証・local binary配置完了（2026-09-26）。 pushは未実施。
 
 ## 必要なproduct動作と根拠
 
@@ -59,6 +58,9 @@ pushは未実施。
   `deno task --config deno.v0.json henji:compile`でbuildした。`dist/henji --version`は source
   revision `1b071386…`、build ID `b6288959…5a1040`を表示した。
   binaryのSHA-256は`35675d2f0f1a58d91d5df7bc38ed2b2bc33794712f6268d74fef349e1ffa2dd1`。
+- 利用者の明示承認を受け、このbinaryを`~/.local/bin/henji`へ原子的に配置した。
+  配置後の`--version`はsource `1b071386…`、build `b6288959…5a1040`を表示し、
+  配置先と`dist/henji`のSHA-256は一致した。起動中のHenjiには再起動後に反映される。
 - 94×48の短い最古窓を持つ復元履歴で、先頭到達、追加PageUp、PageDownでの復帰、
   全履歴entry番号の単調な移動をfocused testへ追加した。`tui_retained_terminal_test.ts`
   51件、対象の`deno check`、`deno fmt --check`、`deno lint`、`git diff --check`が成功した。
