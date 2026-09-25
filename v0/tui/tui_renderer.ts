@@ -547,18 +547,26 @@ export class TuiRenderer implements TerminalRendererGate {
     }
     const maxStart = Math.max(0, rows.length - viewport);
     const history = this.ui.historyWindow;
-    if (direction === 'up' && currentStart === 0 && history !== undefined && history.start > 0) {
+    if (
+      direction === 'up' && (currentStart === 0 || maxStart === 0) &&
+      history !== undefined && history.start > 0
+    ) {
       this.ui = pageHistoryWindow(this.ui, 'up');
-      const firstVisible = this.layoutSnapshot().log.find((row) => row.entryId !== undefined);
-      if (firstVisible?.entryId !== undefined) {
-        this.ui = reduceUiAction(this.ui, {
-          kind: 'scroll',
-          mode: {
-            kind: 'anchored',
-            entryId: firstVisible.entryId,
-            sourceScalarOffset: firstVisible.sourceScalarOffset ?? 0,
-          },
-        });
+      const previousPage = this.layoutSnapshot();
+      if (this.ui.historyWindow?.start === 0 && previousPage.allLog.length <= viewport) {
+        this.ui = reduceUiAction(this.ui, { kind: 'scroll', mode: { kind: 'oldest' } });
+      } else {
+        const firstVisible = previousPage.log.find((row) => row.entryId !== undefined);
+        if (firstVisible?.entryId !== undefined) {
+          this.ui = reduceUiAction(this.ui, {
+            kind: 'scroll',
+            mode: {
+              kind: 'anchored',
+              entryId: firstVisible.entryId,
+              sourceScalarOffset: firstVisible.sourceScalarOffset ?? 0,
+            },
+          });
+        }
       }
       this.redraw();
       return;
@@ -572,7 +580,15 @@ export class TuiRenderer implements TerminalRendererGate {
       return;
     }
     if (maxStart === 0) {
-      if (this.ui.scroll.kind !== 'followLatest') this.latest();
+      if (
+        direction === 'up' && history?.start === 0 &&
+        history.end < this.ui.log.entries.length && this.ui.scroll.kind !== 'oldest'
+      ) {
+        this.ui = reduceUiAction(this.ui, { kind: 'scroll', mode: { kind: 'oldest' } });
+        this.redraw();
+      } else if (direction === 'down' && this.ui.scroll.kind !== 'followLatest') {
+        this.latest();
+      }
       return;
     }
     const nextStart = Math.max(

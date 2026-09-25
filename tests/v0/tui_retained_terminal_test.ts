@@ -776,7 +776,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
     renderer.layoutSnapshot(80, 10).log.some((row) => row.text.includes('Henji Harness')),
   );
   assert(
-    renderer.layoutSnapshot(80, 10).footer[0].text.includes('history rows'),
+    renderer.layoutSnapshot(80, 10).footer[0].text.includes('history start'),
   );
   assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('Esc latest'));
 
@@ -784,7 +784,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
     `unknown command /${'x'.repeat(100)}, try: /help, /sessions, /exit`,
   );
   assert(
-    renderer.layoutSnapshot(80, 10).footer[0].text.startsWith('[history rows'),
+    renderer.layoutSnapshot(80, 10).footer[0].text.startsWith('[history start'),
   );
 
   renderer.renderStartupHelp();
@@ -799,6 +799,72 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
 
   for (let page = 0; page < 4; page += 1) renderer.scrollPage('down');
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
+});
+
+Deno.test('PageUp reaches a short oldest history window without returning to latest', () => {
+  const terminal = new RecordingTerminal();
+  terminal.size = { columns: 94, rows: 48 };
+  const renderer = new TuiRenderer(terminal);
+  renderer.resize(94, 48);
+  renderer.renderCompactStartup({
+    productVersion: '0.6.0',
+    workspace: '/tmp/henji-ui',
+    agentId: 'default',
+    model: { provider: 'openrouter-chat', profileId: 'test', modelId: 'm', effort: 'high' },
+    sessionMode: { kind: 'continue' },
+    instructions: { loaded: false, source: 'none' },
+    skills: { count: 0, names: [], omitted: 0 },
+    trust: { hardSandbox: false, osUserTools: ['bash'] },
+    credentialVerification: 'before_each_provider_request',
+  }, {
+    sessionId: 'fc419637-1a60-4b81-be4e-9ec1a5843039',
+    createdAt: '2026-09-25T12:00:00.000Z',
+    agent: 'default',
+    committedTurn: 30,
+    messageCount: 60,
+  });
+  const messages = Array.from({ length: 30 }, (_, index) => [
+    { role: 'user' as const, content: { kind: 'text' as const, text: `question ${index}` } },
+    {
+      role: 'assistant' as const,
+      content: {
+        kind: 'text' as const,
+        text: index < 6 ? `answer ${index}` : `answer ${index}: ${'detail '.repeat(35)}`,
+      },
+    },
+  ]).flat();
+  renderer.renderRestored(messages, 0);
+  assert((renderer.stateSnapshot().historyWindow?.start ?? 0) > 0);
+
+  let previousEntry = renderer.stateSnapshot().log.entries.length;
+  for (let page = 0; page < 80; page += 1) {
+    renderer.scrollPage('up');
+    const footer = renderer.layoutSnapshot().footer[0].text;
+    const position = footer.match(/history entry (\d+)\/(\d+) · row (\d+)\/(\d+)/);
+    if (position !== null) {
+      assertEquals(Number(position[2]), messages.length);
+      assert(Number(position[1]) <= previousEntry, 'PageUp moved toward newer entries');
+      previousEntry = Number(position[1]);
+    }
+    const state = renderer.stateSnapshot();
+    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') break;
+  }
+  const oldest = renderer.layoutSnapshot();
+  assertEquals(renderer.stateSnapshot().historyWindow?.start, 0);
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
+  assert(oldest.allLog.length < oldest.log.length, 'the oldest window should fit one viewport');
+  assert(oldest.log.some((row) => row.text.includes('Henji Harness')));
+  assert(oldest.footer[0].text.includes('history start'));
+  renderer.scrollPage('up');
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
+  assert(renderer.layoutSnapshot().footer[0].text.includes('history start'));
+
+  for (let page = 0; page < 80; page += 1) {
+    if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
+    renderer.scrollPage('down');
+  }
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
+  assertEquals(renderer.stateSnapshot().historyWindow?.end, messages.length);
 });
 
 Deno.test('retained PageDown advances through a large assistant entry after oldest', () => {
@@ -2542,7 +2608,7 @@ Deno.test('busy PageUp pages the retained history while the turn keeps streaming
     renderer.layoutSnapshot(80, 10).log.some((row) => row.text.includes('question')),
     'PageUp during the turn did not reveal older history',
   );
-  assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('history rows'));
+  assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('history '));
 
   renderer.eventSink({
     kind: 'assistant_progress',
@@ -2560,7 +2626,7 @@ Deno.test('busy PageUp pages the retained history while the turn keeps streaming
 
   for (let page = 0; page < 8; page += 1) terminal.push('\x1b[6~');
   await waitFor(() => renderer.stateSnapshot().scroll.kind === 'followLatest');
-  assert(!renderer.layoutSnapshot(80, 10).footer[0].text.includes('history rows'));
+  assert(!renderer.layoutSnapshot(80, 10).footer[0].text.includes('history '));
 
   settle!();
   await waitFor(() => controller.currentState === 'idle');
@@ -2639,19 +2705,19 @@ Deno.test('busy history footer hints PgDn to latest while Esc stays cancel', () 
   renderer.scrollPage('up');
   assert(renderer.stateSnapshot().scroll.kind !== 'followLatest');
   const idleFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(idleFooter.includes('history rows'));
+  assert(idleFooter.includes('history '));
   assert(idleFooter.includes('Esc latest'));
 
   renderer.eventSink({ kind: 'turn_start', turn: 7 });
   const busyFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(busyFooter.includes('history rows'));
+  assert(busyFooter.includes('history '));
   assert(busyFooter.includes('PgDn latest'));
   assert(busyFooter.includes('Esc cancel'));
   assert(!busyFooter.includes('Esc latest'));
 
   renderer.latest();
   const latestFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
-  assert(!latestFooter.includes('history rows'));
+  assert(!latestFooter.includes('history '));
   assert(latestFooter.includes('Esc cancel'));
   assert(!latestFooter.includes('Esc latest'));
 });

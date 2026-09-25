@@ -2,6 +2,9 @@
 
 ## Next session
 
+- Increment 130（PageUpが短い最古履歴窓から最新へ戻る不具合と履歴位置表示）を実装し、
+  focused確認と隔離XDG・tmuxのsource production TUIで先頭到達・往復を確認した。
+  正本は`docs/increments/increment-130.md`。配置・pushは未実施。
 - 通常利用メモのS14（ツール呼び出しに添えたassistant本文の履歴表示）はIncrement 129として完了
   （正本`docs/increments/increment-129.md`）。`assistant note>`で添え本文を対応tool行の前に保持し、
   TUI live・restore・`henji history --view session`で時系列表示。`--view canonical`は今回非対応。

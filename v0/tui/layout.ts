@@ -176,11 +176,48 @@ const footerStatusParts = (
   };
 };
 
-interface HistoryViewport {
-  readonly first: number;
-  readonly last: number;
-  readonly total: number;
-}
+type HistoryViewport =
+  | { readonly kind: 'start' }
+  | {
+    readonly kind: 'entry';
+    readonly entry: number;
+    readonly totalEntries: number;
+    readonly row: number;
+    readonly totalRows: number;
+  };
+
+const historyViewport = (
+  state: UiState,
+  rows: readonly LayoutRow[],
+  start: number,
+  height: number,
+): HistoryViewport => {
+  const firstEntryRow = rows.findIndex((row) => row.entryId !== undefined);
+  if (state.historyWindow?.start === 0 && (firstEntryRow < 0 || start < firstEntryRow)) {
+    return { kind: 'start' };
+  }
+  const visibleRow = rows.findIndex((row, index) =>
+    index >= start && index < start + height && row.entryId !== undefined
+  );
+  const entryId = rows[visibleRow]?.entryId;
+  if (entryId === undefined) return { kind: 'start' };
+  const entryIndex = state.log.entries.findIndex((entry) => entry.id === entryId);
+  if (entryIndex < 0) return { kind: 'start' };
+  let row = 0;
+  let totalRows = 0;
+  for (let index = 0; index < rows.length; index += 1) {
+    if (rows[index].entryId !== entryId) continue;
+    totalRows += 1;
+    if (index <= visibleRow) row = totalRows;
+  }
+  return {
+    kind: 'entry',
+    entry: entryIndex + 1,
+    totalEntries: state.log.entries.length,
+    row,
+    totalRows,
+  };
+};
 
 const footerStatusText = (
   state: UiState,
@@ -237,7 +274,9 @@ const footerStatusText = (
   const historyHint = state.lifecycle === 'busy' ? 'PgDn latest' : 'Esc latest';
   const historyFull = history === undefined
     ? undefined
-    : `history rows ${history.first}-${history.last}/${history.total} · ${historyHint}`;
+    : history.kind === 'start'
+    ? `history start · ${historyHint}`
+    : `history entry ${history.entry}/${history.totalEntries} · row ${history.row}/${history.totalRows} · ${historyHint}`;
   const historyRequired = historyFull === undefined
     ? undefined
     : width(`[${historyFull}]`) <= columns
@@ -719,11 +758,7 @@ export const layoutUi = (
     paddedLog.unshift({ text: '', kind: 'log' });
   }
   const history = state.scroll.kind !== 'followLatest' && state.overlay.kind === 'none'
-    ? {
-      first: Math.min(log.rows.length, logStart + 1),
-      last: Math.min(log.rows.length, logStart + logHeight),
-      total: log.rows.length,
-    }
+    ? historyViewport(state, log.rows, logStart, logHeight)
     : undefined;
   const statusFooter = footerStatusText(state, Math.max(1, widthLimit), history);
   const footer = [
