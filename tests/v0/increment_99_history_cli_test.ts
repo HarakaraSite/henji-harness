@@ -93,7 +93,10 @@ Deno.test('Increment 99 session view places mixed assistant final as resume does
     restored.log.entries.map((entry) => `${entry.label} ${entry.text}`).join('\n')
   }\n`;
   assertEquals(renderSessionView(mixed), expected);
-  assertEquals(expected, 'user> do it\ntool> bash echo hi ✓\nassistant> done\n');
+  assertEquals(
+    expected,
+    'user> do it\nassistant note> checking the file\ntool> bash echo hi ✓\nassistant> done\n',
+  );
 });
 
 Deno.test('Increment 99 canonical view keeps the structured Markdown export', () => {

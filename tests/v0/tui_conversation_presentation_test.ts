@@ -484,7 +484,7 @@ Deno.test('conversation presentation retains assistant text accompanying a tool 
     },
   });
   assertEquals(state.log.entries.map((entry) => [entry.label, entry.text, entry.live]), [
-    ['assistant>', 'I will inspect the current source.', false],
+    ['assistant note>', 'I will inspect the current source.', false],
     ['tool>', 'read README.md …', true],
   ]);
 
@@ -516,7 +516,7 @@ Deno.test('conversation presentation retains assistant text accompanying a tool 
     messages: restoredMessages,
   });
   assertEquals(restored.log.entries.map((entry) => [entry.label, entry.text]), [
-    ['assistant>', 'I will inspect the current source.'],
+    ['assistant note>', 'I will inspect the current source.'],
     ['tool>', 'read README.md ✓'],
     ['history>', '2 messages omitted'],
   ]);
@@ -524,7 +524,7 @@ Deno.test('conversation presentation retains assistant text accompanying a tool 
   const renderer = new TuiRenderer(new FakeTerminal());
   renderer.renderRestored(restoredMessages, 2);
   assertEquals(renderer.stateSnapshot().log.entries.map((entry) => [entry.label, entry.text]), [
-    ['assistant>', 'I will inspect the current source.'],
+    ['assistant note>', 'I will inspect the current source.'],
     ['tool>', 'read README.md ✓'],
     ['history>', '2 messages omitted'],
   ]);
@@ -578,8 +578,9 @@ Deno.test('conversation presentation streams the final assistant response after 
   });
 
   assertEquals(state.log.entries.map((entry) => [entry.label, entry.text, entry.live]), [
+    ['assistant note>', 'I will inspect the current source.', false],
     ['tool>', 'read README.md ✓', false],
-    ['assistant>', 'Final answer in progress', true],
+    ['assistant~', 'Final answer in progress', true],
   ]);
 
   state = reduceUiEvent(state, {
@@ -591,6 +592,7 @@ Deno.test('conversation presentation streams the final assistant response after 
     },
   });
   assertEquals(state.log.entries.map((entry) => [entry.label, entry.text, entry.live]), [
+    ['assistant note>', 'I will inspect the current source.', false],
     ['tool>', 'read README.md ✓', false],
     ['assistant>', 'Final answer', false],
   ]);

@@ -315,6 +315,52 @@ const replaceEntry = (
   });
 };
 
+/**
+ * Assistant entry ids are unique per assistant message: the first free base id, then `assistant:<n>`.
+ * A settled entry is never reused, so every settled assistant text stays in the log.
+ */
+const assistantEntryId = (state: UiState, turn: number): string => {
+  const candidate = (suffix: string): string => turnEntryId(state, turn, suffix);
+  if (!state.log.entries.some((entry) => entry.id === candidate('assistant'))) {
+    return candidate('assistant');
+  }
+  for (let ordinal = 1;; ordinal += 1) {
+    const id = candidate(`assistant:${ordinal}`);
+    if (!state.log.entries.some((entry) => entry.id === id)) return id;
+  }
+};
+
+/**
+ * Settle one assistant text: reuse the live streamed entry of the same turn (so progress fragments
+ * never accumulate as entries), otherwise append a fresh entry. The settled entry goes to the log
+ * tail so the final answer always follows every tool entry of the turn.
+ */
+const settleAssistantEntry = (
+  state: UiState,
+  turn: number,
+  label: string,
+  text: string,
+): UiState => {
+  const activeId = state.activeAssistantId;
+  const activeIndex = activeId === undefined
+    ? -1
+    : state.log.entries.findIndex((entry) =>
+      entry.id === activeId && entry.live && entry.turn === turn
+    );
+  if (activeId !== undefined && activeIndex >= 0) {
+    return replaceEntry(state, activeId, text, false, label, true);
+  }
+  return appendEntry(state, {
+    id: assistantEntryId(state, turn),
+    kind: 'assistant',
+    label,
+    text,
+    revision: 0,
+    live: false,
+    turn,
+  });
+};
+
 const removeLiveEntries = (
   state: UiState,
   keep: (entry: UiLogEntry) => boolean = () => false,
@@ -389,51 +435,46 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         ? event.message.content.text
         : event.message.text;
       if (assistantText === undefined) return state;
-      const id = turnEntryId(state, event.turn, 'assistant');
-      const existingIndex = state.log.entries.findIndex((entry) => entry.id === id);
-      const relocateFinalAfterTools = !Array.isArray(event.message.content) &&
-        existingIndex >= 0 &&
-        state.log.entries.slice(existingIndex + 1).some((entry) =>
-          entry.turn === event.turn && entry.kind === 'tool'
-        );
-      const next = existingIndex >= 0
-        ? replaceEntry(
-          state,
-          id,
-          assistantText,
-          false,
-          'assistant>',
-          relocateFinalAfterTools,
-        )
-        : appendEntry(state, {
-          id,
-          kind: 'assistant',
-          label: 'assistant>',
-          text: assistantText,
-          revision: 0,
-          live: false,
-          turn: event.turn,
-        });
+      const next = settleAssistantEntry(
+        state,
+        event.turn,
+        Array.isArray(event.message.content) ? 'assistant note>' : 'assistant>',
+        assistantText,
+      );
       return Object.freeze({ ...next, activeAssistantId: undefined });
     }
     case 'assistant_progress': {
-      const id = turnEntryId(state, event.turn, 'assistant');
-      const existingIndex = state.log.entries.findIndex((entry) => entry.id === id);
-      const relocateProgressAfterTools = existingIndex >= 0 && state.activeToolIds.length === 0 &&
-        state.log.entries.slice(existingIndex + 1).some((entry) =>
-          entry.turn === event.turn && entry.kind === 'tool'
+      const activeId = state.activeAssistantId;
+      const activeIndex = activeId === undefined
+        ? -1
+        : state.log.entries.findIndex((entry) =>
+          entry.id === activeId && entry.live && entry.turn === event.turn
         );
-      const next = existingIndex >= 0
-        ? replaceEntry(state, id, event.text, true, undefined, relocateProgressAfterTools)
-        : appendEntry(state, {
-          id,
-          kind: 'assistant',
-          label: 'assistant~',
-          text: event.text,
-          revision: 0,
-          live: true,
-          turn: event.turn,
-        });
+      if (activeId !== undefined && activeIndex >= 0) {
+        const relocateProgressAfterTools = state.activeToolIds.length === 0 &&
+          state.log.entries.slice(activeIndex + 1).some((entry) =>
+            entry.turn === event.turn && entry.kind === 'tool'
+          );
+        const next = replaceEntry(
+          state,
+          activeId,
+          event.text,
+          true,
+          undefined,
+          relocateProgressAfterTools,
+        );
+        return Object.freeze({ ...next, activeAssistantId: activeId });
+      }
+      const id = assistantEntryId(state, event.turn);
+      const next = appendEntry(state, {
+        id,
+        kind: 'assistant',
+        label: 'assistant~',
+        text: event.text,
+        revision: 0,
+        live: true,
+        turn: event.turn,
+      });
       return Object.freeze({ ...next, activeAssistantId: id });
     }
     case 'assistant_thinking': {
@@ -660,7 +701,6 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       };
       let turn = 0;
       const seenUserTurns = new Set<number>();
-      const assistantIndexByTurn = new Map<number, number>();
       const callPreviewById = new Map<string, string>();
       for (let index = 0; index < event.messages.length; index += 1) {
         addThinking(index);
@@ -681,18 +721,10 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         } else if (message.role === 'assistant') {
           const assistantText = 'text' in message.content ? message.content.text : message.text;
           if (assistantText !== undefined) {
-            const priorIndex = assistantIndexByTurn.get(turn);
-            if (priorIndex !== undefined) {
-              entries.splice(priorIndex, 1);
-              for (const [priorTurn, storedIndex] of assistantIndexByTurn) {
-                if (storedIndex > priorIndex) assistantIndexByTurn.set(priorTurn, storedIndex - 1);
-              }
-            }
-            assistantIndexByTurn.set(turn, entries.length);
             entries.push(freezeEntry({
-              id: `restored:assistant:${turn}`,
+              id: `restored:assistant:${turn}:${index}`,
               kind: 'assistant',
-              label: 'assistant>',
+              label: Array.isArray(message.content) ? 'assistant note>' : 'assistant>',
               text: assistantText,
               revision: 0,
               live: false,
@@ -894,19 +926,7 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
         }),
       });
     case 'assistant_final': {
-      const id = turnEntryId(state, action.turn, 'assistant');
-      const existing = state.log.entries.some((entry) => entry.id === id);
-      const next = existing
-        ? replaceEntry(state, id, action.text, false, 'assistant>')
-        : appendEntry(state, {
-          id,
-          kind: 'assistant',
-          label: 'assistant>',
-          text: action.text,
-          revision: 0,
-          live: false,
-          turn: action.turn,
-        });
+      const next = settleAssistantEntry(state, action.turn, 'assistant>', action.text);
       return Object.freeze({ ...next, activeAssistantId: undefined });
     }
     case 'resize':

@@ -11,6 +11,7 @@ import type { Message } from '../core/contracts.ts';
 import { renderHistoryMarkdown } from '../session/history_export.ts';
 
 const TOOL_PREFIX = 'tool> ';
+const ASSISTANT_NOTE_LABEL = 'assistant note>';
 
 const isToolCallContent = (
   content: AssistantMessage['content'],
@@ -18,8 +19,10 @@ const isToolCallContent = (
 
 /**
  * Render the committed canonical transcript in the same shape as the TUI conversation log:
- * `user>` / `assistant>` / `tool>` labels, tool results folded into the `tool>` activity line
- * (no `tool<`), raw assistant Markdown, and a blank separator between turns.
+ * `user>` / `assistant note>` / `assistant>` / `tool>` labels, tool results folded into the `tool>`
+ * activity line (no `tool<`), raw assistant Markdown, and a blank separator between turns. Each
+ * settled assistant text keeps its own line at its message position: tool-call accompanying text
+ * (`assistant note>`) stays before its tool lines and is never replaced by later texts.
  */
 const renderMessages = (
   messages: readonly Message[],
@@ -27,7 +30,6 @@ const renderMessages = (
 ): string[] => {
   const lines: string[] = [];
   const toolLines = new Map<string, number>();
-  let assistantLine: number | undefined;
   let seenTurn = false;
   let assistantStep = 0;
   const appendThinking = (step: number): void => {
@@ -45,7 +47,6 @@ const renderMessages = (
     if (message.role === 'user') {
       if (seenTurn) lines.push('');
       seenTurn = true;
-      assistantLine = undefined;
       toolLines.clear();
       lines.push(`user> ${message.content.text}`);
       continue;
@@ -57,24 +58,8 @@ const renderMessages = (
         ? message.text
         : message.content.text;
       if (assistantText !== undefined) {
-        const text = `assistant> ${assistantText}`;
-        const currentAssistantLine = assistantLine;
-        if (currentAssistantLine === undefined) {
-          assistantLine = lines.length;
-          lines.push(text);
-        } else if (
-          !isToolCallContent(message.content) &&
-          [...toolLines.values()].some((index) => index > currentAssistantLine)
-        ) {
-          lines.splice(currentAssistantLine, 1);
-          for (const [callId, index] of toolLines) {
-            if (index > currentAssistantLine) toolLines.set(callId, index - 1);
-          }
-          assistantLine = lines.length;
-          lines.push(text);
-        } else {
-          lines[currentAssistantLine] = text;
-        }
+        const label = isToolCallContent(message.content) ? ASSISTANT_NOTE_LABEL : 'assistant>';
+        lines.push(`${label} ${assistantText}`);
       }
       if (isToolCallContent(message.content)) {
         for (const call of message.content) {
