@@ -16,7 +16,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
-| S14 | Surface | ツール呼び出しに添えたassistant本文の履歴表示 | 作業途中の発話を後から時系列で読みたいとき |
 | S16 | Surface | 通常実行中の出力を一行ずつ追える表示 | 生成中の表示がまとまって現れ、進行を追いにくいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
@@ -104,18 +103,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   呼び出しUIを採用時に決める。
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
-
-### S14 — ツール呼び出しに添えたassistant本文の履歴表示
-
-- 観測（2026-09-24、session `a2098f7c`）: モデルがツール呼び出しと一緒に返した
-  `Now the production TUI verification ...`のようなassistant本文は、TUIに一時表示されるが、同じturnの
-  後続発話や最終回答で表示行が置き換わる。元の本文は実行記録に残る一方、通常のTUIログと
-  `henji history --view session`では後から読めない。
-- 候補: この確定した途中発話を、対応するツール呼び出しの前に、人間が時系列で読み返せるようにする。
-  最終回答や`thinking>`とは区別し、表示先とラベルは採用時に決める。stream中のprogress断片を
-  一件ずつ保存・表示する話ではない。
-- 再検討条件: ツール使用の意図と実際の結果を、通常の履歴から後で追いたいとき。
-- 関連: `v0/tui/state.ts`、`v0/agent/history/history_view.ts`、F05。
 
 ### S16 — 通常実行中の出力を一行ずつ追える表示
 
