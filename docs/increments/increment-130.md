@@ -1,6 +1,7 @@
 # Increment 130 — PageUpで履歴の真の先頭へ到達する
 
-状態: 実装・focused検証・隔離XDGでのtmux実操作確認完了（2026-09-26）。 配置・pushは未実施。
+状態: 実装・focused検証・隔離XDGでのtmux実操作確認・local binary配置完了（2026-09-26）。
+pushは未実施。
 
 ## 必要なproduct動作と根拠
 
@@ -54,3 +55,12 @@
   PageDownで次のentryへ進み、続く203回で`ready`の最新追尾へ戻った。
   観測したfooterのentry番号はPageUpで非増加、PageDownで非減少だった。 Ctrl-Dで正常終了（exit
   0）。task送信と実provider callは行っていない。
+- 実装・検証記録をcommit `5c03fb39c8b50a959f0111903613065dabc8e113`にまとめ、 clean
+  treeから`deno task --config deno.v0.json henji:compile`でbuildした。
+  `dist/henji --version`はsource revision `5c03fb39…`、build ID `ec1890ee…f4f2c`を表示した。
+  binaryのSHA-256は`4bb5a8e5dee7df60b630a0b120c68bf438ce44955ffb121e84849e15b61aa44b`。
+- 利用者の明示承認を受け、build済みbinaryを`~/.local/bin/henji`へ原子的に配置した。
+  配置後の`--version`はsource revision `5c03fb39…`、build ID `ec1890ee…f4f2c`を表示し、
+  配置先と`dist/henji`のSHA-256はともに
+  `4bb5a8e5dee7df60b630a0b120c68bf438ce44955ffb121e84849e15b61aa44b`だった。
+  既に起動中のHenjiには再起動後に反映される。
