@@ -23,7 +23,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
 | A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
-| A8 | Agent実行 | OpenRouter Responses API経路 | 利用者希望（2026-09-17）。E1のProvider外部化と合わせて検討 |
 | A9 | Agent実行 | 診断記録の保存期間 | 保存期間を独立に決める必要が出たとき。粒度変更の計画はIncrement 121 |
 | A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
@@ -34,7 +33,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
 | R4 | F24 | instruction componentのrevision化 | instructionを自己改訂candidateとして採用する |
-| E1 | 配布・外部化 | Agent Definition後のresource外部化 | 利用者希望（2026-09-17）のProvider外部化。A8と合わせて検討 |
+| E1 | 配布・外部化 | Agent Definition後のresource外部化 | 通常利用で更新・共有・rollback・分離実行が必要になる |
 | E2 | 配布・外部化 | 追加managed resource kind候補（未採用） | 各kindを通常利用で更新・pin・transport・activationする必要が出る |
 | E3 | 配布・外部化 | Host runtime tunablesの設定ファイル化 | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき |
 | E5 | 配布・外部化 | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI） | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする |
@@ -199,19 +198,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   Web search自体をAgent Definitionにするかは、conversation、prompt、model、tool利用を独立所有する必要が
   出たときだけ比較する。
 
-### A8 — OpenRouter Responses API経路（F02、F06、将来候補）
-
-- 観測（2026-09-13）: 現行HenjiはOpenAI directだけをResponses API adapterへ接続し、OpenRouterは
-  Chat Completions互換APIの独立adapterを使う。
-- 利用者希望（2026-09-17）: 現状のOpenRouter経路をResponses APIへ変えたい。あわせてProvider設定を外部化したい
-  （E1）。
-- 候補: OpenRouterでもResponses API経路を選べるようにする。現行OpenRouter経路の置換か併設か、Responses固有の
-  input/output item、tool continuation、reasoning state、stream event、evidence、model対応範囲をどう扱うかは、
-  採用時に最新のOpenRouter公式contractと実provider応答を確認して決める。
-- 再検討条件: OpenRouter経由でResponses固有機能を使う必要が出る、またはOpenAI directとOpenRouterで
-  Responses transportを共通化する具体的なproduct上の利点が得られること。利用者希望によりE1のProvider外部化と
-  合わせて採用を検討する。
-
 ### A9 — 診断記録の保存期間（実施未定）
 
 - 診断記録の粒度と通常時の収集・保存処理の縮小はIncrement 121の計画へ採用した。約3万件／4.5万件の
@@ -373,8 +359,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   discoveryは未採用である。Providerは`openrouter-chat`／`openrouter-responses`／`openai-chat`／`openai-responses`と
   external宣言で、auth profileはpattern一般化済み（Increment 101）だが、external Provider registryと宣言の
   exact revision化は未採用である。
-- 利用者希望（2026-09-17）: Provider設定を外部化したい。A8のOpenRouter Responses API経路への変更と合わせて
-  採用を検討する。
+- 利用者希望（2026-09-17）: Provider設定を外部化したい。OpenRouter Responses API経路はIncrement 58で、
+  Provider外部化はIncrement 58〜68／101で成立済みであり、残る対象は上記の未実装境界に限る。
 - 候補: resource kindごとにscope/activation owner、execution placement、lifecycle、durability、dependency identity、
   Manifest attribution、mutable stateを決める。Agent、instruction、tool、Providerを同じloaderへ載せる必要が実利用から
   出るまで、共通化を目的にしない。
