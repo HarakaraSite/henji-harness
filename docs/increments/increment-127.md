@@ -77,6 +77,10 @@ versionは`0.6.0`とした。`jsr.json`、`README.md`、`README.ja.md`、`mod.ts
   解決することを確認した。dry-runとpublishのログは`/tmp/jsr_dryrun.log`と`/tmp/jsr_publish_pty.log`。
 - release固有の追加testは追加していない。実provider callとproduction CLI E2Eは未実施。Git tagと
   Forgejo Releaseは作成していない。構想・architecture・roadmapは変更していない。
-- 運用手順の観測: headless環境では`deno publish`のinteractive authがTTYなしでは
-  `No means to authenticate`で止まるため、pty上で起動した。`docs/operations/jsr-publish.md`へ
-  この前提を追記するかは利用者判断待ち。
+- 運用手順の観測: この実行環境の通常shellはTTYを持たず（`tty`は`not a tty`、`Deno.stdin.isTerminal()`は
+  false）、そこで`deno publish`を起動するとinteractive authに入る前に`No means to authenticate`で
+  停止した。pty（`python3`の`pty.fork()`）上で起動するとauth URLが表示され、publishまで通った。
+  隔離tmux（socket `henji-jsr-check`）ではcommandが`/dev/pts/6`を持ち`Deno.stdin.isTerminal()`が
+  trueになることを確認済み。tmuxのTTYでも同じinteractive authに進むことは未確認で、publishのauth
+  開始そのものをtmuxで再現する確認は追加のauth flowを伴うため未実施。
+  `docs/operations/jsr-publish.md`へTTY前提を追記するかは利用者判断待ち。
