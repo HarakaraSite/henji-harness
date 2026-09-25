@@ -12,7 +12,9 @@
   （finding 2件[低]）の指摘を反映済み。architecture正本は利用者承認済み変更1〜5を反映済み。
   通常利用メモA13はincrement-131へ移設（A14はinboxに残置）。focused test 8件、regression
   （increment 33／65／77／109／110／111／127）、check・fmt・lint・`git diff --check`通過。
-  build・配置・pushはこの記録時点では未実施。
+  実装commit `6d7a5d39`のclean treeからbuild（build `55d99dc5…`）し、利用者の指示に基づき
+  `~/.local/bin/henji`へ原子的に配置済み（SHA-256 `be084eef…`、source `6d7a5d39…`）。
+  pushは未実施。
 - Increment 130（PageUpが短い最古履歴窓から最新へ戻る不具合と履歴位置表示）を実装し、
   focused確認と隔離XDG・tmuxのsource production TUIで先頭到達・往復を確認した。
   正本は`docs/increments/increment-130.md`。commit `5c03fb39`からbuildしたbinary

@@ -2,7 +2,8 @@
 
 状態: 実装完了（2026-09-26）。focused test・type check・format・lint・`git diff --check`確認済み。
 architecture正本変更1〜5を反映済み。通常利用メモのA13をこのincrementへ移設済み（A14はinboxに残す）。
-authoritative `v0:gate`は計画が要求していないため未実施。
+authoritative `v0:gate`は計画が要求していないため未実施。実装commit `6d7a5d39`からbuildしたbinary
+（build `55d99dc5…`）を利用者の指示に基づき`~/.local/bin/henji`へ配置済み。
 
 ## 必要なproduct動作と根拠
 
@@ -316,6 +317,14 @@ authoritative `v0:gate`は計画が要求していないため未実施。
   provenance・再帰なし・instruction構成）、`agent:generic` binding拒否）すべて通過。
   regression: increment 33／65／77／109／110／111／127 testすべて通過。type check・format・lint・
   `git diff --check`確認済み。
+- build・配置（2026-09-26）: 実装commit `6d7a5d39`のclean treeから
+  `deno task --config deno.v0.json henji:compile`でbuildした。`dist/henji --version`は
+  source `6d7a5d39f39f94b421d98065b6ec2433e7f45991`、build `55d99dc5c543d7b91e6e8b706500e75b42fc2476cc0d769205b76849a392f1d6`、
+  embedded runtime `7ec2ce0b…`、Deno 2.9.7を表示した。利用者の指示に基づきこのbinaryを
+  `~/.local/bin/henji`へ原子的に配置した。配置後の`--version`はsource/buildとも同一で、
+  `dist/henji`と`~/.local/bin/henji`のSHA-256は
+  `be084eef41bcd84923582f4884d62027b11188483b20fa0fe49bb68875da41ef`で一致した。
+  起動中のHenjiには再起動後に反映される。
 
 ## 実装レビュー（2026-09-26、通常レビュー）
 
