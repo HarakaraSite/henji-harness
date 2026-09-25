@@ -29,6 +29,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
 | A13 | Agent実行 | 無名サブエージェント（仮称）と起動時モデル指定 | 名前付きDefinitionを準備せず、taskごとにモデルを選んで子Agentへ任せたいとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
+| A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -273,6 +274,14 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 候補: 外部Agent Definitionが子実行の既定model選択を宣言し、Hostが子Worker起動時にその選択を適用する。
   親Sessionの選択や将来の起動時指定との優先順位は、採用時に決める。
 - 再検討条件: reviewerなど名前付き子Agentを親と異なるmodelで通常利用するとき。
+
+### A15 — searchツールコールの実装
+
+- 利用者指示（2026-09-25）: searchツールコールを実装する。findとgrepを兼ね備えるかは実装時に検討する。
+- 現行境界: Henjiのtool setは`read`／`write`／`edit`／`bash`等で、検索専用のtool callはない。
+- 候補: modelが使えるsearch tool callを実装する。findとgrep（対象探索と本文検索）を兼ね備える一つのtoolに
+  するか、分けるかは実装時に検討する。
+- 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
 
 ## F24・自己改訂
 
