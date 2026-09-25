@@ -2,6 +2,9 @@
 
 ## Next session
 
+- 通常利用メモのP1（`henji run`の構造化出力）はIncrement 104で完了済み（`bd919672`）だったが、inboxからの
+  除去が実際には未実施で残っていた。候補一覧のP1行を削除し、parity調査節とP10の参照をIncrement 104へ
+  付け替えた（docsのみ）。`main`へのpushは未実施。
 - Increment 128（ターン実行中のPageUp／PageDown履歴参照）完了。正本は`docs/increments/increment-128.md`。
   利用者の承認（配置・push・roadmap更新）に基づきroadmap F01を更新し、clean commit `141c49bf`からbuildした
   binary（build `4e57864f…`）を`~/.local/bin/henji`へ配置済み、`main`はpush済み。残作業なし。
