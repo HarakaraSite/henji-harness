@@ -233,14 +233,16 @@ const footerStatusText = (
     ? []
     : [{ kind: 'commands', text: safeDisplay(commandSegment, false) }];
   const cancelSegment = state.lifecycle === 'busy' ? 'Esc cancel' : undefined;
+  // During a busy turn Escape is cancel, so the history hint must not promise "Esc latest".
+  const historyHint = state.lifecycle === 'busy' ? 'PgDn latest' : 'Esc latest';
   const historyFull = history === undefined
     ? undefined
-    : `history rows ${history.first}-${history.last}/${history.total} · Esc latest`;
+    : `history rows ${history.first}-${history.last}/${history.total} · ${historyHint}`;
   const historyRequired = historyFull === undefined
     ? undefined
     : width(`[${historyFull}]`) <= columns
     ? historyFull
-    : 'history · Esc latest';
+    : `history · ${historyHint}`;
   const fixed: string[] = historyRequired === undefined ? [displayedPrimary] : [historyRequired];
   const optional = [
     ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: displayedPrimary }]),

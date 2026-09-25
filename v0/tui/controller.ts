@@ -565,7 +565,12 @@ export class TuiController {
         continue;
       }
       const busy = this.state === 'busy';
-      if (busy && this.cancellationRequested && event.kind !== 'ctrl_c') continue;
+      // View-only PageUp/PageDown stays available after cooperative cancellation wins; the freeze
+      // covers editor and queue mutation, not the conversation viewport.
+      if (
+        busy && this.cancellationRequested && event.kind !== 'ctrl_c' &&
+        event.kind !== 'page_up' && event.kind !== 'page_down'
+      ) continue;
       if (!busy && this.overlay.isOpen) {
         this.processModalEvent(event);
         continue;
@@ -616,11 +621,11 @@ export class TuiController {
         else this.editEvent(event);
         continue;
       }
-      if (!busy && event.kind === 'page_up') {
+      if (event.kind === 'page_up') {
         this.renderer.scrollPage?.('up');
         continue;
       }
-      if (!busy && event.kind === 'page_down') {
+      if (event.kind === 'page_down') {
         this.renderer.scrollPage?.('down');
         continue;
       }

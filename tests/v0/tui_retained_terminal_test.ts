@@ -2496,3 +2496,162 @@ Deno.test('failure row shows the execution ID that /recall accepts for a stopped
   terminal.push('\x03\x04');
   assertEquals(await run, 0);
 });
+
+Deno.test('busy PageUp pages the retained history while the turn keeps streaming', async () => {
+  const terminal = new InteractiveTerminal();
+  terminal.size = { columns: 80, rows: 10 };
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  renderer.resize(80, 10);
+  fillConversation(renderer);
+
+  const submitted: string[] = [];
+  let settle: (() => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: (task) => {
+      submitted.push(task);
+      return new Promise((resolve) => {
+        settle = () =>
+          resolve({
+            ok: true,
+            task,
+            outcome: 'final',
+            stopReason: 'final',
+            finalText: 'done',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      });
+    },
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  terminal.push('long task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
+
+  terminal.push('\x1b[5~');
+  await waitFor(() => renderer.stateSnapshot().scroll.kind !== 'followLatest');
+  const pagedTop = renderer.layoutSnapshot(80, 10).log[0]?.text;
+  assert(
+    renderer.layoutSnapshot(80, 10).log.some((row) => row.text.includes('question')),
+    'PageUp during the turn did not reveal older history',
+  );
+  assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('history rows'));
+
+  renderer.eventSink({
+    kind: 'assistant_progress',
+    turn: 7,
+    text: 'streaming while scrolled',
+  });
+  renderer.eventSink({
+    kind: 'user_message',
+    turn: 7,
+    message: { role: 'user', content: { kind: 'text', text: 'late question' } },
+  });
+  assertEquals(renderer.stateSnapshot().scroll.kind !== 'followLatest', true);
+  assertEquals(renderer.layoutSnapshot(80, 10).log[0]?.text, pagedTop);
+  assert(renderer.stateSnapshot().newBelowCount > 0, 'new-below indicator did not count');
+
+  for (let page = 0; page < 8; page += 1) terminal.push('\x1b[6~');
+  await waitFor(() => renderer.stateSnapshot().scroll.kind === 'followLatest');
+  assert(!renderer.layoutSnapshot(80, 10).footer[0].text.includes('history rows'));
+
+  settle!();
+  await waitFor(() => controller.currentState === 'idle');
+  assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
+  assertEquals(submitted, ['long task']);
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('busy Escape still cancels the turn while the history is anchored', async () => {
+  const terminal = new InteractiveTerminal();
+  terminal.size = { columns: 80, rows: 10 };
+  const renderer = new TuiRenderer(terminal);
+  const lifecycle = new TerminalLifecycle(terminal, renderer);
+  await lifecycle.acquire();
+  renderer.resize(80, 10);
+  fillConversation(renderer);
+
+  const submitted: string[] = [];
+  let settleCancelled: (() => void) | undefined;
+  const session: TuiSessionLike = {
+    submit: (task) => {
+      submitted.push(task);
+      return new Promise((resolve) => {
+        settleCancelled = () =>
+          resolve({
+            ok: false,
+            task,
+            outcome: 'cancelled',
+            stopReason: 'cancelled',
+            error: 'cancelled',
+            steps: 1,
+            toolCallCount: 0,
+            toolResultCount: 0,
+            transcript: [],
+          });
+      });
+    },
+    cancelActiveTurn: () => {
+      settleCancelled?.();
+      return 'requested';
+    },
+    isAvailable: () => true,
+  };
+  const controller = new TuiController(lifecycle, renderer, session, {
+    pending: new PendingInputCore(),
+  });
+  const run = controller.run();
+  terminal.push('cancel task\r');
+  await waitFor(() => controller.currentState === 'busy');
+  terminal.push('\x1b[5~');
+  await waitFor(() => renderer.stateSnapshot().scroll.kind !== 'followLatest');
+  terminal.push('\x1b');
+  await waitFor(() => controller.currentState === 'idle');
+  assert(
+    renderer.stateSnapshot().status.includes(
+      'cancelled; recoverable input available; press Up to resend',
+    ),
+  );
+  assertEquals(submitted, ['cancel task']);
+  assert(renderer.stateSnapshot().scroll.kind !== 'followLatest');
+  terminal.push('\x04');
+  assertEquals(await run, 0);
+});
+
+Deno.test('busy history footer hints PgDn to latest while Esc stays cancel', () => {
+  const terminal = new RecordingTerminal();
+  terminal.size = { columns: 80, rows: 10 };
+  const renderer = new TuiRenderer(terminal, {
+    now: () => 0,
+    setInterval: () => 'busy-timer',
+    clearInterval: () => {},
+  });
+  renderer.resize(80, 10);
+  fillConversation(renderer);
+  renderer.scrollPage('up');
+  assert(renderer.stateSnapshot().scroll.kind !== 'followLatest');
+  const idleFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
+  assert(idleFooter.includes('history rows'));
+  assert(idleFooter.includes('Esc latest'));
+
+  renderer.eventSink({ kind: 'turn_start', turn: 7 });
+  const busyFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
+  assert(busyFooter.includes('history rows'));
+  assert(busyFooter.includes('PgDn latest'));
+  assert(busyFooter.includes('Esc cancel'));
+  assert(!busyFooter.includes('Esc latest'));
+
+  renderer.latest();
+  const latestFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
+  assert(!latestFooter.includes('history rows'));
+  assert(latestFooter.includes('Esc cancel'));
+  assert(!latestFooter.includes('Esc latest'));
+});
