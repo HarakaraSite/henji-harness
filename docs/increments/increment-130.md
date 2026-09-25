@@ -7,8 +7,8 @@ pushは未実施。
 
 - 長い保存SessionでPageUpを続けると、履歴の真の先頭（startup headerを含む）へ到達する。
   先頭でさらにPageUpを押しても最新へ戻らない。PageDownで順に新しい履歴へ戻り、末尾で最新追尾に戻る。
-- 履歴表示中のfooterは、全履歴中のentry位置と、そのentry内の表示行位置を示す。
-  描画窓だけの行番号を全履歴の行番号に見える形で表示しない。
+- 履歴表示中のfooterは、全履歴中のrecord位置だけを示す。描画窓だけの行番号を
+  全履歴の行番号に見える形で表示しない。
 - 根拠: session `d15bc9b2-8db8-4a54-b7eb-88c926411f5e`の94×48 tmuxで、
   PageUpを続けると`history rows 11-25/25`となり、その次のPageUpで最新表示へ戻った。
   同じ操作を繰り返すと窓群を巡回する。窓境界では`1-42/600`の次が
@@ -30,8 +30,8 @@ pushは未実施。
 1. `scrollPage`で、短い中間窓はPageUpで前の窓へ進め、短い最古窓では
    headerを含む`oldest`へ着地させる。最古での追加PageUpは位置を保ち、
    PageDownでの往復と末尾での最新追尾を保つ。
-2. footerは画面先頭に見えるentryの全履歴中の番号と、そのentry内の表示行番号を示す。 startup
-   headerが先頭に見えるときは`history start`とする。 busyの`PgDn latest`／`Esc cancel`は維持する。
+2. footerは画面先頭に見えるrecordの全履歴中の番号だけを示す。startup headerが先頭に
+   見えるときは`history start`とする。busyの`PgDn latest`／`Esc cancel`は維持する。
 3. focused testで、最古窓がviewport未満の復元履歴、繰り返しPageUp、
    PageDownでの往復、窓境界の全体位置表示を確認する。
 4. 型・format・lint・`git diff --check`の後、隔離XDGのproduction TUIを
@@ -43,20 +43,18 @@ pushは未実施。
 
 - `scrollPage`は、短い中間窓でもPageUpで前の窓へ移り、最古窓が一画面に収まるときは startup
   headerを含む`oldest`へ着地する。最古での追加PageUpは最新へ戻さない。
-- footerは画面先頭のentryを全履歴中の番号で示し、そのentry内の表示行番号を添える。 startup
-  headerが見える位置では`history start`とする。
-- 利用者の確認で`history entry 385/393 · row 5/13`は`393`を履歴窓の数と誤読しやすいと分かった。
-  `history record 385 of 393 · record line 5 of 13`へ表記を変え、393が保持中の履歴項目の総数、
-  5/13がその項目内の表示行だと分かるようにした。履歴窓の数は表示しない。
-- 表記修正後、retained TUIのfocused test 51件、対象の`deno check`・format・lint、
-  `git diff --check`が成功した。隔離XDGの同じSessionをproduction source TUIで tmuxの94×48
+- footerは画面先頭のrecordを全履歴中の番号で示す。startup headerが見える位置では
+  `history start`とする。
+- 初期案`history entry 385/393 · row 5/13`と、続く
+  `history record 385 of 393 · record line 5 of 13`は、利用者にとって不要な行番号を含んでいた。
+  利用者の指定に従い、最終表示を`history record 385 of 393`だけにした。393は保持中の
+  履歴record総数で、内部の履歴窓数ではない。中間案のbinary（source `0528401d`、 build
+  `7bc818da…`）は配置していない。
+- 最終表示でretained TUIのfocused test 51件、対象の`deno check`・format・lint、
+  `git diff --check`が成功した。隔離XDGの同じSessionをproduction source TUIでtmuxの 94×48
   paneに復元し、PageUp 1回で
-  `[history record 385 of 393 │ record line 5 of 13 │ Esc latest │ ready]`を観測した。
+  `[history record 385 of 393 │ Esc latest │ ready │ credential missing: opencode-go-chat]`を観測した。
   Ctrl-Dで終了した。task送信と実provider callは行っていない。
-- 表記修正をcommit `0528401d0297a55761264f504e06078affb5fa48`に記録し、clean treeから
-  `deno task --config deno.v0.json henji:compile`でbuildした。`dist/henji --version`は source
-  revision `0528401d…`、build ID `7bc818da…32e7e7`を表示した。
-  binaryのSHA-256は`1bfd3a4d86fae972f6c8ac3b294adcfe65131137f98bf11e54cb31de26b20537`。
 - 94×48の短い最古窓を持つ復元履歴で、先頭到達、追加PageUp、PageDownでの復帰、
   全履歴entry番号の単調な移動をfocused testへ追加した。`tui_retained_terminal_test.ts`
   51件、対象の`deno check`、`deno fmt --check`、`deno lint`、`git diff --check`が成功した。

@@ -840,12 +840,11 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
   for (let page = 0; page < 80; page += 1) {
     renderer.scrollPage('up');
     const footer = renderer.layoutSnapshot().footer[0].text;
-    const position = footer.match(
-      /history record (\d+) of (\d+) · record line (\d+) of (\d+)/,
-    );
+    const position = footer.match(/history record (\d+) of (\d+)/);
     if (position !== null) {
       assertEquals(Number(position[2]), messages.length);
       assert(Number(position[1]) <= previousEntry, 'PageUp moved toward newer entries');
+      assert(!footer.includes('record line'));
       previousEntry = Number(position[1]);
     }
     const state = renderer.stateSnapshot();

@@ -182,8 +182,6 @@ type HistoryViewport =
     readonly kind: 'entry';
     readonly entry: number;
     readonly totalEntries: number;
-    readonly row: number;
-    readonly totalRows: number;
   };
 
 const historyViewport = (
@@ -203,19 +201,10 @@ const historyViewport = (
   if (entryId === undefined) return { kind: 'start' };
   const entryIndex = state.log.entries.findIndex((entry) => entry.id === entryId);
   if (entryIndex < 0) return { kind: 'start' };
-  let row = 0;
-  let totalRows = 0;
-  for (let index = 0; index < rows.length; index += 1) {
-    if (rows[index].entryId !== entryId) continue;
-    totalRows += 1;
-    if (index <= visibleRow) row = totalRows;
-  }
   return {
     kind: 'entry',
     entry: entryIndex + 1,
     totalEntries: state.log.entries.length,
-    row,
-    totalRows,
   };
 };
 
@@ -276,7 +265,7 @@ const footerStatusText = (
     ? undefined
     : history.kind === 'start'
     ? `history start · ${historyHint}`
-    : `history record ${history.entry} of ${history.totalEntries} · record line ${history.row} of ${history.totalRows} · ${historyHint}`;
+    : `history record ${history.entry} of ${history.totalEntries} · ${historyHint}`;
   const historyRequired = historyFull === undefined
     ? undefined
     : width(`[${historyFull}]`) <= columns
