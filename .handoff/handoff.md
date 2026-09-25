@@ -2,10 +2,9 @@
 
 ## Next session
 
-- Increment 128（ターン実行中のPageUp／PageDown履歴参照）を実装・focused検証・tmux実経路確認・
-  commit済み。正本は`docs/increments/increment-128.md`。承認境界: clean commitからのbuildと
-  `~/.local/bin/henji`への配置、pushは利用者の明示承認待ち。roadmap F01への追記案も別承認待ちで
-  同文書の「正本変更案（未適用）」に記録。
+- Increment 128（ターン実行中のPageUp／PageDown履歴参照）完了。正本は`docs/increments/increment-128.md`。
+  利用者の承認（配置・push・roadmap更新）に基づきroadmap F01を更新し、clean commit `141c49bf`からbuildした
+  binary（build `4e57864f…`）を`~/.local/bin/henji`へ配置済み、`main`はpush済み。残作業なし。
 - Increment 127は実装commit `505b8468`からbuildし、`~/.local/bin/henji`へ配置済み。外部reviewerを
   `agent:reviewer`へbindした。実providerの最初の2回は4／8 stepで子が停止したが、対象を絞った3回目は
   親子とも完了し、限定経路でfindingなし。結果と履歴表示範囲は`docs/increments/increment-127.md`。
@@ -22,7 +21,8 @@
   footerの履歴hintはbusyでは`PgDn latest`＋`Esc cancel`。busyのEscape＝cancel等の既存契約は不変。
 - focused test（retained 50件＋関連48件＋current_code 17件）、`v0:check`・fmt・lint・
   `git diff --check`、隔離XDG・tmuxのsource production TUIをlocalhost模擬providerで確認（実provider
-  callなし）。外部reviewerはfindingなし。証拠は`/tmp/henji-increment128-tui/`。
+  callなし）。外部reviewerはfindingなし。証拠は`/tmp/henji-increment128-tui/`。roadmap F01更新・
+  build（`4e57864f…`）・`~/.local/bin/henji`配置・pushまで完了。
 
 ### Increment 126 — provider deadlineとmodel step既定値の拡張
 

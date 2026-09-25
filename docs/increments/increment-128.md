@@ -107,7 +107,19 @@
   `PgDn latest`／`Esc cancel`を示す（Increment
   128）」を追記した。構想・architectureは変更していない。
 
-## 次
+## buildと配置
 
-- 承認済みのclean
-  commitからのbuildと`~/.local/bin/henji`への原子的配置、pushを実施し、結果をこの文書へ追記する。
+- 利用者の明示承認（2026-09-25「配置・push・roadmap 更新」）により、clean commit
+  `141c49bf`から Deno 2.9.7で`dist/henji`をbuildした。build IDは
+  `4e57864f4d67b0808fd9e9c56dd1e1efddb548a9b30ae78e2093b9e25f34fd2e`、file
+  SHA-256は
+  `24a3043388d16da2cc651523664b9173f74ae8b395a572b7d40320fdaf85dc06`、embedded
+  runtimeは
+  `e5435ec2008c14a26c6a68a885e2ae067407c6b51e04fa24ed6249f6d4881195`。`--version`の
+  `source=141c49bf6d4f8f22d85feeaa91eede9df683c6c2`がbuild元commitと一致する（clean
+  tree）。
+- 同一binaryを`~/.local/bin/henji`へ原子的に配置した。配置先のfile
+  SHA-256はbuild元と一致し、 `--version`も同じbuild
+  ID・sourceを表示する。置き換えた旧binaryはIncrement 127のbuild （SHA-256
+  `2bdf1063796fc238e7bb2177e8870c50a38a6292e67e8940f0efe6cd7eb29928`）。
+- `711794f5`（実装）・`141c49bf`（roadmap）・この記録commitを含む`main`をpushした。
