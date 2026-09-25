@@ -51,3 +51,32 @@ TUIと`henji run`は明示selector、`agent:default` binding、組み込みdefau
 - 利用者の別承認で2回目の実provider確認を行い、保存Session `97060778-ec98-4912-b0ee-0342d5117153`から同じreviewerを1回spawn/collectした。親Execution `2a430e60-2e71-4586-84a1-2592e95b6f07`は3 requestでfinal、子Execution `d97876d7-9dea-4da3-b31d-5e9d32d84961`は8 requestで`max_steps`停止し、合計11 requestで承認上限16以内。子の保存messageからincrement文書、reviewer Definition、Worker API等を読み、planner参照を調べていたことは確認できたが、review本文は生成しなかった。TUI captureは`/tmp/henji-i127-mock/live-review2-capture.txt`。両確認とも設定したstep上限で止まっており、通常の既定128 stepでreviewerが結果を返すかは未確認。新たなproduct findingは得られていない。
 - 利用者の指示で対象を「設定済み`agent:reviewer`を組み込みdefaultが公開・起動・収集できるか」に絞り、子の上限を16 stepにした3回目の実provider確認を行った。保存Session `26e11580-8096-422f-9679-0a7bfec88f0a`の親Execution `8f0e9754-38cf-4fcb-a52b-4ce0bd9ed373`は7 request、子Execution `05445552-97b6-42aa-a4b3-10c60a4a5fe2`は4 requestでともにfinal。reviewerは`v0/agent/tools/async_agents.ts`と`v0/agent/definitions/agent_slot_binding.ts`を読んで、この限定経路にfindingなしと回答した。defaultのtool assemblyとHost RPCは子のread範囲外と明記したが、この実行自体が公開・起動・収集のproduction経路を通った。TUI captureは`/tmp/henji-i127-mock/live-review3-capture.txt`。
 - 標準の`henji history --session 26e11580 --view session`では親の依頼、親のthinking・tool行、親の最終回答が表示された。子のtool・途中経過は親のSession表示には現れない。子のmessageは別Executionとして保存された。`--view detail`には親の`collect_subagent` tool resultのJSONは含まれるが、Session correlationで抽出するため、子Execution自体や子の途中のtool履歴は含まない。
+
+## v0.6.0公開
+
+利用者指示により、Increment 117〜127までのsourceを`@henji/harness@0.6.0`としてJSRへ公開した。
+0.5.0以降のDefinition composition APIには互換性破壊（planner roleと`plannerAgentDefinition`の除去、
+`PhysicalIoBindings`のrole縮小）と追加（`roleInstruction`／`tools`／`asyncAgents`）があるため、
+versionは`0.6.0`とした。`jsr.json`、`README.md`、`README.ja.md`、`mod.ts`のversion表記を更新した。
+
+- release source commit: `b274be9d2155469db480216447168693e323b57c`。publish前に`origin/main`へpushし、
+  localとremoteが同じcommitであることを確認した。
+- release準備のcommitで`jsr.json`のpublish includeを修正した。JSR dry-runで
+  `v0/agent/core/readable_thinking.ts`がpackage module graphにあるのにincludeから漏れている
+  `excluded-module`を検出したため追加し、削除済みmoduleのまま残っていた
+  `v0/agent/instructions/roles/planner.ts`と`v0/agent/provider/provider_evidence_store.ts`を除いた。
+  `505b8468`でformat崩れた`v0/agent/README.md`は`deno fmt`で折り返し整形した（語列は同じ）。
+- release候補の`v0:gate`を実行した。1回目はこの実行環境の`HOME`が空で
+  `increment_101_provider_headers_test`のcredential path testが`invalid HOME`になり、focused再確認
+  （17件成功）でrelease候補起因でないと特定した。`HOME`を設定した再実行は44 taskすべて成功。
+- clean worktree `/tmp/henji-harness-jsr-0.6.0.5ZKJST`（detached `b274be9d`）で`deno publish --dry-run`を
+  実行し、`@henji/harness@0.6.0`の84 fileが`publish.include`と`jsr.json`だけで構成され、slow type
+  diagnosticがないことを確認した。`--allow-slow-types`と`--allow-dirty`は使っていない。
+- 利用者がauth pageでpackage名とversionを確認してApproveし、`@henji/harness@0.6.0`のpublishに成功した。
+  registry metadataのlatest／exact versionと、公開packageからのexact-version importでexport 8件が
+  解決することを確認した。dry-runとpublishのログは`/tmp/jsr_dryrun.log`と`/tmp/jsr_publish_pty.log`。
+- release固有の追加testは追加していない。実provider callとproduction CLI E2Eは未実施。Git tagと
+  Forgejo Releaseは作成していない。構想・architecture・roadmapは変更していない。
+- 運用手順の観測: headless環境では`deno publish`のinteractive authがTTYなしでは
+  `No means to authenticate`で止まるため、pty上で起動した。`docs/operations/jsr-publish.md`へ
+  この前提を追記するかは利用者判断待ち。

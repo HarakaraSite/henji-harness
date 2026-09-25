@@ -5,7 +5,9 @@
 - Increment 127は実装commit `505b8468`からbuildし、`~/.local/bin/henji`へ配置済み。外部reviewerを
   `agent:reviewer`へbindした。実providerの最初の2回は4／8 stepで子が停止したが、対象を絞った3回目は
   親子とも完了し、限定経路でfindingなし。結果と履歴表示範囲は`docs/increments/increment-127.md`。
-  push・releaseは未実施。
+- `main`はpush済み。release source commit `b274be9d`を`@henji/harness@0.6.0`としてJSRへ公開し、
+  registry metadataとexact-version importで確認した。記録は`docs/increments/increment-127.md`の
+  「v0.6.0公開」。`docs/operations/jsr-publish.md`へ`deno publish`のTTY前提を追記するかは未決定。
   未採用候補は通常利用メモを参照。
 
 ## Records
