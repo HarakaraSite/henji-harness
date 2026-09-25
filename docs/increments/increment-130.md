@@ -1,6 +1,6 @@
 # Increment 130 — PageUpで履歴の真の先頭へ到達する
 
-状態: 実装・focused検証・隔離XDGでのtmux実操作確認・local binary配置完了（2026-09-26）。
+状態: PageUp修正は配置済み。履歴位置の表記改善はsource検証完了、新binaryは未配置（2026-09-26）。
 pushは未実施。
 
 ## 必要なproduct動作と根拠
@@ -45,6 +45,14 @@ pushは未実施。
   headerを含む`oldest`へ着地する。最古での追加PageUpは最新へ戻さない。
 - footerは画面先頭のentryを全履歴中の番号で示し、そのentry内の表示行番号を添える。 startup
   headerが見える位置では`history start`とする。
+- 利用者の確認で`history entry 385/393 · row 5/13`は`393`を履歴窓の数と誤読しやすいと分かった。
+  `history record 385 of 393 · record line 5 of 13`へ表記を変え、393が保持中の履歴項目の総数、
+  5/13がその項目内の表示行だと分かるようにした。履歴窓の数は表示しない。
+- 表記修正後、retained TUIのfocused test 51件、対象の`deno check`・format・lint、
+  `git diff --check`が成功した。隔離XDGの同じSessionをproduction source TUIで tmuxの94×48
+  paneに復元し、PageUp 1回で
+  `[history record 385 of 393 │ record line 5 of 13 │ Esc latest │ ready]`を観測した。
+  Ctrl-Dで終了した。task送信と実provider callは行っていない。
 - 94×48の短い最古窓を持つ復元履歴で、先頭到達、追加PageUp、PageDownでの復帰、
   全履歴entry番号の単調な移動をfocused testへ追加した。`tui_retained_terminal_test.ts`
   51件、対象の`deno check`、`deno fmt --check`、`deno lint`、`git diff --check`が成功した。

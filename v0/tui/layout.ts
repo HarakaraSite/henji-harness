@@ -276,7 +276,7 @@ const footerStatusText = (
     ? undefined
     : history.kind === 'start'
     ? `history start · ${historyHint}`
-    : `history entry ${history.entry}/${history.totalEntries} · row ${history.row}/${history.totalRows} · ${historyHint}`;
+    : `history record ${history.entry} of ${history.totalEntries} · record line ${history.row} of ${history.totalRows} · ${historyHint}`;
   const historyRequired = historyFull === undefined
     ? undefined
     : width(`[${historyFull}]`) <= columns
