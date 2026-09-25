@@ -84,4 +84,5 @@ versionは`0.6.0`とした。`jsr.json`、`README.md`、`README.ja.md`、`mod.ts
   `Deno.stdin.isTerminal()`がtrueになることを確認済み。利用者承認のもとで行なったtmuxでのauth開始確認は、
   0.6.0が既出versionのためDenoが`Warning: Skipping, already published`でauth手前まで進まず、auth flowを
   1回も開始せずuploadなしで終わった。tmux上でauth URLが出ることは未確認である。
+  利用者判断（2026-09-25）により、この1マスは追加のauth flowを伴うため未確認のまま残す。
   `docs/operations/jsr-publish.md`にはTTY前提だけを追記した。
