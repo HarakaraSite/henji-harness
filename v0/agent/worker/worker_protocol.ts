@@ -87,6 +87,8 @@ export type WorkerHostCommand =
     readonly correlation: WorkerCorrelation;
     readonly module?: WorkerDefinitionLoadRequest;
     readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
+    /** Spawn-time tool filter (bare tool names) narrowing this generation's declared tools. */
+    readonly toolFilter?: readonly string[];
     readonly toolDefinitions?: readonly WorkerToolDefinitionLoadRequest[];
     readonly workspaceRoot?: string;
     readonly physicalIoMode?: 'provider-free' | 'production';

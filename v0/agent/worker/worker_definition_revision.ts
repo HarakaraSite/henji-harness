@@ -15,7 +15,7 @@ export interface WorkerDefinitionRevision extends WorkerModuleRevision {
 export const readDefinitionRevision = async (
   path: string,
   kind: 'builtin' | 'external',
-  id?: 'default',
+  id?: 'default' | 'generic',
 ): Promise<DefinitionRevisionRef> => {
   void path;
   if (kind !== 'builtin' || id === undefined) {
@@ -27,8 +27,11 @@ export const readDefinitionRevision = async (
 };
 
 export const workerBuiltinModulePath = (
-  agent: SessionRecord['agent'],
+  agent: SessionRecord['agent'] | 'generic',
 ): string => {
+  if (agent === 'generic') {
+    return new URL('./worker_builtin_generic_definition.ts', import.meta.url).pathname;
+  }
   if (agent !== 'default') throw new Error('no bundled Definition for agent');
   return new URL('./worker_builtin_definition.ts', import.meta.url).pathname;
 };

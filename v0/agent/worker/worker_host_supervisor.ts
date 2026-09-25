@@ -385,6 +385,7 @@ export class WorkerSupervisor {
         ...(this.options.asyncAgents === undefined
           ? {}
           : { asyncAgents: this.options.asyncAgents }),
+        ...(this.options.toolFilter === undefined ? {} : { toolFilter: this.options.toolFilter }),
         ...(this.options.toolDefinitions === undefined
           ? {}
           : { toolDefinitions: this.options.toolDefinitions }),

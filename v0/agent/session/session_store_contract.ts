@@ -25,7 +25,7 @@ export interface SessionRecord {
   readonly schemaVersion: 1;
   readonly sessionId: string;
   readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner';
+  readonly agent: 'default' | 'planner' | 'generic';
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly nextTurn: number;
@@ -48,7 +48,7 @@ export interface SessionRecordV5 {
   readonly schemaVersion: 5;
   readonly sessionId: string;
   readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner';
+  readonly agent: 'default' | 'planner' | 'generic';
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly title: string | null;
@@ -72,7 +72,7 @@ export interface SessionRecordV6 {
   readonly schemaVersion: 6;
   readonly sessionId: string;
   readonly workspaceRoot: string;
-  readonly agent: 'default' | 'planner';
+  readonly agent: 'default' | 'planner' | 'generic';
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly title: string | null;

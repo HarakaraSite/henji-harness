@@ -27,6 +27,8 @@ export interface WorkerHostSessionOptions {
   readonly loadDescriptor?: WorkerDefinitionLoadRequest;
   /** Host-resolved async child agent catalog (`agent:<name>` -> exact ref). */
   readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
+  /** Spawn-time tool filter (bare tool names) narrowing this generation's declared tools. */
+  readonly toolFilter?: readonly string[];
   /** Resolve a managed async agent ref to a process-local load descriptor. */
   readonly resolveAsyncAgentModule?: (
     ref: DefinitionRevisionRef,

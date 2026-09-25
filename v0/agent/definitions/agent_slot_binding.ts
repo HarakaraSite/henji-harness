@@ -91,6 +91,13 @@ const parseBindingsFile = (value: unknown): AgentSlotBindingsFileV1 => {
         slot,
       );
     }
+    if (slot === 'agent:generic') {
+      throw new AgentBindingError(
+        'binding_slot_abolished',
+        'the generic activation slot is reserved for the bundled generic Definition',
+        slot,
+      );
+    }
     if (parseAgentSlot(slot) === undefined) {
       throw new AgentBindingError('binding_slot_unknown', 'agent slot is not known', slot);
     }

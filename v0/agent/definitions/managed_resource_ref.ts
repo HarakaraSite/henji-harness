@@ -42,7 +42,8 @@ export const isWellFormedResourceId = (value: unknown): value is string => {
 };
 
 export const isExternalDefinitionResourceId = (value: unknown): value is string =>
-  isWellFormedResourceId(value) && value !== 'builtin/default' && value !== 'builtin/planner';
+  isWellFormedResourceId(value) && value !== 'builtin/default' && value !== 'builtin/planner' &&
+  value !== 'builtin/generic';
 
 export const isExternalToolDefinitionResourceId = (value: unknown): value is string =>
   isWellFormedResourceId(value) && value !== 'builtin/web-search';
@@ -63,7 +64,7 @@ const builtinResourceDigest = (
   )?.digest;
 
 export const builtinDefinitionRef = async (
-  agent: 'default',
+  agent: 'default' | 'generic',
   manifest: BuildManifestV1,
 ): Promise<DefinitionRevisionRef> => {
   const resourceId = `builtin/${agent}` as const;

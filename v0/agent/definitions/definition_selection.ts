@@ -92,8 +92,10 @@ export const resolveDefinitionRef = async (
       ref,
     );
   }
-  if (ref.resourceId === 'builtin/default') {
-    const selected = await builtinSelection('default');
+  if (ref.resourceId === 'builtin/default' || ref.resourceId === 'builtin/generic') {
+    const selected = await builtinSelection(
+      ref.resourceId === 'builtin/default' ? 'default' : 'generic',
+    );
     if (!sameDefinitionRevisionRef(selected.ref, ref)) {
       throw new DefinitionStartupError(
         'definition_not_found',

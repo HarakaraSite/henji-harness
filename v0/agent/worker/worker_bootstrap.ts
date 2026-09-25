@@ -348,6 +348,7 @@ const createGeneration = async (
   providerDeclarations: readonly ProviderDeclarationV1[] = [],
   toolDefinitions: readonly AgentToolDefinitionModule[] = [],
   asyncAgents: readonly WorkerAsyncAgentCatalogEntry[] = [],
+  toolFilter: readonly string[] | undefined = undefined,
   privateStateFromTurn = 1,
 ): Promise<WorkerGeneration> => {
   if (module.definition === undefined) {
@@ -403,6 +404,7 @@ const createGeneration = async (
     skillCatalog,
     physicalIo: routedPhysicalIo,
     asyncAgentNames: Object.freeze(asyncAgents.map((entry) => entry.name)),
+    ...(toolFilter === undefined ? {} : { toolFilter: Object.freeze([...toolFilter]) }),
     ...(toolComponents.length === 0
       ? {}
       : { toolDefinitions: toolComponents.map((tool) => tool.component) }),
@@ -623,6 +625,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.providerDeclarations ?? [],
             loadedTools,
             command.asyncAgents ?? [],
+            command.toolFilter,
             command.privateStateFromTurn,
           );
         } catch (error) {

@@ -270,11 +270,18 @@ Agent Definition用である。instruction、tool、provider等が同じloader�
 
 managed Definition revisionを実行構成へ結ぶslotには、manifest内のdependency bindingとは別に、Hostのinstallation/user
 scope config `$XDG_CONFIG_HOME/henji-harness/agents.json`で表すactivation-level slotがある。slotはroot `agent:default`
-とasync agent catalog `agent:<name>`の二種で、値はmanaged selector `moduleId@sha256:<digest>`である。HostはWorker
+とasync agent catalog `agent:<name>`の二種で、値は通常managed selector `moduleId@sha256:<digest>`である。組み込み
+`agent:generic`は例外で、bundled exact ref `builtin/generic`を値に持つ。HostはWorker
 generation開始前にroot slotをexact `DefinitionRevisionRef`へ解決し、revisionがroot-runnableであることを検証する。
-`agent:<name>`は親Definitionが宣言する利用可能なasync child agent nameのcatalogであり、Hostは親generation開始前に
-name→exact refへ解決し、data-only catalogとして親Workerへ渡す。modelは任意pathや未解決selectorではなくcatalog名だけを
-渡せる。組み込みdefaultは解決済みcatalogの名前を宣言し、未設定時はasync child toolを持たない。
+`agent:<name>`はHostが解決する利用可能なasync child agent nameのcatalogであり、Hostは親generation開始前に
+name→exact refへ解決し、data-only catalogとして親Workerへ渡す。catalogは親Definitionが宣言した名前に加え、組み込み
+`agent:generic`（bundled ref `builtin/generic`）を常時含め、`agents.json`が空でも`agent:generic`をspawnできる。
+`agents.json`の`agent:generic`同名bindingは予約slotとしてtyped failureとする。modelが渡せるのはagent名catalogの
+名前だけで、任意pathや未解決selectorは渡さない。spawn入力の`model`指定はagent名catalogとは別のmodel catalogで
+検証済みのprovider/modelId/effortだけを渡せる（こちらも任意pathは渡さない）。組み込みdefaultはHostが渡す
+解決済みcatalogの名前を宣言する。親generationは`agent:generic`を
+常に含むcatalogを持つが、child generationはcatalogを受け取らずasync child toolを持たない（recursive spawnはV1で
+対象外のまま）。
 `agent:planner`を設定する場合も通常の外部Definitionとして扱う。未知slot、malformed、missing revision、role不一致はtyped
 failureとし、built-inへ暗黙fallbackしない。`subagent:<name>` slotは廃止済みであり、`agents.json`に残っている場合は
 「このslotは廃止された」と分かるtyped diagnosticで失敗させる。現在のbinding scopeはinstallation/userに限り、workspace
@@ -283,8 +290,9 @@ scopeは対象外である。binding変更は実行中generationへhot適用せ�
 Hostは解決したroot Definition refとprocess-local physical load descriptorをWorker start commandで渡す。Workerは
 **選択されたroot Definition**を評価する。parent/subagentをpeerとして別々に評価する経路や、Host提供subagent moduleを
 合成する経路は作らない。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係として扱う。V1では、
-親Definitionが宣言した`agent:<name>` catalogからmodelが`spawn_subagent(agent, task)`を呼び、Hostが別Deno Worker・
-別Executionとしてchildを起動する。childは空transcriptと自身のDefinition／selectionから開始し、親のconversation・
+modelが`spawn_subagent(agent, task, model?, tools?)`を呼び、Hostが別Deno Worker・
+別Executionとしてchildを起動する。`model`は`{provider, modelId, effort?}`の起動時model指定（省略時は親Sessionの
+現在selection）、`tools`は起動時tool指定（宣言済みtoolの部分集合への絞り込み。追加不可）。childは空transcriptと自身のDefinition／selectionから開始し、親のconversation・
 checkpoint・recallを暗黙継承しない。`subagent_status`／`collect_subagent`／`cancel_subagent`で操作し、child結果は
 collectのtool resultとして返された時だけ親contextへ入る。child executionはcanonical proposalを生成せず、canonical
 Sessionへ採用されずにnoncanonical execution evidenceとして残る。parent cancel／failure／settle／closeは未完了childを
@@ -293,8 +301,13 @@ spawn、swarm UIは対象外とする。
 
 childのspawn成功はchild executionのdurable admission後、collect成功はdurable terminal settlement後にだけ返す。
 status／collect／cancelのaddressabilityはspawn元parent executionに限定し、後続turnから過去runをmailboxとして
-参照させない。child Definitionのmodule、role/model、execution evidenceはcatalogで選択したexact refのprovenanceから
-一貫して決め、同じagent名を理由にbundled Definitionへ差し替えない。childのtool compositionにはHostが解決済みの
+参照させない。child Definitionのmodule、execution evidenceはcatalogで選択したexact refのprovenanceから
+一貫して決め、同じagent名を理由にbundled Definitionへ差し替えない。childのmodel selectionはspawn入力の
+`model`（catalog検証済みprovider/modelId/effort）または親Sessionの現在selectionから決まり、tool compositionは
+spawn入力の`tools`で絞り込む（宣言済みtoolの部分集合。`tool:skill`／`tool:submit_json_result`は絞り込み対象外）。
+有効tool集合、model selection、`definitionRef`はchild execution evidenceへ記録する。tool filterの値不正
+（未宣言tool名、絞り込み結果ゼロ）は子側検証で起動直後の失敗runとなり、model指定の不正はspawn失敗（runIdなし）に
+なる。childのtool compositionにはHostが解決済みの
 exact tool Definition load descriptorを渡し、child側でbundled bindingへ暗黙fallbackしない。
 
 parentの正常settle、failure、cancel、forced interruption、close、Worker generation replacementでは、対象parentの
@@ -400,7 +413,8 @@ selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surfa
 provider IDとmodel IDが一致する場合だけ再利用する。
 
 Host configの`default-selection.json`がrootの既定selectionを選び、未設定時は同梱`openrouter-chat`既定を使う。
-外部Agentのchild executionは通常のroot selection経路を使う。Agent名別の同梱model既定は持たない。
+外部Agentのchild executionのmodel選択機構は通常のroot selection経路を使う。selectionの値はspawn入力の`model`
+指定または親Sessionの現在selectionから決まり、Agent名別の同梱model既定は持たない。
 credential値、Authorization、tokenはdeclaration、managed revision、Session、evidence、transcript、Definitionへ
 含めない。provider固有adapterのphysical placement、dynamic model取得、追加protocolは未決であり、採用時に
 architectureへ戻る。詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。

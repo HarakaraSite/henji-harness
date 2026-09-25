@@ -45,6 +45,11 @@ const BUILTIN_DEFINITIONS: readonly BuiltinDefinitionEntry[] = [
     declaredRole: 'parent',
     entry: 'v0/agent/worker/worker_builtin_definition.ts',
   },
+  {
+    resourceId: 'builtin/generic',
+    declaredRole: 'parent',
+    entry: 'v0/agent/worker/worker_builtin_generic_definition.ts',
+  },
 ];
 
 const BUILTIN_TOOLS: readonly BuiltinToolEntry[] = [

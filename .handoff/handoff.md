@@ -2,6 +2,17 @@
 
 ## Next session
 
+- Increment 131（誰でもないサブエージェント`agent:generic`と起動時model/tool指定）を実装完了。
+  `spawn_subagent(agent, task, model?, tools?)`で起動時model指定（省略時は親Sessionの現在selection）と
+  tool絞り込み（宣言済みtoolの部分集合・追加不可。`tool:skill`／`tool:submit_json_result`は対象外）を
+  提供。組み込み`agent:generic`（bundled `builtin/generic`）をHostが常時catalogへ解決し、install/bind
+  不要で委譲できる。tool値不正はrunId付きの起動直後失敗run、model不正はrunIdなし。child evidenceに
+  model selection・有効tool集合・`definitionRef`を記録。`agents.json`の`agent:generic` bindingは
+  予約名typed failure。正本は`docs/increments/increment-131.md`。計画レビュー2回＋実装通常レビュー
+  （finding 2件[低]）の指摘を反映済み。architecture正本は利用者承認済み変更1〜5を反映済み。
+  通常利用メモA13はincrement-131へ移設（A14はinboxに残置）。focused test 8件、regression
+  （increment 33／65／77／109／110／111／127）、check・fmt・lint・`git diff --check`通過。
+  build・配置・pushはこの記録時点では未実施。
 - Increment 130（PageUpが短い最古履歴窓から最新へ戻る不具合と履歴位置表示）を実装し、
   focused確認と隔離XDG・tmuxのsource production TUIで先頭到達・往復を確認した。
   正本は`docs/increments/increment-130.md`。commit `5c03fb39`からbuildしたbinary

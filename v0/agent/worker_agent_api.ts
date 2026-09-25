@@ -18,6 +18,7 @@ import {
   validateAgentResourceSelection,
 } from './definitions/resource_identity.ts';
 import type { AgentResourceIdentity } from './definitions/resource_identity.ts';
+import { applyDeclaredToolFilter } from './definitions/tool_filter.ts';
 import { resolveBuiltinDefinitionInstruction } from './instructions/compose.ts';
 import type { ToolComponent } from './tools/tool_components.ts';
 import type { WebSearchBackend } from './tools/web_search.ts';
@@ -100,6 +101,8 @@ export interface ExecutableAgentDefinitionInput {
   readonly toolDefinitions?: readonly ToolComponent[];
   /** Host-resolved names of managed async Agents available to this generation. */
   readonly asyncAgentNames?: readonly string[];
+  /** Spawn-time tool filter (bare tool names) narrowing the declared tool set. */
+  readonly toolFilter?: readonly string[];
 }
 
 export interface AgentCompositionOptions {
@@ -306,8 +309,13 @@ export const createAgentComposition = (
   options: AgentCompositionOptions = {},
 ): WorkerAgentComposition => {
   const resolved = defaultAgentDefinition(definitionInput(input));
-  const additionalTools = options.additionalTools ?? [];
-  const tools = options.tools ?? resolved.capabilities.tools;
+  const tools = applyDeclaredToolFilter(
+    Object.freeze([
+      ...(options.tools ?? resolved.capabilities.tools),
+      ...(options.additionalTools ?? []),
+    ]),
+    input.toolFilter,
+  );
   const asyncAgents = options.asyncAgents ?? resolved.capabilities.asyncAgents;
   const roleInstructions = options.roleInstruction === undefined
     ? resolved.capabilities.instructions
@@ -318,7 +326,7 @@ export const createAgentComposition = (
   const capabilities = Object.freeze({
     ...resolved.capabilities,
     instructions: Object.freeze([...roleInstructions]),
-    tools: Object.freeze([...tools, ...additionalTools]),
+    tools: Object.freeze([...tools]),
     asyncAgents: Object.freeze([...asyncAgents]),
   });
   const resourceIdentities = [

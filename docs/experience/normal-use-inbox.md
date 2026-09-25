@@ -26,7 +26,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
 | A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
-| A13 | Agent実行 | 無名サブエージェント（仮称）と起動時モデル指定 | 名前付きDefinitionを準備せず、taskごとにモデルを選んで子Agentへ任せたいとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
@@ -232,23 +231,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 候補: 容量の大きいsemantic種別と重複を測り、通常履歴のreadbackと`/recall`が使う情報を保ったまま
   記録量を減らせるか調べる。保存期間を決めるA9とは分け、現時点では削除・縮小を採用しない。
 - 再検討条件: 長期SessionでDB容量や履歴readbackの負担が実利用上の問題になったとき。
-
-### A13 — 無名サブエージェント（仮称）と起動時モデル指定
-
-- 利用者希望（2026-09-24）: Codexのように「gpt-6-lunaでこのtaskの子Agentを起動」と依頼し、用途やモデル
-  ごとに名前付きAgent Definitionを用意せず委譲したい。「無名」は事前登録する`agent:<name>`が不要という意味の
-  仮称で、実行を参照する`runId`まで無くす意味ではない。
-- 現行境界: `spawn_subagent(agent, task)`は親Definitionが宣言したcatalog名だけを受け付け、起動ごとのmodel
-  引数はない。組み込み`planner`の実行用DefinitionはIncrement 127で除去した。Hostから子Workerへ
-  `ModelSelection`を渡す経路自体は既にある。
-- 候補: 既存の名前付き子Agentへの起動時モデル指定と、任意task向けの汎用子Agentを事前の名前付き登録なしで
-  起動する動作を分けて検討する。後者では一つの組み込み汎用Definitionを基底にでき、モデルごとのDefinitionは
-  要らない。provider／model／effortの選択方法、子のinstruction・tool構成、既存の名前付きcatalogとの関係は
-  採用時に決める。
-- 再検討条件: 通常利用で、モデルや用途を変えるたびにDefinitionをinstall・bindする負担、またはplanner以外へ
-  その場で委譲できない不便が現れたとき。
-- 関連: `docs/architecture/henji-host-agent-worker.md`のasync agent catalogとchild execution。採用時には
-  `spawn_subagent(agent, task)`および子model選択のarchitecture変更を別途判断する。
 
 ### A14 — 名前付き子Agent Definitionの専用model指定
 

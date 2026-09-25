@@ -50,6 +50,7 @@ const DEFINITIONS: Readonly<Record<BuiltinAgentId, AgentDefinition>> = Object
       Object.create(null) as Record<BuiltinAgentId, AgentDefinition>,
       {
         default: defaultAgentDefinition,
+        generic: defaultAgentDefinition,
       },
     ),
   );

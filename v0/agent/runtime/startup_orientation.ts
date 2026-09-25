@@ -13,7 +13,7 @@ export const MAX_WORKSPACE_DISPLAY_BYTES = 96;
 export const MAX_DISPLAY_SKILL_NAMES = 5;
 export const CREDENTIAL_VERIFICATION_POLICY = 'before_each_provider_request' as const;
 
-export type RuntimeDisplayAgentId = 'default' | 'planner';
+export type RuntimeDisplayAgentId = 'default' | 'planner' | 'generic';
 export type RuntimeDisplayInstructionSource = 'AGENTS.md' | 'AGENTS.MD' | 'none';
 export type RuntimeDisplaySessionMode = 'new' | 'continue' | 'session' | 'none';
 

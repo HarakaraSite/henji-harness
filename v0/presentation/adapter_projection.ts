@@ -143,8 +143,8 @@ export const outcomeReason = (value: unknown): PresentationOutcomeReason => {
   ) throw new PresentationDeliveryError();
   return value;
 };
-export const agentId = (value: unknown): 'default' | 'planner' => {
-  if (value !== 'default' && value !== 'planner') {
+export const agentId = (value: unknown): 'default' | 'planner' | 'generic' => {
+  if (value !== 'default' && value !== 'planner' && value !== 'generic') {
     throw new PresentationDeliveryError();
   }
   return value;

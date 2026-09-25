@@ -108,7 +108,7 @@ export interface WorkerExecutionArtifactV2 {
   readonly settledAt: string;
   readonly sessionId: string;
   readonly turn: number;
-  readonly agent: 'default' | 'planner';
+  readonly agent: 'default' | 'planner' | 'generic';
   readonly instanceCorrelation: string;
   readonly workerGeneration: string;
   readonly build: BuildManifestV1;

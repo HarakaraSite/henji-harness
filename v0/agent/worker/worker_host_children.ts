@@ -2,6 +2,7 @@ import type {
   AsyncAgentRequest,
   AsyncAgentResponse,
   AsyncAgentRunState,
+  AsyncAgentSpawnModelRequest,
   AsyncAgentTerminalResult,
   AsyncAgentTerminalState,
 } from '../tools/async_agents.ts';
@@ -16,10 +17,14 @@ import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
-import type { ModelSelection } from '../provider/model_selection.ts';
+import type { ModelSelection, ReasoningEffort } from '../provider/model_selection.ts';
+import { selectModelFor } from '../provider/model_catalog.ts';
+import { TOOL_FILTER_ERROR_CODE } from '../definitions/tool_filter.ts';
+import { workerBuiltinModulePath } from './worker_definition_revision.ts';
 import type {
   WorkerAsyncAgentCatalogEntry,
   WorkerDefinitionLoadRequest,
+  WorkerReadyMessage,
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
@@ -51,6 +56,7 @@ type ChildRun = {
   readonly agent: string;
   readonly task: string;
   readonly model: ModelSelection;
+  readonly tools?: readonly string[];
   readonly build: BuildManifestV1;
   readonly definitionRef: DefinitionRevisionRef;
   readonly createdAt: string;
@@ -67,6 +73,7 @@ type ChildRun = {
   outcome?: LoopOutcome;
   diagnostic?: FailureDiagnosticV1;
   contextManifest?: ExecutionContextManifestV2;
+  manifest?: WorkerReadyMessage['manifest'];
   capture?: HistoryCaptureResult;
   settlementAttempted: boolean;
   settlementDurable: boolean;
@@ -78,6 +85,8 @@ export interface ChildRunDeps {
   readonly options: WorkerHostSessionOptions;
   /** Host-resolved async agent catalog passed to the parent Worker. */
   readonly catalog: readonly WorkerAsyncAgentCatalogEntry[];
+  /** Parent's current session model selection; the default source for spawns without a model. */
+  readonly currentModelSelection?: () => ModelSelection;
   /** Resolve a managed Definition ref to a process-local load descriptor. */
   readonly resolveManagedModule?: (
     ref: DefinitionRevisionRef,
@@ -164,6 +173,8 @@ export class ChildRunRegistry {
         request.task,
         callId,
         parentExecutionId,
+        request.model,
+        request.tools,
       );
     }
     const run = this.addressableRun(request.runId, parentExecutionId);
@@ -266,6 +277,8 @@ export class ChildRunRegistry {
     task: string,
     callId: string | undefined,
     parentExecutionId: string,
+    model?: AsyncAgentSpawnModelRequest,
+    tools?: readonly string[],
   ): Promise<AsyncAgentResponse> {
     if (!this.activeParents.has(parentExecutionId)) {
       return {
@@ -283,6 +296,21 @@ export class ChildRunRegistry {
         error: 'parent execution no longer accepts child runs',
       };
     }
+    let runModel: ModelSelection;
+    if (model !== undefined) {
+      try {
+        runModel = selectModelFor(
+          model.provider,
+          model.modelId,
+          model.effort as ReasoningEffort | undefined,
+        );
+      } catch (error) {
+        return { ok: false, error: errorText(error) };
+      }
+    } else {
+      runModel = this.deps.currentModelSelection?.() ??
+        this.deps.options.initialModelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
+    }
     const runId = crypto.randomUUID().toLowerCase();
     const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
     const run: ChildRun = {
@@ -291,7 +319,8 @@ export class ChildRunRegistry {
       spawnCallId: callId,
       agent,
       task,
-      model: this.deps.options.initialModelSelection ?? ROOT_DEFAULT_MODEL_SELECTION,
+      model: runModel,
+      ...(tools === undefined ? {} : { tools: Object.freeze([...tools]) }),
       build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
       createdAt: new Date().toISOString(),
@@ -359,6 +388,10 @@ export class ChildRunRegistry {
       return { ok: true, kind: 'spawn', runId };
     } catch (error) {
       const message = errorText(error);
+      if (message.includes(TOOL_FILTER_ERROR_CODE)) {
+        this.finish(run, this.terminal(run, 'failed', message));
+        return { ok: true, kind: 'spawn', runId };
+      }
       this.finish(run, this.terminal(run, 'interrupted', message));
       return {
         ok: false,
@@ -383,17 +416,22 @@ export class ChildRunRegistry {
     entry: WorkerAsyncAgentCatalogEntry,
     childCorrelation: string,
   ): Promise<WorkerHostSessionOptions> {
-    if (this.deps.resolveManagedModule === undefined) {
+    const isBuiltinGeneric = entry.ref.resourceId === 'builtin/generic';
+    if (!isBuiltinGeneric && this.deps.resolveManagedModule === undefined) {
       throw new Error(`async agent module is unavailable: ${entry.name}`);
     }
-    const loadDescriptor = await this.deps.resolveManagedModule(entry.ref);
+    const loadDescriptor = isBuiltinGeneric
+      ? undefined
+      : await this.deps.resolveManagedModule!(entry.ref);
     return {
       handle: syntheticHandle(childCorrelation),
       workspaceRoot: this.deps.options.workspaceRoot,
       agent: 'default' as const,
       definition: entry.ref,
-      loadDescriptor,
+      ...(isBuiltinGeneric ? { modulePath: workerBuiltinModulePath('generic') } : {}),
+      ...(loadDescriptor === undefined ? {} : { loadDescriptor }),
       initialModelSelection: run.model,
+      ...(run.tools === undefined ? {} : { toolFilter: run.tools }),
       physicalIoMode: this.deps.options.physicalIoMode ?? 'production',
       toolDefinitions: structuredClone(this.deps.options.toolDefinitions ?? []),
       ...(this.deps.options.rootMaxSteps === undefined
@@ -412,6 +450,9 @@ export class ChildRunRegistry {
   }
 
   private routeChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
+    if (message.kind === 'ready' && message.manifest !== undefined && run.manifest === undefined) {
+      run.manifest = structuredClone(message.manifest);
+    }
     if (
       message.kind === 'ready' || message.kind === 'model_selected' ||
       message.kind === 'closed' || message.kind === 'commit_proposal' ||
@@ -479,7 +520,14 @@ export class ChildRunRegistry {
       return;
     }
     if (message.kind === 'worker_error') {
-      this.finish(run, this.terminal(run, 'interrupted', message.message));
+      this.finish(
+        run,
+        this.terminal(
+          run,
+          message.message.includes(TOOL_FILTER_ERROR_CODE) ? 'failed' : 'interrupted',
+          message.message,
+        ),
+      );
     }
   }
 
@@ -714,6 +762,7 @@ export class ChildRunRegistry {
       definition: run.definitionRef,
       parentExecutionId: run.parentExecutionId,
       ...(run.spawnCallId === undefined ? {} : { spawnCallId: run.spawnCallId }),
+      ...(run.manifest === undefined ? {} : { manifest: run.manifest }),
     };
   }
 

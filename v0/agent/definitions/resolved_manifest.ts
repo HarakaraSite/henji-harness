@@ -43,6 +43,7 @@ const MANIFEST_DEFINITION_CONTRACTS: Readonly<
     Object.create(null) as Record<AgentManifestDefinitionId, ManifestDefinitionContract>,
     {
       default: Object.freeze({ topologyId: 'default' }),
+      generic: Object.freeze({ topologyId: 'default' }),
       planner: Object.freeze({ topologyId: 'planner' }),
     },
   ),

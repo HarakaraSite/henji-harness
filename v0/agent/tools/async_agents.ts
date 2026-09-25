@@ -42,8 +42,21 @@ export interface AsyncAgentTerminalResult {
   readonly error?: string;
 }
 
+/** Spawn-time model request; the Host resolves it against the active provider catalog. */
+export interface AsyncAgentSpawnModelRequest {
+  readonly provider: string;
+  readonly modelId: string;
+  readonly effort?: string;
+}
+
 export type AsyncAgentRequest =
-  | { readonly kind: 'spawn'; readonly agent: string; readonly task: string }
+  | {
+    readonly kind: 'spawn';
+    readonly agent: string;
+    readonly task: string;
+    readonly model?: AsyncAgentSpawnModelRequest;
+    readonly tools?: readonly string[];
+  }
   | { readonly kind: 'status'; readonly runId: string }
   | { readonly kind: 'collect'; readonly runId: string }
   | { readonly kind: 'cancel'; readonly runId: string };
@@ -137,6 +150,21 @@ export const createAsyncAgentTools = (
       properties: {
         agent: { type: 'string', enum: [...catalog] },
         task: { type: 'string', minLength: 1, maxLength: MAX_TASK_BYTES },
+        model: {
+          type: 'object',
+          properties: {
+            provider: { type: 'string', minLength: 1 },
+            modelId: { type: 'string', minLength: 1 },
+            effort: { type: 'string' },
+          },
+          required: ['provider', 'modelId'],
+          additionalProperties: false,
+        },
+        tools: {
+          type: 'array',
+          items: { type: 'string', minLength: 1 },
+          minItems: 1,
+        },
       },
       required: ['agent', 'task'],
       additionalProperties: false,
@@ -156,7 +184,56 @@ export const createAsyncAgentTools = (
       if (encoder.encode(task).byteLength > MAX_TASK_BYTES) {
         throw new ToolInputError('task exceeds the 64 KiB limit');
       }
-      const response = await invokeAsyncAgentRpc(rpc, { kind: 'spawn', agent, task }, context);
+      let model: AsyncAgentSpawnModelRequest | undefined;
+      const modelValue = argumentsValue.model;
+      if (modelValue !== undefined) {
+        const shapeError = {
+          ok: false as const,
+          error: 'model must be an object with provider and modelId strings',
+        };
+        if (!isObject(modelValue)) return failedResponse(shapeError);
+        const provider = readString(modelValue, 'provider');
+        const modelId = readString(modelValue, 'modelId');
+        const effort = modelValue.effort === undefined
+          ? undefined
+          : readString(modelValue, 'effort');
+        if (
+          provider === undefined || provider.trim().length === 0 ||
+          modelId === undefined || modelId.trim().length === 0 ||
+          (modelValue.effort !== undefined && effort === undefined)
+        ) return failedResponse(shapeError);
+        model = {
+          provider,
+          modelId,
+          ...(effort === undefined ? {} : { effort }),
+        };
+      }
+      let tools: readonly string[] | undefined;
+      const toolsValue = argumentsValue.tools;
+      if (toolsValue !== undefined) {
+        if (!Array.isArray(toolsValue) || toolsValue.length === 0) {
+          throw new ToolInputError('expected a nonempty array of tool names');
+        }
+        const names: string[] = [];
+        for (const item of toolsValue) {
+          if (typeof item !== 'string' || item.trim().length === 0 || item.includes('\0')) {
+            throw new ToolInputError('expected nonblank tool name strings');
+          }
+          names.push(item);
+        }
+        tools = Object.freeze(names);
+      }
+      const response = await invokeAsyncAgentRpc(
+        rpc,
+        {
+          kind: 'spawn',
+          agent,
+          task,
+          ...(model === undefined ? {} : { model }),
+          ...(tools === undefined ? {} : { tools }),
+        },
+        context,
+      );
       if (response.ok && response.kind === 'spawn') {
         return JSON.stringify({ ok: true, runId: response.runId });
       }

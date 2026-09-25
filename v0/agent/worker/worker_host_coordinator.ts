@@ -143,6 +143,7 @@ export class ExecutionCoordinator {
     this.children = new ChildRunRegistry({
       options,
       catalog: options.asyncAgents ?? [],
+      currentModelSelection: () => this.authority.projection.modelSelection,
       ...(options.resolveAsyncAgentModule === undefined
         ? {}
         : { resolveManagedModule: options.resolveAsyncAgentModule }),

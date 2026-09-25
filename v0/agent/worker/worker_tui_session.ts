@@ -20,6 +20,7 @@ import {
   type RuntimeDisplayState,
 } from '../runtime/startup_orientation.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
+import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
 import type {
   NavigationBinding,
@@ -546,9 +547,12 @@ export const createWorkerSession = async (
     };
     /** Resolve activation-level managed async Agent bindings for this generation. */
     const resolveAsyncAgents = async (): Promise<
-      readonly WorkerAsyncAgentCatalogEntry[] | undefined
+      readonly WorkerAsyncAgentCatalogEntry[]
     > => {
-      const entries: WorkerAsyncAgentCatalogEntry[] = [];
+      const entries: WorkerAsyncAgentCatalogEntry[] = [{
+        name: 'generic',
+        ref: await builtinDefinitionRef('generic', buildManifest()),
+      }];
       if (configRoot !== undefined && dataRoot !== undefined) {
         let bindings: ReadonlyMap<
           string,
@@ -584,7 +588,7 @@ export const createWorkerSession = async (
           });
         }
       }
-      return entries.length === 0 ? undefined : entries;
+      return entries;
     };
     /*
      * Resolve every declared tool Definition. An activation-level `tools.json` binding wins;

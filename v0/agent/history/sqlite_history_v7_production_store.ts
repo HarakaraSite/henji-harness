@@ -1531,6 +1531,11 @@ export class SqliteHistoryV7ProductionStore
         input.artifactForCapture === undefined ? null : input.executionId,
         input.executionId,
       );
+      if (input.manifest !== undefined) {
+        db.prepare(
+          `UPDATE execution_admissions SET manifest_json=? WHERE execution_id=? AND manifest_json IS NULL`,
+        ).run(JSON.stringify(input.manifest), input.executionId);
+      }
       this.#fault?.('before_settlement_commit');
       db.exec('COMMIT');
     } catch (error) {
