@@ -2,23 +2,16 @@
 
 ## Next session
 
-- 次の一手（利用者指示 2026-09-26）: Increment 133のslice 1〜5をlocal実装・検証済み。
-  利用者指示のコード・test第三者reviewは完了。P1/P2の2件を修正し、限定再確認で残る指摘なし。
-  利用者はcommit・push・配置・JSR publishを明示承認（2026-09-26）。0.7.0のrelease候補gate・package dry-runは通過。commit/push・clean build・配置・publishを進める。
-  常用利用で入力欠落の解消を継続観測する。既存processの終了・切替操作はこの配置に含めない。
-  簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない（2026-09-26の利用者判断）。
-  正本: `docs/increments/increment-133.md`（slice 5結果、第三者review対応、候補・artifact・未確認事項）。
-  slice 5のsource/compiled隔離production TUI確認と最終`v0:gate`は通過。
-  review修正後はfocused test、対象check/format/lint、binary内部runner確認を実施済み。
-  直接確認用: `/tmp/henji-i133-slice5/direct-check.sh`（隔離XDGとローカル模擬provider）。
-  現候補: `/tmp/henji-i133-code-review/henji`、build
-  `0b46b0c1f1a189132186bde356fc0cc6ad0d044923b7e00a3a52544593e227b6`。
-  利用者は実装とスライス単位での区切りを指示。local実装・非破壊的検証は承認済み。
-  architecture変更案1〜3の正本反映は別途明示承認が必要。
-  commit・push・binary配置・JSR publishは上記利用者指示で承認済み。
-  roadmap結果反映、実provider確認、旧Git chainの恒久終了は別指示の範囲で扱う。
-  診断時の生存状態: Henji PID `200048`は稼働中、利用者承認によりGit reader PID `202890`を
-  SIGSTOPした状態を維持。旧Git chainの恒久終了は未承認。詳細・証拠はIncrement 133を参照。
+- 次の一手（利用者指示 2026-09-26）: 常用利用でIncrement 133の入力欠落解消を継続観測する。
+  簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない（利用者判断）。
+  正本: `docs/increments/increment-133.md`（slice結果、第三者review対応、配置・JSR公開結果）。
+  実装commit `f10893ba…`は`origin/main`へpush済み。0.7.0をclean buildから常用binaryへ配置済み
+  （source `f10893ba…`、build `36e27ab6…`、dirtyなし）。新binaryは次回起動から利用できる。
+  JSR `@henji/harness@0.7.0`公開、registry metadata/exact import確認、一時worktree cleanupまで完了。
+  release候補のauthoritative gateとbinary内部runner確認は通過。第三者reviewのP1/P2は修正し再確認済み。
+  architecture変更案1〜3の正本反映、roadmap結果反映、実provider probeは別途明示承認が必要。
+  診断時の既存Henji PID `200048`とSIGSTOP中Git reader PID `202890`には今回操作していない。
+  旧Git chainの恒久終了は未承認。詳細・証拠はIncrement 133を参照。
   S17〜S20は未採用候補として通常利用メモに残る。Increment 132 C全体を完了扱いにしない。
 - Increment 132（S16の通常実行中の逐次表示）は実装をcommitし、focused test・隔離XDGの
   mock SSE production TUI確認まである。正本は`docs/increments/increment-132.md`。同一Henjiプロセス
@@ -833,15 +826,12 @@
 
 ### 環境・配置（再開時の注意）
 
-- binary: `0.5.0`。clean code commit `621b6892…`からDeno 2.9.7でbuildし、`dist/henji`と
-  `~/.local/bin/henji`へ原子的に配置済み（build `178a8646…`、file SHA-256 `9554953c…`、embedded runtime
-  `b8e1dda0…`）。`scripts/build_henji.ts`の
-  `EXPECTED_DENO`と`README.md`のQuick Startは2.9.7。現在の
-  build/source identityは`~/.local/bin/henji --version`を正本とする。
+- 現在のbinaryのversion/build/source identityは`~/.local/bin/henji --version`を正本とする。
+  配置・公開結果は`docs/increments/increment-133.md`を参照。build用Denoは2.9.7。
 - base instruction: built-inは最小core。外部は`~/.config/henji-harness/instruction.md`を直接読み込む
   （source identity `user/instruction.md`）。雛形は`docs/operations/base-instruction-template.md`。managed
   `henji instruction` CLIは削除済み。
-- JSR: `@henji/harness@0.5.0`がlatest。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
+- JSR: `@henji/harness@0.7.0`が公開済み。`0.2.0`はpackaged READMEがstaleなままimmutableに残置。publishは
   `docs/operations/jsr-publish.md`の手順（README例のversion更新→gate→push→clean worktree→dry-run→device認証→
   registry/import検証→cleanup）。
 - provider: built-in idは`openrouter-chat`/`openrouter-responses`/`openai-chat`/`openai-responses`。旧

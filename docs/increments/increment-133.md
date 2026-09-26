@@ -597,3 +597,37 @@ artifact: `/tmp/henji-i133-code-review/release-gate.log`。
 これはpackage closureの修正であり、gate後にruntime/testを変更していない。
 公開候補のdry-runは`@henji/harness@0.7.0`、通常の型検証を含めて成功した。
 artifact: `/tmp/henji-i133-code-review/precommit-dry-run.log`。実publishはpush済みclean worktreeから行う。
+
+
+### Commit・push・常用binary配置
+
+実装と0.7.0準備をcommit `f10893ba324500c1f88f08be96d742ed3f02d2d2`へまとめ、
+`origin/main`へpushした。fetch後のlocal/remote commit一致を確認した。
+cleanな同commitからDeno 2.9.7で`dist/henji`をbuildし、`~/.local/bin/henji`へ原子的に配置した。
+配置後のbinary表示は`henji 0.7.0`、source `f10893ba…`（dirtyなし）、build
+`36e27ab63721a4095ec534fde35e3b0cc9e11504bab6a1cd9c8541f12f5eb71c`。
+SHA-256: `4aaf9627a2b96ec1596d04f4cb0c4418438e4dd22ac374f96e28abd281a0b2e2`。
+同梱runnerのfocused 4件も配置対象binaryで通過した。
+既存Henji/旧Git readerへは操作していない。常用binaryの更新は次回起動から利用できる。
+artifact: `/tmp/henji-i133-code-review/release-build.log`、`release-binary-process.log`、`deployment.json`。
+
+JSRはpush済みcommitのclean worktreeでdry-run成功後、publishを起動し、利用者のブラウザー認証を経て公開した。
+`deno info/publish --config jsr.json`のlockfile自動更新で開発用dependencyを落とさないよう、
+公開検証・publishは`--no-lock`を指定した。公開する型/graphの検証を省略するflagは使っていない。
+公開結果とregistryからのexact import確認は以下の通り。
+
+
+### JSR公開結果
+
+利用者によるブラウザー承認後、Denoが`Successfully published @henji/harness@0.7.0`を返した。
+公開先: [@henji/harness@0.7.0](https://jsr.io/@henji/harness@0.7.0)。
+registry metadataの`latest`が0.7.0となり、同versionのcreatedAt
+`2026-09-26T12:10:32.934021Z`を確認した。
+release worktreeからではなくregistryのexact versionをimportし、公開exportが読み込めることを確認した
+（`deno eval --no-config --no-lock --minimum-dependency-age=0 --reload=jsr:@henji/harness`、exit 0）。
+確認後、記録した一時release worktreeだけを削除した。
+artifact: `/tmp/henji-i133-code-review/published-meta.json`、`published-import.log`、`publish-result.json`。
+
+commit・push・常用binary配置・JSR publishの利用者依頼は完了。
+今後の入力欠落の解消は、利用者指定通り常用利用で継続観測する。
+architecture/roadmap正本の反映、実provider probe、旧Git chainの恒久終了は今回の公開に含めていない。
