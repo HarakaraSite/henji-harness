@@ -4,14 +4,14 @@
 
 ## 現在地（2026-09-27）
 
-**次のincrementは135（S2: Henji内credential登録）。キーの保管場所を維持して登録入口を追加する。
-実装・focused test・review・production tmux確認・`v0:gate`・commit／push・常用binary配置・
-roadmap反映まで完了。常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
-正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。 Increment
-134は実装・正本反映・配置まで完了。Increment 133の入力欠落解消は常用利用で継続観測中。**
+**Increment 135（S2: Henji内credential登録）は2026-09-27に利用者承認で完了した。キーの保管場所を
+維持した登録入口を実装し、focused test・review・production tmux確認・`v0:gate`・commit／push・
+常用binary配置・roadmap反映まで完了。常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
+正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。次のincrementは未定。
+Increment 133の入力欠落解消は常用利用で継続観測中。**
 
-- 常用binaryは`henji 0.7.0`、source `ca25d23b…`、build `aeaad975…`。
-  配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。次回起動から新方式を使う。
+- 常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`（Increment 135で配置）。
+  Increment 134で配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。
   結果は[Increment 134の配置結果](../docs/increments/increment-134.md#commitpush常用binary配置)を参照する。
   JSRは今回更新しておらず、0.7.0の公開内容は
   [Increment 133](../docs/increments/increment-133.md#commitpush常用binary配置)時点のままである。
