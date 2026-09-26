@@ -32,6 +32,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
+| A17 | Agent実行 | `WebSearchBackend`のExa APIへの置き換え | 利用者指示（2026-09-27、形態確認済み）。採用時に置き換え範囲を決める |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -375,6 +376,21 @@ Pi／OpenCode／Henjiの画面表示比較
 - 候補: modelが使えるsearch tool callを実装する。findとgrep（対象探索と本文検索）を兼ね備える一つのtoolに
   するか、分けるかは実装時に検討する。
 - 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
+
+### A17 — `WebSearchBackend`のExa APIへの置き換え
+
+- 利用者指示（2026-09-27）: web searchツールをExaに置き換える。今回は通常利用メモへの記録のみで、
+  採用・実装は行わない。
+- 利用者確認（2026-09-27）: **Exa APIを`WebSearchBackend`へ組む置き換え案**である。Exa MCP経由ではない。
+  Increment 7で却下したExa MCP／MCP componentとは別の案であり、却下との整合問題はない。
+- 現行境界: `web_search`はIncrement 7〜9でHenji-owned toolとして実装され、Sonar backendがmodelを使う
+  一つのmodel-facing toolである（A6）。backendは`WebSearchBackend`境界で差し替え可能。
+- 候補: Exa APIを`WebSearchBackend`実装として組み、現行Sonar backendを置き換える。model-facingの
+  `web_search` tool contractは変えず、backend境界の中の置き換えとして扱う。credential、費用、検索範囲、
+  A6のsearch/fetch境界との関係、Sonarを残すかExa一本にするかは採用時に決める。
+- 再検討条件: 個別Incrementへ採用するとき。
+- 関連: A6、[`increment-7.md`](../increments/increment-7.md)、
+  [`increment-8.md`](../increments/increment-8.md)、[`increment-9.md`](../increments/increment-9.md)。
 
 
 
