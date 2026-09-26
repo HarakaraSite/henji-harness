@@ -24,7 +24,12 @@ export const bundledToolComponents = (
   {
     identity: createAgentResourceIdentity('tool:bash'),
     materialize: (bindings) =>
-      createBashTool(bindings.workspace, bindings.bashOutputStore, bindings.workTools.bash ?? {}),
+      createBashTool(
+        bindings.workspace,
+        bindings.processExecutor!,
+        bindings.bashOutputStore,
+        bindings.workTools.bash ?? {},
+      ),
   },
   {
     identity: createAgentResourceIdentity('tool:bash_output'),

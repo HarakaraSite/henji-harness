@@ -1,3 +1,5 @@
+import { LinuxProcessExecutor, sourceProcessRunnerLaunch } from './process_executor.ts';
+import type { ProcessExecutor } from './process_contract.ts';
 import { type LoopOutcome } from '../core/contracts.ts';
 import {
   type AgentInstructionSource,
@@ -135,6 +137,7 @@ export interface RuntimeRun {
 
 /** Fixed direct-runtime wiring retained for offline evaluation and compatibility checks. */
 export interface RuntimeComposition {
+  readonly close: () => Promise<void>;
   readonly model: Model;
   readonly registry: Registry;
   readonly systemInstruction?: string;
@@ -182,6 +185,7 @@ const materializeRegistry = (
   seam: RuntimeTestSeam,
   workspace: Workspace,
   skillCatalog: SkillCatalog,
+  processExecutor: ProcessExecutor,
   webSearchBackend?: WebSearchBackend,
 ): Registry => {
   seam.onRegistryMaterialized?.(definition);
@@ -203,6 +207,7 @@ const materializeRegistry = (
     (bindings) =>
       createBashTool(
         bindings.workspace,
+        bindings.processExecutor!,
         bindings.bashOutputStore,
         bindings.workTools.bash ?? {},
       ),
@@ -231,6 +236,7 @@ const materializeRegistry = (
     workspace,
     skillCatalog,
     workTools: seam.workTools,
+    processExecutor,
     webSearchBackend,
     ...(toolDefinitions.length === 0 ? {} : { toolDefinitions }),
   });
@@ -359,11 +365,13 @@ export const materializePreparedRuntimeComposition = (
       credentialSource: seam.credentialSource,
     });
   const model = materializeModel(definition, fetcher, seam);
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   const registry = materializeRegistry(
     definition,
     seam,
     prepared.workspace,
     prepared.skillCatalog,
+    processExecutor,
     webSearchBackend,
   );
   const systemInstructionContribution = prepared.topology === 'builtin'
@@ -378,6 +386,13 @@ export const materializePreparedRuntimeComposition = (
     systemInstructionContribution,
   );
   return {
+    close: async () => {
+      try {
+        await processExecutor.close();
+      } finally {
+        await registry.close();
+      }
+    },
     model,
     registry,
     systemInstruction,
@@ -432,22 +447,26 @@ export const runRuntime = async (
   selection: AgentDefinitionAdmission = DEFAULT_AGENT_SELECTION,
 ): Promise<RuntimeRun> => {
   const composition = await createRuntimeComposition(seam, selection);
-  const outcome = await runAgent(
-    task,
-    composition.model,
-    composition.registry,
-    {
-      maxSteps: composition.resourceSelection.parameters.maxSteps,
-      systemInstruction: composition.systemInstruction,
-      executionContext: composition.createTurnExecutionContext(
-        1,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-      ),
-    },
-  );
-  return { outcome, requestCount: composition.requestCount() };
+  try {
+    const outcome = await runAgent(
+      task,
+      composition.model,
+      composition.registry,
+      {
+        maxSteps: composition.resourceSelection.parameters.maxSteps,
+        systemInstruction: composition.systemInstruction,
+        executionContext: composition.createTurnExecutionContext(
+          1,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+        ),
+      },
+    );
+    return { outcome, requestCount: composition.requestCount() };
+  } finally {
+    await composition.close();
+  }
 };

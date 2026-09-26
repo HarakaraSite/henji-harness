@@ -431,7 +431,7 @@ const main = async (): Promise<void> => {
       '--allow-run=/bin/bash',
       '--allow-net',
       '--allow-sys=uid',
-      '--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME,OPENAI_LOG,OPENAI_CUSTOM_HEADERS',
+      '--allow-env=HOME,XDG_CONFIG_HOME,XDG_DATA_HOME,XDG_STATE_HOME,ZOT_HOME,OPENAI_LOG,OPENAI_CUSTOM_HEADERS,NODE_V8_COVERAGE',
       `--config=${inputs.config}`,
       ...inputs.includes.map((path) => `--include=${path}`),
       `--output=${output}`,

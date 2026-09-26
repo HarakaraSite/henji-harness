@@ -1,3 +1,8 @@
+import type {
+  ProcessExecutor,
+  ProcessOperation,
+  ProcessStatus,
+} from '../runtime/process_contract.ts';
 import type { ToolExecutionContext } from '../core/execution_context.ts';
 import {
   CancellationCleanupError,
@@ -13,7 +18,6 @@ import {
   BashOutputPersistenceError,
   type BashOutputStore,
   type BashOutputStream,
-  createBashOutputStore,
 } from './bash_output.ts';
 import type { BashToolSeams, Workspace } from './work_tool_contract.ts';
 import {
@@ -237,7 +241,8 @@ const waitForCapture = async (
 
 export const createBashTool = (
   workspace: Workspace,
-  outputStore: BashOutputStore = createBashOutputStore(),
+  processExecutor: ProcessExecutor,
+  outputStore: BashOutputStore,
   seams: BashToolSeams = {},
 ): Tool => ({
   name: 'bash',
@@ -274,21 +279,18 @@ export const createBashTool = (
         throw new CancellationCleanupError();
       }
     };
-    let child: Deno.ChildProcess;
+    let child: ProcessOperation;
     try {
-      child = new Deno.Command('/bin/bash', {
+      child = processExecutor.start({
+        executable: '/bin/bash',
         args: ['--noprofile', '--norc', '-c', args.command],
         cwd: workspace.root,
-        clearEnv: true,
         env: {
           PATH: '/usr/local/bin:/usr/bin:/bin',
           LANG: 'C.UTF-8',
           LC_ALL: 'C.UTF-8',
         },
-        stdin: 'null',
-        stdout: 'piped',
-        stderr: 'piped',
-      }).spawn();
+      }, { callId: context?.callId });
     } catch {
       await outputCapture.finish().catch(() => undefined);
       throw new Error('bash could not start');
@@ -330,11 +332,17 @@ export const createBashTool = (
       },
     );
     stderrCapture.current = stderr;
-    let status: Deno.CommandStatus | undefined;
+    let status: ProcessStatus | undefined;
     const statusPromise = child.status.then((value) => {
       status = value;
       return value;
     });
+    let callReleased = false;
+    const releaseCall = async (): Promise<void> => {
+      if (callReleased) return;
+      await child.release();
+      callReleased = true;
+    };
     let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
     const onAbort = (): void => {
       cancellationRequested = true;
@@ -355,28 +363,12 @@ export const createBashTool = (
       const noteCleanupFailure = (): void => {
         if (cancellationWon()) cleanupFailedAfterCancellation = true;
       };
-      if (status === undefined) {
-        try {
-          child.kill('SIGTERM');
-        } catch {
-          if (status === undefined) noteCleanupFailure();
-        }
-        const termGrace = await Promise.race([
-          statusPromise.then(() => 'status' as const),
-          new Promise<'grace'>((resolve) => setTimeout(() => resolve('grace'), CAPTURE_GRACE_MS)),
-        ]);
-        if (termGrace === 'grace' && status === undefined) {
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            if (status === undefined) noteCleanupFailure();
-          }
-        }
-        try {
-          await statusPromise;
-        } catch {
-          noteCleanupFailure();
-        }
+      try {
+        await child.stop();
+        await statusPromise;
+      } catch (error) {
+        if (!cancellationWon()) throw error;
+        noteCleanupFailure();
       }
       try {
         await waitForCapture(stdout, stderr, cancelledByUser, seams);
@@ -421,6 +413,7 @@ export const createBashTool = (
         await waitForCapture(stdout, stderr, false, seams);
       }
       if (cancellationRequested || context?.signal?.aborted) {
+        await teardown(true);
         await abandonCancelledCapture();
         throw new TurnCancelledError();
       }
@@ -443,13 +436,14 @@ export const createBashTool = (
       // that flush is in flight still owns the turn, so do not retain an identity that the loop
       // will never commit to the transcript.
       if (cancellationRequested || context?.signal?.aborted) {
+        await teardown(true);
         await abandonCancelledCapture();
         throw new TurnCancelledError();
       }
       const result: Record<string, unknown> = {
         stdout: new TextDecoder().decode(capturedStdout.bytes),
         stderr: new TextDecoder().decode(capturedStderr.bytes),
-        exitCode: status?.signal === null ? status.code : null,
+        exitCode: status?.exitCode ?? null,
         signal: status?.signal ?? null,
         timedOut,
         stdoutTruncated: capturedStdout.truncated,
@@ -483,8 +477,25 @@ export const createBashTool = (
         result.error = 'bash output persistence failed';
         throw new BashOutputToolResultError(JSON.stringify(result));
       }
+      await releaseCall();
+      if (cancellationRequested || context?.signal?.aborted) {
+        await teardown(true);
+        await abandonCancelledCapture();
+        throw new TurnCancelledError();
+      }
       return JSON.stringify(result);
     } catch (error) {
+      // Every exceptional exit joins the physical owner, even after command status was observed.
+      try {
+        await teardown(cancellationRequested || context?.signal?.aborted === true);
+        await releaseCall();
+      } catch (cleanupError) {
+        if (cancellationRequested || context?.signal?.aborted) {
+          await abandonCancelledCapture();
+          throw new CancellationCleanupError();
+        }
+        throw cleanupError;
+      }
       if (
         error instanceof CancellationCleanupError || isTurnCancelledError(error)
       ) {

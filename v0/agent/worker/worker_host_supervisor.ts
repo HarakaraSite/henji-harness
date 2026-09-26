@@ -1,3 +1,4 @@
+import { WorkerProcessOwner } from './worker_process_owner.ts';
 import { readWorkerModuleRevision, WorkerCapsule } from './worker_capsule.ts';
 import type {
   WorkerCorrelation,
@@ -163,11 +164,36 @@ export class WorkerSupervisor {
   private needsReplacement = false;
   private replacement: Promise<void> | undefined;
   private traceSequence = 0;
+  private processOwner = this.createProcessOwner();
 
   constructor(private readonly host: WorkerSupervisorHost) {
     this.capsule = host.options.capsuleFactory?.(workerUrl) ??
       new WorkerCapsule(workerUrl);
-    this.unsubscribe = this.capsule.subscribe((message) => this.host.handleWorkerMessage(message));
+    this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
+  }
+
+  private createProcessOwner(): WorkerProcessOwner {
+    return new WorkerProcessOwner((reply) => {
+      if (!this.unavailable) this.capsule.send(reply);
+    });
+  }
+
+  private receive(message: WorkerToHostMessage): void {
+    if (message.kind === 'process_request') {
+      void this.processOwner.handle(message);
+    } else this.host.handleWorkerMessage(message);
+  }
+
+  cancelProcessExecution(executionId: string): void {
+    void this.processOwner.cancelExecution(executionId);
+  }
+
+  finishProcessExecution(executionId: string): void {
+    this.processOwner.finishExecution(executionId);
+  }
+
+  waitForProcessCleanup(executionId?: string): Promise<void> {
+    return this.processOwner.wait(executionId);
   }
 
   get options(): WorkerHostSessionOptions {
@@ -284,6 +310,7 @@ export class WorkerSupervisor {
     onClearBuffer();
     if (!this.unavailable) {
       this.unavailable = true;
+      void this.processOwner.close().catch(() => {});
       this.capsule.terminate();
     }
     this.messages.fail(new Error('Worker transport unavailable'));
@@ -306,6 +333,8 @@ export class WorkerSupervisor {
       } catch {
         // The old generation is already unavailable.
       }
+      await this.processOwner.close();
+      this.processOwner = this.createProcessOwner();
       this.generation = crypto.randomUUID().toLowerCase();
       this.stageProbeBuffer = createWorkerStageProbeBuffer();
       this.stageProbeEpoch = 0;
@@ -320,9 +349,7 @@ export class WorkerSupervisor {
       this.unavailable = false;
       this.capsule = this.options.capsuleFactory?.(workerUrl) ??
         new WorkerCapsule(workerUrl);
-      this.unsubscribe = this.capsule.subscribe((message) =>
-        this.host.handleWorkerMessage(message)
-      );
+      this.unsubscribe = this.capsule.subscribe((message) => this.receive(message));
       this.host.onGenerationReplaced();
       try {
         await this.start(onClearBuffer);
@@ -341,7 +368,10 @@ export class WorkerSupervisor {
 
   async ensureGeneration(onClearBuffer: () => void): Promise<void> {
     if (this.needsReplacement) await this.replaceGeneration(onClearBuffer);
-    if (this.unavailable) throw new Error('agent session unavailable');
+    if (this.unavailable) {
+      await this.processOwner.wait();
+      throw new Error('agent session unavailable');
+    }
   }
 
   beginTurnStageProbeEpoch(): void {
@@ -489,9 +519,14 @@ export class WorkerSupervisor {
     this.startupSnapshot = value;
   }
 
-  terminate(): void {
+  terminate(): Promise<void> {
     this.unsubscribe();
     this.messages.fail(new Error('Worker host session closed'));
-    this.capsule.terminate();
+    this.unavailable = true;
+    const cleanup = this.processOwner.close();
+    try {
+      this.capsule.terminate();
+    } catch { /* Already terminated. */ }
+    return cleanup;
   }
 }

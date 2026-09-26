@@ -1,3 +1,5 @@
+import { LinuxProcessExecutor, sourceProcessRunnerLaunch } from '../runtime/process_executor.ts';
+import type { Registry } from '../tools/tools.ts';
 import { PRODUCTION_PROFILE } from '../provider/provider_profile.ts';
 import { type CredentialSource, OpenRouterAgentModel } from '../provider/openrouter_model.ts';
 import {
@@ -403,6 +405,8 @@ export class GuardedModel implements Model {
 export const runSentinel = async (
   dependencies: SentinelRunDependencies = {},
 ): Promise<SentinelRunResult> => {
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
+  let registry: Registry | undefined;
   let externalRequests = 0;
   let guarded: GuardedModel | undefined;
   try {
@@ -415,7 +419,7 @@ export const runSentinel = async (
       externalRequests += 1;
       return baseFetcher(input, init);
     };
-    const registry = createWorkToolsRegistry(workspace);
+    registry = createWorkToolsRegistry(workspace, processExecutor);
     const model = new OpenRouterAgentModel({
       fetcher,
       credential: dependencies.credential,
@@ -475,6 +479,12 @@ export const runSentinel = async (
   } catch (error) {
     const code = error instanceof SentinelContractError ? error.code : 'internal_failure';
     return { report: failureReport(code, guarded?.calls ?? 0, externalRequests), externalRequests };
+  } finally {
+    try {
+      await processExecutor.close();
+    } finally {
+      await registry?.close();
+    }
   }
 };
 

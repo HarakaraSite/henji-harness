@@ -1,3 +1,4 @@
+import type { ProcessExecutor } from '../runtime/process_contract.ts';
 import {
   createCharacterCountTool,
   createFixtureTool,
@@ -20,6 +21,7 @@ export const FIXED_JSON_PATH = 'deno.v0.json';
 
 /** Host-owned values needed to turn declarative capability identities into executable tools. */
 export interface RegistryMaterializationContext {
+  readonly processExecutor?: ProcessExecutor;
   readonly workspace: Workspace;
   readonly skillCatalog: SkillCatalog;
   readonly workTools?: WorkToolSeams;
@@ -43,16 +45,15 @@ const materializationFailure = (identity: AgentResourceIdentity): never => {
  */
 export const createDeclaredTool = (
   identity: AgentResourceIdentity,
-  context: RegistryMaterializationContext,
+  context: RegistryMaterializationContext & { readonly bashOutputStore: BashOutputStore },
 ): Tool => {
   const defined = context.toolDefinitionComponents?.get(`${identity}`);
   if (defined !== undefined) {
-    const outputStore = context.bashOutputStore ?? context.workTools?.bashOutputStore ??
-      createBashOutputStore();
     const tool = defined.materialize({
       workspace: context.workspace,
+      processExecutor: context.processExecutor,
       workTools: context.workTools ?? {},
-      bashOutputStore: outputStore,
+      bashOutputStore: context.bashOutputStore,
       webSearchBackend: context.webSearchBackend,
     });
     const value = `${identity}`;
@@ -121,7 +122,7 @@ export const createDeclaredRegistry = (
   const asyncAgentTools = asyncAgentNames.length === 0 || context.asyncAgentRpc === undefined
     ? []
     : createAsyncAgentTools(asyncAgentNames, context.asyncAgentRpc);
-  return new Registry([...tools, ...asyncAgentTools]);
+  return new Registry([...tools, ...asyncAgentTools], outputStore);
 };
 
 /** The exact five definitions used by the versioned corpus and eval runners. */
@@ -142,11 +143,12 @@ export const createCorpusRegistry = (
  */
 export const createWorkToolsRegistry = (
   workspace: Workspace,
+  processExecutor: ProcessExecutor,
   seams: WorkToolSeams = {},
-): Registry =>
-  new Registry(
-    [
-      ...createWorkTools(workspace, seams),
-      createJsonResultSubmissionTool(),
-    ] as readonly Tool[],
-  );
+): Registry => {
+  const outputStore = seams.bashOutputStore ?? createBashOutputStore();
+  return new Registry([
+    ...createWorkTools(workspace, processExecutor, outputStore, seams),
+    createJsonResultSubmissionTool(),
+  ], outputStore);
+};

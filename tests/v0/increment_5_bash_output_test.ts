@@ -1,4 +1,8 @@
 import {
+  LinuxProcessExecutor,
+  sourceProcessRunnerLaunch,
+} from '../../v0/agent/runtime/process_executor.ts';
+import {
   BASH_OUTPUT_COMMAND_LIMIT_BYTES,
   BASH_OUTPUT_DEFAULT_WINDOW_BYTES,
   BASH_OUTPUT_MAX_WINDOW_BYTES,
@@ -227,8 +231,9 @@ Deno.test('bash keeps short JSON stable and exposes complete stdout and stderr r
       segmentBytes: 1024,
     },
   });
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   try {
-    const bash = createBashTool({ root: workspace }, store);
+    const bash = createBashTool({ root: workspace }, processExecutor, store);
     const startingDirectory = await parsed(
       bash.execute({ command: 'pwd' }) as PromiseLike<string>,
     );
@@ -274,6 +279,7 @@ Deno.test('bash keeps short JSON stable and exposes complete stdout and stderr r
       5_000,
     );
   } finally {
+    await processExecutor.close();
     await store.close();
     await Deno.remove(workspace, { recursive: true });
   }
@@ -292,8 +298,10 @@ Deno.test('declared bash components share one output store for readback', async 
       segmentBytes: 1024,
     },
   });
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
+  let registry: Registry | undefined;
   try {
-    const registry = createDeclaredRegistry({
+    registry = createDeclaredRegistry({
       instructions: [],
       skills: [],
       tools: ['tool:bash', 'tool:bash_output'].map(createAgentResourceIdentity),
@@ -302,12 +310,14 @@ Deno.test('declared bash components share one output store for readback', async 
       workspace: { root: workspace },
       skillCatalog: emptySkillCatalog(),
       bashOutputStore: store,
+      processExecutor,
       toolDefinitions: [
         {
           identity: createAgentResourceIdentity('tool:bash'),
           materialize: (bindings) =>
             createBashTool(
               bindings.workspace,
+              bindings.processExecutor!,
               bindings.bashOutputStore,
               bindings.workTools.bash ?? {},
             ),
@@ -336,7 +346,8 @@ Deno.test('declared bash components share one output store for readback', async 
     assertEquals(window.complete, true);
     assertEquals(typeof window.text === 'string' ? window.text.length : -1, 904);
   } finally {
-    await store.close();
+    await processExecutor.close();
+    await registry?.close();
     await Deno.remove(workspace, { recursive: true });
   }
 });
@@ -354,8 +365,9 @@ Deno.test('bash output limit stops the command and keeps its saved prefix readab
       segmentBytes: 1024,
     },
   });
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   try {
-    const bash = createBashTool({ root: workspace }, store);
+    const bash = createBashTool({ root: workspace }, processExecutor, store);
     const result = await parsed(
       bash.execute({
         command: "while :; do printf '0123456789abcdef'; done",
@@ -385,6 +397,7 @@ Deno.test('bash output limit stops the command and keeps its saved prefix readab
     assertEquals(rebuilt.length, 8_192);
     assert(/^0123456789abcdef/.test(rebuilt));
   } finally {
+    await processExecutor.close();
     await store.close();
     await Deno.remove(workspace, { recursive: true });
   }
@@ -403,13 +416,14 @@ Deno.test('cancelled truncated bash reclaims its saved quota and file extents', 
       segmentBytes: 1024,
     },
   });
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   try {
     const baseline = store.beginCommand();
     await baseline.append('stdout', 'b'.repeat(3_000));
     const baselineSummary = await baseline.finish();
     assert(baselineSummary.outputId !== undefined);
 
-    const bash = createBashTool({ root: workspace }, store);
+    const bash = createBashTool({ root: workspace }, processExecutor, store);
     const controller = new AbortController();
     const cancelled = Promise.resolve(bash.execute({
       command: "printf '%010000d' 0; sleep 5",
@@ -448,6 +462,7 @@ Deno.test('cancelled truncated bash reclaims its saved quota and file extents', 
     assertEquals((next.savedStreams as Record<string, unknown>).stdout, 10_000);
     assertEquals(next.outputLimitExceeded, undefined);
   } finally {
+    await processExecutor.close();
     await store.close();
     await Deno.remove(workspace, { recursive: true });
   }
@@ -474,13 +489,14 @@ Deno.test('cancellation during final output flush abandons the uncommitted ident
       }
     },
   });
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   try {
     const baseline = store.beginCommand();
     await baseline.append('stdout', 'b'.repeat(3_000));
     const baselineSummary = await baseline.finish();
     assert(baselineSummary.outputId !== undefined);
 
-    const bash = createBashTool({ root: workspace }, store);
+    const bash = createBashTool({ root: workspace }, processExecutor, store);
     abortDuringWrite = true;
     await assertRejects(
       () =>
@@ -512,6 +528,7 @@ Deno.test('cancellation during final output flush abandons the uncommitted ident
     assertEquals((next.savedStreams as Record<string, unknown>).stdout, 10_000);
     assertEquals(next.outputLimitExceeded, undefined);
   } finally {
+    await processExecutor.close();
     await store.close();
     await Deno.remove(workspace, { recursive: true });
   }
@@ -614,8 +631,9 @@ Deno.test('bash persistence failure returns bounded status without a false ident
       }
     },
   });
+  const processExecutor = new LinuxProcessExecutor(sourceProcessRunnerLaunch());
   try {
-    const bash = createBashTool({ root: workspace }, store);
+    const bash = createBashTool({ root: workspace }, processExecutor, store);
     try {
       await bash.execute({ command: "printf '%05000d' 0", timeoutMs: 5_000 });
       throw new Error('expected bash persistence failure');
@@ -629,6 +647,7 @@ Deno.test('bash persistence failure returns bounded status without a false ident
       assertEquals(result.readback, undefined);
     }
   } finally {
+    await processExecutor.close();
     await store.close();
     await Deno.remove(workspace, { recursive: true });
   }

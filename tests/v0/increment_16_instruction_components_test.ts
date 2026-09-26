@@ -35,6 +35,7 @@ const bundledToolComponents = (
     materialize: (bindings) =>
       createBashTool(
         bindings.workspace,
+        bindings.processExecutor!,
         bindings.bashOutputStore,
         bindings.workTools.bash ?? {},
       ),

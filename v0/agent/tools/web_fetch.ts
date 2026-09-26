@@ -55,32 +55,23 @@ const htmlToText = (html: string): string => {
 };
 
 const readBoundedBody = async (
-  response: Response,
+  reader: ReadableStreamDefaultReader<Uint8Array> | undefined,
 ): Promise<{ readonly bytes: Uint8Array; readonly truncated: boolean }> => {
-  if (response.body === null) return { bytes: new Uint8Array(), truncated: false };
-  const reader = response.body.getReader();
+  if (reader === undefined) return { bytes: new Uint8Array(), truncated: false };
   const chunks: Uint8Array[] = [];
   let total = 0;
   let truncated = false;
-  try {
-    for (;;) {
-      const item = await reader.read();
-      if (item.done) break;
-      const remaining = MAX_WEB_FETCH_BYTES - total;
-      if (item.value.byteLength > remaining) {
-        chunks.push(item.value.subarray(0, Math.max(0, remaining)));
-        truncated = true;
-        break;
-      }
-      chunks.push(item.value);
-      total += item.value.byteLength;
+  for (;;) {
+    const item = await reader.read();
+    if (item.done) break;
+    const remaining = MAX_WEB_FETCH_BYTES - total;
+    if (item.value.byteLength > remaining) {
+      chunks.push(item.value.subarray(0, Math.max(0, remaining)));
+      truncated = true;
+      break;
     }
-  } finally {
-    try {
-      await reader.cancel('web_fetch body bounded');
-    } catch {
-      // The body is already settled or the reader is closed.
-    }
+    chunks.push(item.value);
+    total += item.value.byteLength;
   }
   const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
   let offset = 0;
@@ -146,22 +137,36 @@ export const createWebFetchTool = (fetcher: typeof fetch = fetch): Tool => ({
         `web_fetch request failed: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
-    const finalUrl = response.url.length > 0 ? response.url : url;
-    const contentType = response.headers.get('content-type') ?? '';
-    if (!(response.status >= 200 && response.status < 300)) {
-      throw new Error(`web_fetch request failed (${response.status}) for ${finalUrl}`);
+    // Own the body from acquisition through status checks, decoding, and result construction.
+    const reader = response.body?.getReader();
+    try {
+      const finalUrl = response.url.length > 0 ? response.url : url;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!(response.status >= 200 && response.status < 300)) {
+        throw new Error(`web_fetch request failed (${response.status}) for ${finalUrl}`);
+      }
+      const { bytes, truncated } = await readBoundedBody(reader);
+      const textual = isTextualContentType(contentType);
+      const raw = textual ? new TextDecoder('utf-8').decode(bytes) : '';
+      const body = contentType.toLowerCase().includes('text/html') ? htmlToText(raw) : raw;
+      const meta = [
+        `URL: ${finalUrl}`,
+        `Status: ${response.status}`,
+        `Content-Type: ${contentType.length > 0 ? contentType : 'unknown'}`,
+        `truncated: ${truncated}`,
+      ].join('\n');
+      if (!textual) return meta;
+      return `${meta}\n\n${body}${truncated ? '\n\n[body truncated]' : ''}`;
+    } finally {
+      if (reader !== undefined) {
+        try {
+          await reader.cancel('web_fetch finished');
+        } catch {
+          // A fully consumed or aborted body is already settled.
+        } finally {
+          reader.releaseLock();
+        }
+      }
     }
-    const { bytes, truncated } = await readBoundedBody(response);
-    const textual = isTextualContentType(contentType);
-    const raw = textual ? new TextDecoder('utf-8').decode(bytes) : '';
-    const body = contentType.toLowerCase().includes('text/html') ? htmlToText(raw) : raw;
-    const meta = [
-      `URL: ${finalUrl}`,
-      `Status: ${response.status}`,
-      `Content-Type: ${contentType.length > 0 ? contentType : 'unknown'}`,
-      `truncated: ${truncated}`,
-    ].join('\n');
-    if (!textual) return meta;
-    return `${meta}\n\n${body}${truncated ? '\n\n[body truncated]' : ''}`;
   },
 });

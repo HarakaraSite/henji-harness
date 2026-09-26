@@ -1,3 +1,4 @@
+import type { WorkerProcessReply, WorkerProcessRequest } from './worker_process_protocol.ts';
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
@@ -82,6 +83,7 @@ export type WorkerDefinitionLoadRequest =
   };
 
 export type WorkerHostCommand =
+  | WorkerProcessReply
   | {
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
@@ -112,6 +114,7 @@ export type WorkerHostCommand =
   }
   | {
     readonly kind: 'turn';
+    readonly executionId?: string;
     readonly correlation: WorkerCorrelation;
     readonly task: string;
     readonly recalledContext?: RecalledExecutionContext;
@@ -350,6 +353,7 @@ export interface WorkerAsyncAgentRequestMessage {
 }
 
 export type WorkerToHostMessage =
+  | WorkerProcessRequest
   | WorkerReadyMessage
   | WorkerModelSelectedMessage
   | WorkerRuntimeEventMessage
@@ -387,6 +391,8 @@ export const parseWorkerHostCommand = (
     case 'commit_acknowledgement':
     case 'checkpoint_acknowledgement':
     case 'close':
+    case 'process_response':
+    case 'process_event':
     case 'async_agent_response':
       return value as WorkerHostCommand;
     default:

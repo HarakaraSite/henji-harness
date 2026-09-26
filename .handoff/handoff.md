@@ -2,11 +2,21 @@
 
 ## Next session
 
-- 次の一手（利用者指示 2026-09-26）: 提示済みIncrement 133計画の実装方針とarchitecture変更案1〜3の
-  承認を確認し、承認範囲で実装する。利用者は計画のcommitを指示してこのセッションを終了する。
-  正本: `docs/increments/increment-133.md`（ツール資源の所有と終了処理、端末入力の競合防止）。
-  採用・計画作成まで承認済み、実装未着手。architecture変更案1〜3は別途明示承認が必要。
-  roadmap結果反映、実provider確認、配置・push・releaseも別指示の範囲で扱う。
+- 次の一手（利用者指示 2026-09-26）: Increment 133のslice 1〜5をlocal実装・検証済み。
+  利用者指示のコード・test第三者reviewは完了。P1/P2の2件を修正し、限定再確認で残る指摘なし。
+  利用者はcommit・push・配置・JSR publishを明示承認（2026-09-26）。0.7.0のrelease候補gate・package dry-runは通過。commit/push・clean build・配置・publishを進める。
+  常用利用で入力欠落の解消を継続観測する。既存processの終了・切替操作はこの配置に含めない。
+  簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない（2026-09-26の利用者判断）。
+  正本: `docs/increments/increment-133.md`（slice 5結果、第三者review対応、候補・artifact・未確認事項）。
+  slice 5のsource/compiled隔離production TUI確認と最終`v0:gate`は通過。
+  review修正後はfocused test、対象check/format/lint、binary内部runner確認を実施済み。
+  直接確認用: `/tmp/henji-i133-slice5/direct-check.sh`（隔離XDGとローカル模擬provider）。
+  現候補: `/tmp/henji-i133-code-review/henji`、build
+  `0b46b0c1f1a189132186bde356fc0cc6ad0d044923b7e00a3a52544593e227b6`。
+  利用者は実装とスライス単位での区切りを指示。local実装・非破壊的検証は承認済み。
+  architecture変更案1〜3の正本反映は別途明示承認が必要。
+  commit・push・binary配置・JSR publishは上記利用者指示で承認済み。
+  roadmap結果反映、実provider確認、旧Git chainの恒久終了は別指示の範囲で扱う。
   診断時の生存状態: Henji PID `200048`は稼働中、利用者承認によりGit reader PID `202890`を
   SIGSTOPした状態を維持。旧Git chainの恒久終了は未承認。詳細・証拠はIncrement 133を参照。
   S17〜S20は未採用候補として通常利用メモに残る。Increment 132 C全体を完了扱いにしない。

@@ -1,3 +1,4 @@
+import { WorkerProcessExecutor } from './worker_process_executor.ts';
 import {
   type DataValue,
   parseWorkerHostCommand,
@@ -58,6 +59,8 @@ type WorkerScope = {
 const scope = globalThis as unknown as WorkerScope;
 let eventSequence = 0;
 let activeCorrelation: WorkerCorrelation | undefined;
+let processExecutor: WorkerProcessExecutor | undefined;
+let processContext: { correlation: WorkerCorrelation; executionId?: string } | undefined;
 let generation: WorkerGeneration | undefined;
 let diagnosticStageBuffer: SharedArrayBuffer | undefined;
 
@@ -380,7 +383,9 @@ const createGeneration = async (
     },
     generate: (request, options) => rootModel.generate(request, options),
   };
+  processExecutor = new WorkerProcessExecutor(post, () => processContext ?? { correlation });
   const routedPhysicalIo = {
+    processExecutor,
     ...physicalIo,
     asyncAgentRpc,
     createModel: (_role: 'parent', _selection?: ModelSelection): Model => rootRouter,
@@ -551,6 +556,10 @@ const requestAsyncAgent = (
   });
 
 const handle = async (command: WorkerHostCommand): Promise<void> => {
+  if (command.kind === 'process_response' || command.kind === 'process_event') {
+    processExecutor?.receive(command);
+    return;
+  }
   activeCorrelation = command.correlation;
   switch (command.kind) {
     case 'async_agent_response': {
@@ -693,11 +702,12 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
         });
         return;
       }
-      await generation.runTurn(
-        command.correlation,
-        command.task,
-        command.recalledContext,
-      );
+      processContext = { correlation: command.correlation, executionId: command.executionId };
+      try {
+        await generation.runTurn(command.correlation, command.task, command.recalledContext);
+      } finally {
+        processContext = undefined;
+      }
       return;
     case 'steer':
       generation?.steerActiveTurn(command.text);
@@ -777,6 +787,9 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       return;
     }
     case 'close':
+      generation?.cancelActiveTurn();
+      await processExecutor?.close();
+      await generation?.close();
       post({ kind: 'closed', correlation: command.correlation });
       scope.close();
       return;

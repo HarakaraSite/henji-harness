@@ -81,10 +81,22 @@ Deno.test('Increment 70 web_fetch returns metadata only for non-textual content'
 
 Deno.test('Increment 70 web_fetch truncates an oversized body', async () => {
   const big = 'x'.repeat(MAX_WEB_FETCH_BYTES + 10_000);
-  const tool = createWebFetchTool(fetched(big));
+  let cancelled = false;
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start: (controller) => controller.enqueue(new TextEncoder().encode(big)),
+      cancel: () => {
+        cancelled = true;
+      },
+    }),
+    { headers: { 'content-type': 'text/plain' } },
+  );
+  const tool = createWebFetchTool(() => Promise.resolve(response));
   const output = await run(tool, 'https://example.com/big');
   assert(output.includes('truncated: true'));
   assert(output.includes('[body truncated]'));
+  assert(cancelled, 'truncated body was retained after result');
+  assert(response.body?.locked === false);
 });
 
 Deno.test('Increment 70 web_fetch marks an exact 1 MiB body as complete', async () => {

@@ -341,7 +341,7 @@ const childOptions = (workspace: string, credential: string): SentinelCommandOpt
     'run',
     '--no-prompt',
     '--no-remote',
-    '--allow-env=HENJI_OPENROUTER_API_KEY',
+    '--allow-env=HENJI_OPENROUTER_API_KEY,NODE_V8_COVERAGE',
     '--allow-net=openrouter.ai',
     `--allow-read=${workspace}`,
     `--allow-write=${workspace}`,

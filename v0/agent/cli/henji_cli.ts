@@ -1,3 +1,4 @@
+import { runProcessRunner } from '../runtime/process_runner.ts';
 import { main as tuiMain } from './tui_cli.ts';
 import { main as runMain } from './runtime_cli.ts';
 import { main as sessionsMain } from './session_cli.ts';
@@ -64,6 +65,10 @@ const runtimeDiagnostics = async (): Promise<number> => {
 
 /** Classify the complete CLI before a selected command touches workspace or durable state. */
 export const main = async (args: readonly string[] = Deno.args): Promise<number> => {
+  if (args.length === 1 && args[0] === '--internal-process-runner') {
+    await runProcessRunner();
+    return 0;
+  }
   if (args.length === 1 && args[0] === '--version') {
     await writeStdout(versionLine());
     return 0;

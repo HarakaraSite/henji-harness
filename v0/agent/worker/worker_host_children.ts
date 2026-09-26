@@ -76,6 +76,7 @@ type ChildRun = {
   manifest?: WorkerReadyMessage['manifest'];
   capture?: HistoryCaptureResult;
   settlementAttempted: boolean;
+  physicalCleanup?: Promise<void>;
   settlementDurable: boolean;
   settlementError?: string;
   cleanup?: Promise<ChildCleanupRunObservationV1>;
@@ -186,6 +187,7 @@ export class ChildRunRegistry {
     }
     switch (request.kind) {
       case 'status':
+        if (run.terminal !== undefined) await run.settled.promise;
         if (run.terminal !== undefined && !run.settlementDurable) {
           return {
             ok: false,
@@ -195,7 +197,7 @@ export class ChildRunRegistry {
         }
         return { ok: true, kind: 'status', runId: run.runId, state: run.state };
       case 'collect':
-        if (!run.settlementAttempted) await run.settled.promise;
+        await run.settled.promise;
         if (!run.settlementDurable || run.terminal === undefined) {
           return {
             ok: false,
@@ -382,6 +384,7 @@ export class ChildRunRegistry {
       run.state = 'running';
       supervisor.send({
         kind: 'turn',
+        executionId: run.runId,
         correlation: supervisor.correlation('async-child'),
         task,
       });
@@ -563,8 +566,14 @@ export class ChildRunRegistry {
     run.contextManifest = contextManifest;
     run.state = terminal.state;
     this.settle(run);
-    this.terminate(run);
-    run.settled.resolve();
+    void this.terminate(run).then(
+      () => run.settled.resolve(),
+      (error) => {
+        run.settlementDurable = false;
+        run.settlementError = errorText(error);
+        run.settled.resolve();
+      },
+    );
   }
 
   private settle(run: ChildRun): void {
@@ -703,7 +712,7 @@ export class ChildRunRegistry {
         );
       }
     }
-    this.terminate(run);
+    await this.terminate(run);
     return {
       runId: run.runId,
       state: run.terminal?.state ?? 'interrupted',
@@ -722,6 +731,7 @@ export class ChildRunRegistry {
         return;
       }
       run.cancelSent = true;
+      run.supervisor!.cancelProcessExecution(run.runId);
       run.supervisor!.send({ kind: 'cancel', correlation });
     } catch (error) {
       this.finish(run, this.terminal(run, 'interrupted', errorText(error)));
@@ -738,12 +748,8 @@ export class ChildRunRegistry {
     });
   }
 
-  private terminate(run: ChildRun): void {
-    try {
-      run.supervisor?.terminate();
-    } catch {
-      // The generation is already unavailable.
-    }
+  private terminate(run: ChildRun): Promise<void> {
+    return run.physicalCleanup ??= run.supervisor?.terminate() ?? Promise.resolve();
   }
 
   private historyInput(run: ChildRun) {

@@ -1,3 +1,4 @@
+import type { ProcessExecutor } from './runtime/process_contract.ts';
 import {
   type AgentDefinitionInput,
   type AgentDefinitionLimits,
@@ -51,11 +52,18 @@ export {
   type WebSearchSource,
 } from './tools/web_search.ts';
 
+export type {
+  ProcessCommand,
+  ProcessExecutor,
+  ProcessOperation,
+  ProcessStatus,
+} from './runtime/process_contract.ts';
 export { WORKER_PROTOCOL_VERSION };
 export type { AgentEventSink };
 
 /** Worker-local physical construction seam; no value from this interface crosses postMessage. */
 export interface PhysicalIoBindings {
+  readonly processExecutor?: ProcessExecutor;
   readonly createModel: (
     role: 'parent',
     selection?: ModelSelection,
@@ -355,6 +363,7 @@ export const createAgentComposition = (
     workspace: input.workspace,
     skillCatalog: input.skillCatalog,
     workTools: input.physicalIo.workTools,
+    processExecutor: input.physicalIo.processExecutor,
     webSearchBackend: input.physicalIo.webSearchBackend,
     ...(input.physicalIo.asyncAgentRpc === undefined
       ? {}

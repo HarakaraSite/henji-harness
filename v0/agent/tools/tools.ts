@@ -1,3 +1,4 @@
+import type { BashOutputStore } from './bash_output.ts';
 import {
   type ContinuingToolResultContent,
   type JsonObject,
@@ -51,7 +52,7 @@ const errorText = (error: unknown): string =>
 export class Registry {
   private readonly byName: ReadonlyMap<string, Tool>;
 
-  constructor(tools: readonly Tool[]) {
+  constructor(tools: readonly Tool[], private readonly outputStore?: BashOutputStore) {
     const entries = new Map<string, Tool>();
     for (const tool of tools) {
       if (tool.name.trim() === '') throw new Error('tool name must not be empty');
@@ -59,6 +60,11 @@ export class Registry {
       entries.set(tool.name, tool);
     }
     this.byName = entries;
+  }
+
+  /** Retained bash output belongs to this Registry, across normal turns. */
+  close(): Promise<void> {
+    return this.outputStore?.close() ?? Promise.resolve();
   }
 
   definitions(): readonly ToolDefinition[] {

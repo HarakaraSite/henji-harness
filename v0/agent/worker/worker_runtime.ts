@@ -177,6 +177,10 @@ export class WorkerGeneration {
     this.privateStateFromTurn = initialPrivateStateFromTurn;
   }
 
+  close(): Promise<void> {
+    return this.composition.registry.close();
+  }
+
   get manifest(): WorkerAgentComposition['manifest'] {
     const rootModel = structuredClone(this.rootModelSelection);
     const profileId = modelRouteProfileId(rootModel);

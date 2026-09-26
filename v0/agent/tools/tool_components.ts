@@ -1,3 +1,4 @@
+import type { ProcessExecutor } from '../runtime/process_contract.ts';
 import type { AgentResourceIdentity } from '../definitions/resource_identity.ts';
 import type { Tool } from './tools.ts';
 import type { Workspace, WorkToolSeams } from './work_tools.ts';
@@ -6,6 +7,7 @@ import type { WebSearchBackend } from './web_search.ts';
 
 /** Worker-local runtime values supplied when one selected tool Definition becomes a Tool. */
 export interface ToolComponentBindings {
+  readonly processExecutor?: ProcessExecutor;
   readonly workspace: Workspace;
   readonly workTools: WorkToolSeams;
   readonly bashOutputStore: BashOutputStore;

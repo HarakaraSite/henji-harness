@@ -857,6 +857,7 @@ export class ExecutionCoordinator {
     contextManifest?: ExecutionContextManifestV2,
   ): Promise<LoopOutcome> {
     await this.settleChildren(execution);
+    await this.supervisor.waitForProcessCleanup(execution.executionId);
     const terminalSnapshotDurable = this.journal.recordWorkerStageSnapshot(
       'terminal',
     );
@@ -1145,6 +1146,7 @@ export class ExecutionCoordinator {
     } catch (error) {
       this.options.handle.rollback();
       this.markUnavailableForReplacement();
+      await this.supervisor.waitForProcessCleanup();
       throw error;
     } finally {
       this.supervisor.setCurrentCorrelation(undefined);
@@ -1434,6 +1436,7 @@ export class ExecutionCoordinator {
         this.send({
           kind: 'turn',
           correlation,
+          executionId: execution.executionId,
           task,
           ...(admittedRecall === undefined ? {} : {
             recalledContext: structuredClone(admittedRecall),
@@ -1833,6 +1836,7 @@ export class ExecutionCoordinator {
       if (!ackSent) {
         execution.settlement = 'committed_generation_unavailable';
         this.markUnavailableForReplacement();
+        await this.supervisor.waitForProcessCleanup(execution.executionId);
         const settled = await this.persistExecutionArtifact(
           execution,
           committed,
@@ -1866,6 +1870,7 @@ export class ExecutionCoordinator {
       if (workerError !== undefined) {
         this.markUnavailableForReplacement();
       }
+      await this.supervisor.waitForProcessCleanup(execution.executionId);
       execution.settlement = workerError === undefined && !this.supervisor.isUnavailable
         ? 'committed'
         : 'committed_generation_unavailable';
@@ -1926,12 +1931,17 @@ export class ExecutionCoordinator {
       if (this.forcedInterruptionExecutionId === execution.executionId) {
         this.forcedInterruptionExecutionId = undefined;
       }
-      await this.settleChildren(execution);
-      this.children.releaseParent(execution.executionId);
-      this.activeExecution = undefined;
-      this.active = false;
-      this.supervisor.setCurrentCorrelation(undefined);
-      this.lastAuxiliaryContextRequestOrdinal = undefined;
+      try {
+        await this.settleChildren(execution);
+        await this.supervisor.waitForProcessCleanup(execution.executionId);
+      } finally {
+        this.supervisor.finishProcessExecution(execution.executionId);
+        this.children.releaseParent(execution.executionId);
+        this.activeExecution = undefined;
+        this.active = false;
+        this.supervisor.setCurrentCorrelation(undefined);
+        this.lastAuxiliaryContextRequestOrdinal = undefined;
+      }
     }
   }
 
@@ -1946,6 +1956,7 @@ export class ExecutionCoordinator {
     ) return 'already_requested';
     if (execution !== undefined) {
       this.cancellationRequestedExecutionId = execution.executionId;
+      this.supervisor.cancelProcessExecution(execution.executionId);
       this.journal.recordWorkerStageSnapshot('cancel_requested');
       const journaled = this.journal.appendJournal({
         executionId: execution.executionId,
@@ -2167,8 +2178,11 @@ export class ExecutionCoordinator {
     } catch {
       // The generation is already unavailable.
     } finally {
-      this.supervisor.terminate();
-      await this.options.handle.close();
+      try {
+        await this.supervisor.terminate();
+      } finally {
+        await this.options.handle.close();
+      }
     }
     if (cleanupError !== undefined) throw cleanupError;
   }
