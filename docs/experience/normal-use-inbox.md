@@ -16,6 +16,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
+| S15 | Surface | busy中の履歴閲覧でEscを最新表示への復帰に使う | ターン中に履歴からEscで戻ろうとしてキャンセルしたとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -101,6 +102,19 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   呼び出しUIを採用時に決める。
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
+
+### S15 — busy中の履歴閲覧でEscを最新表示への復帰に使う（F01）
+
+- 観測（2026-09-26）: ターン実行中にPageUpで履歴を遡り、Escで閲覧を終えようとするとターンが
+  キャンセルされる。現行のIncrement 128ではbusy中のEscを常にcancelとし、履歴閲覧中は
+  `PgDn latest`と`Esc cancel`をfooterに表示する。
+- 利用者判断（2026-09-26）: busy中でも履歴を閲覧している間はEscで最新表示へ戻りたい。
+  最新表示中のEscは従来どおりターンをキャンセルする。今回はメモだけ残し、実装しない。
+- 候補: 履歴閲覧中と最新表示中でEscの動作を切り替え、footerの案内も実際の動作に合わせる。
+  PageDownで最新表示へ戻る既存操作は維持する。
+- 再検討条件: この操作変更を個別Incrementへ採用するとき。
+- 関連: [`increment-128.md`](../increments/increment-128.md)、`v0/tui/controller.ts`、
+  `v0/tui/layout.ts`。
 
 
 ## Agent実行
