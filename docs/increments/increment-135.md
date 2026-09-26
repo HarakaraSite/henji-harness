@@ -412,3 +412,22 @@ credential、`--provider-timeout-ms 60000`）で安定したbusy windowを作り
 - 保存成功〜表示refresh完了のwindow（review borderline）はtmuxでeditor流入を観測せず、変更していない。
 - 隔離config rootでの確認であり、実`HOME`運用での同経路は読取確認のみ。
 - busy応答・terminal終了接続のtmux観測は完了済み（上記「busy応答・shutdown接続のtmux観測」参照）。
+
+### Commit・push・常用binary配置（2026-09-27）
+
+- 実装・test・本文書をcommit `52e84069ea3d440edd38b82e4c14e6cf3418b114`へまとめ、
+  `origin/main`へpushした。fetch後のlocal／remote一致を確認した。
+- cleanな上記commitからDeno 2.9.7で`dist/henji`をbuildした。product versionは0.7.0、source
+  `52e84069…`（dirtyなし）、buildは`426d89176e764872a6374407a2412b743778a1dbb21d22e664cc4e867eeee0ef`。
+- 配置対象binaryをtmux上のproduction TUIで起動し、隔離XDGで`credential missing`表示、
+  `/login`対象一覧、伏字入力、保存、footerの`[ready │ credential saved: openrouter-api-key]`、
+  固定file 0600を確認した。今回の確認で実provider requestは行っていない。
+- 常用先`~/.local/bin/henji`へ原子的に配置し、候補と配置先のSHA-256一致
+  （`7bd86e8f5c23f773b730053ff7256735b47578f2c05c515d6cfb92bdd3956aa9`）、
+  version／source／buildの一致を確認した。配置binaryで隔離workspaceのread-only
+  `history --latest --view session`を実行し、exit 0・no historyを確認した。
+- 稼働中のHenji切替は行っていない。JSR公開は今回も対象外であり、JSR 0.7.0の内容は
+  Increment 133時点のままである。
+- `docs/operations/base-instruction-template.md`の外部変更（本作業中にworking treeへ現れた
+  long-task方針paragraph）はuncommittedのまま残した。build provenanceのためstashで一時退避し、
+  clean commitからbuildしたうえで復帰済み。変更の採否は利用者判断とする。
