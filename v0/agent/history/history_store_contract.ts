@@ -1,4 +1,5 @@
 import type { LoopOutcome, Message } from '../core/contracts.ts';
+export type { HistoryV7AssistantTextKey, HistoryV7AssistantTextState } from './history_v7_model.ts';
 import type { AgentEvent } from '../core/events.ts';
 import type { ProviderEvidenceObservation } from '../provider/provider_evidence.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
@@ -214,6 +215,8 @@ export type ExecutionEventInput =
 export interface StoredExecutionEvent {
   readonly executionId: string;
   readonly ordinal: number;
+  /** Original start position when only the latest incomplete text snapshot is retained. */
+  readonly firstEventOrdinal?: number;
   readonly observedAt: string;
   readonly direction: ExecutionEventDirection;
   readonly source: ExecutionEventSource;

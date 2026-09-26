@@ -62,10 +62,13 @@ import {
   type HumanHistoryExportRecordV1,
 } from './history_export_record.ts';
 import type {
+  HistoryV7AssistantTextKey,
+  HistoryV7AssistantTextUpdate,
   HistoryV7SemanticKind,
   HistoryV7SemanticOccurrenceInput,
 } from './history_v7_model.ts';
 import { encodeHistoryV7Payload } from './history_v7_model.ts';
+import type { ProviderEvidenceRuntimeEvent } from '../provider/provider_evidence.ts';
 import { SqliteHistoryV7Store } from './sqlite_history_v7_store.ts';
 
 type SqlValue = string | number | bigint | Uint8Array | null;
@@ -163,6 +166,23 @@ const eventSemanticKind = (input: ExecutionEventInput): HistoryV7SemanticKind | 
 };
 
 const eventValue = (event: StoredExecutionEvent): JsonValue => asJson({ event });
+
+const providerTextEvent = (
+  event: StoredExecutionEvent,
+):
+  | Extract<ProviderEvidenceRuntimeEvent, { kind: 'assistant_progress' | 'model_result' }>
+  | undefined => {
+  if (event.kind !== 'runtime_event') return undefined;
+  const payload = event.payload as unknown as Extract<
+    WorkerToHostMessage,
+    { kind: 'provider_observation' }
+  >;
+  if (payload.kind !== 'provider_observation' || payload.observation.kind !== 'runtime_event') {
+    return undefined;
+  }
+  const value = payload.observation.event;
+  return value.kind === 'assistant_progress' || value.kind === 'model_result' ? value : undefined;
+};
 
 /**
  * Production v7 facade. Semantic rows are the authority; transport/protocol observations are
@@ -1154,7 +1174,34 @@ export class SqliteHistoryV7ProductionStore
       for (const [executionId, records] of byExecution) {
         const events = records.map((record) => record.event);
         const state = this.#coreStore().readExecution(executionId);
+        const textUpdates = new Map<string, HistoryV7AssistantTextUpdate>();
         const semantic = records.flatMap(({ input, event, contextItems }) => {
+          const textEvent = providerTextEvent(event);
+          if (textEvent !== undefined) {
+            const key: HistoryV7AssistantTextKey = {
+              modelStep: textEvent.modelStep,
+              ...(textEvent.lane === undefined ? {} : { lane: textEvent.lane }),
+              ...(textEvent.requestOrdinal === undefined ? {} : {
+                requestOrdinal: textEvent.requestOrdinal,
+              }),
+            };
+            const identity = JSON.stringify([key.lane, key.modelStep, key.requestOrdinal]);
+            const previous = textUpdates.get(identity);
+            textUpdates.set(
+              identity,
+              textEvent.kind === 'model_result' ? { kind: 'remove', key } : {
+                kind: 'put',
+                state: {
+                  key,
+                  firstEventOrdinal: previous?.kind === 'put'
+                    ? previous.state.firstEventOrdinal
+                    : event.ordinal,
+                  event,
+                },
+              },
+            );
+            if (textEvent.kind === 'assistant_progress') return [];
+          }
           const kind = eventSemanticKind(input);
           return [
             ...contextItems.map((item) => ({
@@ -1202,24 +1249,17 @@ export class SqliteHistoryV7ProductionStore
         const terminalIndex = semantic.findLastIndex(({ event, isEvent }) =>
           isEvent && (event.kind === 'execution_settled' || event.kind === 'execution_reconciled')
         );
-        if (occurrences.length > 0) {
-          this.#coreStore().appendSemantic(
-            executionId,
-            state.latestOrdinal,
-            occurrences,
-            terminalIndex < 0 ? undefined : occurrences[terminalIndex].occurrenceId,
-          );
-        }
         const count = events.at(-1)!.ordinal;
-        const db = this.#db();
-        try {
-          db.prepare('UPDATE execution_admissions SET event_count=? WHERE execution_id=?').run(
-            count,
-            executionId,
-          );
-        } finally {
-          db.close();
-        }
+        this.#coreStore().appendBatch({
+          executionId,
+          expectedLatestOrdinal: state.latestOrdinal,
+          occurrences,
+          assistantTextUpdates: [...textUpdates.values()],
+          eventCount: count,
+          terminalOccurrenceId: terminalIndex < 0
+            ? undefined
+            : occurrences[terminalIndex].occurrenceId,
+        });
         this.#eventCounts.set(executionId, count);
       }
       return [...byExecution.values()].flat().map((record) => record.event);
@@ -1380,7 +1420,24 @@ export class SqliteHistoryV7ProductionStore
       (row.terminal_occurrence_id !== null && input.allowExistingTerminal !== true)
     ) throw new HistoryStoreError('history_invalid');
     const eventOrdinal = Number(row.event_count) + 1;
-    const semanticOrdinal = Number(row.latest_ordinal) + 1;
+    const textStates = this.#coreStore().listAssistantTextStates(input.executionId, db);
+    for (const [index, textState] of textStates.entries()) {
+      const ordinal = Number(row.latest_ordinal) + index + 1;
+      const event = { ...textState.event, firstEventOrdinal: textState.firstEventOrdinal };
+      db.prepare(`
+        INSERT INTO semantic_occurrences(
+          occurrence_id, execution_id, ordinal, kind, observed_at, payload_json, content_digest
+        ) VALUES(?, ?, ?, 'assistant_message', ?, ?, NULL)
+      `).run(
+        `${input.executionId}:semantic:${ordinal}`,
+        input.executionId,
+        ordinal,
+        event.observedAt,
+        new TextDecoder().decode(encodeHistoryV7Payload(eventValue(event))),
+      );
+    }
+    db.prepare('DELETE FROM assistant_text_states WHERE execution_id=?').run(input.executionId);
+    const semanticOrdinal = Number(row.latest_ordinal) + textStates.length + 1;
     const occurrenceId = `${input.executionId}:semantic:${semanticOrdinal}`;
     const event: StoredExecutionEvent = {
       executionId: input.executionId,
@@ -1405,12 +1462,13 @@ export class SqliteHistoryV7ProductionStore
     );
     db.prepare(`
       UPDATE executions SET lifecycle='settled', outcome=?, adoption=?,
-        latest_ordinal=?, occurrence_count=occurrence_count+1, terminal_occurrence_id=?
+        latest_ordinal=?, occurrence_count=occurrence_count+?, terminal_occurrence_id=?
       WHERE execution_id=?
     `).run(
       input.outcome,
       input.adoption,
       semanticOrdinal,
+      textStates.length + 1,
       occurrenceId,
       input.executionId,
     );
@@ -1866,7 +1924,10 @@ export class SqliteHistoryV7ProductionStore
       }
       return [hydrated];
     });
-    return semantic;
+    // Latest incomplete text is appended at settlement, but belongs at its original start.
+    return semantic.sort((left, right) =>
+      (left.firstEventOrdinal ?? left.ordinal) - (right.firstEventOrdinal ?? right.ordinal)
+    );
   }
 
   listExecutionEffects(id: string): readonly StoredExecutionEffect[] {
@@ -2248,6 +2309,22 @@ export class SqliteHistoryV7ProductionStore
             kind: 'semantic_occurrence',
             identity: occurrence.occurrenceId,
             value: asJson(occurrence),
+          };
+        }
+        for (
+          const textState of this.#coreStore().listAssistantTextStates(execution.executionId, db)
+        ) {
+          yield {
+            schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
+            kind: 'assistant_text_state',
+            identity: `${execution.executionId}:assistant-text:${
+              JSON.stringify([
+                textState.key.lane,
+                textState.key.modelStep,
+                textState.key.requestOrdinal,
+              ])
+            }`,
+            value: asJson(textState),
           };
         }
         for (

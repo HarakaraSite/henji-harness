@@ -5,6 +5,8 @@ import {
   emptyHistoryV7OperationCost,
   encodeHistoryV7Payload,
   HISTORY_V7_SCHEMA_VERSION,
+  type HistoryV7AppendBatchInput,
+  type HistoryV7AssistantTextState,
   type HistoryV7OperationCost,
   type HistoryV7SemanticOccurrence,
   type HistoryV7SemanticOccurrenceInput,
@@ -87,6 +89,15 @@ CREATE TABLE semantic_occurrences (
 );
 CREATE INDEX semantic_occurrences_execution_ordinal
   ON semantic_occurrences(execution_id, ordinal);
+CREATE TABLE assistant_text_states (
+  execution_id TEXT NOT NULL REFERENCES executions(execution_id) ON DELETE CASCADE,
+  lane TEXT NOT NULL,
+  model_step INTEGER NOT NULL,
+  request_ordinal INTEGER NOT NULL,
+  first_event_ordinal INTEGER NOT NULL,
+  event_json TEXT NOT NULL,
+  PRIMARY KEY(execution_id, lane, model_step, request_ordinal)
+);
 CREATE TABLE semantic_relations (
   occurrence_id TEXT NOT NULL REFERENCES semantic_occurrences(occurrence_id) ON DELETE CASCADE,
   relation_ordinal INTEGER NOT NULL,
@@ -164,8 +175,8 @@ CREATE TABLE recall_relations (
   PRIMARY KEY(source_execution_id, target_execution_id)
 );
 INSERT INTO store_metadata(singleton, schema_version, created_at)
-VALUES(1, 10, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
-PRAGMA user_version = 10;
+VALUES(1, ${HISTORY_V7_SCHEMA_VERSION}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+PRAGMA user_version = ${HISTORY_V7_SCHEMA_VERSION};
 `;
 
 export type HistoryV7PrototypeFaultPhase = 'after_occurrences' | 'before_commit';
@@ -360,6 +371,17 @@ export class SqliteHistoryV7Prototype {
     terminalOccurrenceId?: string,
   ): HistoryV7OperationCost {
     if (occurrences.length === 0) throw new TypeError('empty semantic append');
+    return this.appendBatch({
+      executionId,
+      expectedLatestOrdinal,
+      occurrences,
+      terminalOccurrenceId,
+    });
+  }
+
+  /** Commit latest text, semantic facts and observation progress on the same connection. */
+  appendBatch(input: HistoryV7AppendBatchInput): HistoryV7OperationCost {
+    const { executionId, expectedLatestOrdinal, occurrences, terminalOccurrenceId } = input;
     const encoded = occurrences.map((occurrence, index) => {
       validateHistoryV7Occurrence(occurrence);
       if (occurrence.ordinal !== expectedLatestOrdinal + index + 1) {
@@ -474,6 +496,31 @@ export class SqliteHistoryV7Prototype {
           newRelations: cost.newRelations + (occurrence.relations?.length ?? 0),
         };
       }
+      for (const update of input.assistantTextUpdates ?? []) {
+        const key = update.kind === 'put' ? update.state.key : update.key;
+        // Optional attribution is represented distinctly; it is not an inferred provider lane.
+        const params = [executionId, key.lane ?? '', key.modelStep, key.requestOrdinal ?? -1];
+        if (update.kind === 'remove') {
+          this.#db.prepare(`
+            DELETE FROM assistant_text_states
+            WHERE execution_id=? AND lane=? AND model_step=? AND request_ordinal=?
+          `).run(...params);
+        } else {
+          const eventBytes = encodeHistoryV7Payload(update.state.event as unknown as JsonValue);
+          this.#db.prepare(`
+            INSERT INTO assistant_text_states(
+              execution_id, lane, model_step, request_ordinal, first_event_ordinal, event_json
+            ) VALUES(?, ?, ?, ?, ?, ?)
+            ON CONFLICT(execution_id, lane, model_step, request_ordinal)
+            DO UPDATE SET event_json=excluded.event_json
+          `).run(...params, update.state.firstEventOrdinal, new TextDecoder().decode(eventBytes));
+          cost = { ...cost, serializedBytes: cost.serializedBytes + eventBytes.byteLength };
+        }
+      }
+      if (input.eventCount !== undefined) {
+        this.#db.prepare('UPDATE execution_admissions SET event_count=? WHERE execution_id=?')
+          .run(input.eventCount, executionId);
+      }
       this.#fault?.('after_occurrences');
       if (
         terminalOccurrenceId !== undefined &&
@@ -484,7 +531,7 @@ export class SqliteHistoryV7Prototype {
           terminal_occurrence_id=coalesce(?, terminal_occurrence_id)
         WHERE execution_id=?
       `).run(
-        occurrences.at(-1)!.ordinal,
+        occurrences.at(-1)?.ordinal ?? expectedLatestOrdinal,
         occurrences.length,
         terminalOccurrenceId ?? null,
         executionId,
@@ -581,6 +628,29 @@ export class SqliteHistoryV7Prototype {
       SELECT occurrence_id FROM semantic_occurrences
       WHERE execution_id=? ORDER BY ordinal
     `).all(executionId) as Row[]).map((row) => this.readOccurrence(String(row.occurrence_id), db));
+  }
+
+  /** Read latest text using the caller's snapshot when exporting history. */
+  listAssistantTextStates(
+    executionId: string,
+    db: DatabaseSync = this.#db,
+  ): readonly HistoryV7AssistantTextState[] {
+    return (db.prepare(`
+      SELECT * FROM assistant_text_states
+      WHERE execution_id=? ORDER BY first_event_ordinal
+    `).all(executionId) as Row[]).map((row) => ({
+      key: {
+        modelStep: Number(row.model_step),
+        ...(row.lane === '' ? {} : {
+          lane: String(row.lane) as HistoryV7AssistantTextState['key']['lane'],
+        }),
+        ...(Number(row.request_ordinal) === -1 ? {} : {
+          requestOrdinal: Number(row.request_ordinal),
+        }),
+      },
+      firstEventOrdinal: Number(row.first_event_ordinal),
+      event: JSON.parse(String(row.event_json)) as HistoryV7AssistantTextState['event'],
+    }));
   }
 
   readContent(contentDigest: string, db: DatabaseSync = this.#db): Uint8Array {

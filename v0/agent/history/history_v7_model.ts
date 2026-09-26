@@ -1,7 +1,36 @@
 import type { JsonValue } from '../core/contracts.ts';
 import { canonicalJsonBytes } from './context_attribution.ts';
+import type { ProviderEvidenceLane } from '../provider/provider_evidence.ts';
+import type { StoredExecutionEvent } from './history_store_contract.ts';
 
-export const HISTORY_V7_SCHEMA_VERSION = 10 as const;
+export const HISTORY_V7_SCHEMA_VERSION = 11 as const;
+
+/** Attribution within one execution, taken from the production provider observation. */
+export interface HistoryV7AssistantTextKey {
+  readonly lane?: ProviderEvidenceLane;
+  readonly modelStep: number;
+  readonly requestOrdinal?: number;
+}
+
+/** Sole authority for the latest committed text of a still-incomplete request. */
+export interface HistoryV7AssistantTextState {
+  readonly key: HistoryV7AssistantTextKey;
+  readonly firstEventOrdinal: number;
+  readonly event: StoredExecutionEvent;
+}
+
+export type HistoryV7AssistantTextUpdate =
+  | { readonly kind: 'put'; readonly state: HistoryV7AssistantTextState }
+  | { readonly kind: 'remove'; readonly key: HistoryV7AssistantTextKey };
+
+export interface HistoryV7AppendBatchInput {
+  readonly executionId: string;
+  readonly expectedLatestOrdinal: number;
+  readonly occurrences: readonly HistoryV7SemanticOccurrenceInput[];
+  readonly assistantTextUpdates?: readonly HistoryV7AssistantTextUpdate[];
+  readonly eventCount?: number;
+  readonly terminalOccurrenceId?: string;
+}
 
 export type HistoryV7SemanticKind =
   | 'execution_admission'

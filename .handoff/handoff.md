@@ -2,10 +2,13 @@
 
 再開時の入口。現在地と次の一手をここで確認し、要件・計画・結果はリンク先の正本を参照する。
 
-## 現在地（2026-09-26）
+## 現在地（2026-09-27）
 
-**Increment 133の実装・配置・公開後、入力欠落の解消を常用利用で継続観測する段階。
-次のincrementは未選択・実装未指示。**
+**Increment 134（A12: assistant途中本文の保存粒度）はスライス単位の実装を指示済み。 slice
+1〜4のlocal実装・production経路確認・容量比較、承認されたarchitecture・roadmap反映を完了。
+対象workspaceの既存v10
+DBは利用者指示で削除済み。commit・push・常用binary配置を指示され、実行中。Increment
+133の入力欠落解消は常用利用で継続観測中。**
 
 - 常用binaryは`henji 0.7.0`、source `f10893ba…`、build `36e27ab6…`。
   今回の`henji --version`確認でも一致。配置後のbinaryは次回起動から使われ、既存プロセスの切替は
@@ -19,9 +22,9 @@
 1. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
    簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない。
    観測を得たら[Increment 133](../docs/increments/increment-133.md#残る受入と承認境界)へ記録する。
-2. 次の開発に進む場合は、[通常利用メモ](../docs/experience/normal-use-inbox.md)と
-   [roadmap「自己改訂を支える次の増分」](../docs/roadmap.md#自己改訂を支える次の増分)を入口に、
-   利用者が選んだ動作を個別incrementへ採用する。現在、選択済みの次incrementはない。
+2. [Increment 134](../docs/increments/increment-134.md#結果)の正本反映・DB削除結果を参照する。
+   local受入確認と正本反映は完了。承認されたcommit・push・build配置を完了させる。 配置対象は新規v11
+   DBを使う新sourceであり、JSR公開は今回の対象外。
 
 ## 未完了・再開対象
 
@@ -35,10 +38,12 @@
 
 ## 承認境界
 
-- 実provider probeは、対象・回数・保存先を提示して別途明示承認を得る。
+- Increment 134の実provider確認は利用者承認を受け、指定した2turnを実施済み。 新しい実provider
+  probeは、対象・回数・保存先を提示して別途明示承認を得る。
 - 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は
   今回の`ps`確認ではともに不在。今回、プロセスへの操作は行っていない。
-- 次incrementの採用・実装、新たな外部書き込み・配置・公開は利用者の指示に従う。
+- Increment 134のlocal実装、architecture・roadmap反映、対象workspaceの既存DB削除は指示済み・完了。
+  commit・push・常用binary配置も指示済み。JSR公開は未指示。
 - 構想・architecture・roadmapの新たな意味変更は、対象・理由・変更内容を提示して別途明示承認を得る。
   詳細は[AGENTS.md](../AGENTS.md#product正本の変更承認)。
 

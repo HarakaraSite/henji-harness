@@ -30,7 +30,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A9 | Agent実行 | 診断記録の保存期間 | 保存期間を独立に決める必要が出たとき。粒度変更の計画はIncrement 121 |
 | A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
-| A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
@@ -346,18 +345,6 @@ Pi／OpenCode／Henjiの画面表示比較
 - 利用者希望: instructionの内容・粒度・与える場所（共通instruction、モデル別instruction、個々のtask）を
   検討する。短い依頼から目的に合う作業範囲と終了条件を組み立てられるかを実利用で比較する。
 - 再検討条件: 指示の与え方を変えると、同じ目的のtaskの完了挙動が変わること。
-
-### A12 — semantic履歴の保存粒度と容量
-
-- 観測（2026-09-24、session `a2098f7c`）: 6実行（確定4、停止2）でsemantic履歴は4,693件、
-  `semantic_occurrences.payload_json`の合計は約10.5 MB。確定会話は240メッセージ、約513 KB。
-  workspaceの履歴DB全体（4 Session）は本体24.1 MiBとWAL 4.5 MiBだった。DBの保存量は次のmodel
-  requestへ送るcontext量とは別である。
-- 現行用途: `history`と`/recall`のため、toolの順序・引数・結果、runtime outcome、request単位のfact、
-  停止実行の証拠を保持する価値がある。一方、現在の4,693件すべての保存粒度が必要かは未判断。
-- 候補: 容量の大きいsemantic種別と重複を測り、通常履歴のreadbackと`/recall`が使う情報を保ったまま
-  記録量を減らせるか調べる。保存期間を決めるA9とは分け、現時点では削除・縮小を採用しない。
-- 再検討条件: 長期SessionでDB容量や履歴readbackの負担が実利用上の問題になったとき。
 
 ### A14 — 名前付き子Agent Definitionの専用model指定
 

@@ -88,6 +88,9 @@
 - semantic appendとcanonical adoptionは別operationである。durable appendの確認はatomic commit後だけ返す。
   現行history v7は新規delta、連続ordinal、terminal、mandatory referenceを増分処理し、canonical turnとSession
   revisionを一transactionで保存する。ordered hash root、segment／directory／anchorを通常commitの必須条件にしない。
+- 生成中のassistant本文はHostが同じhistory DB内でrequest単位の最新durable stateとして所有する。
+  表示更新ごとの全文をsemantic occurrenceへ追記しない。完了時はmodel resultを本文のauthorityとし、
+  未完了停止時は最後のcommit済み本文をsemantic履歴へ移す。本文stateとsemantic factの更新はatomicに保存する。
 - 人間向けhistory viewの`session`は、canonicalとnon-canonicalのexecutionを時系列に並べ、後者の
   outcomeと未完了境界を明示する。`canonical`は採用済みconversationだけを表示し、`detail`はJSONLで
   原記録を参照できる。modelが過去executionから既定で引き継ぐconversationはcanonicalに限定し、
@@ -597,9 +600,17 @@ durable historyは、一つのclaimへ一つのownerを置き、次の三層を�
 通常履歴はsemanticな出来事から、人間入力、Agentへ実際に渡したcontent／revision、tool／providerのsemantic
 result、Host判断、明示的な未観測境界へ至る最小説明閉包を持つ。rootとasync childの双方で、観測済みの
 request factとfailure diagnosticを各executionへ相関して保存する。途中のcancelや失敗では確定保存済みの
-prefixを残す。credential値とAuthorizationは記録しない。semantic authority自体のdurable write失敗は
+semantic prefixと最新本文を残す。credential値とAuthorizationは記録しない。semantic authority自体のdurable write失敗は
 canonical adoptionを禁止する。async childのcollect結果はstop reason、実request count、diagnostic id／code
 などの短い状態を返す。
+
+生成中のassistant本文はexecution・lane・model step・physical requestをkeyとするHost-owned stateであり、
+derived cacheではない。最新eventの本文・観測時刻・Worker sequenceと初回のevent位置を保持する。
+既存journalのflushでstateを置換し、同じrequestのmodel result保存とstate終了を一transactionで行う。
+cancel、failure、forced interruption、restart reconciliationでは、最後の本文のsemantic追記、state終了、
+terminal／outcomeを一transactionで保存する。read-only detailはstateとsemantic履歴を同じsnapshotから読み、
+生成中本文を確定messageやappend済みoccurrenceとして扱わない。停止本文のreadbackは元の観測位置に並べ、
+`/recall`へは一request一本文を投影する。未完了本文をcanonical conversationへ自動採用しない。
 
 derived projectionはsemantic authorityにsourceを持ち、sole-owner fieldを
 持たない。現行の`henji history`は必要時にsourceから直接view／exportを作り、永続化されたhuman history行や
@@ -634,13 +645,16 @@ reconciliationとは区別し、後者のartifactへ実outcomeを捏造しない
 - append時にcurrent semantic deltaのschema、execution内ordinal、mandatory referenceを検証し、count、
   latest durable ordinal、terminal、unresolved referenceを増分更新する。ordered hash rootはsettlementの
   必須条件にしない。
+- semantic occurrenceのordinal／countと、Worker eventの保存進捗は区別する。本文stateだけのbatchも、
+  state更新とevent countを同じtransactionへ保存し、semantic occurrenceを増やさない。
 - normal append／settlement／adoptionは過去payloadをapplication levelで全scan／decode／rehash／rewriteしない。
   同量の新規factを追加する処理量は既存Session payloadや当該executionの過去event数を乗数に持たない。
 - `settled`はlogical completeness、terminal、mandatory referenceの解決を意味し、全過去payloadをsettlement時に
   再scrubしたことを意味しない。materializeするimmutable contentはread時に検証し、全体検証はexplicit auditとして
   通常pathから分離する。
-- crash後に見えるexecution evidenceは最後にatomic commit済みの連続ordinal prefixに限る。未commit
-  segment／locator／rootをcompleteとして返さない。
+- crash後に見えるexecution evidenceは最後にatomic commit済みのsemantic ordinal prefixと最新本文stateである。
+  受信済みでも未commitの本文を保存済みとして返さない。writable起動時は未完了本文をsemantic履歴へ移して
+  既存reconciliationを行い、read-only参照はactive状態を変更しない。
 
 将来の自己改訂experienceはstableなsemantic occurrence、history entry、execution、query／rangeを参照する。
 projection再構築によって参照先のsemantic identityを
@@ -772,15 +786,16 @@ durable Instanceを採用する場合は、次の関係とcanonical domainを追
 | Persistence | load/store、storage revision、atomic replacement、recovery を所有する。 | commit を提案する。durable state の canonical source にはしない。 |
 | Conversation の意味 | 受け入れた canonical state を保存する。 | 実行中の transcript/context semantics と compaction decision を所有する。 |
 | Turn の settlement | proposed commit を受け入れ、committed と報告する前に durable に保存する。 | 境界を通じて outcome と proposed state/effect を報告する。 |
-| Execution evidence | canonical採用とは独立して、観測済みprogress、effect、outcome、context attributionを相関・保存する。 | 実行中のsemantic eventとsettlementをprotocol経由で返す。 |
+| Execution evidence | canonical採用とは独立して、assistant本文の最新state、semantic fact、effect、outcome、context attributionを相関・保存する。 | 実行中の本文snapshot、semantic eventとsettlementをprotocol経由で返す。 |
 
 概念上の turn の流れは次のとおりである。
 
 1. Host が canonical session state を load し、Worker generation への command を受け入れる。
 2. Worker が snapshot を解釈して composition を実行し、turn 中の output と commit proposal を
    生成する。
-3. Hostは観測済みsemantic deltaをatomicにappendする。executionのsettlementは連続ordinal、count、terminal、
-   mandatory referenceを増分処理し、過去payload全体を再検証しない。
+3. Hostは観測済みsemantic deltaのappendと最新本文stateの更新・終了をatomicに保存する。executionのsettlementは
+   未完了本文をsemantic履歴へ引き継ぎ、連続ordinal、count、terminal、mandatory referenceを増分処理する。
+   過去payload全体を再検証しない。
 4. canonical採用時、Hostは適用対象Session revisionとexecutionの成立条件を照合し、terminal／settlement、canonical turn、
    Session revisionを一transactionで保存する。ordered hash rootを成立条件にしない。
 5. durable canonical adoptionが成功した後にのみ、HostはSurfaceまたは採用済みoutput consumerへturnをcommittedと報告する。

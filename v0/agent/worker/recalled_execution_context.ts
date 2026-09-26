@@ -196,7 +196,7 @@ const matchingModelResult = (
 ): boolean =>
   events.slice(progressIndex + 1).some((event) =>
     event.kind === 'model_result' && event.modelStep === progress.modelStep &&
-    sameLane(event, progress)
+    sameLane(event, progress) && event.requestOrdinal === progress.requestOrdinal
   );
 
 const matchingToolResult = (
@@ -373,6 +373,8 @@ const observationsFromJournal = (
       });
     } else if (
       eventObject.kind === 'assistant_progress' &&
+      // Provider text is already projected once by observationsFromRuntimeEvents.
+      payloadObject.kind !== 'provider_observation' &&
       typeof eventObject.text === 'string'
     ) {
       observations.push({
