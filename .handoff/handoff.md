@@ -2,15 +2,14 @@
 
 ## Next session
 
-- 次の一手（利用者意向 2026-09-26）: 通常利用メモS17（描画更新の合流と行差分描画）を採用判断し、
-  採用するならS17をincrement文書へ移して計画・実装する。範囲の判断材料はS17観測のとおりで、
-  不要な再描画の重複（busy spinnerの120 ms無条件redraw、1 keystrokeの2〜3回、tool eventごと、
-  `scrollPage`／`resize`の`layoutSnapshot`二重）とlayout実測（典型2〜2.4 ms、window上限77 ms）が
-  code factとして揃っている。重複解消（redraw合流＋layout cache）と行差分描画のどちらまで行うかは
-  計画時に決める。正本pointer: `docs/experience/normal-use-inbox.md` S17〜S20と見送り判断、
-  `docs/research/pi-opencode-henji-screen-display-comparison.md`（比較・実測）。承認境界: S17の採用は
-  個別incrementとして扱い、構想・architecture・roadmap変更は別途承認を得る。Surface変更なので
-  tmuxのproduction TUI確認が完了条件。作業状態: この2文書は未commit（inbox `M`、research新規）。
+- 次の一手（利用者指示 2026-09-26）: 提示済みIncrement 133計画の実装方針とarchitecture変更案1〜3の
+  承認を確認し、承認範囲で実装する。利用者は計画のcommitを指示してこのセッションを終了する。
+  正本: `docs/increments/increment-133.md`（ツール資源の所有と終了処理、端末入力の競合防止）。
+  採用・計画作成まで承認済み、実装未着手。architecture変更案1〜3は別途明示承認が必要。
+  roadmap結果反映、実provider確認、配置・push・releaseも別指示の範囲で扱う。
+  診断時の生存状態: Henji PID `200048`は稼働中、利用者承認によりGit reader PID `202890`を
+  SIGSTOPした状態を維持。旧Git chainの恒久終了は未承認。詳細・証拠はIncrement 133を参照。
+  S17〜S20は未採用候補として通常利用メモに残る。Increment 132 C全体を完了扱いにしない。
 - Increment 132（S16の通常実行中の逐次表示）は実装をcommitし、focused test・隔離XDGの
   mock SSE production TUI確認まである。正本は`docs/increments/increment-132.md`。同一Henjiプロセス
   約3時間26分の長時間計測と実端末clientの操作で数秒の入力／PageUp・PageDown遅延は再現せず、要件Cは
