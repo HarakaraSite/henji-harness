@@ -252,15 +252,17 @@ Pi／OpenCode／Henjiの画面表示比較
   failする（実測）、(3) buildもよく失敗する（利用者観測）。
 - 利用者判断（2026-09-26）: 機構としてambient情報を組み込む（env継承・自動付与・env manifest）のでは
   なく、**instructionとしてambient情報を持つ**方向とする。重要なのはAIがambient情報の**存在を
-  知る**こと。なお旧候補の「Hostが…配送する」は、Hostが環境情報を集めてdataとして渡す意味ではなく、
-  **instructionの配送手段**（Hostがinstructionを配る経路）の話である可能性がある（利用者指摘、
-  2026-09-26）。解釈の確定は採用時の計画で行う。
-- 候補: workspace／toolのinstructionに、(1) どんなambient情報が存在するか（repository root・VCS種別・
-  非secretなcanonical identity、`HOME`配下のcredential store、git identity、buildに必要なenv等）、
-  (2) その存在と所在、(3) 扱い方（repository contextはtask targetではなく、利用者が「このrepository」等と
-  結び付けた場合だけsource。実行環境は必要時に明示する）、を記載する。credentialやremote URL内の
-  認証情報は含めない。配送はHost経由でもよい（instructionの配送手段として）。AGENTS.md「実行環境」は
-  この方向の先行例。
+  知る**こと。環境情報を**機械的に集める**案は範囲が広く難しい（実行環境がdeno／node／bunで違い、
+  VCSがgit／jujutsuで違う等）ため採らない。旧候補の「Hostが…配送する」も、Hostが環境情報を集めて
+  dataとして渡す意味ではなく、**instructionの配送手段**の話である可能性がある（利用者指摘、
+  2026-09-26）。
+- 候補（利用者示唆、2026-09-26）: **人間の指示によりリポジトリの環境情報を集め、`ambient.md`等に
+  まとめて、それをinstructionとして読み込む**。文書には(1) どんなambient情報が存在するか
+  （repository root・VCS種別・非secretなcanonical identity、`HOME`配下のcredential store、git identity、
+  buildに必要なenv等）、(2) その所在、(3) 扱い方（repository contextはtask targetではなく、利用者が
+  「このrepository」等と結び付けた場合だけsource。実行環境は必要時に明示する）、を記載する。
+  credentialやremote URL内の認証情報は含めない。機械的収集・自動更新は行わない。
+  AGENTS.md「実行環境」はこの方向の先行例。
 - 再検討条件: ①外部product名だけのtaskでambient remoteをtargetにする誤認、またはrepository identityを
   得るための不要なtool探索が再発する、②AIが実行環境のambient情報の存在を知らない、またはinstruction
   だけでは足りない事例が観測される、のいずれか。採用時にR3（tool実行profile）・E3（Host runtime
