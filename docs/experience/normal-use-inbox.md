@@ -21,6 +21,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S18 | Surface | 文字幅のgrapheme cluster対応 | 絵文字を含む本文で列ずれが観測されたとき、幅精度を上げるincrementに含めるとき |
 | S19 | Surface | synchronized outputによるframe描画の安定化 | S17を採用するとき、全面書き直しのちらつきが観測されたとき |
 | S20 | Surface | 巨大表示領域でのwindow行量確保とframe上限 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき |
+| S21 | Surface | subagent起動時のagent名表示 | 複数の子Agentを並行運用し、どのagentが起動したか履歴から追いたいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -179,6 +180,22 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 大きなディスプレイ利用が日常になり、履歴の空白・行欠落が観測されたとき。
 - 関連: `v0/tui/state.ts`（`HISTORY_WINDOW_*`）、`v0/tui/layout.ts`（`MAX_ROWS`／`MAX_COLUMNS`／
   `MAX_LAYOUT_SOURCE_BYTES`）、`v0/tui/tui_renderer.ts`（`MAX_FRAME_BYTES`）、比較文書。
+
+### S21 — subagent起動時のagent名表示（F01）
+
+- 観測（2026-09-26、source照合）: `spawn_subagent`は`agent`名（Host解決済みcatalog名）と`task`を必須に、
+  任意で`model`・`tools`を受け取りrunIdを返す（`v0/agent/tools/async_agents.ts`、
+  [`increment-131.md`](../increments/increment-131.md)の起動contract）。一方、TUI履歴のtool行は
+  `v0/agent/tools/tool_activity.ts`の`toolActivityPreview`が`bash`／`read`／`write`／`edit`／
+  `bash_output`／`web_search`／`web_fetch`／`skill`だけを対応し、`spawn_subagent`はname-onlyの
+  `tool> spawn_subagent …`（完了時`spawn_subagent ✓`）になる。起動した子実行のagent名が履歴から分からない。
+- 候補（利用者要望、2026-09-26）: `toolActivityPreview`に`spawn_subagent`のcaseを追加し、
+  起動行にagent名を表示する（例: `spawn_subagent reviewer`）。runIdやtask断片まで表示に含めるか、
+  `collect_subagent`／`subagent_status`／`cancel_subagent`の行もagent名と対にするかは採用時に決める。
+- 再検討条件: 複数の子Agentを通常利用で並行運用し、履歴からどのagentが起動したか追いたいとき、
+  またはA14の名前付き子Agent運用に含めるとき。
+- 関連: A14、[`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/tool_activity.ts`、
+  `v0/agent/tools/async_agents.ts`。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
