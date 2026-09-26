@@ -27,7 +27,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
 | A5 | Agent実行 | ambient情報のinstruction化（repository context・実行環境） | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
-| A9 | Agent実行 | 診断記録の保存期間 | 保存期間を独立に決める必要が出たとき。粒度変更の計画はIncrement 121 |
+| A9 | Agent実行 | Sessionと関連履歴の保存・削除（旧P7を統合） | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき |
 | A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
 | A11 | Agent実行 | instructionの与え方 | 指示の粒度や配置によってtaskの完了挙動が変わるとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
@@ -45,7 +45,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | P4 | 参照実装parity | Session export/import | Sessionを別installationへ移す・再開する必要が出るとき |
 | P5 | 参照実装parity | `@file` reference（内容注入） | 人間がfile内容をmodel turnなしでcontextへ入れたいとき |
 | P6 | 参照実装parity | model cycling shortcut | provider横断のmodel切替を頻繁に行うとき |
-| P7 | 参照実装parity | `henji sessions prune` | 古いSessionの整理が必要になるとき |
 | P8 | 参照実装parity | configurable keybindings | keybindingを利用者ごとに変えたくなったとき |
 | P9 | 参照実装parity | 画像入力（`@image`／clipboard paste） | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要 |
 | P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP） | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み |
@@ -310,12 +309,23 @@ Pi／OpenCode／Henjiの画面表示比較
   Web search自体をAgent Definitionにするかは、conversation、prompt、model、tool利用を独立所有する必要が
   出たときだけ比較する。
 
-### A9 — 診断記録の保存期間（実施未定）
+### A9 — Sessionと関連履歴の保存・削除（旧P7を統合、未採用）
 
-- 診断記録の粒度と通常時の収集・保存処理の縮小はIncrement 121の計画へ採用した。約3万件／4.5万件の
-  観測とその判断も同文書を参照する。
-- 元の記録をいつまで保存するかは別の判断として残す。現時点で自動削除期間を決めない。
-- 再検討条件: 保存期間を利用上の必要性から独立に決める実例が得られたとき。
+- 現行境界: Increment 121で常設raw診断記録を廃止し、短いrequest factをsemantic履歴の一部として保存する。
+  `henji sessions delete --session ID --yes`による個別削除は実装済みで、Sessionに紐づくexecution、
+  semantic履歴・request fact、recall参照関係も同じtransactionで削除する。
+- 利用者判断（2026-09-27）: 診断記録の保存期間と旧P7 `sessions prune`を一つの検討事項へ統合する。
+  Sessionと関連履歴を一体の保存・削除単位として扱う。診断factだけを消すと履歴の詳細表示や`/recall`の
+  失敗原因の手掛かりが欠け、Sessionだけを消して関連履歴を残すと、一覧からの削除と実際の保存状態が
+  食い違うため、両者を別々の保存期間で整理する方針は採らない。
+- 候補: 残すSessionと削除対象の選び方、手動の個別削除の操作、一括整理（`sessions prune`）、保存期間を
+  まとめて検討する。期限による自動削除を提供するかは別途判断し、現時点で期間や自動削除は決めない。
+- 旧P7の利用者判断（2026-09-22）: 一括整理は将来採用見込み。採用時に削除対象の確認（`--dry-run`）と
+  明示confirmを設計する。今回の統合は候補の整理であり、採用・実装や既存dataの削除を意味しない。
+- 再検討条件: 古いSessionの整理や、Sessionと関連履歴をいつまで残すかを決める必要が通常利用で出たとき。
+- 関連: [`increment-121.md`](../increments/increment-121.md)、
+  [`pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)（旧P7の調査）、
+  `v0/agent/cli/session_cli.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`の`delete`。
 
 ### A10 — モデル別instruction
 
@@ -558,11 +568,10 @@ Pi／OpenCode／Henjiの画面表示比較
   commit `f60e492e…`）のslash commandとCLI optionを抽出し、Henji現行surface（`v0/tui/slash_command.ts`、
   `v0/agent/cli/henji_cli.ts`、`v0/agent/cli/tui_cli.ts`）と比較した。詳細と全表は
   [`research/pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)。
-- 有力候補（P3〜P9）: 手動`/compact`、Session export/import、`@file`、model cycling、`sessions prune`、
-  configurable keybindings、画像入力。
+- 有力候補: 手動`/compact`、Session export/import、`@file`、model cycling、configurable keybindings、画像入力。
   P1（`run`の構造化出力）はIncrement 104へ採用済みでこの一覧から除く。
+  旧P7（`sessions prune`）はA9「Sessionと関連履歴の保存・削除」へ統合した。検討事項と再検討条件はA9を参照する。
 - 利用者判断（2026-09-22）:
-  - P7 `sessions prune`: 将来採用見込み。削除authority（`--dry-run`・明示confirm）を設計する。
   - P2 `/jump`: 3アクション程度必要でPageUpの方が手軽なため、候補から除外（調査記録には残す）。
   - P5: `@file`（内容注入）のみ候補として残す。`!command`はHost実行経路を増やす割にtool loopと重複するため
     候補から除外（調査記録には残す）。
