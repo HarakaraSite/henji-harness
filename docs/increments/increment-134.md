@@ -6,7 +6,8 @@
 4（production経路確認と容量比較）を完了。localの受入要件A〜Cを確認済み。
 2026-09-27に利用者が正本文書への反映と既存DB削除を指示し、architecture・roadmap反映と対象workspaceの
 既存v10 DB削除を完了した。A12からassistant本文の重複保存を減らす範囲を採用した。
-2026-09-27に利用者がcommit・push・常用binary配置を指示した。build・配置を進める。JSR公開は対象外。
+2026-09-27に利用者がcommit・push・常用binary配置を指示し、実装commitのpushとclean
+build・配置を完了した。 常用binaryはsource `ca25d23b…`、build `aeaad975…`。JSR公開は今回の対象外。
 
 ## 必要なproduct動作と根拠
 
@@ -422,9 +423,24 @@ stateの全文置換も書込みを行うため、書込み量や長時間入力
 - 常用binaryはまだIncrement 133のv10実装のままである。次の配置対象はschema v11の新sourceとなる。
   今回はDBを新規作成するHenji起動、binary配置、commit／push、公開を行っていない。
 
-### Commit・push・常用binary配置（2026-09-27、実行中）
+### Commit・push・常用binary配置（2026-09-27）
 
-利用者がcommit・push・常用binary配置を指示した。A12の新規6件を
-`agent:increment-134-assistant-text:test`へまとめ、通常の`v0:test`からも呼ぶ。 cleanなcommitからDeno
-2.9.7でbuildし、常用先へ配置する。配置対象binaryのversionと、 隔離XDG・新規v11
-DBのproduction起動をprovider callなしで確認する。JSR公開は今回の対象外。
+- 利用者指示により実装と正本文書をcommit `ca25d23bc416bb16779ab3b8581a97ec26a75066`へまとめ、
+  `origin/main`へpushした。fetch後のlocal／remote一致を確認した。
+- A12の新規6件を`agent:increment-134-assistant-text:test`へまとめ、通常の`v0:test`からも呼ぶようにした。
+  当該taskのtest・type check、変更した8ファイルのformat check・7 TSファイルのlint、
+  `git diff --check`が成功した。
+- cleanな上記commitからDeno 2.9.7で`dist/henji`をbuildした。 product versionは0.7.0、source
+  dirtyなし、buildは `aeaad97597f3f3613744ab6baf58f59954924cad4be577c5c239fed4fc934f14`。
+- 配置対象binaryをtmux上のproduction TUIで起動し、隔離XDG・localhost mock・新規v11 DBで
+  逐次表示、note→実read
+  tool→最終本文、後続step取消、history各view、`/recall`選択、Session再開を確認した。
+  完了requestのprogress／stateは残らず、取消requestの未完了本文は1件だけ保存された。
+  今回の追加確認で実provider requestは行っていない。
+- 常用先`~/.local/bin/henji`へ原子的に配置し、候補と配置先のSHA-256一致、version／source／buildの一致を確認した。
+  配置binaryで対象workspaceのread-only `history --latest --view session`を実行し、exit 0・no
+  historyを確認した。 削除済みの実DBは再作成されていない。次の通常実行は新規v11 DBを使用する。
+- artifact:
+  `/tmp/henji-i134-deployment-0wqngjvt/{build.log,version.txt,deployment.json,evidence/}`。
+  稼働中のHenji切替は行っていない。JSR公開は今回の対象外であり、JSR 0.7.0の内容はIncrement
+  133時点のままである。

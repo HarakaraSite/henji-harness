@@ -6,14 +6,14 @@
 
 **Increment 134（A12: assistant途中本文の保存粒度）はスライス単位の実装を指示済み。 slice
 1〜4のlocal実装・production経路確認・容量比較、承認されたarchitecture・roadmap反映を完了。
-対象workspaceの既存v10
-DBは利用者指示で削除済み。commit・push・常用binary配置を指示され、実行中。Increment
-133の入力欠落解消は常用利用で継続観測中。**
+対象workspaceの既存v10 DBは利用者指示で削除済み。実装commitのpush・clean
+build・常用binary配置を完了。Increment 133の入力欠落解消は常用利用で継続観測中。**
 
-- 常用binaryは`henji 0.7.0`、source `f10893ba…`、build `36e27ab6…`。
-  今回の`henji --version`確認でも一致。配置後のbinaryは次回起動から使われ、既存プロセスの切替は
-  行っていない。JSR 0.7.0公開と確認も完了。詳細は
-  [Increment 133の配置・公開結果](../docs/increments/increment-133.md#commitpush常用binary配置)。
+- 常用binaryは`henji 0.7.0`、source `ca25d23b…`、build `aeaad975…`。
+  配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。次回起動から新方式を使う。
+  結果は[Increment 134の配置結果](../docs/increments/increment-134.md#commitpush常用binary配置)を参照する。
+  JSRは今回更新しておらず、0.7.0の公開内容は
+  [Increment 133](../docs/increments/increment-133.md#commitpush常用binary配置)時点のままである。
 - 通常利用メモとproduct正本文書の見直しは完了。承認された自己改訂構想の変更と Increment
   133のarchitecture・roadmap反映は済んでいる。候補の記載は実装認可を意味しない。
 
@@ -22,9 +22,8 @@ DBは利用者指示で削除済み。commit・push・常用binary配置を指�
 1. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
    簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない。
    観測を得たら[Increment 133](../docs/increments/increment-133.md#残る受入と承認境界)へ記録する。
-2. [Increment 134](../docs/increments/increment-134.md#結果)の正本反映・DB削除結果を参照する。
-   local受入確認と正本反映は完了。承認されたcommit・push・build配置を完了させる。 配置対象は新規v11
-   DBを使う新sourceであり、JSR公開は今回の対象外。
+2. 次の通常利用は新規v11 DBで行う。Increment 134の実装・正本反映・DB削除・配置は完了している。
+   次のincrementは[通常利用メモ](../docs/experience/normal-use-inbox.md)と利用者の指定から選ぶ。
 
 ## 未完了・再開対象
 
@@ -43,7 +42,7 @@ DBは利用者指示で削除済み。commit・push・常用binary配置を指�
 - 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は
   今回の`ps`確認ではともに不在。今回、プロセスへの操作は行っていない。
 - Increment 134のlocal実装、architecture・roadmap反映、対象workspaceの既存DB削除は指示済み・完了。
-  commit・push・常用binary配置も指示済み。JSR公開は未指示。
+  commit・push・常用binary配置も指示済み・完了。JSR公開は未指示。
 - 構想・architecture・roadmapの新たな意味変更は、対象・理由・変更内容を提示して別途明示承認を得る。
   詳細は[AGENTS.md](../AGENTS.md#product正本の変更承認)。
 
