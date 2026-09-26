@@ -41,7 +41,8 @@
 - Definitionは固定roleを持たず、すべてroot-runnableである。activation-level slotはroot `agent:default`だけを持ち、
   これはroot Definition revisionをbindする。child／subagentはDefinitionの固定roleではなく、Execution間の親子関係
   として扱う。同期delegated subagent（親Worker内でのchild `runAgent()`）と`subagent:<name>` slotは廃止した。
-  bundled executableは`default` Definitionだけを持つ。`agent:default` bindingでこれを置換できる。
+  bundled executableは`default`と`generic`のDefinitionを持つ。rootのbundled defaultは`agent:default` bindingで
+  置換できる。組み込み`agent:generic`は外部bindingなしで常時async child catalogへ解決される。
   reviewerやplannerを含む名前付きchildは`agent:<name>`へ外部Definitionをbindして使う。
 - 配布されるHenji executableはimmutableなcore/runtime artifactとして扱い、Hostが書き換えるstate、config、
   Definition module revision storeとは配置とlifecycleを分離する。executableの配置先やbinary隣接pathを
@@ -56,9 +57,13 @@
   しない。
 - UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、Host / Worker
   interface/protocol を通じてのみ Host と通信する。
-- 永続的なagentを採用する場合は常駐Hostが必要であり、durableな`AgentInstance`はephemeralまたは
-  再起動されたWorker generationより長く存続しなければならない。
-- Host の durable な `AgentInstance` metadata は、その Instance が現在使用する
+- 自己改訂を支える基盤は、Agent自身による実行・実効構成・履歴の観測と、model選択、generic child起動、
+  resourceからのrebuild等の構成操作である。Hostが観測のreadbackと状態適用を所有し、Workerが観測材料を
+  選び、意味を解釈して操作を要求する。現在の実装状態はroadmapで分けて管理する。
+- 現行の継続性は、Hostが保存・再開するSessionとexecution履歴を基盤とする。durable `AgentInstance`は
+  複数Sessionをstable identityとactive bindingで束ねる追加機能であり、自己改訂の開始条件ではない。
+  採用する場合、そのlifecycle ownerはHostとし、ephemeralまたは再起動されたWorker generationより長く存続する。
+- durable Instanceを採用する場合、Hostの `AgentInstance` metadata は、その Instance が現在使用する
   `DefinitionRevisionRef` を bind する。Definition revision の変更は、同じ revision の Worker
   restart とは区別され、明示的で durable な transition でなければならない。
 - 保存された Session の履歴を**閲覧のみ**で開くことは Worker generation を起動せず、
@@ -72,21 +77,21 @@
 - Hostが観測できたexecution evidenceのdurableな保存と、turnのcanonical conversationへの採用は別の
   operationである。cancel、failure、途中のtool result等を保存することは、そのexecutionをcanonicalへ
   採用することを意味しない。
-- durable historyのauthorityを、transport observation、当時のparser／runtime／tool interpretation、Host decision／
-  canonical state、Agent／build／resource attributionへ分ける。人間向け表示、検索文書、model context、summary、後日の
-  reinterpretationはderived projectionであり、元authorityを上書きしない。
-- outbound transport authorityはprovider adapterがHTTP clientへ渡したexact body bytes、inboundはruntimeがresponse body
-  として受け取ったexact bytesを境界とする。TCP／TLS／HTTP framing全体の観測とは呼ばず、credential値とAuthorizationを
-  保存しない。
-- historyのlogical record identityをphysical segment／offsetから独立させる。immutable exact-byte objectとobservation
-  segmentのcodec／配置を変更しても、occurrence、causal relation、canonical decisionのidentityを変えない。
-- evidence appendとcanonical adoptionは別operationである。append acknowledgementはobject、segment、directory、anchor、
-  execution ledgerのatomic commit後だけ返し、adoptionはsettled execution root／terminalとSession base revisionを
-  一transactionで照合・更新する。
+- durable historyのsemantic authorityを、messageとtool call/result、短いrequest fact、当時のruntime interpretation、
+  Host decision／canonical state、Agent／build／resource attributionへ分ける。人間向け表示、model context、summary、
+  後日のreinterpretationはderived projectionであり、元authorityを上書きしない。
+- provider、model、API、論理stepと物理request順番、HTTP／error、解析失敗の項目と値の形を短いfactとして保存する。
+  raw request／response、SSE断片、parser内部遷移全文は通常実行で収集せず、必要時の別probeで取得する。
+  credential値とAuthorizationは記録しない。
+- historyのlogical record identityをphysical locatorから独立させる。contentのcodec／配置を変更しても、
+  occurrence、causal relation、canonical decisionのidentityを変えない。
+- semantic appendとcanonical adoptionは別operationである。durable appendの確認はatomic commit後だけ返す。
+  現行history v7は新規delta、連続ordinal、terminal、mandatory referenceを増分処理し、canonical turnとSession
+  revisionを一transactionで保存する。ordered hash root、segment／directory／anchorを通常commitの必須条件にしない。
 - 人間向けhistory viewの`session`は、canonicalとnon-canonicalのexecutionを時系列に並べ、後者の
   outcomeと未完了境界を明示する。`canonical`は採用済みconversationだけを表示し、`detail`はJSONLで
   原記録を参照できる。modelが過去executionから既定で引き継ぐconversationはcanonicalに限定し、
-  現在execution内の文脈と人間が明示したprojectionは別の入力として扱う。
+  現在execution内の文脈と、人間またはAgentが目的に沿って明示的に選んだ観測材料は別の入力として扱う。
   Surface上のrendererとmodel context projectionは別責務である。
 - executionは、その判断に関与したAgent側の基底設定と相関できなければならない。このattributionは
   過去Worker、外部状態、tool effect、model内部状態の再現またはreplayを保証しない。
@@ -105,16 +110,15 @@
 | `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
 | `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
-| `AgentInstance` | 安定した agent identity、その durable metadata、および active な `DefinitionRevisionRef` の binding。 | Worker generation より長く存続し、置き換えられた Worker で再開できる。 |
-| `AgentWorkerGeneration` | 1 つの Definition revision を実行する 1 回の ephemeral な実行。Instance identity を変えずに停止、再起動、置換できる。 | process/thread/isolate の存続期間。 |
+| `AgentInstance` | 採用時に複数Sessionを束ねる安定したagent identity、そのdurable metadata、およびactiveな`DefinitionRevisionRef`のbinding。現行Sessionや自己改訂の前提ではない。 | Worker generationより長く存続し、置き換えられたWorkerで再開できる追加機能。 |
+| `AgentWorkerGeneration` | 1つのDefinition revisionを実行する1回のephemeralな実行。保存Sessionから停止・再起動・置換できる。durable Instanceを採用する場合は、そのidentityも維持する。 | process/thread/isolateの存続期間。 |
 | `Task` | 人間またはHostが一回の依頼としてadmitする入力。`/recall`等の次回限定projectionはこの境界で消費する。 | 一つのexecutionを開始する入力単位。再送やretryは新しいexecutionとして識別する。 |
 | `Execution` | 一つのtaskを、あるbase Session revisionとAgent側の基底設定から実行する独立したattempt。進捗、model request、tool activity、outcome、canonical採用状態を相関する。 | activeからsettledまで。canonical/non-canonicalにかかわらずevidenceをdurableに保持できる。 |
 | `Turn` | executionが正常完了し、Hostがconversationへ一括採用するuser/assistant interactionのsemanticな単位。 | canonical Session state内で順序を持つ。回答の正しさや利用者の満足を意味しない。 |
 | `ModelRequest` | 一つのexecution内でprovider/modelへ行う一回のrequest。tool loopにより一execution内に複数存在できる。 | request/response evidenceとexecutionを相関する。 |
-| `HistoryLogicalRecord` | transport、original interpretation、Host decision、attributionの一つのimmutable fact。stable ID、execution内順序、causal ref、semantic content refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたexecution evidenceとして永続化する。 |
-| `HistorySegment` | 一つ以上のlogical recordをnatural append batchでまとめたbounded immutable encoding。directoryとanchorから到達し、logical digestとencoded representation digestを区別する。 | storage mechanismが所有し、repack／codec変更でlogical identityを変えない。 |
+| `HistoryLogicalRecord` | message、tool call/result、短いrequest fact、runtime interpretation、Host decision、attributionの一つのsemantic fact。stable ID、execution内順序、causal ref、semantic content refを持ち、physical locatorをidentityにしない。 | Hostが観測しcommitしたsemantic authorityとして永続化する。 |
 | `HistoryProjection` | authorityから導出するhuman view、search document、flattened request、model working context、summary、later reinterpretation。 | rebuild可能であり、watermark遅延をauthority欠落とみなさない。 |
-| `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続executionが参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
+| `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続実行が参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
 | `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Worker とは独立して所有・置換される。 |
 | `HenjiHost` | Worker lifecycle、物理 terminal / Surface I/O、Surface の load、UI から command への変換、storage mechanism を所有する coordinator。 | Worker generation の lifecycle owner。常時稼働serviceにするかは未決である。 |
 
@@ -160,6 +164,8 @@ version migrationは未設計である。
 
 - Worker generation の起動、停止、監視、置換。
 - 物理 terminal とその他の Surface I/O。
+- process実行の物理ownerと共通process executor。Worker-local proxyからのdata-only requestを受け、
+  commandの制御端末分離、process groupの所有、cancel／forced termination／generation置換／close時の清算を担う。
 - Surface 実装の load と置換、および Surface action の Worker 向け command または message
   への変換。
 - 以下で説明する durable session 境界を含む storage mechanism。
@@ -185,7 +191,9 @@ Host は、Definition code が外部にあるというだけで、別の Definit
 - provider/model、effort、loop、tools、context component を含む、その
   `AgentComposition` の構築と実行。
 - Hostが解決したroot Definition refに対応するDefinitionだけを評価する。Worker内でchild agentを同期実行する経路は
-  持たず、childは（採用時には）別Worker・別ExecutionとしてHostが扱う。
+  持たず、childは別Worker・別ExecutionとしてHostが扱う。
+- toolのsemanticな実行とresult、Registryの出力store。processの物理実行はWorker-local proxyからHostの
+  process executorへ要求し、Registry終了時に出力storeを明示closeする。
 - transcript と context の意味、turn 中の作業状態、compaction policy、agent policy。
 - Hostが確定した基底設定、canonical conversation、明示projection、現在execution内のtool result等から、
   各model requestへ渡す実効contextを構成する意味。
@@ -256,9 +264,9 @@ direct-path Sessionは新schemaへ移行または自動importしない。
 ならない。remote、JSR、npm dependencyを初期import contractに含めるか、その固定方法は個別計画で決める。
 
 Definition moduleの`install`または登録と、実行対象への`activate`またはbinding transitionは別のoperationである。
-登録だけでは実行中のWorker generation、既存Session、`AgentInstance`のactive bindingを変更しない。Cycle 1前段は
-登録、list / inspect相当のreadback、新しいSessionへのexact revision指定までを扱う。既存Instanceのdurableな
-binding transitionとcandidate promotionは、人間の採用を扱う後続機能で決める。turn途中でDefinitionを置換せず、
+登録だけでは実行中のWorker generation、既存Session、採用時の`AgentInstance`のactive bindingを変更しない。
+登録、list / inspect相当のreadback、新しいSessionへのexact revision指定は実装済みである。既存Instanceのdurableな
+binding transitionとmanaged candidateのpromotionは、その機能を採用するときに決める。turn途中でDefinitionを置換せず、
 新revisionを使う場合はHostが後続のWorker generationを起動する。
 
 standalone cutoverではversioned envelope、logical/physical ref分離、XDG data namespace、build/API contract
@@ -298,6 +306,11 @@ collectのtool resultとして返された時だけ親contextへ入る。child e
 Sessionへ採用されずにnoncanonical execution evidenceとして残る。parent cancel／failure／settle／closeは未完了childを
 cancelする。V1はparent-execution-scoped one-shot fork/joinとし、mailbox、restart reattach、follow-up、recursive
 spawn、swarm UIは対象外とする。
+
+Increment 131のgeneric childは、用途やmodelごとに名前付きDefinitionを準備せず、Agentがtaskとmodel、
+tool構成を選んで別Executionを作る手段である。固定roleのvariantを増やすことを自己改訂の中心にせず、
+観測・調査・実装等の依頼に応じて構成を選ぶ。内部にはbundled generic Definitionがあり、childの実行結果と
+構成のattributionを保持する。これ自体を経験解釈や改訂cycle全体の実証とはみなさない。
 
 childのspawn成功はchild executionのdurable admission後、collect成功はdurable terminal settlement後にだけ返す。
 status／collect／cancelのaddressabilityはspawn元parent executionに限定し、後続turnから過去runをmailboxとして
@@ -351,8 +364,9 @@ credential値やAuthorizationを渡さず、auth profileを指定してrequest�
 合成したtool Definitionのexact refはmanifestとexecution artifactへ記録し、context attributionへは入れない。
 `bash`／`bash_output`／`edit`／`read`／`write`も`web_search`／`web_fetch`と同じbundled tool Definitionとして供給し、
 固定`ToolComponentCatalog`／`workToolNames`と`AgentCompositionOptions.toolComponents`の同一identity置換seamは
-削除した。core-owned tool（`skill`／`delegate_to_<name>`／`submit_json_result`）はDefinition化しない。tool
-Definition transportと任意kindの共通frameworkは後続incrementで扱う。
+削除した。core-owned tool（`skill`／`submit_json_result`と`spawn_subagent`／`subagent_status`／
+`collect_subagent`／`cancel_subagent`）はDefinition化しない。同期`delegate_to_<name>`は廃止済みである。
+tool Definition transportと任意kindの共通frameworkは後続incrementで扱う。
 
 #### native discoveryとHenji Instruction
 
@@ -433,15 +447,15 @@ registryをmaterializeした後にAgentCompositionのsystem instructionへ合成
 `offset`・`limit`による継続読込みの指針を`read`を宣言したAgentへ、切り捨てられた`bash`出力を
 `bash_output`の`outputId`と`nextOffset`で継続取得する指針と、currentまたは外部情報に`web_search`を使って
 具体的なquestionを渡し、返されたsource URLを対応する主張の近くへ引用し、不足と推論を明示する指針を、
-それぞれのtoolを持つdefault parentだけへ合成する。
+それぞれのtoolを宣言したAgentへ合成する。
 
 現在のdeclarative registry経路では、`read`、`write`、`edit`、`bash`、`bash_output`、`web_search`、`web_fetch`を
 managed tool Definitionからmaterializeする。bundled tool Definitionは既存tool factoryをruntime bindingへ結び付ける
 薄いmoduleである。tool identityの宣言は各Agent Definitionがownerで、`additionalTools`で追加identityを宣言でき、
 `tools.json`のexternal tool Definition bindingが同名identityを差し替える。Host提供の`toolDefinitions`はroot
 Definitionへ渡り、宣言したidentityだけをmaterializeする。catalog外の新しいidentityはbindingが
-無ければ起動時にtyped failureとなり、plugin探索、hot reload、componentの独立revision・import dependency lineageは
-まだない。
+無ければ起動時にtyped failureとなる。managed tool Definitionの独立したexact revisionとexecution attributionは
+成立している。Definition manifestへのtransitive dependency binding／lineage固定、plugin探索、hot reloadは未実装である。
 
 default parentの`web_search`は、前節のmanaged resource kind `tool-definition`として供給されるbundled tool
 Definitionが、provider-neutralなHenji-owned tool contract（`WebSearchBackend`）を実装する。bundled実装は既存
@@ -469,6 +483,10 @@ default parentの`bash`と`bash_output`は、一つのRegistry lifetimeで一つ
 1 Registry 128 MiB、retained stream 4,096件を固定上限とする。上限到達時は実行commandを停止してpartial
 readbackを残し、未commitのcancelled outputは同じhandle上でextentを詰めて容量を回収する。process再起動、
 Session resume、別Worker generationをまたぐdurabilityは持たない。
+Registry終了時にstoreを明示closeする。processの物理ownerはHostにあり、Workerのbash Toolは共通process executorの
+proxyを使う。foreground callの終了と、正常return後に残るbackground process groupのlifetimeを分け、groupは
+Worker generationのHost側ownerが所有する。tool commandへHostの制御端末を継承させず、cancel、forced termination、
+generation置換、closeは所有processの清算へjoinする（Increment 133）。
 
 Worker は terminal、TUI layout、その他の Surface を所有しない。turn を実行するために特定の
 UI を要求してはならない。
@@ -497,14 +515,19 @@ Worker内部`AgentEvent`やprovider-private replay state、Host内部durability/
 conversation logのturn境界、user入力と最初のtoolまたはassistant出力の境界、logと入力欄およびfooterの
 境界は、Host側layoutが表示専用の空行として導く。canonical transcriptやWorker eventへ空messageを
 追加しない。現在SessionのviewportはHost-localな`followLatest` / `anchored` stateで管理し、過去表示中は
-位置と`Esc latest`を示す。PageDownで末尾へ到達した場合、idleのEsc、または通常taskのadmission成功時に
-最新追尾へ戻る。
+`history record N of M`または`history start`を示す。idleは`Esc latest`、busyは`PgDn latest`と`Esc cancel`を
+案内する。busy中もPageUp／PageDownで履歴を参照できるが、Escはturnをcancelする。PageDownで末尾へ到達した場合、
+idleのEsc、または通常taskのadmission成功時に最新追尾へ戻る。
 
 conversationの`user>`、settledした`assistant>`、`tool>`、`system>`のlabel styleもHost側の表示metadataで
 あり、現在はそれぞれblue、yellow、green、magentaで識別する。ANSI sequenceは最終的なterminal frame生成時
 だけ加え、layout、canonical transcript、Presentation eventはplain textのままとする。assistant本文はHost
 TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは入力textをそのまま返すため、
 streamingとsettled outputの内容を変更しない。
+通常実行のassistant本文とthinkingはlive snapshotで生成に追従し、thinkingはmodel stepごとに一entryを置換して
+確定する（Increment 132 A／B）。保存Sessionではstepごとの最終thinkingを復元し、逐次再生しない。
+長時間利用の入力・PageUp／PageDown遅延（同C）は未再現・未完了である。保存Sessionのfailure行は停止理由を赤字で
+示し、recall可能なExecution IDがある場合は短縮IDと`/recall <id>`の案内を付ける（Increment 122／125）。
 
 `henji history`は別プロセスのread-only viewerである。現行storeをread-onlyで開き（schema作成・reconcile・lockを
 行わない）、単一read transactionで対象Sessionのcanonical transcriptまたはdurable historyを読み、`session`／
@@ -512,10 +535,10 @@ streamingとsettled outputの内容を変更しない。
 TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
 redirectに任せる。TUI内のhistory overlayと`/history export`は持たない。
 
-同一Session内のOpenRouter model/effort選択もHostが所有するsession-level runtime stateであり、Definition
+同一Session内のprovider/model/effort選択もHostが所有するsession-level runtime stateであり、Definition
 revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は
 選択を固定する。Session schema v6はactive選択、
-変更履歴、commit済みturnごとのmodel attributionを保持する。同じOpenRouter provider内の切替後もcontext
+変更履歴、commit済みturnごとのmodel attributionを保持する。provider/model切替後もsemanticなcontext
 checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
 
 production TUIと`henji run`は、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
@@ -542,10 +565,10 @@ recoverable settlementで未commitのactive taskが残る場合、Hostはeditor�
 観測した必要に応じ、roadmap上のTUI incrementとして変更できる。第二Surfaceまたは一般的なSurface load /
 selection / replacementを採用するときも、WorkerをSurface依存にせず同じ境界を使う。
 
-物理的な terminal と Surface I/O は Host が所有する。一方、provider/tool effect の物理 I/O を
-Worker が直接実行するのか、Host の RPC/capability 経由にするのか、subprocess 境界に置くのかは
-重要な未決定事項である。現行または将来の個別実装上のplacementを、別途architectureで決定せずに
-確定事項とみなしてはならない。
+物理的なterminal、Surface I/O、process実行はHostが所有する。process実行のWorker-local proxyと共通executorは
+data-only transportを使い、tool resultの意味と履歴はWorker側の責務に保つ。provider HTTP等の現行I/OはWorker内に
+あり、その将来placementをprocess実行と同じownerへ一般化しない。process以外の配置変更は具体的なproduct機能を
+採用するときにarchitectureで判断する。
 
 この境界を通るのはdataとprotocol messageである。JavaScript関数そのものは境界を越えない。
 Deno Web Workerのstructured cloneでは関数を送れないため、DefinitionはHostからcallable valueとして
@@ -633,13 +656,15 @@ modelへ渡すsemantic conversationへ混入させない。
 
 model context projectionはhistory viewとは別責務である。過去executionから既定で引き継ぐconversationは
 canonicalに限定する。一方、現在execution内で得たassistant stepやtool resultはそのexecutionの後続model requestへ
-渡すことができ、人間が明示的に選んだreferenceも目的と期間を限定して追加できる。
+渡すことができ、人間またはAgentが明示的に選んだreferenceも目的と期間を限定して追加できる。
+Agent自身の履歴参照を採用するときも、観測材料の選択とcanonical conversationへの採用は別operationとする。
 
 Increment 38の`/recall`は、settled non-canonical executionを人間が選び、保存済み内容を次の一つのtaskへ
 data-only contextとして投影するHost operationである。sourceをcanonical化、resume、自動retryせず、source identity、
 実際のprojection、target executionを相関する。projectionの選択は次taskのadmissionで消費し、そのtask内の各model
 requestで利用できる。targetがcanonical採用されてもsourceはnon-canonicalのままであり、targetが生成した内容は通常の
-canonical conversationとして後続へ残り得る。projection本文をcanonical turnへ含める具体的範囲は未決である。
+canonical conversationとして後続へ残り得る。現行はprojection本文をcanonical turnへ複製せず、source／target relationと
+実際のprojectionをsemantic履歴とcontext attributionへ記録する。canonical表現を変更する場合は別途判断する。
 
 ### Execution context attribution
 
@@ -660,6 +685,22 @@ attributionを書き換えない。
 このattributionは完全再現性を目的にしない。過去Worker、model内部状態、dependency、binary、OS、filesystem、
 外部service、tool effectをsnapshotまたは再構築する保証にはしない。
 
+### Agent自身の観測と構成操作
+
+人間向けTUI/historyの充実を、Agent自身の観測操作が成立したことと同一視しない。Agentが現在の自分の
+executionと実効構成を発見し、目的に必要な履歴・attribution・短いrequest factを選んで読む経路を整える。
+Hostは既存のsemantic authorityをreadbackし、Workerは観測を解釈して次の調査や変更候補の形成へ使う。
+新しいInstanceやexperience専用store、raw常設収集を、この観測の前提として追加しない。
+
+`/model`や`/rebuild`相当の状態操作は、Hostが所有するoperationへ人間のSurfaceとAgentのtoolから要求する方向とする。
+Workerが選択・要求を行い、Hostが適用対象と結果を確定して履歴へ相関する。TUIのslash文字列をAgentが擬似入力する
+経路を前提にしない。人間が定めた目的・改訂範囲・採用境界の中での操作と、その境界を変える判断を区別する。
+操作ごとの承認を一律に要求せず、候補の採用判断をAgentへ自動的に移すこともしない。
+
+現行root selectionはidle時に人間が変更し、admit済みturnで固定する。Agentからのroot model変更要求とrebuildは
+未実装であり、適用するmodel step／execution／generation境界と保存scopeは採用incrementで定める。
+進行中のprovider requestが使用した構成や、過去executionのattributionを書き換えない。
+
 `AgentContextGeneration`を採用する場合、それは`/rebuild`によって構築・有効化したAgent側の基底設定を表す。
 canonical conversationはturnごとに進み、skill本文やtool result等はexecution中にも追加されるため、generation ID
 だけで実際のmodel input全体を表さない。process/isolateのlifetimeを表す`AgentWorkerGeneration`と同じidentityに
@@ -667,17 +708,21 @@ canonical conversationはturnごとに進み、skill本文やtool result等はex
 
 ### Context rebuild候補
 
-人間向けHost operationの候補である`/rebuild`は、再解決の対象として定めたresourceから新しいAgentの実効状態を
-構築し、後続executionへ適用する。単なるfile rereadではなく、改訂されたresourceを次のAgent側基底設定へ反映する
+人間とAgentが要求できるHost operationの候補である`/rebuild`は、再解決の対象として定めたresourceから新しいAgentの実効状態を
+構築し、後続実行へ適用する。単なるfile rereadではなく、改訂されたresourceを次のAgent側基底設定へ反映する
 activation境界として扱う。
+
+この操作をHenji executableの再compile・配置・再起動と同一の操作とは決めない。binary platform authorityの
+変更は新しいbuildとして追い、resourceのrevisionとその実行時の内容・selectionはそれぞれ相関する。
 
 対象resourceと更新可能範囲は未決である。workspace instructionとskillに加え、Agent Definition、tool contract、
 tool implementationも候補に含む。toolを対象にする場合は、modelへ提示するcontractと実際にdispatchするimplementation
 の対応を定める。native resourceの現在内容を再解決する操作と、managed candidateの人間承認、immutable revisionへの
 promotion、active binding transitionを同じoperationにするとは決めない。
 
-採用時には、active executionの途中で基底設定を切り替えず、新しい設定の構築成功後だけ後続executionのactive
-generationを変更する方向を保つ。canonical conversation、未送信draft、過去executionとそのattributionは書き換えない。
+Agentが実行中に要求する場合も、進行中requestの基底設定を上書きせず、新しい設定の構築成功後に適用する
+境界を定める。要求元taskの続きへ適用するか、次executionへ適用するかとgenerationの引継ぎは採用incrementで
+具体化する。canonical conversation、未送信draft、過去executionとそのattributionは書き換えない。
 構築失敗時に旧generationを維持すること、context transitionをHost-owned evidenceとして記録することの具体的な
 identity、commit順序、failure semanticsは個別incrementで定める。
 
@@ -690,9 +735,8 @@ canonical化、既に生じた副作用の承認または取消しを意味し�
 この境界での admission と commit は、次の revision binding 不変条件に従う。これは具体的な
 field や schema を定めるものではない。
 
-- Worker generation は、少なくとも `AgentInstance` identity、Definition revision、
-  generation/lease identity、base session state revision と相関する。Instance-wide state が存在する
-  場合は、その state の revision も相関させる。
+- Worker generationはSession/execution identity、Definition revision、generation identity、base Session state
+  revisionと相関する。durable Instanceを採用する場合はInstance identityと、所有するstateのrevisionも相関させる。
 - Host は、現在 admit されている generation から、かつ一致する Definition revision と base
   session state revision から来た proposal だけを受理する。この不変条件は live generation に適用し、
   保存履歴の閲覧には適用しない。
@@ -706,10 +750,13 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 
 ### AgentInstance と Session の関係
 
-次の関係と canonical domain を維持する。
+現行の継続性は、Hostが保存・再開するSessionとexecution履歴にある。Sessionはtranscript、context、turn commit等の
+conversation semantic stateを所有し、SessionのwriterとgenerationをHostが管理する。独立したdurable Instanceを
+Sessionの必須所属先にしない。
 
-- 1 つの Session は必ず 1 つの `AgentInstance` に属し、1 つの `AgentInstance` は 0 個以上の
-  Session を持てる。
+durable Instanceを採用する場合は、次の関係とcanonical domainを追加する。
+
+- その機能の対象Sessionは1つの`AgentInstance`に属し、1つの`AgentInstance`は0個以上のSessionを持てる。
 - Session は transcript、context、turn commit などの conversation semantic state を所有する。
   `AgentInstance` は stable identity と active な Definition revision binding を所有する。
 - 同じ `AgentInstance` に admit される writer Worker generation は、一度に 1 つだけとする。
@@ -720,7 +767,7 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 
 | 責務 | HenjiHost | Agent Worker |
 | --- | --- | --- |
-| Session identity | session ID と `AgentInstance` との association を所有する。 | 現在の実行でその identity を使用する。 |
+| Session identity | session IDを所有し、durable Instanceを採用する場合はそのassociationも所有する。 | 現在の実行でそのidentityを使用する。 |
 | Concurrency | lock と session の serialized admission を所有する。 | ephemeral な turn 中 state だけを持つ。 |
 | Persistence | load/store、storage revision、atomic replacement、recovery を所有する。 | commit を提案する。durable state の canonical source にはしない。 |
 | Conversation の意味 | 受け入れた canonical state を保存する。 | 実行中の transcript/context semantics と compaction decision を所有する。 |
@@ -732,10 +779,10 @@ Host/Worker 分割によって、実行中の Worker が durable truth の sourc
 1. Host が canonical session state を load し、Worker generation への command を受け入れる。
 2. Worker が snapshot を解釈して composition を実行し、turn 中の output と commit proposal を
    生成する。
-3. Hostは観測済みevidenceをbounded appendとしてatomicに保存し、commit後だけdurable acknowledgementを返す。executionの
-   settlementはincremental ledgerのroot、count、terminal、unresolved referenceを照合し、過去payload全体を再検証しない。
-4. canonical採用時、Hostはsettled execution root／terminalと適用対象Session revisionを照合し、canonical turnとSession
-   revisionを一transactionで保存する。
+3. Hostは観測済みsemantic deltaをatomicにappendする。executionのsettlementは連続ordinal、count、terminal、
+   mandatory referenceを増分処理し、過去payload全体を再検証しない。
+4. canonical採用時、Hostは適用対象Session revisionとexecutionの成立条件を照合し、terminal／settlement、canonical turn、
+   Session revisionを一transactionで保存する。ordered hash rootを成立条件にしない。
 5. durable canonical adoptionが成功した後にのみ、HostはSurfaceまたは採用済みoutput consumerへturnをcommittedと報告する。
 
 ### Effect と commit proposal
@@ -754,33 +801,37 @@ Persisted Host state が durable truth であり、その中でcanonical convers
 network、その他の effect には、それぞれ将来の semantics が必要である。この文書はそれらの
 semantics を定義しない。
 
-## 経験からDefinitionへ進む改訂ループ
+## 経験から変更と通常利用へ進む改訂ループ
 
-このarchitectureがDefinitionについて定める改訂ループは、次の関係である。
+人間主導でHenji自身が一部incrementの実装を担う運用は始まっている。Agent自身の観測・振り返り・改善案の
+形成を強めるため、次の関係を狭いincrementでつなぐ。専用candidate管理やdurable Instanceを先に完成させる
+固定工程にはしない。
 
-1. Hostのstorage mechanismが、通常利用で観測された経験を、必要ならSessionをまたいで後のWorker
-   generationから読める形で継続的に保存する。
-2. 人間の明示的なアクションまたは指示を受けて、Worker内のAIが保存された経験を読み、その意味を解釈
-   して、Definitionの改訂候補をsource、diff、またはdataとして生成し、interfaceを通じてHostへ返す。
-3. Hostは改訂候補を現在使用中の`DefinitionRevisionRef`と区別して保存し、生成されただけでは実行対象に
-   しない。
-4. 人間が採用アクションを行うか、提示された候補を明示的に承認した場合だけ、その候補をimmutableな
-   `DefinitionModuleRevision`として確定し、Hostが`AgentInstance`のbindingを明示的かつdurableに切り替える。
-5. 改訂後も通常利用を続け、そこで観測された変化を次の経験として保存する。
+1. Hostが保存したSession、semantic履歴、実効構成のattribution等を、人間とAgentが目的に沿って観測する。
+2. 人間のアクションまたは指示を契機に、Worker内AIが経験を解釈し、対象機能の変更候補を作る。
+3. 対象に応じたsource・diff・dataと由来を確認できる形で残し、人間が採用アクションまたは明示的承認を行う。
+4. 人間が定めた範囲で、人間またはAgentが変更を後続実行へ反映する操作を要求し、Hostが実効状態を確定する。
+5. 改訂後のHenjiを通常利用し、観測された変化を次の経験にする。観測・構成選択・反映の手段も改訂対象にできる。
 
-このループは、変更前後の比較実験、改善の定量測定、Henji全体の構成追跡を要求しない。何を経験として
-残すか、AIがどの経験を読むか、人間のアクション、指示、承認をどのSurfaceとprotocolで表現するかは、
-このarchitectureでは固定しない。Workerが人間の契機なしに改訂候補を自発的に生成することや、Hostが
-候補を自動採用することはない。
+対象はDefinitionに限定しない。native instruction、skill、tool実装、modelの選択と使い方、loop、runtime、
+Host/Worker連携、Surface等から、実際の経験に必要な対象を選ぶ。経験、candidate、active resource、実効状態、
+後続実行への適用は区別し、そのtargetの保存・採用・適用方式を個別incrementで具体化する。
+変更前後の統制実験、改善の定量測定、全実効状態を表す統一revisionは要求しない。
 
-Definition以外のinstruction、skill、tool等を改訂対象にする場合も、経験、candidate、active resource、
-後続executionへの適用を区別する。`/rebuild`を採用しても、candidate生成や人間の採用判断を自動化したことには
-ならない。native resourceの現在内容を再解決するflowと、managed candidateをimmutable revisionへpromotionするflowの
-対応は、対象kindを選んだroadmap incrementで定める。
+### managed Definitionを改訂する場合
+
+managed Definitionはこのループを実現する一つの対象である。採用されたsource closureをimmutableな
+`DefinitionModuleRevision`として確定し、Session継続時の選択・切替を記録する経路を使える。
+専用candidate保存・promotionを採用する場合は、現在使用中のrevisionと候補を区別する。durable Instanceも
+採用する場合は、そのactive bindingのtransitionを追加する。これらを他resourceの必須方式にはしない。
+
+native resourceの現在内容を再解決するrebuildと、managed candidateの採用・promotion・binding transitionは
+同一operationと決めない。人間の改訂採用境界を維持しつつ、その範囲内でAgentが要求できる操作と適用結果を
+明示する。root model選択やgeneric child起動ができることだけで、自己改訂の一巡を実証済みとはしない。
 
 ## AgentInstanceの継続性とHostの追加機能
 
-`AgentInstance`の継続性は、Worker generationを置き換えてもidentity、durable metadata、activeな
+durable `AgentInstance`を追加機能として採用する場合、その継続性はWorker generationを置き換えてもidentity、durable metadata、activeな
 Definition revision bindingをHostが維持することで成立する。同じInstanceに対するwriter generationは
 一度に1つだけとし、Hostがinputをserializeする。この構造だけでは、mailbox、複数Surface間のrouting、
 scheduleをproduct機能として採用したことにはならない。
@@ -821,12 +872,14 @@ compatibility境界だけを採用する。
 
 | 未決の判断 | 今決めない理由 | 判断する契機 |
 | --- | --- | --- |
+| Agent自身が参照するexecution・実効構成とreadbackの入口 | 人間向けhistoryと間接参照はあるが、現在の自分を発見して必要な材料を選ぶ操作は未整備である | 自身の観測・振り返りの最初のincrementを採用するとき |
+| Agentからのroot model変更要求の適用時点と保存scope | 現行はidle時の人間操作でturn内固定。Agentの要求をどの後続step/executionへ適用するか未決である | root model操作の最初のincrementを採用するとき |
 | `AgentContextGeneration`のidentity、所有する基底設定、`AgentWorkerGeneration`との対応 | `/rebuild`対象resourceとcomposition再構築のlifetimeが未決であり、execution単位の動的inputまでgenerationへ固定しない | `/rebuild`または同等のcontext再構築をroadmapで採用するとき |
 | `/rebuild`対象resource、selection/activation authority、transitionのcommit/failure semantics | native instruction、skill、Agent Definition、toolでは更新方法とauthorityが異なる | 最初の`/rebuild` incrementで対象resourceを選ぶとき |
-| `/recall` projection本文をcanonical turnへ含める範囲 | source/target identityと一回限りのmodel projectionは成立したが、canonical turnのprojection表現は未決である | canonical turnのprojection表現を変更するschemaまたは機能を採用するとき |
-| provider/toolの物理I/OをWorker、Host RPC/capability、subprocessのどこに置くか | effect、latency、streaming、credential、利用するtoolの契約によって適切な境界が変わる | roadmapが具体的なprovider/tool利用経路を選んだとき |
+| `/recall`のcanonical表現を変更するか | 現行はprojection本文をcanonical turnへ複製せず、semantic履歴とcontext attributionへ相関する。表現を変更する要件は未採用である | canonical turnのprojection表現を変更するschemaまたは機能を採用するとき |
+| process以外のprovider/tool物理I/Oのplacement変更 | process実行はHost所有として成立した。provider HTTP等はWorker内にあり、将来の配置変更は実際の利用契約から決める | roadmapが配置変更を必要とするprovider/tool利用経路を選んだとき |
 | Worker protocolのmessage、handshake、error、versioning | 必要なmessageとfailure semanticsは、境界を使うproduct機能から決まる | 新しいHost / Worker間機能を実装するとき |
-| Compositionをgeneration単位またはturn単位のどちらで構築するか | dynamicな再構成を必要とする利用者動作が確定していない | roadmapが実行中の構成変更を必要とする機能を選んだとき |
+| Compositionをどの単位で再構築・適用するか | Agentからのrebuild要求を含む方向は決まったが、最初の対象resourceとtaskの引継ぎは未決である | roadmapが具体的なrebuild動作を選んだとき |
 | Definition moduleで許すremote、JSR、npm dependencyの固定方法、revisionの更新・削除・GC | local module closureを保持する初期managed revisionと、新しいSessionへのexact revision指定には不要であり、実際の利用経路ごとに必要なsemanticsが異なる | 対象dependencyまたはrevision管理operationをproduct機能として選んだとき |
 | MCP connection discovery/config format、tool name mapping、capability変更時のgeneration更新、server packageのmanaged化 | MCP protocol compatibilityとHenji固有のselection・durabilityは別contractであり、具体的な利用経路をまだ採用していない | roadmapがMCP integrationを採用したとき |
 | Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |

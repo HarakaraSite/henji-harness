@@ -289,7 +289,8 @@ authoritative `v0:gate`を一回実行する。失敗はfocused確認で原因�
 
 ## Product正本の変更案と承認境界
 
-以下は**別途明示承認を要する案**であり、まだ正本へ反映していない。
+以下は計画時に**別途明示承認を要する案**として提示した内容である。2026-09-26の文書見直し案に対する
+利用者の「修正してください」を受けて正本へ反映した。結果は末尾の「Product正本への反映」を参照する。
 
 1. `docs/architecture/henji-host-agent-worker.md`のphysical I/O placement:
    未決定の全tool配置を一括確定せず、**process実行に限りHostが物理ownerとなり、WorkerのToolは
@@ -631,3 +632,18 @@ artifact: `/tmp/henji-i133-code-review/published-meta.json`、`published-import.
 commit・push・常用binary配置・JSR publishの利用者依頼は完了。
 今後の入力欠落の解消は、利用者指定通り常用利用で継続観測する。
 architecture/roadmap正本の反映、実provider probe、旧Git chainの恒久終了は今回の公開に含めていない。
+
+## Product正本への反映（2026-09-26）
+
+構想・architecture・roadmapの照合結果と意味上の修正案を提示し、利用者の「修正してください」により
+architecture 2文書とroadmapの修正を明示承認された。上記変更案1〜3を
+[`Host / Agent Worker architecture`](../architecture/henji-host-agent-worker.md)へ反映し、processのHost所有、
+Worker-local proxyとdata-only transport、制御端末分離、background groupのgeneration lifetime、
+cancel／forced termination／replacement／close時の清算へのjoin、Registry出力storeの明示closeを記載した。
+
+[`roadmap`](../roadmap.md)のF01／F11／F12と物理I/O placementへ実装・確認済みの範囲を反映した。
+常用利用での入力欠落解消は継続観測とし、Increment 132 Cは未再現・未完了のまま保持する。
+同時にasync child、semantic履歴、TUIとprovider deadline、既存incrementの実装状態に関する古い記述を訂正した。
+構想の意味変更はない。実provider probeと旧Git chainの恒久終了は今回の承認範囲に含まない。
+
+文書のみの変更で、差分・相対linkの参照先を確認した。code変更、provider call、追加releaseは行っていない。

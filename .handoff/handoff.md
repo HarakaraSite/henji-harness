@@ -2,6 +2,11 @@
 
 ## Next session
 
+- セッション終了時点（2026-09-26）: 通常利用メモとproduct正本文書の見直しは完了。
+  自己改訂構想の変更は利用者が承認し、正本へ反映済み。目的と境界は
+  `docs/concepts/experience-driven-self-revision.md`、責務は`docs/architecture/henji-host-agent-worker.md`、
+  次の採用候補と状態は`docs/roadmap.md`の「自己改訂を支える次の増分」を参照。
+  個別incrementの選択・実装は未指示。旧固定Phase案はroadmapからhistoryへ移した。
 - 次の一手（利用者指示 2026-09-26）: 常用利用でIncrement 133の入力欠落解消を継続観測する。
   簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない（利用者判断）。
   正本: `docs/increments/increment-133.md`（slice結果、第三者review対応、配置・JSR公開結果）。
@@ -9,7 +14,8 @@
   （source `f10893ba…`、build `36e27ab6…`、dirtyなし）。新binaryは次回起動から利用できる。
   JSR `@henji/harness@0.7.0`公開、registry metadata/exact import確認、一時worktree cleanupまで完了。
   release候補のauthoritative gateとbinary内部runner確認は通過。第三者reviewのP1/P2は修正し再確認済み。
-  architecture変更案1〜3の正本反映、roadmap結果反映、実provider probeは別途明示承認が必要。
+  architecture変更案1〜3とroadmap結果は、文書見直し案への利用者承認を受けて正本へ反映済み。
+  記録はIncrement 133「Product正本への反映」。実provider probeは別途明示承認が必要。
   診断時の既存Henji PID `200048`とSIGSTOP中Git reader PID `202890`には今回操作していない。
   旧Git chainの恒久終了は未承認。詳細・証拠はIncrement 133を参照。
   S17〜S20は未採用候補として通常利用メモに残る。Increment 132 C全体を完了扱いにしない。

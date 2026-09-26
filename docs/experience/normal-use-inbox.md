@@ -345,12 +345,13 @@ Pi／OpenCode／Henjiの画面表示比較
 ### A14 — 名前付き子Agent Definitionの専用model指定
 
 - 利用者希望（2026-09-25）: 外部`reviewer` Definitionにreviewer専用のmodelを定義し、親Sessionのmodelと
-  独立に動かしたい。起動ごとにmodelを任意指定するA13とは別の要望。
+  独立に動かしたい。起動ごとにmodelを任意指定するIncrement 131とは別の要望。
 - 現行境界: `agents/reviewer.ts`は役割instructionとtoolを定義するが、`createAgentComposition`にmodel指定
   optionはない。session `b3aa7c49`では親とreviewerがともに`opencode-go-chat / mimo-v2.6-pro`で実行された。
-  子Workerへ渡すmodelは現在、Hostが親を開いたときの`initialModelSelection`から決まる。
+  現在は[`increment-131.md`](../increments/increment-131.md)の`spawn_subagent(agent, task, model?, tools?)`で
+  起動時にmodelを指定でき、省略時は親Sessionの現在selectionを使う。Definitionの専用model既定は未実装である。
 - 候補: 外部Agent Definitionが子実行の既定model選択を宣言し、Hostが子Worker起動時にその選択を適用する。
-  親Sessionの選択や将来の起動時指定との優先順位は、採用時に決める。
+  親Sessionの選択や既存の起動時指定との優先順位は、採用時に決める。
 - 再検討条件: reviewerなど名前付き子Agentを親と異なるmodelで通常利用するとき。
 
 ### A15 — searchツールコールの実装
@@ -384,16 +385,16 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ### R2 — revision付きtool componentとMCP component
 
-- 観測: catalog外の新tool identityをexternal Definitionから追加する一般seamと、tool dependency revisionを
-  Definition lineageへ固定する境界は未実装である。Exa MCPの採用は却下済みだが、一般的なMCP
-  componentは将来候補として残る。
-- 候補: tool componentをrevision identity、model向けcontract（name、description、schema、
-  `promptGuidelines`）、Worker内でphysical I/Oへbindするexecutorに分ける。Definitionがcomponentを選択・合成し、
-  Manifestへresolved revisionを記録する。
+- 現行境界: Increment 69〜71でmanaged tool Definition、model向けcontract（name、description、schema、
+  `promptGuidelines`）、Worker内のmaterialize、Manifestへのresolved exact revision記録を実装済みである。
+  catalog外の新tool identityもexternal Definitionの`additionalTools`宣言と`tools.json` bindingで追加できる。
+- 候補: tool dependency revisionをDefinition lineageへ固定し、tool candidate生成から人間の採用、通常利用への
+  反映までを自己改訂flowとして接続する。一般的なMCP componentは将来候補として残る（Exa MCPの採用は却下済み）。
 - 完了境界候補: component schemaだけではF24の完了とせず、tool candidate生成、revision保存、人間の採用、
   通常利用への反映までをproduct flowとして確認する。
 - 再検討条件: Self-revisionのtool candidate、または具体的なMCP integrationを採用するとき。
-- 関連: E1。
+- 関連: E1、[`increment-69.md`](../increments/increment-69.md)、
+  [`increment-70.md`](../increments/increment-70.md)、[`increment-71.md`](../increments/increment-71.md)。
 
 ### R3 — tool実行profileとsandboxed Deno program
 
@@ -443,7 +444,10 @@ Pi／OpenCode／Henjiの画面表示比較
   導入され、Increment 103でbuilt-in最小core＋user `instruction.md`直接読み込みへ置換された。Agent Definitionで
   得たloader、dependency、promotion、activationのsemanticsをinstruction、tool、Provider、MCP、Surfaceへ
   自動的に一般化しない。
-- 未実装境界: catalog外のtool identity、複数slotのinstruction revision化、external Provider registry、互換providerの
+- toolの現行境界: Increment 69〜71でmanaged tool Definitionのinstall/bindと、external Agent Definitionによる
+  catalog外のtool identityの追加宣言・合成、Manifestへのresolved exact revision記録を実装済みである。
+  tool dependency revisionのDefinition lineageへの固定と自己改訂flowはR2の候補として残る。
+- 未実装境界: 複数slotのinstruction revision化、external Provider registry、互換providerの
   data-only Definition、独自protocolのexecutable Definition、resourceごとのmutable instance state、context rebuild、共通package/plugin
   discoveryは未採用である。Providerは`openrouter-chat`／`openrouter-responses`／`openai-chat`／`openai-responses`と
   external宣言で、auth profileはpattern一般化済み（Increment 101）だが、external Provider registryと宣言の
@@ -478,8 +482,6 @@ Pi／OpenCode／Henjiの画面表示比較
   base instructionのcontent revisionはR4の対象として残る。
 - 候補（Henjiが単独でownerになれるcontractに限る）。優先順は未定で、通常利用で必要になった時点で個別incrementへ
   採用する。
-  - named subagentの一般化: `agent-definition`（role=subagent）×`subagent:<name>` slotをplanner以外へ広げる。
-    独立kindではない。→ 2026-09-18に次のincrementとして採用（increment-72）。
   - provider declaration revision: data-only宣言をexact revision化（pin/transport/activation）。Provider外部化の
     続き。ファイルベースで足りる可能性あり。
   - model profile revision: model/effort/catalog preset。selection presetという別contract。
@@ -597,111 +599,29 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: editor/IDE統合、または別agentからの対話的駆動を通常利用で必要とするとき。
 - 関連: Increment 104、F10、F12、R3。
 
-## 観測した不具合（未修正）
+## 観測した不具合（未解決の残件）
 
 - 個別incrementへ採用するまでは修正しない。再現条件、実行証拠、利用者影響をここへ残す。
 
-### B1 — busy表示が更新されない（原因=同期terminal write、increment-74で修正）
+### B5 — `commit proposal invalid`の具体的な検証不合格理由を特定できない
 
-- 観測（2026-09-18）: 利用者報告ではtool call結果待ちの間、busy表示（`working`＋spinner、経過時間）が
-  更新されない。
-- 検証（2026-09-18、installed binary、pty）: 12秒の`bash sleep`待ちで`working 00:00`〜`00:11`（102 frame）、
-  `web_search`（ネストSonar request）待ちで`00:00`〜`00:19`と、いずれも継続更新。spinnerも更新、`BLINK_SGR`なし。
-  **これらの条件では再現しない**。
-  初期の「停止」観測はpty採取側の早期打ち切りによる誤りで、timer callback自体はturn中も実行されていた
-  （`__TICK=40`／`__HB=29`、9秒単発timerも発火）。
-- 利用者再現（2026-09-18）: Session `375ca4e7`（workspace `/home/masat.guest/src/henji-harness`、state root
-  `~/.local/state/henji-harness/v1/967fa641…`）のprompt「denoとnodeを比較したい webで情報を収集して」で
-  `web_fetch`中に発生。
-- DB観測: execution `8182968c`（turn 2）は217秒。`context_observation`→次`provider_request_start`間に
-  **12.2s／18.8s／25.7s**の無観測gapがある。
-- ただしDBからweb_fetchの実引数URLと所要時間を算出すると、web_fetchは
-  `docs.deno.com/runtime/fundamentals/node/`、`nodejs.org/en/about/previous-releases`、
-  `docs.deno.com/runtime/fundamentals/stability_and_releases/`、`docs.deno.com/runtime/migrate/`、
-  `deno.com/blog/v2.0`、`betterstack.com/...`等で、いずれも**0〜1.2秒**。gapはweb_fetchではない。
-- gap区間は`context_observation`直後から次request開始までで、web_search等のaux requestやprovider待ちの
-  可能性。利用者の「web_fetchで起きた」は別の待ち区間を指している可能性がある。
-- pty長時間再現（2026-09-18、同じ日本語prompt）: 133秒のturnを通して`working 00:00`〜`02:13`が継続更新し、
-  連続frame間の最大gapは0.4秒。**実シナリオでも再現しなかった**。
-- tmux再現（2026-09-18、increment-74）: tmux 3.5a内のinstalled binaryで同じ日本語promptの150秒turnを
-  `capture-pane`採取すると`working`更新に**10.0s／5.1s／3.6s**のgapを観測。原因は
-  `v0/tui/terminal.ts`の`Deno.stdout.writeSync`によるfull-frame同期writeが、遅いterminal consumerで
-  main threadを塞ぐこと。**修正済み**（非同期write＋full-frame coalescing、restore時flush）。
-- 検証（increment-74）: masterをdrainしないptyでsync実装はevent loopがblock（hung）、非同期実装はtimer継続。
-  tmux内source TUIの長時間turn（busy 95秒、および大出力turn 150秒）でbusy表示が継続更新し、最大wall gap
-  1.6秒。focused testは`tests/v0/increment_74_terminal_write_test.ts`。
-- 正本: [`increment-74.md`](../increments/increment-74.md)。
-
-### B2 — `/sessions`が`session list unavailable`（increment-75で修正）
-
-- 観測（2026-09-18）: `/sessions`でセッション一覧が参照できず`[session list unavailable]`が表示される。実際には
-  Session `a75bd052`が存在する。
-- 原因（2026-09-18、increment-74で特定）: `sqlite_history_store.ts`の`listWorker()`が、`sessions`表の1件の
-  不正record `6e8de261-31a7-4dae-81bf-a7024723aac0`（workspace `967fa641…`、productVersion `0.1.3`の過去
-  build、embedded build manifestが現行でvalidation不合格）で`readRecord`が投げる`SessionStoreError
-  session_invalid`を全体へ伝播させ、listing全体が失敗する。`skippedInvalid`は`0`固定で不正recordをskipして
-  いなかった。実Session `a75bd052`（24 message、2 turn）は同DBに存在し正常に読める。
-- 影響: 1件の不正recordで、そのworkspaceの有効なSessionが全件`/sessions`に出ない。
-- 修正（2026-09-18、increment-75）: `listWorker()`をrecord単位try/catchし、`session_invalid`のみskipして
-  `skippedInvalid`へ加算。他エラーは再throw。原因recordは利用者許可のうえ削除。実DBで`ok 5 skipped 1`→
-  削除後`ok 5 skipped 0`。production TUIの`/sessions`で実Session 5件が一覧され`session list unavailable`が
-  出ないことを確認。focused testは`tests/v0/increment_75_session_list_skip_test.ts`。
-- 残観測（別問題）: 一覧される5件はいずれも保存Definition digestが現行`builtin/default`（`e28fe12a…`）と
-  異なり、pickerで`unavailable`表示。exact revision契約による既知の挙動で、resume可否は別途扱う。
-- 正本: [`increment-75.md`](../increments/increment-75.md)。
-
-### B4 — 保存SessionのDefinition revision不一致でresumeできない
-
-- 観測（2026-09-18）: increment-75後、`/sessions`は開くが既存Sessionを選ぶと
-  `[session resume failed; current session unchanged]`。workspace `967fa641…`の5件はいずれも
-  保存Definitionが`builtin/default`の過去digest（`cc214791…`／`e0f2114d…`／`48b09811…`／`c3a72500…`）で、
-  現行digest（`e28fe12a…`）と一致しない。
-- 原因: `worker_tui_session.ts`の`switchTo`が`recordRefMatches`（保存refと現行Definition refのexact一致）を
-  要求し、不一致で`session Definition revision mismatch`を投げる。pickerは`row.mismatch`で`unavailable`表示。
-  これはroadmap F18「同じInstanceのDefinition revision bindingを人間の判断でdurableに切り替える」が
-  **未実装**（「現行はstartup selectorと保存済みrefが一致する場合だけreopenし、revision transitionを拒否する」）
-  ため。exact revision契約による意図的な現状で、B1/B2とは別。
-- 影響: bundled defaultのdigestはbuildごとに変わり得るため、Definition変更後のbuildでは過去Sessionを
-  resumeできず、canonical履歴を通常利用で引き継げない。構想の「保存されたSessionを選んで利用を続けられる」
-  「canonical/non-canonical双方を履歴として参照できる」と緊張する。
-- 対応候補（要利用者判断・roadmap/architecture変更を含む）:
-  - A. F18（revision transition）を実装し、保存Sessionを現行Definition revisionへ切り替えて履歴ごとresumeする。
-  - B. 不一致Sessionはread-onlyで履歴閲覧だけ可能にする（resumeはしない）。
-  - C. 現状維持。過去build Sessionは削除する（履歴は失われる）。
-- 検討（2026-09-18）: 「閲覧（Workerを起動せず、Definition ref照合なし）」と「継続（現行DefinitionでWorkerを
-  起動し、切替を記録。保存refとの一致は要求しない）」を分離する。admission invariantはlive generationの条件で
-  あり閲覧には無関係。正本変更は[`increment-76.md`](../increments/increment-76.md)として承認・適用済み。
-- 実装（2026-09-18、increment-76完了）: 継続経路を実装。過去build Sessionを`resume failed`なく開き、turn生成で
-  `session.definition`が現行digestへ更新され、過去turnのattributionが不変であることを実経路で確認。閲覧は
-  pickerの`v`で選択Sessionのhuman historyをread-only overlay表示（active binding不変、Worker非起動）。
-- 正本候補: `docs/roadmap.md` F18、`docs/architecture/henji-host-agent-worker.md`のDefinition binding節。
-
-### B5 — `commit proposal invalid`で入力が理由不明のまま自動復元される
-
-- 観測（2026-09-19、利用者報告）: 特に操作していないのに`[recovered input; edit or resubmit]`が表示される。
-- 確認（2026-09-19、DB read-only）: Session `54d65ea7`（workspace `967fa641…`、turn 1、task「denoとnodeを比較したい
-  情報をwebで集めて比較表と総評をして」）はexecution `e0e9cf4f`で`outcome=contract_failure`／
-  `stop_reason=contract_failure`／`error=commit proposal invalid`。provider request 9回（web_search aux 2回を含む
-  7 model steps）、14 messages、約5分41秒。
-- 原因: `worker_host_session.ts:1826`の`proposalRecord(message)`が`undefined`（`validateSessionRecordV6`不合格）と
-  なり`commit proposal invalid`としてfailed settlement。`controller.ts:1772`のrecoverable判定（`contract_failure`）で
-  自動`popRecovery()`が走り、入力がeditorへ戻って当該メッセージが出る。元の理由status
-  （`agent failure; recoverable input available`）は直後の復元メッセージで上書きされる。
-- 制約: `sqlite_history_store.ts:3745`の`durableEventPayload`が`commit_proposal`を`{kind,correlation,nextTurn}`へ
-  縮約保存するため**却下されたtranscriptをDBから直接読めない**。`execution_messages.content_digest`は全行nullで
-  transcript本文もjoinできない。exactなvalidator不合格理由は未取得。
-- 影響: recoverable stopの理由が見えず、原因不明の自動復元に見える。数分走ったturnの成果がcanonical採用されず、
-  入力を再投入する必要がある。
-- 対応候補（要判断・未修正）: (a) 同じtaskをisolated XDG＋実providerで再現し却下理由を捕捉する、(b) reject時に
-  validator不合格理由をdurable diagnosticへ残す、(c) recoverable statusに元のstop理由を残し上書きしない。
-- 再現（2026-09-19、isolated XDG・実provider・`openrouter-responses`／`deepseek/deepseek-v4.1-flash`／`high`、
-  `agent:run`）: 同じtaskを実行すると`contract_failure`になったが**別原因**で、`model contract failure: provider
-  deadline exceeded`（transport/provider_timeout、modelStep 5、steps=5、tools=8、requests=7、diag
-  `2f5b0ee4…`）。`proposalRecord`の不合格dumpは発火せず、**`commit proposal invalid`は再現せず**（model出力依存・
-  非決定）。同じrecoverable contract_failureのため入力自動復元は同様に起きる。120秒のrequest deadlineが高effort
-  のweb調査turnで到達する点は別の観測。
-- 正本候補: `v0/agent/worker/worker_host_session.ts`（commit validation）、`v0/tui/controller.ts`（auto-recovery status）。
-- 関連: increment-85（自動復元を停止理由表示へ変更）、increment-97（recovery lane削除で`/recover`を廃止）。
-- 由来（2026-09-19、git履歴）: 自動復元は後付け。`d00b5129`（2026-08-31）はeditorを空のまま`ready`にし
-  Ctrl-Rの明示操作で復元、`b19b5dd2`（2026-09-07）が`controller.ts`の自動`popRecovery()`を追加、`58d908d1`で
-  Ctrl系機能キーを削除し以降は`/recover`が明示操作。理由statusを復元メッセージが上書きするのはこの追加による。
+- 原観測（2026-09-19）: Session `54d65ea7`のexecution `e0e9cf4f`は約5分41秒のweb調査後、
+  `contract_failure`／`commit proposal invalid`で停止し、成果がcanonical採用されなかった。
+  同日の隔離XDG・実provider確認では別原因のprovider timeoutとなり、commit却下は再現しなかった。
+  詳細なDB観測、自動復元の由来、再現試行は
+  [`increment-85.md`](../increments/increment-85.md#b5の原観測と切り分け2026-09-19)へ移した。
+- 現行境界（2026-09-26、source照合）: `worker_host_authority.ts`の`proposalRecord`は
+  `validateSessionRecordV6`のboolean結果からrecordまたは`undefined`を返す。
+  `worker_host_coordinator.ts`は不合格を`commit proposal invalid`としてsettleするが、
+  不合格になった項目・値の形は返さない。元の却下原因も未特定である。
+- 対応済みの境界: 自動入力復元と停止理由の上書きはIncrement 85／97で解消した。
+  却下proposalのtranscriptを保存・readbackする経路はIncrement 94のhistory v7へ移行済みであり、
+  原観測時の「却下transcriptをDBから読めない」は現行storeの制約ではない。
+- 残る利用者影響: commit却下が起きた場合、保存されたproposalと汎用errorだけでは具体的な検証不合格箇所を
+  直接特定できず、成果がcanonical採用されなかった理由の調査が難しい。
+- 対応候補（未採用）: commit却下時に検証不合格の項目と値の形を短いfactとして保存・readbackできるようにし、
+  実際の却下原因を調べる。再現probeが必要なら隔離XDGで行い、実provider callは別途明示承認を得る。
+- 再検討条件: commit却下が通常利用で再観測される、または却下理由の記録・原因調査を個別incrementへ採用するとき。
+- 関連: [`increment-85.md`](../increments/increment-85.md)、[`increment-94.md`](../increments/increment-94.md)、
+  [`increment-97.md`](../increments/increment-97.md)、`v0/agent/worker/worker_host_authority.ts`、
+  `v0/agent/worker/worker_host_coordinator.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`。

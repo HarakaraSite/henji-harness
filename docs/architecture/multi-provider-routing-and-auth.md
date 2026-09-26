@@ -5,27 +5,28 @@ Provider declaration・provider ID整列を実装済み。ChatGPT subscription r
 
 作成日: 2026-09-09
 
-現行source照合commit: `9de2255dde970f9cca7cb167c971bdb031e451ee`
+現行source照合commit: `63da37ced134920966f59e8b1948777b1c1c3eb6`（2026-09-26）
 
 ## 目的
 
-Henjiのdefault parent、delegated planner等のsubagent、modelを内部利用するtoolが、同じturnまたはSession内で
+Henjiのdefault parent、genericまたは外部の名前付きasync child Agent、modelを内部利用するtoolが、同じturnまたはSession内で
 別々のproviderと認証経路を安全かつ正確に使えるようにする。Increment 14から16は、個別adapterを順番に
 足すのではなく、本書の共通route、認証、Session、provider evidence契約へ一つずつ接続した。Increment 17で
 ChatGPT subscription routeのfeasibilityを確認したが、runtime実装は将来incrementへ延期した。
 
 必要なproduct動作は次のとおりである。
 
-- OpenAI direct APIを使うdefault parentが、OpenRouter APIを使うdelegated plannerとOpenRouter Sonar
+- OpenAI direct APIを使うdefault parentが、起動時model指定でOpenRouter APIを使うasync childとOpenRouter Sonar
   `web_search`を同じturnで利用できる。
 - parentとsubagentが異なるproviderでも、各model requestは自分に指定されたprovider・model・effort・
   認証profileを使う。親のcredentialを子へ暗黙継承しない。
 - 将来OpenAI CodexのChatGPT subscription認証を追加する場合も、OpenAI Platform API-key認証とendpoint、
   API contract、課金・管理境界、credentialを混同しない。
 - providerを切り替えてもHenji Sessionとsemantic transcriptは継続する。一turnの途中でroot routeは変えない。
-- request、raw response bytes、SSEまたはprovider protocol event、parser transition、runtime outcome、provider・
-  model・request originをcredentialなしで保存し、各model/providerの挙動を後から照合できる。
-- 既存OpenRouter経路、OpenRouter内のmodel/effort切替、planner default、provider deadline、Session一覧、
+- 通常実行はprovider・model・API、stepと物理request順、HTTP／error、解析失敗の項目と値の形を短いrequest factとして
+  保存・readbackできる。toolの順番・引数・結果とruntime outcomeはsemantic履歴へ保持する。raw request／response、
+  SSE断片、parser transition全文は常設収集せず、必要な場合に別probeで取得する。
+- 既存OpenRouter経路、OpenRouter内のmodel/effort切替、async childの起動時selection、provider deadline、Session一覧、
   footer、OpenRouter Sonar `web_search`を退行させない。
 
 OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backendにする判断は本書では行わない。
@@ -145,8 +146,8 @@ request build時に置換する。`authorization`／`content-type`／`host`／`c
    Henji transcriptは継続する。provider-private replay stateは互換性を確認したadapterだけが使用する。
 6. **独立した失敗**: root、subagent、tool backendの認証失敗を別routeのcredentialやproviderへfallbackしない。
    自動retry/fallbackは別の明示要件がない限り追加しない。
-7. **request単位の証拠**: evidenceから、どの実行主体が、どのprovider/API/model/auth profileを選び、何を送り、
-   providerが何を返し、parserがどう解釈したかを照合できる。
+7. **request単位の証拠**: 短いrequest factとexecution attributionから、実行主体、provider/API/model/auth profile、stepと物理request順、
+   HTTP／error、解析失敗の項目と値の形を照合できる。入力とtool結果、runtime outcomeはsemantic履歴へ相関する。
 
 ## Worker内のruntime構成
 
@@ -154,7 +155,7 @@ Hostは同梱宣言とexternal宣言をregistryへ解決し、Workerはresolved 
 materializeする。roleはcredential選択に使わず、selectionのauth profileがrequest時のresolverを決める。
 
 ```text
-Agent Definition / Session override
+Agent Definition / Session override / child spawn selection
             │ ModelSelection（非秘密）
             ▼
    Worker-local ProviderRegistry
@@ -173,7 +174,7 @@ runtime境界は次の責務に分かれる。
 
 - `ProviderRegistry.createModel(selection)`: selectionを検証し、対応adapterを返す。credential値は引数にも戻り値にも
   出さない。
-- provider adapter factory: 対応する`AuthResolver` closure、counted fetch、deadline、evidence tapを受け取る。
+- provider adapter factory: 対応する`AuthResolver` closure、counted fetch、deadline、semantic observation／request factの記録境界を受け取る。
 - `AuthResolver.resolve(authProfile)`: request時にcredentialを取得するWorker-local境界。auth profile IDを
   pattern検証し、`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の固定file sourceへ対応させる。
   `openrouter-api-key`／`openai-api-key`はこの一般規則の既存例である。
@@ -181,9 +182,11 @@ runtime境界は次の責務に分かれる。
   Definitionがcredential解決済みprovider request seam（auth profile指定、credential値非公開）を通じて
   `openrouter-api-key`を解決し、OpenAI parentのcredentialを参照しない。
 
-default parentのSession overrideはroot selectionだけを差し替える。delegated plannerはplanner Definitionの
-selectionを使い、root selectionを継承しない。将来のsubagentも同じ原則で、自分のDefinitionまたは明示bindingから
-selectionを得る。delegation taskとchild execution contextへcredentialは加えない。
+default parentのSession overrideはroot selectionだけを差し替える。`spawn_subagent(agent, task, model?, tools?)`は
+child起動時にmodelを指定でき、省略時は親Sessionの現在selectionを使う。child invocation中はそのselectionを固定する。
+`agent:generic`はbindingなしで常時catalogにあり、名前付きAgentは外部Definitionをbindする。tool指定は宣言済み集合を
+絞り込む。名前付きAgent専用のmodel既定は未実装である。taskとchild execution contextへcredential値は加えず、
+childのadapterが選択されたauth profileをrequest時に解決する。
 
 ## provider stateとprovider切替
 
@@ -221,16 +224,16 @@ type ProviderState =
 buildとDefinition attributionを`turnExecutions`へ持つ。Increment 68より前のprovider IDをaliasまたはmigrationで
 読み替えず、旧IDを含むrecordは現行schemaとして解釈しない。
 
-- Sessionはroot selectionだけを永続化する。planner/subagentのresolved selectionは各turnのmanifestとevidenceへ
+- Sessionはroot selectionだけを永続化する。async childのresolved selectionは各executionのmanifestとevidenceへ
   attributionし、rootのmodel change historyへ混ぜない。
 - 永続Sessionとexecution artifactのdecoderは、selectionの保存構造とtagを検証する。現在のcurated catalogにmodelが
   掲載されているかという利用可能性判定は、resume時のadapter materializationへ分離する。catalog更新だけで過去の
   Sessionやartifactを破損扱いにしない。
 - Worker start/select command、ready/selected manifest、execution artifact、Session metadata、presentation projectionを
-  同じgeneric selectionへ移行する。
+  同じgeneric selectionを使う。
 - Worker protocolは`select_model`をgeneric selectionの変更commandとして使う。Surfaceの`/provider`、`/model`、
   `/effort`はidle-onlyなroot selectionのatomic変更へ収束する。
-- footer固定2段目と`/sessions`はproviderを独立表示し、同じmodel IDをOpenRouter経由とOpenAI directで区別する。
+- 三行footerの三行目と`/sessions`はproviderを独立表示し、同じmodel IDをOpenRouter経由とOpenAI directで区別する。
 - semantic context checkpointはprovider-neutralなsummaryとして再利用する。`sourceProfileId`は生成元provenanceのまま
   保持し、active routeとの一致を再利用条件にしない。新schemaでは生成元selection identityを非秘密情報として
   表現する。
@@ -240,12 +243,19 @@ buildとDefinition attributionを`turnExecutions`へ持つ。Increment 68より�
 
 ## Provider evidence
 
-request evidenceはraw request/response/SSE/parser/runtime evidenceを維持し、各requestに次を記録する。
+Increment 121以降、通常実行は短いrequest factをsemantic historyへ記録し、`henji history --view detail`と`/recall`から
+readbackする。各requestのprovider/API/model、step、物理request順、HTTP／error、解析失敗の項目と値の形を保持する。
+実行主体と非秘密のauth profileはexecution attributionへ相関する。tool引数・結果とruntime outcomeもsemantic履歴を
+正本とする。raw request／response、SSE断片、parser transition全文は常設収集しない。
 
-- `origin`: root model、named subagent model、context compaction、`web_search`等のtool backendを区別するidentity。
-- `provider`、`api`、`modelId`、`authProfile`。auth profileは非秘密のidentityだけを記録する。
-- `protocol`: `json`、`sse`、将来app-serverを使う場合の`json-rpc`等。
-- provider request ID等、response header/bodyから得たprovider metadata。request header全体は保存しない。
+一requestのdeadline既定値は300,000 msで、TUI・`henji run`の`--provider-timeout-ms`により変更できる。同じWorker
+invocationのroot、async child、context compactionとauxiliary provider requestへ適用する（Increment 126）。SDKの
+通常retryは`maxRetries: 0`で無効にし、実際の物理request countを記録する。
+
+### Increment 14のSDK capture probe（履歴）
+
+以下はIncrement 14当時のraw captureとSDK採用の判断記録である。常設記録の契約はIncrement 121で上記の短い
+request factへ置換した。詳細rawが必要な場合は、対象と保存先を決めた別probeで取得する。
 
 OpenAI SDKを使う場合も、SDKが整形したeventだけを証拠にしてraw bytesを失わない。Increment 14のprobeで、SDKの
 custom fetch等の公開seamにevidence tapを置き、次を実証してからadapterを実装する。
@@ -257,7 +267,7 @@ custom fetch等の公開seamにevidence tapを置き、次を実証してからa
 
 official TypeScript SDKは一時的な接続失敗や一部HTTP errorを既定で2回retryし、既定timeoutは10分である。
 [OpenAI SDK client configuration](https://github.com/openai/openai-node/blob/main/docs/configuration.md)
-Henjiが現在採用する一request 120秒deadlineとactual request countを維持するため、Increment 14の初期経路は
+当時の一request 120秒deadlineとactual request countを維持するため、Increment 14の初期経路は
 Henjiの`AbortSignal`とdeadlineを渡し、SDKの通常retryを`maxRetries: 0`で無効にする。将来retryを採用する場合は、
 retryされた各HTTP requestを別requestとしてevidenceへ記録する設計を先に行う。
 
@@ -295,6 +305,9 @@ error、provider metadataを維持したまま、OpenAI Responsesは別adapter�
 `Model`、selection、provider state tag、evidence recorderへの入力だけである。
 
 ## Increment 14〜17の境界
+
+以下は各increment当時の計画・受入境界である。当時の同期planner、Session migration、raw captureの記述は
+現在の契約を示さない。現行async childと通常request factは、本書のruntime構成・Provider evidence節を参照する。
 
 ### Increment 14 — generic route基盤とOpenAI direct API
 
@@ -381,8 +394,9 @@ routeへ渡さない。
 - **provider identityの一般化**: Increment 61〜64で`providerId` + `protocol` + `authProfile`を一般化し、Responses
   replayを生成元provider/modelへscopeした。Increment 68でbuilt-in IDを`openrouter-chat`、
   `openrouter-responses`、`openai-chat`、`openai-responses`へ整列し、旧IDは破壊的に廃止した。
-- **subagent既定**: Increment 65で`subagent:planner`をactivation-level Definition bindingへ接続し、未binding時の
-  planner selectionを同梱declarationの`roleDefaults`へ移した。root selectionは継承しない。
+- **subagent selection**: Increment 65当時は同期planner専用のbindingとmodel既定を使っていた。同期経路はIncrement 106で
+  廃止し、Increment 127で同梱planner Definitionも削除した。現行async childはIncrement 131の起動時model指定を使い、
+  省略時は親Sessionの現在selectionを使う。credential値は継承しない。
 - **auth profileと宣言header**: Increment 101で`authProfile`をpattern検証する非secret identityへ一般化し、
   credentialを`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`から解決する。新しいprovider IDの宣言はoptional
   `headers`を持ち、`{credential}`（Chat経路のみ1 header）と`{sessionId}`をrequest時に置換する。`openai-responses`
@@ -396,11 +410,11 @@ routeへ渡さない。
 
 - route解決: 選択された実行主体のrequestだけが対応provider endpointとauth resolverを使う。
 - semantic loop: text final、function tool call/result continuation、複数stepが各adapterの公式contractで成立する。
-- mixed route: OpenAI root、OpenRouter planner、OpenRouter `web_search`の実際の組合せが成立する。
+- mixed route: OpenAI root、起動時にOpenRouterを指定したasync child、OpenRouter `web_search`の実際の組合せが成立する。
 - persistence: model/provider変更前後のSession commit、list、resume、turn attributionが一致する。
-- evidence: raw response、provider event、parser transition、origin、route、request countをreadbackでき、credential値と
+- evidence: semantic履歴と短いrequest factから実行主体、route、request count、HTTP／errorをreadbackでき、credential値と
   Authorizationを含まない。
-- regression: 既存OpenRouter model/effort切替、planner delegation、Sonar検索、deadline、footerが引き続き成立する。
+- regression: 既存OpenRouter model/effort切替、async child、Sonar検索、deadline、footerが引き続き成立する。
 
 Increment 14では外部contractが実装可否を左右するため、簡単なreal-provider probeを詳細計画に含めた。将来
 ChatGPT subscription routeを再採用する場合も、その時点の個別increment計画で同様に外部contractを確認する。
