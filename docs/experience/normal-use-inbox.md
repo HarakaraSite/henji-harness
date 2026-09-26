@@ -32,6 +32,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
+| A16 | Agent実行 | bash tool実行へのambient環境情報の引き渡し | tool実行のgit/buildがenv不足で失敗する事例が続いたとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -339,6 +340,19 @@ Pi／OpenCode／Henjiの画面表示比較
 - 候補: modelが使えるsearch tool callを実装する。findとgrep（対象探索と本文検索）を兼ね備える一つのtoolに
   するか、分けるかは実装時に検討する。
 - 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
+
+### A16 — bash tool実行へのambient環境情報の引き渡し
+
+- 観測（2026-09-26、実行証拠と利用者観測）: bash toolは`clearEnv: true`で`PATH`／`LANG`／`LC_ALL`のみを
+  設定し、親processの環境を引き継がない（`v0/agent/tools/bash_tool.ts`、tool descriptionも同旨）。
+  この設計のままでは、(1) `git push`が`HOME`未提供で認証情報（`credential.helper=store`＋
+  `~/.git-credentials`）に到達できずhangした、(2) `git`は`fatal: $HOME not set`でglobal config
+  （user identity・credential）を解決できずfailする（実測）、(3) buildもよく失敗する（利用者観測）。
+- 候補: ambient環境の引き渡し方針を決める。選択肢は親env継承、`HOME`等の既定付与、workspace別の
+  env manifest、現行のtool description明示の拡張維持。
+- 再検討条件: tool実行のgit/buildがenv不足で失敗する事例が通常利用で続いたとき。採用時にR3
+  （tool実行profile）・E3（Host runtime tunables）との分担を決める。
+- 関連: R3、E3、`v0/agent/tools/bash_tool.ts`、AGENTS.md「実行環境」。
 
 ## F24・自己改訂
 

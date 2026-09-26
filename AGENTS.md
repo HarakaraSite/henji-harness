@@ -113,6 +113,8 @@ pointer、承認境界だけを保持し、product構想、改善候補、計画
   認証promptでhangする。
 - git認証は`credential.helper=store`＋`/home/agent/.git-credentials`（0600）で解決する。認証情報の値は
   出力・記録しない。
+- HOME未指定の`git`は`fatal: $HOME not set`でglobal config（user identity・credential）を解決できず、
+  commit／push／build provenanceが失敗する（実測）。gitを含む操作は必ず`HOME=/home/agent`を付ける。
 
 ## Continuation
 
