@@ -24,7 +24,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
-| A5 | Agent実行 | ambient repository contextの配送 | workspace探索やtask targetの誤認が再発する |
+| A5 | Agent実行 | ambient情報のinstruction化（repository context・実行環境） | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
 | A6 | Agent実行 | Web searchのsearch/fetch/backend境界 | 対象発見と本文取得の混在が調査品質・コストを損なう |
 | A9 | Agent実行 | 診断記録の保存期間 | 保存期間を独立に決める必要が出たとき。粒度変更の計画はIncrement 121 |
 | A10 | Agent実行 | モデル別instruction | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき |
@@ -32,7 +32,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A12 | Agent実行 | semantic履歴の保存粒度と容量 | 長期Sessionの履歴DB容量やreadback負荷が利用上の問題になったとき |
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
-| A16 | Agent実行 | bash tool実行のambient情報をinstructionで持つ | AIがambient情報の存在を知らない事例が観測されたとき、instructionで足りない事例が出たとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -241,23 +240,37 @@ Pi／OpenCode／Henjiの画面表示比較
   利用証拠が得られること。
 - 正本: [`increment-29.md`](../increments/increment-29.md)は既に停止した挙動と維持するcheckpoint境界を定める。
 
-### A5 — ambient repository contextの配送（F02、F06）
+### A5 — ambient情報のinstruction化（repository context・実行環境）（F02、F06）
 
 - 観測: Increment 37 Human Gateで、local target未指定の外部調査taskに対し、modelがworkspaceのGit remoteと
   handoffを探索し、ambient repositoryから得たForgejo hostをtask targetとして扱った。repository情報を
   知らないための探索と、repository contextを過剰にユーザー指定targetへ結び付ける問題を分ける必要がある。
-- 候補: Hostがworking directoryのrepository root、VCS種別、非secretなcanonical identityをambient contextとして
-  配送する。それはtask targetではなく、ユーザーが「このrepository」等と結び付けた場合だけsourceとして
-  扱う。credentialやremote URL内の認証情報は含めない。
-- 再検討条件: 外部product名だけのtaskでambient remoteをtargetにする誤認、またはrepository identityを得る
-  ための不要なtool探索が再発すること。
+- 観測（実行環境、2026-09-26、実行証拠と利用者観測）: bash toolは`clearEnv: true`で`PATH`／`LANG`／
+  `LC_ALL`のみを設定し、親processの環境を引き継がない（`v0/agent/tools/bash_tool.ts`）。この設計のままでは、
+  (1) `git push`が`HOME`未提供で認証情報（`credential.helper=store`＋`~/.git-credentials`）に到達できず
+  hangした、(2) `git`は`fatal: $HOME not set`でglobal config（user identity・credential）を解決できず
+  failする（実測）、(3) buildもよく失敗する（利用者観測）。
+- 利用者判断（2026-09-26）: 機構としてambient情報を組み込む（Host配送・env継承・自動付与・env manifest）
+  のではなく、**instructionとしてambient情報を持つ**方向とする。重要なのはAIがambient情報の**存在を
+  知る**こと。従来のA5候補（Hostによる配送）もこの方向に置き換える。
+- 候補: workspace／toolのinstructionに、(1) どんなambient情報が存在するか（repository root・VCS種別・
+  非secretなcanonical identity、`HOME`配下のcredential store、git identity、buildに必要なenv等）、
+  (2) その存在と所在、(3) 扱い方（repository contextはtask targetではなく、利用者が「このrepository」等と
+  結び付けた場合だけsource。実行環境は必要時に明示する）、を記載する。credentialやremote URL内の
+  認証情報は含めない。AGENTS.md「実行環境」はこの方向の先行例。
+- 再検討条件: ①外部product名だけのtaskでambient remoteをtargetにする誤認、またはrepository identityを
+  得るための不要なtool探索が再発する、②AIが実行環境のambient情報の存在を知らない、またはinstruction
+  だけでは足りない事例が観測される、のいずれか。採用時にR3（tool実行profile）・E3（Host runtime
+  tunables）との分担を決める。
 - 再観察（2026-09-22、`henji run --json`、`opencode-go-chat`/`deepseek-v4.1-flash`、workspace=henji repo、
   task「Giteaの直近10件のPRを教えて」、1 turn）: tool sequenceは`web_fetch`（GitHub API）→`web_search`で、
   ambient workspace探索（`bash git remote -v`、handoff読み）は0回、ambient Forgejo remoteをtargetにする
   誤認もなし。credential探索もなし。**この条件では再現せず**。留意: 1 model/provider・知名度の高いproductで
   の観測。Increment 37のmodel/provider（openrouter経由）や知名度の低いproductでは未確認。
 - 状態（2026-09-22）: 利用者判断で継続して要観察。trigger未発火のため実装しない。
+- 統合記録: 旧A16「bash tool実行のambient情報をinstructionで持つ」（2026-09-26記録）はこの項目へ統合。
 - 正本: [`increment-37.md`](../increments/increment-37.md)が観測した実行証拠と完了判断を保持する。
+- 関連: A11（instructionの与え方）、R3、E3、`v0/agent/tools/bash_tool.ts`、AGENTS.md「実行環境」。
 
 ### A6 — Web searchのsearch/fetch/backend境界（F02、F06、将来のF24候補）
 
@@ -341,24 +354,7 @@ Pi／OpenCode／Henjiの画面表示比較
   するか、分けるかは実装時に検討する。
 - 再検討条件: 個別Incrementへ採用するとき。findとgrepを兼ね備えるかはその実装時に決める。
 
-### A16 — bash tool実行のambient情報をinstructionで持つ
 
-- 観測（2026-09-26、実行証拠と利用者観測）: bash toolは`clearEnv: true`で`PATH`／`LANG`／`LC_ALL`のみを
-  設定し、親processの環境を引き継がない（`v0/agent/tools/bash_tool.ts`、tool descriptionも同旨）。
-  この設計のままでは、(1) `git push`が`HOME`未提供で認証情報（`credential.helper=store`＋
-  `~/.git-credentials`）に到達できずhangした、(2) `git`は`fatal: $HOME not set`でglobal config
-  （user identity・credential）を解決できずfailする（実測）、(3) buildもよく失敗する（利用者観測）。
-- 利用者判断（2026-09-26）: 機構としてambient情報を組み込む（env継承・自動付与・env manifest）のでは
-  なく、**instructionとしてambient情報を持つ**方向とする。重要なのはAIがambient情報の**存在を知る**
-  こと（存在し、必要時に明示的に与える必要がある、と分かっていること）。
-- 候補: workspace／toolのinstructionに、(1) 環境が継承されない事実、(2) どんなambient情報が存在するか
-  （`HOME`配下のcredential store、git identity、buildに必要なenv等）、(3) 必要時にどう明示するか、を
-  記載する。AGENTS.md「実行環境」はこの方向の先行例。機構変更（env継承・manifest）は採用しない。
-- 再検討条件: AIがambient情報の存在を知らない／調べられない事例、またはinstructionだけでは足りない
-  事例が通常利用で観測されたとき。採用時にR3（tool実行profile）・E3（Host runtime tunables）との
-  分担を決める。
-- 関連: A5（ambient repository contextの配送）、A11（instructionの与え方）、R3、E3、
-  `v0/agent/tools/bash_tool.ts`、AGENTS.md「実行環境」。
 
 ## F24・自己改訂
 
