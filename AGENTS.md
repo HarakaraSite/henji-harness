@@ -109,12 +109,13 @@ pointer、承認境界だけを保持し、product構想、改善候補、計画
 ## 実行環境
 
 - bash toolは実行ごとにprocess環境を継承しない（設定されるのはPATH・LANG・LC_ALLのみ）。`git push`など
-  認証やuser設定を要する操作は、command内で`HOME=/home/agent`等の必要envを明示する。env未指定のpushは
+  認証やuser設定を要する操作は、command内で必要env（少なくとも`HOME`）を明示する。env未指定のpushは
   認証promptでhangする。
-- git認証は`credential.helper=store`＋`/home/agent/.git-credentials`（0600）で解決する。認証情報の値は
-  出力・記録しない。
 - HOME未指定の`git`は`fatal: $HOME not set`でglobal config（user identity・credential）を解決できず、
-  commit／push／build provenanceが失敗する（実測）。gitを含む操作は必ず`HOME=/home/agent`を付ける。
+  commit／push／build provenanceが失敗する（実測）。gitを含む操作は必ず`HOME`を明示する。
+- git認証は`credential.helper=store`とHOME配下のcredential storeで解決する。認証情報の値は出力・記録しない。
+- `HOME`の具体値、credentialの所在、build env等のmachine／workspace固有情報はこのfileに書かず、
+  git管理外の`ambient.md`等（`.gitignore`対象）に置く。
 
 ## Continuation
 
