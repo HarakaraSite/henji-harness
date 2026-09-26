@@ -17,6 +17,10 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
 | S15 | Surface | busy中の履歴閲覧でEscを最新表示への復帰に使う | ターン中に履歴からEscで戻ろうとしてキャンセルしたとき |
+| S17 | Surface | 描画更新の合流と行差分描画（Pi／OpenCode調査） | 全面書き直しのflicker・描画量・入力遅延を実測で観測したとき、Increment 132要件Cが再現したとき |
+| S18 | Surface | 文字幅のgrapheme cluster対応 | 絵文字を含む本文で列ずれが観測されたとき、幅精度を上げるincrementに含めるとき |
+| S19 | Surface | synchronized outputによるframe描画の安定化 | S17を採用するとき、全面書き直しのちらつきが観測されたとき |
+| S20 | Surface | 巨大表示領域でのwindow行量確保とframe上限 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -115,6 +119,87 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: この操作変更を個別Incrementへ採用するとき。
 - 関連: [`increment-128.md`](../increments/increment-128.md)、`v0/tui/controller.ts`、
   `v0/tui/layout.ts`。
+
+### S17 — 描画更新の合流と行差分描画（F01）
+
+- 観測（2026-09-26、参照実装調査
+  [`pi-opencode-henji-screen-display-comparison.md`](../research/pi-opencode-henji-screen-display-comparison.md)）:
+  HenjiのTUIはpresentation eventごとに`\x1b[2J\x1b[H`＋全frameを書き直す（`tui_renderer.ts`の`redraw()`）。
+  Piは行単位差分（`previousLines`比較）と16 msのrender合流、OpenCodeはcommitted frameとのcell差分と
+  fps capで更新量を抑える。Increment 132で本文・thinkingの行追従は成立したが、画面全体の描画方式は
+  変更範囲外とした。
+- 観測（2026-09-26、現行実装の実測）: frameは可視画面分だけで履歴に比例しないが、1 redrawごとに
+  内部window全体（`HISTORY_WINDOW_ENTRIES` 48／`HISTORY_WINDOW_BYTES` 1 MiB）を再wrap・markdown span
+  生成し直す。実測はentry約600 Bで2.0〜2.4 ms/回、window上限近く（961 KB）の長大entryで約77 ms/回。
+  redraw回数自体は`LIVE_UPDATE_MIN_INTERVAL_MS = 100`／`MAX = 500`で間引き済み（最大約10回/s）。
+- 観測（2026-09-26、code fact）: 不要な再描画・layout計算の重複がある。
+  (a) busy中はspinner intervalで120 msごとに無条件`redraw()`（変化はspinner glyphと経過秒のみ）。
+  (b) 1 keystrokeは`setEditorSnapshot`＋`setSlashCommandCandidates`（＋`setPendingMetadata`）で2〜3回。
+  (c) `tool_call`／`tool_progress`／`tool_result`はeventごとにredraw。
+  (d) `scrollPage`（window境界の`up`）と`resize`は`layoutSnapshot`を2回呼び、`redraw`内でもう1回計算する
+  （heavy window実測77 msならPageUp一回で最大3回分）。`CoalescingWriter`は書き込みの合流のみで、
+  layout・frame組み立ての重複は残る。
+- 候補: (1) redraw要求を短時間で合流して1 frameにまとめる、(2) 前frameと行単位で比較し変化行だけを
+  書き換える、(3) entry revision単位でlayout結果を再利用しwindow全体の再wrapを避ける。実terminalでの
+  flicker、長大entry時の描画遅延、長時間利用時の入力遅延（Increment 132要件C、未再現）に効く。
+- 再検討条件: tmux実測で全面書き直しのflicker・描画量・入力遅延が観測されたとき、または要件Cが
+  再現したとき。採用時は計測根拠をincrementへ記録する。
+- 関連: [`increment-132.md`](../increments/increment-132.md)、`v0/tui/tui_renderer.ts`、
+  `v0/tui/terminal.ts`（`CoalescingWriter`）。
+
+### S18 — 文字幅のgrapheme cluster対応（F01）
+
+- 観測（2026-09-26、参照実装調査のcode fact）: 現行`cellWidth`（`v0/tui/terminal_text.ts`）は
+  code point単位で、実測で`👨‍👩‍👧`を8 cell、`👋🏽`を4 cellと数える（実terminalの表示は概ね2 cell）。
+  折り返し・truncate・列位置がずれる。Piは`Intl.Segmenter`のgrapheme単位幅（regression test付き）、
+  OpenCodeは`widthMethod`切替で扱う。
+- 候補: grapheme cluster単位の幅計算へ`cellWidth`を置き換える。CJK幅2の現行挙動は維持する。
+- 再検討条件: 絵文字を含むassistant本文で列ずれが観測されたとき、または折り返し・表の幅精度を
+  上げるincrementに含めるとき。
+- 関連: `v0/tui/terminal_text.ts`、`v0/tui/layout.ts`、比較文書。
+
+### S19 — synchronized outputによるframe描画の安定化（F01）
+
+- 観測（2026-09-26、参照実装調査）: Piのfull renderはsynchronized output（`\x1b[?2026h`）でframeを
+  包む。Henjiの全面書き直しはframeが途中まで露出する余地がある。
+- 候補: `redraw()`のframe出力をsynchronized outputで包む。S17と同一incrementで扱う可能性が高い。
+- 再検討条件: S17を採用するとき、または全面書き直しのちらつきが観測されたとき。
+- 関連: `v0/tui/tui_renderer.ts`、比較文書。
+
+### S20 — 巨大表示領域でのwindow行量確保とframe上限（F01）
+
+- 観測（2026-09-26、参照実装調査の実測）: 大きな表示領域で現行TUIが画面を埋められない。
+  `HISTORY_WINDOW_ENTRIES` 48／`HISTORY_WINDOW_BYTES` 1 MiBのwindowはentry数・文字量で決まり、
+  画面が要求する行数は保証しない。実測で512×200のとき、window30 entry・63 KBで生成行120行に対し
+  必要196行（不足分は空行padding）。entryが短い対話ほど起こりやすい。加えて`MAX_ROWS` 200／
+  `MAX_COLUMNS` 512でclampされた外側は空白になり、512×200＋CJK本文ではframeが
+  `MAX_FRAME_BYTES` 128 KiB（実測147 KB、SGR未計上）を超過して`renderFrame`が古いlog行からtruncateする。
+- 候補: 描画windowを行量ベース（必要なlogHeightぶんを遡って確保、entry数上限は維持）に変え、
+  巨大表示領域でのclampとframe上限を実測に基づき見直す。
+- 再検討条件: 大きなディスプレイ利用が日常になり、履歴の空白・行欠落が観測されたとき。
+- 関連: `v0/tui/state.ts`（`HISTORY_WINDOW_*`）、`v0/tui/layout.ts`（`MAX_ROWS`／`MAX_COLUMNS`／
+  `MAX_LAYOUT_SOURCE_BYTES`）、`v0/tui/tui_renderer.ts`（`MAX_FRAME_BYTES`）、比較文書。
+
+### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
+
+Pi／OpenCode／Henjiの画面表示比較
+（[`pi-opencode-henji-screen-display-comparison.md`](../research/pi-opencode-henji-screen-display-comparison.md)）
+から、現時点では取り入れないもの。記録のみで採用・実装を意味しない。
+
+- Piのmain screen履歴（会話をterminal scrollbackへ残す方式）: Henjiはalt screen＋内部window方針で、
+  Increment 128／130の履歴閲覧・履歴位置表示と整合しない。描画コストも本質的には変わらない
+  （Piもdocument全体を毎frame計算）。
+  再検討条件: 履歴閲覧の要求が現行window方式で満たせなくなったとき。
+- message jump（Pi／OpenCodeのmessage単位移動）: 利用者判断でP2として除外済み（PageUpの方が手軽）。
+  調査記録に残す。
+- テーマ／256 color／truecolor: 色に関する観測された不満がなく、Surface変更が大きい。
+  再検討条件: 表示の識別性で色が問題になったとき。
+- Piの`CURSOR_MARKER`（hardware cursor指定によるIME候補位置合わせ）: Henjiはframe末尾のcursor位置指定で
+  入力位置を示しており、目的は現状で満たしている。
+  再検討条件: IME候補位置がずれる観測が得られたとき。
+- xterm.js仮想terminal（`@xterm/headless`）のtest基盤: 単独では採らない。S17を採用するincrementなど、
+  frameの実挙動検証が要件に直結するときに限って検討する。
+  再検討条件: S17の採用incrementを計画するとき。
 
 
 ## Agent実行

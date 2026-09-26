@@ -2,6 +2,15 @@
 
 ## Next session
 
+- 次の一手（利用者意向 2026-09-26）: 通常利用メモS17（描画更新の合流と行差分描画）を採用判断し、
+  採用するならS17をincrement文書へ移して計画・実装する。範囲の判断材料はS17観測のとおりで、
+  不要な再描画の重複（busy spinnerの120 ms無条件redraw、1 keystrokeの2〜3回、tool eventごと、
+  `scrollPage`／`resize`の`layoutSnapshot`二重）とlayout実測（典型2〜2.4 ms、window上限77 ms）が
+  code factとして揃っている。重複解消（redraw合流＋layout cache）と行差分描画のどちらまで行うかは
+  計画時に決める。正本pointer: `docs/experience/normal-use-inbox.md` S17〜S20と見送り判断、
+  `docs/research/pi-opencode-henji-screen-display-comparison.md`（比較・実測）。承認境界: S17の採用は
+  個別incrementとして扱い、構想・architecture・roadmap変更は別途承認を得る。Surface変更なので
+  tmuxのproduction TUI確認が完了条件。作業状態: この2文書は未commit（inbox `M`、research新規）。
 - Increment 132（S16の通常実行中の逐次表示）は実装をcommitし、focused test・隔離XDGの
   mock SSE production TUI確認まである。正本は`docs/increments/increment-132.md`。同一Henjiプロセス
   約3時間26分の長時間計測と実端末clientの操作で数秒の入力／PageUp・PageDown遅延は再現せず、要件Cは
