@@ -2,7 +2,8 @@
 
 状態: A・Bは実装・focused test・check／fmt／lint／`git diff --check`・M1／M2／M3-S確認済み（2026-09-26）。
 要件Cは**未再現・未完了**（同一プロセス約3時間26分の計測でも数秒遅延なし）。
-新binaryでの実provider確認・binary配置・pushは未実施。利用者指示で計測を終了した。
+利用者指示で計測を終了した。A・Bの実装はIncrement 133の0.7.0公開に含まれ、binary配置・push済み。
+新binaryでの実provider確認は未実施。配置・公開結果は[Increment 133](increment-133.md#commitpush常用binary配置)を参照。
 このincrementは新規セッションで最初から進めた（別セッションの6ステップで止まった作業の継続ではない）。
 
 ## 必要なproduct動作と根拠
@@ -270,4 +271,8 @@ provider `127.0.0.1:8877`（thinking 8行＋answer 24行、各250 ms間隔。実
 - tmux実操作: M3-Sのとおり隔離XDG・mock SSE providerでlive追従・確定後の非重複・restore後の非重複を確認。
 - 通常利用メモ: S16はこのincrementへ採用済みのため、inboxの候補一覧・S16節を削除し、正本をこの文書へ移した
   （AGENTS.md「個別Incrementへ採用した項目はその正本へ移し、この一覧から除く」に従う）。
-- 未了: 要件Cの再現・原因特定、新binaryの実provider確認、binary配置、push。
+- 未了: 要件Cの再現・原因特定、新binaryの実provider確認。
+- 後続の配置・公開: 実装commit `2b162bff`はIncrement 133のrelease source `f10893ba`に含まれる。
+  0.7.0として常用binaryへ配置し、push・JSR公開済み。詳細は
+  [Increment 133の配置・公開結果](increment-133.md#commitpush常用binary配置)を参照。
+  この配置・公開を要件Cの完了または実provider確認の代替とはしない。
