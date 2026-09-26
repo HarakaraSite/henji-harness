@@ -106,6 +106,14 @@ pointer、承認境界だけを保持し、product構想、改善候補、計画
   該当increment文書へ記録する。
 - 実provider callを伴う確認は、対象・回数・保存先を提示して利用者の明示承認を得てから行う。
 
+## 実行環境
+
+- bash toolは実行ごとにprocess環境を継承しない（設定されるのはPATH・LANG・LC_ALLのみ）。`git push`など
+  認証やuser設定を要する操作は、command内で`HOME=/home/agent`等の必要envを明示する。env未指定のpushは
+  認証promptでhangする。
+- git認証は`credential.helper=store`＋`/home/agent/.git-credentials`（0600）で解決する。認証情報の値は
+  出力・記録しない。
+
 ## Continuation
 
 - Current resumption state is maintained only in [`.handoff/handoff.md`](.handoff/handoff.md). Do not
