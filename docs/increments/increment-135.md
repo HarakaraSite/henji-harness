@@ -407,7 +407,7 @@ credential、`--provider-timeout-ms 60000`）で安定したbusy windowを作り
 
 ### 未確認事項
 
-- 実provider requestでの保存credential受理（実credential・実call未承認のため未実施）。登録・既存reader・resolverの解決は確認済み。
+- 実provider requestでの保存credential受理は利用者が実施する。登録・既存reader・resolverの解決は確認済み。
 - SIGTERM経路のshutdown settle詳細はfocused test・code確認の範囲。実terminalでの強制終了整合性はSIGHUPで確認済み（上記7）。
 - 保存成功〜表示refresh完了のwindow（review borderline）はtmuxでeditor流入を観測せず、変更していない。
 - 隔離config rootでの確認であり、実`HOME`運用での同経路は読取確認のみ。
@@ -429,5 +429,5 @@ credential、`--provider-timeout-ms 60000`）で安定したbusy windowを作り
 - 稼働中のHenji切替は行っていない。JSR公開は今回も対象外であり、JSR 0.7.0の内容は
   Increment 133時点のままである。
 - `docs/operations/base-instruction-template.md`の外部変更（本作業中にworking treeへ現れた
-  long-task方針paragraph）はuncommittedのまま残した。build provenanceのためstashで一時退避し、
-  clean commitからbuildしたうえで復帰済み。変更の採否は利用者判断とする。
+  long-task方針paragraph）は、利用者判断により別commitで記録した。build provenanceのためstashで
+  一時退避し、clean commitからbuildしたうえで復帰済み。

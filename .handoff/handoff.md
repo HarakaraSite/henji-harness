@@ -5,8 +5,8 @@
 ## 現在地（2026-09-27）
 
 **次のincrementは135（S2: Henji内credential登録）。キーの保管場所を維持して登録入口を追加する。
-実装・focused test・review・production tmux確認・`v0:gate`・commit／push・常用binary配置まで完了。
-常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
+実装・focused test・review・production tmux確認・`v0:gate`・commit／push・常用binary配置・
+roadmap反映まで完了。常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
 正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。 Increment
 134は実装・正本反映・配置まで完了。Increment 133の入力欠落解消は常用利用で継続観測中。**
 
@@ -20,9 +20,8 @@
 
 ## 次の一手
 
-1. [Increment 135の実装・確認結果](../docs/increments/increment-135.md#実装確認結果)を確認し、
-   残る判断（JSR公開の可否、実provider受理確認の承認、
-   `docs/operations/base-instruction-template.md`の外部変更の採否）を利用者に確認する。
+1. 利用者が実provider requestでの保存credential受理確認と、実運用credentialの`/login`登録を実施する。
+   観測を得たら[Increment 135](../docs/increments/increment-135.md#未確認事項)へ記録する。
 2. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
    簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない。
    観測を得たら[Increment 133](../docs/increments/increment-133.md#残る受入と承認境界)へ記録する。
@@ -41,8 +40,8 @@
 ## 承認境界
 
 - Increment 135は実装・focused検証・隔離XDGでのproduction tmux確認・`v0:gate`・commit／push・
-  常用binary配置まで実施済み。JSR公開、実provider call、実運用credentialの登録・上書きは未指示。
-  実運用の`~/.config/henji-harness/openrouter-api-key`は読取確認のみで上書きしていない。
+  常用binary配置・roadmap反映まで実施済み。JSR公開は利用者判断で今回対象外。
+  実provider受理確認と実運用credentialの登録は利用者が実施する。
 - Increment 134の実provider確認は利用者承認を受け、指定した2turnを実施済み。 新しい実provider
   probeは、対象・回数・保存先を提示して別途明示承認を得る。
 - 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は
