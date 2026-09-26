@@ -368,6 +368,7 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
 Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () => {
   assertEquals(slashCommandCandidates('/'), [
     '/help',
+    '/login',
     '/new',
     '/sessions',
     '/rename',

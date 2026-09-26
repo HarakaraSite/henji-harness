@@ -23,6 +23,7 @@ import {
   type TuiSessionLike,
 } from './controller_contract.ts';
 import {
+  loginHasArguments,
   recallExecutionIdOf,
   renameTitleOf,
   SLASH_COMMANDS,
@@ -143,6 +144,10 @@ export class TuiController {
       modelSelection: () => this.session.modelSelectionSnapshot?.(),
       selectionStatusApplied: () => {
         this.modelSelectionNotice = true;
+      },
+      credentialRegistration: options.credentialRegistration,
+      refreshCredentialAvailability: async () => {
+        await this.session.refreshCredentialAvailability?.();
       },
       fail: (error) => this.fail(error),
     });
@@ -600,7 +605,9 @@ export class TuiController {
       }
       if (event.kind === 'enter') {
         const slashCommand = slashCommandOf(this.editor.text);
-        if (
+        if (busy && slashCommand === 'login') {
+          this.renderer.setStatus('busy; /login registers credentials when idle');
+        } else if (
           busy &&
           (slashCommand === 'recall' ||
             slashCommand === 'provider' ||
@@ -674,6 +681,10 @@ export class TuiController {
 
   private openEffortPicker(): void {
     this.overlay.openEffortPicker();
+  }
+
+  private openCredentialRegistration(): void {
+    this.overlay.openCredentialRegistration();
   }
 
   private navigationIdleAllowed(): boolean {
@@ -786,7 +797,9 @@ export class TuiController {
           this.renderer.setEditor(this.editor.text);
           break;
         case 'enter':
-          if (
+          if (slashCommandOf(this.editor.text) === 'login') {
+            this.renderer.setStatus('busy; /login registers credentials when idle');
+          } else if (
             slashCommandOf(this.editor.text) === 'recall' ||
             slashCommandOf(this.editor.text) === 'provider' ||
             slashCommandOf(this.editor.text) === 'model' ||
@@ -817,7 +830,9 @@ export class TuiController {
     } else if (event.kind === 'enter') {
       const slashCommand = slashCommandOf(this.editor.text);
       this.renderer.setStatus(
-        slashCommand === 'recall'
+        slashCommand === 'login'
+          ? 'busy; /login registers credentials when idle'
+          : slashCommand === 'recall'
           ? 'busy; /recall waits for ready'
           : slashCommand === 'provider'
           ? 'busy; /provider waits for ready'
@@ -856,6 +871,17 @@ export class TuiController {
       if (id === null) {
         this.renderer.setStatus('invalid recall id; use at least 8 UUID characters');
       } else this.startRecallSelection(id);
+      return true;
+    }
+    if (command === 'login') {
+      const withArguments = loginHasArguments(this.editor.text);
+      this.editor.clear();
+      this.editorController.resetHistory();
+      this.renderEditorState();
+      if (withArguments) {
+        // `/login` accepts no arguments; answer with guidance and never echo the mistaken input.
+        this.renderer.setStatus('usage: /login · paste the key in the dedicated dialog');
+      } else this.openCredentialRegistration();
       return true;
     }
     this.editor.clear();
@@ -1617,6 +1643,12 @@ export class TuiController {
     const text = this.editor.submit();
     if (text === null) {
       this.renderer.setStatus('enter follow-up text');
+      return;
+    }
+    if (slashCommandOf(text) === 'login') {
+      // `/login` during busy is answered as an idle-only registration entry, never queued as a
+      // follow-up task or steering input.
+      this.renderer.setStatus('busy; /login registers credentials when idle');
       return;
     }
     if (this.followUpSlot === 'pending') {

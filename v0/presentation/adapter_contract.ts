@@ -34,6 +34,11 @@ export interface AdapterSessionPort {
   } | undefined;
   modelSelectionSnapshot?(): ModelSelection | undefined;
   credentialAvailabilitySnapshot?(): CredentialAvailability | undefined;
+  /** Presence-only credential display refresh; never carries credential material. */
+  refreshCredentialAvailability?():
+    | CredentialAvailability
+    | undefined
+    | Promise<CredentialAvailability | undefined>;
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
@@ -72,6 +77,10 @@ export type CoreSession = {
   } | null;
   modelSelectionSnapshot?(): ModelSelection | undefined;
   credentialAvailabilitySnapshot?(): CredentialAvailability | undefined;
+  refreshCredentialAvailability?():
+    | CredentialAvailability
+    | undefined
+    | Promise<CredentialAvailability | undefined>;
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;

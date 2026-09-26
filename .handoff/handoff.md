@@ -4,10 +4,11 @@
 
 ## 現在地（2026-09-27）
 
-**Increment 134（A12: assistant途中本文の保存粒度）はスライス単位の実装を指示済み。 slice
-1〜4のlocal実装・production経路確認・容量比較、承認されたarchitecture・roadmap反映を完了。
-対象workspaceの既存v10 DBは利用者指示で削除済み。実装commitのpush・clean
-build・常用binary配置を完了。Increment 133の入力欠落解消は常用利用で継続観測中。**
+**次のincrementは135（S2: Henji内credential登録）。キーの保管場所を維持して登録入口を追加する。
+実装・focused test・review・production tmux確認・`v0:gate`・結果記録まで完了し、
+利用者の確認とcommit／push・配置・公開の指示待ち。
+正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。 Increment
+134は実装・正本反映・配置まで完了。Increment 133の入力欠落解消は常用利用で継続観測中。**
 
 - 常用binaryは`henji 0.7.0`、source `ca25d23b…`、build `aeaad975…`。
   配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。次回起動から新方式を使う。
@@ -19,11 +20,13 @@ build・常用binary配置を完了。Increment 133の入力欠落解消は常�
 
 ## 次の一手
 
-1. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
+1. [Increment 135の実装・確認結果](../docs/increments/increment-135.md#実装確認結果)を確認し、
+   残る確認事項（実provider受理、busy応答のtmux観測、shutdown接続）と、
+   commit／push・常用binary配置・公開の可否を利用者に確認する。
+2. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
    簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない。
    観測を得たら[Increment 133](../docs/increments/increment-133.md#残る受入と承認境界)へ記録する。
-2. 次の通常利用は新規v11 DBで行う。Increment 134の実装・正本反映・DB削除・配置は完了している。
-   次のincrementは[通常利用メモ](../docs/experience/normal-use-inbox.md)と利用者の指定から選ぶ。
+   次の通常利用は新規v11 DBで行う。
 
 ## 未完了・再開対象
 
@@ -37,6 +40,9 @@ build・常用binary配置を完了。Increment 133の入力欠落解消は常�
 
 ## 承認境界
 
+- Increment 135は実装・focused検証・隔離XDGでのproduction tmux確認・`v0:gate`まで実施済み。
+  commit・push・常用binary配置・公開、実provider call、実運用credentialの登録・上書きは未指示。
+  実運用の`~/.config/henji-harness/openrouter-api-key`は読取確認のみで上書きしていない。
 - Increment 134の実provider確認は利用者承認を受け、指定した2turnを実施済み。 新しい実provider
   probeは、対象・回数・保存先を提示して別途明示承認を得る。
 - 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は

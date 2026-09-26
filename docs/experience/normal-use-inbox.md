@@ -12,7 +12,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 | ID | 領域 | 候補 | 再検討の主な契機 |
 | --- | --- | --- | --- |
-| S2 | Surface | Henji内credential登録 | Provider外部化の計画を採用する |
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
@@ -22,6 +21,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S19 | Surface | synchronized outputによるframe描画の安定化 | S17を採用するとき、全面書き直しのちらつきが観測されたとき |
 | S20 | Surface | 巨大表示領域でのwindow行量確保とframe上限 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき |
 | S21 | Surface | subagent起動時のagent名表示 | 複数の子Agentを並行運用し、どのagentが起動したか履歴から追いたいとき |
+| S22 | Surface | 将来のWeb UIとUI／Host間のAPI・RPC境界 | Web UIを個別incrementへ採用するとき。常駐化は未採用 |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -33,6 +33,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A14 | Agent実行 | 名前付き子Agent Definitionの専用model指定 | reviewerなどを親Sessionとは別のmodelで動かしたいとき |
 | A15 | Agent実行 | searchツールコールの実装 | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討 |
 | A17 | Agent実行 | `WebSearchBackend`のExa APIへの置き換え | 利用者指示（2026-09-27、形態確認済み）。採用時に置き換え範囲を決める |
+| A18 | Agent実行 | bash toolのtimeout説明と引数エラーの具体化 | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測 |
+| A19 | Agent実行 | requestごとの実行状況・日時・地域context | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき |
+| A20 | Agent実行 | 子Agentの作業状況取得 | reviewer待機中に、子が何をしているか親から知りたいとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -51,19 +54,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | P10 | 参照実装parity | 外部agent interface（双方向server/RPC／ACP） | editor/IDE統合や別agentからの対話的駆動が必要になるとき。一段目の一方向structured outputはIncrement 104で実装済み |
 
 ## Surface
-
-### S2 — Henji内credential登録（F01、F02、F10）
-
-- 観測: API keyをHenji内のslash commandから登録したい。
-- 利用者判断（2026-09-12）: built-in二providerに固定した登録UIは先行実装しない。Provider外部化と
-  同時または直後に、external Providerが宣言する非secretなauth profile identity、Host-owned credential
-  registry、TUIの登録対象catalog、request時解決を接続する。credential値はDefinition、transport package、
-  Session、evidenceへ含めない。
-- 候補: secretを通常のinput buffer、会話履歴、process argumentへ残さない入力、auth profile選択、fixed
-  credential fileの更新と結果表示を設計する。
-- 利用者判断（2026-09-22）: 欲しくなってきた。優先度を上げる（Provider外部化はIncrement 58〜68／101で
-  成立済みなので、E1の前提は満たしている）。
-- 再検討条件: E1でProvider外部化を採用すること（充足済み）。
 
 ### S4 — `/rebuild`によるAgent context再構築（F01、F03、F08、F10、F11、F27）
 
@@ -195,6 +185,19 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   またはA14の名前付き子Agent運用に含めるとき。
 - 関連: A14、[`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/tool_activity.ts`、
   `v0/agent/tools/async_agents.ts`。
+
+### S22 — 将来のWeb UIとUI／Host間のAPI・RPC境界（F01、F10、未採用）
+
+- 利用者判断（2026-09-27）: 将来Web UIを作りたい。今回は候補の記録のみで、実装は指示していない。
+  **Hostの常駐化は未採用**であり、Web UIやAPI／RPC化の前提として採用しない。
+- 現行境界: UI操作の`PresentationIntent`、進捗・結果の`PresentationEvent`、ヘッドレスなAgent Workerが
+  既にある。一方、TUIからの同期状態参照と、TUI Controllerが所有するfollow-up予約・自動送信が残る。
+- 候補: UIとHostの間に操作・状態取得・イベント購読の共通契約を置き、TUIと将来のWeb UIからAPI／RPCで
+  利用できる形へ疎結合化する。Session履歴の復元とlive eventへの接続、実行制御とUI-local stateの責務を
+  採用時に整理する。通信方式、切断・再接続時の動作、Hostの起動・終了方式は未決である。
+- 再検討条件: Web UIを個別incrementへ採用するとき。
+- 関連: P10、[`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)、
+  `v0/presentation/contract_types.ts`、`v0/presentation/adapter_contract.ts`、`v0/tui/controller.ts`。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
@@ -394,6 +397,83 @@ Pi／OpenCode／Henjiの画面表示比較
 
 
 
+### A18 — bash toolのtimeout説明と引数エラーの具体化
+
+- 観測（2026-09-27、session `51b47299`、execution `6598b5eb-f405-4dbc-b213-eaa0b93bc145`）:
+  `opencode-go-chat / mimo-v2.6-pro / effort=auto`によるIncrement 135のslice 1〜3実装・検証が、
+  約43分、128 model step、172 tool呼出しで`max_steps`停止した。128回のmodel responseはすべて
+  tool呼出しで、最終回答はなかった。bash引数エラー29回の内訳は`timeoutMs=180000`が28回、
+  `300000`が1回で、いずれも上限超過だった。modelはcommandやファイル名、wrapperの不調と
+  誤解して再試行し、stepを浪費した。これが長時間turnの唯一の原因とは断定しない。
+- 現行境界: bash toolの説明とinput schemaは既に上限`120000`を明示しているが、timeoutの
+  検証失敗も`invalid arguments: invalid bash arguments`だけを返す。command実行前の拒否なのか、
+  どの引数が不適合なのかが結果から分からない。
+- 候補: 説明に`timeoutMs`の整数範囲`1〜120000`と、引数検証失敗時はcommandが未実行であること、
+  再試行前にschemaと引数を照合することを明示する。timeoutエラーは、例えば
+  `invalid arguments: timeoutMs must be an integer from 1 to 120000; received 180000. Command was not executed.`
+  として原因と修正方法を示す。今回の観測に対応するtimeoutの説明・エラー改善から検討する。
+- 利用者指示（2026-09-27）: 今回は通常利用メモへの追加のみ。採用・実装は指示していない。
+- 再検討条件: 個別Incrementへ採用するとき。改善後の通常利用で、引数エラーから適切に修正して
+  作業を継続できるかを確認する。
+- 関連: A11（報告する時点の指示）、E3（runtime tunables）、
+  `v0/agent/tools/bash_tool.ts`のdescription・input schema・timeout検証。
+
+### A19 — requestごとの実行状況・日時・地域context
+
+- 観測（2026-09-27）: A18のsession `51b47299`では、maxSteps・現在step・turn経過時間を
+  modelへ自動通知していなかった。現行`Runtime facts`は作業directoryだけで、内部の`modelStep`は
+  診断・履歴用である。利用者は、turnを返す判断材料に加え、現在日時と地域の情報も有用と考えた。
+- 候補: Worker内のAgent loopが既存のmaxSteps・stepとturn開始時刻から実行状況を生成し、
+  request直前に最新の短いruntime contextを投影する。stepはtool呼出し数と区別し、残り回数が
+  今回のrequestを含むかを明示する。共有request budgetによる残り回数とmodel stepの関係は採用時に
+  定める。経過時間の基準は「今回のturn開始から」とし、現在日時にはrequest準備時点の日時・
+  UTC offset・timezoneを含める。通知文面と、それを使った報告方針のinstructionは分ける。
+- 渡し方の案: request用コピーの末尾へ、runtime由来と明示したuser-role messageを一つ追加し、
+  毎requestで最新値に置き換える。canonical会話へ通知を積み重ねず、当時渡した内容と出所は既存の
+  context attributionで追跡できる形を検討する。通知だけでfinal回答が保証されるとは扱わない。
+  最終requestの回答強制、通知頻度、報告を促す時点は未決であり、今回の案から自動停止を導入しない。
+- 日時・地域の案: 現在日時とsystem timezoneを自動取得する。localeは言語・書式の設定として
+  所在地と区別する。このVMでの取得値は`Asia/Tokyo`／`en-US`／locale region `US`で、利用者は
+  localeを設定していないと述べた。利用者の居住地は大阪であり、timezoneだけでは大阪まで表せない。
+  任意の地域設定として`Osaka, Japan`や「大阪市、大阪府、日本」を指定し、情報の出所を示す案とする。
+  system timezone、locale、利用者指定の地域を一つの所在地へ混同しない。
+- 参照実装: DeepSeek Harnessの`time-context`（snapshot
+  `c291e7961a515f6d7af9304e7fd1d257929aef26`）は`agent/pre-step`でturn・step・時刻・
+  前回の観測からの経過時間をuser-role messageへ追加し、履歴にも保存する。Henji案のturn開始からの
+  経過時間・requestごとの最新値投影とは異なる。
+  [実装](../../_refs/deepseek-harness/packages/context/time-context/src/index.ts)。
+  OpenCodeの2026-09-27に取得した`dev` branchのV1経路は、最終stepで報告を促すassistant-role
+  messageをrequest末尾へ追加する。
+  [追加処理](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/session/prompt.ts)、
+  [通知文面](https://github.com/anomalyco/opencode/blob/dev/packages/core/src/session/runner/max-steps.ts)。
+  mechanismを比較する資料であり、そのまま採用するcontractではない。
+- 利用者指示（2026-09-27）: 今回はアイデアのメモのみ。runtime通知・地域設定の実装は未指示。
+- 再検討条件: 個別Incrementへ採用するとき。実際に通知が報告・作業継続の判断に使われるかを
+  通常利用で確認する。
+- 関連: A18、A10、A11、S4、E3、`v0/agent/core/loop.ts`、
+  `v0/agent/worker/worker_runtime.ts`のrequest projection・context attribution。
+
+### A20 — 子Agentの作業状況取得
+
+- 利用者希望（2026-09-27）: 子Agentの状況を親が読み取り、利用者へ中間報告できるようにしたい。
+  session `51b47299`で名前付き`reviewer`の結果を待つ利用から出た候補。今回はメモのみで、実装は未指示。
+- 利用者選択（2026-09-27）: 初期案は、子Workerの既存イベントをHostで受け、短い進捗として
+  保持し、親が取得できる形にする。今後の課題としてこの範囲に絞る。
+- 現行境界: `subagent_status`が返すのはstarting／running／completed等のlifecycle stateだけ。
+  作業内容や途中の報告を取得する専用interfaceはない。`collect_subagent`は子の終了まで待つため、
+  待機中は親modelの次requestへ進まない。親turnが終了すると未完了の子もcleanup対象になる。
+- 候補: 子Workerの既存runtime event／provider observationをHostで受け、agent名・直近のtool
+  実行状況・最後の更新等の短いsnapshotを親が取得できる形にする。子の最終結果と途中の観測を区別する。
+  対象はsemanticな作業状況であり、raw request／responseやthinking全文の常設収集は追加しない。
+- 実装上の入口: `worker_host_children.ts`の`routeChildMessage()`は現在readyやterminal message等を
+  処理し、子のruntime／provider observationの進捗を親向けに保持していない。この経路で必要な
+  eventを受けてsnapshot化し、既存status操作の拡張または専用取得操作で返す案を検討する。
+- 再検討条件: 個別Incrementへ採用するとき。親が取得するsnapshotの項目と、既存eventからの
+  生成方法を定める。定期報告、待機操作の変更、子の明示的な中間finding報告、TUIへの直接表示は
+  今回選択した初期案の対象に含めない。
+- 関連: S21（子Agent名表示）、A19、`v0/agent/tools/async_agents.ts`、
+  `v0/agent/worker/worker_host_children.ts`、`v0/agent/worker/worker_protocol.ts`。
+
 ## F24・自己改訂
 
 ### R1 — 自己改訂対象の重心とagent loop境界
@@ -489,7 +569,8 @@ Pi／OpenCode／Henjiの画面表示比較
   出るまで、共通化を目的にしない。
 - Provider候補: 互換providerをdata-only、独自protocol/OAuth/dynamic model取得をexecutable Definitionとして
   分けるか、credential非継承、adapter state、raw SSE evidence、request count、timeout、network permissionのどこまでを
-  Henji-owned contractに固定するかを決める。S2のcredential registryと接続する。
+  Henji-owned contractに固定するかを決める。
+  [Increment 135のcredential登録](../increments/increment-135.md)と接続する。
 - activation候補: LLM-callableなmodule installはcandidate receiptを返して現turnを終え、人間の採用後に次Worker
   generationでactivateする。`define/install -> inspect -> activate/update -> stop/rollback`を分け、新revisionの起動成功後だけ
   current bindingを更新する。
@@ -595,7 +676,6 @@ Pi／OpenCode／Henjiの画面表示比較
   - `/btw` side-chat: Henjiにそぐわないため対象外。
   - `/swarm`: 時期尚早。非同期subagentは同期subagent廃止後の別incrementで採用する（採用済み）。
   - extension/package管理: 将来課題（E2／F24）。
-  - credential UI: 利用者が欲しくなってきた。S2の優先度を上げる。
   - messaging bridge: 将来Surfaceの拡張で検討する可能性がある（未採用）。
   - sandbox/permission系: 対象外（R3領域）。
 - 対象外: self-update、llama.cpp router、project trust。
@@ -612,7 +692,7 @@ Pi／OpenCode／Henjiの画面表示比較
   capability（vision）が必要。
 - 依存: E5（Anthropic Messages／Google adapter）と、Increment 103で先送りしたcatalog capabilities。
 - 再検討条件: 画像を扱うtaskを通常利用で行うとき。
-- 関連: E5、A3、S2。
+- 関連: E5、A3、[Increment 135（credential登録）](../increments/increment-135.md)。
 
 ### P10 — 外部agent interface（双方向server/RPC／ACP、未採用）
 

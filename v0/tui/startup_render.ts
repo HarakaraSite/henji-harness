@@ -169,6 +169,7 @@ export const startupHelpLines = (
 ): readonly string[] => {
   return Object.freeze([
     'Henji help · F1/Esc return',
+    '/login · register the API credential for a provider auth profile',
     '/provider · select the root provider and its default model',
     '/model · search and select the root model',
     '/effort · select effort for the current root model',

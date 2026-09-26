@@ -7,7 +7,11 @@
  */
 
 import { credentialPath } from '../runtime/runtime_paths.ts';
-import { type AuthProfileId, isAuthProfileId } from './model_selection.ts';
+import {
+  type AuthProfileId,
+  type CredentialAvailability,
+  isAuthProfileId,
+} from './model_selection.ts';
 
 /**
  * Resolve the fixed credential file for a validated auth profile. The profile ID is a non-secret
@@ -120,6 +124,15 @@ export const credentialFilePresenceFor = (
   filesystem: CredentialFileSystem = defaultFileSystem,
 ): Promise<CredentialFilePresence> =>
   credentialFilePresenceAt(credentialFileFor(profile), filesystem);
+
+/** Presence-only availability for one auth profile; the credential value is never read here. */
+export const credentialAvailabilityFor = async (
+  profile: AuthProfileId,
+  filesystem: CredentialFileSystem = defaultFileSystem,
+): Promise<CredentialAvailability> => ({
+  authProfile: profile,
+  status: await credentialFilePresenceFor(profile, filesystem),
+});
 
 const fail = (code: CredentialFileFailureCode): never => {
   throw new CredentialFileError(code);

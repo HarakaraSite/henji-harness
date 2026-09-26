@@ -2,6 +2,7 @@ import type { AgentEventSink } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
+import { credentialAvailabilityFor } from '../provider/credential_file.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -235,6 +236,8 @@ export interface TuiActiveSession extends NavigationSessionLike {
   currentPosition(): ReturnType<WorkerHostSession['currentPosition']>;
   modelSelectionSnapshot(): ModelSelection;
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined;
+  /** Presence-only display refresh; an unstarted session must not start a Worker for it. */
+  refreshCredentialAvailability(): Promise<CredentialAvailability | undefined>;
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined;
   consumeAutoCompactionNotice(): {
     readonly coveredThroughTurn: number;
@@ -268,6 +271,7 @@ class LazyWorkerSession implements TuiActiveSession {
   private host: WorkerHostSession | undefined;
   private starting: Promise<WorkerHostSession> | undefined;
   private closed = false;
+  private localCredentialAvailability: CredentialAvailability | undefined;
 
   constructor(
     private readonly handle: WorkerSessionHandle,
@@ -342,7 +346,20 @@ class LazyWorkerSession implements TuiActiveSession {
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
-    return this.host?.credentialAvailabilitySnapshot();
+    return this.host?.credentialAvailabilitySnapshot() ?? this.localCredentialAvailability;
+  }
+
+  /**
+   * Presence-only display refresh. An unstarted session resolves it Host-locally so the display can
+   * update without starting a Worker generation just to refresh the snapshot.
+   */
+  async refreshCredentialAvailability(): Promise<CredentialAvailability | undefined> {
+    if (this.closed) return undefined;
+    if (this.host !== undefined) return await this.host.refreshCredentialAvailability();
+    const availability = await credentialAvailabilityFor(this.record.activeModel.authProfile);
+    if (this.closed) return undefined;
+    this.localCredentialAvailability = availability;
+    return availability;
   }
 
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined {

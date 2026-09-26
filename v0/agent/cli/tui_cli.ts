@@ -41,6 +41,7 @@ import {
   type ProviderDeclarationV1,
   resolveProviderRegistry,
 } from '../provider/provider_declaration.ts';
+import { createCredentialRegistration } from '../provider/credential_registration.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import {
@@ -401,8 +402,9 @@ export const main = async (
           history: new TuiEditorHistory(),
           pathIndex,
           intents: presentationAdapter,
+          credentialRegistration: createCredentialRegistration(),
         }
-        : {},
+        : { credentialRegistration: createCredentialRegistration() },
     );
     controllerRef.current = controller;
     controller.installSignals();

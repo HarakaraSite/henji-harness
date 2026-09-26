@@ -30,6 +30,7 @@ import {
   type ReasoningEffort,
   selectModelFor,
 } from '../agent/provider/model_catalog.ts';
+import type { CredentialAvailability } from '../agent/provider/model_selection.ts';
 
 const recallRejectionReason = (
   error: unknown,
@@ -307,6 +308,14 @@ export class TuiPresentationAdapter implements AdapterSessionPort, PresentationI
 
   credentialAvailabilitySnapshot() {
     return this.core.credentialAvailabilitySnapshot?.();
+  }
+
+  /** Presence-only display refresh forwarded to the core session; no credential value crosses. */
+  refreshCredentialAvailability():
+    | CredentialAvailability
+    | undefined
+    | Promise<CredentialAvailability | undefined> {
+    return this.core.refreshCredentialAvailability?.();
   }
 
   selectModel(

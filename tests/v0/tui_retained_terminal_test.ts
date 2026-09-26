@@ -572,7 +572,7 @@ Deno.test('retained controller completes a sole slash candidate and preserves pa
   );
 
   terminal.push('/');
-  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 9);
+  await waitFor(() => renderer.stateSnapshot().slashCommandCandidates.length === 10);
   const allCommandsFooter = renderer.layoutSnapshot(80, 24).footer[0].text;
   assert(allCommandsFooter.includes('cmds:'));
   assert(allCommandsFooter.includes('/help'));

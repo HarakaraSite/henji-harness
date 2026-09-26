@@ -52,6 +52,11 @@ export class WorkerHostSession {
     return this.coordinator.credentialAvailabilitySnapshot();
   }
 
+  /** Presence-only display refresh; never starts work or moves a credential value. */
+  async refreshCredentialAvailability(): Promise<CredentialAvailability | undefined> {
+    return await this.coordinator.refreshCredentialAvailability();
+  }
+
   requestCount(): number {
     return this.coordinator.requestCount();
   }

@@ -1,5 +1,6 @@
 export type SlashCommand =
   | 'help'
+  | 'login'
   | 'new'
   | 'sessions'
   | 'rename'
@@ -16,6 +17,7 @@ export interface SlashCommandDefinition {
 
 export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
   Object.freeze({ text: '/help', command: 'help' }),
+  Object.freeze({ text: '/login', command: 'login' }),
   Object.freeze({ text: '/new', command: 'new' }),
   Object.freeze({ text: '/sessions', command: 'sessions' }),
   Object.freeze({ text: '/rename', command: 'rename' }),
@@ -43,8 +45,12 @@ export const slashCommandOf = (
   if (!trimmed.startsWith('/')) return null;
   if (/^\/rename(?:\s|$)/u.test(trimmed)) return 'rename';
   if (/^\/recall(?:\s|$)/u.test(trimmed)) return 'recall';
+  if (/^\/login(?:\s|$)/u.test(trimmed)) return 'login';
   return SLASH_COMMANDS.find((definition) => definition.text === trimmed)?.command ?? 'unknown';
 };
+
+/** `/login` takes no arguments; a mistaken argument is answered without echoing it back. */
+export const loginHasArguments = (text: string): boolean => /^\/login\s/u.test(text.trim());
 
 /** Missing means latest; null means that an explicit execution ID/prefix is invalid. */
 export const recallExecutionIdOf = (text: string): string | undefined | null => {

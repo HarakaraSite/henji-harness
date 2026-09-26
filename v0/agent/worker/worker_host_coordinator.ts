@@ -27,6 +27,7 @@ import type {
   WorkerToHostMessage,
 } from './worker_protocol.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
+import { credentialAvailabilityFor } from '../provider/credential_file.ts';
 import {
   type CredentialAvailability,
   modelRouteProfileId,
@@ -318,6 +319,22 @@ export class ExecutionCoordinator {
     return this.supervisor.credentialAvailability === undefined
       ? undefined
       : structuredClone(this.supervisor.credentialAvailability);
+  }
+
+  /**
+   * Recompute presence-only availability for the current selection's auth profile and reflect it
+   * into the existing display snapshot. This is a Host-local display refresh: no Worker command,
+   * model transaction, or credential value is involved, and the request resolver keeps reading the
+   * fixed credential file.
+   */
+  async refreshCredentialAvailability(): Promise<CredentialAvailability | undefined> {
+    if (this.closed) return undefined;
+    const profile = this.authority.modelSelectionSnapshot().authProfile;
+    const availability = await credentialAvailabilityFor(profile);
+    if (this.closed) return undefined;
+    if (this.authority.modelSelectionSnapshot().authProfile !== profile) return undefined;
+    this.supervisor.setCredentialAvailability(structuredClone(availability));
+    return availability;
   }
 
   private send(

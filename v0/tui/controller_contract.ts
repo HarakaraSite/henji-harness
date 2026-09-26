@@ -13,6 +13,7 @@ import type { PendingInputCore } from './pending_input.ts';
 import type { WorkspacePathIndex } from './file_reference.ts';
 import type { ModelSelection } from '../agent/provider/openrouter_model_catalog.ts';
 import type { CredentialAvailability } from '../agent/provider/model_selection.ts';
+import type { CredentialRegistration } from '../agent/provider/credential_registration.ts';
 
 export interface TuiSessionLike {
   submit(text: string): Promise<PresentationOutcome>;
@@ -30,6 +31,11 @@ export interface TuiSessionLike {
   } | undefined;
   modelSelectionSnapshot?(): ModelSelection | undefined;
   credentialAvailabilitySnapshot?(): CredentialAvailability | undefined;
+  /** Presence-only display refresh for the current selection; carries no credential value. */
+  refreshCredentialAvailability?():
+    | CredentialAvailability
+    | undefined
+    | Promise<CredentialAvailability | undefined>;
   selectModel?(
     selection: ModelSelection,
   ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
@@ -76,4 +82,6 @@ export interface TuiControllerOptions {
   readonly navigation?: TuiNavigationLike;
   /** Production-only typed intent authority; legacy session calls remain test-seam compatible. */
   readonly intents?: PresentationIntentDispatcher;
+  /** Host-local credential registration entry point used by the dedicated `/login` dialog. */
+  readonly credentialRegistration?: CredentialRegistration;
 }
