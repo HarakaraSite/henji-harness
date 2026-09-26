@@ -16,7 +16,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4 | Surface | `/rebuild`によるAgent context再構築 | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る |
 | S8 | Surface | startup headerのMCP欄（複数行対応の予約） | MCP接続managed resourceが採用され、header表示が必要になるとき |
 | S10 | Surface | 入力履歴のセッション横断保存とsnippet | 再起動後・別Sessionでも同じpromptを再利用したいとき |
-| S16 | Surface | 通常実行中の出力を一行ずつ追える表示 | 生成中の表示がまとまって現れ、進行を追いにくいとき |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -103,15 +102,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
 - 関連: `v0/tui/input_history.ts`、roadmap F01。
 
-### S16 — 通常実行中の出力を一行ずつ追える表示
-
-- 観測（2026-09-24）: 利用者はPi等のように、通常実行中の出力が一行ずつ進む見え方を希望した。Henjiは
-  assistant本文を進行中に更新する一方、thinkingはproviderから断片を受け取ってもmodel step終了時に
-  まとめて表示する。現行TUIは更新のたびに画面を再描画する。
-- 候補: 通常実行中の出力を生成に合わせて追える表示を検討する。thinkingの途中表示と画面全体の描画方式は
-  変更範囲が異なるため、採用時に必要な見え方を決める。保存Session復元時の逐次再生は含めない。
-- 再検討条件: 通常実行中に出力がまとまって現れ、進行を追いにくいと感じたとき。
-- 関連: `v0/agent/core/loop.ts`、`v0/tui/tui_renderer.ts`、`v0/tui/state.ts`。
 
 ## Agent実行
 

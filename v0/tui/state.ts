@@ -484,6 +484,13 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         : event.complete
         ? 'thinking>'
         : 'thinking~';
+      // Live thinking snapshots of one model step update the same entry in place; only the first
+      // snapshot appends it before the active assistant body.
+      if (state.log.entries.some((entry) => entry.id === id)) {
+        return Object.freeze({
+          ...replaceEntry(state, id, event.text, false, label),
+        });
+      }
       const activeAssistantIndex = state.log.entries.findIndex((entry) =>
         entry.id === state.activeAssistantId && entry.turn === event.turn && entry.live
       );

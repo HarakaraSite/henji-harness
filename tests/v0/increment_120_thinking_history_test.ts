@@ -104,14 +104,18 @@ Deno.test('Increment 120 keeps each completed model step before its tool and ans
     event.kind === 'assistant_message'
   ).map((event) =>
     event.kind === 'assistant_thinking'
-      ? `${event.kind}:${event.modelStep}:${event.thinkingKind}`
+      ? `${event.kind}:${event.modelStep}:${event.thinkingKind}:${event.complete}`
       : event.kind
   );
+  // Increment 132: each model step streams its thinking live (`complete:false`) before the
+  // completed settle (`complete:true`), both ahead of the step's tool/answer.
   assertEquals(order, [
-    'assistant_thinking:1:text',
+    'assistant_thinking:1:text:false',
+    'assistant_thinking:1:text:true',
     'assistant_message',
     'tool_call',
-    'assistant_thinking:2:summary',
+    'assistant_thinking:2:summary:false',
+    'assistant_thinking:2:summary:true',
     'assistant_message',
   ]);
   let ui = createUiState();
@@ -175,7 +179,16 @@ Deno.test('Increment 120 retains the observed thinking when a model step fails',
     { eventSink: (event) => events.push(event) },
   );
   assertEquals(outcome.stopReason, 'contract_failure');
+  // Increment 132: the live snapshot streams during generation and the final event carries the
+  // full observed thinking for the failed step.
   assertEquals(events.filter((event) => event.kind === 'assistant_thinking'), [{
+    kind: 'assistant_thinking',
+    turn: 1,
+    modelStep: 1,
+    thinkingKind: 'text',
+    text: 'First part. ',
+    complete: false,
+  }, {
     kind: 'assistant_thinking',
     turn: 1,
     modelStep: 1,
@@ -183,6 +196,17 @@ Deno.test('Increment 120 retains the observed thinking when a model step fails',
     text: 'First part. Second part.',
     complete: false,
   }]);
+  assertEquals(
+    events.filter((event) => event.kind === 'assistant_thinking').at(-1),
+    {
+      kind: 'assistant_thinking',
+      turn: 1,
+      modelStep: 1,
+      thinkingKind: 'text',
+      text: 'First part. Second part.',
+      complete: false,
+    },
+  );
 });
 
 Deno.test('Increment 120 retains partial thinking after cancellation', async () => {

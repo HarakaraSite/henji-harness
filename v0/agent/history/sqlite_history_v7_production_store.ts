@@ -1739,6 +1739,12 @@ export class SqliteHistoryV7ProductionStore
           : otherMessages.all(execution.executionId) as Row[];
         const messages = rows.map((row) => parseJson<Message>(row.message_json));
         const thinking: StoredSessionHistoryExecution['thinking'][number][] = [];
+        // Live thinking snapshots of one model step are all durable facts; the human timeline
+        // shows one settled entry per step, keeping the last snapshot (no sequential replay).
+        const thinkingByStep = new Map<
+          string,
+          StoredSessionHistoryExecution['thinking'][number]
+        >();
         for (const row of thinkingRows.all(execution.executionId) as Row[]) {
           const stored = parseJson<{ event?: StoredExecutionEvent }>(row.payload_json).event;
           if (stored?.kind !== 'runtime_event') continue;
@@ -1754,8 +1760,10 @@ export class SqliteHistoryV7ProductionStore
             typeof candidate !== 'object' || candidate === null ||
             (candidate as { kind?: unknown }).kind !== 'assistant_thinking'
           ) continue;
-          thinking.push(candidate as StoredSessionHistoryExecution['thinking'][number]);
+          const item = candidate as StoredSessionHistoryExecution['thinking'][number];
+          thinkingByStep.set(`${item.turn}:${item.modelStep}`, item);
         }
+        thinking.push(...thinkingByStep.values());
         return { execution, messages, thinking };
       });
       db.exec('COMMIT');

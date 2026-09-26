@@ -2,6 +2,11 @@
 
 ## Next session
 
+- Increment 132（S16の通常実行中の逐次表示）は実装をcommitし、focused test・隔離XDGの
+  mock SSE production TUI確認まである。正本は`docs/increments/increment-132.md`。同一Henjiプロセス
+  約3時間26分の長時間計測と実端末clientの操作で数秒の入力／PageUp・PageDown遅延は再現せず、要件Cは
+  未完了。利用者指示により計測を終了し、Henjiプロセスとtmux計測sessionを閉じた。新binaryでの実provider
+  確認、build・配置・pushは未実施。通常利用メモA15は調査開始直後に取消したため未採用のまま。
 - Increment 131（誰でもないサブエージェント`agent:generic`と起動時model/tool指定）を実装完了。
   `spawn_subagent(agent, task, model?, tools?)`で起動時model指定（省略時は親Sessionの現在selection）と
   tool絞り込み（宣言済みtoolの部分集合・追加不可。`tool:skill`／`tool:submit_json_result`は対象外）を

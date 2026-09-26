@@ -11,6 +11,7 @@ import {
   type ToolMessage,
 } from './contracts.ts';
 import {
+  type AgentEvent,
   type AgentEventSink,
   deliverEvent,
   EventDeliveryError,
@@ -46,8 +47,10 @@ import { MAX_CONVERSATION_TEXT_BYTES } from '../../resource_limits.ts';
 export const MAX_ASSISTANT_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
 
-/** Maximum accepted live assistant snapshots for one admitted model request. */
-export const MAX_ASSISTANT_PROGRESS_UPDATES_PER_REQUEST = 256;
+/** Minimum wall-clock gap between accepted live snapshots (assistant text, thinking) per request. */
+export const LIVE_UPDATE_MIN_INTERVAL_MS = 100;
+/** A changed live snapshot without a completed line is still shown after this gap. */
+export const LIVE_UPDATE_MAX_INTERVAL_MS = 500;
 
 export interface AgentLoopOptions {
   readonly maxSteps?: number;
@@ -83,6 +86,8 @@ export interface AgentTurnOptions extends AgentLoopOptions {
   };
   /** Worker-provided causal source factory used as messages are appended to the transcript. */
   readonly requestMessageSource?: RequestMessageSourceFactory;
+  /** Injectable clock for live-update cadence; production uses wall-clock time. */
+  readonly now?: () => number;
 }
 
 const errorText = (error: unknown): string =>
@@ -113,7 +118,9 @@ const isProviderState = (
     return false;
   }
   const state = value as Record<string, unknown>;
-  if (typeof state.provider !== 'string' || state.provider.length === 0) return false;
+  if (typeof state.provider !== 'string' || state.provider.length === 0) {
+    return false;
+  }
   if (!('replayItems' in state)) {
     const reasoning = state.reasoning;
     const reasoningRecord = typeof reasoning === 'object' && reasoning !== null &&
@@ -127,9 +134,11 @@ const isProviderState = (
         (reasoningRecord !== undefined &&
           (reasoningRecord.field === 'reasoning' ||
             reasoningRecord.field === 'reasoning_content') &&
-          typeof reasoningRecord.text === 'string' && reasoningRecord.text.length > 0)) &&
+          typeof reasoningRecord.text === 'string' &&
+          reasoningRecord.text.length > 0)) &&
       (details === undefined ||
-        Array.isArray(details) && details.length > 0 && details.every(isJsonValue)) &&
+        Array.isArray(details) && details.length > 0 &&
+          details.every(isJsonValue)) &&
       (reasoning !== undefined || details !== undefined);
   }
   return Array.isArray(state.replayItems) && state.replayItems.length > 0 &&
@@ -628,18 +637,36 @@ const runAgentTurnInternal = async (
     let result: unknown;
     let progressFailure: EventDeliveryError | undefined;
     let progressSettled = false;
-    let acceptedProgress = 0;
-    const thinkingParts: { text: string[]; summary: string[] } = { text: [], summary: [] };
-    const emitThinking = (complete: boolean, state?: ModelResult['providerState']): void => {
+    const now = options.now ?? Date.now;
+    const thinkingParts: { text: string[]; summary: string[] } = {
+      text: [],
+      summary: [],
+    };
+    const thinkingLength = { text: 0, summary: 0 };
+    const thinkingPendingLine = { text: false, summary: false };
+    const observedThinking = (): ReadableThinking | undefined => {
       const observedText = thinkingParts.text.join('');
       const observedSummary = thinkingParts.summary.join('');
-      const observedThinking: ReadableThinking | undefined = observedText.length > 0
+      return observedText.length > 0
         ? { kind: 'text', text: observedText }
         : observedSummary.length > 0
         ? { kind: 'summary', text: observedSummary }
         : undefined;
-      const thinking = readableThinkingFromState(state) ?? observedThinking;
+    };
+    let thinkingLive: ReadableThinking | undefined;
+    const emitThinking = (
+      complete: boolean,
+      state?: ModelResult['providerState'],
+    ): void => {
+      const thinking = readableThinkingFromState(state) ?? observedThinking();
       if (thinking === undefined) return;
+      // An incomplete settle identical to the last live snapshot adds no fact; the completed
+      // settle always does (it turns the live `thinking~` entry into `thinking>`).
+      if (
+        !complete && thinkingLive !== undefined &&
+        thinkingLive.kind === thinking.kind &&
+        thinkingLive.text === thinking.text
+      ) return;
       deliverEvent(sink, {
         kind: 'assistant_thinking',
         turn,
@@ -649,21 +676,31 @@ const runAgentTurnInternal = async (
         complete,
       });
     };
-    const reportAssistantProgress = (progressText: string): void => {
-      if (
-        progressFailure !== undefined || progressSettled ||
-        signal?.aborted === true ||
-        acceptedProgress >= MAX_ASSISTANT_PROGRESS_UPDATES_PER_REQUEST ||
-        !isValidAssistantProgressSnapshot(progressText)
-      ) return;
-      acceptedProgress += 1;
+    // Live snapshots follow generation at line cadence: the first changed snapshot is shown at
+    // once, a completed line as soon as the minimum gap passes, and a still-partial line only
+    // after the maximum gap. The whole message therefore streams without per-fragment floods.
+    const liveCadence = () => {
+      let previousAt: number | undefined;
+      return {
+        due: (gainedLine: boolean): number | undefined => {
+          const at = now();
+          if (previousAt === undefined) return at;
+          const elapsed = at - previousAt;
+          if (elapsed < LIVE_UPDATE_MIN_INTERVAL_MS) return undefined;
+          return gainedLine || elapsed >= LIVE_UPDATE_MAX_INTERVAL_MS ? at : undefined;
+        },
+        accept: (at: number): void => {
+          previousAt = at;
+        },
+      };
+    };
+    const progressDue = liveCadence();
+    const thinkingDue = liveCadence();
+    let lastProgressText = '';
+    const deliverLive = (event: AgentEvent, record?: () => void): void => {
       try {
-        deliverEvent(sink, {
-          kind: 'assistant_progress',
-          turn,
-          text: progressText,
-        });
-        evidence?.recordAssistantProgress(progressText, steps, evidenceLane);
+        deliverEvent(sink, event);
+        record?.();
       } catch (error) {
         progressFailure = error instanceof EventDeliveryError ? error : new EventDeliveryError();
         // Delivery failure owns cancellation synchronously. The model remains responsible for
@@ -671,6 +708,65 @@ const runAgentTurnInternal = async (
         cancellation?.request();
         throw progressFailure;
       }
+    };
+    const reportAssistantProgress = (progressText: string): void => {
+      if (
+        progressFailure !== undefined || progressSettled ||
+        signal?.aborted === true || progressText === lastProgressText
+      ) return;
+      const gainedLine = progressText.length > lastProgressText.length &&
+        progressText.slice(lastProgressText.length).includes('\n');
+      const at = progressDue.due(gainedLine);
+      if (at === undefined || !isValidAssistantProgressSnapshot(progressText)) {
+        return;
+      }
+      deliverLive({
+        kind: 'assistant_progress',
+        turn,
+        text: progressText,
+      }, () => evidence?.recordAssistantProgress(progressText, steps, evidenceLane));
+      lastProgressText = progressText;
+      progressDue.accept(at);
+    };
+    const reportThinkingDelta = (thinking: ReadableThinking): void => {
+      thinkingParts[thinking.kind].push(thinking.text);
+      thinkingLength[thinking.kind] += thinking.text.length;
+      if (thinking.text.includes('\n')) {
+        thinkingPendingLine[thinking.kind] = true;
+      }
+      if (
+        progressFailure !== undefined || progressSettled ||
+        signal?.aborted === true
+      ) return;
+      const kind = thinkingLength.text > 0
+        ? 'text'
+        : thinkingLength.summary > 0
+        ? 'summary'
+        : undefined;
+      if (kind === undefined) return;
+      const kindChanged = thinkingLive !== undefined &&
+        thinkingLive.kind !== kind;
+      if (!kindChanged && thinkingLive?.text.length === thinkingLength[kind]) {
+        return;
+      }
+      const at = kindChanged ? now() : thinkingDue.due(thinkingPendingLine[kind]);
+      if (at === undefined) return;
+      const thinkingSnapshot: ReadableThinking = {
+        kind,
+        text: thinkingParts[kind].join(''),
+      };
+      if (!isValidAssistantProgressSnapshot(thinkingSnapshot.text)) return;
+      deliverLive({
+        kind: 'assistant_thinking',
+        turn,
+        modelStep: steps,
+        thinkingKind: thinkingSnapshot.kind,
+        text: thinkingSnapshot.text,
+        complete: false,
+      });
+      thinkingLive = thinkingSnapshot;
+      thinkingDue.accept(at);
+      thinkingPendingLine[kind] = false;
     };
     try {
       const generateOptions:
@@ -680,9 +776,7 @@ const runAgentTurnInternal = async (
           : {
             signal,
             reportAssistantProgress: sink === undefined ? undefined : reportAssistantProgress,
-            reportThinkingDelta: sink === undefined ? undefined : (thinking) => {
-              thinkingParts[thinking.kind].push(thinking.text);
-            },
+            reportThinkingDelta: sink === undefined ? undefined : reportThinkingDelta,
             providerEvidence: evidence,
             providerEvidenceLane: 'parent',
             modelStep: steps,
