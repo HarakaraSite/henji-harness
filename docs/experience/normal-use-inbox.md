@@ -262,6 +262,8 @@ Pi／OpenCode／Henjiの画面表示比較
   buildに必要なenv等）、(2) その所在、(3) 扱い方（repository contextはtask targetではなく、利用者が
   「このrepository」等と結び付けた場合だけsource。実行環境は必要時に明示する）、を記載する。
   credentialやremote URL内の認証情報は含めない。機械的収集・自動更新は行わない。
+  `ambient.md`等の文書は**git管理外に置く**（`.gitignore`等）。commit・push・履歴に残さない
+  （利用者指示、2026-09-26）。環境情報はworkspace／machine固有のため。
   AGENTS.md「実行環境」はこの方向の先行例。
 - 再検討条件: ①外部product名だけのtaskでambient remoteをtargetにする誤認、またはrepository identityを
   得るための不要なtool探索が再発する、②AIが実行環境のambient情報の存在を知らない、またはinstruction
