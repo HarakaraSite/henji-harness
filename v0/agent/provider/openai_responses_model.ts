@@ -441,14 +441,15 @@ class ResponsesApiModel implements Model {
         });
         throw providerError('response_error', `${label} function call shape was unsupported`, 1);
       }
+      const text = typeof completed.output_text === 'string' ? completed.output_text : progress;
       if (calls.length > 0) {
         return {
           kind: 'tool_calls',
           calls,
+          ...(text.length === 0 ? {} : { text }),
           providerState: state,
         };
       }
-      const text = typeof completed.output_text === 'string' ? completed.output_text : progress;
       if (text.length === 0) {
         throw providerError('response_error', `${label} response had no assistant text`, 1);
       }
