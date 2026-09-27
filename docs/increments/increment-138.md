@@ -1,9 +1,9 @@
 # Increment 138 — 子Agentの作業状況取得とrequest factの保存・readback（A20・A22）
 
-状態: local実装・focused確認・第三者レビュー・隔離production
-TUIのlocalhost確認・ commit／push・常用binary配置済（2026-09-27）。
+状態: 完了（2026-09-27、利用者の承認によりIncrement 138を完了とした）。
 利用者がA20・A22をまとめて次のincrementへ採用し、計画レビュー後に実装を指示した。
-実provider受入、公開、完了承認は未実施。commit／push・常用binary配置は同日利用者指示で実施した。
+実装・検証・第三者レビュー・commit／push・常用binary配置済み。
+実provider受入と公開は未実施のまま、利用者が完了とする判断を示した。
 本書が要件・観測・対象範囲・計画・結果の正本であり、A20・A22の記録を通常利用メモから移した。
 
 ## 必要なproduct動作と根拠
@@ -344,12 +344,12 @@ request中のtool phase維持と保存失敗時の扱いはsource確認に留ま
 実provider受入は未確認。review中にrepository変更・外部provider call・full
 gateは行っていない。
 
-### 残る受入と承認境界
+### 確認範囲と承認境界
 
-- local実装と上記の確認は済んでいる。localhost確認を実provider受入済みとは扱わない。
-  実providerでの実行中status取得・中間報告・子request fact
-  readbackは、対象・回数・保存先を具体化して 別途承認を得てから実施する。
-- commit／push・常用binary配置は同日利用者指示で実施済み。公開、完了承認は未指示・未実施。
+- local実装と上記の確認は済んでいる。利用者はこの確認範囲でincrementを完了とした。
+  localhost確認を実provider受入済みとは扱わない。今後、実provider確認を追加する場合は、
+  対象・回数・保存先を具体化して別途明示承認を得る。
+- commit／push・常用binary配置と利用者の完了承認は済んでいる。公開は未指示・未実施。
   構想・architecture・roadmapは今回変更していない。
 
 ### Commit・push・常用binary配置（2026-09-27）
@@ -375,3 +375,9 @@ gateは行っていない。
 - 稼働中のHenjiは切り替えておらず、新しいプロセスからこのbinaryを使う。実config・実DB・
   旧Sessionは変更していない。実provider
   call・JSR公開・構想/architecture/roadmap変更は行っていない。
+
+### 利用者による完了承認（2026-09-27）
+
+利用者が「インクリメントを完了とします」と明示し、Increment 138を完了とした。
+実provider受入は未実施のまま、その確認結果を維持する。完了判断に新しいprovider確認・公開・
+構想/architecture/roadmap変更は含めない。実装・配置commitと確認結果は上記を参照する。
