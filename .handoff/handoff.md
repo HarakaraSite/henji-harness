@@ -20,15 +20,14 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 正本は[Increment 138](../docs/increments/increment-138.md)。次のincrementは未指定。
 その後、利用者指定の133〜138配置binary E2Eで、bundled genericのrealpath失敗とTUI終了を観測した。
 利用者の対応指示・承認で、同梱漏れと起動Promise処理を修正した。
-compiled候補のlocalhost・実MiMo flashで新規spawn、status、collect、子request保存・履歴復元は成功。
-clean commitのbuild・常用配置・配置binaryの実provider確認を進行中。
+compiled候補とclean buildの常用配置binaryで新規spawn、status、collect、子request保存・履歴復元は成功。
+修正のcommit／push・常用配置と配置binaryの実MiMo flash基本親子task確認まで実施済み。
 正本は[追加対応結果](../docs/increments/increment-138.md#起動失敗への追加対応確認結果2026-09-27)。
 確認済み範囲と証拠は[合同E2E記録](../docs/increments/e2e-133-138-2026-09-27.md)を参照する。
 
-- 常用binaryは`henji 0.7.0`、source `560c4f6f…`、build `1a50c6c9…`（Increment 138で配置）。
-  配置結果は[Increment 138](../docs/increments/increment-138.md#commitpush常用binary配置)を参照する。
-  Increment 134で配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。
-  結果は[Increment 134の配置結果](../docs/increments/increment-134.md#commitpush常用binary配置)を参照する。
+- 常用binaryは`henji 0.7.0`、source `3878ffcd…`、build `cfbfd683…`（138の起動失敗修正）。
+  配置結果と実provider確認は
+  [Increment 138](../docs/increments/increment-138.md#追加対応のcommitpush常用配置と実provider確認2026-09-27)を参照する。
   JSRは今回更新しておらず、0.7.0の公開内容は
   [Increment 133](../docs/increments/increment-133.md#commitpush常用binary配置)時点のままである。
 - 通常利用メモとproduct正本文書の見直しは完了。承認された自己改訂構想の変更と Increment
@@ -36,9 +35,8 @@ clean commitのbuild・常用配置・配置binaryの実provider確認を進行�
 
 ## 次の一手
 
-1. 承認済みの138起動失敗修正をcommit／pushし、clean build・常用配置と配置binaryの
-   実MiMo flash基本親子taskを確認する。結果は
-   [Increment 138](../docs/increments/increment-138.md#起動失敗への追加対応確認結果2026-09-27)へ記録する。
+1. 138の起動失敗修正・配置後の実provider確認は完了。次のincrementは未指定。次の利用者指示を受ける。
+   正本は[Increment 138](../docs/increments/increment-138.md#追加対応のcommitpush常用配置と実provider確認2026-09-27)。
    Increment 137の実装・確認結果と残る確認はその正本文書を参照する。
 2. 保存credentialの実provider受理は隔離配置binary E2Eで確認済み。
    実運用configでの`/login`登録は利用者が実施する。
@@ -50,8 +48,6 @@ clean commitのbuild・常用配置・配置binaryの実provider確認を進行�
 
 ## 未完了・再開対象
 
-- **138起動失敗修正の配置確認**: compiled候補の実provider確認は成功。clean buildと常用配置後の確認は進行中。
-  正本は[Increment 138](../docs/increments/increment-138.md#起動失敗への追加対応確認結果2026-09-27)。
 - **Increment 133の常用での入力欠落解消**: 継続観測中。配置・公開、自動操作の成功だけでは
   受入済みとしない。正本は[Increment 133](../docs/increments/increment-133.md)。
 - **Increment 132の要件C（長時間利用時の数秒の入力・履歴操作遅延）**: 未再現・未完了。
@@ -63,7 +59,7 @@ clean commitのbuild・常用配置・配置binaryの実provider確認を進行�
 ## 承認境界
 
 - Increment 138は利用者承認で完了。その後のE2E失敗の修正・検証・commit／push・常用配置・
-  実MiMo flashの基本親子task再確認は追加指示と承認を取得済み。公開は対象外。
+  実MiMo flashの基本親子task再確認は追加指示と承認を受けて完了。公開は対象外。
   詳細は[Increment 138](../docs/increments/increment-138.md)。
 - Increment 136は利用者指示のlocal実装・focused確認と、別途承認された実providerでのproduction確認済み。
   commit／push・配置も利用者指示で実施済み。公開は未承認。

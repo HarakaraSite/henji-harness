@@ -208,3 +208,12 @@ runId・task断片表示とstatus／collect／cancel行のagent名対応は、�
 
 起動error、親子execution ID、TUI終了と証拠は
 [合同E2E記録](e2e-133-138-2026-09-27.md#dで見つかった配置binaryの不具合)を参照する。
+
+
+## 138起動失敗修正後の表示確認（2026-09-27）
+
+bundled generic同梱漏れの修正後、実compiled候補の新規親子taskで、spawn行のgeneric名を
+live pending／completed、canonical Session履歴、同じSessionのTUI再開で確認した。
+localhostと実MiMo flashの両経路で子は正常完了し、履歴再表示による追加requestは0回。
+修正・binary identity・配置後確認は
+[Increment 138の追加対応結果](increment-138.md#起動失敗への追加対応確認結果2026-09-27)を参照する。

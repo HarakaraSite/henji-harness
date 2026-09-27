@@ -3,9 +3,10 @@
 状態: 完了（2026-09-27、利用者の承認によりIncrement 138を完了とした）。
 利用者がA20・A22をまとめて次のincrementへ採用し、計画レビュー後に実装を指示した。
 実装・検証・第三者レビュー・commit／push・常用binary配置済み。
-実provider受入と公開は未実施のまま、利用者が完了とする判断を示した。
+初回は実provider受入と公開を未実施のまま、利用者が完了とする判断を示した。
 その後の配置binary E2Eでbundled genericの起動失敗を観測した。追加対応で同梱と起動Promise処理を修正し、
-修正版compiled候補のlocalhost・実MiMo flashの親子taskと履歴復元は成功。clean build・常用配置の確認は進行中。
+修正版compiled候補とclean buildの常用配置binaryで、新規generic起動・status・collect・
+子request保存・履歴復元を確認済み。実MiMo flashの基本親子taskも成功した。
 原因・計画・確認結果は末尾を参照する。
 本書が要件・観測・対象範囲・計画・結果の正本であり、A20・A22の記録を通常利用メモから移した。
 
@@ -558,4 +559,38 @@ DB変更、旧data削除、構想／architecture／roadmap変更、version変更
   raw通信・credential・Authorizationは保存していない。実キー値が証拠・SQLiteにないことを照合し、
   隔離credentialは除去した。確認TUIとlocalhost serverは終了し、DBと履歴は保持した。
 
-clean commitのbuild・常用配置と配置binaryの実provider確認結果は、次節へ記録する。
+clean commitのbuild・常用配置と配置binaryの実provider確認結果は、次節を参照する。
+
+
+## 追加対応のcommit・push・常用配置と実provider確認（2026-09-27）
+
+- 利用者の対応指示と承認に従い、修正・regression・taskと133〜138 E2E記録をcommit
+  `3878ffcd62d62bb3c0e6ee014180283be13351b9`にまとめて`origin/main`へpushした。
+  fetch後のlocal／remote一致を確認した。別件の通常利用メモ差分とTypeScript調査文書は含めていない。
+- push済みcommitのcleanなdetached worktreeからDeno 2.9.7のproduction build scriptでbuildした。
+  versionは`henji 0.7.0`、source `3878ffcd…`（dirtyなし）、build
+  `cfbfd683daa7d64d6cc163eb344168b26a7d4917658341610d36090c1db9a9da`。
+  runtime digestは上記確認候補と同じ`c08405b3…`で、buildの内訳にもgeneric entryが含まれた。
+- 常用先`/home/agent/.local/bin/henji`へ原子的に配置した。clean候補と配置先のSHA-256はともに
+  `1eef4a97221f4b0c2842997577ba0a411b55f15dbe19f298f5a272a962d9ef6c`で一致した。
+  直前のbinaryは`/home/agent/.local/bin/henji.previous-i138-recovery`へ保持した。
+- **配置binaryそのもの**を隔離XDG・新規DB・専用tmuxで起動し、実MiMo flashの基本親子taskを1回実行した。
+  保存先は`/tmp/henji-i138-recovery-hCmrJWoe/deployed-real/`。
+  Session `987292aa-beb5-4426-9943-1322f1b79630`、親
+  `f1d4344c-56aa-432e-8ba7-0535839e5753`、子
+  `39585852-df81-4b6e-8681-3167ab79697c`。親子ともcompleted。
+- install／bindなしのgeneric spawn、親の独立read、bash実行中status、実観測に沿った中間報告、
+  collect待機と子結果、終了後status、親finalが成功した。
+  実行中はtool phase・step 1／request 1・lastTool bash running。
+  終了後はsettled・step 2／request 2・lastTool bash completed／successだった。
+- 親Sessionのsemantic detailから子のstep 1/2、physical request 1/2、HTTP 200/200とbash結果を
+  readbackした。実requestは合計7回（親5・子2）、全7回HTTP 200。
+  Session履歴と同じSessionのTUI再開でgeneric名・中間報告・finalが残り、追加requestは0回だった。
+- 追加対応の実provider taskは候補1回・配置binary1回の計2回、実requestは計14回。
+  localhost taskは別途1回。原E2Eの失敗を消さず、それぞれの証拠と結果を分けて保存した。
+  本追加対応の受入条件を満たした。133の常用入力観測、132 C、137の完了承認は今回の修正と別である。
+- build logとidentityは上記rootの`evidence/`、配置後の操作・DB・履歴は`deployed-real/evidence/`。
+  credential値・Authorization・raw通信は保存していない。キー非露出を照合し、隔離credentialは除去した。
+  確認TUIは終了し、build用worktreeは除去した。隔離DB・履歴・証拠・binaryは保持する。
+  稼働中のHenjiは切り替えず、新プロセスから修正版を使う。実config・実DB・既存Sessionは変更していない。
+  JSR公開と構想／architecture／roadmapの変更は行っていない。
