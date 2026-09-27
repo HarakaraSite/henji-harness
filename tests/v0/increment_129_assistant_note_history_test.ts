@@ -109,6 +109,35 @@ const execution: StoredExecutionRow = {
   contextCapture: 'complete',
 };
 
+Deno.test('Increment 136 keeps the spawned agent name in the Session timeline', () => {
+  const messages: readonly Message[] = [
+    {
+      role: 'assistant',
+      content: [{
+        kind: 'tool_call',
+        callId: 'spawn-1',
+        name: 'spawn_subagent',
+        arguments: { agent: 'reviewer', task: 'Review the implementation.' },
+      }],
+    },
+    {
+      role: 'tool',
+      content: [{
+        kind: 'tool_result',
+        callId: 'spawn-1',
+        name: 'spawn_subagent',
+        text: '{"ok":true,"runId":"13600000-0000-4000-8000-000000000001"}',
+        outcome: 'success',
+      }],
+    },
+  ];
+  const rendered = renderSessionTimeline([{ execution, messages, thinking: [] }]);
+  assertEquals(
+    rendered.split('\n').filter((line) => line.startsWith('tool>')),
+    ['tool> spawn_subagent reviewer ✓'],
+  );
+});
+
 Deno.test('Increment 129 keeps every assistant note before its tool calls in all history views', () => {
   let state = createUiState();
   state = reduceUiEvent(state, { kind: 'turn_start', turn: 1 });

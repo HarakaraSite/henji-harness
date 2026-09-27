@@ -20,8 +20,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S18 | Surface | 文字幅のgrapheme cluster対応 | 絵文字を含む本文で列ずれが観測されたとき、幅精度を上げるincrementに含めるとき |
 | S19 | Surface | synchronized outputによるframe描画の安定化 | S17を採用するとき、全面書き直しのちらつきが観測されたとき |
 | S20 | Surface | 巨大表示領域でのwindow行量確保とframe上限 | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき |
-| S21 | Surface | subagent起動時のagent名表示 | 複数の子Agentを並行運用し、どのagentが起動したか履歴から追いたいとき |
 | S22 | Surface | 将来のWeb UIとUI／Host間のAPI・RPC境界 | Web UIを個別incrementへ採用するとき。常駐化は未採用 |
+| S24 | Surface | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時 |
 | A1 | Agent実行 | ChatGPT subscription root provider | subscription利用がproduct要件になる |
 | A2 | Agent実行 | Host操作のmodel向けtool化 | AIがSession列挙やcontext rebuildを実際に必要とする |
 | A3 | Agent実行 | Context Strategyの外部化 | 長期Sessionのtoken usageとcontext品質を実測で比較できる |
@@ -36,6 +36,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A18 | Agent実行 | bash toolのtimeout説明と引数エラーの具体化 | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測 |
 | A19 | Agent実行 | requestごとの実行状況・日時・地域context | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき |
 | A20 | Agent実行 | 子Agentの作業状況取得 | reviewer待機中に、子が何をしているか親から知りたいとき |
+| A22 | Agent実行 | 子Agentのrequest単位factの保存・readback | 子のprovider応答や失敗を履歴から診断する必要があるとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -170,22 +171,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 関連: `v0/tui/state.ts`（`HISTORY_WINDOW_*`）、`v0/tui/layout.ts`（`MAX_ROWS`／`MAX_COLUMNS`／
   `MAX_LAYOUT_SOURCE_BYTES`）、`v0/tui/tui_renderer.ts`（`MAX_FRAME_BYTES`）、比較文書。
 
-### S21 — subagent起動時のagent名表示（F01）
-
-- 観測（2026-09-26、source照合）: `spawn_subagent`は`agent`名（Host解決済みcatalog名）と`task`を必須に、
-  任意で`model`・`tools`を受け取りrunIdを返す（`v0/agent/tools/async_agents.ts`、
-  [`increment-131.md`](../increments/increment-131.md)の起動contract）。一方、TUI履歴のtool行は
-  `v0/agent/tools/tool_activity.ts`の`toolActivityPreview`が`bash`／`read`／`write`／`edit`／
-  `bash_output`／`web_search`／`web_fetch`／`skill`だけを対応し、`spawn_subagent`はname-onlyの
-  `tool> spawn_subagent …`（完了時`spawn_subagent ✓`）になる。起動した子実行のagent名が履歴から分からない。
-- 候補（利用者要望、2026-09-26）: `toolActivityPreview`に`spawn_subagent`のcaseを追加し、
-  起動行にagent名を表示する（例: `spawn_subagent reviewer`）。runIdやtask断片まで表示に含めるか、
-  `collect_subagent`／`subagent_status`／`cancel_subagent`の行もagent名と対にするかは採用時に決める。
-- 再検討条件: 複数の子Agentを通常利用で並行運用し、履歴からどのagentが起動したか追いたいとき、
-  またはA14の名前付き子Agent運用に含めるとき。
-- 関連: A14、[`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/tool_activity.ts`、
-  `v0/agent/tools/async_agents.ts`。
-
 ### S22 — 将来のWeb UIとUI／Host間のAPI・RPC境界（F01、F10、未採用）
 
 - 利用者判断（2026-09-27）: 将来Web UIを作りたい。今回は候補の記録のみで、実装は指示していない。
@@ -198,6 +183,20 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 再検討条件: Web UIを個別incrementへ採用するとき。
 - 関連: P10、[`henji-host-agent-worker.md`](../architecture/henji-host-agent-worker.md)、
   `v0/presentation/contract_types.ts`、`v0/presentation/adapter_contract.ts`、`v0/tui/controller.ts`。
+
+### S24 — subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応（F01）
+
+- 観測（2026-09-27、Increment 136計画時のsource照合）: runIdはHostの`ChildRunRegistry.spawn`が発行し、
+  `spawn_subagent`のcall引数には無い（tool result JSONと`subagent_status`／`collect_subagent`／
+  `cancel_subagent`の引数にのみ現れる）。起動行へのrunId表示はresult textの解析を要し、操作行の
+  agent名対応はrunId→agent名の対応付け（transcriptからの導出、TUI stateの保持、またはspawn result
+  契約の拡張のいずれか）を要する。task断片はcall引数`task`から表示できる。
+- 候補: [Increment 136](../increments/increment-136.md)で採用したagent名表示に加え、runId短縮表示で
+  起動行とstatus／collect／cancel行を対応付けられるようにする。
+- 再検討条件: 複数の子Agentを並行運用し、操作行がどのagent・runのものか履歴から追えなくなったとき、
+  またはA14／A20を採用するincrementに含めるとき。
+- 関連: A14、A20、[`increment-136.md`](../increments/increment-136.md)、
+  [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
@@ -471,8 +470,25 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 個別Incrementへ採用するとき。親が取得するsnapshotの項目と、既存eventからの
   生成方法を定める。定期報告、待機操作の変更、子の明示的な中間finding報告、TUIへの直接表示は
   今回選択した初期案の対象に含めない。
-- 関連: S21（子Agent名表示）、A19、`v0/agent/tools/async_agents.ts`、
+- 関連: [Increment 136](../increments/increment-136.md)（子Agent名表示）、A19、`v0/agent/tools/async_agents.ts`、
   `v0/agent/worker/worker_host_children.ts`、`v0/agent/worker/worker_protocol.ts`。
+
+### A22 — 子Agentのrequest単位factの保存・readback
+
+- 観測（2026-09-27、Increment 136の承認済み実provider確認）: 親3requestのprovider／model／step・HTTP 200は
+  semantic履歴からreadbackできた。`generic`子はcompletedで、保存済み`collect_subagent`結果に
+  `providerRequestCount: 1`と最終回答があるが、子のsemantic履歴には個別requestのHTTP factがない。
+  Session `6b1a860c-c8ac-4702-970a-74cf800acb9a`、子run `e9bdccdf-3aa9-41de-97be-897f5437d2be`。
+  証拠は`/tmp/henji-i136-production/evidence/request-facts.json`と隔離DBのreadback。
+- 原因のsource経路: `worker_host_children.ts`の`routeChildMessage()`はreadyとterminal message等を
+  扱い、子の`provider_observation`をhistoryへ転送しない。`settle()`は最終outcomeを保存するため、
+  子の回数・最終結果は残るが、request単位のHTTP／errorの経緯を人間がreadbackできない。
+- 根拠: repositoryの通常実行で短いrequest単位factを保存・readback可能にする規定。
+  利用者影響は子のprovider応答・失敗を後から診断する材料の欠落。子Agent名の表示は実確認済み。
+- 修正候補: 子の既存provider observationからrequest単位の短いfactを子executionへ保存する。
+  raw request／responseの常設収集は追加しない。未採用であり、この確認では実装変更していない。
+- 再検討条件: 子のprovider応答や失敗を履歴から診断する必要があるとき。
+- 関連: A20、[Increment 136](../increments/increment-136.md)、`v0/agent/worker/worker_host_children.ts`。
 
 ## F24・自己改訂
 

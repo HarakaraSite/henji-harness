@@ -1,0 +1,179 @@
+# Increment 136 — subagent起動時のagent名表示（S21）
+
+状態: local実装・focused確認・実providerを使うproduction TUI受入確認済み（2026-09-27）。
+経緯: 2026-09-27、利用者が通常利用メモのS21を次のincrementとすることを指示し、計画の作成を依頼した。
+同日、defaultの計画レビューを経て、利用者指示で検証手順と復元test参照先を補足し、実装指示を受けた。
+本文書が要件・対象範囲・計画・結果の正本であり、実装・確認結果は末尾に記録する。
+S21の要件・観測・計画は通常利用メモから本文書へ移した。採用時に決めるとされていた
+runId・task断片表示とstatus／collect／cancel行のagent名対応は、本文書の採用判断で今回含めない
+（再検討候補は通常利用メモのS24）。
+
+## 必要なproduct動作と根拠
+
+- 人間が複数の子Agentを並行運用するとき、TUIの会話履歴と保存済みSessionの履歴から、
+  `spawn_subagent`がどのagentを起動したかを読める。
+- 根拠は利用者要望（2026-09-26、「`toolActivityPreview`に`spawn_subagent`のcaseを追加し、
+  起動行にagent名を表示する（例: `spawn_subagent reviewer`）」）と、通常利用メモS21のsource照合
+  観測（2026-09-26）である。`spawn_subagent`の起動contract（
+  [Increment 131](increment-131.md)）は`agent`名（Host解決済みcatalog名）と`task`を必須引数とし、
+  その`agent`はtool call引数として履歴に保存される。表示だけが欠落している。
+- 成功基準は、人間がproduction TUIで子Agentを起動した後、その場の履歴と再起動後の
+  Session履歴の双方から、起動行にagent名が読めることである。name-onlyの
+  `tool> spawn_subagent …`／`spawn_subagent ✓`が残らない。
+
+## 現行経路（調査済み事実。2026-09-26〜27 source照合）
+
+1. tool行の表示textは`v0/agent/tools/tool_activity.ts`の`toolActivityPreview(name, args)`が生成する。
+   対応は`bash`／`read`／`write`／`edit`／`bash_output`／`web_search`／`web_fetch`／`skill`のみで、
+   `spawn_subagent`はdefaultへ落ちてname-only（`tool> spawn_subagent …`、完了時`spawn_subagent ✓`）になる。
+2. 同じpreviewを使う表示経路は三つある。
+   - TUI live: `v0/tui/state.ts`の`tool_call`（`event.call.arguments`からpreviewを組み立て
+     `pendingToolActivityText`でentry text化）、`tool_progress`／`tool_result`
+     （`previewFromToolActivityText`で既存entry textからpreviewを復元し`settledToolActivityText`で更新）。
+     `v0/tui/conversation_renderer.ts`が`tool>` labelで描画する。
+   - TUI復元: `v0/tui/state.ts`のrestore（`call.arguments`から同様にentry textを生成）。
+   - Session履歴: `v0/agent/history/history_view.ts`の`renderMessages`（transcriptの
+     `ToolCallContent.arguments`から）。`v0/agent/cli/history_cli.ts`がtimeline・view表示に使う。
+3. 保存: transcriptの`ToolCallContent`は`callId`／`name`／`arguments`を保持する
+   （`v0/agent/core/contracts.ts`）。`spawn_subagent`の引数`agent`（catalog名）は履歴に保存されるため、
+   表示に使うagent名について追加storageは不要。再起動後の表示も同じ経路で成立する。
+4. 既に引数としてagent名が見える経路（変更不要の根拠）: `v0/agent/cli/run_events.ts`の`--stream`
+   tool行は引数JSONのheadを表示し、`v0/agent/session/history_export.ts`のMarkdown exportは
+   引数JSON全文を出力している。欠落はTUI・Session履歴の簡潔なtool行に限られる。
+5. runIdは`v0/agent/worker/worker_host_children.ts`の`ChildRunRegistry.spawn`が
+   `crypto.randomUUID().toLowerCase()`で発行し、`spawn_subagent`のcall引数には存在しない。
+   tool result JSON（`{ok:true,runId}`）と`subagent_status`／`collect_subagent`／`cancel_subagent`の
+   引数にのみ現れる。HostのrunId→agent対応はin-memory registryのみで永続化されない。
+6. 既存testに`spawn_subagent`行の表示textを直接確認している箇所はない（source照合）。
+   tool previewの確認は`tests/v0/tui_tool_preview_test.ts`、履歴textの確認は
+   `tests/v0/increment_129_assistant_note_history_test.ts`／`tests/v0/increment_99_history_cli_test.ts`
+   の流儀に既存がある。
+
+## 提供するproduct動作
+
+1. `spawn_subagent`の起動行・完了行に、起動対象agent名を表示する。表示形式は既存のtool行構造を
+   そのまま使い、previewをagent名とする（例: `tool> spawn_subagent reviewer …`、
+   完了時`spawn_subagent reviewer ✓`）。label（`tool>`）・marker（`…`／`✓`／`✗`）・1行1tool行の
+   構造は変えない。
+2. この表示はTUI live・TUI復元・Session履歴timelineの三経路で同一になる。
+   保存済みSessionでも追加storageなしで表示される。
+3. 引数に`agent`文字列が無いtool call（modelの入力不正時など）では、既存どおりname-only表示に
+   戻る。表示のための入力拒否・fallback・sanitizationは作らない。
+
+## 対象範囲
+
+- `v0/agent/tools/tool_activity.ts`の`toolActivityPreview`への`spawn_subagent` case追加。
+  引数`agent`の先頭行をpreviewに返す（`skill`の`name`と同じ扱い。既存の`boundedHead`上限に従う）。
+- 上記三経路の表示確認と、product動作に対応する最小のfocused test追加。
+- Surface変更のための隔離XDGでのproduction TUI（tmux）確認と、その観測の本文書への記録。
+
+## 非対象
+
+- runId・task断片の表示、`collect_subagent`／`subagent_status`／`cancel_subagent`行とagent名の
+  対応付け。採用判断で今回含めない。実現にはrunId→agent対応（transcriptからの導出、TUI stateの
+  保持、またはspawn result契約の拡張のいずれか）が要り、最小の必須動作を越える。
+  再検討条件は通常利用メモの[S24](../experience/normal-use-inbox.md)。
+- `--stream`（`run_events.ts`）とMarkdown export（`history_export.ts`）の表示変更。
+  既に引数JSONとしてagent名を含む。
+- 子Agentの作業状況表示（A20）、名前付き子Agentの専用model指定（A14）。
+- `spawn_subagent`の起動contract・tool result契約・Host run管理の変更。
+- 構想・architecture・roadmapの変更なし（表示textのみで、状態所有・component境界・不変条件に
+  影響しない）。
+
+## 未確認事項
+
+- 未確認: agent名が`boundedHead`の上限（96 byte）を超える場合の表示（`…`省略に従う想定）。
+  catalog名は短い識別子であるため実害は想定しない。観測が得られたら本文書へ記録する。
+- 実provider requestを伴うproduction確認は、対象・回数・保存先を提示して利用者の明示承認を得るまで
+  実施しない。
+
+## 実装計画
+
+1. `toolActivityPreview`に`spawn_subagent` caseを追加し、引数`agent`の先頭行をpreviewとして返す。
+   既存の`firstLine`／`boundedHead`を使い、preview機構
+   （`pendingToolActivityText`／`settledToolActivityText`／`previewFromToolActivityText`）は変えない。
+2. TUI live・TUI復元・Session履歴timelineは既存のpreview経路をそのまま使う。経路ごとの
+   分岐・専用処理を追加しない。
+3. test計画のfocused testを追加し、type check・format・lint・`git diff --check`を行う。
+4. Surface変更のため、検証計画のtmux確認を実施し、操作と観測を本文書へ記録する。
+
+## test計画（対応するproduct動作）
+
+- product動作1（起動行・完了行のagent名表示）: `tests/v0/tui_tool_preview_test.ts`へ、
+  `tool_call`／`tool_result`のreducer経路で`tool> spawn_subagent reviewer …`が
+  `spawn_subagent reviewer ✓`へ確定する確認を追加する。
+- product動作2（TUI復元経路）: `tests/v0/increment_129_assistant_note_history_test.ts`の
+  `restoredPresentationMessages`／`restored_log`によるrestore確認の流儀を参照し、
+  `tests/v0/tui_tool_preview_test.ts`へ復元entry textにagent名が含まれる確認を追加する。
+- product動作2（Session履歴timeline経路）: 履歴text確認の流儀
+  （`tests/v0/increment_129_assistant_note_history_test.ts`相当）で、
+  `tool> spawn_subagent reviewer ✓`がtimelineに現れる確認を追加する。
+- product動作3（`agent`欠落時はname-only）: 同test fileに、引数に`agent`文字列が無いcallで
+  name-only表示に戻る確認を追加する。
+- 回帰確認: 既存のtool preview確認（`bash`／`read`等）と履歴text確認を変更せず実行する。
+- test件数は成果の記録であり、目標・上限・完了条件にしない。上記に対応先のないtestは計画しない。
+
+## 検証計画（Surface変更の受入）
+
+- focused test、type check、format、lint、`git diff --check`。
+- 隔離XDG（`XDG_CONFIG_HOME`／`XDG_DATA_HOME`／`XDG_STATE_HOME`を隔離し、実configへ
+  `default-selection.json`等を書かない）のtmuxでproduction TUIを起動し、子Agentを起動した後の
+  履歴にagent名が表示される経路を実操作で確認する。TUIを終了し、同じ隔離XDG・Sessionを使って
+  `history --session <sessionId>`のtimeline表示と、`--session <sessionId>`で再起動したTUIの
+  復元表示の双方でも、起動行にagent名が残ることを確認する。
+  確認した操作と各表示の観測を本文書へ記録する。
+- この確認は実provider requestを伴う。対象（provider・model・起動agent）、回数、保存先を提示して
+  利用者の明示承認を得てから実施する。承認前はoffline focused testまでとする。
+- `v0:gate`は承認済み計画が要求する場合にcoordinating ownerが安定候補に対して一度だけ実行する。
+  本計画はreview前のfull gateを要求しない。
+
+## 承認境界
+
+- 2026-09-27の利用者指示でlocal実装・test追加・focused確認を実施した。
+  非対象判断（runId・task断片・collect対応の見送り）は実装指示により確定した。
+- tmuxでの実provider確認は対象・回数・保存先を提示し、利用者の明示承認を得て実施済み。
+  commit／push・常用binary配置は2026-09-27に利用者が指示し、実施中。JSR公開は未指示。
+- 新たな実provider確認は、対象・回数・保存先を提示して別途明示承認を得る。
+
+## 実装・確認結果
+
+### local実装・focused確認（2026-09-27）
+
+- `v0/agent/tools/tool_activity.ts`: `spawn_subagent` caseを追加し、既存の`firstLine(args.agent)`と
+  `boundedHead`でagent名をpreviewにする。live・復元・Session履歴は共有関数をそのまま使う。
+- `tests/v0/tui_tool_preview_test.ts`: 起動から完了までのagent名保持、
+  `restoredPresentationMessages`／`restored_log`による復元、agent引数欠落時のname-only表示を確認した。
+- `tests/v0/increment_129_assistant_note_history_test.ts`: Session timelineの起動行にagent名が残る確認を追加した。
+- 上記2 fileのfocused testは既存の回帰確認を含め21件通過（新規4件）。
+  実行: `deno test --no-prompt --cached-only --config deno.v0.json
+  tests/v0/tui_tool_preview_test.ts tests/v0/increment_129_assistant_note_history_test.ts`。
+  結果ログ: `/tmp/henji-i136-focused.log`。
+- 変更source・testと三経路のsourceに対するtype check、変更source・testのformat・lint、
+  `git diff --check`は通過。full gateは実施していない。
+- defaultが差分を確認し、preview以外の表示処理・storage・Host契約を変更していないことを確認した。
+
+### production TUIの実provider確認（2026-09-27）
+
+- 対象・回数・保存先を提示した後、利用者の「はい承認します」を受けて実施した。
+  親・子とも`openrouter-responses`／`xiaomi/mimo-v2.6-pro`／`auto`。
+  親1turn・`generic`子1run、既存`--max-steps 3`を親・子へ適用した。
+- source production CLIをtmux（140列×55行）で起動し、隔離HOME・XDG・workspace・DBを使った。
+  実config・実DB・常用binaryは変更していない。確認probeは`/tmp/henji-i136-production-probe.py`、
+  保存先は`/tmp/henji-i136-production/`。
+- 初回の隔離起動はcredential参照をsymlinkにしたため、既存credential読込contractが受理せず、
+  provider送信前に停止した（request 0回）。その観測は`preflight-credential/`、DBは`state/`へ保持した。
+  hard linkもfilesystemをまたいで作れなかったため、確認用configへcredential fileをmode 0600でコピーした。
+  製品のcredential読込contractは変更していない。
+- 実provider確認では`state-live/`の新規Sessionを使った。親が`spawn_subagent`を1回、
+  `collect_subagent`を1回実行し、子の`I136 CHILD OK`を回収して`I136 PARENT OK`で正常完了した。
+  親・子ともcompleted。Session: `6b1a860c-c8ac-4702-970a-74cf800acb9a`。
+- 起動中の`tool> spawn_subagent generic …`と、完了後の`tool> spawn_subagent generic ✓`を
+  tmux画面で観測した。終了後のproduction `history --session`と同じSessionのTUI再起動でも
+  `tool> spawn_subagent generic ✓`を確認した。履歴・復元では追加request 0回。
+- request数は親3回（各HTTP 200）＋子1回＝計4回。子の回数は保存済み`collect_subagent`結果の
+  `providerRequestCount: 1`、modelはchild admissionのreadbackで照合した。
+  現行child Host経路には個別requestのHTTP factが保存されておらず、子のHTTP statusのreadbackは未確認。
+  この計画外の観測は通常利用メモA22に記録した。
+- 画面とreadbackの記録は`evidence/pending.txt`、`spawn-completed.txt`、`completed.txt`、`history.txt`、
+  `restored.txt`、`request-facts.json`、`result.json`。raw request／response・SSE・Authorizationのログは
+  収集していない。確認ログにcredential値が含まれないことも照合した。確認用TUIは終了済み。

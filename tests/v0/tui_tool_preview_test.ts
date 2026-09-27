@@ -6,6 +6,8 @@ import {
   slashCommandOf,
 } from '../../v0/tui/controller.ts';
 import { toolCallText } from '../../v0/tui/terminal_text.ts';
+import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
+import type { Message, ToolCallContent, ToolResultContent } from '../../v0/agent/core/contracts.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -19,6 +21,61 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
+
+const spawnCall: ToolCallContent = {
+  kind: 'tool_call',
+  callId: 'spawn-1',
+  name: 'spawn_subagent',
+  arguments: { agent: 'reviewer', task: 'Review the implementation.' },
+};
+
+const spawnResult: ToolResultContent = {
+  kind: 'tool_result',
+  callId: spawnCall.callId,
+  name: spawnCall.name,
+  text: '{"ok":true,"runId":"13600000-0000-4000-8000-000000000001"}',
+  outcome: 'success',
+};
+
+Deno.test('spawn_subagent preview keeps its agent name from call to result', () => {
+  let state = reduceUiEvent(createUiState(), { kind: 'tool_call', turn: 1, call: spawnCall });
+  assertEquals(
+    state.log.entries.map((entry) => [entry.label, entry.text]),
+    [['tool>', 'spawn_subagent reviewer …']],
+  );
+  state = reduceUiEvent(state, { kind: 'tool_result', turn: 1, result: spawnResult });
+  assertEquals(
+    state.log.entries.map((entry) => [entry.label, entry.text]),
+    [['tool>', 'spawn_subagent reviewer ✓']],
+  );
+});
+
+Deno.test('spawn_subagent preview restores its agent name from the saved transcript', () => {
+  const messages: readonly Message[] = [
+    { role: 'assistant', content: [spawnCall] },
+    { role: 'tool', content: [spawnResult] },
+  ];
+  const state = reduceUiEvent(createUiState(), {
+    kind: 'restored_log',
+    messages: restoredPresentationMessages(messages),
+    omitted: 0,
+  });
+  assertEquals(
+    state.log.entries.map((entry) => [entry.label, entry.text]),
+    [['tool>', 'spawn_subagent reviewer ✓']],
+  );
+});
+
+Deno.test('spawn_subagent preview stays name-only when the agent argument is missing', () => {
+  let state = reduceUiEvent(createUiState(), {
+    kind: 'tool_call',
+    turn: 1,
+    call: { ...spawnCall, arguments: { task: 'Review the implementation.' } },
+  });
+  assertEquals(state.log.entries[0].text, 'spawn_subagent …');
+  state = reduceUiEvent(state, { kind: 'tool_result', turn: 1, result: spawnResult });
+  assertEquals(state.log.entries[0].text, 'spawn_subagent ✓');
+});
 
 Deno.test('tool preview shows the bash head on one line', () => {
   let state = createUiState();

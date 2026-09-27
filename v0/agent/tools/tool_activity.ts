@@ -135,6 +135,9 @@ export const toolActivityPreview = (name: string, args: unknown): string => {
     case 'skill':
       preview = firstLine(args.name);
       break;
+    case 'spawn_subagent':
+      preview = firstLine(args.agent);
+      break;
     default:
       return '';
   }
