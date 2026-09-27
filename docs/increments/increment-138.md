@@ -1,6 +1,6 @@
 # Increment 138 — 子Agentの作業状況取得とrequest factの保存・readback（A20・A22）
 
-状態: 完了（2026-09-27、利用者の承認によりIncrement 138を完了とした）。
+状態: 完了（2026-09-27、利用者が133〜138をすべて完了とする旨を明示した）。
 利用者がA20・A22をまとめて次のincrementへ採用し、計画レビュー後に実装を指示した。
 実装・検証・第三者レビュー・commit／push・常用binary配置済み。
 初回は実provider受入と公開を未実施のまま、利用者が完了とする判断を示した。
@@ -246,8 +246,9 @@ fixture独自のresponse形式をproduct契約にせず、test件数を目標・
 ## 未確認事項
 
 - snapshot取得・子factの保存・CLI readbackは以下のfocused確認とlocalhost
-  production確認済み。実providerでの実行中snapshot取得と受入は、後述の配置binary E2Eで
-  bundled generic起動に失敗し、未確認のまま。
+  production確認済み。初回の配置binary E2Eはbundled generic起動に失敗したが、
+  修正後の配置binaryで実MiMo flashの実行中snapshot・collect・子request保存・履歴復元を確認した。
+  詳細は末尾の追加対応結果を参照する。
 - child保存batchは既存の変換・保存方式に揃える。rootのExecutionJournalはactive
   root executionと
   coordinatorに依存するため、そのclass全体をそのまま子へ接続できるとは扱わない。
@@ -588,9 +589,17 @@ clean commitのbuild・常用配置と配置binaryの実provider確認結果は�
   Session履歴と同じSessionのTUI再開でgeneric名・中間報告・finalが残り、追加requestは0回だった。
 - 追加対応の実provider taskは候補1回・配置binary1回の計2回、実requestは計14回。
   localhost taskは別途1回。原E2Eの失敗を消さず、それぞれの証拠と結果を分けて保存した。
-  本追加対応の受入条件を満たした。133の常用入力観測、132 C、137の完了承認は今回の修正と別である。
+  本追加対応の受入条件を満たした。133の常用入力観測、132 C、137の完了承認はこの修正と別である。
+  その後の133〜138の完了承認は次節に記録する。
 - build logとidentityは上記rootの`evidence/`、配置後の操作・DB・履歴は`deployed-real/evidence/`。
   credential値・Authorization・raw通信は保存していない。キー非露出を照合し、隔離credentialは除去した。
   確認TUIは終了し、build用worktreeは除去した。隔離DB・履歴・証拠・binaryは保持する。
   稼働中のHenjiは切り替えず、新プロセスから修正版を使う。実config・実DB・既存Sessionは変更していない。
   JSR公開と構想／architecture／roadmapの変更は行っていない。
+
+## 133〜138の利用者完了承認（2026-09-27）
+
+利用者が「では133-138は全て完了とします」と明示した。
+初回E2Eで見つかったgeneric同梱漏れ・起動Promise処理の修正、commit／push・常用配置、
+配置binaryの実MiMo flash基本親子taskと履歴復元の成功を踏まえ、追加対応を含めて138の完了を再確認した。
+初回の起動失敗記録は履歴として維持する。JSR公開は今回の完了承認に含めない。

@@ -1,7 +1,8 @@
 # Increment 136 — subagent起動時のagent名表示（S21）
 
-状態: local実装・focused確認・実providerを使うproduction TUI受入確認済み（2026-09-27）。
-同日、利用者指示のcommit／push・常用binary配置も完了した。
+状態: 完了（2026-09-27、利用者が133〜138をすべて完了とする旨を明示した）。
+local実装・focused確認・実providerを使うproduction TUI受入確認と、
+利用者指示のcommit／push・常用binary配置を実施済み。
 経緯: 2026-09-27、利用者が通常利用メモのS21を次のincrementとすることを指示し、計画の作成を依頼した。
 同日、defaultの計画レビューを経て、利用者指示で検証手順と復元test参照先を補足し、実装指示を受けた。
 本文書が要件・対象範囲・計画・結果の正本であり、実装・確認結果は末尾に記録する。
@@ -217,3 +218,9 @@ live pending／completed、canonical Session履歴、同じSessionのTUI再開�
 localhostと実MiMo flashの両経路で子は正常完了し、履歴再表示による追加requestは0回。
 修正・binary identity・配置後確認は
 [Increment 138の追加対応結果](increment-138.md#起動失敗への追加対応確認結果2026-09-27)を参照する。
+
+## 133〜138の利用者完了承認（2026-09-27）
+
+利用者が「では133-138は全て完了とします」と明示した。
+agent名表示の実装・配置と、138起動失敗修正後の配置binaryでのlive・履歴・TUI復元確認を踏まえ、136を完了とした。
+採用時に対象外としたrunId・task断片やstatus／collect／cancel行の対応を追加する判断は含めない。
