@@ -647,3 +647,16 @@ cancel／forced termination／replacement／close時の清算へのjoin、Regist
 構想の意味変更はない。実provider probeと旧Git chainの恒久終了は今回の承認範囲に含まない。
 
 文書のみの変更で、差分・相対linkの参照先を確認した。code変更、provider call、追加releaseは行っていない。
+
+## 配置binary・実providerの基本E2E（2026-09-27）
+
+利用者の133〜138確認依頼に従い、配置済み`henji 0.7.0`（source `560c4f6f…`）と
+`openrouter-responses / xiaomi/mimo-v2.6-flash / auto`をtmuxで使用した。
+bashの端末分離、正常終了・背景処理の維持、exit 7、timeoutと実行中取消の子孫清算、
+503本文の接続終了、終了／取消／recall解除／Session復元／new後の3キーと日本語pasteを確認した。
+背景処理はHost終了で清算された。活動中背景処理を持ったnew清算は今回は未確認。
+Ghostty／SSH直接操作の常用入力欠落解消と132 Cは、従来どおり継続観測・未完了のまま。
+
+操作、PID、実request数、保存先と残る確認は
+[合同E2E記録](e2e-133-138-2026-09-27.md)を参照する。
+子agentケースはcompiled genericの起動に失敗したため、138の実行中経路は確認できていない。

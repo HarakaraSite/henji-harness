@@ -1,7 +1,8 @@
 # Increment 137 — Responsesの本文・tool call併存時の表示順と履歴本文欠落の修正（S23）
 
 状態: 実装・local検証・commit／push・常用binary配置済（2026-09-27）。
-隔離production TUIの表示・保存・再表示を確認済み。実OpenRouterでの確認、公開、完了承認は未実施。
+隔離production TUIの表示・保存・再表示と、後述の実OpenRouter／MiMo flashでの基本E2Eを確認済み。
+公開、完了承認は未実施。
 経緯: 利用者がsession `4ba6f18d`で観測した不具合を調査し、通常利用メモS23へ記録した。
 2026-09-27、利用者はS21をIncrement 136として計画済みと伝え、本不具合をIncrement 137として
 計画するよう指示した。当初の対応予定は136の後。通常レビュー・批判的レビューを経て、同日、
@@ -229,9 +230,9 @@ test件数を目標・完了条件にはしない。
 
 - コード・テストのread-onlyレビューは必須findingなし。Responses adapterの局所変更、本文なし結果と
   final処理の維持、旧実装の表示順・本文欠落を検出できる新規test、隔離tmuxの実行証拠を確認した。
-- ローカルSSEでのproduction表示・保存経路は確認済み。実OpenRouter／MiMoの本文併存response、
-  元sessionのdelta粒度・速度、他Responses providerの実動作は未確認。ローカル確認を実providerでの
-  確認済みとは扱わない。実provider確認は対象・回数・保存先を提示して別途明示承認を得る。
+- ローカルSSEでのproduction表示・保存経路と、後述の実OpenRouter／MiMo flashの本文併存responseは確認済み。
+  元sessionのdelta粒度・速度、他Responses providerの実動作は未確認。
+  新たな実provider確認は対象・回数・保存先を提示して別途明示承認を得る。
 - 旧session `4ba6f18d`の通常本文は補完していない。修正は新しいexecutionに適用される。
 - 2026-09-27、利用者からcommit・push・常用binary配置の指示を受けた。以下に結果を記録する。
   公開と利用者によるIncrement完了承認は未取得。
@@ -257,3 +258,17 @@ test件数を目標・完了条件にはしない。
 - compiled確認用TUI・サーバーは終了済み。稼働中のHenjiは切り替えていないため、修正は新しい
   Henjiプロセスから適用される。実config・実DB・旧Sessionは変更していない。実provider callとJSR公開は
   行っていない。build用worktreeは確認後に除去し、binaryと結果ログは上記保存先に残す。
+
+## 配置binary・実OpenRouter／MiMo flashの基本E2E（2026-09-27）
+
+利用者の133〜138 E2E依頼と実provider許可に従い、配置binaryをtmuxで操作した。
+`openrouter-responses / xiaomi/mimo-v2.6-flash / auto`の実応答で、step 1の本文
+`E2E NOTE BEFORE BASH`とbash callの併存を確認した。
+本文はassistant noteとしてtoolより前に確定し、次step thinking・tool・finalがその後に表示された。
+canonical assistant messageのtext、配置binaryのSession履歴CLI、同じSessionのTUI再開にも
+本文と順序が残った。再表示による追加provider requestは0回。
+元観測と同じ速度・他provider・wire上のreplay回数は今回確認していない。
+
+結果・Session ID・保存先は
+[合同E2E記録](e2e-133-138-2026-09-27.md#137--実responsesの本文併存と復元)を参照する。
+公開・利用者による完了承認は今回のE2E依頼に含まれない。

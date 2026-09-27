@@ -3,8 +3,8 @@
 状態: 完了（2026-09-27、利用者の承認によりIncrement 135を完了とした）。
 経緯: 2026-09-27、利用者が「入り口だけ作り、キーの保管場所は現状維持」という方針で、
 次のincrementとして詳しい計画の作成を依頼した。本文書が要件・対象範囲・計画・結果の正本であり、
-実装・確認結果は末尾に記録する。実provider requestでの保存credential受理と実運用credentialの
-`/login`登録は利用者が実施する。
+実装・確認結果は末尾に記録する。保存credentialの実provider受理は後述の配置binary E2Eで確認済み。
+実運用configでの`/login`登録は利用者が実施する。
 
 ## 必要なproduct動作と根拠
 
@@ -408,7 +408,8 @@ credential、`--provider-timeout-ms 60000`）で安定したbusy windowを作り
 
 ### 未確認事項
 
-- 実provider requestでの保存credential受理は利用者が実施する。登録・既存reader・resolverの解決は確認済み。
+- 保存credentialの実provider受理は後述の隔離配置binary E2Eで確認済み。
+  実運用configへの`/login`登録は行っていない。
 - SIGTERM経路のshutdown settle詳細はfocused test・code確認の範囲。実terminalでの強制終了整合性はSIGHUPで確認済み（上記7）。
 - 保存成功〜表示refresh完了のwindow（review borderline）はtmuxでeditor流入を観測せず、変更していない。
 - 隔離config rootでの確認であり、実`HOME`運用での同経路は読取確認のみ。
@@ -432,3 +433,14 @@ credential、`--provider-timeout-ms 60000`）で安定したbusy windowを作り
 - `docs/operations/base-instruction-template.md`の外部変更（本作業中にworking treeへ現れた
   long-task方針paragraph）は、利用者判断により別commitで記録した。build provenanceのためstashで
   一時退避し、clean commitからbuildしたうえで復帰済み。
+
+## 配置binary・実providerの登録確認（2026-09-27）
+
+利用者の133〜138 E2E依頼と実provider許可に従い、隔離XDGの配置binaryをtmuxで操作した。
+credentialなしの表示、login一覧、伏字貼り付け、0600保存、保存成功表示とmissing解除を確認。
+同じSessionの次requestが`openrouter-responses / xiaomi/mimo-v2.6-flash / auto`でHTTP 200となり、
+登録fileを既存resolverが実provider requestに使用できた。
+実configを上書きせず、今回作成した隔離credentialは終了後に除去した。
+証拠・DBへのキー値非露出も照合した。実運用configでのlogin登録は未実施。
+
+環境、操作、requestと保存先は[合同E2E記録](e2e-133-138-2026-09-27.md)を参照する。

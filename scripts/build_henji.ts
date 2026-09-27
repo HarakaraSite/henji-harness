@@ -12,6 +12,7 @@ const ROOTS = [
   'v0/agent/cli/henji_cli.ts',
   'v0/agent/worker/worker_bootstrap.ts',
   'v0/agent/worker/worker_builtin_definition.ts',
+  'v0/agent/worker/worker_builtin_generic_definition.ts',
   'v0/agent/worker/worker_builtin_bash_tool.ts',
   'v0/agent/worker/worker_builtin_bash_output_tool.ts',
   'v0/agent/worker/worker_builtin_edit_tool.ts',

@@ -197,3 +197,14 @@ runId・task断片表示とstatus／collect／cancel行のagent名対応は、�
 - 画面・version・照合結果は上記保存先の`evidence/`配下、旧binaryは`henji.previous`へ保持した。
   稼働中のHenjiは切り替えず、新しいプロセスからこのbinaryを使う。実config・実DB・旧Sessionと
   JSR公開内容は変更していない。構想・architecture・roadmapは今回変更していない。
+
+## 最新配置binaryの基本E2E（2026-09-27）
+
+利用者の133〜138 E2E依頼に従い、source `560c4f6f…`の配置binaryをtmuxで操作した。
+実MiMo flashの親requestから`spawn_subagent generic …`と`spawn_subagent generic ✓`を観測した。
+ただしtool結果はgeneric Definitionのrealpath失敗による`ok:false`で、子は起動できなかった。
+今回はlive行のagent名表示のみ確認。子が完了したcanonical履歴と復元の確認には到達していない。
+以前のsource実行による受入結果を、最新配置binaryの子起動成功として扱わない。
+
+起動error、親子execution ID、TUI終了と証拠は
+[合同E2E記録](e2e-133-138-2026-09-27.md#dで見つかった配置binaryの不具合)を参照する。

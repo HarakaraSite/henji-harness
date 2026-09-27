@@ -444,3 +444,16 @@ stateの全文置換も書込みを行うため、書込み量や長時間入力
   `/tmp/henji-i134-deployment-0wqngjvt/{build.log,version.txt,deployment.json,evidence/}`。
   稼働中のHenji切替は行っていない。JSR公開は今回の対象外であり、JSR 0.7.0の内容はIncrement
   133時点のままである。
+
+## 配置binary・実providerのDB確認（2026-09-27）
+
+利用者指定に従い、配置済みbinaryのtmux実経路とSQLiteの中身を直接照合した。
+実providerは`openrouter-responses / xiaomi/mimo-v2.6-flash / auto`。
+正常final生成中は同じrequestのstate 1行が5回更新され、完了後は0行、永久progressは0件だった。
+本文取消ケースはstate 1行が3回更新され、取消後はstate 0行・未完了semantic本文1件・model result 0件。
+最後の166文字がdetailに残り、通常会話へ採用されなかった。active detailのstate 1件も確認した。
+後続tool取消でも、完了したstepのtool call/resultはexecution履歴に残った。
+
+DB path、SQL照合対象、payload／DB／WAL値と証拠は
+[合同E2E記録](e2e-133-138-2026-09-27.md#134--dbの直接照合)を参照する。
+生成中・正常完了・取消の基本経路の確認であり、failure・強制終了・reconciliationを今回再試験していない。

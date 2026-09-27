@@ -4,6 +4,9 @@
 利用者がA20・A22をまとめて次のincrementへ採用し、計画レビュー後に実装を指示した。
 実装・検証・第三者レビュー・commit／push・常用binary配置済み。
 実provider受入と公開は未実施のまま、利用者が完了とする判断を示した。
+その後の配置binary E2Eでbundled genericの起動失敗を観測した。追加対応で同梱と起動Promise処理を修正し、
+修正版compiled候補のlocalhost・実MiMo flashの親子taskと履歴復元は成功。clean build・常用配置の確認は進行中。
+原因・計画・確認結果は末尾を参照する。
 本書が要件・観測・対象範囲・計画・結果の正本であり、A20・A22の記録を通常利用メモから移した。
 
 ## 必要なproduct動作と根拠
@@ -242,7 +245,8 @@ fixture独自のresponse形式をproduct契約にせず、test件数を目標・
 ## 未確認事項
 
 - snapshot取得・子factの保存・CLI readbackは以下のfocused確認とlocalhost
-  production確認済み。 実providerでの実行中snapshot取得と受入は未確認。
+  production確認済み。実providerでの実行中snapshot取得と受入は、後述の配置binary E2Eで
+  bundled generic起動に失敗し、未確認のまま。
 - child保存batchは既存の変換・保存方式に揃える。rootのExecutionJournalはactive
   root executionと
   coordinatorに依存するため、そのclass全体をそのまま子へ接続できるとは扱わない。
@@ -381,3 +385,177 @@ gateは行っていない。
 利用者が「インクリメントを完了とします」と明示し、Increment 138を完了とした。
 実provider受入は未実施のまま、その確認結果を維持する。完了判断に新しいprovider確認・公開・
 構想/architecture/roadmap変更は含めない。実装・配置commitと確認結果は上記を参照する。
+
+## 配置binary・実provider E2Eの起動失敗（2026-09-27）
+
+利用者の133〜138 E2E依頼と実provider許可に従い、配置済み`henji 0.7.0`（source `560c4f6f…`）を
+tmuxで使用した。親子とも`openrouter-responses / xiaomi/mimo-v2.6-flash / auto`を指定。
+親のspawnが`/tmp/deno-compile-henji/v0/agent/worker/worker_builtin_generic_definition.ts`の
+realpathで失敗し、直後にTUIがterminal_failureで終了した。
+親はcancelled、子はinterrupted。子のprovider requestは0回。
+親Sessionのdetailには親子対応とadmission／settlementが残ったが、
+実行中status、collect、子のrequest fact保存は未到達であり、実provider受入成功とはしない。
+
+親子execution ID、current sourceの起動経路、修正案と証拠は
+[合同E2E記録](e2e-133-138-2026-09-27.md#dで見つかった配置binaryの不具合)を参照する。
+この失敗は下記の追加対応で修正した。以前のlocalhost／source確認と利用者の完了承認は履歴として維持する。
+
+## 配置binary E2E失敗への対応計画（2026-09-27）
+
+状態: 利用者の「138の失敗に対する対応を計画して」に従い作成。
+本節は138の追加対応の計画と受入条件の正本。利用者の「では対応してください」と続く「承認します」に従い、
+実装・検証・commit／push・常用配置と実provider再確認を進めた。実施結果は下記に記録する。
+以前の完了承認とE2E失敗記録を維持し、今回の追加確認と分ける。
+
+### 必要な動作と確認済み根拠
+
+- 利用者が配置binaryのTUIからbundled genericを起動し、親の独立作業、実行中の
+  `subagent_status`、中間報告、`collect_subagent`、最終回答まで完了できる。
+- 起動した子のstep・physical request順・HTTPとtool結果を親Sessionのdetailから読み出せる。
+  136のagent名表示もlive・履歴・TUI再開に残る。
+- 子Definitionの事前読込みが失敗した場合は、既存のspawn errorと子interruptedを返し、
+  親TUIと次の通常操作を継続できる。子起動失敗をHost全体の終了へ波及させない。
+- 根拠は合同E2Eの配置binaryでのrealpath失敗、子request 0回、直後のterminal_failureと、
+  以下のcurrent source。新しいprovider制約や一般的hardeningを追加する計画ではない。
+
+### 原因と現行経路
+
+1. `scripts/build_henji.ts`の`BUILTIN_DEFINITIONS`にはgenericがあるが、`ROOTS`にはない。
+   genericは文字列で動的に選択され、runtimeの静的import経路にもない。
+   `runtimeFiles()`がstagingへのcopyとruntime digestの対象を作り、
+   `stagedCompileInputs()`が同じROOTSからcompileのincludeを作る。
+   そのためmanifestにはgenericのrevisionがある一方、binaryにはentry実体が同梱されない。
+2. `spawn_subagent`→`ChildRunRegistry.childOptions()`→`workerBuiltinModulePath('generic')`→
+   `WorkerSupervisor.start()`→`readWorkerModuleRevision()`→`Deno.realPath()`で同梱漏れを検出する。
+   sourceではcheckoutにentryがあるため、source起動や既存Sessionの復元だけではこの問題を検出できない。
+3. `start()`はDefinition読込みより先にreadyPromiseを作る。読込みがthrowするとawaitまで届かず、
+   子の清算で`terminate()`→`messages.fail()`が待機Promiseをrejectする。
+   TUIはunhandledrejectionをcrash guardで捕捉して終了する。
+   この経路はsourceで確認済みだが、今回の実終了の例外stackは未取得。
+   実装前の局所probeで同じ事前読込み失敗と清算を通し、未処理rejectの発生を確認する。
+4. 親子executionとsemantic履歴は既存Host／SQLiteが所有する。
+   起動失敗時は子のadmission／interruptedが既に保存されている。
+   今回はDB schemaや138のsnapshot・保存方式を変更する必要はない。
+
+合同E2E記録にあった「compiled rootと同様の別descriptorを渡す」という初期案は採用しない。
+rootも同じmodulePath読込みを使って正常起動しており、直接の修正はgenericの同梱漏れ解消である。
+
+### 修正範囲
+
+| 対象 | 変更する内容 | 利用者への結果 |
+| --- | --- | --- |
+| `scripts/build_henji.ts` | ROOTSへgeneric entryを追加し、既存経路でstaging・include・runtime digest・build inputへ含める | 配置binaryからinstall／bindなしでgenericを起動できる |
+| `v0/agent/worker/worker_host_supervisor.ts` | Definition読込み後、start送信前にready待機を登録する。登録したPromiseは既存send失敗・ready失敗を含めstartの処理内でsettle／回収し、correlationを終了時に戻す | 起動失敗のerrorを返し、未処理rejectでTUIを終了させない |
+| 関連focused test・compiled確認probe | 実際の事前読込み失敗と、sourceではなくcompiled genericの新規spawnを確認する | 観測済みの失敗を再検出できる |
+| 本文書・合同E2E記録・handoff | 原因の精密化、確認結果、binary identity、残る確認を記録する | 再開時に確認済み範囲と次の一手が分かる |
+
+既存のchild清算・spawn結果・interrupted保存・collect契約を使う。
+Definition importerの置換、新しいdescriptor形式、全体のqueue再設計、fallback、retry、
+DB変更、旧data削除、構想／architecture／roadmap変更、version変更・JSR公開は対象外。
+
+### 実装と確認の順序
+
+1. **起動失敗のPromise経路を局所再現する。**
+   専用processで実WorkerSupervisorに存在しない確認用modulePathを渡し、start失敗後にterminateする。
+   既存fileを削除して故障を作らず、実provider requestは0回。
+   エラー種別と未処理rejectを確認し、TUI終了原因の未確認部分を解消する。
+2. **同梱と起動処理を修正する。**
+   ROOTSへgenericを追加。事前読込みをready待機作成より前へ移し、start送信前の待機登録は維持する。
+   readyが即時に返る正常起動を取りこぼさず、登録したPromiseの失敗もstartの責任で処理する。
+   子registryやTUIへ新しい例外抑制処理を重複追加しない。
+3. **変更に対応するfocused確認を行う。**
+   局所再現でstartの元errorを受け取れ、terminate後に未処理rejectがなく、processが次の処理へ進めることを確認。
+   既存131のbundled generic起動、138の親独立作業→status→collect→detail、
+   110の起動失敗保存・清算の関係する確認を選ぶ。
+   既存32／78のstaging・build input確認も変更箇所に対応する範囲で使う。
+   sourceでの成功を同梱確認の代替にしない。
+4. **修正候補を一度buildし、compiled新規spawnを確認する。**
+   production build scriptで一時binaryを作り、source起動を使わず、
+   隔離XDG・新規DB・tmuxでlocalhost providerへ接続する。
+   138の既存controlled応答を使う一つの親子taskで、子model待ち／tool実行中status、
+   親read、collect、終了後status、親子detailを確認する。
+   `--version`、source／build、SHA-256、genericを含むruntimeとmanifestの対応を記録する。
+5. **配置後に実providerの基本ケースDを再確認する。**
+   commit／push・常用binary配置の指示を受けた段階で、確認済み変更のcleanなcommitからbuild・配置する。
+   配置先のversion・SHA-256を照合後、その配置binaryで下記1taskを実行する。
+   候補で成功していても、配置binaryでの新規spawnとreadbackまで確認して結果を記録する。
+
+変更source／testのformat・lint、必要なtype check、`git diff --check`を行う。
+本計画はfull gateを必須にしない。133〜137の全ケース再実行も必須にせず、
+変更に直接関係する正常起動・136表示・138の実経路を確認する。
+
+### 配置binaryの実provider再確認案
+
+- 引き継ぐmodel指定は`mimo-v2.6-flash`。既存の`openrouter-responses /
+  xiaomi/mimo-v2.6-flash / auto`を親子とも使う。
+- 親1turn・generic子1run。見込むphysical requestは親子合計8〜12回。
+  確認用workspaceの子bashを約75秒待機させ、実行中statusを取得できる時間を作る。
+  子には`timeoutMs=120000`を指定し、待機後にmarkerを読んで短く回答させる。
+- 親はspawn→独立read→`subagent_status`→観測値の中間報告→collect→終了後status→final。
+  前回promptの`get_subagent_status`誤記を修正する。
+- 保存先案は`/tmp/henji-i138-recovery-*`。専用tmux socket・隔離XDG・新規DBを使う。
+  request fact、tool結果、tmux capture、DB照合、別processのdetail、Session履歴とTUI再開を保存する。
+  credential値とAuthorization、raw通信は保存しない。
+- 子がstatus前に終了した場合は実行中snapshotを確認済みとしない。
+  再試行を重ねて成功扱いにせず、実観測と残る確認を報告する。
+
+### 受入条件と権限
+
+- 修正版compiled／配置binaryの双方で、genericを新規起動して親子taskを完了できる。
+- 実行中statusがgeneric・phase・step・request ordinal・lastToolを観測に沿って返し、
+  collectは子の完了を待って結果を返す。終了後statusでも最後の観測が残る。
+- 子のrequest順・step・HTTP 200とtool結果を、終了後の親Session detailから読み出せる。
+  live・Session履歴・TUI再開でspawnのagent名と中間報告・finalを読める。
+- 事前読込み失敗の局所再現で、errorと清算を維持したまま未処理rejectがなく、次の処理へ進める。
+- 当初は計画作成のみだった。その後の利用者指示と承認で実装・検証・commit／push・常用配置・
+  実provider再確認を実施する。対象は上記の基本親子task、保存先は下記。公開は対象外。
+  実config・実DB・既存Sessionの変更・削除は行わない。
+
+
+## 起動失敗への追加対応・確認結果（2026-09-27）
+
+### 修正と起動失敗の再現
+
+- buildのROOTSへbundled generic entryを追加した。同じ既存経路でstaging、compile include、
+  runtime digestとbuild inputへ入る。DB schema・tool契約・provider parserは変更していない。
+- WorkerSupervisorのDefinition読込みをready待機の作成より前へ移した。
+  待機登録はstart送信前に維持し、send失敗時にrejectされた待機も回収する。
+  correlationはsend／readyの失敗を含めfinallyで戻す。
+- 実WorkerSupervisorへ存在しない確認用Definition pathを渡す独立processで、修正前は
+  `Uncaught (in promise) Error: Worker host session closed`を再現した。
+  修正後は元のNotFoundを受け取り、terminate後にも次の処理へ進めた。
+  subprocess regressionを通常test taskへ登録し、fixture自身もtype checkする。
+- focused確認は32・78・131・138と新しい起動失敗regressionで22件成功。
+  110の実際のstartup failure保存・清算も1件成功。`v0:check`、変更TSのlint・format、
+  `git diff --check`は成功。計画どおりfull gateは実施していない。
+
+### 修正版compiled候補の新規spawn
+
+保存先: `/tmp/henji-i138-recovery-hCmrJWoe`。production build scriptから一度buildし、
+隔離XDG・新規DB・専用tmuxで実compiled TUIを使った。source起動や既存Session復元だけを
+同梱確認の代わりにしていない。
+
+- 候補は`henji 0.7.0`、source `b67553a7…+dirty`、build `51b813d5…`、
+  runtime digest `c08405b373dbbf9f109ff33d8e9b8a4596c1faadb7069799e7908b47b42f01a2`。
+- `local/`: localhostのcontrolled Responsesでinstall／bindなしのgeneric新規spawnを確認。
+  Session `2419e818-dc0a-420f-a62e-ce66335d5766`、子
+  `184c53fe-b8a2-4bbd-a9b3-972c803acaee`。
+  親の独立read、model待ち→web_fetch実行中→settledのstatus、collect待機と完了、
+  親子detail、generic名のlive・Session履歴・TUI復元が成功した。
+  physical requestはローカル8回（親6・子2）。readbackによる追加requestは0回。
+- `real/`: 親子とも`openrouter-responses / xiaomi/mimo-v2.6-flash / auto`で基本親子taskを実施。
+  Session `d12b24c2-dbd3-4d73-8161-281c184048b7`、子
+  `1aa985e8-301c-4e51-add9-b383956be3c8`。親と子はcompleted。
+  実行中statusはmodel phase、step 1／request 1だった。観測値を中間報告に使い、
+  collectの子結果、終了後statusのbash success、step 2／request 2を確認した。
+  子2requestのHTTPはともに200。合計実requestは7回（親5・子2）。
+  親がspawnとreadを同じstepで返したため、計画の見込み8〜12回より少なかった。
+- 実taskの終了後、確認scriptが実行中phaseをtool限定で判定して止まった。
+  観測されたmodel phaseも正しいstatusとして判定を修正し、完了済みSessionから同じ結果を
+  readbackした。taskの再実行はしていない。Session履歴・別process detail・TUI再開が成功し、
+  追加requestは0回。tool phaseは上記localhost経路で確認済み。
+- 証拠は各`evidence/result.json`、statusとcollect、request fact、semantic detail、tmux capture。
+  raw通信・credential・Authorizationは保存していない。実キー値が証拠・SQLiteにないことを照合し、
+  隔離credentialは除去した。確認TUIとlocalhost serverは終了し、DBと履歴は保持した。
+
+clean commitのbuild・常用配置と配置binaryの実provider確認結果は、次節へ記録する。

@@ -386,14 +386,6 @@ export class WorkerSupervisor {
   async start(onClearBuffer: () => void): Promise<void> {
     const projection = this.host.projection();
     const correlation = this.correlation('start');
-    const readyPromise = this.messages.wait((
-      message,
-    ): message is WorkerReadyMessage | WorkerErrorMessage =>
-      (message.kind === 'ready' &&
-        sameCorrelation(message.correlation, correlation)) ||
-      (message.kind === 'worker_error' &&
-        (message.correlation === undefined ||
-          sameCorrelation(message.correlation, correlation))), 5_000);
     let revision: WorkerDefinitionLoadRequest;
     if (this.options.loadDescriptor !== undefined) {
       revision = this.options.loadDescriptor;
@@ -406,47 +398,57 @@ export class WorkerSupervisor {
         'Worker Definition physical descriptor is unavailable',
       );
     }
+    const readyPromise = this.messages.wait((
+      message,
+    ): message is WorkerReadyMessage | WorkerErrorMessage =>
+      (message.kind === 'ready' &&
+        sameCorrelation(message.correlation, correlation)) ||
+      (message.kind === 'worker_error' &&
+        (message.correlation === undefined ||
+          sameCorrelation(message.correlation, correlation))), 5_000);
     this.correlationValue = correlation;
     try {
-      this.send({
-        kind: 'start',
-        correlation,
-        module: revision,
-        ...(this.options.asyncAgents === undefined
-          ? {}
-          : { asyncAgents: this.options.asyncAgents }),
-        ...(this.options.toolFilter === undefined ? {} : { toolFilter: this.options.toolFilter }),
-        ...(this.options.toolDefinitions === undefined
-          ? {}
-          : { toolDefinitions: this.options.toolDefinitions }),
-        workspaceRoot: this.options.workspaceRoot,
-        physicalIoMode: this.options.physicalIoMode ?? 'production',
-        ...(this.options.rootMaxSteps === undefined
-          ? {}
-          : { rootMaxSteps: this.options.rootMaxSteps }),
-        ...(this.options.providerTimeoutMs === undefined
-          ? {}
-          : { providerTimeoutMs: this.options.providerTimeoutMs }),
-        diagnosticStageBuffer: this.stageProbeBuffer,
-        initialTranscript: projection.transcript as never,
-        nextTurn: projection.nextTurn,
-        ...(projection.checkpoint === undefined
-          ? {}
-          : { checkpoint: projection.checkpoint as never }),
-        modelSelection: projection.modelSelection,
-        privateStateFromTurn: projection.privateStateFromTurn,
-        ...(this.options.baseInstruction === undefined
-          ? {}
-          : { baseInstruction: this.options.baseInstruction }),
-        ...(this.options.providerDeclarations === undefined
-          ? {}
-          : { providerDeclarations: this.options.providerDeclarations }),
-      });
-    } catch {
-      this.markUnavailable(onClearBuffer);
-      throw new Error('Worker transport unavailable');
-    }
-    try {
+      try {
+        this.send({
+          kind: 'start',
+          correlation,
+          module: revision,
+          ...(this.options.asyncAgents === undefined
+            ? {}
+            : { asyncAgents: this.options.asyncAgents }),
+          ...(this.options.toolFilter === undefined ? {} : { toolFilter: this.options.toolFilter }),
+          ...(this.options.toolDefinitions === undefined
+            ? {}
+            : { toolDefinitions: this.options.toolDefinitions }),
+          workspaceRoot: this.options.workspaceRoot,
+          physicalIoMode: this.options.physicalIoMode ?? 'production',
+          ...(this.options.rootMaxSteps === undefined
+            ? {}
+            : { rootMaxSteps: this.options.rootMaxSteps }),
+          ...(this.options.providerTimeoutMs === undefined
+            ? {}
+            : { providerTimeoutMs: this.options.providerTimeoutMs }),
+          diagnosticStageBuffer: this.stageProbeBuffer,
+          initialTranscript: projection.transcript as never,
+          nextTurn: projection.nextTurn,
+          ...(projection.checkpoint === undefined
+            ? {}
+            : { checkpoint: projection.checkpoint as never }),
+          modelSelection: projection.modelSelection,
+          privateStateFromTurn: projection.privateStateFromTurn,
+          ...(this.options.baseInstruction === undefined
+            ? {}
+            : { baseInstruction: this.options.baseInstruction }),
+          ...(this.options.providerDeclarations === undefined
+            ? {}
+            : { providerDeclarations: this.options.providerDeclarations }),
+        });
+      } catch {
+        this.markUnavailable(onClearBuffer);
+        // markUnavailable rejects the registered waiter; consume it before returning the error.
+        await readyPromise.catch(() => {});
+        throw new Error('Worker transport unavailable');
+      }
       const ready = await readyPromise;
       if (ready.kind === 'worker_error') {
         throw new WorkerHostStartupError(
