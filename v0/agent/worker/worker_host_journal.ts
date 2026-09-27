@@ -3,13 +3,65 @@ import { readWorkerStageSnapshot, type WorkerStageSnapshotTrigger } from './work
 import type {
   ExecutionEventInput,
   ExecutionEventPayloadByKind,
+  HistoryPersistencePort,
 } from '../history/history_store_contract.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
 import type { WorkerSupervisor } from './worker_host_supervisor.ts';
 import type { ActiveWorkerExecution, HistoryJournalErrorCode } from './worker_host_types.ts';
 
-const OBSERVATION_FLUSH_BATCH = 256;
-const OBSERVATION_FLUSH_INTERVAL_MS = 25;
+export const OBSERVATION_FLUSH_BATCH = 256;
+export const OBSERVATION_FLUSH_INTERVAL_MS = 25;
+
+/** The shared semantic projection; callers own buffering and execution lifetime. */
+export const workerObservationInput = (
+  executionId: string,
+  message: WorkerToHostMessage,
+  history?: HistoryPersistencePort,
+): ExecutionEventInput | undefined => {
+  if (
+    message.kind === 'ready' || message.kind === 'model_selected' ||
+    message.kind === 'closed' || message.kind === 'checkpoint_proposal' ||
+    message.kind === 'async_agent_request'
+  ) return undefined;
+  const workerSequence = message.kind === 'runtime_event' ||
+      message.kind === 'effect_observation' ||
+      message.kind === 'provider_observation' ||
+      message.kind === 'context_observation' ||
+      message.kind === 'cancel_received'
+    ? message.sequence
+    : undefined;
+  const kind = message.kind === 'runtime_event'
+    ? 'runtime_event'
+    : message.kind === 'effect_observation'
+    ? 'effect_observation'
+    : message.kind === 'provider_observation'
+    ? message.observation.kind === 'request_start'
+      ? 'provider_request_start' as const
+      : message.observation.kind === 'response_start'
+      ? 'provider_response_start' as const
+      : message.observation.kind === 'parser_transition'
+      ? 'provider_parser_transition' as const
+      : message.observation.kind === 'request_failure'
+      ? 'provider_request_failure' as const
+      : 'runtime_event' as const
+    : message.kind === 'context_observation'
+    ? 'context_observation' as const
+    : message.kind === 'cancel_received'
+    ? 'cancel_received' as const
+    : 'runtime_event' as const;
+  const historyMessage = history
+    ?.prepareWorkerObservationForHistory?.(message) ?? message;
+  return {
+    executionId: executionId,
+    direction: 'worker_to_host',
+    source: 'worker',
+    kind,
+    ...(workerSequence === undefined ? {} : { workerSequence }),
+    payload: structuredClone(
+      historyMessage,
+    ) as unknown as ExecutionEventPayloadByKind[typeof kind],
+  } as ExecutionEventInput;
+};
 
 export interface ExecutionJournalHost {
   readonly options: WorkerHostSessionOptions;
@@ -158,49 +210,12 @@ export class ExecutionJournal {
   appendWorkerObservation(message: WorkerToHostMessage): boolean {
     const execution = this.host.activeExecution();
     if (execution === undefined) return true;
-    if (
-      message.kind === 'ready' || message.kind === 'model_selected' ||
-      message.kind === 'closed' || message.kind === 'checkpoint_proposal' ||
-      message.kind === 'async_agent_request'
-    ) return true;
-    const workerSequence = message.kind === 'runtime_event' ||
-        message.kind === 'effect_observation' ||
-        message.kind === 'provider_observation' ||
-        message.kind === 'context_observation' ||
-        message.kind === 'cancel_received'
-      ? message.sequence
-      : undefined;
-    const kind = message.kind === 'runtime_event'
-      ? 'runtime_event'
-      : message.kind === 'effect_observation'
-      ? 'effect_observation'
-      : message.kind === 'provider_observation'
-      ? message.observation.kind === 'request_start'
-        ? 'provider_request_start' as const
-        : message.observation.kind === 'response_start'
-        ? 'provider_response_start' as const
-        : message.observation.kind === 'parser_transition'
-        ? 'provider_parser_transition' as const
-        : message.observation.kind === 'request_failure'
-        ? 'provider_request_failure' as const
-        : 'runtime_event' as const
-      : message.kind === 'context_observation'
-      ? 'context_observation' as const
-      : message.kind === 'cancel_received'
-      ? 'cancel_received' as const
-      : 'runtime_event' as const;
-    const historyMessage = this.host.options.historyPersistence
-      ?.prepareWorkerObservationForHistory?.(message) ?? message;
-    return this.bufferWorkerObservation({
-      executionId: execution.executionId,
-      direction: 'worker_to_host',
-      source: 'worker',
-      kind,
-      ...(workerSequence === undefined ? {} : { workerSequence }),
-      payload: structuredClone(
-        historyMessage,
-      ) as unknown as ExecutionEventPayloadByKind[typeof kind],
-    } as ExecutionEventInput);
+    const input = workerObservationInput(
+      execution.executionId,
+      message,
+      this.host.options.historyPersistence,
+    );
+    return input === undefined || this.bufferWorkerObservation(input);
   }
 
   recordWorkerStageSnapshot(

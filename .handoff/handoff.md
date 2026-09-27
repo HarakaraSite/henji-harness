@@ -16,6 +16,11 @@ TUI確認・commit／push・常用binary配置まで実施済み。
 137の実provider確認・完了承認は未実施。配置結果は137文書を参照する。
 Increment 133の入力欠落解消は常用利用で継続観測中。**
 
+次のincrementは利用者指定の[Increment 138](../docs/increments/increment-138.md)（A20・A22）。
+計画レビュー後の利用者指示でlocal実装・focused確認・隔離productionのlocalhost確認済み。
+コード・testの第三者レビューも必須findingなし。commit／push・常用binary配置は利用者指示で実施中。
+実provider受入は未実施。要件・範囲・確認結果は同文書を正本とする。
+
 - 常用binaryは`henji 0.7.0`、source `c7d9c737…`、build `62605210…`（Increment 136で配置）。
   配置結果は[Increment 136](../docs/increments/increment-136.md#commitpush常用binary配置)を参照する。
   Increment 134で配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。
@@ -27,7 +32,9 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 
 ## 次の一手
 
-1. Increment 136の実装・production受入確認・commit／push・常用binary配置は済んでいる。結果は
+1. [Increment 138](../docs/increments/increment-138.md#実装確認結果)の実装・確認結果を利用者が確認し、
+   commit／push・常用binary配置を実施する。実provider受入と公開は未指示。
+   Increment 136の実装・production受入確認・commit／push・常用binary配置は済んでいる。結果は
    [Increment 136](../docs/increments/increment-136.md#実装確認結果)を参照し、次の指示を受ける。
    公開は未指示。
    Increment 137の実装・確認結果と残る確認はその正本文書を参照し、次の指示を受ける。
@@ -50,6 +57,9 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 
 ## 承認境界
 
+- Increment 138は利用者指示のlocal実装・focused確認と隔離productionのlocalhost確認済み。
+  新しい実provider確認は対象・回数・保存先を提示して別途明示承認を得る。
+  commit／push・常用binary配置は利用者指示済み・実施中。公開は未指示。詳細は[Increment 138](../docs/increments/increment-138.md)。
 - Increment 136は利用者指示のlocal実装・focused確認と、別途承認された実providerでのproduction確認済み。
   commit／push・配置も利用者指示で実施済み。公開は未承認。
   新たな実provider確認は対象・回数・保存先を提示して別途明示承認を得る。

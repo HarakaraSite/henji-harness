@@ -35,8 +35,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A17 | Agent実行 | `WebSearchBackend`のExa APIへの置き換え | 利用者指示（2026-09-27、形態確認済み）。採用時に置き換え範囲を決める |
 | A18 | Agent実行 | bash toolのtimeout説明と引数エラーの具体化 | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測 |
 | A19 | Agent実行 | requestごとの実行状況・日時・地域context | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき |
-| A20 | Agent実行 | 子Agentの作業状況取得 | reviewer待機中に、子が何をしているか親から知りたいとき |
-| A22 | Agent実行 | 子Agentのrequest単位factの保存・readback | 子のprovider応答や失敗を履歴から診断する必要があるとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -195,7 +193,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   起動行とstatus／collect／cancel行を対応付けられるようにする。
 - 再検討条件: 複数の子Agentを並行運用し、操作行がどのagent・runのものか履歴から追えなくなったとき、
   またはA14／A20を採用するincrementに含めるとき。
-- 関連: A14、A20、[`increment-136.md`](../increments/increment-136.md)、
+- 関連: A14、[Increment 138（A20・A22）](../increments/increment-138.md)、
+  [`increment-136.md`](../increments/increment-136.md)、
   [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
@@ -451,44 +450,6 @@ Pi／OpenCode／Henjiの画面表示比較
   通常利用で確認する。
 - 関連: A18、A10、A11、S4、E3、`v0/agent/core/loop.ts`、
   `v0/agent/worker/worker_runtime.ts`のrequest projection・context attribution。
-
-### A20 — 子Agentの作業状況取得
-
-- 利用者希望（2026-09-27）: 子Agentの状況を親が読み取り、利用者へ中間報告できるようにしたい。
-  session `51b47299`で名前付き`reviewer`の結果を待つ利用から出た候補。今回はメモのみで、実装は未指示。
-- 利用者選択（2026-09-27）: 初期案は、子Workerの既存イベントをHostで受け、短い進捗として
-  保持し、親が取得できる形にする。今後の課題としてこの範囲に絞る。
-- 現行境界: `subagent_status`が返すのはstarting／running／completed等のlifecycle stateだけ。
-  作業内容や途中の報告を取得する専用interfaceはない。`collect_subagent`は子の終了まで待つため、
-  待機中は親modelの次requestへ進まない。親turnが終了すると未完了の子もcleanup対象になる。
-- 候補: 子Workerの既存runtime event／provider observationをHostで受け、agent名・直近のtool
-  実行状況・最後の更新等の短いsnapshotを親が取得できる形にする。子の最終結果と途中の観測を区別する。
-  対象はsemanticな作業状況であり、raw request／responseやthinking全文の常設収集は追加しない。
-- 実装上の入口: `worker_host_children.ts`の`routeChildMessage()`は現在readyやterminal message等を
-  処理し、子のruntime／provider observationの進捗を親向けに保持していない。この経路で必要な
-  eventを受けてsnapshot化し、既存status操作の拡張または専用取得操作で返す案を検討する。
-- 再検討条件: 個別Incrementへ採用するとき。親が取得するsnapshotの項目と、既存eventからの
-  生成方法を定める。定期報告、待機操作の変更、子の明示的な中間finding報告、TUIへの直接表示は
-  今回選択した初期案の対象に含めない。
-- 関連: [Increment 136](../increments/increment-136.md)（子Agent名表示）、A19、`v0/agent/tools/async_agents.ts`、
-  `v0/agent/worker/worker_host_children.ts`、`v0/agent/worker/worker_protocol.ts`。
-
-### A22 — 子Agentのrequest単位factの保存・readback
-
-- 観測（2026-09-27、Increment 136の承認済み実provider確認）: 親3requestのprovider／model／step・HTTP 200は
-  semantic履歴からreadbackできた。`generic`子はcompletedで、保存済み`collect_subagent`結果に
-  `providerRequestCount: 1`と最終回答があるが、子のsemantic履歴には個別requestのHTTP factがない。
-  Session `6b1a860c-c8ac-4702-970a-74cf800acb9a`、子run `e9bdccdf-3aa9-41de-97be-897f5437d2be`。
-  証拠は`/tmp/henji-i136-production/evidence/request-facts.json`と隔離DBのreadback。
-- 原因のsource経路: `worker_host_children.ts`の`routeChildMessage()`はreadyとterminal message等を
-  扱い、子の`provider_observation`をhistoryへ転送しない。`settle()`は最終outcomeを保存するため、
-  子の回数・最終結果は残るが、request単位のHTTP／errorの経緯を人間がreadbackできない。
-- 根拠: repositoryの通常実行で短いrequest単位factを保存・readback可能にする規定。
-  利用者影響は子のprovider応答・失敗を後から診断する材料の欠落。子Agent名の表示は実確認済み。
-- 修正候補: 子の既存provider observationからrequest単位の短いfactを子executionへ保存する。
-  raw request／responseの常設収集は追加しない。未採用であり、この確認では実装変更していない。
-- 再検討条件: 子のprovider応答や失敗を履歴から診断する必要があるとき。
-- 関連: A20、[Increment 136](../increments/increment-136.md)、`v0/agent/worker/worker_host_children.ts`。
 
 ## F24・自己改訂
 

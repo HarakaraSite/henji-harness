@@ -2188,6 +2188,14 @@ export class SqliteHistoryV7ProductionStore
         false,
         db,
       );
+      const children = this.#executionRows(
+        `WHERE a.parent_execution_id IN (
+          SELECT execution_id FROM execution_admissions WHERE session_correlation=?
+        )`,
+        [sessionId],
+        false,
+        db,
+      );
       const session = db.prepare('SELECT * FROM sessions WHERE session_id=?').get(sessionId) as
         | Row
         | undefined;
@@ -2279,7 +2287,7 @@ export class SqliteHistoryV7ProductionStore
         };
       }
       const exportedContentDigests = new Set<string>();
-      for (const execution of executions) {
+      for (const execution of [...executions, ...children]) {
         yield {
           schemaVersion: HUMAN_HISTORY_DOCUMENT_SCHEMA_VERSION,
           kind: 'execution',

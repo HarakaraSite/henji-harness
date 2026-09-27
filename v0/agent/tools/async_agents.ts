@@ -1,4 +1,4 @@
-import { type JsonValue } from '../core/contracts.ts';
+import { type JsonValue, type ToolResultOutcome } from '../core/contracts.ts';
 import { isTurnCancelledError } from '../core/cancellation.ts';
 import { type Tool, type ToolContext, ToolInputError } from './tools.ts';
 
@@ -15,6 +15,20 @@ export type AsyncAgentTerminalState = Exclude<
   AsyncAgentRunState,
   'starting' | 'running'
 >;
+
+/** Host projection of the latest observed work; distinct from lifecycle and final results. */
+export interface AsyncAgentProgress {
+  readonly phase: 'starting' | 'model' | 'tool' | 'between_steps' | 'settled';
+  readonly updatedAt: string;
+  readonly modelStep?: number;
+  readonly requestOrdinal?: number;
+  readonly lastTool?: {
+    readonly name: string;
+    readonly callId: string;
+    readonly state: 'running' | 'completed';
+    readonly outcome?: ToolResultOutcome;
+  };
+}
 
 export interface AsyncAgentTerminalResult {
   readonly runId: string;
@@ -68,6 +82,8 @@ export type AsyncAgentResponse =
     readonly kind: 'status';
     readonly runId: string;
     readonly state: AsyncAgentRunState;
+    readonly agent: string;
+    readonly progress: AsyncAgentProgress;
   }
   | { readonly ok: true; readonly kind: 'collect'; readonly result: AsyncAgentTerminalResult }
   | {
@@ -242,7 +258,8 @@ export const createAsyncAgentTools = (
   };
   const status: Tool = {
     name: 'subagent_status',
-    description: 'Report the lifecycle state of one async child run by runId.',
+    description:
+      'Read one async child run by runId: lifecycle state, agent name, latest observed model/tool activity and update time. This is a snapshot, not the final answer or a periodic report. Keep doing independent work before calling collect_subagent, which waits for completion.',
     inputSchema: {
       type: 'object',
       properties: { runId: { type: 'string', minLength: 1 } },
@@ -253,7 +270,13 @@ export const createAsyncAgentTools = (
       const runId = requireRunId(argumentsValue);
       const response = await invokeAsyncAgentRpc(rpc, { kind: 'status', runId }, context);
       if (response.ok && response.kind === 'status') {
-        return JSON.stringify({ ok: true, runId: response.runId, state: response.state });
+        return JSON.stringify({
+          ok: true,
+          runId: response.runId,
+          state: response.state,
+          agent: response.agent,
+          progress: response.progress,
+        });
       }
       return failedResponse(response);
     },

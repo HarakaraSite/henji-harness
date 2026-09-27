@@ -1,4 +1,5 @@
 import type {
+  AsyncAgentProgress,
   AsyncAgentRequest,
   AsyncAgentResponse,
   AsyncAgentRunState,
@@ -8,6 +9,7 @@ import type {
 } from '../tools/async_agents.ts';
 import type { WorkerSessionHandle } from '../session/session_store_contract.ts';
 import type {
+  ExecutionEventInput,
   HistoryCaptureResult,
   HistoryPersistencePort,
 } from '../history/history_store_contract.ts';
@@ -35,6 +37,11 @@ import type {
   ChildCleanupRunObservationV1,
 } from './worker_child_contract.ts';
 import { historyCaptureDurability } from './worker_history_projection.ts';
+import {
+  OBSERVATION_FLUSH_BATCH,
+  OBSERVATION_FLUSH_INTERVAL_MS,
+  workerObservationInput,
+} from './worker_host_journal.ts';
 
 const CHILD_SETTLEMENT_GRACE_MS = 5_000;
 
@@ -62,6 +69,10 @@ type ChildRun = {
   readonly createdAt: string;
   readonly settled: Deferred;
   state: AsyncAgentRunState;
+  progress: AsyncAgentProgress;
+  readonly observations: ExecutionEventInput[];
+  observationFlushTimer?: ReturnType<typeof setTimeout>;
+  observationError?: string;
   addressable: boolean;
   cancelRequested: boolean;
   cancelSent: boolean;
@@ -195,7 +206,14 @@ export class ChildRunRegistry {
               'child terminal settlement is pending',
           };
         }
-        return { ok: true, kind: 'status', runId: run.runId, state: run.state };
+        return {
+          ok: true,
+          kind: 'status',
+          runId: run.runId,
+          state: run.state,
+          agent: run.agent,
+          progress: structuredClone(run.progress),
+        };
       case 'collect':
         await run.settled.promise;
         if (!run.settlementDurable || run.terminal === undefined) {
@@ -315,6 +333,7 @@ export class ChildRunRegistry {
     }
     const runId = crypto.randomUUID().toLowerCase();
     const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
+    const createdAt = new Date().toISOString();
     const run: ChildRun = {
       runId,
       parentExecutionId,
@@ -325,8 +344,10 @@ export class ChildRunRegistry {
       ...(tools === undefined ? {} : { tools: Object.freeze([...tools]) }),
       build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
-      createdAt: new Date().toISOString(),
+      createdAt,
       state: 'starting',
+      progress: { phase: 'starting', updatedAt: createdAt },
+      observations: [],
       addressable: true,
       cancelRequested: false,
       cancelSent: false,
@@ -453,6 +474,10 @@ export class ChildRunRegistry {
   }
 
   private routeChildMessage(run: ChildRun, message: WorkerToHostMessage): void {
+    if (run.terminal === undefined) {
+      this.updateProgress(run, message);
+      this.bufferObservation(run, message);
+    }
     if (message.kind === 'ready' && message.manifest !== undefined && run.manifest === undefined) {
       run.manifest = structuredClone(message.manifest);
     }
@@ -467,6 +492,131 @@ export class ChildRunRegistry {
       message.kind === 'commit_proposal' || message.kind === 'turn_failed' ||
       message.kind === 'worker_error'
     ) this.handleChildMessage(run, message);
+  }
+
+  private updateProgress(run: ChildRun, message: WorkerToHostMessage): void {
+    const updatedAt = new Date().toISOString();
+    const current = run.progress;
+    if (message.kind === 'provider_observation') {
+      const observation = message.observation;
+      if (observation.kind === 'request_start') {
+        run.progress = {
+          ...current,
+          phase: current.lastTool?.state === 'running' ? 'tool' : 'model',
+          updatedAt,
+          modelStep: observation.request.modelStep,
+          requestOrdinal: observation.request.ordinal,
+        };
+      } else if (observation.kind === 'runtime_event') {
+        const event = observation.event;
+        if (event.kind === 'turn_outcome') return;
+        const attribution = {
+          ...current,
+          updatedAt,
+          modelStep: event.modelStep,
+          ...(event.requestOrdinal === undefined ? {} : { requestOrdinal: event.requestOrdinal }),
+        };
+        if (event.kind === 'tool_call') {
+          run.progress = {
+            ...attribution,
+            phase: 'tool',
+            lastTool: { name: event.call.name, callId: event.call.callId, state: 'running' },
+          };
+        } else if (event.kind === 'tool_result') {
+          run.progress = {
+            ...attribution,
+            phase: 'between_steps',
+            lastTool: {
+              name: event.result.name,
+              callId: event.result.callId,
+              state: 'completed',
+              outcome: event.result.outcome,
+            },
+          };
+        } else {
+          run.progress = {
+            ...attribution,
+            phase: event.kind === 'model_result'
+              ? current.lastTool?.state === 'running' ? 'tool' : 'between_steps'
+              : event.kind === 'tool_progress'
+              ? 'tool'
+              : current.lastTool?.state === 'running'
+              ? 'tool'
+              : 'model',
+          };
+        }
+      } else {
+        run.progress = { ...current, updatedAt };
+      }
+    } else if (message.kind === 'runtime_event' && message.event.kind === 'agent_event') {
+      const event = message.event.event;
+      if (event.kind === 'assistant_thinking') {
+        run.progress = { ...current, updatedAt, modelStep: event.modelStep };
+      }
+    } else if (message.kind === 'effect_observation') {
+      const effect = message.effect;
+      run.progress = {
+        ...current,
+        updatedAt,
+        phase: effect.kind === 'tool_result' ? 'between_steps' : 'tool',
+        ...(effect.kind === 'tool_call'
+          ? { lastTool: { name: effect.call.name, callId: effect.call.callId, state: 'running' } }
+          : effect.kind === 'tool_result'
+          ? {
+            lastTool: {
+              name: effect.result.name,
+              callId: effect.result.callId,
+              state: 'completed',
+              outcome: effect.result.outcome,
+            },
+          }
+          : {}),
+      };
+    }
+  }
+
+  private bufferObservation(run: ChildRun, message: WorkerToHostMessage): void {
+    const history = this.deps.history;
+    if (history === undefined || run.observationError !== undefined) return;
+    if (
+      message.kind !== 'provider_observation' && message.kind !== 'context_observation' &&
+      message.kind !== 'runtime_event' && message.kind !== 'effect_observation'
+    ) return;
+    // Thinking text is not part of the new child observation store or status snapshot.
+    if (
+      message.kind === 'runtime_event' && message.event.kind === 'agent_event' &&
+      message.event.event.kind === 'assistant_thinking'
+    ) return;
+    try {
+      const input = workerObservationInput(run.runId, message, history);
+      if (input === undefined) return;
+      run.observations.push({ ...input, observedAt: new Date().toISOString() });
+      if (run.observations.length >= OBSERVATION_FLUSH_BATCH) {
+        this.flushObservations(run);
+      } else if (run.observationFlushTimer === undefined) {
+        run.observationFlushTimer = setTimeout(
+          () => this.flushObservations(run),
+          OBSERVATION_FLUSH_INTERVAL_MS,
+        );
+      }
+    } catch (error) {
+      run.observationError = errorText(error);
+    }
+  }
+
+  private flushObservations(run: ChildRun): void {
+    if (run.observationFlushTimer !== undefined) {
+      clearTimeout(run.observationFlushTimer);
+      run.observationFlushTimer = undefined;
+    }
+    if (run.observations.length === 0) return;
+    const batch = run.observations.splice(0);
+    if (run.observationError !== undefined) return;
+    try {
+      this.deps.history?.appendExecutionEvents(batch);
+    } catch (error) {
+      run.observationError = errorText(error);
+    }
   }
 
   private handleChildMessage(
@@ -559,12 +709,23 @@ export class ChildRunRegistry {
     contextManifest?: ExecutionContextManifestV2,
   ): void {
     if (run.terminal !== undefined) return;
-    const settledOutcome = outcome ?? this.syntheticOutcome(run, terminal);
+    this.flushObservations(run);
+    const settledOutcome: LoopOutcome = {
+      ...(outcome ?? this.syntheticOutcome(run, terminal)),
+      ...(run.observationError === undefined ? {} : {
+        executionJournalDurability: 'failed' as const,
+        executionJournalPersistenceError: run.observationError === 'history_busy' ||
+            run.observationError === 'history_invalid'
+          ? run.observationError
+          : 'history_io_failure' as const,
+      }),
+    };
     run.terminal = this.withOutcome(terminal, settledOutcome, diagnostic);
     run.outcome = settledOutcome;
     run.diagnostic = diagnostic ?? outcome?.diagnostic;
     run.contextManifest = contextManifest;
     run.state = terminal.state;
+    run.progress = { ...run.progress, phase: 'settled', updatedAt: new Date().toISOString() };
     this.settle(run);
     void this.terminate(run).then(
       () => run.settled.resolve(),
@@ -603,7 +764,8 @@ export class ChildRunRegistry {
       });
       run.capture = capture;
       run.terminal = this.withCapture(run.terminal, capture);
-      run.settlementDurable = true;
+      run.settlementDurable = run.observationError === undefined;
+      run.settlementError = run.observationError;
     } catch (error) {
       run.settlementError = errorText(error);
     }

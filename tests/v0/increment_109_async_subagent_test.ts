@@ -44,6 +44,8 @@ Deno.test('Increment 109 async agent tools expose a fixed four-operation surface
           kind: 'status',
           runId: request.runId,
           state: 'running',
+          agent: 'researcher',
+          progress: { phase: 'model', updatedAt: '2026-09-27T00:00:00.000Z', modelStep: 1 },
         });
       case 'collect':
         return Promise.resolve({
@@ -102,6 +104,8 @@ Deno.test('Increment 109 async agent tools expose a fixed four-operation surface
     ok: true,
     runId: 'run-1',
     state: 'running',
+    agent: 'researcher',
+    progress: { phase: 'model', updatedAt: '2026-09-27T00:00:00.000Z', modelStep: 1 },
   });
 
   const collected = await registry.dispatch({
