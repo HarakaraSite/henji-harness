@@ -1,7 +1,6 @@
 # 通常利用 increment 7 — 実装結果
 
-ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUIでmechanismの成立を確認したが、grounding品質は未受入。increment 8で修正する。
+ステータス: **完了（2026-09-27、現行仕様で受入確認）。**
 
 ## 成立した動作
 
@@ -87,3 +86,11 @@ mechanismはproduction経路で成立した。一方、追質問へのfinalはso
 roadmapを確認できないと返した後も、親modelが将来topicを確認済みのように断定した。したがってincrement 7を
 grounding品質まで受入済みとはせず、具体的query、Sonarの検索結果限定回答、親のsource URL・不足・推論表示を
 increment 8で修正する。確認後のreadbackでは追加provider requestを実行していない。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+当初のgrounding未受入は8・9で修正した後継経路として扱う。B04-SでSonar一回と直接source
+link付きの最終回答を確認した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

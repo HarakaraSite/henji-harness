@@ -1,6 +1,6 @@
 # Increment 73 — busy表示を`working`＋spinnerへ変更
 
-ステータス: **実装完了（offline gate pass、pty表示確認・binary配置済み）**
+ステータス: **完了（既存の実装・pty確認・配置済み、現行TUIの実provider確認済み）。**
 
 基準commit: `a598a616`
 
@@ -88,3 +88,10 @@
 - 検証: `tui_retained_terminal_test.ts`のbusy footer testを`working`＋spinnerへ更新（blink期待を削除、
   120ms周期、frame進行、settle clearを確認）。`v0:check`／`fmt`／`lint`／`v0:gate` exit 0。
 - 未実施: pty等での手動表示確認、binary build・配置。roadmap F01とinbox S6の正本更新は別承認。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B07-N・B09でbusy表示とcancel後の停止表示を確認した。旧blink contractは現行仕様では無効。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

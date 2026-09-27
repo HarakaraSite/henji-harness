@@ -1,6 +1,6 @@
 # Increment 131 — 誰でもないサブエージェント（agent:generic）と起動時モデル指定
 
-状態: 実装完了（2026-09-26）。focused test・type check・format・lint・`git diff --check`確認済み。
+状態: 完了（2026-09-27、配置binaryの実provider基本確認と利用者の完了整理指示）。
 architecture正本変更1〜5を反映済み。通常利用メモのA13をこのincrementへ移設済み（A14はinboxに残す）。
 authoritative `v0:gate`は計画が要求していないため未実施。実装commit `6d7a5d39`からbuildしたbinary
 （build `55d99dc5…`）を利用者の指示に基づき`~/.local/bin/henji`へ配置済み。
@@ -262,10 +262,13 @@ authoritative `v0:gate`は計画が要求していないため未実施。実装
 - 未確認のproduct動作の記録: 当時点で改訂版はレビュー未実施。→ 第2回レビュー（下節）で実施済み。
 
 ## レビュー結果（2026-09-26、改訂版計画に対するレビュー）
+
 - 通常レビュー: Finding 3件（[高]1／[中]1／[低]1）。前回8件のうち7件の閉じを確認。
-  - [高] F1: `agent:generic`常設のHost側catalog組み立て（`worker_tui_session.ts`の`resolveAsyncAgents`が
+  - [高] F1:
+    `agent:generic`常設のHost側catalog組み立て（`worker_tui_session.ts`の`resolveAsyncAgents`が
     ゼロ件で`undefined`を返し、`ChildRunRegistry.spawn`はcatalog不在を`agent is not available`で失敗）と、
-    子module load path（`childOptions`は`resolveManagedModule`＝managed storeのみ。`builtin/generic`の
+    子module load path（`childOptions`は`resolveManagedModule`＝managed
+    storeのみ。`builtin/generic`の
     load経路が無い。`workerBuiltinModulePath`は`agent !== 'default'`をthrow）が対象範囲・実装計画に無い。
   - [中] F2: tool名検証の情報源が無い。宣言済みtool集合は子Workerでしか確定せず（catalog entryは
     `{name, ref}`のみ）、Hostがspawn前に未知tool名を検証できない。「固定vocabularyなし」「runIdなし」
@@ -280,8 +283,10 @@ authoritative `v0:gate`は計画が要求していないため未実施。実装
     `/model`変更後の現在selectionは子へ伝わらない。
   - Medium 4: 承認済みarchitecture変更1〜5が実装が実際に壊す不変条件文を網羅していない（slot値の
     domain「managed selector」文、「親Definitionが宣言するcatalog」文、child execution節の
-    「role/model…exact ref provenance」文、`agents.json`に`agent:generic` bindingがある場合の挙動）。
-  - Medium 5: `tool:skill`／`tool:submit_json_result`例外ルールが「常時有効」と「常にdeclaredどおり」
+    「role/model…exact ref provenance」文、`agents.json`に`agent:generic`
+    bindingがある場合の挙動）。
+  - Medium 5:
+    `tool:skill`／`tool:submit_json_result`例外ルールが「常時有効」と「常にdeclaredどおり」
     で矛盾。reviewer宣言に`submit_json_result`は無い。「名指し時の挙動」も未定義。
   - Low 6: 形状不正（ToolInputError）と値不正（`{ok:false, error}`）の使い分け未定義。
   - Low 7: 3機能同梱で未確定mechanismが確定調のまま採用判断の誤認要因になる。
@@ -289,8 +294,8 @@ authoritative `v0:gate`は計画が要求していないため未実施。実装
   中核設計（`agent:generic`常設方式、model shape、絞り込みのみ）への異論なし。
 - 未確認として残す事項（批判的レビュー）: 名前付きchildが`agent:generic`をspawnできるべきかは利用者
   決定に存在しない。`agents.json`の`agent:generic` binding実在時の挙動も未観測。model省略時の意味は
-  利用者確認が必要。これらは推測で埋めず、利用者決定後に反映する。
-  → 追加決定12〜15で反映済み（名前付きchildはspawn toolを持たない、`agent:generic` bindingは
+  利用者確認が必要。これらは推測で埋めず、利用者決定後に反映する。 →
+  追加決定12〜15で反映済み（名前付きchildはspawn toolを持たない、`agent:generic` bindingは
   予約名typed failure、省略時はsession現在のselection）。
 
 ## 実装結果（2026-09-26）
@@ -339,3 +344,11 @@ authoritative `v0:gate`は計画が要求していないため未実施。実装
   `createWorkerSession`実経路でparent start commandのcatalogに`generic`/`builtin/generic`が
   常に載ることを確認するtest（`the Host resolves agent:generic into the parent catalog without
   bindings`）を追加済み。focused testは8件すべて通過、type check・format・lint再確認済み。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B08でgenericの親model継承とmodel明示指定、named external reviewerのexact
+ref、tool絞込み、collect/cancel、子request factを確認した。旧固定planner既定は106・127で無効。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

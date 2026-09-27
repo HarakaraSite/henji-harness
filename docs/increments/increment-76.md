@@ -1,6 +1,6 @@
 # Increment 76 — 保存Sessionの閲覧と現行Definitionでの継続
 
-ステータス: **実装完了（Human Gate承認済み。roadmap／architecture変更適用済み）**
+ステータス: **完了（既存Human Gate承認済み、現行後継の配置binary確認済み）。**
 
 基準commit: `093a14be`
 
@@ -189,3 +189,11 @@ digest範囲変更は別途。
 - 閲覧overlay（`v`）はlazyとは別に、active bindingを変えないread-only閲覧として残す。
 
 注記: digest範囲変更（builtin Definition digestをランタイム全体からDefinition closure内容へ）は別increment。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B06-T・B07-Rで現行Definitionと保存Sessionの継続を確認。TUI閲覧only
+modeは99で廃止されており、旧modeを再試験しない。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

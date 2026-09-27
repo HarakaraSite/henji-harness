@@ -1,7 +1,6 @@
 # 通常利用 increment 8 — 実装結果
 
-ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateでSonar側のgrounding改善と親finalの未解決問題を確認し、ユーザー未受入。
+ステータス: **完了（2026-09-27、現行仕様で受入確認）。**
 
 ## 成立した動作
 
@@ -48,3 +47,10 @@ URLなしでfinalへ転載した。また、Sonarが裏付けていないクロ�
 確認済み事実を十分に分けなかった。したがってincrement 8はproduction未受入とする。次のincrementでは、Sonar
 answer内の有効な`[n]`を対応するannotationの直接URL linkへtool component内で正規化し、親modelへ裸のlocal
 番号を渡さない。readbackでは追加provider requestを行っていない。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+当初の親finalの未解決問題は9の直接link正規化へ引き継いだ。B04-Sで最終回答まで成立した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

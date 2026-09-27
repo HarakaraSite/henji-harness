@@ -1,6 +1,6 @@
 # Increment 107 — async run contractの確定（計画上のIncrement B0）
 
-ステータス: **計画（contract確定、通常・批判的レビュー反映済み。実装はIncrement 108／109）**
+ステータス: **完了（contract確定、実装は108・109、現行後継の受入確認済み）。**
 
 計画日: 2026-09-22
 
@@ -120,7 +120,7 @@ child evidenceから次をreadbackできる。
 - mailbox、restart reattach、recursive spawn、swarm UI。
 - cross-turn follow-up、durable addressable AgentInstance。
 
-## 未確認事項（Increment 109で確定する）
+## 計画時に109へ引き継いだ事項（109・110で確定・実装済み）
 
 1. child Worker RPC routing: `WorkerCorrelation`に`runId`／`parentExecutionId`をどう載せるか。
 2. cancel伝播: parentからchild列挙とcancelを行う経路。
@@ -130,3 +130,10 @@ child evidenceから次をreadbackできる。
 6. child cleanup failureの記録先。
 7. spawn/collect RPCのwire schema（Increment 108はwire変更を対象外とするためIncrement 109が所有）。
 8. collectされたchild resultの親context内での表現（tool result本文の形式）。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+末尾の109で確定する設計項目は109・110で実装済み。B08・B09でspawn・collect・model指定・cancelと子factの保存・readbackを確認した。旧固定plannerは127・131で置換済み。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

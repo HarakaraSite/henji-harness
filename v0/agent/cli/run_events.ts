@@ -142,21 +142,71 @@ const argumentPreview = (value: unknown): string => {
   return text.length > 160 ? `${text.slice(0, 160)}…` : text;
 };
 
-/** Human-readable `--stream` rendering. Assistant text goes to stdout; tool activity to stderr. */
-export const renderStreamEvent = (
-  event: CliRunEvent,
-): { readonly stdout?: string; readonly stderr?: string } => {
-  switch (event.kind) {
-    case 'assistant_delta':
-      return { stdout: event.reset === true ? `\n${event.text}` : event.text };
-    case 'tool_call':
-      return { stderr: `tool> ${event.name} ${argumentPreview(event.arguments)}\n` };
-    case 'tool_result':
-      return { stderr: `tool< ${event.name} ${event.outcome}\n` };
-    default:
-      return {};
+type StreamOutput = { readonly stdout?: string; readonly stderr?: string };
+
+/** Reconcile live prefixes with each completed message, whose final tail may have been coalesced. */
+export class CliRunStreamRenderer {
+  private currentText = '';
+  private completed = false;
+  private wroteOutput = false;
+  private endsWithNewline = true;
+
+  private write(text: string): StreamOutput {
+    if (text.length === 0) return {};
+    this.wroteOutput = true;
+    this.endsWithNewline = text.endsWith('\n');
+    return { stdout: text };
   }
-};
+
+  private separator(): string {
+    return this.wroteOutput && !this.endsWithNewline ? '\n' : '';
+  }
+
+  private complete(text: string): StreamOutput {
+    const remaining = text.startsWith(this.currentText)
+      ? text.slice(this.currentText.length)
+      : text;
+    const prefix = this.currentText.length === 0 || !text.startsWith(this.currentText)
+      ? this.separator()
+      : '';
+    this.currentText = text;
+    this.completed = true;
+    return remaining.length === 0 ? {} : this.write(prefix + remaining);
+  }
+
+  render(event: CliRunEvent): StreamOutput {
+    switch (event.kind) {
+      case 'assistant_delta': {
+        if (this.completed || event.reset === true) this.currentText = '';
+        this.completed = false;
+        const prefix = this.currentText.length === 0 ? this.separator() : '';
+        this.currentText += event.text;
+        return this.write(prefix + event.text);
+      }
+      case 'assistant_message':
+        return this.complete(event.text);
+      case 'tool_call':
+        this.currentText = '';
+        this.completed = false;
+        return { stderr: `tool> ${event.name} ${argumentPreview(event.arguments)}\n` };
+      case 'tool_result':
+        this.currentText = '';
+        this.completed = false;
+        return { stderr: `tool< ${event.name} ${event.outcome}\n` };
+      default:
+        return {};
+    }
+  }
+
+  finish(finalText: string): StreamOutput {
+    const hadText = this.currentText.length > 0;
+    const output = this.complete(finalText);
+    if (!hadText && output.stdout !== undefined && !output.stdout.endsWith('\n')) {
+      return this.write(`${output.stdout}\n`);
+    }
+    return output;
+  }
+}
 
 type OutputWriter = (text: string) => void | PromiseLike<void>;
 

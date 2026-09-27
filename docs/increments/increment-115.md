@@ -1,5 +1,9 @@
 # Increment 115 — headless既定rootのagent binding適用
 
+状態: 完了。既存の実装・検証・0.5.0配置・公開済み。
+2026-09-27のB06-Tで、selector省略の`henji run`がmanaged root bindingのexact
+refを使う実provider経路を確認した。 根拠は[1〜132 E2E](e2e-001-132-2026-09-27.md)。
+
 ## 要件と根拠
 
 通常の`henji run`で`--agent`／`--definition-revision`を指定しない場合、TUIと同じ

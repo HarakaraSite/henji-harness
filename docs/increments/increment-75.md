@@ -1,6 +1,6 @@
 # Increment 75 — `/sessions`一覧の耐性（不正recordによる全件失敗の解消）
 
-ステータス: **実装完了（B2）**
+ステータス: **完了（B2実装済み、現行保存形式のSession一覧も確認済み）。**
 
 基準commit: `093a14be`
 
@@ -56,3 +56,12 @@
 - 残観測: 一覧される5件はいずれも保存Definition digestが現行`builtin/default`（`e28fe12a…`）と異なり、
   pickerで`unavailable`表示。これはexact revision契約による既知の挙動で、本incrementの対象外。過去build
   Sessionを削除するかは別途利用者判断。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B07-RでSession
+rename・参照・継続を確認した。当初の旧codec不正record対応は後継保存形式で置換済み。仮想不正data
+matrixは今回の受入対象ではない。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

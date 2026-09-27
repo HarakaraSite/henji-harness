@@ -1,6 +1,6 @@
 # Increment 65 — activation-level subagent slot binding
 
-ステータス: **実装完了（実provider probe受入済み）**
+ステータス: **完了（当初の実provider受入済み、現行後継も確認済み）。**
 
 基準commit: `2fe5506a`
 
@@ -14,28 +14,34 @@
   `managed_definition_manifest.ts`（canonical digestへrole/nameを追加、旧schemaは互換読込しない）、
   `managed_definition_importer.ts`、`managed_definition_revision_validator.ts`、
   `managed_definition_store.ts`、`managed_definition_transport.ts`、`module_cli.ts`（`--role subagent
-  --subagent-name <name>`）、`managed_resource_ref.ts`（built-in planner refをsubagent＋nameへ再build）、
+  --subagent-name <name>`）、`managed_resource_ref.ts`（built-in
+  planner refをsubagent＋nameへ再build）、
   `definition_selection.ts`（rootは`parent`のみ受理、managed subagent refは
   `definition_role_mismatch`@resolutionで拒否）。
 - activation-level binding config: `v0/agent/definitions/agent_slot_binding.ts`を追加。
   `$XDG_CONFIG_HOME/henji-harness/agents.json`（`schemaVersion:1`＋`bindings`）のload/validateと、
   slot（`agent:default`／`subagent:<name>`）からexact managed revisionへの解決。role/name不一致・
   未知slot・malformed・missing revisionはtyped `AgentBindingError`で、built-inへ暗黙fallbackしない。
-- root slot適用（追補）: `resolveRequestedDefinition`が明示selector無しのとき`agent:default` bindingを
-  managed parent rootとして解決する。優先順位は「明示selector > 再開/継続Sessionの保存ref > `agent:default`
-  binding > bundled default」。binding解決失敗はtyped `DefinitionStartupError`で、bundledへの暗黙fallbackは
-  しない。selector解析は循環import回避のため`definition_selector.ts`へ分離。
-- composition seam: Host（`worker_tui_session.ts`）がroot parent生成ごとに`subagent:planner`を解決し、
-  bound managed revisionまたはbundled plannerの`WorkerSubagentLoadRequest`（exact ref＋物理descriptor）を
-  start commandへ渡す。Worker（`worker_bootstrap.ts`）はroot moduleとsubagent moduleを検証読込し、
+- root slot適用（追補）: `resolveRequestedDefinition`が明示selector無しのとき`agent:default`
+  bindingを managed parent rootとして解決する。優先順位は「明示selector > 再開/継続Sessionの保存ref
+  > `agent:default` binding > bundled default」。binding解決失敗はtyped
+  > `DefinitionStartupError`で、bundledへの暗黙fallbackは
+  > しない。selector解析は循環import回避のため`definition_selector.ts`へ分離。
+- composition seam: Host（`worker_tui_session.ts`）がroot
+  parent生成ごとに`subagent:planner`を解決し、 bound managed revisionまたはbundled
+  plannerの`WorkerSubagentLoadRequest`（exact ref＋物理descriptor）を start
+  commandへ渡す。Worker（`worker_bootstrap.ts`）はroot moduleとsubagent moduleを検証読込し、
   `ExecutableAgentDefinitionInput.subagents`としてroot Definitionへ渡す。Henji helper
-  （`worker_agent_api.ts`の`createDefaultAgentComposition`）がHost提供plannerを合成し、無ければbundled plannerへ
-  fallbackする。保証範囲はHenji helperを使うDefinitionに限る。
-- contract version: `WORKER_PROTOCOL_VERSION`を`slice1-data-only-v2`へ、execution artifactをschema-v6へ更新。
-  ready manifestとv6 artifactへ、実際に合成した`subagents`（subagentName＋exact ref）を記録する。
-- 検証: focused test `tests/v0/increment_65_subagent_slot_binding_test.ts`（10件、`v0:test`へ追加。bindingの
-  load/validate、bound external plannerのdelegated turn合成とartifact readback、`agent:default` root bindingの
-  解決・明示selector上書き・invalid bindingのtyped failure・bound rootでの新規Session起動を確認）。artifact
+  （`worker_agent_api.ts`の`createDefaultAgentComposition`）がHost提供plannerを合成し、無ければbundled
+  plannerへ fallbackする。保証範囲はHenji helperを使うDefinitionに限る。
+- contract version: `WORKER_PROTOCOL_VERSION`を`slice1-data-only-v2`へ、execution
+  artifactをschema-v6へ更新。 ready manifestとv6
+  artifactへ、実際に合成した`subagents`（subagentName＋exact ref）を記録する。
+- 検証: focused test
+  `tests/v0/increment_65_subagent_slot_binding_test.ts`（10件、`v0:test`へ追加。bindingの
+  load/validate、bound external plannerのdelegated turn合成とartifact readback、`agent:default` root
+  bindingの 解決・明示selector上書き・invalid bindingのtyped failure・bound
+  rootでの新規Session起動を確認）。artifact
   schema版更新に伴い`increment_38`/`40`/`41`の版assertを更新。`v0:test`全体、`v0:check`、fmt、lint、
   `git diff --check` pass。
 
@@ -202,3 +208,11 @@ testで**4〜6開発日相当**。
 8. architecture（`henji-host-agent-worker.md`）へactivation-level slot authority、composition seam、保証範囲を追記し、
    roadmapのProvider外部化節（Increment 65〜68の内容・順序）を更新する（正本更新、別項目）。
 9. 実provider probeを実行直前に別途許可する検証水準。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+固定planner slotは106・127で無効。現行のroot
+bindingは115へ引き継ぎ、B06-Tでselector省略のrunがmanaged root exact refを使うことを確認した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

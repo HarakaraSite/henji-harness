@@ -1,6 +1,6 @@
 # Increment 105 — 置換済みv5/v6 history実装の除去
 
-ステータス: **実装済み（未commit）**
+ステータス: **完了（commit 6b3776e1・binary配置済み、現行実経路確認済み）。**
 
 計画日: 2026-09-22
 
@@ -117,10 +117,11 @@ coordinating ownerが一回。最後にbinary rebuild・`~/.local/bin/henji`配�
   SHA-256 `7a57be03…`）を`~/.local/bin/henji`へ原子的に配置済み。隔離XDG smokeで`henji sessions list`
   （`{"schemaVersion":2,"sessions":[]}`）と`henji history`（`# no history`）がexit 0。
 
-## 未確認事項
+## 当初の確認待ち項目と現在の結果
 
-- increment_43のhuman history（v7 `human_history.ts`）とlegacy `human_history_export.ts`の境界（削除済み）。
-- 隔離XDG smokeによるproduction TUI/CLI実経路の確認（未実施）。
+- legacy `human_history_export.ts`は削除済みで、v7 `human_history.ts`を使う現行経路へ切替済み。
+- 隔離XDGのCLI smokeは上記の配置時に実施済み。production
+  TUI・履歴readbackも今回のB07・B01等で確認済み。
 
 ## 対象外
 
@@ -128,3 +129,12 @@ coordinating ownerが一回。最後にbinary rebuild・`~/.local/bin/henji`配�
 - `history-v7.sqlite3`等の実データ削除（既にIncrement 94で旧DBは削除済み。追加のdata削除はしない）。
 - 履歴increment文書（過去の記録）の書き換え。
 - 過剰exportのde-export（Slice Cは本incrementではv6残骸の除去に限定し、一般的なde-exportは別途）。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+本文の検証結果に既に記録された配置・CLI smokeとB07-Rのproduction
+TUI、B01・B08・B09のhistory/diagnostics
+readbackに基づき、冒頭の未commit・smoke未実施表示を解消した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

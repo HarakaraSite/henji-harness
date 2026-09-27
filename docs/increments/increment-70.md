@@ -1,6 +1,6 @@
 # Increment 70 — tool宣言のDefinition統一とweb_fetch
 
-ステータス: **実装完了（宣言・解決の一般化＋web_fetch。実provider probe未実施）**
+ステータス: **完了（web_fetch実provider確認済み、後継tool統一・transportも実装済み）。**
 
 基準commit: `1ca21bcb`
 
@@ -143,17 +143,29 @@
 ## 結果（2026-09-18: web_fetchまで）
 
 - bundled tool Definition `worker_builtin_web_fetch_tool.ts`（identity `tool:web_fetch`、resourceId
-  `builtin/web-fetch`）を追加し、bundled default parentの宣言一覧へ`tool:web_fetch`を加えた。HostはIncrement 69の
-  一般化済み解決でbundled moduleを渡す。
-- 実装: `v0/agent/tools/web_fetch.ts`の`createWebFetchTool(fetcher?)`。素のHTTP GET（`redirect: follow`、
-  timeout 30s）、1 MiB上限で本文を読み切り詰めを表示、`text/*`・`application/json`・`application/xml`・
-  `+json`／`+xml`はUTF-8 decode、HTMLはscript/style/comment除去＋tag除去＋空白正規化の最小text抽出、非
+  `builtin/web-fetch`）を追加し、bundled default
+  parentの宣言一覧へ`tool:web_fetch`を加えた。HostはIncrement 69の 一般化済み解決でbundled
+  moduleを渡す。
+- 実装: `v0/agent/tools/web_fetch.ts`の`createWebFetchTool(fetcher?)`。素のHTTP
+  GET（`redirect: follow`、 timeout 30s）、1
+  MiB上限で本文を読み切り詰めを表示、`text/*`・`application/json`・`application/xml`・
+  `+json`／`+xml`はUTF-8
+  decode、HTMLはscript/style/comment除去＋tag除去＋空白正規化の最小text抽出、非
   textualはメタのみ。非2xx・network失敗・invalid URLはtool error。
-- net権限: compiled binaryと`agent:run`／`agent:tui`／`agent:sessions`の`--allow-net`を無制限へ変更。
+- net権限: compiled
+  binaryと`agent:run`／`agent:tui`／`agent:sessions`の`--allow-net`を無制限へ変更。
 - 検証: 新規`tests/v0/increment_70_web_fetch_test.ts`（4件）。default tool一覧・active guideline・
-  fresh-runtime comparison identity・compile権限の既存test期待を更新。authoritative `v0:gate` exit 0。
+  fresh-runtime comparison identity・compile権限の既存test期待を更新。authoritative `v0:gate` exit
+  0。
 - 実provider probe（利用者許可、2026-09-18): isolated XDGの`henji run`で、modelが`web_fetch`を呼び
-  `https://example.com/`を取得。status 200、`text/html`、本文「Example Domain …」抽出、`truncated:false`を返し、
-  `I70_PROBE_OK`を出力してexit 0。web_searchは不要のため未使用。
-- 未着手: 他work toolのDefinition化とtool Definition transport。
+  `https://example.com/`を取得。status 200、`text/html`、本文「Example Domain
+  …」抽出、`truncated:false`を返し、 `I70_PROBE_OK`を出力してexit 0。web_searchは不要のため未使用。
+- 2026-09-18時点では他work toolのDefinition化とtool Definition
+  transportは未着手だった。後継で実装済み。
 
+## 現行状態の完了整理（2026-09-27）
+
+B04-FでRFC8259取得・title回答、B06-Uでmanaged toolの実効果を確認した。 他work
+toolのDefinition化は71、transportは後継incrementへ引き継いだ。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者の完了整理指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

@@ -1,7 +1,6 @@
 # 通常利用 increment 8 — Web search grounding
 
-ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateとユーザー受入は未実施。
+ステータス: **完了（2026-09-27、現行仕様で受入確認）。**
 
 ## 利用者が必要とする動作
 
@@ -54,3 +53,11 @@ production retained TUI human gateとユーザー受入は未実施。
 - stable candidateのreview後、authoritative offline `v0:gate`をcoordinating ownerが一回実行する。
 - production human gateは別の明示承認後、新しいWorker generationで曖昧な調査taskを一回実行し、具体的query、
   source URL、不足と推論の区別、実測usage・costを確認する。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+9・69を反映したB04-Sで、具体的な調査質問、Sonar結果を使う親の回答と直接source
+linkを確認した。旧裸番号citationは9で置換済み。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

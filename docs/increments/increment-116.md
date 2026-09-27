@@ -4,6 +4,10 @@
 
 local実装と実provider検証を完了。2026-09-23の通常利用で観測した2件を対象とする。
 
+2026-09-27の配置binary基本確認も完了。Go／DeepSeek highのread一回は2 requestともHTTP 200、
+tool実行と正しいfinalまで成立。E2Eで観測した400は試験宣言のsession header欠落に由来し、
+製品不具合ではなかった。根拠は[Go原因調査結果](e2e-001-132-followup-2026-09-27.md)。
+
 ## 必要なproduct動作と根拠
 
 1. OpenCode Go Chatの`deepseek-v4.1-flash`が正常な回答を返したとき、そのturnを完了できる。保存済みの

@@ -1,6 +1,7 @@
 # Increment 126 — provider deadlineとmodel step既定値の拡張
 
-状態: 実装・focused検証・clean commitからのbuild・配置済み。roadmap・architectureの現行値は利用者の別承認を得て更新。実provider確認は未実施。
+状態:
+完了（2026-09-27、配置binaryの実provider確認済み）。実装・focused検証・build・配置と承認済み正本反映は完了。
 
 ## 必要なproduct動作と根拠
 
@@ -35,3 +36,12 @@
 - 実装・正本更新commit `5c684fe3`のclean treeからDeno 2.9.7で`dist/henji`をbuildした。build IDは`bfe16f9f3ff569c05f82cccc11cc311d5f548f074e7f6da712b6fd07ff1545fa`、file SHA-256は`040cb01ff4d3aaf4642dab130079a0b85cc44b77cea939b390ea88f9e84d8ce3`。
 - `dist/henji --version`がsource `5c684fe3`かつdirty markerなしと表示した。実provider callは行っていない。
 - 利用者の明示承認後、同じbinaryを`~/.local/bin/henji`へ原子的に配置した。配置先のfile SHA-256は`040cb01ff4d3aaf4642dab130079a0b85cc44b77cea939b390ea88f9e84d8ce3`でbuild元と一致し、`--version`も同じsource/buildを表示した。push・releaseは未実施。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B09でTUIとheadless両方のprovider-timeout-ms=500、maxSteps=1
+overrideと停止結果・実効manifestを確認した。既定300秒を使い切る長時間試験や128
+stepの消費は受入条件に追加しない。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

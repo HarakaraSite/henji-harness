@@ -1,8 +1,6 @@
 # Increment 128 — ターン実行中のPageUp／PageDown履歴参照
 
-状態:
-実装・focused検証・tmux実経路確認・commit済み（2026-09-25）。構想・architecture・roadmapは
-変更していない。`~/.local/bin/henji`への配置とpushは利用者の明示承認待ち。
+状態: 完了。実装・focused検証・tmux実経路確認・commit・配置・push済み。
 
 ## 必要なproduct動作と根拠
 
@@ -123,3 +121,10 @@
   ID・sourceを表示する。置き換えた旧binaryはIncrement 127のbuild （SHA-256
   `2bdf1063796fc238e7bb2177e8870c50a38a6292e67e8940f0efe6cd7eb29928`）。
 - `711794f5`（実装）・`141c49bf`（roadmap）・この記録commitを含む`main`をpushした。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+本文末尾の配置・push記録に合わせて冒頭の承認待ちを解消した。B07でbusy中のPageUp/PageDownとdraft、窓を越えた先頭参照・戻りを配置binaryで確認した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

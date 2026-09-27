@@ -2,6 +2,11 @@
 
 ## Status
 
+**調査完了（原因確定済み、2026-09-27の利用者による完了整理指示）。** 当時のv6 exact
+capture契約と根本修正候補は94・105のhistory置換・旧実装除去で現在無効。
+現行のweb_search補助requestはB04-Sで完了・fact保存まで確認済み。
+以下の原因判定と承認待ちの記載は2026-09-20時点の履歴であり、旧修正計画の実装待ちを現在の残作業にはしない。
+
 原因確定済み（2026-09-20）。production停止の直接原因は、v6 history
 pipelineがすべてのprovider request_startに先行exact byte
 captureを要求するのに対し、`web_search`のauxiliary request経路が exact

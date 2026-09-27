@@ -17,8 +17,8 @@ import {
 } from '../instructions/base_instruction.ts';
 import {
   CliRunEventProjector,
+  CliRunStreamRenderer,
   OrderedTextWriter,
-  renderStreamEvent,
   serializeCliRunRecord,
 } from './run_events.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
@@ -368,16 +368,15 @@ export const main = async (
     }
 
     const projector = new CliRunEventProjector();
-    let streamedText = false;
+    const streamRenderer = new CliRunStreamRenderer();
     const sink: AgentEventSink | undefined = mode === 'text' ? undefined : (event) => {
       for (const projected of projector.project(event)) {
         if (mode === 'json') {
           stdout.enqueue(serializeCliRunRecord(projected));
           continue;
         }
-        const rendered = renderStreamEvent(projected);
+        const rendered = streamRenderer.render(projected);
         if (rendered.stdout !== undefined) {
-          if (projected.kind === 'assistant_delta') streamedText = true;
           stdout.enqueue(rendered.stdout);
         }
         if (rendered.stderr !== undefined) stderr.enqueue(rendered.stderr);
@@ -405,9 +404,8 @@ export const main = async (
       if (mode === 'json') {
         stdout.enqueue(serializeCliRunRecord(resultRecord(run, projector.wasCommitted)));
       } else if (mode === 'stream') {
-        if (!streamedText) {
-          stdout.enqueue(finalText.endsWith('\n') ? finalText : `${finalText}\n`);
-        }
+        const rendered = streamRenderer.finish(finalText);
+        if (rendered.stdout !== undefined) stdout.enqueue(rendered.stdout);
       } else {
         stdout.enqueue(finalText.endsWith('\n') ? finalText : `${finalText}\n`);
       }

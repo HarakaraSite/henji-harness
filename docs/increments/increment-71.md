@@ -1,6 +1,6 @@
 # Increment 71 — 組み込みwork toolのtool Definition統一
 
-ステータス: **実装完了（offline gate pass。実provider probe未実施）**
+ステータス: **完了（2026-09-27、配置binaryの実provider基本確認済み）。**
 
 基準commit: `8db3e96c`
 
@@ -115,3 +115,11 @@ external tool Definitionの`tools.json` bindingが同一identityを差し替え�
 - 検証: `v0:check`／`fmt`／`lint`／`v0:gate` exit 0。work toolのguideline・bash/bash_output store共有・
   write/edit/read挙動・plannerへの同一identity適用を既存testで確認。
 - 未実施: 実provider probe、binary build・配置、architecture／roadmapの正本反映（別承認）。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B02でwrite・edit・read・bash・bash_outputの現行経路、B06-Uでmanaged readへの置換とexact
+ref・実効果を確認した。旧component置換経路は無効。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

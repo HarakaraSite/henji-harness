@@ -1,6 +1,6 @@
 # Increment 77 — builtin resource revisionをclosure内容で識別する
 
-ステータス: **実装完了（Human Gate承認済み。roadmap／architecture変更適用済み）**
+ステータス: **完了（既存Human Gate承認済み、現行exact refを確認済み）。**
 
 基準commit: `f8f458b7`
 
@@ -108,3 +108,11 @@ build scriptのclosure digest算出、manifest schema、ref算出、test更新�
   `tools/web_search.ts`）とそのruntime depsのみ。
 - 検証（closure境界）: TUI追記でdefault/tool digestは不変、tool実装（`tools/web_search.ts`）追記でtool digest
   のみ変化、contract境界（`worker_agent_api.ts`）追記ではどちらも不変であることを直接確認。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B01・B06・B08でresource revisionとbuild attributionをreadback・照合した。closure
+digestの異なる再build比較を今回追加したという結果ではない。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

@@ -1,6 +1,6 @@
 # Increment 72 — named subagentの一般化
 
-ステータス: **実装完了（offline gate pass。実provider probe未実施）**
+ステータス: **完了（旧named同期delegationは106で廃止、後継async経路を確認済み）。**
 
 基準commit: `4bd9bf2f`
 
@@ -111,3 +111,11 @@ slot/composition一般化、delegation tool一般化、per-subagent admission、
 - 未実施／follow-up: 実provider probe、binary配置、architecture／roadmap正本更新（別承認）。子laneの
   provider evidenceに記録するmodel selectionはplanner既定のままで、named subagent固有selectionのevidence
   属性は今後の候補（Definitionは`createModel('planner', selection)`で自モデルを選べる）。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+当初の同期・一turn一回contractは現在無効。109・110・127・131の後継をB08のnamed
+child・generic・model指定・collect・cancelで確認した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

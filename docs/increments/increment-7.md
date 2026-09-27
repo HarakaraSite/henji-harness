@@ -1,7 +1,6 @@
 # 通常利用 increment 7 — Henji-owned Web search
 
-ステータス: local実装、focused verification、コード／テストreview、authoritative offline gate完了。
-production retained TUI human gateとユーザー受入は未実施。
+ステータス: **完了（2026-09-27、現行仕様の配置binary・実provider E2Eと利用者の完了整理指示）。**
 
 ## この文書の位置付け
 
@@ -237,3 +236,10 @@ publish、releaseは別の明示指示を必要とする。
 - provider-free compositionと既存component replacement/plannerのtest seam、およびproduction retained TUI human
   gateによる実利用確認が計画されていることを確認した。
 - reviewではfile変更、test/full gate、credential参照、provider requestを行っていない。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+検索の現行実装は8・9・69を反映済み。B04-Sで親MiMo→Sonar一回→親MiMo、具体的な調査質問、公式ページへの直接link付き回答を確認した。旧raw常設記録は121で無効。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

@@ -1,6 +1,6 @@
 # Increment 59 — Provider宣言seam（data-only）とOpenRouter Responsesのexternal化
 
-ステータス: **部分実装（宣言coreとendpoint overrideまで。catalog overrideと新規provider選択はIncrement 60）**
+ステータス: **完了（宣言coreは59、分割したcatalog・新provider選択は60〜64で実装済み）。**
 
 基準commit: `d231addc`
 
@@ -125,10 +125,19 @@ testまで。**3〜5開発日相当**。
   11 testはpassed。`agent_worker_foundation`（26）、increment-51（8）、increment-32（7）もpassed。
 - 変更対象のtype check、format、lint、`git diff --check`は成功した。
 
-## 後続incrementへ送る範囲
+## 当初後続incrementへ送った範囲（60〜64で実装済み）
 
-- 宣言`modelCatalog`/`defaults`の選択surfaceへの反映はIncrement 60で実装した（`docs/increments/increment-60.md`）。
-- 宣言で**新しいprovider id**を追加し`PROVIDERS`・`/provider`・`--root-provider`・model pickerから選択可能に
-  する変更は、永続`ModelSelection` identityの一般化、Chat Completions adapterのprovider-agnostic化、
-  Session/evidence validationの一般化、およびarchitecture判断を伴うため、将来incrementへ送る。
+- 宣言`modelCatalog`/`defaults`の選択surfaceへの反映はIncrement
+  60で実装した（`docs/increments/increment-60.md`）。
+- 宣言で**新しいprovider id**を追加し`PROVIDERS`・`/provider`・`--root-provider`・model
+  pickerから選択可能に する変更は、永続`ModelSelection` identityの一般化、Chat Completions
+  adapterのprovider-agnostic化、 Session/evidence
+  validationの一般化、およびarchitecture判断を伴うため分割し、61〜64で実装した。
 - 実provider probe、authoritative `v0:gate`、commit、build、binary置換はIncrement 60の確定時に扱う。
+
+## 現行状態の完了整理（2026-09-27）
+
+B03-Dで新しい宣言Chat
+providerを選択し、MiMoによるreadとfinalまで成立。provider宣言の現在の基本経路を確認した。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

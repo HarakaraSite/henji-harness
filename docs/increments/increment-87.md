@@ -1,6 +1,6 @@
 # Increment 87 — journalingのper-insert走査除去（worker_sequence index）
 
-ステータス: **実装・offline検証完了（実provider stallは未解消、B6継続）**
+ステータス: **完了（index改善を実装済み、旧journal経路は後継で置換・除去済み）。**
 
 基準commit: `ce69ace3`
 
@@ -62,3 +62,11 @@
   `BEGIN IMMEDIATE`と`COMMIT`は0ms台と判明。**index（max(worker_sequence)走査）は残stallの主因ではない**。
 - したがって本incrementはindexによる改善（offline O(n)→flat、正しい・有益）を残すが、B6の実stall解消には
   至っていない。残因は`appendExecutionEventTx`のbody内の別処理（live特有のI/Oまたはper-event処理）。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+本文の当時のstall未解消は歴史記録。残因調査は88・89等へ引き継ぎ、旧history経路は94・105で置換・除去。B07-N等で現行の短い通常実行を確認した。旧規模性能や132
+Cを今回の基本確認で達成扱いにしない。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

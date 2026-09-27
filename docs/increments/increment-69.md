@@ -1,6 +1,6 @@
 # Increment 69 — tool Definition資源kindとweb_searchの外部化
 
-ステータス: **実装完了（offline gate pass、実provider probe・binary配置は未実施）**
+ステータス: **完了（2026-09-27、配置binaryの実provider基本確認済み）。**
 
 基準commit: `fe9fd82d`
 
@@ -135,11 +135,14 @@ roadmapの「Increment 69: `web_search`(Sonar)をsubagent化する」は本計�
 
 ## 規模見積り
 
-新managed kind（ref／manifest／store／CLI／binding）、Worker loadとcomposition、固定実装の削除とbundled tool
-Definitionへの移設、provider request seam、attribution／contract版更新、testで**10〜18開発日相当**。単一increment
+新managed kind（ref／manifest／store／CLI／binding）、Worker
+loadとcomposition、固定実装の削除とbundled tool Definitionへの移設、provider request
+seam、attribution／contract版更新、testで**10〜18開発日相当**。単一increment
 としては大きいため、実装は次を一区切りとする。
+
 1. kind基盤とbundled web_search tool Definition、固定実装削除、Host解決・Worker合成、attribution。
-2. 任意で分割する場合は、external install／activateとbindingを先行し、bundled移設を後続にする案も比較する。
+2. 任意で分割する場合は、external
+   install／activateとbindingを先行し、bundled移設を後続にする案も比較する。
 
 ## Human Gate
 
@@ -205,3 +208,11 @@ Definitionへの移設、provider request seam、attribution／contract版更新
   `v0:gate`（check/fmt/lint/test）exit 0。
 - 未実施: 実provider probe、`henji:compile`でのbinary build・配置。architecture／roadmap正本の更新は未反映
   （末尾の提案は別承認）。
+
+
+## 現行状態の完了整理（2026-09-27）
+
+B04-Sでbundled web_searchのSonar一回、B06-Uでmanaged toolのinstall・inspect・activate・実効果・exact
+refを確認した。旧raw常設記録は121で無効。
+根拠は[配置binary・実provider E2E](e2e-001-132-2026-09-27.md)と、利用者のincrement文書を完了へ整理する指示。
+当時の未実施・未確認の記録は履歴として保持し、現在の完了状態とは区別する。

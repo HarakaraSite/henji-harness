@@ -1,9 +1,12 @@
 # Increment 132 — 通常実行中の逐次表示（S16）と長時間利用時の入力応答
 
-状態: A・Bは実装・focused test・check／fmt／lint／`git diff --check`・M1／M2／M3-S確認済み（2026-09-26）。
-要件Cは**未再現・未完了**（同一プロセス約3時間26分の計測でも数秒遅延なし）。
-利用者指示で計測を終了した。A・Bの実装はIncrement 133の0.7.0公開に含まれ、binary配置・push済み。
-新binaryでの実provider確認は未実施。配置・公開結果は[Increment 133](increment-133.md#commitpush常用binary配置)を参照。
+状態: **完了（2026-09-27、利用者判断）。**
+利用者が「132は完了とする　再現を受けて133を対応した」と明示した。
+A・Bは実装・検証・配置済みで、配置binaryの実MiMo確認もB01・B07で完了。
+Cは利用者による再現を受けた[Increment 133](increment-133.md)の対応を根拠に完了とする。
+本書の2026-09-26時点の計測で未再現だった事実は保持するが、現在の未完了項目にはしない。
+配置・公開結果は[Increment 133](increment-133.md#commitpush常用binary配置)、
+実provider確認は[1〜132 E2E](e2e-001-132-2026-09-27.md)を参照。
 このincrementは新規セッションで最初から進めた（別セッションの6ステップで止まった作業の継続ではない）。
 
 ## 必要なproduct動作と根拠
@@ -194,6 +197,7 @@
   fine-grained delta streamで途中凍結を起こす。実providerでのdelta粒度と見え方はM3-Sと利用者計測。
 
 ### M1（2026-09-26、`scripts/benchmark_streaming_display.ts m1`、TuiRenderer＋markdown renderer、
+
 120×40、stub terminal write、per-op wall time平均）
 
 | 条件 | assistant_progress event | keystroke（setEditor+redraw） | scroll up+down 往復 |
@@ -213,6 +217,7 @@
   Cは未再現として扱い、原因はM3-Cと利用者計測で追う。
 
 ### M3-S（2026-09-26、隔離XDG `/tmp/henji-i132-tui`・tmux 94×48・source production TUI・mock SSE
+
 provider `127.0.0.1:8877`（thinking 8行＋answer 24行、各250 ms間隔。実provider不使用）
 
 - live追従（要件A・Bの実経路確認）: 0.5秒間隔captureで、`thinking~ thinking line 01`から
@@ -247,32 +252,45 @@ provider `127.0.0.1:8877`（thinking 8行＋answer 24行、各250 ms間隔。実
 
 ## 実装結果（2026-09-26）
 
-- `v0/agent/core/loop.ts`: progress reportの「256 acceptedで打ち切り」を廃止し、行完了＋最小間隔
-  100 ms（部分行は最大間隔500 ms）のcadence coalescingへ変更。`reportThinkingDelta`でthinking snapshot
-  （`complete:false`）を同cadenceでlive deliver。request終了の`emitThinking`は確定eventとして維持し、
-  末尾のlive snapshotと完全に同一のincomplete settleは重複deliverしない（fact追加なし）。
-  時刻は`AgentTurnOptions.now`で注入可能（test用seam、既定はwall clock）。
-  live snapshotの全文検証・thinking断片のjoinはcadenceでdeliverするときに限った。1 KiB×1,024個の
-  thinking deltaを流す局所測定では修正前約1,029 msから修正後34 msとなり、同一event loopの入力処理を
+- `v0/agent/core/loop.ts`: progress reportの「256 acceptedで打ち切り」を廃止し、行完了＋最小間隔 100
+  ms（部分行は最大間隔500 ms）のcadence coalescingへ変更。`reportThinkingDelta`でthinking snapshot
+  （`complete:false`）を同cadenceでlive
+  deliver。request終了の`emitThinking`は確定eventとして維持し、 末尾のlive
+  snapshotと完全に同一のincomplete settleは重複deliverしない（fact追加なし）。
+  時刻は`AgentTurnOptions.now`で注入可能（test用seam、既定はwall clock）。 live
+  snapshotの全文検証・thinking断片のjoinはcadenceでdeliverするときに限った。1 KiB×1,024個の thinking
+  deltaを流す局所測定では修正前約1,029 msから修正後34 msとなり、同一event loopの入力処理を
   妨げる新たなhotspotを避けた。修正後のcheck・focused test（Increment 132／120）・lint・
   `git diff --check`は通過した。
-- `v0/tui/state.ts`: `assistant_thinking`をentry id（turn／attempt／modelStep）で**置換更新**（1 step =
-  1 entry、途中は`thinking~`、確定で`thinking>`）。
-- `v0/agent/history/sqlite_history_v7_production_store.ts` `readSessionHistory`: thinkingは(step)ごとに
-  最終snapshotを採用（逐次再生なし。durable semantic履歴自体は全eventを保持）。
+- `v0/tui/state.ts`: `assistant_thinking`をentry id（turn／attempt／modelStep）で**置換更新**（1
+  step = 1 entry、途中は`thinking~`、確定で`thinking>`）。
+- `v0/agent/history/sqlite_history_v7_production_store.ts` `readSessionHistory`:
+  thinkingは(step)ごとに 最終snapshotを採用（逐次再生なし。durable
+  semantic履歴自体は全eventを保持）。
 - focused test `tests/v0/increment_132_streaming_display_test.ts` 5件（A: 行cadence全文追従・部分行
-  fallback、B: thinking live→確定、TUI 1 step=1 entry、human timeline 1 step=1 entry）。
-  task `agent:increment-132-streaming-display:test`を`deno.v0.json`へ追加（v0:test chainにも登録）。
+  fallback、B: thinking live→確定、TUI 1 step=1 entry、human timeline 1 step=1 entry）。 task
+  `agent:increment-132-streaming-display:test`を`deno.v0.json`へ追加（v0:test chainにも登録）。
   測定probe `scripts/benchmark_streaming_display.ts`（task `agent:increment-132-measure`）。
 - regression: increment-120（thinking履歴・restore、event stream契約の変更に合わせてassertion更新、
   5件通過）、provider_stream_compatibility（20件）、tui系＋increment-84（111件）、current_code＋
   tui_conversation（41件）、increment-39（4件）、increment-129（2件）、increment-13（5件）通過。
 - 品質確認: `v0:check`・`v0:fmt`・`v0:lint`・`git diff --check`すべて通過（2026-09-26）。
-- tmux実操作: M3-Sのとおり隔離XDG・mock SSE providerでlive追従・確定後の非重複・restore後の非重複を確認。
-- 通常利用メモ: S16はこのincrementへ採用済みのため、inboxの候補一覧・S16節を削除し、正本をこの文書へ移した
+- tmux実操作: M3-Sのとおり隔離XDG・mock SSE
+  providerでlive追従・確定後の非重複・restore後の非重複を確認。
+- 通常利用メモ:
+  S16はこのincrementへ採用済みのため、inboxの候補一覧・S16節を削除し、正本をこの文書へ移した
   （AGENTS.md「個別Incrementへ採用した項目はその正本へ移し、この一覧から除く」に従う）。
-- 未了: 要件Cの再現・原因特定、新binaryの実provider確認。
+- 2026-09-26時点の未了: 要件Cの再現・原因特定、新binaryの実provider確認。
+  2026-09-27に実provider確認を実施し、Cも後述の利用者判断で完了へ更新した。
 - 後続の配置・公開: 実装commit `2b162bff`はIncrement 133のrelease source `f10893ba`に含まれる。
   0.7.0として常用binaryへ配置し、push・JSR公開済み。詳細は
   [Increment 133の配置・公開結果](increment-133.md#commitpush常用binary配置)を参照。
   この配置・公開を要件Cの完了または実provider確認の代替とはしない。
+
+## 現行状態の完了判断（2026-09-27）
+
+利用者が「132は完了とする　再現を受けて133を対応した」と明示した。
+要件Cは利用者の再現と後継133での対応を根拠に受け入れ、132全体を完了とする。
+当時のM3-Cの約3時間26分計測で再現しなかった事実を、再現したという測定結果へ書き換えない。
+今回のE2Eで長時間計測を新たに行ったわけでもない。
+A・Bの実provider基本確認はB01・B07で成立し、実行証拠は[合同E2E記録](e2e-001-132-2026-09-27.md)。

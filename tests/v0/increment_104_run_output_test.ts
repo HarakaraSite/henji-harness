@@ -150,13 +150,26 @@ Deno.test('Increment 104 --stream writes assistant text to stdout and tool activ
   const { state, deps } = recorder();
   const events: AgentEvent[] = [
     { kind: 'turn_start', turn: 1 },
-    { kind: 'assistant_progress', turn: 1, text: 'hel' },
-    { kind: 'assistant_progress', turn: 1, text: 'hello' },
+    { kind: 'assistant_progress', turn: 1, text: 'reading' },
+    {
+      kind: 'assistant_message',
+      turn: 1,
+      message: {
+        role: 'assistant',
+        content: [{ kind: 'tool_call', callId: 'c1', name: 'read', arguments: { path: 'x' } }],
+        text: 'reading x',
+      },
+    },
     { kind: 'tool_call', turn: 1, call: { callId: 'c1', name: 'read', arguments: { path: 'x' } } },
     {
       kind: 'tool_result',
       turn: 1,
       result: { kind: 'tool_result', callId: 'c1', name: 'read', text: 'body', outcome: 'success' },
+    },
+    {
+      kind: 'assistant_message',
+      turn: 1,
+      message: { role: 'assistant', content: { kind: 'text', text: 'hello' } },
     },
     { kind: 'turn_end', turn: 1, outcome: 'final', committed: false },
   ];
@@ -165,9 +178,79 @@ Deno.test('Increment 104 --stream writes assistant text to stdout and tool activ
     run: emitRun(events, successOutcome('hi', 'hello')),
   });
   assertEquals(exit, 0);
-  assertEquals(state.stdout, 'hello');
+  assertEquals(state.stdout, 'reading x\nhello');
   assert(state.stderr.includes('tool> read'));
   assert(state.stderr.includes('tool< read success'));
+});
+
+Deno.test('Increment 104 --stream completes a coalesced prefix without repeating the final answer', async () => {
+  for (const prefix of ['HENJI_B01', 'HENJI_B01_S_cd49291b8f88']) {
+    const finalText = 'HENJI_B01_S_cd49291b8f88';
+    const { state, deps } = recorder();
+    const exit = await runtimeMain(['--task', 'hi', '--stream'], {
+      ...deps,
+      run: emitRun([
+        { kind: 'turn_start', turn: 1 },
+        { kind: 'assistant_progress', turn: 1, text: prefix },
+        {
+          kind: 'assistant_message',
+          turn: 1,
+          message: { role: 'assistant', content: { kind: 'text', text: finalText } },
+        },
+      ], successOutcome('hi', finalText)),
+    });
+    assertEquals(exit, 0);
+    assertEquals(state.stdout, finalText);
+    assertEquals(state.stderr, '');
+  }
+});
+
+Deno.test('Increment 104 --stream emits tool terminal text after a streamed tool note', async () => {
+  const { state, deps } = recorder();
+  const outcome: LoopOutcome = {
+    ...successOutcome('hi', '{"ok":true}'),
+    outcome: 'final',
+    stopReason: 'tool_terminal',
+    terminalKind: 'json_result',
+  };
+  const exit = await runtimeMain(['--task', 'hi', '--stream'], {
+    ...deps,
+    run: emitRun([
+      { kind: 'assistant_progress', turn: 1, text: 'submitting' },
+      {
+        kind: 'assistant_message',
+        turn: 1,
+        message: {
+          role: 'assistant',
+          content: [{
+            kind: 'tool_call',
+            callId: 'c1',
+            name: 'submit_json_result',
+            arguments: { ok: true },
+          }],
+          text: 'submitting',
+        },
+      },
+      {
+        kind: 'tool_call',
+        turn: 1,
+        call: { callId: 'c1', name: 'submit_json_result', arguments: { ok: true } },
+      },
+      {
+        kind: 'tool_result',
+        turn: 1,
+        result: {
+          kind: 'tool_result',
+          callId: 'c1',
+          name: 'submit_json_result',
+          text: '{"ok":true}',
+          outcome: 'success',
+        },
+      },
+    ], outcome),
+  });
+  assertEquals(exit, 0);
+  assertEquals(state.stdout, 'submitting\n{"ok":true}\n');
 });
 
 Deno.test('Increment 104 --stream falls back to final text without progress', async () => {
