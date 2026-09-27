@@ -1,6 +1,7 @@
 # Increment 136 — subagent起動時のagent名表示（S21）
 
 状態: local実装・focused確認・実providerを使うproduction TUI受入確認済み（2026-09-27）。
+同日、利用者指示のcommit／push・常用binary配置も完了した。
 経緯: 2026-09-27、利用者が通常利用メモのS21を次のincrementとすることを指示し、計画の作成を依頼した。
 同日、defaultの計画レビューを経て、利用者指示で検証手順と復元test参照先を補足し、実装指示を受けた。
 本文書が要件・対象範囲・計画・結果の正本であり、実装・確認結果は末尾に記録する。
@@ -132,7 +133,7 @@ runId・task断片表示とstatus／collect／cancel行のagent名対応は、�
 - 2026-09-27の利用者指示でlocal実装・test追加・focused確認を実施した。
   非対象判断（runId・task断片・collect対応の見送り）は実装指示により確定した。
 - tmuxでの実provider確認は対象・回数・保存先を提示し、利用者の明示承認を得て実施済み。
-  commit／push・常用binary配置は2026-09-27に利用者が指示し、実施中。JSR公開は未指示。
+  commit／push・常用binary配置は2026-09-27に利用者が指示し、実施済み。JSR公開は未指示。
 - 新たな実provider確認は、対象・回数・保存先を提示して別途明示承認を得る。
 
 ## 実装・確認結果
@@ -177,3 +178,22 @@ runId・task断片表示とstatus／collect／cancel行のagent名対応は、�
 - 画面とreadbackの記録は`evidence/pending.txt`、`spawn-completed.txt`、`completed.txt`、`history.txt`、
   `restored.txt`、`request-facts.json`、`result.json`。raw request／response・SSE・Authorizationのログは
   収集していない。確認ログにcredential値が含まれないことも照合した。確認用TUIは終了済み。
+
+### Commit・push・常用binary配置（2026-09-27）
+
+- 利用者のcommit／push・配置指示に従い、実装・追加test・本文書・関連する通常利用メモとhandoffを
+  commit `c7d9c73753874b5a80e29d3f7c4c5708d3a6471f`へまとめ、`origin/main`へpushした。
+  fetch後のlocal／remote一致を確認した。別件A21の未commitメモ差分は含めていない。
+- push済みcommitのcleanなdetached worktreeからDeno 2.9.7でbuildした。product versionは0.7.0、
+  sourceは`c7d9c737…`（dirtyなし）、buildは
+  `62605210bb0378cd4b0b1dcf1305e84b3f6f27eeebf165b938cc42e5a44ffd69`。
+  保存先は`/tmp/henji-i136-deploy-a38mstkc`。
+- compiled候補で実provider確認済みの隔離Sessionを読み、production `history --session`と
+  tmux上のproduction TUIの復元で`tool> spawn_subagent generic ✓`を確認した。
+  確認用TUIは終了済み。新しい依頼・実provider callは発生していない。
+- 常用先`/home/agent/.local/bin/henji`へ原子的に配置した。候補と配置先のSHA-256はともに
+  `d00dce968f64a3af6bc099a86a944a63ba7a8b98509ceeb85220a6482c5d29aa`で一致。
+  配置後のversion／source／buildも一致し、配置binaryの履歴CLIでもagent名表示を確認した。
+- 画面・version・照合結果は上記保存先の`evidence/`配下、旧binaryは`henji.previous`へ保持した。
+  稼働中のHenjiは切り替えず、新しいプロセスからこのbinaryを使う。実config・実DB・旧Sessionと
+  JSR公開内容は変更していない。構想・architecture・roadmapは今回変更していない。

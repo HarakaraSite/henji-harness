@@ -8,14 +8,16 @@
 維持した登録入口を実装し、focused test・review・production tmux確認・`v0:gate`・commit／push・
 常用binary配置・roadmap反映まで完了。その時点のbinaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
 正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。
-次は[Increment 136](../docs/increments/increment-136.md)（S21: subagentのagent名表示）、
+[Increment 136](../docs/increments/increment-136.md)（S21: subagentのagent名表示）は利用者指示で
+実装・focused確認・実provider確認・commit／push・常用binary配置まで実施済み。
 当初その後に予定していた[Increment 137](../docs/increments/increment-137.md)
 （S23: Responsesの本文併存時の表示順・履歴本文欠落）は、利用者の実装指示でlocal実装・隔離production
-TUI確認・commit／push・常用binary配置まで実施済み。136はlocal実装・focused確認・実providerでのproduction確認済み。
+TUI確認・commit／push・常用binary配置まで実施済み。
 137の実provider確認・完了承認は未実施。配置結果は137文書を参照する。
 Increment 133の入力欠落解消は常用利用で継続観測中。**
 
-- 常用binaryは`henji 0.7.0`、source `3926cfff…`、build `531c5cf1…`（Increment 137で配置）。
+- 常用binaryは`henji 0.7.0`、source `c7d9c737…`、build `62605210…`（Increment 136で配置）。
+  配置結果は[Increment 136](../docs/increments/increment-136.md#commitpush常用binary配置)を参照する。
   Increment 134で配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。
   結果は[Increment 134の配置結果](../docs/increments/increment-134.md#commitpush常用binary配置)を参照する。
   JSRは今回更新しておらず、0.7.0の公開内容は
@@ -25,9 +27,9 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 
 ## 次の一手
 
-1. Increment 136のlocal実装・production受入確認は済んでいる。結果は
+1. Increment 136の実装・production受入確認・commit／push・常用binary配置は済んでいる。結果は
    [Increment 136](../docs/increments/increment-136.md#実装確認結果)を参照し、次の指示を受ける。
-   commit／push・常用binary配置は利用者指示を受けて進行中。公開は未指示。
+   公開は未指示。
    Increment 137の実装・確認結果と残る確認はその正本文書を参照し、次の指示を受ける。
 2. 利用者が実provider requestでの保存credential受理確認と、実運用credentialの`/login`登録を実施する。
    観測を得たら[Increment 135](../docs/increments/increment-135.md#未確認事項)へ記録する。
@@ -49,7 +51,7 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 ## 承認境界
 
 - Increment 136は利用者指示のlocal実装・focused確認と、別途承認された実providerでのproduction確認済み。
-  commit／push・配置は利用者指示を受けて進行中。公開は未承認。
+  commit／push・配置も利用者指示で実施済み。公開は未承認。
   新たな実provider確認は対象・回数・保存先を提示して別途明示承認を得る。
   Increment 137は利用者指示のlocal実装・focused確認・隔離production TUI確認・
   commit／push・配置を実施済み。公開と完了承認は未取得。新しい実provider確認は対象・回数・保存先を
