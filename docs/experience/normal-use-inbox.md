@@ -35,6 +35,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A17 | Agent実行 | `WebSearchBackend`のExa APIへの置き換え | 利用者指示（2026-09-27、形態確認済み）。採用時に置き換え範囲を決める |
 | A18 | Agent実行 | bash toolのtimeout説明と引数エラーの具体化 | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測 |
 | A19 | Agent実行 | requestごとの実行状況・日時・地域context | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき |
+| A21 | Agent実行 | 1ターン内でsteeringを複数回受け付ける | 実行中に追加の指示を続けて送りたいとき |
+| A23 | Agent実行 | `run_typescript`で小さな計算・変換・検査をHenji内で実行 | 現行構成が安定し、利用者が利用価値検証の再開を明示したとき |
 | R1 | F24 | 自己改訂対象の重心とagent loop境界 | Self-revision Cycleの最初の実証対象を選ぶ |
 | R2 | F24 | revision付きtool componentとMCP | tool candidateを生成・保存・採用するflowを設計する |
 | R3 | F24 | tool実行profileとsandboxed Deno program | trusted-local以外の実行環境をproduct要件にする |
@@ -451,6 +453,48 @@ Pi／OpenCode／Henjiの画面表示比較
 - 関連: A18、A10、A11、S4、E3、`v0/agent/core/loop.ts`、
   `v0/agent/worker/worker_runtime.ts`のrequest projection・context attribution。
 
+### A21 — 1ターン内でsteeringを複数回受け付ける
+
+- 利用者希望（2026-09-27）: 実行中の同じturnへsteeringを複数回送れるようにしたい。
+  今回は未採用候補としてメモし、実装は行わない。
+- 現行境界: busy中に入力してEnterを押すとsteeringを送れるが、受付は1turnにつき1回。
+  `SteeringOwner.admit()`の受付済み状態は指示を消費した後も解除されず、TUI側もturn終了まで
+  `steeringAccepted`を保持する。これはHenjiの実装上の制約であり、provider APIの制約ではない。
+- 候補: 同じturnの実行中に追加のsteeringを受け付け、既存のtool実行後・次のmodel request前の
+  経路でモデルへ渡す。未消費の指示がある間に届いた追加分の保持方法と適用順序は、個別Incrementへ
+  採用するときに定める。
+- 対象範囲: 実行中turnへの追加指示。別枠のchatや子Agentへの直接steeringは、この候補には含めない。
+- 関連: `v0/agent/core/steering.ts`、`v0/agent/core/loop.ts`、`v0/tui/controller.ts`。
+
+### A23 — `run_typescript`で小さな計算・変換・検査をHenji内で実行（F06、未採用）
+
+- 利用者指示（2026-09-27）: 統合評価のコンセプトを通常利用メモへ追加する。今回の記載は採用・実装認可を
+  意味しない。技術経路は支持されているが、標準Toolとしての製品価値は未検証である。
+- 目的・対象: Agentが一時的に行うJSON/JSON Lines/CSVの集計・変換、文字列処理、小さな計算・検証、
+  複数Tool Resultの突き合わせをHenji自身のcode execution Toolで扱い、外部runtimeの有無、shell quoting、
+  一時file、stdout/stderr解釈のばらつきを減らす。目的に合う専用Toolを優先し、Python固有library・既存資産や
+  OS操作・CLIには引き続きPython／shellを使う。
+- 候補経路: AgentがTypeScript code＋JSON input＋profile要求を渡し、Henji側が実行条件を決め、
+  wrapper／executorからstructured Tool Resultを返す。最初は`pure`のみを検討し、default-exportした
+  sync/async function、JSON入出力、無権限Worker、wall timeout、structured errorを候補とする。
+  入出力各64 KiB等は実験用contractであり、製品の確定仕様ではない。型構文の除去はtype checkとは区別する。
+- 技術観測（原資料の報告）: Deno 2.9.7／macOS arm64で、compile済み単一実行ファイル内の動的TypeScript
+  Workerが外部Deno CLI・一時`.ts` fileなしで動作し、permission縮小・JSON入出力・timeout・error分類を
+  確認した。macOS x86_64はRosetta実行を確認し、Linux／Windowsはartifact生成のみで実機動作は未確認。
+- 確認された限界: Worker内OOMはHenji本体を含むprocess全体を終了させた。workspace permissionは既存symlink
+  経由のroot外readを防げず、hostname permissionはDNS解決後IPを固定しない。同一process Workerを強いsandbox
+  と扱わず、本体の生存が必要なら別process、より強い境界が必要ならbroker／OS・container・VM backendを
+  別途検討する。これらの強化を最初の`pure`利用価値検証の前提にはしない。
+- 未確認・採用判断: Agentが自然に選ぶか、shell/Python比でcorrectness・tool call数・修正回数が悪化しないか、
+  quoting・一時fileが減るか、structured resultが後続推論に役立つか、保守負担に見合うかを比較する。
+  current architecture・Tool registry・compile/runtime・instructionへの統合も未確認である。
+- 再検討条件: 原資料ではai-devの大規模変更中につきplanning・実装・provider A/Bを保留している。
+  現行構成が安定し、利用者が再開を明示した時点でsourceと検証案を読み直す。計画・実装・provider A/Bは
+  それぞれ承認対象とし、利用価値が小さければ標準Toolへ採用しない。
+- 関連: R3（tool実行profile・isolation）。本候補は小処理の利用価値、R3は実行境界を扱う。
+- 原資料: [`2026-09-27-run-typescript-assessment.md`](../research/2026-09-27-run-typescript-assessment.md)。
+  同資料のspike・planner input参照先はこのrepositoryにはなく、詳細証拠・保留中の検証案は未照合である。
+
 ## F24・自己改訂
 
 ### R1 — 自己改訂対象の重心とagent loop境界
@@ -503,6 +547,8 @@ Pi／OpenCode／Henjiの画面表示比較
   Deno CLI option、permission flag、executor、任意の`deno run`や`--allow-all`、shell起動を制御させない。
 - 分類: sandboxed program toolの通常導入はF06の改善として先行できる。経験からexecutor/contractの
   revision candidateを生成・採用するflowまで成立した段階をF24とする。
+- 関連: A23は`run_typescript`の小処理Toolとしての利用価値検証候補であり、同一process Workerの限界を
+  区別して記録している。強いsandboxの採用と同一の判断にはしない。
 - 再検討条件: trusted-local以外の実行環境、またはmodel-generated programの制限実行がproduct要件になること。
 - 参照: [Deno permissions](https://docs.deno.com/runtime/reference/permissions/#subprocesses)。
 
