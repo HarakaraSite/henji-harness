@@ -1,7 +1,7 @@
 # Increment 137 — Responsesの本文・tool call併存時の表示順と履歴本文欠落の修正（S23）
 
-状態: 実装・local検証済（2026-09-27）。隔離production TUIの表示・保存・再表示を確認済み。
-実OpenRouterでの確認、commit／push、常用binary配置、公開は未実施。
+状態: 実装・local検証・commit／push・常用binary配置済（2026-09-27）。
+隔離production TUIの表示・保存・再表示を確認済み。実OpenRouterでの確認、公開、完了承認は未実施。
 経緯: 利用者がsession `4ba6f18d`で観測した不具合を調査し、通常利用メモS23へ記録した。
 2026-09-27、利用者はS21をIncrement 136として計画済みと伝え、本不具合をIncrement 137として
 計画するよう指示した。当初の対応予定は136の後。通常レビュー・批判的レビューを経て、同日、
@@ -164,7 +164,7 @@ test件数を目標・完了条件にはしない。
   保存された本文併存output・current source・補ったprogressでの再現と利用者の表示観測は一致する。
 - 計画作成依頼の時点では計画のみとし、実装しなかった。通常レビュー・批判的レビューの後、
   2026-09-27に利用者の実装指示を受け、local実装・test追加・隔離production TUI確認を実施した。
-  commit／push・常用binary配置・公開は未指示・未実施。
+  その後、同日利用者指示によりcommit／push・常用binary配置を実施した。公開は未指示・未実施。
 - 新しい実provider callは対象・回数・保存先を提示して別途承認を得る。
 - 計画外のproduct変更が必要になった場合は原因・根拠・利用者影響・案を報告する。
   古いSessionの変更や、構想・architecture・roadmapの修正を推測で追加しない。
@@ -235,3 +235,25 @@ test件数を目標・完了条件にはしない。
 - 旧session `4ba6f18d`の通常本文は補完していない。修正は新しいexecutionに適用される。
 - 2026-09-27、利用者からcommit・push・常用binary配置の指示を受けた。以下に結果を記録する。
   公開と利用者によるIncrement完了承認は未取得。
+
+### Commit・push・常用binary配置（2026-09-27）
+
+- 実装・追加test・test task・本文書をcommit `3926cfff9ecc7ac61d4fe0105a1833fb8085deca`へまとめ、
+  `origin/main`へpushした。fetch後のlocal／remote一致を確認した。
+  別作業のIncrement 136計画と通常利用メモの未commit差分は本commitへ含めていない。
+- push済みcommitのcleanなdetached worktreeからDeno 2.9.7でbuildした。product versionは0.7.0、
+  source `3926cfff…`（dirtyなし）、buildは
+  `531c5cf1b230332f2d15d695551a7d3a75f9b2b0e14d0df842b1d8abf5d0b330`。
+  build・候補binaryの保存先は`/tmp/henji-i137-deploy-Jn0JeJfr`。
+- compiled候補をtmux上のproduction TUIで起動し、隔離XDGとlocalhost Responsesサーバーで
+  1turn・3 model requestを実行した。実read tool、途中本文の確定、後続thinkingの位置、finalの位置、
+  canonical本文、通常履歴、Session再起動後の表示、次requestへの本文replay一回を確認した。
+  Sessionは`fd1599cb-1687-458d-888e-6cbaa4c59c09`、画面・短い結果の保存先は
+  `/tmp/henji-i137-compiled-tui-iliua5q7/evidence/`。
+- 常用先`/home/agent/.local/bin/henji`へ原子的に配置した。候補と配置先のSHA-256はともに
+  `998e2ecf55c1fcd6aebce4c6586490322fdd77430657a681b686ec66dc302119`で一致。
+  配置binaryのversion／source／buildも一致し、配置binaryで隔離Sessionのread-only
+  `history --session`を実行して本文と履歴を読めることを確認した。
+- compiled確認用TUI・サーバーは終了済み。稼働中のHenjiは切り替えていないため、修正は新しい
+  Henjiプロセスから適用される。実config・実DB・旧Sessionは変更していない。実provider callとJSR公開は
+  行っていない。build用worktreeは確認後に除去し、binaryと結果ログは上記保存先に残す。

@@ -6,11 +6,13 @@
 
 **Increment 135（S2: Henji内credential登録）は2026-09-27に利用者承認で完了した。キーの保管場所を
 維持した登録入口を実装し、focused test・review・production tmux確認・`v0:gate`・commit／push・
-常用binary配置・roadmap反映まで完了。常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
-正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。次のincrementは未定。
+常用binary配置・roadmap反映まで完了。その時点のbinaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`。
+正本は[Increment 135](../docs/increments/increment-135.md#実装確認結果)。
+[Increment 137](../docs/increments/increment-137.md)は利用者指示で実装・local検証・commit／push・
+常用binary配置まで実施済み。実provider確認・公開・完了承認は未実施。結果と承認境界は137文書を参照する。
 Increment 133の入力欠落解消は常用利用で継続観測中。**
 
-- 常用binaryは`henji 0.7.0`、source `52e84069…`、build `426d8917…`（Increment 135で配置）。
+- 常用binaryは`henji 0.7.0`、source `3926cfff…`、build `531c5cf1…`（Increment 137で配置）。
   Increment 134で配置後のversion・binary一致と隔離v11 DBのproduction経路を確認済み。
   結果は[Increment 134の配置結果](../docs/increments/increment-134.md#commitpush常用binary配置)を参照する。
   JSRは今回更新しておらず、0.7.0の公開内容は
@@ -20,9 +22,10 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 
 ## 次の一手
 
-1. 利用者が実provider requestでの保存credential受理確認と、実運用credentialの`/login`登録を実施する。
+1. Increment 137の実装・配置結果と残る確認は、その正本文書を参照して次の指示を受ける。
+2. 利用者が実provider requestでの保存credential受理確認と、実運用credentialの`/login`登録を実施する。
    観測を得たら[Increment 135](../docs/increments/increment-135.md#未確認事項)へ記録する。
-2. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
+3. 利用者の指定どおり、常用利用で同一プロセスの入力・貼り付けの欠落解消を観測する。
    簡単には再現できないため、直接操作の再現試験を先行必須条件にはしない。
    観測を得たら[Increment 133](../docs/increments/increment-133.md#残る受入と承認境界)へ記録する。
    次の通常利用は新規v11 DBで行う。
@@ -39,6 +42,8 @@ Increment 133の入力欠落解消は常用利用で継続観測中。**
 
 ## 承認境界
 
+- Increment 137の実装・local検証・commit／push・配置は利用者指示で実施済み。
+  実provider確認は対象・回数・保存先を提示して別途明示承認を得る。公開・完了承認は未取得。
 - Increment 135は実装・focused検証・隔離XDGでのproduction tmux確認・`v0:gate`・commit／push・
   常用binary配置・roadmap反映まで実施済み。JSR公開は利用者判断で今回対象外。
   実provider受理確認と実運用credentialの登録は利用者が実施する。
