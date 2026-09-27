@@ -1,9 +1,9 @@
 # Increment 138 — 子Agentの作業状況取得とrequest factの保存・readback（A20・A22）
 
-状態: local実装・focused確認・隔離production
-TUIでのlocalhost確認済（2026-09-27）。
+状態: local実装・focused確認・第三者レビュー・隔離production
+TUIのlocalhost確認・ commit／push・常用binary配置済（2026-09-27）。
 利用者がA20・A22をまとめて次のincrementへ採用し、計画レビュー後に実装を指示した。
-実provider受入、公開、完了承認は未実施。commit／push・常用binary配置は同日利用者が指示し、実施中。
+実provider受入、公開、完了承認は未実施。commit／push・常用binary配置は同日利用者指示で実施した。
 本書が要件・観測・対象範囲・計画・結果の正本であり、A20・A22の記録を通常利用メモから移した。
 
 ## 必要なproduct動作と根拠
@@ -349,5 +349,29 @@ gateは行っていない。
 - local実装と上記の確認は済んでいる。localhost確認を実provider受入済みとは扱わない。
   実providerでの実行中status取得・中間報告・子request fact
   readbackは、対象・回数・保存先を具体化して 別途承認を得てから実施する。
-- commit／push・常用binary配置は同日利用者が指示し、実施中。公開、完了承認は未指示・未実施。
+- commit／push・常用binary配置は同日利用者指示で実施済み。公開、完了承認は未指示・未実施。
   構想・architecture・roadmapは今回変更していない。
+
+### Commit・push・常用binary配置（2026-09-27）
+
+- 利用者のcommit／push・配置指示に従い、実装・test・task・本書・A20/A22の採用移動とhandoffを
+  commit
+  `560c4f6f02a0e68e8d549e635200b97b70fbfc58`へまとめ、`origin/main`へpushした。fetch後のlocal／remote一致を確認した。
+  別件A21/A23の通常利用メモ差分とTypeScript調査文書は含めていない。
+- push済みcommitのcleanなdetached worktreeからDeno 2.9.7でbuildした。product
+  versionは0.7.0、 sourceは`560c4f6f…`（dirtyなし）、buildは
+  `1a50c6c9a509019dabe6b8dc3a7cc99bb158c3ad97e30e88f2d57bdd16334232`。保存先は`/tmp/henji-i138-deploy-e_n8_rwx`。
+- compiled候補で、localhost production確認済みの隔離Session
+  `1357a06c-89c2-494a-b67b-2d11bfd61062`を別の隔離XDGへ複製し、production履歴CLIとtmux上のTUI復元を確認した。
+  status・中間報告・collect・最終回答が復元され、detailから親子execution対応と子のstep1/2・
+  physical request1/2・HTTP 200・tool結果をreadbackできた。追加provider
+  requestは0回。
+- 常用先`/home/agent/.local/bin/henji`へ原子的に配置した。候補と配置先のSHA-256はともに
+  `f6f499aa86a6abe93c52db541c599ab71a2573d6d0d0df220f105e6b3371ed2e`で一致。version／source／buildも一致し、配置binaryのdetail
+  readbackが候補と一致した。
+- version・復元画面・semantic
+  detail・照合結果は上記保存先の`evidence/`配下へ保存した。
+  旧binaryは`henji.previous`へ保持。確認用TUIは終了し、build用worktreeは除去した。
+- 稼働中のHenjiは切り替えておらず、新しいプロセスからこのbinaryを使う。実config・実DB・
+  旧Sessionは変更していない。実provider
+  call・JSR公開・構想/architecture/roadmap変更は行っていない。
