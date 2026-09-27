@@ -12,12 +12,12 @@
 
 ## 配置後に観測したstream欠落の追加修正（2026-09-27）
 
-追加修正の状態: **実装・検証完了。常用binary配置は未実施。**
+追加修正の状態: **実装・検証・commit・push・常用binary配置完了。**
 
 1〜132の配置binary E2Eで、短いprogress prefixだけがstdoutに出てfinalの末尾が欠けることを観測。
 利用者が修正を指示し、completed messageとの差分補完とmessage単位の重複防止をlocal実装した。 focused
 test 9件と候補binaryの実MiMo Responses / DeepSeek Chat確認が成功。
-常用配置は未実施。原因、変更、実行証拠、build IDは
+利用者の追加指示でclean commitからbuildし、常用配置を完了した。原因、変更、実行証拠、build IDは
 [追加確認結果](e2e-001-132-followup-2026-09-27.md)を参照する。
 
 ## 利用者が必要とする動作

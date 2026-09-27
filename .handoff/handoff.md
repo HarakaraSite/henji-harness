@@ -13,13 +13,13 @@
 基本E2Eを機能ブロック別に行うよう依頼した。
 [1〜132 E2E](../docs/increments/e2e-001-132-2026-09-27.md)は全9ブロック実施済み。
 [追加確認結果](../docs/increments/e2e-001-132-followup-2026-09-27.md)でGoの試験宣言不備を特定し、通常宣言の直接経路は成立。
-streamはlocal修正・候補binary確認済み、常用配置は未実施。
+streamは修正・候補binary確認・commit・push・常用配置完了。
 利用者の指示に基づき、increment文書の古い未完了表示を現行証拠へ合わせて更新した。
 132も「再現を受けて133を対応した」という利用者判断で完了。
 
-- 常用binaryは`henji 0.7.0`、source `3878ffcd…`、build `cfbfd683…`（138の起動失敗修正）。
+- 常用binaryは`henji 0.7.0`、source `1d7e0bb6…`、build `41d37741…`（stream末尾欠落修正）。
   配置結果と実provider確認は
-  [Increment 138](../docs/increments/increment-138.md#追加対応のcommitpush常用配置と実provider確認2026-09-27)を参照する。
+  [stream配置結果](../docs/increments/e2e-001-132-followup-2026-09-27.md#stream修正のcommitpush常用配置2026-09-27)を参照する。
   JSRは今回更新しておらず、0.7.0の公開内容は
   [Increment 133](../docs/increments/increment-133.md#commitpush常用binary配置)時点のままである。
 - 通常利用メモとproduct正本文書の見直しは完了。承認された自己改訂構想の変更と Increment
@@ -27,19 +27,13 @@ streamはlocal修正・候補binary確認済み、常用配置は未実施。
 
 ## 次の一手
 
-1. stream追加修正はlocal実装・検証完了。利用者がcommit・push・常用配置を追加指示し、実施中。
+1. stream追加修正と文書更新はcommit・push・常用配置まで完了。
    [追加確認結果](../docs/increments/e2e-001-132-followup-2026-09-27.md)を参照する。
    次のincrementは利用者の指定待ち。
 
 2. 通常利用で新しい観測や改善候補が得られた場合は、
    [通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    133の常用入力観測は133の完了待ち項目にはしない。
-
-## 配置待ち
-
-- [Increment 104のstream追加修正](../docs/increments/increment-104.md):
-  local実装・検証完了、常用binaryは未配置。
-- 132は利用者の明示判断で完了。経緯は[132の完了判断](../docs/increments/increment-132.md#現行状態の完了判断2026-09-27)を参照する。
 
 ## 承認境界
 
@@ -51,7 +45,7 @@ streamはlocal修正・候補binary確認済み、常用配置は未実施。
   各ブロックの対象・予定量・保存先と実行結果は計画参照。実行は2026-09-27に明示承認済み・実施済み。
   Agent自身の参照再実行とstream local修正・確認は追加指示済み・実施済み。 Go HTTP
   400再現性確認と原因調査probeは利用者指示済み・実施済み。Goのproduction修正は不要。 reasoning
-  wire追加probe・公開は未指示。stream修正と文書更新のcommit・push・常用配置は追加指示済み。
+  wire追加probe・公開は未指示。stream修正と文書更新のcommit・push・常用配置は追加指示済み・完了。
 - 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は
   今回の`ps`確認ではともに不在。今回、プロセスへの操作は行っていない。
 - Increment 134のlocal実装、architecture・roadmap反映、対象workspaceの既存DB削除は指示済み・完了。
