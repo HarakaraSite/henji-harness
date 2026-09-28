@@ -1,7 +1,7 @@
 # A25 — 複数Coreの実装計画・スライス分割
 
 2026-09-28。利用者の依頼に基づき、[複数Core案](a25-multiple-cores.md)を五つの実装sliceへ分ける。
-利用者指示によりlocal実装と各sliceのreviewを採用し、2026-09-29に全五sliceを完了した。
+利用者指示によりlocal実装と各sliceのreviewを採用し、2026-09-29に全五sliceを完了し、常用配置・配置後確認も完了した。
 実装・検証・review結果は各increment、最終compiled実経路受入とfull
 gateは[153](../increments/increment-153.md)を参照する。
 構成・操作・対象外の判断は複数Core案、実装順・各sliceの責務・受入は本計画を参照する。 Slice

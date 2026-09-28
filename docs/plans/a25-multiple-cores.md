@@ -4,7 +4,7 @@
 構成比較と現行Coreの実測は実施済み。追加の利用者指示により五sliceのlocal実装・reviewを採用した。
 現在の要件・実装・確認結果は[実装計画](a25-implementation-slices.md)とIncrement 149〜153を参照する。
 2026-09-29に利用者が完了承認し、関連文書更新・commit/push・常用配置を指示した。
-配置状態は[合同配置記録](../increments/a25-deployment-2026-09-29.md)を参照する。
+常用配置・配置後確認を完了した。配置状態は[合同配置記録](../increments/a25-deployment-2026-09-29.md)を参照する。
 構想、architecture、roadmapの正本へ反映する意味上の変更案は末尾に示す。
 
 ## 必要な動作と選択理由

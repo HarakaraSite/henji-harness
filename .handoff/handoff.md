@@ -4,11 +4,12 @@
 
 ## 現在地（2026-09-29）
 
-**A25五sliceのlocal実装・各sliceのコード/テストreview・最終受入を完了。**
+**A25五sliceの実装・各slice/全体review・E2E・commit/push・常用配置・配置後確認を完了。**
 [Increment 153](../docs/increments/increment-153.md)がcompiled
 TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結果の正本。
-検証用Core・tool・tmuxは終了済み。利用者が対応を完了承認し、文書更新・commit/push・常用配置を指示した。
-現在は[合同配置記録](../docs/increments/a25-deployment-2026-09-29.md)の手順で配置作業中。
+検証用Core・tool・tmuxは終了済み。配置identityと確認結果は
+[合同配置記録](../docs/increments/a25-deployment-2026-09-29.md)を参照する。
+配置時点で稼働していた旧Coreは停止せず保持した。再接続URLも合同配置記録を参照する。
 全体の順序と受入は[五slice実装計画](../docs/plans/a25-implementation-slices.md)を参照する。
 
 **Increment 148の修正・検証・commit・push・常用配置・配置後確認を完了。**
@@ -17,7 +18,8 @@ TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結
 要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
 [Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは`henji 0.7.0`、source `b4ac0b94…`、build `6118ba3b…`へ更新済み。
+常用binaryは`henji 0.7.0`、source `8ccf835b…`、build `fea3c1e6…`へ更新済み。
+通常起動は毎回新Core・Session。再接続は`henji --core ID`または`--connect URL`で明示する。
 S22の8slice（139〜146）と147の配置結果は
 [合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)、利用方法は
 [HTTP API](../docs/operations/http-api.md)を参照する。JSRは更新していない。
@@ -29,8 +31,8 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. A25のcommit/push・clean build・常用配置・隔離tmux確認を完了し、配置記録とhandoffを更新する。
-   これらは今回の追加指示で承認済み。構想・architecture・roadmapの意味変更とJSR公開は別承認。
+1. A25対応は完了。追加作業は利用者の指定に従う。
+   構想・architecture・roadmapの意味変更とJSR公開は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
@@ -38,7 +40,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 - A25の参照実装調査、gpt-6-astraへの比較相談とreview、実provider実測、複数Core案・実装計画の作成は指示済み・完了。
   五sliceのlocal実装・非破壊的検証・各slice後のreviewerによるコード/テストreviewは承認済み・完了。
-  利用者が完了承認し、関連文書更新・commit/push・配置を追加指示済み。
+  利用者の完了承認・関連文書更新・commit/push・配置指示に従い、すべて完了。
   architecture/roadmapへの意味変更とJSR公開は別承認。
   詳細と証拠は[複数Core案](../docs/plans/a25-multiple-cores.md)を参照する。検証用Coreは停止済み。
 - 148のlocal修正と非破壊的検証、commit／push／常用配置は指示済み・完了。
