@@ -89,7 +89,9 @@ curl -X POST http://127.0.0.1:5270/api/v1/sessions/open \
 ID・revision）、Sessionのposition／selection／startup、
 runtime、conversation（messages・tools・thinking・requests）、pending、credential
 availability、contextを持つ。 lazy
-Sessionのstartupは未評価の情報を含み、Workerの実評価結果として扱わない。
+Sessionのstartupは既知のversion／workspace／agent／model／sessionMode等を起動直後から含む。
+`status: "unevaluated"`ではcontext／skillsをWorkerの実評価結果として扱わない。
+Worker評価後は`status: "evaluated"`と実際のinstructions／skillsを通知する。
 
 ## TypeScriptに依存しない読取
 
@@ -138,8 +140,12 @@ process内の情報であり、再起動を越える再送保証ではない。
 
 cancel結果の`value.result`は`requested`／`already_requested`／`idle`。
 UIの終了やHTTP接続の切断は、この明示cancel操作を送らず、受付済み実行を継続する。
-接続TUIではbusy中のEsc／最初のCtrl-Cが対象実行へのcancel、二度目のCtrl-Cはdetach。
-idle中のCtrl-Cはdraftを消し、`/exit`・Ctrl-D・TERM／HUPはdetachする。
+接続TUIではbusy中のEscが対象実行へのcancel。Ctrl-Cはbusy中もdraftを消す。
+`/exit`・Ctrl-D・TERM／HUPはdetachし、受付済み実行とfollow-upを継続する。
+同じworkspaceで`henji`を起動すると稼働Sessionへ再接続する。
+接続先を指定していた場合は`henji --connect URL`で同じCoreへ再接続する。
+working／cancellingと経過時間はフッター二行目の先頭に表示する。
+経過時間はexecution開始時刻から表示し、再接続でも引き継ぐ。
 
 `execution.read`の結果は`{ "execution": ... }`。
 `execution`はtask、turn、lifecycle、outcome、canonical adoption、requestCount、durabilityを持つ。

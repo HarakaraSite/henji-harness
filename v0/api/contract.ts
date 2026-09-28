@@ -11,6 +11,13 @@ export type ApiSelection = Readonly<{
   effort: string;
 }>;
 
+/** Host-owned orientation facts remain available before the lazy Worker evaluates startup. */
+export type ApiStartupView = Readonly<
+  import('../agent/runtime/startup_orientation.ts').RuntimeDisplayState & {
+    status: 'unevaluated' | 'evaluated';
+  }
+>;
+
 export type ApiCheckpoint = Readonly<{
   summary?: string;
   coveredThroughTurn: number;
@@ -407,7 +414,7 @@ export type SessionSnapshot = Readonly<{
     persistence: 'persistent' | 'none';
     position: ApiPosition;
     selection: ApiSelection;
-    startup: ApiJson;
+    startup: ApiStartupView;
   }>;
   runtime: Readonly<{
     active: boolean;

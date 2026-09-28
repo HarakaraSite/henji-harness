@@ -2,6 +2,7 @@ import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { ApiSelection, CoreOperationName, SessionSnapshot } from '../../v0/api/contract.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
+import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
 const sessionId = '14400000-0000-4000-8000-000000000001';
@@ -43,7 +44,7 @@ const snapshot = (): SessionSnapshot => ({
       messageCount: 0,
     },
     selection: selected,
-    startup: { status: 'ready' },
+    startup: apiStartupFixture(),
   },
   runtime: {
     active: false,
@@ -85,7 +86,7 @@ const snapshotFor = (
       messageCount: 0,
     },
     selection: { provider: 'provider-b', modelId: 'mimo-flash', effort: 'low' },
-    startup: { status: 'ready' },
+    startup: apiStartupFixture(),
   },
   runtime: {
     active: false,

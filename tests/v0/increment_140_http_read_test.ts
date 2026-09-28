@@ -1,4 +1,4 @@
-import { deepStrictEqual as equal, match, ok, strictEqual } from 'node:assert';
+import { match, ok, strictEqual } from 'node:assert';
 import { createApplicationService } from '../../v0/agent/host/application_service.ts';
 import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/server.ts';
@@ -119,7 +119,10 @@ Deno.test('S22 Slice 2 HTTP read client reads saved history without activation',
     strictEqual(snapshot.session.id, savedSessionId);
     strictEqual(snapshot.runtime.active, false);
     strictEqual(snapshot.runtime.activeSessionId, null);
-    equal(snapshot.session.startup, { status: 'unevaluated' });
+    strictEqual(snapshot.session.startup.status, 'unevaluated');
+    strictEqual(snapshot.session.startup.productVersion, coreView.build.productVersion);
+    strictEqual(snapshot.session.startup.workspace, workspaceRoot);
+    strictEqual(snapshot.session.startup.sessionMode.kind, 'exact');
     ok(snapshot.conversation.messages.some((item) => item.text === 'S22 saved history result'));
     strictEqual((await client.coreRead()).activeSessionId, null);
     strictEqual(capsuleStarts, 0);

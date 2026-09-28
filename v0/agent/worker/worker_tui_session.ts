@@ -849,13 +849,13 @@ export const createWorkerSession = async (
       modelId: initialSelection.modelId,
       effort: initialSelection.effort,
       sessionMode: options.persistence,
+      baseInstruction: {
+        resourceId: baseInstruction.ref.resourceId,
+        selectionSource: baseInstruction.selectionSource,
+        revisionDigest: baseInstruction.ref.revision.digest,
+      },
       ...(startupSnapshot === undefined ? {} : {
         instructionSource: startupSnapshot.instructionSource,
-        baseInstruction: {
-          resourceId: baseInstruction.ref.resourceId,
-          selectionSource: baseInstruction.selectionSource,
-          revisionDigest: baseInstruction.ref.revision.digest,
-        },
       }),
       skillNames: startupSnapshot?.skillNames ?? [],
     });

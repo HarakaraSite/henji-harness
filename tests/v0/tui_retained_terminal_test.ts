@@ -2,7 +2,10 @@ import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
-import type { PresentationStartupState } from '../../v0/presentation/contract.ts';
+import type {
+  PresentationProjection,
+  PresentationStartupState,
+} from '../../v0/presentation/contract.ts';
 import {
   BLINK_SGR,
   ENTER_ALTERNATE_SCREEN,
@@ -1191,6 +1194,71 @@ Deno.test('busy history footer hints PgDn to latest while Esc stays cancel', () 
   assert(!latestFooter.includes('history '));
   assert(latestFooter.includes('Esc cancel'));
   assert(!latestFooter.includes('Esc latest'));
+});
+
+Deno.test('remote execution clock leads the second footer row and survives repeated snapshots', () => {
+  const terminal = new RecordingTerminal();
+  let now = 100_000;
+  let tick = () => {};
+  let starts = 0;
+  const stopped: unknown[] = [];
+  const renderer = new TuiRenderer(terminal, {
+    now: () => now,
+    setInterval: (callback) => {
+      tick = callback;
+      return ++starts;
+    },
+    clearInterval: (id) => stopped.push(id),
+  });
+  const projection: PresentationProjection = {
+    lifecycle: 'busy',
+    workspace: '/tmp/remote-workspace',
+    sessionId: 'session-clock',
+    agentId: 'default',
+    committedTurn: 0,
+    trust: 'trusted_local',
+    credentialPolicy: 'before_each_provider_request',
+    pending: [],
+    capabilities: { canNavigate: false, canCompact: false },
+    generation: 1,
+  };
+  renderer.setProjection(projection, 62_000);
+  renderer.setStatus(
+    'busy · Enter steer · Alt-Enter queue · Esc cancel · Ctrl-C clear · Ctrl-D detach · credential present: local-display-probe',
+  );
+  let footer = renderer.layoutSnapshot(80, 24).footer;
+  assert(footer[1].text.startsWith('[⠋ working 00:38 │ '));
+  assert(footer[1].text.includes('session:session-'));
+  assert(!footer[0].text.includes('working'));
+  for (
+    const hint of ['Enter steer', 'Alt-Enter queue', 'Esc cancel', 'Ctrl-C clear', 'Ctrl-D detach']
+  ) {
+    assert(footer[0].text.includes(hint));
+  }
+
+  now = 102_000;
+  renderer.setProjection({ ...projection, generation: 2 }, 62_000);
+  tick();
+  assertEquals(starts, 1);
+  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠙ working 00:40 │ '));
+  renderer.setStatus('busy · accepted · Esc cancel · Ctrl-C clear · Ctrl-D detach');
+  assert(renderer.layoutSnapshot(80, 24).footer[0].text.includes('accepted'));
+
+  renderer.setProjection({ ...projection, lifecycle: 'cancelling' }, 62_000);
+  renderer.setStatus('cancelling · Ctrl-C clear · Ctrl-D detach');
+  assertEquals(starts, 1);
+  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠙ cancelling 00:40 │ '));
+
+  renderer.setProjection(projection, 102_000);
+  renderer.setStatus('busy · Esc cancel · Ctrl-C clear · Ctrl-D detach');
+  assertEquals(starts, 2);
+  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠋ working 00:00 │ '));
+  renderer.setProjection({ ...projection, lifecycle: 'idle' });
+  renderer.setStatus('ready · Enter submit · Ctrl-C clear · Ctrl-D detach');
+  footer = renderer.layoutSnapshot(80, 24).footer;
+  assert(!footer[1].text.includes('working'));
+  assertEquals(stopped, [1, 2]);
+  renderer.close();
 });
 
 Deno.test('remote control labels retain steering, follow-up, cancel, and detach', () => {

@@ -10,6 +10,7 @@ import {
 } from "../../v0/agent/cli/remote_tui_cli.ts";
 import type { TerminalPort } from "../../v0/tui/terminal.ts";
 import { runRemoteTui } from "../../v0/tui/remote_session.ts";
+import { apiStartupFixture } from "./fixtures/api_startup.ts";
 
 const encoder = new TextEncoder();
 const activeSessionId = "14300000-0000-4000-8000-000000000001";
@@ -89,7 +90,7 @@ const snapshot = (
       modelId: "test/model",
       effort: "high",
     },
-    startup: { status: "ready" },
+    startup: apiStartupFixture({ agentId: "generic" }),
   },
   runtime: {
     active: options.busy ?? false,

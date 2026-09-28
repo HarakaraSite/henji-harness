@@ -126,6 +126,13 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
     strictEqual(opened.kind, 'accepted');
     if (opened.kind !== 'accepted') return;
     const sessionId = opened.value.snapshot.session.id;
+    const startup = opened.value.snapshot.session.startup;
+    strictEqual(startup.status, 'unevaluated');
+    strictEqual(startup.productVersion, (await client.coreRead()).build.productVersion);
+    strictEqual(startup.workspace, workspaceRoot);
+    strictEqual(startup.sessionMode.kind, 'new');
+    strictEqual(startup.baseInstruction?.resourceId, 'builtin/henji-base');
+    strictEqual(requestCount, 0);
 
     for (
       const [index, text] of [
@@ -146,6 +153,7 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
       const execution = await client.executionRead(executionId);
       strictEqual(execution.execution.outcome, 'completed', JSON.stringify(execution));
       const visible = await client.sessionRead(sessionId);
+      strictEqual(visible.session.startup.status, 'evaluated');
       strictEqual(
         visible.conversation.messages.filter((item) => item.text === `RESULT ${index + 1}`).length,
         1,

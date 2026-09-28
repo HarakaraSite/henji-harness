@@ -129,7 +129,10 @@ export const startupHeaderLines = (
     headerContentLines(label, value, inside)[0];
   const heading = `─ Henji Harness v${productVersion} `;
   const top = `╭${heading}${'─'.repeat(Math.max(0, inside - textCells(heading)))}╮`;
-  const skills = state.skills.names.length === 0
+  const unevaluated = state.startupEvaluation === 'unevaluated';
+  const skills = unevaluated
+    ? 'not evaluated'
+    : state.skills.names.length === 0
     ? 'none'
     : `${state.skills.names.map((name) => escapeTerminalText(name)).join(', ')}${
       state.skills.omitted > 0 ? ` (+${state.skills.omitted} more)` : ''
@@ -150,7 +153,14 @@ export const startupHeaderLines = (
     content('workspace:', workspace),
     content('agent:', escapeTerminalText(state.agentId)),
     ...baseInstruction,
-    content('context:', state.instructions.loaded ? state.instructions.source : 'none'),
+    content(
+      'context:',
+      unevaluated
+        ? 'not evaluated'
+        : state.instructions.loaded
+        ? state.instructions.source
+        : 'none',
+    ),
     ...headerContentLines('skills:', skills, inside),
     content('runtime:', `trusted-local · ${state.trust.hardSandbox ? '' : 'no '}hard sandbox`),
     `╰${'─'.repeat(inside)}╯`,

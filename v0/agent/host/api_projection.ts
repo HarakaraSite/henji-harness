@@ -767,7 +767,9 @@ const startupView = (
   current: ApplicationSessionState,
 ): SessionSnapshot['session']['startup'] => {
   const worker = current.workerStartup;
-  if (worker === undefined) return { status: 'unevaluated' };
+  if (worker === undefined) {
+    return { ...structuredClone(current.startup), status: 'unevaluated' };
+  }
   const source = worker.instructionSource ?? 'none';
   return {
     ...structuredClone(current.startup),
@@ -778,7 +780,7 @@ const startupView = (
       names: [...worker.skillNames],
       omitted: 0,
     },
-  } as unknown as SessionSnapshot['session']['startup'];
+  };
 };
 
 const selection = (value: ApplicationSessionState): ApiSelection => ({

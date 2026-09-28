@@ -1,6 +1,7 @@
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
+import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
 const sessionId = '14000000-0000-4000-8000-000000000001';
@@ -38,7 +39,7 @@ const snapshot = {
       modelId: 'test/model',
       effort: 'high',
     },
-    startup: { status: 'unevaluated' },
+    startup: apiStartupFixture({ status: 'unevaluated' }),
   },
   runtime: {
     active: false,
@@ -202,6 +203,9 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
     const rendered = terminal.output.join('');
     for (
       const text of [
+        'Henji Harness v0.1.0',
+        'context:          not evaluated',
+        'skills:           not evaluated',
         '/tmp/remote-workspace',
         'Remote saved Session',
         'openrouter-responses',
@@ -233,6 +237,79 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
     );
     strictEqual(stillReady.status, 200);
   } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test('remote TUI refreshes header evaluation and title from a session-only update', async () => {
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  const server = Deno.serve(
+    { hostname: '127.0.0.1', port: 0, onListen() {} },
+    (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === '/api/v1/core') return Response.json(coreRead(sessionId));
+      if (path.endsWith('/events')) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+              controller.enqueue(encoder.encode(
+                `data: ${JSON.stringify({ kind: 'session.snapshot', snapshot })}\n\n`,
+              ));
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        );
+      }
+      return new Response('unexpected request', { status: 404 });
+    },
+  );
+  const terminal = new FakeTerminal();
+  let updated = false;
+  terminal.onWrite = (text) => {
+    if (!updated && text.includes('Updated title') && text.includes('header-skill')) {
+      updated = true;
+      strictEqual(text.includes('AGENTS.md'), true);
+      strictEqual(text.includes('not evaluated'), false);
+      terminal.pushInput('\x04');
+    }
+  };
+  const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
+  try {
+    strictEqual(
+      await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
+        terminal,
+        afterAcquire: () => {
+          stream.enqueue(encoder.encode(`data: ${
+            JSON.stringify({
+              kind: 'session.update',
+              previousRevision: 4,
+              cursor: { ...snapshot.cursor, revision: 5 },
+              changes: [{
+                kind: 'session.replace',
+                session: {
+                  ...snapshot.session,
+                  position: { ...snapshot.session.position, title: 'Updated title' },
+                  startup: apiStartupFixture({
+                    instructions: { loaded: true, source: 'AGENTS.md' },
+                    skills: { count: 1, names: ['header-skill'], omitted: 0 },
+                  }),
+                },
+              }],
+            })
+          }\n\n`));
+        },
+      }),
+      0,
+    );
+    strictEqual(updated, true);
+    strictEqual(
+      terminal.output.join('').includes('The note says remote history is available.'),
+      true,
+    );
+  } finally {
+    clearTimeout(fallback);
+    terminal.pushInput('\x04');
     await server.shutdown();
   }
 });

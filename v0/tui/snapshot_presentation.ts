@@ -2,8 +2,21 @@ import type {
   PresentationMessage,
   PresentationPosition,
   PresentationRestoredConversation,
+  PresentationStartupState,
 } from '../presentation/contract.ts';
 import type { ApiMessage, ApiToolOccurrence, SessionSnapshot } from '../api/contract.ts';
+
+/** Display Core-owned orientation without loading workspace resources in the connected UI. */
+export const presentationStartupFromSnapshot = (
+  snapshot: SessionSnapshot,
+  workspace: string,
+): PresentationStartupState => ({
+  ...snapshot.session.startup,
+  startupEvaluation: snapshot.session.startup.status,
+  workspace,
+  agentId: snapshot.session.position.agent,
+  model: { ...snapshot.session.startup.model, ...snapshot.session.selection },
+});
 
 const asPresentationMessage = (
   message: ApiMessage,

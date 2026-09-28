@@ -29,6 +29,7 @@ import { slashCommandCandidates } from './slash_command.ts';
 import { DenoTerminal, TerminalLifecycle, type TerminalPort } from './terminal.ts';
 import {
   presentationPositionFromSnapshot,
+  presentationStartupFromSnapshot,
   restoredConversationFromSnapshot,
 } from './snapshot_presentation.ts';
 
@@ -92,12 +93,8 @@ interface RemoteNavigationListing {
   readonly page: number;
 }
 
-const startupUnevaluated = (snapshot: SessionSnapshot): boolean => {
-  const startup = snapshot.session.startup;
-  return typeof startup === 'object' && startup !== null &&
-    !Array.isArray(startup) &&
-    'status' in startup && startup.status === 'unevaluated';
-};
+const startupUnevaluated = (snapshot: SessionSnapshot): boolean =>
+  snapshot.session.startup.status === 'unevaluated';
 
 const NO_ACTIVE_SESSION =
   'core has no active Session; open a Session through API or specify --session';
@@ -451,14 +448,28 @@ const isConversationChange = (frame: SessionStreamFrame): boolean =>
     change.kind === 'pending.replace' || change.kind === 'runtime.replace'
   );
 
+const renderSessionOrientation = (
+  renderer: TuiRenderer,
+  snapshot: SessionSnapshot,
+  workspace: string,
+): void => {
+  const position = presentationPositionFromSnapshot(snapshot);
+  renderer.setCurrentPosition(position);
+  const execution = snapshot.runtime.execution;
+  renderer.setProjection(
+    projectionFromSnapshot(snapshot, workspace),
+    snapshot.runtime.active && execution !== null ? Date.parse(execution.createdAt) : undefined,
+  );
+  renderer.renderCompactStartup(presentationStartupFromSnapshot(snapshot, workspace), position);
+};
+
 const renderSnapshot = (
   renderer: TuiRenderer,
   snapshot: SessionSnapshot,
   workspace: string,
   preserveScroll: boolean,
 ): void => {
-  renderer.setCurrentPosition(presentationPositionFromSnapshot(snapshot));
-  renderer.setProjection(projectionFromSnapshot(snapshot, workspace));
+  renderSessionOrientation(renderer, snapshot, workspace);
   const restored = restoredConversationFromSnapshot(snapshot);
   renderer.renderRestored(
     restored.messages,
@@ -749,7 +760,7 @@ export const runRemoteTui = async (
     if (pendingCancellation !== undefined) {
       return `cancelling · ${
         pendingCancellation.processing ? 'processing' : 'requesting'
-      } · Ctrl-C detach · Ctrl-D detach`;
+      } · Ctrl-C clear · Ctrl-D detach`;
     }
     if (pendingSubmission !== undefined) {
       return `${
@@ -770,9 +781,9 @@ export const runRemoteTui = async (
     if (execution !== undefined) {
       const primary = current.runtime.phase === 'cancelling' ? 'cancelling' : 'busy';
       const cancelHint = current.runtime.phase === 'cancelling' || cancellationRequested
-        ? 'Ctrl-C detach'
+        ? 'Ctrl-C clear'
         : canCancel()
-        ? 'Esc/Ctrl-C cancel'
+        ? 'Esc cancel · Ctrl-C clear'
         : 'cancellation unavailable';
       const inputHint = hasOperation('execution.steer') && hasOperation('followUp.queue')
         ? 'Enter steer · Alt-Enter queue'
@@ -804,8 +815,9 @@ export const runRemoteTui = async (
 
   const updateStatus = (): void => {
     if (
-      notice?.startsWith('submission unconfirmed') ||
-      notice?.startsWith('submission rejected:')
+      activeExecution() === undefined &&
+      (notice?.startsWith('submission unconfirmed') ||
+        notice?.startsWith('submission rejected:'))
     ) {
       const summary = notice.split(' · ')[0];
       const hint = credentialStatusHint();
@@ -814,7 +826,14 @@ export const runRemoteTui = async (
       );
       return;
     }
-    const status = statusText();
+    const rawStatus = statusText();
+    const phase = snapshot().runtime.phase === 'cancelling' ||
+        pendingCancellation !== undefined || cancellationRequested
+      ? 'cancelling'
+      : 'busy';
+    const status = connected && activeExecution() !== undefined && !rawStatus.startsWith(phase)
+      ? `${phase} · ${rawStatus}`
+      : rawStatus;
     const hint = credentialStatusHint();
     if (notice === undefined) {
       renderer.setStatus(hint === undefined ? status : `${status} · ${hint}`);
@@ -822,13 +841,7 @@ export const runRemoteTui = async (
     }
     const parts = status.split(' · ');
     const primary = parts[0] ?? '';
-    const compactPhase = primary.startsWith('ready')
-      ? 'idle'
-      : primary.startsWith('busy')
-      ? 'working'
-      : primary.startsWith('cancelling')
-      ? 'stopping'
-      : primary;
+    const compactPhase = primary.startsWith('ready') ? 'idle' : primary;
     const controls = new Set([
       'Enter submit',
       'Enter steer',
@@ -836,16 +849,15 @@ export const runRemoteTui = async (
       'Ctrl-C clear',
       'Ctrl-D detach',
       'Esc cancel',
-      'Esc/Ctrl-C cancel',
-      'Ctrl-C detach',
       'cancellation unavailable',
       '/exit detach',
       'F1 help',
     ]);
     const tail = parts.slice(1).filter((part) => controls.has(part));
     renderer.setStatus([
-      notice,
-      ...(compactPhase.length === 0 ? [] : [compactPhase]),
+      ...(activeExecution() === undefined
+        ? [notice, ...(compactPhase.length === 0 ? [] : [compactPhase])]
+        : [...(compactPhase.length === 0 ? [] : [compactPhase]), notice]),
       ...tail,
       ...(hint === undefined ? [] : [hint]),
     ].join(' · '));
@@ -1211,22 +1223,23 @@ export const runRemoteTui = async (
       ? 'Enter submits the current draft to this active Session.'
       : 'Task submission is unavailable for this viewed Session state.';
     const cancelHint = canCancel()
-      ? 'Escape / first Ctrl-C sends execution.cancel to the displayed execution.'
+      ? 'Escape sends execution.cancel to the displayed execution.'
       : 'Execution cancellation is available only when runtime.operations includes execution.cancel.';
     return [
       operationHint,
       'Ctrl-G / Ctrl-T or /sessions opens the Session picker; Enter views, R resumes.',
       'PageUp / PageDown scroll; Tab completes Core workspace paths; Escape returns latest; F1 toggles help.' +
       (startupUnevaluated(current) ? ' Worker startup not evaluated.' : ''),
-      'Idle Ctrl-C clears the draft; detaching leaves accepted core work running.',
+      'Ctrl-C clears the draft even while busy.',
+      'Detaching leaves accepted core work running.',
       '/view ID views without replacing the active slot; /resume [ID] explicitly resumes.',
       '/new creates from this view and the core-owned active activation.',
       '/rename TEXT renames; /recall [ID|latest|clear] prepares or clears next-task recall.',
       '/context reads checkpoint, recall, and activation config; /provider, /model, /effort use Core catalogs; /login opens masked key entry.',
-      'Busy Enter steers; Alt-Enter queues follow-up, which starts after parent cleanup.',
+      'Busy Enter steers this task; Alt-Enter queues the next task after success.',
       cancelHint,
       'Cancellation/failure keeps follow-up text and the stopping reason for your next decision.',
-      'Second Ctrl-C detaches after cancel; Ctrl-D and /exit always detach.',
+      'Ctrl-D or /exit detaches; rerun henji in the same workspace to reattach.',
     ];
   };
 
@@ -1842,22 +1855,10 @@ export const runRemoteTui = async (
             continue;
           }
           if (event.kind === 'ctrl_c') {
-            if (activeExecution() !== undefined) {
-              if (cancellationRequested) requestExit();
-              else cancelActiveExecution();
-            } else if (pendingSubmission !== undefined) {
-              if (!pendingSubmission.separated) separateSubmittedDraft();
-              else if (editor.text.length > 0) replaceEditorText('');
-              updateStatus();
-            } else if (editor.text.length > 0) {
-              notice = undefined;
-              replaceEditorText('');
-              updateStatus();
-            } else {
-              notice = undefined;
-              updateStatus();
-            }
-            if (exitRequested) break;
+            separateSubmittedDraft();
+            if (editor.text.length > 0) replaceEditorText('');
+            notice = undefined;
+            updateStatus();
             continue;
           }
           if (event.kind === 'page_up') {
@@ -1976,12 +1977,7 @@ export const runRemoteTui = async (
       if (isConversationChange(frame)) {
         renderSnapshot(renderer, snapshot(), core.workspace, true);
       } else {
-        renderer.setCurrentPosition(
-          presentationPositionFromSnapshot(snapshot()),
-        );
-        renderer.setProjection(
-          projectionFromSnapshot(snapshot(), core.workspace),
-        );
+        renderSessionOrientation(renderer, snapshot(), core.workspace);
       }
       updateStatus();
       frameWait = nextFrameWait();

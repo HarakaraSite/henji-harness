@@ -2,6 +2,7 @@ import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { CoreOperationName, ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
+import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
 const sessionId = '14100000-0000-4000-8000-000000000001';
@@ -86,7 +87,7 @@ const snapshot = (options: {
       modelId: 'test/model',
       effort: 'high',
     },
-    startup: { status: 'ready' },
+    startup: apiStartupFixture(),
   },
   runtime: {
     active: options.active ?? false,
@@ -340,7 +341,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
     strictEqual(rendered.includes('first task'), true);
     strictEqual(rendered.includes('new draft'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), true);
-    strictEqual(rendered.includes('Esc/Ctrl-C cancel'), true);
+    strictEqual(rendered.includes('Esc cancel'), true);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
     strictEqual(terminal.raw, false);
     strictEqual(terminal.signals.size, 0);
@@ -354,7 +355,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
   }
 });
 
-Deno.test('Increment 141 remote TUI targets cancel and the second Ctrl-C detaches', async () => {
+Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and detaches with Ctrl-D', async () => {
   let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
   const cancellations: {
     path: string;
@@ -429,7 +430,7 @@ Deno.test('Increment 141 remote TUI targets cancel and the second Ctrl-C detache
   terminal.onWrite = (text) => {
     if (!detached && text.includes('cancel requested')) {
       detached = true;
-      terminal.pushInput('\x03');
+      terminal.pushInput('\x04');
     }
   };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
@@ -440,7 +441,14 @@ Deno.test('Increment 141 remote TUI targets cancel and the second Ctrl-C detache
         writeStderr: (text) => {
           throw new Error(text);
         },
-        afterAcquire: () => terminal.pushInput('\x03'),
+        afterAcquire: async () => {
+          terminal.pushInput('draft to clear\x03\x03');
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          strictEqual(cancellations.length, 0);
+          strictEqual(terminal.raw, true);
+          strictEqual(terminal.output.at(-1)?.includes('> draft to clear'), false);
+          terminal.pushInput('\x1b');
+        },
       }),
       0,
     );
@@ -455,12 +463,9 @@ Deno.test('Increment 141 remote TUI targets cancel and the second Ctrl-C detache
     strictEqual(terminal.raw, false);
     deepStrictEqual([...terminal.signals.keys()], []);
     const rendered = terminal.output.join('');
-    strictEqual(
-      rendered.includes('first Ctrl-C') || rendered.includes('Ctrl-C detach'),
-      true,
-    );
+    strictEqual(rendered.includes('Ctrl-C clear'), true);
     strictEqual(rendered.includes('Ctrl-D detach'), true);
-    strictEqual(rendered.includes('Esc/Ctrl-C cancel'), true);
+    strictEqual(rendered.includes('Esc cancel'), true);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
   } finally {
     clearTimeout(fallback);
@@ -468,7 +473,7 @@ Deno.test('Increment 141 remote TUI targets cancel and the second Ctrl-C detache
   }
 });
 
-Deno.test('Increment 141 remote TUI detaches on Ctrl-C when reconnecting during cancellation', async () => {
+Deno.test('remote TUI clears drafts with Ctrl-C when reconnecting during cancellation', async () => {
   let cancellationCount = 0;
   const cancelling = snapshot({
     active: true,
@@ -490,12 +495,6 @@ Deno.test('Increment 141 remote TUI detaches on Ctrl-C when reconnecting during 
   );
   const terminal = new FakeTerminal();
   let detached = false;
-  terminal.onWrite = (text) => {
-    if (!detached && text.includes('Ctrl-C detach')) {
-      detached = true;
-      terminal.pushInput('\x03');
-    }
-  };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
   try {
     strictEqual(
@@ -504,6 +503,14 @@ Deno.test('Increment 141 remote TUI detaches on Ctrl-C when reconnecting during 
         writeStderr: (text) => {
           throw new Error(text);
         },
+        afterAcquire: async () => {
+          terminal.pushInput('cancel-phase draft\x03\x03');
+          await new Promise((resolve) => setTimeout(resolve, 80));
+          strictEqual(terminal.raw, true);
+          strictEqual(terminal.output.at(-1)?.includes('> cancel-phase draft'), false);
+          detached = true;
+          terminal.pushInput('\x04');
+        },
       }),
       0,
     );
@@ -511,7 +518,7 @@ Deno.test('Increment 141 remote TUI detaches on Ctrl-C when reconnecting during 
     strictEqual(cancellationCount, 0);
     const rendered = terminal.output.join('');
     strictEqual(rendered.includes('cancelling'), true);
-    strictEqual(rendered.includes('Ctrl-C detach'), true);
+    strictEqual(rendered.includes('Ctrl-C clear'), true);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
   } finally {
     clearTimeout(fallback);

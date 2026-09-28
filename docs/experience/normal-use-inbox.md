@@ -22,6 +22,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
+| S25 | Surface        | TUI／将来のWebUIとCoreをまとめて終了するスラッシュコマンド                   | detach後に別CLIでCoreを停止する操作をUI内で完結したくなったとき                                                        |
 | A1  | Agent実行      | ChatGPT subscription root provider                                           | subscription利用がproduct要件になる                                                                                    |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
@@ -37,6 +38,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A23 | Agent実行      | `run_typescript`で小さな計算・変換・検査をHenji内で実行                      | 現行構成が安定し、利用者が利用価値検証の再開を明示したとき                                                             |
+| A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -206,6 +208,18 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 関連: A14、[Increment 138（A20・A22）](../increments/increment-138.md)、
   [`increment-136.md`](../increments/increment-136.md)、
   [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
+
+### S25 — TUI／将来のWebUIとCoreをまとめて終了するスラッシュコマンド
+
+- 利用者メモ（2026-09-28）:
+  TUI、将来のWebUIとCoreを一緒に終了するスラッシュコマンドが欲しくなるかもしれない。
+  利用者は記録のみを指示し、今回は採用・実装しない。
+- 現行操作: `/exit`／Ctrl-DはUIをdetachし、Coreと受付済み処理は継続する。Core停止は別CLIの
+  `henji core stop`で行う。
+- 候補: UIからCore停止と自身の終了を一つのスラッシュコマンドで行う。command名、busy中の動作、
+  他の接続UIの扱いは採用時に決める。
+- 再検討条件: detach後に別CLIでCoreを停止する操作をUI内で完結したくなったとき。
+- 関連: S22、[HTTP API操作](../operations/http-api.md)。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
@@ -536,6 +550,21 @@ Pi／OpenCode／Henjiの画面表示比較
   [`2026-09-27-run-typescript-assessment.md`](../research/2026-09-27-run-typescript-assessment.md)。
   同資料のspike・planner
   input参照先はこのrepositoryにはなく、詳細証拠・保留中の検証案は未照合である。
+
+### A24 — subagent起動の判断とprovider・model・effort・toolの選択（未採用）
+
+- 観測（2026-09-28、workspace `/home/agent`、session `6e5dbddd`の保存履歴照合）:
+  README日英比較で`generic`を3件起動した（run `8739f50c`、`7796828a`、`6a6acd8b`）。
+  起動引数は`agent`と`task`だけで、3件とも親の
+  `openrouter-responses / xiaomi/mimo-v2.6-flash / auto`を引き継いだ。`tools`未指定により
+  `read`、`write`、`edit`、`bash`、`bash_output`、`web_fetch`、`web_search`、`submit_json_result`が
+  有効だった。「ファイルを変更しない」はtask内の指示で、toolを制限する指定ではなかった。
+- 利用者判断（2026-09-28）: この辺りのsubagent起動の判断をどうするかは今後検討する。今回はメモだけ。
+- 検討候補: どのtaskを親自身で扱い、どのtaskを子へ任せるか、任せる際のAgent選択と
+  provider・model・effort・toolの選び方を検討する。親設定の継承と明示指定を使い分ける基準も未決である。
+- 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
+- 関連: A14（名前付き子Agent Definitionの専用model指定）、
+  [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
 
 ## F24・自己改訂
 

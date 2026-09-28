@@ -2,18 +2,18 @@
 
 再開時の入口。現在地と次の一手をここで確認し、要件・計画・結果はリンク先の正本を参照する。
 
-## 現在地（2026-09-28・セッション終了）
+## 現在地（2026-09-28）
 
-**S22の8slice（139〜146）と追加修正147の実装・検証・独立review・commit・push・常用配置を完了。**
-全体reviewのP1／B6と周辺reviewのP2を解消し、限定再reviewの確認範囲に未解決Blocking／P1／P2はない。
-[合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)が配置・終了結果の正本。
-不具合修正とreview結果は[Increment 147](../docs/increments/increment-147.md)、各sliceは
-[139〜146の個別increment](../docs/increments/)、利用方法は[HTTP API](../docs/operations/http-api.md)を参照する。
+**Increment 148のlocal修正・focused検証・compiled production TUI確認を完了。push・配置作業中。**
+最新binaryの起動ヘッダ欠落、working／elapsed欠落を修正した。利用者の追加指定によりworking／elapsedは
+フッター二行目の先頭、Ctrl-Cはbusy中も入力クリア、cancelはEscとなる。
+要件・実装・確認結果・candidate情報・途中probeの外部request一回の記録は
+[Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは`henji 0.7.0`、source `76ba82ec…`、build `4adab9c2…`、dirtyなし。
-実装commitは`76ba82ec8a65deac21ce4be99e470ba861bc6125`で`origin/main`へpush済み。
-この終了記録は後続の文書commitへまとめる。配置binaryの通常起動・detach・同Session再接続・明示Core
-stopを確認した。 確認用Core・tmuxは停止済み。新たな実provider requestはゼロ。JSRは更新していない。
+常用binaryは前回配置の`henji 0.7.0`、source `76ba82ec…`、build `4adab9c2…`のまま。
+S22の8slice（139〜146）と147の配置結果は
+[合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)、利用方法は
+[HTTP API](../docs/operations/http-api.md)を参照する。JSRは更新していない。
 
 以前の完了承認と検証結果は[133〜138の個別increment](../docs/increments/)、
 [133〜138合同E2E](../docs/increments/e2e-133-138-2026-09-27.md)、
@@ -22,14 +22,17 @@ stopを確認した。 確認用Core・tmuxは停止済み。新たな実provide
 
 ## 次の一手
 
-1. 本セッションの依頼範囲は完了。次セッションは利用者の新しい指示から開始する。
-   S22の要件・設計は[詳細設計](../docs/plans/s22-detailed-design-and-slices.md)と
-   [CLI・外部API設計](../docs/plans/s22-cli-and-external-api.md)を参照する。
+1. 利用者のpush・配置指示に従い、148をcommit・pushし、clean buildから常用先へ配置する。
+   CoreとTUIを同じ修正候補で起動し、隔離tmuxで配置後確認を行う。正本は[148](../docs/increments/increment-148.md)。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
 
+- 148のlocal修正と非破壊的検証は指示済み・完了。commit／push／常用配置は2026-09-28の追加指示で承認済み。
+  配置前確認では`/home/agent`とrepository workspaceのCoreはともに非稼働。実行中の作業は中断しない。
+  UIとCoreをまとめて終了するスラッシュコマンド案とsubagent起動判断の検討は「メモだけ」の指示で
+  通常利用メモへ記録した。
 - S22の議論の文書化、参照実装調査、詳細設計・slice分割計画の作成、review指摘への設計修正は指示済み。
   通常henjiを明示TUI起動の省略形とし、未起動coreを自動起動する。
   core単独起動のサードパーティ接続、WebUI別入口という利用者指定とCLI形式の委任を反映した。

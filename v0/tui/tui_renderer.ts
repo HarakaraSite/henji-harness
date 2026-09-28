@@ -204,8 +204,13 @@ export class TuiRenderer implements TerminalRendererGate {
     return `${[...retainedLog, ...fixed].join('\n')}${cursor}`;
   }
 
-  setProjection(projection: PresentationProjection): void {
+  setProjection(projection: PresentationProjection, busyStartedAt?: number): void {
     this.ui = setUiProjection(this.ui, projection);
+    if (projection.lifecycle === 'busy' || projection.lifecycle === 'cancelling') {
+      if (busyStartedAt !== undefined && this.busyStartedAt !== busyStartedAt) {
+        this.startBusyElapsed(busyStartedAt);
+      }
+    } else this.stopBusyElapsed();
   }
 
   /** Install the already-projected startup facts used by the local F1 help overlay. */
@@ -231,11 +236,14 @@ export class TuiRenderer implements TerminalRendererGate {
     this.closing = true;
   }
 
-  private startBusyElapsed(): void {
+  private startBusyElapsed(startedAt = this.now()): void {
     this.stopBusyElapsed();
-    this.busyStartedAt = this.now();
+    this.busyStartedAt = startedAt;
     this.busySpinnerFrame = 0;
-    this.ui = reduceUiAction(this.ui, { kind: 'busy_elapsed', seconds: 0 });
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'busy_elapsed',
+      seconds: Math.max(0, Math.floor((this.now() - startedAt) / 1000)),
+    });
     this.ui = reduceUiAction(this.ui, { kind: 'busy_spinner', frame: 0 });
     this.busyInterval = this.scheduleInterval(() => {
       if (this.closing || this.busyStartedAt === undefined) return;

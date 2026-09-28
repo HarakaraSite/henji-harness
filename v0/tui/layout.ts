@@ -165,13 +165,20 @@ const footerStatusParts = (
     segment.startsWith(`${candidate};`)
   );
   if (activePrimary !== undefined) {
+    const credential = parts.slice(index + 1).find((part) => part.startsWith('credential '));
     const inlineDetails = segment.slice(activePrimary.length).replace(
       /^[ ;]+/,
       '',
     );
-    const details = [inlineDetails, ...parts.slice(index + 1)].filter((part) => part.length > 0)
+    const details = [inlineDetails, ...parts.slice(index + 1)].filter((part) =>
+      part.length > 0 && part !== credential
+    )
       .join(' · ');
-    return details.length === 0 ? { primary: activePrimary } : { primary: activePrimary, details };
+    return {
+      primary: activePrimary,
+      ...(credential === undefined ? {} : { credential }),
+      ...(details.length === 0 ? {} : { details }),
+    };
   }
   const trailing = parts.slice(index + 1);
   const credential = trailing.find((part) => part.startsWith('credential missing:'));
@@ -191,8 +198,6 @@ const remoteFooterControls = (status: string): readonly string[] => {
     'Ctrl-C clear',
     'Ctrl-D detach',
     'Esc cancel',
-    'Esc/Ctrl-C cancel',
-    'Ctrl-C detach',
     'cancellation unavailable',
     '/exit detach',
     'F1 help',
@@ -252,10 +257,39 @@ const historyViewport = (
   };
 };
 
+const footerPrimaryText = (state: UiState, columns: number): string => {
+  const primary = safeDisplay(footerStatusParts(footerStatus(state)).primary, false);
+  const running = state.lifecycle === 'busy' || state.lifecycle === 'cancelling';
+  const elapsed = running && state.busyElapsedSeconds !== undefined &&
+      (primary === 'busy' || primary === 'cancelling')
+    ? (() => {
+      const total = state.busyElapsedSeconds!;
+      const hours = Math.floor(total / 3600);
+      const minutes = Math.floor(total % 3600 / 60);
+      const seconds = total % 60;
+      return hours > 0
+        ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+        : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    })()
+    : undefined;
+  const spinner = running && (primary === 'busy' || primary === 'cancelling')
+    ? BUSY_SPINNER_FRAMES[(state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length]
+    : undefined;
+  const label = primary === 'busy' ? 'working' : primary;
+  const withElapsed = elapsed === undefined ? label : `${label} ${elapsed}`;
+  const full = spinner === undefined ? withElapsed : `${spinner} ${withElapsed}`;
+  return width(`[${full}]`) <= columns
+    ? full
+    : width(`[${withElapsed}]`) <= columns
+    ? withElapsed
+    : label;
+};
+
 const footerStatusText = (
   state: UiState,
   columns: number,
   history?: HistoryViewport,
+  primaryInSession = false,
 ): Readonly<{
   readonly text: string;
   readonly blinkScalarStart?: number;
@@ -274,32 +308,7 @@ const footerStatusText = (
   const status = footerStatusParts(footerStatus(state));
   const remoteControls = remoteFooterControls(state.status);
   const remoteResult = remoteExecutionResult(state.status);
-  const primary = safeDisplay(status.primary, false);
-  const elapsed = state.lifecycle === 'busy' &&
-      state.busyElapsedSeconds !== undefined &&
-      (primary === 'busy' || primary === 'cancelling')
-    ? (() => {
-      const total = state.busyElapsedSeconds!;
-      const hours = Math.floor(total / 3600);
-      const minutes = Math.floor(total % 3600 / 60);
-      const seconds = total % 60;
-      return hours > 0
-        ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-        : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-    })()
-    : undefined;
-  const spinner = state.lifecycle === 'busy' &&
-      (primary === 'busy' || primary === 'cancelling')
-    ? BUSY_SPINNER_FRAMES[
-      (state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length
-    ]
-    : undefined;
-  const primaryLabel = primary === 'busy' ? 'working' : primary;
-  const elapsedPrimary = elapsed === undefined ? primaryLabel : `${primaryLabel} ${elapsed}`;
-  const spinnerPrimary = spinner === undefined ? elapsedPrimary : `${spinner} ${elapsedPrimary}`;
-  const displayedPrimary = width(`[${spinnerPrimary}]`) <= columns
-    ? spinnerPrimary
-    : (width(`[${elapsedPrimary}]`) <= columns ? elapsedPrimary : primaryLabel);
+  const displayedPrimary = footerPrimaryText(state, columns);
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
@@ -321,7 +330,6 @@ const footerStatusText = (
     : width(`[${historyFull}]`) <= columns
     ? historyFull
     : `history · ${historyHint}`;
-  const fixed: string[] = historyRequired === undefined ? [displayedPrimary] : [historyRequired];
   const controlsText = remoteControls.length === 0
     ? undefined
     : safeDisplay(remoteControls.join(' · '), false);
@@ -334,13 +342,23 @@ const footerStatusText = (
   const details = status.details?.split(' · ').filter((part) =>
     !controlSet.has(part) && !resultSet.has(part)
   ).join(' · ');
+  const fixed = [
+    ...(historyRequired === undefined ? [] : [historyRequired]),
+    ...(primaryInSession
+      ? details === undefined || details.length === 0 ? [] : [safeDisplay(details, false)]
+      : historyRequired === undefined
+      ? [displayedPrimary]
+      : []),
+  ];
   const optional = [
-    ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: displayedPrimary }]),
+    ...(historyRequired === undefined || primaryInSession
+      ? []
+      : [{ kind: 'primary', text: displayedPrimary }]),
     ...(state.lifecycle === 'busy' ? [] : commandItem),
     ...(status.credential === undefined
       ? []
       : [{ kind: 'credential', text: safeDisplay(status.credential, false) }]),
-    ...(details === undefined || details.length === 0
+    ...(primaryInSession || details === undefined || details.length === 0
       ? []
       : [{ kind: 'details', text: safeDisplay(details, false) }]),
     ...(pendingSegment === undefined
@@ -355,7 +373,11 @@ const footerStatusText = (
     ...(resultText === undefined || resultText.length === 0
       ? []
       : [{ kind: 'remote-result', text: resultText }]),
-    ...(controlsText === undefined ? [] : [{ kind: 'remote-controls', text: controlsText }]),
+    ...(primaryInSession
+      ? remoteControls.map((text) => ({ kind: 'remote-controls', text }))
+      : controlsText === undefined
+      ? []
+      : [{ kind: 'remote-controls', text: controlsText }]),
     ...(state.lifecycle === 'busy' ? commandItem : []),
   ];
   let segments = [...fixed, ...optional.map((segment) => segment.text)];
@@ -403,17 +425,22 @@ const footerSessionText = (
     state.position?.title ?? state.startup?.position.title ?? 'untitled',
     false,
   );
+  const primary = footerStatusParts(footerStatus(state)).primary;
+  const active = (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
+    (primary === 'busy' || primary === 'cancelling');
+  const opening = active ? `[${footerPrimaryText(state, columns)} │ ` : '[';
   const fixed = ` session:${session} ${title}]`;
-  const available = columns - width(`[${fixed}`);
+  const available = columns - width(`${opening}${fixed}`);
   if (available >= 1) {
-    return `[${suffixCells(workspace, available)}${fixed}`;
+    return `${opening}${suffixCells(workspace, available)}${fixed}`;
   }
 
-  const withoutPath = `[session:${session} ${title}]`;
+  const withoutPath = `${opening}session:${session} ${title}]`;
   if (width(withoutPath) <= columns) return withoutPath;
 
-  const withoutTitle = `[session:${session}]`;
+  const withoutTitle = `${opening}session:${session}]`;
   if (width(withoutTitle) <= columns) return withoutTitle;
+  if (active) return `[${footerPrimaryText(state, columns)}]`;
   return truncateCells(withoutTitle, columns);
 };
 
@@ -855,6 +882,9 @@ export const layoutUi = (
     state,
     Math.max(1, widthLimit),
     history,
+    sessionFooter !== undefined && footerCount >= 2 &&
+      (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
+      ['busy', 'cancelling'].includes(footerStatusParts(footerStatus(state)).primary),
   );
   const footer = [
     {

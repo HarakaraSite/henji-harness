@@ -2,6 +2,7 @@ import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { SessionSnapshot } from '../../v0/api/contract.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
+import { apiStartupFixture } from './fixtures/api_startup.ts';
 
 const encoder = new TextEncoder();
 const sessionId = '14600000-0000-4000-8000-000000000001';
@@ -112,7 +113,7 @@ const snapshot = (revision: number): SessionSnapshot => ({
       messageCount: conversationMessages.length,
     },
     selection: { provider: 'provider-a', modelId: 'model-a', effort: 'low' },
-    startup: { status: 'ready' },
+    startup: apiStartupFixture(),
   },
   runtime: {
     active: false,
