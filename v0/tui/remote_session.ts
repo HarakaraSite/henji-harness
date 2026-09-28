@@ -1231,7 +1231,7 @@ export const runRemoteTui = async (
       'PageUp / PageDown scroll; Tab completes Core workspace paths; Escape returns latest; F1 toggles help.' +
       (startupUnevaluated(current) ? ' Worker startup not evaluated.' : ''),
       'Ctrl-C clears the draft even while busy.',
-      'Detaching leaves accepted core work running.',
+      'Detaching leaves accepted core work running. Reconnect: henji --core ID (or --connect URL).',
       '/view ID views without replacing the active slot; /resume [ID] explicitly resumes.',
       '/new creates from this view and the core-owned active activation.',
       '/rename TEXT renames; /recall [ID|latest|clear] prepares or clears next-task recall.',
@@ -1239,7 +1239,6 @@ export const runRemoteTui = async (
       'Busy Enter steers this task; Alt-Enter queues the next task after success.',
       cancelHint,
       'Cancellation/failure keeps follow-up text and the stopping reason for your next decision.',
-      'Ctrl-D or /exit detaches; rerun henji in the same workspace to reattach.',
     ];
   };
 

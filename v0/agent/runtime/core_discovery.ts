@@ -19,6 +19,7 @@ export interface CoreDiscoveryLocation {
   readonly stateRoot: string;
   readonly directory: string;
   readonly endpointPath: string;
+  readonly coreEpoch: string;
 }
 
 export interface CoreFileLock {
@@ -35,18 +36,25 @@ type BootResult =
   | Readonly<{ kind: 'ready'; coreEpoch: string }>
   | Readonly<{ kind: 'failed'; code: string }>;
 
-/** Canonical workspace and the selected XDG state root identify one Core owner. */
-export const coreDiscoveryLocation = async (
+/** Canonical workspace identifies the collection; epoch identifies one process. */
+export const coreCollectionLocation = async (
   paths: Pick<RuntimePaths, 'workspace' | 'stateRoot'>,
-): Promise<CoreDiscoveryLocation> => {
+): Promise<Pick<CoreDiscoveryLocation, 'workspace' | 'stateRoot' | 'directory'>> => {
   const workspace = await Deno.realPath(paths.workspace);
-  const directory = `${paths.stateRoot}/cores/${await workspaceDigest(workspace)}`;
   return {
     workspace,
     stateRoot: paths.stateRoot,
-    directory,
-    endpointPath: `${directory}/endpoint.json`,
+    directory: `${paths.stateRoot}/cores/${await workspaceDigest(workspace)}`,
   };
+};
+
+export const coreDiscoveryLocation = async (
+  paths: Pick<RuntimePaths, 'workspace' | 'stateRoot'>,
+  coreEpoch: string,
+): Promise<CoreDiscoveryLocation> => {
+  const collection = await coreCollectionLocation(paths);
+  const directory = `${collection.directory}/${coreEpoch}`;
+  return { ...collection, directory, coreEpoch, endpointPath: `${directory}/endpoint.json` };
 };
 
 const fileLock = (file: Deno.FsFile): CoreFileLock => {
@@ -141,7 +149,7 @@ export const readCoreEndpoint = async (
   if (typeof value !== 'object' || value === null) return undefined;
   const endpoint = value as CoreEndpoint;
   return endpoint.ready === true && endpoint.workspace === location.workspace &&
-      typeof endpoint.coreEpoch === 'string' && typeof endpoint.pid === 'number' &&
+      endpoint.coreEpoch === location.coreEpoch && typeof endpoint.pid === 'number' &&
       typeof endpoint.url === 'string' && isBuildManifest(endpoint.build)
     ? endpoint
     : undefined;
@@ -204,22 +212,11 @@ export const writeCoreBootResult = async (
     ...result,
   });
 
-/** Status uses this read-only path and never creates a lock or launches a process. */
-export const findLocalCore = async (
-  paths: Pick<RuntimePaths, 'workspace' | 'stateRoot'>,
-): Promise<CoreConnection | undefined> => {
-  const location = await coreDiscoveryLocation(paths);
-  const endpoint = await readCoreEndpoint(location);
-  if (endpoint === undefined) return undefined;
-  const core = await probeCoreEndpoint(endpoint);
-  return core === undefined ? undefined : { endpoint, core, reused: true };
-};
-
 const sourcePath = (relative: string): string =>
   decodeURIComponent(new URL(relative, import.meta.url).pathname);
 
 const spawnCore = (location: CoreDiscoveryLocation, token: string): void => {
-  const bootstrap = ['--internal-core-bootstrap', token];
+  const bootstrap = ['--internal-core-bootstrap', token, location.coreEpoch];
   const args = Deno.build.standalone ? bootstrap : [
     'run',
     '--no-prompt',
@@ -243,23 +240,11 @@ const spawnCore = (location: CoreDiscoveryLocation, token: string): void => {
   child.unref();
 };
 
-/** Serialize launchers through ready; bootstrap skips this mutex and owns the instance lock. */
+/** Prepare a fresh epoch; bootstrap owns only that instance directory. */
 export const prepareLocalCore = async (paths: RuntimePaths): Promise<CoreConnection> => {
-  const location = await coreDiscoveryLocation(paths);
+  const location = await coreDiscoveryLocation(paths, crypto.randomUUID().toLowerCase());
   const startup = await acquireCoreStartupLock(location);
   try {
-    const endpoint = await readCoreEndpoint(location);
-    if (endpoint !== undefined) {
-      const core = await probeCoreEndpoint(endpoint);
-      if (core !== undefined) return { endpoint, core, reused: true };
-    }
-    const instance = await tryAcquireCoreInstanceLock(location);
-    if (instance === undefined) {
-      throw new Error(
-        'Core owns this workspace but is not reachable; check core status or its URL',
-      );
-    }
-    await instance.close();
     const token = crypto.randomUUID();
     spawnCore(location, token);
     const deadline = Date.now() + 30_000;
@@ -269,7 +254,7 @@ export const prepareLocalCore = async (paths: RuntimePaths): Promise<CoreConnect
         | undefined;
       if (result?.token === token) {
         if (result.kind === 'failed') throw new Error(`Core startup failed: ${result.code}`);
-        if (result.kind === 'ready') {
+        if (result.kind === 'ready' && result.coreEpoch === location.coreEpoch) {
           const ready = await readCoreEndpoint(location);
           if (ready !== undefined && ready.coreEpoch === result.coreEpoch) {
             const core = await probeCoreEndpoint(ready);
@@ -283,4 +268,98 @@ export const prepareLocalCore = async (paths: RuntimePaths): Promise<CoreConnect
   } finally {
     await startup.close();
   }
+};
+
+export interface LocalCoreSummary {
+  readonly coreEpoch: string;
+  readonly workspace: string;
+  readonly state: 'running' | 'unreachable';
+  readonly pid?: number;
+  readonly url?: string;
+  readonly activeSessionId?: string | null;
+  readonly title?: string;
+  readonly phase?: CoreReadView['phase'];
+}
+
+export interface LocalCoreCandidate {
+  readonly location: CoreDiscoveryLocation;
+  readonly endpoint?: CoreEndpoint;
+  readonly core?: CoreReadView;
+  readonly summary: LocalCoreSummary;
+}
+
+/** Enumerate existing epoch directories without changing discovery or Session state. */
+export const listLocalCores = async (
+  paths: Pick<RuntimePaths, 'workspace' | 'stateRoot'>,
+): Promise<readonly LocalCoreCandidate[]> => {
+  const collection = await coreCollectionLocation(paths);
+  const epochs: string[] = [];
+  try {
+    for await (const entry of Deno.readDir(collection.directory)) {
+      if (entry.isDirectory) epochs.push(entry.name);
+    }
+  } catch (error) {
+    if (!(error instanceof Deno.errors.NotFound)) throw error;
+  }
+  const candidates = await Promise.all(
+    epochs.sort().map(async (coreEpoch) => {
+      const location = await coreDiscoveryLocation(paths, coreEpoch);
+      if (!await coreInstanceOwned(location)) return undefined;
+      const endpoint = await readCoreEndpoint(location);
+      const core = endpoint === undefined ? undefined : await probeCoreEndpoint(endpoint);
+      let title: string | undefined;
+      if (core?.activeSessionId != null && endpoint !== undefined) {
+        try {
+          const client = new HenjiApiClient(
+            endpoint.url,
+            (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(2_000) }),
+          );
+          title = (await client.sessionRead(core.activeSessionId)).session.position.title;
+        } catch {
+          // A slot may change or the Core may stop between these read-only queries.
+        }
+      }
+      const summary: LocalCoreSummary = {
+        coreEpoch,
+        workspace: collection.workspace,
+        state: core === undefined ? 'unreachable' : 'running',
+        ...(endpoint === undefined ? {} : { pid: endpoint.pid, url: endpoint.url }),
+        ...(core === undefined ? {} : { activeSessionId: core.activeSessionId, phase: core.phase }),
+        ...(title === undefined ? {} : { title }),
+      };
+      return { location, endpoint, core, summary };
+    }),
+  );
+  return candidates.filter((candidate): candidate is NonNullable<typeof candidate> =>
+    candidate !== undefined
+  );
+};
+
+/** IDs are process identity; any unambiguous prefix selects the same identity. */
+export const resolveCoreId = (epochs: readonly string[], id: string): string => {
+  const matches = epochs.filter((epoch) => epoch.startsWith(id));
+  if (matches.length === 0) {
+    throw new Error(`Core ${id} was not found or has stopped; use henji core list`);
+  }
+  if (matches.length > 1) {
+    throw new Error(`Core ID ${id} is ambiguous; specify a longer ID:\n${matches.join('\n')}`);
+  }
+  return matches[0];
+};
+
+export const resolveLocalCore = async (
+  paths: Pick<RuntimePaths, 'workspace' | 'stateRoot'>,
+  id: string,
+): Promise<CoreConnection> => {
+  const candidates = await listLocalCores(paths);
+  const epoch = resolveCoreId(candidates.map((candidate) => candidate.summary.coreEpoch), id);
+  const selected = candidates.find((candidate) => candidate.summary.coreEpoch === epoch)!;
+  if (selected.endpoint === undefined || selected.core === undefined) {
+    throw new Error(
+      `Core ${epoch} is unreachable${
+        selected.endpoint === undefined ? '' : ` at ${selected.endpoint.url}`
+      }`,
+    );
+  }
+  return { endpoint: selected.endpoint, core: selected.core, reused: true };
 };

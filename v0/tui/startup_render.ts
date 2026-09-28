@@ -110,7 +110,8 @@ export const startupHeaderLines = (
   const title = escapeTerminalText(position.title ?? 'untitled');
   const productVersion = escapeTerminalText(state.productVersion);
   const created = localTimestampText(position.createdAt);
-  const identity = escapeTerminalText(sessionIdentity(state, position));
+  const core = state.coreEpoch === undefined ? '' : `Core ${state.coreEpoch.slice(0, 8)} · `;
+  const identity = escapeTerminalText(`${core}${sessionIdentity(state, position)}`);
   const workspace = escapeTerminalText(state.workspace);
   if (width < 64 || rows < 16) {
     const identityPrefix = `${identity} · `;

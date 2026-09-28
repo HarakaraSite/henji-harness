@@ -1,4 +1,4 @@
-# HTTP API — S22
+# HTTP API — S22・A25
 
 この文書は[Increment 140](../increments/increment-140.md)以降の独立core APIの利用方法を管理する。
 共有型の正本は`v0/api/contract.ts`、JSON境界は`v0/api/codec.ts`である。 Slice
@@ -7,7 +7,9 @@
 credential登録はCore全体の操作なので、idleなら保存Session閲覧中でも利用できる。
 
 実装と常用配置の結果は[S22・147合同配置記録](../increments/s22-deployment-2026-09-28.md)、
-起動ヘッダ・working／elapsed・Ctrl-Cの修正と配置は[Increment 148](../increments/increment-148.md)を参照する。
+起動ヘッダ・working／elapsed・Ctrl-Cの修正と配置は[Increment 148](../increments/increment-148.md)、
+複数Coreの実装・review・実provider受入は[Increment 149〜153](../plans/a25-implementation-slices.md)、
+その常用配置は[A25合同配置記録](../increments/a25-deployment-2026-09-29.md)を参照する。
 
 ## 起動と接続
 
@@ -21,6 +23,12 @@ henji serve --port 5270 --session <saved-session-id>
 henji tui --connect http://127.0.0.1:5270
 henji tui --connect http://127.0.0.1:5270 --session <saved-session-id>
 henji history --connect http://127.0.0.1:5270 --latest --view session
+henji core list
+henji --core <core-id>
+henji --core <core-id> --new
+henji --session <saved-session-id>
+henji core status --core <core-id> --json
+henji core stop --core <core-id>
 ```
 
 `serve`はforegroundで待機する。既定hostは`127.0.0.1`、portは`0`（OS割当）。
@@ -33,14 +41,27 @@ SessionのDefinition、provider、最大step、timeoutの指定は既存TUIと�
 接続TUIの`--session`は、稼働中の同IDならattach、保存済みなら明示openで継続する。 保存閲覧はTUI
 pickerのview、またはGET APIで行い、実行slotを変更しない。
 TUIの終了・入力EOF・signalはclientのdetachであり、Coreや受付済みtaskを停止しない。
-`henji core status [--connect URL] [--json]`は稼働Coreを照会し、未起動なら起動しない。
-`henji core stop [--connect URL]`はHTTPの明示shutdownで資源を清算して終了する。
-serve自身へのSIGINT／SIGTERMも同じ清算へ入る。同じworkspace・XDG state rootのserveを再実行すると、
-既存Coreのendpointを提示し、JSONではreused=trueとなる。 launcherはcanonical
-workspaceのdescriptorとAPI epochで発見し、未起動なら独立processを作る。
-引数なし`henji`と`henji tui`は同じHTTP clientへ入り、localではCoreを発見・起動する。
-`--connect URL`では指定先だけへ接続し、local Coreを起動しない。再接続は現在の稼働Sessionへattachし、
+`henji core list [--json]`と対象省略の`core status`は、このworkspaceのCore一覧を返す。 Core
+ID、PID、workspace、Session ID/titleまたは未open、phase、URLを確認できる。
+`core status --core ID [--json]`と`core stop --core ID`はfull IDまたは一意なprefixで一つを指定する。
+複数一致なら候補を表示し、停止済み・未発見なら状態を返す。代替Coreは起動しない。
+`--connect URL`でも指定先を照会・停止でき、`--core`と同時には指定しない。
+対象省略stopは一覧と指定方法だけを表示し、Coreを停止しない。
+明示stopとserve自身へのSIGINT／SIGTERMはHTTP shutdownと同じ資源清算へ入る。
+同じworkspace・XDGでも、serveと通常TUIは毎回新PID・epoch・URLのCoreを起動する。
+launcherはspawn前にepochを採番し、そのepochのdescriptor・boot結果・APIを照合する。
+引数なし`henji`と`henji tui`は同じHTTP clientへ入り、新Coreの空slotへ新Sessionを開く。
+`--core ID`では一覧のfull
+IDまたは一意なprefix、`--connect URL`では指定先だけへ接続し、新Coreを起動しない。
+再接続は現在の稼働Sessionへattachし、
 `--new`は新規Sessionを明示する。`--help`でcommandとoptionの所属を確認できる。
+起動ヘッダは接続先の短いCore IDとSession IDを表示する。Session切替後もCore IDは保持する。
+`henji --core ID --new`は選んだidle CoreのSessionだけを切り替える。
+Core指定なしの`henji --session ID`は新Coreで保存Sessionを再開し、生存Coreへのattachとは別操作となる。
+同じ保存Sessionが生存writerに所有されている間は二重writerを開かない。
+config・credentialは共有、新Sessionの既定modelは共有config、稼働Sessionの選択はSession
+stateに属する。 Core間で同じworkspace fileを編集する順番の調停は行わない。
+
 WebUIは将来の別入口で、今回のbinaryでは未実装と説明する。 headless `run`とlocal
 `history`／`sessions`／`module`／`tool`／`diagnostics`は既存local経路を維持する。
 
@@ -143,8 +164,8 @@ cancel結果の`value.result`は`requested`／`already_requested`／`idle`。
 UIの終了やHTTP接続の切断は、この明示cancel操作を送らず、受付済み実行を継続する。
 接続TUIではbusy中のEscが対象実行へのcancel。Ctrl-Cはbusy中もdraftを消す。
 `/exit`・Ctrl-D・TERM／HUPはdetachし、受付済み実行とfollow-upを継続する。
-同じworkspaceで`henji`を起動すると稼働Sessionへ再接続する。
-接続先を指定していた場合は`henji --connect URL`で同じCoreへ再接続する。
+通常の`henji`は毎回新Core・新Sessionを開く。
+生存Coreの稼働Sessionへ戻るときは`henji --core ID`または`henji --connect URL`で再接続する。
 working／cancellingと経過時間はフッター二行目の先頭に表示する。
 経過時間はexecution開始時刻から表示し、再接続でも引き継ぐ。
 

@@ -6,11 +6,14 @@ Henji Harnessは、Denoで開発しているローカル実行向けのagent har
 Session履歴、切り替え可能なproviderとmodel、TypeScriptによるAgent Definitionを一つのstandalone
 executableから利用できる。Henjiという名前は、日本語の「返事」に由来する。
 
-現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker lifecycle、SQLiteへ保存する履歴、Sessionで
-使用するexact Agent Definitionの選択を担う。headlessなAgent Workerは、built-inまたはinstall済みの信頼された
-TypeScript Definitionを評価し、現在のmodel、instructions、toolsを構成する。親Definitionは`agent:<name>` catalogを宣言でき、modelは`spawn_subagent`で別Deno Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む（V1 fork/join）。一般的な
-Surfaceの置換、durable AgentInstanceのrevision transition、Definitionから構成可能なcontextとloopはまだ実装して
-いない。
+現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker
+lifecycle、SQLiteへ保存する履歴、Sessionで 使用するexact Agent
+Definitionの選択を担う。headlessなAgent Workerは、built-inまたはinstall済みの信頼された TypeScript
+Definitionを評価し、現在のmodel、instructions、toolsを構成する。親Definitionは`agent:<name>`
+catalogを宣言でき、modelは`spawn_subagent`で別Deno
+Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む（V1
+fork/join）。一般的な Surfaceの置換、durable AgentInstanceのrevision
+transition、Definitionから構成可能なcontextとloopはまだ実装して いない。
 
 長期的には、実際の利用経験から改訂候補を作り、人間が明示的に採用する自己改訂workflowを目指している。
 この自己改訂workflowはまだ実装していない。
@@ -58,15 +61,44 @@ printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
 /path/to/henji-harness/dist/henji sessions list
 ```
 
-`run`は既定でfinal textのみをstdoutへ出す。`--json`はturn中のeventを1行1 JSON（NDJSON、`{"v":1,"kind":...}`）
-でstdoutへ出し、最後に`result` recordを出す。`--stream`はassistant textをstdoutへ逐次、tool activityの要約を
+`run`は既定でfinal textのみをstdoutへ出す。`--json`はturn中のeventを1行1
+JSON（NDJSON、`{"v":1,"kind":...}`） でstdoutへ出し、最後に`result`
+recordを出す。`--stream`はassistant textをstdoutへ逐次、tool activityの要約を
 stderrへ出す。`--json`と`--stream`は排他。未知の`kind`は無視してよい。`--json`は単一objectを返す
 `tool --json`とは異なる。
 
+非TTYのcallerから `run` を呼ぶときはtaskをstdinから渡す。`--task` はTTYで利用する。
+
+```sh
+printf 'このworkspaceの構成を説明して\n' | /path/to/henji-harness/dist/henji run --json
+```
+
 OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
-`henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で起動する。
+`henji --root-provider openai-responses`、Chat
+Completionsなら`henji --root-provider openai-chat`で起動する。
 OpenRouterは既定の`openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
 `providers/*.json`のdata-only declarationで、対応protocolを使う別provider IDも追加できる。
+
+## 複数Coreの並行利用と明示的な再接続
+
+同じworkspaceで `henji` や `henji tui` を起動するたびに、新しいCoreとSessionを作る。
+二つのterminalで独立した仕事を並行に進め、画面上のCore IDとSession IDで識別できる。
+
+```sh
+henji core list
+henji --core <core-idまたは一意なprefix>
+henji --core <core-id> --new
+henji --session <saved-session-id>
+henji core status --core <core-id> --json
+henji core stop --core <core-id>
+```
+
+Ctrl-DでTUIをdetachしても、Coreと受付済みの仕事は継続する。再接続はCore IDまたは `--connect URL`
+で明示する。 Core指定なしの `--session` は保存Sessionを新Coreで再開する。対象を省略した `core stop`
+は一覧と指定方法だけを表示する。
+履歴DB・config・credentialは共有し、稼働Sessionのmodel選択と各Coreの親子agent・tool管理は独立する。
+`henji run` はHTTP Coreとは別のheadless入口を維持する。
+詳しい操作は[HTTP API](docs/operations/http-api.md)を参照する。
 
 ## 現在使える主な機能
 
@@ -85,8 +117,8 @@ runtime配置は、credential値を表示しない`henji diagnostics runtime`で
 
 ## Agent Definition
 
-local TypeScript Agent Definitionは、実行前にmanaged dataへinstallする。installされたrevisionはimmutableで、
-実行時にexact revisionを指定する。
+local TypeScript Agent Definitionは、実行前にmanaged
+dataへinstallする。installされたrevisionはimmutableで、 実行時にexact revisionを指定する。
 
 ```sh
 ./dist/henji module install ./agent/entry.ts --id team/answer-agent
@@ -96,16 +128,19 @@ local TypeScript Agent Definitionは、実行前にmanaged dataへinstallする�
 
 ## Henji Instruction
 
-Henji共通のbase instructionは、最小のbuilt-in core（役割identityとcredential/Authorization境界）を既定で
+Henji共通のbase instructionは、最小のbuilt-in
+core（役割identityとcredential/Authorization境界）を既定で
 使う。詳細な作業方針は、次のuser-scopedファイルへ置くだけで読み込まれる（installやactivateは不要）。
 
 ```text
 ${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness/instruction.md
 ```
 
-ファイルが存在すればbuilt-in coreを置き換え、存在しなければ最小coreを使う。内容はtrim・改行変換・Unicode
-normalizationをせずbyte-equivalentに扱い、source identity（`user/instruction.md`）とcontent digestとして
-execution attributionへ記録する。ファイルが読めない場合や内容が不正な場合は、built-inへ暗黙fallbackせず
+ファイルが存在すればbuilt-in
+coreを置き換え、存在しなければ最小coreを使う。内容はtrim・改行変換・Unicode
+normalizationをせずbyte-equivalentに扱い、source identity（`user/instruction.md`）とcontent
+digestとして execution
+attributionへ記録する。ファイルが読めない場合や内容が不正な場合は、built-inへ暗黙fallbackせず
 turn開始前に失敗する。
 
 推奨する詳細方針の雛形は
@@ -132,8 +167,7 @@ import {
   type ExecutableAgentDefinition,
 } from 'jsr:@henji/harness@0.6.0';
 
-const definition: ExecutableAgentDefinition = (input) =>
-  createDefaultAgentComposition(input);
+const definition: ExecutableAgentDefinition = (input) => createDefaultAgentComposition(input);
 
 export default definition;
 ```

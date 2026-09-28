@@ -107,7 +107,7 @@ export type CoreServiceOptions =
     WorkerSessionOptions,
     'persistence' | 'sessionId' | 'lazyInitialHost'
   >
-  & Readonly<{ initialSession?: CoreInitialSession }>;
+  & Readonly<{ initialSession?: CoreInitialSession; coreEpoch?: string }>;
 
 export type CoreSessionFrameSink = (
   frame: SessionStreamFrame | undefined,
@@ -279,7 +279,7 @@ const apiSelection = (selection: ModelSelection): ApiSelection => ({
 export const createCoreService = async (
   options: CoreServiceOptions,
 ): Promise<CoreService> => {
-  const { initialSession, ...workerOptions } = options;
+  const { initialSession, coreEpoch: requestedCoreEpoch, ...workerOptions } = options;
   const resolveManagedInstruction = workerOptions.physicalIoMode !== 'provider-free' ||
     workerOptions.dataRoot !== undefined ||
     workerOptions.configRoot !== undefined;
@@ -307,8 +307,6 @@ export const createCoreService = async (
   const stateRoot = options.stateRoot ?? launcherStateRoot();
   const statePaths = await sessionPaths(stateRoot, workspace.root);
   const databasePath = `${statePaths.root}/history-v7.sqlite3`;
-  let databaseExists = await Deno.stat(databasePath).then((info) => info.isFile)
-    .catch(() => false);
   const history = new SqliteHistoryV7ProductionStore(
     stateRoot,
     workspace.root,
@@ -316,8 +314,13 @@ export const createCoreService = async (
   );
   let historyInitialized = false;
   const ensureHistory = async (): Promise<boolean> => {
-    if (!databaseExists) return false;
     if (!historyInitialized) {
+      const exists = await Deno.stat(databasePath).then((info) => info.isFile)
+        .catch((error) => {
+          if (error instanceof Deno.errors.NotFound) return false;
+          throw error;
+        });
+      if (!exists) return false;
       await history.initialize();
       historyInitialized = true;
     }
@@ -325,7 +328,7 @@ export const createCoreService = async (
   };
   await ensureHistory();
 
-  const coreEpoch = crypto.randomUUID().toLowerCase();
+  const coreEpoch = requestedCoreEpoch ?? crypto.randomUUID().toLowerCase();
   let slot: CoreSlot | undefined;
   let closePromise: Promise<void> | undefined;
   let admissionClosed = false;
@@ -606,8 +609,6 @@ export const createCoreService = async (
       return structuredClone(slot.snapshot);
     }
     const next = await makeSlot(selection, activation, fromSessionId);
-    databaseExists = await Deno.stat(databasePath).then((info) => info.isFile)
-      .catch(() => false);
     await ensureHistory();
     const previous = slot;
     slot = next;

@@ -13,6 +13,7 @@ export const presentationStartupFromSnapshot = (
 ): PresentationStartupState => ({
   ...snapshot.session.startup,
   startupEvaluation: snapshot.session.startup.status,
+  coreEpoch: snapshot.cursor.coreEpoch,
   workspace,
   agentId: snapshot.session.position.agent,
   model: { ...snapshot.session.startup.model, ...snapshot.session.selection },

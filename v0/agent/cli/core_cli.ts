@@ -1,17 +1,19 @@
 import { HenjiApiClient } from '../../api/client.ts';
 import { HenjiApiError } from '../../api/client.ts';
 import {
+  coreCollectionLocation,
   coreDiscoveryLocation,
   coreInstanceOwned,
-  findLocalCore,
-  probeCoreEndpoint,
+  listLocalCores,
+  type LocalCoreSummary,
   readCoreEndpoint,
-  tryAcquireCoreInstanceLock,
+  resolveLocalCore,
 } from '../runtime/core_discovery.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
 export interface CoreInvocation {
-  readonly command: 'status' | 'stop';
+  readonly command: 'list' | 'status' | 'stop';
+  readonly coreId?: string;
   readonly connect?: string;
   readonly json: boolean;
 }
@@ -41,65 +43,92 @@ const parseConnectUrl = (value: string): string => {
 
 export const parseCoreInvocation = (args: readonly string[]): CoreInvocation => {
   const command = args[0];
-  if (command !== 'status' && command !== 'stop') {
-    throw new Error('expected core status or core stop');
+  if (command !== 'status' && command !== 'stop' && command !== 'list') {
+    throw new Error('expected core list, core status or core stop');
   }
   let connect: string | undefined;
+  let coreId: string | undefined;
   let json = false;
   for (let index = 1; index < args.length; index += 1) {
     const flag = args[index];
-    if (flag === '--connect') {
+    if (flag === '--connect' && command !== 'list') {
       const value = args[++index];
       if (connect !== undefined || value === undefined || value.startsWith('--')) {
         throw new Error('invalid --connect');
       }
       connect = parseConnectUrl(value);
-    } else if (flag === '--json' && command === 'status') {
+    } else if (flag === '--core' && command !== 'list') {
+      const value = args[++index];
+      if (coreId !== undefined || !value || value.startsWith('--')) {
+        throw new Error('invalid --core');
+      }
+      coreId = value;
+    } else if (flag === '--json' && command !== 'stop') {
       if (json) throw new Error('duplicate --json');
       json = true;
     } else {
       throw new Error(`unexpected core ${command} option ${flag}`);
     }
   }
-  return { command, ...(connect === undefined ? {} : { connect }), json };
+  if (coreId !== undefined && connect !== undefined) {
+    throw new Error('--core and --connect are mutually exclusive');
+  }
+  return {
+    command,
+    ...(connect === undefined ? {} : { connect }),
+    ...(coreId === undefined ? {} : { coreId }),
+    json,
+  };
+};
+
+const shortCoreId = (core: LocalCoreSummary, cores: readonly LocalCoreSummary[]): string => {
+  let length = Math.min(8, core.coreEpoch.length);
+  while (
+    cores.some((other) =>
+      other.coreEpoch !== core.coreEpoch &&
+      other.coreEpoch.startsWith(core.coreEpoch.slice(0, length))
+    )
+  ) length += 1;
+  return core.coreEpoch.slice(0, length);
+};
+
+const list = async (invocation: CoreInvocation): Promise<number> => {
+  const paths = resolveRuntimePaths();
+  const workspace = (await coreCollectionLocation(paths)).workspace;
+  const cores = (await listLocalCores(paths)).map((candidate) => candidate.summary);
+  if (invocation.json) {
+    await writeStdout(`${JSON.stringify({ kind: 'core.list', workspace, cores })}\n`);
+  } else {
+    const rows = cores.map((core) => {
+      const session = core.activeSessionId == null
+        ? 'unopened'
+        : `${core.activeSessionId.slice(0, 8)} ${core.title ?? 'untitled'}`;
+      return `${shortCoreId(core, cores)} · pid ${core.pid ?? '?'} · ${core.state} · ${session} · ${
+        core.phase ?? '?'
+      } · ${core.url ?? '?'}\n`;
+    });
+    await writeStdout(
+      `Cores · ${workspace}\n${rows.length === 0 ? 'No core is running.\n' : rows.join('')}`,
+    );
+  }
+  return 0;
 };
 
 const status = async (invocation: CoreInvocation): Promise<number> => {
-  const connection = invocation.connect === undefined
-    ? await findLocalCore(resolveRuntimePaths())
-    : undefined;
-  if (connection === undefined && invocation.connect === undefined) {
-    const location = await coreDiscoveryLocation(resolveRuntimePaths());
-    const endpoint = await readCoreEndpoint(location);
-    if (await coreInstanceOwned(location)) {
-      const result = {
-        kind: 'core.status',
-        running: null,
-        workspace: location.workspace,
-        state: 'unreachable',
-        ...(endpoint === undefined ? {} : { url: endpoint.url }),
-      };
-      await writeStdout(
-        invocation.json
-          ? `${JSON.stringify(result)}\n`
-          : `Core owns this workspace but is unreachable${
-            endpoint === undefined ? '' : ` · ${endpoint.url}`
-          }\n`,
-      );
-      return 0;
-    }
-    const result = { kind: 'core.status', running: false, workspace: location.workspace };
-    await writeStdout(invocation.json ? `${JSON.stringify(result)}\n` : 'No core is running.\n');
-    return 0;
+  if (invocation.connect === undefined && invocation.coreId === undefined) {
+    return await list(invocation);
   }
-  const client = connection === undefined ? new HenjiApiClient(invocation.connect!) : undefined;
-  const core = connection?.core ?? await client!.coreRead();
+  const connection = invocation.coreId === undefined
+    ? undefined
+    : await resolveLocalCore(resolveRuntimePaths(), invocation.coreId);
+  const client = new HenjiApiClient(connection?.endpoint.url ?? invocation.connect!);
+  const core = connection?.core ?? await client.coreRead();
   const result = {
     kind: 'core.status',
     running: true,
     workspace: core.workspace,
     coreEpoch: core.coreEpoch,
-    url: connection?.endpoint.url ?? client!.baseUrl.replace(/\/api\/v1$/u, ''),
+    url: client.baseUrl.replace(/\/api\/v1$/u, ''),
     ...(connection === undefined ? {} : { pid: connection.endpoint.pid }),
     build: core.build,
     activeSessionId: core.activeSessionId,
@@ -137,52 +166,47 @@ const waitUntilStopped = async (
 
 const waitUntilLocalCoreReleased = async (
   location: Awaited<ReturnType<typeof coreDiscoveryLocation>>,
-  coreEpoch: string,
 ): Promise<void> => {
-  while (true) {
-    const endpoint = await readCoreEndpoint(location);
-    if (endpoint !== undefined && endpoint.coreEpoch !== coreEpoch) {
-      if (await probeCoreEndpoint(endpoint) !== undefined) return;
-    }
-    const instance = await tryAcquireCoreInstanceLock(location);
-    if (instance !== undefined) {
-      await instance.close();
-      return;
-    }
+  while (await coreInstanceOwned(location)) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
 };
 
 const stop = async (invocation: CoreInvocation): Promise<number> => {
-  const paths = invocation.connect === undefined ? resolveRuntimePaths() : undefined;
-  const connection = invocation.connect === undefined ? await findLocalCore(paths!) : undefined;
-  if (connection === undefined && invocation.connect === undefined) {
-    const location = await coreDiscoveryLocation(paths!);
-    if (await coreInstanceOwned(location)) {
-      const endpoint = await readCoreEndpoint(location);
-      throw new Error(
-        `Core owns this workspace but is unreachable${
-          endpoint === undefined ? '' : ` at ${endpoint.url}`
-        }; cannot stop it through HTTP`,
-      );
-    }
-    await writeStdout('No core is running.\n');
+  if (invocation.connect === undefined && invocation.coreId === undefined) {
+    await list(invocation);
+    await writeStdout('Specify --core ID or --connect URL to stop one Core.\n');
     return 0;
   }
-  const url = connection?.endpoint.url ?? invocation.connect!;
-  const client = new HenjiApiClient(url);
+  const connection = invocation.coreId === undefined
+    ? undefined
+    : await resolveLocalCore(resolveRuntimePaths(), invocation.coreId);
+  const client = new HenjiApiClient(connection?.endpoint.url ?? invocation.connect!);
   const core = connection?.core ?? await client.coreRead();
+  const hasPaths = Deno.env.get('HOME') !== undefined ||
+    ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME'].every((key) =>
+      Deno.env.get(key) !== undefined
+    );
+  const paths = hasPaths ? resolveRuntimePaths() : undefined;
+  let local: Awaited<ReturnType<typeof coreDiscoveryLocation>> | undefined;
+  if (paths !== undefined) {
+    try {
+      const candidate = await coreDiscoveryLocation({
+        workspace: core.workspace,
+        stateRoot: paths.stateRoot,
+      }, core.coreEpoch);
+      const endpoint = await readCoreEndpoint(candidate);
+      if (endpoint?.url === client.baseUrl.replace(/\/api\/v1$/u, '')) local = candidate;
+    } catch (error) {
+      if (!(error instanceof Deno.errors.NotFound)) throw error;
+    }
+  }
   const result = await client.coreShutdown({ commandId: crypto.randomUUID() });
   if (result.kind !== 'accepted') {
     throw new Error('Core shutdown was not accepted');
   }
   await waitUntilStopped(client, core.coreEpoch);
-  if (connection !== undefined) {
-    await waitUntilLocalCoreReleased(
-      await coreDiscoveryLocation(paths!),
-      core.coreEpoch,
-    );
-  }
+  if (local !== undefined) await waitUntilLocalCoreReleased(local);
   await writeStdout(`Core stopped · ${core.workspace}\n`);
   return 0;
 };
@@ -190,7 +214,11 @@ const stop = async (invocation: CoreInvocation): Promise<number> => {
 export const main = async (args: readonly string[]): Promise<number> => {
   try {
     const invocation = parseCoreInvocation(args);
-    return invocation.command === 'status' ? await status(invocation) : await stop(invocation);
+    return invocation.command === 'list'
+      ? await list(invocation)
+      : invocation.command === 'status'
+      ? await status(invocation)
+      : await stop(invocation);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'core command failed';
     await writeStderr(`core command failed: ${message}\n`);

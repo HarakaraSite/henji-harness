@@ -476,6 +476,8 @@ export type PresentationEvent =
 export type PresentationEventSink = (event: PresentationEvent) => void;
 
 export interface PresentationStartupState {
+  /** Process identity supplied by an HTTP snapshot, independent of saved Session state. */
+  readonly coreEpoch?: string;
   /** HTTP clients can render Host orientation before Worker context and skills are evaluated. */
   readonly startupEvaluation?: 'unevaluated' | 'evaluated';
   readonly productVersion: string;

@@ -222,6 +222,8 @@ export interface HistoryV7ExecutionState {
   readonly unresolvedMandatoryCount: number;
 }
 
+export const HISTORY_V7_BUSY_TIMEOUT_MS = 5_000;
+
 export class SqliteHistoryV7Prototype {
   readonly #db: DatabaseSync;
   readonly #fault?: (phase: HistoryV7PrototypeFaultPhase) => void;
@@ -236,6 +238,7 @@ export class SqliteHistoryV7Prototype {
     this.#db = this.#readOnly
       ? new DatabaseSync(databasePath, { readOnly: true })
       : new DatabaseSync(databasePath);
+    this.#db.exec(`PRAGMA busy_timeout=${HISTORY_V7_BUSY_TIMEOUT_MS};`);
     this.#db.exec(
       this.#readOnly
         ? 'PRAGMA foreign_keys=ON;'
@@ -250,7 +253,21 @@ export class SqliteHistoryV7Prototype {
         throw new Error(`unsupported history v7 prototype schema: ${version}`);
       }
     } else if (version === 0) {
-      this.#db.exec(`PRAGMA journal_mode=WAL; BEGIN IMMEDIATE; ${SCHEMA} COMMIT;`);
+      this.#db.exec('PRAGMA journal_mode=WAL; BEGIN IMMEDIATE;');
+      try {
+        const currentVersion = Number(
+          (this.#db.prepare('PRAGMA user_version').get() as Row).user_version,
+        );
+        if (currentVersion === 0) this.#db.exec(SCHEMA);
+        else if (currentVersion !== HISTORY_V7_SCHEMA_VERSION) {
+          throw new Error(`unsupported history v7 prototype schema: ${currentVersion}`);
+        }
+        this.#db.exec('COMMIT;');
+      } catch (error) {
+        this.#db.exec('ROLLBACK;');
+        this.#db.close();
+        throw error;
+      }
     } else if (version !== HISTORY_V7_SCHEMA_VERSION) {
       this.#db.close();
       throw new Error(`unsupported history v7 prototype schema: ${version}`);

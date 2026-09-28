@@ -15,9 +15,7 @@ import {
   coreDiscoveryLocation,
   type CoreEndpoint,
   type CoreFileLock,
-  probeCoreEndpoint,
   publishCoreEndpoint,
-  readCoreEndpoint,
   removeCoreEndpoint,
   tryAcquireCoreInstanceLock,
   writeCoreBootResult,
@@ -26,6 +24,7 @@ import { buildManifest } from '../runtime/build_manifest.ts';
 
 export interface ServeMainOptions {
   readonly bootstrapToken?: string;
+  readonly coreEpoch?: string;
 }
 
 export interface ServeInvocation {
@@ -145,39 +144,19 @@ export const main = async (
         ? { kind: 'exact', sessionId: invocation.sessionId! }
         : { kind: invocation.persistence }
       : undefined;
-    location = await coreDiscoveryLocation(paths);
+    coreEpoch = options.coreEpoch ?? crypto.randomUUID().toLowerCase();
+    location = await coreDiscoveryLocation(paths, coreEpoch);
     if (options.bootstrapToken === undefined) {
       startupLock = await acquireCoreStartupLock(location);
-      const existing = await readCoreEndpoint(location);
-      if (existing !== undefined) {
-        const existingCore = await probeCoreEndpoint(existing);
-        if (existingCore !== undefined) {
-          await Deno.stdout.write(encoder.encode(
-            command.json
-              ? `${
-                JSON.stringify({
-                  kind: 'core.ready',
-                  apiVersion: existingCore.apiVersion,
-                  coreEpoch: existingCore.coreEpoch,
-                  workspace: existingCore.workspace,
-                  url: existing.url,
-                  pid: existing.pid,
-                  reused: true,
-                })
-              }\n`
-              : `Henji core ready · ${existingCore.workspace}\n${existing.url}\n`,
-          ));
-          return 0;
-        }
-      }
     }
     instanceLock = await tryAcquireCoreInstanceLock(location);
     if (instanceLock === undefined) {
       throw new Error(
-        'Core owns this workspace but is not reachable; check core status or its URL',
+        'Core instance is already owned; check its ID or URL',
       );
     }
     service = await createCoreService({
+      coreEpoch,
       workspaceRoot: location.workspace,
       stateRoot: paths.stateRoot,
       configRoot: paths.configRoot,

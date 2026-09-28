@@ -21,6 +21,7 @@ import {
   type WorkerSessionStorePort,
 } from '../session/session_store_contract.ts';
 import { acquireLock, ensureDirectory, type Lock } from '../session/deno_session_store_io.ts';
+import { withHistorySchemaOpen } from './history_schema_open.ts';
 import { workspaceDigest } from '../session/session_store_paths.ts';
 import { validateFailureDiagnostic } from '../session/failure_diagnostic.ts';
 import {
@@ -72,7 +73,7 @@ import type {
 } from './history_v7_model.ts';
 import { encodeHistoryV7Payload } from './history_v7_model.ts';
 import type { ProviderEvidenceRuntimeEvent } from '../provider/provider_evidence.ts';
-import { SqliteHistoryV7Store } from './sqlite_history_v7_store.ts';
+import { HISTORY_V7_BUSY_TIMEOUT_MS, SqliteHistoryV7Store } from './sqlite_history_v7_store.ts';
 
 type SqlValue = string | number | bigint | Uint8Array | null;
 type Row = Record<string, SqlValue>;
@@ -307,17 +308,17 @@ export class SqliteHistoryV7ProductionStore
     if (this.#core !== undefined) return;
     const digest = await workspaceDigest(this.workspaceRoot);
     const root = `${this.stateRoot}/${digest}`;
-    if (this.#readOnly) {
+    if (!this.#readOnly) {
+      await ensureDirectory(root, 0o700);
+      await ensureDirectory(`${root}/locks-v7`, 0o700);
+    }
+    await withHistorySchemaOpen(root, () => {
+      if (this.#core !== undefined) return;
       this.#databasePath = `${root}/history-v7.sqlite3`;
       this.#locksPath = `${root}/locks-v7`;
-      this.#core = new SqliteHistoryV7Store(this.#databasePath, { readOnly: true });
-      return;
-    }
-    await ensureDirectory(root, 0o700);
-    await ensureDirectory(`${root}/locks-v7`, 0o700);
-    this.#databasePath = `${root}/history-v7.sqlite3`;
-    this.#locksPath = `${root}/locks-v7`;
-    this.#core = new SqliteHistoryV7Store(this.#databasePath);
+      this.#core = new SqliteHistoryV7Store(this.#databasePath, { readOnly: this.#readOnly });
+    });
+    if (this.#readOnly) return;
     const db = this.#db();
     let active: Row[];
     try {
@@ -337,7 +338,11 @@ export class SqliteHistoryV7ProductionStore
       try {
         const lock = await acquireLock(lockPath);
         this.#executionLocks.set(executionId, lock);
-        this.reconcileExecution({ executionId, settlement: 'interrupted' });
+        try {
+          this.reconcileExecution({ executionId, settlement: 'interrupted' });
+        } finally {
+          this.#releaseExecutionLock(executionId);
+        }
       } catch (error) {
         if (error instanceof SessionStoreError && error.code === 'session_busy') continue;
         throw error;
@@ -370,7 +375,7 @@ export class SqliteHistoryV7ProductionStore
     }
     const db = new DatabaseSync(this.#databasePath);
     db.exec(
-      'PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=250;',
+      `PRAGMA busy_timeout=${HISTORY_V7_BUSY_TIMEOUT_MS}; PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;`,
     );
     return db;
   }

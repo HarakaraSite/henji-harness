@@ -385,6 +385,13 @@ class InjectedJournalFailureStore extends SqliteHistoryV7ProductionStore {
     }
     return super.appendExecutionEvents(inputs);
   }
+
+  override appendExecutionEventsWithSemanticIds(inputs: readonly ExecutionEventInput[]) {
+    if (inputs.some((input) => this.shouldFail(input))) {
+      throw new HistoryStoreError(this.code);
+    }
+    return super.appendExecutionEventsWithSemanticIds(inputs);
+  }
 }
 
 class InvalidObservationStore extends SqliteHistoryV7ProductionStore {

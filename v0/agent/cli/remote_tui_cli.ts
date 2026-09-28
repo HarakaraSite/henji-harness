@@ -6,6 +6,7 @@ import { isSessionId } from '../session/session_store_contract.ts';
 
 export interface RemoteTuiInvocation {
   readonly url?: string;
+  readonly coreId?: string;
   readonly target: RemoteTuiLaunchTarget;
   readonly activation?: SessionActivation;
 }
@@ -36,6 +37,7 @@ export const parseRemoteTuiInvocation = (
   args: readonly string[],
 ): RemoteTuiInvocation => {
   let url: string | undefined;
+  let coreId: string | undefined;
   let target: RemoteTuiLaunchTarget = { kind: 'implicit' };
   let targetSeen = false;
   let agent: string | undefined;
@@ -65,6 +67,10 @@ export const parseRemoteTuiInvocation = (
         throw new Error('invalid --connect');
       }
       url = value;
+      index += 2;
+    } else if (flag === '--core') {
+      if (coreId !== undefined) throw new Error('duplicate --core');
+      coreId = valueAfter(args, index, flag);
       index += 2;
     } else if (flag === '--new') {
       setTarget({ kind: 'new' });
@@ -121,6 +127,9 @@ export const parseRemoteTuiInvocation = (
   ) {
     throw new Error('invalid TUI invocation');
   }
+  if (url !== undefined && coreId !== undefined) {
+    throw new Error('--core and --connect are mutually exclusive');
+  }
   const activation: SessionActivation = {
     ...(agent === undefined ? {} : { agent }),
     ...(definitionRevision === undefined ? {} : { definitionRevision }),
@@ -130,6 +139,7 @@ export const parseRemoteTuiInvocation = (
   };
   return {
     ...(url === undefined ? {} : { url }),
+    ...(coreId === undefined ? {} : { coreId }),
     target,
     ...(Object.keys(activation).length === 0 ? {} : { activation }),
   };
@@ -142,8 +152,11 @@ export const runRemoteTuiInvocation = async (
   let url = invocation.url;
   if (url === undefined) {
     const { resolveRuntimePaths } = await import('../runtime/runtime_paths.ts');
-    const { prepareLocalCore } = await import('../runtime/core_discovery.ts');
-    const connection = await prepareLocalCore(resolveRuntimePaths());
+    const { prepareLocalCore, resolveLocalCore } = await import('../runtime/core_discovery.ts');
+    const paths = resolveRuntimePaths();
+    const connection = invocation.coreId === undefined
+      ? await prepareLocalCore(paths)
+      : await resolveLocalCore(paths, invocation.coreId);
     url = connection.endpoint.url;
   }
   return await runRemoteTui(url, undefined, dependencies, {

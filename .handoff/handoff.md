@@ -2,7 +2,14 @@
 
 再開時の入口。現在地と次の一手をここで確認し、要件・計画・結果はリンク先の正本を参照する。
 
-## 現在地（2026-09-28）
+## 現在地（2026-09-29）
+
+**A25五sliceのlocal実装・各sliceのコード/テストreview・最終受入を完了。**
+[Increment 153](../docs/increments/increment-153.md)がcompiled
+TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結果の正本。
+検証用Core・tool・tmuxは終了済み。利用者が対応を完了承認し、文書更新・commit/push・常用配置を指示した。
+現在は[合同配置記録](../docs/increments/a25-deployment-2026-09-29.md)の手順で配置作業中。
+全体の順序と受入は[五slice実装計画](../docs/plans/a25-implementation-slices.md)を参照する。
 
 **Increment 148の修正・検証・commit・push・常用配置・配置後確認を完了。**
 最新binaryの起動ヘッダ欠落、working／elapsed欠落を修正した。利用者の追加指定によりworking／elapsedは
@@ -22,17 +29,22 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. 148の修正・push・配置の依頼範囲は完了。次の依頼または通常利用の観測を受ける。
-   正本は[148](../docs/increments/increment-148.md)。
+1. A25のcommit/push・clean build・常用配置・隔離tmux確認を完了し、配置記録とhandoffを更新する。
+   これらは今回の追加指示で承認済み。構想・architecture・roadmapの意味変更とJSR公開は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
 
+- A25の参照実装調査、gpt-6-astraへの比較相談とreview、実provider実測、複数Core案・実装計画の作成は指示済み・完了。
+  五sliceのlocal実装・非破壊的検証・各slice後のreviewerによるコード/テストreviewは承認済み・完了。
+  利用者が完了承認し、関連文書更新・commit/push・配置を追加指示済み。
+  architecture/roadmapへの意味変更とJSR公開は別承認。
+  詳細と証拠は[複数Core案](../docs/plans/a25-multiple-cores.md)を参照する。検証用Coreは停止済み。
 - 148のlocal修正と非破壊的検証、commit／push／常用配置は指示済み・完了。
   配置前確認では`/home/agent`とrepository workspaceのCoreはともに非稼働。実行中の作業は中断しない。
-  UIとCoreをまとめて終了するスラッシュコマンド案、subagent起動判断、同workspaceの複数Session同時実行は「メモだけ」の指示で
-  通常利用メモへ記録した。
+  UIとCoreをまとめて終了するスラッシュコマンド案とsubagent起動判断は「メモだけ」の指示で
+  通常利用メモへ記録した。同workspaceの複数Session同時実行は、後続のA25案整理を上記へ引き継ぐ。
 - S22の議論の文書化、参照実装調査、詳細設計・slice分割計画の作成、review指摘への設計修正は指示済み。
   通常henjiを明示TUI起動の省略形とし、未起動coreを自動起動する。
   core単独起動のサードパーティ接続、WebUI別入口という利用者指定とCLI形式の委任を反映した。
