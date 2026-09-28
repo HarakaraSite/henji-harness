@@ -1,6 +1,6 @@
 # S22・Increment 147 — commit・push・常用配置
 
-更新日: 2026-09-28 ステータス: 利用者指示に基づきcommit・push・配置を実施中。
+更新日: 2026-09-28 ステータス: commit・push・常用配置・配置後確認完了。
 
 ## 対象と承認
 
@@ -27,4 +27,35 @@ none Session表示、UI detach後のCore保持、再接続と同Session維持、
 
 ## 実施結果
 
-commit・build・配置・確認結果は完了後ここへ記録する。
+実装・test・関連文書をcommit
+`76ba82ec8a65deac21ce4be99e470ba861bc6125`へまとめ、`origin/main`へpushした。
+全109fileの変更で、code／testはreview済みartifactと一致する。構想・architecture・roadmapの正本は変更していない。
+配置後の文書記録はこの実装commitに続くdocs commitへまとめる。
+
+Deno 2.9.7の公式build
+scriptをcleanな実装commitから実行し、`/home/agent/.local/bin/henji`へ原子的に配置した。
+
+- version: `henji 0.7.0`、sourceは上記実装commit、dirtyなし。
+- build ID: `4adab9c28ef966a258ace7c2276587877d9615d99bc06fca05b84fdda63fc07b`。
+- runtime SHA-256: `5d5a1ad83ffa4bd5ad6a21e5669b3f9bcf27adbaeac843ee7264881b937dadda`。 Increment
+  147の最終確認済み候補と一致する。
+- binary SHA-256: `d5b2057f5ce0f2ebad68ec019c0a7c0cdd2e1201f51d0bd561a6b843b3df1856`。
+  clean候補と常用先のhash・version・source・buildが一致した。
+- 旧binaryは`/tmp/henji-s22-deploy-2026-09-28/henji.previous`へ保持した。
+  旧sourceは`1d7e0bb6…`、旧buildは`41d37741…`。
+
+配置binaryそのものを、隔離XDG・新規workspace・専用tmuxから通常CLI `--no-session`で起動した。
+Coreの自動起動、none Sessionの画面表示、Ctrl-D
+detach後のCore保持、`tui`で同Session・同epochへの再接続、
+明示`core stop`と`core status`の非稼働を確認した。実行開始はゼロ、追加provider requestもゼロ。
+`--help`とbuild情報も確認した。確認用Core・tmuxは停止済み。 隔離済み147 probe
+configを再利用し、実config・既存Session dataへ書いていない。
+
+証拠は `/tmp/henji-s22-deploy-2026-09-28/evidence` のbuild.log、deployment.json、help.txt、
+deployed-core-ready.json、deployed-snapshot.json、deployed-initial.txt、deployed-reattached.txt、
+deployed-smoke-summary.json、deployed-stop.txt、deployed-stopped.json。
+保存証拠のcredential値一致はゼロ。JSR公開と実provider再実行は行っていない。
+
+各incrementの冒頭を配置完了へ更新し、handoffを次セッションの入口へ更新した。
+各increment本文中の「未配置／未承認」は、そのlocal確認時点のscope・履歴として残す。
+現在のcommit・push・配置状態は本記録と各文書の冒頭を参照する。

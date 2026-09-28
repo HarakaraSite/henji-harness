@@ -2,50 +2,31 @@
 
 再開時の入口。現在地と次の一手をここで確認し、要件・計画・結果はリンク先の正本を参照する。
 
-## 現在地（2026-09-28）
+## 現在地（2026-09-28・セッション終了）
 
-**現在地: S22の8sliceとIncrement 147のlocal実装・検証・独立reviewを完了。
-利用者のセッション終了指示に基づき、文書更新・commit・push・常用配置を実施中。**
-要件・計画・結果は[Increment 147](../docs/increments/increment-147.md)が正本。
-通常入口切替と最終binary・review結果は[Increment 146](../docs/increments/increment-146.md)、
-各sliceの要件・計画・結果は[個別increment文書](../docs/increments/)が正本。
-利用者の追加指示による全体reviewの結果は
-[/tmpのreview結果](/tmp/henji-s22-overall-review-none-probe/review-result.md)と
-[最小実行証拠](/tmp/henji-s22-overall-review-none-probe/result.json)を参照する。
-操作方法は[HTTP API](../docs/operations/http-api.md)を参照する。
-workspaceの既存未commit変更・未追跡fileを保持する。HEADは`c4da8f7956d5152f739c868c38f6ca25f1903388`。
-commit／push／常用binary配置は利用者が2026-09-28に明示指示した。
-現在の配置結果は[合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)を参照する。
+**S22の8slice（139〜146）と追加修正147の実装・検証・独立review・commit・push・常用配置を完了。**
+全体reviewのP1／B6と周辺reviewのP2を解消し、限定再reviewの確認範囲に未解決Blocking／P1／P2はない。
+[合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)が配置・終了結果の正本。
+不具合修正とreview結果は[Increment 147](../docs/increments/increment-147.md)、各sliceは
+[139〜146の個別increment](../docs/increments/)、利用方法は[HTTP API](../docs/operations/http-api.md)を参照する。
 
-**Increment 133〜138は2026-09-27に利用者がすべて完了と明示した。**
-各incrementの要件・検証・完了承認は[個別increment文書](../docs/increments/)を参照する。
-133〜138の配置binary基本確認は[合同E2E記録](../docs/increments/e2e-133-138-2026-09-27.md)、
-138の起動失敗修正と配置後の実MiMo flash確認は
-[追加対応結果](../docs/increments/increment-138.md#追加対応のcommitpush常用配置と実provider確認2026-09-27)が正本。
-利用者は1〜132由来の現行機能について、配置binary・実providerの
-基本E2Eを機能ブロック別に行うよう依頼した。
-[1〜132 E2E](../docs/increments/e2e-001-132-2026-09-27.md)は全9ブロック実施済み。
-[追加確認結果](../docs/increments/e2e-001-132-followup-2026-09-27.md)でGoの試験宣言不備を特定し、通常宣言の直接経路は成立。
-streamは修正・候補binary確認・commit・push・常用配置完了。
-利用者の指示に基づき、increment文書の古い未完了表示を現行証拠へ合わせて更新した。
-132も「再現を受けて133を対応した」という利用者判断で完了。
+常用binaryは`henji 0.7.0`、source `76ba82ec…`、build `4adab9c2…`、dirtyなし。
+実装commitは`76ba82ec8a65deac21ce4be99e470ba861bc6125`で`origin/main`へpush済み。
+この終了記録は後続の文書commitへまとめる。配置binaryの通常起動・detach・同Session再接続・明示Core
+stopを確認した。 確認用Core・tmuxは停止済み。新たな実provider requestはゼロ。JSRは更新していない。
 
-- 常用binaryは`henji 0.7.0`、source `1d7e0bb6…`、build `41d37741…`（stream末尾欠落修正）。
-  配置結果と実provider確認は
-  [stream配置結果](../docs/increments/e2e-001-132-followup-2026-09-27.md#stream修正のcommitpush常用配置2026-09-27)を参照する。
-  JSRは今回更新しておらず、0.7.0の公開内容は
-  [Increment 133](../docs/increments/increment-133.md#commitpush常用binary配置)時点のままである。
-- 通常利用メモとproduct正本文書の見直しは完了。承認された自己改訂構想の変更と Increment
-  133のarchitecture・roadmap反映は済んでいる。候補の記載は実装認可を意味しない。
+以前の完了承認と検証結果は[133〜138の個別increment](../docs/increments/)、
+[133〜138合同E2E](../docs/increments/e2e-133-138-2026-09-27.md)、
+[1〜132 E2E](../docs/increments/e2e-001-132-2026-09-27.md)、
+[追加確認・stream配置結果](../docs/increments/e2e-001-132-followup-2026-09-27.md)を参照する。
 
 ## 次の一手
 
-1. [合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)に従ってcommit・push・常用配置と終了記録を完了する。
-   JSR公開とarchitecture・roadmapの意味変更には別途明示承認が必要。
-   要件は[詳細設計](../docs/plans/s22-detailed-design-and-slices.md)、[CLI・外部API設計](../docs/plans/s22-cli-and-external-api.md)を参照する。
-2. 通常利用で新しい観測や改善候補が得られた場合は、
-   [通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
-   133の常用入力観測は133の完了待ち項目にはしない。B6は利用者が修正を指示し、147へ採用した。
+1. 本セッションの依頼範囲は完了。次セッションは利用者の新しい指示から開始する。
+   S22の要件・設計は[詳細設計](../docs/plans/s22-detailed-design-and-slices.md)と
+   [CLI・外部API設計](../docs/plans/s22-cli-and-external-api.md)を参照する。
+2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
+   構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
 
