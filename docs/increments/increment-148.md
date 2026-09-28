@@ -3,7 +3,7 @@
 更新日: 2026-09-28
 
 ステータス: local実装・focused検証・compiled production
-TUI確認完了。利用者がcommit／push／常用配置を指示し、配置作業中。
+TUI確認、commit・push・常用配置・配置後確認完了。
 
 ## 採用動作と根拠
 
@@ -109,3 +109,31 @@ JSR公開、構想・architecture・roadmapの意味変更は今回の配置対�
 未採用の一括終了スラッシュコマンド案は利用者の「メモだけ」指示に従い、
 [通常利用メモS25](../experience/normal-use-inbox.md#s25--tui将来のwebuiとcoreをまとめて終了するスラッシュコマンド)
 へ記録した。subagent起動判断の検討も同メモA24へ記録した。両項目の実装は今回に含めない。
+
+### 配置結果
+
+実装・test・関連文書・通常利用メモをcommit
+`b4ac0b94173cb04bdd435489d928ac961f0b654e`へまとめ、origin/mainへpushした。
+cleanな実装commitからDeno 2.9.7の公式build scriptでcompiled binaryを作り、
+`/home/agent/.local/bin/henji`へ原子的に配置した。
+
+- version: `henji 0.7.0`、sourceは上記実装commit、dirtyなし。
+- build ID: `6118ba3ba26ca884f9263bf99d6651a1dfca6dcad048921f4a87685c9e914f47`。
+- runtime SHA-256: `56b37145d45bea8c94c1d0748ef472bf55aa16ec7443c214baa7cd2db92771fd`。
+  working／elapsedと入力操作を含む最終検証済みcandidateと一致した。
+- binary SHA-256: `cbdc92d8df12e67371d3b7e12163bd932067a2b6c210f00b994dde45c9267681`。
+  clean候補と常用先のhash・version・source・buildが一致した。
+- 旧binaryは`/tmp/henji-i148-deploy-2026-09-28/henji.previous`へ保持した。
+
+配置binaryそのものを隔離XDG・新規workspace・専用tmuxで確認した。
+Core自動起動、起動ヘッダと未評価表示、Ctrl-D後のCore保持、通常起動による同Session・同epochへの再接続、
+rename、/new、none Session、50列・12行のcompact header、明示Core stopまで確認した。
+利用者の追加質問に合わせ、二つのTUIが同じCore・Sessionへ同時接続すること、draftが各clientに独立していること、
+片方のCtrl-Dがもう片方のTUIとCoreを終了しないことも確認した。 execution
+admissionはゼロ、追加provider requestもゼロ。確認用Core・tmuxは停止済み。 実config・既存Session
+dataには書いていない。
+
+build・配置の証拠は`/tmp/henji-i148-deploy-2026-09-28/evidence`のbuild.logとdeployment.json、
+最終production証拠は同rootの`production-2/evidence`のdeployed-smoke-summary.jsonと各screenに保存した。
+配置後記録とhandoffは実装commitに続くdocs commitへまとめてpushする。
+JSR公開、構想・architecture・roadmapの正本変更は行っていない。

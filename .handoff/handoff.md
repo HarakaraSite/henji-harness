@@ -4,13 +4,13 @@
 
 ## 現在地（2026-09-28）
 
-**Increment 148のlocal修正・focused検証・compiled production TUI確認を完了。push・配置作業中。**
+**Increment 148の修正・検証・commit・push・常用配置・配置後確認を完了。**
 最新binaryの起動ヘッダ欠落、working／elapsed欠落を修正した。利用者の追加指定によりworking／elapsedは
 フッター二行目の先頭、Ctrl-Cはbusy中も入力クリア、cancelはEscとなる。
-要件・実装・確認結果・candidate情報・途中probeの外部request一回の記録は
+要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
 [Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは前回配置の`henji 0.7.0`、source `76ba82ec…`、build `4adab9c2…`のまま。
+常用binaryは`henji 0.7.0`、source `b4ac0b94…`、build `6118ba3b…`へ更新済み。
 S22の8slice（139〜146）と147の配置結果は
 [合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)、利用方法は
 [HTTP API](../docs/operations/http-api.md)を参照する。JSRは更新していない。
@@ -22,16 +22,16 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. 利用者のpush・配置指示に従い、148をcommit・pushし、clean buildから常用先へ配置する。
-   CoreとTUIを同じ修正候補で起動し、隔離tmuxで配置後確認を行う。正本は[148](../docs/increments/increment-148.md)。
+1. 148の修正・push・配置の依頼範囲は完了。次の依頼または通常利用の観測を受ける。
+   正本は[148](../docs/increments/increment-148.md)。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
 
-- 148のlocal修正と非破壊的検証は指示済み・完了。commit／push／常用配置は2026-09-28の追加指示で承認済み。
+- 148のlocal修正と非破壊的検証、commit／push／常用配置は指示済み・完了。
   配置前確認では`/home/agent`とrepository workspaceのCoreはともに非稼働。実行中の作業は中断しない。
-  UIとCoreをまとめて終了するスラッシュコマンド案とsubagent起動判断の検討は「メモだけ」の指示で
+  UIとCoreをまとめて終了するスラッシュコマンド案、subagent起動判断、同workspaceの複数Session同時実行は「メモだけ」の指示で
   通常利用メモへ記録した。
 - S22の議論の文書化、参照実装調査、詳細設計・slice分割計画の作成、review指摘への設計修正は指示済み。
   通常henjiを明示TUI起動の省略形とし、未起動coreを自動起動する。

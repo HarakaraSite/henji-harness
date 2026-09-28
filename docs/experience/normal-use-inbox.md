@@ -39,6 +39,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A23 | Agent実行      | `run_typescript`で小さな計算・変換・検査をHenji内で実行                      | 現行構成が安定し、利用者が利用価値検証の再開を明示したとき                                                             |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
+| A25 | Agent実行      | 同じworkspaceで別々のSessionを同時に動かす                                   | 利用者が複数Session同時実行の検討を再開するとき                                                                        |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -565,6 +566,19 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
 - 関連: A14（名前付き子Agent Definitionの専用model指定）、
   [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
+
+### A25 — 同じworkspaceで別々のSessionを同時に動かす（未採用）
+
+- 観測（2026-09-28）: 同じworkspace・同じXDG設定で複数の`henji`を起動すると、
+  複数TUIが一つのCoreと現在の稼働Sessionへ接続する。Coreの稼働Sessionは一つで、
+  同じworkspaceで別々のSessionを同時に実行する機能は未対応である。
+- 利用者判断（2026-09-28）: 同じworkspaceで別々のSessionを同時に動かしたい場面がある。
+  対応はあとで検討する。今回はメモだけ。
+- 検討候補: 同じworkspaceで独立したSessionを並行して実行する操作と、CoreのSession管理を検討する。
+  具体的な構成や切替・接続方法は未決である。
+- 再検討条件: 利用者が複数Session同時実行の検討を再開するとき。現時点で設計・実装は採用しない。
+- 関連: [S22詳細設計・slice計画](../plans/s22-detailed-design-and-slices.md)、
+  [HTTP API](../operations/http-api.md)。
 
 ## F24・自己改訂
 

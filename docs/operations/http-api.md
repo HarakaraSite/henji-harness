@@ -6,7 +6,8 @@
 接続TUIは稼働Sessionでtaskを送り、保存Sessionへの操作は閲覧と明示resumeを区別する。
 credential登録はCore全体の操作なので、idleなら保存Session閲覧中でも利用できる。
 
-実装と常用配置の結果は[S22・147合同配置記録](../increments/s22-deployment-2026-09-28.md)を参照する。
+実装と常用配置の結果は[S22・147合同配置記録](../increments/s22-deployment-2026-09-28.md)、
+起動ヘッダ・working／elapsed・Ctrl-Cの修正と配置は[Increment 148](../increments/increment-148.md)を参照する。
 
 ## 起動と接続
 
