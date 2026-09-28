@@ -11,12 +11,8 @@ import {
   type WorkerHostCapsule,
   WorkerHostSession,
 } from '../../v0/agent/worker/worker_host.ts';
-import {
-  createWorkerSession,
-  type TuiActiveSession,
-} from '../../v0/agent/worker/worker_tui_session.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
-import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import type {
   WorkerHostCommand,
   WorkerToHostMessage,
@@ -283,25 +279,21 @@ Deno.test('Increment 76 opens a stored session lazily and starts the Worker on f
     created = await createWorkerSession({
       workspaceRoot,
       stateRoot,
-      persistence: 'new',
+      persistence: 'session',
+      sessionId: storedId,
+      lazyInitialHost: true,
       physicalIoMode: 'provider-free',
       capsuleFactory: () => {
         capsules += 1;
         return new TurnCapsule();
       },
     });
-    const navigation = created.navigation;
-    assert(navigation !== undefined, 'navigation is required for a durable session');
-    assert(capsuleCount() === 1, 'the initial new session starts its own Worker');
+    assert(capsuleCount() === 0, 'opening a stored session must not start a Worker');
+    assert(created.session.currentPosition().committedTurn === 0);
+    assert(created.session.currentPosition().messageCount === 0);
 
-    const binding = await navigation.switchTo(storedId);
-    assert(capsuleCount() === 1, 'opening a stored session must not start a Worker');
-    const lazy = binding.session as unknown as TuiActiveSession;
-    assert(lazy.currentPosition().committedTurn === 0);
-    assert(lazy.currentPosition().messageCount === 0);
-
-    const outcome = await binding.session.submit('lazy turn');
-    assert(capsuleCount() === 2, 'the first submit starts the Worker');
+    const outcome = await created.session.submit('lazy turn');
+    assert(capsuleCount() === 1, 'the first submit starts the Worker');
     assert(outcome.ok, outcome.error);
 
     const reopened = await store.readWorker(storedId);
@@ -336,23 +328,25 @@ Deno.test('Increment 113 rename starts a lazy resumed Worker and saves the title
         return new WorkerCapsule(url);
       },
     });
-    const navigation = created.navigation;
-    assert(navigation !== undefined);
     const firstId = created.session.currentPosition().sessionId;
     assert((await created.session.submit('save the first session')).ok);
-    const adapter = createTuiPresentationAdapter(created.session, undefined, navigation);
-    const second = await adapter.dispatch({ kind: 'new_session' });
-    assert(second.kind === 'binding');
-    assert(countCapsules() === 2, 'new session starts its Worker');
-    const resumed = await adapter.dispatch({ kind: 'resume_session', id: firstId });
-    assert(resumed.kind === 'binding');
-    assert(countCapsules() === 2, 'resume keeps Worker count unchanged');
-    assertEquals(await adapter.dispatch({ kind: 'rename_session', title: 'Resumed notes' }), {
-      kind: 'session_title',
-      status: 'renamed',
-      title: 'Resumed notes',
+    assertEquals(countCapsules(), 1);
+    await created.close();
+    created = await createWorkerSession({
+      workspaceRoot,
+      stateRoot,
+      persistence: 'session',
+      sessionId: firstId,
+      lazyInitialHost: true,
+      physicalIoMode: 'provider-free',
+      capsuleFactory: (url) => {
+        capsuleCount += 1;
+        return new WorkerCapsule(url);
+      },
     });
-    assert(countCapsules() === 3, 'first live rename starts the resumed Worker');
+    assert(countCapsules() === 1, 'opening a stored Session remains lazy');
+    assertEquals(await created.session.renameTitle('Resumed notes'), 'renamed');
+    assert(countCapsules() === 2, 'the first live rename starts the Worker');
     assertEquals((await store.readWorker(firstId)).title, 'Resumed notes');
   } finally {
     await created?.close();

@@ -50,12 +50,14 @@ export type UiOverlay =
   | Readonly<
     { readonly kind: 'startupHelp'; readonly lines?: readonly string[] }
   >
+  | Readonly<{ readonly kind: 'readOnlyHelp'; readonly lines: readonly string[] }>
   | Readonly<{
     readonly kind: 'sessionPicker';
     readonly listing?: PresentationNavigationListing;
     readonly selected: number;
     readonly page: number;
     readonly loading?: boolean;
+    readonly actionMode?: 'resume' | 'view';
   }>
   | Readonly<{
     readonly kind: 'choicePicker';
@@ -82,6 +84,7 @@ export type UiScroll =
 export interface UiState {
   readonly projection?: PresentationProjection;
   readonly lifecycle: PresentationLifecycle;
+  readonly position?: PresentationPosition;
   /** Structured startup facts live in the log band but never become conversation entries. */
   readonly startup?: Readonly<{
     readonly state: PresentationStartupState;
@@ -138,6 +141,7 @@ export type UiAction =
     readonly state: PresentationStartupState;
     readonly position: PresentationPosition;
   }>
+  | Readonly<{ readonly kind: 'position'; readonly position: PresentationPosition }>
   | Readonly<{ readonly kind: 'session_title'; readonly title: string }>
   | Readonly<{ readonly kind: 'scroll'; readonly mode: UiScroll }>
   | Readonly<{ readonly kind: 'latest' }>
@@ -803,6 +807,7 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     case 'session_binding_replaced':
       return Object.freeze({
         ...state,
+        position: snapshot(event.position),
         startup: state.startup === undefined ? undefined : Object.freeze({
           state: Object.freeze({
             ...state.startup.state,
@@ -970,15 +975,22 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
     case 'startup':
       return Object.freeze({
         ...state,
+        position: snapshot(action.position),
         startup: Object.freeze({
           state: snapshot(action.state),
           position: snapshot(action.position),
         }),
       });
+    case 'position':
+      return Object.freeze({ ...state, position: snapshot(action.position) });
     case 'session_title':
-      return state.startup === undefined ? state : Object.freeze({
+      return Object.freeze({
         ...state,
-        startup: Object.freeze({
+        position: state.position === undefined ? undefined : Object.freeze({
+          ...state.position,
+          title: safeText(action.title),
+        }),
+        startup: state.startup === undefined ? undefined : Object.freeze({
           ...state.startup,
           position: Object.freeze({
             ...state.startup.position,

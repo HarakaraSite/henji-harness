@@ -4,9 +4,6 @@ import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.
 import { setActiveProviderDeclarations } from '../../v0/agent/provider/provider_runtime.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { renderSessionTimeline } from '../../v0/agent/history/history_view.ts';
-import { TuiPresentationAdapter } from '../../v0/presentation/tui_presentation_adapter.ts';
-import { restoredPresentationConversation } from '../../v0/presentation/adapter_projection.ts';
-import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 
 function assert(value: unknown, message = 'assertion failed'): asserts value {
   if (!value) throw new Error(message);
@@ -108,8 +105,6 @@ Deno.test('Increment 137 Responses notes settle before later thinking and surviv
       ? { ...entry, endpoint: `http://127.0.0.1:${server.addr.port}/v1` }
       : entry
   );
-  let adapter: TuiPresentationAdapter | undefined;
-  let ui = createUiState();
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   let resumed: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   try {
@@ -122,31 +117,10 @@ Deno.test('Increment 137 Responses notes settle before later thinking and surviv
       physicalIoMode: 'production',
       initialModelSelection: defaultModelSelectionFor('openrouter-responses'),
       providerDeclarations: declarations,
-      eventSink: (event) => adapter?.deliverCoreEvent(event),
     });
-    adapter = new TuiPresentationAdapter(created.session, (event) => {
-      ui = reduceUiEvent(ui, event);
-    });
-    const outcome = await adapter.submit('Read the marker and report.');
+    const outcome = await created.session.submit('Read the marker and report.');
     assert(outcome.ok, JSON.stringify(outcome));
     assertEquals(inputs.length, 3);
-    assertEquals(ui.log.entries.map((entry) => entry.kind), [
-      'user',
-      'thinking',
-      'assistant',
-      'tool',
-      'tool',
-      'thinking',
-      'tool',
-      'thinking',
-      'assistant',
-    ]);
-    const notes = ui.log.entries.filter((entry) => entry.kind === 'assistant');
-    assertEquals(notes.map((entry) => [entry.label, entry.text, entry.live]), [
-      ['assistant note>', 'I will read the marker.', false],
-      ['assistant>', 'Done.', false],
-    ]);
-    assertEquals(ui.activeAssistantId, undefined);
     assertEquals(inputs[1].slice(1), [
       ...outputs[0],
       { type: 'function_call_output', call_id: 'read-1', output: 'marker' },
@@ -184,12 +158,21 @@ Deno.test('Increment 137 Responses notes settle before later thinking and surviv
       providerDeclarations: declarations,
     });
     assert(resumed.restored !== undefined);
-    const restored = restoredPresentationConversation(resumed.restored);
-    const restoredUi = reduceUiEvent(createUiState(), { kind: 'restored_log', ...restored });
-    assertEquals(
-      restoredUi.log.entries.map((entry) => [entry.kind, entry.text]),
-      ui.log.entries.map((entry) => [entry.kind, entry.text]),
+    const restoredAssistants = resumed.restored.messages.filter((entry) =>
+      entry.role === 'assistant'
     );
+    assertEquals(
+      restoredAssistants.map((entry) => {
+        if ('kind' in entry.content) return entry.content.text;
+        return entry.text ?? null;
+      }),
+      ['I will read the marker.', null, 'Done.'],
+    );
+    assertEquals(resumed.restored.thinking.map((entry) => entry.text), [
+      'Thinking 1.',
+      'Thinking 2.',
+      'Thinking 3.',
+    ]);
     assert(inputs.length === 3, 'restoring the Session must not make a model request');
   } finally {
     await resumed?.close();

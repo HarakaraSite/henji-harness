@@ -1,6 +1,6 @@
 import { main as moduleMain } from '../../v0/agent/cli/module_cli.ts';
 import { main as runtimeMain, parseRuntimeArgs } from '../../v0/agent/cli/runtime_cli.ts';
-import { main as tuiMain, parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
+import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import {
   DefinitionStartupError,
@@ -25,7 +25,6 @@ import {
   type DefinitionRevisionRef,
   type StoredSessionRecord,
 } from '../../v0/agent/session/session_store.ts';
-import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 
@@ -139,38 +138,6 @@ const assertThrows = (action: () => unknown): void => {
   }
   throw new Error('expected rejection');
 };
-
-class StartupProbeTerminal implements TerminalPort {
-  rawCalls = 0;
-
-  stdinIsTerminal(): boolean {
-    return true;
-  }
-
-  stdoutIsTerminal(): boolean {
-    return true;
-  }
-
-  consoleSize(): { columns: number; rows: number } {
-    return { columns: 80, rows: 24 };
-  }
-
-  setRaw(): void {
-    this.rawCalls += 1;
-  }
-
-  read(): Promise<Uint8Array | null> {
-    return Promise.resolve(null);
-  }
-
-  drainAndCloseInput(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  write(): void {}
-  addSignal(): void {}
-  removeSignal(): void {}
-}
 
 const persistEmptyExternalSession = async (
   stateRoot: string,
@@ -480,7 +447,7 @@ Deno.test('Increment 33 parses only full exact Definition selectors', () => {
   );
 });
 
-Deno.test('Increment 33 resolves before stdin and reports evaluation before terminal raw mode', async () => {
+Deno.test('Increment 33 resolves before stdin and reports headless Worker evaluation failure', async () => {
   const root = await Deno.makeTempDir({
     prefix: 'henji-increment-33-preflight-',
   });
@@ -556,34 +523,6 @@ Deno.test('Increment 33 resolves before stdin and reports evaluation before term
       'worker_start',
       revision.manifest.logicalRef,
     );
-
-    const terminal = new StartupProbeTerminal();
-    stderr = '';
-    assertEquals(
-      await tuiMain(['--no-session', '--definition-revision', selector], {
-        terminal,
-        dataRoot,
-        stateRoot,
-        workspaceRoot: root,
-        dailyEditor: false,
-        createSession: (eventSink, selection) =>
-          createWorkerSession({
-            workspaceRoot: root,
-            stateRoot,
-            dataRoot,
-            persistence: 'none',
-            selection,
-            physicalIoMode: 'provider-free',
-            eventSink,
-          }),
-        writeStderr: (text) => {
-          stderr += text;
-        },
-      }),
-      1,
-    );
-    assertEquals(terminal.rawCalls, 0);
-    assertEquals(JSON.parse(stderr).error.code, 'definition_evaluation_failed');
   } finally {
     await Deno.remove(root, { recursive: true });
   }

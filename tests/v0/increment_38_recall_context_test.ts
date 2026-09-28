@@ -9,6 +9,7 @@ import {
   createWorkerSession,
   readDefinitionRevision,
   workerBuiltinModulePath,
+  WorkerRecallSelectionError,
 } from '../../v0/agent/worker/worker_host.ts';
 import type {
   WorkerExecutionArtifactV2,
@@ -27,11 +28,6 @@ import {
   type WorkerGenerationPort,
 } from '../../v0/agent/worker/worker_runtime.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
-import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
-import type { SessionNavigationHost } from '../../v0/agent/session/session_navigation.ts';
-import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
-import { TuiRenderer } from '../../v0/tui/render.ts';
-import type { TerminalPort } from '../../v0/tui/terminal.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -59,27 +55,7 @@ const correlation = (command: string) => ({
 });
 
 Deno.test('Increment 113 restored steering answer survives the next live Worker turn', async () => {
-  const terminal: TerminalPort = {
-    stdinIsTerminal: () => true,
-    stdoutIsTerminal: () => true,
-    consoleSize: () => ({ columns: 100, rows: 30 }),
-    setRaw: () => {},
-    read: () => Promise.resolve(null),
-    drainAndCloseInput: () => Promise.resolve(),
-    write: () => {},
-    addSignal: () => {},
-    removeSignal: () => {},
-  };
-  const renderer = new TuiRenderer(terminal, {
-    setInterval: () => 0,
-    clearInterval: () => {},
-  });
-  const adapter = createTuiPresentationAdapter(
-    { submit: () => Promise.reject(new Error('unused')) },
-    renderer.eventSink,
-  );
-  let forwardLiveEvents = false;
-  let savedTranscript: readonly Message[] | undefined;
+  let committedTranscript: readonly Message[] | undefined;
   let requests = 0;
   const model: Model = {
     generate(): ModelResult {
@@ -103,14 +79,11 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
     },
   }]);
   const port: WorkerGenerationPort = {
-    runtimeEvent: (_eventCorrelation, event) => {
-      if (forwardLiveEvents) adapter.deliverCoreEvent(event);
-      return 1;
-    },
+    runtimeEvent: () => 1,
     effectObservation: () => 1,
     checkpointProposal: () => Promise.resolve(false),
     commitProposal: (_eventCorrelation, proposal) => {
-      if (proposal.nextTurn === 2) savedTranscript = structuredClone(proposal.transcript);
+      committedTranscript = structuredClone(proposal.transcript);
       return Promise.resolve(true);
     },
     turnFailed: (_eventCorrelation, outcome) => {
@@ -128,21 +101,26 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
   } as unknown as WorkerAgentComposition;
   const generation = new WorkerGeneration(composition, SESSION_ID, port);
   await generation.runTurn(correlation('steered-turn'), 'original task');
-  assert(savedTranscript !== undefined);
+  assert(committedTranscript !== undefined);
   assert(
-    savedTranscript.some((message) =>
+    committedTranscript.some((message) =>
       message.role === 'user' && message.content.text === 'use the new instruction'
     ),
   );
-  renderer.renderRestored(restoredPresentationMessages(savedTranscript), 0);
-  assert(renderer.stateSnapshot().log.entries.some((entry) => entry.text === 'saved answer'));
-
-  forwardLiveEvents = true;
   await generation.runTurn(correlation('next-turn'), 'next task');
-  const entries = renderer.stateSnapshot().log.entries;
-  assert(entries.some((entry) => entry.text === 'saved answer'));
-  assert(entries.some((entry) => entry.text === 'next answer'));
-  assertEquals(new Set(entries.map((entry) => entry.id)).size, entries.length);
+  assert(committedTranscript !== undefined);
+  assert(
+    committedTranscript.some((message) =>
+      message.role === 'assistant' && 'kind' in message.content &&
+      message.content.text === 'saved answer'
+    ),
+  );
+  assert(
+    committedTranscript.some((message) =>
+      message.role === 'assistant' && 'kind' in message.content &&
+      message.content.text === 'next answer'
+    ),
+  );
 });
 
 const sourceArtifact = async (
@@ -695,68 +673,57 @@ Deno.test('Increment 38 selects latest or explicit current-Session execution and
         '2026-09-12T00:00:02.000Z',
       ),
     );
-    const adapter = createTuiPresentationAdapter(
-      created.session,
-      undefined,
-      { persistent: true } as SessionNavigationHost,
-    );
-
-    assertEquals(await adapter.dispatch({ kind: 'recall_execution' }), {
-      kind: 'recall',
+    assertEquals(await created.session.prepareRecall(), {
       sourceExecutionId: latestId,
       evidence: 'unavailable',
     });
-    assertEquals(await adapter.dispatch({ kind: 'recall_execution', id: 'aaaaaaaa' }), {
-      kind: 'rejected',
-      reason: 'ambiguous',
-    });
-    const first = await adapter.dispatch({ kind: 'ordinary_submit', text: 'use latest source' });
-    assert(first.kind === 'outcome' && first.outcome.ok);
+    let ambiguous = false;
+    try {
+      await created.session.prepareRecall('aaaaaaaa');
+    } catch (error) {
+      ambiguous = error instanceof WorkerRecallSelectionError && error.code === 'ambiguous';
+    }
+    assert(ambiguous, 'ambiguous execution prefix was accepted');
+    const first = await created.session.submit('use latest source');
+    assert(first.ok);
     const firstTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use latest source'
     );
     assert(firstTarget?.schemaVersion === 7);
     assertEquals(firstTarget.recall?.sourceExecutionId, latestId);
 
-    assertEquals(await adapter.dispatch({ kind: 'recall_execution', id: 'aaaaaaaa-aaaa' }), {
-      kind: 'recall',
+    assertEquals(await created.session.prepareRecall('aaaaaaaa-aaaa'), {
       sourceExecutionId: olderId,
       evidence: 'unavailable',
     });
-    const second = await adapter.dispatch({ kind: 'ordinary_submit', text: 'use explicit source' });
-    assert(second.kind === 'outcome' && second.outcome.ok);
+    const second = await created.session.submit('use explicit source');
+    assert(second.ok);
     const secondTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'use explicit source'
     );
     assert(secondTarget?.schemaVersion === 7);
     assertEquals(secondTarget.recall?.sourceExecutionId, olderId);
 
-    const third = await adapter.dispatch({ kind: 'ordinary_submit', text: 'ordinary next task' });
-    assert(third.kind === 'outcome' && third.outcome.ok);
+    const third = await created.session.submit('ordinary next task');
+    assert(third.ok);
     const thirdTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'ordinary next task'
     );
     assert(thirdTarget?.schemaVersion === 7);
     assertEquals(thirdTarget.recall, undefined);
 
-    assert((await adapter.dispatch({ kind: 'recall_execution' })).kind === 'recall');
-    assertEquals(await adapter.dispatch({ kind: 'clear_recall' }), { kind: 'accepted' });
-    const afterClear = await adapter.dispatch({
-      kind: 'ordinary_submit',
-      text: 'task after recall clear',
+    assertEquals(await created.session.prepareRecall(), {
+      sourceExecutionId: latestId,
+      evidence: 'unavailable',
     });
-    assert(afterClear.kind === 'outcome' && afterClear.outcome.ok);
+    assert(created.session.clearPendingRecall());
+    const afterClear = await created.session.submit('task after recall clear');
+    assert(afterClear.ok);
     const clearedTarget = (await artifacts.list()).find((artifact) =>
       artifact.command.task === 'task after recall clear'
     );
     assert(clearedTarget?.schemaVersion === 7);
     assertEquals(clearedTarget.recall, undefined);
-
-    const noSession = createTuiPresentationAdapter(created.session);
-    assertEquals(await noSession.dispatch({ kind: 'recall_execution' }), {
-      kind: 'rejected',
-      reason: 'unavailable',
-    });
   } finally {
     await created?.close();
     await Deno.remove(stateRoot, { recursive: true });

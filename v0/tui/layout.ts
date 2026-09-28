@@ -144,7 +144,11 @@ export const BUSY_SPINNER_FRAMES: readonly string[] = Object.freeze([
 
 const footerStatusParts = (
   status: string,
-): { readonly primary: string; readonly credential?: string; readonly details?: string } => {
+): {
+  readonly primary: string;
+  readonly credential?: string;
+  readonly details?: string;
+} => {
   const parts = status.split(' · ');
   const primaryIndex = parts.findIndex((part) =>
     part === 'ready' || part.startsWith('ready ') ||
@@ -161,7 +165,10 @@ const footerStatusParts = (
     segment.startsWith(`${candidate};`)
   );
   if (activePrimary !== undefined) {
-    const inlineDetails = segment.slice(activePrimary.length).replace(/^[ ;]+/, '');
+    const inlineDetails = segment.slice(activePrimary.length).replace(
+      /^[ ;]+/,
+      '',
+    );
     const details = [inlineDetails, ...parts.slice(index + 1)].filter((part) => part.length > 0)
       .join(' · ');
     return details.length === 0 ? { primary: activePrimary } : { primary: activePrimary, details };
@@ -174,6 +181,40 @@ const footerStatusParts = (
     ...(credential === undefined ? {} : { credential }),
     ...(details.length === 0 ? {} : { details }),
   };
+};
+
+const remoteFooterControls = (status: string): readonly string[] => {
+  const known = new Set([
+    'Enter submit',
+    'Enter steer',
+    'Alt-Enter queue',
+    'Ctrl-C clear',
+    'Ctrl-D detach',
+    'Esc cancel',
+    'Esc/Ctrl-C cancel',
+    'Ctrl-C detach',
+    'cancellation unavailable',
+    '/exit detach',
+    'F1 help',
+  ]);
+  return status.split(' · ').filter((part) => known.has(part));
+};
+
+const remoteExecutionResult = (status: string): readonly string[] => {
+  const known = new Set([
+    'completed',
+    'cancelled',
+    'failed',
+    'interrupted',
+    'unknown',
+    'canonical',
+    'non-canonical',
+    'settlement running',
+    'settlement settling',
+    'settlement complete',
+    'settlement unknown',
+  ]);
+  return status.split(' · ').filter((part) => known.has(part));
 };
 
 type HistoryViewport =
@@ -191,7 +232,10 @@ const historyViewport = (
   height: number,
 ): HistoryViewport => {
   const firstEntryRow = rows.findIndex((row) => row.entryId !== undefined);
-  if (state.historyWindow?.start === 0 && (firstEntryRow < 0 || start < firstEntryRow)) {
+  if (
+    state.historyWindow?.start === 0 &&
+    (firstEntryRow < 0 || start < firstEntryRow)
+  ) {
     return { kind: 'start' };
   }
   const visibleRow = rows.findIndex((row, index) =>
@@ -228,6 +272,8 @@ const footerStatusText = (
     : `pending ${pending.map((lane) => `${lane.kind}:${lane.byteCount}B`).join(',')}`;
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
+  const remoteControls = remoteFooterControls(state.status);
+  const remoteResult = remoteExecutionResult(state.status);
   const primary = safeDisplay(status.primary, false);
   const elapsed = state.lifecycle === 'busy' &&
       state.busyElapsedSeconds !== undefined &&
@@ -244,7 +290,9 @@ const footerStatusText = (
     : undefined;
   const spinner = state.lifecycle === 'busy' &&
       (primary === 'busy' || primary === 'cancelling')
-    ? BUSY_SPINNER_FRAMES[(state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length]
+    ? BUSY_SPINNER_FRAMES[
+      (state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length
+    ]
     : undefined;
   const primaryLabel = primary === 'busy' ? 'working' : primary;
   const elapsedPrimary = elapsed === undefined ? primaryLabel : `${primaryLabel} ${elapsed}`;
@@ -258,7 +306,9 @@ const footerStatusText = (
   const commandItem = commandSegment === undefined
     ? []
     : [{ kind: 'commands', text: safeDisplay(commandSegment, false) }];
-  const cancelSegment = state.lifecycle === 'busy' ? 'Esc cancel' : undefined;
+  const cancelSegment = state.lifecycle === 'busy' && remoteControls.length === 0
+    ? 'Esc cancel'
+    : undefined;
   // During a busy turn Escape is cancel, so the history hint must not promise "Esc latest".
   const historyHint = state.lifecycle === 'busy' ? 'PgDn latest' : 'Esc latest';
   const historyFull = history === undefined
@@ -272,15 +322,27 @@ const footerStatusText = (
     ? historyFull
     : `history · ${historyHint}`;
   const fixed: string[] = historyRequired === undefined ? [displayedPrimary] : [historyRequired];
+  const controlsText = remoteControls.length === 0
+    ? undefined
+    : safeDisplay(remoteControls.join(' · '), false);
+  const resultText = remoteResult.length === 0 ? undefined : safeDisplay(
+    remoteResult.filter((part) => part !== status.primary).join(' · '),
+    false,
+  );
+  const controlSet = new Set(remoteControls);
+  const resultSet = new Set(remoteResult);
+  const details = status.details?.split(' · ').filter((part) =>
+    !controlSet.has(part) && !resultSet.has(part)
+  ).join(' · ');
   const optional = [
     ...(historyRequired === undefined ? [] : [{ kind: 'primary', text: displayedPrimary }]),
     ...(state.lifecycle === 'busy' ? [] : commandItem),
     ...(status.credential === undefined
       ? []
       : [{ kind: 'credential', text: safeDisplay(status.credential, false) }]),
-    ...(status.details === undefined
+    ...(details === undefined || details.length === 0
       ? []
-      : [{ kind: 'details', text: safeDisplay(status.details, false) }]),
+      : [{ kind: 'details', text: safeDisplay(details, false) }]),
     ...(pendingSegment === undefined
       ? []
       : [{ kind: 'pending', text: safeDisplay(pendingSegment, false) }]),
@@ -290,6 +352,10 @@ const footerStatusText = (
     ...(cancelSegment === undefined
       ? []
       : [{ kind: 'cancel', text: safeDisplay(cancelSegment, false) }]),
+    ...(resultText === undefined || resultText.length === 0
+      ? []
+      : [{ kind: 'remote-result', text: resultText }]),
+    ...(controlsText === undefined ? [] : [{ kind: 'remote-controls', text: controlsText }]),
     ...(state.lifecycle === 'busy' ? commandItem : []),
   ];
   let segments = [...fixed, ...optional.map((segment) => segment.text)];
@@ -313,8 +379,11 @@ const footerStatusText = (
         };
       } else optional.splice(commandIndex, 1);
     } else {
-      const nonCancel = optional.findLastIndex((segment) => segment.kind !== 'cancel');
-      if (nonCancel >= 0) optional.splice(nonCancel, 1);
+      const nonPriority = optional.findLastIndex((segment) =>
+        segment.kind !== 'cancel' && segment.kind !== 'remote-result' &&
+        segment.kind !== 'remote-controls'
+      );
+      if (nonPriority >= 0) optional.splice(nonPriority, 1);
       else optional.pop();
     }
     segments = [...fixed, ...optional.map((segment) => segment.text)];
@@ -330,7 +399,10 @@ const footerSessionText = (
   if (state.projection === undefined) return undefined;
   const workspace = safeDisplay(state.projection.workspace, false);
   const session = state.projection.sessionId?.slice(0, 8) ?? 'none';
-  const title = safeDisplay(state.startup?.position.title ?? 'untitled', false);
+  const title = safeDisplay(
+    state.position?.title ?? state.startup?.position.title ?? 'untitled',
+    false,
+  );
   const fixed = ` session:${session} ${title}]`;
   const available = columns - width(`[${fixed}`);
   if (available >= 1) {
@@ -387,7 +459,10 @@ const wrap = (
   const row = (line: string, sourceScalarOffset: number): LayoutRow => {
     const labelScalarLength = styledPrefix === undefined ? 0 : Math.max(
       0,
-      Math.min([...line].length, styledPrefix.scalarLength - sourceScalarOffset),
+      Math.min(
+        [...line].length,
+        styledPrefix.scalarLength - sourceScalarOffset,
+      ),
     );
     return {
       text: line,
@@ -466,17 +541,23 @@ const logRows = (
   let previousEntryKind: UiLogEntry['kind'] | undefined;
   const visibleEntries = state.historyWindow === undefined
     ? state.log.entries
-    : state.log.entries.slice(state.historyWindow.start, state.historyWindow.end);
+    : state.log.entries.slice(
+      state.historyWindow.start,
+      state.historyWindow.end,
+    );
   for (const entry of visibleEntries) {
     const turnStart = entry.kind === 'user' && entry.label === 'user>';
     const userOutputBoundary = entry.turn !== undefined &&
       awaitingUserOutput.has(entry.turn) &&
-      (entry.kind === 'tool' || entry.kind === 'assistant' || entry.kind === 'thinking');
+      (entry.kind === 'tool' || entry.kind === 'assistant' ||
+        entry.kind === 'thinking');
     sourceBytes += encoder.encode(entry.text).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
     const thinkingBoundary = previousEntryKind !== undefined &&
       (entry.kind === 'thinking' || previousEntryKind === 'thinking');
-    if ((turnStart && seenTurnStart) || userOutputBoundary || thinkingBoundary) {
+    if (
+      (turnStart && seenTurnStart) || userOutputBoundary || thinkingBoundary
+    ) {
       appendSeparator();
     }
     if (entry.kind === 'assistant' || entry.kind === 'thinking') {
@@ -496,7 +577,11 @@ const logRows = (
         const text = safeDisplay(`${prefix}${body}`, false);
         const spans = assistantLine.spans
           .filter((span) => span.length > 0)
-          .map((span) => ({ start: span.start + shift, length: span.length, tone: span.tone }));
+          .map((span) => ({
+            start: span.start + shift,
+            length: span.length,
+            tone: span.tone,
+          }));
         result.push({
           text,
           kind: 'log',
@@ -545,16 +630,24 @@ const overlayRows = (
   rows: number,
 ): { rows: LayoutRow[]; headerRows: number; selectedRow: number } => {
   const overlay = state.overlay;
-  if (overlay.kind === 'none') return { rows: [], headerRows: 0, selectedRow: -1 };
+  if (overlay.kind === 'none') {
+    return { rows: [], headerRows: 0, selectedRow: -1 };
+  }
   const lines: string[] = [];
   if (overlay.kind === 'startupHelp') {
     lines.push(
       columns < 40 || rows < 16 ? 'F1 help · Esc return' : 'startup help · F1/Esc return',
     );
     lines.push(...(overlay.lines ?? []).slice(0, 12));
+  } else if (overlay.kind === 'readOnlyHelp') {
+    lines.push('read-only help · F1/Esc return');
+    lines.push(...overlay.lines.slice(0, 12));
   } else if (overlay.kind === 'sessionPicker') {
+    const pickerControls = overlay.actionMode === 'view'
+      ? 'Enter view · R resume · Esc return'
+      : 'Enter resume · Esc cancel';
     lines.push(
-      `session picker · Up/Down select · Left/Right page · Enter resume · Esc cancel`,
+      `session picker · Up/Down select · Left/Right page · ${pickerControls}`,
       `page ${overlay.page + 1}${overlay.loading ? ' · loading' : ''}`,
     );
     const rows = overlay.listing?.sessions ?? [];
@@ -605,11 +698,15 @@ const overlayRows = (
     ? 2 + overlay.selected - overlay.page * 8
     : -1;
   for (const [index, line] of lines.slice(0, 32).entries()) {
-    if (overlay.kind === 'sessionPicker' && index === 2) headerRows = result.length;
+    if (overlay.kind === 'sessionPicker' && index === 2) {
+      headerRows = result.length;
+    }
     if (index === selectedLine) selectedRow = result.length;
     result.push(...wrap(line, columns, 'log'));
   }
-  if (overlay.kind === 'sessionPicker' && lines.length <= 2) headerRows = result.length;
+  if (overlay.kind === 'sessionPicker' && lines.length <= 2) {
+    headerRows = result.length;
+  }
   return { rows: result, headerRows, selectedRow };
 };
 
@@ -718,13 +815,18 @@ export const layoutUi = (
     );
     if (anchored >= 0) logStart = anchored;
   }
-  const overlayStart = state.overlay.kind === 'startupHelp'
+  const overlayStart = state.overlay.kind === 'startupHelp' ||
+      state.overlay.kind === 'readOnlyHelp'
     ? 0
     : Math.max(0, overlay.rows.length - logHeight);
   const visibleOverlay = state.overlay.kind === 'sessionPicker' &&
-      overlay.selectedRow >= 0 && overlay.rows.length > logHeight && logHeight > 0
+      overlay.selectedRow >= 0 && overlay.rows.length > logHeight &&
+      logHeight > 0
     ? (() => {
-      const headerCount = Math.min(overlay.headerRows, Math.max(0, logHeight - 1));
+      const headerCount = Math.min(
+        overlay.headerRows,
+        Math.max(0, logHeight - 1),
+      );
       const bodyHeight = logHeight - headerCount;
       const body = overlay.rows.slice(overlay.headerRows);
       const selected = overlay.selectedRow - overlay.headerRows;
@@ -749,7 +851,11 @@ export const layoutUi = (
   const history = state.scroll.kind !== 'followLatest' && state.overlay.kind === 'none'
     ? historyViewport(state, log.rows, logStart, logHeight)
     : undefined;
-  const statusFooter = footerStatusText(state, Math.max(1, widthLimit), history);
+  const statusFooter = footerStatusText(
+    state,
+    Math.max(1, widthLimit),
+    history,
+  );
   const footer = [
     {
       ...statusFooter,

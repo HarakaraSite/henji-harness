@@ -1,8 +1,6 @@
 import {
   defaultModelSelectionFor,
   modelCatalogEntryFor,
-  type ModelSelection,
-  type ReasoningEffort,
   searchModelsFor,
   selectModelFor,
 } from '../../v0/agent/provider/model_catalog.ts';
@@ -26,14 +24,7 @@ import {
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { privateStateFromTurn } from '../../v0/agent/worker/worker_host_coordinator.ts';
-import type {
-  PresentationIntent,
-  PresentationIntentResult,
-} from '../../v0/presentation/contract.ts';
-import { TuiPresentationAdapter } from '../../v0/presentation/tui_presentation_adapter.ts';
-import { ControllerOverlay } from '../../v0/tui/controller_overlay.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
-import type { TuiRenderer } from '../../v0/tui/render.ts';
 import { createUiState, setUiProjection } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -47,14 +38,6 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
-};
-
-const waitFor = async (condition: () => boolean): Promise<void> => {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    if (condition()) return;
-    await new Promise((resolve) => setTimeout(resolve, 1));
-  }
-  throw new Error('condition not reached');
 };
 
 Deno.test('Increment 119 model switch back starts a new private-state segment', () => {
@@ -113,129 +96,6 @@ Deno.test('Increment 15 exposes the approved provider-scoped curated catalogs', 
     'max',
   ]);
   assertEquals(defaultModelSelectionFor('openai-responses'), OPENAI_DEFAULT_MODEL_SELECTION);
-});
-
-Deno.test('Increment 15 presentation applies provider defaults atomically and scopes model changes', async () => {
-  let selection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION;
-  const events: unknown[] = [];
-  const adapter = new TuiPresentationAdapter(
-    {
-      submit: () => Promise.reject(new Error('not used')),
-      modelSelectionSnapshot: () => selection,
-      selectModel: (next) => {
-        selection = next;
-        return Promise.resolve('selected');
-      },
-    },
-    (event) => events.push(event),
-  );
-  const providerResult = await adapter.dispatch({
-    kind: 'select_provider',
-    provider: 'openai-responses',
-  });
-  assertEquals(selection, OPENAI_DEFAULT_MODEL_SELECTION);
-  assertEquals(providerResult, {
-    kind: 'model_selection',
-    status: 'selected',
-    selection: { provider: 'openai-responses', modelId: 'gpt-5.6-sol', effort: 'medium' },
-  });
-
-  const modelResult = await adapter.dispatch({
-    kind: 'select_model',
-    provider: 'openai-responses',
-    modelId: 'gpt-6-astra',
-    effort: 'low',
-  });
-  assertEquals(modelResult, {
-    kind: 'model_selection',
-    status: 'selected',
-    selection: { provider: 'openai-responses', modelId: 'gpt-6-astra', effort: 'low' },
-  });
-  assertEquals(
-    await adapter.dispatch({
-      kind: 'select_model',
-      provider: 'openrouter-chat',
-      modelId: ROOT_DEFAULT_MODEL_SELECTION.modelId,
-      effort: ROOT_DEFAULT_MODEL_SELECTION.effort,
-    }),
-    { kind: 'rejected', reason: 'invalid' },
-  );
-  assertEquals(events.length, 2);
-});
-
-Deno.test('Increment 15 provider picker drives provider-scoped model and effort pickers', async () => {
-  const rendered: string[][] = [];
-  const statuses: string[] = [];
-  let selection: ModelSelection = ROOT_DEFAULT_MODEL_SELECTION;
-  const dispatch = (intent: PresentationIntent): PresentationIntentResult => {
-    if (intent.kind === 'select_provider') {
-      selection = defaultModelSelectionFor(intent.provider);
-    } else if (intent.kind === 'select_model') {
-      selection = selectModelFor(
-        intent.provider,
-        intent.modelId,
-        intent.effort as ReasoningEffort,
-      );
-    } else return { kind: 'accepted' };
-    return {
-      kind: 'model_selection',
-      status: 'selected',
-      selection: {
-        provider: selection.provider,
-        modelId: selection.modelId,
-        effort: selection.effort,
-      },
-    };
-  };
-  const renderer = {
-    renderChoicePicker: (lines: readonly string[]) => rendered.push([...lines]),
-    clearModal: () => {},
-    setStatus: (status: string) => statuses.push(status),
-  } as unknown as TuiRenderer;
-  const overlay = new ControllerOverlay({
-    renderer,
-    dispatch,
-    setSession: () => {},
-    idleAllowed: () => true,
-    isIdle: () => true,
-    readyStatus: () => 'ready',
-    modelSelection: () => selection,
-    fail: (error) => Promise.reject(error),
-  });
-
-  overlay.openProviderPicker();
-  assert(rendered.at(-1)?.some((line) => line === '> openrouter-chat'));
-  overlay.process({ kind: 'down' });
-  overlay.process({ kind: 'enter' });
-  await waitFor(() => selection.provider === 'openrouter-responses');
-  assertEquals(selection, defaultModelSelectionFor('openrouter-responses'));
-  await overlay.settle();
-
-  overlay.openProviderPicker();
-  overlay.process({ kind: 'down' });
-  overlay.process({ kind: 'down' });
-  overlay.process({ kind: 'enter' });
-  await waitFor(() => selection.provider === 'openai-responses');
-  assertEquals(selection, OPENAI_DEFAULT_MODEL_SELECTION);
-  await overlay.settle();
-
-  overlay.openModelPicker();
-  overlay.process({ kind: 'paste', text: 'terra' });
-  assert(rendered.at(-1)?.some((line) => line.includes('gpt-5.6-terra')));
-  assert(!rendered.at(-1)?.some((line) => line.includes('deepseek/')));
-  overlay.process({ kind: 'enter' });
-  await waitFor(() => selection.modelId === 'gpt-5.6-terra');
-  assertEquals(selection.effort, 'medium');
-  await overlay.settle();
-
-  overlay.openEffortPicker();
-  overlay.process({ kind: 'down' });
-  overlay.process({ kind: 'down' });
-  overlay.process({ kind: 'down' });
-  overlay.process({ kind: 'enter' });
-  await waitFor(() => selection.effort === 'max');
-  assert(statuses.some((status) => status.includes('provider openai-responses')));
-  await overlay.settle();
 });
 
 Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', () => {

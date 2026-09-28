@@ -32,6 +32,10 @@ import type {
   ExecutionContextRelation,
   WorkerContextSnapshot,
 } from './context_attribution.ts';
+import type {
+  HistoryV7AssistantTextState,
+  HistoryV7SemanticOccurrence,
+} from './history_v7_model.ts';
 
 export type HistoryStoreErrorCode =
   | 'history_busy'
@@ -225,6 +229,12 @@ export interface StoredExecutionEvent {
   readonly payload: import('../core/contracts.ts').JsonValue;
 }
 
+/** The event returned by an append, with the semantic identity assigned in the same transaction. */
+export interface HistoryAppendResult {
+  readonly event: StoredExecutionEvent;
+  readonly semanticOccurrenceId?: string;
+}
+
 export type ExecutionEffectStatus =
   | 'observed_requested'
   | 'observed_progress'
@@ -372,6 +382,10 @@ export interface HistoryPersistencePort {
   appendExecutionEvents(
     inputs: readonly ExecutionEventInput[],
   ): readonly StoredExecutionEvent[];
+  /** Append and return any semantic occurrence identity created for each event. */
+  appendExecutionEventsWithSemanticIds?(
+    inputs: readonly ExecutionEventInput[],
+  ): readonly HistoryAppendResult[];
   /** Pure shape/contract check used to reject an invalid fact before it is projected to the Surface. */
   validateExecutionEvent(input: ExecutionEventInput): boolean;
   /** Bound terminal transcript content before Host history projection. */
@@ -384,6 +398,10 @@ export interface HistoryPersistencePort {
   listExecutionsForSession?(sessionId: string): readonly StoredExecutionRow[];
   readExecution(id: string): StoredExecutionRow;
   listExecutionEvents(id: string): readonly StoredExecutionEvent[];
+  /** Semantic source rows used by the shared read projection. */
+  listSemanticOccurrences?(id: string): readonly HistoryV7SemanticOccurrence[];
+  /** Latest request text while its provider request is incomplete. */
+  listAssistantTextStates?(id: string): readonly HistoryV7AssistantTextState[];
   listExecutionEffects(id: string): readonly StoredExecutionEffect[];
   commitCanonicalTurn(input: CanonicalTurnCommitInput): HistoryCaptureResult;
   settleNonCanonicalExecution(

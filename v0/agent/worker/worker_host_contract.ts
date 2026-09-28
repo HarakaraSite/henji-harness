@@ -17,6 +17,8 @@ import type { ModelSelection } from '../provider/openrouter_model_catalog.ts';
 import type { HistoryPersistencePort } from '../history/history_store_contract.ts';
 import type { SelectedHenjiBaseInstruction } from '../instructions/base_instruction.ts';
 import type { ProviderDeclarationV1 } from '../provider/provider_declaration.ts';
+import type { ApplicationObservationSink } from '../host/application_port.ts';
+import type { SessionActivation } from '../../api/contract.ts';
 
 export interface WorkerHostSessionOptions {
   readonly handle: WorkerSessionHandle;
@@ -38,6 +40,8 @@ export interface WorkerHostSessionOptions {
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
+  /** Data-only activation values used by the Host query projection. */
+  readonly activation?: SessionActivation;
   /** Focused-test seam; production uses the fixed five-second cancellation settlement grace. */
   readonly cancelSettlementGraceMs?: number;
   /** Focused-test seam for short Host/Worker command settlement waits. */
@@ -45,6 +49,7 @@ export interface WorkerHostSessionOptions {
   /** Focused-test seam; production records an auxiliary start gap after one second. */
   readonly auxiliaryStageGapMs?: number;
   readonly eventSink?: AgentEventSink;
+  readonly applicationObservationSink?: ApplicationObservationSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly historyPersistence?: HistoryPersistencePort;

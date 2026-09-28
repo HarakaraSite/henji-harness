@@ -1,4 +1,4 @@
-import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
+import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
 import {
   DEFAULT_PROVIDER_TIMEOUT_MS,
@@ -11,7 +11,6 @@ import {
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
-import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
@@ -206,41 +205,6 @@ Deno.test('Increment 13 sends the configured provider deadline across the Host W
   } finally {
     await created.close();
   }
-});
-
-Deno.test('Increment 13 projects successful model and effort selection immediately', async () => {
-  const qwen = selectOpenRouterModel('qwen/qwen3.8-max-0902');
-  const events: unknown[] = [];
-  const adapter = new TuiPresentationAdapter(
-    {
-      submit: () => Promise.reject(new Error('not used')),
-      selectModel: () => Promise.resolve('selected'),
-    },
-    (event) => events.push(event),
-  );
-  const result = await adapter.dispatch({
-    kind: 'select_model',
-    provider: 'openrouter-chat',
-    modelId: qwen.modelId,
-    effort: qwen.effort,
-  });
-  assertEquals(result, {
-    kind: 'model_selection',
-    status: 'selected',
-    selection: {
-      provider: 'openrouter-chat',
-      modelId: qwen.modelId,
-      effort: qwen.effort,
-    },
-  });
-  assertEquals(events, [{
-    kind: 'model_selection_changed',
-    selection: {
-      provider: 'openrouter-chat',
-      modelId: qwen.modelId,
-      effort: qwen.effort,
-    },
-  }]);
 });
 
 Deno.test('Increment 13 keeps Session model and effort in the third footer row', () => {

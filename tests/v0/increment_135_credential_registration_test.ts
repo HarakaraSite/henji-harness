@@ -28,9 +28,7 @@ import {
 } from '../../v0/agent/provider/provider_runtime.ts';
 import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
-import type { TuiActiveSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
-import { createTuiPresentationAdapter } from '../../v0/presentation/tui_presentation_adapter.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -294,26 +292,6 @@ Deno.test('Increment 135 refreshes presence for the current selection without ne
     assertEquals(session.requestCount(), requestsBeforeRefresh);
     assertEquals(session.modelSelectionSnapshot(), selectionBefore);
     assertEquals(session.sessionId, sessionIdBefore);
-
-    const adapter = createTuiPresentationAdapter(session);
-    assertEquals(await adapter.refreshCredentialAvailability(), refreshed);
-
-    const navigation = created.navigation;
-    assert(navigation?.createNew !== undefined && navigation.switchTo !== undefined);
-    assert((await session.submit('materialize session A for Increment 135')).ok);
-    const storedId = navigation.currentPosition().sessionId;
-    assert(storedId !== undefined);
-    await navigation.createNew();
-    const startsBeforeSwitch = capsuleStarts;
-    const lazy = (await navigation.switchTo(storedId)).session as TuiActiveSession;
-    assertEquals(capsuleStarts, startsBeforeSwitch);
-    const lazyRefresh = await lazy.refreshCredentialAvailability();
-    assertEquals(capsuleStarts, startsBeforeSwitch);
-    assertEquals(lazyRefresh, {
-      authProfile: 'openrouter-api-key',
-      status: 'present',
-    });
-    assertEquals(lazy.credentialAvailabilitySnapshot(), lazyRefresh);
 
     const resolver = createCredentialResolver();
     assertEquals(await resolver.resolve('openrouter-api-key'), 'increment-135-dummy-a');

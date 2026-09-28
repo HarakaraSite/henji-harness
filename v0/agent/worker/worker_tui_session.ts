@@ -1,5 +1,6 @@
 import type { AgentEventSink } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
+import type { ContextView, EffectiveRuntimeConfig, SessionActivation } from '../../api/contract.ts';
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import { credentialAvailabilityFor } from '../provider/credential_file.ts';
@@ -10,12 +11,14 @@ import {
   resolveProviderRegistry,
 } from '../provider/provider_declaration.ts';
 import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
+import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
 import { setActiveProviderDeclarations } from '../provider/provider_runtime.ts';
 import {
   DefinitionStartupError,
   type HostDefinitionSelection,
   resolveRequestedDefinition,
 } from '../definitions/definition_selection.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import {
   projectRuntimeDisplayState,
   type RuntimeDisplayState,
@@ -23,15 +26,7 @@ import {
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { builtinDefinitionRef } from '../definitions/managed_resource_ref.ts';
 import type { FailureDiagnosticPersister } from '../session/failure_diagnostic.ts';
-import type {
-  NavigationBinding,
-  NavigationListing,
-  NavigationPosition,
-  NavigationSessionLike,
-  RestoredConversation,
-  SessionNavigationHost,
-} from '../session/session_navigation.ts';
-import { NavigationCancelledError, NavigationFatalError } from '../session/session_navigation.ts';
+import type { NavigationPosition, RestoredConversation } from '../session/session_navigation.ts';
 import {
   type DefinitionRevisionRef,
   launcherStateRoot,
@@ -65,7 +60,7 @@ import type {
   WorkerToolDefinitionLoadRequest,
 } from './worker_protocol.ts';
 import type { WorkerHostCapsule } from './worker_host_contract.ts';
-import { sameRef } from './worker_host_outcome.ts';
+import type { ApplicationObservationSink, ApplicationQueryPort } from '../host/application_port.ts';
 import { WorkerHostSession, WorkerHostStartupError } from './worker_host_session.ts';
 import type { WorkerExecutionArtifactStore } from './worker_execution_artifact_store.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
@@ -117,6 +112,8 @@ export interface WorkerSessionOptions {
   readonly workspaceRoot?: string;
   readonly stateRoot?: string;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
+  /** Leave the initial session facade unstarted until an operation needs live Host behavior. */
+  readonly lazyInitialHost?: boolean;
   readonly sessionId?: string;
   readonly agent?: SessionRecord['agent'];
   readonly selection?: HostDefinitionSelection;
@@ -125,6 +122,7 @@ export interface WorkerSessionOptions {
   readonly physicalIoMode?: 'provider-free' | 'production';
   readonly rootMaxSteps?: number;
   readonly providerTimeoutMs?: number;
+  readonly activation?: SessionActivation;
   /** Focused-test seam; production uses the Host default. */
   readonly cancelSettlementGraceMs?: number;
   /** Focused-test seam; production uses the Host default. */
@@ -135,19 +133,21 @@ export interface WorkerSessionOptions {
   /** Host-resolved declaration snapshot shared with the Worker for this invocation. */
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   readonly eventSink?: AgentEventSink;
+  readonly applicationObservationSink?: ApplicationObservationSink;
   readonly diagnosticPersistence?: FailureDiagnosticPersister;
   readonly executionArtifactStore?: WorkerExecutionArtifactStore;
   readonly capsuleFactory?: (url: URL) => WorkerHostCapsule;
 }
 
 export interface WorkerSessionResult {
-  readonly session: WorkerHostSession;
+  readonly session: HostActiveSession;
+  readonly currentSession: () => HostActiveSession;
   readonly requestCount: () => number;
   readonly close: () => Promise<void>;
   readonly workspaceRoot: string;
   readonly restored?: RestoredConversation;
   readonly displayState: RuntimeDisplayState;
-  readonly navigation?: SessionNavigationHost;
+  readonly query: ApplicationQueryPort;
 }
 
 const navigationPosition = (
@@ -162,16 +162,17 @@ const navigationPosition = (
   ...(value.checkpoint === undefined ? {} : { checkpoint: value.checkpoint }),
 });
 
-const restoreRecordMessages = (
+export const restoreRecordMessages = (
   record: StoredSessionRecord,
   history: SqliteHistoryV7ProductionStore,
+  sessionHistory = history.readSessionHistory(record.sessionId),
 ): RestoredConversation => {
   const index = record.transcript.length === 0
     ? { turns: [] as const }
     : causalTranscriptIndex(record.transcript);
   if (index === undefined) throw new SessionStoreError('session_invalid');
   const canonicalThinking = new Map(
-    history.readSessionHistory(record.sessionId)
+    sessionHistory
       .filter(({ execution }) =>
         execution.adoption === 'canonical' &&
         execution.parentExecutionId === undefined
@@ -229,16 +230,30 @@ const restoreRecordMessages = (
   };
 };
 
-/** Methods the TUI navigation and presentation use on the active session. */
-export interface TuiActiveSession extends NavigationSessionLike {
+/** Host-owned active session facade shared by the Core API and headless runner. */
+export interface HostActiveSession {
   readonly definition: DefinitionRevisionRef;
   readonly sessionId: string;
+  submit(
+    text: string,
+    recalledContext?: Parameters<WorkerHostSession['submit']>[1],
+  ): Promise<LoopOutcome>;
+  admit(
+    text: string,
+    recalledContext?: Parameters<WorkerHostSession['admit']>[1],
+  ): ReturnType<WorkerHostSession['admit']>;
+  startupSnapshot():
+    | ReturnType<WorkerHostSession['startupSnapshot']>
+    | undefined;
+  transcriptSnapshot(): readonly Message[];
   currentPosition(): ReturnType<WorkerHostSession['currentPosition']>;
   modelSelectionSnapshot(): ModelSelection;
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined;
   /** Presence-only display refresh; an unstarted session must not start a Worker for it. */
   refreshCredentialAvailability(): Promise<CredentialAvailability | undefined>;
   checkpointSnapshot(): SemanticContextCheckpointV1 | undefined;
+  effectiveConfigSnapshot(): EffectiveRuntimeConfig;
+  pendingRecallSnapshot(): ContextView['pendingRecall'];
   consumeAutoCompactionNotice(): {
     readonly coveredThroughTurn: number;
     readonly retainedFromTurn: number;
@@ -257,6 +272,21 @@ export interface TuiActiveSession extends NavigationSessionLike {
     | 'unavailable'
     | Promise<'renamed' | 'unchanged' | 'busy' | 'unavailable'>;
   requestCount(): number;
+  runtimeSnapshot(): {
+    readonly active: boolean;
+    readonly phase:
+      | 'idle'
+      | 'running'
+      | 'cancelling'
+      | 'settling'
+      | 'unavailable';
+  };
+  cancelActiveTurn(): 'requested' | 'already_requested' | 'idle';
+  steerActiveTurn(text: string): 'accepted' | 'idle' | 'already_accepted';
+  isAvailable(): boolean;
+  selectModel(
+    selection: ModelSelection,
+  ): Promise<'selected' | 'unchanged' | 'busy' | 'unavailable'>;
   close(): Promise<void>;
 }
 
@@ -267,7 +297,7 @@ export interface TuiActiveSession extends NavigationSessionLike {
  * The first operation that needs live agent behavior (submit, model selection, rename, recall,
  * compaction) starts the generation under the Definition resolved at open time.
  */
-class LazyWorkerSession implements TuiActiveSession {
+class LazyWorkerSession implements HostActiveSession {
   private host: WorkerHostSession | undefined;
   private starting: Promise<WorkerHostSession> | undefined;
   private closed = false;
@@ -275,9 +305,17 @@ class LazyWorkerSession implements TuiActiveSession {
 
   constructor(
     private readonly handle: WorkerSessionHandle,
-    private readonly record: StoredSessionRecord,
+    private readonly record: StoredSessionRecord | undefined,
     private readonly selected: DefinitionRevisionRef,
     private readonly startHost: () => Promise<WorkerHostSession>,
+    private readonly initialSelection: ModelSelection,
+    private readonly initialCreatedAt: string,
+    private readonly initialAgent: SessionRecord['agent'],
+    private readonly config: Pick<
+      WorkerSessionOptions,
+      'rootMaxSteps' | 'providerTimeoutMs' | 'activation'
+    >,
+    private readonly builtinDefinition: boolean,
   ) {}
 
   get definition(): DefinitionRevisionRef {
@@ -300,8 +338,63 @@ class LazyWorkerSession implements TuiActiveSession {
     return await this.starting;
   }
 
-  async submit(text: string): Promise<LoopOutcome> {
-    return await (await this.ensureStarted()).submit(text);
+  async submit(
+    text: string,
+    recalledContext?: Parameters<WorkerHostSession['submit']>[1],
+  ): Promise<LoopOutcome> {
+    return await (await this.ensureStarted()).submit(text, recalledContext);
+  }
+
+  async admit(
+    text: string,
+    recalledContext?: Parameters<WorkerHostSession['admit']>[1],
+  ): ReturnType<WorkerHostSession['admit']> {
+    return await (await this.ensureStarted()).admit(text, recalledContext);
+  }
+
+  startupSnapshot():
+    | ReturnType<WorkerHostSession['startupSnapshot']>
+    | undefined {
+    return this.host?.startupSnapshot();
+  }
+
+  effectiveConfigSnapshot(): EffectiveRuntimeConfig {
+    if (this.host !== undefined) return this.host.effectiveConfigSnapshot();
+    const definition = this.selected;
+    const configuredMaxSteps = this.config.rootMaxSteps;
+    const maxSteps = configuredMaxSteps ??
+      (this.builtinDefinition ? DEFAULT_AGENT_MAX_STEPS : null);
+    const maxStepsSource: EffectiveRuntimeConfig['maxStepsSource'] =
+      configuredMaxSteps !== undefined
+        ? 'activation'
+        : this.builtinDefinition
+        ? 'definition'
+        : 'unevaluated';
+    return {
+      definition: {
+        schemaVersion: definition.schemaVersion,
+        resourceKind: definition.resourceKind,
+        resourceId: definition.resourceId,
+        revision: {
+          algorithm: definition.revision.algorithm,
+          digest: definition.revision.digest,
+        },
+      },
+      maxSteps,
+      maxStepsSource,
+      providerTimeoutMs: this.config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      activation: {
+        ...(this.config.activation ?? {}),
+        ...(configuredMaxSteps === undefined ? {} : { maxSteps: configuredMaxSteps }),
+        ...(this.config.providerTimeoutMs === undefined
+          ? {}
+          : { providerTimeoutMs: this.config.providerTimeoutMs }),
+      },
+    };
+  }
+
+  pendingRecallSnapshot(): ContextView['pendingRecall'] {
+    return this.host?.pendingRecallSnapshot();
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {
@@ -316,14 +409,34 @@ class LazyWorkerSession implements TuiActiveSession {
     return !this.closed;
   }
 
+  runtimeSnapshot() {
+    return this.host?.runtimeSnapshot() ??
+      { active: false, phase: 'idle' as const };
+  }
+
   transcriptSnapshot(): readonly Message[] {
     return this.host?.transcriptSnapshot() ??
-      structuredClone(this.record.transcript);
+      structuredClone(this.record?.transcript ?? []);
   }
 
   currentPosition(): ReturnType<WorkerHostSession['currentPosition']> {
     if (this.host !== undefined) return this.host.currentPosition();
     const checkpoint = this.handle.checkpoint;
+    if (this.record === undefined) {
+      return {
+        sessionId: this.handle.id,
+        createdAt: this.initialCreatedAt,
+        agent: this.initialAgent,
+        committedTurn: 0,
+        messageCount: 0,
+        ...(checkpoint === undefined ? {} : {
+          checkpoint: {
+            coveredThroughTurn: checkpoint.coveredThroughTurn,
+            retainedFromTurn: checkpoint.retainedFromTurn,
+          },
+        }),
+      };
+    }
     return {
       sessionId: this.handle.id,
       createdAt: this.record.createdAt,
@@ -342,21 +455,28 @@ class LazyWorkerSession implements TuiActiveSession {
 
   modelSelectionSnapshot(): ModelSelection {
     return this.host?.modelSelectionSnapshot() ??
-      structuredClone(this.record.activeModel);
+      structuredClone(this.record?.activeModel ?? this.initialSelection);
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
-    return this.host?.credentialAvailabilitySnapshot() ?? this.localCredentialAvailability;
+    return this.host?.credentialAvailabilitySnapshot() ??
+      this.localCredentialAvailability;
   }
 
   /**
    * Presence-only display refresh. An unstarted session resolves it Host-locally so the display can
    * update without starting a Worker generation just to refresh the snapshot.
    */
-  async refreshCredentialAvailability(): Promise<CredentialAvailability | undefined> {
+  async refreshCredentialAvailability(): Promise<
+    CredentialAvailability | undefined
+  > {
     if (this.closed) return undefined;
-    if (this.host !== undefined) return await this.host.refreshCredentialAvailability();
-    const availability = await credentialAvailabilityFor(this.record.activeModel.authProfile);
+    if (this.host !== undefined) {
+      return await this.host.refreshCredentialAvailability();
+    }
+    const profile = this.record?.activeModel.authProfile ??
+      this.initialSelection.authProfile;
+    const availability = await credentialAvailabilityFor(profile);
     if (this.closed) return undefined;
     this.localCredentialAvailability = availability;
     return availability;
@@ -679,6 +799,7 @@ export const createWorkerSession = async (
           physicalIoMode: options.physicalIoMode,
           rootMaxSteps: options.rootMaxSteps,
           providerTimeoutMs: options.providerTimeoutMs,
+          ...(options.activation === undefined ? {} : { activation: options.activation }),
           cancelSettlementGraceMs: options.cancelSettlementGraceMs,
           workerResponseTimeoutMs: options.workerResponseTimeoutMs,
           auxiliaryStageGapMs: options.auxiliaryStageGapMs,
@@ -686,6 +807,7 @@ export const createWorkerSession = async (
           baseInstruction,
           providerDeclarations,
           eventSink: options.eventSink,
+          applicationObservationSink: options.applicationObservationSink,
           diagnosticPersistence: options.diagnosticPersistence,
           executionArtifactStore: defaultExecutionArtifactStore,
           ...(sqliteHistory === undefined ? {} : {
@@ -713,9 +835,11 @@ export const createWorkerSession = async (
         );
       }
     };
-    const host = await openHost(handle);
-    const initialSelection = host.modelSelectionSnapshot();
-    const startupSnapshot = host.startupSnapshot();
+    const host = options.lazyInitialHost ? undefined : await openHost(handle);
+    const initialSelection = host?.modelSelectionSnapshot() ??
+      record?.activeModel ??
+      configuredDefaultSelection ?? defaultModelSelectionFor('openrouter-chat');
+    const startupSnapshot = host?.startupSnapshot();
     const displayState = projectRuntimeDisplayState({
       productVersion: buildManifest().productVersion,
       workspaceRoot: workspace.root,
@@ -725,134 +849,95 @@ export const createWorkerSession = async (
       modelId: initialSelection.modelId,
       effort: initialSelection.effort,
       sessionMode: options.persistence,
-      instructionSource: startupSnapshot.instructionSource,
-      baseInstruction: {
-        resourceId: baseInstruction.ref.resourceId,
-        selectionSource: baseInstruction.selectionSource,
-        revisionDigest: baseInstruction.ref.revision.digest,
-      },
-      skillNames: startupSnapshot.skillNames,
+      ...(startupSnapshot === undefined ? {} : {
+        instructionSource: startupSnapshot.instructionSource,
+        baseInstruction: {
+          resourceId: baseInstruction.ref.resourceId,
+          selectionSource: baseInstruction.selectionSource,
+          revisionDigest: baseInstruction.ref.revision.digest,
+        },
+      }),
+      skillNames: startupSnapshot?.skillNames ?? [],
     });
-    let currentHost: TuiActiveSession = host;
-    let currentHandle = handle;
-    let currentRecord = record;
+    const currentHost: HostActiveSession = host ?? new LazyWorkerSession(
+      handle,
+      record,
+      definition,
+      () => openHost(handle),
+      initialSelection,
+      record?.createdAt ?? new Date().toISOString(),
+      activeSelection.id,
+      options,
+      activeSelection.kind === 'builtin',
+    );
+    const currentHandle = handle;
     const position = (): NavigationPosition => navigationPosition(currentHost.currentPosition());
-    const navigation = store === undefined ? undefined : {
-      persistent: true,
-      async list(signal?: AbortSignal): Promise<NavigationListing> {
-        if (signal?.aborted) throw new Error('navigation cancelled');
-        const listed = await store!.listWorker();
-        if (signal?.aborted) throw new Error('navigation cancelled');
+    const query: ApplicationQueryPort = {
+      currentSession: () => {
+        const checkpoint = currentHost.checkpointSnapshot();
+        const workerStartup = currentHost.startupSnapshot();
+        const effectiveConfig = currentHost.effectiveConfigSnapshot();
+        const pendingRecall = currentHost.pendingRecallSnapshot();
+        const currentRecord = currentHandle.record;
         return {
-          sessions: listed.sessions.map((item) => ({
-            ...item,
-            current: item.id === currentHandle.id,
-            resumed: item.id === currentHandle.id,
-            mismatch: item.agent !== activeSelection.id ||
-              item.definition === undefined ||
-              !sameRef(item.definition, definition),
-          })),
-          skippedInvalid: listed.skippedInvalid,
-        };
-      },
-      async renameCurrent(title: string) {
-        return await currentHost.renameTitle(title);
-      },
-      async createNew(signal?: AbortSignal): Promise<NavigationBinding> {
-        if (signal?.aborted) throw new NavigationCancelledError();
-        const inheritedSelection = currentHost.modelSelectionSnapshot();
-        const targetHandle = await store!.allocateWorker(
-          activeSelection.id,
-          definition,
-        );
-        let targetHost: WorkerHostSession | undefined;
-        const cleanupTarget = async (): Promise<void> => {
-          if (targetHost === undefined) await targetHandle.close();
-          else await targetHost.close();
-        };
-        try {
-          if (signal?.aborted) throw new NavigationCancelledError();
-          targetHost = await openHost(targetHandle, inheritedSelection);
-          if (signal?.aborted) throw new NavigationCancelledError();
-        } catch (error) {
-          try {
-            await cleanupTarget();
-          } catch {
-            throw new NavigationFatalError('new session cleanup failed');
-          }
-          throw error;
-        }
-        try {
-          await currentHost.close();
-        } catch {
-          try {
-            await cleanupTarget();
-          } catch {
-            throw new NavigationFatalError('new session cleanup failed');
-          }
-          throw new NavigationFatalError('current session close failed');
-        }
-        currentHost = targetHost;
-        currentHandle = targetHandle;
-        currentRecord = targetHandle.record;
-        return {
-          session: currentHost,
+          sessionId: currentHandle.id,
+          persistence: options.persistence,
           position: position(),
-          restored: { messages: [], omitted: 0, thinking: [] },
+          selection: structuredClone(currentHost.modelSelectionSnapshot()),
+          startup: structuredClone(displayState),
+          ...(workerStartup === undefined ? {} : { workerStartup }),
+          effectiveConfig,
+          ...(pendingRecall === undefined ? {} : { pendingRecall }),
+          ...(currentHost.credentialAvailabilitySnapshot() === undefined ? {} : {
+            credentialAvailability: structuredClone(
+              currentHost.credentialAvailabilitySnapshot()!,
+            ),
+          }),
+          ...(checkpoint === undefined ? {} : { checkpoint: structuredClone(checkpoint) }),
+          runtime: currentHost.runtimeSnapshot(),
+          transcript: structuredClone(currentHost.transcriptSnapshot()),
+          ...(options.persistence === 'none' || currentRecord === undefined ||
+              sqliteHistory === undefined
+            ? {}
+            : {
+              restored: restoreRecordMessages(currentRecord, sqliteHistory),
+            }),
         };
       },
-      async switchTo(
-        id: string,
-        signal?: AbortSignal,
-      ): Promise<NavigationBinding> {
-        if (signal?.aborted) throw new Error('navigation cancelled');
-        const targetHandle = await store!.openExistingWorker(id);
-        try {
-          const targetRecord = targetHandle.record;
-          if (
-            targetRecord === undefined ||
-            targetRecord.workspaceRoot !== workspace.root ||
-            targetRecord.agent !== activeSelection.id
-          ) {
-            throw new Error(
-              'session binding does not match the selected Definition',
-            );
-          }
-          // Open the stored Session as the active session without starting a Worker. The generation
-          // starts lazily under the currently resolved Definition on the first live operation.
-          const lazy = new LazyWorkerSession(
-            targetHandle,
-            targetRecord,
-            definition,
-            () => openHost(targetHandle),
-          );
-          const restored = restoreRecordMessages(targetRecord, sqliteHistory!);
-          await currentHost.close();
-          currentHost = lazy;
-          currentHandle = targetHandle;
-          currentRecord = targetRecord;
-          return {
-            session: currentHost,
-            position: position(),
-            ...(restored === undefined ? {} : { restored }),
-          };
-        } catch (error) {
-          await targetHandle.close();
-          throw error;
+      sessionHistory: () =>
+        options.persistence === 'none' || sqliteHistory === undefined ||
+          currentHandle.record === undefined
+          ? []
+          : sqliteHistory.readSessionHistory(currentHandle.id),
+      executions: () => {
+        if (sqliteHistory === undefined) return [];
+        if (sqliteHistory.listExecutionsForSession !== undefined) {
+          return sqliteHistory.listExecutionsForSession(currentHandle.id);
         }
+        return sqliteHistory.listExecutions().filter((item) =>
+          item.sessionCorrelation === currentHandle.id
+        );
       },
-      currentPosition: position,
-    } satisfies SessionNavigationHost;
+      executionEvents: (executionId) => sqliteHistory?.listExecutionEvents(executionId) ?? [],
+      semanticOccurrences: (executionId) =>
+        sqliteHistory?.listSemanticOccurrences(executionId) ?? [],
+      assistantTextStates: (executionId) =>
+        sqliteHistory?.listAssistantTextStates(executionId) ?? [],
+      ...(sqliteHistory === undefined ? {} : {
+        executionContext: (executionId) => sqliteHistory.listExecutionContext(executionId),
+      }),
+    };
     return {
-      session: host,
+      session: currentHost,
+      currentSession: () => currentHost,
       requestCount: () => currentHost.requestCount(),
       close: () => currentHost.close(),
       workspaceRoot: workspace.root,
       displayState,
-      ...(currentRecord === undefined ? {} : {
-        restored: restoreRecordMessages(currentRecord, sqliteHistory!),
+      ...(record === undefined || sqliteHistory === undefined ? {} : {
+        restored: restoreRecordMessages(record, sqliteHistory),
       }),
-      ...(navigation === undefined ? {} : { navigation }),
+      query,
     };
   } catch (error) {
     await handle.close();

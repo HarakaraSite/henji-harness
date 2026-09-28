@@ -17,6 +17,13 @@ import { PresentationDeliveryError as EventDeliveryError } from '../../presentat
 // stable error identity, while the neutral contract remains free of core/UI imports.
 export { PresentationDeliveryError as EventDeliveryError } from '../../presentation/contract.ts';
 
+export type AgentRequestKey = Readonly<{
+  executionId: string;
+  lane?: 'parent' | 'planner';
+  modelStep: number;
+  requestOrdinal?: number;
+}>;
+
 /** Completed lifecycle notifications emitted by one provider-neutral agent turn. */
 export type AgentEvent =
   | { readonly kind: 'turn_start'; readonly turn: number }
@@ -29,11 +36,13 @@ export type AgentEvent =
     readonly kind: 'assistant_message';
     readonly turn: number;
     readonly message: AssistantMessage;
+    readonly requestKey?: AgentRequestKey;
   }
   | {
     readonly kind: 'assistant_progress';
     readonly turn: number;
     readonly text: string;
+    readonly requestKey?: AgentRequestKey;
   }
   | {
     readonly kind: 'assistant_thinking';
@@ -42,16 +51,23 @@ export type AgentEvent =
     readonly thinkingKind: 'text' | 'summary';
     readonly text: string;
     readonly complete: boolean;
+    readonly requestKey?: AgentRequestKey;
   }
   | {
     readonly kind: 'tool_call';
     readonly turn: number;
     readonly call: ToolCall;
+    readonly executionId?: string;
+    readonly workerSequence?: number;
+    readonly requestKey?: AgentRequestKey;
   }
   | {
     readonly kind: 'tool_result';
     readonly turn: number;
     readonly result: ToolResultContent;
+    readonly executionId?: string;
+    readonly workerSequence?: number;
+    readonly requestKey?: AgentRequestKey;
   }
   | {
     readonly kind: 'tool_progress';
@@ -59,6 +75,9 @@ export type AgentEvent =
     readonly callId: string;
     readonly name: string;
     readonly text: string;
+    readonly executionId?: string;
+    readonly workerSequence?: number;
+    readonly requestKey?: AgentRequestKey;
   }
   | {
     readonly kind: 'steering_message';

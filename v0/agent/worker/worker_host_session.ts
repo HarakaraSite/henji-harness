@@ -48,6 +48,14 @@ export class WorkerHostSession {
     return this.coordinator.startupSnapshot();
   }
 
+  effectiveConfigSnapshot() {
+    return this.coordinator.effectiveConfigSnapshot();
+  }
+
+  pendingRecallSnapshot() {
+    return this.coordinator.pendingRecallSnapshot();
+  }
+
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
     return this.coordinator.credentialAvailabilitySnapshot();
   }
@@ -59,6 +67,10 @@ export class WorkerHostSession {
 
   requestCount(): number {
     return this.coordinator.requestCount();
+  }
+
+  runtimeSnapshot() {
+    return this.coordinator.runtimeSnapshot();
   }
 
   consumeAutoCompactionNotice(): {
@@ -96,6 +108,13 @@ export class WorkerHostSession {
     recalledContext?: RecalledExecutionContext,
   ): Promise<LoopOutcome> {
     return await this.coordinator.submit(task, recalledContext);
+  }
+
+  admit(
+    task: string,
+    recalledContext?: RecalledExecutionContext,
+  ): ReturnType<ExecutionCoordinator['admit']> {
+    return this.coordinator.admit(task, recalledContext);
   }
 
   cancelActiveTurn(): 'requested' | 'already_requested' | 'idle' {

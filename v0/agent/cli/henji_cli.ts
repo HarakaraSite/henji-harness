@@ -1,3 +1,4 @@
+import { cliHelp } from './cli_help.ts';
 import { runProcessRunner } from '../runtime/process_runner.ts';
 import { main as tuiMain } from './tui_cli.ts';
 import { main as runMain } from './runtime_cli.ts';
@@ -8,6 +9,8 @@ import { main as moduleMain } from './module_cli.ts';
 import { main as toolMain } from './tool_cli.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
+import { main as serveMain } from './serve_cli.ts';
+import { main as coreMain } from './core_cli.ts';
 
 const encoder = new TextEncoder();
 
@@ -69,11 +72,27 @@ export const main = async (args: readonly string[] = Deno.args): Promise<number>
     await runProcessRunner();
     return 0;
   }
+  if (args[0] === '--internal-core-bootstrap') {
+    if (args.length !== 2 || args[1].length === 0) return await writeInvalid();
+    return await serveMain([], { bootstrapToken: args[1] });
+  }
   if (args.length === 1 && args[0] === '--version') {
     await writeStdout(versionLine());
     return 0;
   }
+  const help = cliHelp(args);
+  if (help !== undefined) {
+    await writeStdout(help);
+    return 0;
+  }
   if (args[0] === 'run') return await runMain(args.slice(1));
+  if (args[0] === 'serve') return await serveMain(args.slice(1));
+  if (args[0] === 'core') return await coreMain(args.slice(1));
+  if (args[0] === 'tui') return await tuiMain(args.slice(1));
+  if (args[0] === 'webui') {
+    await Deno.stderr.write(encoder.encode('WebUI is not implemented.\n'));
+    return 1;
+  }
   if (args[0] === 'sessions') return await sessionsMain(args.slice(1));
   if (args[0] === 'history') return await historyMain(args.slice(1));
   if (args[0] === 'module') return await moduleMain(args.slice(1));

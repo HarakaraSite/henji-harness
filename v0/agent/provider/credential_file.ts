@@ -17,9 +17,12 @@ import {
  * Resolve the fixed credential file for a validated auth profile. The profile ID is a non-secret
  * identity; the path is derived from the XDG config root and never caller-selected.
  */
-export const credentialFileFor = (profile: AuthProfileId): string => {
+export const credentialFileFor = (
+  profile: AuthProfileId,
+  configRoot?: string,
+): string => {
   if (!isAuthProfileId(profile)) fail('credential_metadata_invalid');
-  return credentialPath(profile);
+  return configRoot === undefined ? credentialPath(profile) : `${configRoot}/${profile}`;
 };
 
 export const MAX_CREDENTIAL_BYTES = 4096 as const;

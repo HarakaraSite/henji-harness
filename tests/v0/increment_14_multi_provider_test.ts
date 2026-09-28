@@ -1,5 +1,5 @@
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
-import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
+import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import { AgentSession } from '../../v0/agent/session/session.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {

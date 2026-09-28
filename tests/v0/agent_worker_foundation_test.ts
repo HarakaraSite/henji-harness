@@ -20,7 +20,6 @@ import type {
   ModelRequest,
   ModelResult,
 } from '../../v0/agent/core/contracts.ts';
-import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
@@ -37,8 +36,7 @@ import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contra
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import { main as runtimeCliMain, parseRuntimeArgs } from '../../v0/agent/cli/runtime_cli.ts';
-import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
-import { createTuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
+import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import {
   WorkerGeneration,
   type WorkerGenerationPort,
@@ -1640,52 +1638,6 @@ Deno.test('TUI parses root maxSteps with agent and persistence selectors', () =>
       rejected = true;
     }
     assert(rejected, `expected rejection for ${JSON.stringify(args)}`);
-  }
-});
-
-Deno.test('Worker TUI composition routes core events through the presentation adapter', async () => {
-  const coreEvents: AgentEvent[] = [];
-  const presentationEvents: unknown[] = [];
-  let adapter: ReturnType<typeof createTuiPresentationAdapter> | undefined;
-  const created = await createWorkerSession({
-    persistence: 'none',
-    agent: 'default',
-    physicalIoMode: 'provider-free',
-    eventSink: (event) => {
-      coreEvents.push(event);
-      adapter?.deliverCoreEvent(event);
-    },
-  });
-  try {
-    adapter = createTuiPresentationAdapter(
-      created.session,
-      (event) => presentationEvents.push(event),
-      created.navigation,
-    );
-    const result = await adapter.dispatch({
-      kind: 'ordinary_submit',
-      text: 'read progress worker protocol',
-    });
-    assertEquals((result as { readonly kind: string }).kind, 'outcome');
-    const coreKinds = coreEvents.map((event) => event.kind);
-    assert(coreKinds.includes('assistant_progress'));
-    assert(coreKinds.includes('tool_call'));
-    assert(coreKinds.includes('tool_result'));
-    const coreEnd = coreEvents.findLast((event) => event.kind === 'turn_end');
-    assert(coreEnd?.kind === 'turn_end');
-    assertEquals(coreEnd.committed, true);
-    const presentationKinds = presentationEvents.map((event) =>
-      typeof event === 'object' && event !== null && 'kind' in event
-        ? (event as { readonly kind: string }).kind
-        : undefined
-    );
-    assert(presentationKinds.includes('assistant_progress'));
-    assert(presentationKinds.includes('tool_call'));
-    assert(presentationKinds.includes('tool_result'));
-    assert(presentationKinds.includes('turn_end'));
-    assertEquals(created.requestCount(), 0);
-  } finally {
-    await created.close();
   }
 });
 

@@ -4,7 +4,8 @@ import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_hi
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
-import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
+import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -84,10 +85,53 @@ Deno.test('Increment 99 session view places mixed assistant final as resume does
         : message
     ),
   };
+  const restoredConversation = restoredConversationFromSnapshot(sessionSnapshotFixture({
+    messages: [
+      {
+        id: 'user-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'user',
+        text: 'do it',
+      },
+      {
+        id: 'assistant-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'assistant',
+        text: 'checking the file',
+        toolOccurrenceIds: ['c1'],
+      },
+      {
+        id: 'tool-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'tool',
+        toolOccurrenceIds: ['c1'],
+      },
+      {
+        id: 'assistant-2',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'assistant',
+        text: 'done',
+      },
+    ],
+    tools: [{
+      toolOccurrenceId: 'c1',
+      executionId: 'execution-1',
+      turn: 1,
+      name: 'bash',
+      arguments: { command: 'echo hi' },
+      result: { text: 'hi', outcome: 'success' },
+    }],
+    thinking: [],
+    requests: [],
+    omitted: 0,
+  }));
   const restored = reduceUiEvent(createUiState(), {
     kind: 'restored_log',
-    messages: restoredPresentationMessages(mixed.transcript),
-    omitted: 0,
+    ...restoredConversation,
   });
   const expected = `${
     restored.log.entries.map((entry) => `${entry.label} ${entry.text}`).join('\n')

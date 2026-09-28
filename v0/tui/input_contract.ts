@@ -19,8 +19,10 @@ export type InputEvent =
   | { readonly kind: 'alt_enter' }
   | { readonly kind: 'backspace' }
   | { readonly kind: 'ctrl_c' }
+  | { readonly kind: 'ctrl_g' }
   | { readonly kind: 'ctrl_d' }
   | { readonly kind: 'ctrl_o' }
+  | { readonly kind: 'ctrl_t' }
   | { readonly kind: 'ctrl_w' }
   | { readonly kind: 'ctrl_a' }
   | { readonly kind: 'ctrl_b' }

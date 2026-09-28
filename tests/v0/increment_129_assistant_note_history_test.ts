@@ -1,5 +1,6 @@
 import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state.ts';
-import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
+import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
 import { renderSessionTimeline } from '../../v0/agent/history/history_view.ts';
 import type { Message } from '../../v0/agent/core/contracts.ts';
 import type {
@@ -214,10 +215,75 @@ Deno.test('Increment 129 keeps every assistant note before its tool calls in all
     'progress fragments must not survive as live entries',
   );
 
+  const restoredConversation = restoredConversationFromSnapshot(sessionSnapshotFixture({
+    messages: [
+      {
+        id: 'user-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'user',
+        text: 'inspect the repo',
+      },
+      {
+        id: 'assistant-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'assistant',
+        text: 'I will read the README first.',
+        toolOccurrenceIds: ['read-1'],
+      },
+      {
+        id: 'tool-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'tool',
+        toolOccurrenceIds: ['read-1'],
+      },
+      {
+        id: 'assistant-2',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'assistant',
+        text: 'Now I will check the working tree.',
+        toolOccurrenceIds: ['bash-1'],
+      },
+      {
+        id: 'tool-2',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'tool',
+        toolOccurrenceIds: ['bash-1'],
+      },
+      {
+        id: 'assistant-3',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'assistant',
+        text: 'The README and working tree are consistent.',
+      },
+    ],
+    tools: [{
+      toolOccurrenceId: 'read-1',
+      executionId: 'execution-1',
+      turn: 1,
+      name: 'read',
+      arguments: { path: 'README.md' },
+      result: { text: 'body', outcome: 'success' },
+    }, {
+      toolOccurrenceId: 'bash-1',
+      executionId: 'execution-1',
+      turn: 1,
+      name: 'bash',
+      arguments: { command: 'git status --short' },
+      result: { text: '', outcome: 'success' },
+    }],
+    thinking: [],
+    requests: [],
+    omitted: 0,
+  }));
   const restored = reduceUiEvent(createUiState(), {
     kind: 'restored_log',
-    messages: restoredPresentationMessages(transcript),
-    omitted: 0,
+    ...restoredConversation,
   });
   const restoredRows = restored.log.entries.map((entry) => [entry.label, entry.text]);
   assertEquals(restoredRows, expectedRows);

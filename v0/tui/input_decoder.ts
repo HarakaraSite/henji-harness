@@ -208,11 +208,11 @@ export class InputDecoder {
       return;
     }
     if (byte === 0x07) {
-      events.push({ kind: 'unknown' });
+      events.push({ kind: 'ctrl_g' });
       return;
     }
     if (byte === 0x14) {
-      events.push({ kind: 'unknown' });
+      events.push({ kind: 'ctrl_t' });
       return;
     }
     if (byte === 0x0b) {

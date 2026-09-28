@@ -309,7 +309,7 @@ export const validateSessionRecord = (
     typeof record.workspaceRoot !== 'string' ||
     canonicalAbsolutePath(record.workspaceRoot) === undefined ||
     record.workspaceRoot.trim() !== record.workspaceRoot ||
-    (record.agent !== 'default' && record.agent !== 'planner') ||
+    (record.agent !== 'default' && record.agent !== 'planner' && record.agent !== 'generic') ||
     !canonicalTimestamp(record.createdAt) ||
     !canonicalTimestamp(record.updatedAt) ||
     Date.parse(record.updatedAt) < Date.parse(record.createdAt) ||
@@ -384,7 +384,7 @@ const validateModelSessionRecord = (
     typeof base.workspaceRoot === 'string' &&
     canonicalAbsolutePath(base.workspaceRoot) !== undefined &&
     base.workspaceRoot.trim() === base.workspaceRoot &&
-    (base.agent === 'default' || base.agent === 'planner') &&
+    (base.agent === 'default' || base.agent === 'planner' || base.agent === 'generic') &&
     canonicalTimestamp(base.createdAt) && canonicalTimestamp(base.updatedAt) &&
     Date.parse(base.updatedAt) >= Date.parse(base.createdAt) &&
     base.nextTurn === 1 && Array.isArray(base.transcript) && base.transcript.length === 0;

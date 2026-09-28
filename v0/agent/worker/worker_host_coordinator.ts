@@ -44,6 +44,9 @@ import {
   resolveRecalledExecutionContext,
 } from './recalled_execution_context.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
+import type { EffectiveRuntimeConfig, SessionActivation } from '../../api/contract.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
+import { DEFAULT_PROVIDER_TIMEOUT_MS } from '../provider/openrouter_contract.ts';
 import { ExecutionJournal } from './worker_host_journal.ts';
 import { SessionAuthority } from './worker_host_authority.ts';
 import { ChildRunRegistry } from './worker_host_children.ts';
@@ -315,6 +318,57 @@ export class ExecutionCoordinator {
     return structuredClone(this.supervisor.currentStartupSnapshot);
   }
 
+  effectiveConfigSnapshot(): EffectiveRuntimeConfig {
+    const definition = this.options.definition;
+    const manifestMaxSteps = this.supervisor.currentManifest?.maxSteps;
+    const builtinMaxSteps = definition.resourceId === 'builtin/default' ||
+        definition.resourceId === 'builtin/generic'
+      ? DEFAULT_AGENT_MAX_STEPS
+      : undefined;
+    const configuredMaxSteps = this.options.rootMaxSteps;
+    const maxSteps = configuredMaxSteps ?? manifestMaxSteps ?? builtinMaxSteps ?? null;
+    const maxStepsSource: EffectiveRuntimeConfig['maxStepsSource'] =
+      configuredMaxSteps !== undefined
+        ? 'activation'
+        : manifestMaxSteps !== undefined || builtinMaxSteps !== undefined
+        ? 'definition'
+        : 'unevaluated';
+    const activation: SessionActivation = {
+      ...(this.options.activation ?? {}),
+      ...(this.options.rootMaxSteps === undefined ? {} : { maxSteps: this.options.rootMaxSteps }),
+      ...(this.options.providerTimeoutMs === undefined
+        ? {}
+        : { providerTimeoutMs: this.options.providerTimeoutMs }),
+    };
+    return {
+      definition: {
+        schemaVersion: definition.schemaVersion,
+        resourceKind: definition.resourceKind,
+        resourceId: definition.resourceId,
+        revision: {
+          algorithm: definition.revision.algorithm,
+          digest: definition.revision.digest,
+        },
+      },
+      maxSteps,
+      maxStepsSource,
+      providerTimeoutMs: this.options.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      activation,
+    };
+  }
+
+  pendingRecallSnapshot():
+    | Readonly<{
+      sourceExecutionId: string;
+      evidence: 'available' | 'unavailable';
+    }>
+    | undefined {
+    const recall = this.pendingRecall;
+    return recall === undefined
+      ? undefined
+      : { sourceExecutionId: recall.sourceExecutionId, evidence: recall.evidence };
+  }
+
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
     return this.supervisor.credentialAvailability === undefined
       ? undefined
@@ -479,6 +533,17 @@ export class ExecutionCoordinator {
         this.journal.flushObservationBuffer();
         this.supervisor.messages.publish(message);
       } else if (message.event.kind === 'agent_event') {
+        try {
+          this.options.applicationObservationSink?.({
+            kind: 'agent_event',
+            ...(this.activeExecution === undefined
+              ? {}
+              : { executionId: this.activeExecution.executionId }),
+            event: structuredClone(message.event.event),
+          });
+        } catch {
+          // Read-model observation does not change the Worker event path.
+        }
         this.deliver(message.event.event);
       }
       return;
@@ -493,13 +558,46 @@ export class ExecutionCoordinator {
     ) {
       const event = message.observation.event;
       const turn = message.turn;
+      try {
+        if (this.activeExecution !== undefined) {
+          this.options.applicationObservationSink?.({
+            kind: 'provider_runtime_event',
+            executionId: this.activeExecution.executionId,
+            workerSequence: message.sequence,
+            turn,
+            event: structuredClone(event),
+          });
+        }
+      } catch {
+        // Read-model observation does not change the Worker event path.
+      }
       if (event.kind === 'assistant_progress') {
-        this.deliver({ kind: 'assistant_progress', turn, text: event.text });
+        this.deliver({
+          kind: 'assistant_progress',
+          turn,
+          text: event.text,
+          requestKey: {
+            executionId: this.activeExecution?.executionId ?? '',
+            ...(event.lane === undefined ? {} : { lane: event.lane }),
+            modelStep: event.modelStep,
+            ...(event.requestOrdinal === undefined ? {} : {
+              requestOrdinal: event.requestOrdinal,
+            }),
+          },
+        });
       } else if (event.kind === 'model_result') {
         const result = event.result;
         this.deliver({
           kind: 'assistant_message',
           turn,
+          requestKey: {
+            executionId: this.activeExecution?.executionId ?? '',
+            ...(event.lane === undefined ? {} : { lane: event.lane }),
+            modelStep: event.modelStep,
+            ...(event.requestOrdinal === undefined ? {} : {
+              requestOrdinal: event.requestOrdinal,
+            }),
+          },
           message: result.kind === 'final'
             ? {
               role: 'assistant',
@@ -525,6 +623,16 @@ export class ExecutionCoordinator {
           kind: 'tool_call',
           turn,
           call: structuredClone(event.call),
+          executionId: this.activeExecution?.executionId,
+          workerSequence: message.sequence,
+          requestKey: {
+            executionId: this.activeExecution?.executionId ?? '',
+            ...(event.lane === undefined ? {} : { lane: event.lane }),
+            modelStep: event.modelStep,
+            ...(event.requestOrdinal === undefined ? {} : {
+              requestOrdinal: event.requestOrdinal,
+            }),
+          },
         });
       } else if (event.kind === 'tool_progress') {
         this.deliver({
@@ -533,12 +641,32 @@ export class ExecutionCoordinator {
           callId: event.callId,
           name: event.name,
           text: event.text,
+          executionId: this.activeExecution?.executionId,
+          workerSequence: message.sequence,
+          requestKey: {
+            executionId: this.activeExecution?.executionId ?? '',
+            ...(event.lane === undefined ? {} : { lane: event.lane }),
+            modelStep: event.modelStep,
+            ...(event.requestOrdinal === undefined ? {} : {
+              requestOrdinal: event.requestOrdinal,
+            }),
+          },
         });
       } else if (event.kind === 'tool_result') {
         this.deliver({
           kind: 'tool_result',
           turn,
           result: structuredClone(event.result),
+          executionId: this.activeExecution?.executionId,
+          workerSequence: message.sequence,
+          requestKey: {
+            executionId: this.activeExecution?.executionId ?? '',
+            ...(event.lane === undefined ? {} : { lane: event.lane }),
+            modelStep: event.modelStep,
+            ...(event.requestOrdinal === undefined ? {} : {
+              requestOrdinal: event.requestOrdinal,
+            }),
+          },
         });
       }
       return;
@@ -563,6 +691,19 @@ export class ExecutionCoordinator {
   }
 
   private deliver(event: AgentEvent): void {
+    if (event.kind === 'turn_end') {
+      try {
+        this.options.applicationObservationSink?.({
+          kind: 'agent_event',
+          ...(this.activeExecution === undefined
+            ? {}
+            : { executionId: this.activeExecution.executionId }),
+          event: structuredClone(event),
+        });
+      } catch {
+        // Read-model observation does not change the Host settlement path.
+      }
+    }
     if (this.options.eventSink === undefined) return;
     try {
       this.options.eventSink(structuredClone(event));
@@ -591,6 +732,43 @@ export class ExecutionCoordinator {
 
   requestCount(): number {
     return this.runtimeRequestCount;
+  }
+
+  runtimeSnapshot(): {
+    readonly active: boolean;
+    readonly phase: 'idle' | 'running' | 'cancelling' | 'settling' | 'unavailable';
+  } {
+    if (!this.active) {
+      return {
+        active: false,
+        phase: this.closed || this.supervisor.isUnavailable ? 'unavailable' : 'idle',
+      };
+    }
+    const execution = this.activeExecution;
+    const cancelling = execution !== undefined && (
+      this.cancellationRequestedExecutionId === execution.executionId ||
+      this.forcedInterruptionExecutionId === execution.executionId
+    );
+    return {
+      active: true,
+      phase: cancelling
+        ? 'cancelling'
+        : execution !== undefined && execution.settlement !== 'uncommitted'
+        ? 'settling'
+        : 'running',
+    };
+  }
+
+  private publishRuntimeState(): void {
+    try {
+      this.options.applicationObservationSink?.({
+        kind: 'runtime_state',
+        sessionId: this.sessionId,
+        ...this.runtimeSnapshot(),
+      });
+    } catch {
+      // Read-model observation does not change Host settlement.
+    }
   }
 
   consumeAutoCompactionNotice(): {
@@ -1331,6 +1509,36 @@ export class ExecutionCoordinator {
     task: string,
     recalledContext?: RecalledExecutionContext,
   ): Promise<LoopOutcome> {
+    return await this.executeTask(task, recalledContext);
+  }
+
+  /** Resolve after durable admission; completion retains the existing full cleanup boundary. */
+  admit(
+    task: string,
+    recalledContext?: RecalledExecutionContext,
+  ): Promise<{ readonly executionId: string; readonly completion: Promise<LoopOutcome> }> {
+    return new Promise((resolve, reject) => {
+      let admitted = false;
+      const completion = this.executeTask(task, recalledContext, (executionId) => {
+        admitted = true;
+        resolve({ executionId, completion });
+      });
+      completion.then((outcome) => {
+        if (!admitted) {
+          reject(Object.assign(new Error(outcome.error ?? 'execution admission failed'), {
+            code: 'admission_failed',
+            outcome,
+          }));
+        }
+      }, reject);
+    });
+  }
+
+  private async executeTask(
+    task: string,
+    recalledContext?: RecalledExecutionContext,
+    onAdmitted?: (executionId: string) => void,
+  ): Promise<LoopOutcome> {
     if (this.closed) {
       throw new Error('agent session unavailable');
     }
@@ -1385,6 +1593,7 @@ export class ExecutionCoordinator {
     };
     this.children.openParent(execution.executionId);
     this.activeExecution = execution;
+    this.publishRuntimeState();
     try {
       if (this.options.historyPersistence !== undefined) {
         try {
@@ -1449,6 +1658,7 @@ export class ExecutionCoordinator {
           return failed;
         }
       }
+      onAdmitted?.(execution.executionId);
       try {
         this.send({
           kind: 'turn',
@@ -1958,6 +2168,7 @@ export class ExecutionCoordinator {
         this.active = false;
         this.supervisor.setCurrentCorrelation(undefined);
         this.lastAuxiliaryContextRequestOrdinal = undefined;
+        this.publishRuntimeState();
       }
     }
   }
@@ -1973,6 +2184,7 @@ export class ExecutionCoordinator {
     ) return 'already_requested';
     if (execution !== undefined) {
       this.cancellationRequestedExecutionId = execution.executionId;
+      this.publishRuntimeState();
       this.supervisor.cancelProcessExecution(execution.executionId);
       this.journal.recordWorkerStageSnapshot('cancel_requested');
       const journaled = this.journal.appendJournal({

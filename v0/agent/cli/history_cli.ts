@@ -2,6 +2,7 @@ import { launcherStateRoot, sessionPaths } from '../session/session_store_paths.
 import { isSessionId } from '../session/session_store_contract.ts';
 import { SqliteHistoryV7ProductionStore } from '../history/sqlite_history_v7_production_store.ts';
 import { renderCanonicalView, renderSessionTimeline } from '../history/history_view.ts';
+import { HenjiApiClient } from '../../api/client.ts';
 
 const encoder = new TextEncoder();
 /** Full UUID or a hex short-id prefix as shown by the TUI footer / session picker. */
@@ -11,6 +12,7 @@ const isFullSessionId = (value: string): boolean => isSessionId(value);
 type HistoryView = 'session' | 'canonical' | 'detail';
 
 interface HistoryCliCommand {
+  readonly connect?: string;
   readonly sessionRef?: string;
   readonly latest: boolean;
   readonly view: HistoryView;
@@ -19,11 +21,27 @@ interface HistoryCliCommand {
 class HistoryCliInvocationError extends Error {}
 
 export const parseHistoryArgs = (args: readonly string[]): HistoryCliCommand => {
+  let connect: string | undefined;
   let sessionRef: string | undefined;
   let latest = false;
   let view: HistoryView = 'session';
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
+    if (flag === '--connect') {
+      const value = args[index + 1];
+      if (connect !== undefined || value === undefined) throw new HistoryCliInvocationError();
+      try {
+        const url = new URL(value);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          throw new HistoryCliInvocationError();
+        }
+      } catch {
+        throw new HistoryCliInvocationError();
+      }
+      connect = value;
+      index += 1;
+      continue;
+    }
     if (flag === '--latest') {
       latest = true;
       continue;
@@ -47,7 +65,12 @@ export const parseHistoryArgs = (args: readonly string[]): HistoryCliCommand => 
     throw new HistoryCliInvocationError();
   }
   if (sessionRef !== undefined && latest) throw new HistoryCliInvocationError();
-  return { ...(sessionRef === undefined ? {} : { sessionRef }), latest, view };
+  return {
+    ...(connect === undefined ? {} : { connect }),
+    ...(sessionRef === undefined ? {} : { sessionRef }),
+    latest,
+    view,
+  };
 };
 
 const writeStdout = async (text: string): Promise<void> => {
@@ -86,6 +109,21 @@ export const main = async (args: readonly string[]): Promise<number> => {
     command = parseHistoryArgs(args);
   } catch {
     return await invalidInvocation();
+  }
+  if (command.connect !== undefined) {
+    try {
+      const history = await new HenjiApiClient(command.connect).historyRead(command);
+      await writeStderr(
+        history.sessionId === null ? '# no history\n' : `# session ${history.sessionId}\n`,
+      );
+      await writeStdout(history.text);
+      return 0;
+    } catch (error) {
+      await writeStderr(
+        `history read failed: ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+      return 1;
+    }
   }
   const workspaceRoot = Deno.cwd();
   let stateRoot: string;

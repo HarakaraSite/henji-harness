@@ -1,0 +1,680 @@
+import { deepStrictEqual, strictEqual } from "node:assert";
+import type {
+  CoreOperationName,
+  ExecutionView,
+  SessionSnapshot,
+} from "../../v0/api/contract.ts";
+import {
+  parseRemoteTuiInvocation,
+  runRemoteTuiInvocation,
+} from "../../v0/agent/cli/remote_tui_cli.ts";
+import type { TerminalPort } from "../../v0/tui/terminal.ts";
+import { runRemoteTui } from "../../v0/tui/remote_session.ts";
+
+const encoder = new TextEncoder();
+const activeSessionId = "14300000-0000-4000-8000-000000000001";
+const savedSessionId = "14300000-0000-4000-8000-000000000002";
+const executionId = "14300000-0000-4000-8000-000000000003";
+const coreEpoch = "increment-143-remote-session";
+
+const build = {
+  schemaVersion: 1,
+  productVersion: "0.1.0",
+  buildId: "a".repeat(64),
+  sourceRevision: "remote-session-test",
+  sourceDirty: false,
+  denoVersion: "2.9.7",
+  target: "x86_64-unknown-linux-gnu",
+  embeddedRuntimeSha256: "b".repeat(64),
+  supportedAgentDefinitionApiContracts: ["henji-agent-definition-v2"],
+  supportedToolDefinitionApiContracts: ["henji-tool-definition-v1"],
+};
+
+const effectiveConfig = {
+  definition: {
+    resourceId: "builtin/generic",
+    revision: { algorithm: "sha256", digest: "d".repeat(64) },
+  },
+  maxSteps: 4,
+  maxStepsSource: "activation" as const,
+  providerTimeoutMs: 30_000,
+  activation: { agent: "generic", maxSteps: 4, providerTimeoutMs: 30_000 },
+};
+
+const activeExecution: ExecutionView = {
+  executionId,
+  sessionId: activeSessionId,
+  task: "long running task",
+  turn: 1,
+  createdAt: "2026-09-28T00:00:00.000Z",
+  lifecycle: "active",
+  outcome: "unknown",
+  adoption: "non_canonical",
+  processSettlement: "running",
+  requestCount: 1,
+  durability: {
+    acknowledgement: "durable",
+    generationAvailability: "available",
+    diagnosticCapture: "not_required",
+    artifactCapture: "not_required",
+    contextCapture: "none",
+  },
+};
+
+const snapshot = (
+  sessionId: string,
+  options: {
+    readonly title: string;
+    readonly activeSessionId?: string;
+    readonly busy?: boolean;
+    readonly message?: string;
+  },
+): SessionSnapshot => ({
+  schemaVersion: 1,
+  cursor: { coreEpoch, sessionId, revision: 4 },
+  session: {
+    id: sessionId,
+    canonicalSessionId: sessionId,
+    persistence: "persistent",
+    position: {
+      sessionId,
+      createdAt: "2026-09-27T00:00:00.000Z",
+      title: options.title,
+      agent: "generic",
+      committedTurn: options.message === undefined ? 0 : 1,
+      messageCount: options.message === undefined ? 0 : 1,
+    },
+    selection: {
+      provider: "openrouter-responses",
+      modelId: "test/model",
+      effort: "high",
+    },
+    startup: { status: "ready" },
+  },
+  runtime: {
+    active: options.busy ?? false,
+    activeSessionId: options.activeSessionId ?? activeSessionId,
+    phase: options.busy ? "running" : "idle",
+    execution: options.busy ? activeExecution : null,
+    operations:
+      options.activeSessionId === sessionId || sessionId === activeSessionId
+        ? [
+          "task.submit",
+          "execution.cancel",
+          "session.rename",
+          "recall.prepare",
+          "recall.clear",
+          "context.read",
+        ]
+        : [],
+    ...(options.activeSessionId === sessionId || sessionId === activeSessionId
+      ? { effectiveConfig }
+      : {}),
+  },
+  conversation: {
+    messages: options.message === undefined ? [] : [{
+      id: `message-${sessionId}`,
+      executionId,
+      turn: 1,
+      role: "assistant",
+      text: options.message,
+    }],
+    tools: [],
+    thinking: [],
+    requests: [],
+    omitted: 0,
+  },
+  pending: { kind: "core-owned", followUps: [] },
+  credentialAvailability: { status: "unknown" },
+  context: {},
+});
+
+const activeSnapshot = snapshot(activeSessionId, {
+  title: "Active Session A",
+  busy: true,
+});
+const savedSnapshot = snapshot(savedSessionId, {
+  title: "Saved Session B",
+  message: "Saved B conversation marker",
+});
+const activeIdleSnapshot = snapshot(activeSessionId, {
+  title: "Active Session A",
+});
+const resumedSnapshot = snapshot(savedSessionId, {
+  title: "Saved Session B",
+  activeSessionId: savedSessionId,
+  message: "Saved B conversation marker",
+});
+
+const coreRead = {
+  apiVersion: 1,
+  coreEpoch,
+  build,
+  workspace: "/tmp/increment-143-remote-workspace",
+  activeSessionId,
+  phase: "running",
+  implementedOperations: [
+    "core.read",
+    "session.list",
+    "session.open",
+    "session.rename",
+    "session.read",
+    "session.subscribe",
+    "task.submit",
+    "execution.cancel",
+    "recall.prepare",
+    "recall.clear",
+    "context.read",
+    "command.read",
+  ] satisfies readonly CoreOperationName[],
+};
+
+class FakeTerminal implements TerminalPort {
+  readonly output: string[] = [];
+  readonly signals = new Map<string, () => void>();
+  raw = false;
+  private readonly input: Uint8Array[] = [];
+  private pendingRead: ((value: Uint8Array | null) => void) | undefined;
+
+  stdinIsTerminal(): boolean {
+    return true;
+  }
+  stdoutIsTerminal(): boolean {
+    return true;
+  }
+  consoleSize(): { columns: number; rows: number } {
+    return { columns: 80, rows: 24 };
+  }
+  setRaw(mode: boolean): void {
+    this.raw = mode;
+  }
+  read(): Promise<Uint8Array | null> {
+    const next = this.input.shift();
+    if (next !== undefined) return Promise.resolve(next);
+    return new Promise((resolve) => this.pendingRead = resolve);
+  }
+  drainAndCloseInput(_maxMs: number, _idleMs: number): Promise<void> {
+    const resolve = this.pendingRead;
+    this.pendingRead = undefined;
+    resolve?.(null);
+    return Promise.resolve();
+  }
+  pushInput(text: string): void {
+    const bytes = encoder.encode(text);
+    if (this.pendingRead !== undefined) {
+      const resolve = this.pendingRead;
+      this.pendingRead = undefined;
+      resolve(bytes);
+    } else this.input.push(bytes);
+  }
+  write(bytes: Uint8Array): void {
+    this.output.push(new TextDecoder().decode(bytes));
+  }
+  addSignal(
+    signal: "SIGINT" | "SIGTERM" | "SIGHUP",
+    handler: () => void,
+  ): void {
+    this.signals.set(signal, handler);
+  }
+  removeSignal(
+    signal: "SIGINT" | "SIGTERM" | "SIGHUP",
+    handler: () => void,
+  ): void {
+    if (this.signals.get(signal) === handler) this.signals.delete(signal);
+  }
+  subscribeOutputFailure(_handler: () => void): () => void {
+    return () => {};
+  }
+  text(): string {
+    return this.output.join("");
+  }
+}
+
+const waitFor = async (predicate: () => boolean): Promise<void> => {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("timed out waiting for remote TUI behavior");
+};
+
+const occurrences = (text: string, value: string): number =>
+  text.split(value).length - 1;
+
+const sseResponse = (value: SessionSnapshot): Response =>
+  new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(
+          `data: ${
+            JSON.stringify({ kind: "session.snapshot", snapshot: value })
+          }\n\n`,
+        ));
+      },
+    }),
+    { headers: { "content-type": "text/event-stream" } },
+  );
+
+const sessionList = (ids: readonly string[]) => ({
+  sessions: ids.map((id) => ({
+    id,
+    agent: "generic",
+    createdAt: "2026-09-27T00:00:00.000Z",
+    updatedAt: "2026-09-28T00:00:00.000Z",
+    title: id === activeSessionId ? "Active Session A" : "Saved Session B",
+    committedTurn: id === savedSessionId ? 1 : 0,
+    messageCount: id === savedSessionId ? 1 : 0,
+    persistence: "persistent",
+    runtime: { active: id === activeSessionId, phase: "idle" },
+  })),
+});
+
+const startServer = (
+  handler: (request: Request) => Response | Promise<Response>,
+) =>
+  Deno.serve(
+    { hostname: "127.0.0.1", port: 0, onListen() {} },
+    handler,
+  );
+
+const accepted = (
+  commandId: string,
+  sessionId: string,
+  value: unknown,
+): Response =>
+  Response.json({
+    kind: "accepted",
+    commandId,
+    target: { kind: "session", sessionId },
+    value,
+  });
+
+Deno.test("Increment 143 slash operations and context overlay do not submit or cancel busy work", async () => {
+  let renameBody: Record<string, unknown> | undefined;
+  let recallBody: Record<string, unknown> | undefined;
+  let contextReads = 0;
+  let taskSubmissions = 0;
+  let cancellations = 0;
+  const server = startServer(async (request) => {
+    const { pathname } = new URL(request.url);
+    if (request.method === "GET" && pathname === "/api/v1/core") {
+      return Response.json(coreRead);
+    }
+    if (request.method === "GET" && pathname.endsWith("/events")) {
+      return sseResponse(activeSnapshot);
+    }
+    if (request.method === "POST" && pathname.endsWith("/title")) {
+      const body = await request.json() as Record<string, unknown>;
+      renameBody = body;
+      return accepted(String(body.commandId), activeSessionId, {
+        result: "renamed",
+      });
+    }
+    if (request.method === "POST" && pathname.endsWith("/recall")) {
+      const body = await request.json() as Record<string, unknown>;
+      recallBody = body;
+      return accepted(String(body.commandId), activeSessionId, {
+        action: "prepare",
+        sourceExecutionId: executionId,
+        evidence: "available",
+      });
+    }
+    if (request.method === "GET" && pathname.endsWith("/context")) {
+      contextReads += 1;
+      return Response.json({
+        context: {
+          checkpoint: {
+            summary: "Context checkpoint marker",
+            coveredThroughTurn: 2,
+            retainedFromTurn: 3,
+          },
+          pendingRecall: {
+            sourceExecutionId: executionId,
+            evidence: "available",
+          },
+          latestRequest: {
+            executionId,
+            requestOrdinal: 8,
+            lane: "parent",
+            purpose: "reply",
+            modelStep: 4,
+            itemCount: 5,
+          },
+        },
+      });
+    }
+    if (request.method === "POST" && pathname.endsWith("/tasks")) {
+      taskSubmissions += 1;
+    }
+    if (request.method === "POST" && pathname.endsWith("/cancel")) {
+      cancellations += 1;
+    }
+    return new Response("unexpected TUI request", { status: 404 });
+  });
+  const terminal = new FakeTerminal();
+  const run = runRemoteTui(
+    `http://127.0.0.1:${server.addr.port}`,
+    activeSessionId,
+    {
+      terminal,
+    },
+  );
+  try {
+    await waitFor(() => terminal.text().includes("Active Session A"));
+    terminal.pushInput("/rename Slice 5 title\r");
+    await waitFor(() =>
+      renameBody !== undefined && terminal.text().includes("Session renamed")
+    );
+    deepStrictEqual(renameBody?.title, "Slice 5 title");
+
+    terminal.pushInput("/recall latest\r");
+    await waitFor(() => recallBody !== undefined);
+    deepStrictEqual(recallBody?.action, "prepare");
+    strictEqual(recallBody?.executionId, undefined);
+
+    terminal.pushInput("/context\r");
+    await waitFor(() =>
+      contextReads === 1 &&
+      terminal.text().includes("Context checkpoint marker") &&
+      terminal.text().includes("provider timeout 30000ms")
+    );
+    terminal.pushInput("\x1b");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    terminal.pushInput("\x04");
+
+    strictEqual(await run, 0);
+    strictEqual(contextReads, 1);
+    strictEqual(taskSubmissions, 0);
+    strictEqual(cancellations, 0);
+    strictEqual(terminal.raw, false);
+  } finally {
+    terminal.pushInput("\x04");
+    await run;
+    await server.shutdown();
+  }
+});
+
+Deno.test("Increment 143 Ctrl-G picker Enter views a saved Session without changing the active slot", async () => {
+  let lists = 0;
+  let savedReads = 0;
+  let savedSubscriptions = 0;
+  let opens = 0;
+  let taskSubmissions = 0;
+  let cancellations = 0;
+  let activeSlot = activeSessionId;
+  const server = startServer((request) => {
+    const { pathname } = new URL(request.url);
+    if (request.method === "GET" && pathname === "/api/v1/core") {
+      return Response.json({ ...coreRead, activeSessionId: activeSlot });
+    }
+    if (request.method === "GET" && pathname === "/api/v1/sessions") {
+      lists += 1;
+      return Response.json(sessionList([activeSessionId, savedSessionId]));
+    }
+    if (
+      request.method === "GET" &&
+      pathname === `/api/v1/sessions/${savedSessionId}`
+    ) {
+      savedReads += 1;
+      return Response.json(savedSnapshot);
+    }
+    if (request.method === "GET" && pathname.endsWith("/events")) {
+      if (pathname.includes(savedSessionId)) {
+        savedSubscriptions += 1;
+        return sseResponse(savedSnapshot);
+      }
+      return sseResponse(activeSnapshot);
+    }
+    if (request.method === "POST" && pathname.endsWith("/open")) {
+      opens += 1;
+      activeSlot = savedSessionId;
+    }
+    if (request.method === "POST" && pathname.endsWith("/tasks")) {
+      taskSubmissions += 1;
+    }
+    if (request.method === "POST" && pathname.endsWith("/cancel")) {
+      cancellations += 1;
+    }
+    return new Response("unexpected TUI request", { status: 404 });
+  });
+  const terminal = new FakeTerminal();
+  const run = runRemoteTui(
+    `http://127.0.0.1:${server.addr.port}`,
+    activeSessionId,
+    {
+      terminal,
+    },
+  );
+  try {
+    await waitFor(() => terminal.text().includes("Active Session A"));
+    terminal.pushInput("\x07");
+    await waitFor(() =>
+      lists === 1 && terminal.text().includes("Saved Session B")
+    );
+    terminal.pushInput("\x1b[B\r");
+    await waitFor(() =>
+      savedReads === 1 && savedSubscriptions === 1 &&
+      terminal.text().includes("Saved B conversation marker")
+    );
+    terminal.pushInput("\x04");
+
+    strictEqual(await run, 0);
+    strictEqual(opens, 0);
+    strictEqual(taskSubmissions, 0);
+    strictEqual(cancellations, 0);
+    const coreAfterView = await fetch(
+      `http://127.0.0.1:${server.addr.port}/api/v1/core`,
+    )
+      .then((response) => response.json());
+    strictEqual(coreAfterView.activeSessionId, activeSessionId);
+  } finally {
+    terminal.pushInput("\x04");
+    await run;
+    await server.shutdown();
+  }
+});
+
+Deno.test("Increment 143 Ctrl-T picker R explicitly resumes the selected saved Session", async () => {
+  let lists = 0;
+  let openBody: Record<string, unknown> | undefined;
+  let savedSubscriptions = 0;
+  let taskSubmissions = 0;
+  let cancellations = 0;
+  let activeSlot = activeSessionId;
+  const server = startServer(async (request) => {
+    const { pathname } = new URL(request.url);
+    if (request.method === "GET" && pathname === "/api/v1/core") {
+      return Response.json({
+        ...coreRead,
+        activeSessionId: activeSlot,
+        phase: "idle",
+      });
+    }
+    if (request.method === "GET" && pathname === "/api/v1/sessions") {
+      lists += 1;
+      return Response.json(sessionList([savedSessionId]));
+    }
+    if (
+      request.method === "GET" &&
+      pathname === `/api/v1/sessions/${savedSessionId}`
+    ) {
+      return Response.json(savedSnapshot);
+    }
+    if (request.method === "POST" && pathname === "/api/v1/sessions/open") {
+      openBody = await request.json() as Record<string, unknown>;
+      activeSlot = savedSessionId;
+      return accepted(String(openBody.commandId), savedSessionId, {
+        snapshot: resumedSnapshot,
+      });
+    }
+    if (request.method === "GET" && pathname.endsWith("/events")) {
+      if (pathname.includes(savedSessionId)) {
+        savedSubscriptions += 1;
+        return sseResponse(
+          activeSlot === savedSessionId ? resumedSnapshot : savedSnapshot,
+        );
+      }
+      return sseResponse(activeIdleSnapshot);
+    }
+    if (request.method === "GET" && pathname.endsWith("/context")) {
+      return Response.json({ context: {} });
+    }
+    if (request.method === "POST" && pathname.endsWith("/tasks")) {
+      taskSubmissions += 1;
+    }
+    if (request.method === "POST" && pathname.endsWith("/cancel")) {
+      cancellations += 1;
+    }
+    return new Response("unexpected TUI request", { status: 404 });
+  });
+  const terminal = new FakeTerminal();
+  const run = runRemoteTui(
+    `http://127.0.0.1:${server.addr.port}`,
+    activeSessionId,
+    {
+      terminal,
+    },
+  );
+  try {
+    await waitFor(() => terminal.text().includes("Active Session A"));
+    terminal.pushInput("\x14");
+    await waitFor(() =>
+      lists === 1 && terminal.text().includes("Saved Session B")
+    );
+    terminal.pushInput("\r");
+    await waitFor(() =>
+      savedSubscriptions === 1 &&
+      terminal.text().includes("Saved B conversation marker")
+    );
+    const previousPickerRows = occurrences(
+      terminal.text(),
+      "Saved Session B ·",
+    );
+    terminal.pushInput("\x14");
+    await waitFor(() =>
+      lists === 2 &&
+      occurrences(terminal.text(), "Saved Session B ·") > previousPickerRows
+    );
+    terminal.pushInput("r");
+    await waitFor(() => openBody !== undefined && savedSubscriptions === 2);
+    deepStrictEqual(openBody?.selection, {
+      kind: "exact",
+      sessionId: savedSessionId,
+    });
+    strictEqual(openBody?.fromSessionId, undefined);
+    terminal.pushInput("/context\r");
+    await waitFor(() => terminal.text().includes("provider timeout 30000ms"));
+    terminal.pushInput("\x04");
+
+    strictEqual(await run, 0);
+    strictEqual(taskSubmissions, 0);
+    strictEqual(cancellations, 0);
+    const coreAfterResume = await fetch(
+      `http://127.0.0.1:${server.addr.port}/api/v1/core`,
+    ).then((response) => response.json());
+    strictEqual(coreAfterResume.activeSessionId, savedSessionId);
+  } finally {
+    terminal.pushInput("\x04");
+    await run;
+    await server.shutdown();
+  }
+});
+
+Deno.test("Increment 143 CLI attach compares activation against the effective managed Definition ref", async () => {
+  const managedResourceId = "agent:managed-profile";
+  const managedDigest = "c".repeat(64);
+  const definitionRevision = `${managedResourceId}@sha256:${managedDigest}`;
+  const managedSnapshot: SessionSnapshot = {
+    ...activeIdleSnapshot,
+    session: {
+      ...activeIdleSnapshot.session,
+      position: {
+        ...activeIdleSnapshot.session.position,
+        // The record role does not identify its actual managed Definition.
+        agent: "default",
+      },
+    },
+    runtime: {
+      ...activeIdleSnapshot.runtime,
+      effectiveConfig: {
+        ...effectiveConfig,
+        definition: {
+          resourceId: managedResourceId,
+          revision: { algorithm: "sha256", digest: managedDigest },
+        },
+        // A server-created slot may not include the original CLI selector.
+        activation: {},
+      },
+    },
+  };
+  let sessionReads = 0;
+  let events = 0;
+  let providerCalls = 0;
+  const server = startServer((request) => {
+    const { pathname } = new URL(request.url);
+    if (request.method === "GET" && pathname === "/api/v1/core") {
+      return Response.json({ ...coreRead, phase: "idle" });
+    }
+    if (
+      request.method === "GET" &&
+      pathname === `/api/v1/sessions/${activeSessionId}`
+    ) {
+      sessionReads += 1;
+      return Response.json(managedSnapshot);
+    }
+    if (request.method === "GET" && pathname.endsWith("/events")) {
+      events += 1;
+      return sseResponse(managedSnapshot);
+    }
+    providerCalls += 1;
+    return new Response("unexpected provider or TUI request", { status: 404 });
+  });
+  const url = `http://127.0.0.1:${server.addr.port}`;
+  const mismatchTerminal = new FakeTerminal();
+  let mismatchStderr = "";
+  try {
+    const mismatch = parseRemoteTuiInvocation([
+      "--connect",
+      url,
+      "--agent",
+      "default",
+    ]);
+    strictEqual(
+      await runRemoteTuiInvocation(mismatch, {
+        terminal: mismatchTerminal,
+        writeStderr: (text) => {
+          mismatchStderr += text;
+        },
+      }),
+      1,
+    );
+    strictEqual(mismatchTerminal.output.length, 0);
+    strictEqual(
+      mismatchStderr.includes(
+        `--agent requested default, active ${managedResourceId}`,
+      ),
+      true,
+    );
+
+    const matchTerminal = new FakeTerminal();
+    const matching = parseRemoteTuiInvocation([
+      "--connect",
+      url,
+      "--definition-revision",
+      definitionRevision,
+    ]);
+    strictEqual(
+      await runRemoteTuiInvocation(matching, {
+        terminal: matchTerminal,
+        afterAcquire: () => matchTerminal.pushInput("\x04"),
+      }),
+      0,
+    );
+    strictEqual(sessionReads, 2);
+    strictEqual(events, 1);
+    strictEqual(providerCalls, 0);
+  } finally {
+    await server.shutdown();
+  }
+});

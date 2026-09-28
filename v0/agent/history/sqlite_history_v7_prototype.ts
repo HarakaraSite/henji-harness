@@ -329,7 +329,7 @@ export class SqliteHistoryV7Prototype {
       input.executionId,
     );
     const authoritySession = input.canonicalSessionId ??
-      `detached:${input.sessionCorrelation}`;
+      `detached:${input.executionId}`;
     if (String(row.session_id) !== authoritySession) {
       throw new Error('history v7 admission session mismatch');
     }

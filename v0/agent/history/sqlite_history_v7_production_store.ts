@@ -40,6 +40,7 @@ import type {
   BeginExecutionInput,
   CanonicalTurnCommitInput,
   ExecutionEventInput,
+  HistoryAppendResult,
   HistoryCaptureResult,
   HistoryPersistencePort,
   NonCanonicalExecutionInput,
@@ -63,8 +64,10 @@ import {
 } from './history_export_record.ts';
 import type {
   HistoryV7AssistantTextKey,
+  HistoryV7AssistantTextState,
   HistoryV7AssistantTextUpdate,
   HistoryV7SemanticKind,
+  HistoryV7SemanticOccurrence,
   HistoryV7SemanticOccurrenceInput,
 } from './history_v7_model.ts';
 import { encodeHistoryV7Payload } from './history_v7_model.ts';
@@ -674,7 +677,7 @@ export class SqliteHistoryV7ProductionStore
   ): Promise<WorkerSessionHandle> {
     await this.initialize();
     if (
-      (agent !== 'default' && agent !== 'planner') ||
+      (agent !== 'default' && agent !== 'planner' && agent !== 'generic') ||
       !validRevisionRef(definition)
     ) throw new SessionStoreError('session_invalid');
     if ((await this.listWorker()).sessions.length >= MAX_VALID_SESSIONS_PER_WORKSPACE) {
@@ -873,8 +876,10 @@ export class SqliteHistoryV7ProductionStore
         this.#executionLocks.set(input.executionId, lock);
       }
       if (input.sessionRecord !== undefined) this.#writeSession(input.sessionRecord);
+      // A none Session's revision belongs to its live Host, not a durable Session head.
+      // Keep each detached execution's admission basis independent of later runtime turns.
       const authoritySession = input.canonicalSessionId ??
-        `detached:${input.sessionCorrelation}`;
+        `detached:${input.executionId}`;
       let baseMessageCount = input.sessionRecord?.transcript.length ?? 0;
       if (input.sessionRecord === undefined && input.canonicalSessionId !== undefined) {
         const db = this.#db();
@@ -1138,6 +1143,18 @@ export class SqliteHistoryV7ProductionStore
   }
 
   appendExecutionEvents(inputs: readonly ExecutionEventInput[]): readonly StoredExecutionEvent[] {
+    return this.#appendExecutionEventsWithSemanticIds(inputs).map(({ event }) => event);
+  }
+
+  appendExecutionEventsWithSemanticIds(
+    inputs: readonly ExecutionEventInput[],
+  ): readonly HistoryAppendResult[] {
+    return this.#appendExecutionEventsWithSemanticIds(inputs);
+  }
+
+  #appendExecutionEventsWithSemanticIds(
+    inputs: readonly ExecutionEventInput[],
+  ): readonly HistoryAppendResult[] {
     if (inputs.length === 0) return [];
     try {
       const byExecution = new Map<
@@ -1148,6 +1165,7 @@ export class SqliteHistoryV7ProductionStore
           contextItems: readonly PreparedContextItem[];
         }[]
       >();
+      const semanticIds = new Map<string, string>();
       const stagedContent = new Set<string>();
       for (const input of inputs) {
         if (!this.validateExecutionEvent(input)) throw new HistoryStoreError('history_invalid');
@@ -1246,6 +1264,14 @@ export class SqliteHistoryV7ProductionStore
             }),
           };
         });
+        semantic.forEach((item, index) => {
+          if (item.isEvent) {
+            semanticIds.set(
+              `${executionId}:${item.event.ordinal}`,
+              semanticOccurrenceId(index),
+            );
+          }
+        });
         const terminalIndex = semantic.findLastIndex(({ event, isEvent }) =>
           isEvent && (event.kind === 'execution_settled' || event.kind === 'execution_reconciled')
         );
@@ -1262,7 +1288,12 @@ export class SqliteHistoryV7ProductionStore
         });
         this.#eventCounts.set(executionId, count);
       }
-      return [...byExecution.values()].flat().map((record) => record.event);
+      return [...byExecution.values()].flat().map(({ event }) => ({
+        event,
+        ...(semanticIds.get(`${event.executionId}:${event.ordinal}`) === undefined ? {} : {
+          semanticOccurrenceId: semanticIds.get(`${event.executionId}:${event.ordinal}`)!,
+        }),
+      }));
     } catch (error) {
       throw asHistoryError(error);
     }
@@ -1851,6 +1882,16 @@ export class SqliteHistoryV7ProductionStore
   listExecutionEvents(id: string): readonly StoredExecutionEvent[] {
     this.#readExecutionMetadata(id);
     return this.#listExecutionEvents(id, true);
+  }
+
+  listSemanticOccurrences(id: string): readonly HistoryV7SemanticOccurrence[] {
+    this.#readExecutionMetadata(id);
+    return this.#coreStore().listOccurrences(id);
+  }
+
+  listAssistantTextStates(id: string): readonly HistoryV7AssistantTextState[] {
+    this.#readExecutionMetadata(id);
+    return this.#coreStore().listAssistantTextStates(id);
   }
 
   #listExecutionEvents(id: string, hydrateContext: boolean): readonly StoredExecutionEvent[] {

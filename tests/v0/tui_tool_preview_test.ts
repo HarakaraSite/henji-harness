@@ -4,10 +4,11 @@ import {
   renameTitleOf,
   slashCommandCandidates,
   slashCommandOf,
-} from '../../v0/tui/controller.ts';
+} from '../../v0/tui/slash_command.ts';
 import { toolCallText } from '../../v0/tui/terminal_text.ts';
-import { restoredPresentationMessages } from '../../v0/presentation/adapter_projection.ts';
-import type { Message, ToolCallContent, ToolResultContent } from '../../v0/agent/core/contracts.ts';
+import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
+import type { ToolCallContent, ToolResultContent } from '../../v0/agent/core/contracts.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -51,14 +52,39 @@ Deno.test('spawn_subagent preview keeps its agent name from call to result', () 
 });
 
 Deno.test('spawn_subagent preview restores its agent name from the saved transcript', () => {
-  const messages: readonly Message[] = [
-    { role: 'assistant', content: [spawnCall] },
-    { role: 'tool', content: [spawnResult] },
-  ];
+  const snapshot = sessionSnapshotFixture({
+    messages: [
+      {
+        id: 'assistant-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'assistant',
+        toolOccurrenceIds: [spawnCall.callId],
+      },
+      {
+        id: 'tool-1',
+        executionId: 'execution-1',
+        turn: 1,
+        role: 'tool',
+        toolOccurrenceIds: [spawnCall.callId],
+      },
+    ],
+    tools: [{
+      toolOccurrenceId: spawnCall.callId,
+      executionId: 'execution-1',
+      turn: 1,
+      name: spawnCall.name,
+      arguments: { agent: 'reviewer', task: 'Review the implementation.' },
+      result: { text: spawnResult.text, outcome: 'success' },
+    }],
+    thinking: [],
+    requests: [],
+    omitted: 0,
+  });
+  const restored = restoredConversationFromSnapshot(snapshot);
   const state = reduceUiEvent(createUiState(), {
     kind: 'restored_log',
-    messages: restoredPresentationMessages(messages),
-    omitted: 0,
+    ...restored,
   });
   assertEquals(
     state.log.entries.map((entry) => [entry.label, entry.text]),

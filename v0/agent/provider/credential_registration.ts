@@ -15,7 +15,8 @@ import {
 } from './credential_file.ts';
 import { type AuthProfileId, isAuthProfileId, type ProviderId } from './model_selection.ts';
 import { providerIdsForSelection } from './model_catalog.ts';
-import { effectiveDeclarationFor } from './provider_runtime.ts';
+import { activeProviderDeclarations, effectiveDeclarationFor } from './provider_runtime.ts';
+import type { ProviderDeclarationV1 } from './provider_declaration.ts';
 
 /** One registration row per auth profile; shared profiles register once for every provider. */
 export interface CredentialRegistrationTarget {
@@ -84,7 +85,10 @@ const credentialBytesOf = (value: string): Uint8Array => {
  * credentials take the same route, so an existing file is never truncated or chmodded in place and
  * a write failure leaves it readable.
  */
-const replaceCredentialFile = async (path: string, bytes: Uint8Array): Promise<void> => {
+const replaceCredentialFile = async (
+  path: string,
+  bytes: Uint8Array,
+): Promise<void> => {
   const separator = path.lastIndexOf('/');
   const directory = path.slice(0, separator);
   const name = path.slice(separator + 1);
@@ -138,10 +142,17 @@ const replaceCredentialFile = async (path: string, bytes: Uint8Array): Promise<v
 };
 
 /** Group effective Provider declarations into one registration row per auth profile. */
-export const credentialRegistrationTargets = (): readonly CredentialRegistrationTarget[] => {
+export const credentialRegistrationTargets = (
+  declarations?: readonly ProviderDeclarationV1[],
+): readonly CredentialRegistrationTarget[] => {
   const providersByProfile = new Map<AuthProfileId, ProviderId[]>();
-  for (const provider of providerIdsForSelection()) {
-    const declaration = effectiveDeclarationFor(provider);
+  const effective = declarations ?? activeProviderDeclarations();
+  const providers = declarations === undefined
+    ? providerIdsForSelection()
+    : [...new Set(effective.map((declaration) => declaration.providerId))];
+  for (const provider of providers) {
+    const declaration = effective.find((item) => item.providerId === provider) ??
+      (declarations === undefined ? effectiveDeclarationFor(provider) : undefined);
     if (declaration === undefined) continue;
     const providers = providersByProfile.get(declaration.authProfile);
     if (providers === undefined) {
@@ -158,14 +169,24 @@ export const credentialRegistrationTargets = (): readonly CredentialRegistration
   );
 };
 
-export const createCredentialRegistration = (): CredentialRegistration =>
+export interface CredentialRegistrationOptions {
+  readonly configRoot?: string;
+  readonly providerDeclarations?: readonly ProviderDeclarationV1[];
+}
+
+export const createCredentialRegistration = (
+  options: CredentialRegistrationOptions = {},
+): CredentialRegistration =>
   Object.freeze({
-    targets: credentialRegistrationTargets,
+    targets: () => credentialRegistrationTargets(options.providerDeclarations),
     save: async (authProfile: AuthProfileId, value: string): Promise<void> => {
       if (!isAuthProfileId(authProfile)) {
         fail('credential_registration_profile_invalid');
       }
       const bytes = credentialBytesOf(value);
-      await replaceCredentialFile(credentialFileFor(authProfile), bytes);
+      await replaceCredentialFile(
+        credentialFileFor(authProfile, options.configRoot),
+        bytes,
+      );
     },
   });

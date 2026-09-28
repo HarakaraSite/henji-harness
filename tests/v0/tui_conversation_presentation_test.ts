@@ -7,7 +7,6 @@ import {
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiRenderer } from '../../v0/tui/render.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
-import { TuiPresentationAdapter } from '../../v0/presentation/adapter.ts';
 import {
   type AssistantContentRenderer,
   failureRecallGuidance,
@@ -220,51 +219,6 @@ Deno.test('conversation layout stays plain while retained frame colors exact con
   assert(!frame.includes('\x1b[35m履歴'));
   assert(phases.includes('streaming'));
   assert(phases.includes('settled'));
-});
-
-Deno.test('presentation adapter accepts request counts through the 64-step root budget', async () => {
-  const events: unknown[] = [];
-  const adapter = new TuiPresentationAdapter(
-    {
-      submit: () =>
-        Promise.resolve({
-          ok: true,
-          task: 'inspect',
-          outcome: 'final' as const,
-          stopReason: 'final' as const,
-          finalText: 'done',
-          turnProviderRequestCount: 64,
-          runtimeProviderRequestCount: 128,
-          steps: 64,
-          toolCallCount: 63,
-          toolResultCount: 63,
-          transcript: [],
-        }),
-    },
-    (event) => events.push(event),
-  );
-
-  const submitted = await adapter.submit('inspect');
-  assertEquals(submitted.turnProviderRequestCount, 64);
-  assertEquals(submitted.runtimeProviderRequestCount, 128);
-
-  adapter.deliverCoreEvent({
-    kind: 'turn_end',
-    turn: 1,
-    outcome: 'final',
-    committed: true,
-    turnProviderRequestCount: 64,
-    runtimeProviderRequestCount: 128,
-  });
-  const ended = events.find((event) =>
-    typeof event === 'object' && event !== null &&
-    (event as { readonly kind?: unknown }).kind === 'turn_end'
-  ) as {
-    readonly turnProviderRequestCount?: number;
-    readonly runtimeProviderRequestCount?: number;
-  } | undefined;
-  assertEquals(ended?.turnProviderRequestCount, 64);
-  assertEquals(ended?.runtimeProviderRequestCount, 128);
 });
 
 Deno.test('conversation presentation reduces tool activity without source contents or raw JSON', () => {
@@ -1250,112 +1204,4 @@ Deno.test('a repeated failure diagnostic keeps the execution ID from the first e
   );
   assertEquals(state.log.entries.length, 1);
   assertEquals(state.log.entries[0].executionId, executionId);
-});
-
-Deno.test('core events and outcomes carry the execution ID into failure presentation', async () => {
-  const failureEvents: Array<{ readonly executionId?: string }> = [];
-  const adapter = new TuiPresentationAdapter(
-    {
-      submit: () =>
-        Promise.resolve({
-          ok: false,
-          task: 'inspect',
-          outcome: 'cancelled' as const,
-          stopReason: 'cancelled' as const,
-          executionArtifactId: '2300b666-1111-4111-8111-111111111111',
-          recallableExecutionId: '2300b666-1111-4111-8111-111111111111',
-          steps: 1,
-          toolCallCount: 0,
-          toolResultCount: 0,
-          transcript: [],
-        }),
-    },
-    (event) => {
-      if (event.kind === 'failure_diagnostic') failureEvents.push(event);
-    },
-  );
-  const submitted = await adapter.submit('inspect');
-  assertEquals(submitted.executionId, '2300b666-1111-4111-8111-111111111111');
-
-  adapter.deliverCoreEvent({
-    kind: 'turn_end',
-    turn: 1,
-    outcome: 'cancelled',
-    committed: false,
-    executionArtifactId: '2300b666-1111-4111-8111-111111111111',
-    recallableExecutionId: '2300b666-1111-4111-8111-111111111111',
-    diagnostic: {
-      schemaVersion: 1,
-      diagnosticId: '55555555-5555-4555-8555-555555555555',
-      stage: 'turn_control',
-      code: 'turn_cancelled',
-      lane: 'parent',
-      providerRequestCount: 1,
-      occurredAt: '2026-09-02T00:00:00.000Z',
-      turnNumber: 1,
-      modelStep: 0,
-      retryCount: 0,
-    },
-  });
-  assertEquals(failureEvents.length, 1);
-  assertEquals(failureEvents[0].executionId, '2300b666-1111-4111-8111-111111111111');
-});
-
-Deno.test('a persisted artifact without a settled recall row does not advertise its ID', async () => {
-  const executionArtifactId = '2300b666-1111-4111-8111-111111111111';
-  const events: Array<{ readonly executionId?: string }> = [];
-  const renderer = new TuiRenderer(new FakeTerminal());
-  renderer.renderCompactStartup(startupStateFor('new'), startupPosition);
-  const adapter = new TuiPresentationAdapter(
-    {
-      submit: () =>
-        Promise.resolve({
-          ok: false,
-          task: 'inspect',
-          outcome: 'cancelled' as const,
-          stopReason: 'cancelled' as const,
-          executionArtifactId,
-          executionArtifactDurability: 'yes' as const,
-          steps: 1,
-          toolCallCount: 0,
-          toolResultCount: 0,
-          transcript: [],
-        }),
-    },
-    (event) => {
-      if (event.kind === 'failure_diagnostic') {
-        events.push(event);
-        renderer.eventSink(event);
-      }
-    },
-  );
-  const submitted = await adapter.submit('inspect');
-  assertEquals(submitted.executionId, undefined);
-
-  adapter.deliverCoreEvent({
-    kind: 'turn_end',
-    turn: 1,
-    outcome: 'cancelled',
-    committed: false,
-    executionArtifactId,
-    executionArtifactDurability: 'yes',
-    diagnostic: {
-      schemaVersion: 1,
-      diagnosticId: '55555555-5555-4555-8555-555555555555',
-      stage: 'turn_control',
-      code: 'turn_cancelled',
-      lane: 'parent',
-      providerRequestCount: 1,
-      occurredAt: '2026-09-02T00:00:00.000Z',
-      turnNumber: 1,
-      modelStep: 0,
-      retryCount: 0,
-    },
-  });
-  assertEquals(events.length, 1);
-  assertEquals(events[0].executionId, undefined);
-  assertEquals(
-    failureRows(renderer).map((row) => row.text).join(''),
-    `failure> cancelled · ${failureRecallGuidance}`,
-  );
 });

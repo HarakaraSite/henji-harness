@@ -3,6 +3,7 @@ import { readWorkerStageSnapshot, type WorkerStageSnapshotTrigger } from './work
 import type {
   ExecutionEventInput,
   ExecutionEventPayloadByKind,
+  HistoryAppendResult,
   HistoryPersistencePort,
 } from '../history/history_store_contract.ts';
 import type { WorkerHostSessionOptions } from './worker_host_contract.ts';
@@ -83,6 +84,22 @@ export class ExecutionJournal {
 
   constructor(private readonly host: ExecutionJournalHost) {}
 
+  private appendHistory(
+    history: HistoryPersistencePort,
+    inputs: readonly ExecutionEventInput[],
+  ): readonly HistoryAppendResult[] {
+    const results = history.appendExecutionEventsWithSemanticIds?.(inputs) ??
+      history.appendExecutionEvents(inputs).map((event) => ({ event }));
+    try {
+      for (const result of results) {
+        this.host.options.applicationObservationSink?.({ kind: 'history_appended', result });
+      }
+    } catch {
+      // An optional read-model observer cannot change whether a history append succeeded.
+    }
+    return results;
+  }
+
   clearBuffer(): void {
     if (this.observationFlushTimer !== undefined) {
       clearTimeout(this.observationFlushTimer);
@@ -99,7 +116,7 @@ export class ExecutionJournal {
     }
     if (!this.flushObservationBuffer()) return false;
     try {
-      history.appendExecutionEvent(input);
+      this.appendHistory(history, [input]);
       return true;
     } catch (error) {
       return this.handleJournalFailure(error);
@@ -190,7 +207,7 @@ export class ExecutionJournal {
     );
     this.flushingObservations = true;
     try {
-      history.appendExecutionEvents(batch);
+      this.appendHistory(history, batch);
       const supervisor = this.host.supervisor();
       for (const input of batch) {
         if (

@@ -5,7 +5,7 @@ import {
 import { discoverSkills, MAX_SKILL_DESCRIPTION_BYTES } from '../../v0/agent/definitions/skills.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { resolveRuntimePaths } from '../../v0/agent/runtime/runtime_paths.ts';
-import { parseTuiInvocation } from '../../v0/agent/cli/tui_cli.ts';
+import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
 import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { stagedCompileInputs } from '../../scripts/build_henji.ts';
 import packageConfig from '../../jsr.json' with { type: 'json' };

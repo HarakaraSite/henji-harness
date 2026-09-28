@@ -123,7 +123,6 @@ const renderLayoutRow = (row: LayoutRow): string => {
 export class TuiRenderer implements TerminalRendererGate {
   private readonly assistantRenderer: AssistantContentRenderer;
   private closing = false;
-  private followUpPending = false;
   private lastSize = { columns: 80, rows: 24 };
   private currentPosition: PresentationPosition | undefined;
   private lastTurn = 0;
@@ -230,7 +229,6 @@ export class TuiRenderer implements TerminalRendererGate {
   close(): void {
     this.stopBusyElapsed();
     this.closing = true;
-    this.followUpPending = false;
   }
 
   private startBusyElapsed(): void {
@@ -329,6 +327,16 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
+  /** Read-only remote help stays local to this terminal and omits unsupported task commands. */
+  renderReadOnlyHelp(lines: readonly string[]): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: { kind: 'readOnlyHelp', lines: [...lines] },
+    });
+    this.redraw();
+  }
+
   clearLiveLine(): void {
     this.terminal.write(staticBytes(`\r${ERASE_LINE}`));
   }
@@ -375,7 +383,8 @@ export class TuiRenderer implements TerminalRendererGate {
       case 'turn_end':
         this.stopBusyElapsed();
         this.setStatus(
-          event.committed && this.followUpPending
+          event.committed &&
+            this.ui.pending?.lanes.some((lane) => lane.kind === 'follow_up' && lane.present)
             ? 'busy · starting follow-up'
             : event.committed
             ? 'ready'
@@ -454,6 +463,7 @@ export class TuiRenderer implements TerminalRendererGate {
 
   setCurrentPosition(position: PresentationPosition): void {
     this.currentPosition = Object.freeze({ ...position });
+    this.ui = reduceUiAction(this.ui, { kind: 'position', position });
   }
 
   /** Notify the retained layout of a UI-local resize without crossing into the core. */
@@ -659,6 +669,7 @@ export class TuiRenderer implements TerminalRendererGate {
     selected = 0,
     page = 0,
     loading = false,
+    actionMode: 'resume' | 'view' = 'resume',
   ): void {
     if (this.closing) throw new PresentationDeliveryError();
     const pageSize = 8;
@@ -675,6 +686,7 @@ export class TuiRenderer implements TerminalRendererGate {
         selected,
         page: boundedPage,
         loading,
+        actionMode,
       },
     });
     this.redraw();
@@ -704,13 +716,6 @@ export class TuiRenderer implements TerminalRendererGate {
       kind: 'status',
       text: `context checkpoint · through turn ${coveredThroughTurn}`,
     });
-    this.redraw();
-  }
-
-  /** Show only that one ordinary follow-up is pending; the text remains controller-local. */
-  setFollowUpPending(pending: boolean): void {
-    if (this.closing) return;
-    this.followUpPending = pending;
     this.redraw();
   }
 
@@ -748,8 +753,11 @@ export class TuiRenderer implements TerminalRendererGate {
     omitted = 0,
     thinking: readonly PresentationRestoredThinking[] = [],
     messageTurns?: readonly number[],
+    options: Readonly<{ preserveScroll?: boolean }> = {},
   ): void {
     if (this.closing) throw new PresentationDeliveryError();
+    const previousScroll = this.ui.scroll;
+    const previousWindow = this.ui.historyWindow;
     this.ui = reduceUiEvent(this.ui, {
       kind: 'restored_log',
       messages,
@@ -757,6 +765,18 @@ export class TuiRenderer implements TerminalRendererGate {
       thinking,
       ...(messageTurns === undefined ? {} : { messageTurns }),
     });
+    if (options.preserveScroll === true && previousScroll.kind !== 'followLatest') {
+      const entryCount = this.ui.log.entries.length;
+      const end = Math.min(entryCount, previousWindow?.end ?? entryCount);
+      const start = Math.min(end, previousWindow?.start ?? 0);
+      this.ui = Object.freeze({
+        ...this.ui,
+        ...(previousWindow === undefined ? {} : {
+          historyWindow: Object.freeze({ start, end }),
+        }),
+      });
+      this.ui = reduceUiAction(this.ui, { kind: 'scroll', mode: previousScroll });
+    }
     this.redraw();
   }
 
