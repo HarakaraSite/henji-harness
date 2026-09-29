@@ -2,7 +2,8 @@
 
 更新日: 2026-09-29
 
-ステータス: local実装・非破壊的検証完了。利用者確認・increment完了承認は未実施。
+ステータス: local実装・非破壊的検証・commit/push・常用配置・配置後確認を完了。
+利用者確認・increment完了承認は未実施。
 
 ## 要件と権限
 
@@ -96,16 +97,17 @@ requestは合計2回。実credentialは使用していない。
 | 別接続TUI        | 操作元のPageUpでviewportが変わらず、最新表示を維持                           | 同左     |
 | 終了             | observerをCtrl-D、操作元をCtrl-Qで終了。TUI/Coreはexit 0、canonical/echo復元 | 同左     |
 
-検証用binaryは`/tmp/henji-s15-20260929/henji`、build IDは
-`926495628dddd263fee0680ec1a0b914ee86d478d18d587dbd2b876e9b780259`。
-証拠は`/tmp/henji-s15-20260929/`のfocused-tests.log、build.log、tmux-results.json、tmux.log。
-実画面とEsc前後のHTTP snapshotはsource-105602/・compiled-105602/へ保存した。
+検証用binaryは`/home/agent/.local/state/henji-build-artifacts/increment-156-20260929/henji.accepted`、build
+IDは `926495628dddd263fee0680ec1a0b914ee86d478d18d587dbd2b876e9b780259`。
+証拠は`/home/agent/.local/state/henji-build-artifacts/increment-156-20260929/local-verification/`の
+focused-tests.log、build.log、tmux-results.json、tmux.log。 実画面とEsc前後のHTTP
+snapshotはsource-105602/・compiled-105602/へ保存した。
 確認用Core/TUI/tmuxとBashは終了済み。default-selection.jsonは隔離configにも生成されていない。
 
 ## 未実施・残る境界
 
 利用者による操作確認・increment完了承認、公開は未実施。
-commit/push・常用配置は追加指示に基づき進行中。 外部providerの実測は今回のlocal
+commit/push・常用配置・配置後確認は追加指示に基づき完了。 外部providerの実測は今回のlocal
 UI操作変更には必要とせず、行っていない。
 構想・architecture・roadmapは変更していない。既存の未採用S26メモを保持した。
 
@@ -117,3 +119,36 @@ checkoutから公式buildし、検証済みcandidateのruntime SHA-256と一致�
 確認する。旧binaryを保存し、常用先へ原子的に配置する。
 配置binaryそのものを隔離HOME/XDG/workspace/tmuxで確認し、結果を後続文書commitへ記録・pushする。
 稼働中の既存Coreは停止・移行しない。
+
+実装・test・要件/結果・操作文書・S15の採用移動・handoffの8ファイルをcommit
+`8a90fe083523a8a02ad35cc1cd5852dd6e85c799`へまとめ、origin/mainへpushした。
+S26の既存メモはcommitへ含めず、作業前の本文と一致する状態でworking treeへ保持した。
+
+固定commitのclean checkoutからDeno 2.9.7で公式buildした。初回は/tmpの容量不足でcompileが失敗した。
+生成したcheckoutを通常ディスクへ移し、git worktreeの参照を修復して再buildし、成功した。
+生成binaryのruntime SHA-256は受入済みsource/compiled候補と一致し、sourceDirty=false。
+旧binaryを保存し、`/home/agent/.local/bin/henji`へ原子的に配置した。henji 0.7.0。
+
+- build ID: `4e85dfe6f714e78368df2d1e7b56bf3c5f00124626fed729fb30b7ac61411395`。
+- runtime SHA-256: `c5ff397654accc5e88b31941c153a9fa3873884b7b532724f77ab46991c45a31`。
+- binary SHA-256: `cff9ec278b3258f876196f41850ec87d54c926159344bcd90196a8995e934296`。
+- 旧binary: `/home/agent/.local/state/henji-build-artifacts/increment-156-20260929/henji.previous`。
+  SHA-256は`e5bf3376e20d114ce222b393ae43d4625aa27b5cfbf53c5bd1f3d18b393df7c6`。
+
+配置binaryそのものを隔離HOME/XDG/workspace/tmuxの80×30で実操作した。 HTTP Core
+identityのsource/build/dirtyと配置identityが一致し、busy履歴中Escによる最新復帰と
+Bashの継続、最新表示中Escによるcancelled/settledとBash終了を再確認した。
+draft保持、PageDown、ヘルプ開閉、idle時の履歴復帰、別TUIのscroll独立、terminal復元も確認した。
+loopback provider requestは1回、外部provider requestは0回。配置時点の既存Core二つは PID/start
+time・epoch・Session・idle状態を保持したままHTTP応答し、停止・移行していない。
+
+配置証拠は`/home/agent/.local/state/henji-build-artifacts/increment-156-20260929/deployment/`の
+build.log（初回失敗）、build-retry.log、deployment.json、version.txt、tmux-results.json、tmux.log、
+preexisting-cores.json、preexisting-cores-after.json。画面とHTTP snapshotはdeployed-107592/。
+確認用Core/TUI/tmuxとBashは終了済み。実configへのdefault-selection書込みは無い。
+
+作業中の追加指示「tmp内クリアして」に従い、S15の成果物と証拠を上記の通常ディスクへ移し、
+/tmpの不要な作業生成物63件、約3.56 GiBを削除した。
+稼働中Codex/tmuxのソケットとOS管理ディレクトリは保持し、既存Coreへの影響が無いことを確認した。
+削除対象一覧と容量はdeployment/tmp-cleanup.jsonへ保存した。
+この配置・清掃記録とhandoffは後続の文書commitへまとめてpushする。
