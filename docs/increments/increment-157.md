@@ -2,7 +2,8 @@
 
 更新日: 2026-09-29
 
-ステータス: 実装・検証・通常reviewと指摘修正・限定re-review完了。
+ステータス:
+実装・検証・通常reviewと指摘修正・限定re-review・commit/push・常用配置・配置後確認完了。
 利用者が実装、実装後の実provider確認、その後のコードとtestの通常reviewを指示・承認した。
 
 ## 目的と合意した動作
@@ -477,3 +478,40 @@ checkoutで公式buildする。 最終検証候補のruntime
 SHA-256との一致を確認し、旧binaryを保存して常用先へ原子的に配置する。
 配置したbinaryそのものを隔離HOME/XDG/workspaceのtmuxで確認し、結果を後続文書commitへ記録・pushする。
 稼働中の既存Core二つは停止・移行しない。構想・architecture・roadmapとJSR公開は対象外。
+
+実装・test・要件/結果・操作文書・採用移動・handoffの18ファイルをcommit
+`058d503ab89c782b905686f36bce691b66c1bd44`へまとめ、origin/mainへpushした。
+既存の未採用S26・S27は保持し、構想・architecture・roadmapは変更していない。
+
+固定commitのclean checkoutからDeno 2.9.7の公式build scriptでbuildした。
+最終検証候補とruntime SHA-256が一致し、sourceDirty=false。
+旧binaryを保存し、`/home/agent/.local/bin/henji`へ原子的に配置した。henji
+0.7.0。
+
+- build ID: `4e6e3a1f9bf4ded9d90bb7ab9ee50cddd63a4c4bb27e1f2edb8bdd6416f1fd10`。
+- runtime SHA-256:
+  `8cce1e317705f251f7770db869fec521cf57b7917a9b78ae1cb1edada6e11cc8`。
+- binary SHA-256:
+  `5acedf81e2e00fbfbb617fa8d517eedc36dbef17e6a4f613e14e90cf315a2dac`。
+- 旧binary:
+  `/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/deployment/henji.previous`。
+  SHA-256: `cff9ec278b3258f876196f41850ec87d54c926159344bcd90196a8995e934296`。
+
+配置binaryそのものを隔離HOME/XDG/workspaceの80列×32行tmuxで実操作した。
+検索（ID・表示名）、お気に入り優先/日時降順、Tab登録・解除とquery/cursor保持、
+新規モデル初期auto、effort変更、生成完了、明示providerの新Sessionで記憶effort適用、
+再起動/再選択とmetadata障害時の保存候補参照を再確認した。 Core HTTP
+identityのsource/build/runtimeと配置identityが一致し、dirtyなし。
+loopback一覧3回・metadata4回・generation1回、外部provider requestは0回。
+確認用Core/TUI/tmuxは終了済み。実configへのdefault-selection書込みは無い。
+
+配置前から稼働中のCore二つはPID/start
+time・epoch・Session・idle状態・buildを保持し、
+配置後もHTTP応答を確認した。停止・移行していない。新規起動には配置binaryが使われる。
+既存Coreへの明示再接続URLは`http://127.0.0.1:41115`と`http://127.0.0.1:34001`。
+
+配置証拠は`/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/deployment/`のbuild.log、deployment.json、version.txt、
+tmux-results.json、tmux.log、preexisting-cores.json、preexisting-cores-after.json。
+実画面、完了snapshotとCore identityはdeployed-tmux/へ保存した。
+本配置記録とhandoffを後続の文書commitへまとめ、origin/mainへpushする。
+JSR公開は未指示。利用者による通常操作確認・increment完了承認は別途のまま。
