@@ -4,7 +4,8 @@
 
 ## 現在地（2026-09-29）
 
-**S17・S18・S19の[Increment 154](../docs/increments/increment-154.md)をlocal実装・検証済み。**
+**S17・S18・S19の[Increment 154](../docs/increments/increment-154.md)は利用者確認・完了承認済み。**
+2026-09-29、利用者の指示によりincrement完了・セッション終了。
 変更前後の実測、隔離tmuxのsource/compiled実経路、コード/testの通常・批判的reviewを完了した。
 採用P1二件を修正し、両限定re-reviewはBlocking 0／P1
 0。結果・実測・未確認事項はincrement正本を参照する。
@@ -38,7 +39,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. [154の実装・配置](../docs/increments/increment-154.md)は完了。追加作業は利用者の指示に従う。
+1. [154](../docs/increments/increment-154.md)は完了承認済み。次セッションは利用者の新しい指示から開始する。
    既存S26メモだけがlocal未commitで保持されている。
    構想・architecture・roadmapの意味変更とJSR公開は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
@@ -48,8 +49,8 @@ S22の8slice（139〜146）と147の配置結果は
 
 - S17・S18・S19の調査、統合案作成とgpt-6-astraによる案review、計画作成とreviewerによる通常/批判的reviewは指示済み。
   local実装、計画の実測/非破壊的実経路検証、実装後コード/test reviewは追加指示済み。
-  commit/push・常用配置と配置後確認は追加指示済み・完了。JSR公開は未指示。
-  正本は[Increment 154](../docs/increments/increment-154.md)。
+  commit/push・常用配置と配置後確認は追加指示済み・完了。利用者確認・increment完了承認済み。
+  JSR公開は未指示。 正本は[Increment 154](../docs/increments/increment-154.md)。
 - A25の参照実装調査、gpt-6-astraへの比較相談とreview、実provider実測、複数Core案・実装計画の作成は指示済み・完了。
   五sliceのlocal実装・非破壊的検証・各slice後のreviewerによるコード/テストreviewは承認済み・完了。
   利用者の完了承認・関連文書更新・commit/push・配置指示に従い、すべて完了。
