@@ -232,16 +232,19 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
   const models = [
     ...Array.from({ length: 12 }, (_, index) => ({
       modelId: `model-${String(index).padStart(2, '0')}`,
+      favorite: true,
       defaultEffort: 'low',
       efforts: ['low', 'medium', 'high'],
     })),
     {
       modelId: 'qwen-plus',
+      favorite: true,
       defaultEffort: 'medium',
       efforts: ['low', 'medium'],
     },
     {
       modelId: 'mimo-flash',
+      favorite: true,
       defaultEffort: 'low',
       efforts: ['low', 'medium', 'high'],
     },
@@ -302,6 +305,7 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
           return Response.json({
             kind,
             provider: url.searchParams.get('provider'),
+            metadataStatus: 'loaded',
             models,
           });
         }
@@ -310,6 +314,7 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
             kind,
             provider: url.searchParams.get('provider'),
             modelId: url.searchParams.get('modelId'),
+            source: 'models.dev',
             efforts: ['low', 'medium', 'high'],
           });
         }
@@ -413,14 +418,14 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
 
     terminal.pushInput('/model\r');
     await waitFor(() =>
-      terminal.text().includes('> mimo-flash') &&
+      terminal.text().includes('> * mimo-flash') &&
       terminal.text().includes('of 14')
     );
     terminal.pushInput('qwen');
     await waitFor(() => terminal.text().includes('qwen-plus'));
     terminal.pushInput('\x7f\x7f\x7f\x7f');
     await waitFor(() =>
-      terminal.text().includes('> mimo-flash') &&
+      terminal.text().includes('> * mimo-flash') &&
       terminal.text().includes('of 14')
     );
     terminal.pushInput('\x1b/effort\r');

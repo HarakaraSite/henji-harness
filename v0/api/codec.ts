@@ -280,9 +280,12 @@ export const decodeCatalogReadResult = (value: unknown): CatalogReadResult => {
   }
   if (
     value.kind === 'models' && isText(value.provider) &&
+    (value.metadataStatus === 'loaded' || value.metadataStatus === 'unavailable') &&
     Array.isArray(value.models) &&
     value.models.every((item) =>
-      isRecord(item) && isText(item.modelId) &&
+      isRecord(item) && isText(item.modelId) && typeof item.favorite === 'boolean' &&
+      (item.name === undefined || isText(item.name)) &&
+      (item.created === undefined || typeof item.created === 'number') &&
       isText(item.defaultEffort) && Array.isArray(item.efforts) &&
       item.efforts.every(isText)
     )
@@ -291,6 +294,7 @@ export const decodeCatalogReadResult = (value: unknown): CatalogReadResult => {
   }
   if (
     value.kind === 'efforts' && isText(value.provider) &&
+    ['models.dev', 'catalog', 'unknown', 'override'].includes(value.source as string) &&
     isText(value.modelId) &&
     Array.isArray(value.efforts) && value.efforts.every(isText)
   ) {

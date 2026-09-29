@@ -222,8 +222,9 @@ null／unevaluatedとして示し、Workerの実評価後に値が確定する�
 | HTTP                                                             | 操作                      | 結果                                                     |
 | ---------------------------------------------------------------- | ------------------------- | -------------------------------------------------------- |
 | `GET /catalogs?kind=providers`                                   | `catalog.read`            | providerとそのdefault selection                          |
-| `GET /catalogs?kind=models&provider={provider}`                  | `catalog.read`            | 実catalogのmodel・default effort・利用可能effort         |
+| `GET /catalogs?kind=models&provider={provider}`                  | `catalog.read`            | provider現行model・お気に入り・default effort・effort    |
 | `GET /catalogs?kind=efforts&provider={provider}&modelId={model}` | `catalog.read`            | 対象modelのeffort                                        |
+| `POST /catalogs/favorite`                                        | `catalog.favorite`        | modelのお気に入り登録・解除と一覧readback                |
 | `GET /catalogs?kind=credentials`                                 | `catalog.read`            | authProfileとそれを利用するprovider                      |
 | `POST /sessions/{id}/selection`                                  | `selection.change`        | commandId・selection、selected／unchangedと実効selection |
 | `GET /credentials/presence`                                      | `credential.readPresence` | authProfile別のpresent／missing／unknown                 |
@@ -231,8 +232,21 @@ null／unevaluatedとして示し、Workerの実評価後に値が確定する�
 | `GET /workspace/paths?prefix={prefix}`                           | `path.read`               | Core workspace、探索complete、相対path候補               |
 
 selection inputは`{commandId, selection: {provider, modelId, effort}}`。
-idleの稼働Sessionを変更し、Sessionと次回defaultへ保存する。実際のprovider declarationとmodel
-catalogをCoreが使用し、client側のcatalogやcwdへ切り替えない。読取だけではWorker・providerを起動しない。
+idleの稼働Sessionを変更し、Sessionと次回default・model別の記憶effortへ保存する。 宣言済みprovider
+routeを使い、お気に入りの有無でモデル選択を制限しない。
+
+`kind=models`は呼出しごとに現在providerの`GET /models`とmodels.devを取得する。
+任意の`sessionId`をqueryへ渡すと宣言headerの`{sessionId}`に利用する。
+結果は`metadataStatus`とmodel別の`modelId`・任意の`name`／`created`・`favorite`・
+`defaultEffort`・`efforts`。お気に入りを先頭に、各グループは新しい順。
+`kind=efforts`は読み込み済みmetadataを参照し、未読の場合に初回取得する。
+取得失敗時は保存カタログを優先し、`source`で`models.dev`／`catalog`／`unknown`／`override`を返す。
+
+favorite inputは`{provider, modelId, favorite}`。選択と別操作で外部保存し、再取得せず一覧を返す。
+TUIの`/model`ではID・表示名で検索、Tabで登録・解除、Enterで選択する。 保存先はconfig
+rootの`model-catalogs/<providerId>.json`。 metadata URLは同じconfig
+rootの`model-metadata.json`に`{"url":"https://models.dev/api.json"}`で設定できる。
+外部provider宣言の任意の`modelsDevProviderId`でmetadata側provider IDを指定する。
 
 credential register inputは`{authProfile, value}`だけを専用requestで送る。
 一般commandのcommandId・照合cacheを使わず、valueをSession履歴・snapshot・診断へ保存しない。

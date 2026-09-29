@@ -159,7 +159,15 @@ const readCatalogInput = (url: URL): CatalogReadInput => {
   const kind = url.searchParams.get('kind');
   if (kind === 'providers' || kind === 'credentials') return { kind };
   const provider = url.searchParams.get('provider');
-  if (kind === 'models' && provider !== null) return { kind, provider };
+  if (kind === 'models' && provider !== null) {
+    return {
+      kind,
+      provider,
+      ...(url.searchParams.has('sessionId')
+        ? { sessionId: url.searchParams.get('sessionId')! }
+        : {}),
+    };
+  }
   const modelId = url.searchParams.get('modelId');
   if (kind === 'efforts' && provider !== null && modelId !== null) {
     return { kind, provider, modelId };
@@ -359,7 +367,21 @@ async (request: Request): Promise<Response> => {
       return response;
     }
     if (url.pathname === '/api/v1/catalogs' && request.method === 'GET') {
-      return json(service.catalogRead(readCatalogInput(url)));
+      return json(await service.catalogRead(readCatalogInput(url)));
+    }
+    if (url.pathname === '/api/v1/catalogs/favorite' && request.method === 'POST') {
+      const value = await readJson(request);
+      if (
+        !object(value) || typeof value.provider !== 'string' || typeof value.modelId !== 'string' ||
+        typeof value.favorite !== 'boolean'
+      ) throw new CoreServiceError(400, 'invalid_model_favorite');
+      return json(
+        await service.modelFavorite({
+          provider: value.provider,
+          modelId: value.modelId,
+          favorite: value.favorite,
+        }),
+      );
     }
     if (
       url.pathname === '/api/v1/credentials/presence' &&

@@ -65,6 +65,28 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
     provider = Deno.serve(
       { hostname: '127.0.0.1', port: 0, onListen() {} },
       async (request) => {
+        if (request.method === 'GET') {
+          if (new URL(request.url).pathname.endsWith('/models')) {
+            return Response.json({
+              data: [
+                { id: 'new-live-model', name: 'New live model', created: 200 },
+                { id: 'deepseek/deepseek-v4.1-flash', created: 100 },
+              ],
+            });
+          }
+          return Response.json({
+            openrouter: {
+              models: {
+                'new-live-model': {
+                  reasoning_options: [{ type: 'effort', values: [null, 'default', 'low', 'high'] }],
+                },
+                'deepseek/deepseek-v4.1-flash': {
+                  reasoning_options: [{ type: 'effort', values: ['low', 'high'] }],
+                },
+              },
+            },
+          });
+        }
         providerBodies.push(await request.json());
         return new Response(
           new ReadableStream<Uint8Array>({
@@ -117,6 +139,7 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
       stateRoot,
       physicalIoMode: 'production' as const,
       providerDeclarations,
+      modelsMetadataUrl: `http://127.0.0.1:${(provider!.addr as Deno.NetAddr).port}/metadata`,
     };
     core = await createCoreService(options);
     server = await startCoreServer(core);
@@ -126,6 +149,10 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
     strictEqual(providers.kind, 'providers');
     const openrouter = providers.providers.find((item) => item.provider === 'openrouter-responses');
     ok(openrouter);
+    await client.credentialRegister({
+      authProfile: 'openrouter-api-key',
+      value: 'initial-local-catalog-key',
+    });
     const models = await client.catalogRead({
       kind: 'models',
       provider: openrouter.provider,
@@ -135,7 +162,10 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
       item.modelId === openrouter.defaultSelection.modelId
     );
     ok(defaultModel);
-    const selectedModel = defaultModel;
+    const selectedModel = models.models.find((item) => item.modelId === 'new-live-model')!;
+    ok(selectedModel);
+    strictEqual(selectedModel.favorite, false);
+    strictEqual(selectedModel.defaultEffort, 'auto');
     const selectedEffort = selectedModel.efforts.find((effort) =>
       effort === 'low' && effort !== openrouter.defaultSelection.effort
     ) ?? selectedModel.efforts.find((effort) =>
@@ -312,6 +342,36 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
     });
     ok(!history.text.includes(firstKey));
     ok(!history.text.includes(secondKey));
+    strictEqual(providerBodies.length, 1);
+
+    // A provider-specific new Session uses the remembered effort for its default model.
+    const remembered = await client.selectionChange(sessionId, {
+      commandId: crypto.randomUUID(),
+      selection: {
+        provider: openrouter.provider,
+        modelId: defaultModel.modelId,
+        effort: selectedEffort,
+      },
+    });
+    strictEqual(remembered.kind, 'accepted');
+    const explicitProviderSession = opened(
+      await client.sessionOpen({
+        commandId: crypto.randomUUID(),
+        selection: { kind: 'new' },
+        activation: { rootProvider: openrouter.provider },
+      }),
+    );
+    strictEqual(explicitProviderSession.session.selection.modelId, defaultModel.modelId);
+    strictEqual(explicitProviderSession.session.selection.effort, selectedEffort);
+    const restoredDefault = await client.selectionChange(explicitProviderSession.session.id, {
+      commandId: crypto.randomUUID(),
+      selection: {
+        provider: openrouter.provider,
+        modelId: selectedModel.modelId,
+        effort: selectedEffort,
+      },
+    });
+    strictEqual(restoredDefault.kind, 'accepted');
     strictEqual(providerBodies.length, 1);
 
     await server.shutdown();

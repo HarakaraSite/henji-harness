@@ -30,6 +30,8 @@ import type {
   FollowUpRecord,
   HistoryReadInput,
   HistoryReadResult,
+  ModelCatalogResult,
+  ModelFavoriteInput,
   PathReadResult,
   PendingView,
   RecallInput,
@@ -61,7 +63,7 @@ import {
 } from '../session/session_store.ts';
 import type { NavigationPosition } from '../session/session_navigation.ts';
 import { resolveRequestedDefinition } from '../definitions/definition_selection.ts';
-import { defaultModelSelectionFor } from '../provider/model_catalog.ts';
+import { LiveModelCatalog } from '../provider/live_model_catalog.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -107,7 +109,14 @@ export type CoreServiceOptions =
     WorkerSessionOptions,
     'persistence' | 'sessionId' | 'lazyInitialHost'
   >
-  & Readonly<{ initialSession?: CoreInitialSession; coreEpoch?: string }>;
+  & Readonly<
+    {
+      initialSession?: CoreInitialSession;
+      coreEpoch?: string;
+      modelsMetadataUrl?: string;
+      catalogFetcher?: typeof fetch;
+    }
+  >;
 
 export type CoreSessionFrameSink = (
   frame: SessionStreamFrame | undefined,
@@ -137,7 +146,8 @@ export interface CoreService {
     sessionId: string,
     input: SelectionChangeInput,
   ): Promise<CommandResult<SelectionChangeValue>>;
-  catalogRead(input: CatalogReadInput): CatalogReadResult;
+  catalogRead(input: CatalogReadInput): Promise<CatalogReadResult>;
+  modelFavorite(input: ModelFavoriteInput): Promise<ModelCatalogResult>;
   credentialPresenceRead(): Promise<CredentialPresenceReadResult>;
   credentialRegister(
     input: CredentialRegisterInput,
@@ -279,7 +289,13 @@ const apiSelection = (selection: ModelSelection): ApiSelection => ({
 export const createCoreService = async (
   options: CoreServiceOptions,
 ): Promise<CoreService> => {
-  const { initialSession, coreEpoch: requestedCoreEpoch, ...workerOptions } = options;
+  const {
+    initialSession,
+    coreEpoch: requestedCoreEpoch,
+    modelsMetadataUrl,
+    catalogFetcher,
+    ...workerOptions
+  } = options;
   const resolveManagedInstruction = workerOptions.physicalIoMode !== 'provider-free' ||
     workerOptions.dataRoot !== undefined ||
     workerOptions.configRoot !== undefined;
@@ -346,6 +362,25 @@ export const createCoreService = async (
       declaration,
     ) => [declaration.providerId, declaration]),
   );
+  const modelCatalog = new LiveModelCatalog({
+    configRoot: configRoot ?? `${stateRoot}/config`,
+    declarations: providerDeclarations,
+    ...(modelsMetadataUrl === undefined ? {} : { metadataUrl: modelsMetadataUrl }),
+    ...(catalogFetcher === undefined ? {} : { fetcher: catalogFetcher }),
+  });
+  let catalogFactCursor = 0;
+  const persistCatalogFacts = async (): Promise<void> => {
+    const facts = modelCatalog.facts;
+    const fresh = facts.slice(catalogFactCursor);
+    catalogFactCursor = facts.length;
+    if (fresh.length === 0) return;
+    await Deno.mkdir(statePaths.root, { recursive: true, mode: 0o700 });
+    await Deno.writeTextFile(
+      `${statePaths.root}/catalog-requests.jsonl`,
+      fresh.map((fact) => JSON.stringify(fact)).join('\n') + '\n',
+      { append: true },
+    );
+  };
   const credentialRegistration = createCredentialRegistration({
     ...(configRoot === undefined ? {} : { configRoot }),
     providerDeclarations,
@@ -513,7 +548,13 @@ export const createCoreService = async (
       activation.rootProvider !== undefined &&
       (selection.kind === 'new' || selection.kind === 'none')
     ) {
-      initialModelSelection = defaultModelSelectionFor(activation.rootProvider);
+      const declaration = providerById.get(activation.rootProvider);
+      if (declaration === undefined) throw new CoreServiceError(404, 'provider_not_found');
+      initialModelSelection = selectionForDeclaration(
+        declaration,
+        declaration.defaults.modelId,
+        await modelCatalog.defaultEffort(declaration.providerId, declaration.defaults.modelId),
+      );
     }
     let definitionSelection = inherited.selection;
     let agent = inherited.agent;
@@ -801,72 +842,58 @@ export const createCoreService = async (
         },
       );
     },
-    catalogRead(input: CatalogReadInput): CatalogReadResult {
+    async catalogRead(input: CatalogReadInput): Promise<CatalogReadResult> {
       if (input.kind === 'providers') {
         return {
           kind: 'providers',
-          providers: providerDeclarations.map((declaration) => ({
+          providers: await Promise.all(providerDeclarations.map(async (declaration) => ({
             provider: declaration.providerId,
             defaultSelection: {
               provider: declaration.providerId,
               modelId: declaration.defaults.modelId,
-              effort: declaration.defaults.effort,
+              effort: await modelCatalog.defaultEffort(
+                declaration.providerId,
+                declaration.defaults.modelId,
+              ),
             },
-          })),
+          }))),
         };
       }
-      if (input.kind === 'models') {
-        const declaration = providerById.get(input.provider);
-        if (declaration === undefined) {
-          throw new CoreServiceError(
-            404,
-            'provider_not_found',
-            'provider not found',
+      if (input.kind === 'models' || input.kind === 'efforts') {
+        if (!providerById.has(input.provider)) {
+          throw new CoreServiceError(404, 'provider_not_found');
+        }
+        try {
+          if (input.kind === 'models') {
+            return await modelCatalog.models(input.provider, input.sessionId);
+          }
+          const current = slot?.snapshot.session.selection;
+          return await modelCatalog.efforts(
+            input.provider,
+            input.modelId,
+            current?.provider === input.provider && current.modelId === input.modelId &&
+              isReasoningEffort(current.effort)
+              ? current.effort
+              : undefined,
           );
+        } catch {
+          throw new CoreServiceError(502, 'model_catalog_unavailable');
+        } finally {
+          await persistCatalogFacts();
         }
-        return {
-          kind: 'models',
-          provider: input.provider,
-          models: declaration.modelCatalog.entries.map((entry) => ({
-            modelId: entry.modelId,
-            defaultEffort: entry.defaultEffort,
-            efforts: entry.efforts,
-          })),
-        };
-      }
-      if (input.kind === 'efforts') {
-        const declaration = providerById.get(input.provider);
-        if (declaration === undefined) {
-          throw new CoreServiceError(
-            404,
-            'provider_not_found',
-            'provider not found',
-          );
-        }
-        const model = declaration.modelCatalog.entries.find((entry) =>
-          entry.modelId === input.modelId
-        );
-        if (model === undefined) {
-          throw new CoreServiceError(404, 'model_not_found', 'model not found');
-        }
-        return {
-          kind: 'efforts',
-          provider: input.provider,
-          modelId: input.modelId,
-          efforts: model.efforts,
-        };
       }
       if (input.kind === 'credentials') {
-        return {
-          kind: 'credentials',
-          profiles: credentialRegistration.targets(),
-        };
+        return { kind: 'credentials', profiles: credentialRegistration.targets() };
       }
-      throw new CoreServiceError(
-        400,
-        'invalid_catalog_kind',
-        'invalid catalog kind',
-      );
+      throw new CoreServiceError(400, 'invalid_catalog_kind');
+    },
+    async modelFavorite(input): Promise<ModelCatalogResult> {
+      if (!providerById.has(input.provider)) throw new CoreServiceError(404, 'provider_not_found');
+      try {
+        return await modelCatalog.favorite(input.provider, input.modelId, input.favorite);
+      } catch {
+        throw new CoreServiceError(500, 'model_favorite_failed');
+      }
     },
     async credentialPresenceRead(): Promise<CredentialPresenceReadResult> {
       const profiles = await Promise.all(
@@ -1145,13 +1172,10 @@ export const createCoreService = async (
             return rejected(input.commandId, target, 'busy');
           }
           const declaration = providerById.get(input.selection.provider);
-          const model = declaration?.modelCatalog.entries.find((entry) =>
-            entry.modelId === input.selection.modelId
-          );
           if (
-            declaration === undefined || model === undefined ||
-            !isReasoningEffort(input.selection.effort) ||
-            !model.efforts.includes(input.selection.effort)
+            declaration === undefined || input.selection.modelId.trim().length === 0 ||
+            input.selection.modelId.trim() !== input.selection.modelId ||
+            !isReasoningEffort(input.selection.effort)
           ) return rejected(input.commandId, target, 'invalid');
           const selection = selectionForDeclaration(
             declaration,
@@ -1167,6 +1191,7 @@ export const createCoreService = async (
             if (result === 'busy' || result === 'unavailable') {
               return rejected(input.commandId, target, result);
             }
+            await modelCatalog.remember(selection.provider, selection.modelId, selection.effort);
             if (configRoot !== undefined) {
               try {
                 await writeDefaultSelection(configRoot, selection);

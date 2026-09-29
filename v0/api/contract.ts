@@ -145,6 +145,7 @@ export const CORE_OPERATION_NAMES = [
   'execution.read',
   'command.read',
   'catalog.read',
+  'catalog.favorite',
   'selection.change',
   'path.read',
   'credential.readPresence',
@@ -205,7 +206,7 @@ export type SelectionChangeValue = Readonly<{
 }>;
 export type CatalogReadInput = Readonly<
   | { kind: 'providers' }
-  | { kind: 'models'; provider: string }
+  | { kind: 'models'; provider: string; sessionId?: string }
   | { kind: 'efforts'; provider: string; modelId: string }
   | { kind: 'credentials' }
 >;
@@ -218,18 +219,24 @@ export type ProviderCatalogResult = Readonly<{
 export type ModelCatalogResult = Readonly<{
   kind: 'models';
   provider: string;
+  metadataStatus: 'loaded' | 'unavailable';
   models: readonly Readonly<{
     modelId: string;
+    name?: string;
+    created?: number;
+    favorite: boolean;
     defaultEffort: string;
     efforts: readonly string[];
   }>[];
 }>;
 export type EffortCatalogResult = Readonly<{
   kind: 'efforts';
+  source: 'models.dev' | 'catalog' | 'unknown' | 'override';
   provider: string;
   modelId: string;
   efforts: readonly string[];
 }>;
+export type ModelFavoriteInput = Readonly<{ provider: string; modelId: string; favorite: boolean }>;
 export type CredentialCatalogResult = Readonly<{
   kind: 'credentials';
   profiles: readonly Readonly<

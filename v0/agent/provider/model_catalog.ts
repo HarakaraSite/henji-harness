@@ -1,5 +1,6 @@
 import {
   BUILTIN_PROVIDER_IDS,
+  isReasoningEffort,
   isStoredModelSelection,
   type ModelSelection,
   type ProviderId,
@@ -41,13 +42,11 @@ const selectionFor = (
   }) as ModelSelection;
 };
 
-/** Current catalog validation; persisted decode remains independent of active declarations. */
+/** Validate the declared route, independently of favorites and model inventory. */
 export const isModelSelection = (value: unknown): value is ModelSelection => {
   if (!isStoredModelSelection(value)) return false;
   const declaration = effectiveDeclarationFor(value.provider);
   if (declaration === undefined) return false;
-  const entry = declaration.modelCatalog.entries.find((item) => item.modelId === value.modelId);
-  if (entry === undefined || !entry.efforts.includes(value.effort)) return false;
   const expected = selectionFor(declaration, value.modelId, value.effort);
   return value.api === expected.api && value.authProfile === expected.authProfile;
 };
@@ -94,9 +93,11 @@ export const selectModelFor = (
   const declaration = effectiveDeclarationFor(provider);
   if (declaration === undefined) throw new RangeError(`unknown provider: ${provider}`);
   const entry = declaration.modelCatalog.entries.find((candidate) => candidate.modelId === modelId);
-  if (entry === undefined) throw new RangeError(`unknown model for ${provider}: ${modelId}`);
-  const selected = effort ?? entry.defaultEffort;
-  if (!entry.efforts.includes(selected)) {
+  if (modelId.trim().length === 0 || modelId.trim() !== modelId) {
+    throw new RangeError('invalid model id');
+  }
+  const selected = effort ?? entry?.defaultEffort ?? 'auto';
+  if (!isReasoningEffort(selected)) {
     throw new RangeError(`unsupported effort for ${modelId}: ${selected}`);
   }
   return selectionFor(declaration, modelId, selected);

@@ -40,6 +40,8 @@ import type {
   FollowUpReadResult,
   HistoryReadInput,
   HistoryReadResult,
+  ModelCatalogResult,
+  ModelFavoriteInput,
   PathReadResult,
   RecallInput,
   RecallValue,
@@ -160,12 +162,32 @@ export class HenjiApiClient {
     if (input.kind === 'models' || input.kind === 'efforts') {
       query.set('provider', input.provider);
     }
+    if (input.kind === 'models' && input.sessionId !== undefined) {
+      query.set('sessionId', input.sessionId);
+    }
     if (input.kind === 'efforts') query.set('modelId', input.modelId);
     return decodeCatalogReadResult(
       await jsonOrApiError(
         await this.fetcher(`${this.baseUrl}/catalogs?${query}`),
       ),
     );
+  }
+
+  async modelFavorite(input: ModelFavoriteInput): Promise<ModelCatalogResult> {
+    const result = decodeCatalogReadResult(
+      await jsonOrApiError(
+        await this.fetcher(
+          `${this.baseUrl}/catalogs/favorite`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(input),
+          },
+        ),
+      ),
+    );
+    if (result.kind !== 'models') throw new TypeError('model catalog unavailable');
+    return result;
   }
 
   async selectionChange(

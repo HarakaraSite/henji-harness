@@ -44,6 +44,9 @@ export interface ProviderDeclarationV1 {
    * `{credential}` (Chat Completions only) and `{sessionId}`.
    */
   readonly headers?: Readonly<Record<string, string>>;
+  readonly modelsDevProviderId?: string;
+  /** Host-owned marker for effort overrides from an external declaration file. */
+  readonly catalogSource?: 'external';
 }
 
 export type ProviderDeclarationErrorCode =
@@ -77,7 +80,10 @@ const DECLARATION_KEYS: readonly string[] = Object.freeze([
   'modelCatalog',
   'defaults',
 ]);
-const OPTIONAL_DECLARATION_KEYS: readonly string[] = Object.freeze(['headers']);
+const OPTIONAL_DECLARATION_KEYS: readonly string[] = Object.freeze([
+  'headers',
+  'modelsDevProviderId',
+]);
 const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9a-z]+$/u;
 const FORBIDDEN_HEADER_NAMES: readonly string[] = Object.freeze([
   'content-type',
@@ -270,6 +276,9 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
       value.providerId,
     );
   }
+  if (value.modelsDevProviderId !== undefined && typeof value.modelsDevProviderId !== 'string') {
+    invalid('modelsDevProviderId must be a string', value.providerId);
+  }
   const headers = parseHeaders(value.protocol as ProviderProtocol, value.providerId, value.headers);
   if (headers !== undefined && OVERRIDABLE_PROVIDER_IDS.includes(value.providerId)) {
     invalid('provider headers are not allowed for a built-in override', value.providerId);
@@ -286,6 +295,9 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
       effort: defaultEffort,
     }),
     ...(headers === undefined ? {} : { headers }),
+    ...(value.modelsDevProviderId === undefined
+      ? {}
+      : { modelsDevProviderId: value.modelsDevProviderId as string }),
   });
 };
 
@@ -300,7 +312,10 @@ export const parseProviderDeclaration = (text: string): ProviderDeclarationV1 =>
       'provider declaration is not valid JSON',
     );
   }
-  return validateProviderDeclaration(parsed);
+  return Object.freeze({
+    ...validateProviderDeclaration(parsed),
+    catalogSource: 'external' as const,
+  });
 };
 
 /** Merge declarations over built-in defaults; new ids are added, overridable ids are replaced. */

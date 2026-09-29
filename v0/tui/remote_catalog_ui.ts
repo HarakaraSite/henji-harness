@@ -38,6 +38,8 @@ type CatalogModal =
   }
   | {
     readonly kind: 'models';
+    readonly metadataStatus: 'loaded' | 'unavailable';
+    readonly savingFavorite?: boolean;
     readonly provider: string;
     readonly query: string;
     readonly currentModelId: string;
@@ -48,6 +50,7 @@ type CatalogModal =
   }
   | {
     readonly kind: 'efforts';
+    readonly source: 'models.dev' | 'catalog' | 'unknown' | 'override';
     readonly provider: string;
     readonly modelId: string;
     readonly efforts: readonly string[];
@@ -74,6 +77,7 @@ export interface RemoteCatalogUiOptions {
   readonly client: Pick<
     HenjiApiClient,
     | 'catalogRead'
+    | 'modelFavorite'
     | 'selectionChange'
     | 'commandRead'
     | 'credentialPresenceRead'
@@ -213,6 +217,7 @@ export class RemoteCatalogUi {
       const result = await this.options.client.catalogRead({
         kind: 'models',
         provider: selection.provider,
+        sessionId: this.options.sessionId(),
       });
       if (!this.current(generation)) return;
       if (result.kind !== 'models') {
@@ -224,6 +229,7 @@ export class RemoteCatalogUi {
       );
       this.modal = {
         kind: 'models',
+        metadataStatus: result.metadataStatus,
         provider: result.provider,
         query: '',
         currentModelId: selection.modelId,
@@ -255,6 +261,7 @@ export class RemoteCatalogUi {
       }
       this.modal = {
         kind: 'efforts',
+        source: result.source,
         provider: result.provider,
         modelId: result.modelId,
         efforts: result.efforts,
@@ -446,6 +453,11 @@ export class RemoteCatalogUi {
       }
       return;
     }
+    if (modal.kind === 'models' && event.kind === 'tab') {
+      if (!modal.savingFavorite) void this.toggleFavorite();
+      return;
+    }
+    if (modal.kind === 'models' && modal.savingFavorite && event.kind === 'enter') return;
     if (modal.kind === 'models' && event.kind === 'backspace') {
       this.updateModelQuery([...modal.query].slice(0, -1).join(''));
       return;
@@ -583,7 +595,10 @@ export class RemoteCatalogUi {
     const normalized = query.toLocaleLowerCase();
     const entries = normalized.length === 0
       ? modal.catalog
-      : modal.catalog.filter((entry) => entry.modelId.toLocaleLowerCase().includes(normalized));
+      : modal.catalog.filter((entry) =>
+        entry.modelId.toLocaleLowerCase().includes(normalized) ||
+        entry.name?.toLocaleLowerCase().includes(normalized)
+      );
     const current = entries.findIndex((entry) => entry.modelId === modal.currentModelId);
     const selected = current < 0 ? 0 : current;
     this.modal = {
@@ -594,6 +609,46 @@ export class RemoteCatalogUi {
       top: modelWindowTop(selected, 0, entries.length),
     };
     this.renderModels();
+  }
+
+  private async toggleFavorite(): Promise<void> {
+    const modal = this.modal;
+    if (modal?.kind !== 'models') return;
+    const entry = modal.entries[modal.selected];
+    if (entry === undefined) return;
+    const generation = this.generation;
+    this.modal = { ...modal, savingFavorite: true };
+    this.renderModels();
+    try {
+      const result = await this.options.client.modelFavorite({
+        provider: modal.provider,
+        modelId: entry.modelId,
+        favorite: !entry.favorite,
+      });
+      const current = this.modal;
+      if (generation !== this.generation || current?.kind !== 'models') return;
+      const query = current.query.toLocaleLowerCase();
+      const entries = result.models.filter((item) =>
+        item.modelId.toLocaleLowerCase().includes(query) ||
+        item.name?.toLocaleLowerCase().includes(query)
+      );
+      const selected = Math.max(0, entries.findIndex((item) => item.modelId === entry.modelId));
+      this.modal = {
+        ...current,
+        catalog: result.models,
+        entries,
+        selected,
+        savingFavorite: false,
+        top: modelWindowTop(selected, current.top, entries.length),
+      };
+      this.options.setNotice(undefined);
+      this.renderModels();
+    } catch {
+      if (generation !== this.generation || this.modal?.kind !== 'models') return;
+      this.modal = { ...this.modal, savingFavorite: false };
+      this.options.setNotice('favorite save failed');
+      this.renderModels();
+    }
   }
 
   private renderProviders(): void {
@@ -617,13 +672,20 @@ export class RemoteCatalogUi {
       ? ` · ${modal.top + 1}-${modal.top + visible.length} of ${modal.entries.length}`
       : '';
     const lines = [
-      `model picker · ${modal.provider} · type to search · Up/Down select · Enter choose · Esc cancel${window}`,
+      `model picker · ${modal.provider} · ${modal.entries.length} matches${window}`,
+      'Up/Down move · Enter choose · Tab favorite · Esc cancel',
       `search> ${modal.query}`,
+      ...(modal.metadataStatus === 'unavailable'
+        ? ['effort metadata unavailable · using saved catalog']
+        : []),
+      ...(modal.savingFavorite ? ['saving favorite'] : []),
       ...visible.map((entry, offset) => {
         const index = modal.top + offset;
-        return `${
-          index === modal.selected ? '>' : ' '
-        } ${entry.modelId} · default effort ${entry.defaultEffort}`;
+        return `${index === modal.selected ? '>' : ' '} ${
+          entry.favorite ? '*' : ' '
+        } ${entry.modelId}${
+          entry.modelId === modal.currentModelId ? ' (current)' : ''
+        } · ${entry.defaultEffort}${entry.name === undefined ? '' : ` · ${entry.name}`}`;
       }),
     ];
     if (modal.entries.length === 0) lines.push('no matching models');
@@ -635,6 +697,11 @@ export class RemoteCatalogUi {
     if (modal?.kind !== 'efforts') return;
     this.options.renderer.renderChoicePicker([
       `effort picker · ${modal.provider} · ${modal.modelId} · Up/Down select · Enter choose · Esc cancel`,
+      ...(modal.source === 'catalog'
+        ? ['models.dev unavailable · saved catalog']
+        : modal.source === 'unknown'
+        ? ['effort metadata unavailable for this model']
+        : []),
       ...modal.efforts.map((effort, index) => `${index === modal.selected ? '>' : ' '} ${effort}`),
     ]);
   }

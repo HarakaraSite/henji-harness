@@ -45,7 +45,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E2  | 配布・外部化   | 追加managed resource kind候補（未採用）                                      | 各kindを通常利用で更新・pin・transport・activationする必要が出る                                                       |
 | E3  | 配布・外部化   | Host runtime tunablesの設定ファイル化                                        | provider timeout・tool限界・maxSteps既定などを通常利用で調整したくなるとき                                             |
 | E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）         | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
-| E6  | 配布・外部化   | providerからのmodel一覧取得                                                  | model選択でproviderの現行一覧を使いたいとき                                                                            |
 | P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                            | context圧縮を人間が明示的に行いたくなったとき                                                                          |
 | P4  | 参照実装parity | Session export/import                                                        | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
 | P5  | 参照実装parity | `@file` reference（内容注入）                                                | 人間がfile内容をmodel turnなしでcontextへ入れたいとき                                                                  |
@@ -789,17 +788,6 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 該当providerを通常利用で使う必要が出るとき。
 - 正本候補: `docs/architecture/multi-provider-routing-and-auth.md`、`docs/roadmap.md` F02／F24。
 - 関連: E1、Increment 101。
-
-### E6 — providerからのmodel一覧取得
-
-- 現行境界: model選択の一覧は、bundledまたは外部Provider宣言の固定`modelCatalog.entries`を使う。
-  `searchModelsFor`はその一覧を手元で絞り込む。
-- 利用者希望（2026-09-23）: model一覧をproviderから取得したい。OpenRouterは一覧が非常に大きいため、
-  その扱いを検討する必要がある。
-- 候補: providerから取得した現行一覧をmodel選択へつなぐ。取得の時点・更新方法と、大きな一覧からの
-  検索・絞り込み・表示・選択方法は採用時に決める。
-- 再検討条件: model選択でproviderの現行一覧を使う機能を採用するとき。
-- 関連: E1、`v0/agent/provider/model_catalog.ts`、`v0/agent/provider/provider_declaration.ts`。
 
 ## 参照実装parity（Pi／Zot調査、未採用）
 

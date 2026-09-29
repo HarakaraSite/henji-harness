@@ -4,6 +4,11 @@
 
 ## 現在地（2026-09-29）
 
+**E6の[Increment 157](../docs/increments/increment-157.md)は実装・検証・通常reviewと修正・限定re-review済み。**
+OpenAI/Router/GoのChat/Responses計6経路で確認済み。通常reviewのP2二件を修正し、限定re-reviewで解消・新指摘なし。
+追加指示によりcommit/push・常用配置を実施中。実装・確認結果・操作方法・証拠はincrementを参照する。
+合意した動作、現行経路、外部provider対応案、保存・選択境界、検証と正本変更案はincrementを参照する。
+
 **S15の[Increment 156](../docs/increments/increment-156.md)は利用者確認・完了承認済み。**
 2026-09-29、利用者のEsc確認と指示によりincrement完了・セッション終了。
 要件・TUI分離後の経路・検証・commit/push・常用配置・配置後確認はincrement正本を参照する。
@@ -51,12 +56,16 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. [156](../docs/increments/increment-156.md)は完了承認済み。次セッションは利用者の新しい指示から開始する。
-   未採用S26・S27メモをlocal未commitで保持する。構想・architecture・roadmapの意味変更は別承認。
+1. [157](../docs/increments/increment-157.md)の結果をもとに、利用者の確認または追加指示から再開する。
+   未採用S26・S27メモを保持する。構想・architecture・roadmapの意味変更は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
+
+- E6の要件整理・計画作成は指示済み。正本は[Increment 157](../docs/increments/increment-157.md)。
+  実装、実provider確認、その後の通常reviewは承認済み。対象・回数・保存先は確認前に提示する。
+  commit/push・常用配置と配置後確認は追加指示済み。Product正本の意味変更は別承認。
 
 - S15のlocal実装・非破壊的検証は今回の指示で承認済み。正本は[Increment 156](../docs/increments/increment-156.md)。
   追加指示によるcommit/push・常用配置・配置後確認と/tmp清掃は完了。
@@ -65,10 +74,12 @@ S22の8slice（139〜146）と147の配置結果は
 - S25のlocal実装・非破壊的検証は今回の指示で承認済み。追加指示により`/exit`を`/detach`へ改名し、
   スラッシュ＋最初の文字から候補を案内する。正本は[Increment 155](../docs/increments/increment-155.md)。
   通常reviewと、追加指示に基づくcommit/push・常用配置・配置後確認は完了。
-  利用者確認・increment完了承認済み。 JSR公開、構想・architecture・roadmapの意味変更は未指示。
+  利用者確認・increment完了承認済み。
+  JSR公開、構想・architecture・roadmapの意味変更は未指示。
 
 - S17・S18・S19の調査、統合案作成とgpt-6-astraによる案review、計画作成とreviewerによる通常/批判的reviewは指示済み。
-  local実装、計画の実測/非破壊的実経路検証、実装後コード/test reviewは追加指示済み。
+  local実装、計画の実測/非破壊的実経路検証、実装後コード/test
+  reviewは追加指示済み。
   commit/push・常用配置と配置後確認は追加指示済み・完了。利用者確認・increment完了承認済み。
   JSR公開は未指示。 正本は[Increment 154](../docs/increments/increment-154.md)。
 - A25の参照実装調査、gpt-6-astraへの比較相談とreview、実provider実測、複数Core案・実装計画の作成は指示済み・完了。
@@ -77,7 +88,8 @@ S22の8slice（139〜146）と147の配置結果は
   architecture/roadmapへの意味変更とJSR公開は別承認。
   詳細と証拠は[複数Core案](../docs/plans/a25-multiple-cores.md)を参照する。検証用Coreは停止済み。
 - 148のlocal修正と非破壊的検証、commit／push／常用配置は指示済み・完了。
-  配置前確認では`/home/agent`とrepository workspaceのCoreはともに非稼働。実行中の作業は中断しない。
+  配置前確認では`/home/agent`とrepository
+  workspaceのCoreはともに非稼働。実行中の作業は中断しない。
   UIとCoreをまとめて終了するスラッシュコマンド案とsubagent起動判断は「メモだけ」の指示で
   通常利用メモへ記録した。同workspaceの複数Session同時実行は、後続のA25案整理を上記へ引き継ぐ。
 - S22の議論の文書化、参照実装調査、詳細設計・slice分割計画の作成、review指摘への設計修正は指示済み。
@@ -98,25 +110,33 @@ S22の8slice（139〜146）と147の配置結果は
 - 1〜132
   E2Eは計画作成済み。基本・最小case、両API、最新仕様のみという範囲と、検索Sonar一回を確認済み。
   各ブロックの対象・予定量・保存先と実行結果は計画参照。実行は2026-09-27に明示承認済み・実施済み。
-  Agent自身の参照再実行とstream local修正・確認は追加指示済み・実施済み。 Go HTTP
-  400再現性確認と原因調査probeは利用者指示済み・実施済み。Goのproduction修正は不要。 reasoning
+  Agent自身の参照再実行とstream local修正・確認は追加指示済み・実施済み。 Go
+  HTTP
+  400再現性確認と原因調査probeは利用者指示済み・実施済み。Goのproduction修正は不要。
+  reasoning
   wire追加probe・公開は未指示。stream修正と文書更新のcommit・push・常用配置は追加指示済み・完了。
-- 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は
+- 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID
+  `202890`は
   今回の`ps`確認ではともに不在。今回、プロセスへの操作は行っていない。
-- Increment 134のlocal実装、architecture・roadmap反映、対象workspaceの既存DB削除は指示済み・完了。
+- Increment
+  134のlocal実装、architecture・roadmap反映、対象workspaceの既存DB削除は指示済み・完了。
   commit・push・常用binary配置も指示済み・完了。JSR公開は未指示。
 - 構想・architecture・roadmapの新たな意味変更は、対象・理由・変更内容を提示して別途明示承認を得る。
   詳細は[AGENTS.md](../AGENTS.md#product正本の変更承認)。
 
 ## 正本への入口
 
-- [構想](../docs/concepts/experience-driven-self-revision.md): productの目的と人間による採用境界。
-- [architecture](../docs/architecture/henji-host-agent-worker.md): 責務・状態所有・component境界。
+- [構想](../docs/concepts/experience-driven-self-revision.md):
+  productの目的と人間による採用境界。
+- [architecture](../docs/architecture/henji-host-agent-worker.md):
+  責務・状態所有・component境界。
 - [roadmap](../docs/roadmap.md): 必要機能・実装状態・未実装範囲。
 - [通常利用メモ](../docs/experience/normal-use-inbox.md):
   未採用候補。S20、A15等はここ、S17〜S19はIncrement 154。
-- [個別increment](../docs/increments/): 採用済みの要件・計画・検証・配置・公開結果。
+- [個別increment](../docs/increments/):
+  採用済みの要件・計画・検証・配置・公開結果。
 - [公開手順](../docs/operations/jsr-publish.md): JSR公開時の操作。
-- [整理前のhandoff記録](../docs/history/handoff-through-2026-09-26.md): 過去の証拠のみ。
+- [整理前のhandoff記録](../docs/history/handoff-through-2026-09-26.md):
+  過去の証拠のみ。
 
 状態が変わったら該当箇所を置き換える。計画・検証詳細・完了履歴をここへ積み増さない。
