@@ -18,6 +18,8 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
+| S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
+| S27 | Surface        | TUIショートカットの整理                                                      | 利用者がショートカット整理を個別Incrementへ採用するとき                                                                |
 | A1  | Agent実行      | ChatGPT subscription root provider                                           | subscription利用がproduct要件になる                                                                                    |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
@@ -34,6 +36,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
 | A23 | Agent実行      | `run_typescript`で小さな計算・変換・検査をHenji内で実行                      | 現行構成が安定し、利用者が利用価値検証の再開を明示したとき                                                             |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
+| A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
 | R2  | F24            | revision付きtool componentとMCP                                              | tool candidateを生成・保存・採用するflowを設計する                                                                     |
 | R3  | F24            | tool実行profileとsandboxed Deno program                                      | trusted-local以外の実行環境をproduct要件にする                                                                         |
@@ -144,6 +147,45 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   [`increment-136.md`](../increments/increment-136.md)、
   [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
 
+### S26 — CLIエラーを人間向けの理由・使い方案内へ統一（未採用）
+
+- 観測（2026-09-29、利用者の通常操作）: `henji list`で
+  `{"ok":false,"error":{"code":"invalid_invocation","message":"invalid invocation"}}`
+  がそのまま表示された。Core一覧の正しい操作は`henji core list`だが、何を間違え、どう直せばよいか
+  メッセージから分からない。
+- 現行常用binaryでの確認（同日、隔離HOME／XDG、実provider requestなし）:
+  不明なcommand／optionに対し、root、通常起動／`tui`、`run`の通常表示／`--stream`、`history`、
+  `sessions`、`module`、`tool`、`diagnostics`はJSONエラーを出す。TUI optionの指定漏れ等は
+  具体的な理由がJSON内にあるが、ほかは`invalid invocation`だけの場合が多い。
+  `core`／`serve`はテキストで、command間で表示が統一されていない。
+  `sessions`のエラーはstderrではなくstdoutへ出る。
+  `henji core list --help`もhelpとして処理されずエラーになる。
+- 利用者判断（同日）: CLIらしいメッセージへ改善したい。今回はメモだけを残し、まだ修正しない。
+- 候補: 通常表示ではstderrへ、不明なcommand／option名、値の指定漏れや不正な値の理由、
+  該当commandの使い方またはhelpへの案内を短いテキストで出す。例えば`henji list`には
+  未知のcommandであることと、Core一覧は`henji core list`であることを案内する。
+  明示的な`run --json`等の機械向け出力は維持し、成功時の出力形式は別の変更として扱う。
+  エラーの出力先とsubcommandのhelpも、今回観測した不整合の改善候補に含める。
+- 再検討条件: 利用者がこの改善を個別Incrementへ採用するとき。対象command、表示文言、
+  機械向け出力との境界を採用時に決める。
+- 関連: `v0/agent/cli/henji_cli.ts`、`v0/agent/cli/cli_help.ts`、`v0/agent/cli/`の各command入口。
+
+### S27 — TUIショートカットの整理（F01、未採用）
+
+- 観測・確認（2026-09-29）: Alt-Enterがidleでは入力の改行、busyではfollow-up queueとなり、
+  同じ入力操作の意味が実行状態で変わる。さらにlegacyのESC＋Returnやxterm形式は`alt_enter`、
+  CSI-uのAlt-Return（`CSI 13;3u`）は`newline`へdecodeされ、端末の送信形式でも動作が異なる。
+- 利用者判断（同日）: ショートカットを整理することをメモする。今回は記録のみで実装しない。
+- 候補: 改行、送信、steering、follow-up queue、cancel、detach、Core shutdown等の既定割当を整理し、
+  キーの二重用途と送信形式による不統一を解消する。割当とfooter・helpの案内を揃える。
+  Alt-Enterを常に改行としてqueueを別キーへ分ける案は提案段階で、具体的な割当は採用時に決める。
+- 入力欄の高さについての利用者確認: 現在の94×23ペインで入力欄が一行になるのは、
+  高さ24行未満では一行、24行以上では最大8行という現行仕様どおりとして了承済み。
+  入力欄の高さ変更は今回の改善候補に含めない。
+- 再検討条件: 利用者がショートカット整理を個別Incrementへ採用するとき。
+- 関連: `v0/tui/input_decoder.ts`、`v0/tui/remote_session.ts`、`v0/tui/layout.ts`、 P8（configurable
+  keybindings）。
+
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
 Pi／OpenCode／Henjiの画面表示比較
@@ -173,6 +215,15 @@ Pi／OpenCode／Henjiの画面表示比較
 - 観測: Increment 17で公式Codex境界、非公開ChatGPT Codex backendのdirect
   route、参照実装、OSS支援方針を
   調査した。技術候補はあるが、現在のHenjiに必須でないため利用者判断で延期した。
+- 再調査（2026-09-29、利用者指示、source／公式資料のみ）: OpenCodeとPiは自前OAuthと ChatGPT Codex
+  backendへのdirect model requestを持ち、自身のagent／tool loopを維持している。
+  URL・codeをTUIへ表示するdevice認証後は、agent側のlocal認証storeへtoken・有効期限・account
+  IDを保存する。 API key方式とResponsesの基本形式は共通するが、接続先・header・stream処理が異なり、
+  認証の差し替えだけではない。Henjiには既存Responses基盤を再利用する専用provider＋OAuth経路が候補になる。
+  固定した参照commit、保存先、比較、接続案、未確認事項は
+  [A1調査記録](../research/a1-chatgpt-subscription-provider.md)を参照する。
+- 利用者判断（2026-09-29）: 次の候補としてA1を検討し、調査と結果の記録を指示した。
+  個別incrementへの採用・実装・実provider確認は未指示。
 - 候補: subscription対応を再採用する場合は、OpenAIの最新公式contractと現行参照実装を再確認し、
   新しい個別Incrementを作る。
 - 再検討条件: existing provider routeではなくsubscription利用がproduct要件になること。
@@ -488,6 +539,40 @@ Pi／OpenCode／Henjiの画面表示比較
 - 再検討条件: 利用者が起動判断の検討を再開するとき。現時点で起動方針の変更や実装は採用しない。
 - 関連: A14（名前付き子Agent Definitionの専用model指定）、
   [Increment 131](../increments/increment-131.md)（起動時のmodel・tool指定）。
+
+### A26 — hookによる起動時・実行前後の自動処理（未採用）
+
+- 利用者判断（2026-09-29）: hookの組み込みを検討したが、現時点では「必ず何かを実行させたい」という
+  具体的なニーズはない。Zot／Piの調査結果と利用例をメモに残す。採用・実装は未指示。
+- 参照実装調査（2026-09-29、手元sourceと公式docsを確認、動作実測なし）:
+  - **Zot**: hook相当の仕組みをextensionとして持つ。拡張を別processで起動し、stdin/stdoutの JSON
+    frameでイベント購読と介入を登録する。実装言語は自由。Session開始・turn開始／終了等の
+    通知、tool実行前の引数変更・中止、ユーザー向けassistant本文の変更ができる。
+    拡張は標準ではインストールされず、利用者が追加する。
+    [公式extension仕様](https://github.com/patriceckhart/zot/blob/main/docs/extensions.md)、
+    手元`_refs/zot/docs/extensions.md`、`_refs/zot/packages/agent/extensions/`を参照。
+  - **Pi**: TypeScript extensionをPi process内で読み込み、`pi.on("tool_call", handler)`等で
+    handlerを登録する。入力加工、実行前のcontext追加、tool実行前の引数変更・中止、
+    tool結果変更、完了通知等ができる。通知だけのeventと、dataや動作を変更できるeventを分ける。
+    [公式extension仕様](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md)、
+    手元`_refs/pi/packages/coding-agent/docs/extensions.md`、
+    `src/core/extensions/`（同package配下）を参照。
+- Henji現行: `v0/agent/core/events.ts`に開始・終了やtool call/resultの通知、
+  `v0/agent/tools/tools.ts`の`Registry.dispatch`に共通のtool実行経路がある。
+  ユーザーがhookを登録する汎用機構は未実装。既存event sinkは同期通知で、非同期処理の完了待ちや
+  引数・結果の変更を行うhook contractではない。
+- 利用者が挙げた例: 「環境情報を起動時に必ず確認させたい」。起動時hookで既存の環境メモを読む、
+  または必要な情報を取得し、初期contextへ渡す形が考えられる。instructionでAIへ確認を依頼する方式と
+  異なり、runtimeが処理を呼び情報を渡すところまでを確定できる。AIの理解・活用を保証するものではない。
+- 設計上の選択肢: 全利用者に共通する標準動作なら起動処理への直接実装も可能。利用者・projectごとに
+  処理を差し替えたい場合はhook登録方式が候補になる。「起動」がCore／Session／Workerのどの境界か、
+  確認項目、情報を渡す先は採用時に決める。
+- 境界: 起動時の環境確認は利用例であり、環境情報の機械的収集を採用した判断ではない。
+  A5の既存方針（人間の指示で`ambient.md`等を用意しinstructionとして読む）を変更しない。
+  credential値とAuthorizationは取得結果・context・記録へ含めない。
+- 再検討条件: 決まったタイミングで実行したい具体的な処理が通常利用で必要になったとき、
+  または利用者がhookの検討を再開するとき。
+- 関連: A5（ambient情報）、A11（instructionの与え方）、E2（追加resource kind）。
 
 ## F24・自己改訂
 
