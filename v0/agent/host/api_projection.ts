@@ -746,6 +746,15 @@ export const projectExecutionView = (
     }),
     lifecycle: execution.lifecycle,
     outcome: execution.outcome,
+    ...(execution.outcomeJson === undefined ? {} : {
+      stopReason: execution.outcomeJson.stopReason,
+    }),
+    ...(execution.outcomeJson?.diagnostic === undefined ? {} : {
+      diagnostic: {
+        code: execution.outcomeJson.diagnostic.code,
+        stage: execution.outcomeJson.diagnostic.stage,
+      },
+    }),
     adoption: execution.adoption,
     ...(execution.committedRevision === undefined ? {} : {
       committedRevision: execution.committedRevision,

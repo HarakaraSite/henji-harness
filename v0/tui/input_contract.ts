@@ -19,22 +19,10 @@ export type InputEvent =
   | { readonly kind: 'alt_enter' }
   | { readonly kind: 'backspace' }
   | { readonly kind: 'ctrl_c' }
-  | { readonly kind: 'ctrl_g' }
   | { readonly kind: 'ctrl_d' }
   | { readonly kind: 'ctrl_q' }
-  | { readonly kind: 'ctrl_o' }
-  | { readonly kind: 'ctrl_t' }
-  | { readonly kind: 'ctrl_w' }
-  | { readonly kind: 'ctrl_a' }
-  | { readonly kind: 'ctrl_b' }
-  | { readonly kind: 'ctrl_e' }
-  | { readonly kind: 'ctrl_f' }
   | { readonly kind: 'ctrl_u' }
-  | { readonly kind: 'alt_b' }
-  | { readonly kind: 'alt_f' }
-  | { readonly kind: 'alt_d' }
   | { readonly kind: 'newline' }
-  | { readonly kind: 'ctrl_k' }
   | { readonly kind: 'tab' }
   | { readonly kind: 'left' }
   | { readonly kind: 'right' }
@@ -45,6 +33,8 @@ export type InputEvent =
   | { readonly kind: 'page_up' }
   | { readonly kind: 'page_down' }
   | { readonly kind: 'f1' }
+  | { readonly kind: 'f2' }
+  | { readonly kind: 'f3' }
   | { readonly kind: 'escape' }
   | { readonly kind: 'unknown' }
   | { readonly kind: 'invalid_utf8' }

@@ -168,6 +168,7 @@ const coreRead = {
 
 class FakeTerminal implements TerminalPort {
   readonly output: string[] = [];
+  frame: ScreenFrame | undefined;
   readonly signals = new Map<string, () => void>();
   raw = false;
   private readonly input: Uint8Array[] = [];
@@ -205,6 +206,7 @@ class FakeTerminal implements TerminalPort {
     } else this.input.push(bytes);
   }
   writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.frame = frame;
     this.write(encodeScreenFrame(frame));
     onWritten?.();
   }
@@ -362,7 +364,10 @@ Deno.test('Increment 143 slash operations and context overlay do not submit or c
   try {
     await waitFor(() => terminal.text().includes('Active Session A'));
     terminal.pushInput('/rename Slice 5 title\r');
-    await waitFor(() => renameBody !== undefined && terminal.text().includes('Session renamed'));
+    await waitFor(() =>
+      renameBody !== undefined &&
+      !(terminal.frame?.rows.join('\n') ?? '').includes('renaming Session')
+    );
     deepStrictEqual(renameBody?.title, 'Slice 5 title');
 
     terminal.pushInput('/recall latest\r');
@@ -370,7 +375,7 @@ Deno.test('Increment 143 slash operations and context overlay do not submit or c
     deepStrictEqual(recallBody?.action, 'prepare');
     strictEqual(recallBody?.executionId, undefined);
 
-    terminal.pushInput('/context\r');
+    terminal.pushInput('/context\r\r');
     await waitFor(() =>
       contextReads === 1 &&
       terminal.text().includes('Context checkpoint marker') &&
@@ -392,7 +397,7 @@ Deno.test('Increment 143 slash operations and context overlay do not submit or c
   }
 });
 
-Deno.test('Increment 143 Ctrl-G picker Enter views a saved Session without changing the active slot', async () => {
+Deno.test('Increment 143 F1 picker Enter views a saved Session without changing the active slot', async () => {
   let lists = 0;
   let savedReads = 0;
   let savedSubscriptions = 0;
@@ -445,7 +450,7 @@ Deno.test('Increment 143 Ctrl-G picker Enter views a saved Session without chang
   );
   try {
     await waitFor(() => terminal.text().includes('Active Session A'));
-    terminal.pushInput('\x07');
+    terminal.pushInput('\x1bOP');
     await waitFor(() => lists === 1 && terminal.text().includes('Saved Session B'));
     terminal.pushInput('\x1b[B\r');
     await waitFor(() =>
@@ -470,7 +475,7 @@ Deno.test('Increment 143 Ctrl-G picker Enter views a saved Session without chang
   }
 });
 
-Deno.test('Increment 143 Ctrl-T picker R explicitly resumes the selected saved Session', async () => {
+Deno.test('Increment 143 /sessions picker R explicitly resumes the selected saved Session', async () => {
   let lists = 0;
   let openBody: Record<string, unknown> | undefined;
   let savedSubscriptions = 0;
@@ -533,7 +538,7 @@ Deno.test('Increment 143 Ctrl-T picker R explicitly resumes the selected saved S
   );
   try {
     await waitFor(() => terminal.text().includes('Active Session A'));
-    terminal.pushInput('\x14');
+    terminal.pushInput('/sessions\r\r');
     await waitFor(() => lists === 1 && terminal.text().includes('Saved Session B'));
     terminal.pushInput('\r');
     await waitFor(() =>
@@ -544,7 +549,7 @@ Deno.test('Increment 143 Ctrl-T picker R explicitly resumes the selected saved S
       terminal.text(),
       'Saved Session B ·',
     );
-    terminal.pushInput('\x14');
+    terminal.pushInput('/sessions\r\r');
     await waitFor(() =>
       lists === 2 &&
       occurrences(terminal.text(), 'Saved Session B ·') > previousPickerRows
@@ -556,7 +561,7 @@ Deno.test('Increment 143 Ctrl-T picker R explicitly resumes the selected saved S
       sessionId: savedSessionId,
     });
     strictEqual(openBody?.fromSessionId, undefined);
-    terminal.pushInput('/context\r');
+    terminal.pushInput('/context\r\r');
     await waitFor(() => terminal.text().includes('provider timeout 30000ms'));
     terminal.pushInput('\x04');
 
@@ -668,6 +673,90 @@ Deno.test('Increment 143 CLI attach compares activation against the effective ma
     strictEqual(events, 1);
     strictEqual(providerCalls, 0);
   } finally {
+    await server.shutdown();
+  }
+});
+
+Deno.test('Increment 159 slash picker completes before execution and closes without cancelling', async () => {
+  const renames: Record<string, unknown>[] = [];
+  let cancellations = 0;
+  let shutdowns = 0;
+  const server = startServer(async (request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === '/api/v1/core') return Response.json(coreRead);
+    if (pathname.endsWith('/events')) return sseResponse(activeSnapshot);
+    if (pathname.endsWith('/title')) {
+      const body = await request.json() as Record<string, unknown>;
+      renames.push(body);
+      return accepted(String(body.commandId), activeSessionId, {
+        result: 'renamed',
+      });
+    }
+    if (pathname.endsWith('/cancel')) cancellations += 1;
+    if (pathname.endsWith('/shutdown')) shutdowns += 1;
+    return new Response('unexpected request', { status: 404 });
+  });
+  const terminal = new FakeTerminal();
+  const run = runRemoteTui(
+    `http://127.0.0.1:${server.addr.port}`,
+    activeSessionId,
+    { terminal },
+  );
+  const screen = () => terminal.frame?.rows.join('\n') ?? '';
+  try {
+    await waitFor(() => screen().includes('Active Session A'));
+    terminal.pushInput('/');
+    await waitFor(() => screen().includes('slash commands'));
+    terminal.pushInput('ren');
+    await waitFor(() => screen().includes('usage: /rename TEXT'));
+    terminal.pushInput('\r');
+    await waitFor(() => !screen().includes('slash commands') && screen().includes('/rename'));
+    strictEqual(renames.length, 0);
+    terminal.pushInput('Picker title\r');
+    await waitFor(() => renames.length === 1);
+    strictEqual(renames[0]?.title, 'Picker title');
+    await waitFor(() => !screen().includes('renaming Session'));
+    terminal.pushInput('/qui');
+    await waitFor(() => screen().includes('usage: /quit'));
+    terminal.pushInput('\r');
+    await waitFor(() => !screen().includes('slash commands'));
+    terminal.pushInput('\x03/quit');
+    await waitFor(() => screen().includes('slash commands'));
+    terminal.pushInput('\r');
+    await waitFor(() => !screen().includes('slash commands'));
+    strictEqual(shutdowns, 0, 'a fresh draft must not inherit the prior completion suppression');
+    terminal.pushInput('\x7ft');
+    await waitFor(() => screen().includes('slash commands'));
+    terminal.pushInput('\r');
+    await waitFor(() => !screen().includes('slash commands'));
+    strictEqual(shutdowns, 0, 'editing a command name back to its old value must only complete');
+    terminal.pushInput('\x03/rename Kept title');
+    terminal.pushInput('\x1b[H' + '\x1b[C'.repeat(7) + '\x7f');
+    await waitFor(() =>
+      screen().includes('slash commands') && screen().includes('/renam Kept title')
+    );
+    terminal.pushInput('\r');
+    await waitFor(() => !screen().includes('slash commands'));
+    strictEqual(renames.length, 1);
+    terminal.pushInput('\r');
+    await waitFor(() => renames.length === 2);
+    strictEqual(renames[1]?.title, 'Kept title');
+    await waitFor(() => !screen().includes('renaming Session'));
+    terminal.pushInput('/hel');
+    await waitFor(() => screen().includes('usage: /help'));
+    terminal.pushInput('\x1b');
+    await waitFor(() => !screen().includes('slash commands'));
+    strictEqual(cancellations, 0);
+    terminal.pushInput('\x7f');
+    await waitFor(() => screen().includes('slash commands'));
+    terminal.pushInput('\r');
+    await waitFor(() => !screen().includes('slash commands'));
+    terminal.pushInput('\r');
+    await waitFor(() => screen().includes('help · PageUp/Down'));
+    strictEqual(cancellations, 0);
+  } finally {
+    terminal.pushInput('\x04');
+    await run;
     await server.shutdown();
   }
 });

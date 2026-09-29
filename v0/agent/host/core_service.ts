@@ -32,7 +32,6 @@ import type {
   HistoryReadResult,
   ModelCatalogResult,
   ModelFavoriteInput,
-  PathReadResult,
   PendingView,
   RecallInput,
   RecallValue,
@@ -84,7 +83,6 @@ import { projectRuntimeDisplayState } from '../runtime/startup_orientation.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 import { resolveWorkspace } from '../tools/work_tools.ts';
 import { restoreRecordMessages, type WorkerSessionOptions } from '../worker/worker_tui_session.ts';
-import { buildWorkspacePathIndex, type WorkspacePathIndex } from '../../tui/file_reference.ts';
 
 const IMPLEMENTED_OPERATIONS: readonly CoreOperationName[] = CORE_OPERATION_NAMES;
 
@@ -152,7 +150,6 @@ export interface CoreService {
   credentialRegister(
     input: CredentialRegisterInput,
   ): Promise<CredentialRegisterResult>;
-  pathRead(prefix?: string): Promise<PathReadResult>;
   recall(
     sessionId: string,
     input: RecallInput,
@@ -385,9 +382,6 @@ export const createCoreService = async (
     ...(configRoot === undefined ? {} : { configRoot }),
     providerDeclarations,
   });
-  let workspacePathIndex: WorkspacePathIndex | undefined;
-  let workspacePathIndexPromise: Promise<WorkspacePathIndex> | undefined;
-
   const beginShutdown = (): void => {
     if (admissionClosed) return;
     admissionClosed = true;
@@ -961,27 +955,6 @@ export const createCoreService = async (
         () => credentialRegistrations.delete(operation),
       );
       return operation;
-    },
-    async pathRead(prefix?: string): Promise<PathReadResult> {
-      if (workspacePathIndex === undefined) {
-        workspacePathIndexPromise ??= buildWorkspacePathIndex(workspace.root);
-        try {
-          workspacePathIndex = await workspacePathIndexPromise;
-        } finally {
-          workspacePathIndexPromise = undefined;
-        }
-      }
-      const allPaths = workspacePathIndex.snapshot().candidates.map((
-        candidate,
-      ) => candidate.path);
-      const normalizedPrefix = prefix?.startsWith('./') ? prefix.slice(2) : prefix;
-      return {
-        workspace: workspace.root,
-        complete: workspacePathIndex.complete,
-        paths: normalizedPrefix === undefined
-          ? allPaths
-          : allPaths.filter((path) => path.startsWith(normalizedPrefix)),
-      };
     },
     async sessionsList(): Promise<SessionsListResult> {
       const listed = await ensureHistory()

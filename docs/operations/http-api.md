@@ -1,8 +1,8 @@
-# HTTP API — S22・A25
+# HTTP API — S22・A25・Increment 159
 
 この文書は[Increment 140](../increments/increment-140.md)以降の独立core APIの利用方法を管理する。
 共有型の正本は`v0/api/contract.ts`、JSON境界は`v0/api/codec.ts`である。 Slice
-8までのSession操作、task受付・明示cancel・固定steering・follow-up、catalog・credential・pathとshutdownを提供する。
+8までのSession操作、task受付・明示cancel・固定steering・follow-up、catalog・credentialとshutdownを提供する。
 接続TUIは稼働Sessionでtaskを送り、保存Sessionへの操作は閲覧と明示resumeを区別する。
 credential登録はCore全体の操作なので、idleなら保存Session閲覧中でも利用できる。
 
@@ -172,6 +172,8 @@ working／cancellingと経過時間はフッター二行目の先頭に表示す
 
 `execution.read`の結果は`{ "execution": ... }`。
 `execution`はtask、turn、lifecycle、outcome、canonical adoption、requestCount、durabilityを持つ。
+保存済みoutcomeがある場合、`stopReason`と短い診断分類`diagnostic: {code, stage}`を持つ。
+診断の詳細本文やraw provider responseは含めない。snapshotの`runtime.execution`も同じ分類を返す。
 `submittedByCommandId`はこのcoreでの受付と実行を相関する。
 `processSettlement`は`running`／`settling`／`complete`／`unknown`で、
 outcomeとcanonical採用が決まること、process清算が完了することを別々に示す。
@@ -181,7 +183,7 @@ cancel後の結果と未採用の途中表示も再接続で読める。
 
 ## steeringとfollow-up
 
-稼働executionにはsteering一回とfollow-up一枠を受付できる。接続TUIはbusy中のEnterでsteering、Alt-Enterでfollow-upを送る。draftは受付結果を待って処理し、受付不明時は元command
+稼働executionにはsteering一回とfollow-up一枠を受付できる。接続TUIはF3でsteering、F2でfollow-upを送る。実行中の通常Enterは送信せず、Alt-Enterは改行する。draftは受付結果を待って処理し、受付不明時は元command
 IDを照合する。
 
 | HTTP                                                    | 操作              | 結果                                         |
@@ -229,7 +231,6 @@ null／unevaluatedとして示し、Workerの実評価後に値が確定する�
 | `POST /sessions/{id}/selection`                                  | `selection.change`        | commandId・selection、selected／unchangedと実効selection |
 | `GET /credentials/presence`                                      | `credential.readPresence` | authProfile別のpresent／missing／unknown                 |
 | `POST /credentials/register`                                     | `credential.register`     | 専用入力の保存結果とpresence                             |
-| `GET /workspace/paths?prefix={prefix}`                           | `path.read`               | Core workspace、探索complete、相対path候補               |
 
 selection inputは`{commandId, selection: {provider, modelId, effort}}`。
 idleの稼働Sessionを変更し、Sessionと次回default・model別の記憶effortへ保存する。 宣言済みprovider
@@ -271,7 +272,7 @@ epoch、valueは`{"result":"requested"}`となる。同じepoch内のcommand形�
 Worker／子実行／process／history、metadataとinstance lockを清算してからlistenerを閉じる。
 停止中の後続HTTPは503 `core_stopping`を返す。
 `core stop`は停止を観測してから終了し、localの場合はinstance lockの解放も待つ。
-接続TUIでは`/shutdown`またはCtrl-Qが接続先Core全体を停止し、清算後に操作元TUIも終了する。
+接続TUIでは`/quit`またはCtrl-Qが接続先Core全体を停止し、清算後に操作元TUIも終了する。
 busy中や保存Sessionの閲覧中も同じCoreを停止する。他の接続TUIはDISCONNECTEDとなり、
 各利用者が`/detach`またはCtrl-Dで閉じる。複数Coreがある場合、ほかのCoreは継続する。
 `/detach`・Ctrl-Dは接続だけを切る。従来の`/exit`は`/detach`へ改名した。

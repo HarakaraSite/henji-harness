@@ -63,6 +63,7 @@ export const plainTextAssistantRenderer: AssistantContentRenderer = Object.freez
 export interface ConversationEntryProjection {
   readonly text: string;
   readonly labelScalarLength: number;
+  readonly styledPrefixScalarLength?: number;
   readonly labelTone?: ConversationLabelTone;
   /** Whole-row tone; when set, every rendered row of the entry uses it. */
   readonly rowTone?: ConversationLabelTone;
@@ -92,8 +93,6 @@ export const projectConversationEntry = (
     ? 'assistant' as const
     : entry.label === 'tool>'
     ? 'tool' as const
-    : entry.label === 'system>'
-    ? 'system' as const
     : undefined;
   const failure = entry.kind === 'recoverable';
   const shortExecutionId = failure && entry.executionId ? entry.executionId.slice(0, 8) : undefined;
@@ -105,7 +104,10 @@ export const projectConversationEntry = (
   return Object.freeze({
     text: `${entry.label} ${entry.text}${guidance}`,
     labelScalarLength: [...entry.label].length,
-    ...(labelTone === undefined ? {} : { labelTone }),
-    ...(failure ? { rowTone: 'failure' as const } : {}),
+    ...(entry.failureWord === undefined ? labelTone === undefined ? {} : { labelTone } : {
+      labelTone: 'failure' as const,
+      styledPrefixScalarLength: [...`${entry.label} ${entry.failureWord}`].length,
+    }),
+    ...(failure && entry.failureWord === undefined ? { rowTone: 'failure' as const } : {}),
   });
 };

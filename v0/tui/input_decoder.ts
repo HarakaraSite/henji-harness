@@ -37,9 +37,8 @@ export class InputDecoder {
   private pendingCr = false;
   private escapeStartedAt = 0;
   private expiredCsi: number[] | null = null;
-  // SS3 (ESC O …) is intentionally unsupported, but its short sequence must be consumed as one
-  // event so a function-key payload can never become prompt text. A timed-out prefix retains the
-  // same no-fallback rule for its eventual byte.
+  // SS3 (ESC O …) function keys are decoded as a short sequence so their payload can never become
+  // prompt text. A timed-out prefix retains the same no-fallback rule for its eventual byte.
   private ss3Pending = false;
   private expiredSs3 = false;
   private ss3StartedAt = 0;
@@ -97,7 +96,9 @@ export class InputDecoder {
     if (this.ss3Pending || this.expiredSs3) {
       this.ss3Pending = false;
       this.expiredSs3 = false;
-      events.push({ kind: byte === 0x50 ? 'f1' : 'unknown' });
+      events.push({
+        kind: byte === 0x50 ? 'f1' : byte === 0x51 ? 'f2' : byte === 0x52 ? 'f3' : 'unknown',
+      });
       return;
     }
     if (this.expiredXterm !== null) {
@@ -172,27 +173,7 @@ export class InputDecoder {
       return;
     }
     if (byte === 0x0f) {
-      events.push({ kind: 'ctrl_o' });
-      return;
-    }
-    if (byte === 0x17) {
-      events.push({ kind: 'ctrl_w' });
-      return;
-    }
-    if (byte === 0x01) {
-      events.push({ kind: 'ctrl_a' });
-      return;
-    }
-    if (byte === 0x02) {
-      events.push({ kind: 'ctrl_b' });
-      return;
-    }
-    if (byte === 0x05) {
-      events.push({ kind: 'ctrl_e' });
-      return;
-    }
-    if (byte === 0x06) {
-      events.push({ kind: 'ctrl_f' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x15) {
@@ -212,15 +193,15 @@ export class InputDecoder {
       return;
     }
     if (byte === 0x07) {
-      events.push({ kind: 'ctrl_g' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x14) {
-      events.push({ kind: 'ctrl_t' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x0b) {
-      events.push({ kind: 'ctrl_k' });
+      events.push({ kind: 'unknown' });
       return;
     }
     if (byte === 0x0c) {
@@ -273,19 +254,9 @@ export class InputDecoder {
   private consumeEscape(byte: number, events: InputEvent[], now: number): void {
     this.escape!.push(byte);
     if (this.escape!.length === 2 && byte !== 0x5b) {
-      if (byte === 0x62 || byte === 0x42) {
+      if ([0x62, 0x42, 0x66, 0x46, 0x64, 0x44].includes(byte)) {
         this.escape = null;
-        events.push({ kind: 'alt_b' });
-        return;
-      }
-      if (byte === 0x66 || byte === 0x46) {
-        this.escape = null;
-        events.push({ kind: 'alt_f' });
-        return;
-      }
-      if (byte === 0x64 || byte === 0x44) {
-        this.escape = null;
-        events.push({ kind: 'alt_d' });
+        events.push({ kind: 'unknown' });
         return;
       }
       if (byte === 0x4f) {
@@ -350,6 +321,14 @@ export class InputDecoder {
     }
     if (matches(sequence, [0x1b, 0x5b, 0x31, 0x31, 0x7e])) {
       events.push({ kind: 'f1' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x31, 0x32, 0x7e])) {
+      events.push({ kind: 'f2' });
+      return;
+    }
+    if (matches(sequence, [0x1b, 0x5b, 0x31, 0x33, 0x7e])) {
+      events.push({ kind: 'f3' });
       return;
     }
     // Modified Return keys (CSI-u / modifyOtherKeys): Shift=2, Alt=3, Ctrl=5.

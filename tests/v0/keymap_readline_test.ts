@@ -19,23 +19,33 @@ const feedOne = (decoder: InputDecoder, bytes: readonly number[]): string => {
   return (events[0] as { kind: string }).kind;
 };
 
-Deno.test('Keymap decodes readline control bytes', () => {
+Deno.test('Keymap retains only whole-operation and masked-input control keys', () => {
   const decoder = new InputDecoder();
   assertEquals(feedOne(decoder, [0x04]), 'ctrl_d');
   assertEquals(feedOne(decoder, [0x11]), 'ctrl_q');
-  assertEquals(feedOne(decoder, [0x01]), 'ctrl_a');
-  assertEquals(feedOne(decoder, [0x02]), 'ctrl_b');
-  assertEquals(feedOne(decoder, [0x05]), 'ctrl_e');
-  assertEquals(feedOne(decoder, [0x06]), 'ctrl_f');
   assertEquals(feedOne(decoder, [0x15]), 'ctrl_u');
-  assertEquals(feedOne(decoder, [0x0b]), 'ctrl_k');
+  for (const byte of [0x01, 0x02, 0x05, 0x06, 0x07, 0x0b, 0x0f, 0x14, 0x17]) {
+    assertEquals(feedOne(decoder, [byte]), 'unknown');
+  }
+  assertEquals(feedOne(decoder, [0x08]), 'backspace');
+  assertEquals(feedOne(decoder, [0x7f]), 'backspace');
 });
 
-Deno.test('Keymap decodes alt word keys without leaking text', () => {
+Deno.test('Keymap retires alt word aliases without inserting their payload', () => {
   const decoder = new InputDecoder();
-  assertEquals(feedOne(decoder, [0x1b, 0x62]), 'alt_b');
-  assertEquals(feedOne(decoder, [0x1b, 0x66]), 'alt_f');
-  assertEquals(feedOne(decoder, [0x1b, 0x64]), 'alt_d');
+  assertEquals(feedOne(decoder, [0x1b, 0x62]), 'unknown');
+  assertEquals(feedOne(decoder, [0x1b, 0x66]), 'unknown');
+  assertEquals(feedOne(decoder, [0x1b, 0x64]), 'unknown');
+});
+
+Deno.test('Keymap decodes F1 through F3 from SS3 and xterm CSI sequences', () => {
+  const decoder = new InputDecoder();
+  assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x50]), 'f1');
+  assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x51]), 'f2');
+  assertEquals(feedOne(decoder, [0x1b, 0x4f, 0x52]), 'f3');
+  assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x31, 0x7e]), 'f1');
+  assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x32, 0x7e]), 'f2');
+  assertEquals(feedOne(decoder, [0x1b, 0x5b, 0x31, 0x33, 0x7e]), 'f3');
 });
 
 Deno.test('Keymap decodes modified Return keys as newline', () => {
@@ -62,37 +72,12 @@ const edit = (text: string, cursor: number): TuiEditor => {
   return editor;
 };
 
-Deno.test('Keymap line and word movement', () => {
-  const line = edit('ab cd', 5);
-  assert(line.moveWordLeft());
-  assertEquals(line.cursorScalar, 3);
-  assert(line.moveWordLeft());
-  assertEquals(line.cursorScalar, 0);
-  assert(line.moveWordRight());
-  assertEquals(line.cursorScalar, 2);
-  assert(line.moveWordRight());
-  assertEquals(line.cursorScalar, 5);
-
+Deno.test('Keymap line movement', () => {
   const moved = edit('ab cd', 3);
   assert(moved.home());
   assertEquals(moved.cursorScalar, 0);
   assert(moved.end());
   assertEquals(moved.cursorScalar, 5);
-});
-
-Deno.test('Keymap kill operations keep the remainder', () => {
-  const killEnd = edit('ab cd', 2);
-  assert(killEnd.deleteToLineEnd());
-  assertEquals(killEnd.text, 'ab');
-
-  const killStart = edit('ab cd', 3);
-  assert(killStart.deleteToLineStart());
-  assertEquals(killStart.text, 'cd');
-  assertEquals(killStart.cursorScalar, 0);
-
-  const killWord = edit('ab cd ef', 3);
-  assert(killWord.deleteWordForward());
-  assertEquals(killWord.text, 'ab  ef');
 });
 
 Deno.test('Input history exposes navigation state for Up/Down-edge walk', () => {

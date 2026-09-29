@@ -58,7 +58,9 @@ class ShutdownTerminal implements TerminalPort {
 const waitFor = async (predicate: () => boolean): Promise<void> => {
   const deadline = Date.now() + 5_000;
   while (!predicate()) {
-    if (Date.now() > deadline) throw new Error('timed out waiting for TUI shutdown');
+    if (Date.now() > deadline) {
+      throw new Error('timed out waiting for TUI shutdown');
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 };
@@ -121,25 +123,32 @@ for (const control of ['slash', 'shortcut'] as const) {
       });
       void main.then(() => mainFinished = true);
       await waitFor(() => mainReady);
-      ok(terminal.output.join('').includes('Ctrl-Q shutdown'));
       terminal.push('/');
       await waitFor(() => terminal.frames.at(-1)?.rows.some((row) => row.includes('> /')) ?? false);
-      strictEqual(terminal.frames.at(-1)?.rows.join('\n').includes('cmds:'), false);
-      terminal.push('s');
-      await waitFor(() =>
-        terminal.frames.at(-1)?.rows.join('\n').includes('cmds: /sessions, /shutdown') ?? false
+      strictEqual(
+        terminal.frames.at(-1)?.rows.join('\n').includes('cmds:'),
+        false,
       );
+      terminal.push('s');
+      await waitFor(() => terminal.frames.at(-1)?.rows.join('\n').includes('> /sessions') ?? false);
+      terminal.push('\x1b');
+      await new Promise((resolve) => setTimeout(resolve, 80));
       terminal.push('\x03');
       if (control === 'shortcut') {
-        terminal.push('\x1b[11~');
-        await waitFor(() => terminal.output.join('').includes('/shutdown or Ctrl-Q'));
+        terminal.push('/help\r\r');
+        await waitFor(() => terminal.output.join('').includes('Core終了 │ /quit │ Ctrl-Q'));
+        terminal.push('\x1b');
         terminal.push('\x11');
-      } else terminal.push('/shu\t\r');
+      } else terminal.push('/qui\t\r');
       await waitFor(() => drainReached);
       await waitFor(() => observer.output.join('').includes('DISCONNECTED'));
-      strictEqual(mainFinished, false, 'TUI exited before Core resource drain completed');
+      strictEqual(
+        mainFinished,
+        false,
+        'TUI exited before Core resource drain completed',
+      );
       strictEqual((await fetch(`${server.url}/api/v1/core`)).status, 503);
-      await waitFor(() => terminal.output.join('').includes('shutting down Core'));
+      strictEqual(terminal.output.join('').includes('shutting down Core'), false);
       releaseDrain();
       strictEqual(await main, 0);
       await server.finished;
@@ -147,7 +156,7 @@ for (const control of ['slash', 'shortcut'] as const) {
       ok(terminal.output.join('').includes('\x1b[?1049l'));
       // A separate client keeps its terminal until its user detaches.
       strictEqual(observer.raw, true);
-      observer.push('/detach\r');
+      observer.push('/detach\r\r');
       strictEqual(await other, 0);
       strictEqual(observer.raw, false);
       strictEqual(errors.join(''), '');

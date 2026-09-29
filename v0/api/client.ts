@@ -11,7 +11,6 @@ import {
   decodeExecutionReadResult,
   decodeFollowUpReadResult,
   decodeHistoryReadResult,
-  decodePathReadResult,
   decodeRecallValue,
   decodeSelectionChangeValue,
   decodeSessionRenameValue,
@@ -42,7 +41,6 @@ import type {
   HistoryReadResult,
   ModelCatalogResult,
   ModelFavoriteInput,
-  PathReadResult,
   RecallInput,
   RecallValue,
   SelectionChangeInput,
@@ -227,17 +225,6 @@ export class HenjiApiClient {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(input),
         }),
-      ),
-    );
-  }
-
-  async pathRead(prefix?: string): Promise<PathReadResult> {
-    const query = new URLSearchParams();
-    if (prefix !== undefined) query.set('prefix', prefix);
-    const suffix = query.size === 0 ? '' : `?${query}`;
-    return decodePathReadResult(
-      await jsonOrApiError(
-        await this.fetcher(`${this.baseUrl}/workspace/paths${suffix}`),
       ),
     );
   }

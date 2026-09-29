@@ -34,7 +34,7 @@ const readStartupStatus = (
   return startup.status;
 };
 
-Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and workspace paths', async () => {
+Deno.test('Increment 144 HTTP serves Core catalogs, selection, and credentials', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-s22-slice6-http-' });
   const environment = {
     HOME: root,
@@ -49,12 +49,8 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
   const workspaceRoot = `${root}/core-workspace`;
   const configRoot = `${environment.XDG_CONFIG_HOME}/henji-harness`;
   const stateRoot = `${environment.XDG_STATE_HOME}/henji-harness/v1`;
-  await Deno.mkdir(`${workspaceRoot}/folder with spaces`, { recursive: true });
+  await Deno.mkdir(workspaceRoot, { recursive: true });
   await Deno.mkdir(configRoot, { recursive: true });
-  await Deno.writeTextFile(
-    `${workspaceRoot}/folder with spaces/target file.txt`,
-    'workspace file content stays in Core',
-  );
 
   let releaseProvider = (): void => {};
   const providerBodies: unknown[] = [];
@@ -186,14 +182,10 @@ Deno.test('Increment 144 HTTP serves Core catalogs, selection, credentials, and 
     );
     strictEqual(providerBodies.length, 0);
 
-    const paths = await client.pathRead();
-    strictEqual(paths.workspace, workspaceRoot);
-    strictEqual(paths.complete, true);
-    ok(paths.paths.includes('folder with spaces/target file.txt'));
-    strictEqual(
-      (await client.pathRead('folder with spaces/')).paths.join(','),
-      'folder with spaces/target file.txt',
+    const removedPathRead = await fetch(
+      `${server.url}/api/v1/workspace/paths`,
     );
+    strictEqual(removedPathRead.status, 404);
 
     const openedSession = opened(
       await client.sessionOpen({

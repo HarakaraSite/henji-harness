@@ -191,8 +191,11 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
   terminal.onWrite = (text) => {
     if (interaction === 0 && text.includes('Remote saved Session')) {
       interaction = 1;
-      terminal.pushInput('\x1b[11~');
-    } else if (interaction === 1 && text.includes('read-only help')) {
+      terminal.pushInput('/help\r\r');
+    } else if (
+      interaction === 1 &&
+      text.includes('help · PageUp/Down scroll · Esc return')
+    ) {
       interaction = 2;
       terminal.pushInput('\x1b');
     } else if (
@@ -200,7 +203,7 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
       text.includes('The note says remote history is available.')
     ) {
       interaction = 3;
-      terminal.pushInput('/detach\r');
+      terminal.pushInput('/detach\r\r');
     }
   };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
@@ -232,12 +235,11 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
         'What is in the saved note?',
         'The note says remote history is available.',
         'READ-ONLY',
-        'F1 help',
-        'PageUp / PageDown',
-        'Worker startup not evaluated',
-        'read-only help',
+        'Session一覧 │ /sessions │ F1',
+        'PageUp/Down scroll',
+        'help · PageUp/Down scroll · Esc return',
         'Ctrl-D',
-        'accepted Core work running',
+        '対応なし',
       ]
     ) {
       if (!rendered.includes(text)) {
@@ -287,7 +289,10 @@ Deno.test('remote TUI refreshes header evaluation and title from a session-only 
   const terminal = new FakeTerminal();
   let updated = false;
   terminal.onWrite = (text) => {
-    if (!updated && text.includes('Updated title') && text.includes('header-skill')) {
+    if (
+      !updated && text.includes('Updated title') &&
+      text.includes('header-skill')
+    ) {
       updated = true;
       strictEqual(text.includes('AGENTS.md'), true);
       strictEqual(text.includes('not evaluated'), false);
@@ -309,7 +314,10 @@ Deno.test('remote TUI refreshes header evaluation and title from a session-only 
                 kind: 'session.replace',
                 session: {
                   ...snapshot.session,
-                  position: { ...snapshot.session.position, title: 'Updated title' },
+                  position: {
+                    ...snapshot.session.position,
+                    title: 'Updated title',
+                  },
                   startup: apiStartupFixture({
                     instructions: { loaded: true, source: 'AGENTS.md' },
                     skills: { count: 1, names: ['header-skill'], omitted: 0 },
@@ -324,7 +332,9 @@ Deno.test('remote TUI refreshes header evaluation and title from a session-only 
     );
     strictEqual(updated, true);
     strictEqual(
-      terminal.output.join('').includes('The note says remote history is available.'),
+      terminal.output.join('').includes(
+        'The note says remote history is available.',
+      ),
       true,
     );
   } finally {

@@ -1,7 +1,6 @@
 import {
   type PresentationContextPreview,
   type PresentationEvent,
-  type PresentationFailureDiagnostic,
   type PresentationLifecycle,
   type PresentationNavigationListing,
   type PresentationPosition,
@@ -39,6 +38,8 @@ export interface UiLogEntry {
   readonly kind: UiLogKind;
   readonly label: string;
   readonly text: string;
+  /** A short prefix in system text; only this word and the label use failure color. */
+  readonly failureWord?: string;
   /** UTF-8 size of the retained display text, computed when the entry is created. */
   readonly textByteLength?: number;
   readonly revision: number;
@@ -53,7 +54,18 @@ export type UiOverlay =
   | Readonly<
     { readonly kind: 'startupHelp'; readonly lines?: readonly string[] }
   >
-  | Readonly<{ readonly kind: 'readOnlyHelp'; readonly lines: readonly string[] }>
+  | Readonly<
+    {
+      readonly kind: 'readOnlyHelp';
+      readonly lines: readonly string[];
+      readonly offset?: number;
+    }
+  >
+  | Readonly<{
+    readonly kind: 'slashPicker';
+    readonly candidates: readonly import('./slash_command.ts').SlashCommandDefinition[];
+    readonly selected: number;
+  }>
   | Readonly<{
     readonly kind: 'sessionPicker';
     readonly listing?: PresentationNavigationListing;
@@ -65,6 +77,7 @@ export type UiOverlay =
   | Readonly<{
     readonly kind: 'choicePicker';
     readonly lines: readonly string[];
+    readonly controls?: readonly string[];
   }>
   | Readonly<
     {
@@ -84,7 +97,15 @@ export type UiScroll =
     }
   >;
 
+/** Display facts supplied by the remote controller, independent of conversation notices. */
+export interface UiFooter {
+  readonly activity: 'ready' | 'working' | 'cancelling' | 'READ-ONLY' | 'DISCONNECTED';
+  readonly controls: readonly string[];
+  readonly hint?: string;
+}
+
 export interface UiState {
+  readonly footer?: UiFooter;
   readonly projection?: PresentationProjection;
   readonly lifecycle: PresentationLifecycle;
   readonly position?: PresentationPosition;
@@ -97,7 +118,9 @@ export interface UiState {
     { readonly entries: readonly UiLogEntry[]; readonly omittedCount: number }
   >;
   /** A rendering window over the complete conversation log. */
-  readonly historyWindow?: Readonly<{ readonly start: number; readonly end: number }>;
+  readonly historyWindow?: Readonly<
+    { readonly start: number; readonly end: number }
+  >;
   readonly activeAssistantId?: string;
   readonly activeToolIds: readonly string[];
   readonly turnAttemptOrdinal: number;
@@ -139,6 +162,7 @@ export type UiAction =
     { readonly kind: 'resize'; readonly columns: number; readonly rows: number }
   >
   | Readonly<{ readonly kind: 'status'; readonly text: string }>
+  | Readonly<{ readonly kind: 'footer'; readonly footer: UiFooter }>
   | Readonly<{ readonly kind: 'busy_elapsed'; readonly seconds?: number }>
   | Readonly<{ readonly kind: 'busy_spinner'; readonly frame?: number }>
   | Readonly<{
@@ -150,7 +174,9 @@ export type UiAction =
     readonly state: PresentationStartupState;
     readonly position: PresentationPosition;
   }>
-  | Readonly<{ readonly kind: 'position'; readonly position: PresentationPosition }>
+  | Readonly<
+    { readonly kind: 'position'; readonly position: PresentationPosition }
+  >
   | Readonly<{ readonly kind: 'session_title'; readonly title: string }>
   | Readonly<{ readonly kind: 'scroll'; readonly mode: UiScroll }>
   | Readonly<{ readonly kind: 'latest' }>
@@ -183,7 +209,7 @@ const safeTextToBytes = (
 
 /** Stable, short failure reasons; diagnostic identifiers and provider details stay out of the UI. */
 export const presentationFailureReason = (
-  diagnostic: PresentationFailureDiagnostic,
+  diagnostic: Readonly<{ code: string; stage?: string }>,
 ): string => {
   switch (diagnostic.code) {
     case 'turn_cancelled':
@@ -214,6 +240,8 @@ export const presentationFailureReason = (
       return 'step limit reached';
     case 'unknown_code':
       return diagnostic.stage === 'unknown_stage' ? 'agent failure' : 'operation failed';
+    default:
+      return 'operation failed';
   }
 };
 
@@ -262,7 +290,10 @@ const historyWindowStartingAt = (
   return Object.freeze({ start, end });
 };
 
-export const pageHistoryWindow = (state: UiState, direction: 'up' | 'down'): UiState => {
+export const pageHistoryWindow = (
+  state: UiState,
+  direction: 'up' | 'down',
+): UiState => {
   const window = state.historyWindow;
   if (window === undefined) return state;
   if (direction === 'up') {
@@ -301,7 +332,10 @@ const appendEntry = (
     );}
   return Object.freeze({
     ...state,
-    log: Object.freeze({ entries: Object.freeze(entries), omittedCount: state.log.omittedCount }),
+    log: Object.freeze({
+      entries: Object.freeze(entries),
+      omittedCount: state.log.omittedCount,
+    }),
     historyWindow: state.scroll.kind === 'followLatest'
       ? historyWindowEndingAt(entries, entries.length)
       : state.historyWindow,
@@ -335,7 +369,10 @@ const replaceEntry = (
   }
   return Object.freeze({
     ...state,
-    log: Object.freeze({ entries: Object.freeze(entries), omittedCount: state.log.omittedCount }),
+    log: Object.freeze({
+      entries: Object.freeze(entries),
+      omittedCount: state.log.omittedCount,
+    }),
     historyWindow: state.scroll.kind === 'followLatest'
       ? historyWindowEndingAt(entries, entries.length)
       : state.historyWindow,
@@ -519,7 +556,8 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         });
       }
       const activeAssistantIndex = state.log.entries.findIndex((entry) =>
-        entry.id === state.activeAssistantId && entry.turn === event.turn && entry.live
+        entry.id === state.activeAssistantId && entry.turn === event.turn &&
+        entry.live
       );
       return appendEntry(state, {
         id,
@@ -533,7 +571,10 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
     }
     case 'tool_call': {
       const id = turnEntryId(state, event.turn, `tool:${event.call.callId}`);
-      const preview = toolActivityPreview(event.call.name, event.call.arguments);
+      const preview = toolActivityPreview(
+        event.call.name,
+        event.call.arguments,
+      );
       const next = state.log.entries.some((entry) => entry.id === id) ? state : appendEntry(state, {
         id,
         kind: 'tool',
@@ -592,7 +633,11 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
           id,
           kind: 'tool',
           label: 'tool>',
-          text: settledToolActivityText(event.result.name, event.result.outcome, preview),
+          text: settledToolActivityText(
+            event.result.name,
+            event.result.outcome,
+            preview,
+          ),
           revision: 0,
           live: false,
           turn: event.turn,
@@ -608,7 +653,11 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       const next = replaceEntry(
         state,
         id,
-        settledToolActivityText(event.result.name, event.result.outcome, preview),
+        settledToolActivityText(
+          event.result.name,
+          event.result.outcome,
+          preview,
+        ),
         false,
         'tool>',
       );
@@ -644,7 +693,12 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
         ...withoutLive.projection,
         lifecycle,
         ...(event.committed
-          ? { committedTurn: Math.max(withoutLive.projection.committedTurn, event.turn) }
+          ? {
+            committedTurn: Math.max(
+              withoutLive.projection.committedTurn,
+              event.turn,
+            ),
+          }
           : {}),
       });
       return Object.freeze({
@@ -739,7 +793,8 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       for (let index = 0; index < event.messages.length; index += 1) {
         addThinking(index);
         const message = event.messages[index];
-        turn = event.messageTurns?.[index] ?? (message.role === 'user' ? turn + 1 : turn);
+        turn = event.messageTurns?.[index] ??
+          (message.role === 'user' ? turn + 1 : turn);
         if (message.role === 'user') {
           const steering = seenUserTurns.has(turn);
           seenUserTurns.add(turn);
@@ -791,7 +846,11 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
             );
             const priorIndex = entries.findIndex((entry) => entry.id === id);
             if (priorIndex >= 0) {
-              entries[priorIndex] = freezeEntry({ ...entries[priorIndex], text, revision: 1 });
+              entries[priorIndex] = freezeEntry({
+                ...entries[priorIndex],
+                text,
+                revision: 1,
+              });
             } else {
               entries.push(freezeEntry({
                 id,
@@ -820,7 +879,10 @@ const eventLog = (state: UiState, event: PresentationEvent): UiState => {
       }
       return Object.freeze({
         ...state,
-        log: Object.freeze({ entries: Object.freeze(entries), omittedCount: 0 }),
+        log: Object.freeze({
+          entries: Object.freeze(entries),
+          omittedCount: 0,
+        }),
         historyWindow: historyWindowEndingAt(entries, entries.length),
         scroll: Object.freeze({ kind: 'followLatest' as const }),
         newBelowCount: 0,
@@ -968,13 +1030,20 @@ const applyConversationProjection = (
   const scroll = resetScroll ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
   let historyWindow = state.historyWindow;
   if (resetScroll || scroll.kind === 'followLatest') {
-    historyWindow = historyWindowEndingAt(retainedEntries, retainedEntries.length);
+    historyWindow = historyWindowEndingAt(
+      retainedEntries,
+      retainedEntries.length,
+    );
   } else if (historyWindow !== undefined && scroll.kind === 'anchored') {
     const previousAnchorIndex = state.log.entries.findIndex((entry) => entry.id === scroll.entryId);
     let nextAnchor = retainedEntries.find((entry) => entry.id === scroll.entryId);
     let sourceScalarOffset = scroll.sourceScalarOffset;
     if (nextAnchor === undefined && previousAnchorIndex >= 0) {
-      for (let index = previousAnchorIndex + 1; index < state.log.entries.length; index += 1) {
+      for (
+        let index = previousAnchorIndex + 1;
+        index < state.log.entries.length;
+        index += 1
+      ) {
         const candidate = state.log.entries[index];
         nextAnchor = candidate === undefined
           ? undefined
@@ -995,14 +1064,23 @@ const applyConversationProjection = (
     if (nextAnchor !== undefined) {
       const anchorIndex = retainedEntries.findIndex((entry) => entry.id === nextAnchor!.id);
       const windowLength = historyWindow.end - historyWindow.start;
-      let start = Math.max(0, anchorIndex - Math.max(0, previousAnchorIndex - historyWindow.start));
+      let start = Math.max(
+        0,
+        anchorIndex - Math.max(0, previousAnchorIndex - historyWindow.start),
+      );
       const end = Math.min(retainedEntries.length, start + windowLength);
       start = Math.max(0, end - windowLength);
       historyWindow = Object.freeze({ start, end });
-      if (nextAnchor.id !== scroll.entryId || sourceScalarOffset !== scroll.sourceScalarOffset) {
+      if (
+        nextAnchor.id !== scroll.entryId ||
+        sourceScalarOffset !== scroll.sourceScalarOffset
+      ) {
         return Object.freeze({
           ...state,
-          log: Object.freeze({ entries: retainedEntries, omittedCount: state.log.omittedCount }),
+          log: Object.freeze({
+            entries: retainedEntries,
+            omittedCount: state.log.omittedCount,
+          }),
           historyWindow,
           scroll: Object.freeze({
             kind: 'anchored' as const,
@@ -1016,7 +1094,10 @@ const applyConversationProjection = (
   }
   return Object.freeze({
     ...state,
-    log: Object.freeze({ entries: retainedEntries, omittedCount: state.log.omittedCount }),
+    log: Object.freeze({
+      entries: retainedEntries,
+      omittedCount: state.log.omittedCount,
+    }),
     historyWindow,
     scroll,
     newBelowCount: resetScroll || scroll.kind === 'followLatest' ? 0 : state.newBelowCount,
@@ -1043,7 +1124,12 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
         }),
       });
     case 'assistant_final': {
-      const next = settleAssistantEntry(state, action.turn, 'assistant>', action.text);
+      const next = settleAssistantEntry(
+        state,
+        action.turn,
+        'assistant>',
+        action.text,
+      );
       return Object.freeze({ ...next, activeAssistantId: undefined });
     }
     case 'resize':
@@ -1056,6 +1142,8 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       });
     case 'status':
       return Object.freeze({ ...state, status: safeText(action.text) });
+    case 'footer':
+      return Object.freeze({ ...state, footer: snapshot(action.footer) });
     case 'busy_elapsed':
       return Object.freeze({
         ...state,

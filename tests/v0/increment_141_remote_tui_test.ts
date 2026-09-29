@@ -120,6 +120,7 @@ const coreRead = {
     'core.read',
     'session.read',
     'session.subscribe',
+    'session.list',
     'task.submit',
     'execution.cancel',
     'execution.read',
@@ -313,7 +314,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
   let released = false;
   let detached = false;
   terminal.onWrite = (text) => {
-    if (!typedNewDraft && text.includes('awaiting receipt')) {
+    if (!typedNewDraft && text.includes('working')) {
       typedNewDraft = true;
       terminal.pushInput('new draft');
     }
@@ -321,7 +322,10 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
       released = true;
       releaseSubmit();
     }
-    if (!detached && text.includes('accepted')) {
+    if (
+      !detached && commandReadCount === 2 && text.includes('> new draft') &&
+      text.includes('Esc cancel')
+    ) {
       detached = true;
       terminal.pushInput('\x04');
     }
@@ -348,7 +352,7 @@ Deno.test('Increment 141 remote TUI submits once, preserves newer draft, and det
     const rendered = terminal.output.join('');
     strictEqual(rendered.includes('first task'), true);
     strictEqual(rendered.includes('new draft'), true);
-    strictEqual(rendered.includes('Ctrl-D detach'), true);
+    strictEqual(rendered.includes('Ctrl-D detach'), false);
     strictEqual(rendered.includes('Esc cancel'), true);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
     strictEqual(terminal.raw, false);
@@ -436,7 +440,7 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
   const terminal = new FakeTerminal();
   let detached = false;
   terminal.onWrite = (text) => {
-    if (!detached && text.includes('cancel requested')) {
+    if (!detached && text.includes('cancelling')) {
       detached = true;
       terminal.pushInput('\x04');
     }
@@ -471,8 +475,8 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
     strictEqual(terminal.raw, false);
     deepStrictEqual([...terminal.signals.keys()], []);
     const rendered = terminal.output.join('');
-    strictEqual(rendered.includes('Ctrl-C clear'), true);
-    strictEqual(rendered.includes('Ctrl-D detach'), true);
+    strictEqual(rendered.includes('Ctrl-C clear'), false);
+    strictEqual(rendered.includes('Ctrl-D detach'), false);
     strictEqual(rendered.includes('Esc cancel'), true);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
   } finally {
@@ -503,6 +507,19 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
       const path = new URL(request.url).pathname;
       if (request.method === 'GET' && path === '/api/v1/core') {
         return Response.json(coreRead);
+      }
+      if (path === '/api/v1/sessions') {
+        return Response.json({
+          sessions: [{
+            id: sessionId,
+            agent: 'default',
+            createdAt: '2026-09-28T00:00:00Z',
+            updatedAt: '2026-09-28T00:00:00Z',
+            committedTurn: 0,
+            messageCount: 1,
+            persistence: 'persistent',
+          }],
+        });
       }
       if (path === `/api/v1/sessions/${sessionId}/events`) {
         return sseResponse((controller) => {
@@ -579,10 +596,10 @@ Deno.test('Increment 156 busy history Escape returns latest without cancelling a
               }],
             });
             sendSnapshot(streamController!, current);
-            await waitFor(() => screen().includes('history record 1 of 2'));
+            await waitFor(() => screen().includes('history 1/2'));
             strictEqual(screen().includes('Esc latest'), true);
             terminal.pushInput('\x1bOP');
-            await waitFor(() => screen().includes('read-only help'));
+            await waitFor(() => screen().includes('session picker'));
             terminal.pushInput('\x1b');
             await waitFor(() => screen().includes('[history ') && screen().includes('Esc latest'));
             strictEqual(cancellations, 0);
@@ -664,7 +681,7 @@ Deno.test('remote TUI clears drafts with Ctrl-C when reconnecting during cancell
     strictEqual(cancellationCount, 0);
     const rendered = terminal.output.join('');
     strictEqual(rendered.includes('cancelling'), true);
-    strictEqual(rendered.includes('Ctrl-C clear'), true);
+    strictEqual(rendered.includes('Ctrl-C clear'), false);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
   } finally {
     clearTimeout(fallback);
@@ -672,7 +689,7 @@ Deno.test('remote TUI clears drafts with Ctrl-C when reconnecting during cancell
   }
 });
 
-Deno.test('Increment 141 remote TUI keeps settled execution outcome and settlement visible', async () => {
+Deno.test('Increment 159 remote TUI keeps cancelled result in system and returns footer to ready', async () => {
   const settled = snapshot({
     currentExecution: execution(
       'cancelled task',
@@ -698,7 +715,7 @@ Deno.test('Increment 141 remote TUI keeps settled execution outcome and settleme
   const terminal = new FakeTerminal();
   let detached = false;
   terminal.onWrite = (text) => {
-    if (!detached && text.includes('settlement complete')) {
+    if (!detached && text.includes('CANCELLED')) {
       detached = true;
       terminal.pushInput('\x04');
     }
@@ -716,18 +733,19 @@ Deno.test('Increment 141 remote TUI keeps settled execution outcome and settleme
     );
     strictEqual(detached, true);
     const rendered = terminal.output.join('');
-    strictEqual(rendered.includes('cancelled'), true);
-    strictEqual(rendered.includes('non-canonical'), true);
-    strictEqual(rendered.includes('settlement complete'), true);
+    strictEqual(rendered.includes('CANCELLED'), true);
+    strictEqual(rendered.includes('non-canonical'), false);
+    strictEqual(rendered.includes('settlement complete'), false);
+    strictEqual(rendered.includes('[ready'), true);
     strictEqual(rendered.includes('Enter submit'), true);
-    strictEqual(rendered.includes('Ctrl-D detach'), true);
+    strictEqual(rendered.includes('Ctrl-D detach'), false);
   } finally {
     clearTimeout(fallback);
     await server.shutdown();
   }
 });
 
-Deno.test('Increment 141 remote TUI prioritizes an unconfirmed submit notice and keeps its draft', async () => {
+Deno.test('Increment 141 remote TUI keeps an unconfirmed draft working until a fresh Core read confirms ready', async () => {
   const settled = snapshot({
     currentExecution: execution(
       'cancelled task',
@@ -742,6 +760,10 @@ Deno.test('Increment 141 remote TUI prioritizes an unconfirmed submit notice and
   let taskPostCount = 0;
   let commandReadCount = 0;
   let commandId = '';
+  let releaseFreshRead!: () => void;
+  const freshReadGate = new Promise<void>((resolve) => releaseFreshRead = resolve);
+  let driver: Promise<void> | undefined;
+  let driverError: unknown;
   const server = Deno.serve(
     { hostname: '127.0.0.1', port: 0, onListen() {} },
     async (request) => {
@@ -766,6 +788,10 @@ Deno.test('Increment 141 remote TUI prioritizes an unconfirmed submit notice and
           { status: 502 },
         );
       }
+      if (request.method === 'GET' && path === `/api/v1/sessions/${sessionId}`) {
+        await freshReadGate;
+        return Response.json(settled);
+      }
       if (request.method === 'GET' && path === `/api/v1/commands/${commandId}`) {
         commandReadCount += 1;
         return Response.json(
@@ -784,9 +810,28 @@ Deno.test('Increment 141 remote TUI prioritizes an unconfirmed submit notice and
       typedTask = true;
       terminal.pushInput('TUI notice probe\r');
     }
-    if (!detached && text.includes('submission unconfirmed')) {
+    if (!detached && text.includes('UNCONFIRMED')) {
       detached = true;
-      terminal.pushInput('\x04');
+      driver = (async () => {
+        const screen = () => terminal.frames.at(-1)?.rows.join('\n') ?? '';
+        strictEqual(screen().includes('working'), true);
+        strictEqual(screen().includes('Enter submit'), false);
+        terminal.pushInput('\r');
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        strictEqual(taskPostCount, 1);
+        strictEqual(screen().includes('> TUI notice probe'), true);
+        releaseFreshRead();
+        const deadline = Date.now() + 1000;
+        while (!screen().includes('Enter submit')) {
+          if (Date.now() >= deadline) throw new Error('fresh Core state did not restore ready');
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+        strictEqual(screen().includes('UNCONFIRMED'), true);
+        terminal.pushInput('\x04');
+      })().catch((error) => {
+        driverError = error;
+        terminal.pushInput('\x04');
+      });
     }
   };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
@@ -800,22 +845,25 @@ Deno.test('Increment 141 remote TUI prioritizes an unconfirmed submit notice and
       }),
       0,
     );
+    await driver;
+    if (driverError !== undefined) throw driverError;
     strictEqual(typedTask, true);
     strictEqual(taskPostCount, 1);
     strictEqual(commandReadCount, 1);
     strictEqual(detached, true);
     const rendered = terminal.output.join('');
-    strictEqual(rendered.includes('submission unconfirmed'), true);
+    strictEqual(rendered.includes('UNCONFIRMED'), true);
     strictEqual(rendered.includes('draft kept'), true);
     strictEqual(rendered.includes('TUI notice probe'), true);
-    strictEqual(rendered.includes('Ctrl-D detach'), true);
+    strictEqual(rendered.includes('Ctrl-D detach'), false);
   } finally {
     clearTimeout(fallback);
+    releaseFreshRead();
     await server.shutdown();
   }
 });
 
-Deno.test('Increment 141 remote TUI shows preparing controls without advertising cancel', async () => {
+Deno.test('Increment 159 remote TUI represents preparation as working without a false execution clock or cancel', async () => {
   const preparing = snapshot({
     phase: 'preparing',
     operations: ['command.read'],
@@ -834,7 +882,7 @@ Deno.test('Increment 141 remote TUI shows preparing controls without advertising
   const terminal = new FakeTerminal();
   let detached = false;
   terminal.onWrite = (text) => {
-    if (!detached && text.includes('task admission in progress')) {
+    if (!detached && text.includes('working')) {
       detached = true;
       terminal.pushInput('\x04');
     }
@@ -852,8 +900,9 @@ Deno.test('Increment 141 remote TUI shows preparing controls without advertising
     );
     strictEqual(detached, true);
     const rendered = terminal.output.join('');
-    strictEqual(rendered.includes('preparing'), true);
-    strictEqual(rendered.includes('Ctrl-D detach'), true);
+    strictEqual(rendered.includes('preparing'), false);
+    strictEqual(rendered.includes('working'), true);
+    strictEqual(rendered.includes('Ctrl-D detach'), false);
     strictEqual(rendered.includes('Esc/Ctrl-C cancel'), false);
     strictEqual(rendered.includes('[⠋ working │ Esc cancel]'), false);
   } finally {

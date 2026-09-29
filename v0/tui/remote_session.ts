@@ -12,7 +12,6 @@ import type {
   CoreCommandValue,
   CoreCursor,
   CoreOperationName,
-  CredentialPresenceReadResult,
   RecallValue,
   SessionActivation,
   SessionOpenInput,
@@ -25,7 +24,14 @@ import { reduceSessionStreamFrame, type SessionClientState } from '../api/reduce
 import { InputDecoder, type InputEvent, TuiEditor, TuiEditorHistory } from './input.ts';
 import { TuiRenderer } from './render.ts';
 import { RemoteCatalogUi } from './remote_catalog_ui.ts';
-import { SLASH_COMMANDS, slashCommandCandidates } from './slash_command.ts';
+import { RemoteSystemNotices } from './system_notices.ts';
+import {
+  SLASH_COMMANDS,
+  slashCommandCandidates,
+  type SlashCommandDefinition,
+  slashCommandHelpLines,
+  slashPickerCandidates,
+} from './slash_command.ts';
 import { DenoTerminal, TerminalLifecycle, type TerminalPort } from './terminal.ts';
 import {
   presentationPositionFromSnapshot,
@@ -55,8 +61,12 @@ export interface RemoteTuiLaunchOptions {
 
 type SubmitKind = 'task' | 'steering' | 'follow-up';
 
+const operationLabel = (kind: SubmitKind): string =>
+  kind === 'task' ? 'task.submit' : kind === 'steering' ? 'execution.steer' : 'followUp.queue';
+
 interface PendingSubmission {
   readonly kind: SubmitKind;
+  readonly sessionId: string;
   readonly executionId?: string;
   readonly commandId: string;
   readonly text: string;
@@ -71,6 +81,7 @@ interface AcceptedSubmission {
 }
 
 interface PendingCancellation {
+  readonly sessionId: string;
   readonly commandId: string;
   readonly executionId: string;
   processing: boolean;
@@ -94,9 +105,6 @@ interface RemoteNavigationListing {
   readonly selected: number;
   readonly page: number;
 }
-
-const startupUnevaluated = (snapshot: SessionSnapshot): boolean =>
-  snapshot.session.startup.status === 'unevaluated';
 
 const NO_ACTIVE_SESSION =
   'core has no active Session; open a Session through API or specify --session';
@@ -573,6 +581,7 @@ const renderSnapshot = (
   projector: SnapshotConversationProjector,
   pending: PendingConversationProjection,
   hint: SnapshotConversationProjectionHint,
+  notices: RemoteSystemNotices,
 ): void => {
   if (!preserveScroll) {
     renderer.clearModal();
@@ -589,48 +598,17 @@ const renderSnapshot = (
     const work = takeProjectionWork(pending);
     const projected = projector.project(snapshot, scope, work.hint);
     renderer.setConversationEntries(
-      projected.entries,
+      notices.merge(snapshot, projected.entries),
       projected.omitted,
       work.resetScroll,
     );
-    const records = [
-      ...(snapshot.pending.followUp === undefined ? [] : [snapshot.pending.followUp]),
-      ...snapshot.pending.followUps,
-    ];
-    for (const [index, record] of records.entries()) {
-      const execution = snapshot.runtime.execution?.executionId === record.executionId
-        ? snapshot.runtime.execution
-        : undefined;
-      const result = execution?.lifecycle === 'settled'
-        ? ` · ${execution.outcome} · ${execution.adoption} · settlement ${execution.processSettlement}`
-        : '';
-      renderer.eventSink({
-        kind: 'notice',
-        generation: index,
-        text: `follow-up ${record.status} #${record.queueId}${
-          record.executionId === undefined
-            ? ` · after #${record.afterExecutionId}`
-            : ` → execution #${record.executionId}`
-        }${record.reason === undefined ? '' : ` · ${record.reason}`}${result}\n${record.text}`,
-      });
-    }
-    if (snapshot.pending.steering !== undefined) {
-      renderer.eventSink({
-        kind: 'notice',
-        generation: records.length,
-        text:
-          `steering accepted · execution #${snapshot.pending.steering.executionId}\n${snapshot.pending.steering.text}`,
-      });
-    }
   });
 };
 
 const isEditorTextMutation = (event: InputEvent): boolean =>
   event.kind === 'printable' || event.kind === 'paste' ||
   event.kind === 'backspace' ||
-  event.kind === 'newline' || event.kind === 'alt_enter' ||
-  event.kind === 'ctrl_w' ||
-  event.kind === 'ctrl_u' || event.kind === 'ctrl_k' || event.kind === 'alt_d';
+  event.kind === 'newline' || event.kind === 'alt_enter';
 
 const applyEditorEvent = (editor: TuiEditor, event: InputEvent): boolean => {
   switch (event.kind) {
@@ -643,34 +621,18 @@ const applyEditorEvent = (editor: TuiEditor, event: InputEvent): boolean => {
       return editor.insert('\n');
     case 'backspace':
       return editor.backspace();
-    case 'ctrl_w':
-      return editor.deleteWordBackward();
-    case 'ctrl_a':
     case 'home':
       return editor.home();
-    case 'ctrl_e':
     case 'end':
       return editor.end();
-    case 'ctrl_b':
     case 'left':
       return editor.moveLeft();
-    case 'ctrl_f':
     case 'right':
       return editor.moveRight();
     case 'up':
       return editor.moveUp();
     case 'down':
       return editor.moveDown();
-    case 'ctrl_u':
-      return editor.deleteToLineStart();
-    case 'ctrl_k':
-      return editor.deleteToLineEnd();
-    case 'alt_b':
-      return editor.moveWordLeft();
-    case 'alt_f':
-      return editor.moveWordRight();
-    case 'alt_d':
-      return editor.deleteWordForward();
     default:
       return false;
   }
@@ -786,9 +748,9 @@ export const runRemoteTui = async (
     firstFrame.value,
   );
   let selectedModel: ApiSelection = state.snapshot.session.selection;
-  let credentialPresence: CredentialPresenceReadResult | undefined;
   const renderer = new TuiRenderer(terminal);
   const conversationProjector = new SnapshotConversationProjector();
+  const systemNotices = new RemoteSystemNotices();
   const pendingConversationProjection: PendingConversationProjection = {
     messageIds: new Set(),
     toolOccurrenceIds: new Set(),
@@ -802,15 +764,18 @@ export const runRemoteTui = async (
   const decoder = new InputDecoder();
   let draftRevision = 0;
   let connected = true;
+  let connectionLossReported = false;
   let exitRequested = false;
   const exitAbort = new AbortController();
   let shutdownPending = false;
   let pendingSubmission: PendingSubmission | undefined;
   let acceptedSubmission: AcceptedSubmission | undefined;
+  const unconfirmedSubmissions = new Map<string, AcceptedSubmission>();
   let pendingCancellation: PendingCancellation | undefined;
   let cancellationRequested = false;
   let cancellationExecutionId: string | undefined;
   let notice: string | undefined;
+  let slashPickerSuppressedText: string | undefined;
   let commandPoll: ReturnType<typeof setTimeout> | undefined;
   let navigationPending = false;
   let commandMutationPending = false;
@@ -857,145 +822,103 @@ export const runRemoteTui = async (
       : undefined;
   };
   const canSubmit = (): boolean =>
-    connected && targetsActiveSession() && hasOperation('task.submit');
+    connected && targetsActiveSession() && !unconfirmedSubmissions.has(snapshot().session.id) &&
+    hasOperation('task.submit');
   const canCancel = (): boolean =>
     connected && activeExecution() !== undefined &&
     hasOperation('execution.cancel');
 
-  const credentialStatusHint = (): string | undefined => {
-    const current = snapshot();
-    if (
-      targetsActiveSession() &&
-      current.session.selection.provider === selectedModel.provider
-    ) {
-      const status = current.credentialAvailability.status;
-      return status === 'unknown' ? undefined : `credential ${status}: ${selectedModel.provider}`;
-    }
-    const profile = credentialPresence?.profiles.find((entry) =>
-      entry.providers.includes(selectedModel.provider)
-    );
-    return profile === undefined || profile.status === 'unknown'
-      ? undefined
-      : `credential ${profile.status}: ${selectedModel.provider}`;
-  };
-
-  const statusText = (): string => {
-    const current = snapshot();
-    if (!connected) {
-      return `DISCONNECTED · last phase ${current.runtime.phase} · Ctrl-D detach`;
-    }
-    if (pendingCancellation !== undefined) {
-      return `cancelling · ${
-        pendingCancellation.processing ? 'processing' : 'requesting'
-      } · Ctrl-C clear · Ctrl-D detach`;
-    }
-    if (pendingSubmission !== undefined) {
-      return `${
-        pendingSubmission.kind === 'task'
-          ? 'submitting'
-          : pendingSubmission.kind === 'steering'
-          ? 'steering'
-          : 'queueing follow-up'
-      } · ${pendingSubmission.processing ? 'processing' : 'awaiting receipt'} · Ctrl-D detach`;
-    }
-    if (acceptedSubmission !== undefined) {
-      return `submitting · accepted, syncing snapshot · Ctrl-D detach`;
-    }
-    if (current.runtime.phase === 'preparing') {
-      return 'preparing · task admission in progress · Ctrl-D detach';
-    }
-    const execution = activeExecution();
-    if (execution !== undefined) {
-      const primary = current.runtime.phase === 'cancelling' ? 'cancelling' : 'busy';
-      const cancelHint = current.runtime.phase === 'cancelling' || cancellationRequested
-        ? 'Ctrl-C clear'
-        : canCancel()
-        ? 'Esc cancel · Ctrl-C clear'
-        : 'cancellation unavailable';
-      const inputHint = hasOperation('execution.steer') && hasOperation('followUp.queue')
-        ? 'Enter steer · Alt-Enter queue'
-        : hasOperation('execution.steer')
-        ? 'Enter steer'
-        : hasOperation('followUp.queue')
-        ? 'Alt-Enter queue'
-        : '';
-      return `${primary}${
-        inputHint.length === 0 ? '' : ` · ${inputHint}`
-      } · ${cancelHint} · Ctrl-D detach`;
-    }
-    const settledExecution = current.runtime.execution;
-    if (
-      settledExecution?.sessionId === current.session.id &&
-      settledExecution.lifecycle === 'settled'
-    ) {
-      const adoption = settledExecution.adoption === 'non_canonical'
-        ? 'non-canonical'
-        : settledExecution.adoption;
-      const controls = canSubmit() ? 'Enter submit · Ctrl-D detach' : 'Ctrl-D detach';
-      return `${settledExecution.outcome} · ${adoption} · settlement ${settledExecution.processSettlement} · ${controls}`;
-    }
-    if (canSubmit()) {
-      return 'ready · Enter submit · Ctrl-C clear · Ctrl-D detach';
-    }
-    return 'READ-ONLY · /detach · Ctrl-D detach · F1 help';
-  };
-
   const updateStatus = (): void => {
-    if (shutdownPending) {
-      renderer.setStatus('shutting down Core · Ctrl-D detach');
-      return;
-    }
-    if (
-      activeExecution() === undefined &&
-      (notice?.startsWith('submission unconfirmed') ||
-        notice?.startsWith('submission rejected:'))
-    ) {
-      const summary = notice.split(' · ')[0];
-      const hint = credentialStatusHint();
-      renderer.setStatus(
-        `${summary} · draft kept · Ctrl-D detach · Ctrl-Q shutdown${
-          hint === undefined ? '' : ` · ${hint}`
-        }`,
-      );
-      return;
-    }
-    const rawStatus = statusText() + ' · Ctrl-Q shutdown';
-    const phase = snapshot().runtime.phase === 'cancelling' ||
-        pendingCancellation !== undefined || cancellationRequested
+    const current = snapshot();
+    const execution = activeExecution();
+    const receiptPending = pendingSubmission !== undefined || acceptedSubmission !== undefined ||
+      unconfirmedSubmissions.has(current.session.id);
+    const cancelling = pendingCancellation !== undefined || cancellationRequested ||
+      current.runtime.phase === 'cancelling';
+    const working = receiptPending || shutdownPending || current.runtime.active ||
+      current.runtime.phase === 'preparing' || current.runtime.phase === 'running' ||
+      current.runtime.phase === 'settling';
+    const activity = !connected
+      ? 'DISCONNECTED'
+      : !targetsActiveSession()
+      ? 'READ-ONLY'
+      : cancelling
       ? 'cancelling'
-      : 'busy';
-    const status = connected && activeExecution() !== undefined &&
-        !rawStatus.startsWith(phase)
-      ? `${phase} · ${rawStatus}`
-      : rawStatus;
-    const hint = credentialStatusHint();
-    if (notice === undefined) {
-      renderer.setStatus(hint === undefined ? status : `${status} · ${hint}`);
-      return;
+      : working
+      ? 'working'
+      : canSubmit()
+      ? 'ready'
+      : 'READ-ONLY';
+    const controls: string[] = [];
+    if (!shutdownPending) {
+      if (editor.text.trimStart().startsWith('/')) controls.push('Enter command');
+      else if (activity === 'ready') controls.push('Enter submit');
+      if (
+        execution !== undefined && connected && !receiptPending && pendingCancellation === undefined
+      ) {
+        if (hasOperation('followUp.queue')) controls.push('F2 queue');
+        if (hasOperation('execution.steer')) controls.push('F3 steer');
+        if (canCancel() && !cancellationRequested) controls.push('Esc cancel');
+      }
+      controls.push('/ commands');
     }
-    const parts = status.split(' · ');
-    const primary = parts[0] ?? '';
-    const compactPhase = primary.startsWith('ready') ? 'idle' : primary;
-    const controls = new Set([
-      'Enter submit',
-      'Enter steer',
-      'Alt-Enter queue',
-      'Ctrl-C clear',
-      'Ctrl-D detach',
-      'Ctrl-Q shutdown',
-      'Esc cancel',
-      'cancellation unavailable',
-      '/detach',
-      'F1 help',
-    ]);
-    const tail = parts.slice(1).filter((part) => controls.has(part));
-    renderer.setStatus([
-      ...(connected && activeExecution() === undefined
-        ? [notice, ...(compactPhase.length === 0 ? [] : [compactPhase])]
-        : [...(compactPhase.length === 0 ? [] : [compactPhase]), notice]),
-      ...tail,
-      ...(hint === undefined ? [] : [hint]),
-    ].join(' · '));
+    renderer.setRemoteFooter({
+      activity,
+      controls,
+      ...(notice === undefined ? {} : { hint: notice }),
+    }, execution === undefined ? undefined : Date.parse(execution.createdAt));
+  };
+
+  const retainNotice = (
+    sessionId: string,
+    identity: string,
+    text: string,
+    failureWord?: string,
+    executionId?: string,
+  ): void => {
+    systemNotices.retain(sessionId, identity, text, failureWord, executionId);
+    if (snapshot().session.id === sessionId) {
+      notice = undefined;
+      renderSnapshot(
+        renderer,
+        snapshot(),
+        core.workspace,
+        true,
+        conversationProjector,
+        pendingConversationProjection,
+        {},
+        systemNotices,
+      );
+      updateStatus();
+    }
+  };
+
+  const retainLocalFailure = (
+    sessionId: string,
+    operation: string,
+    detail: string,
+    executionId?: string,
+    failureWord = 'REJECTED',
+  ): void => {
+    retainNotice(
+      sessionId,
+      `local:${crypto.randomUUID()}`,
+      `${failureWord} · ${operation} · ${detail}`,
+      failureWord,
+      executionId,
+    );
+  };
+
+  const noteConnectionLoss = (): void => {
+    if (connectionLossReported) return;
+    connectionLossReported = true;
+    const sessionId = snapshot().session.id;
+    retainNotice(
+      sessionId,
+      `connection:${crypto.randomUUID()}`,
+      'DISCONNECTED · Core connection lost · the displayed Session may be stale',
+      'DISCONNECTED',
+    );
   };
 
   const editorBusy = (): boolean =>
@@ -1005,7 +928,28 @@ export const runRemoteTui = async (
 
   const renderEditor = (): void => {
     renderer.setEditorSnapshot(editor.snapshot());
-    renderer.setSlashCommandCandidates(slashCommandCandidates(editor.text));
+    const overlay = renderer.stateSnapshot().overlay;
+    if (editor.text !== slashPickerSuppressedText) slashPickerSuppressedText = undefined;
+    const candidates = slashPickerCandidates(editor.text, editor.cursorScalar);
+    if (
+      (overlay.kind === 'none' || overlay.kind === 'slashPicker') &&
+      candidates !== undefined && editor.text !== slashPickerSuppressedText
+    ) {
+      const previous = overlay.kind === 'slashPicker'
+        ? overlay.candidates[overlay.selected]?.command
+        : undefined;
+      const selected = Math.max(
+        0,
+        candidates.findIndex((candidate) => candidate.command === previous),
+      );
+      renderer.setSlashCommandCandidates([]);
+      renderer.renderSlashPicker(candidates, selected);
+    } else {
+      if (overlay.kind === 'slashPicker') renderer.clearModal();
+      renderer.setSlashCommandCandidates(
+        editor.text === slashPickerSuppressedText ? [] : slashCommandCandidates(editor.text),
+      );
+    }
   };
 
   const walkInputHistory = (direction: 'up' | 'down'): boolean => {
@@ -1066,9 +1010,8 @@ export const runRemoteTui = async (
       notice = text;
       updateStatus();
     },
-    credentialPresenceRead: (result) => {
-      credentialPresence = result;
-      updateStatus();
+    retainNotice: (sessionId, identity, text, failureWord) => {
+      retainNotice(sessionId, identity, text, failureWord);
     },
   });
 
@@ -1126,10 +1069,16 @@ export const runRemoteTui = async (
     if (
       acceptedSubmission !== undefined && receiptIsObserved(acceptedSubmission)
     ) {
-      notice = 'accepted';
       acceptedSubmission = undefined;
     }
     const current = snapshot();
+    const unconfirmed = unconfirmedSubmissions.get(current.session.id);
+    if (
+      unconfirmed !== undefined && (
+        current.runtime.execution?.submittedByCommandId === unconfirmed.commandId ||
+        (unconfirmed.cursor !== undefined && receiptIsObserved(unconfirmed))
+      )
+    ) unconfirmedSubmissions.delete(current.session.id);
     const execution = activeExecution();
     if (current.runtime.phase === 'cancelling' && execution !== undefined) {
       cancellationRequested = true;
@@ -1146,6 +1095,21 @@ export const runRemoteTui = async (
 
   const rejectedText = (reason: string): string =>
     reason.replace(/[A-Z]/gu, (letter) => ` ${letter.toLowerCase()}`);
+
+  const markUnconfirmedSubmission = (submission: PendingSubmission): void => {
+    const marker: AcceptedSubmission = { commandId: submission.commandId };
+    unconfirmedSubmissions.set(submission.sessionId, marker);
+    // A fresh Core read can confirm input availability; the pre-send snapshot cannot.
+    void client.sessionRead(submission.sessionId).then((saved) => {
+      if (
+        exitRequested || unconfirmedSubmissions.get(submission.sessionId) !== marker ||
+        saved.session.id !== submission.sessionId
+      ) return;
+      unconfirmedSubmissions.set(submission.sessionId, { ...marker, cursor: saved.cursor });
+      syncCoreObservations();
+      updateStatus();
+    }, () => {});
+  };
 
   const finalizeTaskCommand = (
     command: CommandState<CoreCommandValue>,
@@ -1164,8 +1128,15 @@ export const runRemoteTui = async (
     if (command.kind === 'rejected') {
       pendingSubmission = undefined;
       finishDraft(submission, false);
-      notice = `submission rejected: ${rejectedText(command.reason)}`;
-      updateStatus();
+      retainNotice(
+        submission.sessionId,
+        submission.commandId,
+        `REJECTED · ${JSON.stringify(submission.text)} · draft kept · ${
+          rejectedText(command.reason)
+        } · check the Session and execution state before retrying`,
+        'REJECTED',
+        submission.executionId,
+      );
       return;
     }
     if (
@@ -1175,8 +1146,16 @@ export const runRemoteTui = async (
     ) {
       pendingSubmission = undefined;
       finishDraft(submission, false);
-      notice = 'submission unconfirmed · draft kept';
-      updateStatus();
+      markUnconfirmedSubmission(submission);
+      retainNotice(
+        submission.sessionId,
+        submission.commandId,
+        `UNCONFIRMED · ${JSON.stringify(submission.text)} · draft kept · ${
+          operationLabel(submission.kind)
+        } receipt unavailable · check command state before resubmitting`,
+        'UNCONFIRMED',
+        submission.executionId,
+      );
       return;
     }
     const accepted: AcceptedSubmission = {
@@ -1191,7 +1170,6 @@ export const runRemoteTui = async (
     pendingSubmission = undefined;
     acceptedSubmission = accepted;
     finishDraft(submission, true);
-    notice = receiptIsObserved(accepted) ? 'accepted' : 'accepted · waiting for core snapshot';
     syncCoreObservations();
     updateStatus();
   };
@@ -1204,22 +1182,60 @@ export const runRemoteTui = async (
       if (exitRequested || pendingSubmission !== submission) return;
       pendingSubmission = undefined;
       finishDraft(submission, false);
-      notice = 'submission unconfirmed · draft kept; check the core before resubmitting';
-      updateStatus();
+      markUnconfirmedSubmission(submission);
+      retainNotice(
+        submission.sessionId,
+        submission.commandId,
+        `UNCONFIRMED · ${
+          JSON.stringify(submission.text)
+        } · draft kept · command receipt unavailable · check command state before resubmitting`,
+        'UNCONFIRMED',
+        submission.executionId,
+      );
     }
   }
 
   const submitDraft = (
     kind: SubmitKind = activeExecution() === undefined ? 'task' : 'steering',
   ): void => {
+    const targetSessionId = snapshot().session.id;
     if (navigationPending || commandMutationPending) {
-      notice = 'Session operation still pending';
-      updateStatus();
+      const text = editor.submit();
+      if (text !== null) {
+        retainNotice(
+          targetSessionId,
+          `local:${crypto.randomUUID()}`,
+          `REJECTED · ${
+            JSON.stringify(text)
+          } · draft kept · Session operation still pending · check the current command receipt before retrying`,
+          'REJECTED',
+          activeExecution()?.executionId,
+        );
+      } else {
+        notice = 'Session operation still pending';
+        updateStatus();
+      }
       return;
     }
-    if (pendingSubmission !== undefined || acceptedSubmission !== undefined) {
-      notice = 'submission still awaiting core state';
-      updateStatus();
+    if (
+      pendingSubmission !== undefined || acceptedSubmission !== undefined ||
+      unconfirmedSubmissions.has(targetSessionId)
+    ) {
+      const text = editor.submit();
+      if (text !== null) {
+        retainNotice(
+          targetSessionId,
+          `local:${crypto.randomUUID()}`,
+          `REJECTED · ${
+            JSON.stringify(text)
+          } · draft kept · submission receipt still awaiting Core state · check the current command before retrying`,
+          'REJECTED',
+          activeExecution()?.executionId,
+        );
+      } else {
+        notice = 'submission still awaiting core state';
+        updateStatus();
+      }
       return;
     }
     const text = editor.submit();
@@ -1230,14 +1246,20 @@ export const runRemoteTui = async (
         kind === 'steering' ? 'execution.steer' : 'followUp.queue',
       );
     if (!available) {
-      notice = `${
-        kind === 'task' ? 'task.submit' : kind === 'steering' ? 'execution.steer' : 'followUp.queue'
-      } unavailable for this Session`;
-      updateStatus();
+      retainNotice(
+        targetSessionId,
+        `local:${crypto.randomUUID()}`,
+        `REJECTED · ${JSON.stringify(text)} · draft kept · ${
+          operationLabel(kind)
+        } unavailable for this Session · check the active execution and available operation before retrying`,
+        'REJECTED',
+        execution?.executionId,
+      );
       return;
     }
     const submission: PendingSubmission = {
       kind,
+      sessionId: targetSessionId,
       ...(execution === undefined ? {} : { executionId: execution.executionId }),
       commandId: crypto.randomUUID(),
       text,
@@ -1250,14 +1272,14 @@ export const runRemoteTui = async (
     updateStatus();
     const input = { commandId: submission.commandId, text: submission.text };
     const operation = kind === 'task'
-      ? client.taskSubmit(snapshot().session.id, input)
+      ? client.taskSubmit(submission.sessionId, input)
       : kind === 'steering'
       ? client.steeringSubmit(
-        snapshot().session.id,
+        submission.sessionId,
         submission.executionId!,
         input,
       )
-      : client.followUpQueue(snapshot().session.id, {
+      : client.followUpQueue(submission.sessionId, {
         ...input,
         afterExecutionId: submission.executionId!,
       });
@@ -1266,7 +1288,7 @@ export const runRemoteTui = async (
       async () => {
         if (exitRequested || pendingSubmission !== submission) return;
         submission.processing = true;
-        notice = 'submit response unknown · checking command';
+        notice = undefined;
         updateStatus();
         await readTaskCommand(submission);
       },
@@ -1291,18 +1313,29 @@ export const runRemoteTui = async (
     if (command.kind === 'rejected') {
       cancellationRequested = false;
       cancellationExecutionId = undefined;
-      notice = `cancel rejected: ${rejectedText(command.reason)}`;
-      updateStatus();
+      retainNotice(
+        cancellation.sessionId,
+        cancellation.commandId,
+        `REJECTED · execution.cancel · execution #${cancellation.executionId} · ${
+          rejectedText(command.reason)
+        }`,
+        'REJECTED',
+        cancellation.executionId,
+      );
       return;
     }
     if (!('result' in command.value)) {
-      notice = 'cancel unconfirmed';
-      updateStatus();
+      retainNotice(
+        cancellation.sessionId,
+        cancellation.commandId,
+        `UNCONFIRMED · execution.cancel · execution #${cancellation.executionId} · command result unavailable · check execution state before retrying`,
+        'UNCONFIRMED',
+        cancellation.executionId,
+      );
       return;
     }
     cancellationRequested = command.value.result !== 'idle';
     cancellationExecutionId = cancellationRequested ? cancellation.executionId : undefined;
-    notice = `cancel ${command.value.result.replaceAll('_', ' ')}`;
     updateStatus();
   };
 
@@ -1315,25 +1348,40 @@ export const runRemoteTui = async (
     } catch {
       if (exitRequested || pendingCancellation !== cancellation) return;
       pendingCancellation = undefined;
-      notice = 'cancel unconfirmed';
-      updateStatus();
+      retainNotice(
+        cancellation.sessionId,
+        cancellation.commandId,
+        `UNCONFIRMED · execution.cancel · execution #${cancellation.executionId} · command result unavailable · check execution state before retrying`,
+        'UNCONFIRMED',
+        cancellation.executionId,
+      );
     }
   }
 
   const cancelActiveExecution = (): void => {
     if (pendingCancellation !== undefined) return;
+    const targetSessionId = snapshot().session.id;
     if (pendingSubmission !== undefined || acceptedSubmission !== undefined) {
-      notice = 'submission admission is still pending';
-      updateStatus();
+      retainLocalFailure(
+        targetSessionId,
+        'execution.cancel',
+        'submission admission is still pending; check its command receipt first',
+        activeExecution()?.executionId,
+      );
       return;
     }
     if (!canCancel()) {
-      notice = 'execution.cancel unavailable for this Session';
-      updateStatus();
+      retainLocalFailure(
+        targetSessionId,
+        'execution.cancel',
+        'unavailable for this Session; check execution state and available operations',
+        activeExecution()?.executionId,
+      );
       return;
     }
     const execution = activeExecution()!;
     const cancellation: PendingCancellation = {
+      sessionId: targetSessionId,
       commandId: crypto.randomUUID(),
       executionId: execution.executionId,
       processing: false,
@@ -1343,44 +1391,21 @@ export const runRemoteTui = async (
     cancellationExecutionId = execution.executionId;
     notice = undefined;
     updateStatus();
-    void client.executionCancel(snapshot().session.id, execution.executionId, {
+    void client.executionCancel(cancellation.sessionId, execution.executionId, {
       commandId: cancellation.commandId,
     }).then(
       (command) => finalizeCancelCommand(command, cancellation),
       async () => {
         if (exitRequested || pendingCancellation !== cancellation) return;
         cancellation.processing = true;
-        notice = 'cancel response unknown · checking command';
+        notice = undefined;
         updateStatus();
         await readCancelCommand(cancellation);
       },
     );
   };
 
-  const helpLines = (): readonly string[] => {
-    const current = snapshot();
-    const operationHint = targetsActiveSession() && hasOperation('task.submit')
-      ? 'Enter submits the current draft to this active Session.'
-      : 'Task submission is unavailable for this viewed Session state.';
-    const cancelHint = canCancel()
-      ? 'At latest, Escape sends execution.cancel to the displayed execution.'
-      : 'Execution cancellation is available only when runtime.operations includes execution.cancel.';
-    return [
-      operationHint,
-      'Ctrl-G / Ctrl-T or /sessions opens the Session picker; Enter views, R resumes.',
-      'PageUp / PageDown scroll; Escape returns latest from history, including while busy; F1 toggles help.' +
-      (startupUnevaluated(current) ? ' Worker startup not evaluated.' : ''),
-      'Tab completes Core workspace paths. Type / followed by a letter for command suggestions; Tab completes a single matching command.',
-      'Ctrl-C clears the draft even while busy. Busy Enter steers this task; Alt-Enter queues the next task after success.',
-      '/detach or Ctrl-D detaches and leaves accepted Core work running. Reconnect: henji --core ID (or --connect URL).',
-      '/shutdown or Ctrl-Q stops this Core and exits this TUI, including while busy or viewing a saved Session. Other connected UIs disconnect.',
-      '/view ID views without replacing the active slot; /resume [ID] explicitly resumes; /new creates from this view and the core-owned active activation.',
-      '/rename TEXT renames; /recall [ID|latest|clear] prepares or clears next-task recall.',
-      '/context reads checkpoint, recall, and activation config; /provider, /model, /effort use Core catalogs; /login opens masked key entry.',
-      cancelHint,
-      'Cancellation/failure keeps follow-up text and the stopping reason for your next decision.',
-    ];
-  };
+  const helpLines = (): readonly string[] => slashCommandHelpLines();
 
   const clearRemoteOverlay = (): void => {
     navigationGeneration += 1;
@@ -1393,10 +1418,16 @@ export const runRemoteTui = async (
   const switchDisplayedSession = async (
     targetSessionId: string,
     generation: number,
+    noticeSessionId: string,
+    operationIdentity: string,
   ): Promise<boolean> => {
     if (hasPendingLocalCommand()) {
-      notice = 'wait for the current command receipt before changing the viewed Session';
-      updateStatus();
+      retainNotice(
+        noticeSessionId,
+        operationIdentity,
+        `REJECTED · Session view · ${targetSessionId} · current command receipt is pending; check that receipt before retrying`,
+        'REJECTED',
+      );
       return false;
     }
     const nextAbort = new AbortController();
@@ -1410,8 +1441,12 @@ export const runRemoteTui = async (
       nextAbort.abort();
       if (navigationGeneration === generation) {
         navigationPending = false;
-        notice = 'Session subscription failed; current view unchanged';
-        updateStatus();
+        retainNotice(
+          noticeSessionId,
+          operationIdentity,
+          `FAILED · Session view · ${targetSessionId} subscription failed; current view unchanged`,
+          'FAILED',
+        );
       }
       return false;
     }
@@ -1438,8 +1473,12 @@ export const runRemoteTui = async (
         // The old subscription remains the displayed Session.
       }
       navigationPending = false;
-      notice = 'Session snapshot unavailable; current view unchanged';
-      updateStatus();
+      retainNotice(
+        noticeSessionId,
+        operationIdentity,
+        `FAILED · Session view · ${targetSessionId} snapshot unavailable; current view unchanged`,
+        'FAILED',
+      );
       return false;
     }
     const previousAbort = subscriptionAbort;
@@ -1450,8 +1489,9 @@ export const runRemoteTui = async (
     iterator = nextIterator;
     state = reduceSessionStreamFrame(undefined, first.value);
     selectedModel = snapshot().session.selection;
-    credentialPresence = undefined;
+    unconfirmedSubmissions.delete(targetSessionId);
     connected = true;
+    connectionLossReported = false;
     navigationPending = false;
     renderer.clearModal();
     syncCoreObservations();
@@ -1463,6 +1503,7 @@ export const runRemoteTui = async (
       conversationProjector,
       pendingConversationProjection,
       projectionHintFromFrame(first.value),
+      systemNotices,
     );
     renderEditor();
     notice = undefined;
@@ -1479,9 +1520,13 @@ export const runRemoteTui = async (
   };
 
   const showSessionPicker = (): void => {
+    const targetSessionId = snapshot().session.id;
     if (hasPendingLocalCommand() || navigationPending) {
-      notice = 'wait for the current command before opening the Session picker';
-      updateStatus();
+      retainLocalFailure(
+        targetSessionId,
+        'Session list',
+        'current command is still pending; check its receipt before retrying',
+      );
       return;
     }
     const generation = ++navigationGeneration;
@@ -1493,7 +1538,7 @@ export const runRemoteTui = async (
       true,
       'view',
     );
-    notice = 'loading Sessions';
+    notice = undefined;
     updateStatus();
     void client.sessionsList().then(
       (result) => {
@@ -1503,7 +1548,7 @@ export const runRemoteTui = async (
         ) return;
         navigationPending = false;
         renderer.renderSessionPicker(
-          listingFromSessions(result.sessions, selectedSessionId),
+          listingFromSessions(result.sessions, targetSessionId),
           0,
           0,
           false,
@@ -1516,16 +1561,26 @@ export const runRemoteTui = async (
         if (exitRequested || navigationGeneration !== generation) return;
         navigationPending = false;
         renderer.clearModal();
-        notice = 'Session list unavailable';
-        updateStatus();
+        retainLocalFailure(
+          targetSessionId,
+          'Session list',
+          'unavailable; check the Core connection and retry',
+          undefined,
+          'FAILED',
+        );
       },
     );
   };
 
   const viewSession = (targetSessionId: string): void => {
+    const sourceSessionId = snapshot().session.id;
     if (hasPendingLocalCommand() || navigationPending) {
-      notice = 'wait for the current command receipt before changing the viewed Session';
-      updateStatus();
+      retainNotice(
+        sourceSessionId,
+        `local:${crypto.randomUUID()}`,
+        `REJECTED · Session view · ${targetSessionId} · current command receipt is pending; check it before retrying`,
+        'REJECTED',
+      );
       return;
     }
     if (targetSessionId === selectedSessionId) {
@@ -1533,6 +1588,7 @@ export const runRemoteTui = async (
       return;
     }
     const generation = ++navigationGeneration;
+    const operationIdentity = `local:${crypto.randomUUID()}`;
     navigationPending = true;
     notice = 'reading Session ' + targetSessionId;
     updateStatus();
@@ -1541,17 +1597,30 @@ export const runRemoteTui = async (
         if (exitRequested || navigationGeneration !== generation) return;
         if (saved.session.id !== targetSessionId) {
           navigationPending = false;
-          notice = 'Session read returned a different target';
-          updateStatus();
+          retainNotice(
+            sourceSessionId,
+            operationIdentity,
+            `FAILED · Session view · requested ${targetSessionId}, received ${saved.session.id}`,
+            'FAILED',
+          );
           return;
         }
-        await switchDisplayedSession(saved.session.id, generation);
+        await switchDisplayedSession(
+          saved.session.id,
+          generation,
+          sourceSessionId,
+          operationIdentity,
+        );
       },
       () => {
         if (exitRequested || navigationGeneration !== generation) return;
         navigationPending = false;
-        notice = 'Session read unavailable; current view unchanged';
-        updateStatus();
+        retainNotice(
+          sourceSessionId,
+          operationIdentity,
+          `FAILED · Session view · ${targetSessionId} read unavailable; current view unchanged`,
+          'FAILED',
+        );
       },
     );
   };
@@ -1560,21 +1629,28 @@ export const runRemoteTui = async (
     selection: SessionOpenSelection,
     fromSessionId?: string,
   ): void => {
+    const sourceSessionId = fromSessionId ?? snapshot().session.id;
     if (hasPendingLocalCommand() || navigationPending) {
-      notice = 'wait for the current command receipt before opening a Session';
-      updateStatus();
+      retainLocalFailure(
+        sourceSessionId,
+        'session.open',
+        'current command receipt is pending; check it before retrying',
+      );
       return;
     }
     if (!core.implementedOperations.includes('session.open')) {
-      notice = 'session.open unavailable';
-      updateStatus();
+      retainLocalFailure(
+        sourceSessionId,
+        'session.open',
+        'unavailable in this Core; check the Core version and operations',
+      );
       return;
     }
     const generation = ++navigationGeneration;
     const commandId = crypto.randomUUID();
     navigationPending = true;
     commandMutationPending = true;
-    notice = 'opening Session · command ' + commandId;
+    notice = 'opening Session';
     updateStatus();
     const input: SessionOpenInput = {
       commandId,
@@ -1591,27 +1667,40 @@ export const runRemoteTui = async (
         navigationPending = false;
         if (exitRequested) return;
         if (command.kind === 'rejected') {
-          notice = 'session open rejected: ' +
-            commandReasonText(command.reason);
-          updateStatus();
+          retainNotice(
+            sourceSessionId,
+            commandId,
+            `REJECTED · session.open · ${commandReasonText(command.reason)}`,
+            'REJECTED',
+          );
           return;
         }
         if (!('snapshot' in command.value)) {
-          notice = 'session open unconfirmed · command ' + commandId;
-          updateStatus();
+          retainNotice(
+            sourceSessionId,
+            commandId,
+            `UNCONFIRMED · session.open · command result unavailable · check Core Session state before retrying`,
+            'UNCONFIRMED',
+          );
           return;
         }
         await switchDisplayedSession(
           command.value.snapshot.session.id,
           generation,
+          sourceSessionId,
+          commandId,
         );
       },
       () => {
         commandMutationPending = false;
         navigationPending = false;
         if (exitRequested) return;
-        notice = 'session open response unknown · command ' + commandId;
-        updateStatus();
+        retainNotice(
+          sourceSessionId,
+          commandId,
+          `UNCONFIRMED · session.open · response unavailable · check Core Session state before retrying`,
+          'UNCONFIRMED',
+        );
       },
     );
   };
@@ -1633,6 +1722,7 @@ export const runRemoteTui = async (
   };
 
   const renameSession = (title: string): void => {
+    const targetId = snapshot().session.id;
     if (title.trim().length === 0) {
       notice = 'usage: /rename TEXT';
       updateStatus();
@@ -1641,19 +1731,24 @@ export const runRemoteTui = async (
     if (
       hasPendingLocalCommand() || navigationPending || commandMutationPending
     ) {
-      notice = 'wait for the current command receipt before renaming';
-      updateStatus();
+      retainLocalFailure(
+        targetId,
+        'session.rename',
+        'current command receipt is pending; check it before retrying',
+      );
       return;
     }
     if (
       !targetsActiveSession() || !connected || !hasOperation('session.rename')
     ) {
-      notice = 'session.rename requires the active Session and an available operation';
-      updateStatus();
+      retainLocalFailure(
+        targetId,
+        'session.rename',
+        'requires the active Session and an available operation',
+      );
       return;
     }
     const commandId = crypto.randomUUID();
-    const targetId = snapshot().session.id;
     commandMutationPending = true;
     notice = 'renaming Session';
     updateStatus();
@@ -1666,28 +1761,43 @@ export const runRemoteTui = async (
         commandMutationPending = false;
         if (exitRequested) return;
         if (command.kind === 'rejected') {
-          notice = 'rename rejected: ' + commandReasonText(command.reason);
+          retainNotice(
+            targetId,
+            commandId,
+            `REJECTED · session.rename · ${commandReasonText(command.reason)}`,
+            'REJECTED',
+          );
         } else if (
           'result' in command.value &&
           (command.value.result === 'renamed' ||
             command.value.result === 'unchanged')
         ) {
-          notice = command.value.result === 'renamed'
-            ? 'Session renamed'
-            : 'Session title unchanged';
-        } else notice = 'rename unconfirmed · command ' + commandId;
-        updateStatus();
+          notice = undefined;
+          updateStatus();
+        } else {
+          retainNotice(
+            targetId,
+            commandId,
+            `UNCONFIRMED · session.rename · command result unavailable · check Session title before retrying`,
+            'UNCONFIRMED',
+          );
+        }
       },
       () => {
         commandMutationPending = false;
         if (exitRequested) return;
-        notice = 'rename response unknown · command ' + commandId;
-        updateStatus();
+        retainNotice(
+          targetId,
+          commandId,
+          `UNCONFIRMED · session.rename · response unavailable · check Session title before retrying`,
+          'UNCONFIRMED',
+        );
       },
     );
   };
 
   const recallExecution = (reference: string): void => {
+    const targetId = snapshot().session.id;
     const action = reference === 'clear' ? 'clear' : 'prepare';
     const executionId = action === 'prepare' && reference !== '' && reference !== 'latest'
       ? reference
@@ -1696,17 +1806,22 @@ export const runRemoteTui = async (
     if (
       hasPendingLocalCommand() || navigationPending || commandMutationPending
     ) {
-      notice = 'wait for the current command receipt before changing recall';
-      updateStatus();
+      retainLocalFailure(
+        targetId,
+        operation,
+        'current command receipt is pending; check it before retrying',
+      );
       return;
     }
     if (!connected || !hasOperation(operation)) {
-      notice = operation + ' unavailable for this Session';
-      updateStatus();
+      retainLocalFailure(
+        targetId,
+        operation,
+        'unavailable for this Session; check the connection and available operations',
+      );
       return;
     }
     const commandId = crypto.randomUUID();
-    const targetId = snapshot().session.id;
     commandMutationPending = true;
     notice = action === 'clear' ? 'clearing pending recall' : 'preparing recall';
     updateStatus();
@@ -1724,40 +1839,62 @@ export const runRemoteTui = async (
         commandMutationPending = false;
         if (exitRequested) return;
         if (command.kind === 'rejected') {
-          notice = 'recall rejected: ' + commandReasonText(command.reason);
+          retainNotice(
+            targetId,
+            commandId,
+            `REJECTED · ${operation} · ${commandReasonText(command.reason)}`,
+            'REJECTED',
+          );
         } else if ('action' in command.value) {
           const value = command.value as RecallValue;
-          notice = value.action === 'prepare'
-            ? 'recall prepared from #' + value.sourceExecutionId +
-              ' · evidence ' + value.evidence
+          const text = value.action === 'prepare'
+            ? `RECALL PREPARED · from execution #${value.sourceExecutionId} · evidence ${value.evidence}`
             : value.cleared
-            ? 'pending recall cleared'
-            : 'no pending recall';
-        } else notice = 'recall unconfirmed · command ' + commandId;
-        updateStatus();
+            ? 'RECALL CLEARED · pending recall removed'
+            : 'RECALL UNCHANGED · no pending recall';
+          retainNotice(targetId, commandId, text);
+        } else {
+          retainNotice(
+            targetId,
+            commandId,
+            `UNCONFIRMED · ${operation} · command result unavailable · check pending recall state before retrying`,
+            'UNCONFIRMED',
+          );
+        }
       },
       () => {
         commandMutationPending = false;
         if (exitRequested) return;
-        notice = 'recall response unknown · command ' + commandId;
-        updateStatus();
+        retainNotice(
+          targetId,
+          commandId,
+          `UNCONFIRMED · ${operation} · response unavailable · check pending recall state before retrying`,
+          'UNCONFIRMED',
+        );
       },
     );
   };
 
   const showContext = (): void => {
+    const targetId = snapshot().session.id;
     if (hasPendingLocalCommand() || navigationPending) {
-      notice = 'wait for the current command before reading context';
-      updateStatus();
+      retainLocalFailure(
+        targetId,
+        'context.read',
+        'current command is pending; check it before retrying',
+      );
       return;
     }
     if (!connected || !hasOperation('context.read')) {
-      notice = 'context.read unavailable for this Session';
-      updateStatus();
+      retainLocalFailure(
+        targetId,
+        'context.read',
+        'unavailable for this Session; check connection and operations',
+      );
       return;
     }
     const generation = ++navigationGeneration;
-    const targetId = snapshot().session.id;
+    const operationIdentity = `local:${crypto.randomUUID()}`;
     navigationPending = true;
     notice = 'reading context';
     updateStatus();
@@ -1775,48 +1912,78 @@ export const runRemoteTui = async (
       () => {
         if (exitRequested || navigationGeneration !== generation) return;
         navigationPending = false;
-        notice = 'context read unavailable';
-        updateStatus();
+        retainNotice(
+          targetId,
+          operationIdentity,
+          'FAILED · context.read · context unavailable · check Core connection and retry',
+          'FAILED',
+        );
       },
     );
   };
 
-  const completePathAtCursor = (): void => {
+  const completeSlashCommand = (definition: SlashCommandDefinition): void => {
+    const token = /^\/[^\s]*/u.exec(editor.text)?.[0] ?? '';
+    const argumentsText = editor.text.slice(token.length);
+    const text = definition.text +
+      (argumentsText.length > 0 ? argumentsText : definition.usage === definition.text ? '' : ' ');
+    slashPickerSuppressedText = text;
+    renderer.clearModal();
+    replaceEditorText(text);
+  };
+
+  const completeSlashCommandAtCursor = (): void => {
     const currentText = editor.text;
-    if (currentText.startsWith('/')) {
-      if (editor.cursorScalar !== [...currentText].length) return;
-      const candidates = slashCommandCandidates(currentText);
-      if (candidates.length === 1) {
-        const text = candidates[0];
-        if (
-          text !== undefined && editor.setSnapshot({
-            text,
-            cursorScalar: [...text].length,
-            byteLength: new TextEncoder().encode(text).byteLength,
-          })
-        ) {
-          editorHistory.resetNavigation();
-          draftRevision += 1;
-          renderEditor();
-        }
-      }
-      return;
+    if (
+      !currentText.startsWith('/') ||
+      editor.cursorScalar !== [...currentText].length
+    ) return;
+    const candidates = slashCommandCandidates(currentText);
+    if (candidates.length === 1) {
+      const definition = SLASH_COMMANDS.find((candidate) => candidate.text === candidates[0]);
+      if (definition !== undefined) completeSlashCommand(definition);
     }
-    const original = editor.snapshot();
-    void catalogUi.completePath(editor).then(() => {
-      if (
-        editor.text !== original.text ||
-        editor.cursorScalar !== original.cursorScalar
-      ) {
-        editorHistory.resetNavigation();
+  };
+
+  const editDraft = (event: InputEvent): void => {
+    if (
+      ![
+        'printable',
+        'paste',
+        'backspace',
+        'newline',
+        'alt_enter',
+        'left',
+        'right',
+        'up',
+        'down',
+        'home',
+        'end',
+      ].includes(event.kind)
+    ) return;
+    if (isEditorTextMutation(event)) separateSubmittedDraft();
+    const before = editor.text;
+    const changed = applyEditorEvent(editor, event);
+    if (changed) {
+      if (editor.text !== before) {
         draftRevision += 1;
-        renderEditor();
+        editorHistory.resetNavigation();
       }
-    });
+      notice = undefined;
+      renderEditor();
+    } else if (
+      event.kind === 'printable' || event.kind === 'paste' ||
+      event.kind === 'newline' || event.kind === 'alt_enter'
+    ) {
+      notice = event.kind === 'paste' ? 'paste exceeds 64 KiB' : 'input too long';
+      updateStatus();
+    }
   };
 
   const shutdownCore = (): void => {
     if (shutdownPending || exitRequested) return;
+    const targetSessionId = snapshot().session.id;
+    const commandId = crypto.randomUUID();
     shutdownPending = true;
     renderer.setSlashCommandCandidates([]);
     catalogUi.close();
@@ -1826,11 +1993,16 @@ export const runRemoteTui = async (
     void (async () => {
       try {
         const command = await client.coreShutdown({
-          commandId: crypto.randomUUID(),
+          commandId,
         });
         if (exitRequested) return;
         if (command.kind === 'rejected') {
-          notice = 'shutdown rejected: ' + commandReasonText(command.reason);
+          retainNotice(
+            targetSessionId,
+            commandId,
+            `REJECTED · core.shutdown · ${commandReasonText(command.reason)}`,
+            'REJECTED',
+          );
         } else {
           await client.waitUntilCoreStopped(core.coreEpoch, exitAbort.signal);
           requestExit();
@@ -1838,9 +2010,14 @@ export const runRemoteTui = async (
         }
       } catch (error) {
         if (exitRequested) return;
-        notice = error instanceof HenjiApiError
-          ? 'shutdown failed: ' + error.message
-          : 'shutdown response unknown · check Core with henji core status';
+        retainNotice(
+          targetSessionId,
+          commandId,
+          error instanceof HenjiApiError
+            ? `FAILED · core.shutdown · ${error.message}`
+            : 'UNCONFIRMED · core.shutdown · check Core with henji core status',
+          error instanceof HenjiApiError ? 'FAILED' : 'UNCONFIRMED',
+        );
       }
       shutdownPending = false;
       renderEditor();
@@ -1866,9 +2043,9 @@ export const runRemoteTui = async (
     replaceEditorText('');
     notice = undefined;
     if (name === 'detach') requestExit();
-    else if (name === 'shutdown') {
+    else if (name === 'quit') {
       if (argument.length > 0) {
-        notice = 'usage: /shutdown';
+        notice = 'usage: /quit';
         updateStatus();
       } else shutdownCore();
     } else if (name === 'help') renderer.renderReadOnlyHelp(helpLines());
@@ -1954,6 +2131,7 @@ export const runRemoteTui = async (
       conversationProjector,
       pendingConversationProjection,
       projectionHintFromFrame(firstFrame.value),
+      systemNotices,
     );
     updateStatus();
     await dependencies.afterAcquire?.();
@@ -1995,8 +2173,34 @@ export const runRemoteTui = async (
             catalogUi.process(event);
             continue;
           }
+          if (overlay.kind === 'slashPicker') {
+            if (event.kind === 'escape') {
+              slashPickerSuppressedText = editor.text;
+              clearRemoteOverlay();
+            } else if (event.kind === 'up' || event.kind === 'down') {
+              const selected = Math.max(
+                0,
+                Math.min(
+                  overlay.candidates.length - 1,
+                  overlay.selected + (event.kind === 'up' ? -1 : 1),
+                ),
+              );
+              renderer.renderSlashPicker(overlay.candidates, selected);
+            } else if (event.kind === 'enter' || event.kind === 'tab') {
+              const selected = overlay.candidates[overlay.selected];
+              if (selected !== undefined) completeSlashCommand(selected);
+            } else editDraft(event);
+            continue;
+          }
+          if (overlay.kind === 'readOnlyHelp') {
+            if (event.kind === 'escape') clearRemoteOverlay();
+            else if (event.kind === 'page_up' || event.kind === 'page_down') {
+              renderer.scrollHelp(event.kind === 'page_up' ? 'up' : 'down');
+            }
+            continue;
+          }
           if (overlay.kind === 'sessionPicker') {
-            if (event.kind === 'escape' || event.kind === 'ctrl_c') {
+            if (event.kind === 'escape') {
               clearRemoteOverlay();
             } else if (
               overlay.listing !== undefined &&
@@ -2032,20 +2236,13 @@ export const runRemoteTui = async (
             continue;
           }
           if (overlay.kind !== 'none') {
-            if (
-              event.kind === 'escape' || event.kind === 'ctrl_c' ||
-              (overlay.kind === 'readOnlyHelp' && event.kind === 'f1')
-            ) clearRemoteOverlay();
+            if (event.kind === 'escape') clearRemoteOverlay();
             continue;
           }
           if (
             !editorBusy() && (event.kind === 'up' || event.kind === 'down') &&
             walkInputHistory(event.kind)
           ) continue;
-          if (event.kind === 'ctrl_g' || event.kind === 'ctrl_t') {
-            showSessionPicker();
-            continue;
-          }
           if (event.kind === 'ctrl_c') {
             separateSubmittedDraft();
             if (editor.text.length > 0) replaceEditorText('');
@@ -2067,11 +2264,7 @@ export const runRemoteTui = async (
               renderer.latest();
             }
           } else if (event.kind === 'f1') {
-            if (renderer.stateSnapshot().overlay.kind === 'readOnlyHelp') {
-              renderer.clearModal();
-            } else {
-              renderer.renderReadOnlyHelp(helpLines());
-            }
+            showSessionPicker();
           } else if (event.kind === 'enter') {
             const command = editor.text.trim();
             if (command === '/detach') {
@@ -2079,53 +2272,22 @@ export const runRemoteTui = async (
               break;
             }
             if (runSlashCommand(command)) continue;
-            notice = undefined;
-            submitDraft();
+            if (activeExecution() === undefined) {
+              notice = undefined;
+              submitDraft('task');
+            }
           } else if (event.kind === 'tab') {
-            completePathAtCursor();
-          } else if (
-            event.kind === 'alt_enter' && activeExecution() !== undefined
-          ) {
+            completeSlashCommandAtCursor();
+          } else if (event.kind === 'f2') {
             notice = undefined;
             submitDraft('follow-up');
+          } else if (event.kind === 'f3') {
+            notice = undefined;
+            submitDraft('steering');
           } else if (event.kind === 'paste_rejected') {
             notice = 'paste exceeds 64 KiB';
             updateStatus();
-          } else if (event.kind === 'ctrl_o') {
-            notice =
-              'newline is Shift/Ctrl+Return where sent; idle Alt+Return also inserts a newline';
-            updateStatus();
-          } else if (
-            event.kind === 'printable' || event.kind === 'paste' ||
-            event.kind === 'backspace' || event.kind === 'newline' ||
-            event.kind === 'alt_enter' || event.kind === 'ctrl_w' ||
-            event.kind === 'ctrl_a' || event.kind === 'ctrl_b' ||
-            event.kind === 'ctrl_e' || event.kind === 'ctrl_f' ||
-            event.kind === 'ctrl_u' || event.kind === 'ctrl_k' ||
-            event.kind === 'alt_b' || event.kind === 'alt_f' ||
-            event.kind === 'alt_d' || event.kind === 'left' ||
-            event.kind === 'right' || event.kind === 'up' ||
-            event.kind === 'down' || event.kind === 'home' ||
-            event.kind === 'end'
-          ) {
-            if (isEditorTextMutation(event)) separateSubmittedDraft();
-            const before = editor.text;
-            const changed = applyEditorEvent(editor, event);
-            if (changed) {
-              if (editor.text !== before) {
-                draftRevision += 1;
-                editorHistory.resetNavigation();
-              }
-              notice = undefined;
-              renderEditor();
-            } else if (
-              event.kind === 'printable' || event.kind === 'paste' ||
-              event.kind === 'newline' || event.kind === 'alt_enter'
-            ) {
-              notice = event.kind === 'paste' ? 'paste exceeds 64 KiB' : 'input too long';
-              updateStatus();
-            }
-          }
+          } else editDraft(event);
         }
         if (!exitRequested) updateStatus();
         continue;
@@ -2139,6 +2301,7 @@ export const runRemoteTui = async (
       ) {
         connected = false;
         frameWait = null;
+        noteConnectionLoss();
         updateStatus();
         continue;
       }
@@ -2146,7 +2309,9 @@ export const runRemoteTui = async (
       if (ready.kind === 'resync') {
         state = reduceSessionStreamFrame(undefined, ready.frame);
         selectedModel = snapshot().session.selection;
+        unconfirmedSubmissions.delete(snapshot().session.id);
         connected = true;
+        connectionLossReported = false;
         syncCoreObservations();
         renderSnapshot(
           renderer,
@@ -2156,6 +2321,7 @@ export const runRemoteTui = async (
           conversationProjector,
           pendingConversationProjection,
           projectionHintFromFrame(ready.frame),
+          systemNotices,
         );
         updateStatus();
         frameWait = nextFrameWait();
@@ -2168,6 +2334,7 @@ export const runRemoteTui = async (
       } catch (error) {
         if (error instanceof Error && error.message.includes('revision gap')) {
           connected = false;
+          noteConnectionLoss();
           updateStatus();
           frameWait = reopenFromSnapshot();
           continue;
@@ -2185,6 +2352,7 @@ export const runRemoteTui = async (
           conversationProjector,
           pendingConversationProjection,
           projectionHintFromFrame(frame),
+          systemNotices,
         );
       } else {
         renderSessionOrientation(renderer, snapshot(), core.workspace);

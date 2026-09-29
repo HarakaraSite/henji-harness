@@ -19,7 +19,9 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
 | S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
-| S27 | Surface        | TUIショートカットの整理                                                      | 利用者がショートカット整理を個別Incrementへ採用するとき                                                                |
+| S28 | Surface        | `@`によるコンテキスト注入                                                    | 利用者が必要性を判断し、この候補を採用するとき                                                                         |
+| S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
+| S30 | Surface        | TUIのF1 helpとCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
 | A1  | Agent実行      | ChatGPT subscription root provider                                           | subscription利用がproduct要件になる                                                                                    |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
@@ -34,7 +36,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A18 | Agent実行      | bash toolのtimeout説明と引数エラーの具体化                                   | timeout上限超過をcommandの問題と誤解し、再試行でmaxStepsへ達した観測                                                   |
 | A19 | Agent実行      | requestごとの実行状況・日時・地域context                                     | モデルが残りstep・経過時間を知らず長いturnを継続した観測、日時・地域を判断材料にしたいとき                             |
 | A21 | Agent実行      | 1ターン内でsteeringを複数回受け付ける                                        | 実行中に追加の指示を続けて送りたいとき                                                                                 |
-| A23 | Agent実行      | `run_typescript`で小さな計算・変換・検査をHenji内で実行                      | 現行構成が安定し、利用者が利用価値検証の再開を明示したとき                                                             |
+| A23 | Agent実行      | `run_typescript`でファイル操作を含む小処理をHenji内で実行                    | 利用者が対象用途・実行条件の具体化や利用価値検証を指示するとき                                                         |
 | A24 | Agent実行      | subagent起動の判断とprovider・model・effort・toolの選択                      | 利用者が起動判断の検討を再開するとき                                                                                   |
 | A26 | Agent実行      | hookによる起動時・実行前後の自動処理                                         | 起動時の環境確認など、決まったタイミングで実行したい具体的な処理が必要になったとき                                     |
 | R1  | F24            | 自己改訂対象の重心とagent loop境界                                           | Self-revision Cycleの最初の実証対象を選ぶ                                                                              |
@@ -169,21 +171,34 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   機械向け出力との境界を採用時に決める。
 - 関連: `v0/agent/cli/henji_cli.ts`、`v0/agent/cli/cli_help.ts`、`v0/agent/cli/`の各command入口。
 
-### S27 — TUIショートカットの整理（F01、未採用）
+### S28 — `@`によるコンテキスト注入（未採用、メモのみ）
 
-- 観測・確認（2026-09-29）: Alt-Enterがidleでは入力の改行、busyではfollow-up queueとなり、
-  同じ入力操作の意味が実行状態で変わる。さらにlegacyのESC＋Returnやxterm形式は`alt_enter`、
-  CSI-uのAlt-Return（`CSI 13;3u`）は`newline`へdecodeされ、端末の送信形式でも動作が異なる。
-- 利用者判断（同日）: ショートカットを整理することをメモする。今回は記録のみで実装しない。
-- 候補: 改行、送信、steering、follow-up queue、cancel、detach、Core shutdown等の既定割当を整理し、
-  キーの二重用途と送信形式による不統一を解消する。割当とfooter・helpの案内を揃える。
-  Alt-Enterを常に改行としてqueueを別キーへ分ける案は提案段階で、具体的な割当は採用時に決める。
-- 入力欄の高さについての利用者確認: 現在の94×23ペインで入力欄が一行になるのは、
-  高さ24行未満では一行、24行以上では最大8行という現行仕様どおりとして了承済み。
-  入力欄の高さ変更は今回の改善候補に含めない。
-- 再検討条件: 利用者がショートカット整理を個別Incrementへ採用するとき。
-- 関連: `v0/tui/input_decoder.ts`、`v0/tui/remote_session.ts`、`v0/tui/layout.ts`、 P8（configurable
-  keybindings）。
+- 利用者意向（2026-09-29）: 将来`@`によるコンテキスト注入を行うかもしれないが、
+  行わない可能性もある。今回はメモのみ。
+- 候補: TUI入力で`@`を起点とするコンテキスト注入。注入対象、操作、contextへの渡し方は未決。
+  workspaceパス補完の廃止判断をこの候補で取り消さず、既存処理を将来用に残す要件とも扱わない。
+- 再検討条件: 利用者が必要性を判断し、この候補を個別Incrementへ採用するとき。
+- 関連:
+  [Increment 159](../increments/increment-159.md)、P9（画像入力は別候補）。今回のフッター・ショートカット整理では実装しない。
+
+### S29 — `/edit`による外部エディタ起動（未採用、将来候補）
+
+- 利用者意向（2026-09-29）: 単語・行頭／行末までの削除キーを省く方向に関連して、
+  `/edit`でエディタを起動する機能をいつか実装したい。
+- 候補: 入力編集に外部エディタを使う。エディタの指定方法、draftの受け渡し、
+  編集後のTUI復帰操作等は採用時に決める。今回は記録のみ。
+- 再検討条件: 利用者が入力編集の外部エディタ連携を個別Incrementへ採用するとき。
+- 関連:
+  [Increment 159](../increments/increment-159.md)。今回のフッター・ショートカット整理では実装しない。
+
+### S30 — TUIのF1 helpとCLI helpの内容統合（未採用、メモのみ）
+
+- 利用者意向（2026-09-29）: F1 helpの内容をCLIのヘルプと統合するか、別件としてメモする。
+- 候補: TUI helpとCLI helpの内容を整理・統合する。対象となる内容と統合方法は未決。
+  今回は記録のみ。help内容の統合とは別に、[Increment 159](../increments/increment-159.md)の計画ではF1をSession一覧へ割り当て、TUI
+  helpは`/help`へ集約する。 CLI helpの実装変更は行わない。
+- 再検討条件: 利用者がヘルプ内容の統合を個別Incrementへ採用するとき。
+- 関連: [Increment 159](../increments/increment-159.md)、TUIの`/help`、CLI help。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 
@@ -488,21 +503,25 @@ Pi／OpenCode／Henjiの画面表示比較
 - 対象範囲: 実行中turnへの追加指示。別枠のchatや子Agentへの直接steeringは、この候補には含めない。
 - 関連: `v0/agent/core/steering.ts`、`v0/agent/core/loop.ts`、`v0/tui/controller.ts`。
 
-### A23 — `run_typescript`で小さな計算・変換・検査をHenji内で実行（F06、未採用）
+### A23 — `run_typescript`でファイル操作を含む小処理をHenji内で実行（F06、未採用）
 
-- 利用者指示（2026-09-27）:
-  統合評価のコンセプトを通常利用メモへ追加する。今回の記載は採用・実装認可を
-  意味しない。技術経路は支持されているが、標準Toolとしての製品価値は未検証である。
+- 利用者指示（2026-09-27／29）: 統合評価を未採用候補として記録し、9月29日に検討を再開した。
+  Codex履歴のサンプリング、技術確認、gpt-6-astra / xhighによるBlocker限定・10分上限の批判的評価、
+  公開実装例の調査と記録を指示した。検討だけであり、採用・実装認可は意味しない。
 - 目的・対象: Agentが一時的に行うJSON/JSON Lines/CSVの集計・変換、文字列処理、小さな計算・検証、
-  複数Tool Resultの突き合わせをHenji自身のcode execution Toolで扱い、外部runtimeの有無、shell
-  quoting、
-  一時file、stdout/stderr解釈のばらつきを減らす。目的に合う専用Toolを優先し、Python固有library・既存資産や
-  OS操作・CLIには引き続きPython／shellを使う。
-- 候補経路: AgentがTypeScript code＋JSON input＋profile要求を渡し、Henji側が実行条件を決め、
-  wrapper／executorからstructured Tool Resultを返す。最初は`pure`のみを検討し、default-exportした
-  sync/async function、JSON入出力、無権限Worker、wall timeout、structured errorを候補とする。
-  入出力各64 KiB等は実験用contractであり、製品の確定仕様ではない。型構文の除去はtype
-  checkとは区別する。
+  複数Tool Resultの突き合わせを、ファイル読み込みを含めてHenji自身のcode execution Toolで扱う。
+  HenjiにDenoを同梱するポータビリティと、AIが書いた処理の副作用の一部をhost/runtimeで機械的に
+  制限できる点が中心の利点である。Python固有library・既存資産や適した専用Toolは引き続き使う。
+- 候補経路: AgentがTypeScript codeを渡し、Henji側が決めた実行条件でfile取得・加工等を行い、
+  必要なresultを返す。当初の`pure`は暫定実験案であり、A23全体をJSON-onlyへ限定しない。
+  code形式、JSON input、profile、permission、timeout、入出力上限、library、backendは未決。
+  原資料の各64 KiB等は確定仕様ではなく、型構文の除去はtype checkとは区別する。
+- 現在の観測（2026-09-29）: Codexの28ログから抽出したPython実行80件では、短い処理とfile操作の
+  組み合わせが多かった。Linux／Deno 2.9.7の直接実行で、動的TS Workerのfile readとwrite/net/env/run
+  拒否を確認した。批判的評価はBlocker
+  0。Belgieの埋め込みDeno＋`run_typescript`等の公開sourceも確認した。
+  サンプルはHenji開発作業に偏り、compiled Linux Henjiと実利用の優位性は未確認。
+  詳細・証拠・評価範囲は[9月29日の調査記録](../research/a23-run-typescript-investigation-2026-09-29.md)を参照する。
 - 技術観測（原資料の報告）: Deno 2.9.7／macOS arm64で、compile済み単一実行ファイル内の動的TypeScript
   Workerが外部Deno CLI・一時`.ts` fileなしで動作し、permission縮小・JSON入出力・timeout・error分類を
   確認した。macOS x86_64はRosetta実行を確認し、Linux／Windowsはartifact生成のみで実機動作は未確認。
@@ -510,14 +529,15 @@ Pi／OpenCode／Henjiの画面表示比較
   permissionは既存symlink 経由のroot外readを防げず、hostname
   permissionはDNS解決後IPを固定しない。同一process Workerを強いsandbox
   と扱わず、本体の生存が必要なら別process、より強い境界が必要ならbroker／OS・container・VM backendを
-  別途検討する。これらの強化を最初の`pure`利用価値検証の前提にはしない。
+  別途検討する。完全な隔離は今回の目的ではなく、これらの強化を利用価値検討の前提にはしない。
+  制限対象は`run_typescript`を通る実行であり、bash等も使えるAgent全体の制限を保証しない。
 - 未確認・採用判断: Agentが自然に選ぶか、shell/Python比でcorrectness・tool
   call数・修正回数が悪化しないか、 quoting・一時fileが減るか、structured
-  resultが後続推論に役立つか、保守負担に見合うかを比較する。 current architecture・Tool
-  registry・compile/runtime・instructionへの統合も未確認である。
-- 再検討条件: 原資料ではai-devの大規模変更中につきplanning・実装・provider A/Bを保留している。
-  現行構成が安定し、利用者が再開を明示した時点でsourceと検証案を読み直す。計画・実装・provider A/Bは
-  それぞれ承認対象とし、利用価値が小さければ標準Toolへ採用しない。
+  resultが後続推論に役立つか、保守負担に見合うかを比較する。現行Tool登録・compile経路に原理的な
+  統合障害は見つかっていないが、具体的な統合方式と実経路は未確認である。
+- 次に具体化するとき: 利用者が対象用途・実行条件の具体化や利用価値検証を指示した時点で、
+  現行sourceと今回の調査記録を使う。計画・実装・provider A/Bは未指示であり、利用価値が小さければ
+  標準Toolへ採用しない。
 - 関連: R3（tool実行profile・isolation）。本候補は小処理の利用価値、R3は実行境界を扱う。
 - 原資料:
   [`2026-09-27-run-typescript-assessment.md`](../research/2026-09-27-run-typescript-assessment.md)。

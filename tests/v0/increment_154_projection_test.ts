@@ -77,6 +77,7 @@ Deno.test('Increment 154 projection reuses unchanged entries across resync and u
     ['thinking', 'thinking>', 'Checking the result.'],
   ]);
   equal(first.omitted, 2);
+  equal(first.entries[0].executionId, initialConversation.messages[0].executionId);
 
   const resynced = projector.project(
     structuredClone(withConversation(initialConversation, 2)),

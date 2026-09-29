@@ -130,6 +130,7 @@ const coreRead = {
 
 class FakeTerminal implements TerminalPort {
   readonly output: string[] = [];
+  frame: ScreenFrame | undefined;
   readonly signals = new Map<string, () => void>();
   raw = false;
   onWrite?: (text: string) => void;
@@ -168,6 +169,7 @@ class FakeTerminal implements TerminalPort {
     return Promise.resolve();
   }
   writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.frame = frame;
     this.write(encodeScreenFrame(frame));
     onWritten?.();
   }
@@ -296,7 +298,7 @@ Deno.test('Increment 142 remote follow-up uses original receipt lookup, keeps ne
   let released = false;
   let detached = false;
   terminal.onWrite = (text) => {
-    if (!newer && text.includes('awaiting receipt')) {
+    if (!newer && queueCount === 1 && text.includes('working')) {
       newer = true;
       terminal.pushInput('new draft');
     }
@@ -304,7 +306,7 @@ Deno.test('Increment 142 remote follow-up uses original receipt lookup, keeps ne
       released = true;
       release();
     }
-    if (!detached && commandReads > 0 && text.includes('accepted')) {
+    if (!detached && commandReads > 0 && text.includes('RESERVED')) {
       detached = true;
       terminal.pushInput('\x04');
     }
@@ -314,7 +316,7 @@ Deno.test('Increment 142 remote follow-up uses original receipt lookup, keeps ne
     strictEqual(
       await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
         terminal,
-        afterAcquire: () => terminal.pushInput('queued body\x1b\r'),
+        afterAcquire: () => terminal.pushInput('queued body\x1b[12~'),
         writeStderr: (text) => {
           throw new Error(text);
         },
@@ -329,16 +331,17 @@ Deno.test('Increment 142 remote follow-up uses original receipt lookup, keeps ne
     strictEqual(detached, true);
     const rendered = terminal.output.join('');
     for (
-      const value of ['new draft', 'follow-up queued', 'queued body', queueId, 'Ctrl-D detach']
+      const value of ['new draft', 'RESERVED', 'queued body']
     ) strictEqual(rendered.includes(value), true, value);
     strictEqual(terminal.raw, false);
   } finally {
     clearTimeout(fallback);
+    release();
     await server.shutdown();
   }
 });
 
-Deno.test('Increment 142 busy Enter steers and reconnect shows discarded follow-up text and stopping reason', async () => {
+Deno.test('Increment 142 busy Enter keeps its draft until F3 steers and reconnect shows discarded follow-up text', async () => {
   let steeringCount = 0;
   let taskCount = 0;
   let received: unknown;
@@ -401,13 +404,11 @@ Deno.test('Increment 142 busy Enter steers and reconnect shows discarded follow-
   });
   const terminal = new FakeTerminal();
   let detached = false;
-  let steeringSent = false;
   terminal.onWrite = (text) => {
-    if (!steeringSent && text.includes('Enter steer')) {
-      steeringSent = true;
-      terminal.pushInput('steering body\r');
-    }
-    if (!detached && text.includes('steering accepted')) {
+    if (
+      !detached && text.includes('Additional instruction received') &&
+      text.includes('steering body')
+    ) {
       detached = true;
       terminal.pushInput('\x04');
     }
@@ -417,6 +418,7 @@ Deno.test('Increment 142 busy Enter steers and reconnect shows discarded follow-
     strictEqual(
       await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
         terminal,
+        afterAcquire: () => terminal.pushInput('steering body\r\x1bOR'),
         writeStderr: (text) => {
           throw new Error(text);
         },
@@ -427,17 +429,25 @@ Deno.test('Increment 142 busy Enter steers and reconnect shows discarded follow-
     strictEqual(taskCount, 0);
     strictEqual((received as { text: string }).text, 'steering body');
     const rendered = terminal.output.join('');
+    const currentScreen = terminal.frame?.rows.join('\n') ?? '';
     for (
       const value of [
-        'follow-up discarded',
-        'cancelled',
-        queueId,
+        'NOT STARTED',
         discarded.text,
         'steering body',
-        'Enter steer',
-        'Alt-Enter queue',
       ]
     ) strictEqual(rendered.includes(value), true, value);
+    strictEqual(
+      /cance\s*lled/u.test(currentScreen),
+      true,
+      'queue reason is visible across line wrap',
+    );
+    strictEqual(currentScreen.includes('Additional instruction received'), true);
+    strictEqual(
+      currentScreen.split('Additional instruction received').length - 1,
+      1,
+    );
+    strictEqual(currentScreen.includes('steering body'), true);
     strictEqual(detached, true);
   } finally {
     clearTimeout(fallback);

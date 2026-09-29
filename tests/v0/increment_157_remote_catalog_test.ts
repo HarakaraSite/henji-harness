@@ -13,6 +13,7 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
   let reads = 0;
   let finishFirstRead: ((value: ModelCatalogResult) => void) | undefined;
   const choices: ApiSelection[] = [];
+  const retainedNotices: Array<{ sessionId: string; text: string }> = [];
   const models = [
     {
       modelId: 'seed',
@@ -72,9 +73,6 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
     credentialRegister: () => {
       throw new Error('unexpected credential register');
     },
-    pathRead: () => {
-      throw new Error('unexpected path read');
-    },
   };
   const picker = new RemoteCatalogUi({
     client,
@@ -85,7 +83,6 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
       clearModal: () => {
         lines = [];
       },
-      setEditorSnapshot() {},
     },
     sessionId: () => 'session',
     selection: () => selection,
@@ -95,11 +92,13 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
     canChangeSelection: () => true,
     canRegisterCredential: () => true,
     setNotice() {},
-    credentialPresenceRead() {},
+    retainNotice: (sessionId, _identity, text) => {
+      retainedNotices.push({ sessionId, text });
+    },
   });
   const firstOpen = picker.openModels();
   strictEqual(picker.isOpen, true);
-  strictEqual(lines.length, 0);
+  strictEqual(lines[0], 'loading model catalog');
   picker.process({ kind: 'escape' });
   finishFirstRead!(result());
   await firstOpen;
@@ -124,8 +123,56 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
     modelId: 'older',
     effort: 'auto',
   }]);
+  strictEqual(retainedNotices.length, 0);
   await picker.openModels();
   strictEqual(reads, 3);
   picker.process({ kind: 'escape' });
   strictEqual(picker.isOpen, false);
+});
+
+Deno.test('catalog loading stays in picker and failure is retained for its starting Session', async () => {
+  let currentSessionId = 'session-before';
+  let lines: readonly string[] = [];
+  const retained: Array<{ sessionId: string; text: string; failureWord?: string }> = [];
+  const client: RemoteCatalogUiOptions['client'] = {
+    catalogRead: () => Promise.reject(new Error('unavailable')),
+    modelFavorite: () => Promise.reject(new Error('unexpected favorite request')),
+    selectionChange: () => Promise.reject(new Error('unexpected selection request')),
+    commandRead: () => Promise.reject(new Error('unexpected command read')),
+    credentialPresenceRead: () => Promise.reject(new Error('unexpected credential read')),
+    credentialRegister: () => Promise.reject(new Error('unexpected credential register')),
+  };
+  const picker = new RemoteCatalogUi({
+    client,
+    renderer: {
+      renderChoicePicker: (value) => lines = value,
+      clearModal: () => lines = [],
+    },
+    sessionId: () => currentSessionId,
+    selection: () => ({ provider: 'local', modelId: 'model', effort: 'auto' }),
+    selectionChanged() {},
+    canChangeSelection: () => true,
+    canRegisterCredential: () => true,
+    setNotice() {},
+    retainNotice: (sessionId, _identity, text, failureWord) => {
+      retained.push({
+        sessionId,
+        text,
+        ...(failureWord === undefined ? {} : { failureWord }),
+      });
+    },
+  });
+
+  const opening = picker.openProviders();
+  strictEqual(lines[0], 'loading provider catalog');
+  currentSessionId = 'session-after';
+  await opening;
+
+  strictEqual(picker.isOpen, false);
+  strictEqual(lines.length, 0);
+  deepStrictEqual(retained, [{
+    sessionId: 'session-before',
+    text: 'FAILED · provider catalog unavailable',
+    failureWord: 'FAILED',
+  }]);
 });

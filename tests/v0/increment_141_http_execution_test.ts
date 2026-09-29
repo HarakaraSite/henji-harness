@@ -350,12 +350,18 @@ Deno.test('Increment 141 HTTP admission survives detach, correlates duplicate co
     );
     const cancelled = await client.executionRead(executionId);
     strictEqual(cancelled.execution.outcome, 'cancelled');
+    strictEqual(cancelled.execution.stopReason, 'cancelled');
     strictEqual(cancelled.execution.adoption, 'non_canonical');
     strictEqual(cancelled.execution.processSettlement, 'complete');
     strictEqual(statuses.includes(200), true);
     const afterCancel = await client.sessionRead(sessionId);
     strictEqual(afterCancel.runtime.execution?.executionId, executionId);
     strictEqual(afterCancel.runtime.execution?.outcome, 'cancelled');
+    strictEqual(afterCancel.runtime.execution?.stopReason, cancelled.execution.stopReason);
+    strictEqual(
+      JSON.stringify(afterCancel.runtime.execution?.diagnostic),
+      JSON.stringify(cancelled.execution.diagnostic),
+    );
     ok(
       afterCancel.conversation.messages.some((message) =>
         message.role === 'user' && message.executionId === executionId

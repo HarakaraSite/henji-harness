@@ -152,7 +152,9 @@ Deno.test('Increment 139 HTTP keeps reused provider tool IDs distinct across two
       );
       const execution = await client.executionRead(executionId);
       strictEqual(execution.execution.outcome, 'completed', JSON.stringify(execution));
+      strictEqual(execution.execution.stopReason, 'final');
       const visible = await client.sessionRead(sessionId);
+      strictEqual(visible.runtime.execution?.stopReason, execution.execution.stopReason);
       strictEqual(visible.session.startup.status, 'evaluated');
       strictEqual(
         visible.conversation.messages.filter((item) => item.text === `RESULT ${index + 1}`).length,

@@ -8,8 +8,6 @@ import type {
 import { HenjiApiClient } from '../api/client.ts';
 import type { CommandResult, CoreCommandValue } from '../api/contract.ts';
 import type { InputEvent } from './input.ts';
-import type { TuiEditor } from './input.ts';
-import { WorkspacePathIndex } from './file_reference.ts';
 import type { TuiRenderer } from './render.ts';
 
 type ProviderChoice = Extract<
@@ -30,6 +28,7 @@ type CatalogModal =
     readonly kind: 'loading';
     readonly title: string;
     readonly generation: number;
+    readonly sessionId: string;
   }
   | {
     readonly kind: 'providers';
@@ -82,11 +81,10 @@ export interface RemoteCatalogUiOptions {
     | 'commandRead'
     | 'credentialPresenceRead'
     | 'credentialRegister'
-    | 'pathRead'
   >;
   readonly renderer: Pick<
     TuiRenderer,
-    'renderChoicePicker' | 'clearModal' | 'setEditorSnapshot'
+    'renderChoicePicker' | 'clearModal'
   >;
   readonly sessionId: () => string;
   readonly selection: () => ApiSelection;
@@ -94,8 +92,11 @@ export interface RemoteCatalogUiOptions {
   readonly canChangeSelection: () => boolean;
   readonly canRegisterCredential: () => boolean;
   readonly setNotice: (notice?: string) => void;
-  readonly credentialPresenceRead: (
-    result: CredentialPresenceReadResult,
+  readonly retainNotice: (
+    sessionId: string,
+    identity: string,
+    text: string,
+    failureWord?: string,
   ) => void;
 }
 
@@ -153,8 +154,8 @@ const runSelectionCommand = async (
   client: RemoteCatalogUiOptions['client'],
   sessionId: string,
   selection: ApiSelection,
+  commandId: string,
 ): Promise<CommandResult<CoreCommandValue>> => {
-  const commandId = crypto.randomUUID();
   try {
     return await client.selectionChange(sessionId, { commandId, selection });
   } catch {
@@ -173,12 +174,10 @@ const profilePresence = (
 ): CredentialPresenceReadResult['profiles'][number] | undefined =>
   profiles.find((profile) => profile.authProfile === authProfile);
 
-/** Core-backed selection, credential, and workspace completion interactions for the remote TUI. */
+/** Core-backed selection and credential interactions for the remote TUI. */
 export class RemoteCatalogUi {
   private modal: CatalogModal | null = null;
   private generation = 0;
-  private pathIndex: WorkspacePathIndex | undefined;
-  private pathIndexRead: Promise<WorkspacePathIndex> | undefined;
 
   constructor(private readonly options: RemoteCatalogUiOptions) {}
 
@@ -188,7 +187,8 @@ export class RemoteCatalogUi {
 
   async openProviders(): Promise<void> {
     if (!this.requireSelectionReady('/provider')) return;
-    const generation = this.beginLoading('providers');
+    const sessionId = this.options.sessionId();
+    const generation = this.beginLoading('providers', sessionId);
     try {
       const result = await this.options.client.catalogRead({
         kind: 'providers',
@@ -212,12 +212,13 @@ export class RemoteCatalogUi {
   async openModels(): Promise<void> {
     if (!this.requireSelectionReady('/model')) return;
     const selection = this.options.selection();
-    const generation = this.beginLoading('models');
+    const sessionId = this.options.sessionId();
+    const generation = this.beginLoading('models', sessionId);
     try {
       const result = await this.options.client.catalogRead({
         kind: 'models',
         provider: selection.provider,
-        sessionId: this.options.sessionId(),
+        sessionId,
       });
       if (!this.current(generation)) return;
       if (result.kind !== 'models') {
@@ -248,7 +249,8 @@ export class RemoteCatalogUi {
   async openEfforts(): Promise<void> {
     if (!this.requireSelectionReady('/effort')) return;
     const selection = this.options.selection();
-    const generation = this.beginLoading('efforts');
+    const sessionId = this.options.sessionId();
+    const generation = this.beginLoading('efforts', sessionId);
     try {
       const result = await this.options.client.catalogRead({
         kind: 'efforts',
@@ -276,10 +278,18 @@ export class RemoteCatalogUi {
 
   async openLogin(): Promise<void> {
     if (!this.options.canRegisterCredential()) {
-      this.options.setNotice('busy; /login registers credentials when idle');
+      const sessionId = this.options.sessionId();
+      this.options.setNotice(undefined);
+      this.options.retainNotice(
+        sessionId,
+        `local:${crypto.randomUUID()}`,
+        'REJECTED · credential.register · requires an idle Session; check execution state and retry',
+        'REJECTED',
+      );
       return;
     }
-    const generation = this.beginLoading('credentials');
+    const sessionId = this.options.sessionId();
+    const generation = this.beginLoading('credentials', sessionId);
     try {
       const [catalog, presence] = await Promise.all([
         this.options.client.catalogRead({ kind: 'credentials' }),
@@ -289,9 +299,13 @@ export class RemoteCatalogUi {
       if (catalog.kind !== 'credentials') {
         throw new TypeError('credential catalog unavailable');
       }
-      this.options.credentialPresenceRead(presence);
       if (catalog.profiles.length === 0) {
-        this.closeWithNotice('no credential profiles are available');
+        this.closeWithNotice();
+        this.options.retainNotice(
+          sessionId,
+          `catalog:${generation}`,
+          'No credential profiles are available',
+        );
         return;
       }
       const provider = this.options.selection().provider;
@@ -316,76 +330,6 @@ export class RemoteCatalogUi {
     }
   }
 
-  async completePath(editor: TuiEditor): Promise<void> {
-    const original = editor.snapshot();
-    const generation = ++this.generation;
-    this.options.setNotice('reading Core workspace paths');
-    let index: WorkspacePathIndex;
-    try {
-      index = await this.readPathIndex();
-    } catch {
-      if (this.generation === generation) {
-        this.options.setNotice('path index unavailable');
-      }
-      return;
-    }
-    if (this.generation !== generation) return;
-    if (
-      editor.text !== original.text ||
-      editor.cursorScalar !== original.cursorScalar
-    ) {
-      this.options.setNotice(
-        'draft changed while reading Core workspace paths',
-      );
-      return;
-    }
-    const completion = remotePathCompletionAtCursor(
-      editor.text,
-      editor.cursorScalar,
-      index,
-    );
-    if (completion.kind === 'inserted') {
-      if (
-        !editor.setSnapshot({
-          text: completion.text,
-          cursorScalar: completion.cursorScalar,
-          byteLength: new TextEncoder().encode(completion.text).byteLength,
-        })
-      ) {
-        this.options.setNotice('path replacement too long');
-      } else {
-        this.options.renderer.setEditorSnapshot(editor.snapshot());
-        this.options.setNotice(undefined);
-      }
-      return;
-    }
-    this.options.setNotice(
-      completion.kind === 'ambiguous'
-        ? `path match ambiguous (${completion.count})`
-        : completion.kind === 'incomplete'
-        ? 'path index unavailable'
-        : 'no path match',
-    );
-  }
-
-  private async readPathIndex(): Promise<WorkspacePathIndex> {
-    if (this.pathIndex !== undefined) return this.pathIndex;
-    if (this.pathIndexRead !== undefined) return await this.pathIndexRead;
-    const operation = this.options.client.pathRead().then((result) =>
-      result.complete
-        ? WorkspacePathIndex.fromCandidates(result.paths)
-        : WorkspacePathIndex.incomplete()
-    );
-    this.pathIndexRead = operation;
-    try {
-      const index = await operation;
-      this.pathIndex = index;
-      return index;
-    } finally {
-      if (this.pathIndexRead === operation) this.pathIndexRead = undefined;
-    }
-  }
-
   process(event: InputEvent): void {
     const modal = this.modal;
     if (modal === null) return;
@@ -393,8 +337,7 @@ export class RemoteCatalogUi {
       modal.kind === 'saving-credential' || modal.kind === 'saving-selection'
     ) return;
     if (
-      event.kind === 'escape' || event.kind === 'ctrl_c' ||
-      event.kind === 'ctrl_d'
+      event.kind === 'escape' || event.kind === 'ctrl_d'
     ) {
       this.closeWithNotice();
       return;
@@ -523,21 +466,32 @@ export class RemoteCatalogUi {
         ? 'busy; /login registers credentials when idle'
         : `busy; ${command} waits for ready`,
     );
+    const sessionId = this.options.sessionId();
+    const operation = command === '/provider'
+      ? 'provider selection'
+      : command === '/model'
+      ? 'model selection'
+      : 'effort selection';
+    this.options.retainNotice(
+      sessionId,
+      `local:${crypto.randomUUID()}`,
+      `REJECTED · ${operation} · requires a ready active Session; check execution state and retry`,
+      'REJECTED',
+    );
     return false;
   }
 
   private beginLoading(
     kind: 'providers' | 'models' | 'efforts' | 'credentials',
+    sessionId: string,
   ): number {
     const generation = ++this.generation;
-    this.modal = { kind: 'loading', title: catalogTitle(kind), generation };
-    this.options.setNotice(this.modal.title);
-    if (kind !== 'models') {
-      this.options.renderer.renderChoicePicker([
-        this.modal.title,
-        'Esc cancels',
-      ]);
-    }
+    this.modal = { kind: 'loading', title: catalogTitle(kind), generation, sessionId };
+    this.options.setNotice(undefined);
+    this.options.renderer.renderChoicePicker([
+      this.modal.title,
+      'Esc cancels',
+    ], ['Esc cancel']);
     return generation;
   }
 
@@ -548,9 +502,17 @@ export class RemoteCatalogUi {
 
   private failCatalog(generation: number, notice: string): void {
     if (!this.current(generation)) return;
+    const loading = this.modal;
+    if (loading?.kind !== 'loading') return;
     this.modal = null;
     this.options.renderer.clearModal();
-    this.options.setNotice(notice);
+    this.options.setNotice(undefined);
+    this.options.retainNotice(
+      loading.sessionId,
+      `catalog:${generation}`,
+      `FAILED · ${notice}`,
+      'FAILED',
+    );
   }
 
   private closeWithNotice(notice?: string): void {
@@ -561,37 +523,52 @@ export class RemoteCatalogUi {
   }
 
   private async applySelection(selection: ApiSelection): Promise<void> {
+    const sessionId = this.options.sessionId();
+    const commandId = crypto.randomUUID();
     this.modal = { kind: 'saving-selection' };
     this.options.renderer.renderChoicePicker([
       'saving provider/model selection',
-    ]);
+    ], ['saving']);
     try {
       const command = await runSelectionCommand(
         this.options.client,
-        this.options.sessionId(),
+        sessionId,
         selection,
+        commandId,
       );
       if (this.modal?.kind !== 'saving-selection') return;
       if (command.kind === 'rejected') {
-        this.closeWithNotice(
-          command.reason === 'busy'
-            ? 'provider/model selection requires an idle active Session'
-            : `provider/model selection rejected: ${command.reason}`,
+        this.closeWithNotice();
+        this.options.retainNotice(
+          sessionId,
+          commandId,
+          `REJECTED · provider/model selection · ${command.reason}`,
+          'REJECTED',
         );
         return;
       }
       const effective = acceptedSelection(command);
       if (effective === undefined) {
-        this.closeWithNotice('provider/model selection unconfirmed');
+        this.closeWithNotice();
+        this.options.retainNotice(
+          sessionId,
+          commandId,
+          'UNCONFIRMED · provider/model selection · check the active selection before retrying',
+          'UNCONFIRMED',
+        );
         return;
       }
       this.options.selectionChanged(effective);
-      this.closeWithNotice(
-        `selection ${effective.provider} · ${effective.modelId} · effort ${effective.effort}`,
-      );
+      this.closeWithNotice();
     } catch {
       if (this.modal?.kind === 'saving-selection') {
-        this.closeWithNotice('provider/model selection response unknown');
+        this.closeWithNotice();
+        this.options.retainNotice(
+          sessionId,
+          commandId,
+          'UNCONFIRMED · provider/model selection · response unavailable · check the active selection before retrying',
+          'UNCONFIRMED',
+        );
       }
     }
   }
@@ -624,6 +601,8 @@ export class RemoteCatalogUi {
     const entry = modal.entries[modal.selected];
     if (entry === undefined) return;
     const generation = this.generation;
+    const sessionId = this.options.sessionId();
+    const identity = `favorite:${crypto.randomUUID()}`;
     this.modal = { ...modal, savingFavorite: true };
     this.renderModels();
     try {
@@ -658,7 +637,12 @@ export class RemoteCatalogUi {
         return;
       }
       this.modal = { ...this.modal, savingFavorite: false };
-      this.options.setNotice('favorite save failed');
+      this.options.retainNotice(
+        sessionId,
+        identity,
+        `FAILED · model favorite · ${entry.modelId} · save failed`,
+        'FAILED',
+      );
       this.renderModels();
     }
   }
@@ -673,7 +657,7 @@ export class RemoteCatalogUi {
           index === modal.selected ? '>' : ' '
         } ${entry.provider} · default ${entry.defaultSelection.modelId} · ${entry.defaultSelection.effort}`
       ),
-    ]);
+    ], ['↑/↓ select', 'Enter choose', 'Esc cancel']);
   }
 
   private renderModels(): void {
@@ -701,7 +685,12 @@ export class RemoteCatalogUi {
       }),
     ];
     if (modal.entries.length === 0) lines.push('no matching models');
-    this.options.renderer.renderChoicePicker(lines);
+    this.options.renderer.renderChoicePicker(lines, [
+      'type search',
+      '↑/↓ select',
+      ...(modal.savingFavorite ? [] : ['Enter choose', 'Tab favorite']),
+      'Esc cancel',
+    ]);
   }
 
   private renderEfforts(): void {
@@ -715,7 +704,7 @@ export class RemoteCatalogUi {
         ? ['effort metadata unavailable for this model']
         : []),
       ...modal.efforts.map((effort, index) => `${index === modal.selected ? '>' : ' '} ${effort}`),
-    ]);
+    ], ['↑/↓ select', 'Enter choose', 'Esc cancel']);
   }
 
   private renderProfiles(): void {
@@ -732,7 +721,7 @@ export class RemoteCatalogUi {
           } · ${presence?.status ?? 'unknown'}`;
         },
       ),
-    ]);
+    ], ['↑/↓ select', 'Enter edit', 'Esc cancel']);
   }
 
   private renderCredentialInput(): void {
@@ -743,7 +732,7 @@ export class RemoteCatalogUi {
       `credential input · ${modal.authProfile} · type or paste the key · Enter save · Esc cancel`,
       ...(modal.notice === undefined ? [] : [modal.notice]),
       `key> ${masked}`,
-    ]);
+    ], ['Enter save', 'Ctrl-U clear', 'Esc cancel']);
   }
 
   private processCredentialInput(
@@ -770,10 +759,12 @@ export class RemoteCatalogUi {
     authProfile: string,
     value: string,
   ): Promise<void> {
+    const sessionId = this.options.sessionId();
+    const identity = `credential:${crypto.randomUUID()}`;
     this.modal = { kind: 'saving-credential', authProfile };
     this.options.renderer.renderChoicePicker([
       `saving credential · ${authProfile}`,
-    ]);
+    ], ['saving']);
     let result: CredentialRegisterResult;
     try {
       result = await this.options.client.credentialRegister({
@@ -785,16 +776,23 @@ export class RemoteCatalogUi {
     }
     if (this.modal?.kind !== 'saving-credential') return;
     if (result.kind === 'rejected') {
+      const reason = result.reason === 'busy'
+        ? 'credential registration requires an idle Session'
+        : result.reason === 'invalid'
+        ? 'credential registration rejected'
+        : 'credential save failed';
       this.modal = {
         kind: 'credential-input',
         authProfile,
         value,
-        notice: result.reason === 'busy'
-          ? 'credential registration requires an idle Session'
-          : result.reason === 'invalid'
-          ? 'credential registration rejected'
-          : 'credential save failed',
+        notice: reason,
       };
+      this.options.retainNotice(
+        sessionId,
+        identity,
+        `REJECTED · credential.register · ${authProfile} · ${result.reason}`,
+        'REJECTED',
+      );
       this.renderCredentialInput();
       return;
     }
@@ -802,45 +800,18 @@ export class RemoteCatalogUi {
     this.options.renderer.clearModal();
     try {
       const presence = await this.options.client.credentialPresenceRead();
-      this.options.credentialPresenceRead(presence);
       const profile = profilePresence(presence.profiles, authProfile);
-      this.options.setNotice(
-        `credential saved: ${authProfile} · ${profile?.status ?? result.status}`,
+      this.options.retainNotice(
+        sessionId,
+        identity,
+        `Credential saved for ${authProfile} · ${profile?.status ?? result.status}`,
       );
     } catch {
-      this.options.setNotice(
-        `credential saved: ${authProfile} · presence refresh unavailable`,
+      this.options.retainNotice(
+        sessionId,
+        identity,
+        `Credential saved for ${authProfile} · presence refresh unavailable`,
       );
     }
   }
 }
-
-export type RemotePathCompletion =
-  | {
-    readonly kind: 'inserted';
-    readonly text: string;
-    readonly cursorScalar: number;
-  }
-  | { readonly kind: 'ambiguous'; readonly count: number }
-  | { readonly kind: 'incomplete' }
-  | { readonly kind: 'none' };
-
-/** Apply Core-supplied path candidates to the same token/cursor range as the local editor. */
-export const remotePathCompletionAtCursor = (
-  text: string,
-  cursorScalar: number,
-  index: WorkspacePathIndex,
-): RemotePathCompletion => {
-  const points = [...text];
-  let start = cursorScalar;
-  while (start > 0 && !/[ \t\n]/u.test(points[start - 1])) start -= 1;
-  const fragment = points.slice(start, cursorScalar).join('');
-  const completion = index.completePath(fragment);
-  if (completion.kind !== 'inserted') return completion;
-  points.splice(start, cursorScalar - start, ...[...completion.text]);
-  return {
-    kind: 'inserted',
-    text: points.join(''),
-    cursorScalar: start + [...completion.text].length,
-  };
-};

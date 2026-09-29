@@ -118,7 +118,6 @@ const operations = [
   'command.read',
   'catalog.read',
   'selection.change',
-  'path.read',
   'credential.readPresence',
   'credential.register',
 ] satisfies readonly CoreOperationName[];
@@ -235,7 +234,7 @@ const accepted = (commandId: string, value: unknown): Response =>
     value,
   });
 
-Deno.test('Increment 144 remote catalog, selection, masked login, and Core workspace completion', async () => {
+Deno.test('Increment 144 remote catalog, selection, and masked login', async () => {
   selected = { provider: 'provider-a', modelId: 'mimo-flash', effort: 'low' };
   const models = [
     ...Array.from({ length: 12 }, (_, index) => ({
@@ -395,10 +394,8 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
         request.method === 'GET' && url.pathname === '/api/v1/workspace/paths'
       ) {
         pathReads += 1;
-        return Response.json({
-          workspace: '/srv/core-workspace',
-          complete: true,
-          paths: ['notes/a file.md', 'src/alpha.ts', 'src/alphabet.ts'],
+        return new Response('workspace path completion removed', {
+          status: 404,
         });
       }
       if (request.method === 'POST' && url.pathname.endsWith('/tasks')) {
@@ -420,7 +417,7 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
   try {
     await waitFor(() => terminal.text().includes('Increment 144 remote catalog'));
 
-    terminal.pushInput('/provider\r');
+    terminal.pushInput('/provider\r\r');
     await waitFor(() => terminal.text().includes('provider picker'));
     terminal.pushInput('\x1b[B\r');
     await waitFor(() => selections.length === 1);
@@ -431,21 +428,22 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
     });
 
     const beforeLoading = terminal.frames.length;
-    terminal.pushInput('/model\r');
+    terminal.pushInput('/model\r\r');
     await waitFor(() =>
       releaseModels !== undefined &&
       terminal.frames.at(-1)!.rows.join('\n').includes('loading model catalog')
     );
     strictEqual(
-      terminal.frames.slice(beforeLoading).some((frame) =>
-        frame.rows.some((row) => row.includes('Esc cancels') || row.includes('model picker'))
-      ),
-      false,
+      terminal.frames.slice(beforeLoading).some((frame) => {
+        const rows = frame.rows.join('\n');
+        return rows.includes('loading model catalog') && rows.includes('Esc cancels');
+      }),
+      true,
     );
     terminal.pushInput('\x1b');
     await waitFor(() => !terminal.frames.at(-1)!.rows.join('\n').includes('loading model catalog'));
     releaseModels!();
-    terminal.pushInput('/model\r');
+    terminal.pushInput('/model\r\r');
     await waitFor(() =>
       terminal.text().includes('> * mimo-flash') &&
       terminal.text().includes('of 14')
@@ -457,7 +455,7 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
       terminal.text().includes('> * mimo-flash') &&
       terminal.text().includes('of 14')
     );
-    terminal.pushInput('\x1b/effort\r');
+    terminal.pushInput('\x1b/effort\r\r');
     await waitFor(() => terminal.text().includes('effort picker'));
     terminal.pushInput('\x1b[B\r');
     await waitFor(() => selections.length === 2);
@@ -467,7 +465,7 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
       effort: 'medium',
     });
 
-    terminal.pushInput('/login\r');
+    terminal.pushInput('/login\r\r');
     await waitFor(() => terminal.text().includes('credential registration'));
     terminal.pushInput('\r');
     await waitFor(() => terminal.text().includes('credential input · openai-profile'));
@@ -475,20 +473,18 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
     await waitFor(() => terminal.text().includes('*'.repeat(secret.length)));
     strictEqual(terminal.text().includes(secret), false);
     terminal.pushInput('\r');
-    await waitFor(() => terminal.text().includes('credential saved: openai-profile'));
+    await waitFor(() => terminal.text().includes('Credential saved for openai-profile'));
     strictEqual(registeredValue, secret);
     strictEqual(credentialPresenceReads, 2);
     strictEqual(terminal.text().includes(secret), false);
 
     terminal.pushInput('notes/a\t');
-    await waitFor(() => terminal.text().includes('"./notes/a file.md"'));
-    terminal.pushInput('\x15src/al\t');
-    await waitFor(() => terminal.text().includes('path match ambiguous (2)'));
-    strictEqual(pathReads, 1);
+    await waitFor(() => terminal.text().includes('notes/a'));
+    strictEqual(pathReads, 0);
     strictEqual(taskSubmissions, 0);
 
     const beforeSecondLogin = terminal.text().length;
-    terminal.pushInput('\x15/login\r');
+    terminal.pushInput('\x03/login\r\r');
     await waitFor(() =>
       terminal.text().slice(beforeSecondLogin).includes(
         'credential registration',
@@ -511,12 +507,14 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
     strictEqual(credentialRegistrations, 1);
     strictEqual(terminal.text().includes(detachedValue), false);
   } finally {
+    terminal.pushInput('\x04');
+    await run;
     releaseModels?.();
     await server.shutdown();
   }
 });
 
-Deno.test('Increment 144 follows live credential presence and permits saved-view login', async () => {
+Deno.test('Increment 159 keeps credential presence inside login and permits saved-view login', async () => {
   const savedSessionId = '14400000-0000-4000-8000-000000000002';
   let presenceStatus: 'present' | 'missing' | 'unknown' = 'missing';
   let activeStream: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -628,10 +626,10 @@ Deno.test('Increment 144 follows live credential presence and permits saved-view
   try {
     await waitFor(() => terminal.text().includes('Active Session A'));
 
-    terminal.pushInput('/login\r');
+    terminal.pushInput('/login\r\r');
     await waitFor(() => terminal.text().includes('provider-b-profile'));
     terminal.pushInput('\x1b');
-    await waitFor(() => terminal.text().includes('Ctrl-C clear'));
+    await waitFor(() => terminal.text().includes('Enter submit'));
     presenceStatus = 'present';
     if (activeStream === undefined) {
       throw new Error('active Session stream missing');
@@ -640,13 +638,13 @@ Deno.test('Increment 144 follows live credential presence and permits saved-view
       activeStream,
       snapshotFor(sessionId, sessionId, presenceStatus, 2),
     );
-    await waitFor(() => terminal.text().includes('credential present: provider-b'));
+    strictEqual(terminal.text().includes('credential present: provider-b'), false);
 
     const beforeView = terminal.text().length;
     terminal.pushInput(`/view ${savedSessionId}\r`);
     await waitFor(() => terminal.text().slice(beforeView).includes('Saved Session B'));
     const beforeLogin = terminal.text().length;
-    terminal.pushInput('/login\r');
+    terminal.pushInput('/login\r\r');
     await waitFor(() => terminal.text().slice(beforeLogin).includes('provider-b-profile'));
     strictEqual(credentialCatalogReads, 2);
     terminal.pushInput('\r');

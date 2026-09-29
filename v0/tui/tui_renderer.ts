@@ -40,6 +40,7 @@ import {
   reduceUiAction,
   reduceUiEvent,
   setUiProjection,
+  type UiFooter,
   type UiLogEntry,
   type UiState,
 } from './state.ts';
@@ -309,6 +310,7 @@ export class TuiRenderer implements TerminalRendererGate {
     busyStartedAt?: number,
   ): void {
     this.ui = setUiProjection(this.ui, projection);
+    if (this.ui.footer !== undefined) return;
     if (
       projection.lifecycle === 'busy' || projection.lifecycle === 'cancelling'
     ) {
@@ -316,6 +318,16 @@ export class TuiRenderer implements TerminalRendererGate {
         this.startBusyElapsed(busyStartedAt);
       }
     } else this.stopBusyElapsed();
+  }
+
+  setRemoteFooter(footer: UiFooter, startedAt?: number): void {
+    this.ui = reduceUiAction(this.ui, { kind: 'footer', footer });
+    if (footer.activity === 'working' || footer.activity === 'cancelling') {
+      if (this.busyInterval === undefined || this.busyStartedAt !== startedAt) {
+        this.startBusyElapsed(startedAt, startedAt !== undefined);
+      }
+    } else this.stopBusyElapsed();
+    this.redraw();
   }
 
   /** Install the already-projected startup facts used by the local F1 help overlay. */
@@ -344,24 +356,24 @@ export class TuiRenderer implements TerminalRendererGate {
     this.closing = true;
   }
 
-  private startBusyElapsed(startedAt = this.now()): void {
+  private startBusyElapsed(startedAt = this.now(), elapsed = true): void {
     this.stopBusyElapsed();
-    this.busyStartedAt = startedAt;
+    this.busyStartedAt = elapsed ? startedAt : undefined;
     this.busySpinnerFrame = 0;
     this.ui = reduceUiAction(this.ui, {
       kind: 'busy_elapsed',
-      seconds: Math.max(0, Math.floor((this.now() - startedAt) / 1000)),
+      seconds: elapsed ? Math.max(0, Math.floor((this.now() - startedAt) / 1000)) : undefined,
     });
     this.ui = reduceUiAction(this.ui, { kind: 'busy_spinner', frame: 0 });
     this.busyInterval = this.scheduleInterval(() => {
-      if (this.closing || this.busyStartedAt === undefined) return;
+      if (this.closing) return;
       this.busySpinnerFrame = (this.busySpinnerFrame + 1) %
         BUSY_SPINNER_FRAMES.length;
       this.ui = reduceUiAction(this.ui, {
         kind: 'busy_spinner',
         frame: this.busySpinnerFrame,
       });
-      const seconds = Math.max(
+      const seconds = this.busyStartedAt === undefined ? undefined : Math.max(
         0,
         Math.floor((this.now() - this.busyStartedAt) / 1000),
       );
@@ -453,6 +465,38 @@ export class TuiRenderer implements TerminalRendererGate {
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
       overlay: { kind: 'readOnlyHelp', lines: [...lines] },
+    });
+    this.redraw();
+  }
+
+  scrollHelp(direction: 'up' | 'down'): void {
+    if (this.ui.overlay.kind !== 'readOnlyHelp') return;
+    const layout = this.layoutSnapshot(
+      this.lastSize.columns,
+      this.lastSize.rows,
+    );
+    const page = Math.max(1, layout.log.length - 1);
+    const offset = Math.max(
+      0,
+      Math.min(
+        Math.max(0, layout.overlay.length - 1 - page),
+        (this.ui.overlay.offset ?? 0) + (direction === 'up' ? -page : page),
+      ),
+    );
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: { ...this.ui.overlay, offset },
+    });
+    this.redraw();
+  }
+
+  renderSlashPicker(
+    candidates: readonly import('./slash_command.ts').SlashCommandDefinition[],
+    selected: number,
+  ): void {
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: { kind: 'slashPicker', candidates: [...candidates], selected },
     });
     this.redraw();
   }
@@ -814,11 +858,15 @@ export class TuiRenderer implements TerminalRendererGate {
     this.redraw();
   }
 
-  renderChoicePicker(lines: readonly string[]): void {
+  renderChoicePicker(lines: readonly string[], controls?: readonly string[]): void {
     if (this.closing) throw new PresentationDeliveryError();
     this.ui = reduceUiAction(this.ui, {
       kind: 'overlay',
-      overlay: { kind: 'choicePicker', lines: Object.freeze([...lines]) },
+      overlay: {
+        kind: 'choicePicker',
+        lines: Object.freeze([...lines]),
+        ...(controls === undefined ? {} : { controls: Object.freeze([...controls]) }),
+      },
     });
     this.redraw();
   }

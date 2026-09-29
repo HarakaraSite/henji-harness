@@ -176,15 +176,15 @@ const footerStatusParts = (
 const remoteFooterControls = (status: string): readonly string[] => {
   const known = new Set([
     'Enter submit',
-    'Enter steer',
-    'Alt-Enter queue',
+    'F1 sessions',
+    'F2 queue',
+    'F3 steer',
     'Ctrl-C clear',
     'Ctrl-D detach',
     'Ctrl-Q shutdown',
     'Esc cancel',
     'cancellation unavailable',
     '/detach',
-    'F1 help',
   ]);
   return status.split(' · ').filter((part) => known.has(part));
 };
@@ -242,10 +242,15 @@ const historyViewport = (
 };
 
 const footerPrimaryText = (state: UiState, columns: number): string => {
-  const primary = safeDisplay(footerStatusParts(footerStatus(state)).primary, false);
-  const running = state.lifecycle === 'busy' || state.lifecycle === 'cancelling';
+  const primary = safeDisplay(
+    state.footer?.activity ?? footerStatusParts(footerStatus(state)).primary,
+    false,
+  );
+  const running = state.footer === undefined
+    ? state.lifecycle === 'busy' || state.lifecycle === 'cancelling'
+    : state.footer.activity === 'working' || state.footer.activity === 'cancelling';
   const elapsed = running && state.busyElapsedSeconds !== undefined &&
-      (primary === 'busy' || primary === 'cancelling')
+      (primary === 'working' || primary === 'busy' || primary === 'cancelling')
     ? (() => {
       const total = state.busyElapsedSeconds!;
       const hours = Math.floor(total / 3600);
@@ -256,8 +261,11 @@ const footerPrimaryText = (state: UiState, columns: number): string => {
         : `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
     })()
     : undefined;
-  const spinner = running && (primary === 'busy' || primary === 'cancelling')
-    ? BUSY_SPINNER_FRAMES[(state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length]
+  const spinner = running &&
+      (primary === 'working' || primary === 'busy' || primary === 'cancelling')
+    ? BUSY_SPINNER_FRAMES[
+      (state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length
+    ]
     : undefined;
   const label = primary === 'busy' ? 'working' : primary;
   const withElapsed = elapsed === undefined ? label : `${label} ${elapsed}`;
@@ -281,6 +289,51 @@ const footerStatusText = (
 }> => {
   const renderSegments = (segments: readonly string[]): string =>
     `[${segments.map((segment) => segment.replaceAll(' · ', ' │ ')).join(' │ ')}]`;
+  if (state.overlay.kind === 'slashPicker') {
+    return {
+      text: truncateCells('[↑/↓ select │ Enter complete │ Esc close]', columns),
+    };
+  }
+  if (state.overlay.kind === 'readOnlyHelp') {
+    return { text: truncateCells('[PageUp/Down scroll │ Esc close]', columns) };
+  }
+  if (state.footer !== undefined) {
+    const overlay = state.overlay;
+    const controls = overlay.kind === 'sessionPicker'
+      ? overlay.loading ? ['loading Sessions', 'Esc close'] : [
+        '↑/↓ select',
+        '←/→ page',
+        `Enter ${overlay.actionMode ?? 'view'}`,
+        'R resume',
+        'Esc close',
+      ]
+      : overlay.kind === 'choicePicker'
+      ? overlay.controls ?? ['Esc close']
+      : state.footer.controls.filter((control) =>
+        history === undefined || control !== 'Esc cancel'
+      );
+    const historySegments = history === undefined ? [] : [
+      history.kind === 'start'
+        ? 'history start'
+        : `history ${history.entry}/${history.totalEntries}`,
+      ...(state.newBelowCount > 0 ? [`new ${state.newBelowCount}`] : []),
+      'Esc latest',
+    ];
+    const segments = [
+      ...historySegments,
+      ...(state.footer.hint === undefined || overlay.kind !== 'none'
+        ? []
+        : [safeDisplay(state.footer.hint, false)]),
+      ...controls,
+    ];
+    while (
+      segments.length > Math.max(1, historySegments.length) &&
+      width(renderSegments(segments)) > columns
+    ) {
+      segments.pop();
+    }
+    return { text: truncateCells(renderSegments(segments), columns) };
+  }
   // The editor draft is already visible in the input band. Keep the uncommitted input lanes
   // available in the footer, but do not repeat its byte count as internal status.
   const pending = state.pending?.lanes.filter((lane) => lane.present && lane.kind !== 'editor') ??
@@ -354,7 +407,10 @@ const footerStatusText = (
     ...(resultText === undefined || resultText.length === 0
       ? []
       : [{ kind: 'remote-result', text: resultText }]),
-    ...remoteControls.map((text) => ({ kind: 'remote-controls', text: safeDisplay(text, false) })),
+    ...remoteControls.map((text) => ({
+      kind: 'remote-controls',
+      text: safeDisplay(text, false),
+    })),
   ];
   let segments = [...fixed, ...optional.map((segment) => segment.text)];
   while (
@@ -385,8 +441,9 @@ const footerSessionText = (
     false,
   );
   const primary = footerStatusParts(footerStatus(state)).primary;
-  const active = (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
-    (primary === 'busy' || primary === 'cancelling');
+  const active = state.footer !== undefined ||
+    ((state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
+      (primary === 'busy' || primary === 'cancelling'));
   const opening = active ? `[${footerPrimaryText(state, columns)} │ ` : '[';
   const fixed = ` │ session:${session} │ ${title}]`;
   const available = columns - width(`${opening}${fixed}`);
@@ -541,7 +598,7 @@ const layoutLogEntry = (
         'log',
         entry.id,
         projection.labelTone === undefined ? undefined : {
-          scalarLength: projection.labelScalarLength,
+          scalarLength: projection.styledPrefixScalarLength ?? projection.labelScalarLength,
           tone: projection.labelTone,
         },
         projection.rowTone,
@@ -612,7 +669,8 @@ const logRows = (
       awaitingUserOutput.has(entry.turn) &&
       (entry.kind === 'tool' || entry.kind === 'assistant' ||
         entry.kind === 'thinking');
-    sourceBytes += entry.textByteLength ?? encoder.encode(entry.text).byteLength;
+    sourceBytes += entry.textByteLength ??
+      encoder.encode(entry.text).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
     const thinkingBoundary = previousEntryKind !== undefined &&
       (entry.kind === 'thinking' || previousEntryKind === 'thinking');
@@ -655,12 +713,27 @@ const overlayRows = (
   const lines: string[] = [];
   if (overlay.kind === 'startupHelp') {
     lines.push(
-      columns < 40 || rows < 16 ? 'F1 help · Esc return' : 'startup help · F1/Esc return',
+      columns < 40 || rows < 16 ? '/help · Esc return' : 'startup help · /help or Esc return',
     );
     lines.push(...(overlay.lines ?? []).slice(0, 12));
   } else if (overlay.kind === 'readOnlyHelp') {
-    lines.push('read-only help · F1/Esc return');
-    lines.push(...overlay.lines.slice(0, 12));
+    lines.push('help · PageUp/Down scroll · Esc return');
+    lines.push(...overlay.lines);
+  } else if (overlay.kind === 'slashPicker') {
+    const selected = overlay.candidates[overlay.selected];
+    lines.push(
+      'slash commands · ↑/↓ select · Enter complete · Esc close',
+      selected === undefined
+        ? 'no matching commands'
+        : `usage: ${selected.usage} │ ${selected.shortcut ?? '対応なし'}`,
+      selected?.description ?? '',
+    );
+    for (const [index, definition] of overlay.candidates.entries()) {
+      lines.push(truncateCells(
+        `${index === overlay.selected ? '>' : ' '} ${definition.text} · ${definition.description}`,
+        columns,
+      ));
+    }
   } else if (overlay.kind === 'sessionPicker') {
     const pickerControls = overlay.actionMode === 'view'
       ? 'Enter view · R resume · Esc return'
@@ -713,17 +786,25 @@ const overlayRows = (
   const result: LayoutRow[] = [];
   let headerRows = 0;
   let selectedRow = -1;
+  const listPicker = overlay.kind === 'sessionPicker' ||
+    overlay.kind === 'slashPicker';
+  const headerLines = overlay.kind === 'sessionPicker' ? 2 : 3;
   const selectedLine = overlay.kind === 'sessionPicker'
     ? 2 + overlay.selected - overlay.page * 8
+    : overlay.kind === 'slashPicker'
+    ? 3 + overlay.selected
     : -1;
-  for (const [index, line] of lines.slice(0, 32).entries()) {
-    if (overlay.kind === 'sessionPicker' && index === 2) {
+  const displayedLines = overlay.kind === 'readOnlyHelp' || overlay.kind === 'slashPicker'
+    ? lines
+    : lines.slice(0, 32);
+  for (const [index, line] of displayedLines.entries()) {
+    if (listPicker && index === headerLines) {
       headerRows = result.length;
     }
     if (index === selectedLine) selectedRow = result.length;
     result.push(...wrap(line, columns, 'log'));
   }
-  if (overlay.kind === 'sessionPicker' && lines.length <= 2) {
+  if (listPicker && lines.length <= headerLines) {
     headerRows = result.length;
   }
   return { rows: result, headerRows, selectedRow };
@@ -751,7 +832,10 @@ const inputRows = (
   };
   for (const segment of segments) {
     if (segment.text === '\n') {
-      if (!cursorSet && cursor >= segment.scalarStart && cursor < segment.scalarEnd) {
+      if (
+        !cursorSet && cursor >= segment.scalarStart &&
+        cursor < segment.scalarEnd
+      ) {
         cursorRow = all.length;
         cursorCell = used;
         cursorSet = true;
@@ -860,9 +944,28 @@ export const layoutUi = (
       state.overlay.kind === 'readOnlyHelp'
     ? 0
     : Math.max(0, overlay.rows.length - logHeight);
-  const visibleOverlay = state.overlay.kind === 'sessionPicker' &&
-      overlay.selectedRow >= 0 && overlay.rows.length > logHeight &&
-      logHeight > 0
+  const visibleOverlay = state.overlay.kind === 'readOnlyHelp' && logHeight > 0
+    ? [
+      ...overlay.rows.slice(0, 1),
+      ...overlay.rows.slice(
+        1 +
+          clamp(
+            state.overlay.offset ?? 0,
+            0,
+            Math.max(0, overlay.rows.length - logHeight),
+          ),
+        1 +
+          clamp(
+            state.overlay.offset ?? 0,
+            0,
+            Math.max(0, overlay.rows.length - logHeight),
+          ) + logHeight - 1,
+      ),
+    ]
+    : (state.overlay.kind === 'sessionPicker' ||
+        state.overlay.kind === 'slashPicker') &&
+        overlay.selectedRow >= 0 && overlay.rows.length > logHeight &&
+        logHeight > 0
     ? (() => {
       const headerCount = Math.min(
         overlay.headerRows,
@@ -898,7 +1001,9 @@ export const layoutUi = (
     history,
     sessionFooter !== undefined && footerCount >= 2 &&
       (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
-      ['busy', 'cancelling'].includes(footerStatusParts(footerStatus(state)).primary),
+      ['busy', 'cancelling'].includes(
+        footerStatusParts(footerStatus(state)).primary,
+      ),
   );
   const footer = [
     {

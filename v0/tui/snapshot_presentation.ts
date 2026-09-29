@@ -302,6 +302,7 @@ export class SnapshotConversationProjector {
             id: `restored:message:${messageIdentity}`,
             kind: 'user',
             label: userLabel!,
+            executionId: message.executionId,
             text: message.text ?? '',
             live: false,
             turn: message.turn,

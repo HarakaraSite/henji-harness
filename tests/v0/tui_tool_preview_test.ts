@@ -427,7 +427,8 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('/recall'), 'recall');
   assertEquals(slashCommandOf('/recall aaaaaaaa'), 'recall');
   assertEquals(slashCommandOf('/detach'), 'detach');
-  assertEquals(slashCommandOf('/shutdown'), 'shutdown');
+  assertEquals(slashCommandOf('/quit'), 'quit');
+  assertEquals(slashCommandOf('/shutdown'), 'unknown');
   assertEquals(slashCommandOf('/exit'), 'unknown');
   assertEquals(slashCommandOf('  /sessions  '), 'sessions');
   assertEquals(slashCommandOf('read foo.ts'), null);
@@ -452,7 +453,8 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
 
 Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () => {
   assertEquals(slashCommandCandidates('/'), []);
-  assertEquals(slashCommandCandidates('/s'), ['/sessions', '/shutdown']);
+  assertEquals(slashCommandCandidates('/s'), ['/sessions']);
+  assertEquals(slashCommandCandidates('/q'), ['/quit']);
   assertEquals(slashCommandCandidates('/d'), ['/detach']);
   assertEquals(slashCommandCandidates('/v'), ['/view']);
   assertEquals(slashCommandCandidates('/c'), ['/context']);

@@ -15,7 +15,6 @@ import type {
   FollowUpReadResult,
   FollowUpRecord,
   HistoryReadResult,
-  PathReadResult,
   PendingView,
   RecallValue,
   SelectionChangeValue,
@@ -104,7 +103,11 @@ const isExecutionView = (value: unknown): value is ExecutionView =>
   (value.lifecycle === 'active' || value.lifecycle === 'settled') &&
   ['unknown', 'completed', 'cancelled', 'failed', 'interrupted'].includes(
     String(value.outcome),
-  ) && ['canonical', 'non_canonical'].includes(String(value.adoption)) &&
+  ) && (value.stopReason === undefined || isText(value.stopReason)) &&
+  (value.diagnostic === undefined ||
+    isRecord(value.diagnostic) && isText(value.diagnostic.code) &&
+      isText(value.diagnostic.stage)) &&
+  ['canonical', 'non_canonical'].includes(String(value.adoption)) &&
   (value.committedRevision === undefined || isCount(value.committedRevision)) &&
   ['running', 'settling', 'complete', 'unknown'].includes(
     String(value.processSettlement),
@@ -343,15 +346,6 @@ export const decodeCredentialRegisterResult = (
     return value as unknown as CredentialRegisterResult;
   }
   throw new ApiCodecError();
-};
-
-export const decodePathReadResult = (value: unknown): PathReadResult => {
-  if (
-    !isRecord(value) || !isText(value.workspace) ||
-    typeof value.complete !== 'boolean' ||
-    !Array.isArray(value.paths) || !value.paths.every(isText)
-  ) throw new ApiCodecError();
-  return value as unknown as PathReadResult;
 };
 
 export const decodeRecallValue = (value: unknown): RecallValue => {

@@ -178,7 +178,7 @@ export const startupHelpLines = (
   _rows = 24,
 ): readonly string[] => {
   return Object.freeze([
-    'Henji help · F1/Esc return',
+    'Henji help · Esc return',
     'Type / followed by a letter for command suggestions; Tab completes a single match',
     '/login · register the API credential for a provider auth profile',
     '/provider · select the root provider and its default model',
@@ -189,6 +189,6 @@ export const startupHelpLines = (
     '/rename <title> · name the current saved session',
     '/recall [execution-id] · use a stopped execution for the next task',
     '/detach · detach this TUI (Ctrl-D); Core work continues',
-    '/shutdown · stop this Core and exit this TUI (Ctrl-Q)',
+    '/quit · stop this Core and exit this TUI (Ctrl-Q)',
   ]);
 };

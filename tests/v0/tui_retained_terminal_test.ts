@@ -15,9 +15,14 @@ import {
   type TerminalPort,
 } from '../../v0/tui/terminal.ts';
 import type { PendingMetadataSnapshot } from '../../v0/tui/pending_input.ts';
+import {
+  SHORTCUT_ONLY_OPERATIONS,
+  SLASH_COMMANDS,
+  slashCommandHelpLines,
+  slashPickerCandidates,
+} from '../../v0/tui/slash_command.ts';
 import { startupHeaderLines } from '../../v0/tui/startup_render.ts';
 import { projectRuntimeDisplayState } from '../../v0/agent/runtime/startup_orientation.ts';
-import { WorkspacePathIndex } from '../../v0/tui/file_reference.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -354,7 +359,12 @@ Deno.test('compact session picker keeps its selected session visible with the fu
     productVersion: '0.3.0',
     workspace: '/tmp/henji-ui',
     agentId: 'default',
-    model: { provider: 'openrouter-chat', profileId: 'test', modelId: 'm', effort: 'high' },
+    model: {
+      provider: 'openrouter-chat',
+      profileId: 'test',
+      modelId: 'm',
+      effort: 'high',
+    },
     sessionMode: { kind: 'new' },
     instructions: { loaded: false, source: 'none' },
     skills: { count: 0, names: [], omitted: 0 },
@@ -410,20 +420,6 @@ Deno.test('compact session picker keeps its selected session visible with the fu
   const standard = renderer.layoutSnapshot(80, 24);
   assert(standard.log.some((row) => row.text.includes('Saved session 0')));
   assert(standard.log.some((row) => row.text.includes('Saved session 7')));
-});
-
-Deno.test('workspace path completion remains available beyond 1,024 files', () => {
-  const paths = Array.from(
-    { length: 1_200 },
-    (_, index) => `docs/file-${index.toString().padStart(4, '0')}.md`,
-  );
-  const index = WorkspacePathIndex.fromCandidates(paths);
-  assert(index.complete);
-  assertEquals(index.completePath('docs/file-1199'), {
-    kind: 'inserted',
-    text: '"./docs/file-1199.md"',
-    replacement: '"./docs/file-1199.md"',
-  });
 });
 
 Deno.test('retained footer omits editor bytes while keeping pending lanes', () => {
@@ -599,7 +595,12 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
     productVersion: '0.6.0',
     workspace: '/tmp/henji-ui',
     agentId: 'default',
-    model: { provider: 'openrouter-chat', profileId: 'test', modelId: 'm', effort: 'high' },
+    model: {
+      provider: 'openrouter-chat',
+      profileId: 'test',
+      modelId: 'm',
+      effort: 'high',
+    },
     sessionMode: { kind: 'continue' },
     instructions: { loaded: false, source: 'none' },
     skills: { count: 0, names: [], omitted: 0 },
@@ -613,7 +614,10 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
     messageCount: 60,
   });
   const messages = Array.from({ length: 30 }, (_, index) => [
-    { role: 'user' as const, content: { kind: 'text' as const, text: `question ${index}` } },
+    {
+      role: 'user' as const,
+      content: { kind: 'text' as const, text: `question ${index}` },
+    },
     {
       role: 'assistant' as const,
       content: {
@@ -632,17 +636,25 @@ Deno.test('PageUp reaches a short oldest history window without returning to lat
     const position = footer.match(/history record (\d+) of (\d+)/);
     if (position !== null) {
       assertEquals(Number(position[2]), messages.length);
-      assert(Number(position[1]) <= previousEntry, 'PageUp moved toward newer entries');
+      assert(
+        Number(position[1]) <= previousEntry,
+        'PageUp moved toward newer entries',
+      );
       assert(!footer.includes('record line'));
       previousEntry = Number(position[1]);
     }
     const state = renderer.stateSnapshot();
-    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') break;
+    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') {
+      break;
+    }
   }
   const oldest = renderer.layoutSnapshot();
   assertEquals(renderer.stateSnapshot().historyWindow?.start, 0);
   assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
-  assert(oldest.allLog.length < oldest.log.length, 'the oldest window should fit one viewport');
+  assert(
+    oldest.allLog.length < oldest.log.length,
+    'the oldest window should fit one viewport',
+  );
   assert(oldest.log.some((row) => row.text.includes('Henji Harness')));
   assert(oldest.footer[0].text.includes('history start'));
   renderer.scrollPage('up');
@@ -661,7 +673,8 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   const terminal = new RecordingTerminal();
   const renderer = new TuiRenderer(terminal);
   renderer.resize(80, 10);
-  const body = Array.from({ length: 200 }, (_, index) => `- item ${index}`).join('\n');
+  const body = Array.from({ length: 200 }, (_, index) => `- item ${index}`)
+    .join('\n');
   renderer.eventSink({
     kind: 'assistant_message',
     turn: 1,
@@ -670,7 +683,10 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   const assistantRows = renderer.layoutSnapshot(80, 10).allLog.filter((row) =>
     row.entryId !== undefined
   );
-  assert(assistantRows.length > 2, 'assistant entry did not span multiple rows');
+  assert(
+    assistantRows.length > 2,
+    'assistant entry did not span multiple rows',
+  );
   for (let index = 1; index < assistantRows.length; index += 1) {
     assert(
       (assistantRows[index].sourceScalarOffset ?? 0) >
@@ -692,7 +708,10 @@ Deno.test('retained PageDown advances through a large assistant entry after olde
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'followLatest' });
   assert(starts.length > 1, 'PageDown stopped inside the assistant entry');
   for (let index = 1; index < starts.length; index += 1) {
-    assert(starts[index] > starts[index - 1], 'PageDown did not advance monotonically');
+    assert(
+      starts[index] > starts[index - 1],
+      'PageDown did not advance monotonically',
+    );
   }
 });
 
@@ -730,9 +749,15 @@ Deno.test('table and paragraph history still page through after resize', () => {
     [
       '| Name | Detail |',
       '| --- | --- |',
-      ...Array.from({ length: 90 }, (_, index) => `| record-${index} | ${'detail '.repeat(8)} |`),
+      ...Array.from(
+        { length: 90 },
+        (_, index) => `| record-${index} | ${'detail '.repeat(8)} |`,
+      ),
     ].join('\n'),
-    Array.from({ length: 90 }, (_, index) => `paragraph-${index} ${'word '.repeat(25)}`).join('\n'),
+    Array.from(
+      { length: 90 },
+      (_, index) => `paragraph-${index} ${'word '.repeat(25)}`,
+    ).join('\n'),
   ];
   for (const body of bodies) {
     const terminal = new RecordingTerminal();
@@ -773,7 +798,12 @@ Deno.test('retained PageUp reaches oldest across the startup header', () => {
     productVersion: '0.3.0',
     workspace: '/tmp/henji-ui',
     agentId: 'default',
-    model: { provider: 'openrouter-chat', profileId: 'test', modelId: 'm', effort: 'high' },
+    model: {
+      provider: 'openrouter-chat',
+      profileId: 'test',
+      modelId: 'm',
+      effort: 'high',
+    },
     sessionMode: { kind: 'continue' },
     instructions: { loaded: true, source: 'AGENTS.md' },
     skills: { count: 1, names: ['s'], omitted: 0 },
@@ -790,18 +820,27 @@ Deno.test('retained PageUp reaches oldest across the startup header', () => {
     renderer.eventSink({
       kind: 'user_message',
       turn,
-      message: { role: 'user', content: { kind: 'text', text: `question ${turn}` } },
+      message: {
+        role: 'user',
+        content: { kind: 'text', text: `question ${turn}` },
+      },
     });
     renderer.eventSink({
       kind: 'assistant_message',
       turn,
-      message: { role: 'assistant', content: { kind: 'text', text: `answer ${turn}` } },
+      message: {
+        role: 'assistant',
+        content: { kind: 'text', text: `answer ${turn}` },
+      },
     });
   }
   for (let page = 0; page < 200; page += 1) {
     renderer.scrollPage('up');
     const scroll = renderer.stateSnapshot().scroll;
-    assert(scroll.kind !== 'followLatest', 'PageUp jumped to latest before reaching oldest');
+    assert(
+      scroll.kind !== 'followLatest',
+      'PageUp jumped to latest before reaching oldest',
+    );
     if (scroll.kind === 'oldest') break;
   }
   assertEquals(renderer.stateSnapshot().scroll, { kind: 'oldest' });
@@ -1040,8 +1079,14 @@ Deno.test('retained PageUp keeps latest when the conversation fits one page', ()
 Deno.test('restored thinking stays ordered and PageUp reaches history beyond the old display limits', () => {
   const renderer = new TuiRenderer(new RecordingTerminal());
   const messages = Array.from({ length: 300 }, (_, index) => [
-    { role: 'user' as const, content: { kind: 'text' as const, text: `question ${index}` } },
-    { role: 'assistant' as const, content: { kind: 'text' as const, text: `answer ${index}` } },
+    {
+      role: 'user' as const,
+      content: { kind: 'text' as const, text: `question ${index}` },
+    },
+    {
+      role: 'assistant' as const,
+      content: { kind: 'text' as const, text: `answer ${index}` },
+    },
   ]).flat();
   renderer.renderRestored(messages, 0, [{
     beforeMessageIndex: 599,
@@ -1055,18 +1100,26 @@ Deno.test('restored thinking stays ordered and PageUp reaches history beyond the
   assert(entries.length > 512);
   assertEquals(renderer.stateSnapshot().log.omittedCount, 0);
   const tail = entries.slice(-3);
-  assertEquals(tail.map((entry) => entry.kind), ['user', 'thinking', 'assistant']);
+  assertEquals(tail.map((entry) => entry.kind), [
+    'user',
+    'thinking',
+    'assistant',
+  ]);
   assert(
     renderer.layoutSnapshot().allLog.some((row) => row.text.includes('Read the final question.')),
   );
   for (let page = 0; page < 120; page += 1) {
     const state = renderer.stateSnapshot();
-    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') break;
+    if (state.historyWindow?.start === 0 && state.scroll.kind === 'oldest') {
+      break;
+    }
     renderer.scrollPage('up');
   }
   assertEquals(renderer.stateSnapshot().historyWindow?.start, 0);
   assertEquals(renderer.stateSnapshot().scroll.kind, 'oldest');
-  assert(renderer.layoutSnapshot().allLog.some((row) => row.text.includes('question 0')));
+  assert(
+    renderer.layoutSnapshot().allLog.some((row) => row.text.includes('question 0')),
+  );
   for (let page = 0; page < 120; page += 1) {
     if (renderer.stateSnapshot().scroll.kind === 'followLatest') break;
     renderer.scrollPage('down');
@@ -1074,7 +1127,9 @@ Deno.test('restored thinking stays ordered and PageUp reaches history beyond the
   assertEquals(renderer.stateSnapshot().scroll.kind, 'followLatest');
   assertEquals(renderer.stateSnapshot().historyWindow?.end, entries.length);
   renderer.latest();
-  assert(renderer.layoutSnapshot().allLog.some((row) => row.text.includes('answer 299')));
+  assert(
+    renderer.layoutSnapshot().allLog.some((row) => row.text.includes('answer 299')),
+  );
 });
 
 Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () => {
@@ -1083,12 +1138,18 @@ Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () 
     state = reduceUiEvent(state, {
       kind: 'user_message',
       turn,
-      message: { role: 'user', content: { kind: 'text', text: `question ${turn}` } },
+      message: {
+        role: 'user',
+        content: { kind: 'text', text: `question ${turn}` },
+      },
     });
     state = reduceUiEvent(state, {
       kind: 'assistant_message',
       turn,
-      message: { role: 'assistant', content: { kind: 'text', text: `answer ${turn}` } },
+      message: {
+        role: 'assistant',
+        content: { kind: 'text', text: `answer ${turn}` },
+      },
     });
   }
   assertEquals(state.log.entries.length, 520);
@@ -1100,8 +1161,14 @@ Deno.test('live conversation retains earlier entries beyond 512 for PageUp', () 
 Deno.test('restored conversation retains more than 2 MiB of entry text', () => {
   const longAnswer = 'A'.repeat(710 * 1024);
   const messages = Array.from({ length: 3 }, (_, index) => [
-    { role: 'user' as const, content: { kind: 'text' as const, text: `question ${index}` } },
-    { role: 'assistant' as const, content: { kind: 'text' as const, text: longAnswer } },
+    {
+      role: 'user' as const,
+      content: { kind: 'text' as const, text: `question ${index}` },
+    },
+    {
+      role: 'assistant' as const,
+      content: { kind: 'text' as const, text: longAnswer },
+    },
   ]).flat();
   const state = reduceUiEvent(createUiState(), {
     kind: 'restored_log',
@@ -1162,14 +1229,20 @@ Deno.test('restored model steps place thinking around a tool result and final an
     ],
     [1, 1, 1, 1],
   );
-  assertEquals(renderer.stateSnapshot().log.entries.map((entry) => entry.kind), [
-    'user',
-    'thinking',
-    'tool',
-    'thinking',
-    'assistant',
-  ]);
-  assertEquals(renderer.stateSnapshot().log.entries[3].label, 'thinking summary>');
+  assertEquals(
+    renderer.stateSnapshot().log.entries.map((entry) => entry.kind),
+    [
+      'user',
+      'thinking',
+      'tool',
+      'thinking',
+      'assistant',
+    ],
+  );
+  assertEquals(
+    renderer.stateSnapshot().log.entries[3].label,
+    'thinking summary>',
+  );
 });
 
 Deno.test('history footer hints Esc latest while busy and only latest advertises cancel', () => {
@@ -1194,7 +1267,10 @@ Deno.test('history footer hints Esc latest while busy and only latest advertises
   assert(busyFooter.includes('Esc latest'));
   assert(!busyFooter.includes('Esc cancel'));
 
-  renderer.setStatus('busy · accepted · Esc cancel · Ctrl-C clear · Ctrl-D detach');
+  renderer.setRemoteFooter({
+    activity: 'working',
+    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+  });
   const remoteFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
   assert(remoteFooter.includes('Esc latest'));
   assert(!remoteFooter.includes('Esc cancel'));
@@ -1233,15 +1309,20 @@ Deno.test('remote execution clock leads the second footer row and survives repea
     generation: 1,
   };
   renderer.setProjection(projection, 62_000);
-  renderer.setStatus(
-    'busy · Enter steer · Alt-Enter queue · Esc cancel · Ctrl-C clear · Ctrl-D detach · credential present: local-display-probe',
-  );
+  renderer.setRemoteFooter({
+    activity: 'working',
+    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+  }, 62_000);
   let footer = renderer.layoutSnapshot(80, 24).footer;
   assert(footer[1].text.startsWith('[⠋ working 00:38 │ '));
   assert(footer[1].text.includes('session:session-'));
   assert(!footer[0].text.includes('working'));
   for (
-    const hint of ['Enter steer', 'Alt-Enter queue', 'Esc cancel', 'Ctrl-C clear', 'Ctrl-D detach']
+    const hint of [
+      'F3 steer',
+      'F2 queue',
+      'Esc cancel',
+    ]
   ) {
     assert(footer[0].text.includes(hint));
   }
@@ -1250,28 +1331,46 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   renderer.setProjection({ ...projection, generation: 2 }, 62_000);
   tick();
   assertEquals(starts, 1);
-  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠙ working 00:40 │ '));
-  renderer.setStatus('busy · accepted · Esc cancel · Ctrl-C clear · Ctrl-D detach');
-  assert(renderer.layoutSnapshot(80, 24).footer[0].text.includes('accepted'));
+  assert(
+    renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(
+      '[⠙ working 00:40 │ ',
+    ),
+  );
+  renderer.setRemoteFooter({
+    activity: 'working',
+    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+  }, 62_000);
+  assert(!renderer.layoutSnapshot(80, 24).footer.some((row) => row.text.includes('accepted')));
 
   renderer.setProjection({ ...projection, lifecycle: 'cancelling' }, 62_000);
-  renderer.setStatus('cancelling · Ctrl-C clear · Ctrl-D detach');
+  renderer.setRemoteFooter({ activity: 'cancelling', controls: ['/ commands'] }, 62_000);
   assertEquals(starts, 1);
-  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠙ cancelling 00:40 │ '));
+  assert(
+    renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(
+      '[⠙ cancelling 00:40 │ ',
+    ),
+  );
 
   renderer.setProjection(projection, 102_000);
-  renderer.setStatus('busy · Esc cancel · Ctrl-C clear · Ctrl-D detach');
+  renderer.setRemoteFooter(
+    { activity: 'working', controls: ['Esc cancel', '/ commands'] },
+    102_000,
+  );
   assertEquals(starts, 2);
-  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠋ working 00:00 │ '));
+  assert(
+    renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(
+      '[⠋ working 00:00 │ ',
+    ),
+  );
   renderer.setProjection({ ...projection, lifecycle: 'idle' });
-  renderer.setStatus('ready · Enter submit · Ctrl-C clear · Ctrl-D detach');
+  renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
   footer = renderer.layoutSnapshot(80, 24).footer;
   assert(!footer[1].text.includes('working'));
   assertEquals(stopped, [1, 2]);
   renderer.close();
 });
 
-Deno.test('remote control labels retain steering, follow-up, cancel, and detach', () => {
+Deno.test('remote footer shows contextual controls without constant global shortcuts', () => {
   const terminal = new RecordingTerminal();
   terminal.size = { columns: 80, rows: 24 };
   const renderer = new TuiRenderer(terminal, {
@@ -1281,11 +1380,131 @@ Deno.test('remote control labels retain steering, follow-up, cancel, and detach'
   });
   renderer.resize(80, 24);
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
-  renderer.setStatus(
-    'busy · Enter steer · Alt-Enter queue · Esc cancel · Ctrl-D detach',
-  );
+  renderer.setRemoteFooter({
+    activity: 'working',
+    controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
+  });
   const footer = renderer.layoutSnapshot(80, 24).footer[0].text;
-  for (const hint of ['Enter steer', 'Alt-Enter queue', 'Esc cancel', 'Ctrl-D detach']) {
+  for (const hint of ['F3 steer', 'F2 queue', 'Esc cancel', '/ commands']) {
     assert(footer.includes(hint), `${hint} missing from ${footer}`);
   }
+  for (const hint of ['F1', 'Ctrl-C', 'Ctrl-D', 'Ctrl-Q', 'credential']) {
+    assert(!footer.includes(hint));
+  }
+  renderer.close();
+});
+
+Deno.test('Increment 159 full command picker keeps the selected command visible and help reaches all keys', () => {
+  const terminal = new RecordingTerminal();
+  const renderer = new TuiRenderer(terminal);
+  renderer.resize(80, 23);
+  const candidates = slashPickerCandidates('/')!;
+  assertEquals(candidates.length, SLASH_COMMANDS.length);
+  renderer.renderSlashPicker(candidates, candidates.length - 1);
+  const picker = renderer.layoutSnapshot(80, 23);
+  assert(picker.log.some((row) => row.text.includes('> /quit')));
+  assert(picker.log.some((row) => row.text.includes('usage: /quit │ Ctrl-Q')));
+  renderer.renderReadOnlyHelp(slashCommandHelpLines());
+  const seen = new Set<string>();
+  let previous = -1;
+  while (renderer.stateSnapshot().overlay.kind === 'readOnlyHelp') {
+    const overlay = renderer.stateSnapshot().overlay;
+    if (overlay.kind !== 'readOnlyHelp') break;
+    const offset = overlay.offset ?? 0;
+    if (offset === previous) break;
+    previous = offset;
+    for (const row of renderer.layoutSnapshot(80, 23).log) seen.add(row.text);
+    renderer.scrollHelp('down');
+  }
+  const text = [...seen].join('\n');
+  for (const definition of SLASH_COMMANDS) {
+    assert(text.includes(definition.usage));
+  }
+  for (const [description] of SHORTCUT_ONLY_OPERATIONS) assert(text.includes(description));
+  assert(text.includes('Ctrl-U（masked入力）'));
+  assert(text.includes('対応なし │ F2（実行中）'));
+  renderer.close();
+});
+
+Deno.test('Increment 159 footer preparation spins without invented time and settings update together', () => {
+  const terminal = new RecordingTerminal();
+  let now = 100_000;
+  let tick = () => {};
+  let starts = 0;
+  let stops = 0;
+  const renderer = new TuiRenderer(terminal, {
+    now: () => now,
+    setInterval: (callback) => {
+      tick = callback;
+      return ++starts;
+    },
+    clearInterval: () => {
+      stops++;
+    },
+  });
+  const projection: PresentationProjection = {
+    lifecycle: 'idle',
+    workspace: '/very/long/path/to/workspace',
+    sessionId: 'session-footer',
+    agentId: 'default',
+    committedTurn: 0,
+    trust: 'trusted_local',
+    credentialPolicy: 'before_each_provider_request',
+    pending: [],
+    capabilities: { canNavigate: false, canCompact: false },
+    generation: 1,
+    model: { provider: 'opencode-go-chat', modelId: 'mimo-v2.6-pro', effort: 'auto' },
+  };
+  renderer.setProjection(projection);
+  renderer.setRemoteFooter({ activity: 'working', controls: ['/ commands'] });
+  {
+    const footer = renderer.layoutSnapshot(80, 24).footer;
+    assert(footer[1].text.startsWith('[⠋ working │ '));
+    assert(!footer[1].text.includes('00:'));
+    now += 2000;
+    tick();
+    assertEquals(starts, 1);
+    assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠙ working │ '));
+  }
+  renderer.setRemoteFooter(
+    { activity: 'working', controls: ['Esc cancel', '/ commands'] },
+    100_000,
+  );
+  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠋ working 00:02 │ '));
+  assert(renderer.layoutSnapshot(40, 24).footer[1].text.startsWith('[⠋ working 00:02'));
+  const fresh = new TuiRenderer(new RecordingTerminal(), {
+    now: () => now,
+    setInterval: () => 'reconnected',
+    clearInterval() {},
+  });
+  fresh.setProjection({ ...projection, lifecycle: 'busy' });
+  fresh.setRemoteFooter({ activity: 'working', controls: ['Esc cancel', '/ commands'] }, 100_000);
+  assertEquals(
+    fresh.layoutSnapshot(80, 24).footer[1].text,
+    renderer.layoutSnapshot(80, 24).footer[1].text,
+  );
+  fresh.close();
+  renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
+  assertEquals(stops, 2);
+  let footer = renderer.layoutSnapshot(40, 24).footer;
+  assert(footer[1].text.startsWith('[ready │ '));
+  assert(!footer[1].text.includes('00:'));
+  renderer.setProjection({
+    ...projection,
+    generation: 2,
+    model: { provider: 'opencode-go-responses', modelId: 'gpt-5.6-luna', effort: 'low' },
+  });
+  footer = renderer.layoutSnapshot(80, 24).footer;
+  assertEquals(footer[2].text, '[opencode-go-responses │ gpt-5.6-luna │ low]');
+  renderer.renderChoicePicker(['credential input'], ['Enter save', 'Ctrl-U clear', 'Esc cancel']);
+  assertEquals(
+    renderer.layoutSnapshot(80, 24).footer[0].text,
+    '[Enter save │ Ctrl-U clear │ Esc cancel]',
+  );
+  renderer.clearModal();
+  for (const activity of ['READ-ONLY', 'DISCONNECTED'] as const) {
+    renderer.setRemoteFooter({ activity, controls: ['/ commands'] });
+    assert(renderer.layoutSnapshot(40, 24).footer[1].text.startsWith(`[${activity} │ `));
+  }
+  renderer.close();
 });

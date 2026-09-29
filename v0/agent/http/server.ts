@@ -399,12 +399,6 @@ async (request: Request): Promise<Response> => {
         ),
       );
     }
-    if (
-      url.pathname === '/api/v1/workspace/paths' && request.method === 'GET'
-    ) {
-      const prefix = url.searchParams.get('prefix') ?? undefined;
-      return json(await service.pathRead(prefix));
-    }
     if (url.pathname === '/api/v1/sessions' && request.method === 'GET') {
       return json(await service.sessionsList());
     }

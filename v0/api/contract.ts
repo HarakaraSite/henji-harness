@@ -147,7 +147,6 @@ export const CORE_OPERATION_NAMES = [
   'catalog.read',
   'catalog.favorite',
   'selection.change',
-  'path.read',
   'credential.readPresence',
   'credential.register',
 ] as const;
@@ -266,12 +265,6 @@ export type CredentialRegisterResult = Readonly<
   }
   | { kind: 'rejected'; reason: 'busy' | 'invalid' | 'failed' }
 >;
-export type PathReadInput = Readonly<{ prefix?: string }>;
-export type PathReadResult = Readonly<{
-  workspace: string;
-  complete: boolean;
-  paths: readonly string[];
-}>;
 export type ExecutionCancelInput = Readonly<{ commandId: string }>;
 export type ExecutionCancelValue = Readonly<{
   executionId: string;
@@ -342,6 +335,9 @@ export type ExecutionView = Readonly<{
   submittedByCommandId?: string;
   lifecycle: 'active' | 'settled';
   outcome: 'unknown' | 'completed' | 'cancelled' | 'failed' | 'interrupted';
+  /** Existing stored outcome facts needed for a short terminal result in clients. */
+  stopReason?: string;
+  diagnostic?: Readonly<{ code: string; stage: string }>;
   adoption: 'canonical' | 'non_canonical';
   committedRevision?: number;
   /** The coordinator completion Promise includes Worker and child process cleanup. */
