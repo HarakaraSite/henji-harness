@@ -1172,7 +1172,7 @@ Deno.test('restored model steps place thinking around a tool result and final an
   assertEquals(renderer.stateSnapshot().log.entries[3].label, 'thinking summary>');
 });
 
-Deno.test('busy history footer hints PgDn to latest while Esc stays cancel', () => {
+Deno.test('history footer hints Esc latest while busy and only latest advertises cancel', () => {
   const terminal = new RecordingTerminal();
   terminal.size = { columns: 80, rows: 10 };
   const renderer = new TuiRenderer(terminal, {
@@ -1191,9 +1191,13 @@ Deno.test('busy history footer hints PgDn to latest while Esc stays cancel', () 
   renderer.eventSink({ kind: 'turn_start', turn: 7 });
   const busyFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
   assert(busyFooter.includes('history '));
-  assert(busyFooter.includes('PgDn latest'));
-  assert(busyFooter.includes('Esc cancel'));
-  assert(!busyFooter.includes('Esc latest'));
+  assert(busyFooter.includes('Esc latest'));
+  assert(!busyFooter.includes('Esc cancel'));
+
+  renderer.setStatus('busy · accepted · Esc cancel · Ctrl-C clear · Ctrl-D detach');
+  const remoteFooter = renderer.layoutSnapshot(80, 10).footer[0].text;
+  assert(remoteFooter.includes('Esc latest'));
+  assert(!remoteFooter.includes('Esc cancel'));
 
   renderer.latest();
   const latestFooter = renderer.layoutSnapshot(80, 10).footer[0].text;

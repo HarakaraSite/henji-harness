@@ -290,17 +290,20 @@ const footerStatusText = (
     : `pending ${pending.map((lane) => `${lane.kind}:${lane.byteCount}B`).join(',')}`;
   const belowSegment = state.newBelowCount > 0 ? `new below ${state.newBelowCount}` : undefined;
   const status = footerStatusParts(footerStatus(state));
-  const remoteControls = remoteFooterControls(state.status);
+  const statusControls = remoteFooterControls(state.status);
+  const remoteControls = history === undefined
+    ? statusControls
+    : statusControls.filter((control) => control !== 'Esc cancel');
   const remoteResult = remoteExecutionResult(state.status);
   const displayedPrimary = footerPrimaryText(state, columns);
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
-  const cancelSegment = state.lifecycle === 'busy' && remoteControls.length === 0
+  const cancelSegment = history === undefined && state.lifecycle === 'busy' &&
+      remoteControls.length === 0
     ? 'Esc cancel'
     : undefined;
-  // During a busy turn Escape is cancel, so the history hint must not promise "Esc latest".
-  const historyHint = state.lifecycle === 'busy' ? 'PgDn latest' : 'Esc latest';
+  const historyHint = 'Esc latest';
   const historyFull = history === undefined
     ? undefined
     : history.kind === 'start'
@@ -315,7 +318,7 @@ const footerStatusText = (
     remoteResult.filter((part) => part !== status.primary).join(' · '),
     false,
   );
-  const controlSet = new Set(remoteControls);
+  const controlSet = new Set(statusControls);
   const resultSet = new Set(remoteResult);
   const details = status.details?.split(' · ').filter((part) =>
     !controlSet.has(part) && !resultSet.has(part)

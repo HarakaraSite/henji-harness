@@ -1343,14 +1343,14 @@ export const runRemoteTui = async (
       ? 'Enter submits the current draft to this active Session.'
       : 'Task submission is unavailable for this viewed Session state.';
     const cancelHint = canCancel()
-      ? 'Escape sends execution.cancel to the displayed execution.'
+      ? 'At latest, Escape sends execution.cancel to the displayed execution.'
       : 'Execution cancellation is available only when runtime.operations includes execution.cancel.';
     return [
       operationHint,
       'Ctrl-G / Ctrl-T or /sessions opens the Session picker; Enter views, R resumes.',
-      'PageUp / PageDown scroll; Tab completes Core workspace paths; Escape returns latest; F1 toggles help.' +
+      'PageUp / PageDown scroll; Escape returns latest from history, including while busy; F1 toggles help.' +
       (startupUnevaluated(current) ? ' Worker startup not evaluated.' : ''),
-      'Type / followed by a letter for command suggestions; Tab completes a single matching command.',
+      'Tab completes Core workspace paths. Type / followed by a letter for command suggestions; Tab completes a single matching command.',
       'Ctrl-C clears the draft even while busy. Busy Enter steers this task; Alt-Enter queues the next task after success.',
       '/detach or Ctrl-D detaches and leaves accepted Core work running. Reconnect: henji --core ID (or --connect URL).',
       '/shutdown or Ctrl-Q stops this Core and exits this TUI, including while busy or viewing a saved Session. Other connected UIs disconnect.',
@@ -2034,7 +2034,9 @@ export const runRemoteTui = async (
           } else if (event.kind === 'page_down') {
             renderer.scrollPage('down');
           } else if (event.kind === 'escape') {
-            if (activeExecution() !== undefined) {
+            if (renderer.stateSnapshot().scroll.kind !== 'followLatest') {
+              renderer.latest();
+            } else if (activeExecution() !== undefined) {
               if (!cancellationRequested) cancelActiveExecution();
             } else {
               renderer.clearModal();

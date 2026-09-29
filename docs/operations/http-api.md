@@ -162,7 +162,8 @@ process内の情報であり、再起動を越える再送保証ではない。
 
 cancel結果の`value.result`は`requested`／`already_requested`／`idle`。
 UIの終了やHTTP接続の切断は、この明示cancel操作を送らず、受付済み実行を継続する。
-接続TUIではbusy中のEscが対象実行へのcancel。Ctrl-Cはbusy中もdraftを消す。
+接続TUIでは履歴閲覧中のEscが最新表示へ戻り、最新表示中のEscが対象実行へのcancel。
+Ctrl-Cはbusy中もdraftを消す。
 `/detach`・Ctrl-D・TERM／HUPはdetachし、受付済み実行とfollow-upを継続する。
 通常の`henji`は毎回新Core・新Sessionを開く。
 生存Coreの稼働Sessionへ戻るときは`henji --core ID`または`henji --connect URL`で再接続する。

@@ -129,6 +129,7 @@ const coreRead = {
 
 class FakeTerminal implements TerminalPort {
   readonly output: string[] = [];
+  readonly frames: ScreenFrame[] = [];
   readonly signals = new Map<string, () => void>();
   raw = false;
   onWrite?: (text: string) => void;
@@ -167,6 +168,7 @@ class FakeTerminal implements TerminalPort {
     return Promise.resolve();
   }
   writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.frames.push(frame);
     this.write(encodeScreenFrame(frame));
     onWritten?.();
   }
@@ -473,6 +475,144 @@ Deno.test('remote TUI clears busy drafts with Ctrl-C, cancels with Escape and de
     strictEqual(rendered.includes('Ctrl-D detach'), true);
     strictEqual(rendered.includes('Esc cancel'), true);
     strictEqual(rendered.includes('working │ Esc cancel]'), false);
+  } finally {
+    clearTimeout(fallback);
+    await server.shutdown();
+  }
+});
+
+Deno.test('Increment 156 busy history Escape returns latest without cancelling and preserves draft and stream updates', async () => {
+  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let cancellations = 0;
+  let current = snapshot({
+    active: true,
+    phase: 'running',
+    currentExecution: execution('S15 running task'),
+    operations: ['execution.cancel', 'execution.read', 'command.read'],
+    messages: [{
+      id: 's15-history',
+      executionId,
+      turn: 1,
+      role: 'user',
+      text: Array.from({ length: 60 }, (_, index) => `S15 history line ${index}`).join('\n'),
+    }],
+  });
+  const server = Deno.serve(
+    { hostname: '127.0.0.1', port: 0, onListen() {} },
+    async (request) => {
+      const path = new URL(request.url).pathname;
+      if (request.method === 'GET' && path === '/api/v1/core') {
+        return Response.json(coreRead);
+      }
+      if (path === `/api/v1/sessions/${sessionId}/events`) {
+        return sseResponse((controller) => {
+          streamController = controller;
+          sendSnapshot(controller, current);
+        });
+      }
+      if (
+        request.method === 'POST' &&
+        path === `/api/v1/sessions/${sessionId}/executions/${executionId}/cancel`
+      ) {
+        const body = await request.json() as { commandId: string };
+        cancellations += 1;
+        current = snapshot({
+          revision: 6,
+          active: true,
+          phase: 'cancelling',
+          currentExecution: execution('S15 running task'),
+          operations: ['execution.cancel', 'execution.read', 'command.read'],
+          messages: current.conversation.messages,
+        });
+        sendSnapshot(streamController!, current);
+        return Response.json({
+          kind: 'accepted',
+          commandId: body.commandId,
+          target: { kind: 'execution', sessionId, executionId },
+          cursor: current.cursor,
+          value: { executionId, result: 'requested' },
+        }, { status: 202 });
+      }
+      return new Response('not found', { status: 404 });
+    },
+  );
+  const terminal = new FakeTerminal();
+  const screen = (): string => terminal.frames.at(-1)?.rows.join('\n') ?? '';
+  const waitFor = async (predicate: () => boolean): Promise<void> => {
+    const deadline = Date.now() + 3_000;
+    while (!predicate()) {
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for S15 TUI:\n${screen()}`);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
+  let driver: Promise<void> | undefined;
+  let driverError: unknown;
+  const fallback = setTimeout(() => terminal.pushInput('\x04'), 5_000);
+  try {
+    strictEqual(
+      await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
+        terminal,
+        writeStderr: (text) => {
+          throw new Error(text);
+        },
+        afterAcquire: () => {
+          driver = (async () => {
+            terminal.pushInput('S15 draft kept');
+            await waitFor(() => screen().includes('> S15 draft kept'));
+            terminal.pushInput('\x1b[5~');
+            await waitFor(() => screen().includes('[history ') && screen().includes('Esc latest'));
+            strictEqual(screen().includes('Esc cancel'), false);
+            strictEqual(cancellations, 0);
+
+            current = snapshot({
+              revision: 5,
+              active: true,
+              phase: 'running',
+              currentExecution: execution('S15 running task'),
+              operations: ['execution.cancel', 'execution.read', 'command.read'],
+              messages: [...current.conversation.messages, {
+                id: 's15-new-below',
+                executionId,
+                turn: 1,
+                role: 'assistant',
+                text: 'S15 stream update',
+              }],
+            });
+            sendSnapshot(streamController!, current);
+            await waitFor(() => screen().includes('history record 1 of 2'));
+            strictEqual(screen().includes('Esc latest'), true);
+            terminal.pushInput('\x1bOP');
+            await waitFor(() => screen().includes('read-only help'));
+            terminal.pushInput('\x1b');
+            await waitFor(() => screen().includes('[history ') && screen().includes('Esc latest'));
+            strictEqual(cancellations, 0);
+
+            terminal.pushInput('\x1b');
+            await waitFor(() => !screen().includes('[history ') && screen().includes('Esc cancel'));
+            strictEqual(cancellations, 0);
+            strictEqual(screen().includes('S15 stream update'), true);
+            strictEqual(screen().includes('> S15 draft kept'), true);
+
+            terminal.pushInput('\x1b[5~');
+            await waitFor(() => screen().includes('Esc latest'));
+            terminal.pushInput('\x1b[6~');
+            await waitFor(() => !screen().includes('[history ') && screen().includes('Esc cancel'));
+            strictEqual(cancellations, 0);
+            terminal.pushInput('\x1b');
+            await waitFor(() => cancellations === 1);
+            terminal.pushInput('\x04');
+          })().catch((error) => {
+            driverError = error;
+            terminal.pushInput('\x04');
+          });
+        },
+      }),
+      0,
+    );
+    await driver;
+    if (driverError !== undefined) throw driverError;
+    strictEqual(cancellations, 1);
+    strictEqual(terminal.raw, false);
   } finally {
     clearTimeout(fallback);
     await server.shutdown();
