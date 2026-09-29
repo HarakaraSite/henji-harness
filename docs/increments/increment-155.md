@@ -142,4 +142,44 @@ S25の採用移動とhandoffをcommitし、origin/mainへpushする。既存の�
 配置binaryそのものを隔離HOME/XDG/workspace/tmuxで確認し、結果を後続の文書commitへ記録・pushする。
 外部provider call、full gate、JSR公開、構想・architecture・roadmapの変更は行わない。
 
-配置結果は実施後に追記する。
+実装・test・要件/結果/レビュー・操作文書・S25移動・handoffの21ファイルをcommit
+`f08045f2b9fe605a8c8dd33b9d8e07e562ed2b2a`へまとめ、origin/mainへpushした。
+既存S26メモの行・本文はworking treeに保持し、今回のcommitには含めていない。
+本配置記録は後続の文書commitへまとめてpushする。
+
+固定した実装commitのclean checkoutでDeno 2.9.7の公式scriptからbuildした。
+レビュー対象の実装/test/config 15ファイルはreview開始時のSHA-256と一致し、
+受入済みcandidateのruntime SHA-256とも一致した。旧binaryを保存して
+`/home/agent/.local/bin/henji`へ原子的に配置した。henji 0.7.0、sourceは上記commit、dirtyなし。
+
+- build ID: `65487d2e26cc887ce593108739afef8fc9154c9008e1d55e5f3a765799307996`。
+- runtime SHA-256: `5ff3fe86264fcb083a13cd8d8c8a1cebfd6b6d82252f562ab9ec6d2f61e5c3ae`。
+- binary SHA-256:
+  `e5bf3376e20d114ce222b393ae43d4625aa27b5cfbf53c5bd1f3d18b393df7c6`。配置前候補と常用先のhash/version/source/buildが一致。
+- 旧binary: `/tmp/henji-i155-deploy-20260929/henji.previous`。
+  SHA-256は`19276503f7df666b231f08793ce180e62f042e2e4fbc310dd4f833fc9cf138a9`。
+
+配置binaryそのものを隔離HOME/XDG/workspace/tmuxの80×30で通常起動し、次を確認した。
+
+- 通常二起動が独立したCoreとSessionになり、snapshotのsource/build/dirtyは配置identityと一致。
+- `/`だけは案内なし、`/s`から2候補を表示、`/shu`＋Tabで`/shutdown`へ補完。
+- F1のヘルプとEsc復帰、`/exit`のunknown command表示。
+- `/detach`・Ctrl-D後にCore epoch/Sessionを維持し、Core IDで再接続できる。
+- `/shutdown`で接続先Coreと操作元TUIが終了し、同workspaceの別Coreは継続。
+- ヘルプ中Ctrl-QでそのCoreと操作元TUIが終了し、別接続TUIはDISCONNECTEDを表示して`/detach`で終了。
+- 全TUIがexit 0、terminalのcanonical/echoを復元。実configへのdefault-selection書込みなし。
+
+配置後確認ではprovider requestとexecution admissionを追加していない。
+busyのprocess清算と保存Session閲覧中停止は、runtime
+digestが一致する受入済みsource/compiled確認を参照する。
+確認用Core/TUI/tmuxは終了済み。配置前から稼働していた旧Core二つは停止・移行せず、配置後も
+同じPID/start time・epoch・Session・idle状態でHTTP応答可能だった。
+新規起動には新binaryが使われる。既存Coreへの明示再接続URLは以下。
+
+- `/home/agent`: `http://127.0.0.1:41115`（PID32600、epoch `8ed7e3d8…`）。
+- repository workspace: `http://127.0.0.1:34001`（PID62516、epoch `e8ad305c…`）。
+
+配置証拠は`/tmp/henji-i155-deploy-20260929/`の`build.log`、`deployment.json`、`version.txt`、
+`preexisting-cores.json`、`preexisting-cores-after.json`、`smoke-results.json`。 実画面・Core
+snapshot/list・terminal設定は`/tmp/henji-i155-deploy-20260929/smoke-103159/`へ保存した。 full
+gateの再実行、外部provider call、JSR公開、実credential/config変更、既存dataの削除は行っていない。

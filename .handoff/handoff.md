@@ -4,9 +4,10 @@
 
 ## 現在地（2026-09-29）
 
-**S25の[Increment 155](../docs/increments/increment-155.md)はlocal実装・非破壊的検証・reviewer通常レビュー済み。**
+**S25の[Increment 155](../docs/increments/increment-155.md)はlocal実装・検証・reviewer通常レビュー・commit/push・常用配置・配置後確認済み。**
 `/shutdown`・Ctrl-Q、`/detach`への改名、スラッシュ＋最初の文字からの候補案内を追加した。
-利用動作・検証・レビュー結果はincrement正本を参照する。commit/push・常用配置は追加指示済み、実施中。
+利用動作・検証・レビュー・配置identityと結果はincrement正本を参照する。利用者確認待ち。
+確認用Core/TUI/tmuxは終了済み。既存Core二つは保持し、再接続URLはincrementの配置節を参照する。
 JSR公開は未指示。
 
 **S17・S18・S19の[Increment 154](../docs/increments/increment-154.md)は利用者確認・完了承認済み。**
@@ -31,7 +32,7 @@ TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結
 要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
 [Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは`henji 0.7.0`、source `f429759c…`、build `48021ea3…`へ更新済み。
+常用binaryは`henji 0.7.0`、source `f08045f2…`、build `65487d2e…`へ更新済み。
 通常起動は毎回新Core・Session。再接続は`henji --core ID`または`--connect URL`で明示する。
 S22の8slice（139〜146）と147の配置結果は
 [合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)、利用方法は
@@ -44,8 +45,8 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. [155](../docs/increments/increment-155.md)のlocal実装結果を利用者が確認する。
-   追加指示に従いcommit/push・常用配置と配置後確認を完了する。既存の未採用S26メモはlocalに保持する。
+1. [155](../docs/increments/increment-155.md)の配置済み機能を利用者が確認する。
+   commit/push・常用配置と配置後確認は完了。既存の未採用S26メモだけをlocal未commitで保持している。
    構想・architecture・roadmapの意味変更は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
@@ -54,7 +55,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 - S25のlocal実装・非破壊的検証は今回の指示で承認済み。追加指示により`/exit`を`/detach`へ改名し、
   スラッシュ＋最初の文字から候補を案内する。正本は[Increment 155](../docs/increments/increment-155.md)。
-  通常reviewは完了。commit/push・常用配置と配置後確認は追加指示済み、実施中。
+  通常reviewと、追加指示に基づくcommit/push・常用配置・配置後確認は完了。
   JSR公開、構想・architecture・roadmapの意味変更は未指示。
 
 - S17・S18・S19の調査、統合案作成とgpt-6-astraによる案review、計画作成とreviewerによる通常/批判的reviewは指示済み。
