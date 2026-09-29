@@ -4,10 +4,9 @@
 
 ## 現在地（2026-09-29）
 
-**[Increment 158](../docs/increments/increment-158.md)のlocal実装・検証完了。**
+**[Increment 158](../docs/increments/increment-158.md)のlocal実装・検証・commit/push・常用配置完了。**
 フッター2・3行目の区切りとprovider/modelラベル省略を実装し、compiled production TUIで確認済み。
-利用者確認・increment完了承認は未取得。追加指示によりcommit/push・常用配置を進める。
-配置後の操作確認は利用者指定により省略する。
+利用者確認・increment完了承認は未取得。配置後の操作確認は利用者指定により省略した。
 検証経路と結果はincrement正本を参照する。確認用Core/TUI/tmuxは終了済み。
 
 **E6の[Increment 157](../docs/increments/increment-157.md)は利用者確認・完了承認済み。**
@@ -49,7 +48,7 @@ TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結
 要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
 [Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは`henji 0.7.0`、source `6263de95…`、build `48e38e52…`へ更新済み。
+常用binaryは`henji 0.7.0`、source `aacf90cc…`、build `f89cf2a9…`へ更新済み。
 Goは両外部宣言のカタログ方式へ更新し、Chat側へQwen3.8 Maxを追加済み。新規Coreから適用する。
 通常起動は毎回新Core・Session。再接続は`henji --core ID`または`--connect URL`で明示する。
 S22の8slice（139〜146）と147の配置結果は
@@ -63,7 +62,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. Increment 158をcommit/pushし、常用配置とbinary同一性確認を行う。
+1. Increment 158のcommit/push・常用配置とbinary同一性確認は完了。利用者の確認と次の指示に従う。
    未採用S26・S27メモを保持する。構想・architecture・roadmapの意味変更は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
@@ -72,7 +71,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 - Increment 158のlocal表示修正と非破壊的検証は今回の指示で承認済み・完了。
   正本は[Increment 158](../docs/increments/increment-158.md)。
-  追加指示によりcommit/push・常用配置は承認済み。配置後の操作確認は利用者指定により省略する。
+  追加指示によるcommit/push・常用配置とbinary同一性確認は完了。配置後の操作確認は利用者指定により省略した。
   公開は未指示。
   構想・architecture・roadmapは変更不要。
 

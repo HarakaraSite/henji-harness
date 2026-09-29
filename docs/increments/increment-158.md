@@ -2,7 +2,8 @@
 
 更新日: 2026-09-29
 
-ステータス: local実装・非破壊的検証完了。利用者による確認・increment完了承認は未取得。
+ステータス: local実装・非破壊的検証・commit/push・常用配置完了。
+配置後の操作確認は利用者指定により省略した。利用者による確認・increment完了承認は未取得。
 
 ## 要件と権限
 
@@ -99,3 +100,23 @@ SHA-256が一致することを確認する。
 旧binaryを保存し、常用先へ原子的に配置する。利用者の追加指定により配置後の操作確認は省略する。
 配置先とbuild候補のhash・version・source・buildの同一性を確認する。 追加provider
 requestは行わない。既存Coreは停止・移行しない。 配置結果は後続の文書commitへ記録・pushする。
+
+### 配置結果
+
+実装・test・increment文書・handoffの6ファイルをcommit
+`aacf90cc1bb652d3aba3a76feac9db6b7788959a`へまとめ、origin/mainへpushした。 固定commitのclean
+checkoutからDeno 2.9.7で公式buildし、sourceDirty=falseのbinaryを生成した。 runtime
+SHA-256は受入済みcandidateと一致した。
+旧binaryを保持して`/home/agent/.local/bin/henji`へ原子的に配置し、
+配置先とbuild候補のhash・version・source・buildが一致することを確認した。henji 0.7.0。
+
+- build ID: `f89cf2a9a89adaf5cecaab601af95afb4d23d1e598499f36e6a6571015549860`。
+- runtime SHA-256: `52ff26cfa05ab0b4ff953c5ec4b874572eace6de53bc256b4998474dc711b08b`。
+- binary SHA-256: `d1032205ae8d8762980086896d50a8c7a31866fae98d38dc3034a691299ad493`。
+- 旧binary:
+  `/home/agent/.local/state/henji-build-artifacts/increment-158-20260929/deployment/henji.previous`。
+  SHA-256: `eb4ad7cda6ca51a708f31b63342c47b51ac618487e282d312f47e8e8b003d4cf`。
+
+証拠は同じ`deployment/`の`build.log`、`deployment.json`、`version.txt`。
+配置後のフッター・working・elapsedの操作確認は利用者指定により省略した。 追加provider
+requestは0回。既存Coreの停止・移行は行っていない。JSR公開とProduct正本の変更は行っていない。
