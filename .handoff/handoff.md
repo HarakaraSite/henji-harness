@@ -7,8 +7,8 @@
 **E6の[Increment 157](../docs/increments/increment-157.md)は実装・検証・通常reviewと修正・限定re-review・commit/push・常用配置・配置後確認済み。**
 OpenAI/Router/GoのChat/Responses計6経路で確認済み。通常reviewのP2二件を修正し、限定re-reviewで解消・新指摘なし。
 実装・確認結果・操作方法・配置identityと証拠はincrementを参照する。
-確認用Core/TUI/tmuxは終了済み。既存Core二つを保持した。
-追加指示によるモデル取得中2行overlayの削除とGoの暫定カタログ方式はlocal実装・source/compiled確認済み、常用反映中。
+確認用Core/TUI/tmuxは終了済み。追加配置時の既存Core三つを保持した。
+追加指示によるモデル取得中2行overlayの削除とGoの暫定カタログ方式は実装・確認・commit/push・常用配置済み。
 Goの要件・Qwen Chat実測・設定と配置結果はincrement末尾を参照する。
 合意した動作、現行経路、外部provider対応案、保存・選択境界、検証と正本変更案はincrementを参照する。
 
@@ -46,7 +46,8 @@ TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結
 要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
 [Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは`henji 0.7.0`、source `058d503a…`、build `4e6e3a1f…`へ更新済み。
+常用binaryは`henji 0.7.0`、source `6263de95…`、build `48e38e52…`へ更新済み。
+Goは両外部宣言のカタログ方式へ更新し、Chat側へQwen3.8 Maxを追加済み。新規Coreから適用する。
 通常起動は毎回新Core・Session。再接続は`henji --core ID`または`--connect URL`で明示する。
 S22の8slice（139〜146）と147の配置結果は
 [合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)、利用方法は

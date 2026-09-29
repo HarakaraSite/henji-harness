@@ -543,7 +543,7 @@ format/lint、diff checkも成功。隔離80列×32行tmuxのsource/compiled TUI
 source-tmux.log、compiled-tmux.log、tmux-results-source.json、tmux-results-compiled.jsonと各画面/snapshot。
 focused結果は一段上のpicker-loading-tests.log。確認用binaryは同directoryのhenji、build
 `de7b1853d88fc3d3c9a0417194568eba4cb8b16e382d25a6bd7881814bdfd5b2`、runtime
-`487e658febe5fe4992db681944257e59d81fa8cf4b1257c3c7ee33dce69896ad`。追加修正はlocal確認済み、常用配置前。
+`487e658febe5fe4992db681944257e59d81fa8cf4b1257c3c7ee33dce69896ad`。追加修正はlocal確認後、下記のGo暫定方式と合わせて常用配置した。
 
 ### 通常利用での追加観測
 
@@ -606,3 +606,36 @@ real-qwen/result.json・completed.json。focused結果は一段上のgo-catalog-
 固定commitのclean buildから常用配置する。Goの両外部宣言へmodelListSource=catalogを反映し、
 Chat側へ確認したQwen3.8 Maxを追加する。既存Core三つは保持して新規起動から適用する。
 Product正本の変更・JSR公開・既存Coreの停止/移行は対象外。
+
+
+### 追加修正のcommit・配置結果
+
+取得中overlay削除とGo暫定方式の10fileをcommit `6263de95b6fcfa5bb96e226062cbfdb17deb1856`へまとめ、origin/mainへpushした。
+固定commitのclean checkoutから公式buildし、検証候補とruntime SHA-256の一致を確認して常用配置した。
+sourceDirty=false、henji 0.7.0。
+
+- build ID: `48e38e5204422eb37bfb74003c03b1cdeacd4cc476d2783998d7b7cdf0e5395d`。
+- runtime SHA-256: `26fa116ff50396a9cc8782fbeb78c33a2bbe89e031f54b5b187922f03cd872cf`。
+- binary SHA-256: `eb4ad7cda6ca51a708f31b63342c47b51ac618487e282d312f47e8e8b003d4cf`。
+- 配置先: `/home/agent/.local/bin/henji`。
+- 旧binary: `/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/go-catalog/deployment/henji.previous`。
+
+常用の`~/.config/henji-harness/providers/opencode-go-chat.json`と同responses宣言へ
+`modelListSource: catalog`を反映した。既存entriesを保持し、Chat側へ実確認したQwen3.8 Maxを追加した。
+Chatは6モデル、Responsesは2モデル。お気に入り・記憶effort・default-selection・credentialは変更していない。
+両宣言のreadbackが一致することを確認した。既存catalog更新にmodelsDevProviderIdの追加は不要になった。
+
+配置binaryそのものと常用宣言のコピーを隔離HOME/XDG/workspace/tmuxで確認した。
+Goのcold /effort、API別の登録一覧、Qwenのeffort候補、Tabと選択の独立、再起動の記憶を再確認し、
+一覧/metadata/generationは0 request。Coreのsource/build/runtime/dirtyは配置identityと一致。
+別のAPI一覧方式の隔離TUIでは、読み込み中も会話行を保持し、2行overlayなし、Esc取消と遅れた応答の無視、
+再度取得して検索・選択が成立した。一覧2回・metadata2回・generation0回のloopback確認で、外部requestは0。
+確認用Core/TUI/tmuxは終了済み。
+
+稼働していた既存Core三つはPID/start time・epoch・Session・phase・buildを保持し、配置後もHTTP応答した。
+それらの停止・移行は行わず、新規起動から今回のbinaryとGoカタログ設定を使う。
+
+配置証拠は`/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/go-catalog/deployment/`のbuild.log、deployment.json、version.txt、config-update.json、
+preexisting-cores.json、preexisting-cores-after.json、tmux-results-deployed.json、loader-verification/の
+tmux-results-deployed.jsonと各画面/snapshot。旧Go宣言は同directoryのprevious.jsonへ保持した。
+配置記録とhandoffを後続文書commitにまとめてpushする。Product正本とJSRは変更していない。
