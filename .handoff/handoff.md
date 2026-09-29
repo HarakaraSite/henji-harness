@@ -4,6 +4,12 @@
 
 ## 現在地（2026-09-29）
 
+**[Increment 158](../docs/increments/increment-158.md)のlocal実装・検証完了。**
+フッター2・3行目の区切りとprovider/modelラベル省略を実装し、compiled production TUIで確認済み。
+利用者確認・increment完了承認は未取得。追加指示によりcommit/push・常用配置を進める。
+配置後の操作確認は利用者指定により省略する。
+検証経路と結果はincrement正本を参照する。確認用Core/TUI/tmuxは終了済み。
+
 **E6の[Increment 157](../docs/increments/increment-157.md)は利用者確認・完了承認済み。**
 2026-09-29、利用者の確認と指示によりincrement完了・関連文書更新・セッション終了。
 取得中overlay削除とGo暫定カタログ方式を含む要件・検証・review・配置結果はincrement正本を参照する。
@@ -57,12 +63,18 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. このセッションの作業は完了。利用者の新しい指示から再開する。
+1. Increment 158をcommit/pushし、常用配置とbinary同一性確認を行う。
    未採用S26・S27メモを保持する。構想・architecture・roadmapの意味変更は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
+
+- Increment 158のlocal表示修正と非破壊的検証は今回の指示で承認済み・完了。
+  正本は[Increment 158](../docs/increments/increment-158.md)。
+  追加指示によりcommit/push・常用配置は承認済み。配置後の操作確認は利用者指定により省略する。
+  公開は未指示。
+  構想・architecture・roadmapは変更不要。
 
 - E6の要件整理・計画作成は指示済み。正本は[Increment 157](../docs/increments/increment-157.md)。
   実装、実provider確認、その後の通常reviewは承認済み。対象・回数・保存先は確認前に提示する。

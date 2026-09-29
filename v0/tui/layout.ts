@@ -388,13 +388,13 @@ const footerSessionText = (
   const active = (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
     (primary === 'busy' || primary === 'cancelling');
   const opening = active ? `[${footerPrimaryText(state, columns)} │ ` : '[';
-  const fixed = ` session:${session} ${title}]`;
+  const fixed = ` │ session:${session} │ ${title}]`;
   const available = columns - width(`${opening}${fixed}`);
   if (available >= 1) {
     return `${opening}${suffixCells(workspace, available)}${fixed}`;
   }
 
-  const withoutPath = `${opening}session:${session} ${title}]`;
+  const withoutPath = `${opening}session:${session} │ ${title}]`;
   if (width(withoutPath) <= columns) return withoutPath;
 
   const withoutTitle = `${opening}session:${session}]`;
@@ -412,19 +412,10 @@ const footerModelText = (
   const effort = safeDisplay(model.effort, false);
   const provider = safeDisplay(model.provider, false);
   const fullModel = safeDisplay(model.modelId, false);
-  const full = `[provider:${provider} model:${fullModel} ${effort}]`;
-  if (width(full) <= columns) return full;
-
-  const compactFixed = `[provider:${provider} model: ${effort}]`;
-  if (width(compactFixed) < columns) {
-    const modelAvailable = columns - width(compactFixed);
-    return `[provider:${provider} model:${suffixCells(fullModel, modelAvailable)} ${effort}]`;
-  }
-
-  const narrowFixed = `[${provider}  ${effort}]`;
+  const narrowFixed = `[${provider} │  │ ${effort}]`;
   const modelAvailable = Math.max(1, columns - width(narrowFixed));
   return truncateCells(
-    `[${provider} ${suffixCells(fullModel, modelAvailable)} ${effort}]`,
+    `[${provider} │ ${suffixCells(fullModel, modelAvailable)} │ ${effort}]`,
     columns,
   );
 };
