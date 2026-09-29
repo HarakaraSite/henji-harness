@@ -235,7 +235,7 @@ selection inputは`{commandId, selection: {provider, modelId, effort}}`。
 idleの稼働Sessionを変更し、Sessionと次回default・model別の記憶effortへ保存する。 宣言済みprovider
 routeを使い、お気に入りの有無でモデル選択を制限しない。
 
-`kind=models`は呼出しごとに現在providerの`GET /models`とmodels.devを取得する。
+`kind=models`は通常、呼出しごとに現在providerの`GET /models`とmodels.devを取得する。
 任意の`sessionId`をqueryへ渡すと宣言headerの`{sessionId}`に利用する。
 結果は`metadataStatus`とmodel別の`modelId`・任意の`name`／`created`・`favorite`・
 `defaultEffort`・`efforts`。お気に入りを先頭に、各グループは新しい順。
@@ -247,6 +247,11 @@ TUIの`/model`ではID・表示名で検索、Tabで登録・解除、Enterで�
 rootの`model-catalogs/<providerId>.json`。 metadata URLは同じconfig
 rootの`model-metadata.json`に`{"url":"https://models.dev/api.json"}`で設定できる。
 外部provider宣言の任意の`modelsDevProviderId`でmetadata側provider IDを指定する。
+`modelListSource`は省略または`provider`で上記のAPI取得、`catalog`で宣言の
+`modelCatalog.entries`だけをモデル一覧とeffortへ使い、両外部取得を行わない。
+カタログ方式でもお気に入り・model別の記憶effortは同じ外部保存を使う。
+候補とeffortの更新は宣言JSONを編集してCoreを再起動する。ビルドは不要。
+Goの暫定運用ではChat/Responsesを各カタログへ分ける。
 
 credential register inputは`{authProfile, value}`だけを専用requestで送る。
 一般commandのcommandId・照合cacheを使わず、valueをSession履歴・snapshot・診断へ保存しない。

@@ -8,6 +8,8 @@
 OpenAI/Router/GoのChat/Responses計6経路で確認済み。通常reviewのP2二件を修正し、限定re-reviewで解消・新指摘なし。
 実装・確認結果・操作方法・配置identityと証拠はincrementを参照する。
 確認用Core/TUI/tmuxは終了済み。既存Core二つを保持した。
+追加指示によるモデル取得中2行overlayの削除とGoの暫定カタログ方式はlocal実装・source/compiled確認済み、常用反映中。
+Goの要件・Qwen Chat実測・設定と配置結果はincrement末尾を参照する。
 合意した動作、現行経路、外部provider対応案、保存・選択境界、検証と正本変更案はincrementを参照する。
 
 **S15の[Increment 156](../docs/increments/increment-156.md)は利用者確認・完了承認済み。**

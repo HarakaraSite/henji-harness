@@ -4,9 +4,14 @@ import type { RemoteCatalogUiOptions } from '../../v0/tui/remote_catalog_ui.ts';
 import type { ApiSelection, ModelCatalogResult } from '../../v0/api/contract.ts';
 
 Deno.test('E6 picker searches names and preserves target/query across favorite reordering', async () => {
-  let selection: ApiSelection = { provider: 'local', modelId: 'seed', effort: 'low' };
+  let selection: ApiSelection = {
+    provider: 'local',
+    modelId: 'seed',
+    effort: 'low',
+  };
   let lines: readonly string[] = [];
   let reads = 0;
+  let finishFirstRead: ((value: ModelCatalogResult) => void) | undefined;
   const choices: ApiSelection[] = [];
   const models = [
     {
@@ -40,6 +45,9 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
   const client: RemoteCatalogUiOptions['client'] = {
     catalogRead: () => {
       reads++;
+      if (reads === 1) {
+        return new Promise<ModelCatalogResult>((resolve) => finishFirstRead = resolve);
+      }
       return Promise.resolve(result());
     },
     modelFavorite: ({ modelId, favorite }) => {
@@ -89,6 +97,14 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
     setNotice() {},
     credentialPresenceRead() {},
   });
+  const firstOpen = picker.openModels();
+  strictEqual(picker.isOpen, true);
+  strictEqual(lines.length, 0);
+  picker.process({ kind: 'escape' });
+  finishFirstRead!(result());
+  await firstOpen;
+  strictEqual(picker.isOpen, false);
+  strictEqual(lines.length, 0);
   await picker.openModels();
   ok(lines.some((line) => line.includes('Tab favorite')));
   ok(lines.some((line) => line.includes('seed (current)')));
@@ -99,13 +115,17 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
   await new Promise((resolve) => setTimeout(resolve, 0));
   strictEqual(lines[2], 'search> SEARCHABLE');
   ok(lines.some((line) => line.startsWith('> * older')));
-  strictEqual(reads, 1);
+  strictEqual(reads, 2);
   strictEqual(choices.length, 0);
   picker.process({ kind: 'enter' });
   await new Promise((resolve) => setTimeout(resolve, 0));
-  deepStrictEqual(choices, [{ provider: 'local', modelId: 'older', effort: 'auto' }]);
+  deepStrictEqual(choices, [{
+    provider: 'local',
+    modelId: 'older',
+    effort: 'auto',
+  }]);
   await picker.openModels();
-  strictEqual(reads, 2);
+  strictEqual(reads, 3);
   picker.process({ kind: 'escape' });
   strictEqual(picker.isOpen, false);
 });

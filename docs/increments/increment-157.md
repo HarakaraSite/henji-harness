@@ -515,3 +515,94 @@ tmux-results.json、tmux.log、preexisting-cores.json、preexisting-cores-after.
 実画面、完了snapshotとCore identityはdeployed-tmux/へ保存した。
 本配置記録とhandoffを後続の文書commitへまとめ、origin/mainへpushする。
 JSR公開は未指示。利用者による通常操作確認・increment完了承認は別途のまま。
+
+## 追加修正 — モデルピッカーの取得中表示（2026-09-29）
+
+利用者がモデルピッカーを開く際の一瞬の表示切替を観測し、2行の取得中表示は不要と指定した。 現行経路は
+`/model` → `RemoteCatalogUi.beginLoading`の2行overlay → Coreのprovider一覧/metadata取得 →
+一覧overlay。会話画面から短いoverlayを経て一覧へ置き換えるため、途中の画面変化が生じる。
+
+取得中のmodel
+overlayを出さず、従来の会話画面とfooterの短い取得状態を維持し、完了時に一覧を表示する。
+非表示でも読み込み状態は `RemoteCatalogUi` が所有し、入力dispatchをその状態に従わせる。
+Esc取消と遅れて届く応答の無視は維持する。毎回取得する時点とprovider/effort/favoriteの動作は変えない。
+
+具体的な確認は、遅延した取得中に2行overlayが出ないこと、取得中Escが有効で完了後に再表示しないこと、
+再度開くと一覧取得・検索・選択ができること。focused test、source type
+check、format/lint/diff確認と、 隔離HOME/XDG/workspaceのproduction tmuxで確認する。外部provider
+requestは追加しない。
+
+
+追加修正の確認結果: 更新したremote/catalog focused3件が成功。CLI source type check、変更TS4fileの
+format/lint、diff checkも成功。隔離80列×32行tmuxのsource/compiled TUIで、取得中の会話領域が変わらず、
+2行overlayが出ないこと、取得中Esc取消、遅れた応答で再表示しないこと、再度開いて検索・選択できることを
+確認した。各modeのloopback一覧2回・metadata2回・generation0回。外部requestは0回。
+確認用Core/TUI/tmuxは終了済み。取得状態はfooterに短く表示する。
+
+証拠は`/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/picker-loading/`の
+source-tmux.log、compiled-tmux.log、tmux-results-source.json、tmux-results-compiled.jsonと各画面/snapshot。
+focused結果は一段上のpicker-loading-tests.log。確認用binaryは同directoryのhenji、build
+`de7b1853d88fc3d3c9a0417194568eba4cb8b16e382d25a6bd7881814bdfd5b2`、runtime
+`487e658febe5fe4992db681944257e59d81fa8cf4b1257c3c7ee33dce69896ad`。追加修正はlocal確認済み、常用配置前。
+
+### 通常利用での追加観測
+
+- qwen3.8-maxのeffortがautoだけになるとの利用者観測を調査した。常用のGo両宣言には
+  `modelsDevProviderId`がなく、実装はopencode-go-chat/responsesをmetadata keyとして照合していた。
+  models.devの同keyは存在せず、opencode-goのqwen3.8-maxにはlow/medium/xhighが存在することを
+  公開APIのDeno fetchで確認した。先の実provider確認は隔離宣言へ対応付けを追加していた。
+  常用宣言の追加/既存Core再起動は今回行っていない。
+- 利用者がGoのChat/Responsesで同じ一覧を表示することとAPIエラーを質問した。
+  今回の実装は共通の/models一覧を表示し、API別の絞り込みや選択時のroute切替はない。
+  [Go公式endpoint表](https://opencode.ai/docs/go/#endpoints)はモデル別のAPIを案内する。
+  GPT/GrokはResponses、Qwen3.8はMessagesと掲載されている。ただし推奨surfaceの掲載だけから、
+  ほかの互換surfaceが必ず失敗するとは確定できない。
+  実確認済みのGo代表経路はGLM ChatとGPT Responsesであり、全モデルと両APIの組合せは未確認。
+  共通一覧を全モデルの両API対応保証とは扱わない。API別分類や自動route切替は追加要件として未採用。
+
+
+## 追加修正 — Goの暫定カタログ運用（2026-09-29）
+
+利用者がGoの共通一覧とモデル別API対応を踏まえ、将来一providerへ統合するまで、
+Goは外部カタログだけを参照し、必要に応じagentが更新する運用を採用した。
+GoのChat/Responsesはそれぞれ登録済みモデル・effortを表示し、一覧もmodels.devも外部取得しない。
+OpenAI/OpenRouterなど既存のAPI一覧方式は維持する。お気に入りの登録・解除と候補一覧は分離する。
+
+現行経路は外部provider宣言のCore起動時読込み → protocol/endpoint/auth・固定entriesの保持 →
+LiveModelCatalogの一覧/metadata取得 → /modelと/effort。保存お気に入り・default effortは別のconfig file。
+provider宣言に任意のmodelListSource（provider/catalog）を加え、既定はprovider。
+catalogでは宣言entriesを一覧とeffortの正本にし、同じ合成・お気に入り・記憶経路を使う。
+プロトコル分類の推測、未登録モデルの一般的な選択拒否、Go自動API切替は加えない。
+
+常用Go宣言は新binaryの配置後にcatalog方式へ更新する。既存entriesは保持する。
+カタログ更新は宣言JSONのmodelCatalog.entriesへモデルとeffortを追加し、Coreを再起動する。
+ビルドは不要。稼働中Coreを自動停止・移行しない。
+モデル追加は公式情報と、そのAPI経路の最小実行を確認して行う。
+
+確認対象は外部宣言の解析、cold /effortと/modelの外部requestゼロ、favorites/effort記憶と再起動、
+更新した宣言entriesの読込み、API方式の従来動作。focused/type/format/lint/diffと隔離production tmuxで
+確認し、常用反映後のidentityと実config読込みも確認する。構想/architecture/roadmapの変更は含めない。
+
+
+追加カタログ方式の確認結果: focused8件成功。外部宣言parse、cold effort、登録モデルだけの一覧、
+お気に入りを解除しても候補と選択を保持すること、記憶値と再起動、宣言へ追加したモデルの読込みを確認した。
+CLI source type check、変更TS7fileのformat/lint、diff checkも成功。
+source/compiledの隔離80列×32行tmuxで、Go ChatとResponsesの候補が分かれ、cold /effortと再起動後も
+宣言の候補を表示し、Tabの独立操作・検索・選択とmodel別effort記憶が成立した。
+両modeとも一覧/metadata/generation requestは0。API方式は既存focusedと取得中表示のtmux証拠を参照する。
+
+Qwen3.8 MaxをGo Chatの宣言へ追加し、auto/low/medium/xhighを候補とした。
+承認済みの実provider確認範囲で、compiled production TUIから登録一覧→選択auto→/effort低指定→
+最小生成を実行した。outcome=completed、物理request1回でGO_CATALOG_OKを得た。
+一覧/models.dev requestは0。確認用Core/TUI/tmuxは終了済み、実credentialの隔離コピーは除去した。
+
+証拠は`/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/go-catalog/`の
+build.log、tmux-results-source.json、tmux-results-compiled.json、各modeの画面/snapshot、
+real-qwen/result.json・completed.json。focused結果は一段上のgo-catalog-tests.log。
+検証binary buildは`b95c26b7aad25b8e2d62809b922299d2257086c723f774b5907fd29148f646d0`、runtime
+`26fa116ff50396a9cc8782fbeb78c33a2bbe89e031f54b5b187922f03cd872cf`。
+
+先の利用者のcommit/push・配置指示に続け、取得中overlay削除と今回のGo暫定方式をcommit/pushし、
+固定commitのclean buildから常用配置する。Goの両外部宣言へmodelListSource=catalogを反映し、
+Chat側へ確認したQwen3.8 Maxを追加する。既存Core三つは保持して新規起動から適用する。
+Product正本の変更・JSR公開・既存Coreの停止/移行は対象外。

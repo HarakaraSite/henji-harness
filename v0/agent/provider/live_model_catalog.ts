@@ -269,6 +269,12 @@ export class LiveModelCatalog {
     sessionId?: string,
   ): Promise<ModelCatalogResult> {
     const declaration = this.#declaration(provider);
+    if (declaration.modelListSource === 'catalog') {
+      const snapshot = this.#declaredSnapshot(declaration);
+      const catalog = await this.#readCatalog(declaration);
+      this.#snapshots.set(provider, snapshot);
+      return this.#compose(declaration, snapshot, catalog);
+    }
     const [providerResult, metadataResult, catalogResult] = await Promise
       .allSettled([
         this.#fetchProviderModels(declaration, sessionId),
@@ -313,7 +319,8 @@ export class LiveModelCatalog {
     if (favorite && model !== undefined) {
       const storedModel = catalog.models[modelId] ?? {};
       const fixed = declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
-      const known = declaration.catalogSource === 'external' && fixed !== undefined
+      const known = (declaration.catalogSource === 'external' ||
+          declaration.modelListSource === 'catalog') && fixed !== undefined
         ? fixed.efforts
         : snapshot.metadata.models.get(modelId);
       if (known !== undefined) storedModel.efforts = [...uniqueEfforts(known)];
@@ -335,15 +342,19 @@ export class LiveModelCatalog {
     const declaration = this.#declaration(provider);
     let snapshot = this.#snapshots.get(provider);
     if (snapshot === undefined) {
-      const metadata = await this.#fetchMetadata(declaration);
-      snapshot = { models: [], metadata };
+      snapshot = declaration.modelListSource === 'catalog'
+        ? this.#declaredSnapshot(declaration)
+        : { models: [], metadata: await this.#fetchMetadata(declaration) };
       this.#snapshots.set(provider, snapshot);
     }
     const catalog = await this.#readCatalog(declaration);
     const fixed = declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
     let source: EffortCatalogResult['source'];
     let choices: readonly ReasoningEffort[];
-    if (declaration.catalogSource === 'external' && fixed !== undefined) {
+    if (
+      (declaration.catalogSource === 'external' || declaration.modelListSource === 'catalog') &&
+      fixed !== undefined
+    ) {
       source = 'override';
       choices = fixed.efforts;
     } else if (snapshot.metadata.status === 'loaded') {
@@ -737,6 +748,18 @@ export class LiveModelCatalog {
     }
   }
 
+  #declaredSnapshot(declaration: ProviderDeclarationV1): ModelSnapshot {
+    return {
+      models: declaration.modelCatalog.entries.map(({ modelId }) => ({ modelId })),
+      metadata: {
+        status: 'loaded',
+        models: new Map(
+          declaration.modelCatalog.entries.map(({ modelId, efforts }) => [modelId, efforts]),
+        ),
+      },
+    };
+  }
+
   #compose(
     declaration: ProviderDeclarationV1,
     snapshot: ModelSnapshot,
@@ -749,7 +772,10 @@ export class LiveModelCatalog {
       );
       let known: readonly ReasoningEffort[] | undefined;
       let source: EffortCatalogResult['source'];
-      if (declaration.catalogSource === 'external' && fixed !== undefined) {
+      if (
+        (declaration.catalogSource === 'external' || declaration.modelListSource === 'catalog') &&
+        fixed !== undefined
+      ) {
         source = 'override';
         known = fixed.efforts;
       } else if (snapshot.metadata.status === 'loaded') {

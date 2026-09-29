@@ -2,7 +2,10 @@ import {
   LiveModelCatalog,
   type LiveModelCatalogFact,
 } from '../../v0/agent/provider/live_model_catalog.ts';
-import type { ProviderDeclarationV1 } from '../../v0/agent/provider/provider_declaration.ts';
+import {
+  parseProviderDeclaration,
+  type ProviderDeclarationV1,
+} from '../../v0/agent/provider/provider_declaration.ts';
 import { credentialFileFor } from '../../v0/agent/provider/credential_file.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
@@ -355,6 +358,60 @@ Deno.test('Increment 157 maps an external provider to models.dev and honors its 
       ]);
     });
   });
+});
+
+Deno.test('E6 declared catalog lists registered models and efforts without provider or metadata requests', async () => {
+  const configRoot = await Deno.makeTempDir({ prefix: 'henji-e6-declared-catalog-' });
+  const raw = declaration('catalog-provider', 'http://127.0.0.1/v1', 'catalog-key', [
+    { modelId: 'registered', defaultEffort: 'auto', efforts: ['auto', 'low', 'xhigh'] },
+    { modelId: 'second', defaultEffort: 'auto', efforts: ['auto'] },
+  ], { modelListSource: 'catalog' });
+  const provider = parseProviderDeclaration(JSON.stringify(raw));
+  assertEquals(provider.modelListSource, 'catalog');
+  let requests = 0;
+  const fetcher: typeof fetch = () => {
+    requests += 1;
+    throw new Error('declared catalog must not fetch');
+  };
+  try {
+    const catalog = new LiveModelCatalog({ configRoot, declarations: [provider], fetcher });
+    const cold = await catalog.efforts(provider.providerId, 'registered');
+    assertEquals(cold.source, 'override');
+    assertEquals(cold.efforts, ['auto', 'low', 'xhigh']);
+    const listed = await catalog.models(provider.providerId);
+    assertEquals(listed.metadataStatus, 'loaded');
+    assertEquals(listed.models.map((entry) => entry.modelId), ['registered', 'second']);
+    assertEquals(model(listed, 'registered').efforts, cold.efforts);
+    const removed = await catalog.favorite(provider.providerId, 'registered', false);
+    assertEquals(removed.models.map((entry) => entry.modelId), ['second', 'registered']);
+    assertEquals(model(removed, 'registered').favorite, false);
+    await catalog.remember(provider.providerId, 'registered', 'low');
+    const restarted = new LiveModelCatalog({ configRoot, declarations: [provider], fetcher });
+    assertEquals(await restarted.defaultEffort(provider.providerId, 'registered'), 'low');
+    assertEquals(model(await restarted.models(provider.providerId), 'registered').favorite, false);
+
+    // An external catalog edit becomes the candidate list on the next Core startup.
+    const updated = parseProviderDeclaration(JSON.stringify({
+      ...raw,
+      modelCatalog: {
+        kind: 'fixed',
+        entries: [...raw.modelCatalog.entries, {
+          modelId: 'added',
+          defaultEffort: 'auto',
+          efforts: ['auto', 'medium'],
+        }],
+      },
+    }));
+    const next = new LiveModelCatalog({ configRoot, declarations: [updated], fetcher });
+    const refreshed = await next.models(provider.providerId);
+    assertEquals(refreshed.models.map((entry) => entry.modelId), ['second', 'registered', 'added']);
+    assertEquals(model(refreshed, 'added').favorite, false);
+    assertEquals((await next.efforts(provider.providerId, 'added')).efforts, ['auto', 'medium']);
+    assertEquals(requests, 0);
+    assertEquals(next.facts, []);
+  } finally {
+    await Deno.remove(configRoot, { recursive: true });
+  }
 });
 
 Deno.test('E6 catalog read begun before another Core saves receives a complete JSON document', async () => {

@@ -457,7 +457,9 @@ export class RemoteCatalogUi {
       if (!modal.savingFavorite) void this.toggleFavorite();
       return;
     }
-    if (modal.kind === 'models' && modal.savingFavorite && event.kind === 'enter') return;
+    if (
+      modal.kind === 'models' && modal.savingFavorite && event.kind === 'enter'
+    ) return;
     if (modal.kind === 'models' && event.kind === 'backspace') {
       this.updateModelQuery([...modal.query].slice(0, -1).join(''));
       return;
@@ -530,7 +532,12 @@ export class RemoteCatalogUi {
     const generation = ++this.generation;
     this.modal = { kind: 'loading', title: catalogTitle(kind), generation };
     this.options.setNotice(this.modal.title);
-    this.options.renderer.renderChoicePicker([this.modal.title, 'Esc cancels']);
+    if (kind !== 'models') {
+      this.options.renderer.renderChoicePicker([
+        this.modal.title,
+        'Esc cancels',
+      ]);
+    }
     return generation;
   }
 
@@ -632,7 +639,10 @@ export class RemoteCatalogUi {
         item.modelId.toLocaleLowerCase().includes(query) ||
         item.name?.toLocaleLowerCase().includes(query)
       );
-      const selected = Math.max(0, entries.findIndex((item) => item.modelId === entry.modelId));
+      const selected = Math.max(
+        0,
+        entries.findIndex((item) => item.modelId === entry.modelId),
+      );
       this.modal = {
         ...current,
         catalog: result.models,
@@ -644,7 +654,9 @@ export class RemoteCatalogUi {
       this.options.setNotice(undefined);
       this.renderModels();
     } catch {
-      if (generation !== this.generation || this.modal?.kind !== 'models') return;
+      if (generation !== this.generation || this.modal?.kind !== 'models') {
+        return;
+      }
       this.modal = { ...this.modal, savingFavorite: false };
       this.options.setNotice('favorite save failed');
       this.renderModels();

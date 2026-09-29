@@ -98,7 +98,13 @@ const snapshotFor = (
       ? ['task.submit', 'selection.change', 'credential.register']
       : ['credential.register'],
   },
-  conversation: { messages: [], tools: [], thinking: [], requests: [], omitted: 0 },
+  conversation: {
+    messages: [],
+    tools: [],
+    thinking: [],
+    requests: [],
+    omitted: 0,
+  },
   pending: { kind: 'core-owned', followUps: [] },
   credentialAvailability: { status: credentialStatus },
   context: {},
@@ -129,6 +135,7 @@ const coreRead = {
 
 class FakeTerminal implements TerminalPort {
   readonly output: string[] = [];
+  readonly frames: ScreenFrame[] = [];
   readonly signals = new Map<string, () => void>();
   raw = false;
   private readonly input: Uint8Array[] = [];
@@ -168,6 +175,7 @@ class FakeTerminal implements TerminalPort {
     return Promise.resolve();
   }
   writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.frames.push(frame);
     this.write(encodeScreenFrame(frame));
     onWritten?.();
   }
@@ -256,6 +264,8 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
   let registeredValue: unknown;
   let credentialRegistrations = 0;
   let credentialStatus: 'present' | 'missing' | 'unknown' = 'missing';
+  let modelReads = 0;
+  let releaseModels: (() => void) | undefined;
   const server = Deno.serve(
     { hostname: '127.0.0.1', port: 0, onListen() {} },
     async (request) => {
@@ -302,6 +312,10 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
           });
         }
         if (kind === 'models') {
+          modelReads += 1;
+          if (modelReads === 1) {
+            await new Promise<void>((resolve) => releaseModels = resolve);
+          }
           return Response.json({
             kind,
             provider: url.searchParams.get('provider'),
@@ -416,6 +430,21 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
       effort: 'low',
     });
 
+    const beforeLoading = terminal.frames.length;
+    terminal.pushInput('/model\r');
+    await waitFor(() =>
+      releaseModels !== undefined &&
+      terminal.frames.at(-1)!.rows.join('\n').includes('loading model catalog')
+    );
+    strictEqual(
+      terminal.frames.slice(beforeLoading).some((frame) =>
+        frame.rows.some((row) => row.includes('Esc cancels') || row.includes('model picker'))
+      ),
+      false,
+    );
+    terminal.pushInput('\x1b');
+    await waitFor(() => !terminal.frames.at(-1)!.rows.join('\n').includes('loading model catalog'));
+    releaseModels!();
     terminal.pushInput('/model\r');
     await waitFor(() =>
       terminal.text().includes('> * mimo-flash') &&
@@ -461,7 +490,9 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
     const beforeSecondLogin = terminal.text().length;
     terminal.pushInput('\x15/login\r');
     await waitFor(() =>
-      terminal.text().slice(beforeSecondLogin).includes('credential registration')
+      terminal.text().slice(beforeSecondLogin).includes(
+        'credential registration',
+      )
     );
     terminal.pushInput('\r');
     const beforeSecondCredentialInput = terminal.text().length;
@@ -480,6 +511,7 @@ Deno.test('Increment 144 remote catalog, selection, masked login, and Core works
     strictEqual(credentialRegistrations, 1);
     strictEqual(terminal.text().includes(detachedValue), false);
   } finally {
+    releaseModels?.();
     await server.shutdown();
   }
 });
@@ -546,7 +578,10 @@ Deno.test('Increment 144 follows live credential presence and permits saved-view
         credentialCatalogReads += 1;
         return Response.json({
           kind: 'credentials',
-          profiles: [{ authProfile: 'provider-b-profile', providers: ['provider-b'] }],
+          profiles: [{
+            authProfile: 'provider-b-profile',
+            providers: ['provider-b'],
+          }],
         });
       }
       if (
@@ -565,7 +600,10 @@ Deno.test('Increment 144 follows live credential presence and permits saved-view
         request.method === 'POST' &&
         url.pathname === '/api/v1/credentials/register'
       ) {
-        const body = await request.json() as { authProfile: string; value: string };
+        const body = await request.json() as {
+          authProfile: string;
+          value: string;
+        };
         strictEqual(body.authProfile, 'provider-b-profile');
         strictEqual(body.value, 'saved-view-test-key');
         credentialRegistrations += 1;
@@ -595,7 +633,9 @@ Deno.test('Increment 144 follows live credential presence and permits saved-view
     terminal.pushInput('\x1b');
     await waitFor(() => terminal.text().includes('Ctrl-C clear'));
     presenceStatus = 'present';
-    if (activeStream === undefined) throw new Error('active Session stream missing');
+    if (activeStream === undefined) {
+      throw new Error('active Session stream missing');
+    }
     sendSnapshotValue(
       activeStream,
       snapshotFor(sessionId, sessionId, presenceStatus, 2),
@@ -612,7 +652,9 @@ Deno.test('Increment 144 follows live credential presence and permits saved-view
     terminal.pushInput('\r');
     const beforeInput = terminal.text().length;
     await waitFor(() =>
-      terminal.text().slice(beforeInput).includes('credential input · provider-b-profile')
+      terminal.text().slice(beforeInput).includes(
+        'credential input · provider-b-profile',
+      )
     );
     terminal.pushInput('saved-view-test-key\r');
     await waitFor(() => credentialRegistrations === 1);

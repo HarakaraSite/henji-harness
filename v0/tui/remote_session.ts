@@ -462,7 +462,10 @@ const renderSessionOrientation = (
     projectionFromSnapshot(snapshot, workspace),
     snapshot.runtime.active && execution !== null ? Date.parse(execution.createdAt) : undefined,
   );
-  renderer.renderCompactStartup(presentationStartupFromSnapshot(snapshot, workspace), position);
+  renderer.renderCompactStartup(
+    presentationStartupFromSnapshot(snapshot, workspace),
+    position,
+  );
 };
 
 interface PendingConversationProjection {
@@ -489,7 +492,9 @@ const mergeProjectionWork = (
     pending.resync = false;
   }
   for (const id of hint.messageIds ?? []) pending.messageIds.add(id);
-  for (const id of hint.toolOccurrenceIds ?? []) pending.toolOccurrenceIds.add(id);
+  for (const id of hint.toolOccurrenceIds ?? []) {
+    pending.toolOccurrenceIds.add(id);
+  }
   for (const id of hint.thinkingIds ?? []) pending.thinkingIds.add(id);
   pending.resetScroll ||= resetScroll;
   pending.resync ||= hint.resync === true;
@@ -497,7 +502,9 @@ const mergeProjectionWork = (
 
 const takeProjectionWork = (
   pending: PendingConversationProjection,
-): Readonly<{ hint: SnapshotConversationProjectionHint; resetScroll: boolean }> => {
+): Readonly<
+  { hint: SnapshotConversationProjectionHint; resetScroll: boolean }
+> => {
   const hint: SnapshotConversationProjectionHint = Object.freeze({
     ...(pending.messageIds.size === 0 ? {} : { messageIds: [...pending.messageIds] }),
     ...(pending.toolOccurrenceIds.size === 0
@@ -538,11 +545,16 @@ const projectionHintFromFrame = (
         break;
       case 'thinking.upsert':
         thinkingIds.push(
-          snapshotThinkingIdentity(change.thinking.requestKey, change.thinking.thinkingKind),
+          snapshotThinkingIdentity(
+            change.thinking.requestKey,
+            change.thinking.thinkingKind,
+          ),
         );
         break;
       case 'thinking.remove':
-        thinkingIds.push(snapshotThinkingIdentity(change.requestKey, change.thinkingKind));
+        thinkingIds.push(
+          snapshotThinkingIdentity(change.requestKey, change.thinkingKind),
+        );
         break;
     }
   }
@@ -567,13 +579,20 @@ const renderSnapshot = (
     renderer.latest();
   }
   renderSessionOrientation(renderer, snapshot, workspace);
-  const scope = JSON.stringify([snapshot.cursor.coreEpoch, snapshot.session.id]);
+  const scope = JSON.stringify([
+    snapshot.cursor.coreEpoch,
+    snapshot.session.id,
+  ]);
   renderer.setDisplayScope(scope);
   mergeProjectionWork(pending, scope, hint, !preserveScroll);
   renderer.updateConversation(() => {
     const work = takeProjectionWork(pending);
     const projected = projector.project(snapshot, scope, work.hint);
-    renderer.setConversationEntries(projected.entries, projected.omitted, work.resetScroll);
+    renderer.setConversationEntries(
+      projected.entries,
+      projected.omitted,
+      work.resetScroll,
+    );
     const records = [
       ...(snapshot.pending.followUp === undefined ? [] : [snapshot.pending.followUp]),
       ...snapshot.pending.followUps,
@@ -945,7 +964,8 @@ export const runRemoteTui = async (
         pendingCancellation !== undefined || cancellationRequested
       ? 'cancelling'
       : 'busy';
-    const status = connected && activeExecution() !== undefined && !rawStatus.startsWith(phase)
+    const status = connected && activeExecution() !== undefined &&
+        !rawStatus.startsWith(phase)
       ? `${phase} · ${rawStatus}`
       : rawStatus;
     const hint = credentialStatusHint();
@@ -1805,7 +1825,9 @@ export const runRemoteTui = async (
     updateStatus();
     void (async () => {
       try {
-        const command = await client.coreShutdown({ commandId: crypto.randomUUID() });
+        const command = await client.coreShutdown({
+          commandId: crypto.randomUUID(),
+        });
         if (exitRequested) return;
         if (command.kind === 'rejected') {
           notice = 'shutdown rejected: ' + commandReasonText(command.reason);
@@ -1832,7 +1854,9 @@ export const runRemoteTui = async (
     const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/u.exec(trimmed);
     const name = match?.[1] ?? '';
     const argument = match?.[2]?.trim() ?? '';
-    const known = new Set<string>(SLASH_COMMANDS.map((definition) => definition.command));
+    const known = new Set<string>(
+      SLASH_COMMANDS.map((definition) => definition.command),
+    );
     if (!known.has(name)) {
       notice = 'unknown command /' + name +
         ' · try /sessions, /view, /resume, /new, /context';
@@ -1967,7 +1991,7 @@ export const runRemoteTui = async (
           }
           if (shutdownPending) continue;
           const overlay = renderer.stateSnapshot().overlay;
-          if (overlay.kind === 'choicePicker') {
+          if (catalogUi.isOpen || overlay.kind === 'choicePicker') {
             catalogUi.process(event);
             continue;
           }

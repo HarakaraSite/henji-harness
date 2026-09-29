@@ -45,6 +45,8 @@ export interface ProviderDeclarationV1 {
    */
   readonly headers?: Readonly<Record<string, string>>;
   readonly modelsDevProviderId?: string;
+  /** Defaults to live provider inventory; catalog uses the declared models and efforts only. */
+  readonly modelListSource?: 'provider' | 'catalog';
   /** Host-owned marker for effort overrides from an external declaration file. */
   readonly catalogSource?: 'external';
 }
@@ -83,6 +85,7 @@ const DECLARATION_KEYS: readonly string[] = Object.freeze([
 const OPTIONAL_DECLARATION_KEYS: readonly string[] = Object.freeze([
   'headers',
   'modelsDevProviderId',
+  'modelListSource',
 ]);
 const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9a-z]+$/u;
 const FORBIDDEN_HEADER_NAMES: readonly string[] = Object.freeze([
@@ -279,6 +282,10 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
   if (value.modelsDevProviderId !== undefined && typeof value.modelsDevProviderId !== 'string') {
     invalid('modelsDevProviderId must be a string', value.providerId);
   }
+  if (
+    value.modelListSource !== undefined && value.modelListSource !== 'provider' &&
+    value.modelListSource !== 'catalog'
+  ) invalid('modelListSource must be provider or catalog', value.providerId);
   const headers = parseHeaders(value.protocol as ProviderProtocol, value.providerId, value.headers);
   if (headers !== undefined && OVERRIDABLE_PROVIDER_IDS.includes(value.providerId)) {
     invalid('provider headers are not allowed for a built-in override', value.providerId);
@@ -298,6 +305,9 @@ export const validateProviderDeclaration = (value: unknown): ProviderDeclaration
     ...(value.modelsDevProviderId === undefined
       ? {}
       : { modelsDevProviderId: value.modelsDevProviderId as string }),
+    ...(value.modelListSource === undefined
+      ? {}
+      : { modelListSource: value.modelListSource as 'provider' | 'catalog' }),
   });
 };
 
