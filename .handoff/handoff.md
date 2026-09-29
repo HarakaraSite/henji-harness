@@ -4,11 +4,14 @@
 
 ## 現在地（2026-09-30）
 
-**[Increment 159](../docs/increments/increment-159.md)の四slice local実装・検証・各sliceコード/test
-review完了。** Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
+**[Increment 159](../docs/increments/increment-159.md)の四slice実装・検証・review・commit/push・常用配置完了。**
+Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
 要件・計画・実装結果・レビューはincrement正本を参照する。
-利用者確認・increment完了承認は未取得。追加指示でcommit/push・常用配置を進行中。
-確認用Core/TUI/tmuxは終了、credential参照は解除済み。既存Core・実config・常用binaryは保持している。
+利用者による通常操作確認・increment完了承認は未取得。配置後の隔離TUI操作確認は完了。
+確認用Core/TUI/tmuxは終了、credential参照は解除済み。既存Henjiプロセス二件・実configは保持し、常用binaryを更新した。
+
+常用binaryは`henji 0.7.0`、source `e372653b…`、build
+`9045c36b…`へ更新済み。新規起動から適用し、既存Coreは保持した。配置証拠はincrement正本を参照する。
 
 **[Increment 158](../docs/increments/increment-158.md)のlocal実装・検証・commit/push・常用配置完了。**
 フッター2・3行目の区切りとprovider/modelラベル省略を実装し、compiled production TUIで確認済み。
@@ -54,7 +57,6 @@ TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結
 要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
 [Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
 
-常用binaryは`henji 0.7.0`、source `aacf90cc…`、build `f89cf2a9…`へ更新済み。
 Goは両外部宣言のカタログ方式へ更新し、Chat側へQwen3.8 Maxを追加済み。新規Coreから適用する。
 通常起動は毎回新Core・Session。再接続は`henji --core ID`または`--connect URL`で明示する。
 S22の8slice（139〜146）と147の配置結果は
@@ -68,9 +70,9 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. Increment 159のlocal実装・検証・slice reviewは完了。
-   [実装結果](../docs/increments/increment-159.md)を利用者が確認する。
-   commit/push・常用配置は追加指示を受け進行中。構想・architecture・roadmapの意味変更は未指示。
+1. Increment 159の実装・検証・review・commit/push・配置と、配置binaryの隔離操作確認は完了。
+   [実装・配置結果](../docs/increments/increment-159.md)を利用者が通常操作で確認する。
+   構想・architecture・roadmapの意味変更は未指示。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
@@ -81,7 +83,7 @@ S22の8slice（139〜146）と147の配置結果は
   [Increment 159](../docs/increments/increment-159.md)。
   具体的な実provider確認の対象・見込み回数・保存先を報告して進め、同じ最小確認の再承認は不要。
   追加指示による四sliceのlocal実装・非破壊的検証・各slice reviewは完了。
-  commit/push・常用配置は2026-09-30の追加指示により承認済み。構想・architecture・roadmapの変更は未指示。
+  commit/push・常用配置は2026-09-30の追加指示により承認済み・完了。構想・architecture・roadmapの変更は未指示。
 
 - Increment 158のlocal表示修正と非破壊的検証は今回の指示で承認済み・完了。
   正本は[Increment 158](../docs/increments/increment-158.md)。

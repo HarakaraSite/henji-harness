@@ -10,6 +10,7 @@ credential登録はCore全体の操作なので、idleなら保存Session閲覧�
 起動ヘッダ・working／elapsed・Ctrl-Cの修正と配置は[Increment 148](../increments/increment-148.md)、
 複数Coreの実装・review・実provider受入は[Increment 149〜153](../plans/a25-implementation-slices.md)、
 その常用配置は[A25合同配置記録](../increments/a25-deployment-2026-09-29.md)を参照する。
+パス補完APIの廃止とTUI操作・footerの更新/配置は[Increment 159](../increments/increment-159.md)を参照する。
 
 ## 起動と接続
 

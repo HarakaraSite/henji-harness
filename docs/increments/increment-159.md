@@ -1,10 +1,10 @@
 # Increment 159 — フッター・操作案内・コマンドピッカーの整理
 
-更新日: 2026-09-29
+更新日: 2026-09-30
 
 ステータス: 四sliceのlocal実装・focused確認・隔離production
 TUI/最小実provider確認・各sliceのreviewerコード/test review完了。Slice
-2/3の採用findingは修正・限定re-reviewで解消。残るBlocker/P1/P2は0。利用者確認・increment完了承認は未取得。2026-09-30の追加指示でcommit/push・常用配置を進行中。
+2/3の採用findingは修正・限定re-reviewで解消。残るBlocker/P1/P2は0。利用者確認・increment完了承認は未取得。2026-09-30の追加指示によるcommit/push・常用配置は完了。
 フッター整理と通常利用メモS27を、このincrementの計画対象として扱う。
 
 ## 目的・規模・権限
@@ -553,3 +553,26 @@ local実装確認用candidate/Core/TUI/tmuxはすべて終了し、隔離credent
 159の実装・test・要件/検証・操作文書・採用移動・handoffをcommitし、origin/mainへpushする。別件の未追跡`docs/research/a23-*`二件は対象外とする。固定commitのclean
 checkoutでDeno 2.9.7の公式buildを行い、Slice 4で実操作したcandidateとruntime
 SHA-256が一致することを確認する。旧binaryを保存し、常用先`/home/agent/.local/bin/henji`へ原子的に配置する。配置binaryを隔離XDG/workspace/tmuxで最小の非provider操作で確認し、配置記録を後続文書commitへまとめてpushする。実provider呼出しは追加しない。既存Core・実configは停止・移行・変更しない。
+
+### 配置結果
+
+2026-09-30、実装・test・increment/操作文書・handoff等47ファイルをcommit
+`e372653bb5575665dd23a6995b7671168e3341c0`へまとめ、origin/mainへpushした。別件の未追跡`docs/research/a23-*`二件は含めていない。固定commitのclean
+checkoutからDeno 2.9.7の公式build scriptでbinaryを作り、Slice 4の実操作candidateとruntime
+SHA-256が一致した。sourceDirty=false。
+
+- 配置先: `/home/agent/.local/bin/henji`（henji 0.7.0）。
+- build ID: `9045c36b93988d66e22312fcbd2a1cc9b4a995f0039df57da839455b9dc771fc`。
+- runtime SHA-256: `51bb929c791397829b6c6396f50ccb7c4799081dac0aa3bb1d1deb6ea3989491`。
+- binary SHA-256: `fd1766dd437fdcde41a841e708a3bc987f3783f1341e52f2f03c8a42bb86b975`。
+- 旧binary:
+  `/home/agent/.local/state/henji-build-artifacts/increment-159-20260930/deployment/henji.previous`。SHA-256
+  `d1032205ae8d8762980086896d50a8c7a31866fae98d38dc3034a691299ad493`。
+
+旧binaryを保存して常用先へ原子的に置換し、配置したファイルのhash・version・source・buildがclean候補と一致することを確認した。配置したbinaryそのものを隔離XDG/workspace/tmuxで起動し、readyの三行footer、F1
+Sessions、slash picker、/quitでCore終了・TUI exit0を確認した。追加実provider
+requestは0回。配置前から存在したHenjiプロセス二件はPID/起動時刻を保ち、停止・移行していない。確認用Core/TUI/tmuxは終了し、隔離credential参照は解除済み。実configは変更していない。
+
+証拠は`/home/agent/.local/state/henji-build-artifacts/increment-159-20260930/deployment/`のclean
+checkout、build.log、preflight.json、deployment.json、version.txt、`slice-deployment/`の画面・Core
+identity・results。JSR公開、構想・architecture・roadmap変更は行っていない。GhosttyクライアントのF1〜F3物理入力は未確認。利用者による通常操作確認・increment完了承認は別途。
