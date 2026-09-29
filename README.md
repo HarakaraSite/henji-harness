@@ -100,9 +100,11 @@ henji core status --core <core-id> --json
 henji core stop --core <core-id>
 ```
 
-The TUI header shows both Core and Session IDs. Exiting the TUI detaches and leaves accepted work
-running. Reconnect by Core ID or `--connect URL`; `--session` without a Core target resumes saved
-work in a fresh Core. `core stop` without a target lists Cores and instructions. See
+The TUI header shows both Core and Session IDs. `/detach` or Ctrl-D detaches the TUI and leaves
+accepted work running. `/shutdown` or Ctrl-Q stops the attached Core, including active work, and
+exits this TUI after resource cleanup. Type `/` followed by a letter for command suggestions; Tab
+completes a single match. Reconnect by Core ID or `--connect URL`; `--session` without a Core target
+resumes saved work in a fresh Core. `core stop` without a target lists Cores and instructions. See
 [HTTP operations](docs/operations/http-api.md) for connection and Session details.
 
 ## Main features available now

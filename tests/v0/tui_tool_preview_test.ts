@@ -426,11 +426,13 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
   assertEquals(slashCommandOf('/effort'), 'effort');
   assertEquals(slashCommandOf('/recall'), 'recall');
   assertEquals(slashCommandOf('/recall aaaaaaaa'), 'recall');
-  assertEquals(slashCommandOf('/exit'), 'exit');
+  assertEquals(slashCommandOf('/detach'), 'detach');
+  assertEquals(slashCommandOf('/shutdown'), 'shutdown');
+  assertEquals(slashCommandOf('/exit'), 'unknown');
   assertEquals(slashCommandOf('  /sessions  '), 'sessions');
   assertEquals(slashCommandOf('read foo.ts'), null);
   assertEquals(slashCommandOf('/unknown'), 'unknown');
-  assertEquals(slashCommandOf('/context'), 'unknown');
+  assertEquals(slashCommandOf('/context'), 'context');
   assertEquals(slashCommandOf('/sessions foo'), 'unknown');
   assertEquals(slashCommandOf('/new session'), 'unknown');
   assertEquals(slashCommandOf('/renamefoo'), 'unknown');
@@ -449,23 +451,16 @@ Deno.test('Slash commands parse exact built-ins and rename title arguments', () 
 });
 
 Deno.test('Slash command candidates use case-sensitive raw-prefix matching', () => {
-  assertEquals(slashCommandCandidates('/'), [
-    '/help',
-    '/login',
-    '/new',
-    '/sessions',
-    '/rename',
-    '/provider',
-    '/model',
-    '/effort',
-    '/recall',
-    '/exit',
-  ]);
+  assertEquals(slashCommandCandidates('/'), []);
+  assertEquals(slashCommandCandidates('/s'), ['/sessions', '/shutdown']);
+  assertEquals(slashCommandCandidates('/d'), ['/detach']);
+  assertEquals(slashCommandCandidates('/v'), ['/view']);
+  assertEquals(slashCommandCandidates('/c'), ['/context']);
   assertEquals(slashCommandCandidates('/h'), [
     '/help',
   ]);
   assertEquals(slashCommandCandidates('/n'), ['/new']);
-  assertEquals(slashCommandCandidates('/r'), ['/rename', '/recall']);
+  assertEquals(slashCommandCandidates('/r'), ['/resume', '/rename', '/recall']);
   assertEquals(slashCommandCandidates('/unknown'), []);
   assertEquals(slashCommandCandidates('/H'), []);
   assertEquals(slashCommandCandidates(' /help'), []);

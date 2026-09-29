@@ -21,6 +21,7 @@ export type InputEvent =
   | { readonly kind: 'ctrl_c' }
   | { readonly kind: 'ctrl_g' }
   | { readonly kind: 'ctrl_d' }
+  | { readonly kind: 'ctrl_q' }
   | { readonly kind: 'ctrl_o' }
   | { readonly kind: 'ctrl_t' }
   | { readonly kind: 'ctrl_w' }

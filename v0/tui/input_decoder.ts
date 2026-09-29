@@ -167,6 +167,10 @@ export class InputDecoder {
       events.push({ kind: 'ctrl_d' });
       return;
     }
+    if (byte === 0x11) {
+      events.push({ kind: 'ctrl_q' });
+      return;
+    }
     if (byte === 0x0f) {
       events.push({ kind: 'ctrl_o' });
       return;

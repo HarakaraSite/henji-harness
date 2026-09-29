@@ -3,12 +3,16 @@ export type SlashCommand =
   | 'login'
   | 'new'
   | 'sessions'
+  | 'view'
+  | 'resume'
+  | 'context'
   | 'rename'
   | 'provider'
   | 'model'
   | 'effort'
   | 'recall'
-  | 'exit';
+  | 'shutdown'
+  | 'detach';
 
 export interface SlashCommandDefinition {
   readonly text: string;
@@ -20,16 +24,20 @@ export const SLASH_COMMANDS: readonly SlashCommandDefinition[] = Object.freeze([
   Object.freeze({ text: '/login', command: 'login' }),
   Object.freeze({ text: '/new', command: 'new' }),
   Object.freeze({ text: '/sessions', command: 'sessions' }),
+  Object.freeze({ text: '/view', command: 'view' }),
+  Object.freeze({ text: '/resume', command: 'resume' }),
+  Object.freeze({ text: '/context', command: 'context' }),
   Object.freeze({ text: '/rename', command: 'rename' }),
   Object.freeze({ text: '/provider', command: 'provider' }),
   Object.freeze({ text: '/model', command: 'model' }),
   Object.freeze({ text: '/effort', command: 'effort' }),
   Object.freeze({ text: '/recall', command: 'recall' }),
-  Object.freeze({ text: '/exit', command: 'exit' }),
+  Object.freeze({ text: '/detach', command: 'detach' }),
+  Object.freeze({ text: '/shutdown', command: 'shutdown' }),
 ]);
 
 export const slashCommandCandidates = (text: string): readonly string[] => {
-  if (!text.startsWith('/')) return Object.freeze([]);
+  if (!text.startsWith('/') || text.length < 2) return Object.freeze([]);
   return Object.freeze(
     SLASH_COMMANDS.filter((definition) => definition.text.startsWith(text)).map((definition) =>
       definition.text

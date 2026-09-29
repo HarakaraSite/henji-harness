@@ -87,12 +87,6 @@ const safeDisplay = (text: string, preserveNewline = true): string => {
 const truncateCells = (text: string, columns: number): string => {
   return truncateTerminalCells(safeDisplay(text), columns);
 };
-const ellipsisCells = (text: string, columns: number): string => {
-  if (width(text) <= columns) return text;
-  if (columns <= 0) return '';
-  if (columns === 1) return '…';
-  return `${truncateCells(text, columns - 1)}…`;
-};
 const suffixCells = (text: string, columns: number): string => {
   if (width(text) <= columns) return text;
   if (columns <= 0) return '';
@@ -186,9 +180,10 @@ const remoteFooterControls = (status: string): readonly string[] => {
     'Alt-Enter queue',
     'Ctrl-C clear',
     'Ctrl-D detach',
+    'Ctrl-Q shutdown',
     'Esc cancel',
     'cancellation unavailable',
-    '/exit detach',
+    '/detach',
     'F1 help',
   ]);
   return status.split(' · ').filter((part) => known.has(part));
@@ -301,9 +296,6 @@ const footerStatusText = (
   const commandSegment = state.slashCommandCandidates.length === 0
     ? undefined
     : `cmds: ${state.slashCommandCandidates.join(', ')}`;
-  const commandItem = commandSegment === undefined
-    ? []
-    : [{ kind: 'commands', text: safeDisplay(commandSegment, false) }];
   const cancelSegment = state.lifecycle === 'busy' && remoteControls.length === 0
     ? 'Esc cancel'
     : undefined;
@@ -319,9 +311,6 @@ const footerStatusText = (
     : width(`[${historyFull}]`) <= columns
     ? historyFull
     : `history · ${historyHint}`;
-  const controlsText = remoteControls.length === 0
-    ? undefined
-    : safeDisplay(remoteControls.join(' · '), false);
   const resultText = remoteResult.length === 0 ? undefined : safeDisplay(
     remoteResult.filter((part) => part !== status.primary).join(' · '),
     false,
@@ -338,12 +327,12 @@ const footerStatusText = (
       : historyRequired === undefined
       ? [displayedPrimary]
       : []),
+    ...(commandSegment === undefined ? [] : [safeDisplay(commandSegment, false)]),
   ];
   const optional = [
     ...(historyRequired === undefined || primaryInSession
       ? []
       : [{ kind: 'primary', text: displayedPrimary }]),
-    ...(state.lifecycle === 'busy' ? [] : commandItem),
     ...(status.credential === undefined
       ? []
       : [{ kind: 'credential', text: safeDisplay(status.credential, false) }]),
@@ -362,41 +351,19 @@ const footerStatusText = (
     ...(resultText === undefined || resultText.length === 0
       ? []
       : [{ kind: 'remote-result', text: resultText }]),
-    ...(primaryInSession
-      ? remoteControls.map((text) => ({ kind: 'remote-controls', text }))
-      : controlsText === undefined
-      ? []
-      : [{ kind: 'remote-controls', text: controlsText }]),
-    ...(state.lifecycle === 'busy' ? commandItem : []),
+    ...remoteControls.map((text) => ({ kind: 'remote-controls', text: safeDisplay(text, false) })),
   ];
   let segments = [...fixed, ...optional.map((segment) => segment.text)];
   while (
     segments.length > fixed.length &&
     width(renderSegments(segments)) > columns
   ) {
-    const commandIndex = optional.findIndex((segment) => segment.kind === 'commands');
-    if (commandIndex >= 0) {
-      const withoutCommand = optional.filter((_, index) => index !== commandIndex);
-      const shell = renderSegments([
-        ...fixed,
-        ...withoutCommand.map((segment) => segment.text),
-        '',
-      ]);
-      const available = columns - width(shell);
-      if (available >= width('cmds: …')) {
-        optional[commandIndex] = {
-          kind: 'commands',
-          text: ellipsisCells(optional[commandIndex].text, available),
-        };
-      } else optional.splice(commandIndex, 1);
-    } else {
-      const nonPriority = optional.findLastIndex((segment) =>
-        segment.kind !== 'cancel' && segment.kind !== 'remote-result' &&
-        segment.kind !== 'remote-controls'
-      );
-      if (nonPriority >= 0) optional.splice(nonPriority, 1);
-      else optional.pop();
-    }
+    const nonPriority = optional.findLastIndex((segment) =>
+      segment.kind !== 'cancel' && segment.kind !== 'remote-result' &&
+      segment.kind !== 'remote-controls'
+    );
+    if (nonPriority >= 0) optional.splice(nonPriority, 1);
+    else optional.pop();
     segments = [...fixed, ...optional.map((segment) => segment.text)];
   }
   const text = truncateCells(renderSegments(segments), Math.max(1, columns));

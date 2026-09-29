@@ -200,7 +200,7 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
       text.includes('The note says remote history is available.')
     ) {
       interaction = 3;
-      terminal.pushInput('/exit\r');
+      terminal.pushInput('/detach\r');
     }
   };
   const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
@@ -237,7 +237,7 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
         'Worker startup not evaluated',
         'read-only help',
         'Ctrl-D',
-        'accepted core work running',
+        'accepted Core work running',
       ]
     ) {
       if (!rendered.includes(text)) {

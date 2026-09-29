@@ -1,5 +1,4 @@
 import { HenjiApiClient } from '../../api/client.ts';
-import { HenjiApiError } from '../../api/client.ts';
 import {
   coreCollectionLocation,
   coreDiscoveryLocation,
@@ -142,28 +141,6 @@ const status = async (invocation: CoreInvocation): Promise<number> => {
   return 0;
 };
 
-const waitUntilStopped = async (
-  client: HenjiApiClient,
-  coreEpoch: string,
-): Promise<void> => {
-  while (true) {
-    try {
-      const current = await client.coreRead();
-      if (current.coreEpoch !== coreEpoch) return;
-    } catch (error) {
-      if (
-        !(error instanceof HenjiApiError) || error.status === 404
-      ) return;
-      if (error.status === 503) {
-        await new Promise((resolve) => setTimeout(resolve, 25));
-        continue;
-      }
-      throw error;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-};
-
 const waitUntilLocalCoreReleased = async (
   location: Awaited<ReturnType<typeof coreDiscoveryLocation>>,
 ): Promise<void> => {
@@ -205,7 +182,7 @@ const stop = async (invocation: CoreInvocation): Promise<number> => {
   if (result.kind !== 'accepted') {
     throw new Error('Core shutdown was not accepted');
   }
-  await waitUntilStopped(client, core.coreEpoch);
+  await client.waitUntilCoreStopped(core.coreEpoch);
   if (local !== undefined) await waitUntilLocalCoreReleased(local);
   await writeStdout(`Core stopped · ${core.workspace}\n`);
   return 0;

@@ -106,9 +106,9 @@ export class HenjiApiClient {
     this.baseUrl = `${parsed.href.replace(/\/+$/u, '')}/api/v1`;
   }
 
-  async coreRead(): Promise<CoreReadView> {
+  async coreRead(signal?: AbortSignal): Promise<CoreReadView> {
     return decodeCoreReadView(
-      await jsonOrApiError(await this.fetcher(`${this.baseUrl}/core`)),
+      await jsonOrApiError(await this.fetcher(`${this.baseUrl}/core`, { signal })),
     );
   }
 
@@ -125,6 +125,20 @@ export class HenjiApiClient {
       ),
       decodeCoreShutdownValue,
     );
+  }
+
+  /** Wait for the accepted shutdown to finish draining and close its listener. */
+  async waitUntilCoreStopped(coreEpoch: string, signal?: AbortSignal): Promise<void> {
+    while (!signal?.aborted) {
+      try {
+        const current = await this.coreRead(signal);
+        if (current.coreEpoch !== coreEpoch) return;
+      } catch (error) {
+        if (!(error instanceof HenjiApiError) || error.status === 404) return;
+        if (error.status !== 503) throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
   }
 
   async sessionRead(sessionId: string): Promise<SessionSnapshot> {

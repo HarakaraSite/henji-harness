@@ -4,6 +4,11 @@
 
 ## 現在地（2026-09-29）
 
+**S25の[Increment 155](../docs/increments/increment-155.md)はlocal実装・非破壊的検証・reviewer通常レビュー済み。**
+`/shutdown`・Ctrl-Q、`/detach`への改名、スラッシュ＋最初の文字からの候補案内を追加した。
+利用動作・検証・レビュー結果はincrement正本を参照する。commit/push・常用配置は追加指示済み、実施中。
+JSR公開は未指示。
+
 **S17・S18・S19の[Increment 154](../docs/increments/increment-154.md)は利用者確認・完了承認済み。**
 2026-09-29、利用者の指示によりincrement完了・セッション終了。
 変更前後の実測、隔離tmuxのsource/compiled実経路、コード/testの通常・批判的reviewを完了した。
@@ -39,13 +44,18 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. [154](../docs/increments/increment-154.md)は完了承認済み。次セッションは利用者の新しい指示から開始する。
-   既存S26メモだけがlocal未commitで保持されている。
-   構想・architecture・roadmapの意味変更とJSR公開は別承認。
+1. [155](../docs/increments/increment-155.md)のlocal実装結果を利用者が確認する。
+   追加指示に従いcommit/push・常用配置と配置後確認を完了する。既存の未採用S26メモはlocalに保持する。
+   構想・architecture・roadmapの意味変更は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
+
+- S25のlocal実装・非破壊的検証は今回の指示で承認済み。追加指示により`/exit`を`/detach`へ改名し、
+  スラッシュ＋最初の文字から候補を案内する。正本は[Increment 155](../docs/increments/increment-155.md)。
+  通常reviewは完了。commit/push・常用配置と配置後確認は追加指示済み、実施中。
+  JSR公開、構想・architecture・roadmapの意味変更は未指示。
 
 - S17・S18・S19の調査、統合案作成とgpt-6-astraによる案review、計画作成とreviewerによる通常/批判的reviewは指示済み。
   local実装、計画の実測/非破壊的実経路検証、実装後コード/test reviewは追加指示済み。

@@ -27,7 +27,7 @@ Use henji COMMAND --help for command usage.
 
 Without a Core target, start a fresh Core and Session for this workspace.
 With --core, select a live Core by full ID or unique prefix; --connect selects a URL.
-Session options apply to that selected Core. UI exit detaches; explicit core stop shuts down.
+Session options apply to that selected Core. /detach or Ctrl-D detaches; /shutdown or Ctrl-Q stops this Core and exits the TUI.
 `,
   serve: `Usage: henji serve [--host HOST] [--port PORT] [--json]
   [${target}]

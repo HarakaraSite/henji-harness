@@ -163,7 +163,7 @@ process内の情報であり、再起動を越える再送保証ではない。
 cancel結果の`value.result`は`requested`／`already_requested`／`idle`。
 UIの終了やHTTP接続の切断は、この明示cancel操作を送らず、受付済み実行を継続する。
 接続TUIではbusy中のEscが対象実行へのcancel。Ctrl-Cはbusy中もdraftを消す。
-`/exit`・Ctrl-D・TERM／HUPはdetachし、受付済み実行とfollow-upを継続する。
+`/detach`・Ctrl-D・TERM／HUPはdetachし、受付済み実行とfollow-upを継続する。
 通常の`henji`は毎回新Core・新Sessionを開く。
 生存Coreの稼働Sessionへ戻るときは`henji --core ID`または`henji --connect URL`で再接続する。
 working／cancellingと経過時間はフッター二行目の先頭に表示する。
@@ -251,6 +251,11 @@ epoch、valueは`{"result":"requested"}`となる。同じepoch内のcommand形�
 Worker／子実行／process／history、metadataとinstance lockを清算してからlistenerを閉じる。
 停止中の後続HTTPは503 `core_stopping`を返す。
 `core stop`は停止を観測してから終了し、localの場合はinstance lockの解放も待つ。
+接続TUIでは`/shutdown`またはCtrl-Qが接続先Core全体を停止し、清算後に操作元TUIも終了する。
+busy中や保存Sessionの閲覧中も同じCoreを停止する。他の接続TUIはDISCONNECTEDとなり、
+各利用者が`/detach`またはCtrl-Dで閉じる。複数Coreがある場合、ほかのCoreは継続する。
+`/detach`・Ctrl-Dは接続だけを切る。従来の`/exit`は`/detach`へ改名した。
+`/`だけでは候補を表示せず、`/s`等の最初の文字から案内する。候補が一つならTabで補完できる。
 次の人間の起動は新epochとなり、保存Sessionは明示再開できるが、途中taskを自動送信し直さない。
 UIのdetachや最後のclientの切断からshutdownを呼ばない。
 

@@ -21,6 +21,8 @@ const feedOne = (decoder: InputDecoder, bytes: readonly number[]): string => {
 
 Deno.test('Keymap decodes readline control bytes', () => {
   const decoder = new InputDecoder();
+  assertEquals(feedOne(decoder, [0x04]), 'ctrl_d');
+  assertEquals(feedOne(decoder, [0x11]), 'ctrl_q');
   assertEquals(feedOne(decoder, [0x01]), 'ctrl_a');
   assertEquals(feedOne(decoder, [0x02]), 'ctrl_b');
   assertEquals(feedOne(decoder, [0x05]), 'ctrl_e');

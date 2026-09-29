@@ -19,7 +19,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
-| S25 | Surface        | TUI／将来のWebUIとCoreをまとめて終了するスラッシュコマンド                   | detach後に別CLIでCoreを停止する操作をUI内で完結したくなったとき                                                        |
 | A1  | Agent実行      | ChatGPT subscription root provider                                           | subscription利用がproduct要件になる                                                                                    |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
@@ -158,18 +157,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 関連: A14、[Increment 138（A20・A22）](../increments/increment-138.md)、
   [`increment-136.md`](../increments/increment-136.md)、
   [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
-
-### S25 — TUI／将来のWebUIとCoreをまとめて終了するスラッシュコマンド
-
-- 利用者メモ（2026-09-28）:
-  TUI、将来のWebUIとCoreを一緒に終了するスラッシュコマンドが欲しくなるかもしれない。
-  利用者は記録のみを指示し、今回は採用・実装しない。
-- 現行操作: `/exit`／Ctrl-DはUIをdetachし、Coreと受付済み処理は継続する。Core停止は別CLIの
-  `henji core stop`で行う。
-- 候補: UIからCore停止と自身の終了を一つのスラッシュコマンドで行う。command名、busy中の動作、
-  他の接続UIの扱いは採用時に決める。
-- 再検討条件: detach後に別CLIでCoreを停止する操作をUI内で完結したくなったとき。
-- 関連: S22、[HTTP API操作](../operations/http-api.md)。
 
 ### 画面表示の参照実装調査で見送ったもの（Pi／OpenCode、2026-09-26）
 

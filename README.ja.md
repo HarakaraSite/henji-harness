@@ -93,9 +93,11 @@ henji core status --core <core-id> --json
 henji core stop --core <core-id>
 ```
 
-Ctrl-DでTUIをdetachしても、Coreと受付済みの仕事は継続する。再接続はCore IDまたは `--connect URL`
-で明示する。 Core指定なしの `--session` は保存Sessionを新Coreで再開する。対象を省略した `core stop`
-は一覧と指定方法だけを表示する。
+`/detach`・Ctrl-DでTUIをdetachしても、Coreと受付済みの仕事は継続する。
+`/shutdown`・Ctrl-Qは接続先Coreを停止し、清算後にTUIも終了する。実行中の仕事も停止対象となる。
+`/s`等のスラッシュ＋最初の文字からコマンド候補を表示し、一つに絞れた候補はTabで補完できる。
+再接続はCore IDまたは `--connect URL` で明示する。 Core指定なしの `--session`
+は保存Sessionを新Coreで再開する。対象を省略した `core stop` は一覧と指定方法だけを表示する。
 履歴DB・config・credentialは共有し、稼働Sessionのmodel選択と各Coreの親子agent・tool管理は独立する。
 `henji run` はHTTP Coreとは別のheadless入口を維持する。
 詳しい操作は[HTTP API](docs/operations/http-api.md)を参照する。

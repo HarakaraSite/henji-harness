@@ -207,11 +207,11 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   renderer.setSlashCommandCandidates(['/help', '/recall']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[⠙ working 01:02 │ steer applied │ Esc cancel │ cmds: /help, /recall]',
+    '[⠙ working 01:02 │ cmds: /help, /recall │ steer applied │ Esc cancel]',
   );
   assertEquals(
     renderer.layoutSnapshot(40, 24).footer[0].text,
-    '[⠙ working 01:02 │ Esc cancel]',
+    '[⠙ working 01:02 │ cmds: /help, /recall]',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setStatus('busy');
@@ -226,7 +226,7 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   renderer.setSlashCommandCandidates(['/provider']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[⠙ working 01:02 │ pending active_task:44B │ Esc cancel │ cmds: /provider]',
+    '[⠙ working 01:02 │ cmds: /provider │ pending active_task:44B │ Esc cancel]',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setPendingMetadata(undefined);
@@ -570,7 +570,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
   assert(renderer.layoutSnapshot(80, 10).footer[0].text.includes('Esc latest'));
 
   renderer.setStatus(
-    `unknown command /${'x'.repeat(100)}, try: /help, /sessions, /exit`,
+    `unknown command /${'x'.repeat(100)}, try: /help, /sessions, /detach`,
   );
   assert(
     renderer.layoutSnapshot(80, 10).footer[0].text.startsWith('[history start'),

@@ -3,7 +3,7 @@ import type {
   PresentationNavigationListing,
   PresentationProjection,
 } from '../presentation/contract.ts';
-import { HenjiApiClient } from '../api/client.ts';
+import { HenjiApiClient, HenjiApiError } from '../api/client.ts';
 import type {
   ApiSelection,
   CommandResult,
@@ -25,7 +25,7 @@ import { reduceSessionStreamFrame, type SessionClientState } from '../api/reduce
 import { InputDecoder, type InputEvent, TuiEditor, TuiEditorHistory } from './input.ts';
 import { TuiRenderer } from './render.ts';
 import { RemoteCatalogUi } from './remote_catalog_ui.ts';
-import { slashCommandCandidates } from './slash_command.ts';
+import { SLASH_COMMANDS, slashCommandCandidates } from './slash_command.ts';
 import { DenoTerminal, TerminalLifecycle, type TerminalPort } from './terminal.ts';
 import {
   presentationPositionFromSnapshot,
@@ -784,6 +784,8 @@ export const runRemoteTui = async (
   let draftRevision = 0;
   let connected = true;
   let exitRequested = false;
+  const exitAbort = new AbortController();
+  let shutdownPending = false;
   let pendingSubmission: PendingSubmission | undefined;
   let acceptedSubmission: AcceptedSubmission | undefined;
   let pendingCancellation: PendingCancellation | undefined;
@@ -802,6 +804,7 @@ export const runRemoteTui = async (
   const requestExit = (): void => {
     if (exitRequested) return;
     exitRequested = true;
+    exitAbort.abort();
     subscriptionAbort.abort();
     if (commandPoll !== undefined) clearTimeout(commandPoll);
     commandPoll = undefined;
@@ -915,10 +918,14 @@ export const runRemoteTui = async (
     if (canSubmit()) {
       return 'ready · Enter submit · Ctrl-C clear · Ctrl-D detach';
     }
-    return 'READ-ONLY · /exit detach · Ctrl-D detach · F1 help';
+    return 'READ-ONLY · /detach · Ctrl-D detach · F1 help';
   };
 
   const updateStatus = (): void => {
+    if (shutdownPending) {
+      renderer.setStatus('shutting down Core · Ctrl-D detach');
+      return;
+    }
     if (
       activeExecution() === undefined &&
       (notice?.startsWith('submission unconfirmed') ||
@@ -927,11 +934,13 @@ export const runRemoteTui = async (
       const summary = notice.split(' · ')[0];
       const hint = credentialStatusHint();
       renderer.setStatus(
-        `${summary} · draft kept · Ctrl-D detach${hint === undefined ? '' : ` · ${hint}`}`,
+        `${summary} · draft kept · Ctrl-D detach · Ctrl-Q shutdown${
+          hint === undefined ? '' : ` · ${hint}`
+        }`,
       );
       return;
     }
-    const rawStatus = statusText();
+    const rawStatus = statusText() + ' · Ctrl-Q shutdown';
     const phase = snapshot().runtime.phase === 'cancelling' ||
         pendingCancellation !== undefined || cancellationRequested
       ? 'cancelling'
@@ -953,14 +962,15 @@ export const runRemoteTui = async (
       'Alt-Enter queue',
       'Ctrl-C clear',
       'Ctrl-D detach',
+      'Ctrl-Q shutdown',
       'Esc cancel',
       'cancellation unavailable',
-      '/exit detach',
+      '/detach',
       'F1 help',
     ]);
     const tail = parts.slice(1).filter((part) => controls.has(part));
     renderer.setStatus([
-      ...(activeExecution() === undefined
+      ...(connected && activeExecution() === undefined
         ? [notice, ...(compactPhase.length === 0 ? [] : [compactPhase])]
         : [...(compactPhase.length === 0 ? [] : [compactPhase]), notice]),
       ...tail,
@@ -973,6 +983,11 @@ export const runRemoteTui = async (
     pendingCancellation !== undefined ||
     (targetsActiveSession() && snapshot().runtime.active);
 
+  const renderEditor = (): void => {
+    renderer.setEditorSnapshot(editor.snapshot());
+    renderer.setSlashCommandCandidates(slashCommandCandidates(editor.text));
+  };
+
   const walkInputHistory = (direction: 'up' | 'down'): boolean => {
     if (direction === 'down') {
       if (!editorHistory.navigating) return false;
@@ -984,7 +999,7 @@ export const runRemoteTui = async (
       }
       editor.setSnapshot(next);
       notice = undefined;
-      renderer.setEditorSnapshot(editor.snapshot());
+      renderEditor();
       updateStatus();
       return true;
     }
@@ -992,7 +1007,7 @@ export const runRemoteTui = async (
       !editorHistory.navigating && editor.text.length > 0 && editor.moveUp()
     ) {
       notice = undefined;
-      renderer.setEditorSnapshot(editor.snapshot());
+      renderEditor();
       updateStatus();
       return true;
     }
@@ -1006,7 +1021,7 @@ export const runRemoteTui = async (
     }
     editor.setSnapshot(previous);
     notice = undefined;
-    renderer.setEditorSnapshot(editor.snapshot());
+    renderEditor();
     updateStatus();
     return true;
   };
@@ -1045,7 +1060,7 @@ export const runRemoteTui = async (
       byteLength: new TextEncoder().encode(text).byteLength,
     });
     draftRevision += 1;
-    renderer.setEditorSnapshot(editor.snapshot());
+    renderEditor();
   };
 
   const separateSubmittedDraft = (): void => {
@@ -1335,13 +1350,13 @@ export const runRemoteTui = async (
       'Ctrl-G / Ctrl-T or /sessions opens the Session picker; Enter views, R resumes.',
       'PageUp / PageDown scroll; Tab completes Core workspace paths; Escape returns latest; F1 toggles help.' +
       (startupUnevaluated(current) ? ' Worker startup not evaluated.' : ''),
-      'Ctrl-C clears the draft even while busy.',
-      'Detaching leaves accepted core work running. Reconnect: henji --core ID (or --connect URL).',
-      '/view ID views without replacing the active slot; /resume [ID] explicitly resumes.',
-      '/new creates from this view and the core-owned active activation.',
+      'Type / followed by a letter for command suggestions; Tab completes a single matching command.',
+      'Ctrl-C clears the draft even while busy. Busy Enter steers this task; Alt-Enter queues the next task after success.',
+      '/detach or Ctrl-D detaches and leaves accepted Core work running. Reconnect: henji --core ID (or --connect URL).',
+      '/shutdown or Ctrl-Q stops this Core and exits this TUI, including while busy or viewing a saved Session. Other connected UIs disconnect.',
+      '/view ID views without replacing the active slot; /resume [ID] explicitly resumes; /new creates from this view and the core-owned active activation.',
       '/rename TEXT renames; /recall [ID|latest|clear] prepares or clears next-task recall.',
       '/context reads checkpoint, recall, and activation config; /provider, /model, /effort use Core catalogs; /login opens masked key entry.',
-      'Busy Enter steers this task; Alt-Enter queues the next task after success.',
       cancelHint,
       'Cancellation/failure keeps follow-up text and the stopping reason for your next decision.',
     ];
@@ -1429,7 +1444,7 @@ export const runRemoteTui = async (
       pendingConversationProjection,
       projectionHintFromFrame(first.value),
     );
-    renderer.setEditorSnapshot(editor.snapshot());
+    renderEditor();
     notice = undefined;
     updateStatus();
     frameWait = nextFrameWait();
@@ -1762,7 +1777,7 @@ export const runRemoteTui = async (
         ) {
           editorHistory.resetNavigation();
           draftRevision += 1;
-          renderer.setEditorSnapshot(editor.snapshot());
+          renderEditor();
         }
       }
       return;
@@ -1775,9 +1790,40 @@ export const runRemoteTui = async (
       ) {
         editorHistory.resetNavigation();
         draftRevision += 1;
-        renderer.setEditorSnapshot(editor.snapshot());
+        renderEditor();
       }
     });
+  };
+
+  const shutdownCore = (): void => {
+    if (shutdownPending || exitRequested) return;
+    shutdownPending = true;
+    renderer.setSlashCommandCandidates([]);
+    catalogUi.close();
+    clearRemoteOverlay();
+    notice = undefined;
+    updateStatus();
+    void (async () => {
+      try {
+        const command = await client.coreShutdown({ commandId: crypto.randomUUID() });
+        if (exitRequested) return;
+        if (command.kind === 'rejected') {
+          notice = 'shutdown rejected: ' + commandReasonText(command.reason);
+        } else {
+          await client.waitUntilCoreStopped(core.coreEpoch, exitAbort.signal);
+          requestExit();
+          return;
+        }
+      } catch (error) {
+        if (exitRequested) return;
+        notice = error instanceof HenjiApiError
+          ? 'shutdown failed: ' + error.message
+          : 'shutdown response unknown · check Core with henji core status';
+      }
+      shutdownPending = false;
+      renderEditor();
+      updateStatus();
+    })();
   };
 
   const runSlashCommand = (input: string): boolean => {
@@ -1786,21 +1832,7 @@ export const runRemoteTui = async (
     const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/u.exec(trimmed);
     const name = match?.[1] ?? '';
     const argument = match?.[2]?.trim() ?? '';
-    const known = new Set([
-      'exit',
-      'help',
-      'sessions',
-      'view',
-      'resume',
-      'new',
-      'rename',
-      'recall',
-      'context',
-      'provider',
-      'model',
-      'effort',
-      'login',
-    ]);
+    const known = new Set<string>(SLASH_COMMANDS.map((definition) => definition.command));
     if (!known.has(name)) {
       notice = 'unknown command /' + name +
         ' · try /sessions, /view, /resume, /new, /context';
@@ -1809,8 +1841,13 @@ export const runRemoteTui = async (
     }
     replaceEditorText('');
     notice = undefined;
-    if (name === 'exit') requestExit();
-    else if (name === 'help') renderer.renderReadOnlyHelp(helpLines());
+    if (name === 'detach') requestExit();
+    else if (name === 'shutdown') {
+      if (argument.length > 0) {
+        notice = 'usage: /shutdown';
+        updateStatus();
+      } else shutdownCore();
+    } else if (name === 'help') renderer.renderReadOnlyHelp(helpLines());
     else if (name === 'sessions') showSessionPicker();
     else if (name === 'view') {
       if (argument.length === 0) {
@@ -1924,6 +1961,11 @@ export const runRemoteTui = async (
             requestExit();
             break;
           }
+          if (event.kind === 'ctrl_q') {
+            shutdownCore();
+            continue;
+          }
+          if (shutdownPending) continue;
           const overlay = renderer.stateSnapshot().overlay;
           if (overlay.kind === 'choicePicker') {
             catalogUi.process(event);
@@ -2006,7 +2048,7 @@ export const runRemoteTui = async (
             }
           } else if (event.kind === 'enter') {
             const command = editor.text.trim();
-            if (command === '/exit') {
+            if (command === '/detach') {
               requestExit();
               break;
             }
@@ -2049,7 +2091,7 @@ export const runRemoteTui = async (
                 editorHistory.resetNavigation();
               }
               notice = undefined;
-              renderer.setEditorSnapshot(editor.snapshot());
+              renderEditor();
             } else if (
               event.kind === 'printable' || event.kind === 'paste' ||
               event.kind === 'newline' || event.kind === 'alt_enter'
