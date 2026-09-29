@@ -4,13 +4,10 @@
 
 ## 現在地（2026-09-29）
 
-**E6の[Increment 157](../docs/increments/increment-157.md)は実装・検証・通常reviewと修正・限定re-review・commit/push・常用配置・配置後確認済み。**
-OpenAI/Router/GoのChat/Responses計6経路で確認済み。通常reviewのP2二件を修正し、限定re-reviewで解消・新指摘なし。
-実装・確認結果・操作方法・配置identityと証拠はincrementを参照する。
-確認用Core/TUI/tmuxは終了済み。追加配置時の既存Core三つを保持した。
-追加指示によるモデル取得中2行overlayの削除とGoの暫定カタログ方式は実装・確認・commit/push・常用配置済み。
-Goの要件・Qwen Chat実測・設定と配置結果はincrement末尾を参照する。
-合意した動作、現行経路、外部provider対応案、保存・選択境界、検証と正本変更案はincrementを参照する。
+**E6の[Increment 157](../docs/increments/increment-157.md)は利用者確認・完了承認済み。**
+2026-09-29、利用者の確認と指示によりincrement完了・関連文書更新・セッション終了。
+取得中overlay削除とGo暫定カタログ方式を含む要件・検証・review・配置結果はincrement正本を参照する。
+確認用Core/TUI/tmuxは終了済み。常用配置を保持し、既存Core三つの停止・移行は行わない。
 
 **S15の[Increment 156](../docs/increments/increment-156.md)は利用者確認・完了承認済み。**
 2026-09-29、利用者のEsc確認と指示によりincrement完了・セッション終了。
@@ -60,7 +57,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. [157](../docs/increments/increment-157.md)の結果をもとに、利用者の確認または追加指示から再開する。
+1. このセッションの作業は完了。利用者の新しい指示から再開する。
    未採用S26・S27メモを保持する。構想・architecture・roadmapの意味変更は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
@@ -70,7 +67,8 @@ S22の8slice（139〜146）と147の配置結果は
 - E6の要件整理・計画作成は指示済み。正本は[Increment 157](../docs/increments/increment-157.md)。
   実装、実provider確認、その後の通常reviewは承認済み。対象・回数・保存先は確認前に提示する。
   commit/push・常用配置と配置後確認は追加指示に従い完了。
-  利用者の通常操作確認・increment完了承認は未取得。Product正本の意味変更は別承認。
+  利用者確認・increment完了承認済み。関連文書更新とセッション終了は指示済み。
+  最後の配置指示に伴う追加の動作確認は利用者が不要と指定した。Product正本の意味変更は別承認。
 
 - S15のlocal実装・非破壊的検証は今回の指示で承認済み。正本は[Increment 156](../docs/increments/increment-156.md)。
   追加指示によるcommit/push・常用配置・配置後確認と/tmp清掃は完了。

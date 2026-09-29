@@ -2,9 +2,10 @@
 
 更新日: 2026-09-29
 
-ステータス:
-実装・検証・通常reviewと指摘修正・限定re-review・commit/push・常用配置・配置後確認完了。
+ステータス: 利用者確認・完了承認済み（2026-09-29）。Increment 157は完了。
+実装・検証・通常reviewと指摘修正・限定re-review・commit/push・常用配置・配置後確認を完了した。
 利用者が実装、実装後の実provider確認、その後のコードとtestの通常reviewを指示・承認した。
+取得中overlay削除とGoの暫定カタログ運用を含め、利用者の確認・完了承認とセッション終了を記録する。
 
 ## 目的と合意した動作
 
@@ -514,7 +515,8 @@ time・epoch・Session・idle状態・buildを保持し、
 tmux-results.json、tmux.log、preexisting-cores.json、preexisting-cores-after.json。
 実画面、完了snapshotとCore identityはdeployed-tmux/へ保存した。
 本配置記録とhandoffを後続の文書commitへまとめ、origin/mainへpushする。
-JSR公開は未指示。利用者による通常操作確認・increment完了承認は別途のまま。
+この配置時点では利用者による通常操作確認・increment完了承認は別途だった。最終承認は末尾に記録する。
+JSR公開は未指示。
 
 ## 追加修正 — モデルピッカーの取得中表示（2026-09-29）
 
@@ -638,4 +640,19 @@ Goのcold /effort、API別の登録一覧、Qwenのeffort候補、Tabと選択�
 配置証拠は`/home/agent/.local/state/henji-build-artifacts/increment-157-20260929/go-catalog/deployment/`のbuild.log、deployment.json、version.txt、config-update.json、
 preexisting-cores.json、preexisting-cores-after.json、tmux-results-deployed.json、loader-verification/の
 tmux-results-deployed.jsonと各画面/snapshot。旧Go宣言は同directoryのprevious.jsonへ保持した。
-配置記録とhandoffを後続文書commitにまとめてpushする。Product正本とJSRは変更していない。
+配置記録とhandoffを文書commit `152771480c7a08538797f6dd5c31ddc0096202bf`へまとめ、origin/mainへpushした。
+Product正本とJSRは変更していない。
+
+## 利用者確認・完了承認（2026-09-29）
+
+利用者の「確認しました このインクリメントを完了とします 関連文書を更新して
+その後セッションを終了します」により、Increment 157の利用者確認・完了承認とセッション終了を記録した。
+完了範囲にはE6のモデル一覧・検索・お気に入り・effort対応、取得中overlay削除、Goの暫定カタログ運用を含む。
+
+最後のcommit/push・配置指示では配置後の確認は今回は不要と指定されたため、追加の動作確認は行っていない。
+上記の実装・検証・review・配置結果と、今回の利用者確認を完了の根拠とする。
+確認用Core/TUI/tmuxは既に終了済み。常用binaryとGoの外部宣言を保持し、既存Coreの停止・移行は行わない。
+関連文書の完了状態とhandoffを更新し、次は利用者の新しい指示から再開する。
+
+構想・architecture・roadmapへの意味変更とJSR公開は今回の完了記録更新に含めない。
+Product正本への変更案は上記に保持し、未採用候補は[通常利用メモ](../experience/normal-use-inbox.md)を参照する。
