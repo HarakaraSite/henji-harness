@@ -2,8 +2,9 @@
 
 更新日: 2026-09-29
 
-ステータス: local実装・非破壊的検証・commit/push・常用配置・配置後確認を完了。
-利用者確認・increment完了承認は未実施。
+ステータス: 利用者確認・完了承認済み（2026-09-29）。Increment 156は完了。
+local実装・非破壊的検証・commit/push・常用配置・配置後確認を完了した。
+利用者のEsc確認と「インクリメントを完了としてセッションを終わります」により、完了承認・セッション終了を記録する。
 
 ## 要件と権限
 
@@ -106,7 +107,7 @@ snapshotはsource-105602/・compiled-105602/へ保存した。
 
 ## 未実施・残る境界
 
-利用者による操作確認・increment完了承認、公開は未実施。
+利用者によるEsc操作確認・increment完了承認は取得済み。公開は未指示。
 commit/push・常用配置・配置後確認は追加指示に基づき完了。 外部providerの実測は今回のlocal
 UI操作変更には必要とせず、行っていない。
 構想・architecture・roadmapは変更していない。既存の未採用S26メモを保持した。
@@ -150,5 +151,13 @@ preexisting-cores.json、preexisting-cores-after.json。画面とHTTP snapshot�
 作業中の追加指示「tmp内クリアして」に従い、S15の成果物と証拠を上記の通常ディスクへ移し、
 /tmpの不要な作業生成物63件、約3.56 GiBを削除した。
 稼働中Codex/tmuxのソケットとOS管理ディレクトリは保持し、既存Coreへの影響が無いことを確認した。
-削除対象一覧と容量はdeployment/tmp-cleanup.jsonへ保存した。
-この配置・清掃記録とhandoffは後続の文書commitへまとめてpushする。
+削除対象一覧と容量はdeployment/tmp-cleanup.jsonへ保存した。 配置・清掃記録とhandoffは文書commit
+`43fb242e571a7499d3e808a6ea363e5168abcfab`へまとめ、origin/mainへpushした。
+
+## 利用者確認・完了承認（2026-09-29）
+
+利用者の「escは確認しました インクリメントを完了としてセッションを終わります」により、
+Esc操作の確認、Increment 156の完了承認とセッション終了を記録した。
+確認用Core/TUI/tmuxは既に終了済みで、常用配置と既存Core二つを保持する。
+未採用S26・S27のメモは[通常利用メモ](../experience/normal-use-inbox.md)へ保持し、
+このincrementの実装・完了範囲へ含めない。JSR公開と構想・architecture・roadmapの変更は未指示。
