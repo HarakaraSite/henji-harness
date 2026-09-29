@@ -5,7 +5,7 @@
 ステータス:
 local実装、変更前後の実測、隔離tmuxのsource/compiled実経路確認、コード/testの通常・批判的reviewを完了。
 実装reviewの採用P1二件を修正し、両限定re-reviewはBlocking 0／P1 0。
-利用者の追加指示に基づきcommit/push・常用配置を進行中。
+利用者の追加指示に基づきcommit/push・常用配置・配置後確認も完了。配置identityと結果は本書の配置節を参照する。
 
 ## 採用範囲と権限
 
@@ -580,7 +580,8 @@ diff/manifest/contextは`/tmp/codex-agent-context/i154-code-review-20260929/`に
 
 合成履歴/local SSE/tmuxでA〜Eを確認した結果である。Ghosttyのちらつき、SSH体感、 Increment 132
 Cの長時間通常利用遅延は未再現のまま。本incrementの結果をそれらの全解消とは扱わない。
-commit/push・常用配置・公開は今回の依頼に含まれず未実施。
+local実装結果の報告時点ではcommit/push・常用配置・公開は未実施だった。
+その後の追加指示に基づく配置結果は次節を参照する。
 
 ## commit・push・常用配置（2026-09-29）
 
@@ -591,7 +592,38 @@ digestを照合して常用binaryを原子的に置換する。
 旧binaryは検証先へ保持し、既存Coreは停止・移行しない。
 配置binaryそのものを隔離XDG/workspace/tmuxで確認し、配置結果を後続の文書commitへ記録・pushする。
 追加のprovider call、全suite/full gate、JSR公開、構想/architecture/roadmapの変更は含めない。
-実施結果は配置後に本節へ記録する。
+実装・test・計画/結果・実測snapshot・採用候補移動・handoffの37ファイルを commit
+`f429759cb91a7674cbadc0a71a11caca1b84493b`へまとめ、`origin/main`へpushした。
+既存S26メモの行・本文だけを作業ツリーへ保持し、今回のcommitには含めていない。
+配置記録はこの実装commitに続く文書commitへまとめてpushする。
+
+clean checkoutのレビュー済み33ファイルは凍結manifestと一致し、公式buildで作成したbinaryを
+`/home/agent/.local/bin/henji`へ原子的に配置した。henji 0.7.0、sourceは上記commit、dirtyなし。
+
+- build ID: `48021ea3205d7da54033af1106de36a4846b0a3c4a9d49a5f08db390e830a3d5`。
+- runtime SHA-256:
+  `f264e59a3639e2e13ec34d484fdc34f49539d5c50f68443498198fe24add0c62`。実装受入済みcandidateと一致した。
+- binary SHA-256:
+  `19276503f7df666b231f08793ce180e62f042e2e4fbc310dd4f833fc9cf138a9`。配置前候補と常用先のhash/version/source/buildが一致した。
+- 旧binary: `/tmp/henji-i154-deploy-20260929/henji.previous`へ保持した。
+  SHA-256は`b09e0361edbaa28a3dc4fd8a03ece5fb965970f51b609d9c97d8c0df9b159fac`。
+
+配置binaryそのものを隔離XDG/workspace/tmuxで通常起動し、Core/Sessionヘッダ、ASCII draft、
+`👨‍👩‍👧X`のcursor `5,35`、F1→Esc、120×40→120×20→120×40の復帰、detach後のCore保持、 Core
+IDで同じCore/Sessionへ再接続を確認した。追加の48件×約20 KBの保存Sessionで PageUp/Down、emoji
+cursor、overlay終了、detach後のCore継続も確認した。 確認用Core/TUI/tmuxは終了し、provider
+request・execution admissionは追加していない。
+
+配置前から稼働していた旧Core二つは停止・移行せず、配置後も同じPID/start
+time・epoch・Sessionでidleかつ応答可能だった。
+新規起動には新binaryが使われる。既存Coreへの明示再接続URLは以下。
+
+- `/home/agent`: `http://127.0.0.1:41115`（PID32600、epoch `8ed7e3d8…`）。
+- repository workspace: `http://127.0.0.1:34001`（PID62516、epoch `e8ad305c…`）。
+
+証拠は`/tmp/henji-i154-deploy-20260929/`の`build.log`、`deployment.json`、`version.txt`、
+`preexisting-endpoints.json`、`smoke/summary.json`、隔離Core snapshotとtmux画面へ保存した。
+全suite/full gateの再実行、JSR公開、実config/credentialの変更、既存dataの削除は行っていない。
 
 ## 採用元の記録
 
