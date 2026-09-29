@@ -4,7 +4,7 @@ import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_hi
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import type { StoredSessionRecord } from '../../v0/agent/session/session_store_contract.ts';
-import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
 import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 

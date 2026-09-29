@@ -1,5 +1,11 @@
 import type { PresentationPosition, PresentationStartupState } from '../presentation/contract.ts';
-import { cellWidth, escapeTerminalText, localTimestampText } from './terminal_text.ts';
+import {
+  cellWidth,
+  escapeTerminalText,
+  localTimestampText,
+  segmentTerminalText,
+  truncateTerminalCellsFromEnd,
+} from './terminal_text.ts';
 
 export const orientationSession = (state: PresentationStartupState): string => {
   switch (state.sessionMode.kind) {
@@ -18,39 +24,32 @@ const fitCells = (value: string, columns: number): string => {
   const limit = Math.max(1, columns);
   let used = 0;
   let result = '';
-  for (const character of value) {
-    const width = cellWidth(character);
-    if (used + width > limit) break;
-    result += character;
-    used += width;
+  const segments: ReturnType<typeof segmentTerminalText>[number][] = [];
+  for (const segment of segmentTerminalText(value)) {
+    if (used + segment.cellWidth > limit) break;
+    segments.push(segment);
+    result += segment.text;
+    used += segment.cellWidth;
   }
   if (result === value) return result + ' '.repeat(Math.max(0, limit - used));
   const marker = '…';
-  while (result.length > 0 && used + cellWidth(marker) > limit) {
-    const points = [...result];
-    const removed = points.pop()!;
-    result = points.join('');
-    used -= cellWidth(removed);
+  const markerWidth = cellWidth(marker);
+  while (segments.length > 0 && used + markerWidth > limit) {
+    const removed = segments.pop()!;
+    result = result.slice(0, -removed.text.length);
+    used -= removed.cellWidth;
   }
-  return result + marker + ' '.repeat(Math.max(0, limit - used - cellWidth(marker)));
+  return result + marker + ' '.repeat(Math.max(0, limit - used - markerWidth));
 };
 
-const textCells = (value: string): number =>
-  [...value].reduce((total, character) => total + cellWidth(character), 0);
+const textCells = (value: string): number => cellWidth(value);
 
 const fitSuffixCells = (value: string, columns: number): string => {
   const limit = Math.max(1, columns);
   if (textCells(value) <= limit) return value;
   const marker = '…';
-  let used = cellWidth(marker);
-  const suffix: string[] = [];
-  for (const character of [...value].reverse()) {
-    const width = cellWidth(character);
-    if (used + width > limit) break;
-    suffix.push(character);
-    used += width;
-  }
-  return marker + suffix.reverse().join('');
+  const markerWidth = cellWidth(marker);
+  return marker + truncateTerminalCellsFromEnd(value, limit - markerWidth);
 };
 
 const HEADER_LABEL_COLUMNS = 'base instruction:'.length + 1;

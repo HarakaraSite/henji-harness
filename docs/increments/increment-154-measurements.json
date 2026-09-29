@@ -1,0 +1,4800 @@
+{
+  "increment": 154,
+  "date": "2026-09-29",
+  "environment": {
+    "deno": "2.9.7",
+    "v8": "15.0.245.2-rusty",
+    "typescript": "6.0.3",
+    "tmux": "3.5a",
+    "target": "x86_64-unknown-linux-gnu",
+    "terminalSize": [
+      120,
+      40
+    ],
+    "productVersion": "0.7.0",
+    "providerCalls": 0
+  },
+  "identity": {
+    "baseline": {
+      "source": "c8505c58347beb87c7d3b9e840b5c1677e8ac206",
+      "build": "49fbffd0c7d3707a2413cba4000455800ac8b0016f04d26abd4de10ae974317a",
+      "runtime": "c92e6b3485b4f6774f5d7a2e6d49efaf690ec4e91ad54ea1fe689715d40a5d66"
+    },
+    "candidate": {
+      "source": "c8505c58347beb87c7d3b9e840b5c1677e8ac206+dirty",
+      "build": "f773b0719d194617b5c6bc11667e1d9256f156d9a978fc1cfcb75cd876662c36",
+      "runtime": "f264e59a3639e2e13ec34d484fdc34f49539d5c50f68443498198fe24add0c62",
+      "changedSourceAggregateSha256": "b2afc4966cae801f424b5b3dae8549638015beb687aa998337f9991a8d1c5189"
+    }
+  },
+  "timingDefinitions": {
+    "renderer": "cache-primed direct renderer operation through explicit render flush, excluding terminal physical I/O; renderRestored is the legacy direct API",
+    "httpSse": "input/SSE injection to frame writer completion through real remote TUI and shared HTTP client with local mock SSE and a recording writer; includes dispatch and queue, excludes physical terminal visibility; layoutMs is layout CPU duration",
+    "productionTmux": "external injection/launch to first polling observation; 20ms polling and launch gate; PTY receipt is not write-completion or physical visibility"
+  },
+  "historyDefinitions": {
+    "rendererAndHttpSse": "all-assistant synthetic messages; 1000/10000 x approx 600 bytes, 48 x approx 20000 bytes",
+    "productionTmux": "same isolated production-store legal paired user/assistant saved sessions before/after; schema 6; empty turnExecutions and turnModels; final assistant includes Markdown and Unicode"
+  },
+  "renderer": [
+    {
+      "messages": 1000,
+      "entryBytes": 600,
+      "redraw": {
+        "baseline": {
+          "avgMs": 3.157,
+          "minMs": 2.368,
+          "maxMs": 4.582,
+          "valuesMs": [
+            4.581997999999999,
+            2.520805999999993,
+            2.367885000000001
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.128,
+          "minMs": 0.122,
+          "maxMs": 0.136,
+          "valuesMs": [
+            0.12180599999999941,
+            0.13591000000000264,
+            0.1273130000000009
+          ]
+        }
+      },
+      "restoreIncludingRedraw": {
+        "baseline": {
+          "avgMs": 272.835,
+          "minMs": 267.205,
+          "maxMs": 278.965,
+          "valuesMs": [
+            267.20500200000004,
+            278.96454499999993,
+            272.33579299999997
+          ]
+        },
+        "candidate": {
+          "avgMs": 4.848,
+          "minMs": 4.671,
+          "maxMs": 4.995,
+          "valuesMs": [
+            4.671198999999994,
+            4.9954389999999975,
+            4.875941999999995
+          ]
+        }
+      },
+      "editorAndStatus": {
+        "baseline": {
+          "avgMs": 15.871,
+          "minMs": 14.139,
+          "maxMs": 17.78,
+          "valuesMs": [
+            17.779757000000018,
+            15.693389000000025,
+            14.138817000000017
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.167,
+          "minMs": 0.126,
+          "maxMs": 0.212,
+          "valuesMs": [
+            0.2115440000000035,
+            0.16204299999999705,
+            0.1260769999999951
+          ]
+        }
+      }
+    },
+    {
+      "messages": 10000,
+      "entryBytes": 600,
+      "redraw": {
+        "baseline": {
+          "avgMs": 3.442,
+          "minMs": 2.575,
+          "maxMs": 5.077,
+          "valuesMs": [
+            5.0767329999998765,
+            2.574786000000131,
+            2.6732990000000427
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.096,
+          "minMs": 0.087,
+          "maxMs": 0.105,
+          "valuesMs": [
+            0.09485600000002137,
+            0.08689899999998829,
+            0.10546899999999937
+          ]
+        }
+      },
+      "restoreIncludingRedraw": {
+        "baseline": {
+          "avgMs": 3441.653,
+          "minMs": 3434.151,
+          "maxMs": 3447.38,
+          "valuesMs": [
+            3443.4293769999995,
+            3447.379771,
+            3434.1511100000007
+          ]
+        },
+        "candidate": {
+          "avgMs": 40.489,
+          "minMs": 36.434,
+          "maxMs": 44.697,
+          "valuesMs": [
+            36.43444099999999,
+            44.696676999999994,
+            40.336979000000014
+          ]
+        }
+      },
+      "editorAndStatus": {
+        "baseline": {
+          "avgMs": 21.031,
+          "minMs": 16.561,
+          "maxMs": 27.619,
+          "valuesMs": [
+            18.912946999999804,
+            16.560829999998532,
+            27.61942199999976
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.138,
+          "minMs": 0.12,
+          "maxMs": 0.162,
+          "valuesMs": [
+            0.16168700000000058,
+            0.13328899999999066,
+            0.12016199999999344
+          ]
+        }
+      }
+    },
+    {
+      "messages": 48,
+      "entryBytes": 20000,
+      "redraw": {
+        "baseline": {
+          "avgMs": 81.803,
+          "minMs": 76.975,
+          "maxMs": 84.708,
+          "valuesMs": [
+            76.97546599999987,
+            84.70762600000307,
+            83.72717200000261
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.116,
+          "minMs": 0.093,
+          "maxMs": 0.128,
+          "valuesMs": [
+            0.0927960000000212,
+            0.12818499999997357,
+            0.12736599999999498
+          ]
+        }
+      },
+      "restoreIncludingRedraw": {
+        "baseline": {
+          "avgMs": 580.321,
+          "minMs": 567.786,
+          "maxMs": 594.951,
+          "valuesMs": [
+            578.2272219999995,
+            567.785861999997,
+            594.9509529999996
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.681,
+          "minMs": 0.554,
+          "maxMs": 0.871,
+          "valuesMs": [
+            0.8705640000000017,
+            0.6198479999999904,
+            0.5537599999999543
+          ]
+        }
+      },
+      "editorAndStatus": {
+        "baseline": {
+          "avgMs": 167.093,
+          "minMs": 166.556,
+          "maxMs": 168.001,
+          "valuesMs": [
+            168.0013579999977,
+            166.55602400000134,
+            166.72150899999906
+          ]
+        },
+        "candidate": {
+          "avgMs": 0.154,
+          "minMs": 0.139,
+          "maxMs": 0.172,
+          "valuesMs": [
+            0.17181199999998853,
+            0.13884799999999586,
+            0.15199400000000196
+          ]
+        }
+      }
+    }
+  ],
+  "httpSse": {
+    "initial": {
+      "baseline": {
+        "bodyWraps": [
+          96,
+          96,
+          96
+        ],
+        "bodyWrappedBytes": [
+          57984,
+          57984,
+          57984
+        ],
+        "projectedEntries": [
+          1000,
+          1000,
+          1000
+        ],
+        "projectedBytes": [
+          603890,
+          603890,
+          603890
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            17.491,
+            17.22,
+            25.963
+          ],
+          "avgMs": 20.224666666666668,
+          "minMs": 17.22,
+          "maxMs": 25.963
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3743,
+          3743,
+          3743
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": [
+          null,
+          null,
+          null
+        ]
+      },
+      "candidate": {
+        "bodyWraps": [
+          48,
+          48,
+          48
+        ],
+        "bodyWrappedBytes": [
+          28992,
+          28992,
+          28992
+        ],
+        "projectedEntries": [
+          1000,
+          1000,
+          1000
+        ],
+        "projectedBytes": [
+          603890,
+          603890,
+          603890
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            23.797,
+            24.056,
+            23.203
+          ],
+          "avgMs": 23.685333333333332,
+          "minMs": 23.203,
+          "maxMs": 24.056
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          4104,
+          4104,
+          4104
+        ],
+        "outputCups": [
+          41,
+          41,
+          41
+        ],
+        "dispatchToWriterMs": [
+          null,
+          null,
+          null
+        ]
+      }
+    },
+    "oneAsciiKey": {
+      "baseline": {
+        "bodyWraps": [
+          96,
+          96,
+          96
+        ],
+        "bodyWrappedBytes": [
+          57984,
+          57984,
+          57984
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          2,
+          2,
+          2
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            7.851,
+            8.242,
+            13.782
+          ],
+          "avgMs": 9.958333333333334,
+          "minMs": 7.851,
+          "maxMs": 13.782
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3723,
+          3723,
+          3723
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            9.269,
+            9.727,
+            15.696
+          ],
+          "avgMs": 11.564,
+          "minMs": 9.269,
+          "maxMs": 15.696
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.247,
+            0.299,
+            0.288
+          ],
+          "avgMs": 0.27799999999999997,
+          "minMs": 0.247,
+          "maxMs": 0.299
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          36,
+          36,
+          36
+        ],
+        "outputCups": [
+          2,
+          2,
+          2
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            3.078,
+            3.108,
+            3.286
+          ],
+          "avgMs": 3.1573333333333333,
+          "minMs": 3.078,
+          "maxMs": 3.286
+        }
+      }
+    },
+    "threeAsciiKeysOneRead": {
+      "baseline": {
+        "bodyWraps": [
+          192,
+          192,
+          192
+        ],
+        "bodyWrappedBytes": [
+          115968,
+          115968,
+          115968
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          4,
+          4,
+          4
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            16.481,
+            14.537,
+            16.521
+          ],
+          "avgMs": 15.846333333333334,
+          "minMs": 14.537,
+          "maxMs": 16.521
+        },
+        "requestedFrames": [
+          4,
+          4,
+          4
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3726,
+          3726,
+          3726
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            17.98,
+            15.97,
+            18.08
+          ],
+          "avgMs": 17.343333333333334,
+          "minMs": 15.97,
+          "maxMs": 18.08
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.78,
+            0.652,
+            0.849
+          ],
+          "avgMs": 0.7603333333333333,
+          "minMs": 0.652,
+          "maxMs": 0.849
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          39,
+          39,
+          39
+        ],
+        "outputCups": [
+          2,
+          2,
+          2
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            4.025,
+            3.548,
+            4.026
+          ],
+          "avgMs": 3.8663333333333334,
+          "minMs": 3.548,
+          "maxMs": 4.026
+        }
+      }
+    },
+    "snapshot": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          1000,
+          1000,
+          1000
+        ],
+        "projectedBytes": [
+          603890,
+          603890,
+          603890
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            20.807,
+            20.944,
+            8.642
+          ],
+          "avgMs": 16.797666666666665,
+          "minMs": 8.642,
+          "maxMs": 20.944
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3726,
+          3726,
+          3726
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            292.779,
+            292.62,
+            296.608
+          ],
+          "avgMs": 294.00233333333335,
+          "minMs": 292.62,
+          "maxMs": 296.608
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.499,
+            0.355,
+            0.338
+          ],
+          "avgMs": 0.3973333333333333,
+          "minMs": 0.338,
+          "maxMs": 0.499
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          0,
+          0,
+          0
+        ],
+        "deliveredBytes": [
+          0,
+          0,
+          0
+        ],
+        "outputCups": [
+          0,
+          0,
+          0
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            17.459,
+            20.646,
+            17.298
+          ],
+          "avgMs": 18.467666666666666,
+          "minMs": 17.298,
+          "maxMs": 20.646
+        }
+      }
+    },
+    "oneMessageUpdate": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          85842,
+          85842,
+          85842
+        ],
+        "projectedEntries": [
+          1000,
+          1000,
+          1000
+        ],
+        "projectedBytes": [
+          603323,
+          603323,
+          603323
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            34.722,
+            35.223,
+            20.51
+          ],
+          "avgMs": 30.151666666666667,
+          "minMs": 20.51,
+          "maxMs": 35.223
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3675,
+          3675,
+          3675
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            305.202,
+            305.225,
+            280.085
+          ],
+          "avgMs": 296.83733333333333,
+          "minMs": 280.085,
+          "maxMs": 305.225
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          1,
+          1,
+          1
+        ],
+        "bodyWrappedBytes": [
+          37,
+          37,
+          37
+        ],
+        "projectedEntries": [
+          1,
+          1,
+          1
+        ],
+        "projectedBytes": [
+          37,
+          37,
+          37
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            1.273,
+            1.429,
+            1.436
+          ],
+          "avgMs": 1.3793333333333333,
+          "minMs": 1.273,
+          "maxMs": 1.436
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          1809,
+          1809,
+          1809
+        ],
+        "outputCups": [
+          18,
+          18,
+          18
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            8.029,
+            9.162,
+            8.606
+          ],
+          "avgMs": 8.599,
+          "minMs": 8.029,
+          "maxMs": 9.162
+        }
+      }
+    },
+    "threeMessageUpdatesBurst": {
+      "baseline": {
+        "bodyWraps": [
+          432,
+          432,
+          432
+        ],
+        "bodyWrappedBytes": [
+          255785,
+          255785,
+          255785
+        ],
+        "projectedEntries": [
+          3000,
+          3000,
+          3000
+        ],
+        "projectedBytes": [
+          1809954,
+          1809954,
+          1809954
+        ],
+        "layouts": [
+          9,
+          9,
+          9
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            85.007,
+            82.414,
+            81.782
+          ],
+          "avgMs": 83.06766666666667,
+          "minMs": 81.782,
+          "maxMs": 85.007
+        },
+        "requestedFrames": [
+          9,
+          9,
+          9
+        ],
+        "deliveredFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredBytes": [
+          11010,
+          11010,
+          11010
+        ],
+        "outputCups": [
+          3,
+          3,
+          3
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            842.735,
+            830.776,
+            841.376
+          ],
+          "avgMs": 838.2956666666666,
+          "minMs": 830.776,
+          "maxMs": 842.735
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          1,
+          1,
+          1
+        ],
+        "bodyWrappedBytes": [
+          32,
+          32,
+          32
+        ],
+        "projectedEntries": [
+          1,
+          1,
+          1
+        ],
+        "projectedBytes": [
+          32,
+          32,
+          32
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.468,
+            0.472,
+            0.431
+          ],
+          "avgMs": 0.457,
+          "minMs": 0.431,
+          "maxMs": 0.472
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          85,
+          85,
+          85
+        ],
+        "outputCups": [
+          2,
+          2,
+          2
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            6.984,
+            6.508,
+            6.204
+          ],
+          "avgMs": 6.565333333333333,
+          "minMs": 6.204,
+          "maxMs": 6.984
+        }
+      }
+    },
+    "toolCall": {
+      "baseline": {
+        "bodyWraps": [
+          142,
+          142,
+          142
+        ],
+        "bodyWrappedBytes": [
+          84006,
+          84006,
+          84006
+        ],
+        "projectedEntries": [
+          1000,
+          1000,
+          1000
+        ],
+        "projectedBytes": [
+          603295,
+          603295,
+          603295
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            11.081,
+            11.438,
+            10.202
+          ],
+          "avgMs": 10.907,
+          "minMs": 10.202,
+          "maxMs": 11.438
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3580,
+          3580,
+          3580
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            287.274,
+            282.529,
+            292.144
+          ],
+          "avgMs": 287.3156666666667,
+          "minMs": 282.529,
+          "maxMs": 292.144
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          1,
+          1,
+          1
+        ],
+        "bodyWrappedBytes": [
+          9,
+          9,
+          9
+        ],
+        "projectedEntries": [
+          2,
+          2,
+          2
+        ],
+        "projectedBytes": [
+          30,
+          30,
+          30
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.845,
+            0.832,
+            0.811
+          ],
+          "avgMs": 0.8293333333333334,
+          "minMs": 0.811,
+          "maxMs": 0.845
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          1831,
+          1831,
+          1831
+        ],
+        "outputCups": [
+          19,
+          19,
+          19
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            7.922,
+            8.574,
+            7.054
+          ],
+          "avgMs": 7.85,
+          "minMs": 7.054,
+          "maxMs": 8.574
+        }
+      }
+    },
+    "toolResult": {
+      "baseline": {
+        "bodyWraps": [
+          141,
+          141,
+          141
+        ],
+        "bodyWrappedBytes": [
+          83379,
+          83379,
+          83379
+        ],
+        "projectedEntries": [
+          1001,
+          1001,
+          1001
+        ],
+        "projectedBytes": [
+          603295,
+          603295,
+          603295
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            8.127,
+            9.371,
+            7.873
+          ],
+          "avgMs": 8.457,
+          "minMs": 7.873,
+          "maxMs": 9.371
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3580,
+          3580,
+          3580
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            280.637,
+            285.016,
+            277.393
+          ],
+          "avgMs": 281.01533333333333,
+          "minMs": 277.393,
+          "maxMs": 285.016
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          1,
+          1,
+          1
+        ],
+        "projectedBytes": [
+          21,
+          21,
+          21
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.513,
+            0.484,
+            0.514
+          ],
+          "avgMs": 0.5036666666666667,
+          "minMs": 0.484,
+          "maxMs": 0.514
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          69,
+          69,
+          69
+        ],
+        "outputCups": [
+          2,
+          2,
+          2
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            7.04,
+            6.321,
+            7.754
+          ],
+          "avgMs": 7.038333333333333,
+          "minMs": 6.321,
+          "maxMs": 7.754
+        }
+      }
+    },
+    "metadataOnly": {
+      "baseline": {
+        "bodyWraps": [
+          94,
+          94,
+          94
+        ],
+        "bodyWrappedBytes": [
+          55586,
+          55586,
+          55586
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          2,
+          2,
+          2
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            7.669,
+            8.11,
+            9.43
+          ],
+          "avgMs": 8.402999999999999,
+          "minMs": 7.669,
+          "maxMs": 9.43
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3585,
+          3585,
+          3585
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            9.508,
+            10.134,
+            11.809
+          ],
+          "avgMs": 10.483666666666666,
+          "minMs": 9.508,
+          "maxMs": 11.809
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.696,
+            0.58,
+            0.511
+          ],
+          "avgMs": 0.5956666666666667,
+          "minMs": 0.511,
+          "maxMs": 0.696
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          90,
+          90,
+          90
+        ],
+        "outputCups": [
+          2,
+          2,
+          2
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            4.009,
+            3.556,
+            4.26
+          ],
+          "avgMs": 3.941666666666667,
+          "minMs": 3.556,
+          "maxMs": 4.26
+        }
+      }
+    },
+    "busyStart": {
+      "baseline": {
+        "bodyWraps": [
+          658,
+          658,
+          611
+        ],
+        "bodyWrappedBytes": [
+          389102,
+          389102,
+          361309
+        ],
+        "projectedEntries": [
+          1001,
+          1001,
+          1001
+        ],
+        "projectedBytes": [
+          603295,
+          603295,
+          603295
+        ],
+        "layouts": [
+          14,
+          14,
+          13
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            86.612,
+            89.009,
+            80.748
+          ],
+          "avgMs": 85.45633333333333,
+          "minMs": 80.748,
+          "maxMs": 89.009
+        },
+        "requestedFrames": [
+          14,
+          14,
+          13
+        ],
+        "deliveredFrames": [
+          12,
+          12,
+          11
+        ],
+        "deliveredBytes": [
+          43116,
+          43116,
+          39523
+        ],
+        "outputCups": [
+          12,
+          12,
+          11
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            1499.799,
+            1502.007,
+            1387.199
+          ],
+          "avgMs": 1463.0016666666668,
+          "minMs": 1387.199,
+          "maxMs": 1502.007
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          13,
+          13,
+          13
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            6.935,
+            7.064,
+            7.343
+          ],
+          "avgMs": 7.114,
+          "minMs": 6.935,
+          "maxMs": 7.343
+        },
+        "requestedFrames": [
+          13,
+          13,
+          13
+        ],
+        "deliveredFrames": [
+          13,
+          13,
+          13
+        ],
+        "deliveredBytes": [
+          1510,
+          1510,
+          1510
+        ],
+        "outputCups": [
+          27,
+          27,
+          27
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            1455.293,
+            1454.519,
+            1459.133
+          ],
+          "avgMs": 1456.315,
+          "minMs": 1454.519,
+          "maxMs": 1459.133
+        }
+      }
+    },
+    "busySpinner": {
+      "baseline": {
+        "bodyWraps": [
+          94,
+          94,
+          141
+        ],
+        "bodyWrappedBytes": [
+          55586,
+          55586,
+          83379
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          2,
+          2,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            12.351,
+            12.217,
+            17.13
+          ],
+          "avgMs": 13.899333333333333,
+          "minMs": 12.217,
+          "maxMs": 17.13
+        },
+        "requestedFrames": [
+          2,
+          2,
+          3
+        ],
+        "deliveredFrames": [
+          2,
+          2,
+          3
+        ],
+        "deliveredBytes": [
+          7186,
+          7186,
+          10779
+        ],
+        "outputCups": [
+          2,
+          2,
+          3
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            242.43,
+            239.491,
+            246.871
+          ],
+          "avgMs": 242.93066666666667,
+          "minMs": 239.491,
+          "maxMs": 246.871
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          2,
+          2,
+          2
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.927,
+            1.144,
+            0.98
+          ],
+          "avgMs": 1.017,
+          "minMs": 0.927,
+          "maxMs": 1.144
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredBytes": [
+          224,
+          224,
+          224
+        ],
+        "outputCups": [
+          4,
+          4,
+          4
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            195.899,
+            196.153,
+            200.609
+          ],
+          "avgMs": 197.55366666666666,
+          "minMs": 195.899,
+          "maxMs": 200.609
+        }
+      }
+    },
+    "busyStop": {
+      "baseline": {
+        "bodyWraps": [
+          141,
+          141,
+          141
+        ],
+        "bodyWrappedBytes": [
+          83379,
+          83379,
+          83379
+        ],
+        "projectedEntries": [
+          1001,
+          1001,
+          1001
+        ],
+        "projectedBytes": [
+          603295,
+          603295,
+          603295
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            13.487,
+            14.28,
+            13.71
+          ],
+          "avgMs": 13.825666666666667,
+          "minMs": 13.487,
+          "maxMs": 14.28
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3585,
+          3585,
+          3585
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            288.731,
+            286.788,
+            288.57
+          ],
+          "avgMs": 288.0296666666667,
+          "minMs": 286.788,
+          "maxMs": 288.731
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.313,
+            0.345,
+            0.368
+          ],
+          "avgMs": 0.34199999999999997,
+          "minMs": 0.313,
+          "maxMs": 0.368
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          158,
+          158,
+          158
+        ],
+        "outputCups": [
+          3,
+          3,
+          3
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            6.165,
+            6.371,
+            6.376
+          ],
+          "avgMs": 6.304,
+          "minMs": 6.165,
+          "maxMs": 6.376
+        }
+      }
+    }
+  },
+  "navigationProbe": {
+    "editor": {
+      "baseline": {
+        "bodyWraps": [
+          192,
+          192,
+          192
+        ],
+        "bodyWrappedBytes": [
+          115968,
+          115968,
+          115968
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          4,
+          4,
+          4
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            22.241,
+            11.043,
+            23.948
+          ],
+          "avgMs": 19.077333333333332,
+          "minMs": 11.043,
+          "maxMs": 23.948
+        },
+        "requestedFrames": [
+          4,
+          4,
+          4
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3725,
+          3725,
+          3725
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            24.5,
+            12.499,
+            26.503
+          ],
+          "avgMs": 21.167333333333332,
+          "minMs": 12.499,
+          "maxMs": 26.503
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.301,
+            0.268,
+            0.299
+          ],
+          "avgMs": 0.28933333333333333,
+          "minMs": 0.268,
+          "maxMs": 0.301
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          38,
+          38,
+          38
+        ],
+        "outputCups": [
+          2,
+          2,
+          2
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            3.148,
+            3.093,
+            3.33
+          ],
+          "avgMs": 3.1903333333333332,
+          "minMs": 3.093,
+          "maxMs": 3.33
+        }
+      }
+    },
+    "cursorOnly": {
+      "baseline": {
+        "bodyWraps": [
+          96,
+          96,
+          96
+        ],
+        "bodyWrappedBytes": [
+          57984,
+          57984,
+          57984
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          2,
+          2,
+          2
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            8.264,
+            8.197,
+            8.451
+          ],
+          "avgMs": 8.304,
+          "minMs": 8.197,
+          "maxMs": 8.451
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3725,
+          3725,
+          3725
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            9.274,
+            9.284,
+            9.457
+          ],
+          "avgMs": 9.338333333333333,
+          "minMs": 9.274,
+          "maxMs": 9.457
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.718,
+            0.692,
+            0.589
+          ],
+          "avgMs": 0.6663333333333333,
+          "minMs": 0.589,
+          "maxMs": 0.718
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          23,
+          23,
+          23
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            4.14,
+            3.797,
+            2.724
+          ],
+          "avgMs": 3.5536666666666665,
+          "minMs": 2.724,
+          "maxMs": 4.14
+        }
+      }
+    },
+    "pageUp": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            15.015,
+            14.64,
+            11.351
+          ],
+          "avgMs": 13.668666666666667,
+          "minMs": 11.351,
+          "maxMs": 15.015
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3792,
+          3792,
+          3792
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            16.702,
+            16.036,
+            12.688
+          ],
+          "avgMs": 15.142000000000001,
+          "minMs": 12.688,
+          "maxMs": 16.702
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            1.515,
+            1.673,
+            1.326
+          ],
+          "avgMs": 1.5046666666666666,
+          "minMs": 1.326,
+          "maxMs": 1.673
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          2701,
+          2701,
+          2701
+        ],
+        "outputCups": [
+          25,
+          25,
+          25
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            4.946,
+            5.703,
+            4.974
+          ],
+          "avgMs": 5.207666666666666,
+          "minMs": 4.946,
+          "maxMs": 5.703
+        }
+      }
+    },
+    "width80": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            17.286,
+            14.063,
+            18.144
+          ],
+          "avgMs": 16.497666666666667,
+          "minMs": 14.063,
+          "maxMs": 18.144
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          2557,
+          2557,
+          2557
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            18.02,
+            14.798,
+            18.892
+          ],
+          "avgMs": 17.236666666666665,
+          "minMs": 14.798,
+          "maxMs": 18.892
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          48,
+          48,
+          48
+        ],
+        "bodyWrappedBytes": [
+          28992,
+          28992,
+          28992
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            11.183,
+            12.243,
+            14.769
+          ],
+          "avgMs": 12.731666666666667,
+          "minMs": 11.183,
+          "maxMs": 14.769
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          2918,
+          2918,
+          2918
+        ],
+        "outputCups": [
+          41,
+          41,
+          41
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            14.08,
+            15.509,
+            16.955
+          ],
+          "avgMs": 15.514666666666667,
+          "minMs": 14.08,
+          "maxMs": 16.955
+        }
+      }
+    },
+    "height20": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            11.492,
+            14.127,
+            14.41
+          ],
+          "avgMs": 13.343,
+          "minMs": 11.492,
+          "maxMs": 14.41
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          1291,
+          1291,
+          1291
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            11.775,
+            14.503,
+            14.776
+          ],
+          "avgMs": 13.684666666666667,
+          "minMs": 11.775,
+          "maxMs": 14.776
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.952,
+            0.827,
+            1.073
+          ],
+          "avgMs": 0.9506666666666667,
+          "minMs": 0.827,
+          "maxMs": 1.073
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          1472,
+          1472,
+          1472
+        ],
+        "outputCups": [
+          21,
+          21,
+          21
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            3.606,
+            3.428,
+            3.701
+          ],
+          "avgMs": 3.578333333333333,
+          "minMs": 3.428,
+          "maxMs": 3.701
+        }
+      }
+    },
+    "heightReturn40": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            16.12,
+            13.902,
+            15.104
+          ],
+          "avgMs": 15.042,
+          "minMs": 13.902,
+          "maxMs": 16.12
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          2557,
+          2557,
+          2557
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            16.641,
+            14.352,
+            15.565
+          ],
+          "avgMs": 15.519333333333332,
+          "minMs": 14.352,
+          "maxMs": 16.641
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.837,
+            0.859,
+            0.922
+          ],
+          "avgMs": 0.8726666666666667,
+          "minMs": 0.837,
+          "maxMs": 0.922
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          2918,
+          2918,
+          2918
+        ],
+        "outputCups": [
+          41,
+          41,
+          41
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            3.602,
+            3.603,
+            3.694
+          ],
+          "avgMs": 3.633,
+          "minMs": 3.602,
+          "maxMs": 3.694
+        }
+      }
+    },
+    "widthReturn120": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            12.284,
+            12.897,
+            14.34
+          ],
+          "avgMs": 13.173666666666668,
+          "minMs": 12.284,
+          "maxMs": 14.34
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3792,
+          3792,
+          3792
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            12.659,
+            13.273,
+            14.911
+          ],
+          "avgMs": 13.614333333333333,
+          "minMs": 12.659,
+          "maxMs": 14.911
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          48,
+          48,
+          48
+        ],
+        "bodyWrappedBytes": [
+          28992,
+          28992,
+          28992
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            12.971,
+            11.463,
+            11.549
+          ],
+          "avgMs": 11.994333333333334,
+          "minMs": 11.463,
+          "maxMs": 12.971
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          4153,
+          4153,
+          4153
+        ],
+        "outputCups": [
+          41,
+          41,
+          41
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            15.705,
+            14.096,
+            14.301
+          ],
+          "avgMs": 14.700666666666667,
+          "minMs": 14.096,
+          "maxMs": 15.705
+        }
+      }
+    },
+    "help": {
+      "baseline": {
+        "bodyWraps": [
+          96,
+          96,
+          96
+        ],
+        "bodyWrappedBytes": [
+          57984,
+          57984,
+          57984
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          2,
+          2,
+          2
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            12.485,
+            15.358,
+            13.567
+          ],
+          "avgMs": 13.803333333333333,
+          "minMs": 12.485,
+          "maxMs": 15.358
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          1239,
+          1239,
+          1239
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            13.943,
+            17.165,
+            15.158
+          ],
+          "avgMs": 15.421999999999999,
+          "minMs": 13.943,
+          "maxMs": 17.165
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            1.767,
+            1.519,
+            1.504
+          ],
+          "avgMs": 1.5966666666666667,
+          "minMs": 1.504,
+          "maxMs": 1.767
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          1443,
+          1443,
+          1443
+        ],
+        "outputCups": [
+          36,
+          36,
+          36
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            4.362,
+            4.774,
+            4.894
+          ],
+          "avgMs": 4.676666666666667,
+          "minMs": 4.362,
+          "maxMs": 4.894
+        }
+      }
+    },
+    "helpClose": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            14.322,
+            14.285,
+            13.986
+          ],
+          "avgMs": 14.197666666666667,
+          "minMs": 13.986,
+          "maxMs": 14.322
+        },
+        "requestedFrames": [
+          3,
+          3,
+          3
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3792,
+          3792,
+          3792
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            67.917,
+            67.963,
+            67.412
+          ],
+          "avgMs": 67.764,
+          "minMs": 67.412,
+          "maxMs": 67.963
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.671,
+            0.765,
+            0.625
+          ],
+          "avgMs": 0.687,
+          "minMs": 0.625,
+          "maxMs": 0.765
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3996,
+          3996,
+          3996
+        ],
+        "outputCups": [
+          36,
+          36,
+          36
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            55.496,
+            54.558,
+            54.324
+          ],
+          "avgMs": 54.79266666666667,
+          "minMs": 54.324,
+          "maxMs": 55.496
+        }
+      }
+    },
+    "pageDown": {
+      "baseline": {
+        "bodyWraps": [
+          144,
+          144,
+          144
+        ],
+        "bodyWrappedBytes": [
+          86976,
+          86976,
+          86976
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          3,
+          3,
+          3
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            14.222,
+            10.842,
+            11.113
+          ],
+          "avgMs": 12.059,
+          "minMs": 10.842,
+          "maxMs": 14.222
+        },
+        "requestedFrames": [
+          2,
+          2,
+          2
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          3725,
+          3725,
+          3725
+        ],
+        "outputCups": [
+          1,
+          1,
+          1
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            15.471,
+            11.745,
+            12.067
+          ],
+          "avgMs": 13.094333333333333,
+          "minMs": 11.745,
+          "maxMs": 15.471
+        }
+      },
+      "candidate": {
+        "bodyWraps": [
+          0,
+          0,
+          0
+        ],
+        "bodyWrappedBytes": [
+          0,
+          0,
+          0
+        ],
+        "projectedEntries": [
+          0,
+          0,
+          0
+        ],
+        "projectedBytes": [
+          0,
+          0,
+          0
+        ],
+        "layouts": [
+          1,
+          1,
+          1
+        ],
+        "layoutMs": {
+          "valuesMs": [
+            0.654,
+            0.834,
+            0.605
+          ],
+          "avgMs": 0.6976666666666667,
+          "minMs": 0.605,
+          "maxMs": 0.834
+        },
+        "requestedFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredFrames": [
+          1,
+          1,
+          1
+        ],
+        "deliveredBytes": [
+          2608,
+          2608,
+          2608
+        ],
+        "outputCups": [
+          24,
+          24,
+          24
+        ],
+        "dispatchToWriterMs": {
+          "valuesMs": [
+            3.809,
+            4.055,
+            3.426
+          ],
+          "avgMs": 3.763333333333333,
+          "minMs": 3.426,
+          "maxMs": 4.055
+        }
+      }
+    }
+  },
+  "productionTmux": [
+    {
+      "flavor": "source",
+      "messages": 1000,
+      "entryBytes": 600,
+      "baseline": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            512.5293500022963,
+            465.8844409859739,
+            468.1079570000293
+          ],
+          "avgMs": 482.1739159960998,
+          "minMs": 465.8844409859739,
+          "maxMs": 512.5293500022963
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                54.464209999423474,
+                54.760461003752425,
+                54.99381299887318
+              ],
+              "avgMs": 54.739494667349696,
+              "minMs": 54.464209999423474,
+              "maxMs": 54.99381299887318
+            },
+            "bytes": [
+              3010,
+              3010,
+              3010
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                78.16513399302494,
+                80.46908999676816,
+                79.477583989501
+              ],
+              "avgMs": 79.3706026597647,
+              "minMs": 78.16513399302494,
+              "maxMs": 80.46908999676816
+            },
+            "bytes": [
+              3013,
+              3013,
+              3013
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.825974000501446,
+                8.406987995840609,
+                8.919542990042828
+              ],
+              "avgMs": 8.717501662128294,
+              "minMs": 8.406987995840609,
+              "maxMs": 8.919542990042828
+            },
+            "bytes": [
+              3009,
+              3009,
+              3009
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                98.0886849865783,
+                100.00754400971346,
+                99.16204000182915
+              ],
+              "avgMs": 99.08608966604031,
+              "minMs": 98.0886849865783,
+              "maxMs": 100.00754400971346
+            },
+            "bytes": [
+              3029,
+              3029,
+              3029
+            ],
+            "cursor": [
+              "11,35",
+              "11,35",
+              "11,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ]
+      },
+      "candidate": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            163.6995279986877,
+            164.66070000024047,
+            165.31124999164604
+          ],
+          "avgMs": 164.5571593301914,
+          "minMs": 163.6995279986877,
+          "maxMs": 165.31124999164604
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                33.95818300487008,
+                9.955927991541103,
+                9.529890012345277
+              ],
+              "avgMs": 17.81466700291882,
+              "minMs": 9.529890012345277,
+              "maxMs": 33.95818300487008
+            },
+            "bytes": [
+              36,
+              36,
+              36
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.512408010778017,
+                9.532365002087317,
+                9.390815001097508
+              ],
+              "avgMs": 9.478529337987615,
+              "minMs": 9.390815001097508,
+              "maxMs": 9.532365002087317
+            },
+            "bytes": [
+              39,
+              39,
+              39
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.973359992727637,
+                9.566481996444054,
+                10.59681799961254
+              ],
+              "avgMs": 10.045553329594744,
+              "minMs": 9.566481996444054,
+              "maxMs": 10.59681799961254
+            },
+            "bytes": [
+              35,
+              35,
+              35
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.055885006091557,
+                9.10971600387711,
+                30.732361992704682
+              ],
+              "avgMs": 16.299321000891116,
+              "minMs": 9.055885006091557,
+              "maxMs": 30.732361992704682
+            },
+            "bytes": [
+              54,
+              54,
+              54
+            ],
+            "cursor": [
+              "5,35",
+              "5,35",
+              "5,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ],
+        "pageUpHelpResizeReturn": [
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "flavor": "source",
+      "messages": 10000,
+      "entryBytes": 600,
+      "baseline": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            5187.041896992014,
+            3961.6706520027947,
+            3989.6454970003106
+          ],
+          "avgMs": 4379.452681998373,
+          "minMs": 3961.6706520027947,
+          "maxMs": 5187.041896992014
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                58.60179501178209,
+                56.88636099512223,
+                55.689047992927954
+              ],
+              "avgMs": 57.05906799994409,
+              "minMs": 55.689047992927954,
+              "maxMs": 58.60179501178209
+            },
+            "bytes": [
+              3015,
+              3015,
+              3015
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                77.83491500595119,
+                79.55805199162569,
+                78.82928400067613
+              ],
+              "avgMs": 78.740750332751,
+              "minMs": 77.83491500595119,
+              "maxMs": 79.55805199162569
+            },
+            "bytes": [
+              3018,
+              3018,
+              3018
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.045970000443049,
+                8.653147000586614,
+                9.347912011435255
+              ],
+              "avgMs": 9.015676337488307,
+              "minMs": 8.653147000586614,
+              "maxMs": 9.347912011435255
+            },
+            "bytes": [
+              3014,
+              3014,
+              3014
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                99.9566669925116,
+                100.0393959984649,
+                99.7974989877548
+              ],
+              "avgMs": 99.93118732624377,
+              "minMs": 99.7974989877548,
+              "maxMs": 100.0393959984649
+            },
+            "bytes": [
+              3034,
+              3034,
+              3034
+            ],
+            "cursor": [
+              "11,35",
+              "11,35",
+              "11,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ]
+      },
+      "candidate": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            1832.9690039972775,
+            491.44428699219134,
+            495.19757999223657
+          ],
+          "avgMs": 939.8702903272351,
+          "minMs": 491.44428699219134,
+          "maxMs": 1832.9690039972775
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                37.28073199454229,
+                9.593057009624317,
+                36.12474200781435
+              ],
+              "avgMs": 27.666177003993653,
+              "minMs": 9.593057009624317,
+              "maxMs": 37.28073199454229
+            },
+            "bytes": [
+              36,
+              36,
+              36
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.144757001195103,
+                10.451575013576075,
+                8.819053997285664
+              ],
+              "avgMs": 9.471795337352281,
+              "minMs": 8.819053997285664,
+              "maxMs": 10.451575013576075
+            },
+            "bytes": [
+              39,
+              39,
+              39
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.167026000795886,
+                10.302504000719637,
+                9.15343000087887
+              ],
+              "avgMs": 9.540986667464798,
+              "minMs": 9.15343000087887,
+              "maxMs": 10.302504000719637
+            },
+            "bytes": [
+              35,
+              35,
+              35
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.805020003113896,
+                9.104647004278377,
+                9.019500997965224
+              ],
+              "avgMs": 9.3097226684525,
+              "minMs": 9.019500997965224,
+              "maxMs": 9.805020003113896
+            },
+            "bytes": [
+              54,
+              54,
+              54
+            ],
+            "cursor": [
+              "5,35",
+              "5,35",
+              "5,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ],
+        "pageUpHelpResizeReturn": [
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "flavor": "source",
+      "messages": 48,
+      "entryBytes": 20000,
+      "baseline": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            1698.662830007379,
+            1483.5719209950184,
+            1445.5497689923504
+          ],
+          "avgMs": 1542.5948399982492,
+          "minMs": 1445.5497689923504,
+          "maxMs": 1698.662830007379
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                843.0232999962755,
+                814.1194110066863,
+                813.236030007829
+              ],
+              "avgMs": 823.4595803369302,
+              "minMs": 813.236030007829,
+              "maxMs": 843.0232999962755
+            },
+            "bytes": [
+              3648,
+              3648,
+              3648
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                1626.972632991965,
+                1616.8738699925598,
+                1599.063121000654
+              ],
+              "avgMs": 1614.3032079950597,
+              "minMs": 1599.063121000654,
+              "maxMs": 1626.972632991965
+            },
+            "bytes": [
+              3651,
+              3651,
+              3651
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.014323994051665,
+                9.367585997097194,
+                9.552429997711442
+              ],
+              "avgMs": 9.311446662953434,
+              "minMs": 9.014323994051665,
+              "maxMs": 9.552429997711442
+            },
+            "bytes": [
+              0,
+              0,
+              0
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                3597.2594750055578,
+                3537.166388996411,
+                3526.6018510010326
+              ],
+              "avgMs": 3553.6759050010005,
+              "minMs": 3526.6018510010326,
+              "maxMs": 3597.2594750055578
+            },
+            "bytes": [
+              7314,
+              7314,
+              7314
+            ],
+            "cursor": [
+              "11,35",
+              "11,35",
+              "11,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ]
+      },
+      "candidate": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            617.4202090041945,
+            378.0786200077273,
+            402.2722610097844
+          ],
+          "avgMs": 465.92369667390204,
+          "minMs": 378.0786200077273,
+          "maxMs": 617.4202090041945
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                36.83465099311434,
+                34.94915600458626,
+                34.59939100139309
+              ],
+              "avgMs": 35.461065999697894,
+              "minMs": 34.59939100139309,
+              "maxMs": 36.83465099311434
+            },
+            "bytes": [
+              36,
+              36,
+              36
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                36.91842399712186,
+                35.75690199795645,
+                36.30292500020005
+              ],
+              "avgMs": 36.32608366509279,
+              "minMs": 35.75690199795645,
+              "maxMs": 36.91842399712186
+            },
+            "bytes": [
+              39,
+              39,
+              39
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.888218988431618,
+                9.098701004404575,
+                8.475884998915717
+              ],
+              "avgMs": 8.820934997250637,
+              "minMs": 8.475884998915717,
+              "maxMs": 9.098701004404575
+            },
+            "bytes": [
+              35,
+              35,
+              35
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                35.73505599342752,
+                35.96291900612414,
+                36.45550999499392
+              ],
+              "avgMs": 36.05116166484853,
+              "minMs": 35.73505599342752,
+              "maxMs": 36.45550999499392
+            },
+            "bytes": [
+              54,
+              54,
+              54
+            ],
+            "cursor": [
+              "5,35",
+              "5,35",
+              "5,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ],
+        "pageUpHelpResizeReturn": [
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "flavor": "compiled",
+      "messages": 1000,
+      "entryBytes": 600,
+      "baseline": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            630.1465279975673,
+            466.8835339980433,
+            465.1259269885486
+          ],
+          "avgMs": 520.7186629947197,
+          "minMs": 465.1259269885486,
+          "maxMs": 630.1465279975673
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                55.299205996561795,
+                54.797717995825224,
+                54.87286300922278
+              ],
+              "avgMs": 54.9899290005366,
+              "minMs": 54.797717995825224,
+              "maxMs": 55.299205996561795
+            },
+            "bytes": [
+              3010,
+              3010,
+              3010
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                80.18191299925093,
+                78.61035400128458,
+                77.40311999805272
+              ],
+              "avgMs": 78.73179566619608,
+              "minMs": 77.40311999805272,
+              "maxMs": 80.18191299925093
+            },
+            "bytes": [
+              3013,
+              3013,
+              3013
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.8998049905058,
+                9.27191499795299,
+                8.937776990933344
+              ],
+              "avgMs": 9.036498993130712,
+              "minMs": 8.8998049905058,
+              "maxMs": 9.27191499795299
+            },
+            "bytes": [
+              3009,
+              3009,
+              3009
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                99.82000400486868,
+                100.84432599251159,
+                100.05119399284013
+              ],
+              "avgMs": 100.23850799674013,
+              "minMs": 99.82000400486868,
+              "maxMs": 100.84432599251159
+            },
+            "bytes": [
+              3029,
+              3029,
+              3029
+            ],
+            "cursor": [
+              "11,35",
+              "11,35",
+              "11,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ]
+      },
+      "candidate": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            304.3144340044819,
+            165.26164699462242,
+            165.19965000043157
+          ],
+          "avgMs": 211.59191033317862,
+          "minMs": 165.19965000043157,
+          "maxMs": 304.3144340044819
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.306847001425922,
+                36.59237700048834,
+                35.44339298969135
+              ],
+              "avgMs": 27.114205663868535,
+              "minMs": 9.306847001425922,
+              "maxMs": 36.59237700048834
+            },
+            "bytes": [
+              36,
+              36,
+              36
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.446156993159093,
+                9.842651008511893,
+                8.920862994273193
+              ],
+              "avgMs": 9.069890331981393,
+              "minMs": 8.446156993159093,
+              "maxMs": 9.842651008511893
+            },
+            "bytes": [
+              39,
+              39,
+              39
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.833838990540244,
+                8.832451989292167,
+                9.46532298985403
+              ],
+              "avgMs": 9.043871323228814,
+              "minMs": 8.832451989292167,
+              "maxMs": 9.46532298985403
+            },
+            "bytes": [
+              35,
+              35,
+              35
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.316608004155569,
+                9.275504999095574,
+                9.523129992885515
+              ],
+              "avgMs": 9.371747665378885,
+              "minMs": 9.275504999095574,
+              "maxMs": 9.523129992885515
+            },
+            "bytes": [
+              54,
+              54,
+              54
+            ],
+            "cursor": [
+              "5,35",
+              "5,35",
+              "5,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ],
+        "pageUpHelpResizeReturn": [
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "flavor": "compiled",
+      "messages": 10000,
+      "entryBytes": 600,
+      "baseline": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            5464.02328601107,
+            3983.7832269986393,
+            4044.4443080050405
+          ],
+          "avgMs": 4497.41694033825,
+          "minMs": 3983.7832269986393,
+          "maxMs": 5464.02328601107
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                54.96542299806606,
+                54.974084996501915,
+                54.78823099110741
+              ],
+              "avgMs": 54.90924632855846,
+              "minMs": 54.78823099110741,
+              "maxMs": 54.974084996501915
+            },
+            "bytes": [
+              3015,
+              3015,
+              3015
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                78.65178400243167,
+                77.93563400628045,
+                77.66065400210209
+              ],
+              "avgMs": 78.0826906702714,
+              "minMs": 77.66065400210209,
+              "maxMs": 78.65178400243167
+            },
+            "bytes": [
+              3018,
+              3018,
+              3018
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.773498993832618,
+                8.495640009641647,
+                8.892828001989983
+              ],
+              "avgMs": 8.720655668488083,
+              "minMs": 8.495640009641647,
+              "maxMs": 8.892828001989983
+            },
+            "bytes": [
+              3014,
+              3014,
+              3014
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                100.16084701055661,
+                99.49469199636951,
+                124.61651500780135
+              ],
+              "avgMs": 108.09068467157583,
+              "minMs": 99.49469199636951,
+              "maxMs": 124.61651500780135
+            },
+            "bytes": [
+              3034,
+              3034,
+              3034
+            ],
+            "cursor": [
+              "11,35",
+              "11,35",
+              "11,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ]
+      },
+      "candidate": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            2007.3390329926042,
+            494.58033400878776,
+            492.9694120073691
+          ],
+          "avgMs": 998.296259669587,
+          "minMs": 492.9694120073691,
+          "maxMs": 2007.3390329926042
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.679315000539646,
+                35.837785006151535,
+                34.20670000195969
+              ],
+              "avgMs": 26.574600002883624,
+              "minMs": 9.679315000539646,
+              "maxMs": 35.837785006151535
+            },
+            "bytes": [
+              36,
+              36,
+              36
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                8.924820998799987,
+                9.919488002196886,
+                9.73459098895546
+              ],
+              "avgMs": 9.526299996650778,
+              "minMs": 8.924820998799987,
+              "maxMs": 9.919488002196886
+            },
+            "bytes": [
+              39,
+              39,
+              39
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.162041998934,
+                9.618987998692319,
+                8.95393300743308
+              ],
+              "avgMs": 9.244987668353133,
+              "minMs": 8.95393300743308,
+              "maxMs": 9.618987998692319
+            },
+            "bytes": [
+              35,
+              35,
+              35
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.467278010561131,
+                9.671140986029059,
+                9.196842991514131
+              ],
+              "avgMs": 9.445087329368107,
+              "minMs": 9.196842991514131,
+              "maxMs": 9.671140986029059
+            },
+            "bytes": [
+              54,
+              54,
+              54
+            ],
+            "cursor": [
+              "5,35",
+              "5,35",
+              "5,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ],
+        "pageUpHelpResizeReturn": [
+          true,
+          true,
+          true
+        ]
+      }
+    },
+    {
+      "flavor": "compiled",
+      "messages": 48,
+      "entryBytes": 20000,
+      "baseline": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            1693.586214008974,
+            1485.2730429993244,
+            1452.827470988268
+          ],
+          "avgMs": 1543.8955759988555,
+          "minMs": 1452.827470988268,
+          "maxMs": 1693.586214008974
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                812.8825040039374,
+                841.1469769926043,
+                812.1950049971929
+              ],
+              "avgMs": 822.0748286645781,
+              "minMs": 812.1950049971929,
+              "maxMs": 841.1469769926043
+            },
+            "bytes": [
+              3648,
+              3648,
+              3648
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                1588.0281700083287,
+                1646.1984159977874,
+                1617.518717990606
+              ],
+              "avgMs": 1617.248434665574,
+              "minMs": 1588.0281700083287,
+              "maxMs": 1646.1984159977874
+            },
+            "bytes": [
+              3651,
+              3651,
+              3651
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.151846999884583,
+                8.724603001610376,
+                8.32525199803058
+              ],
+              "avgMs": 8.733900666508513,
+              "minMs": 8.32525199803058,
+              "maxMs": 9.151846999884583
+            },
+            "bytes": [
+              0,
+              0,
+              0
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                3449.094221999985,
+                3579.799920989899,
+                3517.842020999524
+              ],
+              "avgMs": 3515.5787213298026,
+              "minMs": 3449.094221999985,
+              "maxMs": 3579.799920989899
+            },
+            "bytes": [
+              7314,
+              7314,
+              7314
+            ],
+            "cursor": [
+              "11,35",
+              "11,35",
+              "11,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ]
+      },
+      "candidate": {
+        "initialLaunchToObservedMs": {
+          "valuesMs": [
+            619.324074999895,
+            379.8988439957611,
+            377.7396649966249
+          ],
+          "avgMs": 458.987527997427,
+          "minMs": 377.7396649966249,
+          "maxMs": 619.324074999895
+        },
+        "operations": {
+          "ascii": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                36.225660995114595,
+                35.63661299995147,
+                35.421759996097535
+              ],
+              "avgMs": 35.7613446637212,
+              "minMs": 35.421759996097535,
+              "maxMs": 36.225660995114595
+            },
+            "bytes": [
+              36,
+              36,
+              36
+            ],
+            "cursor": [
+              "3,35",
+              "3,35",
+              "3,35"
+            ]
+          },
+          "paste": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                36.33128300134558,
+                36.98881799937226,
+                36.547529001836665
+              ],
+              "avgMs": 36.62254333418483,
+              "minMs": 36.33128300134558,
+              "maxMs": 36.98881799937226
+            },
+            "bytes": [
+              39,
+              39,
+              39
+            ],
+            "cursor": [
+              "6,35",
+              "6,35",
+              "6,35"
+            ]
+          },
+          "clear": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                9.083127006306313,
+                10.089521994814277,
+                9.490142998402007
+              ],
+              "avgMs": 9.554263999840865,
+              "minMs": 9.083127006306313,
+              "maxMs": 10.089521994814277
+            },
+            "bytes": [
+              35,
+              35,
+              35
+            ],
+            "cursor": [
+              "2,35",
+              "2,35",
+              "2,35"
+            ]
+          },
+          "emoji": {
+            "injectionToObservedMs": {
+              "valuesMs": [
+                34.68767199956346,
+                35.666568990563974,
+                35.67874898726586
+              ],
+              "avgMs": 35.34432999246443,
+              "minMs": 34.68767199956346,
+              "maxMs": 35.67874898726586
+            },
+            "bytes": [
+              54,
+              54,
+              54
+            ],
+            "cursor": [
+              "5,35",
+              "5,35",
+              "5,35"
+            ]
+          }
+        },
+        "coreContinuesAfterDetach": [
+          true,
+          true,
+          true
+        ],
+        "pageUpHelpResizeReturn": [
+          true,
+          true,
+          true
+        ]
+      }
+    }
+  ],
+  "realCoreNavigation": {
+    "providerCalls": 0,
+    "realCore": true,
+    "results": [
+      {
+        "flavor": "source",
+        "picker": true,
+        "switchAndReturn": true,
+        "reattach": true,
+        "activeSlotUnchanged": true
+      },
+      {
+        "flavor": "compiled",
+        "picker": true,
+        "switchAndReturn": true,
+        "reattach": true,
+        "activeSlotUnchanged": true
+      }
+    ]
+  },
+  "localSseTmux": {
+    "providerCalls": 0,
+    "localMockSSE": true,
+    "results": [
+      {
+        "flavor": "source",
+        "stages": {
+          "widthReflowAnchor": {
+            "passed": true,
+            "topSourceLine": "line-019",
+            "sizes": [
+              [
+                120,
+                40
+              ],
+              [
+                80,
+                40
+              ],
+              [
+                120,
+                40
+              ]
+            ]
+          },
+          "busy": {
+            "injectionToObservedMs": 34.429252991685644,
+            "bytes": 162,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 3
+          },
+          "spinner": {
+            "bytes": 324,
+            "syncStarts": 3,
+            "syncEnds": 3,
+            "CUPs": 6,
+            "screenChanged": true
+          },
+          "burst": {
+            "injectionToObservedMs": 31.937605992425233,
+            "bytes": 1973,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 35
+          },
+          "call": {
+            "injectionToObservedMs": 30.666592996567488,
+            "bytes": 1869,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 15
+          },
+          "result": {
+            "injectionToObservedMs": 31.484553997870535,
+            "bytes": 177,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 4
+          },
+          "metadata": {
+            "injectionToObservedMs": 31.417194986715913,
+            "bytes": 406,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 5
+          },
+          "short": {
+            "injectionToObservedMs": 5.0817999872379005,
+            "bytes": 185,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 4
+          },
+          "idle": {
+            "injectionToObservedMs": 32.08186999836471,
+            "bytes": 173,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 3
+          }
+        },
+        "resyncPassed": true,
+        "overlayClosePassed": true,
+        "emojiCursor": "5,35"
+      },
+      {
+        "flavor": "compiled",
+        "stages": {
+          "widthReflowAnchor": {
+            "passed": true,
+            "topSourceLine": "line-019",
+            "sizes": [
+              [
+                120,
+                40
+              ],
+              [
+                80,
+                40
+              ],
+              [
+                120,
+                40
+              ]
+            ]
+          },
+          "busy": {
+            "injectionToObservedMs": 35.00832999998238,
+            "bytes": 162,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 3
+          },
+          "spinner": {
+            "bytes": 324,
+            "syncStarts": 3,
+            "syncEnds": 3,
+            "CUPs": 6,
+            "screenChanged": true
+          },
+          "burst": {
+            "injectionToObservedMs": 32.93776299688034,
+            "bytes": 1973,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 35
+          },
+          "call": {
+            "injectionToObservedMs": 30.857869001920335,
+            "bytes": 1869,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 15
+          },
+          "result": {
+            "injectionToObservedMs": 32.801913999719545,
+            "bytes": 177,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 4
+          },
+          "metadata": {
+            "injectionToObservedMs": 31.761191014084034,
+            "bytes": 406,
+            "syncStarts": 2,
+            "syncEnds": 2,
+            "CUPs": 5
+          },
+          "short": {
+            "injectionToObservedMs": 8.458677999442443,
+            "bytes": 58,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 2
+          },
+          "idle": {
+            "injectionToObservedMs": 5.55290600459557,
+            "bytes": 173,
+            "syncStarts": 1,
+            "syncEnds": 1,
+            "CUPs": 3
+          }
+        },
+        "resyncPassed": true,
+        "overlayClosePassed": true,
+        "emojiCursor": "5,35"
+      }
+    ]
+  },
+  "artifactRoot": "/tmp/henji-i154-verification/measurements",
+  "authoritativeArtifacts": {
+    "renderer": [
+      "baseline/probe.json",
+      "candidate/final-probe.json"
+    ],
+    "httpSse": [
+      "baseline/continuous-1.json",
+      "baseline/continuous-2.json",
+      "baseline/continuous-3.json",
+      "candidate/final-continuous-1.json",
+      "candidate/final-continuous-2.json",
+      "candidate/final-continuous-3.json"
+    ],
+    "navigation": [
+      "baseline/navigation-1.json",
+      "baseline/navigation-2.json",
+      "baseline/navigation-3.json",
+      "candidate/navigation-1.json",
+      "candidate/navigation-2.json",
+      "candidate/navigation-3.json"
+    ],
+    "productionTmux": [
+      "baseline/production/summary.json",
+      "candidate/production-final/summary.json"
+    ]
+  }
+}

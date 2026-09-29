@@ -9,8 +9,7 @@ const assert: (condition: unknown, message?: string) => asserts condition = (
   if (!condition) throw new Error(message);
 };
 
-const widthOf = (text: string): number =>
-  [...text].reduce((total, character) => total + cellWidth(character), 0);
+const widthOf = (text: string): number => cellWidth(text);
 
 const render = (text: string, width: number): string[] =>
   markdownAssistantRenderer.render(text, 'settled', width).map((line) => line.text);

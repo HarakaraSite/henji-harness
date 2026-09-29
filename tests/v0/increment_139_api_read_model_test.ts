@@ -3,7 +3,7 @@ import { createCoreService } from '../../v0/agent/host/core_service.ts';
 import { startCoreServer } from '../../v0/agent/http/server.ts';
 import { builtinProviderDeclarations } from '../../v0/agent/provider/provider_declaration.ts';
 import { HenjiApiClient } from '../../v0/api/client.ts';
-import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
 
 const frame = (value: unknown) => new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`);
 const completedResponse = (output: unknown[]) => ({

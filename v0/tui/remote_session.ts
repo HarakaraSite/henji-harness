@@ -30,7 +30,9 @@ import { DenoTerminal, TerminalLifecycle, type TerminalPort } from './terminal.t
 import {
   presentationPositionFromSnapshot,
   presentationStartupFromSnapshot,
-  restoredConversationFromSnapshot,
+  type SnapshotConversationProjectionHint,
+  SnapshotConversationProjector,
+  snapshotThinkingIdentity,
 } from './snapshot_presentation.ts';
 
 export interface RemoteTuiDependencies {
@@ -463,50 +465,145 @@ const renderSessionOrientation = (
   renderer.renderCompactStartup(presentationStartupFromSnapshot(snapshot, workspace), position);
 };
 
+interface PendingConversationProjection {
+  scope?: string;
+  readonly messageIds: Set<string>;
+  readonly toolOccurrenceIds: Set<string>;
+  readonly thinkingIds: Set<string>;
+  resetScroll: boolean;
+  resync: boolean;
+}
+
+const mergeProjectionWork = (
+  pending: PendingConversationProjection,
+  scope: string,
+  hint: SnapshotConversationProjectionHint,
+  resetScroll: boolean,
+): void => {
+  if (pending.scope !== scope) {
+    pending.scope = scope;
+    pending.messageIds.clear();
+    pending.toolOccurrenceIds.clear();
+    pending.thinkingIds.clear();
+    pending.resetScroll = false;
+    pending.resync = false;
+  }
+  for (const id of hint.messageIds ?? []) pending.messageIds.add(id);
+  for (const id of hint.toolOccurrenceIds ?? []) pending.toolOccurrenceIds.add(id);
+  for (const id of hint.thinkingIds ?? []) pending.thinkingIds.add(id);
+  pending.resetScroll ||= resetScroll;
+  pending.resync ||= hint.resync === true;
+};
+
+const takeProjectionWork = (
+  pending: PendingConversationProjection,
+): Readonly<{ hint: SnapshotConversationProjectionHint; resetScroll: boolean }> => {
+  const hint: SnapshotConversationProjectionHint = Object.freeze({
+    ...(pending.messageIds.size === 0 ? {} : { messageIds: [...pending.messageIds] }),
+    ...(pending.toolOccurrenceIds.size === 0
+      ? {}
+      : { toolOccurrenceIds: [...pending.toolOccurrenceIds] }),
+    ...(pending.thinkingIds.size === 0 ? {} : { thinkingIds: [...pending.thinkingIds] }),
+    ...(pending.resync ? { resync: true } : {}),
+  });
+  const resetScroll = pending.resetScroll;
+  pending.messageIds.clear();
+  pending.toolOccurrenceIds.clear();
+  pending.thinkingIds.clear();
+  pending.resetScroll = false;
+  pending.resync = false;
+  return Object.freeze({ hint, resetScroll });
+};
+
+const projectionHintFromFrame = (
+  frame: SessionStreamFrame,
+): SnapshotConversationProjectionHint => {
+  if (frame.kind === 'session.snapshot') return Object.freeze({ resync: true });
+  const messageIds: string[] = [];
+  const toolOccurrenceIds: string[] = [];
+  const thinkingIds: string[] = [];
+  for (const change of frame.changes) {
+    switch (change.kind) {
+      case 'message.upsert':
+        messageIds.push(change.message.id);
+        break;
+      case 'message.remove':
+        messageIds.push(change.id);
+        break;
+      case 'tool.upsert':
+        toolOccurrenceIds.push(change.tool.toolOccurrenceId);
+        break;
+      case 'tool.remove':
+        toolOccurrenceIds.push(change.toolOccurrenceId);
+        break;
+      case 'thinking.upsert':
+        thinkingIds.push(
+          snapshotThinkingIdentity(change.thinking.requestKey, change.thinking.thinkingKind),
+        );
+        break;
+      case 'thinking.remove':
+        thinkingIds.push(snapshotThinkingIdentity(change.requestKey, change.thinkingKind));
+        break;
+    }
+  }
+  return Object.freeze({
+    ...(messageIds.length === 0 ? {} : { messageIds }),
+    ...(toolOccurrenceIds.length === 0 ? {} : { toolOccurrenceIds }),
+    ...(thinkingIds.length === 0 ? {} : { thinkingIds }),
+  });
+};
+
 const renderSnapshot = (
   renderer: TuiRenderer,
   snapshot: SessionSnapshot,
   workspace: string,
   preserveScroll: boolean,
+  projector: SnapshotConversationProjector,
+  pending: PendingConversationProjection,
+  hint: SnapshotConversationProjectionHint,
 ): void => {
+  if (!preserveScroll) {
+    renderer.clearModal();
+    renderer.latest();
+  }
   renderSessionOrientation(renderer, snapshot, workspace);
-  const restored = restoredConversationFromSnapshot(snapshot);
-  renderer.renderRestored(
-    restored.messages,
-    restored.omitted,
-    restored.thinking,
-    restored.messageTurns,
-    { preserveScroll },
-  );
-  const records = [
-    ...(snapshot.pending.followUp === undefined ? [] : [snapshot.pending.followUp]),
-    ...snapshot.pending.followUps,
-  ];
-  for (const [index, record] of records.entries()) {
-    const execution = snapshot.runtime.execution?.executionId === record.executionId
-      ? snapshot.runtime.execution
-      : undefined;
-    const result = execution?.lifecycle === 'settled'
-      ? ` · ${execution.outcome} · ${execution.adoption} · settlement ${execution.processSettlement}`
-      : '';
-    renderer.eventSink({
-      kind: 'notice',
-      generation: index,
-      text: `follow-up ${record.status} #${record.queueId}${
-        record.executionId === undefined
-          ? ` · after #${record.afterExecutionId}`
-          : ` → execution #${record.executionId}`
-      }${record.reason === undefined ? '' : ` · ${record.reason}`}${result}\n${record.text}`,
-    });
-  }
-  if (snapshot.pending.steering !== undefined) {
-    renderer.eventSink({
-      kind: 'notice',
-      generation: records.length,
-      text:
-        `steering accepted · execution #${snapshot.pending.steering.executionId}\n${snapshot.pending.steering.text}`,
-    });
-  }
+  const scope = JSON.stringify([snapshot.cursor.coreEpoch, snapshot.session.id]);
+  renderer.setDisplayScope(scope);
+  mergeProjectionWork(pending, scope, hint, !preserveScroll);
+  renderer.updateConversation(() => {
+    const work = takeProjectionWork(pending);
+    const projected = projector.project(snapshot, scope, work.hint);
+    renderer.setConversationEntries(projected.entries, projected.omitted, work.resetScroll);
+    const records = [
+      ...(snapshot.pending.followUp === undefined ? [] : [snapshot.pending.followUp]),
+      ...snapshot.pending.followUps,
+    ];
+    for (const [index, record] of records.entries()) {
+      const execution = snapshot.runtime.execution?.executionId === record.executionId
+        ? snapshot.runtime.execution
+        : undefined;
+      const result = execution?.lifecycle === 'settled'
+        ? ` · ${execution.outcome} · ${execution.adoption} · settlement ${execution.processSettlement}`
+        : '';
+      renderer.eventSink({
+        kind: 'notice',
+        generation: index,
+        text: `follow-up ${record.status} #${record.queueId}${
+          record.executionId === undefined
+            ? ` · after #${record.afterExecutionId}`
+            : ` → execution #${record.executionId}`
+        }${record.reason === undefined ? '' : ` · ${record.reason}`}${result}\n${record.text}`,
+      });
+    }
+    if (snapshot.pending.steering !== undefined) {
+      renderer.eventSink({
+        kind: 'notice',
+        generation: records.length,
+        text:
+          `steering accepted · execution #${snapshot.pending.steering.executionId}\n${snapshot.pending.steering.text}`,
+      });
+    }
+  });
 };
 
 const isEditorTextMutation = (event: InputEvent): boolean =>
@@ -672,6 +769,14 @@ export const runRemoteTui = async (
   let selectedModel: ApiSelection = state.snapshot.session.selection;
   let credentialPresence: CredentialPresenceReadResult | undefined;
   const renderer = new TuiRenderer(terminal);
+  const conversationProjector = new SnapshotConversationProjector();
+  const pendingConversationProjection: PendingConversationProjection = {
+    messageIds: new Set(),
+    toolOccurrenceIds: new Set(),
+    thinkingIds: new Set(),
+    resetScroll: false,
+    resync: false,
+  };
   const editor = new TuiEditor();
   const editorHistory = new TuiEditorHistory();
   const lifecycle = new TerminalLifecycle(terminal, renderer);
@@ -1315,7 +1420,15 @@ export const runRemoteTui = async (
     navigationPending = false;
     renderer.clearModal();
     syncCoreObservations();
-    renderSnapshot(renderer, snapshot(), core.workspace, false);
+    renderSnapshot(
+      renderer,
+      snapshot(),
+      core.workspace,
+      false,
+      conversationProjector,
+      pendingConversationProjection,
+      projectionHintFromFrame(first.value),
+    );
     renderer.setEditorSnapshot(editor.snapshot());
     notice = undefined;
     updateStatus();
@@ -1763,10 +1876,24 @@ export const runRemoteTui = async (
   const removeOutputFailure = lifecycle.subscribeOutputFailure(requestExit);
   let result = 0;
   let acquired = false;
+  let renderFailed = false;
+  const removeRenderFailure = renderer.subscribeRenderFailure(() => {
+    renderFailed = true;
+    result = 1;
+    requestExit();
+  });
   try {
     await lifecycle.acquire();
     acquired = true;
-    renderSnapshot(renderer, snapshot(), core.workspace, false);
+    renderSnapshot(
+      renderer,
+      snapshot(),
+      core.workspace,
+      false,
+      conversationProjector,
+      pendingConversationProjection,
+      projectionHintFromFrame(firstFrame.value),
+    );
     updateStatus();
     await dependencies.afterAcquire?.();
 
@@ -1953,7 +2080,15 @@ export const runRemoteTui = async (
         selectedModel = snapshot().session.selection;
         connected = true;
         syncCoreObservations();
-        renderSnapshot(renderer, snapshot(), core.workspace, true);
+        renderSnapshot(
+          renderer,
+          snapshot(),
+          core.workspace,
+          true,
+          conversationProjector,
+          pendingConversationProjection,
+          projectionHintFromFrame(ready.frame),
+        );
         updateStatus();
         frameWait = nextFrameWait();
         continue;
@@ -1974,13 +2109,22 @@ export const runRemoteTui = async (
       selectedModel = snapshot().session.selection;
       syncCoreObservations();
       if (isConversationChange(frame)) {
-        renderSnapshot(renderer, snapshot(), core.workspace, true);
+        renderSnapshot(
+          renderer,
+          snapshot(),
+          core.workspace,
+          true,
+          conversationProjector,
+          pendingConversationProjection,
+          projectionHintFromFrame(frame),
+        );
       } else {
         renderSessionOrientation(renderer, snapshot(), core.workspace);
       }
       updateStatus();
       frameWait = nextFrameWait();
     }
+    if (renderFailed) await stderr(dependencies, 'terminal failure\n');
   } catch {
     result = 1;
     await stderr(
@@ -1992,6 +2136,7 @@ export const runRemoteTui = async (
     catalogUi.close();
     removeResize();
     removeOutputFailure();
+    removeRenderFailure();
     try {
       if (iterator.return !== undefined) await iterator.return(undefined);
     } catch {

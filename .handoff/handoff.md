@@ -4,6 +4,12 @@
 
 ## 現在地（2026-09-29）
 
+**S17・S18・S19の[Increment 154](../docs/increments/increment-154.md)をlocal実装・検証済み。**
+変更前後の実測、隔離tmuxのsource/compiled実経路、コード/testの通常・批判的reviewを完了した。
+採用P1二件を修正し、両限定re-reviewはBlocking 0／P1
+0。結果・実測・未確認事項はincrement正本を参照する。
+追加指示によりcommit/push・常用配置を進行中。実装確認用Core/TUI/tmuxは終了済み。
+
 **A25五sliceの実装・各slice/全体review・E2E・commit/push・常用配置・配置後確認を完了。**
 [Increment 153](../docs/increments/increment-153.md)がcompiled
 TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結果の正本。
@@ -31,13 +37,17 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. A25対応は完了。追加作業は利用者の指定に従う。
+1. [154の配置手順](../docs/increments/increment-154.md)に沿ってcommit/push・常用配置と配置後確認を完了する。
    構想・architecture・roadmapの意味変更とJSR公開は別承認。
 2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
    構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
 
 ## 承認境界
 
+- S17・S18・S19の調査、統合案作成とgpt-6-astraによる案review、計画作成とreviewerによる通常/批判的reviewは指示済み。
+  local実装、計画の実測/非破壊的実経路検証、実装後コード/test reviewは追加指示済み。
+  commit/push・常用配置と配置後確認は追加指示済み。JSR公開は未指示。
+  正本は[Increment 154](../docs/increments/increment-154.md)。
 - A25の参照実装調査、gpt-6-astraへの比較相談とreview、実provider実測、複数Core案・実装計画の作成は指示済み・完了。
   五sliceのlocal実装・非破壊的検証・各slice後のreviewerによるコード/テストreviewは承認済み・完了。
   利用者の完了承認・関連文書更新・commit/push・配置指示に従い、すべて完了。
@@ -80,7 +90,8 @@ S22の8slice（139〜146）と147の配置結果は
 - [構想](../docs/concepts/experience-driven-self-revision.md): productの目的と人間による採用境界。
 - [architecture](../docs/architecture/henji-host-agent-worker.md): 責務・状態所有・component境界。
 - [roadmap](../docs/roadmap.md): 必要機能・実装状態・未実装範囲。
-- [通常利用メモ](../docs/experience/normal-use-inbox.md): 未採用候補。S17〜S20、A15等もここにある。
+- [通常利用メモ](../docs/experience/normal-use-inbox.md):
+  未採用候補。S20、A15等はここ、S17〜S19はIncrement 154。
 - [個別increment](../docs/increments/): 採用済みの要件・計画・検証・配置・公開結果。
 - [公開手順](../docs/operations/jsr-publish.md): JSR公開時の操作。
 - [整理前のhandoff記録](../docs/history/handoff-through-2026-09-26.md): 過去の証拠のみ。

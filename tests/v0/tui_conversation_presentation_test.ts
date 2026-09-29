@@ -1,3 +1,4 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import {
   createUiState,
   reduceUiAction,
@@ -5,7 +6,7 @@ import {
   setUiProjection,
 } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
-import { TuiRenderer } from '../../v0/tui/render.ts';
+import { ImmediateTuiRenderer as TuiRenderer } from './tui_renderer_fixture.ts';
 import { type TerminalPort } from '../../v0/tui/terminal.ts';
 import {
   type AssistantContentRenderer,
@@ -55,6 +56,11 @@ class FakeTerminal implements TerminalPort {
 
   drainAndCloseInput(): Promise<void> {
     return Promise.resolve();
+  }
+
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
   }
 
   write(bytes: Uint8Array): void {

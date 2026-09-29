@@ -1,3 +1,4 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
@@ -115,6 +116,11 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
+  }
+
   write(bytes: Uint8Array): void {
     const text = new TextDecoder().decode(bytes);
     this.output.push(text);
@@ -181,6 +187,23 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
   );
   const terminal = new FakeTerminal();
   let stderr = '';
+  let interaction = 0;
+  terminal.onWrite = (text) => {
+    if (interaction === 0 && text.includes('Remote saved Session')) {
+      interaction = 1;
+      terminal.pushInput('\x1b[11~');
+    } else if (interaction === 1 && text.includes('read-only help')) {
+      interaction = 2;
+      terminal.pushInput('\x1b');
+    } else if (
+      interaction === 2 &&
+      text.includes('The note says remote history is available.')
+    ) {
+      interaction = 3;
+      terminal.pushInput('/exit\r');
+    }
+  };
+  const fallback = setTimeout(() => terminal.pushInput('\x04'), 2_000);
   try {
     const result = await runRemoteTui(
       `http://127.0.0.1:${server.addr.port}`,
@@ -190,15 +213,11 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
         writeStderr: (text) => {
           stderr += text;
         },
-        afterAcquire: () => {
-          terminal.pushInput('\x1b[11~');
-          terminal.pushInput('\x1b');
-          terminal.pushInput('/exit\r');
-        },
       },
     );
 
     strictEqual(result, 0);
+    strictEqual(interaction, 3);
     strictEqual(stderr, '');
     const rendered = terminal.output.join('');
     for (
@@ -237,6 +256,7 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
     );
     strictEqual(stillReady.status, 200);
   } finally {
+    clearTimeout(fallback);
     await server.shutdown();
   }
 });

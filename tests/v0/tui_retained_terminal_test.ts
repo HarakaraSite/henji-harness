@@ -1,7 +1,8 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
 import { TuiEditor } from '../../v0/tui/input.ts';
-import { TuiRenderer } from '../../v0/tui/render.ts';
+import { ImmediateTuiRenderer as TuiRenderer } from './tui_renderer_fixture.ts';
 import type {
   PresentationProjection,
   PresentationStartupState,
@@ -60,6 +61,11 @@ class RecordingTerminal implements TerminalPort {
 
   drainAndCloseInput(): Promise<void> {
     return Promise.resolve();
+  }
+
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
   }
 
   write(bytes: Uint8Array): void {
@@ -128,19 +134,19 @@ Deno.test('retained rendering isolates redraws in the alternate screen', async (
   assert(enter >= 0);
   assertEquals(exitBeforeRestore, -1);
   assert(
-    terminal.writes.slice(0, enter).every((write) => !write.includes('\x1b[2J')),
+    terminal.writes.slice(0, enter).every((write) => !write.includes('\x1b[?2026h')),
     'a retained frame was written before alternate-screen entry',
   );
   assert(
-    terminal.writes.slice(enter + 1).some((write) => write.includes('\x1b[2J\x1b[H')),
-    'redraws should remain full-frame updates inside the alternate screen',
+    terminal.writes.slice(enter + 1).some((write) => write.includes('\x1b[?2026h')),
+    'screen frames should be synchronized inside the alternate screen',
   );
 
   await lifecycle.restore();
   const exit = indexOfWrite(terminal.writes, EXIT_ALTERNATE_SCREEN);
   assert(exit > enter);
   assert(
-    terminal.writes.slice(enter + 1, exit).some((write) => write.includes('\x1b[2J\x1b[H')),
+    terminal.writes.slice(enter + 1, exit).some((write) => write.includes('\x1b[?2026h')),
   );
   assertEquals(terminal.rawModes, [true, false]);
   assertEquals(terminal.rawCbreaks, [false, true]);

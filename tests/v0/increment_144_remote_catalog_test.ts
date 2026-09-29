@@ -1,3 +1,4 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { ApiSelection, CoreOperationName, SessionSnapshot } from '../../v0/api/contract.ts';
 import { runRemoteTui } from '../../v0/tui/remote_session.ts';
@@ -166,6 +167,11 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
+  }
+
   write(bytes: Uint8Array): void {
     this.output.push(new TextDecoder().decode(bytes));
   }

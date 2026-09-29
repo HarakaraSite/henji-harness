@@ -1,3 +1,4 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { CoreOperationName, ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
@@ -166,6 +167,11 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
+  }
+
   write(bytes: Uint8Array): void {
     const text = new TextDecoder().decode(bytes);
     this.output.push(text);
@@ -395,7 +401,12 @@ Deno.test('Increment 142 busy Enter steers and reconnect shows discarded follow-
   });
   const terminal = new FakeTerminal();
   let detached = false;
+  let steeringSent = false;
   terminal.onWrite = (text) => {
+    if (!steeringSent && text.includes('Enter steer')) {
+      steeringSent = true;
+      terminal.pushInput('steering body\r');
+    }
     if (!detached && text.includes('steering accepted')) {
       detached = true;
       terminal.pushInput('\x04');
@@ -406,7 +417,6 @@ Deno.test('Increment 142 busy Enter steers and reconnect shows discarded follow-
     strictEqual(
       await runRemoteTui(`http://127.0.0.1:${server.addr.port}`, sessionId, {
         terminal,
-        afterAcquire: () => terminal.pushInput('steering body\r'),
         writeStderr: (text) => {
           throw new Error(text);
         },

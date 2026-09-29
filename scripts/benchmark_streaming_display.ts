@@ -5,7 +5,7 @@
  * `deno task --config deno.v0.json agent:increment-132-measure [m1|m2|all]`
  */
 import { TuiRenderer } from '../v0/tui/tui_renderer.ts';
-import type { TerminalPort } from '../v0/tui/terminal.ts';
+import { encodeScreenFrame, type TerminalPort } from '../v0/tui/terminal.ts';
 import type { PresentationMessage } from '../v0/presentation/contract_types.ts';
 import {
   OpenRouterAgentModel,
@@ -31,9 +31,10 @@ const stats = (samples: number[]): Record<string, number> => {
   };
 };
 
-const time = (fn: () => void): number => {
+const time = (fn: () => void, renderer?: TuiRenderer): number => {
   const start = performance.now();
   fn();
+  renderer?.flushRender();
   return performance.now() - start;
 };
 
@@ -48,6 +49,10 @@ const makeTerminal = (): { terminal: TerminalPort; writtenBytes: () => number } 
     drainAndCloseInput: () => Promise.resolve(),
     write: (bytes: Uint8Array) => {
       written += bytes.byteLength;
+    },
+    writeFrame: (frame, onWritten) => {
+      written += encodeScreenFrame(frame).byteLength;
+      onWritten?.();
     },
     addSignal: () => {},
     removeSignal: () => {},
@@ -84,26 +89,28 @@ const m1 = (): void => {
   ];
   for (const [entries, fatTail, fatBytes] of cases) {
     const { terminal, writtenBytes } = makeTerminal();
-    const renderer = new TuiRenderer(terminal);
+    const renderer = new TuiRenderer(terminal, { setTimeout: () => 0, clearTimeout: () => {} });
     renderer.eventSink({
       kind: 'restored_log',
       messages: messageSet(entries, fatTail, fatBytes),
       omitted: 0,
     });
+    renderer.flushRender();
+    const measure = (fn: () => void): number => time(fn, renderer);
     const liveText = `streaming body\n${'line of streamed text\n'.repeat(20)}`;
     const progressSamples: number[] = [];
     const editorSamples: number[] = [];
     const scrollSamples: number[] = [];
     for (let round = 0; round < 30; round += 1) {
-      progressSamples.push(time(() =>
+      progressSamples.push(measure(() =>
         renderer.eventSink({
           kind: 'assistant_progress',
           turn: 99,
           text: `${liveText}${'x'.repeat(round * 100)}`,
         })
       ));
-      editorSamples.push(time(() => renderer.setEditor(`typed ${round}`)));
-      scrollSamples.push(time(() => {
+      editorSamples.push(measure(() => renderer.setEditor(`typed ${round}`)));
+      scrollSamples.push(measure(() => {
         renderer.scrollPage('up');
         renderer.scrollPage('down');
       }));
@@ -115,23 +122,29 @@ const m1 = (): void => {
       frameBytes: writtenBytes(),
     };
     renderer.renderFrame();
+    renderer.close();
   }
   const { terminal } = makeTerminal();
-  const renderer = new TuiRenderer(terminal);
+  const renderer = new TuiRenderer(terminal, { setTimeout: () => 0, clearTimeout: () => {} });
   renderer.eventSink({
     kind: 'restored_log',
     messages: messageSet(1_000, 0, 0),
     omitted: 0,
   });
+  renderer.flushRender();
+  const measure = (fn: () => void): number => time(fn, renderer);
   const growth: Record<string, unknown> = {};
   for (const size of [1_000, 10_000, 50_000, 100_000]) {
     const samples: number[] = [];
     const text = 'y'.repeat(size);
     for (let round = 0; round < 10; round += 1) {
-      samples.push(time(() => renderer.eventSink({ kind: 'assistant_progress', turn: 99, text })));
+      samples.push(
+        measure(() => renderer.eventSink({ kind: 'assistant_progress', turn: 99, text })),
+      );
     }
     growth[`liveText=${size}`] = stats(samples);
   }
+  renderer.close();
   report['streamingLiveTextGrowth'] = growth;
   console.log(JSON.stringify({ m1: report }, null, 2));
 };

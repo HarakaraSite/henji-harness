@@ -2,13 +2,30 @@ import { toolActivityPreview } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const encoder = new TextEncoder();
+export interface TerminalTextSegment {
+  readonly text: string;
+  readonly cellWidth: number;
+  /** Zero-based scalar offset in the source text, inclusive. */
+  readonly scalarStart: number;
+  /** Zero-based scalar offset in the source text, exclusive. */
+  readonly scalarEnd: number;
+}
+
+const graphemeSegmenter = new Intl.Segmenter(undefined, {
+  granularity: 'grapheme',
+});
+// Printable ASCII has one scalar and one cell per grapheme; avoid repeated ICU work on it.
+const isPrintableAscii = /^[\x20-\x7e]*$/u;
+const isRgiEmoji = /\p{RGI_Emoji}/v;
+const isMark = /\p{Mark}/u;
+const isEmojiModifier = /[\u{1f3fb}-\u{1f3ff}]/u;
+const isEmojiTag = /[\u{e0020}-\u{e007f}]/u;
+
 const isFullwidthForm = (code: number): boolean =>
   (code >= 0xff01 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6);
-export const cellWidth = (character: string): number => {
+
+const scalarCellWidth = (character: string): number => {
   const code = character.codePointAt(0)!;
-  if ((code >= 0x300 && code <= 0x36f) || (code >= 0x1ab0 && code <= 0x1aff)) {
-    return 0;
-  }
   if (
     (code >= 0x1100 && code <= 0x115f) || (code >= 0x2329 && code <= 0x232a) ||
     (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) ||
@@ -16,6 +33,87 @@ export const cellWidth = (character: string): number => {
     (code >= 0x1f300 && code <= 0x1faff) || isFullwidthForm(code)
   ) return 2;
   return 1;
+};
+
+const graphemeCellWidth = (text: string): number => {
+  if (isRgiEmoji.test(text)) return 2;
+  let width = 0;
+  for (const character of text) {
+    const code = character.codePointAt(0)!;
+    if (
+      code === 0x200d || isMark.test(character) ||
+      isEmojiModifier.test(character) ||
+      isEmojiTag.test(character)
+    ) continue;
+    width = Math.max(width, scalarCellWidth(character));
+  }
+  return width;
+};
+
+/** Segment display text into terminal cells while retaining source scalar coordinates. */
+export const segmentTerminalText = (
+  text: string,
+): readonly TerminalTextSegment[] => {
+  if (isPrintableAscii.test(text)) {
+    return Array.from(text, (character, index) => ({
+      text: character,
+      cellWidth: 1,
+      scalarStart: index,
+      scalarEnd: index + 1,
+    }));
+  }
+  const segments: TerminalTextSegment[] = [];
+  let scalarStart = 0;
+  for (const { segment } of graphemeSegmenter.segment(text)) {
+    const scalarEnd = scalarStart + [...segment].length;
+    segments.push({
+      text: segment,
+      cellWidth: graphemeCellWidth(segment),
+      scalarStart,
+      scalarEnd,
+    });
+    scalarStart = scalarEnd;
+  }
+  return segments;
+};
+
+/** Total terminal cell width of already-projected display text. */
+export const cellWidth = (text: string): number =>
+  isPrintableAscii.test(text) ? text.length : segmentTerminalText(text).reduce(
+    (total, segment) => total + segment.cellWidth,
+    0,
+  );
+
+/** Keep the longest prefix that fits, never cutting a grapheme cluster. */
+export const truncateTerminalCells = (
+  text: string,
+  maxCells: number,
+): string => {
+  let used = 0;
+  let result = '';
+  for (const segment of segmentTerminalText(text)) {
+    if (used + segment.cellWidth > maxCells) break;
+    result += segment.text;
+    used += segment.cellWidth;
+  }
+  return result;
+};
+
+/** Keep the longest suffix that fits, never cutting a grapheme cluster. */
+export const truncateTerminalCellsFromEnd = (
+  text: string,
+  maxCells: number,
+): string => {
+  let used = 0;
+  let result = '';
+  const segments = segmentTerminalText(text);
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (used + segment.cellWidth > maxCells) break;
+    result = segment.text + result;
+    used += segment.cellWidth;
+  }
+  return result;
 };
 const DISPLAY_LIMIT = MAX_CONVERSATION_TEXT_BYTES;
 const ESCAPED_BIDI = (code: number): boolean =>
@@ -71,10 +169,10 @@ export const truncateText = (
   if (bytes.byteLength <= maxBytes) return { text, truncated: false };
   let used = 0;
   let prefix = '';
-  for (const character of text) {
-    const size = encoder.encode(character).byteLength;
+  for (const segment of segmentTerminalText(text)) {
+    const size = encoder.encode(segment.text).byteLength;
     if (used + size > maxBytes) break;
-    prefix += character;
+    prefix += segment.text;
     used += size;
   }
   return { text: prefix, truncated: true };
@@ -89,7 +187,9 @@ export const toolCallText = (name: string, args: unknown): string => {
   return preview.length === 0 ? shortToolName(name) : `${shortToolName(name)} ${preview}`;
 };
 
-const zoneNameFormatter = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' });
+const zoneNameFormatter = new Intl.DateTimeFormat(undefined, {
+  timeZoneName: 'short',
+});
 const pad2 = (value: number): string => String(value).padStart(2, '0');
 
 /** Local wall-clock minute with the environment locale's short zone label. */

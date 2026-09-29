@@ -6,7 +6,7 @@ import {
   slashCommandOf,
 } from '../../v0/tui/slash_command.ts';
 import { toolCallText } from '../../v0/tui/terminal_text.ts';
-import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
 import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
 import type { ToolCallContent, ToolResultContent } from '../../v0/agent/core/contracts.ts';
 

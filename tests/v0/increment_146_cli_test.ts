@@ -25,6 +25,7 @@ class StartupTerminal implements TerminalPort {
     return Promise.resolve();
   }
   write(): void {}
+  writeFrame(): void {}
   addSignal(): void {}
   removeSignal(): void {}
 }

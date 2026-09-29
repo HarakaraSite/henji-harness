@@ -1,3 +1,4 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { CoreOperationName, ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
 import {
@@ -203,6 +204,11 @@ class FakeTerminal implements TerminalPort {
       resolve(bytes);
     } else this.input.push(bytes);
   }
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
+  }
+
   write(bytes: Uint8Array): void {
     this.output.push(new TextDecoder().decode(bytes));
   }

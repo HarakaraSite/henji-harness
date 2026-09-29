@@ -19,6 +19,7 @@ import {
   toolActivityPreview,
 } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
+import { truncateText } from './terminal_text.ts';
 
 export const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 export const UI_MAX_NEW_BELOW = 512;
@@ -38,6 +39,8 @@ export interface UiLogEntry {
   readonly kind: UiLogKind;
   readonly label: string;
   readonly text: string;
+  /** UTF-8 size of the retained display text, computed when the entry is created. */
+  readonly textByteLength?: number;
   readonly revision: number;
   readonly live: boolean;
   readonly turn?: number;
@@ -116,6 +119,12 @@ export interface UiState {
 export type UiAction =
   | Readonly<{ readonly kind: 'editor'; readonly snapshot: EditorSnapshot }>
   | Readonly<{ readonly kind: 'clear_live' }>
+  | Readonly<{
+    readonly kind: 'conversation_projection';
+    readonly entries: readonly UiLogEntry[];
+    readonly omitted: number;
+    readonly resetScroll?: boolean;
+  }>
   | Readonly<
     {
       readonly kind: 'assistant_final';
@@ -149,22 +158,27 @@ export type UiAction =
 
 const encoder = new TextEncoder();
 const bytes = (text: string): number => encoder.encode(text).byteLength;
+const entryBytes = (entry: UiLogEntry): number => entry.textByteLength ?? bytes(entry.text);
 const snapshot = <T>(value: T): T => snapshotPresentation(value);
 
 const safeText = (text: string): string => {
-  return safeTextToBytes(text, UI_MAX_ENTRY_BYTES);
+  return safeTextToBytes(text, UI_MAX_ENTRY_BYTES).text;
 };
 
-const safeTextToBytes = (text: string, limit: number): string => {
-  let used = 0;
-  let result = '';
-  for (const character of text) {
-    const size = bytes(character);
-    if (used + size > Math.max(0, limit)) break;
-    result += character;
-    used += size;
+const safeTextToBytes = (
+  text: string,
+  limit: number,
+): Readonly<{ text: string; byteLength: number }> => {
+  const maxBytes = Math.max(0, limit);
+  const encoded = encoder.encode(text);
+  if (encoded.byteLength <= maxBytes) {
+    return Object.freeze({ text, byteLength: encoded.byteLength });
   }
-  return result;
+  const truncated = truncateText(text, maxBytes).text;
+  return Object.freeze({
+    text: truncated,
+    byteLength: encoder.encode(truncated).byteLength,
+  });
 };
 
 /** Stable, short failure reasons; diagnostic identifiers and provider details stay out of the UI. */
@@ -203,8 +217,17 @@ export const presentationFailureReason = (
   }
 };
 
-const freezeEntry = (entry: UiLogEntry): UiLogEntry =>
-  Object.freeze({ ...entry, text: safeText(entry.text) });
+const freezeEntry = (entry: UiLogEntry): UiLogEntry => {
+  const safe = safeTextToBytes(entry.text, UI_MAX_ENTRY_BYTES);
+  return Object.freeze({
+    ...entry,
+    text: safe.text,
+    textByteLength: safe.byteLength,
+  });
+};
+
+/** Normalize and retain the UTF-8 size for a newly projected conversation entry. */
+export const freezeUiLogEntry = freezeEntry;
 
 const HISTORY_WINDOW_BYTES = 1024 * 1024;
 const HISTORY_WINDOW_ENTRIES = 48;
@@ -216,7 +239,7 @@ const historyWindowEndingAt = (
   let start = end;
   let size = 0;
   while (start > 0 && end - start < HISTORY_WINDOW_ENTRIES) {
-    const nextSize = bytes(entries[start - 1].text);
+    const nextSize = entryBytes(entries[start - 1]);
     if (start < end && size + nextSize > HISTORY_WINDOW_BYTES) break;
     start -= 1;
     size += nextSize;
@@ -231,7 +254,7 @@ const historyWindowStartingAt = (
   let end = start;
   let size = 0;
   while (end < entries.length && end - start < HISTORY_WINDOW_ENTRIES) {
-    const nextSize = bytes(entries[end].text);
+    const nextSize = entryBytes(entries[end]);
     if (end > start && size + nextSize > HISTORY_WINDOW_BYTES) break;
     end += 1;
     size += nextSize;
@@ -920,6 +943,86 @@ export const reduceUiEvent = (
   return next;
 };
 
+const applyConversationProjection = (
+  state: UiState,
+  action: Extract<UiAction, { readonly kind: 'conversation_projection' }>,
+): UiState => {
+  const entries = [...action.entries];
+  if (action.omitted > 0) {
+    const id = `history:omitted:${action.omitted}`;
+    const text = `${action.omitted} messages omitted`;
+    const previous = state.log.entries.find((entry) => entry.id === id);
+    entries.push(
+      previous?.text === text ? previous : freezeEntry({
+        id,
+        kind: 'warning',
+        label: 'history>',
+        text,
+        revision: 0,
+        live: false,
+      }),
+    );
+  }
+  const retainedEntries = Object.freeze(entries);
+  const resetScroll = action.resetScroll === true;
+  const scroll = resetScroll ? Object.freeze({ kind: 'followLatest' as const }) : state.scroll;
+  let historyWindow = state.historyWindow;
+  if (resetScroll || scroll.kind === 'followLatest') {
+    historyWindow = historyWindowEndingAt(retainedEntries, retainedEntries.length);
+  } else if (historyWindow !== undefined && scroll.kind === 'anchored') {
+    const previousAnchorIndex = state.log.entries.findIndex((entry) => entry.id === scroll.entryId);
+    let nextAnchor = retainedEntries.find((entry) => entry.id === scroll.entryId);
+    let sourceScalarOffset = scroll.sourceScalarOffset;
+    if (nextAnchor === undefined && previousAnchorIndex >= 0) {
+      for (let index = previousAnchorIndex + 1; index < state.log.entries.length; index += 1) {
+        const candidate = state.log.entries[index];
+        nextAnchor = candidate === undefined
+          ? undefined
+          : retainedEntries.find((entry) => entry.id === candidate.id);
+        if (nextAnchor !== undefined) break;
+      }
+      if (nextAnchor === undefined) {
+        for (let index = previousAnchorIndex - 1; index >= 0; index -= 1) {
+          const candidate = state.log.entries[index];
+          nextAnchor = candidate === undefined
+            ? undefined
+            : retainedEntries.find((entry) => entry.id === candidate.id);
+          if (nextAnchor !== undefined) break;
+        }
+      }
+      sourceScalarOffset = 0;
+    }
+    if (nextAnchor !== undefined) {
+      const anchorIndex = retainedEntries.findIndex((entry) => entry.id === nextAnchor!.id);
+      const windowLength = historyWindow.end - historyWindow.start;
+      let start = Math.max(0, anchorIndex - Math.max(0, previousAnchorIndex - historyWindow.start));
+      const end = Math.min(retainedEntries.length, start + windowLength);
+      start = Math.max(0, end - windowLength);
+      historyWindow = Object.freeze({ start, end });
+      if (nextAnchor.id !== scroll.entryId || sourceScalarOffset !== scroll.sourceScalarOffset) {
+        return Object.freeze({
+          ...state,
+          log: Object.freeze({ entries: retainedEntries, omittedCount: state.log.omittedCount }),
+          historyWindow,
+          scroll: Object.freeze({
+            kind: 'anchored' as const,
+            entryId: nextAnchor.id,
+            sourceScalarOffset,
+          }),
+          newBelowCount: state.newBelowCount,
+        });
+      }
+    }
+  }
+  return Object.freeze({
+    ...state,
+    log: Object.freeze({ entries: retainedEntries, omittedCount: state.log.omittedCount }),
+    historyWindow,
+    scroll,
+    newBelowCount: resetScroll || scroll.kind === 'followLatest' ? 0 : state.newBelowCount,
+  });
+};
+
 export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
   switch (action.kind) {
     case 'editor':
@@ -929,6 +1032,8 @@ export const reduceUiAction = (state: UiState, action: UiAction): UiState => {
       });
     case 'clear_live':
       return removeLiveEntries(state);
+    case 'conversation_projection':
+      return applyConversationProjection(state, action);
     case 'pending':
       return Object.freeze({
         ...state,

@@ -1,3 +1,8 @@
+import { encodeScreenFrame, type ScreenFrame } from './screen_frame.ts';
+
+export { encodeScreenFrame } from './screen_frame.ts';
+export type { ScreenFrame } from './screen_frame.ts';
+
 /**
  * The deliberately small terminal port used by the first TUI.  Production owns one stdin
  * reader for the lifetime of a terminal session; tests use the same port with a fake backend.
@@ -10,6 +15,7 @@ export interface TerminalPort {
   read(): Promise<Uint8Array | null>;
   drainAndCloseInput(maxMs: number, idleMs: number): Promise<void>;
   write(bytes: Uint8Array): void;
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void;
   /** Optional: resolve after all accepted output has been handed to the host. */
   flush?(): Promise<void>;
   /** Optional notification when an asynchronous output write fails. */
@@ -44,42 +50,43 @@ export const RESET_SCROLL_REGION = '\x1b[r';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);
 
-export type ChunkWriter = (bytes: Uint8Array) => Promise<void>;
+export type ChunkWriter = (bytes: Uint8Array) => void | number | Promise<void | number>;
 
-/** Full retained-screen frames begin with erase-all plus cursor-home. */
-const FULL_FRAME_PREFIX = new Uint8Array([0x1b, 0x5b, 0x32, 0x4a, 0x1b, 0x5b, 0x48]);
-
-const isFullFrame = (bytes: Uint8Array): boolean => {
-  if (bytes.byteLength < FULL_FRAME_PREFIX.byteLength) return false;
-  for (let index = 0; index < FULL_FRAME_PREFIX.byteLength; index += 1) {
-    if (bytes[index] !== FULL_FRAME_PREFIX[index]) return false;
-  }
-  return true;
+type OutputItem = { readonly kind: 'bytes'; readonly bytes: Uint8Array } | {
+  readonly kind: 'frame';
+  readonly frame: ScreenFrame;
+  readonly onWritten?: () => void;
 };
 
 /**
  * Ordered, non-blocking sink for terminal output. Writes are delivered one at a time so a slow
- * terminal consumer cannot block the caller; a full-frame redraw that is still queued is replaced
- * by the next one, keeping the display near the latest frame without unbounded growth.
+ * terminal consumer cannot block the caller; the last queued ScreenFrame is replaced by newer
+ * display state while raw control bytes retain their position in the output order.
  */
 export class CoalescingWriter {
-  private readonly queue: Uint8Array[] = [];
+  private readonly queue: OutputItem[] = [];
   private pump: Promise<void> | null = null;
   private failed = false;
+  private completedFrame: ScreenFrame | undefined;
 
   constructor(
     private readonly writeChunk: ChunkWriter,
     private readonly onFailure?: () => void,
   ) {}
 
+  /** Queue a raw terminal control/data write. It invalidates the display comparison baseline. */
   enqueue(bytes: Uint8Array): void {
     if (bytes.byteLength === 0) return;
+    this.queue.push({ kind: 'bytes', bytes });
+    if (this.pump === null) this.startPump();
+  }
+
+  /** Queue a retained frame, replacing only a pending frame after the last control write. */
+  enqueueFrame(frame: ScreenFrame, onWritten?: () => void): void {
     const last = this.queue[this.queue.length - 1];
-    if (last !== undefined && isFullFrame(last) && isFullFrame(bytes)) {
-      this.queue[this.queue.length - 1] = bytes;
-    } else {
-      this.queue.push(bytes);
-    }
+    const item: OutputItem = { kind: 'frame', frame, onWritten };
+    if (last?.kind === 'frame') this.queue[this.queue.length - 1] = item;
+    else this.queue.push(item);
     if (this.pump === null) this.startPump();
   }
 
@@ -102,19 +109,46 @@ export class CoalescingWriter {
   private async pumpOnce(): Promise<void> {
     try {
       while (this.queue.length > 0) {
-        const chunk = this.queue.shift();
-        if (chunk === undefined) break;
+        const item = this.queue.shift();
+        if (item === undefined) break;
+        const bytes = item.kind === 'bytes'
+          ? item.bytes
+          : encodeScreenFrame(item.frame, this.completedFrame);
+        if (bytes.byteLength === 0) {
+          this.completedFrame = item.kind === 'frame' ? item.frame : undefined;
+          item.kind === 'frame' && item.onWritten?.();
+          continue;
+        }
         try {
-          await this.writeChunk(chunk);
+          await this.writeAll(bytes);
+          this.completedFrame = item.kind === 'frame' ? item.frame : undefined;
         } catch {
+          // A partial frame or raw control may already have reached the terminal. The next frame
+          // must repaint the screen from scratch, and a failed frame is never the baseline.
+          this.completedFrame = undefined;
           if (!this.failed) {
             this.failed = true;
             this.onFailure?.();
           }
+          continue;
         }
+        if (item.kind === 'frame') item.onWritten?.();
       }
     } finally {
       this.pump = null;
+    }
+  }
+
+  private async writeAll(bytes: Uint8Array): Promise<void> {
+    let offset = 0;
+    while (offset < bytes.byteLength) {
+      const remaining = bytes.byteLength - offset;
+      const accepted = await this.writeChunk(bytes.subarray(offset));
+      const count = accepted === undefined ? remaining : accepted;
+      if (!Number.isSafeInteger(count) || count <= 0 || count > remaining) {
+        throw new Error('terminal writer returned an invalid byte count');
+      }
+      offset += count;
     }
   }
 }
@@ -128,7 +162,7 @@ export class DenoTerminal implements TerminalPort {
   private outputFailed = false;
   private readonly outputFailureHandlers = new Set<() => void>();
   private readonly output = new CoalescingWriter(
-    (bytes) => Deno.stdout.write(bytes).then(() => {}),
+    (bytes) => Deno.stdout.write(bytes),
     () => {
       this.outputFailed = true;
       for (const handler of this.outputFailureHandlers) handler();
@@ -238,6 +272,10 @@ export class DenoTerminal implements TerminalPort {
 
   write(bytes: Uint8Array): void {
     this.output.enqueue(bytes);
+  }
+
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.output.enqueueFrame(frame, onWritten);
   }
 
   flush(): Promise<void> {

@@ -1,12 +1,11 @@
-import { cellWidth } from './terminal_text.ts';
+import { cellWidth, escapeTerminalText, segmentTerminalText } from './terminal_text.ts';
 import type {
   AssistantContentRenderer,
   AssistantLine,
   AssistantSpan,
 } from './conversation_renderer.ts';
 
-const cells = (text: string): number =>
-  [...text].reduce((total, character) => total + cellWidth(character), 0);
+const cells = (text: string): number => cellWidth(escapeTerminalText(text));
 
 const scalarLength = (text: string): number => [...text].length;
 
@@ -23,14 +22,14 @@ const hardSplit = (text: string, width: number): string[] => {
   const result: string[] = [];
   let line = '';
   let used = 0;
-  for (const character of text) {
-    const size = cellWidth(character);
-    if (used + size > limit) {
+  for (const segment of segmentTerminalText(text)) {
+    const size = cellWidth(escapeTerminalText(segment.text));
+    if (used > 0 && used + size > limit) {
       result.push(line);
       line = '';
       used = 0;
     }
-    line += character;
+    line += segment.text;
     used += size;
   }
   result.push(line);
@@ -50,9 +49,17 @@ interface WrappedLine {
  */
 const wrapCellsWithSource = (text: string, width: number): WrappedLine[] => {
   const limit = Math.max(1, width);
-  const scalars = [...text];
+  const segments = segmentTerminalText(text);
   if (cells(text) <= limit) {
-    return [{ text, sourceIndices: scalars.map((_, index) => index) }];
+    return [{
+      text,
+      sourceIndices: segments.flatMap((segment) =>
+        Array.from(
+          { length: segment.scalarEnd - segment.scalarStart },
+          (_, index) => segment.scalarStart + index,
+        )
+      ),
+    }];
   }
   const result: WrappedLine[] = [];
   let line = '';
@@ -64,33 +71,60 @@ const wrapCellsWithSource = (text: string, width: number): WrappedLine[] => {
     indices = [];
     used = 0;
   };
-  const tokens: { readonly text: string; readonly indices: readonly number[] }[] = [];
+  const tokens: {
+    readonly text: string;
+    readonly indices: readonly number[];
+    readonly segments: readonly ReturnType<typeof segmentTerminalText>[number][];
+    readonly whitespace: boolean;
+  }[] = [];
   let token = '';
   let tokenIndices: number[] = [];
-  for (let index = 0; index < scalars.length; index += 1) {
-    const character = scalars[index];
-    if (character === ' ' || character === '\t') {
+  let tokenSegments: ReturnType<typeof segmentTerminalText>[number][] = [];
+  for (const segment of segments) {
+    if (segment.text === ' ' || segment.text === '\t') {
       if (token.length > 0) {
-        tokens.push({ text: token, indices: tokenIndices });
+        tokens.push({
+          text: token,
+          indices: tokenIndices,
+          segments: tokenSegments,
+          whitespace: false,
+        });
         token = '';
         tokenIndices = [];
+        tokenSegments = [];
       }
-      tokens.push({ text: ' ', indices: [index] });
+      tokens.push({
+        text: segment.text,
+        indices: [segment.scalarStart],
+        segments: [segment],
+        whitespace: true,
+      });
     } else {
-      token += character;
-      tokenIndices.push(index);
+      token += segment.text;
+      tokenSegments.push(segment);
+      for (let index = segment.scalarStart; index < segment.scalarEnd; index += 1) {
+        tokenIndices.push(index);
+      }
     }
   }
-  if (token.length > 0) tokens.push({ text: token, indices: tokenIndices });
+  if (token.length > 0) {
+    tokens.push({
+      text: token,
+      indices: tokenIndices,
+      segments: tokenSegments,
+      whitespace: false,
+    });
+  }
   for (const part of tokens) {
-    if (part.text === ' ') {
+    if (part.whitespace) {
       if (used === 0) continue;
-      if (used + 1 > limit) {
+      const size = cells(part.text);
+      if (used + size > limit) {
         flush();
       } else {
-        line += ' ';
-        indices.push(part.indices[0]);
-        used += 1;
+        line += part.text;
+        indices.push(...part.indices);
+        used += size;
       }
       continue;
     }
@@ -102,12 +136,13 @@ const wrapCellsWithSource = (text: string, width: number): WrappedLine[] => {
       continue;
     }
     if (used > 0) flush();
-    const partScalars = [...part.text];
-    for (let index = 0; index < partScalars.length; index += 1) {
-      const widthOf = cellWidth(partScalars[index]);
-      if (used + widthOf > limit) flush();
-      line += partScalars[index];
-      indices.push(part.indices[index]);
+    for (const segment of part.segments) {
+      const widthOf = cellWidth(escapeTerminalText(segment.text));
+      if (used > 0 && used + widthOf > limit) flush();
+      line += segment.text;
+      for (let index = segment.scalarStart; index < segment.scalarEnd; index += 1) {
+        indices.push(index);
+      }
       used += widthOf;
     }
   }

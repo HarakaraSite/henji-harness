@@ -1,3 +1,4 @@
+import { encodeScreenFrame, type ScreenFrame } from '../../v0/tui/terminal.ts';
 import { deepStrictEqual, strictEqual } from 'node:assert';
 import type { CoreOperationName, ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
@@ -165,6 +166,11 @@ class FakeTerminal implements TerminalPort {
     resolve?.(null);
     return Promise.resolve();
   }
+  writeFrame(frame: ScreenFrame, onWritten?: () => void): void {
+    this.write(encodeScreenFrame(frame));
+    onWritten?.();
+  }
+
   write(bytes: Uint8Array): void {
     const text = new TextDecoder().decode(bytes);
     this.output.push(text);

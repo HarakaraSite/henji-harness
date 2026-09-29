@@ -1,3 +1,4 @@
+import type { EntryLayout, EntryLayoutCache } from './entry_layout_cache.ts';
 import { type EditorSnapshot } from './input.ts';
 import { type UiLogEntry, type UiState } from './state.ts';
 import {
@@ -9,7 +10,13 @@ import {
 } from './conversation_renderer.ts';
 import { thinkingBodyRenderer } from './assistant_layout.ts';
 import { startupHeaderLines } from './startup_render.ts';
-import { cellWidth, localTimestampText } from './terminal_text.ts';
+import {
+  cellWidth,
+  localTimestampText,
+  segmentTerminalText,
+  truncateTerminalCells,
+  truncateTerminalCellsFromEnd,
+} from './terminal_text.ts';
 
 export const MIN_COLUMNS = 80;
 export const MIN_ROWS = 24;
@@ -55,8 +62,7 @@ export interface UiLayout {
 const encoder = new TextEncoder();
 const clamp = (value: number, min: number, max: number): number =>
   Number.isSafeInteger(value) ? Math.max(min, Math.min(max, value)) : min;
-const width = (text: string): number =>
-  [...text].reduce((sum, character) => sum + cellWidth(character), 0);
+const width = (text: string): number => cellWidth(safeDisplay(text));
 const escapedCodePoint = (code: number): string => {
   let value = code.toString(16).toUpperCase();
   while (value.length < 4) value = `0${value}`;
@@ -79,15 +85,7 @@ const safeDisplay = (text: string, preserveNewline = true): string => {
   return result;
 };
 const truncateCells = (text: string, columns: number): string => {
-  let used = 0;
-  let result = '';
-  for (const character of text) {
-    const next = cellWidth(character);
-    if (used + next > columns) break;
-    result += character;
-    used += next;
-  }
-  return result;
+  return truncateTerminalCells(safeDisplay(text), columns);
 };
 const ellipsisCells = (text: string, columns: number): string => {
   if (width(text) <= columns) return text;
@@ -101,16 +99,7 @@ const suffixCells = (text: string, columns: number): string => {
   const marker = '…';
   const markerWidth = width(marker);
   if (columns <= markerWidth) return marker;
-  let used = markerWidth;
-  let result = '';
-  const characters = [...text];
-  for (let index = characters.length - 1; index >= 0; index -= 1) {
-    const next = cellWidth(characters[index]);
-    if (used + next > columns) break;
-    result = characters[index] + result;
-    used += next;
-  }
-  return `${marker}${result}`;
+  return `${marker}${truncateTerminalCellsFromEnd(safeDisplay(text), columns - markerWidth)}`;
 };
 
 /** Controller ready-status strings contain position facts that are rendered separately below. */
@@ -482,7 +471,6 @@ const wrap = (
   rowTone?: ConversationLabelTone,
 ): LayoutRow[] => {
   const result: LayoutRow[] = [];
-  const points = [...text];
   const row = (line: string, sourceScalarOffset: number): LayoutRow => {
     const labelScalarLength = styledPrefix === undefined ? 0 : Math.max(
       0,
@@ -503,35 +491,119 @@ const wrap = (
       }),
     };
   };
-  if (points.length === 0) {
+  const segments = segmentTerminalText(text);
+  if (segments.length === 0) {
     return [row('', 0)];
   }
   let line = '';
   let lineOffset = 0;
   let sourceOffset = 0;
-  for (const point of points) {
-    const displayPoint = safeDisplay(point);
-    if (point === '\n' || width(line + displayPoint) > columns) {
+  let used = 0;
+  for (const segment of segments) {
+    const displayText = safeDisplay(segment.text);
+    const displayWidth = cellWidth(displayText);
+    if (segment.text === '\n' || (used > 0 && used + displayWidth > columns)) {
       result.push(row(line, lineOffset));
-      lineOffset = sourceOffset;
       line = '';
-      if (point === '\n') {
-        sourceOffset += 1;
+      used = 0;
+      lineOffset = segment.scalarStart;
+      if (segment.text === '\n') {
+        sourceOffset = segment.scalarEnd;
         lineOffset = sourceOffset;
         continue;
       }
     }
-    line += displayPoint;
-    sourceOffset += 1;
+    line += displayText;
+    used += displayWidth;
+    sourceOffset = segment.scalarEnd;
   }
   result.push(row(line, lineOffset));
   return result;
+};
+
+const layoutLogEntry = (
+  entry: UiLogEntry,
+  columns: number,
+  assistantRenderer: AssistantContentRenderer,
+  recallAvailable: boolean,
+): EntryLayout => {
+  const result: LayoutRow[] = [];
+  if (entry.kind === 'assistant' || entry.kind === 'thinking') {
+    const labelWidth = [...entry.label].length;
+    const bodyWidth = Math.max(1, columns - labelWidth - 1);
+    const renderer = entry.kind === 'thinking' ? thinkingBodyRenderer : assistantRenderer;
+    const lines = renderer.render(
+      entry.text,
+      entry.live ? 'streaming' : 'settled',
+      bodyWidth,
+    );
+    let offset = 0;
+    const lineOffsets = entry.text.split('\n').map((line) => {
+      const start = offset;
+      offset += [...line].length + 1;
+      return start;
+    });
+    lines.forEach((assistantLine, lineIndex) => {
+      const prefix = lineIndex === 0 ? `${entry.label} ` : '';
+      const shift = [...prefix].length;
+      const body = entry.kind === 'thinking' ? assistantLine.text.trimEnd() : assistantLine.text;
+      const text = safeDisplay(`${prefix}${body}`, false);
+      const spans = assistantLine.spans
+        .filter((span) => span.length > 0)
+        .map((span) => ({
+          start: span.start + shift,
+          length: span.length,
+          tone: span.tone,
+        }));
+      result.push({
+        text,
+        kind: 'log',
+        entryId: entry.id,
+        sourceScalarOffset: (lineOffsets[assistantLine.sourceLine ?? 0] ?? 0) +
+          (assistantLine.sourceColumn ?? 0),
+        ...(assistantLine.sourceLine === undefined ? {} : {
+          sourceLine: assistantLine.sourceLine,
+          sourceColumn: assistantLine.sourceColumn ?? 0,
+        }),
+        ...(lineIndex === 0
+          ? { labelScalarLength: labelWidth, labelTone: 'assistant' as const }
+          : {}),
+        ...(spans.length === 0 ? {} : { spans }),
+      });
+    });
+  } else {
+    const projection = projectConversationEntry(entry, { recallAvailable });
+    result.push(
+      ...wrap(
+        projection.text,
+        columns,
+        'log',
+        entry.id,
+        projection.labelTone === undefined ? undefined : {
+          scalarLength: projection.labelScalarLength,
+          tone: projection.labelTone,
+        },
+        projection.rowTone,
+      ).map((row) => ({
+        ...row,
+        sourceScalarOffset: Math.max(
+          0,
+          (row.sourceScalarOffset ?? 0) - projection.labelScalarLength - 1,
+        ),
+      })),
+    );
+  }
+  return {
+    rows: result,
+    sourceBytes: entry.textByteLength ?? encoder.encode(entry.text).byteLength,
+  };
 };
 
 const logRows = (
   state: UiState,
   columns: number,
   assistantRenderer: AssistantContentRenderer,
+  cache?: EntryLayoutCache,
 ): { rows: LayoutRow[]; sourceBytes: number } => {
   const result: LayoutRow[] = [];
   let sourceBytes = 0;
@@ -572,13 +644,14 @@ const logRows = (
       state.historyWindow.start,
       state.historyWindow.end,
     );
+  cache?.retain(visibleEntries);
   for (const entry of visibleEntries) {
     const turnStart = entry.kind === 'user' && entry.label === 'user>';
     const userOutputBoundary = entry.turn !== undefined &&
       awaitingUserOutput.has(entry.turn) &&
       (entry.kind === 'tool' || entry.kind === 'assistant' ||
         entry.kind === 'thinking');
-    sourceBytes += encoder.encode(entry.text).byteLength;
+    sourceBytes += entry.textByteLength ?? encoder.encode(entry.text).byteLength;
     if (sourceBytes > MAX_LAYOUT_SOURCE_BYTES) break;
     const thinkingBoundary = previousEntryKind !== undefined &&
       (entry.kind === 'thinking' || previousEntryKind === 'thinking');
@@ -587,58 +660,16 @@ const logRows = (
     ) {
       appendSeparator();
     }
-    if (entry.kind === 'assistant' || entry.kind === 'thinking') {
-      const labelWidth = [...entry.label].length;
-      const bodyWidth = Math.max(1, columns - labelWidth - 1);
-      const renderer = entry.kind === 'thinking' ? thinkingBodyRenderer : assistantRenderer;
-      const lines = renderer.render(
-        entry.text,
-        entry.live ? 'streaming' : 'settled',
-        bodyWidth,
-      );
-      let sourceOffset = 0;
-      lines.forEach((assistantLine, lineIndex) => {
-        const prefix = lineIndex === 0 ? `${entry.label} ` : '';
-        const shift = [...prefix].length;
-        const body = entry.kind === 'thinking' ? assistantLine.text.trimEnd() : assistantLine.text;
-        const text = safeDisplay(`${prefix}${body}`, false);
-        const spans = assistantLine.spans
-          .filter((span) => span.length > 0)
-          .map((span) => ({
-            start: span.start + shift,
-            length: span.length,
-            tone: span.tone,
-          }));
-        result.push({
-          text,
-          kind: 'log',
-          entryId: entry.id,
-          sourceScalarOffset: sourceOffset,
-          ...(assistantLine.sourceLine === undefined ? {} : {
-            sourceLine: assistantLine.sourceLine,
-            sourceColumn: assistantLine.sourceColumn ?? 0,
-          }),
-          ...(lineIndex === 0
-            ? { labelScalarLength: labelWidth, labelTone: 'assistant' as const }
-            : {}),
-          ...(spans.length === 0 ? {} : { spans }),
-        });
-        sourceOffset += [...text].length + 1;
-      });
-    } else {
-      const projection = projectConversationEntry(entry, { recallAvailable });
-      result.push(...wrap(
-        projection.text,
+    const entryLayout = cache === undefined
+      ? layoutLogEntry(entry, columns, assistantRenderer, recallAvailable)
+      : cache.get(
+        entry,
         columns,
-        'log',
-        entry.id,
-        projection.labelTone === undefined ? undefined : {
-          scalarLength: projection.labelScalarLength,
-          tone: projection.labelTone,
-        },
-        projection.rowTone,
-      ));
-    }
+        assistantRenderer,
+        recallAvailable,
+        () => layoutLogEntry(entry, columns, assistantRenderer, recallAvailable),
+      );
+    result.push(...entryLayout.rows);
     if (turnStart && entry.turn !== undefined) {
       seenTurnStart = true;
       awaitingUserOutput.add(entry.turn);
@@ -742,38 +773,59 @@ const inputRows = (
   columns: number,
   maxRows: number,
 ): { rows: LayoutRow[]; cursorRow: number; cursorCell: number } => {
-  const points = [...snapshot.text];
-  const cursor = clamp(snapshot.cursorScalar, 0, points.length);
+  const segments = segmentTerminalText(snapshot.text);
+  const scalarLength = segments.at(-1)?.scalarEnd ?? 0;
+  const cursor = clamp(snapshot.cursorScalar, 0, scalarLength);
   const all: { text: string; offset: number; cursor?: number }[] = [];
   let text = '';
+  let used = 0;
   let offset = 0;
   let cursorRow = 0;
   let cursorCell = 0;
+  let cursorSet = false;
   const push = (): void => {
     all.push({ text, offset });
     text = '';
+    used = 0;
   };
-  for (let index = 0; index <= points.length; index += 1) {
-    if (index === cursor) {
-      cursorRow = all.length;
-      cursorCell = width(text);
-    }
-    if (index === points.length) {
-      push();
-      break;
-    }
-    const point = points[index];
-    const displayPoint = safeDisplay(point);
-    if (point === '\n' || width(text + displayPoint) > columns) {
-      push();
-      if (point === '\n') {
-        offset = index + 1;
-        continue;
+  for (const segment of segments) {
+    if (segment.text === '\n') {
+      if (!cursorSet && cursor >= segment.scalarStart && cursor < segment.scalarEnd) {
+        cursorRow = all.length;
+        cursorCell = used;
+        cursorSet = true;
       }
+      push();
+      offset = segment.scalarEnd;
+      if (!cursorSet && cursor === segment.scalarEnd) {
+        cursorRow = all.length;
+        cursorCell = 0;
+        cursorSet = true;
+      }
+      continue;
     }
-    text += displayPoint;
-    offset = index;
+    const displayText = safeDisplay(segment.text, false);
+    const displayWidth = cellWidth(displayText);
+    if (text.length > 0 && used + displayWidth > columns) {
+      push();
+      offset = segment.scalarStart;
+    }
+    if (
+      !cursorSet && cursor >= segment.scalarStart && cursor < segment.scalarEnd
+    ) {
+      cursorRow = all.length;
+      cursorCell = used;
+      cursorSet = true;
+    }
+    text += displayText;
+    used += displayWidth;
+    offset = segment.scalarEnd;
   }
+  if (!cursorSet) {
+    cursorRow = all.length;
+    cursorCell = used;
+  }
+  push();
   const first = Math.max(
     0,
     Math.min(cursorRow - maxRows + 1, all.length - maxRows),
@@ -791,6 +843,7 @@ export const layoutUi = (
   columns = state.terminalSize.columns,
   rows = state.terminalSize.rows,
   assistantRenderer: AssistantContentRenderer = plainTextAssistantRenderer,
+  cache?: EntryLayoutCache,
 ): UiLayout => {
   const widthLimit = clamp(columns, 1, MAX_COLUMNS);
   const heightLimit = clamp(rows, 1, MAX_ROWS);
@@ -828,7 +881,7 @@ export const layoutUi = (
     heightLimit - editor.rows.length - beforeInputCount - afterInputCount -
       footerCount,
   );
-  const log = logRows(state, Math.max(1, widthLimit), assistantRenderer);
+  const log = logRows(state, Math.max(1, widthLimit), assistantRenderer, cache);
   const overlay = overlayRows(state, Math.max(1, widthLimit), heightLimit);
   let logStart = Math.max(0, log.rows.length - logHeight);
   if (state.scroll.kind === 'oldest') {
@@ -836,9 +889,9 @@ export const layoutUi = (
   } else if (state.scroll.kind === 'anchored') {
     const anchor = state.scroll.entryId;
     const sourceOffset = state.scroll.sourceScalarOffset;
-    const anchored = log.rows.findIndex((row) =>
+    const anchored = log.rows.findLastIndex((row) =>
       row.entryId === anchor &&
-      (row.sourceScalarOffset ?? 0) >= sourceOffset
+      (row.sourceScalarOffset ?? 0) <= sourceOffset
     );
     if (anchored >= 0) logStart = anchored;
   }

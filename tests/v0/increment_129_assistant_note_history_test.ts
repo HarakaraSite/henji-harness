@@ -1,5 +1,5 @@
 import { createUiState, reduceUiAction, reduceUiEvent } from '../../v0/tui/state.ts';
-import { restoredConversationFromSnapshot } from '../../v0/tui/snapshot_presentation.ts';
+import { restoredConversationFromSnapshot } from './restored_conversation_fixture.ts';
 import { sessionSnapshotFixture } from './session_snapshot_fixture.ts';
 import { renderSessionTimeline } from '../../v0/agent/history/history_view.ts';
 import type { Message } from '../../v0/agent/core/contracts.ts';
