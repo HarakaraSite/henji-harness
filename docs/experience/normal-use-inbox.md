@@ -14,15 +14,14 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | --- | -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | S4  | Surface        | `/rebuild`によるAgent context再構築                                          | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る                                               |
 | S8  | Surface        | startup headerのMCP欄（複数行対応の予約）                                    | MCP接続managed resourceが採用され、header表示が必要になるとき                                                          |
-| S10 | Surface        | 入力履歴のセッション横断保存とsnippet                                        | 再起動後・別Sessionでも同じpromptを再利用したいとき                                                                    |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
 | S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
-| S28 | Surface        | `@`によるコンテキスト注入                                                    | 利用者が必要性を判断し、この候補を採用するとき                                                                         |
+| S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                           |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIのF1 helpとCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| A1  | Agent実行      | ChatGPT subscription root provider                                           | subscription利用がproduct要件になる                                                                                    |
+| A1  | Agent実行      | Sign in with ChatGPTによるChatGPT契約枠の利用                                | 利用者が公式OAuth／Responses API経路による契約枠利用を個別Incrementへ採用するとき                                       |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -49,7 +48,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | E5  | 配布・外部化   | 追加protocol adapter候補（Anthropic Messages／Google／Azure OpenAI）         | 該当providerを通常利用で使う必要が出るとき。Increment 101のauth/header一般化を前提にする                               |
 | P3  | 参照実装parity | 手動`/compact`（checkpoint/compactionの人間起動）                            | context圧縮を人間が明示的に行いたくなったとき                                                                          |
 | P4  | 参照実装parity | Session export/import                                                        | Sessionを別installationへ移す・再開する必要が出るとき                                                                  |
-| P5  | 参照実装parity | `@file` reference（内容注入）                                                | 人間がfile内容をmodel turnなしでcontextへ入れたいとき                                                                  |
 | P6  | 参照実装parity | model cycling shortcut                                                       | provider横断のmodel切替を頻繁に行うとき                                                                                |
 | P8  | 参照実装parity | configurable keybindings                                                     | keybindingを利用者ごとに変えたくなったとき                                                                             |
 | P9  | 参照実装parity | 画像入力（`@image`／clipboard paste）                                        | 画像を扱うtaskを通常利用で行うとき。transcriptのimage part・provider別encoding・表示・catalog capabilitiesが必要       |
@@ -95,18 +93,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   表示対象のresourceが採用されるまでは欄自体を実装しない。
 - 再検討条件: MCP接続managed resourceが採用され、headerで接続状態や数を示す必要が出るとき。
 - 関連: `v0/tui/startup_render.ts`、`v0/presentation/contract_types.ts`。
-
-### S10 — 入力履歴のセッション横断保存とsnippet（F01、F10）
-
-- 観測（2026-09-19）:
-  入力履歴（`v0/tui/input_history.ts`）はTUIプロセス内のみで、再起動や別Sessionで消える。
-  繰り返し使う常用prompt（調査手順・レビュー依頼等）を毎回入力している。
-- 候補: 入力履歴をworkspaceまたはuser
-  scopeへdurable保存する、または名前付きprompt（snippet）を明示保存して
-  `/snippet <name>`等で呼び出す。保存先・scope、Session横断の範囲、credential等secretを履歴へ入れない境界、
-  呼び出しUIを採用時に決める。
-- 再検討条件: 再起動後・別Sessionでも同じpromptを再利用したい実例が通常利用で得られるとき。
-- 関連: `v0/tui/input_history.ts`、roadmap F01。
 
 ### S20 — 巨大表示領域でのwindow行量確保とframe上限（F01）
 
@@ -173,13 +159,18 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 
 ### S28 — `@`によるコンテキスト注入（未採用、メモのみ）
 
+- 参照実装調査（2026-09-22、旧P5）: `@file`によるファイル内容の注入を候補として記録した。
 - 利用者意向（2026-09-29）: 将来`@`によるコンテキスト注入を行うかもしれないが、
   行わない可能性もある。今回はメモのみ。
-- 候補: TUI入力で`@`を起点とするコンテキスト注入。注入対象、操作、contextへの渡し方は未決。
+- 候補: TUI入力で`@`を起点とするコンテキスト注入。具体的な用途として、人間が`@file`で
+  ファイル内容をmodel turnなしでcontextへ渡すことを含む。注入対象、操作、contextへの渡し方は未決。
   workspaceパス補完の廃止判断をこの候補で取り消さず、既存処理を将来用に残す要件とも扱わない。
-- 再検討条件: 利用者が必要性を判断し、この候補を個別Incrementへ採用するとき。
+- 再検討条件: 人間がファイル内容等をmodel turnなしでcontextへ入れたい実例があり、
+  利用者が必要性を判断してこの候補を個別Incrementへ採用するとき。
 - 関連:
-  [Increment 159](../increments/increment-159.md)、P9（画像入力は別候補）。今回のフッター・ショートカット整理では実装しない。
+  [Increment 159](../increments/increment-159.md)、
+  [Pi／Zot参照実装比較](../research/pi-zot-command-surface-comparison.md)、
+  P9（画像入力は別候補）。今回のフッター・ショートカット整理では実装しない。
 
 ### S29 — `/edit`による外部エディタ起動（未採用、将来候補）
 
@@ -224,24 +215,37 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ## Agent実行
 
-### A1 — ChatGPT subscription root provider（F02、F06）
+### A1 — Sign in with ChatGPTによるChatGPT契約枠の利用（F02、F06、未採用）
 
-- 観測: Increment 17で公式Codex境界、非公開ChatGPT Codex backendのdirect
-  route、参照実装、OSS支援方針を
-  調査した。技術候補はあるが、現在のHenjiに必須でないため利用者判断で延期した。
-- 再調査（2026-09-29、利用者指示、source／公式資料のみ）: OpenCodeとPiは自前OAuthと ChatGPT Codex
-  backendへのdirect model requestを持ち、自身のagent／tool loopを維持している。
-  URL・codeをTUIへ表示するdevice認証後は、agent側のlocal認証storeへtoken・有効期限・account
-  IDを保存する。 API key方式とResponsesの基本形式は共通するが、接続先・header・stream処理が異なり、
-  認証の差し替えだけではない。Henjiには既存Responses基盤を再利用する専用provider＋OAuth経路が候補になる。
-  固定した参照commit、保存先、比較、接続案、未確認事項は
-  [A1調査記録](../research/a1-chatgpt-subscription-provider.md)を参照する。
-- 利用者判断（2026-09-29）: 次の候補としてA1を検討し、調査と結果の記録を指示した。
-  個別incrementへの採用・実装・実provider確認は未指示。
-- 候補: subscription対応を再採用する場合は、OpenAIの最新公式contractと現行参照実装を再確認し、
-  新しい個別Incrementを作る。
-- 再検討条件: existing provider routeではなくsubscription利用がproduct要件になること。
-- 正本: [`increment-17.md`](../increments/increment-17.md)。
+- 利用者判断（2026-10-01）: Sign in with ChatGPT対応を通常利用メモへ記録し、従来A1の
+  ChatGPT Codex backendへのdirect接続案をこの候補へ置き換える。個別Incrementへの採用・実装・
+  実provider確認は未指示。
+- 目的・候補: Henji自身のAgent／tool loopを維持し、ChatGPT accountでOAuth認証して、
+  利用者の許可を得たChatGPT契約枠で公開Responses API
+  `https://api.openai.com/v1/responses`を呼ぶ。既存Responses基盤へ認証・token保存／更新と
+  この経路のrequest条件を接続する案とする。認証UI、保存先、provider選択上の扱いは採用時に決める。
+- 公式契約の確認（2026-10-01）: OpenAIはOSS／local app向けのChatGPT plan usageを公開している。
+  初回は`dynamic_agent_client`で登録し、返されたclient IDと安定したhost IDを使う。
+  OAuth access tokenでaccount別のmodel一覧を取得し、公開Responses APIへrequestする。
+  `store: false`／`stream: true`、未対応field・tool等の条件があるため、API keyとの差分を採用時に確認する。
+  参照: [概要](https://developers.openai.com/siwc/token-sharing-open-source)、
+  [登録・認証](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)、
+  [model一覧・推論](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)、
+  [previewの条件](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)。
+- 参照実装: Pi 0.99.0（2026-09-29）で`/login openai`の「Sign in with ChatGPT」を追加した。
+  snapshot `b35af04f465d60c2f15d124ed074476b8986deb4`では、通常のOpenAI providerにOAuth経路を持ち、
+  access tokenで公開Responses APIを呼ぶ。従来の`openai-codex`はlegacy扱いになっている。
+  [変更記録](../../_refs/pi/packages/coding-agent/CHANGELOG.md)、
+  [provider](../../_refs/pi/packages/ai/src/providers/openai.ts)、
+  [OAuth](../../_refs/pi/packages/ai/src/auth/oauth/openai-chatgpt.ts)、
+  [Responses実装](../../_refs/pi/packages/ai/src/api/openai-responses.ts)。
+- 確認範囲・未確認: sourceと公式資料のみ。実ログイン、利用者accountでの利用可否、Henjiのproduction
+  経路は未確認。Piには認証時の`invalid_client`報告もある
+  （[issue #10184](https://github.com/earendil-works/pi/issues/10184)）。
+- 再検討条件: 利用者がこの公式経路によるChatGPT契約枠利用を個別Incrementへ採用するとき。
+- 過去の調査: [Increment 17](../increments/increment-17.md)と
+  [2026-09-29の旧A1調査](../research/a1-chatgpt-subscription-provider.md)は当時の記録として保持する。
+  旧backend接続案を現候補の実装方針として使わない。
 
 ### A2 — Host操作のmodel向けtool化（F02、F06、F10、F27）
 
@@ -522,6 +526,16 @@ Pi／OpenCode／Henjiの画面表示比較
   0。Belgieの埋め込みDeno＋`run_typescript`等の公開sourceも確認した。
   サンプルはHenji開発作業に偏り、compiled Linux Henjiと実利用の優位性は未確認。
   詳細・証拠・評価範囲は[9月29日の調査記録](../research/a23-run-typescript-investigation-2026-09-29.md)を参照する。
+- 参照実装（2026-10-01、Pi snapshot `b35af04f465d60c2f15d124ed074476b8986deb4`）:
+  Piの内蔵`codemode`は、モデル生成JavaScriptをQuickJS（WebAssembly）上で実行し、
+  `tools.<name>(args)`から既存ツールを呼び出す。スクリプト内で複数ツールを
+  `Promise.all`／`Promise.allSettled`で並列実行し、結果の突き合わせ・加工をまとめて行える。
+  途中のツール結果はそのままLLM contextへ入れず、スクリプトが出力・returnした内容をモデルへ返す。
+  A23の小処理に加え、コードからのツール呼び出し・並列実行・必要な結果だけの返却を比較点とする。
+  Piではファイル操作も注入されたツール経由であり、A23のDenoによる直接file操作案とは実行経路が異なる。
+  参照: [codemode README](../../_refs/pi/packages/codemode/README.md)、
+  [内蔵tool実装](../../_refs/pi/packages/coding-agent/src/extensions/codemode/tool.ts)。
+  参照追加であり、QuickJSの採用やHenjiへの実装を決めるものではない。
 - 技術観測（原資料の報告）: Deno 2.9.7／macOS arm64で、compile済み単一実行ファイル内の動的TypeScript
   Workerが外部Deno CLI・一時`.ts` fileなしで動作し、permission縮小・JSON入出力・timeout・error分類を
   確認した。macOS x86_64はRosetta実行を確認し、Linux／Windowsはartifact生成のみで実機動作は未確認。
@@ -816,13 +830,13 @@ Pi／OpenCode／Henjiの画面表示比較
   optionを抽出し、Henji現行surface（`v0/tui/slash_command.ts`、
   `v0/agent/cli/henji_cli.ts`、`v0/agent/cli/tui_cli.ts`）と比較した。詳細と全表は
   [`research/pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)。
-- 有力候補: 手動`/compact`、Session export/import、`@file`、model cycling、configurable
+- 有力候補: 手動`/compact`、Session export/import、model cycling、configurable
   keybindings、画像入力。 P1（`run`の構造化出力）はIncrement 104へ採用済みでこの一覧から除く。
+  旧P5（`@file`内容注入）はS28「`@`によるコンテキスト注入」へ統合した。検討事項と再検討条件はS28を参照する。
   旧P7（`sessions prune`）はA9「Sessionと関連履歴の保存・削除」へ統合した。検討事項と再検討条件はA9を参照する。
 - 利用者判断（2026-09-22）:
   - P2 `/jump`: 3アクション程度必要でPageUpの方が手軽なため、候補から除外（調査記録には残す）。
-  - P5: `@file`（内容注入）のみ候補として残す。`!command`はHost実行経路を増やす割にtool
-    loopと重複するため 候補から除外（調査記録には残す）。
+  - `!command`はHost実行経路を増やす割にtool loopと重複するため候補から除外（調査記録には残す）。
   - Session tree/fork: 有用性が未確認。採用判断は保留。
   - `/btw` side-chat: Henjiにそぐわないため対象外。
   - `/swarm`: 時期尚早。非同期subagentは同期subagent廃止後の別incrementで採用する（採用済み）。

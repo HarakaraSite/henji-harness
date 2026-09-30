@@ -1,8 +1,0 @@
-{
-  "name": "approve",
-  "version": "1.0.0",
-  "exec": "./approve",
-  "language": "go",
-  "description": "human-in-the-loop approval gate: the model must get user sign-off before a tool runs",
-  "enabled": true
-}

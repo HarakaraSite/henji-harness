@@ -1,0 +1,874 @@
+{
+  "investigation_date": "2026-09-29",
+  "status": "discussion_only_not_adopted",
+  "session_root": "~/.codex/sessions",
+  "method": {
+    "available_logs_by_directory_date": {
+      "2026-09-23": 7,
+      "2026-09-24": 10,
+      "2026-09-25": 8,
+      "2026-09-26": 12,
+      "2026-09-27": 34,
+      "2026-09-28": 14,
+      "2026-09-29": 31
+    },
+    "log_random_seed": 230929,
+    "logs_per_date": 4,
+    "selected_log_count": 28,
+    "selected_log_sources": {
+      "root": 13,
+      "subagent": 15
+    },
+    "python_command_candidate_count": 568,
+    "command_random_seed": 230923,
+    "detailed_command_count": 80,
+    "matching_tool_outputs_checked": 80,
+    "unit": "shell command, categorized by primary purpose",
+    "limitations": [
+      "27 of 28 selected logs had the Henji repository cwd",
+      "Equal logs per directory date, then equal commands within selected logs; not a population-weighted estimate",
+      "Repeated diagnostics and review preparation can dominate long sessions",
+      "Generic extraction was not a complete audit of every candidate"
+    ]
+  },
+  "purpose_counts": {
+    "SQLite診断": 22,
+    "JSON・ログの抽出/集計": 18,
+    "文書・設定・scriptの生成/書換": 10,
+    "review資料作成・hash/link確認": 12,
+    "process・TUI・CLI・配置": 15,
+    "HTTP取得・外部情報照合": 3
+  },
+  "selected_session_files": [
+    "2026/09/23/rollout-2026-09-23T18-52-02-01a0cdad-ed23-78d2-b33f-128cef9c6959.jsonl",
+    "2026/09/23/rollout-2026-09-23T20-41-41-01a0ce12-50b1-78a3-bba4-63813b532fd1.jsonl",
+    "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+    "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+    "2026/09/24/rollout-2026-09-24T02-41-29-01a0cf5b-b752-76f1-9049-17a9ced568e7.jsonl",
+    "2026/09/24/rollout-2026-09-24T14-01-47-01a0d1ca-8c7e-7d33-8a3f-31d8dd533a28.jsonl",
+    "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+    "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+    "2026/09/25/rollout-2026-09-25T00-02-31-01a0d3f0-898a-7eb3-bfea-b863c2b9936b.jsonl",
+    "2026/09/25/rollout-2026-09-25T00-02-37-01a0d3f0-a07e-7602-9eb1-f17940c8d225.jsonl",
+    "2026/09/25/rollout-2026-09-25T10-11-51-01a0d61e-66c9-70a2-af1d-9ea11cee418e.jsonl",
+    "2026/09/25/rollout-2026-09-25T17-17-02-01a0d6f4-750c-7dc3-8e1b-713850e4e85d_01a0d7a3-a9ba-7aa1-a154-8b68017b414c.jsonl",
+    "2026/09/26/rollout-2026-09-26T14-36-48-01a0dc37-53f0-7f21-a4dc-481ac41820cf.jsonl",
+    "2026/09/26/rollout-2026-09-26T14-38-29-01a0dc38-dfd5-74f1-bb64-902f4af4c35e.jsonl",
+    "2026/09/26/rollout-2026-09-26T20-46-07-01a0dd89-71d1-74e3-8724-be8761ede679.jsonl",
+    "2026/09/26/rollout-2026-09-26T21-17-32-01a0dda6-34fb-77d2-91be-5f911cd1d511.jsonl",
+    "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+    "2026/09/27/rollout-2026-09-27T19-30-11-01a0e26a-49a9-7790-b1ce-5491c420a826.jsonl",
+    "2026/09/27/rollout-2026-09-27T20-14-36-01a0e292-f367-7510-ba67-1338c2930fce.jsonl",
+    "2026/09/27/rollout-2026-09-27T22-33-37-01a0e312-3ab3-7b52-a327-9ee3aa8a1187.jsonl",
+    "2026/09/28/rollout-2026-09-28T01-05-34-01a0e39d-57db-7523-a815-f23beeab4cd0.jsonl",
+    "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+    "2026/09/28/rollout-2026-09-28T09-22-36-01a0e564-617f-78a2-8eeb-4038218f4a2c.jsonl",
+    "2026/09/28/rollout-2026-09-28T23-36-08-01a0e871-cfe8-7270-8905-08e2d43ca5fa.jsonl",
+    "2026/09/29/rollout-2026-09-29T00-34-28-01a0e8a7-37e5-79c2-a9cf-1d2639de9fcb.jsonl",
+    "2026/09/29/rollout-2026-09-29T01-29-58-01a0e8da-07ac-7423-896d-a9e4c735805c.jsonl",
+    "2026/09/29/rollout-2026-09-29T19-57-51-01a0ecd0-570a-7a12-aa79-ff3ecb19f3cb.jsonl",
+    "2026/09/29/rollout-2026-09-29T20-06-32-01a0ecd8-49a6-7501-9a9c-cf4532a242e5.jsonl"
+  ],
+  "sampled_commands": [
+    {
+      "candidate_index": 7,
+      "session_file": "2026/09/23/rollout-2026-09-23T20-41-41-01a0ce12-50b1-78a3-bba4-63813b532fd1.jsonl",
+      "record_line": 106,
+      "call_id": "call_LL9hFq9XBuZc5ikRf0TYs2Ap",
+      "timestamp": "2026-09-23T11:46:10.210Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 11
+    },
+    {
+      "candidate_index": 11,
+      "session_file": "2026/09/23/rollout-2026-09-23T20-41-41-01a0ce12-50b1-78a3-bba4-63813b532fd1.jsonl",
+      "record_line": 265,
+      "call_id": "call_bZld5KGJ1dp9GZRXeqwuKaKH",
+      "timestamp": "2026-09-23T11:52:06.905Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 9
+    },
+    {
+      "candidate_index": 12,
+      "session_file": "2026/09/23/rollout-2026-09-23T20-41-41-01a0ce12-50b1-78a3-bba4-63813b532fd1.jsonl",
+      "record_line": 316,
+      "call_id": "call_RFksjMMpZJoUYbfBgwfmq5q1",
+      "timestamp": "2026-09-23T11:53:51.636Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 34,
+      "session_file": "2026/09/23/rollout-2026-09-23T20-41-41-01a0ce12-50b1-78a3-bba4-63813b532fd1.jsonl",
+      "record_line": 2160,
+      "call_id": "call_OYzhy2LPm3xJg7WNfX37WOv8",
+      "timestamp": "2026-09-23T12:53:11.552Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 13
+    },
+    {
+      "candidate_index": 39,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+      "record_line": 128,
+      "call_id": "call_xNpYZ7aMbzcMhhhdymGuUdLF",
+      "timestamp": "2026-09-23T13:08:37.916Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 16
+    },
+    {
+      "candidate_index": 40,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+      "record_line": 136,
+      "call_id": "call_FkUDEGYKz6N9YOFgRakBQNRK",
+      "timestamp": "2026-09-23T13:08:52.463Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 16
+    },
+    {
+      "candidate_index": 43,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+      "record_line": 175,
+      "call_id": "call_XcTE5motzEMARNwjqZmlQswp",
+      "timestamp": "2026-09-23T13:09:52.040Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 4
+    },
+    {
+      "candidate_index": 46,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+      "record_line": 262,
+      "call_id": "call_8zVEFx5UgKmLZWlsk5X3sSiq",
+      "timestamp": "2026-09-23T13:15:14.969Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 61,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+      "record_line": 971,
+      "call_id": "call_Dn1MpsYEZNjYB49OUWdTBnf2",
+      "timestamp": "2026-09-23T13:39:14.071Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 13
+    },
+    {
+      "candidate_index": 65,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-01-11-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce5b-1872-71d1-9b81-8d6e25999b4d.jsonl",
+      "record_line": 999,
+      "call_id": "call_t07Y9e5N4HL6AVJ9AxWp7jVg",
+      "timestamp": "2026-09-23T13:40:05.121Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 18
+    },
+    {
+      "candidate_index": 77,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 420,
+      "call_id": "call_uVlDkkCVQS8O9AMGjF4grZj9",
+      "timestamp": "2026-09-23T14:58:33.576Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "HTTP取得・外部情報照合",
+      "inline_script_lines": 12
+    },
+    {
+      "candidate_index": 79,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 537,
+      "call_id": "call_feItvRLYBCx5btkUKEkLVZ6g",
+      "timestamp": "2026-09-23T15:01:34.638Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "HTTP取得・外部情報照合",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 87,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 698,
+      "call_id": "call_wXPnhoShuU8ub1IMZlvT9ZbD",
+      "timestamp": "2026-09-23T15:08:38.798Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 98,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 919,
+      "call_id": "call_HPToGRTfK3jy0v14uRIM1cwt",
+      "timestamp": "2026-09-23T15:19:03.668Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 4
+    },
+    {
+      "candidate_index": 103,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 1028,
+      "call_id": "call_1MraLo2baoOUPK874pK3QnMr",
+      "timestamp": "2026-09-23T15:26:55.007Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 106,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 1241,
+      "call_id": "call_bV5adgZHqyKudRaiIx0Goszs",
+      "timestamp": "2026-09-23T15:37:58.011Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 8
+    },
+    {
+      "candidate_index": 112,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 1499,
+      "call_id": "call_R2i1bO0jCvoaVzJLFM1THrR3",
+      "timestamp": "2026-09-23T15:56:35.462Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 10
+    },
+    {
+      "candidate_index": 113,
+      "session_file": "2026/09/23/rollout-2026-09-23T22-52-17-01a0ce12-50b1-78a3-bba4-63813b532fd1_01a0ce89-df88-75e2-a2e7-8ce5a688f54c.jsonl",
+      "record_line": 1506,
+      "call_id": "call_mvKTaMg1aeXCaFAPVj2dGeUF",
+      "timestamp": "2026-09-23T15:56:44.770Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 8
+    },
+    {
+      "candidate_index": 122,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 33,
+      "call_id": "call_33PFTjvbLx6rIo2A1bRwP4OW",
+      "timestamp": "2026-09-24T06:31:10.957Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 1
+    },
+    {
+      "candidate_index": 133,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 256,
+      "call_id": "call_1eBv5e0pyieuSBMGjEsIwWS6",
+      "timestamp": "2026-09-24T06:55:10.258Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 11
+    },
+    {
+      "candidate_index": 136,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 435,
+      "call_id": "call_M2hphsxaL1BVOdPQaXwaHT2F",
+      "timestamp": "2026-09-24T07:07:16.057Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 1
+    },
+    {
+      "candidate_index": 139,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 536,
+      "call_id": "call_sbJpa22dteCfenr1Y1zCND5j",
+      "timestamp": "2026-09-24T07:09:53.509Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 144,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 722,
+      "call_id": "call_EQK5qXf6IZjuNduCDOBWfTlA",
+      "timestamp": "2026-09-24T07:25:12.445Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 10
+    },
+    {
+      "candidate_index": 145,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 729,
+      "call_id": "call_5Oeqr6kSCI9LTM9YV1OS3Xfb",
+      "timestamp": "2026-09-24T07:25:20.598Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 160,
+      "session_file": "2026/09/24/rollout-2026-09-24T15-25-34-01a0d217-417e-7070-9212-724120d3a4bf.jsonl",
+      "record_line": 1398,
+      "call_id": "call_PeOI6pcfWULOzjBB4iFThA5B",
+      "timestamp": "2026-09-24T08:09:59.830Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 28
+    },
+    {
+      "candidate_index": 169,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 2888,
+      "call_id": "call_eFcfnmbXzkB6DvOsQ5d7kRXC",
+      "timestamp": "2026-09-24T15:25:09.472Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 12
+    },
+    {
+      "candidate_index": 180,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 4393,
+      "call_id": "call_Ztc5CrX9703hZN70nx6qjczf",
+      "timestamp": "2026-09-24T15:53:07.311Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 182,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 4449,
+      "call_id": "call_e8o3xtPclu1PSLCf1nWurjcx",
+      "timestamp": "2026-09-24T15:54:21.629Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 9
+    },
+    {
+      "candidate_index": 183,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 4456,
+      "call_id": "call_yVnD6MFSFPb2w1LbpfzzYfGl",
+      "timestamp": "2026-09-24T15:54:27.728Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 184,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 4463,
+      "call_id": "call_d7AWq5QkYP3QfIwtCz79bYBI",
+      "timestamp": "2026-09-24T15:54:32.963Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 185,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 4500,
+      "call_id": "call_ZSD4DqXrM6fmvu9ZfY188A5E",
+      "timestamp": "2026-09-24T15:55:12.949Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 188,
+      "session_file": "2026/09/24/rollout-2026-09-24T21-43-33-01a0d371-4e66-7c11-90a1-e2bd067a2018.jsonl",
+      "record_line": 4771,
+      "call_id": "call_1eOALpQsjKBpgt7Ij9G8oqQy",
+      "timestamp": "2026-09-24T16:00:32.924Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 197,
+      "session_file": "2026/09/25/rollout-2026-09-25T10-11-51-01a0d61e-66c9-70a2-af1d-9ea11cee418e.jsonl",
+      "record_line": 82,
+      "call_id": "call_NGDqytNrfhuJuXGnTjIjpllh",
+      "timestamp": "2026-09-25T01:19:00.061Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 12
+    },
+    {
+      "candidate_index": 200,
+      "session_file": "2026/09/25/rollout-2026-09-25T10-11-51-01a0d61e-66c9-70a2-af1d-9ea11cee418e.jsonl",
+      "record_line": 98,
+      "call_id": "call_9A6at16FfHeiWJGO2LX2MNzd",
+      "timestamp": "2026-09-25T01:19:26.209Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "HTTP取得・外部情報照合",
+      "inline_script_lines": 16
+    },
+    {
+      "candidate_index": 222,
+      "session_file": "2026/09/26/rollout-2026-09-26T14-36-48-01a0dc37-53f0-7f21-a4dc-481ac41820cf.jsonl",
+      "record_line": 394,
+      "call_id": "call_hdz2z9euuhWJilU58evffv8c",
+      "timestamp": "2026-09-26T09:16:10.830Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 32
+    },
+    {
+      "candidate_index": 232,
+      "session_file": "2026/09/26/rollout-2026-09-26T14-36-48-01a0dc37-53f0-7f21-a4dc-481ac41820cf.jsonl",
+      "record_line": 747,
+      "call_id": "call_vUTRcTVcTccbhx4uHFW3lOOF",
+      "timestamp": "2026-09-26T09:41:27.273Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 248,
+      "session_file": "2026/09/26/rollout-2026-09-26T14-36-48-01a0dc37-53f0-7f21-a4dc-481ac41820cf.jsonl",
+      "record_line": 1131,
+      "call_id": "call_CNMl87gq9EUFU5kB7GYsmeOf",
+      "timestamp": "2026-09-26T11:18:31.111Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 2
+    },
+    {
+      "candidate_index": 270,
+      "session_file": "2026/09/26/rollout-2026-09-26T14-36-48-01a0dc37-53f0-7f21-a4dc-481ac41820cf.jsonl",
+      "record_line": 1793,
+      "call_id": "call_0qcQOBiEjXzaV1rF7GGuuFeX",
+      "timestamp": "2026-09-26T12:05:04.318Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 21
+    },
+    {
+      "candidate_index": 272,
+      "session_file": "2026/09/26/rollout-2026-09-26T14-36-48-01a0dc37-53f0-7f21-a4dc-481ac41820cf.jsonl",
+      "record_line": 1833,
+      "call_id": "call_Ok7vOH3WHbEGxlRcyGgYrLiv",
+      "timestamp": "2026-09-26T12:06:48.774Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 16
+    },
+    {
+      "candidate_index": 277,
+      "session_file": "2026/09/26/rollout-2026-09-26T21-17-32-01a0dda6-34fb-77d2-91be-5f911cd1d511.jsonl",
+      "record_line": 152,
+      "call_id": "call_mOnB17lShoGx7ILQ3cnb3P5V",
+      "timestamp": "2026-09-26T12:24:07.365Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 12
+    },
+    {
+      "candidate_index": 279,
+      "session_file": "2026/09/26/rollout-2026-09-26T21-17-32-01a0dda6-34fb-77d2-91be-5f911cd1d511.jsonl",
+      "record_line": 398,
+      "call_id": "call_kM1F4M1ywtdquDBe9jxjGOp8",
+      "timestamp": "2026-09-26T12:40:41.459Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 33
+    },
+    {
+      "candidate_index": 304,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 1137,
+      "call_id": "call_h3bPg30X2MofGw6lES3AUx1i",
+      "timestamp": "2026-09-27T11:28:09.855Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 27
+    },
+    {
+      "candidate_index": 305,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 1153,
+      "call_id": "call_HYoW83s8zgf2IZ4Gob4dOuDB",
+      "timestamp": "2026-09-27T11:28:53.352Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 24
+    },
+    {
+      "candidate_index": 311,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 1400,
+      "call_id": "call_tUhF4velYk8NU7XBJTMUstSh",
+      "timestamp": "2026-09-27T11:43:21.030Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 16
+    },
+    {
+      "candidate_index": 314,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 1498,
+      "call_id": "call_JnX0vVtmmlF0W9VqOOOQegev",
+      "timestamp": "2026-09-27T11:47:32.576Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 3
+    },
+    {
+      "candidate_index": 327,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 2415,
+      "call_id": "call_ShlptFKPCfJWPHnLBNHuwX8F",
+      "timestamp": "2026-09-27T12:36:14.248Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "SQLite診断",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 334,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 2782,
+      "call_id": "call_b7mCTZ5i1M8b772tNg9zYd0D",
+      "timestamp": "2026-09-27T12:49:04.896Z",
+      "command_index_in_tool_call": 1,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": null
+    },
+    {
+      "candidate_index": 336,
+      "session_file": "2026/09/27/rollout-2026-09-27T18-55-32-01a0e23b-3fb5-7fa2-bf92-d83d8e7b04de_01a0e24a-91d2-73a2-9d70-5e409bb45220.jsonl",
+      "record_line": 2913,
+      "call_id": "call_PXJ6ItWLJtOX0PagKZqTlsUW",
+      "timestamp": "2026-09-27T12:53:16.728Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 11
+    },
+    {
+      "candidate_index": 351,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 228,
+      "call_id": "call_Ukk0ppvA1RbNVbsl0BUFKGrm",
+      "timestamp": "2026-09-28T00:22:27.070Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 360,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 450,
+      "call_id": "call_QoZtidOlm56gepqLXmLcxCzT",
+      "timestamp": "2026-09-28T00:31:32.117Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 361,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 512,
+      "call_id": "call_lvNANH7CdcQY2MBgpLqxg7IG",
+      "timestamp": "2026-09-28T00:33:26.877Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 3
+    },
+    {
+      "candidate_index": 370,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 878,
+      "call_id": "call_UHciJj91rqjUX3ORLbYAxezW",
+      "timestamp": "2026-09-28T00:50:19.605Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 10
+    },
+    {
+      "candidate_index": 373,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 981,
+      "call_id": "call_k7DMKmrUzDNI2sC8i1QXUK59",
+      "timestamp": "2026-09-28T00:53:15.390Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 29
+    },
+    {
+      "candidate_index": 378,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1215,
+      "call_id": "call_ZPKzFECCnvbzzhxmIPl8PURD",
+      "timestamp": "2026-09-28T01:01:48.237Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 9
+    },
+    {
+      "candidate_index": 379,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1231,
+      "call_id": "call_EyNRXNwf6AskCjuilVUFCu8u",
+      "timestamp": "2026-09-28T01:02:05.156Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 382,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1342,
+      "call_id": "call_Ro5H0Vz7lndjhUrxjMiiqWcg",
+      "timestamp": "2026-09-28T01:06:29.752Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 16
+    },
+    {
+      "candidate_index": 392,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1532,
+      "call_id": "call_dJIkTvmXOXlYDaBknQR5ZyY6",
+      "timestamp": "2026-09-28T01:14:45.842Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 399,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1845,
+      "call_id": "call_wfLiP0e82dCXIaJLX90uJbd7",
+      "timestamp": "2026-09-28T01:28:42.658Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 15
+    },
+    {
+      "candidate_index": 401,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1857,
+      "call_id": "call_9gJpELK4ibtcCdA7WX78UqcU",
+      "timestamp": "2026-09-28T01:29:21.379Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 407,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 1979,
+      "call_id": "call_Jl2qnxsfdU650Gg2j3fBbTYd",
+      "timestamp": "2026-09-28T01:37:15.409Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 408,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 2040,
+      "call_id": "call_dNmZoWJAFUzaneXpeFxpPzpT",
+      "timestamp": "2026-09-28T01:39:07.935Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 66
+    },
+    {
+      "candidate_index": 410,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 2301,
+      "call_id": "call_KZpxIwE9mhDjD27fiXr5jv6W",
+      "timestamp": "2026-09-28T01:50:29.913Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 4
+    },
+    {
+      "candidate_index": 423,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 2720,
+      "call_id": "call_zwwlPXSQSp9QInA0YueN0Q6t",
+      "timestamp": "2026-09-28T02:16:03.926Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 434,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 3127,
+      "call_id": "call_PxYA2wqiPzvV2rhGDTTd1F0C",
+      "timestamp": "2026-09-28T02:34:30.938Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "文書・設定・scriptの生成/書換",
+      "inline_script_lines": 9
+    },
+    {
+      "candidate_index": 452,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 3598,
+      "call_id": "call_JDVITvLkRwESVRmIgOa854qx",
+      "timestamp": "2026-09-28T02:58:37.057Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 28
+    },
+    {
+      "candidate_index": 457,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 3762,
+      "call_id": "call_bqbqe40pmYf40IuUq0BvXKkP",
+      "timestamp": "2026-09-28T03:04:57.798Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 464,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 3945,
+      "call_id": "call_rE2OFUOG8vnsslpOlBYRbnk2",
+      "timestamp": "2026-09-28T03:16:11.447Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 468,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 4289,
+      "call_id": "call_cYLuqK8TE4y7vSTRxmVcnZRS",
+      "timestamp": "2026-09-28T03:39:43.077Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 35
+    },
+    {
+      "candidate_index": 472,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 4329,
+      "call_id": "call_JJf7gpPZon8rfahaCgcBkCPI",
+      "timestamp": "2026-09-28T03:41:25.018Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 6
+    },
+    {
+      "candidate_index": 474,
+      "session_file": "2026/09/28/rollout-2026-09-28T07-03-01-01a0e4e4-983c-7c11-921e-0101cfd4d082.jsonl",
+      "record_line": 4369,
+      "call_id": "call_xvLDGSQff2mPT3lkwoL56aZs",
+      "timestamp": "2026-09-28T03:43:17.234Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 10
+    },
+    {
+      "candidate_index": 486,
+      "session_file": "2026/09/28/rollout-2026-09-28T09-22-36-01a0e564-617f-78a2-8eeb-4038218f4a2c.jsonl",
+      "record_line": 145,
+      "call_id": "call_LTPI5yLDVcDDQELSpySxPeid",
+      "timestamp": "2026-09-28T00:26:11.503Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 1
+    },
+    {
+      "candidate_index": 494,
+      "session_file": "2026/09/28/rollout-2026-09-28T09-22-36-01a0e564-617f-78a2-8eeb-4038218f4a2c.jsonl",
+      "record_line": 740,
+      "call_id": "call_4B2K5mvSUqdVYqUvGQu7OTpR",
+      "timestamp": "2026-09-28T02:16:32.802Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "review資料作成・hash/link確認",
+      "inline_script_lines": 5
+    },
+    {
+      "candidate_index": 496,
+      "session_file": "2026/09/28/rollout-2026-09-28T09-22-36-01a0e564-617f-78a2-8eeb-4038218f4a2c.jsonl",
+      "record_line": 827,
+      "call_id": "call_1T3Qyj3pY1Yj1AdTL0uv4jrx",
+      "timestamp": "2026-09-28T03:02:03.433Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 15
+    },
+    {
+      "candidate_index": 503,
+      "session_file": "2026/09/28/rollout-2026-09-28T23-36-08-01a0e871-cfe8-7270-8905-08e2d43ca5fa.jsonl",
+      "record_line": 392,
+      "call_id": "call_zGlx77eIPTUtfws8BnNPbs8k",
+      "timestamp": "2026-09-28T15:05:06.189Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 4
+    },
+    {
+      "candidate_index": 507,
+      "session_file": "2026/09/28/rollout-2026-09-28T23-36-08-01a0e871-cfe8-7270-8905-08e2d43ca5fa.jsonl",
+      "record_line": 525,
+      "call_id": "call_Qdri1tJbilp6S8zlhqHWu86N",
+      "timestamp": "2026-09-28T15:27:12.346Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 7
+    },
+    {
+      "candidate_index": 509,
+      "session_file": "2026/09/28/rollout-2026-09-28T23-36-08-01a0e871-cfe8-7270-8905-08e2d43ca5fa.jsonl",
+      "record_line": 563,
+      "call_id": "call_N3U0oXMO8biEuAEr9pGhmApx",
+      "timestamp": "2026-09-28T15:28:09.786Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 14
+    },
+    {
+      "candidate_index": 521,
+      "session_file": "2026/09/29/rollout-2026-09-29T01-29-58-01a0e8da-07ac-7423-896d-a9e4c735805c.jsonl",
+      "record_line": 831,
+      "call_id": "call_yYTftGPApOCttkBRulwhWIZf",
+      "timestamp": "2026-09-28T17:25:12.519Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": null
+    },
+    {
+      "candidate_index": 538,
+      "session_file": "2026/09/29/rollout-2026-09-29T01-29-58-01a0e8da-07ac-7423-896d-a9e4c735805c.jsonl",
+      "record_line": 1619,
+      "call_id": "call_Srk9MgSdf0kbFe1bcPdnmIS1",
+      "timestamp": "2026-09-28T17:58:48.351Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "JSON・ログの抽出/集計",
+      "inline_script_lines": 4
+    },
+    {
+      "candidate_index": 555,
+      "session_file": "2026/09/29/rollout-2026-09-29T01-29-58-01a0e8da-07ac-7423-896d-a9e4c735805c.jsonl",
+      "record_line": 2398,
+      "call_id": "call_NFCNlD45cWlohh8jqPOBzpJu",
+      "timestamp": "2026-09-28T18:36:52.058Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 10
+    },
+    {
+      "candidate_index": 557,
+      "session_file": "2026/09/29/rollout-2026-09-29T01-29-58-01a0e8da-07ac-7423-896d-a9e4c735805c.jsonl",
+      "record_line": 2475,
+      "call_id": "call_8iHBt3NsykKMZYg8RHCX1YFU",
+      "timestamp": "2026-09-29T00:44:32.123Z",
+      "command_index_in_tool_call": 0,
+      "primary_purpose": "process・TUI・CLI・配置",
+      "inline_script_lines": 9
+    }
+  ]
+}
