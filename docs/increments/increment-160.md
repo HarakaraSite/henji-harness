@@ -2,7 +2,7 @@
 
 更新日: 2026-09-30
 
-ステータス: local実装・非破壊的検証完了。利用者確認・完了承認は未取得。
+ステータス: local実装・検証・commit/push・常用配置・配置後確認完了。 利用者確認・完了承認は未取得。
 
 ## 目的と採用判断
 
@@ -148,7 +148,8 @@ candidateは`henji.candidate`、build IDは
 ### 残る境界
 
 local実装と検証は完了。利用者の実端末での見た目の確認・increment完了承認は未取得。
-commit/push・常用配置は追加指示済み。公開は未指示。 構想・architecture・roadmapは変更していない。
+追加指示によるcommit/push・常用配置・配置後確認は完了。公開は未指示。
+構想・architecture・roadmapは変更していない。
 
 ## commit・push・常用配置（2026-09-30）
 
@@ -159,3 +160,33 @@ SHA-256が一致することを確認する。
 配置先とbuild候補のhash・version・source・buildを照合し、配置binaryを隔離HOME/XDG/workspace/tmuxで
 非provider操作だけ確認する。既存Coreと実configは保持する。
 結果は本節とhandoffへ記録し、後続の文書commitでpushする。
+
+### 配置結果
+
+実装・test・increment文書・handoffの8ファイルをcommit
+`9359337d702067f31c899d7ab255a0084d0a385b`へまとめ、origin/mainへpushした。 このcommitのclean
+checkoutからDeno 2.9.7で公式buildし、sourceDirty=falseのbinaryを生成した。 runtime
+SHA-256は実装時に検証したcandidateと一致した。
+
+旧binaryを保存して`/home/agent/.local/bin/henji`へ原子的に置換し、
+配置先とbuild候補のhash・version・source・buildの一致を確認した。henji 0.7.0。
+
+- build ID: `d8afc403bd2090468e28901dc63c628c700e40ac5987b54adeee0d57d13a99f0`。
+- runtime SHA-256: `660b275ca63bd7b37ed7a0cf0ccadbeedbd3ca1f640a9630559977efd3c888a0`。
+- binary SHA-256: `b85dafc88ae11eccc14a12d0692abb316f8f004788ccf6d2253220cf0a61b520`。
+- 旧binary: 同increment artifactの`deployment/henji.previous`。 SHA-256:
+  `fd1766dd437fdcde41a841e708a3bc987f3783f1341e52f2f03c8a42bb86b975`。
+
+配置したbinaryそのものを隔離HOME/XDG/workspace/tmuxで起動し、readyの3行footerとANSI色、 F1
+Session一覧、slash picker、改名、40列footer、`/quit`終了を確認した。 Core APIのbuild
+identityも配置先と一致し、TUI/Coreともexit 0。確認用Core/tmuxは終了した。 この確認はprovider
+requestなし、実credentialなしで行い、実configは変更していない。
+
+配置前から稼働していたHenjiプロセス2件はPIDと起動時刻を保ち、停止・移行していない。
+新しく起動するTUIから今回のデザインが適用される。
+利用者確認・increment完了承認は未取得。JSR公開、構想・architecture・roadmapの変更は行っていない。
+
+配置証拠の保存先:
+`/home/agent/.local/state/henji-build-artifacts/increment-160-20260930/deployment/`。 clean
+checkout、`build.log`、`preflight.json`、`deployment.json`、`version.txt`、
+`smoke-results.json`、`smoke-175959/`のcaptureとCore identityが正本。
