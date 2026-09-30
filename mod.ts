@@ -33,7 +33,7 @@
  * import {
  *   createDefaultAgentComposition,
  *   type ExecutableAgentDefinition,
- * } from "jsr:@henji/harness@0.7.0";
+ * } from "jsr:@henji/harness@0.8.0";
  *
  * const definition: ExecutableAgentDefinition = (input) =>
  *   createDefaultAgentComposition(input);
@@ -44,4 +44,4 @@
  * @module
  */
 
-export * from "./v0/agent/worker_agent_api.ts";
+export * from './v0/agent/worker_agent_api.ts';
