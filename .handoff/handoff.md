@@ -2,7 +2,11 @@
 
 再開時の入口。現在地と次の一手をここで確認し、要件・計画・結果はリンク先の正本を参照する。
 
-## 現在地（2026-09-30）
+## 現在地（2026-10-01）
+
+**JSR `@henji/harness@0.8.0`の公開・取得確認は完了。**
+公開対象・検証結果・承認は[公開記録](../docs/operations/jsr-publish.md#080-publication--2026-10-01-jst)を参照する。
+一時release worktreeは削除済み。常用binaryは下記の0.7.0配置を保持している。
 
 **[Increment 160](../docs/increments/increment-160.md)は利用者確認・完了承認済み（2026-09-30）。**
 local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。

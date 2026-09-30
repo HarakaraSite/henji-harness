@@ -89,8 +89,8 @@ From the same clean worktree and with the same Deno binary, run:
 "$henji_deno" publish --config jsr.json
 ```
 
-Interactive authentication requires a terminal. In a headless environment, start the command under
-a PTY (tmux or an equivalent); without one Deno stops with `No means to authenticate` before
+Interactive authentication requires a terminal. In a headless environment, start the command under a
+PTY (tmux or an equivalent); without one Deno stops with `No means to authenticate` before
 authorization begins.
 
 The command prints a short-lived `https://jsr.io/auth?...` URL and waits. Open that URL in the
@@ -150,3 +150,26 @@ procedure.
 - [JSR: Publishing packages](https://jsr.io/docs/publishing-packages)
 - [JSR: Packages and versions](https://jsr.io/docs/packages)
 - [JSR package configuration](https://jsr.io/docs/package-configuration)
+
+## 0.8.0 publication — 2026-10-01 JST
+
+Published [`@henji/harness@0.8.0`](https://jsr.io/@henji/harness@0.8.0) at the user's request. The
+published source is pushed commit `fda1e17fb000bb3d562b30026d7dab4c81cee42c`.
+
+- Updated the version in `jsr.json`, both README examples, and the `mod.ts` example. Added
+  `v0/agent/history/history_v7_model.ts` to `publish.include` after JSR validation identified it as
+  a required module missing from the published graph.
+- The authoritative offline `v0:gate` passed once. The clean detached release worktree's
+  `deno publish --dry-run --no-lock --config jsr.json` passed with exactly the 88 configured files.
+  Type checking and slow-type validation were enabled.
+- The user approved browser authorization. The waiting PTY command reported
+  `Successfully published @henji/harness@0.8.0`.
+- Registry metadata confirmed `latest: 0.8.0` and the version's creation timestamp
+  `2026-09-30T22:35:33.260021Z`. A registry import of `jsr:@henji/harness@0.8.0`, run outside the
+  repository with `--no-config --no-lock --min-dep-age=0 --reload=jsr:@henji/harness`, loaded all
+  eight runtime exports successfully.
+- Removed the temporary clean release worktree after verification. The existing local binary remains
+  the previously deployed `henji 0.7.0`; this request published the JSR package.
+
+Verification logs: `/tmp/henji-jsr-0.8.0-gate.log`, `/tmp/henji-jsr-0.8.0-dry-run.log`,
+`/tmp/henji-jsr-0.8.0-published-meta.json`, and `/tmp/henji-jsr-0.8.0-published-import.log`.
