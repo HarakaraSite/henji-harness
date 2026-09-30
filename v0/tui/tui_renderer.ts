@@ -46,6 +46,7 @@ import {
 } from './state.ts';
 import {
   BUSY_SPINNER_FRAMES,
+  type FooterTone,
   type LayoutRow,
   layoutUi,
   MAX_FRAME_BYTES,
@@ -91,6 +92,13 @@ const SPAN_SGR: Record<AssistantSpanTone, string> = {
   emphasis: GREEN_SGR,
 };
 
+const FOOTER_SGR: Record<FooterTone, string> = {
+  dim: DIM_SGR,
+  bold: BOLD_SGR,
+  ready: GREEN_SGR,
+  working: YELLOW_SGR,
+};
+
 const renderLayoutRow = (row: LayoutRow): string => {
   // A whole-row tone covers label, reason and guidance in one color; such rows carry no spans.
   if (row.rowTone !== undefined && row.text.length > 0) {
@@ -113,6 +121,9 @@ const renderLayoutRow = (row: LayoutRow): string => {
       length: span.length,
       sgr: SPAN_SGR[span.tone],
     });
+  }
+  for (const span of row.footerSpans ?? []) {
+    ranges.push({ start: span.start, length: span.length, sgr: FOOTER_SGR[span.tone] });
   }
   if (
     row.blinkScalarStart !== undefined && row.blinkScalarLength !== undefined &&

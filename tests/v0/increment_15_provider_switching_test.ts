@@ -116,22 +116,22 @@ Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', (
   assertEquals(wide.length, 3);
   assertEquals(
     wide[1].text,
-    '[/home/masat.guest/src/forgejo-agent │ session:abcdef12 │ untitled]',
+    ' /home/masat.guest/src/forgejo-agent'.padEnd(140) + 'untitled · abcdef12',
   );
   assertEquals(
     wide[2].text,
-    '[openai-responses │ gpt-5.6-sol │ medium]',
+    ' openai-responses / gpt-5.6-sol'.padEnd(153) + 'medium',
   );
   const narrow = layoutUi(state, 80, 24).footer[2].text;
-  assert(narrow.includes('openai-responses │ '));
-  assert(narrow.includes(' │ gpt-5.6-sol │ '));
-  assert(narrow.endsWith(' │ medium]'));
+  assert(narrow.includes('openai-responses / '));
+  assert(narrow.includes(' / gpt-5.6-sol '));
+  assert(narrow.endsWith('   medium'));
   const degradedSession = layoutUi(state, 40, 10).footer[1].text;
-  assert(degradedSession.includes('session:abcdef12'));
+  assert(degradedSession.includes('abcdef12'));
   const degradedModel = layoutUi(state, 40, 10).footer[2].text;
   assert(degradedModel.includes('openai-responses'));
   assert(degradedModel.includes('-sol'));
-  assert(degradedModel.endsWith(' │ medium]'));
+  assert(degradedModel.endsWith('   medium'));
 });
 
 Deno.test('Increment 15 rebuilds foreign provider history from semantic messages', async () => {

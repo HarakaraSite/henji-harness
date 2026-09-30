@@ -586,19 +586,19 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   });
   const footer = layoutUi(state, 80, 24).footer;
   assertEquals(footer.length, 3);
-  assertEquals(footer[0].text, '[ready]');
-  assert(footer[1].text.includes('session:abcdef12'));
+  assertEquals(footer[0].text, ' ● ready');
+  assert(footer[1].text.includes('abcdef12'));
   assert(!footer[1].text.includes('provider:'));
   assert(!footer[2].text.includes('session:'));
-  assert(footer[2].text.includes('openrouter-chat │ '));
+  assert(footer[2].text.includes('openrouter-chat / '));
   assert(!footer[2].text.includes('provider:'));
   assert(!footer[2].text.includes('model:'));
-  assert(footer[2].text.endsWith('0902 │ xhigh]'));
+  assert(footer[2].text.endsWith('   xhigh'));
   assert(!footer[1].text.includes('cwd:'));
   assert(!footer[2].text.includes('effort:'));
   assert(!footer.some((row) => row.text.includes('F1 help')));
   assert(!footer[0].text.includes('turn 0'));
-  assertEquals((footer[1].text.match(/session:abcdef12/g) ?? []).length, 1);
+  assertEquals((footer[1].text.match(/abcdef12/g) ?? []).length, 1);
 
   const contextRich = reduceUiAction(state, {
     kind: 'status',
@@ -631,7 +631,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
   assert(narrowFooter[1].text.includes('abcdef12'));
   assert(narrowFooter[2].text.includes('openrouter-chat'));
   assert(narrowFooter[2].text.includes('…'));
-  assert(narrowFooter[2].text.endsWith(' │ xhigh]'));
+  assert(narrowFooter[2].text.endsWith('   xhigh'));
   assert(!narrowFooter.some((row) => row.text.includes('F1 help')));
 
   const cancelling = reduceUiAction(narrow, {
@@ -643,7 +643,7 @@ Deno.test('conversation footer uses the committed turn and emits identity facts 
     assert(cancellingFooter[0].text.includes('cancelling'));
     assert(cancellingFooter[1].text.includes('abcdef12'));
     assert(cancellingFooter[2].text.includes('openrouter-chat'));
-    assert(cancellingFooter[2].text.endsWith(' │ xhigh]'));
+    assert(cancellingFooter[2].text.endsWith('   xhigh'));
     assert(cancellingFooter.every((row) => row.text.length <= columns));
   }
 });
@@ -716,8 +716,8 @@ Deno.test('conversation footer shows the Session title on the session row', () =
     },
   });
   const footer = layoutUi(state, 80, 24).footer;
-  assertEquals(footer[1].text, '[/tmp/workspace │ session:abcdef12 │ Footer title]');
-  assertEquals(footer[2].text, '[openrouter-chat │ qwen/qwen3.8-max-0902 │ xhigh]');
+  assertEquals(footer[1].text, ' /tmp/workspace'.padEnd(56) + 'Footer title · abcdef12');
+  assertEquals(footer[2].text, ' openrouter-chat / qwen/qwen3.8-max-0902'.padEnd(74) + 'xhigh');
 
   const renamed = reduceUiAction(state, { kind: 'session_title', title: 'Renamed title' });
   assert(layoutUi(renamed, 80, 24).footer[1].text.includes('Renamed title'));
@@ -827,10 +827,10 @@ Deno.test('conversation layout derives turn and input boundaries without changin
   ]);
   assertEquals(layout.beforeInput.map((row) => row.text), ['']);
   assertEquals(layout.afterInput.map((row) => row.text), ['']);
-  assertEquals(layout.footer[0].text, '[ready]');
-  assert(layout.footer[1].text.includes('session:abcdef12'));
-  assert(layout.footer[2].text.includes(' │ qwen/qwen3.8-max-0902 │ '));
-  assert(layout.footer[2].text.endsWith(' │ xhigh]'));
+  assertEquals(layout.footer[0].text, ' ● ready');
+  assert(layout.footer[1].text.includes('abcdef12'));
+  assert(layout.footer[2].text.includes(' / qwen/qwen3.8-max-0902 '));
+  assert(layout.footer[2].text.endsWith('   xhigh'));
 
   const restored = reduceUiEvent(createUiState(), {
     kind: 'restored_log',

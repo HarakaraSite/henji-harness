@@ -9,10 +9,15 @@ import type {
 } from '../../v0/presentation/contract.ts';
 import {
   BLINK_SGR,
+  BOLD_SGR,
+  DIM_SGR,
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
+  GREEN_SGR,
+  RESET_SGR,
   TerminalLifecycle,
   type TerminalPort,
+  YELLOW_SGR,
 } from '../../v0/tui/terminal.ts';
 import type { PendingMetadataSnapshot } from '../../v0/tui/pending_input.ts';
 import {
@@ -35,6 +40,11 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const left = JSON.stringify(actual);
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
+};
+
+const withoutSgr = (text: string): string => {
+  // deno-lint-ignore no-control-regex
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
 };
 
 class RecordingTerminal implements TerminalPort {
@@ -187,12 +197,14 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
 
   renderer.eventSink({ kind: 'turn_start', turn: 1 });
   let layout = renderer.layoutSnapshot(80, 24);
-  assertEquals(layout.footer[0].text, '[⠋ working 00:00 │ Esc cancel]');
+  assertEquals(layout.footer[0].text, ' ⠋ working 00:00 · Esc cancel');
   assert(!layout.footer[0].text.includes('\x1b'));
   assertEquals(layout.footer[0].blinkScalarStart, undefined);
   assertEquals(layout.footer[0].blinkScalarLength, undefined);
   assert(
-    renderer.renderFrame(80, 24).includes('[⠋ working 00:00 │ Esc cancel]'),
+    withoutSgr(renderer.renderFrame(80, 24)).includes(
+      ' ⠋ working 00:00 · Esc cancel',
+    ),
   );
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
 
@@ -200,23 +212,23 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   tick();
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[⠙ working 01:02 │ Esc cancel]',
+    ' ⠙ working 01:02 · Esc cancel',
   );
 
   renderer.setStatus('busy · steer applied');
   assert(
-    renderer.renderFrame(80, 24).includes(
-      '[⠙ working 01:02 │ steer applied │ Esc cancel]',
+    withoutSgr(renderer.renderFrame(80, 24)).includes(
+      ' ⠙ working 01:02 · steer applied · Esc cancel',
     ),
   );
   renderer.setSlashCommandCandidates(['/help', '/recall']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[⠙ working 01:02 │ cmds: /help, /recall │ steer applied │ Esc cancel]',
+    ' ⠙ working 01:02 · cmds: /help, /recall · steer applied · Esc cancel',
   );
   assertEquals(
     renderer.layoutSnapshot(40, 24).footer[0].text,
-    '[⠙ working 01:02 │ cmds: /help, /recall]',
+    ' ⠙ working 01:02 · cmds: /help, /recall',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setStatus('busy');
@@ -231,14 +243,14 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   renderer.setSlashCommandCandidates(['/provider']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[⠙ working 01:02 │ cmds: /provider │ pending active_task:44B │ Esc cancel]',
+    ' ⠙ working 01:02 · cmds: /provider · pending active_task:44B · Esc cancel',
   );
   renderer.setSlashCommandCandidates([]);
   renderer.setPendingMetadata(undefined);
   renderer.setStatus('busy; /provider waits for ready');
   assert(
-    renderer.renderFrame(80, 24).includes(
-      '[⠙ working 01:02 │ /provider waits for ready │ Esc cancel]',
+    withoutSgr(renderer.renderFrame(80, 24)).includes(
+      ' ⠙ working 01:02 · /provider waits for ready · Esc cancel',
     ),
   );
 
@@ -246,12 +258,12 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   tick();
   renderer.setStatus('cancelling context compaction');
   assert(
-    renderer.renderFrame(80, 24).includes(
-      '[⠹ cancelling 1:01:01 │ context compaction │ Esc cancel]',
+    withoutSgr(renderer.renderFrame(80, 24)).includes(
+      ' ⠹ cancelling 1:01:01 · context compaction · Esc cancel',
     ),
   );
   layout = renderer.layoutSnapshot(12, 24);
-  assertEquals(layout.footer[0].text, '[cancelling]');
+  assertEquals(layout.footer[0].text, ' cancelling');
   assertEquals(layout.footer[0].blinkScalarStart, undefined);
   assertEquals(layout.footer[0].blinkScalarLength, undefined);
 
@@ -263,7 +275,7 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   });
   assertEquals(cleared, ['busy-timer']);
   layout = renderer.layoutSnapshot(80, 24);
-  assertEquals(layout.footer[0].text, '[ready]');
+  assertEquals(layout.footer[0].text, ' ● ready');
   assertEquals(layout.footer[0].blinkScalarStart, undefined);
   assertEquals(layout.footer[0].blinkScalarLength, undefined);
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
@@ -277,7 +289,7 @@ Deno.test('retained working footer spins its primary status and shows cancel hel
   });
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[contract_failure]',
+    ' contract_failure',
   );
   assert(!renderer.renderFrame(80, 24).includes(BLINK_SGR));
 
@@ -569,7 +581,7 @@ Deno.test('retained PageUp at the oldest boundary shows the startup header', () 
     `unknown command /${'x'.repeat(100)}, try: /help, /sessions, /detach`,
   );
   assert(
-    renderer.layoutSnapshot(80, 10).footer[0].text.startsWith('[history start'),
+    renderer.layoutSnapshot(80, 10).footer[0].text.startsWith(' history start'),
   );
 
   renderer.renderStartupHelp();
@@ -1314,8 +1326,8 @@ Deno.test('remote execution clock leads the second footer row and survives repea
     controls: ['F2 queue', 'F3 steer', 'Esc cancel', '/ commands'],
   }, 62_000);
   let footer = renderer.layoutSnapshot(80, 24).footer;
-  assert(footer[1].text.startsWith('[⠋ working 00:38 │ '));
-  assert(footer[1].text.includes('session:session-'));
+  assert(footer[1].text.startsWith(' ⠋ working 00:38   '));
+  assert(footer[1].text.includes('session-'));
   assert(!footer[0].text.includes('working'));
   for (
     const hint of [
@@ -1333,7 +1345,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   assertEquals(starts, 1);
   assert(
     renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(
-      '[⠙ working 00:40 │ ',
+      ' ⠙ working 00:40   ',
     ),
   );
   renderer.setRemoteFooter({
@@ -1347,7 +1359,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   assertEquals(starts, 1);
   assert(
     renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(
-      '[⠙ cancelling 00:40 │ ',
+      ' ⠙ cancelling 00:40   ',
     ),
   );
 
@@ -1359,7 +1371,7 @@ Deno.test('remote execution clock leads the second footer row and survives repea
   assertEquals(starts, 2);
   assert(
     renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(
-      '[⠋ working 00:00 │ ',
+      ' ⠋ working 00:00   ',
     ),
   );
   renderer.setProjection({ ...projection, lifecycle: 'idle' });
@@ -1459,19 +1471,19 @@ Deno.test('Increment 159 footer preparation spins without invented time and sett
   renderer.setRemoteFooter({ activity: 'working', controls: ['/ commands'] });
   {
     const footer = renderer.layoutSnapshot(80, 24).footer;
-    assert(footer[1].text.startsWith('[⠋ working │ '));
+    assert(footer[1].text.startsWith(' ⠋ working   '));
     assert(!footer[1].text.includes('00:'));
     now += 2000;
     tick();
     assertEquals(starts, 1);
-    assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠙ working │ '));
+    assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(' ⠙ working   '));
   }
   renderer.setRemoteFooter(
     { activity: 'working', controls: ['Esc cancel', '/ commands'] },
     100_000,
   );
-  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith('[⠋ working 00:02 │ '));
-  assert(renderer.layoutSnapshot(40, 24).footer[1].text.startsWith('[⠋ working 00:02'));
+  assert(renderer.layoutSnapshot(80, 24).footer[1].text.startsWith(' ⠋ working 00:02   '));
+  assert(renderer.layoutSnapshot(40, 24).footer[1].text.startsWith(' ⠋ working 00:02'));
   const fresh = new TuiRenderer(new RecordingTerminal(), {
     now: () => now,
     setInterval: () => 'reconnected',
@@ -1487,7 +1499,7 @@ Deno.test('Increment 159 footer preparation spins without invented time and sett
   renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
   assertEquals(stops, 2);
   let footer = renderer.layoutSnapshot(40, 24).footer;
-  assert(footer[1].text.startsWith('[ready │ '));
+  assert(footer[1].text.startsWith(' ● ready   '));
   assert(!footer[1].text.includes('00:'));
   renderer.setProjection({
     ...projection,
@@ -1495,16 +1507,62 @@ Deno.test('Increment 159 footer preparation spins without invented time and sett
     model: { provider: 'opencode-go-responses', modelId: 'gpt-5.6-luna', effort: 'low' },
   });
   footer = renderer.layoutSnapshot(80, 24).footer;
-  assertEquals(footer[2].text, '[opencode-go-responses │ gpt-5.6-luna │ low]');
+  assertEquals(footer[2].text, ' opencode-go-responses / gpt-5.6-luna'.padEnd(76) + 'low');
   renderer.renderChoicePicker(['credential input'], ['Enter save', 'Ctrl-U clear', 'Esc cancel']);
   assertEquals(
     renderer.layoutSnapshot(80, 24).footer[0].text,
-    '[Enter save │ Ctrl-U clear │ Esc cancel]',
+    ' Enter save · Ctrl-U clear · Esc cancel',
   );
   renderer.clearModal();
   for (const activity of ['READ-ONLY', 'DISCONNECTED'] as const) {
     renderer.setRemoteFooter({ activity, controls: ['/ commands'] });
-    assert(renderer.layoutSnapshot(40, 24).footer[1].text.startsWith(`[${activity} │ `));
+    assert(renderer.layoutSnapshot(40, 24).footer[1].text.startsWith(` ${activity}   `));
   }
+  renderer.close();
+});
+
+Deno.test('Increment 160 footer aligns identity and styles only the intended visible fields', () => {
+  const renderer = new TuiRenderer(new RecordingTerminal());
+  const projection: PresentationProjection = {
+    lifecycle: 'idle',
+    workspace: '/tmp/日本/workspace',
+    sessionId: 'abcdef12-footer',
+    agentId: 'default',
+    committedTurn: 0,
+    trust: 'trusted_local',
+    credentialPolicy: 'before_each_provider_request',
+    pending: [],
+    capabilities: { canNavigate: false, canCompact: false },
+    generation: 1,
+    model: { provider: 'opencode-go-chat', modelId: 'mimo-v2.6-pro', effort: 'auto' },
+  };
+  renderer.setProjection(projection);
+  renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
+  const footer = renderer.layoutSnapshot(100, 24).footer;
+  assertEquals(footer[0].text, ' Enter submit · / commands');
+  assert(footer[1].text.startsWith(' ● ready   /tmp/日本/workspace'));
+  assert(footer[1].text.endsWith('untitled · abcdef12'));
+  assertEquals(footer[2].text, ' opencode-go-chat / mimo-v2.6-pro'.padEnd(95) + 'auto');
+  const frame = renderer.renderFrame(100, 24);
+  assert(frame.includes(`Enter${DIM_SGR} submit${RESET_SGR}`));
+  assert(frame.includes(`${GREEN_SGR}● ready${RESET_SGR}`));
+  assert(frame.includes(`${DIM_SGR}/tmp/日本/workspace${RESET_SGR}`));
+  assert(frame.includes(`untitled${DIM_SGR} · abcdef12${RESET_SGR}`));
+  assert(
+    frame.includes(`${DIM_SGR}opencode-go-chat / ${RESET_SGR}${BOLD_SGR}mimo-v2.6-pro${RESET_SGR}`),
+  );
+  assert(frame.includes(`${DIM_SGR}auto${RESET_SGR}`));
+  renderer.setRemoteFooter({
+    activity: 'working',
+    controls: ['F2 queue', 'F3 steer', 'Esc cancel'],
+  });
+  assert(renderer.renderFrame(100, 24).includes(`${YELLOW_SGR}⠋ working${RESET_SGR}`));
+  renderer.setRemoteFooter({ activity: 'ready', controls: ['Enter submit', '/ commands'] });
+  renderer.renderChoicePicker(['model selection'], ['↑/↓ select', 'Enter choose', 'Esc close']);
+  assertEquals(
+    renderer.layoutSnapshot(100, 24).footer[0].text,
+    ' ↑/↓ select · Enter choose · Esc close',
+  );
+  assert(renderer.renderFrame(100, 24).includes(`↑/↓${DIM_SGR} select${RESET_SGR}`));
   renderer.close();
 });

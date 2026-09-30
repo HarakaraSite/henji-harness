@@ -26,6 +26,14 @@ export const MAX_EDITOR_ROWS = 8;
 export const MAX_FRAME_BYTES = 128 * 1024;
 export const MAX_LAYOUT_SOURCE_BYTES = 2 * 1024 * 1024;
 
+export type FooterTone = 'dim' | 'bold' | 'ready' | 'working';
+
+export interface FooterSpan {
+  readonly start: number;
+  readonly length: number;
+  readonly tone: FooterTone;
+}
+
 export interface LayoutRow {
   readonly text: string;
   readonly entryId?: string;
@@ -37,6 +45,7 @@ export interface LayoutRow {
   /** Whole-row tone; the renderer applies it to the entire row text. */
   readonly rowTone?: ConversationLabelTone;
   readonly spans?: readonly AssistantSpan[];
+  readonly footerSpans?: readonly FooterSpan[];
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
   readonly kind: 'log' | 'input' | 'footer' | 'omitted' | 'separator';
@@ -267,14 +276,10 @@ const footerPrimaryText = (state: UiState, columns: number): string => {
       (state.busySpinnerFrame ?? 0) % BUSY_SPINNER_FRAMES.length
     ]
     : undefined;
-  const label = primary === 'busy' ? 'working' : primary;
+  const label = primary === 'busy' ? 'working' : primary === 'ready' ? '● ready' : primary;
   const withElapsed = elapsed === undefined ? label : `${label} ${elapsed}`;
   const full = spinner === undefined ? withElapsed : `${spinner} ${withElapsed}`;
-  return width(`[${full}]`) <= columns
-    ? full
-    : width(`[${withElapsed}]`) <= columns
-    ? withElapsed
-    : label;
+  return width(full) <= columns ? full : width(withElapsed) <= columns ? withElapsed : label;
 };
 
 const footerStatusText = (
@@ -287,15 +292,14 @@ const footerStatusText = (
   readonly blinkScalarStart?: number;
   readonly blinkScalarLength?: number;
 }> => {
-  const renderSegments = (segments: readonly string[]): string =>
-    `[${segments.map((segment) => segment.replaceAll(' · ', ' │ ')).join(' │ ')}]`;
+  const renderSegments = (segments: readonly string[]): string => segments.join(' · ');
   if (state.overlay.kind === 'slashPicker') {
     return {
-      text: truncateCells('[↑/↓ select │ Enter complete │ Esc close]', columns),
+      text: truncateCells('↑/↓ select · Enter complete · Esc close', columns),
     };
   }
   if (state.overlay.kind === 'readOnlyHelp') {
-    return { text: truncateCells('[PageUp/Down scroll │ Esc close]', columns) };
+    return { text: truncateCells('PageUp/Down scroll · Esc close', columns) };
   }
   if (state.footer !== undefined) {
     const overlay = state.overlay;
@@ -364,7 +368,7 @@ const footerStatusText = (
     : `history record ${history.entry} of ${history.totalEntries} · ${historyHint}`;
   const historyRequired = historyFull === undefined
     ? undefined
-    : width(`[${historyFull}]`) <= columns
+    : width(historyFull) <= columns
     ? historyFull
     : `history · ${historyHint}`;
   const resultText = remoteResult.length === 0 ? undefined : safeDisplay(
@@ -429,10 +433,70 @@ const footerStatusText = (
   return { text };
 };
 
+interface FooterPiece {
+  readonly text: string;
+  readonly tone?: FooterTone;
+}
+
+/** Footer widths use visible cells; style ranges use Unicode scalar offsets. */
+const footerRow = (pieces: readonly FooterPiece[], columns: number): LayoutRow => {
+  const text = truncateCells(` ${pieces.map((piece) => piece.text).join('')}`, columns);
+  const points = [...text].length;
+  const footerSpans: FooterSpan[] = [];
+  let start = 1;
+  for (const piece of pieces) {
+    const length = Math.min([...piece.text].length, Math.max(0, points - start));
+    if (piece.tone !== undefined && length > 0) {
+      footerSpans.push({ start, length, tone: piece.tone });
+    }
+    start += [...piece.text].length;
+  }
+  return { text, footerSpans, kind: 'footer' };
+};
+
+const footerContentColumns = (columns: number): number => Math.max(0, columns - 2);
+const pieceWidth = (pieces: readonly FooterPiece[]): number =>
+  pieces.reduce((total, piece) => total + width(piece.text), 0);
+const footerGroups = (
+  left: readonly FooterPiece[],
+  right: readonly FooterPiece[],
+  columns: number,
+): LayoutRow =>
+  footerRow([
+    ...left,
+    {
+      text: ' '.repeat(
+        Math.max(3, footerContentColumns(columns) - pieceWidth(left) - pieceWidth(right)),
+      ),
+    },
+    ...right,
+  ], columns);
+
+const footerControlsRow = (text: string, columns: number): LayoutRow => {
+  const pieces: FooterPiece[] = [];
+  for (const [index, segment] of text.split(' · ').entries()) {
+    if (index > 0) pieces.push({ text: ' · ', tone: 'dim' });
+    const key = segment.match(
+      /^(?:Enter|Esc|Tab|Alt-Enter|Shift-Enter|Ctrl-[A-Za-z]|F[1-3]|PageUp\/Down|↑\/↓|←\/→|R|\/)(?= |$)/,
+    )?.[0];
+    if (key !== undefined) {
+      pieces.push({ text: key }, { text: segment.slice(key.length), tone: 'dim' });
+    } else {
+      const tone = segment.startsWith('● ready')
+        ? 'ready'
+        : /^(?:. )?(?:working|cancelling)(?: |$)/u.test(segment)
+        ? 'working'
+        : 'dim';
+      pieces.push({ text: segment, tone });
+    }
+  }
+  return footerRow(pieces, columns);
+};
+
 const footerSessionText = (
   state: UiState,
   columns: number,
-): string | undefined => {
+): LayoutRow | undefined => {
   if (state.projection === undefined) return undefined;
   const workspace = safeDisplay(state.projection.workspace, false);
   const session = state.projection.sessionId?.slice(0, 8) ?? 'none';
@@ -444,35 +508,64 @@ const footerSessionText = (
   const active = state.footer !== undefined ||
     ((state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
       (primary === 'busy' || primary === 'cancelling'));
-  const opening = active ? `[${footerPrimaryText(state, columns)} │ ` : '[';
-  const fixed = ` │ session:${session} │ ${title}]`;
-  const available = columns - width(`${opening}${fixed}`);
+  const activity = state.footer?.activity ?? primary;
+  const status: FooterPiece[] = active
+    ? [{
+      text: footerPrimaryText(state, footerContentColumns(columns)),
+      tone: activity === 'ready'
+        ? 'ready'
+        : activity === 'working' || activity === 'busy' || activity === 'cancelling'
+        ? 'working'
+        : undefined,
+    }]
+    : [];
+  const right: FooterPiece[] = [
+    { text: title },
+    { text: ` · ${session}`, tone: 'dim' },
+  ];
+  const opening = active ? [...status, { text: '   ' }] : [];
+  const available = footerContentColumns(columns) - pieceWidth(opening) - pieceWidth(right) - 3;
   if (available >= 1) {
-    return `${opening}${suffixCells(workspace, available)}${fixed}`;
+    return footerGroups(
+      [
+        ...opening,
+        { text: suffixCells(workspace, available), tone: 'dim' },
+      ],
+      right,
+      columns,
+    );
   }
-
-  const withoutPath = `${opening}session:${session} │ ${title}]`;
-  if (width(withoutPath) <= columns) return withoutPath;
-
-  const withoutTitle = `${opening}session:${session}]`;
-  if (width(withoutTitle) <= columns) return withoutTitle;
-  if (active) return `[${footerPrimaryText(state, columns)}]`;
-  return truncateCells(withoutTitle, columns);
+  if (pieceWidth(status) + pieceWidth(right) + (active ? 3 : 0) <= footerContentColumns(columns)) {
+    return active ? footerGroups(status, right, columns) : footerRow(right, columns);
+  }
+  const id: FooterPiece[] = [{ text: session, tone: 'dim' }];
+  if (pieceWidth(status) + pieceWidth(id) + (active ? 3 : 0) <= footerContentColumns(columns)) {
+    return active ? footerGroups(status, id, columns) : footerRow(id, columns);
+  }
+  return footerRow(active ? status : id, columns);
 };
 
 const footerModelText = (
   state: UiState,
   columns: number,
-): string | undefined => {
+): LayoutRow | undefined => {
   const model = state.projection?.model;
   if (model === undefined) return undefined;
-  const effort = safeDisplay(model.effort, false);
-  const provider = safeDisplay(model.provider, false);
-  const fullModel = safeDisplay(model.modelId, false);
-  const narrowFixed = `[${provider} │  │ ${effort}]`;
-  const modelAvailable = Math.max(1, columns - width(narrowFixed));
-  return truncateCells(
-    `[${provider} │ ${suffixCells(fullModel, modelAvailable)} │ ${effort}]`,
+  const effort: FooterPiece[] = [{ text: safeDisplay(model.effort, false), tone: 'dim' }];
+  const provider: FooterPiece[] = [{
+    text: `${safeDisplay(model.provider, false)} / `,
+    tone: 'dim',
+  }];
+  const modelAvailable = Math.max(
+    1,
+    footerContentColumns(columns) - pieceWidth(provider) - pieceWidth(effort) - 3,
+  );
+  return footerGroups(
+    [
+      ...provider,
+      { text: suffixCells(safeDisplay(model.modelId, false), modelAvailable), tone: 'bold' },
+    ],
+    effort,
     columns,
   );
 };
@@ -997,7 +1090,7 @@ export const layoutUi = (
     : undefined;
   const statusFooter = footerStatusText(
     state,
-    Math.max(1, widthLimit),
+    Math.max(1, footerContentColumns(widthLimit)),
     history,
     sessionFooter !== undefined && footerCount >= 2 &&
       (state.lifecycle === 'busy' || state.lifecycle === 'cancelling') &&
@@ -1006,12 +1099,9 @@ export const layoutUi = (
       ),
   );
   const footer = [
-    {
-      ...statusFooter,
-      kind: 'footer' as const,
-    },
-    ...(sessionFooter === undefined ? [] : [{ text: sessionFooter, kind: 'footer' as const }]),
-    ...(modelFooter === undefined ? [] : [{ text: modelFooter, kind: 'footer' as const }]),
+    footerControlsRow(statusFooter.text, widthLimit),
+    ...(sessionFooter === undefined ? [] : [sessionFooter]),
+    ...(modelFooter === undefined ? [] : [modelFooter]),
   ].slice(0, footerCount);
   const beforeInput = Array.from(
     { length: beforeInputCount },

@@ -4,6 +4,10 @@
 
 ## 現在地（2026-09-30）
 
+**[Increment 160](../docs/increments/increment-160.md)としてミニマルなフッターデザインを採用。**
+追加指示「実装して」によりlocal実装・非破壊的検証完了。
+利用者確認・完了承認は未取得。結果・検証証拠はincrement正本を参照する。
+
 **[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
 Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
 四slice実装・検証・review・commit/push・常用配置・配置後の隔離TUI操作確認は完了。要件・結果はincrement正本を参照する。
@@ -69,9 +73,17 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-通常利用で具体的な改善点が観測されたら[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。次のincrementは利用者の採用判断に従う。
+[Increment 160](../docs/increments/increment-160.md)の追加指示済みcommit/push・常用配置を進める。
+利用者確認・increment完了承認は未取得。
+新しい未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
 
 ## 承認境界
+
+- Increment 160は利用者の「1でミニマルにしようかな　次のインクリメントはそれで」により採用。
+  追加指示「実装して」によるlocal実装・非破壊的検証は完了。
+  追加指示「コミットプッシュ配置をして」によりcommit/push・常用配置を行う。
+  公開・外部provider確認は未指示。
+  正本は[Increment 160](../docs/increments/increment-160.md)。
 
 - Increment 159は利用者指示により案review・四slice計画・reviewerの通常／批判的計画review完了。
   実装時はsliceごとのreviewerコード・test reviewと最小実provider確認が承認済み。正本は
