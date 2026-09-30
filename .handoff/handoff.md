@@ -4,9 +4,9 @@
 
 ## 現在地（2026-09-30）
 
-**[Increment 160](../docs/increments/increment-160.md)としてミニマルなフッターデザインを採用。**
+**[Increment 160](../docs/increments/increment-160.md)は利用者確認・完了承認済み（2026-09-30）。**
 local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。
-利用者確認・完了承認は未取得。結果・検証証拠はincrement正本を参照する。
+結果・検証証拠はincrement正本を参照する。
 
 常用binaryは`henji 0.7.0`、source `9359337d…`、build `d8afc403…`へ更新済み。
 新規TUI起動から適用する。配置前のHenjiプロセス2件を保持し、確認用Core/TUI/tmuxは終了した。
@@ -73,14 +73,15 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-[Increment 160](../docs/increments/increment-160.md)の利用者による表示確認・increment完了承認を待つ。
-新しい未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
+通常利用で具体的な改善点が観測されたら[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
+次のincrementは利用者の採用判断に従う。
 
 ## 承認境界
 
 - Increment 160は利用者の「1でミニマルにしようかな　次のインクリメントはそれで」により採用。
   追加指示「実装して」によるlocal実装・非破壊的検証は完了。
   追加指示「コミットプッシュ配置をして」によるcommit/push・常用配置・配置後確認は完了。
+  「みやすくなった　インクリメントを完了とする」により利用者確認・完了承認を取得した。
   公開・外部provider確認は未指示。
   正本は[Increment 160](../docs/increments/increment-160.md)。
 

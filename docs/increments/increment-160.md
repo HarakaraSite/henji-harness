@@ -2,7 +2,8 @@
 
 更新日: 2026-09-30
 
-ステータス: local実装・検証・commit/push・常用配置・配置後確認完了。 利用者確認・完了承認は未取得。
+ステータス: 利用者確認・完了承認済み（2026-09-30）。Increment 160は完了。
+local実装・検証・commit/push・常用配置・配置後確認を完了した。
 
 ## 目的と採用判断
 
@@ -147,7 +148,7 @@ candidateは`henji.candidate`、build IDは
 
 ### 残る境界
 
-local実装と検証は完了。利用者の実端末での見た目の確認・increment完了承認は未取得。
+local実装と検証は完了。利用者による見た目の確認・increment完了承認は取得済み。
 追加指示によるcommit/push・常用配置・配置後確認は完了。公開は未指示。
 構想・architecture・roadmapは変更していない。
 
@@ -184,9 +185,14 @@ requestなし、実credentialなしで行い、実configは変更していない
 
 配置前から稼働していたHenjiプロセス2件はPIDと起動時刻を保ち、停止・移行していない。
 新しく起動するTUIから今回のデザインが適用される。
-利用者確認・increment完了承認は未取得。JSR公開、構想・architecture・roadmapの変更は行っていない。
+利用者確認・increment完了承認は取得済み。JSR公開、構想・architecture・roadmapの変更は行っていない。
 
 配置証拠の保存先:
 `/home/agent/.local/state/henji-build-artifacts/increment-160-20260930/deployment/`。 clean
 checkout、`build.log`、`preflight.json`、`deployment.json`、`version.txt`、
 `smoke-results.json`、`smoke-175959/`のcaptureとCore identityが正本。
+
+## 利用者確認・完了（2026-09-30）
+
+常用配置後、利用者の「みやすくなった　インクリメントを完了とする」により、 見た目の確認とIncrement
+160の完了承認を取得した。 本incrementの作業は完了。完了記録をcommitしてorigin/mainへpushする。
