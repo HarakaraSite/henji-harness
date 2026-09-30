@@ -2,9 +2,8 @@
 
 更新日: 2026-09-30
 
-ステータス: 四sliceのlocal実装・focused確認・隔離production
-TUI/最小実provider確認・各sliceのreviewerコード/test review完了。Slice
-2/3の採用findingは修正・限定re-reviewで解消。残るBlocker/P1/P2は0。利用者確認・increment完了承認は未取得。2026-09-30の追加指示によるcommit/push・常用配置は完了。
+ステータス: 利用者確認・完了承認済み（2026-09-30）。Increment
+159は完了。四sliceの実装・検証・review、採用findingの解消、commit/push・常用配置・配置後確認を完了した。
 フッター整理と通常利用メモS27を、このincrementの計画対象として扱う。
 
 ## 目的・規模・権限
@@ -576,3 +575,8 @@ requestは0回。配置前から存在したHenjiプロセス二件はPID/起動
 証拠は`/home/agent/.local/state/henji-build-artifacts/increment-159-20260930/deployment/`のclean
 checkout、build.log、preflight.json、deployment.json、version.txt、`slice-deployment/`の画面・Core
 identity・results。JSR公開、構想・architecture・roadmap変更は行っていない。GhosttyクライアントのF1〜F3物理入力は未確認。利用者による通常操作確認・increment完了承認は別途。
+
+## 利用者確認・完了承認（2026-09-30）
+
+利用者は配置後の状態を確認し、Increment
+159の完了を明示した。細部は今後の通常利用で観測し、具体的な改善点が出た場合は通常利用メモへ記録する。GhosttyクライアントからのF1〜F3物理入力は引き続き未確認として扱う。

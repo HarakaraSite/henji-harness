@@ -4,10 +4,9 @@
 
 ## 現在地（2026-09-30）
 
-**[Increment 159](../docs/increments/increment-159.md)の四slice実装・検証・review・commit/push・常用配置完了。**
+**[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
 Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
-要件・計画・実装結果・レビューはincrement正本を参照する。
-利用者による通常操作確認・increment完了承認は未取得。配置後の隔離TUI操作確認は完了。
+四slice実装・検証・review・commit/push・常用配置・配置後の隔離TUI操作確認は完了。要件・結果はincrement正本を参照する。
 確認用Core/TUI/tmuxは終了、credential参照は解除済み。既存Henjiプロセス二件・実configは保持し、常用binaryを更新した。
 
 常用binaryは`henji 0.7.0`、source `e372653b…`、build
@@ -70,11 +69,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-1. Increment 159の実装・検証・review・commit/push・配置と、配置binaryの隔離操作確認は完了。
-   [実装・配置結果](../docs/increments/increment-159.md)を利用者が通常操作で確認する。
-   構想・architecture・roadmapの意味変更は未指示。
-2. 通常利用の新しい観測・未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
-   構想・architecture・roadmapの意味変更とJSR公開は未承認。S22の正本変更案は詳細設計へ残している。
+通常利用で具体的な改善点が観測されたら[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。次のincrementは利用者の採用判断に従う。
 
 ## 承認境界
 
@@ -83,7 +78,7 @@ S22の8slice（139〜146）と147の配置結果は
   [Increment 159](../docs/increments/increment-159.md)。
   具体的な実provider確認の対象・見込み回数・保存先を報告して進め、同じ最小確認の再承認は不要。
   追加指示による四sliceのlocal実装・非破壊的検証・各slice reviewは完了。
-  commit/push・常用配置は2026-09-30の追加指示により承認済み・完了。構想・architecture・roadmapの変更は未指示。
+  commit/push・常用配置は2026-09-30の追加指示により承認済み・完了。利用者確認・increment完了承認も同日に取得した。構想・architecture・roadmapの変更は未指示。
 
 - Increment 158のlocal表示修正と非破壊的検証は今回の指示で承認済み・完了。
   正本は[Increment 158](../docs/increments/increment-158.md)。
