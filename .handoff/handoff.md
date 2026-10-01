@@ -7,10 +7,11 @@
 **[Increment 168](../docs/increments/increment-168.md)の実装・検証・commit/build・常用配置完了。利用者確認待ち。**
 シアンとグリーンの交換を利用者が指定した。source `a692c10a`、build `4db6bd68…`を配置済み。
 要件・検証・配置の正本はincrement文書。表示の適用にはTUIを開き直す。
+後続の「コミットプッシュして」により、167・168を含むmainの未送信commitをorigin/mainへpush済み。公開は未実施。
 
 **[Increment 167](../docs/increments/increment-167.md)は利用者確認・完了承認済み（2026-10-01）。**
 常用配置はsource `72d14f4a`、build `d94601c7…`。要件・検証・配置・完了承認の正本はincrement文書。
-実Sessionとcredentialを保持している。push・公開は未指示。
+実Sessionとcredentialを保持している。後続指示によりpush済み。公開は未実施。
 
 **完了済みのIncrement 161〜166をsource commit `fbee507a`へ確定し、`dist/henji`を作成した。**
 binaryのsourceは同commit、dirtyなし。build IDは`c8237977…`。
@@ -126,7 +127,7 @@ S22の8slice（139〜146）と147の配置結果は
 Increment 168の利用者確認を待つ。
 対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
-push、公開はそれぞれ利用者の指示に従う。
+mainのpushは利用者の追加指示により完了した。公開は利用者の指示に従う。
 
 ## 承認境界
 

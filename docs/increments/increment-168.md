@@ -48,3 +48,8 @@ source commit `a692c10a290cabd8376ee7195267f57fe576c1da`、dirtyなしで公式h
 build IDは`4db6bd682d87c671ab8872f4dad8ccb817f0cb6a1c2f3ede3aa9e80aace6ec6d`。
 配置記録は`.tools/increment-168/deployment.json`、以前のbinaryは同directoryのhenji.previous。
 TUIを開き直して適用する。既存の実Core、Session、credentialは変更していない。push・公開は未実施。
+
+### push
+
+2026-10-01、利用者の「コミットプッシュして」により、Increment 167・168を含む未送信の8 commitを
+origin/mainへpushした（85256f4e → 05773d1b）。このpush記録も続けてcommit/pushする。公開は行わない。
