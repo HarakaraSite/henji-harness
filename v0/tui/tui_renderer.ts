@@ -79,24 +79,24 @@ export interface TuiRendererOptions {
 const LABEL_SGR: Record<ConversationLabelTone, string> = {
   user: BLUE_SGR,
   assistant: YELLOW_SGR,
-  tool: GREEN_SGR,
+  tool: CYAN_SGR,
   system: MAGENTA_SGR,
   failure: RED_SGR,
 };
 
 const SPAN_SGR: Record<AssistantSpanTone, string> = {
-  heading: CYAN_SGR,
-  list: GREEN_SGR,
+  heading: GREEN_SGR,
+  list: CYAN_SGR,
   table: DIM_SGR,
   quote: MAGENTA_SGR,
   bold: BOLD_SGR,
-  emphasis: GREEN_SGR,
+  emphasis: CYAN_SGR,
 };
 
 const FOOTER_SGR: Record<FooterTone, string> = {
   dim: DIM_SGR,
   bold: BOLD_SGR,
-  ready: GREEN_SGR,
+  ready: CYAN_SGR,
   working: YELLOW_SGR,
 };
 

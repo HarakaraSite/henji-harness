@@ -4,6 +4,10 @@
 
 ## 現在地（2026-10-01）
 
+**[Increment 168](../docs/increments/increment-168.md)を実装・検証中。**
+シアンとグリーンの交換を利用者が指定した。rendererの五つの色対応を変更し、focused 49件がpass。
+これからcompiled production TUIの隔離確認、commit/build/常用配置を完了する。
+
 **[Increment 167](../docs/increments/increment-167.md)は利用者確認・完了承認済み（2026-10-01）。**
 常用配置はsource `72d14f4a`、build `d94601c7…`。要件・検証・配置・完了承認の正本はincrement文書。
 実Sessionとcredentialを保持している。push・公開は未指示。
@@ -119,7 +123,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-Increment 167は利用者確認・完了承認まで完了した。次の作業指示を待つ。
+Increment 168のcompiled TUI確認と常用配置を完了する。
 対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
 push、公開はそれぞれ利用者の指示に従う。

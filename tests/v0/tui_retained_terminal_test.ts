@@ -10,10 +10,10 @@ import type {
 import {
   BLINK_SGR,
   BOLD_SGR,
+  CYAN_SGR,
   DIM_SGR,
   ENTER_ALTERNATE_SCREEN,
   EXIT_ALTERNATE_SCREEN,
-  GREEN_SGR,
   RESET_SGR,
   TerminalLifecycle,
   type TerminalPort,
@@ -1545,7 +1545,7 @@ Deno.test('Increment 160 footer aligns identity and styles only the intended vis
   assertEquals(footer[2].text, ' opencode-go-chat / mimo-v2.6-pro'.padEnd(95) + 'auto');
   const frame = renderer.renderFrame(100, 24);
   assert(frame.includes(`Enter${DIM_SGR} submit${RESET_SGR}`));
-  assert(frame.includes(`${GREEN_SGR}● ready${RESET_SGR}`));
+  assert(frame.includes(`${CYAN_SGR}● ready${RESET_SGR}`));
   assert(frame.includes(`${DIM_SGR}/tmp/日本/workspace${RESET_SGR}`));
   assert(frame.includes(`untitled${DIM_SGR} · abcdef12${RESET_SGR}`));
   assert(
