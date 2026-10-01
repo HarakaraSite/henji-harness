@@ -6,23 +6,24 @@
 
 **完了済みのIncrement 161〜166をsource commit `fbee507a`へ確定し、`dist/henji`を作成した。**
 binaryのsourceは同commit、dirtyなし。build IDは`c8237977…`。
-成果物・確認の正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。push・常用配置・公開は未実施。
+後続の「了解配置して」により常用`/home/agent/.local/bin/henji`へ配置し、配置先の新Core/TUI起動を確認した。
+成果物・確認の正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。push・公開は未実施。
 
 **[Increment 166](../docs/increments/increment-166.md)のlocal修正・検証完了。**
 表示行へexecution IDを引き継ぎ、cancelと同じ原因のsystem通知の挿入位置を修正した。
 実Sessionのcompiled TUI、履歴移動、再接続で確認済み。上記source commitへ確定した。
-常用配置・push・公開は未指示。
+常用配置済み。push・公開は未指示。
 
 **[Increment 165](../docs/increments/increment-165.md)のlocal修正・検証完了。**
 Responsesで表示用summaryを要求し、既存のeffort選択を維持する。実API highの3 requestで確認済み。
-要件と結果はincrement正本を参照する。上記source commitへ確定した。常用配置・push・公開は未指示。
+要件と結果はincrement正本を参照する。上記source commitへ確定し、常用配置済み。push・公開は未指示。
 
 **[Increment 164](../docs/increments/increment-164.md)のlocal実装・検証・コード／test通常レビュー完了。利用者確認待ち。**
 Markdown heading toneだけをstandard ANSI cyanへ変更した。focused 33件、type
 check、format、lint、diff checkは pass。compiled production
 TUIでblueの`user>`、cyanの三見出し、既存色、履歴移動、新Coreでの保存Session再開を
 隔離tmuxとlocalhost一requestで確認した。実装後の独立通常レビューは必須指摘0。外部requestは0。
-上記source commitへ確定した。常用配置・push・公開は未指示。
+上記source commitへ確定し、常用配置済み。push・公開は未指示。
 
 **[Increment 163](../docs/increments/increment-163.md)は利用者確認・完了承認済み（2026-10-01）。**
 Sign in with ChatGPTの実装・コード/testレビュー・常用配置と、登録後のEnter導線修正・再配置を完了。
@@ -47,9 +48,10 @@ commit/push・公開は未指示。要件・結果はincrement正本を参照す
 local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。
 結果・検証証拠はincrement正本を参照する。
 
-常用binaryは`henji 0.8.0`、source `85256f4e…+dirty`、build `9c7c2492…`へ更新済み。
+常用binaryは`henji 0.8.0`、source `fbee507a…`（dirtyなし）、build `c8237977…`へ更新済み。
 新しい通常起動から適用する。配置前のCoreを保持し、確認用Core/TUI/tmuxは終了済み。
-旧Coreへの明示再接続はそのCoreの旧機能を使う。配置の正本は[Increment 163](../docs/increments/increment-163.md)。
+旧Coreへの明示再接続ではCore側は旧機能を使う。
+現在の配置の正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
 **[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
 Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
@@ -113,16 +115,17 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-local commitとbinary作成は完了した。
+local commit、binary作成、常用配置と配置先の起動確認は完了した。
 対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
-常用配置、push、公開はそれぞれ利用者の指示に従う。
+push、公開はそれぞれ利用者の指示に従う。
 
 ## 承認境界
 
 - local commitとbinary作成は2026-10-01の追加指示により承認済み。
   未コミットだったIncrement 161〜163とその上の164〜166を一緒に確定する。
-  push、常用配置、公開は未指示。正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。
+  後続の「了解配置して」により常用配置も承認済み・完了。
+  push、公開は未指示。正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
 - Increment
   164は利用者の「ではそうしよう　次のインクリメントとして計画して」により、Markdown見出しを

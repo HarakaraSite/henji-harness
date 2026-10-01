@@ -35,8 +35,8 @@ binary SHA-256をgit管理外の`.tools/committed-build-20261001/verification.js
 
 ## 現在の承認範囲
 
-local commitとbinary作成が承認された。常用配置、push、公開、既存Coreの停止は未指示。
-既存Sessionと登録済み認証情報は保持する。
+local commitとbinary作成が承認された。後続の「了解配置して」により常用配置も承認された。
+push、公開、既存Coreの停止は未指示。既存Sessionと登録済み認証情報は保持する。
 
 ## 完了結果
 
@@ -58,3 +58,19 @@ runtime digestはIncrement 166のproduction TUI確認に使ったcandidateと一
 詳細は`.tools/committed-build-20261001/verification.json`、build出力は同directoryの`build.log`。
 本結果の文書更新はsource commitに続く記録commitへ保存する。binaryは上記source commitからの成果物であり、
 記録commitによるruntime変更はない。push、常用配置、公開は行っていない。
+
+## 常用配置（後続指示）
+
+利用者の「了解配置して」により、2026-10-01 17:24 JSTに
+`/home/agent/.local/bin/henji`へ上記binaryをatomic配置した。
+旧build `9c7c2492…`を`.tools/committed-build-20261001/deployment/henji.previous`へ退避した。
+配置後のversionとbinary SHA-256が`dist/henji`およびverification記録と一致することを確認した。
+
+配置先binaryを隔離HOME／XDG／workspaceの100×30 tmuxで`--no-session`起動し、
+compiled Core/TUIのheader・ready表示を確認した。Ctrl-Qで確認用Core/TUIを終了した。
+task投入とprovider requestは0、既存Core・Session・実config・credentialは保持した。
+証拠は同deployment directoryの`deployment.json`と`probe/startup.txt`。
+
+新しい通常起動から適用する。既に起動中のTUI／Coreを新binaryへ置き換える操作は行っていない。
+reasoning summaryの要求を含む今回の修正を使うには、新しいCoreで起動する。
+pushと公開は行っていない。

@@ -2,7 +2,7 @@
 
 更新日: 2026-10-01
 
-ステータス: local実装・検証完了。常用配置は未実施。
+ステータス: local実装・検証・commit・binary作成・常用配置完了。
 
 ## 要件と実行証拠
 
@@ -79,3 +79,6 @@ candidate build IDは`05b45f04569bb2c024152379209d17ae58ce1d0662af907d9527cbcdd8
 
 後続のcommit/build指示により、本修正を含むsource commitとbinary作成を完了した。
 成果物と確認結果は[local build記録](../operations/local-build-2026-10-01.md)。常用配置、push、公開は行っていない。
+
+さらに「了解配置して」により常用配置と配置先の起動確認を完了した。詳細は上記記録を参照する。
+push、公開は行っていない。
