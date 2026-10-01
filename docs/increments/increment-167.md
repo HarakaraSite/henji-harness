@@ -2,7 +2,7 @@
 
 更新日: 2026-10-01
 
-ステータス: local実装・検証完了。binary作成・配置準備中。
+ステータス: local実装・検証・commit・binary作成・常用配置完了。利用者確認待ち。
 
 ## 要件と根拠
 
@@ -93,3 +93,31 @@ index 9、続行のuserはindex 10となる。証拠は`.tools/increment-167/act
 新snapshot契約はconversation.executionsを必要とする。旧Coreへの新TUI接続を混在させず、新Coreで
 保存Sessionを再開する。binary配置だけでは現在稼働中のCoreには反映しない。既存Coreの停止は利用者の
 操作に任せる。push・公開は行わない。
+
+### commit・build・常用配置
+
+追加修正の継続として、承認済みのcommit/build/配置を行った。
+source commitは`72d14f4ae81b28ec317f9940cb53d08eebf6fbc1`。
+公式henji:compileでdist/henjiを作成し、dirtyなし、build
+`d94601c7c41a7427f14651d4f89c701511340d2ac858763ab8801d96f13ff21f`。
+検証candidateと確定binaryのruntime digestは
+`ad5ac7e9967692491bcbad3f27d13b7c126237fd7efacf34dba66a18f48695e1`で一致する。
+
+常用`/home/agent/.local/bin/henji`へatomicに配置した。distと配置先のSHA-256は
+`3fecd1c3602b5ca290fb91a178dd99047d1fad94074b01fb428799f46f3b0498`で一致する。
+以前のbinaryは`.tools/increment-167/deployment/henji.previous`へ保持した。
+
+配置先のbinaryから隔離HOME/XDGで新Core/TUIを起動し、readyへの到達を確認した。
+続いて隔離backupのf75a8810を同じcompiled Core/TUIの/viewで読み、キャンセル前のuser、thinking、
+assistant note、tool四件、CANCELLED、続行userと成功回答の順序を確認した。
+長い回答のため160×70の最新viewportでは前半が外れるので、160×160の全体captureと70行の履歴移動で確認した。
+provider requestは0。証拠は`.tools/increment-167/deployment/`のdeployment.json、startup.txt、
+actual-session-full.txt、actual-session-page-up.txt。確認用Core/TUIは終了する。
+実Coreは保持する。新Coreで同Sessionを再開する例:
+
+```sh
+henji --session f75a8810-7302-400e-951e-b93e27ccf798
+```
+
+既存HenjiのCoreを終了してから実行する。旧Coreへの再接続では修正が反映されない。
+push・公開は行っていない。

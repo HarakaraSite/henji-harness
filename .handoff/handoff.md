@@ -4,10 +4,11 @@
 
 ## 現在地（2026-10-01）
 
-**[Increment 167](../docs/increments/increment-167.md)のlocal実装・検証完了。binary作成・配置準備中。**
+**[Increment 167](../docs/increments/increment-167.md)のlocal実装・検証・commit・binary作成・常用配置完了。利用者確認待ち。**
 f75a8810で、過去cancelの表示行が消えて通知が末尾へ移る原因をCore表示履歴から修正した。
 全attemptのsemantic表示identityと順序を保持し、全root結果をsnapshot/SSEへ渡す。
 focused 41件、全test型検査、隔離tmuxのcancel/recall/続行/次task/再接続、実DBの隔離readbackで確認済み。
+source `72d14f4a`、build `d94601c7…`を常用配置し、配置先compiled Core/TUIでも隔離実Sessionを確認した。
 新Coreで保存Sessionを再開して適用する。実Session、既存Core、credentialは保持している。
 
 **完了済みのIncrement 161〜166をsource commit `fbee507a`へ確定し、`dist/henji`を作成した。**
@@ -54,10 +55,10 @@ commit/push・公開は未指示。要件・結果はincrement正本を参照す
 local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。
 結果・検証証拠はincrement正本を参照する。
 
-常用binaryは`henji 0.8.0`、source `fbee507a…`（dirtyなし）、build `c8237977…`へ更新済み。
+常用binaryは`henji 0.8.0`、source `72d14f4a…`（dirtyなし）、build `d94601c7…`へ更新済み。
 新しい通常起動から適用する。配置前のCoreを保持し、確認用Core/TUI/tmuxは終了済み。
 旧Coreへの明示再接続ではCore側は旧機能を使う。
-現在の配置の正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。
+現在の配置の正本は[Increment 167](../docs/increments/increment-167.md)。
 
 **[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
 Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
@@ -121,8 +122,8 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-Increment 167のsourceを確定し、binary作成・常用配置・配置後の隔離起動確認を完了する。
-既存Coreの停止は行わない。
+Increment 167の常用配置まで完了した。利用者が既存Coreを終了し、新Coreで保存Sessionを再開して確認する。
+Core側の表示履歴が修正対象のため、旧Coreへの新TUI接続を混在させない。
 対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
 push、公開はそれぞれ利用者の指示に従う。
