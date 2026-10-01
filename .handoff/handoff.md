@@ -4,9 +4,9 @@
 
 ## 現在地（2026-10-01）
 
-**[Increment 168](../docs/increments/increment-168.md)を実装・検証中。**
-シアンとグリーンの交換を利用者が指定した。rendererの五つの色対応を変更し、focused 49件がpass。
-これからcompiled production TUIの隔離確認、commit/build/常用配置を完了する。
+**[Increment 168](../docs/increments/increment-168.md)の実装・検証・commit/build・常用配置完了。利用者確認待ち。**
+シアンとグリーンの交換を利用者が指定した。source `a692c10a`、build `4db6bd68…`を配置済み。
+要件・検証・配置の正本はincrement文書。表示の適用にはTUIを開き直す。
 
 **[Increment 167](../docs/increments/increment-167.md)は利用者確認・完了承認済み（2026-10-01）。**
 常用配置はsource `72d14f4a`、build `d94601c7…`。要件・検証・配置・完了承認の正本はincrement文書。
@@ -56,10 +56,10 @@ commit/push・公開は未指示。要件・結果はincrement正本を参照す
 local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。
 結果・検証証拠はincrement正本を参照する。
 
-常用binaryは`henji 0.8.0`、source `72d14f4a…`（dirtyなし）、build `d94601c7…`へ更新済み。
+常用binaryは`henji 0.8.0`、source `a692c10a…`（dirtyなし）、build `4db6bd68…`へ更新済み。
 新しい通常起動から適用する。配置前のCoreを保持し、確認用Core/TUI/tmuxは終了済み。
 旧Coreへの明示再接続ではCore側は旧機能を使う。
-現在の配置の正本は[Increment 167](../docs/increments/increment-167.md)。
+現在の配置の正本は[Increment 168](../docs/increments/increment-168.md)。
 
 **[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
 Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
@@ -123,7 +123,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-Increment 168のcompiled TUI確認と常用配置を完了する。
+Increment 168の利用者確認を待つ。
 対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
 push、公開はそれぞれ利用者の指示に従う。

@@ -2,7 +2,7 @@
 
 更新日: 2026-10-01
 
-ステータス: local実装・検証中。
+ステータス: local実装・検証・commit・binary作成・常用配置完了。利用者確認待ち。
 
 ## 要件・経路
 
@@ -30,3 +30,21 @@ rendererのLABEL_SGR.tool、SPAN_SGR.heading/list/emphasis、FOOTER_SGR.readyを
 既存frame testの色期待値を更新した。focused 49件はpassし、test実行時の型検査、format、lint、
 diff checkもpass。保存本文やplain layoutへのANSI混入がないこと、user blue・assistant yellow・
 quote magenta等の既存装飾も既存testで確認した。
+
+## production TUI・配置結果
+
+配置先のcompiled Core/TUIを隔離HOME/XDGで起動し、最終ANSI captureでready cyan（36）を確認した。
+保存済みf75a8810の隔離backupを/viewで開き、見出しgreen（32）、tool/list cyan（36）、
+user blue（34）、assistant yellow（33）を実画面の色状態から確認した。
+160×70の起動画面と160×160の保存履歴画面を使用した。provider requestは0。
+証拠は`.tools/increment-168/`のready-ansi.txt、session-ansi.txt、verification.json。
+
+隔離DBだけを置いた初回環境ではSession openがfailedとなった。空の隔離環境で正常起動を確認し、
+その環境へDBをbackupして、起動providerをopenrouter-chatと明示して再起動したところ確認できた。
+この確認環境の準備によるsource変更や実credentialのコピーは行っていない。確認用Coreはすべて終了した。
+
+source commit `a692c10a290cabd8376ee7195267f57fe576c1da`、dirtyなしで公式henji:compileを実行した。
+`dist/henji`と常用`/home/agent/.local/bin/henji`のSHA-256一致を確認して配置済み。
+build IDは`4db6bd682d87c671ab8872f4dad8ccb817f0cb6a1c2f3ede3aa9e80aace6ec6d`。
+配置記録は`.tools/increment-168/deployment.json`、以前のbinaryは同directoryのhenji.previous。
+TUIを開き直して適用する。既存の実Core、Session、credentialは変更していない。push・公開は未実施。
