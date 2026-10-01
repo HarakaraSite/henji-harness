@@ -78,6 +78,7 @@ Deno.test('spawn_subagent preview restores its agent name from the saved transcr
       result: { text: spawnResult.text, outcome: 'success' },
     }],
     thinking: [],
+    executions: [],
     requests: [],
     omitted: 0,
   });

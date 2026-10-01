@@ -233,33 +233,10 @@ const latestRootExecution = (
     (left, right) => left.turn - right.turn || left.createdAt.localeCompare(right.createdAt),
   ).at(-1);
 
+/** Display history includes every attempt; model context is owned by the canonical transcript. */
 const visibleExecutionIds = (
   executions: readonly StoredExecutionRow[],
-  current: ApplicationSessionState,
-): ReadonlySet<string> => {
-  const latest = latestRootExecution(executions);
-  if (latest === undefined) return new Set();
-  const visible = new Set(
-    executions.filter((execution) =>
-      execution.lifecycle === 'active' ||
-      (latest.adoption === 'non_canonical' &&
-        (execution.executionId === latest.executionId ||
-          execution.parentExecutionId === latest.executionId))
-    ).map((execution) => execution.executionId),
-  );
-  if (current.persistence === 'none') {
-    const retainedTurns = new Set(
-      indexSessionHistoryPrefix(current.transcript)?.turns.map((turn) => turn.turn) ?? [],
-    );
-    for (const execution of executions) {
-      if (
-        execution.parentExecutionId === undefined && execution.outcome === 'completed' &&
-        retainedTurns.has(execution.turn)
-      ) visible.add(execution.executionId);
-    }
-  }
-  return visible;
-};
+): ReadonlySet<string> => new Set(executions.map((execution) => execution.executionId));
 
 const transcriptMessages = (
   messages: readonly Message[],
@@ -482,7 +459,7 @@ const requestTextsFromHistory = (
   );
 };
 
-const currentExecutionMessages = (
+const executionMessages = (
   query: ApplicationQueryPort,
   executions: readonly StoredExecutionRow[],
   messages: readonly ApiMessage[],
@@ -493,14 +470,6 @@ const currentExecutionMessages = (
   const additions: ApiMessage[] = [];
   const requestOrder = new Map<string, number>();
   const messageOrder = new Map<string, number>();
-  const representedExecutions = new Set(
-    executions.filter((execution) =>
-      execution.lifecycle === 'settled' && execution.outcome === 'completed' &&
-      messages.some((message) =>
-        message.executionId === execution.executionId && message.role === 'assistant'
-      )
-    ).map((execution) => execution.executionId),
-  );
   for (const execution of executions) {
     if (!visibleExecutions.has(execution.executionId)) continue;
     for (const event of query.executionEvents(execution.executionId)) {
@@ -508,8 +477,7 @@ const currentExecutionMessages = (
       if (key !== undefined) requestOrder.set(requestKeyIdentity(key), event.ordinal);
     }
     if (
-      execution.parentExecutionId === undefined &&
-      execution.adoption !== 'canonical'
+      execution.parentExecutionId === undefined
     ) {
       const id = `${execution.executionId}:message:0`;
       if (!messages.some((message) => message.id === id)) {
@@ -521,9 +489,6 @@ const currentExecutionMessages = (
           text: execution.task,
         });
       }
-    }
-    if (execution.adoption === 'canonical' || representedExecutions.has(execution.executionId)) {
-      continue;
     }
     for (const occurrence of query.semanticOccurrences(execution.executionId)) {
       const source = eventFromOccurrence(occurrence);
@@ -578,12 +543,6 @@ const currentExecutionMessages = (
   const projected = [...messages, ...additions];
   for (const tool of tools) {
     if (!visibleExecutions.has(tool.executionId)) continue;
-    if (
-      !executions.some((execution) =>
-        execution.executionId === tool.executionId &&
-        execution.adoption !== 'canonical'
-      )
-    ) continue;
     const assistantAlreadyReferencesTool = projected.some((message) =>
       message.role === 'assistant' &&
       message.toolOccurrenceIds?.includes(tool.toolOccurrenceId)
@@ -650,12 +609,13 @@ const currentExecutionMessages = (
       ? Infinity
       : requestOrder.get(requestKeyIdentity(key)) ?? key.modelStep;
   };
-  const current = projected.slice(messages.length).sort((left, right) =>
-    (executionOrder.get(left.executionId)! - executionOrder.get(right.executionId)!) ||
+  const current = projected.sort((left, right) =>
+    ((executionOrder.get(left.executionId) ?? -1) -
+      (executionOrder.get(right.executionId) ?? -1)) ||
     (requestOrdinal(left) - requestOrdinal(right)) ||
     (Number(left.role === 'tool') - Number(right.role === 'tool'))
   );
-  return [...projected.slice(0, messages.length), ...current];
+  return current;
 };
 
 const thinkingForVisibleExecutions = (
@@ -840,8 +800,10 @@ export const projectApplicationSession = (
   const current = query.currentSession();
   const history = query.sessionHistory();
   const restored = current.restored;
-  const executions = query.executions();
-  const visible = visibleExecutionIds(executions, current);
+  const executions = [...query.executions()].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt)
+  );
+  const visible = visibleExecutionIds(executions);
   const toolProjection = buildToolOccurrences(query, executions, visible);
   const canonicalMessages = restored === undefined
     ? transcriptMessages(
@@ -890,16 +852,16 @@ export const projectApplicationSession = (
     executions,
     visible,
   );
-  const messages = currentExecutionMessages(
+  const messages = executionMessages(
     query,
     executions,
-    canonicalMessages,
+    canonicalMessages.filter((message) => !visible.has(message.executionId)),
     requests,
     tools,
     visible,
   );
   const thinking = [
-    ...restoredThinking,
+    ...restoredThinking.filter((item) => !visible.has(item.requestKey.executionId)),
     ...currentThinking.map((item) => {
       const messageIndex = messages.findIndex((message) =>
         message.role === 'assistant' && message.requestKey !== undefined &&
@@ -918,7 +880,22 @@ export const projectApplicationSession = (
       const stepMessageIndex = assistantMessageIndices[item.requestKey.modelStep - 1];
       return {
         ...item,
-        beforeMessageIndex: messageIndex >= 0 ? messageIndex : stepMessageIndex ?? messages.length,
+        beforeMessageIndex: messageIndex >= 0 ? messageIndex : stepMessageIndex ?? (() => {
+          // A stopped request can have thinking without any assistant message. Its boundary
+          // belongs to that attempt, even when later attempts have already been appended.
+          const last = messages.findLastIndex((message) =>
+            message.executionId === item.requestKey.executionId
+          );
+          if (last >= 0) return last + 1;
+          const order = executions.findIndex((execution) =>
+            execution.executionId === item.requestKey.executionId
+          );
+          const next = messages.findIndex((message) =>
+            executions.findIndex((execution) => execution.executionId === message.executionId) >
+              order
+          );
+          return next < 0 ? messages.length : next;
+        })(),
       };
     }),
   ];
@@ -973,6 +950,15 @@ export const projectApplicationSession = (
       }),
     },
     conversation: {
+      executions: executions.filter((execution) => execution.parentExecutionId === undefined)
+        .map((execution) =>
+          projectExecutionView(
+            execution,
+            current.runtime,
+            executionStates.get(execution.executionId),
+            query.executionEvents(execution.executionId),
+          )!
+        ),
       messages,
       tools,
       thinking,

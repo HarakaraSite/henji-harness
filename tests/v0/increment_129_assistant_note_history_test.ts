@@ -278,6 +278,7 @@ Deno.test('Increment 129 keeps every assistant note before its tool calls in all
       result: { text: '', outcome: 'success' },
     }],
     thinking: [],
+    executions: [],
     requests: [],
     omitted: 0,
   }));

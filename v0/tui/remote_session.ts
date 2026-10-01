@@ -454,7 +454,7 @@ const isConversationChange = (frame: SessionStreamFrame): boolean =>
   frame.changes.some((change) =>
     change.kind.startsWith('message.') || change.kind.startsWith('tool.') ||
     change.kind.startsWith('thinking.') || change.kind.startsWith('request.') ||
-    change.kind === 'conversation.omitted.replace' ||
+    change.kind === 'conversation.omitted.replace' || change.kind === 'executions.replace' ||
     change.kind === 'pending.replace' || change.kind === 'runtime.replace'
   );
 

@@ -267,6 +267,9 @@ export const diffSessionSnapshots = (
   if (!sameValue(before.context, after.context)) {
     changes.push({ kind: 'context.replace', context: after.context });
   }
+  if (!sameValue(before.conversation.executions, after.conversation.executions)) {
+    changes.push({ kind: 'executions.replace', executions: after.conversation.executions });
+  }
   changes.push(...upsertChange(
     before.conversation.messages,
     after.conversation.messages,
@@ -343,6 +346,12 @@ export const reduceSessionStreamFrame = (
         break;
       case 'context.replace':
         snapshot = { ...snapshot, context: change.context };
+        break;
+      case 'executions.replace':
+        snapshot = {
+          ...snapshot,
+          conversation: { ...conversation, executions: change.executions },
+        };
         break;
       case 'message.upsert':
         snapshot = {

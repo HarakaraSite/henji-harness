@@ -126,6 +126,7 @@ Deno.test('Increment 99 session view places mixed assistant final as resume does
       result: { text: 'hi', outcome: 'success' },
     }],
     thinking: [],
+    executions: [],
     requests: [],
     omitted: 0,
   }));

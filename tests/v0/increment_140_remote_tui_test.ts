@@ -68,6 +68,7 @@ const snapshot = {
     ],
     tools: [],
     thinking: [],
+    executions: [],
     requests: [],
     omitted: 0,
   },

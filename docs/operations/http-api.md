@@ -110,7 +110,7 @@ curl -X POST http://127.0.0.1:5270/api/v1/sessions/open \
 
 この操作はSessionを準備するだけで、taskを送らない。 openのsnapshotはcursor（epoch・Session
 ID・revision）、Sessionのposition／selection／startup、
-runtime、conversation（messages・tools・thinking・requests）、pending、credential
+runtime、conversation（executions・messages・tools・thinking・requests）、pending、credential
 availability、contextを持つ。 lazy
 Sessionのstartupは既知のversion／workspace／agent／model／sessionMode等を起動直後から含む。
 `status: "unevaluated"`ではcontext／skillsをWorkerの実評価結果として扱わない。
@@ -124,6 +124,12 @@ curl http://127.0.0.1:5270/api/v1/sessions
 curl 'http://127.0.0.1:5270/api/v1/history?latest=true&view=canonical'
 curl -N http://127.0.0.1:5270/api/v1/sessions/<id>/events
 ```
+
+`conversation`は人間向けのSession表示履歴で、成功・cancel・failureを含むexecutionを開始順に保持する。
+`executions`はroot executionの結果、messages・tools・thinkingは保存済みsemantic記録に基づく。
+表示identityはliveからsettlement、canonical採用、再接続まで維持する。同じturn番号の別attemptを
+混ぜない。modelの既定入力は別経路のcanonical conversationであり、この表示履歴を直接送信しない。
+新しいsnapshot契約には`conversation.executions`が必要なため、旧Coreへ新TUIを接続せず、新Coreで保存Sessionを再開する。
 
 SSEの先頭frameは`session.snapshot`で、JSON dataの`snapshot`がclient初期値となる。
 `session.update`はcursor、previousRevision、changesを持つ。

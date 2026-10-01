@@ -8,6 +8,7 @@ const baseSnapshot = sessionSnapshotFixture({
   messages: [],
   tools: [],
   thinking: [],
+  executions: [],
   requests: [],
   omitted: 0,
 });
@@ -63,6 +64,7 @@ const initialConversation: SessionSnapshot['conversation'] = {
     complete: true,
     beforeMessageIndex: 2,
   }],
+  executions: [],
   requests: [],
   omitted: 2,
 };

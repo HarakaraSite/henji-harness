@@ -132,6 +132,7 @@ const snapshot = (revision: number): SessionSnapshot => ({
     messages: conversationMessages,
     tools: [],
     thinking: [],
+    executions: [],
     requests: [],
     omitted: 0,
   },

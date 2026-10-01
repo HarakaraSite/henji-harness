@@ -61,7 +61,7 @@ const snapshot = (sessionId = 'session-a'): SessionSnapshot => ({
     execution: null,
     operations: ['task.submit'],
   },
-  conversation: { messages: [], tools: [], thinking: [], requests: [], omitted: 0 },
+  conversation: { messages: [], tools: [], thinking: [], executions: [], requests: [], omitted: 0 },
   pending: { kind: 'core-owned', followUps: [] },
   credentialAvailability: { status: 'present' },
   context: {},
@@ -96,6 +96,7 @@ const toolConversation = (): SessionSnapshot['conversation'] => ({
     result: { text: 'file contents', outcome: 'success' },
   }],
   thinking: [],
+  executions: [],
   requests: [],
   omitted: 0,
 });
@@ -104,7 +105,7 @@ Deno.test('Increment 166 cancellation follows projected tools with or without th
   const first = {
     ...snapshot(),
     runtime: { ...snapshot().runtime, execution: execution('cancelled') },
-    conversation: toolConversation(),
+    conversation: { ...toolConversation(), executions: [execution('cancelled')] },
   };
   const projector = new SnapshotConversationProjector();
   const notices = new RemoteSystemNotices();
@@ -164,6 +165,7 @@ Deno.test('Increment 166 failure follows the last assistant or thinking entry of
     runtime: { ...snapshot().runtime, execution: execution('failed') },
     conversation: {
       ...conversation,
+      executions: [execution('failed')],
       messages: [...conversation.messages, {
         id: 'answer',
         executionId: 'execution-a',
@@ -333,6 +335,14 @@ Deno.test('Increment 159 derives short failure and updates one queue notice with
   ok(systemEntries(reserved).some((item) => item.text === 'RESERVED · next task'));
   const failed = {
     ...first,
+    conversation: {
+      ...first.conversation,
+      executions: [{
+        ...execution('failed'),
+        stopReason: 'contract_failure' as const,
+        diagnostic: { code: 'http_error', stage: 'http' },
+      }],
+    },
     runtime: {
       ...first.runtime,
       execution: {

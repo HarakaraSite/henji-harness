@@ -29,6 +29,7 @@ Deno.test('Increment 153 snapshot Core identity stays visible alongside Session 
     messages: [],
     tools: [],
     thinking: [],
+    executions: [],
     requests: [],
     omitted: 0,
   });

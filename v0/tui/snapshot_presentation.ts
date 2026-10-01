@@ -269,7 +269,7 @@ export class SnapshotConversationProjector {
 
     const nextMessages = new Map<string, MessageProjection>();
     const callPreviewById = new Map<string, string>();
-    const seenUserTurns = new Set<number>();
+    const seenUserExecutions = new Set<string>();
     for (
       let index = 0;
       index < snapshot.conversation.messages.length;
@@ -287,9 +287,9 @@ export class SnapshotConversationProjector {
       const cachedDependenciesMatch = cached !== undefined &&
         sameFields(cached.dependencies, dependencies);
       const userLabel = message.role === 'user'
-        ? seenUserTurns.has(message.turn) ? 'steer>' : 'user>'
+        ? seenUserExecutions.has(message.executionId) ? 'steer>' : 'user>'
         : undefined;
-      if (message.role === 'user') seenUserTurns.add(message.turn);
+      if (message.role === 'user') seenUserExecutions.add(message.executionId);
       const reusable = cached !== undefined && cached.source === message &&
         cached.index === index && cachedDependenciesMatch && !affectedByTool && !forceRead &&
         !hintedMessages.has(message.id) && cached.userLabel === userLabel;

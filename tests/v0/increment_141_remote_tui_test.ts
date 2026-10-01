@@ -101,6 +101,7 @@ const snapshot = (options: {
     messages: options.messages ?? [],
     tools: [],
     thinking: [],
+    executions: options.currentExecution == null ? [] : [options.currentExecution],
     requests: [],
     omitted: 0,
   },

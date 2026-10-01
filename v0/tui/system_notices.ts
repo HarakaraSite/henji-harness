@@ -5,6 +5,7 @@ interface RetainedNotice {
   entry: UiLogEntry;
   anchor?: string;
   steeringText?: string;
+  afterExecutionId?: string;
 }
 
 /** Display memory belongs to this TUI; Core semantic history and queue records remain authoritative. */
@@ -51,26 +52,37 @@ export class RemoteSystemNotices {
 
   merge(snapshot: SessionSnapshot, entries: readonly UiLogEntry[]): readonly UiLogEntry[] {
     const sessionId = snapshot.session.id;
+    // Reconcile local event boundaries before replacing the authoritative display rows.
+    const previous = this.semantic.get(sessionId) ?? [];
+    const ids = new Set(entries.map((entry) => entry.id));
+    for (const notice of this.sessions.get(sessionId)?.values() ?? []) {
+      if (notice.anchor === undefined || ids.has(notice.anchor)) continue;
+      const boundary = previous.findIndex((entry) => entry.id === notice.anchor);
+      notice.anchor = previous.slice(0, boundary + 1).findLast((entry) => ids.has(entry.id))?.id;
+    }
     this.semantic.set(sessionId, entries);
-    const execution = snapshot.runtime.execution;
-    if (execution?.lifecycle === 'settled' && execution.outcome !== 'completed') {
-      const word = execution.outcome.toUpperCase();
-      const reason = execution.diagnostic === undefined
-        ? execution.stopReason === 'max_steps'
-          ? 'step limit reached'
-          : execution.outcome === 'failed'
-          ? 'execution failed'
-          : execution.outcome === 'unknown'
-          ? 'execution result unavailable'
-          : execution.outcome
-        : presentationFailureReason(execution.diagnostic);
-      this.retain(
-        sessionId,
-        `execution:${execution.executionId}`,
-        reason === execution.outcome ? word : `${word} · ${reason}`,
-        word,
-        execution.executionId,
-      );
+    for (const execution of snapshot.conversation.executions) {
+      if (execution.lifecycle === 'settled' && execution.outcome !== 'completed') {
+        const word = execution.outcome.toUpperCase();
+        const reason = execution.diagnostic === undefined
+          ? execution.stopReason === 'max_steps'
+            ? 'step limit reached'
+            : execution.outcome === 'failed'
+            ? 'execution failed'
+            : execution.outcome === 'unknown'
+            ? 'execution result unavailable'
+            : execution.outcome
+          : presentationFailureReason(execution.diagnostic);
+        this.retain(
+          sessionId,
+          `execution:${execution.executionId}`,
+          reason === execution.outcome ? word : `${word} · ${reason}`,
+          word,
+          execution.executionId,
+        );
+        this.sessions.get(sessionId)!.get(`system:${sessionId}:execution:${execution.executionId}`)!
+          .afterExecutionId = execution.executionId;
+      }
     }
     const records = [
       ...(snapshot.pending.followUp === undefined ? [] : [snapshot.pending.followUp]),
@@ -122,7 +134,12 @@ export class RemoteSystemNotices {
         .steeringText = steering.text;
     }
     const retained = [...(this.sessions.get(sessionId)?.values() ?? [])];
-    const ids = new Set(entries.map((entry) => entry.id));
+    for (const notice of retained) {
+      if (notice.afterExecutionId !== undefined) {
+        notice.anchor = entries.findLast((entry) => entry.executionId === notice.afterExecutionId)
+          ?.id;
+      }
+    }
     const result: UiLogEntry[] = [];
     for (const notice of retained) {
       if (notice.anchor === undefined) result.push(notice.entry);
@@ -132,9 +149,6 @@ export class RemoteSystemNotices {
       for (const notice of retained) {
         if (notice.anchor === entry.id) result.push(notice.entry);
       }
-    }
-    for (const notice of retained) {
-      if (notice.anchor !== undefined && !ids.has(notice.anchor)) result.push(notice.entry);
     }
     return result;
   }

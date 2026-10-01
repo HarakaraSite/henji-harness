@@ -445,6 +445,8 @@ export type SessionSnapshot = Readonly<{
     effectiveConfig?: EffectiveRuntimeConfig;
   }>;
   conversation: Readonly<{
+    /** Human-facing attempts, independent of canonical model context. */
+    executions: readonly ExecutionView[];
     messages: readonly ApiMessage[];
     tools: readonly ApiToolOccurrence[];
     thinking: readonly ApiThinking[];
@@ -467,6 +469,7 @@ export type SessionChange =
     credentialAvailability: SessionSnapshot['credentialAvailability'];
   }>
   | Readonly<{ kind: 'context.replace'; context: SessionSnapshot['context'] }>
+  | Readonly<{ kind: 'executions.replace'; executions: readonly ExecutionView[] }>
   | Readonly<{ kind: 'message.upsert'; message: ApiMessage }>
   | Readonly<{ kind: 'message.remove'; id: string }>
   | Readonly<{ kind: 'tool.upsert'; tool: ApiToolOccurrence }>

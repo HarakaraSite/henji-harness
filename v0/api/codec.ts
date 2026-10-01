@@ -453,7 +453,8 @@ export const decodeSessionSnapshot = (value: unknown): SessionSnapshot => {
     !runtime.operations.every((item) => typeof item === 'string') ||
     (runtime.effectiveConfig !== undefined &&
       !isEffectiveRuntimeConfig(runtime.effectiveConfig)) ||
-    !isRecord(conversation) || !Array.isArray(conversation.messages) ||
+    !isRecord(conversation) || !Array.isArray(conversation.executions) ||
+    !conversation.executions.every(isExecutionView) || !Array.isArray(conversation.messages) ||
     !Array.isArray(conversation.tools) ||
     !Array.isArray(conversation.thinking) ||
     !Array.isArray(conversation.requests) || !isPendingView(value.pending) ||
@@ -546,6 +547,8 @@ const validChange = (value: unknown): value is SessionChange => {
       );
     case 'pending.replace':
       return isPendingView(value.pending);
+    case 'executions.replace':
+      return Array.isArray(value.executions) && value.executions.every(isExecutionView);
     case 'message.upsert':
     case 'tool.upsert':
     case 'thinking.upsert':
