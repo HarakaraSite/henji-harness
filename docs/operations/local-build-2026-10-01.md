@@ -37,3 +37,24 @@ binary SHA-256をgit管理外の`.tools/committed-build-20261001/verification.js
 
 local commitとbinary作成が承認された。常用配置、push、公開、既存Coreの停止は未指示。
 既存Sessionと登録済み認証情報は保持する。
+
+## 完了結果
+
+75 fileの変更をsource commit `fbee507aa4675a80b373113e9d6854a86bc081fe`
+（`feat: add ChatGPT sign-in and complete TUI improvements`）へ確定した。
+credential値の検査は検出0、staged diff checkもpass。認証fileとprobeの実行データは追加していない。
+
+公式buildは成功し、`dist/henji`を作成した。`--version`でsourceが上記commitと一致し、
+`sourceDirty: false`であることを確認した。`--help`も正常終了した。
+runtime digestはIncrement 166のproduction TUI確認に使ったcandidateと一致し、確認済みのruntimeを保持した。
+
+- version: `henji 0.8.0`
+- target: `x86_64-unknown-linux-gnu`
+- build ID: `c8237977af49c36d9467a708b1bccd217c5be0d5715158d2bc172a7f71ea4ac6`
+- runtime SHA-256: `f7848ea125923bb201e50bca91d2cb9e5712442525a6576e7d464cb5e5d2b706`
+- binary SHA-256: `6ee4ff212da1e9e8cb8e75728a49e5921cf56cf3cade4c6f2f2d38f74f3eff0f`
+- size: 115,235,496 bytes
+
+詳細は`.tools/committed-build-20261001/verification.json`、build出力は同directoryの`build.log`。
+本結果の文書更新はsource commitに続く記録commitへ保存する。binaryは上記source commitからの成果物であり、
+記録commitによるruntime変更はない。push、常用配置、公開は行っていない。

@@ -76,3 +76,6 @@ task投入、Session open/change、provider request、実config変更は行っ�
 `page-up.txt`、`page-down.txt`、`reconnected.txt`へ保存した。
 candidate build IDは`05b45f04569bb2c024152379209d17ae58ce1d0662af907d9527cbcdd8564c0e`。
 確認用TUIはdetach済み。既存Coreと実Sessionは保持した。常用配置、commit/push、公開は行っていない。
+
+後続のcommit/build指示により、本修正を含むsource commitとbinary作成を完了した。
+成果物と確認結果は[local build記録](../operations/local-build-2026-10-01.md)。常用配置、push、公開は行っていない。

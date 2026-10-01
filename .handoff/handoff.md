@@ -4,20 +4,25 @@
 
 ## 現在地（2026-10-01）
 
+**完了済みのIncrement 161〜166をsource commit `fbee507a`へ確定し、`dist/henji`を作成した。**
+binaryのsourceは同commit、dirtyなし。build IDは`c8237977…`。
+成果物・確認の正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。push・常用配置・公開は未実施。
+
 **[Increment 166](../docs/increments/increment-166.md)のlocal修正・検証完了。**
 表示行へexecution IDを引き継ぎ、cancelと同じ原因のsystem通知の挿入位置を修正した。
-実Sessionのcompiled TUI、履歴移動、再接続で確認済み。常用配置・commit/push・公開は未指示。
+実Sessionのcompiled TUI、履歴移動、再接続で確認済み。上記source commitへ確定した。
+常用配置・push・公開は未指示。
 
 **[Increment 165](../docs/increments/increment-165.md)のlocal修正・検証完了。**
 Responsesで表示用summaryを要求し、既存のeffort選択を維持する。実API highの3 requestで確認済み。
-要件と結果はincrement正本を参照する。 常用配置・commit/push・公開は未指示。
+要件と結果はincrement正本を参照する。上記source commitへ確定した。常用配置・push・公開は未指示。
 
 **[Increment 164](../docs/increments/increment-164.md)のlocal実装・検証・コード／test通常レビュー完了。利用者確認待ち。**
 Markdown heading toneだけをstandard ANSI cyanへ変更した。focused 33件、type
 check、format、lint、diff checkは pass。compiled production
 TUIでblueの`user>`、cyanの三見出し、既存色、履歴移動、新Coreでの保存Session再開を
 隔離tmuxとlocalhost一requestで確認した。実装後の独立通常レビューは必須指摘0。外部requestは0。
-常用配置・commit/push・公開は未指示。
+上記source commitへ確定した。常用配置・push・公開は未指示。
 
 **[Increment 163](../docs/increments/increment-163.md)は利用者確認・完了承認済み（2026-10-01）。**
 Sign in with ChatGPTの実装・コード/testレビュー・常用配置と、登録後のEnter導線修正・再配置を完了。
@@ -108,10 +113,10 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-利用者の「コミットして一緒にバイナリ作成して」により、完了済みの未コミット差分をlocal commitし、
-そのsourceからbinaryを作成する。対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
+local commitとbinary作成は完了した。
+対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
-常用配置、commit/push、公開はそれぞれ利用者の指示に従う。
+常用配置、push、公開はそれぞれ利用者の指示に従う。
 
 ## 承認境界
 

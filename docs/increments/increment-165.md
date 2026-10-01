@@ -63,3 +63,6 @@ turnへの暗号化reasoning再送も元itemと一致した。
 結果はgit管理外の`.tools/summary-fix-verification/report.json`に保存し、credential値が含まれないことを確認した。
 
 本修正後のproduction TUI実画面は未確認。常用binaryと既存Coreは更新していない。
+
+後続のcommit/build指示により、本修正を含むsource commitとbinary作成を完了した。
+成果物と確認結果は[local build記録](../operations/local-build-2026-10-01.md)。常用配置、push、公開は行っていない。
