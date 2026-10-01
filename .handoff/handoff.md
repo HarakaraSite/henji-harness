@@ -4,12 +4,9 @@
 
 ## 現在地（2026-10-01）
 
-**[Increment 167](../docs/increments/increment-167.md)のlocal実装・検証・commit・binary作成・常用配置完了。利用者確認待ち。**
-f75a8810で、過去cancelの表示行が消えて通知が末尾へ移る原因をCore表示履歴から修正した。
-全attemptのsemantic表示identityと順序を保持し、全root結果をsnapshot/SSEへ渡す。
-focused 41件、全test型検査、隔離tmuxのcancel/recall/続行/次task/再接続、実DBの隔離readbackで確認済み。
-source `72d14f4a`、build `d94601c7…`を常用配置し、配置先compiled Core/TUIでも隔離実Sessionを確認した。
-新Coreで保存Sessionを再開して適用する。実Session、既存Core、credentialは保持している。
+**[Increment 167](../docs/increments/increment-167.md)は利用者確認・完了承認済み（2026-10-01）。**
+常用配置はsource `72d14f4a`、build `d94601c7…`。要件・検証・配置・完了承認の正本はincrement文書。
+実Sessionとcredentialを保持している。push・公開は未指示。
 
 **完了済みのIncrement 161〜166をsource commit `fbee507a`へ確定し、`dist/henji`を作成した。**
 binaryのsourceは同commit、dirtyなし。build IDは`c8237977…`。
@@ -122,8 +119,7 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-Increment 167の常用配置まで完了した。利用者が既存Coreを終了し、新Coreで保存Sessionを再開して確認する。
-Core側の表示履歴が修正対象のため、旧Coreへの新TUI接続を混在させない。
+Increment 167は利用者確認・完了承認まで完了した。次の作業指示を待つ。
 対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
 
 push、公開はそれぞれ利用者の指示に従う。

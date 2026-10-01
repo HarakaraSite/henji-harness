@@ -2,7 +2,7 @@
 
 更新日: 2026-10-01
 
-ステータス: local実装・検証・commit・binary作成・常用配置完了。利用者確認待ち。
+ステータス: 利用者確認・完了承認済み（2026-10-01）。local実装・検証・commit・binary作成・常用配置完了。
 
 ## 要件と根拠
 
@@ -112,7 +112,7 @@ source commitは`72d14f4ae81b28ec317f9940cb53d08eebf6fbc1`。
 assistant note、tool四件、CANCELLED、続行userと成功回答の順序を確認した。
 長い回答のため160×70の最新viewportでは前半が外れるので、160×160の全体captureと70行の履歴移動で確認した。
 provider requestは0。証拠は`.tools/increment-167/deployment/`のdeployment.json、startup.txt、
-actual-session-full.txt、actual-session-page-up.txt。確認用Core/TUIは終了する。
+actual-session-full.txt、actual-session-page-up.txt。確認用Core/TUIは終了済み。
 実Coreは保持する。新Coreで同Sessionを再開する例:
 
 ```sh
@@ -121,3 +121,8 @@ henji --session f75a8810-7302-400e-951e-b93e27ccf798
 
 既存HenjiのCoreを終了してから実行する。旧Coreへの再接続では修正が反映されない。
 push・公開は行っていない。
+
+### 利用者確認・完了承認
+
+2026-10-01、利用者の「確認しました このインクリメントを完了とします」により、
+Increment 167を完了とする。常用配置済みの修正について利用者確認を受け、handoffを更新した。
