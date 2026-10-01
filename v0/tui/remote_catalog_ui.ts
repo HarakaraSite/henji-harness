@@ -5,7 +5,13 @@ import type {
   CredentialRegisterResult,
   SelectionChangeValue,
 } from '../api/contract.ts';
-import { HenjiApiClient } from '../api/client.ts';
+import { type HenjiApiClient, HenjiApiError } from '../api/client.ts';
+import type {
+  ChatGPTAuthResult,
+  ChatGPTLoginAttempt,
+  ChatGPTOperation,
+  ChatGPTState,
+} from '../api/chatgpt_contract.ts';
 import type { CommandResult, CoreCommandValue } from '../api/contract.ts';
 import type { InputEvent } from './input.ts';
 import type { TuiRenderer } from './render.ts';
@@ -22,6 +28,11 @@ type ProfileChoice = Extract<
   CatalogReadResult,
   { kind: 'credentials' }
 >['profiles'][number];
+
+type ChatGPTProfileChoice = ProfileChoice & {
+  readonly method?: 'api-key' | 'chatgpt';
+  readonly label?: string;
+};
 
 type CatalogModal =
   | {
@@ -57,8 +68,41 @@ type CatalogModal =
   }
   | {
     readonly kind: 'profiles';
-    readonly entries: readonly ProfileChoice[];
+    readonly entries: readonly ChatGPTProfileChoice[];
     readonly presence: CredentialPresenceReadResult['profiles'];
+    readonly selected: number;
+    readonly top: number;
+  }
+  | {
+    readonly kind: 'chatgpt-accounts';
+    readonly state: ChatGPTState;
+    readonly selected: number;
+    readonly notice?: string;
+  }
+  | {
+    readonly kind: 'chatgpt-authorize';
+    readonly state: ChatGPTState;
+    readonly attempt: ChatGPTLoginAttempt;
+  }
+  | {
+    readonly kind: 'chatgpt-callback';
+    readonly state: ChatGPTState;
+    readonly attempt: ChatGPTLoginAttempt;
+    /** The full callback URL stays in this modal state and is never rendered. */
+    readonly callbackUrl: string;
+  }
+  | {
+    readonly kind: 'chatgpt-operation';
+    readonly operation: 'status' | 'begin' | 'complete' | 'cancel' | 'select';
+    readonly generation: number;
+    readonly state?: ChatGPTState;
+    readonly attempt?: ChatGPTLoginAttempt;
+  }
+  | {
+    readonly kind: 'chatgpt-models';
+    readonly state: ChatGPTState;
+    readonly accountLabel: string;
+    readonly entries: readonly ModelChoice[];
     readonly selected: number;
     readonly top: number;
   }
@@ -81,6 +125,7 @@ export interface RemoteCatalogUiOptions {
     | 'commandRead'
     | 'credentialPresenceRead'
     | 'credentialRegister'
+    | 'chatgptAuth'
   >;
   readonly renderer: Pick<
     TuiRenderer,
@@ -277,17 +322,6 @@ export class RemoteCatalogUi {
   }
 
   async openLogin(): Promise<void> {
-    if (!this.options.canRegisterCredential()) {
-      const sessionId = this.options.sessionId();
-      this.options.setNotice(undefined);
-      this.options.retainNotice(
-        sessionId,
-        `local:${crypto.randomUUID()}`,
-        'REJECTED · credential.register · requires an idle Session; check execution state and retry',
-        'REJECTED',
-      );
-      return;
-    }
     const sessionId = this.options.sessionId();
     const generation = this.beginLoading('credentials', sessionId);
     try {
@@ -333,16 +367,58 @@ export class RemoteCatalogUi {
   process(event: InputEvent): void {
     const modal = this.modal;
     if (modal === null) return;
+    if (modal.kind === 'chatgpt-operation') {
+      if (modal.operation === 'complete' || modal.operation === 'select') return;
+      if (event.kind === 'escape' || event.kind === 'ctrl_d') {
+        this.cancelPendingChatGPT(modal);
+      }
+      return;
+    }
     if (
       modal.kind === 'saving-credential' || modal.kind === 'saving-selection'
     ) return;
     if (
       event.kind === 'escape' || event.kind === 'ctrl_d'
     ) {
+      if (
+        modal.kind === 'chatgpt-authorize' || modal.kind === 'chatgpt-callback'
+      ) {
+        this.closeWithNotice();
+        void this.cancelChatGPTAttempt(modal.attempt.attemptId);
+        return;
+      }
+      if (modal.kind === 'chatgpt-models') {
+        this.showChatGPTAccounts(modal.state);
+        return;
+      }
       this.closeWithNotice();
       return;
     }
     if (modal.kind === 'loading') return;
+    if (modal.kind === 'chatgpt-authorize') {
+      if (event.kind === 'enter') {
+        this.modal = {
+          kind: 'chatgpt-callback',
+          state: modal.state,
+          attempt: modal.attempt,
+          callbackUrl: '',
+        };
+        this.renderChatGPTCallback();
+      }
+      return;
+    }
+    if (modal.kind === 'chatgpt-callback') {
+      this.processChatGPTCallback(modal, event);
+      return;
+    }
+    if (modal.kind === 'chatgpt-accounts') {
+      this.processChatGPTAccounts(modal, event);
+      return;
+    }
+    if (modal.kind === 'chatgpt-models') {
+      this.processChatGPTModels(modal, event);
+      return;
+    }
     if (modal.kind === 'credential-input') {
       this.processCredentialInput(modal, event);
       return;
@@ -442,21 +518,418 @@ export class RemoteCatalogUi {
     } else if (modal.kind === 'profiles') {
       const profile = modal.entries[modal.selected];
       if (profile !== undefined) {
-        this.modal = {
-          kind: 'credential-input',
-          authProfile: profile.authProfile,
-          value: '',
-        };
-        this.renderCredentialInput();
+        if (profile.method === 'chatgpt') {
+          void this.openChatGPTAuth();
+        } else if (!this.options.canRegisterCredential()) {
+          const sessionId = this.options.sessionId();
+          this.closeWithNotice();
+          this.options.retainNotice(
+            sessionId,
+            `local:${crypto.randomUUID()}`,
+            'REJECTED · credential.register · requires an idle Session; check execution state and retry',
+            'REJECTED',
+          );
+        } else {
+          this.modal = {
+            kind: 'credential-input',
+            authProfile: profile.authProfile,
+            value: '',
+          };
+          this.renderCredentialInput();
+        }
       }
     }
   }
 
   close(): void {
+    const modal = this.modal;
+    if (
+      modal?.kind === 'chatgpt-authorize' || modal?.kind === 'chatgpt-callback'
+    ) {
+      void this.cancelChatGPTAttempt(modal.attempt.attemptId);
+    } else if (
+      modal?.kind === 'chatgpt-operation' && modal.operation !== 'complete' &&
+      modal.attempt !== undefined
+    ) {
+      void this.cancelChatGPTAttempt(modal.attempt.attemptId);
+    }
     ++this.generation;
     this.modal = null;
     this.options.renderer.clearModal();
     this.options.setNotice(undefined);
+  }
+
+  private async requestChatGPT(
+    operation: ChatGPTOperation,
+  ): Promise<ChatGPTAuthResult> {
+    return await this.options.client.chatgptAuth(operation);
+  }
+
+  private beginChatGPTOperation(
+    operation: Extract<ChatGPTOperation, { kind: string }>['kind'],
+    state?: ChatGPTState,
+    attempt?: ChatGPTLoginAttempt,
+  ): number {
+    const generation = ++this.generation;
+    this.modal = {
+      kind: 'chatgpt-operation',
+      operation,
+      generation,
+      ...(state === undefined ? {} : { state }),
+      ...(attempt === undefined ? {} : { attempt }),
+    };
+    this.options.setNotice(undefined);
+    this.options.renderer.renderChoicePicker(
+      [
+        `ChatGPT ${operation} · waiting for Core`,
+        ...(operation === 'complete'
+          ? ['Sign-in submitted; waiting for registration to finish.']
+          : operation === 'select'
+          ? ['Account selection submitted; waiting for Core to finish.']
+          : []),
+      ],
+      operation === 'complete' || operation === 'select' ? [] : ['Esc cancel'],
+    );
+    return generation;
+  }
+
+  private currentChatGPTOperation(generation: number): boolean {
+    return this.modal?.kind === 'chatgpt-operation' &&
+      this.modal.generation === generation && this.generation === generation;
+  }
+
+  private async openChatGPTAuth(): Promise<void> {
+    const generation = this.beginChatGPTOperation('status');
+    try {
+      const result = await this.requestChatGPT({ kind: 'status' });
+      if (!this.currentChatGPTOperation(generation)) return;
+      if (result.kind === 'rejected') {
+        this.closeWithNotice();
+        this.retainChatGPTFailure(result.reason);
+        return;
+      }
+      if (result.state.accounts.length === 0) {
+        void this.beginChatGPTLogin(undefined, result.state);
+      } else {
+        this.showChatGPTAccounts(result.state);
+      }
+    } catch {
+      if (!this.currentChatGPTOperation(generation)) return;
+      this.closeWithNotice();
+      this.retainChatGPTFailure('unavailable');
+    }
+  }
+
+  private async beginChatGPTLogin(
+    registrationId: string | undefined,
+    fallbackState: ChatGPTState,
+  ): Promise<void> {
+    const generation = this.beginChatGPTOperation('begin', fallbackState);
+    try {
+      const result = await this.requestChatGPT({
+        kind: 'begin',
+        ...(registrationId === undefined ? {} : { registrationId }),
+      });
+      if (!this.currentChatGPTOperation(generation)) {
+        if (result.kind === 'chatgpt' && result.attempt !== undefined) {
+          void this.cancelChatGPTAttempt(result.attempt.attemptId);
+        }
+        return;
+      }
+      if (result.kind === 'rejected') {
+        this.showChatGPTAccounts(
+          fallbackState,
+          `ChatGPT sign-in failed · ${result.reason}`,
+        );
+        this.retainChatGPTFailure(result.reason);
+      } else if (result.attempt === undefined) {
+        this.showChatGPTAccounts(
+          result.state,
+          'ChatGPT sign-in failed · missing_attempt',
+        );
+        this.retainChatGPTFailure('missing_attempt');
+      } else {
+        this.modal = {
+          kind: 'chatgpt-authorize',
+          state: result.state,
+          attempt: result.attempt,
+        };
+        this.renderChatGPTAuthorize();
+      }
+    } catch {
+      if (!this.currentChatGPTOperation(generation)) return;
+      this.showChatGPTAccounts(
+        fallbackState,
+        'ChatGPT sign-in failed · unavailable',
+      );
+      this.retainChatGPTFailure('unavailable');
+    }
+  }
+
+  private async completeChatGPTLogin(
+    modal: Extract<CatalogModal, { kind: 'chatgpt-callback' }>,
+  ): Promise<void> {
+    const generation = this.beginChatGPTOperation(
+      'complete',
+      modal.state,
+      modal.attempt,
+    );
+    try {
+      const result = await this.requestChatGPT({
+        kind: 'complete',
+        attemptId: modal.attempt.attemptId,
+        callbackUrl: modal.callbackUrl,
+      });
+      if (!this.currentChatGPTOperation(generation)) return;
+      if (result.kind === 'rejected') {
+        this.showChatGPTAccounts(
+          modal.state,
+          `ChatGPT sign-in failed · ${result.reason}`,
+        );
+        this.retainChatGPTFailure(result.reason);
+        return;
+      }
+      const account = result.state.accounts.find((item) =>
+        item.registrationId === modal.attempt.registrationId
+      );
+      this.showChatGPTAccounts(
+        result.state,
+        account === undefined
+          ? 'Connected ChatGPT account'
+          : `Connected account · ${this.chatGPTAccountName(account)}`,
+      );
+    } catch {
+      if (!this.currentChatGPTOperation(generation)) return;
+      this.showChatGPTAccounts(
+        modal.state,
+        'ChatGPT sign-in failed · unavailable',
+      );
+      this.retainChatGPTFailure('unavailable');
+    }
+  }
+
+  private async selectChatGPTAccount(
+    state: ChatGPTState,
+    registrationId: string,
+  ): Promise<ChatGPTState | undefined> {
+    const generation = this.beginChatGPTOperation('select', state);
+    try {
+      const result = await this.requestChatGPT({
+        kind: 'select',
+        registrationId,
+      });
+      if (!this.currentChatGPTOperation(generation)) return undefined;
+      if (result.kind === 'rejected') {
+        this.showChatGPTAccounts(
+          state,
+          `ChatGPT account selection failed · ${result.reason}`,
+        );
+        this.retainChatGPTFailure(result.reason);
+        return undefined;
+      }
+      this.closeWithNotice();
+      this.options.retainNotice(
+        this.options.sessionId(),
+        `chatgpt-account:${crypto.randomUUID()}`,
+        `Selected ChatGPT account · ${
+          this.chatGPTAccountName(
+            result.state.accounts.find((item) => item.registrationId === registrationId) ??
+              {
+                registrationId,
+                label: registrationId,
+                needsReauthentication: false,
+              },
+          )
+        }`,
+      );
+      return result.state;
+    } catch {
+      if (!this.currentChatGPTOperation(generation)) return undefined;
+      this.showChatGPTAccounts(
+        state,
+        'ChatGPT account selection failed · unavailable',
+      );
+      this.retainChatGPTFailure('unavailable');
+      return undefined;
+    }
+  }
+
+  private async openChatGPTModels(
+    state: ChatGPTState,
+    accountIndex: number,
+  ): Promise<void> {
+    const account = state.accounts[accountIndex];
+    if (account === undefined) {
+      this.showChatGPTAccounts(
+        state,
+        'No connected ChatGPT account is available for models',
+      );
+      return;
+    }
+    const sessionId = this.options.sessionId();
+    const generation = this.beginLoading('models', sessionId);
+    try {
+      const result = await this.options.client.catalogRead({
+        kind: 'models',
+        provider: 'openai-chatgpt',
+        registrationId: account.registrationId,
+      });
+      if (!this.current(generation)) return;
+      if (result.kind !== 'models') {
+        throw new TypeError('model catalog unavailable');
+      }
+      this.modal = {
+        kind: 'chatgpt-models',
+        state,
+        accountLabel: this.chatGPTAccountName(account),
+        entries: result.models,
+        selected: 0,
+        top: 0,
+      };
+      this.options.setNotice(undefined);
+      this.renderChatGPTModels();
+    } catch (error) {
+      this.failCatalog(
+        generation,
+        error instanceof HenjiApiError
+          ? `ChatGPT model catalog unavailable · ${error.message}`
+          : 'ChatGPT model catalog unavailable',
+      );
+    }
+  }
+
+  private showChatGPTAccounts(state: ChatGPTState, notice?: string): void {
+    const selectedAccount = state.accounts.findIndex((account) =>
+      account.registrationId === state.selectedRegistrationId
+    );
+    this.modal = {
+      kind: 'chatgpt-accounts',
+      state,
+      selected: Math.max(0, selectedAccount),
+      ...(notice === undefined ? {} : { notice }),
+    };
+    this.options.setNotice(undefined);
+    this.renderChatGPTAccounts();
+  }
+
+  private chatGPTAccountName(
+    account: ChatGPTState['accounts'][number],
+  ): string {
+    const label = account.label || account.registrationId;
+    return `${label} · registration ${account.registrationId}`;
+  }
+
+  private retainChatGPTFailure(reason: string): void {
+    const sessionId = this.options.sessionId();
+    this.options.retainNotice(
+      sessionId,
+      `chatgpt-auth:${crypto.randomUUID()}`,
+      `REJECTED · ChatGPT authentication · ${reason}`,
+      'REJECTED',
+    );
+  }
+
+  private async cancelChatGPTAttempt(attemptId: string): Promise<void> {
+    try {
+      await this.requestChatGPT({ kind: 'cancel', attemptId });
+    } catch {
+      // Cancellation is best-effort after the TUI has discarded the pending callback.
+    }
+  }
+
+  private cancelPendingChatGPT(
+    modal: Extract<CatalogModal, { kind: 'chatgpt-operation' }>,
+  ): void {
+    this.closeWithNotice();
+    if (modal.attempt !== undefined) {
+      void this.cancelChatGPTAttempt(modal.attempt.attemptId);
+    }
+  }
+
+  private processChatGPTAccounts(
+    modal: Extract<CatalogModal, { kind: 'chatgpt-accounts' }>,
+    event: InputEvent,
+  ): void {
+    if (event.kind === 'up' || event.kind === 'down') {
+      const selected = wrappedIndex(
+        modal.selected,
+        modal.state.accounts.length,
+        event.kind === 'up' ? -1 : 1,
+      );
+      this.modal = { ...modal, selected };
+      this.renderChatGPTAccounts();
+      return;
+    }
+    if (event.kind === 'enter') {
+      const account = modal.state.accounts[modal.selected];
+      if (account === undefined) {
+        void this.beginChatGPTLogin(undefined, modal.state);
+      } else {
+        void this.selectChatGPTAccount(modal.state, account.registrationId);
+      }
+      return;
+    }
+    if (event.kind !== 'printable' && event.kind !== 'paste') return;
+    const shortcut = event.text.toLocaleLowerCase();
+    if (shortcut === 'm') {
+      void this.openChatGPTModels(modal.state, modal.selected);
+    } else if (shortcut === 'a') {
+      void this.beginChatGPTLogin(undefined, modal.state);
+    } else if (shortcut === 'r') {
+      const account = modal.state.accounts[modal.selected];
+      if (account !== undefined) {
+        void this.beginChatGPTLogin(account.registrationId, modal.state);
+      }
+    }
+  }
+
+  private processChatGPTModels(
+    modal: Extract<CatalogModal, { kind: 'chatgpt-models' }>,
+    event: InputEvent,
+  ): void {
+    if (event.kind === 'escape' || event.kind === 'ctrl_d') {
+      this.showChatGPTAccounts(modal.state);
+    } else if (event.kind === 'up' || event.kind === 'down') {
+      const selected = wrappedIndex(
+        modal.selected,
+        modal.entries.length,
+        event.kind === 'up' ? -1 : 1,
+      );
+      this.modal = {
+        ...modal,
+        selected,
+        top: modelWindowTop(selected, modal.top, modal.entries.length),
+      };
+      this.renderChatGPTModels();
+    } else if (event.kind === 'enter') {
+      this.showChatGPTAccounts(modal.state);
+    }
+  }
+
+  private processChatGPTCallback(
+    modal: Extract<CatalogModal, { kind: 'chatgpt-callback' }>,
+    event: InputEvent,
+  ): void {
+    if (event.kind === 'backspace') {
+      this.modal = {
+        ...modal,
+        callbackUrl: [...modal.callbackUrl].slice(0, -1).join(''),
+      };
+      this.renderChatGPTCallback();
+    } else if (event.kind === 'ctrl_u') {
+      this.modal = { ...modal, callbackUrl: '' };
+      this.renderChatGPTCallback();
+    } else if (event.kind === 'printable' || event.kind === 'paste') {
+      if (!event.text.includes('\0')) {
+        this.modal = {
+          ...modal,
+          callbackUrl: `${modal.callbackUrl}${event.text}`,
+        };
+        this.renderChatGPTCallback();
+      }
+    } else if (event.kind === 'enter') {
+      void this.completeChatGPTLogin(modal);
+    }
   }
 
   private requireSelectionReady(command: string): boolean {
@@ -486,7 +959,12 @@ export class RemoteCatalogUi {
     sessionId: string,
   ): number {
     const generation = ++this.generation;
-    this.modal = { kind: 'loading', title: catalogTitle(kind), generation, sessionId };
+    this.modal = {
+      kind: 'loading',
+      title: catalogTitle(kind),
+      generation,
+      sessionId,
+    };
     this.options.setNotice(undefined);
     this.options.renderer.renderChoicePicker([
       this.modal.title,
@@ -716,12 +1194,87 @@ export class RemoteCatalogUi {
         (profile, offset) => {
           const index = modal.top + offset;
           const presence = profilePresence(modal.presence, profile.authProfile);
-          return `${index === modal.selected ? '>' : ' '} ${profile.authProfile} · ${
-            profile.providers.join(', ')
-          } · ${presence?.status ?? 'unknown'}`;
+          const label = profile.label ?? profile.authProfile;
+          const details = profile.method === 'chatgpt'
+            ? ''
+            : ` · ${profile.providers.join(', ')} · ${presence?.status ?? 'unknown'}`;
+          return `${index === modal.selected ? '>' : ' '} ${label}${details}`;
         },
       ),
     ], ['↑/↓ select', 'Enter edit', 'Esc cancel']);
+  }
+
+  private renderChatGPTAccounts(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'chatgpt-accounts') return;
+    const lines = [
+      'ChatGPT accounts · Up/Down select · Enter choose and close',
+      ...(modal.notice === undefined ? [] : [modal.notice]),
+      ...(modal.state.accounts.length === 0
+        ? ['No connected ChatGPT accounts']
+        : modal.state.accounts.map((account, index) =>
+          `${index === modal.selected ? '>' : ' '} ${this.chatGPTAccountName(account)}${
+            account.registrationId === modal.state.selectedRegistrationId ? ' · selected' : ''
+          }${account.needsReauthentication ? ' · reauthentication needed' : ''}`
+        )),
+    ];
+    this.options.renderer.renderChoicePicker(lines, [
+      ...(modal.state.accounts.length === 0 ? ['Enter sign in'] : ['Enter select and close']),
+      'a add account',
+      ...(modal.state.accounts.length === 0 ? [] : ['r reauthenticate selected']),
+      'm models',
+      'Esc close',
+    ]);
+  }
+
+  private renderChatGPTAuthorize(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'chatgpt-authorize') return;
+    this.options.renderer.renderChoicePicker([
+      'Sign in with ChatGPT',
+      'Open this URL in a browser outside the VM and approve access:',
+      modal.attempt.authorizationUrl,
+      'After approval, copy the full callback URL from the browser address bar.',
+      'Press Enter to paste the callback URL · Esc cancels sign-in',
+    ], ['Enter paste callback URL', 'Esc cancel sign-in']);
+  }
+
+  private renderChatGPTCallback(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'chatgpt-callback') return;
+    const masked = '*'.repeat([...modal.callbackUrl].length);
+    this.options.renderer.renderChoicePicker([
+      'Sign in with ChatGPT · paste the full callback URL from the browser address bar',
+      'callback URL> ' + masked,
+      'The callback URL is hidden while you type or paste it.',
+      'Enter complete sign-in · Ctrl-U clear · Esc cancel sign-in',
+    ], ['Enter complete sign-in', 'Ctrl-U clear', 'Esc cancel sign-in']);
+  }
+
+  private renderChatGPTModels(): void {
+    const modal = this.modal;
+    if (modal?.kind !== 'chatgpt-models') return;
+    const visible = modal.entries.slice(modal.top, modal.top + 10);
+    const window = modal.entries.length > visible.length
+      ? ` · ${modal.top + 1}-${modal.top + visible.length} of ${modal.entries.length}`
+      : '';
+    const lines = [
+      `ChatGPT models · ${modal.accountLabel} · read only${window}`,
+      'Up/Down browse · Enter or Esc return to accounts',
+      ...visible.map((entry, offset) =>
+        `${modal.top + offset === modal.selected ? '>' : ' '} ${entry.modelId}${
+          entry.name === undefined ? '' : ` · ${entry.name}`
+        }`
+      ),
+    ];
+    if (modal.entries.length === 0) {
+      lines.push('No ChatGPT models are available');
+    }
+    this.options.renderer.renderChoicePicker(lines, [
+      '↑/↓ browse',
+      'Enter return to accounts',
+      'Esc return to accounts',
+    ]);
   }
 
   private renderCredentialInput(): void {

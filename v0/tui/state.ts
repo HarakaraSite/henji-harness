@@ -75,6 +75,12 @@ export type UiOverlay =
     readonly actionMode?: 'resume' | 'view';
   }>
   | Readonly<{
+    readonly kind: 'sessionDeleteConfirm';
+    readonly picker: Extract<UiOverlay, { kind: 'sessionPicker' }>;
+    readonly deleting: boolean;
+    readonly message?: string;
+  }>
+  | Readonly<{
     readonly kind: 'choicePicker';
     readonly lines: readonly string[];
     readonly controls?: readonly string[];

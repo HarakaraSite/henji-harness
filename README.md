@@ -40,6 +40,8 @@ deno task --config deno.v0.json henji:compile
 ./dist/henji --version
 ```
 
+Use `henji --help` and `henji COMMAND --help` to see the available commands and options.
+
 Save the OpenRouter API key for the default provider in a file readable only by its owner.
 
 ```sh
@@ -47,6 +49,9 @@ henji_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness"
 install -d -m 700 "$henji_config_dir"
 install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
 ```
+
+You can also register credentials from the TUI with `/login`; they are saved to the same
+credential file.
 
 Start the TUI in the directory you want to work in. Type a prompt and press Enter to send it, and
 use `/help` to see the commands.
@@ -56,7 +61,8 @@ cd /path/to/your/workspace
 /path/to/henji-harness/dist/henji
 ```
 
-Non-interactive runs and listing saved Sessions are also available from the same binary.
+Non-interactive runs, listing saved Sessions, and reading saved history are also available from the
+same binary.
 
 ```sh
 printf 'Summarize the README\n' | /path/to/henji-harness/dist/henji run
@@ -64,6 +70,7 @@ printf 'Summarize the README\n' | /path/to/henji-harness/dist/henji run
 /path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace' --json
 /path/to/henji-harness/dist/henji run --task 'Explain the structure of this workspace' --stream
 /path/to/henji-harness/dist/henji sessions list
+/path/to/henji-harness/dist/henji history --latest
 ```
 
 By default, `run` writes only the final text to stdout. `--json` writes the events during a turn as
@@ -87,9 +94,10 @@ declarations in `providers/*.json` let you add other provider IDs that speak a s
 ## Parallel Cores and explicit reconnect
 
 Each `henji` or `henji tui` invocation starts a fresh Core and Session, even in the same workspace.
-`henji serve` starts a fresh foreground Core without opening a Session unless requested. Cores share
-workspace history, config, and credentials; each Core owns its active Session, child Agents, and
-tools.
+Independent work can proceed in parallel in two terminals, identified by the Core ID and Session ID
+shown on screen. `henji serve` starts a fresh foreground Core without opening a Session unless
+requested. Cores share workspace history, config, and credentials; each Core owns its active Session,
+child Agents, and tools. `henji run` keeps a headless entry separate from HTTP Cores.
 
 ```sh
 henji core list
@@ -101,8 +109,8 @@ henji core stop --core <core-id>
 ```
 
 The TUI header shows both Core and Session IDs. `/detach` or Ctrl-D detaches the TUI and leaves
-accepted work running. `/shutdown` or Ctrl-Q stops the attached Core, including active work, and
-exits this TUI after resource cleanup. Type `/` followed by a letter for command suggestions; Tab
+accepted work running. `/quit` or Ctrl-Q stops the attached Core, including active work, and exits
+this TUI after resource cleanup. Type `/` followed by a letter for command suggestions; Tab
 completes a single match. Reconnect by Core ID or `--connect URL`; `--session` without a Core target
 resumes saved work in a fresh Core. `core stop` without a target lists Cores and instructions. See
 [HTTP operations](docs/operations/http-api.md) for connection and Session details.
@@ -111,13 +119,13 @@ resumes saved work in a fresh Core. `core stop` without a target lists Cores and
 
 - TUI and headless `run`
 - Switching of provider, model, and reasoning effort for OpenRouter (Chat Completions / Responses)
-  and OpenAI direct
+  and OpenAI direct, with live provider model lists and favorites
 - Sessions, conversation history, and execution records (including failures and interruptions)
   stored in SQLite
-- TUI commands such as `/new`, `/sessions`, `/history`, and `/recall`
+- TUI commands such as `/new`, `/sessions`, `/view`, `/recall`, `/provider`, `/model`, and `/login`
 - Install, versioned revisions, export/import, and execution of TypeScript Agent Definitions
-- Install of the Henji base instruction, activate/deactivate of an exact revision, and runtime
-  attribution
+- Install of TypeScript tool Definitions and activate/deactivate of an exact revision
+- Loading of the Henji base instruction from a user file, and runtime attribution
 - Loading of `AGENTS.md` and of workspace/user-scoped Zot, Claude, and Agents-compatible Skills
 
 You can check the runtime layout with `henji diagnostics runtime`, which does not display credential

@@ -1721,6 +1721,95 @@ export const runRemoteTui = async (
     }
   };
 
+  const restoreSessionPicker = (
+    picker: Extract<import('./state.ts').UiOverlay, { kind: 'sessionPicker' }>,
+  ): void => {
+    renderer.renderSessionPicker(
+      picker.listing ?? { sessions: [], skippedInvalid: 0 },
+      picker.selected,
+      picker.page,
+      false,
+      picker.actionMode ?? 'view',
+    );
+    notice = undefined;
+    updateStatus();
+  };
+
+  const deletePickerSelection = (
+    picker: Extract<import('./state.ts').UiOverlay, { kind: 'sessionPicker' }>,
+  ): void => {
+    const row = picker.listing?.sessions[picker.selected];
+    if (row === undefined || commandMutationPending || navigationPending) return;
+    if (!core.implementedOperations.includes('session.delete')) {
+      renderer.renderSessionDeleteConfirmation(
+        picker,
+        false,
+        'Session deletion is unavailable in this Core.',
+      );
+      return;
+    }
+    const generation = ++navigationGeneration;
+    const commandId = crypto.randomUUID();
+    commandMutationPending = true;
+    navigationPending = true;
+    renderer.renderSessionDeleteConfirmation(picker, true);
+    updateStatus();
+    void (async () => {
+      try {
+        const command = await commandAfterLostResponse(
+          client,
+          commandId,
+          () => client.sessionDelete(row.id, { commandId }),
+        );
+        if (exitRequested || navigationGeneration !== generation) return;
+        if (command.kind === 'rejected') {
+          const message = command.reason === 'busy'
+            ? 'Session is open in a Core. Switch that Core to another Session, then retry.'
+            : `Deletion failed: ${commandReasonText(command.reason)}.`;
+          renderer.renderSessionDeleteConfirmation(picker, false, message);
+          return;
+        }
+        if (!('deleted' in command.value) || command.value.deleted !== row.id) {
+          renderer.renderSessionDeleteConfirmation(
+            picker,
+            false,
+            'Deletion result unavailable. Reopen the Session list to check.',
+          );
+          return;
+        }
+        commandMutationPending = false;
+        // A saved Session may be the current read-only view. Return its display
+        // subscription to the execution Session after removing that saved history.
+        if (selectedSessionId === row.id) {
+          const activeId = snapshot().runtime.activeSessionId;
+          if (activeId === null) throw new Error('Core has no active Session');
+          await switchDisplayedSession(
+            activeId,
+            generation,
+            row.id,
+            commandId,
+          );
+        }
+        const result = await client.sessionsList();
+        if (exitRequested || navigationGeneration !== generation) return;
+        const listing = listingFromSessions(result.sessions, selectedSessionId);
+        const selected = Math.max(0, Math.min(picker.selected, listing.sessions.length - 1));
+        restoreSessionPicker({ ...picker, listing, selected, page: Math.floor(selected / 8) });
+      } catch {
+        if (exitRequested || navigationGeneration !== generation) return;
+        renderer.renderSessionDeleteConfirmation(
+          picker,
+          false,
+          'Response unavailable. Reopen the Session list to check the deletion result.',
+        );
+      } finally {
+        commandMutationPending = false;
+        navigationPending = false;
+        if (!exitRequested) updateStatus();
+      }
+    })();
+  };
+
   const renameSession = (title: string): void => {
     const targetId = snapshot().session.id;
     if (title.trim().length === 0) {
@@ -2199,9 +2288,27 @@ export const runRemoteTui = async (
             }
             continue;
           }
+          if (overlay.kind === 'sessionDeleteConfirm') {
+            if (overlay.deleting) continue;
+            if (
+              event.kind === 'escape' || event.kind === 'printable' && /^[nN]$/u.test(event.text)
+            ) {
+              restoreSessionPicker(overlay.picker);
+            } else if (event.kind === 'printable' && /^[yY]$/u.test(event.text)) {
+              deletePickerSelection(overlay.picker);
+            }
+            continue;
+          }
           if (overlay.kind === 'sessionPicker') {
             if (event.kind === 'escape') {
               clearRemoteOverlay();
+            } else if (overlay.loading) {
+              continue;
+            } else if (event.kind === 'printable' && /^[dD]$/u.test(event.text)) {
+              if (overlay.listing?.sessions[overlay.selected] !== undefined) {
+                renderer.renderSessionDeleteConfirmation(overlay);
+                updateStatus();
+              }
             } else if (
               overlay.listing !== undefined &&
               (event.kind === 'up' || event.kind === 'down' ||

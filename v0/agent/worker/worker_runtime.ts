@@ -40,9 +40,11 @@ import {
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../provider/openrouter_model_catalog.ts';
 import {
+  type ChatGPTModelSelection,
   type CredentialAvailability,
   type CredentialAvailabilityStatus,
   modelRouteProfileId,
+  sameModelSelection,
 } from '../provider/model_selection.ts';
 import type {
   WorkerCheckpointProposalMessage,
@@ -159,6 +161,7 @@ export class WorkerGeneration {
     private readonly replaceRootModel: (selection: ModelSelection) => void = () => {},
     private readonly inspectCredentialAvailability: (
       authProfile: ModelSelection['authProfile'],
+      registrationId?: string | null,
     ) => Promise<CredentialAvailabilityStatus> = () => Promise.resolve('unknown'),
     readonly startupSnapshot: {
       readonly instructionSource?: AgentInstructionSource;
@@ -207,7 +210,12 @@ export class WorkerGeneration {
     const authProfile = this.rootModelSelection.authProfile;
     return Object.freeze({
       authProfile,
-      status: await this.inspectCredentialAvailability(authProfile),
+      status: await this.inspectCredentialAvailability(
+        authProfile,
+        'registrationId' in this.rootModelSelection
+          ? this.rootModelSelection.registrationId
+          : undefined,
+      ),
     });
   }
 
@@ -229,6 +237,7 @@ export class WorkerGeneration {
     correlation: WorkerCorrelation,
     task: string,
     recalledContext?: RecalledExecutionContext,
+    chatgptRegistrationId?: string | null,
   ): Promise<void> {
     if (this.active) {
       this.port.turnFailed(
@@ -242,6 +251,19 @@ export class WorkerGeneration {
       return;
     }
     this.active = true;
+    if (
+      this.rootModelSelection.provider === 'openai-chatgpt' &&
+      chatgptRegistrationId !== undefined
+    ) {
+      const boundSelection: ModelSelection = {
+        ...(this.rootModelSelection as ChatGPTModelSelection),
+        registrationId: chatgptRegistrationId,
+      };
+      if (!sameModelSelection(this.rootModelSelection, boundSelection)) {
+        this.replaceRootModel(boundSelection);
+        this.rootModelSelection = structuredClone(boundSelection);
+      }
+    }
     const cancellation = new TurnCancellationOwner();
     const steering = new SteeringOwner();
     const turn = this.nextTurn;

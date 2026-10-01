@@ -18,8 +18,13 @@ import type { ExecutionContextManifestV2 } from '../history/context_attribution.
 import type { FailureDiagnosticV1 } from '../session/failure_diagnostic.ts';
 import { buildManifest, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 import type { DefinitionRevisionRef } from '../session/session_store.ts';
+import { type ChatGPTAuthService, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
-import type { ModelSelection, ReasoningEffort } from '../provider/model_selection.ts';
+import type {
+  ChatGPTModelSelection,
+  ModelSelection,
+  ReasoningEffort,
+} from '../provider/model_selection.ts';
 import { selectModelFor } from '../provider/model_catalog.ts';
 import { TOOL_FILTER_ERROR_CODE } from '../definitions/tool_filter.ts';
 import { workerBuiltinModulePath } from './worker_definition_revision.ts';
@@ -63,6 +68,7 @@ type ChildRun = {
   readonly agent: string;
   readonly task: string;
   readonly model: ModelSelection;
+  readonly chatgptRegistrationId: string | null;
   readonly tools?: readonly string[];
   readonly build: BuildManifestV1;
   readonly definitionRef: DefinitionRevisionRef;
@@ -99,6 +105,8 @@ export interface ChildRunDeps {
   readonly catalog: readonly WorkerAsyncAgentCatalogEntry[];
   /** Parent's current session model selection; the default source for spawns without a model. */
   readonly currentModelSelection?: () => ModelSelection;
+  /** Shared same-store account selection lookup used only when an explicit ChatGPT child spawns. */
+  readonly chatgptAuth?: Pick<ChatGPTAuthService, 'selectedRegistrationId'>;
   /** Resolve a managed Definition ref to a process-local load descriptor. */
   readonly resolveManagedModule?: (
     ref: DefinitionRevisionRef,
@@ -145,7 +153,7 @@ const lastAssistantText = (
  */
 export class ChildRunRegistry {
   private readonly runs = new Map<string, ChildRun>();
-  private readonly activeParents = new Set<string>();
+  private readonly activeParents = new Map<string, string | null>();
   private readonly parentCleanups = new Map<
     string,
     Promise<ChildCleanupObservationV1 | undefined>
@@ -155,7 +163,26 @@ export class ChildRunRegistry {
     private readonly deps: ChildRunDeps & { readonly build?: BuildManifestV1 },
   ) {}
 
-  openParent(parentExecutionId: string): void {
+  private async selectedChatGPTRegistrationId(): Promise<string | undefined> {
+    if (this.deps.chatgptAuth !== undefined) {
+      return await this.deps.chatgptAuth.selectedRegistrationId();
+    }
+    const auth = createChatGPTAuthService({
+      ...(this.deps.options.configRoot === undefined
+        ? {}
+        : { configRoot: this.deps.options.configRoot }),
+    });
+    try {
+      return await auth.selectedRegistrationId();
+    } finally {
+      await auth.close();
+    }
+  }
+
+  openParent(
+    parentExecutionId: string,
+    chatgptRegistrationId: string | null = null,
+  ): void {
     if (
       this.activeParents.has(parentExecutionId) ||
       this.parentCleanups.has(parentExecutionId) ||
@@ -165,7 +192,7 @@ export class ChildRunRegistry {
         `async child parent scope already exists: ${parentExecutionId}`,
       );
     }
-    this.activeParents.add(parentExecutionId);
+    this.activeParents.set(parentExecutionId, chatgptRegistrationId);
   }
 
   async handle(
@@ -331,6 +358,17 @@ export class ChildRunRegistry {
       runModel = this.deps.currentModelSelection?.() ??
         this.deps.options.initialModelSelection ?? ROOT_DEFAULT_MODEL_SELECTION;
     }
+    let chatgptRegistrationId: string | null = null;
+    if (runModel.provider === 'openai-chatgpt') {
+      chatgptRegistrationId = model === undefined
+        ? this.activeParents.get(parentExecutionId) ?? null
+        : (await this.selectedChatGPTRegistrationId().catch(() => undefined)) ??
+          null;
+      runModel = {
+        ...(runModel as ChatGPTModelSelection),
+        registrationId: chatgptRegistrationId,
+      };
+    }
     const runId = crypto.randomUUID().toLowerCase();
     const childCorrelation = `parent:${parentExecutionId}:child:${runId}`;
     const createdAt = new Date().toISOString();
@@ -341,6 +379,7 @@ export class ChildRunRegistry {
       agent,
       task,
       model: runModel,
+      chatgptRegistrationId,
       ...(tools === undefined ? {} : { tools: Object.freeze([...tools]) }),
       build: this.deps.build ?? buildManifest(),
       definitionRef: entry.ref,
@@ -371,7 +410,11 @@ export class ChildRunRegistry {
       };
     }
     try {
-      const childOptions = await this.childOptions(run, entry, childCorrelation);
+      const childOptions = await this.childOptions(
+        run,
+        entry,
+        childCorrelation,
+      );
       if (run.terminal !== undefined || run.cancelRequested) {
         if (run.terminal === undefined) {
           this.finish(run, this.terminal(run, 'cancelled'));
@@ -408,6 +451,7 @@ export class ChildRunRegistry {
         executionId: run.runId,
         correlation: supervisor.correlation('async-child'),
         task,
+        chatgptRegistrationId: run.chatgptRegistrationId,
       });
       return { ok: true, kind: 'spawn', runId };
     } catch (error) {
@@ -450,8 +494,15 @@ export class ChildRunRegistry {
     return {
       handle: syntheticHandle(childCorrelation),
       workspaceRoot: this.deps.options.workspaceRoot,
+      ...(this.deps.options.configRoot === undefined
+        ? {}
+        : { configRoot: this.deps.options.configRoot }),
+      chatgptRegistrationId: run.chatgptRegistrationId,
       agent: 'default' as const,
       definition: entry.ref,
+      ...(this.deps.options.capsuleFactory === undefined
+        ? {}
+        : { capsuleFactory: this.deps.options.capsuleFactory }),
       ...(isBuiltinGeneric ? { modulePath: workerBuiltinModulePath('generic') } : {}),
       ...(loadDescriptor === undefined ? {} : { loadDescriptor }),
       initialModelSelection: run.model,
@@ -478,7 +529,10 @@ export class ChildRunRegistry {
       this.updateProgress(run, message);
       this.bufferObservation(run, message);
     }
-    if (message.kind === 'ready' && message.manifest !== undefined && run.manifest === undefined) {
+    if (
+      message.kind === 'ready' && message.manifest !== undefined &&
+      run.manifest === undefined
+    ) {
       run.manifest = structuredClone(message.manifest);
     }
     if (
@@ -520,7 +574,11 @@ export class ChildRunRegistry {
           run.progress = {
             ...attribution,
             phase: 'tool',
-            lastTool: { name: event.call.name, callId: event.call.callId, state: 'running' },
+            lastTool: {
+              name: event.call.name,
+              callId: event.call.callId,
+              state: 'running',
+            },
           };
         } else if (event.kind === 'tool_result') {
           run.progress = {
@@ -548,7 +606,9 @@ export class ChildRunRegistry {
       } else {
         run.progress = { ...current, updatedAt };
       }
-    } else if (message.kind === 'runtime_event' && message.event.kind === 'agent_event') {
+    } else if (
+      message.kind === 'runtime_event' && message.event.kind === 'agent_event'
+    ) {
       const event = message.event.event;
       if (event.kind === 'assistant_thinking') {
         run.progress = { ...current, updatedAt, modelStep: event.modelStep };
@@ -560,7 +620,13 @@ export class ChildRunRegistry {
         updatedAt,
         phase: effect.kind === 'tool_result' ? 'between_steps' : 'tool',
         ...(effect.kind === 'tool_call'
-          ? { lastTool: { name: effect.call.name, callId: effect.call.callId, state: 'running' } }
+          ? {
+            lastTool: {
+              name: effect.call.name,
+              callId: effect.call.callId,
+              state: 'running',
+            },
+          }
           : effect.kind === 'tool_result'
           ? {
             lastTool: {
@@ -579,12 +645,14 @@ export class ChildRunRegistry {
     const history = this.deps.history;
     if (history === undefined || run.observationError !== undefined) return;
     if (
-      message.kind !== 'provider_observation' && message.kind !== 'context_observation' &&
+      message.kind !== 'provider_observation' &&
+      message.kind !== 'context_observation' &&
       message.kind !== 'runtime_event' && message.kind !== 'effect_observation'
     ) return;
     // Thinking text is not part of the new child observation store or status snapshot.
     if (
-      message.kind === 'runtime_event' && message.event.kind === 'agent_event' &&
+      message.kind === 'runtime_event' &&
+      message.event.kind === 'agent_event' &&
       message.event.event.kind === 'assistant_thinking'
     ) return;
     try {
@@ -725,7 +793,11 @@ export class ChildRunRegistry {
     run.diagnostic = diagnostic ?? outcome?.diagnostic;
     run.contextManifest = contextManifest;
     run.state = terminal.state;
-    run.progress = { ...run.progress, phase: 'settled', updatedAt: new Date().toISOString() };
+    run.progress = {
+      ...run.progress,
+      phase: 'settled',
+      updatedAt: new Date().toISOString(),
+    };
     this.settle(run);
     void this.terminate(run).then(
       () => run.settled.resolve(),
@@ -911,7 +983,8 @@ export class ChildRunRegistry {
   }
 
   private terminate(run: ChildRun): Promise<void> {
-    return run.physicalCleanup ??= run.supervisor?.terminate() ?? Promise.resolve();
+    return run.physicalCleanup ??= run.supervisor?.terminate() ??
+      Promise.resolve();
   }
 
   private historyInput(run: ChildRun) {

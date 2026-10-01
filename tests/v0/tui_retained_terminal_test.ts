@@ -1433,8 +1433,8 @@ Deno.test('Increment 159 full command picker keeps the selected command visible 
     assert(text.includes(definition.usage));
   }
   for (const [description] of SHORTCUT_ONLY_OPERATIONS) assert(text.includes(description));
-  assert(text.includes('Ctrl-U（masked入力）'));
-  assert(text.includes('対応なし │ F2（実行中）'));
+  assert(text.includes('Ctrl-U (masked input)'));
+  assert(text.includes('none │ F2 (running)'));
   renderer.close();
 });
 

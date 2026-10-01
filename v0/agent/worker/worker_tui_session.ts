@@ -4,6 +4,7 @@ import type { ContextView, EffectiveRuntimeConfig, SessionActivation } from '../
 import { modelRouteProfileId } from '../provider/model_selection.ts';
 import type { CredentialAvailability, ModelSelection } from '../provider/model_selection.ts';
 import { credentialAvailabilityFor } from '../provider/credential_file.ts';
+import { chatGPTCredentialPresence } from '../provider/chatgpt_auth.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -313,7 +314,7 @@ class LazyWorkerSession implements HostActiveSession {
     private readonly initialAgent: SessionRecord['agent'],
     private readonly config: Pick<
       WorkerSessionOptions,
-      'rootMaxSteps' | 'providerTimeoutMs' | 'activation'
+      'rootMaxSteps' | 'providerTimeoutMs' | 'activation' | 'configRoot'
     >,
     private readonly builtinDefinition: boolean,
   ) {}
@@ -474,9 +475,16 @@ class LazyWorkerSession implements HostActiveSession {
     if (this.host !== undefined) {
       return await this.host.refreshCredentialAvailability();
     }
-    const profile = this.record?.activeModel.authProfile ??
-      this.initialSelection.authProfile;
-    const availability = await credentialAvailabilityFor(profile);
+    const selection = this.record?.activeModel ?? this.initialSelection;
+    const profile = selection.authProfile;
+    const registrationId = 'registrationId' in selection ? selection.registrationId : undefined;
+    const status = profile === 'openai-chatgpt'
+      ? registrationId === null ? 'missing' : await chatGPTCredentialPresence({
+        ...(this.config.configRoot === undefined ? {} : { configRoot: this.config.configRoot }),
+        ...(registrationId === undefined ? {} : { registrationId }),
+      })
+      : (await credentialAvailabilityFor(profile)).status;
+    const availability = Object.freeze({ authProfile: profile, status });
     if (this.closed) return undefined;
     this.localCredentialAvailability = availability;
     return availability;
@@ -789,6 +797,7 @@ export const createWorkerSession = async (
         return await WorkerHostSession.open({
           handle: workerHandle,
           workspaceRoot: workspace.root,
+          ...(configRoot === undefined ? {} : { configRoot }),
           agent: activeSelection.id,
           definition,
           modulePath,

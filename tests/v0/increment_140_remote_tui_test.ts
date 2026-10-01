@@ -235,11 +235,11 @@ Deno.test('Increment 140 remote TUI renders the SSE snapshot and detaches withou
         'What is in the saved note?',
         'The note says remote history is available.',
         'READ-ONLY',
-        'Session一覧 │ /sessions │ F1',
+        'List sessions │ /sessions │ F1',
         'PageUp/Down scroll',
         'help · PageUp/Down scroll · Esc return',
         'Ctrl-D',
-        '対応なし',
+        'none',
       ]
     ) {
       if (!rendered.includes(text)) {

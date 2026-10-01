@@ -8,6 +8,8 @@ import type {
   ApiSessionListEntry,
   CatalogReadInput,
   CatalogReadResult,
+  ChatGPTAuthResult,
+  ChatGPTOperation,
   CommandResult,
   CommandState,
   CommandTarget,
@@ -39,6 +41,8 @@ import type {
   SelectionChangeValue,
   SessionActivation,
   SessionChange,
+  SessionDeleteInput,
+  SessionDeleteValue,
   SessionOpenInput,
   SessionOpenResult,
   SessionRenameInput,
@@ -62,7 +66,7 @@ import {
 } from '../session/session_store.ts';
 import type { NavigationPosition } from '../session/session_navigation.ts';
 import { resolveRequestedDefinition } from '../definitions/definition_selection.ts';
-import { LiveModelCatalog } from '../provider/live_model_catalog.ts';
+import { LiveModelCatalog, LiveModelCatalogError } from '../provider/live_model_catalog.ts';
 import {
   builtinProviderDeclarations,
   loadProviderDeclarations,
@@ -75,6 +79,7 @@ import {
   CredentialRegistrationError,
 } from '../provider/credential_registration.ts';
 import { credentialFileFor, credentialFilePresenceAt } from '../provider/credential_file.ts';
+import { ChatGPTAuthError, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import { writeDefaultSelection } from '../provider/default_selection.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 import { WorkerRecallSelectionError } from '../worker/worker_host_session.ts';
@@ -113,6 +118,7 @@ export type CoreServiceOptions =
       coreEpoch?: string;
       modelsMetadataUrl?: string;
       catalogFetcher?: typeof fetch;
+      chatgptFetcher?: typeof fetch;
     }
   >;
 
@@ -136,6 +142,10 @@ export interface CoreService {
   sessionsList(): Promise<SessionsListResult>;
   sessionRead(sessionId: string): Promise<SessionSnapshot>;
   sessionOpen(input: SessionOpenInput): Promise<SessionOpenResult>;
+  sessionDelete(
+    sessionId: string,
+    input: SessionDeleteInput,
+  ): Promise<CommandResult<SessionDeleteValue>>;
   sessionRename(
     sessionId: string,
     input: SessionRenameInput,
@@ -147,6 +157,7 @@ export interface CoreService {
   catalogRead(input: CatalogReadInput): Promise<CatalogReadResult>;
   modelFavorite(input: ModelFavoriteInput): Promise<ModelCatalogResult>;
   credentialPresenceRead(): Promise<CredentialPresenceReadResult>;
+  chatgptAuth(input: ChatGPTOperation): Promise<ChatGPTAuthResult>;
   credentialRegister(
     input: CredentialRegisterInput,
   ): Promise<CredentialRegisterResult>;
@@ -291,6 +302,7 @@ export const createCoreService = async (
     coreEpoch: requestedCoreEpoch,
     modelsMetadataUrl,
     catalogFetcher,
+    chatgptFetcher,
     ...workerOptions
   } = options;
   const resolveManagedInstruction = workerOptions.physicalIoMode !== 'provider-free' ||
@@ -352,6 +364,7 @@ export const createCoreService = async (
   const allServices = new Set<ApplicationService>();
   const liveSubscriptions = new Set<() => void>();
   const credentialRegistrations = new Set<Promise<CredentialRegisterResult>>();
+  const chatgptOperations = new Set<Promise<ChatGPTAuthResult>>();
   const sessionSubscribers = new Map<string, Set<CoreSessionFrameSink>>();
   const sessionSnapshots = new Map<string, SessionSnapshot>();
   const providerById = new Map(
@@ -381,6 +394,18 @@ export const createCoreService = async (
   const credentialRegistration = createCredentialRegistration({
     ...(configRoot === undefined ? {} : { configRoot }),
     providerDeclarations,
+  });
+  const chatgpt = createChatGPTAuthService({
+    configRoot: configRoot ?? `${stateRoot}/config`,
+    ...(chatgptFetcher === undefined ? {} : { fetcher: chatgptFetcher }),
+    reportFact: async (fact) => {
+      await Deno.mkdir(statePaths.root, { recursive: true, mode: 0o700 });
+      await Deno.writeTextFile(
+        `${statePaths.root}/chatgpt-auth-requests.jsonl`,
+        `${JSON.stringify(fact)}\n`,
+        { append: true },
+      );
+    },
   });
   const beginShutdown = (): void => {
     if (admissionClosed) return;
@@ -859,7 +884,7 @@ export const createCoreService = async (
         }
         try {
           if (input.kind === 'models') {
-            return await modelCatalog.models(input.provider, input.sessionId);
+            return await modelCatalog.models(input.provider, input.sessionId, input.registrationId);
           }
           const current = slot?.snapshot.session.selection;
           return await modelCatalog.efforts(
@@ -870,7 +895,10 @@ export const createCoreService = async (
               ? current.effort
               : undefined,
           );
-        } catch {
+        } catch (error) {
+          if (error instanceof LiveModelCatalogError && error.authCode !== undefined) {
+            throw new CoreServiceError(502, error.authCode);
+          }
           throw new CoreServiceError(502, 'model_catalog_unavailable');
         } finally {
           await persistCatalogFacts();
@@ -893,9 +921,9 @@ export const createCoreService = async (
       const profiles = await Promise.all(
         credentialRegistration.targets().map(async (profile) => ({
           ...profile,
-          status: await credentialFilePresenceAt(
-            credentialFileFor(profile.authProfile, configRoot),
-          ),
+          status: profile.authProfile === 'openai-chatgpt'
+            ? await chatgpt.presence()
+            : await credentialFilePresenceAt(credentialFileFor(profile.authProfile, configRoot)),
         })),
       );
       const active = slot;
@@ -904,6 +932,57 @@ export const createCoreService = async (
         if (slot === active) refreshSlotSnapshot(active);
       }
       return { profiles };
+    },
+    chatgptAuth(input: ChatGPTOperation): Promise<ChatGPTAuthResult> {
+      if (admissionClosed) {
+        return Promise.reject(new CoreServiceError(503, 'core_stopping', 'Core is stopping'));
+      }
+      const operation = (async (): Promise<ChatGPTAuthResult> => {
+        try {
+          let attempt;
+          switch (input.kind) {
+            case 'status':
+              break;
+            case 'begin':
+              attempt = await chatgpt.begin(input.registrationId);
+              break;
+            case 'complete':
+              await chatgpt.complete(input.attemptId, input.callbackUrl);
+              break;
+            case 'cancel':
+              await chatgpt.cancel(input.attemptId);
+              break;
+            case 'select':
+              await chatgpt.select(input.registrationId);
+              break;
+          }
+          if (input.kind === 'complete' || input.kind === 'select') {
+            const active = slot;
+            if (active !== undefined) {
+              await active.service.currentSession().refreshCredentialAvailability();
+              if (slot === active) refreshSlotSnapshot(active);
+            }
+          }
+          return {
+            kind: 'chatgpt',
+            state: await chatgpt.status(),
+            ...(attempt === undefined ? {} : {
+              attempt,
+            }),
+          };
+        } catch (error) {
+          return {
+            kind: 'rejected',
+            reason: error instanceof ChatGPTAuthError ? error.code : 'chatgpt_auth_failed',
+          };
+        }
+      })();
+      chatgptOperations.add(operation);
+      void operation.then(
+        () => chatgptOperations.delete(operation),
+        () => chatgptOperations.delete(operation),
+      );
+      return operation;
     },
     credentialRegister(
       input: CredentialRegisterInput,
@@ -1061,6 +1140,43 @@ export const createCoreService = async (
           } finally {
             openingSlot = false;
             if (slot !== undefined) refreshSlotSnapshot(slot);
+          }
+        },
+      );
+    },
+    async sessionDelete(sessionId, input): Promise<CommandResult<SessionDeleteValue>> {
+      const target: CommandTarget = { kind: 'session', sessionId };
+      return await registerCommand(
+        input.commandId,
+        JSON.stringify({ kind: 'session.delete', sessionId }),
+        target,
+        async () => {
+          if (openingSlot || slot?.snapshot.session.id === sessionId) {
+            return rejected(input.commandId, target, 'busy');
+          }
+          try {
+            const store = new SqliteHistoryV7ProductionStore(stateRoot, workspace.root);
+            await store.delete(sessionId);
+            sessionSnapshots.delete(sessionId);
+            for (const sink of [...(sessionSubscribers.get(sessionId) ?? [])]) sink(undefined);
+            sessionSubscribers.delete(sessionId);
+            return {
+              kind: 'accepted',
+              commandId: input.commandId,
+              target,
+              value: { deleted: sessionId },
+            };
+          } catch (error) {
+            const reason: CoreRejection = error instanceof SessionStoreError
+              ? error.code === 'session_busy'
+                ? 'busy'
+                : error.code === 'session_not_found'
+                ? 'notFound'
+                : error.code === 'session_invalid'
+                ? 'invalid'
+                : 'failed'
+              : 'failed';
+            return rejected(input.commandId, target, reason);
           }
         },
       );
@@ -1626,6 +1742,8 @@ export const createCoreService = async (
       closePromise = (async () => {
         await Promise.all([...commands.values()].map((command) => command.result));
         await Promise.allSettled([...credentialRegistrations]);
+        await Promise.allSettled([...chatgptOperations]);
+        await chatgpt.close();
         const active = slot;
         if (active !== undefined) {
           active.unsubscribeObservations?.();

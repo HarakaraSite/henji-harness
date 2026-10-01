@@ -72,6 +72,7 @@ Deno.test('E6 uncataloged model runs in production children by inheritance and e
         close: () => Promise.resolve(),
       },
       workspaceRoot,
+      configRoot,
       agent: 'default',
       definition: ref,
       physicalIoMode: 'production',

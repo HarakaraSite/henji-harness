@@ -23,6 +23,10 @@ import type { SessionActivation } from '../../api/contract.ts';
 export interface WorkerHostSessionOptions {
   readonly handle: WorkerSessionHandle;
   readonly workspaceRoot: string;
+  /** User config root propagated to Workers for the shared credential store. */
+  readonly configRoot?: string;
+  /** Child-spawn account snapshot carried through this run, independent of its provider. */
+  readonly chatgptRegistrationId?: string | null;
   readonly agent: SessionRecord['agent'];
   readonly definition: DefinitionRevisionRef;
   readonly modulePath?: string;

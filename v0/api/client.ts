@@ -1,5 +1,6 @@
 import {
   decodeCatalogReadResult,
+  decodeChatGPTAuthResult,
   decodeCommandResult,
   decodeCommandState,
   decodeContextReadResult,
@@ -13,6 +14,7 @@ import {
   decodeHistoryReadResult,
   decodeRecallValue,
   decodeSelectionChangeValue,
+  decodeSessionDeleteValue,
   decodeSessionRenameValue,
   decodeSessionsListResult,
   decodeSessionSnapshot,
@@ -21,6 +23,8 @@ import {
 import type {
   CatalogReadInput,
   CatalogReadResult,
+  ChatGPTAuthResult,
+  ChatGPTOperation,
   CommandResult,
   CommandState,
   ContextReadResult,
@@ -45,6 +49,8 @@ import type {
   RecallValue,
   SelectionChangeInput,
   SelectionChangeValue,
+  SessionDeleteInput,
+  SessionDeleteValue,
   SessionOpenInput,
   SessionOpenResult,
   SessionRenameInput,
@@ -163,6 +169,9 @@ export class HenjiApiClient {
     if (input.kind === 'models' && input.sessionId !== undefined) {
       query.set('sessionId', input.sessionId);
     }
+    if (input.kind === 'models' && input.registrationId !== undefined) {
+      query.set('registrationId', input.registrationId);
+    }
     if (input.kind === 'efforts') query.set('modelId', input.modelId);
     return decodeCatalogReadResult(
       await jsonOrApiError(
@@ -204,6 +213,18 @@ export class HenjiApiClient {
         ),
       ),
       decodeSelectionChangeValue,
+    );
+  }
+
+  async chatgptAuth(input: ChatGPTOperation): Promise<ChatGPTAuthResult> {
+    return decodeChatGPTAuthResult(
+      await jsonOrApiError(
+        await this.fetcher(`${this.baseUrl}/credentials/chatgpt`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+      ),
     );
   }
 
@@ -259,6 +280,22 @@ export class HenjiApiClient {
         ),
       };
     });
+  }
+
+  async sessionDelete(
+    sessionId: string,
+    input: SessionDeleteInput,
+  ): Promise<CommandResult<SessionDeleteValue>> {
+    return decodeCommandResult(
+      await jsonOrApiError(
+        await this.fetcher(`${this.baseUrl}/sessions/${encodePath(sessionId)}/delete`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input),
+        }),
+      ),
+      decodeSessionDeleteValue,
+    );
   }
 
   async sessionRename(

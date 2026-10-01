@@ -309,8 +309,11 @@ const footerStatusText = (
         '←/→ page',
         `Enter ${overlay.actionMode ?? 'view'}`,
         'R resume',
+        'D delete',
         'Esc close',
       ]
+      : overlay.kind === 'sessionDeleteConfirm'
+      ? overlay.deleting ? ['deleting Session'] : ['y delete', 'n/Esc return']
       : overlay.kind === 'choicePicker'
       ? overlay.controls ?? ['Esc close']
       : state.footer.controls.filter((control) =>
@@ -818,7 +821,7 @@ const overlayRows = (
       'slash commands · ↑/↓ select · Enter complete · Esc close',
       selected === undefined
         ? 'no matching commands'
-        : `usage: ${selected.usage} │ ${selected.shortcut ?? '対応なし'}`,
+        : `usage: ${selected.usage} │ ${selected.shortcut ?? 'none'}`,
       selected?.description ?? '',
     );
     for (const [index, definition] of overlay.candidates.entries()) {
@@ -829,8 +832,8 @@ const overlayRows = (
     }
   } else if (overlay.kind === 'sessionPicker') {
     const pickerControls = overlay.actionMode === 'view'
-      ? 'Enter view · R resume · Esc return'
-      : 'Enter resume · Esc cancel';
+      ? 'Enter view · R resume · D delete · Esc return'
+      : 'Enter resume · D delete · Esc cancel';
     lines.push(
       `session picker · Up/Down select · Left/Right page · ${pickerControls}`,
       `page ${overlay.page + 1}${overlay.loading ? ' · loading' : ''}`,
@@ -858,6 +861,15 @@ const overlayRows = (
       );
     }
     if (rows.length === 0 && !overlay.loading) lines.push('no sessions');
+  } else if (overlay.kind === 'sessionDeleteConfirm') {
+    const row = overlay.picker.listing?.sessions[overlay.picker.selected];
+    lines.push(
+      overlay.deleting ? 'deleting Session…' : 'Delete Session? · y delete · n/Esc return',
+      safeDisplay(row?.title ?? 'untitled', false),
+      row?.id ?? '',
+      'Session and related history will be deleted.',
+      ...(overlay.message === undefined ? [] : [safeDisplay(overlay.message, false)]),
+    );
   } else if (overlay.kind === 'choicePicker') {
     lines.push(...overlay.lines);
   } else if (overlay.kind === 'compaction') {

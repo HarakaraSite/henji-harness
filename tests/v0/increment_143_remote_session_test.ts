@@ -760,3 +760,94 @@ Deno.test('Increment 159 slash picker completes before execution and closes with
     await server.shutdown();
   }
 });
+
+Deno.test('Session picker d/D confirms y/n, cancels without deletion, refreshes and returns a deleted saved view to the active Session', async () => {
+  let deleted = false;
+  let deletes = 0;
+  let activeSubscriptions = 0;
+  let savedSubscriptions = 0;
+  const server = startServer(async (request) => {
+    const { pathname } = new URL(request.url);
+    if (pathname === '/api/v1/core') {
+      return Response.json({
+        ...coreRead,
+        implementedOperations: [...coreRead.implementedOperations, 'session.delete'],
+      });
+    }
+    if (pathname === '/api/v1/sessions') {
+      return Response.json(
+        sessionList(deleted ? [activeSessionId] : [savedSessionId, activeSessionId]),
+      );
+    }
+    if (request.method === 'POST' && pathname.endsWith('/delete')) {
+      deletes += 1;
+      const body = await request.json();
+      if (pathname.includes(activeSessionId)) {
+        return Response.json({
+          kind: 'rejected',
+          commandId: body.commandId,
+          target: { kind: 'session', sessionId: activeSessionId },
+          reason: 'busy',
+        });
+      }
+      deleted = true;
+      return accepted(body.commandId, savedSessionId, { deleted: savedSessionId });
+    }
+    if (pathname.endsWith('/events')) {
+      if (pathname.includes(savedSessionId)) {
+        savedSubscriptions += 1;
+        return sseResponse(savedSnapshot);
+      }
+      activeSubscriptions += 1;
+      return sseResponse(activeIdleSnapshot);
+    }
+    if (pathname === `/api/v1/sessions/${savedSessionId}`) return Response.json(savedSnapshot);
+    return new Response('unexpected request', { status: 404 });
+  });
+  const terminal = new FakeTerminal();
+  const screen = () => terminal.frame?.rows.join('\n') ?? '';
+  const run = runRemoteTui(`http://127.0.0.1:${server.addr.port}`, activeSessionId, { terminal });
+  try {
+    await waitFor(() => activeSubscriptions === 1);
+    terminal.pushInput('\x1bOP');
+    await waitFor(() => screen().includes('Saved Session B ·'));
+    terminal.pushInput('d');
+    await waitFor(() => screen().includes('Delete Session?') && screen().includes(savedSessionId));
+    terminal.pushInput('n');
+    await waitFor(() => screen().includes('session picker'));
+    strictEqual(deletes, 0);
+    terminal.pushInput('D');
+    await waitFor(() => screen().includes('Delete Session?'));
+    terminal.pushInput('\x1b');
+    await waitFor(() => screen().includes('session picker'));
+    strictEqual(deletes, 0);
+    terminal.pushInput('\r');
+    await waitFor(() =>
+      savedSubscriptions === 1 && screen().includes('Saved B conversation marker')
+    );
+    terminal.pushInput('\x1bOP');
+    await waitFor(() => screen().includes('session picker'));
+    terminal.pushInput('D');
+    await waitFor(() => screen().includes('Delete Session?'));
+    terminal.pushInput('y');
+    await waitFor(() =>
+      deleted && activeSubscriptions === 2 && screen().includes('session picker')
+    );
+    strictEqual(deletes, 1);
+    strictEqual(screen().includes('Saved Session B'), false);
+    strictEqual(screen().includes('Active Session A'), true);
+    terminal.pushInput('d');
+    await waitFor(() => screen().includes('Delete Session?'));
+    terminal.pushInput('y');
+    await waitFor(() => screen().includes('Session is open in a Core'));
+    strictEqual(deletes, 2);
+    terminal.pushInput('n');
+    await waitFor(() => screen().includes('Active Session A ·'));
+    terminal.pushInput('\x04');
+    strictEqual(await run, 0);
+  } finally {
+    terminal.pushInput('\x04');
+    await run;
+    await server.shutdown();
+  }
+});

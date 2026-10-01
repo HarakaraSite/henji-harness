@@ -22,6 +22,8 @@ import type { ProviderDeclarationV1 } from './provider_declaration.ts';
 export interface CredentialRegistrationTarget {
   readonly authProfile: AuthProfileId;
   readonly providers: readonly ProviderId[];
+  readonly method?: 'api-key' | 'chatgpt';
+  readonly label?: string;
 }
 
 export interface CredentialRegistration {
@@ -164,6 +166,16 @@ export const credentialRegistrationTargets = (
       Object.freeze({
         authProfile,
         providers: Object.freeze([...providers]),
+        ...(authProfile === 'openai-chatgpt'
+          ? { method: 'chatgpt' as const, label: 'Sign in with ChatGPT' }
+          : {
+            method: 'api-key' as const,
+            label: authProfile === 'openrouter-api-key'
+              ? 'OpenRouter — API key'
+              : authProfile === 'openai-api-key'
+              ? 'OpenAI — API key'
+              : `${authProfile} — API key`,
+          }),
       })
     ),
   );
@@ -181,6 +193,9 @@ export const createCredentialRegistration = (
     targets: () => credentialRegistrationTargets(options.providerDeclarations),
     save: async (authProfile: AuthProfileId, value: string): Promise<void> => {
       if (!isAuthProfileId(authProfile)) {
+        fail('credential_registration_profile_invalid');
+      }
+      if (authProfile === 'openai-chatgpt') {
         fail('credential_registration_profile_invalid');
       }
       const bytes = credentialBytesOf(value);

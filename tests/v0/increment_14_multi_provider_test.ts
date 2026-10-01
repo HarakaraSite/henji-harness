@@ -78,7 +78,10 @@ const openAICompletedStream = (text: string): string => {
   };
   return [
     `data: ${
-      JSON.stringify({ type: 'response.created', response: { ...response, status: 'in_progress' } })
+      JSON.stringify({
+        type: 'response.created',
+        response: { ...response, status: 'in_progress' },
+      })
     }\n\n`,
     `data: ${
       JSON.stringify({
@@ -91,7 +94,13 @@ const openAICompletedStream = (text: string): string => {
         logprobs: [],
       })
     }\n\n`,
-    `data: ${JSON.stringify({ type: 'response.completed', response, sequence_number: 2 })}\n\n`,
+    `data: ${
+      JSON.stringify({
+        type: 'response.completed',
+        response,
+        sequence_number: 2,
+      })
+    }\n\n`,
   ].join('');
 };
 
@@ -147,18 +156,34 @@ const openRouterCompletedStream = (text: string): string =>
   }\n\ndata: [DONE]\n\n`;
 
 Deno.test('Increment 14 resolves bundled provider defaults at startup', () => {
-  assertEquals(defaultModelSelectionFor('openrouter-chat'), ROOT_DEFAULT_MODEL_SELECTION);
-  assertEquals(defaultModelSelectionFor('openai-responses'), OPENAI_DEFAULT_MODEL_SELECTION);
-  assertEquals(defaultModelSelectionFor('openrouter-responses').provider, 'openrouter-responses');
+  assertEquals(
+    defaultModelSelectionFor('openrouter-chat'),
+    ROOT_DEFAULT_MODEL_SELECTION,
+  );
+  assertEquals(
+    defaultModelSelectionFor('openai-responses'),
+    OPENAI_DEFAULT_MODEL_SELECTION,
+  );
+  assertEquals(
+    defaultModelSelectionFor('openrouter-responses').provider,
+    'openrouter-responses',
+  );
   assert(isModelSelection(defaultModelSelectionFor('openrouter-responses')));
   assert(isModelSelection(OPENAI_DEFAULT_MODEL_SELECTION));
-  assertEquals(parseTuiInvocation(['--root-provider', 'openai-responses', '--no-session']), {
-    rawAgentName: undefined,
-    rootProvider: 'openai-responses',
-    persistence: 'none',
-  });
   assertEquals(
-    parseTuiInvocation(['--root-provider', 'openrouter-responses', '--no-session'])
+    parseTuiInvocation(['--root-provider', 'openai-responses', '--no-session']),
+    {
+      rawAgentName: undefined,
+      rootProvider: 'openai-responses',
+      persistence: 'none',
+    },
+  );
+  assertEquals(
+    parseTuiInvocation([
+      '--root-provider',
+      'openrouter-responses',
+      '--no-session',
+    ])
       .rootProvider,
     'openrouter-responses',
   );
@@ -166,7 +191,12 @@ Deno.test('Increment 14 resolves bundled provider defaults at startup', () => {
     const args of [
       ['--root-provider'],
       ['--root-provider', 'anthropic'],
-      ['--root-provider', 'openai-responses', '--root-provider', 'openrouter-chat'],
+      [
+        '--root-provider',
+        'openai-responses',
+        '--root-provider',
+        'openrouter-chat',
+      ],
     ]
   ) {
     let rejected = false;
@@ -188,7 +218,10 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
     seen.body = await request.clone().text();
     return new Response(openAICompletedStream('hello'), {
       status: 200,
-      headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_increment_14' },
+      headers: {
+        'content-type': 'text/event-stream',
+        'x-request-id': 'req_increment_14',
+      },
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
@@ -199,9 +232,16 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
     fetcher,
   });
   const evidence = new ProviderEvidenceRecorder();
-  const result = await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+  const result = await physical.createModel(
+    'parent',
+    OPENAI_DEFAULT_MODEL_SELECTION,
+  ).generate(
     request,
-    { providerEvidence: evidence, providerEvidenceLane: 'parent', modelStep: 1 },
+    {
+      providerEvidence: evidence,
+      providerEvidenceLane: 'parent',
+      modelStep: 1,
+    },
   );
   assertEquals(result.kind, 'final');
   if (result.kind !== 'final') throw new Error('expected final');
@@ -214,6 +254,7 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
   assertEquals(body.store, false);
   assertEquals(body.stream, true);
   assertEquals(body.include, ['reasoning.encrypted_content']);
+  assertEquals(body.reasoning, { summary: 'auto', effort: 'medium' });
 
   const retained = evidence.snapshot().requests[0];
   assertEquals(retained.request.requestMetadata, {
@@ -252,20 +293,28 @@ Deno.test('Increment 119 OpenRouter Responses retains output items without serve
     seen.body = await request.clone().text();
     return new Response(openAICompletedStream('hello'), {
       status: 200,
-      headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_increment_58' },
+      headers: {
+        'content-type': 'text/event-stream',
+        'x-request-id': 'req_increment_58',
+      },
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+    },
     fetcher,
   });
   const selection = defaultModelSelectionFor('openrouter-responses');
   const evidence = new ProviderEvidenceRecorder();
-  const result = await physical.createModel('parent', selection).generate(request, {
-    providerEvidence: evidence,
-    providerEvidenceLane: 'parent',
-    modelStep: 1,
-  });
+  const result = await physical.createModel('parent', selection).generate(
+    request,
+    {
+      providerEvidence: evidence,
+      providerEvidenceLane: 'parent',
+      modelStep: 1,
+    },
+  );
   assertEquals(result.kind, 'final');
   if (result.kind !== 'final') throw new Error('expected final');
   assertEquals(result.text, 'hello');
@@ -276,7 +325,12 @@ Deno.test('Increment 119 OpenRouter Responses retains output items without serve
       type: 'message',
       status: 'completed',
       role: 'assistant',
-      content: [{ type: 'output_text', text: 'hello', annotations: [], logprobs: [] }],
+      content: [{
+        type: 'output_text',
+        text: 'hello',
+        annotations: [],
+        logprobs: [],
+      }],
     }],
     model: selection.modelId,
   });
@@ -288,9 +342,15 @@ Deno.test('Increment 119 OpenRouter Responses retains output items without serve
   assertEquals(body.stream, true);
 
   const retained = evidence.snapshot().requests[0];
-  assertEquals(retained.request.requestMetadata.provider, 'openrouter-responses');
+  assertEquals(
+    retained.request.requestMetadata.provider,
+    'openrouter-responses',
+  );
   assertEquals(retained.request.requestMetadata.api, 'openrouter-responses');
-  assertEquals(retained.request.requestMetadata.authProfile, 'openrouter-api-key');
+  assertEquals(
+    retained.request.requestMetadata.authProfile,
+    'openrouter-api-key',
+  );
   assert(!JSON.stringify(retained).includes('router-secret'));
 });
 
@@ -316,7 +376,11 @@ Deno.test('Increment 119 OpenRouter Responses replays reasoning and function cal
     bodies.push(JSON.parse(await requested.clone().text()));
     const stream = bodies.length === 1
       ? `data: ${
-        JSON.stringify({ type: 'response.output_item.done', item: output[0], output_index: 0 })
+        JSON.stringify({
+          type: 'response.output_item.done',
+          item: output[0],
+          output_index: 0,
+        })
       }\n\ndata: ${
         JSON.stringify({
           type: 'response.completed',
@@ -330,7 +394,9 @@ Deno.test('Increment 119 OpenRouter Responses replays reasoning and function cal
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+    },
     fetcher,
   });
   const selection = defaultModelSelectionFor('openrouter-responses');
@@ -339,7 +405,10 @@ Deno.test('Increment 119 OpenRouter Responses replays reasoning and function cal
   const first = await model.generate(request, {
     reportThinkingDelta: (delta) => thinking.push(delta),
   });
-  assertEquals(thinking, [{ kind: 'text', text: 'Read the two README files.' }]);
+  assertEquals(thinking, [{
+    kind: 'text',
+    text: 'Read the two README files.',
+  }]);
   assertEquals(first.kind, 'tool_calls');
   assert(first.kind === 'tool_calls');
   assertEquals(first.providerState, {
@@ -353,7 +422,10 @@ Deno.test('Increment 119 OpenRouter Responses replays reasoning and function cal
       ...request.transcript,
       {
         role: 'assistant',
-        content: first.calls.map((call) => ({ ...call, kind: 'tool_call' as const })),
+        content: first.calls.map((call) => ({
+          ...call,
+          kind: 'tool_call' as const,
+        })),
         providerState: first.providerState,
       },
       {
@@ -380,37 +452,61 @@ Deno.test('Increment 119 OpenRouter Responses replays reasoning and function cal
   assertEquals(bodies[1].store, undefined);
 });
 
-Deno.test('Increment 67 Responses API omits reasoning effort for auto', async () => {
+Deno.test('Responses API requests summaries while preserving explicit and provider-default effort', async () => {
   const seen: { body?: string } = {};
   const fetcher: typeof fetch = async (input, init) => {
     const requestValue = input instanceof Request ? input : new Request(input, init);
     seen.body = await requestValue.clone().text();
     return new Response(openAICompletedStream('hello'), {
       status: 200,
-      headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_increment_67' },
+      headers: {
+        'content-type': 'text/event-stream',
+        'x-request-id': 'req_increment_67',
+      },
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+    },
     fetcher,
   });
 
-  const auto = selectModelFor('openrouter-responses', 'qwen/qwen3.8-flash', 'auto');
-  const autoResult = await physical.createModel('parent', auto).generate(request);
+  const auto = selectModelFor(
+    'openrouter-responses',
+    'qwen/qwen3.8-flash',
+    'auto',
+  );
+  const autoResult = await physical.createModel('parent', auto).generate(
+    request,
+  );
   assertEquals(autoResult.kind, 'final');
   const autoBody = JSON.parse(seen.body ?? '{}');
   assertEquals(autoBody.model, 'qwen/qwen3.8-flash');
-  assertEquals(autoBody.reasoning, undefined);
+  assertEquals(autoBody.reasoning, { summary: 'auto' });
 
-  const high = selectModelFor('openrouter-responses', 'qwen/qwen3.8-max-0902', 'high');
-  const highResult = await physical.createModel('parent', high).generate(request);
+  const high = selectModelFor(
+    'openrouter-responses',
+    'qwen/qwen3.8-max-0902',
+    'high',
+  );
+  const highResult = await physical.createModel('parent', high).generate(
+    request,
+  );
   assertEquals(highResult.kind, 'final');
   const highBody = JSON.parse(seen.body ?? '{}');
-  assertEquals(highBody.reasoning, { effort: 'high' });
+  assertEquals(highBody.reasoning, { summary: 'auto', effort: 'high' });
 });
 
 Deno.test('Increment 68 aligns provider ids and routes openai-chat', async () => {
-  for (const id of ['openrouter-chat', 'openrouter-responses', 'openai-chat', 'openai-responses']) {
+  for (
+    const id of [
+      'openrouter-chat',
+      'openrouter-responses',
+      'openai-chat',
+      'openai-responses',
+    ]
+  ) {
     assert(providerIdsForSelection().includes(id));
   }
   assert(isModelSelection(defaultModelSelectionFor('openai-chat')));
@@ -446,7 +542,9 @@ Deno.test('Increment 68 aligns provider ids and routes openai-chat', async () =>
     );
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openai-api-key': () => Promise.resolve('openai-secret') },
+    credentialSources: {
+      'openai-api-key': () => Promise.resolve('openai-secret'),
+    },
     fetcher,
     providerDeclarations: builtinProviderDeclarations(),
   });
@@ -492,12 +590,15 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
   const builtins = builtinProviderDeclarations();
   assertEquals(builtins.map((declaration) => declaration.providerId).sort(), [
     'openai-chat',
+    'openai-chatgpt',
     'openai-responses',
     'openrouter-chat',
     'openrouter-responses',
   ]);
 
-  const parsed = validateProviderDeclaration(declarationBody('openrouter-responses'));
+  const parsed = validateProviderDeclaration(
+    declarationBody('openrouter-responses'),
+  );
   assertEquals(parsed.endpoint, 'https://openrouter.ai/api/v1');
   const merged = resolveProviderRegistry(builtins, [parsed]);
   assertEquals(
@@ -522,19 +623,28 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
   );
   assertEquals(
     declarationCodeOf(() =>
-      validateProviderDeclaration({ ...declarationBody('bad'), protocol: 'anthropic-messages' })
+      validateProviderDeclaration({
+        ...declarationBody('bad'),
+        protocol: 'anthropic-messages',
+      })
     ),
     'provider_declaration_invalid',
   );
   assertEquals(
     declarationCodeOf(() =>
-      validateProviderDeclaration({ ...declarationBody('bad'), authProfile: 'Upper' })
+      validateProviderDeclaration({
+        ...declarationBody('bad'),
+        authProfile: 'Upper',
+      })
     ),
     'provider_declaration_invalid',
   );
   assertEquals(
     declarationCodeOf(() =>
-      validateProviderDeclaration({ ...declarationBody('bad'), authProfile: 'providers' })
+      validateProviderDeclaration({
+        ...declarationBody('bad'),
+        authProfile: 'providers',
+      })
     ),
     'provider_declaration_invalid',
   );
@@ -552,7 +662,9 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
     'provider_declaration_invalid',
   );
 
-  const conflictBuiltin = validateProviderDeclaration(declarationBody('team-provider'));
+  const conflictBuiltin = validateProviderDeclaration(
+    declarationBody('team-provider'),
+  );
   assertEquals(
     declarationCodeOf(() =>
       resolveProviderRegistry(
@@ -574,7 +686,10 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
   };
   let duplicateCode = 'no_error';
   try {
-    await loadProviderDeclarations({ configRoot: '/cfg', fileSystem: duplicateFileSystem });
+    await loadProviderDeclarations({
+      configRoot: '/cfg',
+      fileSystem: duplicateFileSystem,
+    });
   } catch (error) {
     duplicateCode = error instanceof ProviderDeclarationError ? error.code : 'other';
   }
@@ -585,7 +700,10 @@ Deno.test('Increment 59 provider declarations validate, load, and merge over bui
     readTextFile: () => Promise.resolve(''),
   };
   assertEquals(
-    (await loadProviderDeclarations({ configRoot: '/cfg', fileSystem: missingFileSystem })).length,
+    (await loadProviderDeclarations({
+      configRoot: '/cfg',
+      fileSystem: missingFileSystem,
+    })).length,
     0,
   );
 });
@@ -595,7 +713,11 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
     ...declarationBody('openrouter-responses'),
     modelCatalog: {
       kind: 'fixed',
-      entries: [{ modelId: 'acme/override-model', defaultEffort: 'low', efforts: ['low', 'high'] }],
+      entries: [{
+        modelId: 'acme/override-model',
+        defaultEffort: 'low',
+        efforts: ['low', 'high'],
+      }],
     },
     defaults: { modelId: 'acme/override-model', effort: 'high' },
   });
@@ -607,10 +729,14 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
     assert(isModelSelection(selection));
     assertEquals(searchModelsFor('openrouter-responses', '').length, 1);
     assertEquals(
-      modelCatalogEntryFor('openrouter-responses', 'acme/override-model')?.defaultEffort,
+      modelCatalogEntryFor('openrouter-responses', 'acme/override-model')
+        ?.defaultEffort,
       'low',
     );
-    assertEquals(selectModelFor('openrouter-responses', 'acme/override-model').effort, 'low');
+    assertEquals(
+      selectModelFor('openrouter-responses', 'acme/override-model').effort,
+      'low',
+    );
     assert(
       searchModelsFor('openrouter-responses', 'deepseek').length === 0,
       'the static catalog must not leak past a declaration override',
@@ -627,7 +753,10 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
 Deno.test('Increment 64 bundled defaults replace the former code catalogs', () => {
   assertEquals(OPENROUTER_MODEL_CATALOG.length, 12);
   assertEquals(OPENAI_MODEL_CATALOG.length, 4);
-  assertEquals(ROOT_DEFAULT_MODEL_SELECTION.modelId, 'deepseek/deepseek-v4.1-flash');
+  assertEquals(
+    ROOT_DEFAULT_MODEL_SELECTION.modelId,
+    'deepseek/deepseek-v4.1-flash',
+  );
   assertEquals(ROOT_DEFAULT_MODEL_SELECTION.effort, 'high');
   assertEquals(OPENAI_DEFAULT_MODEL_SELECTION.modelId, 'gpt-5.6-sol');
   assertEquals(OPENAI_DEFAULT_MODEL_SELECTION.effort, 'medium');
@@ -642,7 +771,11 @@ Deno.test('Increment 64 declaration adds a chat completions provider with a decl
     authProfile: 'openai-api-key',
     modelCatalog: {
       kind: 'fixed',
-      entries: [{ modelId: 'llama-3-70b', defaultEffort: 'medium', efforts: ['low', 'medium'] }],
+      entries: [{
+        modelId: 'llama-3-70b',
+        defaultEffort: 'medium',
+        efforts: ['low', 'medium'],
+      }],
     },
     defaults: { modelId: 'llama-3-70b', effort: 'medium' },
   });
@@ -669,16 +802,21 @@ Deno.test('Increment 64 declaration adds a chat completions provider with a decl
       });
     };
     const physical = createProductionPhysicalIo(undefined, {
-      credentialSources: { 'openai-api-key': () => Promise.resolve('chat-secret') },
+      credentialSources: {
+        'openai-api-key': () => Promise.resolve('chat-secret'),
+      },
       fetcher,
       providerDeclarations: [declaration],
     });
     const evidence = new ProviderEvidenceRecorder();
-    const result = await physical.createModel('parent', selection).generate(request, {
-      providerEvidence: evidence,
-      providerEvidenceLane: 'parent',
-      modelStep: 1,
-    });
+    const result = await physical.createModel('parent', selection).generate(
+      request,
+      {
+        providerEvidence: evidence,
+        providerEvidenceLane: 'parent',
+        modelStep: 1,
+      },
+    );
     assertEquals(result.kind, 'final');
     assertEquals(seen.url, 'https://gateway.example/v1/chat/completions');
     assertEquals(seen.authorization, 'Bearer chat-secret');
@@ -700,8 +838,13 @@ Deno.test('Increment 63 stores and reads the Host default selection', async () =
   try {
     assertEquals(await readDefaultSelection(root), undefined);
     await writeDefaultSelection(root, OPENAI_DEFAULT_MODEL_SELECTION);
-    assertEquals(await readDefaultSelection(root), OPENAI_DEFAULT_MODEL_SELECTION);
-    assert((await Deno.readTextFile(defaultSelectionPath(root))).endsWith('\n'));
+    assertEquals(
+      await readDefaultSelection(root),
+      OPENAI_DEFAULT_MODEL_SELECTION,
+    );
+    assert(
+      (await Deno.readTextFile(defaultSelectionPath(root))).endsWith('\n'),
+    );
   } finally {
     await Deno.remove(root, { recursive: true });
   }
@@ -715,7 +858,11 @@ Deno.test('Increment 63 declaration overrides a built-in catalog and defaults', 
     authProfile: 'openrouter-api-key',
     modelCatalog: {
       kind: 'fixed',
-      entries: [{ modelId: 'acme/chat', defaultEffort: 'low', efforts: ['low', 'high'] }],
+      entries: [{
+        modelId: 'acme/chat',
+        defaultEffort: 'low',
+        efforts: ['low', 'high'],
+      }],
     },
     defaults: { modelId: 'acme/chat', effort: 'high' },
   });
@@ -748,7 +895,9 @@ Deno.test('Increment 62 replay is scoped to the producing provider and model', a
     });
   };
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openai-api-key': () => Promise.resolve('probe-secret') },
+    credentialSources: {
+      'openai-api-key': () => Promise.resolve('probe-secret'),
+    },
     fetcher,
   });
   const transcriptWith = (
@@ -759,7 +908,11 @@ Deno.test('Increment 62 replay is scoped to the producing provider and model', a
     {
       role: 'assistant',
       content: { kind: 'text', text: 'b' },
-      providerState: { provider, replayItems: [{ type: 'reasoning', id: 'REPLAY_MARK' }], model },
+      providerState: {
+        provider,
+        replayItems: [{ type: 'reasoning', id: 'REPLAY_MARK' }],
+        model,
+      },
     },
     { role: 'user', content: { kind: 'text', text: 'c' } },
   ];
@@ -772,11 +925,17 @@ Deno.test('Increment 62 replay is scoped to the producing provider and model', a
   await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
     requestFor('openai-responses', 'gpt-5.6-sol'),
   );
-  assert(bodies[0].includes('REPLAY_MARK'), 'matching provider and model must replay');
+  assert(
+    bodies[0].includes('REPLAY_MARK'),
+    'matching provider and model must replay',
+  );
   await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
     requestFor('openai-alt', 'gpt-5.6-sol'),
   );
-  assert(!bodies[1].includes('REPLAY_MARK'), 'another provider must not replay');
+  assert(
+    !bodies[1].includes('REPLAY_MARK'),
+    'another provider must not replay',
+  );
   await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
     requestFor('openai-responses', 'another-model'),
   );
@@ -790,7 +949,12 @@ Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done'
         type: 'response.output_item.done',
         output_index: 0,
         sequence_number: 0,
-        item: { type: 'reasoning', id: 'rs_1', summary: [], encrypted_content: 'enc-done' },
+        item: {
+          type: 'reasoning',
+          id: 'rs_1',
+          summary: [],
+          encrypted_content: 'enc-done',
+        },
       })
     }\n\n`,
     `data: ${
@@ -808,7 +972,11 @@ Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done'
               id: 'msg_1',
               status: 'completed',
               role: 'assistant',
-              content: [{ type: 'output_text', text: 'hello', annotations: [] }],
+              content: [{
+                type: 'output_text',
+                text: 'hello',
+                annotations: [],
+              }],
             },
           ],
           output_text: 'hello',
@@ -824,13 +992,22 @@ Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done'
       }),
     );
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openai-api-key': () => Promise.resolve('probe-secret') },
+    credentialSources: {
+      'openai-api-key': () => Promise.resolve('probe-secret'),
+    },
     fetcher,
   });
   const evidence = new ProviderEvidenceRecorder();
-  const result = await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+  const result = await physical.createModel(
+    'parent',
+    OPENAI_DEFAULT_MODEL_SELECTION,
+  ).generate(
     request,
-    { providerEvidence: evidence, providerEvidenceLane: 'parent', modelStep: 1 },
+    {
+      providerEvidence: evidence,
+      providerEvidenceLane: 'parent',
+      modelStep: 1,
+    },
   );
   assertEquals(result.kind, 'final');
   const state = result.providerState as {
@@ -867,7 +1044,10 @@ Deno.test('Increment 61 declaration adds an external OpenAI provider beside the 
     assertEquals(selection.modelId, 'gpt-5.6-terra');
     assert(isModelSelection(selection));
     assertEquals(searchModelsFor('openai-alt', '').length, 1);
-    assertEquals(selectModelFor('openai-alt', 'gpt-5.6-terra').effort, 'medium');
+    assertEquals(
+      selectModelFor('openai-alt', 'gpt-5.6-terra').effort,
+      'medium',
+    );
 
     const seen: { url?: string; authorization?: string } = {};
     const fetcher: typeof fetch = (input, init) => {
@@ -882,16 +1062,21 @@ Deno.test('Increment 61 declaration adds an external OpenAI provider beside the 
       );
     };
     const physical = createProductionPhysicalIo(undefined, {
-      credentialSources: { 'openai-api-key': () => Promise.resolve('alt-secret') },
+      credentialSources: {
+        'openai-api-key': () => Promise.resolve('alt-secret'),
+      },
       fetcher,
       providerDeclarations: [declaration],
     });
     const evidence = new ProviderEvidenceRecorder();
-    const result = await physical.createModel('parent', selection).generate(request, {
-      providerEvidence: evidence,
-      providerEvidenceLane: 'parent',
-      modelStep: 1,
-    });
+    const result = await physical.createModel('parent', selection).generate(
+      request,
+      {
+        providerEvidence: evidence,
+        providerEvidenceLane: 'parent',
+        modelStep: 1,
+      },
+    );
     assertEquals(result.kind, 'final');
     assertEquals(seen.url, 'https://api.openai.com/v1/responses');
     assertEquals(seen.authorization, 'Bearer alt-secret');
@@ -922,7 +1107,9 @@ Deno.test('Increment 59 provider declaration overrides the OpenRouter Responses 
     endpoint: 'https://gateway.example/v1',
   });
   const physical = createProductionPhysicalIo(undefined, {
-    credentialSources: { 'openrouter-api-key': () => Promise.resolve('router-secret') },
+    credentialSources: {
+      'openrouter-api-key': () => Promise.resolve('router-secret'),
+    },
     fetcher,
     providerDeclarations: [declaration],
   });
@@ -1023,7 +1210,10 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
     },
   );
   const outcome = await session.submit('Say hello.');
-  assert(outcome.ok, 'OpenAI tool continuation must pass through the Henji core loop');
+  assert(
+    outcome.ok,
+    'OpenAI tool continuation must pass through the Henji core loop',
+  );
   assertEquals(outcome.finalText, 'README received');
   const assistant = outcome.transcript.find((message) => message.role === 'assistant');
   assertEquals(assistant?.content, [{
@@ -1043,7 +1233,11 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
       name: 'read',
       arguments: '{"path":"README.md"}',
     },
-    { type: 'function_call_output', call_id: 'call_increment_14', output: '# Henji' },
+    {
+      type: 'function_call_output',
+      call_id: 'call_increment_14',
+      output: '# Henji',
+    },
   ]);
 });
 
@@ -1061,7 +1255,10 @@ Deno.test('Increment 14 keeps OpenRouter web search usable beside an OpenAI root
             content: 'Deno is a runtime.',
             annotations: [{
               type: 'url_citation',
-              url_citation: { title: 'Deno Docs', url: 'https://docs.deno.com/' },
+              url_citation: {
+                title: 'Deno Docs',
+                url: 'https://docs.deno.com/',
+              },
             }],
           },
         }],
@@ -1102,9 +1299,14 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
       initialModelSelection: OPENAI_DEFAULT_MODEL_SELECTION,
     });
     await store.initialize();
-    assertEquals(first.session.modelSelectionSnapshot(), OPENAI_DEFAULT_MODEL_SELECTION);
+    assertEquals(
+      first.session.modelSelectionSnapshot(),
+      OPENAI_DEFAULT_MODEL_SELECTION,
+    );
     assertEquals(first.displayState.model.provider, 'openai-responses');
-    assert((await first.session.submit('persist direct provider selection')).ok);
+    assert(
+      (await first.session.submit('persist direct provider selection')).ok,
+    );
     const artifact = store.listExecutions().at(-1);
     assert(artifact !== undefined);
     assert(artifact.manifest !== undefined);
@@ -1130,7 +1332,10 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
       physicalIoMode: 'provider-free',
       initialModelSelection: ROOT_DEFAULT_MODEL_SELECTION,
     });
-    assertEquals(resumed.session.modelSelectionSnapshot(), OPENAI_DEFAULT_MODEL_SELECTION);
+    assertEquals(
+      resumed.session.modelSelectionSnapshot(),
+      OPENAI_DEFAULT_MODEL_SELECTION,
+    );
     assertEquals(resumed.displayState.model.provider, 'openai-responses');
   } finally {
     await first?.close();
@@ -1140,7 +1345,9 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
 });
 
 Deno.test('Increment 113 headless Worker uses the external provider default for its turn', async () => {
-  const configRoot = await Deno.makeTempDir({ prefix: 'henji-increment-113-provider-' });
+  const configRoot = await Deno.makeTempDir({
+    prefix: 'henji-increment-113-provider-',
+  });
   const artifacts = new FakeWorkerExecutionArtifactStore();
   const builtin = builtinProviderDeclarations().find((item) =>
     item.providerId === 'openrouter-chat'
@@ -1152,13 +1359,20 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
   };
   try {
     await Deno.mkdir(`${configRoot}/providers`);
-    await Deno.writeTextFile(`${configRoot}/providers/router.json`, JSON.stringify(override));
-    const result = await runHeadlessWorker('Use the configured default.', resolveBuiltinAgent(), {
-      configRoot,
-      dataRoot: configRoot,
-      physicalIoMode: 'provider-free',
-      executionArtifactStore: artifacts,
-    });
+    await Deno.writeTextFile(
+      `${configRoot}/providers/router.json`,
+      JSON.stringify(override),
+    );
+    const result = await runHeadlessWorker(
+      'Use the configured default.',
+      resolveBuiltinAgent(),
+      {
+        configRoot,
+        dataRoot: configRoot,
+        physicalIoMode: 'provider-free',
+        executionArtifactStore: artifacts,
+      },
+    );
     assert(result.outcome.ok);
     const stored = await artifacts.list();
     assertEquals(stored.length, 1);
@@ -1176,7 +1390,9 @@ Deno.test('Increment 113 headless Worker uses the external provider default for 
 });
 
 Deno.test('Increment 113 Host and Worker share the TUI-resolved provider snapshot', async () => {
-  const configRoot = await Deno.makeTempDir({ prefix: 'henji-increment-113-provider-' });
+  const configRoot = await Deno.makeTempDir({
+    prefix: 'henji-increment-113-provider-',
+  });
   let created: Awaited<ReturnType<typeof createWorkerSession>> | undefined;
   const builtin = builtinProviderDeclarations().find((item) =>
     item.providerId === 'openrouter-chat'
@@ -1187,7 +1403,8 @@ Deno.test('Increment 113 Host and Worker share the TUI-resolved provider snapsho
     modelCatalog: {
       kind: 'fixed',
       entries: builtin.modelCatalog.entries.filter((entry) =>
-        entry.modelId === 'qwen/qwen3.8-flash' || entry.modelId === 'deepseek/deepseek-v4.1-flash'
+        entry.modelId === 'qwen/qwen3.8-flash' ||
+        entry.modelId === 'deepseek/deepseek-v4.1-flash'
       ),
     },
   };

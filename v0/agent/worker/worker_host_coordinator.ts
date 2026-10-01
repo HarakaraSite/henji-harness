@@ -28,6 +28,7 @@ import type {
 } from './worker_protocol.ts';
 import { isModelSelection } from '../provider/model_catalog.ts';
 import { credentialAvailabilityFor } from '../provider/credential_file.ts';
+import { type ChatGPTAuthService, createChatGPTAuthService } from '../provider/chatgpt_auth.ts';
 import {
   type CredentialAvailability,
   modelRouteProfileId,
@@ -102,6 +103,7 @@ export class ExecutionCoordinator {
   private readonly supervisor: WorkerSupervisor;
   private readonly journal: ExecutionJournal;
   private readonly children: ChildRunRegistry;
+  private chatgptAuth: ChatGPTAuthService | undefined;
   private runtimeRequestCount = 0;
   private generationRequestBase = 0;
   private active = false;
@@ -148,10 +150,19 @@ export class ExecutionCoordinator {
       options,
       catalog: options.asyncAgents ?? [],
       currentModelSelection: () => this.authority.projection.modelSelection,
+      chatgptAuth: {
+        selectedRegistrationId: () => this.chatgptAuthService().selectedRegistrationId(),
+      },
       ...(options.resolveAsyncAgentModule === undefined
         ? {}
         : { resolveManagedModule: options.resolveAsyncAgentModule }),
       ...(options.historyPersistence === undefined ? {} : { history: options.historyPersistence }),
+    });
+  }
+
+  private chatgptAuthService(): ChatGPTAuthService {
+    return this.chatgptAuth ??= createChatGPTAuthService({
+      ...(this.options.configRoot === undefined ? {} : { configRoot: this.options.configRoot }),
     });
   }
 
@@ -326,7 +337,8 @@ export class ExecutionCoordinator {
       ? DEFAULT_AGENT_MAX_STEPS
       : undefined;
     const configuredMaxSteps = this.options.rootMaxSteps;
-    const maxSteps = configuredMaxSteps ?? manifestMaxSteps ?? builtinMaxSteps ?? null;
+    const maxSteps = configuredMaxSteps ?? manifestMaxSteps ??
+      builtinMaxSteps ?? null;
     const maxStepsSource: EffectiveRuntimeConfig['maxStepsSource'] =
       configuredMaxSteps !== undefined
         ? 'activation'
@@ -352,7 +364,8 @@ export class ExecutionCoordinator {
       },
       maxSteps,
       maxStepsSource,
-      providerTimeoutMs: this.options.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS,
+      providerTimeoutMs: this.options.providerTimeoutMs ??
+        DEFAULT_PROVIDER_TIMEOUT_MS,
       activation,
     };
   }
@@ -364,9 +377,10 @@ export class ExecutionCoordinator {
     }>
     | undefined {
     const recall = this.pendingRecall;
-    return recall === undefined
-      ? undefined
-      : { sourceExecutionId: recall.sourceExecutionId, evidence: recall.evidence };
+    return recall === undefined ? undefined : {
+      sourceExecutionId: recall.sourceExecutionId,
+      evidence: recall.evidence,
+    };
   }
 
   credentialAvailabilitySnapshot(): CredentialAvailability | undefined {
@@ -381,12 +395,23 @@ export class ExecutionCoordinator {
    * model transaction, or credential value is involved, and the request resolver keeps reading the
    * fixed credential file.
    */
-  async refreshCredentialAvailability(): Promise<CredentialAvailability | undefined> {
+  async refreshCredentialAvailability(): Promise<
+    CredentialAvailability | undefined
+  > {
     if (this.closed) return undefined;
-    const profile = this.authority.modelSelectionSnapshot().authProfile;
-    const availability = await credentialAvailabilityFor(profile);
+    const selection = this.authority.modelSelectionSnapshot();
+    const profile = selection.authProfile;
+    const registrationId = 'registrationId' in selection ? selection.registrationId : undefined;
+    const status = profile === 'openai-chatgpt'
+      ? registrationId === null
+        ? 'missing'
+        : await this.chatgptAuthService().presence(registrationId)
+      : (await credentialAvailabilityFor(profile)).status;
+    const availability = Object.freeze({ authProfile: profile, status });
     if (this.closed) return undefined;
-    if (this.authority.modelSelectionSnapshot().authProfile !== profile) return undefined;
+    if (this.authority.modelSelectionSnapshot().authProfile !== profile) {
+      return undefined;
+    }
     this.supervisor.setCredentialAvailability(structuredClone(availability));
     return availability;
   }
@@ -736,7 +761,12 @@ export class ExecutionCoordinator {
 
   runtimeSnapshot(): {
     readonly active: boolean;
-    readonly phase: 'idle' | 'running' | 'cancelling' | 'settling' | 'unavailable';
+    readonly phase:
+      | 'idle'
+      | 'running'
+      | 'cancelling'
+      | 'settling'
+      | 'unavailable';
   } {
     if (!this.active) {
       return {
@@ -1516,19 +1546,30 @@ export class ExecutionCoordinator {
   admit(
     task: string,
     recalledContext?: RecalledExecutionContext,
-  ): Promise<{ readonly executionId: string; readonly completion: Promise<LoopOutcome> }> {
+  ): Promise<
+    { readonly executionId: string; readonly completion: Promise<LoopOutcome> }
+  > {
     return new Promise((resolve, reject) => {
       let admitted = false;
-      const completion = this.executeTask(task, recalledContext, (executionId) => {
-        admitted = true;
-        resolve({ executionId, completion });
-      });
+      const completion = this.executeTask(
+        task,
+        recalledContext,
+        (executionId) => {
+          admitted = true;
+          resolve({ executionId, completion });
+        },
+      );
       completion.then((outcome) => {
         if (!admitted) {
-          reject(Object.assign(new Error(outcome.error ?? 'execution admission failed'), {
-            code: 'admission_failed',
-            outcome,
-          }));
+          reject(
+            Object.assign(
+              new Error(outcome.error ?? 'execution admission failed'),
+              {
+                code: 'admission_failed',
+                outcome,
+              },
+            ),
+          );
         }
       }, reject);
     });
@@ -1560,6 +1601,12 @@ export class ExecutionCoordinator {
       );
     }
     if (recalledContext === undefined) this.pendingRecall = undefined;
+    const currentModel = this.authority.modelSelectionSnapshot();
+    const chatgptRegistrationId = currentModel.provider !== 'openai-chatgpt'
+      ? null
+      : Object.hasOwn(this.options, 'chatgptRegistrationId')
+      ? this.options.chatgptRegistrationId ?? null
+      : (await this.chatgptAuthService().selectedRegistrationId().catch(() => undefined)) ?? null;
     this.clearAuxiliaryStageWatchdog();
     this.lastAuxiliaryContextRequestOrdinal = undefined;
     this.active = true;
@@ -1591,7 +1638,7 @@ export class ExecutionCoordinator {
       journalFailureSignal: createJournalFailureSignal(),
       stageSnapshotKeys: new Set(),
     };
-    this.children.openParent(execution.executionId);
+    this.children.openParent(execution.executionId, chatgptRegistrationId);
     this.activeExecution = execution;
     this.publishRuntimeState();
     try {
@@ -1665,6 +1712,7 @@ export class ExecutionCoordinator {
           correlation,
           executionId: execution.executionId,
           task,
+          chatgptRegistrationId,
           ...(admittedRecall === undefined ? {} : {
             recalledContext: structuredClone(admittedRecall),
           }),
@@ -2410,7 +2458,11 @@ export class ExecutionCoordinator {
       try {
         await this.supervisor.terminate();
       } finally {
-        await this.options.handle.close();
+        try {
+          await this.options.handle.close();
+        } finally {
+          await this.chatgptAuth?.close();
+        }
       }
     }
     if (cleanupError !== undefined) throw cleanupError;

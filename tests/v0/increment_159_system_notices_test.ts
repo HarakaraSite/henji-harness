@@ -1,6 +1,7 @@
 import { deepStrictEqual, ok, strictEqual } from 'node:assert';
 import type { ExecutionView, SessionSnapshot } from '../../v0/api/contract.ts';
 import { RemoteSystemNotices } from '../../v0/tui/system_notices.ts';
+import { SnapshotConversationProjector } from '../../v0/tui/snapshot_presentation.ts';
 import { freezeUiLogEntry, type UiLogEntry } from '../../v0/tui/state.ts';
 import { TuiRenderer } from '../../v0/tui/tui_renderer.ts';
 import type { TerminalPort } from '../../v0/tui/terminal.ts';
@@ -67,6 +68,220 @@ const snapshot = (sessionId = 'session-a'): SessionSnapshot => ({
 });
 const systemEntries = (entries: readonly UiLogEntry[]) =>
   entries.filter((item) => item.kind === 'system');
+
+const toolConversation = (): SessionSnapshot['conversation'] => ({
+  messages: [
+    { id: 'user', executionId: 'execution-a', turn: 1, role: 'user', text: 'Inspect the file.' },
+    {
+      id: 'call',
+      executionId: 'execution-a',
+      turn: 1,
+      role: 'assistant',
+      toolOccurrenceIds: ['read-one'],
+    },
+    {
+      id: 'result',
+      executionId: 'execution-a',
+      turn: 1,
+      role: 'tool',
+      toolOccurrenceIds: ['read-one'],
+    },
+  ],
+  tools: [{
+    toolOccurrenceId: 'read-one',
+    executionId: 'execution-a',
+    turn: 1,
+    name: 'read',
+    arguments: { path: 'README.md' },
+    result: { text: 'file contents', outcome: 'success' },
+  }],
+  thinking: [],
+  requests: [],
+  omitted: 0,
+});
+
+Deno.test('Increment 166 cancellation follows projected tools with or without thinking', () => {
+  const first = {
+    ...snapshot(),
+    runtime: { ...snapshot().runtime, execution: execution('cancelled') },
+    conversation: toolConversation(),
+  };
+  const projector = new SnapshotConversationProjector();
+  const notices = new RemoteSystemNotices();
+  const merged = notices.merge(first, projector.project(first, 'scope').entries);
+  deepStrictEqual(merged.map((item) => item.kind), ['user', 'tool', 'system']);
+  strictEqual(merged.at(-1)?.text, 'CANCELLED');
+  const resynced = structuredClone(first);
+  deepStrictEqual(
+    notices.merge(resynced, projector.project(resynced, 'scope', { resync: true }).entries),
+    merged,
+  );
+
+  const withThinking = {
+    ...first,
+    conversation: {
+      ...first.conversation,
+      thinking: [{
+        requestKey: { executionId: 'execution-a', modelStep: 1, requestOrdinal: 1 },
+        turn: 1,
+        thinkingKind: 'summary' as const,
+        text: 'I will inspect the file.',
+        complete: true,
+        beforeMessageIndex: 1,
+      }],
+    },
+  };
+  const thought = new RemoteSystemNotices().merge(
+    withThinking,
+    projector.project(withThinking, 'scope').entries,
+  );
+  deepStrictEqual(thought.map((item) => item.kind), ['user', 'thinking', 'tool', 'system']);
+  strictEqual(thought.at(-1)?.text, 'CANCELLED');
+
+  const next = {
+    ...first,
+    conversation: {
+      ...first.conversation,
+      messages: [...first.conversation.messages, {
+        id: 'next-user',
+        executionId: 'execution-b',
+        turn: 2,
+        role: 'user' as const,
+        text: 'Next task.',
+      }],
+    },
+  };
+  deepStrictEqual(
+    notices.merge(next, projector.project(next, 'scope').entries).map((item) => item.kind),
+    ['user', 'tool', 'system', 'user'],
+  );
+});
+
+Deno.test('Increment 166 failure follows the last assistant or thinking entry of its execution', () => {
+  const conversation = toolConversation();
+  const first = {
+    ...snapshot(),
+    runtime: { ...snapshot().runtime, execution: execution('failed') },
+    conversation: {
+      ...conversation,
+      messages: [...conversation.messages, {
+        id: 'answer',
+        executionId: 'execution-a',
+        turn: 1,
+        role: 'assistant' as const,
+        text: 'Partial answer.',
+      }],
+    },
+  };
+  const projector = new SnapshotConversationProjector();
+  const merged = new RemoteSystemNotices().merge(first, projector.project(first, 'scope').entries);
+  deepStrictEqual(merged.map((item) => item.kind), ['user', 'tool', 'assistant', 'system']);
+  strictEqual(merged.at(-1)?.text, 'FAILED · execution failed');
+  const withTrailingThinking = {
+    ...first,
+    conversation: {
+      ...first.conversation,
+      thinking: [{
+        requestKey: { executionId: 'execution-a', modelStep: 2, requestOrdinal: 2 },
+        turn: 1,
+        thinkingKind: 'summary' as const,
+        text: 'Continuing the investigation.',
+        complete: false,
+        beforeMessageIndex: first.conversation.messages.length,
+      }],
+    },
+  };
+  deepStrictEqual(
+    new RemoteSystemNotices().merge(
+      withTrailingThinking,
+      projector.project(withTrailingThinking, 'scope').entries,
+    ).map((item) => item.kind),
+    ['user', 'tool', 'assistant', 'thinking', 'system'],
+  );
+});
+
+Deno.test('Increment 166 command, queue and steering notices anchor after projected work', () => {
+  const base = toolConversation();
+  const conversation = {
+    ...base,
+    messages: base.messages.map((message) =>
+      message.id === 'call' ? { ...message, text: 'I will inspect it.' } : message
+    ),
+  };
+  const first = { ...snapshot(), conversation };
+  const projector = new SnapshotConversationProjector();
+  const notices = new RemoteSystemNotices();
+  const entries = projector.project(first, 'scope').entries;
+  notices.merge(first, entries);
+  notices.retain(
+    first.session.id,
+    'command',
+    'REJECTED · execution.cancel',
+    'REJECTED',
+    'execution-a',
+  );
+  notices.retain(first.session.id, 'connection', 'DISCONNECTED', 'DISCONNECTED');
+  const queued = {
+    ...first,
+    pending: {
+      ...first.pending,
+      followUp: {
+        queueId: 'queue-one',
+        commandId: 'queue-command',
+        sessionId: first.session.id,
+        afterExecutionId: 'execution-a',
+        text: 'Next task.',
+        status: 'queued' as const,
+      },
+      steering: { commandId: 'steer-command', executionId: 'execution-a', text: 'Keep it short.' },
+    },
+  };
+  const merged = notices.merge(queued, entries);
+  deepStrictEqual(merged.map((item) => item.kind), [
+    'user',
+    'assistant',
+    'tool',
+    'system',
+    'system',
+    'system',
+    'system',
+  ]);
+  strictEqual(merged[3].text, 'REJECTED · execution.cancel');
+  strictEqual(merged[5].text, 'RESERVED · Next task.');
+  strictEqual(merged[6].text, 'Additional instruction received · Keep it short.');
+  notices.retain(
+    first.session.id,
+    'command',
+    'UNCONFIRMED · execution.cancel',
+    'UNCONFIRMED',
+    'execution-a',
+  );
+  const next = {
+    ...queued,
+    conversation: {
+      ...conversation,
+      messages: [...conversation.messages, {
+        id: 'later-note',
+        executionId: 'execution-a',
+        turn: 1,
+        role: 'assistant' as const,
+        text: 'Later work.',
+      }],
+    },
+    pending: {
+      ...queued.pending,
+      followUp: {
+        ...queued.pending.followUp,
+        status: 'started' as const,
+        executionId: 'execution-b',
+      },
+    },
+  };
+  const updated = notices.merge(next, projector.project(next, 'scope').entries);
+  strictEqual(updated[3].text, 'UNCONFIRMED · execution.cancel');
+  strictEqual(updated[5].text, 'STARTED · Next task.');
+  strictEqual(updated.at(-1)?.text, 'Later work.');
+});
 
 Deno.test('Increment 159 local system notices survive snapshots and return to their original Session', () => {
   const notices = new RemoteSystemNotices();

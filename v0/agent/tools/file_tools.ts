@@ -71,7 +71,7 @@ export const createReadTool = (workspace: Workspace): Tool => ({
     'Read complete lines from one UTF-8 workspace file (64 KiB result). offset is 1-based; use offset/limit and the continuation notice for large files.',
   inputSchema: readSchema,
   promptGuidelines: Object.freeze([
-    'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。',
+    'For file inspection, prefer read over running cat or sed through bash; use offset and limit to read further.',
   ]),
   async execute(argumentsValue, context?: ToolExecutionContext) {
     if (!isObject(argumentsValue)) throw invalidToolArguments('read');

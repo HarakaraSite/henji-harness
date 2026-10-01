@@ -1,5 +1,6 @@
 import type {
   CatalogReadResult,
+  ChatGPTAuthResult,
   CommandResult,
   CommandState,
   ContextReadResult,
@@ -19,6 +20,7 @@ import type {
   RecallValue,
   SelectionChangeValue,
   SessionChange,
+  SessionDeleteValue,
   SessionOpenValue,
   SessionRenameValue,
   SessionsListResult,
@@ -200,6 +202,7 @@ export const decodeCommandState = <T>(
 
 export const decodeCoreCommandValue = (value: unknown): CoreCommandValue => {
   if (!isRecord(value)) throw new ApiCodecError();
+  if ('deleted' in value) return decodeSessionDeleteValue(value);
   if (value.result === 'requested') return decodeCoreShutdownValue(value);
   if ('snapshot' in value) return decodeSessionOpenValue(value);
   if ('selection' in value) return decodeSelectionChangeValue(value);
@@ -245,6 +248,11 @@ export const decodeCoreShutdownValue = (
 export const decodeSessionOpenValue = (value: unknown): SessionOpenValue => {
   if (!isRecord(value) || !('snapshot' in value)) throw new ApiCodecError();
   return { snapshot: decodeSessionSnapshot(value.snapshot) };
+};
+
+export const decodeSessionDeleteValue = (value: unknown): SessionDeleteValue => {
+  if (!isRecord(value) || !isText(value.deleted)) throw new ApiCodecError();
+  return { deleted: value.deleted };
 };
 
 export const decodeSessionRenameValue = (
@@ -313,6 +321,28 @@ export const decodeCatalogReadResult = (value: unknown): CatalogReadResult => {
     return value as unknown as CatalogReadResult;
   }
   throw new ApiCodecError();
+};
+
+export const decodeChatGPTAuthResult = (value: unknown): ChatGPTAuthResult => {
+  if (!isRecord(value)) throw new ApiCodecError();
+  if (value.kind === 'rejected' && isText(value.reason)) {
+    return value as unknown as ChatGPTAuthResult;
+  }
+  const state = value.state;
+  const attempt = value.attempt;
+  if (
+    value.kind !== 'chatgpt' || !isRecord(state) ||
+    (state.selectedRegistrationId !== undefined && !isText(state.selectedRegistrationId)) ||
+    !Array.isArray(state.accounts) ||
+    !state.accounts.every((account) =>
+      isRecord(account) && isText(account.registrationId) && isText(account.label) &&
+      typeof account.needsReauthentication === 'boolean'
+    ) ||
+    (attempt !== undefined &&
+      (!isRecord(attempt) || !isText(attempt.attemptId) || !isText(attempt.registrationId) ||
+        !isText(attempt.authorizationUrl)))
+  ) throw new ApiCodecError();
+  return value as unknown as ChatGPTAuthResult;
 };
 
 export const decodeCredentialPresenceReadResult = (

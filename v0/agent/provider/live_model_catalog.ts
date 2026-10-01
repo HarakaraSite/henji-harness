@@ -1,5 +1,10 @@
 import type { EffortCatalogResult, ModelCatalogResult } from '../../api/contract.ts';
 import { credentialFileFor, parseCredentialBytes } from './credential_file.ts';
+import {
+  ChatGPTAuthError,
+  type ChatGPTAuthService,
+  createChatGPTAuthService,
+} from './chatgpt_auth.ts';
 import { isReasoningEffort, type ReasoningEffort } from './model_selection.ts';
 import type { ProviderDeclarationV1 } from './provider_declaration.ts';
 import { substituteRequestHeaders, usesCredentialHeader } from './provider_request_headers.ts';
@@ -28,7 +33,10 @@ export type LiveModelCatalogErrorCode =
   | 'models_not_loaded';
 
 export class LiveModelCatalogError extends Error {
-  constructor(readonly code: LiveModelCatalogErrorCode) {
+  constructor(
+    readonly code: LiveModelCatalogErrorCode,
+    readonly authCode?: string,
+  ) {
     super(code);
     this.name = 'LiveModelCatalogError';
   }
@@ -39,6 +47,8 @@ export interface LiveModelCatalogOptions {
   readonly declarations: readonly ProviderDeclarationV1[];
   readonly metadataUrl?: string;
   readonly fetcher?: typeof fetch;
+  /** Shared Core auth service; omitted callers use the same persisted auth module locally. */
+  readonly chatgptAuth?: ChatGPTAuthService;
 }
 
 interface CatalogModel {
@@ -249,6 +259,7 @@ export class LiveModelCatalog {
   readonly #declarations: readonly ProviderDeclarationV1[];
   readonly #metadataUrl?: string;
   readonly #fetcher: typeof fetch;
+  readonly #chatgptAuth: ChatGPTAuthService;
   readonly #snapshots = new Map<string, ModelSnapshot>();
   readonly #requestFacts: LiveModelCatalogFact[] = [];
   #nextRequestOrder = 0;
@@ -258,6 +269,10 @@ export class LiveModelCatalog {
     this.#declarations = options.declarations;
     this.#metadataUrl = options.metadataUrl;
     this.#fetcher = options.fetcher ?? fetch;
+    this.#chatgptAuth = options.chatgptAuth ?? createChatGPTAuthService({
+      configRoot: options.configRoot,
+      ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
+    });
   }
 
   get facts(): readonly LiveModelCatalogFact[] {
@@ -267,6 +282,7 @@ export class LiveModelCatalog {
   async models(
     provider: string,
     sessionId?: string,
+    registrationId?: string,
   ): Promise<ModelCatalogResult> {
     const declaration = this.#declaration(provider);
     if (declaration.modelListSource === 'catalog') {
@@ -274,6 +290,39 @@ export class LiveModelCatalog {
       const catalog = await this.#readCatalog(declaration);
       this.#snapshots.set(provider, snapshot);
       return this.#compose(declaration, snapshot, catalog);
+    }
+    if (provider === 'openai-chatgpt') {
+      let credential: Awaited<ReturnType<ChatGPTAuthService['resolve']>>;
+      try {
+        credential = await this.#chatgptAuth.resolve(registrationId);
+      } catch (error) {
+        const authCode = error instanceof ChatGPTAuthError ? error.code : undefined;
+        this.#recordFact(provider, 'models', {
+          error: authCode ?? 'credential_unavailable',
+        });
+        throw new LiveModelCatalogError('credential_unavailable', authCode);
+      }
+      const [providerResult, metadataResult, catalogResult] = await Promise.allSettled([
+        this.#fetchChatGPTModels(declaration, credential.accessToken),
+        this.#fetchMetadata(declaration),
+        this.#readCatalog(declaration, credential.registrationId),
+      ]);
+      if (catalogResult.status === 'rejected') {
+        throw catalogResult.reason instanceof LiveModelCatalogError
+          ? catalogResult.reason
+          : new LiveModelCatalogError('catalog_read_failed');
+      }
+      if (providerResult.status === 'rejected') {
+        throw providerResult.reason instanceof LiveModelCatalogError
+          ? providerResult.reason
+          : new LiveModelCatalogError('models_unavailable');
+      }
+      const metadata = metadataResult.status === 'fulfilled'
+        ? metadataResult.value
+        : { status: 'unavailable' as const, models: new Map() };
+      const snapshot = { models: providerResult.value, metadata };
+      this.#snapshots.set(this.#snapshotKey(provider, credential.registrationId), snapshot);
+      return this.#compose(declaration, snapshot, catalogResult.value);
     }
     const [providerResult, metadataResult, catalogResult] = await Promise
       .allSettled([
@@ -295,7 +344,7 @@ export class LiveModelCatalog {
       ? metadataResult.value
       : { status: 'unavailable' as const, models: new Map() };
     const snapshot = { models: providerResult.value, metadata };
-    this.#snapshots.set(provider, snapshot);
+    this.#snapshots.set(this.#snapshotKey(provider), snapshot);
     return this.#compose(declaration, snapshot, catalogResult.value);
   }
 
@@ -303,13 +352,15 @@ export class LiveModelCatalog {
     provider: string,
     modelId: string,
     favorite: boolean,
+    registrationId?: string,
   ): Promise<ModelCatalogResult> {
     const declaration = this.#declaration(provider);
-    const snapshot = this.#snapshots.get(provider);
+    const accountId = await this.#catalogRegistrationId(declaration, registrationId);
+    const snapshot = this.#snapshots.get(this.#snapshotKey(provider, accountId));
     if (snapshot === undefined) {
       throw new LiveModelCatalogError('models_not_loaded');
     }
-    const catalog = await this.#readCatalog(declaration);
+    const catalog = await this.#readCatalog(declaration, accountId);
     const favorites = new Set(catalog.favorites);
     if (favorite) favorites.add(modelId);
     else favorites.delete(modelId);
@@ -329,8 +380,8 @@ export class LiveModelCatalog {
       }
       catalog.models[modelId] = storedModel;
     }
-    await this.#writeCatalog(declaration, catalog);
-    const readback = await this.#readCatalog(declaration);
+    await this.#writeCatalog(declaration, catalog, accountId);
+    const readback = await this.#readCatalog(declaration, accountId);
     return this.#compose(declaration, snapshot, readback);
   }
 
@@ -338,16 +389,19 @@ export class LiveModelCatalog {
     provider: string,
     modelId: string,
     currentEffort?: ReasoningEffort,
+    registrationId?: string,
   ): Promise<EffortCatalogResult> {
     const declaration = this.#declaration(provider);
-    let snapshot = this.#snapshots.get(provider);
+    const accountId = await this.#catalogRegistrationId(declaration, registrationId);
+    const key = this.#snapshotKey(provider, accountId);
+    let snapshot = this.#snapshots.get(key);
     if (snapshot === undefined) {
       snapshot = declaration.modelListSource === 'catalog'
         ? this.#declaredSnapshot(declaration)
         : { models: [], metadata: await this.#fetchMetadata(declaration) };
-      this.#snapshots.set(provider, snapshot);
+      this.#snapshots.set(key, snapshot);
     }
-    const catalog = await this.#readCatalog(declaration);
+    const catalog = await this.#readCatalog(declaration, accountId);
     const fixed = declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
     let source: EffortCatalogResult['source'];
     let choices: readonly ReasoningEffort[];
@@ -399,21 +453,25 @@ export class LiveModelCatalog {
     provider: string,
     modelId: string,
     effort: ReasoningEffort,
+    registrationId?: string,
   ): Promise<void> {
     const declaration = this.#declaration(provider);
-    const catalog = await this.#readCatalog(declaration);
+    const accountId = await this.#catalogRegistrationId(declaration, registrationId);
+    const catalog = await this.#readCatalog(declaration, accountId);
     const model = catalog.models[modelId] ?? {};
     model.defaultEffort = effort;
     catalog.models[modelId] = model;
-    await this.#writeCatalog(declaration, catalog);
+    await this.#writeCatalog(declaration, catalog, accountId);
   }
 
   async defaultEffort(
     provider: string,
     modelId: string,
+    registrationId?: string,
   ): Promise<ReasoningEffort> {
     const declaration = this.#declaration(provider);
-    const catalog = await this.#readCatalog(declaration);
+    const accountId = await this.#catalogRegistrationId(declaration, registrationId);
+    const catalog = await this.#readCatalog(declaration, accountId);
     return catalog.models[modelId]?.defaultEffort ??
       declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId)?.defaultEffort ??
       'auto';
@@ -425,6 +483,20 @@ export class LiveModelCatalog {
       throw new LiveModelCatalogError('unknown_provider');
     }
     return declaration;
+  }
+
+  #snapshotKey(provider: string, registrationId?: string): string {
+    return registrationId === undefined ? provider : `${provider}:${registrationId}`;
+  }
+
+  async #catalogRegistrationId(
+    declaration: ProviderDeclarationV1,
+    registrationId?: string,
+  ): Promise<string | undefined> {
+    if (declaration.providerId !== 'openai-chatgpt') return undefined;
+    const resolved = registrationId ?? await this.#chatgptAuth.selectedRegistrationId();
+    if (resolved === undefined) throw new LiveModelCatalogError('credential_unavailable');
+    return resolved;
   }
 
   #recordFact(
@@ -593,6 +665,95 @@ export class LiveModelCatalog {
     return Object.freeze(models);
   }
 
+  async #fetchChatGPTModels(
+    declaration: ProviderDeclarationV1,
+    accessToken: string,
+  ): Promise<readonly ProviderModel[]> {
+    const requestContext = this.#requestContext();
+    let response: Response;
+    try {
+      response = await this.#fetcher(
+        `${declaration.endpoint.replace(/\/+$/u, '')}/models`,
+        { method: 'GET', headers: { authorization: `Bearer ${accessToken}` } },
+      );
+    } catch {
+      this.#recordFact(declaration.providerId, 'models', {
+        error: 'network_error',
+      }, requestContext);
+      throw new LiveModelCatalogError('models_unavailable');
+    }
+    if (!response.ok) {
+      this.#recordFact(declaration.providerId, 'models', {
+        httpStatus: response.status,
+        error: 'http_error',
+      }, requestContext);
+      throw new LiveModelCatalogError('models_unavailable');
+    }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      this.#recordFact(declaration.providerId, 'models', {
+        httpStatus: response.status,
+        error: 'invalid_json',
+      }, requestContext);
+      throw new LiveModelCatalogError('models_response_invalid');
+    }
+    const rawModels = isRecord(payload) ? payload.models : undefined;
+    if (!Array.isArray(rawModels)) {
+      this.#recordFact(declaration.providerId, 'models', {
+        httpStatus: response.status,
+        error: 'response_parse_failed',
+        field: 'models',
+        valueShape: valueShape(rawModels),
+      }, requestContext);
+      throw new LiveModelCatalogError('models_response_invalid');
+    }
+    const models: ProviderModel[] = [];
+    for (let index = 0; index < rawModels.length; index += 1) {
+      const rawModel = rawModels[index];
+      if (!isRecord(rawModel)) {
+        this.#recordFact(declaration.providerId, 'models', {
+          httpStatus: response.status,
+          error: 'response_parse_failed',
+          field: `models[${index}]`,
+          valueShape: valueShape(rawModel),
+        }, requestContext);
+        continue;
+      }
+      if (rawModel.visibility !== 'list') continue;
+      if (typeof rawModel.slug !== 'string' || rawModel.slug.length === 0) {
+        this.#recordFact(declaration.providerId, 'models', {
+          httpStatus: response.status,
+          error: 'response_parse_failed',
+          field: `models[${index}].slug`,
+          valueShape: valueShape(rawModel.slug),
+        }, requestContext);
+        continue;
+      }
+      if (typeof rawModel.display_name !== 'string' || rawModel.display_name.length === 0) {
+        this.#recordFact(declaration.providerId, 'models', {
+          httpStatus: response.status,
+          error: 'response_parse_failed',
+          field: `models[${index}].display_name`,
+          valueShape: valueShape(rawModel.display_name),
+        }, requestContext);
+        continue;
+      }
+      models.push(Object.freeze({
+        modelId: rawModel.slug,
+        name: rawModel.display_name,
+      }));
+    }
+    this.#recordFact(
+      declaration.providerId,
+      'models',
+      { httpStatus: response.status },
+      requestContext,
+    );
+    return Object.freeze(models);
+  }
+
   async #resolveMetadataUrl(): Promise<string> {
     if (this.#metadataUrl !== undefined) return this.#metadataUrl;
     try {
@@ -615,7 +776,8 @@ export class LiveModelCatalog {
     }
     if (
       declaration.providerId === 'openai-chat' ||
-      declaration.providerId === 'openai-responses'
+      declaration.providerId === 'openai-responses' ||
+      declaration.providerId === 'openai-chatgpt'
     ) {
       return 'openai';
     }
@@ -687,8 +849,12 @@ export class LiveModelCatalog {
     return snapshot;
   }
 
-  #catalogPath(declaration: ProviderDeclarationV1): string {
-    return `${this.#configRoot}/${CATALOG_DIRECTORY}/${declaration.providerId}.json`;
+  #catalogPath(declaration: ProviderDeclarationV1, registrationId?: string): string {
+    const accountSuffix = declaration.providerId === 'openai-chatgpt' &&
+        registrationId !== undefined
+      ? `-${encodeURIComponent(registrationId)}`
+      : '';
+    return `${this.#configRoot}/${CATALOG_DIRECTORY}/${declaration.providerId}${accountSuffix}.json`;
   }
 
   #seedCatalog(declaration: ProviderDeclarationV1): StoredCatalog {
@@ -706,8 +872,9 @@ export class LiveModelCatalog {
 
   async #readCatalog(
     declaration: ProviderDeclarationV1,
+    registrationId?: string,
   ): Promise<StoredCatalog> {
-    const path = this.#catalogPath(declaration);
+    const path = this.#catalogPath(declaration, registrationId);
     let text: string;
     try {
       text = await Deno.readTextFile(path);
@@ -716,7 +883,7 @@ export class LiveModelCatalog {
         throw new LiveModelCatalogError('catalog_read_failed');
       }
       const seeded = this.#seedCatalog(declaration);
-      await this.#writeCatalog(declaration, seeded);
+      await this.#writeCatalog(declaration, seeded, registrationId);
       return seeded;
     }
     try {
@@ -729,9 +896,10 @@ export class LiveModelCatalog {
   async #writeCatalog(
     declaration: ProviderDeclarationV1,
     catalog: StoredCatalog,
+    registrationId?: string,
   ): Promise<void> {
     const directory = `${this.#configRoot}/${CATALOG_DIRECTORY}`;
-    const path = this.#catalogPath(declaration);
+    const path = this.#catalogPath(declaration, registrationId);
     const staging = `${path}.staging-${crypto.randomUUID().toLowerCase()}`;
     try {
       await Deno.mkdir(directory, { recursive: true });
@@ -766,7 +934,10 @@ export class LiveModelCatalog {
     catalog: StoredCatalog,
   ): ModelCatalogResult {
     const favorites = new Set(catalog.favorites);
-    const models = sortedModels(snapshot.models, favorites).map((model) => {
+    const orderedModels = declaration.providerId === 'openai-chatgpt'
+      ? snapshot.models
+      : sortedModels(snapshot.models, favorites);
+    const models = orderedModels.map((model) => {
       const fixed = declaration.modelCatalog.entries.find((entry) =>
         entry.modelId === model.modelId
       );

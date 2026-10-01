@@ -207,10 +207,15 @@ IDで結果を読める。読取は旧Hostをactivateしない。Core再起動�
 | HTTP                         | 操作                   | 結果                                                                    |
 | ---------------------------- | ---------------------- | ----------------------------------------------------------------------- |
 | `POST /sessions/{id}/title`  | `session.rename`       | commandId・title、renamed／unchanged                                    |
+| `POST /sessions/{id}/delete` | `session.delete`       | commandId、削除したSession ID（`{ deleted: ID }`）                      |
 | `POST /sessions/{id}/recall` | `recall.prepare/clear` | commandId・action・任意executionId、準備したIDとevidenceまたはclear結果 |
 | `GET /sessions/{id}/context` | `context.read`         | checkpoint、準備済みrecall、実際の直近request ordinal／step／item数     |
 
-変更はidleの稼働Sessionを対象とし、busyは共有rejected結果を返す。
+renameとrecallの変更はidleの稼働Sessionを対象とし、busyは共有rejected結果を返す。
+deleteは保存Sessionと関連execution・semantic履歴・request
+fact・recall参照関係を同じtransactionで削除する。
+Coreが開いているSessionは既存の保存ロック対象で、deleteは`busy`を返す。
+同じcommandIdの再送と`command.read`は同じ削除結果を返す。
 recallのprepareは既存の非採用executionをID／prefix／latestから選び、providerを呼ばず準備する。
 次の一taskで消費する。clearは準備済み状態を取り消す。
 contextの読取はcompactionを開始せず、保存SessionにもHostを起動しない。

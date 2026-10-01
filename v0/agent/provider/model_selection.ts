@@ -15,6 +15,7 @@ export const BUILTIN_PROVIDER_IDS: readonly string[] = Object.freeze([
   'openrouter-responses',
   'openai-chat',
   'openai-responses',
+  'openai-chatgpt',
 ]);
 const PROVIDER_ID = /^[a-z0-9][a-z0-9-]{0,63}$/u;
 export const isProviderId = (value: unknown): value is ProviderId =>
@@ -62,6 +63,17 @@ export interface OpenAIModelSelection {
   readonly effort: ReasoningEffort;
 }
 
+/** ChatGPT's account binding is an execution-local, non-secret registration reference. */
+export interface ChatGPTModelSelection {
+  readonly provider: 'openai-chatgpt';
+  readonly api: 'openai-responses';
+  readonly authProfile: 'openai-chatgpt';
+  readonly modelId: string;
+  readonly effort: ReasoningEffort;
+  /** `null` is an explicitly captured turn with no selected account. */
+  readonly registrationId?: string | null;
+}
+
 /** Declared provider selection. Currently limited to the shared Responses protocol. */
 export interface DeclaredProviderModelSelection {
   readonly provider: string;
@@ -84,6 +96,7 @@ export type ModelSelection =
   | OpenRouterModelSelection
   | OpenRouterResponsesModelSelection
   | OpenAIModelSelection
+  | ChatGPTModelSelection
   | DeclaredProviderModelSelection
   | DeclaredChatModelSelection;
 
@@ -104,8 +117,13 @@ export const isReasoningEffort = (value: unknown): value is ReasoningEffort =>
 export const isStoredModelSelection = (value: unknown): value is ModelSelection => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const selection = value as Record<string, unknown>;
+  const chatGptBindingValid = selection.provider === 'openai-chatgpt'
+    ? Object.keys(selection).length === (Object.hasOwn(selection, 'registrationId') ? 6 : 5) &&
+      (!Object.hasOwn(selection, 'registrationId') || selection.registrationId === null ||
+        typeof selection.registrationId === 'string' && selection.registrationId.length > 0)
+    : Object.keys(selection).length === 5;
   if (
-    Object.keys(selection).length !== 5 || typeof selection.modelId !== 'string' ||
+    !chatGptBindingValid || typeof selection.modelId !== 'string' ||
     selection.modelId.trim() !== selection.modelId || selection.modelId.length === 0 ||
     !isReasoningEffort(selection.effort)
   ) return false;
@@ -125,6 +143,10 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
     return selection.api === 'openai-responses' &&
       selection.authProfile === 'openai-api-key';
   }
+  if (selection.provider === 'openai-chatgpt') {
+    return selection.api === 'openai-responses' &&
+      selection.authProfile === 'openai-chatgpt';
+  }
   return isProviderId(selection.provider) &&
     (selection.api === 'openai-responses' || selection.api === 'openai-chat-completions') &&
     isAuthProfileId(selection.authProfile);
@@ -133,10 +155,13 @@ export const isStoredModelSelection = (value: unknown): value is ModelSelection 
 export const sameModelSelection = (
   left: ModelSelection,
   right: ModelSelection,
-): boolean =>
-  left.provider === right.provider && left.api === right.api &&
-  left.authProfile === right.authProfile && left.modelId === right.modelId &&
-  left.effort === right.effort;
+): boolean => {
+  const registrationId = (selection: ModelSelection): string | null | undefined =>
+    'registrationId' in selection ? selection.registrationId : undefined;
+  return left.provider === right.provider && left.api === right.api &&
+    left.authProfile === right.authProfile && left.modelId === right.modelId &&
+    left.effort === right.effort && registrationId(left) === registrationId(right);
+};
 
 export const modelRouteProfileId = (selection: ModelSelection): string => {
   const component = selection.modelId.replaceAll('/', '-').replaceAll(/[^a-zA-Z0-9._-]/g, '-');

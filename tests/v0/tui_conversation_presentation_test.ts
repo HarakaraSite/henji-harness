@@ -655,7 +655,10 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
     turn: 1,
     message: {
       role: 'assistant',
-      content: { kind: 'text', text: '## Title\n\n**bold** text ***em***' },
+      content: {
+        kind: 'text',
+        text: '# Primary\n## Secondary\n### Tertiary\n\n**bold** text ***em***',
+      },
     },
   });
   const layout = renderer.layoutSnapshot(80, 24);
@@ -665,7 +668,9 @@ Deno.test('conversation markdown spans stay in the final frame only', () => {
   );
   assert(layout.allLog.some((row) => (row.spans ?? []).some((span) => span.tone === 'emphasis')));
   const frame = renderer.renderFrame(80, 24);
-  assert(frame.includes('\x1b[34m## Title\x1b[0m'));
+  assert(frame.includes('\x1b[36m# Primary\x1b[0m'));
+  assert(frame.includes('\x1b[36m## Secondary\x1b[0m'));
+  assert(frame.includes('\x1b[36m### Tertiary\x1b[0m'));
   assert(frame.includes('\x1b[32m**bold**\x1b[0m'));
   assert(frame.includes('\x1b[32m***em***\x1b[0m'));
 });

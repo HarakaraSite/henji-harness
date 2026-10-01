@@ -73,6 +73,7 @@ Deno.test('E6 picker searches names and preserves target/query across favorite r
     credentialRegister: () => {
       throw new Error('unexpected credential register');
     },
+    chatgptAuth: () => Promise.reject(new Error('unexpected ChatGPT authentication')),
   };
   const picker = new RemoteCatalogUi({
     client,
@@ -141,6 +142,7 @@ Deno.test('catalog loading stays in picker and failure is retained for its start
     commandRead: () => Promise.reject(new Error('unexpected command read')),
     credentialPresenceRead: () => Promise.reject(new Error('unexpected credential read')),
     credentialRegister: () => Promise.reject(new Error('unexpected credential register')),
+    chatgptAuth: () => Promise.reject(new Error('unexpected ChatGPT authentication')),
   };
   const picker = new RemoteCatalogUi({
     client,

@@ -5,12 +5,14 @@ import {
 } from '../host/core_service.ts';
 import type {
   CatalogReadInput,
+  ChatGPTOperation,
   CoreShutdownInput,
   CredentialRegisterInput,
   ExecutionCancelInput,
   FollowUpQueueInput,
   RecallInput,
   SelectionChangeInput,
+  SessionDeleteInput,
   SessionOpenInput,
   SessionRenameInput,
   SteeringSubmitInput,
@@ -100,6 +102,14 @@ const readSessionOpenInput = async (
   return value as unknown as SessionOpenInput;
 };
 
+const readSessionDeleteInput = async (request: Request): Promise<SessionDeleteInput> => {
+  const value = await readJson(request);
+  if (!object(value) || typeof value.commandId !== 'string') {
+    throw new CoreServiceError(400, 'invalid_session_delete');
+  }
+  return { commandId: value.commandId };
+};
+
 const readSessionRenameInput = async (
   request: Request,
 ): Promise<SessionRenameInput> => {
@@ -145,6 +155,41 @@ const readCredentialRegisterInput = async (
   return { authProfile: value.authProfile, value: value.value };
 };
 
+const readChatGPTOperation = async (request: Request): Promise<ChatGPTOperation> => {
+  const value = await readJson(request);
+  if (!object(value)) throw new CoreServiceError(400, 'invalid_chatgpt_operation');
+  switch (value.kind) {
+    case 'status':
+      return { kind: 'status' };
+    case 'begin':
+      if (value.registrationId === undefined || typeof value.registrationId === 'string') {
+        return {
+          kind: 'begin',
+          ...(value.registrationId === undefined ? {} : {
+            registrationId: value.registrationId,
+          }),
+        };
+      }
+      break;
+    case 'complete':
+      if (typeof value.attemptId === 'string' && typeof value.callbackUrl === 'string') {
+        return { kind: 'complete', attemptId: value.attemptId, callbackUrl: value.callbackUrl };
+      }
+      break;
+    case 'cancel':
+      if (typeof value.attemptId === 'string') {
+        return { kind: 'cancel', attemptId: value.attemptId };
+      }
+      break;
+    case 'select':
+      if (typeof value.registrationId === 'string') {
+        return { kind: 'select', registrationId: value.registrationId };
+      }
+      break;
+  }
+  throw new CoreServiceError(400, 'invalid_chatgpt_operation');
+};
+
 const readCoreShutdownInput = async (
   request: Request,
 ): Promise<CoreShutdownInput> => {
@@ -165,6 +210,9 @@ const readCatalogInput = (url: URL): CatalogReadInput => {
       provider,
       ...(url.searchParams.has('sessionId')
         ? { sessionId: url.searchParams.get('sessionId')! }
+        : {}),
+      ...(url.searchParams.has('registrationId')
+        ? { registrationId: url.searchParams.get('registrationId')! }
         : {}),
     };
   }
@@ -384,6 +432,11 @@ async (request: Request): Promise<Response> => {
       );
     }
     if (
+      url.pathname === '/api/v1/credentials/chatgpt' && request.method === 'POST'
+    ) {
+      return json(await service.chatgptAuth(await readChatGPTOperation(request)));
+    }
+    if (
       url.pathname === '/api/v1/credentials/presence' &&
       request.method === 'GET'
     ) {
@@ -407,6 +460,15 @@ async (request: Request): Promise<Response> => {
     ) {
       return json(
         await service.sessionOpen(await readSessionOpenInput(request)),
+      );
+    }
+    const deletion = /^\/api\/v1\/sessions\/([^/]+)\/delete$/u.exec(url.pathname);
+    if (deletion !== null && request.method === 'POST') {
+      return json(
+        await service.sessionDelete(
+          decodePathId(deletion[1]),
+          await readSessionDeleteInput(request),
+        ),
       );
     }
     const title = /^\/api\/v1\/sessions\/([^/]+)\/title$/u.exec(url.pathname);

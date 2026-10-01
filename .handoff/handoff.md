@@ -4,16 +4,47 @@
 
 ## 現在地（2026-10-01）
 
+**[Increment 166](../docs/increments/increment-166.md)のlocal修正・検証完了。**
+表示行へexecution IDを引き継ぎ、cancelと同じ原因のsystem通知の挿入位置を修正した。
+実Sessionのcompiled TUI、履歴移動、再接続で確認済み。常用配置・commit/push・公開は未指示。
+
+**[Increment 165](../docs/increments/increment-165.md)のlocal修正・検証完了。**
+Responsesで表示用summaryを要求し、既存のeffort選択を維持する。実API highの3 requestで確認済み。
+要件と結果はincrement正本を参照する。 常用配置・commit/push・公開は未指示。
+
+**[Increment 164](../docs/increments/increment-164.md)のlocal実装・検証・コード／test通常レビュー完了。利用者確認待ち。**
+Markdown heading toneだけをstandard ANSI cyanへ変更した。focused 33件、type
+check、format、lint、diff checkは pass。compiled production
+TUIでblueの`user>`、cyanの三見出し、既存色、履歴移動、新Coreでの保存Session再開を
+隔離tmuxとlocalhost一requestで確認した。実装後の独立通常レビューは必須指摘0。外部requestは0。
+常用配置・commit/push・公開は未指示。
+
+**[Increment 163](../docs/increments/increment-163.md)は利用者確認・完了承認済み（2026-10-01）。**
+Sign in with ChatGPTの実装・コード/testレビュー・常用配置と、登録後のEnter導線修正・再配置を完了。
+利用者の成功報告と完了承認を受け、セッションを作り直すため記録した。
+要件・結果・証拠の範囲はincrement正本を参照する。登録済みaccountと既存Coreを保持する。
+
+**[Increment 162](../docs/increments/increment-162.md)は利用者確認・完了承認済み（2026-10-01）。**
+コマンドピッカー、共通`/help`、追加指定のread tool内部指示を英語へ統一した。
+Agentへの指示組込みのfocused確認と、配置済みTUIの隔離tmux確認も完了。
+commit/push・公開は未指示。要件・結果はincrement正本を参照する。
+
+**[Increment 161](../docs/increments/increment-161.md)は利用者確認・完了承認済み（2026-10-01）。**
+利用者の追加指定により`d`／`D`で削除、`r`／`R`で再開に統一して再配置。
+表示は`D delete`・`R resume`。配置済みproduction TUIの隔離tmuxで大小文字の操作を確認した。
+commit/push・公開は未指示。要件・結果はincrement正本を参照する。
+
 **JSR `@henji/harness@0.8.0`の公開・取得確認は完了。**
 公開対象・検証結果・承認は[公開記録](../docs/operations/jsr-publish.md#080-publication--2026-10-01-jst)を参照する。
-一時release worktreeは削除済み。常用binaryは下記の0.7.0配置を保持している。
+一時release worktreeは削除済み。現在の常用binaryはIncrement 163の配置を参照する。
 
 **[Increment 160](../docs/increments/increment-160.md)は利用者確認・完了承認済み（2026-09-30）。**
 local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。
 結果・検証証拠はincrement正本を参照する。
 
-常用binaryは`henji 0.7.0`、source `9359337d…`、build `d8afc403…`へ更新済み。
-新規TUI起動から適用する。配置前のHenjiプロセス2件を保持し、確認用Core/TUI/tmuxは終了した。
+常用binaryは`henji 0.8.0`、source `85256f4e…+dirty`、build `9c7c2492…`へ更新済み。
+新しい通常起動から適用する。配置前のCoreを保持し、確認用Core/TUI/tmuxは終了済み。
+旧Coreへの明示再接続はそのCoreの旧機能を使う。配置の正本は[Increment 163](../docs/increments/increment-163.md)。
 
 **[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
 Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
@@ -77,17 +108,56 @@ S22の8slice（139〜146）と147の配置結果は
 
 ## 次の一手
 
-通常利用で具体的な改善点が観測されたら[通常利用メモ](../docs/experience/normal-use-inbox.md)へ記録する。
-次のincrementは利用者の採用判断に従う。
+利用者の「コミットして一緒にバイナリ作成して」により、完了済みの未コミット差分をlocal commitし、
+そのsourceからbinaryを作成する。対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
+
+常用配置、commit/push、公開はそれぞれ利用者の指示に従う。
 
 ## 承認境界
+
+- local commitとbinary作成は2026-10-01の追加指示により承認済み。
+  未コミットだったIncrement 161〜163とその上の164〜166を一緒に確定する。
+  push、常用配置、公開は未指示。正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。
+
+- Increment
+  164は利用者の「ではそうしよう　次のインクリメントとして計画して」により、Markdown見出しを
+  cyanへ変更するincrementとして採用し、計画作成まで承認済み。追加指示により通常／批判的計画reviewを実施し、
+  両方とも必須finding 0。初回の批判的runはprovider transport
+  errorで結果を返さず、別providerの独立runで
+  再実行した。`user>`のblueと他の既存色を維持し、Host-owned rendererのheading toneだけを変更する。
+  追加指示「では実装してください　実装後、コードとテストを通常レビューさせてください」により、local実装、
+  focused確認、compiled production
+  TUI確認とコード／test通常レビューを承認済み。「最後までやってもらえる？」により中断した通常レビューを再開し、
+  local実装・検証・通常レビューを完了。必須指摘0、利用者確認待ち。
+  常用配置、commit/push、公開は未指示。構想・architecture・roadmapの変更は不要。
+  正本は[Increment 164](../docs/increments/increment-164.md)。
+
+- Increment 163は採用後、利用者の追加指示によりlocal実装・コードとtestのreview・常用配置を承認済み。
+  実登録と登録後操作を利用者が確認し、「インクリメントを完了とする」により完了承認済み。
+  セッションを作り直すための記録を更新した。追加実provider確認・commit/push・公開は未指示。
+  構想・architecture・roadmapの正本変更は別承認。正本は[Increment 163](../docs/increments/increment-163.md)。
+
+- Increment 162は「コマンドピッカーの日本語表記を英語へ統一したい」によりlocal変更・検証を実施。
+  直前の配置指示とUI修正の継続として常用配置・配置後確認も完了。
+  「他に日本語表記の混ざっている箇所はない？」の追加調査も完了。 「read
+  toolも統一しよう」による内部指示の英訳・検証・再配置も完了。
+  「確認しました両インクリメントを完了とします」により利用者確認・完了承認済み。
+  commit/push・公開は未指示。正本は[Increment 162](../docs/increments/increment-162.md)。
+
+- Increment 161のセッションピッカー個別削除は「セッションピッカーに削除操作をつけたい」
+  「Deleteキーでy/n確認して削除」により採用・local実装・隔離検証を実施。
+  追加指示「配置して」による常用配置・配置後隔離確認は完了。
+  「deleteキーじゃなくてdにして」、続く「操作体系は揃えたい」により
+  `d`／`D`受付へ変更・再配置・配置後隔離確認も完了。
+  実データ削除、commit/push、公開、構想・architecture・roadmap変更は未指示。
+  「確認しました両インクリメントを完了とします」により利用者確認・完了承認済み。
+  正本は[Increment 161](../docs/increments/increment-161.md)。
 
 - Increment 160は利用者の「1でミニマルにしようかな　次のインクリメントはそれで」により採用。
   追加指示「実装して」によるlocal実装・非破壊的検証は完了。
   追加指示「コミットプッシュ配置をして」によるcommit/push・常用配置・配置後確認は完了。
   「みやすくなった　インクリメントを完了とする」により利用者確認・完了承認を取得した。
-  公開・外部provider確認は未指示。
-  正本は[Increment 160](../docs/increments/increment-160.md)。
+  公開・外部provider確認は未指示。 正本は[Increment 160](../docs/increments/increment-160.md)。
 
 - Increment 159は利用者指示により案review・四slice計画・reviewerの通常／批判的計画review完了。
   実装時はsliceごとのreviewerコード・test reviewと最小実provider確認が承認済み。正本は

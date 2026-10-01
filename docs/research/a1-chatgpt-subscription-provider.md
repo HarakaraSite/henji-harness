@@ -5,9 +5,9 @@
 ステータス: **調査と実装候補。個別incrementへの採用・実装認可ではない。**
 
 利用者は次の候補としてA1を検討し、OpenCodeとPiの実装調査、その結果の記録を指示した。
-本書は2026-09-29時点の旧A1の調査記録である。2026-10-01の利用者判断により、現在の候補は
-[通常利用メモのA1](../experience/normal-use-inbox.md)「Sign in with ChatGPTによるChatGPT契約枠の利用」へ
-置き換えた。本書のbackend接続案は現在の実装方針ではない。
+本書は2026-09-29時点の旧A1の調査記録である。2026-10-01の利用者判断により、現在の対象は
+[Increment 163](../increments/increment-163.md)「Sign in with ChatGPTによるChatGPT契約枠の利用」へ
+置き換え、同日の後続指示で採用した。本書のbackend接続案は現在の実装方針ではない。
 以前の見送り判断と調査は[Increment 17](../increments/increment-17.md)を参照する。
 
 ## 結論と確認範囲

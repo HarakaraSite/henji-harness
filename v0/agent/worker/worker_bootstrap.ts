@@ -340,6 +340,7 @@ const createGeneration = async (
   correlation: WorkerCorrelation,
   module: Awaited<ReturnType<typeof loadVerifiedModule>>,
   workspaceRoot: string,
+  configRoot: string | undefined,
   physicalIoMode: 'provider-free' | 'production',
   rootMaxSteps?: number,
   providerTimeoutMs?: number,
@@ -365,6 +366,7 @@ const createGeneration = async (
   const requestCounter = createWorkerRequestCounter();
   const physicalIo = physicalIoMode === 'production'
     ? createProductionPhysicalIo(requestCounter, {
+      ...(configRoot === undefined ? {} : { configRoot }),
       providerTimeoutMs,
       providerDeclarations,
       reportAuxiliaryStage,
@@ -623,6 +625,7 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
             command.correlation,
             module,
             command.workspaceRoot,
+            command.configRoot,
             command.physicalIoMode ?? 'provider-free',
             command.rootMaxSteps,
             command.providerTimeoutMs,
@@ -704,7 +707,12 @@ const handle = async (command: WorkerHostCommand): Promise<void> => {
       }
       processContext = { correlation: command.correlation, executionId: command.executionId };
       try {
-        await generation.runTurn(command.correlation, command.task, command.recalledContext);
+        await generation.runTurn(
+          command.correlation,
+          command.task,
+          command.recalledContext,
+          command.chatgptRegistrationId,
+        );
       } finally {
         processContext = undefined;
       }

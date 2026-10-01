@@ -1,4 +1,11 @@
 /** Shared, data-only state contract used by the in-process TUI and later clients. */
+export type {
+  ChatGPTAuthResult,
+  ChatGPTLoginAttempt,
+  ChatGPTOperation,
+  ChatGPTState,
+} from './chatgpt_contract.ts';
+
 export type CoreCursor = Readonly<{
   coreEpoch: string;
   sessionId: string;
@@ -131,6 +138,7 @@ export const CORE_OPERATION_NAMES = [
   'session.list',
   'session.open',
   'session.rename',
+  'session.delete',
   'session.read',
   'session.subscribe',
   'history.read',
@@ -149,6 +157,7 @@ export const CORE_OPERATION_NAMES = [
   'selection.change',
   'credential.readPresence',
   'credential.register',
+  'chatgpt.auth',
 ] as const;
 export type CoreOperationName = typeof CORE_OPERATION_NAMES[number];
 
@@ -205,7 +214,7 @@ export type SelectionChangeValue = Readonly<{
 }>;
 export type CatalogReadInput = Readonly<
   | { kind: 'providers' }
-  | { kind: 'models'; provider: string; sessionId?: string }
+  | { kind: 'models'; provider: string; sessionId?: string; registrationId?: string }
   | { kind: 'efforts'; provider: string; modelId: string }
   | { kind: 'credentials' }
 >;
@@ -239,7 +248,12 @@ export type ModelFavoriteInput = Readonly<{ provider: string; modelId: string; f
 export type CredentialCatalogResult = Readonly<{
   kind: 'credentials';
   profiles: readonly Readonly<
-    { authProfile: string; providers: readonly string[] }
+    {
+      authProfile: string;
+      providers: readonly string[];
+      method?: 'api-key' | 'chatgpt';
+      label?: string;
+    }
   >[];
 }>;
 export type CatalogReadResult =
@@ -301,6 +315,8 @@ export type FollowUpReadResult = Readonly<{ followUp: FollowUpRecord }>;
 export type SessionOpenValue = Readonly<{ snapshot: SessionSnapshot }>;
 export type SessionRenameInput = Readonly<{ commandId: string; title: string }>;
 export type SessionRenameValue = Readonly<{ result: 'renamed' | 'unchanged' }>;
+export type SessionDeleteInput = Readonly<{ commandId: string }>;
+export type SessionDeleteValue = Readonly<{ deleted: string }>;
 export type RecallInput = Readonly<{
   commandId: string;
   action: 'prepare' | 'clear';
@@ -319,6 +335,7 @@ export type CoreCommandValue =
   | CoreShutdownValue
   | SessionOpenValue
   | SessionRenameValue
+  | SessionDeleteValue
   | SelectionChangeValue
   | RecallValue
   | TaskSubmitValue

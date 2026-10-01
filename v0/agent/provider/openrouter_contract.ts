@@ -89,7 +89,8 @@ export class OpenRouterAgentError extends Error {
       ? 'transport'
       : code === 'http_error'
       ? 'http'
-      : code === 'response_error' || code === 'limit_exceeded' && requestCount === 1
+      : code === 'response_error' ||
+          code === 'limit_exceeded' && requestCount === 1
       ? 'response_parse'
       : 'request_build';
     this.failureFact = Object.freeze({
@@ -110,8 +111,15 @@ export class OpenRouterAgentError extends Error {
   }
 }
 
+/** Non-secret execution context available while resolving a request credential. */
+export interface CredentialSourceContext {
+  readonly sessionId?: string;
+  readonly modelId?: string;
+  readonly modelStep?: number;
+}
+
 /** A host-owned source is consulted afresh for every provider request. */
-export type CredentialSource = () =>
+export type CredentialSource = (context?: CredentialSourceContext) =>
   | string
   | undefined
   | Promise<string | undefined>;

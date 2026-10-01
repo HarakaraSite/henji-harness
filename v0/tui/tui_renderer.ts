@@ -17,6 +17,7 @@ import {
   BLINK_SGR,
   BLUE_SGR,
   BOLD_SGR,
+  CYAN_SGR,
   DEFAULT_CURSOR_STYLE,
   DIM_SGR,
   ERASE_LINE,
@@ -84,7 +85,7 @@ const LABEL_SGR: Record<ConversationLabelTone, string> = {
 };
 
 const SPAN_SGR: Record<AssistantSpanTone, string> = {
-  heading: BLUE_SGR,
+  heading: CYAN_SGR,
   list: GREEN_SGR,
   table: DIM_SGR,
   quote: MAGENTA_SGR,
@@ -864,6 +865,24 @@ export class TuiRenderer implements TerminalRendererGate {
         page: boundedPage,
         loading,
         actionMode,
+      },
+    });
+    this.redraw();
+  }
+
+  renderSessionDeleteConfirmation(
+    picker: Extract<import('./state.ts').UiOverlay, { kind: 'sessionPicker' }>,
+    deleting = false,
+    message?: string,
+  ): void {
+    if (this.closing) throw new PresentationDeliveryError();
+    this.ui = reduceUiAction(this.ui, {
+      kind: 'overlay',
+      overlay: {
+        kind: 'sessionDeleteConfirm',
+        picker,
+        deleting,
+        ...(message === undefined ? {} : { message }),
       },
     });
     this.redraw();

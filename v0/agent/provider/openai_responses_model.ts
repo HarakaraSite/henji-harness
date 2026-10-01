@@ -13,10 +13,12 @@ import { throwIfCancelled, TurnCancelledError } from '../core/cancellation.ts';
 import { readableThinkingFromState } from '../core/readable_thinking.ts';
 import {
   type CredentialSource,
+  type CredentialSourceContext,
   DEFAULT_PROVIDER_TIMEOUT_MS,
   OpenRouterAgentError,
 } from './openrouter_contract.ts';
 import type {
+  ChatGPTModelSelection,
   DeclaredProviderModelSelection,
   ModelSelection,
   OpenAIModelSelection,
@@ -35,7 +37,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 const isJsonValue = (value: unknown): value is JsonValue => {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (
+    value === null || typeof value === 'string' || typeof value === 'boolean'
+  ) return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
   return isRecord(value) && Object.values(value).every(isJsonValue);
@@ -61,7 +65,9 @@ const replayItemsFor = (
     readonly model?: string;
   };
   if (!Array.isArray(responses.replayItems)) return undefined;
-  if (responses.model !== undefined && responses.model !== modelId) return undefined;
+  if (responses.model !== undefined && responses.model !== modelId) {
+    return undefined;
+  }
   return responses.replayItems;
 };
 
@@ -77,7 +83,11 @@ const requestInput = (
       continue;
     }
     if (message.role === 'assistant') {
-      const replayItems = replayItemsFor(message.providerState, providerId, modelId);
+      const replayItems = replayItemsFor(
+        message.providerState,
+        providerId,
+        modelId,
+      );
       if (replayItems !== undefined) {
         input.push(...replayItems);
         continue;
@@ -183,7 +193,9 @@ const providerError = (
     ...(code === 'response_error' ? { parseReason: 'unsupported_response_shape' } : {}),
   });
 
-const toolCalls = (output: readonly unknown[]): readonly ToolCall[] | undefined => {
+const toolCalls = (
+  output: readonly unknown[],
+): readonly ToolCall[] | undefined => {
   const calls: ToolCall[] = [];
   for (const item of output) {
     if (!isRecord(item) || item.type !== 'function_call') continue;
@@ -199,7 +211,9 @@ const toolCalls = (output: readonly unknown[]): readonly ToolCall[] | undefined 
       return undefined;
     }
     if (!isJsonValue(args)) return undefined;
-    calls.push(Object.freeze({ callId: item.call_id, name: item.name, arguments: args }));
+    calls.push(
+      Object.freeze({ callId: item.call_id, name: item.name, arguments: args }),
+    );
   }
   return Object.freeze(calls);
 };
@@ -220,6 +234,7 @@ interface ResponsesApiModelConfig {
   /** Producer identity recorded on client-owned replay state. */
   readonly stateProvider: string;
   readonly includeStore: boolean;
+  readonly namespaceTools?: boolean;
 }
 
 /** Shared Responses-API adapter; Henji retains the tool loop and durable transcript. */
@@ -235,14 +250,15 @@ class ResponsesApiModel implements Model {
   } => {
     const input = requestInput(
       request.transcript,
-      this.options.selection.provider,
+      this.config.stateProvider,
       this.options.selection.modelId,
     );
+    const tools = this.#requestTools(request);
     const body = JSON.stringify({
       model: this.options.selection.modelId,
       instructions: request.systemInstruction,
       input,
-      tools: request.tools,
+      ...(tools === undefined ? {} : { tools }),
       stream: true,
       ...(this.config.includeStore ? { store: false } : {}),
     });
@@ -253,6 +269,25 @@ class ResponsesApiModel implements Model {
     };
   };
 
+  #requestTools(request: ModelRequest): unknown[] | undefined {
+    const functions = request.tools.map((tool) => ({
+      type: 'function' as const,
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+      strict: false,
+    }));
+    if (this.config.namespaceTools === true) {
+      return functions.length === 0 ? undefined : [{
+        type: 'namespace',
+        name: 'henji',
+        description: 'Henji local tools.',
+        tools: functions,
+      }];
+    }
+    return functions;
+  }
+
   async generate(
     request: ModelRequest,
     generateOptions: ModelGenerateOptions = {},
@@ -262,12 +297,27 @@ class ResponsesApiModel implements Model {
     throwIfCancelled(signal);
     let credential: string | undefined;
     try {
-      credential = await this.options.credentialSource();
-    } catch {
+      const credentialContext: CredentialSourceContext | undefined =
+        this.config.namespaceTools === true
+          ? {
+            modelId: this.options.selection.modelId,
+            modelStep: generateOptions.modelStep ?? 1,
+            ...(this.options.sessionId === undefined ? {} : {
+              sessionId: this.options.sessionId,
+            }),
+          }
+          : undefined;
+      credential = await this.options.credentialSource(credentialContext);
+    } catch (error) {
+      if (this.config.namespaceTools === true) throw error;
       credential = undefined;
     }
     if (!credential) {
-      throw providerError('missing_credential', 'host provider credential is not configured', 0);
+      throw providerError(
+        'missing_credential',
+        'host provider credential is not configured',
+        0,
+      );
     }
     throwIfCancelled(signal);
 
@@ -297,6 +347,7 @@ class ResponsesApiModel implements Model {
         sessionId: this.options.sessionId,
       }),
     };
+    const requestTools = this.#requestTools(request);
     const client = new OpenAI({
       apiKey: credential,
       baseURL: this.config.baseURL,
@@ -318,22 +369,21 @@ class ResponsesApiModel implements Model {
         instructions: request.systemInstruction,
         input: requestInput(
           request.transcript,
-          this.options.selection.provider,
+          this.config.stateProvider,
           this.options.selection.modelId,
         ) as never,
-        tools: request.tools.map((tool) => ({
-          type: 'function' as const,
-          name: tool.name,
-          description: tool.description,
-          parameters: tool.inputSchema as Record<string, unknown>,
-          strict: false,
-        })),
+        ...(requestTools === undefined ? {} : {
+          tools: requestTools as never,
+        }),
         include: ['reasoning.encrypted_content'],
-        // `auto` is a Henji catalog value, not a Responses reasoning effort; omit it so the
-        // provider applies its own default. Explicit efforts are sent verbatim.
-        ...(this.options.selection.effort === 'auto'
-          ? {}
-          : { reasoning: { effort: this.options.selection.effort as never } }),
+        reasoning: {
+          summary: 'auto',
+          // Henji's effort `auto` leaves the thinking amount to the provider. It is separate
+          // from summary `auto`, which requests a readable summary of that thinking.
+          ...(this.options.selection.effort === 'auto'
+            ? {}
+            : { effort: this.options.selection.effort as never }),
+        },
         stream: true,
         ...(this.config.includeStore ? { store: false } : {}),
       }, {
@@ -342,6 +392,7 @@ class ResponsesApiModel implements Model {
         timeout: timeoutMs,
       });
       let completed: Record<string, unknown> | undefined;
+      const completedItems = new Map<number, unknown>();
       let progress = '';
       let reasoningTextDeltaSeen = false;
       let reasoningSummaryDeltaSeen = false;
@@ -352,7 +403,11 @@ class ResponsesApiModel implements Model {
         if (Date.now() - startedAt >= timeoutMs) {
           timedOut = true;
           controller.abort('provider deadline exceeded');
-          throw providerError('provider_timeout', 'provider deadline exceeded', 1);
+          throw providerError(
+            'provider_timeout',
+            'provider deadline exceeded',
+            1,
+          );
         }
         if (event.type === 'response.output_text.delta') {
           progress += event.delta;
@@ -361,16 +416,26 @@ class ResponsesApiModel implements Model {
           const delta = (event as { readonly delta?: unknown }).delta;
           if (typeof delta === 'string' && delta.length > 0) {
             reasoningTextDeltaSeen = true;
-            generateOptions.reportThinkingDelta?.({ kind: 'text', text: delta });
+            generateOptions.reportThinkingDelta?.({
+              kind: 'text',
+              text: delta,
+            });
           }
         } else if (event.type === 'response.reasoning_summary_text.delta') {
           const delta = (event as { readonly delta?: unknown }).delta;
           if (typeof delta === 'string' && delta.length > 0) {
             reasoningSummaryDeltaSeen = true;
-            generateOptions.reportThinkingDelta?.({ kind: 'summary', text: delta });
+            generateOptions.reportThinkingDelta?.({
+              kind: 'summary',
+              text: delta,
+            });
           }
         } else if (event.type === 'response.output_item.done') {
           const item = (event as { readonly item?: unknown }).item;
+          const outputIndex = (event as { readonly output_index?: unknown }).output_index;
+          if (typeof outputIndex === 'number') {
+            completedItems.set(outputIndex, item);
+          }
           if (!reasoningTextDeltaSeen || !reasoningSummaryDeltaSeen) {
             const jsonItem = jsonValue(item);
             if (jsonItem !== undefined) {
@@ -388,15 +453,23 @@ class ResponsesApiModel implements Model {
             }
           }
           if (
-            isRecord(item) && item.type === 'reasoning' && typeof item.id === 'string' &&
+            isRecord(item) && item.type === 'reasoning' &&
+            typeof item.id === 'string' &&
             typeof item.encrypted_content === 'string'
           ) {
             reasoningEncrypted.set(item.id, item.encrypted_content);
           }
         } else if (event.type === 'response.completed') {
           completed = event.response as unknown as Record<string, unknown>;
-        } else if (event.type === 'response.failed' || event.type === 'response.incomplete') {
-          throw providerError('response_error', `${label} response did not complete`, 1);
+        } else if (
+          event.type === 'response.failed' ||
+          event.type === 'response.incomplete'
+        ) {
+          throw providerError(
+            'response_error',
+            `${label} response did not complete`,
+            1,
+          );
         }
       }
       if (completed === undefined || !Array.isArray(completed.output)) {
@@ -409,28 +482,43 @@ class ResponsesApiModel implements Model {
             actualShape: completed.output === null ? 'null' : typeof completed.output,
           }),
         });
-        throw providerError('response_error', `${label} response shape was unsupported`, 1);
+        throw providerError(
+          'response_error',
+          `${label} response shape was unsupported`,
+          1,
+        );
       }
+      const output = completed.output.length === 0 && completedItems.size > 0
+        ? [...completedItems.entries()].sort(([left], [right]) => left - right)
+          .map(([, item]) => item)
+        : completed.output;
       const withDoneReasoning = (item: unknown): unknown => {
         if (
-          isRecord(item) && item.type === 'reasoning' && typeof item.id === 'string' &&
+          isRecord(item) && item.type === 'reasoning' &&
+          typeof item.id === 'string' &&
           typeof item.encrypted_content !== 'string'
         ) {
           const fallback = reasoningEncrypted.get(item.id);
-          if (fallback !== undefined) return { ...item, encrypted_content: fallback };
+          if (fallback !== undefined) {
+            return { ...item, encrypted_content: fallback };
+          }
         }
         return item;
       };
-      const replayItems = completed.output.map((item) => jsonValue(withDoneReasoning(item)));
+      const replayItems = output.map((item) => jsonValue(withDoneReasoning(item)));
       if (replayItems.some((item) => item === undefined)) {
-        throw providerError('response_error', `${label} response items were not JSON values`, 1);
+        throw providerError(
+          'response_error',
+          `${label} response items were not JSON values`,
+          1,
+        );
       }
       const state = Object.freeze({
         provider: this.config.stateProvider,
         replayItems: Object.freeze(replayItems as JsonValue[]),
         model: this.options.selection.modelId,
       });
-      const calls = toolCalls(completed.output);
+      const calls = toolCalls(output);
       if (calls === undefined) {
         generateOptions.providerEvidence?.recordParserTransition({
           kind: 'failure',
@@ -439,9 +527,32 @@ class ResponsesApiModel implements Model {
           expectedShape: 'function call with call_id, name, arguments',
           actualShape: 'unsupported item',
         });
-        throw providerError('response_error', `${label} function call shape was unsupported`, 1);
+        throw providerError(
+          'response_error',
+          `${label} function call shape was unsupported`,
+          1,
+        );
       }
-      const text = typeof completed.output_text === 'string' ? completed.output_text : progress;
+      const itemText = output.flatMap((item) => {
+        if (
+          !isRecord(item) || item.type !== 'message' ||
+          !Array.isArray(item.content)
+        ) {
+          return [];
+        }
+        return item.content.flatMap((part) =>
+          isRecord(part) && part.type === 'output_text' &&
+            typeof part.text === 'string'
+            ? [part.text]
+            : []
+        );
+      }).join('');
+      const text = typeof completed.output_text === 'string' &&
+          completed.output_text.length > 0
+        ? completed.output_text
+        : progress.length > 0
+        ? progress
+        : itemText;
       if (calls.length > 0) {
         return {
           kind: 'tool_calls',
@@ -451,7 +562,11 @@ class ResponsesApiModel implements Model {
         };
       }
       if (text.length === 0) {
-        throw providerError('response_error', `${label} response had no assistant text`, 1);
+        throw providerError(
+          'response_error',
+          `${label} response had no assistant text`,
+          1,
+        );
       }
       return { kind: 'final', text, providerState: state };
     } catch (error) {
@@ -462,8 +577,17 @@ class ResponsesApiModel implements Model {
         : error instanceof OpenRouterAgentError
         ? error
         : status === undefined
-        ? providerError('transport_error', `${label} provider transport failed`, 1)
-        : providerError('http_error', `${label} provider request failed`, 1, status);
+        ? providerError(
+          'transport_error',
+          `${label} provider transport failed`,
+          1,
+        )
+        : providerError(
+          'http_error',
+          `${label} provider request failed`,
+          1,
+          status,
+        );
       generateOptions.providerEvidence?.recordRequestFailure({
         stage: settled.failureFact.stage,
         code: settled.failureFact.code,
@@ -490,6 +614,29 @@ export class OpenAIResponsesModel extends ResponsesApiModel {
       providerLabel: 'OpenAI',
       stateProvider: options.selection.provider,
       includeStore: true,
+    });
+  }
+}
+
+export interface ChatGPTResponsesModelOptions {
+  readonly selection: ChatGPTModelSelection;
+  readonly credentialSource: CredentialSource;
+  readonly fetcher?: typeof fetch;
+  readonly timeoutMs?: number;
+  readonly sessionId?: string;
+}
+
+/** ChatGPT route differences on the shared Responses API adapter. */
+export class ChatGPTResponsesModel extends ResponsesApiModel {
+  constructor(options: ChatGPTResponsesModelOptions) {
+    super(options, {
+      baseURL: 'https://api.openai.com/v1',
+      providerLabel: 'ChatGPT',
+      stateProvider: options.selection.registrationId === undefined
+        ? options.selection.provider
+        : `${options.selection.provider}@${options.selection.registrationId ?? 'unselected'}`,
+      includeStore: true,
+      namespaceTools: true,
     });
   }
 }

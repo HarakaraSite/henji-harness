@@ -413,6 +413,9 @@ export class WorkerSupervisor {
           kind: 'start',
           correlation,
           module: revision,
+          ...(this.options.configRoot === undefined ? {} : {
+            configRoot: this.options.configRoot,
+          }),
           ...(this.options.asyncAgents === undefined
             ? {}
             : { asyncAgents: this.options.asyncAgents }),

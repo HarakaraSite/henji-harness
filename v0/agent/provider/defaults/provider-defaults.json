@@ -174,6 +174,39 @@
     },
     {
       "schemaVersion": 1,
+      "providerId": "openai-chatgpt",
+      "protocol": "openai-responses",
+      "endpoint": "https://api.openai.com/v1",
+      "authProfile": "openai-chatgpt",
+      "modelCatalog": {
+        "kind": "fixed",
+        "entries": [
+          {
+            "modelId": "gpt-5.6-sol",
+            "defaultEffort": "medium",
+            "efforts": ["none", "low", "medium", "high", "xhigh"]
+          },
+          {
+            "modelId": "gpt-5.6-luna",
+            "defaultEffort": "medium",
+            "efforts": ["none", "low", "medium", "high", "xhigh"]
+          },
+          {
+            "modelId": "gpt-5.6-terra",
+            "defaultEffort": "medium",
+            "efforts": ["none", "low", "medium", "high", "xhigh", "max"]
+          },
+          {
+            "modelId": "gpt-6-astra",
+            "defaultEffort": "low",
+            "efforts": ["low", "medium", "high", "xhigh", "max"]
+          }
+        ]
+      },
+      "defaults": { "modelId": "gpt-5.6-sol", "effort": "medium" }
+    },
+    {
+      "schemaVersion": 1,
       "providerId": "openai-chat",
       "protocol": "openai-chat-completions",
       "endpoint": "https://api.openai.com/v1",

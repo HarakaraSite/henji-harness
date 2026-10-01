@@ -21,7 +21,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                           |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
 | S30 | Surface        | TUIのF1 helpとCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
-| A1  | Agent実行      | Sign in with ChatGPTによるChatGPT契約枠の利用                                | 利用者が公式OAuth／Responses API経路による契約枠利用を個別Incrementへ採用するとき                                       |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -215,38 +214,6 @@ Pi／OpenCode／Henjiの画面表示比較
 
 ## Agent実行
 
-### A1 — Sign in with ChatGPTによるChatGPT契約枠の利用（F02、F06、未採用）
-
-- 利用者判断（2026-10-01）: Sign in with ChatGPT対応を通常利用メモへ記録し、従来A1の
-  ChatGPT Codex backendへのdirect接続案をこの候補へ置き換える。個別Incrementへの採用・実装・
-  実provider確認は未指示。
-- 目的・候補: Henji自身のAgent／tool loopを維持し、ChatGPT accountでOAuth認証して、
-  利用者の許可を得たChatGPT契約枠で公開Responses API
-  `https://api.openai.com/v1/responses`を呼ぶ。既存Responses基盤へ認証・token保存／更新と
-  この経路のrequest条件を接続する案とする。認証UI、保存先、provider選択上の扱いは採用時に決める。
-- 公式契約の確認（2026-10-01）: OpenAIはOSS／local app向けのChatGPT plan usageを公開している。
-  初回は`dynamic_agent_client`で登録し、返されたclient IDと安定したhost IDを使う。
-  OAuth access tokenでaccount別のmodel一覧を取得し、公開Responses APIへrequestする。
-  `store: false`／`stream: true`、未対応field・tool等の条件があるため、API keyとの差分を採用時に確認する。
-  参照: [概要](https://developers.openai.com/siwc/token-sharing-open-source)、
-  [登録・認証](https://developers.openai.com/siwc/token-sharing-open-source/sign-in)、
-  [model一覧・推論](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)、
-  [previewの条件](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations)。
-- 参照実装: Pi 0.99.0（2026-09-29）で`/login openai`の「Sign in with ChatGPT」を追加した。
-  snapshot `b35af04f465d60c2f15d124ed074476b8986deb4`では、通常のOpenAI providerにOAuth経路を持ち、
-  access tokenで公開Responses APIを呼ぶ。従来の`openai-codex`はlegacy扱いになっている。
-  [変更記録](../../_refs/pi/packages/coding-agent/CHANGELOG.md)、
-  [provider](../../_refs/pi/packages/ai/src/providers/openai.ts)、
-  [OAuth](../../_refs/pi/packages/ai/src/auth/oauth/openai-chatgpt.ts)、
-  [Responses実装](../../_refs/pi/packages/ai/src/api/openai-responses.ts)。
-- 確認範囲・未確認: sourceと公式資料のみ。実ログイン、利用者accountでの利用可否、Henjiのproduction
-  経路は未確認。Piには認証時の`invalid_client`報告もある
-  （[issue #10184](https://github.com/earendil-works/pi/issues/10184)）。
-- 再検討条件: 利用者がこの公式経路によるChatGPT契約枠利用を個別Incrementへ採用するとき。
-- 過去の調査: [Increment 17](../increments/increment-17.md)と
-  [2026-09-29の旧A1調査](../research/a1-chatgpt-subscription-provider.md)は当時の記録として保持する。
-  旧backend接続案を現候補の実装方針として使わない。
-
 ### A2 — Host操作のmodel向けtool化（F02、F06、F10、F27）
 
 - 観測: `/rebuild`や`/sessions`の意味操作は、人間だけでなくAIが作業中に使う価値もある。
@@ -349,9 +316,10 @@ Pi／OpenCode／Henjiの画面表示比較
   Sessionと関連履歴を一体の保存・削除単位として扱う。診断factだけを消すと履歴の詳細表示や`/recall`の
   失敗原因の手掛かりが欠け、Sessionだけを消して関連履歴を残すと、一覧からの削除と実際の保存状態が
   食い違うため、両者を別々の保存期間で整理する方針は採らない。
-- 候補:
-  残すSessionと削除対象の選び方、手動の個別削除の操作、一括整理（`sessions prune`）、保存期間を
+- 候補: 残すSessionと削除対象の選び方、一括整理（`sessions prune`）、保存期間を
   まとめて検討する。期限による自動削除を提供するかは別途判断し、現時点で期間や自動削除は決めない。
+- 手動個別削除のTUI操作は[Increment 161](../increments/increment-161.md)へ採用した。
+  本項目の残候補は保存方針と一括整理である。
 - 旧P7の利用者判断（2026-09-22）: 一括整理は将来採用見込み。採用時に削除対象の確認（`--dry-run`）と
   明示confirmを設計する。今回の統合は候補の整理であり、採用・実装や既存dataの削除を意味しない。
 - 再検討条件:

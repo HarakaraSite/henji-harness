@@ -1,6 +1,7 @@
 import { type JsonValue, type ToolResultOutcome } from '../core/contracts.ts';
 import { isTurnCancelledError } from '../core/cancellation.ts';
 import { type Tool, type ToolContext, ToolInputError } from './tools.ts';
+import { providerIdsForSelection } from '../provider/model_catalog.ts';
 
 /** Lifecycle state of one async child run (see Increment 107 run contract). */
 export type AsyncAgentRunState =
@@ -157,6 +158,10 @@ export const createAsyncAgentTools = (
   rpc: AsyncAgentRpc,
 ): readonly Tool[] => {
   const known = new Set(catalog);
+  const providerIds = providerIdsForSelection();
+  const providerDescription = `Available provider routes: ${
+    providerIds.join(', ')
+  }. Use openai-chatgpt for a ChatGPT account route; model IDs are selected separately.`;
   const spawn: Tool = {
     name: 'spawn_subagent',
     description:
@@ -169,7 +174,11 @@ export const createAsyncAgentTools = (
         model: {
           type: 'object',
           properties: {
-            provider: { type: 'string', minLength: 1 },
+            provider: {
+              type: 'string',
+              minLength: 1,
+              description: providerDescription,
+            },
             modelId: { type: 'string', minLength: 1 },
             effort: { type: 'string' },
           },

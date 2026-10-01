@@ -42,6 +42,7 @@ export const BLINK_SGR = '\x1b[5m';
 export const BOLD_SGR = '\x1b[1m';
 export const DIM_SGR = '\x1b[2m';
 export const BLUE_SGR = '\x1b[34m';
+export const CYAN_SGR = '\x1b[36m';
 export const YELLOW_SGR = '\x1b[33m';
 export const GREEN_SGR = '\x1b[32m';
 export const MAGENTA_SGR = '\x1b[35m';

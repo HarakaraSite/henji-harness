@@ -36,6 +36,8 @@ deno task --config deno.v0.json henji:compile
 ./dist/henji --version
 ```
 
+利用できるcommandとoptionは`henji --help`と`henji COMMAND --help`で確認できる。
+
 既定providerのOpenRouter API keyを、所有者だけが読めるfileへ保存する。
 
 ```sh
@@ -44,6 +46,8 @@ install -d -m 700 "$henji_config_dir"
 install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
 ```
 
+TUIの`/login`からも、同じcredential fileへ認証情報を登録できる。
+
 作業対象のdirectoryでTUIを起動する。promptを入力してEnterで送信し、`/help`でcommandを確認できる。
 
 ```sh
@@ -51,7 +55,7 @@ cd /path/to/your/workspace
 /path/to/henji-harness/dist/henji
 ```
 
-非対話実行と保存済みSessionの一覧も同じbinaryから利用できる。
+非対話実行、保存済みSessionの一覧、保存履歴の閲覧も同じbinaryから利用できる。
 
 ```sh
 printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
@@ -59,6 +63,7 @@ printf 'READMEを要約して\n' | /path/to/henji-harness/dist/henji run
 /path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --json
 /path/to/henji-harness/dist/henji run --task 'このworkspaceの構成を説明して' --stream
 /path/to/henji-harness/dist/henji sessions list
+/path/to/henji-harness/dist/henji history --latest
 ```
 
 `run`は既定でfinal textのみをstdoutへ出す。`--json`はturn中のeventを1行1
@@ -83,6 +88,7 @@ OpenRouterは既定の`openrouter-chat`と、同じ`openrouter-api-key`を使う
 
 同じworkspaceで `henji` や `henji tui` を起動するたびに、新しいCoreとSessionを作る。
 二つのterminalで独立した仕事を並行に進め、画面上のCore IDとSession IDで識別できる。
+`henji serve`は、指定しない限りSessionを開かず、foregroundで新しいCoreを起動する。
 
 ```sh
 henji core list
@@ -94,7 +100,7 @@ henji core stop --core <core-id>
 ```
 
 `/detach`・Ctrl-DでTUIをdetachしても、Coreと受付済みの仕事は継続する。
-`/shutdown`・Ctrl-Qは接続先Coreを停止し、清算後にTUIも終了する。実行中の仕事も停止対象となる。
+`/quit`・Ctrl-Qは接続先Coreを停止し、清算後にTUIも終了する。実行中の仕事も停止対象となる。
 `/s`等のスラッシュ＋最初の文字からコマンド候補を表示し、一つに絞れた候補はTabで補完できる。
 再接続はCore IDまたは `--connect URL` で明示する。 Core指定なしの `--session`
 は保存Sessionを新Coreで再開する。対象を省略した `core stop` は一覧と指定方法だけを表示する。
@@ -105,11 +111,12 @@ henji core stop --core <core-id>
 ## 現在使える主な機能
 
 - TUIとheadlessな`run`
-- OpenRouter（Chat Completions/Responses）とOpenAI directのprovider・model・reasoning effort切替
+- OpenRouter（Chat Completions/Responses）とOpenAI directのprovider・model・reasoning effort切替、providerの現行model一覧とお気に入り
 - SQLiteへ保存するSession、会話履歴、失敗・中断を含む実行記録
-- `/new`、`/sessions`、`/history`、`/recall`などのTUI command
+- `/new`、`/sessions`、`/view`、`/recall`、`/provider`、`/model`、`/login`などのTUI command
 - TypeScript Agent Definitionのinstall、versioned revision、export/import、実行
-- Henji base instructionのinstall、exact revisionのactivate/deactivate、実行時attribution
+- TypeScript tool Definitionのinstallとexact revisionのactivate/deactivate
+- Henji base instructionのuser file読込みと実行時attribution
 - `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換Skillの読込み
 
 runtime配置は、credential値を表示しない`henji diagnostics runtime`で確認できる。既定ではconfigを

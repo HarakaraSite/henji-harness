@@ -75,6 +75,7 @@ export interface PhysicalIoBindings {
   /** Worker-local metadata probe. It never returns credential material. */
   readonly credentialAvailability?: (
     authProfile: AuthProfileId,
+    registrationId?: string | null,
   ) => Promise<CredentialAvailabilityStatus>;
   /** Worker-local async child agent request seam. */
   readonly asyncAgentRpc?: AsyncAgentRpc;

@@ -555,7 +555,7 @@ Deno.test('active tool guidelines compose only where their tools are materialize
     asyncAgents: [],
   });
   const guideline =
-    'File調査ではcatやsedをbashで実行するよりreadを優先し、続きはoffset・limitで読む。';
+    'For file inspection, prefer read over running cat or sed through bash; use offset and limit to read further.';
   const bashGuideline =
     'Each bash call starts in the current workspace directory shown in Runtime facts and runs in a fresh shell. For commands targeting that directory, use relative paths and do not cd to the same directory. Change directory within the call only when the command must run from a different directory. State created by cd, variable assignment, export, source, aliases, or functions does not persist to later tool calls. When a command needs that setup, perform the setup and the command that consumes it in the same bash call; do not run setup-only commands whose effect ends with that call.';
   const bashOutputGuideline =

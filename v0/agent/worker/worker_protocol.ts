@@ -88,6 +88,8 @@ export type WorkerHostCommand =
     readonly kind: 'start';
     readonly correlation: WorkerCorrelation;
     readonly module?: WorkerDefinitionLoadRequest;
+    /** User config root shared by the Host and Worker credential resolvers. */
+    readonly configRoot?: string;
     readonly asyncAgents?: readonly WorkerAsyncAgentCatalogEntry[];
     /** Spawn-time tool filter (bare tool names) narrowing this generation's declared tools. */
     readonly toolFilter?: readonly string[];
@@ -117,6 +119,8 @@ export type WorkerHostCommand =
     readonly executionId?: string;
     readonly correlation: WorkerCorrelation;
     readonly task: string;
+    /** Captured ChatGPT account registration for this turn; null freezes no selected account. */
+    readonly chatgptRegistrationId?: string | null;
     readonly recalledContext?: RecalledExecutionContext;
   }
   | {

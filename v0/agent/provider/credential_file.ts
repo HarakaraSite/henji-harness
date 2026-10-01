@@ -212,7 +212,7 @@ export const parseCredentialBytes = (bytes: Uint8Array): string => {
 };
 
 /** Read one fixed, caller-owned provider profile path with the same stable-file contract. */
-const readCredentialFileAt = async (
+export const readCredentialFileAt = async (
   path: string,
   filesystem: CredentialFileSystem = defaultFileSystem,
 ): Promise<string> => {

@@ -251,6 +251,7 @@ export class SnapshotConversationProjector {
             spec: Object.freeze({
               id,
               kind: 'thinking' as const,
+              executionId: item.requestKey.executionId,
               label: item.thinkingKind === 'summary'
                 ? item.complete ? 'thinking summary>' : 'thinking summary~'
                 : item.complete
@@ -317,6 +318,7 @@ export class SnapshotConversationProjector {
               id: `restored:message:${messageIdentity}`,
               kind: 'assistant',
               label: 'assistant>',
+              executionId: message.executionId,
               text: message.text ?? '',
               live: false,
               turn: message.turn,
@@ -327,6 +329,7 @@ export class SnapshotConversationProjector {
                 id: `restored:message:${messageIdentity}`,
                 kind: 'assistant',
                 label: 'assistant note>',
+                executionId: message.executionId,
                 text: message.text,
                 live: false,
                 turn: message.turn,
@@ -343,6 +346,7 @@ export class SnapshotConversationProjector {
                 id: `restored:tool:${tool.toolOccurrenceId}`,
                 kind: 'tool',
                 label: 'tool>',
+                executionId: tool.executionId,
                 text: pendingToolActivityText(tool.name, activity.preview),
                 live: false,
                 turn: message.turn,
@@ -360,6 +364,7 @@ export class SnapshotConversationProjector {
               id: rowId,
               kind: 'tool',
               label: 'tool>',
+              executionId: tool.executionId,
               text: settledToolActivityText(
                 tool.name,
                 tool.result.outcome,
