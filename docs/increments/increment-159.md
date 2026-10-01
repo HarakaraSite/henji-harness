@@ -1,6 +1,6 @@
 # Increment 159 — フッター・操作案内・コマンドピッカーの整理
 
-更新日: 2026-09-30
+更新日: 2026-10-01
 
 ステータス: 利用者確認・完了承認済み（2026-09-30）。Increment
 159は完了。四sliceの実装・検証・review、採用findingの解消、commit/push・常用配置・配置後確認を完了した。
@@ -580,3 +580,12 @@ identity・results。JSR公開、構想・architecture・roadmap変更は行っ�
 
 利用者は配置後の状態を確認し、Increment
 159の完了を明示した。細部は今後の通常利用で観測し、具体的な改善点が出た場合は通常利用メモへ記録する。GhosttyクライアントからのF1〜F3物理入力は引き続き未確認として扱う。
+
+## Product正本の同期（2026-10-01）
+
+利用者の「同期して168まで完了してるし」により、本書で保留していた正本変更案を反映した。
+現在の三行footer、F1〜F3、slash picker、system通知、履歴中Escと廃止操作を
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md)、
+[provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)、
+[roadmap](../roadmap.md)の現行説明へ同期した。構想の目的・人間による採用境界は維持する。
+過去の計画・検証・配置時点の未反映記録は当時の証拠として保持する。

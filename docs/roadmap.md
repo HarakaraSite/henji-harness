@@ -6,7 +6,7 @@
 
 実装状況の初回照合基準commit: `29c84cf17063da3565672ce4a37cdbf76334995e`
 
-現行source照合: commit `56926c9b805ae5494ca7d863b3766443eb3fe79b`からIncrement 134まで（2026-09-27）
+現行source照合: commit `ae520777`、Increment 168まで完了（2026-10-01）。利用者の正本同期指示を反映した。
 
 ## 目的と正本
 
@@ -85,25 +85,25 @@ history viewを順に実装した。Increment 44では旧filesystem storeをprod
 
 | ID | 必要な機能 | 構想・architectureとの関係 | 現コードの状態 |
 | --- | --- | --- | --- |
-| F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる。配布後はrepositoryや導入済みDenoへの固定参照なしに、任意のworkspaceから同じproduction経路を利用できる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装**。production TUIと非対話commandがあり、依頼・進捗・結果を表示できる。非対話commandはHost側のheadless SurfaceとしてTUIと同じWorker経路を一turn使い、既定はfinal-only stdoutまたはfailure JSON、`--json`はcurated NDJSON event stream、`--stream`はlive assistant textを返す（Increment 104）。TUIはturnとuser/output境界、入力前後を空行で分け、busy（表示は`working`）lifecycle開始から毎秒進む経過時間とspinnerを含む一時statusとcwd・Session短縮ID・Session titleを二行目、root provider・model・effortを三行目に持つ三行footerへ表示し、`user>`、settledした`assistant>`、`tool>`、`system>`のlabelをblue/yellow/green/magentaで識別する。選択中root providerのcredential fileが存在しなければrequest前からfooter第一行へ表示し、editor先頭の`/`に一致するbuilt-in slash command候補を`ready`または`working`の直後へ逐次表示する。`/login`はidleでeffective declarationから共有profileを集約したauth profile対象一覧を開き、専用の伏字入力から既存の固定file（mode 0600・同一directory temporary file→rename）へkeyを登録・更新できる。保存後のfooterは`credential saved: <authProfile>`で固定fileへ保存できたことだけを伝え、現在selectionのcredential missing表示はWorkerを起動せずにHost-localで再読取する（Increment 135）。候補が1件ならTabで完全なcommand名へ補完し、複数候補では入力を変えない。recoverable taskはeditorを変更せず停止理由と入力履歴（Up）での再送を案内する。idle Ctrl-Cは入力をclearしてreadyを保つ。F1 keyと`/help`のhelp overlayは残るが、compact startupに固定help hintは表示しない。Increment 32でstandalone executableが成立し、現在のinstalled launcherはrepository checkoutやPATH上のDenoを参照せず任意のworkspaceから起動できる。実行中もPageUp／PageDownで会話履歴を参照でき、履歴表示中のfooterは`PgDn latest`／`Esc cancel`を示す（Increment 128）。履歴位置は`history record N of M`または`history start`（Increment 130）。assistant本文とthinkingはlive snapshotで追従し、thinkingはmodel stepごとに置換して確定する（Increment 132 A／B）。Increment 133でprocess所有と端末分離を実装し、隔離XDGのsource／compiled TUI経路で確認した。常用利用での入力欠落解消は継続観測とし、Increment 132 Cの長時間入力・履歴移動遅延は未再現・未完了である |
-| F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/resultを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。production TUIと非対話commandの共通Worker経路にprovider/model request、複数step、tool call/resultがある。標準root turnは最大128 model stepsで、TUI・`henji run`は起動時の`--max-steps N`でrootの上限を上書きできる。TUIは`openrouter-chat`を既定に保ちつつ、起動時の`--root-provider <provider-id>`またはidle時の`/provider`で同梱4 routeとexternal宣言providerへ切り替えられる。`/model`と`/effort`はactive providerのeffective catalogを使い、同一Session内のselectionとして保存する。一turnのtool loop中は選択を固定する。外部の名前付きAgentは同梱の名前別model既定を持たず、通常のroot selection経路を使う。TUI・`henji run`起動時の`--provider-timeout-ms`は、未指定時300,000 msのrequest単位deadlineを同じWorker invocationのroot、async child、context compactionへ適用する。deadline到達はresponse不正と区別して表示し、自動retryまたはmodel fallbackはしない。`skill` toolの結果はtranscriptへ入り、次のmodel stepから参照される。`read`はcomplete-lineの`offset`・`limit` windowを返し、default parentの`bash`は切り捨てたstdout/stderrを`bash_output`で保存上限まで継続取得できる。default parentの`web_search`はroot providerと独立したOpenRouter Sonarを一回呼び、検索結果に限定した回答のlocal citationを直接source linkへ正規化して次のmodel stepへ渡す。追加model requestは親budgetとcountへ含み、provider/API/model identity、HTTP status、解析失敗の項目と値の形を短いrequest factへ保持する。increment 9のcitation正規化はproduction retained TUIで受入済み。OpenRouter Responses route、data-only Provider declaration、built-in ID整列はIncrement 58〜68で実装済みである。Increment 101でauth profileをpattern一般化し、新しいprovider IDの宣言がoptional `headers`（`{credential}`／`{sessionId}`）を持てるようにした。OpenCode Go（`opencode-go-chat`／`opencode-go-responses`）はexternal宣言で追加する |
+| F01 | 人間が外部文書やhelpを先に読まずHenjiへ依頼し、進捗と結果を理解して通常利用を続けられる。配布後はrepositoryや導入済みDenoへの固定参照なしに、任意のworkspaceから同じproduction経路を利用できる | 改訂前後の経験を生む通常利用。SurfaceはHostが所有し、実利用で改善する | **部分実装（通常利用経路は実装済み）**。standalone binaryの通常起動は新Core・新Sessionを作り、TUIはHTTP/SSEで接続する。ID/URL再接続、detachとCore停止の分離、三行footer、F1 Session一覧、F2予約、F3追加指示、slash picker、Markdown描画、履歴中Esc latest、API key登録とSign in with ChatGPT、Session個別削除を提供する。Increment 168時点の配色はuser blue、assistant yellow、tool cyan、Markdown見出しgreen。画面の現行動作はarchitectureのSurface節を参照する。grapheme幅、更新合流・行差分・synchronized outputは実装済み。長時間通常利用の入力遅延等の未再現観測を解消済みとはしない。WebUI本体は未実装 |
+| F02 | 構成済みのsystem instructionを含むprovider/model requestを実行し、複数step、tool call/resultを進めるagent turn | AgentCompositionとturn semanticsはWorkerが所有する。F02はF06で構成済みの入力を各model requestへ渡し、tool call/result loopを実行する | **実装済み**。共通Workerが最大128 model stepsを既定としてprovider/modelとtool loopを実行する。起動時のmax-stepsとrequest単位provider deadline（未指定300,000 ms）をroot/child/compactionへ適用する。同梱五routeとexternal宣言を使い、Coreの現行model一覧・お気に入り・effort metadataからidle時にSession selectionを保存し、turn内で固定する。ChatGPTは独立auth profileとaccount bindingで共通Responses adapterを使う。effort指定Responses requestは表示用summaryも要求する。read window、bash_output継続取得、Sonar web_search、web_fetchがあり、補助model requestも親budgetと短いrequest factへ相関する |
 | F03 | workspaceの`AGENTS.md`とworkspace/user scopeの`SKILL.md`をnative規約でzero-install discoveryし、実行中に共有するsnapshot/catalogを作る | 他harnessと共有するfile format、配置、discovery、activationをHenji独自managed resourceで置換しない。managed SkillとHenji base instructionは追加authorityとして分離する | **部分実装**。Worker generationの起動時にworkspace rootのinstructionと、workspace配下およびuser scope（`$ZOT_HOME`または`$XDG_STATE_HOME/zot`、`~/.claude`、`~/.agents`）の`.zot/skills`、`.claude/skills`、`.agents/skills`を一度読み、実行中に共有するimmutableなinstruction snapshotとskill catalogを構築する。tool call時には再読せず、`skill` toolの結果はF02のtranscriptへ入る。Increment 51でnative入力とは別authorityのHenji base instructionを追加した。Increment 103でbuilt-inを最小core（役割identityとcredential/Authorization境界）へ縮小し、外部contentを`$XDG_CONFIG_HOME/henji-harness/instruction.md`の直接読み込みへ変更した。managed Skill revisionと改訂候補の生成・採用は未実装である |
-| F04 | canonical conversation、non-canonical execution evidence、context attributionを再起動後も区別して利用する。通常semantic historyに短いrequest factを含める | Hostがsemantic authorityのdurable storageとcanonical採用を所有し、Workerがconversation/contextの意味を所有する。物理的なstorage commitとcanonical adoptionを分ける | **実装済み**。Increment 40〜44でworkspace-local SQLiteを唯一のproduction history正本とし、Increment 94でproductionをhistory v7へ破壊的に切り替えた。Increment 121でraw診断attachmentを廃止し、短いrequest factをsemantic authorityへ統合した。v10 schemaは通常pathで新規deltaだけを処理し、旧DB migration、dual-read/write、fallbackは持たない |
-| F05 | 人間が保存済みSessionのcanonical/non-canonical semantic historyとcontext attribution、短いrequest factを通常利用中に参照する | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける | **部分実装**。TUIのPageUpと別プロセスの`henji history` CLI（`session`／`canonical`／`detail`、read-only、stdout）を使う。Increment 117で未使用の永続化human history投影を削除し、CLIは元の記録から直接出力する。Increment 120で失敗・cancelのthinkingも通常履歴へ含めた。Increment 121で短いrequest factを`detail`と`/recall`から参照できる。Increment 129でツール呼び出しに添えたassistant本文（`assistant note>`）を対応tool行の前に保持し、TUI・session再開表示・`henji history --view session`で時系列に読めるようにした。保存Sessionの失敗行は赤色で表示し、recall可能なExecution IDと`/recall <id>`を案内する（Increment 122／125）。通常履歴のthinkingはmodel stepごとに一つのentryとして確定する（Increment 132 B）。Increment 134でassistant途中本文をrequest単位の最新stateへ置換し、完了時はmodel result、停止時は最後の本文一つへ引き継ぐ保存方式にした。activeのread-only detailはstateとsemantic履歴を同じsnapshotから読む。検索は出力をviewer（`vi`／`glow`／`less`）で行い、product組み込みのliteral検索は持たない |
+| F04 | canonical conversation、non-canonical execution evidence、context attributionを再起動後も区別して利用する。通常semantic historyに短いrequest factを含める | Hostがsemantic authorityのdurable storageとcanonical採用を所有し、Workerがconversation/contextの意味を所有する。物理的なstorage commitとcanonical adoptionを分ける | **実装済み**。workspaceごとの共有SQLiteを唯一のproduction history authorityとし、複数Coreとheadless Hostが同じDBへ保存する。history v7の現行schemaは11。canonical turn/Session revisionはatomicに採用し、non-canonical executionも保存する。短いrequest factとcontext attributionを保持し、通常raw attachmentは収集しない。schema初期化同期、write待機、Session/execution lockによる生存実行を避けたreconciliationを実装した。旧DB migration、dual-read/write、fallbackは持たない |
+| F05 | 人間が保存済みSessionのcanonical/non-canonical semantic historyとcontext attribution、短いrequest factを通常利用中に参照する | 経験を人間が確認し、診断、`/recall`、後の改訂指示へ使うSurface機能。history rendererとmodel projectionを分ける | **部分実装（人間向け参照経路は実装済み）**。接続TUIのPageUp、Session picker/view、`/context`、HTTPのhistory/context読取と別processのread-only `henji history`（session/canonical/detail）を使う。canonical/non-canonical、thinking、本文とtool、短いrequest factをsourceから投影する。生成中本文はrequest単位の最新durable state、完了時はmodel result、停止時は最後の本文を保持する。Session再開・再接続でもexecution/step/表示identityと順序を維持し、system結果通知を対象executionへ置く。`/recall`は選んだnon-canonical executionを次taskへ投影する。組み込みliteral検索は持たない |
 
 ### AgentCompositionと現在のHost / Worker runtime
 
 | ID | 必要な機能 | architecture上の責務・境界 | 現コードの状態 |
 | --- | --- | --- | --- |
-| F06 | executable TypeScriptのAgentDefinitionがprovider、model、effort、loop、tools、context、instruction、skillをAgentCompositionへ合成する。外部DefinitionはHenjiが管理するmodule identityとrevisionから選べる | Definition moduleの取込・保存・解決・readbackはHost、Definition評価とcomposition実行はWorker。F03のinstruction snapshot本文とskill catalogのmanifestをsystem instructionへ合成し、skill本文を取得する`skill` toolをregistryへ組み込む | **部分実装**。binaryにはbuilt-in `default`と`generic`を同梱し、外部Definitionをmanaged revisionとして選択できる。現Definitionはmodel、registry/tools、maxSteps、system instruction等を選べ、built-inのmaxSteps既定値は128である。TUIのsession-level model/effort overrideはDefinition revisionを変えず、Workerが返されたroot compositionのmodel routeだけへ反映する。同期subagentはIncrement 106で廃止した（`subagent:<name>` slotと`delegate_to_*`を削除）。child／subagentはDefinitionの固定roleではなくExecution間の親子関係として扱う。Increment 109で`agent:<name>` async catalog、`spawn_subagent`／`subagent_status`／`collect_subagent`／`cancel_subagent`、別Deno Worker・別ExecutionのV1 fork/joinを実装した。Increment 110でmanaged child Definitionとtool bindingのexact authority、durable admission／terminal、parent-execution-scoped addressability、parent cleanup後のcommit fenceをproduction経路へ収束させた。child resultはcollectのtool resultとしてのみ親contextへ入り、child executionはcanonical Sessionへ採用せずnoncanonical execution evidenceとして残す。組み込みdefaultは常時利用可能な`agent:generic`と設定済み`agent:<name>`のcatalogを宣言する。reviewerやplannerは通常の外部Definitionとしてbindできる。Increment 131で`spawn_subagent(agent, task, model?, tools?)`の起動時model指定と宣言済みtoolの絞り込みを実装した。model省略時は親Sessionの現在selectionを使う。`agent:generic`はinstall／bindingなしでspawnできる。選択済みtoolはmanaged resource kind `tool-definition`から供給する。Hostは`$XDG_CONFIG_HOME/henji-harness/tools.json`のactivation binding > bundled tool Definitionの順で`tool:<name>`ごとにexact revisionを解決し、WorkerがDefinition moduleを評価してmaterializeする。bundled tool Definitionは`bash`／`bash_output`／`edit`／`read`／`write`／`web_search`／`web_fetch`を既定供給し、固定`ToolComponentCatalog`／`workToolNames`と`AgentCompositionOptions.toolComponents`の同一identity置換seamは削除した。tool宣言は各Agent Definitionがownerで、`additionalTools`で追加identityを宣言できる。差し替えはinstall/bind単位で決まり、runtimeのbackend選択UIは持たず、各外部Agentは自分の宣言に従う。Increment 51以降、Definitionのinstructionはrole、active tool guideline、workspace instruction、skill manifest、runtime facts（cwdのみ）からなるbase抜きのcontributionである。Hostが解決したbuilt-in coreまたはuser fileの`instruction:henji-base`をWorker-core mandatory finalizerが先頭へ一度だけ加え、rootとasync childへ同じselected baseを適用する。Definitionがcore-owned base slotを宣言した場合は実行前に拒否する。defaultと外部Agentはmaterialize済みregistryから自分が持つtoolのguidelineだけを受け、OpenRouter/OpenAI adapterには同じfinal本文をprovider固有fieldへ写像する。skill本文は一括注入せず、modelが`skill` toolを呼んだ場合だけtool resultとして渡す。Increment 101で`authProfile`を非secret identityとしてpattern一般化し、credentialを`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`から解決する。新しいprovider IDのdeclarationはoptional `headers`を持ち、`{credential}`（Chat経路のみ）と`{sessionId}`をrequest時に置換する。loopとcontext/compactionは`WorkerGeneration`の固定実装である |
+| F06 | executable TypeScriptのAgentDefinitionがprovider、model、effort、loop、tools、context、instruction、skillをAgentCompositionへ合成する。外部DefinitionはHenjiが管理するmodule identityとrevisionから選べる | Definition moduleの取込・保存・解決・readbackはHost、Definition評価とcomposition実行はWorker。F03のinstruction snapshot本文とskill catalogのmanifestをsystem instructionへ合成し、skill本文を取得する`skill` toolをregistryへ組み込む | **部分実装**。binaryにはbuilt-in `default`と`generic`を同梱し、外部Definitionをmanaged revisionとして選択できる。現Definitionはmodel、registry/tools、maxSteps、system instruction等を選べ、built-inのmaxSteps既定値は128である。TUIのsession-level model/effort overrideはDefinition revisionを変えず、Workerが返されたroot compositionのmodel routeだけへ反映する。同期subagentはIncrement 106で廃止した（`subagent:<name>` slotと`delegate_to_*`を削除）。child／subagentはDefinitionの固定roleではなくExecution間の親子関係として扱う。Increment 109で`agent:<name>` async catalog、`spawn_subagent`／`subagent_status`／`collect_subagent`／`cancel_subagent`、別Deno Worker・別ExecutionのV1 fork/joinを実装した。Increment 110でmanaged child Definitionとtool bindingのexact authority、durable admission／terminal、parent-execution-scoped addressability、parent cleanup後のcommit fenceをproduction経路へ収束させた。child resultはcollectのtool resultとしてのみ親contextへ入り、child executionはcanonical Sessionへ採用せずnoncanonical execution evidenceとして残す。組み込みdefaultは常時利用可能な`agent:generic`と設定済み`agent:<name>`のcatalogを宣言する。reviewerやplannerは通常の外部Definitionとしてbindできる。Increment 131で`spawn_subagent(agent, task, model?, tools?)`の起動時model指定と宣言済みtoolの絞り込みを実装した。`subagent_status`は最新のmodel/tool作業と更新時刻も返し、子の短いrequest factは子Executionへ保存・readbackできる。model省略時は親Sessionの現在selectionを使う。`agent:generic`はinstall／bindingなしでspawnできる。選択済みtoolはmanaged resource kind `tool-definition`から供給する。Hostは`$XDG_CONFIG_HOME/henji-harness/tools.json`のactivation binding > bundled tool Definitionの順で`tool:<name>`ごとにexact revisionを解決し、WorkerがDefinition moduleを評価してmaterializeする。bundled tool Definitionは`bash`／`bash_output`／`edit`／`read`／`write`／`web_search`／`web_fetch`を既定供給し、固定`ToolComponentCatalog`／`workToolNames`と`AgentCompositionOptions.toolComponents`の同一identity置換seamは削除した。tool宣言は各Agent Definitionがownerで、`additionalTools`で追加identityを宣言できる。差し替えはinstall/bind単位で決まり、runtimeのbackend選択UIは持たず、各外部Agentは自分の宣言に従う。Increment 51以降、Definitionのinstructionはrole、active tool guideline、workspace instruction、skill manifest、runtime facts（cwdのみ）からなるbase抜きのcontributionである。Hostが解決したbuilt-in coreまたはuser fileの`instruction:henji-base`をWorker-core mandatory finalizerが先頭へ一度だけ加え、rootとasync childへ同じselected baseを適用する。Definitionがcore-owned base slotを宣言した場合は実行前に拒否する。defaultと外部Agentはmaterialize済みregistryから自分が持つtoolのguidelineだけを受け、OpenRouter/OpenAI adapterには同じfinal本文をprovider固有fieldへ写像する。skill本文は一括注入せず、modelが`skill` toolを呼んだ場合だけtool resultとして渡す。API keyは`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`、ChatGPTは共有OAuth認証moduleでrequest時に解決し、execution-local registration参照を固定する。新しいprovider IDのdeclarationはoptional `headers`を持ち、`{credential}`（Chat経路のみ）と`{sessionId}`をrequest時に置換する。loopとcontext/compactionは`WorkerGeneration`の固定実装である |
 | F07 | Worker起動前にDefinitionの実行可能なmodule closureまたは同等の自己完結bundleをimmutable revisionとして参照する | Hostがentryと実行に必要なlocal dependencyをmanaged storeへ固定して`DefinitionRevisionRef`を確定し、Workerがstore内の確定revisionだけを解決・評価する | **部分実装**。Increment 32〜34でlogical `DefinitionRevisionRef`、local module closureのmanaged store、canonical digest、exact revisionからのWorker load、transportを成立させた。Sessionはlogical refを保存し、Workerはmanaged store内の確定closureから依存を解決する。Increment 77でbuilt-in Definition/toolのrevisionを、binary同梱ランタイム全体のhashではなくresourceのclosure内容とcontractから算出し、build manifestへ埋め込むようにした。初期contractはstatic relative `.ts` import/exportとembedded `@henji/agent`だけで、remote/JSR/npm dependency、computed dynamic import、transitive dependency binding、revisionのremove/GCは未実装 |
 | F08 | 評価後の構成をdata-onlyなAgentManifestとして説明し、executionから使用したAgent側の基底設定をreadbackできる | Workerがprojectionを返し、Hostはidentity/admission authorityや実際のmodel input全体と混同しない | **部分実装**。role、maxSteps、実際のroot provider/model/effort、childの実行model、profile、effective model resource IDsをexecution artifactに残す。Definition/build attributionに加え、instruction component、読み込んだskill、tool contract、runtime factとmodel requestのexact context attributionがある。Increment 51ではselected Henji baseのexact ref、selection source、content digest、exact textとfinal system instruction内のbyte projectionをmanifest・history・provider requestへ相関した（Increment 103でsourceはbuilt-in coreまたはuser `instruction.md`）。完全なAgentCompositionの再構築や全外部状態の再現は行わない |
-| F09 | built-inとexternal Definitionを同じDeno Web Worker capsuleで実行する | Web Workerはlifecycle/data境界であり別trust tierではない | **実装済み**。TUIと非対話commandが同じsession factoryを入口に、同じloader、bootstrap、runtime、protocol、commit経路を使用する |
-| F10 | UIをWorkerから分離し、Host側の交換可能なSurfaceとして扱う | terminal / Surface I/O、layout、draft、cursor、viewportはHost、Workerはheadless | **部分実装**。data-only presentation contract、Host-owned TUI adapter、terminal lifecycle分離があり、turn/input境界、三行footer、viewport復帰、plain assistant本文renderer、conversation label style、history export operation、headless CLIのcurated NDJSON／live text出力（Increment 104）もHost-localに実装する。Surfaceを選択・load・置換する一般product interfaceはない |
-| F11 | HostがWorker generationを起動、停止、監視、置換する | Worker generationのlifecycle ownerはHost | **実装済み（現行generation経路）**。起動、cooperative close、cancel、terminate、settlementがある。Increment 91で同一Session・同一revisionにおけるforced-cancel後のgeneration置換を追加した。Increment 110でparent settle／cancel／close／replacementがchildのterminal確定、durable settlement、Worker terminationへjoinするlifecycleを実装した。Increment 133でprocessの物理ownerをHostへ移し、制御端末を継承しない共通executorと、正常return後のbackground groupも含むgeneration単位の所有を実装した。cancel／forced termination／replacement／closeは資源の清算へjoinし、WorkerのRegistryは出力storeを明示closeする。durable Instanceによる継続管理はF16を採用する場合の追加範囲であり、現行Sessionの再開・generation置換とは分ける |
-| F12 | Host / Worker間でdata-only command、event、effect、proposal、ackを交換する | 関数は境界を越えず、protocolがapplication semanticsを運ぶ | **実装済み（現在のslice）**。TUIとone-shot headless CLIの両方がstart/turn/proposal/commit/ack/closeを使い、TUIにはsteer/cancel/checkpointとidle時のprovider/model selection/ackもある。Increment 133でWorker-local process proxyからHost共通executorへのdata-only request／responseを追加した。将来機能のmessage、handshake、version migrationは未決 |
+| F09 | built-inとexternal Definitionを同じDeno Web Worker capsuleで実行する | Web Workerはlifecycle/data境界であり別trust tierではない | **実装済み**。HTTP Core内のTUI向け実行と独立headless `henji run`が共通session factory・loader・bootstrap・runtime・protocol・commit経路を使う。built-in/external Definitionを同じDeno Worker capsuleで評価する |
+| F10 | UIをWorkerから分離し、Host側の交換可能なSurfaceとして扱う | terminal / Surface I/O、layout、draft、cursor、viewportはHost、Workerはheadless | **部分実装**。Coreのapplication service/read modelとHTTP/SSE contractからTUIを分離し、terminal/draft/viewport/picker/Markdown rendererをclient-localにした。同Coreへの複数TUI接続、detach後の実行継続、非対話CLIのcurated NDJSON/live text出力がある。WebUI本体と一般的なSurface選択・load・置換interfaceは未実装 |
+| F11 | HostがWorker generationを起動、停止、監視、置換する | Worker generationのlifecycle ownerはHost | **実装済み（現行Core/generation経路）**。CoreはWorker起動・cancel・forced termination・置換・settlementとchild cleanupを所有する。Host共通executorはprocess groupをgeneration単位で所有する。通常起動ごとに独立Coreを作り、Core list/status、ID/URL再接続、指定Core shutdownがある。detachはCoreを止めず、Core shutdownは他Coreを止めない。durable AgentInstanceは別の未実装機能 |
+| F12 | Host / Worker間でdata-only command、event、effect、proposal、ackを交換する | 関数は境界を越えず、protocolがapplication semanticsを運ぶ | **実装済み（現在のcontract）**。Core–Workerのstart/turn/proposal/commit/ack/close、steer/cancel/checkpoint/select、process request/responseはdata-onlyである。Surface–CoreにはHTTP operationとSession snapshot/updateのSSE contractがある。これらは別境界であり、TUIはCore経由で操作する。将来のprotocol negotiation/version migrationは未設計 |
 | F13 | WorkerのproposalをHostが検証・永続化し、durable write後だけcommittedとする | durable Session storeがcanonical。Worker stateはephemeral | **実装済み**。base state revision、transcript、next turn、Definition bindingを検証してcommit/ackする |
-| F14 | Session/execution、Definition revision、generation、base state revisionを相関し、admit済みwriterだけをcommitできる | Hostのadmissionとrevision fencing。durable Instanceを採用する場合はそのidentityも追加する | **実装済み（Session/execution単位）**。Session、ephemeral instance correlation、generation、base state revision、Definition refを相関して検証する。durable Instanceの永続identityとSession横断writer管理はF16/F17の追加範囲 |
+| F14 | Session/execution、Definition revision、generation、base state revisionを相関し、admit済みwriterだけをcommitできる | Hostのadmissionとrevision fencing。durable Instanceを採用する場合はそのidentityも追加する | **実装済み（Session/execution単位）**。Session、generation、base state revision、Definition refを相関してcommitを検証する。複数Coreはworkspace共通DBとSession writer lockを使い、別Sessionを並行実行する。同一Sessionの二重writerは許さない。Core epochはprocess identityで、durable Instanceの永続identity/Session横断writer管理は未実装 |
 | F15 | tool effectとstate commitを区別し、不明なeffectを自動replayしない | Workerはeffect evidenceを返し、Hostはsettlementを記録する | **実装済み（現在のtool経路）**。tool event、execution artifact、`automaticReplay: false`、`effectCommitRelation: not_transactional`がある |
 
 F02、F03、F06の境界は次のとおりである。F03がWorker generation起動時にnative instruction snapshotとskill
@@ -120,38 +120,19 @@ registryへ組み込む。F02は、そのsystem instructionを各model request�
 
 ### 現在のSurface実装であるproduction TUI
 
-F番号はcomponentではなく、利用者が必要とするproduct機能に付ける。production TUIはF01の通常対話、
-F05のSession/history/context参照、F10のHost-owned Surfaceを横断して実現する現在のSurfaceであるため、
-TUI自体には独立したF番号を付けない。現在のproduction TUIには、次の実装がある。
+production TUIはF01の通常対話、F05のSession/history/context参照、F10のHost-owned Surfaceを横断する。
+現行の所有と操作・表示は
+[architectureのSurface節](architecture/henji-host-agent-worker.md#surfaceと現在のtui)を参照する。
+TUIの詳細仕様を機能一覧と別の一覧へ重複保存せず、commandは`v0/tui/slash_command.ts`、
+実装・検証結果は各incrementを正本とする。
 
-- turnとuser/outputの表示専用境界を持ち、`user>`、settledした`assistant>`、`tool>`、`system>`のlabelを
-  blue/yellow/green/magentaで識別するconversation log、前後を空行で分けた複数行入力欄、一時status行、
-  cwd・Session短縮ID・Session titleの行、root provider・model・effortの行からなる三行footer。
-- request/evidence metadataやraw tool resultを常時展開せず、assistantと短いtool activityを追える表示。
-- ready / working（busy lifecycle） / cancelling / failure、working開始から毎秒進む経過時間とspinner、history位置、pending input、操作結果の
-  一時表示と、ASCII・日本語・wrapを含むcursor位置。
-- alternate screenによる現在Sessionの隔離、PageUp / PageDownによるviewport移動、過去表示中の位置と
-  `history record N of M`または`history start`表示、idle時の`Esc latest`、busy時の`PgDn latest`／`Esc cancel`、
-  PageDown末尾到達・idle Esc・通常task admissionによる最新追尾への復帰、終了時のterminal復元。
-- 過去表示中のdraft保持、boundedな入力履歴、更新日時・手動title・短縮ID・turn数を二行表示するSession選択、
-  `/rename <title>`によるcurrent Sessionの命名、`/help`・`/new`・`/sessions`・`/provider`・`/model`・`/effort`・
-  `/recall`・`/exit`、readline編集、一意なslash command候補のTab補完、Tabによるworkspace-relative path補完、Alt+Returnによる改行。
-  履歴参照はメインlogのPageUpと、別プロセスの`henji history` CLI（`session`／`canonical`／`detail`、read-only、stdout）で行う。
-- assistant本文とthinkingのlive snapshot表示、stepごとに一つに確定するthinking entry、赤い失敗行とrecall可能な
-  Execution ID・`/recall <id>`案内（Increment 122／125／132 A・B）。
-- plain textを既定とするHost-local assistant本文renderer。terminal styleは最終frameだけに加え、layout、
-  Presentation event、canonical transcriptへ混入させない。
-- working中の一回のsteeringとfollow-up、cancel、uncommitted inputの固定lane、recoverable taskの停止理由表示、
-  idle Ctrl-Cによるdraft clear。
+現行sourceの入口は`v0/agent/cli/tui_cli.ts`と`remote_tui_cli.ts`であり、
+`v0/tui/remote_session.ts`、`snapshot_presentation.ts`、`tui_renderer.ts`、`assistant_layout.ts`、
+`layout.ts`、`terminal.ts`がHTTP read modelから画面と操作を構成する。Core側は
+`v0/agent/host/core_service.ts`、`application_service.ts`、`v0/agent/http/server.ts`、`v0/api/`である。
 
-現行sourceでは、旧Ctrl-G / Ctrl-T / Ctrl-Lの機能入口を除去し、Ctrl-Kをreadlineの行末削除としている。
-保存済みcausal historyとcontextの内部projection・controller処理は残るが、現在の人間向け入口はない。
-modified ReturnのdecoderはShift / Alt / Ctrl sequenceを改行として処理するが、各terminalがどのsequenceを
-送るかはactive sourceが規定するproduct動作ではない。
-
-この実装状況は、`v0/tui/input.ts`、`v0/tui/state.ts`、`v0/tui/layout.ts`、`v0/tui/render.ts`、
-`v0/tui/controller.ts`、`v0/tui/terminal.ts`、`v0/tui/pending_input.ts`、`v0/tui/file_reference.ts`、
-`v0/agent/cli/tui_cli.ts`、`v0/presentation/tui_presentation_adapter.ts`と照合した。
+Session pickerの閲覧/再開/削除、`/context`、`/recall`は実装済み。Agent自身の現在execution・実効構成を
+発見する専用入口（F28）とAgentからのroot selection操作（F29）は、この人間向け経路と区別して未整備とする。
 
 ### durable AgentInstanceとrevision transition
 
@@ -222,8 +203,8 @@ Instance単位のbinding transitionはF16/F17を採用する場合の追加範�
 F24のarchitecture領域は固定しない。次のself-revision loopで選んだ改訂対象に応じて、Agent Worker、Host、
 storage、Surface、またはそれらの境界のどこへ対応させるかを決める。
 
-現在のprovider HTTPはWorker内で構築される。processの物理ownerはHostで、Workerのtoolはdata-only proxyから
-共通executorを利用する（Increment 133）。tool結果とRegistry出力storeの意味はWorkerが所有する。このplacementを将来も固定する
+model生成のprovider HTTPはWorker内で構築され、model一覧取得と認証操作はCoreが所有する。processの物理ownerはHostで、Workerのtoolはdata-only proxyから
+共通executorを利用する。tool結果とRegistry出力storeの意味はWorkerが所有する。このplacementを将来も固定する
 決定にはしていない。最初のloopで変更する具体的理由がなければ現配置を保ち、別の境界を設計しない。
 
 ## 反復型実装ロードマップ
@@ -233,7 +214,7 @@ storage、Surface、またはそれらの境界のどこへ対応させるかを
 | 通常利用と改善 | F01〜F15、F26、F27 | 通常利用で見つかった問題を改善する。F26はIncrement 38で実装済み。F04/F05/F08/F11/F15はIncrement 40〜43のdurable history programで拡張し、Increment 44でSQLiteを唯一のproduction history経路に統一した。F27は別計画で判断する |
 | 配布とDefinition revisionの前段基盤 | F01、F03、F04、F06、F07、F09、F25 | **実装済み（前段基盤）**。Increment 32〜34でstandalone executable、native discovery、local managed Agent Definition、Definition transportを順に成立させた。各F全体の残件は機能一覧を参照する |
 | Henji base instruction | F03、F06、F08 | Increment 51でbase instructionを追加し、Increment 103でbuilt-inを最小core化して外部`instruction.md`の直接読み込みへ置換した |
-| Provider外部化とOpenRouter Responses API | F02、F06、F24 | **実装済み**。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override、64でcurated catalog移行、65でactivation-level slot bindingとplanner既定のdata化、66/67で通常利用上のprovider pickerとResponses effortを修正、68でbuilt-in provider IDを整列した。69でmanaged resource kind `tool-definition`を導入し`web_search`(Sonar)をbundled tool Definitionへ移設・固定catalogを削除、70でtool宣言のDefinition統一と追加identityの一般化（`web_fetch`）、71で`bash`／`read`／`write`／`edit`／`bash_output`をbundled tool Definitionへ移し固定catalogと置換seamを削除した。Increment A（同期subagent廃止）で`subagent:<name>` slotと`delegate_to_*`を削除し、plannerは`agent:planner`のroot-runnable Definitionとして残した（Increment 127で同梱を撤去し、外部Definitionの通常bindingへ移行）。 |
+| Provider外部化とOpenRouter Responses API | F02、F06、F24 | **実装済み**。現行はCoreによるmodel一覧・お気に入り・effort保存とChatGPT OAuth routeを含む。Increment 58でOpenRouter Responses、59/60でdata-only宣言とoverride、61でprovider identity一般化、62でreplay scope、63で既定selection外部化とbuilt-in catalog/defaults override、64でcurated catalog移行、65でactivation-level slot bindingとplanner既定のdata化、66/67で通常利用上のprovider pickerとResponses effortを修正、68でbuilt-in provider IDを整列した。69でmanaged resource kind `tool-definition`を導入し`web_search`(Sonar)をbundled tool Definitionへ移設・固定catalogを削除、70でtool宣言のDefinition統一と追加identityの一般化（`web_fetch`）、71で`bash`／`read`／`write`／`edit`／`bash_output`をbundled tool Definitionへ移し固定catalogと置換seamを削除した。Increment A（同期subagent廃止）で`subagent:<name>` slotと`delegate_to_*`を削除し、plannerは`agent:planner`のroot-runnable Definitionとして残した（Increment 127で同梱を撤去し、外部Definitionの通常bindingへ移行）。 |
 | 自己改訂を支える観測・構成操作 | F06、F19〜F24、F27〜F29 | generic childはIncrement 131で実装済み。Agent自身の観測、root model操作、rebuild等から必要な狭い増分を選ぶ。Definition限定・固定Phase順序にしない |
 | durable Instanceによる複数Sessionの管理 | F16〜F18 | 共通identity・binding・writer管理が必要になった場合に採用する。自己改訂の前提にはしない |
 | 追加オプション | C01〜C05は非網羅的な例示。採用時に正式なF番号を付ける | 構想から要求されていない将来オプション |
@@ -252,6 +233,8 @@ TUIの改善もこの扱いに含む。入力・表示・操作性は主にF01�
 Surface境界を変える場合はarchitectureへ先に戻る。
 
 #### Durable history program（F04、F05、F08、F11、F15、F26）
+
+以下は導入時の実装順序である。現行の保存・参照・並行Core動作はF04/F05/F14とarchitectureを参照する。
 
 workspace-local SQLiteを正本とする次の順序で実装した。詳細な調査、破壊的cutover条件、第三者reviewの結果は
 [`roadmap-inputs/durable-history-and-context-rebuild.md`](roadmap-inputs/durable-history-and-context-rebuild.md)を
@@ -283,9 +266,9 @@ Manifestの説明範囲、generation/turn単位の構築時期を決める。全
 
 #### Surfaceをload・置換する場合（F10）
 
-第二のSurfaceを採用する、現在のSurfaceを置換する、またはself-revision操作をTUI固有実装へ閉じない必要が
-生じた場合に開始する。その時点でSurface identity、Hostによるload/selection、input actionからWorker
-commandへの変換、output delivery、active Sessionとのbinding、置換時の状態引継ぎを決める。
+現行のHTTP/SSE read modelと接続TUIを基盤とし、WebUI等の新Surfaceまたは一般的なSurface置換を採用する
+場合に開始する。その時点でSurface identity、Hostによるload/selection、input actionからCore operationへの
+変換、output delivery、active Sessionとのbinding、置換時のUI-local state引継ぎを決める。
 
 以下のIncrement 32〜34は実装済みの当時計画・受入境界の履歴である。現在の実装状況は上記F一覧を参照する。
 当時のparent／planner roleと同期delegationはIncrement 106で廃止し、現行childはIncrement 109／110／131の
@@ -387,6 +370,12 @@ install済みexternal exact revisionをinstallation/user scopeでactivateした�
 
 対象機能: F02、F06、F24
 
+現行はCoreのmodel一覧取得・検索・お気に入り・model別effort保存と、独立した`openai-chatgpt` OAuth routeを
+含む。API key routeとChatGPTのaccount bindingを分け、生成は共通Responses adapterを使う。
+一覧のcatalog方式はexternal宣言で選べる。現行のcontractは
+[provider/auth architecture](architecture/multi-provider-routing-and-auth.md)を参照する。
+以下の58〜101は基盤を導入した当時の順序であり、固定catalogだけを現行の選択境界としない。
+
 利用者希望（2026-09-17）をIncrement 58〜68で実装した。OpenRouter Chat CompletionsとResponses APIを併設し、
 Provider設定をdata-only declarationへ外部化した。adapterはbinary-owned
 （`openai-responses`/`openai-chat-completions`）で、providerの追加・catalog・既定をbinary更新なしで扱える。
@@ -480,7 +469,7 @@ durable Instanceは、複数Sessionを同じidentity・active binding・writer�
 | `AgentContextGeneration`のidentityと基底設定の範囲 | F27で必要になったとき | canonical conversation、projection、execution中の動的inputまで一つのgenerationへ固定しない |
 | 候補生成・内容確認の入口 | F20/F21の具体的な増分 | 人間の指示、Agentの観測材料、対象のsource/diff/dataと由来を結ぶ最小経路を決める |
 | 人間の採用境界と適用操作 | F22/F27/F29の採用動作ごと | 人間が定めた範囲内でAgentが操作できることと、その境界を変える判断を分ける。操作ごとの承認は一律に追加しない |
-| process以外の物理I/O placementの変更 | 採用する機能が変更を必要とするとき | processはHost共通executor、provider HTTPはWorker。対象の責務・lifetimeから判断する |
+| process以外の物理I/O placementの変更 | 採用する機能が変更を必要とするとき | processはHost共通executor、model生成HTTPはWorker、model一覧と認証操作はCore。対象の責務・lifetimeから判断する |
 | Worker protocolのmessage、handshake、versioning | 新しいHost操作を公開するとき | 人間のSurfaceとAgentのtoolでHost operationを共有する方向とし、その動作に必要なmessageだけ決める |
 | Compositionの再構築単位 | F27/F29等で構成変更を扱うとき | 現行generation単位の構築を基盤に、後続step/executionへの適用が必要な範囲を決める |
 | Definitionのdependency lineage、load、promotion | 対象Definitionの改訂で必要になったとき | Increment 32〜34のlocal closure・exact ref・transportを再利用し、他対象の共通必須方式にしない |

@@ -8,7 +8,9 @@
 
 この文書は、Henji HostとヘッドレスなDeno Agent Workerの責務、状態、lifetime、commit境界を定める。
 
-複数providerを同一SessionとWorker内で扱うroute、認証profile、provider state、evidence、Increment 14〜17の境界は、
+現行source照合: commit `ae520777`、Increment 168まで完了（2026-10-01）。利用者の正本同期指示を反映した。
+
+複数providerを同一SessionとWorker内で扱うroute、認証profile、model一覧、account binding、provider stateとevidenceの境界は、
 専門設計
 [`docs/architecture/multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)
 を正本とする。
@@ -55,8 +57,9 @@
 - Definitionは、provider、model、effort、loop、tools、contextをWorker内の一つの
   `AgentComposition`へ合成する。Definitionを目的別variantの固定集合や閉じたcapability schemaには
   しない。
-- UI は交換可能なままだが、Henji Host に属する。Agent Worker はヘッドレスであり、Host / Worker
-  interface/protocol を通じてのみ Host と通信する。
+- UIは交換可能なHost-side Surfaceである。現行HostはSessionとWorkerを所有する独立Coreと、HTTP/SSEで
+  接続するTUIに分かれる。Agent Workerはheadlessであり、Host / Worker protocolだけで通信する。
+  terminal/draft/viewportはTUI、Session/execution/selection/履歴/read modelはCoreが所有する。
 - 自己改訂を支える基盤は、Agent自身による実行・実効構成・履歴の観測と、model選択、generic child起動、
   resourceからのrebuild等の構成操作である。Hostが観測のreadbackと状態適用を所有し、Workerが観測材料を
   選び、意味を解釈して操作を要求する。現在の実装状態はroadmapで分けて管理する。
@@ -86,7 +89,7 @@
 - historyのlogical record identityをphysical locatorから独立させる。contentのcodec／配置を変更しても、
   occurrence、causal relation、canonical decisionのidentityを変えない。
 - semantic appendとcanonical adoptionは別operationである。durable appendの確認はatomic commit後だけ返す。
-  現行history v7は新規delta、連続ordinal、terminal、mandatory referenceを増分処理し、canonical turnとSession
+  現行history v7（schema 11）は新規delta、連続ordinal、terminal、mandatory referenceを増分処理し、canonical turnとSession
   revisionを一transactionで保存する。ordered hash root、segment／directory／anchorを通常commitの必須条件にしない。
 - 生成中のassistant本文はHostが同じhistory DB内でrequest単位の最新durable stateとして所有する。
   表示更新ごとの全文をsemantic occurrenceへ追記しない。完了時はmodel resultを本文のauthorityとし、
@@ -111,7 +114,7 @@
 | `ResourceSlotIdentity` | dependency元resourceのcontract内でresourceが果たすsemanticな役割を表すkind非依存のlocal key。dependencyの競合keyはconsumerのexact refとこのkeyの組である。`AgentResourceIdentity`はAgent composition内で使うkind固有表現である。 | exact refそのものではなく、一つのconsumer manifest内で一つのbindingへ対応する。activation全体の共有slotとは別namespaceである。 |
 | `AgentSlotBinding` | Hostのinstallation/user scope configで、activation-level root slot `agent:default`をexact managed `DefinitionRevisionRef`へ結ぶauthority。解決時にrevisionがroot-runnableであることを検証する。`subagent:<name>` slotは廃止済み。 | `ResourceSlotIdentity`（manifest内dependency bindingのlocal key）とは別namespace・別authority。変更は次のWorker generationから効く。 |
 | `DefinitionModuleRevision` | Agent Definitionのentryと、初期import contractでその実行に必要となるlocal module closureまたは同等の自己完結bundle、およびそのidentity・lineage metadata。評価後の`AgentManifest`とは別のrevision authorityである。 | Host-owned managed storeへimmutableに保存され、元source pathより長く存続できる。 |
-| `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。generation 内で一度だけ構築するか、turn ごとに再構築するかは未決定である。 |
+| `AgentComposition` | 1 つの Worker 内で Definition が構築する、実行中の provider/model/effort/loop/tools/context コンポーネント。標準 Henji component は default であり、閉じた capability list ではない。 | 1 回の live composition evaluation は 1 つの Worker generation 内に閉じる。現行はgeneration内で構築し、idle時のSession selection変更をroot modelへ適用する。Agent起点のrebuild単位は未決である。 |
 | `AgentManifest` | Definition または composition の、評価後の data-only な説明および identity の projection。何が選択されたかを説明するが、`DefinitionRevisionRef` とは別の authority であり、admission/permission authority ではない。 | revision/identity metadata。実行状態ではない。 |
 | `AgentInstance` | 採用時に複数Sessionを束ねる安定したagent identity、そのdurable metadata、およびactiveな`DefinitionRevisionRef`のbinding。現行Sessionや自己改訂の前提ではない。 | Worker generationより長く存続し、置き換えられたWorkerで再開できる追加機能。 |
 | `AgentWorkerGeneration` | 1つのDefinition revisionを実行する1回のephemeralな実行。保存Sessionから停止・再起動・置換できる。durable Instanceを採用する場合は、そのidentityも維持する。 | process/thread/isolateの存続期間。 |
@@ -123,7 +126,8 @@
 | `HistoryProjection` | authorityから導出するhuman view、search document、flattened request、model working context、summary、later reinterpretation。 | rebuild可能であり、watermark遅延をauthority欠落とみなさない。 |
 | `AgentContextGeneration` | `/rebuild`相当の操作を採用する場合に、対象resourceから解決し有効化したAgent側の基底設定を表す概念。model input全体や`AgentWorkerGeneration`と同義ではない。 | 後続実行が参照する。具体的identity、対象resource、Worker lifecycleとの対応は未決である。 |
 | `Surface` | TUI、CLI、JSON、Web、その他の channel など、Host 側で交換可能な interaction adapter。 | Worker とは独立して所有・置換される。 |
-| `HenjiHost` | Worker lifecycle、物理 terminal / Surface I/O、Surface の load、UI から command への変換、storage mechanism を所有する coordinator。 | Worker generation の lifecycle owner。常時稼働serviceにするかは未決である。 |
+| `HenjiHost` | CoreのSession・Worker・process・storage所有と、Host-side Surfaceのterminal／UI-local state・operation変換からなる責務。 | 現行HTTP CoreはTUI detach後も稼働する。Core processのepochはdurable AgentInstance identityではない。 |
+| `Core` | 一つのworkspaceと稼働Session slot、application operations、HTTP/SSE read model、Workerとprocessを所有するHost process。 | 通常起動ごとに作る。ID/URLで再接続し、明示shutdownで終了する。 |
 
 `AgentManifest` と `AgentComposition` を区別するのは意図的である。manifest は、実行可能な
 Definition が合成できるものを制限する仕組みになることなく、読み取り、比較、または revision
@@ -148,29 +152,55 @@ Definition が合成できるものを制限する仕組みになることなく
 意図する方向性は次のとおりである。
 
 ```text
-Surface (Host 側)
-        │ ユーザー意図 / 描画出力
+TUI / 外部HTTP client（Surface）
+        │ application operation / Session snapshot・update（HTTP/SSE）
         ▼
-HenjiHost ───── interface / protocol ───── AgentWorkerGeneration
-   │                                           │
-   │ ライフサイクル、terminal / Surface I/O、ストレージ │ Definition → AgentComposition → turn
-   │                                           │ provider、tools、context
-   └────────────── 永続化状態 ────────────────┘
+Core（Host） ── data-only protocol ── AgentWorkerGeneration
+   │                                  │ Definition → Composition → turn
+   │ Session・履歴・selection・process    │ provider・tool semantics・context
+   ▼
+workspace共通SQLite（Host-owned semantic authority）
 ```
+
+`henji run`は独立したheadless Hostから同じWorker経路と共有履歴DBを使い、HTTP Coreへ接続しない。
 
 この図が示すのは所有関係であり、wire schema ではない。現行sliceでは、`slice1-data-only-v1`と名付けた
 Host–Worker間のdata-only message contractを実装している。ただしprotocol versionのnegotiationはなく、
 現在のmessage schemaを恒久的な契約として固定しない。将来拡張時のmessage、handshake、error互換性、
 version migrationは未設計である。
 
+### 現行Coreの状態所有と接続
+
+一Coreは一つのcanonical workspaceと稼働Session slotを持つ。複数Coreは同じworkspace・XDGで別Sessionを
+並行実行でき、保存先は`${stateRoot}/<workspaceDigest>/history-v7.sqlite3`を共有する。
+Session writer lockは同一Sessionの二重writerを防ぐ。DB初期化はworkspace単位で同期し、write接続は
+busy timeoutで待機する。restart reconciliationはSession／execution lockを取得できたactive記録だけを
+対象とし、別Coreの生存実行をinterruptedへ変更しない。
+
+Coreのepoch、endpoint、startup／instance lockとboot結果は
+`${stateRoot}/cores/<workspaceDigest>/<coreEpoch>/`へ置く。epochはprocessの識別であり、Core終了後に
+同じidentityで自動再起動するdurable Instanceではない。config、credential、managed resourceは従来の共有XDG
+scopeを使い、Core数を保存先の分割や設定の自動同期へ置き換えない。
+
+`henji core list/status`でCoreを発見・照会し、`core stop --core ID`で一Coreだけを停止する。
+各Coreは自分のWorker／child／tool groupを所有する。親cancelは対象親子、Core shutdownはそのCoreだけを
+清算し、他Coreを停止しない。同Coreへ複数TUIを接続でき、draftとviewportはclientごとに独立する。
+予約follow-upは稼働Coreのpending stateであり、Core再起動後のmailbox復元は提供しない。
+
+`v0/agent/host/core_service.ts`と`application_service.ts`が共通read modelとoperationを提供し、
+`v0/agent/http/server.ts`、`v0/api/`を介してTUIへsnapshot/updateを返す。operation結果の受付とexecutionの
+完了は別で、接続が切れた場合も受付済みexecutionは継続する。実装結果と確認は
+[Increment 139〜146](../increments/increment-146.md)および
+[複数Coreの完了結果](../increments/increment-153.md)を参照する。
+
 ### HenjiHost が所有するもの
 
 - Worker generation の起動、停止、監視、置換。
-- 物理 terminal とその他の Surface I/O。
+- 物理terminalとSurface I/Oは接続TUI等のHost-side adapterが所有する。Coreはapplication operationsとread modelを所有する。
 - process実行の物理ownerと共通process executor。Worker-local proxyからのdata-only requestを受け、
   commandの制御端末分離、process groupの所有、cancel／forced termination／generation置換／close時の清算を担う。
-- Surface 実装の load と置換、および Surface action の Worker 向け command または message
-  への変換。
+- Surface実装のloadと置換の境界。現行SurfaceはactionをCore operationへ変換し、Coreが必要な
+  Worker command/messageへ変換する。一般的なSurface loaderは未実装である。
 - 以下で説明する durable session 境界を含む storage mechanism。
 - canonical/non-canonical双方のexecution identity、Hostが受け取ったevidence、outcome、canonical採用、
   context attribution、明示projectionとcontext transitionを相関して保存・readbackするmechanism。
@@ -316,6 +346,8 @@ tool構成を選んで別Executionを作る手段である。固定roleのvarian
 構成のattributionを保持する。これ自体を経験解釈や改訂cycle全体の実証とはみなさない。
 
 childのspawn成功はchild executionのdurable admission後、collect成功はdurable terminal settlement後にだけ返す。
+statusは子のlifecycleに加えて最新のmodel/tool作業状況と更新時刻を返す。Hostは子Workerの既存観測を
+進捗snapshotと短いrequest factへ投影し、子Executionへ保存する。途中観測と最終collect結果は別authorityである。
 status／collect／cancelのaddressabilityはspawn元parent executionに限定し、後続turnから過去runをmailboxとして
 参照させない。child Definitionのmodule、execution evidenceはcatalogで選択したexact refのprovenanceから
 一貫して決め、同じagent名を理由にbundled Definitionへ差し替えない。childのmodel selectionはspawn入力の
@@ -415,26 +447,32 @@ managed pathを追加する。credentialはportable artifactへ含めず、capab
 
 #### Provider設定の外部化
 
-Providerのroute（provider ID、API protocol、auth profile）とmodel catalogはdata-only declarationで表す。
-`openrouter-chat`、`openrouter-responses`、`openai-chat`、`openai-responses`はbinaryに同梱する既定宣言であり、
-`$XDG_CONFIG_HOME/henji-harness/providers/*.json`のexternal宣言はbinary更新なしで新しいprovider IDを追加できる。
-同じIDのbuilt-in overrideはprotocol、endpoint、auth profileを変えず、catalogとdefaultsだけを置き換える。
-OpenRouter Chat CompletionsとResponsesは別routeとして併設し、既定は`openrouter-chat`である。
+Provider routeはdata-only declarationのprovider ID、API protocol、endpoint、auth profileで表す。
+binary同梱は`openrouter-chat`、`openrouter-responses`、`openai-chat`、`openai-responses`、`openai-chatgpt`の
+五routeである。external `providers/*.json`は新しいprovider IDを追加し、built-in同名宣言はrouteを維持して
+catalog/defaultsをoverrideする。既定はHost configの`default-selection.json`から選び、未設定時は
+`openrouter-chat`を使う。
 
-一般化したprovider identityは`providerId` + `protocol` + `authProfile`であり、`openai-chat-completions`と
-`openai-responses`のprotocol adapterはbinaryが所有する。declarationはdata-onlyで、endpoint、固定model catalog、
-defaults、新しいprovider IDに限るoptional `headers`を持つ。`authProfile`はpattern検証する非secretのidentityで、
-credentialは`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の固定fileからrequest時に解決する。effective model
-selectionは`provider`（providerId）／`api`（protocolまたはbuilt-in surface）／`authProfile`／`modelId`／`effort`
-としてSessionとevidenceへ保存し、endpointやcatalog sourceはidentityへ含めない。Responses replay stateは生成元
-provider IDとmodel IDが一致する場合だけ再利用する。
+model一覧取得とお気に入りはCoreの`LiveModelCatalog`が所有する。通常はproviderのmodel一覧と公開effort
+metadataを取得し、一覧掲載とお気に入り登録を選択可否から分ける。provider別JSONをconfigの
+`model-catalogs/`へ保存し、お気に入り解除後もmodel別の記憶effortを保つ。metadata取得失敗時は保存候補を
+使い、情報源を示す。external宣言の`modelListSource: catalog`は明示された固定一覧を使う経路であり、
+OpenCode Goの暫定運用もこれを使う。ChatGPT一覧は選択accountに対応し、account別のcatalogと相関する。
 
-Host configの`default-selection.json`がrootの既定selectionを選び、未設定時は同梱`openrouter-chat`既定を使う。
-外部Agentのchild executionのmodel選択機構は通常のroot selection経路を使う。selectionの値はspawn入力の`model`
-指定または親Sessionの現在selectionから決まり、Agent名別の同梱model既定は持たない。
-credential値、Authorization、tokenはdeclaration、managed revision、Session、evidence、transcript、Definitionへ
-含めない。provider固有adapterのphysical placement、dynamic model取得、追加protocolは未決であり、採用時に
-architectureへ戻る。詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
+非secret selectionはprovider/API/auth profile/model/effortとしてSessionとexecutionへ保存する。
+rootはidle時に変更しturn内で固定する。childはspawn時の明示modelまたは親Sessionの現在selectionを使い、
+Agent名別の同梱model既定は持たない。API keyはrequest時に固定config fileから解決する。ChatGPTは専用の
+OAuth登録・選択と共有認証moduleで解決・更新し、root turn／child起動時のregistration参照を固定する。
+credential値・Authorization・tokenはselection、Definition、Session、通常履歴へ含めない。
+
+protocol adapterはbinary-ownedである。ChatGPTは共通Responses adapterへ認証、namespace形式のtool宣言、
+account別replay identityを接続する。Responsesは同provider/model、ChatGPTはさらに同registrationのreplayだけを
+再送する。effortを指定するResponses requestは`summary: auto`も要求し、読めるreasoning summaryをthinking
+表示・履歴へ供給する。未指定effortの`auto`でreasoning設定を強制しない。
+
+新provider宣言のoptional headers（`{credential}`／`{sessionId}`）とrequest時の置換、認証の保存・refresh・
+account bindingの詳細は[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を正本とする。
+追加protocolやmodel生成HTTPのplacement変更は採用時に決める。
 
 #### managed revision transport
 
@@ -496,91 +534,91 @@ UI を要求してはならない。
 
 ### Surfaceと現在のTUI
 
-Surfaceは、人間のactionをHost commandまたはWorker向けprotocol messageへ変換し、Workerから返る意味上の
-進捗、tool activity、assistant output、turn settlementを人間へ提示するHost adapterである。Surface固有の
-key binding、layout、draft、cursor、viewportはWorker protocolやcanonical Session stateへ混入させない。
+Surfaceは、人間のactionをCoreのapplication operationへ変換し、Session snapshotとupdateから会話、
+作業状況、結果を提示するadapterである。現在のTUIはCoreと別processのHTTP/SSE clientであり、
+terminal、draft、cursor、viewport、入力履歴、picker、表示用cacheを所有する。CoreはSession、
+実行受付、selection、Worker lifecycle、semantic履歴とread modelを所有する。UI-local stateをWorker
+protocolやcanonical Session stateへ混入させない。
 
-現在の非対話CLIもHost側のheadless Surfaceであり、TUIと同じWorker session factory、Definition評価、
-composition、proposal / commit / acknowledgement、close経路を一turnだけ使う。Session transcriptは永続化しない。
-Surface contractは、既定のfinal-only stdout（成功）／failure JSON（失敗）／exit codeに加え、`--json`のcurated
-NDJSON event streamと`--stream`のlive assistant textを持つ。外部へ出すのはHost-owned projectionであり、
-Worker内部`AgentEvent`やprovider-private replay state、Host内部durability/evidence IDは露出しない。
+通常の`henji`／`henji tui`は新Core・新Sessionを作る。`--core ID`または`--connect URL`は生存Coreへの
+明示再接続で、`--session ID`は新Coreで保存Sessionを再開する。TUIの`/detach`／Ctrl-Dは接続だけを
+閉じ、Coreと受付済み実行を維持する。`/quit`／Ctrl-Qは接続先Coreを停止し、そのWorker・child・
+tool processを清算する。Core選択とSession選択は別operationである。
 
-現在の対話SurfaceであるTUIは、通常利用の画面を次の領域として構成する。
+非対話`henji run`はHTTP Core discoveryへ合流せず、同じWorker session factory、Definition評価、
+composition、proposal／commit／acknowledgementを使う一turnのheadless Host経路である。canonical
+Sessionは保存しないが、productionではnon-canonical executionとsemantic履歴を共有history DBへ保存する。
+既定はfinal-only stdoutまたはfailure JSON、`--json`はcurated NDJSON、`--stream`はlive assistant textを
+出す。出力はHost-owned projectionであり、provider-private replayや内部protocolをそのまま公開しない。
 
-- 人間の依頼、assistantの応答、短いtool activity、結果を追えるconversation log。
-- draftを保持し、複数行を編集できる入力欄。
-- ready / busy / failure、過去表示中の位置と復帰操作、pending input、操作結果など、その時点の判断に必要な
-  一時status行。
-- 対象physical workspace、現在のSession短縮ID、Session titleを常時示すsession行。
-- 選択中root provider、model、effortを常時示すmodel行。
+現在の対話画面はconversation log、複数行editor、三行footerで構成する。
 
-conversation logのturn境界、user入力と最初のtoolまたはassistant出力の境界、logと入力欄およびfooterの
-境界は、Host側layoutが表示専用の空行として導く。canonical transcriptやWorker eventへ空messageを
-追加しない。現在SessionのviewportはHost-localな`followLatest` / `anchored` stateで管理し、過去表示中は
-`history record N of M`または`history start`を示す。idleは`Esc latest`、busyは`PgDn latest`と`Esc cancel`を
-案内する。busy中もPageUp／PageDownで履歴を参照できるが、Escはturnをcancelする。PageDownで末尾へ到達した場合、
-idleのEsc、または通常taskのadmission成功時に最新追尾へ戻る。
+| 行 | 現在の役割 |
+| --- | --- |
+| 1 | 入力・slash picker・履歴に応じた操作案内 |
+| 2 | ready／working／cancelling、経過時間、接続・閲覧状態、workspace、Core／Session identity、title |
+| 3 | provider、model、effort。項目間は`│`で区切り、provider:/model:ラベルは付けない |
 
-conversationの`user>`、settledした`assistant>`、`tool>`、`system>`のlabel styleもHost側の表示metadataで
-あり、現在はそれぞれblue、yellow、green、magentaで識別する。ANSI sequenceは最終的なterminal frame生成時
-だけ加え、layout、canonical transcript、Presentation eventはplain textのままとする。assistant本文はHost
-TUI内の差し替え可能なrenderer componentを通すが、現在のdefault rendererは入力textをそのまま返すため、
-streamingとsettled outputの内容を変更しない。
-通常実行のassistant本文とthinkingはlive snapshotで生成に追従し、thinkingはmodel stepごとに一entryを置換して
-確定する（Increment 132 A／B）。保存Sessionではstepごとの最終thinkingを復元し、逐次再生しない。
-長時間利用の入力・PageUp／PageDown遅延（同C）は未再現・未完了である。保存Sessionのfailure行は停止理由を赤字で
-示し、recall可能なExecution IDがある場合は短縮IDと`/recall <id>`の案内を付ける（Increment 122／125）。
+経過時間はexecution.createdAtを起点とし、同じ実行への再接続やsnapshot反復で起点を変えない。
+workingは送信・準備からsettlementと後処理まで、Coreが新規入力を受け付けられる状態へ戻るまで続く。
+credentialの有無は`/login`の一覧で確認し、footerへ常設しない。操作失敗・認証保存・recall準備・
+接続断等は本文の`system>`へ表示する。実行結果はCoreの記録、予約は稼働Coreのpending record、
+local操作通知はSessionに対応づけたTUI-local stateから表示し、全通知をDBへ保存するものではない。
+通知は対象executionの位置へ置き、snapshot反復で重複追加しない。
 
-`henji history`は別プロセスのread-only viewerである。現行storeをread-onlyで開き（schema作成・reconcile・lockを
-行わない）、単一read transactionで対象Sessionのcanonical transcriptまたはdurable historyを読み、`session`／
-`canonical`／`detail`の3種類をstdoutへ出力する。`session`の通常表示は意味上の実行記録を読む。
-TUIプロセスとは独立でcredentialを要さず、ファイル化はshell
-redirectに任せる。TUI内のhistory overlayと`/history export`は持たない。
+conversation logは、user入力、thinking、assistant本文、tool、結果の順序とturn境界を表示する。
+Responsesの本文とtool callの併存時も本文をtoolより前に保持する。生成中の本文・thinkingはsnapshotで
+更新し、thinkingはstepごとに一つに確定する。保存Sessionの表示でも途中本文、tool、step、終了結果を
+相関し、stepを作り直すたびにthinkingを重複挿入しない。`spawn_subagent`行には対象agent名を示す。
 
-同一Session内のprovider/model/effort選択もHostが所有するsession-level runtime stateであり、Definition
-revisionではない。idle時の選択をHostが先に永続化し、Workerは次のroot turnから使用する。一turnのtool loop中は
-選択を固定する。Session schema v6はactive選択、
-変更履歴、commit済みturnごとのmodel attributionを保持する。provider/model切替後もsemanticなcontext
-checkpointを再利用し、そのsource profileは生成時のprovenanceとして保持する。
+assistant本文はHost Surface内のMarkdown rendererで見出し、list、table、quote、bold、emphasis、code等を
+plain textと表示spanへ投影する。Increment 168時点ではuserラベルはblue、assistantはyellow、toolはcyan、
+通常system通知は通常文字色、失敗語はred、Markdown見出しはgreen、list marker・emphasis・readyはcyanで
+ある。terminal styleは最終frameにだけ加え、保存本文・API・model contextへANSIを混入させない。
+rendererはgrapheme幅、変更entryの再利用、更新の合流、行差分とsynchronized outputを使う。
+長時間通常利用の入力遅延やGhosttyのちらつき等の未再現観測は、これらの実装だけで解消済みとしない。
 
-production TUIと`henji run`は、Host admission済みの`--provider-timeout-ms`をstart commandでWorker generationへ
-渡す。Workerは同じ値をroot、async child、context compaction、補助provider requestへ適用する。
-このrequest単位deadlineはSession stateではなくinvocation stateであり、TUIのSession切替では変わらない。
-未指定時は300,000 msを使う。deadline到達は`provider_timeout`としてdiagnosticとPresentationへ運び、response
-shape不正と区別する。cleanup中にもtimeout分類を保持し、利用者cancelが同時に確定した場合はcancelを優先する。
+通常文のEnterはidle時にtaskを送信し、working中はdraftを保持する。F2は成功後の次task予約、F3は現在の
+executionへの一回のsteeringである。受付可否はCore operationsから導く。Ctrl-Cは通常入力のclear、
+Alt-Enterは改行、区別可能なShift／Ctrl-Enterも改行として扱う。
+PageUp／PageDownは実行中も履歴を移動する。履歴中のEscはlatestへ戻り、latestで実行中のEscだけがcancelを
+要求する。pickerのEscはその画面を閉じ、cancelへ流さない。入力と過去表示位置はsnapshot更新で保持する。
 
-通常logは、人間が作業の流れと結論を追えるsemanticな表示とする。tool call／resultは意味上の履歴へ残し、
-provider requestごとの短い失敗factも明示的にreadbackできる。raw provider responseやSSE断片は通常実行で
-収集せず、必要な場合は別probeで取得する。
+F1または`/sessions`はSession一覧を開く。Enterは閲覧、R／rは再開、D／dは個別削除確認、
+y／Yは削除、n／NまたはEscは取消である。削除はSessionと関連execution・semantic履歴・recall参照を一体で
+扱う。`/view ID`は閲覧のみでWorkerを起動せず、`/resume [ID|latest]`は現在のDefinitionで継続する。
+`/context`はCoreが保持するcontextを読み取り専用で表示する。
 
-Terminal TUIの起動中は現在のSessionの画面をalternate screenへ隔離し、streamingやprogressの再描画で
-terminal scrollbackへ途中frameを蓄積しない。正常終了、cancel、signal、出力失敗では、input、terminal
-mode、起動前画面、cursorをHostが復元する。未送信draft、viewport、入力履歴などのUI-local stateと、
-Host storageに保存するcanonical transcriptやSession identityは区別する。
+editor先頭の`/`は英語説明・usage・対応keyを持つcommand pickerを開く。↑／↓で選び、EnterまたはTabで
+command名を補完し、必要な引数を入力して再度Enterで実行する。workspace pathのTab補完は持たない。
+`/help`はcommandとshortcutの対比を表示する。command一覧は`v0/tui/slash_command.ts`を正本とし、
+`/login`、`/new`、`/sessions`、`/view`、`/resume`、`/context`、`/rename`、`/provider`、`/model`、
+`/effort`、`/recall`、`/detach`、`/quit`を含む。
 
-recoverable settlementで未commitのactive taskが残る場合、Hostはeditorを変更せず停止理由をstatusへ示し、
-人間の再送を待つ。未commitのtaskはrecovery専用laneへ退避せず、再送は入力履歴（Up）に任せる。これらのeditor
-操作はcanonical Sessionへcommitしない。idle Ctrl-Cはeditorとinput-history navigationだけをclearし、exitは
-空editorのCtrl-Dまたは`/exit`で明示する。busy cancelと外部signalの遷移は別に保つ。
+`/login`はAPI key登録とSign in with ChatGPTを認証方式で分ける。API keyは伏字入力から固定fileへ保存する。
+ChatGPTはURL案内・非表示callback入力・account登録／選択／再認証を専用Core操作へ渡す。
+account選択のEnterはpickerを閉じ、通常入力へ戻る。認証操作だけで親のprovider/modelは変更しない。
+`/model`はCoreが取得した一覧と検索・お気に入りを使い、`/effort`はmodel別のmetadataまたは明示catalogを使う。
+selectionはidle時にHostが保存し、admit済みroot turn内で固定する。詳細なroute・account・replay境界は
+[`multi-provider-routing-and-auth.md`](multi-provider-routing-and-auth.md)を参照する。
 
-具体的なkey binding、slash command、表示量、editor機能はarchitectureの固定事項にしない。人間の通常利用で
-観測した必要に応じ、roadmap上のTUI incrementとして変更できる。第二Surfaceまたは一般的なSurface load /
-selection / replacementを採用するときも、WorkerをSurface依存にせず同じ境界を使う。
+`henji history`はCore/TUIと別のread-only CLIで、同じDBの単一read transactionから`session`／`canonical`／
+`detail`をstdoutへ出す。TUIはHTTPのhistory/context read modelを使う。人間向けrendererとAgent向けmodel
+projectionを分け、`/recall`は選んだnon-canonical executionを次の一taskにだけ明示投影する。
 
-物理的なterminal、Surface I/O、process実行はHostが所有する。process実行のWorker-local proxyと共通executorは
-data-only transportを使い、tool resultの意味と履歴はWorker側の責務に保つ。provider HTTP等の現行I/OはWorker内に
-あり、その将来placementをprocess実行と同じownerへ一般化しない。process以外の配置変更は具体的なproduct機能を
-採用するときにarchitectureで判断する。
+production TUIと`henji run`の`--provider-timeout-ms`はinvocation stateで、未指定時300,000 msをroot、child、
+compaction、補助provider requestへ適用する。`provider_timeout`をresponse解析失敗と区別する。
+terminalはalternate screenへ隔離し、detach／quit／signal／出力失敗時にHost側Surfaceが復元する。
+terminal終了とCore終了は同じlifetimeではない。
 
-この境界を通るのはdataとprotocol messageである。JavaScript関数そのものは境界を越えない。
-Deno Web Workerのstructured cloneでは関数を送れないため、DefinitionはHostからcallable valueとして
-渡さず、Worker内で評価する。根拠となるAPIとlocal probeは
-[`docs/research/host-worker-reference-comparison.md`](../research/host-worker-reference-comparison.md)
-に記録する。
+具体的なkey、layout、表示量は通常利用に応じて改訂する。WebUI本体と一般的なSurface load／selection／
+replacementは未実装であり、HTTP read modelの存在だけで成立済みとしない。
 
-Deno Worker permissionだけでは、`--allow-run`で起動したsubprocessとそのdescendantを隔離できない。
-したがって、このWorker境界はlifecycleとdataの境界であり、完全なsandboxや別のtrust tierとは扱わない。
+物理process実行はHost共通executor、provider HTTPはWorkerを基本placementとする。Coreのmodel一覧取得・
+認証操作はCore側で実行する。境界を渡るのはdata-only messageであり、DefinitionはWorker内で評価する。
+Deno Web Workerはlifecycle/data境界であり、別trust tierやsubprocessを含むhard sandboxではない。
+根拠となるAPIとlocal probeは
+[`host-worker-reference-comparison.md`](../research/host-worker-reference-comparison.md)に記録する。
 
 ### Durable history、canonical conversation、context projection
 
@@ -898,7 +936,7 @@ compatibility境界だけを採用する。
 | Definition moduleで許すremote、JSR、npm dependencyの固定方法、revisionの更新・削除・GC | local module closureを保持する初期managed revisionと、新しいSessionへのexact revision指定には不要であり、実際の利用経路ごとに必要なsemanticsが異なる | 対象dependencyまたはrevision管理operationをproduct機能として選んだとき |
 | MCP connection discovery/config format、tool name mapping、capability変更時のgeneration更新、server packageのmanaged化 | MCP protocol compatibilityとHenji固有のselection・durabilityは別contractであり、具体的な利用経路をまだ採用していない | roadmapがMCP integrationを採用したとき |
 | Worker restart、cancel、concurrency、lease、backpressure | inputの並行性、streaming、effectの有無により必要なsemanticsが変わる | 複数入力、長時間turn、強制停止のいずれかを扱うとき |
-| Surface identity、load / selection / replacement、置換時のUI-local state引継ぎ | 現在はTUIとnon-interactive commandで通常利用でき、一般化に必要な第二Surfaceの契約がない | 第二Surface、現Surfaceの置換、またはself-revision操作をTUI固有実装へ閉じない必要をroadmapが採用したとき |
+| Surface identity、load / selection / replacement、置換時のUI-local state引継ぎ | CoreのHTTP/SSEと接続TUIは成立したが、WebUI本体と一般Surface loaderは未実装である | 新Surfaceまたは一般的な置換operationを採用したとき |
 | mailbox、非同期または複数Surface間のrouting、schedule、Instance-wide state、cross-session memoryの永続化 | それぞれ独立したproduct機能であり、AgentInstanceの継続性やHost / Worker分割だけからは必要にならない | roadmapが対象機能を採用したとき |
 | effectのidempotency、deduplication、recovery | effect先の契約なしに共通のretryまたはexactly-once semanticsを決められない | recovery対象となる実tool effectを選んだとき |
 | deployment profile、service supervision、migration | 実行先、可用性、移行元と移行先が決まらなければ必要なmechanismを選べない | 常時address可能なHost serviceの運用先または移行対象を決めたとき |

@@ -433,3 +433,12 @@ Increment 163を完了とした。実装・通常/批判的レビュー・常用
 新しいセッションの入口は`.handoff/handoff.md`とする。現在の常用binary・証拠の所在は本書に保持し、
 実登録accountと既存Coreを引き継ぐ。追加の実provider検証・commit/push・公開は別指示に従う。
 未実測として記載した事項は実行証拠の範囲を表すもので、完了済みincrementの継続作業にはしない。
+
+## Product正本の同期（2026-10-01）
+
+利用者の「同期して168まで完了してるし」により、本書で保留していた正本変更案を反映した。
+ChatGPT OAuthの保存・更新owner、account bindingと共通Responses adapterへの接続を
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md)、
+[provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)、
+[roadmap](../roadmap.md)の現行説明へ同期した。構想の目的・人間による採用境界は維持する。
+過去の計画・検証・配置時点の未反映記録は当時の証拠として保持する。

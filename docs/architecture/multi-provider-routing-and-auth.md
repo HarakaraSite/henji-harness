@@ -1,18 +1,19 @@
 # Henji 複数provider routing・認証アーキテクチャ
 
-ステータス: **Increment 14〜16の複数provider基盤とIncrement 58〜68のOpenRouter Responses・data-only
-Provider declaration・provider ID整列を実装済み。ChatGPT subscription routeはfeasibility確認後に将来へ延期**
+ステータス: **複数provider基盤、data-only declaration、現行model一覧・お気に入り・effort保存、
+Sign in with ChatGPT routeを実装済み。Increment 168までの現行sourceと同期済み**
 
 作成日: 2026-09-09
 
-現行source照合commit: `63da37ced134920966f59e8b1948777b1c1c3eb6`（2026-09-26）
+現行source照合commit: `ae520777`（2026-10-01、Increment 168まで完了）
 
 ## 目的
 
 Henjiのdefault parent、genericまたは外部の名前付きasync child Agent、modelを内部利用するtoolが、同じturnまたはSession内で
 別々のproviderと認証経路を安全かつ正確に使えるようにする。Increment 14から16は、個別adapterを順番に
 足すのではなく、本書の共通route、認証、Session、provider evidence契約へ一つずつ接続した。Increment 17で
-ChatGPT subscription routeのfeasibilityを確認したが、runtime実装は将来incrementへ延期した。
+当時のChatGPT subscription routeのfeasibilityを確認して延期した。その後、Increment 163で別route
+`openai-chatgpt`としてSign in with ChatGPTを実装し、Core認証serviceと共通Responses adapterへ接続した。
 
 必要なproduct動作は次のとおりである。
 
@@ -20,8 +21,8 @@ ChatGPT subscription routeのfeasibilityを確認したが、runtime実装は将
   `web_search`を同じturnで利用できる。
 - parentとsubagentが異なるproviderでも、各model requestは自分に指定されたprovider・model・effort・
   認証profileを使う。親のcredentialを子へ暗黙継承しない。
-- 将来OpenAI CodexのChatGPT subscription認証を追加する場合も、OpenAI Platform API-key認証とendpoint、
-  API contract、課金・管理境界、credentialを混同しない。
+- ChatGPT契約枠を使う`openai-chatgpt`とPlatform API keyの`openai-chat`／`openai-responses`は、
+  同じ公開API endpointを使う場合もauth profile、account binding、catalog、replay identityを分ける。
 - providerを切り替えてもHenji Sessionとsemantic transcriptは継続する。一turnの途中でroot routeは変えない。
 - 通常実行はprovider・model・API、stepと物理request順、HTTP／error、解析失敗の項目と値の形を短いrequest factとして
   保存・readbackできる。toolの順番・引数・結果とruntime outcomeはsemantic履歴へ保持する。raw request／response、
@@ -35,7 +36,7 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 
 ## 根拠と未確認事項
 
-### 確認済みの外部契約
+### 基盤採用時に確認した外部契約（履歴）
 
 - OpenAIの公開Responses APIはtext、image、function tool、streamingを扱い、TypeScript SDKの
   `responses.create()`は非stream responseまたはtyped stream eventを返す。
@@ -69,8 +70,9 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 - Codex SDK/app-serverはHenjiの低水準`Model.generate()`を置換するmodel providerではなく、agent loop、history、
   approvalも所有する高水準境界である。Increment 17のfeasibility確認では、Henjiのroot model routeに適合する
   公式の低水準subscription model APIを確認できなかった。
-- ChatGPT subscription tokenを直接`chatgpt.com` backendへ送る方式は、pinned比較実装には存在するが、現時点で
-  Henjiが依拠する公式public API contractとしては確認していない。本書はそれを既定経路にしない。
+- ChatGPT subscription tokenを直接`chatgpt.com` backendへ送る方式は、pinned比較実装には存在するが、当時は
+  Henjiが依拠する公式public API contractとして確認していなかった。現行`openai-chatgpt`は
+  `https://api.openai.com/v1`の共通Responses adapterを使い、この旧Codex backend方式を採用していない。
 
 ## 用語とidentity
 
@@ -82,11 +84,11 @@ OpenAI Responses APIのbuilt-in Web searchをHenjiの二つ目のsearch backend�
 | `openrouter-responses` | OpenRouter Responses API | `openrouter-api-key` | 58 |
 | `openai-chat` | 公開OpenAI Chat Completions API | `openai-api-key` | 64、ID整列は68 |
 | `openai-responses` | 公開OpenAI Responses API | `openai-api-key` | 14、ID整列は68 |
-| `openai-codex` | 将来再確認するChatGPT Codex subscription経路 | 未決定 | 将来incrementで再採用した場合 |
+| `openai-chatgpt` | 公開OpenAI Responses APIを使うChatGPT契約枠のroute | `openai-chatgpt`（OAuth登録） | 163 |
 
-`openai-chat`／`openai-responses`と`openai-codex`は同じvendorのmodelを使えても別providerである。model IDが
-同じでも、API surface、
-認証、課金、provider state、evidenceの意味が異なるためである。
+`openai-chat`／`openai-responses`と`openai-chatgpt`は同じvendor・modelでも別providerである。
+共通Responses protocolへ接続しつつ、認証、account登録、model一覧、provider replayのidentityを区別する。
+旧feasibility案の`openai-codex`を現行provider IDやaliasとして扱わない。
 
 Anthropic direct、Google direct等を将来追加するときも、確認済みのAPI surfaceとauth profileを新しいroute branchと
 adapterとして加える。Increment 14〜17では未確認のendpoint、認証、provider stateを先回りして共通仕様化しない。
@@ -109,20 +111,23 @@ interface ModelSelection {
   readonly authProfile: string;
   readonly modelId: string;
   readonly effort: string;
+  /** ChatGPTの内部turn/child binding。公開selectionではaccount参照を出さない。 */
+  readonly registrationId?: string | null;
 }
 ```
 
 `authProfile`は`/^[a-z0-9][a-z0-9-]{0,63}$/u`に一致する非secretのidentityであり、credential値は持たない。
-built-in providerのselectionは従来どおり`openrouter-api-key`／`openai-api-key`へliteral固定し、未知providerだけ
-pattern検証する。`AuthResolver.resolve(authProfile)`はrequest時に`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の
-固定fileからcredentialを解決する。既存の`openrouter-api-key`／`openai-api-key`のfile名はprofile IDと一致する。
+built-in API key routeは`openrouter-api-key`／`openai-api-key`、ChatGPT routeは`openai-chatgpt`を使う。
+API key resolverはrequest時に`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`を読み、ChatGPT resolverは
+内部のregistration参照から専用認証moduleで有効tokenを取得する。未選択を固定したbindingの`null`と、
+binding未確定の`undefined`を区別する。secret値はこの参照へ入れない。
 
 Provider declaration v1は`providerId`、binary-owned `protocol`、endpoint、auth profile、固定model catalog、
-defaults、optional `headers`をdata-onlyで保持する。protocolは`openai-chat-completions`または`openai-responses`
+defaults、optional `headers`、`modelListSource`と`modelsDevProviderId`をdata-onlyで保持する。protocolは`openai-chat-completions`または`openai-responses`
 である。external宣言は新しいprovider IDを追加でき、built-inと同じIDの宣言はprotocol・endpoint・auth profileを
 維持したままcatalogとdefaultsだけをoverrideできる。`headers`は新しいprovider IDの宣言だけが持ち、built-in
-override宣言では拒否する。email、account ID、API key、access/refresh tokenはselectionとdeclarationへ含めない。
-`openai-codex` branchは現時点では追加しない。将来再採用する場合は、その時点の公式contractと実行証拠を確認する。
+override宣言では拒否する。email、credential、access/refresh tokenはselectionとdeclarationへ含めない。
+ChatGPTのregistration参照はexecution-local bindingとして扱い、account/tokenの保存authorityと分ける。
 
 `headers`はrequest header名から値へのmapで、値は静的文字列またはplaceholder `{credential}`／`{sessionId}`を含む。
 `{credential}`は`AuthResolver`が解決したcredential値へ、`{sessionId}`は現在のHenji Session IDへ、adapterの
@@ -131,6 +136,46 @@ request build時に置換する。`authorization`／`content-type`／`host`／`c
 `Authorization: Bearer`を`AuthResolver`の解決値で固定する。`openai-chat-completions` protocolでは
 `{credential}`を含むheaderを1つだけ許し、それを使う場合はbaseの既定`Authorization: Bearer`を送らない。
 宣言headerの値はSession、execution artifact、provider evidence、transcriptへ保存しない。
+
+## Coreのmodel一覧とユーザーcatalog
+
+Coreの`LiveModelCatalog`はproviderの一覧取得、model別effort metadata、お気に入りと記憶effortを所有する。
+TUIはCore APIのcatalog read／favorite operationを使い、worker model生成とは別のread modelとして表示する。
+通常はproviderの`/models`と公開models.dev metadataを読み、catalog未登録のmodelも一覧から選択できる。
+metadata取得にはprovider credential/headerを送らない。一覧・metadataのHTTP/error/解析項目は短いfactとして
+readback可能にし、raw responseを保存しない。
+
+user configの`model-catalogs/<providerId>.json`はfavoritesとmodel別defaultEffort／既知effortsを保持する。
+初回は有効declaration catalogからseedし、その後は空favoritesや解除を含むuser fileを正本とする。
+effort変更はお気に入り登録と独立し、解除後も記憶effortを維持する。external宣言の明示effortを優先し、
+metadata取得失敗時は保存候補、未掲載時はauto等の情報源を示す。未知modelの対応値を推測で増やさない。
+
+external `modelListSource: catalog`は一覧・effortとも宣言から読む。OpenCode Goの現行運用はこの経路であり、
+一覧取得失敗時の自動fallbackとは別である。ChatGPT一覧はOAuthで解決したaccountの`models`を読み、slug、
+display_name、visibilityを共通catalogへ正規化する。favorites／effortと一覧snapshotはregistration別に相関する。
+認証画面から別accountのmodel一覧を読むだけでは、保存account選択や親のmodelを変更しない。
+
+## Sign in with ChatGPTの状態所有
+
+Coreの認証serviceは`POST /api/v1/credentials/chatgpt`のstatus/begin/complete/cancel/selectを所有する。
+TUIはURL案内、非表示callback入力、account選択・再認証・追加を提供し、Enter選択後は通常入力へ戻る。
+API key入力とOAuth callback入力は別の操作であり、callbackやtokenを通常会話へ送らない。
+
+専用認証moduleはconfigの`chatgpt/`以下にhost、registration、accountと選択参照を保持する。
+access/refresh tokenと期限はprivate account fileに限り保存する。Coreのmodel一覧取得、root/child Worker、
+headless経路は同じmoduleを使う。登録単位の更新はfile lockで直列化し、lock取得後に最新token/期限を読み、
+必要な呼び出しだけがrefreshしてreplacementを保存する。通常の推論requestをこのlockで直列化しない。
+
+root turnとchild spawnのadmissionでは、使用するregistration参照を固定する。account選択変更は後続実行へ
+適用し、進行中tool loopのaccountは変えない。非ChatGPTの親からもChatGPT childを指定でき、親のselectionや
+credentialを代用しない。tokenはWorker start command、Session、Definition、model context、通常evidenceへ含めず、
+request時のresolverだけが使用する。OAuth/token更新の短いfactもcredential値・Authorizationを含めず保存する。
+
+`ChatGPTResponsesModel`は共通Responses adapterへOAuth credential、namespace形式のfunction tool、
+store指定、registrationを含むreplay identityを接続する。tool loop、child lifecycle、履歴採用は共通処理のまま
+である。認証と登録後操作は利用者確認済み、local mockでroot/child・stream・refreshを確認した範囲と、
+本体の外部APIで個別に実測した範囲は[Increment 163](../increments/increment-163.md)を正本とする。
+完了承認だけから未実測の組合せを実測済みと読み替えない。
 
 ## 不変条件
 
@@ -177,7 +222,8 @@ runtime境界は次の責務に分かれる。
 - provider adapter factory: 対応する`AuthResolver` closure、counted fetch、deadline、semantic observation／request factの記録境界を受け取る。
 - `AuthResolver.resolve(authProfile)`: request時にcredentialを取得するWorker-local境界。auth profile IDを
   pattern検証し、`<XDG_CONFIG_HOME>/henji-harness/<authProfile>`の固定file sourceへ対応させる。
-  `openrouter-api-key`／`openai-api-key`はこの一般規則の既存例である。
+  `openrouter-api-key`／`openai-api-key`はこの一般規則の既存例であり、`openai-chatgpt`は前述の共有OAuth
+  認証moduleから登録単位のtokenを解決する。
 - `WebSearchBackend`: model routeと独立したbindingを維持する。Increment 69以降、bundled web_search tool
   Definitionがcredential解決済みprovider request seam（auth profile指定、credential値非公開）を通じて
   `openrouter-api-key`を解決し、OpenAI parentのcredentialを参照しない。
@@ -205,7 +251,7 @@ type ProviderState =
 
 - Chat adapterは返された平文`reasoning`／`reasoning_content`または順序付き`reasoning_details`を、同じprovider・
   modelの継続requestへ対応するwire形式で戻す。構造付きitemと同じ平文を重複送信しない。Responses adapterは
-  reasoning/output itemを同じprovider・modelの継続requestへ戻す。OpenRouter Responsesのstateless endpointでも
+  reasoning/output itemを同じprovider・model、ChatGPTではさらに同registrationの継続requestへ戻す。OpenRouter Responsesのstateless endpointでも
   Henjiが返却されたitemを再送する。読めるthinkingの人間向け表示は、このprivate replayと別に扱う。
 - OpenAI Responses adapterは、function call後のcontinuationと後続contextに必要なreasoning/output itemを完全な順序で
   保持する。`previous_response_id`だけをHenji Sessionの正本にせず、Henjiのdurable transcriptとprovider stateから
@@ -216,7 +262,9 @@ type ProviderState =
 - Session内でproviderまたはmodelを切り替えたら、その境界より前のprivate stateを後続requestから除外する。
   元の選択へ戻っても古いprivate stateは復活させず、semantic transcriptから通常の会話内容を再構成する。
 - routeは一turn中固定なので、tool callを返したproviderとtool result continuationを受けるproviderは同じである。
-- Codex routeのprovider stateはfeasibility gate後に採用した境界が必要とする場合だけbranchを追加する。
+- ChatGPTはprovider-private replay tagにregistrationを含め、別accountのreplayを再利用しない。
+- effort指定Responses requestは`summary: auto`を要求する。読めるreasoning summaryをthinking表示と履歴へ
+  渡すが、表示用thinkingから暗号化itemの本文を生成しない。autoでreasoning設定を強制しない。
 
 ## Session、Manifest、Surface
 
@@ -226,14 +274,16 @@ buildとDefinition attributionを`turnExecutions`へ持つ。Increment 68より�
 
 - Sessionはroot selectionだけを永続化する。async childのresolved selectionは各executionのmanifestとevidenceへ
   attributionし、rootのmodel change historyへ混ぜない。
-- 永続Sessionとexecution artifactのdecoderは、selectionの保存構造とtagを検証する。現在のcurated catalogにmodelが
-  掲載されているかという利用可能性判定は、resume時のadapter materializationへ分離する。catalog更新だけで過去の
-  Sessionやartifactを破損扱いにしない。
+- 永続Sessionとexecution artifactのdecoderはselectionの保存構造とtagを検証する。model一覧、
+  お気に入り登録、adapter materializationを別の責務とし、catalog未登録だけで正常なselectionや過去の
+  Session/artifactを破損扱いにしない。
 - Worker start/select command、ready/selected manifest、execution artifact、Session metadata、presentation projectionを
   同じgeneric selectionを使う。
 - Worker protocolは`select_model`をgeneric selectionの変更commandとして使う。Surfaceの`/provider`、`/model`、
   `/effort`はidle-onlyなroot selectionのatomic変更へ収束する。
-- 三行footerの三行目と`/sessions`はproviderを独立表示し、同じmodel IDをOpenRouter経由とOpenAI directで区別する。
+- 三行footerの三行目はprovider/model/effortを`│`で区切り、同じmodel IDのrouteを識別する。
+  Session pickerは閲覧・再開・個別削除を提供する。現在のTUIの操作・認証表示は
+  [Host/Worker architectureのSurface節](henji-host-agent-worker.md#surfaceと現在のtui)を参照する。
 - semantic context checkpointはprovider-neutralなsummaryとして再利用する。`sourceProfileId`は生成元provenanceのまま
   保持し、active routeとの一致を再利用条件にしない。新schemaでは生成元selection identityを非秘密情報として
   表現する。

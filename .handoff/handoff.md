@@ -4,255 +4,36 @@
 
 ## 現在地（2026-10-01）
 
-**[Increment 168](../docs/increments/increment-168.md)の実装・検証・commit/build・常用配置完了。利用者確認待ち。**
-シアンとグリーンの交換を利用者が指定した。source `a692c10a`、build `4db6bd68…`を配置済み。
-要件・検証・配置の正本はincrement文書。表示の適用にはTUIを開き直す。
-後続の「コミットプッシュして」により、167・168を含むmainの未送信commitをorigin/mainへpush済み。公開は未実施。
+Increment 168まで完了。利用者の「同期して168まで完了してるし」により完了承認を記録した。
+構想・Host/Worker architecture・provider/auth architecture・roadmapを168完了時点のsourceへ同期した。
+通常利用メモのA10とS8は利用者指示で削除済み。
 
-**[Increment 167](../docs/increments/increment-167.md)は利用者確認・完了承認済み（2026-10-01）。**
-常用配置はsource `72d14f4a`、build `d94601c7…`。要件・検証・配置・完了承認の正本はincrement文書。
-実Sessionとcredentialを保持している。後続指示によりpush済み。公開は未実施。
-
-**完了済みのIncrement 161〜166をsource commit `fbee507a`へ確定し、`dist/henji`を作成した。**
-binaryのsourceは同commit、dirtyなし。build IDは`c8237977…`。
-後続の「了解配置して」により常用`/home/agent/.local/bin/henji`へ配置し、配置先の新Core/TUI起動を確認した。
-成果物・確認の正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。push・公開は未実施。
-
-**[Increment 166](../docs/increments/increment-166.md)のlocal修正・検証完了。**
-表示行へexecution IDを引き継ぎ、cancelと同じ原因のsystem通知の挿入位置を修正した。
-実Sessionのcompiled TUI、履歴移動、再接続で確認済み。上記source commitへ確定した。
-常用配置済み。push・公開は未指示。
-
-**[Increment 165](../docs/increments/increment-165.md)のlocal修正・検証完了。**
-Responsesで表示用summaryを要求し、既存のeffort選択を維持する。実API highの3 requestで確認済み。
-要件と結果はincrement正本を参照する。上記source commitへ確定し、常用配置済み。push・公開は未指示。
-
-**[Increment 164](../docs/increments/increment-164.md)のlocal実装・検証・コード／test通常レビュー完了。利用者確認待ち。**
-Markdown heading toneだけをstandard ANSI cyanへ変更した。focused 33件、type
-check、format、lint、diff checkは pass。compiled production
-TUIでblueの`user>`、cyanの三見出し、既存色、履歴移動、新Coreでの保存Session再開を
-隔離tmuxとlocalhost一requestで確認した。実装後の独立通常レビューは必須指摘0。外部requestは0。
-上記source commitへ確定し、常用配置済み。push・公開は未指示。
-
-**[Increment 163](../docs/increments/increment-163.md)は利用者確認・完了承認済み（2026-10-01）。**
-Sign in with ChatGPTの実装・コード/testレビュー・常用配置と、登録後のEnter導線修正・再配置を完了。
-利用者の成功報告と完了承認を受け、セッションを作り直すため記録した。
-要件・結果・証拠の範囲はincrement正本を参照する。登録済みaccountと既存Coreを保持する。
-
-**[Increment 162](../docs/increments/increment-162.md)は利用者確認・完了承認済み（2026-10-01）。**
-コマンドピッカー、共通`/help`、追加指定のread tool内部指示を英語へ統一した。
-Agentへの指示組込みのfocused確認と、配置済みTUIの隔離tmux確認も完了。
-commit/push・公開は未指示。要件・結果はincrement正本を参照する。
-
-**[Increment 161](../docs/increments/increment-161.md)は利用者確認・完了承認済み（2026-10-01）。**
-利用者の追加指定により`d`／`D`で削除、`r`／`R`で再開に統一して再配置。
-表示は`D delete`・`R resume`。配置済みproduction TUIの隔離tmuxで大小文字の操作を確認した。
-commit/push・公開は未指示。要件・結果はincrement正本を参照する。
-
-**JSR `@henji/harness@0.8.0`の公開・取得確認は完了。**
-公開対象・検証結果・承認は[公開記録](../docs/operations/jsr-publish.md#080-publication--2026-10-01-jst)を参照する。
-一時release worktreeは削除済み。現在の常用binaryはIncrement 163の配置を参照する。
-
-**[Increment 160](../docs/increments/increment-160.md)は利用者確認・完了承認済み（2026-09-30）。**
-local実装・検証・commit/push・常用配置・配置後の隔離TUI確認完了。
-結果・検証証拠はincrement正本を参照する。
-
-常用binaryは`henji 0.8.0`、source `a692c10a…`（dirtyなし）、build `4db6bd68…`へ更新済み。
-新しい通常起動から適用する。配置前のCoreを保持し、確認用Core/TUI/tmuxは終了済み。
-旧Coreへの明示再接続ではCore側は旧機能を使う。
-現在の配置の正本は[Increment 168](../docs/increments/increment-168.md)。
-
-**[Increment 159](../docs/increments/increment-159.md)は利用者確認・完了承認済み（2026-09-30）。**
-Slice 2/3の採用findingを修正し、限定re-reviewで解消。残るBlocker/P1/P2は0。
-四slice実装・検証・review・commit/push・常用配置・配置後の隔離TUI操作確認は完了。要件・結果はincrement正本を参照する。
-確認用Core/TUI/tmuxは終了、credential参照は解除済み。既存Henjiプロセス二件・実configは保持し、常用binaryを更新した。
-
-**[Increment 158](../docs/increments/increment-158.md)のlocal実装・検証・commit/push・常用配置完了。**
-フッター2・3行目の区切りとprovider/modelラベル省略を実装し、compiled production TUIで確認済み。
-利用者確認・increment完了承認は未取得。配置後の操作確認は利用者指定により省略した。
-検証経路と結果はincrement正本を参照する。確認用Core/TUI/tmuxは終了済み。
-
-**E6の[Increment 157](../docs/increments/increment-157.md)は利用者確認・完了承認済み。**
-2026-09-29、利用者の確認と指示によりincrement完了・関連文書更新・セッション終了。
-取得中overlay削除とGo暫定カタログ方式を含む要件・検証・review・配置結果はincrement正本を参照する。
-確認用Core/TUI/tmuxは終了済み。常用配置を保持し、既存Core三つの停止・移行は行わない。
-
-**S15の[Increment 156](../docs/increments/increment-156.md)は利用者確認・完了承認済み。**
-2026-09-29、利用者のEsc確認と指示によりincrement完了・セッション終了。
-要件・TUI分離後の経路・検証・commit/push・常用配置・配置後確認はincrement正本を参照する。
-確認用Core/TUI/tmuxは終了済み。
-既存Core二つは保持した。追加指示による/tmp清掃と証拠の通常ディスク移動も完了。
-
-**S25の[Increment 155](../docs/increments/increment-155.md)は利用者確認・完了承認済み。**
-2026-09-29、利用者の指示によりincrement完了・セッション終了。
-実装・検証・reviewer通常レビュー・commit/push・常用配置・配置後確認の結果はincrement正本を参照する。
-確認用Core/TUI/tmuxは終了済み。既存Core二つは保持し、再接続URLはincrementの配置節を参照する。
-JSR公開は未指示。
-
-**S17・S18・S19の[Increment 154](../docs/increments/increment-154.md)は利用者確認・完了承認済み。**
-2026-09-29、利用者の指示によりincrement完了・セッション終了。
-変更前後の実測、隔離tmuxのsource/compiled実経路、コード/testの通常・批判的reviewを完了した。
-採用P1二件を修正し、両限定re-reviewはBlocking 0／P1
-0。結果・実測・未確認事項はincrement正本を参照する。
-追加指示によりcommit/push・常用配置・配置後確認も完了。確認用Core/TUI/tmuxは終了済み。
-既存Core二つは保持し、再接続URLはincrementの配置節を参照する。
-
-**A25五sliceの実装・各slice/全体review・E2E・commit/push・常用配置・配置後確認を完了。**
-[Increment 153](../docs/increments/increment-153.md)がcompiled
-TUI・親子tool・追加のSession継続/headless併走実測とfull gateの結果の正本。
-検証用Core・tool・tmuxは終了済み。配置identityと確認結果は
-[合同配置記録](../docs/increments/a25-deployment-2026-09-29.md)を参照する。
-配置時点で稼働していた旧Coreは停止せず保持した。再接続URLも合同配置記録を参照する。
-全体の順序と受入は[五slice実装計画](../docs/plans/a25-implementation-slices.md)を参照する。
-
-**Increment 148の修正・検証・commit・push・常用配置・配置後確認を完了。**
-最新binaryの起動ヘッダ欠落、working／elapsed欠落を修正した。利用者の追加指定によりworking／elapsedは
-フッター二行目の先頭、Ctrl-Cはbusy中も入力クリア、cancelはEscとなる。
-要件・実装・確認結果・配置情報・途中probeの外部request一回の記録は
-[Increment 148](../docs/increments/increment-148.md)が正本。確認用Core・tmuxは停止済み。
-
-Goは両外部宣言のカタログ方式へ更新し、Chat側へQwen3.8 Maxを追加済み。新規Coreから適用する。
-通常起動は毎回新Core・Session。再接続は`henji --core ID`または`--connect URL`で明示する。
-S22の8slice（139〜146）と147の配置結果は
-[合同配置記録](../docs/increments/s22-deployment-2026-09-28.md)、利用方法は
-[HTTP API](../docs/operations/http-api.md)を参照する。JSRは更新していない。
-
-以前の完了承認と検証結果は[133〜138の個別increment](../docs/increments/)、
-[133〜138合同E2E](../docs/increments/e2e-133-138-2026-09-27.md)、
-[1〜132 E2E](../docs/increments/e2e-001-132-2026-09-27.md)、
-[追加確認・stream配置結果](../docs/increments/e2e-001-132-followup-2026-09-27.md)を参照する。
+常用配置は[Increment 168](../docs/increments/increment-168.md)のsource `a692c10a`、build `4db6bd68…`。
+配置の適用はTUIを開き直す。既存Core・Session・credentialは保持している。
+168までの実装commitのpushは完了。JSR公開済み版は`@henji/harness@0.8.0`で、
+その後の167・168は常用配置済み・追加公開未実施。
+今回の正本同期と完了記録、およびA10/S8削除はlocal文書変更である。
 
 ## 次の一手
 
-Increment 168の利用者確認を待つ。
-対象と確認記録は[local build記録](../docs/operations/local-build-2026-10-01.md)。
-
-mainのpushは利用者の追加指示により完了した。公開は利用者の指示に従う。
+採用済みincrementの残作業はない。次の対象は利用者の指示に従う。
+未採用候補は[通常利用メモ](../docs/experience/normal-use-inbox.md)、機能の未実装範囲は
+[roadmap](../docs/roadmap.md)を参照する。
 
 ## 承認境界
 
-- local commitとbinary作成は2026-10-01の追加指示により承認済み。
-  未コミットだったIncrement 161〜163とその上の164〜166を一緒に確定する。
-  後続の「了解配置して」により常用配置も承認済み・完了。
-  push、公開は未指示。正本は[local build記録](../docs/operations/local-build-2026-10-01.md)。
-
-- Increment
-  164は利用者の「ではそうしよう　次のインクリメントとして計画して」により、Markdown見出しを
-  cyanへ変更するincrementとして採用し、計画作成まで承認済み。追加指示により通常／批判的計画reviewを実施し、
-  両方とも必須finding 0。初回の批判的runはprovider transport
-  errorで結果を返さず、別providerの独立runで
-  再実行した。`user>`のblueと他の既存色を維持し、Host-owned rendererのheading toneだけを変更する。
-  追加指示「では実装してください　実装後、コードとテストを通常レビューさせてください」により、local実装、
-  focused確認、compiled production
-  TUI確認とコード／test通常レビューを承認済み。「最後までやってもらえる？」により中断した通常レビューを再開し、
-  local実装・検証・通常レビューを完了。必須指摘0、利用者確認待ち。
-  常用配置、commit/push、公開は未指示。構想・architecture・roadmapの変更は不要。
-  正本は[Increment 164](../docs/increments/increment-164.md)。
-
-- Increment 163は採用後、利用者の追加指示によりlocal実装・コードとtestのreview・常用配置を承認済み。
-  実登録と登録後操作を利用者が確認し、「インクリメントを完了とする」により完了承認済み。
-  セッションを作り直すための記録を更新した。追加実provider確認・commit/push・公開は未指示。
-  構想・architecture・roadmapの正本変更は別承認。正本は[Increment 163](../docs/increments/increment-163.md)。
-
-- Increment 162は「コマンドピッカーの日本語表記を英語へ統一したい」によりlocal変更・検証を実施。
-  直前の配置指示とUI修正の継続として常用配置・配置後確認も完了。
-  「他に日本語表記の混ざっている箇所はない？」の追加調査も完了。 「read
-  toolも統一しよう」による内部指示の英訳・検証・再配置も完了。
-  「確認しました両インクリメントを完了とします」により利用者確認・完了承認済み。
-  commit/push・公開は未指示。正本は[Increment 162](../docs/increments/increment-162.md)。
-
-- Increment 161のセッションピッカー個別削除は「セッションピッカーに削除操作をつけたい」
-  「Deleteキーでy/n確認して削除」により採用・local実装・隔離検証を実施。
-  追加指示「配置して」による常用配置・配置後隔離確認は完了。
-  「deleteキーじゃなくてdにして」、続く「操作体系は揃えたい」により
-  `d`／`D`受付へ変更・再配置・配置後隔離確認も完了。
-  実データ削除、commit/push、公開、構想・architecture・roadmap変更は未指示。
-  「確認しました両インクリメントを完了とします」により利用者確認・完了承認済み。
-  正本は[Increment 161](../docs/increments/increment-161.md)。
-
-- Increment 160は利用者の「1でミニマルにしようかな　次のインクリメントはそれで」により採用。
-  追加指示「実装して」によるlocal実装・非破壊的検証は完了。
-  追加指示「コミットプッシュ配置をして」によるcommit/push・常用配置・配置後確認は完了。
-  「みやすくなった　インクリメントを完了とする」により利用者確認・完了承認を取得した。
-  公開・外部provider確認は未指示。 正本は[Increment 160](../docs/increments/increment-160.md)。
-
-- Increment 159は利用者指示により案review・四slice計画・reviewerの通常／批判的計画review完了。
-  実装時はsliceごとのreviewerコード・test reviewと最小実provider確認が承認済み。正本は
-  [Increment 159](../docs/increments/increment-159.md)。
-  具体的な実provider確認の対象・見込み回数・保存先を報告して進め、同じ最小確認の再承認は不要。
-  追加指示による四sliceのlocal実装・非破壊的検証・各slice reviewは完了。
-  commit/push・常用配置は2026-09-30の追加指示により承認済み・完了。利用者確認・increment完了承認も同日に取得した。構想・architecture・roadmapの変更は未指示。
-
-- Increment 158のlocal表示修正と非破壊的検証は今回の指示で承認済み・完了。
-  正本は[Increment 158](../docs/increments/increment-158.md)。
-  追加指示によるcommit/push・常用配置とbinary同一性確認は完了。配置後の操作確認は利用者指定により省略した。
-  公開は未指示。 構想・architecture・roadmapは変更不要。
-
-- E6の要件整理・計画作成は指示済み。正本は[Increment 157](../docs/increments/increment-157.md)。
-  実装、実provider確認、その後の通常reviewは承認済み。対象・回数・保存先は確認前に提示する。
-  commit/push・常用配置と配置後確認は追加指示に従い完了。
-  利用者確認・increment完了承認済み。関連文書更新とセッション終了は指示済み。
-  最後の配置指示に伴う追加の動作確認は利用者が不要と指定した。Product正本の意味変更は別承認。
-
-- S15のlocal実装・非破壊的検証は今回の指示で承認済み。正本は[Increment 156](../docs/increments/increment-156.md)。
-  追加指示によるcommit/push・常用配置・配置後確認と/tmp清掃は完了。
-  利用者のEsc確認・increment完了承認済み。公開と構想・architecture・roadmapの変更は未指示。
-
-- S25のlocal実装・非破壊的検証は今回の指示で承認済み。追加指示により`/exit`を`/detach`へ改名し、
-  スラッシュ＋最初の文字から候補を案内する。正本は[Increment 155](../docs/increments/increment-155.md)。
-  通常reviewと、追加指示に基づくcommit/push・常用配置・配置後確認は完了。
-  利用者確認・increment完了承認済み。 JSR公開、構想・architecture・roadmapの意味変更は未指示。
-
-- S17・S18・S19の調査、統合案作成とgpt-6-astraによる案review、計画作成とreviewerによる通常/批判的reviewは指示済み。
-  local実装、計画の実測/非破壊的実経路検証、実装後コード/test reviewは追加指示済み。
-  commit/push・常用配置と配置後確認は追加指示済み・完了。利用者確認・increment完了承認済み。
-  JSR公開は未指示。 正本は[Increment 154](../docs/increments/increment-154.md)。
-- A25の参照実装調査、gpt-6-astraへの比較相談とreview、実provider実測、複数Core案・実装計画の作成は指示済み・完了。
-  五sliceのlocal実装・非破壊的検証・各slice後のreviewerによるコード/テストreviewは承認済み・完了。
-  利用者の完了承認・関連文書更新・commit/push・配置指示に従い、すべて完了。
-  architecture/roadmapへの意味変更とJSR公開は別承認。
-  詳細と証拠は[複数Core案](../docs/plans/a25-multiple-cores.md)を参照する。検証用Coreは停止済み。
-- 148のlocal修正と非破壊的検証、commit／push／常用配置は指示済み・完了。
-  配置前確認では`/home/agent`とrepository workspaceのCoreはともに非稼働。実行中の作業は中断しない。
-  UIとCoreをまとめて終了するスラッシュコマンド案とsubagent起動判断は「メモだけ」の指示で
-  通常利用メモへ記録した。同workspaceの複数Session同時実行は、後続のA25案整理を上記へ引き継ぐ。
-- S22の議論の文書化、参照実装調査、詳細設計・slice分割計画の作成、review指摘への設計修正は指示済み。
-  通常henjiを明示TUI起動の省略形とし、未起動coreを自動起動する。
-  core単独起動のサードパーティ接続、WebUI別入口という利用者指定とCLI形式の委任を反映した。
-  8sliceのlocal実装と各sliceのコード・test第三者reviewは指示済み。
-  実provider確認は利用者が以降すべて承認した。少量の確認は追加承認なしで進める。
-  20前後など多くのstep・turnを伴う場合は実行前に対象と見込み量を報告する。 Slice
-  1の実provider確認結果と保存先は[Increment 139](../docs/increments/increment-139.md)を参照する。
-  commit／push／常用配置はセッション終了に伴う2026-09-28の明示指示で承認済み。
-  architecture・roadmapの意味変更とJSR公開は未承認。
-  内容は[詳細設計・slice計画](../docs/plans/s22-detailed-design-and-slices.md)を参照。
-- 全体reviewで確認したP1／B6のlocal修正と、その周辺のBlocking／P1／P2追加reviewは指示済み。
-  採用結果は[Increment 147](../docs/increments/increment-147.md)を参照する。
-- 133〜138の完了承認は取得済み。各incrementの実施結果・未確認事項は正本文書を参照する。
-  追加の実provider probe・公開・計画外の変更は今回の完了承認には含めない。
-  実運用configへの`/login`登録は利用者の通常操作として残る。
-- 1〜132
-  E2Eは計画作成済み。基本・最小case、両API、最新仕様のみという範囲と、検索Sonar一回を確認済み。
-  各ブロックの対象・予定量・保存先と実行結果は計画参照。実行は2026-09-27に明示承認済み・実施済み。
-  Agent自身の参照再実行とstream local修正・確認は追加指示済み・実施済み。 Go HTTP
-  400再現性確認と原因調査probeは利用者指示済み・実施済み。Goのproduction修正は不要。 reasoning
-  wire追加probe・公開は未指示。stream修正と文書更新のcommit・push・常用配置は追加指示済み・完了。
-- 旧Git chainの恒久終了は未承認。診断時のHenji PID `200048`／Git reader PID `202890`は
-  今回の`ps`確認ではともに不在。今回、プロセスへの操作は行っていない。
-- Increment 134のlocal実装、architecture・roadmap反映、対象workspaceの既存DB削除は指示済み・完了。
-  commit・push・常用binary配置も指示済み・完了。JSR公開は未指示。
-- 構想・architecture・roadmapの新たな意味変更は、対象・理由・変更内容を提示して別途明示承認を得る。
-  詳細は[AGENTS.md](../AGENTS.md#product正本の変更承認)。
+- 168までの完了承認と、構想・architecture・roadmapの現行sourceへの同期は指示済み。
+- 今回の文書同期のcommit/push・公開、追加provider probe、計画外の実装、実data削除は未指示。
+- 正本の新たな意味変更は[AGENTS.md](../AGENTS.md#product正本の変更承認)に従う。
 
 ## 正本への入口
 
 - [構想](../docs/concepts/experience-driven-self-revision.md): productの目的と人間による採用境界。
-- [architecture](../docs/architecture/henji-host-agent-worker.md): 責務・状態所有・component境界。
+- [Host/Worker architecture](../docs/architecture/henji-host-agent-worker.md): 責務・状態所有・component境界。
+- [Provider/auth architecture](../docs/architecture/multi-provider-routing-and-auth.md): route、model一覧、認証、account/replay境界。
 - [roadmap](../docs/roadmap.md): 必要機能・実装状態・未実装範囲。
-- [通常利用メモ](../docs/experience/normal-use-inbox.md):
-  未採用候補。S20、A15等はここ、S17〜S19はIncrement 154。
-- [個別increment](../docs/increments/): 採用済みの要件・計画・検証・配置・公開結果。
+- [通常利用メモ](../docs/experience/normal-use-inbox.md): 未採用候補。
+- [個別increment](../docs/increments/): 採用済みの要件・計画・検証・配置・完了承認。
 - [公開手順](../docs/operations/jsr-publish.md): JSR公開時の操作。
-- [整理前のhandoff記録](../docs/history/handoff-through-2026-09-26.md): 過去の証拠のみ。
 
 状態が変わったら該当箇所を置き換える。計画・検証詳細・完了履歴をここへ積み増さない。

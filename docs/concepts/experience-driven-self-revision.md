@@ -10,6 +10,8 @@
 
 Agent自身の観測・構成操作と自己改訂の位置付け更新日: 2026-09-26
 
+現行との境界の照合日: 2026-10-01（Increment 168まで完了）
+
 ## 構想
 
 Henjiは、使う中で得た経験から、指示、skill、実行方法を含むHenji自身の機能を継続的に改訂できる
@@ -97,8 +99,9 @@ TUIを含むSurfaceは、内部機能を呼び出す付属画面ではなく、�
 改訂へ関与するためのproduct機能である。人間は外部文書やhelpを先に読まなくても、依頼を入力し、処理中か
 入力待ちかを知り、依頼、作業、結果の流れを追い、保存されたSessionを選んで利用を続けられる必要がある。
 
-現在の主な対話SurfaceはTUIである。ただしHenjiの目的をTUIそのものへ固定せず、同じHenjiと保存Sessionを
-別のSurfaceからも利用できる方向を保つ。durable Instanceを採用する場合もこの方向を維持する。
+現在の主な対話Surfaceは、独立CoreへHTTP/SSEで接続するTUIである。TUIを切り離しても受付済みの実行と
+Coreは継続し、保存Sessionの閲覧・再開や接続の選択を分けて操作できる。Henjiの目的をTUIそのものへ固定せず、
+同じCoreと保存Sessionを別のSurfaceからも利用できる方向を保つ。durable Instanceを採用する場合もこの方向を維持する。
 改訂候補の生成を指示し、候補を確認し、採用または
 承認する人間の操作も、採用時点のSurfaceを通じて行う。
 
@@ -159,6 +162,11 @@ Henji executableの改訂はversion・build・source commit、Definitionの改�
 改訂identityとみなさず、全実効状態を一つのrevisionへ統合することを前提にしない。
 
 ## 現在との境界
+
+Increment 168までの採用範囲は利用者が完了とした。現行の通常利用では、複数Coreによる別Sessionの並行実行、
+共有semantic履歴、TUIの切離し・再接続、Session閲覧・再開・個別削除、model一覧・お気に入り・effort選択、
+API keyとChatGPT認証、Markdown本文とexecutionに対応する結果表示を利用できる。
+これは通常利用と観測の基盤の到達点であり、以下の自己改訂専用操作を一括して完成扱いにするものではない。
 
 利用者の通常利用の経験を基に、人間が改訂を指示し、Henji自身が一部incrementの実装を担う運用は始まっている。
 これは自己改訂を育てる現在の運用であり、各incrementでAgent自身が経験解釈・候補生成まで担ったことや、

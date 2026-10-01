@@ -13,7 +13,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | ID  | 領域           | 候補                                                                         | 再検討の主な契機                                                                                                       |
 | --- | -------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | S4  | Surface        | `/rebuild`によるAgent context再構築                                          | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る                                               |
-| S8  | Surface        | startup headerのMCP欄（複数行対応の予約）                                    | MCP接続managed resourceが採用され、header表示が必要になるとき                                                          |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
 | S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
@@ -26,7 +25,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
 | A6  | Agent実行      | Web searchのsearch/fetch/backend境界                                         | 対象発見と本文取得の混在が調査品質・コストを損なう                                                                     |
 | A9  | Agent実行      | Sessionと関連履歴の保存・削除（旧P7を統合）                                  | 古いSessionの整理や、Sessionと関連履歴の保存期間を決める必要が出るとき                                                 |
-| A10 | Agent実行      | モデル別instruction                                                          | 同じ目的のtaskでモデル間の探索・報告の差を改善したいとき                                                               |
 | A11 | Agent実行      | instructionの与え方                                                          | 指示の粒度や配置によってtaskの完了挙動が変わるとき                                                                     |
 | A14 | Agent実行      | 名前付き子Agent Definitionの専用model指定                                    | reviewerなどを親Sessionとは別のmodelで動かしたいとき                                                                   |
 | A15 | Agent実行      | searchツールコールの実装                                                     | 利用者指示（2026-09-25）。findとgrepを兼ね備えるかは実装時に検討                                                       |
@@ -80,18 +78,6 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
   [`terminal-markdown-rendering-comparison.md`](../research/terminal-markdown-rendering-comparison.md)、
   [`durable-history-and-context-rebuild.md`](../roadmap-inputs/durable-history-and-context-rebuild.md)、
   [`externalization-reference-comparison.md`](../research/externalization-reference-comparison.md)。
-
-### S8 — startup headerのMCP欄（F01、F10）
-
-- 観測（2026-09-19、通常利用メモ）: MCP接続は将来のmanaged resource候補だが、startup orientation
-  （`startupHeaderLines`）に表示欄がない。
-- 採用済み（Increment 82）:
-  `base:`→`base instruction:`表記と`skills:`複数行折り返しを実装し、ラベル付き値の
-  複数行描画を`headerContentLines`へ分離した。
-- 候補: 将来のMCP接続managed resource用に、複数行対応の`mcp:`欄を`headerContentLines`で追加する。
-  表示対象のresourceが採用されるまでは欄自体を実装しない。
-- 再検討条件: MCP接続managed resourceが採用され、headerで接続状態や数を示す必要が出るとき。
-- 関連: `v0/tui/startup_render.ts`、`v0/presentation/contract_types.ts`。
 
 ### S20 — 巨大表示領域でのwindow行量確保とframe上限（F01）
 
@@ -328,32 +314,6 @@ Pi／OpenCode／Henjiの画面表示比較
   [`pi-zot-command-surface-comparison.md`](../research/pi-zot-command-surface-comparison.md)（旧P7の調査）、
   `v0/agent/cli/session_cli.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`の`delete`。
 
-### A10 — モデル別instruction
-
-- 観測（2026-09-23）: 別Sessionで同じsystem instructionを受けたREADME二言語版の比較依頼に対し、
-  `deepseek-v4.1-flash`は`effort=high`を送ってもツール使用を続け、15回目のprovider
-  request中にキャンセル
-  された。`glm-5.3-flash`は3回目で回答した。task文面には軽微な差があり、この一例だけでモデル差を
-  唯一の原因とは断定しない。
-- 追加観測（2026-09-23）: 別Sessionの同種の短い依頼に、`gpt-5.6-luna`は4回、`grok-4.7`は6回の
-  provider requestで回答した。両者は`opencode-go-responses`経路、DeepSeekとGLMは`opencode-go-chat`
-  経路であり、モデルとAPI経路の差は切り分けていない。
-- 追加観測（2026-09-23、session `c15dee05`）: `openrouter-responses`経路の同じDeepSeekモデルでも
-  `effort=high`で2ファイルを読んだ後に10件のbash比較を続け、13回目のprovider
-  request中にキャンセルされた。
-  TUIでは10件とも先頭行の`cd /home/agent/projects/henji-harness`だけが見えるが、実際のbash本文はそれぞれ異なる。
-- 再観察（2026-09-24、session `677dbc65`）:
-  `deepseek-v4.1-flash`によるREADME二言語版比較は最終回答まで
-  完了した。通常履歴では13件のtool行と9件のthinkingを確認した。9件のassistant messageすべてに
-  `reasoning_content`が保存されており、Increment
-  119で追加した同一provider・modelへの再送経路が適用される。
-  以前の途中キャンセルから完了に変わった一因として、この再送が有力である。今回の実行だけでは寄与度や
-  ツール使用回数への効果は切り分けられない。
-- 利用者希望:
-  モデル別のinstructionを検討する。候補は、指定された対象の調査を終えて結論を報告する条件を
-  モデルごとに補うこと。共通instructionとの役割分担は採用時に決める。
-- 再検討条件: 同じ目的のtaskで、モデルごとの探索範囲や報告までの挙動に差が出ること。
-
 ### A11 — instructionの与え方
 
 - 観測（2026-09-23）: DeepSeekは短いREADME比較依頼ではツール使用を続けたが、対象ファイル、比較項目、
@@ -459,7 +419,7 @@ Pi／OpenCode／Henjiの画面表示比較
 - 利用者指示（2026-09-27）: 今回はアイデアのメモのみ。runtime通知・地域設定の実装は未指示。
 - 再検討条件: 個別Incrementへ採用するとき。実際に通知が報告・作業継続の判断に使われるかを
   通常利用で確認する。
-- 関連: A18、A10、A11、S4、E3、`v0/agent/core/loop.ts`、
+- 関連: A18、A11、S4、E3、`v0/agent/core/loop.ts`、
   `v0/agent/worker/worker_runtime.ts`のrequest projection・context attribution。
 
 ### A21 — 1ターン内でsteeringを複数回受け付ける

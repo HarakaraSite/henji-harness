@@ -1,6 +1,6 @@
 # Increment 157 — E6: providerの現行モデル一覧とお気に入り
 
-更新日: 2026-09-29
+更新日: 2026-10-01
 
 ステータス: 利用者確認・完了承認済み（2026-09-29）。Increment 157は完了。
 実装・検証・通常reviewと指摘修正・限定re-review・commit/push・常用配置・配置後確認を完了した。
@@ -656,3 +656,12 @@ Product正本とJSRは変更していない。
 
 構想・architecture・roadmapへの意味変更とJSR公開は今回の完了記録更新に含めない。
 Product正本への変更案は上記に保持し、未採用候補は[通常利用メモ](../experience/normal-use-inbox.md)を参照する。
+
+## Product正本の同期（2026-10-01）
+
+利用者の「同期して168まで完了してるし」により、本書で保留していた正本変更案を反映した。
+Coreのmodel一覧取得・お気に入り・model別effort保存と、明示catalog方式を
+[Host/Worker architecture](../architecture/henji-host-agent-worker.md)、
+[provider/auth architecture](../architecture/multi-provider-routing-and-auth.md)、
+[roadmap](../roadmap.md)の現行説明へ同期した。構想の目的・人間による採用境界は維持する。
+過去の計画・検証・配置時点の未反映記録は当時の証拠として保持する。
