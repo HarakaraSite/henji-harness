@@ -8,7 +8,10 @@
 production TUIの実経路確認完了。利用者確認待ち。8色を切り捨て256色を最低ラインとして、
 user行を黄色文字＋淡いグレー帯（行幅padding）、見出しをbold soft blueへ変更しgreenを廃止した。
 sourceは169/170のcommit `503a3f5f`の上、build IDは`e364a71f…`。証拠はincrement文書参照。
-commit/push・常用配置・公開は未指示のため未実施。
+常用配置・公開は未指示のため未実施。
+
+2026-10-03、利用者の「コミットプッシュして」により、Increment 171（実装`fdc2ae42`、記録`3ef29fd5`）を
+origin/mainへpushした。169/170を含むmainの未送信commitも送信済み。公開は未実施。
 
 [Increment 170](../docs/increments/increment-170.md)のS1〜S4はlocal実装、focused検証、通常／批判的reviewと
 採用指摘修正が完了。S5のcompiled
