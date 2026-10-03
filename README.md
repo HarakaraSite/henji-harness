@@ -49,7 +49,8 @@ install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-ap
 ```
 
 You can also register provider and service credentials from the TUI with `/login`; they are saved to
-the same credential files. Exa is included in this list for `web_search`.
+the same credential files. ChatGPT sign-in is part of this list, and its credentials are saved under
+the same config directory. Exa is included in this list for `web_search`.
 
 External tools can add service registration metadata in `$henji_config_dir/credentials/*.json`. For
 example, a Brave tool can declare:
@@ -95,11 +96,11 @@ printf 'Summarize the README\n' | /path/to/henji-harness/dist/henji run
 /path/to/henji-harness/dist/henji history --latest
 ```
 
-By default, `run` writes only the final text to stdout. `--json` writes the events during a turn as
-one JSON per line (NDJSON, `{"v":1,"kind":...}`) to stdout, and emits a `result` record at the end.
-`--stream` writes assistant text to stdout incrementally and a summary of tool activity to stderr.
-`--json` and `--stream` are mutually exclusive. Unknown `kind` values may be ignored. `--json`
-differs from `tool --json`, which returns a single object.
+By default `run` writes only the final text to stdout. `--json` writes the turn's events as one JSON
+object per line (NDJSON, `{"v":1,"kind":...}`) to stdout and ends with a `result` record. `--stream`
+writes assistant text incrementally to stdout and a summary of tool activity to stderr. `--json` and
+`--stream` are mutually exclusive. Unknown `kind` values may be ignored. `--json` differs from
+`tool --json`, which returns a single object.
 
 Non-TTY callers pass the task on stdin; `--task` is available from a TTY.
 
@@ -107,11 +108,34 @@ Non-TTY callers pass the task on stdin; `--task` is available from a TTY.
 printf 'Explain the structure of this workspace\n' | /path/to/henji-harness/dist/henji run --json
 ```
 
-To use OpenAI direct, save the key as `openai-api-key` in the same config directory, and start with
+Switch provider with `/provider`, model with `/model`, and reasoning effort with `/effort`. To use
+OpenAI direct, save the key as `openai-api-key` in the same config directory, and start with
 `henji --root-provider openai-responses` for the Responses API or
-`henji --root-provider openai-chat` for Chat Completions. For OpenRouter you can choose the default
-`openrouter-chat` or `openrouter-responses`, which uses the same `openrouter-api-key`. Data-only
-declarations in `providers/*.json` let you add other provider IDs that speak a supported protocol.
+`henji --root-provider openai-chat` for Chat Completions. Register ChatGPT with `/login` sign-in and
+select `openai-chatgpt`. For OpenRouter you can choose the default `openrouter-chat` or
+`openrouter-responses`, which uses the same `openrouter-api-key`. Data-only declarations in
+`providers/*.json` let you add other provider IDs that speak a supported protocol.
+
+## CLI commands
+
+`henji --help` lists the following commands.
+
+- `henji tui` — connect a TUI; the same as `henji` with no arguments, starting a fresh Core when
+  there is no target
+- `henji serve` — run a Core in the foreground without a UI
+- `henji core list | status | stop` — list, inspect, or stop this workspace's Cores
+- `henji run` — execute one task with a local headless Host
+- `henji history` — read saved history locally or via `--connect URL`
+- `henji sessions list | delete --session ID --yes` — manage saved Sessions
+- `henji agent list | inspect | activate | deactivate` — select and inspect current JSON Agent
+  settings
+- `henji tool list | inspect | activate | deactivate` — select and inspect external tool folders
+- `henji diagnostics runtime | list | latest | show | delete | executions` — read the runtime layout
+  and diagnostics
+- `henji webui` — reserved for the future WebUI; currently unavailable
+
+`tui`, `serve`, and `run` also accept `--agent NAME` or `--agent-file FILE`, `--max-steps N`,
+`--provider-timeout-ms MS`, and `--root-provider ID`.
 
 ## Parallel Cores and explicit reconnect
 
@@ -140,21 +164,23 @@ resumes saved work in a fresh Core. `core stop` without a target lists Cores and
 ## Main features available now
 
 - TUI and headless `run`
-- Switching of provider, model, and reasoning effort for OpenRouter (Chat Completions / Responses)
-  and OpenAI direct, with live provider model lists and favorites
+- Switching of provider, model, and reasoning effort for OpenRouter (Chat Completions / Responses),
+  OpenAI direct (Responses / Chat Completions), and ChatGPT sign-in, with live provider model lists
+  and favorites
 - Sessions, conversation history, and execution records (including failures and interruptions)
   stored in SQLite
-- TUI commands such as `/new`, `/sessions`, `/view`, `/recall`, `/provider`, `/model`, and `/login`
-- JSON Agent configuration with current-file selection
-- Folder-based TypeScript tools with a JSON metadata file and local imports
-- Agent and tool configuration management from the CLI
+- TUI commands such as `/new`, `/sessions`, `/view`, `/resume`, `/context`, `/rename`, `/recall`,
+  `/provider`, `/model`, `/effort`, `/login`, `/detach`, and `/quit`
+- JSON Agent configuration with current-file selection, and child Agents named in the `agents` list
+- Folder-based TypeScript tools with a JSON metadata file and local imports, plus Agent and tool
+  configuration management from the CLI
 - Loading of the Henji base instruction from a user file, and runtime attribution
 - Loading of `AGENTS.md` and of workspace/user-scoped Zot, Claude, and Agents-compatible Skills
 
 You can check the runtime layout with `henji diagnostics runtime`, which does not display credential
 values. By default it stores config in `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`, managed
 data in `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`, and Session state in
-`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness`.
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`.
 
 ## Agent configuration and tools
 
@@ -194,9 +220,9 @@ arbitrary revision label, API contract `henji-tool/v1`, and an entry module:
 { "name": "marker", "revision": "local-1", "apiContract": "henji-tool/v1", "entry": "index.ts" }
 ```
 
-The entry module's default export is a tool factory. It runs once in the Worker when the tool is
-selected, and may import other files in its folder. A folder mapping for an Agent's selected tool
-replaces the bundled implementation of that name.
+The entry module's default export is a tool factory. It runs once at Worker startup and may import
+other files in its folder. A folder mapping for an Agent's selected tool replaces the bundled
+implementation of that name.
 
 ```sh
 henji tool list
@@ -255,7 +281,7 @@ const marker: ToolFactory = ({ workspace }) => ({
 export default marker;
 ```
 
-Import `ToolFactoryInput` or `ToolFactory` from `jsr:@henji/harness@0.8.0`. The standalone binary
+Import `ToolFactory` or `ToolFactoryInput` from `jsr:@henji/harness@0.8.0`. The standalone binary
 bundles its default Agent and built-in tools; named Agent and tool files are selected from the
 config directory.
 

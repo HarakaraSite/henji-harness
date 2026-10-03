@@ -2,27 +2,23 @@
 
 [English](README.md) | 日本語
 
-Henji Harnessは、Denoで開発しているローカル実行向けのagent harnessである。対話型TUIと非対話実行、
-Session履歴、切り替え可能なproviderとmodel、TypeScriptによるAgent Definitionを一つのstandalone
-executableから利用できる。Henjiという名前は、日本語の「返事」に由来する。
+Henji Harnessは、Denoで開発しているローカル実行向けのagent harnessである。単体のstandalone
+executableから、対話型TUIと非対話実行、Session履歴、切り替え可能なproviderとmodel、JSONによるAgent
+設定、folder-based toolを利用できる。Henjiという名前は、日本語の「返事」に由来する。
 
-現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker
-lifecycle、SQLiteへ保存する履歴、Sessionで 使用するexact Agent
-Definitionの選択を担う。headlessなAgent Workerは、built-inまたはinstall済みの信頼された TypeScript
-Definitionを評価し、現在のmodel、instructions、toolsを構成する。親Definitionは`agent:<name>`
-catalogを宣言でき、modelは`spawn_subagent`で別Deno
-Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む（V1
-fork/join）。一般的な Surfaceの置換、durable AgentInstanceのrevision
-transition、Definitionから構成可能なcontextとloopはまだ実装して いない。
+現行のHenji runtimeでは、HostがTUIとheadless Surface、Worker lifecycle、SQLiteへ保存する履歴、
+Sessionで使用する現在のJSON Agent設定の選択を担う。headlessなAgent Workerは、選択された設定を現在の
+model、共通instructions、具体的なtoolと組み合わせる。Agentは`agents` listで子Agentを宣言でき、modelは
+`spawn_subagent`で別Deno Worker・別Executionのchildを起動し、`collect_subagent`でchild結果を取り込む
+（V1 fork/join）。一般的なSurfaceの置換とdurable AgentInstanceのrevision transitionはまだ実装していない。
 
 長期的には、実際の利用経験から改訂候補を作り、人間が明示的に採用する自己改訂workflowを目指している。
 この自己改訂workflowはまだ実装していない。
 
 ## 開発状況
 
-現在は0.xの開発版であり、CLI、保存形式、Agent Definition APIを含む破壊的変更がしばしば入る。
-既存SessionやDefinitionのmigration、旧形式の互換読込を提供しないこともある。利用時はversionを固定し、
-更新前に変更内容を確認すること。
+現在は0.xの開発版であり、CLI、保存形式、設定contractを含む破壊的変更がしばしば入る。既存Sessionや設定
+formatは自動migrationしない。利用時はversionを固定し、更新前に変更内容を確認すること。
 
 ## Quick Start
 
@@ -46,7 +42,32 @@ install -d -m 700 "$henji_config_dir"
 install -m 600 /path/to/your/openrouter-api-key "$henji_config_dir/openrouter-api-key"
 ```
 
-TUIの`/login`からも、同じcredential fileへ認証情報を登録できる。
+TUIの`/login`からもproviderとserviceのcredentialを同じcredential fileへ登録できる。ChatGPTの
+sign-inもこの一覧にあり、認証情報は同じconfig directory配下へ保存される。`web_search`用のExaも
+この一覧に含まれる。
+
+外部toolは`$henji_config_dir/credentials/*.json`へservice登録のmetadataを追加できる。たとえばBrave
+toolは次のように宣言する。
+
+```json
+{
+  "schemaVersion": 1,
+  "authProfile": "brave-api-key",
+  "label": "Brave — API key",
+  "purpose": "Web search",
+  "method": "api-key",
+  "consumers": ["tool:brave_search"]
+}
+```
+
+この宣言は表示用metadataであり、key値を含まない。宣言を変更したらCoreを再起動し、`/login`でkeyを
+保存・更新する。同じ`authProfile`を共有するentryは1回の登録と1つのcredential fileを使う。serviceの
+entryはmodel providerの一覧には現れない。
+
+外部toolは宣言した`authProfile`を指定して`requestProvider`を使う。認証は既定でBearerであり、Braveの
+ようなserviceはrequestへ`authentication: { kind: 'header', name: 'X-Subscription-Token' }`を設定
+できる。keyの解決と挿入はdispatcherが行うため、tool factoryがkey値を受け取ることはない。この宣言は
+credentialを登録するものであり、service側のrequest動作は外部toolが供給する。
 
 作業対象のdirectoryでTUIを起動する。promptを入力してEnterで送信し、`/help`でcommandを確認できる。
 
@@ -78,11 +99,30 @@ stderrへ出す。`--json`と`--stream`は排他。未知の`kind`は無視し�
 printf 'このworkspaceの構成を説明して\n' | /path/to/henji-harness/dist/henji run --json
 ```
 
-OpenAI directを使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
-`henji --root-provider openai-responses`、Chat
-Completionsなら`henji --root-provider openai-chat`で起動する。
-OpenRouterは既定の`openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
+providerは`/provider`、modelは`/model`、reasoning effortは`/effort`で切り替える。OpenAI directを
+使う場合は同じconfig directoryの`openai-api-key`へkeyを保存し、Responses APIなら
+`henji --root-provider openai-responses`、Chat Completionsなら`henji --root-provider openai-chat`で
+起動する。ChatGPTは`/login`のsign-inで登録し、`openai-chatgpt`を選ぶ。OpenRouterは既定の
+`openrouter-chat`と、同じ`openrouter-api-key`を使う`openrouter-responses`を選べる。
 `providers/*.json`のdata-only declarationで、対応protocolを使う別provider IDも追加できる。
+
+## CLI commands
+
+`henji --help`が示すcommandは次のとおり。
+
+- `henji tui` — TUIを接続する。引数なしの`henji`と同じで、対象がなければ新しいCoreを起動する
+- `henji serve` — UIを持たないCoreをforegroundで実行する
+- `henji core list | status | stop` — このworkspaceのCoreを一覧・照会・停止する
+- `henji run` — localのheadless Hostで1 taskを実行する
+- `henji history` — localまたは`--connect URL`で保存履歴を読む
+- `henji sessions list | delete --session ID --yes` — 保存済みSessionを管理する
+- `henji agent list | inspect | activate | deactivate` — 現在のJSON Agent設定を選択・確認する
+- `henji tool list | inspect | activate | deactivate` — 外部tool folderを選択・確認する
+- `henji diagnostics runtime | list | latest | show | delete | executions` — runtime配置と診断情報を読む
+- `henji webui` — 将来のWebUI用に予約されており、現在は利用できない
+
+`tui`・`serve`・`run`は`--agent NAME`または`--agent-file FILE`、`--max-steps N`、
+`--provider-timeout-ms MS`、`--root-provider ID`も受け付ける。
 
 ## 複数Coreの並行利用と明示的な再接続
 
@@ -111,29 +151,69 @@ henji core stop --core <core-id>
 ## 現在使える主な機能
 
 - TUIとheadlessな`run`
-- OpenRouter（Chat Completions/Responses）とOpenAI directのprovider・model・reasoning effort切替、providerの現行model一覧とお気に入り
+- OpenRouter（Chat Completions/Responses）、OpenAI direct（Responses/Chat Completions）、ChatGPT
+  sign-inのprovider・model・reasoning effort切替、providerの現行model一覧とお気に入り
 - SQLiteへ保存するSession、会話履歴、失敗・中断を含む実行記録
-- `/new`、`/sessions`、`/view`、`/recall`、`/provider`、`/model`、`/login`などのTUI command
-- TypeScript Agent Definitionのinstall、versioned revision、export/import、実行
-- TypeScript tool Definitionのinstallとexact revisionのactivate/deactivate
+- `/new`、`/sessions`、`/view`、`/resume`、`/context`、`/rename`、`/recall`、`/provider`、`/model`、
+  `/effort`、`/login`、`/detach`、`/quit`などのTUI command
+- `agents.json`で現在fileを選ぶJSON Agent設定と、`agents` listによる子Agent
+- JSON metadataとlocal importを使うfolder-based toolと、CLIからのAgent・tool設定管理
 - Henji base instructionのuser file読込みと実行時attribution
 - `AGENTS.md`とworkspace/user scopeのZot、Claude、Agents互換Skillの読込み
 
 runtime配置は、credential値を表示しない`henji diagnostics runtime`で確認できる。既定ではconfigを
 `${XDG_CONFIG_HOME:-$HOME/.config}/henji-harness`、managed dataを
 `${XDG_DATA_HOME:-$HOME/.local/share}/henji-harness`、Session stateを
-`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness`へ保存する。
+`${XDG_STATE_HOME:-$HOME/.local/state}/henji-harness/v1`へ保存する。
 
-## Agent Definition
+## Agent設定とtool
 
-local TypeScript Agent Definitionは、実行前にmanaged
-dataへinstallする。installされたrevisionはimmutableで、 実行時にexact revisionを指定する。
+Agentの挙動は、Henji config directory配下のJSON fileで定義する。`agents.json`は現在の既定fileと、
+名前付きAgentとその現在fileの対応を選ぶ。
+
+```json
+{
+  "schemaVersion": 1,
+  "default": "agents/my-root.json",
+  "agents": { "reviewer": "agents/reviewer.json" }
+}
+```
+
+Agent JSONは`name`、任意の`revision`、`instruction`、`tools`、`agents`を持つ。既定fileが選択されて
+いなければ同梱の既定を使う。Agent指定を省略するとrootの既定を選び、名前を明示するとそのcatalog entry
+（名前付きの`default`を含む）を選ぶ。`generic` childは同梱設定を自分の名前で使い、名前付きAgentの
+instructionを継承しない。設定fileはWorker起動ごとに読み直すため、編集は新しく開始する仕事へ反映される。
 
 ```sh
-./dist/henji module install ./agent/entry.ts --id team/answer-agent
-./dist/henji module list
-./dist/henji --definition-revision team/answer-agent@sha256:<full-digest>
+henji agent list
+henji agent inspect --name reviewer
+henji agent activate --file agents/reviewer.json --name reviewer
+henji agent deactivate --name reviewer
 ```
+
+`tools.json`はtool名をfolderへ対応付ける。各folderは、一致する名前、任意のrevision label、API
+contract`henji-tool/v1`、entry moduleを持つ`tool.json`を含む。
+
+```json
+{ "schemaVersion": 1, "tools": { "marker": "tools/marker" } }
+```
+
+```json
+{ "name": "marker", "revision": "local-1", "apiContract": "henji-tool/v1", "entry": "index.ts" }
+```
+
+entry moduleのdefault exportはtool factoryである。factoryはWorker起動時に一度実行され、同じfolder内の
+別fileをimportできる。Agentが選んだtoolにfolder mappingがある場合、その名前の同梱実装を置き換える。
+
+```sh
+henji tool list
+henji tool inspect --name marker
+henji tool activate --name marker --folder tools/marker
+henji tool deactivate --name marker
+```
+
+runtimeは新しい`history.sqlite3` databaseを使う。以前のhistory databaseはmigrationせず、既存fileは
+利用者がそのまま参照できる形で残す。
 
 ## Henji Instruction
 
@@ -160,9 +240,8 @@ turn開始前に失敗する。
 
 ## JSR package
 
-[`@henji/harness`](https://jsr.io/@henji/harness)は、TypeScriptのAgent Definitionを組み立てるための
-composition APIを公開する。JSRからnative binaryは配布しない。CLIを使う場合はrepository checkoutから
-buildする。
+[`@henji/harness`](https://jsr.io/@henji/harness)は、TypeScriptのtool factory APIを公開する。JSRから
+native binaryは配布しない。CLIを使う場合はrepository checkoutからbuildする。
 
 0.xではAPIやcontractが互換性なく変わることがあるため、exact versionを指定する。
 
@@ -171,18 +250,20 @@ deno add --save-exact jsr:@henji/harness@0.8.0
 ```
 
 ```ts
-import {
-  createDefaultAgentComposition,
-  type ExecutableAgentDefinition,
-} from 'jsr:@henji/harness@0.8.0';
+import type { ToolFactory } from 'jsr:@henji/harness@0.8.0';
 
-const definition: ExecutableAgentDefinition = (input) => createDefaultAgentComposition(input);
+const marker: ToolFactory = ({ workspace }) => ({
+  name: 'marker',
+  description: `Mark files in ${workspace.root}`,
+  inputSchema: { type: 'object' },
+  execute: () => 'ok',
+});
 
-export default definition;
+export default marker;
 ```
 
-`createAgentComposition(input, options)`では外部Definitionの役割instruction、tool、async child宣言を
-指定できる。単体binaryには`default`を同梱し、`reviewer`等の名前付きchildはinstall後に`agents.json`でbindする。
+`ToolFactory`と`ToolFactoryInput`は`jsr:@henji/harness@0.8.0`からimportする。単体binaryは既定の
+Agentとbuilt-in toolを同梱し、名前付きのAgentとtool fileはconfig directoryから選択する。
 
 ## Links
 
