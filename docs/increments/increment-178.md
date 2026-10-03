@@ -86,3 +86,10 @@ catalog／Workerの実経路を確認するもので、 ChatGPT認証での実�
 資料は`.tools/increment-178/deployed-tui/`、確認用Core・TUI・providerは停止済み。
 起動中の常用Coreと実configを変更せず、新しく起動するCoreから配置版を使う。
 利用者の「コミットプッシュはしよう」により、177・178のcommit/pushは追加承認された。公開は行っていない。
+
+## Commit/push（2026-10-03）
+
+利用者の「コミットプッシュはしよう」により、177・178の実装・検証・配置記録と関連メモを commit
+`e76056bab3fb30ccb9661290cb7f84625d1c2f3c`へまとめ、`origin/main`へpushした。
+完了状態の記録も同じ送信先へcommit/pushする。
+配置済みbinaryは常用配置節に記載したbuildのままであり、今回のcommit/pushでは再buildしていない。
