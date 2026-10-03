@@ -4,10 +4,10 @@
 
 ## 現在地（2026-10-03）
 
-[Increment 171](../docs/increments/increment-171.md)のlocal実装・focused検証・compiled
-production TUIの実経路確認完了。利用者確認待ち。8色を切り捨て256色を最低ラインとして、
-user行を黄色文字＋淡いグレー帯（行幅padding）、見出しをbold soft blueへ変更しgreenを廃止した。
-sourceは169/170のcommit `503a3f5f`の上、build IDは`e364a71f…`。証拠はincrement文書参照。
+[Increment 171](../docs/increments/increment-171.md)は利用者確認・完了承認済み（2026-10-03）。
+8色を切り捨て256色を最低ラインとして、user行を黄色文字＋淡いグレー帯（行幅padding）、
+見出しをbold soft blueへ変更しgreenを廃止した。要件・検証・完了承認の正本はincrement文書。
+sourceはcommit `fdc2ae42`、build IDは`e364a71f…`。commit/push済み。
 常用配置・公開は未指示のため未実施。
 
 2026-10-03、利用者の「コミットプッシュして」により、Increment 171（実装`fdc2ae42`、記録`3ef29fd5`）を
