@@ -7,8 +7,8 @@
 利用者の「セッションを完了する」により本セッションを終了した。進行中の作業はない。
 
 [Increment 176](../docs/increments/increment-176.md)までのlocal実装・通常review・常用配置と
-配置先production
-TUI確認が完了した。配置版は172〜176を含む。commit/pushは未実施。
+配置先production TUI確認が完了した。配置版は172〜176を含む。実装commit
+`c9b5d9d6`を`origin/main`へpush済み。
 配置、build情報、通常review、確認結果は176を参照する。
 起動中の常用Coreは変更しておらず、新しく起動するCoreから配置版が使われる。
 
@@ -28,8 +28,8 @@ TUI確認が完了した。配置版は172〜176を含む。commit/pushは未実
   174／175は利用者の完了承認済み。172／173も常用配置・利用者確認済み。
 - 承認済みの元B8実probeは初回と追加3回の計4回を実行済み。追加の実provider/model
   callは未承認。
-- 利用者の「忘れてたコミットプッシュして」で172〜176のcommit/pushを承認。今回実行する。
-  公開、実data削除は未承認。
+- 利用者の「忘れてたコミットプッシュして」で172〜176のcommit/pushを承認。実装のpushは完了した。
+  完了状態の文書更新も同じ送信先へcommit/pushする。 公開、実data削除は未承認。
 - 構想・architecture・roadmapの意味変更は[AGENTS.md](../AGENTS.md#product正本の変更承認)による別途承認が必要。
 
 ## 正本への入口

@@ -4,7 +4,7 @@
 
 ステータス:
 **完了（2026-10-03、利用者承認）。local実装・focused確認・隔離production
-TUI確認・通常review・常用配置済み。commit/pushは未実施。**
+TUI確認・通常review・常用配置済み。commit/push済み。**
 
 利用者の「B6の対応を行う」「これインクリメント174ね」により採用した。
 

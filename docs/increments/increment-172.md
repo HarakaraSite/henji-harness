@@ -2,8 +2,8 @@
 
 更新日: 2026-10-03
 
-ステータス: **local実装・focused検証・実Exa probe済み。人間によるproduction
-TUI受入、常用配置、commit/push、公開は未実施。**
+ステータス: **local実装・focused検証・実Exa probe・常用配置・commit/push済み。
+人間によるproduction TUI受入と公開は未実施。**
 
 利用者の「2段階でやる」「exa websearchを実装 sonarは置き換える」「web fetchの機能追加」により、
 第1段階を本incrementへ採用した。第2段階の共通credential登録は[Increment 173](increment-173.md)。
@@ -164,3 +164,6 @@ TUIでの人間による受入、 常用配置は行っていない。173の実�
 binaryを常用先へ配置した。build・配置先起動確認の記録は
 [Increment 173の常用配置](increment-173.md#常用配置2026-10-03)を参照する。
 人間の通常利用による受入は利用者の確認待ち。
+
+2026-10-03の利用者のcommit/push指示により、172〜176をまとめて`c9b5d9d6`へcommitし、
+`origin/main`へpushした。記録は[Increment 176](increment-176.md#commitpush2026-10-03)を参照する。

@@ -4,7 +4,7 @@
 
 ステータス:
 **完了。local実装・focused検証・通常review・常用配置・配置先production
-TUI確認済み（2026-10-03）。commit/pushは未実施。**
+TUI確認済み（2026-10-03）。commit/push済み。**
 
 利用者の「176を進めよう」によりB8と、合意済みの他の実行失敗への小さい情報拡充を採用した。
 
@@ -245,3 +245,12 @@ providerで起動した。 Coreのbuild IDが配置版と一致することをHT
 
 B8の元の実失敗原因は未確定である。利用者指定に従い追加の実probeは行わず、実使用で再発した際に
 今回拡充した短い診断と既存semantic履歴から原因を調べる。再現待ちは本incrementの配置を妨げない。
+
+### Commit／push（2026-10-03）
+
+利用者の「忘れてたコミットプッシュして」により、172〜176の実装・test・結果記録を
+`c9b5d9d6`（`feat: ship increments 172-176 for web tools, credentials, and diagnostics`）へまとめ、
+`origin/main`へpushした。完了状態の文書更新は別のdocs
+commitで同じ送信先へ反映する。
+今回の作業はcommit／pushと記録更新に限定し、追加の実provider
+callや再配置は行っていない。
