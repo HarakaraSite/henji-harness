@@ -1,12 +1,12 @@
 import { type ModelRequest } from './contracts.ts';
 
 /** Legacy observation threshold retained in ContextMetrics; it triggers no transformation. */
-export const CONTEXT_TRIGGER_ESTIMATED_TOKENS = 65_536;
+const CONTEXT_TRIGGER_ESTIMATED_TOKENS = 65_536;
 
 /** Legacy observation target retained in ContextMetrics; it triggers no transformation. */
-export const CONTEXT_TARGET_ESTIMATED_TOKENS = 49_152;
+const CONTEXT_TARGET_ESTIMATED_TOKENS = 49_152;
 
-export interface ContextMetrics {
+interface ContextMetrics {
   readonly messageEstimatedTokensBefore: number;
   readonly messageEstimatedTokensAfter: number;
   readonly toolEstimatedTokens: number;
@@ -20,7 +20,7 @@ export interface ContextMetrics {
   readonly compressedMessageCount: number;
 }
 
-export interface PreparedModelContext {
+interface PreparedModelContext {
   readonly request: ModelRequest;
   readonly metrics: ContextMetrics;
 }

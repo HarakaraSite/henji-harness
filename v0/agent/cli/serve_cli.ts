@@ -22,12 +22,12 @@ import {
 } from '../runtime/core_discovery.ts';
 import { buildManifest } from '../runtime/build_manifest.ts';
 
-export interface ServeMainOptions {
+interface ServeMainOptions {
   readonly bootstrapToken?: string;
   readonly coreEpoch?: string;
 }
 
-export interface ServeInvocation {
+interface ServeInvocation {
   readonly hostname: string;
   readonly port: number;
   readonly json: boolean;
@@ -36,7 +36,7 @@ export interface ServeInvocation {
 }
 
 /** Separate listen options from the existing Session activation options before startup. */
-export const parseServeInvocation = (args: readonly string[]): ServeInvocation => {
+const parseServeInvocation = (args: readonly string[]): ServeInvocation => {
   let hostname = '127.0.0.1';
   let port = 0;
   let json = false;

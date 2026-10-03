@@ -9,33 +9,8 @@ export interface BuiltinAgentSelection {
   readonly definition: AgentDefinition;
 }
 
-/**
- * Internal compile-time admission for a Definition that is not one of the public built-in
- * preset functions.  It deliberately carries no public selector or loader surface.
- */
-export interface InternalAgentDefinitionAdmission {
-  readonly id: BuiltinAgentId;
-  readonly definition: AgentDefinition;
-  readonly topology: 'declared';
-}
-
-export type AgentDefinitionAdmission =
-  | BuiltinAgentSelection
-  | InternalAgentDefinitionAdmission;
-
-/** Admit one compile-time Definition to the existing prepare/materialize contract. */
-export const admitInternalAgentDefinition = (
-  id: BuiltinAgentId,
-  definition: AgentDefinition,
-): InternalAgentDefinitionAdmission =>
-  Object.freeze({
-    id,
-    definition,
-    topology: 'declared' as const,
-  });
-
 /** Internal error used for malformed and unknown explicit selectors. */
-export class AgentSelectionError extends Error {
+class AgentSelectionError extends Error {
   constructor() {
     super('invalid agent selection');
     this.name = 'AgentSelectionError';
@@ -62,7 +37,7 @@ const isBuiltinAgentId = (value: string): value is BuiltinAgentId =>
   Object.prototype.hasOwnProperty.call(DEFINITIONS, value);
 
 /** The omitted selector resolves to this immutable default selection. */
-export const DEFAULT_AGENT_SELECTION: BuiltinAgentSelection = Object.freeze({
+const DEFAULT_AGENT_SELECTION: BuiltinAgentSelection = Object.freeze({
   id: 'default',
   definition: defaultAgentDefinition,
 });

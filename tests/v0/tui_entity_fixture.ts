@@ -3,7 +3,7 @@ import type { ConversationEntity, ConversationPosition } from '../../v0/conversa
 import type { SessionClientState } from '../../v0/api/reducer.ts';
 import { apiStartupFixture } from './fixtures/api_startup.ts';
 
-export const tuiSessionId = 'tui-entity-session';
+const tuiSessionId = 'tui-entity-session';
 
 export const conversationPosition = (
   executionOrder: number,

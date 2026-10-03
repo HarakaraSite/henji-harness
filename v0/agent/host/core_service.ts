@@ -104,7 +104,7 @@ export type CoreInitialSession = Readonly<
   | { kind: 'exact'; sessionId: string }
 >;
 
-export type CoreServiceOptions =
+type CoreServiceOptions =
   & Omit<
     WorkerSessionOptions,
     'persistence' | 'sessionId' | 'lazyInitialHost'
@@ -123,7 +123,7 @@ export type CoreSessionFrameSink = (
   frame: Uint8Array<ArrayBuffer> | undefined,
 ) => void;
 
-export interface CoreSessionSubscription {
+interface CoreSessionSubscription {
   readonly snapshot: EncodedDataReply;
   readonly unsubscribe: () => void;
 }

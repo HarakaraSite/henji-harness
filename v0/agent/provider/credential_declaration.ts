@@ -10,7 +10,7 @@ export interface CredentialDeclarationV1 {
   readonly consumers: readonly string[];
 }
 
-export const CREDENTIAL_DECLARATION_DIRECTORY = 'credentials';
+const CREDENTIAL_DECLARATION_DIRECTORY = 'credentials';
 
 export class CredentialDeclarationError extends Error {
   constructor(message: string) {

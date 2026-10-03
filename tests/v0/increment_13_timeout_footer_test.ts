@@ -11,7 +11,7 @@ import {
   selectOpenRouterModel,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { validateFailureDiagnostic } from '../../v0/agent/session/failure_diagnostic.ts';
-import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import type { WorkerHostCommand } from '../../v0/agent/worker/worker_protocol.ts';
 import { presentationFailureReason } from '../../v0/tui/state.ts';
 import {
@@ -115,7 +115,12 @@ Deno.test('Increment 13 preserves provider_timeout when an aborted SSE body reje
   }
   assert(observed !== undefined);
   assertEquals(observed.code, 'provider_timeout');
-  assertEquals(observed.failureFact, {
+  assertEquals({
+    stage: observed.failureFact?.stage,
+    code: observed.failureFact?.code,
+    requestCount: observed.failureFact?.requestCount,
+    retryCount: observed.failureFact?.retryCount,
+  }, {
     stage: 'transport',
     code: 'provider_timeout',
     requestCount: 1,

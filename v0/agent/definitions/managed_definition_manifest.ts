@@ -3,8 +3,8 @@ import {
   isDefinitionRevisionRef,
   isExternalDefinitionResourceId,
 } from './managed_resource_ref.ts';
-export const DEFINITION_REVISION_DOMAIN = 'henji-definition-revision-v1';
-export const DEFINITION_CLOSURE_SCHEMA_VERSION = 1 as const;
+const DEFINITION_REVISION_DOMAIN = 'henji-definition-revision-v1';
+const DEFINITION_CLOSURE_SCHEMA_VERSION = 1 as const;
 
 const SUBAGENT_NAME = /^[a-z0-9][a-z0-9._-]{0,127}$/u;
 
@@ -12,7 +12,7 @@ export const isSubagentName = (value: unknown): value is string =>
   typeof value === 'string' && SUBAGENT_NAME.test(value);
 
 /** Validate the declaredRole/subagentName pair as one coherent role declaration. */
-export const isManagedDefinitionRole = (value: unknown): boolean => {
+const isManagedDefinitionRole = (value: unknown): boolean => {
   if (!isRecord(value)) return false;
   if (value.declaredRole === 'parent') {
     return !Object.hasOwn(value, 'subagentName');
@@ -58,7 +58,7 @@ export interface ManagedDefinitionOriginLineageV1 {
   readonly moduleRoot: string;
 }
 
-export type ManagedDefinitionLocalCustodyV1 = {
+type ManagedDefinitionLocalCustodyV1 = {
   readonly kind: 'installed';
   readonly installedAt: string;
 } | {

@@ -1,5 +1,5 @@
 import type { Model, ModelRequest } from '../../v0/agent/core/contracts.ts';
-import { emptySkillCatalog, type SkillCatalog } from '../../v0/agent/definitions/skills.ts';
+import type { SkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { resolveBuiltinInstructionComposition } from '../../v0/agent/instructions/compose.ts';
 import {
   finalizeWorkerInstructionComposition,
@@ -7,7 +7,8 @@ import {
 } from '../../v0/agent/instructions/worker_core_finalizer.ts';
 import { DEFAULT_ROLE_INSTRUCTION } from '../../v0/agent/instructions/roles/default.ts';
 import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
-import { OPENAI_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openai_model_catalog.ts';
+import { defaultModelSelectionFor } from '../../v0/agent/provider/model_catalog.ts';
+import type { OpenAIModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import { encodeRequest } from '../../v0/agent/provider/openrouter_request.ts';
 import {
   createAgentComposition,
@@ -16,7 +17,6 @@ import {
   type PhysicalIoBindings,
   type ToolComponent,
 } from '../../v0/agent/worker_agent_api.ts';
-import { createRuntimeComposition } from '../../v0/agent/runtime/runtime.ts';
 import { createWebSearchTool, type WebSearchBackend } from '../../v0/agent/tools/web_search.ts';
 import { createWebFetchTool } from '../../v0/agent/tools/web_fetch.ts';
 import {
@@ -96,16 +96,7 @@ const finalModel = (): Model => ({
   generate: () => ({ kind: 'final', text: 'done' }),
 });
 
-const noInstructionFileSystem = {
-  lstat: () => Promise.reject(new Deno.errors.NotFound()),
-  open: () => Promise.reject(new Deno.errors.NotFound()),
-};
-
-const noSkillFileSystem = {
-  lstat: () => Promise.reject(new Deno.errors.NotFound()),
-  async *readDirectory(): AsyncIterable<string> {},
-  open: () => Promise.reject(new Deno.errors.NotFound()),
-};
+const openAiDefaultSelection = defaultModelSelectionFor('openai-responses');
 
 Deno.test('Increment 16 composes the Definition contribution in the canonical order', () => {
   const composition = resolveBuiltinInstructionComposition({
@@ -259,41 +250,13 @@ Deno.test('Increment 16 isolates default and external roles, active tools, and m
   );
 });
 
-Deno.test('Increment 16 gives Worker and direct built-in runtimes the same resolved instruction', async () => {
-  const workspace = { root: '/work/increment-16-parity' };
-  const workerPhysicalIo = {
-    createModel: finalModel,
-    webSearchBackend: providerFreeWebSearchBackend,
-  };
-  const worker = finalizeWorkerInstructionComposition(
-    createDefaultAgentComposition({
-      workspace,
-      skillCatalog: emptySkillCatalog(),
-      physicalIo: workerPhysicalIo,
-      toolDefinitions: bundledToolComponents(workerPhysicalIo),
-    }),
-  );
-  const direct = await createRuntimeComposition({
-    workspace,
-    instructionFileSystem: noInstructionFileSystem,
-    skillFileSystem: noSkillFileSystem,
-    webSearchBackend: providerFreeWebSearchBackend,
-  });
-  assertEquals(direct.systemInstruction, worker.systemInstruction);
-  assert(
-    direct.systemInstruction?.includes(
-      'Current working directory: /work/increment-16-parity',
-    ),
-  );
-});
-
 const openAICompletedStream = (text: string): string => {
   const response = {
     id: 'resp_increment_16',
     object: 'response',
     created_at: 1_788_800_000,
     status: 'completed',
-    model: OPENAI_DEFAULT_MODEL_SELECTION.modelId,
+    model: openAiDefaultSelection.modelId,
     output: [{
       id: 'msg_increment_16',
       type: 'message',
@@ -324,7 +287,7 @@ Deno.test('Increment 16 maps one semantic instruction to both provider wire cont
 
   let openAIBody: Record<string, unknown> | undefined;
   const model = new OpenAIResponsesModel({
-    selection: OPENAI_DEFAULT_MODEL_SELECTION,
+    selection: openAiDefaultSelection as OpenAIModelSelection,
     credentialSource: () => Promise.resolve('fixture-secret'),
     fetcher: async (input, init) => {
       const wireRequest = input instanceof Request ? input : new Request(input, init);

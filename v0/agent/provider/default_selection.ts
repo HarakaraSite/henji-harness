@@ -1,6 +1,6 @@
 import { isStoredModelSelection, type ModelSelection } from './model_selection.ts';
 
-export const DEFAULT_SELECTION_FILE = 'default-selection.json';
+const DEFAULT_SELECTION_FILE = 'default-selection.json';
 
 export const defaultSelectionPath = (configRoot: string): string =>
   `${configRoot}/${DEFAULT_SELECTION_FILE}`;

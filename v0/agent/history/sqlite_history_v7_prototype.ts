@@ -195,7 +195,7 @@ export interface HistoryV7PrototypeOptions {
   readonly readOnly?: boolean;
 }
 
-export interface HistoryV7ExecutionAdmission {
+interface HistoryV7ExecutionAdmission {
   readonly executionId: string;
   readonly taskId: string;
   readonly task: string;

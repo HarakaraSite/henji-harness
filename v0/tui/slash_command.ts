@@ -1,4 +1,4 @@
-export type SlashCommand =
+type SlashCommand =
   | 'help'
   | 'login'
   | 'new'
@@ -181,9 +181,6 @@ export const slashCommandOf = (
   return SLASH_COMMANDS.find((definition) => definition.text === trimmed)
     ?.command ?? 'unknown';
 };
-
-/** `/login` takes no arguments; a mistaken argument is answered without echoing it back. */
-export const loginHasArguments = (text: string): boolean => /^\/login\s/u.test(text.trim());
 
 /** Missing means latest; null means that an explicit execution ID/prefix is invalid. */
 export const recallExecutionIdOf = (

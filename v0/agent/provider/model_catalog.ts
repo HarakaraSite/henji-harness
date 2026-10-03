@@ -8,10 +8,9 @@ import {
 } from './model_selection.ts';
 import type { ProviderCatalogEntryV1, ProviderDeclarationV1 } from './provider_declaration.ts';
 import { activeProviderDeclarations, effectiveDeclarationFor } from './provider_runtime.ts';
-import { bundledRoleDefaultFor } from './provider_defaults.ts';
 
 export type { ModelSelection, ProviderId, ReasoningEffort } from './model_selection.ts';
-export type ProviderModelCatalogEntry = ProviderCatalogEntryV1;
+type ProviderModelCatalogEntry = ProviderCatalogEntryV1;
 
 /** Built-in ids followed by declared provider ids. */
 export const providerIdsForSelection = (): readonly string[] =>
@@ -76,13 +75,6 @@ export const searchModelsFor = (
       ? [...entries]
       : entries.filter((entry) => entry.modelId.toLocaleLowerCase().includes(normalized)),
   );
-};
-
-/** Resolve a bundled slot default against the active provider catalog. */
-export const roleDefaultModelSelection = (slot: string): ModelSelection => {
-  const bundled = bundledRoleDefaultFor(slot);
-  if (bundled === undefined) throw new RangeError(`no bundled role default for slot: ${slot}`);
-  return selectModelFor(bundled.providerId, bundled.modelId, bundled.effort);
 };
 
 export const selectModelFor = (

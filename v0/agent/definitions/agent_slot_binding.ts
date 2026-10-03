@@ -7,9 +7,9 @@ import {
 import type { DefinitionRevisionRef } from './managed_resource_ref.ts';
 import { isSubagentName } from './managed_definition_manifest.ts';
 
-export const AGENT_SLOT_BINDING_FILE = 'agents.json';
+const AGENT_SLOT_BINDING_FILE = 'agents.json';
 
-export const ROOT_AGENT_SLOT = 'agent:default' as const;
+const ROOT_AGENT_SLOT = 'agent:default' as const;
 const SUBAGENT_SLOT_PREFIX = 'subagent:';
 
 const AGENT_SLOT_PREFIX = 'agent:';
@@ -18,7 +18,7 @@ const AGENT_SLOT_PREFIX = 'agent:';
  * One activation-level slot: the root `agent:default` Definition binding, or an async agent
  * catalog entry `agent:<name>`.
  */
-export type AgentSlot =
+type AgentSlot =
   | { readonly kind: 'root'; readonly slot: typeof ROOT_AGENT_SLOT }
   | { readonly kind: 'agent'; readonly slot: string; readonly name: string };
 
@@ -32,7 +32,7 @@ export const parseAgentSlot = (value: unknown): AgentSlot | undefined => {
   return undefined;
 };
 
-export type AgentBindingErrorCode =
+type AgentBindingErrorCode =
   | 'binding_invalid'
   | 'binding_slot_unknown'
   | 'binding_slot_abolished'
@@ -52,12 +52,12 @@ export class AgentBindingError extends Error {
   }
 }
 
-export interface AgentSlotBindingsFileV1 {
+interface AgentSlotBindingsFileV1 {
   readonly schemaVersion: 1;
   readonly bindings: Readonly<Record<string, string>>;
 }
 
-export interface ResolvedAgentSlotBinding {
+interface ResolvedAgentSlotBinding {
   readonly slot: AgentSlot;
   readonly ref: DefinitionRevisionRef;
   readonly revision: ManagedDefinitionRevision;

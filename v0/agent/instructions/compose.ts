@@ -7,7 +7,7 @@ import { defineInstructionComponent, type InstructionComponent } from './compone
 import { DEFAULT_ROLE_COMPONENT } from './roles/default.ts';
 import { runtimeFactsComponent } from './runtime_facts.ts';
 
-export interface BuiltinInstructionCompositionInput {
+interface BuiltinInstructionCompositionInput {
   readonly workspaceRoot: string;
   readonly toolGuidelines: readonly {
     readonly tool: string;
@@ -17,7 +17,7 @@ export interface BuiltinInstructionCompositionInput {
   readonly skillManifest?: string;
 }
 
-export interface BuiltinInstructionComposition {
+interface BuiltinInstructionComposition {
   readonly components: readonly InstructionComponent[];
   readonly systemInstruction: string;
 }

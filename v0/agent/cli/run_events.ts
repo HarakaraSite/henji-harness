@@ -1,13 +1,13 @@
 import type { AgentEvent } from '../core/events.ts';
 import type { AssistantMessage } from '../core/contracts.ts';
 
-export const CLI_RUN_EVENT_VERSION = 1 as const;
+const CLI_RUN_EVENT_VERSION = 1 as const;
 
 /**
  * Host-owned, credential-free projection of one headless turn. Internal `AgentEvent` values and
  * provider-private replay state are intentionally not exposed on the CLI wire.
  */
-export type CliRunEvent =
+type CliRunEvent =
   | { readonly kind: 'turn_start'; readonly turn: number }
   | { readonly kind: 'user_message'; readonly turn: number; readonly text: string }
   | {
@@ -34,7 +34,7 @@ export type CliRunEvent =
   }
   | { readonly kind: 'steering_message'; readonly turn: number; readonly text: string };
 
-export interface CliRunResult {
+interface CliRunResult {
   readonly kind: 'result';
   readonly ok: boolean;
   readonly stopReason: string;
@@ -49,12 +49,12 @@ export interface CliRunResult {
   readonly diagnostic?: unknown;
 }
 
-export interface CliRunError {
+interface CliRunError {
   readonly kind: 'error';
   readonly error: unknown;
 }
 
-export type CliRunRecord = CliRunEvent | CliRunResult | CliRunError;
+type CliRunRecord = CliRunEvent | CliRunResult | CliRunError;
 
 export const serializeCliRunRecord = (record: CliRunRecord): string =>
   `${JSON.stringify({ v: CLI_RUN_EVENT_VERSION, ...record })}\n`;

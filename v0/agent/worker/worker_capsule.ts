@@ -21,7 +21,7 @@ const fileSpecifier = (canonicalPath: string): string => {
   return url.href;
 };
 
-export interface WorkerModuleRevision {
+interface WorkerModuleRevision {
   readonly canonicalSpecifier: string;
   readonly entrySha256: string;
   readonly sourceBytes: number;
@@ -41,7 +41,7 @@ export const readWorkerModuleRevision = async (
 };
 
 /** Structural view shared by managed Definition and managed tool Definition revisions. */
-export interface ManagedClosureRevisionView {
+interface ManagedClosureRevisionView {
   readonly manifest: {
     readonly entry: string;
     readonly files: readonly {
@@ -54,7 +54,7 @@ export interface ManagedClosureRevisionView {
 }
 
 /** Build a process-local managed closure descriptor from an already verified exact revision. */
-export const managedClosureLoadRequest = (
+const managedClosureLoadRequest = (
   revision: ManagedClosureRevisionView,
 ): WorkerDefinitionLoadRequest => {
   const files = revision.manifest.files.map((file) => ({
@@ -83,14 +83,14 @@ export const managedClosureLoadRequest = (
 export const managedWorkerDefinitionLoadRequest = managedClosureLoadRequest;
 export const managedToolDefinitionLoadRequest = managedClosureLoadRequest;
 
-export type WorkerCapsuleStatus =
+type WorkerCapsuleStatus =
   | 'starting'
   | 'ready'
   | 'closed'
   | 'terminated'
   | 'error';
 
-export interface WorkerCapsuleOptions {
+interface WorkerCapsuleOptions {
   readonly permissions?: 'inherit' | 'none';
 }
 
@@ -109,7 +109,7 @@ type Waiter = {
   readonly timeout: ReturnType<typeof setTimeout>;
 };
 
-export type WorkerMessageListener = (message: WorkerToHostMessage) => void;
+type WorkerMessageListener = (message: WorkerToHostMessage) => void;
 
 const eventMessage = (event: ErrorEvent): string =>
   event.message ||

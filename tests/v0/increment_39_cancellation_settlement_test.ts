@@ -16,7 +16,7 @@ import type {
   WorkerHostCommand,
   WorkerToHostMessage,
 } from '../../v0/agent/worker/worker_protocol.ts';
-import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { AgentDataPortClientImpl } from '../../v0/agent/data/agent_data_client.ts';
 import type {

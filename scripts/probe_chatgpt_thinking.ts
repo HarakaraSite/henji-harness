@@ -322,7 +322,7 @@ export async function probeRoundTrip(options: {
   }
 }
 
-export async function main(args: string[]) {
+async function main(args: string[]) {
   if (args.length === 0 || args.includes('--help')) {
     console.log(
       'Usage: deno run --config deno.v0.json --allow-read --allow-write --allow-net --allow-env scripts/probe_chatgpt_thinking.ts --credential-dir PATH --out PATH [--model gpt-5.6-sol] [--api-key-file PATH]\n' +

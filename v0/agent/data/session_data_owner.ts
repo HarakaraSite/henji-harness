@@ -117,7 +117,7 @@ export type DataExecutionControlInput =
   )
   & Readonly<{ observedAt?: string }>;
 
-export type DataRecallSelectionErrorCode =
+type DataRecallSelectionErrorCode =
   | 'unavailable'
   | 'busy'
   | 'ambiguous'
@@ -204,7 +204,7 @@ export interface DataSessionDescriptor {
   >;
 }
 
-export interface DataExecutionAdmissionInput {
+interface DataExecutionAdmissionInput {
   readonly executionId: string;
   readonly taskId: string;
   readonly task: string;
@@ -266,7 +266,7 @@ export interface DataSessionTerminalResult {
   readonly capture?: Omit<HistoryCaptureResult, 'commitDelta'>;
 }
 
-export type DataSessionDeltaListener = (delta: ConversationWriterDelta) => void;
+type DataSessionDeltaListener = (delta: ConversationWriterDelta) => void;
 
 interface DataArtifactState {
   readonly protocolTrace?: readonly WorkerExecutionTraceEntry[];

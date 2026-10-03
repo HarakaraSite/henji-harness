@@ -8,21 +8,23 @@ import {
 } from './model_selection.ts';
 import rawDefaults from './defaults/provider-defaults.json' with { type: 'json' };
 
-export const PROVIDER_DECLARATION_SCHEMA_VERSION = 1 as const;
-export const PROVIDER_DECLARATION_DIRECTORY = 'providers' as const;
+const PROVIDER_DECLARATION_SCHEMA_VERSION = 1 as const;
+const PROVIDER_DECLARATION_DIRECTORY = 'providers' as const;
 
-export type ProviderProtocol = 'openai-chat-completions' | 'openai-responses';
+type ProviderProtocol = 'openai-chat-completions' | 'openai-responses';
 
 /**
  * Built-in provider ids whose declaration may override the model catalog and defaults. The protocol,
  * endpoint, and auth profile must stay identical so a declaration cannot silently change the vendor.
  */
-export const OVERRIDABLE_PROVIDER_IDS: readonly string[] = BUILTIN_PROVIDER_IDS;
+const OVERRIDABLE_PROVIDER_IDS: readonly string[] = BUILTIN_PROVIDER_IDS;
 
 export interface ProviderCatalogEntryV1 {
   readonly modelId: string;
   readonly defaultEffort: ReasoningEffort;
   readonly efforts: readonly ReasoningEffort[];
+  /** Supplement live inventory with this model and use its declared efforts. */
+  readonly pinned?: boolean;
 }
 
 export interface ProviderDeclarationV1 {
@@ -51,7 +53,7 @@ export interface ProviderDeclarationV1 {
   readonly catalogSource?: 'external';
 }
 
-export type ProviderDeclarationErrorCode =
+type ProviderDeclarationErrorCode =
   | 'provider_declaration_not_found'
   | 'provider_declaration_invalid'
   | 'provider_declaration_duplicate'
@@ -169,7 +171,14 @@ const parseHeaders = (
 
 const parseCatalogEntry = (value: unknown): ProviderCatalogEntryV1 => {
   if (
-    !isRecord(value) || !exactKeys(value, ['modelId', 'defaultEffort', 'efforts']) ||
+    !isRecord(value) ||
+    !exactKeys(value, [
+      'modelId',
+      'defaultEffort',
+      'efforts',
+      ...(Object.hasOwn(value, 'pinned') ? ['pinned'] : []),
+    ]) ||
+    (value.pinned !== undefined && typeof value.pinned !== 'boolean') ||
     typeof value.modelId !== 'string' || value.modelId.length === 0 ||
     !isReasoningEffort(value.defaultEffort) || !Array.isArray(value.efforts) ||
     value.efforts.length === 0 || !value.efforts.every(isReasoningEffort)
@@ -189,6 +198,7 @@ const parseCatalogEntry = (value: unknown): ProviderCatalogEntryV1 => {
     modelId: value.modelId,
     defaultEffort: value.defaultEffort,
     efforts: Object.freeze([...value.efforts]),
+    ...(value.pinned === undefined ? {} : { pinned: value.pinned }),
   });
 };
 
@@ -361,7 +371,7 @@ export const resolveProviderRegistry = (
   return Object.freeze([...byId.values()]);
 };
 
-export interface ProviderDeclarationFileSystem {
+interface ProviderDeclarationFileSystem {
   readonly readDirectory: (path: string) => Promise<readonly string[]>;
   readonly readTextFile: (path: string) => Promise<string>;
 }
@@ -379,7 +389,7 @@ const productionFileSystem: ProviderDeclarationFileSystem = {
 
 const isNotFound = (error: unknown): boolean => error instanceof Deno.errors.NotFound;
 
-export interface LoadProviderDeclarationsOptions {
+interface LoadProviderDeclarationsOptions {
   readonly configRoot: string;
   readonly fileSystem?: ProviderDeclarationFileSystem;
 }

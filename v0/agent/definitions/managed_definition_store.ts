@@ -37,7 +37,7 @@ export interface ManagedDefinitionRevision {
   readonly entryPath: string;
 }
 
-export interface ManagedDefinitionSummary {
+interface ManagedDefinitionSummary {
   readonly logicalRef: ManagedDefinitionManifestV1['logicalRef'];
   readonly declaredRole: ManagedDefinitionManifestV1['declaredRole'];
   readonly subagentName?: string;
@@ -48,7 +48,7 @@ export interface ManagedDefinitionSummary {
   readonly localCustody: ManagedDefinitionCustodyV1['localCustody'];
 }
 
-export interface ManagedDefinitionStoreOptions {
+interface ManagedDefinitionStoreOptions {
   readonly dataRoot: string;
   readonly now?: () => Date;
 }
@@ -76,7 +76,7 @@ const ensureDirectory = async (path: string): Promise<void> => {
 const resourceDirectoryKey = async (resourceId: string): Promise<string> =>
   await definitionFileSha256(encoder.encode(resourceId));
 
-export const managedDefinitionStoreRoot = (dataRoot: string): string =>
+const managedDefinitionStoreRoot = (dataRoot: string): string =>
   `${dataRoot}/managed/agent-definition/v1`;
 
 const revisionPath = async (

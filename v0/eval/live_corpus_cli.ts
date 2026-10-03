@@ -10,14 +10,14 @@ import { CORPUS_PATH, loadTaskCorpus } from '../corpus/task_corpus.ts';
 
 const encoder = new TextEncoder();
 
-export type LiveCorpusCliWriter = (text: string) => void | PromiseLike<void>;
+type LiveCorpusCliWriter = (text: string) => void | PromiseLike<void>;
 
-export type LiveCorpusByteWriter = (
+type LiveCorpusByteWriter = (
   bytes: Uint8Array,
 ) => number | PromiseLike<number>;
 
 /** Write every byte, including when a Deno.Writer accepts only a partial chunk. */
-export const writeAllLiveCorpusBytes = async (
+const writeAllLiveCorpusBytes = async (
   writer: LiveCorpusByteWriter,
   bytes: Uint8Array,
 ): Promise<void> => {
@@ -31,7 +31,7 @@ export const writeAllLiveCorpusBytes = async (
   }
 };
 
-export interface LiveCorpusCliDependencies {
+interface LiveCorpusCliDependencies {
   readonly run?: (suite: LiveCorpusSuite) => Promise<LiveCorpusEvalReport>;
   readonly writeStdout?: LiveCorpusCliWriter;
   readonly writeStderr?: LiveCorpusCliWriter;
@@ -76,7 +76,7 @@ const reportLine = async (
   return serializeLiveCorpusEvalReport(report, corpus);
 };
 
-export const main = async (
+const main = async (
   args: readonly string[] = Deno.args,
   dependencies: LiveCorpusCliDependencies = {},
 ): Promise<number> => {

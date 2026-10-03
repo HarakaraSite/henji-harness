@@ -4,12 +4,12 @@ import type { ApplicationObservation } from './application_port.ts';
 import type { FollowUpRecord, PendingView } from '../../api/contract.ts';
 
 type Completion = Promise<Omit<LoopOutcome, 'transcript'>>;
-export interface TaskAdmission {
+interface TaskAdmission {
   readonly executionId: string;
   readonly completion: Completion;
   readonly untilIdle: Completion;
 }
-export interface TaskExecutionState {
+interface TaskExecutionState {
   readonly sessionId: string;
   readonly submittedByCommandId: string;
   processSettlement: 'running' | 'complete';
@@ -23,10 +23,10 @@ type Lane = {
 type MutableFollowUp = {
   -readonly [K in keyof FollowUpRecord]: FollowUpRecord[K];
 };
-export type SteeringAcceptance =
+type SteeringAcceptance =
   | { kind: 'accepted' }
   | { kind: 'rejected'; reason: 'idle' | 'alreadyAccepted' | 'invalid' };
-export type FollowUpAcceptance =
+type FollowUpAcceptance =
   | { kind: 'accepted'; queueId: string }
   | { kind: 'rejected'; reason: 'idle' | 'alreadyAccepted' };
 

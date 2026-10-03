@@ -1,7 +1,7 @@
 /** Process-local diagnostic stages for one Worker generation. */
-export const WORKER_STAGE_PROBE_SCHEMA_VERSION = 1 as const;
+const WORKER_STAGE_PROBE_SCHEMA_VERSION = 1 as const;
 
-export const WORKER_STAGE_CODES = Object.freeze({
+const WORKER_STAGE_CODES = Object.freeze({
   idle: 0,
   aux_context_post_entered: 1,
   aux_context_post_returned: 2,
@@ -37,7 +37,7 @@ const INDEX = Object.freeze({
 });
 const SLOT_COUNT = Object.keys(INDEX).length;
 
-export interface WorkerStageSnapshot {
+interface WorkerStageSnapshot {
   readonly schemaVersion: 1;
   readonly epoch: number;
   readonly stageOrdinal: number;
@@ -60,7 +60,7 @@ export interface WorkerStageHistorySnapshot extends WorkerStageSnapshot {
   readonly lastWorkerSequenceDurable: number;
 }
 
-export type WorkerStageClassification =
+type WorkerStageClassification =
   | 'not_started'
   | 'context_post'
   | 'worker_microtask_resume'

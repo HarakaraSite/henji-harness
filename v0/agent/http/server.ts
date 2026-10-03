@@ -607,13 +607,13 @@ async (request: Request): Promise<Response> => {
   }
 };
 
-export interface CoreServerOptions {
+interface CoreServerOptions {
   readonly hostname?: string;
   readonly port?: number;
   readonly onServiceClosed?: () => void | Promise<void>;
 }
 
-export interface CoreServerHandle {
+interface CoreServerHandle {
   readonly url: string;
   readonly finished: Promise<void>;
   readonly shutdown: () => Promise<void>;

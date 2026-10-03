@@ -71,7 +71,7 @@ const appendChatGPTRequestFact = async (
   }
 };
 
-export interface CredentialResolver {
+interface CredentialResolver {
   resolve(
     profile: AuthProfileId,
     registrationId?: string | null,
@@ -83,7 +83,7 @@ export interface CredentialResolver {
   ): Promise<'present' | 'missing' | 'unknown'>;
 }
 
-export interface CredentialResolverOptions {
+interface CredentialResolverOptions {
   /** Explicit Worker-local sources by auth profile; unlisted profiles use the fixed file default. */
   readonly sources?: Readonly<Record<string, CredentialSource>>;
   /** User config root shared with Core and every Worker. */

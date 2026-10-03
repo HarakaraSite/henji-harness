@@ -6,7 +6,7 @@ import { type AgentResourceIdentity } from './resource_identity.ts';
  */
 export const TOOL_FILTER_ERROR_CODE = 'tool_filter_invalid';
 
-export class AgentToolFilterError extends Error {
+class AgentToolFilterError extends Error {
   constructor(message: string) {
     super(`${TOOL_FILTER_ERROR_CODE}: ${message}`);
     this.name = 'AgentToolFilterError';

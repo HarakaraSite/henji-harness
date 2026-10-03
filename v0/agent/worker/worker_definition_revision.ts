@@ -1,30 +1,11 @@
-import type { DefinitionRevisionRef, SessionRecord } from '../session/session_store.ts';
+import type { SessionRecord } from '../session/session_store.ts';
 import {
-  builtinDefinitionRef,
   builtinToolDefinitionRef,
   type ToolDefinitionRevisionRef,
 } from '../definitions/managed_resource_ref.ts';
 import { buildManifest, HENJI_TOOL_DEFINITION_API_CONTRACT } from '../runtime/build_manifest.ts';
-import type { WorkerModuleRevision } from './worker_capsule.ts';
+
 import { readWorkerModuleRevision } from './worker_capsule.ts';
-
-export interface WorkerDefinitionRevision extends WorkerModuleRevision {
-  readonly ref: DefinitionRevisionRef;
-}
-
-export const readDefinitionRevision = async (
-  path: string,
-  kind: 'builtin' | 'external',
-  id?: 'default' | 'generic',
-): Promise<DefinitionRevisionRef> => {
-  void path;
-  if (kind !== 'builtin' || id === undefined) {
-    throw new Error(
-      'external Definition install is not available until Increment 33',
-    );
-  }
-  return await builtinDefinitionRef(id, buildManifest());
-};
 
 export const workerBuiltinModulePath = (
   agent: SessionRecord['agent'] | 'generic',
@@ -35,8 +16,6 @@ export const workerBuiltinModulePath = (
   if (agent !== 'default') throw new Error('no bundled Definition for agent');
   return new URL('./worker_builtin_definition.ts', import.meta.url).pathname;
 };
-
-export const WEB_SEARCH_TOOL_IDENTITY = 'tool:web_search' as const;
 
 const bundledToolModule = (name: string): string =>
   new URL(`./worker_builtin_${name}_tool.ts`, import.meta.url).pathname;
@@ -78,7 +57,7 @@ const bundledToolDefinitionFor = (
   BUNDLED_TOOL_DEFINITIONS.find((entry) => entry.identity === identity);
 
 /** Bundled tool Definition module path for one tool identity. */
-export const workerBuiltinToolDefinitionModulePath = (
+const workerBuiltinToolDefinitionModulePath = (
   toolIdentity: string,
 ): string => {
   const bundled = bundledToolDefinitionFor(toolIdentity);
@@ -88,7 +67,7 @@ export const workerBuiltinToolDefinitionModulePath = (
   return bundled.modulePath;
 };
 
-export const builtinToolDefinitionRefFor = async (
+const builtinToolDefinitionRefFor = async (
   identity: string,
 ): Promise<ToolDefinitionRevisionRef> => {
   const bundled = bundledToolDefinitionFor(identity);
@@ -113,11 +92,6 @@ export const bundledToolDefinitionLoadRequest = async (
     workerBuiltinToolDefinitionModulePath(identity),
   ),
 });
-
-/** Bundled web_search tool Definition load request for a default parent generation. */
-export const builtinWebSearchToolDefinitionLoadRequest = async (): Promise<
-  import('./worker_protocol.ts').WorkerToolDefinitionLoadRequest
-> => await bundledToolDefinitionLoadRequest(WEB_SEARCH_TOOL_IDENTITY);
 
 /** Every bundled tool Definition load request, for direct Worker start commands. */
 export const bundledToolDefinitionLoadRequests = async (): Promise<

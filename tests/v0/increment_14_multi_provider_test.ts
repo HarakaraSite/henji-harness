@@ -1,6 +1,6 @@
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
+import { runAgent } from '../../v0/agent/core/loop.ts';
 import { parseTuiInvocation } from '../../v0/agent/cli/session_invocation.ts';
-import { AgentSession } from '../../v0/agent/session/session.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import {
   defaultModelSelectionFor,
@@ -16,10 +16,6 @@ import {
   readDefaultSelection,
   writeDefaultSelection,
 } from '../../v0/agent/provider/default_selection.ts';
-import {
-  OPENAI_DEFAULT_MODEL_SELECTION,
-  OPENAI_MODEL_CATALOG,
-} from '../../v0/agent/provider/openai_model_catalog.ts';
 import {
   OPENROUTER_MODEL_CATALOG,
   ROOT_DEFAULT_MODEL_SELECTION,
@@ -52,6 +48,8 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
+
+const openAiDefaultSelection = defaultModelSelectionFor('openai-responses');
 
 const request: ModelRequest = {
   systemInstruction: 'Answer briefly.',
@@ -161,14 +159,14 @@ Deno.test('Increment 14 resolves bundled provider defaults at startup', () => {
   );
   assertEquals(
     defaultModelSelectionFor('openai-responses'),
-    OPENAI_DEFAULT_MODEL_SELECTION,
+    openAiDefaultSelection,
   );
   assertEquals(
     defaultModelSelectionFor('openrouter-responses').provider,
     'openrouter-responses',
   );
   assert(isModelSelection(defaultModelSelectionFor('openrouter-responses')));
-  assert(isModelSelection(OPENAI_DEFAULT_MODEL_SELECTION));
+  assert(isModelSelection(openAiDefaultSelection));
   assertEquals(
     parseTuiInvocation(['--root-provider', 'openai-responses', '--no-session']),
     {
@@ -233,7 +231,7 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
   const evidence = new ProviderEvidenceRecorder();
   const result = await physical.createModel(
     'parent',
-    OPENAI_DEFAULT_MODEL_SELECTION,
+    openAiDefaultSelection,
   ).generate(
     request,
     {
@@ -273,12 +271,12 @@ Deno.test('Increment 14 OpenAI root uses the official Responses SDK with short r
   assert(!JSON.stringify(retained).includes('sseEvents'));
   assert(!JSON.stringify(retained).includes('openai-secret'));
 
-  const session = new AgentSession(
-    physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION),
+  const outcome = await runAgent(
+    'Say hello.',
+    physical.createModel('parent', openAiDefaultSelection),
     new Registry([]),
     { systemInstruction: 'Answer briefly.' },
   );
-  const outcome = await session.submit('Say hello.');
   assert(outcome.ok, 'OpenAI final must pass through the Henji core loop');
   assertEquals(outcome.finalText, 'hello');
 });
@@ -751,14 +749,14 @@ Deno.test('Increment 60 declaration overrides the OpenRouter Responses catalog a
 
 Deno.test('Increment 64 bundled defaults replace the former code catalogs', () => {
   assertEquals(OPENROUTER_MODEL_CATALOG.length, 12);
-  assertEquals(OPENAI_MODEL_CATALOG.length, 4);
+  assertEquals(searchModelsFor('openai-responses', '').length, 4);
   assertEquals(
     ROOT_DEFAULT_MODEL_SELECTION.modelId,
     'deepseek/deepseek-v4.1-flash',
   );
   assertEquals(ROOT_DEFAULT_MODEL_SELECTION.effort, 'high');
-  assertEquals(OPENAI_DEFAULT_MODEL_SELECTION.modelId, 'gpt-5.6-sol');
-  assertEquals(OPENAI_DEFAULT_MODEL_SELECTION.effort, 'medium');
+  assertEquals(openAiDefaultSelection.modelId, 'gpt-5.6-sol');
+  assertEquals(openAiDefaultSelection.effort, 'medium');
 });
 
 Deno.test('Increment 64 declaration adds a chat completions provider with a declared endpoint', async () => {
@@ -836,10 +834,10 @@ Deno.test('Increment 63 stores and reads the Host default selection', async () =
   const root = await Deno.makeTempDir({ prefix: 'henji-default-selection-' });
   try {
     assertEquals(await readDefaultSelection(root), undefined);
-    await writeDefaultSelection(root, OPENAI_DEFAULT_MODEL_SELECTION);
+    await writeDefaultSelection(root, openAiDefaultSelection);
     assertEquals(
       await readDefaultSelection(root),
-      OPENAI_DEFAULT_MODEL_SELECTION,
+      openAiDefaultSelection,
     );
     assert(
       (await Deno.readTextFile(defaultSelectionPath(root))).endsWith('\n'),
@@ -921,21 +919,21 @@ Deno.test('Increment 62 replay is scoped to the producing provider and model', a
     tools: [],
   });
 
-  await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+  await physical.createModel('parent', openAiDefaultSelection).generate(
     requestFor('openai-responses', 'gpt-5.6-sol'),
   );
   assert(
     bodies[0].includes('REPLAY_MARK'),
     'matching provider and model must replay',
   );
-  await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+  await physical.createModel('parent', openAiDefaultSelection).generate(
     requestFor('openai-alt', 'gpt-5.6-sol'),
   );
   assert(
     !bodies[1].includes('REPLAY_MARK'),
     'another provider must not replay',
   );
-  await physical.createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION).generate(
+  await physical.createModel('parent', openAiDefaultSelection).generate(
     requestFor('openai-responses', 'another-model'),
   );
   assert(!bodies[2].includes('REPLAY_MARK'), 'another model must not replay');
@@ -999,7 +997,7 @@ Deno.test('Increment 62 fills reasoning encrypted_content from output_item.done'
   const evidence = new ProviderEvidenceRecorder();
   const result = await physical.createModel(
     'parent',
-    OPENAI_DEFAULT_MODEL_SELECTION,
+    openAiDefaultSelection,
   ).generate(
     request,
     {
@@ -1141,7 +1139,7 @@ Deno.test('Increment 14 keeps resolved OpenAI auth authoritative over ambient SD
         'openai-api-key': () => Promise.resolve('openai-secret'),
       },
       fetcher,
-    }).createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION);
+    }).createModel('parent', openAiDefaultSelection);
     const result = await model.generate(request);
     assertEquals(result.kind, 'final');
     assertEquals(authorization, 'Bearer openai-secret');
@@ -1195,8 +1193,9 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
       'openai-api-key': () => Promise.resolve('openai-secret'),
     },
     fetcher,
-  }).createModel('parent', OPENAI_DEFAULT_MODEL_SELECTION);
-  const session = new AgentSession(
+  }).createModel('parent', openAiDefaultSelection);
+  const outcome = await runAgent(
+    'Say hello.',
     model,
     new Registry([{
       name: 'read',
@@ -1204,16 +1203,14 @@ Deno.test('Increment 14 replays OpenAI function calls for Henji-owned tool conti
       inputSchema: { type: 'object', properties: { path: { type: 'string' } } },
       execute: () => '# Henji',
     }]),
-    {
-      systemInstruction: request.systemInstruction,
-    },
+    { systemInstruction: request.systemInstruction },
   );
-  const outcome = await session.submit('Say hello.');
   assert(
     outcome.ok,
     'OpenAI tool continuation must pass through the Henji core loop',
   );
   assertEquals(outcome.finalText, 'README received');
+  assertEquals(requestNumber, 2);
   const assistant = outcome.transcript.find((message) => message.role === 'assistant');
   assertEquals(assistant?.content, [{
     kind: 'tool_call',
@@ -1304,12 +1301,12 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
       persistence: 'new',
       agent: 'default',
       physicalIoMode: 'provider-free',
-      initialModelSelection: OPENAI_DEFAULT_MODEL_SELECTION,
+      initialModelSelection: openAiDefaultSelection,
     });
     await store.initialize();
     assertEquals(
       first.session.modelSelectionSnapshot(),
-      OPENAI_DEFAULT_MODEL_SELECTION,
+      openAiDefaultSelection,
     );
     assertEquals(first.displayState.model.provider, 'openai-responses');
     assert(
@@ -1318,7 +1315,7 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     const artifact = store.listExecutions().at(-1);
     assert(artifact !== undefined);
     assert(artifact.manifest !== undefined);
-    assertEquals(artifact.manifest.rootModel, OPENAI_DEFAULT_MODEL_SELECTION);
+    assertEquals(artifact.manifest.rootModel, openAiDefaultSelection);
     assert(
       artifact.manifest.resources.some((resource) =>
         resource.startsWith('model:openai-responses:')
@@ -1329,7 +1326,7 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     first = undefined;
     const stored = await store.readWorker(sessionId);
     assert(stored.schemaVersion === 6);
-    assertEquals(stored.activeModel, OPENAI_DEFAULT_MODEL_SELECTION);
+    assertEquals(stored.activeModel, openAiDefaultSelection);
 
     resumed = await createWorkerSession({
       stateRoot,
@@ -1342,7 +1339,7 @@ Deno.test('Increment 14 carries an OpenAI root through Host Worker persistence a
     });
     assertEquals(
       resumed.session.modelSelectionSnapshot(),
-      OPENAI_DEFAULT_MODEL_SELECTION,
+      openAiDefaultSelection,
     );
     assertEquals(resumed.displayState.model.provider, 'openai-responses');
   } finally {

@@ -9,7 +9,7 @@ import type { RuntimeDisplayState } from '../runtime/startup_orientation.ts';
 import type { WorkerReadyMessage } from '../worker/worker_protocol.ts';
 
 /** Host-owned inputs from which an API projection can build a public snapshot. */
-export interface ApplicationSessionState {
+interface ApplicationSessionState {
   readonly sessionId: string;
   readonly persistence: 'new' | 'continue' | 'session' | 'none';
   readonly position: ApiPosition;

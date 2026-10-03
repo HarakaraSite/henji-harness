@@ -14,7 +14,7 @@ interface WireResponseToolCall {
   readonly function?: unknown;
 }
 
-export type ResponseBodyResult =
+type ResponseBodyResult =
   // Original exception stays local to the adapter; its failure boundary saves bounded facts only.
   & { readonly error?: unknown }
   & (
@@ -345,11 +345,3 @@ export const responseStreamError = (httpStatus: number): OpenRouterAgentError =>
 
 export const hasOwn = (value: object, key: string): boolean =>
   Object.prototype.hasOwnProperty.call(value, key);
-
-export const responseHeaders = (headers: Headers): Readonly<Record<string, string>> => {
-  const result: Record<string, string> = {};
-  headers.forEach((value, name) => {
-    result[name] = value;
-  });
-  return result;
-};

@@ -50,12 +50,12 @@ export class WorkerHostStartupError extends Error {
 }
 
 /** Read-only canonical projection the supervisor needs to build a start command. */
-export interface WorkerSupervisorProjection {
+interface WorkerSupervisorProjection {
   readonly stateRevision: number;
   readonly modelSelection: ModelSelection;
 }
 
-export interface WorkerSupervisorHost {
+interface WorkerSupervisorHost {
   readonly options: WorkerHostSessionOptions;
   /** Route one inbound Worker message to the coordinator's receive pipeline. */
   handleWorkerMessage(message: WorkerToHostMessage): void;

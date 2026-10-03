@@ -27,7 +27,7 @@ import type {
 } from './model_selection.ts';
 import { substituteRequestHeaders } from './provider_request_headers.ts';
 
-export interface OpenAIResponsesModelOptions {
+interface OpenAIResponsesModelOptions {
   readonly selection: OpenAIModelSelection;
   readonly credentialSource: CredentialSource;
   readonly fetcher?: typeof fetch;
@@ -221,7 +221,7 @@ const toolCalls = (
   return Object.freeze(calls);
 };
 
-export interface ResponsesApiModelOptions {
+interface ResponsesApiModelOptions {
   readonly selection: ModelSelection;
   readonly credentialSource: CredentialSource;
   readonly fetcher?: typeof fetch;
@@ -715,7 +715,7 @@ export class OpenAIResponsesModel extends ResponsesApiModel {
   }
 }
 
-export interface ChatGPTResponsesModelOptions {
+interface ChatGPTResponsesModelOptions {
   readonly selection: ChatGPTModelSelection;
   readonly credentialSource: CredentialSource;
   readonly fetcher?: typeof fetch;
@@ -738,7 +738,7 @@ export class ChatGPTResponsesModel extends ResponsesApiModel {
   }
 }
 
-export interface OpenRouterResponsesModelOptions {
+interface OpenRouterResponsesModelOptions {
   readonly selection: OpenRouterResponsesModelSelection;
   readonly credentialSource: CredentialSource;
   readonly fetcher?: typeof fetch;
@@ -759,7 +759,7 @@ export class OpenRouterResponsesModel extends ResponsesApiModel {
   }
 }
 
-export interface DeclaredResponsesModelOptions {
+interface DeclaredResponsesModelOptions {
   readonly selection: DeclaredProviderModelSelection;
   readonly credentialSource: CredentialSource;
   /** Declared endpoint base URL from the provider declaration. */

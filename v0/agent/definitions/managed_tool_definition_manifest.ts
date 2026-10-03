@@ -13,12 +13,12 @@ import {
   type ToolDefinitionRevisionRef,
 } from './managed_resource_ref.ts';
 
-export const TOOL_DEFINITION_REVISION_DOMAIN = 'henji-tool-definition-revision-v1';
-export const TOOL_DEFINITION_CLOSURE_SCHEMA_VERSION = 1 as const;
+const TOOL_DEFINITION_REVISION_DOMAIN = 'henji-tool-definition-revision-v1';
+const TOOL_DEFINITION_CLOSURE_SCHEMA_VERSION = 1 as const;
 
 const TOOL_COMPONENT_NAME = /^[a-z][a-z0-9_]{0,127}$/u;
 
-export const isToolComponentName = (value: unknown): value is string =>
+const isToolComponentName = (value: unknown): value is string =>
   typeof value === 'string' && TOOL_COMPONENT_NAME.test(value);
 
 /** A tool identity is `tool:<component name>` and maps to one model-facing tool name. */
@@ -36,7 +36,7 @@ export interface ManagedToolDefinitionManifestV1 {
   readonly files: readonly DefinitionClosureFileV1[];
 }
 
-export interface ToolDefinitionRevisionContent {
+interface ToolDefinitionRevisionContent {
   readonly resourceId: string;
   readonly toolIdentity: string;
   readonly apiContract: string;

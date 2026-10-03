@@ -17,10 +17,10 @@ import type { ToolComponent } from './tool_components.ts';
 import type { WebSearchBackend } from './web_search.ts';
 import { type AsyncAgentRpc, createAsyncAgentTools } from './async_agents.ts';
 
-export const FIXED_JSON_PATH = 'deno.v0.json';
+const FIXED_JSON_PATH = 'deno.v0.json';
 
 /** Host-owned values needed to turn declarative capability identities into executable tools. */
-export interface RegistryMaterializationContext {
+interface RegistryMaterializationContext {
   readonly processExecutor?: ProcessExecutor;
   readonly workspace: Workspace;
   readonly skillCatalog: SkillCatalog;
@@ -43,7 +43,7 @@ const materializationFailure = (identity: AgentResourceIdentity): never => {
  * Materialize one declared tool identity.  This lookup is intentionally per-capability: the
  * Definition declares membership and order while the host owns workspace/catalog/closures.
  */
-export const createDeclaredTool = (
+const createDeclaredTool = (
   identity: AgentResourceIdentity,
   context: RegistryMaterializationContext & { readonly bashOutputStore: BashOutputStore },
 ): Tool => {

@@ -1,7 +1,7 @@
 import type { Workspace } from './work_tool_contract.ts';
 import { ToolInputError } from './tools.ts';
 
-export interface WebDownloadTarget {
+interface WebDownloadTarget {
   readonly path: string;
   readonly parent: string;
 }

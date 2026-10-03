@@ -28,7 +28,7 @@ import type {
   SessionStreamFrame,
 } from './contract.ts';
 
-export class ApiCodecError extends Error {
+class ApiCodecError extends Error {
   constructor() {
     super('invalid API value');
     this.name = 'ApiCodecError';
@@ -426,9 +426,6 @@ export const decodeExecutionReadResult = (
   return value as unknown as ExecutionReadResult;
 };
 
-export const encodeSessionSnapshot = (snapshot: SessionSnapshot): string =>
-  JSON.stringify(snapshot);
-
 export const decodeSessionSnapshot = (value: unknown): SessionSnapshot => {
   if (!isRecord(value) || value.schemaVersion !== 2) throw new ApiCodecError();
   const cursor = value.cursor;
@@ -581,6 +578,3 @@ export const decodeSessionStreamFrame = (
   ) throw new ApiCodecError();
   return value as unknown as SessionStreamFrame;
 };
-
-export const encodeSessionStreamFrame = (frame: SessionStreamFrame): string =>
-  JSON.stringify(frame);

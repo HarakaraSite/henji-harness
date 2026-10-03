@@ -20,8 +20,8 @@ export interface FailureDetails {
 }
 
 export const MAX_FAILURE_DETAILS_BYTES = 4_096;
-export const MAX_FAILURE_MESSAGE_BYTES = 512;
-export const MAX_FAILURE_VALUE_BYTES = 128;
+const MAX_FAILURE_MESSAGE_BYTES = 512;
+const MAX_FAILURE_VALUE_BYTES = 128;
 const encoder = new TextEncoder();
 const stringKeys = [
   'operation',

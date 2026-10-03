@@ -330,7 +330,7 @@ if (
   throw new Error('script table must be in canonical task ID order');
 }
 
-export const SCRIPTED_TASK_IDS: readonly string[] = scripts.map((entry) => entry.taskId);
+const SCRIPTED_TASK_IDS: readonly string[] = scripts.map((entry) => entry.taskId);
 
 /** Require the executable fixture table to match the validated corpus exactly. */
 export const assertScriptedCorpusTaskSet = (taskIds: readonly string[]): void => {

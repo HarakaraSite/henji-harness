@@ -24,17 +24,17 @@ import {
   truncateTerminalCellsFromEnd,
 } from './terminal_text.ts';
 
-export const MIN_COLUMNS = 80;
-export const MIN_ROWS = 24;
-export const MAX_COLUMNS = 512;
-export const MAX_ROWS = 200;
-export const MAX_EDITOR_ROWS = 8;
+const MIN_COLUMNS = 80;
+const MIN_ROWS = 24;
+const MAX_COLUMNS = 512;
+const MAX_ROWS = 200;
+const MAX_EDITOR_ROWS = 8;
 export const MAX_FRAME_BYTES = 128 * 1024;
-export const MAX_LAYOUT_SOURCE_BYTES = 2 * 1024 * 1024;
+const MAX_LAYOUT_SOURCE_BYTES = 2 * 1024 * 1024;
 
 export type FooterTone = 'dim' | 'bold' | 'ready' | 'working';
 
-export interface FooterSpan {
+interface FooterSpan {
   readonly start: number;
   readonly length: number;
   readonly tone: FooterTone;

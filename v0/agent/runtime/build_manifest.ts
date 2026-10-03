@@ -1,6 +1,6 @@
 import packageConfig from '../../../jsr.json' with { type: 'json' };
 
-export const BUILD_MANIFEST_SCHEMA_VERSION = 1 as const;
+const BUILD_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const AGENT_DEFINITION_API_CONTRACT = 'henji-agent-definition-v2' as const;
 export const HENJI_TOOL_DEFINITION_API_CONTRACT = 'henji-tool-definition-v1' as const;
 

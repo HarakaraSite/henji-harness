@@ -256,7 +256,7 @@ export interface WorkerReadyMessage {
   readonly credentialAvailability?: CredentialAvailability;
 }
 
-export interface WorkerContextObservation {
+interface WorkerContextObservation {
   readonly kind: 'model_request_delta';
   readonly delta: ContextModelRequestDelta;
 }
@@ -385,7 +385,7 @@ export interface WorkerChildProgressMessage {
 }
 
 /** Steering is stored as a Data observation; Core receives this small receipt to clear pending UI. */
-export interface WorkerSteeringAppliedMessage {
+interface WorkerSteeringAppliedMessage {
   readonly kind: 'steering_applied';
   readonly correlation: WorkerCorrelation;
   readonly sequence: number;
@@ -406,7 +406,7 @@ export interface WorkerTurnSettledMessage {
   readonly correlation: WorkerCorrelation;
 }
 
-export type WorkerErrorStage =
+type WorkerErrorStage =
   | 'module_pre_read'
   | 'module_import'
   | 'module_validation'
@@ -424,7 +424,7 @@ export interface WorkerErrorMessage {
 }
 
 /** One data-only async child agent request from the Worker to the Host. */
-export interface WorkerAsyncAgentRequestMessage {
+interface WorkerAsyncAgentRequestMessage {
   readonly kind: 'async_agent_request';
   readonly correlation: WorkerCorrelation;
   readonly requestId: string;

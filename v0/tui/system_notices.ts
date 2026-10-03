@@ -24,7 +24,7 @@ interface SessionNotices {
   pending: SessionSnapshot['pending'] | undefined;
 }
 
-export interface NoticeSyncResult {
+interface NoticeSyncResult {
   readonly changed: boolean;
   readonly changedIds: ReadonlySet<string>;
   readonly structureChanged: boolean;

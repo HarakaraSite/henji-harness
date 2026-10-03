@@ -6,32 +6,32 @@ import { throwIfCancelled } from '../core/cancellation.ts';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
-export const MAX_SKILL_FILE_BYTES = 65_536;
-export const MAX_SKILL_RESULT_BYTES = 65_536;
-export const MAX_SKILL_ENTRIES = 128;
-export const MAX_CALLABLE_SKILLS = 24;
-export const MAX_SKILL_RESULTS_BYTES = 512 * 1024;
-export const MAX_SKILL_MANIFEST_BYTES = 8 * 1024;
-export const MAX_SKILL_FRONTMATTER_BYTES = 4 * 1024;
+const MAX_SKILL_FILE_BYTES = 65_536;
+const MAX_SKILL_RESULT_BYTES = 65_536;
+const MAX_SKILL_ENTRIES = 128;
+const MAX_CALLABLE_SKILLS = 24;
+const MAX_SKILL_RESULTS_BYTES = 512 * 1024;
+const MAX_SKILL_MANIFEST_BYTES = 8 * 1024;
+const MAX_SKILL_FRONTMATTER_BYTES = 4 * 1024;
 export const MAX_SKILL_DESCRIPTION_BYTES = 1024;
 
 const IDENTIFIER = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const MANIFEST_HEADER =
   'Available project skills. When a request matches one, call `skill` with its exact name to load the saved instructions.';
 
-export interface SkillPathInfo {
+interface SkillPathInfo {
   readonly isFile: boolean;
   readonly isDirectory: boolean;
   readonly isSymlink: boolean;
 }
 
-export interface SkillFileHandle {
+interface SkillFileHandle {
   read(buffer: Uint8Array): Promise<number | null>;
   stat(): Promise<SkillPathInfo>;
   close(): void;
 }
 
-export interface SkillFileSystem {
+interface SkillFileSystem {
   lstat(path: string): Promise<SkillPathInfo>;
   readDirectory(path: string): AsyncIterable<string>;
   open(path: string): Promise<SkillFileHandle>;
@@ -123,7 +123,7 @@ const scalar = (value: string): string | undefined => {
 };
 
 /** Parse the deliberately strict, non-YAML skill format. */
-export const parseSkillFile = (text: string, directoryName: string): ParsedSkill | undefined => {
+const parseSkillFile = (text: string, directoryName: string): ParsedSkill | undefined => {
   if (!IDENTIFIER.test(directoryName) || text.includes('\0') || !wellFormedUnicode(text)) {
     return undefined;
   }

@@ -18,7 +18,7 @@ import type { ModelSelection } from '../provider/model_selection.ts';
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../provider/openrouter_model_catalog.ts';
 import type { WorkerCommitProposalMessage } from '../worker/worker_protocol.ts';
 
-export interface SessionAuthorityOptions {
+interface SessionAuthorityOptions {
   readonly handle: WorkerSessionHandle;
   readonly workspaceRoot: string;
   readonly agent: SessionRecord['agent'];
@@ -27,7 +27,7 @@ export interface SessionAuthorityOptions {
   readonly durableCanonicalHistory?: boolean;
 }
 
-export type ActiveSessionProjection = {
+type ActiveSessionProjection = {
   readonly sessionId: string;
   transcript: Message[];
   nextTurn: number;

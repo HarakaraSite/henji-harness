@@ -27,7 +27,7 @@ export const credentialFileFor = (
 
 export const MAX_CREDENTIAL_BYTES = 4096 as const;
 
-export type CredentialFileFailureCode =
+type CredentialFileFailureCode =
   | 'credential_metadata_invalid'
   | 'credential_metadata_changed'
   | 'credential_open_failed'
@@ -45,7 +45,7 @@ export class CredentialFileError extends Error {
   }
 }
 
-export interface CredentialFileMetadata {
+interface CredentialFileMetadata {
   readonly isFile: boolean;
   readonly isSymlink: boolean;
   readonly mode: number | null;
@@ -55,7 +55,7 @@ export interface CredentialFileMetadata {
   readonly ino?: number;
 }
 
-export interface CredentialFileHandle {
+interface CredentialFileHandle {
   readonly stat: () => Promise<CredentialFileMetadata>;
   readonly read: (buffer: Uint8Array) => Promise<number | null>;
   readonly close: () => void;
@@ -67,7 +67,7 @@ export interface CredentialFileSystem {
   readonly effectiveUid: () => number | undefined;
 }
 
-export type CredentialFilePresence = 'present' | 'missing' | 'unknown';
+type CredentialFilePresence = 'present' | 'missing' | 'unknown';
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const unicodeWhitespace = /\p{White_Space}/u;

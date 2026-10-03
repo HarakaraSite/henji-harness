@@ -13,18 +13,18 @@ const errorMessages: Record<string, string> = {
   session_io_failure: 'session I/O failure',
 };
 
-export type SessionCliCommand =
+type SessionCliCommand =
   | { readonly kind: 'list' }
   | { readonly kind: 'delete'; readonly id: string };
 
-export class SessionCliInvocationError extends Error {
+class SessionCliInvocationError extends Error {
   constructor() {
     super('invalid invocation');
     this.name = 'SessionCliInvocationError';
   }
 }
 
-export const parseSessionArgs = (
+const parseSessionArgs = (
   args: readonly string[],
 ): SessionCliCommand => {
   if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
@@ -42,7 +42,7 @@ const line = (code: string): string =>
   }) +
   '\n';
 
-export interface SessionCliDependencies {
+interface SessionCliDependencies {
   readonly writeStdout?: (text: string) => void | PromiseLike<void>;
   readonly writeStderr?: (text: string) => void | PromiseLike<void>;
   readonly workspaceRoot?: string;

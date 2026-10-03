@@ -11,9 +11,9 @@ import { DefinitionSelectorError } from './definition_selector.ts';
 import { parseToolDefinitionRevisionSelector } from './tool_definition_selector.ts';
 import type { ToolDefinitionRevisionRef } from './managed_resource_ref.ts';
 
-export const TOOL_BINDING_FILE = 'tools.json';
+const TOOL_BINDING_FILE = 'tools.json';
 
-export type ToolBindingErrorCode =
+type ToolBindingErrorCode =
   | 'binding_invalid'
   | 'binding_tool_unknown'
   | 'binding_definition_not_found'
@@ -31,7 +31,7 @@ export class ToolBindingError extends Error {
   }
 }
 
-export interface ToolBindingsFileV1 {
+interface ToolBindingsFileV1 {
   readonly schemaVersion: 1;
   readonly bindings: Readonly<Record<string, string>>;
 }

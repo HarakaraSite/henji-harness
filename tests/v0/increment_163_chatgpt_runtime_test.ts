@@ -367,10 +367,14 @@ childDataTest(
       deepStrictEqual(accountA.models.map((model) => model.modelId), [
         'model-second',
         'model-first',
+        'gpt-6.1-sol',
+        'gpt-6-luna',
       ]);
       deepStrictEqual(accountB.models.map((model) => model.modelId), [
         'model-second',
         'model-first',
+        'gpt-6.1-sol',
+        'gpt-6-luna',
       ]);
       deepStrictEqual(authorization, [
         'Bearer token-account-a',

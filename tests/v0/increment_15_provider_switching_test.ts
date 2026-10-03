@@ -7,14 +7,11 @@ import {
 import type { Message, Model, ModelRequest, ModelResult } from '../../v0/agent/core/contracts.ts';
 import { OpenAIResponsesModel } from '../../v0/agent/provider/openai_responses_model.ts';
 import {
-  OPENAI_DEFAULT_MODEL_SELECTION,
-  OPENAI_MODEL_CATALOG,
-} from '../../v0/agent/provider/openai_model_catalog.ts';
-import {
   openRouterProfileFor,
   ROOT_DEFAULT_MODEL_SELECTION,
 } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { OpenRouterAgentModel } from '../../v0/agent/provider/openrouter_model.ts';
+import type { OpenAIModelSelection } from '../../v0/agent/provider/model_selection.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import type { WorkerAgentComposition } from '../../v0/agent/worker_agent_api.ts';
 import {
@@ -39,6 +36,8 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   const right = JSON.stringify(expected);
   if (left !== right) throw new Error(`${left} !== ${right}`);
 };
+
+const openAiDefaultSelection = defaultModelSelectionFor('openai-responses');
 
 Deno.test('Increment 119 model switch back starts a new private-state segment', () => {
   const modelA = ROOT_DEFAULT_MODEL_SELECTION;
@@ -73,12 +72,15 @@ const openAICompletedStream = (text: string): string => {
 };
 
 Deno.test('Increment 15 exposes the approved provider-scoped curated catalogs', () => {
-  assertEquals(OPENAI_MODEL_CATALOG.map((entry) => [entry.modelId, entry.defaultEffort]), [
-    ['gpt-5.6-sol', 'medium'],
-    ['gpt-5.6-luna', 'medium'],
-    ['gpt-5.6-terra', 'medium'],
-    ['gpt-6-astra', 'low'],
-  ]);
+  assertEquals(
+    searchModelsFor('openai-responses', '').map((entry) => [entry.modelId, entry.defaultEffort]),
+    [
+      ['gpt-5.6-sol', 'medium'],
+      ['gpt-5.6-luna', 'medium'],
+      ['gpt-5.6-terra', 'medium'],
+      ['gpt-6-astra', 'low'],
+    ],
+  );
   assertEquals(
     searchModelsFor('openai-responses', '5.6').map((entry) => entry.modelId),
     ['gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.6-terra'],
@@ -95,7 +97,7 @@ Deno.test('Increment 15 exposes the approved provider-scoped curated catalogs', 
     'xhigh',
     'max',
   ]);
-  assertEquals(defaultModelSelectionFor('openai-responses'), OPENAI_DEFAULT_MODEL_SELECTION);
+  assertEquals(defaultModelSelectionFor('openai-responses'), openAiDefaultSelection);
 });
 
 Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', () => {
@@ -105,7 +107,7 @@ Deno.test('Increment 15 keeps provider explicit in the fixed identity footer', (
     sessionId: 'abcdef12-3456-4789-8123-abcdefabcdef',
     committedTurn: 3,
     workspace: '/home/masat.guest/src/forgejo-agent',
-    model: OPENAI_DEFAULT_MODEL_SELECTION,
+    model: openAiDefaultSelection,
     trust: 'trusted_local',
     credentialPolicy: 'before_each_provider_request',
     pending: [],
@@ -161,7 +163,7 @@ Deno.test('Increment 15 rebuilds foreign provider history from semantic messages
   });
   let openAIBody: Record<string, unknown> | undefined;
   const openAI = new OpenAIResponsesModel({
-    selection: OPENAI_DEFAULT_MODEL_SELECTION,
+    selection: openAiDefaultSelection as OpenAIModelSelection,
     credentialSource: () => Promise.resolve('openai-test-credential'),
     fetcher: async (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
@@ -330,7 +332,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     });
     assert((await first.session.submit('turn on OpenRouter')).ok);
     await store.initialize();
-    assertEquals(await first.session.selectModel(OPENAI_DEFAULT_MODEL_SELECTION), 'selected');
+    assertEquals(await first.session.selectModel(openAiDefaultSelection), 'selected');
     assertEquals(first.session.credentialAvailabilitySnapshot(), {
       authProfile: 'openai-api-key',
       status: 'unknown',
@@ -373,12 +375,12 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     assertEquals(record.activeModel, ROOT_DEFAULT_MODEL_SELECTION);
     assertEquals(record.modelChanges.map((change) => change.selection), [
       ROOT_DEFAULT_MODEL_SELECTION,
-      OPENAI_DEFAULT_MODEL_SELECTION,
+      openAiDefaultSelection,
       ROOT_DEFAULT_MODEL_SELECTION,
     ]);
     assertEquals(record.turnModels, [
       { turn: 1, selection: ROOT_DEFAULT_MODEL_SELECTION },
-      { turn: 2, selection: OPENAI_DEFAULT_MODEL_SELECTION },
+      { turn: 2, selection: openAiDefaultSelection },
       { turn: 3, selection: ROOT_DEFAULT_MODEL_SELECTION },
     ]);
     assertEquals(
@@ -392,7 +394,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
     assert(savedArtifacts.every((artifact) => artifact.manifest !== undefined));
     assertEquals(savedArtifacts.map((artifact) => artifact.manifest!.rootModel), [
       ROOT_DEFAULT_MODEL_SELECTION,
-      OPENAI_DEFAULT_MODEL_SELECTION,
+      openAiDefaultSelection,
       ROOT_DEFAULT_MODEL_SELECTION,
     ]);
     assert(
@@ -410,7 +412,7 @@ Deno.test('Increment 15 persists OpenRouter to OpenAI to OpenRouter in one Sessi
       sessionId,
       agent: 'default',
       physicalIoMode: 'provider-free',
-      initialModelSelection: OPENAI_DEFAULT_MODEL_SELECTION,
+      initialModelSelection: openAiDefaultSelection,
     });
     assertEquals(resumed.session.modelSelectionSnapshot(), ROOT_DEFAULT_MODEL_SELECTION);
     assertEquals(resumed.session.currentPosition().committedTurn, 3);

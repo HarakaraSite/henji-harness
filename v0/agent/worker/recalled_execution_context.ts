@@ -19,7 +19,7 @@ import type {
   StoredExecutionRow,
 } from '../history/history_store_contract.ts';
 
-export type RecalledExecutionObservationV1 =
+type RecalledExecutionObservationV1 =
   | {
     readonly kind: 'assistant_completed';
     readonly modelStep: number;
@@ -62,7 +62,7 @@ export interface RecalledExecutionContextV1 {
   readonly automaticReplay: false;
 }
 
-export interface RecalledProviderObservationV2 {
+interface RecalledProviderObservationV2 {
   readonly requestCount: number;
   readonly requests: readonly {
     readonly ordinal: number;
@@ -88,7 +88,7 @@ export interface RecalledProviderObservationV2 {
   readonly responseCount: number;
 }
 
-export type RecalledJournalObservationV2 =
+type RecalledJournalObservationV2 =
   | {
     readonly kind: 'user_message';
     readonly turn: number;
@@ -128,7 +128,7 @@ export type RecalledJournalObservationV2 =
   };
 
 /** Recall projection for schema-v2 reconciled executions without a fabricated LoopOutcome. */
-export interface RecalledExecutionContextV2 {
+interface RecalledExecutionContextV2 {
   readonly schemaVersion: 2;
   readonly sourceExecutionId: string;
   readonly sessionId: string;
@@ -157,7 +157,7 @@ export type RecalledExecutionContext =
   | RecalledExecutionContextV1
   | RecalledExecutionContextV2;
 
-export interface ResolveRecalledExecutionContextOptions {
+interface ResolveRecalledExecutionContextOptions {
   readonly sessionId: string;
   readonly executionId: string;
   /** Legacy V1 recall requires the artifact; schema-v2 rows are authoritative without it. */
@@ -169,7 +169,7 @@ export interface ResolveRecalledExecutionContextOptions {
   >;
 }
 
-export class RecalledExecutionContextError extends Error {
+class RecalledExecutionContextError extends Error {
   constructor(
     readonly code:
       | 'recall_session_mismatch'

@@ -15,7 +15,7 @@ import {
 } from './resource_identity.ts';
 
 /** Provider-neutral model declaration consumed by the runtime adapter boundary. */
-export interface AgentModelDefinition {
+interface AgentModelDefinition {
   readonly provider: 'openrouter-chat';
   readonly profile: OpenRouterAgentProfile;
 }

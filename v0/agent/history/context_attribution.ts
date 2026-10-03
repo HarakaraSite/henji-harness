@@ -1,40 +1,38 @@
-import { validateFailureDetails } from '../core/failure_details.ts';
 import type { JsonValue, ModelRequest, ToolDefinition } from '../core/contracts.ts';
 import type { AgentInstructionSource } from '../definitions/agent_instructions.ts';
 import type { DiscoveredSkill } from '../definitions/skills.ts';
 import type { InstructionComponent } from '../instructions/component.ts';
 import type { ModelSelection } from '../provider/model_selection.ts';
-import { isStoredModelSelection } from '../provider/model_selection.ts';
 
 /** Increment 89's delta protocol. Hydrated read models intentionally remain unversioned. */
-export const CONTEXT_ATTRIBUTION_SCHEMA_VERSION = 2 as const;
-export const CONTEXT_DIGEST_PREFIX = 'sha256:';
+const CONTEXT_ATTRIBUTION_SCHEMA_VERSION = 2 as const;
+const CONTEXT_DIGEST_PREFIX = 'sha256:';
 
-export type ContextBlobMediaType =
+type ContextBlobMediaType =
   | 'text/plain; charset=utf-8'
   | 'application/json'
   | 'application/vnd.henji.message+json'
   | 'application/vnd.henji.tool+json'
   | 'application/octet-stream';
 
-export interface ContextBlobDescriptor {
+interface ContextBlobDescriptor {
   readonly digest: string;
   readonly byteLength: number;
   readonly mediaType: ContextBlobMediaType;
 }
 
-export interface ContextBlobInput extends ContextBlobDescriptor {
+interface ContextBlobInput extends ContextBlobDescriptor {
   readonly bytes: Uint8Array;
 }
 
-export type ContextRelationStage =
+type ContextRelationStage =
   | 'discovered'
   | 'resolved'
   | 'loaded'
   | 'observed'
   | 'projected';
 
-export type ContextResourceKind =
+type ContextResourceKind =
   | 'workspace_instruction'
   | 'skill'
   | 'skill_catalog'
@@ -83,15 +81,15 @@ export interface ContextOccurrenceSource
   readonly sourceWorkerSequence?: number;
 }
 
-export type ContextRequestPurpose = 'user_turn' | 'web_search';
+type ContextRequestPurpose = 'user_turn' | 'web_search';
 
-export type ContextModelRequestItemKind =
+type ContextModelRequestItemKind =
   | 'system'
   | 'message'
   | 'tool_contract'
   | 'provider_wire_body';
 
-export interface ContextModelRequestItem {
+interface ContextModelRequestItem {
   readonly ordinal: number;
   readonly kind: ContextModelRequestItemKind;
   readonly content: ContextBlobDescriptor;
@@ -124,7 +122,7 @@ export interface ContextOccurrenceInput {
   readonly bytesBase64?: string;
 }
 
-export interface ContextSequenceSplice {
+interface ContextSequenceSplice {
   readonly start: number;
   readonly deleteCount: number;
   readonly insertions: readonly {
@@ -166,7 +164,7 @@ export interface ExecutionContextManifestV2 {
   readonly digest: string;
 }
 
-export interface ContextSkillSnapshot extends DiscoveredSkill {}
+interface ContextSkillSnapshot extends DiscoveredSkill {}
 
 export interface WorkerContextSnapshot {
   readonly schemaVersion: 1;
@@ -190,7 +188,6 @@ export interface WorkerContextSnapshot {
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
-const SHA256 = /^sha256:[0-9a-f]{64}$/u;
 
 const isJson = (value: unknown): value is JsonValue => {
   if (
@@ -203,7 +200,7 @@ const isJson = (value: unknown): value is JsonValue => {
 };
 
 /** Canonical JSON keeps arrays ordered and recursively sorts object keys. */
-export const canonicalJson = (value: JsonValue): string => {
+const canonicalJson = (value: JsonValue): string => {
   if (!isJson(value)) throw new TypeError('context value must be finite JSON');
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (typeof value === 'object' && value !== null) {
@@ -220,7 +217,7 @@ export const canonicalJson = (value: JsonValue): string => {
 export const canonicalJsonBytes = (value: JsonValue): Uint8Array =>
   encoder.encode(canonicalJson(value));
 
-export const textContentBytes = (value: string): Uint8Array => {
+const textContentBytes = (value: string): Uint8Array => {
   if (value.includes('\0')) {
     throw new TypeError('context text must not contain NUL');
   }
@@ -252,7 +249,7 @@ const contextManifestBody = (
   >,
 ): JsonValue => structuredClone(value) as unknown as JsonValue;
 
-export const contextManifestDigest = (
+const contextManifestDigest = (
   value: Pick<
     ExecutionContextManifestV2,
     | 'schemaVersion'
@@ -318,7 +315,7 @@ export const createExecutionContextManifest = async (
   return { ...body, digest: await contextManifestDigest(body) };
 };
 
-export const contextBlob = async (
+const contextBlob = async (
   bytes: Uint8Array,
   mediaType: ContextBlobMediaType,
 ): Promise<ContextBlobInput> => ({
@@ -337,504 +334,3 @@ export const jsonBlob = (
   value: JsonValue,
   mediaType: ContextBlobMediaType = 'application/json',
 ): Promise<ContextBlobInput> => contextBlob(canonicalJsonBytes(value), mediaType);
-
-export const isContextDigest = (value: unknown): value is string =>
-  typeof value === 'string' && SHA256.test(value);
-
-export const isContextBlobDescriptor = (
-  value: unknown,
-): value is ContextBlobDescriptor =>
-  typeof value === 'object' && value !== null && !Array.isArray(value) &&
-  Object.keys(value).length === 3 &&
-  isContextDigest((value as Record<string, unknown>).digest) &&
-  Number.isSafeInteger((value as Record<string, unknown>).byteLength) &&
-  Number((value as Record<string, unknown>).byteLength) >= 0 &&
-  ((value as Record<string, unknown>).mediaType ===
-      'text/plain; charset=utf-8' ||
-    (value as Record<string, unknown>).mediaType === 'application/json' ||
-    (value as Record<string, unknown>).mediaType ===
-      'application/vnd.henji.message+json' ||
-    (value as Record<string, unknown>).mediaType ===
-      'application/vnd.henji.tool+json' ||
-    (value as Record<string, unknown>).mediaType ===
-      'application/octet-stream');
-
-const hasSnapshotKeys = (
-  value: unknown,
-  required: readonly string[],
-  optional: readonly string[] = [],
-): value is Record<string, unknown> => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const allowed = new Set([...required, ...optional]);
-  const keys = Object.keys(value);
-  return keys.every((key) => allowed.has(key)) &&
-    required.every((key) => Object.hasOwn(value, key));
-};
-
-export const validateWorkerContextSnapshot = (
-  value: unknown,
-): value is WorkerContextSnapshot => {
-  if (
-    !hasSnapshotKeys(value, [
-      'schemaVersion',
-      'workspaceRoot',
-      'skillCatalog',
-      'instructionComponents',
-      'toolDefinitions',
-      'runtimeFacts',
-    ], ['workspaceInstruction', 'systemInstruction'])
-  ) return false;
-  const snapshot = value;
-  if (
-    snapshot.schemaVersion !== 1 ||
-    typeof snapshot.workspaceRoot !== 'string' ||
-    snapshot.workspaceRoot.length === 0 ||
-    snapshot.workspaceRoot.includes('\0') ||
-    !hasSnapshotKeys(snapshot.skillCatalog, ['skills'], ['manifest']) ||
-    !Array.isArray(snapshot.instructionComponents) ||
-    !Array.isArray(snapshot.toolDefinitions) ||
-    !hasSnapshotKeys(snapshot.runtimeFacts, ['cwd'])
-  ) return false;
-  const workspace = snapshot.workspaceInstruction;
-  if (
-    workspace !== undefined &&
-    (!hasSnapshotKeys(workspace, ['source', 'text', 'formatted']) ||
-      (workspace.source !== 'AGENTS.md' && workspace.source !== 'AGENTS.MD') ||
-      !validText(workspace.text) || !validText(workspace.formatted))
-  ) return false;
-  const catalog = snapshot.skillCatalog;
-  if (catalog.manifest !== undefined && !validText(catalog.manifest)) {
-    return false;
-  }
-  if (
-    !Array.isArray(catalog.skills) || catalog.skills.some((skill) => {
-      if (
-        !hasSnapshotKeys(skill, [
-          'name',
-          'description',
-          'sourceDirectory',
-          'body',
-          'toolResult',
-        ])
-      ) return true;
-      return !validText(skill.name, false) || !validText(skill.description) ||
-        !validText(skill.sourceDirectory, false) || !validText(skill.body) ||
-        !validText(skill.toolResult);
-    })
-  ) return false;
-  const facts = snapshot.runtimeFacts;
-  return hasSnapshotKeys(facts, ['cwd']) && validText(facts.cwd, false) &&
-    (snapshot.systemInstruction === undefined ||
-      validText(snapshot.systemInstruction)) &&
-    snapshot.instructionComponents.every((component) =>
-      hasSnapshotKeys(component, ['identity', 'text'], ['sourceLocator']) &&
-      validText(component.identity, false) &&
-      validText(component.text, false) &&
-      (component.sourceLocator === undefined ||
-        validText(component.sourceLocator, false))
-    ) &&
-    snapshot.toolDefinitions.every((tool) =>
-      hasSnapshotKeys(tool, ['name', 'description', 'inputSchema']) &&
-      validText(tool.name, false) && validText(tool.description) &&
-      isJson(tool.inputSchema)
-    );
-};
-
-const exactKeys = (
-  value: unknown,
-  required: readonly string[],
-  optional: readonly string[] = [],
-): value is Record<string, unknown> => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const allowed = new Set([...required, ...optional]);
-  const keys = Object.keys(value);
-  return keys.every((key) => allowed.has(key)) &&
-    required.every((key) => Object.hasOwn(value, key));
-};
-
-const validText = (value: unknown, allowEmpty = true): value is string =>
-  typeof value === 'string' && (allowEmpty || value.length > 0) &&
-  !value.includes('\0');
-
-const validToolCall = (value: unknown): boolean =>
-  exactKeys(value, ['kind', 'callId', 'name', 'arguments']) &&
-  value.kind === 'tool_call' &&
-  validText(value.callId, false) && validText(value.name, false) &&
-  isJson(value.arguments);
-
-const validToolResult = (value: unknown): boolean =>
-  exactKeys(value, ['kind', 'callId', 'name', 'text', 'outcome'], [
-    'failure',
-    'terminal',
-  ]) && (value.failure === undefined || validateFailureDetails(value.failure)) &&
-  value.kind === 'tool_result' && validText(value.callId, false) &&
-  validText(value.name, false) && validText(value.text) &&
-  (value.outcome === 'success' || value.outcome === 'error') &&
-  (value.terminal === undefined || value.terminal === 'json_result') &&
-  (value.terminal === undefined || value.outcome === 'success');
-
-const validMessage = (value: unknown): boolean => {
-  if (exactKeys(value, ['role', 'content']) && value.role === 'user') {
-    return exactKeys(value.content, ['kind', 'text']) &&
-      value.content.kind === 'text' &&
-      validText(value.content.text);
-  }
-  if (
-    !exactKeys(value, ['role', 'content'], ['text', 'providerState']) ||
-    value.role !== 'assistant'
-  ) {
-    if (exactKeys(value, ['role', 'content']) && value.role === 'tool') {
-      return Array.isArray(value.content) && value.content.length > 0 &&
-        value.content.every(validToolResult);
-    }
-    return false;
-  }
-  const content = value.content;
-  const contentValid = exactKeys(content, ['kind', 'text']) && content.kind === 'text' &&
-      validText(content.text) ||
-    Array.isArray(content) && content.every(validToolCall);
-  const providerState = value.providerState;
-  const stateValid = providerState === undefined ||
-    exactKeys(providerState, ['provider', 'reasoningDetails']) &&
-      typeof providerState.provider === 'string' && providerState.provider.length > 0 &&
-      Array.isArray(providerState.reasoningDetails) &&
-      providerState.reasoningDetails.every(isJson) ||
-    exactKeys(providerState, ['provider', 'replayItems'], ['model']) &&
-      typeof providerState.provider === 'string' &&
-      providerState.provider.length > 0 &&
-      Array.isArray(providerState.replayItems) &&
-      providerState.replayItems.every(isJson) &&
-      (providerState.model === undefined || validText(providerState.model));
-  return contentValid && (value.text === undefined || validText(value.text)) &&
-    stateValid;
-};
-
-const validModelRequest = (value: unknown): value is ModelRequest =>
-  exactKeys(value, ['transcript', 'tools'], ['systemInstruction']) &&
-  (value.systemInstruction === undefined ||
-    validText(value.systemInstruction)) &&
-  Array.isArray(value.transcript) && Array.isArray(value.tools) &&
-  value.transcript.every(validMessage) && value.tools.every((tool) =>
-    exactKeys(tool, ['name', 'description', 'inputSchema']) &&
-    validText(tool.name, false) && validText(tool.description) &&
-    isJson(tool.inputSchema)
-  );
-
-const validSourceRelation = (
-  value: unknown,
-): value is ContextSourceRelation => {
-  if (
-    !exactKeys(value, ['stage', 'resourceKind'], [
-      'logicalIdentity',
-      'sourceLocator',
-      'contentDigest',
-      'lane',
-      'modelStep',
-      'callId',
-      'requestOrdinal',
-      'sourceEventOrdinal',
-    ])
-  ) return false;
-  const relation = value as Record<string, unknown>;
-  return ['discovered', 'resolved', 'loaded', 'observed', 'projected'].includes(
-    relation.stage as string,
-  ) && [
-    'workspace_instruction',
-    'skill',
-    'skill_catalog',
-    'instruction_component',
-    'definition_output',
-    'tool_contract',
-    'runtime_fact',
-    'message',
-    'tool_result',
-    'model_request',
-    'provider_wire_body',
-  ].includes(relation.resourceKind as string) &&
-    (relation.logicalIdentity === undefined ||
-      validText(relation.logicalIdentity, false)) &&
-    (relation.sourceLocator === undefined ||
-      validText(relation.sourceLocator, false)) &&
-    (relation.contentDigest === undefined ||
-      isContextDigest(relation.contentDigest)) &&
-    (relation.lane === undefined || relation.lane === 'parent' ||
-      relation.lane === 'planner') &&
-    (relation.modelStep === undefined ||
-      (Number.isSafeInteger(relation.modelStep) &&
-        Number(relation.modelStep) >= 1)) &&
-    (relation.callId === undefined || validText(relation.callId, false)) &&
-    (relation.requestOrdinal === undefined ||
-      (Number.isSafeInteger(relation.requestOrdinal) &&
-        Number(relation.requestOrdinal) >= 1)) &&
-    (relation.sourceEventOrdinal === undefined ||
-      (Number.isSafeInteger(relation.sourceEventOrdinal) &&
-        Number(relation.sourceEventOrdinal) >= 1));
-};
-
-const validManifestRelation = (
-  value: unknown,
-): value is ContextSourceRelation =>
-  validSourceRelation(value) &&
-  isContextDigest((value as unknown as Record<string, unknown>).contentDigest);
-
-const validOccurrenceSource = (
-  value: unknown,
-): value is ContextOccurrenceSource => {
-  if (
-    !exactKeys(value, ['stage', 'resourceKind'], [
-      'logicalIdentity',
-      'sourceLocator',
-      'contentDigest',
-      'lane',
-      'modelStep',
-      'callId',
-      'sourceWorkerSequence',
-    ])
-  ) return false;
-  const source = value as Record<string, unknown>;
-  return ['discovered', 'resolved', 'loaded', 'observed', 'projected'].includes(
-    source.stage as string,
-  ) && [
-    'workspace_instruction',
-    'skill',
-    'skill_catalog',
-    'instruction_component',
-    'definition_output',
-    'tool_contract',
-    'runtime_fact',
-    'message',
-    'tool_result',
-    'model_request',
-    'provider_wire_body',
-  ].includes(source.resourceKind as string) &&
-    (source.logicalIdentity === undefined ||
-      validText(source.logicalIdentity, false)) &&
-    (source.sourceLocator === undefined ||
-      validText(source.sourceLocator, false)) &&
-    (source.contentDigest === undefined ||
-      isContextDigest(source.contentDigest)) &&
-    (source.lane === undefined || source.lane === 'parent' ||
-      source.lane === 'planner') &&
-    (source.modelStep === undefined ||
-      Number.isSafeInteger(source.modelStep) &&
-        Number(source.modelStep) >= 1) &&
-    (source.callId === undefined || validText(source.callId, false)) &&
-    (source.sourceWorkerSequence === undefined ||
-      Number.isSafeInteger(source.sourceWorkerSequence) &&
-        Number(source.sourceWorkerSequence) >= 1);
-};
-
-export const validateContextModelRequestDelta = (
-  value: unknown,
-): value is ContextModelRequestDelta => {
-  if (
-    !exactKeys(value, [
-      'schemaVersion',
-      'requestOrdinal',
-      'lane',
-      'purpose',
-      'modelStep',
-      'revisionDigest',
-      'resultItemCount',
-      'splices',
-      'occurrences',
-    ], ['modelSelection', 'sourceCallId', 'baseRevisionDigest'])
-  ) return false;
-  if (
-    value.schemaVersion !== CONTEXT_ATTRIBUTION_SCHEMA_VERSION ||
-    !Number.isSafeInteger(value.requestOrdinal) ||
-    Number(value.requestOrdinal) < 1 ||
-    (value.lane !== 'parent' && value.lane !== 'planner') ||
-    (value.purpose !== 'user_turn' && value.purpose !== 'web_search') ||
-    !Number.isSafeInteger(value.modelStep) || Number(value.modelStep) < 1 ||
-    (value.modelSelection !== undefined &&
-      !isStoredModelSelection(value.modelSelection)) ||
-    (value.sourceCallId !== undefined &&
-      !validText(value.sourceCallId, false)) ||
-    (value.baseRevisionDigest !== undefined &&
-      !isContextDigest(value.baseRevisionDigest)) ||
-    !isContextDigest(value.revisionDigest) ||
-    !Number.isSafeInteger(value.resultItemCount) ||
-    Number(value.resultItemCount) < 1 ||
-    !Array.isArray(value.splices) || value.splices.length < 1 ||
-    !Array.isArray(value.occurrences)
-  ) return false;
-  const occurrenceIds = new Set<string>();
-  for (const occurrence of value.occurrences) {
-    if (
-      !exactKeys(occurrence, [
-        'occurrenceId',
-        'kind',
-        'content',
-        'sourceRelations',
-        'occurrenceDigest',
-      ], ['bytesBase64']) ||
-      !validText(occurrence.occurrenceId, false) ||
-      occurrenceIds.has(occurrence.occurrenceId as string) ||
-      !['system', 'message', 'tool_contract', 'provider_wire_body'].includes(
-        occurrence.kind as string,
-      ) ||
-      !isContextBlobDescriptor(occurrence.content) ||
-      !Array.isArray(occurrence.sourceRelations) ||
-      occurrence.sourceRelations.some((source) => !validOccurrenceSource(source)) ||
-      !isContextDigest(occurrence.occurrenceDigest)
-    ) return false;
-    occurrenceIds.add(occurrence.occurrenceId as string);
-    if (occurrence.bytesBase64 !== undefined) {
-      try {
-        if (
-          Uint8Array.fromBase64(occurrence.bytesBase64 as string).byteLength !==
-            (occurrence.content as ContextBlobDescriptor).byteLength
-        ) return false;
-      } catch {
-        return false;
-      }
-    }
-  }
-  for (const splice of value.splices) {
-    if (
-      !exactKeys(splice, ['start', 'deleteCount', 'insertions']) ||
-      !Number.isSafeInteger(splice.start) || Number(splice.start) < 0 ||
-      !Number.isSafeInteger(splice.deleteCount) ||
-      Number(splice.deleteCount) < 0 ||
-      !Array.isArray(splice.insertions) || splice.insertions.some((insertion) =>
-        !exactKeys(insertion, ['occurrenceId', 'occurrenceDigest']) ||
-        !validText(insertion.occurrenceId, false) ||
-        !isContextDigest(insertion.occurrenceDigest)
-      )
-    ) {
-      return false;
-    }
-  }
-  return value.purpose === 'web_search'
-    ? value.resultItemCount === 1 &&
-      value.occurrences.every((item) => item.kind === 'provider_wire_body')
-    : value.occurrences.every((item) => item.kind !== 'provider_wire_body');
-};
-
-/** Strict protocol/storage validation for one logical model request observation. */
-export const validateContextModelRequestRecord = (
-  value: unknown,
-): value is ContextModelRequestRecord => {
-  if (
-    !exactKeys(value, [
-      'requestOrdinal',
-      'lane',
-      'purpose',
-      'modelStep',
-      'items',
-    ], [
-      'modelSelection',
-      'request',
-      'providerBody',
-      'sourceCallId',
-    ])
-  ) return false;
-  if (
-    !Number.isSafeInteger(value.requestOrdinal) ||
-    (value.requestOrdinal as number) < 1 ||
-    (value.lane !== 'parent' && value.lane !== 'planner') ||
-    (value.purpose !== 'user_turn' && value.purpose !== 'web_search') ||
-    !Number.isSafeInteger(value.modelStep) || (value.modelStep as number) < 1 ||
-    (value.modelSelection !== undefined &&
-      !isStoredModelSelection(value.modelSelection)) ||
-    !Array.isArray(value.items)
-  ) return false;
-  if (value.purpose === 'user_turn') {
-    if (
-      value.request === undefined || !validModelRequest(value.request) ||
-      value.providerBody !== undefined || value.sourceCallId !== undefined
-    ) return false;
-  } else if (
-    value.request !== undefined || !validText(value.providerBody, false) ||
-    value.sourceCallId === undefined || !validText(value.sourceCallId, false)
-  ) return false;
-  return value.items.every((item, index) => {
-    if (
-      !exactKeys(item, [
-        'ordinal',
-        'kind',
-        'content',
-        'relationOrdinals',
-        'bytesBase64',
-      ], [
-        'sourceRelations',
-      ])
-    ) {
-      return false;
-    }
-    if (
-      item.ordinal !== index + 1 ||
-      !['system', 'message', 'tool_contract', 'provider_wire_body'].includes(
-        item.kind as string,
-      ) ||
-      !isContextBlobDescriptor(item.content) ||
-      typeof item.bytesBase64 !== 'string' ||
-      !Array.isArray(item.relationOrdinals) ||
-      new Set(item.relationOrdinals).size !== item.relationOrdinals.length ||
-      item.relationOrdinals.some((ordinal) => !Number.isSafeInteger(ordinal) || ordinal < 1)
-    ) return false;
-    if (
-      item.sourceRelations !== undefined &&
-      (!Array.isArray(item.sourceRelations) ||
-        item.sourceRelations.some((relation) => !validSourceRelation(relation)))
-    ) return false;
-    try {
-      const bytes = Uint8Array.fromBase64(item.bytesBase64);
-      return bytes.byteLength === item.content.byteLength;
-    } catch {
-      return false;
-    }
-  }) && (value.purpose === 'web_search'
-    ? value.items.length === 1 && value.items[0].kind === 'provider_wire_body'
-    : value.items.every((item) =>
-      item.kind !== 'provider_wire_body'
-    ));
-};
-
-/** Strict wire/storage shape validation for the final context manifest. */
-export const validateExecutionContextManifest = (
-  value: unknown,
-): value is ExecutionContextManifestV2 => {
-  if (
-    !exactKeys(value, [
-      'schemaVersion',
-      'requestCount',
-      'requests',
-      'externalRelations',
-      'digest',
-    ])
-  ) return false;
-  const manifest = value as Record<string, unknown>;
-  if (
-    manifest.schemaVersion !== CONTEXT_ATTRIBUTION_SCHEMA_VERSION ||
-    !Number.isSafeInteger(manifest.requestCount) ||
-    Number(manifest.requestCount) < 0 ||
-    !Array.isArray(manifest.requests) ||
-    manifest.requests.length !== Number(manifest.requestCount) ||
-    !Array.isArray(manifest.externalRelations) ||
-    !isContextDigest(manifest.digest)
-  ) return false;
-  let previousRequest = 0;
-  for (const request of manifest.requests) {
-    if (
-      !exactKeys(request, ['requestOrdinal', 'revisionDigest'])
-    ) return false;
-    const requestRecord = request as Record<string, unknown>;
-    if (
-      !Number.isSafeInteger(requestRecord.requestOrdinal) ||
-      requestRecord.requestOrdinal !== previousRequest + 1 ||
-      !isContextDigest(requestRecord.revisionDigest)
-    ) return false;
-    previousRequest = requestRecord.requestOrdinal as number;
-  }
-  const externalRelations = manifest.externalRelations as unknown[];
-  if (
-    !externalRelations.every((relation) => validManifestRelation(relation))
-  ) return false;
-  return true;
-};

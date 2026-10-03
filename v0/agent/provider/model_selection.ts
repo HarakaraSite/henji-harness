@@ -100,7 +100,7 @@ export type ModelSelection =
   | DeclaredProviderModelSelection
   | DeclaredChatModelSelection;
 
-export const REASONING_EFFORTS: readonly ReasoningEffort[] = Object.freeze([
+const REASONING_EFFORTS: readonly ReasoningEffort[] = Object.freeze([
   'auto',
   'none',
   'minimal',
@@ -167,27 +167,3 @@ export const modelRouteProfileId = (selection: ModelSelection): string => {
   const component = selection.modelId.replaceAll('/', '-').replaceAll(/[^a-zA-Z0-9._-]/g, '-');
   return `${selection.provider}-${selection.api}-${component}-${selection.effort}-v1`;
 };
-
-export const openRouterStoredSelection = (
-  modelId: string,
-  effort: ReasoningEffort,
-): OpenRouterModelSelection =>
-  Object.freeze({
-    provider: 'openrouter-chat',
-    api: 'openrouter-chat-completions',
-    authProfile: 'openrouter-api-key',
-    modelId,
-    effort,
-  });
-
-export const openRouterResponsesStoredSelection = (
-  modelId: string,
-  effort: ReasoningEffort,
-): OpenRouterResponsesModelSelection =>
-  Object.freeze({
-    provider: 'openrouter-responses',
-    api: 'openrouter-responses',
-    authProfile: 'openrouter-api-key',
-    modelId,
-    effort,
-  });

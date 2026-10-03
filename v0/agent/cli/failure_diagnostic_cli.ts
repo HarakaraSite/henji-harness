@@ -26,7 +26,7 @@ const ERROR_MESSAGES: Readonly<Record<string, string>> = {
   history_io_failure: 'history store I/O failure',
 };
 
-export type FailureDiagnosticCliCommand =
+type FailureDiagnosticCliCommand =
   | { readonly kind: 'list' }
   | { readonly kind: 'latest' }
   | { readonly kind: 'show'; readonly id: string }
@@ -37,14 +37,14 @@ export type FailureDiagnosticCliCommand =
   | { readonly kind: 'execution_context'; readonly id: string }
   | { readonly kind: 'execution_request'; readonly id: string; readonly ordinal: number };
 
-export class FailureDiagnosticCliInvocationError extends Error {
+class FailureDiagnosticCliInvocationError extends Error {
   constructor() {
     super('invalid invocation');
     this.name = 'FailureDiagnosticCliInvocationError';
   }
 }
 
-export const parseFailureDiagnosticArgs = (
+const parseFailureDiagnosticArgs = (
   args: readonly string[],
 ): FailureDiagnosticCliCommand => {
   if (args.length === 1 && args[0] === 'list') return { kind: 'list' };
@@ -143,7 +143,7 @@ const resolvePhysicalWorkspace = async (root = Deno.cwd()): Promise<string> => {
 
 const resolveStateRoot = (): string => resolveRuntimePaths().stateRoot;
 
-export interface FailureDiagnosticCliDependencies {
+interface FailureDiagnosticCliDependencies {
   readonly writeStdout?: (text: string) => void | PromiseLike<void>;
   readonly writeStderr?: (text: string) => void | PromiseLike<void>;
   readonly workspaceRoot?: string;

@@ -11,10 +11,6 @@ import {
 import { runAgent } from '../../v0/agent/core/loop.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { PRODUCTION_PROFILE } from '../../v0/agent/provider/provider_profile.ts';
-import {
-  materializePreparedRuntimeComposition,
-  prepareRuntimeComposition,
-} from '../../v0/agent/runtime/runtime.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { createWebSearchTool, ExaWebSearchBackend } from '../../v0/agent/tools/web_search.ts';
@@ -183,45 +179,6 @@ const contextFor = (
     requestCount,
     evidence,
   );
-
-Deno.test('non-Worker runtime materializes the injected web_search backend', async () => {
-  const prepared = await prepareRuntimeComposition({
-    workspace: { root: '/provider-free-web-search' },
-    instructionFileSystem: {
-      lstat: () => Promise.reject(new Error('no instruction fixture')),
-      open: () => Promise.reject(new Error('no instruction fixture')),
-    },
-    skillFileSystem: {
-      lstat: () => Promise.reject(new Error('no skill fixture')),
-      readDirectory: async function* () {},
-      open: () => Promise.reject(new Error('no skill fixture')),
-    },
-    webSearchBackend: {
-      search: ({ query }) => ({
-        results: [{
-          title: 'Runtime source',
-          url: 'provider-free://runtime-search',
-          highlights: [`runtime result for ${query}`],
-        }],
-      }),
-    },
-  });
-  const composition = materializePreparedRuntimeComposition(prepared);
-  assert(
-    composition.resourceSelection.resources.map(String).includes(
-      'tool:web_search',
-    ),
-  );
-  assert(composition.registry.resolve('web_search') !== undefined);
-  const result = await composition.registry.dispatch({
-    callId: 'runtime-search',
-    name: 'web_search',
-    arguments: { query: 'runtime query' },
-  }, { modelStep: 1 });
-  assertEquals(result.content.outcome, 'success');
-  assert(result.content.text.includes('runtime result for runtime query'));
-  assert(result.content.text.includes('provider-free://runtime-search'));
-});
 
 Deno.test('web_search completes main-Exa-main with full results and shared evidence', async () => {
   const counter = createWorkerRequestCounter();

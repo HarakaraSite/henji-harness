@@ -106,6 +106,7 @@ Deno.test('Increment 127 headless Worker uses the configured default model selec
   try {
     const created = await createWorkerSession({
       workspaceRoot,
+      stateRoot: `${root}/state`,
       dataRoot: `${root}/data`,
       configRoot,
       persistence: 'none',

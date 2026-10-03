@@ -37,7 +37,7 @@ export const presentationPositionFromSnapshot = (
   };
 };
 
-export interface KeyedConversationUpdate {
+interface KeyedConversationUpdate {
   readonly store: KeyedConversationStore;
   readonly changedIds: ReadonlySet<string>;
   readonly structureChanged: boolean;

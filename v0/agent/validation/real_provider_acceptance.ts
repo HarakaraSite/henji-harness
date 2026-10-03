@@ -12,25 +12,25 @@ import {
 import { runAgent } from '../core/loop.ts';
 import { createFixtureTool, Registry } from '../tools/tools.ts';
 
-export const FIXED_TASK =
+const FIXED_TASK =
   'Use the uppercase_text tool exactly once to convert the following ASCII text to uppercase. ' +
   'After receiving the tool result, reply with exactly that result and nothing else: ' +
   'henji harness step seven';
-export const FIXED_TOOL_NAME = 'uppercase_text';
-export const FIXED_TOOL_INPUT_TEXT = 'henji harness step seven';
-export const EXPECTED_TOOL_RESULT = 'HENJI HARNESS STEP SEVEN';
-export const EXPECTED_FINAL_TEXT = EXPECTED_TOOL_RESULT;
-export const MAX_TASK_BYTES = 1024;
-export const MAX_STEPS = 2;
+const FIXED_TOOL_NAME = 'uppercase_text';
+const FIXED_TOOL_INPUT_TEXT = 'henji harness step seven';
+const EXPECTED_TOOL_RESULT = 'HENJI HARNESS STEP SEVEN';
+const EXPECTED_FINAL_TEXT = EXPECTED_TOOL_RESULT;
+const MAX_TASK_BYTES = 1024;
+const MAX_STEPS = 2;
 
 type AcceptanceErrorCode = 'acceptance_input' | 'acceptance_contract';
 
-export interface AcceptanceError {
+interface AcceptanceError {
   readonly code: AcceptanceErrorCode;
   readonly message: string;
 }
 
-export interface AcceptanceOutput {
+interface AcceptanceOutput {
   readonly ok: boolean;
   readonly profile: string;
   readonly outcome: LoopOutcome['outcome'];
@@ -43,13 +43,13 @@ export interface AcceptanceOutput {
   readonly error?: AcceptanceError;
 }
 
-export interface AcceptanceRun {
+interface AcceptanceRun {
   readonly exitCode: 0 | 1;
   readonly output: string;
   readonly result: AcceptanceOutput;
 }
 
-export interface AcceptanceDependencies {
+interface AcceptanceDependencies {
   /** Offline tests inject a fake fetch and a dummy credential/source. */
   readonly fetcher?: typeof fetch;
   readonly credential?: string;
@@ -131,7 +131,7 @@ const isCompleteTranscript = (transcript: readonly Message[]): boolean => {
     finalContent.kind === 'text' && finalContent.text === EXPECTED_FINAL_TEXT;
 };
 
-export const evaluateAcceptanceOutcome = (
+const evaluateAcceptanceOutcome = (
   outcome: LoopOutcome,
   requestCount: number,
 ): AcceptanceOutput | undefined => {
@@ -220,7 +220,7 @@ const output = (result: AcceptanceOutput): AcceptanceRun => ({
   result,
 });
 
-export const runAcceptance = async (
+const runAcceptance = async (
   args: readonly string[],
   dependencies: AcceptanceDependencies = {},
 ): Promise<AcceptanceRun> => {
@@ -261,7 +261,7 @@ export const runAcceptance = async (
   }
 };
 
-export const main = async (args: readonly string[] = Deno.args): Promise<number> => {
+const main = async (args: readonly string[] = Deno.args): Promise<number> => {
   const result = await runAcceptance(args);
   console.log(result.output);
   return result.exitCode;

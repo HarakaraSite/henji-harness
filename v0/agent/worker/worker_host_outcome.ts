@@ -1,14 +1,7 @@
 import type { AgentEvent } from '../core/events.ts';
 import type { LoopOutcome, Message } from '../core/contracts.ts';
-import type { DefinitionRevisionRef } from '../session/session_store.ts';
-import { sameDefinitionRevisionRef } from '../definitions/managed_resource_ref.ts';
-import type { FailureDiagnosticPersistenceErrorCode } from '../session/failure_diagnostic.ts';
-import type { WorkerCorrelation, WorkerRuntimeEventMessage } from './worker_protocol.ts';
 
-export const sameRef = (
-  left: DefinitionRevisionRef,
-  right: DefinitionRevisionRef,
-): boolean => sameDefinitionRevisionRef(left, right);
+import type { WorkerCorrelation, WorkerRuntimeEventMessage } from './worker_protocol.ts';
 
 export const sameCorrelation = (
   left: WorkerCorrelation,
@@ -102,25 +95,6 @@ export const interruptedOutcome = (
   toolResultCount: 0,
   transcript: structuredClone(transcript),
 });
-
-export const persistenceCode = <T extends string>(
-  error: unknown,
-  allowed: readonly T[],
-  fallback: T,
-): T => {
-  const code = typeof error === 'object' && error !== null
-    ? (error as { readonly code?: unknown }).code
-    : undefined;
-  return typeof code === 'string' && allowed.includes(code as T) ? code as T : fallback;
-};
-
-export const diagnosticPersistenceCodes: readonly FailureDiagnosticPersistenceErrorCode[] = [
-  'diagnostic_not_found',
-  'diagnostic_busy',
-  'diagnostic_invalid',
-  'diagnostic_capacity',
-  'diagnostic_io_failure',
-];
 
 export const turnEndFromOutcome = (
   turn: number,

@@ -13,7 +13,7 @@ import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evide
 import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter_model_catalog.ts';
 import { modelRouteProfileId } from '../../v0/agent/provider/model_selection.ts';
 import { createAgentDataPortClient } from '../../v0/agent/data/agent_data_client.ts';
-import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';
 import type {
   WorkerHostCommand,

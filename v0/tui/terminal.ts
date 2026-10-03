@@ -29,9 +29,9 @@ export interface TerminalPort {
 
 const encoder = new TextEncoder();
 
-export const BRACKETED_PASTE_ON = '\x1b[?2004h';
-export const BRACKETED_PASTE_OFF = '\x1b[?2004l';
-export const EDITOR_CURSOR_STYLE = '\x1b[6 q';
+const BRACKETED_PASTE_ON = '\x1b[?2004h';
+const BRACKETED_PASTE_OFF = '\x1b[?2004l';
+const EDITOR_CURSOR_STYLE = '\x1b[6 q';
 export const DEFAULT_CURSOR_STYLE = '\x1b[0 q';
 export const SHOW_CURSOR = '\x1b[?25h';
 export const ENTER_ALTERNATE_SCREEN = '\x1b[?1049h';
@@ -53,7 +53,7 @@ export const RESET_SCROLL_REGION = '\x1b[r';
 
 export const staticBytes = (text: string): Uint8Array => encoder.encode(text);
 
-export type ChunkWriter = (bytes: Uint8Array) => void | number | Promise<void | number>;
+type ChunkWriter = (bytes: Uint8Array) => void | number | Promise<void | number>;
 
 type OutputItem = { readonly kind: 'bytes'; readonly bytes: Uint8Array } | {
   readonly kind: 'frame';

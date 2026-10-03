@@ -1,12 +1,12 @@
 /** Maximum UTF-8 bytes admitted for one mid-turn steering message. */
-export const MAX_STEERING_TEXT_BYTES = 65_536;
+const MAX_STEERING_TEXT_BYTES = 65_536;
 
-export type SteerRequestResult =
+type SteerRequestResult =
   | 'accepted'
   | 'idle'
   | 'already_accepted';
 
-export type SteeringState = 'open-empty' | 'pending' | 'consumed' | 'closed';
+type SteeringState = 'open-empty' | 'pending' | 'consumed' | 'closed';
 
 const encoder = new TextEncoder();
 

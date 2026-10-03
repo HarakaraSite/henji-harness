@@ -64,7 +64,7 @@ export const exactKeys = (value: Record<string, unknown>, keys: readonly string[
 export const isNonnegativeInteger = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 
-export const isJsonValue = (value: unknown): value is JsonValue => {
+const isJsonValue = (value: unknown): value is JsonValue => {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
   if (typeof value === 'number') return Number.isFinite(value);
   if (Array.isArray(value)) return value.every(isJsonValue);
@@ -95,7 +95,7 @@ export const suiteReportName = (suite: LiveCorpusSuite): LiveReportSuite =>
 export const suiteRequestCeiling = (suite: LiveCorpusSuite): 12 | 48 =>
   suite === 'sentinel' ? 12 : 48;
 
-export const suiteTaskIds = (suite: LiveCorpusSuite): readonly string[] =>
+const suiteTaskIds = (suite: LiveCorpusSuite): readonly string[] =>
   suite === 'sentinel' ? SENTINEL_TASK_IDS : CANONICAL_TASK_IDS;
 
 export const suiteTasks = (

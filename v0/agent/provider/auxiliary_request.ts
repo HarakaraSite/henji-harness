@@ -7,7 +7,7 @@ import type {
   ProviderEvidenceRequestMetadata,
 } from './provider_evidence.ts';
 
-export interface AuxiliaryProviderEvidence {
+interface AuxiliaryProviderEvidence {
   readonly execution: ModelExecutionContext;
   readonly phase: ProviderEvidencePhase;
   readonly modelStep: number;
@@ -46,7 +46,7 @@ export type ProviderRequestFn = (
   request: ProviderHttpRequest,
 ) => Promise<ProviderHttpResponse>;
 
-export interface ProviderRequestDispatcherOptions {
+interface ProviderRequestDispatcherOptions {
   readonly resolveCredential: (
     authProfile: AuthProfileId,
   ) => string | undefined | PromiseLike<string | undefined>;

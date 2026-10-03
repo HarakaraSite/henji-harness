@@ -32,11 +32,11 @@ export type WorkerExecutionSettlement =
   | 'committed'
   | 'committed_generation_unavailable';
 
-export type WorkerExecutionArtifactPersistenceErrorCode =
+type WorkerExecutionArtifactPersistenceErrorCode =
   | 'worker_execution_artifact_io_failure'
   | 'worker_execution_artifact_invalid';
 
-export type WorkerExecutionTraceDirection = 'host_to_worker' | 'worker_to_host';
+type WorkerExecutionTraceDirection = 'host_to_worker' | 'worker_to_host';
 
 export interface WorkerExecutionTraceEntry {
   readonly direction: WorkerExecutionTraceDirection;
@@ -49,13 +49,13 @@ export interface WorkerExecutionTraceEntry {
   readonly ackAccepted?: boolean;
 }
 
-export interface WorkerExecutionTurnCommand {
+interface WorkerExecutionTurnCommand {
   readonly kind: 'turn';
   readonly correlation: WorkerCorrelation;
   readonly task: string;
 }
 
-export interface WorkerExecutionOutcome {
+interface WorkerExecutionOutcome {
   readonly ok: boolean;
   readonly outcome: LoopOutcome['outcome'];
   readonly stopReason: LoopOutcome['stopReason'];
@@ -79,7 +79,7 @@ export interface WorkerExecutionOutcome {
  * persistence schema, deliberately independent of the live Worker ready-message protocol so that
  * removed live fields (`plannerModel`, `subagents`) remain readable from old artifacts.
  */
-export interface WorkerExecutionStoredManifestV1 {
+interface WorkerExecutionStoredManifestV1 {
   readonly role: 'parent' | 'planner';
   readonly maxSteps: number;
   readonly profileId: string;
@@ -132,7 +132,7 @@ export interface WorkerExecutionArtifactV2 {
   readonly artifactPersistenceError?: WorkerExecutionArtifactPersistenceErrorCode;
 }
 
-export interface WorkerExecutionRecallAttributionV1 {
+interface WorkerExecutionRecallAttributionV1 {
   readonly schemaVersion: 1;
   readonly sourceExecutionId: string;
   /** Exact user-context text projected into every model request for this turn. */
@@ -146,13 +146,13 @@ export interface WorkerExecutionArtifactV3
 }
 
 /** One exact delegated subagent Definition composed into this execution's root composition. */
-export interface WorkerExecutionSubagentAttributionV1 {
+interface WorkerExecutionSubagentAttributionV1 {
   readonly subagentName: string;
   readonly ref: DefinitionRevisionRef;
 }
 
 /** One exact tool Definition revision composed into this execution's root composition. */
-export interface WorkerExecutionToolAttributionV1 {
+interface WorkerExecutionToolAttributionV1 {
   readonly toolIdentity: string;
   readonly ref: ToolDefinitionRevisionRef;
 }
@@ -648,7 +648,7 @@ export const validateWorkerExecutionArtifact = (
   return valid;
 };
 
-export const validSubagentAttribution = (
+const validSubagentAttribution = (
   value: unknown,
 ): value is WorkerExecutionSubagentAttributionV1 => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {

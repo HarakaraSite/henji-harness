@@ -47,7 +47,7 @@ export type HistoryV7SemanticKind =
   | 'host_decision'
   | 'recall_projection';
 
-export interface HistoryV7SemanticRelationInput {
+interface HistoryV7SemanticRelationInput {
   readonly relation: string;
   readonly targetOccurrenceId: string;
   readonly mandatory?: boolean;

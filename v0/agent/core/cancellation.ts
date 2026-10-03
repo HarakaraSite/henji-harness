@@ -1,11 +1,11 @@
 /** Internal state for one accepted user turn's cancellation lifetime. */
-export type TurnCancellationState =
+type TurnCancellationState =
   | 'active'
   | 'cancel_requested'
   | 'settled'
   | 'cleanup_failed';
 
-export type CancelRequestResult = 'requested' | 'already_requested' | 'idle';
+type CancelRequestResult = 'requested' | 'already_requested' | 'idle';
 
 /** A cancellation request that has completed cleanup and may be reported as a cancelled turn. */
 export class TurnCancelledError extends Error {

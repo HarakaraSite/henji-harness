@@ -15,7 +15,7 @@ export const fixtureExecutionId = 'fixture-execution';
 const sessionId = '14600000-0000-4000-8000-000000000001';
 
 /** Explicit source observations use the same common engine and entity mapper as production. */
-export const conversationFixture = (
+const conversationFixture = (
   task: string,
   observations: readonly ConversationObservation[],
 ) => {

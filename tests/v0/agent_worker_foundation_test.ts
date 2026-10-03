@@ -22,7 +22,7 @@ import type {
 import { Registry } from '../../v0/agent/tools/tools.ts';
 import { ProviderEvidenceRecorder } from '../../v0/agent/provider/provider_evidence.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { runHeadlessWorker } from '../../v0/agent/worker/worker_headless_runner.ts';
 import { resolveBuiltinAgent } from '../../v0/agent/definitions/agent_catalog.ts';
 import { main as runtimeCliMain, parseRuntimeArgs } from '../../v0/agent/cli/runtime_cli.ts';
@@ -623,22 +623,30 @@ Deno.test('headless Worker model receives each active tool guideline once', asyn
   const root = await Deno.makeTempDir({
     prefix: 'henji-guidelines-foundation-',
   });
-  const result = await runHeadlessWorker(
-    'return active tool guidelines',
-    resolveBuiltinAgent(),
-    {
-      workspaceRoot: Deno.cwd(),
-      stateRoot: `${root}/state`,
-      physicalIoMode: 'provider-free',
-    },
-  );
-  assert(result.outcome.ok);
-  const instruction = result.outcome.finalText ?? '';
-  assert(instruction.includes('## Active tool guidelines'));
-  for (const tool of ['bash_output', 'read', 'web_search']) {
-    assertEquals(instruction.match(new RegExp(`- ${tool}:`, 'g'))?.length, 1);
+  try {
+    const result = await runHeadlessWorker(
+      'return active tool guidelines',
+      resolveBuiltinAgent(),
+      {
+        workspaceRoot: root,
+        stateRoot: `${root}/state`,
+        configRoot: `${root}/config`,
+        dataRoot: `${root}/data`,
+        physicalIoMode: 'provider-free',
+      },
+    );
+    assert(result.outcome.ok);
+    const instruction = result.outcome.finalText ?? '';
+    const sections = instruction.split('## Active tool guidelines\n\n');
+    assertEquals(sections.length, 2);
+    const guidelines = sections[1].split('\n\n')[0].split('\n');
+    assertEquals(new Set(guidelines).size, guidelines.length);
+    for (const tool of ['bash_output', 'read', 'web_search']) {
+      assert(guidelines.some((line) => line.startsWith(`- ${tool}:`)));
+    }
+  } finally {
+    await Deno.remove(root, { recursive: true });
   }
-  await Deno.remove(root, { recursive: true });
 });
 
 Deno.test('runtime CLI preserves argv/stdin selection and final-only channels', async () => {

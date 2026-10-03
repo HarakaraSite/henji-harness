@@ -7,10 +7,10 @@
 
 import { type FailureDetails, validateFailureDetails } from '../core/failure_details.ts';
 
-export const MAX_DIAGNOSTIC_REQUESTS = Number.MAX_SAFE_INTEGER;
-export const MAX_DIAGNOSTIC_MODEL_STEP = Number.MAX_SAFE_INTEGER;
-export const MAX_DIAGNOSTIC_BYTES = 6_144;
-export const DIAGNOSTIC_RETRY_COUNT = 0 as const;
+const MAX_DIAGNOSTIC_REQUESTS = Number.MAX_SAFE_INTEGER;
+const MAX_DIAGNOSTIC_MODEL_STEP = Number.MAX_SAFE_INTEGER;
+const MAX_DIAGNOSTIC_BYTES = 6_144;
+const DIAGNOSTIC_RETRY_COUNT = 0 as const;
 
 /** Publicly safe projection of a diagnostic persistence failure. */
 export type FailureDiagnosticPersistenceErrorCode =
@@ -75,7 +75,7 @@ export type ParseReason =
   | 'stream_ended_before_done'
   | 'unsupported_response_shape';
 
-export type DiagnosticLane = 'parent' | 'planner';
+type DiagnosticLane = 'parent' | 'planner';
 
 export interface FailureDiagnosticV1 {
   readonly schemaVersion: 1;
@@ -139,7 +139,7 @@ export type FailureDiagnosticPersister = (
   diagnostic: FailureDiagnosticV1,
 ) => void | PromiseLike<void>;
 
-export interface FailureDiagnosticOwnerOptions {
+interface FailureDiagnosticOwnerOptions {
   readonly uuid?: () => string;
   readonly now?: () => string;
   readonly persist?: FailureDiagnosticPersister;
@@ -356,7 +356,7 @@ export const createFailureDiagnostic = (
   return freezeDeep(diagnostic);
 };
 
-export class FailureDiagnosticCollisionError extends Error {
+class FailureDiagnosticCollisionError extends Error {
   constructor() {
     super('multiple failure diagnostics for one turn');
     this.name = 'FailureDiagnosticCollisionError';
@@ -440,42 +440,11 @@ export class FailureDiagnosticOwner {
 }
 
 /** Canonical compact JSON (the trailing newline is supplied by the file store). */
-export const encodeFailureDiagnostic = (value: FailureDiagnosticV1): string => {
+const encodeFailureDiagnostic = (value: FailureDiagnosticV1): string => {
   if (!validateFailureDiagnostic(value)) {
     throw new TypeError('invalid failure diagnostic');
   }
   return JSON.stringify(value);
-};
-
-export class FailureDiagnosticCodecError extends Error {
-  constructor() {
-    super('invalid failure diagnostic');
-    this.name = 'FailureDiagnosticCodecError';
-  }
-}
-
-export const decodeFailureDiagnostic = (
-  bytes: Uint8Array | string,
-): FailureDiagnosticV1 => {
-  try {
-    const text = typeof bytes === 'string'
-      ? bytes
-      : new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-    if (!text.endsWith('\n') && text.length > 0) {
-      throw new FailureDiagnosticCodecError();
-    }
-    const body = text.endsWith('\n') ? text.slice(0, -1) : text;
-    const value: unknown = JSON.parse(body);
-    if (
-      !validateFailureDiagnostic(value) ||
-      encodeFailureDiagnostic(value) !== body
-    ) {
-      throw new FailureDiagnosticCodecError();
-    }
-    return freezeDeep(value);
-  } catch {
-    throw new FailureDiagnosticCodecError();
-  }
 };
 
 export const isFailureDiagnostic = validateFailureDiagnostic;

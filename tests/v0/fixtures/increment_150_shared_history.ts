@@ -1,5 +1,5 @@
 import { readSync } from 'node:fs';
-import { createWorkerSession } from '../../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../../v0/agent/worker/worker_tui_session.ts';
 const [stateRoot, workspaceRoot, task, barrier] = Deno.args;
 const created = await createWorkerSession({
   stateRoot,

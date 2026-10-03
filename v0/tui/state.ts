@@ -20,10 +20,10 @@ import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 import { truncateText } from './terminal_text.ts';
 import type { KeyedConversationStore } from './keyed_conversation_store.ts';
 
-export const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
-export const UI_MAX_NEW_BELOW = 512;
+const UI_MAX_ENTRY_BYTES = MAX_CONVERSATION_TEXT_BYTES;
+const UI_MAX_NEW_BELOW = 512;
 
-export type UiLogKind =
+type UiLogKind =
   | 'user'
   | 'assistant'
   | 'thinking'
@@ -92,7 +92,7 @@ export type UiOverlay =
     }
   >;
 
-export type UiScroll =
+type UiScroll =
   | Readonly<{ readonly kind: 'followLatest' }>
   | Readonly<{ readonly kind: 'oldest' }>
   | Readonly<
@@ -147,7 +147,7 @@ export interface UiState {
   readonly generation: number;
 }
 
-export type UiAction =
+type UiAction =
   | Readonly<{ readonly kind: 'editor'; readonly snapshot: EditorSnapshot }>
   | Readonly<{ readonly kind: 'clear_live' }>
   | Readonly<{
@@ -287,7 +287,7 @@ const historyWindowEndingAt = (
 export const uiConversationCount = (state: UiState): number =>
   state.keyedConversation?.size ?? state.log.entries.length;
 
-export const uiConversationEntryAt = (state: UiState, index: number): UiLogEntry | undefined =>
+const uiConversationEntryAt = (state: UiState, index: number): UiLogEntry | undefined =>
   state.keyedConversation?.entryAt(index) ?? state.log.entries[index];
 
 export const uiConversationIndexOf = (state: UiState, id: string): number =>

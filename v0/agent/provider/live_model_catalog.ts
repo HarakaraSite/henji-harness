@@ -23,7 +23,7 @@ export type LiveModelCatalogFact = Readonly<{
   valueShape?: string;
 }>;
 
-export type LiveModelCatalogErrorCode =
+type LiveModelCatalogErrorCode =
   | 'unknown_provider'
   | 'credential_unavailable'
   | 'models_unavailable'
@@ -42,7 +42,7 @@ export class LiveModelCatalogError extends Error {
   }
 }
 
-export interface LiveModelCatalogOptions {
+interface LiveModelCatalogOptions {
   readonly configRoot: string;
   readonly declarations: readonly ProviderDeclarationV1[];
   readonly metadataUrl?: string;
@@ -66,6 +66,19 @@ interface ProviderModel {
   readonly name?: string;
   readonly created?: number;
 }
+
+const withPinnedModels = (
+  declaration: ProviderDeclarationV1,
+  models: readonly ProviderModel[],
+): readonly ProviderModel[] => {
+  const listed = new Set(models.map((model) => model.modelId));
+  return [
+    ...models,
+    ...declaration.modelCatalog.entries
+      .filter((entry) => entry.pinned && !listed.has(entry.modelId))
+      .map(({ modelId }) => ({ modelId })),
+  ];
+};
 
 interface MetadataSnapshot {
   readonly status: 'loaded' | 'unavailable';
@@ -320,7 +333,7 @@ export class LiveModelCatalog {
       const metadata = metadataResult.status === 'fulfilled'
         ? metadataResult.value
         : { status: 'unavailable' as const, models: new Map() };
-      const snapshot = { models: providerResult.value, metadata };
+      const snapshot = { models: withPinnedModels(declaration, providerResult.value), metadata };
       this.#snapshots.set(this.#snapshotKey(provider, credential.registrationId), snapshot);
       return this.#compose(declaration, snapshot, catalogResult.value);
     }
@@ -343,7 +356,7 @@ export class LiveModelCatalog {
     const metadata = metadataResult.status === 'fulfilled'
       ? metadataResult.value
       : { status: 'unavailable' as const, models: new Map() };
-    const snapshot = { models: providerResult.value, metadata };
+    const snapshot = { models: withPinnedModels(declaration, providerResult.value), metadata };
     this.#snapshots.set(this.#snapshotKey(provider), snapshot);
     return this.#compose(declaration, snapshot, catalogResult.value);
   }
@@ -370,7 +383,7 @@ export class LiveModelCatalog {
     if (favorite && model !== undefined) {
       const storedModel = catalog.models[modelId] ?? {};
       const fixed = declaration.modelCatalog.entries.find((entry) => entry.modelId === modelId);
-      const known = (declaration.catalogSource === 'external' ||
+      const known = (fixed?.pinned === true || declaration.catalogSource === 'external' ||
           declaration.modelListSource === 'catalog') && fixed !== undefined
         ? fixed.efforts
         : snapshot.metadata.models.get(modelId);
@@ -406,7 +419,8 @@ export class LiveModelCatalog {
     let source: EffortCatalogResult['source'];
     let choices: readonly ReasoningEffort[];
     if (
-      (declaration.catalogSource === 'external' || declaration.modelListSource === 'catalog') &&
+      (fixed?.pinned === true || declaration.catalogSource === 'external' ||
+        declaration.modelListSource === 'catalog') &&
       fixed !== undefined
     ) {
       source = 'override';
@@ -955,7 +969,8 @@ export class LiveModelCatalog {
       let known: readonly ReasoningEffort[] | undefined;
       let source: EffortCatalogResult['source'];
       if (
-        (declaration.catalogSource === 'external' || declaration.modelListSource === 'catalog') &&
+        (fixed?.pinned === true || declaration.catalogSource === 'external' ||
+          declaration.modelListSource === 'catalog') &&
         fixed !== undefined
       ) {
         source = 'override';

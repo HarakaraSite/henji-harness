@@ -14,11 +14,11 @@ import {
 } from './production_cli_e2e_contract.ts';
 
 export const PRODUCTION_CLI_LAUNCHER = new URL('../../../dist/henji', import.meta.url).pathname;
-export const PRODUCTION_CLI_E2E_PATH = '/usr/bin:/bin' as const;
+const PRODUCTION_CLI_E2E_PATH = '/usr/bin:/bin' as const;
 const RUN_PARENT = '/tmp' as const;
 const RUN_PREFIX = 'henji-production-e2e-' as const;
 
-export interface ProductionCliCommandOptions {
+interface ProductionCliCommandOptions {
   readonly args: readonly ['run'];
   readonly input: `${typeof PRODUCTION_CLI_E2E_TASK}\n`;
   readonly cwd: string;
@@ -35,7 +35,7 @@ export interface ProductionCliCommandOptions {
   readonly stderr: 'piped';
 }
 
-export interface ProductionCliE2eDependencies {
+interface ProductionCliE2eDependencies {
   readonly nonce?: () => string;
   readonly runChild?: (
     command: typeof PRODUCTION_CLI_LAUNCHER,
@@ -325,7 +325,7 @@ export const runProductionCliE2e = async (
   });
 };
 
-export const main = async (
+const main = async (
   args: readonly string[] = Deno.args,
   dependencies: ProductionCliE2eDependencies = {},
 ): Promise<number> => {

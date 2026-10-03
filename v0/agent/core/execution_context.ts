@@ -45,17 +45,17 @@ export interface AuxiliaryRequestObservation {
   readonly modelSelection?: ModelSelection;
 }
 
-export interface TurnRequestBudgetSnapshot {
+interface TurnRequestBudgetSnapshot {
   readonly parent: number;
   readonly aggregate: number;
 }
 
-export const REQUEST_LIMITS = Object.freeze({
+const REQUEST_LIMITS = Object.freeze({
   parent: 8,
   aggregate: 8,
 });
 
-export interface TurnRequestLimits {
+interface TurnRequestLimits {
   readonly parent: number;
   readonly aggregate: number;
 }
@@ -67,7 +67,7 @@ export const MAX_TOOL_PROGRESS_TEXT_BYTES = 8_192;
 export const MAX_TOOL_PROGRESS_UPDATES_PER_CALL = 64;
 
 /** Execution-only callback for one tool's accumulated progress snapshot. */
-export type ToolProgressReporter = (snapshot: string) => void;
+type ToolProgressReporter = (snapshot: string) => void;
 
 /**
  * Synchronous provider-neutral request admission for one accepted turn.

@@ -1,6 +1,6 @@
 import { type Model, type ModelRequest, type ModelResult } from '../core/contracts.ts';
 
-export type FixtureStep =
+type FixtureStep =
   | ModelResult
   | ((request: ModelRequest, callCount: number) => ModelResult | PromiseLike<ModelResult>);
 

@@ -13,7 +13,7 @@ export interface AgentResourceSelection {
   }>;
 }
 
-export type AgentResourceKind =
+type AgentResourceKind =
   | 'model'
   | 'instruction'
   | 'skill'
@@ -22,7 +22,7 @@ export type AgentResourceKind =
   | 'agent';
 
 /** Sanitized failure for malformed or incoherent resource declarations. */
-export class AgentResourceIdentityError extends Error {
+class AgentResourceIdentityError extends Error {
   constructor() {
     super('invalid agent resource selection');
     this.name = 'AgentResourceIdentityError';
@@ -88,7 +88,7 @@ export const createAgentResourceIdentity = (
 };
 
 /** Return the validated kind of an identity without exposing implementation objects. */
-export const agentResourceKind = (
+const agentResourceKind = (
   value: AgentResourceIdentity,
 ): AgentResourceKind => {
   const parsed = parse(value);
@@ -216,7 +216,7 @@ export const createAgentResourceSelection = (
  * Validate the built-in capability topology independently of a resolved Definition.
  * This is shared by the Step 76 Definition validator and the Step 77 manifest codec.
  */
-export const validateAgentResourceTopology = (
+const validateAgentResourceTopology = (
   definitionId: AgentResourceTopologyId,
   resources: readonly AgentResourceIdentity[],
 ): void => {
@@ -385,7 +385,7 @@ const declaredResources = (
 };
 
 /** Validate the shape of a declarative capability topology without assuming a built-in preset. */
-export const validateDeclaredAgentResourceTopology = (
+const validateDeclaredAgentResourceTopology = (
   resources: readonly AgentResourceIdentity[],
 ): void => {
   try {

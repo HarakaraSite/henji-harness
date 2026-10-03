@@ -43,7 +43,7 @@ const sameCorrelation = (
 const asError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
-export class AgentDataPortError extends Error {
+class AgentDataPortError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,

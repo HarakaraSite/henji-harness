@@ -60,7 +60,7 @@ export const plainTextAssistantRenderer: AssistantContentRenderer = Object.freez
   render: (text: string): readonly AssistantLine[] => plainLines(text),
 });
 
-export interface ConversationEntryProjection {
+interface ConversationEntryProjection {
   readonly text: string;
   readonly labelScalarLength: number;
   readonly styledPrefixScalarLength?: number;
@@ -69,7 +69,7 @@ export interface ConversationEntryProjection {
   readonly rowTone?: ConversationLabelTone;
 }
 
-export interface ConversationEntryProjectionOptions {
+interface ConversationEntryProjectionOptions {
   /**
    * Whether `/recall` can reference a stopped execution in this Session. `--no-session` rejects
    * `/recall`, so its failure rows keep the reason alone.

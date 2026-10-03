@@ -45,15 +45,15 @@ import {
 import { MAX_CONVERSATION_TEXT_BYTES } from '../../resource_limits.ts';
 
 /** Maximum UTF-8 bytes retained by one live assistant progress snapshot. */
-export const MAX_ASSISTANT_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
-export const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
+const MAX_ASSISTANT_TEXT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
+const MAX_ASSISTANT_PROGRESS_TEXT_BYTES = MAX_ASSISTANT_TEXT_BYTES;
 
 /** Minimum wall-clock gap between accepted live snapshots (assistant text, thinking) per request. */
 export const LIVE_UPDATE_MIN_INTERVAL_MS = 100;
 /** A changed live snapshot without a completed line is still shown after this gap. */
-export const LIVE_UPDATE_MAX_INTERVAL_MS = 500;
+const LIVE_UPDATE_MAX_INTERVAL_MS = 500;
 
-export interface AgentLoopOptions {
+interface AgentLoopOptions {
   readonly maxSteps?: number;
   readonly systemInstruction?: string;
   readonly executionContext?: ModelExecutionContext;
@@ -69,7 +69,7 @@ export interface AgentLoopOptions {
   readonly runtimeProviderRequestCount?: () => number;
 }
 
-export interface AgentTurnOptions extends AgentLoopOptions {
+interface AgentTurnOptions extends AgentLoopOptions {
   readonly eventSink?: AgentEventSink;
   readonly turn?: number;
   readonly commit?: (transcript: readonly Message[]) => void;

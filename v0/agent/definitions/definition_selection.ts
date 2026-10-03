@@ -16,7 +16,7 @@ import { DefinitionSelectorError, parseDefinitionRevisionSelector } from './defi
 
 export { DefinitionSelectorError, parseDefinitionRevisionSelector } from './definition_selector.ts';
 
-export type DefinitionStartupErrorCode =
+type DefinitionStartupErrorCode =
   | 'definition_not_found'
   | 'definition_invalid'
   | 'definition_api_unsupported'
@@ -24,7 +24,7 @@ export type DefinitionStartupErrorCode =
   | 'definition_execution_unavailable'
   | 'definition_evaluation_failed';
 
-export type DefinitionStartupStage =
+type DefinitionStartupStage =
   | 'resolution'
   | 'session_binding'
   | 'worker_start';
@@ -41,12 +41,12 @@ export class DefinitionStartupError extends Error {
   }
 }
 
-export interface BuiltinHostDefinitionSelection extends BuiltinAgentSelection {
+interface BuiltinHostDefinitionSelection extends BuiltinAgentSelection {
   readonly kind: 'builtin';
   readonly ref: DefinitionRevisionRef;
 }
 
-export interface ManagedHostDefinitionSelection {
+interface ManagedHostDefinitionSelection {
   readonly kind: 'managed';
   readonly id: 'default';
   readonly ref: DefinitionRevisionRef;

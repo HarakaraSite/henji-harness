@@ -186,7 +186,7 @@ const runtimeDigest = async (
   return await sha256(joined);
 };
 
-export interface ModuleClosureOptions {
+interface ModuleClosureOptions {
   readonly config?: string;
   readonly contractBoundaryFiles?: readonly string[];
   readonly identityFiles?: readonly string[];
@@ -326,7 +326,7 @@ const parseOutput = (args: readonly string[], root: string): string => {
   throw new Error('usage: henji:compile [--output PATH]');
 };
 
-export interface StagedCompileInputs {
+interface StagedCompileInputs {
   readonly entry: string;
   readonly manifestModule: string;
   readonly cliModule: string;

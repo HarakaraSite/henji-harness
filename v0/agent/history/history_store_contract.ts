@@ -37,22 +37,22 @@ import type {
   HistoryV7SemanticOccurrence,
 } from './history_v7_model.ts';
 
-export type HistoryStoreErrorCode =
+type HistoryStoreErrorCode =
   | 'history_busy'
   | 'history_invalid'
   | 'history_io_failure';
 
-export type ExecutionLifecycle = 'active' | 'settled';
-export type ExecutionOutcome =
+type ExecutionLifecycle = 'active' | 'settled';
+type ExecutionOutcome =
   | 'unknown'
   | 'completed'
   | 'cancelled'
   | 'failed'
   | 'interrupted';
-export type ExecutionAdoption = 'canonical' | 'non_canonical';
-export type ExecutionEventDirection = 'host_to_worker' | 'worker_to_host';
-export type ExecutionEventSource = 'host' | 'worker';
-export type ExecutionEventKind =
+type ExecutionAdoption = 'canonical' | 'non_canonical';
+type ExecutionEventDirection = 'host_to_worker' | 'worker_to_host';
+type ExecutionEventSource = 'host' | 'worker';
+type ExecutionEventKind =
   | 'execution_admitted'
   | 'turn_dispatch_requested'
   | 'turn_dispatch_sent'
@@ -315,7 +315,7 @@ export interface HistoryAppendResult {
   readonly semanticOccurrenceId?: string;
 }
 
-export type ExecutionEffectStatus =
+type ExecutionEffectStatus =
   | 'observed_requested'
   | 'observed_progress'
   | 'completed'
@@ -449,7 +449,7 @@ export interface HistoryExecutionInput {
   readonly contextManifest?: ExecutionContextManifestV2;
 }
 
-export interface HistoryCaptureInput {
+interface HistoryCaptureInput {
   readonly diagnostic?: FailureDiagnosticV1;
 }
 

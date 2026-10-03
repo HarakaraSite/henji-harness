@@ -239,6 +239,7 @@ Deno.test('offline gate cannot reach the production E2E live task', async () => 
   assert(PRODUCTION_CLI_LAUNCHER.endsWith('/dist/henji'));
   assert(!offline.includes('--allow-run'));
   assert(!offline.includes('--allow-net'));
-  assert(config.tasks['v0:test'].includes('agent:e2e:test'));
+  assert(config.tasks['v0:test'].endsWith(' tests/v0'));
+  assert(!config.tasks['v0:test'].includes('agent:e2e:live'));
   assert(!config.tasks['v0:gate'].includes('agent:e2e:live'));
 });

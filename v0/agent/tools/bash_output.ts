@@ -11,7 +11,7 @@ export const BASH_OUTPUT_DEFAULT_WINDOW_BYTES = 49_152;
 export const BASH_OUTPUT_MIN_WINDOW_BYTES = 4;
 export const BASH_OUTPUT_MAX_WINDOW_BYTES = 49_152;
 
-export type BashOutputLimitReason =
+type BashOutputLimitReason =
   | 'command_bytes'
   | 'registry_bytes'
   | 'retained_streams';
@@ -26,12 +26,12 @@ export interface BashOutputLimitSnapshot {
   readonly retainedStreamLimit: number;
 }
 
-export interface BashOutputAppendResult {
+interface BashOutputAppendResult {
   readonly storedBytes: number;
   readonly limit?: BashOutputLimitSnapshot;
 }
 
-export interface BashOutputCommandSummary {
+interface BashOutputCommandSummary {
   readonly outputId?: string;
   readonly streams: Readonly<Partial<Record<BashOutputStream, number>>>;
   readonly commandBytes: number;
@@ -41,7 +41,7 @@ export interface BashOutputCommandSummary {
   readonly available: boolean;
 }
 
-export interface BashOutputWindow {
+interface BashOutputWindow {
   readonly outputId: string;
   readonly stream: BashOutputStream;
   readonly offset: number;
@@ -80,7 +80,7 @@ export class BashOutputPersistenceError extends Error {
   }
 }
 
-export class BashOutputReadError extends Error {
+class BashOutputReadError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'BashOutputReadError';
@@ -117,14 +117,14 @@ interface BashOutputStoreLimits {
   readonly segmentBytes: number;
 }
 
-export interface BashOutputStoreDiagnostics {
+interface BashOutputStoreDiagnostics {
   readonly registryBytes: number;
   readonly retainedStreams: number;
   readonly extents: number;
   readonly openHandles: number;
 }
 
-export interface BashOutputStoreTestOptions {
+interface BashOutputStoreTestOptions {
   readonly limits?: Partial<BashOutputStoreLimits>;
   readonly onSpoolOpened?: (path: string) => void | Promise<void>;
   readonly beforeWrite?: () => void | Promise<void>;

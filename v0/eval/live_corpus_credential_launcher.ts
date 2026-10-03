@@ -9,16 +9,15 @@ import {
  * inputs: the seams below exist only for permission-free tests.
  */
 
-export const CREDENTIAL_PATH =
-  '/home/masat.guest/.config/henji-harness/openrouter-api-key' as const;
-export const DENO_COMMAND = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno' as const;
-export const CHILD_CWD = '/home/masat.guest/src/henji-harness' as const;
-export const CHILD_ENTRYPOINT = 'v0/eval/live_corpus_cli.ts' as const;
-export const CHILD_SUITE = 'sentinel' as const;
-export const SECRET_ENV = 'HENJI_OPENROUTER_API_KEY' as const;
-export const MAX_CREDENTIAL_BYTES = 4096 as const;
+const CREDENTIAL_PATH = '/home/masat.guest/.config/henji-harness/openrouter-api-key' as const;
+const DENO_COMMAND = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno' as const;
+const CHILD_CWD = '/home/masat.guest/src/henji-harness' as const;
+const CHILD_ENTRYPOINT = 'v0/eval/live_corpus_cli.ts' as const;
+const CHILD_SUITE = 'sentinel' as const;
+const SECRET_ENV = 'HENJI_OPENROUTER_API_KEY' as const;
+const MAX_CREDENTIAL_BYTES = 4096 as const;
 
-export type CredentialLauncherFailureCode =
+type CredentialLauncherFailureCode =
   | 'arguments_invalid'
   | 'credential_metadata_invalid'
   | 'credential_metadata_changed'
@@ -41,7 +40,7 @@ export class CredentialLauncherError extends Error {
 }
 
 /** The small subset of FileInfo used by the fixed metadata boundary. */
-export interface CredentialFileMetadata {
+interface CredentialFileMetadata {
   readonly isFile: boolean;
   readonly isSymlink: boolean;
   readonly mode: number | null;
@@ -51,7 +50,7 @@ export interface CredentialFileMetadata {
   readonly ino?: number;
 }
 
-export interface CredentialFileHandle {
+interface CredentialFileHandle {
   readonly stat: () => Promise<CredentialFileMetadata>;
   readonly read: (buffer: Uint8Array) => Promise<number | null>;
   readonly close: () => void;
@@ -63,17 +62,17 @@ export interface CredentialFileSystem {
   readonly effectiveUid: () => number | undefined;
 }
 
-export interface CredentialLauncherChildStatus {
+interface CredentialLauncherChildStatus {
   readonly success: boolean;
   readonly code: number | null;
   readonly signal: string | null;
 }
 
-export interface CredentialLauncherChild {
+interface CredentialLauncherChild {
   readonly status: Promise<CredentialLauncherChildStatus>;
 }
 
-export interface CredentialLauncherCommandOptions {
+interface CredentialLauncherCommandOptions {
   readonly args: readonly string[];
   readonly cwd: typeof CHILD_CWD;
   readonly clearEnv: true;
@@ -83,7 +82,7 @@ export interface CredentialLauncherCommandOptions {
   readonly stderr: 'inherit';
 }
 
-export interface CredentialLauncherDependencies {
+interface CredentialLauncherDependencies {
   /** Test-only filesystem seam. Production always uses the fixed path. */
   readonly filesystem?: CredentialFileSystem;
   /** Test-only process seam. Production always uses the fixed executable/options. */
@@ -206,7 +205,7 @@ const compareStableIdentity = (
 };
 
 /** Decode and validate the single-token credential without exposing its value. */
-export const parseCredentialBytes = (bytes: Uint8Array): string => {
+const parseCredentialBytes = (bytes: Uint8Array): string => {
   try {
     return parseSharedCredentialBytes(bytes);
   } catch (error) {
@@ -375,7 +374,7 @@ const defaultWriteStderr = async (text: string): Promise<void> => {
 };
 
 /** Run the fixed sentinel child, returning its sanitized process status. */
-export const main = async (
+const main = async (
   args: readonly string[] = Deno.args,
   dependencies: CredentialLauncherDependencies = {},
 ): Promise<number> => {

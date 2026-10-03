@@ -181,7 +181,7 @@ const realFile = async (path: string, label: string): Promise<string> => {
   return canonical;
 };
 
-export interface ImportedManagedModule {
+interface ImportedManagedModule {
   readonly entry: string;
   readonly entryPath: string;
   readonly moduleRoot: string;
@@ -192,7 +192,7 @@ export interface ImportedManagedModule {
   }[];
 }
 
-export interface ManagedModuleImportOptions {
+interface ManagedModuleImportOptions {
   readonly entryPath: string;
   readonly moduleRoot?: string;
   readonly apiContract: string;

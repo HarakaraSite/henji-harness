@@ -26,7 +26,7 @@ const ERROR_MESSAGES: Readonly<Record<ManagedDefinitionErrorCode | 'invalid_invo
     module_artifact_io_failure: 'Definition transport artifact I/O failure',
   };
 
-export type ModuleCliCommand =
+type ModuleCliCommand =
   | {
     readonly kind: 'install';
     readonly entryPath: string;
@@ -43,7 +43,7 @@ export type ModuleCliCommand =
   }
   | { readonly kind: 'import'; readonly artifactPath: string };
 
-export class ModuleCliInvocationError extends Error {
+class ModuleCliInvocationError extends Error {
   constructor() {
     super('invalid invocation');
     this.name = 'ModuleCliInvocationError';
@@ -118,7 +118,7 @@ export const parseModuleArgs = (args: readonly string[]): ModuleCliCommand => {
   throw new ModuleCliInvocationError();
 };
 
-export interface ModuleCliDependencies {
+interface ModuleCliDependencies {
   readonly dataRoot?: string;
   readonly now?: () => Date;
   readonly writeStdout?: (text: string) => void | PromiseLike<void>;

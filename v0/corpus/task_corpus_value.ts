@@ -67,7 +67,7 @@ export const sortedStrings = (value: unknown, path: string): readonly string[] =
   return values;
 };
 
-export const toolName = (value: unknown, path: string): CorpusToolName => {
+const toolName = (value: unknown, path: string): CorpusToolName => {
   if (
     typeof value !== 'string' || !TOOL_NAMES.includes(value as CorpusToolName)
   ) {

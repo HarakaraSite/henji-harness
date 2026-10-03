@@ -13,15 +13,15 @@ import {
 import { validateManagedDefinitionRevision } from './managed_definition_revision_validator.ts';
 import type { DefinitionRevisionRef } from './managed_resource_ref.ts';
 
-export const MANAGED_DEFINITION_TRANSPORT_SCHEMA_VERSION = 1 as const;
-export const MANAGED_RESOURCE_TRANSPORT_KIND = 'henji-managed-resource-transport' as const;
+const MANAGED_DEFINITION_TRANSPORT_SCHEMA_VERSION = 1 as const;
+const MANAGED_RESOURCE_TRANSPORT_KIND = 'henji-managed-resource-transport' as const;
 
-export interface ManagedDefinitionTransportFileV1 {
+interface ManagedDefinitionTransportFileV1 {
   readonly path: string;
   readonly bytesBase64: string;
 }
 
-export interface ManagedDefinitionTransportV1 {
+interface ManagedDefinitionTransportV1 {
   readonly schemaVersion: 1;
   readonly packageKind: typeof MANAGED_RESOURCE_TRANSPORT_KIND;
   readonly resourceKind: 'agent-definition';
@@ -30,7 +30,7 @@ export interface ManagedDefinitionTransportV1 {
   readonly files: readonly ManagedDefinitionTransportFileV1[];
 }
 
-export interface DecodeManagedDefinitionTransportOptions {
+interface DecodeManagedDefinitionTransportOptions {
   readonly artifactPath: string;
   readonly now?: () => Date;
 }

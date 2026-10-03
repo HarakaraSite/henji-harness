@@ -39,12 +39,12 @@ export interface ConversationWriterSnapshot {
   readonly bytes: Uint8Array<ArrayBuffer>;
 }
 
-export interface ConversationWriterWriteResult<T> {
+interface ConversationWriterWriteResult<T> {
   readonly result: T;
   readonly deltas: readonly ConversationWriterDelta[];
 }
 
-export type ConversationWriterListener = (
+type ConversationWriterListener = (
   delta: ConversationWriterDelta,
 ) => void;
 

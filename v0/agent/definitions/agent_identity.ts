@@ -3,7 +3,7 @@ export const BUILTIN_AGENT_IDS = Object.freeze(['default', 'generic'] as const);
 export type BuiltinAgentId = typeof BUILTIN_AGENT_IDS[number];
 
 /** IDs accepted by the internal schema-v1 resolved-manifest codec. */
-export type AgentManifestDefinitionId = BuiltinAgentId | 'planner';
+type AgentManifestDefinitionId = BuiltinAgentId | 'planner';
 
 /** Resource topology remains tied to an executable built-in Definition. */
 export type AgentResourceTopologyId = AgentManifestDefinitionId;

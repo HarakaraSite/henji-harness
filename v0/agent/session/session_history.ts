@@ -2,7 +2,7 @@ import { type Message } from '../core/contracts.ts';
 import { causalTranscriptIndex, causalTranscriptPrefixIndex } from './session_store.ts';
 
 /** A completed parent turn and its exact canonical message range. */
-export interface SessionHistoryTurn {
+interface SessionHistoryTurn {
   readonly turn: number;
   readonly start: number;
   readonly end: number;

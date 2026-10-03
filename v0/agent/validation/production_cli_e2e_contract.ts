@@ -5,19 +5,19 @@ import { modelRouteProfileId } from '../provider/model_selection.ts';
 import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import type { StoredWorkerExecutionArtifact } from '../worker/worker_execution_artifact.ts';
 
-export const PRODUCTION_CLI_E2E_SCHEMA_VERSION = 2 as const;
-export const PRODUCTION_CLI_E2E_TASK_ID = 'production-cli-basic-read-v1' as const;
+const PRODUCTION_CLI_E2E_SCHEMA_VERSION = 2 as const;
+const PRODUCTION_CLI_E2E_TASK_ID = 'production-cli-basic-read-v1' as const;
 export const PRODUCTION_CLI_E2E_CONFIRMATION = '--confirm-external-call' as const;
 export const PRODUCTION_CLI_E2E_TASK =
   'Use the read tool exactly once to read e2e-input.txt. After receiving the tool result, ' +
   'return exactly the file contents as the final response, with no explanation or formatting. ' +
   'Do not call any other tool and do not infer or invent the contents before using read.';
-export const PRODUCTION_CLI_E2E_EXPECTED_REQUESTS = 2 as const;
+const PRODUCTION_CLI_E2E_EXPECTED_REQUESTS = 2 as const;
 export const PRODUCTION_CLI_E2E_CHILD_DEADLINE_MS = 120_000 as const;
 
 const ROUTE_PROFILE_ID = modelRouteProfileId(ROOT_DEFAULT_MODEL_SELECTION);
 
-export type ProductionCliE2eStage =
+type ProductionCliE2eStage =
   | 'preflight'
   | 'process'
   | 'cli_contract'
@@ -25,7 +25,7 @@ export type ProductionCliE2eStage =
   | 'history'
   | 'model_behavior';
 
-export type ProductionCliE2eCode =
+type ProductionCliE2eCode =
   | 'invalid_invocation'
   | 'run_layout_failed'
   | 'child_spawn_failed'
@@ -69,7 +69,7 @@ interface ReportBase {
   readonly retryCount: 0;
 }
 
-export interface ProductionCliE2eSuccessReport extends ReportBase {
+interface ProductionCliE2eSuccessReport extends ReportBase {
   readonly ok: true;
   readonly outcome: 'passed';
   readonly runRoot: string;
@@ -87,7 +87,7 @@ export interface ProductionCliE2eSuccessReport extends ReportBase {
   readonly stopReason: 'final';
 }
 
-export interface ProductionCliE2eFailureReport extends ReportBase {
+interface ProductionCliE2eFailureReport extends ReportBase {
   readonly ok: false;
   readonly outcome: 'failed';
   readonly stage: ProductionCliE2eStage;
@@ -114,7 +114,7 @@ export type ProductionCliE2eReport =
   | ProductionCliE2eSuccessReport
   | ProductionCliE2eFailureReport;
 
-export interface ProductionCliE2eObservation {
+interface ProductionCliE2eObservation {
   readonly paths: ProductionCliE2ePaths;
   readonly nonce: string;
   readonly child: ProductionCliE2eChildResult;

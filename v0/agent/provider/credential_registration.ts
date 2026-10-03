@@ -23,7 +23,7 @@ import {
 } from './credential_declaration.ts';
 
 /** One registration row per auth profile, shared by its provider and external-service consumers. */
-export interface CredentialRegistrationTarget {
+interface CredentialRegistrationTarget {
   readonly authProfile: AuthProfileId;
   readonly providers: readonly ProviderId[];
   readonly method?: 'api-key' | 'chatgpt';
@@ -32,12 +32,12 @@ export interface CredentialRegistrationTarget {
   readonly purpose?: string;
 }
 
-export interface CredentialRegistration {
+interface CredentialRegistration {
   targets(): readonly CredentialRegistrationTarget[];
   save(authProfile: AuthProfileId, value: string): Promise<void>;
 }
 
-export type CredentialRegistrationFailureCode =
+type CredentialRegistrationFailureCode =
   | 'credential_registration_profile_invalid'
   | 'credential_registration_value_invalid'
   | 'credential_registration_write_failed';
@@ -230,7 +230,7 @@ export const credentialRegistrationTargets = (
   ));
 };
 
-export interface CredentialRegistrationOptions {
+interface CredentialRegistrationOptions {
   readonly configRoot?: string;
   readonly providerDeclarations?: readonly ProviderDeclarationV1[];
   readonly credentialDeclarations?: readonly CredentialDeclarationV1[];

@@ -29,7 +29,7 @@ import { ROOT_DEFAULT_MODEL_SELECTION } from '../../../v0/agent/provider/openrou
 import { modelRouteProfileId } from '../../../v0/agent/provider/model_selection.ts';
 import type { DefinitionRevisionRef } from '../../../v0/agent/session/session_store.ts';
 
-export interface Increment170FoundationDataHarness {
+interface Increment170FoundationDataHarness {
   readonly root: string;
   readonly workspaceRoot: string;
   readonly stateRoot: string;
@@ -127,7 +127,7 @@ export const readIncrement170FoundationArtifacts = async (
 type StartCommand = Extract<WorkerHostCommand, { readonly kind: 'start' }>;
 type TurnCommand = Extract<WorkerHostCommand, { readonly kind: 'turn' }>;
 
-export interface Increment170FoundationAgentTurnInput {
+interface Increment170FoundationAgentTurnInput {
   readonly data: ReturnType<typeof createAgentDataPortClient>;
   readonly command: TurnCommand;
   readonly turnNumber: number;
@@ -138,7 +138,7 @@ export interface Increment170FoundationAgentTurnInput {
   ): void;
 }
 
-export type Increment170FoundationProposalFactory = (
+type Increment170FoundationProposalFactory = (
   input: Increment170FoundationAgentTurnInput,
 ) => WorkerCommitProposalMessage | Promise<WorkerCommitProposalMessage>;
 

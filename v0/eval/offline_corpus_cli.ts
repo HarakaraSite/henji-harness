@@ -9,9 +9,9 @@ import { CORPUS_PATH, loadTaskCorpus } from '../corpus/task_corpus.ts';
 
 const encoder = new TextEncoder();
 
-export type OfflineCorpusCliWriter = (text: string) => void | PromiseLike<void>;
+type OfflineCorpusCliWriter = (text: string) => void | PromiseLike<void>;
 
-export interface OfflineCorpusCliDependencies {
+interface OfflineCorpusCliDependencies {
   readonly run?: () => Promise<OfflineCorpusEvalReport>;
   readonly writeStdout?: OfflineCorpusCliWriter;
   readonly writeStderr?: OfflineCorpusCliWriter;
@@ -46,7 +46,7 @@ const reportLine = async (report: OfflineCorpusEvalReport): Promise<string> => {
   return serializeOfflineCorpusEvalReport(report, corpus);
 };
 
-export const main = async (
+const main = async (
   args: readonly string[] = Deno.args,
   dependencies: OfflineCorpusCliDependencies = {},
 ): Promise<number> => {

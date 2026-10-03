@@ -2,7 +2,7 @@ import { toolActivityPreview } from '../agent/tools/tool_activity.ts';
 import { MAX_CONVERSATION_TEXT_BYTES } from '../resource_limits.ts';
 
 export const encoder = new TextEncoder();
-export interface TerminalTextSegment {
+interface TerminalTextSegment {
   readonly text: string;
   readonly cellWidth: number;
   /** Zero-based scalar offset in the source text, inclusive. */

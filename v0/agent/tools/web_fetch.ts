@@ -6,7 +6,7 @@ import { type Tool, ToolInputError } from './tools.ts';
 import { resolveWebDownloadTarget } from './web_download.ts';
 
 export const MAX_WEB_FETCH_BYTES = 1_048_576;
-export const WEB_FETCH_TIMEOUT_MS = 30_000;
+const WEB_FETCH_TIMEOUT_MS = 30_000;
 
 const USER_AGENT = 'henji/0.2.1';
 
@@ -125,7 +125,7 @@ const parseArguments = (value: JsonValue): WebFetchArguments => {
   };
 };
 
-export interface WebFetchOptions {
+interface WebFetchOptions {
   readonly workspace?: Workspace;
 }
 

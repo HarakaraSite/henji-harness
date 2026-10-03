@@ -14,7 +14,7 @@ const encoder = new TextEncoder();
 
 const shellWord = (value: string): string => `'${value.replaceAll("'", `'"'"'`)}'`;
 
-export type ToolCliCommand =
+type ToolCliCommand =
   | {
     readonly kind: 'install';
     readonly resourceId: string;
@@ -33,7 +33,7 @@ export type ToolCliCommand =
   }
   | { readonly kind: 'deactivate'; readonly toolIdentity: string; readonly json: boolean };
 
-export class ToolCliInvocationError extends Error {
+class ToolCliInvocationError extends Error {
   constructor() {
     super('invalid invocation');
     this.name = 'ToolCliInvocationError';
@@ -67,7 +67,7 @@ const parseInstall = (args: readonly string[]): ToolCliCommand => {
   };
 };
 
-export const parseToolArgs = (args: readonly string[]): ToolCliCommand => {
+const parseToolArgs = (args: readonly string[]): ToolCliCommand => {
   if (args.length === 0) throw new ToolCliInvocationError();
   const [command, ...rest] = args;
   if (command === 'install') return parseInstall(rest);
@@ -105,7 +105,7 @@ export const parseToolArgs = (args: readonly string[]): ToolCliCommand => {
   throw new ToolCliInvocationError();
 };
 
-export interface ToolCliDependencies {
+interface ToolCliDependencies {
   readonly dataRoot?: string;
   readonly configRoot?: string;
   readonly now?: () => Date;

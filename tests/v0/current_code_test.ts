@@ -3,15 +3,14 @@ import type { Message, ModelRequest } from '../../v0/agent/core/contracts.ts';
 import type { AgentEvent } from '../../v0/agent/core/events.ts';
 import { runAgent, runAgentTurn } from '../../v0/agent/core/loop.ts';
 import { SteeringOwner } from '../../v0/agent/core/steering.ts';
-import { AgentSession } from '../../v0/agent/session/session.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { createUiState, reduceUiEvent } from '../../v0/tui/state.ts';
 import {
   DEFAULT_AGENT_MAX_STEPS,
   defaultAgentDefinition,
 } from '../../v0/agent/definitions/agent_definition.ts';
 import { PRODUCTION_MAX_COMPLETION_TOKENS } from '../../v0/agent/provider/provider_profile.ts';
-import { admitInternalAgentDefinition } from '../../v0/agent/definitions/agent_catalog.ts';
 import { emptySkillCatalog } from '../../v0/agent/definitions/skills.ts';
 import { createDeclaredRegistry } from '../../v0/agent/tools/registries.ts';
 import { type SessionRecord, validateSessionRecord } from '../../v0/agent/session/session_store.ts';
@@ -21,15 +20,7 @@ import {
 } from '../../v0/agent/session/replay_value.ts';
 import { boundedPresentationText } from '../../v0/presentation/contract.ts';
 import { layoutUi } from '../../v0/tui/layout.ts';
-import {
-  createAgentResourceSelection,
-  validateResolvedAgentResources,
-} from '../../v0/agent/definitions/resource_identity.ts';
-import { type AgentResolvedManifestV1 } from '../../v0/agent/definitions/resolved_manifest.ts';
-import {
-  materializePreparedRuntimeComposition,
-  prepareRuntimeComposition,
-} from '../../v0/agent/runtime/runtime.ts';
+import { validateResolvedAgentResources } from '../../v0/agent/definitions/resource_identity.ts';
 import { displayWorkspaceLabel } from '../../v0/agent/runtime/startup_orientation.ts';
 import {
   createAgentComposition,
@@ -318,76 +309,25 @@ Deno.test('steering admits and consumes one message with stable close results', 
   assertEquals(steering.admit('late'), 'already_accepted');
 });
 
-Deno.test('session commits turns and reports occurrence-bound request counts', async () => {
-  let requests = 0;
-  const seen: ModelRequest[] = [];
-  const events: AgentEvent[] = [];
-  const session = new AgentSession(
-    {
-      generate: (request) => {
-        requests += 1;
-        seen.push(request);
-        return { kind: 'final', text: `answer-${requests}` };
-      },
-    },
-    new Registry([]),
-    {
-      providerRequestCount: () => requests,
-      eventSink: (event) => events.push(event),
-    },
-  );
-
-  const first = await session.submit('one');
-  const second = await session.submit('two');
-  assert(first.ok && second.ok);
-  assertEquals(seen[1].transcript.map((message) => message.role), [
-    'user',
-    'assistant',
-    'user',
-  ]);
-  assertEquals(
-    [first.turnProviderRequestCount, first.runtimeProviderRequestCount],
-    [1, 1],
-  );
-  assertEquals(
-    [second.turnProviderRequestCount, second.runtimeProviderRequestCount],
-    [1, 2],
-  );
-  const ends = events.filter((event) => event.kind === 'turn_end');
-  assertEquals(ends.map((event) => event.committed), [true, true]);
-});
-
-Deno.test('max-step failure is diagnosed and not committed', async () => {
-  const events: AgentEvent[] = [];
-  const session = new AgentSession(
-    {
-      generate: () => ({
-        kind: 'tool_calls',
-        calls: [{ callId: 'again', name: 'again', arguments: {} }],
-      }),
-    },
-    new Registry([{
-      name: 'again',
-      description: 'continue',
-      inputSchema: {},
-      execute: () => 'again',
-    }]),
-    { maxSteps: 1, eventSink: (event) => events.push(event) },
-  );
-  const result = await session.submit('bounded');
-  assert(!result.ok);
-  assertEquals(
-    {
-      stop: result.stopReason,
-      stage: result.diagnostic?.stage,
-      code: result.diagnostic?.code,
-    },
-    { stop: 'max_steps', stage: 'turn_control', code: 'model_step_limit' },
-  );
-  assertEquals(session.transcriptSnapshot(), []);
-  const end = events.at(-1);
-  assert(end?.kind === 'turn_end');
-  assertEquals(end.committed, false);
+Deno.test('Worker max-step failure does not advance the committed turn', async () => {
+  const stateRoot = await Deno.makeTempDir({ prefix: 'henji-current-code-max-steps-' });
+  const created = await createWorkerSession({
+    stateRoot,
+    persistence: 'none',
+    agent: 'default',
+    rootMaxSteps: 1,
+    physicalIoMode: 'provider-free',
+  });
+  try {
+    const before = created.session.currentPosition();
+    const result = await created.session.submit('read worker protocol');
+    assert(!result.ok);
+    assertEquals(result.stopReason, 'max_steps');
+    assertEquals(created.session.currentPosition().committedTurn, before.committedTurn);
+  } finally {
+    await created.close();
+    await Deno.remove(stateRoot, { recursive: true });
+  }
 });
 
 Deno.test('terminal JSON results retain output above 64 KiB', async () => {
@@ -418,7 +358,7 @@ Deno.test('retained UI keeps operational metadata out of the conversation log', 
   assertEquals(second.log.entries, first.log.entries);
 });
 
-Deno.test('Definitions declare capabilities while the host materializes matching registries', async () => {
+Deno.test('Definitions declare capabilities while the host materializes matching registries', () => {
   const input = {
     workspace: { root: '/definition-test' },
     skillCatalog: emptySkillCatalog(),
@@ -464,71 +404,6 @@ Deno.test('Definitions declare capabilities while the host materializes matching
     'agent:reviewer',
   ]);
   validateResolvedAgentResources(configured, 'default');
-
-  let observedManifest: AgentResolvedManifestV1 | undefined;
-  const synthetic = admitInternalAgentDefinition(
-    'default',
-    (definitionInput) => {
-      const base = defaultAgentDefinition(definitionInput);
-      const customTools = Object.freeze(
-        base.capabilities.tools.filter((resource) =>
-          resource === 'tool:read' || resource === 'tool:submit_json_result'
-        ),
-      );
-      const custom = Object.freeze({
-        ...base,
-        capabilities: Object.freeze({
-          ...base.capabilities,
-          tools: customTools,
-        }),
-        limits: Object.freeze({ maxSteps: 5 }),
-        resourceSelection: createAgentResourceSelection(
-          base.resourceSelection.resources.filter((resource) =>
-            !resource.startsWith('tool:') || customTools.includes(resource)
-          ),
-          5,
-        ),
-      });
-      validateResolvedAgentResources(custom);
-      return custom;
-    },
-  );
-  const prepared = await prepareRuntimeComposition({
-    workspace: input.workspace,
-    instructionFileSystem: {
-      lstat: () => Promise.reject(new Error('no instruction fixture')),
-      open: () => Promise.reject(new Error('no instruction fixture')),
-    },
-    skillFileSystem: {
-      lstat: () => Promise.reject(new Error('no skill fixture')),
-      readDirectory: async function* () {},
-      open: () => Promise.reject(new Error('no skill fixture')),
-    },
-    onResolvedManifestValidated: (_role, manifest) => {
-      observedManifest = manifest;
-    },
-  }, synthetic);
-  const composition = materializePreparedRuntimeComposition(prepared);
-  assert(observedManifest !== undefined);
-  assertEquals(
-    composition.registry.definitions().map((tool) => `tool:${tool.name}`),
-    prepared.definition.capabilities.tools,
-  );
-  assertEquals(
-    observedManifest.resources,
-    prepared.resourceSelection.resources,
-  );
-  assertEquals(observedManifest.parameters.maxSteps, 5);
-  assertEquals(observedManifest.definitionId, 'default');
-  assertEquals(
-    composition.registry.definitions().map((tool) => tool.name),
-    ['read', 'submit_json_result'],
-  );
-  const requestBudget = composition.createTurnExecutionContext(1);
-  for (let step = 0; step < 5; step += 1) {
-    assert(requestBudget.claimModelRequest());
-  }
-  assert(!requestBudget.claimModelRequest());
 });
 
 Deno.test('active tool guidelines compose only where their tools are materialized', () => {

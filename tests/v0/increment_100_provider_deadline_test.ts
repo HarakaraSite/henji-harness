@@ -64,13 +64,16 @@ const streamErrorCode = async (
 };
 
 Deno.test('Increment 100 provider deadline fires during a continuous stream', async () => {
-  const server = Deno.serve({ port: 0, onListen: () => {} }, () =>
-    new Response(
-      continuousStream(
-        'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"x"}\n\n',
+  const server = Deno.serve(
+    { hostname: '127.0.0.1', port: 0, onListen: () => {} },
+    () =>
+      new Response(
+        continuousStream(
+          'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"x"}\n\n',
+        ),
+        { headers: { 'content-type': 'text/event-stream' } },
       ),
-      { headers: { 'content-type': 'text/event-stream' } },
-    ));
+  );
   const port = (server.addr as Deno.NetAddr).port;
   try {
     const started = performance.now();
@@ -148,7 +151,7 @@ Deno.test('Increment 100 chat provider deadline fires during a continuous stream
 
 Deno.test('Increment 100 provider deadline fires when the stream stalls', async () => {
   const server = Deno.serve(
-    { port: 0, onListen: () => {} },
+    { hostname: '127.0.0.1', port: 0, onListen: () => {} },
     () =>
       new Response(new ReadableStream<Uint8Array>({ start() {} }), {
         headers: { 'content-type': 'text/event-stream' },

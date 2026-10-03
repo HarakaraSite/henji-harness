@@ -10,7 +10,7 @@ import {
 } from '../runtime/core_discovery.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
-export interface CoreInvocation {
+interface CoreInvocation {
   readonly command: 'list' | 'status' | 'stop';
   readonly coreId?: string;
   readonly connect?: string;

@@ -8,7 +8,7 @@ const encoder = new TextEncoder();
 type ObjectValue = Record<string, unknown>;
 type Fetcher = typeof fetch;
 export type Fact = Readonly<Record<string, unknown>>;
-export type Report = (fact: Fact) => Promise<void>;
+type Report = (fact: Fact) => Promise<void>;
 
 export class SpikeFailure extends Error {
   constructor(
@@ -86,7 +86,7 @@ export async function createAuthorization(
   return { url: url.toString(), verifier, state, nonce, redirectUri, clientId };
 }
 
-export type Authorization = Awaited<ReturnType<typeof createAuthorization>>;
+type Authorization = Awaited<ReturnType<typeof createAuthorization>>;
 
 export function parseCallback(input: string, pending: Authorization) {
   let url: URL;
@@ -560,7 +560,7 @@ export async function consumeResponse(
   }
 }
 
-export function responseBody(
+function responseBody(
   model: string,
   input: unknown[],
   tool: boolean,
@@ -690,7 +690,7 @@ Use one process/account per directory. Live requests require the agreed spike ap
 Credentials: PATH/credential.json (0600); non-secret request facts: PATH/facts.jsonl.
 `;
 
-export async function main(args: string[]): Promise<void> {
+async function main(args: string[]): Promise<void> {
   if (args.length === 0 || args.includes('--help')) {
     console.log(HELP);
     return;

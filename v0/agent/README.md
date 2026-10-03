@@ -70,7 +70,11 @@ Session and applies the selected provider's complete default model/effort select
 the active provider's searchable effective catalog; choosing a model also selects that model's
 default effort. `/effort` changes only the active provider/model's effort. These commands are
 idle-only and take effect on the next root turn. The bundled OpenAI catalog contains `gpt-5.6-sol`,
-`gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`.
+`gpt-5.6-luna`, `gpt-5.6-terra`, and `gpt-6-astra`. The ChatGPT catalog also pins `gpt-6.1-sol` and
+`gpt-6-luna`: they remain selectable when the account's API inventory omits them, and their declared
+efforts take precedence over models.dev. Both default to `medium`; Sol supports `low`, `medium`,
+`high`, `xhigh`, and `max`, while Luna also supports `none`. The API inventory retains its order and
+missing pinned models are appended once.
 
 The interactive launcher and `henji run` accept `--provider-timeout-ms N` for a positive
 safe-integer request deadline. It defaults to 300,000 ms and applies to each root, async child, and

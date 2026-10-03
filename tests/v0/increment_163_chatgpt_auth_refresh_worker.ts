@@ -4,7 +4,7 @@ const fail = (message: string): never => {
   throw new Error(message);
 };
 
-export const runRefreshWorker = async (
+const runRefreshWorker = async (
   configRoot: string,
   registrationId: string,
 ): Promise<string> => {

@@ -5,7 +5,7 @@ const RESOURCE = 'https://api.openai.com/v1';
 const DIRECT_SCOPE = 'chatgpt.tokens.use.direct';
 const encoder = new TextEncoder();
 
-export interface MockChatGPTLogin {
+interface MockChatGPTLogin {
   readonly clientId: string;
   readonly nonce: string;
   readonly codeChallenge?: string;
@@ -15,7 +15,7 @@ export interface MockChatGPTLogin {
   readonly expiresIn?: number;
 }
 
-export interface MockChatGPTRequest {
+interface MockChatGPTRequest {
   readonly api: string;
   readonly method: string;
   readonly grantType?: string;
@@ -23,7 +23,7 @@ export interface MockChatGPTRequest {
   readonly bearerPresent?: boolean;
 }
 
-export interface MockChatGPTIssuer {
+interface MockChatGPTIssuer {
   readonly fetcher: typeof fetch;
   readonly requests: readonly MockChatGPTRequest[];
   setNextLogin(input: MockChatGPTLogin): Promise<void>;

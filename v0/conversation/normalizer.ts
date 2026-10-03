@@ -10,7 +10,7 @@ import {
   type ConversationValue,
 } from './model.ts';
 
-export type ConversationFact =
+type ConversationFact =
   | Readonly<{ kind: 'upsert'; entity: ConversationEntity }>
   | Readonly<{ kind: 'remove'; id: string }>
   | Readonly<{
@@ -266,7 +266,7 @@ const assistantMessage = (
 });
 
 /** Normalize provider- and history-adapter observations into keyed current-value facts. */
-export const normalizeConversationObservation = (
+const normalizeConversationObservation = (
   normalizer: ConversationNormalizer,
   observation: ConversationObservation,
 ): readonly ConversationFact[] => {
@@ -733,7 +733,7 @@ const withToolRelations = (
   return ids === undefined || ids.length === 0 ? entity : { ...entity, toolIds: [...ids] };
 };
 
-export const applyFact = (
+const applyFact = (
   state: ConversationState,
   fact: ConversationFact,
 ): readonly import('./model.ts').ConversationChange[] => {

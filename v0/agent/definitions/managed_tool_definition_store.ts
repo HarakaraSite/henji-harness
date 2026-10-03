@@ -29,7 +29,7 @@ export interface ManagedToolDefinitionRevision {
   readonly entryPath: string;
 }
 
-export interface ManagedToolDefinitionSummary {
+interface ManagedToolDefinitionSummary {
   readonly logicalRef: ManagedToolDefinitionManifestV1['logicalRef'];
   readonly toolIdentity: string;
   readonly entry: string;
@@ -39,12 +39,12 @@ export interface ManagedToolDefinitionSummary {
   readonly localCustody: ManagedToolDefinitionCustodyV1['localCustody'];
 }
 
-export interface ManagedToolDefinitionStoreOptions {
+interface ManagedToolDefinitionStoreOptions {
   readonly dataRoot: string;
   readonly now?: () => Date;
 }
 
-export interface ManagedToolDefinitionInstallOptions {
+interface ManagedToolDefinitionInstallOptions {
   readonly entryPath: string;
   readonly resourceId: string;
   readonly toolIdentity: string;
@@ -75,7 +75,7 @@ const ensureDirectory = async (path: string): Promise<void> => {
 const resourceDirectoryKey = async (resourceId: string): Promise<string> =>
   await toolDefinitionFileSha256(encoder.encode(resourceId));
 
-export const managedToolDefinitionStoreRoot = (dataRoot: string): string =>
+const managedToolDefinitionStoreRoot = (dataRoot: string): string =>
   `${dataRoot}/managed/tool-definition/v1`;
 
 const revisionPath = async (

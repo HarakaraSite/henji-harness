@@ -14,18 +14,18 @@ import {
   TOOL_ORDER,
 } from './work_tools_sentinel.ts';
 
-export const DENO_COMMAND = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno' as const;
-export const CHILD_ENTRYPOINT =
+const DENO_COMMAND = '/home/masat.guest/src/abyssaeon/.tools/deno/2.9.4/deno' as const;
+const CHILD_ENTRYPOINT =
   '/home/masat.guest/src/henji-harness/v0/agent/validation/work_tools_sentinel.ts' as const;
-export const SECRET_ENV = 'HENJI_OPENROUTER_API_KEY' as const;
-export const WORKSPACE_PARENT = '/tmp' as const;
-export const WORKSPACE_PREFIX = 'henji-work-tools-sentinel-' as const;
-export const CHILD_DEADLINE_MS = 180_000 as const;
-export const CHILD_GRACE_MS = 250 as const;
-export const CHILD_CHANNEL_LIMIT = 8 * 1024;
-export type SentinelHandledSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
+const SECRET_ENV = 'HENJI_OPENROUTER_API_KEY' as const;
+const WORKSPACE_PARENT = '/tmp' as const;
+const WORKSPACE_PREFIX = 'henji-work-tools-sentinel-' as const;
+const CHILD_DEADLINE_MS = 180_000 as const;
+const CHILD_GRACE_MS = 250 as const;
+const CHILD_CHANNEL_LIMIT = 8 * 1024;
+type SentinelHandledSignal = 'SIGHUP' | 'SIGINT' | 'SIGTERM';
 
-export type LauncherFailureStage =
+type LauncherFailureStage =
   | 'preflight'
   | 'credential'
   | 'workspace'
@@ -37,7 +37,7 @@ export type LauncherFailureStage =
   | 'cleanup'
   | 'internal';
 
-export type LauncherFailureCode =
+type LauncherFailureCode =
   | 'arguments_invalid'
   | 'credential_metadata_invalid'
   | 'credential_metadata_changed'
@@ -63,7 +63,7 @@ export type LauncherFailureCode =
   | 'cleanup_failed'
   | 'internal_failure';
 
-export interface LauncherSuccess {
+interface LauncherSuccess {
   readonly schemaVersion: 1;
   readonly taskId: typeof TASK_ID;
   readonly profile: typeof EXPECTED_PROFILE;
@@ -81,7 +81,7 @@ export interface LauncherSuccess {
   readonly retryCount: 0;
 }
 
-export interface LauncherFailure {
+interface LauncherFailure {
   readonly schemaVersion: 1;
   readonly taskId: typeof TASK_ID;
   readonly profile: typeof EXPECTED_PROFILE;
@@ -96,9 +96,9 @@ export interface LauncherFailure {
   readonly workspaceRemoved: boolean | null;
 }
 
-export type LauncherReport = LauncherSuccess | LauncherFailure;
+type LauncherReport = LauncherSuccess | LauncherFailure;
 
-export class LauncherError extends Error {
+class LauncherError extends Error {
   readonly stage: LauncherFailureStage;
   readonly code: LauncherFailureCode;
 
@@ -110,20 +110,20 @@ export class LauncherError extends Error {
   }
 }
 
-export interface SentinelChildStatus {
+interface SentinelChildStatus {
   readonly success: boolean;
   readonly code: number | null;
   readonly signal: string | null;
 }
 
-export interface SentinelChild {
+interface SentinelChild {
   readonly stdout: ReadableStream<Uint8Array>;
   readonly stderr: ReadableStream<Uint8Array>;
   readonly status: Promise<SentinelChildStatus>;
   readonly kill: (signal?: Deno.Signal) => void;
 }
 
-export interface SentinelCommandOptions {
+interface SentinelCommandOptions {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly clearEnv: true;
@@ -133,7 +133,7 @@ export interface SentinelCommandOptions {
   readonly stderr: 'piped';
 }
 
-export interface LauncherDependencies {
+interface LauncherDependencies {
   readonly filesystem?: CredentialFileSystem;
   readonly makeWorkspace?: () => Promise<string>;
   readonly realPath?: (path: string) => Promise<string>;
@@ -559,7 +559,7 @@ const removeSignalHandlers = (handlers: readonly (() => void)[]): void => {
   }
 };
 
-export const main = async (
+const main = async (
   args: readonly string[] = Deno.args,
   dependencies: LauncherDependencies = {},
 ): Promise<number> => {

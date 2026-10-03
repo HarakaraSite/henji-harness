@@ -1,6 +1,6 @@
 import { isTurnCancelledError } from '../../v0/agent/core/cancellation.ts';
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
-import { createWorkerSession } from '../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
 import { WorkerCapsule } from '../../v0/agent/worker/worker_capsule.ts';
 import { createProductionPhysicalIo } from '../../v0/agent/worker/worker_physical_io.ts';
 import type { WorkerHostCapsule } from '../../v0/agent/worker/worker_host_contract.ts';

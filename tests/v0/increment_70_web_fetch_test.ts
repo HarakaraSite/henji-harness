@@ -12,7 +12,8 @@ import {
   validateSessionRecordV6,
 } from '../../v0/agent/session/session_store.ts';
 import type { WorkerSessionHandle } from '../../v0/agent/session/session_store_contract.ts';
-import { readDefinitionRevision } from '../../v0/agent/worker/worker_definition_revision.ts';
+import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 
 const assert: (condition: unknown, message?: string) => asserts condition = (
   condition,
@@ -108,7 +109,7 @@ Deno.test('Increment 70 web_fetch marks an exact 1 MiB body as complete', async 
 });
 
 Deno.test('Increment 70 complete and truncated 1 MiB web_fetch results survive canonical record readback', async () => {
-  const definition = await readDefinitionRevision('', 'builtin', 'default');
+  const definition = await builtinDefinitionRef('default', buildManifest());
   for (const extraBytes of [0, 10_000]) {
     const body = 'x'.repeat(MAX_WEB_FETCH_BYTES + extraBytes);
     const tool = createWebFetchTool(fetched(body));

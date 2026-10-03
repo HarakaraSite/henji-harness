@@ -365,7 +365,7 @@ export const applyHistoryAppendResults = (
   return changes;
 };
 
-export const observationsFromCommitDelta = (
+const observationsFromCommitDelta = (
   delta: HistoryCommitDelta,
 ): readonly ConversationObservation[] => {
   const events = delta.occurrences.flatMap((occurrence) => {

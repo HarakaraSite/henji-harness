@@ -1,6 +1,6 @@
 import { OpenRouterAgentError } from './openrouter_contract.ts';
 
-export interface RequestHeaderContext {
+interface RequestHeaderContext {
   readonly credential: string;
   readonly sessionId?: string;
 }

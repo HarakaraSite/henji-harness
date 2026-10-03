@@ -2,32 +2,32 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 /** The maximum accepted UTF-8 instruction size, in bytes. */
-export const MAX_AGENT_INSTRUCTION_BYTES = 16 * 1024;
+const MAX_AGENT_INSTRUCTION_BYTES = 16 * 1024;
 const MAX_OBSERVED_BYTES = MAX_AGENT_INSTRUCTION_BYTES + 1;
 const CANDIDATE_NAMES = ['AGENTS.md', 'AGENTS.MD'] as const;
 
 export type AgentInstructionSource = (typeof CANDIDATE_NAMES)[number];
 
 /** One filesystem read projected into a source/text snapshot for runtime consumers. */
-export interface AgentInstructionSnapshot {
+interface AgentInstructionSnapshot {
   readonly source: AgentInstructionSource;
   readonly text: string;
   readonly formatted: string;
 }
 
-export interface InstructionFileInfo {
+interface InstructionFileInfo {
   readonly isFile: boolean;
   readonly isSymlink: boolean;
 }
 
-export interface InstructionFileHandle {
+interface InstructionFileHandle {
   read(buffer: Uint8Array): Promise<number | null>;
   stat(): Promise<InstructionFileInfo>;
   close(): void;
 }
 
 /** A small filesystem seam keeps direct discovery tests permission-free. */
-export interface InstructionFileSystem {
+interface InstructionFileSystem {
   lstat(path: string): Promise<InstructionFileInfo>;
   open(path: string): Promise<InstructionFileHandle>;
 }

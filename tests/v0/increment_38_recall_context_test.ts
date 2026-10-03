@@ -5,12 +5,9 @@ import { ROOT_DEFAULT_MODEL_SELECTION } from '../../v0/agent/provider/openrouter
 import { SqliteHistoryV7ProductionStore } from '../../v0/agent/history/sqlite_history_v7_production_store.ts';
 import { buildManifest } from '../../v0/agent/runtime/build_manifest.ts';
 import { Registry } from '../../v0/agent/tools/tools.ts';
-import {
-  createWorkerSession,
-  readDefinitionRevision,
-  workerBuiltinModulePath,
-  WorkerRecallSelectionError,
-} from '../../v0/agent/worker/worker_host.ts';
+import { createWorkerSession } from '../../v0/agent/worker/worker_tui_session.ts';
+import { builtinDefinitionRef } from '../../v0/agent/definitions/managed_resource_ref.ts';
+import { WorkerRecallSelectionError } from '../../v0/agent/worker/worker_host_session.ts';
 import type {
   WorkerExecutionArtifactV2,
   WorkerExecutionArtifactV3,
@@ -140,11 +137,7 @@ Deno.test('Increment 113 restored steering answer survives the next live Worker 
 const sourceArtifact = async (
   schemaVersion: 2 | 3 = 3,
 ): Promise<WorkerExecutionArtifactV2 | WorkerExecutionArtifactV3> => {
-  const definition = await readDefinitionRevision(
-    workerBuiltinModulePath('default'),
-    'builtin',
-    'default',
-  );
+  const definition = await builtinDefinitionRef('default', buildManifest());
   const base: Omit<WorkerExecutionArtifactV2, 'schemaVersion'> = {
     executionId: SOURCE_ID,
     createdAt: '2026-09-12T00:00:00.000Z',

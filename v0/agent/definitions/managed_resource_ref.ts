@@ -1,6 +1,6 @@
 import { AGENT_DEFINITION_API_CONTRACT, type BuildManifestV1 } from '../runtime/build_manifest.ts';
 
-export interface ManagedResourceRefV1 {
+interface ManagedResourceRefV1 {
   readonly schemaVersion: 1;
   readonly resourceKind: string;
   readonly resourceId: string;
@@ -28,7 +28,7 @@ export type ToolDefinitionRevisionRef = ManagedResourceRefV1 & {
 const encoder = new TextEncoder();
 const SHA256 = /^[0-9a-f]{64}$/u;
 
-export const isWellFormedResourceId = (value: unknown): value is string => {
+const isWellFormedResourceId = (value: unknown): value is string => {
   if (typeof value !== 'string' || value.length === 0) return false;
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);

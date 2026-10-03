@@ -2,7 +2,7 @@ import { parseDefinitionRevisionSelector } from '../definitions/definition_selec
 import { isSessionId } from '../session/session_store_contract.ts';
 import { BUILTIN_PROVIDER_IDS, type ProviderId } from '../provider/model_selection.ts';
 
-export interface ParsedTuiInvocation {
+interface ParsedTuiInvocation {
   readonly rawAgentName: string | undefined;
   readonly rawDefinitionRevision?: string;
   readonly rootMaxSteps?: number;

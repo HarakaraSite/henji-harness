@@ -141,6 +141,8 @@ Deno.test('ChatGPT login API starts and cancels without changing the parent prov
     deepStrictEqual(models.models.map((model) => model.modelId), [
       'account-model-b',
       'account-model-a',
+      'gpt-6.1-sol',
+      'gpt-6-luna',
     ]);
     deepStrictEqual(
       (await client.sessionRead(sessionId)).session.selection,

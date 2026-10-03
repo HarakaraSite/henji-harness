@@ -4,7 +4,7 @@ import type { RemoteTuiDependencies, RemoteTuiLaunchTarget } from '../../tui/rem
 import { runRemoteTui } from '../../tui/remote_session.ts';
 import { isSessionId } from '../session/session_store_contract.ts';
 
-export interface RemoteTuiInvocation {
+interface RemoteTuiInvocation {
   readonly url?: string;
   readonly coreId?: string;
   readonly target: RemoteTuiLaunchTarget;

@@ -27,7 +27,7 @@ export type ApiStartupView = Readonly<
   }
 >;
 
-export type ApiCheckpoint = Readonly<{
+type ApiCheckpoint = Readonly<{
   summary?: string;
   coveredThroughTurn: number;
   retainedFromTurn: number;
@@ -75,7 +75,7 @@ export type ApiPosition = Readonly<{
   checkpoint?: ApiCheckpoint;
 }>;
 
-export type ApiJson = null | boolean | number | string | readonly ApiJson[] | {
+type ApiJson = null | boolean | number | string | readonly ApiJson[] | {
   readonly [key: string]: ApiJson;
 };
 
@@ -86,7 +86,7 @@ export type RequestKey = Readonly<{
   requestOrdinal?: number;
 }>;
 
-export type ApiRuntimePhase =
+type ApiRuntimePhase =
   | 'idle'
   | 'preparing'
   | 'running'
@@ -180,7 +180,7 @@ export type CatalogReadInput = Readonly<
   | { kind: 'efforts'; provider: string; modelId: string }
   | { kind: 'credentials' }
 >;
-export type ProviderCatalogResult = Readonly<{
+type ProviderCatalogResult = Readonly<{
   kind: 'providers';
   providers: readonly Readonly<
     { provider: string; defaultSelection: ApiSelection }
@@ -207,7 +207,7 @@ export type EffortCatalogResult = Readonly<{
   efforts: readonly string[];
 }>;
 export type ModelFavoriteInput = Readonly<{ provider: string; modelId: string; favorite: boolean }>;
-export type CredentialCatalogResult = Readonly<{
+type CredentialCatalogResult = Readonly<{
   kind: 'credentials';
   profiles: readonly Readonly<
     {
@@ -348,7 +348,7 @@ export type CoreReadView = Readonly<{
   implementedOperations: readonly CoreOperationName[];
 }>;
 
-export type ApiSessionListEntry = Readonly<{
+type ApiSessionListEntry = Readonly<{
   id: string;
   agent: 'default' | 'planner' | 'generic';
   createdAt: string;
@@ -429,7 +429,7 @@ export type ConversationSnapshot = Readonly<{
   order: readonly string[];
 }>;
 
-export type ConversationDelta = Readonly<{
+type ConversationDelta = Readonly<{
   schemaVersion: 2;
   kind: 'delta';
   sessionId: string;

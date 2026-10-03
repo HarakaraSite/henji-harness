@@ -130,7 +130,7 @@ export const snapshot = <T>(value: T): T => structuredClone(value);
 export const snapshotMessages = (messages: readonly Message[]): Message[] =>
   snapshot(messages) as Message[];
 
-export const snapshotEvent = (event: AgentEvent): AgentEvent => snapshot(event);
+const snapshotEvent = (event: AgentEvent): AgentEvent => snapshot(event);
 
 /** Deliver one event and normalize any sink exception to the stable public error. */
 export const deliverEvent = (

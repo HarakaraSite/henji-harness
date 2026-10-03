@@ -6,14 +6,14 @@ export type ConversationValue =
   | { readonly [key: string]: ConversationValue }
   | readonly ConversationValue[];
 
-export type ConversationOutcome =
+type ConversationOutcome =
   | 'unknown'
   | 'completed'
   | 'cancelled'
   | 'failed'
   | 'interrupted';
 
-export type ConversationAdoption = 'canonical' | 'non_canonical';
+type ConversationAdoption = 'canonical' | 'non_canonical';
 
 export interface ConversationRequestReference {
   readonly lane?: 'parent' | 'planner';
@@ -60,7 +60,7 @@ export interface ConversationExecutionMetadata {
   readonly model: ConversationValue;
 }
 
-export interface ConversationExecutionEntity {
+interface ConversationExecutionEntity {
   readonly kind: 'execution';
   readonly id: string;
   readonly executionId: string;
@@ -69,7 +69,7 @@ export interface ConversationExecutionEntity {
   readonly execution: ConversationExecutionMetadata;
 }
 
-export interface ConversationRequestEntity {
+interface ConversationRequestEntity {
   readonly kind: 'request';
   readonly id: string;
   readonly executionId: string;
@@ -101,7 +101,7 @@ export interface ConversationMessageEntity {
   readonly toolIds?: readonly string[];
 }
 
-export interface ConversationThinkingEntity {
+interface ConversationThinkingEntity {
   readonly kind: 'thinking';
   readonly id: string;
   readonly executionId: string;
@@ -114,7 +114,7 @@ export interface ConversationThinkingEntity {
   readonly complete: boolean;
 }
 
-export interface ConversationToolEntity {
+interface ConversationToolEntity {
   readonly kind: 'tool';
   readonly id: string;
   /** Set only after a semantic tool_call occurrence has been saved. */
@@ -141,7 +141,7 @@ export interface ConversationToolEntity {
   }>;
 }
 
-export interface ConversationSteeringEntity {
+interface ConversationSteeringEntity {
   readonly kind: 'steering';
   readonly id: string;
   readonly executionId: string;
@@ -303,10 +303,6 @@ export const conversationRequestIdentity = (
     requestKey.modelStep,
     requestKey.requestOrdinal ?? -1,
   ]);
-
-export const conversationEntityId = (
-  entity: Pick<ConversationEntity, 'kind' | 'id'>,
-): string => `${entity.kind}:${entity.id}`;
 
 export const compareConversationPositions = (
   left: ConversationPosition,

@@ -19,7 +19,6 @@ import type {
   DataExecutionArtifactMetadataInput,
   DataExecutionControlInput,
   DataProposalToken,
-  DataRecallSelectionErrorCode,
   DataSessionDescriptor,
   DataSessionMutationResult,
   DataSessionPersistence,
@@ -371,5 +370,3 @@ export type DataWorkerResponse =
     sessionId: string;
     eventBytes: Uint8Array<ArrayBuffer>;
   }>;
-
-export type DataRecallErrorCode = DataRecallSelectionErrorCode;

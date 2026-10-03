@@ -342,18 +342,6 @@ Deno.test('Increment 65 starts a new session with the bound root Definition', as
   }
 });
 
-Deno.test('Increment 127 leaves no bundled planner role default', async () => {
-  const defaults = JSON.parse(
-    await Deno.readTextFile(
-      new URL(
-        '../../v0/agent/provider/defaults/provider-defaults.json',
-        import.meta.url,
-      ),
-    ),
-  );
-  assertEquals(defaults.roleDefaults, {});
-});
-
 Deno.test('Increment 65 fails typed on unknown slots and malformed files', async () => {
   const root = await Deno.makeTempDir({ prefix: 'henji-increment-65-invalid-' });
   try {

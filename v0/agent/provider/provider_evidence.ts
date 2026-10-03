@@ -5,7 +5,7 @@ import { isJsonValue } from './openrouter_value.ts';
 
 export type ProviderEvidenceLane = 'parent' | 'planner';
 /** Attribution captured from the model result that declared a tool-call batch. */
-export interface ProviderEvidenceAttribution {
+interface ProviderEvidenceAttribution {
   readonly modelStep: number;
   readonly lane?: ProviderEvidenceLane;
   /** Omitted when this model result has no matching physical provider request. */
@@ -14,7 +14,7 @@ export interface ProviderEvidenceAttribution {
 /** Identifies whether a retained request belongs to compaction or the user turn. */
 export type ProviderEvidencePhase = 'user_turn' | 'compaction';
 
-export interface ProviderEvidenceRequest {
+interface ProviderEvidenceRequest {
   readonly ordinal: number;
   readonly contextRequestOrdinal?: number;
   readonly lane: ProviderEvidenceLane;
@@ -44,11 +44,11 @@ export interface ProviderEvidenceRequestMetadata {
   readonly protocol?: 'json' | 'sse';
 }
 
-export interface ProviderEvidenceResponse {
+interface ProviderEvidenceResponse {
   readonly status: number;
 }
 
-export interface ProviderEvidenceParserTransition {
+interface ProviderEvidenceParserTransition {
   readonly ordinal: number;
   readonly kind: 'failure';
   readonly reason?: string;
@@ -104,13 +104,13 @@ export type ProviderEvidenceRuntimeEvent =
     readonly outcome: LoopOutcome['stopReason'];
   };
 
-export interface ProviderEvidenceRequestRecord {
+interface ProviderEvidenceRequestRecord {
   readonly request: ProviderEvidenceRequest;
   readonly response?: ProviderEvidenceResponse;
   readonly parserTransitions: readonly ProviderEvidenceParserTransition[];
 }
 
-export interface ProviderEvidenceV1 {
+interface ProviderEvidenceV1 {
   readonly schemaVersion: 1;
   readonly evidenceId: string;
   readonly turnNumber: number;
@@ -123,7 +123,7 @@ export interface ProviderEvidenceV1 {
   readonly diagnosticId?: string;
 }
 
-export interface EvidenceRequestMetadataStart {
+interface EvidenceRequestMetadataStart {
   readonly lane: ProviderEvidenceLane;
   readonly phase?: ProviderEvidencePhase;
   readonly modelStep: number;
@@ -134,11 +134,11 @@ export interface EvidenceRequestMetadataStart {
   readonly contextRequestOrdinal?: number;
 }
 
-export interface EvidenceResponseStart {
+interface EvidenceResponseStart {
   readonly status: number;
 }
 
-export interface ProviderRequestFailureFact {
+interface ProviderRequestFailureFact {
   readonly details?: FailureDetails;
   readonly stage: string;
   readonly code: string;
@@ -146,7 +146,7 @@ export interface ProviderRequestFailureFact {
   readonly parseReason?: string;
 }
 
-export interface EvidenceFinalize {
+interface EvidenceFinalize {
   readonly outcome: LoopOutcome;
   readonly diagnosticId?: string;
 }

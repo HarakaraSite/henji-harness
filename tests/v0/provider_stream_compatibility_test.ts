@@ -5,13 +5,12 @@ import {
   type OpenRouterAgentProfile,
 } from '../../v0/agent/provider/openrouter_model.ts';
 import { createTurnExecutionContext } from '../../v0/agent/core/execution_context.ts';
-import { runAgent } from '../../v0/agent/core/loop.ts';
+import { runAgent, runAgentTurn } from '../../v0/agent/core/loop.ts';
 import {
   type ProviderEvidenceObservation,
   ProviderEvidenceRecorder,
   validateProviderEvidenceObservation,
 } from '../../v0/agent/provider/provider_evidence.ts';
-import { AgentSession } from '../../v0/agent/session/session.ts';
 import { FailureDiagnosticOwner } from '../../v0/agent/session/failure_diagnostic.ts';
 import { createJsonResultSubmissionTool, Registry } from '../../v0/agent/tools/tools.ts';
 import type { ModelRequest } from '../../v0/agent/core/contracts.ts';
@@ -874,12 +873,18 @@ Deno.test('buffered response and assistant semantic limits remain unchanged', as
 Deno.test('documented tool accounting dispatches normally through the same transport', async () => {
   const seen = { requests: 0 };
   const model = modelFor(toolStream(), seen);
-  const events: unknown[] = [];
-  const session = new AgentSession(model, new Registry([createJsonResultSubmissionTool()]), {
-    eventSink: (event) => events.push(event),
-    providerRequestCount: () => seen.requests,
-  });
-  const outcome = await session.submit('submit');
+  const events: AgentEvent[] = [];
+  const outcome = await runAgentTurn(
+    'submit',
+    [],
+    model,
+    new Registry([createJsonResultSubmissionTool()]),
+    {
+      eventSink: (event) => events.push(event),
+      turnProviderRequestCount: () => seen.requests,
+      runtimeProviderRequestCount: () => seen.requests,
+    },
+  );
   assert(outcome.ok);
   assertEquals(outcome.stopReason, 'tool_terminal');
   assertEquals(outcome.finalText, '{"ok":true}');
@@ -893,9 +898,11 @@ Deno.test('documented tool accounting dispatches normally through the same trans
     ],
   );
   assertEquals(seen.requests, 1);
-  assert(events.some((event) => (event as { readonly kind?: string }).kind === 'tool_call'));
-  assert(events.some((event) => (event as { readonly kind?: string }).kind === 'tool_result'));
-  assert(events.some((event) => (event as { readonly kind?: string }).kind === 'turn_end'));
+  assertEquals(outcome.turnProviderRequestCount, 1);
+  assertEquals(outcome.runtimeProviderRequestCount, 1);
+  assert(events.some((event) => event.kind === 'tool_call'));
+  assert(events.some((event) => event.kind === 'tool_result'));
+  assert(events.some((event) => event.kind === 'turn_end'));
 });
 
 Deno.test('OpenRouter mixed assistant text and tool calls remain visible and continue', async () => {
@@ -917,7 +924,9 @@ Deno.test('OpenRouter mixed assistant text and tool calls remain visible and con
     },
   });
   const events: AgentEvent[] = [];
-  const session = new AgentSession(
+  const outcome = await runAgentTurn(
+    'inspect current source',
+    [],
     model,
     new Registry([{
       name: 'read',
@@ -925,11 +934,8 @@ Deno.test('OpenRouter mixed assistant text and tool calls remain visible and con
       inputSchema: { type: 'object' },
       execute: () => '# current source',
     }]),
-    {
-      eventSink: (event) => events.push(event),
-    },
+    { eventSink: (event) => events.push(event) },
   );
-  const outcome = await session.submit('inspect current source');
 
   assert(outcome.ok);
   assertEquals(outcome.finalText, 'hello');
@@ -1071,25 +1077,10 @@ Deno.test('Chat JSON response accepts a complete function call without type meta
   );
 });
 
-Deno.test('post-terminal content is rejected with a durable diagnostic', async () => {
+Deno.test('post-terminal content carries a parser fact from the provider adapter', async () => {
   const seen = { requests: 0 };
-  const diagnostics: string[] = [];
   const model = modelFor(failingPostTerminalStream(), seen);
-  const session = new AgentSession(model, new Registry([]), {
-    providerRequestCount: () => seen.requests,
-    diagnosticOwnerFactory: (turn) =>
-      new FailureDiagnosticOwner(turn, {
-        uuid: () => '22222222-2222-4222-8222-222222222222',
-        now: () => '2026-09-02T00:00:00.000Z',
-        persist: (diagnostic) => {
-          diagnostics.push(diagnostic.diagnosticId);
-        },
-      }),
-  });
-  const outcome = await session.submit('fail');
-  assert(!outcome.ok);
-  assertEquals(outcome.diagnostic?.parseReason, 'data_after_terminal');
-  assertEquals(outcome.stopReason, 'contract_failure');
-  assertEquals(outcome.turnProviderRequestCount, 1);
-  assertEquals(diagnostics, [outcome.diagnostic?.diagnosticId]);
+  const error = await capturedOpenRouterError(() => model.generate(request));
+  assertEquals(error.failureFact.parseReason, 'data_after_terminal');
+  assertEquals(seen.requests, 1);
 });

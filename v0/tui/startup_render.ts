@@ -7,7 +7,7 @@ import {
   truncateTerminalCellsFromEnd,
 } from './terminal_text.ts';
 
-export const orientationSession = (state: PresentationStartupState): string => {
+const orientationSession = (state: PresentationStartupState): string => {
   switch (state.sessionMode.kind) {
     case 'new':
       return 'new (autosave)';

@@ -2,11 +2,18 @@
 
 Henjiの通常利用で得た観測と、まだ個別Incrementへ採用していない改善候補の入口である。
 
+更新日: 2026-10-03（Increment 176までの採用範囲と現行sourceを照合）。
+
 - ここへの記載は採用、優先順位、実装認可を意味しない。
 - 個別Incrementへ採用した項目はその正本へ移し、この一覧から除く。
 - 長い実行証拠、参照実装比較、完了経緯は、increment、research、architecture等の担当正本へ置き、
   ここには候補を選ぶための現在の観測、候補、再検討条件だけを残す。
 - 一覧IDは文書内の参照用であり、順序や大小は優先度を表さない。
+
+採用済みのExa検索・download（A17とA6の一部）は[Increment 172](../increments/increment-172.md)、
+共通APIキー登録は[173](../increments/increment-173.md)、B6は[174](../increments/increment-174.md)、
+B7は[175](../increments/increment-175.md)、B8と共通の短い失敗診断は[176](../increments/increment-176.md)を参照する。
+B8の元の実失敗原因は未確定で、再発時の調査方針も176を参照する。
 
 ## 候補一覧
 
@@ -15,11 +22,13 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 | S4  | Surface        | `/rebuild`によるAgent context再構築                                          | 改訂したinstructionやskillを現Sessionの後続executionへ適用する必要が出る                                               |
 | S20 | Surface        | 巨大表示領域でのwindow行量確保とframe上限                                    | 大きなディスプレイで履歴の空白・古い行欠落が観測されたとき                                                             |
 | S22 | Surface        | 将来のWebUI本体                                                              | 独立HTTPコア・TUI分離の採用範囲はIncrement 139と後続sliceへ移した                                                      |
-| S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14／A20採用時                                        |
+| S24 | Surface        | subagent tool行のrunId・task断片表示とstatus／collect／cancel行のagent名対応 | 並行子Agent運用で操作行とagent・runの対応付けが必要になったとき、A14採用時                                             |
 | S26 | Surface        | CLIエラーを人間向けの理由・使い方案内へ統一                                  | 利用者がCLIエラー表示の改善を個別Incrementへ採用するとき                                                               |
 | S28 | Surface        | `@`によるコンテキスト注入（旧P5を統合）                                      | 人間がファイル内容等をmodel turnなしでcontextへ入れたいとき。採用は利用者判断                                          |
 | S29 | Surface        | `/edit`による外部エディタ起動                                                | 利用者が入力編集の外部エディタ連携を採用するとき                                                                       |
-| S30 | Surface        | TUIのF1 helpとCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| S30 | Surface        | TUIの`/help`とCLI helpの内容統合                                             | 利用者がヘルプ内容の統合を採用するとき                                                                                 |
+| S31 | Surface        | HTTP/SSEをAPI専用Workerへ分離                                                | 利用者が保存した配置案を個別incrementへ採用するとき                                                                    |
+| S32 | Surface        | 入力履歴機能の削除                                                           | 利用者が入力履歴の削除を個別incrementへ採用するとき                                                                    |
 | A2  | Agent実行      | Host操作のmodel向けtool化                                                    | AIがSession列挙やcontext rebuildを実際に必要とする                                                                     |
 | A3  | Agent実行      | Context Strategyの外部化                                                     | 長期Sessionのtoken usageとcontext品質を実測で比較できる                                                                |
 | A5  | Agent実行      | ambient情報のinstruction化（repository context・実行環境）                   | ambient remoteの誤認・repository探索の再発、またはAIが実行環境のambient情報を知らない／instructionだけでは足りない事例 |
@@ -114,7 +123,7 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 候補: [Increment 136](../increments/increment-136.md)で採用したagent名表示に加え、runId短縮表示で
   起動行とstatus／collect／cancel行を対応付けられるようにする。
 - 再検討条件: 複数の子Agentを並行運用し、操作行がどのagent・runのものか履歴から追えなくなったとき、
-  またはA14／A20を採用するincrementに含めるとき。
+  またはA14を採用するincrementに含めるとき。
 - 関連: A14、[Increment 138（A20・A22）](../increments/increment-138.md)、
   [`increment-136.md`](../increments/increment-136.md)、
   [`increment-131.md`](../increments/increment-131.md)、`v0/agent/tools/async_agents.ts`。
@@ -166,12 +175,12 @@ Henjiの通常利用で得た観測と、まだ個別Incrementへ採用してい
 - 関連:
   [Increment 159](../increments/increment-159.md)。今回のフッター・ショートカット整理では実装しない。
 
-### S30 — TUIのF1 helpとCLI helpの内容統合（未採用、メモのみ）
+### S30 — TUIの`/help`とCLI helpの内容統合（未採用、メモのみ）
 
 - 利用者意向（2026-09-29）: F1 helpの内容をCLIのヘルプと統合するか、別件としてメモする。
+- 現行境界: [Increment 159](../increments/increment-159.md)でF1はSession一覧へ変更し、 TUI
+  helpは`/help`へ集約した。CLI helpとの内容統合は未採用である。
 - 候補: TUI helpとCLI helpの内容を整理・統合する。対象となる内容と統合方法は未決。
-  今回は記録のみ。help内容の統合とは別に、[Increment 159](../increments/increment-159.md)の計画ではF1をSession一覧へ割り当て、TUI
-  helpは`/help`へ集約する。 CLI helpの実装変更は行わない。
 - 再検討条件: 利用者がヘルプ内容の統合を個別Incrementへ採用するとき。
 - 関連: [Increment 159](../increments/increment-159.md)、TUIの`/help`、CLI help。
 
@@ -196,6 +205,28 @@ Pi／OpenCode／Henjiの画面表示比較
   単独では採らない。S17を採用するincrementなど、
   frameの実挙動検証が要件に直結するときに限って検討する。 再検討条件:
   S17の採用incrementを計画するとき。
+
+### S31 — HTTP/SSEをAPI専用Workerへ分離（F10）
+
+- 観測: 現行Core mainはHTTP受付・SSE配信を担う。会話state・履歴・公開会話payloadの生成とencodeは、
+  Increment 170で別のData Workerへ移っている。
+- 利用者の方向づけ（2026-10-03）: APIをCoreから分離するか、表示を組み立てるWorkerへ寄せるかの
+  調査を依頼し、HTTP/SSEをAPI専用Workerへ移す案に「これが自然かな」と述べ、案のファイル化を指示した。
+  個別incrementへの採用・実装・正本文書変更の承認とは扱わない。
+- 候補: Coreが所有するAPI専用WorkerへHTTP/SSEを移す。Coreの操作判断と実行制御、既存Data Workerを
+  維持し、第一案では公開revision・snapshot合成・application購読もCoreに残す。
+- 再検討条件: 利用者が配置案を採用するとき、Core操作RPC、購読、起動・終了を具体化する。
+  現行product動作と追加配送の負担を実経路で確認し、性能改善を前提にしない。
+- 詳細: [API Worker分離案](../research/api-worker-separation-design.md)。
+
+### S32 — 入力履歴機能の削除（未採用、メモのみ）
+
+- 観測・利用者意向（2026-10-03）: 実行中の↑/↓で入力履歴を呼べないことを確認したが、利用者は
+  あまり不便を感じておらず、入力履歴自体の使用頻度も少ないと述べ、削除候補の記録を指示した。
+- 候補: editorの送信済みpromptを↑/↓で再呼出しする入力履歴機能を削除する。
+  関連する記録・navigation処理、help記載、専用testの整理範囲は採用時に決める。
+- 再検討条件: 利用者が入力履歴の削除を個別incrementへ採用するとき。
+- 現行経路: `v0/tui/input_history.ts`、`v0/tui/remote_session.ts`、`v0/tui/slash_command.ts`。
 
 ## Agent実行
 
@@ -274,19 +305,23 @@ Pi／OpenCode／Henjiの画面表示比較
 - 正本: [`increment-37.md`](../increments/increment-37.md)が観測した実行証拠と完了判断を保持する。
 - 関連: A11（instructionの与え方）、R3、E3、`v0/agent/tools/bash_tool.ts`、AGENTS.md「実行環境」。
 
-### A6 — Web searchの取得品質・backend比較（F02、F06、将来のF24候補）
+### A6 — Web searchの取得品質・backend比較（F02、F06、将来のF24候補、残候補）
 
-- 観測: Increment 7〜9でHenji-owned `web_search`、OpenRouter Sonar backend、groundingと直接URL
-  citationを実装・ production受入済みである。検索backendの切替要件は個別incrementで扱う。
+- 現行境界: [Increment 172](../increments/increment-172.md)で`web_search`をExa API直結へ置き換えた。
+  検索結果を親modelが回答へ使い、既知URLは`web_fetch`で取得する。Sonar backendは除去済みで、
+  search/fetch分離と`web_fetch`のdownloadは172の採用範囲である。
+  credential登録は[Increment 173](../increments/increment-173.md)の共通`/login`経路を使う。
 - 候補: 取得内容とcitation/provider evidenceの相関、追加stepと経路の明示性を実taskで比較する。
   filesystem探索、複数endpoint試行、shell quoting、temporary file、別commandでの再読込が
   連なる発見・取得経路の品質・コストを観測する。
 - backend候補: OpenAI Responses API built-in Web searchとOpenRouter `openrouter:web_search`を一つの
-  `WebSearchBackend`境界へ追加できるか、採用時のbackendと比較する。modelに実装名の異なるtoolを無条件に並べない。
+  `WebSearchBackend`境界へ追加できるか、現行Exa
+  backendと比較する。modelに実装名の異なるtoolを無条件に並べない。
   同時公開するなら品質、費用、検索範囲等で選択理由を説明できる別contractにする。
 - 再検討条件: searchとfetchの混在、または現backendの品質/費用/取得範囲が具体的に問題になること。 Web
   search自体をAgent Definitionにするかは、conversation、prompt、model、tool利用を独立所有する必要が
   出たときだけ比較する。
+- 残候補は実taskでの取得品質・費用・取得範囲の比較と、必要になった場合の別backend採用である。
 
 ### A9 — Sessionと関連履歴の保存・削除（旧P7を統合、未採用）
 
@@ -405,14 +440,17 @@ Pi／OpenCode／Henjiの画面表示比較
 
 - 利用者希望（2026-09-27）: 実行中の同じturnへsteeringを複数回送れるようにしたい。
   今回は未採用候補としてメモし、実装は行わない。
-- 現行境界: busy中に入力してEnterを押すとsteeringを送れるが、受付は1turnにつき1回。
-  `SteeringOwner.admit()`の受付済み状態は指示を消費した後も解除されず、TUI側もturn終了まで
-  `steeringAccepted`を保持する。これはHenjiの実装上の制約であり、provider APIの制約ではない。
+- 現行境界（2026-10-03）: busy中の追加指示はF3で送り、受付は1 executionにつき1回。
+  `SteeringOwner.admit()`の受付済み状態は指示を消費した後も解除されない。
+  [Increment 175](../increments/increment-175.md)でWorkerの受付確認と、tool後に加えてmodelがfinalを
+  返した際の取込み・同じexecutionの次requestへの継続を成立させた。複数回の受付は175の対象外であり、
+  本候補として残る。これはHenjiの実装上の制約であり、provider APIの制約ではない。
 - 候補: 同じturnの実行中に追加のsteeringを受け付け、既存のtool実行後・次のmodel request前の
-  経路でモデルへ渡す。未消費の指示がある間に届いた追加分の保持方法と適用順序は、個別Incrementへ
+  経路（final後の継続を含む）でモデルへ渡す。未消費の指示がある間に届いた追加分の保持方法と適用順序は、個別Incrementへ
   採用するときに定める。
 - 対象範囲: 実行中turnへの追加指示。別枠のchatや子Agentへの直接steeringは、この候補には含めない。
-- 関連: `v0/agent/core/steering.ts`、`v0/agent/core/loop.ts`、`v0/tui/controller.ts`。
+- 関連: [Increment 175](../increments/increment-175.md)、`v0/agent/core/steering.ts`、
+  `v0/agent/core/loop.ts`、`v0/tui/remote_session.ts`。
 
 ### A23 — `run_typescript`でファイル操作を含む小処理をHenji内で実行（F06、未採用）
 
@@ -527,6 +565,9 @@ Pi／OpenCode／Henjiの画面表示比較
   そのままターン失敗となる。Piは途中終了等を分類して既定3回、OpenCodeは再試行可能なエラーを
   最大5回再試行する。参照は10月1日更新のsnapshotにある
   `_refs/pi/packages/ai/src/utils/retry.ts`と`_refs/opencode/packages/opencode/src/session/retry.ts`。
+- 現行の対処: [Increment 169](../increments/increment-169.md)で対象のprovider failureに
+  `try /recall`を案内し、[Increment 176](../increments/increment-176.md)で失敗の分類と短い診断を拡充した。
+  いずれもHTTP 200後の中断への自動再試行を追加しておらず、本候補は未採用のままである。
 - トークン量: 今回の再送は入力30,878、出力1,533（推論661を含む）、cached 0だった。
   同規模で3回再試行すれば、キャッシュなしの追加入力だけで約9.3万tokenとなる。
   recallの準備自体はproviderを呼ばないが、次のtaskには通常履歴と参照JSONを送るため、
@@ -821,15 +862,18 @@ Pi／OpenCode／Henjiの画面表示比較
   同日の隔離XDG・実provider確認では別原因のprovider timeoutとなり、commit却下は再現しなかった。
   詳細なDB観測、自動復元の由来、再現試行は
   [`increment-85.md`](../increments/increment-85.md#b5の原観測と切り分け2026-09-19)へ移した。
-- 現行境界（2026-09-26、source照合）: `worker_host_authority.ts`の`proposalRecord`は
-  `validateSessionRecordV6`のboolean結果からrecordまたは`undefined`を返す。
-  `worker_host_coordinator.ts`は不合格を`commit proposal invalid`としてsettleするが、
+- 現行境界（2026-10-03、source照合）: [Increment 170](../increments/increment-170.md)で
+  record組立て・保存はAgent Data側へ移った。`session_authority.ts`の`proposalRecord`はcanonical
+  Sessionの`validateSessionRecordV6`がfalseなら`undefined`を返し、`session_data_owner.ts`の
+  `prepareProposal`が`commit proposal invalid`をthrowする。validatorはbooleanのままで、
   不合格になった項目・値の形は返さない。元の却下原因も未特定である。
 - 対応済みの境界: 自動入力復元と停止理由の上書きはIncrement 85／97で解消した。
   却下proposalのtranscriptを保存・readbackする経路はIncrement 94のhistory v7へ移行済みであり、
   原観測時の「却下transcriptをDBから読めない」は現行storeの制約ではない。
+  [Increment 176](../increments/increment-176.md)でWorker／Data／commitの例外に取得可能な処理段階・
+  例外種類・短いmessage等を残すが、boolean validatorを項目別理由付きへ置き換える作業は対象外である。
 - 残る利用者影響:
-  commit却下が起きた場合、保存されたproposalと汎用errorだけでは具体的な検証不合格箇所を
+  commit却下が起きた場合、保存されたproposalと取得可能な例外情報だけでは具体的な検証不合格箇所を
   直接特定できず、成果がcanonical採用されなかった理由の調査が難しい。
 - 対応候補（未採用）:
   commit却下時に検証不合格の項目と値の形を短いfactとして保存・readbackできるようにし、
@@ -838,5 +882,7 @@ Pi／OpenCode／Henjiの画面表示比較
   commit却下が通常利用で再観測される、または却下理由の記録・原因調査を個別incrementへ採用するとき。
 - 関連:
   [`increment-85.md`](../increments/increment-85.md)、[`increment-94.md`](../increments/increment-94.md)、
-  [`increment-97.md`](../increments/increment-97.md)、`v0/agent/worker/worker_host_authority.ts`、
-  `v0/agent/worker/worker_host_coordinator.ts`、`v0/agent/history/sqlite_history_v7_production_store.ts`。
+  [`increment-97.md`](../increments/increment-97.md)、[Increment 170](../increments/increment-170.md)、
+  [Increment 176](../increments/increment-176.md)、`v0/agent/data/session_authority.ts`、
+  `v0/agent/data/session_data_owner.ts`、`v0/agent/worker/worker_host_coordinator.ts`、
+  `v0/agent/history/sqlite_history_v7_production_store.ts`。

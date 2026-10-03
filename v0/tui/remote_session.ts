@@ -52,7 +52,7 @@ export type RemoteTuiLaunchTarget =
   | Readonly<{ kind: 'none' }>
   | Readonly<{ kind: 'session'; sessionId: string }>;
 
-export interface RemoteTuiLaunchOptions {
+interface RemoteTuiLaunchOptions {
   readonly target: RemoteTuiLaunchTarget;
   readonly activation?: SessionActivation;
 }

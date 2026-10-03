@@ -16,11 +16,11 @@ const encoder = new TextEncoder();
 
 type JsonObject = Record<string, unknown>;
 export type ChatGPTAuthFact = Readonly<Record<string, unknown>>;
-export type ChatGPTAuthReporter = (
+type ChatGPTAuthReporter = (
   fact: ChatGPTAuthFact,
 ) => void | Promise<void>;
 
-export type ChatGPTAuthFailureCode =
+type ChatGPTAuthFailureCode =
   | 'chatgpt_attempt_not_found'
   | 'chatgpt_account_missing'
   | 'chatgpt_selection_missing'
@@ -70,7 +70,7 @@ export class ChatGPTAuthError extends Error {
   }
 }
 
-export interface ChatGPTAuthServiceOptions {
+interface ChatGPTAuthServiceOptions {
   /** Henji runtime config root. ChatGPT files are stored below `${configRoot}/chatgpt`. */
   readonly configRoot?: string;
   /** Injectable only for tests and isolated probes. Production uses the global fetch. */
@@ -91,19 +91,19 @@ export interface ChatGPTAuthService {
   close(): Promise<void>;
 }
 
-export interface ResolvedChatGPTCredential {
+interface ResolvedChatGPTCredential {
   readonly accessToken: string;
   readonly registrationId: string;
 }
 
-export interface ResolveChatGPTCredentialOptions extends ChatGPTAuthServiceOptions {
+interface ResolveChatGPTCredentialOptions extends ChatGPTAuthServiceOptions {
   /** Frozen, nonsecret account binding for this model execution. */
   readonly registrationId?: string;
   /** Optional already-resolved selection. If absent, the persisted selection is read. */
   readonly selectedRegistrationId?: string;
 }
 
-export interface ChatGPTCredentialPresenceOptions {
+interface ChatGPTCredentialPresenceOptions {
   readonly configRoot?: string;
   readonly registrationId?: string;
   readonly selectedRegistrationId?: string;

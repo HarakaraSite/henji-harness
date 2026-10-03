@@ -6,7 +6,7 @@ import { HENJI_COMMON_INSTRUCTION } from './henji_common.ts';
 
 export const HENJI_BASE_INSTRUCTION_SLOT = 'instruction:henji-base' as const;
 /** User-scoped base instruction file, read directly without install or activation. */
-export const HENJI_BASE_INSTRUCTION_FILE = 'instruction.md' as const;
+const HENJI_BASE_INSTRUCTION_FILE = 'instruction.md' as const;
 /** Attribution identity of the direct user-scoped base instruction file. */
 export const HENJI_BASE_INSTRUCTION_FILE_ID = 'user/instruction.md' as const;
 
@@ -25,7 +25,7 @@ export interface SelectedHenjiBaseInstruction {
   readonly bytesBase64: string;
 }
 
-export type HenjiInstructionErrorCode =
+type HenjiInstructionErrorCode =
   | 'instruction_invalid'
   | 'instruction_io_failure';
 

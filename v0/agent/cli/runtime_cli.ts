@@ -23,15 +23,15 @@ import {
 } from './run_events.ts';
 import { resolveRuntimePaths } from '../runtime/runtime_paths.ts';
 
-export const MAX_TASK_BYTES = 64 * 1024;
+const MAX_TASK_BYTES = 64 * 1024;
 const encoder = new TextEncoder();
 
 /** Headless output mode: default final-only text, machine NDJSON, or human live text. */
-export type OutputMode = 'text' | 'json' | 'stream';
+type OutputMode = 'text' | 'json' | 'stream';
 const OUTPUT_FLAGS: ReadonlySet<string> = new Set(['--json', '--stream']);
 
 /** Determine the requested output mode before any other argument validation. */
-export const parseOutputMode = (args: readonly string[]): OutputMode => {
+const parseOutputMode = (args: readonly string[]): OutputMode => {
   let mode: OutputMode = 'text';
   for (const argument of args) {
     if (argument === '--json') {
@@ -45,17 +45,17 @@ export const parseOutputMode = (args: readonly string[]): OutputMode => {
   return mode;
 };
 
-export class AgentInputError extends Error {
+class AgentInputError extends Error {
   constructor() {
     super('invalid agent invocation');
     this.name = 'AgentInputError';
   }
 }
 
-export type OutputWriter = (text: string) => void | PromiseLike<void>;
+type OutputWriter = (text: string) => void | PromiseLike<void>;
 
 /** Test seams keep channel validation provider-free; production uses the headless Worker route. */
-export interface RuntimeCliDependencies {
+interface RuntimeCliDependencies {
   readonly stdinIsTerminal?: () => boolean;
   readonly stdin?: ReadableStream<Uint8Array>;
   readonly readStdin?: () => Promise<Uint8Array>;
@@ -82,7 +82,7 @@ const normalizedTask = (text: string): string => {
   return task;
 };
 
-export interface ParsedRuntimeArgs {
+interface ParsedRuntimeArgs {
   readonly taskArg: string | undefined;
   readonly rawAgentName: string | undefined;
   readonly rawDefinitionRevision?: string;
@@ -91,7 +91,7 @@ export interface ParsedRuntimeArgs {
 }
 
 /** Parse the exact application argv contract, returning undefined task for stdin. */
-export const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
+const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
   let task: string | undefined;
   let rawAgentName: string | undefined;
   let rawDefinitionRevision: string | undefined;
@@ -150,7 +150,7 @@ export const parseTaskArg = (args: readonly string[]): ParsedRuntimeArgs => {
 export const parseRuntimeArgs = parseTaskArg;
 
 /** Read at most 65,537 raw stdin bytes and reject as soon as the bound is crossed. */
-export const readBoundedStdin = async (
+const readBoundedStdin = async (
   stream: ReadableStream<Uint8Array> = Deno.stdin.readable,
 ): Promise<Uint8Array> => {
   const reader = stream.getReader();

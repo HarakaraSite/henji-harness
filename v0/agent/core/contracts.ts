@@ -9,11 +9,11 @@ import type {
   ProviderEvidenceRecorder,
 } from '../provider/provider_evidence.ts';
 
-export type JsonPrimitive = string | number | boolean | null;
+type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 export type JsonObject = { readonly [key: string]: JsonValue };
 
-export interface TextContent {
+interface TextContent {
   readonly kind: 'text';
   readonly text: string;
 }
@@ -32,7 +32,7 @@ export interface OpenRouterProviderState {
 }
 
 /** Ordered Responses output items needed when continuing a Responses tool/model exchange. */
-export interface ResponsesProviderState {
+interface ResponsesProviderState {
   /** Provider id that produced these private items; replay is scoped to it. */
   readonly provider: string;
   readonly replayItems: readonly JsonValue[];
@@ -121,7 +121,7 @@ export interface ModelRequest {
 }
 
 /** Execution-only callback carrying the complete visible assistant prefix. */
-export type AssistantProgressReporter = (snapshot: string) => void;
+type AssistantProgressReporter = (snapshot: string) => void;
 
 export interface ModelGenerateOptions {
   readonly signal?: AbortSignal;
@@ -171,7 +171,7 @@ export type LoopStopReason =
   | 'interrupted';
 
 /** Coarse completion class; `stopReason` retains the exact terminal mechanism. */
-export type LoopOutcomeKind = Exclude<LoopStopReason, 'tool_terminal'>;
+type LoopOutcomeKind = Exclude<LoopStopReason, 'tool_terminal'>;
 
 export interface LoopOutcome {
   readonly ok: boolean;

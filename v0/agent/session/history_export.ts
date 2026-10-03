@@ -6,11 +6,11 @@ const encoder = new TextEncoder();
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const CREATE_ATTEMPTS = 8;
 
-export type HistoryExportSessionIdentity =
+type HistoryExportSessionIdentity =
   | Readonly<{ readonly kind: 'durable'; readonly sessionId: string }>
   | Readonly<{ readonly kind: 'none' }>;
 
-export interface HistoryExportRequest {
+interface HistoryExportRequest {
   readonly transcript: readonly Message[];
   readonly position: Readonly<{
     readonly agent: SessionRecord['agent'];
@@ -27,12 +27,12 @@ export interface HistoryExportRequest {
   }>;
 }
 
-export interface HistoryExportReceipt {
+interface HistoryExportReceipt {
   readonly path: string;
   readonly throughTurn: number;
 }
 
-export interface HistoryExporter {
+interface HistoryExporter {
   write(request: HistoryExportRequest): Promise<HistoryExportReceipt>;
 }
 
@@ -191,7 +191,7 @@ export const renderHistoryMarkdown = (
   )].join('');
 };
 
-export interface DenoHistoryExporterOptions {
+interface DenoHistoryExporterOptions {
   readonly uuid?: () => string;
 }
 

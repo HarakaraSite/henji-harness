@@ -227,7 +227,7 @@ const isParsedJsonValue = (value: unknown): value is JsonValue => {
 const SUBMIT_JSON_RESULT_DESCRIPTION =
   'Submit the final answer when it is a JSON value. Call it as the only tool call in the assistant batch. Pass the complete JSON text in `json`. Use the normal assistant final response for plain text.';
 
-export const MAX_JSON_RESULT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
+const MAX_JSON_RESULT_BYTES = MAX_CONVERSATION_TEXT_BYTES;
 
 export const createJsonResultSubmissionTool = (): Tool => ({
   name: 'submit_json_result',
@@ -324,7 +324,7 @@ export const createCharacterCountTool = (): Tool => ({
   },
 });
 
-export interface JsonObjectKeysToolOptions {
+interface JsonObjectKeysToolOptions {
   readonly allowedPath: string;
   readonly maxBytes?: number;
   readonly readFile?: (path: string) => Promise<Uint8Array>;

@@ -1,9 +1,6 @@
 import type { FailureDiagnosticPersister, FailureDiagnosticV1 } from './failure_diagnostic.ts';
 
-export const MAX_FAILURE_DIAGNOSTICS = 16;
-export const MAX_FAILURE_DIAGNOSTIC_BYTES = 16 * 1024;
-
-export type FailureDiagnosticStoreErrorCode =
+type FailureDiagnosticStoreErrorCode =
   | 'diagnostic_not_found'
   | 'diagnostic_busy'
   | 'diagnostic_invalid'

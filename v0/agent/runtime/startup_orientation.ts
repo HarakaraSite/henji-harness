@@ -8,14 +8,14 @@
 
 const encoder = new TextEncoder();
 
-export const MAX_RUNTIME_DISPLAY_STATE_BYTES = 1_024;
-export const MAX_WORKSPACE_DISPLAY_BYTES = 96;
-export const MAX_DISPLAY_SKILL_NAMES = 5;
-export const CREDENTIAL_VERIFICATION_POLICY = 'before_each_provider_request' as const;
+const MAX_RUNTIME_DISPLAY_STATE_BYTES = 1_024;
+const MAX_WORKSPACE_DISPLAY_BYTES = 96;
+const MAX_DISPLAY_SKILL_NAMES = 5;
+const CREDENTIAL_VERIFICATION_POLICY = 'before_each_provider_request' as const;
 
-export type RuntimeDisplayAgentId = 'default' | 'planner' | 'generic';
-export type RuntimeDisplayInstructionSource = 'AGENTS.md' | 'AGENTS.MD' | 'none';
-export type RuntimeDisplaySessionMode = 'new' | 'continue' | 'session' | 'none';
+type RuntimeDisplayAgentId = 'default' | 'planner' | 'generic';
+type RuntimeDisplayInstructionSource = 'AGENTS.md' | 'AGENTS.MD' | 'none';
+type RuntimeDisplaySessionMode = 'new' | 'continue' | 'session' | 'none';
 
 export interface RuntimeDisplayState {
   readonly productVersion: string;
@@ -53,7 +53,7 @@ export interface RuntimeDisplayState {
   readonly credentialVerification: typeof CREDENTIAL_VERIFICATION_POLICY;
 }
 
-export interface RuntimeDisplayProjectionInput {
+interface RuntimeDisplayProjectionInput {
   readonly productVersion: string;
   readonly workspaceRoot: string;
   readonly agentId: RuntimeDisplayAgentId;

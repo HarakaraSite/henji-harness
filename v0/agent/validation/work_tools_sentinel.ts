@@ -14,10 +14,10 @@ import {
 } from '../core/contracts.ts';
 import { runAgent } from '../core/loop.ts';
 import { createWorkToolsRegistry } from '../tools/registries.ts';
-import { MAX_STEPS } from '../runtime/runtime.ts';
+import { DEFAULT_AGENT_MAX_STEPS } from '../definitions/agent_definition.ts';
 import { resolveWorkspace, type Workspace } from '../tools/work_tools.ts';
 
-export const FIXED_TASK =
+const FIXED_TASK =
   'This is a fixed local-work sentinel. Use exactly one tool call in each assistant response and perform these five calls in order. Do not answer with assistant text and do not call any other tool.\n\n' +
   '1. Call write with {"path":"work/item.txt","content":"alpha\\n"}.\n' +
   '2. Call read with {"path":"work/item.txt"}.\n' +
@@ -28,7 +28,7 @@ export const FIXED_TASK =
 export const TASK_ID = 'v1.work-tools.fixed' as const;
 export const TOOL_ORDER = ['write', 'read', 'edit', 'bash', 'submit_json_result'] as const;
 export const MAX_SENTINEL_REQUESTS = TOOL_ORDER.length;
-export const MAX_SENTINEL_TOOL_CALLS = TOOL_ORDER.length;
+const MAX_SENTINEL_TOOL_CALLS = TOOL_ORDER.length;
 export const EXPECTED_PROFILE = PRODUCTION_PROFILE.id;
 
 export const EXPECTED_RESULT = {
@@ -72,7 +72,7 @@ const EXPECTED_RESULTS = [
   'json result submitted',
 ] as const;
 
-export type SentinelFailureCode =
+type SentinelFailureCode =
   | 'provider_failure'
   | 'model_adherence_failure'
   | 'tool_execution_failure'
@@ -120,7 +120,7 @@ export interface SentinelFailureReport {
   readonly workspaceValidated: false;
 }
 
-export class SentinelContractError extends Error {
+class SentinelContractError extends Error {
   readonly code: SentinelFailureCode;
 
   constructor(code: SentinelFailureCode) {
@@ -206,7 +206,7 @@ const hasExpectedToolExecutionError = (
 };
 
 /** Validate the causal transcript before a provider request is dispatched. */
-export const validateSentinelRequestTranscript = (
+const validateSentinelRequestTranscript = (
   request: ModelRequest,
   ordinal: number,
 ): boolean => {
@@ -234,7 +234,7 @@ export const validateSentinelRequestTranscript = (
   return true;
 };
 
-export const validateSentinelToolResponse = (result: ModelResult, ordinal: number): boolean => {
+const validateSentinelToolResponse = (result: ModelResult, ordinal: number): boolean => {
   if (ordinal < 0 || ordinal >= MAX_SENTINEL_REQUESTS) return false;
   if (result.kind !== 'tool_calls' || result.calls.length !== 1) return false;
   const call = result.calls[0];
@@ -243,7 +243,7 @@ export const validateSentinelToolResponse = (result: ModelResult, ordinal: numbe
     equalJson(call.arguments, expected.arguments);
 };
 
-export const validateSentinelTranscript = (transcript: readonly Message[]): boolean => {
+const validateSentinelTranscript = (transcript: readonly Message[]): boolean => {
   if (transcript.length !== 1 + MAX_SENTINEL_REQUESTS * 2) return false;
   if (!validateSentinelRequestTranscript({ transcript, tools: [] }, MAX_SENTINEL_REQUESTS)) {
     return false;
@@ -290,8 +290,6 @@ const workspaceIsValid = async (workspace: Workspace): Promise<boolean> => {
   }
 };
 
-export const validateSentinelWorkspace = workspaceIsValid;
-
 const failureCodeForOutcome = (outcome: LoopOutcome): SentinelFailureCode => {
   if (
     outcome.transcript.some((message) =>
@@ -318,7 +316,7 @@ const failureReport = (
   code,
   modelRequests: Math.min(MAX_SENTINEL_REQUESTS, boundedCount(requestCount)),
   externalRequests: boundedCount(externalRequests),
-  steps: Math.min(MAX_STEPS, boundedCount(outcome?.steps ?? requestCount)),
+  steps: Math.min(DEFAULT_AGENT_MAX_STEPS, boundedCount(outcome?.steps ?? requestCount)),
   toolCalls: Math.min(MAX_SENTINEL_TOOL_CALLS, boundedCount(outcome?.toolCallCount ?? 0)),
   toolResults: Math.min(MAX_SENTINEL_TOOL_CALLS, boundedCount(outcome?.toolResultCount ?? 0)),
   toolOrder: outcome === undefined
@@ -334,7 +332,7 @@ const failureReport = (
   workspaceValidated: false,
 });
 
-export interface SentinelRunDependencies {
+interface SentinelRunDependencies {
   readonly fetcher?: typeof fetch;
   readonly credential?: string;
   readonly credentialSource?: CredentialSource;
@@ -343,12 +341,12 @@ export interface SentinelRunDependencies {
   readonly workspaceRoot?: string;
 }
 
-export interface SentinelRunResult {
+interface SentinelRunResult {
   readonly report: SentinelReport;
   readonly externalRequests: number;
 }
 
-export class GuardedModel implements Model {
+class GuardedModel implements Model {
   private requestCount = 0;
   private lastFailure: SentinelFailureCode | undefined;
 
@@ -428,7 +426,9 @@ export const runSentinel = async (
       timeoutMs: dependencies.timeoutMs,
     });
     guarded = new GuardedModel(model, registry.definitions());
-    const outcome = await runAgent(FIXED_TASK, guarded, registry, { maxSteps: MAX_STEPS });
+    const outcome = await runAgent(FIXED_TASK, guarded, registry, {
+      maxSteps: DEFAULT_AGENT_MAX_STEPS,
+    });
     if (!outcome.ok || outcome.outcome !== 'final') {
       return {
         report: failureReport(
@@ -498,7 +498,7 @@ const writeStdoutLine = async (report: SentinelReport): Promise<void> => {
   }
 };
 
-export const main = async (args: readonly string[] = Deno.args): Promise<number> => {
+const main = async (args: readonly string[] = Deno.args): Promise<number> => {
   if (args.length !== 0) {
     await writeStdoutLine(failureReport('model_adherence_failure', 0, 0));
     return 1;
