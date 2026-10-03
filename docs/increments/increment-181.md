@@ -3,8 +3,8 @@
 更新日: 2026-10-04
 
 ステータス:
-**完了（local実装・検証）。P0と全六スライスの実装・test・独立review、最終gate615件、実provider
-E1〜E11・停止DB照合、採用した実build保存P2の修正と指摘限定re-reviewを完了した。commit/push・常用配置、構想/architecture/roadmapの意味変更は未実施。**
+**完了（実装・検証・commit/push・常用配置）。P0と全六スライスの実装・test・独立review、最終gate615件、実provider
+E1〜E11・停止DB照合、採用した実build保存P2の修正と指摘限定re-review、配置版の隔離起動確認を完了した。構想/architecture/roadmapの意味変更は別途承認前のため未反映。**
 
 利用者のE6検討、四項目の推奨案への採用判断、検証失敗時の個別rejectへの合意、 「お願いします
 反映したらレビュアに批判的レビューをさせてください」により、
@@ -650,13 +650,33 @@ binary/SHA、stdin CLIとAPI Coreのexecution/derived artifactの完全なbuild�
 Session削除とSQLite row0、元27 executionの保持、615件のgate、E2E verification
 passed=true/errors=[]を独立に確認し、新しいBlocker/P1なし・local完了可との結論を受けた。Ownerもこの結論を採用し、181をlocal実装・検証完了とする。
 
-稼働中の常用Core、実config、旧DB、常用binaryは変更していない。検証用Core/tmuxは全て停止。設定/tool/新DBの破壊的contract切替は実装したが、旧実データの移行・削除はしていない。構想・architecture・roadmapの意味変更案は§8に保持し、別途承認前に反映していない。commit/push・常用配置は追加指示を待つ。B10のmodel省略child認証登録ID継承は未採用の既存不具合として通常利用メモに残り、181の受入では明示modelによる開始/cancelを実証した。
+local完了判定時点では、稼働中の常用Core、実config、旧DB、常用binaryは変更していない。検証用Core/tmuxは全て停止。設定/tool/新DBの破壊的contract切替は実装したが、旧実データの移行・削除はしていない。構想・architecture・roadmapの意味変更案は§8に保持し、別途承認前に反映していない。その後の追加指示によるcommit/push・常用配置の結果は次節に記録する。B10のmodel省略child認証登録ID継承は未採用の既存不具合として通常利用メモに残り、181の受入では明示modelによる開始/cancelを実証した。
 
 ## Commit/push・常用配置（追加承認）
 
-2026-10-04の利用者の「commit/push・常用配置をして」により、181の実装・関連結果記録と先行E6計画commitのorigin/mainへのpush、常用binaryの配置を承認された。承認済み手順に従い、commit後のclean
-sourceから公式buildを行い、受入済み候補とのruntime
-digest一致を確認し、既存配置先dist/henjiと/home/agent/.local/bin/henjiへ配置する。前binaryはgit管理外の検証folderへ保存し、staging
-fileから置換する。実config・旧DB・稼働中常用Coreを変更せず、隔離HOME/XDG上の配置版Core/APIとtmux
-TUIで追加provider
-callなしの起動確認を行う。構想・architecture・roadmapの意味変更案はこの配置承認にも含めず、§8に保持する。
+2026-10-04の利用者の「commit/push・常用配置をして」により、181の実装・関連結果記録と先行E6計画commitのorigin/mainへのpush、常用binaryの配置を承認された。
+実装commitは`a9fd01ef184494b483b55ef7db77ded4776f6cf1`
+（`refactor: configure agents from JSON and normalize execution history`）。先行計画commit
+`27625405`とともにorigin/mainへpushした。配置完了記録も同じ承認範囲でcommit/pushする。
+
+このcommitのclean sourceから公式buildを実施した。配置版はhenji 0.8.0、Deno 2.9.7、 buildId
+`055edaadf7b3fd7964eafc5a56014c2f068175d2ead520f358525152a6257474`、 runtime digest
+`db86bae20802782215d3e271028f4c83bc01ce38e5d72b04679b8abf0b1bb5f9`。 受入済み候補とruntime
+digestが一致し、source revisionは上記実装commitでdirtyではない。
+配置完了記録のcommitは文書だけの変更であり、binaryのsource revisionは実装commitのままとする。
+
+`dist/henji`と`/home/agent/.local/bin/henji`へstaging fileから置換して配置した。
+両方のversion出力とbinary SHA-256
+`e42ae5cb84abc72dfd32d9ed135735834adf875337b7b46fddfa3f3331dfc7ae`が一致した。
+旧binaryは`.tools/increment-181/deployment/henji.{dist,local}.previous`へ保存した。 build
+log・配置先別の旧/new SHA・時刻は同folderの`build.log`と`deployment.json`に記録した。
+
+配置した常用binaryを隔離HOME/XDGで実行し、Core/API起動、tmux上のproduction TUI接続、 設定ready・task
+admission、実build manifestの新DB保存を確認した。 credentialなしの環境でmodel
+request前に失敗させた確認であり、追加provider requestは0件。 保存した完全なbuild
+manifestはCoreの実manifestと一致し、TUI detach・Core shutdown accepted・exit 0を確認した。
+`probe-results.json`の`passed=true`、`probe.log`、TUI captureを同folderに保存した。
+受入済みruntimeと同一で変更は配置と文書記録だけのため、full gate・実provider E2Eは繰り返していない。
+
+実config・旧DB・稼働中常用Coreは変更していない。次回Core起動から配置版を使用する。
+検証用Core/tmuxは停止済み。構想・architecture・roadmapの意味変更案はこの配置承認にも含めず、§8に保持する。
