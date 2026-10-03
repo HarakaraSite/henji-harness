@@ -703,3 +703,22 @@ default/reviewerの`rejections: []`を確認した。
 現在の失敗済みSessionは`LazyWorkerHostSession.starting`のrejected Promiseを保持するため、
 利用者には`/new`で新Workerを起動してから再送する手順を案内した。Core自体の再起動は不要。
 通常利用の再送結果はまだ未確認であり、CLIの構成確認をtask完了として扱わない。
+
+### 常用再送時のChatGPT認証更新失敗（2026-10-04）
+
+設定修正後、利用者の新Core `eebdf857`／新Session `0a9b7b99`で構成は通過したが、 execution
+`f26c2808-79fa-4af5-b995-2be4663b8fc8`はmodel request前に失敗した。 read-only
+DBの診断は`ChatGPTAuthError`／`invalid_grant`、provider request 0、tool call 0。
+既存の短い認証request記録は`oauth.token` HTTP 400／`invalid_grant`で、
+accountの`needsReauthentication=true`を確認した。credential値・Authorizationは出力していない。
+証拠は`.tools/increment-181/deployment/auth-failure/readback.json`。
+
+`chatgpt_auth.ts`の期限切れaccountのrefresh経路では、この応答を受けて再認証必要状態を保存する。
+利用者へTUIの`/login`→ChatGPT→account一覧の`r`で再認証後に同じtaskを再送する手順を案内した。
+こちらから追加認証requestやmodel request、task再送は行っていない。再認証と通常利用成功は未確認。
+
+E2Eの「元credential fileのhash一致」はlocal
+fileの非変更だけを示し、認証service側の状態不変は保証しない。 元accountのaccess期限は2026-10-03
+14:08:58 UTC、同じ認証の非公開複製を用いたE2E開始は19:30:49 UTCで、
+期限切れaccountをrefreshする実装経路に該当する。複製側の認証更新が今回の失効に影響した可能性がある。
+provider側の失効理由と複製側のrefresh記録は未確認のため、原因を断定していない。
